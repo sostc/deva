@@ -325,44 +325,38 @@ class from_command(Stream):
         self.poll_interval = poll_interval
         super(from_command, self).__init__(ensure_io_loop=True)
         self.stopped = True
+        from concurrent.futures import ThreadPoolExecutor
+        self.thread_pool = ThreadPoolExecutor(2)
+        
         if start:
             self.start()
 
-    def do_poll_out(self,):
-        return self.subp.stdout.readline().decode('utf-8')
-
-    def do_poll_err(self,):
-        return self.subp.stderr.readline().decode('utf-8')
 
     @gen.coroutine
     def poll_out(self):
-        while True:
-            out = self.do_poll_out()
+        for out in self.subp.stdout:
+            out = out.decode('utf-8')
             if out:
-                yield self._emit(out)
-
-            yield gen.sleep(self.poll_interval)
-            if self.stopped:
-                break
+                self._emit(out)
 
     @gen.coroutine
     def poll_err(self):
-        while True:
-            err = self.do_poll_err()
+        for err in self.subp.stderr:
+            err = err.decode('utf-8')
             if err:
-                yield self._emit(err)
-
-            yield gen.sleep(self.poll_interval)
-            if self.stopped:
-                break
+                self._emit(err)
+            
+       
 
     def start(self):
         if self.stopped:
             self.stopped = False
             self.subp = subprocess.Popen(
-                self.command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-            self.loop.add_callback(self.poll_out)
-            self.loop.add_callback(self.poll_err)
+                self.command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE,bufsize=1)
+            
+            self.thread_pool.submit(self.poll_err)
+            self.thread_pool.submit(self.poll_out)
+                
 
     def stop(self):
         self.stoped = True
