@@ -25,7 +25,7 @@ __all__ = [
     'chain_with', 'islice', 'izip', 'passed', 'index', 'strip',
     'lstrip', 'rstrip', 'run_with', 't', 'to_type', 'transpose',
     'dedup', 'uniq', 'to_dataframe', 'X', 'P', 'pmap', 'pfilter', 'post_to',
-    'head'
+    'head','read'
 ]
 
 
@@ -421,8 +421,16 @@ def t(iterable, y):
 @Pipe
 def to_type(x, t):
     return t(x)
+    
+    
+@Pipe
+def read(x,mode='r'):
+    with open(x,mode) as f:
+        for line in f:
+            yield line
+            
 
-
+        
 @Pipe
 def transpose(iterable):
     return list(zip(*iterable))
@@ -445,18 +453,22 @@ def size(x):
 
 from tornado import gen, httpclient
 
-
-@gen.coroutine
-def on_response(response):
-    response.code >> stdout
-
-
 @Pipe
 @gen.coroutine
 def post_to(body, url='http://127.0.0.1:9999'):
-    """ post a str to url,use async http client
+    """ post a str to url,use async http client,Future对象，jupyter中课直接使用
+    jupyter 之外需要loop = IOLoop.current(instance=True)，loop.start()
     :{'a':1}>>post_to(url)
+    
     """
+    if not isinstance(body,bytes):
+        try:
+            import json
+            body = json.dumps(body)
+        except:
+            import dill
+            body = dill.dumps(body)
+            
     from tornado import httpclient
     http_client = httpclient.AsyncHTTPClient()
     headers = {}

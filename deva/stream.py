@@ -8,9 +8,9 @@ from tornadose.handlers import EventSource
 from tornadose.stores import DataStore
 from tornado.httpserver import HTTPServer
 
+import subprocess
 from tornado.web import Application, RequestHandler
 from .pipe import *
-
 
 class StreamData(object):
     """流数据 数据机构，数据自身的信息"""
@@ -50,10 +50,16 @@ class Stream(Streamz):
         self.emit(value)
         return value
 
-    def __rrshift__(self, value):  # >>
+    def __rrshift__(self, value):  # stream左边的>>
         """emit value to stream ,end,return emit result"""
         self.emit(value)
         return value
+        
+    def __lshift__(self, value):  # stream右边的<<
+        """emit value to stream ,end,return emit result"""
+        self.emit(value)
+        return value
+        
 
     def write(self, value):  # |
         """emit value to stream ,end,return emit result"""
@@ -90,7 +96,7 @@ class Stream(Streamz):
         # 最原始的方式
         http_server.bind(port)
         # http_server.start(1)
-        self.map(lambda x: {"data": x}).map(json.dumps).sink(store.submit)
+        self.map(dumps).sink(store.submit)
         return http_server
 
 
@@ -237,11 +243,40 @@ class from_redis(Stream):
             self.consumer = None
             self.stopped = True
 
+def dumps(body):
+    if not isinstance(body,bytes):
+        try:
+            import json
+            body = json.dumps(body)
+        except:
+            import dill
+            body = dill.dumps(body)
+    return body
+    
+    
+def loads(body):
+    try:
+        import json
+        body = json.loads(body)
+    except TypeError:
+        import dill
+        body = dill.loads(body)
+    except ValueError:
+        try:
+            body = body.decode('utf-8')
+        except:
+            import dill
+            body = dill.loads(body)
+    
+    return body
 
 class HTTPStreamHandler(RequestHandler):
     output = None
 
     def post(self, *args, **kwargs):
+
+        self.request.body = loads(self.request.body)
+            
         self.request >> HTTPStreamHandler.output
         self.write(str({'status': 'ok', 'ip': self.request.remote_ip}))
 
@@ -297,7 +332,7 @@ class from_web_stream(Stream):
 
     @gen.coroutine
     def on_chunk(self, chunk):
-        chunk >> self
+        loads(chunk) >> self
 
     def start(self):
         if self.stopped:
@@ -313,53 +348,40 @@ class from_web_stream(Stream):
             self.stopped = True
 
 
-import subprocess
 
 
 @Stream.register_api(staticmethod)
 class from_command(Stream):
     """ receive command eval result data from subprocess,emit  data into stream"""
 
-    def __init__(self, command, start=True, poll_interval=0.1):
-        self.command = command
+    def __init__(self, poll_interval=0.1):
         self.poll_interval = poll_interval
         super(from_command, self).__init__(ensure_io_loop=True)
         self.stopped = True
         from concurrent.futures import ThreadPoolExecutor
         self.thread_pool = ThreadPoolExecutor(2)
-        
-        if start:
-            self.start()
 
 
     @gen.coroutine
     def poll_out(self):
         for out in self.subp.stdout:
-            out = out.decode('utf-8')
+            out = out.decode('utf-8').strip()
             if out:
                 self._emit(out)
 
     @gen.coroutine
     def poll_err(self):
         for err in self.subp.stderr:
-            err = err.decode('utf-8')
+            err = err.decode('utf-8').strip()
             if err:
                 self._emit(err)
-            
-       
 
-    def start(self):
-        if self.stopped:
-            self.stopped = False
-            self.subp = subprocess.Popen(
-                self.command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE,bufsize=1)
             
-            self.thread_pool.submit(self.poll_err)
-            self.thread_pool.submit(self.poll_out)
-                
-
-    def stop(self):
-        self.stoped = True
+    def run(self,command):
+        self.subp = subprocess.Popen(
+                command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE,bufsize=1,stdin=subprocess.PIPE)
+        self.thread_pool.submit(self.poll_err)
+        self.thread_pool.submit(self.poll_out)
 
 
 class NamedStream(Stream):
