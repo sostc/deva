@@ -24,7 +24,8 @@ from sqlalchemy import event
 from sqlalchemy.orm.session import Session
 from whoosh.fields import Schema
 from whoosh.qparser import MultifieldParser
-
+from .pipe import *
+from .stream import *
 
 class IndexService(object):
 
@@ -160,14 +161,16 @@ class Searcher(object):
         fields = set(index.schema._fields.keys()) - set([self.primary])
         self.parser = MultifieldParser(list(fields), index.schema)
 
-    def __call__(self, query, limit=None):
+    def __call__(self, query, limit=20,pagenum=1,pagelen=20):
         session = self.session
         # When using Flask, get the session from the query attached to the model class.
         if not session:
             session = self.model_class.query.session
 
-        results = self.index.searcher().search(
-            self.parser.parse(query), limit=limit)
+        if not pagenum:
+            results = self.index.searcher().search(self.parser.parse(query), limit=limit)
+        else:
+            results = self.index.searcher().search_page(self.parser.parse(query),pagenum=pagenum,pagelen=pagelen) >>log
         keys = [x[self.primary] for x in results]
         primary_column = getattr(self.model_class, self.primary)
         return session.query(self.model_class).filter(primary_column.in_(keys))
