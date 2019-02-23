@@ -17,13 +17,13 @@ except ImportError:
 
 
 __all__ = [
-    'Pipe', 'take', 'tail', 'skip', 'all', 'any', 'average', 'count',
-    'max', 'min', 'as_dict', 'as_set', 'permutations', 'netcat', 'netwrite',
+    'Pipe', 'tail', 'skip', 'all', 'any', 'average', 'count',
+    'as_dict', 'as_set', 'permutations', 'netcat', 'netwrite',
     'traverse', 'concat', 'as_list', 'as_tuple', 'stdout', 'lineout',
     'tee', 'add', 'first', 'chain', 'select', 'where', 'take_while',
     'skip_while', 'aggregate', 'groupby', 'sort', 'reverse',
     'chain_with', 'islice', 'izip', 'passed', 'index', 'strip',
-    'lstrip', 'rstrip', 'run_with', 't', 'to_type', 'transpose',
+    'lstrip', 'rstrip', 'run_with', 'append', 'to_type', 'transpose',
     'dedup', 'uniq', 'to_dataframe', 'X', 'P', 'pmap', 'pfilter', 'post_to',
     'head','read'
 ]
@@ -54,10 +54,13 @@ class Pipe:
     def __ror__(self, other):  # |
         return self.function(other)
 
-    def __rrshift__(self, other):  # >>
+    def __rrshift__(self, other):  #左边的 >>
         return self.function(other)
 
-    def __rmatmul__(self, other):  # >>
+    def __rmatmul__(self, other):  # 左边的@
+        return self.function(other)
+        
+    def __lshift__(self, other):  # 右边的<<
         return self.function(other)
 
     def __call__(self, *args, **kwargs):
@@ -78,7 +81,7 @@ def P(func):
 @Pipe
 def X(iterable, v_name):
     """
-    存储变量 [1,2,3]>>X('a)
+    存储变量 [1,2,3]>>X('a')
     X.a == [1,2,3]
     """
     X.__dict__[v_name] = iterable
@@ -95,15 +98,7 @@ def to_dataframe(iterable, orient='index'):
     return pd.DataFrame.from_dict(iterable, orient=orient)
 
 
-@Pipe
-def take(iterable, qte):
-    "Yield qte of elements in the given iterable."
-    for item in iterable:
-        if qte > 0:
-            qte -= 1
-            yield item
-        else:
-            return
+
 
 
 @Pipe
@@ -210,15 +205,6 @@ def count(iterable):
     return count
 
 
-@Pipe
-def max(iterable, **kwargs):
-    return builtins.max(iterable, **kwargs)
-
-
-@Pipe
-def min(iterable, **kwargs):
-    return builtins.min(iterable, **kwargs)
-
 
 @Pipe
 def as_dict(iterable):
@@ -317,12 +303,6 @@ def write(iterable, fname, glue='\n'):
 
 
 @Pipe
-def post_to(json, url):
-    import requests
-    return request.post(url, json)
-
-
-@Pipe
 def add(x):
     return sum(x)
 
@@ -412,7 +392,8 @@ def run_with(iterable, func):
 
 
 @Pipe
-def t(iterable, y):
+def append(iterable, y):
+    """追加元素到列表尾部，[]>>t('c')>>t('b') == ['c', 'b']"""
     if hasattr(iterable, '__iter__') and not isinstance(iterable, str):
         return iterable + type(iterable)([y])
     return [iterable, y]
@@ -420,11 +401,13 @@ def t(iterable, y):
 
 @Pipe
 def to_type(x, t):
+    """转换类型 '3'>>to_type(int)==3"""
     return t(x)
     
     
 @Pipe
 def read(x,mode='r'):
+    """ 按行读入文本文件，mode参数为读到方式 'xxx.log'>>read>>tail(2)"""
     with open(x,mode) as f:
         for line in f:
             yield line
@@ -437,7 +420,9 @@ def transpose(iterable):
 
 
 chain_with = Pipe(itertools.chain)
+#[1,2,3]>> chain_with([4,5,6])>>to_list == [1,2,3,4,5,6]
 islice = Pipe(itertools.islice)
+#range(10)>>islice(2,100,2)>>to_list == [2,4,6,8]
 
 # Python 2 & 3 compatibility
 if "izip" in dir(itertools):
@@ -455,8 +440,8 @@ from tornado import gen, httpclient
 
 @Pipe
 @gen.coroutine
-def post_to(body, url='http://127.0.0.1:9999'):
-    """ post a str to url,use async http client,Future对象，jupyter中课直接使用
+def post_to(body, url='http://127.0.0.1:9999',headers = None):
+    """ post a str to url,use async http client,Future对象，jupyter中可直接使用
     jupyter 之外需要loop = IOLoop.current(instance=True)，loop.start()
     :{'a':1}>>post_to(url)
     
@@ -468,11 +453,12 @@ def post_to(body, url='http://127.0.0.1:9999'):
         except:
             import dill
             body = dill.dumps(body)
+    
             
     from tornado import httpclient
     http_client = httpclient.AsyncHTTPClient()
     headers = {}
-    request = httpclient.HTTPRequest(url, body=body, method="POST",)
+    request = httpclient.HTTPRequest(url, body=body, method="POST",headers=headers)
 
     yield http_client.fetch(request)
 
@@ -481,10 +467,6 @@ def post_to(body, url='http://127.0.0.1:9999'):
 for i in builtins.__dict__.copy():
     f = 'to_'+i
     builtins.__dict__[f] = Pipe(builtins.__dict__[i])
-
-    # for i in locals().copy():
-    #f = 'to_'+i
-    #locals()[f] = Pipe(locals()[i])
 
 if __name__ == "__main__":
     import doctest

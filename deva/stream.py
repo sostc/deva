@@ -3,6 +3,7 @@ import time
 from tornado import gen
 
 from streamz.core import Stream as Streamz
+#from .streamz_ext import Stream as Streamz
 from tornado.httpclient import AsyncHTTPClient, HTTPRequest
 from tornadose.handlers import EventSource
 from tornadose.stores import DataStore
@@ -96,7 +97,7 @@ class Stream(Streamz):
         # 最原始的方式
         http_server.bind(port)
         # http_server.start(1)
-        self.map(dumps).sink(store.submit)
+        self.sink(store.submit)
         return http_server
 
 
@@ -332,7 +333,7 @@ class from_web_stream(Stream):
 
     @gen.coroutine
     def on_chunk(self, chunk):
-        loads(chunk) >> self
+        chunk >> self
 
     def start(self):
         if self.stopped:
@@ -412,10 +413,25 @@ class Namespace(dict):
 
 
 namedstream = Namespace().stream
+NS = namedstream
 
-debug = namedstream('debug')
-warn = namedstream('warn')
-error = namedstream('error')
+from logbook import Logger,StreamHandler
+import sys
+StreamHandler(sys.stdout).push_application()
+logger = Logger('Logbook')
+log = NS('log')
+log.sink(logger.info)
+
+
+import logging
+warn = NS('warn')
+warn.sink(logging.warning)
+error = NS('error')
+error.sink(logging.error)
+
+
+debug = NS('debug')
+bus = NS('bus')
 
 
 def write_to_file(fn):
@@ -445,3 +461,5 @@ def gen_block_test():
     import time
     time.sleep(6)
     return mm.now().seconds
+    
+  
