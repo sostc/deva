@@ -9,9 +9,14 @@ from tornadose.handlers import EventSource
 from tornadose.stores import DataStore
 from tornado.httpserver import HTTPServer
 
+import weakref
+
 import subprocess
 from tornado.web import Application, RequestHandler
 from .pipe import *
+from .expiringdict import ExpiringDict
+import datetime
+
 
 class StreamData(object):
     """流数据 数据机构，数据自身的信息"""
@@ -45,6 +50,27 @@ class StreamData(object):
 
 class Stream(Streamz):
     _graphviz_shape = "doubleoctagon"
+    
+    _instances = set()
+    
+    def __init__(self,store=True,*args,**kwargs):
+        super(Stream,self).__init__(*args,**kwargs)
+        self._instances.add(weakref.ref(self))
+        
+        if store:
+            self.store_recent()
+    
+    @classmethod
+    def getinstances(cls):
+        dead = set()
+        for ref in cls._instances:
+            obj = ref()
+            if obj is not None and not obj.name.startswith('_'):
+                yield obj
+            else:
+                dead.add(ref)
+        cls._instances -= dead
+
 
     def __ror__(self, value):  # |
         """emit value to stream ,end,return emit result"""
@@ -70,7 +96,7 @@ class Stream(Streamz):
         """emit value to stream ,end,return emit result"""
         self.emit(value)
 
-    def to_redis_stream(self, topic, db=None):
+    def to_redis_stream(self, topic, db=None,maxlen=None):
         """
         push stream to redis stream
 
@@ -82,15 +108,21 @@ class Stream(Streamz):
             import walrus
             self.db = walrus.Database()
         producer = self.db.Stream(topic)
+        from fn import F
+        madd = F(producer.add,maxlen=maxlen)
         self.map(lambda x: {"data": dill.dumps(x)}).sink(
-            producer.add)  # producer only accept non-empty dict dict
+            madd)  # producer only accept non-empty dict dict
         return producer
 
-    def to_web_stream(self, port=9999):
+    def to_web_stream(self, name=None,port=9999,url='/'):
         store = DataStore()
+        if name =='':
+            url = r'/'
+        else:
+            url = r'/'+name
 
         app = Application(
-            [(r'/', EventSource, {'store': store})],
+            [(url, EventSource, {'store': store})],
             debug=True)
 
         http_server = HTTPServer(app, xheaders=True)
@@ -99,6 +131,48 @@ class Stream(Streamz):
         # http_server.start(1)
         self.sink(store.submit)
         return http_server
+        
+    def to_share(self,name=None,engine='redis'):
+        if engine =='redis':
+            if name:
+                self.to_redis_stream(topic=name,maxlen=10)
+            else:
+                self.to_redis_stream(topic=self.name,maxlen=10)
+                
+        elif engine =='web_stream':
+            httpserver = self.to_web_stream(name=name)
+            httpserver.start()
+            
+    @classmethod
+    def from_share(cls,name,engine='redis'):
+        if engine =='redis':
+            return cls.from_redis(name,start=True).map(lambda x:x.msg_body)
+        elif engine =='web_stream':
+            return cls.from_web_stream('http://127.0.0.1:9999/'+name)
+            
+    
+    def store_recent(self,max_len=30, max_age_seconds=10):#second
+        self._cache = ExpiringDict(max_len=max_len, max_age_seconds=max_age_seconds)
+        def _store(x):
+            key = datetime.datetime.now()
+            value = x
+            self._cache[key]=value
+            
+        self.sink(_store)
+  
+        
+    def recent(self,n=5,seconds=None):
+        if not seconds:
+            return self._cache.values()[-n:]
+        else:
+            df = self._cache>>to_dataframe
+            df.columns = ['value']
+            now_time = datetime.datetime.now()
+            begin = now_time + datetime.timedelta(seconds=-seconds)
+            return df[begin:]
+    
+
+        
 
 
 class JsonStream(Stream):
@@ -192,7 +266,7 @@ class from_redis(Stream):
         self.db = Database()
         self.consumer = self.db.consumer_group(self.group, self.topics)
         self.consumer.create()  # Create the consumer group.
-        self.consumer.set_id('$')  # 不会从头读
+        #self.consumer.set_id('$')  # 不会从头读
 
         super(from_redis, self).__init__(ensure_io_loop=True, **kwargs)
         self.stopped = True
@@ -214,7 +288,7 @@ class from_redis(Stream):
                 for meta_msg in meta_msgs:
                     topic, msg = meta_msg[0], meta_msg[1][0]
                     msg_id, msg_body = msg
-                    msg_body = (msg_body.values() >> take(1) >> to_list)[
+                    msg_body = (msg_body.values() >> head(1) >> to_list)[
                         0]  # {'data':'dills'}
                     l.append(RedisMsg(topic, msg_id, msg_body))
                 return l
@@ -385,6 +459,41 @@ class from_command(Stream):
         self.thread_pool.submit(self.poll_out)
 
 
+
+@Stream.register_api(staticmethod)
+class manager(Stream):
+    def __init__(self,interval=1, start=True,**kwargs):
+        
+        self.interval = interval
+        self.stopped = True
+        super(manager, self).__init__(ensure_io_loop=True, **kwargs)
+        if start:
+            self.start()
+            
+        self.name='_stream_manager'
+ 
+    def do_poll(self):
+        return 
+
+    @gen.coroutine
+    def poll_manage(self):
+        while True:
+            vals = Stream.getinstances()>>pmap(lambda s:{s.name:s.recent()})
+            self._emit(vals)
+
+            yield gen.sleep(self.interval)
+            if self.stopped:
+                break
+
+    def start(self):
+        if self.stopped:
+            self.stopped = False
+            self.loop.add_callback(self.poll_manage)
+
+    def stop(self):
+       self.stopped = True
+                      
+            
 class NamedStream(Stream):
     """A named generic notification emitter."""
 
