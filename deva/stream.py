@@ -547,8 +547,8 @@ class manager(Stream):
 class NamedStream(Stream):
     """A named generic notification emitter."""
 
-    def __init__(self, name):
-        Stream.__init__(self,)
+    def __init__(self, name,**kwds):
+        Stream.__init__(self,**kwds)
 
         #: The name of this stream.
         self.name = name
@@ -561,14 +561,14 @@ class NamedStream(Stream):
 class Namespace(dict):
     """A mapping of signal names to signals."""
 
-    def stream(self, name, doc=None):
+    def stream(self, name, **kwds):
         """Return the :class:`NamedSignal` *name*, creating it if required.
         Repeated calls to this function will return the same signal object.
         """
         try:
             return self[name]
         except KeyError:
-            return self.setdefault(name, NamedStream(name))
+            return self.setdefault(name, NamedStream(name,**kwds))
 
 
 namedstream = Namespace().stream
@@ -578,7 +578,7 @@ from logbook import Logger,StreamHandler
 import sys
 StreamHandler(sys.stdout).push_application()
 logger = Logger('Logbook')
-log = NS('log')
+log = NS('log',cache_max_age_seconds=60*60*24)
 log.sink(logger.info)
 
 
