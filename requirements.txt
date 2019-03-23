@@ -1,5 +1,4 @@
 moment==0.8.2
-tornadose==0.4.1
 walrus==0.7.1
 jieba==0.39
 six==1.12.0
