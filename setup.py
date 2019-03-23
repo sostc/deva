@@ -2,7 +2,7 @@ from setuptools import setup, find_packages
 
 setup(
     name='deva',
-    version=0.1,
+    version=0.2,
     packages=find_packages(),
     author='spark',
     author_email='zjw0358@gmail.com',
