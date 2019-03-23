@@ -5,9 +5,9 @@ from tornado import gen
 from streamz.core import Stream as Streamz
 #from .streamz_ext import Stream as Streamz
 from tornado.httpclient import AsyncHTTPClient, HTTPRequest
-from tornadose.handlers import EventSource
-from tornadose.stores import DataStore
 from tornado.httpserver import HTTPServer
+from tornado.queues import Queue
+from tornado.iostream import StreamClosedError
 
 import weakref
 
@@ -16,6 +16,8 @@ from tornado.web import Application, RequestHandler
 from .pipe import *
 from .expiringdict import ExpiringDict
 import datetime
+from functools import wraps
+
 
 
 class StreamData(object):
@@ -53,19 +55,24 @@ class Stream(Streamz):
     
     _instances = set()
     
-    def __init__(self,store=True,*args,**kwargs):
-        super(Stream,self).__init__(*args,**kwargs)
-        self._instances.add(weakref.ref(self))
+    def __init__(self,name=None,store=True,cache_max_len=300, cache_max_age_seconds=60*5,*args,**kwargs):
+        self.cache_max_len = cache_max_len
+        self.cache_max_age_seconds = cache_max_age_seconds
         
+        super(Stream,self).__init__(*args,**kwargs)
+        self.name=name
+        self._instances.add(weakref.ref(self))
         if store:
-            self.store_recent()
+            self._store_recent()
+            
+        self.handlers = []
     
     @classmethod
     def getinstances(cls):
         dead = set()
         for ref in cls._instances:
             obj = ref()
-            if obj is not None and not obj.name.startswith('_'):
+            if obj is not None  and obj.name is not None and not obj.name.startswith('_'):
                 yield obj
             else:
                 dead.add(ref)
@@ -115,33 +122,21 @@ class Stream(Streamz):
         return producer
 
     def to_web_stream(self, name=None,port=9999,url='/'):
-        store = DataStore()
-        if name =='':
-            url = r'/'
-        else:
+        if name:
             url = r'/'+name
+        else:
+            url = r'/'+self.name
 
-        app = Application(
-            [(url, EventSource, {'store': store})],
-            debug=True)
-
-        http_server = HTTPServer(app, xheaders=True)
-        # 最原始的方式
-        http_server.bind(port)
-        # http_server.start(1)
-        self.sink(store.submit)
-        return http_server
+        app.add_handlers(r".*",  [(url,EventSource, {'stream': self})])                 
         
-    def to_share(self,name=None,engine='redis'):
-        if engine =='redis':
-            if name:
-                self.to_redis_stream(topic=name,maxlen=10)
-            else:
-                self.to_redis_stream(topic=self.name,maxlen=10)
-                
-        elif engine =='web_stream':
-            httpserver = self.to_web_stream(name=name)
-            httpserver.start()
+    
+    def to_share(self,name=None):
+        if name:
+            self.to_redis_stream(topic=name,maxlen=10)
+        else:
+            self.to_redis_stream(topic=self.name,maxlen=10)
+            
+        return self
             
     @classmethod
     def from_share(cls,name,engine='redis'):
@@ -150,17 +145,15 @@ class Stream(Streamz):
         elif engine =='web_stream':
             return cls.from_web_stream('http://127.0.0.1:9999/'+name)
             
-    
-    def store_recent(self,max_len=30, max_age_seconds=10):#second
-        self._cache = ExpiringDict(max_len=max_len, max_age_seconds=max_age_seconds)
+    def _store_recent(self):#second
+        self._cache = ExpiringDict(max_len=self.cache_max_len, max_age_seconds=self.cache_max_age_seconds)
         def _store(x):
             key = datetime.datetime.now()
             value = x
             self._cache[key]=value
-            
+             
         self.sink(_store)
   
-        
     def recent(self,n=5,seconds=None):
         if not seconds:
             return self._cache.values()[-n:]
@@ -172,11 +165,72 @@ class Stream(Streamz):
             return df[begin:]
     
 
-        
+    def route(self, expr):
+        """
+        expr:路由函数表达式,比如lambda x:x.startswith('foo') 或者 lambda x:type(x)==str,
+        完整例子:
+        e = Stream.engine()
+        e.start()
+
+        @e.route(lambda x:type(x)==int)
+        def goo(x):
+            x*2>>log
+            
+        """
+        def param_wraper(func):
+            """ 
+            预处理函数，定义包装函数wraper取代老函数，定义完成后将目标函数增加到handlers中    
+            """
+            
+            @wraps(func)
+            def wraper(*args, **kw):
+                """包装函数，这个函数是处理用户函数的，在用户函数执行前和执行后分别执行任务，甚至可以处理函数的参数"""
+                func(*args, **kw)  # 需要这里显式调用用户函数
+
+            self.filter(expr).sink(wraper)
+            self.handlers.append((expr,func))
+                # 包装定义阶段执行，包装后函数是个新函数了，
+                # 老函数已经匿名，需要新函数加入handlers列表,这样才可以执行前后发消息
+
+            return wraper
+                # 返回的这个函数实际上取代了老函数。
+                # 为了将老函数的函数名和docstring继承，需要用functools的wraps将其包装
+
+        return param_wraper
 
 
-class JsonStream(Stream):
-    pass
+class EventSource(RequestHandler):
+    def initialize(self, stream):
+        #assert isinstance(stream, Stream)
+        self.stream = stream
+        self.messages = Queue()
+        self.finished = False
+        self.set_header('content-type', 'text/event-stream')
+        self.set_header('cache-control', 'no-cache')
+        self.store = self.stream.sink(self.messages.put)
+
+    @gen.coroutine
+    def publish(self, message):
+        """Pushes data to a listener."""
+        try:
+            self.write(message>>to_str)
+            yield self.flush()
+        except StreamClosedError:
+            self.finished = True
+            (self.request.remote_ip,StreamClosedError)>>log
+
+    @gen.coroutine
+    def get(self, *args, **kwargs):
+        try:
+            while not self.finished:
+                message = yield self.messages.get()
+                yield self.publish(message)
+        except Exception:
+            pass
+        finally:
+            self.store.destroy()
+            self.messages.empty()
+            self.finish()
 
 
 @Stream.register_api(staticmethod)
@@ -347,14 +401,10 @@ def loads(body):
 
 class HTTPStreamHandler(RequestHandler):
     output = None
-
     def post(self, *args, **kwargs):
-
-        self.request.body = loads(self.request.body)
-            
+        self.request.body = loads(self.request.body)   
         self.request >> HTTPStreamHandler.output
         self.write(str({'status': 'ok', 'ip': self.request.remote_ip}))
-
 
 @Stream.register_api(staticmethod)
 class from_http_request(Stream):
@@ -421,7 +471,6 @@ class from_web_stream(Stream):
             self.http_client.close()  # this  not imple
             self.http_client = None
             self.stopped = True
-
 
 
 
@@ -541,6 +590,17 @@ error.sink(logging.error)
 
 debug = NS('debug')
 bus = NS('bus')
+
+index = Stream.manager().map(lambda x:x>>to_list)
+app = Application([(r'/', EventSource, {'stream': index})],debug=True)
+def start_server(port=9999):
+    
+    http_server = HTTPServer(app, xheaders=True)
+        # 最原始的方式
+    http_server.bind(port)
+    http_server.start()
+
+
 
 
 def write_to_file(fn):
