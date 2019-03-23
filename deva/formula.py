@@ -10,6 +10,9 @@ from textblob import TextBlob
 
 def translate(x,to='en'):
     """ to = 'zh-CN'"""
-    return TextBlob(x).translate(to=to).raw
+    try:
+        return TextBlob(x).translate(to=to).raw
+    except:
+        return x
     
 from cocoNLP import extractor
