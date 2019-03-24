@@ -19,7 +19,7 @@ from .expiringdict import ExpiringDict
 import datetime
 from functools import wraps
 
-
+import os
 
 class StreamData(object):
     """流数据 数据机构，数据自身的信息"""
@@ -142,7 +142,8 @@ class Stream(Streamz):
             
     @classmethod
     def from_share(cls,name,engine='redis'):
-        return cls.from_redis(name,start=True).map(lambda x:x.msg_body)
+        #使用pid做group,区分不同进程消费,一个进程消费结束,不影响其他进程继续消费
+        return cls.from_redis(name,start=True,group=str(os.getpid())).map(lambda x:x.msg_body)
         
             
     def _store_recent(self):#second
