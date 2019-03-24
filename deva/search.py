@@ -49,14 +49,6 @@ class to_index(Stream):
         return (i['content'] for i in search.refresh().search(q,limit=limit))
     
   
-from deva import *
-from whoosh.fields import *
-import whoosh.index
-from whoosh.writing import AsyncWriter
-# import whoosh
-from whoosh.qparser import MultifieldParser
-import os
-
         
 @Stream.register_api()
 class IndexStream(Stream):
