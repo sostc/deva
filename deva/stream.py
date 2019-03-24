@@ -321,7 +321,7 @@ class from_redis(Stream):
         self.db = Database()
         self.consumer = self.db.consumer_group(self.group, self.topics)
         self.consumer.create()  # Create the consumer group.
-        #self.consumer.set_id('$')  # 不会从头读
+        self.consumer.set_id('$')  # 不会从头读
 
         super(from_redis, self).__init__(ensure_io_loop=True, **kwargs)
         self.stopped = True
