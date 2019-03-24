@@ -355,7 +355,7 @@ class from_redis(Stream):
             vals = self.do_poll()
             if vals:
                 for val in vals:
-                    self.emit(val)
+                    self._emit(val)
 
             yield gen.sleep(self.poll_interval)
             if self.stopped:
