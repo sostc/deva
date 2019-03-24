@@ -120,9 +120,10 @@ class Stream(Streamz):
         madd = F(producer.add,maxlen=maxlen)
         self.map(lambda x: {"data": dill.dumps(x)}).sink(
             madd)  # producer only accept non-empty dict dict
-        return producer
+        return self
 
-    def to_web_stream(self, name=None,port=9999,url='/'):
+    def to_web_stream(self, name=None):
+        """输出web_stream需要先启动start_web_stream_server"""
         if name:
             url = r'/'+name
         else:
@@ -141,10 +142,8 @@ class Stream(Streamz):
             
     @classmethod
     def from_share(cls,name,engine='redis'):
-        if engine =='redis':
-            return cls.from_redis(name,start=True).map(lambda x:x.msg_body)
-        elif engine =='web_stream':
-            return cls.from_web_stream('http://127.0.0.1:9999/'+name)
+        return cls.from_redis(name,start=True).map(lambda x:x.msg_body)
+        
             
     def _store_recent(self):#second
         self._cache = ExpiringDict(max_len=self.cache_max_len, max_age_seconds=self.cache_max_age_seconds)
@@ -592,16 +591,20 @@ error.sink(logging.error)
 debug = NS('debug')
 bus = NS('bus')
 
-index = Stream.manager().map(lambda x:x>>to_list)
-app = Application([(r'/', EventSource, {'stream': index})],debug=True)
-def start_server(port=9999):
-    
+
+def start_web_stream_server(port=9999):
+    """输出web_stream需要先启动start_web_stream_server"""
+    stream_index = Stream.manager().map(lambda x:x>>to_list)
+    app = Application([(r'/', EventSource, {'stream': stream_index})],debug=True)
     http_server = HTTPServer(app, xheaders=True)
         # 最原始的方式
     http_server.bind(port)
     http_server.start()
 
 
+def get_all_live_stream_as_stream(recent_limit=5):
+    """取得当前系统运行的所有流,并生成一个合并的流做展示"""
+    return engine(func=lambda :Stream.getinstances()>>pmap(lambda s:{s.name:s.recent(recent_limit)})>>to_list,interval=1,start=True)
 
 
 def write_to_file(fn):
