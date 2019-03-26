@@ -56,7 +56,7 @@ class Stream(Streamz):
     
     _instances = set()
     
-    def __init__(self,name=None,store=True,cache_max_len=300, cache_max_age_seconds=60*5,*args,**kwargs):
+    def __init__(self,name=None,store=True,cache_max_len=1, cache_max_age_seconds=60*5,*args,**kwargs):
         self.cache_max_len = cache_max_len
         self.cache_max_age_seconds = cache_max_age_seconds
         
@@ -245,6 +245,7 @@ class engine(Stream):
 
     def __init__(self,
                  interval=1,
+                 cache_max_len=1,
                  start=False,
                  func=None,
                  asyncflag=False,
