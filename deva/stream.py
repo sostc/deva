@@ -20,36 +20,7 @@ import datetime
 from functools import wraps
 
 import os
-
-class StreamData(object):
-    """流数据 数据机构，数据自身的信息"""
-
-    def __init__(self, source_id=None, source_name=None,
-                 content_type=None, headers=None,
-                 data=None, use_gzip=None):
-
-        # Note that some of these attributes go through property setters
-        # defined below.
-        """
-        :source_id source_name :描述数据来源
-        :content_type:object|json|dataframe|dict|list，描述数据类型
-        :headers:其他扩展描述字符
-        :use_zip:数据是否压缩
-        :data:数据本身
-        """
-        if content_type:
-            self.content_type = content_type
-        else:
-            self.content_type = data.__class__.__name__
-        self.headers = headers
-        self.source_id = source_id
-        self.source_name = source_name
-        self.data = data
-        self.create_time = time.time()
-
-    def __repr__(self):
-        return '<%s|%s|%s|%s>' % (self.source_id, self.source_name, self.content_type, self.data)
-
+from dataclasses import dataclass,field
 
 class Stream(Streamz):
     _graphviz_shape = "doubleoctagon"
@@ -89,6 +60,21 @@ class Stream(Streamz):
         """emit value to stream ,end,return emit result"""
         self.emit(value)
         return value
+        
+    def __rshift__(self, ref):# stream右边的
+        import io
+        if isinstance(ref, list):
+            self.sink(ref.append)
+        elif isinstance(ref, io.TextIOWrapper):
+            #e>>open('tmp4.tmp','a+') 
+            def write(x):
+                ref.write(x)
+                ref.flush()
+            self.map(str).sink(write)
+        elif isinstance(ref,Stream):
+            self.sink(ref.emit)
+        else:
+            raise TypeError('Unsupported type, must be list or dict.')
         
     def __lshift__(self, value):  # stream右边的<<
         """emit value to stream ,end,return emit result"""
@@ -609,11 +595,14 @@ def get_all_live_stream_as_stream(recent_limit=5):
     return engine(func=lambda :Stream.getinstances()>>pmap(lambda s:{s.name:s.recent(recent_limit)})>>to_list,interval=1,start=True)
 
 
-def write_to_file(fn):
-    def write(x):
+def write_to_file(fn,prefix='', suffix='\n', flush=True):
+    def write(text):
         with open(fn, 'a+') as f:
-            f.write(x >> to_str)
-        return x
+            f.write(prefix + str(text) + suffix)
+            #if flush:
+                #f.flush()
+        return text
+        
     return write
 
 
