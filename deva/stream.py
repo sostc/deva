@@ -2,7 +2,7 @@ import json
 import time
 from tornado import gen
 
-from streamz.core import Stream as Streamz
+from .streamz.core import Stream as Streamz
 #from .streamz_ext import Stream as Streamz
 from tornado.httpclient import AsyncHTTPClient, HTTPRequest
 from tornado.httpserver import HTTPServer
@@ -74,7 +74,7 @@ class Stream(Streamz):
         elif isinstance(ref,Stream):
             self.sink(ref.emit)
         else:
-            raise TypeError('Unsupported type, must be list or dict.')
+            raise TypeError('Unsupported type, must be list or file or stream.')
         
     def __lshift__(self, value):  # stream右边的<<
         """emit value to stream ,end,return emit result"""
@@ -108,7 +108,7 @@ class Stream(Streamz):
             madd)  # producer only accept non-empty dict dict
         return self
 
-    def to_web_stream(self, name=None):
+    def to_web_stream(self, name=None,app=None):
         """输出web_stream需要先启动start_web_stream_server"""
         if name:
             url = r'/'+name
@@ -497,6 +497,10 @@ class from_command(Stream):
 
 
 
+
+            
+            
+            
 @Stream.register_api(staticmethod)
 class manager(Stream):
     def __init__(self,interval=1, start=True,**kwargs):
