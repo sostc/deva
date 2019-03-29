@@ -17,7 +17,6 @@ from tornado.web import Application, RequestHandler
 from .pipe import *
 from .expiringdict import ExpiringDict
 import datetime
-from functools import wraps
 
 import os
 from dataclasses import dataclass,field
@@ -37,7 +36,6 @@ class Stream(Streamz):
         if store:
             self._store_recent()
             
-        self.handlers = []
     
     @classmethod
     def getinstances(cls):
@@ -49,37 +47,6 @@ class Stream(Streamz):
             else:
                 dead.add(ref)
         cls._instances -= dead
-
-
-    def __ror__(self, value):  # |
-        """emit value to stream ,end,return emit result"""
-        self.emit(value)
-        return value
-
-    def __rrshift__(self, value):  # stream左边的>>
-        """emit value to stream ,end,return emit result"""
-        self.emit(value)
-        return value
-        
-    def __rshift__(self, ref):# stream右边的
-        import io
-        if isinstance(ref, list):
-            self.sink(ref.append)
-        elif isinstance(ref, io.TextIOWrapper):
-            #e>>open('tmp4.tmp','a+') 
-            def write(x):
-                ref.write(x)
-                ref.flush()
-            self.map(str).sink(write)
-        elif isinstance(ref,Stream):
-            self.sink(ref.emit)
-        else:
-            raise TypeError('Unsupported type, must be list or file or stream.')
-        
-    def __lshift__(self, value):  # stream右边的<<
-        """emit value to stream ,end,return emit result"""
-        self.emit(value)
-        return value
         
 
     def write(self, value):  # |
@@ -127,9 +94,9 @@ class Stream(Streamz):
         return self
             
     @classmethod
-    def from_share(cls,name,engine='redis'):
+    def from_share(cls,name,**kwargs):
         #使用pid做group,区分不同进程消费,一个进程消费结束,不影响其他进程继续消费
-        return cls.from_redis(name,start=True,group=str(os.getpid())).map(lambda x:x.msg_body)
+        return cls.from_redis(name,start=True,group=str(os.getpid()),**kwargs).map(lambda x:x.msg_body)
         
             
     def _store_recent(self):#second
@@ -152,38 +119,7 @@ class Stream(Streamz):
             return df[begin:]
     
 
-    def route(self, expr):
-        """
-        expr:路由函数表达式,比如lambda x:x.startswith('foo') 或者 lambda x:type(x)==str,
-        完整例子:
-        e = Stream.engine()
-        e.start()
 
-        @e.route(lambda x:type(x)==int)
-        def goo(x):
-            x*2>>log
-            
-        """
-        def param_wraper(func):
-            """ 
-            预处理函数，定义包装函数wraper取代老函数，定义完成后将目标函数增加到handlers中    
-            """
-            
-            @wraps(func)
-            def wraper(*args, **kw):
-                """包装函数，这个函数是处理用户函数的，在用户函数执行前和执行后分别执行任务，甚至可以处理函数的参数"""
-                func(*args, **kw)  # 需要这里显式调用用户函数
-
-            self.filter(expr).sink(wraper)
-            self.handlers.append((expr,func))
-                # 包装定义阶段执行，包装后函数是个新函数了，
-                # 老函数已经匿名，需要新函数加入handlers列表,这样才可以执行前后发消息
-
-            return wraper
-                # 返回的这个函数实际上取代了老函数。
-                # 为了将老函数的函数名和docstring继承，需要用functools的wraps将其包装
-
-        return param_wraper
 
 
 class EventSource(RequestHandler):
@@ -581,8 +517,11 @@ error.sink(logging.error)
 
 
 debug = NS('debug')
-bus = NS('bus')
 
+try:
+    from .process import bus
+except:
+    'bus not import,check your redis server  '>>warn
 
 def start_web_stream_server(port=9999):
     """输出web_stream需要先启动start_web_stream_server"""
