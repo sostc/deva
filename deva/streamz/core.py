@@ -25,6 +25,9 @@ from collections import Iterable
 from .compatibility import get_thread_identity
 from .orderedweakset import OrderedWeakrefSet
 
+from functools import wraps
+
+
 no_default = '--no-default--'
 
 _global_sinks = set()
@@ -128,6 +131,8 @@ class Stream(object):
                 upstream.downstreams.add(self)
 
         self.name = stream_name
+        
+        self.handlers = []
 
     def _set_loop(self, loop):
         self.loop = None
@@ -477,6 +482,22 @@ class Stream(object):
         from .batch import Batch
         return Batch(stream=self, **kwargs)
 
+
+    def __ror__(self, value):  # |
+        """emit value to stream ,end,return emit result"""
+        self.emit(value)
+        return value
+
+    def __rrshift__(self, value):  # stream左边的>>
+        """emit value to stream ,end,return emit result"""
+        self.emit(value)
+        return value
+        
+    def __lshift__(self, value):  # stream右边的<<
+        """emit value to stream ,end,return emit result"""
+        self.emit(value)
+        return value
+        
     def __rshift__(self, ref):# stream右边的
         import io
         if isinstance(ref, list):
@@ -489,8 +510,43 @@ class Stream(object):
             self.map(str).sink(write)
         elif isinstance(ref,Stream):
             self.sink(ref.emit)
+        elif callable(ref):
+            self.sink(ref)
         else:
-            raise TypeError('Unsupported type, must be list or file or stream.')
+            raise TypeError('Unsupported type, must be list or file or stream or callable obj')
+    
+    def route(self, expr):
+        """
+        expr:路由函数表达式,比如lambda x:x.startswith('foo') 或者 lambda x:type(x)==str,
+        完整例子:
+        e = Stream.engine()
+        e.start()
+
+        @e.route(lambda x:type(x)==int)
+        def goo(x):
+            x*2>>log
+            
+        """
+        def param_wraper(func):
+            """ 
+            预处理函数，定义包装函数wraper取代老函数，定义完成后将目标函数增加到handlers中    
+            """
+            
+            @wraps(func)
+            def wraper(*args, **kw):
+                """包装函数，这个函数是处理用户函数的，在用户函数执行前和执行后分别执行任务，甚至可以处理函数的参数"""
+                func(*args, **kw)  # 需要这里显式调用用户函数
+
+            self.filter(expr).sink(wraper)
+            self.handlers.append((expr,func))
+                # 包装定义阶段执行，包装后函数是个新函数了，
+                # 老函数已经匿名，需要新函数加入handlers列表,这样才可以执行前后发消息
+
+            return wraper
+                # 返回的这个函数实际上取代了老函数。
+                # 为了将老函数的函数名和docstring继承，需要用functools的wraps将其包装
+
+        return param_wraper    
 
 @Stream.register_api()
 class sink(Stream):
@@ -532,6 +588,7 @@ class sink(Stream):
             return result
         else:
             return []
+
 
 
 @Stream.register_api()

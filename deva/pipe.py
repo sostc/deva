@@ -78,16 +78,20 @@ def P(func):
     return Pipe(func)
 
 
-@Pipe
-def X(iterable, v_name):
+
+class X():
     """
     存储变量 [1,2,3]>>X('a')
-    X.a == [1,2,3]
+    a == [1,2,3]
     """
-    X.__dict__[v_name] = iterable
-    return X.__dict__[v_name]
-
-
+    def __init__(self,varname,factory_func=str):
+        self.varname = varname
+        globals()[self.varname] = ''#factory_func()
+        
+    def __rrshift__(self,ref):
+        globals()[self.varname] = ref
+        return ref
+        
 @Pipe
 def to_dataframe(iterable, orient='index'):
     """
@@ -96,8 +100,6 @@ def to_dataframe(iterable, orient='index'):
     """
     import pandas as pd
     return pd.DataFrame.from_dict(iterable, orient=orient)
-
-
 
 
 

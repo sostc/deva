@@ -9,5 +9,5 @@ setup(
     url='https://github.com/sostc/deva',
     license='http://www.apache.org/licenses/LICENSE-2.0.html',
     description='data eval in future',
-    install_requires=["requests", "streamz"]
+    install_requires=["requests"]
 )
