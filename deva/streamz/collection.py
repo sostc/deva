@@ -1,6 +1,6 @@
 import operator
 
-from streamz import Stream, core
+from . import Stream, core
 
 _stream_types = {'streaming': [], 'updating': []}
 
