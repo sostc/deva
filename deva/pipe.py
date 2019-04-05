@@ -9,6 +9,7 @@ import socket
 import sys
 from contextlib import closing
 from collections import deque
+import dill
 
 try:
     import builtins
@@ -25,7 +26,7 @@ __all__ = [
     'chain_with', 'islice', 'izip', 'passed', 'index', 'strip',
     'lstrip', 'rstrip', 'run_with', 'append', 'to_type', 'transpose',
     'dedup', 'uniq', 'to_dataframe', 'X', 'P', 'pmap', 'pfilter', 'post_to',
-    'head','read'
+    'head','read','tcp_write'
 ]
 
 
@@ -260,7 +261,14 @@ def traverse(args):
             # not iterable --- output leaf
             yield arg
 
-
+@Pipe
+def tcp_write(to_send,host='127.0.0.1',port=1234):
+    with closing(socket.socket(socket.AF_INET, socket.SOCK_STREAM)) as s:
+        s.connect((host, port))
+        s.send(dill.dumps(to_send))
+        s.send(b'\n')
+    
+    
 @Pipe
 def concat(iterable, separator=", "):
     return separator.join(map(str, iterable))

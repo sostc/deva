@@ -21,6 +21,8 @@ import datetime
 import os
 from dataclasses import dataclass,field
 
+import dill
+
 class Stream(Streamz):
     _graphviz_shape = "doubleoctagon"
     
@@ -66,9 +68,13 @@ class Stream(Streamz):
         """
         import dill
         if not db:
-            import walrus
-            self.db = walrus.Database()
+            try:
+                import walrus
+                self.db = walrus.Database()
+            except:
+                raise
         producer = self.db.Stream(topic)
+        
         from fn import F
         madd = F(producer.add,maxlen=maxlen)
         self.map(lambda x: {"data": dill.dumps(x)}).sink(
@@ -86,18 +92,25 @@ class Stream(Streamz):
         
     
     def to_share(self,name=None):
-        if name:
-            self.to_redis_stream(topic=name,maxlen=10)
-        else:
-            self.to_redis_stream(topic=self.name,maxlen=10)
-            
+        if not name:
+            name = self.name
+                    
+        self.to_redis_stream(topic=name,maxlen=10)
         return self
             
     @classmethod
     def from_share(cls,name,**kwargs):
         #使用pid做group,区分不同进程消费,一个进程消费结束,不影响其他进程继续消费
         return cls.from_redis(name,start=True,group=str(os.getpid()),**kwargs).map(lambda x:x.msg_body)
-        
+    
+    @classmethod
+    def from_tcp(cls,port=1234,**kwargs):
+        def dec(x):
+            try:
+                return dill.loads(x)
+            except:
+                return x
+        return Streamz.from_tcp(port,start=True,**kwargs).map(dec)
             
     def _store_recent(self):#second
         self._cache = ExpiringDict(max_len=self.cache_max_len, max_age_seconds=self.cache_max_age_seconds)
@@ -167,7 +180,6 @@ class engine(Stream):
 
     def __init__(self,
                  interval=1,
-                 cache_max_len=1,
                  start=False,
                  func=None,
                  asyncflag=False,
@@ -261,7 +273,6 @@ class from_redis(Stream):
              ('stream-c', [(b'1539023088126-0', {b'message': b'c-0'})])]
 
             if meta_msgs:
-                meta_msgs >> debug
                 l = []
                 for meta_msg in meta_msgs:
                     topic, msg = meta_msg[0], meta_msg[1][0]
@@ -504,7 +515,7 @@ NS = namedstream
 from logbook import Logger,StreamHandler
 import sys
 StreamHandler(sys.stdout).push_application()
-logger = Logger('Logbook')
+logger = Logger(__name__)
 log = NS('log',cache_max_age_seconds=60*60*24)
 log.sink(logger.info)
 
@@ -512,11 +523,8 @@ log.sink(logger.info)
 import logging
 warn = NS('warn')
 warn.sink(logging.warning)
-error = NS('error')
-error.sink(logging.error)
 
 
-debug = NS('debug')
 
 try:
     from .process import bus
@@ -549,12 +557,17 @@ def write_to_file(fn,prefix='', suffix='\n', flush=True):
     return write
 
 
+
+    
 def gen_quant():
     import pandas as pd
     import easyquotation
     quotation_engine = easyquotation.use("sina")
     q1 = quotation_engine.all
     df = pd.DataFrame(q1).T
+    df = df[(True^df['close'].isin([0]))]
+    df['p_change']=(df.now-df.close)/df.close
+    df['code']=df.index
     return df
 
 
