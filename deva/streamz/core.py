@@ -27,6 +27,9 @@ from .orderedweakset import OrderedWeakrefSet
 
 from functools import wraps
 
+from .expiringdict import ExpiringDict
+import datetime
+
 
 no_default = '--no-default--'
 
@@ -112,6 +115,7 @@ class Stream(object):
     str_list = ['func', 'predicate', 'n', 'interval']
 
     def __init__(self, upstream=None, upstreams=None, stream_name=None,
+                 cache_max_len=1, cache_max_age_seconds=60*5,cache=False,
                  loop=None, asynchronous=None, ensure_io_loop=False):
         self.downstreams = OrderedWeakrefSet()
         if upstreams is not None:
@@ -131,6 +135,19 @@ class Stream(object):
                 upstream.downstreams.add(self)
 
         self.name = stream_name
+        
+        
+        if cache_max_len or cache_max_age_seconds:
+            self.cache = True
+            if not cache_max_len:
+                cache_max_len = 1
+            if not cache_max_age_seconds:
+                cache_max_age_seconds = 60*5
+                
+            self.cache_max_len = cache_max_len
+            self.cache_max_age_seconds = cache_max_age_seconds
+            self._store = ExpiringDict(max_len=self.cache_max_len, max_age_seconds=self.cache_max_age_seconds)
+        
         
         self.handlers = []
 
@@ -298,6 +315,9 @@ class Stream(object):
         return output._ipython_display_(**kwargs)
 
     def _emit(self, x):
+        if self.cache:
+            self._cache(x)
+            
         result = []
         for downstream in list(self.downstreams):
             r = downstream.update(x, who=self)
@@ -547,6 +567,23 @@ class Stream(object):
                 # 为了将老函数的函数名和docstring继承，需要用functools的wraps将其包装
 
         return param_wraper    
+        
+    
+    def _cache(self,x):
+        key = datetime.datetime.now()
+        value = x
+        self._store[key]=value
+             
+  
+    def recent(self,n=5,seconds=None):
+        if not seconds:
+            return self._store.values()[-n:]
+        else:
+            df = self._store>>to_dataframe
+            df.columns = ['value']
+            now_time = datetime.datetime.now()
+            begin = now_time + datetime.timedelta(seconds=-seconds)
+            return df[begin:]
 
 @Stream.register_api()
 class sink(Stream):

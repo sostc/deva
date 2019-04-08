@@ -15,8 +15,6 @@ import weakref
 import subprocess
 from tornado.web import Application, RequestHandler
 from .pipe import *
-from .expiringdict import ExpiringDict
-import datetime
 
 import os
 from dataclasses import dataclass,field
@@ -28,15 +26,13 @@ class Stream(Streamz):
     
     _instances = set()
     
-    def __init__(self,name=None,store=True,cache_max_len=1, cache_max_age_seconds=60*5,*args,**kwargs):
-        self.cache_max_len = cache_max_len
-        self.cache_max_age_seconds = cache_max_age_seconds
+    def __init__(self,name=None,*args,**kwargs):
+        
         
         super(Stream,self).__init__(*args,**kwargs)
         self.name=name
         self._instances.add(weakref.ref(self))
-        if store:
-            self._store_recent()
+        
             
     
     @classmethod
@@ -112,24 +108,7 @@ class Stream(Streamz):
                 return x
         return Streamz.from_tcp(port,start=True,**kwargs).map(dec)
             
-    def _store_recent(self):#second
-        self._cache = ExpiringDict(max_len=self.cache_max_len, max_age_seconds=self.cache_max_age_seconds)
-        def _store(x):
-            key = datetime.datetime.now()
-            value = x
-            self._cache[key]=value
-             
-        self.sink(_store)
-  
-    def recent(self,n=5,seconds=None):
-        if not seconds:
-            return self._cache.values()[-n:]
-        else:
-            df = self._cache>>to_dataframe
-            df.columns = ['value']
-            now_time = datetime.datetime.now()
-            begin = now_time + datetime.timedelta(seconds=-seconds)
-            return df[begin:]
+    
     
 
 
@@ -485,8 +464,8 @@ class manager(Stream):
 class NamedStream(Stream):
     """A named generic notification emitter."""
 
-    def __init__(self, name,**kwds):
-        Stream.__init__(self,**kwds)
+    def __init__(self, name,**kwargs):
+        Stream.__init__(self,**kwargs)
 
         #: The name of this stream.
         self.name = name
