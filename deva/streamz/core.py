@@ -115,7 +115,7 @@ class Stream(object):
     str_list = ['func', 'predicate', 'n', 'interval']
 
     def __init__(self, upstream=None, upstreams=None, stream_name=None,
-                 cache_max_len=1, cache_max_age_seconds=60*5,cache=False,
+                 cache_max_len=None, cache_max_age_seconds=None,
                  loop=None, asynchronous=None, ensure_io_loop=False):
         self.downstreams = OrderedWeakrefSet()
         if upstreams is not None:
@@ -136,7 +136,7 @@ class Stream(object):
 
         self.name = stream_name
         
-        
+        self.cache = False
         if cache_max_len or cache_max_age_seconds:
             self.cache = True
             if not cache_max_len:
