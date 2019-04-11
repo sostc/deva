@@ -111,6 +111,8 @@ class Stream(object):
     _graphviz_style = 'rounded,filled'
     _graphviz_fillcolor = 'white'
     _graphviz_orientation = 0
+    
+    _instances = set()
 
     str_list = ['func', 'predicate', 'n', 'interval']
 
@@ -134,22 +136,31 @@ class Stream(object):
             if upstream:
                 upstream.downstreams.add(self)
 
-        self.name = stream_name
-        
-        self.cache = False
+        self.stream_name = stream_name
+  
         if cache_max_len or cache_max_age_seconds:
-            self.cache = True
-            if not cache_max_len:
-                cache_max_len = 1
-            if not cache_max_age_seconds:
-                cache_max_age_seconds = 60*5
-                
-            self.cache_max_len = cache_max_len
-            self.cache_max_age_seconds = cache_max_age_seconds
-            self._store = ExpiringDict(max_len=self.cache_max_len, max_age_seconds=self.cache_max_age_seconds)
-        
-        
+            self.set_cache(cache_max_len,cache_max_age_seconds)
+        else:
+            self.clear_cache()
+            
         self.handlers = []
+        
+        Stream._instances.add(weakref.ref(self))
+        
+    def set_cache(self,cache_max_len=None,cache_max_age_seconds=None):
+        self.cache = True
+        if not cache_max_len:
+            cache_max_len = 1
+        if not cache_max_age_seconds:
+            cache_max_age_seconds = 60*5
+                
+        self.cache_max_len = cache_max_len
+        self.cache_max_age_seconds = cache_max_age_seconds
+        self._store = ExpiringDict(max_len=self.cache_max_len, max_age_seconds=self.cache_max_age_seconds)
+        
+    def clear_cache(self,):
+        self.cache = False
+        self._store = None
 
     def _set_loop(self, loop):
         self.loop = None
@@ -202,6 +213,17 @@ class Stream(object):
             for downstream in self.downstreams:
                 if downstream:
                     downstream._inform_asynchronous(asynchronous)
+                    
+    @classmethod
+    def getinstances(cls):
+        dead = set()
+        for ref in cls._instances:
+            obj = ref()
+            if obj is not None  and obj.stream_name is not None and not obj.stream_name.startswith('_'):
+                yield obj
+            else:
+                dead.add(ref)
+        cls._instances -= dead
 
     @classmethod
     def register_api(cls, modifier=identity):
@@ -245,8 +267,8 @@ class Stream(object):
 
     def __str__(self):
         s_list = []
-        if self.name:
-            s_list.append('{}; {}'.format(self.name, self.__class__.__name__))
+        if self.stream_name:
+            s_list.append('{}; {}'.format(self.stream_name, self.__class__.__name__))
         else:
             s_list.append(self.__class__.__name__)
 
@@ -576,7 +598,9 @@ class Stream(object):
              
   
     def recent(self,n=5,seconds=None):
-        if not seconds:
+        if not self.cache:
+            return None
+        elif not seconds:
             return self._store.values()[-n:]
         else:
             df = self._store>>to_dataframe
@@ -652,14 +676,14 @@ class map(Stream):
     6
     8
     """
-    def __init__(self, upstream, func, *args, **kwargs):
+    def __init__(self, upstream, func,cache_max_len=None, *args, **kwargs):
         self.func = func
         # this is one of a few stream specific kwargs
         stream_name = kwargs.pop('stream_name', None)
         self.kwargs = kwargs
         self.args = args
 
-        Stream.__init__(self, upstream, stream_name=stream_name)
+        Stream.__init__(self, upstream, stream_name=stream_name,cache_max_len=cache_max_len)
 
     def update(self, x, who=None):
         try:
