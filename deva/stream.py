@@ -24,28 +24,8 @@ import dill
 class Stream(Streamz):
     _graphviz_shape = "doubleoctagon"
     
-    _instances = set()
-    
     def __init__(self,name=None,*args,**kwargs):
-        
-        
         super(Stream,self).__init__(*args,**kwargs)
-        self.name=name
-        self._instances.add(weakref.ref(self))
-        
-            
-    
-    @classmethod
-    def getinstances(cls):
-        dead = set()
-        for ref in cls._instances:
-            obj = ref()
-            if obj is not None  and obj.name is not None and not obj.name.startswith('_'):
-                yield obj
-            else:
-                dead.add(ref)
-        cls._instances -= dead
-        
 
     def write(self, value):  # |
         """emit value to stream ,end,return emit result"""
@@ -82,14 +62,14 @@ class Stream(Streamz):
         if name:
             url = r'/'+name
         else:
-            url = r'/'+self.name
+            url = r'/'+self.stream_name
 
         app.add_handlers(r".*",  [(url,EventSource, {'stream': self})])                 
         
     
     def to_share(self,name=None):
         if not name:
-            name = self.name
+            name = self.stream_name
                     
         self.to_redis_stream(topic=name,maxlen=10)
         return self
@@ -97,7 +77,7 @@ class Stream(Streamz):
     @classmethod
     def from_share(cls,name,**kwargs):
         #使用pid做group,区分不同进程消费,一个进程消费结束,不影响其他进程继续消费
-        return cls.from_redis(name,start=True,group=str(os.getpid()),**kwargs).map(lambda x:x.msg_body)
+        return cls.from_redis(topics=name,start=True,group=str(os.getpid())).map(lambda x:x.msg_body,stream_name=name,**kwargs)
     
     @classmethod
     def from_tcp(cls,port=1234,**kwargs):
@@ -108,11 +88,6 @@ class Stream(Streamz):
                 return x
         return Streamz.from_tcp(port,start=True,**kwargs).map(dec)
             
-    
-    
-
-
-
 
 class EventSource(RequestHandler):
     def initialize(self, stream):
@@ -209,7 +184,6 @@ class engine(Stream):
 class RedisMsg(object):
     def __init__(self, topic, msg_id, msg_body):
         import dill
-
         self.topic = topic
         self.msg_id = msg_id
         try:
@@ -218,12 +192,10 @@ class RedisMsg(object):
             self.msg_body = msg_body
 
     def __repr__(self,):
-        return '<%s %s>' % (self.topic, self.msg_body)
-
-
+            return '<%s %s>' % (self.topic, self.msg_body)
+            
 @Stream.register_api(staticmethod)
 class from_redis(Stream):
-
     def __init__(self, topics, poll_interval=0.1, start=False, group="test",
                  **kwargs):
 
@@ -313,40 +285,49 @@ def loads(body):
     
     return body
 
-class HTTPStreamHandler(RequestHandler):
-    output = None
-    def post(self, *args, **kwargs):
-        self.request.body = loads(self.request.body)   
-        self.request >> HTTPStreamHandler.output
-        self.write(str({'status': 'ok', 'ip': self.request.remote_ip}))
+
 
 @Stream.register_api(staticmethod)
 class from_http_request(Stream):
     """ receive data from http request,emit httprequest data to stream"""
 
-    def __init__(self, port=9999, start=False, httpcount=3):
-        self.port = port
-        self.httpcount = httpcount
-        self.http_server = None
-        super(from_http_request, self).__init__(ensure_io_loop=True)
-        self.stopped = True
-        if start:
-            self.start()
+    def __init__(self, port, path='/.*', start=False, server_kwargs=None):
+            self.port = port
+            self.path = path
+            self.server_kwargs = server_kwargs or {}
+            super(from_http_server, self).__init__(ensure_io_loop=True)
+            self.stopped = True
+            self.server = None
+            if start:  # pragma: no cover
+                self.start()
+            
+    def _start_server(self):
+        class Handler(RequestHandler):
+            source = self
+
+            @gen.coroutine
+            def post(self):
+                self.request.body = loads(self.request.body)  
+                yield self.source._emit(self.request.body)
+                self.write('OK')
+
+        application = Application([
+            (self.path, Handler),
+        ])
+        self.server = HTTPServer(application, **self.server_kwargs)
+        self.server.listen(self.port)
 
     def start(self):
         if self.stopped:
             self.stopped = False
-            HTTPStreamHandler.output = self
-            app = Application([(r'/', HTTPStreamHandler)])
-            self.http_server = HTTPServer(app)  # ,xheaders=True
-            self.http_server.bind(self.port)
-            self.http_server.start()
+            self.loop.add_callback(self._start_server)    
 
     def stop(self):
-        if self.http_server is not None:
-            self.http_server.stop()
+        """Shutdown HTTP server"""
+        if not self.stopped:
+            self.server.stop()
+            self.server = None
             self.stopped = True
-
 
 @Stream.register_api(staticmethod)
 class from_web_stream(Stream):
@@ -392,9 +373,9 @@ class from_web_stream(Stream):
 class from_command(Stream):
     """ receive command eval result data from subprocess,emit  data into stream"""
 
-    def __init__(self, poll_interval=0.1):
+    def __init__(self, poll_interval=0.1,**kwargs):
         self.poll_interval = poll_interval
-        super(from_command, self).__init__(ensure_io_loop=True)
+        super(from_command, self).__init__(ensure_io_loop=True,**kwargs)
         self.stopped = True
         from concurrent.futures import ThreadPoolExecutor
         self.thread_pool = ThreadPoolExecutor(2)
@@ -420,76 +401,18 @@ class from_command(Stream):
                 command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE,bufsize=1,stdin=subprocess.PIPE)
         self.thread_pool.submit(self.poll_err)
         self.thread_pool.submit(self.poll_out)
-
-
-
-
             
-            
-            
-@Stream.register_api(staticmethod)
-class manager(Stream):
-    def __init__(self,interval=1, start=True,**kwargs):
-        
-        self.interval = interval
-        self.stopped = True
-        super(manager, self).__init__(ensure_io_loop=True, **kwargs)
-        if start:
-            self.start()
-            
-        self.name='_stream_manager'
- 
-    def do_poll(self):
-        return 
-
-    @gen.coroutine
-    def poll_manage(self):
-        while True:
-            vals = Stream.getinstances()>>pmap(lambda s:{s.name:s.recent()})
-            self._emit(vals)
-
-            yield gen.sleep(self.interval)
-            if self.stopped:
-                break
-
-    def start(self):
-        if self.stopped:
-            self.stopped = False
-            self.loop.add_callback(self.poll_manage)
-
-    def stop(self):
-       self.stopped = True
                       
-            
-class NamedStream(Stream):
-    """A named generic notification emitter."""
-
-    def __init__(self, name,**kwargs):
-        Stream.__init__(self,**kwargs)
-
-        #: The name of this stream.
-        self.name = name
-
-    def __repr__(self):
-        base = Stream.__repr__(self)
-        return "%s; %r>" % (base[:-1], self.name)
-
-
 class Namespace(dict):
-    """A mapping of signal names to signals."""
-
-    def stream(self, name, **kwds):
-        """Return the :class:`NamedSignal` *name*, creating it if required.
-        Repeated calls to this function will return the same signal object.
-        """
+    def create_stream(self, stream_name, **kwargs):
         try:
-            return self[name]
+            return self[stream_name]
         except KeyError:
-            return self.setdefault(name, NamedStream(name,**kwds))
+            return self.setdefault(stream_name, Stream(stream_name=stream_name,**kwargs))
 
 
-namedstream = Namespace().stream
-NS = namedstream
+namespace = Namespace()
+NS=namespace.create_stream
 
 from logbook import Logger,StreamHandler
 import sys
@@ -536,7 +459,8 @@ def write_to_file(fn,prefix='', suffix='\n', flush=True):
     return write
 
 
-
+def gen_all_stream_recent():
+    return Stream.getinstances()>>pmap(lambda s:{s.stream_name:s.recent()})>>to_list
     
 def gen_quant():
     import pandas as pd
