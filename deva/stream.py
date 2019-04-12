@@ -468,7 +468,8 @@ def gen_quant():
     quotation_engine = easyquotation.use("sina")
     q1 = quotation_engine.all
     df = pd.DataFrame(q1).T
-    df = df[(True^df['close'].isin([0]))]
+    df = df[(True^df['close'].isin([0]))]#昨天停牌
+    df = df[(True^df['now'].isin([0]))]#今日停牌
     df['p_change']=(df.now-df.close)/df.close
     df['code']=df.index
     return df
