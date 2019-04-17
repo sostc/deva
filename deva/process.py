@@ -4,9 +4,12 @@ from .stream import Stream,namespace
 from tornado.ioloop import IOLoop
 
 def create_cps(stream_name,**kwargs):
-    namespace[stream_name]=Stream.from_share(stream_name,**kwargs)
-    namespace[stream_name].emit = Stream().to_share(stream_name).emit
-    return namespace[stream_name]
+    try:
+        return namespace[stream_name]
+    except KeyError: 
+        namespace[stream_name]=Stream.from_share(stream_name,**kwargs)
+        namespace[stream_name].emit = Stream().to_share(stream_name).emit
+        return namespace[stream_name]
     
 
 
