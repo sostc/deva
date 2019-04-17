@@ -75,9 +75,9 @@ class Stream(Streamz):
         return self
             
     @classmethod
-    def from_share(cls,name,**kwargs):
+    def from_share(cls,topics,group=str(os.getpid()),**kwargs):
         #使用pid做group,区分不同进程消费,一个进程消费结束,不影响其他进程继续消费
-        return cls.from_redis(topics=name,start=True,group=str(os.getpid())).map(lambda x:x.msg_body,stream_name=name,**kwargs)
+        return cls.from_redis(topics=topics,start=True,group=group).map(lambda x:x.msg_body,stream_name=topics,**kwargs)
     
     @classmethod
     def from_tcp(cls,port=1234,**kwargs):
@@ -431,7 +431,8 @@ warn.sink(logging.warning)
 try:
     from .process import bus
 except:
-    'bus not import,check your redis server  '>>warn
+    bus = NS('bus')
+    'bus not import,check your redis server,start a local bus '>>warn
 
 def start_web_stream_server(port=9999):
     """输出web_stream需要先启动start_web_stream_server"""

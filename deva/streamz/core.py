@@ -377,6 +377,7 @@ class Stream(object):
 
                 raise gen.Return(result)
             sync(self.loop, _)
+    
 
     def update(self, x, who=None):
         self._emit(x)
@@ -543,17 +544,17 @@ class Stream(object):
     def __rshift__(self, ref):# stream右边的
         import io
         if isinstance(ref, list):
-            self.sink(ref.append)
+            return self.sink(ref.append)
         elif isinstance(ref, io.TextIOWrapper):
             #e>>open('tmp4.tmp','a+') 
             def write(x):
-                ref.write(x)
+                ref.write(str(x))
                 ref.flush()
-            self.map(str).sink(write)
+            return self.sink(write)
         elif isinstance(ref,Stream):
-            self.sink(ref.emit)
+            return self.sink(ref.emit)
         elif callable(ref):
-            self.sink(ref)
+            return self.sink(ref)
         else:
             raise TypeError('Unsupported type, must be list or file or stream or callable obj')
     
