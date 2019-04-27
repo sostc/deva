@@ -30,6 +30,8 @@ from functools import wraps
 from .expiringdict import ExpiringDict
 import datetime
 
+from pampy import match,_
+
 
 no_default = '--no-default--'
 
@@ -541,22 +543,20 @@ class Stream(object):
         self.emit(value)
         return value
         
-    def __rshift__(self, ref):# stream右边的
+    def __rshift__(self, ref):  # stream右边的
         import io
-        if isinstance(ref, list):
-            return self.sink(ref.append)
-        elif isinstance(ref, io.TextIOWrapper):
-            #e>>open('tmp4.tmp','a+') 
-            def write(x):
-                ref.write(str(x))
-                ref.flush()
-            return self.sink(write)
-        elif isinstance(ref,Stream):
-            return self.sink(ref.emit)
-        elif callable(ref):
-            return self.sink(ref)
-        else:
-            raise TypeError('Unsupported type, must be list or file or stream or callable obj')
+        def write(x):
+            ref.write(str(x)+'\n')
+            ref.flush()
+        return match(ref,
+                     list, lambda ref: self.sink(ref.append),
+                     io.TextIOWrapper, lambda ref:self.sink(write),
+                     Stream,lambda ref:self.sink(ref.emit),
+                     callable,lambda ref:self.sink(ref),
+                     _,lambda ref:TypeError('Unsupported type, must be list or file or stream or callable obj')
+                    )
+        
+
     
     def route(self, expr):
         """

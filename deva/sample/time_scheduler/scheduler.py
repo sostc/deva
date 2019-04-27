@@ -38,12 +38,12 @@ except:
 # In[ ]:
 
 
-@scheduler.scheduled_job('interval', name='open', seconds=60,start_date='2019-04-03 09:25:00',)
+@scheduler.scheduled_job('interval', name='open', days=1,start_date='2019-04-03 09:25:00',)
 @when_tradedate
 def _open():
     'open'>>bus
       
-@scheduler.scheduled_job('interval', name='close', seconds=60,start_date='2019-04-03 01:25:30',)
+@scheduler.scheduled_job('interval', name='close', days=1,start_date='2019-04-03 15:30:00',)
 @when_tradedate
 def _close():
     'close'>>bus

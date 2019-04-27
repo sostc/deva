@@ -20,6 +20,9 @@ import os
 from dataclasses import dataclass,field
 
 import dill
+from fn import _ as X
+from pampy import match,ANY
+
 
 class Stream(Streamz):
     _graphviz_shape = "doubleoctagon"
@@ -402,6 +405,74 @@ class from_command(Stream):
         self.thread_pool.submit(self.poll_err)
         self.thread_pool.submit(self.poll_out)
             
+@Stream.register_api(staticmethod)
+class scheduler(Stream):
+    """
+    s = scheduler()
+    s.add_job(name='hello',seconds=5,start_date='2019-04-03 09:25:00')
+    s.get_jobs()>>pmap(lambda x:x.next_run_time)>>to_list
+
+
+
+    con = s.map(lambda x:
+       match(x,
+            'open',X>>warn,
+             'hello',X>>warn,
+             ANY,'None',
+            ))
+
+    s.add_job(func=lambda :print('yahoo'),seconds=5)
+    
+    Parameters:	
+    weeks (int) – number of weeks to wait
+    days (int) – number of days to wait
+    hours (int) – number of hours to wait
+    minutes (int) – number of minutes to wait
+    seconds (int) – number of seconds to wait
+    start_date (datetime|str) – starting point for the interval calculation
+    end_date (datetime|str) – latest possible date/time to trigger on
+    timezone (datetime.tzinfo|str) – time zone to use for the date/time calculations
+    jitter (int|None) – advance or delay the job execution by jitter seconds at most.
+    
+    """
+
+    def __init__(self, poll_interval=0.1,start=True,**kwargs):
+        from apscheduler.schedulers.tornado import TornadoScheduler
+        import pytz
+        
+        self._scheduler = TornadoScheduler(timezone=pytz.timezone('Asia/Shanghai'))
+        super(scheduler, self).__init__(ensure_io_loop=True, **kwargs)
+        self.stopped = True
+        if start:
+            self.start()
+        
+    def start(self):
+        if self.stopped:
+            self.stopped = False
+        self._scheduler.start()
+
+    def stop(self):
+        self._scheduler.stop()
+        self.stopped = True
+            
+    def add_job(self,name,func=None,**kwargs):
+        """
+        example: i.add_job(name='hello',seconds=5,start_date='2019-04-03 09:25:00')
+        i.add_job(name='hello',seconds=5,start_date='2019-04-03 09:25:00')
+        """
+        if not func:
+            myfunc = lambda:name>>self
+        else:
+            myfunc = lambda :func()>>self
+        return self._scheduler.add_job(func=myfunc,name=name,id=name,trigger='interval',**kwargs)
+    def remove_job(self,name):
+        return self._scheduler.remove_job(id=name)
+    def get_jobs(self,):
+        return self._scheduler.get_jobs()
+            
+
+
+
                       
 class Namespace(dict):
     def create_stream(self, stream_name, **kwargs):

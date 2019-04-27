@@ -25,7 +25,7 @@ __all__ = [
     'skip_while', 'aggregate', 'groupby', 'sort', 'reverse',
     'chain_with', 'islice', 'izip', 'passed', 'index', 'strip',
     'lstrip', 'rstrip', 'run_with', 'append', 'to_type', 'transpose',
-    'dedup', 'uniq', 'to_dataframe', 'X', 'P', 'pmap', 'pfilter', 'post_to',
+    'dedup', 'uniq', 'to_dataframe', 'P', 'pmap', 'pfilter', 'post_to',
     'head','read','tcp_write'
 ]
 
@@ -78,20 +78,6 @@ def P(func):
     """
     return Pipe(func)
 
-
-
-class X():
-    """
-    存储变量 [1,2,3]>>X('a')
-    a == [1,2,3]
-    """
-    def __init__(self,varname,factory_func=str):
-        self.varname = varname
-        globals()[self.varname] = ''#factory_func()
-        
-    def __rrshift__(self,ref):
-        globals()[self.varname] = ref
-        return ref
         
 @Pipe
 def to_dataframe(iterable, orient='index'):
