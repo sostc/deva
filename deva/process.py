@@ -1,7 +1,6 @@
 
 
 from .stream import Stream,namespace
-from tornado.ioloop import IOLoop
 
 def create_cps(stream_name,**kwargs):
     try:
