@@ -1,10 +1,9 @@
-import json
-import time
+
 from tornado import gen
 
 from .streamz.core import Stream as Streamz
 #from .streamz_ext import Stream as Streamz
-from tornado.httpclient import AsyncHTTPClient, HTTPRequest
+from tornado.httpclient import AsyncHTTPClient
 from tornado.httpserver import HTTPServer
 from tornado.queues import Queue
 from tornado.iostream import StreamClosedError
@@ -17,20 +16,23 @@ from tornado.web import Application, RequestHandler
 from .pipe import *
 
 import os
-from dataclasses import dataclass,field
+from dataclasses import dataclass, field
 
 import dill
 from fn import _ as X
-from pampy import match,ANY
+from pampy import match, ANY
 from pymaybe import maybe
 
 import moment
 
+import sys,json
+
+
 class Stream(Streamz):
     _graphviz_shape = "doubleoctagon"
-    
-    def __init__(self,name=None,*args,**kwargs):
-        super(Stream,self).__init__(*args,**kwargs)
+
+    def __init__(self, name=None, *args, **kwargs):
+        super(Stream, self).__init__(*args, **kwargs)
 
     def write(self, value):  # |
         """emit value to stream ,end,return emit result"""
@@ -40,7 +42,7 @@ class Stream(Streamz):
         """emit value to stream ,end,return emit result"""
         self.emit(value)
 
-    def to_redis_stream(self, topic, db=None,maxlen=None):
+    def to_redis_stream(self, topic, db=None, maxlen=None):
         """
         push stream to redis stream
 
@@ -55,38 +57,33 @@ class Stream(Streamz):
             except:
                 raise
         producer = self.db.Stream(topic)
-        
+
         from fn import F
-        madd = F(producer.add,maxlen=maxlen)
+        madd = F(producer.add, maxlen=maxlen)
         self.map(lambda x: {"data": dill.dumps(x)}).sink(
             madd)  # producer only accept non-empty dict dict
         return self
-             
-        
-    
-    def to_share(self,name=None):
+
+    def to_share(self, name=None):
         if not name:
             name = self.stream_name
-                    
-        self.to_redis_stream(topic=name,maxlen=10)
+
+        self.to_redis_stream(topic=name, maxlen=10)
         return self
-            
+
     @classmethod
-    def from_share(cls,topics,group=str(os.getpid()),**kwargs):
-        #使用pid做group,区分不同进程消费,一个进程消费结束,不影响其他进程继续消费
-        return cls.from_redis(topics=topics,start=True,group=group).map(lambda x:x.msg_body,stream_name=topics,**kwargs)
-    
+    def from_share(cls, topics, group=str(os.getpid()), **kwargs):
+        # 使用pid做group,区分不同进程消费,一个进程消费结束,不影响其他进程继续消费
+        return cls.from_redis(topics=topics, start=True, group=group).map(lambda x: x.msg_body, stream_name=topics, **kwargs)
+
     @classmethod
-    def from_tcp(cls,port=1234,**kwargs):
+    def from_tcp(cls, port=1234, **kwargs):
         def dec(x):
             try:
                 return dill.loads(x)
             except:
                 return x
-        return Streamz.from_tcp(port,start=True,**kwargs).map(dec)
-            
-
-
+        return Streamz.from_tcp(port, start=True, **kwargs).map(dec)
 
 
 @Stream.register_api(staticmethod)
@@ -119,12 +116,11 @@ class engine(Stream):
         if start:
             self.start()
 
-
     @gen.coroutine
     def run(self):
         while True:
             if self.asyncflag:
-                self.thread_pool.submit(lambda :self._emit(self.func()))
+                self.thread_pool.submit(lambda: self._emit(self.func()))
             else:
                 self._emit(self.func())
             yield gen.sleep(self.interval)
@@ -151,8 +147,9 @@ class RedisMsg(object):
             self.msg_body = msg_body
 
     def __repr__(self,):
-            return '<%s %s>' % (self.topic, self.msg_body)
-            
+        return '<%s %s>' % (self.topic, self.msg_body)
+
+
 @Stream.register_api(staticmethod)
 class from_redis(Stream):
     def __init__(self, topics, poll_interval=0.1, start=False, group="test",
@@ -218,8 +215,9 @@ class from_redis(Stream):
             self.consumer = None
             self.stopped = True
 
+
 def dumps(body):
-    if not isinstance(body,bytes):
+    if not isinstance(body, bytes):
         try:
             import json
             body = json.dumps(body)
@@ -227,8 +225,8 @@ def dumps(body):
             import dill
             body = dill.dumps(body)
     return body
-    
-    
+
+
 def loads(body):
     try:
         import json
@@ -242,9 +240,8 @@ def loads(body):
         except:
             import dill
             body = dill.loads(body)
-    
-    return body
 
+    return body
 
 
 @Stream.register_api(staticmethod)
@@ -252,22 +249,22 @@ class from_http_request(Stream):
     """ receive data from http request,emit httprequest data to stream"""
 
     def __init__(self, port, path='/.*', start=False, server_kwargs=None):
-            self.port = port
-            self.path = path
-            self.server_kwargs = server_kwargs or {}
-            super(from_http_server, self).__init__(ensure_io_loop=True)
-            self.stopped = True
-            self.server = None
-            if start:  # pragma: no cover
-                self.start()
-            
+        self.port = port
+        self.path = path
+        self.server_kwargs = server_kwargs or {}
+        super(from_http_server, self).__init__(ensure_io_loop=True)
+        self.stopped = True
+        self.server = None
+        if start:  # pragma: no cover
+            self.start()
+
     def _start_server(self):
         class Handler(RequestHandler):
             source = self
 
             @gen.coroutine
             def post(self):
-                self.request.body = loads(self.request.body)  
+                self.request.body = loads(self.request.body)
                 yield self.source._emit(self.request.body)
                 self.write('OK')
 
@@ -280,7 +277,7 @@ class from_http_request(Stream):
     def start(self):
         if self.stopped:
             self.stopped = False
-            self.loop.add_callback(self._start_server)    
+            self.loop.add_callback(self._start_server)
 
     def stop(self):
         """Shutdown HTTP server"""
@@ -290,18 +287,16 @@ class from_http_request(Stream):
             self.stopped = True
 
 
-
 @Stream.register_api(staticmethod)
 class from_command(Stream):
     """ receive command eval result data from subprocess,emit  data into stream"""
 
-    def __init__(self, poll_interval=0.1,**kwargs):
+    def __init__(self, poll_interval=0.1, **kwargs):
         self.poll_interval = poll_interval
-        super(from_command, self).__init__(ensure_io_loop=True,**kwargs)
+        super(from_command, self).__init__(ensure_io_loop=True, **kwargs)
         self.stopped = True
         from concurrent.futures import ThreadPoolExecutor
         self.thread_pool = ThreadPoolExecutor(2)
-
 
     @gen.coroutine
     def poll_out(self):
@@ -317,13 +312,13 @@ class from_command(Stream):
             if err:
                 self._emit(err)
 
-            
-    def run(self,command):
+    def run(self, command):
         self.subp = subprocess.Popen(
-                command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE,bufsize=1,stdin=subprocess.PIPE)
+            command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, bufsize=1, stdin=subprocess.PIPE)
         self.thread_pool.submit(self.poll_err)
         self.thread_pool.submit(self.poll_out)
-            
+
+
 @Stream.register_api(staticmethod)
 class from_scheduler(Stream):
     """
@@ -341,7 +336,7 @@ class from_scheduler(Stream):
             ))
 
     s.add_job(func=lambda :print('yahoo'),seconds=5)
-    
+
     Parameters:	
     weeks (int) – number of weeks to wait
     days (int) – number of days to wait
@@ -352,19 +347,20 @@ class from_scheduler(Stream):
     end_date (datetime|str) – latest possible date/time to trigger on
     timezone (datetime.tzinfo|str) – time zone to use for the date/time calculations
     jitter (int|None) – advance or delay the job execution by jitter seconds at most.
-    
+
     """
 
-    def __init__(self, poll_interval=0.1,start=True,**kwargs):
+    def __init__(self, poll_interval=0.1, start=True, **kwargs):
         from apscheduler.schedulers.tornado import TornadoScheduler
         import pytz
-        
-        self._scheduler = TornadoScheduler(timezone=pytz.timezone('Asia/Shanghai'))
+
+        self._scheduler = TornadoScheduler(
+            timezone=pytz.timezone('Asia/Shanghai'))
         super(from_scheduler, self).__init__(ensure_io_loop=True, **kwargs)
         self.stopped = True
         if start:
             self.start()
-        
+
     def start(self):
         if self.stopped:
             self.stopped = False
@@ -373,43 +369,71 @@ class from_scheduler(Stream):
     def stop(self):
         self._scheduler.stop()
         self.stopped = True
-            
-    def add_job(self,name,func=None,**kwargs):
+
+    def add_job(self, name, func=None, **kwargs):
         """
         example: i.add_job(name='hello',seconds=5,start_date='2019-04-03 09:25:00')
         i.add_job(name='hello',seconds=5,start_date='2019-04-03 09:25:00')
         """
         if not func:
-            myfunc = lambda:self._emit(name)
+            def myfunc(): return self._emit(name)
         else:
-            myfunc = lambda :self._emit(func())
-        return self._scheduler.add_job(func=myfunc,name=name,id=name,trigger='interval',**kwargs)
-        
-    def remove_job(self,name):
+            def myfunc(): return self._emit(func())
+        return self._scheduler.add_job(func=myfunc, name=name, id=name, trigger='interval', **kwargs)
+
+    def remove_job(self, name):
         return self._scheduler.remove_job(job_id=name)
+
     def get_jobs(self,):
         return self._scheduler.get_jobs()
-            
 
 
 
-                      
+#自定义机器人的封装类
+class Dtalk(Stream):
+    """docstring for DtRobot"""
+    def __init__(self, webhook=None,**kwargs):
+        super(Dtalk, self).__init__(ensure_io_loop=True, **kwargs)
+        self.webhook = maybe(webhook)\
+        .or_else("https://oapi.dingtalk.com/robot/send?access_token=c7a5a2b2b23ea1677657b743e8f6ca9ffe0785ef5f378b5fdc443bb29a5defc3")
+
+    #text类型
+    @gen.coroutine
+    def emit(self, msg, isAtAll=False, atMobiles=[]):
+        if isinstance(msg, bytes) or isinstance(msg, set):
+            msg = str(msg)
+        
+        data = {"msgtype":"text","text":{"content":msg},"at":{"atMobiles":atMobiles,"isAtAll":isAtAll}}
+        yield self.post(data)
+
+
+    @gen.coroutine
+    def post(self, data):
+        from tornado import httpclient
+        http_client = httpclient.AsyncHTTPClient()
+        post_data = json.JSONEncoder().encode(data)
+        headers = {'Content-Type': 'application/json'}        
+        request = httpclient.HTTPRequest(self.webhook, body=post_data, method="POST",headers=headers)
+        yield http_client.fetch(request)
+        
+
+
 class Namespace(dict):
     def create_stream(self, stream_name, **kwargs):
         try:
             return self[stream_name]
         except KeyError:
-            return self.setdefault(stream_name, Stream(stream_name=stream_name,**kwargs))
+            return self.setdefault(stream_name, Stream(stream_name=stream_name, **kwargs))
 
 
 namespace = Namespace()
-NS=namespace.create_stream
+NS = namespace.create_stream
 
-from logbook import Logger,StreamHandler
+from logbook import Logger, StreamHandler
 import sys
 StreamHandler(sys.stdout).push_application()
 logger = Logger(__name__)
-log = NS('log',cache_max_age_seconds=60*60*24)
+log = NS('log', cache_max_age_seconds=60*60*24)
 log.sink(logger.info)
 
 
@@ -418,51 +442,47 @@ warn = NS('warn')
 warn.sink(logging.warning)
 
 
-
 try:
     from .process import bus
 except:
     bus = NS('bus')
-    'bus not import,check your redis server,start a local bus '>>warn
+    'bus not import,check your redis server,start a local bus ' >> warn
 
 
 def get_all_live_stream_as_stream(recent_limit=5):
     """取得当前系统运行的所有流,并生成一个合并的流做展示"""
-    return engine(func=lambda :Stream.getinstances()>>pmap(lambda s:{s.name:s.recent(recent_limit)})>>to_list,interval=1,start=True)
+    return engine(func=lambda: Stream.getinstances() >> pmap(lambda s: {s.name: s.recent(recent_limit)}) >> to_list, interval=1, start=True)
 
 
-def write_to_file(fn,prefix='', suffix='\n', flush=True):
+def write_to_file(fn, prefix='', suffix='\n', flush=True):
     def write(text):
         with open(fn, 'a+') as f:
             f.write(prefix + str(text) + suffix)
-            #if flush:
-                #f.flush()
+            # if flush:
+            # f.flush()
         return text
-        
+
     return write
 
 
 def gen_all_stream_recent():
-    return Stream.getinstances()>>pmap(lambda s:{s.stream_name:s.recent()})>>to_list
-    
+    return Stream.getinstances() >> pmap(lambda s: {s.stream_name: s.recent()}) >> to_list
+
+
 def gen_quant():
     import pandas as pd
     import easyquotation
     quotation_engine = easyquotation.use("sina")
     q1 = quotation_engine.all
     df = pd.DataFrame(q1).T
-    df = df[(True^df['close'].isin([0]))]#昨天停牌
-    df = df[(True^df['now'].isin([0]))]#今日停牌
-    df['p_change']=(df.now-df.close)/df.close
-    df['code']=df.index
+    df = df[(True ^ df['close'].isin([0]))]  # 昨天停牌
+    df = df[(True ^ df['now'].isin([0]))]  # 今日停牌
+    df['p_change'] = (df.now-df.close)/df.close
+    df['code'] = df.index
     return df
-
-
 
 
 def gen_block_test():
     import time
     time.sleep(6)
     return moment.now().seconds
-    
-  
