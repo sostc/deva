@@ -22,7 +22,9 @@ from dataclasses import dataclass,field
 import dill
 from fn import _ as X
 from pampy import match,ANY
+from pymaybe import maybe
 
+import moment
 
 class Stream(Streamz):
     _graphviz_shape = "doubleoctagon"
@@ -59,15 +61,7 @@ class Stream(Streamz):
         self.map(lambda x: {"data": dill.dumps(x)}).sink(
             madd)  # producer only accept non-empty dict dict
         return self
-
-    def to_web_stream(self, name=None,app=None):
-        """输出web_stream需要先启动start_web_stream_server"""
-        if name:
-            url = r'/'+name
-        else:
-            url = r'/'+self.stream_name
-
-        app.add_handlers(r".*",  [(url,EventSource, {'stream': self})])                 
+             
         
     
     def to_share(self,name=None):
@@ -92,38 +86,7 @@ class Stream(Streamz):
         return Streamz.from_tcp(port,start=True,**kwargs).map(dec)
             
 
-class EventSource(RequestHandler):
-    def initialize(self, stream):
-        #assert isinstance(stream, Stream)
-        self.stream = stream
-        self.messages = Queue()
-        self.finished = False
-        self.set_header('content-type', 'text/event-stream')
-        self.set_header('cache-control', 'no-cache')
-        self.store = self.stream.sink(self.messages.put)
 
-    @gen.coroutine
-    def publish(self, message):
-        """Pushes data to a listener."""
-        try:
-            self.write(message>>to_str)
-            yield self.flush()
-        except StreamClosedError:
-            self.finished = True
-            (self.request.remote_ip,StreamClosedError)>>log
-
-    @gen.coroutine
-    def get(self, *args, **kwargs):
-        try:
-            while not self.finished:
-                message = yield self.messages.get()
-                yield self.publish(message)
-        except Exception:
-            pass
-        finally:
-            self.store.destroy()
-            self.messages.empty()
-            self.finish()
 
 
 @Stream.register_api(staticmethod)
@@ -138,16 +101,13 @@ class engine(Stream):
     def __init__(self,
                  interval=1,
                  start=False,
-                 func=None,
+                 func=lambda: moment.now().seconds,
                  asyncflag=False,
                  threadcount=5,
                  **kwargs):
 
         self.interval = interval
-        if func == None:
-            import moment
 
-            def func(): return moment.now().seconds
         self.func = func
         self.asyncflag = asyncflag
         if self.asyncflag:
@@ -159,18 +119,14 @@ class engine(Stream):
         if start:
             self.start()
 
-    def do_gen(self):
-        msg = self._emit(self.func())
-        if msg:
-            return msg
 
     @gen.coroutine
-    def push_downstream(self):
+    def run(self):
         while True:
             if self.asyncflag:
-                val = self.thread_pool.submit(self.do_gen)
+                self.thread_pool.submit(lambda :self._emit(self.func()))
             else:
-                val = self.do_gen()
+                self._emit(self.func())
             yield gen.sleep(self.interval)
             if self.stopped:
                 break
@@ -178,7 +134,7 @@ class engine(Stream):
     def start(self):
         if self.stopped:
             self.stopped = False
-            self.loop.add_callback(self.push_downstream)
+            self.loop.add_callback(self.run)
 
     def stop(self):
         self.stopped = True
@@ -218,6 +174,7 @@ class from_redis(Stream):
             self.start()
 
     def do_poll(self):
+        """同步redis 库,todo:寻找异步的stream库来查询"""
         if self.consumer is not None:
             meta_msgs = self.consumer.read(count=1)
 
@@ -332,44 +289,6 @@ class from_http_request(Stream):
             self.server = None
             self.stopped = True
 
-@Stream.register_api(staticmethod)
-class from_web_stream(Stream):
-    def __init__(self, url='http://127.0.0.1:9999', read_timeout=60*60*24, start=True,
-                 **kwargs):
-        self.url = url
-        self.request_timeout = read_timeout
-        self.http_client = AsyncHTTPClient()
-        super(from_web_stream, self).__init__(ensure_io_loop=True, **kwargs)
-        self.stopped = True
-        if start:
-            self.start()
-
-    @gen.coroutine
-    def get(self):
-        # if self.read_timeout is None:
-            # HTTPRequest._DEFAULTS['request_timeout']=None
-            # defaultset none  is 20s,hack源代码也无法解决的，这部分代码不管用
-        requests = HTTPRequest(
-            url=self.url, streaming_callback=self.on_chunk, request_timeout=self.request_timeout)
-        yield self.http_client.fetch(requests)
-
-    @gen.coroutine
-    def on_chunk(self, chunk):
-        chunk >> self
-
-    def start(self):
-        if self.stopped:
-            self.stopped = False
-        if self.http_client is None:
-            self.http_client = AsyncHTTPClient()
-        self.get()
-
-    def stop(self):
-        if self.http_client is not None:
-            self.http_client.close()  # this  not imple
-            self.http_client = None
-            self.stopped = True
-
 
 
 @Stream.register_api(staticmethod)
@@ -406,7 +325,7 @@ class from_command(Stream):
         self.thread_pool.submit(self.poll_out)
             
 @Stream.register_api(staticmethod)
-class scheduler(Stream):
+class from_scheduler(Stream):
     """
     s = scheduler()
     s.add_job(name='hello',seconds=5,start_date='2019-04-03 09:25:00')
@@ -441,7 +360,7 @@ class scheduler(Stream):
         import pytz
         
         self._scheduler = TornadoScheduler(timezone=pytz.timezone('Asia/Shanghai'))
-        super(scheduler, self).__init__(ensure_io_loop=True, **kwargs)
+        super(from_scheduler, self).__init__(ensure_io_loop=True, **kwargs)
         self.stopped = True
         if start:
             self.start()
@@ -461,12 +380,13 @@ class scheduler(Stream):
         i.add_job(name='hello',seconds=5,start_date='2019-04-03 09:25:00')
         """
         if not func:
-            myfunc = lambda:name>>self
+            myfunc = lambda:self._emit(name)
         else:
-            myfunc = lambda :func()>>self
+            myfunc = lambda :self._emit(func())
         return self._scheduler.add_job(func=myfunc,name=name,id=name,trigger='interval',**kwargs)
+        
     def remove_job(self,name):
-        return self._scheduler.remove_job(id=name)
+        return self._scheduler.remove_job(job_id=name)
     def get_jobs(self,):
         return self._scheduler.get_jobs()
             
@@ -505,15 +425,6 @@ except:
     bus = NS('bus')
     'bus not import,check your redis server,start a local bus '>>warn
 
-def start_web_stream_server(port=9999):
-    """输出web_stream需要先启动start_web_stream_server"""
-    stream_index = Stream.manager().map(lambda x:x>>to_list)
-    app = Application([(r'/', EventSource, {'stream': stream_index})],debug=True)
-    http_server = HTTPServer(app, xheaders=True)
-        # 最原始的方式
-    http_server.bind(port)
-    http_server.start()
-
 
 def get_all_live_stream_as_stream(recent_limit=5):
     """取得当前系统运行的所有流,并生成一个合并的流做展示"""
@@ -547,15 +458,11 @@ def gen_quant():
     return df
 
 
-def gen_test():
-    import moment as mm
-    return mm.now().seconds
 
 
 def gen_block_test():
-    import moment as mm
     import time
     time.sleep(6)
-    return mm.now().seconds
+    return moment.now().seconds
     
   
