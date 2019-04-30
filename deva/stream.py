@@ -409,6 +409,9 @@ class Dtalk(Stream):
 
     @gen.coroutine
     def post(self, data):
+        import ssl
+ 
+        ssl._create_default_https_context = ssl._create_unverified_context
         from tornado import httpclient
         http_client = httpclient.AsyncHTTPClient()
         post_data = json.JSONEncoder().encode(data)
