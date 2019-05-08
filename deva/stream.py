@@ -3,7 +3,6 @@ from tornado import gen
 
 from .streamz.core import Stream as Streamz
 #from .streamz_ext import Stream as Streamz
-from tornado.httpclient import AsyncHTTPClient
 from tornado.httpserver import HTTPServer
 from tornado.queues import Queue
 from tornado.iostream import StreamClosedError
@@ -23,9 +22,8 @@ from fn import _ as X
 from pampy import match, ANY
 from pymaybe import maybe
 
-import moment
 
-import sys,json
+import sys
 
 
 class Stream(Streamz):
@@ -85,7 +83,10 @@ class Stream(Streamz):
                 return x
         return Streamz.from_tcp(port, start=True, **kwargs).map(dec)
 
-
+def gen_test():
+    import moment
+    return moment.now().seconds
+    
 @Stream.register_api(staticmethod)
 class engine(Stream):
     """
@@ -98,7 +99,7 @@ class engine(Stream):
     def __init__(self,
                  interval=1,
                  start=False,
-                 func=lambda: moment.now().seconds,
+                 func=gen_test,
                  asyncflag=False,
                  threadcount=5,
                  **kwargs):
@@ -320,7 +321,7 @@ class from_command(Stream):
 
 
 @Stream.register_api(staticmethod)
-class from_scheduler(Stream):
+class scheduler(Stream):
     """
     s = scheduler()
     s.add_job(name='hello',seconds=5,start_date='2019-04-03 09:25:00')
@@ -356,7 +357,7 @@ class from_scheduler(Stream):
 
         self._scheduler = TornadoScheduler(
             timezone=pytz.timezone('Asia/Shanghai'))
-        super(from_scheduler, self).__init__(ensure_io_loop=True, **kwargs)
+        super(scheduler, self).__init__(ensure_io_loop=True, **kwargs)
         self.stopped = True
         if start:
             self.start()
@@ -410,6 +411,7 @@ class Dtalk(Stream):
     @gen.coroutine
     def post(self, data):
         from tornado import httpclient
+        import json
         http_client = httpclient.AsyncHTTPClient()
         post_data = json.JSONEncoder().encode(data)
         headers = {'Content-Type': 'application/json'}        
@@ -482,7 +484,9 @@ def gen_quant():
     return df
 
 
+
 def gen_block_test():
     import time
+    import moment
     time.sleep(6)
     return moment.now().seconds
