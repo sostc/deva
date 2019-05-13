@@ -164,7 +164,7 @@ class from_redis(Stream):
         self.db = Database()
         self.consumer = self.db.consumer_group(self.group, self.topics)
         self.consumer.create()  # Create the consumer group.
-        self.consumer.set_id('$')  # 不会从头读
+        #self.consumer.set_id('$')  # 不会从头读
 
         super(from_redis, self).__init__(ensure_io_loop=True, **kwargs)
         self.stopped = True
@@ -186,8 +186,7 @@ class from_redis(Stream):
                 for meta_msg in meta_msgs:
                     topic, msg = meta_msg[0], meta_msg[1][0]
                     msg_id, msg_body = msg
-                    msg_body = (msg_body.values() >> head(1) >> to_list)[
-                        0]  # {'data':'dills'}
+                    msg_body = msg_body.values() >> first  # {'data':'dills'}
                     l.append(RedisMsg(topic, msg_id, msg_body))
                 return l
             else:
@@ -410,13 +409,19 @@ class Dtalk(Stream):
 
     @gen.coroutine
     def post(self, data):
-        from tornado import httpclient
+        from tornado.httpclient import HTTPRequest, HTTPError
+        
+        from .tornado_retry_client import RetryClient
+        retry_client = RetryClient(max_retries=3)
+
         import json
-        http_client = httpclient.AsyncHTTPClient()
         post_data = json.JSONEncoder().encode(data)
         headers = {'Content-Type': 'application/json'}        
-        request = httpclient.HTTPRequest(self.webhook, body=post_data, method="POST",headers=headers,validate_cert=False)
-        yield http_client.fetch(request)
+        request = HTTPRequest(self.webhook, body=post_data, method="POST",headers=headers,validate_cert=False)
+        try:
+            yield retry_client.fetch(request)
+        except HTTPError as e:
+            f'send dtalk eror,msg:{data},{e}'>>log # My request failed after 2 retries
         
 
 
@@ -451,6 +456,17 @@ except:
     'bus not import,check your redis server,start a local bus ' >> warn
 
 
+class when():
+    """when a  occasion(from source) appear, then do somthing 
+    when('open').then(lambda :print(f'开盘啦'))
+    """
+    def __init__(self,occasion,source=bus):
+        self.occasion = occasion
+        self.source = source
+             
+    def then(self,func):
+        self.source.filter(lambda x:maybe(x)==self.occasion).sink(lambda x:func())
+        
 def get_all_live_stream_as_stream(recent_limit=5):
     """取得当前系统运行的所有流,并生成一个合并的流做展示"""
     return engine(func=lambda: Stream.getinstances() >> pmap(lambda s: {s.name: s.recent(recent_limit)}) >> to_list, interval=1, start=True)
@@ -475,7 +491,7 @@ def gen_quant():
     import pandas as pd
     import easyquotation
     quotation_engine = easyquotation.use("sina")
-    q1 = quotation_engine.all
+    q1 = quotation_engine.market_snapshot(prefix=False)
     df = pd.DataFrame(q1).T
     df = df[(True ^ df['close'].isin([0]))]  # 昨天停牌
     df = df[(True ^ df['now'].isin([0]))]  # 今日停牌
