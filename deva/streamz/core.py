@@ -553,7 +553,7 @@ class Stream(object):
                      io.TextIOWrapper, lambda ref:self.sink(write),
                      Stream,lambda ref:self.sink(ref.emit),
                      callable,lambda ref:self.sink(ref),
-                     _,lambda ref:TypeError('Unsupported type, must be list or file or stream or callable obj')
+                     _,lambda ref:TypeError(f'{ref}:{type(ref)} is aUnsupported type, must be list or file or stream or callable obj')
                     )
         
 
