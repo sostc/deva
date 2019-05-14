@@ -419,7 +419,8 @@ class Dtalk(Stream):
         headers = {'Content-Type': 'application/json'}        
         request = HTTPRequest(self.webhook, body=post_data, method="POST",headers=headers,validate_cert=False)
         try:
-            yield retry_client.fetch(request)
+            result = yield retry_client.fetch(request)
+            result.body>>log
         except HTTPError as e:
             f'send dtalk eror,msg:{data},{e}'>>log # My request failed after 2 retries
         
