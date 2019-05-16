@@ -392,7 +392,8 @@ class scheduler(Stream):
 #自定义机器人的封装类
 class Dtalk(Stream):
     """docstring for DtRobot"""
-    def __init__(self, webhook=None,**kwargs):
+    def __init__(self, webhook=None,log=passed,**kwargs):
+        self.log = log
         super(Dtalk, self).__init__(ensure_io_loop=True, **kwargs)
         self.webhook = maybe(webhook)\
         .or_else("https://oapi.dingtalk.com/robot/send?access_token=c7a5a2b2b23ea1677657b743e8f6ca9ffe0785ef5f378b5fdc443bb29a5defc3")
@@ -416,13 +417,14 @@ class Dtalk(Stream):
 
         import json
         post_data = json.JSONEncoder().encode(data)
+        post_data>>self.log
         headers = {'Content-Type': 'application/json'}        
         request = HTTPRequest(self.webhook, body=post_data, method="POST",headers=headers,validate_cert=False)
         try:
             result = yield retry_client.fetch(request)
-            result.body>>log
+            result.body>>self.log
         except HTTPError as e:
-            f'send dtalk eror,msg:{data},{e}'>>log # My request failed after 2 retries
+            f'send dtalk eror,msg:{data},{e}'>>self.log # My request failed after 2 retries
         
 
 
