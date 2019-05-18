@@ -1,0 +1,10 @@
+
+.DS_Store
+*.session
+*.pyc
+*.ipynb
+*.pkl
+*.rdb
+*.swp
+*.data
+*.db

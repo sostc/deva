@@ -11,6 +11,7 @@ from contextlib import closing
 from collections import deque
 import dill
 
+
 try:
     import builtins
 except ImportError:
@@ -26,7 +27,7 @@ __all__ = [
     'chain_with', 'islice', 'izip', 'passed', 'index', 'strip',
     'lstrip', 'rstrip', 'run_with', 'append', 'to_type', 'transpose',
     'dedup', 'uniq', 'to_dataframe', 'P', 'pmap', 'pfilter', 'post_to',
-    'head','read','tcp_write'
+    'head', 'read', 'tcp_write'
 ]
 
 
@@ -55,12 +56,12 @@ class Pipe:
     def __ror__(self, other):  # |
         return self.function(other)
 
-    def __rrshift__(self, other):  #左边的 >>
+    def __rrshift__(self, other):  # 左边的 >>
         return self.function(other)
 
     def __rmatmul__(self, other):  # 左边的@
         return self.function(other)
-        
+
     def __lshift__(self, other):  # 右边的<<
         return self.function(other)
 
@@ -78,7 +79,7 @@ def P(func):
     """
     return Pipe(func)
 
-        
+
 @Pipe
 def to_dataframe(iterable, orient='index'):
     """
@@ -87,7 +88,6 @@ def to_dataframe(iterable, orient='index'):
     """
     import pandas as pd
     return pd.DataFrame.from_dict(iterable, orient=orient)
-
 
 
 @Pipe
@@ -194,7 +194,6 @@ def count(iterable):
     return count
 
 
-
 @Pipe
 def as_dict(iterable):
     return dict(iterable)
@@ -247,14 +246,15 @@ def traverse(args):
             # not iterable --- output leaf
             yield arg
 
+
 @Pipe
-def tcp_write(to_send,host='127.0.0.1',port=1234):
+def tcp_write(to_send, host='127.0.0.1', port=1234):
     with closing(socket.socket(socket.AF_INET, socket.SOCK_STREAM)) as s:
         s.connect((host, port))
         s.send(dill.dumps(to_send))
         s.send(b'\n')
-    
-    
+
+
 @Pipe
 def concat(iterable, separator=", "):
     return separator.join(map(str, iterable))
@@ -399,17 +399,16 @@ def append(iterable, y):
 def to_type(x, t):
     """转换类型 '3'>>to_type(int)==3"""
     return t(x)
-    
-    
+
+
 @Pipe
-def read(x,mode='r'):
+def read(x, mode='r'):
     """ 按行读入文本文件，mode参数为读到方式 'xxx.log'>>read>>tail(2)"""
-    with open(x,mode) as f:
+    with open(x, mode) as f:
         for line in f:
             yield line
-            
 
-        
+
 @Pipe
 def transpose(iterable):
     return list(zip(*iterable))
@@ -434,29 +433,32 @@ def size(x):
 
 from tornado import gen, httpclient
 
+
 @Pipe
 @gen.coroutine
-def post_to(body, url='http://127.0.0.1:9999',headers = None):
+def post_to(body, url='http://127.0.0.1:9999', headers=None):
     """ post a str to url,use async http client,Future对象，jupyter中可直接使用
     jupyter 之外需要loop = IOLoop.current(instance=True)，loop.start()
     :{'a':1}>>post_to(url)
-    
+
     """
-    if not isinstance(body,bytes):
+    if not isinstance(body, bytes):
         try:
             import json
             body = json.dumps(body)
         except:
             import dill
             body = dill.dumps(body)
-    
-            
+
     from tornado import httpclient
     http_client = httpclient.AsyncHTTPClient()
     headers = {}
-    request = httpclient.HTTPRequest(url, body=body, method="POST",headers=headers)
+    request = httpclient.HTTPRequest(
+        url, body=body, method="POST", headers=headers)
 
-    yield http_client.fetch(request)
+    result = yield http_client.fetch(request)
+    return result
+
 
 
 # 转换内置函数为pipe
