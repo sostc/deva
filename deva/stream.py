@@ -400,32 +400,33 @@ class Dtalk(Stream):
 
     #text类型
     @gen.coroutine
-    def emit(self, msg, isAtAll=False, atMobiles=[]):
-        if isinstance(msg, bytes) or isinstance(msg, set):
-            msg = str(msg)
-        
-        data = {"msgtype":"text","text":{"content":msg},"at":{"atMobiles":atMobiles,"isAtAll":isAtAll}}
-        yield self.post(data)
+    def emit(self, msg):
+        yield self.post(msg)
 
 
     @gen.coroutine
-    def post(self, data):
+    def post(self, msg):
         from tornado.httpclient import HTTPRequest, HTTPError
         
         from .tornado_retry_client import RetryClient
         retry_client = RetryClient(max_retries=3)
 
         import json
+        if isinstance(msg, bytes) or isinstance(msg, set):
+            msg = str(msg)
+        
+        data = {"msgtype":"text","text":{"content":msg},"at":{"atMobiles":[],"isAtAll":False}}
+
         post_data = json.JSONEncoder().encode(data)
-        post_data>>self.log
         headers = {'Content-Type': 'application/json'}        
         request = HTTPRequest(self.webhook, body=post_data, method="POST",headers=headers,validate_cert=False)
         try:
             result = yield retry_client.fetch(request)
-            result.body>>self.log
+            result = json.loads(result.body.decode('utf-8'))
         except HTTPError as e:
-            f'send dtalk eror,msg:{data},{e}'>>self.log # My request failed after 2 retries
+            result = 'send dtalk eror,msg:{data},{e}' # My request failed after 2 retries
         
+        {'class':Dtalk, 'data':msg, 'webhook':self.webhook, 'result':result}>>self.log
 
 
 class Namespace(dict):
@@ -501,7 +502,6 @@ def gen_quant():
     df['p_change'] = (df.now-df.close)/df.close
     df['code'] = df.index
     return df
-
 
 
 def gen_block_test():

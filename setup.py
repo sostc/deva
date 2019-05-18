@@ -1,4 +1,5 @@
 from setuptools import setup, find_packages
+from os.path import exists
 
 setup(
     name='deva',
@@ -9,5 +10,9 @@ setup(
     url='https://github.com/sostc/deva',
     license='http://www.apache.org/licenses/LICENSE-2.0.html',
     description='data eval in future',
-    install_requires=["requests"]
+    long_description=(open('README.rst').read() if exists('README.rst')
+                        else ''),
+    install_requires=list(open('requirements.txt').read().strip().split('\n')),
+    zip_safe=False
+
 )
