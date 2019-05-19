@@ -531,7 +531,7 @@ class Stream(object):
 
     def __rrshift__(self, value):  # stream左边的>>
         """emit value to stream ,end,return emit result"""
-        self._emit(value)
+        self.emit(value,asynchronous=True)
         return value
         
     def __lshift__(self, value):  # stream右边的<<
