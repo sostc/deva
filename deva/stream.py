@@ -1,12 +1,13 @@
 
+import logging
+from logbook import Logger, StreamHandler
 from tornado import gen
 
 from .streamz.core import Stream as Streamz
-#from .streamz_ext import Stream as Streamz
 from tornado.httpserver import HTTPServer
 from tornado.queues import Queue
 from tornado.iostream import StreamClosedError
-
+import atexit
 
 import weakref
 
@@ -18,10 +19,8 @@ import os
 from dataclasses import dataclass, field
 
 import dill
-from fn import _ as X
 from pampy import match, ANY
 from pymaybe import maybe
-
 
 import sys
 
@@ -83,10 +82,12 @@ class Stream(Streamz):
                 return x
         return Streamz.from_tcp(port, start=True, **kwargs).map(dec)
 
+
 def gen_test():
     import moment
     return moment.now().seconds
-    
+
+
 @Stream.register_api(staticmethod)
 class engine(Stream):
     """
@@ -164,7 +165,7 @@ class from_redis(Stream):
         self.db = Database()
         self.consumer = self.db.consumer_group(self.group, self.topics)
         self.consumer.create()  # Create the consumer group.
-        #self.consumer.set_id('$')  # 不会从头读
+        # self.consumer.set_id('$')  # 不会从头读
 
         super(from_redis, self).__init__(ensure_io_loop=True, **kwargs)
         self.stopped = True
@@ -252,7 +253,7 @@ class from_http_request(Stream):
         self.port = port
         self.path = path
         self.server_kwargs = server_kwargs or {}
-        super(from_http_server, self).__init__(ensure_io_loop=True)
+        super(from_http_request, self).__init__(ensure_io_loop=True)
         self.stopped = True
         self.server = None
         if start:  # pragma: no cover
@@ -326,18 +327,16 @@ class scheduler(Stream):
     s.add_job(name='hello',seconds=5,start_date='2019-04-03 09:25:00')
     s.get_jobs()>>pmap(lambda x:x.next_run_time)>>to_list
 
-
-
     con = s.map(lambda x:
        match(x,
-            'open',X>>warn,
-             'hello',X>>warn,
+            'open',lambda x:x>>warn,
+             'hello',lambda x:x>>warn,
              ANY,'None',
             ))
 
     s.add_job(func=lambda :print('yahoo'),seconds=5)
 
-    Parameters:	
+    Parameters: 
     weeks (int) – number of weeks to wait
     days (int) – number of days to wait
     hours (int) – number of hours to wait
@@ -388,45 +387,49 @@ class scheduler(Stream):
         return self._scheduler.get_jobs()
 
 
-
-#自定义机器人的封装类
+# 自定义机器人的封装类
 class Dtalk(Stream):
     """docstring for DtRobot"""
-    def __init__(self, webhook=None,log=passed,**kwargs):
+
+    def __init__(self, webhook=None, log=passed, **kwargs):
         self.log = log
         super(Dtalk, self).__init__(ensure_io_loop=True, **kwargs)
         self.webhook = maybe(webhook)\
-        .or_else("https://oapi.dingtalk.com/robot/send?access_token=c7a5a2b2b23ea1677657b743e8f6ca9ffe0785ef5f378b5fdc443bb29a5defc3")
+            .or_else("https://oapi.dingtalk.com/robot/send?access_token=c7a5a2b2b23ea1677657b743e8f6ca9ffe0785ef5f378b5fdc443bb29a5defc3")
 
-    #text类型
+    # text类型
     @gen.coroutine
     def emit(self, msg):
         yield self.post(msg)
 
-
     @gen.coroutine
     def post(self, msg):
         from tornado.httpclient import HTTPRequest, HTTPError
-        
+
         from .tornado_retry_client import RetryClient
         retry_client = RetryClient(max_retries=3)
 
         import json
         if isinstance(msg, bytes) or isinstance(msg, set):
             msg = str(msg)
-        
-        data = {"msgtype":"text","text":{"content":msg},"at":{"atMobiles":[],"isAtAll":False}}
+
+        data = {"msgtype": "text", "text": {"content": msg},
+                "at": {"atMobiles": [], "isAtAll": False}}
 
         post_data = json.JSONEncoder().encode(data)
-        headers = {'Content-Type': 'application/json'}        
-        request = HTTPRequest(self.webhook, body=post_data, method="POST",headers=headers,validate_cert=False)
+        headers = {'Content-Type': 'application/json'}
+        request = HTTPRequest(self.webhook, body=post_data,
+                              method="POST", headers=headers, validate_cert=False)
+        # validate_cert=False 服务器ssl问题解决
         try:
             result = yield retry_client.fetch(request)
             result = json.loads(result.body.decode('utf-8'))
         except HTTPError as e:
-            result = 'send dtalk eror,msg:{data},{e}' # My request failed after 2 retries
-        
-        {'class':Dtalk, 'data':msg, 'webhook':self.webhook, 'result':result}>>self.log
+            # My request failed after 2 retries
+            result = 'send dtalk eror,msg:{data},{e}'
+
+        {'class': Dtalk, 'data': msg, 'webhook': self.webhook,
+            'result': result} >> self.log
 
 
 class Namespace(dict):
@@ -440,37 +443,42 @@ class Namespace(dict):
 namespace = Namespace()
 NS = namespace.create_stream
 
-from logbook import Logger, StreamHandler
-import sys
 StreamHandler(sys.stdout).push_application()
 logger = Logger(__name__)
 log = NS('log', cache_max_age_seconds=60*60*24)
 log.sink(logger.info)
 
 
-import logging
 warn = NS('warn')
 warn.sink(logging.warning)
 
-
 try:
     from .process import bus
-except:
+except Error as e:
     bus = NS('bus')
     'bus not import,check your redis server,start a local bus ' >> warn
+    e >> log
+
+
+@atexit.register
+def exit():
+    'exit' >> log
 
 
 class when():
     """when a  occasion(from source) appear, then do somthing 
     when('open').then(lambda :print(f'开盘啦'))
     """
-    def __init__(self,occasion,source=bus):
+
+    def __init__(self, occasion, source=bus):
         self.occasion = occasion
         self.source = source
-             
-    def then(self,func):
-        self.source.filter(lambda x:maybe(x)==self.occasion).sink(lambda x:func())
-        
+
+    def then(self, func):
+        self.source.filter(lambda x: maybe(
+            x) == self.occasion).sink(lambda x: func())
+
+
 def get_all_live_stream_as_stream(recent_limit=5):
     """取得当前系统运行的所有流,并生成一个合并的流做展示"""
     return engine(func=lambda: Stream.getinstances() >> pmap(lambda s: {s.name: s.recent(recent_limit)}) >> to_list, interval=1, start=True)
