@@ -399,7 +399,7 @@ class Dtalk(Stream):
 
     # text类型
     @gen.coroutine
-    def emit(self, msg):
+    def emit(self, msg, asynchronous=False):
         yield self.post(msg)
 
     @gen.coroutine

@@ -1,7 +1,7 @@
 from __future__ import absolute_import, division, print_function
 
-from collections import deque,Iterable
-from datetime import datetime,timedelta
+from collections import deque, Iterable
+from datetime import datetime, timedelta
 import functools
 import logging
 import six
@@ -26,7 +26,6 @@ from .orderedweakset import OrderedWeakrefSet
 
 
 from .expiringdict import ExpiringDict
-
 
 
 no_default = '--no-default--'
@@ -109,7 +108,7 @@ class Stream(object):
     _graphviz_style = 'rounded,filled'
     _graphviz_fillcolor = 'white'
     _graphviz_orientation = 0
-    
+
     _instances = set()
 
     str_list = ['func', 'predicate', 'n', 'interval']
@@ -135,27 +134,28 @@ class Stream(object):
                 upstream.downstreams.add(self)
 
         self.stream_name = stream_name
-  
+
         if cache_max_len or cache_max_age_seconds:
-            self.set_cache(cache_max_len,cache_max_age_seconds)
+            self.set_cache(cache_max_len, cache_max_age_seconds)
         else:
             self.clear_cache()
-            
+
         self.handlers = []
-        
+
         Stream._instances.add(weakref.ref(self))
-        
-    def set_cache(self,cache_max_len=None,cache_max_age_seconds=None):
+
+    def set_cache(self, cache_max_len=None, cache_max_age_seconds=None):
         self.cache = True
         if not cache_max_len:
             cache_max_len = 1
         if not cache_max_age_seconds:
             cache_max_age_seconds = 60*5
-                
+
         self.cache_max_len = cache_max_len
         self.cache_max_age_seconds = cache_max_age_seconds
-        self._store = ExpiringDict(max_len=self.cache_max_len, max_age_seconds=self.cache_max_age_seconds)
-        
+        self._store = ExpiringDict(
+            max_len=self.cache_max_len, max_age_seconds=self.cache_max_age_seconds)
+
     def clear_cache(self,):
         self.cache = False
         self._store = None
@@ -202,7 +202,8 @@ class Stream(object):
         """
         if self.asynchronous is not None:
             if self.asynchronous is not asynchronous:
-                raise ValueError("Stream has both asynchronous and synchronous elements")
+                raise ValueError(
+                    "Stream has both asynchronous and synchronous elements")
         else:
             self.asynchronous = asynchronous
             for upstream in self.upstreams:
@@ -211,13 +212,13 @@ class Stream(object):
             for downstream in self.downstreams:
                 if downstream:
                     downstream._inform_asynchronous(asynchronous)
-                    
+
     @classmethod
     def getinstances(cls):
         dead = set()
         for ref in cls._instances:
             obj = ref()
-            if obj is not None  and obj.stream_name is not None and not obj.stream_name.startswith('_'):
+            if obj is not None and obj.stream_name is not None and not obj.stream_name.startswith('_'):
                 yield obj
             else:
                 dead.add(ref)
@@ -266,7 +267,8 @@ class Stream(object):
     def __str__(self):
         s_list = []
         if self.stream_name:
-            s_list.append('{}; {}'.format(self.stream_name, self.__class__.__name__))
+            s_list.append('{}; {}'.format(
+                self.stream_name, self.__class__.__name__))
         else:
             s_list.append(self.__class__.__name__)
 
@@ -337,7 +339,7 @@ class Stream(object):
     def _emit(self, x):
         if self.cache:
             self._cache(x)
-            
+
         result = []
         for downstream in list(self.downstreams):
             r = downstream.update(x, who=self)
@@ -375,7 +377,6 @@ class Stream(object):
 
                 raise gen.Return(result)
             sync(self.loop, _)
-    
 
     def update(self, x, who=None):
         self._emit(x)
@@ -523,7 +524,6 @@ class Stream(object):
         from .batch import Batch
         return Batch(stream=self, **kwargs)
 
-
     def __ror__(self, value):  # |
         """emit value to stream ,end,return emit result"""
         self._emit(value)
@@ -531,30 +531,29 @@ class Stream(object):
 
     def __rrshift__(self, value):  # stream左边的>>
         """emit value to stream ,end,return emit result"""
-        self.emit(value,asynchronous=True)
+        self.emit(value, asynchronous=False)
         return value
-        
+
     def __lshift__(self, value):  # stream右边的<<
         """emit value to stream ,end,return emit result"""
         self._emit(value)
         return value
-        
+
     def __rshift__(self, ref):  # stream右边的
-        from pampy import match,_
+        from pampy import match, _
         import io
+
         def write(x):
             ref.write(str(x)+'\n')
             ref.flush()
         return match(ref,
                      list, lambda ref: self.sink(ref.append),
-                     io.TextIOWrapper, lambda ref:self.sink(write),
-                     Stream,lambda ref:self.sink(ref.emit),
-                     callable,lambda ref:self.sink(ref),
-                     _,lambda ref:TypeError(f'{ref}:{type(ref)} is aUnsupported type, must be list or file or stream or callable obj')
-                    )
-        
+                     io.TextIOWrapper, lambda ref: self.sink(write),
+                     Stream, lambda ref: self.sink(ref.emit),
+                     callable, lambda ref: self.sink(ref),
+                     _, lambda ref: TypeError(f'{ref}:{type(ref)} is aUnsupported type, must be list or file or stream or callable obj')
+                     )
 
-    
     def route(self, expr):
         """
         expr:路由函数表达式,比如lambda x:x.startswith('foo') 或者 lambda x:type(x)==str,
@@ -565,7 +564,7 @@ class Stream(object):
         @e.route(lambda x:type(x)==int)
         def goo(x):
             x*2>>log
-            
+
         """
         def param_wraper(func):
             """ 
@@ -577,33 +576,32 @@ class Stream(object):
                 func(*args, **kw)  # 需要这里显式调用用户函数
 
             self.filter(expr).sink(wraper)
-            self.handlers.append((expr,func))
-                # 包装定义阶段执行，包装后函数是个新函数了，
-                # 老函数已经匿名，需要新函数加入handlers列表,这样才可以执行前后发消息
+            self.handlers.append((expr, func))
+            # 包装定义阶段执行，包装后函数是个新函数了，
+            # 老函数已经匿名，需要新函数加入handlers列表,这样才可以执行前后发消息
             return wraper
-                # 返回的这个函数实际上取代了老函数。
-                # 为了将老函数的函数名和docstring继承，需要用functools的wraps将其包装
+            # 返回的这个函数实际上取代了老函数。
+            # 为了将老函数的函数名和docstring继承，需要用functools的wraps将其包装
 
-        return param_wraper    
-        
-    
-    def _cache(self,x):
+        return param_wraper
+
+    def _cache(self, x):
         key = datetime.now()
         value = x
-        self._store[key]=value
-             
-  
-    def recent(self,n=5,seconds=None):
+        self._store[key] = value
+
+    def recent(self, n=5, seconds=None):
         if not self.cache:
             return None
         elif not seconds:
             return self._store.values()[-n:]
         else:
-            df = self._store>>to_dataframe
+            df = self._store >> to_dataframe
             df.columns = ['value']
             now_time = datetime.now()
             begin = now_time + timedelta(seconds=-seconds)
             return df[begin:]
+
 
 @Stream.register_api()
 class sink(Stream):
@@ -647,7 +645,6 @@ class sink(Stream):
             return []
 
 
-
 @Stream.register_api()
 class map(Stream):
     """ Apply a function to every element in the stream
@@ -672,14 +669,16 @@ class map(Stream):
     6
     8
     """
-    def __init__(self, upstream, func,cache_max_len=None, *args, **kwargs):
+
+    def __init__(self, upstream, func, cache_max_len=None, *args, **kwargs):
         self.func = func
         # this is one of a few stream specific kwargs
         stream_name = kwargs.pop('stream_name', None)
         self.kwargs = kwargs
         self.args = args
 
-        Stream.__init__(self, upstream, stream_name=stream_name,cache_max_len=cache_max_len)
+        Stream.__init__(self, upstream, stream_name=stream_name,
+                        cache_max_len=cache_max_len)
 
     def update(self, x, who=None):
         try:
@@ -689,8 +688,6 @@ class map(Stream):
             raise
         else:
             return self._emit(result)
-            
-    
 
 
 @Stream.register_api()
@@ -719,6 +716,7 @@ class starmap(Stream):
     6
     8
     """
+
     def __init__(self, upstream, func, *args, **kwargs):
         self.func = func
         # this is one of a few stream specific kwargs
@@ -763,6 +761,7 @@ class filter(Stream):
     2
     4
     """
+
     def __init__(self, upstream, predicate, **kwargs):
         if predicate is None:
             predicate = _truthy
@@ -1134,7 +1133,8 @@ class zip(Stream):
                         for upstream in upstreams
                         if isinstance(upstream, Stream)}
 
-        upstreams2 = [upstream for upstream in upstreams if isinstance(upstream, Stream)]
+        upstreams2 = [
+            upstream for upstream in upstreams if isinstance(upstream, Stream)]
 
         Stream.__init__(self, upstreams=upstreams2, **kwargs)
 
@@ -1234,6 +1234,7 @@ class flatten(Stream):
     --------
     partition
     """
+
     def update(self, x, who=None):
         L = []
         for item in x:
@@ -1265,6 +1266,7 @@ class unique(Stream):
     1
     3
     """
+
     def __init__(self, upstream, history=None, key=identity, **kwargs):
         self.seen = dict()
         self.key = key
@@ -1294,6 +1296,7 @@ class union(Stream):
     Stream.zip
     Stream.combine_latest
     """
+
     def __init__(self, *upstreams, **kwargs):
         super(union, self).__init__(upstreams=upstreams, **kwargs)
 
@@ -1328,6 +1331,7 @@ class pluck(Stream):
     'Alice'
     'Bob'
     """
+
     def __init__(self, upstream, pick, **kwargs):
         self.pick = pick
         super(pluck, self).__init__(upstream, **kwargs)
@@ -1357,6 +1361,7 @@ class collect(Stream):
     ...
     [1, 2]
     """
+
     def __init__(self, upstream, cache=None, **kwargs):
         if cache is None:
             cache = deque()
@@ -1389,6 +1394,7 @@ class zip_latest(Stream):
     Stream.combine_latest
     Stream.zip
     """
+
     def __init__(self, lossless, *upstreams, **kwargs):
         upstreams = (lossless,) + upstreams
         self.last = [None for _ in upstreams]
@@ -1479,6 +1485,7 @@ class to_kafka(Stream):
     ...     source.emit(i)
     >>> kafka.flush()
     """
+
     def __init__(self, upstream, topic, producer_config, **kwargs):
         import confluent_kafka as ck
 
@@ -1540,7 +1547,7 @@ def sync(loop, func, *args, **kwargs):
 
     # Tornado's PollIOLoop doesn't raise when using closed, do it ourselves
     if PollIOLoop and ((isinstance(loop, PollIOLoop) and getattr(loop, '_closing', False))
-            or (hasattr(loop, 'asyncio_loop') and loop.asyncio_loop._closed)):
+                       or (hasattr(loop, 'asyncio_loop') and loop.asyncio_loop._closed)):
         raise RuntimeError("IOLoop is closed")
 
     timeout = kwargs.pop('callback_timeout', None)
