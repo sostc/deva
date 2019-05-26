@@ -5,24 +5,18 @@ from tornado import gen
 
 from .streamz.core import Stream as Streamz
 from tornado.httpserver import HTTPServer
-from tornado.queues import Queue
-from tornado.iostream import StreamClosedError
 import atexit
-
-import weakref
 
 import subprocess
 from tornado.web import Application, RequestHandler
 from .pipe import *
 
 import os
-from dataclasses import dataclass, field
+import sys
 
 import dill
-from pampy import match, ANY
 from pymaybe import maybe
-
-import sys
+import walrus
 
 
 class Stream(Streamz):
@@ -32,40 +26,34 @@ class Stream(Streamz):
         super(Stream, self).__init__(*args, **kwargs)
 
     def write(self, value):  # |
-        """emit value to stream ,end,return emit result"""
+        """Emit value to stream ,end,return emit result."""
         self.emit(value)
 
     def send(self, value):  # |
-        """emit value to stream ,end,return emit result"""
+        """Emit value to stream ,end,return emit result."""
         self.emit(value)
 
-    def to_redis_stream(self, topic, db=None, maxlen=None):
+    def to_redis_stream(self, topic, maxlen=None):
         """
-        push stream to redis stream
+        Push stream to redis stream.
 
         ::topic:: redis stream topic
-        ::db:: walrus redis databse object ,default :from walrus import Database,db=Database()
+        ::maxlen:: data store in redis stream max len
         """
-        import dill
-        if not db:
-            try:
-                import walrus
-                self.db = walrus.Database()
-            except:
-                raise
+        try:
+            self.db = walrus.Database()
+        except:
+            raise Exception('exception while warus connect to redis')
         producer = self.db.Stream(topic)
-
-        from fn import F
-        madd = F(producer.add, maxlen=maxlen)
-        self.map(lambda x: {"data": dill.dumps(x)}).sink(
-            madd)  # producer only accept non-empty dict dict
+        self.map(lambda x: {"data": dill.dumps(x)})\
+            .sink(producer.add, maxlen=maxlen)  # producer only accept non-empty dict dict
         return self
 
     def to_share(self, name=None):
         if not name:
             name = self.stream_name
 
-        self.to_redis_stream(topic=name, maxlen=10)
+        self.to_redis_stream(topic=name, maxlen=1)
         return self
 
     @classmethod
@@ -106,7 +94,6 @@ class engine(Stream):
                  **kwargs):
 
         self.interval = interval
-
         self.func = func
         self.asyncflag = asyncflag
         if self.asyncflag:
@@ -173,7 +160,7 @@ class from_redis(Stream):
             self.start()
 
     def do_poll(self):
-        """同步redis 库,todo:寻找异步的stream库来查询"""
+        """同步redis 库,todo:寻找异步的stream库来查询."""
         if self.consumer is not None:
             meta_msgs = self.consumer.read(count=1)
 
@@ -444,8 +431,8 @@ namespace = Namespace()
 NS = namespace.create_stream
 
 StreamHandler(sys.stdout).push_application()
-logger = Logger(__name__)
-log = NS('log', cache_max_age_seconds=60*60*24)
+logger = Logger()
+log = NS('log', cache_max_age_seconds=60 * 60 * 24)
 log.sink(logger.info)
 
 
@@ -454,10 +441,9 @@ warn.sink(logging.warning)
 
 try:
     from .process import bus
-except Error as e:
+except:
     bus = NS('bus')
     'bus not import,check your redis server,start a local bus ' >> warn
-    e >> log
 
 
 @atexit.register
@@ -465,8 +451,8 @@ def exit():
     'exit' >> log
 
 
-class when():
-    """when a  occasion(from source) appear, then do somthing 
+class when(object):
+    """when a  occasion(from source) appear, then do somthing .
     when('open').then(lambda :print(f'开盘啦'))
     """
 
@@ -482,17 +468,6 @@ class when():
 def get_all_live_stream_as_stream(recent_limit=5):
     """取得当前系统运行的所有流,并生成一个合并的流做展示"""
     return engine(func=lambda: Stream.getinstances() >> pmap(lambda s: {s.name: s.recent(recent_limit)}) >> to_list, interval=1, start=True)
-
-
-def write_to_file(fn, prefix='', suffix='\n', flush=True):
-    def write(text):
-        with open(fn, 'a+') as f:
-            f.write(prefix + str(text) + suffix)
-            # if flush:
-            # f.flush()
-        return text
-
-    return write
 
 
 def gen_all_stream_recent():

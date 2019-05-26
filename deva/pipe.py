@@ -1,8 +1,7 @@
 #!/usr/bin/env python
 
-"""Module enabling a sh like infix syntax (using pipes).
-"""
-
+"""Module enabling a sh like infix syntax (using pipes)."""
+from tornado import gen
 import functools
 import itertools
 import socket
@@ -22,18 +21,19 @@ __all__ = [
     'Pipe', 'tail', 'skip', 'all', 'any', 'average', 'count',
     'as_dict', 'as_set', 'permutations', 'netcat', 'netwrite',
     'traverse', 'concat', 'as_list', 'as_tuple', 'stdout', 'lineout',
-    'tee', 'add', 'first', 'chain', 'select', 'where', 'take_while',
+    'tee', 'add', 'first', 'chain', 'take_while',
     'skip_while', 'aggregate', 'groupby', 'sort', 'reverse',
     'chain_with', 'islice', 'izip', 'passed', 'index', 'strip',
     'lstrip', 'rstrip', 'run_with', 'append', 'to_type', 'transpose',
     'dedup', 'uniq', 'to_dataframe', 'P', 'pmap', 'pfilter', 'post_to',
-    'head', 'read', 'tcp_write'
+    'head', 'read', 'tcp_write', 'write_to_file'
 ]
 
 
 class Pipe:
     """
-    Represent a Pipeable Element :
+    Represent a Pipeable Element.
+
     Described as :
     first = Pipe(lambda iterable: next(iter(iterable)))
     and used as :
@@ -43,33 +43,44 @@ class Pipe:
     Or represent a Pipeable Function :
     It's a function returning a Pipe
     Described as :
-    select = Pipe(lambda iterable, pred: (pred(x) for x in iterable))
+    pfilter = Pipe(lambda iterable, pred: (pred(x) for x in iterable))
     and used as :
-    print [1, 2, 3] | select(lambda x: x * 2)
+    print [1, 2, 3] | pfilter(lambda x: x * 2)
     # 2, 4, 6
     """
 
     def __init__(self, function):
+        """decorater 初始化."""
         self.function = function
         functools.update_wrapper(self, function)
 
-    def __ror__(self, other):  # |
+    def __ror__(self, other):
+        """左边的 |."""
         return self.function(other)
 
-    def __rrshift__(self, other):  # 左边的 >>
+    def __rrshift__(self, other):
+        """左边的 >>."""
         return self.function(other)
 
-    def __rmatmul__(self, other):  # 左边的@
+    def __rmatmul__(self, other):
+        """左边的 @."""
         return self.function(other)
 
     def __lshift__(self, other):  # 右边的<<
+        """右边的 <<."""
         return self.function(other)
 
     def __call__(self, *args, **kwargs):
+        """像正常函数一样使用使用."""
+        return self.function(*args, **kwargs)
+
+    def F(self, *args, **kwargs):
+        """将普通函数转换成Pipe对象."""
         return Pipe(lambda x: self.function(x, *args, **kwargs))
 
     def __repr__(self):
-        return '<func %s.%s in Pipe mode>' % (self.function.__module__, self.function)
+        """转化成Pipe对象后的repr."""
+        return f'<func {self.function.__module__}.{self.function.__name__}@P>'
 
 
 @Pipe
@@ -91,85 +102,114 @@ def to_dataframe(iterable, orient='index'):
 
 
 @Pipe
-def head(iterable, qte):
+def head(qte):
     "Yield qte of elements in the given iterable."
-    for item in iterable:
-        if qte > 0:
-            qte -= 1
-            yield item
-        else:
-            return
+    def _head(iterable):
+        i = qte
+        for item in iterable:
+            if i > 0:
+                i -= 1
+                yield item
+            else:
+                return
+
+    return _head@P
 
 
 @Pipe
-def tail(iterable, qte):
+def tail(qte):
     "Yield qte of elements in the given iterable."
-    return deque(iterable, maxlen=qte)
+    def _(iterable):
+        return deque(iterable, maxlen=qte)
+
+    return _@P
 
 
 @Pipe
-def skip(iterable, qte):
+def skip(qte):
     "Skip qte elements in the given iterable, then yield others."
-    for item in iterable:
-        if qte == 0:
-            yield item
-        else:
-            qte -= 1
+    def _(iterable):
+        i = qte
+        for item in iterable:
+            if i == 0:
+                yield item
+            else:
+                i -= 1
+
+    return _@P
 
 
 @Pipe
-def dedup(iterable, key=lambda x: x):
+def dedup(key=lambda x: x):
     """Only yield unique items. Use a set to keep track of duplicate data."""
-    seen = set()
-    for item in iterable:
-        dupkey = key(item)
-        if dupkey not in seen:
-            seen.add(dupkey)
-            yield item
+    def _(iterable):
+        seen = set()
+        for item in iterable:
+            dupkey = key(item)
+            if dupkey not in seen:
+                seen.add(dupkey)
+                yield item
+
+    return _@P
 
 
 @Pipe
-def uniq(iterable, key=lambda x: x):
+def uniq(key=lambda x: x):
     """Deduplicate consecutive duplicate values."""
-    iterator = iter(iterable)
-    try:
-        prev = next(iterator)
-    except StopIteration:
-        return
-    yield prev
-    prevkey = key(prev)
-    for item in iterator:
-        itemkey = key(item)
-        if itemkey != prevkey:
-            yield item
-        prevkey = itemkey
+    def _(iterable):
+        iterator = iter(iterable)
+        try:
+            prev = next(iterator)
+        except StopIteration:
+            return
+        yield prev
+        prevkey = key(prev)
+        for item in iterator:
+            itemkey = key(item)
+            if itemkey != prevkey:
+                yield item
+            prevkey = itemkey
+
+    return _@P
 
 
 @Pipe
-def pmap(iterable, func):
+def pmap(func):
     """Returns True if ALL elements in the given iterable are true for the
     given pred function"""
-    return (func(x) for x in iterable)
+    def _(iterable):
+        return (func(x) for x in iterable)
+
+    return _@P
 
 
 @Pipe
-def pfilter(iterable, func):
+def pfilter(func):
     """pfilter == where"""
-    return (x for x in iterable if func(x))
+    def _(iterable):
+        return (x for x in iterable if func(x))
+
+    return _@P
 
 
 @Pipe
-def all(iterable, pred):
+def all(pred):
     """Returns True if ALL elements in the given iterable are true for the
     given pred function"""
-    return builtins.all(pred(x) for x in iterable)
+    def _(iterable):
+        return builtins.all(pred(x) for x in iterable)
+
+    return _@P
 
 
 @Pipe
-def any(iterable, pred):
+def any(pred):
     """Returns True if ANY element in the given iterable is True for the
     given pred function"""
-    return builtins.any(pred(x) for x in iterable)
+    def _(iterable):
+        return builtins.any(pred(x) for x in iterable)
+
+    return _@P
 
 
 @Pipe
@@ -205,32 +245,41 @@ def as_set(iterable):
 
 
 @Pipe
-def permutations(iterable, r=None):
+def permutations(r=None):
     # permutations('ABCD', 2) --> AB AC AD BA BC BD CA CB CD DA DB DC
     # permutations(range(3)) --> 012 021 102 120 201 210
-    for x in itertools.permutations(iterable, r):
-        yield x
+    def _(iterable):
+        for x in itertools.permutations(iterable, r):
+            yield x
+
+    return _@P
 
 
 @Pipe
-def netcat(to_send, host, port):
-    with closing(socket.socket(socket.AF_INET, socket.SOCK_STREAM)) as s:
-        s.connect((host, port))
-        for data in to_send | traverse:
-            s.send(data.encode("utf-8"))
-        while 1:
-            data = s.recv(4096)
-            if not data:
-                break
-            yield data
+def netcat(host, port):
+    def _(to_send):
+        with closing(socket.socket(socket.AF_INET, socket.SOCK_STREAM)) as s:
+            s.connect((host, port))
+            for data in to_send | traverse:
+                s.send(data.encode("utf-8"))
+            while 1:
+                data = s.recv(4096)
+                if not data:
+                    break
+                yield data
+
+    return _@P
 
 
 @Pipe
-def netwrite(to_send, host, port):
-    with closing(socket.socket(socket.AF_INET, socket.SOCK_STREAM)) as s:
-        s.connect((host, port))
-        for data in to_send | traverse:
-            s.send(data.encode("utf-8"))
+def netwrite(host, port):
+    def _(to_send):
+        with closing(socket.socket(socket.AF_INET, socket.SOCK_STREAM)) as s:
+            s.connect((host, port))
+            for data in to_send | traverse:
+                s.send(data.encode("utf-8"))
+
+    return _@P
 
 
 @Pipe
@@ -248,16 +297,21 @@ def traverse(args):
 
 
 @Pipe
-def tcp_write(to_send, host='127.0.0.1', port=1234):
-    with closing(socket.socket(socket.AF_INET, socket.SOCK_STREAM)) as s:
-        s.connect((host, port))
-        s.send(dill.dumps(to_send))
-        s.send(b'\n')
+def tcp_write(host='127.0.0.1', port=1234):
+    def _(to_send):
+        with closing(socket.socket(socket.AF_INET, socket.SOCK_STREAM)) as s:
+            s.connect((host, port))
+            s.send(dill.dumps(to_send))
+            s.send(b'\n')
+
+    return _@P
 
 
 @Pipe
-def concat(iterable, separator=", "):
-    return separator.join(map(str, iterable))
+def concat(separator=", "):
+    def _(iterable):
+        return separator.join(map(str, iterable))
+    return _@P
 
 
 @Pipe
@@ -290,12 +344,17 @@ def tee(iterable):
 
 
 @Pipe
-def write(iterable, fname, glue='\n'):
-    with open(fname, 'w') as f:
-        for item in iterable:
-            f.write(str(item) + glue)
+def write_to_file(fn, prefix='', suffix='\n', flush=True, mode='a+'):
+    def _(content):
+        with open(fn, mode) as f:
+            f.write(prefix)
+            f.write(content)
+            f.write(suffix)
+            if flush:
+                f.flush()
+        return content
 
-    return iterable
+    return _@P
 
 
 @Pipe
@@ -314,40 +373,45 @@ def chain(iterable):
 
 
 @Pipe
-def select(iterable, selector):
-    return (selector(x) for x in iterable)
+def take_while(predicate):
+    def _(iterable):
+        return itertools.takewhile(predicate, iterable)
+
+    return _@P
 
 
 @Pipe
-def where(iterable, predicate):
-    return (x for x in iterable if (predicate(x)))
+def skip_while(predicate):
+    def _(iterable):
+        return itertools.dropwhile(predicate, iterable)
+
+    return _@P
 
 
 @Pipe
-def take_while(iterable, predicate):
-    return itertools.takewhile(predicate, iterable)
+def aggregate(function, **kwargs):
+    def _(iterable):
+        if 'initializer' in kwargs:
+            return functools.reduce(function, iterable, kwargs['initializer'])
+        return functools.reduce(function, iterable)
+
+    return _@P
 
 
 @Pipe
-def skip_while(iterable, predicate):
-    return itertools.dropwhile(predicate, iterable)
+def groupby(keyfunc):
+    def _(iterable):
+        return itertools.groupby(sorted(iterable, key=keyfunc), keyfunc)
+
+    return _@P
 
 
 @Pipe
-def aggregate(iterable, function, **kwargs):
-    if 'initializer' in kwargs:
-        return functools.reduce(function, iterable, kwargs['initializer'])
-    return functools.reduce(function, iterable)
+def sort(**kwargs):
+    def _(iterable):
+        return sorted(iterable, **kwargs)
 
-
-@Pipe
-def groupby(iterable, keyfunc):
-    return itertools.groupby(sorted(iterable, key=keyfunc), keyfunc)
-
-
-@Pipe
-def sort(iterable, **kwargs):
-    return sorted(iterable, **kwargs)
+    return _@P
 
 
 @Pipe
@@ -361,50 +425,71 @@ def passed(x):
 
 
 @Pipe
-def index(iterable, value, start=0, stop=None):
-    return iterable.index(value, start, stop or len(iterable))
+def index(start=0, stop=None):
+    def _(value):
+        return iterable.index(value, start, stop or len(iterable))
+
+    return _@P
 
 
 @Pipe
-def strip(iterable, chars=None):
-    return iterable.strip(chars)
+def strip(chars='\n'):
+    def _(iterable):
+        return iterable.strip(chars)
+
+    return _@P
 
 
 @Pipe
-def rstrip(iterable, chars=None):
-    return iterable.rstrip(chars)
+def rstrip(chars='\n'):
+    def _(iterable):
+        return iterable.rstrip(chars)
+
+    return _@P
 
 
 @Pipe
-def lstrip(iterable, chars=None):
-    return iterable.lstrip(chars)
+def lstrip(chars='\n'):
+    def _(iterable):
+        return iterable.lstrip(chars)
+
+    return _@P
 
 
 @Pipe
-def run_with(iterable, func):
-    return (func(**iterable) if isinstance(iterable, dict) else
-            func(*iterable) if hasattr(iterable, '__iter__') else
-            func(iterable))
+def run_with(func):
+    def _(iterable):
+        return (func(**iterable) if isinstance(iterable, dict) else
+                func(*iterable) if hasattr(iterable, '__iter__') else
+                func(iterable))
+
+    return _@P
 
 
 @Pipe
-def append(iterable, y):
+def append(y):
     """追加元素到列表尾部，[]>>t('c')>>t('b') == ['c', 'b']"""
-    if hasattr(iterable, '__iter__') and not isinstance(iterable, str):
-        return iterable + type(iterable)([y])
-    return [iterable, y]
+    def _(iterable):
+        if hasattr(iterable, '__iter__') and not isinstance(iterable, str):
+            return iterable + type(iterable)([y])
+        return [iterable, y]
+
+    return _@P
 
 
 @Pipe
-def to_type(x, t):
+def to_type(t):
     """转换类型 '3'>>to_type(int)==3"""
-    return t(x)
+    def _(x):
+        return t(x)
+
+    return _@P
 
 
 @Pipe
-def read(x, mode='r'):
-    """ 按行读入文本文件，mode参数为读到方式 'xxx.log'>>read>>tail(2)"""
-    with open(x, mode) as f:
+def read(fn):
+    """ 按行读入文本文件，mode参数为读到方式 'xxx.log'>>read()>>tail(2)"""
+    with open(fn, 'r') as f:
         for line in f:
             yield line
 
@@ -429,9 +514,6 @@ else:
 @Pipe
 def size(x):
     return sys.getsizeof(x)
-
-
-from tornado import gen, httpclient
 
 
 @Pipe
@@ -460,11 +542,11 @@ def post_to(body, url='http://127.0.0.1:9999', headers=None):
     return result
 
 
-
-# 转换内置函数为pipe
+# %%转换内置函数为pipe
 for i in builtins.__dict__.copy():
-    f = 'to_'+i
-    builtins.__dict__[f] = Pipe(builtins.__dict__[i])
+    if callable(builtins.__dict__.get(i)):
+        f = 'to_' + i
+        builtins.__dict__[f] = Pipe(builtins.__dict__[i])
 
 if __name__ == "__main__":
     import doctest
