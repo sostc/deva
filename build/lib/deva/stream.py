@@ -5,18 +5,24 @@ from tornado import gen
 
 from .streamz.core import Stream as Streamz
 from tornado.httpserver import HTTPServer
+from tornado.queues import Queue
+from tornado.iostream import StreamClosedError
 import atexit
+
+import weakref
 
 import subprocess
 from tornado.web import Application, RequestHandler
 from .pipe import *
 
 import os
-import sys
+from dataclasses import dataclass, field
 
 import dill
+from pampy import match, ANY
 from pymaybe import maybe
-import walrus
+
+import sys
 
 
 class Stream(Streamz):
@@ -26,34 +32,40 @@ class Stream(Streamz):
         super(Stream, self).__init__(*args, **kwargs)
 
     def write(self, value):  # |
-        """Emit value to stream ,end,return emit result."""
+        """emit value to stream ,end,return emit result"""
         self.emit(value)
 
     def send(self, value):  # |
-        """Emit value to stream ,end,return emit result."""
+        """emit value to stream ,end,return emit result"""
         self.emit(value)
 
-    def to_redis_stream(self, topic, maxlen=None):
+    def to_redis_stream(self, topic, db=None, maxlen=None):
         """
-        Push stream to redis stream.
+        push stream to redis stream
 
         ::topic:: redis stream topic
-        ::maxlen:: data store in redis stream max len
+        ::db:: walrus redis databse object ,default :from walrus import Database,db=Database()
         """
-        try:
-            self.db = walrus.Database()
-        except:
-            raise Exception('exception while warus connect to redis')
+        import dill
+        if not db:
+            try:
+                import walrus
+                self.db = walrus.Database()
+            except:
+                raise
         producer = self.db.Stream(topic)
-        self.map(lambda x: {"data": dill.dumps(x)})\
-            .sink(producer.add, maxlen=maxlen)  # producer only accept non-empty dict dict
+
+        from fn import F
+        madd = F(producer.add, maxlen=maxlen)
+        self.map(lambda x: {"data": dill.dumps(x)}).sink(
+            madd)  # producer only accept non-empty dict dict
         return self
 
     def to_share(self, name=None):
         if not name:
             name = self.stream_name
 
-        self.to_redis_stream(topic=name, maxlen=1)
+        self.to_redis_stream(topic=name, maxlen=10)
         return self
 
     @classmethod
@@ -94,6 +106,7 @@ class engine(Stream):
                  **kwargs):
 
         self.interval = interval
+
         self.func = func
         self.asyncflag = asyncflag
         if self.asyncflag:
@@ -160,7 +173,7 @@ class from_redis(Stream):
             self.start()
 
     def do_poll(self):
-        """同步redis 库,todo:寻找异步的stream库来查询."""
+        """同步redis 库,todo:寻找异步的stream库来查询"""
         if self.consumer is not None:
             meta_msgs = self.consumer.read(count=1)
 
@@ -431,8 +444,8 @@ namespace = Namespace()
 NS = namespace.create_stream
 
 StreamHandler(sys.stdout).push_application()
-logger = Logger()
-log = NS('log', cache_max_age_seconds=60 * 60 * 24)
+logger = Logger(__name__)
+log = NS('log', cache_max_age_seconds=60*60*24)
 log.sink(logger.info)
 
 
@@ -451,8 +464,8 @@ def exit():
     'exit' >> log
 
 
-class when(object):
-    """when a  occasion(from source) appear, then do somthing .
+class when():
+    """when a  occasion(from source) appear, then do somthing 
     when('open').then(lambda :print(f'开盘啦'))
     """
 

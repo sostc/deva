@@ -433,7 +433,7 @@ def index(start=0, stop=None):
 
 
 @Pipe
-def strip(chars='\n'):
+def strip(chars=None):
     def _(iterable):
         return iterable.strip(chars)
 
@@ -441,7 +441,7 @@ def strip(chars='\n'):
 
 
 @Pipe
-def rstrip(chars='\n'):
+def rstrip(chars=None):
     def _(iterable):
         return iterable.rstrip(chars)
 
@@ -449,7 +449,7 @@ def rstrip(chars='\n'):
 
 
 @Pipe
-def lstrip(chars='\n'):
+def lstrip(chars=None):
     def _(iterable):
         return iterable.lstrip(chars)
 
