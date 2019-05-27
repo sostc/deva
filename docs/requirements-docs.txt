@@ -1,9 +1,0 @@
-numpydoc
-sphinx
-sphinx_rtd_theme
-tornado
-toolz
-zict
-pandas
-dask
-distributed
