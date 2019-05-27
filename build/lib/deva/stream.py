@@ -5,24 +5,19 @@ from tornado import gen
 
 from .streamz.core import Stream as Streamz
 from tornado.httpserver import HTTPServer
-from tornado.queues import Queue
-from tornado.iostream import StreamClosedError
 import atexit
-
-import weakref
 
 import subprocess
 from tornado.web import Application, RequestHandler
 from .pipe import *
 
 import os
-from dataclasses import dataclass, field
-
-import dill
-from pampy import match, ANY
-from pymaybe import maybe
-
 import sys
+
+import dill, json
+
+from pymaybe import maybe
+import walrus
 
 
 class Stream(Streamz):
@@ -32,46 +27,38 @@ class Stream(Streamz):
         super(Stream, self).__init__(*args, **kwargs)
 
     def write(self, value):  # |
-        """emit value to stream ,end,return emit result"""
+        """Emit value to stream ,end,return emit result."""
         self.emit(value)
 
     def send(self, value):  # |
-        """emit value to stream ,end,return emit result"""
+        """Emit value to stream ,end,return emit result."""
         self.emit(value)
 
-    def to_redis_stream(self, topic, db=None, maxlen=None):
+    def to_redis_stream(self, topic, maxlen=1):
         """
-        push stream to redis stream
+        Push stream to redis stream.
 
         ::topic:: redis stream topic
-        ::db:: walrus redis databse object ,default :from walrus import Database,db=Database()
+        ::maxlen:: data store in redis stream max len
         """
-        import dill
-        if not db:
-            try:
-                import walrus
-                self.db = walrus.Database()
-            except:
-                raise
+        try:
+            self.db = walrus.Database()
+        except:
+            raise Exception('exception while warus connect to redis')
         producer = self.db.Stream(topic)
-
-        from fn import F
-        madd = F(producer.add, maxlen=maxlen)
-        self.map(lambda x: {"data": dill.dumps(x)}).sink(
-            madd)  # producer only accept non-empty dict dict
+        self.map(lambda x: {"data": dill.dumps(x)})\
+            .sink(producer.add, maxlen=maxlen)  # producer only accept non-empty dict
         return self
 
     def to_share(self, name=None):
-        if not name:
-            name = self.stream_name
-
-        self.to_redis_stream(topic=name, maxlen=10)
+        name = maybe(name).or_else(self.stream_name)
+        self.to_redis_stream(topic=name, maxlen=1)
         return self
 
     @classmethod
     def from_share(cls, topics, group=str(os.getpid()), **kwargs):
         # 使用pid做group,区分不同进程消费,一个进程消费结束,不影响其他进程继续消费
-        return cls.from_redis(topics=topics, start=True, group=group).map(lambda x: x.msg_body, stream_name=topics, **kwargs)
+        return cls.from_redis(topics=topics, start=True, group=group).map(lambda x: x['data'], stream_name=topics, **kwargs)
 
     @classmethod
     def from_tcp(cls, port=1234, **kwargs):
@@ -106,7 +93,6 @@ class engine(Stream):
                  **kwargs):
 
         self.interval = interval
-
         self.func = func
         self.asyncflag = asyncflag
         if self.asyncflag:
@@ -138,18 +124,6 @@ class engine(Stream):
         self.stopped = True
 
 
-class RedisMsg(object):
-    def __init__(self, topic, msg_id, msg_body):
-        import dill
-        self.topic = topic
-        self.msg_id = msg_id
-        try:
-            self.msg_body = dill.loads(msg_body)
-        except:
-            self.msg_body = msg_body
-
-    def __repr__(self,):
-        return '<%s %s>' % (self.topic, self.msg_body)
 
 
 @Stream.register_api(staticmethod)
@@ -172,35 +146,24 @@ class from_redis(Stream):
         if start:
             self.start()
 
-    def do_poll(self):
-        """同步redis 库,todo:寻找异步的stream库来查询"""
+    def do_poll(self)->list:
+        """同步redis 库,todo:寻找异步的stream库来查询."""
         if self.consumer is not None:
             meta_msgs = self.consumer.read(count=1)
-
             # Returns:
             [('stream-a', [(b'1539023088125-0', {b'message': b'new a'})]),
              ('stream-b', [(b'1539023088125-0', {b'message': b'new for b'})]),
              ('stream-c', [(b'1539023088126-0', {b'message': b'c-0'})])]
 
-            if meta_msgs:
-                l = []
-                for meta_msg in meta_msgs:
-                    topic, msg = meta_msg[0], meta_msg[1][0]
-                    msg_id, msg_body = msg
-                    msg_body = msg_body.values() >> first  # {'data':'dills'}
-                    l.append(RedisMsg(topic, msg_id, msg_body))
-                return l
-            else:
-                return None
+            for meta_msg in meta_msgs:
+                topic, (id, body) = meta_msg[0], meta_msg[1][0]
+                data = dill.loads(body[b'data'])# {b'data':'dills'},
+                self._emit({'topic':topic,'id':id,'data':data})
 
     @gen.coroutine
     def poll_redis(self):
         while True:
-            vals = self.do_poll()
-            if vals:
-                for val in vals:
-                    self._emit(val)
-
+            self.do_poll()
             yield gen.sleep(self.poll_interval)
             if self.stopped:
                 break
@@ -220,29 +183,21 @@ class from_redis(Stream):
 def dumps(body):
     if not isinstance(body, bytes):
         try:
-            import json
-            body = json.dumps(body)
+            body = json.dumps(body)#only support dict
         except:
-            import dill
             body = dill.dumps(body)
     return body
 
 
 def loads(body):
     try:
-        import json
         body = json.loads(body)
     except TypeError:
-        import dill
         body = dill.loads(body)
     except ValueError:
-        try:
-            body = body.decode('utf-8')
-        except:
-            import dill
-            body = dill.loads(body)
-
-    return body
+        body = body.decode('utf-8')
+    finally:
+        return body
 
 
 @Stream.register_api(staticmethod)
@@ -369,15 +324,12 @@ class scheduler(Stream):
         self._scheduler.stop()
         self.stopped = True
 
-    def add_job(self, name, func=None, **kwargs):
+    def add_job(self, name, func, **kwargs):
         """
-        example: i.add_job(name='hello',seconds=5,start_date='2019-04-03 09:25:00')
-        i.add_job(name='hello',seconds=5,start_date='2019-04-03 09:25:00')
+        Example:
+         i.add_job(name='hello',func = lambda x:'heoo',seconds=5,start_date='2019-04-03 09:25:00')
         """
-        if not func:
-            def myfunc(): return self._emit(name)
-        else:
-            def myfunc(): return self._emit(func())
+        myfunc = lambda :self._emit(func())
         return self._scheduler.add_job(func=myfunc, name=name, id=name, trigger='interval', **kwargs)
 
     def remove_job(self, name):
@@ -422,14 +374,14 @@ class Dtalk(Stream):
                               method="POST", headers=headers, validate_cert=False)
         # validate_cert=False 服务器ssl问题解决
         try:
-            result = yield retry_client.fetch(request)
-            result = json.loads(result.body.decode('utf-8'))
+            response = yield retry_client.fetch(request)
+            response = json.loads(result.body.decode('utf-8'))
         except HTTPError as e:
             # My request failed after 2 retries
-            result = 'send dtalk eror,msg:{data},{e}'
+            response = 'send dtalk eror,msg:{data},{e}'
 
-        {'class': Dtalk, 'data': msg, 'webhook': self.webhook,
-            'result': result} >> self.log
+        return {'class': Dtalk, 'data': msg, 'webhook': self.webhook,
+            'response': response} >> self.log
 
 
 class Namespace(dict):
@@ -444,8 +396,8 @@ namespace = Namespace()
 NS = namespace.create_stream
 
 StreamHandler(sys.stdout).push_application()
-logger = Logger(__name__)
-log = NS('log', cache_max_age_seconds=60*60*24)
+logger = Logger()
+log = NS('log', cache_max_age_seconds=60 * 60 * 24)
 log.sink(logger.info)
 
 
@@ -464,8 +416,8 @@ def exit():
     'exit' >> log
 
 
-class when():
-    """when a  occasion(from source) appear, then do somthing 
+class when(object):
+    """when a  occasion(from source) appear, then do somthing .
     when('open').then(lambda :print(f'开盘啦'))
     """
 

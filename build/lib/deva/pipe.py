@@ -345,11 +345,20 @@ def tee(iterable):
 
 @Pipe
 def write_to_file(fn, prefix='', suffix='\n', flush=True, mode='a+'):
+    """同时支持二进制和普通文本的写入.
+
+    Exsapmle:
+        123>>write_to_file('tpm.txt')
+        b'abc'>>write_to_file('music.mp3','ab+')
+    """
     def _(content):
         with open(fn, mode) as f:
-            f.write(prefix)
-            f.write(content)
-            f.write(suffix)
+            if 'b' in mode:
+                f.write(content)
+            else:
+                f.write(prefix)
+                f.write(str(content))
+                f.write(suffix)
             if flush:
                 f.flush()
         return content
@@ -433,7 +442,7 @@ def index(start=0, stop=None):
 
 
 @Pipe
-def strip(chars=None):
+def strip(chars='\n'):
     def _(iterable):
         return iterable.strip(chars)
 
@@ -441,7 +450,7 @@ def strip(chars=None):
 
 
 @Pipe
-def rstrip(chars=None):
+def rstrip(chars='\n'):
     def _(iterable):
         return iterable.rstrip(chars)
 
@@ -449,7 +458,7 @@ def rstrip(chars=None):
 
 
 @Pipe
-def lstrip(chars=None):
+def lstrip(chars='\n'):
     def _(iterable):
         return iterable.lstrip(chars)
 

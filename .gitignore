@@ -8,3 +8,8 @@
 *.swp
 *.data
 *.db
+docs/_build/html/_modules/deva/streamz/utils.html
+*.html
+*.txt
+*.css
+*.js

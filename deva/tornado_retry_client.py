@@ -1,5 +1,27 @@
 # -*- coding: utf-8 -*-
 
+"""
+
+Example:
+    from tornado.httpclient import HTTPRequest, HTTPError
+
+    from .tornado_retry_client import RetryClient
+    retry_client = RetryClient(max_retries=3)
+
+    import json
+    if isinstance(msg, bytes) or isinstance(msg, set):
+        msg = str(msg)
+
+    data = {"msgtype": "text", "text": {"content": msg},
+            "at": {"atMobiles": [], "isAtAll": False}}
+
+    post_data = json.JSONEncoder().encode(data)
+    headers = {'Content-Type': 'application/json'}
+    request = HTTPRequest(self.webhook, body=post_data,
+                          method="POST", headers=headers, validate_cert=False)
+    # validate_cert=False 服务器ssl问题解决
+    response = yield retry_client.fetch(request)
+"""
 import os
 import logging
 
