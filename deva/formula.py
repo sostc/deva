@@ -1,17 +1,19 @@
 from outliers import smirnov_grubbs as grubbs
 import pandas as pd
 
+
 def detect_outlier(num_list, alpha=0.05):
     """异常值检测"""
     data = pd.Series(num_list)
-    return grubbs.min_test_outliers(data,alpha)
+    return grubbs.min_test_outliers(data, alpha)
 
-def translate(x,to='en'):
+
+def translate(x, to='en'):
     """翻译函数to = 'zh-CN'"""
     from textblob import TextBlob
     try:
         return TextBlob(x).translate(to=to).raw
-    except:
+    except Exception:
         return x
 
-# from cocoNLP import extractor
+#  from cocoNLP import extractor

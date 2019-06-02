@@ -5,7 +5,8 @@ WhooshAlchemy
 
 Adds Whoosh indexing capabilities to SQLAlchemy models.
 
-Based on Flask-whooshalchemy by Karl Gyllstrom (Flask is still supported, but not mandatory).
+Based on Flask-whooshalchemy by Karl Gyllstrom (Flask is still supported,
+ but not mandatory).
 
 :copyright: (c) 2012 by Stefane Fermigier
 :copyright: (c) 2012 by Karl Gyllstrom
@@ -24,8 +25,8 @@ from sqlalchemy import event
 from sqlalchemy.orm.session import Session
 from whoosh.fields import Schema
 from whoosh.qparser import MultifieldParser
-from .pipe import *
-from .stream import *
+from deva import log
+
 
 class IndexService(object):
 
@@ -46,7 +47,8 @@ class IndexService(object):
 
     def register_class(self, model_class):
         """
-        Registers a model class, by creating the necessary Whoosh index if needed.
+        Registers a model class, by creating the
+        necessary Whoosh index if needed.
         """
 
         index_path = os.path.join(self.whoosh_base, model_class.__name__)
@@ -67,10 +69,12 @@ class IndexService(object):
 
     def index_for_model_class(self, model_class):
         """
-        Gets the whoosh index for this model, creating one if it does not exist.
-        in creating one, a schema is created based on the fields of the model.
-        Currently we only support primary key -> whoosh.ID, and sqlalchemy.TEXT
-        -> whoosh.TEXT, but can add more later. A dict of model -> whoosh index
+        Gets the whoosh index for this model, creating one if it does
+         not exist.in creating one, a schema is created based on the
+         fields of the model.Currently we only support primary
+        key -> whoosh.ID, and sqlalchemy.TEXT
+        -> whoosh.TEXT, but can add more later. A dict of
+        model -> whoosh index
         is added to the ``app`` variable.
         """
         index = self.indexes.get(model_class.__name__)
@@ -117,9 +121,10 @@ class IndexService(object):
     def after_commit(self, session):
         """
         Any db updates go through here. We check if any of these models have
-        ``__searchable__`` fields, indicating they need to be indexed. With these
-        we update the whoosh index for the model. If no index exists, it will be
-        created here; this could impose a penalty on the initial commit of a model.
+        ``__searchable__`` fields, indicating they need to be indexed. With
+        these we update the whoosh index for the model. If no index exists,
+         it will be created here; this could impose a penalty on the
+         initial commit of a model.
         """
 
         for typ, values in self.to_update.items():
@@ -130,12 +135,13 @@ class IndexService(object):
                 searchable = model_class.__searchable__
 
                 for change_type, model in values:
-                    # delete everything. stuff that's updated or inserted will get
-                    # added as a new doc. Could probably replace this with a whoosh
-                    # update.
+                    # delete everything. stuff that's updated or inserted will
+                    # get added as a new doc. Could probably replace this with
+                    # a whoosh update.
 
                     writer.delete_by_term(
-                        primary_field, text_type(getattr(model, primary_field)))
+                        primary_field, text_type(getattr(model,
+                                                         primary_field)))
 
                     if change_type in ("new", "changed"):
                         attrs = dict((key, getattr(model, key))
@@ -161,16 +167,23 @@ class Searcher(object):
         fields = set(index.schema._fields.keys()) - set([self.primary])
         self.parser = MultifieldParser(list(fields), index.schema)
 
-    def __call__(self, query, limit=20,pagenum=1,pagelen=20):
+    def __call__(self, query, limit=20, pagenum=1, pagelen=20):
         session = self.session
-        # When using Flask, get the session from the query attached to the model class.
+        # When using Flask, get the session from the query
+        # attached to the model class.
         if not session:
             session = self.model_class.query.session
 
         if not pagenum:
-            results = self.index.searcher().search(self.parser.parse(query), limit=limit)
+            results = self.index.searcher().search(self.parser.parse(query),
+                                                   limit=limit)
         else:
-            results = self.index.searcher().search_page(self.parser.parse(query),pagenum=pagenum,pagelen=pagelen) >>log
+            results = self.index.searcher().search_page(
+                self.parser.parse(query),
+                pagenum=pagenum,
+                pagelen=pagelen
+            ) >> log
+
         keys = [x[self.primary] for x in results]
         primary_column = getattr(self.model_class, self.primary)
         return session.query(self.model_class).filter(primary_column.in_(keys))

@@ -375,13 +375,12 @@ class Dtalk(Stream):
         # validate_cert=False 服务器ssl问题解决
         try:
             response = yield retry_client.fetch(request)
-            response = json.loads(result.body.decode('utf-8'))
+            result = json.loads(response.body.decode('utf-8'))
         except HTTPError as e:
             # My request failed after 2 retries
-            response = 'send dtalk eror,msg:{data},{e}'
+            result = 'send dtalk eror,msg:{data},{e}'
 
-        return {'class': Dtalk, 'data': msg, 'webhook': self.webhook,
-            'response': response} >> self.log
+        return {'class': 'Dtalk', 'data': msg, 'webhook': self.webhook,'result': result} >> self.log
 
 
 class Namespace(dict):
@@ -396,7 +395,7 @@ namespace = Namespace()
 NS = namespace.create_stream
 
 StreamHandler(sys.stdout).push_application()
-logger = Logger()
+logger = Logger(__name__)
 log = NS('log', cache_max_age_seconds=60 * 60 * 24)
 log.sink(logger.info)
 
@@ -448,6 +447,7 @@ def gen_quant():
     df = df[(True ^ df['close'].isin([0]))]  # 昨天停牌
     df = df[(True ^ df['now'].isin([0]))]  # 今日停牌
     df['p_change'] = (df.now-df.close)/df.close
+    df['p_change'] = df.p_change.map(float)
     df['code'] = df.index
     return df
 

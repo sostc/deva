@@ -6,6 +6,7 @@ jieba
 six
 requests
 pandas
+pandas-compat
 dill
 Whoosh
 SQLAlchemy

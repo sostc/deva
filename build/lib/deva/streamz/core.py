@@ -738,7 +738,11 @@ class starmap(Stream):
 
 
 def _truthy(x):
-    return not not x
+    import pandas as pd
+    if isinstance(x, pd.DataFrame):
+        return not not x.empty
+    else:
+        return not not x
 
 
 @Stream.register_api()

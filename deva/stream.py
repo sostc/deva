@@ -1,23 +1,16 @@
+# %%
 
-import logging
-from logbook import Logger, StreamHandler
 from tornado import gen
-
-from .streamz.core import Stream as Streamz
 from tornado.httpserver import HTTPServer
-import atexit
-
+from deva.streamz.core import Stream as Streamz
 import subprocess
 from tornado.web import Application, RequestHandler
-from .pipe import *
-
 import os
-import sys
-
-import dill, json
-
+import dill
+import json
 from pymaybe import maybe
 import walrus
+import moment
 
 
 class Stream(Streamz):
@@ -26,13 +19,10 @@ class Stream(Streamz):
     def __init__(self, name=None, *args, **kwargs):
         super(Stream, self).__init__(*args, **kwargs)
 
-    def write(self, value):  # |
+    def write(self, value):
         """Emit value to stream ,end,return emit result."""
         self.emit(value)
-
-    def send(self, value):  # |
-        """Emit value to stream ,end,return emit result."""
-        self.emit(value)
+        return value
 
     def to_redis_stream(self, topic, maxlen=1):
         """
@@ -41,43 +31,37 @@ class Stream(Streamz):
         ::topic:: redis stream topic
         ::maxlen:: data store in redis stream max len
         """
-        try:
-            self.db = walrus.Database()
-        except:
-            raise Exception('exception while warus connect to redis')
-        producer = self.db.Stream(topic)
+        producer = walrus.Database().Stream(topic)
+        # producer only accept non-empty dict
         self.map(lambda x: {"data": dill.dumps(x)})\
-            .sink(producer.add, maxlen=maxlen)  # producer only accept non-empty dict
+            .sink(producer.add, maxlen=maxlen)
         return self
 
-    def to_share(self, name=None):
-        name = maybe(name).or_else(self.stream_name)
-        self.to_redis_stream(topic=name, maxlen=1)
+    def to_share(self, topic=None):
+        topic = maybe(topic).or_else(self.stream_name)
+        self.to_redis_stream(topic=topic, maxlen=1)
         return self
 
     @classmethod
     def from_share(cls, topics, group=str(os.getpid()), **kwargs):
         # 使用pid做group,区分不同进程消费,一个进程消费结束,不影响其他进程继续消费
-        return cls.from_redis(topics=topics, start=True, group=group).map(lambda x: x['data'], stream_name=topics, **kwargs)
+        return cls.from_redis(topics=topics, start=True, group=group)\
+                  .map(lambda x: x['data'], stream_name=topics, **kwargs)
 
     @classmethod
     def from_tcp(cls, port=1234, **kwargs):
         def dec(x):
             try:
                 return dill.loads(x)
-            except:
+            except Exception:
                 return x
         return Streamz.from_tcp(port, start=True, **kwargs).map(dec)
 
 
-def gen_test():
-    import moment
-    return moment.now().seconds
-
-
 @Stream.register_api(staticmethod)
 class engine(Stream):
-    """
+    """持续生产数据的引擎.
+
     ::func:: func to gen data
     ::interval:: func to run interval time
     ::asyncflag:: func execute in threadpool
@@ -87,7 +71,7 @@ class engine(Stream):
     def __init__(self,
                  interval=1,
                  start=False,
-                 func=gen_test,
+                 func=lambda: moment.now().seconds,
                  asyncflag=False,
                  threadcount=5,
                  **kwargs):
@@ -124,20 +108,16 @@ class engine(Stream):
         self.stopped = True
 
 
-
-
 @Stream.register_api(staticmethod)
 class from_redis(Stream):
-    def __init__(self, topics, poll_interval=0.1, start=False, group="test",
-                 **kwargs):
-
-        from walrus import Database
+    def __init__(self, topics, interval=0.1, start=False,
+                 group="test", **kwargs):
         self.consumer = None
         self.topics = topics
         self.group = group
-        self.poll_interval = poll_interval
-        self.db = Database()
-        self.consumer = self.db.consumer_group(self.group, self.topics)
+        self.interval = interval
+        self.consumer = walrus.Database().consumer_group(self.group,
+                                                         self.topics)
         self.consumer.create()  # Create the consumer group.
         # self.consumer.set_id('$')  # 不会从头读
 
@@ -146,25 +126,27 @@ class from_redis(Stream):
         if start:
             self.start()
 
-    def do_poll(self)->list:
-        """同步redis 库,todo:寻找异步的stream库来查询."""
+    def do_poll(self) -> list:
+        """同步redis库,todo:寻找异步的stream库来查询."""
         if self.consumer is not None:
             meta_msgs = self.consumer.read(count=1)
             # Returns:
+            """
             [('stream-a', [(b'1539023088125-0', {b'message': b'new a'})]),
              ('stream-b', [(b'1539023088125-0', {b'message': b'new for b'})]),
              ('stream-c', [(b'1539023088126-0', {b'message': b'c-0'})])]
-
+             """
             for meta_msg in meta_msgs:
-                topic, (id, body) = meta_msg[0], meta_msg[1][0]
-                data = dill.loads(body[b'data'])# {b'data':'dills'},
-                self._emit({'topic':topic,'id':id,'data':data})
+                # {b'data':'dills'},
+                topic, (rid, body) = meta_msg[0], meta_msg[1][0]
+                data = dill.loads(body[b'data'])
+                self._emit({'topic': topic, 'rid': rid, 'data': data})
 
     @gen.coroutine
     def poll_redis(self):
         while True:
             self.do_poll()
-            yield gen.sleep(self.poll_interval)
+            yield gen.sleep(self.interval)
             if self.stopped:
                 break
 
@@ -180,29 +162,9 @@ class from_redis(Stream):
             self.stopped = True
 
 
-def dumps(body):
-    if not isinstance(body, bytes):
-        try:
-            body = json.dumps(body)#only support dict
-        except:
-            body = dill.dumps(body)
-    return body
-
-
-def loads(body):
-    try:
-        body = json.loads(body)
-    except TypeError:
-        body = dill.loads(body)
-    except ValueError:
-        body = body.decode('utf-8')
-    finally:
-        return body
-
-
 @Stream.register_api(staticmethod)
 class from_http_request(Stream):
-    """ receive data from http request,emit httprequest data to stream"""
+    """Receive data from http request,emit httprequest data to stream."""
 
     def __init__(self, port, path='/.*', start=False, server_kwargs=None):
         self.port = port
@@ -214,13 +176,29 @@ class from_http_request(Stream):
         if start:  # pragma: no cover
             self.start()
 
+    def _loads(self, body):
+        """解析从web端口提交过来的数据.
+
+        可能的数据有字符串和二进制,
+        字符串可能是直接字符串,也可能是json编码后的字符串
+        二进制可能是图像等直接可用的二进制,也可能是dill编码的二进制pyobject
+        """
+        try:
+            body = json.loads(body)
+        except TypeError:
+            body = dill.loads(body)
+        except ValueError:
+            body = body.decode('utf-8')
+        finally:
+            return body
+
     def _start_server(self):
         class Handler(RequestHandler):
             source = self
 
             @gen.coroutine
             def post(self):
-                self.request.body = loads(self.request.body)
+                self.request.body = self._loads(self.request.body)
                 yield self.source._emit(self.request.body)
                 self.write('OK')
 
@@ -236,7 +214,7 @@ class from_http_request(Stream):
             self.loop.add_callback(self._start_server)
 
     def stop(self):
-        """Shutdown HTTP server"""
+        """Shutdown HTTP server."""
         if not self.stopped:
             self.server.stop()
             self.server = None
@@ -245,10 +223,10 @@ class from_http_request(Stream):
 
 @Stream.register_api(staticmethod)
 class from_command(Stream):
-    """ receive command eval result data from subprocess,emit  data into stream"""
+    """Receive command eval result data from subprocess,emit to stream."""
 
-    def __init__(self, poll_interval=0.1, **kwargs):
-        self.poll_interval = poll_interval
+    def __init__(self, interval=0.1, **kwargs):
+        self.interval = interval
         super(from_command, self).__init__(ensure_io_loop=True, **kwargs)
         self.stopped = True
         from concurrent.futures import ThreadPoolExecutor
@@ -270,14 +248,20 @@ class from_command(Stream):
 
     def run(self, command):
         self.subp = subprocess.Popen(
-            command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, bufsize=1, stdin=subprocess.PIPE)
+            command,
+            shell=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE, bufsize=1,
+            stdin=subprocess.PIPE)
         self.thread_pool.submit(self.poll_err)
         self.thread_pool.submit(self.poll_out)
 
 
 @Stream.register_api(staticmethod)
 class scheduler(Stream):
-    """
+    """定时流.
+
+    Examples:
     s = scheduler()
     s.add_job(name='hello',seconds=5,start_date='2019-04-03 09:25:00')
     s.get_jobs()>>pmap(lambda x:x.next_run_time)>>to_list
@@ -291,7 +275,7 @@ class scheduler(Stream):
 
     s.add_job(func=lambda :print('yahoo'),seconds=5)
 
-    Parameters: 
+    Parameters:
     weeks (int) – number of weeks to wait
     days (int) – number of days to wait
     hours (int) – number of hours to wait
@@ -299,12 +283,12 @@ class scheduler(Stream):
     seconds (int) – number of seconds to wait
     start_date (datetime|str) – starting point for the interval calculation
     end_date (datetime|str) – latest possible date/time to trigger on
-    timezone (datetime.tzinfo|str) – time zone to use for the date/time calculations
-    jitter (int|None) – advance or delay the job execution by jitter seconds at most.
+    timezone (datetime.tzinfo|str) – to use for the date/time calculations.
+    jitter (int|None) – advance or delay  by jitter seconds at most.
 
     """
 
-    def __init__(self, poll_interval=0.1, start=True, **kwargs):
+    def __init__(self, start=True, **kwargs):
         from apscheduler.schedulers.tornado import TornadoScheduler
         import pytz
 
@@ -324,13 +308,19 @@ class scheduler(Stream):
         self._scheduler.stop()
         self.stopped = True
 
-    def add_job(self, name, func, **kwargs):
-        """
+    def add_job(self, func, name=None, **kwargs):
+        """增加任务.
+
         Example:
-         i.add_job(name='hello',func = lambda x:'heoo',seconds=5,start_date='2019-04-03 09:25:00')
+         i.add_job(name='hello',func = lambda x:'heoo',
+         seconds=5,start_date='2019-04-03 09:25:00')
         """
-        myfunc = lambda :self._emit(func())
-        return self._scheduler.add_job(func=myfunc, name=name, id=name, trigger='interval', **kwargs)
+        return self._scheduler.add_job(
+            func=lambda: self._emit(func()),
+            name=name,
+            id=name,
+            trigger='interval',
+            **kwargs)
 
     def remove_job(self, name):
         return self._scheduler.remove_job(job_id=name)
@@ -339,121 +329,29 @@ class scheduler(Stream):
         return self._scheduler.get_jobs()
 
 
-# 自定义机器人的封装类
-class Dtalk(Stream):
-    """docstring for DtRobot"""
-
-    def __init__(self, webhook=None, log=passed, **kwargs):
-        self.log = log
-        super(Dtalk, self).__init__(ensure_io_loop=True, **kwargs)
-        self.webhook = maybe(webhook)\
-            .or_else("https://oapi.dingtalk.com/robot/send?access_token=c7a5a2b2b23ea1677657b743e8f6ca9ffe0785ef5f378b5fdc443bb29a5defc3")
-
-    # text类型
-    @gen.coroutine
-    def emit(self, msg, asynchronous=False):
-        yield self.post(msg)
-
-    @gen.coroutine
-    def post(self, msg):
-        from tornado.httpclient import HTTPRequest, HTTPError
-
-        from .tornado_retry_client import RetryClient
-        retry_client = RetryClient(max_retries=3)
-
-        import json
-        if isinstance(msg, bytes) or isinstance(msg, set):
-            msg = str(msg)
-
-        data = {"msgtype": "text", "text": {"content": msg},
-                "at": {"atMobiles": [], "isAtAll": False}}
-
-        post_data = json.JSONEncoder().encode(data)
-        headers = {'Content-Type': 'application/json'}
-        request = HTTPRequest(self.webhook, body=post_data,
-                              method="POST", headers=headers, validate_cert=False)
-        # validate_cert=False 服务器ssl问题解决
-        try:
-            response = yield retry_client.fetch(request)
-            result = json.loads(response.body.decode('utf-8'))
-        except HTTPError as e:
-            # My request failed after 2 retries
-            result = 'send dtalk eror,msg:{data},{e}'
-
-        return {'class': 'Dtalk', 'data': msg, 'webhook': self.webhook,'result': result} >> self.log
-
-
 class Namespace(dict):
     def create_stream(self, stream_name, **kwargs):
         try:
             return self[stream_name]
         except KeyError:
-            return self.setdefault(stream_name, Stream(stream_name=stream_name, **kwargs))
+            return self.setdefault(
+                stream_name,
+                Stream(stream_name=stream_name, **kwargs)
+            )
 
 
 namespace = Namespace()
-NS = namespace.create_stream
-
-StreamHandler(sys.stdout).push_application()
-logger = Logger(__name__)
-log = NS('log', cache_max_age_seconds=60 * 60 * 24)
-log.sink(logger.info)
 
 
-warn = NS('warn')
-warn.sink(logging.warning)
-
-try:
-    from .process import bus
-except:
-    bus = NS('bus')
-    'bus not import,check your redis server,start a local bus ' >> warn
+def NS(*args, **kwargs):
+    NS.namespace = namespace
+    return namespace.create_stream(*args, **kwargs)
 
 
-@atexit.register
-def exit():
-    'exit' >> log
-
-
-class when(object):
-    """when a  occasion(from source) appear, then do somthing .
-    when('open').then(lambda :print(f'开盘啦'))
-    """
-
-    def __init__(self, occasion, source=bus):
-        self.occasion = occasion
-        self.source = source
-
-    def then(self, func):
-        self.source.filter(lambda x: maybe(
-            x) == self.occasion).sink(lambda x: func())
-
-
-def get_all_live_stream_as_stream(recent_limit=5):
-    """取得当前系统运行的所有流,并生成一个合并的流做展示"""
-    return engine(func=lambda: Stream.getinstances() >> pmap(lambda s: {s.name: s.recent(recent_limit)}) >> to_list, interval=1, start=True)
-
-
-def gen_all_stream_recent():
-    return Stream.getinstances() >> pmap(lambda s: {s.stream_name: s.recent()}) >> to_list
-
-
-def gen_quant():
-    import pandas as pd
-    import easyquotation
-    quotation_engine = easyquotation.use("sina")
-    q1 = quotation_engine.market_snapshot(prefix=False)
-    df = pd.DataFrame(q1).T
-    df = df[(True ^ df['close'].isin([0]))]  # 昨天停牌
-    df = df[(True ^ df['now'].isin([0]))]  # 今日停牌
-    df['p_change'] = (df.now-df.close)/df.close
-    df['p_change'] = df.p_change.map(float)
-    df['code'] = df.index
-    return df
-
-
-def gen_block_test():
+def gen_block_test() -> int:
     import time
     import moment
     time.sleep(6)
     return moment.now().seconds
+
+# %%
