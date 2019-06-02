@@ -1,5 +1,6 @@
-from deva import *
-from whoosh.fields import *
+from .log import log
+from .stream import Stream
+from whoosh.fields import Schema, TEXT
 import whoosh.index
 from whoosh.writing import AsyncWriter
 from whoosh.qparser import MultifieldParser

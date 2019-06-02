@@ -20,12 +20,13 @@ try:
 except ImportError:
     PollIOLoop = None  # dropped in tornado 6.0
 
-
 from .compatibility import get_thread_identity
 from .orderedweakset import OrderedWeakrefSet
 
-
 from .expiringdict import ExpiringDict
+from pampy import match, ANY
+import io
+from ..pipe import to_dataframe
 
 
 no_default = '--no-default--'
@@ -145,7 +146,7 @@ class Stream(object):
         Stream._instances.add(weakref.ref(self))
 
     def set_cache(self, cache_max_len=None, cache_max_age_seconds=None):
-        self.cache = True
+        self.is_cache = True
         if not cache_max_len:
             cache_max_len = 1
         if not cache_max_age_seconds:
@@ -154,10 +155,12 @@ class Stream(object):
         self.cache_max_len = cache_max_len
         self.cache_max_age_seconds = cache_max_age_seconds
         self._store = ExpiringDict(
-            max_len=self.cache_max_len, max_age_seconds=self.cache_max_age_seconds)
+            max_len=self.cache_max_len,
+            max_age_seconds=self.cache_max_age_seconds
+        )
 
     def clear_cache(self,):
-        self.cache = False
+        self.is_cache = False
         self._store = None
 
     def _set_loop(self, loop):
@@ -218,7 +221,9 @@ class Stream(object):
         dead = set()
         for ref in cls._instances:
             obj = ref()
-            if obj is not None and obj.stream_name is not None and not obj.stream_name.startswith('_'):
+            if obj is not None\
+                    and obj.stream_name is not None\
+                    and not obj.stream_name.startswith('_'):
                 yield obj
             else:
                 dead.add(ref)
@@ -337,7 +342,7 @@ class Stream(object):
         return output._ipython_display_(**kwargs)
 
     def _emit(self, x):
-        if self.cache:
+        if self.is_cache:
             self._cache(x)
 
         result = []
@@ -437,7 +442,7 @@ class Stream(object):
         return scatter(self, **kwargs)
 
     def remove(self, predicate):
-        """ Only pass through elements for which the predicate returns False """
+        """Only pass through elements for which the predicate returns False """
         return self.filter(lambda x: not predicate(x))
 
     @property
@@ -526,7 +531,7 @@ class Stream(object):
 
     def __ror__(self, value):  # |
         """emit value to stream ,end,return emit result"""
-        self._emit(value)
+        self.emit(value)
         return value
 
     def __rrshift__(self, value):  # stream左边的>>
@@ -536,13 +541,14 @@ class Stream(object):
 
     def __lshift__(self, value):  # stream右边的<<
         """emit value to stream ,end,return emit result"""
-        self._emit(value)
+        self.emit(value)
         return value
 
     def __rshift__(self, ref):  # stream右边的
-        from pampy import match, _
-        import io
+        """Stream右边>>,sink到右边的对象.
 
+        支持三种类型:list| text file| stream | callable
+        """
         def write(x):
             ref.write(str(x)+'\n')
             ref.flush()
@@ -551,7 +557,10 @@ class Stream(object):
                      io.TextIOWrapper, lambda ref: self.sink(write),
                      Stream, lambda ref: self.sink(ref.emit),
                      callable, lambda ref: self.sink(ref),
-                     _, lambda ref: TypeError(f'{ref}:{type(ref)} is aUnsupported type, must be list or file or stream or callable obj')
+                     ANY, lambda ref: TypeError(
+                         f'{ref}:{type(ref)} is'
+                         'Unsupported type, must be '
+                         'list| text file| stream | callable')
                      )
 
     def route(self, expr):
@@ -567,8 +576,8 @@ class Stream(object):
 
         """
         def param_wraper(func):
-            """ 
-            预处理函数，定义包装函数wraper取代老函数，定义完成后将目标函数增加到handlers中    
+            """ 预处理函数，定义包装函数wraper取代老函数.
+            定义完成后将目标函数增加到handlers中
             """
             @functools.wraps(func)
             def wraper(*args, **kw):
@@ -585,13 +594,11 @@ class Stream(object):
 
         return param_wraper
 
-    def _cache(self, x):
-        key = datetime.now()
-        value = x
-        self._store[key] = value
+    def _cache(self, value):
+        self._store[datetime.now()] = value
 
     def recent(self, n=5, seconds=None):
-        if not self.cache:
+        if not self.is_cache:
             return None
         elif not seconds:
             return self._store.values()[-n:]
@@ -1255,6 +1262,20 @@ class unique(Stream):
     parameter.  For example setting ``history=1`` avoids sending through
     elements when one is repeated right after the other.
 
+    Parameters
+    ----------
+    history : int or None, optional
+        number of stored unique values to check against
+    key : function, optional
+        Function which returns a representation of the incoming data.
+        For example ``key=lambda x: x['a']`` could be used to allow only
+        pieces of data with unique ``'a'`` values to pass through.
+    hashable : bool, optional
+        If True then data is assumed to be hashable, else it is not. This is
+        used for determining how to cache the history, if hashable then
+        either dicts or LRU caches are used, otherwise a deque is used.
+        Defaults to True.
+
     Examples
     --------
     >>> source = Stream()
@@ -1267,20 +1288,36 @@ class unique(Stream):
     3
     """
 
-    def __init__(self, upstream, history=None, key=identity, **kwargs):
-        self.seen = dict()
+    def __init__(self, upstream, maxsize=None, key=identity, hashable=True,
+                 **kwargs):
         self.key = key
-        if history:
-            from zict import LRU
-            self.seen = LRU(history, self.seen)
+        self.maxsize = maxsize
+        if hashable:
+            self.seen = dict()
+            if self.maxsize:
+                from zict import LRU
+                self.seen = LRU(self.maxsize, self.seen)
+        else:
+            self.seen = []
 
         Stream.__init__(self, upstream, **kwargs)
 
     def update(self, x, who=None):
         y = self.key(x)
-        if y not in self.seen:
-            self.seen[y] = 1
-            return self._emit(x)
+        emit = True
+        if isinstance(self.seen, list):
+            if y in self.seen:
+                self.seen.remove(y)
+                emit = False
+            self.seen.insert(0, y)
+            if self.maxsize:
+                del self.seen[self.maxsize:]
+            if emit:
+                return self._emit(x)
+        else:
+            if self.seen.get(y, '~~not_seen~~') == '~~not_seen~~':
+                self.seen[y] = 1
+                return self._emit(x)
 
 
 @Stream.register_api()
@@ -1546,8 +1583,11 @@ def sync(loop, func, *args, **kwargs):
     # This was taken from distrbuted/utils.py
 
     # Tornado's PollIOLoop doesn't raise when using closed, do it ourselves
-    if PollIOLoop and ((isinstance(loop, PollIOLoop) and getattr(loop, '_closing', False))
-                       or (hasattr(loop, 'asyncio_loop') and loop.asyncio_loop._closed)):
+    if PollIOLoop\
+        and ((isinstance(loop, PollIOLoop)
+              and getattr(loop, '_closing', False))
+             or (hasattr(loop, 'asyncio_loop')
+                 and loop.asyncio_loop._closed)):
         raise RuntimeError("IOLoop is closed")
 
     timeout = kwargs.pop('callback_timeout', None)

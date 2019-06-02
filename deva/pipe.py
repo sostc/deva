@@ -9,6 +9,7 @@ import sys
 from contextlib import closing
 from collections import deque
 import dill
+import json
 
 
 try:
@@ -102,7 +103,7 @@ def to_dataframe(iterable, orient='index'):
 
 
 @Pipe
-def head(qte):
+def head(qte: int):
     "Yield qte of elements in the given iterable."
     def _head(iterable):
         i = qte
@@ -117,7 +118,7 @@ def head(qte):
 
 
 @Pipe
-def tail(qte):
+def tail(qte: int):
     "Yield qte of elements in the given iterable."
     def _(iterable):
         return deque(iterable, maxlen=qte)
@@ -126,7 +127,7 @@ def tail(qte):
 
 
 @Pipe
-def skip(qte):
+def skip(qte: int):
     "Skip qte elements in the given iterable, then yield others."
     def _(iterable):
         i = qte
@@ -347,7 +348,7 @@ def tee(iterable):
 def write_to_file(fn, prefix='', suffix='\n', flush=True, mode='a+'):
     """同时支持二进制和普通文本的写入.
 
-    Exsapmle:
+    Exsapmles:
         123>>write_to_file('tpm.txt')
         b'abc'>>write_to_file('music.mp3','ab+')
     """
@@ -434,8 +435,8 @@ def passed(x):
 
 
 @Pipe
-def index(start=0, stop=None):
-    def _(value):
+def index(value, start=0, stop=None):
+    def _(iterable):
         return iterable.index(value, start, stop or len(iterable))
 
     return _@P
@@ -509,9 +510,9 @@ def transpose(iterable):
 
 
 chain_with = Pipe(itertools.chain)
-#[1,2,3]>> chain_with([4,5,6])>>to_list == [1,2,3,4,5,6]
+# [1,2,3]>> chain_with([4,5,6])>>to_list == [1,2,3,4,5,6]
 islice = Pipe(itertools.islice)
-#range(10)>>islice(2,100,2)>>to_list == [2,4,6,8]
+# range(10)>>islice(2,100,2)>>to_list == [2,4,6,8]
 
 # Python 2 & 3 compatibility
 if "izip" in dir(itertools):
@@ -528,17 +529,21 @@ def size(x):
 @Pipe
 @gen.coroutine
 def post_to(body, url='http://127.0.0.1:9999', headers=None):
-    """ post a str to url,use async http client,Future对象，jupyter中可直接使用
+    """ post a str or bytes or pyobject to url.
+
+    str:直接发送
+    bytes:直接发送
+    pyobject:dill序列化后发送
+    发送方式use async http client,Future对象，jupyter中可直接使用
     jupyter 之外需要loop = IOLoop.current(instance=True)，loop.start()
-    :{'a':1}>>post_to(url)
+    Examples:
+        {'a':1}>>post_to(url)
 
     """
     if not isinstance(body, bytes):
         try:
-            import json
             body = json.dumps(body)
-        except:
-            import dill
+        except TypeError:
             body = dill.dumps(body)
 
     from tornado import httpclient
@@ -556,6 +561,7 @@ for i in builtins.__dict__.copy():
     if callable(builtins.__dict__.get(i)):
         f = 'to_' + i
         builtins.__dict__[f] = Pipe(builtins.__dict__[i])
+
 
 if __name__ == "__main__":
     import doctest
