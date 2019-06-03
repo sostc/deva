@@ -26,4 +26,4 @@ class when(object):
         self.source = source
 
     def then(self, func):
-        self.source.filter(lambda x: x is self.occasion).sink(lambda x: func())
+        self.source.filter(lambda x: x == self.occasion).sink(lambda x: func())
