@@ -2,7 +2,6 @@
 import atexit
 from .log import log
 from .bus import bus
-from pymaybe import maybe
 
 
 @atexit.register
