@@ -536,7 +536,7 @@ class Stream(object):
 
     def __rrshift__(self, value):  # stream左边的>>
         """emit value to stream ,end,return emit result"""
-        self.emit(value, asynchronous=False)
+        self.emit(value, asynchronous=True)
         return value
 
     def __lshift__(self, value):  # stream右边的<<
@@ -555,7 +555,7 @@ class Stream(object):
         return match(ref,
                      list, lambda ref: self.sink(ref.append),
                      io.TextIOWrapper, lambda ref: self.sink(write),
-                     Stream, lambda ref: self.sink(ref.emit),
+                     Stream, lambda ref: self.sink(ref._emit),
                      callable, lambda ref: self.sink(ref),
                      ANY, lambda ref: TypeError(
                          f'{ref}:{type(ref)} is'
