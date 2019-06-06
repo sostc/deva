@@ -4,15 +4,16 @@
 # In[ ]:
 
 
+from tornado import ioloop
 from apscheduler.jobstores.redis import RedisJobStore
 from apscheduler.executors.pool import ThreadPoolExecutor
 from apscheduler.jobstores.memory import MemoryJobStore
 from apscheduler.schedulers.tornado import TornadoScheduler
 import pytz
 
-from tradetime import when_tradedate, when_tradetime,is_holiday_today
+from naja.tradetime import when_tradedate
 import moment
-from deva import *
+from deva import bus, pmap, P
 
 jobstores = {
     'redis': RedisJobStore(),
@@ -26,11 +27,12 @@ job_defaults = {
     'max_instances': 200
 }
 
-scheduler = TornadoScheduler(jobstores=jobstores, executors=executors, job_defaults=job_defaults,timezone=pytz.timezone('Asia/Shanghai'))
+scheduler = TornadoScheduler(jobstores=jobstores, executors=executors,
+                             job_defaults=job_defaults, timezone=pytz.timezone('Asia/Shanghai'))
 try:
     scheduler.start()
-except:
-    pass
+except Exception as e:
+    print(e)
 
 
 # In[ ]:
@@ -38,15 +40,16 @@ except:
 # In[ ]:
 
 
-@scheduler.scheduled_job('interval', name='open', days=1,start_date='2019-04-03 09:25:00',)
+@scheduler.scheduled_job('interval', name='open', days=1, start_date='2019-04-03 09:25:00',)
 @when_tradedate
 def _open():
-    'open'>>bus
-      
-@scheduler.scheduled_job('interval', name='close', days=1,start_date='2019-04-03 15:30:00',)
+    'open' >> bus
+
+
+@scheduler.scheduled_job('interval', name='close', days=1, start_date='2019-04-03 15:30:00',)
 @when_tradedate
 def _close():
-    'close'>>bus
+    'close' >> bus
 
 
 # In[ ]:
@@ -55,7 +58,6 @@ def _close():
 # In[ ]:
 
 
-scheduler.get_jobs()>>pmap(lambda x:x.next_run_time)>>to_list
+scheduler.get_jobs() >> pmap(lambda x: x.next_run_time) >> list@P
 
-from tornado import ioloop
 ioloop.IOLoop.current().start()

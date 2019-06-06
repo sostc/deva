@@ -1,16 +1,15 @@
-from operator import add
-import time
-
+from distributed.utils import sync
+from distributed import Future, Client
+from streamz import Stream
+from streamz.dask import scatter
+from tornado import gen
 import pytest
+import time
+dtalkfrom operator import add
+
 pytest.importorskip('dask.distributed')
 
-from tornado import gen
 
-from streamz.dask import scatter
-from streamz import Stream
-
-from distributed import Future, Client
-from distributed.utils import sync
 from distributed.utils_test import gen_cluster, inc, cluster, loop, slowinc  # noqa: F401
 
 

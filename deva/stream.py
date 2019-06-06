@@ -5,12 +5,11 @@ from tornado.httpserver import HTTPServer
 from deva.streamz.core import Stream as Streamz
 import subprocess
 from tornado.web import Application, RequestHandler
-import os
 import dill
 import json
-from pymaybe import maybe
 import walrus
 import moment
+import os
 
 
 class Stream(Streamz):
@@ -24,7 +23,7 @@ class Stream(Streamz):
         self.emit(value)
         return value
 
-    def to_redis_stream(self, topic, maxlen=1):
+    def to_redis(self, topic, maxlen=1):
         """
         Push stream to redis stream.
 
@@ -36,17 +35,6 @@ class Stream(Streamz):
         self.map(lambda x: {"data": dill.dumps(x)})\
             .sink(producer.add, maxlen=maxlen)
         return self
-
-    def to_share(self, topic=None):
-        topic = maybe(topic).or_else(self.stream_name)
-        self.to_redis_stream(topic=topic, maxlen=1)
-        return self
-
-    @classmethod
-    def from_share(cls, topics, group=str(os.getpid()), **kwargs):
-        # 使用pid做group,区分不同进程消费,一个进程消费结束,不影响其他进程继续消费
-        return cls.from_redis(topics=topics, start=True, group=group)\
-                  .map(lambda x: x['data'], stream_name=topics, **kwargs)
 
     @classmethod
     def from_tcp(cls, port=1234, **kwargs):
@@ -110,9 +98,11 @@ class engine(Stream):
 
 @Stream.register_api(staticmethod)
 class from_redis(Stream):
-    def __init__(self, topics, interval=0.1, start=False,
+    def __init__(self, topics: list, interval=0.1, start=False,
                  group="test", **kwargs):
         self.consumer = None
+        if not isinstance(topics, list):
+            topics = [topics]
         self.topics = topics
         self.group = group
         self.interval = interval
@@ -140,7 +130,8 @@ class from_redis(Stream):
                 # {b'data':'dills'},
                 topic, (rid, body) = meta_msg[0], meta_msg[1][0]
                 data = dill.loads(body[b'data'])
-                self._emit({'topic': topic, 'rid': rid, 'data': data})
+                # self._emit({'topic': topic, 'rid': rid, 'data': data})
+                self._emit(data)
 
     @gen.coroutine
     def poll_redis(self):
@@ -290,10 +281,17 @@ class scheduler(Stream):
 
     def __init__(self, start=True, **kwargs):
         from apscheduler.schedulers.tornado import TornadoScheduler
+        from apscheduler.executors.pool import ThreadPoolExecutor
         import pytz
 
         self._scheduler = TornadoScheduler(
-            timezone=pytz.timezone('Asia/Shanghai'))
+            timezone=pytz.timezone('Asia/Shanghai'),
+            executors={'default': ThreadPoolExecutor(20)},
+            job_defaults={
+                'coalesce': False,
+                'max_instances': 1
+            }
+        )
         super(scheduler, self).__init__(ensure_io_loop=True, **kwargs)
         self.stopped = True
         if start:
@@ -339,13 +337,36 @@ class Namespace(dict):
                 Stream(stream_name=stream_name, **kwargs)
             )
 
+    def create_topic(self, topic, **kwargs):
+        """创建一个跨进程的stream"""
+        try:
+            return self[topic]
+        except KeyError:
+            self[topic] = Stream.from_redis(
+                topics=[topic],
+                group=str(os.getpid()),
+                start=True,
+                **kwargs
+            )
+            out_s = Stream().to_redis(topic)
+            self[topic].emit = out_s.emit
+
+            return self[topic]
+
 
 namespace = Namespace()
 
 
 def NS(*args, **kwargs):
-    NS.namespace = namespace
     return namespace.create_stream(*args, **kwargs)
+
+
+def NT(topic, *args, **kwargs):
+    try:
+        return namespace.create_topic(topic=topic, *args, **kwargs)
+    except Exception as e:
+        print(f'{e}, start a single process topic ')
+        return NS(topic)
 
 
 def gen_block_test() -> int:

@@ -555,7 +555,7 @@ class Stream(object):
         return match(ref,
                      list, lambda ref: self.sink(ref.append),
                      io.TextIOWrapper, lambda ref: self.sink(write),
-                     Stream, lambda ref: self.sink(ref._emit),
+                     Stream, lambda ref: self.sink(ref.emit),
                      callable, lambda ref: self.sink(ref),
                      ANY, lambda ref: TypeError(
                          f'{ref}:{type(ref)} is'
@@ -563,9 +563,9 @@ class Stream(object):
                          'list| text file| stream | callable')
                      )
 
-    def route(self, expr):
+    def route(self, occasion):
         """
-        expr:路由函数表达式,比如lambda x:x.startswith('foo') 或者 lambda x:type(x)==str,
+        occasion:路由函数表达式,比如lambda x:x.startswith('foo') 或者 lambda x:type(x)==str,
         完整例子:
         e = Stream.engine()
         e.start()
@@ -574,18 +574,27 @@ class Stream(object):
         def goo(x):
             x*2>>log
 
+        @bus.route('world')
+        def goo(x):
+            print('hello',x)
+
         """
         def param_wraper(func):
             """ 预处理函数，定义包装函数wraper取代老函数.
             定义完成后将目标函数增加到handlers中
             """
             @functools.wraps(func)
-            def wraper(*args, **kw):
+            def wraper(*args, **kwargs):
                 """包装函数，这个函数是处理用户函数的，在用户函数执行前和执行后分别执行任务，甚至可以处理函数的参数"""
-                func(*args, **kw)  # 需要这里显式调用用户函数
+                func(*args, **kwargs)  # 需要这里显式调用用户函数
 
-            self.filter(expr).sink(wraper)
-            self.handlers.append((expr, func))
+            if callable(occasion):
+                self.filter(occasion).sink(wraper)
+            else:
+                self.filter(lambda x: x == occasion).sink(wraper)
+
+            # self.filter(occasion).sink(wraper)
+            self.handlers.append((occasion, func))
             # 包装定义阶段执行，包装后函数是个新函数了，
             # 老函数已经匿名，需要新函数加入handlers列表,这样才可以执行前后发消息
             return wraper
