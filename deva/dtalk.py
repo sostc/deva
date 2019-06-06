@@ -11,7 +11,8 @@ import json
 class Dtalk(Stream):
     """钉钉群机器人."""
 
-    def __init__(self, webhook=None, log=passed, max_retries=3, **kwargs):
+    def __init__(self, webhook=None, log=passed, max_retries=3, asynchronous=True, **kwargs):
+        # todo 实现一个同步的dtalk
         self.log = log
         super(Dtalk, self).__init__(ensure_io_loop=True, **kwargs)
         self.webhook = maybe(webhook).or_else(

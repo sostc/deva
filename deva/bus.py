@@ -1,7 +1,5 @@
 
-from .stream import Stream, NS, namespace
-from .log import warn
-
+from .stream import NT
 
 """
     跨进程的消息流任务驱动
@@ -20,18 +18,4 @@ ioloop.IOLoop.current().start()
 """
 
 
-def create_cps(stream_name, **kwargs):
-    """创建一个跨进程的stream"""
-    if stream_name in namespace:
-        return namespace[stream_name]
-    else:
-        namespace[stream_name] = Stream.from_share(stream_name, **kwargs)
-        namespace[stream_name].emit = Stream().to_share(stream_name).emit
-        return namespace[stream_name]
-
-
-try:
-    bus = create_cps('bus')
-except Exception as e:
-    bus = NS('bus')
-    f'{e}, start a local bus ' >> warn
+bus = NT('bus')
