@@ -5,6 +5,7 @@ setup(
     name='deva',
     version=0.7,
     packages=find_packages(),
+    python_requires='>=3.5',
     author='spark',
     author_email='zjw0358@gmail.com',
     url='https://github.com/sostc/deva',

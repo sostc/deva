@@ -10,7 +10,7 @@ def foo(x):
     x*2>>log
 
 
-'aa'>>pbus
+'aa'>pbus
 如果是单独进程中使用,需要固定一个循环来hold主线程
 from tornado import ioloop
 ioloop.IOLoop.current().start()

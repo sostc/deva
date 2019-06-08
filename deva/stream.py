@@ -106,8 +106,9 @@ class from_redis(Stream):
         self.topics = topics
         self.group = group
         self.interval = interval
-        self.consumer = walrus.Database().consumer_group(self.group,
-                                                         self.topics)
+        self.db = walrus.Database()
+        self.consumer = self.db.consumer_group(self.group,
+                                               self.topics)
         self.consumer.create()  # Create the consumer group.
         # self.consumer.set_id('$')  # 不会从头读
 
@@ -116,7 +117,7 @@ class from_redis(Stream):
         if start:
             self.start()
 
-    def do_poll(self) -> list:
+    def do_poll(self):
         """同步redis库,todo:寻找异步的stream库来查询."""
         if self.consumer is not None:
             meta_msgs = self.consumer.read(count=1)

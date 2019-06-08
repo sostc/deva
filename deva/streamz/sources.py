@@ -71,6 +71,7 @@ class from_textfile(Source):
     -------
     Stream
     """
+
     def __init__(self, f, poll_interval=0.100, delimiter='\n', start=False,
                  **kwargs):
         if isinstance(f, str):
@@ -125,6 +126,7 @@ class filenames(Source):
     >>> source = Stream.filenames('path/to/dir')  # doctest: +SKIP
     >>> source = Stream.filenames('path/to/*.csv', poll_interval=0.500)  # doctest: +SKIP
     """
+
     def __init__(self, path, poll_interval=0.100, start=False, **kwargs):
         if '*' not in path:
             if os.path.isdir(path):
@@ -183,6 +185,7 @@ class from_tcp(Source):
 
     >>> source = Source.from_tcp(4567)  # doctest: +SKIP
     """
+
     def __init__(self, port, delimiter=b'\n', start=False,
                  server_kwargs=None):
         super(from_tcp, self).__init__(ensure_io_loop=True)
@@ -334,7 +337,7 @@ class from_process(Source):
         import subprocess
         stderr = subprocess.STDOUT if self.with_stderr else subprocess.PIPE
         process = Subprocess(self.cmd, stdout=Subprocess.STREAM,
-                             stderr=stderr,shell=True, **self.open_kwargs)
+                             stderr=stderr, shell=True, **self.open_kwargs)
         while not self.stopped:
             try:
                 out = yield process.stdout.read_until(b'\n')
@@ -356,7 +359,7 @@ class from_process(Source):
         """Shutdown external process"""
         if not self.stopped:
             self.stopped = True
-            
+
 
 @Stream.register_api(staticmethod)
 class from_kafka(Source):
@@ -390,6 +393,7 @@ class from_kafka(Source):
     ...           {'bootstrap.servers': 'localhost:9092',
     ...            'group.id': 'streamz'})  # doctest: +SKIP
     """
+
     def __init__(self, topics, consumer_params, poll_interval=0.1, start=False, **kwargs):
         self.cpars = consumer_params
         self.consumer = None
@@ -441,6 +445,7 @@ class from_kafka(Source):
 
 class FromKafkaBatched(Stream):
     """Base class for both local and cluster-based batched kafka processing"""
+
     def __init__(self, topic, consumer_params, poll_interval='1s',
                  npartitions=1, **kwargs):
         self.consumer_params = consumer_params
