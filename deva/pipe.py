@@ -22,7 +22,7 @@ __all__ = [
     'Pipe', 'tail', 'skip', 'all', 'any', 'average', 'count',
     'as_dict', 'as_set', 'permutations', 'netcat', 'netwrite',
     'traverse', 'concat', 'as_list', 'as_tuple', 'stdout', 'lineout',
-    'tee', 'add', 'first', 'chain', 'take_while',
+    'tee', 'add', 'first', 'chain', 'take_while', 'attr',
     'skip_while', 'aggregate', 'groupby', 'sort', 'reverse',
     'chain_with', 'islice', 'izip', 'passed', 'index', 'strip',
     'lstrip', 'rstrip', 'run_with', 'append', 'to_type', 'transpose',
@@ -312,6 +312,13 @@ def tcp_write(host='127.0.0.1', port=1234):
 def concat(separator=", "):
     def _(iterable):
         return separator.join(map(str, iterable))
+    return _@P
+
+
+@Pipe
+def attr(name):
+    def _(object):
+        return getattr(object, name)
     return _@P
 
 
