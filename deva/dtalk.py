@@ -33,6 +33,9 @@ class Dtalk(Stream):
             msg = str(msg)
         data = {"msgtype": "text", "text": {"content": msg},
                 "at": {"atMobiles": [], "isAtAll": False}}
+        if '@all' in msg:
+            data = {"msgtype": "text", "text": {"content": msg},
+                    "at": {"atMobiles": [], "isAtAll": True}}
         post_data = json.JSONEncoder().encode(data)
 
         headers = {'Content-Type': 'application/json'}
