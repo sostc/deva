@@ -68,14 +68,14 @@ class IndexStream(Stream):
         if whoosh.index.exists_in(self.index_path):
             self.index = whoosh.index.open_dir(self.index_path)
             'find exits index_path:' >> self.log
-            self.index >> self.log
+            # self.index >> self.log
         else:
             if not os.path.exists(self.index_path):
                 os.makedirs(self.index_path)
                 self.index = whoosh.index.create_in(
                     self.index_path, self.schema)
                 'create new  index_path:' >> self.log
-                self.index >> self.log
+                # self.index >> self.log
 
         Stream.__init__(self, **kwargs)
         self.sink(self._to_index)
