@@ -27,7 +27,7 @@ __all__ = [
     'chain_with', 'islice', 'izip', 'passed', 'index', 'strip',
     'lstrip', 'rstrip', 'run_with', 'append', 'to_type', 'transpose',
     'dedup', 'uniq', 'to_dataframe', 'P', 'pmap', 'pfilter', 'post_to',
-    'head', 'read', 'tcp_write', 'write_to_file'
+    'head', 'read', 'tcp_write', 'write_to_file', 'size'
 ]
 
 
@@ -179,7 +179,7 @@ def pmap(func):
     """Returns True if ALL elements in the given iterable are true for the
     given pred function"""
     def _(iterable):
-        return (func(x) for x in iterable)
+        return map(func, iterable)
 
     return _@P
 
@@ -188,7 +188,7 @@ def pmap(func):
 def pfilter(func):
     """pfilter == where"""
     def _(iterable):
-        return (x for x in iterable if func(x))
+        return filter(func, iterable)
 
     return _@P
 
