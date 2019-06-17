@@ -786,10 +786,11 @@ class filter(Stream):
             predicate = _truthy
         self.predicate = predicate
         stream_name = kwargs.pop('stream_name', None)
+        cache_max_len = kwargs.pop('cache_max_len', None)
         self.kwargs = kwargs
         self.args = args
 
-        Stream.__init__(self, upstream, stream_name=stream_name)
+        Stream.__init__(self, upstream, stream_name=stream_name,)
 
     def update(self, x, who=None):
         if self.predicate(x, *self.args, **self.kwargs):
