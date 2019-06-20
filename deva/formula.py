@@ -1,5 +1,6 @@
 from outliers import smirnov_grubbs as grubbs
 import pandas as pd
+from .log import log
 
 
 def detect_outlier(num_list, alpha=0.05):
@@ -13,7 +14,8 @@ def translate(x, to='en'):
     from textblob import TextBlob
     try:
         return TextBlob(x).translate(to=to).raw
-    except Exception:
+    except Exception as e:
+        e >> log
         return x
 
 #  from cocoNLP import extractor
