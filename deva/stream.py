@@ -347,6 +347,7 @@ class Namespace(dict):
                 topics=[topic],
                 group=str(os.getpid()),
                 start=True,
+                stream_name=topic,
                 **kwargs
             )
             out_s = Stream().to_redis(topic)
