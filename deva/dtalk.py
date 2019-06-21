@@ -22,6 +22,7 @@ class Dtalk(Stream):
         self.retry_client = RetryClient(max_retries=max_retries)
 
     # text类型
+
     @gen.coroutine
     def emit(self, msg: str, asynchronous=False) -> dict:
         yield self.post(msg, self.webhook, self.log)
@@ -36,6 +37,16 @@ class Dtalk(Stream):
         if '@all' in msg:
             data = {"msgtype": "text", "text": {"content": msg},
                     "at": {"atMobiles": [], "isAtAll": True}}
+        elif msg.startswith('@md@'):
+            # @md@财联社新闻汇总|text
+            content = msg[4:]
+            title, text = content[:content.index(
+                '|')], content[content.index('|')+1:]
+            data = {
+                "msgtype": "markdown",
+                "markdown": {"title": title, "text": text}
+            }
+
         post_data = json.JSONEncoder().encode(data)
 
         headers = {'Content-Type': 'application/json'}
