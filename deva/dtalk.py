@@ -34,10 +34,10 @@ class Dtalk(Stream):
             msg = str(msg)
         data = {"msgtype": "text", "text": {"content": msg},
                 "at": {"atMobiles": [], "isAtAll": False}}
-        if '@all' in msg:
+        if isinstance(msg, str) and '@all' in msg:
             data = {"msgtype": "text", "text": {"content": msg},
                     "at": {"atMobiles": [], "isAtAll": True}}
-        elif msg.startswith('@md@'):
+        elif isinstance(msg, str) and msg.startswith('@md@'):
             # @md@财联社新闻汇总|text
             content = msg[4:]
             title, text = content[:content.index(
