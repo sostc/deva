@@ -16,3 +16,4 @@ pampy
 pymaybe
 outlier_utils
 textblob
+googletrans

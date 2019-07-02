@@ -11,9 +11,13 @@ def detect_outlier(num_list, alpha=0.05):
 
 def translate(x, to='en'):
     """翻译函数to = 'zh-CN'"""
-    from textblob import TextBlob
+    from googletrans import Translator
+    translator = Translator(service_urls=[
+        'translate.google.com',
+        'translate.google.jp',
+    ])
     try:
-        return TextBlob(x).translate(to=to).raw
+        return translator.translate(x, dest=to).text
     except Exception as e:
         e >> log
         return x
