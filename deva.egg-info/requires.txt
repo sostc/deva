@@ -6,6 +6,7 @@ jieba
 six
 requests
 pandas
+pandas-compat
 dill
 Whoosh
 SQLAlchemy
@@ -13,3 +14,6 @@ tornado
 easyquotation
 pampy
 pymaybe
+outlier_utils
+textblob
+googletrans

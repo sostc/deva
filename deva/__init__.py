@@ -7,4 +7,4 @@ from .when import when
 # from .whooshalchemy import IndexService
 from .pipe import *
 
-__version__ = '0.8'
+__version__ = '0.81'
