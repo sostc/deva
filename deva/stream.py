@@ -1,6 +1,6 @@
 # %%
 
-from tornado import gen
+from tornado import gen, ioloop
 from tornado.httpserver import HTTPServer
 from deva.streamz.core import Stream as Streamz
 import subprocess
@@ -290,7 +290,7 @@ class scheduler(Stream):
             executors={'default': ThreadPoolExecutor(20)},
             job_defaults={
                 'coalesce': False,
-                'max_instances': 1
+                'max_instances': 1  # 相同job重复执行与否的判断，相同job最多同时多少个实例
             }
         )
         super(scheduler, self).__init__(ensure_io_loop=True, **kwargs)
@@ -304,7 +304,7 @@ class scheduler(Stream):
         self._scheduler.start()
 
     def stop(self):
-        self._scheduler.stop()
+        self._scheduler.shutdown()
         self.stopped = True
 
     def add_job(self, func, name=None, **kwargs):
@@ -329,6 +329,7 @@ class scheduler(Stream):
 
 
 class Namespace(dict):
+    # todo  备注，更简单的名称和调用方式
     def create_stream(self, stream_name, **kwargs):
         try:
             return self[stream_name]
@@ -367,7 +368,7 @@ def NT(topic, *args, **kwargs):
     try:
         return namespace.create_topic(topic=topic, *args, **kwargs)
     except Exception as e:
-        print(f'{e}, start a single process topic ')
+        print(f'Warn:{e}, start a single process topic ')
         return NS(topic)
 
 
@@ -377,4 +378,12 @@ def gen_block_test() -> int:
     time.sleep(6)
     return moment.now().seconds
 
-# %%
+
+class Deva(Stream):
+    def __init__(self, name=None, *args, **kwargs):
+        super(Stream, self).__init__(*args, **kwargs)
+
+    @classmethod
+    def run(cls):
+        ioloop.IOLoop.current().start()
+        # %%

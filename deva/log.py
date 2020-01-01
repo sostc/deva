@@ -20,7 +20,7 @@ log.sink(logger.info)
 
 
 class log_to(object):
-    """log param and return to a stream"""
+    """函数装饰器，将函数返回值重新定向到一个指定的流"""
 
     def __init__(self, stream=log):
         self.stream = stream
