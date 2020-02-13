@@ -13,3 +13,5 @@ docs/_build/html/_modules/deva/streamz/utils.html
 *.txt
 *.css
 *.js
+/.idea/
+*/__pycache__
