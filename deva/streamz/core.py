@@ -27,6 +27,9 @@ from .expiringdict import ExpiringDict
 from pampy import match, ANY
 import io
 from ..pipe import to_dataframe
+import pandas as pd
+
+from sqlitedict import SqliteDict
 
 
 no_default = '--no-default--'
@@ -757,7 +760,10 @@ class starmap(Stream):
 
 
 def _truthy(x):
-    return not not x
+    if not isinstance(pd.DataFrame):
+        return not not x
+    else:
+        return x.empty
 
 
 @Stream.register_api()
@@ -1298,13 +1304,23 @@ class unique(Stream):
     >>> source.unique(history=1).sink(print)
     >>> for x in [1, 1, 2, 2, 2, 1, 3]:
     ...     source.emit(x)
+
+    持久化的去重复，一般用在报警发送
+    to_send = Stream()
+    dds = to_send.unique(persist_name='报警发送记录')
+    dds>>log
+    232>>to_send
+    232>>to_send
+
     1
     2
     1
     3
     """
 
-    def __init__(self, upstream, maxsize=None, key=identity, hashable=True,
+    def __init__(self, upstream, maxsize=None,
+                 key=identity, hashable=True,
+                 persist_file='_unique_persist.sqlite', persist_name='',
                  **kwargs):
         self.key = key
         self.maxsize = maxsize
@@ -1315,6 +1331,11 @@ class unique(Stream):
                 self.seen = LRU(self.maxsize, self.seen)
         else:
             self.seen = []
+        if persist_name:
+            # self.seen = NODB()
+            self.seen = SqliteDict(persist_file,
+                                   tablename=persist_name,
+                                   autocommit=True)
 
         Stream.__init__(self, upstream, **kwargs)
 
@@ -1330,9 +1351,10 @@ class unique(Stream):
                 del self.seen[self.maxsize:]
             if emit:
                 return self._emit(x)
+
         else:
-            if self.seen.get(y, '~~not_seen~~') == '~~not_seen~~':
-                self.seen[y] = 1
+            if self.seen.get(str(y), '~~not_seen~~') == '~~not_seen~~':
+                self.seen[str(y)] = 1
                 return self._emit(x)
 
 

@@ -329,7 +329,6 @@ class scheduler(Stream):
 
 
 class Namespace(dict):
-    # todo  备注，更简单的名称和调用方式
     def create_stream(self, stream_name, **kwargs):
         try:
             return self[stream_name]
