@@ -29,7 +29,7 @@ import io
 from ..pipe import to_dataframe
 import pandas as pd
 
-from sqlitedict import SqliteDict
+from .sqlitedict import SqliteDict
 
 
 no_default = '--no-default--'
