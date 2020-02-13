@@ -5,13 +5,14 @@ from logbook import Logger, StreamHandler
 from .stream import NS
 import sys
 from functools import wraps
+import pprint
 
 __all__ = [
     'log', 'warn', 'log_to'
 ]
 
 warn = NS('warn')
-warn.sink(logging.warning)
+warn.map(pprint.pformat).sink(logging.warning)
 
 StreamHandler(sys.stdout).push_application()
 logger = Logger(__name__)

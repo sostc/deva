@@ -27,7 +27,70 @@ __all__ = [
     'chain_with', 'islice', 'izip', 'passed', 'index', 'strip',
     'lstrip', 'rstrip', 'run_with', 'append', 'to_type', 'transpose',
     'dedup', 'uniq', 'to_dataframe', 'P', 'pmap', 'pfilter', 'post_to',
-    'head', 'read', 'tcp_write', 'write_to_file', 'size'
+    'head', 'read', 'tcp_write', 'write_to_file', 'size', 'ls', 'range',
+    'sum', 'split',
+    # 'abs',
+    #     'all',
+    #     'any',
+    #     'ascii',
+    #     'bin',
+    #     'callable',
+    #     'chr',
+    #     'classmethod',
+    #     'compile',
+    #     'delattr',
+    #     'dir',
+    #     'divmod',
+    #     'enumerate',
+    #     'eval',
+    #     'format',
+    #     'getattr',
+    #     'globals',
+    #     'hasattr',
+    #     'hash',
+    #     'hex',
+    #     'id',
+    #     'input',
+    #     # 'isinstance',
+    #     'issubclass',
+    #     'iter',
+    #     'len',
+    #     'locals',
+    'max',
+    'min',
+    #     'next',
+    #     'oct',
+    #     'open',
+    #     'ord',
+    #     'pow',
+    'print',
+    #     'property',
+    #     'range',
+    #     'repr',
+    #     'reversed',
+    #     'round',
+    #     'setattr',
+    #     'slice',
+    #     'sorted',
+    #     'staticmethod',
+    'sum',
+    #     'bool',
+    #     'bytearray',
+    #     'bytes',
+    #     'complex',
+    #     'dict',
+    #     'float',
+    #     'frozenset',
+    #     # 'int',
+    #     # 'list',
+    #     'memoryview',
+    #     'object',
+    #     'set',
+    #     # 'str',
+    #     # 'tuple',
+    #     'type',
+    #     'vars',
+    #     'zip',
 ]
 
 
@@ -75,9 +138,9 @@ class Pipe:
         """像正常函数一样使用使用."""
         return self.function(*args, **kwargs)
 
-    def F(self, *args, **kwargs):
-        """将普通函数转换成Pipe对象."""
-        return Pipe(lambda x: self.function(x, *args, **kwargs))
+    def __add__(self, other):
+        """Function composition: (a + b + c)(x) -> c(b(a(x)))."""
+        return Pipe(lambda *args, **kwargs: other(self(*args, **kwargs)))
 
     def __repr__(self):
         """转化成Pipe对象后的repr."""
@@ -89,7 +152,10 @@ def P(func):
     """
     [1,2,3]>>print@P
     """
-    return Pipe(func)
+    if not isinstance(func, Pipe):  # 防止pipe被重复管道化
+        return Pipe(func)
+    else:
+        return func
 
 
 @Pipe
@@ -312,6 +378,13 @@ def tcp_write(host='127.0.0.1', port=1234):
 def concat(separator=", "):
     def _(iterable):
         return separator.join(map(str, iterable))
+    return _@P
+
+
+@Pipe
+def split(sep="\n"):
+    def _(iteration):
+        return iteration.split(sep)
     return _@P
 
 
@@ -569,6 +642,71 @@ for i in builtins.__dict__.copy():
         f = 'to_' + i
         builtins.__dict__[f] = Pipe(builtins.__dict__[i])
 
+ls = list@P
+
+# abs = P(abs)
+# # all = P(all)
+# # any = P(any)
+# # ascii = P(ascii)
+# # bin = P(bin)
+# callable = P(callable)
+# # chr = P(chr)
+# classmethod = P(classmethod)
+# compile = P(compile)
+# delattr = P(delattr)
+# dir = P(dir)
+# divmod = P(divmod)
+# enumerate = P(enumerate)
+# eval = P(eval)
+# format = P(format)
+# getattr = P(getattr)
+# globals = P(globals)
+# hasattr = P(hasattr)
+# hash = P(hash)
+# # hex = P(hex)
+# id = P(id)
+# input = P(input)
+# # isinstance = P(isinstance)
+# issubclass = P(issubclass)
+# iter = P(iter)
+# len = P(len)
+# locals = P(locals)
+max = P(max)
+min = P(min)
+# next = P(next)
+# oct = P(oct)
+# open = P(open)
+# ord = P(ord)
+# pow = P(pow)
+print = P(print)
+# property = P(property)
+range = P(range)
+# repr = P(repr)
+# reversed = P(reversed)
+# round = P(round)
+# setattr = P(setattr)
+# slice = P(slice)
+# sorted = P(sorted)
+# staticmethod = P(staticmethod)
+sum = P(sum)
+# # bool = P(bool)
+# # bytearray = P(bytearray)
+# # bytes = P(bytes)
+# complex = P(complex)
+# dict = P(dict)
+# # float = P(float)
+# frozenset = P(frozenset)
+# # int = P(int)
+# list = P(list)
+# memoryview = P(memoryview)
+# # object = P(object)
+# set = P(set)
+# # str = P(str)
+# # tuple = P(tuple)
+# type = P(type)
+# vars = P(vars)
+# zip = P(zip)
+# 这种情况会导致isinstanced等非直接调用方法失败
 
 if __name__ == "__main__":
     import doctest

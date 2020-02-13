@@ -32,7 +32,7 @@ class when(object):
             return self.source.filter(self.occasion).sink(
                 lambda x: func(x, *args, **kwargs))
         else:  # 不处理流的值
-            return self.source.filter(lambda x: x == self.occasion).sink(
+            return self.source.filter(lambda x: x is self.occasion).sink(
                 lambda x: func(*args, **kwargs))
 
 
