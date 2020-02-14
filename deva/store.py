@@ -1,5 +1,4 @@
 from .pipe import *
-from .stream import Stream
 
 import pkg_resources
 import pandas as pd
@@ -57,7 +56,7 @@ class HDFStore(object):
 
 
 # @Stream.register_api()
-class ODBStream(Stream):
+class ODBStream(object):
     """
     所有输入都会被作为字典在sqlite中做持久存储，若指定tablename，则将所有数据单独存储一个table。使用方式和字典一样
     输入是元组时，第一个值作为key，第二个作为value。
@@ -65,9 +64,10 @@ class ODBStream(Stream):
     输入是字典时，更新字典
     """
 
-    def __init__(self, stream_name='default', fname='_dictstream', log=passed, **kwargs):
+    def __init__(self, stream_name='default', fname='_dictstream', maxsize=None, log=passed, **kwargs):
         self.log = log
         self.tablename = stream_name
+        self.maxsize = maxsize
 
         super(ODBStream, self).__init__()
         if fname == '_dictstream':
@@ -87,7 +87,16 @@ class ODBStream(Stream):
         self.values = self.db.values
         self.items = self.db.items
         self.get = self.db.get
-        self.link = self.sink(self._to_store)
+        self._check_size_limit()
+
+    def __rrshift__(self, x):
+        self._to_store(x)
+        return x
+
+    def _check_size_limit(self):
+        if self.maxsize is not None:
+            while len(self.db) > self.maxsize:
+                self.db.popitem()
 
     def _to_store(self, x):
         x >> self.log
@@ -102,6 +111,8 @@ class ODBStream(Stream):
             value = x
             self.db.update({key: value})
 
+        self._check_size_limit()
+
     def __len__(self,):
         return self.db.__len__()
 
@@ -109,13 +120,18 @@ class ODBStream(Stream):
         return self.db.__getitem__(x)
 
     def __setitem__(self, key, value):
-        return self.db.__setitem__(key, value)
+        self.db.__setitem__(key, value)
+        self._check_size_limit()
+        return self
 
     def __delitem__(self, x):
         return self.db.__delitem__(x)
 
     def __contains__(self, x):
         return self.db.__contains__(x)
+
+    def __iter__(self,):
+        return self.db.__iter__()
 
 
 class ODBNamespace(dict):

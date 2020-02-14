@@ -26,10 +26,10 @@ from .orderedweakset import OrderedWeakrefSet
 from .expiringdict import ExpiringDict
 from pampy import match, ANY
 import io
-from ..pipe import to_dataframe
+from ..pipe import to_dataframe, Pipe
 import pandas as pd
 
-from .sqlitedict import SqliteDict
+from ..store import NB
 
 
 no_default = '--no-default--'
@@ -562,6 +562,7 @@ class Stream(object):
                      list, lambda ref: self.sink(ref.append),
                      io.TextIOWrapper, lambda ref: self.sink(write),
                      Stream, lambda ref: self.sink(ref.emit),
+                     Pipe, lambda ref: ref(self),
                      callable, lambda ref: self.sink(ref),
                      ANY, lambda ref: TypeError(
                          f'{ref}:{type(ref)} is'
@@ -1323,6 +1324,7 @@ class unique(Stream):
                  persist_file='_unique_persist.sqlite', persist_name='',
                  **kwargs):
         self.key = key
+        self.log = kwargs.pop('log', None)
         self.maxsize = maxsize
         if hashable:
             self.seen = dict()
@@ -1331,11 +1333,13 @@ class unique(Stream):
                 self.seen = LRU(self.maxsize, self.seen)
         else:
             self.seen = []
+
         if persist_name:
             # self.seen = NODB()
-            self.seen = SqliteDict(persist_file,
-                                   tablename=persist_name,
-                                   autocommit=True)
+            self.seen = NB(stream_name=persist_name,
+                           fname=persist_file,
+                           maxsize=self.maxsize,
+                           **kwargs)
 
         Stream.__init__(self, upstream, **kwargs)
 
