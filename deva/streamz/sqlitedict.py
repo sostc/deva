@@ -44,7 +44,8 @@ except:
 major_version = sys.version_info[0]
 if major_version < 3:  # py <= 2.x
     if sys.version_info[1] < 5:  # py <= 2.4
-        raise ImportError("sqlitedict requires python 2.5 or higher (python 3.3 or higher supported)")
+        raise ImportError(
+            "sqlitedict requires python 2.5 or higher (python 3.3 or higher supported)")
 
     # necessary to use exec()_ as this would be a SyntaxError in python3.
     # this is an exact port of six.reraise():
@@ -157,7 +158,8 @@ class SqliteDict(DictClass):
         dirname = os.path.dirname(filename)
         if dirname:
             if not os.path.exists(dirname):
-                raise RuntimeError('Error! The directory does not exist, %s' % dirname)
+                raise RuntimeError(
+                    'Error! The directory does not exist, %s' % dirname)
 
         self.filename = filename
         if '"' in tablename:
@@ -283,7 +285,8 @@ class SqliteDict(DictClass):
         if self.flag == 'r':
             raise RuntimeError('Refusing to clear read-only SqliteDict')
 
-        CLEAR_ALL = 'DELETE FROM "%s";' % self.tablename  # avoid VACUUM, as it gives "OperationalError: database schema has changed"
+        # avoid VACUUM, as it gives "OperationalError: database schema has changed"
+        CLEAR_ALL = 'DELETE FROM "%s";' % self.tablename
         self.conn.commit()
         self.conn.execute(CLEAR_ALL)
         self.conn.commit()
@@ -356,11 +359,12 @@ class SqliteDict(DictClass):
             # in __del__ method.
             pass
 
+
 # Adding extra methods for python 2 compatibility (at import time)
 if major_version == 2:
     SqliteDict.__nonzero__ = SqliteDict.__bool__
     del SqliteDict.__bool__  # not needed and confusing
-#endclass SqliteDict
+# endclass SqliteDict
 
 
 class SqliteMultithread(Thread):
@@ -371,6 +375,7 @@ class SqliteMultithread(Thread):
     in a separate thread (in the same order they arrived).
 
     """
+
     def __init__(self, filename, autocommit, journal_mode):
         super(SqliteMultithread, self).__init__()
         self.filename = filename
@@ -385,7 +390,8 @@ class SqliteMultithread(Thread):
 
     def run(self):
         if self.autocommit:
-            conn = sqlite3.connect(self.filename, isolation_level=None, check_same_thread=False)
+            conn = sqlite3.connect(
+                self.filename, isolation_level=None, check_same_thread=False)
         else:
             conn = sqlite3.connect(self.filename, check_same_thread=False)
         conn.execute('PRAGMA journal_mode = %s' % self.journal_mode)
@@ -424,7 +430,8 @@ class SqliteMultithread(Thread):
                     self.log.error('Inner exception:')
                     for item in traceback.format_list(inner_stack):
                         self.log.error(item)
-                    self.log.error('')  # deliniate traceback & exception w/blank line
+                    # deliniate traceback & exception w/blank line
+                    self.log.error('')
                     for item in traceback.format_exception_only(e_type, e_value):
                         self.log.error(item)
 
@@ -541,4 +548,4 @@ class SqliteMultithread(Thread):
             # returning (by semaphore '--no more--'
             self.select_one('--close--')
             self.join()
-#endclass SqliteMultithread
+# endclass SqliteMultithread
