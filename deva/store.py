@@ -87,6 +87,7 @@ class ODBStream(object):
         self.values = self.db.values
         self.items = self.db.items
         self.get = self.db.get
+        self.clear = self.db.clear
         self._check_size_limit()
 
     def __rrshift__(self, x):

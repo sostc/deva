@@ -28,8 +28,7 @@ from pampy import match, ANY
 import io
 from ..pipe import to_dataframe, Pipe
 import pandas as pd
-
-from ..store import NB
+import diskcache
 
 
 no_default = '--no-default--'
@@ -562,7 +561,7 @@ class Stream(object):
                      list, lambda ref: self.sink(ref.append),
                      io.TextIOWrapper, lambda ref: self.sink(write),
                      Stream, lambda ref: self.sink(ref.emit),
-                     Pipe, lambda ref: ref(self),
+                     # Pipe, lambda ref: ref(self),#内置函数被转换成pipe，不能pipe优先，需要stream的sink优先
                      callable, lambda ref: self.sink(ref),
                      ANY, lambda ref: TypeError(
                          f'{ref}:{type(ref)} is'
@@ -1308,7 +1307,7 @@ class unique(Stream):
 
     持久化的去重复，一般用在报警发送
     to_send = Stream()
-    dds = to_send.unique(persist_name='报警发送记录')
+    dds = to_send.unique(persist=True,size_limit=1024*1024*2)
     dds>>log
     232>>to_send
     232>>to_send
@@ -1321,7 +1320,7 @@ class unique(Stream):
 
     def __init__(self, upstream, maxsize=None,
                  key=identity, hashable=True,
-                 persist_file='_unique_persist', persist_name='',
+                 persist=False, size_limit=1024*1024*2,  # 2mb大小的
                  **kwargs):
         self.key = key
         self.log = kwargs.pop('log', None)
@@ -1334,12 +1333,10 @@ class unique(Stream):
         else:
             self.seen = []
 
-        if persist_name:
+        if persist:
             # self.seen = NODB()
-            self.seen = NB(stream_name=persist_name,
-                           fname=persist_file,
-                           maxsize=self.maxsize,
-                           **kwargs)
+
+            self.seen = diskcache.Cache(size_limit=size_limit)
 
         Stream.__init__(self, upstream, **kwargs)
 
