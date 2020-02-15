@@ -1321,7 +1321,7 @@ class unique(Stream):
 
     def __init__(self, upstream, maxsize=None,
                  key=identity, hashable=True,
-                 persist_file='_unique_persist.sqlite', persist_name='',
+                 persist_file='_unique_persist', persist_name='',
                  **kwargs):
         self.key = key
         self.log = kwargs.pop('log', None)
