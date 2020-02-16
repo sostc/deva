@@ -7,10 +7,6 @@ import datetime
 import moment
 
 
-def today():
-    return datetime.date.today().strftime('%Y-%m-%d')
-
-
 class HDFStore(object):
     """
     用作dataframe存储，
@@ -24,8 +20,7 @@ class HDFStore(object):
 
     def daily_set(self, path, value, date=None):
         """df,'/stock/tal',2020-01-11'"""
-        date = today()
-        key = path+'/ts'+today().replace('-', '')
+        key = path+'/ts'+datetime.date.today().strftime('%Y%m%d')
         return self.set(key, value)
 
     def set(self, key, value, append=False):
@@ -62,11 +57,14 @@ class ODBStream(object):
     输入是元组时，第一个值作为key，第二个作为value。
     输入时一个值时，默认时间作为key，moment.unix(key)可还原为moment时间
     输入是字典时，更新字典
+    maxsize保持定长字典
+    stream_name是表名
+    fname是文件路径
     """
 
-    def __init__(self, stream_name='default', fname='_dictstream', maxsize=None, log=passed, **kwargs):
+    def __init__(self, tablename='default', fname='_dictstream', maxsize=None, log=passed, **kwargs):
         self.log = log
-        self.tablename = stream_name
+        self.tablename = tablename
         self.maxsize = maxsize
 
         super(ODBStream, self).__init__()
@@ -136,13 +134,13 @@ class ODBStream(object):
 
 
 class ODBNamespace(dict):
-    def create_stream(self, stream_name='default', **kwargs):
+    def create_table(self, tablename='default', **kwargs):
         try:
-            return self[stream_name]
+            return self[tablename]
         except KeyError:
             return self.setdefault(
-                stream_name,
-                ODBStream(stream_name=stream_name, **kwargs)
+                tablename,
+                ODBStream(tablename=tablename, **kwargs)
             )
 
 
@@ -151,11 +149,11 @@ odbnamespace = ODBNamespace()
 
 def NB(*args, **kwargs):
     """创建命名的数据库
-    NB(stream_name,fname)
-    stream_name:流名，底层是表名
+    NB(tablename,fname)
+    tablename:流名，底层是表名
     fname，存储文件路径名字
     """
-    return odbnamespace.create_stream(*args, **kwargs)
+    return odbnamespace.create_table(*args, **kwargs)
 
 
 NODB = NB

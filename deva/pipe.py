@@ -606,34 +606,47 @@ def size(x):
     return sys.getsizeof(x)
 
 
+# @Pipe
+# def post_to(body, url='http://127.0.0.1:9999', headers=None):
+#     """ post a str or bytes or pyobject to url.
+
+#     str:直接发送
+#     bytes:直接发送
+#     pyobject:dill序列化后发送
+#     发送方式use async http client,Future对象，jupyter中可直接使用
+#     jupyter 之外需要loop = IOLoop.current(instance=True)，loop.start()
+#     Examples:
+#         {'a':1}>>post_to(url)
+
+#     """
+#     if not isinstance(body, bytes):
+#         try:
+#             body = json.dumps(body)
+#         except TypeError:
+#             body = dill.dumps(body)
+
+#     from tornado import httpclient
+#     http_client = httpclient.AsyncHTTPClient()
+#     headers = {}
+#     request = httpclient.HTTPRequest(
+#         url, body=body, method="POST", headers=headers)
+
+#     result = yield http_client.fetch(request)
+#     return result
+
+
 @Pipe
-@gen.coroutine
-def post_to(body, url='http://127.0.0.1:9999', headers=None):
-    """ post a str or bytes or pyobject to url.
+def post_to(url='http://127.0.0.1:9999'):
+    def _(body):
+        if not isinstance(body, bytes):
+            try:
+                body = json.dumps(body)
+            except TypeError:
+                body = dill.dumps(body)
 
-    str:直接发送
-    bytes:直接发送
-    pyobject:dill序列化后发送
-    发送方式use async http client,Future对象，jupyter中可直接使用
-    jupyter 之外需要loop = IOLoop.current(instance=True)，loop.start()
-    Examples:
-        {'a':1}>>post_to(url)
-
-    """
-    if not isinstance(body, bytes):
-        try:
-            body = json.dumps(body)
-        except TypeError:
-            body = dill.dumps(body)
-
-    from tornado import httpclient
-    http_client = httpclient.AsyncHTTPClient()
-    headers = {}
-    request = httpclient.HTTPRequest(
-        url, body=body, method="POST", headers=headers)
-
-    result = yield http_client.fetch(request)
-    return result
+        import requests
+        return requests.post(url, data=body)
+    return _@P
 
 
 # %%转换内置函数为pipe

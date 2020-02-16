@@ -168,24 +168,24 @@ class from_http_request(Stream):
         if start:  # pragma: no cover
             self.start()
 
-    def _loads(self, body):
-        """解析从web端口提交过来的数据.
-
-        可能的数据有字符串和二进制,
-        字符串可能是直接字符串,也可能是json编码后的字符串
-        二进制可能是图像等直接可用的二进制,也可能是dill编码的二进制pyobject
-        """
-        try:
-            body = json.loads(body)
-        except TypeError:
-            body = dill.loads(body)
-        except ValueError:
-            body = body.decode('utf-8')
-        finally:
-            return body
-
     def _start_server(self):
         class Handler(RequestHandler):
+            def _loads(self, body):
+                """解析从web端口提交过来的数据.
+
+                可能的数据有字符串和二进制,
+                字符串可能是直接字符串,也可能是json编码后的字符串
+                二进制可能是图像等直接可用的二进制,也可能是dill编码的二进制pyobject
+                """
+                try:
+                    body = json.loads(body)
+                except TypeError:
+                    body = dill.loads(body)
+                except ValueError:
+                    body = body.decode('utf-8')
+                finally:
+                    return body
+
             source = self
 
             @gen.coroutine
