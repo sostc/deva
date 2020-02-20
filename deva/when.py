@@ -19,7 +19,7 @@ class when(object):
 
     Example:
     when('open').then(lambda :print(f'开盘啦'))
-    when(lambda x:x>2).then(lambda x:print('x大于二'))
+    when(lambda x:x>2).then(lambda x:print(x,'x大于二'))
     """
 
     def __init__(self, occasion, source=log):
