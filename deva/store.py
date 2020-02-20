@@ -5,6 +5,7 @@ import pandas as pd
 from .streamz.sqlitedict import SqliteDict
 import datetime
 import moment
+from .stream import Stream
 
 
 class HDFStore(object):
@@ -50,8 +51,8 @@ class HDFStore(object):
             return list(hs.walk(group))
 
 
-# @Stream.register_api()
-class ODBStream(object):
+@Stream.register_api()
+class ODBStream(Stream):
     """
     所有输入都会被作为字典在sqlite中做持久存储，若指定tablename，则将所有数据单独存储一个table。使用方式和字典一样
     输入是元组时，第一个值作为key，第二个作为value。
@@ -60,6 +61,8 @@ class ODBStream(object):
     maxsize保持定长字典
     stream_name是表名
     fname是文件路径
+
+    本身对象是一个流，也是一个iterable对象
     """
 
     def __init__(self, tablename='default', fname='_dictstream', maxsize=None, log=passed, **kwargs):
@@ -88,9 +91,9 @@ class ODBStream(object):
         self.clear = self.db.clear
         self._check_size_limit()
 
-    def __rrshift__(self, x):
+    def emit(self, x, asynchronous=False):
         self._to_store(x)
-        return x
+        return super().emit(x, asynchronous=asynchronous)
 
     def _check_size_limit(self):
         if self.maxsize is not None:

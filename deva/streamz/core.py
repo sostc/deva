@@ -561,7 +561,8 @@ class Stream(object):
                      list, lambda ref: self.sink(ref.append),
                      io.TextIOWrapper, lambda ref: self.sink(write),
                      Stream, lambda ref: self.sink(ref.emit),
-                     # Pipe, lambda ref: ref(self),#内置函数被转换成pipe，不能pipe优先，需要stream的sink优先
+                     # 内置函数被转换成pipe，不能pipe优先，需要stream的sink优先
+                     Pipe, lambda ref: ref(self),
                      callable, lambda ref: self.sink(ref),
                      ANY, lambda ref: TypeError(
                          f'{ref}:{type(ref)} is'
@@ -623,6 +624,9 @@ class Stream(object):
             now_time = datetime.now()
             begin = now_time + timedelta(seconds=-seconds)
             return df[begin:]
+
+    def __iter__(self,):
+        return self._store.values().__iter__()
 
 
 @Stream.register_api()

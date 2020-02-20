@@ -279,7 +279,7 @@ class SqliteDict(DictClass):
             self.update(kwds)
 
     def __iter__(self):
-        return self.iterkeys()
+        return self.iteritems()
 
     def clear(self):
         if self.flag == 'r':
