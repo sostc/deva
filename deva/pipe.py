@@ -142,9 +142,9 @@ class Pipe:
         """Function composition: (a + b + c)(x) -> c(b(a(x)))."""
         return Pipe(lambda *args, **kwargs: other(self(*args, **kwargs)))
 
-    def __repr__(self):
-        """转化成Pipe对象后的repr."""
-        return f'<func {self.function.__module__}.{self.function.__name__}@P>'
+    # def __repr__(self):
+    #     """转化成Pipe对象后的repr."""
+    #     return f'<func {self.function.__module__}.{self.function.__name__}@P>'
 
 
 @Pipe

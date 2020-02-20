@@ -1,5 +1,8 @@
 # %%
 
+from tornado.iostream import StreamClosedError
+from tornado.tcpserver import TCPServer
+from tornado.tcpclient import TCPClient
 from tornado import gen, ioloop
 from tornado.httpserver import HTTPServer
 from deva.streamz.core import Stream as Streamz
@@ -217,12 +220,15 @@ class from_http_request(Stream):
 class from_command(Stream):
     """Receive command eval result data from subprocess,emit to stream."""
 
-    def __init__(self, interval=0.1, **kwargs):
+    def __init__(self, interval=0.1, command=None, **kwargs):
         self.interval = interval
         super(from_command, self).__init__(ensure_io_loop=True, **kwargs)
         self.stopped = True
         from concurrent.futures import ThreadPoolExecutor
         self.thread_pool = ThreadPoolExecutor(2)
+        self.command = command
+        if self.command:
+            self.run(self.command)
 
     @gen.coroutine
     def poll_out(self):
@@ -326,6 +332,100 @@ class scheduler(Stream):
 
     def get_jobs(self,):
         return self._scheduler.get_jobs()
+
+
+class StreamTCPServer(TCPServer):
+    """
+    server.in_s
+    server.out_s
+    """
+
+    def __init__(self, port=2345, **kwargs):
+        self.delimiter = 'zjw-split-0358'.encode('utf-8')
+        self.out_s = Stream()
+        self.in_s = Stream()
+        super(StreamTCPServer, self).__init__(**kwargs)
+        self.handlers = dict()
+        self.listen(port)
+
+    def __rrshift__(self, x):
+        x >> self.out_s
+
+    @gen.coroutine
+    def handle_stream(self, stream, address):
+        def _write(x):
+            try:
+                stream.write(x)
+                stream.write(self.delimiter)
+            except StreamClosedError:
+                print('%s connect close' % str(address))
+                self.handlers.get(address).destroy()
+                del self.handlers[address]
+
+        self.handlers[address] = self.out_s.map(dill.dumps).sink(_write)
+        while True:
+            try:
+                data = yield stream.read_until(self.delimiter)
+                yield self.in_s._emit(dill.loads(data))
+            except StreamClosedError:
+                print('%s connect close' % str(address))
+                break
+
+    def stop(self):
+        self.out_s.emit('exit')
+        for handler in self.handlers:
+            self.handlers[handler].destroy()
+        self.handlers = {}
+        super().stop()
+
+
+class StreamTCPClient():
+    """从tcp端口订阅数据
+    client.in_s
+    client.out_s
+
+    """
+
+    def __init__(self, host='127.0.0.1', port=2345, **kwargs):
+        super(StreamTCPClient, self).__init__(**kwargs)
+        self.host = host
+        self.port = port
+        self.delimiter = 'zjw-split-0358'.encode('utf-8')
+        self.out_s = Stream()
+        self.in_s = Stream(ensure_io_loop=True)
+        self._stream = None
+        self.in_s.filter(lambda x: x == 'exit').sink(lambda x: self.stop())
+        self.start()
+
+    def __rrshift__(self, x):
+        x >> self.out_s
+
+    @gen.coroutine
+    def start(self):
+        try:
+            self._stream = yield TCPClient().connect(self.host, self.port)
+        except Exception as e:
+            print(e, 'connect', self.host, self.port, 'error')
+
+        def _write(x):
+            try:
+                self._stream.write(x)
+                self._stream.write(self.delimiter)
+            except StreamClosedError:
+                print(f'{self.host}:{self.port} connect close')
+                self.out_handler.destroy()
+
+        self.out_handler = self.out_s.map(dill.dumps).sink(_write)
+#         try:
+        while self._stream:
+            data = yield self._stream.read_until(self.delimiter)
+            yield self.in_s.emit(dill.loads(data))
+#         except iostream.StreamClosedError:
+#             print('tornado.iostream.StreamClosedError')
+
+    def stop(self):
+        if not self._stream.closed() and self._stream.close():
+            self.stopped = True
 
 
 class Namespace(dict):
