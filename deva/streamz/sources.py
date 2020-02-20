@@ -159,7 +159,7 @@ class filenames(Source):
 
 
 @Stream.register_api(staticmethod)
-class from_tcp(Source):
+class from_tcp_port(Source):
     """
     Creates events by reading from a socket using tornado TCPServer
 
@@ -183,12 +183,12 @@ class from_tcp(Source):
     Example
     -------
 
-    >>> source = Source.from_tcp(4567)  # doctest: +SKIP
+    >>> source = Source.from_tcp_port(4567)  # doctest: +SKIP
     """
 
     def __init__(self, port, delimiter=b'\n', start=False,
                  server_kwargs=None):
-        super(from_tcp, self).__init__(ensure_io_loop=True)
+        super(from_tcp_port, self).__init__(ensure_io_loop=True)
         self.stopped = True
         self.server_kwargs = server_kwargs or {}
         self.port = port
