@@ -26,9 +26,12 @@ from .orderedweakset import OrderedWeakrefSet
 from .expiringdict import ExpiringDict
 from pampy import match, ANY
 import io
-from ..pipe import to_dataframe, Pipe
 import pandas as pd
-import diskcache
+from ..pipe import *
+
+import pkg_resources
+from .sqlitedict import SqliteDict
+import moment
 
 
 no_default = '--no-default--'
@@ -1280,6 +1283,115 @@ class flatten(Stream):
 
 
 @Stream.register_api()
+class ODBStream(Stream):
+    """
+    所有输入都会被作为字典在sqlite中做持久存储，若指定tablename，则将所有数据单独存储一个table。使用方式和字典一样
+    输入是元组时，第一个值作为key，第二个作为value。
+    输入时一个值时，默认时间作为key，moment.unix(key)可还原为moment时间
+    输入是字典时，更新字典
+    maxsize保持定长字典
+    stream_name是表名
+    fname是文件路径
+
+    本身对象是一个流，也是一个iterable对象
+    """
+
+    def __init__(self, tablename='default', fname='_dictstream', maxsize=None, log=passed, **kwargs):
+        self.log = log
+        self.tablename = tablename
+        self.maxsize = maxsize
+
+        super(ODBStream, self).__init__()
+        if fname == '_dictstream':
+            self.fname = pkg_resources.resource_filename(__name__, fname+'.sqlite')
+        else:
+            self.fname = fname+'.sqlite'
+
+        # self.fname = fname+'.sqlite'
+        self.db = SqliteDict(
+            self.fname,
+            tablename=self.tablename,
+            autocommit=True)
+
+        # self.db['tablename'] = self.tablename
+
+        self.keys = self.db.keys
+        self.values = self.db.values
+        self.items = self.db.items
+        self.get = self.db.get
+        self.clear = self.db.clear
+        self.get_tablenames = self.db.get_tablenames
+        self._check_size_limit()
+
+    def emit(self, x, asynchronous=False):
+        self._to_store(x)
+        return super().emit(x, asynchronous=asynchronous)
+
+    def _check_size_limit(self):
+        if self.maxsize is not None:
+            while len(self.db) > self.maxsize:
+                self.db.popitem()
+
+    def _to_store(self, x):
+        x >> self.log
+        if isinstance(x, dict):
+            self.db.update(x)
+        elif isinstance(x, tuple):
+            key, value = x
+            self.db.update({key: value})
+        else:
+            key = moment.now().epoch()
+            # moment.unix(now.epoch())
+            value = x
+            self.db.update({key: value})
+
+        self._check_size_limit()
+
+    def __len__(self,):
+        return self.db.__len__()
+
+    def __getitem__(self, x):
+        return self.db.__getitem__(x)
+
+    def __setitem__(self, key, value):
+        self.db.__setitem__(key, value)
+        self._check_size_limit()
+        return self
+
+    def __delitem__(self, x):
+        return self.db.__delitem__(x)
+
+    def __contains__(self, x):
+        return self.db.__contains__(x)
+
+    def __iter__(self,):
+        return self.db.__iter__()
+
+
+class ODBNamespace(dict):
+    def create_table(self, tablename='default', **kwargs):
+        try:
+            return self[tablename]
+        except KeyError:
+            return self.setdefault(
+                tablename,
+                ODBStream(tablename=tablename, **kwargs)
+            )
+
+
+odbnamespace = ODBNamespace()
+
+
+def NB(*args, **kwargs):
+    """创建命名的数据库
+    NB(tablename,fname)
+    tablename:流名，底层是表名
+    fname，存储文件路径名字
+    """
+    return odbnamespace.create_table(*args, **kwargs)
+
+
+@Stream.register_api()
 class unique(Stream):
     """ Avoid sending through repeated elements
 
@@ -1324,7 +1436,7 @@ class unique(Stream):
 
     def __init__(self, upstream, maxsize=None,
                  key=identity, hashable=True,
-                 persist=False, size_limit=1024*1024*2,  # 2mb大小的
+                 persistname=False,
                  **kwargs):
         self.key = key
         self.log = kwargs.pop('log', None)
@@ -1337,10 +1449,14 @@ class unique(Stream):
         else:
             self.seen = []
 
-        if persist:
+        if persistname:
             # self.seen = NODB()
 
-            self.seen = diskcache.Cache(size_limit=size_limit)
+            # self.seen = diskcache.Cache(size_limit=size_limit)
+            self.seen = NB(tablename=persistname,
+                           fname='_unique_persist',
+                           maxsize=self.maxsize or 200,
+                           **kwargs)
 
         Stream.__init__(self, upstream, **kwargs)
 
