@@ -169,7 +169,7 @@ def to_dataframe(iterable, orient='index'):
 
 
 @Pipe
-def head(qte: int):
+def head(qte: int = 5):
     "Yield qte of elements in the given iterable."
     def _head(iterable):
         i = qte
@@ -184,7 +184,7 @@ def head(qte: int):
 
 
 @Pipe
-def tail(qte: int):
+def tail(qte: int = 5):
     "Yield qte of elements in the given iterable."
     def _(iterable):
         return deque(iterable, maxlen=qte)
