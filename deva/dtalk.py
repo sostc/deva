@@ -18,6 +18,7 @@ class Dtalk(Stream):
 
         self.retry_client = RetryClient(max_retries=max_retries)
         self.secret = secret
+        self.webhook = webhook
         if not webhook:
             self.webhook = maybe(webhook).or_else(
                 "https://oapi.dingtalk.com/robot/send?access_token="
@@ -49,10 +50,10 @@ class Dtalk(Stream):
 
     @gen.coroutine
     def emit(self, msg: str, asynchronous=False) -> dict:
-        yield self.post(msg, self.webhook, self.log)
+        yield self.post(msg, self.log)
 
     @gen.coroutine
-    def post(self, msg: str, webhook: str, log: Stream) -> dict:
+    def post(self, msg: str, log: Stream) -> dict:
         # 二进制或者set类型的,转成json格式前需要先转类型
         if isinstance(msg, bytes) or isinstance(msg, set):
             msg = str(msg)
@@ -92,7 +93,7 @@ class Dtalk(Stream):
 
         return {'class': 'Dtalk',
                 'msg': msg,
-                'webhook': webhook,
+                'webhook': self.webhook,
                 'result': result,
                 } >> log
 
