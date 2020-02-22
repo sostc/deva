@@ -424,6 +424,27 @@ def tee(iterable):
         yield item
 
 
+# @Pipe
+# def write_to_file(fn, prefix='', suffix='\n', flush=True, mode='a+'):
+#     """同时支持二进制和普通文本的写入.
+
+#     Exsapmles:
+#         123>>write_to_file('tpm.txt')
+#         b'abc'>>write_to_file('music.mp3','ab+')
+#     """
+#     def _(content):
+#         with open(fn, mode) as f:
+#             if 'b' in mode:
+#                 f.write(content)
+#             else:
+#                 f.write(prefix)
+#                 f.write(str(content))
+#                 f.write(suffix)
+#             if flush:
+#                 f.flush()
+#         return content
+
+#     return _@P
 @Pipe
 def write_to_file(fn, prefix='', suffix='\n', flush=True, mode='a+'):
     """同时支持二进制和普通文本的写入.
@@ -432,16 +453,17 @@ def write_to_file(fn, prefix='', suffix='\n', flush=True, mode='a+'):
         123>>write_to_file('tpm.txt')
         b'abc'>>write_to_file('music.mp3','ab+')
     """
+    f = open(fn, mode)
+
     def _(content):
-        with open(fn, mode) as f:
-            if 'b' in mode:
-                f.write(content)
-            else:
-                f.write(prefix)
-                f.write(str(content))
-                f.write(suffix)
-            if flush:
-                f.flush()
+        if 'b' in mode:
+            f.write(content)
+        else:
+            f.write(prefix)
+            f.write(str(content))
+            f.write(suffix)
+        if flush:
+            f.flush()
         return content
 
     return _@P
@@ -606,50 +628,50 @@ def size(x):
     return sys.getsizeof(x)
 
 
-# @Pipe
-# def post_to(body, url='http://127.0.0.1:9999', headers=None):
-#     """ post a str or bytes or pyobject to url.
-
-#     str:直接发送
-#     bytes:直接发送
-#     pyobject:dill序列化后发送
-#     发送方式use async http client,Future对象，jupyter中可直接使用
-#     jupyter 之外需要loop = IOLoop.current(instance=True)，loop.start()
-#     Examples:
-#         {'a':1}>>post_to(url)
-
-#     """
-#     if not isinstance(body, bytes):
-#         try:
-#             body = json.dumps(body)
-#         except TypeError:
-#             body = dill.dumps(body)
-
-#     from tornado import httpclient
-#     http_client = httpclient.AsyncHTTPClient()
-#     headers = {}
-#     request = httpclient.HTTPRequest(
-#         url, body=body, method="POST", headers=headers)
-
-#     result = yield http_client.fetch(request)
-#     return result
-
-
 @Pipe
-def post_to(url='http://127.0.0.1:9999'):
-    def _(body):
+def post_to(url='http://127.0.0.1:9999', asynchronous=True, headers={}):
+    """ post a str or bytes or pyobject to url.
+
+    str:直接发送
+    bytes:直接发送
+    pyobject:dill序列化后发送
+    发送方式use async http client,Future对象，jupyter中可直接使用
+    jupyter 之外需要loop = IOLoop.current(instance=True)，loop.start()
+    Examples:
+        {'a':1}>>post_to(url)
+        {'a':1}>>post_to(url,asynchronous=False)
+
+    """
+    def _encode(body):
         if not isinstance(body, bytes):
             try:
                 body = json.dumps(body)
             except TypeError:
                 body = dill.dumps(body)
+        return body
 
+    @gen.coroutine
+    def _async(body):
+        body = _encode(body)
+        from tornado import httpclient
+        http_client = httpclient.AsyncHTTPClient()
+        request = httpclient.HTTPRequest(
+            url, body=body, method="POST", headers=headers)
+        response = yield http_client.fetch(request)
+        return response
+
+    def _sync(body):
+        body = _encode(body)
         import requests
-        return requests.post(url, data=body)
-    return _@P
+        return requests.post(url, data=body, headers=headers)
+
+    if asynchronous:
+        return _async@P
+    else:
+        return _sync@P
 
 
-# %%转换内置函数为pipe
+    # %%转换内置函数为pipe
 for i in builtins.__dict__.copy():
     if callable(builtins.__dict__.get(i)):
         f = 'to_' + i

@@ -13,6 +13,10 @@ import json
 import walrus
 import moment
 import os
+import logging
+
+
+logger = logging.getLogger(__name__)
 
 
 class Stream(Streamz):
@@ -358,7 +362,7 @@ class StreamTCPServer(TCPServer):
                 stream.write(x)
                 stream.write(self.delimiter)
             except StreamClosedError:
-                print('%s connect close' % str(address))
+                logger.exception('%s connect close' % str(address))
                 self.handlers.get(address).destroy()
                 del self.handlers[address]
 
@@ -368,7 +372,7 @@ class StreamTCPServer(TCPServer):
                 data = yield stream.read_until(self.delimiter)
                 yield self.in_s._emit(dill.loads(data))
             except StreamClosedError:
-                print('%s connect close' % str(address))
+                logger.exception('%s connect close' % str(address))
                 break
 
     def stop(self):
@@ -405,14 +409,14 @@ class StreamTCPClient():
         try:
             self._stream = yield TCPClient().connect(self.host, self.port)
         except Exception as e:
-            print(e, 'connect', self.host, self.port, 'error')
+            logger.exception(e, 'connect', self.host, self.port, 'error')
 
         def _write(x):
             try:
                 self._stream.write(x)
                 self._stream.write(self.delimiter)
             except StreamClosedError:
-                print(f'{self.host}:{self.port} connect close')
+                logger.exception(f'{self.host}:{self.port} connect close')
                 self.out_handler.destroy()
 
         self.out_handler = self.out_s.map(dill.dumps).sink(_write)
@@ -421,7 +425,7 @@ class StreamTCPClient():
             data = yield self._stream.read_until(self.delimiter)
             yield self.in_s.emit(dill.loads(data))
 #         except iostream.StreamClosedError:
-#             print('tornado.iostream.StreamClosedError')
+#             logger.exception('tornado.iostream.StreamClosedError')
 
     def stop(self):
         if not self._stream.closed() and self._stream.close():
@@ -467,7 +471,7 @@ def NT(topic, *args, **kwargs):
     try:
         return namespace.create_topic(topic=topic, *args, **kwargs)
     except Exception as e:
-        print(f'Warn:{e}, start a single process topic ')
+        logger.exception(f'Warn:{e}, start a single process topic ')
         return NS(topic)
 
 
