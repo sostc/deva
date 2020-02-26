@@ -28,7 +28,7 @@ __all__ = [
     'lstrip', 'rstrip', 'run_with', 'append', 'to_type', 'transpose',
     'dedup', 'uniq', 'to_dataframe', 'P', 'pmap', 'pfilter', 'post_to',
     'head', 'read', 'tcp_write', 'write_to_file', 'size', 'ls', 'range',
-    'sum', 'split',
+    'sum', 'split', 'sample', 'extract',
     # 'abs',
     #     'all',
     #     'any',
@@ -54,7 +54,7 @@ __all__ = [
     #     # 'isinstance',
     #     'issubclass',
     #     'iter',
-    #     'len',
+    'len',
     #     'locals',
     'max',
     'min',
@@ -113,30 +113,34 @@ class Pipe:
     # 2, 4, 6
     """
 
-    def __init__(self, function):
+    def __init__(self, func):
         """decorater 初始化."""
-        self.function = function
-        functools.update_wrapper(self, function)
+        self.func = func
+        functools.update_wrapper(self, func)
 
     def __ror__(self, other):
         """左边的 |."""
-        return self.function(other)
+        return self.func(other)
 
     def __rrshift__(self, other):
         """左边的 >>."""
-        return self.function(other)
+        # 左边如果支持sink方法，则变为左边sin右边的函数
+        if hasattr(other, 'sink'):
+            return other.sink(self.func)
+        else:
+            return self.func(other)
 
     def __rmatmul__(self, other):
         """左边的 @."""
-        return self.function(other)
+        return self.func(other)
 
     def __lshift__(self, other):  # 右边的<<
         """右边的 <<."""
-        return self.function(other)
+        return self.func(other)
 
     def __call__(self, *args, **kwargs):
         """像正常函数一样使用使用."""
-        return self.function(*args, **kwargs)
+        return self.func(*args, **kwargs)
 
     def __add__(self, other):
         """Function composition: (a + b + c)(x) -> c(b(a(x)))."""
@@ -144,7 +148,7 @@ class Pipe:
 
     # def __repr__(self):
     #     """转化成Pipe对象后的repr."""
-    #     return f'<func {self.function.__module__}.{self.function.__name__}@P>'
+    #     return f'<func {self.func.__module__}.{self.func.__name__}@P>'
 
 
 @Pipe
@@ -168,28 +172,58 @@ def to_dataframe(iterable, orient='index'):
     return pd.DataFrame.from_dict(iterable, orient=orient)
 
 
+# @Pipe
+# def head(qte: int = 5):
+#     "Yield qte of elements in the given iterable."
+#     def _head(iterable):
+#         i = qte
+#         result = []
+#         for item in iterable:
+#             if i > 0:
+#                 i -= 1
+#                 yield item
+#             else:
+#                 return
+
+#     if isinstance(qte, int):
+#         return _head@P
+#     else:
+#         iterable, qte = qte, 5
+#         return _head(iterable)
+
+
 @Pipe
 def head(qte: int = 5):
     "Yield qte of elements in the given iterable."
     def _head(iterable):
         i = qte
+        result = []
         for item in iterable:
             if i > 0:
                 i -= 1
-                yield item
+                result.append(item)
             else:
-                return
+                break
+        return result
 
-    return _head@P
+    if isinstance(qte, int):
+        return _head@P
+    else:
+        iterable, qte = qte, 5
+        return _head(iterable)
 
 
 @Pipe
 def tail(qte: int = 5):
     "Yield qte of elements in the given iterable."
     def _(iterable):
-        return deque(iterable, maxlen=qte)
+        return list(deque(iterable, maxlen=qte))
 
-    return _@P
+    if isinstance(qte, int):
+        return _@P
+    else:
+        iterable, qte = qte, 5
+        return _(iterable)
 
 
 @Pipe
@@ -671,6 +705,77 @@ def post_to(url='http://127.0.0.1:9999', asynchronous=True, headers={}):
         return _sync@P
 
 
+@Pipe
+def sample(samplesize=5):
+
+    def _(iterable):
+        import random
+        results = []
+        iterator = iter(iterable)
+        # Fill in the first samplesize elements:
+        try:
+            for _ in range(samplesize):
+                results.append(next(iterator))
+        except StopIteration:
+            raise ValueError("Sample larger than population.")
+        random.shuffle(results)  # Randomize their positions
+        for i, v in enumerate(iterator, samplesize):
+            r = random.randint(0, i)
+            if r < samplesize:
+                results[r] = v  # at a decreasing rate, replace random items
+        return results
+
+    if isinstance(samplesize, int):
+        return _@P
+    else:
+        iterable, samplesize = samplesize, 5
+        return _(iterable)
+
+
+@Pipe
+def extract(mode='chinese'):
+    import re
+    """特定数据提取函数
+    type:
+    chinese，中文提取
+    numbers：整数提取
+    phone:
+    url:
+    email:
+        'ddd 23.4 sddsd345'>>extract('numbers')>>print
+        '你好ds34手'>>extract()>>print
+        'dff@fmail.cc.ccd123ddd'>>extract('email')>>print
+        'ddshttp://baidu.com/fds dfs'>>extract('url')>>print
+
+        [23.4, 345]
+        ['你好', '手']
+        ['dff@fmail.cc.ccd']
+        ['http://baidu.com/fds']
+    """
+    url_regex = re.compile(
+        '(?:(?:https?|ftp|file)://|www\.|ftp\.)[-A-Z0-9+&@#/%=~_|$?!:,.]*[A-Z0-9+&@#/%=~_|$]', re.IGNORECASE)
+    email_regex = re.compile(
+        '([A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,4})', re.IGNORECASE)
+
+    def _(text: str)->list:
+        if mode == 'chinese':
+            return re.findall(r"[\u4e00-\u9fa5]+", text)
+        elif mode == 'numbers' or mode == 'number':
+            return re.findall("[+-]?\d+\.*\d+", text) >> pmap(lambda x: float(x) if '.' in x else int(x)) >> ls
+        elif mode == 'table':
+            import pandas as pd
+            return pd.read_html(text)
+        elif mode == 'url':
+            return [x for x in url_regex.findall(text)]
+        elif mode == 'email':
+            return [x for x in email_regex.findall(text)]
+        elif mode == 'tags':
+            import jieba.analyse
+            return jieba.analyse.extract_tags(text, 20)
+
+    return _@P
+
+
     # %%转换内置函数为pipe
 for i in builtins.__dict__.copy():
     if callable(builtins.__dict__.get(i)):
@@ -704,7 +809,7 @@ ls = list@P
 # # isinstance = P(isinstance)
 # issubclass = P(issubclass)
 # iter = P(iter)
-# len = P(len)
+len = P(len)
 # locals = P(locals)
 max = P(max)
 min = P(min)

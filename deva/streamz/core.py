@@ -552,6 +552,37 @@ class Stream(object):
         self.emit(value)
         return value
 
+    def log_to(self, func):
+        """decorater 初始化."""
+        from functools import wraps
+
+        # @Pipe
+        @wraps(func)
+        def wraper(*args, **kwargs):
+            # some action before
+            try:
+                result = func(*args, **kwargs)  # 需要这里显式调用用户函数
+                # action after
+                # {
+                #     'function': func.__name__,
+                #     'param': (args, kwargs),
+                #     'return': result,
+                # } >> self
+
+                return result
+            except Exception as e:
+                {
+                    'function': func.__name__,
+                    'param': (args, kwargs),
+                    'except': e,
+                } >> self
+
+        return wraper
+
+    def __rmatmul__(self, func):
+        """左边的 @."""
+        return self.log_to(func).__call__@P
+
     def __rshift__(self, ref):  # stream右边的
         """Stream右边>>,sink到右边的对象.
 
@@ -565,7 +596,7 @@ class Stream(object):
                      io.TextIOWrapper, lambda ref: self.sink(write),
                      Stream, lambda ref: self.sink(ref.emit),
                      # 内置函数被转换成pipe，不能pipe优先，需要stream的sink优先
-                     Pipe, lambda ref: ref(self),
+                     # Pipe, lambda ref: ref(self),
                      callable, lambda ref: self.sink(ref),
                      ANY, lambda ref: TypeError(
                          f'{ref}:{type(ref)} is'
@@ -1086,6 +1117,48 @@ class delay(Stream):
 
     def update(self, x, who=None):
         return self.queue.put(x)
+
+
+@Stream.register_api()
+class httpget(Stream):
+    """自动http get流中的url，返回response对象
+
+    参数error，流或者pipe函数，发生异常时url会被发送到这里
+    注意上游流要限速，这个是并发执行，速度很快
+    例子：
+    s = Stream()
+    get_data = lambda x:x.body.decode('utf-8')>>chinese_extract>>sample(20)>>concat('|')
+    s.rate_limit(0.1).httpget(error=log).map(get_data).sink(print)
+    """
+
+    def __init__(self, upstream, render=False, error=print, **kwargs):
+        self.error = error
+        # from tornado import httpclient
+        from requests_html import AsyncHTMLSession
+        Stream.__init__(self, upstream=upstream)
+        # self.http_client = httpclient.AsyncHTTPClient()
+        self.httpclient = AsyncHTMLSession()
+        self.render = render
+
+    def update(self, url, who=None):
+        gen.multi([self._http(url)])
+
+    def emit(self, url, **kwargs):
+        gen.multi([self._http(url)])
+        return url
+
+    @gen.coroutine
+    def _http(self, url):
+        try:
+            response = yield self.httpclient.get(url)
+            if self.render:
+                response = response.html.render()
+
+            self._emit(response)
+        except Exception as e:
+            url >> self.error
+            logger.exception(e)
+            # raise
 
 
 @Stream.register_api()
