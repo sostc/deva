@@ -18,3 +18,4 @@ outlier_utils
 textblob
 googletrans
 diskcache
+request-html

@@ -1,12 +1,17 @@
 README.md
 setup.py
 deva/__init__.py
+deva/bus.py
+deva/dtalk.py
 deva/formula.py
+deva/log.py
 deva/pipe.py
-deva/process.py
 deva/search.py
+deva/simhash.py
+deva/store.py
 deva/stream.py
 deva/tornado_retry_client.py
+deva/when.py
 deva/whooshalchemy.py
 deva.egg-info/PKG-INFO
 deva.egg-info/SOURCES.txt
@@ -24,6 +29,7 @@ deva/streamz/expiringdict.py
 deva/streamz/graph.py
 deva/streamz/orderedweakset.py
 deva/streamz/sources.py
+deva/streamz/sqlitedict.py
 deva/streamz/utils.py
 deva/streamz/utils_test.py
 deva/streamz/dataframe/__init__.py

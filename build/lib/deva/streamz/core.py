@@ -26,7 +26,12 @@ from .orderedweakset import OrderedWeakrefSet
 from .expiringdict import ExpiringDict
 from pampy import match, ANY
 import io
-from ..pipe import to_dataframe
+import pandas as pd
+from ..pipe import *
+
+import pkg_resources
+from .sqlitedict import SqliteDict
+import moment
 
 
 no_default = '--no-default--'
@@ -547,6 +552,37 @@ class Stream(object):
         self.emit(value)
         return value
 
+    def log_to(self, func):
+        """decorater 初始化."""
+        from functools import wraps
+
+        # @Pipe
+        @wraps(func)
+        def wraper(*args, **kwargs):
+            # some action before
+            try:
+                result = func(*args, **kwargs)  # 需要这里显式调用用户函数
+                # action after
+                # {
+                #     'function': func.__name__,
+                #     'param': (args, kwargs),
+                #     'return': result,
+                # } >> self
+
+                return result
+            except Exception as e:
+                {
+                    'function': func.__name__,
+                    'param': (args, kwargs),
+                    'except': e,
+                } >> self
+
+        return wraper
+
+    def __rmatmul__(self, func):
+        """左边的 @."""
+        return self.log_to(func).__call__@P
+
     def __rshift__(self, ref):  # stream右边的
         """Stream右边>>,sink到右边的对象.
 
@@ -559,6 +595,8 @@ class Stream(object):
                      list, lambda ref: self.sink(ref.append),
                      io.TextIOWrapper, lambda ref: self.sink(write),
                      Stream, lambda ref: self.sink(ref.emit),
+                     # 内置函数被转换成pipe，不能pipe优先，需要stream的sink优先
+                     # Pipe, lambda ref: ref(self),
                      callable, lambda ref: self.sink(ref),
                      ANY, lambda ref: TypeError(
                          f'{ref}:{type(ref)} is'
@@ -620,6 +658,9 @@ class Stream(object):
             now_time = datetime.now()
             begin = now_time + timedelta(seconds=-seconds)
             return df[begin:]
+
+    def __iter__(self,):
+        return self._store.values().__iter__()
 
 
 @Stream.register_api()
@@ -757,7 +798,10 @@ class starmap(Stream):
 
 
 def _truthy(x):
-    return not not x
+    if not isinstance(pd.DataFrame):
+        return not not x
+    else:
+        return x.empty
 
 
 @Stream.register_api()
@@ -1076,6 +1120,124 @@ class delay(Stream):
 
 
 @Stream.register_api()
+class httpget(Stream):
+    """自动http get流中的url，返回response对象
+
+    参数error，流或者pipe函数，发生异常时url会被发送到这里
+    注意上游流要限速，这个是并发执行，速度很快
+    例子：
+    s = Stream()
+    get_data = lambda x:x.body.decode('utf-8')>>chinese_extract>>sample(20)>>concat('|')
+    s.rate_limit(0.1).httpget(error=log).map(get_data).sink(print)
+    """
+
+    def __init__(self, upstream, render=False, error=print, **kwargs):
+        self.error = error
+        # from tornado import httpclient
+        from requests_html import AsyncHTMLSession
+        Stream.__init__(self, upstream=upstream)
+        # self.http_client = httpclient.AsyncHTTPClient()
+        self.httpclient = AsyncHTMLSession()
+        self.render = render
+
+    def update(self, url, who=None):
+        gen.multi([self._http(url)])
+
+    def emit(self, url, **kwargs):
+        gen.multi([self._http(url)])
+        return url
+
+    @gen.coroutine
+    def _http(self, url):
+        try:
+            response = yield self.httpclient.get(url)
+            if self.render:
+                response = response.html.render()
+
+            self._emit(response)
+        except Exception as e:
+            url >> self.error
+            logger.exception(e)
+            # raise
+
+
+@Stream.register_api()
+class from_coroutine(Stream):
+    """获取上游进来的future的最终值并放入下游
+    注意上游流要限速，这个是并发执行，速度很快
+    例子：
+    @gen.coroutine
+    def foo():
+        yield gen.sleep(3)
+        return range<<10>>sample>>first
+
+    async def foo2():
+        import asyncio
+        await asyncio.sleep(3)
+        return range<<10>>sample>>first
+
+    s = Stream()
+    s.rate_limit(1).from_coroutine()>>log
+
+    for i in range(3):
+        (foo,arg1,arg2)>>s
+        (foo2,arg2)>>s
+
+    [2020-02-26 18:14:37.991321] INFO: deva.log: 1
+    [2020-02-26 18:14:37.993260] INFO: deva.log: 7
+    [2020-02-26 18:14:37.995112] INFO: deva.log: 5
+    """
+
+    def __init__(self, upstream, timeout=3, **kwargs):
+        # from tornado import httpclient
+        Stream.__init__(self, upstream=upstream, ensure_io_loop=True)
+        self.timeout = 3
+
+    def update(self, x, who=None):
+        self._emit(sync(self.loop, *x))
+
+
+@Stream.register_api()
+class from_future(Stream):
+    """获取上游进来的future的最终值并放入下游
+    注意上游流要限速，这个是并发执行，速度很快
+    例子：
+    @gen.coroutine
+    def foo():
+        yield gen.sleep(3)
+        return range<<10>>sample>>first
+
+    async def foo2():
+        import asyncio
+        await asyncio.sleep(3)
+        return range<<10>>sample>>first
+
+    s = Stream()
+    s.rate_limit(1).from_future()>>log
+
+    for i in range(3):
+        foo()>>s
+        foo2()>>s
+
+    [2020-02-26 18:14:37.991321] INFO: deva.log: 1
+    [2020-02-26 18:14:37.993260] INFO: deva.log: 7
+    [2020-02-26 18:14:37.995112] INFO: deva.log: 5
+    """
+
+    def __init__(self, upstream, **kwargs):
+        # from tornado import httpclient
+        Stream.__init__(self, upstream=upstream, ensure_io_loop=True)
+
+    def update(self, x, who=None):
+        from collections.abc import Coroutine
+        if isinstance(x, gen.Future):
+            self.loop.add_future(x, lambda x: self._emit(x.result()))
+        elif isinstance(x, Coroutine):
+            task = self.loop.asyncio_loop.create_task(x)
+            task.add_done_callback(lambda x: self._emit(x.result()))
+
+
+@Stream.register_api()
 class rate_limit(Stream):
     """ Limit the flow of data
 
@@ -1270,6 +1432,115 @@ class flatten(Stream):
 
 
 @Stream.register_api()
+class ODBStream(Stream):
+    """
+    所有输入都会被作为字典在sqlite中做持久存储，若指定tablename，则将所有数据单独存储一个table。使用方式和字典一样
+    输入是元组时，第一个值作为key，第二个作为value。
+    输入时一个值时，默认时间作为key，moment.unix(key)可还原为moment时间
+    输入是字典时，更新字典
+    maxsize保持定长字典
+    stream_name是表名
+    fname是文件路径
+
+    本身对象是一个流，也是一个iterable对象
+    """
+
+    def __init__(self, tablename='default', fname='_dictstream', maxsize=None, log=passed, **kwargs):
+        self.log = log
+        self.tablename = tablename
+        self.maxsize = maxsize
+
+        super(ODBStream, self).__init__()
+        if fname == '_dictstream':
+            self.fname = pkg_resources.resource_filename(__name__, fname+'.sqlite')
+        else:
+            self.fname = fname+'.sqlite'
+
+        # self.fname = fname+'.sqlite'
+        self.db = SqliteDict(
+            self.fname,
+            tablename=self.tablename,
+            autocommit=True)
+
+        # self.db['tablename'] = self.tablename
+
+        self.keys = self.db.keys
+        self.values = self.db.values
+        self.items = self.db.items
+        self.get = self.db.get
+        self.clear = self.db.clear
+        self.get_tablenames = self.db.get_tablenames
+        self._check_size_limit()
+
+    def emit(self, x, asynchronous=False):
+        self._to_store(x)
+        return super().emit(x, asynchronous=asynchronous)
+
+    def _check_size_limit(self):
+        if self.maxsize is not None:
+            while len(self.db) > self.maxsize:
+                self.db.popitem()
+
+    def _to_store(self, x):
+        x >> self.log
+        if isinstance(x, dict):
+            self.db.update(x)
+        elif isinstance(x, tuple):
+            key, value = x
+            self.db.update({key: value})
+        else:
+            key = moment.now().epoch()
+            # moment.unix(now.epoch())
+            value = x
+            self.db.update({key: value})
+
+        self._check_size_limit()
+
+    def __len__(self,):
+        return self.db.__len__()
+
+    def __getitem__(self, x):
+        return self.db.__getitem__(x)
+
+    def __setitem__(self, key, value):
+        self.db.__setitem__(key, value)
+        self._check_size_limit()
+        return self
+
+    def __delitem__(self, x):
+        return self.db.__delitem__(x)
+
+    def __contains__(self, x):
+        return self.db.__contains__(x)
+
+    def __iter__(self,):
+        return self.db.__iter__()
+
+
+class ODBNamespace(dict):
+    def create_table(self, tablename='default', **kwargs):
+        try:
+            return self[tablename]
+        except KeyError:
+            return self.setdefault(
+                tablename,
+                ODBStream(tablename=tablename, **kwargs)
+            )
+
+
+odbnamespace = ODBNamespace()
+
+
+def NB(*args, **kwargs):
+    """创建命名的数据库
+    NB(tablename,fname)
+    tablename:流名，底层是表名
+    fname，存储文件路径名字
+    """
+    return odbnamespace.create_table(*args, **kwargs)
+
+
+@Stream.register_api()
 class unique(Stream):
     """ Avoid sending through repeated elements
 
@@ -1298,15 +1569,26 @@ class unique(Stream):
     >>> source.unique(history=1).sink(print)
     >>> for x in [1, 1, 2, 2, 2, 1, 3]:
     ...     source.emit(x)
+
+    持久化的去重复，一般用在报警发送
+    to_send = Stream()
+    dds = to_send.unique(persist=True,size_limit=1024*1024*2)
+    dds>>log
+    232>>to_send
+    232>>to_send
+
     1
     2
     1
     3
     """
 
-    def __init__(self, upstream, maxsize=None, key=identity, hashable=True,
+    def __init__(self, upstream, maxsize=None,
+                 key=identity, hashable=True,
+                 persistname=False,
                  **kwargs):
         self.key = key
+        self.log = kwargs.pop('log', None)
         self.maxsize = maxsize
         if hashable:
             self.seen = dict()
@@ -1315,6 +1597,15 @@ class unique(Stream):
                 self.seen = LRU(self.maxsize, self.seen)
         else:
             self.seen = []
+
+        if persistname:
+            # self.seen = NODB()
+
+            # self.seen = diskcache.Cache(size_limit=size_limit)
+            self.seen = NB(tablename=persistname,
+                           fname='_unique_persist',
+                           maxsize=self.maxsize or 200,
+                           **kwargs)
 
         Stream.__init__(self, upstream, **kwargs)
 
@@ -1330,9 +1621,10 @@ class unique(Stream):
                 del self.seen[self.maxsize:]
             if emit:
                 return self._emit(x)
+
         else:
-            if self.seen.get(y, '~~not_seen~~') == '~~not_seen~~':
-                self.seen[y] = 1
+            if self.seen.get(str(y), '~~not_seen~~') == '~~not_seen~~':
+                self.seen[str(y)] = 1
                 return self._emit(x)
 
 
