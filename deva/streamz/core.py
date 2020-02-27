@@ -1162,6 +1162,82 @@ class httpget(Stream):
 
 
 @Stream.register_api()
+class from_coroutine(Stream):
+    """获取上游进来的future的最终值并放入下游
+    注意上游流要限速，这个是并发执行，速度很快
+    例子：
+    @gen.coroutine
+    def foo():
+        yield gen.sleep(3)
+        return range<<10>>sample>>first
+
+    async def foo2():
+        import asyncio
+        await asyncio.sleep(3)
+        return range<<10>>sample>>first
+
+    s = Stream()
+    s.rate_limit(1).from_coroutine()>>log
+
+    for i in range(3):
+        (foo,arg1,arg2)>>s
+        (foo2,arg2)>>s
+
+    [2020-02-26 18:14:37.991321] INFO: deva.log: 1
+    [2020-02-26 18:14:37.993260] INFO: deva.log: 7
+    [2020-02-26 18:14:37.995112] INFO: deva.log: 5
+    """
+
+    def __init__(self, upstream, timeout=3, **kwargs):
+        # from tornado import httpclient
+        Stream.__init__(self, upstream=upstream, ensure_io_loop=True)
+        self.timeout = 3
+
+    def update(self, x, who=None):
+        self._emit(sync(self.loop, *x))
+
+
+@Stream.register_api()
+class from_future(Stream):
+    """获取上游进来的future的最终值并放入下游
+    注意上游流要限速，这个是并发执行，速度很快
+    例子：
+    @gen.coroutine
+    def foo():
+        yield gen.sleep(3)
+        return range<<10>>sample>>first
+
+    async def foo2():
+        import asyncio
+        await asyncio.sleep(3)
+        return range<<10>>sample>>first
+
+    s = Stream()
+    s.rate_limit(1).from_future()>>log
+
+    for i in range(3):
+        foo()>>s
+        foo2()>>s
+
+    [2020-02-26 18:14:37.991321] INFO: deva.log: 1
+    [2020-02-26 18:14:37.993260] INFO: deva.log: 7
+    [2020-02-26 18:14:37.995112] INFO: deva.log: 5
+    """
+
+    def __init__(self, upstream, **kwargs):
+        # from tornado import httpclient
+        Stream.__init__(self, upstream=upstream, ensure_io_loop=True)
+
+    def update(self, x, who=None):
+        from collections.abc import Coroutine
+        if isinstance(x, gen.Future):
+            self.loop.add_future(x, lambda x: self._emit(x.result()))
+        elif isinstance(x, Coroutine):
+            task = self.loop.asyncio_loop.create_task(x)
+            task.add_done_callback(lambda x: self._emit(x.result()))
+
+
+@Stream.register_api()
 class rate_limit(Stream):
     """ Limit the flow of data
 

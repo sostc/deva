@@ -59,22 +59,22 @@ class engine(Stream):
 
     ::func:: func to gen data
     ::interval:: func to run interval time
-    ::asyncflag:: func execute in threadpool
-    ::threadcount:: if asyncflag ,this is threadpool count
+    ::thread:: 堵塞的物异步协程任务，func execute in threadpool
+    ::thread:: if thread ,this is threadpool count
     """
 
     def __init__(self,
                  interval=1,
                  start=False,
                  func=lambda: moment.now().seconds,
-                 asyncflag=False,
+                 thread=False,
                  threadcount=5,
                  **kwargs):
 
         self.interval = interval
         self.func = func
-        self.asyncflag = asyncflag
-        if self.asyncflag:
+        self.thread = thread
+        if self.thread:
             from concurrent.futures import ThreadPoolExecutor
             self.thread_pool = ThreadPoolExecutor(threadcount)
 
