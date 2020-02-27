@@ -1,6 +1,6 @@
-Metadata-Version: 1.0
+Metadata-Version: 1.2
 Name: deva
-Version: 0.6
+Version: 0.91
 Summary: data eval in future
 Home-page: https://github.com/sostc/deva
 Author: spark
@@ -8,3 +8,4 @@ Author-email: zjw0358@gmail.com
 License: http://www.apache.org/licenses/LICENSE-2.0.html
 Description: UNKNOWN
 Platform: UNKNOWN
+Requires-Python: >=3.5

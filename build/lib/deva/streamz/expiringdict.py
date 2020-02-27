@@ -54,7 +54,7 @@ class ExpiringDict(OrderedDict):
             pass
         return False
 
-    def __getitem__(self, key, with_age=False,with_time=False):
+    def __getitem__(self, key, with_age=False, with_time=False):
         """ Return the item of the dict.
 
         Raises a KeyError if key is not in the map.
@@ -162,3 +162,10 @@ class ExpiringDict(OrderedDict):
     def viewvalues(self):
         """ Return a new view of the dictionary's values. """
         raise NotImplementedError()
+
+    def __iter__(self):
+        for key in self._safe_keys():
+            try:
+                yield self[key]
+            except KeyError:
+                yield None

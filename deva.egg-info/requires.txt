@@ -17,4 +17,5 @@ pymaybe
 outlier_utils
 textblob
 googletrans
-requests-html
+diskcache
+request-html

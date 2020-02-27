@@ -86,7 +86,7 @@ class engine(Stream):
     @gen.coroutine
     def run(self):
         while True:
-            if self.asyncflag:
+            if self.thread:
                 self.thread_pool.submit(lambda: self._emit(self.func()))
             else:
                 self._emit(self.func())
