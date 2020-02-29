@@ -32,6 +32,7 @@ from ..pipe import *
 import pkg_resources
 from .sqlitedict import SqliteDict
 import moment
+from functools import wraps
 
 
 no_default = '--no-default--'
@@ -120,8 +121,9 @@ class Stream(object):
     str_list = ['func', 'predicate', 'n', 'interval']
 
     def __init__(self, upstream=None, upstreams=None, stream_name=None,
-                 cache_max_len=None, cache_max_age_seconds=None,
-                 loop=None, asynchronous=None, ensure_io_loop=False):
+                 cache_max_len=None, cache_max_age_seconds=None,  # 缓存长度和事件长度
+                 loop=None, asynchronous=None, ensure_io_loop=False,
+                 refuse_none=True):  # 禁止传递None到下游
         self.downstreams = OrderedWeakrefSet()
         if upstreams is not None:
             self.upstreams = list(upstreams)
@@ -141,32 +143,31 @@ class Stream(object):
 
         self.stream_name = stream_name
 
+        self.cache = {}
+        self.is_cache = False
         if cache_max_len or cache_max_age_seconds:
-            self.set_cache(cache_max_len, cache_max_age_seconds)
-        else:
-            self.clear_cache()
+            self.start_cache(cache_max_len, cache_max_age_seconds)
+
+        self.refuse_none = refuse_none
 
         self.handlers = []
 
         Stream._instances.add(weakref.ref(self))
 
-    def set_cache(self, cache_max_len=None, cache_max_age_seconds=None):
+    def start_cache(self, cache_max_len=None, cache_max_age_seconds=None):
         self.is_cache = True
-        if not cache_max_len:
-            cache_max_len = 1
-        if not cache_max_age_seconds:
-            cache_max_age_seconds = 60*5
-
-        self.cache_max_len = cache_max_len
-        self.cache_max_age_seconds = cache_max_age_seconds
-        self._store = ExpiringDict(
+        self.cache_max_len = cache_max_len or 1
+        self.cache_max_age_seconds = cache_max_age_seconds or 60*5
+        self.cache = ExpiringDict(
             max_len=self.cache_max_len,
             max_age_seconds=self.cache_max_age_seconds
         )
 
-    def clear_cache(self,):
+    def stop_cache(self,):
         self.is_cache = False
-        self._store = None
+
+    def clear_cache(self,):
+        self.cache.clear()
 
     def _set_loop(self, loop):
         self.loop = None
@@ -351,7 +352,10 @@ class Stream(object):
 
     def _emit(self, x):
         if self.is_cache:
-            self._cache(x)
+            self.cache[datetime.now()] = x
+
+        if self.refuse_none and x is None:
+            return
 
         result = []
         for downstream in list(self.downstreams):
@@ -552,24 +556,74 @@ class Stream(object):
         self.emit(value)
         return value
 
-    def log_to(self, func):
-        """decorater 初始化."""
-        from functools import wraps
+    def catch(self, func):
+        """补货函数执行结果到流内.
+
+        @log.catch_result
+        @warn.catch_except
+        def f1(*args,**kwargs):
+            return sum(*args,**kwargs)
+
+
+        @log.catch_result
+        @gen.coroutine
+        def a_foo(n):
+            yield gen.sleep(n)
+            print(1)
+            return 123
+
+        @log.catch_result
+        async def a_foo(n):
+            import asyncio
+            await asyncio.sleep(n)
+            print(1)
+            return 123
+
+        """
+
+        # @Pipe
+        @wraps(func)
+        def wraper(*args, **kwargs):
+            # some action before
+            result = func(*args, **kwargs)
+
+            from collections.abc import Coroutine
+            if isinstance(result, gen.Future):
+                if not self.loop:
+                    self._set_asynchronous(False)
+                if self.loop is None and self.asynchronous is not None:
+                    self._set_loop(get_io_loop(self.asynchronous))
+                self.loop.add_future(result,
+                                     lambda x: self._emit(x.result()))
+
+            elif isinstance(result, Coroutine):
+                if not self.loop:
+                    self._set_asynchronous(False)
+                if self.loop is None and self.asynchronous is not None:
+                    self._set_loop(get_io_loop(self.asynchronous))
+                task = self.loop.asyncio_loop.create_task(result)
+                task.add_done_callback(lambda x: self._emit(x.result()))
+            # {
+            #     'function': func.__name__,
+            #     'param': (args, kwargs),
+            #     'return': result,
+            # } >> self
+            else:
+                self._emit(result)
+
+            return result
+
+        return wraper.__call__@P
+
+    def catch_except(self, func):
+        """补货函数执行异常到流内."""
 
         # @Pipe
         @wraps(func)
         def wraper(*args, **kwargs):
             # some action before
             try:
-                result = func(*args, **kwargs)  # 需要这里显式调用用户函数
-                # action after
-                # {
-                #     'function': func.__name__,
-                #     'param': (args, kwargs),
-                #     'return': result,
-                # } >> self
-
-                return result
+                return func(*args, **kwargs)  # 需要这里显式调用用户函数
             except Exception as e:
                 {
                     'function': func.__name__,
@@ -577,11 +631,11 @@ class Stream(object):
                     'except': e,
                 } >> self
 
-        return wraper
+        return wraper.__call__@P
 
     def __rmatmul__(self, func):
-        """左边的 @."""
-        return self.log_to(func).__call__@P
+        """左边的 @.，补货函数流内."""
+        return self.catch_except(func).__call__@P
 
     def __rshift__(self, ref):  # stream右边的
         """Stream右边>>,sink到右边的对象.
@@ -644,23 +698,18 @@ class Stream(object):
 
         return param_wraper
 
-    def _cache(self, value):
-        self._store[datetime.now()] = value
-
+    # @property
     def recent(self, n=5, seconds=None):
         if not self.is_cache:
-            return None
+            return {}
         elif not seconds:
-            return self._store.values()[-n:]
+            return self.cache.values()[-n:]
         else:
-            df = self._store >> to_dataframe
-            df.columns = ['value']
-            now_time = datetime.now()
-            begin = now_time + timedelta(seconds=-seconds)
-            return df[begin:]
+            begin = datetime.now() - timedelta(seconds=seconds)
+            return [i[1] for i in self.cache.items() if begin < i[0]]
 
     def __iter__(self,):
-        return self._store.values().__iter__()
+        return self.cache.values().__iter__()
 
 
 @Stream.register_api()
@@ -1159,6 +1208,82 @@ class httpget(Stream):
             url >> self.error
             logger.exception(e)
             # raise
+
+
+@Stream.register_api()
+class from_coroutine(Stream):
+    """获取上游进来的future的最终值并放入下游
+    注意上游流要限速，这个是并发执行，速度很快
+    例子：
+    @gen.coroutine
+    def foo():
+        yield gen.sleep(3)
+        return range<<10>>sample>>first
+
+    async def foo2():
+        import asyncio
+        await asyncio.sleep(3)
+        return range<<10>>sample>>first
+
+    s = Stream()
+    s.rate_limit(1).from_coroutine()>>log
+
+    for i in range(3):
+        (foo,arg1,arg2)>>s
+        (foo2,arg2)>>s
+
+    [2020-02-26 18:14:37.991321] INFO: deva.log: 1
+    [2020-02-26 18:14:37.993260] INFO: deva.log: 7
+    [2020-02-26 18:14:37.995112] INFO: deva.log: 5
+    """
+
+    def __init__(self, upstream, timeout=3, **kwargs):
+        # from tornado import httpclient
+        Stream.__init__(self, upstream=upstream, ensure_io_loop=True)
+        self.timeout = 3
+
+    def update(self, x, who=None):
+        self._emit(sync(self.loop, *x))
+
+
+@Stream.register_api()
+class from_future(Stream):
+    """获取上游进来的future的最终值并放入下游
+    注意上游流要限速，这个是并发执行，速度很快
+    例子：
+    @gen.coroutine
+    def foo():
+        yield gen.sleep(3)
+        return range<<10>>sample>>first
+
+    async def foo2():
+        import asyncio
+        await asyncio.sleep(3)
+        return range<<10>>sample>>first
+
+    s = Stream()
+    s.rate_limit(1).from_future()>>log
+
+    for i in range(3):
+        foo()>>s
+        foo2()>>s
+
+    [2020-02-26 18:14:37.991321] INFO: deva.log: 1
+    [2020-02-26 18:14:37.993260] INFO: deva.log: 7
+    [2020-02-26 18:14:37.995112] INFO: deva.log: 5
+    """
+
+    def __init__(self, upstream, **kwargs):
+        # from tornado import httpclient
+        Stream.__init__(self, upstream=upstream, ensure_io_loop=True)
+
+    def update(self, x, who=None):
+        from collections.abc import Coroutine
+        if isinstance(x, gen.Future):
+            self.loop.add_future(x, lambda x: self._emit(x.result()))
+        elif isinstance(x, Coroutine):
+            task = self.loop.asyncio_loop.create_task(x)
+            task.add_done_callback(lambda x: self._emit(x.result()))
 
 
 @Stream.register_api()
