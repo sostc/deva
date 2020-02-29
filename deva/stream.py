@@ -234,14 +234,12 @@ class from_command(Stream):
         if self.command:
             self.run(self.command)
 
-    @gen.coroutine
     def poll_out(self):
         for out in self.subp.stdout:
             out = out.decode('utf-8').strip()
             if out:
                 self._emit(out)
 
-    @gen.coroutine
     def poll_err(self):
         for err in self.subp.stderr:
             err = err.decode('utf-8').strip()
@@ -257,6 +255,8 @@ class from_command(Stream):
             stdin=subprocess.PIPE)
         self.thread_pool.submit(self.poll_err)
         self.thread_pool.submit(self.poll_out)
+        # self.loop.add_callback(self.poll_err)
+        # self.loop.add_callback(self.poll_out)
 
 
 @Stream.register_api(staticmethod)
