@@ -227,9 +227,7 @@ class Stream(object):
         dead = set()
         for ref in cls._instances:
             obj = ref()
-            if obj is not None\
-                    and obj.stream_name is not None\
-                    and not obj.stream_name.startswith('_'):
+            if obj is not None:
                 yield obj
             else:
                 dead.add(ref)
@@ -596,6 +594,8 @@ class Stream(object):
                 self.loop.add_future(result,
                                      lambda x: self._emit(x.result()))
 
+                return result
+
             elif isinstance(result, Coroutine):
                 if not self.loop:
                     self._set_asynchronous(False)
@@ -603,6 +603,8 @@ class Stream(object):
                     self._set_loop(get_io_loop(self.asynchronous))
                 task = self.loop.asyncio_loop.create_task(result)
                 task.add_done_callback(lambda x: self._emit(x.result()))
+
+                return func(*args, **kwargs)
             # {
             #     'function': func.__name__,
             #     'param': (args, kwargs),
@@ -779,15 +781,14 @@ class map(Stream):
     8
     """
 
-    def __init__(self, upstream, func, cache_max_len=None, *args, **kwargs):
+    def __init__(self, upstream, func=None, *args, **kwargs):
         self.func = func
         # this is one of a few stream specific kwargs
         stream_name = kwargs.pop('stream_name', None)
         self.kwargs = kwargs
         self.args = args
 
-        Stream.__init__(self, upstream, stream_name=stream_name,
-                        cache_max_len=cache_max_len)
+        Stream.__init__(self, upstream, stream_name=stream_name)
 
     def update(self, x, who=None):
         try:
@@ -879,7 +880,6 @@ class filter(Stream):
             predicate = _truthy
         self.predicate = predicate
         stream_name = kwargs.pop('stream_name', None)
-        cache_max_len = kwargs.pop('cache_max_len', None)
         self.kwargs = kwargs
         self.args = args
 
@@ -1211,7 +1211,7 @@ class httpget(Stream):
 
 
 @Stream.register_api()
-class from_coroutine(Stream):
+class run_coroutine(Stream):
     """获取上游进来的future的最终值并放入下游
     注意上游流要限速，这个是并发执行，速度很快
     例子：
@@ -1226,7 +1226,7 @@ class from_coroutine(Stream):
         return range<<10>>sample>>first
 
     s = Stream()
-    s.rate_limit(1).from_coroutine()>>log
+    s.rate_limit(1).run_coroutine()>>log
 
     for i in range(3):
         (foo,arg1,arg2)>>s
@@ -1247,7 +1247,7 @@ class from_coroutine(Stream):
 
 
 @Stream.register_api()
-class from_future(Stream):
+class run_future(Stream):
     """获取上游进来的future的最终值并放入下游
     注意上游流要限速，这个是并发执行，速度很快
     例子：
@@ -1262,7 +1262,7 @@ class from_future(Stream):
         return range<<10>>sample>>first
 
     s = Stream()
-    s.rate_limit(1).from_future()>>log
+    s.rate_limit(1).run_future()>>log
 
     for i in range(3):
         foo()>>s
@@ -1284,6 +1284,8 @@ class from_future(Stream):
         elif isinstance(x, Coroutine):
             task = self.loop.asyncio_loop.create_task(x)
             task.add_done_callback(lambda x: self._emit(x.result()))
+        else:
+            self._emit(x)
 
 
 @Stream.register_api()
@@ -1494,12 +1496,13 @@ class ODBStream(Stream):
     本身对象是一个流，也是一个iterable对象
     """
 
-    def __init__(self, tablename='default', fname='_dictstream', maxsize=None, log=passed, **kwargs):
+    def __init__(self, tablename='default', stream_name=None, fname='_dictstream', maxsize=None, log=passed, **kwargs):
         self.log = log
         self.tablename = tablename
         self.maxsize = maxsize
 
         super(ODBStream, self).__init__()
+        self.stream_name = stream_name
         if fname == '_dictstream':
             self.fname = pkg_resources.resource_filename(__name__, fname+'.sqlite')
         else:
@@ -1573,7 +1576,7 @@ class ODBNamespace(dict):
         except KeyError:
             return self.setdefault(
                 tablename,
-                ODBStream(tablename=tablename, **kwargs)
+                ODBStream(tablename=tablename, stream_name=tablename, **kwargs)
             )
 
 
