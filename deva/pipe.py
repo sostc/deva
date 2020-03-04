@@ -717,7 +717,8 @@ def sample(samplesize=5):
             for _ in range(samplesize):
                 results.append(next(iterator))
         except StopIteration:
-            raise ValueError("Sample larger than population.")
+            pass
+            # raise ValueError("Sample larger than population.")
         random.shuffle(results)  # Randomize their positions
         for i, v in enumerate(iterator, samplesize):
             r = random.randint(0, i)

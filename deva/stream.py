@@ -3,17 +3,18 @@
 from tornado.iostream import StreamClosedError
 from tornado.tcpserver import TCPServer
 from tornado.tcpclient import TCPClient
+from tornado.web import RequestHandler
 from tornado import gen, ioloop
 from tornado.httpserver import HTTPServer
 from deva.streamz.core import Stream as Streamz
 import subprocess
-from tornado.web import Application, RequestHandler
 import dill
 import json
 import walrus
 import moment
 import os
 import logging
+from tornado.web import Application
 
 
 logger = logging.getLogger(__name__)
@@ -22,8 +23,9 @@ logger = logging.getLogger(__name__)
 class Stream(Streamz):
     _graphviz_shape = "doubleoctagon"
 
-    def __init__(self, name=None, *args, **kwargs):
+    def __init__(self, stream_name='', *args, **kwargs):
         super(Stream, self).__init__(*args, **kwargs)
+        self.stream_name = stream_name
 
     def write(self, value):
         """Emit value to stream ,end,return emit result."""
@@ -433,13 +435,13 @@ class StreamTCPClient():
 
 
 class Namespace(dict):
-    def create_stream(self, stream_name, **kwargs):
+    def create_stream(self, stream_name,  ** kwargs):
         try:
             return self[stream_name]
         except KeyError:
             return self.setdefault(
                 stream_name,
-                Stream(stream_name=stream_name, **kwargs)
+                Stream(stream_name=stream_name, ** kwargs)
             )
 
     def create_topic(self, topic, **kwargs):
@@ -487,6 +489,6 @@ class Deva(Stream):
         super(Stream, self).__init__(*args, **kwargs)
 
     @classmethod
-    def run(cls):
+    def run(cls,):
         ioloop.IOLoop.current().start()
         # %%
