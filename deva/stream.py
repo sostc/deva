@@ -3,7 +3,7 @@
 from tornado.iostream import StreamClosedError
 from tornado.tcpserver import TCPServer
 from tornado.tcpclient import TCPClient
-from tornado.web import RequestHandler
+from tornado.web import RequestHandler, Application
 from tornado import gen, ioloop
 from tornado.httpserver import HTTPServer
 from deva.streamz.core import Stream as Streamz
