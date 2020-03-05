@@ -1496,7 +1496,7 @@ class ODBStream(Stream):
     本身对象是一个流，也是一个iterable对象
     """
 
-    def __init__(self, tablename='default', stream_name=None, fname='_dictstream', maxsize=None, log=passed, **kwargs):
+    def __init__(self, tablename='default', stream_name=None, fname='nb', maxsize=None, log=passed, **kwargs):
         self.log = log
         self.tablename = tablename
         self.maxsize = maxsize
