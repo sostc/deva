@@ -1503,7 +1503,7 @@ class ODBStream(Stream):
 
         super(ODBStream, self).__init__()
         self.stream_name = stream_name
-        if fname == '_dictstream':
+        if fname == 'nb':
             self.fname = pkg_resources.resource_filename(__name__, fname+'.sqlite')
         else:
             self.fname = fname+'.sqlite'
