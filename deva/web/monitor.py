@@ -13,7 +13,7 @@ import json
 import moment
 import os
 from pymaybe import maybe
-from sockjs.tornado import SockJSRouter, SockJSConnection
+from .sockjs.tornado import SockJSRouter, SockJSConnection
 from tornado import gen
 from ..stream import *
 from ..streamz import NB
@@ -25,6 +25,7 @@ monitor_page = App()
 
 
 @monitor_page.route('/')
+@gen.coroutine
 def get(self, *args, **kwargs):
     # 取出所有有缓冲设置且有名称的流实例,类似NS('当下行情数据抽样',cache_max_len=1)
     #     streams = namespace.values()>>ls
@@ -35,6 +36,7 @@ def get(self, *args, **kwargs):
 
 
 @monitor_page.route("/allstreams")
+@gen.coroutine
 def foobar(self):
     s_list = [s for s in Stream.getinstances()]
 
@@ -48,18 +50,20 @@ def foobar(self):
 
 
 @monitor_page.route('/alltables')
-def get_tables():
+@gen.coroutine
+def get_tables(self,):
     tablenames = NB('tmp').get_tablenames()
     data = tablenames >> pmap(lambda x: f'<li><a class="Stream" href="table/{x}">{x}</a></li>') >> concat('')
 
-    return data
+    self.write(data)
 
 
 @monitor_page.route('/table/<tablename>')
-def get_table_keys(tablename):
+@gen.coroutine
+def get_table_keys(self, tablename):
     keys = sample(20) << NB(tablename).keys()
     data = keys >> pmap(lambda x: f'<li><a class="Stream" href="{tablename}/{x}">{x}</a></li>') >> concat('')
-    return data
+    self.write(data)
 
 
 @monitor_page.route('/table/<tablename>/<key>')
