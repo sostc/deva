@@ -10,7 +10,7 @@ import tornado.web
 import tornado.wsgi
 import contextlib
 import functools
-from tornado.stack_context import StackContext
+# from tornado.stack_context import StackContext
 from functools import partial
 from werkzeug.routing import Map, Rule, _rule_re
 import os
@@ -341,9 +341,9 @@ class App(object):
 
             if not self_in_args and can_be_wrapped == True:
                 def wrapper(self, *args, **kwargs):
-                    with StackContext(functools.partial(ctx_man, self)) as cm:
-                        w = fn  # wrap(fn)
-                        result = w(*args, **kwargs)
+                    # with StackContext(functools.partial(ctx_man, self)) as cm:
+                    w = fn  # wrap(fn)
+                    result = w(*args, **kwargs)
 
                     if isinstance(result, TemplateProxy):
                         if self._template_engine == 'tornado':
