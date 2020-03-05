@@ -14,7 +14,6 @@ import walrus
 import moment
 import os
 import logging
-from tornado.web import Application
 
 
 logger = logging.getLogger(__name__)
