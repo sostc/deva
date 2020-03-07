@@ -84,6 +84,14 @@ deva.streamz.sources module
     :undoc-members:
     :show-inheritance:
 
+deva.streamz.sqlitedict module
+------------------------------
+
+.. automodule:: deva.streamz.sqlitedict
+    :members:
+    :undoc-members:
+    :show-inheritance:
+
 deva.streamz.utils module
 -------------------------
 
