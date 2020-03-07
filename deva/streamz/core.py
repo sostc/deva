@@ -610,7 +610,7 @@ class Stream(object):
             #     'param': (args, kwargs),
             #     'return': result,
             # } >> self
-            else:
+            else:  # 普通可执行对象
                 self._emit(result)
 
             return result
@@ -637,6 +637,10 @@ class Stream(object):
 
     def __rmatmul__(self, func):
         """左边的 @.，补货函数流内."""
+        return self.catch(func).__call__@P
+
+    def __xor__(self, func):
+        """左边的 ^.，补货函数流内."""
         return self.catch_except(func).__call__@P
 
     def __rshift__(self, ref):  # stream右边的
