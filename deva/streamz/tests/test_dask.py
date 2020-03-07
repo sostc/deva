@@ -5,7 +5,7 @@ from streamz.dask import scatter
 from tornado import gen
 import pytest
 import time
-dtalkfrom operator import add
+from operator import add
 
 pytest.importorskip('dask.distributed')
 
