@@ -132,7 +132,7 @@ def render_template(*args, **kwargs):
     return TemplateProxy(*args, **kwargs)
 
 
-class App(object):
+class Page(object):
 
     """
 
@@ -436,4 +436,4 @@ class App(object):
         # tornado.ioloop.IOLoop.instance().start()
 
 
-page = App()
+page = Page()

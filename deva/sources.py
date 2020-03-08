@@ -1,11 +1,24 @@
+import subprocess
+import json
+from tornado.web import RequestHandler, Application
+from tornado.httpserver import HTTPServer
+from tornado import gen
+from tornado.tcpserver import TCPServer
+from tornado.tcpclient import TCPClient
+from tornado.iostream import StreamClosedError
+import dill
+import walrus
 from glob import glob
 import os
 
-import time
 import tornado.ioloop
-from tornado import gen
 
-from .core import Stream, convert_interval
+from .core import Stream
+
+import logging
+
+
+logger = logging.getLogger(__name__)
 
 
 def PeriodicCallback(callback, callback_time, asynchronous=False, **kwargs):
@@ -296,8 +309,8 @@ class from_http_server(Source):
 
 
 @Stream.register_api(staticmethod)
-class from_process(Source):
-    """Messages from a running external process
+class from_command(Stream):
+    """Messages from a running external process.
 
     This doesn't work on Windows
 
@@ -316,49 +329,42 @@ class from_process(Source):
     Example
     -------
     >>> source = Source.from_process(['ping localhost'])  # doctest: +SKIP
+
     """
 
-    def __init__(self, cmd, open_kwargs=None, with_stderr=True, start=False):
-        self.cmd = cmd
-        self.open_kwargs = open_kwargs or {}
-        self.with_stderr = with_stderr
-        super(from_process, self).__init__(ensure_io_loop=True)
+    def __init__(self, interval=0.1, command=None, **kwargs):
+        self.interval = interval
+        super(from_command, self).__init__(ensure_io_loop=True, **kwargs)
         self.stopped = True
-        self.process = None
-        if start:  # pragma: no cover
-            self.start()
+        from concurrent.futures import ThreadPoolExecutor
+        self.thread_pool = ThreadPoolExecutor(2)
+        self.command = command
+        if self.command:
+            self.run(self.command)
 
-    @gen.coroutine
-    def _start_process(self):
-        # should be done in asyncio (py3 only)? Apparently can handle Windows
-        # with appropriate config.
-        from tornado.process import Subprocess
-        from tornado.iostream import StreamClosedError
-        import subprocess
-        stderr = subprocess.STDOUT if self.with_stderr else subprocess.PIPE
-        process = Subprocess(self.cmd, stdout=Subprocess.STREAM,
-                             stderr=stderr, shell=True, **self.open_kwargs)
-        while not self.stopped:
-            try:
-                out = yield process.stdout.read_until(b'\n')
-                out = out.decode('utf-8').strip()
-            except StreamClosedError:
-                # process exited
-                break
-            yield self._emit(out)
-        yield process.stdout.close()
-        process.proc.terminate()
+    def poll_out(self):
+        for out in self.subp.stdout:
+            out = out.decode('utf-8').strip()
+            if out:
+                self._emit(out)
 
-    def start(self):
-        """Start external process"""
-        if self.stopped:
-            self.loop.add_callback(self._start_process)
-            self.stopped = False
+    def poll_err(self):
+        for err in self.subp.stderr:
+            err = err.decode('utf-8').strip()
+            if err:
+                self._emit(err)
 
-    def stop(self):
-        """Shutdown external process"""
-        if not self.stopped:
-            self.stopped = True
+    def run(self, command):
+        self.subp = subprocess.Popen(
+            command,
+            shell=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE, bufsize=1,
+            stdin=subprocess.PIPE)
+        self.thread_pool.submit(self.poll_err)
+        self.thread_pool.submit(self.poll_out)
+        # self.loop.add_callback(self.poll_err)
+        # self.loop.add_callback(self.poll_out)
 
 
 @Stream.register_api(staticmethod)
@@ -443,138 +449,219 @@ class from_kafka(Source):
         self.stopped = True
 
 
-class FromKafkaBatched(Stream):
-    """Base class for both local and cluster-based batched kafka processing"""
+@Stream.register_api(staticmethod)
+class from_redis(Stream):
+    def __init__(self, topics: list, interval=0.1, start=False,
+                 group="test", **kwargs):
+        self.consumer = None
+        if not isinstance(topics, list):
+            topics = [topics]
+        self.topics = topics
+        self.group = group
+        self.interval = interval
+        self.db = walrus.Database()
+        self.consumer = self.db.consumer_group(self.group,
+                                               self.topics)
+        self.consumer.create()  # Create the consumer group.
+        # self.consumer.set_id('$')  # 不会从头读
 
-    def __init__(self, topic, consumer_params, poll_interval='1s',
-                 npartitions=1, **kwargs):
-        self.consumer_params = consumer_params
-        self.topic = topic
-        self.npartitions = npartitions
-        self.positions = [0] * npartitions
-        self.poll_interval = convert_interval(poll_interval)
+        super(from_redis, self).__init__(ensure_io_loop=True, **kwargs)
         self.stopped = True
+        if start:
+            self.start()
 
-        super(FromKafkaBatched, self).__init__(ensure_io_loop=True, **kwargs)
+    def do_poll(self):
+        """同步redis库,todo:寻找异步的stream库来查询."""
+        if self.consumer is not None:
+            meta_msgs = self.consumer.read(count=1)
+            # Returns:
+            """
+            [('stream-a', [(b'1539023088125-0', {b'message': b'new a'})]),
+             ('stream-b', [(b'1539023088125-0', {b'message': b'new for b'})]),
+             ('stream-c', [(b'1539023088126-0', {b'message': b'c-0'})])]
+             """
+            for meta_msg in meta_msgs:
+                # {b'data':'dills'},
+                topic, (rid, body) = meta_msg[0], meta_msg[1][0]
+                data = dill.loads(body[b'data'])
+                # self._emit({'topic': topic, 'rid': rid, 'data': data})
+                self._emit(data)
 
     @gen.coroutine
-    def poll_kafka(self):
-        import confluent_kafka as ck
-
-        try:
-            while not self.stopped:
-                out = []
-                for partition in range(self.npartitions):
-                    tp = ck.TopicPartition(self.topic, partition, 0)
-                    try:
-                        low, high = self.consumer.get_watermark_offsets(
-                            tp, timeout=0.1)
-                    except (RuntimeError, ck.KafkaException):
-                        continue
-                    current_position = self.positions[partition]
-                    lowest = max(current_position, low)
-                    if high > lowest:
-                        out.append((self.consumer_params, self.topic, partition,
-                                    lowest, high - 1))
-                        self.positions[partition] = high
-
-                for part in out:
-                    yield self._emit(part)
-
-                else:
-                    yield gen.sleep(self.poll_interval)
-        finally:
-            self.consumer.unsubscribe()
-            self.consumer.close()
+    def poll_redis(self):
+        while True:
+            self.do_poll()
+            yield gen.sleep(self.interval)
+            if self.stopped:
+                break
 
     def start(self):
-        import confluent_kafka as ck
         if self.stopped:
-            self.consumer = ck.Consumer(self.consumer_params)
             self.stopped = False
-            tp = ck.TopicPartition(self.topic, 0, 0)
+            self.loop.add_callback(self.poll_redis)
 
-            # blocks for consumer thread to come up
-            self.consumer.get_watermark_offsets(tp)
-            self.loop.add_callback(self.poll_kafka)
+    def stop(self):
+        if self.consumer is not None:
+            self.consumer.destroy()
+            self.consumer = None
+            self.stopped = True
 
 
 @Stream.register_api(staticmethod)
-def from_kafka_batched(topic, consumer_params, poll_interval='1s',
-                       npartitions=1, start=False, dask=False, **kwargs):
-    """ Get messages from Kafka in batches
+class from_http_request(Stream):
+    """Receive data from http request,emit httprequest data to stream."""
 
-    Uses the confluent-kafka library,
-    https://docs.confluent.io/current/clients/confluent-kafka-python/
+    def __init__(self, port, path='/.*', start=False, server_kwargs=None):
+        self.port = port
+        self.path = path
+        self.server_kwargs = server_kwargs or {}
+        super(from_http_request, self).__init__(ensure_io_loop=True)
+        self.stopped = True
+        self.server = None
+        if start:  # pragma: no cover
+            self.start()
 
-    This source will emit lists of messages for each partition of a single given
-    topic per time interval, if there is new data. If using dask, one future
-    will be produced per partition per time-step, if there is data.
+    def _start_server(self):
+        class Handler(RequestHandler):
+            def _loads(self, body):
+                """解析从web端口提交过来的数据.
 
-    Parameters
-    ----------
-    topic: str
-        Kafka topic to consume from
-    consumer_params: dict
-        Settings to set up the stream, see
-        https://docs.confluent.io/current/clients/confluent-kafka-python/#configuration
-        https://github.com/edenhill/librdkafka/blob/master/CONFIGURATION.md
-        Examples:
-        bootstrap.servers: Connection string(s) (host:port) by which to reach Kafka
-        group.id: Identity of the consumer. If multiple sources share the same
-            group, each message will be passed to only one of them.
-    poll_interval: number
-        Seconds that elapse between polling Kafka for new messages
-    npartitions: int
-        Number of partitions in the topic
-    start: bool (False)
-        Whether to start polling upon instantiation
+                可能的数据有字符串和二进制,
+                字符串可能是直接字符串,也可能是json编码后的字符串
+                二进制可能是图像等直接可用的二进制,也可能是dill编码的二进制pyobject
+                """
+                try:
+                    body = json.loads(body)
+                except TypeError:
+                    body = dill.loads(body)
+                except ValueError:
+                    body = body.decode('utf-8')
+                finally:
+                    return body
 
-    Example
-    -------
+            source = self
 
-    >>> source = Stream.from_kafka_batched('mytopic',
-    ...           {'bootstrap.servers': 'localhost:9092',
-    ...            'group.id': 'streamz'}, npartitions=4)  # doctest: +SKIP
+            @gen.coroutine
+            def post(self):
+                self.request.body = self._loads(self.request.body)
+                yield self.source._emit(self.request.body)
+                self.write('OK')
+
+        application = Application([
+            (self.path, Handler),
+        ])
+        self.server = HTTPServer(application, **self.server_kwargs)
+        self.server.listen(self.port)
+
+    def start(self):
+        if self.stopped:
+            self.stopped = False
+            self.loop.add_callback(self._start_server)
+
+    def stop(self):
+        """Shutdown HTTP server."""
+        if not self.stopped:
+            self.server.stop()
+            self.server = None
+            self.stopped = True
+
+
+class StreamTCPServer(TCPServer):
     """
-    if dask:
-        from distributed.client import default_client
-        kwargs['loop'] = default_client().loop
-    source = FromKafkaBatched(topic, consumer_params,
-                              poll_interval=poll_interval,
-                              npartitions=npartitions, **kwargs)
-    if dask:
-        source = source.scatter()
-
-    if start:
-        source.start()
-
-    return source.starmap(get_message_batch)
-
-
-def get_message_batch(kafka_params, topic, partition, low, high, timeout=None):
-    """Fetch a batch of kafka messages in given topic/partition
-
-    This will block until messages are available, or timeout is reached.
+    server.in_s
+    server.out_s
     """
-    import confluent_kafka as ck
-    t0 = time.time()
-    consumer = ck.Consumer(kafka_params)
-    tp = ck.TopicPartition(topic, partition, low)
-    consumer.assign([tp])
-    out = []
-    try:
+
+    def __init__(self, port=2345, **kwargs):
+        self.delimiter = 'zjw-split-0358'.encode('utf-8')
+        self.out_s = Stream()
+        self.in_s = Stream()
+        super(StreamTCPServer, self).__init__(**kwargs)
+        self.handlers = dict()
+        self.listen(port)
+
+    def __rrshift__(self, x):
+        x >> self.out_s
+
+    @gen.coroutine
+    def handle_stream(self, stream, address):
+        def _write(x):
+            try:
+                stream.write(x)
+                stream.write(self.delimiter)
+            except StreamClosedError:
+                logger.exception('%s connect close' % str(address))
+                self.handlers.get(address).destroy()
+                del self.handlers[address]
+
+        self.handlers[address] = self.out_s.map(dill.dumps).sink(_write)
         while True:
-            msg = consumer.poll(0)
-            if msg and msg.value() and msg.error() is None:
-                if high >= msg.offset():
-                    out.append(msg.value())
-                if high <= msg.offset():
-                    break
-            else:
-                time.sleep(0.1)
-                if timeout is not None and time.time() - t0 > timeout:
-                    break
-    finally:
-        consumer.close()
-    return out
+            try:
+                data = yield stream.read_until(self.delimiter)
+                yield self.in_s._emit(dill.loads(data))
+            except StreamClosedError:
+                logger.exception('%s connect close' % str(address))
+                break
+
+    def stop(self):
+        self.out_s.emit('exit')
+        for handler in self.handlers:
+            self.handlers[handler].destroy()
+        self.handlers = {}
+        super().stop()
+
+
+class StreamTCPClient():
+    """从tcp端口订阅数据
+    client.in_s
+    client.out_s
+
+    """
+
+    def __init__(self, host='127.0.0.1', port=2345, **kwargs):
+        super(StreamTCPClient, self).__init__(**kwargs)
+        self.host = host
+        self.port = port
+        self.delimiter = 'zjw-split-0358'.encode('utf-8')
+        self.out_s = Stream()
+        self.in_s = Stream(ensure_io_loop=True)
+        self._stream = None
+        self.in_s.filter(lambda x: x == 'exit').sink(lambda x: self.stop())
+        self.start()
+
+    def __rrshift__(self, x):
+        x >> self.out_s
+
+    @gen.coroutine
+    def start(self):
+        try:
+            self._stream = yield TCPClient().connect(self.host, self.port)
+        except Exception as e:
+            logger.exception(e, 'connect', self.host, self.port, 'error')
+
+        def _write(x):
+            try:
+                self._stream.write(x)
+                self._stream.write(self.delimiter)
+            except StreamClosedError:
+                logger.exception(f'{self.host}:{self.port} connect close')
+                self.out_handler.destroy()
+
+        self.out_handler = self.out_s.map(dill.dumps).sink(_write)
+#         try:
+        while self._stream:
+            data = yield self._stream.read_until(self.delimiter)
+            yield self.in_s.emit(dill.loads(data))
+#         except iostream.StreamClosedError:
+#             logger.exception('tornado.iostream.StreamClosedError')
+
+    def stop(self):
+        if not self._stream.closed() and self._stream.close():
+            self.stopped = True
+
+
+def gen_block_test() -> int:
+    import time
+    import moment
+    time.sleep(6)
+    return moment.now().seconds

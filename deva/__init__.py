@@ -1,13 +1,24 @@
+from __future__ import absolute_import, division, print_function
 
-from .stream import *
-from .log import log, warn
-from .bus import bus
-from .dtalk import Dtalk
-from .when import when
-from .streamz.core import NB
-# from .whooshalchemy import IndexService
+from .core import *
+from .compute import *
+from .graph import *
+from .sources import *
+from .namespace import *
+from .when import *
+from .endpoint import *
+
+
+from .bus import log, warn, bus
+from .search import IndexStream
 from .pipe import *
-# from .web.monitor import Monitor
-from .web.app import page
+from .monitor import Monitor
+from .page import page
 
-__version__ = '0.92'
+
+try:
+    from .dask import DaskStream, scatter
+except ImportError:
+    pass
+
+__version__ = '0.9.2'

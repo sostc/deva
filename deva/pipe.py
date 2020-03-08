@@ -164,10 +164,10 @@ def P(func):
 
 @Pipe
 def to_dataframe(iterable, orient='index'):
-    """
-    orient='index'
-    orient='columne'
-    """
+
+    orient = 'index'
+    orient = 'columne'
+
     import pandas as pd
     return pd.DataFrame.from_dict(iterable, orient=orient)
 
@@ -775,7 +775,6 @@ def extract(mode='chinese'):
             return jieba.analyse.extract_tags(text, 20)
 
     return _@P
-
 
     # %%转换内置函数为pipe
 for i in builtins.__dict__.copy():
