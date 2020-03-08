@@ -8,7 +8,8 @@ from .log import log
 def exit():
     """进程退出时发信号到log.
 
-    Example:
+    Examples:
+    ----------
     when('exit',source=log).then(lambda :print('bye bye'))
     """
     return 'exit' >> log
@@ -17,8 +18,10 @@ def exit():
 class when(object):
     """when a  occasion(from source) appear, then do somthing .
 
-    Example:
+    Examples:
+    --------
     when('open').then(lambda :print(f'开盘啦'))
+
     when(lambda x:x>2).then(lambda x:print(x,'x大于二'))
     """
 
