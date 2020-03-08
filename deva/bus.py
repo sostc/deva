@@ -1,21 +1,22 @@
+#!/usr/bin/env python
 
-from .stream import NT
+import logging
+from logbook import Logger, StreamHandler
+import sys
+from .namespace import *
 
-"""
-    跨进程的消息流任务驱动
+__all__ = [
+    'log', 'warn'
+]
 
+warn = NS('warn')
+warn.sink(logging.warning)
 
-@bus.route(lambda x:type(x)==str)
-def foo(x):
-    x*2>>log
+StreamHandler(sys.stdout).push_application()
 
-
-'aa'>pbus
-如果是单独进程中使用,需要固定一个循环来hold主线程
-from tornado import ioloop
-ioloop.IOLoop.current().start()
-
-"""
+logger = Logger(__name__)
+log = NS('log', cache_max_len=10, cache_max_age_seconds=60 * 60 * 24)
+log.sink(logger.info)
 
 
 bus = NT('bus')

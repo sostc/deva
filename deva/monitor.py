@@ -13,15 +13,15 @@ import json
 import moment
 import os
 from pymaybe import maybe
-from .sockjs.tornado import SockJSRouter, SockJSConnection
+from .web.sockjs.tornado import SockJSRouter, SockJSConnection
 from tornado import gen
-from ..stream import *
-from ..streamz import NB
-from ..log import log
-from ..pipe import *
-from .app import App
+from .core import *
+from .namespace import *
+from .bus import log
+from .pipe import *
+from .page import Page
 
-monitor_page = App()
+monitor_page = Page()
 
 
 @monitor_page.route('/')
@@ -29,9 +29,9 @@ monitor_page = App()
 def get(self, *args, **kwargs):
     # 取出所有有缓冲设置且有名称的流实例,类似NS('当下行情数据抽样',cache_max_len=1)
     #     streams = namespace.values()>>ls
-    streams = [stream for stream in Stream.getinstances() if stream.stream_name]
+    streams = [stream for stream in Stream.getinstances() if stream.name]
     tablenames = NB('tmp').get_tablenames() >> ls
-    self.render('templates/monitor.html', streams=streams,
+    self.render('web/templates/monitor.html', streams=streams,
                 tablenames=tablenames, sock_url='/')
 
 
@@ -81,16 +81,16 @@ def get_table_values(tablename, key):
         return json.dumps({key: data}, ensure_ascii=False)
 
 
-@monitor_page.route('/stream/<stream_name_or_id>')
-def get_stream(self, stream_name_or_id):
+@monitor_page.route('/stream/<name_or_id>')
+def get_stream(self, name_or_id):
     try:
         stream = [stream for stream in Stream.getinstances(
-        ) if stream.stream_name == stream_name_or_id][0]
+        ) if stream.name == name_or_id][0]
     except:
         stream = [stream for stream in Stream.getinstances() if str(
-            hash(stream)) == stream_name_or_id][0]
+            hash(stream)) == name_or_id][0]
     stream_id = hash(stream)
-    self.render('templates/stream.html', stream_id=stream_id, sock_url='../')
+    self.render('web/templates/stream.html', stream_id=stream_id, sock_url='../')
 
 
 class StreamConnection(SockJSConnection):
@@ -103,7 +103,7 @@ class StreamConnection(SockJSConnection):
         super(StreamConnection, self).__init__(*args, **kwargs)
 
     def on_open(self, request):
-        self.out_stream = Stream(stream_name='default')
+        self.out_stream = Stream(name='default')
         self.connection = self.out_stream >> self._out_stream
         json.dumps({'data': 'welcome'}) >> self.out_stream
         self.request = request

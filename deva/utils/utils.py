@@ -1,3 +1,5 @@
+
+
 _method_cache = {}
 
 
@@ -43,7 +45,8 @@ class MethodCache(object):
     True
     """
     __getattr__ = staticmethod(methodcaller)
-    __dir__ = lambda self: list(_method_cache)
+
+    def __dir__(self): return list(_method_cache)
 
 
 M = MethodCache()

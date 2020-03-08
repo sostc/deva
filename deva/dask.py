@@ -9,12 +9,13 @@ from distributed.client import default_client
 
 from .core import Stream
 from . import core, sources
+from . import compute
 
 
 class DaskStream(Stream):
     """ A Parallel stream using Dask
 
-    This object is fully compliant with the ``streamz.core.Stream`` object but
+    This object is fully compliant with the ``deva.core.Stream`` object but
     uses a Dask client for execution.  Operations like ``map`` and
     ``accumulate`` submit functions to run on the Dask instance using
     ``dask.distributed.Client.submit`` and pass around Dask futures.
@@ -37,6 +38,7 @@ class DaskStream(Stream):
     --------
     dask.distributed.Client
     """
+
     def __init__(self, *args, **kwargs):
         if 'loop' not in kwargs:
             kwargs['loop'] = default_client().loop
@@ -60,7 +62,7 @@ class map(DaskStream):
 
 @DaskStream.register_api()
 class accumulate(DaskStream):
-    def __init__(self, upstream, func, start=core.no_default,
+    def __init__(self, upstream, func, start=compute.no_default,
                  returns_state=False, **kwargs):
         self.func = func
         self.state = start
@@ -69,7 +71,7 @@ class accumulate(DaskStream):
         DaskStream.__init__(self, upstream)
 
     def update(self, x, who=None):
-        if self.state is core.no_default:
+        if self.state is compute.no_default:
             self.state = x
             return self._emit(self.state)
         else:
@@ -129,10 +131,10 @@ class gather(core.Stream):
 class starmap(DaskStream):
     def __init__(self, upstream, func, **kwargs):
         self.func = func
-        stream_name = kwargs.pop('stream_name', None)
+        name = kwargs.pop('name', None)
         self.kwargs = kwargs
 
-        DaskStream.__init__(self, upstream, stream_name=stream_name)
+        DaskStream.__init__(self, upstream, name=name)
 
     def update(self, x, who=None):
         client = default_client()
@@ -141,52 +143,52 @@ class starmap(DaskStream):
 
 
 @DaskStream.register_api()
-class buffer(DaskStream, core.buffer):
+class buffer(DaskStream, compute.buffer):
     pass
 
 
 @DaskStream.register_api()
-class combine_latest(DaskStream, core.combine_latest):
+class combine_latest(DaskStream, compute.combine_latest):
     pass
 
 
 @DaskStream.register_api()
-class delay(DaskStream, core.delay):
+class delay(DaskStream, compute.delay):
     pass
 
 
 @DaskStream.register_api()
-class latest(DaskStream, core.latest):
+class latest(DaskStream, compute.latest):
     pass
 
 
 @DaskStream.register_api()
-class partition(DaskStream, core.partition):
+class partition(DaskStream, compute.partition):
     pass
 
 
 @DaskStream.register_api()
-class rate_limit(DaskStream, core.rate_limit):
+class rate_limit(DaskStream, compute.rate_limit):
     pass
 
 
 @DaskStream.register_api()
-class sliding_window(DaskStream, core.sliding_window):
+class sliding_window(DaskStream, compute.sliding_window):
     pass
 
 
 @DaskStream.register_api()
-class timed_window(DaskStream, core.timed_window):
+class timed_window(DaskStream, compute.timed_window):
     pass
 
 
 @DaskStream.register_api()
-class union(DaskStream, core.union):
+class union(DaskStream, compute.union):
     pass
 
 
 @DaskStream.register_api()
-class zip(DaskStream, core.zip):
+class zip(DaskStream, compute.zip):
     pass
 
 
