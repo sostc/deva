@@ -40,7 +40,8 @@ class IndexStream(Stream):
 
     def _to_index(self, x):
         # implement search here
-        x = str(x) >> self.log
+        x = str(x)
+        x >> self.log
         aindex = AsyncWriter(self.index, delay=0.001)
         aindex.add_document(content=x)
         aindex.commit()
