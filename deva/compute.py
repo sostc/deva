@@ -1,5 +1,5 @@
 from .core import Stream, identity
-from .namespace import NB
+from .store import DBStream
 from collections import deque, Iterable
 from tornado import gen
 from time import time
@@ -274,10 +274,10 @@ class unique(Stream):
             # self.seen = NODB()
 
             # self.seen = diskcache.Cache(size_limit=size_limit)
-            self.seen = NB(name=persistname,
-                           fname='_unique_persist',
-                           maxsize=self.maxsize or 200,
-                           **kwargs)
+            self.seen = DBStream(name=persistname,
+                                 fname='_unique_persist',
+                                 maxsize=self.maxsize or 200,
+                                 **kwargs)
 
         Stream.__init__(self, upstream, **kwargs)
 
