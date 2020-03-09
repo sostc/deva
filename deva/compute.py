@@ -274,7 +274,7 @@ class unique(Stream):
             # self.seen = NODB()
 
             # self.seen = diskcache.Cache(size_limit=size_limit)
-            self.seen = NB(tablename=persistname,
+            self.seen = NB(name=persistname,
                            fname='_unique_persist',
                            maxsize=self.maxsize or 200,
                            **kwargs)
