@@ -28,7 +28,7 @@ class Namespace(dict):
         except KeyError:
             return self[typ].setdefault(
                 name,
-                constructor(name=name, ** kwargs)
+                constructor(name=name, **kwargs)
             )
 
 
