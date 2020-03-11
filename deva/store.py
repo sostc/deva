@@ -1,3 +1,8 @@
+"""
+    是一个流，也是一个自动持久化字典对象，支持定长。
+
+    """
+
 from .pipe import *
 from .utils.sqlitedict import SqliteDict
 from .core import Stream
@@ -7,26 +12,48 @@ import moment
 
 @Stream.register_api()
 class DBStream(Stream):
-    """
-    所有输入都会被作为字典在sqlite中做持久存储，若指定tablename，则将所有数据单独存储一个table。
+    """对象数据库流.
+
+    将对象数据库包装成流对象,所有输入都会被作为字典在sqlite中做持久存储，若指定tablename，则将所有数据单独存储一个table。
     使用方式和字典一样
 
-    Parameters
-    ----------
-    :tuple:: 输入是元组时，第一个值作为key，第二个作为value。
-    :value:: 输入时一个值时，默认时间作为key，moment.unix(key)可还原为moment时间
-    :dict:: 输入是字典时，更新字典
-    :maxsize::定长字典
-    :name::表名
-    :fname:: 文件路径和文件名
-    :log::日志流
+    入流参数::
+        :tuple: 输入是元组时，第一个值作为key，第二个作为value。
+        :value: 输入时一个值时，默认时间作为key，moment.unix(key)可还原为moment时间
+        :dict: 输入是字典时，更新字典
 
-    Returns
-    ----------
-    是一个流，也是一个字典对象
+    Examples::
+
+        db = DBStream('table1','./dbfile')
+
+        123>>db
+
+        ('key','vlaue')>>db
+
+        {'key':'value'}>>db
+
+        db|ls == db.keys()|ls
+
+        db.values()|ls
+
+        db.items()|ls
+
+        assert db['key'] == 'value'
+
+        del db['key']
+
     """
 
     def __init__(self,  name='default', fname='nb', maxsize=None, log=passed, **kwargs):
+        """构建数据库流对象.
+
+        Args:
+            **kwargs: 流的其他参数
+            name: 表名 (default: {'default'})
+            fname: 存储的文件名 (default: {'nb'})
+            maxsize: 数据表长度 (default: {None})
+            log: 日志流 (default: {passed})
+        """
         self.log = log
         self.tablename = name
         self.name = name
@@ -98,3 +125,27 @@ class DBStream(Stream):
 
     def __iter__(self,):
         return self.db.__iter__()
+
+
+class X():
+    """存储变量 .
+
+    Examples
+    --------
+        [1,2,3]>>X('a')
+        assert X('a').data  == [1,2,3]
+
+        'abc' | X('a')
+        assert X('a').data  == 'abc'
+    """
+
+    def __init__(self, name):
+        self.name = name
+
+    def __rrshift__(self, ref):
+        self.data = ref
+        return ref
+
+    def __ror__(self, ref):
+        self.data = ref
+        return ref

@@ -1,12 +1,21 @@
 #!/usr/bin/env python
+"""公共总线流.
 
+Exsample::
+
+    f = range+sum
+    ff = f^debug
+    '123'>>ff
+    #函数异常将被发到debug，并且push到钉钉
+"""
 import logging
 from logbook import Logger, StreamHandler
 import sys
-from .namespace import *
+from .namespace import NS, NT
+from .endpoint import Dtalk
 
 __all__ = [
-    'log', 'warn'
+    'log', 'warn', 'debug', 'bus'
 ]
 
 warn = NS('warn')
@@ -20,3 +29,6 @@ log.sink(logger.info)
 
 
 bus = NT('bus')
+
+debug = NS('debug')
+debug.map(str).unique() >> Dtalk()
