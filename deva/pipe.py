@@ -29,68 +29,19 @@ __all__ = [
     'dedup', 'uniq', 'to_dataframe', 'P', 'pmap', 'pfilter', 'post_to',
     'head', 'read', 'tcp_write', 'write_to_file', 'size', 'ls', 'range',
     'sum', 'split', 'sample', 'extract',
-    # 'abs',
-    #     'all',
-    #     'any',
-    #     'ascii',
-    #     'bin',
-    #     'callable',
-    #     'chr',
-    #     'classmethod',
-    #     'compile',
-    #     'delattr',
-    #     'dir',
-    #     'divmod',
-    #     'enumerate',
-    #     'eval',
-    #     'format',
-    #     'getattr',
-    #     'globals',
-    #     'hasattr',
-    #     'hash',
-    #     'hex',
-    #     'id',
-    #     'input',
-    #     # 'isinstance',
-    #     'issubclass',
-    #     'iter',
+    'abs',
+    'dir',
+    'eval',
+    'hash',
+    'id',
+    'input',
+    'iter',
     'len',
-    #     'locals',
     'max',
     'min',
-    #     'next',
-    #     'oct',
-    #     'open',
-    #     'ord',
-    #     'pow',
     'print',
-    #     'property',
-    #     'range',
-    #     'repr',
-    #     'reversed',
-    #     'round',
-    #     'setattr',
-    #     'slice',
-    #     'sorted',
-    #     'staticmethod',
+    'range',
     'sum',
-    #     'bool',
-    #     'bytearray',
-    #     'bytes',
-    #     'complex',
-    #     'dict',
-    #     'float',
-    #     'frozenset',
-    #     # 'int',
-    #     # 'list',
-    #     'memoryview',
-    #     'object',
-    #     'set',
-    #     # 'str',
-    #     # 'tuple',
-    #     'type',
-    #     'vars',
-    #     'zip',
 ]
 
 
@@ -671,7 +622,9 @@ def post_to(url='http://127.0.0.1:9999', asynchronous=True, headers={}):
     pyobject:dill序列化后发送
     发送方式use async http client,Future对象，jupyter中可直接使用
     jupyter 之外需要loop = IOLoop.current(instance=True)，loop.start()
-    Examples:
+
+    Examples::
+
         {'a':1}>>post_to(url)
         {'a':1}>>post_to(url,asynchronous=False)
 
@@ -707,7 +660,22 @@ def post_to(url='http://127.0.0.1:9999', asynchronous=True, headers={}):
 
 @Pipe
 def sample(samplesize=5):
+    """从序列中取出随机的n个数据
 
+    从字符串 列表 字典 生成器等iterable中获取随机的n个数值，不加括号调用时，默认返回5个值
+
+    Args:
+        samplesize: 获取的数量 (default: {5})
+
+    Returns:
+        iterable中的随机n个值，当n大于iterable长度时，只返回iterable长度的数 
+        list
+
+    Examples:
+
+        10|range|sample
+        10|range|sample(3)
+    """
     def _(iterable):
         import random
         results = []
@@ -734,15 +702,24 @@ def sample(samplesize=5):
 
 
 @Pipe
-def extract(mode='chinese'):
-    import re
-    """特定数据提取函数
-    type:
-    chinese，中文提取
-    numbers：整数提取
-    phone:
-    url:
-    email:
+def extract(typ='chinese'):
+    """文本中提取特定数据类型的Pipe
+
+    使用正则表达式从字符串中提取特定类型内容
+
+    Args:
+        typ: 提取类型，可选,['chinese','numbers','phone','url','email'] (default: {'chinese'})
+            chinese:中文提取
+            numbers:整数提取
+            phone:手机号提取
+            url:网址提取
+            email:邮箱提取
+
+    Returns:
+        提取到的结果列表
+        list
+
+    Examples:
         'ddd 23.4 sddsd345'>>extract('numbers')>>print
         '你好ds34手'>>extract()>>print
         'dff@fmail.cc.ccd123ddd'>>extract('email')>>print
@@ -752,29 +729,33 @@ def extract(mode='chinese'):
         ['你好', '手']
         ['dff@fmail.cc.ccd']
         ['http://baidu.com/fds']
+
     """
+    import re
+
     url_regex = re.compile(
         '(?:(?:https?|ftp|file)://|www\.|ftp\.)[-A-Z0-9+&@#/%=~_|$?!:,.]*[A-Z0-9+&@#/%=~_|$]', re.IGNORECASE)
     email_regex = re.compile(
         '([A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,4})', re.IGNORECASE)
 
     def _(text: str)->list:
-        if mode == 'chinese':
+        if typ == 'chinese':
             return re.findall(r"[\u4e00-\u9fa5]+", text)
-        elif mode == 'numbers' or mode == 'number':
+        elif typ == 'numbers' or typ == 'number':
             return re.findall("[+-]?\d+\.*\d+", text) >> pmap(lambda x: float(x) if '.' in x else int(x)) >> ls
-        elif mode == 'table':
+        elif typ == 'table':
             import pandas as pd
             return pd.read_html(text)
-        elif mode == 'url':
+        elif typ == 'url':
             return [x for x in url_regex.findall(text)]
-        elif mode == 'email':
+        elif typ == 'email':
             return [x for x in email_regex.findall(text)]
-        elif mode == 'tags':
+        elif typ == 'tags':
             import jieba.analyse
             return jieba.analyse.extract_tags(text, 20)
 
     return _@P
+
 
     # %%转换内置函数为pipe
 for i in builtins.__dict__.copy():
@@ -782,69 +763,29 @@ for i in builtins.__dict__.copy():
         f = 'to_' + i
         builtins.__dict__[f] = Pipe(builtins.__dict__[i])
 
-ls = list@P
 
-# abs = P(abs)
-# # all = P(all)
-# # any = P(any)
-# # ascii = P(ascii)
-# # bin = P(bin)
-# callable = P(callable)
-# # chr = P(chr)
-# classmethod = P(classmethod)
-# compile = P(compile)
-# delattr = P(delattr)
-# dir = P(dir)
-# divmod = P(divmod)
-# enumerate = P(enumerate)
-# eval = P(eval)
-# format = P(format)
-# getattr = P(getattr)
-# globals = P(globals)
-# hasattr = P(hasattr)
-# hash = P(hash)
-# # hex = P(hex)
-# id = P(id)
-# input = P(input)
-# # isinstance = P(isinstance)
-# issubclass = P(issubclass)
-# iter = P(iter)
+ls = list@P
+abs = P(abs)
+dir = P(dir)
+eval = P(eval)
+format = P(format)
+hash = P(hash)
+id = P(id)
+input = P(input)
+iter = P(iter)
 len = P(len)
-# locals = P(locals)
 max = P(max)
 min = P(min)
-# next = P(next)
-# oct = P(oct)
-# open = P(open)
-# ord = P(ord)
-# pow = P(pow)
 print = P(print)
-# property = P(property)
 range = P(range)
-# repr = P(repr)
-# reversed = P(reversed)
-# round = P(round)
-# setattr = P(setattr)
-# slice = P(slice)
-# sorted = P(sorted)
-# staticmethod = P(staticmethod)
 sum = P(sum)
-# # bool = P(bool)
-# # bytearray = P(bytearray)
-# # bytes = P(bytes)
-# complex = P(complex)
-# dict = P(dict)
-# # float = P(float)
-# frozenset = P(frozenset)
-# # int = P(int)
-# list = P(list)
-# memoryview = P(memoryview)
-# # object = P(object)
-# set = P(set)
-# # str = P(str)
-# # tuple = P(tuple)
-# type = P(type)
-# vars = P(vars)
+to_bytes = P(bytes)
+to_dict = P(dict)
+to_float = P(float)
+to_int = P(int)
+to_list = P(list)
+to_set = P(set)
+to_str = P(str)
 # zip = P(zip)
 # 这种情况会导致isinstanced等非直接调用方法失败
 

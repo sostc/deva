@@ -1,13 +1,6 @@
 deva package
 ============
 
-Subpackages
------------
-
-.. toctree::
-
-    deva.streamz
-
 Submodules
 ----------
 
@@ -19,26 +12,66 @@ deva.bus module
     :undoc-members:
     :show-inheritance:
 
-deva.dtalk module
------------------
-
-.. automodule:: deva.dtalk
-    :members:
-    :undoc-members:
-    :show-inheritance:
-
-deva.formula module
+deva.compute module
 -------------------
 
-.. automodule:: deva.formula
+.. automodule:: deva.compute
     :members:
     :undoc-members:
     :show-inheritance:
 
-deva.log module
----------------
+deva.core module
+----------------
 
-.. automodule:: deva.log
+.. automodule:: deva.core
+    :members:
+    :undoc-members:
+    :show-inheritance:
+
+deva.dask module
+----------------
+
+.. automodule:: deva.dask
+    :members:
+    :undoc-members:
+    :show-inheritance:
+
+deva.endpoint module
+--------------------
+
+.. automodule:: deva.endpoint
+    :members:
+    :undoc-members:
+    :show-inheritance:
+
+deva.graph module
+-----------------
+
+.. automodule:: deva.graph
+    :members:
+    :undoc-members:
+    :show-inheritance:
+
+deva.monitor module
+-------------------
+
+.. automodule:: deva.monitor
+    :members:
+    :undoc-members:
+    :show-inheritance:
+
+deva.namespace module
+---------------------
+
+.. automodule:: deva.namespace
+    :members:
+    :undoc-members:
+    :show-inheritance:
+
+deva.page module
+----------------
+
+.. automodule:: deva.page
     :members:
     :undoc-members:
     :show-inheritance:
@@ -59,10 +92,10 @@ deva.search module
     :undoc-members:
     :show-inheritance:
 
-deva.simhash module
+deva.sources module
 -------------------
 
-.. automodule:: deva.simhash
+.. automodule:: deva.sources
     :members:
     :undoc-members:
     :show-inheritance:
@@ -75,18 +108,10 @@ deva.store module
     :undoc-members:
     :show-inheritance:
 
-deva.stream module
-------------------
+deva.topic module
+-----------------
 
-.. automodule:: deva.stream
-    :members:
-    :undoc-members:
-    :show-inheritance:
-
-deva.tornado\_retry\_client module
-----------------------------------
-
-.. automodule:: deva.tornado_retry_client
+.. automodule:: deva.topic
     :members:
     :undoc-members:
     :show-inheritance:
@@ -95,14 +120,6 @@ deva.when module
 ----------------
 
 .. automodule:: deva.when
-    :members:
-    :undoc-members:
-    :show-inheritance:
-
-deva.whooshalchemy module
--------------------------
-
-.. automodule:: deva.whooshalchemy
     :members:
     :undoc-members:
     :show-inheritance:

@@ -1,5 +1,5 @@
 """
-    smack.app
+    webview
     ~~~~~~~~~
 
     debug interface stolen from: https://gist.github.com/rduplain/4983839
@@ -9,7 +9,6 @@ import tornado.ioloop
 import tornado.web
 import tornado.wsgi
 import contextlib
-import functools
 # from tornado.stack_context import StackContext
 from functools import partial
 from werkzeug.routing import Map, Rule, _rule_re
@@ -140,7 +139,7 @@ class Page(object):
 
         from tornado_smack import App
 
-        app = App(debug=True)
+        page = Page(debug=True)
 
         @app.route("/hello")
         def foo():
