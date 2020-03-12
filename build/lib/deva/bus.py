@@ -1,21 +1,34 @@
+#!/usr/bin/env python
+"""公共总线流.
 
-from .stream import NT
+Exsample::
 
+    f = range+sum
+    ff = f^debug
+    '123'>>ff
+    #函数异常将被发到debug，并且push到钉钉
 """
-    跨进程的消息流任务驱动
+import logging
+from logbook import Logger, StreamHandler
+import sys
+from .namespace import NS, NT
+from .endpoints import Dtalk
 
+__all__ = [
+    'log', 'warn', 'debug', 'bus'
+]
 
-@bus.route(lambda x:type(x)==str)
-def foo(x):
-    x*2>>log
+warn = NS('warn')
+warn.sink(logging.warning)
 
+StreamHandler(sys.stdout).push_application()
 
-'aa'>pbus
-如果是单独进程中使用,需要固定一个循环来hold主线程
-from tornado import ioloop
-ioloop.IOLoop.current().start()
-
-"""
+logger = Logger(__name__)
+log = NS('log', cache_max_len=10, cache_max_age_seconds=60 * 60 * 24)
+log.sink(logger.info)
 
 
 bus = NT('bus')
+
+debug = NS('debug')
+debug.map(str).unique() >> Dtalk()

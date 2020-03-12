@@ -7,12 +7,12 @@ from tornado.tcpserver import TCPServer
 from tornado.tcpclient import TCPClient
 from tornado.iostream import StreamClosedError
 import dill
-import walrus
 from glob import glob
 import os
 import aioredis
 import tornado.ioloop
 
+from .topic import RedisStream
 from .core import Stream
 
 import logging
@@ -451,49 +451,10 @@ class from_kafka(Source):
 
 @Stream.register_api(staticmethod)
 class from_redis(Stream):
-    def __init__(self, topics: list, start=False,
-                 group="test", **kwargs):
-        if not isinstance(topics, list):
-            topics = [topics]
-        self.topics = topics
-        self.group = group
-        self.consumer = hash(self)
-
-        super(from_redis, self).__init__(ensure_io_loop=True, **kwargs)
-        self.stopped = True
-        if start:
-            self.start()
-
-    @gen.coroutine
-    def process(self):
-        self.redis = yield aioredis.create_redis('redis://localhost', loop=self.loop)
-        for topic in self.topics:
-            exists = yield self.redis.exists(topic)
-            if not exists:
-                yield self.redis.xadd(topic, {'data': dill.dumps('go')})
-
-            try:
-                yield self.redis.xgroup_create(topic, self.group)
-            except:
-                pass
-
-        while True:
-            result = yield self.redis.xread_group(self.group, self.consumer, self.topics, count=1, latest_ids=['>'])
-            data = dill.loads(result[0][2][b'data'])
-            self._emit(data)
-            if self.stopped:
-                break
-
-    def start(self):
-        if self.stopped:
-            self.stopped = False
-            self.loop.add_callback(self.process)
-
-    def stop(self):
-        if self.consumer is not None:
-            self.consumer.destroy()
-            self.consumer = None
-            self.stopped = True
+    def __init__(self, topic, start=True,
+                 group="test", max_len=100, **kwargs):
+        Stream.__init__(self, ensure_io_loop=True)
+        RedisStream(topic=topic, max_len=max_len) >> self
 
 
 @Stream.register_api(staticmethod)
