@@ -27,7 +27,21 @@ __all__ = [
     'chain_with', 'islice', 'izip', 'passed', 'index', 'strip',
     'lstrip', 'rstrip', 'run_with', 'append', 'to_type', 'transpose',
     'dedup', 'uniq', 'to_dataframe', 'P', 'pmap', 'pfilter', 'post_to',
-    'head', 'read', 'tcp_write', 'write_to_file', 'size'
+    'head', 'read', 'tcp_write', 'write_to_file', 'size', 'ls', 'range',
+    'sum', 'split', 'sample', 'extract',
+    'abs',
+    'dir',
+    'eval',
+    'hash',
+    'id',
+    'input',
+    'iter',
+    'len',
+    'max',
+    'min',
+    'print',
+    'range',
+    'sum',
 ]
 
 
@@ -50,38 +64,42 @@ class Pipe:
     # 2, 4, 6
     """
 
-    def __init__(self, function):
+    def __init__(self, func):
         """decorater 初始化."""
-        self.function = function
-        functools.update_wrapper(self, function)
+        self.func = func
+        functools.update_wrapper(self, func)
 
     def __ror__(self, other):
         """左边的 |."""
-        return self.function(other)
+        return self.func(other)
 
     def __rrshift__(self, other):
         """左边的 >>."""
-        return self.function(other)
+        # 左边如果支持sink方法，则变为左边sin右边的函数
+        if hasattr(other, 'sink'):
+            return other.sink(self.func)
+        else:
+            return self.func(other)
 
     def __rmatmul__(self, other):
         """左边的 @."""
-        return self.function(other)
+        return self.func(other)
 
     def __lshift__(self, other):  # 右边的<<
         """右边的 <<."""
-        return self.function(other)
+        return self.func(other)
 
     def __call__(self, *args, **kwargs):
         """像正常函数一样使用使用."""
-        return self.function(*args, **kwargs)
+        return self.func(*args, **kwargs)
 
-    def F(self, *args, **kwargs):
-        """将普通函数转换成Pipe对象."""
-        return Pipe(lambda x: self.function(x, *args, **kwargs))
+    def __add__(self, other):
+        """Function composition: (a + b + c)(x) -> c(b(a(x)))."""
+        return Pipe(lambda *args, **kwargs: other(self(*args, **kwargs)))
 
-    def __repr__(self):
-        """转化成Pipe对象后的repr."""
-        return f'<func {self.function.__module__}.{self.function.__name__}@P>'
+    # def __repr__(self):
+    #     """转化成Pipe对象后的repr."""
+    #     return f'<func {self.func.__module__}.{self.func.__name__}@P>'
 
 
 @Pipe
@@ -89,41 +107,74 @@ def P(func):
     """
     [1,2,3]>>print@P
     """
-    return Pipe(func)
+    if not isinstance(func, Pipe):  # 防止pipe被重复管道化
+        return Pipe(func)
+    else:
+        return func
 
 
 @Pipe
 def to_dataframe(iterable, orient='index'):
-    """
-    orient='index'
-    orient='columne'
-    """
+
+    orient = 'index'
+    orient = 'columne'
+
     import pandas as pd
     return pd.DataFrame.from_dict(iterable, orient=orient)
 
 
+# @Pipe
+# def head(qte: int = 5):
+#     "Yield qte of elements in the given iterable."
+#     def _head(iterable):
+#         i = qte
+#         result = []
+#         for item in iterable:
+#             if i > 0:
+#                 i -= 1
+#                 yield item
+#             else:
+#                 return
+
+#     if isinstance(qte, int):
+#         return _head@P
+#     else:
+#         iterable, qte = qte, 5
+#         return _head(iterable)
+
+
 @Pipe
-def head(qte: int):
+def head(qte: int = 5):
     "Yield qte of elements in the given iterable."
     def _head(iterable):
         i = qte
+        result = []
         for item in iterable:
             if i > 0:
                 i -= 1
-                yield item
+                result.append(item)
             else:
-                return
+                break
+        return result
 
-    return _head@P
+    if isinstance(qte, int):
+        return _head@P
+    else:
+        iterable, qte = qte, 5
+        return _head(iterable)
 
 
 @Pipe
-def tail(qte: int):
+def tail(qte: int = 5):
     "Yield qte of elements in the given iterable."
     def _(iterable):
-        return deque(iterable, maxlen=qte)
+        return list(deque(iterable, maxlen=qte))
 
-    return _@P
+    if isinstance(qte, int):
+        return _@P
+    else:
+        iterable, qte = qte, 5
+        return _(iterable)
 
 
 @Pipe
@@ -316,6 +367,13 @@ def concat(separator=", "):
 
 
 @Pipe
+def split(sep="\n"):
+    def _(iteration):
+        return iteration.split(sep)
+    return _@P
+
+
+@Pipe
 def attr(name):
     def _(object):
         return getattr(object, name)
@@ -351,6 +409,27 @@ def tee(iterable):
         yield item
 
 
+# @Pipe
+# def write_to_file(fn, prefix='', suffix='\n', flush=True, mode='a+'):
+#     """同时支持二进制和普通文本的写入.
+
+#     Exsapmles:
+#         123>>write_to_file('tpm.txt')
+#         b'abc'>>write_to_file('music.mp3','ab+')
+#     """
+#     def _(content):
+#         with open(fn, mode) as f:
+#             if 'b' in mode:
+#                 f.write(content)
+#             else:
+#                 f.write(prefix)
+#                 f.write(str(content))
+#                 f.write(suffix)
+#             if flush:
+#                 f.flush()
+#         return content
+
+#     return _@P
 @Pipe
 def write_to_file(fn, prefix='', suffix='\n', flush=True, mode='a+'):
     """同时支持二进制和普通文本的写入.
@@ -359,16 +438,17 @@ def write_to_file(fn, prefix='', suffix='\n', flush=True, mode='a+'):
         123>>write_to_file('tpm.txt')
         b'abc'>>write_to_file('music.mp3','ab+')
     """
+    f = open(fn, mode)
+
     def _(content):
-        with open(fn, mode) as f:
-            if 'b' in mode:
-                f.write(content)
-            else:
-                f.write(prefix)
-                f.write(str(content))
-                f.write(suffix)
-            if flush:
-                f.flush()
+        if 'b' in mode:
+            f.write(content)
+        else:
+            f.write(prefix)
+            f.write(str(content))
+            f.write(suffix)
+        if flush:
+            f.flush()
         return content
 
     return _@P
@@ -534,8 +614,7 @@ def size(x):
 
 
 @Pipe
-@gen.coroutine
-def post_to(body, url='http://127.0.0.1:9999', headers=None):
+def post_to(url='http://127.0.0.1:9999', asynchronous=True, headers={}):
     """ post a str or bytes or pyobject to url.
 
     str:直接发送
@@ -543,32 +622,172 @@ def post_to(body, url='http://127.0.0.1:9999', headers=None):
     pyobject:dill序列化后发送
     发送方式use async http client,Future对象，jupyter中可直接使用
     jupyter 之外需要loop = IOLoop.current(instance=True)，loop.start()
-    Examples:
+
+    Examples::
+
         {'a':1}>>post_to(url)
+        {'a':1}>>post_to(url,asynchronous=False)
 
     """
-    if not isinstance(body, bytes):
+    def _encode(body):
+        if not isinstance(body, bytes):
+            try:
+                body = json.dumps(body)
+            except TypeError:
+                body = dill.dumps(body)
+        return body
+
+    @gen.coroutine
+    def _async(body):
+        body = _encode(body)
+        from tornado import httpclient
+        http_client = httpclient.AsyncHTTPClient()
+        request = httpclient.HTTPRequest(
+            url, body=body, method="POST", headers=headers)
+        response = yield http_client.fetch(request)
+        return response
+
+    def _sync(body):
+        body = _encode(body)
+        import requests
+        return requests.post(url, data=body, headers=headers)
+
+    if asynchronous:
+        return _async@P
+    else:
+        return _sync@P
+
+
+@Pipe
+def sample(samplesize=5):
+    """从序列中取出随机的n个数据
+
+    从字符串 列表 字典 生成器等iterable中获取随机的n个数值，不加括号调用时，默认返回5个值
+
+    Args:
+        samplesize: 获取的数量 (default: {5})
+
+    Returns:
+        iterable中的随机n个值，当n大于iterable长度时，只返回iterable长度的数 
+        list
+
+    Examples:
+
+        10|range|sample
+        10|range|sample(3)
+    """
+    def _(iterable):
+        import random
+        results = []
+        iterator = iter(iterable)
+        # Fill in the first samplesize elements:
         try:
-            body = json.dumps(body)
-        except TypeError:
-            body = dill.dumps(body)
+            for _ in range(samplesize):
+                results.append(next(iterator))
+        except StopIteration:
+            pass
+            # raise ValueError("Sample larger than population.")
+        random.shuffle(results)  # Randomize their positions
+        for i, v in enumerate(iterator, samplesize):
+            r = random.randint(0, i)
+            if r < samplesize:
+                results[r] = v  # at a decreasing rate, replace random items
+        return results
 
-    from tornado import httpclient
-    http_client = httpclient.AsyncHTTPClient()
-    headers = {}
-    request = httpclient.HTTPRequest(
-        url, body=body, method="POST", headers=headers)
-
-    result = yield http_client.fetch(request)
-    return result
+    if isinstance(samplesize, int):
+        return _@P
+    else:
+        iterable, samplesize = samplesize, 5
+        return _(iterable)
 
 
-# %%转换内置函数为pipe
+@Pipe
+def extract(typ='chinese'):
+    """文本中提取特定数据类型的Pipe
+
+    使用正则表达式从字符串中提取特定类型内容
+
+    Args:
+        typ: 提取类型，可选,['chinese','numbers','phone','url','email'] (default: {'chinese'})
+            chinese:中文提取
+            numbers:整数提取
+            phone:手机号提取
+            url:网址提取
+            email:邮箱提取
+
+    Returns:
+        提取到的结果列表
+        list
+
+    Examples:
+        'ddd 23.4 sddsd345'>>extract('numbers')>>print
+        '你好ds34手'>>extract()>>print
+        'dff@fmail.cc.ccd123ddd'>>extract('email')>>print
+        'ddshttp://baidu.com/fds dfs'>>extract('url')>>print
+
+        [23.4, 345]
+        ['你好', '手']
+        ['dff@fmail.cc.ccd']
+        ['http://baidu.com/fds']
+
+    """
+    import re
+
+    url_regex = re.compile(
+        '(?:(?:https?|ftp|file)://|www\.|ftp\.)[-A-Z0-9+&@#/%=~_|$?!:,.]*[A-Z0-9+&@#/%=~_|$]', re.IGNORECASE)
+    email_regex = re.compile(
+        '([A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,4})', re.IGNORECASE)
+
+    def _(text: str)->list:
+        if typ == 'chinese':
+            return re.findall(r"[\u4e00-\u9fa5]+", text)
+        elif typ == 'numbers' or typ == 'number':
+            return re.findall("[+-]?\d+\.*\d+", text) >> pmap(lambda x: float(x) if '.' in x else int(x)) >> ls
+        elif typ == 'table':
+            import pandas as pd
+            return pd.read_html(text)
+        elif typ == 'url':
+            return [x for x in url_regex.findall(text)]
+        elif typ == 'email':
+            return [x for x in email_regex.findall(text)]
+        elif typ == 'tags':
+            import jieba.analyse
+            return jieba.analyse.extract_tags(text, 20)
+
+    return _@P
+
+
+    # %%转换内置函数为pipe
 for i in builtins.__dict__.copy():
     if callable(builtins.__dict__.get(i)):
         f = 'to_' + i
         builtins.__dict__[f] = Pipe(builtins.__dict__[i])
 
+
+ls = list@P
+abs = P(abs)
+dir = P(dir)
+eval = P(eval)
+format = P(format)
+hash = P(hash)
+id = P(id)
+input = P(input)
+iter = P(iter)
+len = P(len)
+max = P(max)
+min = P(min)
+print = P(print)
+range = P(range)
+sum = P(sum)
+to_bytes = P(bytes)
+to_dict = P(dict)
+to_float = P(float)
+to_int = P(int)
+to_list = P(list)
+to_set = P(set)
+to_str = P(str)
+# zip = P(zip)
+# 这种情况会导致isinstanced等非直接调用方法失败
 
 if __name__ == "__main__":
     import doctest

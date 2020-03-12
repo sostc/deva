@@ -36,10 +36,10 @@ deva.dask module
     :undoc-members:
     :show-inheritance:
 
-deva.endpoint module
---------------------
+deva.endpoints module
+---------------------
 
-.. automodule:: deva.endpoint
+.. automodule:: deva.endpoints
     :members:
     :undoc-members:
     :show-inheritance:
