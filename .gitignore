@@ -15,6 +15,6 @@ docs/_build/html/_modules/deva/streamz/utils.html
 *.js
 *.sqlite
 /.idea/
-*/__pycache__/
-/build
-/dist
+*/__pycache__/*
+*/build/*
+*/dist/*

@@ -1,4 +1,3 @@
-from .bus import log
 from .pipe import passed
 from .core import Stream
 from whoosh.fields import Schema, TEXT

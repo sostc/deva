@@ -8,25 +8,6 @@ import os
 logger = logging.getLogger(__name__)
 
 
-# def Topic(name='', **kwargs):
-#     try:
-#         in_stream = from_redis(
-#             topics=[name],
-#             group=str(os.getpid()),
-#             start=True,
-#             name=name,
-#             **kwargs
-#         )
-#         out_stream = Stream().to_redis(topic=name)
-#         in_stream.emit = out_stream.emit
-
-#     except Exception as e:
-#         logger.exception(f'Warn:{e}, start a single process topic ')
-#         return Stream(name=name)
-
-#     return in_stream
-
-
 @Stream.register_api()
 class Topic(from_redis):
     """

@@ -19,3 +19,4 @@ textblob
 googletrans
 diskcache
 requests-html
+aioredis

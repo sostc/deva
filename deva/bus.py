@@ -12,7 +12,7 @@ import logging
 from logbook import Logger, StreamHandler
 import sys
 from .namespace import NS, NT
-from .endpoint import Dtalk
+from .endpoints import Dtalk
 
 __all__ = [
     'log', 'warn', 'debug', 'bus'
