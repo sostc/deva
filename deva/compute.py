@@ -1,6 +1,7 @@
 from .core import Stream, identity
 from .store import DBStream
-from collections import deque, Iterable
+from collections import deque
+from collections.abc import Iterable
 from tornado import gen
 from time import time
 from tornado.locks import Condition

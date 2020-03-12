@@ -10,7 +10,7 @@ import dill
 import walrus
 from glob import glob
 import os
-
+import aioredis
 import tornado.ioloop
 
 from .core import Stream
@@ -451,54 +451,43 @@ class from_kafka(Source):
 
 @Stream.register_api(staticmethod)
 class from_redis(Stream):
-    def __init__(self, topics: list, interval=0.1, start=False,
+    def __init__(self, topics: list, start=False,
                  group="test", **kwargs):
-        self.consumer = None
         if not isinstance(topics, list):
             topics = [topics]
         self.topics = topics
         self.group = group
-        self.interval = interval
-        self.db = walrus.Database()
-        self.consumer = self.db.consumer_group(self.group,
-                                               self.topics)
-        self.consumer.create()  # Create the consumer group.
-        # self.consumer.set_id('$')  # 不会从头读
+        self.consumer = hash(self)
 
         super(from_redis, self).__init__(ensure_io_loop=True, **kwargs)
         self.stopped = True
         if start:
             self.start()
 
-    def do_poll(self):
-        """同步redis库,todo:寻找异步的stream库来查询."""
-        if self.consumer is not None:
-            meta_msgs = self.consumer.read(count=1)
-            # Returns:
-            """
-            [('stream-a', [(b'1539023088125-0', {b'message': b'new a'})]),
-             ('stream-b', [(b'1539023088125-0', {b'message': b'new for b'})]),
-             ('stream-c', [(b'1539023088126-0', {b'message': b'c-0'})])]
-             """
-            for meta_msg in meta_msgs:
-                # {b'data':'dills'},
-                topic, (rid, body) = meta_msg[0], meta_msg[1][0]
-                data = dill.loads(body[b'data'])
-                # self._emit({'topic': topic, 'rid': rid, 'data': data})
-                self._emit(data)
-
     @gen.coroutine
-    def poll_redis(self):
+    def process(self):
+        self.redis = yield aioredis.create_redis('redis://localhost', loop=self.loop)
+        for topic in self.topics:
+            exists = yield self.redis.exists(topic)
+            if not exists:
+                yield self.redis.xadd(topic, {'data': dill.dumps('go')})
+
+            try:
+                yield self.redis.xgroup_create(topic, self.group)
+            except:
+                pass
+
         while True:
-            self.do_poll()
-            yield gen.sleep(self.interval)
+            result = yield self.redis.xread_group(self.group, self.consumer, self.topics, count=1, latest_ids=['>'])
+            data = dill.loads(result[0][2][b'data'])
+            self._emit(data)
             if self.stopped:
                 break
 
     def start(self):
         if self.stopped:
             self.stopped = False
-            self.loop.add_callback(self.poll_redis)
+            self.loop.add_callback(self.process)
 
     def stop(self):
         if self.consumer is not None:

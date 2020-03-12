@@ -1,5 +1,6 @@
 from __future__ import absolute_import, division, print_function
 
+import collections
 from datetime import datetime, timedelta
 import functools
 import logging
@@ -16,15 +17,11 @@ try:
 except ImportError:
     PollIOLoop = None  # dropped in tornado 6.0
 
-from .utils.orderedweakrefset import OrderedWeakrefSet
-
 from .utils.expiringdict import ExpiringDict
 from pampy import match, ANY
 import io
 from .pipe import P
 from threading import get_ident as get_thread_identity
-
-from functools import wraps
 
 
 no_default = '--no-default--'
@@ -39,6 +36,34 @@ logger = logging.getLogger(__name__)
 
 
 _io_loops = []
+
+
+class OrderedSet(collections.abc.MutableSet):
+    def __init__(self, values=()):
+        self._od = collections.OrderedDict().fromkeys(values)
+
+    def __len__(self):
+        return len(self._od)
+
+    def __iter__(self):
+        return iter(self._od)
+
+    def __contains__(self, value):
+        return value in self._od
+
+    def add(self, value):
+        self._od[value] = None
+
+    def discard(self, value):
+        self._od.pop(value, None)
+
+
+class OrderedWeakrefSet(weakref.WeakSet):
+    def __init__(self, values=()):
+        super(OrderedWeakrefSet, self).__init__()
+        self.data = OrderedSet()
+        for elem in values:
+            self.add(elem)
 
 
 def get_io_loop(asynchronous=None):
@@ -537,7 +562,7 @@ class Stream(object):
         """
 
         # @Pipe
-        @wraps(func)
+        @functools.wraps(func)
         def wraper(*args, **kwargs):
             # some action before
             result = func(*args, **kwargs)
@@ -578,7 +603,7 @@ class Stream(object):
         """补货函数执行异常到流内."""
 
         # @Pipe
-        @wraps(func)
+        @functools.wraps(func)
         def wraper(*args, **kwargs):
             # some action before
             try:

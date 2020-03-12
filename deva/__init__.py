@@ -6,7 +6,7 @@ from .graph import *
 from .sources import *
 from .namespace import *
 from .when import *
-from .endpoint import *
+from .endpoints import *
 
 
 from .bus import *
@@ -21,4 +21,4 @@ try:
 except ImportError:
     pass
 
-__version__ = '0.9.2'
+__version__ = '0.9.3'
