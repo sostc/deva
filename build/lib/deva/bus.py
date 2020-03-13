@@ -23,7 +23,7 @@ warn.sink(logging.warning)
 
 StreamHandler(sys.stdout).push_application()
 
-logger = Logger(__name__)
+logger = Logger('log')
 log = NS('log', cache_max_len=10, cache_max_age_seconds=60 * 60 * 24)
 log.sink(logger.info)
 

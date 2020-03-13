@@ -1,5 +1,5 @@
 
-.DS_Store
+*.DS_Store
 *.session
 *.pyc
 *.ipynb
@@ -8,7 +8,6 @@
 *.swp
 *.data
 *.db
-docs/_build/html/_modules/deva/streamz/utils.html
 *.html
 *.txt
 *.css
