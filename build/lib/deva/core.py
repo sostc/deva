@@ -893,10 +893,16 @@ class httpget(Stream):
 
     参数error，流或者pipe函数，发生异常时url会被发送到这里
     注意上游流要限速，这个是并发执行，速度很快
-    例子：
-    s = Stream()
-    get_data = lambda x:x.body.decode('utf-8')>>chinese_extract>>sample(20)>>concat('|')
-    s.rate_limit(0.1).httpget(error=log).map(get_data).sink(print)
+
+    example::
+
+        s = Stream()
+        get_data = lambda x:x.body.decode('utf-8')>>chinese_extract>>sample(20)>>concat('|')
+        s.rate_limit(0.1).httpget(error=log).map(get_data).sink(print)
+
+        url>>s
+
+        {'url':'','headers'='','params':''}>>s
     """
 
     def __init__(self, upstream, render=False, error=print, **kwargs):
@@ -911,20 +917,23 @@ class httpget(Stream):
     def update(self, url, who=None):
         gen.multi([self._http(url)])
 
-    def emit(self, url, **kwargs):
-        gen.multi([self._http(url)])
-        return url
+    def emit(self, req, **kwargs):
+        gen.multi([self._http(req)])
+        return req
 
     @gen.coroutine
-    def _http(self, url):
+    def _http(self, req):
         try:
-            response = yield self.httpclient.get(url)
+            if isinstance(req, str):
+                response = yield self.httpclient.get(req)
+            elif isinstance(req, dict):
+                response = yield self.httpclient.get(**req)
             if self.render:
                 response = response.html.render()
 
             self._emit(response)
         except Exception as e:
-            url >> self.error
+            req >> self.error
             logger.exception(e)
             # raise
 
