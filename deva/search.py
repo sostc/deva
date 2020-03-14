@@ -13,7 +13,7 @@ class IndexStream(Stream):
     所有输入都会被强制转化成str,并进行中文索引
     """
 
-    def __init__(self, index_path, log=passed, **kwargs):
+    def __init__(self, index_path='./whoosh/_search_index', log=passed, **kwargs):
         self.log = log
         # take the stream specific kwargs out
         from jieba.analyse import ChineseAnalyzer

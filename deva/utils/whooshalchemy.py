@@ -25,7 +25,6 @@ from sqlalchemy import event
 from sqlalchemy.orm.session import Session
 from whoosh.fields import Schema
 from whoosh.qparser import MultifieldParser
-from deva import log
 
 
 class IndexService(object):
@@ -182,7 +181,7 @@ class Searcher(object):
                 self.parser.parse(query),
                 pagenum=pagenum,
                 pagelen=pagelen
-            ) >> log
+            )
 
         keys = [x[self.primary] for x in results]
         primary_column = getattr(self.model_class, self.primary)
