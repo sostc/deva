@@ -115,8 +115,13 @@ class Dtalk(Stream):
         self.secret = secret
         self.webhook = webhook
         if not webhook:
-            self.webhook = NB('dtalk')['test']['webhook']
-            self.secret = NB('dtalk')['test']['secret']
+            self.webhook = maybe(NB('dtalk'))['test']['webhook']
+            self.secret = maybe(NB('dtalk'))['test']['secret']
+            if not self.webhook:
+                raise Exception("""please input a webhook,or set a default webhook and secret to NB("dtalk")["test"] like this:
+                    NB('dtalk')['test']['webhook']='https://oapi.dingtalk.com/robot/send?access_token=xxx'
+                    NB('dtalk')['test']['secret']='SEC085714c31cxxxxxxx'
+                    """)
 
     # text类型
 
