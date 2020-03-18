@@ -31,4 +31,4 @@ log.sink(logger.info)
 bus = NT('bus')
 
 debug = NS('debug')
-debug.map(str).unique() >> Dtalk()
+# debug.map(str).unique() >> Dtalk()
