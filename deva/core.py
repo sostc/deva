@@ -537,27 +537,29 @@ class Stream(object):
         return value
 
     def catch(self, func):
-        """补货函数执行结果到流内.
+        """捕获函数执行结果到流内.
 
-        @log.catch_result
-        @warn.catch_except
-        def f1(*args,**kwargs):
-            return sum(*args,**kwargs)
+        examples::
+
+            @log.catch
+            @warn.catch_except
+            def f1(*args,**kwargs):
+                return sum(*args,**kwargs)
 
 
-        @log.catch_result
-        @gen.coroutine
-        def a_foo(n):
-            yield gen.sleep(n)
-            print(1)
-            return 123
+            @log.catch
+            @gen.coroutine
+            def a_foo(n):
+                yield gen.sleep(n)
+                print(1)
+                return 123
 
-        @log.catch_result
-        async def a_foo(n):
-            import asyncio
-            await asyncio.sleep(n)
-            print(1)
-            return 123
+            @log.catch
+            async def a_foo(n):
+                import asyncio
+                await asyncio.sleep(n)
+                print(1)
+                return 123
 
         """
 
@@ -600,9 +602,16 @@ class Stream(object):
         return wraper.__call__@P
 
     def catch_except(self, func):
-        """补货函数执行异常到流内."""
+        """捕获函数执行异常到流内.
 
-        # @Pipe
+        examples::
+
+            @log.catch
+            @warn.catch_except
+            def f1(*args,**kwargs):
+                return sum(*args,**kwargs)
+
+        """
         @functools.wraps(func)
         def wraper(*args, **kwargs):
             # some action before
@@ -657,19 +666,21 @@ class Stream(object):
                      )
 
     def route(self, occasion):
-        """
-        occasion:路由函数表达式,比如lambda x:x.startswith('foo') 或者 lambda x:type(x)==str,
-        完整例子:
-        e = Stream.engine()
-        e.start()
+        """路由函数.
 
-        @e.route(lambda x:type(x)==int)
-        def goo(x):
-            x*2>>log
+        :param occasion: 路由函数表达式,比如lambda x:x.startswith('foo') 或者 lambda x:type(x)==str
 
-        @bus.route('world')
-        def goo(x):
-            print('hello',x)
+        examples::
+            e = Stream.engine()
+            e.start()
+
+            @e.route(lambda x:type(x)==int)
+            def goo(x):
+                x*2>>log
+
+            @bus.route('world')
+            def goo(x):
+                print('hello',x)
 
         """
         def param_wraper(func):
@@ -888,41 +899,52 @@ class filter(Stream):
 
 
 @Stream.register_api()
-class httpget(Stream):
-    """自动http get流中的url，返回response对象
+class http(Stream):
+    """自动http 流中的url，返回response对象.
 
-    参数error，流或者pipe函数，发生异常时url会被发送到这里
-    注意上游流要限速，这个是并发执行，速度很快
+    接受url和requestsdict两种上游数据格式，注意上游流要限速，这个是并发执行，速度很快
+
+    :param error:，流或者pipe函数，发生异常时url会被发送到这里
+    :param workers:并发线程池数量
+
 
     example::
 
         s = Stream()
         get_data = lambda x:x.body.decode('utf-8')>>chinese_extract>>sample(20)>>concat('|')
-        s.rate_limit(0.1).httpget(error=log).map(get_data).sink(print)
+        s.rate_limit(0.1).http(workers=20,error=log).map(get_data).sink(print)
 
         url>>s
 
         {'url':'','headers'='','params':''}>>s
+
+
+        h = http()
+        h.map(lambda r:(r.url,r.html.search('<title>{}</title>')[0]))>>log
+        'http://www.518.is'>>h
+
+        [2020-03-17 03:46:30.902542] INFO: log: ('http://518.is/', 'NajaBlog')
+
     """
 
-    def __init__(self, upstream, render=False, error=print, **kwargs):
+    def __init__(self, upstream=None, render=False, workers=None, error=print, **kwargs):
         self.error = error
         # from tornado import httpclient
         from requests_html import AsyncHTMLSession
         Stream.__init__(self, upstream=upstream)
         # self.http_client = httpclient.AsyncHTTPClient()
-        self.httpclient = AsyncHTMLSession()
+        self.httpclient = AsyncHTMLSession(workers=workers)
         self.render = render
 
     def update(self, url, who=None):
-        gen.multi([self._http(url)])
+        gen.convert_yielded(self._request(url))
 
     def emit(self, req, **kwargs):
-        gen.multi([self._http(req)])
+        gen.convert_yielded(self._request(req))
         return req
 
     @gen.coroutine
-    def _http(self, req):
+    def _request(self, req):
         try:
             if isinstance(req, str):
                 response = yield self.httpclient.get(req)
@@ -942,41 +964,52 @@ class httpget(Stream):
 class run_future(Stream):
     """获取上游进来的future的最终值并放入下游
     注意上游流要限速，这个是并发执行，速度很快
-    例子：
-    @gen.coroutine
-    def foo():
-        yield gen.sleep(3)
-        return range<<10>>sample>>first
 
-    async def foo2():
-        import asyncio
-        await asyncio.sleep(3)
-        return range<<10>>sample>>first
+    examples::
 
-    s = Stream()
-    s.rate_limit(1).run_future()>>log
+        @gen.coroutine
+        def foo():
+            yield gen.sleep(3)
+            return range<<10>>sample>>first
 
-    for i in range(3):
-        foo()>>s
-        foo2()>>s
+        async def foo2():
+            import asyncio
+            await asyncio.sleep(3)
+            return range<<10>>sample>>first
 
-    [2020-02-26 18:14:37.991321] INFO: deva.log: 1
-    [2020-02-26 18:14:37.993260] INFO: deva.log: 7
-    [2020-02-26 18:14:37.995112] INFO: deva.log: 5
+        s = Stream()
+        s.rate_limit(1).run_future()>>log
+
+        for i in range(3):
+            foo()>>s
+            foo2()>>s
+
+        [2020-02-26 18:14:37.991321] INFO: deva.log: 1
+        [2020-02-26 18:14:37.993260] INFO: deva.log: 7
+        [2020-02-26 18:14:37.995112] INFO: deva.log: 5
+
+        run = run_future()
+        run>>log
+
+        foo()>>run
+        foo2()>>run
     """
 
-    def __init__(self, upstream, **kwargs):
+    def __init__(self, upstream=None, **kwargs):
         # from tornado import httpclient
         Stream.__init__(self, upstream=upstream, ensure_io_loop=True)
 
+    def emit(self, x, **kwargs):
+        self.update(x)
+        return x
+
     def update(self, x, who=None):
-        from collections.abc import Coroutine
-        if isinstance(x, gen.Future):
-            self.loop.add_future(x, lambda x: self._emit(x.result()))
-        elif isinstance(x, Coroutine):
-            task = self.loop.asyncio_loop.create_task(x)
-            task.add_done_callback(lambda x: self._emit(x.result()))
+        if isinstance(x, gen.Awaitable):
+            futs = gen.convert_yielded(x)
+            self.loop.add_future(futs, lambda x: self._emit(x.result()))
+
         else:
+            logger.exception(f'{x} is not gen.Awaitble')
             self._emit(x)
 
 
@@ -1031,9 +1064,7 @@ def sync(loop, func, *args, **kwargs):
         return result[0]
 
 
-class Deva(Stream):
-    def __init__(self, name=None, *args, **kwargs):
-        super(Stream, self).__init__(*args, **kwargs)
+class Deva():
 
     @classmethod
     def run(cls,):
