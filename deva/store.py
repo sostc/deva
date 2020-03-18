@@ -8,6 +8,7 @@ from .utils.sqlitedict import SqliteDict
 from .core import Stream
 import pkg_resources
 import moment
+import os
 
 
 @Stream.register_api()
@@ -44,7 +45,7 @@ class DBStream(Stream):
 
     """
 
-    def __init__(self,  name='default', fname='nb', maxsize=None, log=passed, **kwargs):
+    def __init__(self,  name='default', fname=None, maxsize=None, log=passed, **kwargs):
         """构建数据库流对象.
 
         Args:
@@ -61,8 +62,12 @@ class DBStream(Stream):
 
         super(DBStream, self).__init__()
         self.name = name
-        if fname == 'nb':
-            self.fname = pkg_resources.resource_filename(__name__, fname+'.sqlite')
+        if fname == None:
+            # self.fname = pkg_resources.resource_filename(__name__, fname+'.sqlite')
+            if not os.path.exists(os.path.expanduser('~/.deva/')):
+                os.makedirs(os.path.expanduser('~/.deva/'))
+            self.fname = os.path.expanduser('~/.deva/nb.sqlite')
+
         else:
             self.fname = fname+'.sqlite'
 
