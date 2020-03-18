@@ -2,6 +2,29 @@
     webview
     ~~~~~~~~~
 
+    example::
+        
+        from deva.page import page,Streaming,render_template
+        from deva import *
+
+        s = from_textfile('/var/log/system.log')
+        s1 =s.sliding_window(5).map(concat('<br>'),name='system.log')
+        s.start()
+
+        def sample_df_html(n=5):
+            return NB('sample')['df'].sample(n).to_html()
+
+        s2 = timer(func=sample_df_html,start=True,name='每秒更新',interval=1)
+        s3 = timer(func=sample_df_html,start=True,name='每三秒更新',interval=3)
+
+        @page.route('/')
+        def get():
+            streams = [s1,s2,s3]
+            return render_template('./web/templates/streams.html', streams=streams)
+
+
+        Streaming().start()
+
     debug interface stolen from: https://gist.github.com/rduplain/4983839
 """
 
@@ -9,7 +32,6 @@ import tornado.ioloop
 import tornado.web
 import tornado.wsgi
 import contextlib
-# from tornado.stack_context import StackContext
 from functools import partial
 from werkzeug.routing import Map, Rule, _rule_re
 import os
@@ -17,6 +39,14 @@ import inspect
 from werkzeug.local import LocalStack, LocalProxy
 import logging
 from collections import OrderedDict
+from pymaybe import maybe
+from .web.sockjs.tornado import SockJSRouter, SockJSConnection
+import json
+from tornado import gen
+from .core import Stream
+from .bus import log
+from .pipe import ls
+import moment
 
 
 try:
@@ -137,7 +167,7 @@ class Page(object):
 
     Example usage::
 
-        from tornado_smack import App
+        from deva.page import Page
 
         page = Page(debug=True)
 
@@ -435,4 +465,86 @@ class Page(object):
         # tornado.ioloop.IOLoop.instance().start()
 
 
+class StreamsConnection(SockJSConnection):
+
+    def __init__(self, *args, **kwargs):
+        self._out_stream = Stream()
+        self.link1 = self._out_stream.sink(self.send)
+        self._in_stream = Stream()
+        self.link2 = self._in_stream.sink(self.process_msg)
+        super(StreamsConnection, self).__init__(*args, **kwargs)
+
+    def on_open(self, request):
+        self.out_stream = Stream(name='default')
+        self.connection = self.out_stream >> self._out_stream
+        json.dumps({'id': 'default', 'html': 'welcome'}) >> self.out_stream
+        self.request = request
+        self.request.ip = maybe(self.request.headers)[
+            'x-forward-for'].or_else(self.request.ip)
+
+        f'open:{self.request.ip}:{moment.now()}' >> log
+
+    @gen.coroutine
+    def on_message(self, msg):
+        json.loads(msg) >> self._in_stream
+
+    def process_msg(self, msg):
+        stream_ids = msg['stream_ids']
+
+        'view:%s:%s:%s' % (stream_ids, self.request.ip, moment.now()) >> log
+        # gen.sleep(10)##只有这里的操作都类似gensleep一样是异步操作时,
+        # 整个请求才能异步,某个用户超时才不会影响别的用户,否则一个用户影响其他用户
+        # io的东西走异步,其余的函数如果是cpu计算,不要走异步
+
+        self.out_streams = [stream for stream in Stream.getinstances() if
+                            str(hash(stream)) in stream_ids]
+
+        def _(sid):
+            return lambda x: json.dumps({'id': sid, 'html': x})
+
+        self.connections = set()
+        for s in self.out_streams:
+            sid = str(hash(s))
+            f = _(sid)
+            self.connections.add(s.map(f) >> self._out_stream)
+
+            html = maybe(s).recent(1)[0].or_else('暂无数据,请确认是否开盘时间')
+            json.dumps({'id': sid, 'html': html}) >> self._out_stream
+
+    def on_close(self):
+        f'close:{self.request.ip}:{moment.now()}' >> log
+        for connection in self.connections:
+            connection.destroy()
+
+        self.connections = set()
+        self.connection.destroy()
+        self.link1.destroy()
+        self.link2.destroy()
+
+
 page = Page()
+
+
+class Streaming(object):
+    page = page
+
+    def __init__(self, host='127.0.0.1', port=9999):
+        self.page = Streaming.page
+        self.port = port
+        self.host = host
+        self.page.get_routes() >> ls >> log
+        self.StreamRouter = SockJSRouter(StreamsConnection, r'')
+        self.application = tornado.web.Application(
+            self.page.get_routes() +
+            self.StreamRouter.urls
+        )
+
+    def add_page(self, page):
+        self.application.add_handlers('.*$', page.get_routes())
+
+    def start(self,):
+        self.server = self.application.listen(self.port)
+        os.system(f'open http://{self.host}:{self.port}/')
+
+    def close(self):
+        self.server.close()
