@@ -71,13 +71,10 @@ class DBStream(Stream):
         else:
             self.fname = fname+'.sqlite'
 
-        # self.fname = fname+'.sqlite'
         self.db = SqliteDict(
             self.fname,
             tablename=self.tablename,
             autocommit=True)
-
-        # self.db['tablename'] = self.tablename
 
         self.keys = self.db.keys
         self.values = self.db.values

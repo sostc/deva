@@ -566,35 +566,18 @@ class Stream(object):
         # @Pipe
         @functools.wraps(func)
         def wraper(*args, **kwargs):
-            # some action before
             result = func(*args, **kwargs)
-
-            from collections.abc import Coroutine
-            if isinstance(result, gen.Future):
+            # 异步函数
+            if isinstance(result, gen.Awaitable):
+                futs = gen.convert_yielded(result)
                 if not self.loop:
                     self._set_asynchronous(False)
                 if self.loop is None and self.asynchronous is not None:
                     self._set_loop(get_io_loop(self.asynchronous))
-                self.loop.add_future(result,
-                                     lambda x: self._emit(x.result()))
+                self.loop.add_future(futs, lambda x: self._emit(x.result()))
 
-                return result
-
-            elif isinstance(result, Coroutine):
-                if not self.loop:
-                    self._set_asynchronous(False)
-                if self.loop is None and self.asynchronous is not None:
-                    self._set_loop(get_io_loop(self.asynchronous))
-                task = self.loop.asyncio_loop.create_task(result)
-                task.add_done_callback(lambda x: self._emit(x.result()))
-
-                return func(*args, **kwargs)
-            # {
-            #     'function': func.__name__,
-            #     'param': (args, kwargs),
-            #     'return': result,
-            # } >> self
-            else:  # 普通可执行对象
+            # 同步函数
+            else:
                 self._emit(result)
 
             return result
@@ -709,9 +692,8 @@ class Stream(object):
 
     # @property
     def recent(self, n=5, seconds=None):
-        if not self.is_cache:
-            return {}
-        elif not seconds:
+        assert self.is_cache
+        if not seconds:
             return self.cache.values()[-n:]
         else:
             begin = datetime.now() - timedelta(seconds=seconds)
@@ -904,6 +886,7 @@ class http(Stream):
 
     接受url和requestsdict两种上游数据格式，注意上游流要限速，这个是并发执行，速度很快
 
+
     :param error:，流或者pipe函数，发生异常时url会被发送到这里
     :param workers:并发线程池数量
 
@@ -925,22 +908,54 @@ class http(Stream):
 
         [2020-03-17 03:46:30.902542] INFO: log: ('http://518.is/', 'NajaBlog')
 
+    Returns::
+
+        response, 常用方法,可用self.request方法获取回来做调试
+        #完整链接提取
+        r.html.absolute_links  
+
+        #css selector
+        about = r.html.find('#about', first=True) #css slectotr
+        about.text
+        about.attrs
+        about.html
+        about.find('a')
+        about.absolute_links
+
+        #搜索模版
+        r.html.search('Python is a {} language')[0]
+
+        # xpath
+        r.html.xpath('a')
+
+        #条件表达式
+        r.html.find('a', containing='kenneth')
+
+        #常用属性
+        response.url
+        response.base_url
+        response.text
+        response.full_text
+
+
+
     """
 
     def __init__(self, upstream=None, render=False, workers=None, error=print, **kwargs):
         self.error = error
-        # from tornado import httpclient
         from requests_html import AsyncHTMLSession
-        Stream.__init__(self, upstream=upstream)
-        # self.http_client = httpclient.AsyncHTTPClient()
+        Stream.__init__(self, upstream=upstream, ensure_io_loop=True)
         self.httpclient = AsyncHTMLSession(workers=workers)
         self.render = render
 
-    def update(self, url, who=None):
-        gen.convert_yielded(self._request(url))
+    def update(self, req, who=None):
+        self.loop.add_future(
+            self._request(req),
+            lambda x: self._emit(x.result())
+        )
 
     def emit(self, req, **kwargs):
-        gen.convert_yielded(self._request(req))
+        self.update(req)
         return req
 
     @gen.coroutine
@@ -953,11 +968,24 @@ class http(Stream):
             if self.render:
                 response = response.html.render()
 
-            self._emit(response)
+            return response
         except Exception as e:
-            req >> self.error
+            (req, e) >> self.error
             logger.exception(e)
-            # raise
+
+    @classmethod
+    def request(cls, req):
+        from requests_html import HTMLSession
+        httpclient = HTMLSession()
+        try:
+            if isinstance(req, str):
+                response = httpclient.get(req)
+            elif isinstance(req, dict):
+                response = httpclient.get(**req)
+
+            return response
+        except Exception as e:
+            logger.exception(e)
 
 
 @Stream.register_api()
@@ -1004,13 +1032,9 @@ class run_future(Stream):
         return x
 
     def update(self, x, who=None):
-        if isinstance(x, gen.Awaitable):
-            futs = gen.convert_yielded(x)
-            self.loop.add_future(futs, lambda x: self._emit(x.result()))
-
-        else:
-            logger.exception(f'{x} is not gen.Awaitble')
-            self._emit(x)
+        assert isinstance(x, gen.Awaitable)
+        futs = gen.convert_yielded(x)
+        self.loop.add_future(futs, lambda x: self._emit(x.result()))
 
 
 def sync(loop, func, *args, **kwargs):
