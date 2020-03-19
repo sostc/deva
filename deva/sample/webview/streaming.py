@@ -2,17 +2,21 @@
 from deva.page import page, Streaming, render_template
 from deva import *
 
+# 系统日志监控
 s = from_textfile('/var/log/system.log')
-s1 = s.sliding_window(5).map(concat('<br>'), name='system.log')
+s1 = s.sliding_window(5).map(concat('<br>'), name='system.log日志监控')
 s.start()
 
 
-def sample_df_html(n=5):
-    return NB('sample')['df'].sample(n).to_html()
+# 实时股票数据
 
+s2 = timer(func=lambda: NB('sample')['df'].sample(
+    5).to_html(), start=True, name='实时股票数据', interval=1)
 
-s2 = timer(func=sample_df_html, start=True, name='每秒更新', interval=1)
-s3 = timer(func=sample_df_html, start=True, name='每三秒更新', interval=3)
+# 系统命令执行
+command_s = Stream.from_command()
+s3 = command_s.sliding_window(5).map(concat('<br>'), name='系统持续命令')
+command_s.run('ping baidu.com')
 
 
 @page.route('/')
