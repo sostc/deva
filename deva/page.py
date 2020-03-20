@@ -508,7 +508,8 @@ class StreamsConnection(SockJSConnection):
             f = _(sid)
             self.connections.add(s.map(f) >> self._out_stream)
 
-            html = maybe(s).recent(1)[0].or_else('暂无数据,请确认是否开盘时间')
+            # html = maybe(s).recent(1)[0].or_else('等待数据加载。。。。')
+            html = '等待数据加载。。。。'
             json.dumps({'id': sid, 'html': html}) >> self._out_stream
 
     def on_close(self):
