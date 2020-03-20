@@ -9,6 +9,9 @@
 The ``deva`` lib makes it easy to write streaming data process pipelines,event driven programing,and run async function.
 
 An example of a streaming process and web view:
+.. image:: streaming.gif
+   :align: center
+   :alt: streanming
 
 .. code-block:: python
 
@@ -112,6 +115,7 @@ Crawler
 -----------------
 
 .. code-block:: python
+
     from deva import *
 
     h = http()
@@ -215,6 +219,7 @@ scheduler
 
 workers
 -------------
+.. code-block:: python
 
     from deva import bus, log, when, Deva
 
