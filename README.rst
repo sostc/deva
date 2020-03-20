@@ -8,10 +8,13 @@
 
 The ``deva`` lib makes it easy to write streaming data process pipelines,event driven programing,and run async function.
 
-An example of a streaming process and web view:
+An example of a streaming process and web view
+
 .. image:: streaming.gif
+   :target: https://github.com/sostc/deva/blob/master/streaming.gif
    :align: center
    :alt: streanming
+
 
 .. code-block:: python
 
