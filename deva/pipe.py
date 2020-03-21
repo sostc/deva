@@ -28,7 +28,7 @@ __all__ = [
     'lstrip', 'rstrip', 'run_with', 'append', 'to_type', 'transpose',
     'dedup', 'uniq', 'to_dataframe', 'P', 'pmap', 'pfilter', 'post_to',
     'head', 'read', 'tcp_write', 'write_to_file', 'size', 'ls', 'range',
-    'sum', 'split', 'sample', 'extract',
+    'sum', 'split', 'sample', 'extract', 'readlines',
     'abs',
     'dir',
     'eval',
@@ -584,11 +584,18 @@ def to_type(t):
 
 
 @Pipe
-def read(fn):
-    """ 按行读入文本文件，mode参数为读到方式 'xxx.log'>>read()>>tail(2)"""
+def readlines(fn):
+    """ 按行读入文本文件，mode参数为读到方式 'xxx.log'>>readlines()>>tail(2)"""
     with open(fn, 'r') as f:
         for line in f:
             yield line
+
+
+@Pipe
+def read(fn):
+    """ 按行读入文本文件，mode参数为读到方式 'xxx.log'>>read()"""
+    with open(fn, 'r') as f:
+        return f.read()
 
 
 @Pipe
@@ -755,7 +762,6 @@ def extract(typ='chinese'):
             return jieba.analyse.extract_tags(text, 20)
 
     return _@P
-
 
     # %%转换内置函数为pipe
 for i in builtins.__dict__.copy():
