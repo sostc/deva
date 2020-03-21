@@ -22,7 +22,7 @@ from pampy import match, ANY
 import io
 from .pipe import P, print
 from threading import get_ident as get_thread_identity
-
+from requests_html import AsyncHTMLSession
 
 no_default = '--no-default--'
 
@@ -942,11 +942,22 @@ class http(Stream):
     """
 
     def __init__(self, upstream=None, render=False, workers=None, error=print, **kwargs):
+        """http arender surport.
+
+        [description]
+
+        Args:
+            **kwargs: render args retries: int = 8, script: str = None, wait: float = 0.2, scrolldown=False, sleep: int = 0, reload: bool = True, timeout: Union[float, int] = 8.0, keep_page: bool = False
+            upstream: [description] (default: {None})
+            render: [description] (default: {False})
+            workers: [description] (default: {None})
+            error: [description] (default: {print})
+        """
         self.error = error
-        from .utils.requests_html import AsyncHTMLSession
+        self.render = render
         Stream.__init__(self, upstream=upstream, ensure_io_loop=True)
         self.httpclient = AsyncHTMLSession(workers=workers)
-        self.render = render
+        self.kwargs = kwargs
 
     def update(self, req, who=None):
         self.loop.add_future(
@@ -965,8 +976,9 @@ class http(Stream):
                 response = yield self.httpclient.get(req)
             elif isinstance(req, dict):
                 response = yield self.httpclient.get(**req)
+
             if self.render:
-                response = yield response.html.arender()
+                yield response.html.arender(**self.kwargs)
 
             return response
         except Exception as e:
