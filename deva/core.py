@@ -20,7 +20,7 @@ except ImportError:
 from .utils.expiringdict import ExpiringDict
 from pampy import match, ANY
 import io
-from .pipe import P
+from .pipe import P, print
 from threading import get_ident as get_thread_identity
 
 
@@ -943,7 +943,7 @@ class http(Stream):
 
     def __init__(self, upstream=None, render=False, workers=None, error=print, **kwargs):
         self.error = error
-        from requests_html import AsyncHTMLSession
+        from .utils.requests_html import AsyncHTMLSession
         Stream.__init__(self, upstream=upstream, ensure_io_loop=True)
         self.httpclient = AsyncHTMLSession(workers=workers)
         self.render = render
@@ -966,7 +966,7 @@ class http(Stream):
             elif isinstance(req, dict):
                 response = yield self.httpclient.get(**req)
             if self.render:
-                response = response.html.render()
+                response = yield response.html.arender()
 
             return response
         except Exception as e:
