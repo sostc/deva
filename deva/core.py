@@ -692,12 +692,14 @@ class Stream(object):
 
     # @property
     def recent(self, n=5, seconds=None):
-        assert self.is_cache
-        if not seconds:
-            return self.cache.values()[-n:]
+        if self.is_cache:
+            if not seconds:
+                return self.cache.values()[-n:]
+            else:
+                begin = datetime.now() - timedelta(seconds=seconds)
+                return [i[1] for i in self.cache.items() if begin < i[0]]
         else:
-            begin = datetime.now() - timedelta(seconds=seconds)
-            return [i[1] for i in self.cache.items() if begin < i[0]]
+            return {}
 
     def __iter__(self,):
         return self.cache.values().__iter__()

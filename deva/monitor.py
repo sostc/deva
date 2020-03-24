@@ -20,6 +20,7 @@ from .namespace import *
 from .bus import log
 from .pipe import *
 from .page import Page
+import pandas as pd
 
 monitor_page = Page()
 
@@ -127,7 +128,7 @@ class StreamConnection(SockJSConnection):
             self.out_stream = [stream for stream in Stream.getinstances() if str(
                 hash(stream)) == stream_id][0]
             self.connection = self.out_stream.map(lambda x: json.dumps(
-                {'stream_id': stream_id, 'data': x})) >> self._out_stream
+                {'stream_id': stream_id, 'data': x.to_html() if isinstance(x, pd.DataFrame) else x})) >> self._out_stream
             data = maybe(self.out_stream).recent(1)[
                 0].or_else('暂无数据,请确认是否开盘时间')
             json.dumps({'stream_id': stream_id, 'data': data}) >> self._out_stream
