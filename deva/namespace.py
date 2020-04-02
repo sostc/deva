@@ -55,6 +55,19 @@ def NS(name='', *args, **kwargs):
 
 
 def NT(name='', *args, **kwargs):
+    """命名主题.
+
+    跨进程的流，唯一名称
+
+    Args:
+        *args: [description]
+        **kwargs: [description]
+        name: [description] (default: {''})
+
+    Returns:
+        [description]
+        [type]
+    """
     return namespace.create(typ='topic', name=name, *args, **kwargs)
 
 

@@ -61,7 +61,6 @@ License
 
 Copyright spark, 2018-2020.
 
-Distributed under the terms of the `MIT`_ license, pytest is free and open source software.
 
 
 

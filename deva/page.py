@@ -3,7 +3,7 @@
     ~~~~~~~~~
 
     example::
-        
+
         from deva.page import page,Streaming,render_template
         from deva import *
 

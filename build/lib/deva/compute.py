@@ -634,13 +634,13 @@ class partition(Stream):
 
     def __init__(self, upstream, n, **kwargs):
         self.n = n
-        self.buffer = []
+        self._buffer = []
         Stream.__init__(self, upstream, **kwargs)
 
     def update(self, x, who=None):
-        self.buffer.append(x)
-        if len(self.buffer) == self.n:
-            result, self.buffer = self.buffer, []
+        self._buffer.append(x)
+        if len(self._buffer) == self.n:
+            result, self._buffer = self._buffer, []
             return self._emit(tuple(result))
         else:
             return []
@@ -674,14 +674,14 @@ class sliding_window(Stream):
 
     def __init__(self, upstream, n, return_partial=True, **kwargs):
         self.n = n
-        self.buffer = deque(maxlen=n)
+        self._buffer = deque(maxlen=n)
         self.partial = return_partial
         Stream.__init__(self, upstream, **kwargs)
 
     def update(self, x, who=None):
-        self.buffer.append(x)
-        if self.partial or len(self.buffer) == self.n:
-            return self._emit(tuple(self.buffer))
+        self._buffer.append(x)
+        if self.partial or len(self._buffer) == self.n:
+            return self._emit(tuple(self._buffer))
         else:
             return []
 
@@ -698,7 +698,7 @@ class timed_window(Stream):
 
     def __init__(self, upstream, interval, **kwargs):
         self.interval = convert_interval(interval)
-        self.buffer = []
+        self._buffer = []
         self.last = gen.moment
 
         Stream.__init__(self, upstream, ensure_io_loop=True, **kwargs)
@@ -706,13 +706,13 @@ class timed_window(Stream):
         self.loop.add_callback(self.cb)
 
     def update(self, x, who=None):
-        self.buffer.append(x)
+        self._buffer.append(x)
         return self.last
 
     @gen.coroutine
     def cb(self):
         while True:
-            L, self.buffer = self.buffer, []
+            L, self._buffer = self._buffer, []
             self.last = self._emit(L)
             yield self.last
             yield gen.sleep(self.interval)

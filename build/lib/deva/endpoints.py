@@ -5,6 +5,7 @@ from tornado.httpclient import AsyncHTTPClient
 from .pipe import passed
 from .core import Stream
 from .topic import RedisStream
+from .namespace import NB
 from pymaybe import maybe
 import json
 
@@ -114,11 +115,13 @@ class Dtalk(Stream):
         self.secret = secret
         self.webhook = webhook
         if not webhook:
-            self.webhook = maybe(webhook).or_else(
-                "https://oapi.dingtalk.com/robot/send?access_token="
-                "c7a5a2b2b23ea1677657b743e8f6ca9"
-                "ffe0785ef5f378b5fdc443bb29a5defc3")
-            self.secret = 'SEC085714c31c3621f773d892d67d436be64d32227a248a84320f74a1733588fc35'
+            self.webhook = maybe(NB('dtalk'))['test']['webhook'].or_else(None)
+            self.secret = maybe(NB('dtalk'))['test']['secret'].or_else(None)
+            if not self.webhook:
+                raise Exception("""please input a webhook,or set a default webhook and secret to NB("dtalk")["test"] like this:
+                    NB('dtalk')['test']['webhook']='https://oapi.dingtalk.com/robot/send?access_token=xxx'
+                    NB('dtalk')['test']['secret']='SEC085714c31cxxxxxxx'
+                    """)
 
     # text类型
 
