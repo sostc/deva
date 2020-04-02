@@ -988,18 +988,20 @@ class http(Stream):
             logger.exception(e)
 
     @classmethod
-    def request(cls, req):
+    def request(cls, url, **kwargs):
         from requests_html import HTMLSession
         httpclient = HTMLSession()
         try:
-            if isinstance(req, str):
-                response = httpclient.get(req)
-            elif isinstance(req, dict):
-                response = httpclient.get(**req)
+            kwargs.update({'url': url})
+            response = httpclient.get(**kwargs)
 
             return response
         except Exception as e:
             logger.exception(e)
+
+    @classmethod
+    def get(cls, url, **kwargs):
+        return cls.request(url, **kwargs)
 
 
 @Stream.register_api()
@@ -1103,7 +1105,6 @@ def sync(loop, func, *args, **kwargs):
 
 
 class Deva():
-
     @classmethod
     def run(cls,):
         IOLoop.current().start()

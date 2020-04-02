@@ -96,9 +96,9 @@ class to_kafka(Stream):
 @Stream.register_api()
 class to_redis(Stream):
 
-    def __init__(self, upstream, topic, max_len=100, **kwargs):
+    def __init__(self, topic, upstream=None, max_len=100, **kwargs):
         Stream.__init__(self, upstream=upstream, ensure_io_loop=True)
-        self.rs = RedisStream(topic=topic, max_en=max_len)
+        self.rs = RedisStream(topic=topic, max_len=max_len)
         self >> self.rs
 
 
@@ -194,6 +194,10 @@ class Dtalk(Stream):
                 'webhook': self.webhook,
                 'result': result,
                 } >> log
+
+        def send(self, msg):
+            from .core import sync
+            return sync(self.loop, self.emit, msg)
 
 
 if __name__ == '__main__':

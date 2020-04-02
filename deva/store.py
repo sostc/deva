@@ -7,7 +7,6 @@ from tornado import gen
 from .pipe import *
 from .utils.sqlitedict import SqliteDict
 from .core import Stream
-import pkg_resources
 import os
 import time
 
@@ -68,7 +67,6 @@ class DBStream(Stream):
         super(DBStream, self).__init__()
         self.name = name
         if not fname:
-            # self.fname = pkg_resources.resource_filename(__name__, fname+'.sqlite')
             if not os.path.exists(os.path.expanduser('~/.deva/')):
                 os.makedirs(os.path.expanduser('~/.deva/'))
             self.fname = os.path.expanduser('~/.deva/nb.sqlite')
@@ -94,7 +92,7 @@ class DBStream(Stream):
         return super().emit(x, asynchronous=asynchronous)
 
     def _check_size_limit(self):
-        if self.maxsize is not None:
+        if self.maxsize:
             while len(self.db) > self.maxsize:
                 self.db.popitem()
 
