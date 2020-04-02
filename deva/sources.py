@@ -354,7 +354,7 @@ class from_command(Stream):
             if err:
                 self._emit(err)
 
-    def run(self, command):
+    def emit(self, command, asynchronous=False):
         self.subp = subprocess.Popen(
             command,
             shell=True,
@@ -451,10 +451,10 @@ class from_kafka(Source):
 
 @Stream.register_api(staticmethod)
 class from_redis(Stream):
-    def __init__(self, topic, start=True,
-                 group="test", max_len=100, **kwargs):
+    def __init__(self, topic, group=None, max_len=100, **kwargs):
         Stream.__init__(self, ensure_io_loop=True)
-        RedisStream(topic=topic, max_len=max_len) >> self
+        self.source = RedisStream(topic=topic, group=group, max_len=max_len)
+        self.source >> self
 
 
 @Stream.register_api(staticmethod)

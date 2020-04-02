@@ -114,33 +114,12 @@ def P(func):
 
 
 @Pipe
-def to_dataframe(iterable, orient='index'):
-
-    orient = 'index'
-    orient = 'columne'
+def to_dataframe(dct, orient='index'):
+    """orient = 'index'
+                orient = 'columne'"""
 
     import pandas as pd
-    return pd.DataFrame.from_dict(iterable, orient=orient)
-
-
-# @Pipe
-# def head(qte: int = 5):
-#     "Yield qte of elements in the given iterable."
-#     def _head(iterable):
-#         i = qte
-#         result = []
-#         for item in iterable:
-#             if i > 0:
-#                 i -= 1
-#                 yield item
-#             else:
-#                 return
-
-#     if isinstance(qte, int):
-#         return _head@P
-#     else:
-#         iterable, qte = qte, 5
-#         return _head(iterable)
+    return pd.DataFrame.from_dict(dct, orient=orient)
 
 
 @Pipe
@@ -762,6 +741,7 @@ def extract(typ='chinese'):
             return jieba.analyse.extract_tags(text, 20)
 
     return _@P
+
 
     # %%转换内置函数为pipe
 for i in builtins.__dict__.copy():
