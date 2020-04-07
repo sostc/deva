@@ -664,21 +664,25 @@ def sample(samplesize=5):
     """
     def _(iterable):
         import random
-        results = []
-        iterator = iter(iterable)
-        # Fill in the first samplesize elements:
-        try:
-            for _ in range(samplesize):
-                results.append(next(iterator))
-        except StopIteration:
-            pass
-            # raise ValueError("Sample larger than population.")
-        random.shuffle(results)  # Randomize their positions
-        for i, v in enumerate(iterator, samplesize):
-            r = random.randint(0, i)
-            if r < samplesize:
-                results[r] = v  # at a decreasing rate, replace random items
-        return results
+        import pandas as pd
+        if isinstance(iterable, pd.DataFrame):
+            return iterable.sample(samplesize)
+        else:
+            results = []
+            iterator = iter(iterable)
+            # Fill in the first samplesize elements:
+            try:
+                for _ in range(samplesize):
+                    results.append(next(iterator))
+            except StopIteration:
+                pass
+                # raise ValueError("Sample larger than population.")
+            random.shuffle(results)  # Randomize their positions
+            for i, v in enumerate(iterator, samplesize):
+                r = random.randint(0, i)
+                if r < samplesize:
+                    results[r] = v  # at a decreasing rate, replace random items
+            return results
 
     if isinstance(samplesize, int):
         return _@P
@@ -741,7 +745,6 @@ def extract(typ='chinese'):
             return jieba.analyse.extract_tags(text, 20)
 
     return _@P
-
 
     # %%转换内置函数为pipe
 for i in builtins.__dict__.copy():

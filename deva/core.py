@@ -617,16 +617,6 @@ class Stream(object):
         """左边的 ~.，函数异常入流.优先级不高"""
         return self.catch_except(func).__call__@P
 
-    def __getitem__(self, func):
-        """ function result copy send to stream.
-        examples:
-        ---------
-        123>>log[lambda x:x*2]>>print
-        246
-        deva.log:246
-        """
-        return self.catch(func).__call__@P
-
     def __rshift__(self, ref):  # stream右边的
         """Stream右边>>,sink到右边的对象.
 
