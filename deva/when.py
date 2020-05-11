@@ -3,7 +3,7 @@ import os
 import atexit
 from .bus import log
 from .core import Stream
-import moment
+import datetime
 from tornado import gen
 
 
@@ -121,7 +121,7 @@ class timer(Stream):
     def __init__(self,
                  interval=1,
                  start=False,
-                 func=lambda: moment.now().seconds,
+                 func=lambda: datetime.datetime.now().second,
                  thread=False,
                  threadcount=5,
                  **kwargs):

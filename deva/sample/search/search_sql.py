@@ -1,4 +1,4 @@
-from deva.utils.whooshalchemy import *
+from deva.utils.whooshalchemy import IndexService
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy import Column, Integer, Text, create_engine
 from sqlalchemy.orm.session import sessionmaker

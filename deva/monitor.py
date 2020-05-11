@@ -10,17 +10,18 @@
 
 import tornado
 import json
-import moment
 import os
 from pymaybe import maybe
 from .web.sockjs.tornado import SockJSRouter, SockJSConnection
 from tornado import gen
-from .core import *
-from .namespace import *
+from .core import Stream
+from .namespace import NB, NS
 from .bus import log
-from .pipe import *
+from .pipe import ls, pmap, concat, head
 from .page import Page
 import pandas as pd
+import datetime
+
 
 monitor_page = Page()
 
@@ -111,7 +112,7 @@ class StreamConnection(SockJSConnection):
         self.request.ip = maybe(self.request.headers)[
             'x-forward-for'].or_else(self.request.ip)
 
-        f'open:{self.request.ip}:{moment.now()}' >> log
+        f'open:{self.request.ip}:{datetime.datetime.now()}' >> log
 
     @gen.coroutine
     def on_message(self, msg):
@@ -119,7 +120,8 @@ class StreamConnection(SockJSConnection):
 
     def process_msg(self, msg):
         stream_id = msg['stream_id']
-        'view:%s:%s:%s' % (stream_id, self.request.ip, moment.now()) >> log
+        'view:%s:%s:%s' % (stream_id, self.request.ip,
+                           datetime.datetime.now()) >> log
         # gen.sleep(10)##只有这里的操作都类似gensleep一样是异步操作时,
         # 整个请求才能异步,某个用户超时才不会影响别的用户,否则一个用户影响其他用户
         # io的东西走异步,其余的函数如果是cpu计算,不要走异步
@@ -134,7 +136,7 @@ class StreamConnection(SockJSConnection):
             json.dumps({'stream_id': stream_id, 'data': data}) >> self._out_stream
 
     def on_close(self):
-        f'close:{self.request.ip}:{moment.now()}' >> log
+        f'close:{self.request.ip}:{datetime.datetime.now()}' >> log
 
 
 # In[4]:
@@ -160,7 +162,7 @@ def exec_command(command):
 
 exec_room = chatroom.map(exec_command)
 exec_room.start_cache(200)
-exec_room.map(lambda x: exec_room.recent(5) >> concat('</br>')) >> NS('执行代码')
+exec_room.map(lambda x: exec_room.recent(5) | concat('</br>')) >> NS('执行代码')
 
 
 class ChatConnection(StreamConnection):
@@ -175,7 +177,7 @@ class ChatConnection(StreamConnection):
 
     def on_message(self, msg):
         msg >> chatroom
-        f'{msg}:{self.request.ip}:{moment.now()}' >> log
+        f'{msg}:{self.request.ip}:{datetime.datetime.now()}' >> log
 
 
 class Monitor(object):

@@ -38,7 +38,7 @@ def get(self, *args, **kwargs):
 
 @monitor_page.route("/allstreams")
 @gen.coroutine
-def foobar(self):
+def allstreams(self):
     s_list = [s for s in Stream.getinstances()]
 
     def _f(s):
