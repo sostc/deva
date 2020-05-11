@@ -4,6 +4,7 @@ import aioredis
 import dill
 import logging
 import os
+import time
 
 logger = logging.getLogger(__name__)
 
@@ -28,10 +29,12 @@ class RedisStream(Stream):
     """
 
     def __init__(self, topic, start=True,
-                 group=None, max_len=100, **kwargs):
+                 group=None, max_len=100, address='redis://localhost', db=0, password=None, **kwargs):
         self.topic = topic
+        self.redis_address = address
+        self.redis_password = password
         if not group:
-            group = hash(self)
+            group = hash(self)+hash(time.time())
         self.group = group
         self.consumer = hash(self)
         self.max_len = max_len
@@ -44,8 +47,8 @@ class RedisStream(Stream):
 
     @gen.coroutine
     def conn(self,):
-        self.redis_read = yield aioredis.create_redis('redis://localhost', loop=self.loop)
-        self.redis_write = yield aioredis.create_redis('redis://localhost', loop=self.loop)
+        self.redis_read = yield aioredis.create_redis(self.redis_address, password=self.redis_password, loop=self.loop)
+        self.redis_write = yield aioredis.create_redis(self.redis_address, password=self.redis_password, loop=self.loop)
 
     @gen.coroutine
     def process(self):

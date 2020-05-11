@@ -641,7 +641,9 @@ class Stream(object):
     def route(self, occasion):
         """路由函数.
 
-        :param occasion: 路由函数表达式,比如lambda x:x.startswith('foo') 或者 lambda x:type(x)==str
+        :param occasion: 路由函数表达式,
+        比如lambda x:x.startswith('foo') 
+        或者 lambda x:type(x)==str
 
         examples::
             e = Stream.engine()
