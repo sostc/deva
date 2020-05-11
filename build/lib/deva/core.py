@@ -617,16 +617,6 @@ class Stream(object):
         """左边的 ~.，函数异常入流.优先级不高"""
         return self.catch_except(func).__call__@P
 
-    def __getitem__(self, func):
-        """ function result copy send to stream.
-        examples:
-        ---------
-        123>>log[lambda x:x*2]>>print
-        246
-        deva.log:246
-        """
-        return self.catch(func).__call__@P
-
     def __rshift__(self, ref):  # stream右边的
         """Stream右边>>,sink到右边的对象.
 
@@ -988,18 +978,20 @@ class http(Stream):
             logger.exception(e)
 
     @classmethod
-    def request(cls, req):
+    def request(cls, url, **kwargs):
         from requests_html import HTMLSession
         httpclient = HTMLSession()
         try:
-            if isinstance(req, str):
-                response = httpclient.get(req)
-            elif isinstance(req, dict):
-                response = httpclient.get(**req)
+            kwargs.update({'url': url})
+            response = httpclient.get(**kwargs)
 
             return response
         except Exception as e:
             logger.exception(e)
+
+    @classmethod
+    def get(cls, url, **kwargs):
+        return cls.request(url, **kwargs)
 
 
 @Stream.register_api()
@@ -1103,7 +1095,6 @@ def sync(loop, func, *args, **kwargs):
 
 
 class Deva():
-
     @classmethod
     def run(cls,):
         IOLoop.current().start()

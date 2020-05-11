@@ -15,7 +15,15 @@ def exit():
     ----------
     when('exit',source=log).then(lambda :print('bye bye'))
     """
+    #
     return 'exit' >> log
+
+
+def convert_interval(interval):
+    if isinstance(interval, str):
+        import pandas as pd
+        interval = pd.Timedelta(interval).total_seconds()
+    return interval
 
 
 @Stream.register_api(staticmethod)
@@ -90,6 +98,9 @@ class scheduler(Stream):
             trigger='interval',
             **kwargs)
 
+    def emit(self, x, asynchronous=None):
+        return self.add_job(**x)
+
     def remove_job(self, name):
         return self._scheduler.remove_job(job_id=name)
 
@@ -115,7 +126,7 @@ class timer(Stream):
                  threadcount=5,
                  **kwargs):
 
-        self.interval = interval
+        self.interval = convert_interval(interval)
         self.func = func
         self.thread = thread
         if self.thread:

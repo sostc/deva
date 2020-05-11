@@ -9,7 +9,6 @@ from tornado.iostream import StreamClosedError
 import dill
 from glob import glob
 import os
-import aioredis
 import tornado.ioloop
 
 from .topic import RedisStream
@@ -612,6 +611,6 @@ class StreamTCPClient():
 
 def gen_block_test() -> int:
     import time
-    import moment
+    import datetime
     time.sleep(6)
-    return moment.now().seconds
+    return datetime.datetime.now().second

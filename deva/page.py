@@ -46,7 +46,7 @@ from tornado import gen
 from .core import Stream
 from .bus import log
 from .pipe import ls
-import moment
+import datetime
 
 
 try:
@@ -482,7 +482,7 @@ class StreamsConnection(SockJSConnection):
         self.request.ip = maybe(self.request.headers)[
             'x-forward-for'].or_else(self.request.ip)
 
-        f'open:{self.request.ip}:{moment.now()}' >> log
+        f'open:{self.request.ip}:{datetime.datetime.now()}' >> log
 
     @gen.coroutine
     def on_message(self, msg):
@@ -491,7 +491,8 @@ class StreamsConnection(SockJSConnection):
     def process_msg(self, msg):
         stream_ids = msg['stream_ids']
 
-        'view:%s:%s:%s' % (stream_ids, self.request.ip, moment.now()) >> log
+        'view:%s:%s:%s' % (stream_ids, self.request.ip,
+                           datetime.datetime.now()) >> log
         # gen.sleep(10)##只有这里的操作都类似gensleep一样是异步操作时,
         # 整个请求才能异步,某个用户超时才不会影响别的用户,否则一个用户影响其他用户
         # io的东西走异步,其余的函数如果是cpu计算,不要走异步
@@ -513,7 +514,7 @@ class StreamsConnection(SockJSConnection):
             json.dumps({'id': sid, 'html': html}) >> self._out_stream
 
     def on_close(self):
-        f'close:{self.request.ip}:{moment.now()}' >> log
+        f'close:{self.request.ip}:{datetime.datetime.now()}' >> log
         for connection in self.connections:
             connection.destroy()
 
