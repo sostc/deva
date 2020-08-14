@@ -136,7 +136,7 @@ class filenames(Source):
     Examples
     --------
     >>> source = Stream.filenames('path/to/dir')  # doctest: +SKIP
-    >>> source = Stream.filenames('path/to/*.csv', poll_interval=0.500)  # doctest: +SKIP
+    >>> source = Stream.filenames('path/to/*.csv', poll_interval=0.500)
     """
 
     def __init__(self, path, poll_interval=0.100, start=False, **kwargs):

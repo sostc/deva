@@ -642,7 +642,7 @@ class Stream(object):
         """路由函数.
 
         :param occasion: 路由函数表达式,
-        比如lambda x:x.startswith('foo') 
+        比如 lambda x:x.startswith('foo')
         或者 lambda x:type(x)==str
 
         examples::
@@ -906,7 +906,7 @@ class http(Stream):
 
         response, 常用方法,可用self.request方法获取回来做调试
         #完整链接提取
-        r.html.absolute_links  
+        r.html.absolute_links
 
         #css selector
         about = r.html.find('#about', first=True) #css slectotr
