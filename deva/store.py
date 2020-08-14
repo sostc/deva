@@ -121,13 +121,13 @@ class DBStream(Stream):
         from datetime import datetime
 
         if start:
-            begin = datetime.fromisoformat(start).timestamp()
+            start = datetime.fromisoformat(start).timestamp()
         else:
             start = float(self.keys()[0])
-        end = datetime.fromisoformat(stop).timestamp() if stop else time.time()
+        stop = datetime.fromisoformat(stop).timestamp() if stop else time.time()
 
         for key in self.keys():
-            if begin < float(key) < end:
+            if start < float(key) < stop:
                 yield key
 
     @gen.coroutine
