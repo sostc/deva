@@ -17,7 +17,7 @@ from tornado import gen
 from .core import Stream
 from .namespace import NB, NS
 from .bus import log
-from .pipe import ls, pmap, concat, head
+from .pipe import ls, pmap, concat, head, sample
 from .page import Page
 import pandas as pd
 import datetime
