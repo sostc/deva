@@ -1,6 +1,5 @@
 toolz
 zict
-moment
 jieba
 six
 requests
@@ -13,6 +12,5 @@ tornado
 easyquotation
 pampy
 pymaybe
-outlier_utils
 requests-html
 aioredis

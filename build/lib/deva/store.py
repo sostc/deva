@@ -4,9 +4,9 @@ from tornado import gen
 
     """
 
-from .pipe import *
 from .utils.sqlitedict import SqliteDict
 from .core import Stream
+from .pipe import passed
 import os
 import time
 
@@ -49,7 +49,8 @@ class DBStream(Stream):
 
     """
 
-    def __init__(self,  name='default', fname=None, maxsize=None, log=passed, **kwargs):
+    def __init__(self,  name='default', fname=None,
+                 maxsize=None, log=passed, **kwargs):
         """构建数据库流对象.
 
         Args:
@@ -67,9 +68,13 @@ class DBStream(Stream):
         super(DBStream, self).__init__()
         self.name = name
         if not fname:
-            if not os.path.exists(os.path.expanduser('~/.deva/')):
-                os.makedirs(os.path.expanduser('~/.deva/'))
-            self.fname = os.path.expanduser('~/.deva/nb.sqlite')
+            try:
+                if not os.path.exists(os.path.expanduser('~/.deva/')):
+                    os.makedirs(os.path.expanduser('~/.deva/'))
+                self.fname = os.path.expanduser('~/.deva/nb.sqlite')
+            except Exception as e:
+                print(e, 'create dbfile nb.sqlite in curdir')
+                self.fname = 'nb.sqlite'
 
         else:
             self.fname = fname+'.sqlite'
@@ -88,15 +93,15 @@ class DBStream(Stream):
         self._check_size_limit()
 
     def emit(self, x, asynchronous=False):
-        self._to_store(x)
-        return super().emit(x, asynchronous=asynchronous)
+        self.update(x)
+        # return super().emit(x, asynchronous=asynchronous)
 
     def _check_size_limit(self):
         if self.maxsize:
             while len(self.db) > self.maxsize:
                 self.db.popitem()
 
-    def _to_store(self, x):
+    def update(self, x):
         x >> self.log
         if isinstance(x, dict):
             self.db.update(x)
@@ -104,23 +109,25 @@ class DBStream(Stream):
             key, value = x
             self.db.update({key: value})
         else:
-            # key = moment.now().epoch()
             key = time.time()
-            # moment.unix(now.epoch())
             value = x
             self.db.update({key: value})
 
         self._check_size_limit()
+        self._emit(x)
 
-    def __slice__(self,  start='2020-03-23 00:28:34', stop='2020-03-23 00:28:35'):
+    def __slice__(self,  start='2020-03-23 00:28:34',
+                  stop='2020-03-23 00:28:35'):
         from datetime import datetime
 
-        begin = datetime.fromisoformat(
-            start).timestamp() if start else self.keys() | first | float@P
-        end = datetime.fromisoformat(stop).timestamp() if stop else time.time()
+        if start:
+            start = datetime.fromisoformat(start).timestamp()
+        else:
+            start = float(self.keys()[0])
+        stop = datetime.fromisoformat(stop).timestamp() if stop else time.time()
 
         for key in self.keys():
-            if begin < float(key) < end:
+            if start < float(key) < stop:
                 yield key
 
     @gen.coroutine
