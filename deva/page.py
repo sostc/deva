@@ -522,6 +522,7 @@ class StreamsConnection(SockJSConnection):
         self.connection.destroy()
         self.link1.destroy()
         self.link2.destroy()
+        self.out_stream.destroy()
 
 
 page = Page()

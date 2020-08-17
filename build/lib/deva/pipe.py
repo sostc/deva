@@ -654,7 +654,7 @@ def sample(samplesize=5):
         samplesize: 获取的数量 (default: {5})
 
     Returns:
-        iterable中的随机n个值，当n大于iterable长度时，只返回iterable长度的数 
+        iterable中的随机n个值，当n大于iterable长度时，只返回iterable长度的数
         list
 
     Examples:

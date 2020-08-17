@@ -25,6 +25,7 @@ deva.egg-info/top_level.txt
 deva/utils/__init__.py
 deva/utils/expiringdict.py
 deva/utils/sqlitedict.py
+deva/utils/whooshalchemy.py
 deva/web/__init__.py
 deva/web/sockjs/__init__.py
 deva/web/sockjs/tornado/__init__.py

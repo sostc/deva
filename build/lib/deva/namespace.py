@@ -27,7 +27,7 @@ class Namespace(dict):
         self['table'] = {}
         self['data'] = {}
 
-    def create(self, name, typ='stream', ** kwargs):
+    def create(self, name, typ='stream', **kwargs):
 
         if typ == 'stream':
             constructor = Stream

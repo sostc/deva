@@ -9,7 +9,6 @@ from tornado.iostream import StreamClosedError
 import dill
 from glob import glob
 import os
-import aioredis
 import tornado.ioloop
 
 from .topic import RedisStream
@@ -137,7 +136,7 @@ class filenames(Source):
     Examples
     --------
     >>> source = Stream.filenames('path/to/dir')  # doctest: +SKIP
-    >>> source = Stream.filenames('path/to/*.csv', poll_interval=0.500)  # doctest: +SKIP
+    >>> source = Stream.filenames('path/to/*.csv', poll_interval=0.500)
     """
 
     def __init__(self, path, poll_interval=0.100, start=False, **kwargs):
@@ -612,6 +611,6 @@ class StreamTCPClient():
 
 def gen_block_test() -> int:
     import time
-    import moment
+    import datetime
     time.sleep(6)
-    return moment.now().seconds
+    return datetime.datetime.now().second

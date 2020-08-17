@@ -195,9 +195,9 @@ class Dtalk(Stream):
                 'result': result,
                 } >> log
 
-        def send(self, msg):
-            from .core import sync
-            return sync(self.loop, self.emit, msg)
+    def send(self, msg):
+        from .core import sync
+        return sync(self.loop, self.emit, msg)
 
 
 if __name__ == '__main__':
