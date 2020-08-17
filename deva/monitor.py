@@ -132,11 +132,19 @@ class StreamConnection(SockJSConnection):
             self.connection = self.out_stream.map(lambda x: json.dumps(
                 {'stream_id': stream_id, 'data': x.to_html() if isinstance(x, pd.DataFrame) else x})) >> self._out_stream
             data = maybe(self.out_stream).recent(1)[
-                0].or_else('暂无数据,请确认是否开盘时间')
+                0].or_else('暂无数据')
             json.dumps({'stream_id': stream_id, 'data': data}) >> self._out_stream
 
     def on_close(self):
         f'close:{self.request.ip}:{datetime.datetime.now()}' >> log
+        # for connection in self.connections:
+        #     connection.destroy()
+
+        # self.connections = set()
+        self.connection.destroy()
+        self.link1.destroy()
+        self.link2.destroy()
+        self.out_stream.destroy()
 
 
 # In[4]:

@@ -9,10 +9,9 @@ Exsample::
     #函数异常将被发到debug，并且push到钉钉
 """
 import logging
-from logbook import Logger, StreamHandler
-import sys
 from .namespace import NS, NT
-from .endpoints import Dtalk
+import datetime
+# from .endpoints import Dtalk
 
 __all__ = [
     'log', 'warn', 'debug', 'bus'
@@ -21,11 +20,13 @@ __all__ = [
 warn = NS('warn')
 warn.sink(logging.warning)
 
-StreamHandler(sys.stdout).push_application()
 
-logger = Logger('log')
+def log_print(x):
+    print(datetime.datetime.now(), ':', x)
+
+
 log = NS('log', cache_max_len=10, cache_max_age_seconds=60 * 60 * 24)
-log.sink(logger.info)
+log.sink(log_print)
 
 
 bus = NT('bus')
