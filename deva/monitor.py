@@ -74,11 +74,13 @@ def get_table_values(tablename, key):
     data = NB(tablename).get(key)
     if isinstance(data, list):
         data = data >> head(250) >> ls
-        return json.dumps(pd.DataFrame(data).to_dict(orient='records'), ensure_ascii=False)
+        return json.dumps(pd.DataFrame(data)
+                          .to_dict(orient='records'), ensure_ascii=False)
     elif isinstance(data, dict):
         return json.dumps(data, ensure_ascii=False)
     elif isinstance(data, pd.DataFrame):
-        return json.dumps(data.head(250).to_dict(orient='records'), ensure_ascii=False)
+        return json.dumps(data.head(250)
+                          .to_dict(orient='records'), ensure_ascii=False)
     else:
         return json.dumps({key: data}, ensure_ascii=False)
 

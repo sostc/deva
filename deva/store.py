@@ -49,7 +49,7 @@ class DBStream(Stream):
 
     """
 
-    def __init__(self,  name='default', fname=None,
+    def __init__(self, name='default', fname=None,
                  maxsize=None, log=passed, **kwargs):
         """构建数据库流对象.
 
@@ -77,7 +77,7 @@ class DBStream(Stream):
                 self.fname = 'nb.sqlite'
 
         else:
-            self.fname = fname+'.sqlite'
+            self.fname = fname + '.sqlite'
 
         self.db = SqliteDict(
             self.fname,
@@ -116,7 +116,7 @@ class DBStream(Stream):
         self._check_size_limit()
         self._emit(x)
 
-    def __slice__(self,  start='2020-03-23 00:28:34',
+    def __slice__(self, start='2020-03-23 00:28:34',
                   stop='2020-03-23 00:28:35'):
         from datetime import datetime
 
@@ -124,7 +124,8 @@ class DBStream(Stream):
             start = datetime.fromisoformat(start).timestamp()
         else:
             start = float(self.keys()[0])
-        stop = datetime.fromisoformat(stop).timestamp() if stop else time.time()
+        stop = datetime.fromisoformat(stop).timestamp()\
+            if stop else time.time()
 
         for key in self.keys():
             if start < float(key) < stop:

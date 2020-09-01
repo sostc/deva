@@ -32,7 +32,8 @@ def PeriodicCallback(callback, callback_time, asynchronous=False, **kwargs):
     return source
 
 
-def sink_to_file(filename, upstream, mode='w', prefix='', suffix='\n', flush=False):
+def sink_to_file(filename, upstream, mode='w',
+                 prefix='', suffix='\n', flush=False):
     file = open(filename, mode=mode)
 
     def write(text):
@@ -383,7 +384,8 @@ class from_kafka(Source):
         https://docs.confluent.io/current/clients/confluent-kafka-python/#configuration
         https://github.com/edenhill/librdkafka/blob/master/CONFIGURATION.md
         Examples:
-        bootstrap.servers: Connection string(s) (host:port) by which to reach Kafka
+        bootstrap.servers: Connection string(s) (host:port) by
+             which to reach Kafka
         group.id: Identity of the consumer. If multiple sources share the same
             group, each message will be passed to only one of them.
     poll_interval: number
@@ -399,7 +401,8 @@ class from_kafka(Source):
     ...            'group.id': 'streamz'})  # doctest: +SKIP
     """
 
-    def __init__(self, topics, consumer_params, poll_interval=0.1, start=False, **kwargs):
+    def __init__(self, topics, consumer_params,
+                 poll_interval=0.1, start=False, **kwargs):
         self.cpars = consumer_params
         self.consumer = None
         self.topics = topics

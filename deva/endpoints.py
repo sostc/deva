@@ -106,7 +106,8 @@ class to_redis(Stream):
 class Dtalk(Stream):
     """钉钉群机器人."""
 
-    def __init__(self, webhook=None, secret=None, log=passed, max_retries=3, asynchronous=True, **kwargs):
+    def __init__(self, webhook=None, secret=None, log=passed,
+                 max_retries=3, asynchronous=True, **kwargs):
         # todo 实现一个同步的dtalk
         self.log = log
         super(Dtalk, self).__init__(ensure_io_loop=True, **kwargs)
@@ -139,7 +140,7 @@ class Dtalk(Stream):
             hmac_code = hmac.new(secret_enc, string_to_sign_enc,
                                  digestmod=hashlib.sha256).digest()
             sign = urllib.parse.quote_plus(base64.b64encode(hmac_code))
-            url = self.webhook+f'&timestamp={timestamp}&sign={sign}'
+            url = self.webhook + f'&timestamp={timestamp}&sign={sign}'
         else:
             url = self.webhook
 
@@ -163,7 +164,7 @@ class Dtalk(Stream):
             # @md@财联社新闻汇总|text
             content = msg[4:]
             title, text = content[:content.index(
-                '|')], content[content.index('|')+1:]
+                '|')], content[content.index('|') + 1:]
             data = {
                 "msgtype": "markdown",
                 "markdown": {"title": title, "text": text}
