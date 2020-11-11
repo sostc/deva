@@ -47,6 +47,12 @@ class DBStream(Stream):
         start='2020-03-23 10:20:35'
         db[start:end]
 
+        #定长表
+        tmp = NB(name='tmp',maxsize=10)
+
+        #删除表
+        tmp.db.drop()
+
     """
 
     def __init__(self, name='default', fname=None,
@@ -82,14 +88,15 @@ class DBStream(Stream):
         self.db = SqliteDict(
             self.fname,
             tablename=self.tablename,
-            autocommit=True)
+            autocommit=True,
+            **kwargs)
 
         self.keys = self.db.keys
         self.values = self.db.values
         self.items = self.db.items
         self.get = self.db.get
         self.clear = self.db.clear
-        self.get_tablenames = self.db.get_tablenames
+        self.tables = self.db.tables
         self._check_size_limit()
 
     def emit(self, x, asynchronous=False):
@@ -135,7 +142,7 @@ class DBStream(Stream):
     def replay(self, start=None, end=None, interval=None):
         """ts db data replay.
 
-        时序数据库数据回放
+        时序数据库数据回放，仅限于key是时间的数据
 
         Args:
             start: 开始时间 (default: {None}),start='2020-03-23 10:20:35'
@@ -164,6 +171,13 @@ class DBStream(Stream):
         for key in self[start:end]:
             self._emit(self[key])
             yield gen.moment if not interval else gen.sleep(interval)
+
+    @property
+    def desc(self):
+        return DBStream('default', fname=self.fname[:-7])[self.name]
+
+    def __repr__(self):
+        return f'< DBStream table {self.name}:{self.desc}>'
 
     def __len__(self,):
         return self.db.__len__()
