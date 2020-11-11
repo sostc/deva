@@ -16,7 +16,7 @@ s2 = timer(func=lambda: NB('sample')['df'].sample(
 # 系统命令执行
 command_s = Stream.from_command()
 s3 = command_s.sliding_window(5).map(concat('<br>'), name='系统持续命令')
-command_s.run('ping baidu.com')
+command_s.emit('ping baidu.com')
 
 
 @page.route('/')

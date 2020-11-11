@@ -19,18 +19,18 @@ except ImportError:
 
 
 __all__ = [
-    'Pipe', 'tail', 'skip', 'all', 'any', 'average', 'count',
+    'P', 'tail', 'skip', 'all', 'any', 'average', 'count',
     'as_dict', 'as_set', 'permutations', 'netcat', 'netwrite',
     'traverse', 'concat', 'as_list', 'as_tuple', 'stdout', 'lineout',
     'tee', 'add', 'first', 'chain', 'take_while', 'attr',
     'skip_while', 'aggregate', 'groupby', 'sort', 'reverse',
     'chain_with', 'islice', 'izip', 'passed', 'index', 'strip',
     'lstrip', 'rstrip', 'run_with', 'append', 'to_type', 'transpose',
-    'dedup', 'uniq', 'to_dataframe', 'P', 'pmap', 'pfilter', 'post_to',
+    'dedup', 'uniq', 'to_dataframe', 'pmap', 'pfilter', 'post_to',
     'head', 'read', 'tcp_write', 'write_to_file', 'size', 'ls', 'range',
-    'sum', 'split', 'sample', 'extract', 'readlines',
-    'abs',
-    'dir',
+    'sum', 'split', 'sample', 'extract', 'readlines', 'last',
+    'abs', 'type', 'll',
+    'dir', 'help',
     'eval',
     'hash',
     'id',
@@ -154,6 +154,11 @@ def tail(qte: int = 5):
     else:
         iterable, qte = qte, 5
         return _(iterable)
+
+
+@Pipe
+def last(iterable):
+    return (iterable | tail(1))[0]
 
 
 @Pipe
@@ -757,8 +762,11 @@ for i in builtins.__dict__.copy():
 
 
 ls = list @ P
+ll = ls
 abs = P(abs)
 dir = P(dir)
+type = P(type)
+help = P(help)
 eval = P(eval)
 format = P(format)
 hash = P(hash)
@@ -771,6 +779,7 @@ min = P(min)
 print = P(print)
 range = P(range)
 sum = P(sum)
+
 to_bytes = P(bytes)
 to_dict = P(dict)
 to_float = P(float)
@@ -780,6 +789,7 @@ to_set = P(set)
 to_str = P(str)
 # zip = P(zip)
 # 这种情况会导致isinstanced等非直接调用方法失败
+
 
 if __name__ == "__main__":
     import doctest

@@ -33,6 +33,7 @@ import tempfile
 import random
 import logging
 import traceback
+import dill
 
 from threading import Thread
 
@@ -98,12 +99,18 @@ def open(*args, **kwargs):
 
 def encode(obj):
     """Serialize an object using pickle to a binary format accepted by SQLite."""
-    return sqlite3.Binary(dumps(obj, protocol=PICKLE_PROTOCOL))
+    try:
+        return dill.dumps(obj)
+    except:
+        return sqlite3.Binary(dumps(obj, protocol=PICKLE_PROTOCOL))
 
 
 def decode(obj):
     """Deserialize objects retrieved from SQLite."""
-    return loads(bytes(obj))
+    try:
+        return dill.loads(obj)
+    except:
+        return loads(bytes(obj))
 
 
 class SqliteDict(DictClass):
@@ -291,8 +298,19 @@ class SqliteDict(DictClass):
         self.conn.execute(CLEAR_ALL)
         self.conn.commit()
 
+    def drop(self):
+        if self.flag == 'r':
+            raise RuntimeError('Refusing to drop read-only SqliteDict')
+
+        # avoid VACUUM, as it gives "OperationalError: database schema has changed"
+        DROP_TABLE = 'DROP TABLE "%s";' % self.tablename
+        self.conn.commit()
+        self.conn.execute(DROP_TABLE)
+        self.conn.commit()
+
     # @staticmethod
-    def get_tablenames(self,):
+    @property
+    def tables(self,):
         """get the names of the tables in an sqlite db as a list"""
         if not os.path.isfile(self.filename):
             raise IOError('file %s does not exist' % (self.filename))
@@ -312,6 +330,7 @@ class SqliteDict(DictClass):
         """
         if self.conn is not None:
             self.conn.commit(blocking)
+
     sync = commit
 
     def close(self, do_log=True, force=False):

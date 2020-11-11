@@ -116,12 +116,12 @@ class Dtalk(Stream):
         self.secret = secret
         self.webhook = webhook
         if not webhook:
-            self.webhook = maybe(NB('dtalk'))['test']['webhook'].or_else(None)
-            self.secret = maybe(NB('dtalk'))['test']['secret'].or_else(None)
+            self.webhook = maybe(NB('dtalk_deva'))['webhook'].or_else(None)
+            self.secret = maybe(NB('dtalk_deva'))['secret'].or_else(None)
             if not self.webhook:
                 raise Exception("""please input a webhook,or set a default webhook and secret to NB("dtalk")["test"] like this:
-                    NB('dtalk')['test']['webhook']='https://oapi.dingtalk.com/robot/send?access_token=xxx'
-                    NB('dtalk')['test']['secret']='SEC085714c31cxxxxxxx'
+                    NB('dtalk_deva')['webhook']='https://oapi.dingtalk.com/robot/send?access_token=xxx'
+                    NB('dtalk_deva')['secret']='SEC085714c31cxxxxxxx'
                     """)
 
     # text类型
@@ -153,14 +153,15 @@ class Dtalk(Stream):
     @gen.coroutine
     def post(self, msg: str, log: Stream) -> dict:
         # 二进制或者set类型的,转成json格式前需要先转类型
-        if isinstance(msg, bytes) or isinstance(msg, set):
+        if not isinstance(msg, str):
             msg = str(msg)
+
         data = {"msgtype": "text", "text": {"content": msg},
                 "at": {"atMobiles": [], "isAtAll": False}}
-        if isinstance(msg, str) and '@all' in msg:
+        if '@all' in msg:
             data = {"msgtype": "text", "text": {"content": msg},
                     "at": {"atMobiles": [], "isAtAll": True}}
-        elif isinstance(msg, str) and msg.startswith('@md@'):
+        if msg.startswith('@md@'):
             # @md@财联社新闻汇总|text
             content = msg[4:]
             title, text = content[:content.index(

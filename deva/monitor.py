@@ -32,9 +32,9 @@ def get(self, *args, **kwargs):
     # 取出所有有缓冲设置且有名称的流实例,类似NS('当下行情数据抽样',cache_max_len=1)
     #     streams = namespace.values()>>ls
     streams = [stream for stream in Stream.getinstances() if stream.name]
-    tablenames = NB('tmp').get_tablenames() >> ls
+    tables = NB().tables | ls
     self.render('web/templates/monitor.html', streams=streams,
-                tablenames=tablenames, sock_url='/')
+                tablenames=tables, sock_url='/')
 
 
 @monitor_page.route("/allstreams")
@@ -54,8 +54,7 @@ def allstreams(self):
 @monitor_page.route('/alltables')
 @gen.coroutine
 def get_tables(self,):
-    tablenames = NB('tmp').get_tablenames()
-    data = tablenames >> pmap(lambda x: f'<li><a class="Stream" href="table/{x}">{x}</a></li>') >> concat('')
+    data = NB().tables >> pmap(lambda x: f'<li><a class="Stream" href="table/{x}">{x}</a></li>') >> concat('')
 
     self.write(data)
 

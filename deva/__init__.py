@@ -14,10 +14,12 @@ from .search import IndexStream
 from .pipe import *
 from .monitor import Monitor
 from .page import page
-
+from .state import *
 
 try:
+    # import panel as pn
     from .dask import DaskStream, scatter
+
 except ImportError:
     pass
 
