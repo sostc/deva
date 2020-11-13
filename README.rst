@@ -11,7 +11,7 @@ The ``deva`` lib makes it easy to write streaming data process pipelines,event d
 An example of a streaming process and web view
 
 .. image:: streaming.gif
-   :target: https://github.com/sostc/deva/blob/master/streaming.gif
+   :target: https://raw.githubusercontent.com/sostc/deva/master/streaming.gif
    :align: center
    :alt: streanming
 

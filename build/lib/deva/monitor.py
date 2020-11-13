@@ -32,9 +32,9 @@ def get(self, *args, **kwargs):
     # 取出所有有缓冲设置且有名称的流实例,类似NS('当下行情数据抽样',cache_max_len=1)
     #     streams = namespace.values()>>ls
     streams = [stream for stream in Stream.getinstances() if stream.name]
-    tablenames = NB('tmp').get_tablenames() >> ls
+    tables = NB().tables | ls
     self.render('web/templates/monitor.html', streams=streams,
-                tablenames=tablenames, sock_url='/')
+                tablenames=tables, sock_url='/')
 
 
 @monitor_page.route("/allstreams")
@@ -54,8 +54,7 @@ def allstreams(self):
 @monitor_page.route('/alltables')
 @gen.coroutine
 def get_tables(self,):
-    tablenames = NB('tmp').get_tablenames()
-    data = tablenames >> pmap(lambda x: f'<li><a class="Stream" href="table/{x}">{x}</a></li>') >> concat('')
+    data = NB().tables >> pmap(lambda x: f'<li><a class="Stream" href="table/{x}">{x}</a></li>') >> concat('')
 
     self.write(data)
 
@@ -74,11 +73,13 @@ def get_table_values(tablename, key):
     data = NB(tablename).get(key)
     if isinstance(data, list):
         data = data >> head(250) >> ls
-        return json.dumps(pd.DataFrame(data).to_dict(orient='records'), ensure_ascii=False)
+        return json.dumps(pd.DataFrame(data)
+                          .to_dict(orient='records'), ensure_ascii=False)
     elif isinstance(data, dict):
         return json.dumps(data, ensure_ascii=False)
     elif isinstance(data, pd.DataFrame):
-        return json.dumps(data.head(250).to_dict(orient='records'), ensure_ascii=False)
+        return json.dumps(data.head(250)
+                          .to_dict(orient='records'), ensure_ascii=False)
     else:
         return json.dumps({key: data}, ensure_ascii=False)
 
@@ -132,11 +133,19 @@ class StreamConnection(SockJSConnection):
             self.connection = self.out_stream.map(lambda x: json.dumps(
                 {'stream_id': stream_id, 'data': x.to_html() if isinstance(x, pd.DataFrame) else x})) >> self._out_stream
             data = maybe(self.out_stream).recent(1)[
-                0].or_else('暂无数据,请确认是否开盘时间')
+                0].or_else('暂无数据')
             json.dumps({'stream_id': stream_id, 'data': data}) >> self._out_stream
 
     def on_close(self):
         f'close:{self.request.ip}:{datetime.datetime.now()}' >> log
+        # for connection in self.connections:
+        #     connection.destroy()
+
+        # self.connections = set()
+        self.connection.destroy()
+        self.link1.destroy()
+        self.link2.destroy()
+        self.out_stream.destroy()
 
 
 # In[4]:

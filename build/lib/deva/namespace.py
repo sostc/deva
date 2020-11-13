@@ -68,10 +68,13 @@ def NT(name='', *args, **kwargs):
         [description]
         [type]
     """
-    return namespace.create(typ='topic', name=name, *args, **kwargs)
+    try:
+        return namespace.create(typ='topic', name=name, *args, **kwargs)
+    except:
+        return None
 
 
-def NB(name='', *args, **kwargs):
+def NB(name, *args, **kwargs):
     """创建命名的DBStream.
 
     创建命名的DBStream数据库,全局名称唯一
