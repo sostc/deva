@@ -1,15 +1,15 @@
-from deva import *
+from deva import gen, range, sample, first, Stream, run_future, log, warn, Deva
 
 
 @gen.coroutine
 def foo():
-    yield gen.sleep(3)
+    yield gen.sleep(1)
     return range << 10 >> sample >> first
 
 
 async def foo2():
     import asyncio
-    await asyncio.sleep(3)
+    await asyncio.sleep(1)
     return range << 10 >> sample >> first
 
 s = Stream()
@@ -24,5 +24,4 @@ run >> warn
 
 foo() >> run
 foo2() >> run
-
-Deva.run()
+Deva().run()

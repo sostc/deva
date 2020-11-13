@@ -1,10 +1,11 @@
+from collections import defaultdict
 """
     webview
     ~~~~~~~~~
 
     example::
 
-        from deva.page import page,Streaming,render_template
+        from deva.page import page,PageServer,render_template
         from deva import *
 
         s = from_textfile('/var/log/system.log')
@@ -23,7 +24,8 @@
             return render_template('./web/templates/streams.html', streams=streams)
 
 
-        Streaming().start()
+        ps = PageServer()
+        ps.start()
 
     debug interface stolen from: https://gist.github.com/rduplain/4983839
 """
@@ -47,6 +49,7 @@ from .core import Stream
 from .bus import log
 from .pipe import ls
 import datetime
+from .namespace import NW
 
 
 try:
@@ -427,7 +430,7 @@ class Page(object):
     def add_routes(self, routes_list):
         self.routes_list = routes_list
 
-    def run(self, port=9999, address="127.0.0.1", **settings):
+    def run(self, port=9999, host="127.0.0.1", **settings):
         self.debug = settings.get('debug', False)
         template_path = settings.get('template_path')
         if not template_path:
@@ -451,15 +454,15 @@ class Page(object):
                 import tornado.ioloop
                 application = DebugApplication(
                     self.get_routes() + self.routes_list, **settings)
-                application.listen(port, address)
+                application.listen(port, host)
                 # tornado.ioloop.IOLoop.instance().start()
         else:
             import tornado.web
             application = tornado.web.Application(
                 self.get_routes() + self.routes_list, **settings)
             logger.info("starting server on port: %s", port)
-            application.listen(port, address)
-            os.system(f'open http://{address}:{port}')
+            application.listen(port, host)
+            os.system(f'open http://{host}:{port}')
 
         return application
         # tornado.ioloop.IOLoop.instance().start()
@@ -528,19 +531,23 @@ class StreamsConnection(SockJSConnection):
 page = Page()
 
 
-class Streaming(object):
+class PageServer(object):
     page = page
 
-    def __init__(self, host='127.0.0.1', port=9999):
-        self.page = Streaming.page
+    def __init__(self, name='default', host='127.0.0.1', port=9999, start=False):
+        self.name = name
+        self.page = page
         self.port = port
         self.host = host
+        self.streams = defaultdict(list)
         self.page.get_routes() >> ls >> log
         self.StreamRouter = SockJSRouter(StreamsConnection, r'')
         self.application = tornado.web.Application(
             self.page.get_routes() +
             self.StreamRouter.urls
         )
+        if start:
+            self.start()
 
     def add_page(self, page):
         self.application.add_handlers('.*$', page.get_routes())
@@ -551,3 +558,20 @@ class Streaming(object):
 
     def close(self):
         self.server.close()
+
+
+def webview(s, url='/', server=None):
+    if not url.startswith('/'):
+        raise Exception('param url must be starting with /')
+    if not server:
+        server = NW('stream_webview')
+    server.streams[url].append(s)
+
+    page.route(url)(lambda: render_template(
+        './web/templates/streams.html', streams=server.streams[url]))
+    server.add_page(page)
+    print('start webview:', 'http://'+server.host+':'+str(server.port)+url)
+    print('with these streams:', server.streams[url])
+
+
+Stream.webview = webview

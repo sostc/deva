@@ -174,7 +174,7 @@ class Stream(object):
     def start_cache(self, cache_max_len=None, cache_max_age_seconds=None):
         self.is_cache = True
         self.cache_max_len = cache_max_len or 1
-        self.cache_max_age_seconds = cache_max_age_seconds or 60*5
+        self.cache_max_age_seconds = cache_max_age_seconds or 60 * 5
         self.cache = ExpiringDict(
             max_len=self.cache_max_len,
             max_age_seconds=self.cache_max_age_seconds
@@ -582,7 +582,7 @@ class Stream(object):
 
             return result
 
-        return wraper.__call__@P
+        return wraper.__call__ @ P
 
     def catch_except(self, func):
         """捕获函数执行异常到流内.
@@ -607,15 +607,15 @@ class Stream(object):
                     'except': e,
                 } >> self
 
-        return wraper.__call__@P
+        return wraper.__call__ @ P
 
     def __rmatmul__(self, func):
         """左边的 @.，函数结果进入流内."""
-        return self.catch(func).__call__@P
+        return self.catch(func).__call__ @ P
 
     def __rxor__(self, func):
         """左边的 ~.，函数异常入流.优先级不高"""
-        return self.catch_except(func).__call__@P
+        return self.catch_except(func).__call__ @ P
 
     def __rshift__(self, ref):  # stream右边的
         """Stream右边>>,sink到右边的对象.
@@ -623,7 +623,7 @@ class Stream(object):
         支持三种类型:list| text file| stream | callable
         """
         def write(x):
-            ref.write(str(x)+'\n')
+            ref.write(str(x) + '\n')
             ref.flush()
         return match(ref,
                      list, lambda ref: self.sink(ref.append),

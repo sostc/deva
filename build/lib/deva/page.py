@@ -51,7 +51,7 @@ import datetime
 
 try:
     from tornado.wsgi import WSGIAdapter
-except:
+except Exception:
     with_wsgi_adapter = False
 else:
     with_wsgi_adapter = True
@@ -59,7 +59,7 @@ else:
 logger = logging.getLogger(__name__)
 try:
     logger.addHandler(logging.NullHandler())
-except Exception as e:
+except Exception:
     # python 2.6
     pass
 
@@ -522,6 +522,7 @@ class StreamsConnection(SockJSConnection):
         self.connection.destroy()
         self.link1.destroy()
         self.link2.destroy()
+        self.out_stream.destroy()
 
 
 page = Page()
