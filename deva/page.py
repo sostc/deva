@@ -478,7 +478,7 @@ class StreamsConnection(SockJSConnection):
         super(StreamsConnection, self).__init__(*args, **kwargs)
 
     def on_open(self, request):
-        self.out_stream = Stream(name='default')
+        self.out_stream = Stream()  # name='default')
         self.connection = self.out_stream >> self._out_stream
         json.dumps({'id': 'default', 'html': 'welcome'}) >> self.out_stream
         self.request = request
