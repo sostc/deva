@@ -1,4 +1,5 @@
 <title>Deva流实时看板</title>
+<link rel="alternate icon" class="js-site-favicon" type="image/png" href="https://raw.githubusercontent.com/sostc/deva/master/fav.png">
     <script src="https://code.jquery.com/jquery-3.4.0.slim.min.js" integrity="sha256-ZaXnYkHGqIhqTbJ6MB4l9Frs/r7U4jlx7ir8PJYBqbI=" crossorigin="anonymous"></script>
     <script src="https://cdn.jsdelivr.net/npm/sockjs-client@1/dist/sockjs.min.js"></script>
 
@@ -10,7 +11,7 @@
         var sock_url = '/';
         var sock = new SockJS(sock_url );
 
-        var stream_dict = {{ dict([(str(hash(s)),s.name) for s in streams]) }};
+        var stream_dict = {{ dict([(str(hash(s)),str(s.name)) for s in streams]) }};
         
         for (sid in stream_dict){
             $("#text").append("<div><h3>"+stream_dict[sid]+"</h3><div id="+sid+">加载中...</div></div>");

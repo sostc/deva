@@ -26,6 +26,7 @@ class Namespace(dict):
         self['topic'] = {}
         self['table'] = {}
         self['data'] = {}
+        self['webserver'] = {}
 
     def create(self, name, typ='stream', **kwargs):
 
@@ -37,6 +38,9 @@ class Namespace(dict):
             constructor = DBStream
         elif typ == 'data':
             constructor = X
+        elif typ == 'webserver':
+            from .page import PageServer
+            constructor = PageServer
 
         try:
             return self[typ][name]
@@ -117,3 +121,25 @@ def NX(name=''):
 
     """
     return namespace.create(typ='data', name=name)
+
+
+def NW(name='', host='127.0.0.1', port=9999, start=True):
+    """创建命名web服务器.
+
+    返回的对象，data属性存储了数据，用在你们函数内部以及函数管道上快速存储单个数据
+
+    Example usage::
+
+        123>>NX('a')
+        assert NX('a').data == 123
+
+        10|range|sum|NX('a')
+        assert NX('a').data ==45
+
+        f = lambda x:x>>NX('b')
+        f(10)
+        assert NX('b').data ==10
+
+
+    """
+    return namespace.create(typ='webserver', name=name, host=host, port=port, start=start)

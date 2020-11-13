@@ -1099,4 +1099,10 @@ def sync(loop, func, *args, **kwargs):
 class Deva():
     @classmethod
     def run(cls,):
-        IOLoop.current().start()
+        l = IOLoop()
+        l.make_current()
+        l.start()
+        # import asyncio
+        # l = asyncio.new_event_loop()
+
+        # l.run_forever()

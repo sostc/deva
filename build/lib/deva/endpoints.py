@@ -106,7 +106,8 @@ class to_redis(Stream):
 class Dtalk(Stream):
     """钉钉群机器人."""
 
-    def __init__(self, webhook=None, secret=None, log=passed, max_retries=3, asynchronous=True, **kwargs):
+    def __init__(self, webhook=None, secret=None, log=passed,
+                 max_retries=3, asynchronous=True, **kwargs):
         # todo 实现一个同步的dtalk
         self.log = log
         super(Dtalk, self).__init__(ensure_io_loop=True, **kwargs)
@@ -115,12 +116,12 @@ class Dtalk(Stream):
         self.secret = secret
         self.webhook = webhook
         if not webhook:
-            self.webhook = maybe(NB('dtalk'))['test']['webhook'].or_else(None)
-            self.secret = maybe(NB('dtalk'))['test']['secret'].or_else(None)
+            self.webhook = maybe(NB('dtalk_deva'))['webhook'].or_else(None)
+            self.secret = maybe(NB('dtalk_deva'))['secret'].or_else(None)
             if not self.webhook:
                 raise Exception("""please input a webhook,or set a default webhook and secret to NB("dtalk")["test"] like this:
-                    NB('dtalk')['test']['webhook']='https://oapi.dingtalk.com/robot/send?access_token=xxx'
-                    NB('dtalk')['test']['secret']='SEC085714c31cxxxxxxx'
+                    NB('dtalk_deva')['webhook']='https://oapi.dingtalk.com/robot/send?access_token=xxx'
+                    NB('dtalk_deva')['secret']='SEC085714c31cxxxxxxx'
                     """)
 
     # text类型
@@ -139,7 +140,7 @@ class Dtalk(Stream):
             hmac_code = hmac.new(secret_enc, string_to_sign_enc,
                                  digestmod=hashlib.sha256).digest()
             sign = urllib.parse.quote_plus(base64.b64encode(hmac_code))
-            url = self.webhook+f'&timestamp={timestamp}&sign={sign}'
+            url = self.webhook + f'&timestamp={timestamp}&sign={sign}'
         else:
             url = self.webhook
 
@@ -152,18 +153,19 @@ class Dtalk(Stream):
     @gen.coroutine
     def post(self, msg: str, log: Stream) -> dict:
         # 二进制或者set类型的,转成json格式前需要先转类型
-        if isinstance(msg, bytes) or isinstance(msg, set):
+        if not isinstance(msg, str):
             msg = str(msg)
+
         data = {"msgtype": "text", "text": {"content": msg},
                 "at": {"atMobiles": [], "isAtAll": False}}
-        if isinstance(msg, str) and '@all' in msg:
+        if '@all' in msg:
             data = {"msgtype": "text", "text": {"content": msg},
                     "at": {"atMobiles": [], "isAtAll": True}}
-        elif isinstance(msg, str) and msg.startswith('@md@'):
+        if msg.startswith('@md@'):
             # @md@财联社新闻汇总|text
             content = msg[4:]
             title, text = content[:content.index(
-                '|')], content[content.index('|')+1:]
+                '|')], content[content.index('|') + 1:]
             data = {
                 "msgtype": "markdown",
                 "markdown": {"title": title, "text": text}

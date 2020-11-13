@@ -19,18 +19,18 @@ except ImportError:
 
 
 __all__ = [
-    'Pipe', 'tail', 'skip', 'all', 'any', 'average', 'count',
+    'P', 'tail', 'skip', 'all', 'any', 'average', 'count',
     'as_dict', 'as_set', 'permutations', 'netcat', 'netwrite',
     'traverse', 'concat', 'as_list', 'as_tuple', 'stdout', 'lineout',
     'tee', 'add', 'first', 'chain', 'take_while', 'attr',
     'skip_while', 'aggregate', 'groupby', 'sort', 'reverse',
     'chain_with', 'islice', 'izip', 'passed', 'index', 'strip',
     'lstrip', 'rstrip', 'run_with', 'append', 'to_type', 'transpose',
-    'dedup', 'uniq', 'to_dataframe', 'P', 'pmap', 'pfilter', 'post_to',
+    'dedup', 'uniq', 'to_dataframe', 'pmap', 'pfilter', 'post_to',
     'head', 'read', 'tcp_write', 'write_to_file', 'size', 'ls', 'range',
-    'sum', 'split', 'sample', 'extract', 'readlines',
-    'abs',
-    'dir',
+    'sum', 'split', 'sample', 'extract', 'readlines', 'last',
+    'abs', 'type', 'll',
+    'dir', 'help',
     'eval',
     'hash',
     'id',
@@ -137,7 +137,7 @@ def head(qte: int = 5):
         return result
 
     if isinstance(qte, int):
-        return _head@P
+        return _head @ P
     else:
         iterable, qte = qte, 5
         return _head(iterable)
@@ -150,10 +150,15 @@ def tail(qte: int = 5):
         return list(deque(iterable, maxlen=qte))
 
     if isinstance(qte, int):
-        return _@P
+        return _ @ P
     else:
         iterable, qte = qte, 5
         return _(iterable)
+
+
+@Pipe
+def last(iterable):
+    return (iterable | tail(1))[0]
 
 
 @Pipe
@@ -167,7 +172,7 @@ def skip(qte: int):
             else:
                 i -= 1
 
-    return _@P
+    return _ @ P
 
 
 @Pipe
@@ -181,7 +186,7 @@ def dedup(key=lambda x: x):
                 seen.add(dupkey)
                 yield item
 
-    return _@P
+    return _ @ P
 
 
 @Pipe
@@ -201,7 +206,7 @@ def uniq(key=lambda x: x):
                 yield item
             prevkey = itemkey
 
-    return _@P
+    return _ @ P
 
 
 @Pipe
@@ -211,7 +216,7 @@ def pmap(func):
     def _(iterable):
         return map(func, iterable)
 
-    return _@P
+    return _ @ P
 
 
 @Pipe
@@ -220,7 +225,7 @@ def pfilter(func):
     def _(iterable):
         return filter(func, iterable)
 
-    return _@P
+    return _ @ P
 
 
 @Pipe
@@ -230,7 +235,7 @@ def all(pred):
     def _(iterable):
         return builtins.all(pred(x) for x in iterable)
 
-    return _@P
+    return _ @ P
 
 
 @Pipe
@@ -240,7 +245,7 @@ def any(pred):
     def _(iterable):
         return builtins.any(pred(x) for x in iterable)
 
-    return _@P
+    return _ @ P
 
 
 @Pipe
@@ -283,7 +288,7 @@ def permutations(r=None):
         for x in itertools.permutations(iterable, r):
             yield x
 
-    return _@P
+    return _ @ P
 
 
 @Pipe
@@ -299,7 +304,7 @@ def netcat(host, port):
                     break
                 yield data
 
-    return _@P
+    return _ @ P
 
 
 @Pipe
@@ -310,7 +315,7 @@ def netwrite(host, port):
             for data in to_send | traverse:
                 s.send(data.encode("utf-8"))
 
-    return _@P
+    return _ @ P
 
 
 @Pipe
@@ -335,28 +340,28 @@ def tcp_write(host='127.0.0.1', port=1234):
             s.send(dill.dumps(to_send))
             s.send(b'\n')
 
-    return _@P
+    return _ @ P
 
 
 @Pipe
 def concat(separator=", "):
     def _(iterable):
         return separator.join(map(str, iterable))
-    return _@P
+    return _ @ P
 
 
 @Pipe
 def split(sep="\n"):
     def _(iteration):
         return iteration.split(sep)
-    return _@P
+    return _ @ P
 
 
 @Pipe
 def attr(name):
     def _(object):
         return getattr(object, name)
-    return _@P
+    return _ @ P
 
 
 @Pipe
@@ -408,7 +413,7 @@ def tee(iterable):
 #                 f.flush()
 #         return content
 
-#     return _@P
+#     return _ @ P
 @Pipe
 def write_to_file(fn, prefix='', suffix='\n', flush=True, mode='a+'):
     """同时支持二进制和普通文本的写入.
@@ -430,7 +435,7 @@ def write_to_file(fn, prefix='', suffix='\n', flush=True, mode='a+'):
             f.flush()
         return content
 
-    return _@P
+    return _ @ P
 
 
 @Pipe
@@ -453,7 +458,7 @@ def take_while(predicate):
     def _(iterable):
         return itertools.takewhile(predicate, iterable)
 
-    return _@P
+    return _ @ P
 
 
 @Pipe
@@ -461,7 +466,7 @@ def skip_while(predicate):
     def _(iterable):
         return itertools.dropwhile(predicate, iterable)
 
-    return _@P
+    return _ @ P
 
 
 @Pipe
@@ -471,7 +476,7 @@ def aggregate(function, **kwargs):
             return functools.reduce(function, iterable, kwargs['initializer'])
         return functools.reduce(function, iterable)
 
-    return _@P
+    return _ @ P
 
 
 @Pipe
@@ -479,7 +484,7 @@ def groupby(keyfunc):
     def _(iterable):
         return itertools.groupby(sorted(iterable, key=keyfunc), keyfunc)
 
-    return _@P
+    return _ @ P
 
 
 @Pipe
@@ -487,7 +492,7 @@ def sort(**kwargs):
     def _(iterable):
         return sorted(iterable, **kwargs)
 
-    return _@P
+    return _ @ P
 
 
 @Pipe
@@ -505,7 +510,7 @@ def index(value, start=0, stop=None):
     def _(iterable):
         return iterable.index(value, start, stop or len(iterable))
 
-    return _@P
+    return _ @ P
 
 
 @Pipe
@@ -513,7 +518,7 @@ def strip(chars='\n'):
     def _(iterable):
         return iterable.strip(chars)
 
-    return _@P
+    return _ @ P
 
 
 @Pipe
@@ -521,7 +526,7 @@ def rstrip(chars='\n'):
     def _(iterable):
         return iterable.rstrip(chars)
 
-    return _@P
+    return _ @ P
 
 
 @Pipe
@@ -529,7 +534,7 @@ def lstrip(chars='\n'):
     def _(iterable):
         return iterable.lstrip(chars)
 
-    return _@P
+    return _ @ P
 
 
 @Pipe
@@ -539,7 +544,7 @@ def run_with(func):
                 func(*iterable) if hasattr(iterable, '__iter__') else
                 func(iterable))
 
-    return _@P
+    return _ @ P
 
 
 @Pipe
@@ -550,7 +555,7 @@ def append(y):
             return iterable + type(iterable)([y])
         return [iterable, y]
 
-    return _@P
+    return _ @ P
 
 
 @Pipe
@@ -559,7 +564,7 @@ def to_type(t):
     def _(x):
         return t(x)
 
-    return _@P
+    return _ @ P
 
 
 @Pipe
@@ -639,9 +644,9 @@ def post_to(url='http://127.0.0.1:9999', asynchronous=True, headers={}):
         return requests.post(url, data=body, headers=headers)
 
     if asynchronous:
-        return _async@P
+        return _async @ P
     else:
-        return _sync@P
+        return _sync @ P
 
 
 @Pipe
@@ -681,11 +686,12 @@ def sample(samplesize=5):
             for i, v in enumerate(iterator, samplesize):
                 r = random.randint(0, i)
                 if r < samplesize:
-                    results[r] = v  # at a decreasing rate, replace random items
+                    results[r] = v  # at a decreasing rate,
+                    # replace random items
             return results
 
     if isinstance(samplesize, int):
-        return _@P
+        return _ @ P
     else:
         iterable, samplesize = samplesize, 5
         return _(iterable)
@@ -698,7 +704,8 @@ def extract(typ='chinese'):
     使用正则表达式从字符串中提取特定类型内容
 
     Args:
-        typ: 提取类型，可选,['chinese','numbers','phone','url','email'] (default: {'chinese'})
+        typ: 提取类型，可选,['chinese','numbers','phone','url','email']
+        (default: {'chinese'})
             chinese:中文提取
             numbers:整数提取
             phone:手机号提取
@@ -744,18 +751,22 @@ def extract(typ='chinese'):
             import jieba.analyse
             return jieba.analyse.extract_tags(text, 20)
 
-    return _@P
+    return _ @ P
 
-    # %%转换内置函数为pipe
+
+# %%转换内置函数为pipe
 for i in builtins.__dict__.copy():
     if callable(builtins.__dict__.get(i)):
         f = 'to_' + i
         builtins.__dict__[f] = Pipe(builtins.__dict__[i])
 
 
-ls = list@P
+ls = list @ P
+ll = ls
 abs = P(abs)
 dir = P(dir)
+type = P(type)
+help = P(help)
 eval = P(eval)
 format = P(format)
 hash = P(hash)
@@ -768,6 +779,7 @@ min = P(min)
 print = P(print)
 range = P(range)
 sum = P(sum)
+
 to_bytes = P(bytes)
 to_dict = P(dict)
 to_float = P(float)
@@ -777,6 +789,7 @@ to_set = P(set)
 to_str = P(str)
 # zip = P(zip)
 # 这种情况会导致isinstanced等非直接调用方法失败
+
 
 if __name__ == "__main__":
     import doctest
