@@ -3,7 +3,8 @@ from os.path import exists
 
 setup(
     name='deva',
-    version='1.0.0',
+    version='1.0.4',
+    include_package_data=True,
     packages=find_packages(),
     python_requires='>=3.5',
     author='spark',
