@@ -8,10 +8,7 @@
 *.swp
 *.data
 *.db
-*.html
 *.txt
-*.css
-*.js
 *.sqlite
 /.idea/
 */__pycache__/*
