@@ -16,3 +16,5 @@ requests-html
 aioredis
 apscheduler
 werkzeug
+networkx==2
+graphviz

@@ -1,5 +1,5 @@
-.. image:: deva.jpeg
-   :target: http://518.is
+.. image:: https://raw.githubusercontent.com/sostc/deva/master/deva.jpeg
+   :target: https://github.com/sostc/deva
    :align: center
    :alt: 518.is
 
@@ -10,7 +10,7 @@ The ``deva`` lib makes it easy to write streaming data process pipelines,event d
 
 An example of a streaming process and web view
 
-.. image:: streaming.gif
+.. image:: https://raw.githubusercontent.com/sostc/deva/master/streaming.gif
    :target: https://raw.githubusercontent.com/sostc/deva/master/streaming.gif
    :align: center
    :alt: streanming
@@ -34,18 +34,15 @@ An example of a streaming process and web view
         5).to_html(), start=True, name='实时股票数据', interval=1)
 
     # 系统命令执行
-    command_s = Stream.from_command()
+    command_s = Stream.from_process(['ping','baidu.com'])
     s3 = command_s.sliding_window(5).map(concat('<br>'), name='系统持续命令')
-    command_s << 'ping baidu.com'
+    command_s.start()
 
 
-    @page.route('/')
-    def get():
-        streams = [s1, s2, s3]
-        return render_template('./web/templates/streams.html', streams=streams)
-
-
-    Streaming().start()
+    s1.webview()
+    s2.webview()
+    s3.webview()
+    
     Monitor().start()
     Deva.run()
 

@@ -13,6 +13,7 @@ deva/page.py
 deva/pipe.py
 deva/search.py
 deva/sources.py
+deva/state.py
 deva/store.py
 deva/topic.py
 deva/when.py

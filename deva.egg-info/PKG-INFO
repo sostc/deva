@@ -1,13 +1,13 @@
 Metadata-Version: 1.2
 Name: deva
-Version: 0.9.9
+Version: 1.0.4
 Summary: data eval in future
 Home-page: https://github.com/sostc/deva
 Author: spark
 Author-email: zjw0358@gmail.com
 License: http://www.apache.org/licenses/LICENSE-2.0.html
-Description: .. image:: deva.jpeg
-           :target: http://518.is
+Description: .. image:: https://raw.githubusercontent.com/sostc/deva/master/deva.jpeg
+           :target: https://github.com/sostc/deva
            :align: center
            :alt: 518.is
         
@@ -18,8 +18,8 @@ Description: .. image:: deva.jpeg
         
         An example of a streaming process and web view
         
-        .. image:: streaming.gif
-           :target: https://github.com/sostc/deva/blob/master/streaming.gif
+        .. image:: https://raw.githubusercontent.com/sostc/deva/master/streaming.gif
+           :target: https://raw.githubusercontent.com/sostc/deva/master/streaming.gif
            :align: center
            :alt: streanming
         
@@ -42,18 +42,15 @@ Description: .. image:: deva.jpeg
                 5).to_html(), start=True, name='实时股票数据', interval=1)
         
             # 系统命令执行
-            command_s = Stream.from_command()
+            command_s = Stream.from_process(['ping','baidu.com'])
             s3 = command_s.sliding_window(5).map(concat('<br>'), name='系统持续命令')
-            command_s << 'ping baidu.com'
+            command_s.start()
         
         
-            @page.route('/')
-            def get():
-                streams = [s1, s2, s3]
-                return render_template('./web/templates/streams.html', streams=streams)
-        
-        
-            Streaming().start()
+            s1.webview()
+            s2.webview()
+            s3.webview()
+            
             Monitor().start()
             Deva.run()
         
