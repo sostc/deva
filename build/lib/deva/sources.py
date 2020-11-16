@@ -32,7 +32,8 @@ def PeriodicCallback(callback, callback_time, asynchronous=False, **kwargs):
     return source
 
 
-def sink_to_file(filename, upstream, mode='w', prefix='', suffix='\n', flush=False):
+def sink_to_file(filename, upstream, mode='w',
+                 prefix='', suffix='\n', flush=False):
     file = open(filename, mode=mode)
 
     def write(text):
@@ -339,12 +340,13 @@ class from_command(Stream):
         self.thread_pool = ThreadPoolExecutor(2)
         self.command = command
         if self.command:
-            self.run(self.command)
+            self.emit(self.command)
 
     def poll_out(self):
         for out in self.subp.stdout:
             out = out.decode('utf-8').strip()
             if out:
+                print(out)
                 self._emit(out)
 
     def poll_err(self):
@@ -358,12 +360,74 @@ class from_command(Stream):
             command,
             shell=True,
             stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE, bufsize=1,
+            stderr=subprocess.PIPE,  # bufsize=1,
             stdin=subprocess.PIPE)
         self.thread_pool.submit(self.poll_err)
         self.thread_pool.submit(self.poll_out)
         # self.loop.add_callback(self.poll_err)
         # self.loop.add_callback(self.poll_out)
+
+
+@Stream.register_api(staticmethod)
+class from_process(Source):
+    """Messages from a running external process
+    This doesn't work on Windows
+    Parameters
+    ----------
+    cmd : list of str or str
+        Command to run: program name, followed by arguments
+    open_kwargs : dict
+        To pass on the the process open function, see ``subprocess.Popen``.
+    with_stderr : bool
+        Whether to include the process STDERR in the stream
+    start : bool
+        Whether to immediately startup the process. Usually you want to connect
+        downstream nodes first, and then call ``.start()``.
+    Example
+    -------
+    >>> source = Source.from_process(['ping', 'localhost'])  # doctest: +SKIP
+    """
+
+    def __init__(self, cmd, open_kwargs=None, with_stderr=False, start=False):
+        self.cmd = cmd
+        self.open_kwargs = open_kwargs or {}
+        self.with_stderr = with_stderr
+        super(from_process, self).__init__(ensure_io_loop=True)
+        self.stopped = True
+        self.process = None
+        if start:  # pragma: no cover
+            self.start()
+
+    @gen.coroutine
+    def _start_process(self):
+        # should be done in asyncio (py3 only)? Apparently can handle Windows
+        # with appropriate config.
+        from tornado.process import Subprocess
+        from tornado.iostream import StreamClosedError
+        import subprocess
+        stderr = subprocess.STDOUT if self.with_stderr else subprocess.PIPE
+        process = Subprocess(self.cmd, stdout=Subprocess.STREAM,
+                             stderr=stderr, **self.open_kwargs)
+        while not self.stopped:
+            try:
+                out = yield process.stdout.read_until(b'\n')
+            except StreamClosedError:
+                # process exited
+                break
+            yield self._emit(out)
+        yield process.stdout.close()
+        process.proc.terminate()
+
+    def start(self):
+        """Start external process"""
+        if self.stopped:
+            self.loop.add_callback(self._start_process)
+            self.stopped = False
+
+    def stop(self):
+        """Shutdown external process"""
+        if not self.stopped:
+            self.stopped = True
 
 
 @Stream.register_api(staticmethod)
@@ -383,7 +447,8 @@ class from_kafka(Source):
         https://docs.confluent.io/current/clients/confluent-kafka-python/#configuration
         https://github.com/edenhill/librdkafka/blob/master/CONFIGURATION.md
         Examples:
-        bootstrap.servers: Connection string(s) (host:port) by which to reach Kafka
+        bootstrap.servers: Connection string(s) (host:port) by
+             which to reach Kafka
         group.id: Identity of the consumer. If multiple sources share the same
             group, each message will be passed to only one of them.
     poll_interval: number
@@ -399,7 +464,8 @@ class from_kafka(Source):
     ...            'group.id': 'streamz'})  # doctest: +SKIP
     """
 
-    def __init__(self, topics, consumer_params, poll_interval=0.1, start=False, **kwargs):
+    def __init__(self, topics, consumer_params,
+                 poll_interval=0.1, start=False, **kwargs):
         self.cpars = consumer_params
         self.consumer = None
         self.topics = topics

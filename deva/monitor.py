@@ -12,7 +12,9 @@ import tornado
 import json
 import os
 from pymaybe import maybe
-from .web.sockjs.tornado import SockJSRouter, SockJSConnection
+# from .web.sockjs.tornado import SockJSRouter, SockJSConnection
+from sockjs.tornado import SockJSRouter, SockJSConnection
+
 from tornado import gen
 from .core import Stream
 from .namespace import NB, NS
@@ -33,7 +35,7 @@ def get(self, *args, **kwargs):
     #     streams = namespace.values()>>ls
     streams = [stream for stream in Stream.getinstances() if stream.name]
     tables = NB('default').tables | ls
-    self.render('web/templates/monitor.html', streams=streams,
+    self.render('./templates/monitor.html', streams=streams,
                 tablenames=tables, sock_url='/')
 
 
@@ -93,7 +95,7 @@ def get_stream(self, name_or_id):
         stream = [stream for stream in Stream.getinstances() if str(
             hash(stream)) == name_or_id][0]
     stream_id = hash(stream)
-    self.render('web/templates/stream.html', stream_id=stream_id, sock_url='../')
+    self.render('./templates/stream.html', stream_id=stream_id, sock_url='../')
 
 
 class StreamConnection(SockJSConnection):

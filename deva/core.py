@@ -17,7 +17,7 @@ try:
 except ImportError:
     PollIOLoop = None  # dropped in tornado 6.0
 
-from .utils.expiringdict import ExpiringDict
+from expiringdict import ExpiringDict
 from pampy import match, ANY
 import io
 from .pipe import P, print
