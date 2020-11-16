@@ -21,7 +21,7 @@ from collections import defaultdict
         @page.route('/')
         def get():
             streams = [s1,s2,s3]
-            return render_template('./web/templates/streams.html', streams=streams)
+            return render_template('./templates/streams.html', streams=streams)
 
 
         ps = PageServer()
@@ -42,7 +42,9 @@ from werkzeug.local import LocalStack, LocalProxy
 import logging
 from collections import OrderedDict
 from pymaybe import maybe
-from .web.sockjs.tornado import SockJSRouter, SockJSConnection
+# from .web.sockjs.tornado import SockJSRouter, SockJSConnection
+from sockjs.tornado import SockJSRouter, SockJSConnection
+
 import json
 from tornado import gen
 from .core import Stream
@@ -510,7 +512,7 @@ class StreamsConnection(SockJSConnection):
         for s in self.out_streams:
             sid = str(hash(s))
             f = _(sid)
-            self.connections.add(s.map(f) >> self._out_stream)
+            self.connections.add(s.map(repr).map(f) >> self._out_stream)
 
             # html = maybe(s).recent(1)[0].or_else('等待数据加载。。。。')
             html = '等待数据加载。。。。'
@@ -568,7 +570,7 @@ def webview(s, url='/', server=None):
     server.streams[url].append(s)
 
     page.route(url)(lambda: render_template(
-        './web/templates/streams.html', streams=server.streams[url]))
+        './templates/streams.html', streams=server.streams[url]))
     server.add_page(page)
     print('start webview:', 'http://'+server.host+':'+str(server.port)+url)
     print('with these streams:', server.streams[url])

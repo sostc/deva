@@ -29,25 +29,21 @@ class Namespace(dict):
         self['webserver'] = {}
 
     def create(self, name, typ='stream', **kwargs):
+        constructor = {'stream': Stream,
+                       'topic': Topic,
+                       'table': DBStream,
+                       'data': X, }
 
-        if typ == 'stream':
-            constructor = Stream
-        elif typ == 'topic':
-            constructor = Topic
-        elif typ == 'table':
-            constructor = DBStream
-        elif typ == 'data':
-            constructor = X
-        elif typ == 'webserver':
+        if typ == 'webserver':
             from .page import PageServer
-            constructor = PageServer
+            constructor.update({'webserver': PageServer})
 
         try:
             return self[typ][name]
         except KeyError:
             return self[typ].setdefault(
                 name,
-                constructor(name=name, **kwargs)
+                constructor.get(typ)(name=name, **kwargs)
             )
 
 
