@@ -1,3 +1,4 @@
+MANIFEST.in
 README.rst
 setup.py
 deva/__init__.py
@@ -23,6 +24,20 @@ deva.egg-info/dependency_links.txt
 deva.egg-info/not-zip-safe
 deva.egg-info/requires.txt
 deva.egg-info/top_level.txt
+deva/sample/.DS_Store
+deva/sample/matmul.py
+deva/sample/my_future.py
+deva/sample/bus/bus_in.py
+deva/sample/bus/bus_out.py
+deva/sample/crawler/.DS_Store
+deva/sample/crawler/asynchttp.py
+deva/sample/search/.DS_Store
+deva/sample/search/search_sql.py
+deva/sample/search/search_stream.py
+deva/sample/webview/stream_page.py
+deva/sample/when/scheduler.py
+deva/sample/when/timer.py
+deva/sample/when/worker.py
 deva/utils/__init__.py
 deva/utils/expiringdict.py
 deva/utils/sqlitedict.py
@@ -53,3 +68,6 @@ deva/web/sockjs/tornado/transports/streamingbase.py
 deva/web/sockjs/tornado/transports/websocket.py
 deva/web/sockjs/tornado/transports/xhr.py
 deva/web/sockjs/tornado/transports/xhrstreaming.py
+deva/web/templates/monitor.html
+deva/web/templates/stream.html
+deva/web/templates/streams.html
