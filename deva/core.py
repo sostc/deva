@@ -240,7 +240,7 @@ class Stream(object):
                     downstream._inform_asynchronous(asynchronous)
 
     @classmethod
-    def getinstances(cls):
+    def instances(cls):
         dead = set()
         for ref in cls._instances:
             obj = ref()

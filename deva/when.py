@@ -5,6 +5,7 @@ from .bus import log
 from .core import Stream
 import datetime
 from tornado import gen
+import time
 
 
 @atexit.register
@@ -120,6 +121,7 @@ class timer(Stream):
 
     def __init__(self,
                  interval=1,
+                 ttl=None,
                  start=False,
                  func=lambda: datetime.datetime.now().second,
                  thread=False,
@@ -128,6 +130,7 @@ class timer(Stream):
 
         self.interval = convert_interval(interval)
         self.func = func
+        self.ttl = ttl
         self.thread = thread
         if self.thread:
             from concurrent.futures import ThreadPoolExecutor
@@ -141,6 +144,9 @@ class timer(Stream):
     @gen.coroutine
     def run(self):
         while True:
+            if self.ttl and time.time()-self._start_time > self.ttl:
+                self.stop()
+
             if self.thread:
                 self.thread_pool.submit(lambda: self._emit(self.func()))
             else:
@@ -150,6 +156,7 @@ class timer(Stream):
                 break
 
     def start(self):
+        self._start_time = time.time()
         if self.stopped:
             self.stopped = False
             self.loop.add_callback(self.run)

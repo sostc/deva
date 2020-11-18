@@ -33,7 +33,7 @@ monitor_page = Page()
 def get(self, *args, **kwargs):
     # 取出所有有缓冲设置且有名称的流实例,类似NS('当下行情数据抽样',cache_max_len=1)
     #     streams = namespace.values()>>ls
-    streams = [stream for stream in Stream.getinstances() if stream.name]
+    streams = [stream for stream in Stream.instances() if stream.name]
     tables = NB('default').tables | ls
     self.render('./templates/monitor.html', streams=streams,
                 tablenames=tables, sock_url='/')
@@ -42,7 +42,7 @@ def get(self, *args, **kwargs):
 @monitor_page.route("/allstreams")
 @gen.coroutine
 def allstreams(self):
-    s_list = [s for s in Stream.getinstances()]
+    s_list = [s for s in Stream.instances()]
 
     def _f(s):
         text = str(s).replace('<', '[').replace('>', ']')
@@ -89,10 +89,10 @@ def get_table_values(tablename, key):
 @monitor_page.route('/stream/<name_or_id>')
 def get_stream(self, name_or_id):
     try:
-        stream = [stream for stream in Stream.getinstances(
+        stream = [stream for stream in Stream.instances(
         ) if stream.name == name_or_id][0]
     except:
-        stream = [stream for stream in Stream.getinstances() if str(
+        stream = [stream for stream in Stream.instances() if str(
             hash(stream)) == name_or_id][0]
     stream_id = hash(stream)
     self.render('./templates/stream.html', stream_id=stream_id, sock_url='../')
@@ -130,7 +130,7 @@ class StreamConnection(SockJSConnection):
         # io的东西走异步,其余的函数如果是cpu计算,不要走异步
         if stream_id != hash(self.out_stream):
             self.connection.destroy()
-            self.out_stream = [stream for stream in Stream.getinstances() if str(
+            self.out_stream = [stream for stream in Stream.instances() if str(
                 hash(stream)) == stream_id][0]
             self.connection = self.out_stream.map(lambda x: json.dumps(
                 {'stream_id': stream_id, 'data': x.to_html() if isinstance(x, pd.DataFrame) else x})) >> self._out_stream

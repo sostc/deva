@@ -70,7 +70,8 @@ def NT(name='', *args, **kwargs):
     """
     try:
         return namespace.create(typ='topic', name=name, *args, **kwargs)
-    except:
+    except Exception as e:
+        print(e)
         return None
 
 

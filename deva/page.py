@@ -502,7 +502,7 @@ class StreamsConnection(SockJSConnection):
         # 整个请求才能异步,某个用户超时才不会影响别的用户,否则一个用户影响其他用户
         # io的东西走异步,其余的函数如果是cpu计算,不要走异步
 
-        self.out_streams = [stream for stream in Stream.getinstances() if
+        self.out_streams = [stream for stream in Stream.instances() if
                             str(hash(stream)) in stream_ids]
 
         def _(sid):
