@@ -10,7 +10,7 @@ def Counter(start=0):
 
     [计数器]
     counter = Counter(start=0)
-    counter()   
+    counter()
 
     args:
         start: [计数器开始数字] (default: {0})
@@ -25,7 +25,7 @@ def Counter(start=0):
         l1[0] += 1
         return l1[0]
 
-    return _@P
+    return _ @ P
 
 
 def Summer(start=0):
@@ -33,14 +33,13 @@ def Summer(start=0):
 
     [计数器]
     summer = Summer(start=0)
-    summer(10)   
+    summer(10)
 
     args:
         start: [累加开始数字] (default: {0})
 
     Returns:
         [一个累加器函数]
-        [函数]
     """
     l1 = [start]
 
@@ -48,4 +47,4 @@ def Summer(start=0):
         l1[0] += x
         return l1[0]
 
-    return _@P
+    return _ @ P
