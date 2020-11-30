@@ -26,9 +26,10 @@ def log_print(x):
         # from termcolor import cprint
         # _log_print = (lambda x: cprint(x, 'red', 'on_cyan'))@P
         # str(datetime.datetime.now()) + ':' + str(x) >> _log_print
-        from rich.console import Console
-        console = Console()
-        console.log(x, log_locals=False)
+        # from rich.console import Console
+        # console = Console()
+        # console.log(x, log_locals=False)
+        print(datetime.datetime.now(), ':', x)
     except:
         print(datetime.datetime.now(), ':', x)
 

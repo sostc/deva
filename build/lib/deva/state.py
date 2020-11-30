@@ -1,51 +1,56 @@
-from .pipe import P
+from .pipe import P, passed
 
 __all__ = [
     'Counter', 'Summer',
 ]
 
 
-def Counter(start=0):
+def Counter(log=passed, start=0):
     """[返回一个计数器函数]
 
     [计数器]
     counter = Counter(start=0)
-    counter()   
+    counter()
 
     args:
         start: [计数器开始数字] (default: {0})
+        log: 结果进入流
 
     Returns:
         [一个计数器函数]
         [函数]
     """
-    l1 = [start]
+    result = start
 
     def _(*args):
-        l1[0] += 1
-        return l1[0]
+        nonlocal result
+        result += 1
+        result >> log
+        return result
 
-    return _@P
+    return _ @ P
 
 
-def Summer(start=0):
+def Summer(log=passed, start=0):
     """[返回一个累加器器函数]
 
     [计数器]
     summer = Summer(start=0)
-    summer(10)   
+    summer(10)
 
     args:
         start: [累加开始数字] (default: {0})
+        log: 结果进入流
 
     Returns:
         [一个累加器函数]
-        [函数]
     """
-    l1 = [start]
+    result = start
 
     def _(x):
-        l1[0] += x
-        return l1[0]
+        nonlocal result
+        result += x
+        result >> log
+        return result
 
-    return _@P
+    return _ @ P

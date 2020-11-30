@@ -1,0 +1,35 @@
+<title>Deva流实时看板</title>
+<link rel="alternate icon" class="js-site-favicon" type="image/png" href="https://raw.githubusercontent.com/sostc/deva/master/fav.png">
+    <script src="https://code.jquery.com/jquery-3.4.0.slim.min.js" integrity="sha256-ZaXnYkHGqIhqTbJ6MB4l9Frs/r7U4jlx7ir8PJYBqbI=" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/sockjs-client@1/dist/sockjs.min.js"></script>
+
+    <script>
+        var sock_url = '{{ sock_url }}';
+        var sock = new SockJS(sock_url );
+        var stream_id = '{{ stream_id }}';
+        sock.onopen = function() {
+            console.log('open');
+            sock.send(JSON.stringify({'stream_id':stream_id}));
+        };
+
+        sock.onmessage = function(e) {
+            $("#text").html(JSON.parse(e.data).data);
+        };
+
+        sock.onclose = function() {
+            console.log('close');
+        };
+
+
+    </script>
+    <body>
+        
+        <h4>实时数据展示区域</h4>
+        <div id="text"></div>
+        
+     
+        <div>
+            <li><a href="/allstreams">allstreams</a></li>
+            <li><a href="/alltables">alltables</a></li>
+        </div>
+    </body>

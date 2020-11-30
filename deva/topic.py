@@ -15,7 +15,7 @@ class RedisStream(Stream):
 
 
     上游进来的写入redis ，redis的读出来的压入下游,
-    写入异步，所以max_len要足够长，否则会丢数据
+    写入异步，所以为了避免下游读取消化慢，max_len设置要足够长，防止丢数据
     exapmle::
 
         news = Stream.RedisStream('news',max_len=1000)

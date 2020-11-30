@@ -55,14 +55,14 @@ class DBStream(Stream):
 
     """
 
-    def __init__(self, name='default', fname=None,
+    def __init__(self, name='default', filename=None,
                  maxsize=None, log=passed, **kwargs):
         """构建数据库流对象.
 
         Args:
             **kwargs: 流的其他参数
             name: 表名 (default: {'default'})
-            fname: 存储的文件名 (default: {'nb'})
+            filename: 存储的文件名 (default: {'nb'})
             maxsize: 数据表长度 (default: {None})
             log: 日志流 (default: {passed})
         """
@@ -73,20 +73,20 @@ class DBStream(Stream):
 
         super(DBStream, self).__init__()
         self.name = name
-        if not fname:
+        if not filename:
             try:
                 if not os.path.exists(os.path.expanduser('~/.deva/')):
                     os.makedirs(os.path.expanduser('~/.deva/'))
-                self.fname = os.path.expanduser('~/.deva/nb.sqlite')
+                self.filename = os.path.expanduser('~/.deva/nb.sqlite')
             except Exception as e:
                 print(e, 'create dbfile nb.sqlite in curdir')
-                self.fname = 'nb.sqlite'
+                self.filename = 'nb.sqlite'
 
         else:
-            self.fname = fname + '.sqlite'
+            self.filename = filename + '.sqlite'
 
         self.db = SqliteDict(
-            self.fname,
+            self.filename,
             tablename=self.tablename,
             autocommit=True,
             **kwargs)
@@ -171,13 +171,6 @@ class DBStream(Stream):
         for key in self[start:end]:
             self._emit(self[key])
             yield gen.moment if not interval else gen.sleep(interval)
-
-    @property
-    def desc(self):
-        return DBStream('default', fname=self.fname[:-7])[self.name]
-
-    def __repr__(self):
-        return f'< DBStream table {self.name}:{self.desc}>'
 
     def __len__(self,):
         return self.db.__len__()

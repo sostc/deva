@@ -82,11 +82,11 @@ def NB(name, *args, **kwargs):
 
     Args:
         name: 数据表名称 (default: {'default'})
-        fname:文件路径名称(default:{'nb'})
+        filename:文件路径名称(default:{'nb'})
 
 
     Returns:
-        DBStream(name,fname)
+        DBStream(name,filename)
         type
 
     Example::

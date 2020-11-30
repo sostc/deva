@@ -57,7 +57,6 @@ def allstreams(self):
 @gen.coroutine
 def get_tables(self,):
     data = NB('default').tables >> pmap(lambda x: f'<li><a class="Stream" href="table/{x}">{x}</a></li>') >> concat('')
-
     self.write(data)
 
 
