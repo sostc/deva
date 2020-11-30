@@ -1,0 +1,82 @@
+<title>Deva全局监控器</title>
+<link rel="alternate icon" class="js-site-favicon" type="image/png" href="https://raw.githubusercontent.com/sostc/deva/master/fav.png">
+    <script src="https://code.jquery.com/jquery-3.4.0.slim.min.js" integrity="sha256-ZaXnYkHGqIhqTbJ6MB4l9Frs/r7U4jlx7ir8PJYBqbI=" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/sockjs-client@1/dist/sockjs.min.js"></script>
+
+    <script>
+
+        var chat_sock_url = '/chatroom';
+        var chat_sock = new SockJS(chat_sock_url);
+        chat_sock.onopen = function() {
+            console.log('open');
+        };
+
+        chat_sock.onmessage = function(e) {
+            $("#chat").html(e.data);
+        };
+
+        chat_sock.onclose = function() {
+            console.log('close');
+        };
+
+
+        var sock_url = '{{ sock_url }}';
+        var sock = new SockJS(sock_url);
+        sock.onopen = function() {
+            console.log('open');
+        };
+
+        sock.onmessage = function(e) {
+            $("#text").html(JSON.parse(e.data).data);
+        };
+
+        sock.onclose = function() {
+            console.log('close');
+        };
+
+     $(document).ready(function(){
+         $(".stream").click(function(){
+             // stream_id = $(this).html();
+             stream_id = $(this).attr('data');
+             console.log(stream_id);
+             sock.send(JSON.stringify({'stream_id':stream_id}));
+
+         });
+
+         $(".submit").click(function(){
+             chat_sock.send($(".input").val());
+             $(".input").val('');
+
+         });
+     });
+
+
+    </script>
+    <body>
+        <h3>streams</h3>
+        <div id="streams">
+            {% for stream in streams %}
+                <li><a class="stream" href="#" data={{ hash(stream)}} >
+                {{ stream.name if stream.name else str(stream) }}</a></li>
+            {% end %}
+        </div>
+        <h4>实时数据展示区域</h4>
+        <div id="text"></div>
+        
+        <h3>tables</h3>
+        <div id="tables">
+            {% for tablename in tablenames %}
+                <li><a class="table" href="table/{{tablename}}">{{ tablename }}</a></li>
+            {% end %}
+        </div>
+        <h3>执行代码</h3>
+
+        <div id="chat"></div>
+        <div><textarea class='input'></textarea><button class="submit">执行</button></div>
+
+        <h3>links</h3>
+        <div>
+            <li><a href="/allstreams">allstreams</a></li>
+            <li><a href="/alltables">alltables</a></li>
+        </div>
+    </body>

@@ -526,7 +526,7 @@ class from_redis(Stream):
 class from_http_request(Stream):
     """Receive data from http request,emit httprequest data to stream."""
 
-    def __init__(self, port, path='/.*', start=False, server_kwargs=None):
+    def __init__(self, port=7777, path='/.*', start=False, server_kwargs=None):
         self.port = port
         self.path = path
         self.server_kwargs = server_kwargs or {}
@@ -538,6 +538,8 @@ class from_http_request(Stream):
 
     def _start_server(self):
         class Handler(RequestHandler):
+            source = self
+
             def _loads(self, body):
                 """解析从web端口提交过来的数据.
 
@@ -554,24 +556,23 @@ class from_http_request(Stream):
                 finally:
                     return body
 
-            source = self
-
             @gen.coroutine
             def post(self):
                 self.request.body = self._loads(self.request.body)
                 yield self.source._emit(self.request.body)
                 self.write('OK')
 
-        application = Application([
+        self.application = Application([
             (self.path, Handler),
         ])
-        self.server = HTTPServer(application, **self.server_kwargs)
-        self.server.listen(self.port)
+        # self.server = HTTPServer(application, **self.server_kwargs)
+        self.server = self.application.listen(self.port)
 
     def start(self):
         if self.stopped:
             self.stopped = False
-            self.loop.add_callback(self._start_server)
+            self._start_server()
+            # self.loop.add_callback(self._start_server)#这个会导致在端口占用情况下不报错
 
     def stop(self):
         """Shutdown HTTP server."""

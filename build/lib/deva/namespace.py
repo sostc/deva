@@ -29,25 +29,21 @@ class Namespace(dict):
         self['webserver'] = {}
 
     def create(self, name, typ='stream', **kwargs):
+        constructor = {'stream': Stream,
+                       'topic': Topic,
+                       'table': DBStream,
+                       'data': X, }
 
-        if typ == 'stream':
-            constructor = Stream
-        elif typ == 'topic':
-            constructor = Topic
-        elif typ == 'table':
-            constructor = DBStream
-        elif typ == 'data':
-            constructor = X
-        elif typ == 'webserver':
+        if typ == 'webserver':
             from .page import PageServer
-            constructor = PageServer
+            constructor.update({'webserver': PageServer})
 
         try:
             return self[typ][name]
         except KeyError:
             return self[typ].setdefault(
                 name,
-                constructor(name=name, **kwargs)
+                constructor.get(typ)(name=name, **kwargs)
             )
 
 
@@ -74,7 +70,8 @@ def NT(name='', *args, **kwargs):
     """
     try:
         return namespace.create(typ='topic', name=name, *args, **kwargs)
-    except:
+    except Exception as e:
+        print(e)
         return None
 
 
@@ -85,11 +82,11 @@ def NB(name, *args, **kwargs):
 
     Args:
         name: 数据表名称 (default: {'default'})
-        fname:文件路径名称(default:{'nb'})
+        filename:文件路径名称(default:{'nb'})
 
 
     Returns:
-        DBStream(name,fname)
+        DBStream(name,filename)
         type
 
     Example::

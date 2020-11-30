@@ -276,7 +276,7 @@ class unique(Stream):
 
             # self.seen = diskcache.Cache(size_limit=size_limit)
             self.seen = DBStream(name=persistname,
-                                 fname='_unique_persist',
+                                 filename='_unique_persist',
                                  maxsize=self.maxsize or 200,
                                  **kwargs)
 

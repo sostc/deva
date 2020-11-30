@@ -1,6 +1,6 @@
 
 include README.rst
 include docs/*.txt
-include deva/web/templates/*
+include deva/templates/*
 include deva/sample/*
 include deva/sample/*/*

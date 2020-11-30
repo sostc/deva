@@ -8,7 +8,7 @@ from collections import defaultdict
         from deva.page import page,PageServer,render_template
         from deva import *
 
-        s = from_textfile('/var/log/system.log')
+        s = from_textfile('/var/log/systemf.log')
         s1 =s.sliding_window(5).map(concat('<br>'),name='system.log')
         s.start()
 
@@ -21,7 +21,7 @@ from collections import defaultdict
         @page.route('/')
         def get():
             streams = [s1,s2,s3]
-            return render_template('./web/templates/streams.html', streams=streams)
+            return render_template('./templates/streams.html', streams=streams)
 
 
         ps = PageServer()
@@ -42,7 +42,9 @@ from werkzeug.local import LocalStack, LocalProxy
 import logging
 from collections import OrderedDict
 from pymaybe import maybe
-from .web.sockjs.tornado import SockJSRouter, SockJSConnection
+# from .web.sockjs.tornado import SockJSRouter, SockJSConnection
+from sockjs.tornado import SockJSRouter, SockJSConnection
+
 import json
 from tornado import gen
 from .core import Stream
@@ -500,7 +502,7 @@ class StreamsConnection(SockJSConnection):
         # 整个请求才能异步,某个用户超时才不会影响别的用户,否则一个用户影响其他用户
         # io的东西走异步,其余的函数如果是cpu计算,不要走异步
 
-        self.out_streams = [stream for stream in Stream.getinstances() if
+        self.out_streams = [stream for stream in Stream.instances() if
                             str(hash(stream)) in stream_ids]
 
         def _(sid):
@@ -510,10 +512,10 @@ class StreamsConnection(SockJSConnection):
         for s in self.out_streams:
             sid = str(hash(s))
             f = _(sid)
-            self.connections.add(s.map(f) >> self._out_stream)
+            self.connections.add(s.map(repr).map(f) >> self._out_stream)
 
-            # html = maybe(s).recent(1)[0].or_else('等待数据加载。。。。')
-            html = '等待数据加载。。。。'
+            html = maybe(s).recent(1)[0].or_else('流内暂无数据')
+            # html = '等待数据加载。。。。'
             json.dumps({'id': sid, 'html': html}) >> self._out_stream
 
     def on_close(self):
@@ -562,13 +564,13 @@ class PageServer(object):
 
 def webview(s, url='/', server=None):
     if not url.startswith('/'):
-        raise Exception('param url must be starting with /')
+        url = '/'+url
     if not server:
         server = NW('stream_webview')
     server.streams[url].append(s)
 
     page.route(url)(lambda: render_template(
-        './web/templates/streams.html', streams=server.streams[url]))
+        './templates/streams.html', streams=server.streams[url]))
     server.add_page(page)
     print('start webview:', 'http://'+server.host+':'+str(server.port)+url)
     print('with these streams:', server.streams[url])

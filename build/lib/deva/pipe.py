@@ -42,6 +42,7 @@ __all__ = [
     'print',
     'range',
     'sum',
+    'get_instances_by_class',
 ]
 
 
@@ -605,7 +606,7 @@ def size(x):
 
 
 @Pipe
-def post_to(url='http://127.0.0.1:9999', asynchronous=True, headers={}):
+def post_to(url='http://127.0.0.1:7777', asynchronous=True, headers={}):
     """ post a str or bytes or pyobject to url.
 
     str:直接发送
@@ -752,6 +753,14 @@ def extract(typ='chinese'):
             return jieba.analyse.extract_tags(text, 20)
 
     return _ @ P
+
+
+@P
+def get_instances_by_class(cls):
+    import gc
+    for obj in gc.get_objects():
+        if isinstance(obj, cls):
+            yield obj
 
 
 # %%转换内置函数为pipe
