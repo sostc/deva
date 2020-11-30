@@ -8,6 +8,7 @@ import six
 import sys
 import threading
 import weakref
+import inspect
 
 import toolz
 from tornado import gen
@@ -26,6 +27,7 @@ from requests_html import AsyncHTMLSession
 
 no_default = '--no-default--'
 
+# sinks add themselves here to avoid being garbage-collected
 _global_sinks = set()
 
 _html_update_streams = set()
@@ -135,7 +137,8 @@ class Stream(object):
 
     _instances = set()
 
-    str_list = ['func', 'predicate', 'n', 'interval']
+    str_list = ['func', 'predicate', 'n', 'interval', 'port', 'host',
+                'ttl', 'cache_max_len', '_scheduler', 'filename', 'path']
 
     def __init__(self, upstream=None, upstreams=None, name=None,
                  cache_max_len=None, cache_max_age_seconds=None,  # 缓存长度和事件长度
@@ -169,7 +172,7 @@ class Stream(object):
 
         self.handlers = []
 
-        Stream._instances.add(weakref.ref(self))
+        self.__class__._instances.add(weakref.ref(self))
 
     def start_cache(self, cache_max_len=None, cache_max_age_seconds=None):
         self.is_cache = True
@@ -622,12 +625,10 @@ class Stream(object):
 
         支持三种类型:list| text file| stream | callable
         """
-        def write(x):
-            ref.write(str(x) + '\n')
-            ref.flush()
         return match(ref,
                      list, lambda ref: self.sink(ref.append),
-                     io.TextIOWrapper, lambda ref: self.sink(write),
+                     io.TextIOWrapper, lambda ref: self.sink_to_textfile(ref),
+                     str, lambda ref: self.map(str).sink_to_textfile(ref),
                      Stream, lambda ref: self.sink(ref.emit),
                      # 内置函数被转换成pipe，不能pipe优先，需要stream的sink优先
                      # Pipe, lambda ref: ref(self),
@@ -635,7 +636,7 @@ class Stream(object):
                      ANY, lambda ref: TypeError(
                          f'{ref}:{type(ref)} is'
                          'Unsupported type, must be '
-                         'list| text file| stream | callable')
+                         'list| str | text file| stream | callable')
                      )
 
     def route(self, occasion):
@@ -697,10 +698,27 @@ class Stream(object):
         return self.cache.values().__iter__()
 
 
-@Stream.register_api()
-class sink(Stream):
-    """ Apply a function on every element
+class Sink(Stream):
 
+    _graphviz_shape = 'trapezium'
+
+    def __init__(self, upstream, **kwargs):
+        super().__init__(upstream, **kwargs)
+        _global_sinks.add(self)
+
+
+@Stream.register_api()
+class sink(Sink):
+    """ Apply a function on every element
+    Parameters
+    ----------
+    func: callable
+        A function that will be applied on every element.
+    args:
+        Positional arguments that will be passed to ``func`` after the incoming element.
+    kwargs:
+        Stream-specific arguments will be passed to ``Stream.__init__``, the rest of
+        them will be passed to ``func``.
     Examples
     --------
     >>> source = Stream()
@@ -713,30 +731,72 @@ class sink(Stream):
     123
     >>> L
     [123]
-
     See Also
     --------
     map
     Stream.sink_to_list
     """
-    _graphviz_shape = 'trapezium'
 
     def __init__(self, upstream, func, *args, **kwargs):
         self.func = func
         # take the stream specific kwargs out
-        name = kwargs.pop("name", None)
-        self.kwargs = kwargs
+        sig = set(inspect.signature(Stream).parameters)
+        stream_kwargs = {k: v for (k, v) in kwargs.items() if k in sig}
+        self.kwargs = {k: v for (k, v) in kwargs.items() if k not in sig}
         self.args = args
+        super().__init__(upstream, **stream_kwargs)
 
-        Stream.__init__(self, upstream, name=name)
-        _global_sinks.add(self)
-
-    def update(self, x, who=None):
+    def update(self, x, who=None, metadata=None):
         result = self.func(x, *self.args, **self.kwargs)
         if gen.isawaitable(result):
             return result
         else:
             return []
+
+    def destroy(self):
+        super().destroy()
+        _global_sinks.remove(self)
+
+
+@Stream.register_api()
+class sink_to_textfile(Sink):
+    """ Write elements to a plain text file, one element per line.
+        Type of elements must be ``str``.
+        Parameters
+        ----------
+        file: str or file-like
+            File to write the elements to. ``str`` is treated as a file name to open.
+            If file-like, descriptor must be open in text mode. Note that the file
+            descriptor will be closed when this sink is destroyed.
+        end: str, optional
+            This value will be written to the file after each element.
+            Defaults to newline character.
+        mode: str, optional
+            If file is ``str``, file will be opened in this mode. Defaults to ``"a"``
+            (append mode).
+        Examples
+        --------
+        >>> source = Stream()
+        >>> source.map(str).sink_to_textfile("test.txt")
+        >>> source.emit(0)
+        >>> source.emit(1)
+        >>> print(open("test.txt", "r").read())
+        0
+        1
+    """
+
+    def __init__(self, upstream, file, end="\n", mode="a", **kwargs):
+        self._end = end
+        self._fp = open(file, mode=mode) if isinstance(file, str) else file
+        weakref.finalize(self, self._fp.close)
+        super().__init__(upstream, **kwargs)
+
+    def __del__(self):
+        self._fp.close()
+
+    def update(self, x, who=None, metadata=None):
+        self._fp.write(x + self._end)
+        self._fp.flush()
 
 
 @Stream.register_api()
@@ -888,7 +948,8 @@ class http(Stream):
     example::
 
         s = Stream()
-        get_data = lambda x:x.body.decode('utf-8')>>chinese_extract>>sample(20)>>concat('|')
+        get_data = lambda x:x.body.decode(
+            'utf-8')>>chinese_extract>>sample(20)>>concat('|')
         s.rate_limit(0.1).http(workers=20,error=log).map(get_data).sink(print)
 
         url>>s
@@ -905,10 +966,10 @@ class http(Stream):
     Returns::
 
         response, 常用方法,可用self.request方法获取回来做调试
-        #完整链接提取
+        # 完整链接提取
         r.html.absolute_links
 
-        #css selector
+        # css selector
         about = r.html.find('#about', first=True) #css slectotr
         about.text
         about.attrs
@@ -916,16 +977,16 @@ class http(Stream):
         about.find('a')
         about.absolute_links
 
-        #搜索模版
+        # 搜索模版
         r.html.search('Python is a {} language')[0]
 
         # xpath
         r.html.xpath('a')
 
-        #条件表达式
+        # 条件表达式
         r.html.find('a', containing='kenneth')
 
-        #常用属性
+        # 常用属性
         response.url
         response.base_url
         response.text
@@ -996,55 +1057,6 @@ class http(Stream):
         return cls.request(url, **kwargs)
 
 
-@Stream.register_api()
-class run_future(Stream):
-    """获取上游进来的future的最终值并放入下游
-    注意上游流要限速，这个是并发执行，速度很快
-
-    examples::
-
-        @gen.coroutine
-        def foo():
-            yield gen.sleep(3)
-            return range<<10>>sample>>first
-
-        async def foo2():
-            import asyncio
-            await asyncio.sleep(3)
-            return range<<10>>sample>>first
-
-        s = Stream()
-        s.rate_limit(1).run_future()>>log
-
-        for i in range(3):
-            foo()>>s
-            foo2()>>s
-
-        [2020-02-26 18:14:37.991321] INFO: deva.log: 1
-        [2020-02-26 18:14:37.993260] INFO: deva.log: 7
-        [2020-02-26 18:14:37.995112] INFO: deva.log: 5
-
-        run = run_future()
-        run>>log
-
-        foo()>>run
-        foo2()>>run
-    """
-
-    def __init__(self, upstream=None, **kwargs):
-        # from tornado import httpclient
-        Stream.__init__(self, upstream=upstream, ensure_io_loop=True)
-
-    def emit(self, x, **kwargs):
-        self.update(x)
-        return x
-
-    def update(self, x, who=None):
-        assert isinstance(x, gen.Awaitable)
-        futs = gen.convert_yielded(x)
-        self.loop.add_future(futs, lambda x: self._emit(x.result()))
-
-
 def sync(loop, func, *args, **kwargs):
     """
     Run coroutine in loop running in separate thread.
@@ -1102,6 +1114,10 @@ class Deva():
         l = IOLoop()
         l.make_current()
         l.start()
+
+        # loop = get_io_loop(asynchronous=False)
+        # loop.make_current()
+        # loop.start()
         # import asyncio
         # l = asyncio.new_event_loop()
 

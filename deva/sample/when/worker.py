@@ -1,4 +1,5 @@
-from deva import bus, log, when, Deva
+from deva import bus, log, when, Deva, timer, Stream, print
+# from deva import *
 
 
 # 开盘任务
@@ -17,5 +18,9 @@ def onclose(x):
 # 另外一种写法
 when('open', source=bus).then(lambda: print(f'开盘啦'))
 
+
+s = Stream()
+timer(start=True) >> s
+when((lambda x: x % 2 == 0), s).then(lambda x: x >> print)
 
 Deva.run()

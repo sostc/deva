@@ -8,7 +8,7 @@ from collections import defaultdict
         from deva.page import page,PageServer,render_template
         from deva import *
 
-        s = from_textfile('/var/log/system.log')
+        s = from_textfile('/var/log/systemf.log')
         s1 =s.sliding_window(5).map(concat('<br>'),name='system.log')
         s.start()
 
@@ -514,8 +514,8 @@ class StreamsConnection(SockJSConnection):
             f = _(sid)
             self.connections.add(s.map(repr).map(f) >> self._out_stream)
 
-            # html = maybe(s).recent(1)[0].or_else('等待数据加载。。。。')
-            html = '等待数据加载。。。。'
+            html = maybe(s).recent(1)[0].or_else('流内暂无数据')
+            # html = '等待数据加载。。。。'
             json.dumps({'id': sid, 'html': html}) >> self._out_stream
 
     def on_close(self):
@@ -564,7 +564,7 @@ class PageServer(object):
 
 def webview(s, url='/', server=None):
     if not url.startswith('/'):
-        raise Exception('param url must be starting with /')
+        url = '/'+url
     if not server:
         server = NW('stream_webview')
     server.streams[url].append(s)

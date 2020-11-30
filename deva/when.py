@@ -130,7 +130,7 @@ class timer(Stream):
 
         self.interval = convert_interval(interval)
         self.func = func
-        self.ttl = ttl
+        self.ttl = convert_interval(ttl)
         self.thread = thread
         if self.thread:
             from concurrent.futures import ThreadPoolExecutor
@@ -181,10 +181,10 @@ class when(object):
         # 接受来自总线的信号
 
     def then(self, func, *args, **kwargs):
-        if callable(self.occasion):  # 检查发生的函数，函数输入为流里的值，输出为布尔
+        if callable(self.occasion):  # 携带上下文给后面的任务，检查发生的函数，函数输入为流里的值，输出为布尔
             return self.source.filter(self.occasion).sink(
                 lambda x: func(x, *args, **kwargs))
-        else:  # 不处理流的值
+        else:  # 不处理流的值，不携带上下文
             return self.source.filter(lambda x: self.occasion in str(x)).sink(
                 lambda x: func(*args, **kwargs))
 

@@ -1,0 +1,42 @@
+<title>Deva流实时看板</title>
+<link rel="alternate icon" class="js-site-favicon" type="image/png" href="https://raw.githubusercontent.com/sostc/deva/master/fav.png">
+    <script src="https://code.jquery.com/jquery-3.4.0.slim.min.js" integrity="sha256-ZaXnYkHGqIhqTbJ6MB4l9Frs/r7U4jlx7ir8PJYBqbI=" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/sockjs-client@1/dist/sockjs.min.js"></script>
+
+    <body>
+        {% autoescape None%}
+        <div id="text"></div>
+        
+     <script>
+        var sock_url = '/';
+        var sock = new SockJS(sock_url );
+
+        var stream_dict = {{ dict([(str(hash(s)),str(s.name)) for s in streams]) }};
+        
+        for (sid in stream_dict){
+            $("#text").append("<div><h3>"+stream_dict[sid]+"</h3><div id="+sid+">加载中...</div></div>");
+        };
+
+        var stream_ids = [];
+        for (sid in stream_dict){stream_ids.push(sid)};
+        
+        sock.onopen = function() {
+            console.log('open');
+            sock.send(JSON.stringify({'stream_ids':stream_ids}));
+        };
+
+        sock.onmessage = function(e) {
+            data = JSON.parse(e.data);
+            id = data['id']
+            html = data['html']
+            $("#"+id).html(html);
+        };
+
+        sock.onclose = function() {
+            console.log('close');
+        };
+
+
+    </script>
+       
+    </body>

@@ -7,6 +7,7 @@ from .sources import *
 from .namespace import *
 from .when import *
 from .endpoints import *
+from .future import *
 
 
 from .bus import *
@@ -23,4 +24,4 @@ try:
 except ImportError:
     pass
 
-__version__ = '1.0.6'
+__version__ = '1.0.9'
