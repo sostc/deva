@@ -41,6 +41,7 @@ class RedisStream(Stream):
 
         super(RedisStream, self).__init__(ensure_io_loop=True, **kwargs)
         self.redis = sync(self.loop, self.conn)
+        # self.loop.add_callback(self.conn)
         self.stopped = True
         if start:
             self.start()
