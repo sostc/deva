@@ -204,7 +204,7 @@ class Dtalk(Stream):
 
 
 @P
-def mail(to='zjw0358@gmail.com', log=passed):
+def mail(to='zjw0358@gmail.com'):
     from email.message import EmailMessage
     import aiosmtplib
     from email.mime.multipart import MIMEMultipart
@@ -235,8 +235,8 @@ def mail(to='zjw0358@gmail.com', log=passed):
 
         return await aiosmtplib.send(message, hostname=hostname, port=465, use_tls=True, username=username, password=password)
 
-    def run(content, log=log):
-        return _send(content) | log
+    def run(content):
+        return _send(content)
 
     return run @ P
 
