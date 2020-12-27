@@ -10,7 +10,8 @@ from contextlib import closing
 from collections import deque
 import dill
 import json
-
+import threading
+from tornado.ioloop import IOLoop
 
 try:
     import builtins
@@ -43,7 +44,26 @@ __all__ = [
     'range',
     'sum',
     'get_instances_by_class',
+    'to_json',
+    'cm', 'call_method',
 ]
+
+
+_io_loops = []
+
+
+def get_io_loop(asynchronous=None):
+    if asynchronous:
+        return IOLoop.current()
+
+    if not _io_loops:
+        loop = IOLoop()
+        thread = threading.Thread(target=loop.start)
+        thread.daemon = True
+        thread.start()
+        _io_loops.append(loop)
+
+    return _io_loops[-1]
 
 
 class Pipe:
@@ -70,9 +90,17 @@ class Pipe:
         self.func = func
         functools.update_wrapper(self, func)
 
+    def run_async(self, asyncfunc, callback):
+        self.futs = gen.convert_yielded(asyncfunc)
+        self.loop = get_io_loop()
+        self.loop.add_future(self.futs, lambda x: callback(x.result()))
+
     def __ror__(self, other):
         """左边的 |."""
-        return self.func(other)
+        if isinstance(other, gen.Awaitable):
+            self.run_async(other, self.func)
+        else:
+            return self.func(other)
 
     def __rrshift__(self, other):
         """左边的 >>."""
@@ -798,6 +826,35 @@ to_set = P(set)
 to_str = P(str)
 # zip = P(zip)
 # 这种情况会导致isinstanced等非直接调用方法失败
+
+
+@P
+def to_json(r):
+    if hasattr(r, 'json'):
+        return r.json()
+    elif hasattr(r, 'to_json'):
+        return r.to_json()
+    else:
+        return json.loads(r)
+
+
+@Pipe
+def cm(mkey):
+    "call method by a method key"
+
+    def _cm(obj):
+        for method in dir(obj):
+            if callable(getattr(obj, method)) and mkey in method:
+                return getattr(obj, method)()
+
+    if isinstance(mkey, str):
+        return _cm @ P
+    else:
+        obj, mkey = mkey, 'json'
+        return _cm(obj)
+
+
+call_method = cm
 
 
 if __name__ == "__main__":
