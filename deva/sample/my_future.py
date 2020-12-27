@@ -28,12 +28,15 @@ async def foo2():
 # foo() >> run
 # foo2() >> run
 
-foo1() | attend(log)
+foo1() | log
+
+foo1() | print
 
 foo2() | log
 
+foo2() | attend()
 name = "Masnun"
 
-IPython.embed()
+# IPython.embed()
 
-# Deva().run()
+Deva().run()

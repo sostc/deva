@@ -53,8 +53,8 @@ class run_future(Stream):
         self.loop.add_future(futs, lambda x: self._emit(x.result()))
 
 
-@P
-def attend(stream: Stream = log):
+# @P
+# def attend(stream: Stream = log):
     """安排future执行，并将结果入流
         server=from_http_request()
         server>>log
@@ -73,13 +73,13 @@ def attend(stream: Stream = log):
            ime_info={})
 
     """
-    def _attend(x):
-        assert isinstance(x, gen.Awaitable)
-        futs = gen.convert_yielded(x)
-        get_io_loop().add_future(futs, lambda x: stream._emit(x.result()))
+    # def _attend(x):
+    #     assert isinstance(x, gen.Awaitable)
+    #     futs = gen.convert_yielded(x)
+    #     get_io_loop().add_future(futs, lambda x: stream._emit(x.result()))
 
-    if isinstance(stream, Stream):
-        return _attend @ P
-    else:
-        futs, stream = stream, log
-        return _attend(futs)
+    # if isinstance(stream, Stream):
+    #     return _attend @ P
+    # else:
+    #     futs, stream = stream, log
+    #     return _attend(futs)
