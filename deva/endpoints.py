@@ -2,12 +2,13 @@ from tornado import gen
 from tornado.httpclient import HTTPRequest, HTTPError
 from tornado.httpclient import AsyncHTTPClient
 
-from .pipe import passed
+from .pipe import passed, P
 from .core import Stream
 from .topic import RedisStream
 from .namespace import NB
 from pymaybe import maybe
 import json
+import pandas as pd
 
 
 @Stream.register_api()
@@ -200,6 +201,44 @@ class Dtalk(Stream):
     def send(self, msg):
         from .core import sync
         return sync(self.loop, self.emit, msg)
+
+
+@P
+def mail(to='zjw0358@gmail.com', log=passed):
+    from email.message import EmailMessage
+    import aiosmtplib
+    from email.mime.multipart import MIMEMultipart
+    from email.mime.text import MIMEText
+
+    async def _send(content):
+        username = NB('mail')['username']
+        password = NB('mail')['password']
+        hostname = NB('mail')['hostname']
+        if isinstance(content, tuple):
+            subject = content[0]
+            content = content[1]
+        else:
+            subject = 'deva message'
+
+        if isinstance(content, pd.DataFrame):
+            message = MIMEMultipart("alternative")
+            message["Subject"] = subject
+            message.attach(MIMEText(content.to_html(), "html", "utf-8"))
+        else:
+            content = str(content)
+            message = EmailMessage()
+            message["Subject"] = subject+':'+content[:10]
+            message.set_content(str(content))
+
+        message["To"] = to
+        message["From"] = username
+
+        return await aiosmtplib.send(message, hostname=hostname, port=465, use_tls=True, username=username, password=password)
+
+    def run(content, log=log):
+        return _send(content) | log
+
+    return run @ P
 
 
 if __name__ == '__main__':

@@ -253,6 +253,8 @@ class Stream(object):
                 dead.add(ref)
         cls._instances -= dead
 
+    streams = instances
+
     @classmethod
     def register_api(cls, modifier=identity):
         """ Add callable to Stream API
@@ -524,10 +526,21 @@ class Stream(object):
         from .graph import visualize
         return visualize(self, filename, source_node=source_node, **kwargs)
 
-    def __ror__(self, value):  # |
+    def attend(self, x):
+        """#async等将执行结果入流"""
+        assert isinstance(x, gen.Awaitable)
+        futs = gen.convert_yielded(x)
+        if not self.loop:
+            self.loop = get_io_loop()
+        self.loop.add_future(futs, lambda x: self._emit(x.result()))
+
+    def __ror__(self, x):  # |
         """emit value to stream ,end,return emit result"""
-        self.emit(value)
-        return value
+        if isinstance(x, gen.Awaitable):
+            self.attend(x)
+        else:
+            self.emit(x)
+        return x
 
     def __rrshift__(self, value):  # stream左边的>>
         """emit value to stream ,end,return emit result"""
@@ -934,6 +947,24 @@ class filter(Stream):
             return self._emit(x)
 
 
+@gen.coroutine
+def httpx(req, render=False, **kwargs):
+    httpclient = AsyncHTMLSession(workers=1)
+    try:
+        if isinstance(req, str):
+            response = yield httpclient.get(req)
+        elif isinstance(req, dict):
+            response = yield httpclient.get(**req)
+
+        if render:
+            yield response.html.arender(**kwargs)
+
+        return response
+    except Exception as e:
+        (req, e) >> print
+        logger.exception(e)
+
+
 @Stream.register_api()
 class http(Stream):
     """自动http 流中的url，返回response对象.
@@ -1056,6 +1087,8 @@ class http(Stream):
     def get(cls, url, **kwargs):
         return cls.request(url, **kwargs)
 
+    x = httpx
+
 
 def sync(loop, func, *args, **kwargs):
     """
@@ -1111,9 +1144,9 @@ def sync(loop, func, *args, **kwargs):
 class Deva():
     @classmethod
     def run(cls,):
-        l = IOLoop()
-        l.make_current()
-        l.start()
+        loop = IOLoop()
+        loop.make_current()
+        loop.start()
 
         # loop = get_io_loop(asynchronous=False)
         # loop.make_current()
