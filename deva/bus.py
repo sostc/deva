@@ -14,7 +14,7 @@ import datetime
 # from .endpoints import Dtalk
 
 __all__ = [
-    'log', 'warn', 'debug',  'bus'
+    'log', 'warn', 'debug', 'bus',
 ]
 
 warn = NS('warn')
