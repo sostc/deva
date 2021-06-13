@@ -3,6 +3,7 @@ import time
 
 from .pipe import passed
 from .core import Stream
+from .utils.simhash import Simhash, SimhashIndex
 
 from whoosh.fields import Schema, TEXT, ID
 import whoosh.index
@@ -10,6 +11,10 @@ from whoosh.writing import AsyncWriter
 from whoosh.qparser import MultifieldParser
 
 from jieba.analyse import ChineseAnalyzer
+import jieba
+import jieba.analyse
+
+import numpy as np
 
 
 @Stream.register_api()
@@ -63,7 +68,7 @@ class IndexStream(Stream):
         _id, content = x.popitem()
         _id = str(_id)
         content = str(content)
-        aindex = AsyncWriter(self.index, delay=0.001)
+        aindex = AsyncWriter(self.index, delay=0.0001)
         aindex.update_document(content=content, id=_id)
         aindex.commit()
 
@@ -73,3 +78,40 @@ class IndexStream(Stream):
         parser = MultifieldParser(list(fields), self.index.schema)
         q = parser.parse(query)
         return (i for i in search.refresh().search(q, limit=limit))
+
+    def get_tags(self, content):
+        tags = jieba.analyse.extract_tags(content, topK=20, withWeight=0)
+        if tags == []:
+            return [content]
+        else:
+            return tags
+
+    def get_features(self, content):
+        tags = jieba.analyse.extract_tags(content, topK=20, withWeight=1)
+        if tags == []:
+            return [content]
+        else:
+            return tags
+
+    def ask(self, question):
+        ll = []
+        tags = self.get_tags(question)
+        features = self.get_features(question)
+        for i in tags:
+            l = self.search(i, limit=30) >> ls
+            ll.extend(l)
+
+        data = enumerate(ll) >> ls >> dict@P
+        if len(data) == 1:
+            return data[0]['content']
+
+        objs = [(str(k), Simhash(features)) for k, v in data.items()]
+        if objs == []:
+            return None
+
+        _index = SimhashIndex(objs)
+        obj_id, distance = _index.get_near_dups(Simhash(features))
+        # ,data.values()|pmap(lambda x:x['content'])|unique@P|ls
+        return data[int(obj_id)]['content'].replace('\u3000\u3000', '\n')
+#         except Exception as e:
+#             return e

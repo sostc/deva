@@ -30,7 +30,7 @@ __all__ = [
     'dedup', 'uniq', 'to_dataframe', 'pmap', 'pfilter', 'post_to',
     'head', 'read', 'tcp_write', 'write_to_file', 'size', 'ls', 'range',
     'sum', 'split', 'sample', 'extract', 'readlines', 'last',
-    'abs', 'type', 'll',
+    'abs', 'type', 'll', 'pslice',
     'dir', 'help',
     'eval',
     'hash',
@@ -387,6 +387,13 @@ def split(sep="\n"):
 
 
 @Pipe
+def pslice(start, end):
+    def _(iteration):
+        return iteration[start:end]
+    return _ @ P
+
+
+@Pipe
 def attr(name):
     def _(object):
         return getattr(object, name)
@@ -652,7 +659,7 @@ def post_to(url='http://127.0.0.1:7777', asynchronous=True, headers={}):
     def _encode(body):
         if not isinstance(body, bytes):
             try:
-                body = json.dumps(body)
+                body = json.dumps(body, ensure_ascii=False)
             except TypeError:
                 body = dill.dumps(body)
         return body
@@ -760,15 +767,18 @@ def extract(typ='chinese'):
     import re
 
     url_regex = re.compile(
-        '(?:(?:https?|ftp|file)://|www\.|ftp\.)[-A-Z0-9+&@#/%=~_|$?!:,.]*[A-Z0-9+&@#/%=~_|$]', re.IGNORECASE)
+        r'(?:(?:https?|ftp|file)://|www\.|ftp\.)[-A-Z0-9+&@#/%=~_|$?!:,.]*[A-Z0-9+&@#/%=~_|$]', re.IGNORECASE)
     email_regex = re.compile(
-        '([A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,4})', re.IGNORECASE)
+        r'([A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,4})', re.IGNORECASE)
 
-    def _(text: str)->list:
+    def _(text: str) -> list:
         if typ == 'chinese':
             return re.findall(r"[\u4e00-\u9fa5]+", text)
         elif typ == 'numbers' or typ == 'number':
-            return re.findall("[+-]?\d+\.*\d+", text) >> pmap(lambda x: float(x) if '.' in x else int(x)) >> ls
+            return re.findall(
+                r"[+-]?\d+\.*\d*", text
+            ) >> pmap(lambda x:
+                      float(x) if '.' in x else int(x)) >> ls
         elif typ == 'table':
             import pandas as pd
             return pd.read_html(text)

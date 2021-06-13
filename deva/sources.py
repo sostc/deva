@@ -1,7 +1,7 @@
 import subprocess
 import json
 from tornado.web import RequestHandler, Application
-from tornado.httpserver import HTTPServer
+# from tornado.httpserver import HTTPServer
 from tornado import gen
 from tornado.tcpserver import TCPServer
 from tornado.tcpclient import TCPClient
@@ -31,19 +31,6 @@ def PeriodicCallback(callback, callback_time, asynchronous=False, **kwargs):
     pc = tornado.ioloop.PeriodicCallback(_, callback_time, **kwargs)
     pc.start()
     return source
-
-
-def sink_to_file(filename, upstream, mode='w',
-                 prefix='', suffix='\n', flush=False):
-    file = open(filename, mode=mode)
-
-    def write(text):
-        file.write(prefix + text + suffix)
-        if flush:
-            file.flush()
-
-    upstream.sink(write)
-    return file
 
 
 class Source(Stream):
@@ -287,6 +274,12 @@ class from_http_server(Source):
             @gen.coroutine
             def post(self):
                 yield self.source._emit(self.request.body)
+                self.write('OK')
+
+            @gen.coroutine
+            def get(self):
+                response = self.get_arguments("question")
+                yield self.source._emit(response)
                 self.write('OK')
 
         application = Application([
