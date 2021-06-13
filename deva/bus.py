@@ -11,6 +11,8 @@ Exsample::
 import logging
 from .namespace import NS, NT
 import datetime
+import atexit
+
 # from .endpoints import Dtalk
 
 __all__ = [
@@ -39,6 +41,22 @@ log.sink(log_print)
 
 
 bus = NT('bus')
+
+
+@atexit.register
+def exit():
+    """进程退出时发信号到log.
+
+    Examples:
+    ----------
+    when('exit',source=log).then(lambda :print('bye bye'))
+    """
+    #
+    try:
+        bus.stop()
+    except Exception as e:
+        e >> log
+
 
 debug = NS('debug')
 # debug.map(str).unique() >> Dtalk()

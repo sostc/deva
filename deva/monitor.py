@@ -21,7 +21,6 @@ from .namespace import NB, NS
 from .bus import log
 from .pipe import ls, pmap, concat, head, sample
 from .page import Page
-import pandas as pd
 import datetime
 
 
@@ -121,6 +120,7 @@ class StreamConnection(SockJSConnection):
         json.loads(msg) >> self._in_stream
 
     def process_msg(self, msg):
+        import pandas as pd
         stream_id = msg['stream_id']
         'view:%s:%s:%s' % (stream_id, self.request.ip,
                            datetime.datetime.now()) >> log

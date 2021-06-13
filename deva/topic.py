@@ -40,29 +40,26 @@ class RedisStream(Stream):
         self.max_len = max_len
 
         super(RedisStream, self).__init__(ensure_io_loop=True, **kwargs)
-        self.redis = sync(self.loop, self.conn)
-        # self.loop.add_callback(self.conn)
+        self.redis = None
         self.stopped = True
         if start:
             self.start()
 
     @gen.coroutine
-    def conn(self,):
-        self.redis_read = yield aioredis.create_redis(self.redis_address, password=self.redis_password, loop=self.loop)
-        self.redis_write = yield aioredis.create_redis(self.redis_address, password=self.redis_password, loop=self.loop)
-
-    @gen.coroutine
     def process(self):
-        exists = yield self.redis_read.exists(self.topic)
+        if not self.redis:
+            self.redis = yield aioredis.create_redis(self.redis_address, password=self.redis_password, loop=self.loop)
+
+        exists = yield self.redis.exists(self.topic)
         if not exists:
-            yield self.redis_read.xadd(self.topic, {'data': dill.dumps('go')})
+            yield self.redis.xadd(self.topic, {'data': dill.dumps('go')})
         try:
-            yield self.redis_read.xgroup_create(self.topic, self.group)
+            yield self.redis.xgroup_create(self.topic, self.group)
         except Exception as e:
             print(e)
 
         while True:
-            result = yield self.redis_read.xread_group(self.group, self.consumer, [self.topic], count=1, latest_ids=['>'])
+            result = yield self.redis.xread_group(self.group, self.consumer, [self.topic], count=1, latest_ids=['>'])
             data = dill.loads(result[0][2][b'data'])
             self._emit(data)
             if self.stopped:
@@ -70,7 +67,9 @@ class RedisStream(Stream):
 
     @gen.coroutine
     def _send(self, data):
-        yield self.redis_write.xadd(self.topic, {'data': dill.dumps(data)}, max_len=self.max_len)
+        if not self.redis:
+            self.redis = yield aioredis.create_redis(self.redis_address, password=self.redis_password, loop=self.loop)
+        yield self.redis.xadd(self.topic, {'data': dill.dumps(data)}, max_len=self.max_len)
 
     def emit(self, x, asynchronous=True):
         self.loop.add_callback(self._send, x)
@@ -83,6 +82,7 @@ class RedisStream(Stream):
 
     def stop(self,):
         self.stopped = True
+        self.redis.close()
 
 
 @Stream.register_api()
