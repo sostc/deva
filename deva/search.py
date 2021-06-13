@@ -1,7 +1,7 @@
 import os
 import time
 
-from .pipe import passed
+from .pipe import passed, ls, P
 from .core import Stream
 from .utils.simhash import Simhash, SimhashIndex
 
@@ -13,8 +13,6 @@ from whoosh.qparser import MultifieldParser
 from jieba.analyse import ChineseAnalyzer
 import jieba
 import jieba.analyse
-
-import numpy as np
 
 
 @Stream.register_api()
@@ -102,6 +100,8 @@ class IndexStream(Stream):
             ll.extend(l)
 
         data = enumerate(ll) >> ls >> dict@P
+        if len(data) == 0:
+            return None
         if len(data) == 1:
             return data[0]['content']
 

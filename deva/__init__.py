@@ -16,6 +16,7 @@ from .pipe import *
 from .monitor import Monitor
 from .page import page
 from .state import *
+from .lambdas import _ as x
 
 try:
     # import panel as pn
@@ -24,4 +25,4 @@ try:
 except ImportError:
     pass
 
-__version__ = '1.0.9'
+__version__ = '1.1.2'
