@@ -8,7 +8,6 @@ from .topic import RedisStream
 from .namespace import NB
 from pymaybe import maybe
 import json
-import pandas as pd
 
 
 @Stream.register_api()
@@ -205,6 +204,9 @@ class Dtalk(Stream):
 
 @P
 def mail(to='zjw0358@gmail.com'):
+    import pandas as pd
+
+    """123>>mail()|print"""
     from email.message import EmailMessage
     import aiosmtplib
     from email.mime.multipart import MIMEMultipart

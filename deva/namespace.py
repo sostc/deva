@@ -127,16 +127,7 @@ def NW(name='', host='127.0.0.1', port=9999, start=True):
 
     Example usage::
 
-        123>>NX('a')
-        assert NX('a').data == 123
-
-        10|range|sum|NX('a')
-        assert NX('a').data ==45
-
-        f = lambda x:x>>NX('b')
-        f(10)
-        assert NX('b').data ==10
-
+         pass
 
     """
     return namespace.create(typ='webserver', name=name, host=host, port=port, start=start)

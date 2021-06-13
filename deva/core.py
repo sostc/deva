@@ -1,4 +1,5 @@
 from __future__ import absolute_import, division, print_function
+import os
 
 import collections
 from datetime import datetime, timedelta
@@ -485,13 +486,13 @@ class Stream(object):
     def concat(self):
         return self.flatten
 
-    def sink_to_list(self):
+    def to_list(self):
         """ Append all elements of a stream to a list as they come in
 
         Examples
         --------
         >>> source = Stream()
-        >>> L = source.map(lambda x: 10 * x).sink_to_list()
+        >>> L = source.map(lambda x: 10 * x).to_list()
         >>> for i in range(5):
         ...     source.emit(i)
         >>> L
@@ -640,8 +641,8 @@ class Stream(object):
         """
         return match(ref,
                      list, lambda ref: self.sink(ref.append),
-                     io.TextIOWrapper, lambda ref: self.sink_to_textfile(ref),
-                     str, lambda ref: self.map(str).sink_to_textfile(ref),
+                     io.TextIOWrapper, lambda ref: self.to_textfile(ref),
+                     str, lambda ref: self.map(str).to_textfile(ref),
                      Stream, lambda ref: self.sink(ref.emit),
                      # 内置函数被转换成pipe，不能pipe优先，需要stream的sink优先
                      # Pipe, lambda ref: ref(self),
@@ -747,7 +748,7 @@ class sink(Sink):
     See Also
     --------
     map
-    Stream.sink_to_list
+    Stream.to_list
     """
 
     def __init__(self, upstream, func, *args, **kwargs):
@@ -772,7 +773,7 @@ class sink(Sink):
 
 
 @Stream.register_api()
-class sink_to_textfile(Sink):
+class to_textfile(Sink):
     """ Write elements to a plain text file, one element per line.
         Type of elements must be ``str``.
         Parameters
@@ -790,7 +791,7 @@ class sink_to_textfile(Sink):
         Examples
         --------
         >>> source = Stream()
-        >>> source.map(str).sink_to_textfile("test.txt")
+        >>> source.map(str).to_textfile("test.txt")
         >>> source.emit(0)
         >>> source.emit(1)
         >>> print(open("test.txt", "r").read())
@@ -1097,6 +1098,8 @@ def sync(loop, func, *args, **kwargs):
     # This was taken from distrbuted/utils.py
 
     # Tornado's PollIOLoop doesn't raise when using closed, do it ourselves
+    if not loop:
+        loop = get_io_loop()
     if PollIOLoop\
         and ((isinstance(loop, PollIOLoop)
               and getattr(loop, '_closing', False))
@@ -1154,3 +1157,6 @@ class Deva():
         # l = asyncio.new_event_loop()
 
         # l.run_forever()
+
+
+print(os.getpid())
