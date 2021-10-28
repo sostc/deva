@@ -531,8 +531,7 @@ class Stream(object):
         """#async等将执行结果入流"""
         assert isinstance(x, gen.Awaitable)
         futs = gen.convert_yielded(x)
-        if not self.loop:
-            self.loop = get_io_loop()
+        self.loop = self.loop or get_io_loop()
         self.loop.add_future(futs, lambda x: self._emit(x.result()))
 
     def __ror__(self, x):  # |
@@ -1098,8 +1097,7 @@ def sync(loop, func, *args, **kwargs):
     # This was taken from distrbuted/utils.py
 
     # Tornado's PollIOLoop doesn't raise when using closed, do it ourselves
-    if not loop:
-        loop = get_io_loop()
+    loop = loop or get_io_loop()
     if PollIOLoop\
         and ((isinstance(loop, PollIOLoop)
               and getattr(loop, '_closing', False))

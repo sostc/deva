@@ -153,8 +153,7 @@ class Dtalk(Stream):
     @gen.coroutine
     def post(self, msg: str, log: Stream) -> dict:
         # 二进制或者set类型的,转成json格式前需要先转类型
-        if not isinstance(msg, str):
-            msg = str(msg)
+        msg = str(msg)
 
         data = {"msgtype": "text", "text": {"content": msg},
                 "at": {"atMobiles": [], "isAtAll": False}}
