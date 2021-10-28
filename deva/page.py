@@ -343,8 +343,7 @@ class Page(object):
 
     def route_(self, rule, methods=None, werkzeug_route=None,
                tornado_route=None, handler_bases=None, fn=None, nowrap=None):
-        if not methods:
-            methods = ['GET']
+        methods = methods or ['GET']
 
         clsname = '%sHandler' % fn.__name__.capitalize()
         # TODO: things get complicated if you use your own base class and debug=True
@@ -434,9 +433,7 @@ class Page(object):
 
     def run(self, port=9999, host="127.0.0.1", **settings):
         self.debug = settings.get('debug', False)
-        template_path = settings.get('template_path')
-        if not template_path:
-            settings['template_path'] = self.template_path
+        settings['template_path'] = settings.get('template_path') or self.template_path
         if self.debug:
             if with_wsgi_adapter:
                 import tornado.httpserver
@@ -563,10 +560,8 @@ class PageServer(object):
 
 
 def webview(s, url='/', server=None):
-    if not url.startswith('/'):
-        url = '/'+url
-    if not server:
-        server = NW('stream_webview')
+    url = url if url.startswith('/') else '/'+url
+    server = server or NW('stream_webview')
     server.streams[url].append(s)
 
     page.route(url)(lambda: render_template(
