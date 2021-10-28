@@ -33,9 +33,7 @@ class RedisStream(Stream):
         self.topic = topic
         self.redis_address = address
         self.redis_password = password
-        if not group:
-            group = hash(self)+hash(time.time())
-        self.group = group
+        self.group = group or hash(self)+hash(time.time())
         self.consumer = hash(self)
         self.max_len = max_len
 

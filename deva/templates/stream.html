@@ -1,6 +1,6 @@
 <title>Deva流实时看板</title>
 <link rel="alternate icon" class="js-site-favicon" type="image/png" href="https://raw.githubusercontent.com/sostc/deva/master/fav.png">
-    <script src="https://code.jquery.com/jquery-3.4.0.slim.min.js" integrity="sha256-ZaXnYkHGqIhqTbJ6MB4l9Frs/r7U4jlx7ir8PJYBqbI=" crossorigin="anonymous"></script>
+    <!-- <script src="https://code.jquery.com/jquery-3.4.0.slim.min.js" integrity="sha256-ZaXnYkHGqIhqTbJ6MB4l9Frs/r7U4jlx7ir8PJYBqbI=" crossorigin="anonymous"></script> -->
     <script src="https://cdn.jsdelivr.net/npm/sockjs-client@1/dist/sockjs.min.js"></script>
 
     <script>
@@ -13,7 +13,8 @@
         };
 
         sock.onmessage = function(e) {
-            $("#text").html(JSON.parse(e.data).data);
+            // $("#text").html(JSON.parse(e.data).data);
+            document.getElementById("text").innerHTML = JSON.parse(evt.data).data;
         };
 
         sock.onclose = function() {
