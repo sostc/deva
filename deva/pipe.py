@@ -46,6 +46,7 @@ __all__ = [
     'get_instances_by_class',
     'to_json',
     'cm', 'call_method',
+    'sw', 'sliding_window',
 ]
 
 
@@ -849,7 +850,7 @@ def to_json(r):
 
 
 @Pipe
-def cm(mkey):
+def call_method(mkey):
     "call method by a method key"
 
     def _cm(obj):
@@ -864,8 +865,34 @@ def cm(mkey):
         return _cm(obj)
 
 
-call_method = cm
+cm = call_method
 
+
+@Pipe
+def sliding_window(qte: int = 2):
+    "Returns a sliding window (of width n) over data from the iterable"
+    "   s -> (s0,s1,...s[n-1]), (s1,s2,...,sn), ...     "
+    "range(100)>>sample(10)>>sw>>tee>>pmap(sum)>>tee>>max"
+    def _window(iterable):
+        i = qte
+        "Returns a sliding window (of width n) over data from the iterable"
+        "   s -> (s0,s1,...s[n-1]), (s1,s2,...,sn), ...                   "
+        it = iter(iterable)
+        result = tuple(islice(it, i))
+        if len(result) == i:
+            yield result
+        for elem in it:
+            result = result[1:] + (elem,)
+            yield result
+
+    if isinstance(qte, int):
+        return _window @ P
+    else:
+        iterable, qte = qte, 2
+        return _window(iterable)
+
+
+sw = sliding_window
 
 if __name__ == "__main__":
     import doctest

@@ -16,6 +16,7 @@ from .core import Stream
 from .namespace import NB
 
 import logging
+import asyncio
 
 
 logger = logging.getLogger(__name__)
@@ -720,6 +721,28 @@ class from_mail(Source):
 
     def logout(self):
         self.imbox.logout()
+
+
+@Stream.register_api(staticmethod)
+class from_periodic(Source):
+    """Generate data from a function on given period
+    cf ``streamz.dataframe.PeriodicDataFrame``
+    Parameters
+    ----------
+    callback: callable
+        Function to call on each iteration. Takes no arguments.
+    poll_interval: float
+        Time to sleep between calls (s)
+    """
+
+    def __init__(self, callback, poll_interval=0.1, **kwargs):
+        self._cb = callback
+        self._poll = poll_interval
+        super().__init__(**kwargs)
+
+    async def _run(self):
+        await asyncio.gather(*self._emit(self._cb()))
+        await asyncio.sleep(self._poll)
 
 
 def gen_block_test() -> int:
