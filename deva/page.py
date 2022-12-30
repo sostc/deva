@@ -35,7 +35,8 @@ import tornado.web
 import tornado.wsgi
 import contextlib
 from functools import partial
-from werkzeug.routing import Map, Rule, _rule_re
+from werkzeug.routing import Map, Rule
+import re
 import os
 import inspect
 from werkzeug.local import LocalStack, LocalProxy
@@ -67,6 +68,22 @@ try:
 except Exception:
     # python 2.6
     pass
+
+
+_rule_re = re.compile(
+    r"""
+    (?P<static>[^<]*)                           # static rule data
+    <
+    (?:
+        (?P<converter>[a-zA-Z_][a-zA-Z0-9_]*)   # converter name
+        (?:\((?P<args>.*?)\))?                  # converter arguments
+        \:                                      # variable delimiter
+    )?
+    (?P<variable>[a-zA-Z_][a-zA-Z0-9_]*)        # variable name
+    >
+    """,
+    re.VERBOSE,
+)
 
 
 def _lookup_handler_object(name):
