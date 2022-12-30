@@ -630,7 +630,7 @@ class Stream(object):
         return self.catch(func).__call__ @ P
 
     def __rxor__(self, func):
-        """左边的 ~.，函数异常入流.优先级不高"""
+        """左边的 ^.，函数异常入流.优先级不高"""
         return self.catch_except(func).__call__ @ P
 
     def __rshift__(self, ref):  # stream右边的
@@ -1145,12 +1145,12 @@ def sync(loop, func, *args, **kwargs):
 class Deva():
     @classmethod
     def run(cls,):
-        # loop = IOLoop()
-        # loop.make_current()
-        # loop.start()
+        loop = IOLoop()
+        loop.make_current()
+        loop.start()
 
-        loop = get_io_loop(asynchronous=False)
-        loop.instance().start()
+        # loop = get_io_loop(asynchronous=False)
+        # loop.instance().start()
         # import asyncio
         # l = asyncio.new_event_loop()
 
