@@ -27,7 +27,7 @@ import datetime
 monitor_page = Page()
 
 
-@monitor_page.route('/')
+@monitor_page.route(r'/')
 @gen.coroutine
 def get(self, *args, **kwargs):
     # 取出所有有缓冲设置且有名称的流实例,类似NS('当下行情数据抽样',cache_max_len=1)
@@ -38,7 +38,7 @@ def get(self, *args, **kwargs):
                 tablenames=tables, sock_url='/')
 
 
-@monitor_page.route("/allstreams")
+@monitor_page.route(r"/allstreams")
 @gen.coroutine
 def allstreams(self):
     s_list = [s for s in Stream.instances()]
@@ -52,14 +52,14 @@ def allstreams(self):
     self.write(result)
 
 
-@monitor_page.route('/alltables')
+@monitor_page.route(r'/alltables')
 @gen.coroutine
 def get_tables(self,):
     data = NB('default').tables >> pmap(lambda x: f'<li><a class="Stream" href="table/{x}">{x}</a></li>') >> concat('')
     self.write(data)
 
 
-@monitor_page.route('/table/<tablename>')
+@monitor_page.route(r'/table/<tablename>')
 @gen.coroutine
 def get_table_keys(self, tablename):
     keys = sample(20) << NB(tablename).keys()
@@ -67,7 +67,7 @@ def get_table_keys(self, tablename):
     self.write(data)
 
 
-@monitor_page.route('/table/<tablename>/<key>')
+@monitor_page.route(r'/table/<tablename>/<key>')
 def get_table_values(tablename, key):
     import pandas as pd
     data = NB(tablename).get(key)
@@ -78,13 +78,14 @@ def get_table_values(tablename, key):
     elif isinstance(data, dict):
         return json.dumps(data, ensure_ascii=False)
     elif isinstance(data, pd.DataFrame):
-        return json.dumps(data.head(250)
-                          .to_dict(orient='records'), ensure_ascii=False)
+        # return json.dumps(data.head(250)
+        #                   .to_dict(orient='records'), ensure_ascii=False)
+        return data.head(250).to_html()
     else:
-        return json.dumps({key: data}, ensure_ascii=False)
+        return json.dumps({key: str(data)}, ensure_ascii=False)
 
 
-@monitor_page.route('/stream/<name_or_id>')
+@monitor_page.route(r'/stream/<name_or_id>')
 def get_stream(self, name_or_id):
     try:
         stream = [stream for stream in Stream.instances(
@@ -162,32 +163,37 @@ def exec_command(command):
         if '=' in command:  # 执行赋值语句
             v, ex = command.replace(' ', '').split('=')
             globals()[v] = eval(ex)
-            return f'exec:{command}'
+            return f'exec:{command}\n'
         else:  # 执行普通表达式
             anwser = eval(command)
-            return f'eval:{command}</br>anwser:{anwser}'
+            return f'{command}\n{anwser}\n'
     except Exception as e:
-        return e
+        return str(e)
 
 
 exec_room = chatroom.map(exec_command)
 exec_room.start_cache(200)
-exec_room.map(lambda x: exec_room.recent(5) | concat('</br>')) >> NS('执行代码')
+exec_room.map(lambda x: exec_room.recent(1) | concat('\n$:')) >> NS('执行代码')
 
 
 class ChatConnection(StreamConnection):
     def on_open(self, request):
+        self.command = ''
         self.out_stream = NS('执行代码')
         self.out_stream.sink(self.send)
-        maybe(NS('执行代码')).recent(1)[0].or_else('暂无数据') >> self.out_stream
+        maybe(NS('执行代码')).recent(1)[0].or_else('$') >> self.out_stream
 
         self.request = request
         self.request.ip = maybe(self.request.headers)[
             'x-forward-for'].or_else(self.request.ip)
 
     def on_message(self, msg):
-        msg >> chatroom
-        f'{msg}:{self.request.ip}:{datetime.datetime.now()}' >> log
+        msg >> self.out_stream
+        self.command += msg
+        if msg == '\r':  # 收到回车
+            (exec(self.command[:-1])+'\n$:', globals()) >> self.out_stream
+            self.command = ''
+            f'{msg}:{self.request.ip}:{datetime.datetime.now()}' >> log
 
 
 class Monitor(object):

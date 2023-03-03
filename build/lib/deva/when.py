@@ -17,6 +17,7 @@ def exit():
     when('exit',source=log).then(lambda :print('bye bye'))
     """
     #
+
     return 'exit' >> log
 
 
@@ -144,7 +145,7 @@ class timer(Stream):
     @gen.coroutine
     def run(self):
         while True:
-            if self.ttl and time.time()-self._start_time > self.ttl:
+            if self.ttl and time.time() - self._start_time > self.ttl:
                 self.stop()
 
             if self.thread:

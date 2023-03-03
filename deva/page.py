@@ -49,7 +49,7 @@ from sockjs.tornado import SockJSRouter, SockJSConnection
 import json
 from tornado import gen
 from .core import Stream
-from .bus import log
+from .bus import log, bus
 from .pipe import ls
 import datetime
 from .namespace import NW
@@ -439,7 +439,7 @@ class Page(object):
         if use_werkzeug_route:
             r = Rule(rule, methods=methods)
             self.url_map.add(r)
-            r.compile()
+            # r.compile()
             pattern = r._regex.pattern.replace('^\\|', "")
             self.registery[pattern] = klass
         else:
@@ -550,7 +550,7 @@ page = Page()
 class PageServer(object):
     page = page
 
-    def __init__(self, name='default', host='127.0.0.1', port=9999, start=False):
+    def __init__(self, name='default', host='127.0.0.1', port=9999, start=False, **kwargs):
         self.name = name
         self.page = page
         self.port = port
@@ -560,7 +560,8 @@ class PageServer(object):
         self.StreamRouter = SockJSRouter(StreamsConnection, r'')
         self.application = tornado.web.Application(
             self.page.get_routes() +
-            self.StreamRouter.urls
+            self.StreamRouter.urls,
+            **kwargs
         )
         if start:
             self.start()
@@ -572,8 +573,8 @@ class PageServer(object):
         self.server = self.application.listen(self.port)
         os.system(f'open http://{self.host}:{self.port}/')
 
-    def close(self):
-        self.server.close()
+    def stop(self):
+        self.server.stop()
 
 
 def webview(s, url='/', server=None):
@@ -586,6 +587,7 @@ def webview(s, url='/', server=None):
     server.add_page(page)
     print('start webview:', 'http://'+server.host+':'+str(server.port)+url)
     print('with these streams:', server.streams[url])
+    return server
 
 
 Stream.webview = webview

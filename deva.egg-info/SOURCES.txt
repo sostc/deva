@@ -9,10 +9,12 @@ deva/dask.py
 deva/endpoints.py
 deva/future.py
 deva/graph.py
+deva/lambdas.py
 deva/monitor.py
 deva/namespace.py
 deva/page.py
 deva/pipe.py
+deva/river.py
 deva/search.py
 deva/sources.py
 deva/state.py
@@ -43,5 +45,6 @@ deva/templates/monitor.html
 deva/templates/stream.html
 deva/templates/streams.html
 deva/utils/__init__.py
+deva/utils/simhash.py
 deva/utils/sqlitedict.py
 deva/utils/whooshalchemy.py

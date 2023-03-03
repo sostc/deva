@@ -18,6 +18,8 @@ from .namespace import NB
 import logging
 import asyncio
 
+from urllib.parse import unquote
+
 
 logger = logging.getLogger(__name__)
 
@@ -543,9 +545,9 @@ class from_http_request(Stream):
                 二进制可能是图像等直接可用的二进制,也可能是dill编码的二进制pyobject
                 """
                 try:
-                    body = json.loads(body)
-                except TypeError:
                     body = dill.loads(body)
+                except TypeError:
+                    body = json.loads(body)
                 except ValueError:
                     body = body.decode('utf-8')
                 finally:
@@ -557,6 +559,10 @@ class from_http_request(Stream):
                 yield self.source._emit(self.request.body)
                 self.write('OK')
 
+            @gen.coroutine
+            def get(self):
+                self.write(dill.dumps(self.source.recent()))
+
         self.application = Application([
             (self.path, Handler),
         ])
@@ -567,6 +573,7 @@ class from_http_request(Stream):
         if self.stopped:
             self.stopped = False
             self._start_server()
+            self.start_cache(5, 60*60*48)
             # self.loop.add_callback(self._start_server)#这个会导致在端口占用情况下不报错
 
     def stop(self):
@@ -743,6 +750,77 @@ class from_periodic(Source):
     async def _run(self):
         await asyncio.gather(*self._emit(self._cb()))
         await asyncio.sleep(self._poll)
+
+
+@Stream.register_api(staticmethod)
+class http_topic(Stream):
+    """Receive data from http request,emit httprequest data to stream."""
+
+    def __init__(self, port=7777, path='/.*', start=False, server_kwargs=None):
+        self.port = port
+        self.path = path
+        self.server_kwargs = server_kwargs or {}
+        super(http_topic, self).__init__(ensure_io_loop=True)
+        self.stopped = True
+        self.server = None
+        if start:  # pragma: no cover
+            self.start()
+
+    def _start_server(self):
+        class Handler(RequestHandler):
+            source = self
+
+            def _loads(self, body):
+                """解析从web端口提交过来的数据.
+
+                可能的数据有字符串和二进制,
+                字符串可能是直接字符串,也可能是json编码后的字符串
+                二进制可能是图像等直接可用的二进制,也可能是dill编码的二进制pyobject
+                """
+                try:
+                    body = dill.loads(body)
+                except TypeError:
+                    body = json.loads(body)
+                except ValueError:
+                    body = body.decode('utf-8')
+                finally:
+                    return body
+
+            @gen.coroutine
+            def post(self):
+                self.request.body = self._loads(self.request.body)
+                yield self.source._emit(self.request.body)
+                self.write('OK')
+
+            @gen.coroutine
+            def get(self):
+                topic = unquote(self.request.path)
+                if topic == '/':
+                    data = self.source.recent()
+                else:
+                    data = NS(topic.split('/')[1]).recent()
+
+                self.write(dill.dumps(data))
+
+        self.application = Application([
+            (self.path, Handler),
+        ])
+        # self.server = HTTPServer(application, **self.server_kwargs)
+        self.server = self.application.listen(self.port)
+
+    def start(self):
+        if self.stopped:
+            self.stopped = False
+            self._start_server()
+            self.start_cache(5, 60*60*48)
+            # self.loop.add_callback(self._start_server)#这个会导致在端口占用情况下不报错
+
+    def stop(self):
+        """Shutdown HTTP server."""
+        if not self.stopped:
+            self.server.stop()
+            self.server = None
+            self.stopped = True
 
 
 def gen_block_test() -> int:

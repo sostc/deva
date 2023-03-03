@@ -19,7 +19,7 @@ An example of a streaming process and web view
 .. code-block:: python
 
     # coding: utf-8
-    from deva.page import page, Streaming, render_template
+    from deva.page import page, render_template
     from deva import *
 
     # 系统日志监控
