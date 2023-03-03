@@ -130,4 +130,4 @@ def NW(name='', host='127.0.0.1', port=9999, start=True):
          pass
 
     """
-    return namespace.create(typ='webserver', name=name, host=host, port=port, start=start)
+    return namespace.create(typ='webserver', name=name, host=host, port=port, start=start, debug=True)

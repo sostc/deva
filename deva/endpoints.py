@@ -108,7 +108,6 @@ class Dtalk(Stream):
 
     def __init__(self, webhook=None, secret=None, log=passed,
                  max_retries=3, asynchronous=True, **kwargs):
-        # todo 实现一个同步的dtalk
         self.log = log
         super(Dtalk, self).__init__(ensure_io_loop=True, **kwargs)
 
@@ -148,6 +147,7 @@ class Dtalk(Stream):
 
     @gen.coroutine
     def emit(self, msg: str, asynchronous=False) -> dict:
+        super().emit(msg)
         yield self.post(msg, self.log)
 
     @gen.coroutine
@@ -197,6 +197,7 @@ class Dtalk(Stream):
                 } >> log
 
     def send(self, msg):
+        # 同步的发送
         from .core import sync
         return sync(self.loop, self.emit, msg)
 

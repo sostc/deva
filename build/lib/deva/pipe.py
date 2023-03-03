@@ -10,7 +10,8 @@ from contextlib import closing
 from collections import deque
 import dill
 import json
-
+import threading
+from tornado.ioloop import IOLoop
 
 try:
     import builtins
@@ -29,7 +30,7 @@ __all__ = [
     'dedup', 'uniq', 'to_dataframe', 'pmap', 'pfilter', 'post_to',
     'head', 'read', 'tcp_write', 'write_to_file', 'size', 'ls', 'range',
     'sum', 'split', 'sample', 'extract', 'readlines', 'last',
-    'abs', 'type', 'll',
+    'abs', 'type', 'll', 'pslice',
     'dir', 'help',
     'eval',
     'hash',
@@ -43,7 +44,27 @@ __all__ = [
     'range',
     'sum',
     'get_instances_by_class',
+    'to_json',
+    'cm', 'call_method',
+    'sw', 'sliding_window',
 ]
+
+
+_io_loops = []
+
+
+def get_io_loop(asynchronous=None):
+    if asynchronous:
+        return IOLoop.current()
+
+    if not _io_loops:
+        loop = IOLoop()
+        thread = threading.Thread(target=loop.start)
+        thread.daemon = True
+        thread.start()
+        _io_loops.append(loop)
+
+    return _io_loops[-1]
 
 
 class Pipe:
@@ -70,9 +91,17 @@ class Pipe:
         self.func = func
         functools.update_wrapper(self, func)
 
+    def run_async(self, asyncfunc, callback):
+        self.futs = gen.convert_yielded(asyncfunc)
+        self.loop = get_io_loop()
+        self.loop.add_future(self.futs, lambda x: callback(x.result()))
+
     def __ror__(self, other):
         """左边的 |."""
-        return self.func(other)
+        if isinstance(other, gen.Awaitable):
+            self.run_async(other, self.func)
+        else:
+            return self.func(other)
 
     def __rrshift__(self, other):
         """左边的 >>."""
@@ -359,6 +388,13 @@ def split(sep="\n"):
 
 
 @Pipe
+def pslice(start, end):
+    def _(iteration):
+        return iteration[start:end]
+    return _ @ P
+
+
+@Pipe
 def attr(name):
     def _(object):
         return getattr(object, name)
@@ -624,7 +660,7 @@ def post_to(url='http://127.0.0.1:7777', asynchronous=True, headers={}):
     def _encode(body):
         if not isinstance(body, bytes):
             try:
-                body = json.dumps(body)
+                body = json.dumps(body, ensure_ascii=False)
             except TypeError:
                 body = dill.dumps(body)
         return body
@@ -732,15 +768,18 @@ def extract(typ='chinese'):
     import re
 
     url_regex = re.compile(
-        '(?:(?:https?|ftp|file)://|www\.|ftp\.)[-A-Z0-9+&@#/%=~_|$?!:,.]*[A-Z0-9+&@#/%=~_|$]', re.IGNORECASE)
+        r'(?:(?:https?|ftp|file)://|www\.|ftp\.)[-A-Z0-9+&@#/%=~_|$?!:,.]*[A-Z0-9+&@#/%=~_|$]', re.IGNORECASE)
     email_regex = re.compile(
-        '([A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,4})', re.IGNORECASE)
+        r'([A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,4})', re.IGNORECASE)
 
-    def _(text: str)->list:
+    def _(text: str) -> list:
         if typ == 'chinese':
             return re.findall(r"[\u4e00-\u9fa5]+", text)
         elif typ == 'numbers' or typ == 'number':
-            return re.findall("[+-]?\d+\.*\d+", text) >> pmap(lambda x: float(x) if '.' in x else int(x)) >> ls
+            return re.findall(
+                r"[+-]?\d+\.*\d*", text
+            ) >> pmap(lambda x:
+                      float(x) if '.' in x else int(x)) >> ls
         elif typ == 'table':
             import pandas as pd
             return pd.read_html(text)
@@ -799,6 +838,61 @@ to_str = P(str)
 # zip = P(zip)
 # 这种情况会导致isinstanced等非直接调用方法失败
 
+
+@P
+def to_json(r):
+    if hasattr(r, 'json'):
+        return r.json()
+    elif hasattr(r, 'to_json'):
+        return r.to_json()
+    else:
+        return json.loads(r)
+
+
+@Pipe
+def call_method(mkey):
+    "call method by a method key"
+
+    def _cm(obj):
+        for method in dir(obj):
+            if callable(getattr(obj, method)) and mkey in method:
+                return getattr(obj, method)()
+
+    if isinstance(mkey, str):
+        return _cm @ P
+    else:
+        obj, mkey = mkey, 'json'
+        return _cm(obj)
+
+
+cm = call_method
+
+
+@Pipe
+def sliding_window(qte: int = 2):
+    "Returns a sliding window (of width n) over data from the iterable"
+    "   s -> (s0,s1,...s[n-1]), (s1,s2,...,sn), ...     "
+    "range(100)>>sample(10)>>sw>>tee>>pmap(sum)>>tee>>max"
+    def _window(iterable):
+        i = qte
+        "Returns a sliding window (of width n) over data from the iterable"
+        "   s -> (s0,s1,...s[n-1]), (s1,s2,...,sn), ...                   "
+        it = iter(iterable)
+        result = tuple(islice(it, i))
+        if len(result) == i:
+            yield result
+        for elem in it:
+            result = result[1:] + (elem,)
+            yield result
+
+    if isinstance(qte, int):
+        return _window @ P
+    else:
+        iterable, qte = qte, 2
+        return _window(iterable)
+
+
+sw = sliding_window
 
 if __name__ == "__main__":
     import doctest

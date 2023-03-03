@@ -127,6 +127,7 @@ class timer(Stream):
                  func=lambda: datetime.datetime.now().second,
                  thread=False,
                  threadcount=5,
+                 ensure_io_loop=True,
                  **kwargs):
 
         self.interval = convert_interval(interval)
@@ -137,7 +138,7 @@ class timer(Stream):
             from concurrent.futures import ThreadPoolExecutor
             self.thread_pool = ThreadPoolExecutor(threadcount)
 
-        super(timer, self).__init__(ensure_io_loop=True, **kwargs)
+        super(timer, self).__init__(ensure_io_loop=ensure_io_loop, **kwargs)
         self.stopped = True
         if start:
             self.start()

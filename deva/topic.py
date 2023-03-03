@@ -46,8 +46,9 @@ class RedisStream(Stream):
         if not self.redis:
             self.redis = yield aioredis.Redis(host=self.redis_address, password=self.redis_password)
 
-        exists = yield self.redis.exists(self.topic)
-        if not exists:
+        topic_exists = yield self.redis.exists(self.topic)
+        if not topic_exists:
+            print('create topic:', self.topic)
             yield self.redis.xadd(self.topic, {'data': dill.dumps('go')})
         try:
             yield self.redis.xgroup_create(self.topic, self.group)
@@ -85,9 +86,9 @@ class RedisStream(Stream):
 @Stream.register_api()
 class Topic(RedisStream):
 
-    def __init__(self, name='', maxsize=None,  **kwargs):
+    def __init__(self, name='', group=str(os.getpid()), maxsize=None,  **kwargs):
         super().__init__(topic=name,
-                         group=str(os.getpid()),
+                         group=group,
                          start=True,
                          name=name,
                          **kwargs)
