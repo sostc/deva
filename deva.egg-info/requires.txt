@@ -13,10 +13,11 @@ easyquotation
 pampy
 pymaybe
 requests-html
-aioredis
+aioredis>=2.0
 apscheduler
 werkzeug
 networkx==2
 graphviz
 sockjs-tornado>=1.0.7
 expiringdict
+aiosmtplib

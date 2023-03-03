@@ -6,7 +6,7 @@ from tornado import gen
 
 from .utils.sqlitedict import SqliteDict
 from .core import Stream
-from .pipe import passed
+from .pipe import passed, first
 import os
 import time
 
@@ -130,7 +130,7 @@ class DBStream(Stream):
         if start:
             start = datetime.fromisoformat(start).timestamp()
         else:
-            start = float(self.keys()[0])
+            start = float(self.keys() | first)
         stop = datetime.fromisoformat(stop).timestamp()\
             if stop else time.time()
 
@@ -203,19 +203,22 @@ class X():
     Examples
     --------
         [1,2,3]>>X('a')
-        assert X('a').data  == [1,2,3]
+        assert a  == [1,2,3]
 
         'abc' | X('a')
-        assert X('a').data  == 'abc'
+        assert a  == 'abc'
     """
 
-    def __init__(self, name):
+    def __init__(self, name, scope=globals):
+        self.scope = scope
         self.name = name
+        self.scope()[self.name] = ''
+        # print(self.scope()[self.name]*2)
 
     def __rrshift__(self, ref):
-        self.data = ref
+        self.scope()[self.name] = ref
         return ref
 
     def __ror__(self, ref):
-        self.data = ref
+        self.scope()[self.name] = ref
         return ref

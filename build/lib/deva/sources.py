@@ -1,7 +1,7 @@
 import subprocess
 import json
 from tornado.web import RequestHandler, Application
-from tornado.httpserver import HTTPServer
+# from tornado.httpserver import HTTPServer
 from tornado import gen
 from tornado.tcpserver import TCPServer
 from tornado.tcpclient import TCPClient
@@ -13,8 +13,10 @@ import tornado.ioloop
 
 from .topic import RedisStream
 from .core import Stream
+from .namespace import NB
 
 import logging
+import asyncio
 
 
 logger = logging.getLogger(__name__)
@@ -30,19 +32,6 @@ def PeriodicCallback(callback, callback_time, asynchronous=False, **kwargs):
     pc = tornado.ioloop.PeriodicCallback(_, callback_time, **kwargs)
     pc.start()
     return source
-
-
-def sink_to_file(filename, upstream, mode='w',
-                 prefix='', suffix='\n', flush=False):
-    file = open(filename, mode=mode)
-
-    def write(text):
-        file.write(prefix + text + suffix)
-        if flush:
-            file.flush()
-
-    upstream.sink(write)
-    return file
 
 
 class Source(Stream):
@@ -286,6 +275,12 @@ class from_http_server(Source):
             @gen.coroutine
             def post(self):
                 yield self.source._emit(self.request.body)
+                self.write('OK')
+
+            @gen.coroutine
+            def get(self):
+                response = self.get_arguments("question")
+                yield self.source._emit(response)
                 self.write('OK')
 
         application = Application([
@@ -674,6 +669,80 @@ class StreamTCPClient():
     def stop(self):
         if not self._stream.closed() and self._stream.close():
             self.stopped = True
+
+
+@Stream.register_api(staticmethod)
+class from_mail(Source):
+    def __init__(self, host=None,
+                 username=None,
+                 password=None,
+                 ssl=True,
+                 ssl_context=None,
+                 starttls=False,
+                 interval=60*15, start=False, **kwargs):
+        from imbox import Imbox
+        if not host:
+            try:
+                hostname = NB('mail')['hostname']
+                username = NB('mail')['username']
+                password = NB('mail')['password']
+            except:
+                raise('no host username password ')
+        self.imbox = Imbox(hostname,
+                           username=username,
+                           password=password,
+                           ssl=True,
+                           ssl_context=None,
+                           starttls=False)
+
+        self.interval = interval
+        super(from_mail, self).__init__(ensure_io_loop=True, **kwargs)
+        self.stopped = True
+        if start:
+            self.start()
+
+    @gen.coroutine
+    def poll_mail(self):
+        while True:
+            for uid, msg in self.imbox.messages(unread=True):
+                self._emit(msg)
+                self.imbox.mark_seen(uid)
+            yield gen.sleep(self.interval)
+            if self.stopped:
+                break
+
+    def start(self):
+        if self.stopped:
+            self.stopped = False
+            self.loop.add_callback(self.poll_mail)
+
+    def stop(self):
+        self.stopped = True
+
+    def logout(self):
+        self.imbox.logout()
+
+
+@Stream.register_api(staticmethod)
+class from_periodic(Source):
+    """Generate data from a function on given period
+    cf ``streamz.dataframe.PeriodicDataFrame``
+    Parameters
+    ----------
+    callback: callable
+        Function to call on each iteration. Takes no arguments.
+    poll_interval: float
+        Time to sleep between calls (s)
+    """
+
+    def __init__(self, callback, poll_interval=0.1, **kwargs):
+        self._cb = callback
+        self._poll = poll_interval
+        super().__init__(**kwargs)
+
+    async def _run(self):
+        await asyncio.gather(*self._emit(self._cb()))
+        await asyncio.sleep(self._poll)
 
 
 def gen_block_test() -> int:

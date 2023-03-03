@@ -35,7 +35,8 @@ import tornado.web
 import tornado.wsgi
 import contextlib
 from functools import partial
-from werkzeug.routing import Map, Rule, _rule_re
+from werkzeug.routing import Map, Rule
+import re
 import os
 import inspect
 from werkzeug.local import LocalStack, LocalProxy
@@ -67,6 +68,22 @@ try:
 except Exception:
     # python 2.6
     pass
+
+
+_rule_re = re.compile(
+    r"""
+    (?P<static>[^<]*)                           # static rule data
+    <
+    (?:
+        (?P<converter>[a-zA-Z_][a-zA-Z0-9_]*)   # converter name
+        (?:\((?P<args>.*?)\))?                  # converter arguments
+        \:                                      # variable delimiter
+    )?
+    (?P<variable>[a-zA-Z_][a-zA-Z0-9_]*)        # variable name
+    >
+    """,
+    re.VERBOSE,
+)
 
 
 def _lookup_handler_object(name):
@@ -343,8 +360,7 @@ class Page(object):
 
     def route_(self, rule, methods=None, werkzeug_route=None,
                tornado_route=None, handler_bases=None, fn=None, nowrap=None):
-        if not methods:
-            methods = ['GET']
+        methods = methods or ['GET']
 
         clsname = '%sHandler' % fn.__name__.capitalize()
         # TODO: things get complicated if you use your own base class and debug=True
@@ -423,7 +439,9 @@ class Page(object):
         if use_werkzeug_route:
             r = Rule(rule, methods=methods)
             self.url_map.add(r)
-            r.compile()
+            print(r)
+            r = r.compile()
+            print(r)
             pattern = r._regex.pattern.replace('^\\|', "")
             self.registery[pattern] = klass
         else:
@@ -434,9 +452,7 @@ class Page(object):
 
     def run(self, port=9999, host="127.0.0.1", **settings):
         self.debug = settings.get('debug', False)
-        template_path = settings.get('template_path')
-        if not template_path:
-            settings['template_path'] = self.template_path
+        settings['template_path'] = settings.get('template_path') or self.template_path
         if self.debug:
             if with_wsgi_adapter:
                 import tornado.httpserver
@@ -563,10 +579,8 @@ class PageServer(object):
 
 
 def webview(s, url='/', server=None):
-    if not url.startswith('/'):
-        url = '/'+url
-    if not server:
-        server = NW('stream_webview')
+    url = url if url.startswith('/') else '/'+url
+    server = server or NW('stream_webview')
     server.streams[url].append(s)
 
     page.route(url)(lambda: render_template(
