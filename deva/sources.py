@@ -1,3 +1,4 @@
+import pandas as pd
 import subprocess
 import json
 from tornado.web import RequestHandler, Application
@@ -13,7 +14,7 @@ import tornado.ioloop
 
 from .topic import RedisStream
 from .core import Stream
-from .namespace import NB
+from .namespace import NB, NS
 
 import logging
 import asyncio
@@ -786,10 +787,28 @@ class http_topic(Stream):
                 finally:
                     return body
 
+            def _encode(self, body):
+                if isinstance(body, pd.DataFrame):
+                    return body.sample(20).to_html()
+                else:
+                    return json.dumps(body)
+
             @gen.coroutine
             def post(self):
-                self.request.body = self._loads(self.request.body)
-                yield self.source._emit(self.request.body)
+                body = self._loads(self.request.body)
+                if not isinstance(body, list):
+                    body = [body]
+
+                tag = unquote(self.request.headers['tag'])
+                print(tag)
+                if tag:
+                    source = NS(tag)
+                    if not source.is_cache:
+                        source.start_cache(5, 64*64*24*5)
+                else:
+                    source = self.source
+                for i in body:
+                    yield source._emit(i)
                 self.write('OK')
 
             @gen.coroutine
@@ -799,8 +818,11 @@ class http_topic(Stream):
                     data = self.source.recent()
                 else:
                     data = NS(topic.split('/')[1]).recent()
-
-                self.write(dill.dumps(data))
+                if 'deva' in self.request.headers['User-Agent']:
+                    self.write(dill.dumps(data))
+                else:
+                    for i in data:
+                        self.write(self._encode(i)+'</br>')
 
         self.application = Application([
             (self.path, Handler),

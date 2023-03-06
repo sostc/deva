@@ -644,8 +644,8 @@ def size(x):
     return sys.getsizeof(x)
 
 
-@Pipe
-def post_to(url='http://127.0.0.1:7777', asynchronous=True, headers={}):
+@P
+def post_to(url='http://127.0.0.1:7777', tag='', asynchronous=True, headers={}):
     """ post a str or bytes or pyobject to url.
 
     str:直接发送
@@ -660,16 +660,16 @@ def post_to(url='http://127.0.0.1:7777', asynchronous=True, headers={}):
         {'a':1}>>post_to(url,asynchronous=False)
 
     """
+    headers.update({'tag': quote(tag)})
+
     def _encode(body):
-        if not isinstance(body, bytes):
-            try:
-                body = json.dumps(body, ensure_ascii=False)
-            except TypeError:
-                body = dill.dumps(body)
+        body = dill.dumps(body)
         return body
 
     @gen.coroutine
     def _async(body):
+        if not isinstance(body, list):
+            body = [body]
         body = _encode(body)
         from tornado import httpclient
         http_client = httpclient.AsyncHTTPClient()
@@ -705,6 +705,7 @@ def read_from(url='http://127.0.0.1:7777', tag='', asynchronous=True, headers={}
         {'a':1}>>post_to(url,asynchronous=False)
 
     """
+    headers.update({'User-Agent': 'deva'})
     if tag:
         url += quote(tag)
 
@@ -739,7 +740,7 @@ def read_from(url='http://127.0.0.1:7777', tag='', asynchronous=True, headers={}
         request = httpclient.HTTPRequest(
             url, method="GET", headers=headers)
         response = yield http_client.fetch(request)
-        body = [_loads(x) for x in dill.loads(response.body)]
+        body = dill.loads(response.body)
         return body
 
     def _sync():

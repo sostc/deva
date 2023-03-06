@@ -1152,12 +1152,12 @@ def sync(loop, func, *args, **kwargs):
 class Deva():
     @classmethod
     def run(cls,):
-        loop = IOLoop()
-        loop.make_current()
-        loop.start()
+        # loop = IOLoop()
+        # loop.make_current()
+        # loop.start()
 
-        # loop = get_io_loop(asynchronous=False)
-        # loop.instance().start()
+        loop = get_io_loop(asynchronous=False)
+        loop.instance().start()
         # import asyncio
         # l = asyncio.new_event_loop()
 
