@@ -1,3 +1,4 @@
+import pandas as pd
 import subprocess
 import json
 from tornado.web import RequestHandler, Application
@@ -13,10 +14,12 @@ import tornado.ioloop
 
 from .topic import RedisStream
 from .core import Stream
-from .namespace import NB
+from .namespace import NB, NS
 
 import logging
 import asyncio
+
+from urllib.parse import unquote
 
 
 logger = logging.getLogger(__name__)
@@ -543,9 +546,9 @@ class from_http_request(Stream):
                 二进制可能是图像等直接可用的二进制,也可能是dill编码的二进制pyobject
                 """
                 try:
-                    body = json.loads(body)
-                except TypeError:
                     body = dill.loads(body)
+                except TypeError:
+                    body = json.loads(body)
                 except ValueError:
                     body = body.decode('utf-8')
                 finally:
@@ -557,6 +560,10 @@ class from_http_request(Stream):
                 yield self.source._emit(self.request.body)
                 self.write('OK')
 
+            @gen.coroutine
+            def get(self):
+                self.write(dill.dumps(self.source.recent()))
+
         self.application = Application([
             (self.path, Handler),
         ])
@@ -567,6 +574,7 @@ class from_http_request(Stream):
         if self.stopped:
             self.stopped = False
             self._start_server()
+            self.start_cache(5, 60*60*48)
             # self.loop.add_callback(self._start_server)#这个会导致在端口占用情况下不报错
 
     def stop(self):
@@ -743,6 +751,103 @@ class from_periodic(Source):
     async def _run(self):
         await asyncio.gather(*self._emit(self._cb()))
         await asyncio.sleep(self._poll)
+
+
+@Stream.register_api(staticmethod)
+class http_topic(Stream):
+    """Receive data from http request,emit httprequest data to stream."""
+
+    def __init__(self, port=7777, path='/.*', start=False, server_kwargs=None):
+        self.port = port
+        self.path = path
+        self.server_kwargs = server_kwargs or {}
+        super(http_topic, self).__init__(ensure_io_loop=True)
+        self.stopped = True
+        self.server = None
+        if start:  # pragma: no cover
+            self.start()
+
+    def _start_server(self):
+        class Handler(RequestHandler):
+            source = self
+
+            def _loads(self, body):
+                """解析从web端口提交过来的数据.
+
+                可能的数据有字符串和二进制,
+                字符串可能是直接字符串,也可能是json编码后的字符串
+                二进制可能是图像等直接可用的二进制,也可能是dill编码的二进制pyobject
+                """
+                try:
+                    body = dill.loads(body)
+                except TypeError:
+                    body = json.loads(body)
+                    try:
+                        body = pd.DataFrame.from_dict(body)
+                    except:
+                        body = body
+                except ValueError:
+                    body = body.decode('utf-8')
+                finally:
+                    return body
+
+            def _encode(self, body):
+                if isinstance(body, pd.DataFrame):
+                    return body.sample(20).to_html()
+                else:
+                    return json.dumps(body)
+
+            @gen.coroutine
+            def post(self):
+                body = dill.loads(self.request.body)
+                body = [self._loads(i) for i in body]
+                if not isinstance(body, list):
+                    body = [body]
+
+                tag = unquote(self.request.headers['tag'])
+                print(tag)
+                if tag:
+                    source = NS(tag)
+                    if not source.is_cache:
+                        source.start_cache(5, 64*64*24*5)
+                else:
+                    source = self.source
+                for i in body:
+                    yield source._emit(i)
+                self.write('OK')
+
+            @gen.coroutine
+            def get(self):
+                topic = unquote(self.request.path)
+                if topic == '/':
+                    data = self.source.recent()
+                else:
+                    data = NS(topic.split('/')[1]).recent()
+                if 'deva' in self.request.headers['User-Agent']:
+                    self.write(dill.dumps(data))
+                else:
+                    for i in data:
+                        self.write(self._encode(i)+'</br>')
+
+        self.application = Application([
+            (self.path, Handler),
+        ])
+        # self.server = HTTPServer(application, **self.server_kwargs)
+        self.server = self.application.listen(self.port)
+
+    def start(self):
+        if self.stopped:
+            self.stopped = False
+            self._start_server()
+            self.start_cache(5, 60*60*48)
+            # self.loop.add_callback(self._start_server)#这个会导致在端口占用情况下不报错
+
+    def stop(self):
+        """Shutdown HTTP server."""
+        if not self.stopped:
+            self.server.stop()
+            self.server = None
+            self.stopped = True
 
 
 def gen_block_test() -> int:

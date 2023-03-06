@@ -644,7 +644,7 @@ def size(x):
     return sys.getsizeof(x)
 
 
-@P
+@Pipe
 def post_to(url='http://127.0.0.1:7777', tag='', asynchronous=True, headers={}):
     """ post a str or bytes or pyobject to url.
 
@@ -663,14 +663,18 @@ def post_to(url='http://127.0.0.1:7777', tag='', asynchronous=True, headers={}):
     headers.update({'tag': quote(tag)})
 
     def _encode(body):
-        body = dill.dumps(body)
+        if isinstance(body, pd.DataFrame):
+            body = body.to_json()
+        else:
+            body = dill.dumps(body)
         return body
 
     @gen.coroutine
     def _async(body):
         if not isinstance(body, list):
             body = [body]
-        body = _encode(body)
+        body = [_encode(i) for i in body]
+        body = dill.dumps(body)
         from tornado import httpclient
         http_client = httpclient.AsyncHTTPClient()
         request = httpclient.HTTPRequest(
