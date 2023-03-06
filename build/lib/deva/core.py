@@ -176,6 +176,11 @@ class Stream(object):
         self.__class__._instances.add(weakref.ref(self))
 
     def start_cache(self, cache_max_len=None, cache_max_age_seconds=None):
+        """
+            缓冲开启
+            cache_max_len 缓存长度
+            cache_max_age_seconds 缓存时间
+        """
         self.is_cache = True
         self.cache_max_len = cache_max_len or 1
         self.cache_max_age_seconds = cache_max_age_seconds or 60 * 5
@@ -539,18 +544,17 @@ class Stream(object):
         if isinstance(x, gen.Awaitable):
             self.attend(x)
         else:
-            self.emit(x)
+            self.emit(x, asynchronous=False)
         return x
 
-    def __rrshift__(self, value):  # stream左边的>>
+    def __rrshift__(self, x):  # stream左边的>>
         """emit value to stream ,end,return emit result"""
-        self.emit(value, asynchronous=True)
-        return value
+        # self.emit(value, asynchronous=True)
+        return self.__ror__(x)
 
-    def __lshift__(self, value):  # stream右边的<<
+    def __lshift__(self, x):  # stream右边的<<
         """emit value to stream ,end,return emit result"""
-        self.emit(value)
-        return value
+        return self.__ror__(x)
 
     def catch(self, func):
         """捕获函数执行结果到流内.
@@ -636,7 +640,7 @@ class Stream(object):
     def __rshift__(self, ref):  # stream右边的
         """Stream右边>>,sink到右边的对象.
 
-        支持三种类型:list| text file| stream | callable
+        支持5种类型:list| text file| str | stream | callable
         """
         return match(ref,
                      list, lambda ref: self.sink(ref.append),
@@ -651,6 +655,9 @@ class Stream(object):
                          'Unsupported type, must be '
                          'list| str | text file| stream | callable')
                      )
+
+    def __getitem__(self, *args):
+        return self.cache.values().__getitem__(*args)
 
     def route(self, occasion):
         """路由函数.
@@ -1145,12 +1152,12 @@ def sync(loop, func, *args, **kwargs):
 class Deva():
     @classmethod
     def run(cls,):
-        loop = IOLoop()
-        loop.make_current()
-        loop.start()
+        # loop = IOLoop()
+        # loop.make_current()
+        # loop.start()
 
-        # loop = get_io_loop(asynchronous=False)
-        # loop.instance().start()
+        loop = get_io_loop(asynchronous=False)
+        loop.instance().start()
         # import asyncio
         # l = asyncio.new_event_loop()
 
