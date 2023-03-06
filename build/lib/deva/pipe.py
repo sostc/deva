@@ -12,6 +12,8 @@ import dill
 import json
 import threading
 from tornado.ioloop import IOLoop
+from urllib.parse import quote
+
 
 try:
     import builtins
@@ -47,6 +49,7 @@ __all__ = [
     'to_json',
     'cm', 'call_method',
     'sw', 'sliding_window',
+    'read_from',
 ]
 
 
@@ -105,19 +108,19 @@ class Pipe:
 
     def __rrshift__(self, other):
         """左边的 >>."""
-        # 左边如果支持sink方法，则变为左边sin右边的函数
+        # 左边如果支持sink方法，则变为左边sink右边的函数
         if hasattr(other, 'sink'):
             return other.sink(self.func)
         else:
-            return self.func(other)
+            return self.__ror__(other)
 
     def __rmatmul__(self, other):
         """左边的 @."""
-        return self.func(other)
+        return self.__ror__(other)
 
     def __lshift__(self, other):  # 右边的<<
         """右边的 <<."""
-        return self.func(other)
+        return self.__ror__(other)
 
     def __call__(self, *args, **kwargs):
         """像正常函数一样使用使用."""
@@ -642,7 +645,7 @@ def size(x):
 
 
 @Pipe
-def post_to(url='http://127.0.0.1:7777', asynchronous=True, headers={}):
+def post_to(url='http://127.0.0.1:7777', tag='', asynchronous=True, headers={}):
     """ post a str or bytes or pyobject to url.
 
     str:直接发送
@@ -657,17 +660,21 @@ def post_to(url='http://127.0.0.1:7777', asynchronous=True, headers={}):
         {'a':1}>>post_to(url,asynchronous=False)
 
     """
+    headers.update({'tag': quote(tag)})
+
     def _encode(body):
-        if not isinstance(body, bytes):
-            try:
-                body = json.dumps(body, ensure_ascii=False)
-            except TypeError:
-                body = dill.dumps(body)
+        if isinstance(body, pd.DataFrame):
+            body = body.to_json()
+        else:
+            body = dill.dumps(body)
         return body
 
     @gen.coroutine
     def _async(body):
-        body = _encode(body)
+        if not isinstance(body, list):
+            body = [body]
+        body = [_encode(i) for i in body]
+        body = dill.dumps(body)
         from tornado import httpclient
         http_client = httpclient.AsyncHTTPClient()
         request = httpclient.HTTPRequest(
@@ -684,6 +691,72 @@ def post_to(url='http://127.0.0.1:7777', asynchronous=True, headers={}):
         return _async @ P
     else:
         return _sync @ P
+
+
+@Pipe
+def read_from(url='http://127.0.0.1:7777', tag='', asynchronous=True, headers={}):
+    """ post a str or bytes or pyobject to url.
+
+    str:直接发送
+    bytes:直接发送
+    pyobject:dill序列化后发送
+    发送方式use async http client,Future对象，jupyter中可直接使用
+    jupyter 之外需要loop = IOLoop.current(instance=True)，loop.start()
+
+    Examples::
+
+        {'a':1}>>post_to(url)
+        {'a':1}>>post_to(url,asynchronous=False)
+
+    """
+    headers.update({'User-Agent': 'deva'})
+    if tag:
+        url += quote(tag)
+
+    def _encode(body):
+        if not isinstance(body, bytes):
+            try:
+                body = json.dumps(body, ensure_ascii=False)
+            except TypeError:
+                body = dill.dumps(body)
+        return body
+
+    def _loads(body):
+        """解析从web端口提交过来的数据.
+
+        可能的数据有字符串和二进制,
+        字符串可能是直接字符串,也可能是json编码后的字符串
+        二进制可能是图像等直接可用的二进制,也可能是dill编码的二进制pyobject
+        """
+        try:
+            body = json.loads(body)
+        except TypeError:
+            body = dill.loads(body)
+        except ValueError:
+            body = body.decode('utf-8')
+        finally:
+            return body
+
+    @gen.coroutine
+    def _async():
+        from tornado import httpclient
+        http_client = httpclient.AsyncHTTPClient()
+        request = httpclient.HTTPRequest(
+            url, method="GET", headers=headers)
+        response = yield http_client.fetch(request)
+        body = dill.loads(response.body)
+        return body
+
+    def _sync():
+        import requests
+        body = requests.get(url, headers=headers)
+        body = _loads(body)
+        return body
+
+    if asynchronous:
+        return _async()
+    else:
+        return _sync()
 
 
 @Pipe

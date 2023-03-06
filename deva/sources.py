@@ -782,6 +782,10 @@ class http_topic(Stream):
                     body = dill.loads(body)
                 except TypeError:
                     body = json.loads(body)
+                    try:
+                        body = pd.DataFrame.from_dict(body)
+                    except:
+                        body = body
                 except ValueError:
                     body = body.decode('utf-8')
                 finally:
@@ -795,7 +799,8 @@ class http_topic(Stream):
 
             @gen.coroutine
             def post(self):
-                body = self._loads(self.request.body)
+                body = dill.loads(self.request.body)
+                body = [self._loads(i) for i in body]
                 if not isinstance(body, list):
                     body = [body]
 
