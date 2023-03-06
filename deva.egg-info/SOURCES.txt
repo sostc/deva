@@ -44,6 +44,8 @@ deva/sample/when/worker.py
 deva/templates/monitor.html
 deva/templates/stream.html
 deva/templates/streams.html
+deva/templates/xterm.css
+deva/templates/xterm.js
 deva/utils/__init__.py
 deva/utils/simhash.py
 deva/utils/sqlitedict.py
