@@ -1096,6 +1096,21 @@ class http(Stream):
 
     x = httpx
 
+    @classmethod
+    async def get_web_article(cls, url, key=''):
+        """
+        提取网页信息，key为可选项：title｜description｜image|text 等,默认返回dict
+        http.get_web_article(url,'text')>>print
+        """
+        from trafilatura import bare_extraction
+
+        response = await httpx(url)
+        data = bare_extraction(response.content)
+        if key:
+            return data.get(key)
+        else:
+            return data
+
 
 def sync(loop, func, *args, **kwargs):
     """
