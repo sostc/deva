@@ -663,6 +663,7 @@ def post_to(url='http://127.0.0.1:7777', tag='', asynchronous=True, headers={}):
     headers.update({'tag': quote(tag)})
 
     def _encode(body):
+        import pandas as pd
         if isinstance(body, pd.DataFrame):
             body = body.to_json()
         else:
