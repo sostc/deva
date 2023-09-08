@@ -795,7 +795,7 @@ class http_topic(Stream):
                 if isinstance(body, pd.DataFrame):
                     return body.sample(20).to_html()
                 else:
-                    return json.dumps(body)
+                    return json.dumps(body, ensure_ascii=False)
 
             @gen.coroutine
             def post(self):
@@ -822,7 +822,10 @@ class http_topic(Stream):
                 if topic == '/':
                     data = self.source.recent()
                 else:
-                    data = NS(topic.split('/')[1]).recent()
+                    stream = NS(topic.split('/')[1])
+                    if not stream.is_cache:
+                        stream.start_cache(10, 64*64*24*7)
+                    data = stream.recent()
                 if 'deva' in self.request.headers['User-Agent']:
                     self.write(dill.dumps(data))
                 else:

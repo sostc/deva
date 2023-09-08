@@ -120,7 +120,7 @@ def NX(name=''):
     return namespace.create(typ='data', name=name)
 
 
-def NW(name='', host='127.0.0.1', port=9999, start=True):
+def NW(name='', host='127.0.0.1', port=9999, start=True, **kwargs):
     """创建命名web服务器.
 
     返回的对象，data属性存储了数据，用在你们函数内部以及函数管道上快速存储单个数据
