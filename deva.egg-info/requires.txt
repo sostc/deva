@@ -21,3 +21,4 @@ graphviz
 sockjs-tornado>=1.0.7
 expiringdict
 aiosmtplib
+trafilatura
