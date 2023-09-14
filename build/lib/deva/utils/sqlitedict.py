@@ -219,6 +219,13 @@ class SqliteDict(DictClass):
         # Explicit better than implicit and bla bla
         return True if m is not None else False
 
+    def getrowid(self, key):
+        GET_ITEM = 'SELECT rowid FROM "%s" WHERE key = ?' % self.tablename
+        item = self.conn.select_one(GET_ITEM, (key,))
+        if item is None:
+            raise KeyError(key)
+        return item[0]
+
     def iterkeys(self):
         GET_KEYS = 'SELECT key FROM "%s" ORDER BY rowid' % self.tablename
         for key in self.conn.select(GET_KEYS):
@@ -259,7 +266,7 @@ class SqliteDict(DictClass):
             raise RuntimeError('Refusing to write to read-only SqliteDict')
 
         ADD_ITEM = 'REPLACE INTO "%s" (key, value) VALUES (?,?)' % self.tablename
-        self.conn.execute(ADD_ITEM, (key, self.encode(value)))
+        return self.conn.execute(ADD_ITEM, (key, self.encode(value)))
 
     def __delitem__(self, key):
         if self.flag == 'r':
