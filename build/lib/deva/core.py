@@ -856,11 +856,18 @@ class map(Stream):
     def update(self, x, who=None):
         try:
             result = self.func(x, *self.args, **self.kwargs)
+            if isinstance(result, gen.Awaitable):
+                futs = gen.convert_yielded(result)
+                if not self.loop:
+                    self._set_asynchronous(False)
+                if self.loop is None and self.asynchronous is not None:
+                    self._set_loop(get_io_loop(self.asynchronous))
+                self.loop.add_future(futs, lambda x: self._emit(x.result()))
+            else:
+                return self._emit(result)
         except Exception as e:
             logger.exception(e)
             raise
-        else:
-            return self._emit(result)
 
 
 @Stream.register_api()
@@ -1095,6 +1102,21 @@ class http(Stream):
         return cls.request(url, **kwargs)
 
     x = httpx
+
+    @classmethod
+    async def get_web_article(cls, url, key='text'):
+        """
+        提取网页信息，key为可选项：title｜description｜image|text 等,默认返回dict
+        http.get_web_article(url,'text')>>print
+        """
+        from trafilatura import bare_extraction
+
+        response = await httpx(url)
+        data = bare_extraction(response.content)
+        if key:
+            return data.get(key)
+        else:
+            return data
 
 
 def sync(loop, func, *args, **kwargs):
