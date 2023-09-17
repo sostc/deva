@@ -422,7 +422,19 @@ class Stream(object):
             sync(self.loop, _)
 
     def update(self, x, who=None):
-        self._emit(x)
+        try:
+            if isinstance(x, gen.Awaitable):
+                futs = gen.convert_yielded(x)
+                if not self.loop:
+                    self._set_asynchronous(False)
+                if self.loop is None and self.asynchronous is not None:
+                    self._set_loop(get_io_loop(self.asynchronous))
+                self.loop.add_future(futs, lambda x: self._emit(x.result()))
+            else:
+                return self._emit(x)
+        except Exception as e:
+            logger.exception(e)
+            raise
 
     def gather(self):
         """ This is a no-op for core streamz
