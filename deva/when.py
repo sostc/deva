@@ -150,9 +150,9 @@ class timer(Stream):
                 self.stop()
 
             if self.thread:
-                self.thread_pool.submit(lambda: self._emit(self.func()))
+                self.thread_pool.submit(lambda: self.update(self.func()))
             else:
-                self._emit(self.func())
+                self.update(self.func())
             yield gen.sleep(self.interval)
             if self.stopped:
                 break
