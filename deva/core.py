@@ -779,11 +779,26 @@ class sink(Sink):
         super().__init__(upstream, **stream_kwargs)
 
     def update(self, x, who=None, metadata=None):
-        result = self.func(x, *self.args, **self.kwargs)
-        if gen.isawaitable(result):
-            return result
-        else:
-            return []
+        # result = self.func(x, *self.args, **self.kwargs)
+        # if gen.isawaitable(result):
+        #     return result
+        # else:
+        #     return []
+
+        try:
+            result = self.func(x, *self.args, **self.kwargs)
+            if isinstance(result, gen.Awaitable):
+                futs = gen.convert_yielded(result)
+                if not self.loop:
+                    self._set_asynchronous(False)
+                if self.loop is None and self.asynchronous is not None:
+                    self._set_loop(get_io_loop(self.asynchronous))
+                self.loop.add_future(futs, lambda x: self._emit(x.result()))
+            else:
+                return self._emit(result)
+        except Exception as e:
+            logger.exception(e)
+            raise
 
     def destroy(self):
         super().destroy()
