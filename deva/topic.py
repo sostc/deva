@@ -80,7 +80,7 @@ class RedisStream(Stream):
 
     def stop(self,):
         self.stopped = True
-        self.redis.close()
+        self.loop.add_callback(self.redis.close)
 
 
 @Stream.register_api()

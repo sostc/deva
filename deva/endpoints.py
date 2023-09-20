@@ -167,7 +167,7 @@ class Dtalk(Stream):
                 '|')], content[content.index('|') + 1:]
             data = {
                 "msgtype": "markdown",
-                "markdown": {"title": title, "text": text}
+                "markdown": {"title": title, "text": text, "content": text}
             }
 
         post_data = json.JSONEncoder().encode(data)
