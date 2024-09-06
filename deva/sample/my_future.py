@@ -34,7 +34,7 @@ foo1() | print
 
 foo2() | log
 
-foo2() | attend()
+
 name = "Masnun"
 
 # IPython.embed()

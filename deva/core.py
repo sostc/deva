@@ -399,27 +399,28 @@ class Stream(object):
         This is typically done only at source Streams but can theortically be
         done at any point
         """
-        ts_async = getattr(thread_state, 'asynchronous', False)
-        if self.loop is None or asynchronous or self.asynchronous or ts_async:
-            if not ts_async:
-                thread_state.asynchronous = True
-            try:
-                result = self._emit(x)
-                if self.loop:
-                    return gen.convert_yielded(result)
-            finally:
-                thread_state.asynchronous = ts_async
-        else:
-            @gen.coroutine
-            def _():
-                thread_state.asynchronous = True
-                try:
-                    result = yield self._emit(x)
-                finally:
-                    del thread_state.asynchronous
+        # ts_async = getattr(thread_state, 'asynchronous', False)
+        # if self.loop is None or asynchronous or self.asynchronous or ts_async:
+        #     if not ts_async:
+        #         thread_state.asynchronous = True
+        #     try:
+        #         result = self.update(x)
+        #         if self.loop:
+        #             return gen.convert_yielded(result)
+        #     finally:
+        #         thread_state.asynchronous = ts_async
+        # else:
+        #     @gen.coroutine
+        #     def _():
+        #         thread_state.asynchronous = True
+        #         try:
+        #             result = yield self.update(x)
+        #         finally:
+        #             del thread_state.asynchronous
 
-                raise gen.Return(result)
-            sync(self.loop, _)
+        #         raise gen.Return(result)
+        #     sync(self.loop, _)
+        self.update(x)
 
     def update(self, x, who=None):
         try:
@@ -544,19 +545,16 @@ class Stream(object):
         from .graph import visualize
         return visualize(self, filename, source_node=source_node, **kwargs)
 
-    def attend(self, x):
-        """#async等将执行结果入流"""
-        assert isinstance(x, gen.Awaitable)
-        futs = gen.convert_yielded(x)
-        self.loop = self.loop or get_io_loop()
-        self.loop.add_future(futs, lambda x: self._emit(x.result()))
+    # def attend(self, x):
+    #     """#async等将执行结果入流"""
+    #     assert isinstance(x, gen.Awaitable)
+    #     futs = gen.convert_yielded(x)
+    #     self.loop = self.loop or get_io_loop()
+    #     self.loop.add_future(futs, lambda x: self._emit(x.result()))
 
     def __ror__(self, x):  # |
         """emit value to stream ,end,return emit result"""
-        if isinstance(x, gen.Awaitable):
-            self.attend(x)
-        else:
-            self.emit(x, asynchronous=False)
+        self.emit(x, asynchronous=False)
         return x
 
     def __rrshift__(self, x):  # stream左边的>>
@@ -995,14 +993,17 @@ def httpx(req, render=False, **kwargs):
         if isinstance(req, str):
             response = yield httpclient.get(req)
         elif isinstance(req, dict):
-            response = yield httpclient.get(**req)
+            if req.get('method') == 'post':
+                response = yield httpclient.post(**req)
+            else:
+                response = yield httpclient.get(**req)
 
         if render:
             yield response.html.arender(**kwargs)
 
         return response
     except Exception as e:
-        (req, e) >> print
+        print(req, e)
         logger.exception(e)
 
 
@@ -1205,12 +1206,17 @@ class Deva():
         # loop.make_current()
         # loop.start()
 
-        loop = get_io_loop(asynchronous=False)
-        loop.instance().start()
+        # loop = get_io_loop(asynchronous=False)
+        # loop.instance().start()
+
         # import asyncio
         # l = asyncio.new_event_loop()
 
         # l.run_forever()
+        try:
+            IOLoop().start()
+        except KeyboardInterrupt:
+            exit()
 
 
 print(os.getpid())

@@ -1,4 +1,3 @@
-import pandas as pd
 import subprocess
 import json
 from tornado.web import RequestHandler, Application
@@ -12,15 +11,14 @@ from glob import glob
 import os
 import tornado.ioloop
 
-from .topic import RedisStream
 from .core import Stream
-from .namespace import NB, NS
 
 import logging
 import asyncio
 
-from urllib.parse import unquote
 
+import aioredis
+import time
 
 logger = logging.getLogger(__name__)
 
@@ -513,6 +511,84 @@ class from_kafka(Source):
 
 
 @Stream.register_api(staticmethod)
+class RedisStream(Stream):
+    """redis stream,read and write.
+
+
+    上游进来的写入redis ，redis的读出来的压入下游,
+    exapmle::
+
+        news = Stream.RedisStream('news')
+        l = list()
+        news>>l
+        for i in range(1000):
+            i>>news
+
+        l|len
+
+    """
+
+    def __init__(self, topic, start=True,
+                 group=None, address='localhost', db=0, password=None, **kwargs):
+        self.topic = topic
+        self.redis_address = address
+        self.redis_password = password
+        self.group = group or hash(self)+hash(time.time())
+        self.consumer = hash(self)
+
+        super(RedisStream, self).__init__(ensure_io_loop=True, **kwargs)
+        self.redis = None
+        self.stopped = True
+        if start:
+            self.start()
+
+    @gen.coroutine
+    def process(self):
+        if not self.redis:
+            self.redis = yield aioredis.Redis(host=self.redis_address, password=self.redis_password)
+
+        topic_exists = yield self.redis.exists(self.topic)
+        if not topic_exists:
+            print('create topic:', self.topic)
+            yield self.redis.xadd(self.topic, {'data': dill.dumps('go')})
+        try:
+            yield self.redis.xgroup_create(self.topic, self.group)
+        except Exception as e:
+            print(e)
+
+        while True:
+            results = yield self.redis.xread(count=10, block=500, streams={self.topic: '$'})
+            if results:
+                for result in results:
+                    print('rec:', result)
+                    data = dill.loads(result[1][0][1][b'data'])
+                    self._emit(data)
+
+            if self.stopped:
+                break
+
+    @gen.coroutine
+    def _send(self, data):
+        if not self.redis:
+            self.redis = yield aioredis.Redis(host=self.redis_address, password=self.redis_password)
+        x = yield self.redis.xadd(self.topic, {'data': dill.dumps(data)}, maxlen=20)
+        print('send:', x)
+
+    def emit(self, x, asynchronous=True):
+        self.loop.add_callback(self._send, x)
+        return x
+
+    def start(self):
+        if self.stopped:
+            self.stopped = False
+            self.loop.add_callback(self.process)
+
+    def stop(self,):
+        self.stopped = True
+        self.loop.add_callback(self.redis.close)
+
+
+@Stream.register_api(staticmethod)
 class from_redis(Stream):
     def __init__(self, topic, group=None, max_len=100, **kwargs):
         Stream.__init__(self, ensure_io_loop=True)
@@ -586,21 +662,21 @@ class from_http_request(Stream):
 
 
 class StreamTCPServer(TCPServer):
-    """
-    server.in_s
-    server.out_s
-    """
-
     def __init__(self, port=2345, **kwargs):
         self.delimiter = 'zjw-split-0358'.encode('utf-8')
         self.out_s = Stream()
         self.in_s = Stream()
+
+        # 进来的数据，处理后，再发出去。
+        self.in_s >> self.out_s
+
         super(StreamTCPServer, self).__init__(**kwargs)
         self.handlers = dict()
         self.listen(port)
 
     def __rrshift__(self, x):
-        x >> self.out_s
+        # 进入消息来源之一，直接塞入数据
+        x >> self.in_s
 
     @gen.coroutine
     def handle_stream(self, stream, address):
@@ -609,17 +685,22 @@ class StreamTCPServer(TCPServer):
                 stream.write(x)
                 stream.write(self.delimiter)
             except StreamClosedError:
-                logger.exception('%s connect close' % str(address))
+                print('%s connect close' % str(address))
                 self.handlers.get(address).destroy()
                 del self.handlers[address]
 
+        # 将客户端io输出挂载到分发管道 ，出去的消息，dill后写出
         self.handlers[address] = self.out_s.map(dill.dumps).sink(_write)
+
+        # 进入消息来源之二，不停的读取网络消息
         while True:
             try:
                 data = yield stream.read_until(self.delimiter)
-                yield self.in_s._emit(dill.loads(data))
+                # 进入消息来源之一、服务端读取客户端消息后放入接收管道
+                yield self.in_s.emit(dill.loads(data))
+                # yield self.out_s._emit(dill.loads(data))
             except StreamClosedError:
-                logger.exception('%s connect close' % str(address))
+                print('%s connect close' % str(address))
                 break
 
     def stop(self):
@@ -632,8 +713,10 @@ class StreamTCPServer(TCPServer):
 
 class StreamTCPClient():
     """从tcp端口订阅数据
-    client.in_s
-    client.out_s
+    c1 = StreamTCPClient("127.0.0.1", 23)
+    c1.start()
+    client = StreamTCPClient(host='127.0.0.1',port=2345)
+    client2 = StreamTCPClient()
 
     """
 
@@ -642,37 +725,44 @@ class StreamTCPClient():
         self.host = host
         self.port = port
         self.delimiter = 'zjw-split-0358'.encode('utf-8')
-        self.out_s = Stream()
-        self.in_s = Stream(ensure_io_loop=True)
+
+        self.out_s = Stream()  # 发去服务端
+        self.in_s = Stream(ensure_io_loop=True)  # 进入消息
         self._stream = None
         self.in_s.filter(lambda x: x == 'exit').sink(lambda x: self.stop())
+        self.stopped = True
         self.start()
 
     def __rrshift__(self, x):
+        # 直接发消息去服务端
         x >> self.out_s
 
     @gen.coroutine
     def start(self):
         try:
             self._stream = yield TCPClient().connect(self.host, self.port)
+            self.stopped = False
         except Exception as e:
-            logger.exception(e, 'connect', self.host, self.port, 'error')
+            print(e, 'connect', self.host, self.port, 'error')
 
         def _write(x):
             try:
                 self._stream.write(x)
                 self._stream.write(self.delimiter)
             except StreamClosedError:
-                logger.exception(f'{self.host}:{self.port} connect close')
+                print(f'{self.host}:{self.port} connect close')
                 self.out_handler.destroy()
 
+        # 将客户端io输出挂载到分发管道
         self.out_handler = self.out_s.map(dill.dumps).sink(_write)
-#         try:
+#
         while self._stream:
-            data = yield self._stream.read_until(self.delimiter)
-            yield self.in_s.emit(dill.loads(data))
-#         except iostream.StreamClosedError:
-#             logger.exception('tornado.iostream.StreamClosedError')
+            try:
+                data = yield self._stream.read_until(self.delimiter)
+                yield self.in_s.emit(dill.loads(data))
+            except StreamClosedError:
+                print('tornado.iostream.StreamClosedError')
+                break
 
     def stop(self):
         if not self._stream.closed() and self._stream.close():
@@ -689,6 +779,7 @@ class from_mail(Source):
                  starttls=False,
                  interval=60*15, start=False, **kwargs):
         from imbox import Imbox
+        from .namespace import NB
         if not host:
             try:
                 hostname = NB('mail')['hostname']
@@ -751,106 +842,6 @@ class from_periodic(Source):
     async def _run(self):
         await asyncio.gather(*self._emit(self._cb()))
         await asyncio.sleep(self._poll)
-
-
-@Stream.register_api(staticmethod)
-class http_topic(Stream):
-    """Receive data from http request,emit httprequest data to stream."""
-
-    def __init__(self, port=7777, path='/.*', start=False, server_kwargs=None):
-        self.port = port
-        self.path = path
-        self.server_kwargs = server_kwargs or {}
-        super(http_topic, self).__init__(ensure_io_loop=True)
-        self.stopped = True
-        self.server = None
-        if start:  # pragma: no cover
-            self.start()
-
-    def _start_server(self):
-        class Handler(RequestHandler):
-            source = self
-
-            def _loads(self, body):
-                """解析从web端口提交过来的数据.
-
-                可能的数据有字符串和二进制,
-                字符串可能是直接字符串,也可能是json编码后的字符串
-                二进制可能是图像等直接可用的二进制,也可能是dill编码的二进制pyobject
-                """
-                try:
-                    body = dill.loads(body)
-                except TypeError:
-                    body = json.loads(body)
-                    try:
-                        body = pd.DataFrame.from_dict(body)
-                    except:
-                        body = body
-                except ValueError:
-                    body = body.decode('utf-8')
-                finally:
-                    return body
-
-            def _encode(self, body):
-                if isinstance(body, pd.DataFrame):
-                    return body.sample(20).to_html()
-                else:
-                    return json.dumps(body, ensure_ascii=False)
-
-            @gen.coroutine
-            def post(self):
-                body = dill.loads(self.request.body)
-                body = [self._loads(i) for i in body]
-                if not isinstance(body, list):
-                    body = [body]
-
-                tag = unquote(self.request.headers['tag'])
-                print(tag)
-                if tag:
-                    source = NS(tag)
-                    if not source.is_cache:
-                        source.start_cache(5, 64*64*24*5)
-                else:
-                    source = self.source
-                for i in body:
-                    yield source._emit(i)
-                self.write('OK')
-
-            @gen.coroutine
-            def get(self):
-                topic = unquote(self.request.path)
-                if topic == '/':
-                    data = self.source.recent()
-                else:
-                    stream = NS(topic.split('/')[1])
-                    if not stream.is_cache:
-                        stream.start_cache(10, 64*64*24*7)
-                    data = stream.recent()
-                if 'deva' in self.request.headers['User-Agent']:
-                    self.write(dill.dumps(data))
-                else:
-                    for i in data:
-                        self.write(self._encode(i)+'</br>')
-
-        self.application = Application([
-            (self.path, Handler),
-        ])
-        # self.server = HTTPServer(application, **self.server_kwargs)
-        self.server = self.application.listen(self.port)
-
-    def start(self):
-        if self.stopped:
-            self.stopped = False
-            self._start_server()
-            self.start_cache(5, 60*60*48)
-            # self.loop.add_callback(self._start_server)#这个会导致在端口占用情况下不报错
-
-    def stop(self):
-        """Shutdown HTTP server."""
-        if not self.stopped:
-            self.server.stop()
-            self.server = None
-            self.stopped = True
 
 
 def gen_block_test() -> int:

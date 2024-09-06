@@ -36,6 +36,6 @@ session.add(log)
 session.commit()
 
 
-CpipLog.search_query('tensorflow') >> first
+CpipLog.search_query('tensorflow') >> first >> print
 
-CpipLog.search_query('tensorflow') >> ls
+CpipLog.search_query('tensorflow') >> ls >> print

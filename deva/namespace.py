@@ -17,13 +17,14 @@ Example usage::
 
 from .core import Stream
 from .store import DBStream, X
-from .topic import Topic
+from .topic import Topic, TCPTopic
 
 
 class Namespace(dict):
     def __init__(self):
         self['stream'] = {}
         self['topic'] = {}
+        self['tcptopic'] = {}
         self['table'] = {}
         self['data'] = {}
         self['webserver'] = {}
@@ -32,7 +33,8 @@ class Namespace(dict):
         constructor = {'stream': Stream,
                        'topic': Topic,
                        'table': DBStream,
-                       'data': X, }
+                       'data': X,
+                       'tcptopic': TCPTopic}
 
         if typ == 'webserver':
             from .page import PageServer
@@ -70,6 +72,15 @@ def NT(name='', *args, **kwargs):
     """
     try:
         return namespace.create(typ='topic', name=name, *args, **kwargs)
+    except Exception as e:
+        print(e)
+        return None
+
+
+def NWT(name='', *args, **kwargs):
+
+    try:
+        return namespace.create(typ='tcptopic', name=name, *args, **kwargs)
     except Exception as e:
         print(e)
         return None
