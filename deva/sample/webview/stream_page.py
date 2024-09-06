@@ -25,5 +25,5 @@ s2.webview()
 s2.webview('/stock')
 s3.webview()
 
-Monitor().start()
+# Monitor().start()
 Deva.run()
