@@ -156,10 +156,8 @@ class Dtalk(Stream):
         msg = str(msg)
 
         data = {"msgtype": "text", "text": {"content": msg},
-                "at": {"atMobiles": [], "isAtAll": False}}
-        if '@all' in msg:
-            data = {"msgtype": "text", "text": {"content": msg},
-                    "at": {"atMobiles": [], "isAtAll": True}}
+                "at": {"atMobiles": [], "isAtAll": '@all' in msg}}
+
         if msg.startswith('@md@'):
             # @md@财联社新闻汇总|text
             content = msg[4:]
@@ -171,6 +169,8 @@ class Dtalk(Stream):
             }
 
         post_data = json.JSONEncoder().encode(data)
+        # import urllib
+        # post_data = urllib.parse.urlencode(data)
 
         headers = {'Content-Type': 'application/json'}
 
