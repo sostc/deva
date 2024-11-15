@@ -211,30 +211,3 @@ class DBStream(Stream):
 
     def __iter__(self,):
         return self.db.__iter__()
-
-
-class X():
-    """存储变量 .
-
-    Examples
-    --------
-        [1,2,3]>>X('a')
-        assert a  == [1,2,3]
-
-        'abc' | X('a')
-        assert a  == 'abc'
-    """
-
-    def __init__(self, name, scope=globals):
-        self.scope = scope
-        self.name = name
-        self.scope()[self.name] = ''
-        # print(self.scope()[self.name]*2)
-
-    def __rrshift__(self, ref):
-        self.scope()[self.name] = ref
-        return ref
-
-    def __ror__(self, ref):
-        self.scope()[self.name] = ref
-        return ref

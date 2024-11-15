@@ -16,7 +16,7 @@ Example usage::
 """
 
 from .core import Stream
-from .store import DBStream, X
+from .store import DBStream
 from .topic import Topic, TCPTopic
 
 
@@ -33,7 +33,6 @@ class Namespace(dict):
         constructor = {'stream': Stream,
                        'topic': Topic,
                        'table': DBStream,
-                       'data': X,
                        'tcptopic': TCPTopic}
 
         if typ == 'webserver':
@@ -109,26 +108,6 @@ def NB(name, *args, **kwargs):
     return namespace.create(typ='table', name=name, *args, **kwargs)
 
 
-def NX(name=''):
-    """创建命名数据存储对象.
-
-    返回的对象，data属性存储了数据，用在你们函数内部以及函数管道上快速存储单个数据
-
-    Example usage::
-
-        123>>NX('a')
-        assert NX('a').data == 123
-
-        10|range|sum|NX('a')
-        assert NX('a').data ==45
-
-        f = lambda x:x>>NX('b')
-        f(10)
-        assert NX('b').data ==10
-
-
-    """
-    return namespace.create(typ='data', name=name)
 
 
 def NW(name='', host='127.0.0.1', port=9999, start=True, **kwargs):
