@@ -146,12 +146,12 @@ class Dtalk(Stream):
         return url
 
     @gen.coroutine
-    def emit(self, msg: str, asynchronous=False) -> dict:
+    def emit(self, msg: str, asynchronous=False):
         super().emit(msg)
         yield self.post(msg, self.log)
 
     @gen.coroutine
-    def post(self, msg: str, log: Stream) -> dict:
+    def post(self, msg: str, log: Stream):
         # 二进制或者set类型的,转成json格式前需要先转类型
         msg = str(msg)
 
