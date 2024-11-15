@@ -245,71 +245,68 @@ def identity(x):
 
 
 class Stream(object):
-    """ A Stream is an infinite sequence of data
+    """ 流是一个无限的数据序列
 
-    Streams subscribe to each other passing and transforming data between them.
-    A Stream object listens for updates from upstream, reacts to these updates,
-    and then emits more data to flow downstream to all Stream objects that
-    subscribe to it.  Downstream Stream objects may connect at any point of a
-    Stream graph to get a full view of the data coming off of that point to do
-    with as they will.
+    流之间可以相互订阅,传递和转换数据。
+    流对象监听上游更新,对这些更新做出反应,
+    然后向下游发送更多数据到所有订阅它的流对象。
+    下游流对象可以在流图的任意点连接,获取该点的完整数据视图。
 
-    Parameters
+    参数
     ----------
     asynchronous: boolean or None
-        Whether or not this stream will be used in asynchronous functions or
-        normal Python functions.  Leave as None if you don't know.
-        True will cause operations like emit to return awaitable Futures
-        False will use an Event loop in another thread (starts it if necessary)
+        这个流是否会在异步函数或普通Python函数中使用。
+        如果不确定就保持为None。
+        True会导致emit等操作返回可等待的Future
+        False会在另一个线程中使用事件循环(如果需要则启动它)
     ensure_io_loop: boolean
-        Ensure that some IOLoop will be created.  If asynchronous is None or
-        False then this will be in a separate thread, otherwise it will be
-        IOLoop.current
+        确保会创建某个IOLoop。如果asynchronous是None或False,
+        则会在单独的线程中创建,否则会使用IOLoop.current
 
-    Examples
+    示例
     --------
     >>> def inc(x):
     ...     return x + 1
 
-    >>> source = Stream()  # Create a stream object
-    >>> s = source.map(inc).map(str)  # Subscribe to make new streams
-    >>> s.sink(print)  # take an action whenever an element reaches the end
+    >>> source = Stream()  # 创建一个流对象
+    >>> s = source.map(inc).map(str)  # 订阅创建新流
+    >>> s.sink(print)  # 当元素到达末端时执行动作
 
     >>> L = list()
-    >>> s.sink(L.append)  # or take multiple actions (streams can branch)
+    >>> s.sink(L.append)  # 或执行多个动作(流可以分支)
 
     >>> for i in range(5):
-    ...     source.emit(i)  # push data in at the source
+    ...     source.emit(i)  # 在源头推入数据
     '1'
     '2'
     '3'
     '4'
     '5'
-    >>> L  # and the actions happen at the sinks
+    >>> L  # 动作在sink处执行
     ['1', '2', '3', '4', '5']
     """
-    _graphviz_shape = 'ellipse'
-    _graphviz_style = 'rounded,filled'
-    _graphviz_fillcolor = 'white'
-    _graphviz_orientation = 0
+    _graphviz_shape = 'ellipse'  # graphviz图形形状
+    _graphviz_style = 'rounded,filled'  # graphviz样式
+    _graphviz_fillcolor = 'white'  # graphviz填充颜色
+    _graphviz_orientation = 0  # graphviz方向
 
-    _instances = set()
+    _instances = set()  # 所有Stream实例的集合
 
     str_list = ['func', 'predicate', 'n', 'interval', 'port', 'host',
-                'ttl', 'cache_max_len', '_scheduler', 'filename', 'path']
+                'ttl', 'cache_max_len', '_scheduler', 'filename', 'path']  # 用于字符串表示的属性列表
 
     def __init__(self, upstream=None, upstreams=None, name=None,
                  cache_max_len=None, cache_max_age_seconds=None,  # 缓存长度和事件长度
                  loop=None, asynchronous=None, ensure_io_loop=False,
                  refuse_none=True):  # 禁止传递None到下游
-        self.downstreams = OrderedWeakrefSet()
+        self.downstreams = OrderedWeakrefSet()  # 下游流的有序弱引用集合
         if upstreams is not None:
             self.upstreams = list(upstreams)
         else:
             self.upstreams = [upstream]
 
-        self._set_asynchronous(asynchronous)
-        self._set_loop(loop)
+        self._set_asynchronous(asynchronous)  # 设置异步标志
+        self._set_loop(loop)  # 设置事件循环
         if ensure_io_loop and not self.loop:
             self._set_asynchronous(False)
         if self.loop is None and self.asynchronous is not None:
@@ -317,26 +314,28 @@ class Stream(object):
 
         for upstream in self.upstreams:
             if upstream:
-                upstream.downstreams.add(self)
+                upstream.downstreams.add(self)  # 将自己添加到上游的下游集合中
 
-        self.name = name
+        self.name = name  # 流的名称
 
-        self.cache = {}
-        self.is_cache = False
+        self.cache = {}  # 缓存字典
+        self.is_cache = False  # 是否启用缓存
         if cache_max_len or cache_max_age_seconds:
             self.start_cache(cache_max_len, cache_max_age_seconds)
 
-        self.refuse_none = refuse_none
+        self.refuse_none = refuse_none  # 是否拒绝None值
 
-        self.handlers = []
+        self.handlers = []  # 处理器列表
 
-        self.__class__._instances.add(weakref.ref(self))
+        self.__class__._instances.add(weakref.ref(self))  # 添加到实例集合
 
     def start_cache(self, cache_max_len=None, cache_max_age_seconds=None):
         """
-            缓冲开启
-            cache_max_len 缓存长度
-            cache_max_age_seconds 缓存时间
+        启动缓存功能
+        
+        参数:
+            cache_max_len: 缓存的最大长度
+            cache_max_age_seconds: 缓存的最大存活时间(秒)
         """
         self.is_cache = True
         self.cache_max_len = cache_max_len or 1
@@ -347,12 +346,15 @@ class Stream(object):
         )
 
     def stop_cache(self,):
+        """停止缓存功能"""
         self.is_cache = False
 
     def clear_cache(self,):
+        """清空缓存"""
         self.cache.clear()
 
     def _set_loop(self, loop):
+        """设置事件循环"""
         self.loop = None
         if loop is not None:
             self._inform_loop(loop)
@@ -364,7 +366,7 @@ class Stream(object):
 
     def _inform_loop(self, loop):
         """
-        Percolate information about an event loop to the rest of the stream
+        将事件循环信息传播到流的其余部分
         """
         if self.loop is not None:
             if self.loop is not loop:
@@ -379,6 +381,7 @@ class Stream(object):
                     downstream._inform_loop(loop)
 
     def _set_asynchronous(self, asynchronous):
+        """设置异步标志"""
         self.asynchronous = None
         if asynchronous is not None:
             self._inform_asynchronous(asynchronous)
@@ -390,7 +393,7 @@ class Stream(object):
 
     def _inform_asynchronous(self, asynchronous):
         """
-        Percolate information about an event loop to the rest of the stream
+        将异步信息传播到流的其余部分
         """
         if self.asynchronous is not None:
             if self.asynchronous is not asynchronous:
@@ -407,6 +410,7 @@ class Stream(object):
 
     @classmethod
     def instances(cls):
+        """返回所有存活的Stream实例"""
         dead = set()
         for ref in cls._instances:
             obj = ref()
@@ -416,34 +420,34 @@ class Stream(object):
                 dead.add(ref)
         cls._instances -= dead
 
-    streams = instances
+    streams = instances  # streams是instances的别名
 
     @classmethod
     def register_api(cls, modifier=identity):
-        """ Add callable to Stream API
+        """ 向Stream API添加可调用对象
 
-        This allows you to register a new method onto this class.  You can use
-        it as a decorator.::
+        这允许你在这个类上注册一个新方法。你可以将其用作装饰器。
+
+        示例::
 
             >>> @Stream.register_api()
             ... class foo(Stream):
             ...     ...
 
-            >>> Stream().foo(...)  # this works now
+            >>> Stream().foo(...)  # 现在可以工作了
 
-        It attaches the callable as a normal attribute to the class object.  In
-        doing so it respsects inheritance (all subclasses of Stream will also
-        get the foo attribute).
+        它将可调用对象作为普通属性附加到类对象上。这样做时它
+        会考虑继承(Stream的所有子类也会获得foo属性)。
 
-        By default callables are assumed to be instance methods.  If you like
-        you can include modifiers to apply before attaching to the class as in
-        the following case where we construct a ``staticmethod``.
+        默认情况下可调用对象被假定为实例方法。如果你愿意,
+        你可以在附加到类之前包含修饰符,就像下面的例子中
+        我们构造一个``staticmethod``。
 
             >>> @Stream.register_api(staticmethod)
             ... class foo(Stream):
             ...     ...
 
-            >>> Stream.foo(...)  # Foo operates as a static method
+            >>> Stream.foo(...)  # Foo作为静态方法运行
         """
         def _(func):
             @functools.wraps(func)
@@ -454,11 +458,12 @@ class Stream(object):
         return _
 
     def start(self):
-        """ Start any upstream sources """
+        """启动任何上游源"""
         for upstream in self.upstreams:
             upstream.start()
 
     def __str__(self):
+        """返回流的字符串表示"""
         s_list = []
         if self.name:
             s_list.append('{}; {}'.format(
@@ -494,6 +499,7 @@ class Stream(object):
     __repr__ = __str__
 
     def _ipython_display_(self, **kwargs):
+        """IPython显示方法"""
         try:
             from ipywidgets import Output
             import IPython
@@ -534,6 +540,7 @@ class Stream(object):
         return output._ipython_display_(**kwargs)
 
     def _emit(self, x):
+        """向下游发送数据"""
         if self.is_cache:
             self.cache[datetime.now()] = x
 
@@ -551,35 +558,14 @@ class Stream(object):
         return [element for element in result if element is not None]
 
     def emit(self, x, asynchronous=False):
-        """ Push data into the stream at this point
+        """在此点将数据推入流
 
-        This is typically done only at source Streams but can theortically be
-        done at any point
+        这通常只在源流上完成,但理论上可以在任何点完成
         """
-        # ts_async = getattr(thread_state, 'asynchronous', False)
-        # if self.loop is None or asynchronous or self.asynchronous or ts_async:
-        #     if not ts_async:
-        #         thread_state.asynchronous = True
-        #     try:
-        #         result = self.update(x)
-        #         if self.loop:
-        #             return gen.convert_yielded(result)
-        #     finally:
-        #         thread_state.asynchronous = ts_async
-        # else:
-        #     @gen.coroutine
-        #     def _():
-        #         thread_state.asynchronous = True
-        #         try:
-        #             result = yield self.update(x)
-        #         finally:
-        #             del thread_state.asynchronous
-
-        #         raise gen.Return(result)
-        #     sync(self.loop, _)
         self.update(x)
 
     def update(self, x, who=None):
+        """更新流中的数据"""
         try:
             if isinstance(x, gen.Awaitable):
                 futs = gen.convert_yielded(x)
@@ -595,20 +581,20 @@ class Stream(object):
             raise
 
     def gather(self):
-        """ This is a no-op for core streamz
+        """这是core streamz的空操作
 
-        This allows gather to be used in both dask and core streams
+        这允许gather在dask和core流中都可以使用
         """
         return self
 
     def connect(self, downstream):
-        ''' Connect this stream to a downstream element.
+        """将此流连接到下游元素
 
-        Parameters
+        参数
         ----------
         downstream: Stream
-            The downstream stream to connect to
-        '''
+            要连接到的下游流
+        """
         self.downstreams.add(downstream)
 
         if downstream.upstreams == [None]:
@@ -617,28 +603,27 @@ class Stream(object):
             downstream.upstreams.append(self)
 
     def disconnect(self, downstream):
-        ''' Disconnect this stream to a downstream element.
+        """断开此流与下游元素的连接
 
-        Parameters
+        参数
         ----------
         downstream: Stream
-            The downstream stream to disconnect from
-        '''
+            要断开连接的下游流
+        """
         self.downstreams.remove(downstream)
 
         downstream.upstreams.remove(self)
 
     @property
     def upstream(self):
+        """返回唯一的上游流"""
         if len(self.upstreams) != 1:
             raise ValueError("Stream has multiple upstreams")
         else:
             return self.upstreams[0]
 
     def destroy(self, streams=None):
-        """
-        Disconnect this stream from any upstream sources
-        """
+        """断开此流与任何上游源的连接"""
         if streams is None:
             streams = self.upstreams
         for upstream in list(streams):
@@ -646,25 +631,28 @@ class Stream(object):
             self.upstreams.remove(upstream)
 
     def scatter(self, **kwargs):
+        """分散流到dask"""
         from .dask import scatter
         return scatter(self, **kwargs)
 
     def remove(self, predicate):
-        """Only pass through elements for which the predicate returns False """
+        """只传递predicate返回False的元素"""
         return self.filter(lambda x: not predicate(x))
 
     @property
     def scan(self):
+        """scan是accumulate的别名"""
         return self.accumulate
 
     @property
     def concat(self):
+        """concat是flatten的别名"""
         return self.flatten
 
     def to_list(self):
-        """ Append all elements of a stream to a list as they come in
+        """将流的所有元素追加到列表中
 
-        Examples
+        示例
         --------
         >>> source = Stream()
         >>> L = source.map(lambda x: 10 * x).to_list()
@@ -678,55 +666,47 @@ class Stream(object):
         return L
 
     def frequencies(self, **kwargs):
-        """ Count occurrences of elements """
+        """计算元素出现的频率"""
         def update_frequencies(last, x):
             return toolz.assoc(last, x, last.get(x, 0) + 1)
 
         return self.scan(update_frequencies, start={}, **kwargs)
 
     def visualize(self, filename='mystream.png', source_node=False, **kwargs):
-        """Render the computation of this object's task graph using graphviz.
+        """使用graphviz渲染此对象的任务图的计算。
 
-        Requires ``graphviz`` to be installed.
+        需要安装``graphviz``。
 
-        Parameters
+        参数
         ----------
         filename : str, optional
-            The name of the file to write to disk.
+            要写入磁盘的文件名。
         source_node: bool, optional
-            If True then the node is the source node and we can label the
-            edges in their execution order. Defaults to False
+            如果为True,则该节点是源节点,我们可以按执行顺序标记边。
+            默认为False
         kwargs:
-            Graph attributes to pass to graphviz like ``rankdir="LR"``
+            要传递给graphviz的图形属性,如``rankdir="LR"``
         """
         from .graph import visualize
         return visualize(self, filename, source_node=source_node, **kwargs)
 
-    # def attend(self, x):
-    #     """#async等将执行结果入流"""
-    #     assert isinstance(x, gen.Awaitable)
-    #     futs = gen.convert_yielded(x)
-    #     self.loop = self.loop or get_io_loop()
-    #     self.loop.add_future(futs, lambda x: self._emit(x.result()))
-
     def __ror__(self, x):  # |
-        """emit value to stream ,end,return emit result"""
+        """将值发送到流,结束,返回发送结果"""
         self.emit(x, asynchronous=False)
         return x
 
     def __rrshift__(self, x):  # stream左边的>>
-        """emit value to stream ,end,return emit result"""
-        # self.emit(value, asynchronous=True)
+        """将值发送到流,结束,返回发送结果"""
         return self.__ror__(x)
 
     def __lshift__(self, x):  # stream右边的<<
-        """emit value to stream ,end,return emit result"""
+        """将值发送到流,结束,返回发送结果"""
         return self.__ror__(x)
 
     def catch(self, func):
-        """捕获函数执行结果到流内.
+        """捕获函数执行结果到流内。
 
-        examples::
+        示例::
 
             @log.catch
             @warn.catch_except
@@ -749,8 +729,6 @@ class Stream(object):
                 return 123
 
         """
-
-        # @Pipe
         @functools.wraps(func)
         def wraper(*args, **kwargs):
             result = func(*args, **kwargs)
@@ -772,9 +750,9 @@ class Stream(object):
         return wraper.__call__ @ P
 
     def catch_except(self, func):
-        """捕获函数执行异常到流内.
+        """捕获函数执行异常到流内。
 
-        examples::
+        示例::
 
             @log.catch
             @warn.catch_except
@@ -797,15 +775,15 @@ class Stream(object):
         return wraper.__call__ @ P
 
     def __rmatmul__(self, func):
-        """左边的 @.，函数结果进入流内."""
+        """左边的 @.，函数结果进入流内。"""
         return self.catch(func).__call__ @ P
 
     def __rxor__(self, func):
-        """左边的 ^.，函数异常入流.优先级不高"""
+        """左边的 ^.，函数异常入流。优先级不高"""
         return self.catch_except(func).__call__ @ P
 
     def __rshift__(self, ref):  # stream右边的
-        """Stream右边>>,sink到右边的对象.
+        """Stream右边>>,sink到右边的对象。
 
         支持5种类型:list| text file| str | stream | callable
         """
@@ -814,8 +792,6 @@ class Stream(object):
                      io.TextIOWrapper, lambda ref: self.to_textfile(ref),
                      str, lambda ref: self.map(str).to_textfile(ref),
                      Stream, lambda ref: self.sink(ref.emit),
-                     # 内置函数被转换成pipe，不能pipe优先，需要stream的sink优先
-                     # Pipe, lambda ref: ref(self),
                      callable, lambda ref: self.sink(ref),
                      ANY, lambda ref: TypeError(
                          f'{ref}:{type(ref)} is'
@@ -824,16 +800,18 @@ class Stream(object):
                      )
 
     def __getitem__(self, *args):
+        """获取缓存的值"""
         return self.cache.values().__getitem__(*args)
 
     def route(self, occasion):
-        """路由函数.
+        """路由函数。
 
-        :param occasion: 路由函数表达式,
-        比如 lambda x:x.startswith('foo')
-        或者 lambda x:type(x)==str
+        参数:
+            occasion: 路由函数表达式,
+            比如 lambda x:x.startswith('foo')
+            或者 lambda x:type(x)==str
 
-        examples::
+        示例::
             e = Stream.engine()
             e.start()
 
@@ -847,7 +825,7 @@ class Stream(object):
 
         """
         def param_wraper(func):
-            """ 预处理函数，定义包装函数wraper取代老函数.
+            """ 预处理函数，定义包装函数wraper取代老函数。
             定义完成后将目标函数增加到handlers中
             """
             @functools.wraps(func)
@@ -860,18 +838,13 @@ class Stream(object):
             else:
                 self.filter(lambda x: x == occasion).sink(wraper)
 
-            # self.filter(occasion).sink(wraper)
             self.handlers.append((occasion, func))
-            # 包装定义阶段执行，包装后函数是个新函数了，
-            # 老函数已经匿名，需要新函数加入handlers列表,这样才可以执行前后发消息
             return wraper
-            # 返回的这个函数实际上取代了老函数。
-            # 为了将老函数的函数名和docstring继承，需要用functools的wraps将其包装
 
         return param_wraper
 
-    # @property
     def recent(self, n=5, seconds=None):
+        """获取最近的n个值或最近seconds秒内的值"""
         if self.is_cache:
             if not seconds:
                 return self.cache.values()[-n:]
@@ -882,6 +855,7 @@ class Stream(object):
             return {}
 
     def __iter__(self,):
+        """迭代缓存的值"""
         return self.cache.values().__iter__()
 
 
@@ -896,29 +870,31 @@ class Sink(Stream):
 
 @Stream.register_api()
 class sink(Sink):
-    """ Apply a function on every element
-    Parameters
+    """ 对流中的每个元素应用一个函数
+
+    参数
     ----------
     func: callable
-        A function that will be applied on every element.
+        要应用的函数
     args:
-        Positional arguments that will be passed to ``func`` after the incoming element.
+        传递给func的位置参数,在输入元素之后传入
     kwargs:
-        Stream-specific arguments will be passed to ``Stream.__init__``, the rest of
-        them will be passed to ``func``.
-    Examples
+        Stream相关的参数会传给Stream.__init__,其余参数传给func
+
+    示例
     --------
     >>> source = Stream()
     >>> L = list()
-    >>> source.sink(L.append)
-    >>> source.sink(print)
-    >>> source.sink(print)
-    >>> source.emit(123)
+    >>> source.sink(L.append)  # 将元素添加到列表
+    >>> source.sink(print)     # 打印元素
+    >>> source.sink(print)     # 可以有多个sink
+    >>> source.emit(123)       # 发送数据
     123
     123
     >>> L
     [123]
-    See Also
+
+    另见
     --------
     map
     Stream.to_list
@@ -926,7 +902,7 @@ class sink(Sink):
 
     def __init__(self, upstream, func, *args, **kwargs):
         self.func = func
-        # take the stream specific kwargs out
+        # 提取Stream特有的kwargs参数
         sig = set(inspect.signature(Stream).parameters)
         stream_kwargs = {k: v for (k, v) in kwargs.items() if k in sig}
         self.kwargs = {k: v for (k, v) in kwargs.items() if k not in sig}
@@ -934,15 +910,11 @@ class sink(Sink):
         super().__init__(upstream, **stream_kwargs)
 
     def update(self, x, who=None, metadata=None):
-        # result = self.func(x, *self.args, **self.kwargs)
-        # if gen.isawaitable(result):
-        #     return result
-        # else:
-        #     return []
-
+        # 执行函数并处理结果
         try:
             result = self.func(x, *self.args, **self.kwargs)
             if isinstance(result, gen.Awaitable):
+                # 处理异步结果
                 futs = gen.convert_yielded(result)
                 if not self.loop:
                     self._set_asynchronous(False)
@@ -950,15 +922,16 @@ class sink(Sink):
                     self._set_loop(get_io_loop(self.asynchronous))
                 self.loop.add_future(futs, lambda x: self._emit(x.result()))
             else:
+                # 处理同步结果
                 return self._emit(result)
         except Exception as e:
             logger.exception(e)
             raise
 
     def destroy(self):
+        # 销毁时从全局sink集合中移除
         super().destroy()
         _global_sinks.remove(self)
-
 
 @Stream.register_api()
 class to_textfile(Sink):
@@ -1003,20 +976,21 @@ class to_textfile(Sink):
 
 @Stream.register_api()
 class map(Stream):
-    """ Apply a function to every element in the stream
+    """ 对流中的每个元素应用一个函数
 
-    Parameters
+    参数
     ----------
     func: callable
+        要应用的函数
     *args :
-        The arguments to pass to the function.
+        传递给函数的位置参数
     **kwargs:
-        Keyword arguments to pass to func
+        传递给函数的关键字参数
 
-    Examples
+    示例
     --------
     >>> source = Stream()
-    >>> source.map(lambda x: 2*x).sink(print)
+    >>> source.map(lambda x: 2*x).sink(print)  # 对每个元素乘以2并打印
     >>> for i in range(5):
     ...     source.emit(i)
     0
@@ -1028,7 +1002,7 @@ class map(Stream):
 
     def __init__(self, upstream, func=None, *args, **kwargs):
         self.func = func
-        # this is one of a few stream specific kwargs
+        # 从kwargs中提取name参数
         name = kwargs.pop('name', None)
         self.kwargs = kwargs
         self.args = args
@@ -1037,20 +1011,29 @@ class map(Stream):
 
     def update(self, x, who=None):
         try:
+            # 应用函数到输入值
             result = self.func(x, *self.args, **self.kwargs)
+            
+            # 处理异步结果
             if isinstance(result, gen.Awaitable):
+                # 转换为Future对象
                 futs = gen.convert_yielded(result)
+                
+                # 设置异步模式
                 if not self.loop:
                     self._set_asynchronous(False)
                 if self.loop is None and self.asynchronous is not None:
                     self._set_loop(get_io_loop(self.asynchronous))
+                    
+                # 添加Future到事件循环
                 self.loop.add_future(futs, lambda x: self._emit(x.result()))
             else:
+                # 同步结果直接发射
                 return self._emit(result)
         except Exception as e:
+            # 记录并重新抛出异常
             logger.exception(e)
             raise
-
 
 @Stream.register_api()
 class starmap(Stream):
@@ -1145,6 +1128,30 @@ class filter(Stream):
 
 @gen.coroutine
 def httpx(req, render=False, **kwargs):
+    """异步HTTP请求函数
+
+    参数:
+        req: 请求参数,可以是URL字符串或请求参数字典
+        render: 是否渲染JavaScript,默认False
+        **kwargs: 渲染参数,传递给arender()方法
+
+    返回:
+        response: 响应对象
+
+    示例:
+        # URL字符串
+        response = yield httpx('http://example.com')
+        
+        # 请求参数字典
+        response = yield httpx({
+            'url': 'http://example.com',
+            'method': 'post',
+            'data': {'key': 'value'}
+        })
+
+        # 渲染JavaScript
+        response = yield httpx('http://example.com', render=True)
+    """
     httpclient = AsyncHTMLSession(workers=1)
     try:
         if isinstance(req, str):
@@ -1163,80 +1170,69 @@ def httpx(req, render=False, **kwargs):
         print(req, e)
         logger.exception(e)
 
-
 @Stream.register_api()
 class http(Stream):
-    """自动http 流中的url，返回response对象.
+    """自动处理流中的HTTP请求,返回response对象.
 
-    接受url和requestsdict两种上游数据格式，注意上游流要限速，这个是并发执行，速度很快
+    接受两种上游数据格式:
+    1. URL字符串
+    2. 请求参数字典
 
+    注意:上游流需要限速,因为这是并发执行,速度很快
 
-    :param error:，流或者pipe函数，发生异常时url会被发送到这里
-    :param workers:并发线程池数量
+    参数:
+        error: 流或pipe函数,发生异常时URL会被发送到这里
+        workers: 并发线程池数量
+        render: 是否渲染JavaScript,默认False
+        **kwargs: 渲染参数,包括:
+            - retries: 重试次数,默认8
+            - script: 自定义JavaScript脚本
+            - wait: 等待时间,默认0.2秒
+            - scrolldown: 是否向下滚动
+            - sleep: 休眠时间
+            - reload: 是否重新加载,默认True
+            - timeout: 超时时间,默认8秒
+            - keep_page: 是否保持页面,默认False
 
-
-    example::
-
+    示例:
+        # 基本用法
         s = Stream()
-        get_data = lambda x:x.body.decode(
-            'utf-8')>>chinese_extract>>sample(20)>>concat('|')
+        get_data = lambda x:x.body.decode('utf-8')>>chinese_extract>>sample(20)>>concat('|')
         s.rate_limit(0.1).http(workers=20,error=log).map(get_data).sink(print)
 
         url>>s
 
+        # 使用请求参数字典
         {'url':'','headers'='','params':''}>>s
 
-
+        # 提取标题
         h = http()
         h.map(lambda r:(r.url,r.html.search('<title>{}</title>')[0]))>>log
         'http://www.518.is'>>h
 
         [2020-03-17 03:46:30.902542] INFO: log: ('http://518.is/', 'NajaBlog')
 
-    Returns::
-
-        response, 常用方法,可用self.request方法获取回来做调试
-        # 完整链接提取
-        r.html.absolute_links
-
-        # css selector
-        about = r.html.find('#about', first=True) #css slectotr
-        about.text
-        about.attrs
-        about.html
-        about.find('a')
-        about.absolute_links
-
-        # 搜索模版
-        r.html.search('Python is a {} language')[0]
-
-        # xpath
-        r.html.xpath('a')
-
-        # 条件表达式
-        r.html.find('a', containing='kenneth')
-
-        # 常用属性
-        response.url
-        response.base_url
-        response.text
-        response.full_text
-
-
-
+    返回:
+        response对象,常用方法:
+        - r.html.absolute_links: 提取所有完整链接
+        - r.html.find(): CSS选择器
+        - r.html.search(): 搜索模板
+        - r.html.xpath(): XPath查询
+        - r.url: 请求URL
+        - r.base_url: 基础URL
+        - r.text: 响应文本
+        - r.full_text: 完整文本
     """
 
     def __init__(self, upstream=None, render=False, workers=None, error=print, **kwargs):
-        """http arender surport.
+        """初始化HTTP流
 
-        [description]
-
-        Args:
-            **kwargs: render args retries: int = 8, script: str = None, wait: float = 0.2, scrolldown=False, sleep: int = 0, reload: bool = True, timeout: Union[float, int] = 8.0, keep_page: bool = False
-            upstream: [description] (default: {None})
-            render: [description] (default: {False})
-            workers: [description] (default: {None})
-            error: [description] (default: {print})
+        参数:
+            upstream: 上游流
+            render: 是否渲染JavaScript
+            workers: 并发线程池数量
+            error: 错误处理函数
+            **kwargs: 渲染参数
         """
         self.error = error
         self.render = render
@@ -1245,17 +1241,40 @@ class http(Stream):
         self.kwargs = kwargs
 
     def update(self, req, who=None):
+        """更新流数据
+
+        参数:
+            req: 请求(URL或字典)
+            who: 更新者标识
+        """
         self.loop.add_future(
             self._request(req),
             lambda x: self._emit(x.result())
         )
 
     def emit(self, req, **kwargs):
+        """发送请求
+
+        参数:
+            req: 请求(URL或字典)
+            **kwargs: 额外参数
+
+        返回:
+            req: 原始请求
+        """
         self.update(req)
         return req
 
     @gen.coroutine
     def _request(self, req):
+        """执行异步请求
+
+        参数:
+            req: 请求(URL或字典)
+
+        返回:
+            response: 响应对象
+        """
         try:
             if isinstance(req, str):
                 response = yield self.httpclient.get(req)
@@ -1272,6 +1291,15 @@ class http(Stream):
 
     @classmethod
     def request(cls, url, **kwargs):
+        """同步HTTP请求
+
+        参数:
+            url: 请求URL
+            **kwargs: 请求参数
+
+        返回:
+            response: 响应对象
+        """
         from requests_html import HTMLSession
         httpclient = HTMLSession()
         try:
@@ -1284,15 +1312,29 @@ class http(Stream):
 
     @classmethod
     def get(cls, url, **kwargs):
+        """GET请求快捷方法
+
+        参数:
+            url: 请求URL
+            **kwargs: 请求参数
+
+        返回:
+            response: 响应对象
+        """
         return cls.request(url, **kwargs)
 
     x = httpx
 
     @classmethod
     async def get_web_article(cls, url, key='text'):
-        """
-        提取网页信息，key为可选项：title｜description｜image|text 等,默认返回dict
-        http.get_web_article(url,'text')>>print
+        """提取网页文章内容
+
+        参数:
+            url: 网页URL
+            key: 提取字段,可选值:title|description|image|text等,默认text
+
+        返回:
+            提取的内容或完整数据字典
         """
         from trafilatura import bare_extraction
 
@@ -1303,14 +1345,23 @@ class http(Stream):
         else:
             return data
 
-
 def sync(loop, func, *args, **kwargs):
+    """在单独线程中运行的事件循环中执行协程函数
+    
+    参数:
+        loop: 事件循环对象,如果为None则使用get_io_loop()获取
+        func: 要执行的协程函数
+        *args: 传递给func的位置参数
+        **kwargs: 传递给func的关键字参数,其中callback_timeout用于设置超时时间
+        
+    返回:
+        协程函数的执行结果
+        
+    异常:
+        RuntimeError: 如果事件循环已关闭,或在运行loop的线程中调用
+        TimeoutError: 如果执行超时
     """
-    Run coroutine in loop running in separate thread.
-    """
-    # This was taken from distrbuted/utils.py
-
-    # Tornado's PollIOLoop doesn't raise when using closed, do it ourselves
+    # 检查事件循环是否已关闭
     loop = loop or get_io_loop()
     if PollIOLoop\
         and ((isinstance(loop, PollIOLoop)
@@ -1319,8 +1370,10 @@ def sync(loop, func, *args, **kwargs):
                  and loop.asyncio_loop._closed)):
         raise RuntimeError("IOLoop is closed")
 
+    # 获取超时设置
     timeout = kwargs.pop('callback_timeout', None)
 
+    # 用于同步的事件对象
     e = threading.Event()
     main_tid = get_thread_identity()
     result = [None]
@@ -1329,11 +1382,13 @@ def sync(loop, func, *args, **kwargs):
     @gen.coroutine
     def f():
         try:
+            # 检查是否在事件循环线程中调用
             if main_tid == get_thread_identity():
                 raise RuntimeError("sync() called from thread of running loop")
             yield gen.moment
             thread_state.asynchronous = True
             future = func(*args, **kwargs)
+            # 添加超时控制
             if timeout is not None:
                 future = gen.with_timeout(timedelta(seconds=timeout), future)
             result[0] = yield future
@@ -1343,37 +1398,56 @@ def sync(loop, func, *args, **kwargs):
             thread_state.asynchronous = False
             e.set()
 
+    # 将协程添加到事件循环
     loop.add_callback(f)
+    
+    # 等待执行完成或超时
     if timeout is not None:
         if not e.wait(timeout):
             raise gen.TimeoutError("timed out after %s s." % (timeout,))
     else:
         while not e.is_set():
             e.wait(10)
+            
+    # 处理执行结果
     if error[0]:
         six.reraise(*error[0])
     else:
         return result[0]
 
-
 class Deva():
     @classmethod
     def run(cls,):
-        # loop = IOLoop()
-        # loop.make_current()
-        # loop.start()
+        """启动事件循环
 
-        # loop = get_io_loop(asynchronous=False)
-        # loop.instance().start()
+        这个方法会启动一个Tornado IOLoop事件循环,并在接收到键盘中断时退出。
 
-        # import asyncio
-        # l = asyncio.new_event_loop()
+        有几种可选的事件循环实现方式:
+        1. 使用IOLoop创建新的事件循环:
+           loop = IOLoop()
+           loop.make_current() 
+           loop.start()
 
-        # l.run_forever()
+        2. 使用get_io_loop获取事件循环:
+           loop = get_io_loop(asynchronous=False)
+           loop.instance().start()
+
+        3. 使用asyncio创建事件循环:
+           import asyncio
+           loop = asyncio.new_event_loop()
+           loop.run_forever()
+
+        当前使用的是最简单的方式 - 直接创建并启动一个IOLoop。
+
+        Returns:
+            None
+
+        Raises:
+            KeyboardInterrupt: 当收到Ctrl+C时退出
+        """
         try:
             IOLoop().start()
         except KeyboardInterrupt:
             exit()
-
 
 print(os.getpid())

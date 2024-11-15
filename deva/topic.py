@@ -9,6 +9,46 @@ import pandas as pd
 import dill
 from tornado import gen
 import json
+"""消息主题模块
+
+本模块提供了基于不同传输协议的消息主题实现,包括:
+
+- Topic: 基于Redis的消息主题
+- TCPStream: 基于TCP的消息流
+- TCPTopic: 基于TCP的消息主题
+
+主要功能:
+- 支持发布/订阅模式
+- 支持消息持久化
+- 支持消息分组处理
+- 支持TCP和Redis两种传输方式
+
+示例
+-------
+# Redis主题示例
+>>> from deva import Topic
+>>> t1 = Topic('test_topic')  # 创建主题
+>>> t1 >> log  # 订阅并打印消息
+>>> 'hello' >> t1  # 发布消息
+
+# TCP流示例
+>>> from deva import TCPStream
+>>> s1 = TCPStream(port=5000)  # 创建TCP流
+>>> s2 = TCPStream(port=5000)  # 创建另一个TCP流
+>>> s1.map(lambda x: x*2) >> s2  # 消息处理并转发
+>>> 'hello' >> s1  # 发送消息
+
+# TCP主题示例
+>>> from deva import TCPTopic 
+>>> t1 = TCPTopic('chat')
+>>> t1.map(lambda x: f'收到消息: {x}') >> log
+>>> '你好' >> t1  # 发送消息到主题
+
+参见
+--------
+deva.core.Stream : 基础流处理类
+deva.sources : 数据源模块
+"""
 
 logger = logging.getLogger(__name__)
 

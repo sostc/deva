@@ -2,6 +2,24 @@ from .core import Stream, get_io_loop
 from .bus import log
 from .pipe import P
 from tornado import gen
+"""Future相关工具
+
+提供了一些处理Future对象的工具函数和流操作。
+
+Examples
+--------
+>>> from tornado import gen
+>>> @gen.coroutine 
+... def foo():
+...     yield gen.sleep(1)
+...     return 42
+...
+>>> future = foo()
+>>> # 使用run_future流处理Future
+>>> s = Stream()
+>>> s.run_future() >> print
+>>> future >> s  # 输出: 42
+"""
 
 
 @Stream.register_api()
@@ -40,14 +58,34 @@ class run_future(Stream):
     """
 
     def __init__(self, upstream=None, **kwargs):
-        # from tornado import httpclient
+        """初始化run_future流
+        
+        Args:
+            upstream: 上游流
+            **kwargs: 其他参数
+        """
         Stream.__init__(self, upstream=upstream, ensure_io_loop=True)
 
     def emit(self, x, **kwargs):
+        """发射数据到下游
+        
+        Args:
+            x: 要发射的数据
+            **kwargs: 其他参数
+            
+        Returns:
+            发射的数据x
+        """
         self.update(x)
         return x
 
     def update(self, x, who=None):
+        """更新流中的数据
+        
+        Args:
+            x: 要更新的数据,必须是Awaitable对象
+            who: 更新者标识
+        """
         assert isinstance(x, gen.Awaitable)
         futs = gen.convert_yielded(x)
         self.loop.add_future(futs, lambda x: self._emit(x.result()))

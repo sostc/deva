@@ -15,10 +15,7 @@ from tornado.ioloop import IOLoop
 from urllib.parse import quote
 
 
-try:
-    import builtins
-except ImportError:
-    import __builtin__ as builtins
+import builtins
 
 
 __all__ = [

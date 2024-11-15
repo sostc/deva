@@ -1,33 +1,48 @@
 from collections import defaultdict
 """
-    webview
-    ~~~~~~~~~
+页面视图模块
+~~~~~~~~~
 
-    example::
+本模块提供了Web页面视图相关的功能,包括:
 
-        from deva.page import page,PageServer,render_template
-        from deva import *
+- 页面路由和渲染
+- 数据流的Web可视化
+- WebSocket实时更新
+- 页面服务器管理
 
-        s = from_textfile('/var/log/systemf.log')
-        s1 =s.sliding_window(5).map(concat('<br>'),name='system.log')
-        s.start()
+主要组件:
+- page: 全局Page实例,用于注册路由
+- PageServer: Web服务器类,用于启动和管理服务
+- render_template: 模板渲染函数
 
-        def sample_df_html(n=5):
-            return NB('sample')['df'].sample(n).to_html()
+使用示例::
 
-        s2 = timer(func=sample_df_html,start=True,name='每秒更新',interval=1)
-        s3 = timer(func=sample_df_html,start=True,name='每三秒更新',interval=3)
+    from deva.page import page,PageServer,render_template 
+    from deva import *
 
-        @page.route('/')
-        def get():
-            streams = [s1,s2,s3]
-            return render_template('./templates/streams.html', streams=streams)
+    # 创建数据流
+    s = from_textfile('/var/log/systemf.log')
+    s1 = s.sliding_window(5).map(concat('<br>'),name='system.log')
+    s.start()
 
+    def sample_df_html(n=5):
+        return NB('sample')['df'].sample(n).to_html()
 
-        ps = PageServer()
-        ps.start()
+    # 创建定时更新的数据流
+    s2 = timer(func=sample_df_html,start=True,name='每秒更新',interval=1)
+    s3 = timer(func=sample_df_html,start=True,name='每三秒更新',interval=3)
 
-    debug interface stolen from: https://gist.github.com/rduplain/4983839
+    # 注册路由
+    @page.route('/')
+    def get():
+        streams = [s1,s2,s3]
+        return render_template('./templates/streams.html', streams=streams)
+
+    # 启动服务器
+    ps = PageServer()
+    ps.start()
+
+注:调试接口参考自 https://gist.github.com/rduplain/4983839
 """
 
 import tornado.ioloop
@@ -184,10 +199,15 @@ def render_template(*args, **kwargs):
 
 
 class Page(object):
+    """页面类,用于处理HTTP请求和路由
 
-    """
+    主要功能:
+    - 注册路由和处理函数
+    - 支持werkzeug和tornado两种路由语法
+    - 支持tornado和jinja2两种模板引擎
+    - 支持调试模式
 
-    Example usage::
+    示例用法::
 
         from deva.page import Page
 
@@ -197,12 +217,20 @@ class Page(object):
         def foo():
             return "hello"
 
-    :param debug: enables werkzeug debugger
-    :param template_path: we normally look for template in ./templates folder of your app.py
-                          you can explicitly set for some other template path
+    参数:
+        debug (bool): 是否启用werkzeug调试器
+        template_path (str): 模板文件路径,默认为app.py所在目录下的templates目录
+        template_engine (str): 使用的模板引擎,可选'tornado'或'jinja2'
     """
 
     def __init__(self, debug=False, template_path=None, template_engine='tornado'):
+        """初始化Page实例
+
+        Args:
+            debug (bool): 是否启用调试模式
+            template_path (str): 模板路径,默认为None
+            template_engine (str): 模板引擎,可选'tornado'或'jinja2'
+        """
         assert template_engine in ('tornado', 'jinja2')
         self.registery = OrderedDict()
         self.url_map = Map()
@@ -231,8 +259,10 @@ class Page(object):
                 loader=FileSystemLoader(self.template_path))
 
     def get_routes(self):
-        """
-        returns our compiled routes and classes as a list to be used in tornado
+        """获取编译后的路由和处理类列表
+
+        Returns:
+            list: 路由和处理类的元组列表
         """
         self.registery = OrderedDict()
         for rule in self.methods:
@@ -240,98 +270,29 @@ class Page(object):
         return [(k, v) for k, v in self.registery.items()]
 
     def is_werkzeug_route(self, route):
-        """
-        does it look like a werkzeug route or direct reg exp. of
-        tornado.
+        """判断是否为werkzeug路由语法
+
+        Args:
+            route (str): 路由字符串
+
+        Returns:
+            bool: 是否为werkzeug路由
         """
         return _rule_re.match(route)
 
     def route(self, rule, methods=None, werkzeug_route=None, tornado_route=None, handler_bases=None, nowrap=None):
-        """
-        our super handy dandy routing function, usually you create an application,
-        and decorate your functions so they become RequestHandlers::
+        """路由装饰器,用于注册处理函数
 
-                    app = App()
+        Args:
+            rule (str): 路由规则,支持werkzeug和tornado语法
+            methods (list): HTTP方法列表,如['GET','POST']
+            werkzeug_route (bool): 是否强制使用werkzeug路由
+            tornado_route (bool): 是否强制使用tornado路由
+            handler_bases (tuple): 处理器基类元组
+            nowrap (bool): 是否不包装处理函数
 
-                    @app.route("/hello")
-                    def hello():
-                        return "foo"
-
-        :param rule: this can be either a werkzeug route or a reg.expression as in tornado.
-                     we try to understand the type of it automatically - wheter werkzeug or reg.exp. -
-                     this by checking with a regexp. If it is a werkzeug route, we simply get the compiled
-                     reg. exp from werkzeug and pass it to tornado handlers.
-
-        :param methods: methods can be a combination of ['GET', 'POST', 'HEAD', 'PUT'...]
-                        any http verb that tornado accepts. Behind the scenes we create a class
-                        and attach these methods.
-
-                        for example something like::
-
-                            class HelloHandler(tornado.web.RequestHandler):
-                                def get(self):
-
-
-        :param werkzeug_route: we explicitly tell that this is a werkzeug route, in case auto detection fails.
-        :param tornado_route: we explicitly tell that this is a tornado reg. exp. route
-        :param handler_bases: for debug we create DebuggableHandler, and for normal operations we create
-                                tornado.web.RequestHandler but in case you want to use your own classes for request
-                                handling, you can pass it with handler_bases parameter. So behind the scenes this::
-
-                                    @route("/foo", handler_bases=(MyHandler,))
-                                    def foo():
-                                        pass
-
-                                becomes this::
-
-                                    class HelloHandler(MyHandler):
-                                        def get(self):
-                                            ...
-
-                                if you set a base class for your FooHandler, in debug mode we'll add DebuggableHandler in between
-                                handler.__class__.__mro__
-                                (<class 'tornado_smack.app.FooHandler'>, <class 'tornado_smack.app.DebuggableHandler'>, <class '__main__.MyBaseHandler'>, <class 'tornado.web.RequestHandler'>, <type 'object'>)
-
-
-        :param nowrap: if you add use self - or handler - as your first parameter::
-
-                            @route('/foo')
-                            def foo(self):
-                                self.write("hello")
-
-                        if becomes something like this::
-
-                            class HelloHandler(tornado.web.RequestHandler):
-                                def get(self):
-                                    self.write("hello")
-
-                        if you omit self as your first parameter::
-
-                            @route('/foo')
-                            def foo():
-                                return "hello"
-
-                        we implicitly wrap foo so it becomes something like this::
-
-                            class HelloHandler(tornado.web.RequestHandler):
-                                def get(self, *args, **kwargs):
-                                    def wrapper(*args, **kwargs):
-                                        return foo(*args, **kwargs)
-                                    wrapper(*args, **kwargs)
-
-                        in case you want to use some other name for your first parameter,
-                        or for some other reason you can explicitly say don't wrap.
-
-                        in case you are using tornado.coroutine or some other tornado decorator,
-                        we don't wrap your function - because simply it won't work. so this::
-
-                            @route('/foo')
-                            @coroutine
-                            def foo():
-                                ...
-
-                        will give you an error.
-
+        Returns:
+            function: 装饰器函数
         """
         def inner(fn):
             self.add_route(rule=rule,
@@ -347,6 +308,17 @@ class Page(object):
     def add_route(self, rule, fn=None, methods=None,
                   werkzeug_route=None, tornado_route=None,
                   handler_bases=None, nowrap=None):
+        """添加路由规则
+
+        Args:
+            rule (str): 路由规则
+            fn (callable): 处理函数
+            methods (list): HTTP方法列表
+            werkzeug_route (bool): 是否使用werkzeug路由
+            tornado_route (bool): 是否使用tornado路由
+            handler_bases (tuple): 处理器基类
+            nowrap (bool): 是否不包装处理函数
+        """
         assert callable(fn)
         self.methods.append(dict(
             rule=rule,
@@ -360,6 +332,17 @@ class Page(object):
 
     def route_(self, rule, methods=None, werkzeug_route=None,
                tornado_route=None, handler_bases=None, fn=None, nowrap=None):
+        """实际的路由注册逻辑
+
+        Args:
+            rule (str): 路由规则
+            methods (list): HTTP方法列表
+            werkzeug_route (bool): 是否使用werkzeug路由
+            tornado_route (bool): 是否使用tornado路由
+            handler_bases (tuple): 处理器基类
+            fn (callable): 处理函数
+            nowrap (bool): 是否不包装处理函数
+        """
         methods = methods or ['GET']
 
         clsname = '%sHandler' % fn.__name__.capitalize()
@@ -406,15 +389,6 @@ class Page(object):
                     else:
                         self.finish(result)
 
-                    # import gc
-                    # # gc.collect()
-                    # print "is gc enabled", gc.isenabled()
-                    # print "-----------------"
-                    # for obj in gc.get_objects():
-                    #     if isinstance(obj, DebuggableHandler):
-                    #         print ">>>", type(obj), "<<<"
-                    #
-                    # print "-----------------"
 
                 m[method.lower()] = wrapper
             else:
@@ -446,9 +420,24 @@ class Page(object):
             self.registery[rule] = klass
 
     def add_routes(self, routes_list):
+        """添加路由列表
+
+        Args:
+            routes_list (list): 路由规则列表
+        """
         self.routes_list = routes_list
 
     def run(self, port=9999, host="127.0.0.1", **settings):
+        """启动HTTP服务器
+
+        Args:
+            port (int): 监听端口,默认9999
+            host (str): 监听地址,默认127.0.0.1
+            **settings: 其他设置参数
+
+        Returns:
+            Application: tornado应用实例
+        """
         self.debug = settings.get('debug', False)
         settings['template_path'] = settings.get('template_path') or self.template_path
         if self.debug:
@@ -485,8 +474,16 @@ class Page(object):
 
 
 class StreamsConnection(SockJSConnection):
+    """WebSocket连接处理类
+
+    处理WebSocket连接的建立、消息收发和关闭
+    """
 
     def __init__(self, *args, **kwargs):
+        """初始化连接
+
+        创建输入输出流并建立连接
+        """
         self._out_stream = Stream()
         self.link1 = self._out_stream.sink(self.send)
         self._in_stream = Stream()
@@ -494,6 +491,11 @@ class StreamsConnection(SockJSConnection):
         super(StreamsConnection, self).__init__(*args, **kwargs)
 
     def on_open(self, request):
+        """处理连接打开
+
+        Args:
+            request: HTTP请求对象
+        """
         self.out_stream = Stream()  # name='default')
         self.connection = self.out_stream >> self._out_stream
         json.dumps({'id': 'default', 'html': 'welcome'}) >> self.out_stream
@@ -505,9 +507,19 @@ class StreamsConnection(SockJSConnection):
 
     @gen.coroutine
     def on_message(self, msg):
+        """处理收到的消息
+
+        Args:
+            msg (str): 收到的消息
+        """
         json.loads(msg) >> self._in_stream
 
     def process_msg(self, msg):
+        """处理消息
+
+        Args:
+            msg (dict): 消息内容
+        """
         stream_ids = msg['stream_ids']
 
         'view:%s:%s:%s' % (stream_ids, self.request.ip,
@@ -533,6 +545,7 @@ class StreamsConnection(SockJSConnection):
             json.dumps({'id': sid, 'html': html}) >> self._out_stream
 
     def on_close(self):
+        """处理连接关闭"""
         f'close:{self.request.ip}:{datetime.datetime.now()}' >> log
         for connection in self.connections:
             connection.destroy()
@@ -548,6 +561,21 @@ page = Page()
 
 
 class PageServer(object):
+    """页面服务器类,用于启动和管理Web服务器
+
+    主要功能:
+    - 启动Tornado Web服务器
+    - 管理页面路由
+    - 处理WebSocket连接
+    - 管理数据流
+
+    参数:
+        name (str): 服务器名称,默认为'default'
+        host (str): 监听的主机地址,默认为'127.0.0.1'
+        port (int): 监听的端口号,默认为9999
+        start (bool): 是否立即启动服务器,默认为False
+        **kwargs: 传递给tornado.web.Application的额外参数
+    """
     page = page
 
     def __init__(self, name='default', host='127.0.0.1', port=9999, start=False, **kwargs):
@@ -567,17 +595,34 @@ class PageServer(object):
             self.start()
 
     def add_page(self, page):
+        """添加新的页面路由
+
+        Args:
+            page: Page实例,包含要添加的路由
+        """
         self.application.add_handlers('.*$', page.get_routes())
 
     def start(self,):
+        """启动Web服务器并在浏览器中打开"""
         self.server = self.application.listen(self.port)
         os.system(f'open http://{self.host}:{self.port}/')
 
     def stop(self):
+        """停止Web服务器"""
         self.server.stop()
 
 
 def webview(s, url='/', server=None):
+    """为数据流创建Web视图
+
+    Args:
+        s: 要展示的数据流
+        url (str): 视图的URL路径,默认为'/'
+        server: PageServer实例,如果为None则创建新实例
+
+    Returns:
+        PageServer: 服务器实例
+    """
     url = url if url.startswith('/') else '/'+url
     server = server or NW('stream_webview')
     server.streams[url].append(s)
