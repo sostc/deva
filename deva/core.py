@@ -25,6 +25,163 @@ import io
 from .pipe import P, print
 from threading import get_ident as get_thread_identity
 from requests_html import AsyncHTMLSession
+"""
+deva 是一个基于 Python 的异步流式处理框架。它提供了以下主要功能:
+
+1. 流式处理
+- 支持数据流的创建、转换和组合
+- 提供丰富的流操作符(map, filter, reduce等)
+- 支持异步流处理
+
+2. HTTP 客户端
+- 基于 requests-html 的异步 HTTP 客户端
+- 支持网页抓取和解析
+- 支持 JavaScript 渲染
+
+3. 事件处理
+- 基于 tornado 的事件循环
+- 支持异步事件处理
+- 提供定时器和调度功能
+
+4. 管道操作
+- 链式调用风格的数据处理
+- 支持自定义管道操作符
+- 方便的数据转换和过滤
+
+主要用途:
+- 网络爬虫和数据采集
+- 实时数据处理
+- 异步任务调度
+- ETL 数据处理
+- 事件驱动应用
+
+使用示例:
+
+1. 流式处理
+from deva import Stream
+# 创建数据流并进行转换
+source = Stream()
+result = (source.map(lambda x: x * 2)
+                .filter(lambda x: x > 0)
+                .rate_limit(0.5))  # 限流
+                
+# 输入数据
+for i in range(5):
+    source.emit(i)
+
+2. 网页抓取
+from deva import http
+# 异步抓取网页
+urls = ['http://example1.com', 'http://example2.com']
+(Stream()
+ .emit(urls)
+ .rate_limit(0.5)  # 限制请求速率
+ .map(http.get)  # 异步HTTP请求
+ .map(lambda r: r.html.find('h1', first=True))  # 解析HTML
+ .sink(print))  # 打印结果
+
+3. 定时任务
+from deva import Stream, timer
+# 每30秒执行一次任务
+(timer(30)
+ .rate_limit(30)  # 限制执行频率
+ .map(lambda _: http.get('http://api.example.com/data'))  # 定时获取数据
+ .map(lambda r: r.json())
+ .sink(print))  # 处理结果
+
+4. 管道处理
+from deva import P
+# 使用管道操作符处理数据
+data = [{'name': 'foo', 'value': 1}, 
+        {'name': 'bar', 'value': 2}]
+(data >> P.map(lambda x: x['value'])  # 提取value字段
+      >> P.filter(lambda x: x > 1)    # 过滤
+      >> P.reduce(lambda x,y: x + y)  # 求和
+      >> print)                       # 打印结果
+
+
+5. 存储和回放
+from deva import Stream, store
+# 将数据流存储到Redis
+source = Stream()
+store = store('redis://localhost:6379')
+(source.map(lambda x: {'time': time.time(), 'value': x})
+       .sink(store.save))  # 保存到Redis
+
+# 从Redis回放数据
+(store.load()  # 加载历史数据
+      .rate_limit(0.1)  # 控制回放速度
+      .sink(print))  # 打印结果
+
+6. HTTP请求处理
+from deva import http
+# 异步并发请求
+h = http(workers=10)  # 10个并发worker
+urls = ['http://api1.com', 'http://api2.com']
+(urls >> h.map(lambda r: r.json())  # 解析JSON响应
+         >> print)
+
+# 渲染JavaScript
+h = http(render=True)  # 启用JS渲染
+'http://spa.com' >> h.map(lambda r: r.html.search('data-value="{}"')[0]) >> print
+
+7. 命名空间(namespace)
+from deva import NB
+# 创建命名空间
+nb = NB('my_app')
+
+# 发布订阅模式
+@nb.sub('topic1')  # 订阅topic1
+def handler1(msg):
+    print(f'收到消息: {msg}')
+    
+@nb.sub('topic2')  # 订阅topic2 
+def handler2(msg):
+    print(f'收到消息: {msg}')
+
+# 发布消息
+nb.pub('topic1', '你好')  # 发送到topic1
+nb.pub('topic2', '世界')  # 发送到topic2
+
+# 远程过程调用(RPC)
+@nb.rpc('add')  # 注册RPC方法
+def add(a, b):
+    return a + b
+    
+# 调用RPC方法
+result = nb.call('add', 1, 2)  # 返回3
+
+# 共享状态
+nb.set('counter', 0)  # 设置共享变量
+nb.get('counter')  # 获取共享变量
+nb.incr('counter')  # 原子递增
+
+# 分布式锁
+with nb.lock('resource'):  # 获取分布式锁
+    # 临界区代码
+    pass
+
+# 任务队列
+@nb.task('process_data')  # 注册任务处理器
+def process_data(data):
+    print(f'处理数据: {data}')
+    
+nb.send_task('process_data', '待处理数据')  # 发送任务
+
+# 事件总线
+@nb.on('user.created')  # 监听事件
+def on_user_created(user):
+    print(f'新用户创建: {user}')
+    
+nb.emit('user.created', {'id': 1, 'name': 'test'})  # 触发事件
+
+
+
+
+
+更多信息请访问: https://github.com/sostc/deva
+"""
+
 
 no_default = '--no-default--'
 
