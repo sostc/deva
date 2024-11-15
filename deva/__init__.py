@@ -14,7 +14,6 @@ from .bus import *
 from .search import IndexStream
 from .pipe import *
 from .monitor import Monitor
-from .page import page
 from .state import *
 from .lambdas import _ as x
 
