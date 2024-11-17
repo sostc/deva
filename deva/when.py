@@ -2,10 +2,10 @@ import os
 import atexit
 from .bus import log
 from .core import Stream
+from .utils.time import convert_interval
 import datetime
 from tornado import gen
 import time
-from typing import Union
 
 
 """定时任务和事件调度模块
@@ -13,7 +13,6 @@ from typing import Union
 本模块提供了定时任务调度和事件处理的功能。主要包含:
 
 - exit(): 进程退出时发送信号
-- convert_interval(): 转换时间间隔格式
 - scheduler: 定时任务调度流
 
 示例
@@ -60,20 +59,6 @@ def exit():
 
     return 'exit' >> log
 
-
-def convert_interval(interval: Union[str, int, float]) -> float:
-    """将不同格式的时间间隔转换为秒数
-
-    Args:
-        interval: 时间间隔，可以是字符串格式（如'1h'）或数字（秒）
-
-    Returns:
-        float: 转换后的秒数
-    """
-    if isinstance(interval, str):
-        import pandas as pd
-        interval = pd.Timedelta(interval).total_seconds()
-    return float(interval)
 
 
 @Stream.register_api(staticmethod)
@@ -235,7 +220,8 @@ class timer(Stream):
         self.interval = convert_interval(interval)  # 转换并存储时间间隔
         self.func = func  # 存储要执行的函数
         self.ttl = convert_interval(ttl)  if ttl else None# 转换并存储生命周期
-        if thread:  # 如果使用线程池则创建线程池
+        self.thread = thread
+        if self.thread:  # 如果使用线程池则创建线程池
             from concurrent.futures import ThreadPoolExecutor
             self.thread_pool = ThreadPoolExecutor(threadcount)
 
