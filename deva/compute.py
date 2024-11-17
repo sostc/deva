@@ -1,5 +1,6 @@
 from .core import Stream, identity
 from .store import DBStream
+from .utils.time import convert_interval
 from collections import deque
 from collections.abc import Iterable
 from tornado import gen
@@ -8,15 +9,38 @@ from tornado.locks import Condition
 from tornado.queues import Queue
 import logging
 
+"""计算流模块
+
+本模块提供了数据流的计算和处理功能,包括:
+
+- rate_limit: 限流器,控制数据流速率
+- buffer: 缓冲区,允许数据在流中堆积
+- convert_interval: 时间间隔转换工具函数
+
+主要功能:
+- 流速率控制
+- 数据缓冲
+- 时间间隔转换
+
+示例
+-------
+# 限流示例
+>>> from deva import Stream
+>>> s = Stream()
+>>> s.rate_limit(interval='1s') >> log  # 限制每秒最多处理一条数据
+
+# 缓冲示例  
+>>> s.buffer(n=100) >> log  # 缓冲100条数据后再处理
+
+参见
+--------
+deva.core.Stream : 基础流处理类
+deva.store : 存储模块
+"""
+
+
 no_default = '--no-default--'
 logger = logging.getLogger(__name__)
-
-
-def convert_interval(interval):
-    if isinstance(interval, str):
-        import pandas as pd
-        interval = pd.Timedelta(interval).total_seconds()
-    return interval
 
 
 @Stream.register_api()
@@ -51,11 +75,27 @@ class rate_limit(Stream):
 
 @Stream.register_api()
 class buffer(Stream):
-    """ Allow results to pile up at this point in the stream
+    """缓冲流.
 
-    This allows results to buffer in place at various points in the stream.
-    This can help to smooth flow through the system when backpressure is
-    applied.
+    在流中的某个点允许结果堆积。当应用背压时,这可以帮助平滑系统中的数据流。
+
+    参数
+    ----------
+    upstream : Stream
+        上游流对象
+    n : int
+        缓冲区大小,超过此大小将阻塞
+
+    示例
+    -------
+    >>> source = Stream()
+    >>> buff = source.buffer(n=100)  # 创建大小为100的缓冲区
+    >>> buff.rate_limit(0.1) >> print  # 限制输出速率为每秒10个
+
+    注意
+    -------
+    - 缓冲区满时,上游数据将被阻塞
+    - 可以配合rate_limit使用来控制下游处理速度
     """
     _graphviz_shape = 'diamond'
 
@@ -69,23 +109,46 @@ class buffer(Stream):
     def update(self, x, who=None):
         return self.queue.put(x)
 
-    @gen.coroutine
+    @gen.coroutine 
     def cb(self):
         while True:
             x = yield self.queue.get()
             yield self._emit(x)
 
-
 @Stream.register_api()
 class zip(Stream):
-    """ Combine streams together into a stream of tuples
+    """将多个流组合成一个元组流.
 
-    We emit a new tuple once all streams have produce a new tuple.
+    当所有上游流都产生新数据时,将它们组合成一个元组发送到下游.
 
-    See also
+    参数
+    ----------
+    *upstreams : Stream
+        要组合的上游流对象
+    **kwargs : dict
+        其他参数,包括:
+        - maxsize: 缓冲区大小,默认10
+
+    示例
+    -------
+    >>> s1 = Stream()
+    >>> s2 = Stream()
+    >>> s3 = s1.zip(s2)  # 将s1和s2组合
+    >>> s3.sink(print)  # 打印组合后的元组
+    >>> 1 >> s1  # 发送数据到s1
+    >>> 'a' >> s2  # 发送数据到s2
+    (1, 'a')  # 输出组合后的元组
+
+    注意
+    -------
+    - 只有当所有流都有新数据时才会发送
+    - 可以通过maxsize参数控制缓冲区大小
+    - 支持将常量值与流组合
+
+    参见
     --------
-    combine_latest
-    zip_latest
+    combine_latest : 组合最新值
+    zip_latest : 组合最新值的变体
     """
     _graphviz_orientation = 270
     _graphviz_shape = 'triangle'
@@ -106,7 +169,18 @@ class zip(Stream):
         Stream.__init__(self, upstreams=upstreams2, **kwargs)
 
     def pack_literals(self, tup):
-        """ Fill buffers for literals whenever we empty them """
+        """将常量值填充到缓冲区.
+
+        参数
+        ----------
+        tup : tuple
+            当前的数据元组
+
+        返回
+        -------
+        tuple
+            填充常量后的元组
+        """
         inp = list(tup)[::-1]
         out = []
         for i, val in self.literals:
@@ -120,6 +194,26 @@ class zip(Stream):
         return tuple(out)
 
     def update(self, x, who=None):
+        """更新流数据.
+
+        当收到上游数据时:
+        1. 将数据加入对应缓冲区
+        2. 检查是否所有缓冲区都有数据
+        3. 如果都有则组合发送,否则等待
+        4. 如果缓冲区满则阻塞
+
+        参数
+        ----------
+        x : Any
+            收到的数据
+        who : Stream
+            数据来源的流对象
+
+        返回
+        -------
+        Future
+            发送数据的Future对象
+        """
         L = self.buffers[who]  # get buffer for stream
         L.append(x)
         if len(L) == 1 and all(self.buffers.values()):
@@ -132,7 +226,6 @@ class zip(Stream):
             return self._emit(tup)
         elif len(L) > self.maxsize:
             return self.condition.wait()
-
 
 @Stream.register_api()
 class combine_latest(Stream):
@@ -181,12 +274,15 @@ class combine_latest(Stream):
 
 @Stream.register_api()
 class flatten(Stream):
-    """ Flatten streams of lists or iterables into a stream of elements
+    """ 将列表或可迭代对象的流展平成单个元素的流
+    
+    该类用于将包含列表或可迭代对象的流转换成单个元素的流。
+    它会遍历输入的列表/可迭代对象,将每个元素单独发送出去。
 
     Examples
     --------
     >>> source = Stream()
-    >>> source.flatten().sink(print)
+    >>> source.flatten().sink(print) 
     >>> for x in [[1, 2, 3], [4, 5], [6, 7, 7]]:
     ...     source.emit(x)
     1
@@ -197,9 +293,19 @@ class flatten(Stream):
     6
     7
 
+    参数
+    ----
+    upstream : Stream
+        上游数据流
+
+    返回
+    ----
+    Stream
+        展平后的数据流
+
     See Also
     --------
-    partition
+    partition : 与flatten相反,将单个元素的流组合成列表的流
     """
 
     def update(self, x, who=None):
@@ -212,48 +318,46 @@ class flatten(Stream):
                 L.append(y)
         return L
 
-
 @Stream.register_api()
 class unique(Stream):
-    """ Avoid sending through repeated elements
+    """ 避免发送重复元素的流
 
-    This deduplicates a stream so that only new elements pass through.
-    You can control how much of a history is stored with the ``history=``
-    parameter.  For example setting ``history=1`` avoids sending through
-    elements when one is repeated right after the other.
+    该类用于对流进行去重,只允许新的元素通过。
+    可以通过 `maxsize` 参数控制历史记录的大小。
+    例如设置 `maxsize=1` 可以避免连续重复的元素通过。
 
-    Parameters
+    参数
     ----------
-    history : int or None, optional
-        number of stored unique values to check against
-    key : function, optional
-        Function which returns a representation of the incoming data.
-        For example ``key=lambda x: x['a']`` could be used to allow only
-        pieces of data with unique ``'a'`` values to pass through.
-    hashable : bool, optional
-        If True then data is assumed to be hashable, else it is not. This is
-        used for determining how to cache the history, if hashable then
-        either dicts or LRU caches are used, otherwise a deque is used.
-        Defaults to True.
+    upstream : Stream
+        上游数据流
+    maxsize : int 或 None, 可选
+        存储的唯一值数量上限
+    key : function, 可选
+        用于获取数据表示的函数。
+        例如 `key=lambda x: x['a']` 可以只允许具有唯一 'a' 值的数据通过。
+    hashable : bool, 可选
+        如果为True则假定数据是可哈希的,否则不是。这用于确定如何缓存历史记录,
+        如果可哈希则使用字典或LRU缓存,否则使用deque。默认为True。
+    persistname : str 或 False, 可选
+        是否持久化存储历史记录。如果提供字符串则作为存储名称。
 
-    Examples
+    示例
     --------
     >>> source = Stream()
-    >>> source.unique(history=1).sink(print)
+    >>> source.unique(maxsize=1).sink(print)
     >>> for x in [1, 1, 2, 2, 2, 1, 3]:
     ...     source.emit(x)
-
-    持久化的去重复，一般用在报警发送
-    to_send = Stream()
-    dds = to_send.unique(persist=True,size_limit=1024*1024*2)
-    dds>>log
-    232>>to_send
-    232>>to_send
-
     1
-    2
+    2 
     1
     3
+
+    # 持久化去重示例,通常用于报警发送
+    >>> to_send = Stream()
+    >>> dds = to_send.unique(persistname='alerts', maxsize=1024*1024*2)
+    >>> dds >> log
+    >>> 232 >> to_send  # 首次发送
+    >>> 232 >> to_send  # 重复发送会被过滤
     """
 
     def __init__(self, upstream, maxsize=None,
@@ -299,7 +403,6 @@ class unique(Stream):
             if self.seen.get(str(y), '~~not_seen~~') == '~~not_seen~~':
                 self.seen[str(y)] = 1
                 return self._emit(x)
-
 
 @Stream.register_api()
 class union(Stream):
@@ -440,70 +543,88 @@ class zip_latest(Stream):
 
 @Stream.register_api()
 class latest(Stream):
-    """ Drop held-up data and emit the latest result
+    """最新值流.
 
-    This allows you to skip intermediate elements in the stream if there is
-    some back pressure causing a slowdown.  Use this when you only care about
-    the latest elements, and are willing to lose older data.
+    当流中存在背压导致处理速度变慢时,跳过中间元素只保留最新值。
+    适用于只关心最新数据,可以丢弃旧数据的场景。
 
-    This passes through values without modification otherwise.
+    如果没有背压,则直接传递数据不做修改。
 
-    Examples
+    参数
+    ----------
+    upstream : Stream
+        上游流对象
+    **kwargs : dict
+        其他参数
+
+    示例
     --------
-    >>> source.map(f).latest().map(g)  # doctest: +SKIP
+    >>> source.map(f).latest().map(g)  # 只处理最新值
+
+    注意
+    -------
+    - 当处理速度跟不上时会丢弃旧数据
+    - 适合实时数据处理场景
+    - 可以缓解系统背压
     """
     _graphviz_shape = 'octagon'
 
     def __init__(self, upstream, **kwargs):
-        self.condition = Condition()
-        self.next = []
+        self.condition = Condition()  # 条件变量用于通知
+        self.next = []  # 存储最新值
 
         Stream.__init__(self, upstream, ensure_io_loop=True, **kwargs)
 
-        self.loop.add_callback(self.cb)
+        self.loop.add_callback(self.cb)  # 启动回调处理
 
     def update(self, x, who=None):
-        self.next = [x]
-        self.loop.add_callback(self.condition.notify)
+        """更新最新值并通知处理
+
+        Args:
+            x: 新数据
+            who: 数据来源(未使用)
+        """
+        self.next = [x]  # 更新最新值
+        self.loop.add_callback(self.condition.notify)  # 通知处理
 
     @gen.coroutine
     def cb(self):
-        while True:
-            yield self.condition.wait()
-            [x] = self.next
-            yield self._emit(x)
+        """异步处理回调
 
+        循环等待新数据并发送到下游
+        """
+        while True:
+            yield self.condition.wait()  # 等待新数据
+            [x] = self.next  # 获取最新值
+            yield self._emit(x)  # 发送到下游
 
 @Stream.register_api()
 class accumulate(Stream):
-    """ Accumulate results with previous state
+    """ 累积流.
 
-    This performs running or cumulative reductions, applying the function
-    to the previous total and the new element.  The function should take
-    two arguments, the previous accumulated state and the next element and
-    it should return a new accumulated state,
-    - ``state = func(previous_state, new_value)`` (returns_state=False)
-    - ``state, result = func(previous_state, new_value)`` (returns_state=True)
+    对流中的数据进行累积计算,将函数应用于前一个状态和新元素。
+    函数应该接收两个参数:前一个累积状态和新元素,并返回新的累积状态。
 
-    where the new_state is passed to the next invocation. The state or result
-    is emitted downstream for the two cases.
+    - 当returns_state=False时: state = func(previous_state, new_value)
+    - 当returns_state=True时: state, result = func(previous_state, new_value) 
 
-    Parameters
+    新状态会传递给下一次调用。根据returns_state的值,状态或结果会发送到下游。
+
+    参数
     ----------
-    func: callable
-    start: object
-        Initial value, passed as the value of ``previous_state`` on the first
-        invocation. Defaults to the first submitted element
-    returns_state: boolean
-        If true then func should return both the state and the value to emit
-        If false then both values are the same, and func returns one value
-    **kwargs:
-        Keyword arguments to pass to func
+    func : callable
+        累积计算函数
+    start : object
+        初始值,作为第一次调用时的previous_state。默认使用第一个元素
+    returns_state : boolean
+        如果为True,则func应返回状态和要发送的值
+        如果为False,则两个值相同,func返回一个值
+    **kwargs :
+        传递给func的关键字参数
 
-    Examples
+    示例
     --------
-    A running total, producing triangular numbers
-
+    # 计算累加和,生成三角形数
     >>> source = Stream()
     >>> source.accumulate(lambda acc, x: acc + x).sink(print)
     >>> for i in range(5):
@@ -514,8 +635,7 @@ class accumulate(Stream):
     6
     10
 
-    A count of number of events (including the current one)
-
+    # 计数器,统计事件数量
     >>> source = Stream()
     >>> source.accumulate(lambda acc, x: acc + 1, start=0).sink(print)
     >>> for _ in range(5):
@@ -526,8 +646,7 @@ class accumulate(Stream):
     4
     5
 
-    Like the builtin "enumerate".
-
+    # 类似内置的enumerate
     >>> source = Stream()
     >>> source.accumulate(lambda acc, x: ((acc[0] + 1, x), (acc[0], x)),
     ...                   start=(0, 0), returns_state=True
@@ -567,30 +686,30 @@ class accumulate(Stream):
             self.state = state
             return self._emit(result)
 
-
 @Stream.register_api()
 class slice(Stream):
-    """
-    Get only some events in a stream by position. Works like list[] syntax.
+    """按位置获取流中的部分事件.
 
-    Parameters
+    该类用于从流中选择指定位置范围内的事件,类似于Python列表的切片语法。
+
+    参数
     ----------
     start : int
-        First event to use. If None, start from the beginnning
-    end : int
-        Last event to use (non-inclusive). If None, continue without stopping.
-        Does not support negative indexing.
+        起始位置。如果为None,则从头开始。
+    end : int 
+        结束位置(不包含)。如果为None,则一直持续。
+        不支持负数索引。
     step : int
-        Pass on every Nth event. If None, pass every one.
+        步长,每隔多少个事件取一个。如果为None,则每个都取。
 
-    Examples
+    示例
     --------
     >>> source = Stream()
-    >>> source.slice(2, 6, 2).sink(print)
+    >>> source.slice(2, 6, 2).sink(print)  # 从第2个开始,每隔2个取一个,直到第6个
     >>> for i in range(5):
     ...     source.emit(0)
-    2
-    4
+    2  # 输出第2个
+    4  # 输出第4个
     """
 
     def __init__(self, upstream, start=None, end=None, step=None, **kwargs):
@@ -615,20 +734,40 @@ class slice(Stream):
             # we're done
             self.upstream.downstreams.remove(self)
 
-
 @Stream.register_api()
 class partition(Stream):
-    """ Partition stream into tuples of equal size
+    """将流分割成固定大小的元组.
 
-    Examples
+    该类用于将输入流按照指定大小n分组,每组n个元素组成一个元组输出。
+    当缓冲区积累了n个元素后,将它们作为一个元组发送到下游。
+
+    参数
+    ----------
+    upstream : Stream
+        上游数据流
+    n : int
+        每组元素的数量
+
+    示例
     --------
     >>> source = Stream()
-    >>> source.partition(3).sink(print)
+    >>> source.partition(3).sink(print)  # 每3个元素分为一组
     >>> for i in range(10):
     ...     source.emit(i)
-    (0, 1, 2)
-    (3, 4, 5)
-    (6, 7, 8)
+    (0, 1, 2)  # 输出第一组
+    (3, 4, 5)  # 输出第二组
+    (6, 7, 8)  # 输出第三组
+
+    注意
+    -------
+    - 如果元素总数不是n的整数倍,最后剩余的元素将被丢弃
+    - 每组输出的是元组形式
+    - 与sliding_window不同,partition的分组之间没有重叠
+
+    参见
+    --------
+    sliding_window : 滑动窗口,产生重叠的分组
+    flatten : 与partition相反,将元组/列表展平成单个元素
     """
     _graphviz_shape = 'diamond'
 
@@ -645,30 +784,41 @@ class partition(Stream):
         else:
             return []
 
-
 @Stream.register_api()
 class sliding_window(Stream):
-    """ Produce overlapping tuples of size n
+    """滑动窗口流.
 
-    Parameters
+    产生固定大小的重叠元组序列。每当有新数据到来时,将其添加到窗口中,
+    并输出当前窗口内的所有数据。
+
+    参数
     ----------
+    upstream : Stream
+        上游数据流
+    n : int
+        窗口大小
     return_partial : bool
-        If True, yield tuples as soon as any events come in, each tuple being
-        smaller or equal to the window size. If False, only start yielding
-        tuples once a full window has accrued.
+        如果为True,则在窗口未满时也会输出部分数据。
+        如果为False,则只有在窗口满时才会输出。
 
-    Examples
+    示例
     --------
     >>> source = Stream()
     >>> source.sliding_window(3, return_partial=False).sink(print)
     >>> for i in range(8):
     ...     source.emit(i)
-    (0, 1, 2)
-    (1, 2, 3)
+    (0, 1, 2)  # 窗口满时开始输出
+    (1, 2, 3)  # 窗口向右滑动
     (2, 3, 4)
     (3, 4, 5)
     (4, 5, 6)
     (5, 6, 7)
+
+    注意
+    -------
+    - 使用deque作为固定大小的缓冲区
+    - 可以通过return_partial控制是否输出部分窗口
+    - 每次输出的是元组形式的窗口数据
     """
     _graphviz_shape = 'diamond'
 
@@ -685,14 +835,35 @@ class sliding_window(Stream):
         else:
             return []
 
-
 @Stream.register_api()
 class timed_window(Stream):
-    """ Emit a tuple of collected results every interval
+    """定时窗口流.
 
-    Every ``interval`` seconds this emits a tuple of all of the results
-    seen so far.  This can help to batch data coming off of a high-volume
-    stream.
+    每隔指定的时间间隔发送一次收集到的所有结果。
+    这可以帮助对高频流数据进行批量处理。
+
+    参数
+    ----------
+    upstream : Stream
+        上游数据流
+    interval : float 或 str
+        时间间隔,可以是秒数或时间字符串(如'1s','5min')
+
+    示例
+    --------
+    >>> source = Stream()
+    >>> source.timed_window('2s').sink(print)  # 每2秒打印收集的数据
+    >>> for i in range(10):  # 快速发送数据
+    ...     source.emit(i)
+    [0, 1, 2, 3]  # 2秒后输出
+    [4, 5, 6, 7]  # 再过2秒输出
+    [8, 9]  # 最后2秒输出
+
+    注意
+    -------
+    - 使用ensure_io_loop=True确保有事件循环
+    - 通过buffer缓存数据
+    - 每interval秒发送一次缓存数据
     """
     _graphviz_shape = 'octagon'
 
@@ -716,7 +887,6 @@ class timed_window(Stream):
             self.last = self._emit(L)
             yield self.last
             yield gen.sleep(self.interval)
-
 
 @Stream.register_api()
 class delay(Stream):
