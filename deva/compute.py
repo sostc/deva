@@ -9,28 +9,88 @@ from tornado.locks import Condition
 from tornado.queues import Queue
 import logging
 
-"""计算流模块
+"""计算流模块 (Compute Stream Module)
 
 本模块提供了数据流的计算和处理功能,包括:
 
-- rate_limit: 限流器,控制数据流速率
-- buffer: 缓冲区,允许数据在流中堆积
-- convert_interval: 时间间隔转换工具函数
-
 主要功能:
-- 流速率控制
-- 数据缓冲
-- 时间间隔转换
+- 流速率控制 (rate_limit)
+- 数据缓冲和窗口 (buffer, sliding_window, timed_window) 
+- 流组合操作 (zip, combine_latest)
+- 流转换操作 (flatten, partition)
+- 流过滤操作 (slice)
+- 流延迟操作 (delay)
 
-示例
--------
-# 限流示例
+示例用法
+--------
+
+1. 速率限制:
 >>> from deva import Stream
 >>> s = Stream()
->>> s.rate_limit(interval='1s') >> log  # 限制每秒最多处理一条数据
+>>> s.rate_limit('1s') >> print  # 限制每秒最多处理一条数据
+>>> for i in range(5):
+...     i >> s  # 每秒输出一个数字
 
-# 缓冲示例  
->>> s.buffer(n=100) >> log  # 缓冲100条数据后再处理
+2. 数据缓冲:
+>>> s = Stream()
+>>> s.buffer(n=3) >> print  # 缓冲3条数据后一起处理
+>>> for i in range(9):  
+...     i >> s  # 每3个数字一组输出
+
+3. 滑动窗口:
+>>> s = Stream()
+>>> s.sliding_window(n=3) >> print  # 3个元素的滑动窗口
+>>> for i in range(5):
+...     i >> s
+(0, 1, 2)
+(1, 2, 3) 
+(2, 3, 4)
+
+4. 定时窗口:
+>>> s = Stream()
+>>> s.timed_window('2s') >> print  # 每2秒输出一次收集的数据
+>>> for i in range(10):
+...     i >> s
+[0,1,2,3]  # 2秒后输出
+[4,5,6,7]  # 再过2秒输出
+[8,9]      # 最后2秒输出
+
+5. 流组合:
+>>> s1 = Stream()
+>>> s2 = Stream() 
+>>> s1.zip(s2) >> print  # 将两个流组合
+>>> 1 >> s1
+>>> 'a' >> s2  
+(1, 'a')  # 输出组合结果
+
+6. 最新值组合:
+>>> s1 = Stream()
+>>> s2 = Stream()
+>>> s1.combine_latest(s2) >> print
+>>> 1 >> s1  # 等待s2有值
+>>> 'a' >> s2  # 输出:(1, 'a') 
+>>> 2 >> s1  # 输出:(2, 'a')
+
+7. 流分区:
+>>> s = Stream()
+>>> s.partition(3) >> print  # 每3个元素分为一组
+>>> for i in range(7):
+...     i >> s
+(0, 1, 2)
+(3, 4, 5)
+
+8. 延迟处理:
+>>> s = Stream()
+>>> s.delay('1s') >> print  # 延迟1秒处理
+>>> 1 >> s  # 1秒后输出:1
+>>> 2 >> s  # 1秒后输出:2
+
+注意事项
+--------
+1. rate_limit 和 delay 需要事件循环支持
+2. buffer 类操作在数据量大时要注意内存使用
+3. timed_window 的时间间隔要根据数据流速合理设置
+4. 组合操作(zip/combine_latest)要注意上游流的数据到达顺序
 
 参见
 --------
@@ -229,20 +289,42 @@ class zip(Stream):
 
 @Stream.register_api()
 class combine_latest(Stream):
-    """ Combine multiple streams together to a stream of tuples
+    """组合最新值流.
 
-    This will emit a new tuple of all of the most recent elements seen from
-    any stream.
+    将多个流的最新值组合成元组发送。当任一输入流有新数据时,
+    会将所有流的最新值组合成元组发送到下游。
 
-    Parameters
+    参数
     ----------
-    emit_on : stream or list of streams or None
-        only emit upon update of the streams listed.
-        If None, emit on update from any stream
+    *upstreams : Stream
+        输入流列表
+    emit_on : stream或stream列表或None
+        指定在哪些流更新时发送组合数据。
+        如果为None,则在任意流更新时都发送。
 
-    See Also
+    示例
     --------
-    zip
+    >>> from deva import Stream
+    >>> s1 = Stream()
+    >>> s2 = Stream()
+    >>> s3 = Stream()
+    >>> combined = combine_latest(s1, s2, s3)
+    >>> combined.sink(print)
+    
+    >>> s1.emit(1)  # 等待其他流有值
+    >>> s2.emit('a')  # 等待s3有值
+    >>> s3.emit(True)  # 输出: (1, 'a', True)
+    >>> s1.emit(2)  # 输出: (2, 'a', True)
+    >>> s2.emit('b')  # 输出: (2, 'b', True)
+
+    # 只在s1更新时发送
+    >>> combined = combine_latest(s1, s2, s3, emit_on=s1)
+    >>> s2.emit('c')  # 不发送
+    >>> s1.emit(3)  # 输出: (3, 'c', True)
+
+    参见
+    --------
+    zip : 等待所有流都有新值时才组合发送
     """
     _graphviz_orientation = 270
     _graphviz_shape = 'triangle'
@@ -270,7 +352,6 @@ class combine_latest(Stream):
         if not self.missing and who in self.emit_on:
             tup = tuple(self.last)
             return self._emit(tup)
-
 
 @Stream.register_api()
 class flatten(Stream):
@@ -406,16 +487,34 @@ class unique(Stream):
 
 @Stream.register_api()
 class union(Stream):
-    """ Combine multiple streams into one
+    """合并多个流为一个流.
 
-    Every element from any of the upstreams streams will immediately flow
-    into the output stream.  They will not be combined with elements from
-    other streams.
+    将多个输入流合并成一个输出流。任一输入流的数据都会立即发送到输出流,
+    不会与其他流的数据进行组合。
 
-    See also
+    参数
+    ----------
+    *upstreams : Stream
+        输入流列表
+
+    示例
     --------
-    Stream.zip
-    Stream.combine_latest
+    >>> from deva import Stream
+    >>> s1 = Stream()
+    >>> s2 = Stream() 
+    >>> s3 = Stream()
+    >>> merged = union(s1, s2, s3)
+    >>> merged.sink(print)
+    
+    >>> s1.emit(1)  # 输出: 1
+    >>> s2.emit('a')  # 输出: 'a'
+    >>> s3.emit(True)  # 输出: True
+    >>> s1.emit(2)  # 输出: 2
+
+    参见
+    --------
+    zip : 等待所有流都有新值时才组合发送
+    combine_latest : 组合所有流的最新值发送
     """
 
     def __init__(self, *upstreams, **kwargs):
@@ -424,33 +523,36 @@ class union(Stream):
     def update(self, x, who=None):
         return self._emit(x)
 
-
 @Stream.register_api()
 class pluck(Stream):
-    """ Select elements from elements in the stream.
+    """提取流中元素的指定字段.
 
-    Parameters
+    从流中的每个元素提取指定的字段或索引,生成新的流。
+    可以提取单个字段或多个字段。
+
+    参数
     ----------
-    pluck : object, list
-        The element(s) to pick from the incoming element in the stream
-        If an instance of list, will pick multiple elements.
+    pick : object或list
+        要从流中元素提取的字段或索引。
+        如果是list类型,则提取多个字段。
 
-    Examples
+    示例
     --------
-    >>> source = Stream()
-    >>> source.pluck([0, 3]).sink(print)
-    >>> for x in [[1, 2, 3, 4], [4, 5, 6, 7], [8, 9, 10, 11]]:
-    ...     source.emit(x)
-    (1, 4)
-    (4, 7)
-    (8, 11)
+    >>> from deva import Stream
+    >>> s = Stream()
+    >>> s.pluck([0, 2]).sink(print)  # 提取列表的第0和第2个元素
+    >>> s.emit([1, 2, 3, 4])  # 输出: (1, 3)
+    >>> s.emit([5, 6, 7, 8])  # ��出: (5, 7)
 
-    >>> source = Stream()
-    >>> source.pluck('name').sink(print)
-    >>> for x in [{'name': 'Alice', 'x': 123}, {'name': 'Bob', 'x': 456}]:
-    ...     source.emit(x)
-    'Alice'
-    'Bob'
+    >>> s = Stream()
+    >>> s.pluck('name').sink(print)  # 提取字典的name字段
+    >>> s.emit({'name': '张三', 'age': 20})  # 输出: '张三'
+    >>> s.emit({'name': '李四', 'age': 30})  # 输出: '李四'
+
+    参见
+    --------
+    map : 对流中的元素进行映射转换
+    filter : 过滤流中的元素
     """
 
     def __init__(self, upstream, pick, **kwargs):
@@ -463,24 +565,38 @@ class pluck(Stream):
         else:
             return self._emit(x[self.pick])
 
-
 @Stream.register_api()
 class collect(Stream):
-    """
-    Hold elements in a cache and emit them as a collection when flushed.
+    """收集流.
 
-    Examples
+    将流中的元素缓存起来,当收到flush信号时一次性发送所有缓存的元素。
+    适用于需要批量处理数据的场景。
+
+    参数
+    ----------
+    upstream : Stream
+        上游流对象
+    cache : deque, 可选
+        用于缓存元素的双端队列,默认为None时创建新的队列
+
+    示例
     --------
-    >>> source1 = Stream()
-    >>> source2 = Stream()
-    >>> collector = collect(source1)
-    >>> collector.sink(print)
-    >>> source2.sink(collector.flush)
-    >>> source1.emit(1)
-    >>> source1.emit(2)
-    >>> source2.emit('anything')  # flushes collector
-    ...
-    [1, 2]
+    >>> from deva import Stream
+    >>> s1 = Stream()
+    >>> s2 = Stream() 
+    >>> c = s1.collect()  # 创建收集器
+    >>> c.sink(print)  # 打印收集的元素
+    >>> s2.sink(c.flush)  # s2用于触发flush
+    
+    >>> s1.emit(1)  # 缓存元素1
+    >>> s1.emit(2)  # 缓存元素2
+    >>> s1.emit(3)  # 缓存元素3
+    >>> s2.emit('flush')  # 触发flush,输出: (1, 2, 3)
+
+    参见
+    --------
+    buffer : 固定大小的缓冲区
+    rate_limit : 限制数据流速率
     """
 
     def __init__(self, upstream, cache=None, **kwargs):
@@ -498,22 +614,44 @@ class collect(Stream):
         self._emit(out)
         self.cache.clear()
 
-
 @Stream.register_api()
 class zip_latest(Stream):
-    """Combine multiple streams together to a stream of tuples
+    """最新值组合流.
 
-    The stream which this is called from is lossless. All elements from
-    the lossless stream are emitted reguardless of when they came in.
-    This will emit a new tuple consisting of an element from the lossless
-    stream paired with the latest elements from the other streams.
-    Elements are only emitted when an element on the lossless stream are
-    received, similar to ``combine_latest`` with the ``emit_on`` flag.
+    将多个流组合成元组流,其中一个流保持无损,其他流取最新值。
 
-    See Also
+    当无损流收到数据时,会与其他流的最新值组合成元组发送。
+    无损流的所有数据都会被发送,不会丢失。其他流只保留最新值。
+
+    参数
+    ----------
+    lossless : Stream
+        无损流,所有数据都会被发送
+    *upstreams : Stream
+        其他输入流,只保留最新值
+    **kwargs : dict
+        其他参数
+
+    示例
     --------
-    Stream.combine_latest
-    Stream.zip
+    >>> from deva import Stream
+    >>> s1 = Stream()  # 无损流
+    >>> s2 = Stream()  # 最新值流
+    >>> s3 = Stream()  # 最新值流
+    >>> zl = zip_latest(s1, s2, s3)
+    >>> zl.sink(print)
+    
+    >>> s2.emit('a')  # 等待s1和s3有值
+    >>> s3.emit(True)  # 等待s1有值
+    >>> s1.emit(1)  # 输出: (1, 'a', True)
+    >>> s2.emit('b')  # 更新s2最新值
+    >>> s1.emit(2)  # 输出: (2, 'b', True)
+    >>> s1.emit(3)  # 输出: (3, 'b', True)
+
+    参见
+    --------
+    combine_latest : 组合所有流的最新值
+    zip : 等待所有流都有新值时组合
     """
 
     def __init__(self, lossless, *upstreams, **kwargs):
@@ -539,7 +677,6 @@ class zip_latest(Stream):
                 self.last[0] = self.lossless_buffer.popleft()
                 L.append(self._emit(tuple(self.last)))
             return L
-
 
 @Stream.register_api()
 class latest(Stream):
@@ -603,7 +740,7 @@ class accumulate(Stream):
     """ 累积流.
 
     对流中的数据进行累积计算,将函数应用于前一个状态和新元素。
-    函数应该接收两个参数:前一个累积状态和新元素,并返回新的累积状态。
+    函数应该接收两��参数:前一个累积状态和新元素,并返回新的累积状态。
 
     - 当returns_state=False时: state = func(previous_state, new_value)
     - 当returns_state=True时: state, result = func(previous_state, new_value) 
@@ -690,7 +827,7 @@ class accumulate(Stream):
 class slice(Stream):
     """按位置获取流中的部分事件.
 
-    该类用于从流中选择指定位置范围内的事件,类似于Python列表的切片语法。
+    该类用于从流中���择指定位置范围内的事件,类似于Python列表的切片语法。
 
     参数
     ----------
@@ -890,7 +1027,36 @@ class timed_window(Stream):
 
 @Stream.register_api()
 class delay(Stream):
-    """ Add a time delay to results """
+    """延迟流.
+
+    为流中的每个元素添加固定的时间延迟。
+    可用于模拟网络延迟、限流等场景。
+
+    参数
+    ----------
+    upstream : Stream
+        上游数据流
+    interval : float 或 str
+        延迟时间,可以是秒数或时间字符串(如'1s','5min')
+    **kwargs : dict
+        其他参数
+
+    示例
+    --------
+    >>> from deva import Stream
+    >>> s = Stream()
+    >>> d = s.delay('1s')  # 添加1秒延迟
+    >>> d.sink(print)
+    
+    >>> s.emit(1)  # 1秒后输出: 1
+    >>> s.emit(2)  # 1秒后输出: 2
+    >>> s.emit(3)  # 1秒后输出: 3
+
+    参见
+    --------
+    rate_limit : 限制数据流速率
+    buffer : 缓冲数据
+    """
     _graphviz_shape = 'octagon'
 
     def __init__(self, upstream, interval, **kwargs):

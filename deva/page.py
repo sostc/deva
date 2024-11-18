@@ -413,7 +413,7 @@ class Page(object):
         if use_werkzeug_route:
             r = Rule(rule, methods=methods)
             self.url_map.add(r)
-            # r.compile()
+            r.compile()
             pattern = r._regex.pattern.replace('^\\|', "")
             self.registery[pattern] = klass
         else:
@@ -614,14 +614,38 @@ class PageServer(object):
 
 def webview(s, url='/', server=None):
     """为数据流创建Web视图
+    
+    为数据流创建一个Web页面视图,可以在浏览器中实时查看数据流的内容。
+    支持多个数据流在同一个页面展示,也可以为不同数据流创建不同的URL路径。
 
     Args:
-        s: 要展示的数据流
-        url (str): 视图的URL路径,默认为'/'
-        server: PageServer实例,如果为None则创建新实例
+        s: 要展示的数据流对象,可以是任意Stream实例
+        url (str): 视图的URL路径,默认为'/',如果不以'/'开头会自动添加
+        server: PageServer实例,如果为None则创建新的服务器实例
 
     Returns:
-        PageServer: 服务器实例
+        PageServer: 返回服务器实例对象
+
+    Example::
+        
+        # 创建一个简单的数据流
+        s = timer(interval=1, func=lambda: datetime.now())
+        
+        # 在默认路径'/'展示
+        s.webview()
+        
+        # 指定URL路径
+        s.webview('/timer')
+        
+        # 多个数据流展示在同一页面
+        s1 = from_list([1,2,3])
+        s2 = from_list(['a','b','c']) 
+        server = s1.webview('/data')
+        s2.webview('/data', server=server)
+        
+        # 不同数据流使用不同URL
+        s1.webview('/numbers')
+        s2.webview('/letters')
     """
     url = url if url.startswith('/') else '/'+url
     server = server or NW('stream_webview')
@@ -633,6 +657,5 @@ def webview(s, url='/', server=None):
     print('start webview:', 'http://'+server.host+':'+str(server.port)+url)
     print('with these streams:', server.streams[url])
     return server
-
 
 Stream.webview = webview

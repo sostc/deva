@@ -15,7 +15,7 @@ pymaybe
 requests-html
 aioredis>=2.0
 apscheduler
-werkzeug==3.0.1
+werkzeug==1.0.0
 networkx==2
 graphviz
 sockjs-tornado>=1.0.7
