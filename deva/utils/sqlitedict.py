@@ -73,7 +73,7 @@ else:
         raise value
 
 try:
-    from cPickle import dumps, loads, HIGHEST_PROTOCOL as PICKLE_PROTOCOL
+    from cPickle import dumps, loads, HIGHEST_PROTOCOL as PICKLE_PROTOCOL # type: ignore
 except ImportError:
     from pickle import dumps, loads, HIGHEST_PROTOCOL as PICKLE_PROTOCOL
 
@@ -81,12 +81,12 @@ except ImportError:
 try:
     from collections import UserDict as DictClass
 except ImportError:
-    from UserDict import DictMixin as DictClass
+    from UserDict import DictMixin as DictClass # type: ignore
 
 try:
     from queue import Queue
 except ImportError:
-    from Queue import Queue
+    from Queue import Queue # type: ignore
 
 
 logger = logging.getLogger(__name__)

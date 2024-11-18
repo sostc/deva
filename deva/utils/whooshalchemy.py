@@ -1,16 +1,36 @@
-"""
+"""WhooshAlchemy - SQLAlchemy模型的全文搜索扩展
 
-WhooshAlchemy
-~~~~~~~~~~~~~
+为SQLAlchemy模型添加Whoosh全文搜索功能。基于Flask-whooshalchemy修改,
+支持但不强制要求Flask。
 
-Adds Whoosh indexing capabilities to SQLAlchemy models.
+主要功能:
+1. 自动为SQLAlchemy模型创建全文索引
+2. 支持多字段联合搜索
+3. 支持中文分词
+4. 支持模糊搜索和精确匹配
 
-Based on Flask-whooshalchemy by Karl Gyllstrom (Flask is still supported,
- but not mandatory).
+基本用例:
+---------
+# 创建数据模型
+class Post(db.Model):
+    __searchable__ = ['title', 'content']  # 需要索引的字段
+    
+    id = Column(Integer, primary_key=True)
+    title = Column(String)
+    content = Column(Text)
+
+# 配置索引
+config = {"WHOOSH_BASE": "/path/to/index"}
+index_service = IndexService(config=config)
+index_service.register_class(Post)
+
+# 搜索
+Post.search_query('关键词') >> first >> print  # 获取第一条结果
+Post.search_query('关键词') >> ls >> print     # 获取所有结果
 
 :copyright: (c) 2012 by Stefane Fermigier
 :copyright: (c) 2012 by Karl Gyllstrom
-:license: BSD (see LICENSE.txt)
+:license: BSD
 """
 
 from __future__ import absolute_import, print_function, unicode_literals
@@ -28,6 +48,32 @@ from whoosh.qparser import MultifieldParser
 
 
 class IndexService(object):
+    """SQLAlchemy模型的索引服务类
+
+    该类用于管理SQLAlchemy模型的Whoosh全文索引,提供索引的创建、更新和搜索功能。
+
+    参数:
+    -------
+    config : dict, 可选
+        配置字典,包含索引存储路径等配置项
+    session : Session, 可选
+        SQLAlchemy会话对象
+    whoosh_base : str, 可选
+        索引文件存储的根目录,默认为'whoosh_indexes'
+
+    示例:
+    -------
+    # 创建索引服务
+    config = {"WHOOSH_BASE": "/tmp/whoosh"}
+    index_service = IndexService(config=config)
+
+    # 注册模型类
+    index_service.register_class(Post)
+
+    # 使用自定义会话
+    session = Session()
+    index_service = IndexService(session=session)
+    """
 
     def __init__(self, config=None, session=None, whoosh_base=None):
         self.session = session
@@ -153,8 +199,32 @@ class IndexService(object):
 
 
 class Searcher(object):
-    """
-    Assigned to a Model class as ``search_query``, which enables text-querying.
+    """搜索器类,用于执行全文搜索
+
+    该类会被赋值给Model类的search_query属性,提供全文搜索功能。
+    支持多字段联合搜索、分页查询等功能。
+
+    参数:
+    -------
+    model_class : class
+        SQLAlchemy模型类
+    primary : str
+        主键字段名
+    index : whoosh.index.Index
+        Whoosh索引对象
+    session : Session, 可选
+        SQLAlchemy会话对象
+
+    示例:
+    -------
+    # 基本搜索
+    Post.search_query('关键词')  # 搜索所有字段
+
+    # 限制返回数量
+    Post.search_query('关键词', limit=10)  # 只返回前10条
+
+    # 分页查询
+    Post.search_query('关键词', pagenum=2, pagelen=20)  # 第2页,每页20条
     """
 
     def __init__(self, model_class, primary, index, session=None):
@@ -168,8 +238,7 @@ class Searcher(object):
 
     def __call__(self, query, limit=20, pagenum=1, pagelen=20):
         session = self.session
-        # When using Flask, get the session from the query
-        # attached to the model class.
+        # 使用Flask时,从模型类的query属性获取session
         if not session:
             session = self.model_class.query.session
 

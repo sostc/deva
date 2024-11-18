@@ -4,9 +4,47 @@ from sqlalchemy import Column, Integer, Text, create_engine
 from sqlalchemy.orm.session import sessionmaker
 from deva import *
 
+
+"""基于SQLAlchemy和Whoosh的全文搜索示例
+
+本示例演示如何使用SQLAlchemy和Whoosh实现数据库的全文搜索功能。
+
+主要功能:
+1. 使用SQLAlchemy定义数据模型和数据库操作
+2. 使用Whoosh建立全文索引
+3. 支持多字段联合搜索
+4. 支持模糊搜索和精确匹配
+
+基本用例:
+---------
+# 创建数据库和表
+engine = create_engine('sqlite:///cpiplog.db')
+Base.metadata.create_all(engine)
+
+# 创建会话
+Session = sessionmaker(bind=engine)
+session = Session()
+
+# 配置索引
+config = {"WHOOSH_BASE": "/tmp/whoosh"}
+index_service = IndexService(config=config, session=session)
+index_service.register_class(CpipLog)
+
+# 添加数据
+log = CpipLog(tel='18626880688', lib_name='tensorflow', loginfo='installlog')
+session.add(log)
+session.commit()
+
+# 搜索数据
+# 方式1:获取第一条结果
+CpipLog.search_query('tensorflow') >> first >> print
+
+# 方式2:获取所有结果
+CpipLog.search_query('tensorflow') >> ls >> print
+"""
+
 engine = create_engine('sqlite:///cpiplog.db')
 Base = declarative_base()
-
 
 class CpipLog(Base):
     __tablename__ = 'cpiplog'
