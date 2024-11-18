@@ -9,6 +9,7 @@
 """
 
 from deva import *
+import numpy as np
 
 # 创建流，并且对流中进来的数据*2后打印
 s = Stream()
@@ -40,5 +41,9 @@ sf(234)
 
 # s_foo返回一个管道函数，可以制止｜方式传参数调用,库倒入时，已经将print管道化，执行过print=print@P
 345 | s_foo@P | print
+
+def matrix_multiply(a, b):
+    # 替换为 NumPy 实现
+    return np.matmul(a, b)
 
 Deva.run()
