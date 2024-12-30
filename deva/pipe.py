@@ -97,6 +97,7 @@ class Pipe:
         self.func = func
         functools.update_wrapper(self, func)
 
+
     def run_async(self, asyncfunc, callback):
         """异步执行函数
         
@@ -112,18 +113,11 @@ class Pipe:
                 
             pipe.run_async(my_async_func(), lambda result: print(result))
         """
-        loop = get_io_loop()
-        asyncio.set_event_loop(loop)
-    
-        try:
-            self.futs = asyncio.ensure_future(asyncfunc)
-        except Exception as e:
-            print(e)
-            self.futs = gen.convert_yielded(asyncfunc)
-            
-
+        
+        futs = gen.convert_yielded(asyncfunc)
         self.loop = get_io_loop()
-        self.loop.add_future(self.futs, lambda x: callback(x.result()))
+        self.loop.add_future(futs, lambda x: callback(x.result()))
+
 
     def __ror__(self, other):
         """管道操作符 | 的重载实现
