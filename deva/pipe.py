@@ -2,6 +2,7 @@
 
 """Module enabling a sh like infix syntax (using pipes)."""
 from tornado import gen
+import asyncio
 import functools
 import itertools
 import socket
@@ -18,7 +19,7 @@ from urllib.parse import quote
 import builtins
 
 
-__all__ = [
+__all__: builtins.list[builtins.str] = [
     'P', 'tail', 'skip', 'all', 'any', 'average', 'count',
     'as_dict', 'as_set', 'permutations', 'netcat', 'netwrite',
     'traverse', 'concat', 'as_list', 'as_tuple', 'stdout', 'lineout',
@@ -111,7 +112,16 @@ class Pipe:
                 
             pipe.run_async(my_async_func(), lambda result: print(result))
         """
-        self.futs = gen.convert_yielded(asyncfunc)
+        loop = get_io_loop()
+        asyncio.set_event_loop(loop)
+    
+        try:
+            self.futs = asyncio.ensure_future(asyncfunc)
+        except Exception as e:
+            print(e)
+            self.futs = gen.convert_yielded(asyncfunc)
+            
+
         self.loop = get_io_loop()
         self.loop.add_future(self.futs, lambda x: callback(x.result()))
 
@@ -1070,6 +1080,30 @@ def lstrip(chars='\n'):
 
 @Pipe
 def run_with(func):
+    """
+    根据输入类型，将输入数据辩护为具体参数去调用函数。
+
+    如果输入是字典，则使用关键字参数调用函数。
+    如果输入是可迭代对象，则使用位置参数调用函数。
+    否则，直接将输入作为单个参数调用函数。
+
+    Args:
+        func: 要调用的函数对象。
+
+    Returns:
+        一个Pipe对象,用于在管道中调用func函数。
+
+    Examples:
+        >>> def add(x, y):
+        ...     return x + y
+        >>> add_with = run_with(add)
+        >>> [1, 2] | add_with  # 等同于 add(1, 2)
+        3
+        >>> {'x': 1, 'y': 2} | add_with  # 等同于 add(x=1, y=2)
+        3
+        >>> 1 | add_with  # 等同于 add(1)
+        1
+    """
     def _(iterable):
         return (func(**iterable) if isinstance(iterable, dict) else
                 func(*iterable) if hasattr(iterable, '__iter__') else
@@ -1077,17 +1111,32 @@ def run_with(func):
 
     return _ @ P
 
-
 @Pipe
 def append(y):
-    """追加元素到列表尾部，[]>>t('c')>>t('b') == ['c', 'b']"""
+    """
+    将元素追加到列表的尾部。
+
+    如果输入是一个可迭代对象（不是字符串），则将元素追加到该对象的尾部，并返回一个新的可迭代对象。
+    如果输入不是可迭代对象，则将输入和元素作为列表的两个元素返回。
+
+    Args:
+        y: 要追加的元素。
+
+    Returns:
+        一个Pipe对象,用于在管道中调用append函数。
+
+    Examples:
+        >>> [] | append('c') | append('b')  # 等同于 ['c', 'b']
+        ['c', 'b']
+        >>> 'hello' | append('world')  # 等同于 ['hello', 'world']
+        ['hello', 'world']
+    """
     def _(iterable):
         if hasattr(iterable, '__iter__') and not isinstance(iterable, str):
             return iterable + type(iterable)([y])
         return [iterable, y]
 
     return _ @ P
-
 
 @Pipe
 def to_type(t):
@@ -1099,12 +1148,23 @@ def to_type(t):
 
 
 @Pipe
-def readlines(fn):
-    """ 按行读入文本文件，mode参数为读到方式 'xxx.log'>>readlines()>>tail(2)"""
+def readlines(fn) -> gen.Generator[builtins.str, gen.Any, None]:
+    """
+    按行读入文本文件，并返回一个生成器，用于在管道中处理每一行的内容。
+
+    Args:
+        fn (str): 文件路径
+
+    Yields:
+        str: 文件中的每一行内容
+
+    Examples:
+        >>> 'example.log' | readlines() | tail(2)  # 读取example.log文件的最后两行
+        ['line 9', 'line 10']
+    """
     with open(fn, 'r') as f:
         for line in f:
-            yield line
-
+            yield line.strip()
 
 @Pipe
 def read(fn):
@@ -1195,6 +1255,8 @@ def post_to(url='http://127.0.0.1:7777', tag='', asynchronous=True, headers={}):
         import pandas as pd
         if isinstance(body, pd.DataFrame):
             body = body.to_json()
+        if isinstance(body,dict):
+            body = json.dumps(body)
         else:
             body = dill.dumps(body)
         return body
@@ -1580,4 +1642,4 @@ sw = sliding_window
 
 if __name__ == "__main__":
     import doctest
-    doctest.testfile('README.md')
+    doctest.testfile('../README.rst')

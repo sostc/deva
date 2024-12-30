@@ -28,7 +28,7 @@ import time
 
 # 定时任务示例
 # 1. 间隔执行
->>> when.scheduler().add_job(lambda: print('hello'), seconds=5)  # 每5秒打印一次
+>>> s.add_job(lambda: print('hello'), seconds=5)  # 每5秒打印一次
 >>> s.add_job(lambda: print('每分钟执行'), minutes=1)  # 每分钟执行一次
 
 # 2. 定时执行
@@ -47,6 +47,7 @@ deva.core.Stream : 基础流处理类
 deva.bus : 消息总线模块
 """
 
+
 @atexit.register
 def exit():
     """进程退出时发信号到log.
@@ -58,7 +59,6 @@ def exit():
     #
 
     return 'exit' >> log
-
 
 
 @Stream.register_api(staticmethod)
@@ -115,20 +115,19 @@ class scheduler(Stream):
             }
         )
         super(scheduler, self).__init__(ensure_io_loop=True, **kwargs)
-        self.stopped = True
+
         if start:
             self.start()
 
     def start(self):
         """启动调度器"""
-        if self.stopped:
-            self.stopped = False
-        self._scheduler.start()
+        if not self._scheduler.state:
+            self._scheduler.start()
 
     def stop(self):
         """停止调度器"""
-        self._scheduler.shutdown()
-        self.stopped = True
+        if self._scheduler.state:
+            self._scheduler.shutdown()
 
     def add_job(self, func, name=None, **kwargs):
         """添加定时任务
@@ -145,11 +144,13 @@ class scheduler(Stream):
             i.add_job(name='hello',func = lambda x:'heoo',
             seconds=5,start_date='2019-04-03 09:25:00')
         """
+        if 'trigger' not in kwargs:
+            kwargs['trigger'] = 'interval'
+
         return self._scheduler.add_job(
             func=lambda: self._emit(func()),
             name=name,
             id=name,
-            trigger='interval',
             **kwargs)
 
     def emit(self, x, asynchronous=None):
@@ -182,6 +183,7 @@ class scheduler(Stream):
             list: 所有任务对象列表
         """
         return self._scheduler.get_jobs()
+
 
 @Stream.register_api(staticmethod)
 class timer(Stream):
@@ -219,7 +221,7 @@ class timer(Stream):
 
         self.interval = convert_interval(interval)  # 转换并存储时间间隔
         self.func = func  # 存储要执行的函数
-        self.ttl = convert_interval(ttl)  if ttl else None# 转换并存储生命周期
+        self.ttl = convert_interval(ttl) if ttl else None  # 转换并存储生命周期
         self.thread = thread
         if self.thread:  # 如果使用线程池则创建线程池
             from concurrent.futures import ThreadPoolExecutor
@@ -289,7 +291,7 @@ class when(object):
 
     def then(self, func, *args, **kwargs):
         """设置触发时要执行的回调函数
-        
+
         参数:
         -------
         func : callable
@@ -308,5 +310,6 @@ class when(object):
         else:  # 如果是字符串条件,只执行回调不传参
             return self.source.filter(lambda x: self.occasion in str(x)).sink(
                 lambda x: func(*args, **kwargs))
+
 
 when('exit', source=log).then(lambda: print('bye bye,', os.getpid()))

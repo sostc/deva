@@ -356,7 +356,7 @@ class Page(object):
             bases = (DebuggableHandler,) + handler_bases
         m = {}
         for method in methods:
-            inspected = inspect.getargspec(fn)
+            inspected = inspect.getfullargspec(fn)
 
             can_be_wrapped = True
             if nowrap == None:
