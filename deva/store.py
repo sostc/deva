@@ -9,45 +9,45 @@ import time
 @Stream.register_api()
 class DBStream(Stream):
     """基于 SQLite 的持久化数据流存储类
-    
+
     功能特性:
     1. 持久化存储: 基于 SQLite 实现键值对的持久化存储
     2. 流式操作: 支持数据流式处理和传输
     3. 自动时间戳: 单值存储时自动使用时间戳作为键
     4. 容量限制: 可设置最大存储容量，自动清理旧数据
     5. 时间切片: 支持基于时间范围的数据查询
-    
+
     主要用法:
     1. 基础存储:
         db = DBStream('table_name', './data/mydb')  # 创建数据库
         db['key'] = 'value'                         # 直接赋值
         value = db['key']                           # 直接读取
-        
+
     2. 流式写入:
         123 >> db                    # 单值写入(自动使用时间戳作为键)
         ('key', 'value') >> db      # 元组写入
         {'key': 'value'} >> db      # 字典写入
-        
+
     3. 遍历操作:
         db.keys() | ls              # 查看所有键
         db.values() | ls            # 查看所有值
         db.items() | ls             # 查看所有键值对
-        
+
     4. 时间序列:
         # 查询特定时间范围的数据
         start = '2020-03-23 10:20:35'
         end = '2020-03-23 11:20:35'
         for key in db[start:end]:
             print(db[key])
-            
+
     5. 容量限制:
         # 创建最多存储10条记录的数据表
         db = DBStream('cache', maxsize=10)
-        
+
     6. 数据回放:
         # 按时间顺序回放数据
         db.replay(start='2020-03-23 10:20:35', interval=1)  # 每秒回放一条
-        
+
     参数说明:
         name (str): 表名，默认为 'default'
         filename (str): 数据库文件路径，默认在 ~/.deva/nb.sqlite
@@ -101,8 +101,11 @@ class DBStream(Stream):
         self.items = self.db.items
         self.get = self.db.get
         self.clear = self.db.clear
-        self.tables = self.db.tables
         self._check_size_limit()
+
+    @property
+    def tables(self,):
+        return self.db.tables
 
     def emit(self, x, asynchronous=False):
         self.update(x)
@@ -116,7 +119,7 @@ class DBStream(Stream):
     def update(self, x):
         # 记录日志
         x >> self.log
-        
+
         # 根据输入类型不同进行不同的处理
         if isinstance(x, dict):
             # 如果是字典，直接更新

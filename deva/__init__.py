@@ -14,6 +14,7 @@ from .bus import *
 from .search import IndexStream
 from .pipe import *
 from .monitor import Monitor
+from .lambdas import _
 
 try:
     # import panel as pn

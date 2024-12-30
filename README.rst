@@ -1,7 +1,7 @@
 .. image:: https://raw.githubusercontent.com/sostc/deva/master/deva.jpeg
    :target: https://github.com/sostc/deva
    :align: center
-   :alt: 518.is
+   :alt: secsay.com
 
 
 ------
@@ -35,7 +35,7 @@ An example of a streaming process and web view
 
     # 系统命令执行
     command_s = Stream.from_process(['ping','baidu.com'])
-    s3 = command_s.sliding_window(5).map(concat('<br>'), name='系统持续命令')
+    s3 = command_s.sliding_window(5).map(concat('<br>'), name='系统持续命令ping baidu')
     command_s.start()
 
 
@@ -43,7 +43,6 @@ An example of a streaming process and web view
     s2.webview()
     s3.webview()
     
-    Monitor().start()
     Deva.run()
 
 
