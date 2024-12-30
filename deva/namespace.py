@@ -121,7 +121,7 @@ def NWT(name='', *args, **kwargs):
         return None
 
 
-def NB(name, *args, **kwargs):
+def NB(name='default', *args, **kwargs):
     """创建命名的DBStream.
 
     创建命名的DBStream数据库对象,用于持久化存储数据,全局名称唯一。

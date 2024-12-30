@@ -1,6 +1,6 @@
 from tornado import gen
 from .utils.sqlitedict import SqliteDict
-from .core import Stream
+from .core import Stream, get_io_loop
 from .pipe import passed, first
 import os
 import time
@@ -108,16 +108,31 @@ class DBStream(Stream):
         return self.db.tables
 
     def emit(self, x, asynchronous=False):
-        self.update(x)
-        # return super().emit(x, asynchronous=asynchronous)
-
+        # 检查x是否为异步可等待对象
+        if isinstance(x, gen.Awaitable):
+            # 将异步对象转换为Future对象
+            futs = gen.convert_yielded(x)
+            # 如果当前没有事件循环，则设置为非异步模式
+            if not self.loop:
+                self._set_asynchronous(False)
+            # 如果当前没有事件循环且异步模式已启用，则设置事件循环
+            if self.loop is None and self.asynchronous is not None:
+                self._set_loop(get_io_loop(self.asynchronous))
+            # 将Future对象添加到事件循环中执行，并在完成时调用update方法
+            self.loop.add_future(futs, lambda x: self.update(x.result()))
+                
+        else:
+            # 如果x不是异步可等待对象，则直接调用update方法
+            self.update(x)
+ 
+    
     def _check_size_limit(self):
         if self.maxsize:
             while len(self.db) > self.maxsize:
                 self.db.popitem()
 
     def update(self, x):
-        # 记录日志
+        #记录日志
         x >> self.log
 
         # 根据输入类型不同进行不同的处理
