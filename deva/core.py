@@ -25,6 +25,7 @@ import io
 from .pipe import P, print
 from threading import get_ident as get_thread_identity
 from requests_html import AsyncHTMLSession
+
 """
 deva 是一个基于 Python 的异步流式处理框架。它提供了以下主要功能:
 
@@ -332,7 +333,7 @@ class Stream(object):
     def start_cache(self, cache_max_len=None, cache_max_age_seconds=None):
         """
         启动缓存功能
-        
+
         参数:
             cache_max_len: 缓存的最大长度
             cache_max_age_seconds: 缓存的最大存活时间(秒)
@@ -933,6 +934,7 @@ class sink(Sink):
         super().destroy()
         _global_sinks.remove(self)
 
+
 @Stream.register_api()
 class to_textfile(Sink):
     """ Write elements to a plain text file, one element per line.
@@ -1013,18 +1015,18 @@ class map(Stream):
         try:
             # 应用函数到输入值
             result = self.func(x, *self.args, **self.kwargs)
-            
+
             # 处理异步结果
             if isinstance(result, gen.Awaitable):
                 # 转换为Future对象
                 futs = gen.convert_yielded(result)
-                
+
                 # 设置异步模式
                 if not self.loop:
                     self._set_asynchronous(False)
                 if self.loop is None and self.asynchronous is not None:
                     self._set_loop(get_io_loop(self.asynchronous))
-                    
+
                 # 添加Future到事件循环
                 self.loop.add_future(futs, lambda x: self._emit(x.result()))
             else:
@@ -1034,6 +1036,7 @@ class map(Stream):
             # 记录并重新抛出异常
             logger.exception(e)
             raise
+
 
 @Stream.register_api()
 class starmap(Stream):
@@ -1141,7 +1144,7 @@ def httpx(req, render=False, **kwargs):
     示例:
         # URL字符串
         response = yield httpx('http://example.com')
-        
+
         # 请求参数字典
         response = yield httpx({
             'url': 'http://example.com',
@@ -1169,6 +1172,7 @@ def httpx(req, render=False, **kwargs):
     except Exception as e:
         print(req, e)
         logger.exception(e)
+
 
 @Stream.register_api()
 class http(Stream):
@@ -1345,18 +1349,19 @@ class http(Stream):
         else:
             return data
 
+
 def sync(loop, func, *args, **kwargs):
     """在单独线程中运行的事件循环中执行协程函数
-    
+
     参数:
         loop: 事件循环对象,如果为None则使用get_io_loop()获取
         func: 要执行的协程函数
         *args: 传递给func的位置参数
         **kwargs: 传递给func的关键字参数,其中callback_timeout用于设置超时时间
-        
+
     返回:
         协程函数的执行结果
-        
+
     异常:
         RuntimeError: 如果事件循环已关闭,或在运行loop的线程中调用
         TimeoutError: 如果执行超时
@@ -1400,7 +1405,7 @@ def sync(loop, func, *args, **kwargs):
 
     # 将协程添加到事件循环
     loop.add_callback(f)
-    
+
     # 等待执行完成或超时
     if timeout is not None:
         if not e.wait(timeout):
@@ -1408,12 +1413,13 @@ def sync(loop, func, *args, **kwargs):
     else:
         while not e.is_set():
             e.wait(10)
-            
+
     # 处理执行结果
     if error[0]:
         six.reraise(*error[0])
     else:
         return result[0]
+
 
 class Deva():
     @classmethod
@@ -1449,5 +1455,6 @@ class Deva():
             IOLoop().start()
         except KeyboardInterrupt:
             exit()
+
 
 print(os.getpid())

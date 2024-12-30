@@ -1,4 +1,3 @@
-
 *.DS_Store
 *.session
 *.pyc
@@ -14,3 +13,5 @@
 */__pycache__/*
 */build/*
 */dist/*
+*.sublime-workspace
+*.egg-info/
