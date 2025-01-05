@@ -16,6 +16,7 @@ class DBStream(Stream):
     3. 自动时间戳: 单值存储时自动使用时间戳作为键
     4. 容量限制: 可设置最大存储容量，自动清理旧数据
     5. 时间切片: 支持基于时间范围的数据查询
+    6. 异步数据流式写入: 支持异步函数返回的数据流式写入数据库
 
     主要用法:
     1. 基础存储:
@@ -47,6 +48,14 @@ class DBStream(Stream):
     6. 数据回放:
         # 按时间顺序回放数据
         db.replay(start='2020-03-23 10:20:35', interval=1)  # 每秒回放一条
+
+    7. 异步数据流式写入:
+        # 使用异步函数返回的数据流式写入数据库
+        async def async_data_generator():
+            asyncio.sleep(10)
+            return 'hello world'
+            
+        async_data_generator() >> db
 
     参数说明:
         name (str): 表名，默认为 'default'
@@ -124,7 +133,6 @@ class DBStream(Stream):
         else:
             # 如果x不是异步可等待对象，则直接调用update方法
             self.update(x)
- 
     
     def _check_size_limit(self):
         if self.maxsize:
