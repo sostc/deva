@@ -15,6 +15,7 @@ from .search import IndexStream
 from .pipe import *
 from .monitor import Monitor
 from .lambdas import _
+from .browser import browser,tab,tabs
 
 try:
     # import panel as pn

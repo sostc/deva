@@ -538,7 +538,8 @@ class Stream(object):
 
         output.observe(remove_stream, '_view_count')
 
-        return output._ipython_display_(**kwargs)
+        if hasattr(output,'_ipython_display_'):
+            return output._ipython_display_(**kwargs)
 
     def _emit(self, x):
         """向下游发送数据"""
@@ -902,7 +903,7 @@ class sink(Sink):
     """
 
     def __init__(self, upstream, func, *args, **kwargs):
-        self.func = func
+        self.func = self.wrapper_function(func)
         # 提取Stream特有的kwargs参数
         sig = set(inspect.signature(Stream).parameters)
         stream_kwargs = {k: v for (k, v) in kwargs.items() if k in sig}
@@ -910,6 +911,22 @@ class sink(Sink):
         self.args = args
         super().__init__(upstream, **stream_kwargs)
 
+    def wrapper_function(self,func):
+        def inner(*args, **kwargs):
+            # 获取原函数的参数签名
+            signature = inspect.signature(func)
+            parameters = signature.parameters
+            
+            # 检查原函数是否需要参数
+            if parameters:
+                # 如果原函数需要参数，调用原函数并传递参数
+                return func(*args, **kwargs)
+            else:
+                # 如果原函数不需要参数，调用原函数时不传递参数
+                return func()
+    
+        return inner
+    
     def update(self, x, who=None, metadata=None):
         # 执行函数并处理结果
         try:
@@ -937,21 +954,21 @@ class sink(Sink):
 
 @Stream.register_api()
 class to_textfile(Sink):
-    """ Write elements to a plain text file, one element per line.
-        Type of elements must be ``str``.
-        Parameters
+    """ 将元素写入纯文本文件，每个元素一行。
+        元素的类型必须是 ``str``。
+        参数
         ----------
-        file: str or file-like
-            File to write the elements to. ``str`` is treated as a file name to open.
-            If file-like, descriptor must be open in text mode. Note that the file
-            descriptor will be closed when this sink is destroyed.
-        end: str, optional
-            This value will be written to the file after each element.
-            Defaults to newline character.
-        mode: str, optional
-            If file is ``str``, file will be opened in this mode. Defaults to ``"a"``
-            (append mode).
-        Examples
+        file: str 或 file-like
+            要写入元素的文件。``str`` 将被视为要打开的文件名。
+            如果是 file-like，描述符必须以文本模式打开。注意，文件
+            描述符将在此sink被销毁时关闭。
+        end: str, 可选
+            这个值将在每个元素后写入文件中。
+            默认为换行符。
+        mode: str, 可选
+            如果 file 是 ``str``, 文件将以此模式打开。默认为 ``"a"``
+            (追加模式)。
+        示例
         --------
         >>> source = Stream()
         >>> source.map(str).to_textfile("test.txt")
@@ -974,7 +991,6 @@ class to_textfile(Sink):
     def update(self, x, who=None, metadata=None):
         self._fp.write(x + self._end)
         self._fp.flush()
-
 
 @Stream.register_api()
 class map(Stream):
@@ -1040,22 +1056,26 @@ class map(Stream):
 
 @Stream.register_api()
 class starmap(Stream):
-    """ Apply a function to every element in the stream, splayed out
+    """ 对流中的每个元素应用一个函数，展开
+    使用 map 时，函数 func 期望单个参数。
+    使用 starmap 时，函数 func 期望多个参数，
+    且每个元素是一个可迭代对象（如元组），
+    starmap 会自动解包这些元素。
 
-    See ``itertools.starmap``
+    参见 ``itertools.starmap``
 
-    Parameters
+    参数
     ----------
     func: callable
     *args :
-        The arguments to pass to the function.
+        要传递给函数的参数。
     **kwargs:
-        Keyword arguments to pass to func
+        要传递给func的关键字参数
 
-    Examples
+    示例
     --------
     >>> source = Stream()
-    >>> source.starmap(lambda a, b: a + b).sink(print)
+    >>> source.starmap(lambda a, b: a + b).sink(print)  # 对每个元素乘以2并打印
     >>> for i in range(5):
     ...     source.emit((i, i))
     0
@@ -1084,26 +1104,21 @@ class starmap(Stream):
         else:
             return self._emit(result)
 
-
 def _truthy(x):
     return not not x
-    # if not isinstance(pd.DataFrame):
-    #     return not not x
-    # else:
-    #     return x.empty
 
 
 @Stream.register_api()
 class filter(Stream):
-    """ Only pass through elements that satisfy the predicate
+    """ 只允许满足谓词的元素通过
 
-    Parameters
+    参数
     ----------
-    predicate : function
-        The predicate. Should return True or False, where
-        True means that the predicate is satisfied.
+    predicate : 函数
+        谓词。应该返回True或False，其中
+        True意味着谓词被满足。
 
-    Examples
+    示例
     --------
     >>> source = Stream()
     >>> source.filter(lambda x: x % 2 == 0).sink(print)
@@ -1127,7 +1142,6 @@ class filter(Stream):
     def update(self, x, who=None):
         if self.predicate(x, *self.args, **self.kwargs):
             return self._emit(x)
-
 
 @gen.coroutine
 def httpx(req, render=False, **kwargs):
@@ -1419,6 +1433,7 @@ def sync(loop, func, *args, **kwargs):
         six.reraise(*error[0])
     else:
         return result[0]
+
 
 
 class Deva():
