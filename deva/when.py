@@ -6,6 +6,7 @@ from .utils.time import convert_interval
 import datetime
 from tornado import gen
 import time
+import asyncio
 
 
 """定时任务和事件调度模块
@@ -213,25 +214,38 @@ class timer(Stream):
                  interval=1,
                  ttl=None,
                  start=False,
-                 func=lambda: datetime.datetime.now().second,
+                 func=None,#lambda: datetime.datetime.now().second,
                  thread=False,
                  threadcount=5,
                  ensure_io_loop=True,
                  **kwargs):
 
         self.interval = convert_interval(interval)  # 转换并存储时间间隔
-        self.func = func  # 存储要执行的函数
         self.ttl = convert_interval(ttl) if ttl else None  # 转换并存储生命周期
         self.thread = thread
+
         if self.thread:  # 如果使用线程池则创建线程池
             from concurrent.futures import ThreadPoolExecutor
             self.thread_pool = ThreadPoolExecutor(threadcount)
 
         super(timer, self).__init__(ensure_io_loop=ensure_io_loop, **kwargs)
-        self.stopped = True  # 初始状态为停止
-        if start:  # 如果需要自动启动则调用start()
-            self.start()
+        self.started =  start  # 初始状态为停止
 
+        if func is not None:  # 如果提供了func，直接初始化定时器
+            self.func = func
+            if self.started:  # 如果需要自动启动则调用start()
+                self.start()
+        else:  # 如果func为None，返回装饰器
+            self.func = None
+
+    
+    def __call__(self, func):
+        """如果func为None，使用此方法作为装饰器"""
+        self.func = func
+        if self.started:
+            self.start()
+        return self
+    
     @gen.coroutine
     def run(self):
         """定时器主循环,负责按照间隔执行函数"""
@@ -246,19 +260,19 @@ class timer(Stream):
             else:
                 self.emit(self.func())
             yield gen.sleep(self.interval)  # 等待到下一次执行时间
-            if self.stopped:  # 如果已停止则退出循环
+            if not self.started:  # 如果已停止则退出循环
                 break
 
     def start(self):
         """启动定时器"""
-        self._start_time = time.time()  # 记录启动时间
-        if self.stopped:
-            self.stopped = False
-            self.loop.add_callback(self.run)  # 将主循环加入事件循环
+        self._start_time = time.time()
+        self.started = True
+        self.loop.add_callback(self.run)
+
 
     def stop(self):
         """停止定时器"""
-        self.stopped = True
+        self.started = False
 
 
 class when(object):

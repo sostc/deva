@@ -1,12 +1,23 @@
 from tornado import gen
 from deva import Stream, httpx, sync,Deva,print,log
 from collections import defaultdict
+from newspaper import Article
+from tornado.ioloop import IOLoop
+from concurrent.futures import ThreadPoolExecutor
+from requests_html import HTMLResponse
+
 
 """
 这是一个浏览器模块，提供了浏览器流对象和相关的功能。
-浏览器流对象内置了缓存功能，可以保存请求的响应内容，避免重复请求。
+浏览器的 tab 方法，tab 里的异步网络请求，
+tab 调用浏览器的函数处理 response 生成  page，
+tab 将page 发送给浏览器的 page_stream
+用户基于 page_stream做个性化处理，
+page_stream默认会将 page 缓存在浏览器里，
+tab 在请求网络前，先判断缓存，缓存存在就获取缓存，缓存不存在时才去发起请求。
 打开新tab是 异步发起网络请求的。可以同时打开多个 tab发起多个请求，不会阻塞程序的执行。
 访问tab.page时，会立即同步返回内容，如果缓存里有直接返回缓存，如果缓存没有，立即同步执行网络请求。
+
 
 浏览器模块的工作原理:
 
@@ -92,8 +103,6 @@ from collections import defaultdict
     tab('http://secsay.com').close()
     ```
     这里关闭了 URL 为 "http://secsay.com" 的 tab。
-   
-
 
 6. 运行 Deva
     ```
@@ -113,6 +122,15 @@ from collections import defaultdict
     这些日志信息显示了浏览器模块在后台处理请求和刷新任务的过程。
 """
 
+class DotDict(dict):
+    def __getattr__(self, key):
+        try:
+            return self[key]
+        except KeyError:
+            raise AttributeError(key)
+    
+    def __setattr__(self, key, value):
+        self[key] = value
 
 class Browser(Stream):
     """浏览器流对象，内置缓存功能。
@@ -121,14 +139,29 @@ class Browser(Stream):
     """
 
     def __init__(self, cache_size=30, **kwargs):
+        """
+        初始化浏览器对象，用于管理多个tab的浏览和缓存。
+
+        例子：browser.tab("http://baidu.com").page>>print
+
+        参数:
+            cache_size: 缓存大小，即最多保存的响应对象数量，默认为30。
+            **kwargs: 其他参数，传递给父类的初始化方法。
+        """
         super().__init__(ensure_io_loop=True,**kwargs)
+        self.log = Stream()
         self.cache = defaultdict(lambda: None)
         self.cache_size = cache_size
+        self.page_stream = Stream() # 使用page_stream流来挂载其他处理插件
         self.tabs = set()  # 使用 set 保存 tab 对象
+
+        self.page_stream.sink(self._add_to_cache)
 
     def tab(self, url, refresh_interval=0):  # 默认不自动刷新
         """创建一个 tab 对象，用于处理 URL 请求，并提供定时刷新功能。
-        相同的 url 使用相同的 tab 对象来执行任务。
+        每个 tab 获得网络 response 后，先解析成 page
+        然后将 page 发送到浏览器的 page_stream,方便后续用户在 page_stream上处理 page
+
 
         参数:
             url: 要请求的 URL
@@ -146,10 +179,11 @@ class Browser(Stream):
         self.tabs.add(new_tab)  # 添加新 tab 到 set
         
         return new_tab
+
     def emit(self, x, asynchronous=False):
         return self.tab(x)
     
-    def _add_to_cache(self, url, response):
+    def _add_to_cache(self, page):
         """将响应添加到缓存中。
 
         参数:
@@ -159,31 +193,102 @@ class Browser(Stream):
         if len(self.cache) >= self.cache_size:
             # 移除最早的缓存项
             self.cache.pop(next(iter(self.cache)))
-        self.cache[url] = response
+        self.cache[page.url] = page
 
-class Tab:
+    def __repr__(self):
+        return f"Browser(cache_size={self.cache_size}, tabs={len(self.tabs)})"
+
+    def extract_text_from_html(self, html_content):
+        """使用 boilerpy3 从 HTML 内容中提取新闻正文。
+
+        参数:
+            html_content: HTML 内容字符串
+
+        返回:
+            str: 提取的新闻正文文本
+        """
+        from boilerpy3 import extractors
+        extractor = extractors.ArticleExtractor()
+        try:
+            text = extractor.get_content(html_content)
+            return text
+        except Exception as e:
+            print(f"提取文本时出错: {str(e)}")
+            return ""
+        
+    def create_article(self,response):
+        article = Article(response.url, language='zh')  # 设置语言为中文
+        article.set_html(response.html.html)
+        article.config.MAX_SUMMARY_SENT = 3  # 限制摘要句子数量
+        article.parse()
+        if not article.text:
+            article.text = self.extract_text_from_html(response.html.html)
+            # 使用文章正文生成摘要
+            from bs4 import BeautifulSoup
+
+# 清理 HTML 标签
+            article.text = BeautifulSoup(article.text, "html.parser").get_text()
+
+# 确保内容足够长
+            if len(article.text) < 50:  # 设置最小长度限制
+                raise ValueError("文章内容太短，无法生成摘要")
+
+        # article.nlp()  # 生成摘要质量较差
+        # 使用sumy生成摘要
+        try:
+            from sumy.parsers.plaintext import PlaintextParser
+            from sumy.nlp.tokenizers import Tokenizer
+            from sumy.summarizers.lsa import LsaSummarizer
+            from sumy.nlp.stemmers import Stemmer
+            from sumy.utils import get_stop_words
+
+            
+
+# 将清理后的文本传入 summarizer
+            parser = PlaintextParser.from_string(article.text, Tokenizer('chinese'))
+            # parser = PlaintextParser.from_string(article.text, Tokenizer('chinese'))
+            stemmer = Stemmer('chinese')
+            summarizer = LsaSummarizer(stemmer)
+            summarizer.stop_words = get_stop_words('chinese')
+            
+            # 生成3句话的摘要
+            summary = []
+            for sentence in summarizer(parser.document, 3):
+                summary.append(str(sentence))
+            article.summary = '\n'.join(summary)
+        except Exception as e:
+            print(f"生成摘要时出错: {str(e)}")
+            article.summary = ""
+        return article
+
+class Tab():
     """Tab 对象，用于处理单个 URL 请求，并提供定期刷新功能，每次请求完成后安排下一个定期刷新任务。"""
 
     def __init__(self, browser, url, refresh_interval=7200):  # 默认刷新间隔为 2 小时
         self.browser = browser
         self.url = url
+        self._page = None
         self.refresh_interval = refresh_interval  # 定期刷新时间，单位为秒
+        self._async_request_future = None  # 用于跟踪异步请求的 Future 对象
+
         if self.url not in self.browser.cache:
             self._schedule_request()
         self._schedule_refresh()
 
-    def _callback(self,x):
-        self.browser._add_to_cache(self.url, x.result())
-        f'后台完成异步请求{self.url}'>>log
-        #任务完成后，安排下一次 tab 的自动刷新
+    def _callback(self, x):
+        response = x.result()
+        f'后台完成异步请求{self.url}' >> self.browser.log
+        self.parse(response)
         self._schedule_refresh()
 
     def _schedule_request(self):
         """安排异步请求，用于获取 URL 的响应内容。"""
-        f'后台发起异步请求{self.url}'>>log
-        futs = gen.convert_yielded(httpx(self.url))
-        self.browser.loop.add_future(futs,self._callback)
-        
+        f'后台发起异步请求{self.url}' >> self.browser.log
+        from tornado.concurrent import Future
+
+        self._async_request_future = gen.convert_yielded(httpx(self.url))  # 使用当前事件循环创建 Future
+        self.browser.loop.add_future(self._async_request_future, self._callback)
+
 
     def _schedule_refresh(self):
         """安排定期刷新，用于定期更新 URL 的响应内容。"""
@@ -195,7 +300,7 @@ class Tab:
             self.browser.loop.remove_timeout(self._refresh_timer)
         # 创建新的刷新定时器
         self._refresh_timer = self.browser.loop.call_later(self.refresh_interval, self._schedule_request)
-        f'为{self.url}安排定期刷新'>>log
+        f'为{self.url}安排定期刷新'>>self.browser.log
 
     @property
     def page(self):
@@ -207,15 +312,28 @@ class Tab:
         返回:
             response: 响应对象
         """
-        if self.url in self.browser.cache:
-            '浏览器里有已经打开的 tab，立即返回内容'>>log
-            return self.browser.cache[self.url]
+        if self._page != None:
+            '浏览器里有已经打开的 tab，立即返回内容' >> self.browser.log
+            return self._page  
         else:
-            '浏览器里没有成功完全打开状态的 tab，立即同步网络请求'>>log
-            response = sync(self.browser.loop, lambda :httpx(self.url))
-            self.browser._add_to_cache(self.url, response)
-            '请求完成，返回内容'>>log
-            return response
+            '浏览器里没有成功完全打开状态的 tab，立即同步网络请求' >> self.browser.log
+            self.url>>self.browser.log
+            response = sync(self.browser.loop, lambda: httpx(self.url))
+            '同步请求完成，返回内容' >> self.browser.log
+            return self.parse(response)
+            
+    
+    @property
+    def article(self):
+        """获取 URL 的文章内容。
+
+        如果缓存中存在，则直接返回缓存的文章对象。
+        如果缓存中不存在，则先获取页面内容并解析文章。
+
+        返回:
+            article: Article对象
+        """
+        return self.page.article
 
     def refresh(self):
         """手动刷新 URL 的响应内容。
@@ -226,11 +344,51 @@ class Tab:
             response: 响应对象
         """
         self._schedule_request()
-
         return self
+    
+    def parse(self, response):
+        """
+        处理网络返回的数据，生成 article 对象并存储到缓存中。
+
+        这个方法将接收到的响应对象转换为 article 对象，并将其存储到浏览器的缓存中，以便后续使用。
+
+        参数:
+            response (object): 响应对象，包含了从网络请求中获取的数据。
+
+        返回:
+            self._page (object): 包含了文章对象的页面对象，用于存储和访问文章数据。
+        """
+        
+        # 检查响应对象是否为正常的response类型
+        if not isinstance(response, HTMLResponse):
+            '非正常的响应对象' >> self.browser.log
+            return None
+        
+        # 将响应对象存储到当前页面对象中
+        self._page = response
+        # 使用浏览器的方法创建文章对象
+        self._page._article = self.browser.create_article(response)
+        # 定义文章对象的属性列表
+        article_attributes = ['keywords', 'meta_keywords',
+                               'tags', 'authors', 'publish_date', 
+                               'summary', 'text', 'images', 'meta_data', 
+                               'meta_description', 'title']
+        # 使用DotDict将文章对象的属性转换为字典形式
+        self._page.article = DotDict({
+            attr: getattr(self._page._article, attr) 
+            for attr in article_attributes})
+        
+        # 将解析好的页面发到浏览器页面流中
+        self.browser.page_stream.emit(self._page)
+        # 返回当前页面对象
+        return self._page
     
     def __str__(self):
         return self.url  # 返回 URL
+
+    def __repr__(self):
+        """返回 Tab 对象的有意义的表示形式，包含 URL 和摘要。"""
+        return f"Tab(url={self.url}, summary={self.page.article.title})"
 
     def close(self):
         """关闭 tab 对象，停止前面设定的定期刷新，并从浏览器的全局 tabs 中移除该对象，并释放内存。同时从缓存中删除数据。"""
@@ -243,8 +401,7 @@ class Tab:
         if self.url in self.browser.cache:
             del self.browser.cache[self.url]
         del self
-        '已删除 tab 对象'>>log
-
+        '已删除 tab 对象'>>self.browser.log
 # 全局浏览器实例,缓存大小为5000
 _global_browser = Browser(cache_size=5000)
 
@@ -273,7 +430,9 @@ if __name__ == "__main__":
     from deva import *
 
     tab('http://secsay.com').page.html.search('<title>{}</title>')
-
+    browser.page_stream.filter(lambda page:page.url=='http://baidu.com').map(lambda p:p.article>>log)
+    tab('http://baidu.com')
+    
     # 创建浏览器实例
     browser = Browser(cache_size=5)
 
