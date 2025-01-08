@@ -63,11 +63,11 @@ from sockjs.tornado import SockJSRouter, SockJSConnection
 
 import json
 from tornado import gen
-from .core import Deva, Stream
-from .bus import log, bus
-from .pipe import ls
+from deva.core import Deva, Stream
+from deva.bus import log, bus
+from deva.pipe import ls
 import datetime
-from .namespace import NW
+from deva.namespace import NW
 
 
 try:
@@ -197,289 +197,6 @@ class TemplateProxy(object):
 def render_template(*args, **kwargs):
     return TemplateProxy(*args, **kwargs)
 
-
-class Page(object):
-    """页面类,用于处理HTTP请求和路由
-
-    主要功能:
-    - 注册路由和处理函数
-    - 支持werkzeug和tornado两种路由语法
-    - 支持tornado和jinja2两种模板引擎
-    - 支持调试模式
-
-    示例用法::
-
-        from deva.page import Page
-
-        page = Page(debug=True)
-
-        @app.route("/hello")
-        def foo():
-            return "hello"
-
-    参数:
-        debug (bool): 是否启用werkzeug调试器
-        template_path (str): 模板文件路径,默认为app.py所在目录下的templates目录
-        template_engine (str): 使用的模板引擎,可选'tornado'或'jinja2'
-    """
-
-    def __init__(self, debug=False, template_path=None, template_engine='tornado'):
-        """初始化Page实例
-
-        Args:
-            debug (bool): 是否启用调试模式
-            template_path (str): 模板路径,默认为None
-            template_engine (str): 模板引擎,可选'tornado'或'jinja2'
-        """
-        assert template_engine in ('tornado', 'jinja2')
-        self.registery = OrderedDict()
-        self.url_map = Map()
-        self.mapper = self.url_map.bind("", "/")
-        self.debug = True
-        self.methods = []
-        self.routes_list = []
-
-        if not template_path:
-            frames = inspect.getouterframes(inspect.currentframe())
-            frame, filename, line_number, function_name, lines, index = frames[0]
-            for frame in frames:
-                if filename != frame[1]:
-                    filename = frame[1]
-                    break
-            self.template_path = os.path.realpath(
-                os.path.join(os.path.dirname(filename), 'templates'))
-        else:
-            self.template_path = template_path
-
-        self.template_engine = template_engine
-
-        if template_engine == 'jinja2':
-            from jinja2 import Environment, FileSystemLoader
-            self.template_env = Environment(
-                loader=FileSystemLoader(self.template_path))
-
-    def get_routes(self):
-        """获取编译后的路由和处理类列表
-
-        Returns:
-            list: 跚由和处理类的元组列表
-        """
-        self.registery = OrderedDict()
-        for rule in self.methods:
-            self.route_(**rule)
-        return [(k, v) for k, v in self.registery.items()]
-
-    def is_werkzeug_route(self, route):
-        """判断是否为werkzeug路由语法
-
-        Args:
-            route (str): 跷路由字符串
-
-        Returns:
-            bool: 是否为werkzeug路由
-        """
-        return _rule_re.match(route)
-
-    def __call__(self, *args: tornado.ioloop.Any, **kwds: tornado.ioloop.Any) -> tornado.ioloop.Any:
-        self.route(*args, **kwds)
-
-    def route(self, rule, methods=None, werkzeug_route=None,
-              tornado_route=None, handler_bases=None, fn=None, nowrap=None):
-        """路由装饰器,用于注册处理函数
-
-        Args:
-            rule (str): 跷路由规则,支持werkzeug和tornado语法
-            methods (list): HTTP方法列表,如['GET','POST']
-            werkzeug_route (bool): 是否强制使用werkzeug路由
-            tornado_route (bool): 是否强制使用tornado路由
-            handler_bases (tuple): 处理器基类元组
-            fn (callable): 处理函数
-            nowrap (bool): 是否不包装处理函数
-
-        Returns:
-            function: 装饰器函数
-        """
-        def inner(fn):
-            self.add_route(rule=rule,
-                           methods=methods,
-                           werkzeug_route=werkzeug_route,
-                           tornado_route=tornado_route,
-                           handler_bases=handler_bases,
-                           fn=fn,
-                           nowrap=nowrap)
-            return fn
-        return inner
-
-    def add_route(self, rule, fn=None, methods=None,
-                  werkzeug_route=None, tornado_route=None,
-                  handler_bases=None, nowrap=None):
-        """添加路由规则
-
-        Args:
-            rule (str): 跷路由规则
-            fn (callable): 处理函数
-            methods (list): HTTP方法列表
-            werkzeug_route (bool): 是否使用werkzeug路由
-            tornado_route (bool): 是否使用tornado路由
-            handler_bases (tuple): 处理器基类
-            nowrap (bool): 是否不包装处理函数
-        """
-        assert callable(fn)
-        self.methods.append(dict(
-            rule=rule,
-            methods=methods,
-            werkzeug_route=werkzeug_route,
-            tornado_route=tornado_route,
-            handler_bases=handler_bases,
-            fn=fn,
-            nowrap=nowrap
-        ))
-
-    def route_(self, rule, methods=None, werkzeug_route=None,
-               tornado_route=None, handler_bases=None, fn=None, nowrap=None):
-        """实际的路由注册逻辑
-
-        Args:
-            rule (str): 跷路由规则
-            methods (list): HTTP方法列表
-            werkzeug_route (bool): 是否使用werkzeug路由
-            tornado_route (bool): 是否使用tornado路由
-            handler_bases (tuple): 处理器基类
-            fn (callable): 处理函数
-            nowrap (bool): 是否不包装处理函数
-        """
-        methods = methods or ['GET']
-
-        clsname = '%sHandler' % fn.__name__.capitalize()
-        # TODO: things get complicated if you use your own base class and debug=True
-        if not handler_bases:
-            if self.debug:
-                bases = (DebuggableHandler,)
-            else:
-                bases = (tornado.web.RequestHandler,)
-        else:
-            bases = (DebuggableHandler,) + handler_bases
-        m = {}
-        for method in methods:
-            inspected = inspect.getfullargspec(fn)
-
-            can_be_wrapped = True
-            if nowrap == None:
-                # are we using a tornado.coroutine or something similar,
-                # we dont wrap
-                if 'tornado' in inspect.getsourcefile(fn):
-                    can_be_wrapped = False
-                else:
-                    can_be_wrapped = nowrap != True
-            else:
-                can_be_wrapped = nowrap
-
-            self_in_args = inspected.args and inspected.args[0] in [
-                'self', 'handler']
-
-            if not self_in_args and can_be_wrapped == True:
-                def wrapper(self, *args, **kwargs):
-                    result = fn(*args, **kwargs)  # 调用原始处理函数
-
-                    # 检查返回值是否为Stream类型
-                    if isinstance(result, Stream):
-                        # 渲染streams.html模板，并传递streams参数
-                        # self.finish(result.name)
-                        result = render_template('./templates/streams.html', streams=[result])
-
-                    # 处理其他返回值
-                    if isinstance(result, TemplateProxy):
-                        if self._template_engine == 'tornado':
-                            self.render(*result.args, **result.kwargs)
-                        else:
-                            template = self._template_env.get_template(result.args[0])
-                            self.finish(template.render(handler=self, **result.kwargs))
-                    else:
-                        self.finish(result)
-
-                m[method.lower()] = wrapper
-            else:
-                m[method.lower()] = fn
-
-        klass = type(clsname, bases, m)
-        klass._template_engine = self.template_engine
-        if self.template_engine != 'tornado':
-            klass._template_env = self.template_env
-
-        use_werkzeug_route = None
-
-        if tornado_route:
-            use_werkzeug_route = False
-
-        if werkzeug_route:
-            use_werkzeug_route = True
-
-        if use_werkzeug_route == None:
-            use_werkzeug_route = self.is_werkzeug_route(rule)
-
-        if use_werkzeug_route:
-            r = Rule(rule, methods=methods)
-            self.url_map.add(r)
-            r.compile()
-            pattern = r._regex.pattern.replace('^\\|', "")
-            self.registery[pattern] = klass
-        else:
-            self.registery[rule] = klass
-
-    def add_routes(self, routes_list):
-        """添加路由列表
-
-        Args:
-            routes_list (list): 跷路由规则列表
-        """
-        self.routes_list = routes_list
-
-    def run(self, port=9999, host="127.0.0.1", **settings):
-        """启动HTTP服务器
-
-        Args:
-            port (int): 监听端口,默认9999
-            host (str): 监听地址,默认127.0.0.1
-            **settings: 其他设置参数
-
-        Returns:
-            Application: tornado应用实例
-        """
-        self.debug = settings.get('debug', False)
-        settings['template_path'] = settings.get('template_path') or self.template_path
-        if self.debug:
-            if with_wsgi_adapter:
-                import tornado.httpserver
-                from werkzeug.debug import DebuggedApplication
-                application = DebugApplication(
-                    self.get_routes() + self.routes_list, **settings)
-                wsgi_application = tornado.wsgi.WSGIAdapter(application)
-
-                debug_app = DebuggedApplication(app=wsgi_application, evalex=True)
-                application.debug_app = debug_app
-                debug_container = tornado.wsgi.WSGIContainer(debug_app)
-
-                http_server = tornado.httpserver.HTTPServer(debug_container)
-                http_server.listen(port)
-                # tornado.ioloop.IOLoop.instance().start()
-            else:
-                import tornado.ioloop
-                application = DebugApplication(
-                    self.get_routes() + self.routes_list, **settings)
-                application.listen(port, host)
-                # tornado.ioloop.IOLoop.instance().start()
-        else:
-            import tornado.web
-            application = tornado.web.Application(
-                self.get_routes() + self.routes_list, **settings)
-            logger.info("starting server on port: %s", port)
-            application.listen(port, host)
-            os.system(f'open http://{host}:{port}')
-
-        return application
-        # tornado.ioloop.IOLoop.instance().start()
-
-
 class StreamsConnection(SockJSConnection):
     """WebSocket连接处理类
 
@@ -564,9 +281,6 @@ class StreamsConnection(SockJSConnection):
         self.out_stream.destroy()
 
 
-page = Page()
-
-
 class PageServer(object):
     """页面服务器类,用于启动和管理Web服务器
 
@@ -583,18 +297,17 @@ class PageServer(object):
         start (bool): 是否立即启动服务器,默认为False
         **kwargs: 传递给tornado.web.Application的额外参数
     """
-    page = page
 
     def __init__(self, name='default', host='127.0.0.1', port=9999, start=False, **kwargs):
         self.name = name
-        self.page = page
+        # self.page = page
         self.port = port
         self.host = host
         self.streams = defaultdict(list)
-        self.page.get_routes() >> ls >> log
+        
         self.StreamRouter = SockJSRouter(StreamsConnection, r'')
         self.application = tornado.web.Application(
-            self.page.get_routes() +
+            # self.page.get_routes() +
             self.StreamRouter.urls,
             **kwargs
         )
@@ -608,6 +321,7 @@ class PageServer(object):
             page: Page实例,包含要添加的路由
         """
         self.application.add_handlers('.*$', page.get_routes())
+        page.get_routes() >> ls >> log
 
     def start(self,):
         """启动Web服务器并在浏览器中打开"""
@@ -617,6 +331,145 @@ class PageServer(object):
     def stop(self):
         """停止Web服务器"""
         self.server.stop()
+
+# server = NW('stream_webview')
+
+class Page(object):
+    """页面类,用于处理HTTP请求和路由
+
+    主要功能:
+    - 注册路由和处理函数
+    - 支持werkzeug和tornado两种路由语法
+    - 支持tornado和jinja2两种模板引擎
+    - 支持调试模式
+
+    示例用法::
+
+        from deva.page import Page
+
+        page = Page(debug=True)
+
+        @app.route("/hello")
+        def foo():
+            return "hello"
+
+    参数:
+        debug (bool): 是否启用werkzeug调试器
+        template_path (str): 模板文件路径,默认为app.py所在目录下的templates目录
+        template_engine (str): 使用的模板引擎,可选'tornado'或'jinja2'
+    """
+
+    def __init__(self, debug=False, template_path=None, template_engine='tornado'):
+        """初始化Page实例"""
+        assert template_engine in ('tornado', 'jinja2')
+        self.registery = OrderedDict()
+        self.url_map = Map()
+        self.mapper = self.url_map.bind("", "/")
+        self.debug = True
+        self.methods = []
+        self.routes_list = []
+
+        if not template_path:
+            frame = inspect.currentframe()
+            while frame and frame.f_code.co_filename == __file__:
+                frame = frame.f_back
+            filename = frame.f_code.co_filename if frame else __file__
+            self.template_path = os.path.join(os.path.dirname(filename), 'templates')
+        else:
+            self.template_path = template_path
+
+        self.template_engine = template_engine
+        if template_engine == 'jinja2':
+            from jinja2 import Environment, FileSystemLoader
+            self.template_env = Environment(loader=FileSystemLoader(self.template_path))
+
+    def get_routes(self):
+        """获取编译后的路由和处理类列表"""
+        self.registery = OrderedDict()
+        for rule in self.methods:
+            self.route_(**rule)
+        return list(self.registery.items())
+
+    def is_werkzeug_route(self, route):
+        """判断是否为werkzeug路由语法"""
+        return _rule_re.match(route)
+
+    def __call__(self, *args, **kwargs):
+        self.route(*args, **kwargs)
+
+    def route(self, rule, methods=None, **kwargs):
+        """路由装饰器"""
+        def decorator(fn):
+            self.add_route(rule=rule, methods=methods, fn=fn, **kwargs)
+            return fn
+        # NW('stream_webview').add_page(self)
+        return decorator
+
+    def add_route(self, rule, fn, methods=None, **kwargs):
+        """添加路由规则"""
+        assert callable(fn)
+        self.methods.append(dict(rule=rule, methods=methods, fn=fn, **kwargs))
+
+    def _create_handler_class(self, fn, methods, bases):
+        """创建处理器类"""
+        clsname = f'{fn.__name__.capitalize()}Handler'
+        m = {}
+        
+        for method in methods:
+            inspected = inspect.getfullargspec(fn)
+            self_in_args = inspected.args and inspected.args[0] in ['self', 'handler']
+            
+            if not self_in_args:
+                def wrapper(self, *args, **kwargs):
+                    result = fn(*args, **kwargs)
+                    if isinstance(result, Stream):
+                        result = render_template('./templates/streams.html', streams=[result])
+                    if isinstance(result, TemplateProxy):
+                        if self._template_engine == 'tornado':
+                            self.render(*result.args, **result.kwargs)
+                        else:
+                            template = self._template_env.get_template(result.args[0])
+                            self.finish(template.render(handler=self, **result.kwargs))
+                    else:
+                        self.finish(result)
+                m[method.lower()] = wrapper
+            else:
+                m[method.lower()] = fn
+                
+        return type(clsname, bases, m)
+
+    def route_(self, rule, methods=None, fn=None, **kwargs):
+        """实际的路由注册逻辑"""
+        methods = methods or ['GET']
+        bases = (DebuggableHandler,) if self.debug else (tornado.web.RequestHandler,)
+        
+        klass = self._create_handler_class(fn, methods, bases)
+        klass._template_engine = self.template_engine
+        if self.template_engine != 'tornado':
+            klass._template_env = self.template_env
+
+        use_werkzeug = kwargs.get('werkzeug_route', self.is_werkzeug_route(rule))
+        if use_werkzeug:
+            r = Rule(rule, methods=methods)
+            self.url_map.add(r)
+            r.compile()
+            pattern = r._regex.pattern.replace('^\\|', "")
+            self.registery[pattern] = klass
+        else:
+            self.registery[rule] = klass
+
+    def add_routes(self, routes_list):
+        """添加路由列表"""
+        self.routes_list = routes_list
+
+
+
+
+
+page = Page()
+
+
+
 
 
 def webview(s, url='/', server=None):
@@ -669,16 +522,37 @@ def webview(s, url='/', server=None):
 Stream.webview = webview
 
 if __name__ == '__main__':
+    from deva.namespace import NB
 
     @page.route('/')
-    def index():
-        return log
-        # return 'hello'
+    def get():
+        # 取出所有有缓冲设置且有名称的流实例,类似NS('当下行情数据抽样',cache_max_len=1)
+        #     streams = namespace.values()>>ls
+        streams = [stream for stream in Stream.instances() if stream.name]
+        tables = NB('default').tables | ls
+        return render_template('./templates/monitor.html', streams=streams,
+                    tablenames=tables, sock_url='/')
+        
+    # @page.route('/alltables')
+    # @gen.coroutine
+    # def get_tables(self,):
+    #     """获取所有数据表并生成HTML列表
+        
+    #     将数据库中的所有表名转换为HTML链接列表,每个链接指向对应表的详情页。
+    #     链接文本为表名,链接地址使用表名作为标识。
+        
+    #     Returns:
+    #         str: 包含所有数据表链接的HTML列表
+    #     """
+    #     data = NB('default').tables >> pmap(lambda x: f'<li><a class="Stream" href="table/{x}">{x}</a></li>') >> concat('')
+    #     self.write(data)
+    
 
     @page.route('/s')
     def my_log():
         return 'hello world'
 
-    ps = PageServer()
-    ps.start()
+    
+    log.webview('/log')
+
     Deva.run()
