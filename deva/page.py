@@ -63,7 +63,7 @@ from sockjs.tornado import SockJSRouter, SockJSConnection
 
 import json
 from tornado import gen
-from .core import Stream
+from .core import Deva, Stream
 from .bus import log, bus
 from .pipe import ls
 import datetime
@@ -262,7 +262,7 @@ class Page(object):
         """获取编译后的路由和处理类列表
 
         Returns:
-            list: 路由和处理类的元组列表
+            list: 跚由和处理类的元组列表
         """
         self.registery = OrderedDict()
         for rule in self.methods:
@@ -273,22 +273,27 @@ class Page(object):
         """判断是否为werkzeug路由语法
 
         Args:
-            route (str): 路由字符串
+            route (str): 跷路由字符串
 
         Returns:
             bool: 是否为werkzeug路由
         """
         return _rule_re.match(route)
 
-    def route(self, rule, methods=None, werkzeug_route=None, tornado_route=None, handler_bases=None, nowrap=None):
+    def __call__(self, *args: tornado.ioloop.Any, **kwds: tornado.ioloop.Any) -> tornado.ioloop.Any:
+        self.route(*args, **kwds)
+
+    def route(self, rule, methods=None, werkzeug_route=None,
+              tornado_route=None, handler_bases=None, fn=None, nowrap=None):
         """路由装饰器,用于注册处理函数
 
         Args:
-            rule (str): 路由规则,支持werkzeug和tornado语法
+            rule (str): 跷路由规则,支持werkzeug和tornado语法
             methods (list): HTTP方法列表,如['GET','POST']
             werkzeug_route (bool): 是否强制使用werkzeug路由
             tornado_route (bool): 是否强制使用tornado路由
             handler_bases (tuple): 处理器基类元组
+            fn (callable): 处理函数
             nowrap (bool): 是否不包装处理函数
 
         Returns:
@@ -311,7 +316,7 @@ class Page(object):
         """添加路由规则
 
         Args:
-            rule (str): 路由规则
+            rule (str): 跷路由规则
             fn (callable): 处理函数
             methods (list): HTTP方法列表
             werkzeug_route (bool): 是否使用werkzeug路由
@@ -335,7 +340,7 @@ class Page(object):
         """实际的路由注册逻辑
 
         Args:
-            rule (str): 路由规则
+            rule (str): 跷路由规则
             methods (list): HTTP方法列表
             werkzeug_route (bool): 是否使用werkzeug路由
             tornado_route (bool): 是否使用tornado路由
@@ -374,21 +379,23 @@ class Page(object):
 
             if not self_in_args and can_be_wrapped == True:
                 def wrapper(self, *args, **kwargs):
-                    # with StackContext(functools.partial(ctx_man, self)) as cm:
-                    w = fn  # wrap(fn)
-                    result = w(*args, **kwargs)
+                    result = fn(*args, **kwargs)  # 调用原始处理函数
 
+                    # 检查返回值是否为Stream类型
+                    if isinstance(result, Stream):
+                        # 渲染streams.html模板，并传递streams参数
+                        # self.finish(result.name)
+                        result = render_template('./templates/streams.html', streams=[result])
+
+                    # 处理其他返回值
                     if isinstance(result, TemplateProxy):
                         if self._template_engine == 'tornado':
                             self.render(*result.args, **result.kwargs)
                         else:
-                            template = self._template_env.get_template(
-                                result.args[0])
-                            self.finish(template.render(
-                                handler=self, **result.kwargs))
+                            template = self._template_env.get_template(result.args[0])
+                            self.finish(template.render(handler=self, **result.kwargs))
                     else:
                         self.finish(result)
-
 
                 m[method.lower()] = wrapper
             else:
@@ -423,7 +430,7 @@ class Page(object):
         """添加路由列表
 
         Args:
-            routes_list (list): 路由规则列表
+            routes_list (list): 跷路由规则列表
         """
         self.routes_list = routes_list
 
@@ -614,7 +621,7 @@ class PageServer(object):
 
 def webview(s, url='/', server=None):
     """为数据流创建Web视图
-    
+
     为数据流创建一个Web页面视图,可以在浏览器中实时查看数据流的内容。
     支持多个数据流在同一个页面展示,也可以为不同数据流创建不同的URL路径。
 
@@ -627,22 +634,22 @@ def webview(s, url='/', server=None):
         PageServer: 返回服务器实例对象
 
     Example::
-        
+
         # 创建一个简单的数据流
         s = timer(interval=1, func=lambda: datetime.now())
-        
+
         # 在默认路径'/'展示
         s.webview()
-        
+
         # 指定URL路径
         s.webview('/timer')
-        
+
         # 多个数据流展示在同一页面
         s1 = from_list([1,2,3])
         s2 = from_list(['a','b','c']) 
         server = s1.webview('/data')
         s2.webview('/data', server=server)
-        
+
         # 不同数据流使用不同URL
         s1.webview('/numbers')
         s2.webview('/letters')
@@ -658,4 +665,20 @@ def webview(s, url='/', server=None):
     print('with these streams:', server.streams[url])
     return server
 
+
 Stream.webview = webview
+
+if __name__ == '__main__':
+
+    @page.route('/')
+    def index():
+        return log
+        # return 'hello'
+
+    @page.route('/s')
+    def my_log():
+        return 'hello world'
+
+    ps = PageServer()
+    ps.start()
+    Deva.run()

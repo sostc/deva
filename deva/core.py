@@ -49,6 +49,21 @@ deva 是一个基于 Python 的异步流式处理框架。它提供了以下主�
 - 支持自定义管道操作符
 - 方便的数据转换和过滤
 
+5. 路由函数
+- 支持根据特定条件路由函数
+- 可以使用 lambda 表达式或者自定义函数
+- 可以根据函数的返回值或者参数进行路由
+
+6. 异常捕获
+- catch 方法用于捕获函数执行结果到流内
+- 支持异步和同步函数的捕获
+- 可以在函数执行前和执行后执行任务
+
+7. 异常捕获（catch_except）
+- catch_except 方法用于捕获函数执行异常到流内
+- 支持异步和同步函数的异常捕获
+- 可以在函数执行前和执行后执行任务
+
 主要用途:
 - 网络爬虫和数据采集
 - 实时数据处理
@@ -100,7 +115,6 @@ data = [{'name': 'foo', 'value': 1},
       >> P.reduce(lambda x,y: x + y)  # 求和
       >> print)                       # 打印结果
 
-
 5. 存储和回放
 from deva import Stream, store
 # 将数据流存储到Redis
@@ -129,20 +143,21 @@ h = http(render=True)  # 启用JS渲染
 7. 命名空间(namespace)
 from deva import NB
 # 创建命名空间
-nb = NB('my_app')
+# 创建一个新的流对象
+stream = Stream()
 
-# 发布订阅模式
-@nb.sub('topic1')  # 订阅topic1
+# 使用装饰器订阅主题
+@stream.sub('topic1')  # 订阅topic1
 def handler1(msg):
     print(f'收到消息: {msg}')
-    
-@nb.sub('topic2')  # 订阅topic2 
+
+@stream.sub('topic2')  # 订阅topic2 
 def handler2(msg):
     print(f'收到消息: {msg}')
 
 # 发布消息
-nb.pub('topic1', '你好')  # 发送到topic1
-nb.pub('topic2', '世界')  # 发送到topic2
+stream.pub('topic1', '你好')  # 输出: 收到消息: 你好
+stream.pub('topic2', '世界')  # 输出: 收到消息: 世界
 
 # 远程过程调用(RPC)
 @nb.rpc('add')  # 注册RPC方法
@@ -176,8 +191,146 @@ def on_user_created(user):
     
 nb.emit('user.created', {'id': 1, 'name': 'test'})  # 触发事件
 
+8. 路由函数
+from deva import Stream
+# 创建数据流
+source = Stream()
+
+# 定义路由函数
+@source.route(lambda x: x % 2 == 0)  # 跱要求是偶数的函数
+def even_handler(x):
+    print(f'偶数: {x}')
+
+@source.route(lambda x: x % 2 != 0)  # 要求是奇数的函数
+def odd_handler(x):
+    print(f'奇数: {x}')
+
+# 发送数据
+for i in range(5):
+    source.emit(i)
+
+# 输出结果
+# 偶数: 0
+# 奇数: 1
+# 偶数: 2
+# 奇数: 3
+# 偶数: 4
+
+9. 异常捕获
+from deva import Stream
+# 创建数据流
+source = Stream()
+
+# 定义一个可能抛出异常的函数
+def divide(x, y):
+    if y == 0:
+        raise ZeroDivisionError
+    return x / y
+
+# 使用catch方法捕获异常
+@source.catch(divide)
+def handle_division(x, y):
+    print(f'结果: {x / y}')
+
+# 发送数据
+source.emit((10, 2))  # 正常情况
+source.emit((10, 0))  # 异常情况
+
+# 输出结果
+# 结果: 5.0
+# 异常: division by zero
+
+10. 缓存和回放
+from deva import Stream
+# 创建数据流
+source = Stream()
+
+# 缓存数据
+source.cache = {'key': 'value'}
+
+# 回放缓存的数据
+source.recent()  # 获取最近的数据
+
+11. 过滤器
+from deva import Stream
+# 创建数据流
+source = Stream()
+
+# 定义过滤器
+@source.filter(lambda x: x > 0)  # 过滤出正数
+def positive_filter(x):
+    print(f'正数: {x}')
+
+# 发送数据
+for i in range(-5, 6):
+    source.emit(i)
+
+# 输出结果
+# 正数: 1
+# 正数: 2
+# 正数: 3
+# 正数: 4
+# 正数: 5
+
+12. 映射
+from deva import Stream
+# 创建数据流
+source = Stream()
+
+# 定义映射
+@source.map(lambda x: x * 2)  # 将数据乘以2
+def double_map(x):
+    print(f'乘以2后的结果: {x}')
+
+# 发送数据
+for i in range(5):
+    source.emit(i)
+
+# 输出结果
+# 乘以2后的结果: 0
+# 乘以2后的结果: 2
+# 乘以2后的结果: 4
+# 乘以2后的结果: 6
+# 乘以2后的结果: 8
+
+13. reduce
+from deva import Stream
+# 创建数据流
+source = Stream()
+
+# 定义减少操作
+@source.reduce(lambda x, y: x + y)  # 累加数据
+def sum_reduce(x):
+    print(f'累加结果: {x}')
+
+# 发送数据
+for i in range(5):
+    source.emit(i)
+
+# 输出结果
+# 累加结果: 10
+
+14. 异常捕获（catch_except）
+from deva import Stream
+# 创建数据流
+source = Stream()
 
 
+# 使用装饰器捕获异常
+@source.catch_except
+def divide(x, y):
+    if y == 0:
+        raise ZeroDivisionError
+    return x / y
+
+# 发送数据
+divide(10,0)执行时，异常会被发送到 source 中
+
+
+
+# 使用^运算符捕获异常
+divide = lambda x, y: x / y if y != 0 else raise ZeroDivisionError
+(10,0) | divide^source
 
 
 更多信息请访问: https://github.com/sostc/deva
@@ -329,6 +482,8 @@ class Stream(object):
         self.handlers = []  # 处理器列表
 
         self.__class__._instances.add(weakref.ref(self))  # 添加到实例集合
+
+        self._subscribers = collections.defaultdict(list)  # 主题订阅者字典
 
     def start_cache(self, cache_max_len=None, cache_max_age_seconds=None):
         """
@@ -762,10 +917,11 @@ class Stream(object):
                 return sum(*args,**kwargs)
 
         """
+
         @functools.wraps(func)
         def wraper(*args, **kwargs):
-            # some action before
             try:
+                #todo:异步函数如何处置？
                 return func(*args, **kwargs)  # 需要这里显式调用用户函数
             except Exception as e:
                 {
@@ -859,6 +1015,32 @@ class Stream(object):
     def __iter__(self,):
         """迭代缓存的值"""
         return self.cache.values().__iter__()
+
+    def sub(self, topic):
+        """装饰器，用于订阅特定主题的消息。
+
+        参数:
+            topic: 主题名称。
+        """
+        def decorator(handler):
+            self._subscribers[topic].append(handler)
+            return handler
+        return decorator
+
+    def pub(self, topic, message):
+        """发布消息到特定主题。
+
+        参数:
+            topic: 主题名称。
+            message: 要发布的消息。
+        """
+        if topic in self._subscribers:
+            for handler in self._subscribers[topic]:
+                handler(message)
+
+    def __call__(self,func):
+        return self.catch(func=func)
+
 
 
 class Sink(Stream):
