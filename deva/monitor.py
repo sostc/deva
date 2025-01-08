@@ -16,11 +16,11 @@ from pymaybe import maybe
 from sockjs.tornado import SockJSRouter, SockJSConnection
 
 from tornado import gen
-from .core import Stream
-from .namespace import NB, NS
-from .bus import log
-from .pipe import ls, pmap, concat, head, sample
-from .page import Page
+from deva.core import Stream
+from deva.namespace import NB, NS
+from deva.bus import log
+from deva.pipe import ls, pmap, concat, head, sample
+from deva.page import Page,render_template
 import datetime
 """
 Deva监控模块
@@ -56,19 +56,17 @@ monitor_page = Page()
 
 
 @monitor_page.route('/')
-@gen.coroutine
-def get(self, *args, **kwargs):
+def index():
     # 取出所有有缓冲设置且有名称的流实例,类似NS('当下行情数据抽样',cache_max_len=1)
     #     streams = namespace.values()>>ls
     streams = [stream for stream in Stream.instances() if stream.name]
     tables = NB('default').tables | ls
-    self.render('./templates/monitor.html', streams=streams,
+    return render_template('./templates/monitor.html', streams=streams,
                 tablenames=tables, sock_url='/')
 
 
 @monitor_page.route("/allstreams")
-@gen.coroutine
-def allstreams(self):
+def allstreams():
     """获取所有数据流实例并生成HTML列表
 
     将所有Stream实例转换为HTML链接列表,每个链接指向对应流的详情页。
@@ -85,11 +83,10 @@ def allstreams(self):
         return f'<li><a href="stream/{sid}">{text}</a></li>'
 
     result = s_list >> pmap(_f) >> concat('')
-    self.write(result)
+    return result
 
 @monitor_page.route('/alltables')
-@gen.coroutine
-def get_tables(self,):
+def get_tables():
     """获取所有数据表并生成HTML列表
     
     将数据库中的所有表名转换为HTML链接列表,每个链接指向对应表的详情页。
@@ -99,12 +96,11 @@ def get_tables(self,):
         str: 包含所有数据表链接的HTML列表
     """
     data = NB('default').tables >> pmap(lambda x: f'<li><a class="Stream" href="table/{x}">{x}</a></li>') >> concat('')
-    self.write(data)
+    return data
 
 
 @monitor_page.route('/table/<tablename>')
-@gen.coroutine
-def get_table_keys(self, tablename):
+def get_table_keys(tablename):
     """获取指定数据表的键列表并生成HTML链接
     
     从指定的数据表中随机采样20个键,并将其转换为HTML链接列表。
@@ -121,7 +117,7 @@ def get_table_keys(self, tablename):
     """
     keys = sample(20) << NB(tablename).keys()
     data = keys >> pmap(lambda x: f'<li><a class="Stream" href="{tablename}/{x}">{x}</a></li>') >> concat('')
-    self.write(data)
+    return data
 
 @monitor_page.route('/table/<tablename>/<key>')
 def get_table_values(tablename, key):
@@ -156,7 +152,7 @@ def get_table_values(tablename, key):
         return json.dumps({key: str(data)}, ensure_ascii=False)
 
 @monitor_page.route('/stream/<name_or_id>')
-def get_stream(self, name_or_id):
+def get_stream( name_or_id):
     """获取指定数据流并渲染详情页面
     
     根据名称或ID查找数据流实例,并渲染对应的详情页面。
@@ -179,7 +175,8 @@ def get_stream(self, name_or_id):
         stream = [stream for stream in Stream.instances() if str(
             hash(stream)) == name_or_id][0]
     stream_id = hash(stream)
-    self.render('./templates/stream.html', stream_id=stream_id, sock_url='../')
+    return render_template('./templates/stream.html', stream_id=stream_id, sock_url='../')
+
 
 class StreamConnection(SockJSConnection):
     """WebSocket连接处理类,用于处理数据流的实时推送
@@ -281,13 +278,58 @@ class StreamConnection(SockJSConnection):
         self.link2.destroy()
         self.out_stream.destroy()
 
+class Monitor(object):
+    """监控器类,用于启动和管理监控服务器
+    
+    主要功能:
+    - 启动HTTP服务器
+    - 注册WebSocket路由
+    - 管理页面路由
+    
+    属性:
+        page (Page): 全局页面实例
+        port (int): 监听端口
+        host (str): 监听地址
+        ChatRouter (SockJSRouter): 聊天WebSocket路由
+        StreamRouter (SockJSRouter): 数据流WebSocket路由
+        application (Application): Tornado应用实例
+        server (HTTPServer): HTTP服务器实例
+    """
+    page = monitor_page
 
-# In[4]:
+    def __init__(self, host='127.0.0.1', port=9998):
+        """初始化监控器实例
+        
+        Args:
+            host (str): 监听地址,默认127.0.0.1
+            port (int): 监听端口,默认9998
+        """
+        self.page = Monitor.page
+        self.port = port 
+        self.host = host
 
-# 代码执行
-NS('执行代码').start_cache(200)
-chatroom = Stream()
-chatroom.start_cache(200, cache_max_age_seconds=60 * 60 * 24 * 30)
+        self.StreamRouter = SockJSRouter(StreamConnection, r'')
+        self.application = tornado.web.Application(
+            self.page.get_routes() +
+            self.StreamRouter.urls 
+        )
+
+    def add_page(self, page):
+        """添加页面路由
+        
+        Args:
+            page (Page): 页面实例
+        """
+        self.application.add_handlers('.*$', page.get_routes())
+
+    def start(self,):
+        """启动监控服务器并打开浏览器"""
+        self.server = self.application.listen(self.port)
+        os.system(f'open http://{self.host}:{self.port}/')
+
+    def close(self):
+        """关闭监控服务器"""
+        self.server.close()
 
 
 def exec_command(command):
@@ -322,111 +364,17 @@ def exec_command(command):
     except Exception as e:
         return str(e)
 
-exec_room = chatroom.map(exec_command)
-exec_room.start_cache(200)
-exec_room.map(lambda x: exec_room.recent(1) | concat('\n$:')) >> NS('执行代码')
-
-
-class ChatConnection(StreamConnection):
-    """聊天连接类,用于处理WebSocket连接
-    
-    主要功能:
-    - 处理客户端连接和消息
-    - 执行命令并返回结果
-    - 记录命令日志
-    
-    属性:
-        command (str): 当前命令缓存
-        out_stream (Stream): 输出数据流
-        request (Request): HTTP请求对象
-    """
-    def on_open(self, request):
-        """处理新连接
-        
-        Args:
-            request (Request): HTTP请求对象
-        """
-        self.command = ''
-        self.out_stream = NS('执行代码')
-        self.out_stream.sink(self.send)
-        maybe(NS('执行代码')).recent(1)[0].or_else('$') >> self.out_stream
-
-        self.request = request
-        self.request.ip = maybe(self.request.headers)[
-            'x-forward-for'].or_else(self.request.ip)
-
-    def on_message(self, msg):
-        """处理收到的消息
-        
-        Args:
-            msg (str): 客户端发送的消息
-        """
-        msg >> self.out_stream
-        self.command += msg
-        if msg == '\r':  # 收到回车
-            (exec(self.command[:-1])+'\n$:', globals()) >> self.out_stream
-            self.command = ''
-            f'{msg}:{self.request.ip}:{datetime.datetime.now()}' >> log
-
-class Monitor(object):
-    """监控器类,用于启动和管理监控服务器
-    
-    主要功能:
-    - 启动HTTP服务器
-    - 注册WebSocket路由
-    - 管理页面路由
-    
-    属性:
-        page (Page): 全局页面实例
-        port (int): 监听端口
-        host (str): 监听地址
-        ChatRouter (SockJSRouter): 聊天WebSocket路由
-        StreamRouter (SockJSRouter): 数据流WebSocket路由
-        application (Application): Tornado应用实例
-        server (HTTPServer): HTTP服务器实例
-    """
-    page = monitor_page
-
-    def __init__(self, host='127.0.0.1', port=9998):
-        """初始化监控器实例
-        
-        Args:
-            host (str): 监听地址,默认127.0.0.1
-            port (int): 监听端口,默认9998
-        """
-        self.page = Monitor.page
-        self.port = port 
-        self.host = host
-
-        self.ChatRouter = SockJSRouter(ChatConnection, r'/chatroom')
-        self.StreamRouter = SockJSRouter(StreamConnection, r'')
-        self.application = tornado.web.Application(
-            self.page.get_routes() +
-            self.StreamRouter.urls +
-            self.ChatRouter.urls
-        )
-
-    def add_page(self, page):
-        """添加页面路由
-        
-        Args:
-            page (Page): 页面实例
-        """
-        self.application.add_handlers('.*$', page.get_routes())
-
-    def start(self,):
-        """启动监控服务器并打开浏览器"""
-        self.server = self.application.listen(self.port)
-        os.system(f'open http://{self.host}:{self.port}/')
-
-    def close(self):
-        """关闭监控服务器"""
-        self.server.close()
 
 if __name__ == '__main__':
-    monitor = Monitor(port=9998)
-    monitor.start()
-    from .core import Deva
+    # monitor = Monitor(port=9998)
+    # monitor.start()
+    from deva.when import timer
+    @timer(1)
+    def foo():
+        'hello'>>log
+    from deva.core import Deva
+    from deva.namespace import NW
+    NW('stream_webview').add_page(monitor_page)
     Deva.run()
 # In[7]:
 
