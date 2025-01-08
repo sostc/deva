@@ -10,19 +10,7 @@
 
     <script>
 
-        var chat_sock_url = '/chatroom';
-        var chat_sock = new SockJS(chat_sock_url);
-        chat_sock.onopen = function() {
-            console.log('open');
-        };
-
-        // chat_sock.onmessage = function(e) {
-        //     $("#chat").html(e.data);
-        // };
-
-        chat_sock.onclose = function() {
-            console.log('close');
-        };
+      
 
 
         var sock_url = '{{ sock_url }}';
@@ -32,6 +20,7 @@
         };
 
         sock.onmessage = function(e) {
+            console.log(e);
             $("#text").html(JSON.parse(e.data).data);
         };
 
@@ -48,11 +37,6 @@
 
          });
 
-         $(".submit").click(function(){
-             chat_sock.send($(".input").val());
-             $(".input").val('');
-
-         });
      });
 
 
@@ -76,14 +60,7 @@
         </div>
         <h3>执行代码</h3>
 
-        <div id="terminal"></div>
-      <script>
-        var term = new Terminal();
-        var attachAddon = new AttachAddon.AttachAddon(chat_sock);
-        term.loadAddon(attachAddon);
-        term.open(document.getElementById('terminal'));
-        term.write('\x1B[1;3;31mxterm.js\x1B[0m $ ')
-      </script>
+     
 
 
         <h3>links</h3>

@@ -22,6 +22,6 @@ sockjs-tornado>=1.0.7
 expiringdict
 aiosmtplib
 trafilatura
-newspaper
+newspaper3k
 boilerpy3
 sumy
