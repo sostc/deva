@@ -1,38 +1,29 @@
 #!/usr/bin/env python
 """
-这是一个基于 PyWebIO 和 Tornado 的 Web 应用程序，集成了多个功能模块，包括用户认证、GPT 问答、新闻提取、动态数据刷新等。
+Deva 管理面板 - 基于 PyWebIO 和 Tornado 的 Web 应用程序
 
-主要功能：
-1. 用户认证：使用用户名和密码进行持久化认证。
-2. GPT 问答：通过 GPT 模型生成回答。
-3. 新闻提取：从指定 URL 提取新闻内容并生成摘要。
-4. 动态数据刷新：定时刷新页面内容。
-5. 汉字笔画数计算：输入汉字并计算其笔画数。
-6. 日志记录：手动或自动写入日志。
-7. 数据表展示：展示数据库中的表格数据。
+核心功能：
+- 实时数据流监控：访问日志、实时新闻、涨跌停数据、板块异动等
+- 定时任务管理：查看和管理所有定时任务的执行状态
+- 数据表展示：支持分页和实时更新的表格数据展示
+- 日志系统：实时日志监控和手动日志写入
+- 用户认证：基于用户名和密码的登录系统
 
 主要模块：
-- `basic_auth`: 用户认证函数。
-- `word_strokes_count`: 汉字笔画数计算函数。
-- `write_to_log`: 写入日志函数。
-- `acreate_completion`: 异步生成 GPT 回答函数。
-- `ask_gpt`: 处理 GPT 问答请求函数。
-- `news_extract`: 新闻提取函数。
-- `my_timer`: 定时器函数。
-- `add_note`: 添加评论函数。
-- `main`: 主函数，初始化并运行各个功能模块。
-- `convert_timestamp_columns_to_string`: 将 DataFrame 中的时间戳列转换为字符串。
-- `table_click`: 处理表格点击事件函数。
+- 数据流模块：实时监控多个数据流，包括访问日志、新闻、板块数据等
+- 定时任务模块：展示所有定时任务的执行间隔、状态和生命周期
+- 数据表模块：支持分页、过滤和实时更新的表格展示
+- 日志模块：提供日志查看器和手动日志写入功能
+- 用户认证模块：基于 PyWebIO 的 basic_auth 实现
 
-异常类：
-- `ExceedMaxTokenError`: 超过最大令牌数异常。
-- `OmittedContentError`: 内容省略异常。
-
-使用方法：
-1. 运行脚本后，打开浏览器访问相应 URL。
-2. 进行用户登录。
-3. 使用页面提供的各项功能，如 GPT 问答、新闻提取、日志记录等。
+技术栈：
+- 前端：PyWebIO
+- 后端：Tornado
+- 数据流：Deva 流处理框架
+- 缓存：基于 ExpiringDict 的缓存系统
 """
+
+
 # coding: utf-8
 
 # In[2]:
@@ -46,7 +37,7 @@ from deva.page import webview
 from pywebio.output import (
     put_error, put_text, put_markdown, set_scope, put_table,put_success,
     put_info, use_scope, clear, toast, put_button, put_collapse, put_datatable,
-    put_buttons, put_row, put_html, put_link, put_code, popup
+    put_buttons, put_row, put_html, put_link, put_code, popup,style
 )
 import datetime
 from tornado.web import create_signed_value, decode_signed_value
@@ -89,7 +80,7 @@ import asyncio
 from functools import partial
 import openai
 
-@timer(1)
+@timer(1,start=True)
 def logtimer():
     """每秒打印一下时间到 log 里"""
     return time.time()
@@ -236,7 +227,14 @@ async def main():
     run_js(
         'WebIO._state.CurrentSession.on_session_close(()=>{setTimeout(()=>location.reload(), 4000})')
 
-    # run_async(print_library())
+    # 创建更美观的顶部导航菜单栏
+    put_row([
+        set_scope('nav_buttons'),  # 为导航按钮创建独立作用域
+        set_scope('nav_style')     # 为样式创建独立作用域
+    ])
+
+  
+    
 
     # 登录部分要直接用 await来堵塞，登录成功才可以进入后续流程
     user_name = await basic_auth(lambda username, password: username == 'admin' and password == '123',
@@ -263,22 +261,19 @@ async def main():
     with put_collapse('log', open=True):
         put_logbox("log", height=100)
      
-
     with put_collapse('其他控件', open=True):
         put_input('write_to_log', type='text', value='', placeholder='手动写入日志')
         put_button('>', onclick=write_to_log)
-
        
-def convert_timestamp_columns_to_string(dataframe):
-    # 处理时间后才可以转换成json
-    for column in dataframe.columns:
-        if pd.api.types.is_datetime64_any_dtype(dataframe[column]):
-            dataframe[column] = dataframe[column].dt.strftime('%Y-%m-%d %H:%M:%S')
 
-    dataframe = dataframe.fillna('')  # 去空值
-    return dataframe
 
 def paginate_dataframe(scope,df, page_size):
+    # 处理时间列并填充空值，处理时间后才可以转换成json
+    for column in df.columns:
+        if pd.api.types.is_datetime64_any_dtype(df[column]):
+            df[column] = df[column].dt.strftime('%Y-%m-%d %H:%M:%S')
+    df = df.fillna('')
+
     # 计算总页数
     total_pages = (len(df) - 1) // page_size + 1
     
@@ -332,49 +327,62 @@ def paginate_dataframe(scope,df, page_size):
     put_row([
         put_input('search_input'+scope, placeholder='搜索...'),
         put_button('搜索', onclick=search)
-
     ])
-    
 
 @use_scope('table_content')
 def table_click(tablename):
+    """处理表格点击事件，展示表格内容
+    
+    参数:
+        tablename (str): 表格名称
+    """
     clear('table_content')
-    put_markdown("> You click `%s` table,show sample 10 records:" % tablename)
+    put_markdown(f"> 您点击了 `{tablename}` 表格，展示前10条记录：")
 
+    # 获取表格数据并采样10条
     items = NB(tablename).items() >> sample(10)
+    
+    # 按数据类型分类
+    data_items = {
+        'dataframes': [(k, v) for k, v in items if isinstance(v, pd.DataFrame)],
+        'strings': [(k, v) for k, v in items if isinstance(v, str)],
+        'others': [(k, v) for k, v in items if not isinstance(v, (pd.DataFrame, str))]
+    }
 
-    df_items = [i for i in items if isinstance(i[1], pd.DataFrame)]
-    str_items = [i for i in items if isinstance(i[1], str)]
-    other_items = [i for i in items if not isinstance(i[1], pd.DataFrame) and not isinstance(i[1], str)]
-    if str_items:
-        put_table(str_items)
-    if other_items:
-        for k, v in other_items:
-            with put_collapse(k, open=True):
-                if isinstance(v, dict) or hasattr(v, '__dict__'):
-                    def format_value(value, level=0):
-                        if isinstance(value, dict):
-                            return [[str(k), format_value(v, level + 1)] for k, v in value.items()]
-                        elif hasattr(value, '__dict__'):
-                            attrs = {k: v for k, v in value.__dict__.items() if not k.startswith('_')}
-                            return [[str(k), format_value(v, level + 1)] for k, v in attrs.items()]
-                        else:
-                            return str(value)
-                    formatted_items = format_value(v)
-                    put_table(formatted_items)
-                else:
-                    put_text(str(v))
-    if df_items:
-        with put_collapse('DataFrames', open=True):
-            for k, v in df_items:
-                v = convert_timestamp_columns_to_string(v)
-                with put_collapse(f'{k}', open=True):
-                    # if len(v.index) < 20:
-                    #     put_datatable(v.to_dict(orient='records'), height='auto')
-                    # else:
-                    #     put_datatable(v.head(20).to_dict(orient='records'))
-                    paginate_dataframe(scope=k,df=v,page_size=10)
+    # 显示字符串类型数据
+    if data_items['strings']:
+        with put_collapse('strings', open=True):
+            put_table(data_items['strings'])
 
+    # 显示其他类型数据
+    if data_items['others']:
+        with put_collapse('其他对象', open=True):
+            for key, value in data_items['others']:
+                with put_collapse(key, open=True):
+                    if isinstance(value, (dict, object)):
+                        def format_value(val, level=0):
+                            """递归格式化字典或对象的值"""
+                            if isinstance(val, dict):
+                                return [[str(k), format_value(v, level + 1)] for k, v in val.items()]
+                            elif hasattr(val, '__dict__'):
+                                attrs = {k: v for k, v in val.__dict__.items() 
+                                    if not k.startswith('_')}
+                                return [[str(k), format_value(v, level + 1)] 
+                                    for k, v in attrs.items()]
+                            return str(val)
+                        
+                        formatted_data = format_value(value)
+                        put_table(formatted_data)
+                    else:
+                        put_text(str(value))
+
+    # 显示DataFrame类型数据
+    if data_items['dataframes']:
+        with put_collapse('dataframe', open=True):
+            for df_name, df in data_items['dataframes']:
+                with put_collapse(df_name, open=True):
+                    paginate_dataframe(scope=df_name, df=df, page_size=10)
+                    
 def stream_click(streamname):
     put_markdown("> You click `%s` stream,show records:" % streamname)
     
