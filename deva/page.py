@@ -533,20 +533,7 @@ if __name__ == '__main__':
         return render_template('./templates/monitor.html', streams=streams,
                     tablenames=tables, sock_url='/')
         
-    # @page.route('/alltables')
-    # @gen.coroutine
-    # def get_tables(self,):
-    #     """获取所有数据表并生成HTML列表
-        
-    #     将数据库中的所有表名转换为HTML链接列表,每个链接指向对应表的详情页。
-    #     链接文本为表名,链接地址使用表名作为标识。
-        
-    #     Returns:
-    #         str: 包含所有数据表链接的HTML列表
-    #     """
-    #     data = NB('default').tables >> pmap(lambda x: f'<li><a class="Stream" href="table/{x}">{x}</a></li>') >> concat('')
-    #     self.write(data)
-    
+
 
     @page.route('/s')
     def my_log():
