@@ -5,7 +5,7 @@ from newspaper import Article
 from tornado.ioloop import IOLoop
 from concurrent.futures import ThreadPoolExecutor
 from requests_html import HTMLResponse
-
+import asyncio
 
 """
 这是一个浏览器模块，提供了浏览器流对象和相关的功能。
@@ -184,16 +184,19 @@ class Browser(Stream):
         return self.tab(x)
     
     def _add_to_cache(self, page):
-        """将响应添加到缓存中。
-
-        参数:
-            url: 请求的 URL
-            response: 响应对象
-        """
-        if len(self.cache) >= self.cache_size:
-            # 移除最早的缓存项
-            self.cache.pop(next(iter(self.cache)))
-        self.cache[page.url] = page
+        """将响应添加到缓存中。"""
+        try:
+            if len(self.cache) >= self.cache_size:
+                # 安全移除最早的缓存项
+                if self.cache:
+                    oldest_key = next(iter(self.cache), None)
+                    if oldest_key:
+                        self.cache.pop(oldest_key)
+            
+            if page and page.url:
+                self.cache[page.url] = page
+        except Exception as e:
+            f'缓存写入失败: {str(e)}' >> self.browser.log
 
     def __repr__(self):
         return f"Browser(cache_size={self.cache_size}, tabs={len(self.tabs)})"
@@ -217,21 +220,53 @@ class Browser(Stream):
             return ""
         
     def create_article(self,response):
-        article = Article(response.url, language='zh')  # 设置语言为中文
-        article.set_html(response.html.html)
-        article.config.MAX_SUMMARY_SENT = 3  # 限制摘要句子数量
-        article.parse()
-        if not article.text:
-            article.text = self.extract_text_from_html(response.html.html)
-            # 使用文章正文生成摘要
+        if not response or not hasattr(response, 'html') or not response.html:
+            return None
+        # 根据响应头判断网页语言
+        # 从HTML内容中提取语言信息
+        
+        try:
             from bs4 import BeautifulSoup
+            html_content = response.html.html if response.html.html else ''
+            soup = BeautifulSoup(html_content, 'html.parser')
+            
+            # 添加默认值
+            lang = 'zh'
+            try:
+                html_tag = soup.find('html')
+                if html_tag and html_tag.get('lang'):
+                    lang = html_tag['lang']
+                else:
+                    meta_lang = soup.find('meta', attrs={'http-equiv': 'Content-Language'})
+                    if meta_lang:
+                        lang = meta_lang.get('content', 'zh')
+                
+                if 'zh' in lang:
+                    lang = 'zh'
+                else:
+                    lang = 'en'
+            except:
+                pass
+            article = Article(response.url, language=lang)
+            article.set_html(html_content)
+            article.config.MAX_SUMMARY_SENT = 3  # 限制摘要句子数量
+            article.parse()
+            if not article.text:
+                article.text = self.extract_text_from_html(response.html.html)
+
+        except Exception as e:
+            f'文章解析失败: {str(e)}' >> self.log
+            return None
+            # 使用文章正文生成摘要
+        from bs4 import BeautifulSoup
 
 # 清理 HTML 标签
-            article.text = BeautifulSoup(article.text, "html.parser").get_text()
+        article.text = BeautifulSoup(article.text, "html.parser").get_text()
 
 # 确保内容足够长
-            if len(article.text) < 50:  # 设置最小长度限制
-                raise ValueError("文章内容太短，无法生成摘要")
+        if len(article.text) < 50:  # 设置最小长度限制
+            print("文章内容太短，无法生成摘要")
+            article.summary = ""
 
         # article.nlp()  # 生成摘要质量较差
         # 使用sumy生成摘要
@@ -245,17 +280,19 @@ class Browser(Stream):
             
 
 # 将清理后的文本传入 summarizer
-            parser = PlaintextParser.from_string(article.text, Tokenizer('chinese'))
-            # parser = PlaintextParser.from_string(article.text, Tokenizer('chinese'))
-            stemmer = Stemmer('chinese')
+            # 根据网页语言选择合适的语言参数
+            language = 'chinese' if lang == 'zh' else 'english'
+            parser = PlaintextParser.from_string(article.text, Tokenizer(language))
+            stemmer = Stemmer(language)
             summarizer = LsaSummarizer(stemmer)
-            summarizer.stop_words = get_stop_words('chinese')
+            summarizer.stop_words = get_stop_words(language)
             
             # 生成3句话的摘要
             summary = []
             for sentence in summarizer(parser.document, 3):
                 summary.append(str(sentence))
             article.summary = '\n'.join(summary)
+            return article
         except Exception as e:
             print(f"生成摘要时出错: {str(e)}")
             article.summary = ""
@@ -277,18 +314,25 @@ class Tab():
 
     def _callback(self, x):
         response = x.result()
+        print(response)
         f'后台完成异步请求{self.url}' >> self.browser.log
         self.parse(response)
         self._schedule_refresh()
 
-    def _schedule_request(self):
+    def _schedule_request(self, retry_count=3):
         """安排异步请求，用于获取 URL 的响应内容。"""
-        f'后台发起异步请求{self.url}' >> self.browser.log
-        from tornado.concurrent import Future
+        try:
+            f'后台发起异步请求{self.url}' >> self.browser.log
 
-        self._async_request_future = gen.convert_yielded(httpx(self.url))  # 使用当前事件循环创建 Future
-        self.browser.loop.add_future(self._async_request_future, self._callback)
-
+            self._async_request_future = gen.convert_yielded(httpx(self.url, timeout=30))  # 添加超时
+            self.browser.loop.add_future(self._async_request_future, self._callback)
+        except Exception as e:
+            if retry_count > 0:
+                f'请求失败，重试中...剩余重试次数: {retry_count}' >> self.browser.log
+                self._schedule_request(retry_count - 1)
+            else:
+                f'请求失败: {str(e)}' >> self.browser.log
+                self._page = None
 
     def _schedule_refresh(self):
         """安排定期刷新，用于定期更新 URL 的响应内容。"""
@@ -303,7 +347,7 @@ class Tab():
         f'为{self.url}安排定期刷新'>>self.browser.log
 
     @property
-    def page(self):
+    def sync_page(self):
         """获取 URL 的响应内容。
 
         如果缓存中存在，则直接返回缓存内容。
@@ -322,9 +366,48 @@ class Tab():
             '同步请求完成，返回内容' >> self.browser.log
             return self.parse(response)
             
-    
     @property
-    def article(self):
+    async def page(self):
+        """获取 URL 的响应内容。
+
+        如果缓存中存在，则直接返回缓存内容。
+        如果缓存中不存在，则进行同步请求并缓存结果。
+
+        返回:
+            response: 响应对象
+        """
+        if self._page != None:
+            '浏览器里有已经打开的 tab，立即返回内容' >> self.browser.log
+            return self._page  
+        else:
+            '浏览器里没有成功完全打开状态的 tab，立即异步网络请求' >> self.browser.log
+            self.url>>self.browser.log
+            try:
+            # 确保在异步上下文中执行
+                response = await httpx(self.url)
+                '异步请求完成，返回内容' >> self.browser.log
+                
+                
+                # 将parse操作放入线程池执行
+                try:
+                    loop = asyncio.get_event_loop()
+                    parsed_response = self.parse(response)
+                    
+                
+                    return parsed_response
+                except asyncio.TimeoutError:
+                    f'页面解析超时: {self.url}' >> self.browser.log
+                    return None
+                except Exception as e:
+                    f'页面解析失败: {str(e)}' >> self.browser.log
+                    return None
+                
+            except Exception as e:
+                f'网络请求失败: {str(e)}' >> self.browser.log
+                return None
+        
+    @property
+    async def article(self):
         """获取 URL 的文章内容。
 
         如果缓存中存在，则直接返回缓存的文章对象。
@@ -333,7 +416,8 @@ class Tab():
         返回:
             article: Article对象
         """
-        return self.page.article
+        page = await self.page
+        return page.article
 
     def refresh(self):
         """手动刷新 URL 的响应内容。
@@ -369,15 +453,18 @@ class Tab():
         # 使用浏览器的方法创建文章对象
         self._page._article = self.browser.create_article(response)
         # 定义文章对象的属性列表
-        article_attributes = ['keywords', 'meta_keywords',
+        if self._page._article:
+
+            article_attributes = ['keywords', 'meta_keywords',
                                'tags', 'authors', 'publish_date', 
                                'summary', 'text', 'images', 'meta_data', 
                                'meta_description', 'title']
-        # 使用DotDict将文章对象的属性转换为字典形式
-        self._page.article = DotDict({
-            attr: getattr(self._page._article, attr) 
-            for attr in article_attributes})
-        
+            # 使用DotDict将文章对象的属性转换为字典形式
+            self._page.article = DotDict({
+                attr: getattr(self._page._article, attr) 
+                for attr in article_attributes})
+        else:
+            self._page.article = None
         # 将解析好的页面发到浏览器页面流中
         self.browser.page_stream.emit(self._page)
         # 返回当前页面对象
@@ -388,7 +475,8 @@ class Tab():
 
     def __repr__(self):
         """返回 Tab 对象的有意义的表示形式，包含 URL 和摘要。"""
-        return f"Tab(url={self.url}, summary={self.page.article.title})"
+        # return f"Tab(url={self.url}, summary={self.page.article.title})"
+        return f"Tab(url={self.url})"
 
     def close(self):
         """关闭 tab 对象，停止前面设定的定期刷新，并从浏览器的全局 tabs 中移除该对象，并释放内存。同时从缓存中删除数据。"""
@@ -400,8 +488,8 @@ class Tab():
         # 从缓存中删除数据
         if self.url in self.browser.cache:
             del self.browser.cache[self.url]
+        '已删除 tab 对象' >> self.browser.log
         del self
-        '已删除 tab 对象'>>self.browser.log
 # 全局浏览器实例,缓存大小为5000
 _global_browser = Browser(cache_size=5000)
 

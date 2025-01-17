@@ -1,3 +1,4 @@
+import asyncio
 from collections import defaultdict
 """
 页面视图模块
@@ -520,6 +521,52 @@ def webview(s, url='/', server=None):
 
 
 Stream.webview = webview
+
+def sse_view(self, url,server=None):
+    """为log流提供SSE服务
+    
+    当有新的连接时，将log流sink到SSE服务的self.write方法
+    当连接断开时，销毁sink释放内存
+    
+    Args:
+        url (str): SSE服务的URL路径
+    """
+    
+    from tornado.web import RequestHandler
+    from tornado.escape import json_encode
+    
+    class SSEHandler(RequestHandler):
+        stream = self
+        
+            
+        async def get(self):
+            self.set_header('Content-Type', 'text/event-stream')
+            self.set_header('Cache-Control', 'no-cache')
+            self.set_header('Connection', 'keep-alive')
+            
+            # 创建sink
+            def write_to_sse(data):
+                #结尾必须两个回车符，前端才能 onmessage 正确处理
+                self.write(f"data: {json_encode(data)}\n\n")
+                self.flush()
+                
+            sink = SSEHandler.stream.sink(write_to_sse)
+            
+            # 保持连接
+            while not self.request.connection.stream.closed():
+                await asyncio.sleep(1)
+                
+            # 连接断开时销毁sink
+            sink.destroy()
+            
+    # 注册路由
+    url = url if url.startswith('/') else '/'+url
+    server = server or NW('stream_webview')
+    server.application.add_handlers('.*$', [(url, SSEHandler)])
+    return self
+
+# 将方法添加到log流
+Stream.sse = sse_view
 
 if __name__ == '__main__':
     from deva.namespace import NB
