@@ -1326,12 +1326,13 @@ class filter(Stream):
             return self._emit(x)
 
 @gen.coroutine
-def httpx(req, render=False, **kwargs):
+def httpx(req, render=False, timeout=30, **kwargs):
     """异步HTTP请求函数
 
     参数:
         req: 请求参数,可以是URL字符串或请求参数字典
         render: 是否渲染JavaScript,默认False
+        timeout: 请求超时时间(秒),默认30秒
         **kwargs: 渲染参数,传递给arender()方法
 
     返回:
@@ -1351,25 +1352,39 @@ def httpx(req, render=False, **kwargs):
         # 渲染JavaScript
         response = yield httpx('http://example.com', render=True)
     """
+    # 移动端浏览器User-Agent
+    mobile_headers = {
+        'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+        'Accept-Language': 'zh-CN,zh;q=0.8,zh-TW;q=0.7,zh-HK;q=0.5,en-US;q=0.3,en;q=0.2',
+        'Accept-Encoding': 'gzip, deflate, br',
+        'Connection': 'keep-alive',
+        'Upgrade-Insecure-Requests': '1'
+    }
+
     httpclient = AsyncHTMLSession(workers=1)
     try:
         if isinstance(req, str):
-            response = yield httpclient.get(req)
+            # 添加移动端headers
+            response = yield httpclient.get(req, headers=mobile_headers, timeout=timeout)
         elif isinstance(req, dict):
+            req['timeout'] = timeout  # 将超时参数添加到请求字典
+            # 合并自定义headers和移动端headers
+            req['headers'] = {**mobile_headers, **req.get('headers', {})}
             if req.get('method') == 'post':
                 response = yield httpclient.post(**req)
             else:
                 response = yield httpclient.get(**req)
 
         if render:
+            # 设置移动端视口大小
+            kwargs.setdefault('viewport', {'width': 375, 'height': 812})
             yield response.html.arender(**kwargs)
 
         return response
     except Exception as e:
         print(req, e)
         logger.exception(e)
-
-
 @Stream.register_api()
 class http(Stream):
     """自动处理流中的HTTP请求,返回response对象.
