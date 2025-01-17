@@ -114,40 +114,26 @@ def decode(obj):
 
 
 class SqliteDict(DictClass):
-    VALID_FLAGS = ['c', 'r', 'w', 'n']
+    """基于SQLite的线程安全字典实现"""
+    VALID_FLAGS = ['c', 'r', 'w', 'n']  # 有效的文件打开模式
 
     def __init__(self, filename=None, tablename='unnamed', flag='c',
                  autocommit=False, journal_mode="DELETE", encode=encode, decode=decode):
         """
-        Initialize a thread-safe sqlite-backed dictionary. The dictionary will
-        be a table `tablename` in database file `filename`. A single file (=database)
-        may contain multiple tables.
-
-        If no `filename` is given, a random file in temp will be used (and deleted
-        from temp once the dict is closed/deleted).
-
-        If you enable `autocommit`, changes will be committed after each operation
-        (more inefficient but safer). Otherwise, changes are committed on `self.commit()`,
-        `self.clear()` and `self.close()`.
-
-        Set `journal_mode` to 'OFF' if you're experiencing sqlite I/O problems
-        or if you need performance and don't care about crash-consistency.
-
-        The `flag` parameter. Exactly one of:
-          'c': default mode, open for read/write, creating the db/table if necessary.
-          'w': open for r/w, but drop `tablename` contents first (start with empty table)
-          'r': open as read-only
-          'n': create a new database (erasing any existing tables, not just `tablename`!).
-
-        The `encode` and `decode` parameters are used to customize how the values
-        are serialized and deserialized.
-        The `encode` parameter must be a function that takes a single Python
-        object and returns a serialized representation.
-        The `decode` function must be a function that takes the serialized
-        representation produced by `encode` and returns a deserialized Python
-        object.
-        The default is to use pickle.
-
+        初始化一个线程安全的SQLite字典
+        
+        参数:
+            filename: 数据库文件路径，如果为None则使用临时文件
+            tablename: 表名，默认为'unnamed'
+            flag: 打开模式，可选值：
+                'c': 默认模式，读写模式，如果数据库/表不存在则创建
+                'w': 读写模式，但会先清空表内容
+                'r': 只读模式
+                'n': 创建新数据库（会删除所有表，不仅仅是当前表）
+            autocommit: 是否自动提交，如果为True则每次操作后自动提交
+            journal_mode: SQLite日志模式，建议使用"DELETE"，遇到I/O问题时可以设为"OFF"
+            encode: 自定义序列化函数，默认为pickle
+            decode: 自定义反序列化函数，默认为pickle
         """
         self.in_temp = filename is None
         if self.in_temp:
@@ -155,7 +141,7 @@ class SqliteDict(DictClass):
             filename = os.path.join(tempfile.gettempdir(), 'sqldict' + randpart)
 
         if flag not in SqliteDict.VALID_FLAGS:
-            raise RuntimeError("Unrecognized flag: %s" % flag)
+            raise RuntimeError("无效的flag参数: %s" % flag)
         self.flag = flag
 
         if flag == 'n':
@@ -165,19 +151,18 @@ class SqliteDict(DictClass):
         dirname = os.path.dirname(filename)
         if dirname:
             if not os.path.exists(dirname):
-                raise RuntimeError(
-                    'Error! The directory does not exist, %s' % dirname)
+                raise RuntimeError('错误！目录不存在: %s' % dirname)
 
         self.filename = filename
         if '"' in tablename:
-            raise ValueError('Invalid tablename %r' % tablename)
+            raise ValueError('无效的表名 %r' % tablename)
         self.tablename = tablename
         self.autocommit = autocommit
         self.journal_mode = journal_mode
         self.encode = encode
         self.decode = decode
 
-        logger.info("opening Sqlite table %r in %s" % (tablename, filename))
+        logger.info("打开SQLite表 %r 在 %s" % (tablename, filename))
         MAKE_TABLE = 'CREATE TABLE IF NOT EXISTS "%s" (key TEXT PRIMARY KEY, value BLOB)' % self.tablename
         self.conn = self._new_conn()
         self.conn.execute(MAKE_TABLE)
@@ -186,40 +171,41 @@ class SqliteDict(DictClass):
             self.clear()
 
     def _new_conn(self):
+        """创建新的数据库连接"""
         return SqliteMultithread(self.filename, autocommit=self.autocommit, journal_mode=self.journal_mode)
 
     def __enter__(self):
+        """上下文管理器入口"""
         if not hasattr(self, 'conn') or self.conn is None:
             self.conn = self._new_conn()
         return self
 
     def __exit__(self, *exc_info):
+        """上下文管理器退出"""
         self.close()
 
     def __str__(self):
+        """返回字符串表示"""
         return "SqliteDict(%s)" % (self.filename)
 
     def __repr__(self):
-        return str(self)  # no need of something complex
+        """返回对象的正式表示"""
+        return str(self)
 
     def __len__(self):
-        # `select count (*)` is super slow in sqlite (does a linear scan!!)
-        # As a result, len() is very slow too once the table size grows beyond trivial.
-        # We could keep the total count of rows ourselves, by means of triggers,
-        # but that seems too complicated and would slow down normal operation
-        # (insert/delete etc).
+        """返回字典中键值对的数量"""
         GET_LEN = 'SELECT COUNT(*) FROM "%s"' % self.tablename
         rows = self.conn.select_one(GET_LEN)[0]
         return rows if rows is not None else 0
 
     def __bool__(self):
-        # No elements is False, otherwise True
+        """判断字典是否为空"""
         GET_MAX = 'SELECT MAX(ROWID) FROM "%s"' % self.tablename
         m = self.conn.select_one(GET_MAX)[0]
-        # Explicit better than implicit and bla bla
         return True if m is not None else False
 
     def getrowid(self, key):
+        """获取指定键对应的行ID"""
         GET_ITEM = 'SELECT rowid FROM "%s" WHERE key = ?' % self.tablename
         item = self.conn.select_one(GET_ITEM, (key,))
         if item is None:
@@ -227,34 +213,42 @@ class SqliteDict(DictClass):
         return item[0]
 
     def iterkeys(self):
+        """迭代所有键"""
         GET_KEYS = 'SELECT key FROM "%s" ORDER BY rowid' % self.tablename
         for key in self.conn.select(GET_KEYS):
             yield key[0]
 
     def itervalues(self):
+        """迭代所有值"""
         GET_VALUES = 'SELECT value FROM "%s" ORDER BY rowid' % self.tablename
         for value in self.conn.select(GET_VALUES):
             yield self.decode(value[0])
 
     def iteritems(self):
+        """迭代所有键值对"""
         GET_ITEMS = 'SELECT key, value FROM "%s" ORDER BY rowid' % self.tablename
         for key, value in self.conn.select(GET_ITEMS):
             yield key, self.decode(value)
 
     def keys(self):
+        """返回所有键"""
         return self.iterkeys() if major_version > 2 else list(self.iterkeys())
 
     def values(self):
+        """返回所有值"""
         return self.itervalues() if major_version > 2 else list(self.itervalues())
 
     def items(self):
+        """返回所有键值对"""
         return self.iteritems() if major_version > 2 else list(self.iteritems())
 
     def __contains__(self, key):
+        """判断键是否存在"""
         HAS_ITEM = 'SELECT 1 FROM "%s" WHERE key = ?' % self.tablename
         return self.conn.select_one(HAS_ITEM, (key,)) is not None
 
     def __getitem__(self, key):
+        """获取指定键的值"""
         GET_ITEM = 'SELECT value FROM "%s" WHERE key = ?' % self.tablename
         item = self.conn.select_one(GET_ITEM, (key,))
         if item is None:
@@ -262,15 +256,17 @@ class SqliteDict(DictClass):
         return self.decode(item[0])
 
     def __setitem__(self, key, value):
+        """设置键值对"""
         if self.flag == 'r':
-            raise RuntimeError('Refusing to write to read-only SqliteDict')
+            raise RuntimeError('拒绝写入只读的SqliteDict')
 
         ADD_ITEM = 'REPLACE INTO "%s" (key, value) VALUES (?,?)' % self.tablename
         return self.conn.execute(ADD_ITEM, (key, self.encode(value)))
 
     def __delitem__(self, key):
+        """删除指定键"""
         if self.flag == 'r':
-            raise RuntimeError('Refusing to delete from read-only SqliteDict')
+            raise RuntimeError('拒绝删除只读的SqliteDict')
 
         if key not in self:
             raise KeyError(key)
@@ -278,8 +274,9 @@ class SqliteDict(DictClass):
         self.conn.execute(DEL_ITEM, (key,))
 
     def update(self, items=(), **kwds):
+        """批量更新键值对"""
         if self.flag == 'r':
-            raise RuntimeError('Refusing to update read-only SqliteDict')
+            raise RuntimeError('拒绝更新只读的SqliteDict')
 
         try:
             items = items.items()
@@ -293,34 +290,34 @@ class SqliteDict(DictClass):
             self.update(kwds)
 
     def __iter__(self):
+        """返回键的迭代器"""
         return self.iterkeys()
 
     def clear(self):
+        """清空整个表"""
         if self.flag == 'r':
-            raise RuntimeError('Refusing to clear read-only SqliteDict')
+            raise RuntimeError('拒绝清空只读的SqliteDict')
 
-        # avoid VACUUM, as it gives "OperationalError: database schema has changed"
         CLEAR_ALL = 'DELETE FROM "%s";' % self.tablename
         self.conn.commit()
         self.conn.execute(CLEAR_ALL)
         self.conn.commit()
 
     def drop(self):
+        """删除整个表"""
         if self.flag == 'r':
-            raise RuntimeError('Refusing to drop read-only SqliteDict')
+            raise RuntimeError('拒绝删除只读的SqliteDict')
 
-        # avoid VACUUM, as it gives "OperationalError: database schema has changed"
         DROP_TABLE = 'DROP TABLE "%s";' % self.tablename
         self.conn.commit()
         self.conn.execute(DROP_TABLE)
         self.conn.commit()
 
-    # @staticmethod
     @property
-    def tables(self,):
-        """get the names of the tables in an sqlite db as a list"""
+    def tables(self):
+        """获取数据库中所有表的名称"""
         if not os.path.isfile(self.filename):
-            raise IOError('file %s does not exist' % (self.filename))
+            raise IOError('文件 %s 不存在' % (self.filename))
         GET_TABLENAMES = 'SELECT name FROM sqlite_master WHERE type="table"'
         with sqlite3.connect(self.filename) as conn:
             cursor = conn.execute(GET_TABLENAMES)
@@ -330,10 +327,10 @@ class SqliteDict(DictClass):
 
     def commit(self, blocking=True):
         """
-        Persist all data to disk.
-
-        When `blocking` is False, the commit command is queued, but the data is
-        not guaranteed persisted (default implication when autocommit=True).
+        提交所有更改到磁盘
+        
+        参数:
+            blocking: 如果为False，提交命令会进入队列但不保证立即持久化
         """
         if self.conn is not None:
             self.conn.commit(blocking)
@@ -341,14 +338,11 @@ class SqliteDict(DictClass):
     sync = commit
 
     def close(self, do_log=True, force=False):
+        """关闭数据库连接"""
         if do_log:
-            logger.debug("closing %s" % self)
+            logger.debug("关闭 %s" % self)
         if hasattr(self, 'conn') and self.conn is not None:
             if self.conn.autocommit and not force:
-                # typically calls to commit are non-blocking when autocommit is
-                # used.  However, we need to block on close() to ensure any
-                # awaiting exceptions are handled and that all data is
-                # persisted to disk before returning.
                 self.conn.commit(blocking=True)
             self.conn.close(force=force)
             self.conn = None
@@ -359,32 +353,28 @@ class SqliteDict(DictClass):
                 pass
 
     def terminate(self):
-        """Delete the underlying database file. Use with care."""
+        """删除底层数据库文件，请谨慎使用"""
         if self.flag == 'r':
-            raise RuntimeError('Refusing to terminate read-only SqliteDict')
+            raise RuntimeError('拒绝终止只读的SqliteDict')
 
         self.close()
 
         if self.filename == ':memory:':
             return
 
-        logger.info("deleting %s" % self.filename)
+        logger.info("删除 %s" % self.filename)
         try:
             if os.path.isfile(self.filename):
                 os.remove(self.filename)
         except (OSError, IOError):
-            logger.exception("failed to delete %s" % (self.filename))
+            logger.exception("删除 %s 失败" % (self.filename))
 
     def __del__(self):
-        # like close(), but assume globals are gone by now (do not log!)
+        """析构函数，自动关闭连接"""
         try:
             self.close(do_log=False, force=True)
         except Exception:
-            # prevent error log flood in case of multiple SqliteDicts
-            # closed after connection lost (exceptions are always ignored
-            # in __del__ method.
             pass
-
 
 # Adding extra methods for python 2 compatibility (at import time)
 if major_version == 2:
