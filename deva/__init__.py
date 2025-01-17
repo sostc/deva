@@ -16,6 +16,7 @@ from .pipe import *
 # from .monitor import Monitor
 from .lambdas import _
 from .browser import browser,tab,tabs
+from .gpt import async_gpt,sync_gpt
 
 try:
     # import panel as pn

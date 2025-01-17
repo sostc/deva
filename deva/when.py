@@ -1,5 +1,8 @@
+import inspect
 import os
 import atexit
+
+from deva.pipe import get_io_loop
 from .bus import log
 from .core import Stream
 from .utils.time import convert_interval
@@ -256,9 +259,20 @@ class timer(Stream):
 
             # 根据配置选择在线程池或主线程中执行函数
             if self.thread:
-                self.thread_pool.submit(lambda: self.emit(self.func()))
+                if asyncio.iscoroutinefunction(self.func):
+                    self.thread_pool.submit(lambda: self.emit(self.func()))
+                else:
+                    self.thread_pool.submit(lambda: self.emit(self.func()))
             else:
-                self.emit(self.func())
+                if inspect.iscoroutinefunction(self.func):
+                    futs = gen.convert_yielded(self.func())
+                    if not self.loop:
+                        self._set_asynchronous(False)
+                    if self.loop is None and self.asynchronous is not None:
+                        self._set_loop(get_io_loop(self.asynchronous))
+                    self.loop.add_future(futs, lambda x: self._emit(x.result()))
+                else:
+                    return self._emit(self.func())
             yield gen.sleep(self.interval)  # 等待到下一次执行时间
             if not self.started:  # 如果已停止则退出循环
                 break

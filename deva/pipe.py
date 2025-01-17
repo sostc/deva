@@ -30,7 +30,7 @@ __all__: builtins.list[builtins.str] = [
     'dedup', 'uniq', 'to_dataframe', 'pmap', 'pfilter', 'post_to',
     'head', 'read', 'tcp_write', 'write_to_file', 'size', 'ls', 'range',
     'sum', 'split', 'sample', 'extract', 'readlines', 'last',
-    'abs', 'type', 'll', 'pslice',
+    'abs', 'type', 'll', 'pslice','truncate',
     'dir', 'help',
     'eval',
     'hash',
@@ -54,7 +54,7 @@ __all__: builtins.list[builtins.str] = [
 _io_loops = []
 
 
-def get_io_loop(asynchronous=None):
+def get_io_loop(asynchronous=True):
     if asynchronous:
         return IOLoop.current()
 
@@ -1522,6 +1522,11 @@ def get_instances_by_class(cls):
     for obj in gc.get_objects():
         if isinstance(obj, cls):
             yield obj
+
+@P
+def truncate(text, max_length=20):
+    """截断内容超过指定长度的文本"""
+    return text if len(text) <= max_length else text[:max_length] + "..."
 
 # %%转换内置函数为pipe
 for i in builtins.__dict__.copy():
