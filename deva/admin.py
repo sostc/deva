@@ -77,7 +77,7 @@ logtimer>>log
 browser.log>>log
 
 
-async def get_gpt_response(prompt, session, scope, model_type='deepseek',flush_interval=3):
+async def get_gpt_response(prompt, session=None, scope=None, model_type='deepseek',flush_interval=3):
     """获取GPT的流式响应并返回完整结果
     
     Args:
@@ -95,6 +95,12 @@ async def get_gpt_response(prompt, session, scope, model_type='deepseek',flush_i
     gpt_client = AsyncOpenAI(api_key=api_key, base_url=base_url)
     start_time = time.time()
     
+    if session:
+        def logfunc(output_text):
+            put_out(msg=output_text, type='markdown', scope=scope, session=session)
+    else:
+        def logfunc(output_text):
+            output_text>>log
     # 初始化消息列表
     messages = [{"role": "user", "content": prompt}]
     
@@ -176,13 +182,13 @@ async def get_gpt_response(prompt, session, scope, model_type='deepseek',flush_i
                 # 输出内容并更新时间
                 if output_text.strip():
                     accumulated_text += output_text
-                    put_out(msg=output_text, type='markdown', scope=scope, session=session)
+                    logfunc(output_text)
                     start_time = time.time()
                 
         # 处理最后一个未显示的块
         if buffer and not chunk.choices[0].delta.content:
             accumulated_text += buffer
-            put_out(msg=buffer, type='markdown', scope=scope, session=session)
+            logfunc(buffer)
             start_time = time.time()
             buffer = ""
             
@@ -298,7 +304,7 @@ def put_out(msg, type='text',scope='',session=''):
                          },
                 'task_id': '_start_main_task-Qoqo1zPS7O'
                 }
-        
+        print(data)
         return session.send_task_command(data)
 
 def scope_clear(scope,session):
@@ -1044,7 +1050,7 @@ async def init_admin_ui(title):
         put_text(f"Hello, {user_name}. 欢迎光临，恭喜发财")
 
 
-from apscheduler.schedulers.background import BackgroundScheduler
+from apscheduler.schedulers.tornado import TornadoScheduler
 from pywebio import start_server
 from pywebio.input import input, select, TEXT, textarea
 from pywebio.output import put_text, put_table, put_button, toast, put_row, put_code
@@ -1052,7 +1058,7 @@ from pywebio.session import run_js
 from datetime import datetime
 
 # 初始化调度器
-scheduler = BackgroundScheduler()
+scheduler = TornadoScheduler()
 scheduler.start()
 
 # 存储任务信息
@@ -1091,6 +1097,17 @@ async def async_code_gpt( prompts):
     
     return completion.choices[0].message.content
 
+async def watch_topic(topic):
+    """分析主题并显示结果"""
+    
+    # 自定义提示词
+    full_prompt = f' 获取{ topic},要求返回的内容每一行都是一个一句话，开头用一个和内容对应的图标，然后是一个不大于十个字的高度浓缩概括词，概括词用加粗字体，再后面是一句话摘要，用破折号区隔开。每行一个内容，不要有标题等其他任何介绍性内容，只需要返回6 条新闻即可。'
+    
+    result = await get_gpt_response(
+            prompt=full_prompt,
+            model_type='kimi',
+        )
+    return result
 
 async def create_task():
     """创建定时任务"""
@@ -1115,15 +1132,16 @@ async def create_task():
 
     task_info >>log
     # 生成任务代码
-    samplecode = """我有下面这些功能可以调用，使用例子如下：
+    samplecode = """我有下面这些功能可以调用，使用例子如下,请选择使用里面的功能来合理完成需求：
     from deva import write_to_file,httpx,Dtalk
+    from deva.admin import watch_topic
     打印日志：'sometext' >> log
     写入文件： 'some text' >>write_to_file('filename')
     抓取网页： response = await httpx(url)
     查找网页标签：response.html.search('<title>{}</title>')
-    发送到钉钉：'some text'>>Dtalk()
+    发送到钉钉：'@md@焦点分析|'+'some text'>>Dtalk()
+    关注总结查看话题： content = await watch_topic('话题')
     """
-    seesion=get_session_implement()
     # 调用GPT生成Python代码
     prompt = f"仅限于以下的功能和使用方法：{samplecode}，根据以下描述: {description}，生成一个Python异步函数,只生成函数主体就可以，不需要执行代码，所有 import 都放在函数内部"
     result = sync_gpt(prompts=prompt)
@@ -1155,9 +1173,9 @@ async def create_task():
     if task_type == "interval":
         try:
             interval = int(time_value)
-            j = timer(interval=interval,start=True)(job)
-            print(j)
-            # scheduler.add_job(job, "interval", seconds=interval, id=name)
+            # j = timer(interval=interval,start=True)(job)
+            # print(j)
+            scheduler.add_job(job, "interval", seconds=interval, id=name)
         except ValueError:
             toast("间隔时间必须为整数！", color="error")
             return
@@ -1177,7 +1195,7 @@ async def create_task():
         "job_code": job_code
     }
     toast(f"任务 '{name}' 创建成功！", color="success")
-    run_js("location.reload()")  # 刷新页面
+    # run_js("location.reload()")  # 刷新页面,刷新后 session 会失效
 
 def manage_tasks():
     """管理定时任务"""
@@ -1205,6 +1223,7 @@ def manage_tasks():
         table_data,
         header=["任务名称", "任务描述", "任务类型", "时间/间隔", "状态", "操作"]
     )
+    
 
 def stop_task(name):
     """停止任务"""
@@ -1232,11 +1251,14 @@ def delete_task(name):
 
 async def taskadmin():
     await init_admin_ui('Deva任务管理')
-    put_text("定时任务 Web 管理工具").style("color: blue; font-size: 20px")
-    set_scope('log')
+    
+    
     put_button("创建定时任务", onclick=create_task)
     manage_tasks()  # 直接展示任务列表
-
+    set_scope('task_log')
+    
+  
+  
 
 async def dbadmin():
     """数据库管理入口函数"""
