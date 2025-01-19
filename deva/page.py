@@ -547,7 +547,10 @@ def sse_view(self, url,server=None):
             # 创建sink
             def write_to_sse(data):
                 #结尾必须两个回车符，前端才能 onmessage 正确处理
-                self.write(f"data: {json_encode(data)}\n\n")
+                try:
+                    self.write(f"data: {json_encode(data)}\n\n")
+                except Exception as e:
+                    print(e)
                 self.flush()
                 
             sink = SSEHandler.stream.sink(write_to_sse)
