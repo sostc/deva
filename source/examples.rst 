@@ -1,0 +1,23 @@
+示例
+====
+
+以下是一些使用 Deva 的示例：
+
+### 实时股票数据
+
+.. code-block:: python
+
+    from deva import timer, NB
+
+    s = timer(func=lambda: NB('sample')['df'].sample(5).to_html(), start=True, interval=1)
+    s.sink(print)
+
+### 系统日志监控
+
+.. code-block:: python
+
+    from deva import from_textfile, concat
+
+    s = from_textfile('/var/log/system.log')
+    s.sliding_window(5).map(concat('<br>')).sink(print)
+    s.start()
