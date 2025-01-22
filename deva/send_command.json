@@ -1,0 +1,78 @@
+{
+  "command": "output_ctl",
+  "spec": {
+    "set_scope": "pywebio-scope-word_strokes_count",
+    "container": "#pywebio-scope-ROOT",
+    "position": -1,
+    "if_exist": "blank"
+  },
+  "task_id": "word_strokes_count-wtdNhLxeAk"
+}
+
+{
+  "command": "run_script",
+  "spec": {
+    "code": "$(\"#webio-logbox-log\").append(document.createTextNode(text))",
+    "args": {
+      "text": "59\n"
+    }
+  },
+  "task_id": "my_timer-RhTt0KjquJ"
+}
+
+{
+  "command": "set_env",
+  "spec": {
+    "title": "大有日历"
+  },
+  "task_id": "_start_main_task-VmaxmzfWce"
+}
+
+{
+  "command": "output",
+  "spec": {
+    "type": "markdown",
+    "content": "## chatgpt问答",
+    "sanitize": true,
+    "scope": "#pywebio-scope-ROOT",
+    "position": -1
+  },
+  "task_id": "_start_main_task-VmaxmzfWce"
+}
+
+{
+  "command": "output",
+  "spec": {
+    "type": "pin",
+    "input": {
+      "label": "",
+      "type": "text",
+      "name": "ask_gpt",
+      "value": "你是谁",
+      "placeholder": "你是谁"
+    },
+    "scope": "#pywebio-scope-ROOT",
+    "position": -1
+  },
+  "task_id": "_start_main_task-VmaxmzfWce"
+}
+
+{
+    "command": "output_ctl",
+    "spec": {
+      "clear": "#pywebio-scope-stream_content"
+    },
+    "task_id": "callback_coro-eEh6wdXSnH"
+  }
+
+  {
+    "command": "output",
+    "spec": {
+      "type": "text",
+      "content": "Step 3/5 completed",
+      "inline": false,
+      "scope": ".pywebio-scope-A67fJ0dr2N",
+      "position": -1
+    },
+    "task_id": "dynamic_popup-M0JQzuYh7z"
+  }

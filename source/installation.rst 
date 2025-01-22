@@ -1,0 +1,8 @@
+安装
+====
+
+要安装 Deva，请运行以下命令：
+
+.. code-block:: sh
+
+    pip install deva

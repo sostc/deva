@@ -34,7 +34,6 @@ from deva import (
     NW, NB, log, ls, Stream, first, sample, Deva, print, timer,NS,concat, Dtalk
 )
 from deva.browser import browser,tab,tabs
-from deva.bus import warn
 from deva.page import page #这里为了给流注入 webview 方法和sse 方法
 from pywebio.output import (
     put_text, put_markdown, set_scope, put_table,use_scope, clear, toast, put_button, put_collapse, put_datatable,
@@ -90,30 +89,9 @@ async def get_gpt_response(prompt, session=None, scope=None, model_type='deepsee
     Returns:
         str: 完整的GPT响应内容
     """
-    config = NB(model_type)
-    required_configs = ['api_key', 'base_url', 'model']
-    missing_configs = [config for config in required_configs if config not in config]
-    if missing_configs:
-        message = "警告: 在NB配置中缺少以下必要配置项: " + ', '.join(missing_configs) + ". 请确保在其他地方正确设置这些配置项的值。"
-        message >> warn
-        example_code = "from deva.namespace import NB\n\n"
-        example_code += "# 配置示例:\n"
-        example_code += "NB('deepseek').update({\n"
-        for config in missing_configs:
-            if config == 'api_key':
-                example_code += "    'api_key': 'your-api-key-here',\n"
-            elif config == 'base_url':
-                example_code += "    'base_url': 'https://api.example.com/v1',\n"
-            elif config == 'model':
-                example_code += "    'model': 'model-name',\n"
-        example_code += "})"
-        example_code >> warn
-        return ""
-    
-    api_key = config.get('api_key')
-    base_url = config.get('base_url')
-    model = config.get('model')
-    
+    api_key = NB(model_type)['api_key']
+    base_url = NB(model_type)['base_url']
+    model = NB(model_type)['model']
     gpt_client = AsyncOpenAI(api_key=api_key, base_url=base_url)
     start_time = time.time()
     
@@ -1045,7 +1023,7 @@ def create_sidebar():
     ''')
     # 在右边栏添加默认iframe
     with use_scope('sidebar'):
-        put_html(f"""<iframe src="{hash(NS('访问日志'))}" style="width:100%;height:120vh;border:none;"></iframe>""")
+        put_html(f'<iframe src="{hash(NS('访问日志'))}" style="width:100%;height:120vh;border:none;"></iframe>')
 
 async def init_admin_ui(title):
         """初始化管理界面UI
