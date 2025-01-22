@@ -1,0 +1,14 @@
+使用
+====
+
+以下是 Deva 的一些基本用法示例：
+
+.. code-block:: python
+
+    from deva import Stream
+
+    source = Stream()
+    source.map(lambda x: x * 2).filter(lambda x: x > 0).sink(print)
+
+    for i in range(5):
+        source.emit(i)
