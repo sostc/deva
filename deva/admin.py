@@ -1086,38 +1086,6 @@ scheduler.start()
 # 存储任务信息
 tasks = {}
 
-async def async_code_gpt( prompts):
-    """
-    异步查询大模型
-    
-    参数:
-        prompts: 提示词列表或字符串
-        
-    返回:
-        大模型返回的结果
-    """
-    from openai import AsyncOpenAI
-    config = NB('deepseek')
-    api_key = config['api_key']
-    base_url = config['base_url']
-    model = config['model']  # 从配置中获取模型名称
-    
-    # 初始化同步和异步客户端
-    async_client = AsyncOpenAI(api_key=api_key, base_url=base_url)
-
-    if isinstance(prompts, str):
-        prompts = [prompts]
-        
-    messages = [{"role": "user", "content": prompt} for prompt in prompts]
-    completion = await async_client.chat.completions.create(
-        model=model,
-        messages=messages,
-        stream=False,
-        max_tokens=8000,
-        
-    )
-    
-    return completion.choices[0].message.content
 
 async def watch_topic(topic):
     """分析主题并显示结果"""
@@ -1133,6 +1101,7 @@ async def watch_topic(topic):
 
 async def create_task():
     """创建定时任务"""
+    
     task_info = await input_group("创建定时任务", [
         input("任务名称", name="name", type=TEXT),
         textarea("任务描述", name="description", placeholder="请输入任务描述"),
@@ -1153,6 +1122,7 @@ async def create_task():
         return
 
     task_info >>log
+    toast("开始创建定时任务，需要一点时间...")  # 通知用户开始创建
     # 生成任务代码
     samplecode = """我有下面这些功能可以调用，使用例子如下,请选择使用里面的功能来合理完成需求：
     from deva import write_to_file,httpx,Dtalk
@@ -1165,7 +1135,7 @@ async def create_task():
     定期关注总结查看话题： content = await watch_topic('话题')
     """
     # 调用GPT生成Python代码
-    prompt = f"仅限于以下的功能和使用方法：{samplecode}，根据以下描述: {description}，生成一个Python异步函数,只生成函数主体就可以，不需要执行代码，所有 import 都放在函数内部"
+    prompt = f"仅限于以下的功能和使用方法：{samplecode}，根据以下描述: {description}，生成一个Python异步函数,只生成函数主体就可以，不需要执行代码，所有 import 都放在函数内部,详细的代码注释"
     result = sync_gpt(prompts=prompt)
     def get_python_code_from_deepseek(content):
         # 假设返回的内容中 Python 代码被标记为 ```python ... ```
@@ -1179,24 +1149,20 @@ async def create_task():
     job_code>>log
     import ast
 
-
-
-# 使用 AST 解析代码
+    # 使用 AST 解析代码
     tree = ast.parse(job_code)
 
-# 获取所有函数定义的名称
+    # 获取所有函数定义的名称
     namespace = {}
     exec(job_code,globals(), namespace)  # 动态执行生成的代码
     function_names = [node.name for node in ast.walk(tree) if isinstance(node, ast.AsyncFunctionDef)]
     job_name = function_names[0]
-    
+
     job = namespace[job_name]
 
     if task_type == "interval":
         try:
             interval = int(time_value)
-            # j = timer(interval=interval,start=True)(job)
-            # print(j)
             scheduler.add_job(job, "interval", seconds=interval, id=name)
         except ValueError:
             toast("间隔时间必须为整数！", color="error")
@@ -1209,6 +1175,8 @@ async def create_task():
             toast("时间格式应为 HH:MM！", color="error")
             return
 
+    
+
     tasks[name] = {
         "type": task_type,
         "time": time_value,
@@ -1216,70 +1184,156 @@ async def create_task():
         "description": description,
         "job_code": job_code
     }
-    toast(f"任务 '{name}' 创建成功！", color="success")
+    # 将任务信息保存到数据库
+    db = NB('tasks')
+    db[name]=tasks[name]
+    toast(f"任务 '{name}' 创建成功！", color="success")  # 通知用户创建成功
+    manage_tasks()  # 刷新页面对应内容
     # run_js("location.reload()")  # 刷新页面,刷新后 session 会失效
-
 def manage_tasks():
     """管理定时任务"""
-    if not tasks:
-        put_text("当前没有定时任务。")
-        return
+    async def edit_code(name):
+        code = await textarea("输入代码", code={
+        "mode": "python",  # 代码模式，可选 'javascript'、'html' 等
+        "theme": "darcula",  # 主题
+    },value=tasks[name]["job_code"])
+        code>>log
+        tasks[name]['job_code']=code
+        NB('tasks')[name] = tasks[name]
+        # 删除老的任务
+        try:
+            scheduler.remove_job(name)
+        except Exception as e:
+            e>>log
+        # 重新加载定时任务
+        job_code = tasks[name]["job_code"]
+        import ast
+        tree = ast.parse(job_code)
+        namespace = {}
+        exec(job_code, globals(), namespace)
+        function_names = [node.name for node in ast.walk(tree) if isinstance(node, ast.AsyncFunctionDef)]
+        job_name = function_names[0]
+        job_func = namespace[job_name]
+        if tasks[name]["type"] == "interval":
+            scheduler.add_job(job_func, "interval", seconds=int(tasks[name]["time"]), id=name)
+        elif tasks[name]["type"] == "cron":
+            hour, minute = map(int, tasks[name]["time"].split(":"))
+            scheduler.add_job(job_func, "cron", hour=hour, minute=minute, id=name)
+            
+        print("当前所有计划任务：")
+        for job in scheduler.get_jobs():
+            print(f"任务名称: {job.id}, 任务类型: {job.trigger.__class__.__name__}, 下次执行时间: {job.next_run_time}")
+        # popup('显示代码',content=put_code(content=tasks[name]["job_code"],language='python'))
+    with use_scope('task_management',clear=True):
+        if not tasks:
+            put_text("当前没有定时任务。")
+            return
+        tasks>>log
+        active_table_data = []
+        deleted_table_data = []
+        for name, info in tasks.items():
+            row = [
+                name,
+                info["description"],
+                info["type"],
+                info["time"],
+                info["status"]
+            ]
+            if info["status"] in ["运行中", "已停止"]:
+                row.append(put_row([
+                    put_button("源码", onclick=lambda n=name: edit_code(n), color="primary"),
+                    put_button("停止", onclick=lambda n=name: stop_task(n), color="danger" if info["status"] == "运行中" else "secondary", disabled=info["status"] != "运行中"),
+                    put_button("启动", onclick=lambda n=name: start_task(n), color="success" if info["status"] == "已停止" else "secondary", disabled=info["status"] != "已停止"),
+                    put_button("删除", onclick=lambda n=name: delete_task(n), color="warning"),
+                ]))
+                active_table_data.append(row)
+            elif info["status"] == "已删除":
+                row.append(put_row([
+                    put_button("源码", onclick=lambda n=name: edit_code(n), color="primary"),
+                    put_button("恢复", onclick=lambda n=name: recover_task(n), color="success"),
+                ]))
+                deleted_table_data.append(row)
 
-    table_data = []
-    for name, info in tasks.items():
-        row = [
-            name,
-            info["description"],
-            info["type"],
-            info["time"],
-            info["status"],
-            put_row([
-                put_button("停止", onclick=lambda n=name: stop_task(n), color="danger" if info["status"] == "运行中" else "secondary", disabled=info["status"] != "运行中"),
-                put_button("启动", onclick=lambda n=name: start_task(n), color="success" if info["status"] == "已停止" else "secondary", disabled=info["status"] != "已停止"),
-                put_button("删除", onclick=lambda n=name: delete_task(n), color="warning")
-            ])
-        ]
-        table_data.append(row)
+        if active_table_data:
+            put_table(
+                active_table_data,
+                header=["任务名称", "任务描述", "任务类型", "时间/间隔", "状态", "操作"]
+            )
 
-    put_table(
-        table_data,
-        header=["任务名称", "任务描述", "任务类型", "时间/间隔", "状态", "操作"]
-    )
-    
+        if deleted_table_data:
+            with put_collapse("已删除任务", open=False):
+                put_table(
+                    deleted_table_data,
+                    header=["任务名称", "任务描述", "任务类型", "时间/间隔", "状态", "操作"]
+                )
 
 def stop_task(name):
     """停止任务"""
-    if name in tasks:
-        scheduler.pause_job(name)
-        tasks[name]["status"] = "已停止"
-        toast(f"任务 '{name}' 已停止！", color="success")
-        run_js("location.reload()")  # 刷新页面
+    scheduler.pause_job(name)
+    tasks[name]["status"] = "已停止"
+    toast(f"任务 '{name}' 已停止！", color="success")
+    run_js("location.reload()")  # 刷新页面
+    # 更新数据库中的任务状态
+    db = NB('tasks')
+    db[name]=tasks[name]
+    manage_tasks()
 
 def start_task(name):
     """启动任务"""
-    if name in tasks:
-        scheduler.resume_job(name)
-        tasks[name]["status"] = "运行中"
-        toast(f"任务 '{name}' 已启动！", color="success")
-        run_js("location.reload()")  # 刷新页面
+    scheduler.resume_job(name)
+    tasks[name]["status"] = "运行中"
+    toast(f"任务 '{name}' 已启动！", color="success")
+    run_js("location.reload()")  # 刷新页面
+    # 更新数据库中的任务状态
+    db = NB('tasks')
+    db[name]=tasks[name]
+    manage_tasks()
 
 def delete_task(name):
     """删除任务"""
-    if name in tasks:
-        scheduler.remove_job(name)
-        del tasks[name]
-        toast(f"任务 '{name}' 已删除！", color="success")
-        run_js("location.reload()")  # 刷新页面
+    try:
+        scheduler.remove_job(name)>>log
+    except Exception as e:
+        e>>log
+    tasks[name].update({"status": "已删除"})
+    # 更新数据库中的任务状态为已删除
+    db = NB('tasks')
+    db[name]=tasks[name]
+    toast(f"任务 '{name}' 已删除！", color="success")
+    manage_tasks()
+        
+def recover_task(name):
+    db = NB('tasks')
+    info = db[name]
+    info['status'] = '运行中'
+    tasks[name]  = info
+    db[name] = tasks[name]
+    
+    job_code = info["job_code"]
+    # 对job_code进行转换，生成函数
+    import ast
+    tree = ast.parse(job_code)
+    namespace = {}
+    exec(job_code, globals(), namespace)
+    function_names = [node.name for node in ast.walk(tree) if isinstance(node, ast.AsyncFunctionDef)]
+    job_name = function_names[0]
 
+    job_func = namespace[job_name]
+    if info["type"] == "interval":
+        scheduler.add_job(job_func, "interval", seconds=int(info["time"]), id=name)
+    elif info["type"] == "cron":
+        hour, minute = map(int, info["time"].split(":"))
+        scheduler.add_job(job_func, "cron", hour=hour, minute=minute, id=name)
+    
+    
+    manage_tasks()
+    
 async def taskadmin():
     await init_admin_ui('Deva任务管理')
-    
     
     put_button("创建定时任务", onclick=create_task)
     manage_tasks()  # 直接展示任务列表
     set_scope('task_log')
-    
-  
   
 
 async def dbadmin():
@@ -1305,6 +1359,10 @@ async def main():
     init_floating_menu_manager()
     
     set_table_style()  # 调用函数应用样式
+    
+    # 获取所有函数定义的名称
+    
+
     
     
     # 获取所有主题数据
@@ -1957,6 +2015,26 @@ def create_nav_menu():
 if __name__ == '__main__':
     from deva.page import page
     
+    # 从数据库读取任务信息
+    db = NB('tasks')
+    for name, info in db.items():
+        tasks[name] = info
+        if info["status"] == "运行中":
+            job_code = info["job_code"]
+            # 对job_code进行转换，生成函数
+            import ast
+            tree = ast.parse(job_code)
+            namespace = {}
+            exec(job_code, globals(), namespace)
+            function_names = [node.name for node in ast.walk(tree) if isinstance(node, ast.AsyncFunctionDef)]
+            job_name = function_names[0]
+
+            job_func = namespace[job_name]
+            if info["type"] == "interval":
+                scheduler.add_job(job_func, "interval", seconds=int(info["time"]), id=name)
+            elif info["type"] == "cron":
+                hour, minute = map(int, info["time"].split(":"))
+                scheduler.add_job(job_func, "cron", hour=hour, minute=minute, id=name)
 
     # 创建一个名为'stream_webview'的Web服务器实例，监听所有网络接口(0.0.0.0)
     # 然后为该服务器添加路由处理器，将'/admin'路径映射到dbadmin处理函数
