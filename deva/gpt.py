@@ -37,7 +37,7 @@ class GPT:
                 elif config == 'model':
                     example_code += "    'model': 'model-name',\n"
             example_code += "})"
-            f"警告: 在NB配置中缺少以下必要配置项: {', '.join(missing_configs)}" >> warn
+            "警告: 在NB配置中缺少以下必要配置项: " + ', '.join(missing_configs) >> warn
             "请确保在其他地方正确设置这些配置项的值" >> warn
             example_code >> warn
             
@@ -45,7 +45,7 @@ class GPT:
         self.api_key = self.config.get('api_key')
         self.base_url = self.config.get('base_url')
         self.model = self.config.get('model')
-       
+        self.last_used_model = model_type  # 记录最后使用的模型
         
         # 初始化同步和异步客户端
         self.sync_client = OpenAI(api_key=self.api_key, base_url=self.base_url)
@@ -86,10 +86,23 @@ class GPT:
                 messages=messages,
                 stream=False
             )
+            print(response)
             
             return response.choices[0].message.content
         except Exception as e:
             print(f"同步查询失败: {traceback.format_exc()}")
+            # 尝试切换模型类型
+            if self.model_type == 'deepseek':
+                self.model_type = 'sambanova'
+            else:
+                self.model_type = 'deepseek'
+            self.config = NB(self.model_type)
+            self.api_key = self.config['api_key']
+            self.base_url = self.config['base_url']
+            self.model = self.config['model']
+            self.sync_client = OpenAI(api_key=self.api_key, base_url=self.base_url)
+            self.async_client = AsyncOpenAI(api_key=self.api_key, base_url=self.base_url)
+            self.last_used_model = self.model_type  # 更新最后使用的模型
             raise
 
     async def async_query(self, prompts):
@@ -110,6 +123,18 @@ class GPT:
             return completion.choices[0].message.content
         except Exception as e:
             print(f"异步查询失败: {traceback.format_exc()}")
+            # 尝试切换模型类型
+            if self.model_type == 'deepseek':
+                self.model_type = 'sambanova'
+            else:
+                self.model_type = 'deepseek'
+            self.config = NB(self.model_type)
+            self.api_key = self.config['api_key']
+            self.base_url = self.config['base_url']
+            self.model = self.config['model']
+            self.sync_client = OpenAI(api_key=self.api_key, base_url=self.base_url)
+            self.async_client = AsyncOpenAI(api_key=self.api_key, base_url=self.base_url)
+            self.last_used_model = self.model_type  # 更新最后使用的模型
             raise
             
         
@@ -227,3 +252,5 @@ async def get_gpt_response(prompt, display_func=print, flush_interval=3):
             chunk, buffer, accumulated_text, start_time
         )
 
+if __name__ == '__main__':
+    print(sync_gpt('你好哦'))

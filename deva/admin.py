@@ -1161,8 +1161,8 @@ async def create_task():
     写入文件： 'some text' >>write_to_file('filename')
     抓取网页： response = await httpx(url)
     查找网页标签：response.html.search('<title>{}</title>')
-    发送到钉钉：'@md@焦点分析|'+'some text'>>Dtalk()
-    关注总结查看话题： content = await watch_topic('话题')
+    发送到钉钉通知我：'@md@焦点分析|'+'some text'>>Dtalk()
+    定期关注总结查看话题： content = await watch_topic('话题')
     """
     # 调用GPT生成Python代码
     prompt = f"仅限于以下的功能和使用方法：{samplecode}，根据以下描述: {description}，生成一个Python异步函数,只生成函数主体就可以，不需要执行代码，所有 import 都放在函数内部"
