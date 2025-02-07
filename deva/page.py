@@ -322,7 +322,6 @@ class PageServer(object):
             page: Page实例,包含要添加的路由
         """
         self.application.add_handlers('.*$', page.get_routes())
-        page.get_routes() >> ls >> log
 
     def start(self,):
         """启动Web服务器并在浏览器中打开"""
@@ -516,7 +515,6 @@ def webview(s, url='/', server=None):
         './templates/streams.html', streams=server.streams[url]))
     server.add_page(page)
     print('start webview:', 'http://'+server.host+':'+str(server.port)+url)
-    print('with these streams:', server.streams[url])
     return server
 
 

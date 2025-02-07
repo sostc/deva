@@ -5,27 +5,69 @@ from deva.namespace import NB
 from deva import warn
 
 
+
 class GPT:
+    """
+    GPT类封装了与大型语言模型（如DeepSeek、Sambanova）的交互功能。
+    提供同步和异步两种调用方式，支持普通文本和JSON格式的响应。
+    
+    主要功能：
+    - 同步查询：sync_query()
+    - 异步查询：async_query()
+    - 异步JSON查询：async_json_query()
+    - 自动模型切换：当某个模型失败时自动切换到备用模型
+    - 资源管理：支持上下文管理器自动关闭连接
+    
+    属性：
+    - model_type: 当前使用的模型类型（deepseek或sambanova）
+    - config: 模型配置信息
+    - api_key: API访问密钥
+    - base_url: API基础URL
+    - model: 模型名称
+    - last_used_model: 最后使用的模型类型
+    
+    示例用法：
+    1. 同步查询
+    >>> gpt = GPT()
+    >>> response = gpt.sync_query("你好")
+    >>> print(response)
+    
+    2. 异步查询
+    >>> async def main():
+    ...     gpt = GPT()
+    ...     response = await gpt.async_query("你好")
+    ...     print(response)
+    
+    3. 使用上下文管理器
+    >>> async def main():
+    ...     async with GPT() as gpt:
+    ...         response = await gpt.async_query("你好")
+    ...         print(response)
+    
+    4. JSON格式查询
+    >>> async def main():
+    ...     gpt = GPT()
+    ...     json_response = await gpt.async_json_query("返回JSON格式的天气数据")
+    ...     print(json_response)
+    """
     def __init__(self, model_type='deepseek'):
         """
-        初始化GPT类，默认使用deepseek模型，可以选择sambanova
+        初始化GPT实例
         
         参数:
-            model_type: 模型类型，默认为'deepseek'
+            model_type (str): 模型类型，默认为'deepseek'，可选'sambanova'
+        
+        异常:
+            ValueError: 当缺少必要配置项时抛出
         """
         self.model_type = model_type
-        # 从对应类型的数据库获取配置
         self.config = NB(model_type)
         
-        # 验证必要的配置项
+        # 验证配置项
         required_configs = ['api_key', 'base_url', 'model']
-        missing_configs = []
-        for config in required_configs:
-            if config not in self.config:
-                missing_configs.append(config)
+        missing_configs = [c for c in required_configs if c not in self.config]
         
         if missing_configs:
-            # 生成配置示例代码
             example_code = "from deva.namespace import NB\n\n"
             example_code += "# 配置示例:\n"
             example_code += "NB('deepseek').update({\n"
@@ -41,40 +83,28 @@ class GPT:
             "请确保在其他地方正确设置这些配置项的值" >> warn
             example_code >> warn
             
-        # 设置默认值为None
         self.api_key = self.config.get('api_key')
         self.base_url = self.config.get('base_url')
         self.model = self.config.get('model')
-        self.last_used_model = model_type  # 记录最后使用的模型
+        self.last_used_model = model_type
         
-        # 初始化同步和异步客户端
-        self.sync_client = OpenAI(api_key=self.api_key, base_url=self.base_url)
-        self.async_client = AsyncOpenAI(api_key=self.api_key, base_url=self.base_url)
-        """
-        初始化GPT类，默认使用deepseek模型，可以选择sambanova
-        
-        参数:
-            model_type: 模型类型，默认为'deepseek'
-        """
-        self.model_type = model_type
-        # 从对应类型的数据库获取配置
-        self.config = NB(model_type)
-        
-        # 验证必要的配置项
-        required_configs = ['api_key', 'base_url', 'model']
-        for config in required_configs:
-            if config not in self.config:
-                raise ValueError(f"缺少必要的配置项: {config}")
-        
-        self.api_key = self.config['api_key']
-        self.base_url = self.config['base_url']
-        self.model = self.config['model']
-        
-        # 初始化同步和异步客户端
+        # 初始化客户端
         self.sync_client = OpenAI(api_key=self.api_key, base_url=self.base_url)
         self.async_client = AsyncOpenAI(api_key=self.api_key, base_url=self.base_url)
     
     def sync_query(self, prompts):
+        """
+        同步查询大模型
+        
+        参数:
+            prompts (str|list): 提示词，可以是字符串或字符串列表
+            
+        返回:
+            str: 模型生成的文本
+            
+        异常:
+            Exception: 查询失败时抛出，并自动切换模型类型
+        """
         try:
             if isinstance(prompts, str):
                 prompts = [prompts]
@@ -91,23 +121,23 @@ class GPT:
             return response.choices[0].message.content
         except Exception as e:
             print(f"同步查询失败: {traceback.format_exc()}")
-            # 尝试切换模型类型
-            if self.model_type == 'deepseek':
-                self.model_type = 'sambanova'
-            else:
-                self.model_type = 'deepseek'
-            self.config = NB(self.model_type)
-            self.api_key = self.config['api_key']
-            self.base_url = self.config['base_url']
-            self.model = self.config['model']
-            self.sync_client = OpenAI(api_key=self.api_key, base_url=self.base_url)
-            self.async_client = AsyncOpenAI(api_key=self.api_key, base_url=self.base_url)
-            self.last_used_model = self.model_type  # 更新最后使用的模型
+            self._switch_model()
             raise
 
     async def async_query(self, prompts):
+        """
+        异步查询大模型
+        
+        参数:
+            prompts (str|list): 提示词，可以是字符串或字符串列表
+            
+        返回:
+            str: 模型生成的文本
+            
+        异常:
+            Exception: 查询失败时抛出，并自动切换模型类型
+        """
         try:
-            # 异常处理
             if isinstance(prompts, str):
                 prompts = [prompts]
                 
@@ -123,30 +153,22 @@ class GPT:
             return completion.choices[0].message.content
         except Exception as e:
             print(f"异步查询失败: {traceback.format_exc()}")
-            # 尝试切换模型类型
-            if self.model_type == 'deepseek':
-                self.model_type = 'sambanova'
-            else:
-                self.model_type = 'deepseek'
-            self.config = NB(self.model_type)
-            self.api_key = self.config['api_key']
-            self.base_url = self.config['base_url']
-            self.model = self.config['model']
-            self.sync_client = OpenAI(api_key=self.api_key, base_url=self.base_url)
-            self.async_client = AsyncOpenAI(api_key=self.api_key, base_url=self.base_url)
-            self.last_used_model = self.model_type  # 更新最后使用的模型
+            self._switch_model()
             raise
             
-        
     async def async_json_query(self, prompts):
         """
-        异步查询大模型
+        异步查询大模型并返回JSON格式结果
         
         参数:
-            prompts: 提示词列表或字符串
+            prompts (str|list): 提示词，可以是字符串或字符串列表
             
         返回:
-            大模型返回的结果
+            str: JSON格式的模型响应
+            
+        示例:
+        >>> response = await gpt.async_json_query("返回JSON格式的天气数据")
+        >>> print(response)  # 输出: {"weather": "sunny", "temperature": 25}
         """
         if isinstance(prompts, str):
             prompts = [prompts]
@@ -166,16 +188,28 @@ class GPT:
         return completion.choices[0].message.content
     
     async def close(self):
-        """关闭客户端连接"""
+        """关闭客户端连接，释放资源"""
         await self.async_client.close()
         self.sync_client.close()
     
     async def __aenter__(self):
+        """上下文管理器入口"""
         return self
     
     async def __aexit__(self, exc_type, exc_val, exc_tb):
+        """上下文管理器出口，自动关闭连接"""
         await self.close()
-
+    
+    def _switch_model(self):
+        """内部方法：在模型失败时切换模型类型"""
+        self.model_type = 'sambanova' if self.model_type == 'deepseek' else 'deepseek'
+        self.config = NB(self.model_type)
+        self.api_key = self.config['api_key']
+        self.base_url = self.config['base_url']
+        self.model = self.config['model']
+        self.sync_client = OpenAI(api_key=self.api_key, base_url=self.base_url)
+        self.async_client = AsyncOpenAI(api_key=self.api_key, base_url=self.base_url)
+        self.last_used_model = self.model_type
 _gpt = GPT()
 async_gpt = _gpt.async_query
 sync_gpt = _gpt.sync_query
