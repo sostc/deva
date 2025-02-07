@@ -1,5 +1,4 @@
 from .core import Stream
-# from tornado import gen
 import logging
 import os
 from .sources import StreamTCPClient, RedisStream
@@ -9,6 +8,7 @@ import pandas as pd
 import dill
 from tornado import gen
 import json
+
 """消息主题模块
 
 本模块提供了基于不同传输协议的消息主题实现,包括:

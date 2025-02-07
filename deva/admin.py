@@ -27,44 +27,36 @@ Deva 管理面板 - 基于 PyWebIO 和 Tornado 的 Web 应用程序
 # coding: utf-8
 
 # In[2]:
+import asyncio
 import os
 import traceback
-from urllib.parse import urljoin
-from deva import (
-    NW, NB, log, ls, Stream, first, sample, Deva, print, timer,NS,concat, Dtalk
-)
-from deva.browser import browser,tab,tabs
-from deva.bus import warn
-from deva.page import page #这里为了给流注入 webview 方法和sse 方法
-from pywebio.output import (
-    put_text, put_markdown, set_scope, put_table,use_scope, clear, toast, put_button, put_collapse, put_datatable,
-    put_buttons, put_row, put_html, put_link, popup,close_popup
-)
-
-from tornado.web import create_signed_value, decode_signed_value
-from typing import Callable, Union
-from pywebio.platform.tornado import webio_handler
-from pywebio_battery import put_logbox, logbox_append, set_localstorage, get_localstorage
-from pywebio.pin import pin, put_input
-from pywebio.session import set_env, run_async, run_js, run_asyncio_coroutine, get_session_implement
-
-from pywebio.input import input, input_group, PASSWORD, textarea, actions, TEXT
-import pandas as pd
 import json
 import time
+from urllib.parse import urljoin
+from typing import Callable, Union
 
+import pandas as pd
 from openai import AsyncOpenAI
 from tornado.web import create_signed_value, decode_signed_value
-from typing import Callable, Union
+
+from deva import (
+    NW, NB, log, ls, Stream, first, sample, Deva, print, timer, NS, concat, Dtalk
+)
+from deva.browser import browser, tab, tabs
+from deva.bus import warn
+from deva.page import page  # 这里为了给流注入 webview 方法和sse 方法
+from deva.gpt import async_gpt, sync_gpt
+
+from pywebio.output import (
+    put_text, put_markdown, set_scope, put_table, use_scope, clear, toast, 
+    put_button, put_collapse, put_datatable, put_buttons, put_row, put_html, 
+    put_link, popup, close_popup, put_tabs
+)
 from pywebio.platform.tornado import webio_handler
 from pywebio_battery import put_logbox, logbox_append, set_localstorage, get_localstorage
 from pywebio.pin import pin, put_input
 from pywebio.session import set_env, run_async, run_js, run_asyncio_coroutine, get_session_implement
 from pywebio.input import input, input_group, PASSWORD, textarea, actions, TEXT
-import pandas as pd
-
-
-from deva.gpt import async_gpt,sync_gpt
 
 
 @timer(5,start=False)
@@ -345,7 +337,7 @@ log.start_cache(200, cache_max_age_seconds=60 * 60 * 24 * 30)
 log.map(lambda x: log.recent(10) >> concat('<br>'))\
     >> NS('访问日志', cache_max_len=1, cache_max_age_seconds=60 * 60 * 24 * 30)
 
-os.getpid() >> log
+
 
 streams = [NS('访问日志'), NS('实时新闻'), NS(
     '涨跌停'), NS('领涨领跌板块'), NS('1分钟板块异动'), NS('30秒板块异动')]
@@ -1099,6 +1091,7 @@ async def watch_topic(topic):
         )
     return result
 
+
 async def create_task():
     """创建定时任务"""
     
@@ -1136,7 +1129,7 @@ async def create_task():
     """
     # 调用GPT生成Python代码
     prompt = f"仅限于以下的功能和使用方法：{samplecode}，根据以下描述: {description}，生成一个Python异步函数,只生成函数主体就可以，不需要执行代码，所有 import 都放在函数内部,详细的代码注释"
-    result = sync_gpt(prompts=prompt)
+    result = await asyncio.create_task(async_gpt(prompts=prompt))
     def get_python_code_from_deepseek(content):
         # 假设返回的内容中 Python 代码被标记为 ```python ... ```
         import re
@@ -1251,9 +1244,9 @@ def manage_tasks():
                 row.append(put_row([
                     put_button("源码", onclick=lambda n=name: edit_code(n), color="primary"),
                     put_button("恢复", onclick=lambda n=name: recover_task(n), color="success"),
+                    put_button("彻底删除", onclick=lambda n=name: remove_task_forever(n), color="danger"),
                 ]))
                 deleted_table_data.append(row)
-
         if active_table_data:
             put_table(
                 active_table_data,
@@ -1327,6 +1320,19 @@ def recover_task(name):
     
     
     manage_tasks()
+
+def remove_task_forever(name):
+    """彻底删除任务，永久无法恢复"""
+    try:
+        scheduler.remove_job(name)>>log
+    except Exception as e:
+        e>>log
+    del tasks[name]
+    # 更新数据库中的任务状态为已删除
+    db = NB('tasks')
+    del db[name]
+    toast(f"任务 '{name}' 已删除！", color="success")
+    manage_tasks()
     
 async def taskadmin():
     await init_admin_ui('Deva任务管理')
@@ -1346,7 +1352,151 @@ async def streamadmin():
     put_markdown('### 数据流')
     put_buttons([s.name for s in streams],onclick=stream_click)
     
-
+async def inspect_object(obj):
+    """在Web界面上展示Python对象的所有相关信息
+    
+    参数:
+        obj: 要展示的Python对象
+    """
+    # 创建popup内容
+    content = []
+    
+    # 显示对象基本信息
+    content.append(put_markdown(f"### 对象信息"))
+    content.append(put_table([
+        ['类型', type(obj).__name__],
+        ['ID', id(obj)],
+        ['哈希值', hash(obj) if not isinstance(obj, dict) else 'N/A (字典不可哈希)'],
+        ['可调用', callable(obj)]
+    ]))
+    
+    # 显示对象文档
+    if obj.__doc__:
+        content.append(put_markdown("#### 文档说明"))
+        if obj.__doc__:
+            # 将文档内容按行分割
+            doc_lines = obj.__doc__.split('\n')
+            formatted_doc = []
+            in_code_block = False
+            
+            for line in doc_lines:
+                # 检测代码块开始
+                if line.strip().startswith('>>>') or line.strip().startswith('...'):
+                    if not in_code_block:
+                        formatted_doc.append('```python')
+                        in_code_block = True
+                    formatted_doc.append(line)
+                else:
+                    if in_code_block:
+                        formatted_doc.append('```')
+                        in_code_block = False
+                    formatted_doc.append(line)
+            
+            # 处理最后一个代码块
+            if in_code_block:
+                formatted_doc.append('```')
+            
+            # 将格式化后的文档内容添加到显示
+            content.append(put_markdown('\n'.join(formatted_doc)))
+    
+    # 显示对象属性
+    content.append(put_markdown("#### 属性"))
+    attrs = []
+    for attr in dir(obj):
+        if not attr.startswith('__'):
+            try:
+                value = getattr(obj, attr)
+                # 过滤掉方法，只显示非可调用属性
+                if not callable(value):
+                    attrs.append([attr, type(value).__name__, str(value)[:100]])
+            except Exception as e:
+                attrs.append([attr, '无法访问', str(e)])
+    content.append(put_table([['属性名', '类型', '值']] + attrs))
+    
+    # 显示对象方法
+    content.append(put_markdown("#### 方法"))
+    methods = []
+    for attr in dir(obj):
+        if not attr.startswith('__'):
+            try:
+                value = getattr(obj, attr)
+                if callable(value):
+                    doc = value.__doc__ or '无文档说明'
+                    methods.append([attr, doc[:200]])
+            except Exception as e:
+                methods.append([attr, f'无法访问: {str(e)}'])
+    content.append(put_table([['方法名', '文档说明']] + methods))
+    
+    # 在popup中显示内容
+    popup(title="对象详情", content=content, size='large')
+async def document():
+    await init_admin_ui("Deva管理面板")
+    # 获取deva下所有子模块
+    import deva
+    import pkgutil
+    import inspect
+    
+    # 遍历deva下的所有子模块
+    # 创建tab容器
+    tabs = []
+    
+    for module_info in pkgutil.iter_modules(deva.__path__):
+        module_name = module_info.name
+        try:
+            # 动态导入模块
+            module = __import__(f'deva.{module_name}', fromlist=['*'])
+            
+            # 创建模块内容
+            with use_scope(f'module_{module_name}', clear=True):
+                # 创建类和函数表格
+                module_table = [['名称', '类型', '文档说明']]
+                
+                # 获取模块中定义的成员，包括全局变量
+                members = inspect.getmembers(module)
+                
+                # 获取模块的全局变量
+                global_vars = {k: v for k, v in module.__dict__.items() 
+                             if not k.startswith('__') and not inspect.ismodule(v)}
+                
+                # 合并成员和全局变量
+                all_objects = {**dict(members), **global_vars}
+                
+                # 过滤出类和函数和全局对象
+                for name, obj in all_objects.items():
+                    # 检查是否为类、函数、被装饰的函数或全局对象
+                    if (inspect.isclass(obj) or inspect.isfunction(obj) or 
+                        hasattr(obj, '__wrapped__') or 
+                        (not inspect.ismodule(obj) and not name.startswith('_'))) :
+                        doc = obj.__doc__ or '无文档说明'
+                        if isinstance(doc, str):
+                            # 判断对象类型
+                            if inspect.isclass(obj):
+                                obj_type = '类'
+                            elif inspect.isfunction(obj) or hasattr(obj, '__wrapped__'):
+                                obj_type = '函数'
+                            else:
+                                obj_type = '全局对象'
+                            
+                            # 对于被装饰器修饰的函数，获取原始函数的文档
+                            if hasattr(obj, '__wrapped__'):
+                                doc = obj.__wrapped__.__doc__ or doc
+                            
+                            # 添加点击事件
+                            action_button = put_button(name, onclick=lambda o=obj: run_async(inspect_object(o)))
+                            module_table.append([action_button, obj_type, doc[:200]])
+                # 添加模块内容到tab
+                tabs.append({
+                    'title': module_name,
+                    'content': put_table(module_table)
+                })
+        except ImportError as e:
+            print(f"无法导入模块 {module_name}: {e}")
+            tabs.append({
+                'title': module_name,
+                'content': put_text(f"无法加载模块: {str(e)}")
+            })
+    # 显示所有模块的tab
+    put_tabs(tabs)
 async def main():
     # await my_timer()
     # 这个将会把会话协程卡在这里不动，采用 run_async则不会堵塞
@@ -1972,7 +2122,7 @@ def create_nav_menu():
             {name: '数据库', path: '/dbadmin', action: () => window.location.href = '/dbadmin'},
             {name: '实时流', path: '/streamadmin', action: () => window.location.href = '/streamadmin'},
             {name: '任务', path: '/taskadmin', action: () => window.location.href = '/taskadmin'},
-            {name: '关于', path: '#', action: () => alert('Deva管理面板 v1.0')}
+            {name: '文档', path: '/document', action: () => window.location.href = '/document'}
         ];
 
         menuItems.forEach(item => {
@@ -2039,11 +2189,13 @@ if __name__ == '__main__':
     # 创建一个名为'stream_webview'的Web服务器实例，监听所有网络接口(0.0.0.0)
     # 然后为该服务器添加路由处理器，将'/admin'路径映射到dbadmin处理函数
     # 使用PyWebIO的webio_handler进行封装，并指定CDN地址
+    cdn='https://fastly.jsdelivr.net/gh/wang0618/PyWebIO-assets@v1.8.3/'
     handlers = [
-        (r'/dbadmin', webio_handler(dbadmin, cdn='https://fastly.jsdelivr.net/gh/wang0618/PyWebIO-assets@v1.8.3/')),
-        (r'/streamadmin', webio_handler(streamadmin, cdn='https://fastly.jsdelivr.net/gh/wang0618/PyWebIO-assets@v1.8.3/')),
-        (r'/', webio_handler(main, cdn='https://fastly.jsdelivr.net/gh/wang0618/PyWebIO-assets@v1.8.3/')),
-        (r'/taskadmin', webio_handler(taskadmin, cdn='https://fastly.jsdelivr.net/gh/wang0618/PyWebIO-assets@v1.8.3/'))
+        (r'/dbadmin', webio_handler(dbadmin, cdn=cdn)),
+        (r'/streamadmin', webio_handler(streamadmin, cdn=cdn)),
+        (r'/', webio_handler(main, cdn=cdn)),
+        (r'/taskadmin', webio_handler(taskadmin, cdn=cdn)),
+        (r'/document', webio_handler(document, cdn=cdn))
     ]
     NW('stream_webview',host='0.0.0.0').application.add_handlers('.*$', handlers)
  

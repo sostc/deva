@@ -72,7 +72,7 @@ warn = NS('warn')
 warn.sink(logging.warning)
 
 
-def log_print(x):
+def _log_print(x):
     try:
         # from termcolor import cprint
         # _log_print = (lambda x: cprint(x, 'red', 'on_cyan'))@P
@@ -86,7 +86,7 @@ def log_print(x):
 
 
 log = NS('log', cache_max_len=10, cache_max_age_seconds=60 * 60 * 24)
-log.sink(log_print)
+log.sink(_log_print)
 
 
 bus = NT('bus')

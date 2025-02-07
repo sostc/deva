@@ -787,10 +787,6 @@ class Stream(object):
             upstream.downstreams.remove(self)
             self.upstreams.remove(upstream)
 
-    def scatter(self, **kwargs):
-        """分散流到dask"""
-        from .dask import scatter
-        return scatter(self, **kwargs)
 
     def remove(self, predicate):
         """只传递predicate返回False的元素"""
@@ -1038,9 +1034,11 @@ class Stream(object):
             for handler in self._subscribers[topic]:
                 handler(message)
 
-    def __call__(self,func):
-        return self.catch(func=func)
-
+    def __call__(self, obj):
+        if callable(obj):
+            return self.catch(func=obj)
+        else:
+            return self.emit(obj)
 
 
 class Sink(Stream):
