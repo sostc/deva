@@ -18,11 +18,7 @@ from .lambdas import _
 from .browser import browser,tab,tabs
 from .gpt import async_gpt,sync_gpt
 
-try:
-    # import panel as pn
-    from .dask import DaskStream, scatter
 
-except ImportError:
-    pass
+
 
 __version__ = '1.3.1'
