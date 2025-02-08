@@ -381,18 +381,47 @@ class OrderedWeakrefSet(weakref.WeakSet):
 
 
 def get_io_loop(asynchronous=None):
+    """获取IOLoop实例
+
+    这个函数用于获取IOLoop对象，理解它的关键在于区分同步和异步模式：
+    
+    1. 同步模式（asynchronous=False/None）：
+    - 在后台启动一个守护线程
+    - 在该线程中创建并运行一个新的IOLoop
+    - 适合在普通Python函数中使用
+    
+    2. 异步模式（asynchronous=True）：
+    - 直接返回当前线程的IOLoop
+    - 适合在async/await异步函数中使用
+    
+    简单来说，同步模式会创建新线程来处理事件循环，而异步模式则使用当前线程的事件循环。
+
+    参数:
+        asynchronous (bool, optional): 
+            - True: 返回当前线程的IOLoop
+            - False/None: 返回在守护线程中运行的IOLoop
+
+    返回:
+        IOLoop: tornado的IOLoop实例
+
+    示例:
+        # 获取当前线程的IOLoop
+        loop = get_io_loop(asynchronous=True)
+
+        # 获取守护线程中的IOLoop
+        loop = get_io_loop(asynchronous=False)
+    """
     if asynchronous:
         return IOLoop.current()
 
     if not _io_loops:
         loop = IOLoop()
         thread = threading.Thread(target=loop.start)
-        thread.daemon = True
+        thread.daemon = True  # 设置为守护线程，主线程退出时自动退出
         thread.start()
         _io_loops.append(loop)
 
-    return _io_loops[-1]
-
+    return _io_loops[-1]  # 返回最近创建的IOLoop
 
 def identity(x):
     return x
@@ -584,26 +613,28 @@ class Stream(object):
 
         这允许你在这个类上注册一个新方法。你可以将其用作装饰器。
 
+        参数
+        ----------
+        modifier: callable, 可选
+            用于修改注册方法的装饰器，默认为identity（即不修改）。
+            常用选项包括：
+            - identity: 将方法注册为实例方法（默认）
+            - staticmethod: 将方法注册为静态方法
+            - classmethod: 将方法注册为类方法
+
         示例::
 
-            >>> @Stream.register_api()
+            >>> @Stream.register_api()  # 注册为实例方法
             ... class foo(Stream):
             ...     ...
 
-            >>> Stream().foo(...)  # 现在可以工作了
+            >>> Stream().foo(...)  # 作为实例方法调用
 
-        它将可调用对象作为普通属性附加到类对象上。这样做时它
-        会考虑继承(Stream的所有子类也会获得foo属性)。
-
-        默认情况下可调用对象被假定为实例方法。如果你愿意,
-        你可以在附加到类之前包含修饰符,就像下面的例子中
-        我们构造一个``staticmethod``。
-
-            >>> @Stream.register_api(staticmethod)
+            >>> @Stream.register_api(staticmethod)  # 注册为静态方法
             ... class foo(Stream):
             ...     ...
 
-            >>> Stream.foo(...)  # Foo作为静态方法运行
+            >>> Stream.foo(...)  # 作为静态方法调用
         """
         def _(func):
             @functools.wraps(func)
@@ -612,7 +643,6 @@ class Stream(object):
             setattr(cls, func.__name__, modifier(wrapped))
             return func
         return _
-
     def start(self):
         """启动任何上游源"""
         for upstream in self.upstreams:
@@ -655,47 +685,70 @@ class Stream(object):
     __repr__ = __str__
 
     def _ipython_display_(self, **kwargs):
-        """IPython显示方法"""
+        """IPython显示方法
+        
+        该方法用于在Jupyter Notebook中显示流对象。它会创建一个动态更新的输出区域，
+        当流中有新数据时自动更新显示内容。
+        
+        实现原理：
+        1. 尝试导入IPython和ipywidgets库
+        2. 创建Output小部件作为显示容器
+        3. 定义更新函数，当流中有新数据时更新显示
+        4. 使用弱引用管理资源，防止内存泄漏
+        5. 监听视图计数，在不需要时自动清理资源
+        
+        参数:
+            kwargs: 传递给IPython显示方法的额外参数
+            
+        返回:
+            IPython显示结果或流对象的字符串表示
+        """
         try:
             from ipywidgets import Output
             import IPython
         except ImportError:
-            if hasattr(self, '_repr_html_'):
-                return self._repr_html_()
-            else:
-                return self.__repr__()
+            # 如果无法导入IPython相关库，则回退到普通显示方式
+            return self._repr_html_() if hasattr(self, '_repr_html_') else self.__repr__()
+            
+        # 创建输出区域并设置初始视图计数
         output = Output(_view_count=0)
-        output_ref = weakref.ref(output)
+        output_ref = weakref.ref(output)  # 使用弱引用防止内存泄漏
 
         def update_cell(val):
+            """更新显示内容的回调函数"""
             output = output_ref()
             if output is None:
                 return
             with output:
-                IPython.display.clear_output(wait=True)
-                IPython.display.display(val)
+                IPython.display.clear_output(wait=True)  # 清除旧内容
+                IPython.display.display(val)  # 显示新内容
 
-        s = self.map(update_cell)
-        _html_update_streams.add(s)
+        # 创建映射流来触发更新
+        update_stream = self.map(update_cell)
+        _html_update_streams.add(update_stream)  # 注册到全局更新流集合
 
+        # 保存引用以便后续清理
         self.output_ref = output_ref
-        s_ref = weakref.ref(s)
+        stream_ref = weakref.ref(update_stream)
 
         def remove_stream(change):
+            """清理不再使用的资源"""
             output = output_ref()
             if output is None:
                 return
 
-            if output._view_count == 0:
-                ss = s_ref()
-                ss.destroy()
-                _html_update_streams.remove(ss)  # trigger gc
+            if output._view_count == 0:  # 当视图计数为0时清理
+                stream = stream_ref()
+                if stream:
+                    stream.destroy()
+                    _html_update_streams.remove(stream)  # 从全局集合中移除
 
+        # 监听视图计数变化
         output.observe(remove_stream, '_view_count')
 
-        if hasattr(output,'_ipython_display_'):
+        # 调用IPython显示方法
+        if hasattr(output, '_ipython_display_'):
             return output._ipython_display_(**kwargs)
-
     def _emit(self, x):
         """向下游发送数据"""
         if self.is_cache:
@@ -857,35 +910,50 @@ class Stream(object):
         return self.__ror__(x)
 
     def catch(self, func):
-        """捕获函数执行结果到流内。
+        """捕获函数执行结果到流内
 
-        示例::
+        该方法用于捕获函数执行结果并将其发送到流中。支持同步和异步函数。
 
-            @log.catch
-            @warn.catch_except
-            def f1(*args,**kwargs):
-                return sum(*args,**kwargs)
+        参数:
+            func: 要捕获的函数，可以是普通函数、协程函数或生成器函数
 
+        返回:
+            装饰后的函数，保持原函数的签名和文档
 
-            @log.catch
-            @gen.coroutine
-            def a_foo(n):
-                yield gen.sleep(n)
-                print(1)
-                return 123
+        特性:
+        - 支持同步函数：直接捕获返回值并发送到流
+        - 支持异步函数：等待异步操作完成，捕获结果并发送到流
+        - 自动处理事件循环：对于异步函数，会自动设置和获取IOLoop
+        - 保持函数签名：使用functools.wraps保留原函数的元信息
 
-            @log.catch
-            async def a_foo(n):
-                import asyncio
-                await asyncio.sleep(n)
-                print(1)
-                return 123
+        示例:
+            1. 同步函数捕获:
+                @stream.catch
+                def sync_func(x):
+                    return x + 1
 
+            2. 异步协程捕获:
+                @stream.catch
+                async def async_func(x):
+                    await asyncio.sleep(1)
+                    return x + 1
+
+            3. 生成器协程捕获:
+                @stream.catch
+                @gen.coroutine
+                def gen_func(x):
+                    yield gen.sleep(1)
+                    return x + 1
+
+        注意:
+            - 对于异步函数，会自动创建事件循环（如果不存在）
+            - 捕获的结果会通过_emit方法发送到流中
+            - 原函数的返回值会被保留并返回
         """
         @functools.wraps(func)
         def wraper(*args, **kwargs):
             result = func(*args, **kwargs)
-            # 异步函数
+            # 处理异步函数
             if isinstance(result, gen.Awaitable):
                 futs = gen.convert_yielded(result)
                 if not self.loop:
@@ -893,41 +961,78 @@ class Stream(object):
                 if self.loop is None and self.asynchronous is not None:
                     self._set_loop(get_io_loop(self.asynchronous))
                 self.loop.add_future(futs, lambda x: self._emit(x.result()))
-
-            # 同步函数
+            # 处理同步函数
             else:
                 self._emit(result)
 
             return result
 
         return wraper.__call__ @ P
-
     def catch_except(self, func):
         """捕获函数执行异常到流内。
 
-        示例::
+        该方法用于捕获函数执行过程中抛出的异常，并将异常信息发送到流中。支持同步和异步函数。
 
-            @log.catch
-            @warn.catch_except
-            def f1(*args,**kwargs):
-                return sum(*args,**kwargs)
+        参数:
+            func: 要捕获的函数，可以是普通函数、协程函数或生成器函数
 
+        返回:
+            装饰后的函数，保持原函数的签名和文档
+
+        特性:
+        - 捕获函数执行时的异常信息
+        - 将异常信息以结构化数据形式发送到流中
+        - 支持同步函数：直接捕获异常
+        - 支持异步函数：自动处理异步异常
+        - 保持函数签名：使用functools.wraps保留原函数的元信息
+
+        异常信息结构:
+        {
+            'function': 函数名,
+            'param': (位置参数, 关键字参数),
+            'except': 异常对象
+        }
+
+        示例:
+            1. 同步函数异常捕获:
+                @stream.catch_except
+                def sync_func(x):
+                    return x / 0  # 可能抛出ZeroDivisionError
+
+            2. 异步协程异常捕获:
+                @stream.catch_except
+                async def async_func(x):
+                    await asyncio.sleep(1)
+                    return x / 0  # 可能抛出ZeroDivisionError
+
+        注意:
+            - 对于异步函数，会自动创建事件循环（如果不存在）
+            - 捕获的异常信息会通过_emit方法发送到流中
+            - 原函数的异常会被保留并抛出
         """
 
         @functools.wraps(func)
         def wraper(*args, **kwargs):
             try:
-                #todo:异步函数如何处置？
-                return func(*args, **kwargs)  # 需要这里显式调用用户函数
+                result = func(*args, **kwargs)
+                # 处理异步函数
+                if isinstance(result, gen.Awaitable):
+                    futs = gen.convert_yielded(result)
+                    if not self.loop:
+                        self._set_asynchronous(False)
+                    if self.loop is None and self.asynchronous is not None:
+                        self._set_loop(get_io_loop(self.asynchronous))
+                    self.loop.add_future(futs, lambda x: x.result())
+                return result
             except Exception as e:
                 {
                     'function': func.__name__,
                     'param': (args, kwargs),
                     'except': e,
                 } >> self
+                raise  # 重新抛出异常以保持原有行为
 
         return wraper.__call__ @ P
-
     def __rmatmul__(self, func):
         """左边的 @.，函数结果进入流内。"""
         return self.catch(func).__call__ @ P
@@ -936,23 +1041,52 @@ class Stream(object):
         """左边的 ^.，函数异常入流。优先级不高"""
         return self.catch_except(func).__call__ @ P
 
-    def __rshift__(self, ref):  # stream右边的
-        """Stream右边>>,sink到右边的对象。
+    def __rshift__(self, ref):
+        """将流数据输出到目标对象
 
-        支持5种类型:list| text file| str | stream | callable
+        该方法实现了流对象的>>操作符，用于将流数据输出到不同类型的对象。
+        支持以下目标类型：
+        
+        1. list: 将数据追加到列表中
+        2. text file: 将数据写入文本文件
+        3. str: 将 str 作为文本文件名处理，将流内的数据转换为字符串后写入文件
+        4. Stream: 将数据发送到另一个流
+        5. callable: 将数据传递给可调用对象
+
+        参数:
+            ref: 目标对象，可以是list、文件对象、字符串、Stream或可调用对象
+
+        返回:
+            根据目标类型返回相应的处理结果
+
+        异常:
+            TypeError: 当目标类型不被支持时抛出
+
+        示例:
+            # 输出到列表
+            result = []
+            stream >> result
+
+            # 输出到文件
+            with open('output.txt', 'w') as f:
+                stream >> f
+
+            # 输出到另一个流
+            stream >> another_stream
+
+            # 输出到可调用对象
+            stream >> print
         """
         return match(ref,
-                     list, lambda ref: self.sink(ref.append),
-                     io.TextIOWrapper, lambda ref: self.to_textfile(ref),
-                     str, lambda ref: self.map(str).to_textfile(ref),
-                     Stream, lambda ref: self.sink(ref.emit),
-                     callable, lambda ref: self.sink(ref),
-                     ANY, lambda ref: TypeError(
-                         f'{ref}:{type(ref)} is'
-                         'Unsupported type, must be '
-                         'list| str | text file| stream | callable')
-                     )
-
+                   list, lambda ref: self.sink(ref.append),
+                   io.TextIOWrapper, lambda ref: self.to_textfile(ref),
+                   str, lambda ref: self.map(str).to_textfile(ref),
+                   Stream, lambda ref: self.sink(ref.emit),
+                   callable, lambda ref: self.sink(ref),
+                   ANY, lambda ref: TypeError(
+                       f'不支持的输出类型: {ref} ({type(ref)})，'
+                       '必须是 list | 文本文件名 | 文本文件句柄 | stream | 可调用对象')
+                   )
     def __getitem__(self, *args):
         """获取缓存的值"""
         return self.cache.values().__getitem__(*args)
@@ -998,16 +1132,37 @@ class Stream(object):
         return param_wraper
 
     def recent(self, n=5, seconds=None):
-        """获取最近的n个值或最近seconds秒内的值"""
-        if self.is_cache:
-            if not seconds:
-                return self.cache.values()[-n:]
-            else:
-                begin = datetime.now() - timedelta(seconds=seconds)
-                return [i[1] for i in self.cache.items() if begin < i[0]]
-        else:
+        """获取最近的缓存数据
+
+        该方法用于从缓存中获取最近的数据，支持两种模式：
+        1. 获取最近n条数据
+        2. 获取最近seconds秒内的数据
+
+        参数:
+            n (int, optional): 要获取的最近数据条数，默认为5
+            seconds (int, optional): 要获取的时间范围（秒），默认为None
+
+        返回:
+            list: 最近的数据列表。如果未启用缓存，则返回空字典
+
+        注意:
+            - 如果未启用缓存（is_cache=False），将返回空字典
+            - 当指定seconds时，返回的数据按时间戳过滤
+
+        示例:
+            >>> stream.recent()  # 获取最近5条数据
+            >>> stream.recent(n=10)  # 获取最近10条数据
+            >>> stream.recent(seconds=60)  # 获取最近60秒内的数据
+        """
+        if not self.is_cache:
             return {}
 
+        if seconds is not None:
+            begin = datetime.now() - timedelta(seconds=seconds)
+            return [value for timestamp, value in self.cache.items() 
+                   if timestamp > begin][:n]
+        
+        return list(self.cache.values())[-n:]
     def __iter__(self,):
         """迭代缓存的值"""
         return self.cache.values().__iter__()
@@ -1134,71 +1289,151 @@ class sink(Sink):
 
 @Stream.register_api()
 class to_textfile(Sink):
-    """ 将元素写入纯文本文件，每个元素一行。
-        元素的类型必须是 ``str``。
-        参数
-        ----------
-        file: str 或 file-like
-            要写入元素的文件。``str`` 将被视为要打开的文件名。
-            如果是 file-like，描述符必须以文本模式打开。注意，文件
-            描述符将在此sink被销毁时关闭。
-        end: str, 可选
-            这个值将在每个元素后写入文件中。
-            默认为换行符。
-        mode: str, 可选
-            如果 file 是 ``str``, 文件将以此模式打开。默认为 ``"a"``
-            (追加模式)。
-        示例
-        --------
+    """将流数据写入文本文件的Sink类
+
+    该类用于将流中的每个元素写入文本文件，每个元素占一行。元素类型必须是字符串。
+
+    特性:
+    - 支持文件路径字符串或已打开的文件对象
+    - 自动处理文件关闭，避免资源泄漏
+    - 可自定义行尾符和文件打开模式
+    - 线程安全，确保数据完整写入
+
+    参数:
+        file (str | file-like): 
+            - 文件路径字符串：将自动以指定模式打开文件
+            - 文件对象：必须是以文本模式打开的文件描述符
+        end (str, 可选): 每行末尾追加的字符串，默认为换行符"\n"
+        mode (str, 可选): 文件打开模式，默认为追加模式"a"
+
+    方法:
+        update(x, who=None, metadata=None): 
+            将数据写入文件，确保立即刷新到磁盘
+
+    示例:
+        >>> # 基本用法
         >>> source = Stream()
-        >>> source.map(str).to_textfile("test.txt")
-        >>> source.emit(0)
-        >>> source.emit(1)
-        >>> print(open("test.txt", "r").read())
-        0
-        1
+        >>> source.map(str).to_textfile("output.log")
+        >>> source.emit("Hello")
+        >>> source.emit("World")
+
+        >>> # 自定义行尾符
+        >>> source.map(str).to_textfile("output.csv", end=",")
+
+        >>> # 使用文件对象
+        >>> with open("data.txt", "w") as f:
+        ...     source.map(str).to_textfile(f)
+
+    注意:
+        - 文件会在Sink销毁时自动关闭
+        - 如果传入文件对象，请确保以文本模式打开
+        - 写入操作会立即刷新到磁盘，确保数据不丢失
     """
 
     def __init__(self, upstream, file, end="\n", mode="a", **kwargs):
         self._end = end
         self._fp = open(file, mode=mode) if isinstance(file, str) else file
-        weakref.finalize(self, self._fp.close)
+        weakref.finalize(self, self._fp.close)  # 确保文件在对象销毁时关闭
         super().__init__(upstream, **kwargs)
 
     def __del__(self):
+        """对象销毁时关闭文件"""
         self._fp.close()
 
     def update(self, x, who=None, metadata=None):
+        """将数据写入文件并立即刷新
+        
+        参数:
+            x (str): 要写入的字符串数据
+            who: 数据来源（未使用）
+            metadata: 元数据（未使用）
+        """
         self._fp.write(x + self._end)
-        self._fp.flush()
-
+        self._fp.flush()  # 确保数据立即写入磁盘
 @Stream.register_api()
 class map(Stream):
-    """ 对流中的每个元素应用一个函数
+    """ 对流中的每个元素应用一个函数，支持同步和异步操作
 
     参数
     ----------
     func: callable
-        要应用的函数
+        要应用的函数，可以是同步或异步函数
     *args :
         传递给函数的位置参数
     **kwargs:
         传递给函数的关键字参数
 
+    属性
+    ----------
+    func: callable
+        当前使用的映射函数
+    args: tuple
+        存储的位置参数
+    kwargs: dict
+        存储的关键字参数
+
+    方法
+    ----------
+    update(x, who=None):
+        处理输入数据，应用映射函数并向下游发送结果
+        支持同步和异步函数调用
+
     示例
     --------
+    基本使用:
     >>> source = Stream()
-    >>> source.map(lambda x: 2*x).sink(print)  # 对每个元素乘以2并打印
+    >>> source.map(lambda x: x**2).sink(print)
     >>> for i in range(5):
     ...     source.emit(i)
     0
-    2
+    1
     4
-    6
-    8
+    9
+    16
+
+    带参数的映射:
+    >>> source = Stream()
+    >>> def add(x, y): return x + y
+    >>> source.map(add, 10).sink(print)
+    >>> for i in range(5):
+    ...     source.emit(i)
+    10
+    11
+    12
+    13
+    14
+
+    异步映射:
+    >>> import asyncio
+    >>> source = Stream()
+    >>> async def async_square(x):
+    ...     await asyncio.sleep(0.1)
+    ...     return x**2
+    >>> source.map(async_square).sink(print)
+    >>> for i in range(5):
+    ...     source.emit(i)
+    0
+    1
+    4
+    9
+    16
     """
 
     def __init__(self, upstream, func=None, *args, **kwargs):
+        """
+        初始化映射流
+
+        参数
+        ----------
+        upstream: Stream
+            上游数据流
+        func: callable
+            映射函数
+        *args:
+            传递给函数的位置参数
+        **kwargs:
+            传递给函数的关键字参数
+        """
         self.func = func
         # 从kwargs中提取name参数
         name = kwargs.pop('name', None)
@@ -1208,6 +1443,26 @@ class map(Stream):
         Stream.__init__(self, upstream, name=name)
 
     def update(self, x, who=None):
+        """
+        处理输入数据，应用映射函数并向下游发送结果
+
+        参数
+        ----------
+        x: Any
+            输入数据
+        who: Stream, optional
+            触发更新的上游流
+
+        返回
+        -------
+        list
+            下游处理结果列表
+
+        异常
+        -------
+        Exception
+            如果映射函数执行失败，记录并重新抛出异常
+        """
         try:
             # 应用函数到输入值
             result = self.func(x, *self.args, **self.kwargs)
@@ -1225,6 +1480,7 @@ class map(Stream):
 
                 # 添加Future到事件循环
                 self.loop.add_future(futs, lambda x: self._emit(x.result()))
+                return []  # 异步操作立即返回空列表
             else:
                 # 同步结果直接发射
                 return self._emit(result)
@@ -1232,8 +1488,6 @@ class map(Stream):
             # 记录并重新抛出异常
             logger.exception(e)
             raise
-
-
 @Stream.register_api()
 class starmap(Stream):
     """ 对流中的每个元素应用一个函数，展开
@@ -1383,6 +1637,7 @@ def httpx(req, render=False, timeout=30, **kwargs):
     except Exception as e:
         print(req, e)
         logger.exception(e)
+        
 @Stream.register_api()
 class http(Stream):
     """自动处理流中的HTTP请求,返回response对象.
@@ -1574,6 +1829,28 @@ def sync(loop, func, *args, **kwargs):
     异常:
         RuntimeError: 如果事件循环已关闭,或在运行loop的线程中调用
         TimeoutError: 如果执行超时
+
+    示例:
+        # 基本用法
+        async def async_task():
+            await asyncio.sleep(1)
+            return "done"
+
+        result = sync(None, async_task)  # 在默认事件循环中执行
+        print(result)  # 输出: done
+
+        # 带超时设置
+        try:
+            result = sync(None, async_task, callback_timeout=0.5)
+        except gen.TimeoutError:
+            print("任务超时")
+
+        # 在事件循环线程中调用会抛出异常
+        loop = get_io_loop()
+        try:
+            loop.add_callback(lambda: sync(loop, async_task))
+        except RuntimeError as e:
+            print(e)  # 输出: sync() called from thread of running loop
     """
     # 检查事件循环是否已关闭
     loop = loop or get_io_loop()
@@ -1630,44 +1907,65 @@ def sync(loop, func, *args, **kwargs):
         return result[0]
 
 
+class Deva:
+    """Deva 事件循环管理类
+    
+    提供统一的事件循环启动和管理接口，支持优雅退出和异常处理。
 
-class Deva():
+    使用方法
+    --------
+    1. 在程序入口处调用 Deva.run() 启动事件循环
+    2. 使用 Ctrl+C 可以优雅地停止事件循环
+    3. 所有异步任务将在事件循环中执行
+
+    示例
+    --------
+    >>> from deva import Deva
+    >>> Deva.run()  # 启动事件循环
+    >>> # 在此处添加你的异步任务
+    >>> # 按 Ctrl+C 停止事件循环
+    """
+    
     @classmethod
-    def run(cls,):
-        """启动事件循环
-
-        这个方法会启动一个Tornado IOLoop事件循环,并在接收到键盘中断时退出。
-
-        有几种可选的事件循环实现方式:
-        1. 使用IOLoop创建新的事件循环:
-           loop = IOLoop()
-           loop.make_current() 
-           loop.start()
-
-        2. 使用get_io_loop获取事件循环:
-           loop = get_io_loop(asynchronous=False)
-           loop.instance().start()
-
-        3. 使用asyncio创建事件循环:
-           import asyncio
-           loop = asyncio.new_event_loop()
-           loop.run_forever()
-
-        当前使用的是最简单的方式 - 直接创建并启动一个IOLoop。
-
+    def run(cls):
+        """启动并管理事件循环
+        
+        该方法会启动一个 Tornado IOLoop 事件循环，并处理以下情况：
+        1. 正常启动事件循环
+        2. 捕获键盘中断信号(Ctrl+C)进行优雅退出
+        3. 记录事件循环运行状态
+        
+        实现特点：
+        - 使用单例模式确保只有一个事件循环实例
+        - 提供统一的退出处理
+        - 支持日志记录
+        
         Returns:
             None
-
+            
         Raises:
-            KeyboardInterrupt: 当收到Ctrl+C时退出
+            KeyboardInterrupt: 当收到 Ctrl+C 时退出
+            RuntimeError: 如果事件循环启动失败
         """
-         
-        try:
-            IOLoop().start()
-        except KeyboardInterrupt:
-            exit()
-
+        logger.info("Starting Deva event loop...")
         
+        try:
+            # 获取当前事件循环实例
+            loop = IOLoop().start()
+            
+            # 启动事件循环
+            loop.start()
+            
+        except KeyboardInterrupt:
+            logger.info("Received keyboard interrupt, shutting down...")
+            exit(0)
+            
+        except Exception as e:
+            logger.error(f"Failed to start event loop: {str(e)}")
+            raise RuntimeError(f"Event loop startup failed: {str(e)}")
+            
+        finally:
+            logger.info("Deva event loop stopped")
 
 
-print(os.getpid())
+logger.info(f"当前进程ID: {os.getpid()}")

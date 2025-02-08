@@ -379,4 +379,4 @@ def mail(to='zjw0358@gmail.com'):
 if __name__ == '__main__':
     123 >> Dtalk()
     from .core import Deva
-    Deva().run()
+    Deva.run()

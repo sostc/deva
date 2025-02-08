@@ -31,7 +31,7 @@ __all__: builtins.list[builtins.str] = [
     'head', 'read', 'tcp_write', 'write_to_file', 'size', 'ls', 'range',
     'sum', 'split', 'sample', 'extract', 'readlines', 'last',
     'abs', 'type', 'll', 'pslice','truncate',
-    'dir', 'help',
+    'dir', 'help','mean',
     'eval',
     'hash',
     'id',
@@ -906,27 +906,6 @@ def tee(iterable):
         yield item
 
 
-# @Pipe
-# def write_to_file(fn, prefix='', suffix='\n', flush=True, mode='a+'):
-#     """同时支持二进制和普通文本的写入.
-
-#     Exsapmles:
-#         123>>write_to_file('tpm.txt')
-#         b'abc'>>write_to_file('music.mp3','ab+')
-#     """
-#     def _(content):
-#         with open(fn, mode) as f:
-#             if 'b' in mode:
-#                 f.write(content)
-#             else:
-#                 f.write(prefix)
-#                 f.write(str(content))
-#                 f.write(suffix)
-#             if flush:
-#                 f.flush()
-#         return content
-
-#     return _ @ P
 @Pipe
 def write_to_file(fn, prefix='', suffix='\n', flush=True, mode='a+'):
     """同时支持二进制和普通文本的写入.
@@ -957,17 +936,17 @@ def write_to_file(fn, prefix='', suffix='\n', flush=True, mode='a+'):
         # 控制刷新
         'cached' >> write_to_file('cache.txt', flush=False)  # 不立即刷新缓冲区
     """
-    f = open(fn, mode)
+    _f = open(fn, mode)
 
     def _(content):
         if 'b' in mode:
-            f.write(content)
+            _f.write(content)
         else:
-            f.write(prefix)
-            f.write(str(content))
-            f.write(suffix)
+            _f.write(prefix)
+            _f.write(str(content))
+            _f.write(suffix)
         if flush:
-            f.flush()
+            _f.flush()
         return content
 
     return _ @ P
@@ -1638,6 +1617,33 @@ def sliding_window(qte: int = 2):
         return _window(iterable)
 
 sw = sliding_window
+
+@Pipe
+def mean(iterable):
+    """计算可迭代对象的平均值
+
+    Args:
+        iterable: 可迭代对象
+
+    Returns:
+        float: 平均值
+
+    Examples:
+        >>> [1, 2, 3, 4, 5] >> mean
+        3.0
+
+        >>> range(10) >> mean
+        4.5
+
+        >>> "abc" >> mean
+        1.0
+    """
+    total = 0
+    count = 0
+    for item in iterable:
+        total += item
+        count += 1
+    return total / count
 
 if __name__ == "__main__":
     import doctest

@@ -4,10 +4,23 @@ from .pipe import P
 from tornado import gen
 """Future相关工具
 
-提供了一些处理Future对象的工具函数和流操作。
+提供处理Future对象的工具函数和流操作，主要用于异步任务的结果处理。
 
-Examples
+主要功能
 --------
+- 处理Tornado和asyncio的Future对象
+- 将Future的结果作为流数据发射
+- 支持并发执行多个Future任务
+
+参数
+----
+upstream : Stream, 可选
+    上游流对象，用于接收Future对象
+**kwargs : dict
+    其他参数传递给Stream基类
+
+示例
+----
 >>> from tornado import gen
 >>> @gen.coroutine 
 ... def foo():
@@ -17,8 +30,20 @@ Examples
 >>> future = foo()
 >>> # 使用run_future流处理Future
 >>> s = Stream()
->>> s.run_future() >> print
+>>> s.run_future() >> print  # 创建run_future流
 >>> future >> s  # 输出: 42
+
+>>> # 处理多个Future
+>>> s = Stream()
+>>> s.rate_limit(1).run_future() >> log  # 限速处理
+>>> for i in range(3):
+...     foo() >> s  # 并发执行多个Future
+
+注意事项
+--------
+- 上游流建议使用rate_limit进行限速，避免并发过高
+- 支持Tornado和asyncio的Future对象
+- Future的结果会作为流数据发射到下游
 """
 
 
