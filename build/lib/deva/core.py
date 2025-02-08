@@ -1038,9 +1038,11 @@ class Stream(object):
             for handler in self._subscribers[topic]:
                 handler(message)
 
-    def __call__(self,func):
-        return self.catch(func=func)
-
+    def __call__(self, obj):
+        if callable(obj):
+            return self.catch(func=obj)
+        else:
+            return self.emit(obj)
 
 
 class Sink(Stream):
