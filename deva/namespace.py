@@ -11,7 +11,6 @@ Example usage::
     NT('bus') == NT('bus')
     NS('log') == NS('log')
     NB('tmp') == NB('tmp')
-    NX('a') == NX('a')
 
 """
 

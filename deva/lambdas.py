@@ -1,4 +1,37 @@
 # -*- coding: utf-8 -*-
+"""Lambda表达式工具模块
+
+该模块提供了用于创建和操作lambda表达式的工具函数和类。
+主要用于简化函数式编程中的操作，支持常见的数学运算和逻辑操作。
+
+主要功能：
+- 支持通过运算符重载创建lambda表达式
+- 提供映射操作符的装饰器
+- 支持函数参数翻转
+- 提供类型安全的lambda表达式创建
+
+主要类：
+- _Callable: 核心类，通过运算符重载创建lambda表达式
+
+示例用法：
+1. 创建简单的lambda表达式
+>>> f = _Callable()
+>>> add_one = f + 1  # 等价于 lambda x: x + 1
+>>> result = add_one(5)  # 输出: 6
+
+2. 使用映射操作符
+>>> get_name = f['name']  # 等价于 lambda x: x['name']
+>>> result = get_name({'name': 'Alice'})  # 输出: 'Alice'
+
+3. 组合操作
+>>> complex_op = (f + 1) * 2  # 等价于 lambda x: (x + 1) * 2
+>>> result = complex_op(3)  # 输出: 8
+
+注意事项：
+- 使用TypeVar确保类型安全
+- 支持常见的数学运算符（+,-,*,/,%等）
+- 支持逻辑运算符（and,or,not等）
+"""
 
 import operator
 from typing import Callable, Mapping, TypeVar

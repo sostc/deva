@@ -1,4 +1,32 @@
-"""Graphing utilities for EventStreams"""
+"""事件流图工具模块
+
+该模块提供了用于可视化和分析事件流（EventStreams）的图形工具。
+主要用于生成和操作流处理拓扑图。
+
+主要功能：
+- 创建流处理拓扑图
+- 清理节点标签文本
+- 支持上下游节点关系可视化
+- 生成适合Graphviz的图形结构
+
+示例用法：
+>>> from deva import Stream
+>>> from deva.graph import create_graph
+>>> import networkx as nx
+
+>>> # 创建流处理拓扑
+>>> s1 = Stream()
+>>> s2 = s1.map(lambda x: x * 2)
+>>> s3 = s2.filter(lambda x: x > 10)
+
+>>> # 生成图形
+>>> graph = nx.DiGraph()
+>>> create_graph(s3, graph)
+
+注意事项：
+- 需要安装networkx库
+- 生成的图形可以直接用于Graphviz渲染
+"""
 from __future__ import absolute_import, division, print_function
 
 from functools import partial
@@ -7,27 +35,67 @@ import re
 
 
 def _clean_text(text, match=None):
-    ''' Clean text, remove forbidden characters.
-    '''
-    # all non alpha numeric characters, except for _ and :
-    # replace them with space
-    # the + condenses a group of consecutive characters all into one space
-    # (rather than assigning a space to each)
+    """清理文本，移除非法字符
+    
+    该函数用于清理文本中的非法字符，使其适合作为图形节点标签。
+    默认会保留字母、数字、下划线和冒号，其他字符将被替换为空格。
+    连续的非法字符会被压缩为单个空格，冒号会被替换为分号。
+    
+    参数:
+        text (str): 需要清理的原始文本
+        match (str, 可选): 自定义的正则表达式匹配模式，默认为'[^a-zA-Z0-9_:]+'
+    
+    返回:
+        str: 清理后的文本
+    
+    示例:
+        >>> _clean_text("Node: 123_abc!@#")
+        'Node; 123_abc'
+    """
     if match is None:
         match = '[^a-zA-Z0-9_:]+'
+    # 替换非法字符为空格
     text = re.sub(match, ' ', text)
-    # now replace the colon with semicolon
+    # 将冒号替换为分号
     text = re.sub(":", ";", text)
     return text
 
-
 def create_graph(node, graph, prior_node=None, pc=None):
-    """Create graph from a single node, searching up and down the chain
+    """从单个节点创建图形，并沿上下游链进行搜索
 
-    Parameters
+    该函数用于从流处理拓扑中的单个节点开始，递归地创建图形表示。
+    会遍历节点的上下游关系，构建完整的处理流程拓扑图。
+
+    参数
     ----------
-    node: Stream instance
-    graph: networkx.DiGraph instance
+    node : Stream
+        流处理节点实例，作为图形创建的起点
+    graph : networkx.DiGraph
+        用于存储图形的DiGraph实例
+    prior_node : Stream, 可选
+        前驱节点，用于确定节点间的连接关系
+    pc : str, 可选
+        连接方向，'downstream'表示下游，其他表示上游
+
+    示例
+    --------
+    >>> from deva import Stream
+    >>> import networkx as nx
+
+    >>> # 创建简单流处理拓扑
+    >>> s1 = Stream()
+    >>> s2 = s1.map(lambda x: x * 2)
+    >>> s3 = s2.filter(lambda x: x > 10)
+
+    >>> # 生成图形
+    >>> graph = nx.DiGraph()
+    >>> create_graph(s3, graph)
+
+    注意事项
+    --------
+    - 节点使用hash值作为唯一标识
+    - 图形属性包括label、shape、orientation等
+    - 会自动处理循环引用，避免重复添加边
     """
     if node is None:
         return
@@ -53,14 +121,45 @@ def create_graph(node, graph, prior_node=None, pc=None):
             if node2 is not None:
                 create_graph(node2, graph, node, pc=pc)
 
-
 def create_edge_label_graph(node, graph, prior_node=None, pc=None, i=None):
-    """Create graph from a single node, searching up and down the chain
+    """从单个节点创建带边标签的图形，沿上下游链搜索
 
-    Parameters
+    该函数用于创建带边标签的有向图，能够表示流处理拓扑中节点之间的关系。
+    支持上下游关系的遍历，并为边添加标签。
+
+    参数
     ----------
-    node: Stream instance
-    graph: networkx.DiGraph instance
+    node : Stream实例
+        当前处理的流节点
+    graph : networkx.DiGraph实例
+        用于存储图形的有向图对象
+    prior_node : Stream, 可选
+        前驱节点，用于确定节点间的连接关系
+    pc : str, 可选
+        连接方向，'downstream'表示下游，其他表示上游
+    i : int/str, 可选
+        边标签的索引值，用于区分多个连接
+
+    示例
+    --------
+    >>> from deva import Stream
+    >>> import networkx as nx
+
+    >>> # 创建简单流处理拓扑
+    >>> s1 = Stream()
+    >>> s2 = s1.map(lambda x: x * 2)
+    >>> s3 = s2.filter(lambda x: x > 10)
+
+    >>> # 生成带边标签的图形
+    >>> graph = nx.DiGraph()
+    >>> create_edge_label_graph(s3, graph)
+
+    注意事项
+    --------
+    - 节点使用hash值作为唯一标识
+    - 图形属性包括label、shape、orientation等
+    - 会自动处理循环引用，避免重复添加边
+    - 当存在多个连接时，会为边添加索引标签
     """
     if node is None:
         return
@@ -91,14 +190,29 @@ def create_edge_label_graph(node, graph, prior_node=None, pc=None, i=None):
                 else:
                     create_edge_label_graph(node2, graph, node, pc=pc)
 
-
 def readable_graph(node, source_node=False):
-    """Create human readable version of this object's task graph.
+    """创建可读的任务图表示
 
-    Parameters
+    将流处理拓扑图转换为更易读的NetworkX图表示，节点标签经过清理和去重处理。
+
+    参数
     ----------
-    node: Stream instance
-        A node in the task graph
+    node : Stream实例
+        任务图中的节点
+    source_node : bool, 可选
+        是否作为源节点处理，默认为False
+
+    返回
+    -------
+    networkx.DiGraph
+        重新标记后的有向图对象
+
+    示例
+    --------
+    >>> from deva import Stream
+    >>> s = Stream()
+    >>> g = readable_graph(s)
+    >>> print(g.nodes)
     """
     import networkx as nx
     g = nx.DiGraph()
@@ -121,6 +235,20 @@ def readable_graph(node, source_node=False):
 
 
 def to_graphviz(graph, **graph_attr):
+    """将NetworkX图转换为Graphviz图对象
+
+    参数
+    ----------
+    graph : networkx.DiGraph
+        要转换的NetworkX图
+    **graph_attr : dict
+        传递给Graphviz的图形属性
+
+    返回
+    -------
+    graphviz.Digraph
+        Graphviz图对象
+    """
     import graphviz
     gvz = graphviz.Digraph(graph_attr=graph_attr)
     for node, attrs in graph.node.items():
@@ -131,39 +259,37 @@ def to_graphviz(graph, **graph_attr):
 
 
 def visualize(node, filename='mystream.png', source_node=False, **kwargs):
-    """
-    Render a task graph using dot.
+    """可视化任务图
 
-    If `filename` is not None, write a file to disk with that name in the
-    format specified by `format`.  `filename` should not include an extension.
+    使用Graphviz渲染任务图，支持多种输出格式和IPython显示。
 
-    Parameters
+    参数
     ----------
-    node : Stream instance
-        The stream to display.
-    filename : str or None, optional
-        The name (without an extension) of the file to write to disk.  If
-        `filename` is None, no file will be written, and we communicate with
-        dot using only pipes.  Default is 'mydask'.
-    format : {'png', 'pdf', 'dot', 'svg', 'jpeg', 'jpg'}, optional
-        Format in which to write output file.  Default is 'png'.
+    node : Stream实例
+        要显示的流对象
+    filename : str或None, 可选
+        输出文件名（不带扩展名），默认为'mystream.png'
+    source_node : bool, 可选
+        是否作为源节点处理，默认为False
+    **kwargs : dict
+        传递给Graphviz的图形属性
 
-    Returns
+    返回
     -------
-    result : None or IPython.display.Image or IPython.display.SVG  (See below.)
+    None或IPython.display.Image或IPython.display.SVG
+        根据输出格式返回相应的显示对象
 
-    Notes
+    异常
     -----
-    If IPython is installed, we return an IPython.display object in the
-    requested format.  If IPython is not installed, we just return None.
+    RuntimeError
+        当Graphviz无法生成图像时抛出
 
-    We always return None if format is 'pdf' or 'dot', because IPython can't
-    display these formats natively. Passing these formats with filename=None
-    will not produce any useful output.
-
-    See Also
+    示例
     --------
-    streams.graph.readable_graph
+    >>> from deva import Stream
+    >>> s = Stream()
+    >>> visualize(s)  # 在IPython中显示图像
+    >>> visualize(s, filename='mygraph')  # 保存为mygraph.png
     """
     rg = readable_graph(node, source_node=source_node)
     g = to_graphviz(rg, **kwargs)
@@ -171,21 +297,16 @@ def visualize(node, filename='mystream.png', source_node=False, **kwargs):
     fmts = ['.png', '.pdf', '.dot', '.svg', '.jpeg', '.jpg']
     if filename is None:
         format = 'png'
-
     elif any(filename.lower().endswith(fmt) for fmt in fmts):
         filename, format = os.path.splitext(filename)
         format = format[1:].lower()
-
     else:
         format = 'png'
 
     data = g.pipe(format=format)
     if not data:
-        raise RuntimeError("Graphviz failed to properly produce an image. "
-                           "This probably means your installation of graphviz "
-                           "is missing png support. See: "
-                           "https://github.com/ContinuumIO/anaconda-issues/"
-                           "issues/485 for more information.")
+        raise RuntimeError("Graphviz无法生成图像。这可能是因为您的Graphviz安装缺少png支持。"
+                         "详情请见: https://github.com/ContinuumIO/anaconda-issues/issues/485")
 
     display_cls = _get_display_cls(format)
 
@@ -204,30 +325,34 @@ IPYTHON_NO_DISPLAY_FORMATS = frozenset(['dot', 'pdf'])
 
 
 def _get_display_cls(format):
-    """
-    Get the appropriate IPython display class for `format`.
+    """获取指定格式的IPython显示类
 
-    Returns `IPython.display.SVG` if format=='svg', otherwise
-    `IPython.display.Image`.
+    参数
+    ----------
+    format : str
+        图像格式，如'png', 'svg'等
 
-    If IPython is not importable, return dummy function that swallows its
-    arguments and returns None.
+    返回
+    -------
+    function
+        返回相应的IPython显示类，如果IPython不可用则返回空函数
+
+    异常
+    -----
+    ValueError
+        当传入未知格式时抛出
     """
     dummy = lambda *args, **kwargs: None
     try:
         import IPython.display as display
     except ImportError:
-        # Can't return a display object if no IPython.
         return dummy
 
     if format in IPYTHON_NO_DISPLAY_FORMATS:
-        # IPython can't display this format natively, so just return None.
         return dummy
     elif format in IPYTHON_IMAGE_FORMATS:
-        # Partially apply `format` so that `Image` and `SVG` supply a uniform
-        # interface to the caller.
         return partial(display.Image, format=format)
     elif format == 'svg':
         return display.SVG
     else:
-        raise ValueError("Unknown format '%s' passed to `dot_graph`" % format)
+        raise ValueError("未知格式'%s'传递给`dot_graph`" % format)
