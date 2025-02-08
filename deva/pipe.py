@@ -829,10 +829,37 @@ def concat(separator=", "):
 
 @Pipe
 def split(sep="\n"):
+    """将字符串按指定分隔符分割成列表.
+    
+    将输入字符串按指定的分隔符进行分割，返回分割后的列表。
+    
+    Args:
+        sep (str): 用于分割字符串的分隔符，默认为换行符"\n"
+        
+    Returns:
+        function: 返回处理函数，用于在管道中分割字符串
+        
+    Example::
+        
+        # 按默认换行符分割
+        "line1\nline2\nline3" | split()  # ["line1", "line2", "line3"]
+        
+        # 指定分隔符
+        "a,b,c" | split(',')  # ["a", "b", "c"]
+        
+        # 分割空字符串
+        "" | split()  # [""]
+        
+        # 在数据流中使用
+        stream = from_list(["1,2,3", "4,5,6"])
+        stream | split(',')  # [["1", "2", "3"], ["4", "5", "6"]]
+        
+        # 使用多个字符作为分隔符
+        "a|b|c" | split('|')  # ["a", "b", "c"]
+    """
     def _(iteration):
         return iteration.split(sep)
     return _ @ P
-
 
 @Pipe
 def pslice(start, end):
