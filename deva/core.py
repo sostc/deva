@@ -1588,11 +1588,30 @@ def httpx(req, render=False, timeout=30, **kwargs):
         **kwargs: 渲染参数,传递给arender()方法
 
     返回:
-        response: 响应对象
+        response: 响应对象，包含以下常用属性和方法：
+            - status_code: HTTP状态码
+            - text: 响应内容文本
+            - json(): 将响应内容解析为JSON
+            - content: 原始响应内容(bytes)
+            - headers: 响应头字典
+            - url: 最终请求URL
+            - history: 重定向历史记录
+            - cookies: 响应cookies
+            - raise_for_status(): 如果状态码不是2xx则抛出异常
+            - html: 包含以下方法：
+                * find(selector): 使用CSS选择器查找元素
+                * xpath(expr): 使用XPath查找元素
+                * arender(**kwargs): 异步渲染JavaScript
+                * search(template): 使用模板搜索内容
+                * absolute_links: 获取所有绝对链接
 
     示例:
         # URL字符串
         response = yield httpx('http://example.com')
+        print(response.status_code)  # 200
+        print(response.text)  # HTML内容
+        print(response.json())  # 如果响应是JSON
+        print(response.headers)  # 响应头
 
         # 请求参数字典
         response = yield httpx({
@@ -1600,9 +1619,14 @@ def httpx(req, render=False, timeout=30, **kwargs):
             'method': 'post',
             'data': {'key': 'value'}
         })
-
+        
+        # 链式处理
+        httpx('http://secsay.com')>>P(lambda x:x.html.search("<title>{}</title>")|first)+P(lambda x:x*2)+print
+        
         # 渲染JavaScript
         response = yield httpx('http://example.com', render=True)
+        # 使用CSS选择器查找元素
+        element = response.html.find('h1.title', first=True)
     """
     # 移动端浏览器User-Agent
     mobile_headers = {
@@ -1637,66 +1661,68 @@ def httpx(req, render=False, timeout=30, **kwargs):
     except Exception as e:
         print(req, e)
         logger.exception(e)
-        
 @Stream.register_api()
-class http(Stream):
-    """自动处理流中的HTTP请求,返回response对象.
+class crawler(Stream):
+    """基于流的网页爬虫类，支持同步和异步HTTP请求
 
-    接受两种上游数据格式:
-    1. URL字符串
-    2. 请求参数字典
-
-    注意:上游流需要限速,因为这是并发执行,速度很快
+    该类封装了网页爬取的核心功能，支持以下特性：
+    - 支持URL字符串和请求参数字典两种输入格式
+    - 自动处理JavaScript渲染
+    - 内置错误处理和日志记录
+    - 支持并发请求
+    - 提供网页内容提取功能
 
     参数:
-        error: 流或pipe函数,发生异常时URL会被发送到这里
-        workers: 并发线程池数量
-        render: 是否渲染JavaScript,默认False
-        **kwargs: 渲染参数,包括:
-            - retries: 重试次数,默认8
+        upstream (Stream, 可选): 上游数据流
+        render (bool, 可选): 是否渲染JavaScript，默认False
+        workers (int, 可选): 并发线程池数量
+        error (callable, 可选): 错误处理函数，默认print
+        **kwargs: 渲染参数，包括：
+            - retries: 重试次数，默认8
             - script: 自定义JavaScript脚本
-            - wait: 等待时间,默认0.2秒
+            - wait: 等待时间，默认0.2秒
             - scrolldown: 是否向下滚动
             - sleep: 休眠时间
-            - reload: 是否重新加载,默认True
-            - timeout: 超时时间,默认8秒
-            - keep_page: 是否保持页面,默认False
+            - reload: 是否重新加载，默认True
+            - timeout: 超时时间，默认8秒
+            - keep_page: 是否保持页面，默认False
+
+    方法:
+        update(req, who=None): 处理上游数据并发送请求
+        emit(req, **kwargs): 发送请求并返回原始请求
+        _request(req): 执行异步HTTP请求
+        request(url, **kwargs): 执行同步HTTP请求
+        get(url, **kwargs): GET请求快捷方法
+        get_web_article(url, key='text'): 提取网页文章内容
 
     示例:
-        # 基本用法
-        s = Stream()
-        get_data = lambda x:x.body.decode('utf-8')>>chinese_extract>>sample(20)>>concat('|')
-        s.rate_limit(0.1).http(workers=20,error=log).map(get_data).sink(print)
+        >>> # 基本用法
+        >>> s = Stream()
+        >>> s.rate_limit(0.1).crawler(workers=20).map(lambda r: r.text).sink(print)
+        >>> 'https://example.com' >> s
 
-        url>>s
+        >>> # 使用请求参数字典
+        >>> req = {
+        ...     'url': 'https://example.com',
+        ...     'headers': {'User-Agent': 'Mozilla/5.0'},
+        ...     'params': {'q': 'test'}
+        ... }
+        >>> req >> s
 
-        # 使用请求参数字典
-        {'url':'','headers'='','params':''}>>s
+        >>> # 提取网页文章
+        >>> article = await crawler.get_web_article('https://example.com')
+        >>> print(article)
 
-        # 提取标题
-        h = http()
-        h.map(lambda r:(r.url,r.html.search('<title>{}</title>')[0]))>>log
-        'http://www.518.is'>>h
-
-        [2020-03-17 03:46:30.902542] INFO: log: ('http://518.is/', 'NajaBlog')
-
-    返回:
-        response对象,常用方法:
-        - r.html.absolute_links: 提取所有完整链接
-        - r.html.find(): CSS选择器
-        - r.html.search(): 搜索模板
-        - r.html.xpath(): XPath查询
-        - r.url: 请求URL
-        - r.base_url: 基础URL
-        - r.text: 响应文本
-        - r.full_text: 完整文本
+        >>> # 同步请求
+        >>> response = crawler.request('https://example.com')
+        >>> print(response.status_code)
     """
 
     def __init__(self, upstream=None, render=False, workers=None, error=print, **kwargs):
-        """初始化HTTP流
+        """初始化爬虫实例
 
         参数:
-            upstream: 上游流
+            upstream: 上游数据流
             render: 是否渲染JavaScript
             workers: 并发线程池数量
             error: 错误处理函数
@@ -1709,11 +1735,11 @@ class http(Stream):
         self.kwargs = kwargs
 
     def update(self, req, who=None):
-        """更新流数据
+        """处理上游数据并发送请求
 
         参数:
-            req: 请求(URL或字典)
-            who: 更新者标识
+            req: 请求数据，可以是URL字符串或请求参数字典
+            who: 数据来源标识
         """
         self.loop.add_future(
             self._request(req),
@@ -1721,45 +1747,59 @@ class http(Stream):
         )
 
     def emit(self, req, **kwargs):
-        """发送请求
+        """发送请求并返回原始请求
 
         参数:
-            req: 请求(URL或字典)
+            req: 请求数据，可以是URL字符串或请求参数字典
             **kwargs: 额外参数
 
         返回:
-            req: 原始请求
+            req: 原始请求数据
+
+        异常:
+            TypeError: 当req不是字符串或字典时抛出
         """
+        if not isinstance(req, (str, dict)):
+            raise TypeError(f"请求类型必须为字符串或字典，当前类型为: {type(req)}")
         self.update(req)
         return req
-
+    
     @gen.coroutine
     def _request(self, req):
-        """执行异步请求
+        """执行异步HTTP请求
 
         参数:
-            req: 请求(URL或字典)
+            req: 请求数据，可以是URL字符串或请求参数字典
 
         返回:
             response: 响应对象
+
+        异常处理:
+            - 捕获所有异常并记录日志
+            - 将错误信息通过error流输出
+            - 保持请求上下文信息
         """
         try:
-            if isinstance(req, str):
-                response = yield self.httpclient.get(req)
-            elif isinstance(req, dict):
-                response = yield self.httpclient.get(**req)
-
+            request_params = {'url': req} if isinstance(req, str) else req
+            response = yield self.httpclient.get(**request_params)
+            
             if self.render:
                 yield response.html.arender(**self.kwargs)
-
+                
             return response
+            
         except Exception as e:
-            (req, e) >> self.error
-            logger.exception(e)
+            error_context = {
+                'request': req,
+                'error': str(e),
+                'timestamp': datetime.now().isoformat()
+            }
+            error_context >> self.error
+            logger.exception(f"请求失败: {error_context}")
 
     @classmethod
     def request(cls, url, **kwargs):
-        """同步HTTP请求
+        """执行同步HTTP请求
 
         参数:
             url: 请求URL
@@ -1767,17 +1807,25 @@ class http(Stream):
 
         返回:
             response: 响应对象
+
+        异常:
+            捕获所有异常并记录日志，但不中断程序执行
         """
         from requests_html import HTMLSession
+        
         httpclient = HTMLSession()
+        request_params = {'url': url, **kwargs}
+        
         try:
-            kwargs.update({'url': url})
-            response = httpclient.get(**kwargs)
-
+            response = httpclient.get(**request_params)
+            logger.debug(f"请求成功: {url}, 状态码: {response.status_code}")
             return response
+            
         except Exception as e:
-            logger.exception(e)
-
+            logger.error(f"请求失败: {url}, 错误: {str(e)}")
+            logger.exception("请求异常详情:")
+            return None
+        
     @classmethod
     def get(cls, url, **kwargs):
         """GET请求快捷方法
@@ -1791,15 +1839,13 @@ class http(Stream):
         """
         return cls.request(url, **kwargs)
 
-    x = httpx
-
     @classmethod
     async def get_web_article(cls, url, key='text'):
         """提取网页文章内容
 
         参数:
             url: 网页URL
-            key: 提取字段,可选值:title|description|image|text等,默认text
+            key: 提取字段，可选值：title|description|image|text等，默认text
 
         返回:
             提取的内容或完整数据字典
@@ -1808,11 +1854,7 @@ class http(Stream):
 
         response = await httpx(url)
         data = bare_extraction(response.content)
-        if key:
-            return data.get(key)
-        else:
-            return data
-
+        return data.get(key) if key else data
 
 def sync(loop, func, *args, **kwargs):
     """在单独线程中运行的事件循环中执行协程函数
