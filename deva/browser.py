@@ -516,8 +516,9 @@ def open_tabs_in_browser():
 if __name__ == "__main__":
     from deva.browser import tab,browser,tabs
     from deva import *
-
-    tab('http://secsay.com').page.html.search('<title>{}</title>')
+    from deva.pipe import Pipe
+    tab('http://secsay.com').page>>Pipe(lambda p:p.html.search('<title>{}</title>')>>log)
+    
     browser.page_stream.filter(lambda page:page.url=='http://baidu.com').map(lambda p:p.article>>log)
     tab('http://baidu.com')
     
@@ -526,7 +527,7 @@ if __name__ == "__main__":
 
     # 创建一个新的 tab 并请求 URL
     tab1 = browser.tab("http://secsay.com")
-    res = tab1.page
+    res =  tab1.page
 
     # 刷新 URL 的响应内容
     response2 = tab1.refresh()
@@ -543,45 +544,11 @@ if __name__ == "__main__":
     # 2025-01-04 22:44:36.504692 : 后台完成异步请求http://secsay.com
     # 2025-01-04 22:44:36.504819 : 为http://secsay.com安排定期刷新
 
-    # 使用OpenAI API分析网页结构并提取XPath
-    from deva import openai
-    api_key = '919a795d-207b-4ccf-8fd4-83ee5a23e961'
-    API_URL = "https://api.sambanova.ai/v1/"
-    model = "Meta-Llama-3.1-8B-Instruct"
+   
     
-    # 获取网页内容
-    html_content = tab1.page.text
     
-    # 构建提示语
-    prompt = f"""分析以下HTML内容，找出正文和标题的XPath路径:
 
-{html_content}
-
-请返回JSON格式:
-{{
-    "title_xpath": "标题的xpath路径",
-    "content_xpath": "正文的xpath路径"
-}}
-"""
-
-    # 调用OpenAI API获取分析结果
-    result = openai.chat.completions.create(
-        model="gpt-3.5-turbo",
-        messages=[{"role": "user", "content": prompt}]
-    ).choices[0].message.content
-
-    # 解析返回的JSON
-    import json
-    xpath_info = json.loads(result)
-    
-    # 使用XPath提取内容
-    title = tab1.page.html.xpath(xpath_info['title_xpath']).first.text
-    content = tab1.page.html.xpath(xpath_info['content_xpath']).first.text
-
-    f'标题: {title}'>>print
-    f'正文: {content}'>>print
-
-    tab('http://secsay.com').close()
+    # tab('http://secsay.com').close()
 
     Deva.run()
 # ... existing code ...
