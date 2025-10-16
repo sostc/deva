@@ -345,13 +345,55 @@ class Page(object):
 
     示例用法::
 
+        # 返回流数据示例
+        @page.route("/stream")
+        def stream_data():
+            # 创建一个每秒生成当前时间的流
+            s = timer(interval=1, func=lambda: datetime.now())
+            return s
+
+        # 在Web页面展示流数据
+        s = from_list([1, 2, 3])
+        s.webview('/numbers')  # 在/numbers路径展示流数据
+
+        # 使用SSE实时推送流数据
+        log.sse('/log-stream')  # 在/log-stream路径提供SSE服务
+
+        # 基本用法
         from deva.page import Page
 
         page = Page(debug=True)
 
-        @app.route("/hello")
-        def foo():
-            return "hello"
+        @page.route("/hello")
+        def hello():
+            return "Hello World"
+
+        # 使用不同HTTP方法
+        @page.route("/api", methods=["GET", "POST"])
+        def api():
+            if request.method == "GET":
+                return "GET response"
+            else:
+                return "POST response"
+
+        # 使用Jinja2模板引擎
+        page = Page(template_engine='jinja2')
+
+        @page.route("/template")
+        def template():
+            return render_template('index.html', title='Home Page')
+
+        # 使用werkzeug路由语法
+        @page.route("/user/<int:user_id>", werkzeug_route=True)
+        def user_profile(user_id):
+            return f"User ID: {user_id}"
+
+        # 添加多个路由
+        routes = [
+            ("/about", about_page),
+            ("/contact", contact_page)
+        ]
+        page.add_routes(routes)
 
     参数:
         debug (bool): 是否启用werkzeug调试器
@@ -361,14 +403,15 @@ class Page(object):
 
     def __init__(self, debug=False, template_path=None, template_engine='tornado'):
         """初始化Page实例"""
-        assert template_engine in ('tornado', 'jinja2')
-        self.registery = OrderedDict()
-        self.url_map = Map()
-        self.mapper = self.url_map.bind("", "/")
-        self.debug = True
-        self.methods = []
-        self.routes_list = []
+        assert template_engine in ('tornado', 'jinja2')  # 确保模板引擎是支持的两种类型之一
+        self.registery = OrderedDict()  # 用于存储路由规则
+        self.url_map = Map()  # 用于映射URL
+        self.mapper = self.url_map.bind("", "/")  # 绑定URL映射器
+        self.debug = True  # 调试模式标志
+        self.methods = []  # 存储HTTP方法
+        self.routes_list = []  # 存储路由列表
 
+        # 设置模板路径
         if not template_path:
             frame = inspect.currentframe()
             while frame and frame.f_code.co_filename == __file__:
@@ -378,6 +421,7 @@ class Page(object):
         else:
             self.template_path = template_path
 
+        # 初始化模板引擎
         self.template_engine = template_engine
         if template_engine == 'jinja2':
             from jinja2 import Environment, FileSystemLoader
@@ -395,6 +439,7 @@ class Page(object):
         return _rule_re.match(route)
 
     def __call__(self, *args, **kwargs):
+        """使实例可调用"""
         self.route(*args, **kwargs)
 
     def route(self, rule, methods=None, **kwargs):
@@ -407,40 +452,76 @@ class Page(object):
 
     def add_route(self, rule, fn, methods=None, **kwargs):
         """添加路由规则"""
-        assert callable(fn)
+        assert callable(fn)  # 确保传入的是可调用对象
         self.methods.append(dict(rule=rule, methods=methods, fn=fn, **kwargs))
 
     def _create_handler_class(self, fn, methods, bases):
-        """创建处理器类"""
+        """创建处理器类
+        
+        根据传入的函数、HTTP方法和基类动态创建一个请求处理器类。
+        该类将处理指定HTTP方法的请求，并根据函数返回值的类型进行相应的处理。
+        
+        参数:
+            fn (function): 处理请求的函数
+            methods (list): 支持的HTTP方法列表，如['GET', 'POST']
+            bases (tuple): 基类元组，通常包含RequestHandler或其子类
+            
+        返回:
+            type: 动态创建的处理器类
+        """
+        # 生成处理器类名，基于函数名首字母大写并添加Handler后缀
         clsname = f'{fn.__name__.capitalize()}Handler'
+        
+        # 用于存储类方法的字典
         m = {}
         
+        # 遍历所有支持的HTTP方法
         for method in methods:
+            # 检查函数参数，判断是否包含self或handler参数
             inspected = inspect.getfullargspec(fn)
             self_in_args = inspected.args and inspected.args[0] in ['self', 'handler']
             
             if not self_in_args:
+                # 如果函数不包含self或handler参数，创建包装器函数
                 def wrapper(self, *args, **kwargs):
+                    """请求处理包装器
+                    
+                    处理请求并返回响应，支持多种返回类型：
+                    - Stream对象：渲染流模板
+                    - TemplateProxy对象：根据模板引擎渲染模板
+                    - 其他类型：直接返回结果
+                    """
+                    # 调用原始处理函数
                     result = fn(*args, **kwargs)
+                    
+                    # 处理Stream类型返回值
                     if isinstance(result, Stream):
                         result = render_template('./templates/streams.html', streams=[result])
+                    
+                    # 处理TemplateProxy类型返回值
                     if isinstance(result, TemplateProxy):
                         if self._template_engine == 'tornado':
+                            # 使用Tornado模板引擎渲染
                             self.render(*result.args, **result.kwargs)
                         else:
+                            # 使用其他模板引擎（如Jinja2）渲染
                             template = self._template_env.get_template(result.args[0])
                             self.finish(template.render(handler=self, **result.kwargs))
                     else:
+                        # 直接返回结果
                         self.finish(result)
+                
+                # 将包装器函数添加到方法字典，方法名转换为小写
                 m[method.lower()] = wrapper
             else:
+                # 如果函数包含self或handler参数，直接使用原函数
                 m[method.lower()] = fn
                 
+        # 使用type动态创建类，包含指定的方法和基类
         return type(clsname, bases, m)
-
     def route_(self, rule, methods=None, fn=None, **kwargs):
         """实际的路由注册逻辑"""
-        methods = methods or ['GET']
+        methods = methods or ['GET']  # 默认使用GET方法
         bases = (DebuggableHandler,) if self.debug else (tornado.web.RequestHandler,)
         
         klass = self._create_handler_class(fn, methods, bases)
@@ -461,7 +542,6 @@ class Page(object):
     def add_routes(self, routes_list):
         """添加路由列表"""
         self.routes_list = routes_list
-
 
 
 
@@ -585,7 +665,8 @@ if __name__ == '__main__':
 
     @page.route('/s')
     def my_log():
-        return 'hello world'
+        return log
+        # return 'hello world'
 
     
     log.webview('/log')

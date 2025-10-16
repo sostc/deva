@@ -143,7 +143,7 @@ class Pipe:
             async_data() | process_data  # 异步处理数据
         """
         if isinstance(other, gen.Awaitable):
-            self.run_async(other, self.func)
+            return self.run_async(other, self.func)
         else:
             return self.func(other)
     def __rrshift__(self, other):

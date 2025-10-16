@@ -9,6 +9,60 @@ from .namespace import NB
 from pymaybe import maybe
 import json
 
+"""端点模块
+
+提供与外部系统交互的端点功能，包括Kafka消息处理、Redis消息处理、钉钉消息和邮件发送等。
+
+主要功能
+--------
+- Kafka消息：支持将数据流写入Kafka
+- Redis消息：支持将数据流写入Redis
+- 钉钉消息：支持通过钉钉机器人发送消息
+- 邮件发送：支持通过SMTP发送邮件
+
+主要类及用例
+------------
+1. to_kafka类
+   功能：将数据流写入Kafka的流处理类
+   用例：
+   >>> from deva.endpoints import to_kafka
+   >>> source = Stream()
+   >>> kafka = source.map(str).to_kafka('test', {'bootstrap.servers': 'localhost:9092'})
+   >>> source.emit("message")
+   >>> kafka.flush()
+
+2. to_redis类
+   功能：将数据流写入Redis的流处理类
+   用例：
+   >>> from deva.endpoints import to_redis
+   >>> source = Stream()
+   >>> redis = source.map(str).to_redis('test', {'host': 'localhost', 'port': 6379})
+   >>> source.emit("message")
+   >>> redis.flush()
+
+3. Dtalk类
+   功能：通过钉钉机器人发送消息
+   用例：
+   >>> from deva.endpoints import Dtalk
+   >>> "测试消息" >> Dtalk()  # 发送简单文本消息
+   >>> ("重要通知", "请及时处理") >> Dtalk()  # 发送带标题的消息
+
+4. mail类
+   功能：通过SMTP发送邮件
+   用例：
+   >>> from deva.endpoints import mail
+   >>> "测试邮件内容" >> mail()  # 发送简单文本邮件
+   >>> ("邮件主题", "邮件正文") >> mail('recipient@example.com')  # 发送带主题的邮件
+   >>> df >> mail()  # 发送DataFrame表格邮件
+
+注意事项
+--------
+- 使用Kafka时需要正确配置生产者参数
+- 使用Redis时需要配置连接参数
+- 使用Dtalk需要配置钉钉机器人webhook
+- 使用mail需要配置SMTP服务器信息
+"""
+
 
 @Stream.register_api()
 class to_kafka(Stream):
@@ -234,7 +288,15 @@ class Dtalk(Stream):
             asynchronous (bool, optional): 是否异步发送. Defaults to False.
         """
         super().emit(msg)
+        # 存档消息到数据库
+        self.archive_message(msg)
         yield self.post(msg, self.log)
+    
+    def archive_message(self, msg: str):
+        """存档消息到数据库"""
+        import time
+        timestamp = str(time.time())
+        NB('dtalk_archive')[timestamp] = msg
 
     @gen.coroutine
     def post(self, msg: str, log: Stream):
