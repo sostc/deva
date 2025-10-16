@@ -1,17 +1,46 @@
-"""全局命名功能
+"""全局命名空间管理模块
 
-全局唯一名称,重复执行获取的都是同一个对象
+提供全局唯一对象的命名和访问功能，确保相同名称的对象在系统中是单例的。
+
+主要功能：
+- 管理不同类型的全局对象（流、主题、表等）
+- 提供统一的命名空间访问接口
+- 支持对象的延迟创建和缓存
+
+主要类：
+- Namespace: 核心命名空间管理类，继承自dict
+- NS/NT/NB: 快捷访问函数
+
+示例用法：
+
+    # NS() 函数用例 - 创建或获取流对象
+    >>> log_stream = NS('log')  # 创建名为'log'的流对象
+    >>> log_stream >> print  # 将流数据打印到控制台
+    
+    # NT() 函数用例 - 创建或获取主题对象
+    >>> bus_topic = NT('bus')  # 创建名为'bus'的主题对象
+    >>> bus_topic.subscribe(lambda msg: print(f"收到消息: {msg}"))  # 订阅主题消息
+    
+    # NB() 函数用例 - 创建或获取数据对象
+    >>> tmp_data = NB('tmp')  # 创建名为'tmp'的数据对象
+    >>> tmp_data['key'] = 'value'  # 存储键值对
+    >>> print(tmp_data['key'])  # 读取存储的值
+    
+    # 验证单例特性
+    >>> assert NT('bus') == NT('bus')  # 相同名称返回相同主题对象
+    >>> assert NS('log') == NS('log')  # 相同名称返回相同流对象
+    >>> assert NB('tmp') == NB('tmp')  # 相同名称返回相同数据对象
+    
+    # 创建不同类型对象的示例
+    >>> db_stream = NS('database', typ='table')  # 创建数据库流对象
+    >>> web_server = NS('web', typ='webserver')  # 创建Web服务器对象
+    >>> tcp_topic = NS('tcp', typ='tcptopic')  # 创建TCP主题对象
 
 
-
-Example usage::
-
-    log == NS('log')
-    bus == NT('bus')
-    NT('bus') == NT('bus')
-    NS('log') == NS('log')
-    NB('tmp') == NB('tmp')
-
+注意事项：
+- 相同名称的对象始终返回同一个实例
+- 对象类型由访问函数决定（NS/NT/NB）
+- 对象在首次访问时创建并缓存
 """
 
 from .core import Stream

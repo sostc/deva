@@ -77,9 +77,9 @@ from pywebio.output import (
 )
 from pywebio.platform.tornado import webio_handler
 from pywebio_battery import put_logbox, logbox_append, set_localstorage, get_localstorage
-from pywebio.pin import pin, put_input
+from pywebio.pin import pin, put_file_upload, put_input
 from pywebio.session import set_env, run_async, run_js, run_asyncio_coroutine, get_session_implement
-from pywebio.input import input, input_group, PASSWORD, textarea, actions, TEXT
+from pywebio.input import input, input_group, PASSWORD, textarea, actions, TEXT, file_upload
 
 
 @timer(5,start=False)
@@ -1068,6 +1068,7 @@ async def init_admin_ui(title):
         参数:
             title (str): 页面标题
         """
+        cut_foot()
         
         admin_info = NB('admin')
         if not admin_info.get('username'):
@@ -1082,7 +1083,6 @@ async def init_admin_ui(title):
         
         create_sidebar()
         set_env(title=title)
-        cut_foot()
         create_nav_menu()
         put_text(f"Hello, {user_name}. 欢迎光临，恭喜发财")
 
@@ -1520,6 +1520,65 @@ async def document():
             })
     # 显示所有模块的tab
     put_tabs(tabs)
+def show_dtalk_archive():
+    """显示 Dtalk 消息存档"""
+    with use_scope('dtalk_archive_display', clear=True):
+        # 获取 Dtalk 消息存档
+        dtalk_archive = NB('dtalk_archive')
+        
+        if not dtalk_archive:
+            put_text('暂无 Dtalk 消息记录')
+            return
+        
+        # 创建消息表格
+        archive_table = [['时间', '消息内容', '操作']]
+        
+        # 按时间倒序显示（最新的在前面）
+        for timestamp, message in sorted(dtalk_archive.items(), key=lambda x: float(x[0]), reverse=True):
+            from datetime import datetime
+            readable_time = datetime.fromtimestamp(float(timestamp)).strftime('%Y-%m-%d %H:%M:%S')
+            
+            # 截断过长的消息
+            display_message = message[:100] + '...' if len(message) > 100 else message
+            
+            # 添加操作按钮
+            actions = put_buttons([
+                {'label': '查看', 'value': 'view'},
+                {'label': '删除', 'value': 'delete'}
+            ], onclick=lambda v, t=timestamp: view_dtalk_message(t, message) if v == 'view' else delete_dtalk_message(t))
+            
+            archive_table.append([readable_time, display_message, actions])
+        
+        put_table(archive_table)
+        
+        # 添加清空所有消息的按钮
+        put_button('清空所有消息', onclick=clear_all_dtalk_messages, color='danger')
+
+def view_dtalk_message(timestamp, message):
+    """查看完整的 Dtalk 消息"""
+    from datetime import datetime
+    readable_time = datetime.fromtimestamp(float(timestamp)).strftime('%Y-%m-%d %H:%M:%S')
+    
+    popup(f'Dtalk 消息 - {readable_time}', [
+        put_markdown(f'**发送时间:** {readable_time}'),
+        put_markdown('**消息内容:**'),
+        put_markdown(message)
+    ], size='large')
+
+def delete_dtalk_message(timestamp):
+    """删除指定的 Dtalk 消息"""
+    del NB('dtalk_archive')[timestamp]
+    toast('消息已删除', color='success')
+    # 刷新显示
+    show_dtalk_archive()
+
+def clear_all_dtalk_messages():
+    """清空所有 Dtalk 消息"""
+    NB('dtalk_archive').clear()
+    toast('所有消息已清空', color='success')
+    # 刷新显示
+    show_dtalk_archive()
+
 async def main():
     # await my_timer()
     # 这个将会把会话协程卡在这里不动，采用 run_async则不会堵塞
@@ -1784,6 +1843,11 @@ async def main():
     with put_collapse('其他控件', open=True):
         put_input('write_to_log', type='text', value='', placeholder='手动写入日志')
         put_button('>', onclick=write_to_log)
+    
+    # Dtalk 消息存档展示
+    put_markdown('### 📱 Dtalk 消息存档')
+    set_scope('dtalk_archive_display')
+    show_dtalk_archive()
        
 
 
@@ -1948,9 +2012,71 @@ def table_click(tablename):
     }
     
     put_button('新增数据', onclick=lambda: edit_data_popup(categorized_data['strings'],tablename=tablename))
+    async def upload_table_data():
+        # 获取用户输入的key值
+        key = await pin['upload_key']
+        # 获取上传的文件
+        file = await pin['upload_file']
+        
+        if not key:
+            toast('请输入key值', color='error')
+            return
+            
+        if not file:
+            toast('请选择要上传的文件', color='error')
+            return
+            
+        try:
+            # 根据文件扩展名读取文件
+            if file['filename'].endswith('.csv'):
+                # 使用StringIO读取文件内容
+                from io import StringIO
+                content = file['content'].decode('utf-8')
+                df = pd.read_csv(StringIO(content))
+            elif file['filename'].endswith(('.xls', '.xlsx')):
+                # 使用BytesIO读取二进制文件内容
+                from io import BytesIO
+                df = pd.read_excel(BytesIO(file['content']))
+            else:
+                toast('仅支持csv或excel文件', color='error')
+                return
+                
+            # 检查是否有列名
+            if df.columns.empty:
+                toast('文件必须包含列名', color='error')
+                return
+                
+            # 检查数据是否为空
+            if df.empty:
+                toast('上传的文件不能为空', color='error')
+                return
+                
+            # 保存到数据库
+            (key, df) >> NB(tablename)
+            toast('上传成功', color='success')
+            close_popup()
+            # 刷新页面
+            table_click(tablename)
+            
+        except pd.errors.EmptyDataError:
+            toast('上传的文件为空或格式不正确', color='error')
+        except pd.errors.ParserError:
+            toast('文件解析失败，请检查文件格式', color='error')
+        except UnicodeDecodeError:
+            toast('文件编码错误，请使用UTF-8编码', color='error')
+        except Exception as e:
+            toast(f'上传失败: {str(e)}', color='error')
+            log(f'上传失败详情: {traceback.format_exc()}')  # 记录详细错误日志
+    put_button('上传表格数据', onclick=lambda: 
+               popup('上传表格数据', [
+                    put_input('upload_key', placeholder='请输入key值'),
+                    put_file_upload('upload_file', accept='.csv,.xls,.xlsx', max_size='10M'),
+                    put_buttons(['上传', '取消'], onclick=[
+                        lambda: run_async(upload_table_data()),
+                        close_popup
+                    ])
+               ]))
 
-    
-    
     # 显示字符串类型数据
     if categorized_data['strings']:
         with put_collapse('strings', open=True):
@@ -1995,9 +2121,118 @@ def table_click(tablename):
     if categorized_data['dataframes']:
         with put_collapse('dataframe', open=True):
             for df_name, df in categorized_data['dataframes']:
+                # 将中文df_name转换为拼音
+                if any('\u4e00' <= char <= '\u9fff' for char in df_name):
+                    from pypinyin import pinyin, Style
+                    scope_name = ''.join([item[0] for item in pinyin(df_name, style=Style.NORMAL)])
+                else:
+                    scope_name = df_name
+                
                 with put_collapse(df_name, open=True):
-                    paginate_dataframe(scope=df_name, df=df, page_size=10)
+                    paginate_dataframe(scope=scope_name, df=df, page_size=10)
+                    # 添加数据分析按钮
+                    with use_scope(f'analysis_{scope_name}'):  # 为每个DataFrame创建独立的作用域
+                        put_buttons([
+                            '描述性统计',
+                            '数据透视表',
+                            '分组聚合',
+                            '缺失值分析'
+                        ], onclick=[
+                            lambda df=df, scope=scope_name: run_async(show_descriptive_stats(df, scope)),
+                            lambda df=df, scope=scope_name: run_async(show_pivot_table(df, scope)),
+                            lambda df=df, scope=scope_name: run_async(show_groupby_analysis(df, scope)),
+                            lambda df=df, scope=scope_name: run_async(show_missing_values(df, scope))
+                        ])
+                    
+                    # 添加分析结果显示区域
+                    with use_scope(f'analysis_result_{scope_name}'):
+                        pass
+                    
+                    put_button(f'删除 {df_name}', onclick=lambda df_name=df_name: run_async(delete_dataframe(df_name, tablename)))
 
+        # 定义分析函数
+        async def show_descriptive_stats(df, scope):
+            """显示描述性统计"""
+            with use_scope(f'analysis_result_{scope}'):
+                put_markdown('### 描述性统计')
+                stats = df.describe(include='all').T
+                put_table(stats.reset_index().values.tolist())
+
+        async def show_pivot_table(df, scope):
+            """显示数据透视表"""
+            with use_scope(f'analysis_result_{scope}'):
+                put_markdown('### 数据透视表')
+                # 获取所有数值列和分类列
+                numeric_cols = df.select_dtypes(include='number').columns.tolist()
+                category_cols = df.select_dtypes(include='object').columns.tolist()
+                
+                if not category_cols or not numeric_cols:
+                    toast('需要至少一个分类列和一个数值列', color='error')
+                    return
+                
+                # 创建交互式输入
+                put_input('pivot_index', placeholder='选择行索引（分类列）')
+                put_input('pivot_columns', placeholder='选择列索引（可选，分类列）')
+                put_input('pivot_values', placeholder='选择聚合值（数值列）')
+                put_buttons(['生成'], onclick=[
+                    lambda: run_async(generate_pivot(df, scope))
+                ])
+
+        async def generate_pivot(df, scope):
+            """生成数据透视表"""
+            index = await pin['pivot_index']
+            columns = await pin['pivot_columns'] or None
+            values = await pin['pivot_values']
+            
+            try:
+                pivot = df.pivot_table(index=index, columns=columns, values=values, aggfunc='mean')
+                with use_scope(f'analysis_result_{scope}'):
+                    put_table(pivot.reset_index().values.tolist())
+            except Exception as e:
+                toast(f'生成数据透视表失败: {str(e)}', color='error')
+
+        async def show_groupby_analysis(df, scope):
+            """显示分组聚合分析"""
+            with use_scope(f'analysis_result_{scope}'):
+                put_markdown('### 分组聚合分析')
+                # 获取所有分类列和数值列
+                group_cols = df.select_dtypes(include='object').columns.tolist()
+                agg_cols = df.select_dtypes(include='number').columns.tolist()
+                
+                if not group_cols or not agg_cols:
+                    toast('需要至少一个分类列和一个数值列', color='error')
+                    return
+                
+                # 创建交互式输入
+                put_input('groupby_col', placeholder='选择分组列（分类列）')
+                put_input('agg_col', placeholder='选择聚合列（数值列）')
+                put_buttons(['分析'], onclick=[
+                    lambda: run_async(generate_groupby(df, scope))
+                ])
+
+        async def generate_groupby(df, scope):
+            """生成分组聚合结果"""
+            group_col = await pin['groupby_col']
+            agg_col = await pin['agg_col']
+            
+            try:
+                grouped = df.groupby(group_col)[agg_col].agg(['mean', 'sum', 'count'])
+                with use_scope(f'analysis_result_{scope}'):
+                    put_table(grouped.reset_index().values.tolist())
+            except Exception as e:
+                toast(f'分组聚合失败: {str(e)}', color='error')
+
+        async def show_missing_values(df, scope):
+            """显示缺失值分析"""
+            with use_scope(f'analysis_result_{scope}'):
+                put_markdown('### 缺失值分析')
+                missing = df.isnull().sum()
+                missing_pct = (missing / len(df)) * 100
+                missing_df = pd.DataFrame({
+                    '缺失值数量': missing,
+                    '缺失值比例(%)': missing_pct
+                })
+                put_table(missing_df.reset_index().values.tolist())
     # 显示时间序列数据
     if categorized_data['timeseries']:
         with put_collapse('时间序列数据', open=True):
@@ -2033,6 +2268,17 @@ async def save_string(key,data,tablename):
     close_popup()
         # 重新打开编辑popup以刷新内容
     edit_data_popup(data,tablename=tablename)
+# 删除DataFrame的回调函数
+async def delete_dataframe(df_name, tablename):
+    """删除指定的DataFrame"""
+    try:
+        del NB(tablename)[df_name]
+        toast(f'已删除DataFrame: {df_name}', color='success')
+        # 刷新显示
+        table_click(tablename)
+    except Exception as e:
+        toast(f'删除失败: {str(e)}', color='error')
+
 # 删除键值对的回调函数
 async def delete_string(key,data,tablename):
     # 删除数据
@@ -2224,4 +2470,6 @@ if __name__ == '__main__':
  
 
     Deva.run()
+
+
 
