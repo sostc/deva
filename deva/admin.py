@@ -55,6 +55,7 @@ import os
 import traceback
 import json
 import time
+import requests
 from urllib.parse import urljoin
 from typing import Callable, Union
 
@@ -128,6 +129,56 @@ async def get_gpt_response(prompt, session=None, scope=None, model_type='deepsee
     api_key = config.get('api_key')
     base_url = config.get('base_url')
     model = config.get('model')
+
+    async def diagnose_backend_error():
+        """探测后端错误详情，返回可读文本。"""
+        try:
+            url = base_url.rstrip('/') + '/chat/completions'
+            payload = {
+                "model": model,
+                "messages": messages,
+                "stream": False,
+                "max_tokens": 64,
+            }
+            headers = {
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json",
+            }
+            resp = await asyncio.to_thread(
+                requests.post,
+                url,
+                headers=headers,
+                data=json.dumps(payload),
+                timeout=15,
+            )
+            text = (resp.text or "").strip()
+            try:
+                data = resp.json()
+            except Exception:
+                data = None
+
+            if isinstance(data, dict):
+                code = data.get("code")
+                message = data.get("message")
+                if code not in (None, 0):
+                    return f"上游接口错误(code={code}, message={message})"
+                if message and not data.get("choices"):
+                    return f"上游接口返回异常消息(message={message})"
+
+            return f"上游返回异常响应(status={resp.status_code}, body={text[:300]})"
+        except Exception as probe_error:
+            return f"上游诊断失败({type(probe_error).__name__}: {probe_error})"
+
+    def safe_toast(message, color='error'):
+        """仅在可用的 PyWebIO 任务上下文中弹出提示，避免后台协程报错。"""
+        if not session:
+            return
+        try:
+            toast(message, color=color)
+        except RuntimeError as e:
+            (f"toast skipped(no task context): {e}") >> log
+        except Exception as e:
+            (f"toast failed: {e}") >> log
     
     gpt_client = AsyncOpenAI(api_key=api_key, base_url=base_url)
     start_time = time.time()
@@ -150,9 +201,11 @@ async def get_gpt_response(prompt, session=None, scope=None, model_type='deepsee
             max_tokens=8192
         )
     except Exception as e:
-        (f"请求失败: {traceback.format_exc()}")>>log
-        toast("请求失败~")
-        return ""
+        backend_error = await diagnose_backend_error()
+        (f"请求失败: {traceback.format_exc()} | {backend_error}") >> log
+        (f"GPT请求失败(model={model_type}/{model}): {backend_error}") >> warn
+        safe_toast("请求失败: " + backend_error, color='error')
+        return f"[GPT_ERROR] {backend_error}"
 
     # 初始化文本缓冲区
     buffer = ""
@@ -170,12 +223,17 @@ async def get_gpt_response(prompt, session=None, scope=None, model_type='deepsee
         返回:
             tuple: (更新后的buffer, 更新后的accumulated_text, 更新后的start_time)
         """
-        if chunk.choices[0].delta.content:
+        content = ""
+        if getattr(chunk, "choices", None):
+            delta = getattr(chunk.choices[0], "delta", None)
+            content = getattr(delta, "content", "") or ""
+
+        if content:
             # 如果内容以"检索"开头，跳过该行
-            if chunk.choices[0].delta.content.startswith("检索"):
+            if content.startswith("检索"):
                 return buffer, accumulated_text, start_time
                 
-            buffer += chunk.choices[0].delta.content
+            buffer += content
             
             # 判断是否到达段落结尾（以句号、问号、感叹号+换行符为标志）
             paragraph_end_markers = ('.', '?', '!', '。', '？', '！')
@@ -223,20 +281,35 @@ async def get_gpt_response(prompt, session=None, scope=None, model_type='deepsee
                     start_time = time.time()
                 
         # 处理最后一个未显示的块
-        if buffer and not chunk.choices[0].delta.content:
+        if buffer and not content:
             accumulated_text += buffer
             logfunc(buffer)
             start_time = time.time()
             buffer = ""
             
         return buffer, accumulated_text, start_time
-    async for chunk in response:
-        buffer, accumulated_text, start_time = await process_chunk(
-            chunk, buffer, accumulated_text, start_time
-        )
-    
-    # 返回完整的累计文本
-    return accumulated_text
+    try:
+        async for chunk in response:
+            buffer, accumulated_text, start_time = await process_chunk(
+                chunk, buffer, accumulated_text, start_time
+            )
+
+        # OpenAI 流结束时不保证一定有空 content 结尾块，兜底 flush 剩余缓存
+        if buffer.strip():
+            accumulated_text += buffer
+            logfunc(buffer)
+            buffer = ""
+
+        if not accumulated_text.strip():
+            backend_error = await diagnose_backend_error()
+            (f"GPT空响应(model={model_type}/{model}): {backend_error}") >> warn
+            safe_toast("模型返回空内容: " + backend_error, color='error')
+            return f"[GPT_EMPTY] {backend_error}"
+
+        # 返回完整的累计文本
+        return accumulated_text
+    finally:
+        await gpt_client.close()
 
 
 # tab('http://secsay.com')
@@ -2470,6 +2543,3 @@ if __name__ == '__main__':
  
 
     Deva.run()
-
-
-
