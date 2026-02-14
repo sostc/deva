@@ -1,5 +1,6 @@
 from __future__ import absolute_import, division, print_function
 import os
+import asyncio
 
 import collections
 from datetime import datetime, timedelta
@@ -1990,15 +1991,27 @@ class Deva:
             RuntimeError: 如果事件循环启动失败
         """
         logger.info("Starting Deva event loop...")
-        
+        loop = None
         try:
             # 获取并启动当前事件循环实例
             loop = IOLoop.current()
+            asyncio_loop = getattr(loop, 'asyncio_loop', None)
+            if asyncio_loop is not None and asyncio_loop.is_running():
+                loop_thread_id = getattr(asyncio_loop, '_thread_id', None)
+                current_thread_id = threading.get_ident()
+                if loop_thread_id == current_thread_id:
+                    logger.info("Deva event loop already running in current thread; skip starting again")
+                    return
+                logger.info("Deva event loop already running in another thread; waiting for interrupt")
+                waiter = threading.Event()
+                while True:
+                    waiter.wait(3600)
             loop.start()
             
         except KeyboardInterrupt:
             logger.info("Received keyboard interrupt, shutting down...")
-            loop.stop()
+            if loop is not None:
+                loop.stop()
             
         except Exception as e:
             logger.error(f"Failed to start event loop: {str(e)}")
