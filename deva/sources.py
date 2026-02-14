@@ -168,6 +168,7 @@ class from_textfile(PollingSource):
             f = open(f)
         self.file = f
         self.delimiter = delimiter
+        self._buffer = ''
         super(from_textfile, self).__init__(poll_interval=poll_interval, 
                                           ensure_io_loop=True, 
                                           **kwargs)
@@ -180,14 +181,13 @@ class from_textfile(PollingSource):
         返回:
             list: 分割后的数据列表，如果没有新数据则返回空列表
         """
-        buffer = ''
         data = []
         line = self.file.read()
         if line:
-            buffer = buffer + line
-            if self.delimiter in buffer:
-                parts = buffer.split(self.delimiter)
-                buffer = parts.pop(-1)
+            self._buffer += line
+            if self.delimiter in self._buffer:
+                parts = self._buffer.split(self.delimiter)
+                self._buffer = parts.pop(-1)
                 for part in parts:
                     data.append(part + self.delimiter)
         return data

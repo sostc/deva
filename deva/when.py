@@ -272,7 +272,7 @@ class timer(Stream):
                         self._set_loop(get_io_loop(self.asynchronous))
                     self.loop.add_future(futs, lambda x: self._emit(x.result()))
                 else:
-                    return self._emit(self.func())
+                    self._emit(self.func())
             yield gen.sleep(self.interval)  # 等待到下一次执行时间
             if not self.started:  # 如果已停止则退出循环
                 break

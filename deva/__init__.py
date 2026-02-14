@@ -16,8 +16,17 @@ from .pipe import *
 # from .monitor import Monitor
 from .lambdas import _
 from .browser import browser,tab,tabs
-from .gpt import async_gpt,sync_gpt
 from .core import *
+
+
+def sync_gpt(prompts):
+    from .gpt import sync_gpt as _sync_gpt
+    return _sync_gpt(prompts)
+
+
+async def async_gpt(prompts):
+    from .gpt import async_gpt as _async_gpt
+    return await _async_gpt(prompts)
 
 """
 流式计算框架 Deva - 构建智能数据管道的核心工具
