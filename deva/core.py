@@ -1083,9 +1083,9 @@ class Stream(object):
                    str, lambda ref: self.map(str).to_textfile(ref),
                    Stream, lambda ref: self.sink(ref.emit),
                    callable, lambda ref: self.sink(ref),
-                   ANY, lambda ref: TypeError(
+                   ANY, lambda ref: (_ for _ in ()).throw(TypeError(
                        f'不支持的输出类型: {ref} ({type(ref)})，'
-                       '必须是 list | 文本文件名 | 文本文件句柄 | stream | 可调用对象')
+                       '必须是 list | 文本文件名 | 文本文件句柄 | stream | 可调用对象'))
                    )
     def __getitem__(self, *args):
         """获取缓存的值"""
@@ -1992,15 +1992,13 @@ class Deva:
         logger.info("Starting Deva event loop...")
         
         try:
-            # 获取当前事件循环实例
-            loop = IOLoop().start()
-            
-            # 启动事件循环
+            # 获取并启动当前事件循环实例
+            loop = IOLoop.current()
             loop.start()
             
         except KeyboardInterrupt:
             logger.info("Received keyboard interrupt, shutting down...")
-            exit(0)
+            loop.stop()
             
         except Exception as e:
             logger.error(f"Failed to start event loop: {str(e)}")
