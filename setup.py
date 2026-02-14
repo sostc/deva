@@ -15,6 +15,9 @@ setup(
     long_description=(open('README.rst').read() if exists('README.rst')
                       else ''),
     install_requires=list(open('requirements.txt').read().strip().split('\n')),
+    extras_require={
+        'llm': ['openai>=1.0.0']
+    },
     zip_safe=False
 
 )

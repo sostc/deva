@@ -107,7 +107,7 @@ async def get_gpt_response(prompt, session=None, scope=None, model_type='deepsee
     """
     config = NB(model_type)
     required_configs = ['api_key', 'base_url', 'model']
-    missing_configs = [config for config in required_configs if config not in config]
+    missing_configs = [c for c in required_configs if c not in config]
     if missing_configs:
         message = "警告: 在NB配置中缺少以下必要配置项: " + ', '.join(missing_configs) + ". 请确保在其他地方正确设置这些配置项的值。"
         message >> warn

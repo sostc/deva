@@ -1,8 +1,13 @@
 import time
 import traceback
-from openai import OpenAI,AsyncOpenAI
-from deva.namespace import NB
-from deva import warn
+from .namespace import NB
+from .bus import warn
+
+try:
+    from openai import OpenAI, AsyncOpenAI
+except ImportError:
+    OpenAI = None
+    AsyncOpenAI = None
 
 
 
@@ -60,6 +65,11 @@ class GPT:
         异常:
             ValueError: 当缺少必要配置项时抛出
         """
+        if OpenAI is None or AsyncOpenAI is None:
+            raise ImportError(
+                "openai is required for GPT features. Install with: pip install 'deva[llm]'"
+            )
+
         self.model_type = model_type
         self.config = NB(model_type)
         
@@ -210,10 +220,28 @@ class GPT:
         self.sync_client = OpenAI(api_key=self.api_key, base_url=self.base_url)
         self.async_client = AsyncOpenAI(api_key=self.api_key, base_url=self.base_url)
         self.last_used_model = self.model_type
-_gpt = GPT()
-async_gpt = _gpt.async_query
-sync_gpt = _gpt.sync_query
-async_json_gpt = _gpt.async_json_query
+
+
+_gpt = None
+
+
+def get_gpt(model_type='deepseek'):
+    global _gpt
+    if _gpt is None or _gpt.model_type != model_type:
+        _gpt = GPT(model_type=model_type)
+    return _gpt
+
+
+def sync_gpt(prompts):
+    return get_gpt().sync_query(prompts)
+
+
+async def async_gpt(prompts):
+    return await get_gpt().async_query(prompts)
+
+
+async def async_json_gpt(prompts):
+    return await get_gpt().async_json_query(prompts)
 
 async def get_gpt_response(prompt, display_func=print, flush_interval=3):
     """获取GPT的流式响应
@@ -233,7 +261,7 @@ async def get_gpt_response(prompt, display_func=print, flush_interval=3):
     
     try:
         # 创建GPT流式响应
-        response = await _gpt.async_client.chat.completions.create(
+        response = await get_gpt().async_client.chat.completions.create(
             model=NB('deepseek')['model'],
             messages=messages,
             stream=True,
