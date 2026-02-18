@@ -1,5 +1,8 @@
 from __future__ import absolute_import, division, print_function
 
+from .logging_adapter import setup_deva_logging
+setup_deva_logging()
+
 from .core import *
 from .compute import *
 from .graph import *
@@ -15,17 +18,17 @@ from .search import IndexStream
 from .pipe import *
 # from .monitor import Monitor
 from .lambdas import _
-from .browser import browser,tab,tabs
+from .browser import browser, tab, tabs
 from .core import *
 
 
 def sync_gpt(prompts):
-    from .gpt import sync_gpt as _sync_gpt
+    from .llm import sync_gpt as _sync_gpt
     return _sync_gpt(prompts)
 
 
 async def async_gpt(prompts):
-    from .gpt import async_gpt as _async_gpt
+    from .llm import async_gpt as _async_gpt
     return await _async_gpt(prompts)
 
 """
@@ -120,4 +123,4 @@ async def async_gpt(prompts):
 """
 
 
-__version__ = '1.3.2'
+__version__ = '1.4.0'

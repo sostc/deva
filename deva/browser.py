@@ -216,7 +216,7 @@ class Browser(Stream):
             text = extractor.get_content(html_content)
             return text
         except Exception as e:
-            print(f"提取文本时出错: {str(e)}")
+            f"提取文本时出错: {str(e)}" >> self.log
             return ""
         
     def create_article(self,response):
@@ -265,7 +265,7 @@ class Browser(Stream):
 
 # 确保内容足够长
         if len(article.text) < 50:  # 设置最小长度限制
-            print("文章内容太短，无法生成摘要")
+            "文章内容太短，无法生成摘要" >> self.log
             article.summary = ""
 
         # article.nlp()  # 生成摘要质量较差
@@ -294,7 +294,7 @@ class Browser(Stream):
             article.summary = '\n'.join(summary)
             return article
         except Exception as e:
-            print(f"生成摘要时出错: {str(e)}")
+            f"生成摘要时出错: {str(e)}" >> self.log
             article.summary = ""
         return article
 
@@ -314,7 +314,7 @@ class Tab():
 
     def _callback(self, x):
         response = x.result()
-        print(response)
+        {"level": "DEBUG", "source": "deva.browser", "message": "tab callback response received", "url": self.url} >> self.browser.log
         f'后台完成异步请求{self.url}' >> self.browser.log
         self.parse(response)
         self._schedule_refresh()
@@ -531,12 +531,12 @@ if __name__ == "__main__":
 
     # 刷新 URL 的响应内容
     response2 = tab1.refresh()
-    print("Refreshed response:", response2)
+    {"level": "INFO", "source": "deva.browser", "message": "Refreshed response", "response": str(response2)} >> log
 
     # 请求另一个 URL
     tab2 = browser.tab("http://baidu.com")
     response3 = tab2.page
-    print("Response from http://baidu.com:", response3)
+    {"level": "INFO", "source": "deva.browser", "message": "Response from http://baidu.com", "response": str(response3)} >> log
 
     tab1 = tab('http://secsay.com')
     # 2025-01-04 22:44:34.131748 : 后台发起异步请求http://secsay.com

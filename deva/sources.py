@@ -16,11 +16,28 @@ from .core import Stream
 import logging
 import asyncio
 
-
-import aioredis
 import time
+import uuid
+
+try:
+    import redis.asyncio as redis_async
+except Exception:  # pragma: no cover
+    redis_async = None
+try:  # pragma: no cover
+    import aioredis
+except Exception:  # pragma: no cover
+    aioredis = None
 
 logger = logging.getLogger(__name__)
+
+
+def _new_redis_client(address='localhost', db=0, password=None):
+    """创建 Redis 客户端，优先使用 redis.asyncio，回退 aioredis。"""
+    if redis_async is not None:
+        return redis_async.Redis(host=address, db=db, password=password, decode_responses=False)
+    if aioredis is not None:
+        return aioredis.Redis(host=address, db=db, password=password)
+    raise RuntimeError("Redis client unavailable: install `redis` or `aioredis`")
 
 """
 Source 类的辅助函数和工具类
@@ -485,7 +502,7 @@ class from_command(Stream):
         for out in self.subp.stdout:
             out = out.decode('utf-8').strip()
             if out:
-                print(out)
+                logger.info("from_command stdout: %s", out)
                 self._emit(out)
 
     def poll_err(self):
@@ -719,12 +736,22 @@ class RedisStream(Stream):
     """
 
     def __init__(self, topic, start=True,
-                 group=None, address='localhost', db=0, password=None, **kwargs):
+                 group=None, address='localhost', db=0, password=None,
+                 max_len=100, read_count=10, block_ms=500, start_id='$',
+                 retries=5, retry_backoff=0.5, consumer=None, **kwargs):
         self.topic = topic
         self.redis_address = address
+        self.redis_db = db
         self.redis_password = password
-        self.group = group or hash(self)+hash(time.time())
-        self.consumer = hash(self)
+        self.group = group
+        self.consumer = consumer or f"{os.getpid()}-{uuid.uuid4().hex[:8]}"
+        self.max_len = max_len
+        self.read_count = read_count
+        self.block_ms = block_ms
+        self.start_id = start_id
+        self.retries = retries
+        self.retry_backoff = retry_backoff
+        self._last_id = start_id
 
         super(RedisStream, self).__init__(ensure_io_loop=True, **kwargs)
         self.redis = None
@@ -733,47 +760,146 @@ class RedisStream(Stream):
             self.start()
 
     @gen.coroutine
+    def _ensure_redis(self):
+        if self.redis:
+            return self.redis
+        client = _new_redis_client(
+            address=self.redis_address,
+            db=self.redis_db,
+            password=self.redis_password,
+        )
+        if asyncio.iscoroutine(client) or isinstance(client, gen.Future):
+            client = yield client
+        self.redis = client
+        return self.redis
+
+    @staticmethod
+    def _get_payload(fields):
+        payload = None
+        if isinstance(fields, dict):
+            payload = fields.get('data')
+            if payload is None:
+                payload = fields.get(b'data')
+        if payload is None:
+            return None
+        if isinstance(payload, str):
+            payload = payload.encode('utf-8')
+        return dill.loads(payload)
+
+    @gen.coroutine
+    def _emit_redis_records(self, records):
+        for _stream, messages in records:
+            for msg_id, fields in messages:
+                try:
+                    data = self._get_payload(fields)
+                    if data is None:
+                        logger.warning("RedisStream(%s) missing field `data` in message %s", self.topic, msg_id)
+                        continue
+                    yield self._emit(data)
+                    if self.group:
+                        yield self.redis.xack(self.topic, self.group, msg_id)
+                    else:
+                        self._last_id = msg_id
+                except Exception:
+                    logger.exception("RedisStream(%s) failed to process message %s", self.topic, msg_id)
+
+    @gen.coroutine
     def process(self):
         """处理Redis Stream数据的主循环"""
-        if not self.redis:
-            self.redis = yield aioredis.Redis(host=self.redis_address, password=self.redis_password)
-
-        # 检查主题是否存在，不存在则创建
-        topic_exists = yield self.redis.exists(self.topic)
-        if not topic_exists:
-            print('创建主题:', self.topic)
-            yield self.redis.xadd(self.topic, {'data': dill.dumps('go')})
-        
-        # 创建消费者组
-        try:
-            yield self.redis.xgroup_create(self.topic, self.group)
-        except Exception as e:
-            print(e)
-
-        # 主循环：持续读取并处理数据
+        retry_count = 0
         while True:
-            results = yield self.redis.xread(count=10, block=500, streams={self.topic: '$'})
-            if results:
-                for result in results:
-                    print('收到数据:', result)
-                    data = dill.loads(result[1][0][1][b'data'])
-                    self._emit(data)
-
             if self.stopped:
                 break
+            try:
+                yield self._ensure_redis()
+                if self.group:
+                    try:
+                        yield self.redis.xgroup_create(self.topic, self.group, id='0-0', mkstream=True)
+                    except Exception as e:
+                        if 'BUSYGROUP' not in str(e):
+                            raise
+                while not self.stopped:
+                    if self.group:
+                        results = yield self.redis.xreadgroup(
+                            groupname=self.group,
+                            consumername=self.consumer,
+                            streams={self.topic: '>'},
+                            count=self.read_count,
+                            block=self.block_ms,
+                        )
+                    else:
+                        results = yield self.redis.xread(
+                            streams={self.topic: self._last_id},
+                            count=self.read_count,
+                            block=self.block_ms,
+                        )
+                    if results:
+                        yield self._emit_redis_records(results)
+                break
+            except Exception:
+                retry_count += 1
+                logger.exception(
+                    "RedisStream(%s) loop failed (retry %s/%s)",
+                    self.topic,
+                    retry_count,
+                    self.retries,
+                )
+                if retry_count > self.retries:
+                    raise
+                self.redis = None
+                yield gen.sleep(min(30, self.retry_backoff * retry_count))
 
     @gen.coroutine
     def _send(self, data):
         """向Redis Stream发送数据"""
-        if not self.redis:
-            self.redis = yield aioredis.Redis(host=self.redis_address, password=self.redis_password)
-        x = yield self.redis.xadd(self.topic, {'data': dill.dumps(data)}, maxlen=20)
-        print('发送数据:', x)
+        retry_count = 0
+        while True:
+            try:
+                yield self._ensure_redis()
+                x = yield self.redis.xadd(
+                    self.topic,
+                    {'data': dill.dumps(data)},
+                    maxlen=self.max_len,
+                    approximate=True,
+                )
+                return x
+            except TypeError:
+                # 老版本客户端不支持 approximate 参数
+                x = yield self.redis.xadd(
+                    self.topic,
+                    {'data': dill.dumps(data)},
+                    maxlen=self.max_len,
+                )
+                return x
+            except Exception:
+                retry_count += 1
+                logger.exception(
+                    "RedisStream(%s) send failed (retry %s/%s)",
+                    self.topic,
+                    retry_count,
+                    self.retries,
+                )
+                self.redis = None
+                if retry_count > self.retries:
+                    raise
+                yield gen.sleep(min(10, self.retry_backoff * retry_count))
 
     def emit(self, x, asynchronous=True):
         """发送数据到Redis Stream"""
-        self.loop.add_callback(self._send, x)
-        return x
+        future = gen.Future()
+
+        @gen.coroutine
+        def _do_send():
+            try:
+                msg_id = yield self._send(x)
+                if not future.done():
+                    future.set_result(msg_id)
+            except Exception as e:
+                if not future.done():
+                    future.set_exception(e)
+
+        self.loop.add_callback(_do_send)
+        return future
 
     def start(self):
         """启动Redis流处理"""
@@ -784,13 +910,24 @@ class RedisStream(Stream):
     def stop(self):
         """停止Redis流处理"""
         self.stopped = True
-        self.loop.add_callback(self.redis.close)
+        if self.redis is not None:
+            @gen.coroutine
+            def _close():
+                try:
+                    close = getattr(self.redis, 'aclose', None) or getattr(self.redis, 'close', None)
+                    if close:
+                        ret = close()
+                        if asyncio.iscoroutine(ret) or isinstance(ret, gen.Future):
+                            yield ret
+                finally:
+                    self.redis = None
+            self.loop.add_callback(_close)
 
 @Stream.register_api(staticmethod)
 class from_redis(Stream):
     def __init__(self, topic, group=None, max_len=100, **kwargs):
         Stream.__init__(self, ensure_io_loop=True)
-        self.source = RedisStream(topic=topic, group=group, max_len=max_len)
+        self.source = RedisStream(topic=topic, group=group, max_len=max_len, **kwargs)
         self.source >> self
 
 
@@ -995,7 +1132,7 @@ class StreamTCPServer(TCPServer):
                 stream.write(x)
                 stream.write(self.delimiter)
             except StreamClosedError:
-                print('%s 连接关闭' % str(address))
+                logger.info('%s 连接关闭', str(address))
                 self.handlers.get(address).destroy()
                 del self.handlers[address]
 
@@ -1009,7 +1146,7 @@ class StreamTCPServer(TCPServer):
                 # 将接收到的数据发送到输入流
                 yield self.in_s.emit(dill.loads(data))
             except StreamClosedError:
-                print('%s 连接关闭' % str(address))
+                logger.info('%s 连接关闭', str(address))
                 break
 
     def stop(self):
@@ -1100,7 +1237,7 @@ class StreamTCPClient():
             self._stream = yield TCPClient().connect(self.host, self.port)
             self.stopped = False
         except Exception as e:
-            print(e, 'connect', self.host, self.port, 'error')
+            logger.error("%s connect %s:%s error", e, self.host, self.port)
 
         def _write(x):
             """数据写入回调函数"""
@@ -1108,7 +1245,7 @@ class StreamTCPClient():
                 self._stream.write(x)
                 self._stream.write(self.delimiter)
             except StreamClosedError:
-                print(f'{self.host}:{self.port} connect close')
+                logger.info('%s:%s connect close', self.host, self.port)
                 self.out_handler.destroy()
 
         # 将客户端io输出挂载到分发管道
@@ -1119,7 +1256,7 @@ class StreamTCPClient():
                 data = yield self._stream.read_until(self.delimiter)
                 yield self.in_s.emit(dill.loads(data))
             except StreamClosedError:
-                print('tornado.iostream.StreamClosedError')
+                logger.info('tornado.iostream.StreamClosedError')
                 break
 
     def stop(self):

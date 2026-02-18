@@ -1660,7 +1660,7 @@ def httpx(req, render=False, timeout=30, **kwargs):
 
         return response
     except Exception as e:
-        print(req, e)
+        logger.error("crawler failed, req=%s, error=%s", req, e)
         logger.exception(e)
 @Stream.register_api()
 class crawler(Stream):

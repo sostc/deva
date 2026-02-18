@@ -1,9 +1,13 @@
 from tornado import gen
 from .utils.sqlitedict import SqliteDict
 from .core import Stream, get_io_loop
-from .pipe import passed, first
+from .pipe import passed
+from bisect import bisect_left, bisect_right
+import logging
 import os
 import time
+
+logger = logging.getLogger(__name__)
 
 """
 SqliteDict 和 DBStream 的关系说明:
@@ -78,7 +82,8 @@ class DBStream(Stream):
     """
 
     def __init__(self, name='default', filename=None,
-                 maxsize=None, log=passed, **kwargs):
+                 maxsize=None, log=passed, key_mode='explicit',
+                 time_dict_policy='reject', **kwargs):
         """初始化数据库流对象
 
         Args:
@@ -86,6 +91,12 @@ class DBStream(Stream):
             filename (str): 数据库文件路径，默认在 ~/.deva/nb.sqlite
             maxsize (int): 最大存储记录数，默认无限制
             log (Stream): 日志流对象，默认为 passed
+            key_mode (str): 键模式，'explicit' 或 'time'。
+                - explicit: dict 输入视为批量 upsert（默认，兼容旧行为）
+                - time: 事件流模式，普通值按时间戳写入
+            time_dict_policy (str): 当 key_mode='time' 且输入为 dict 时的策略：
+                - reject: 抛出 TypeError（默认，避免误写）
+                - append: 将整个 dict 作为一条事件按时间戳写入
             **kwargs: 其他传递给 SqliteDict 的参数
         """
         # 初始化日志流和表名
@@ -93,9 +104,18 @@ class DBStream(Stream):
         self.tablename = name
         self.name = name
         self.maxsize = maxsize
+        self.key_mode = key_mode
+        self.time_dict_policy = time_dict_policy
+        if self.key_mode not in {'explicit', 'time'}:
+            raise ValueError("key_mode must be 'explicit' or 'time'")
+        if self.time_dict_policy not in {'reject', 'append'}:
+            raise ValueError("time_dict_policy must be 'reject' or 'append'")
 
         super(DBStream, self).__init__()
         self.name = name
+        self._time_index = []
+        self._time_index_ts = []
+        self._time_index_dirty = True
 
         # 处理文件路径
         if not filename:
@@ -104,7 +124,7 @@ class DBStream(Stream):
                     os.makedirs(os.path.expanduser('~/.deva/'))
                 self.filename = os.path.expanduser('~/.deva/nb.sqlite')
             except Exception as e:
-                print(e, 'create dbfile nb.sqlite in curdir')
+                logger.warning("%s create dbfile nb.sqlite in curdir", e)
                 self.filename = 'nb.sqlite'
         else:
             self.filename = filename + '.sqlite'
@@ -121,7 +141,6 @@ class DBStream(Stream):
         self.values = self.db.values
         self.items = self.db.items
         self.get = self.db.get
-        self.clear = self.db.clear
         self._check_size_limit()
 
     @property
@@ -148,9 +167,27 @@ class DBStream(Stream):
     
     def _check_size_limit(self):
         """检查并维护最大容量限制"""
-        if self.maxsize:
-            while len(self.db) > self.maxsize:
-                self.db.popitem()
+        if not self.maxsize:
+            return
+        excess = len(self.db) - self.maxsize
+        if excess <= 0:
+            return
+
+        self._rebuild_time_index()
+        evict_keys = [key for _, key in self._time_index[:excess]]
+        evicted = set()
+        for key in evict_keys:
+            if key in self.db:
+                del self.db[key]
+                evicted.add(key)
+
+        remain = excess - len(evicted)
+        if remain > 0:
+            fallback_keys = [k for k in self.db.keys() if k not in evicted]
+            fallback_keys.sort(key=lambda x: str(x))
+            for key in fallback_keys[:remain]:
+                del self.db[key]
+        self._mark_time_index_dirty()
 
     def update(self, x):
         """更新数据库内容
@@ -158,20 +195,73 @@ class DBStream(Stream):
         Args:
             x: 要更新的数据，可以是字典、元组或单个值
         """
-        x >> self.log
+        try:
+            x >> self.log
+        except Exception:
+            if callable(self.log):
+                self.log(x)
 
         if isinstance(x, dict):
-            self.db.update(x)
+            if self.key_mode == 'explicit':
+                self.bulk_update(x)
+            elif self.time_dict_policy == 'append':
+                self.append(x)
+            else:
+                raise TypeError(
+                    "dict input is not allowed in key_mode='time'. "
+                    "Use append(dict) or upsert(key, value)."
+                )
         elif isinstance(x, tuple):
             key, value = x
-            self.db.update({key: value})
+            self.upsert(key, value)
         else:
-            key = time.time()
-            value = x
-            self.db.update({key: value})
+            self.append(x)
 
-        self._check_size_limit()
         self._emit(x)
+
+    def _to_float_timestamp(self, key):
+        try:
+            return float(key)
+        except (TypeError, ValueError):
+            return None
+
+    def _mark_time_index_dirty(self):
+        self._time_index_dirty = True
+
+    def _rebuild_time_index(self):
+        if not self._time_index_dirty:
+            return
+        data = []
+        for key in self.db.keys():
+            ts = self._to_float_timestamp(key)
+            if ts is not None:
+                data.append((ts, key))
+        data.sort(key=lambda x: x[0])
+        self._time_index = data
+        self._time_index_ts = [ts for ts, _ in data]
+        self._time_index_dirty = False
+
+    def append(self, value, key=None):
+        """将一条事件按时间戳键写入。"""
+        store_key = time.time() if key is None else key
+        self.db.update({store_key: value})
+        self._mark_time_index_dirty()
+        self._check_size_limit()
+        return store_key
+
+    def upsert(self, key, value):
+        """按显式键写入/覆盖一条记录。"""
+        self.db.update({key: value})
+        self._mark_time_index_dirty()
+        self._check_size_limit()
+        return key
+
+    def bulk_update(self, mapping):
+        """批量写入映射。"""
+        self.db.update(mapping)
+        self._mark_time_index_dirty()
+        self._check_size_limit()
+        return self
 
     def __slice__(self, start=None, stop=None):
         """时间切片操作
@@ -185,11 +275,19 @@ class DBStream(Stream):
         """
         from datetime import datetime
 
-        start = datetime.fromisoformat(start).timestamp() if start else float(self.keys() | first)
-        stop = datetime.fromisoformat(stop).timestamp() if stop else time.time()
+        self._rebuild_time_index()
+        if not self._time_index:
+            return
+        if start:
+            start = datetime.fromisoformat(start).timestamp()
+        else:
+            start = self._time_index_ts[0]
 
-        for key in self.keys():
-            if start < float(key) < stop:
+        stop = datetime.fromisoformat(stop).timestamp() if stop else time.time()
+        left = bisect_right(self._time_index_ts, start)
+        right = bisect_left(self._time_index_ts, stop)
+        for ts, key in self._time_index[left:right]:
+            if start < ts < stop:
                 yield key
 
     @gen.coroutine
@@ -224,13 +322,14 @@ class DBStream(Stream):
 
     def __setitem__(self, key, value):
         """设置数据"""
-        self.db.__setitem__(key, value)
-        self._check_size_limit()
+        self.upsert(key, value)
         return self
 
     def __delitem__(self, x):
         """删除数据"""
-        return self.db.__delitem__(x)
+        result = self.db.__delitem__(x)
+        self._mark_time_index_dirty()
+        return result
 
     def __contains__(self, x):
         """检查键是否存在"""
@@ -239,3 +338,9 @@ class DBStream(Stream):
     def __iter__(self):
         """迭代器"""
         return self.db.__iter__()
+
+    def clear(self):
+        """清空当前表。"""
+        result = self.db.clear()
+        self._mark_time_index_dirty()
+        return result

@@ -46,6 +46,10 @@
 from .core import Stream
 from .store import DBStream
 from .topic import Topic, TCPTopic
+import logging
+
+
+logger = logging.getLogger(__name__)
 
 
 class Namespace(dict):
@@ -136,7 +140,7 @@ def NT(name='', *args, **kwargs):
     try:
         return namespace.create(typ='topic', name=name, *args, **kwargs)
     except Exception as e:
-        print(e)
+        logger.warning("NT(%s) create failed: %s", name, e)
         return None
 
 
@@ -145,7 +149,7 @@ def NWT(name='', *args, **kwargs):
     try:
         return namespace.create(typ='tcptopic', name=name, *args, **kwargs)
     except Exception as e:
-        print(e)
+        logger.warning("NWT(%s) create failed: %s", name, e)
         return None
 
 
