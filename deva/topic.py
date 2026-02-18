@@ -87,7 +87,7 @@ class TCPStream(Stream):
             # 进来的消息发下游
             self.client.in_s.sink(lambda x: self._emit(x))
         except Exception as e:
-            print(e)
+            logger.warning("TCPStream init failed: %s", e)
 
     def emit(self, x, asynchronous=True):
         x >> self.client
@@ -157,7 +157,7 @@ class http_topic(Stream):
                     body = [body]
 
                 tag = unquote(self.request.headers['tag'])
-                print(tag)
+                logger.debug("http_topic tag=%s", tag)
                 if tag:
                     source = NS(tag)
                     if not source.is_cache:

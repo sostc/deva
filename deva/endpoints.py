@@ -190,7 +190,7 @@ class to_redis(Stream):
 
     def __init__(self, topic, upstream=None, max_len=100, **kwargs):
         Stream.__init__(self, upstream=upstream, ensure_io_loop=True)
-        self.rs = RedisStream(topic=topic, max_len=max_len)
+        self.rs = RedisStream(topic=topic, max_len=max_len, **kwargs)
         self >> self.rs
 
 
