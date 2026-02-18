@@ -35,3 +35,4 @@
 
 ### 已有目录示例
 - `deva/examples/log_watchdog/`（已包含独立 README）
+- `deva/examples/storage/`（信号存储与回放示例）
