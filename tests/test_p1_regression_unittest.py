@@ -29,21 +29,21 @@ class TestP1Regressions(unittest.TestCase):
     def test_init_has_no_eager_gpt_import(self):
         module = parse_module('deva/__init__.py')
         for node in module.body:
-            if isinstance(node, ast.ImportFrom) and node.module == 'gpt':
-                self.fail('deva.__init__ should not eagerly import deva.gpt')
+            if isinstance(node, ast.ImportFrom) and node.module == 'llm':
+                self.fail('deva.__init__ should not eagerly import deva.llm')
 
-    def test_gpt_module_has_no_eager_singleton_instantiation(self):
-        module = parse_module('deva/gpt.py')
+    def test_llm_module_has_no_eager_singleton_instantiation(self):
+        module = parse_module('deva/llm.py')
         for node in module.body:
             if isinstance(node, ast.Assign):
                 value = node.value
                 if isinstance(value, ast.Call) and isinstance(value.func, ast.Name) and value.func.id == 'GPT':
-                    self.fail('deva.gpt should not instantiate GPT() at import time')
+                    self.fail('deva.llm should not instantiate GPT() at import time')
 
-    def test_gpt_has_lazy_factory(self):
-        module = parse_module('deva/gpt.py')
+    def test_llm_has_lazy_factory(self):
+        module = parse_module('deva/llm.py')
         has_get_gpt = any(isinstance(n, ast.FunctionDef) and n.name == 'get_gpt' for n in module.body)
-        self.assertTrue(has_get_gpt, 'deva.gpt should expose get_gpt() lazy factory')
+        self.assertTrue(has_get_gpt, 'deva.llm should expose get_gpt() lazy factory')
 
     def test_deva_run_uses_current_ioloop(self):
         module = parse_module('deva/core.py')
