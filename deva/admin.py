@@ -62,28 +62,34 @@ import re
 import inspect
 import pkgutil
 try:
-    from .admin_parts import runtime as admin_runtime
-    from .admin_parts import auth as admin_auth
-    from .admin_parts import document as admin_document
-    from .admin_parts import tasks as admin_tasks
-    from .admin_parts import tables as admin_tables
-    from .admin_parts import main_ui as admin_main_ui
-    from .admin_parts import llm_response_service as admin_llm_response_service
-    from .admin_parts import contexts as admin_contexts
-    from .admin_parts import route_helpers as admin_route_helpers
-    from .llm_parts.worker_runtime import run_ai_in_worker
+    from .admin_ui import runtime as admin_runtime
+    from .admin_ui import auth_routes as admin_auth
+    from .admin_ui import auth_routes as admin_route_helpers
+    from .admin_ui import document as admin_document
+    from .admin_ui import tasks as admin_tasks
+    from .admin_ui import tables as admin_tables
+    from .admin_ui import main_ui as admin_main_ui
+    from .admin_ui import llm_service as admin_llm_response_service
+    from .admin_ui import contexts as admin_contexts
+    from .admin_ui import monitor_routes as admin_monitor_routes
+    from .admin_ui.stock import panel as admin_stock_panel
+    from .admin_ui.stock import runtime as admin_stock_runtime
+    from .llm.worker_runtime import run_ai_in_worker
 except ImportError:
     # Allow running as a script: python deva/admin.py
-    from deva.admin_parts import runtime as admin_runtime
-    from deva.admin_parts import auth as admin_auth
-    from deva.admin_parts import document as admin_document
-    from deva.admin_parts import tasks as admin_tasks
-    from deva.admin_parts import tables as admin_tables
-    from deva.admin_parts import main_ui as admin_main_ui
-    from deva.admin_parts import llm_response_service as admin_llm_response_service
-    from deva.admin_parts import contexts as admin_contexts
-    from deva.admin_parts import route_helpers as admin_route_helpers
-    from deva.llm_parts.worker_runtime import run_ai_in_worker
+    from deva.admin_ui import runtime as admin_runtime
+    from deva.admin_ui import auth_routes as admin_auth
+    from deva.admin_ui import auth_routes as admin_route_helpers
+    from deva.admin_ui import document as admin_document
+    from deva.admin_ui import tasks as admin_tasks
+    from deva.admin_ui import tables as admin_tables
+    from deva.admin_ui import main_ui as admin_main_ui
+    from deva.admin_ui import llm_service as admin_llm_response_service
+    from deva.admin_ui import contexts as admin_contexts
+    from deva.admin_ui import monitor_routes as admin_monitor_routes
+    from deva.admin_ui.stock import panel as admin_stock_panel
+    from deva.admin_ui.stock import runtime as admin_stock_runtime
+    from deva.llm.worker_runtime import run_ai_in_worker
 
 import pandas as pd
 from openai import AsyncOpenAI
@@ -126,7 +132,7 @@ _DOCUMENT_CACHE_TTL = 60
 DOCUMENT_MODULE_WHITELIST = admin_document.DOCUMENT_MODULE_WHITELIST
 
 
-def setup_admin_runtime(enable_webviews=True, enable_timer=True, enable_scheduler=True):
+def setup_admin_runtime(enable_webviews=True, enable_timer=True, enable_scheduler=True, enable_stock=True):
     """初始化 admin 运行时资源（幂等）。"""
     state = {
         'initialized': _admin_runtime_initialized,
@@ -136,6 +142,7 @@ def setup_admin_runtime(enable_webviews=True, enable_timer=True, enable_schedule
         'concat': concat,
         'NS': NS,
         'scheduler': scheduler,
+        'enable_stock': enable_stock,
     }
     admin_runtime.setup_admin_runtime(
         state,
@@ -395,6 +402,10 @@ async def streamadmin():
     await init_admin_ui("Deva实时流管理")
     put_markdown('### 数据流')
     put_buttons([s.name for s in _get_admin_streams()], onclick=stream_click)
+
+
+async def stockadmin():
+    return await admin_stock_panel.render_stock_admin(_stock_ctx())
     
 async def inspect_object(obj):
     return admin_document.inspect_object_ui(_document_ui_ctx(), obj)
@@ -437,6 +448,30 @@ def _stream_ctx():
         'put_markdown': put_markdown,
         'put_html': put_html,
     }
+
+
+def _stock_ctx():
+    return admin_contexts.stock_ctx(globals())
+
+
+def get_stock_config():
+    return admin_stock_runtime.get_stock_config()
+
+
+def set_stock_config(force_fetch=None, sync_bus=None):
+    return admin_stock_runtime.set_stock_config(force_fetch=force_fetch, sync_bus=sync_bus)
+
+
+def get_stock_basic_meta():
+    return admin_stock_runtime.get_stock_basic_meta()
+
+
+def refresh_stock_basic_df(force=True):
+    return admin_stock_runtime.refresh_stock_basic_df(force=force)
+
+
+async def refresh_stock_basic_df_async(force=True):
+    return await admin_stock_runtime.refresh_stock_basic_df_async(force=force)
 
 
 def paginate_dataframe(scope,df, page_size):
@@ -490,9 +525,11 @@ if __name__ == '__main__':
         (r'/dbadmin', webio_handler(dbadmin, cdn=cdn)),
         (r'/busadmin', webio_handler(busadmin, cdn=cdn)),
         (r'/streamadmin', webio_handler(streamadmin, cdn=cdn)),
+        (r'/stockadmin', webio_handler(stockadmin, cdn=cdn)),
         (r'/', webio_handler(main, cdn=cdn)),
         (r'/taskadmin', webio_handler(taskadmin, cdn=cdn)),
-        (r'/document', webio_handler(document, cdn=cdn))
+        (r'/document', webio_handler(document, cdn=cdn)),
+        *admin_monitor_routes.monitor_route_handlers(globals()),
     ]
     NW('stream_webview',host='0.0.0.0').application.add_handlers('.*$', handlers)
  

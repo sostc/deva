@@ -33,7 +33,7 @@ class TestP1Regressions(unittest.TestCase):
                 self.fail('deva.__init__ should not eagerly import deva.llm')
 
     def test_llm_module_has_no_eager_singleton_instantiation(self):
-        module = parse_module('deva/llm.py')
+        module = parse_module('deva/llm/client.py')
         for node in module.body:
             if isinstance(node, ast.Assign):
                 value = node.value
@@ -41,7 +41,7 @@ class TestP1Regressions(unittest.TestCase):
                     self.fail('deva.llm should not instantiate GPT() at import time')
 
     def test_llm_has_lazy_factory(self):
-        module = parse_module('deva/llm.py')
+        module = parse_module('deva/llm/client.py')
         has_get_gpt = any(isinstance(n, ast.FunctionDef) and n.name == 'get_gpt' for n in module.body)
         self.assertTrue(has_get_gpt, 'deva.llm should expose get_gpt() lazy factory')
 

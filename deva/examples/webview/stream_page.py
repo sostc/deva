@@ -25,5 +25,5 @@ s2.webview()
 s2.webview('/stock')
 s3.webview()
 
-# Monitor().start()
+# 监控功能已并入 admin，可访问 /monitor
 Deva.run()

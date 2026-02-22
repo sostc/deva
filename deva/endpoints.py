@@ -4,7 +4,7 @@ from tornado.httpclient import AsyncHTTPClient
 
 from .pipe import passed, P
 from .core import Stream
-from .topic import RedisStream
+from .sources import RedisStream
 from .namespace import NB
 from pymaybe import maybe
 import json
@@ -188,9 +188,25 @@ class to_redis(Stream):
     s.rate_limit(0.1).to_redis('mystream')  # 限速写入
     """
 
+    _stream_init_kwargs = {
+        "upstreams",
+        "name",
+        "cache_max_len",
+        "cache_max_age_seconds",
+        "loop",
+        "asynchronous",
+        "refuse_none",
+    }
+
     def __init__(self, topic, upstream=None, max_len=100, **kwargs):
-        Stream.__init__(self, upstream=upstream, ensure_io_loop=True)
-        self.rs = RedisStream(topic=topic, max_len=max_len, **kwargs)
+        stream_kwargs = {
+            key: value for key, value in kwargs.items() if key in self._stream_init_kwargs
+        }
+        redis_kwargs = {
+            key: value for key, value in kwargs.items() if key not in self._stream_init_kwargs
+        }
+        Stream.__init__(self, upstream=upstream, ensure_io_loop=True, **stream_kwargs)
+        self.rs = RedisStream(topic=topic, max_len=max_len, **redis_kwargs)
         self >> self.rs
 
 
@@ -279,6 +295,28 @@ class Dtalk(Stream):
 
         return url
 
+    @staticmethod
+    def _build_message_data(msg):
+        msg = str(msg)
+        payload = {
+            "msgtype": "text",
+            "text": {"content": msg},
+            "at": {"atMobiles": [], "isAtAll": '@all' in msg},
+        }
+        if not msg.startswith('@md@'):
+            return msg, payload
+
+        content = msg[4:]
+        if '|' not in content:
+            return msg, payload
+
+        title, text = content.split('|', 1)
+        payload = {
+            "msgtype": "markdown",
+            "markdown": {"title": title, "text": text, "content": text},
+        }
+        return msg, payload
+
     @gen.coroutine
     def emit(self, msg: str, asynchronous=False):
         """发送消息的入口方法
@@ -313,21 +351,7 @@ class Dtalk(Stream):
         Returns:
             dict: 包含发送结果的字典
         """
-        # 二进制或者set类型的,转成json格式前需要先转类型
-        msg = str(msg)
-
-        data = {"msgtype": "text", "text": {"content": msg},
-                "at": {"atMobiles": [], "isAtAll": '@all' in msg}}
-
-        if msg.startswith('@md@'):
-            # @md@财联社新闻汇总|text
-            content = msg[4:]
-            title, text = content[:content.index(
-                '|')], content[content.index('|') + 1:]
-            data = {
-                "msgtype": "markdown",
-                "markdown": {"title": title, "text": text, "content": text}
-            }
+        msg, data = self._build_message_data(msg)
 
         post_data = json.JSONEncoder().encode(data)
         # import urllib

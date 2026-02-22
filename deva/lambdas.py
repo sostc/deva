@@ -54,7 +54,7 @@ def _unary_fmap(callback):
 
 
 def _flip(callback):
-    return (lambda first, second: callback(second, first))@P
+    return lambda first, second: callback(second, first)
 
 
 class _Callable(object):
@@ -62,73 +62,6 @@ class _Callable(object):
         self, key: T1,
     ) -> Callable[[Mapping[T1, T2]], T2]:
         return operator.itemgetter(key)
-
-    __add__: Callable[['_Callable', T1], Callable[[T1], T1]] = _fmap(
-        operator.add,
-    )
-    __mul__: Callable[['_Callable', T1], Callable[[T1], T1]] = _fmap(
-        operator.mul,
-    )
-    __sub__: Callable[['_Callable', T1], Callable[[T1], T1]] = _fmap(
-        operator.sub,
-    )
-    __mod__: Callable[['_Callable', T1], Callable[[T1], T1]] = _fmap(
-        operator.mod,
-    )
-    __pow__: Callable[['_Callable', T1], Callable[[T1], T1]] = _fmap(
-        operator.pow,
-    )
-
-    __and__: Callable[['_Callable', T1], Callable[[T1], T1]] = _fmap(
-        operator.and_,
-    )
-    __or__: Callable[['_Callable', T1], Callable[[T1], T1]] = _fmap(
-        operator.or_,
-    )
-    __xor__: Callable[['_Callable', T1], Callable[[T1], T1]] = _fmap(
-        operator.xor,
-    )
-
-    __div__: Callable[['_Callable', T1], Callable[[T1], T1]] = _fmap(
-        operator.truediv,
-    )
-    __divmod__: Callable[['_Callable', T1], Callable[[T1], T1]] = _fmap(divmod)
-    __floordiv__: Callable[['_Callable', T1], Callable[[T1], T1]] = _fmap(
-        operator.floordiv,
-    )
-    __truediv__: Callable[['_Callable', T1], Callable[[T1], T1]] = _fmap(
-        operator.truediv,
-    )
-
-    __lshift__: Callable[['_Callable', T1], Callable[[T1], T1]] = _fmap(
-        operator.lshift,
-    )
-    __rshift__: Callable[['_Callable', T1], Callable[[T1], T1]] = _fmap(
-        operator.rshift,
-    )
-
-    __lt__: Callable[['_Callable', T1], Callable[[T1], T1]] = _fmap(
-        operator.lt,
-    )
-    __le__: Callable[['_Callable', T1], Callable[[T1], T1]] = _fmap(
-        operator.le,
-    )
-    __gt__: Callable[['_Callable', T1], Callable[[T1], T1]] = _fmap(
-        operator.gt,
-    )
-    __ge__: Callable[['_Callable', T1], Callable[[T1], T1]] = _fmap(
-        operator.ge,
-    )
-    __eq__: Callable[
-        ['_Callable', object], Callable[[object], bool],
-    ] = _fmap(  # type: ignore
-        operator.eq,
-    )
-    __ne__: Callable[
-        ['_Callable', object], Callable[[object], bool],
-    ] = _fmap(  # type: ignore
-        operator.ne,
-    )
 
     __neg__: Callable[['_Callable'], Callable[[T1], T1]] = _unary_fmap(
         operator.neg,
@@ -140,50 +73,45 @@ class _Callable(object):
         operator.invert,
     )
 
-    __radd__: Callable[['_Callable', T1], Callable[[T1], T1]] = _fmap(
-        _flip(operator.add),
-    )
-    __rmul__: Callable[['_Callable', T1], Callable[[T1], T1]] = _fmap(
-        _flip(operator.mul),
-    )
-    __rsub__: Callable[['_Callable', T1], Callable[[T1], T1]] = _fmap(
-        _flip(operator.sub),
-    )
-    __rmod__: Callable[['_Callable', T1], Callable[[T1], T1]] = _fmap(
-        _flip(operator.mod),
-    )
-    __rpow__: Callable[['_Callable', T1], Callable[[T1], T1]] = _fmap(
-        _flip(operator.pow),
-    )
-    __rdiv__: Callable[['_Callable', T1], Callable[[T1], T1]] = _fmap(
-        _flip(operator.truediv),
-    )
-    __rdivmod__: Callable[['_Callable', T1], Callable[[T1], T1]] = _fmap(
-        _flip(divmod),
-    )
-    __rtruediv__: Callable[['_Callable', T1], Callable[[T1], T1]] = _fmap(
-        _flip(operator.truediv),
-    )
-    __rfloordiv__: Callable[['_Callable', T1], Callable[[T1], T1]] = _fmap(
-        _flip(operator.floordiv),
-    )
+_BINARY_OPS = {
+    '__add__': operator.add,
+    '__mul__': operator.mul,
+    '__sub__': operator.sub,
+    '__mod__': operator.mod,
+    '__pow__': operator.pow,
+    '__and__': operator.and_,
+    '__or__': operator.or_,
+    '__xor__': operator.xor,
+    '__div__': operator.truediv,
+    '__divmod__': divmod,
+    '__floordiv__': operator.floordiv,
+    '__truediv__': operator.truediv,
+    '__lshift__': operator.lshift,
+    '__rshift__': operator.rshift,
+    '__lt__': operator.lt,
+    '__le__': operator.le,
+    '__gt__': operator.gt,
+    '__ge__': operator.ge,
+    '__eq__': operator.eq,
+    '__ne__': operator.ne,
+    '__radd__': _flip(operator.add),
+    '__rmul__': _flip(operator.mul),
+    '__rsub__': _flip(operator.sub),
+    '__rmod__': _flip(operator.mod),
+    '__rpow__': _flip(operator.pow),
+    '__rdiv__': _flip(operator.truediv),
+    '__rdivmod__': _flip(divmod),
+    '__rtruediv__': _flip(operator.truediv),
+    '__rfloordiv__': _flip(operator.floordiv),
+    '__rlshift__': _flip(operator.lshift),
+    '__rrshift__': _flip(operator.rshift),
+    '__rand__': _flip(operator.and_),
+    '__ror__': _flip(operator.or_),
+    '__rxor__': _flip(operator.xor),
+}
 
-    __rlshift__: Callable[['_Callable', T1], Callable[[T1], T1]] = _fmap(
-        _flip(operator.lshift),
-    )
-    __rrshift__: Callable[['_Callable', T1], Callable[[T1], T1]] = _fmap(
-        _flip(operator.rshift),
-    )
-
-    __rand__: Callable[['_Callable', T1], Callable[[T1], T1]] = _fmap(
-        _flip(operator.and_),
-    )
-    __ror__: Callable[['_Callable', T1], Callable[[T1], T1]] = _fmap(
-        _flip(operator.or_),
-    )
-    __rxor__: Callable[['_Callable', T1], Callable[[T1], T1]] = _fmap(
-        _flip(operator.xor),
-    )
+for _name, _op in _BINARY_OPS.items():
+    setattr(_Callable, _name, _fmap(_op))
 
 
 _ = _Callable()  # noqa: WPS122

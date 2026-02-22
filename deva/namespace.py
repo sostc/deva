@@ -45,7 +45,7 @@
 
 from .core import Stream
 from .store import DBStream
-from .topic import Topic, TCPTopic
+from .sources import Topic, TCPTopic
 import logging
 
 
@@ -62,6 +62,7 @@ class Namespace(dict):
         
         创建不同类型对象的存储字典
         """
+        super().__init__()
         # 初始化各类型的存储字典
         self['stream'] = {}  # 存储Stream对象
         self['topic'] = {}   # 存储Topic对象 
@@ -70,19 +71,21 @@ class Namespace(dict):
         self['data'] = {}     # 存储数据对象
         self['webserver'] = {} # 存储PageServer对象
 
-    def create(self, name, typ='stream', **kwargs):
+    def create(self, name, typ='stream', obj_type=None, **kwargs):
         """创建或获取一个命名对象
         
         Args:
             name: 对象名称,用于唯一标识
             typ: 对象类型,可选值包括stream/topic/table/tcptopic/webserver,默认为stream
+            obj_type: typ 的可读性别名，优先级高于 typ
             **kwargs: 传递给对象构造函数的额外参数
             
         Returns:
             返回已存在的同名对象或新创建的对象实例
         """
+        object_type = obj_type or typ
         # 定义类型到构造函数的映射
-        constructor = {
+        constructors = {
             'stream': Stream,     # 流处理对象
             'topic': Topic,       # 主题对象
             'table': DBStream,    # 数据库流对象
@@ -90,21 +93,30 @@ class Namespace(dict):
         }
 
         # webserver类型需要动态导入
-        if typ == 'webserver':
+        if object_type == 'webserver':
             from .page import PageServer
-            constructor['webserver'] = PageServer
+            constructors['webserver'] = PageServer
 
         # 先尝试获取已存在对象
         try:
-            return self[typ][name]
+            return self[object_type][name]
         except KeyError:
+            constructor = constructors.get(object_type)
+            if constructor is None:
+                valid_types = ', '.join(sorted(constructors.keys()))
+                raise ValueError(
+                    f"Unsupported namespace type: {object_type!r}. "
+                    f"Expected one of: {valid_types}"
+                )
             # 不存在则创建新对象并存储
-            return self[typ].setdefault(
+            return self[object_type].setdefault(
                 name,
-                constructor.get(typ)(name=name, **kwargs)
+                constructor(name=name, **kwargs)
             )
 
-namespace = Namespace()
+global_namespace = Namespace()
+# Backward-compatible alias
+namespace = global_namespace
 
 
 def NS(name='', *args, **kwargs):
@@ -120,7 +132,7 @@ def NS(name='', *args, **kwargs):
     Returns:
         Stream: 返回已存在的同名Stream对象或新创建的Stream对象实例
     """
-    return namespace.create(typ='stream', name=name, *args, **kwargs)
+    return global_namespace.create(typ='stream', name=name, *args, **kwargs)
 
 
 def NT(name='', *args, **kwargs):
@@ -138,7 +150,7 @@ def NT(name='', *args, **kwargs):
         [type]
     """
     try:
-        return namespace.create(typ='topic', name=name, *args, **kwargs)
+        return global_namespace.create(typ='topic', name=name, *args, **kwargs)
     except Exception as e:
         logger.warning("NT(%s) create failed: %s", name, e)
         return None
@@ -147,7 +159,7 @@ def NT(name='', *args, **kwargs):
 def NWT(name='', *args, **kwargs):
 
     try:
-        return namespace.create(typ='tcptopic', name=name, *args, **kwargs)
+        return global_namespace.create(typ='tcptopic', name=name, *args, **kwargs)
     except Exception as e:
         logger.warning("NWT(%s) create failed: %s", name, e)
         return None
@@ -186,7 +198,7 @@ def NB(name='default', *args, **kwargs):
         db = NB('users')
         print(db['user1'])  # 获取key为'user1'的数据
     """
-    return namespace.create(typ='table', name=name, *args, **kwargs)
+    return global_namespace.create(typ='table', name=name, *args, **kwargs)
 
 
 
@@ -226,4 +238,4 @@ def NW(name='', host='127.0.0.1', port=9999, start=True, **kwargs):
         server.start()  # 手动启动
 
     """
-    return namespace.create(typ='webserver', name=name, host=host, port=port, start=start, debug=True)
+    return global_namespace.create(typ='webserver', name=name, host=host, port=port, start=start, debug=True)

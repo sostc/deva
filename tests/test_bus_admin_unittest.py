@@ -18,14 +18,14 @@ class TestBusAdminIntegration(unittest.TestCase):
         self.assertIsInstance(get_bus_recent_messages(5), list)
 
     def test_main_ui_context_exposes_bus_status_function(self):
-        source = (ROOT / "deva/admin_parts/contexts.py").read_text(encoding="utf-8")
+        source = (ROOT / "deva/admin_ui/contexts.py").read_text(encoding="utf-8")
         self.assertIn("'get_bus_runtime_status': ns['get_bus_runtime_status']", source)
         self.assertIn("'get_bus_clients': ns['get_bus_clients']", source)
         self.assertIn("'get_bus_recent_messages': ns['get_bus_recent_messages']", source)
         self.assertIn("'send_bus_message': ns['send_bus_message']", source)
 
     def test_nav_contains_busadmin_entry(self):
-        source = (ROOT / "deva/admin_parts/main_ui.py").read_text(encoding="utf-8")
+        source = (ROOT / "deva/admin_ui/main_ui.py").read_text(encoding="utf-8")
         self.assertIn("{name: 'Bus', path: '/busadmin'", source)
         self.assertIn("### 已连接进程（心跳）", source)
         self.assertIn("### 最新消息", source)
