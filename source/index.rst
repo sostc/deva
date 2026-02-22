@@ -34,6 +34,7 @@ Deva 是一个基于 Python 的异步流式处理框架，提供了丰富的流�
    :maxdepth: 2
    :caption: 目录:
 
+   manual_cn
    installation
    usage
    storage

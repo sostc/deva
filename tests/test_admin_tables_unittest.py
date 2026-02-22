@@ -2,7 +2,7 @@ import unittest
 
 import pandas as pd
 
-from deva.admin_parts import tables
+from deva.admin_ui import tables
 
 
 class AdminTablesHelpersTest(unittest.TestCase):

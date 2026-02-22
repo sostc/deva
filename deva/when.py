@@ -53,7 +53,7 @@ deva.bus : 消息总线模块
 
 
 @atexit.register
-def exit():
+def emit_exit_event():
     """进程退出时发信号到log.
 
     Examples:
@@ -63,6 +63,10 @@ def exit():
     #
 
     return 'exit' >> log
+
+
+# Backward-compatible alias
+exit = emit_exit_event
 
 
 @Stream.register_api(staticmethod)
@@ -220,6 +224,7 @@ class timer(Stream):
                  func=None,#lambda: datetime.datetime.now().second,
                  thread=False,
                  threadcount=5,
+                 thread_count=None,
                  ensure_io_loop=True,
                  **kwargs):
 
@@ -227,9 +232,11 @@ class timer(Stream):
         self.ttl = convert_interval(ttl) if ttl else None  # 转换并存储生命周期
         self.thread = thread
 
+        worker_count = thread_count if thread_count is not None else threadcount
+
         if self.thread:  # 如果使用线程池则创建线程池
             from concurrent.futures import ThreadPoolExecutor
-            self.thread_pool = ThreadPoolExecutor(threadcount)
+            self.thread_pool = ThreadPoolExecutor(worker_count)
 
         super(timer, self).__init__(ensure_io_loop=ensure_io_loop, **kwargs)
         self.started =  start  # 初始状态为停止
@@ -289,8 +296,8 @@ class timer(Stream):
         self.started = False
 
 
-class when(object):
-    """当某个事件发生时执行指定操作的类
+class EventTrigger(object):
+    """事件触发器：当某个事件发生时执行指定操作
 
     该类用于监听数据流中的事件,当满足条件时执行相应的回调函数。
     可以通过字符串匹配或自定义函数来定义触发条件。
@@ -313,11 +320,13 @@ class when(object):
     when(lambda x:x>2).then(lambda x:print(x,'x大于二'))
     """
 
-    def __init__(self, occasion, source=log):
-        self.occasion = occasion  # 存储触发条件
+    def __init__(self, condition, source=log):
+        self.condition = condition  # 新语义名
+        self.trigger = condition  # 兼容之前新增的属性名
+        self.occasion = condition  # 兼容旧属性名
         self.source = source  # 存储数据源流
 
-    def then(self, func, *args, **kwargs):
+    def then(self, callback, *args, **kwargs):
         """设置触发时要执行的回调函数
 
         参数:
@@ -332,12 +341,19 @@ class when(object):
         Sink
             返回sink对象,用于接收数据流
         """
-        if callable(self.occasion):  # 如果是函数条件,传入数据值作为参数
-            return self.source.filter(self.occasion).sink(
-                lambda x: func(x, *args, **kwargs))
+        if callable(self.condition):  # 如果是函数条件,传入数据值作为参数
+            return self.source.filter(self.condition).sink(
+                lambda x: callback(x, *args, **kwargs))
         else:  # 如果是字符串条件,只执行回调不传参
-            return self.source.filter(lambda x: self.occasion in str(x)).sink(
-                lambda x: func(*args, **kwargs))
+            return self.source.filter(lambda x: self.condition in str(x)).sink(
+                lambda x: callback(*args, **kwargs))
+
+
+# Backward-compatible aliases
+Scheduler = scheduler
+Timer = timer
+When = EventTrigger
+when = EventTrigger
 
 
 when('exit', source=log).then(lambda: print('bye bye,', os.getpid()))

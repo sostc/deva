@@ -1,7 +1,7 @@
 import logging
 import unittest
 
-from deva.logging_adapter import format_line, normalize_record, setup_deva_logging
+from deva.core import format_line, normalize_record, setup_deva_logging
 
 
 class TestLoggingAdapter(unittest.TestCase):

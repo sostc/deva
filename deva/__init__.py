@@ -1,26 +1,24 @@
 from __future__ import absolute_import, division, print_function
-
-from .logging_adapter import setup_deva_logging
+from .browser import browser, tab, tabs
+from .lambdas import _
+from .pipe import *
+from .bus import *
+from .endpoints import *
+from .when import *
+from .namespace import *
+from .sources import *
+from .compute import *
+from .core import *
+from .core import setup_deva_logging
 setup_deva_logging()
 
-from .core import *
-from .compute import *
-from .graph import *
-from .sources import *
-from .namespace import *
-from .when import *
-from .endpoints import *
-from .future import *
 
-
-from .bus import *
-from .search import IndexStream
-from .pipe import *
-# from .monitor import Monitor
-from .lambdas import _
-from .browser import browser, tab, tabs
-from .core import *
-
+def __getattr__(name):
+    if name == "IndexStream":
+        from .search import IndexStream as _IndexStream
+        globals()["IndexStream"] = _IndexStream
+        return _IndexStream
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 def sync_gpt(prompts):
     from .llm import sync_gpt as _sync_gpt
@@ -123,4 +121,4 @@ async def async_gpt(prompts):
 """
 
 
-__version__ = '1.4.0'
+__version__ = '1.4.1'
