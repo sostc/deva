@@ -17,7 +17,7 @@ def test_init_has_no_eager_gpt_import():
 
 
 def test_llm_module_has_no_eager_singleton_instantiation():
-    module = _module(ROOT / 'deva' / 'llm.py')
+    module = _module(ROOT / 'deva' / 'llm' / 'client.py')
     for node in module.body:
         if isinstance(node, ast.Assign):
             value = node.value

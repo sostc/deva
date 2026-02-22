@@ -1,11 +1,8 @@
 from tornado import gen
-from deva import Stream, httpx, sync,Deva,print,log
-from collections import defaultdict
+from .core import Stream, httpx, sync, Deva
+from .bus import log
 from newspaper import Article
-from tornado.ioloop import IOLoop
-from concurrent.futures import ThreadPoolExecutor
 from requests_html import HTMLResponse
-import asyncio
 
 """
 这是一个浏览器模块，提供了浏览器流对象和相关的功能。
@@ -150,7 +147,7 @@ class Browser(Stream):
         """
         super().__init__(ensure_io_loop=True,**kwargs)
         self.log = Stream()
-        self.cache = defaultdict(lambda: None)
+        self.cache = {}
         self.cache_size = cache_size
         self.page_stream = Stream() # 使用page_stream流来挂载其他处理插件
         self.tabs = set()  # 使用 set 保存 tab 对象
@@ -186,17 +183,15 @@ class Browser(Stream):
     def _add_to_cache(self, page):
         """将响应添加到缓存中。"""
         try:
+            if not page or not page.url:
+                return
             if len(self.cache) >= self.cache_size:
-                # 安全移除最早的缓存项
-                if self.cache:
-                    oldest_key = next(iter(self.cache), None)
-                    if oldest_key:
-                        self.cache.pop(oldest_key)
-            
-            if page and page.url:
-                self.cache[page.url] = page
+                oldest_key = next(iter(self.cache), None)
+                if oldest_key is not None:
+                    self.cache.pop(oldest_key, None)
+            self.cache[page.url] = page
         except Exception as e:
-            f'缓存写入失败: {str(e)}' >> self.browser.log
+            f'缓存写入失败: {str(e)}' >> self.log
 
     def __repr__(self):
         return f"Browser(cache_size={self.cache_size}, tabs={len(self.tabs)})"
@@ -219,18 +214,13 @@ class Browser(Stream):
             f"提取文本时出错: {str(e)}" >> self.log
             return ""
         
-    def create_article(self,response):
+    def create_article(self, response):
         if not response or not hasattr(response, 'html') or not response.html:
             return None
-        # 根据响应头判断网页语言
-        # 从HTML内容中提取语言信息
-        
         try:
             from bs4 import BeautifulSoup
             html_content = response.html.html if response.html.html else ''
             soup = BeautifulSoup(html_content, 'html.parser')
-            
-            # 添加默认值
             lang = 'zh'
             try:
                 html_tag = soup.find('html')
@@ -257,13 +247,9 @@ class Browser(Stream):
         except Exception as e:
             f'文章解析失败: {str(e)}' >> self.log
             return None
-            # 使用文章正文生成摘要
         from bs4 import BeautifulSoup
-
-# 清理 HTML 标签
         article.text = BeautifulSoup(article.text, "html.parser").get_text()
 
-# 确保内容足够长
         if len(article.text) < 50:  # 设置最小长度限制
             "文章内容太短，无法生成摘要" >> self.log
             article.summary = ""
@@ -277,10 +263,6 @@ class Browser(Stream):
             from sumy.nlp.stemmers import Stemmer
             from sumy.utils import get_stop_words
 
-            
-
-# 将清理后的文本传入 summarizer
-            # 根据网页语言选择合适的语言参数
             language = 'chinese' if lang == 'zh' else 'english'
             parser = PlaintextParser.from_string(article.text, Tokenizer(language))
             stemmer = Stemmer(language)
@@ -308,7 +290,7 @@ class Tab():
         self.refresh_interval = refresh_interval  # 定期刷新时间，单位为秒
         self._async_request_future = None  # 用于跟踪异步请求的 Future 对象
 
-        if self.url not in self.browser.cache:
+        if self.browser.cache.get(self.url) is None:
             self._schedule_request()
         self._schedule_refresh()
 
@@ -356,15 +338,14 @@ class Tab():
         返回:
             response: 响应对象
         """
-        if self._page != None:
+        if self._page is not None:
             '浏览器里有已经打开的 tab，立即返回内容' >> self.browser.log
             return self._page  
-        else:
-            '浏览器里没有成功完全打开状态的 tab，立即同步网络请求' >> self.browser.log
-            self.url>>self.browser.log
-            response = sync(self.browser.loop, lambda: httpx(self.url))
-            '同步请求完成，返回内容' >> self.browser.log
-            return self.parse(response)
+        '浏览器里没有成功完全打开状态的 tab，立即同步网络请求' >> self.browser.log
+        self.url >> self.browser.log
+        response = sync(self.browser.loop, lambda: httpx(self.url))
+        '同步请求完成，返回内容' >> self.browser.log
+        return self.parse(response)
             
     @property
     async def page(self):
@@ -376,35 +357,18 @@ class Tab():
         返回:
             response: 响应对象
         """
-        if self._page != None:
+        if self._page is not None:
             '浏览器里有已经打开的 tab，立即返回内容' >> self.browser.log
             return self._page  
-        else:
-            '浏览器里没有成功完全打开状态的 tab，立即异步网络请求' >> self.browser.log
-            self.url>>self.browser.log
-            try:
-            # 确保在异步上下文中执行
-                response = await httpx(self.url)
-                '异步请求完成，返回内容' >> self.browser.log
-                
-                
-                # 将parse操作放入线程池执行
-                try:
-                    loop = asyncio.get_event_loop()
-                    parsed_response = self.parse(response)
-                    
-                
-                    return parsed_response
-                except asyncio.TimeoutError:
-                    f'页面解析超时: {self.url}' >> self.browser.log
-                    return None
-                except Exception as e:
-                    f'页面解析失败: {str(e)}' >> self.browser.log
-                    return None
-                
-            except Exception as e:
-                f'网络请求失败: {str(e)}' >> self.browser.log
-                return None
+        '浏览器里没有成功完全打开状态的 tab，立即异步网络请求' >> self.browser.log
+        self.url >> self.browser.log
+        try:
+            response = await httpx(self.url)
+            '异步请求完成，返回内容' >> self.browser.log
+            return self.parse(response)
+        except Exception as e:
+            f'网络请求失败: {str(e)}' >> self.browser.log
+            return None
         
     @property
     async def article(self):
@@ -417,6 +381,8 @@ class Tab():
             article: Article对象
         """
         page = await self.page
+        if page is None:
+            return None
         return page.article
 
     def refresh(self):
@@ -484,12 +450,10 @@ class Tab():
         if hasattr(self, '_refresh_timer'):
             self.browser.loop.remove_timeout(self._refresh_timer)
         # 从浏览器的标签页列表中移除当前标签页
-        self.browser.tabs.remove(self)
+        self.browser.tabs.discard(self)
         # 从缓存中删除数据
-        if self.url in self.browser.cache:
-            del self.browser.cache[self.url]
+        self.browser.cache.pop(self.url, None)
         '已删除 tab 对象' >> self.browser.log
-        del self
 # 全局浏览器实例,缓存大小为5000
 _global_browser = Browser(cache_size=5000)
 
@@ -502,10 +466,10 @@ def open_tabs_in_browser():
     """在默认浏览器中打开所有缓存的标签页内容"""
     import tempfile
     import webbrowser
-    import os
-    
     # 为每个缓存的响应创建临时HTML文件
     for url, response in _global_browser.cache.items():
+        if response is None:
+            continue
         with tempfile.NamedTemporaryFile('w', delete=False, suffix='.html') as f:
             f.write(response.text)
             webbrowser.open('file://' + f.name)

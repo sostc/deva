@@ -1,7 +1,7 @@
 import os
 import time
 
-from .pipe import passed, ls, P
+from .pipe import passed
 from .core import Stream
 from .utils.simhash import Simhash, SimhashIndex
 
@@ -108,10 +108,13 @@ class IndexStream(Stream):
         else:
             if not os.path.exists(self.index_path):
                 os.makedirs(self.index_path)
-                self.index = whoosh.index.create_in(
-                    self.index_path, self.schema)
-                'create new  index_path:' >> self.log
-                # self.index >> self.log
+            self.index = whoosh.index.create_in(
+                self.index_path, self.schema)
+            'create new  index_path:' >> self.log
+            # self.index >> self.log
+
+        self._search_fields = tuple(self.index.schema._fields.keys())
+        self._parser = MultifieldParser(list(self._search_fields), self.index.schema)
 
         Stream.__init__(self, **kwargs)
 
@@ -150,7 +153,7 @@ class IndexStream(Stream):
         Args:
             x (dict): 要索引的数据字典
         """
-        _id, content = x.popitem()
+        _id, content = next(iter(x.items()))
         _id = str(_id)
         content = str(content)
         aindex = AsyncWriter(self.index, delay=0.0001)
@@ -167,11 +170,11 @@ class IndexStream(Stream):
         Returns:
             generator: 搜索结果生成器
         """
-        search = self.index.searcher()
-        fields = set(self.index.schema._fields.keys())
-        parser = MultifieldParser(list(fields), self.index.schema)
-        q = parser.parse(query)
-        return (i for i in search.refresh().search(q, limit=limit))
+        q = self._parser.parse(str(query))
+        with self.index.searcher() as searcher:
+            hits = searcher.search(q, limit=limit)
+            results = [dict(hit) for hit in hits]
+        return iter(results)
 
     def get_tags(self, content):
         """提取文本关键词
@@ -212,35 +215,40 @@ class IndexStream(Stream):
         Returns:
             str: 最相关的答案内容
         """
-        # 存储搜索结果的列表
-        ll = []
+        results = []
         # 提取问题的关键词标签
         tags = self.get_tags(question)
         # 提取问题的特征词及权重
         features = self.get_features(question)
         # 对每个标签进行搜索,限制每个标签返回30条结果
-        for i in tags:
-            l = self.search(i, limit=30) >> ls
-            ll.extend(l)
+        for tag in tags:
+            results.extend(self.search(tag, limit=30))
 
-        # 将搜索结果转换为字典格式
-        data = enumerate(ll) >> ls >> dict@P
+        data = {idx: item for idx, item in enumerate(results)}
         # 如果没有搜索结果则返回None
-        if len(data) == 0:
+        if not data:
             return None
         # 如果只有一条结果则直接返回内容
         if len(data) == 1:
             return data[0]['content']
 
         # 为每条结果生成simhash值用于相似度比较
-        objs = [(str(k), Simhash(features)) for k, v in data.items()]
-        if objs == []:
+        objs = []
+        for k, v in data.items():
+            content = str(v.get('content', ''))
+            if content:
+                objs.append((str(k), Simhash(self.get_features(content))))
+        if not objs:
             return None
 
         # 构建simhash索引
         _index = SimhashIndex(objs)
+        query_hash = Simhash(features)
         # 找到与问题特征最相似的结果
-        obj_id, distance = _index.get_near_dups(Simhash(features))
+        try:
+            obj_id, distance = _index.get_near_dups(query_hash)
+        except Exception:
+            return data[int(objs[0][0])]['content'].replace('\u3000\u3000', '\n')
         # 返回最相似结果的内容,并替换特殊空格字符
         try:
             return data[int(obj_id)]['content'].replace('\u3000\u3000', '\n')

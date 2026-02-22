@@ -18,6 +18,8 @@ import asyncio
 
 import time
 import uuid
+from urllib.parse import unquote
+import pandas as pd
 
 try:
     import redis.asyncio as redis_async
@@ -29,6 +31,39 @@ except Exception:  # pragma: no cover
     aioredis = None
 
 logger = logging.getLogger(__name__)
+
+
+def _decode_http_body(body, as_dataframe=False):
+    """Best-effort decoder for HTTP payloads."""
+    try:
+        return dill.loads(body)
+    except Exception:
+        pass
+
+    text = body
+    if isinstance(body, (bytes, bytearray)):
+        try:
+            text = body.decode('utf-8')
+        except Exception:
+            return body
+
+    try:
+        obj = json.loads(text)
+    except Exception:
+        return text
+
+    if as_dataframe:
+        try:
+            return pd.DataFrame.from_dict(obj)
+        except Exception:
+            pass
+    return obj
+
+
+def _encode_http_body(body):
+    if isinstance(body, pd.DataFrame):
+        return body.sample(20).to_html()
+    return json.dumps(body, ensure_ascii=False)
 
 
 def _new_redis_client(address='localhost', db=0, password=None):
@@ -989,33 +1024,12 @@ class from_http_request(Stream):
 
     def _start_server(self):
         """启动HTTP服务器，初始化请求处理器"""
+        from tornado.httpserver import HTTPServer
         class Handler(RequestHandler):
             source = self
 
             def _loads(self, body):
-                """解析HTTP请求体数据
-
-                支持多种数据格式：
-                - dill序列化的Python对象
-                - JSON格式数据
-                - 普通字符串
-                - 二进制数据
-
-                参数:
-                    body: bytes
-                        HTTP请求体数据
-
-                返回:
-                    解析后的数据对象
-                """
-                try:
-                    body = dill.loads(body)
-                except TypeError:
-                    body = json.loads(body)
-                except ValueError:
-                    body = body.decode('utf-8')
-                finally:
-                    return body
+                return _decode_http_body(body)
 
             @gen.coroutine
             def post(self):
@@ -1033,7 +1047,8 @@ class from_http_request(Stream):
         self.application = Application([
             (self.path, Handler),
         ])
-        self.server = self.application.listen(self.port)
+        self.server = HTTPServer(self.application, **self.server_kwargs)
+        self.server.listen(self.port)
 
     def start(self):
         """启动HTTP服务器和数据流"""
@@ -1261,8 +1276,11 @@ class StreamTCPClient():
 
     def stop(self):
         """停止TCP连接"""
-        if not self._stream.closed() and self._stream.close():
-            self.stopped = True
+        if self._stream is not None and not self._stream.closed():
+            self._stream.close()
+        if hasattr(self, 'out_handler'):
+            self.out_handler.destroy()
+        self.stopped = True
 
 @Stream.register_api(staticmethod)
 class from_mail(Source):
@@ -1315,6 +1333,8 @@ class from_mail(Source):
                 password = NB('mail')['password']
             except:
                 raise Exception('未配置邮件服务器信息：缺少host、username或password')
+        else:
+            hostname = host
 
         # 初始化Imbox邮件客户端
         self.imbox = Imbox(hostname,
@@ -1342,7 +1362,7 @@ class from_mail(Source):
         while True:
             # 获取所有未读邮件
             for uid, msg in self.imbox.messages(unread=True):
-                self._emit(msg)  # 将邮件作为事件发出
+                yield self._emit(msg)  # 将邮件作为事件发出
                 self.imbox.mark_seen(uid)  # 标记为已读
             yield gen.sleep(self.interval)  # 等待下次轮询
             if self.stopped:  # 如果已停止则退出循环
@@ -1402,3 +1422,121 @@ def gen_block_test() -> int:
     import datetime
     time.sleep(6)
     return datetime.datetime.now().second
+
+
+# ---- Topic / TCP stream (merged from topic.py) ----
+
+@Stream.register_api()
+class Topic(RedisStream):
+    """基于 Redis 的消息主题。"""
+    def __init__(self, name='', group=str(os.getpid()), maxsize=None,  **kwargs):
+        super().__init__(topic=name,
+                         group=group,
+                         start=True,
+                         name=name,
+                         **kwargs)
+
+
+@Stream.register_api(staticmethod)
+class TCPStream(Stream):
+    """基于 TCP 的消息流。上游写入、读出压入下游。"""
+    def __init__(self, host='127.0.0.1', port=2345, topic='', **kwargs):
+        self.topic = topic
+        super(TCPStream, self).__init__(ensure_io_loop=True, **kwargs)
+        try:
+            self.client = StreamTCPClient(host=host, port=port)
+            self.client.in_s.sink(lambda x: self._emit(x))
+        except Exception as e:
+            logger.warning("TCPStream init failed: %s", e)
+
+    def emit(self, x, asynchronous=True):
+        x >> self.client
+
+
+@Stream.register_api()
+class TCPTopic(TCPStream):
+    """基于 TCP 的消息主题。"""
+    def __init__(self, name='',   **kwargs):
+        super().__init__(topic=name,
+                         name=name,
+                         **kwargs)
+
+
+@Stream.register_api(staticmethod)
+class http_topic(Stream):
+    """从 HTTP 请求接收数据并发射到流。"""
+    def __init__(self, port=7777, path='/.*', start=False, server_kwargs=None):
+        self.port = port
+        self.path = path
+        self.server_kwargs = server_kwargs or {}
+        super(http_topic, self).__init__(ensure_io_loop=True)
+        self.stopped = True
+        self.server = None
+        if start:  # pragma: no cover
+            self.start()
+
+    def _loads(self, body):
+        return _decode_http_body(body, as_dataframe=True)
+
+    def _encode(self, body):
+        return _encode_http_body(body)
+
+    def _start_server(self):
+        from .namespace import NS
+        from tornado.httpserver import HTTPServer
+        _self = self
+        class Handler(RequestHandler):
+            source = _self
+            def _loads(self, body):
+                return _decode_http_body(body, as_dataframe=True)
+            def _encode(self, body):
+                return _encode_http_body(body)
+            @gen.coroutine
+            def post(self):
+                body = self._loads(self.request.body)
+                if not isinstance(body, list):
+                    body = [body]
+                tag = unquote(self.request.headers.get('tag', ''))
+                logger.debug("http_topic tag=%s", tag)
+                if tag:
+                    source = NS(tag)
+                    if not source.is_cache:
+                        source.start_cache(5, 64*64*24*5)
+                else:
+                    source = self.source
+                for i in body:
+                    if isinstance(i, (bytes, bytearray, str)):
+                        i = self._loads(i)
+                    yield source._emit(i)
+                self.write('OK')
+            @gen.coroutine
+            def get(self):
+                topic = unquote(self.request.path)
+                if topic == '/':
+                    data = self.source.recent()
+                else:
+                    stream = NS(topic.split('/')[1])
+                    if not stream.is_cache:
+                        stream.start_cache(10, 64*64*24*7)
+                    data = stream.recent()
+                if 'deva' in (self.request.headers.get('User-Agent') or ''):
+                    self.write(dill.dumps(data))
+                else:
+                    for i in data:
+                        self.write(self._encode(i)+'</br>')
+        self.application = Application([(self.path, Handler)])
+        self.server = HTTPServer(self.application, **self.server_kwargs)
+        self.server.listen(self.port)
+
+    def start(self):
+        if self.stopped:
+            self.stopped = False
+            self._start_server()
+            self.start_cache(5, 60*60*48)
+
+    def stop(self):
+        if not self.stopped:
+            if self.server:
+                self.server.stop()
+            self.server = None
+            self.stopped = True
