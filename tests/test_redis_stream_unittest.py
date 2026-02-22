@@ -137,6 +137,19 @@ class TestRedisStream(unittest.TestCase):
             self.assertEqual(captured["address"], "127.0.0.1")
             self.assertEqual(captured["db"], 9)
 
+    def test_to_redis_keeps_stream_kwargs_out_of_redis_kwargs(self):
+        captured = {}
+
+        class DummyRedisStream(Stream):
+            def __init__(self, **kwargs):
+                captured.update(kwargs)
+                super().__init__(ensure_io_loop=True)
+
+        with patch("deva.endpoints.RedisStream", DummyRedisStream):
+            s = to_redis(topic="ticks", max_len=10, name="redis_sink")
+            self.assertEqual(s.name, "redis_sink")
+            self.assertNotIn("name", captured)
+
 
 if __name__ == "__main__":
     unittest.main()

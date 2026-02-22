@@ -4,7 +4,7 @@ import time
 import unittest
 from pathlib import Path
 
-from deva.bus_parts.backends import FileIpcBusBackend, LocalBusBackend
+from deva.bus import FileIpcBusBackend, LocalBusBackend
 
 
 class TestBusBackends(unittest.TestCase):
