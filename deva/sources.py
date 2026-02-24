@@ -1499,7 +1499,7 @@ class http_topic(Stream):
                 tag = unquote(self.request.headers.get('tag', ''))
                 logger.debug("http_topic tag=%s", tag)
                 if tag:
-                    source = NS(tag)
+                    source = NS(tag, description=f'HTTP数据流，通过tag参数接收数据: {tag}')
                     if not source.is_cache:
                         source.start_cache(5, 64*64*24*5)
                 else:
@@ -1515,7 +1515,7 @@ class http_topic(Stream):
                 if topic == '/':
                     data = self.source.recent()
                 else:
-                    stream = NS(topic.split('/')[1])
+                    stream = NS(topic.split('/')[1], description=f'HTTP数据流，通过路径接收数据: {topic}')
                     if not stream.is_cache:
                         stream.start_cache(10, 64*64*24*7)
                     data = stream.recent()

@@ -84,9 +84,15 @@ except ImportError:
     from UserDict import DictMixin as DictClass # type: ignore
 
 try:
-    from queue import Queue
+    from queue import Queue, Empty as QueueEmpty
 except ImportError:
-    from Queue import Queue # type: ignore
+    from Queue import Queue, Empty as QueueEmpty # type: ignore
+
+# Python 3 compatibility
+try:
+    import time
+except ImportError:
+    time = None
 
 
 logger = logging.getLogger(__name__)
@@ -349,8 +355,15 @@ class SqliteDict(DictClass):
         if self.in_temp:
             try:
                 os.remove(self.filename)
-            except:
-                pass
+                if do_log:
+                    logger.debug(f"Removed temp file: {self.filename}")
+            except (OSError, IOError, FileNotFoundError) as e:
+                if do_log:
+                    logger.warning(f"Failed to remove temp file {self.filename}: {e}")
+            except Exception as e:
+                logger.error(f"Unexpected error removing temp file: {e}")
+                # 不要静默处理未知异常，重新抛出
+                raise
 
     def terminate(self):
         """删除底层数据库文件，请谨慎使用"""
@@ -373,8 +386,12 @@ class SqliteDict(DictClass):
         """析构函数，自动关闭连接"""
         try:
             self.close(do_log=False, force=True)
-        except Exception:
-            pass
+        except (OSError, IOError) as e:
+            # 只捕获已知的资源相关异常
+            logger.debug(f"Failed to close in destructor: {e}")
+        except Exception as e:
+            # 记录未知异常但不重新抛出，避免干扰垃圾回收
+            logger.error(f"Unexpected error in destructor: {e}")
 
 # Adding extra methods for python 2 compatibility (at import time)
 if major_version == 2:
@@ -401,26 +418,51 @@ class SqliteMultithread(Thread):
         self.reqs = Queue()
         self.daemon = True
         self.exception = None
+        self._stop_requested = False  # 添加停止标志
         self.log = logging.getLogger('sqlitedict.SqliteMultithread')
         self.start()
 
     def run(self):
         if self.autocommit:
             conn = sqlite3.connect(
-                self.filename, isolation_level=None, check_same_thread=False)
+                self.filename, isolation_level=None, check_same_thread=False, timeout=30.0)
         else:
-            conn = sqlite3.connect(self.filename, check_same_thread=False)
+            conn = sqlite3.connect(self.filename, check_same_thread=False, timeout=30.0)
         conn.execute('PRAGMA journal_mode = %s' % self.journal_mode)
+        conn.execute('PRAGMA busy_timeout = 30000')
         conn.text_factory = str
         cursor = conn.cursor()
         conn.commit()
         cursor.execute('PRAGMA synchronous=OFF')
 
         res = None
+        max_consecutive_errors = 10
+        error_count = 0
+        
         while True:
-            req, arg, res, outer_stack = self.reqs.get()
+            try:
+                req, arg, res, outer_stack = self.reqs.get(timeout=1.0)  # 添加超时
+                error_count = 0  # 重置错误计数
+            except QueueEmpty:
+                # 检查是否应该继续运行
+                if getattr(self, '_stop_requested', False):
+                    self.log.info('Stop requested, exiting thread loop')
+                    break
+                continue
+            except Exception as e:
+                error_count += 1
+                self.log.error(f'Error getting request from queue (attempt {error_count}): {e}')
+                if error_count >= max_consecutive_errors:
+                    self.log.error(f'Max consecutive errors ({max_consecutive_errors}) reached, exiting')
+                    break
+                time.sleep(0.1)  # brief delay before retry
+                continue
+                
             if req == '--close--':
                 assert res, ('--close-- without return queue', res)
+                break
+            elif req == '--stop--':
+                self.log.info('Received stop signal, exiting gracefully')
                 break
             elif req == '--commit--':
                 conn.commit()
@@ -466,8 +508,30 @@ class SqliteMultithread(Thread):
                     conn.commit()
 
         self.log.debug('received: %s, send: --no more--', req)
-        conn.close()
-        res.put('--no more--')
+        try:
+            conn.close()
+        except Exception as e:
+            self.log.error(f'Error closing database connection: {e}')
+        
+        if res:
+            try:
+                res.put('--no more--')
+            except Exception as e:
+                self.log.error(f'Error sending final response: {e}')
+
+    def stop(self, timeout=5.0):
+        """安全停止线程"""
+        self._stop_requested = True
+        try:
+            # 发送停止信号
+            self.reqs.put(('--stop--', None, None, None), timeout=1.0)
+        except Exception as e:
+            self.log.warning(f'Failed to send stop signal: {e}')
+        
+        # 等待线程结束
+        self.join(timeout=timeout)
+        if self.is_alive():
+            self.log.warning('Thread failed to stop gracefully, may need force termination')
 
     def check_raise_error(self):
         """

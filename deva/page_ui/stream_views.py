@@ -11,7 +11,8 @@ def webview(s, page, url="/", server=None):
     url = url if url.startswith("/") else "/" + url
     server = server or NW("stream_webview")
     server.streams[url].append(s)
-    page.route(url)(lambda: render_template("./templates/streams.html", streams=server.streams[url]))
+    sockjs_prefix = getattr(server, 'sockjs_prefix', '')
+    page.route(url)(lambda: render_template("./templates/streams.html", streams=server.streams[url], sockjs_prefix=sockjs_prefix))
     server.add_page(page)
     {
         "level": "INFO",
@@ -36,6 +37,24 @@ def sse_view(stream, url, server=None):
 
             def write_to_sse(data):
                 try:
+                    # Handle pandas DataFrame objects by converting them to a serializable format
+                    import pandas as pd
+                    if isinstance(data, pd.DataFrame):
+                        # Convert DataFrame to JSON-serializable format
+                        data = {
+                            'type': 'dataframe',
+                            'data': data.to_dict('records'),
+                            'columns': list(data.columns),
+                            'shape': data.shape
+                        }
+                    elif isinstance(data, pd.Series):
+                        # Convert Series to JSON-serializable format
+                        data = {
+                            'type': 'series',
+                            'data': data.to_dict(),
+                            'name': data.name
+                        }
+                    
                     self.write(f"data: {json_encode(data)}\n\n")
                 except Exception as e:
                     {

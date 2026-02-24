@@ -36,6 +36,24 @@ def sse_view(stream, url, server=None):
 
             def write_to_sse(data):
                 try:
+                    # Handle pandas DataFrame objects by converting them to a serializable format
+                    import pandas as pd
+                    if isinstance(data, pd.DataFrame):
+                        # Convert DataFrame to JSON-serializable format
+                        data = {
+                            'type': 'dataframe',
+                            'data': data.to_dict('records'),
+                            'columns': list(data.columns),
+                            'shape': data.shape
+                        }
+                    elif isinstance(data, pd.Series):
+                        # Convert Series to JSON-serializable format
+                        data = {
+                            'type': 'series',
+                            'data': data.to_dict(),
+                            'name': data.name
+                        }
+                    
                     self.write(f"data: {json_encode(data)}\n\n")
                 except Exception as e:
                     {

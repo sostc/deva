@@ -8,8 +8,8 @@
         <div id="text"></div>
         
      <script>
-        var sock_url = '/';
-        var sock = new SockJS(sock_url );
+        var sock_url = '{{ sockjs_prefix or "" }}';
+        var sock = new SockJS(sock_url);
 
         var stream_dict = {{ dict([(str(hash(s)),str(s.name)) for s in streams]) }};
         

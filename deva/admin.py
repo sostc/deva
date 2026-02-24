@@ -72,8 +72,12 @@ try:
     from .admin_ui import llm_service as admin_llm_response_service
     from .admin_ui import contexts as admin_contexts
     from .admin_ui import monitor_routes as admin_monitor_routes
-    from .admin_ui.stock import panel as admin_stock_panel
-    from .admin_ui.stock import runtime as admin_stock_runtime
+    from .admin_ui import monitor_ui as admin_monitor_ui
+    from .admin_ui.strategy import panel as admin_strategy_panel
+    from .admin_ui.strategy import runtime as admin_strategy_runtime
+    from .admin_ui.strategy import stock_panel as admin_stock_panel
+    from .admin_ui import follow_ui as admin_follow_ui
+    from .admin_ui import browser_ui as admin_browser_ui
     from .llm.worker_runtime import run_ai_in_worker
 except ImportError:
     # Allow running as a script: python deva/admin.py
@@ -87,8 +91,12 @@ except ImportError:
     from deva.admin_ui import llm_service as admin_llm_response_service
     from deva.admin_ui import contexts as admin_contexts
     from deva.admin_ui import monitor_routes as admin_monitor_routes
-    from deva.admin_ui.stock import panel as admin_stock_panel
-    from deva.admin_ui.stock import runtime as admin_stock_runtime
+    from deva.admin_ui import monitor_ui as admin_monitor_ui
+    from deva.admin_ui.strategy import panel as admin_strategy_panel
+    from deva.admin_ui.strategy import runtime as admin_strategy_runtime
+    from deva.admin_ui.strategy import stock_panel as admin_stock_panel
+    from deva.admin_ui import follow_ui as admin_follow_ui
+    from deva.admin_ui import browser_ui as admin_browser_ui
     from deva.llm.worker_runtime import run_ai_in_worker
 
 import pandas as pd
@@ -98,6 +106,7 @@ from tornado.web import create_signed_value, decode_signed_value
 from deva import (
     NW, NB, log, ls, Stream, first, sample, Deva, print, timer, NS, concat, Dtalk
 )
+from deva.store import DBStream
 from deva.browser import browser, tab, tabs
 from deva.bus import (
     warn,
@@ -112,13 +121,13 @@ from deva.llm import async_gpt, sync_gpt
 from pywebio.output import (
     put_text, put_markdown, set_scope, put_table, use_scope, clear, toast, 
     put_button, put_collapse, put_datatable, put_buttons, put_row, put_html, 
-    put_link, popup, close_popup, put_tabs
+    put_link, popup, close_popup, put_tabs, put_code
 )
 from pywebio.platform.tornado import webio_handler
 from pywebio_battery import put_logbox, logbox_append, set_localstorage, get_localstorage
 from pywebio.pin import pin, put_file_upload, put_input
 from pywebio.session import set_env, run_async, run_js, run_asyncio_coroutine, get_session_implement
-from pywebio.input import input, input_group, PASSWORD, textarea, actions, TEXT, file_upload
+from pywebio.input import input, input_group, PASSWORD, textarea, actions, TEXT, file_upload, NUMBER
 
 
 @timer(5,start=False)
@@ -132,7 +141,7 @@ _DOCUMENT_CACHE_TTL = 60
 DOCUMENT_MODULE_WHITELIST = admin_document.DOCUMENT_MODULE_WHITELIST
 
 
-def setup_admin_runtime(enable_webviews=True, enable_timer=True, enable_scheduler=True, enable_stock=True):
+def setup_admin_runtime(enable_webviews=True, enable_timer=True, enable_scheduler=True, enable_strategy=True):
     """初始化 admin 运行时资源（幂等）。"""
     state = {
         'initialized': _admin_runtime_initialized,
@@ -142,7 +151,7 @@ def setup_admin_runtime(enable_webviews=True, enable_timer=True, enable_schedule
         'concat': concat,
         'NS': NS,
         'scheduler': scheduler,
-        'enable_stock': enable_stock,
+        'enable_strategy': enable_strategy,
     }
     admin_runtime.setup_admin_runtime(
         state,
@@ -318,6 +327,9 @@ def truncate(text, max_length=20):
 def set_table_style():
     return admin_main_ui.set_table_style(_main_ui_ctx())
 
+def apply_global_styles():
+    return admin_main_ui.apply_global_styles(_main_ui_ctx())
+
 async def process_tabs(session):
     return await admin_main_ui.process_tabs(_main_ui_ctx(), session)
 
@@ -399,14 +411,102 @@ async def busadmin():
     return await admin_main_ui.render_bus_admin(_main_ui_ctx())
 
 async def streamadmin():
-    await init_admin_ui("Deva实时流管理")
-    put_markdown('### 数据流')
-    put_buttons([s.name for s in _get_admin_streams()], onclick=stream_click)
+    await init_admin_ui("Deva命名流管理")
+    put_markdown('### 命名流列表')
+    named_streams = [s for s in Stream.instances() if getattr(s, "name", None) and not isinstance(s, DBStream)]
+    if not named_streams:
+        put_text("暂无命名流")
+        return
+    
+    def get_stream_sort_key(stream):
+        has_description = 1 if getattr(stream, 'description', None) else 0
+        last_update = getattr(stream, 'last_update_time', None) or 0
+        return (has_description, last_update)
+    
+    def format_last_update(stream):
+        last_update = getattr(stream, 'last_update_time', None)
+        if not last_update:
+            return "从未更新"
+        
+        import time
+        from datetime import datetime
+        time_diff = time.time() - last_update
+        
+        if time_diff < 60:
+            return f"{int(time_diff)}秒前"
+        elif time_diff < 3600:
+            return f"{int(time_diff / 60)}分钟前"
+        elif time_diff < 86400:
+            return f"{int(time_diff / 3600)}小时前"
+        else:
+            dt = datetime.fromtimestamp(last_update)
+            return dt.strftime("%m-%d %H:%M")
+    
+    def get_data_count(stream):
+        if not stream.is_cache:
+            return "未启用"
+        try:
+            return str(len(stream.cache))
+        except Exception:
+            return "0"
+    
+    named_streams.sort(key=get_stream_sort_key, reverse=True)
+    
+    table_data = [["流名称", "描述", "数据量", "最后更新", "操作"]]
+    
+    for s in named_streams:
+        description = getattr(s, 'description', None) or '暂无描述'
+        if len(description) > 50:
+            description = description[:50] + "..."
+        
+        data_count = get_data_count(s)
+        last_update = format_last_update(s)
+        
+        stream_name = s.name
+        action_buttons = put_buttons(
+            [{"label": "", "value": stream_name}],
+            onclick=lambda name: stream_click(name)
+        )
+        
+        table_data.append([
+            f"**{stream_name}**",
+            description,
+            data_count,
+            last_update,
+            action_buttons
+        ])
+    
+    put_table(table_data)
+    
+    put_markdown("---")
+    put_markdown("💡 **提示**: 列表优先显示有描述的流，并按最新更新时间排序")
 
+
+async def strategyadmin():
+    from .admin_ui.strategy.strategy_panel import render_strategy_admin
+    return await render_strategy_admin(_strategy_ctx())
+
+
+async def datasourceadmin():
+    from .admin_ui.strategy.datasource_panel import render_datasource_admin
+    return await render_datasource_admin(_datasource_ctx())
 
 async def stockadmin():
-    return await admin_stock_panel.render_stock_admin(_stock_ctx())
-    
+    from .admin_ui.strategy.stock_panel import render_stock_admin
+    return await render_stock_admin(_stock_ctx())
+
+async def followadmin():
+    from .admin_ui.follow_ui import render_follow_ui
+    return await render_follow_ui(_follow_ui_ctx())
+
+async def browseradmin():
+    from .admin_ui.browser_ui import render_browser_ui
+    return await render_browser_ui(_browser_ui_ctx())
+
+async def configadmin():
+    from .admin_ui.config_ui import render_config_admin
+    return await render_config_admin(_config_ui_ctx())
+
 async def inspect_object(obj):
     return admin_document.inspect_object_ui(_document_ui_ctx(), obj)
 async def document():
@@ -447,31 +547,129 @@ def _stream_ctx():
         'popup': popup,
         'put_markdown': put_markdown,
         'put_html': put_html,
+        'put_table': put_table,
+        'put_text': put_text,
+        'put_buttons': put_buttons,
     }
+
+
+def _strategy_ctx():
+    return admin_contexts.strategy_ctx(globals())
+
+
+def _datasource_ctx():
+    return admin_contexts.datasource_ctx(globals())
 
 
 def _stock_ctx():
     return admin_contexts.stock_ctx(globals())
 
+def _follow_ui_ctx():
+    return admin_contexts.follow_ui_ctx(globals(), admin_tables)
 
-def get_stock_config():
-    return admin_stock_runtime.get_stock_config()
+# 添加render_llm_config_guide到全局命名空间
+def render_llm_config_guide(ctx, model_types=("kimi", "deepseek")):
+    return admin_main_ui.render_llm_config_guide(ctx, model_types)
+
+def _browser_ui_ctx():
+    return admin_contexts.browser_ui_ctx(globals(), admin_tables)
+
+def _config_ui_ctx():
+    return admin_contexts.config_ui_ctx(globals())
+
+def _monitor_ui_ctx():
+    return admin_contexts.monitor_ui_ctx(globals())
 
 
-def set_stock_config(force_fetch=None, sync_bus=None):
-    return admin_stock_runtime.set_stock_config(force_fetch=force_fetch, sync_bus=sync_bus)
+async def monitor():
+    return await admin_monitor_ui.render_monitor_home(_monitor_ui_ctx())
 
 
-def get_stock_basic_meta():
-    return admin_stock_runtime.get_stock_basic_meta()
+async def allstreams():
+    return await admin_monitor_ui.render_all_streams(_monitor_ui_ctx())
 
 
-def refresh_stock_basic_df(force=True):
-    return admin_stock_runtime.refresh_stock_basic_df(force=force)
+async def alltables():
+    return await admin_monitor_ui.render_all_tables(_monitor_ui_ctx())
 
 
-async def refresh_stock_basic_df_async(force=True):
-    return await admin_stock_runtime.refresh_stock_basic_df_async(force=force)
+def get_strategy_config():
+    return admin_strategy_runtime.get_strategy_config()
+
+
+def set_strategy_config(force_fetch=None, sync_bus=None):
+    return admin_strategy_runtime.set_strategy_config(force_fetch=force_fetch, sync_bus=sync_bus)
+
+
+def get_strategy_basic_meta():
+    return admin_strategy_runtime.get_strategy_basic_meta()
+
+
+def refresh_strategy_basic_df(force=True):
+    return admin_strategy_runtime.refresh_strategy_basic_df(force=force)
+
+
+async def refresh_strategy_basic_df_async(force=True):
+    return await admin_strategy_runtime.refresh_strategy_basic_df_async(force=force)
+
+
+def get_replay_config():
+    return admin_strategy_runtime.get_replay_config()
+
+
+def set_replay_config(mode=None, replay_date=None, replay_interval=None):
+    return admin_strategy_runtime.set_replay_config(mode=mode, replay_date=replay_date, replay_interval=replay_interval)
+
+
+def get_history_metadata():
+    return admin_strategy_runtime.get_history_metadata()
+
+
+def save_current_quant_to_history():
+    return admin_strategy_runtime.save_current_quant_to_history()
+
+
+def get_auto_save_config():
+    return admin_strategy_runtime.get_auto_save_config()
+
+
+def set_auto_save(enabled):
+    return admin_strategy_runtime.set_auto_save(enabled)
+
+
+def get_tick_metadata():
+    return admin_strategy_runtime.get_tick_metadata()
+
+
+def get_tick_stream():
+    return admin_strategy_runtime.get_tick_stream()
+
+
+def get_tick_keys_in_range(start, end=None):
+    return admin_strategy_runtime.get_tick_keys_in_range(start, end)
+
+
+def load_tick_by_key(key):
+    return admin_strategy_runtime.load_tick_by_key(key)
+
+
+def replay_ticks(start, end=None, interval=None):
+    return admin_strategy_runtime.replay_ticks(start, end, interval)
+
+
+def is_replay_running():
+    return admin_strategy_runtime.is_replay_running()
+
+
+def start_history_replay(date_str=None, interval=5.0, use_ticks=False, start_time=None, end_time=None):
+    return admin_strategy_runtime.start_history_replay(
+        date_str=date_str, interval=interval, use_ticks=use_ticks,
+        start_time=start_time, end_time=end_time
+    )
+
+
+def stop_history_replay():
+    return admin_strategy_runtime.stop_history_replay()
 
 
 def paginate_dataframe(scope,df, page_size):
@@ -525,10 +723,18 @@ if __name__ == '__main__':
         (r'/dbadmin', webio_handler(dbadmin, cdn=cdn)),
         (r'/busadmin', webio_handler(busadmin, cdn=cdn)),
         (r'/streamadmin', webio_handler(streamadmin, cdn=cdn)),
+        (r'/strategyadmin', webio_handler(strategyadmin, cdn=cdn)),
+        (r'/datasourceadmin', webio_handler(datasourceadmin, cdn=cdn)),
         (r'/stockadmin', webio_handler(stockadmin, cdn=cdn)),
+        (r'/followadmin', webio_handler(followadmin, cdn=cdn)),
+        (r'/browseradmin', webio_handler(browseradmin, cdn=cdn)),
+        (r'/configadmin', webio_handler(configadmin, cdn=cdn)),
         (r'/', webio_handler(main, cdn=cdn)),
         (r'/taskadmin', webio_handler(taskadmin, cdn=cdn)),
         (r'/document', webio_handler(document, cdn=cdn)),
+        (r'/monitor', webio_handler(monitor, cdn=cdn)),
+        (r'/allstreams', webio_handler(allstreams, cdn=cdn)),
+        (r'/alltables', webio_handler(alltables, cdn=cdn)),
         *admin_monitor_routes.monitor_route_handlers(globals()),
     ]
     NW('stream_webview',host='0.0.0.0').application.add_handlers('.*$', handlers)

@@ -94,7 +94,7 @@ class BaseBusBackend:
 class LocalBusBackend(BaseBusBackend):
     name = "local"
     def build_stream(self, topic: str):
-        return NS(topic)
+        return NS(topic, description=f'本地总线流，用于进程内通信: {topic}')
 
 
 class RedisBusBackend(BaseBusBackend):
@@ -102,12 +102,14 @@ class RedisBusBackend(BaseBusBackend):
     def __init__(self, group: str):
         self.group = group
     def build_stream(self, topic: str):
+        from .config import config
+        db_config = config.get_database_config()
         return NT(
             topic,
             group=self.group,
-            address=os.getenv("DEVA_REDIS_HOST", "localhost"),
-            db=_env_int("DEVA_REDIS_DB", 0),
-            password=os.getenv("DEVA_REDIS_PASSWORD"),
+            address=db_config.get("redis_host", "localhost"),
+            db=db_config.get("redis_db", 0),
+            password=db_config.get("redis_password"),
         )
     def describe(self):
         return {"backend": self.name, "group": self.group}
@@ -130,7 +132,8 @@ class FileIpcBusBackend(BaseBusBackend):
         while not self._stop.is_set():
             try:
                 if not os.path.exists(self.file_path):
-                    time.sleep(0.2)
+                    if self._stop.wait(timeout=0.2):
+                        break
                     continue
                 with open(self.file_path, "r", encoding="utf-8") as f:
                     f.seek(self._offset)
@@ -147,7 +150,8 @@ class FileIpcBusBackend(BaseBusBackend):
                     self._stream.emit(payload)
             except Exception:
                 pass
-            time.sleep(0.2)
+            if self._stop.wait(timeout=0.2):
+                break
     def build_stream(self, topic: str):
         self.file_path = self._resolve_file_path(topic)
         os.makedirs(os.path.dirname(self.file_path), exist_ok=True)
@@ -173,10 +177,12 @@ class FileIpcBusBackend(BaseBusBackend):
 class BusRuntime:
     def __init__(self, *, warn_stream, topic: str = "bus"):
         from .namespace import NB
+        from .config import config
+        bus_config = config.get_bus_config()
         self.warn_stream = warn_stream
-        self.topic = topic
-        self.group = os.getenv("DEVA_BUS_GROUP", str(os.getpid()))
-        self.mode = (os.getenv("DEVA_BUS_MODE", "redis") or "redis").strip().lower()
+        self.topic = bus_config.get("topic", topic)
+        self.group = bus_config.get("group") or str(os.getpid())
+        self.mode = bus_config.get("mode", "redis").strip().lower()
         self.backend = None
         self.stream = None
         self.meta: Dict[str, Any] = {"mode": self.mode, "topic": self.topic, "group": self.group, "connected": None, "error": None}
@@ -231,7 +237,8 @@ class BusRuntime:
     def _heartbeat_loop(self):
         while not self._stop_event.is_set():
             self._heartbeat_once()
-            time.sleep(self.heartbeat_interval_seconds)
+            if self._stop_event.wait(timeout=self.heartbeat_interval_seconds):
+                break
 
     def _start_heartbeat(self):
         if self._heartbeat_thread and self._heartbeat_thread.is_alive():
@@ -325,8 +332,8 @@ __all__ = [
     'configure_log_behavior',
 ]
 
-warn = NS('warn')
-debug = NS('debug')
+warn = NS('warn', description='告警流，用于记录系统告警和异常信息')
+debug = NS('debug', description='调试流，用于记录调试信息和开发日志')
 setup_deva_logging()
 
 
@@ -365,7 +372,21 @@ def _default_log_sink(x):
     record = _normalize_log_record(x)
     if not _should_emit_level(record.get("level")):
         return
-    print(_format_log_line(record))
+    log_line = _format_log_line(record)
+    
+    # Add color support for terminal output
+    level = record.get("level", "").upper()
+    if level == "WARNING":
+        # ANSI color code for red text
+        log_line = f"\033[91m{log_line}\033[0m"
+    elif level == "ERROR":
+        # ANSI color code for bright red text
+        log_line = f"\033[91m\033[1m{log_line}\033[0m"
+    elif level == "CRITICAL":
+        # ANSI color code for bright red background
+        log_line = f"\033[41m\033[1m{log_line}\033[0m"
+    
+    print(log_line)
     if os.getenv("DEVA_LOG_FORWARD_TO_LOGGING", "0").strip() == "1":
         _emit_to_python_logger(record)
 
@@ -449,6 +470,7 @@ log = NS(
     'log',
     cache_max_len=int(os.getenv("DEVA_LOG_CACHE_MAX_LEN", "200")),
     cache_max_age_seconds=60 * 60 * 24,
+    description='日志流，用于记录系统运行日志和信息流',
 )
 configure_log_behavior()
 
@@ -460,8 +482,8 @@ bus = _BUS_RUNTIME.start()
 _BUS_ORIGINAL_EMIT = bus.emit
 
 
-def _bus_emit_with_auto_sender(payload):
-    return _BUS_ORIGINAL_EMIT(_normalize_bus_payload(payload))
+def _bus_emit_with_auto_sender(payload, **kwargs):
+    return _BUS_ORIGINAL_EMIT(_normalize_bus_payload(payload), **kwargs)
 
 
 bus.emit = _bus_emit_with_auto_sender
