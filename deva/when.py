@@ -2,7 +2,7 @@ import inspect
 import os
 import atexit
 
-from deva.pipe import get_io_loop
+from .utils.ioloop import get_io_loop
 from .bus import log
 from .core import Stream
 from .utils.time import convert_interval
@@ -247,6 +247,10 @@ class timer(Stream):
                 self.start()
         else:  # 如果func为None，返回装饰器
             self.func = None
+
+        if self.name:
+            from .namespace import global_namespace
+            global_namespace['stream'][self.name] = self
 
     
     def __call__(self, func):

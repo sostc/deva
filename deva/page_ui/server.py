@@ -94,12 +94,17 @@ class StreamsConnection(SockJSConnection):
         json.loads(msg) >> self._in_stream
 
     def process_msg(self, msg):
+        # Backward-compatible payload handling:
+        # - new pages send {"stream_ids": ["..."]}
+        # - legacy page sends {"stream_id": "..."}
         stream_ids = msg.get("stream_ids", [])
+        if not stream_ids and "stream_id" in msg:
+            stream_ids = [str(msg.get("stream_id"))]
         "view:%s:%s:%s" % (stream_ids, self.request.ip, datetime.datetime.now()) >> log
         self.out_streams = [stream for stream in Stream.instances() if str(hash(stream)) in stream_ids]
 
         def _(sid):
-            return lambda x: json.dumps({"id": sid, "html": x})
+            return lambda x: json.dumps({"id": sid, "html": x, "stream_id": sid, "data": x})
 
         for connection in self.connections:
             connection.destroy()
@@ -109,7 +114,7 @@ class StreamsConnection(SockJSConnection):
             f = _(sid)
             self.connections.add(s.map(repr).map(f) >> self._out_stream)
             html = maybe(s).recent(1)[0].or_else("流内暂无数据")
-            json.dumps({"id": sid, "html": html}) >> self._out_stream
+            json.dumps({"id": sid, "html": html, "stream_id": sid, "data": html}) >> self._out_stream
 
     def on_close(self):
         self._closed = True
@@ -129,12 +134,13 @@ class StreamsConnection(SockJSConnection):
 
 # ---- PageServer (from server.py) ----
 class PageServer(object):
-    def __init__(self, name="default", host="127.0.0.1", port=9999, start=False, **kwargs):
+    def __init__(self, name="default", host="127.0.0.1", port=9999, start=False, sockjs_prefix="/sockjs", **kwargs):
         self.name = name
         self.port = port
         self.host = host
         self.streams = defaultdict(list)
-        self.StreamRouter = SockJSRouter(StreamsConnection, r"")
+        self.sockjs_prefix = sockjs_prefix.rstrip('/') if sockjs_prefix else ""
+        self.StreamRouter = SockJSRouter(StreamsConnection, self.sockjs_prefix)
         self.application = tornado.web.Application(self.StreamRouter.urls, **kwargs)
         _install_asyncio_ws_close_filter()
         if start:

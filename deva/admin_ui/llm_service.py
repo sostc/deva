@@ -3,9 +3,13 @@
 from __future__ import annotations
 
 import asyncio
-import queue
 import json
 import time
+
+try:
+    from openai import APIStatusError
+except Exception:
+    APIStatusError = None
 
 try:
     from deva.llm.worker_runtime import submit_ai_coro
@@ -17,6 +21,32 @@ from ..llm.config_utils import (
     build_model_config_message,
     get_model_config_status,
 )
+
+
+def _get_friendly_api_error(error: Exception) -> str:
+    if APIStatusError and isinstance(error, APIStatusError):
+        status_code = getattr(error, 'status_code', None) or getattr(error, 'code', None)
+        error_message = ""
+        if hasattr(error, 'response'):
+            try:
+                body = error.response.json() if hasattr(error.response, 'json') else {}
+                error_message = body.get('error', {}).get('message', str(error))
+            except Exception:
+                error_message = str(error)
+        
+        if status_code == 402 or 'Insufficient Balance' in error_message or '余额' in error_message:
+            return "API 余额不足，请充值后重试"
+        elif status_code == 401:
+            return "API 密钥无效或已过期，请检查配置"
+        elif status_code == 429:
+            return "请求过于频繁，请稍后重试"
+        elif status_code == 500:
+            return "API 服务内部错误，请稍后重试"
+        elif status_code == 503:
+            return "API 服务暂时不可用，请稍后重试"
+        else:
+            return f"API 错误 ({status_code}): {error_message}"
+    return f"请求失败: {type(error).__name__}: {error}"
 
 
 async def get_gpt_response(ctx, prompt, session=None, scope=None, model_type="deepseek", flush_interval=3):
@@ -52,7 +82,15 @@ async def get_gpt_response(ctx, prompt, session=None, scope=None, model_type="de
             url = base_url.rstrip("/") + "/chat/completions"
             payload = {"model": model, "messages": messages, "stream": False, "max_tokens": 64}
             headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
-            resp = await asyncio.to_thread(requests.post, url, headers=headers, data=json.dumps(payload), timeout=15)
+            try:
+                loop = asyncio.get_running_loop()
+                resp = await loop.run_in_executor(
+                    None,
+                    lambda: requests.post(url, headers=headers, data=json.dumps(payload), timeout=15)
+                )
+            except RuntimeError:
+                import requests as sync_requests
+                resp = sync_requests.post(url, headers=headers, data=json.dumps(payload), timeout=15)
             text = (resp.text or "").strip()
             try:
                 data = resp.json()
@@ -103,7 +141,7 @@ async def get_gpt_response(ctx, prompt, session=None, scope=None, model_type="de
     # Unified AI execution model: prefer dedicated worker loop (streaming in worker).
     if run_ai_in_worker is not None and submit_ai_coro is not None:
         SENTINEL = object()
-        q = queue.Queue()
+        async_q = asyncio.Queue()
 
         async def _worker_stream_call():
             client = AsyncOpenAI(api_key=api_key, base_url=base_url)
@@ -122,10 +160,10 @@ async def get_gpt_response(ctx, prompt, session=None, scope=None, model_type="de
                         content = getattr(delta, "content", "") or ""
                     if content and not content.startswith("检索"):
                         text += content
-                        q.put(content)
+                        await async_q.put(content)
                 return text
             finally:
-                q.put(SENTINEL)
+                await async_q.put(SENTINEL)
                 await client.close()
 
         try:
@@ -135,9 +173,13 @@ async def get_gpt_response(ctx, prompt, session=None, scope=None, model_type="de
             last_flush_ts = time.time()
 
             while True:
+                item = None
                 try:
-                    item = await asyncio.to_thread(q.get, True, 0.2)
-                except queue.Empty:
+                    item = await asyncio.wait_for(async_q.get(), timeout=0.2)
+                except asyncio.TimeoutError:
+                    pass
+                
+                if item is None:
                     if buffer.strip() and (time.time() - last_flush_ts >= flush_interval):
                         logfunc(buffer)
                         accumulated_text += buffer
@@ -177,7 +219,15 @@ async def get_gpt_response(ctx, prompt, session=None, scope=None, model_type="de
             safe_toast("模型返回空内容: " + backend_error, color="error")
             return f"[GPT_EMPTY] {backend_error}"
         except Exception as worker_error:
+            error_type = type(worker_error).__name__
             (f"worker loop stream call failed, fallback local stream path: {worker_error}") >> log
+            if 'AsyncLibraryNotFoundError' in error_type or 'not in async context' in str(worker_error):
+                safe_toast("异步上下文错误，请重试或检查环境配置", color="error")
+                return "[GPT_ERROR] 异步上下文错误，请重试"
+            if APIStatusError and isinstance(worker_error, APIStatusError):
+                friendly_msg = _get_friendly_api_error(worker_error)
+                safe_toast(friendly_msg, color="error")
+                return f"[GPT_ERROR] {friendly_msg}"
 
     # Backward fallback: worker available but no submit helper.
     if run_ai_in_worker is not None and submit_ai_coro is None:
@@ -191,12 +241,25 @@ async def get_gpt_response(ctx, prompt, session=None, scope=None, model_type="de
             safe_toast("模型返回空内容: " + backend_error, color="error")
             return f"[GPT_EMPTY] {backend_error}"
         except Exception as worker_error:
+            error_type = type(worker_error).__name__
             (f"worker loop one-shot call failed, fallback local stream path: {worker_error}") >> log
+            if 'AsyncLibraryNotFoundError' in error_type or 'not in async context' in str(worker_error):
+                safe_toast("异步上下文错误，请重试或检查环境配置", color="error")
+                return "[GPT_ERROR] 异步上下文错误，请重试"
+            if APIStatusError and isinstance(worker_error, APIStatusError):
+                friendly_msg = _get_friendly_api_error(worker_error)
+                safe_toast(friendly_msg, color="error")
+                return f"[GPT_ERROR] {friendly_msg}"
 
     gpt_client = AsyncOpenAI(api_key=api_key, base_url=base_url)
     try:
         response = await gpt_client.chat.completions.create(model=model, messages=messages, stream=True, max_tokens=8192)
     except Exception as e:
+        error_type = type(e).__name__
+        if 'AsyncLibraryNotFoundError' in error_type or 'not in async context' in str(e):
+            (f"异步上下文错误: {e}") >> warn
+            safe_toast("异步上下文错误，请确保在正确的异步环境中调用", color="error")
+            return "[GPT_ERROR] 异步上下文错误，请确保在正确的异步环境中调用"
         backend_error = await diagnose_backend_error()
         (f"请求失败: {ctx['traceback'].format_exc()} | {backend_error}") >> log
         (f"GPT请求失败(model={model_type}/{model}): {backend_error}") >> warn

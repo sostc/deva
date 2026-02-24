@@ -126,12 +126,22 @@ def NS(name='', *args, **kwargs):
     
     Args:
         name: 流对象名称,用于唯一标识 (default: {''})
+        description: 流的描述信息,用于说明流的用途 (default: {None})
+        cache_max_len: 缓存的最大数据条数，默认为3 (default: {3})
+        cache_max_age_seconds: 缓存的最大存活时间(秒) (default: {None})
         *args: 传递给Stream构造函数的位置参数
         **kwargs: 传递给Stream构造函数的关键字参数
         
     Returns:
         Stream: 返回已存在的同名Stream对象或新创建的Stream对象实例
+        
+    Example:
+        >>> from deva import NS
+        >>> log_stream = NS('log', description='日志流，用于记录系统日志')
+        >>> data_stream = NS('data', description='数据流，用于处理业务数据', cache_max_len=10)
     """
+    if 'cache_max_len' not in kwargs:
+        kwargs['cache_max_len'] = 3
     return global_namespace.create(typ='stream', name=name, *args, **kwargs)
 
 
@@ -238,4 +248,4 @@ def NW(name='', host='127.0.0.1', port=9999, start=True, **kwargs):
         server.start()  # 手动启动
 
     """
-    return global_namespace.create(typ='webserver', name=name, host=host, port=port, start=start, debug=True)
+    return global_namespace.create(typ='webserver', name=name, host=host, port=port, start=start, debug=True, **kwargs)

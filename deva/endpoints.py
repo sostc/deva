@@ -259,12 +259,15 @@ class Dtalk(Stream):
         self.secret = secret
         self.webhook = webhook
         if not webhook:
-            self.webhook = maybe(NB('dtalk_deva'))['webhook'].or_else(None)
-            self.secret = maybe(NB('dtalk_deva'))['secret'].or_else(None)
+            from .config import config
+            self.webhook = config.get("dtalk.webhook")
+            self.secret = config.get("dtalk.secret")
+            
             if not self.webhook:
-                raise Exception("""please input a webhook,or set a default webhook and secret to NB("dtalk")["test"] like this:
-                    NB('dtalk_deva')['webhook']='https://oapi.dingtalk.com/robot/send?access_token=xxx'
-                    NB('dtalk_deva')['secret']='SEC085714c31cxxxxxxx'
+                raise Exception("""please configure dtalk webhook and secret:
+                    from deva import config
+                    config.set('dtalk.webhook', 'https://oapi.dingtalk.com/robot/send?access_token=xxx')
+                    config.set('dtalk.secret', 'SEC085714c31cxxxxxxx')
                     """)
 
     def get_sign_url(self,):
@@ -400,7 +403,7 @@ def mail(to='zjw0358@gmail.com'):
     """发送邮件的函数装饰器
 
     该函数用于发送邮件,支持发送文本内容和DataFrame表格。
-    需要在NB('mail')中配置邮箱服务器信息。
+    需要配置邮箱服务器信息。
 
     参数:
     -------
@@ -409,9 +412,10 @@ def mail(to='zjw0358@gmail.com'):
 
     配置示例:
     -------
-    NB('mail')['username'] = 'sender@example.com'  # 发件人邮箱
-    NB('mail')['password'] = 'password'  # 邮箱密码
-    NB('mail')['hostname'] = 'smtp.example.com'  # SMTP服务器地址
+    from deva import config
+    config.set('mail.hostname', 'smtp.example.com')
+    config.set('mail.username', 'sender@example.com')
+    config.set('mail.password', 'password')
 
     示例:
     -------
@@ -433,9 +437,11 @@ def mail(to='zjw0358@gmail.com'):
     from email.mime.text import MIMEText
 
     async def _send(content):
-        username = NB('mail')['username']
-        password = NB('mail')['password'] 
-        hostname = NB('mail')['hostname']
+        from .config import config
+        username = config.get("mail.username")
+        password = config.get("mail.password")
+        hostname = config.get("mail.hostname")
+        
         if isinstance(content, tuple):
             subject = content[0]
             content = content[1]
