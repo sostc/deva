@@ -1,6 +1,7 @@
 from tornado import gen
 from .utils.sqlitedict import SqliteDict
-from .core import Stream, get_io_loop
+from .core import Stream
+from .utils.ioloop import get_io_loop
 from .pipe import passed
 from bisect import bisect_left, bisect_right
 import logging
@@ -117,12 +118,15 @@ class DBStream(Stream):
         self._time_index_ts = []
         self._time_index_dirty = True
 
-        # 处理文件路径
         if not filename:
+            db_path = os.getenv("DEVA_DB_PATH", "~/.deva/nb.sqlite")
+            
             try:
-                if not os.path.exists(os.path.expanduser('~/.deva/')):
-                    os.makedirs(os.path.expanduser('~/.deva/'))
-                self.filename = os.path.expanduser('~/.deva/nb.sqlite')
+                expanded_path = os.path.expanduser(db_path)
+                db_dir = os.path.dirname(expanded_path)
+                if db_dir and not os.path.exists(db_dir):
+                    os.makedirs(db_dir)
+                self.filename = expanded_path
             except Exception as e:
                 logger.warning("%s create dbfile nb.sqlite in curdir", e)
                 self.filename = 'nb.sqlite'

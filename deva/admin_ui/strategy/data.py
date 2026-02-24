@@ -58,9 +58,43 @@ class Stock(object):
 
     @classmethod
     def get_basics(cls):
-        import tushare as ts
+        return _get_tushare_basics()
 
-        return ts.get_stock_basics()
+
+def _get_tushare_pro_api():
+    import tushare as ts
+    from deva.config import config
+    token = config.get("tushare.token")
+    if token:
+        ts.set_token(token)
+        return ts.pro_api()
+    return None
+
+
+def _get_tushare_basics():
+    import tushare as ts
+    import pandas as pd
+    
+    pro = _get_tushare_pro_api()
+    if pro is not None:
+        try:
+            stock_basic = pro.stock_basic(exchange='', list_status='L', fields='ts_code,symbol,name,area,industry,list_date')
+            daily_basic = pro.daily_basic(ts_code='', trade_date='', fields='ts_code,pe,pb,total_mv,circ_mv')
+            
+            stock_basic['code'] = stock_basic['symbol'].str.zfill(6)
+            daily_basic['code'] = daily_basic['ts_code'].str[:6].str.zfill(6)
+            
+            merged = stock_basic.merge(daily_basic[['code', 'pe', 'total_mv']], on='code', how='left')
+            merged = merged.rename(columns={
+                'total_mv': 'totalAssets',
+                'list_date': 'timeToMarket'
+            })
+            merged = merged.set_index('code')
+            return merged
+        except Exception as e:
+            emit_stock_log(None, "WARNING", "tushare pro api failed, fallback to old api", error=str(e))
+    
+    return ts.get_stock_basics()
 
     @classmethod
     def gen_render_basic(cls):

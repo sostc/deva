@@ -496,7 +496,16 @@ def table_click(ctx, tablename):
             table_data = [["时间戳", "可读时间", "值"]]
             datetime_cls = ctx["datetime"]
             for key, value in categorized_data["timeseries"]:
-                readable_time = datetime_cls.fromtimestamp(float(key)).strftime("%Y-%m-%d %H:%M:%S")
+                try:
+                    timestamp = float(key)
+                    min_valid_ts = datetime_cls.min.timestamp() if hasattr(datetime_cls.min, 'timestamp') else -62135596800
+                    max_valid_ts = datetime_cls.max.timestamp() if hasattr(datetime_cls.max, 'timestamp') else 253402300799
+                    if min_valid_ts <= timestamp <= max_valid_ts:
+                        readable_time = datetime_cls.fromtimestamp(timestamp).strftime("%Y-%m-%d %H:%M:%S")
+                    else:
+                        readable_time = "时间戳超出有效范围"
+                except (ValueError, TypeError, OverflowError):
+                    readable_time = "无效时间戳"
                 table_data.append([key, readable_time, value])
             put_table(table_data)
 

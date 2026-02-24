@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio  # 添加异步支持
 import json
 import re
 from urllib.parse import urljoin
@@ -65,9 +66,12 @@ def show_timer_detail(ctx, t):
 async def init_admin_ui(ctx, title):
     ctx["setup_admin_runtime"](enable_webviews=True, enable_timer=True, enable_scheduler=True)
     cut_foot(ctx)
-    admin_info = ctx["NB"]("admin")
-    username = str(admin_info.get("username") or "").strip()
-    password = str(admin_info.get("password") or "").strip()
+    
+    from ..config import config
+    auth_config = config.get_auth_config()
+    username = str(auth_config.get("username") or "").strip()
+    password = str(auth_config.get("password") or "").strip()
+    
     if not username or not password:
         ctx["put_markdown"]("### 首次使用引导")
         ctx["put_markdown"]("检测到尚未初始化管理员账号，请先创建登录用户名和密码。")
@@ -90,15 +94,22 @@ async def init_admin_ui(ctx, title):
             ],
             validate=_validate_account,
         )
-        ctx["NB"]("admin").update({
-            "username": str(created["username"]).strip(),
-            "password": str(created["password"]),
-        })
-        admin_info = ctx["NB"]("admin")
+        new_username = str(created["username"]).strip()
+        new_password = str(created["password"])
+        
+        config.set("auth.username", new_username)
+        config.set("auth.password", new_password)
+        auth_config = config.get_auth_config()
+        
         ctx["toast"]("管理员账户已创建，请使用新账号登录", color="success")
+    
+    secret = config.ensure_auth_secret()
+    verify_username = config.get("auth.username", "")
+    verify_password = config.get("auth.password", "")
+    
     user_name = await ctx["basic_auth"](
-        lambda username, password: username == admin_info["username"] and password == admin_info["password"],
-        secret="random_value001",
+        lambda username, password: username == verify_username and password == verify_password,
+        secret=secret,
     )
     ctx["create_sidebar"]()
     ctx["set_env"](title=title)
@@ -118,8 +129,12 @@ async def show_browser_status(ctx):
     browser.table_data = [["序号", "URL", "标题", "操作"]]
     tabs_copy = list(tabs)
     for i, tab in enumerate(tabs_copy):
-        article = await tab.article
-        page = await tab.page
+        try:
+            article = await asyncio.wait_for(tab.article, timeout=10.0)
+            page = await asyncio.wait_for(tab.page, timeout=5.0)
+        except asyncio.TimeoutError:
+            ctx["toast"](f"加载标签页超时: {tab.url}", color="warning")
+            continue
         if not page:
             continue
         if article:
@@ -146,11 +161,19 @@ async def show_browser_status(ctx):
 
 def view_tab(ctx, tab):
     async def get_content():
-        article = await tab.article
-        if getattr(article, "text", None):
-            ctx["popup"](f"{article.title}", [ctx["put_markdown"](">" + tab.url), ctx["put_markdown"](article.text)], size="large")
-        else:
-            ctx["popup"](f"iframe查看标签页 - {tab.url}", [ctx["put_html"](f'<iframe src="{tab.url}" style="width:100%;height:80vh;border:none;"></iframe>')], size="large")
+        ctx["toast"](f"正在加载: {tab.url}", color="info")
+        try:
+            article = await asyncio.wait_for(tab.article, timeout=15.0)
+            if getattr(article, "text", None):
+                ctx["popup"](f"{article.title}", [ctx["put_markdown"](">" + tab.url), ctx["put_markdown"](article.text)], size="large")
+            else:
+                ctx["popup"](f"iframe查看标签页 - {tab.url}", [ctx["put_html"](f'<iframe src="{tab.url}" style="width:100%;height:80vh;border:none;"></iframe>')], size="large")
+        except asyncio.TimeoutError:
+            ctx["toast"](f"加载标签页超时: {tab.url}", color="error")
+            ctx["popup"](f"加载失败 - {tab.url}", [ctx["put_text"]("页面加载超时，请稍后重试。")], size="large")
+        except Exception as e:
+            ctx["toast"](f"加载标签页失败: {e}", color="error")
+            ctx["popup"](f"加载失败 - {tab.url}", [ctx["put_text"](f"加载失败: {str(e)}")], size="large")
 
     ctx["run_async"](get_content())
 
@@ -280,13 +303,31 @@ async def dynamic_popup(ctx, title, async_content_func):
 async def summarize_tabs(ctx):
     all_tabs = list(ctx["tabs"])
     contents = []
-    for tab in list(all_tabs):
-        try:
-            article = await tab.article
-            if hasattr(article, "text"):
-                contents.append(article.text)
-        except Exception as e:
-            (f"获取标签页 {tab.url} 内容时出错: {e}") >> ctx["log"]
+    
+    # 并发控制 - 最多同时处理3个标签页
+    semaphore = asyncio.Semaphore(3)
+    
+    async def get_tab_content(tab):
+        async with semaphore:
+            try:
+                article = await asyncio.wait_for(tab.article, timeout=8.0)
+                if hasattr(article, "text"):
+                    return article.text
+            except asyncio.TimeoutError:
+                (f"获取标签页 {tab.url} 内容超时") >> ctx["log"]
+            except Exception as e:
+                (f"获取标签页 {tab.url} 内容时出错: {e}") >> ctx["log"]
+        return None
+    
+    # 并发获取所有标签页内容
+    tasks = [get_tab_content(tab) for tab in all_tabs]
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+    
+    # 过滤有效内容
+    for result in results:
+        if isinstance(result, str) and result:
+            contents.append(result)
+    
     if not contents:
         ctx["toast"]("没有可总结的内容", color="error")
         return
@@ -450,8 +491,128 @@ def truncate(text, max_length=20):
 def set_table_style(ctx):
     ctx["put_html"]("""
     <style>
-      table { table-layout: fixed; width: 100%; }
-      td, th { max-width: 250px; word-wrap: break-word; white-space: normal; }
+      table { table-layout: fixed; width: 100%; border-collapse: collapse; }
+      td, th { max-width: 250px; word-wrap: break-word; white-space: normal; padding: 10px; border-bottom: 1px solid #e5e7eb; }
+      th { background: #f8fafc; font-weight: 600; text-align: left; }
+      tr:hover { background: #f1f5f9; }
+    </style>
+    """)
+
+
+def apply_global_styles(ctx):
+    ctx["put_html"]("""
+    <style>
+      :root {
+        --primary-color: #3b82f6;
+        --primary-hover: #2563eb;
+        --success-color: #10b981;
+        --danger-color: #ef4444;
+        --warning-color: #f59e0b;
+        --bg-color: #f8fafc;
+        --card-bg: #ffffff;
+        --border-color: #e2e8f0;
+        --text-primary: #1e293b;
+        --text-secondary: #64748b;
+        --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+        --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.1);
+        --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.1);
+        --radius-sm: 6px;
+        --radius-md: 10px;
+        --radius-lg: 16px;
+      }
+      body {
+        background: var(--bg-color);
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+        color: var(--text-primary);
+        line-height: 1.6;
+      }
+      .container-fluid { max-width: 1400px; margin: 0 auto; padding: 20px; }
+      .card {
+        background: var(--card-bg);
+        border-radius: var(--radius-lg);
+        box-shadow: var(--shadow-md);
+        padding: 20px;
+        margin-bottom: 20px;
+        border: 1px solid var(--border-color);
+        transition: box-shadow 0.2s ease;
+      }
+      .card:hover { box-shadow: var(--shadow-lg); }
+      .card-title {
+        font-size: 18px;
+        font-weight: 600;
+        color: var(--text-primary);
+        margin-bottom: 16px;
+        padding-bottom: 12px;
+        border-bottom: 2px solid var(--primary-color);
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+      .card-title::before {
+        content: '';
+        width: 4px;
+        height: 20px;
+        background: var(--primary-color);
+        border-radius: 2px;
+      }
+      .btn-group { display: flex; gap: 10px; flex-wrap: wrap; margin: 12px 0; }
+      .btn {
+        padding: 8px 16px;
+        border-radius: var(--radius-sm);
+        font-size: 14px;
+        font-weight: 500;
+        cursor: pointer;
+        transition: all 0.2s ease;
+        border: none;
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+      }
+      .btn-primary { background: var(--primary-color); color: white; }
+      .btn-primary:hover { background: var(--primary-hover); transform: translateY(-1px); }
+      .btn-danger { background: var(--danger-color); color: white; }
+      .btn-danger:hover { background: #dc2626; transform: translateY(-1px); }
+      .btn-success { background: var(--success-color); color: white; }
+      .btn-success:hover { background: #059669; transform: translateY(-1px); }
+      .btn-outline { background: transparent; border: 1px solid var(--border-color); color: var(--text-primary); }
+      .btn-outline:hover { background: var(--bg-color); border-color: var(--primary-color); }
+      .input-field {
+        padding: 10px 14px;
+        border: 1px solid var(--border-color);
+        border-radius: var(--radius-sm);
+        font-size: 14px;
+        transition: border-color 0.2s ease, box-shadow 0.2s ease;
+        width: 100%;
+        box-sizing: border-box;
+      }
+      .input-field:focus { outline: none; border-color: var(--primary-color); box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1); }
+      .section-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(400px, 1fr)); gap: 20px; }
+      .stat-card {
+        background: linear-gradient(135deg, var(--primary-color) 0%, #8b5cf6 100%);
+        color: white;
+        border-radius: var(--radius-md);
+        padding: 20px;
+        text-align: center;
+      }
+      .stat-value { font-size: 32px; font-weight: 700; }
+      .stat-label { font-size: 14px; opacity: 0.9; }
+      .badge {
+        display: inline-block;
+        padding: 4px 10px;
+        border-radius: 20px;
+        font-size: 12px;
+        font-weight: 500;
+      }
+      .badge-success { background: #dcfce7; color: #166534; }
+      .badge-warning { background: #fef3c7; color: #92400e; }
+      .badge-danger { background: #fee2e2; color: #991b1b; }
+      .collapse-header { cursor: pointer; user-select: none; }
+      .collapse-content { animation: fadeIn 0.3s ease; }
+      @keyframes fadeIn { from { opacity: 0; transform: translateY(-10px); } to { opacity: 1; transform: translateY(0); } }
+      @media (max-width: 768px) {
+        .section-grid { grid-template-columns: 1fr; }
+        .container-fluid { padding: 10px; }
+      }
     </style>
     """)
 
@@ -533,28 +694,46 @@ def send_bus_message_from_input(ctx):
 
 
 async def process_tabs(ctx, session):
-    for t in list(ctx["tabs"]):
-        try:
-            page = await t.page
-            j = await ctx["extract_important_links"](page)
-            links = j.get("news_links", [])
-            links >> ctx["log"]
-            for i in links:
-                try:
-                    url = i.get("url") if isinstance(i, dict) else None
-                    if not url:
+    # 限制同时处理的标签页数量
+    MAX_CONCURRENT_TABS = 3
+    semaphore = asyncio.Semaphore(MAX_CONCURRENT_TABS)
+    
+    async def process_single_tab(t):
+        async with semaphore:
+            try:
+                page = await asyncio.wait_for(t.page, timeout=10.0)
+                j = await asyncio.wait_for(ctx["extract_important_links"](page), timeout=15.0)
+                links = j.get("news_links", [])
+                links >> ctx["log"]
+                
+                # 限制同时打开的链接数量
+                MAX_CONCURRENT_LINKS = 5
+                for i in links[:MAX_CONCURRENT_LINKS]:
+                    try:
+                        url = i.get("url") if isinstance(i, dict) else None
+                        if not url:
+                            continue
+                        nt = ctx["tab"](url)
+                        p = await asyncio.wait_for(nt.page, timeout=8.0)
+                        if p:
+                            session.run_async(ctx["show_browser_status"]())
+                            (p.url, p.article.summary) >> ctx["log"]
+                    except asyncio.TimeoutError:
+                        (f"处理链接超时: {url}") >> ctx["log"]
                         continue
-                    nt = ctx["tab"](url)
-                    p = await nt.page
-                    if p:
-                        session.run_async(ctx["show_browser_status"]())
-                        (p.url, p.article.summary) >> ctx["log"]
-                except Exception as link_error:
-                    ("处理链接失败: " + str(link_error)) >> ctx["log"]
-                    continue
-        except Exception as tab_error:
-            ("处理标签页失败: " + str(tab_error)) >> ctx["log"]
-            continue
+                    except Exception as link_error:
+                        ("处理链接失败: " + str(link_error)) >> ctx["log"]
+                        continue
+            except asyncio.TimeoutError:
+                (f"处理标签页超时: {t.url}") >> ctx["log"]
+                return
+            except Exception as tab_error:
+                ("处理标签页失败: " + str(tab_error)) >> ctx["log"]
+                return
+    
+    # 并发处理标签页
+    tasks = [process_single_tab(t) for t in list(ctx["tabs"])]
+    await asyncio.gather(*tasks, return_exceptions=True)
 
 
 def extended_reading(ctx):
@@ -582,110 +761,333 @@ def create_sidebar(ctx):
     ctx["run_js"]('''
         const sidebar = document.createElement('div');
         sidebar.id = 'custom-sidebar';
-        sidebar.style.position = 'fixed';
-        sidebar.style.right = '0';
-        sidebar.style.top = '0';
-        sidebar.style.width = '300px';
-        sidebar.style.height = '100vh';
-        sidebar.style.backgroundColor = '#f5f5f5';
-        sidebar.style.boxShadow = '-2px 0 5px rgba(0,0,0,0.1)';
-        sidebar.style.transition = 'transform 0.3s ease';
-        sidebar.style.zIndex = '1000';
+        Object.assign(sidebar.style, {
+            position: 'fixed',
+            right: '0',
+            top: '0',
+            width: '340px',
+            height: '100vh',
+            backgroundColor: '#ffffff',
+            boxShadow: '-4px 0 20px rgba(0,0,0,0.08)',
+            transition: 'transform 0.35s cubic-bezier(0.4, 0, 0.2, 1)',
+            zIndex: '1000',
+            borderLeft: '1px solid #e2e8f0',
+            display: 'flex',
+            flexDirection: 'column'
+        });
+        const sidebarHeader = document.createElement('div');
+        Object.assign(sidebarHeader.style, {
+            padding: '16px 20px',
+            borderBottom: '1px solid #e2e8f0',
+            backgroundColor: '#f8fafc',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between'
+        });
+        sidebarHeader.innerHTML = '<span style="font-weight: 600; color: #1e293b; font-size: 15px;">📋 访问日志</span>';
         const toggleBtn = document.createElement('div');
-        toggleBtn.style.position = 'absolute';
-        toggleBtn.style.left = '-40px';
-        toggleBtn.style.top = '20px';
-        toggleBtn.style.width = '40px';
-        toggleBtn.style.height = '40px';
-        toggleBtn.style.backgroundColor = '#fff';
-        toggleBtn.style.borderRadius = '5px 0 0 5px';
-        toggleBtn.style.boxShadow = '-2px 0 5px rgba(0,0,0,0.1)';
-        toggleBtn.style.cursor = 'pointer';
-        toggleBtn.style.display = 'flex';
-        toggleBtn.style.alignItems = 'center';
-        toggleBtn.style.justifyContent = 'center';
+        Object.assign(toggleBtn.style, {
+            position: 'absolute',
+            left: '-48px',
+            top: '50%',
+            transform: 'translateY(-50%)',
+            width: '48px',
+            height: '80px',
+            backgroundColor: '#ffffff',
+            borderRadius: '12px 0 0 12px',
+            boxShadow: '-4px 0 12px rgba(0,0,0,0.08)',
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            border: '1px solid #e2e8f0',
+            borderRight: 'none',
+            transition: 'all 0.2s ease'
+        });
         let isOpen = localStorage.getItem('sidebarState') !== 'closed';
         sidebar.style.transform = isOpen ? 'translateX(0)' : 'translateX(100%)';
-        toggleBtn.innerHTML = isOpen ? '×' : '☰';
+        toggleBtn.innerHTML = isOpen ? '<span style="font-size: 20px; color: #64748b;">→</span>' : '<span style="font-size: 20px; color: #64748b;">←</span>';
+        toggleBtn.onmouseenter = () => { toggleBtn.style.backgroundColor = '#f1f5f9'; };
+        toggleBtn.onmouseleave = () => { toggleBtn.style.backgroundColor = '#ffffff'; };
         toggleBtn.onclick = function() {
             isOpen = !isOpen;
             sidebar.style.transform = isOpen ? 'translateX(0)' : 'translateX(100%)';
-            toggleBtn.innerHTML = isOpen ? '×' : '☰';
+            toggleBtn.innerHTML = isOpen ? '<span style="font-size: 20px; color: #64748b;">→</span>' : '<span style="font-size: 20px; color: #64748b;">←</span>';
             localStorage.setItem('sidebarState', isOpen ? 'open' : 'closed');
             const mainContent = document.querySelector('.container-fluid');
             if (mainContent) {
-                mainContent.style.marginRight = isOpen ? '300px' : '0';
-                mainContent.style.transition = 'margin-right 0.3s ease';
+                mainContent.style.marginRight = isOpen ? '340px' : '0';
+                mainContent.style.transition = 'margin-right 0.35s cubic-bezier(0.4, 0, 0.2, 1)';
             }
         };
         const mainContent = document.querySelector('.container-fluid');
-        if (mainContent) { mainContent.style.marginRight = isOpen ? '300px' : '0'; }
+        if (mainContent) { mainContent.style.marginRight = isOpen ? '340px' : '0'; }
+        const sidebarContent = document.createElement('div');
+        Object.assign(sidebarContent.style, { flex: '1', overflow: 'hidden' });
+        sidebar.appendChild(sidebarHeader);
+        sidebar.appendChild(sidebarContent);
         sidebar.appendChild(toggleBtn);
         document.body.appendChild(sidebar);
         const sidebarScope = document.getElementById('pywebio-scope-sidebar');
-        sidebar.appendChild(sidebarScope);
+        if (sidebarScope) { sidebarContent.appendChild(sidebarScope); }
     ''')
     with ctx["use_scope"]("sidebar"):
-        ctx["put_html"](f"""<iframe src="{hash(ctx["NS"]('访问日志'))}" style="width:100%;height:120vh;border:none;"></iframe>""")
+        ctx["put_html"](f"""<iframe src="/{hash(ctx["NS"]('访问日志'))}" style="width:100%;height:calc(100vh - 60px);border:none;background:#fff;"></iframe>""")
 
 
 def create_nav_menu(ctx):
     ctx["run_js"]('''
-        const nav = document.createElement('div');
+        const nav = document.createElement('nav');
         nav.className = 'navbar';
-        nav.style.position = 'fixed';
-        nav.style.top = '0';
-        nav.style.width = '100%';
-        nav.style.zIndex = '1000';
-        nav.style.backgroundColor = '#f5f5f5';
-        nav.style.borderBottom = '1px solid #ddd';
-        nav.style.padding = '10px 20px';
+        Object.assign(nav.style, {
+            position: 'fixed',
+            top: '0',
+            left: '0',
+            right: '0',
+            width: '100%',
+            zIndex: '999',
+            backgroundColor: '#ffffff',
+            borderBottom: '1px solid #e2e8f0',
+            padding: '0 24px',
+            height: '60px',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            boxShadow: '0 1px 3px rgba(0,0,0,0.05)'
+        });
         const brand = document.createElement('div');
         brand.className = 'brand';
         const brandLink = document.createElement('a');
-        brandLink.href = '#';
-        if (!/Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)) {
-            brandLink.innerText = document.title;
-        }
-        brandLink.style.fontSize = '20px';
-        brandLink.style.fontWeight = 'bold';
-        brandLink.style.color = '#333';
+        brandLink.href = '/';
+        brandLink.innerHTML = '<span style="font-size: 22px; font-weight: 700; color: #3b82f6;">⚡</span><span style="font-size: 18px; font-weight: 600; color: #1e293b; margin-left: 8px;">Deva</span>';
         brandLink.style.textDecoration = 'none';
+        brandLink.style.display = 'flex';
+        brandLink.style.alignItems = 'center';
         brand.appendChild(brandLink);
+        
         const menu = document.createElement('div');
-        menu.className = 'nav';
-        menu.style.display = 'flex';
-        menu.style.marginLeft = '20px';
+        menu.className = 'nav-menu';
+        Object.assign(menu.style, {
+            display: 'flex',
+            gap: '4px',
+            alignItems: 'center'
+        });
+        
+        const hamburger = document.createElement('button');
+        hamburger.className = 'hamburger';
+        hamburger.innerHTML = '<span></span><span></span><span></span>';
+        Object.assign(hamburger.style, {
+            display: 'none',
+            flexDirection: 'column',
+            justifyContent: 'space-around',
+            width: '30px',
+            height: '25px',
+            background: 'transparent',
+            border: 'none',
+            cursor: 'pointer',
+            padding: '0'
+        });
+        hamburger.querySelectorAll('span').forEach(span => {
+            Object.assign(span.style, {
+                width: '100%',
+                height: '3px',
+                background: '#1e293b',
+                borderRadius: '2px',
+                transition: 'all 0.3s ease'
+            });
+        });
+        
         const currentPath = window.location.pathname;
         const menuItems = [
-            {name: '首页', path: '/', action: () => location.reload()},
-            {name: '数据库', path: '/dbadmin', action: () => window.location.href = '/dbadmin'},
-            {name: 'Bus', path: '/busadmin', action: () => window.location.href = '/busadmin'},
-            {name: '实时流', path: '/streamadmin', action: () => window.location.href = '/streamadmin'},
-            {name: '股票', path: '/stockadmin', action: () => window.location.href = '/stockadmin'},
-            {name: '监控', path: '/monitor', action: () => window.location.href = '/monitor'},
-            {name: '任务', path: '/taskadmin', action: () => window.location.href = '/taskadmin'},
-            {name: '文档', path: '/document', action: () => window.location.href = '/document'}
+            {name: '🏠 首页', path: '/', action: () => {
+                // 清理SSE连接防止内存泄漏
+                if (window.sseConnection) {
+                    window.sseConnection.close();
+                    window.sseConnection = null;
+                }
+                // 使用正常跳转而不是reload
+                if (window.location.pathname === '/') {
+                    window.location.href = '/';
+                } else {
+                    window.location.href = '/';
+                }
+            }},
+            {name: '⭐ 关注', path: '/followadmin', action: () => {
+                if (window.sseConnection) {
+                    window.sseConnection.close();
+                    window.sseConnection = null;
+                }
+                window.location.href = '/followadmin';
+            }},
+            {name: '🌐 浏览器', path: '/browseradmin', action: () => {
+                if (window.sseConnection) {
+                    window.sseConnection.close();
+                    window.sseConnection = null;
+                }
+                window.location.href = '/browseradmin';
+            }},
+            {name: '💾 数据库', path: '/dbadmin', action: () => {
+                if (window.sseConnection) {
+                    window.sseConnection.close();
+                    window.sseConnection = null;
+                }
+                window.location.href = '/dbadmin';
+            }},
+            {name: '🚌 Bus', path: '/busadmin', action: () => {
+                if (window.sseConnection) {
+                    window.sseConnection.close();
+                    window.sseConnection = null;
+                }
+                window.location.href = '/busadmin';
+            }},
+            {name: '📊 命名流', path: '/streamadmin', action: () => {
+                if (window.sseConnection) {
+                    window.sseConnection.close();
+                    window.sseConnection = null;
+                }
+                window.location.href = '/streamadmin';
+            }},
+            {name: '📡 数据源', path: '/datasourceadmin', action: () => {
+                if (window.sseConnection) {
+                    window.sseConnection.close();
+                    window.sseConnection = null;
+                }
+                window.location.href = '/datasourceadmin';
+            }},
+            {name: '📈 股票', path: '/stockadmin', action: () => {
+                if (window.sseConnection) {
+                    window.sseConnection.close();
+                    window.sseConnection = null;
+                }
+                window.location.href = '/stockadmin';
+            }},
+            {name: '📈 策略', path: '/strategyadmin', action: () => {
+                if (window.sseConnection) {
+                    window.sseConnection.close();
+                    window.sseConnection = null;
+                }
+                window.location.href = '/strategyadmin';
+            }},
+            {name: '👁 监控', path: '/monitor', action: () => {
+                if (window.sseConnection) {
+                    window.sseConnection.close();
+                    window.sseConnection = null;
+                }
+                window.location.href = '/monitor';
+            }},
+            {name: '⏰ 任务', path: '/taskadmin', action: () => {
+                if (window.sseConnection) {
+                    window.sseConnection.close();
+                    window.sseConnection = null;
+                }
+                window.location.href = '/taskadmin';
+            }},
+            {name: '⚙️ 配置', path: '/configadmin', action: () => {
+                if (window.sseConnection) {
+                    window.sseConnection.close();
+                    window.sseConnection = null;
+                }
+                window.location.href = '/configadmin';
+            }},
+            {name: '📄 文档', path: '/document', action: () => {
+                if (window.sseConnection) {
+                    window.sseConnection.close();
+                    window.sseConnection = null;
+                }
+                window.location.href = '/document';
+            }}
         ];
         menuItems.forEach(item => {
             const link = document.createElement('a');
             link.href = item.path;
             link.innerText = item.name;
-            link.style.padding = '5px 15px';
-            link.style.color = '#333';
-            link.style.textDecoration = 'none';
-            link.style.marginRight = '10px';
-            link.style.borderRadius = '3px';
-            if (currentPath === item.path) { link.style.backgroundColor = '#ddd'; }
-            link.onmouseover = () => { link.style.backgroundColor = '#eee'; };
-            link.onmouseout = () => { link.style.backgroundColor = currentPath === item.path ? '#ddd' : 'transparent'; };
+            const isActive = currentPath === item.path;
+            Object.assign(link.style, {
+                padding: '8px 14px',
+                color: isActive ? '#3b82f6' : '#64748b',
+                textDecoration: 'none',
+                borderRadius: '8px',
+                fontSize: '14px',
+                fontWeight: isActive ? '600' : '500',
+                backgroundColor: isActive ? '#eff6ff' : 'transparent',
+                transition: 'all 0.2s ease',
+                display: 'flex',
+                alignItems: 'center',
+                whiteSpace: 'nowrap'
+            });
+            link.onmouseenter = () => {
+                if (!isActive) {
+                    link.style.backgroundColor = '#f1f5f9';
+                    link.style.color = '#1e293b';
+                }
+            };
+            link.onmouseleave = () => {
+                link.style.backgroundColor = isActive ? '#eff6ff' : 'transparent';
+                link.style.color = isActive ? '#3b82f6' : '#64748b';
+            };
             link.onclick = item.action;
             menu.appendChild(link);
         });
+        
+        let isMenuOpen = false;
+        hamburger.onclick = () => {
+            isMenuOpen = !isMenuOpen;
+            if (isMenuOpen) {
+                menu.style.display = 'flex';
+                menu.style.flexDirection = 'column';
+                menu.style.position = 'absolute';
+                menu.style.top = '60px';
+                menu.style.left = '0';
+                menu.style.right = '0';
+                menu.style.backgroundColor = '#ffffff';
+                menu.style.padding = '16px';
+                menu.style.boxShadow = '0 4px 20px rgba(0,0,0,0.15)';
+                menu.style.borderTop = '1px solid #e2e8f0';
+                hamburger.style.transform = 'rotate(90deg)';
+            } else {
+                menu.style.display = 'flex';
+                menu.style.flexDirection = 'row';
+                menu.style.position = 'static';
+                menu.style.padding = '0';
+                menu.style.boxShadow = 'none';
+                menu.style.borderTop = 'none';
+                hamburger.style.transform = 'rotate(0deg)';
+            }
+        };
+        
+        const handleResize = () => {
+            if (window.innerWidth <= 768) {
+                hamburger.style.display = 'flex';
+                menu.style.display = isMenuOpen ? 'flex' : 'none';
+                menu.style.flexDirection = 'column';
+                menu.style.position = 'absolute';
+                menu.style.top = '60px';
+                menu.style.left = '0';
+                menu.style.right = '0';
+                menu.style.backgroundColor = '#ffffff';
+                menu.style.padding = isMenuOpen ? '16px' : '0';
+                menu.style.boxShadow = isMenuOpen ? '0 4px 20px rgba(0,0,0,0.15)' : 'none';
+                menu.style.borderTop = isMenuOpen ? '1px solid #e2e8f0' : 'none';
+            } else {
+                hamburger.style.display = 'none';
+                menu.style.display = 'flex';
+                menu.style.flexDirection = 'row';
+                menu.style.position = 'static';
+                menu.style.padding = '0';
+                menu.style.boxShadow = 'none';
+                menu.style.borderTop = 'none';
+                menu.style.marginLeft = '32px';
+            }
+        };
+        
+        window.addEventListener('resize', handleResize);
+        handleResize();
+        
         nav.appendChild(brand);
         nav.appendChild(menu);
+        nav.appendChild(hamburger);
         document.body.insertBefore(nav, document.body.firstChild);
-        document.body.style.paddingTop = '50px';
+        document.body.style.paddingTop = '60px';
     ''')
 
 
@@ -733,102 +1135,34 @@ async def render_main(ctx):
     await ctx["init_admin_ui"]("Deva管理面板")
     ctx["init_floating_menu_manager"]()
     ctx["set_table_style"]()
+    ctx["apply_global_styles"]()
     render_llm_config_guide(ctx)
 
-    topics = ctx["NB"]("topics").items()
-    peoples = ctx["NB"]("people").items()
-    ctx["put_markdown"]("### 焦点分析")
-    people_table = [["人物", "描述", "操作"]]
-
-    async def analyze_person(key, value):
-        person = key
-        action = "并将他的观点总结成几行经典的名言名句"
-        full_prompt = f"获取关于{person}的最新6条新闻，要求返回的内容每一行都是一个一句话新闻，开头用一个和内容对应的图标，然后是一个不大于十个字的高度浓缩概括词，概括词用加粗字体，最后后面是新闻的一句话摘要，用破折号区隔开。每行一个新闻，不要有标题等其他任何介绍性内容，每行结尾也不要有类似[^2^]这样的引用标识，只需要返回6 条新闻即可。在新闻的最后面，总附加要求如下：{action}"
-        async def async_content_func(session, scope):
-            return await ctx["get_gpt_response"](prompt=full_prompt, session=session, scope=scope, model_type="kimi")
-        ctx["run_async"](ctx["dynamic_popup"](title=f"人物分析: {key}", async_content_func=async_content_func))
-
-    for key, value in peoples:
-        actions = ctx["put_button"]("news", onclick=lambda k=key, v=value: ctx["run_async"](analyze_person(k, v)))
-        people_table.append([ctx["truncate"](key), ctx["truncate"](value, 50), actions])
-
-    topic_table = [["主题", "附加要求", "操作"]]
-    action_inputs = {}
-
-    async def analyze_topic(key, action_input):
-        action = await ctx["pin"][ctx["stable_widget_id"](key, prefix="action")]
-        topic = key
-        full_prompt = f" 获取{topic}{action},要求返回的内容每一行都是一个一句话，开头用一个和内容对应的图标，然后是一个不大于十个字的高度浓缩概括词，概括词用加粗字体，再后面是一句话摘要，用破折号区隔开。每行一个内容，不要有标题等其他任何介绍性内容，只需要返回6 条新闻即可。"
-        async def async_content_func(session, scope):
-            return await ctx["get_gpt_response"](prompt=full_prompt, session=session, scope=scope, model_type="kimi")
-        ctx["run_async"](ctx["dynamic_popup"](title=f"主题分析: {key}", async_content_func=async_content_func))
-
-    for key, value in topics:
-        action_input_name = ctx["stable_widget_id"](key, prefix="action")
-        action_input = ctx["put_input"](name=action_input_name, value=value, placeholder="请输入附加要求")
-        action_inputs[key] = action_input
-        actions = ctx["put_button"]("分析", onclick=lambda k=key: ctx["run_async"](analyze_topic(k, action_inputs[k])))
-        topic_table.append([ctx["truncate"](key), action_input, actions])
-
-    ctx["put_row"]([
-        ctx["put_table"](topic_table).style("width: 48%; margin-right: 2%"),
-        ctx["put_table"](people_table).style("width: 48%; margin-left: 2%"),
-    ]).style("display: flex; justify-content: space-between")
-
-    ctx["put_markdown"]("### 浏览器")
-    with ctx["put_collapse"]("书签", open=False):
-        bookmarks = ctx["NB"]("bookmarks").items()
-        bookmark_table = [["键", "值", "操作"]]
-        for key, value in bookmarks:
-            actions = ctx["put_buttons"](
-                [{"label": "打开", "value": "open"}, {"label": "删除", "value": "delete"}],
-                onclick=lambda v, k=key, val=value: (ctx["tab"](val), ctx["toast"](f"正在打开书签: {k}"), ctx["run_async"](ctx["show_browser_status"]())) if v == "open" else delete_bookmark(k),
-            )
-            bookmark_table.append([ctx["truncate"](key), ctx["truncate"](value, 50), actions])
-        ctx["put_table"](bookmark_table)
-
-        def open_all_bookmarks():
-            for _, value in ctx["NB"]("bookmarks").items():
-                ctx["tab"](value)
-            ctx["toast"]("正在后台打开所有书签...")
-            ctx["run_async"](ctx["show_browser_status"]())
-
-        def delete_bookmark(key):
-            ctx["NB"]("bookmarks").delete(key)
-            ctx["toast"](f"已删除书签: {key}")
-            ctx["run_js"]("window.location.reload()")
-
-        ctx["put_row"]([
-            ctx["put_button"]("一键打开所有书签", onclick=open_all_bookmarks).style("margin-right: 10px"),
-            ctx["put_button"]("新建书签", onclick=lambda: ctx["edit_data_popup"](ctx["NB"]("bookmarks").items() | ctx["ls"], "bookmarks")),
-        ]).style("display: flex; justify-content: flex-start; align-items: center")
-
-    ctx["set_scope"]("browser_status")
-    ctx["put_row"]([
-        ctx["put_button"]("+ 标签页", onclick=ctx["open_new_tab"]).style("margin-right: 10px"),
-        ctx["put_button"]("拓展阅读", onclick=lambda: (ctx["extended_reading"](), ctx["run_async"](ctx["show_browser_status"]()))).style("margin-right: 10px"),
-        ctx["put_button"]("总结", onclick=ctx["summarize_tabs"]).style("margin-right: 10px"),
-        ctx["put_button"]("关闭所有", onclick=lambda: ctx["run_async"](ctx["close_all_tabs"]()), color="danger"),
-    ]).style("display: flex; justify-content: flex-start; align-items: center")
-    ctx["run_async"](ctx["show_browser_status"]())
-
-    ctx["put_markdown"]("### 定时任务")
+    ctx["put_html"]('<div class="card"><div class="card-title">⏰ 定时任务</div>')
     timers = [s for s in ctx["Stream"].instances() if isinstance(s, ctx["timer"])]
-    ctx["put_buttons"](buttons=[s.func.__name__ for s in timers], onclick=[lambda t=t: ctx["show_timer_detail"](t) for t in timers])
+    ctx["put_html"]('<div class="btn-group">')
+    ctx["put_buttons"](buttons=[f"📋 {s.func.__name__}" for s in timers], onclick=[lambda t=t: ctx["show_timer_detail"](t) for t in timers])
+    ctx["put_html"]('</div>')
     ctx["set_scope"]("timer_content")
+    ctx["put_html"]('</div>')
 
+    ctx["put_html"]('<div class="card"><div class="card-title">📋 系统日志</div>')
     ctx["log"].sse("/logsse")
-    with ctx["put_collapse"]("log", open=True):
-        ctx["put_logbox"]("log", height=100)
+    with ctx["put_collapse"]("实时日志", open=True):
+        ctx["put_logbox"]("log", height=150)
     ctx["run_js"](ctx["sse_js"])
 
-    with ctx["put_collapse"]("其他控件", open=True):
-        ctx["put_input"]("write_to_log", type="text", value="", placeholder="手动写入日志")
-        ctx["put_button"](">", onclick=ctx["write_to_log"])
+    with ctx["put_collapse"]("🔧 调试工具", open=False):
+        ctx["put_html"]('<div style="display:flex;gap:10px;align-items:center;">')
+        ctx["put_input"]("write_to_log", type="text", value="", placeholder="手动写入日志内容...")
+        ctx["put_button"]("📤 发送", onclick=ctx["write_to_log"])
+        ctx["put_html"]('</div>')
+    ctx["put_html"]('</div>')
 
-    ctx["put_markdown"]("### 📱 Dtalk 消息存档")
+    ctx["put_html"]('<div class="card"><div class="card-title">📱 Dtalk 消息存档</div>')
     ctx["set_scope"]("dtalk_archive_display")
     ctx["show_dtalk_archive"]()
+    ctx["put_html"]('</div>')
 
 
 async def render_bus_admin(ctx):
