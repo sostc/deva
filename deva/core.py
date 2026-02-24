@@ -24,6 +24,7 @@ from expiringdict import ExpiringDict
 from pampy import match, ANY
 import io
 from .pipe import P, print
+from .utils.ioloop import get_io_loop
 from threading import get_ident as get_thread_identity
 from requests_html import AsyncHTMLSession
 
@@ -350,7 +351,7 @@ thread_state = threading.local()
 logger = logging.getLogger(__name__)
 
 
-_io_loops = []
+
 
 
 class OrderedSet(collections.abc.MutableSet):
@@ -381,48 +382,7 @@ class OrderedWeakrefSet(weakref.WeakSet):
             self.add(elem)
 
 
-def get_io_loop(asynchronous=None):
-    """获取IOLoop实例
 
-    这个函数用于获取IOLoop对象，理解它的关键在于区分同步和异步模式：
-    
-    1. 同步模式（asynchronous=False/None）：
-    - 在后台启动一个守护线程
-    - 在该线程中创建并运行一个新的IOLoop
-    - 适合在普通Python函数中使用
-    
-    2. 异步模式（asynchronous=True）：
-    - 直接返回当前线程的IOLoop
-    - 适合在async/await异步函数中使用
-    
-    简单来说，同步模式会创建新线程来处理事件循环，而异步模式则使用当前线程的事件循环。
-
-    参数:
-        asynchronous (bool, optional): 
-            - True: 返回当前线程的IOLoop
-            - False/None: 返回在守护线程中运行的IOLoop
-
-    返回:
-        IOLoop: tornado的IOLoop实例
-
-    示例:
-        # 获取当前线程的IOLoop
-        loop = get_io_loop(asynchronous=True)
-
-        # 获取守护线程中的IOLoop
-        loop = get_io_loop(asynchronous=False)
-    """
-    if asynchronous:
-        return IOLoop.current()
-
-    if not _io_loops:
-        loop = IOLoop()
-        thread = threading.Thread(target=loop.start)
-        thread.daemon = True  # 设置为守护线程，主线程退出时自动退出
-        thread.start()
-        _io_loops.append(loop)
-
-    return _io_loops[-1]  # 返回最近创建的IOLoop
 
 def identity(x):
     return x
@@ -482,7 +442,7 @@ class Stream(object):
     def __init__(self, upstream=None, upstreams=None, name=None,
                  cache_max_len=None, cache_max_age_seconds=None,  # 缓存长度和事件长度
                  loop=None, asynchronous=None, ensure_io_loop=False,
-                 refuse_none=True):  # 禁止传递None到下游
+                 refuse_none=True, description=None):  # 禁止传递None到下游，添加description参数
         self.downstreams = OrderedWeakrefSet()  # 下游流的有序弱引用集合
         if upstreams is not None:
             self.upstreams = list(upstreams)
@@ -501,6 +461,8 @@ class Stream(object):
                 upstream.downstreams.add(self)  # 将自己添加到上游的下游集合中
 
         self.name = name  # 流的名称
+        self.description = description  # 流的描述/介绍
+        self.last_update_time = None  # 最后更新时间
 
         self.cache = {}  # 缓存字典
         self.is_cache = False  # 是否启用缓存
@@ -752,6 +714,9 @@ class Stream(object):
             return output._ipython_display_(**kwargs)
     def _emit(self, x):
         """向下游发送数据"""
+        import time
+        self.last_update_time = time.time()
+        
         if self.is_cache:
             self.cache[datetime.now()] = x
 

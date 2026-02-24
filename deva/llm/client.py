@@ -1,5 +1,7 @@
+import threading
 import time
 import traceback
+from openai import APIStatusError
 from ..namespace import NB
 from ..bus import log, warn, debug
 from .worker_runtime import run_ai_in_worker, run_sync_in_worker
@@ -14,6 +16,32 @@ try:
 except ImportError:
     OpenAI = None
     AsyncOpenAI = None
+
+
+def _get_friendly_error_message(error: Exception) -> str:
+    if isinstance(error, APIStatusError):
+        status_code = getattr(error, 'status_code', None) or getattr(error, 'code', None)
+        error_message = ""
+        if hasattr(error, 'response'):
+            try:
+                body = error.response.json() if hasattr(error.response, 'json') else {}
+                error_message = body.get('error', {}).get('message', str(error))
+            except Exception:
+                error_message = str(error)
+        
+        if status_code == 402 or 'Insufficient Balance' in error_message or '余额' in error_message:
+            return "API 余额不足，请充值后重试"
+        elif status_code == 401:
+            return "API 密钥无效或已过期，请检查配置"
+        elif status_code == 429:
+            return "请求过于频繁，请稍后重试"
+        elif status_code == 500:
+            return "API 服务内部错误，请稍后重试"
+        elif status_code == 503:
+            return "API 服务暂时不可用，请稍后重试"
+        else:
+            return f"API 错误 ({status_code}): {error_message}"
+    return f"请求失败: {type(error).__name__}: {error}"
 
 
 
@@ -146,6 +174,11 @@ class GPT:
             {"level": "DEBUG", "source": "deva.llm", "message": "sync query response received"} >> debug
             
             return response.choices[0].message.content
+        except APIStatusError as e:
+            friendly_msg = _get_friendly_error_message(e)
+            {"level": "ERROR", "source": "deva.llm", "message": f"同步查询失败: {friendly_msg}", "traceback": traceback.format_exc()} >> warn
+            self._switch_model()
+            raise RuntimeError(friendly_msg) from e
         except Exception as e:
             {"level": "ERROR", "source": "deva.llm", "message": "同步查询失败", "traceback": traceback.format_exc()} >> warn
             self._switch_model()
@@ -175,6 +208,11 @@ class GPT:
             )
             
             return completion.choices[0].message.content
+        except APIStatusError as e:
+            friendly_msg = _get_friendly_error_message(e)
+            {"level": "ERROR", "source": "deva.llm", "message": f"异步查询失败: {friendly_msg}", "traceback": traceback.format_exc()} >> warn
+            self._switch_model()
+            raise RuntimeError(friendly_msg) from e
         except Exception as e:
             {"level": "ERROR", "source": "deva.llm", "message": "异步查询失败", "traceback": traceback.format_exc()} >> warn
             self._switch_model()
@@ -234,13 +272,15 @@ class GPT:
 
 
 _gpt = None
+_gpt_lock = threading.Lock()
 
 
 def get_gpt(model_type='deepseek'):
     global _gpt
-    if _gpt is None or _gpt.model_type != model_type:
-        _gpt = GPT(model_type=model_type)
-    return _gpt
+    with _gpt_lock:
+        if _gpt is None or _gpt.model_type != model_type:
+            _gpt = GPT(model_type=model_type)
+        return _gpt
 
 
 def sync_gpt(prompts):

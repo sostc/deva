@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import atexit
 import threading
+import warnings
 
 
 _LOCK = threading.Lock()
@@ -40,7 +41,22 @@ async def run_ai_in_worker(coro):
     return await asyncio.wrap_future(future)
 
 
+def _is_in_async_context():
+    try:
+        asyncio.get_running_loop()
+        return True
+    except RuntimeError:
+        return False
+
+
 def run_sync_in_worker(coro, timeout=None):
+    if _is_in_async_context():
+        warnings.warn(
+            "run_sync_in_worker() called from async context. "
+            "This will block the event loop. Use run_ai_in_worker() instead.",
+            RuntimeWarning,
+            stacklevel=2
+        )
     future = submit_ai_coro(coro)
     return future.result(timeout=timeout)
 

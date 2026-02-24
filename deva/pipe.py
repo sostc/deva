@@ -17,6 +17,7 @@ from urllib.parse import quote
 
 
 import builtins
+from .utils.ioloop import get_io_loop
 
 
 __all__: builtins.list[builtins.str] = [
@@ -51,21 +52,7 @@ __all__: builtins.list[builtins.str] = [
 ]
 
 
-_io_loops = []
 
-
-def get_io_loop(asynchronous=True):
-    if asynchronous:
-        return IOLoop.current()
-
-    if not _io_loops:
-        loop = IOLoop()
-        thread = threading.Thread(target=loop.start)
-        thread.daemon = True
-        thread.start()
-        _io_loops.append(loop)
-
-    return _io_loops[-1]
 
 
 class Pipe:
