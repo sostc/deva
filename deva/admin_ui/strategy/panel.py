@@ -200,7 +200,7 @@ async def _render_strategy_lab(ctx):
                 {"label": "最新代码 vs 历史数据", "value": "vs_history"},
                 {"label": "代码 A vs 代码 B", "value": "vs_code"}
             ]),
-            ctx["textarea"]("新策略代码 (Python)", name="new_code", placeholder="def process(df): ...", rows=5),
+            ctx["textarea"]("新策略代码 (Python)", name="new_code", placeholder="def process(data): ...", rows=5),
         ])
         
         if not lab_config:

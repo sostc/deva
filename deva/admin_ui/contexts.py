@@ -71,9 +71,16 @@ function createSSEConnection() {
                 window.sseConnection = null;
             }
             
+            // 如果页面正在跳转，不再重连
+            if (window.__pageNavigating) {
+                console.log('页面正在跳转，停止重连');
+                return;
+            }
+            
             // 延迟重新连接
             setTimeout(() => {
-                if (!window.sseConnection) {
+                // 再次检查页面是否正在跳转
+                if (!window.__pageNavigating && !window.sseConnection) {
                     console.log('尝试重新建立SSE连接...');
                     createSSEConnection();
                 }
@@ -86,6 +93,9 @@ function createSSEConnection() {
     }
 }
 
+// 页面跳转标记
+window.__pageNavigating = false;
+
 // 页面卸载时清理连接
 window.addEventListener('beforeunload', function() {
     if (window.sseConnection) {
@@ -96,6 +106,7 @@ window.addEventListener('beforeunload', function() {
         }
         window.sseConnection = null;
     }
+    window.__pageNavigating = true;
 });
 
 // 启动SSE连接
@@ -130,6 +141,17 @@ def tasks_ctx(ns):
         'put_button': ns['put_button'],
         'put_row': ns['put_row'],
         'put_collapse': ns['put_collapse'],
+        'popup': ns['popup'],
+        'close_popup': ns['close_popup'],
+        'actions': ns['actions'],
+        'put_html': ns['put_html'],
+        'put_info': ns['put_info'],
+        'put_success': ns['put_success'],
+        'put_error': ns['put_error'],
+        'put_warning': ns['put_warning'],
+        'file_upload': ns['file_upload'],
+        'radio': ns['radio'],
+        'checkbox': ns['checkbox'],
         'stop_task': ns['stop_task'],
         'start_task': ns['start_task'],
         'delete_task': ns['delete_task'],
@@ -402,54 +424,6 @@ def monitor_ui_ctx(ns):
         'run_async': ns['run_async'],
         'toast': ns['toast'],
         'popup': ns['popup'],
-    }
-
-
-def stock_ctx(ns):
-    return {
-        'init_admin_ui': ns['init_admin_ui'],
-        'get_strategy_config': ns.get('get_strategy_config'),
-        'set_strategy_config': ns.get('set_strategy_config'),
-        'get_strategy_basic_meta': ns.get('get_strategy_basic_meta'),
-        'refresh_strategy_basic_df': ns.get('refresh_strategy_basic_df'),
-        'refresh_strategy_basic_df_async': ns.get('refresh_strategy_basic_df_async'),
-        'get_replay_config': ns.get('get_replay_config'),
-        'set_replay_config': ns.get('set_replay_config'),
-        'get_history_metadata': ns.get('get_history_metadata'),
-        'save_current_quant_to_history': ns.get('save_current_quant_to_history'),
-        'get_auto_save_config': ns.get('get_auto_save_config'),
-        'set_auto_save': ns.get('set_auto_save'),
-        'get_tick_metadata': ns.get('get_tick_metadata'),
-        'is_replay_running': ns.get('is_replay_running'),
-        'start_history_replay': ns.get('start_history_replay'),
-        'stop_history_replay': ns.get('stop_history_replay'),
-        'get_tick_stream': ns.get('get_tick_stream'),
-        'put_markdown': ns['put_markdown'],
-        'put_text': ns['put_text'],
-        'put_table': ns['put_table'],
-        'put_row': ns['put_row'],
-        'put_button': ns['put_button'],
-        'put_buttons': ns['put_buttons'],
-        'put_html': ns['put_html'],
-        'put_collapse': ns['put_collapse'],
-        'set_scope': ns['set_scope'],
-        'use_scope': ns['use_scope'],
-        'run_async': ns['run_async'],
-        'run_js': ns['run_js'],
-        'toast': ns['toast'],
-        'NS': ns['NS'],
-        'NB': ns['NB'],
-        'input_group': ns['input_group'],
-        'input': ns['input'],
-        'textarea': ns['textarea'],
-        'select': ns['select'],
-        'NUMBER': ns['NUMBER'],
-        'popup': ns['popup'],
-        'close_popup': ns['close_popup'],
-        'put_code': ns['put_code'],
-        'actions': ns['actions'],
-        'warn': ns['warn'],
-        'log': ns['log'],
     }
 
 

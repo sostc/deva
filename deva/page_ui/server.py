@@ -3,6 +3,8 @@
 import inspect
 import os
 import re
+import time
+import threading
 from collections import OrderedDict, defaultdict
 import datetime
 import json
@@ -61,6 +63,15 @@ def _install_asyncio_ws_close_filter():
 
 # ---- StreamsConnection (from connections.py) ----
 class StreamsConnection(SockJSConnection):
+    # 连接管理相关配置
+    MAX_CONNECTIONS_PER_IP = 10  # 每个IP最大连接数
+    CONNECTION_TIMEOUT = 30  # 连接超时时间(秒)
+    
+    # 全局连接计数器，用于限制并发连接数
+    _active_connections = 0
+    _connections_per_ip = defaultdict(int)
+    _connection_lock = threading.RLock()
+    
     def __init__(self, *args, **kwargs):
         self._out_stream = Stream()
         self._closed = False
@@ -70,6 +81,10 @@ class StreamsConnection(SockJSConnection):
         self.connections = set()
         self.connection = None
         self.out_stream = None
+        self.connection_time = time.time()
+        self.stream_cache = {}
+        self.cache_timestamp = 0
+        self.cache_interval = 5  # 缓存有效期(秒)
         super(StreamsConnection, self).__init__(*args, **kwargs)
 
     def _safe_send(self, payload):
@@ -81,18 +96,42 @@ class StreamsConnection(SockJSConnection):
             self._closed = True
 
     def on_open(self, request):
+        # 检查连接限制
+        self.request = request
+        self.request.ip = maybe(self.request.headers)["x-forward-for"].or_else(self.request.ip)
+        
+        with self._connection_lock:
+            # 检查每个IP的连接数限制
+            if self._connections_per_ip.get(self.request.ip, 0) >= self.MAX_CONNECTIONS_PER_IP:
+                f"reject:{self.request.ip}:{datetime.datetime.now()}:connection_limit_exceeded" >> log
+                self.close()
+                return
+            
+            # 增加连接计数
+            self._connections_per_ip[self.request.ip] += 1
+            self._active_connections += 1
+        
         self._closed = False
         self.out_stream = Stream()
         self.connection = self.out_stream >> self._out_stream
         json.dumps({"id": "default", "html": "welcome"}) >> self.out_stream
-        self.request = request
-        self.request.ip = maybe(self.request.headers)["x-forward-for"].or_else(self.request.ip)
-        f"open:{self.request.ip}:{datetime.datetime.now()}" >> log
+        f"open:{self.request.ip}:{datetime.datetime.now()}:{self._active_connections}" >> log
 
     @gen.coroutine
     def on_message(self, msg):
         json.loads(msg) >> self._in_stream
 
+    def get_streams(self):
+        """获取所有流实例，使用缓存减少开销"""
+        current_time = time.time()
+        if current_time - self.cache_timestamp < self.cache_interval and self.stream_cache:
+            return self.stream_cache
+        
+        # 重新获取并缓存
+        self.stream_cache = {str(hash(stream)): stream for stream in Stream.instances()}
+        self.cache_timestamp = current_time
+        return self.stream_cache
+    
     def process_msg(self, msg):
         # Backward-compatible payload handling:
         # - new pages send {"stream_ids": ["..."]}
@@ -101,7 +140,10 @@ class StreamsConnection(SockJSConnection):
         if not stream_ids and "stream_id" in msg:
             stream_ids = [str(msg.get("stream_id"))]
         "view:%s:%s:%s" % (stream_ids, self.request.ip, datetime.datetime.now()) >> log
-        self.out_streams = [stream for stream in Stream.instances() if str(hash(stream)) in stream_ids]
+        
+        # 使用缓存的流实例，避免每次都遍历所有流
+        streams = self.get_streams()
+        self.out_streams = [streams[sid] for sid in stream_ids if sid in streams]
 
         def _(sid):
             return lambda x: json.dumps({"id": sid, "html": x, "stream_id": sid, "data": x})
@@ -120,7 +162,16 @@ class StreamsConnection(SockJSConnection):
         self._closed = True
         request = getattr(self, "request", None)
         ip = getattr(request, "ip", "unknown")
-        f"close:{ip}:{datetime.datetime.now()}" >> log
+        
+        # 减少连接计数
+        with self._connection_lock:
+            if ip != "unknown" and ip in self._connections_per_ip:
+                self._connections_per_ip[ip] = max(0, self._connections_per_ip[ip] - 1)
+                if self._connections_per_ip[ip] == 0:
+                    del self._connections_per_ip[ip]
+            self._active_connections = max(0, self._active_connections - 1)
+        
+        f"close:{ip}:{datetime.datetime.now()}:{self._active_connections}" >> log
         for connection in self.connections:
             connection.destroy()
         self.connections = set()

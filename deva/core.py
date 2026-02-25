@@ -1,4 +1,6 @@
 from __future__ import absolute_import, division, print_function
+from typing import Any, Dict
+import datetime as _dt
 import os
 import asyncio
 
@@ -351,9 +353,6 @@ thread_state = threading.local()
 logger = logging.getLogger(__name__)
 
 
-
-
-
 class OrderedSet(collections.abc.MutableSet):
     def __init__(self, values=()):
         self._od = collections.OrderedDict().fromkeys(values)
@@ -380,8 +379,6 @@ class OrderedWeakrefSet(weakref.WeakSet):
         self.data = OrderedSet()
         for elem in values:
             self.add(elem)
-
-
 
 
 def identity(x):
@@ -606,6 +603,7 @@ class Stream(object):
             setattr(cls, func.__name__, modifier(wrapped))
             return func
         return _
+
     def start(self):
         """启动任何上游源"""
         for upstream in self.upstreams:
@@ -649,20 +647,20 @@ class Stream(object):
 
     def _ipython_display_(self, **kwargs):
         """IPython显示方法
-        
+
         该方法用于在Jupyter Notebook中显示流对象。它会创建一个动态更新的输出区域，
         当流中有新数据时自动更新显示内容。
-        
+
         实现原理：
         1. 尝试导入IPython和ipywidgets库
         2. 创建Output小部件作为显示容器
         3. 定义更新函数，当流中有新数据时更新显示
         4. 使用弱引用管理资源，防止内存泄漏
         5. 监听视图计数，在不需要时自动清理资源
-        
+
         参数:
             kwargs: 传递给IPython显示方法的额外参数
-            
+
         返回:
             IPython显示结果或流对象的字符串表示
         """
@@ -672,7 +670,7 @@ class Stream(object):
         except ImportError:
             # 如果无法导入IPython相关库，则回退到普通显示方式
             return self._repr_html_() if hasattr(self, '_repr_html_') else self.__repr__()
-            
+
         # 创建输出区域并设置初始视图计数
         output = Output(_view_count=0)
         output_ref = weakref.ref(output)  # 使用弱引用防止内存泄漏
@@ -712,11 +710,12 @@ class Stream(object):
         # 调用IPython显示方法
         if hasattr(output, '_ipython_display_'):
             return output._ipython_display_(**kwargs)
+
     def _emit(self, x):
         """向下游发送数据"""
         import time
         self.last_update_time = time.time()
-        
+
         if self.is_cache:
             self.cache[datetime.now()] = x
 
@@ -805,7 +804,6 @@ class Stream(object):
         for upstream in list(streams):
             upstream.downstreams.remove(self)
             self.upstreams.remove(upstream)
-
 
     def remove(self, predicate):
         """只传递predicate返回False的元素"""
@@ -934,6 +932,7 @@ class Stream(object):
             return result
 
         return wraper.__call__ @ P
+
     def catch_except(self, func):
         """捕获函数执行异常到流内。
 
@@ -999,6 +998,7 @@ class Stream(object):
                 raise  # 重新抛出异常以保持原有行为
 
         return wraper.__call__ @ P
+
     def __rmatmul__(self, func):
         """左边的 @.，函数结果进入流内。"""
         return self.catch(func).__call__ @ P
@@ -1012,7 +1012,7 @@ class Stream(object):
 
         该方法实现了流对象的>>操作符，用于将流数据输出到不同类型的对象。
         支持以下目标类型：
-        
+
         1. list: 将数据追加到列表中
         2. text file: 将数据写入文本文件
         3. str: 将 str 作为文本文件名处理，将流内的数据转换为字符串后写入文件
@@ -1044,15 +1044,16 @@ class Stream(object):
             stream >> print
         """
         return match(ref,
-                   list, lambda ref: self.sink(ref.append),
-                   io.TextIOWrapper, lambda ref: self.to_textfile(ref),
-                   str, lambda ref: self.map(str).to_textfile(ref),
-                   Stream, lambda ref: self.sink(ref.emit),
-                   callable, lambda ref: self.sink(ref),
-                   ANY, lambda ref: (_ for _ in ()).throw(TypeError(
-                       f'不支持的输出类型: {ref} ({type(ref)})，'
-                       '必须是 list | 文本文件名 | 文本文件句柄 | stream | 可调用对象'))
-                   )
+                     list, lambda ref: self.sink(ref.append),
+                     io.TextIOWrapper, lambda ref: self.to_textfile(ref),
+                     str, lambda ref: self.map(str).to_textfile(ref),
+                     Stream, lambda ref: self.sink(ref.emit),
+                     callable, lambda ref: self.sink(ref),
+                     ANY, lambda ref: (_ for _ in ()).throw(TypeError(
+                         f'不支持的输出类型: {ref} ({type(ref)})，'
+                         '必须是 list | 文本文件名 | 文本文件句柄 | stream | 可调用对象'))
+                     )
+
     def __getitem__(self, *args):
         """获取缓存的值"""
         return self.cache.values().__getitem__(*args)
@@ -1125,10 +1126,11 @@ class Stream(object):
 
         if seconds is not None:
             begin = datetime.now() - timedelta(seconds=seconds)
-            return [value for timestamp, value in self.cache.items() 
-                   if timestamp > begin][:n]
-        
+            return [value for timestamp, value in self.cache.items()
+                    if timestamp > begin][:n]
+
         return list(self.cache.values())[-n:]
+
     def __iter__(self,):
         """迭代缓存的值"""
         return self.cache.values().__iter__()
@@ -1212,12 +1214,12 @@ class sink(Sink):
         self.args = args
         super().__init__(upstream, **stream_kwargs)
 
-    def wrapper_function(self,func):
+    def wrapper_function(self, func):
         def inner(*args, **kwargs):
             # 获取原函数的参数签名
             signature = inspect.signature(func)
             parameters = signature.parameters
-            
+
             # 检查原函数是否需要参数
             if parameters:
                 # 如果原函数需要参数，调用原函数并传递参数
@@ -1225,9 +1227,9 @@ class sink(Sink):
             else:
                 # 如果原函数不需要参数，调用原函数时不传递参数
                 return func()
-    
+
         return inner
-    
+
     def update(self, x, who=None, metadata=None):
         # 执行函数并处理结果
         try:
@@ -1308,7 +1310,7 @@ class to_textfile(Sink):
 
     def update(self, x, who=None, metadata=None):
         """将数据写入文件并立即刷新
-        
+
         参数:
             x (str): 要写入的字符串数据
             who: 数据来源（未使用）
@@ -1316,6 +1318,8 @@ class to_textfile(Sink):
         """
         self._fp.write(x + self._end)
         self._fp.flush()  # 确保数据立即写入磁盘
+
+
 @Stream.register_api()
 class map(Stream):
     """ 对流中的每个元素应用一个函数，支持同步和异步操作
@@ -1454,6 +1458,8 @@ class map(Stream):
             # 记录并重新抛出异常
             logger.exception(e)
             raise
+
+
 @Stream.register_api()
 class starmap(Stream):
     """ 对流中的每个元素应用一个函数，展开
@@ -1504,6 +1510,7 @@ class starmap(Stream):
         else:
             return self._emit(result)
 
+
 def _truthy(x):
     return not not x
 
@@ -1543,14 +1550,19 @@ class filter(Stream):
         if self.predicate(x, *self.args, **self.kwargs):
             return self._emit(x)
 
+
+# 全局AsyncHTMLSession实例，用于重用
+_global_httpclient = None
+
 @gen.coroutine
-def httpx(req, render=False, timeout=30, **kwargs):
+def httpx(req, render=False, timeout=30, workers=10, **kwargs):
     """异步HTTP请求函数
 
     参数:
         req: 请求参数,可以是URL字符串或请求参数字典
         render: 是否渲染JavaScript,默认False
         timeout: 请求超时时间(秒),默认30秒
+        workers: 并发工作线程数,默认10
         **kwargs: 渲染参数,传递给arender()方法
 
     返回:
@@ -1585,10 +1597,10 @@ def httpx(req, render=False, timeout=30, **kwargs):
             'method': 'post',
             'data': {'key': 'value'}
         })
-        
+
         # 链式处理
         httpx('http://secsay.com')>>P(lambda x:x.html.search("<title>{}</title>")|first)+P(lambda x:x*2)+print
-        
+
         # 渲染JavaScript
         response = yield httpx('http://example.com', render=True)
         # 使用CSS选择器查找元素
@@ -1604,7 +1616,13 @@ def httpx(req, render=False, timeout=30, **kwargs):
         'Upgrade-Insecure-Requests': '1'
     }
 
-    httpclient = AsyncHTMLSession(workers=1)
+    global _global_httpclient
+    if _global_httpclient is None:
+        print(f"Initializing global HTTP client with {workers} workers")
+        _global_httpclient = AsyncHTMLSession(workers=workers)
+        print(f"Global HTTP client initialized: {_global_httpclient}")
+    httpclient = _global_httpclient
+    
     try:
         if isinstance(req, str):
             # 添加移动端headers
@@ -1627,6 +1645,10 @@ def httpx(req, render=False, timeout=30, **kwargs):
     except Exception as e:
         logger.error("crawler failed, req=%s, error=%s", req, e)
         logger.exception(e)
+        # 即使出现异常，也返回None而不是抛出异常，这样测试脚本可以继续执行
+        return None
+
+
 @Stream.register_api()
 class crawler(Stream):
     """基于流的网页爬虫类，支持同步和异步HTTP请求
@@ -1684,20 +1706,23 @@ class crawler(Stream):
         >>> print(response.status_code)
     """
 
-    def __init__(self, upstream=None, render=False, workers=None, error=print, **kwargs):
+    def __init__(self, upstream=None, render=False, workers=10, error=print, **kwargs):
         """初始化爬虫实例
 
         参数:
             upstream: 上游数据流
             render: 是否渲染JavaScript
-            workers: 并发线程池数量
+            workers: 并发线程池数量,默认10
             error: 错误处理函数
             **kwargs: 渲染参数
         """
         self.error = error
         self.render = render
         Stream.__init__(self, upstream=upstream, ensure_io_loop=True)
-        self.httpclient = AsyncHTMLSession(workers=workers)
+        global _global_httpclient
+        if _global_httpclient is None:
+            _global_httpclient = AsyncHTMLSession(workers=workers)
+        self.httpclient = _global_httpclient
         self.kwargs = kwargs
 
     def update(self, req, who=None):
@@ -1729,7 +1754,7 @@ class crawler(Stream):
             raise TypeError(f"请求类型必须为字符串或字典，当前类型为: {type(req)}")
         self.update(req)
         return req
-    
+
     @gen.coroutine
     def _request(self, req):
         """执行异步HTTP请求
@@ -1748,12 +1773,12 @@ class crawler(Stream):
         try:
             request_params = {'url': req} if isinstance(req, str) else req
             response = yield self.httpclient.get(**request_params)
-            
+
             if self.render:
                 yield response.html.arender(**self.kwargs)
-                
+
             return response
-            
+
         except Exception as e:
             error_context = {
                 'request': req,
@@ -1778,20 +1803,20 @@ class crawler(Stream):
             捕获所有异常并记录日志，但不中断程序执行
         """
         from requests_html import HTMLSession
-        
+
         httpclient = HTMLSession()
         request_params = {'url': url, **kwargs}
-        
+
         try:
             response = httpclient.get(**request_params)
             logger.debug(f"请求成功: {url}, 状态码: {response.status_code}")
             return response
-            
+
         except Exception as e:
             logger.error(f"请求失败: {url}, 错误: {str(e)}")
             logger.exception("请求异常详情:")
             return None
-        
+
     @classmethod
     def get(cls, url, **kwargs):
         """GET请求快捷方法
@@ -1821,6 +1846,7 @@ class crawler(Stream):
         response = await httpx(url)
         data = bare_extraction(response.content)
         return data.get(key) if key else data
+
 
 def sync(loop, func, *args, **kwargs):
     """在单独线程中运行的事件循环中执行协程函数
@@ -1918,6 +1944,7 @@ def sync(loop, func, *args, **kwargs):
 @Stream.register_api()
 class run_future(Stream):
     """将上游传入的 Future/Awaitable 的最终结果发射到下游。建议上游使用 rate_limit 限速。"""
+
     def __init__(self, upstream=None, **kwargs):
         Stream.__init__(self, upstream=upstream, ensure_io_loop=True, **kwargs)
 
@@ -1933,7 +1960,7 @@ class run_future(Stream):
 
 class Deva:
     """Deva 事件循环管理类
-    
+
     提供统一的事件循环启动和管理接口，支持优雅退出和异常处理。
 
     使用方法
@@ -1949,24 +1976,24 @@ class Deva:
     >>> # 在此处添加你的异步任务
     >>> # 按 Ctrl+C 停止事件循环
     """
-    
+
     @classmethod
     def run(cls):
         """启动并管理事件循环
-        
+
         该方法会启动一个 Tornado IOLoop 事件循环，并处理以下情况：
         1. 正常启动事件循环
         2. 捕获键盘中断信号(Ctrl+C)进行优雅退出
         3. 记录事件循环运行状态
-        
+
         实现特点：
         - 使用单例模式确保只有一个事件循环实例
         - 提供统一的退出处理
         - 支持日志记录
-        
+
         Returns:
             None
-            
+
         Raises:
             KeyboardInterrupt: 当收到 Ctrl+C 时退出
             RuntimeError: 如果事件循环启动失败
@@ -1981,23 +2008,24 @@ class Deva:
                 loop_thread_id = getattr(asyncio_loop, '_thread_id', None)
                 current_thread_id = threading.get_ident()
                 if loop_thread_id == current_thread_id:
-                    logger.info("Deva event loop already running in current thread; skip starting again")
+                    logger.info(
+                        "Deva event loop already running in current thread; skip starting again")
                     return
                 logger.info("Deva event loop already running in another thread; waiting for interrupt")
                 waiter = threading.Event()
                 while True:
-                    waiter.wait(3600)
+                    waiter.wait(10)
             loop.start()
-            
+
         except KeyboardInterrupt:
             logger.info("Received keyboard interrupt, shutting down...")
             if loop is not None:
                 loop.stop()
-            
+
         except Exception as e:
             logger.error(f"Failed to start event loop: {str(e)}")
             raise RuntimeError(f"Event loop startup failed: {str(e)}")
-            
+
         finally:
             logger.info("Deva event loop stopped")
 
@@ -2006,8 +2034,6 @@ logger.info(f"当前进程ID: {os.getpid()}")
 
 
 # ---- Logging adapter (merged from logging_adapter.py) ----
-import datetime as _dt
-from typing import Any, Dict
 
 LEVEL_ORDER = {"DEBUG": 10, "INFO": 20, "WARNING": 30, "ERROR": 40, "CRITICAL": 50}
 _HANDLER_MARK = "_deva_adapter_handler"
@@ -2043,7 +2069,8 @@ def format_line(record: Dict[str, Any]) -> str:
     extra_text = ""
     if extra:
         try:
-            extra_text = " | " + _json.dumps(extra, ensure_ascii=False, default=str, separators=(",", ":"))
+            extra_text = " | " + _json.dumps(extra, ensure_ascii=False,
+                                             default=str, separators=(",", ":"))
         except Exception:
             extra_text = " | " + str(extra)
     return f"[{record['ts']}][{record['level']}][{record['source']}] {record['message']}{extra_text}"

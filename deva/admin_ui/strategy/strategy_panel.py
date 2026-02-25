@@ -53,10 +53,6 @@ from .fault_tolerance import (
     get_error_collector,
     get_metrics_collector,
 )
-from .stock_strategies import (
-    list_available_strategies,
-    initialize_default_stock_strategies,
-)
 from .datasource import get_ds_manager
 from .ai_strategy_generator import (
     generate_strategy_code,
@@ -98,9 +94,6 @@ def render_strategy_admin_panel(ctx):
     
     ctx["put_markdown"]("### 📋 策略列表")
     _render_strategy_table(ctx)
-    
-    ctx["put_markdown"]("### 📈 股票策略")
-    _render_stock_strategy_section(ctx)
     
     ctx["put_markdown"]("### 📡 策略输出监控")
     _render_result_monitor(ctx)
@@ -153,20 +146,30 @@ def _render_strategy_table(ctx):
         ctx["put_button"]("创建策略", onclick=lambda: ctx["run_async"](_create_strategy_dialog(ctx)))
         return
     
-    table_data = [["名称", "状态", "上游", "下游", "处理数", "错误数", "操作"]]
+    table_data = [["名称", "状态", "绑定数据源", "处理函数", "处理数", "错误数", "操作"]]
     
     for unit_data in units:
         status = unit_data.get("state", {}).get("status", "draft")
         status_color = STATUS_COLORS.get(StrategyStatus(status), "#666")
         status_label = STATUS_LABELS.get(StrategyStatus(status), status)
         
-        upstream = ", ".join([u.get("name", "") or "" for u in unit_data.get("lineage", {}).get("upstream", [])]) or "-"
-        downstream = ", ".join([d.get("name", "") or "" for d in unit_data.get("lineage", {}).get("downstream", [])]) or "-"
+        metadata = unit_data.get("metadata", {})
+        bound_ds_name = metadata.get("bound_datasource_name", "")
+        strategy_func_code = metadata.get("strategy_func_code", "")
+        
+        bound_datasource = bound_ds_name if bound_ds_name else "-"
+        
+        func_preview = "-"
+        if strategy_func_code:
+            if "def process" in strategy_func_code:
+                func_preview = "✅ 已定义 process 函数"
+            else:
+                func_preview = "⚠️ 未定义 process 函数"
         
         processed = unit_data.get("state", {}).get("processed_count", 0)
         errors = unit_data.get("state", {}).get("error_count", 0)
         
-        unit_id = unit_data.get("metadata", {}).get("id", "")
+        unit_id = metadata.get("id", "")
         
         status_html = f'<span style="background:{status_color};color:#fff;padding:2px 8px;border-radius:4px;font-size:12px;">{status_label}</span>'
         
@@ -179,15 +182,16 @@ def _render_strategy_table(ctx):
         
         actions = ctx["put_buttons"]([
             {"label": "详情", "value": f"detail_{unit_id}"},
+            {"label": "编辑", "value": f"edit_{unit_id}"},
             {"label": toggle_label, "value": f"toggle_{unit_id}"},
             {"label": "删除", "value": f"delete_{unit_id}"},
         ], onclick=lambda v, uid=unit_id: _handle_strategy_action(ctx, v, uid))
         
         table_data.append([
-            unit_data.get("metadata", {}).get("name", "-"),
+            metadata.get("name", "-"),
             ctx["put_html"](status_html),
-            upstream[:30] + "..." if len(upstream) > 30 else upstream,
-            downstream[:30] + "..." if len(downstream) > 30 else downstream,
+            bound_datasource[:20] + "..." if len(bound_datasource) > 20 else bound_datasource,
+            ctx["put_html"](f'<span style="font-size:12px;">{func_preview}</span>'),
             str(processed),
             str(errors),
             actions,
@@ -199,44 +203,6 @@ def _render_strategy_table(ctx):
         ctx["put_button"]("创建策略", onclick=lambda: ctx["run_async"](_create_strategy_dialog(ctx))).style("margin-right: 10px"),
         ctx["put_button"]("全部启动", onclick=lambda: _start_all_strategies(ctx)),
         ctx["put_button"]("全部暂停", onclick=lambda: _pause_all_strategies(ctx)).style("margin-left: 10px"),
-    ]).style("margin-top: 10px")
-
-
-def _render_stock_strategy_section(ctx):
-    available_strategies = list_available_strategies()
-    
-    ctx["put_html"]("""
-    <div style="background:#e3f2fd;padding:12px;border-radius:8px;margin-bottom:16px;">
-        <p style="margin:0;color:#1565c0;"><b>股票策略类型</b></p>
-        <ul style="margin:8px 0 0 0;padding-left:20px;color:#1976d2;">
-            <li><b>block_change</b>: 板块异动分析 - 计算板块在时间窗口内的涨跌幅变化</li>
-            <li><b>block_ranking</b>: 领涨领跌板块 - 计算当日各板块的涨跌幅排名</li>
-            <li><b>limit_up_down</b>: 涨跌停统计 - 统计涨停和跌停的股票数量及分布</li>
-            <li><b>custom_filter</b>: 自定义筛选 - 根据自定义条件筛选股票</li>
-        </ul>
-    </div>
-    """)
-    
-    table_data = [["策略名称", "类型", "描述", "操作"]]
-    
-    for config in available_strategies:
-        actions = ctx["put_buttons"]([
-            {"label": "创建", "value": f"create_{config['type']}_{config['name']}"},
-        ], onclick=lambda v, cfg=config: _handle_stock_strategy_action(ctx, v, cfg))
-        
-        table_data.append([
-            config["name"],
-            config["type"],
-            config.get("description", "-"),
-            actions,
-        ])
-    
-    ctx["put_table"](table_data)
-    
-    ctx["put_row"]([
-        ctx["put_button"]("🤖 AI生成策略", onclick=lambda: ctx["run_async"](_create_ai_strategy_dialog(ctx)), color="success").style("margin-right: 10px"),
-        ctx["put_button"]("初始化默认股票策略", onclick=lambda: _init_default_stock_strategies(ctx), color="primary").style("margin-right: 10px"),
-        ctx["put_button"]("创建自定义股票策略", onclick=lambda: ctx["run_async"](_create_custom_stock_strategy_dialog(ctx))),
     ]).style("margin-top: 10px")
 
 
@@ -455,136 +421,9 @@ async def _show_result_history_dialog(ctx):
         ctx["put_table"](table_data)
 
 
-def _handle_stock_strategy_action(ctx, action_value: str, config: dict):
-    from .stock_strategies import create_stock_strategy
-    
-    parts = action_value.split("_", 1)
-    action = parts[0]
-    
-    if action == "create":
-        strategy = create_stock_strategy(
-            strategy_type=config["type"],
-            name=config["name"],
-        )
-        
-        if strategy:
-            ds_mgr = get_ds_manager()
-            quant_source = ds_mgr.get_source_by_name("quant_source")
-            
-            if quant_source:
-                manager = get_manager()
-                manager.register(strategy)
-                ds_mgr.link_strategy(quant_source.id, strategy.id)
-                
-                stream = quant_source.get_stream()
-                if stream:
-                    strategy.set_input_stream(stream.filter(lambda x: x is not None))
-                
-                strategy.save()
-                ctx["toast"](f"策略创建成功并已关联 quant_source: {strategy.name}", color="success")
-            else:
-                ctx["toast"](f"策略创建成功，但未找到 quant_source 数据源: {strategy.name}", color="warning")
-        else:
-            ctx["toast"](f"创建失败: 未知策略类型", color="error")
-        
-        ctx["run_js"]("location.reload()")
-
-
-def _init_default_stock_strategies(ctx):
-    ds_mgr = get_ds_manager()
-    quant_source = ds_mgr.get_source_by_name("quant_source")
-    
-    if not quant_source:
-        ctx["toast"]("未找到 quant_source 数据源，请先创建数据源", color="warning")
-        return
-    
-    results = initialize_default_stock_strategies(
-        auto_start=False,
-        register_to_manager=True,
-        datasource_name="quant_source"
-    )
-    success_count = len(results)
-    ctx["toast"](f"初始化完成: 成功 {success_count} 个策略，已关联 quant_source", color="success")
-    ctx["run_js"]("location.reload()")
-
-
-async def _create_custom_stock_strategy_dialog(ctx):
-    from .stock_strategies import create_stock_strategy
-    
-    ds_mgr = get_ds_manager()
-    sources = ds_mgr.list_sources()
-    
-    source_options = [
-        {"label": f"{s['name']} ({s['status']})", "value": s['id']}
-        for s in sources
-    ]
-    
-    quant_source = ds_mgr.get_source_by_name("quant_source")
-    default_source_id = quant_source.id if quant_source else (source_options[0]["value"] if source_options else None)
-    
-    strategy_types = [
-        {"label": "板块异动分析", "value": "block_change"},
-        {"label": "领涨领跌板块", "value": "block_ranking"},
-        {"label": "涨跌停统计", "value": "limit_up_down"},
-        {"label": "自定义筛选", "value": "custom_filter"},
-    ]
-    
-    with ctx["popup"]("创建自定义股票策略", size="large", closable=True):
-        form = await ctx["input_group"]("策略配置", [
-            ctx["select"]("策略类型", name="strategy_type", options=strategy_types, required=True),
-            ctx["input"]("策略名称", name="name", required=True, placeholder="输入策略名称"),
-            ctx["select"]("上游数据源", name="datasource_id", options=source_options, value=default_source_id, required=True),
-            ctx["input"]("下游输出流名称", name="downstream", placeholder="输出流名称（可选）"),
-            ctx["textarea"]("参数配置(JSON)", name="params_json", placeholder='{"window_size": 6, "top_n": 5}', rows=3),
-            ctx["actions"]("操作", [
-                {"label": "创建", "value": "create"},
-                {"label": "取消", "value": "cancel"},
-            ], name="action"),
-        ])
-        
-        if not form or form.get("action") == "cancel":
-            return
-        
-        params = {}
-        if form.get("params_json"):
-            try:
-                params = json.loads(form["params_json"])
-            except json.JSONDecodeError:
-                ctx["toast"]("参数JSON格式错误", color="error")
-                return
-        
-        if form.get("downstream"):
-            params["output_stream_name"] = form["downstream"]
-        
-        result = create_stock_strategy(
-            strategy_type=form["strategy_type"],
-            name=form["name"],
-            **params
-        )
-        
-        if result:
-            source = ds_mgr.get_source(form["datasource_id"])
-            if source:
-                manager = get_manager()
-                manager.register(result)
-                ds_mgr.link_strategy(source.id, result.id)
-                
-                stream = source.get_stream()
-                if stream:
-                    result.set_input_stream(stream.filter(lambda x: x is not None))
-                
-                result.save()
-                ctx["toast"](f"策略创建成功并已关联数据源 {source.name}: {result.name}", color="success")
-            else:
-                ctx["toast"](f"策略创建成功: {result.name}", color="success")
-            ctx["run_js"]("location.reload()")
-        else:
-            ctx["toast"](f"创建失败: 未知策略类型", color="error")
-
-
 async def _create_ai_strategy_dialog(ctx):
     ds_mgr = get_ds_manager()
-    sources = ds_mgr.list_sources()
+    sources = ds_mgr.list_source_objects()
     
     if not sources:
         ctx["toast"]("请先创建数据源", color="warning")
@@ -722,6 +561,9 @@ def _handle_strategy_action(ctx, action_value: str, unit_id: str):
     if action == "detail":
         ctx["run_async"](_show_strategy_detail(ctx, unit_id))
         return
+    elif action == "edit":
+        ctx["run_async"](_edit_strategy_code_dialog(ctx, unit_id))
+        return
     elif action == "toggle":
         unit = manager.get_unit(unit_id)
         if unit:
@@ -729,11 +571,17 @@ def _handle_strategy_action(ctx, action_value: str, unit_id: str):
                 result = manager.pause(unit_id)
                 ctx["toast"](f"已暂停: {result.get('status', '')}", color="success")
             elif unit.status == StrategyStatus.DRAFT:
-                result = manager.start(unit_id)
-                ctx["toast"](f"已启动: {result.get('status', '')}", color="success")
+                if not unit.metadata.bound_datasource_id:
+                    ctx["run_async"](_bind_datasource_and_start(ctx, unit_id))
+                else:
+                    result = manager.start(unit_id)
+                    ctx["toast"](f"已启动: {result.get('status', '')}", color="success")
             else:
-                result = manager.resume(unit_id)
-                ctx["toast"](f"已恢复: {result.get('status', '')}", color="success")
+                if not unit.metadata.bound_datasource_id:
+                    ctx["run_async"](_bind_datasource_and_start(ctx, unit_id))
+                else:
+                    result = manager.resume(unit_id)
+                    ctx["toast"](f"已恢复: {result.get('status', '')}", color="success")
     elif action == "delete":
         result = manager.analyze_deletion_impact(unit_id)
         if result.get("success"):
@@ -773,6 +621,7 @@ async def _show_strategy_detail(ctx, unit_id: str):
             ["标签", ", ".join(unit.metadata.tags) or "-"],
             ["状态", STATUS_LABELS.get(unit.status, unit.status.value)],
             ["策略类型", strategy_type or "自定义"],
+            ["绑定数据源", unit.metadata.bound_datasource_name or "-"],
             ["创建时间", datetime.fromtimestamp(unit.metadata.created_at).strftime("%Y-%m-%d %H:%M:%S")],
             ["更新时间", datetime.fromtimestamp(unit.metadata.updated_at).strftime("%Y-%m-%d %H:%M:%S")],
             ["代码版本", str(unit._code_version)],
@@ -780,7 +629,7 @@ async def _show_strategy_detail(ctx, unit_id: str):
         ctx["put_table"](info_table)
         
         ctx["put_row"]([
-            ctx["put_button"]("编辑策略", onclick=lambda: ctx["run_async"](_edit_strategy_dialog(ctx, unit_id)), color="primary"),
+            ctx["put_button"]("编辑策略", onclick=lambda: ctx["run_async"](_edit_strategy_code_dialog(ctx, unit_id)), color="primary"),
         ]).style("margin-top: 10px")
         
         if hasattr(unit, 'params') and unit.params:
@@ -814,6 +663,40 @@ async def _show_strategy_detail(ctx, unit_id: str):
         ctx["put_table"](state_table)
         
         ctx["put_markdown"]("### 📤 最近输出结果")
+        
+        try:
+            output_stream = None
+            
+            if hasattr(unit, '_output_stream') and unit._output_stream:
+                output_stream = unit._output_stream
+            
+            if not output_stream:
+                for downstream in unit.lineage.downstream:
+                    if downstream.sink_type.value == "stream" if hasattr(downstream.sink_type, 'value') else downstream.sink_type == "stream":
+                        try:
+                            from deva.namespace import _registry
+                            stream_name = downstream.name
+                            if stream_name in _registry:
+                                output_stream = _registry[stream_name]
+                                break
+                        except:
+                            pass
+            
+            if output_stream:
+                recent_data = output_stream.recent(5)
+                if recent_data:
+                    ctx["put_markdown"]("#### 输出流数据 (最近5条)")
+                    for i, data in enumerate(recent_data):
+                        data_preview = str(data)[:200]
+                        ctx["put_html"](f"<div style='padding:8px;margin:4px 0;background:#f8f9fa;border-radius:4px;font-family:monospace;'>[{i+1}] {data_preview}</div>")
+                else:
+                    ctx["put_text"]("暂无输出数据")
+            else:
+                ctx["put_text"]("暂无输出流")
+        except Exception as e:
+            ctx["put_text"](f"获取输出流失败: {str(e)}")
+        
+        ctx["put_markdown"]("#### 历史执行结果")
         recent_results = unit.get_recent_results(limit=10)
         if recent_results:
             result_table = [["时间", "状态", "耗时", "输出预览", "操作"]]
@@ -923,15 +806,163 @@ async def _show_strategy_detail(ctx, unit_id: str):
             ctx["put_markdown"]("### 🤖 AI 说明文档")
             ctx["put_markdown"](unit._ai_documentation)
         
-        if unit._processor_code:
-            ctx["put_markdown"]("### 🔧 实例处理器代码")
+        strategy_code = unit.metadata.strategy_func_code or unit._processor_code
+        if strategy_code:
+            ctx["put_markdown"]("### 🔧 策略执行代码")
             ctx["put_html"]("<details open><summary style='cursor:pointer;font-weight:bold;'>点击展开/收起代码</summary>")
-            ctx["put_code"](unit._processor_code, language="python")
+            ctx["put_code"](strategy_code, language="python")
             ctx["put_html"]("</details>")
+        
+        code_versions = unit.get_code_versions(5)
+        if code_versions:
+            ctx["put_markdown"]("### 📜 代码版本历史")
+            version_table = [["版本", "更新时间", "操作"]]
+            for idx, ver in enumerate(code_versions):
+                ts = ver.get("timestamp", 0)
+                ts_readable = datetime.fromtimestamp(ts).strftime("%m-%d %H:%M:%S") if ts > 0 else "-"
+                version_table.append([
+                    f"v{idx + 1}",
+                    ts_readable,
+                    ctx["put_buttons"]([
+                        {"label": "查看", "value": f"view_{idx}"},
+                    ], onclick=lambda v, vid=idx: _show_code_version_detail(ctx, unit, vid))
+                ])
+            ctx["put_table"](version_table)
+        
         
         ctx["put_markdown"]("### 📤 导出策略配置")
         export_json = json.dumps(unit.to_dict(), ensure_ascii=False, indent=2)
         ctx["put_code"](export_json, language="json")
+
+
+def _show_code_version_detail(ctx, unit, version_idx):
+    """显示代码版本详情"""
+    code_versions = unit.get_code_versions(10)
+    
+    if version_idx >= len(code_versions):
+        ctx["toast"]("版本不存在", color="error")
+        return
+    
+    version = code_versions[version_idx]
+    code = version.get("new_code", "")
+    ts = version.get("timestamp", 0)
+    ts_readable = datetime.fromtimestamp(ts).strftime("%Y-%m-%d %H:%M:%S") if ts > 0 else "-"
+    
+    with ctx["popup"](f"代码版本 v{version_idx + 1}", size="large", closable=True):
+        ctx["put_markdown"]("### 版本信息")
+        info = [
+            ["版本", f"v{version_idx + 1}"],
+            ["更新时间", ts_readable],
+            ["策略名称", version.get("name", "-")],
+        ]
+        ctx["put_table"](info)
+        
+        ctx["put_markdown"]("### 代码内容")
+        ctx["put_code"](code, language="python")
+
+
+async def _bind_datasource_and_start(ctx, unit_id: str):
+    """绑定数据源并启动策略"""
+    manager = get_manager()
+    unit = manager.get_unit(unit_id)
+    
+    if not unit:
+        ctx["toast"]("策略不存在", color="error")
+        return
+    
+    ds_mgr = get_ds_manager()
+    sources = ds_mgr.list_source_objects()
+    
+    if not sources:
+        ctx["toast"]("没有可用的数据源，请先创建数据源", color="warning")
+        return
+    
+    source_options = []
+    for s in sources:
+        source_name = getattr(s, 'name', '')
+        source_id = getattr(s, 'id', '')
+        source_status = getattr(s, 'status', 'stopped')
+        if hasattr(source_status, 'value'):
+            source_status = source_status.value
+        status_label = "运行中" if source_status == "running" else "已停止"
+        source_options.append({
+            "label": f"{source_name} [{status_label}]",
+            "value": source_id,
+        })
+    
+    with ctx["popup"]("绑定数据源并启动", size="small", closable=True):
+        ctx["put_markdown"]("**选择数据源**")
+        
+        form = await ctx["input_group"]("绑定数据源", [
+            ctx["select"]("绑定数据源", name="datasource_id", options=source_options),
+            ctx["actions"]("操作", [
+                {"label": "绑定并启动", "value": "bind_start"},
+                {"label": "取消", "value": "cancel"},
+            ], name="action"),
+        ])
+        
+        if not form or form.get("action") == "cancel":
+            ctx["close_popup"]()
+            return
+        
+        datasource_id = form.get("datasource_id", "")
+        if not datasource_id:
+            ctx["toast"]("请选择数据源", color="warning")
+            return
+        
+        ds_mgr = get_ds_manager()
+        source = ds_mgr.get_source(datasource_id)
+        
+        if not source:
+            ctx["toast"]("数据源不存在", color="error")
+            return
+        
+        unit = manager.get_unit(unit_id)
+        if not unit:
+            ctx["toast"]("策略不存在", color="error")
+            return
+        
+        code = unit.metadata.strategy_func_code or unit._processor_code
+        if not code:
+            ctx["toast"]("策略没有代码，请先编辑策略代码", color="warning")
+            return
+        
+        unit.bind_datasource(datasource_id, source.name)
+        
+        source_stream = source.get_stream()
+        if source_stream and code:
+            try:
+                from deva import NS
+                
+                local_ns = {"__builtins__": __builtins__}
+                exec(code, local_ns, local_ns)
+                process_func = local_ns.get("process")
+                
+                if process_func:
+                    output_stream_name = f"strategy_output_{unit.id}"
+                    output_stream = NS(
+                        output_stream_name,
+                        cache_max_len=3,
+                        cache_max_age_seconds=3600,
+                        description=f"策略 {unit.name} 的输出流"
+                    )
+                    
+                    source_stream.map(lambda data: process_func(data)) >> output_stream
+                    
+                    unit.set_input_stream(source_stream)
+                    unit.set_output_stream(output_stream)
+                    
+                    unit.save()
+            except Exception as e:
+                ctx["toast"](f"绑定数据源时出错: {str(e)}", color="warning")
+        
+        result = manager.start(unit_id)
+        if result.get("success"):
+            ctx["toast"](f"已绑定数据源并启动: {source.name}", color="success")
+        else:
+            ctx["toast"](f"启动失败: {result.get('error', '')}", color="error")
+        
+        ctx["close_popup"]()
 
 
 async def _edit_strategy_dialog(ctx, unit_id: str):
@@ -943,7 +974,7 @@ async def _edit_strategy_dialog(ctx, unit_id: str):
         return
     
     ds_mgr = get_ds_manager()
-    sources = ds_mgr.list_sources()
+    sources = ds_mgr.list_source_objects()
     source_options = [
         {"label": f"{s['name']}", "value": s['id']}
         for s in sources
@@ -1068,6 +1099,7 @@ async def _edit_strategy_dialog(ctx, unit_id: str):
         if result.get("success"):
             unit.metadata.description = form.get("description", "")
             unit.metadata.tags = [t.strip() for t in form.get("tags", "").split(",") if t.strip()]
+            unit.metadata.strategy_func_code = form.get("code") or ""
             unit.save()
             
             ctx["toast"](f"策略更新成功，版本: {result['code_version']}", color="success")
@@ -1077,13 +1109,222 @@ async def _edit_strategy_dialog(ctx, unit_id: str):
             ctx["toast"](f"更新失败: {result.get('error', '')}", color="error")
 
 
+DEFAULT_STRATEGY_FUNC_CODE = '''# 策略执行函数
+# 必须定义 process(data) 函数，处理输入数据并返回结果
+
+def process(data):
+    """
+    策略执行主体函数
+    
+    参数:
+        data: 输入数据 (通常为 pandas.DataFrame)
+    
+    返回:
+        处理后的数据
+    """
+    import pandas as pd
+    import numpy as np
+    from typing import Dict, Any
+    
+    # 示例：直接返回原始数据
+    # 你可以在这里添加自定义处理逻辑
+    
+    # 示例：筛选涨幅大于5%的股票
+    # if isinstance(data, pd.DataFrame) and 'p_change' in data.columns:
+    #     return data[data['p_change'] > 5]
+    
+    return data
+'''
+
+
+async def _edit_strategy_code_dialog(ctx, unit_id: str):
+    """编辑策略执行代码的弹窗"""
+    manager = get_manager()
+    unit = manager.get_unit(unit_id)
+    
+    if not unit:
+        ctx["toast"]("策略不存在", color="error")
+        return
+    
+    ds_mgr = get_ds_manager()
+    sources = ds_mgr.list_source_objects()
+    
+    current_code = unit.metadata.strategy_func_code or unit._processor_code or DEFAULT_STRATEGY_FUNC_CODE
+    
+    source_options = []
+    for s in sources:
+        if isinstance(s, dict):
+            source_name = s.get('name', '')
+            source_type = s.get('source_type', 'custom')
+            source_id = s.get('id', '')
+            source_status = s.get('state', {}).get('status', 'stopped')
+        else:
+            source_name = getattr(s, 'name', '')
+            source_type = getattr(s.metadata, 'source_type', 'custom')
+            source_id = getattr(s, 'id', '')
+            source_status = getattr(s, 'status', 'stopped')
+            if hasattr(source_type, 'value'):
+                source_type = source_type.value
+            if hasattr(source_status, 'value'):
+                source_status = source_status.value
+        
+        status_label = "运行中" if source_status == "running" else "已停止"
+        
+        source_options.append({
+            "label": f"{source_name} [{status_label}]",
+            "value": source_id,
+            "selected": source_id == unit.metadata.bound_datasource_id
+        })
+    
+    if not any(s.get('selected') for s in source_options):
+        source_options = [{"label": "无", "value": ""}] + source_options
+    
+    with ctx["popup"](f"编辑策略代码: {unit.name}", size="large", closable=True):
+        ctx["put_markdown"]("### 策略执行代码")
+        
+        ctx["put_html"]("""
+        <div style="background:#e8f5e9;padding:10px;border-radius:6px;margin-bottom:12px;">
+            <p style="margin:0 0 8px 0;color:#1565c0;"><b>💡 代码编写说明</b></p>
+            <ul style="margin:0;padding-left:20px;color:#666;font-size:12px;">
+                <li>必须定义 <code>def process(data):</code> 函数作为策略执行主体</li>
+                <li><code>data</code> 参数为输入数据（通常是 pandas.DataFrame）</li>
+                <li>函数返回值将作为策略输出</li>
+                <li>可用库：pandas, numpy, datetime, time, json, random, math</li>
+            </ul>
+        </div>
+        """)
+        
+        form = await ctx["input_group"]("策略代码配置", [
+            ctx["select"]("绑定数据源", name="datasource_id", options=source_options, value=unit.metadata.bound_datasource_id or ""),
+            ctx["textarea"]("执行代码", name="code", value=current_code, rows=15, code={"mode": "python", "theme": "darcula"}),
+            ctx["actions"]("操作", [
+                {"label": "保存代码", "value": "save"},
+                {"label": "测试代码", "value": "test"},
+                {"label": "取消", "value": "cancel"},
+            ], name="action"),
+        ])
+        
+        if not form or form.get("action") == "cancel":
+            ctx["close_popup"]()
+            return
+        
+        code = form.get("code", "")
+        
+        if form.get("action") == "test":
+            ctx["put_markdown"]("### 测试代码")
+            
+            source = ds_mgr.get_source(form.get("datasource_id"))
+            if source:
+                recent_data = source.get_recent_data(1)
+                if recent_data:
+                    test_result = test_strategy_code(code, recent_data[0])
+                    if test_result["success"]:
+                        ctx["put_html"](f"<div style='color:#155724;background:#d4edda;padding:8px;border-radius:4px;margin-bottom:10px;'>✅ 测试通过，执行时间: {test_result['execution_time_ms']:.2f}ms</div>")
+                        
+                        output = test_result.get("output")
+                        if output is not None:
+                            ctx["put_markdown"]("**测试输出预览:**")
+                            if isinstance(output, pd.DataFrame):
+                                ctx["put_html"](output.head(5).to_html(classes='df-table', index=False))
+                            else:
+                                ctx["put_text"](str(output)[:500])
+                    else:
+                        ctx["put_html"](f"<div style='color:#721c24;background:#f8d7da;padding:8px;border-radius:4px;margin-bottom:10px;'>❌ 测试失败: {test_result.get('error', '未知错误')}</div>")
+                else:
+                    ctx["put_html"](f"<div style='color:#856404;background:#fff3cd;padding:8px;border-radius:4px;margin-bottom:10px;'>⚠️ 数据源暂无数据，无法测试</div>")
+            else:
+                ctx["put_html"](f"<div style='color:#856404;background:#fff3cd;padding:8px;border-radius:4px;margin-bottom:10px;'>⚠️ 请先选择数据源或确保数据源有数据</div>")
+            
+            ctx["put_row"]([
+                ctx["put_button"]("保存代码", onclick=lambda: ctx["run_async"](_do_save_strategy_code(ctx, unit, form, code)), color="primary"),
+            ])
+            return
+        
+        await _do_save_strategy_code(ctx, unit, form, code)
+
+
+async def _do_save_strategy_code(ctx, unit, form, code):
+    """保存策略代码"""
+    code = form.get("code", "")
+    
+    if code:
+        code = code.rstrip()
+        lines = code.split('\n')
+        
+        if len(lines) > 1:
+            non_empty_lines = [line for line in lines if line.strip()]
+            if non_empty_lines:
+                min_indent = min(len(line) - len(line.lstrip()) for line in non_empty_lines)
+                
+                if min_indent > 0:
+                    fixed_lines = []
+                    for line in lines:
+                        if line.strip():
+                            fixed_lines.append(line[min_indent:])
+                        else:
+                            fixed_lines.append(line)
+                    code = '\n'.join(fixed_lines)
+    
+    update_result = unit.update_strategy_func_code(code)
+    
+    if not update_result.get("success"):
+        ctx["toast"](f"代码保存失败: {update_result.get('error', '')}", color="error")
+        return
+    
+    datasource_id = form.get("datasource_id", "")
+    if datasource_id:
+        ds_mgr = get_ds_manager()
+        source = ds_mgr.get_source(datasource_id)
+        if source:
+            unit.bind_datasource(datasource_id, source.name)
+            
+            source_stream = source.get_stream()
+            if source_stream and code:
+                try:
+                    from deva import NS
+                    
+                    local_ns = {"__builtins__": __builtins__}
+                    exec(code, local_ns, local_ns)
+                    process_func = local_ns.get("process")
+                    
+                    if process_func:
+                        output_stream_name = f"strategy_output_{unit.id}"
+                        output_stream = NS(
+                            output_stream_name,
+                            cache_max_len=3,
+                            cache_max_age_seconds=3600,
+                            description=f"策略 {unit.name} 的输出流"
+                        )
+                        
+                        source_stream.map(lambda data: process_func(data)) >> output_stream
+                        
+                        unit.set_input_stream(source_stream)
+                        unit.set_output_stream(output_stream)
+                        
+                        unit.save()
+                except Exception as e:
+                    ctx["toast"](f"绑定数据源时出错: {str(e)}", color="warning")
+    
+    ctx["toast"]("策略代码保存成功", color="success")
+    ctx["close_popup"]()
+    ctx["run_js"]("location.reload()")
+
+
 async def _create_strategy_dialog(ctx):
     ds_mgr = get_ds_manager()
-    sources = ds_mgr.list_sources()
-    source_options = [
-        {"label": f"{s.name}", "value": s.id}
-        for s in sources
-    ] if sources else []
+    sources = ds_mgr.list_source_objects()
+    
+    source_options = []
+    for s in sources:
+        if isinstance(s, dict):
+            source_name = s.get('name', '')
+            source_id = s.get('id', '')
+        else:
+            source_name = getattr(s, 'name', '')
+            source_id = getattr(s, 'id', '')
+        source_options.append({"label": source_name, "value": source_id})
+    
+    source_options = source_options if source_options else []
     
     with ctx["popup"]("创建新策略", size="large", closable=True):
         ctx["put_markdown"]("### 策略配置")
