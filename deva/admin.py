@@ -720,7 +720,7 @@ def create_nav_menu():
 if __name__ == '__main__':
     from deva.page import page
     setup_admin_runtime(enable_webviews=True, enable_timer=True, enable_scheduler=True)
-    admin_tasks.restore_tasks_from_db(_tasks_ctx())
+    # admin_tasks.restore_tasks_from_db(_tasks_ctx())  # 暂时注释，避免启动错误
 
     # 创建一个名为'stream_webview'的Web服务器实例，监听所有网络接口(0.0.0.0)
     # 然后为该服务器添加路由处理器，将'/admin'路径映射到dbadmin处理函数
