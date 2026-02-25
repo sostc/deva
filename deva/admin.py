@@ -79,6 +79,7 @@ try:
     from .admin_ui import browser_ui as admin_browser_ui
     from .admin_ui import enhanced_task_admin as admin_enhanced_tasks
     from .llm.worker_runtime import run_ai_in_worker
+    from .admin_ui import ai_center as admin_ai_center
 except ImportError:
     # Allow running as a script: python deva/admin.py
     from deva.admin_ui import runtime as admin_runtime
@@ -98,6 +99,7 @@ except ImportError:
     from .admin_ui import browser_ui as admin_browser_ui
     from .admin_ui import enhanced_task_admin as admin_enhanced_tasks
     from .llm.worker_runtime import run_ai_in_worker
+    from .admin_ui import ai_center as admin_ai_center
 
 import pandas as pd
 from openai import AsyncOpenAI
@@ -514,6 +516,17 @@ async def document():
 
 def _document_ui_ctx():
     return admin_contexts.document_ui_ctx(globals())
+
+async def aicenter():
+    """AI 功能中心"""
+    await init_admin_ui("Deva AI 功能中心")
+    return admin_ai_center.render_ai_tab_ui(_aicenter_ctx())
+
+
+def _aicenter_ctx():
+    """AI 中心上下文"""
+    return admin_contexts.document_ui_ctx(globals())
+
 def show_dtalk_archive():
     return admin_main_ui.show_dtalk_archive(_main_ui_ctx())
 
@@ -726,6 +739,7 @@ if __name__ == '__main__':
         (r'/', webio_handler(main, cdn=cdn)),
         (r'/taskadmin', webio_handler(taskadmin, cdn=cdn)),
         (r'/document', webio_handler(document, cdn=cdn)),
+        (r'/aicenter', webio_handler(aicenter, cdn=cdn)),
         (r'/monitor', webio_handler(monitor, cdn=cdn)),
         (r'/allstreams', webio_handler(allstreams, cdn=cdn)),
         (r'/alltables', webio_handler(alltables, cdn=cdn)),
