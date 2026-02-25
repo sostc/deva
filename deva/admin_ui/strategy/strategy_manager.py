@@ -423,6 +423,8 @@ class StrategyManager(BaseManager[StrategyUnit]):
         upstream_source: str = None,
         downstream_sink: str = None,
         auto_start: bool = False,
+        datasource_id: str = None,
+        datasource_name: str = None,
     ) -> dict:
         try:
             unit = StrategyUnit(
@@ -430,6 +432,9 @@ class StrategyManager(BaseManager[StrategyUnit]):
                 description=description,
                 tags=tags,
                 auto_start=False,
+                strategy_func_code=processor_code or "",
+                bound_datasource_id=datasource_id or "",
+                bound_datasource_name=datasource_name or "",
             )
             
             if processor_func:
@@ -527,10 +532,29 @@ class StrategyManager(BaseManager[StrategyUnit]):
         results = []
         
         with self._items_lock:
-            units_to_start = [
-                unit for unit in self._items.values()
-                if getattr(unit, '_was_running', False) and unit._processor_func is not None
-            ]
+            units_to_start = []
+            for unit in self._items.values():
+                if not getattr(unit, '_was_running', False):
+                    continue
+                    
+                has_processor = unit._processor_func is not None
+                has_code = bool(unit._processor_code or unit.metadata.strategy_func_code)
+                
+                if has_processor:
+                    units_to_start.append(unit)
+                elif has_code:
+                    try:
+                        code = unit._processor_code or unit.metadata.strategy_func_code
+                        if code:
+                            unit.set_processor_from_code(code)
+                            units_to_start.append(unit)
+                    except Exception as e:
+                        results.append({
+                            "unit_id": unit.id,
+                            "unit_name": unit.name,
+                            "success": False,
+                            "error": f"Failed to restore processor: {str(e)}",
+                        })
         
         for unit in units_to_start:
             try:

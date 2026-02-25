@@ -75,9 +75,9 @@ try:
     from .admin_ui import monitor_ui as admin_monitor_ui
     from .admin_ui.strategy import panel as admin_strategy_panel
     from .admin_ui.strategy import runtime as admin_strategy_runtime
-    from .admin_ui.strategy import stock_panel as admin_stock_panel
     from .admin_ui import follow_ui as admin_follow_ui
     from .admin_ui import browser_ui as admin_browser_ui
+    from .admin_ui import enhanced_task_admin as admin_enhanced_tasks
     from .llm.worker_runtime import run_ai_in_worker
 except ImportError:
     # Allow running as a script: python deva/admin.py
@@ -92,12 +92,12 @@ except ImportError:
     from deva.admin_ui import contexts as admin_contexts
     from deva.admin_ui import monitor_routes as admin_monitor_routes
     from deva.admin_ui import monitor_ui as admin_monitor_ui
-    from deva.admin_ui.strategy import panel as admin_strategy_panel
-    from deva.admin_ui.strategy import runtime as admin_strategy_runtime
-    from deva.admin_ui.strategy import stock_panel as admin_stock_panel
-    from deva.admin_ui import follow_ui as admin_follow_ui
-    from deva.admin_ui import browser_ui as admin_browser_ui
-    from deva.llm.worker_runtime import run_ai_in_worker
+    from .admin_ui.strategy import panel as admin_strategy_panel
+    from .admin_ui.strategy import runtime as admin_strategy_runtime
+    from .admin_ui import follow_ui as admin_follow_ui
+    from .admin_ui import browser_ui as admin_browser_ui
+    from .admin_ui import enhanced_task_admin as admin_enhanced_tasks
+    from .llm.worker_runtime import run_ai_in_worker
 
 import pandas as pd
 from openai import AsyncOpenAI
@@ -395,10 +395,12 @@ def _tasks_ctx():
     return admin_contexts.tasks_ctx(globals())
     
 async def taskadmin():
-    await init_admin_ui('Deva任务管理')
+    """增强版任务管理 - 集成AI代码生成功能"""
+    await init_admin_ui('Deva任务管理 - AI增强版')
     
-    put_button("创建定时任务", onclick=create_task)
-    manage_tasks()  # 直接展示任务列表
+    # 使用增强版任务管理界面
+    await admin_enhanced_tasks.render_enhanced_task_admin(_tasks_ctx())
+    
     set_scope('task_log')
   
 
@@ -491,10 +493,6 @@ async def datasourceadmin():
     from .admin_ui.strategy.datasource_panel import render_datasource_admin
     return await render_datasource_admin(_datasource_ctx())
 
-async def stockadmin():
-    from .admin_ui.strategy.stock_panel import render_stock_admin
-    return await render_stock_admin(_stock_ctx())
-
 async def followadmin():
     from .admin_ui.follow_ui import render_follow_ui
     return await render_follow_ui(_follow_ui_ctx())
@@ -560,9 +558,6 @@ def _strategy_ctx():
 def _datasource_ctx():
     return admin_contexts.datasource_ctx(globals())
 
-
-def _stock_ctx():
-    return admin_contexts.stock_ctx(globals())
 
 def _follow_ui_ctx():
     return admin_contexts.follow_ui_ctx(globals(), admin_tables)
@@ -725,7 +720,6 @@ if __name__ == '__main__':
         (r'/streamadmin', webio_handler(streamadmin, cdn=cdn)),
         (r'/strategyadmin', webio_handler(strategyadmin, cdn=cdn)),
         (r'/datasourceadmin', webio_handler(datasourceadmin, cdn=cdn)),
-        (r'/stockadmin', webio_handler(stockadmin, cdn=cdn)),
         (r'/followadmin', webio_handler(followadmin, cdn=cdn)),
         (r'/browseradmin', webio_handler(browseradmin, cdn=cdn)),
         (r'/configadmin', webio_handler(configadmin, cdn=cdn)),

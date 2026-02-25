@@ -1,150 +1,238 @@
 #!/usr/bin/env python3
 """
-最终验证：数据源命名流缓存和启动功能
+最终验证 - 增强版任务管理UI集成
+
+验证AI代码生成功能已成功集成到任务管理界面。
 """
 
-import time
-import datetime
-from deva.admin_ui.strategy.runtime import initialize_strategy_monitor_streams
-from deva.admin_ui.strategy.datasource import get_ds_manager, DataSourceStatus
+import asyncio
 
-def main():
-    """最终验证"""
-    print("🚀 开始最终验证数据源命名流缓存和启动功能")
-    print(f"📅 测试时间: {datetime.datetime.now()}")
+def test_complete_integration():
+    """测试完整的集成"""
     
+    print("🚀 最终验证 - 增强版任务管理UI集成")
+    print("=" * 70)
+    
+    tests_passed = 0
+    total_tests = 8
+    
+    # 测试1: UI框架集成
+    print(f"\n1️⃣ 测试UI框架集成")
     try:
-        # 1. 初始化策略监控流（模拟程序启动）
-        print("\n1️⃣ 初始化策略监控流...")
-        initialize_strategy_monitor_streams()
+        from deva.admin_ui.enhanced_task_admin import render_enhanced_task_admin
+        print("   ✅ 增强版任务管理UI模块导入成功")
+        tests_passed += 1
+    except Exception as e:
+        print(f"   ❌ UI框架集成失败: {e}")
+    
+    # 测试2: AI代码生成功能
+    print(f"\n2️⃣ 测试AI代码生成功能")
+    try:
+        from deva.admin_ui.strategy.enhanced_task_panel import (
+            show_enhanced_create_task_dialog,
+            show_enhanced_edit_task_dialog,
+            validate_task_code
+        )
+        print("   ✅ AI代码生成功能导入成功")
+        tests_passed += 1
+    except Exception as e:
+        print(f"   ❌ AI代码生成功能失败: {e}")
+    
+    # 测试3: 代码验证系统
+    print(f"\n3️⃣ 测试代码验证系统")
+    try:
+        test_code = '''
+async def execute(context=None):
+    """测试任务"""
+    return "任务执行完成"
+'''
+        result = validate_task_code(test_code)
+        if result['valid']:
+            print("   ✅ 代码验证功能正常")
+            tests_passed += 1
+        else:
+            print(f"   ❌ 代码验证失败: {result}")
+    except Exception as e:
+        print(f"   ❌ 代码验证系统异常: {e}")
+    
+    # 测试4: AI代码生成器
+    print(f"\n4️⃣ 测试AI代码生成器")
+    try:
+        from deva.admin_ui.strategy.ai_code_generator import TaskAIGenerator
         
-        # 2. 获取数据源管理器
-        ds_manager = get_ds_manager()
+        generator = TaskAIGenerator()
+        template = generator._get_default_task_template()
         
-        # 3. 验证quant_source数据源
-        print("\n2️⃣ 验证quant_source数据源...")
-        quant_source = ds_manager.get_source_by_name("quant_source")
+        if "async def execute(context=None):" in template:
+            print("   ✅ AI代码生成器功能正常")
+            tests_passed += 1
+        else:
+            print("   ❌ AI代码生成器模板异常")
+    except Exception as e:
+        print(f"   ❌ AI代码生成器异常: {e}")
+    
+    # 测试5: 任务管理器集成
+    print(f"\n5️⃣ 测试任务管理器集成")
+    try:
+        from deva.admin_ui.strategy.task_manager import get_task_manager
         
-        if not quant_source:
-            print("❌ quant_source数据源未找到")
-            return False
+        task_manager = get_task_manager()
+        stats = task_manager.get_overall_stats()
         
-        print(f"✅ 找到quant_source数据源: {quant_source.id}")
-        print(f"   名称: {quant_source.name}")
-        print(f"   状态: {quant_source.status}")
-        print(f"   类型: {quant_source.metadata.source_type}")
-        print(f"   间隔: {quant_source.metadata.interval}秒")
+        print(f"   ✅ 任务管理器集成成功 (统计功能正常)")
+        tests_passed += 1
+    except Exception as e:
+        print(f"   ❌ 任务管理器集成失败: {e}")
+    
+    # 测试6: 任务单元功能
+    print(f"\n6️⃣ 测试任务单元功能")
+    try:
+        from deva.admin_ui.strategy.task_unit import TaskUnit, TaskMetadata, TaskState, TaskExecution, TaskType
         
-        # 4. 验证命名流缓存配置
-        print("\n3️⃣ 验证命名流缓存配置...")
-        stream = quant_source.get_stream()
-        if stream:
-            cache_len = getattr(stream, 'cache_max_len', 0)
-            cache_age = getattr(stream, 'cache_max_age_seconds', 0)
-            print(f"✅ 命名流配置:")
-            print(f"   缓存最大长度: {cache_len}")
-            print(f"   缓存最大时间: {cache_age}秒")
-            print(f"   流名称: {getattr(stream, 'name', '未知')}")
+        # 创建测试任务
+        metadata = TaskMetadata(
+            id="test_integration",
+            name="集成测试任务",
+            description="测试集成",
+            task_type=TaskType.INTERVAL,
+            schedule_config={"interval": 60}
+        )
+        
+        state = TaskState(
+            status="stopped",
+            last_run_time=0,
+            next_run_time=0,
+            run_count=0,
+            error_count=0
+        )
+        
+        execution = TaskExecution(
+            job_code="async def execute(context=None): return '集成测试通过'",
+            execution_history=[]
+        )
+        
+        task_unit = TaskUnit(metadata=metadata, state=state, execution=execution)
+        
+        if task_unit.name == "集成测试任务":
+            print("   ✅ 任务单元功能正常")
+            tests_passed += 1
+        else:
+            print("   ❌ 任务单元功能异常")
+    except Exception as e:
+        print(f"   ❌ 任务单元功能异常: {e}")
+    
+    # 测试7: 主管理界面集成
+    print(f"\n7️⃣ 测试主管理界面集成")
+    try:
+        # 检查admin.py中的集成
+        with open('/Users/spark/pycharmproject/deva/deva/admin.py', 'r') as f:
+            content = f.read()
             
-            if cache_len >= 1 and cache_age >= 60:
-                print("✅ 缓存配置正确")
-            else:
-                print("⚠️  缓存配置需要优化")
+        if 'enhanced_task_admin' in content and 'AI增强版' in content:
+            print("   ✅ 主管理界面已集成增强版任务管理")
+            tests_passed += 1
         else:
-            print("⚠️  未找到命名流")
+            print("   ❌ 主管理界面未正确集成")
+    except Exception as e:
+        print(f"   ❌ 主管理界面集成检查失败: {e}")
+    
+    # 测试8: UI渲染功能
+    print(f"\n8️⃣ 测试UI渲染功能")
+    try:
+        # 模拟PyWebIO上下文测试UI渲染
+        class MockContext:
+            def __getitem__(self, key):
+                return lambda *args, **kwargs: None
         
-        # 5. 验证执行代码
-        print("\n4️⃣ 验证执行代码...")
-        code = quant_source.metadata.data_func_code
-        print(f"✅ 执行代码长度: {len(code)} 字符")
+        ctx = MockContext()
         
-        key_functions = ['fetch_data', 'gen_quant', 'is_tradedate', 'is_tradetime', 'create_mock_data']
-        found_functions = [func for func in key_functions if f"def {func}" in code]
-        print(f"✅ 找到的关键函数: {found_functions}")
+        # 测试异步渲染
+        async def test_render():
+            await render_enhanced_task_admin(ctx)
         
-        if len(found_functions) >= 3:
-            print("✅ 执行代码功能完整")
-        else:
-            print("⚠️  执行代码功能不完整")
+        asyncio.run(test_render())
+        print("   ✅ UI渲染功能正常")
+        tests_passed += 1
+    except Exception as e:
+        print(f"   ❌ UI渲染功能异常: {e}")
+    
+    # 最终结果
+    print("\n" + "=" * 70)
+    print(f"🎯 最终测试结果: {tests_passed}/{total_tests} 通过")
+    
+    if tests_passed == total_tests:
+        print("\n🎉 恭喜！增强版任务管理UI集成成功完成！")
+        print("\n✨ 用户现在可以体验以下功能：")
+        print("   • 🚀 访问任务管理界面 (/taskadmin)")
+        print("   • 🤖 使用AI智能创建任务")
+        print("   • 📝 通过多种方式输入任务代码")
+        print("   • ✓ 享受完整的代码审核编辑流程")
+        print("   • 📊 查看详细的任务统计信息")
+        print("   • ⚙️ 使用批量管理功能")
         
-        # 6. 验证状态保存
-        print("\n5️⃣ 验证状态保存...")
-        saved_state = quant_source.get_saved_running_state()
-        if saved_state:
-            print(f"✅ 保存的运行状态:")
-            print(f"   运行状态: {saved_state.get('is_running')}")
-            print(f"   进程ID: {saved_state.get('pid')}")
-            print(f"   最后更新: {saved_state.get('last_update')}")
-        else:
-            print("⚠️  未找到保存的运行状态")
-        
-        saved_data = quant_source.get_saved_latest_data()
-        if saved_data:
-            print(f"✅ 保存的最新数据:")
-            print(f"   数据类型: {saved_data.get('data_type')}")
-            print(f"   数据大小: {saved_data.get('size')}")
-            print(f"   时间戳: {saved_data.get('timestamp')}")
-        else:
-            print("⚠️  未找到保存的最新数据")
-        
-        # 7. 验证数据源运行
-        print("\n6️⃣ 验证数据源运行...")
-        if quant_source.status == DataSourceStatus.RUNNING.value:
-            print("✅ quant_source数据源正在运行")
-            
-            # 等待数据获取
-            print("⏳ 等待数据获取...")
-            time.sleep(8)
-            
-            # 检查获取的数据
-            recent_data = quant_source.get_recent_data(3)
-            print(f"✅ 获取到 {len(recent_data)} 条数据")
-            
-            if recent_data:
-                latest = recent_data[-1]
-                if hasattr(latest, 'shape'):
-                    print(f"✅ DataFrame形状: {latest.shape}")
-                    print(f"✅ 列名: {list(latest.columns)}")
-                print("✅ 数据源成功获取行情数据")
-            else:
-                print("⚠️  暂时未获取到数据（可能还在初始化）")
-        else:
-            print("ℹ️  quant_source数据源未运行")
-        
-        # 8. 验证状态恢复功能
-        print("\n7️⃣ 验证状态恢复功能...")
-        restore_result = ds_manager.restore_running_states()
-        print(f"✅ 状态恢复结果:")
-        print(f"   恢复成功: {restore_result['restored_count']} 个")
-        print(f"   恢复失败: {restore_result['failed_count']} 个")
-        print(f"   总计尝试: {restore_result['total_attempted']} 个")
-        
-        # 显示quant_source的恢复详情
-        for result in restore_result['results']:
-            if result.get('source_name') == 'quant_source':
-                print(f"✅ quant_source恢复详情:")
-                print(f"   成功: {result.get('success')}")
-                print(f"   原因: {result.get('reason')}")
-                if result.get('message'):
-                    print(f"   消息: {result.get('message')}")
-                if result.get('error'):
-                    print(f"   错误: {result.get('error')}")
-        
-        print("\n🎉 最终验证完成！")
-        print("✅ 数据源命名流缓存配置正确")
-        print("✅ 程序启动后能正确恢复数据源状态")
-        print("✅ 状态为运行时的数据源能真正启动定时器")
-        print("✅ gen_quant相关代码已成功存储到数据源执行代码中")
-        print("✅ 数据源能正常获取行情数据")
-        print("✅ 状态持久化和恢复功能完全正常")
+        print("\n🔧 技术亮点：")
+        print("   • 统一的AI代码生成架构")
+        print("   • 完整的用户审核流程")
+        print("   • 实时代码验证系统")
+        print("   • 与现有系统无缝集成")
+        print("   • 现代化的UI界面设计")
         
         return True
-        
-    except Exception as e:
-        print(f"❌ 最终验证失败: {str(e)}")
-        import traceback
-        traceback.print_exc()
+    else:
+        print(f"\n⚠️  测试中发现 {total_tests - tests_passed} 个问题，需要进一步调试")
         return False
+
+
+def show_user_guide():
+    """显示用户指南"""
+    
+    print("\n" + "=" * 70)
+    print("📖 用户使用指南")
+    print("=" * 70)
+    
+    print("\n🌐 访问方式：")
+    print("   1. 打开Web浏览器")
+    print("   2. 访问: http://localhost:任务管理端口/taskadmin")
+    print("   3. 登录系统（如果需要）")
+    
+    print("\n🎯 主要功能：")
+    print("   • 🆕 创建任务：点击\"🤖 AI创建任务\"按钮")
+    print("   • 👁️ 查看任务：浏览任务列表和统计信息")
+    print("   • ✏️ 编辑任务：点击任务行的\"编辑\"按钮")
+    print("   • 📊 查看详情：点击\"详情\"查看完整信息")
+    print("   • ⚙️ 批量操作：使用\"批量管理\"功能")
+    
+    print("\n🤖 AI代码生成流程：")
+    print("   1. 选择\"AI智能生成\"方式")
+    print("   2. 描述任务需求（自然语言）")
+    print("   3. 配置任务参数（类型、时间等）")
+    print("   4. 等待AI生成代码")
+    print("   5. 审核和编辑生成的代码")
+    print("   6. 确认并创建任务")
+    
+    print("\n💡 使用技巧：")
+    print("   • 使用清晰的自然语言描述需求")
+    print("   • 查看生成的代码确保符合预期")
+    print("   • 利用模板快速创建常见任务")
+    print("   • 定期检查任务执行统计信息")
+
+
+def main():
+    """主函数"""
+    
+    # 运行完整测试
+    success = test_complete_integration()
+    
+    # 显示用户指南
+    if success:
+        show_user_guide()
+    
+    print("\n" + "=" * 70)
+    print("🏁 验证完成")
+    print("=" * 70)
+    
+    return success
+
 
 if __name__ == "__main__":
     success = main()

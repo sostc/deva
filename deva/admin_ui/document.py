@@ -59,14 +59,14 @@ def callable_smoke_eligibility(obj):
         if p.default is inspect._empty and p.kind in (p.POSITIONAL_ONLY, p.POSITIONAL_OR_KEYWORD)
     ]
     if required:
-        return False, f"函数需要参数: {', '.join(p.name for p in required)}"
+        return False, f"函数需要参数：{', '.join(p.name for p in required)}"
     return True, 'ok'
 
 
 async def run_object_smoke_test(module_name, obj_name, obj, examples, *, toast, popup, put_markdown, put_table):
     ok, reason = callable_smoke_eligibility(obj)
     if not ok:
-        toast(f'跳过测试: {obj_name} ({reason})', color='warning')
+        toast(f'跳过测试：{obj_name} ({reason})', color='warning')
         return
     try:
         if inspect.iscoroutinefunction(obj):
@@ -74,7 +74,7 @@ async def run_object_smoke_test(module_name, obj_name, obj, examples, *, toast, 
         else:
             result = await asyncio.wait_for(asyncio.to_thread(obj), timeout=5)
         popup(
-            title=f"测试结果: {module_name}.{obj_name}",
+            title=f"测试结果：{module_name}.{obj_name}",
             content=[
                 put_markdown('### 执行成功'),
                 put_table([['返回值类型', type(result).__name__], ['返回值', str(result)[:500]]]),
@@ -85,7 +85,7 @@ async def run_object_smoke_test(module_name, obj_name, obj, examples, *, toast, 
         )
     except Exception as e:
         popup(
-            title=f"测试失败: {module_name}.{obj_name}",
+            title=f"测试失败：{module_name}.{obj_name}",
             content=[
                 put_markdown('### 执行失败'),
                 put_markdown(f'`{type(e).__name__}`: {str(e)}'),
@@ -208,7 +208,7 @@ def inspect_object_ui(ctx, obj):
                 doc = value.__doc__ or '无文档说明'
                 methods.append([attr, doc[:200]])
         except Exception as e:
-            methods.append([attr, f'无法访问: {str(e)}'])
+            methods.append([attr, f'无法访问：{str(e)}'])
     content.append(put_table([['方法名', '文档说明']] + methods))
     popup(title="对象详情", content=content, size='large')
 
@@ -222,33 +222,59 @@ def _resolve_source_files(source_dir):
     return resolved
 
 
-def _load_admin_usage_doc():
-    """Load admin guide text, preferring manual_cn.rst by default."""
+def _load_document_file(filename):
+    """Load a specific document file from the source directory."""
     root = Path(__file__).resolve().parents[2]
     source_dir = root / "source"
-    resolved = _resolve_source_files(source_dir)
-    candidates = [
-        resolved.get("manual_cn.rst"),
-        resolved.get("usage.rst"),
-        root / "source" / "manual_cn.rst",
-        root / "source" / "usage.rst",
-        root / "README.rst",
-    ]
-
-    seen = set()
-    for path in candidates:
-        key = str(path)
-        if key in seen:
-            continue
-        seen.add(key)
+    
+    # Try source directory first
+    path = source_dir / filename
+    if path.exists():
         try:
-            if path.exists():
-                text = path.read_text(encoding="utf-8", errors="ignore").strip()
-                if text:
-                    return text, str(path)
+            text = path.read_text(encoding="utf-8", errors="ignore").strip()
+            if text:
+                return text, str(path)
         except Exception:
-            continue
+            pass
+    
+    # Fallback to root directory
+    path = root / filename
+    if path.exists():
+        try:
+            text = path.read_text(encoding="utf-8", errors="ignore").strip()
+            if text:
+                return text, str(path)
+        except Exception:
+            pass
+    
     return "", ""
+
+
+def _load_all_documents():
+    """Load all documentation files."""
+    documents = {}
+    
+    # Document files to load (filename, tab_title)
+    doc_files = [
+        ("quickstart.rst", "快速开始"),
+        ("installation.rst", "安装指南"),
+        ("usage.rst", "使用指南"),
+        ("best_practices.rst", "最佳实践"),
+        ("troubleshooting.rst", "故障排查"),
+        ("api.rst", "API 参考"),
+        ("glossary.rst", "术语表"),
+    ]
+    
+    for filename, title in doc_files:
+        text, path = _load_document_file(filename)
+        if text:
+            documents[filename] = {
+                'title': title,
+                'content': text,
+                'path': path
+            }
+    
+    return documents
 
 
 def _render_rst_to_html(rst_text, source_path):
@@ -277,22 +303,20 @@ def _render_rst_to_html(rst_text, source_path):
         return "", f"{type(e).__name__}: {e}"
 
 
-def _build_usage_tab(ctx):
+def _build_document_tab(ctx, filename, doc_info):
+    """Build a tab for a specific document."""
     put_html = ctx["put_html"]
-    usage_text, usage_path = _load_admin_usage_doc()
-    if not usage_text:
-        return {
-            "title": "使用说明",
-            "content": ctx["put_text"]("未找到使用说明文档（期望 source/manual_cn.rst、source/usage.rst 或 README.rst）。"),
-        }
-
-    rendered_html, render_error = _render_rst_to_html(usage_text, usage_path)
+    put_markdown = ctx["put_markdown"]
+    put_text = ctx["put_text"]
+    
+    rendered_html, render_error = _render_rst_to_html(doc_info['content'], doc_info['path'])
+    
     if render_error:
         body = (
             '<div style="padding:12px;border:1px solid #f5c2c7;background:#fff5f5;color:#842029;border-radius:6px;margin-bottom:12px;">'
             f'RST 渲染失败，已降级为源码显示：{html.escape(render_error)}'
             "</div>"
-            f"<pre style='white-space:pre-wrap;line-height:1.6'>{html.escape(usage_text)}</pre>"
+            f"<pre style='white-space:pre-wrap;line-height:1.6'>{html.escape(doc_info['content'])}</pre>"
         )
     else:
         body = rendered_html
@@ -307,28 +331,172 @@ def _build_usage_tab(ctx):
       .admin-rst-doc table { border-collapse: collapse; width: 100%; }
       .admin-rst-doc th, .admin-rst-doc td { border: 1px solid #ddd; padding: 6px 8px; text-align: left; }
       .admin-rst-doc blockquote { margin: 8px 0; padding-left: 12px; border-left: 3px solid #ddd; color: #555; }
+      .admin-doc-toc { background: #f8f9fa; padding: 15px; border-radius: 8px; margin: 20px 0; }
+      .admin-doc-toc ul { list-style: none; padding-left: 0; }
+      .admin-doc-toc li { margin: 8px 0; }
+      .admin-doc-toc a { color: #0366d6; text-decoration: none; }
+      .admin-doc-toc a:hover { text-decoration: underline; }
     </style>
     """
+    
     rendered = (
         doc_style
         + "<div class='admin-rst-doc'>"
-        + f"<div style='color:#6b7280;font-size:12px;margin-bottom:10px'>来源: {html.escape(usage_path)}</div>"
+        + f"<div style='color:#6b7280;font-size:12px;margin-bottom:10px'>来源：{html.escape(doc_info['path'])}</div>"
         + body
         + "</div>"
     )
+    
     return {
-        "title": "使用说明",
+        "title": doc_info['title'],
         "content": put_html(rendered),
     }
 
 
+def _build_examples_tab(ctx):
+    """Build the examples documentation tab."""
+    put_html = ctx["put_html"]
+    put_markdown = ctx["put_markdown"]
+    put_table = ctx["put_table"]
+    put_button = ctx["put_button"]
+    run_async = ctx["run_async"]
+    
+    # Load examples README
+    root = Path(__file__).resolve().parents[2]
+    examples_readme = root / "deva" / "examples" / "README.md"
+    
+    if not examples_readme.exists():
+        return {
+            "title": "示例文档",
+            "content": put_markdown("未找到示例文档（期望 deva/examples/README.md）。")
+        }
+    
+    try:
+        md_content = examples_readme.read_text(encoding="utf-8", errors="ignore")
+        
+        # Simple markdown to HTML conversion
+        html_content = md_content
+        html_content = re.sub(r'^### (.*?)$', r'<h3>\1</h3>', html_content, flags=re.MULTILINE)
+        html_content = re.sub(r'^## (.*?)$', r'<h2>\1</h2>', html_content, flags=re.MULTILINE)
+        html_content = re.sub(r'^# (.*?)$', r'<h1>\1</h1>', html_content, flags=re.MULTILINE)
+        html_content = re.sub(r'\*\*(.*?)\*\*', r'<strong>\1</strong>', html_content)
+        html_content = re.sub(r'`([^`]+)`', r'<code>\1</code>', html_content)
+        html_content = re.sub(r'\n```(\w*)\n(.*?)\n```', r'<pre><code>\2</code></pre>', html_content, flags=re.DOTALL)
+        html_content = re.sub(r'\n- (.*?)(?=\n|$)', r'<li>\1</li>', html_content)
+        html_content = re.sub(r'(\n\d+\.) (.*?)(?=\n|$)', r'<li>\2</li>', html_content)
+        html_content = re.sub(r'\[([^\]]+)\]\(([^\)]+)\)', r'<a href="\2" target="_blank">\1</a>', html_content)
+        
+        rendered = f"""
+        <style>
+          .admin-examples-doc {{ max-width: 1000px; margin: 0 auto; line-height: 1.8; font-size: 15px; color: #222; }}
+          .admin-examples-doc h1, .admin-examples-doc h2, .admin-examples-doc h3 {{ margin-top: 1.2em; margin-bottom: 0.5em; }}
+          .admin-examples-doc code {{ background: #f6f8fa; padding: 1px 4px; border-radius: 4px; }}
+          .admin-examples-doc pre {{ background: #f6f8fa; border: 1px solid #e5e7eb; border-radius: 8px; padding: 12px; overflow-x: auto; }}
+          .admin-examples-doc table {{ border-collapse: collapse; width: 100%; margin: 15px 0; }}
+          .admin-examples-doc th, .admin-examples-doc td {{ border: 1px solid #ddd; padding: 8px 10px; text-align: left; }}
+          .admin-examples-doc th {{ background: #f8fafc; font-weight: 600; }}
+          .admin-examples-doc a {{ color: #0366d6; text-decoration: none; }}
+          .admin-examples-doc a:hover {{ text-decoration: underline; }}
+        </style>
+        <div class='admin-examples-doc'>
+        <h1>📚 示例文档集合</h1>
+        {html_content}
+        </div>
+        """
+        
+        return {
+            "title": "示例文档",
+            "content": put_html(rendered),
+        }
+    except Exception as e:
+        return {
+            "title": "示例文档",
+            "content": put_markdown(f"加载示例文档失败：{e}")
+        }
+
+
+def _build_optimization_report_tab(ctx):
+    """Build the documentation optimization report tab."""
+    put_html = ctx["put_html"]
+    put_markdown = ctx["put_markdown"]
+    
+    root = Path(__file__).resolve().parents[2]
+    report_file = root / "DOCUMENTATION_OPTIMIZATION_SUMMARY.md"
+    
+    if not report_file.exists():
+        return {
+            "title": "文档优化报告",
+            "content": put_markdown("未找到文档优化报告。")
+        }
+    
+    try:
+        md_content = report_file.read_text(encoding="utf-8", errors="ignore")
+        
+        # Simple markdown to HTML conversion
+        html_content = md_content
+        html_content = re.sub(r'^### (.*?)$', r'<h3>\1</h3>', html_content, flags=re.MULTILINE)
+        html_content = re.sub(r'^## (.*?)$', r'<h2>\1</h2>', html_content, flags=re.MULTILINE)
+        html_content = re.sub(r'^# (.*?)$', r'<h1>\1</h1>', html_content, flags=re.MULTILINE)
+        html_content = re.sub(r'\*\*(.*?)\*\*', r'<strong>\1</strong>', html_content)
+        html_content = re.sub(r'`([^`]+)`', r'<code>\1</code>', html_content)
+        html_content = re.sub(r'\n```(\w*)\n(.*?)\n```', r'<pre><code>\2</code></pre>', html_content, flags=re.DOTALL)
+        html_content = re.sub(r'- (.*?)(?=\n|$)', r'<li>\1</li>', html_content)
+        html_content = re.sub(r'\[([^\]]+)\]\(([^\)]+)\)', r'<a href="\2" target="_blank">\1</a>', html_content)
+        html_content = re.sub(r'✅', '<span style="color:#22c55e">✅</span>', html_content)
+        html_content = re.sub(r'❌', '<span style="color:#ef4444">❌</span>', html_content)
+        
+        rendered = f"""
+        <style>
+          .admin-report-doc {{ max-width: 1000px; margin: 0 auto; line-height: 1.8; font-size: 14px; color: #222; }}
+          .admin-report-doc h1 {{ font-size: 24px; border-bottom: 2px solid #e5e7eb; padding-bottom: 10px; }}
+          .admin-report-doc h2 {{ font-size: 20px; border-bottom: 1px solid #e5e7eb; padding-bottom: 8px; margin-top: 20px; }}
+          .admin-report-doc code {{ background: #f6f8fa; padding: 2px 5px; border-radius: 4px; }}
+          .admin-report-doc pre {{ background: #f6f8fa; border: 1px solid #e5e7eb; border-radius: 8px; padding: 12px; overflow-x: auto; font-size: 13px; }}
+          .admin-report-doc table {{ border-collapse: collapse; width: 100%; margin: 15px 0; }}
+          .admin-report-doc th, .admin-report-doc td {{ border: 1px solid #ddd; padding: 8px 10px; text-align: left; }}
+          .admin-report-doc th {{ background: #f8fafc; font-weight: 600; }}
+          .admin-report-doc a {{ color: #0366d6; text-decoration: none; }}
+          .admin-report-doc a:hover {{ text-decoration: underline; }}
+        </style>
+        <div class='admin-report-doc'>
+        {html_content}
+        </div>
+        """
+        
+        return {
+            "title": "文档优化报告",
+            "content": put_html(rendered),
+        }
+    except Exception as e:
+        return {
+            "title": "文档优化报告",
+            "content": put_markdown(f"加载报告失败：{e}")
+        }
+
+
 def render_document_ui(ctx):
+    """Render the complete documentation UI with all documents."""
+    # Load all documents
+    documents = _load_all_documents()
+    
+    # Build tabs
+    tabs = []
+    
+    # Add document tabs
+    for filename, doc_info in documents.items():
+        tab = _build_document_tab(ctx, filename, doc_info)
+        tabs.append(tab)
+    
+    # Add examples tab
+    examples_tab = _build_examples_tab(ctx)
+    tabs.append(examples_tab)
+    
+    # Add API module tabs
     module_data = scan_document_modules(cache=ctx['cache'], cache_ttl=ctx['cache_ttl'], warn=ctx['warn'])
-    tabs = [_build_usage_tab(ctx)]
     for item in module_data:
         module_name = item['module_name']
         if item['error']:
-            tabs.append({'title': module_name, 'content': ctx['put_text'](f"无法加载模块: {item['error']}")})
+            tabs.append({'title': module_name, 'content': ctx['put_text'](f"无法加载模块：{item['error']}")})
             continue
         module_table = [['名称', '类型', '文档说明', '样例', '测试']]
         for record in item['objects']:
@@ -346,7 +514,17 @@ def render_document_ui(ctx):
             )
             module_table.append([action_button, obj_type, doc, sample_preview, test_btn])
         tabs.append({'title': module_name, 'content': ctx['put_table'](module_table)})
+    
+    # Add optimization report tab
+    report_tab = _build_optimization_report_tab(ctx)
+    tabs.append(report_tab)
+    
+    # Render tabs
+    ctx['put_markdown']("### 📚 Deva 文档中心")
+    ctx['put_markdown']("本文档中心包含快速开始、安装指南、使用手册、最佳实践、故障排查等完整文档。")
+    
     ctx['put_row']([
-        ctx['put_button']('刷新文档缓存', onclick=lambda: (ctx['cache'].update({'ts': 0.0, 'data': None}), ctx['run_async'](ctx['document']()))),
+        ctx['put_button']('🔄 刷新文档缓存', onclick=lambda: (ctx['cache'].update({'ts': 0.0, 'data': None}), ctx['run_async'](ctx['document']()))),
     ])
+    
     ctx['put_tabs'](tabs)
