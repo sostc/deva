@@ -1018,6 +1018,16 @@ def create_nav_menu(ctx):
                     window.sseConnection = null;
                 }
                 window.location.href = '/document';
+            }},
+            {name: '🤖 AI', path: '/aicenter', action: () => {
+                window.__pageNavigating = true;
+                if (window.sseConnection) {
+                    try {
+                        window.sseConnection.close();
+                    } catch (e) {}
+                    window.sseConnection = null;
+                }
+                window.location.href = '/aicenter';
             }}
         ];
         menuItems.forEach(item => {
