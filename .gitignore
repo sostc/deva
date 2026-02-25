@@ -15,3 +15,36 @@
 */dist/*
 *.sublime-workspace
 *.egg-info/
+
+# Build outputs
+build/
+dist/
+*.egg-info/
+eggs/
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Testing
+.pytest_cache/
+.tox/
+nosetests.xml
+coverage.xml
+
+# IDE
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+Thumbs.db
+
+# Archive
+archive/
+
+# Documentation build
+docs/api/_build/
