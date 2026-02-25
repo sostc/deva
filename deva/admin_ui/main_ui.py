@@ -900,98 +900,121 @@ def create_nav_menu(ctx):
         const currentPath = window.location.pathname;
         const menuItems = [
             {name: '🏠 首页', path: '/', action: () => {
-                // 清理SSE连接防止内存泄漏
+                window.__pageNavigating = true;
                 if (window.sseConnection) {
-                    window.sseConnection.close();
+                    try {
+                        window.sseConnection.close();
+                    } catch (e) {}
                     window.sseConnection = null;
                 }
-                // 使用正常跳转而不是reload
-                if (window.location.pathname === '/') {
-                    window.location.href = '/';
-                } else {
-                    window.location.href = '/';
-                }
+                window.location.href = '/';
             }},
             {name: '⭐ 关注', path: '/followadmin', action: () => {
+                window.__pageNavigating = true;
                 if (window.sseConnection) {
-                    window.sseConnection.close();
+                    try {
+                        window.sseConnection.close();
+                    } catch (e) {}
                     window.sseConnection = null;
                 }
                 window.location.href = '/followadmin';
             }},
             {name: '🌐 浏览器', path: '/browseradmin', action: () => {
+                window.__pageNavigating = true;
                 if (window.sseConnection) {
-                    window.sseConnection.close();
+                    try {
+                        window.sseConnection.close();
+                    } catch (e) {}
                     window.sseConnection = null;
                 }
                 window.location.href = '/browseradmin';
             }},
             {name: '💾 数据库', path: '/dbadmin', action: () => {
+                window.__pageNavigating = true;
                 if (window.sseConnection) {
-                    window.sseConnection.close();
+                    try {
+                        window.sseConnection.close();
+                    } catch (e) {}
                     window.sseConnection = null;
                 }
                 window.location.href = '/dbadmin';
             }},
             {name: '🚌 Bus', path: '/busadmin', action: () => {
+                window.__pageNavigating = true;
                 if (window.sseConnection) {
-                    window.sseConnection.close();
+                    try {
+                        window.sseConnection.close();
+                    } catch (e) {}
                     window.sseConnection = null;
                 }
                 window.location.href = '/busadmin';
             }},
             {name: '📊 命名流', path: '/streamadmin', action: () => {
+                window.__pageNavigating = true;
                 if (window.sseConnection) {
-                    window.sseConnection.close();
+                    try {
+                        window.sseConnection.close();
+                    } catch (e) {}
                     window.sseConnection = null;
                 }
                 window.location.href = '/streamadmin';
             }},
             {name: '📡 数据源', path: '/datasourceadmin', action: () => {
+                window.__pageNavigating = true;
                 if (window.sseConnection) {
-                    window.sseConnection.close();
+                    try {
+                        window.sseConnection.close();
+                    } catch (e) {}
                     window.sseConnection = null;
                 }
                 window.location.href = '/datasourceadmin';
             }},
-            {name: '📈 股票', path: '/stockadmin', action: () => {
-                if (window.sseConnection) {
-                    window.sseConnection.close();
-                    window.sseConnection = null;
-                }
-                window.location.href = '/stockadmin';
-            }},
             {name: '📈 策略', path: '/strategyadmin', action: () => {
+                window.__pageNavigating = true;
                 if (window.sseConnection) {
-                    window.sseConnection.close();
+                    try {
+                        window.sseConnection.close();
+                    } catch (e) {}
                     window.sseConnection = null;
                 }
                 window.location.href = '/strategyadmin';
             }},
             {name: '👁 监控', path: '/monitor', action: () => {
+                window.__pageNavigating = true;
                 if (window.sseConnection) {
-                    window.sseConnection.close();
+                    try {
+                        window.sseConnection.close();
+                    } catch (e) {}
                     window.sseConnection = null;
                 }
                 window.location.href = '/monitor';
             }},
             {name: '⏰ 任务', path: '/taskadmin', action: () => {
+                window.__pageNavigating = true;
                 if (window.sseConnection) {
-                    window.sseConnection.close();
+                    try {
+                        window.sseConnection.close();
+                    } catch (e) {}
                     window.sseConnection = null;
                 }
                 window.location.href = '/taskadmin';
             }},
             {name: '⚙️ 配置', path: '/configadmin', action: () => {
+                window.__pageNavigating = true;
                 if (window.sseConnection) {
-                    window.sseConnection.close();
+                    try {
+                        window.sseConnection.close();
+                    } catch (e) {}
                     window.sseConnection = null;
                 }
                 window.location.href = '/configadmin';
             }},
             {name: '📄 文档', path: '/document', action: () => {
+                window.__pageNavigating = true;
                 if (window.sseConnection) {
-                    window.sseConnection.close();
+                    try {
+                        window.sseConnection.close();
+                    } catch (e) {}
                     window.sseConnection = null;
                 }
                 window.location.href = '/document';
