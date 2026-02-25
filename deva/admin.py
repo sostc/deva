@@ -77,7 +77,6 @@ try:
     from .admin_ui.strategy import runtime as admin_strategy_runtime
     from .admin_ui import follow_ui as admin_follow_ui
     from .admin_ui import browser_ui as admin_browser_ui
-    from .admin_ui import enhanced_task_admin as admin_enhanced_tasks
     from .llm.worker_runtime import run_ai_in_worker
     from .admin_ui import ai_center as admin_ai_center
 except ImportError:
@@ -93,13 +92,11 @@ except ImportError:
     from deva.admin_ui import contexts as admin_contexts
     from deva.admin_ui import monitor_routes as admin_monitor_routes
     from deva.admin_ui import monitor_ui as admin_monitor_ui
-    from .admin_ui.strategy import panel as admin_strategy_panel
-    from .admin_ui.strategy import runtime as admin_strategy_runtime
-    from .admin_ui import follow_ui as admin_follow_ui
-    from .admin_ui import browser_ui as admin_browser_ui
-    from .admin_ui import enhanced_task_admin as admin_enhanced_tasks
-    from .llm.worker_runtime import run_ai_in_worker
-    from .admin_ui import ai_center as admin_ai_center
+    from deva.admin_ui.strategy import panel as admin_strategy_panel
+    from deva.admin_ui.strategy import runtime as admin_strategy_runtime
+    from deva.admin_ui import follow_ui as admin_follow_ui
+    from deva.admin_ui import browser_ui as admin_browser_ui
+    from deva.llm.worker_runtime import run_ai_in_worker
 
 import pandas as pd
 from openai import AsyncOpenAI
@@ -129,20 +126,7 @@ from pywebio.platform.tornado import webio_handler
 from pywebio_battery import put_logbox, logbox_append, set_localstorage, get_localstorage
 from pywebio.pin import pin, put_file_upload, put_input
 from pywebio.session import set_env, run_async, run_js, run_asyncio_coroutine, get_session_implement
-from pywebio.input import input, input_group, PASSWORD, textarea, actions, TEXT, file_upload, NUMBER, select, radio, checkbox
-
-
-def put_info(text):
-    return put_html(f'<div style="background:#e3f2fd;color:#1565c0;padding:8px 12px;border-radius:4px;margin:4px 0;">{text}</div>')
-
-def put_success(text):
-    return put_html(f'<div style="background:#e8f5e9;color:#2e7d32;padding:8px 12px;border-radius:4px;margin:4px 0;">{text}</div>')
-
-def put_error(text):
-    return put_html(f'<div style="background:#ffebee;color:#c62828;padding:8px 12px;border-radius:4px;margin:4px 0;">{text}</div>')
-
-def put_warning(text):
-    return put_html(f'<div style="background:#fff3e0;color:#e65100;padding:8px 12px;border-radius:4px;margin:4px 0;">{text}</div>')
+from pywebio.input import input, input_group, PASSWORD, textarea, actions, TEXT, file_upload, NUMBER
 
 
 @timer(5,start=False)
@@ -410,12 +394,10 @@ def _tasks_ctx():
     return admin_contexts.tasks_ctx(globals())
     
 async def taskadmin():
-    """增强版任务管理 - 集成AI代码生成功能"""
-    await init_admin_ui('Deva任务管理 - AI增强版')
+    await init_admin_ui('Deva任务管理')
     
-    # 使用增强版任务管理界面
-    await admin_enhanced_tasks.render_enhanced_task_admin(_tasks_ctx())
-    
+    put_button("创建定时任务", onclick=create_task)
+    manage_tasks()  # 直接展示任务列表
     set_scope('task_log')
   
 
@@ -529,17 +511,6 @@ async def document():
 
 def _document_ui_ctx():
     return admin_contexts.document_ui_ctx(globals())
-
-async def aicenter():
-    """AI 功能中心"""
-    await init_admin_ui("Deva AI 功能中心")
-    return admin_ai_center.render_ai_tab_ui(_aicenter_ctx())
-
-
-def _aicenter_ctx():
-    """AI 中心上下文"""
-    return admin_contexts.document_ui_ctx(globals())
-
 def show_dtalk_archive():
     return admin_main_ui.show_dtalk_archive(_main_ui_ctx())
 
@@ -762,3 +733,18 @@ if __name__ == '__main__':
  
 
     Deva.run()
+
+# ============================================================================
+# AI 功能中心
+# ============================================================================
+
+async def aicenter():
+    """AI 功能中心"""
+    await init_admin_ui("Deva AI 功能中心")
+    from .admin_ui.ai_center import render_ai_tab_ui
+    return render_ai_tab_ui(_aicenter_ctx())
+
+
+def _aicenter_ctx():
+    """AI 中心上下文"""
+    return admin_contexts.document_ui_ctx(globals())
