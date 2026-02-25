@@ -7,6 +7,7 @@ from bisect import bisect_left, bisect_right
 import logging
 import os
 import time
+import threading
 
 logger = logging.getLogger(__name__)
 
@@ -117,6 +118,7 @@ class DBStream(Stream):
         self._time_index = []
         self._time_index_ts = []
         self._time_index_dirty = True
+        self._time_index_lock = threading.RLock()
 
         if not filename:
             db_path = os.getenv("DEVA_DB_PATH", "~/.deva/nb.sqlite")
@@ -178,19 +180,20 @@ class DBStream(Stream):
             return
 
         self._rebuild_time_index()
-        evict_keys = [key for _, key in self._time_index[:excess]]
-        evicted = set()
-        for key in evict_keys:
-            if key in self.db:
-                del self.db[key]
-                evicted.add(key)
+        with self._time_index_lock:
+            evict_keys = [key for _, key in self._time_index[:excess]]
+            evicted = set()
+            for key in evict_keys:
+                if key in self.db:
+                    del self.db[key]
+                    evicted.add(key)
 
-        remain = excess - len(evicted)
-        if remain > 0:
-            fallback_keys = [k for k in self.db.keys() if k not in evicted]
-            fallback_keys.sort(key=lambda x: str(x))
-            for key in fallback_keys[:remain]:
-                del self.db[key]
+            remain = excess - len(evicted)
+            if remain > 0:
+                fallback_keys = [k for k in self.db.keys() if k not in evicted]
+                fallback_keys.sort(key=lambda x: str(x))
+                for key in fallback_keys[:remain]:
+                    del self.db[key]
         self._mark_time_index_dirty()
 
     def update(self, x):
@@ -230,20 +233,22 @@ class DBStream(Stream):
             return None
 
     def _mark_time_index_dirty(self):
-        self._time_index_dirty = True
+        with self._time_index_lock:
+            self._time_index_dirty = True
 
     def _rebuild_time_index(self):
-        if not self._time_index_dirty:
-            return
-        data = []
-        for key in self.db.keys():
-            ts = self._to_float_timestamp(key)
-            if ts is not None:
-                data.append((ts, key))
-        data.sort(key=lambda x: x[0])
-        self._time_index = data
-        self._time_index_ts = [ts for ts, _ in data]
-        self._time_index_dirty = False
+        with self._time_index_lock:
+            if not self._time_index_dirty:
+                return
+            data = []
+            for key in self.db.keys():
+                ts = self._to_float_timestamp(key)
+                if ts is not None:
+                    data.append((ts, key))
+            data.sort(key=lambda x: x[0])
+            self._time_index = data
+            self._time_index_ts = [ts for ts, _ in data]
+            self._time_index_dirty = False
 
     def append(self, value, key=None):
         """将一条事件按时间戳键写入。"""
@@ -280,19 +285,20 @@ class DBStream(Stream):
         from datetime import datetime
 
         self._rebuild_time_index()
-        if not self._time_index:
-            return
-        if start:
-            start = datetime.fromisoformat(start).timestamp()
-        else:
-            start = self._time_index_ts[0]
+        with self._time_index_lock:
+            if not self._time_index:
+                return
+            if start:
+                start = datetime.fromisoformat(start).timestamp()
+            else:
+                start = self._time_index_ts[0]
 
-        stop = datetime.fromisoformat(stop).timestamp() if stop else time.time()
-        left = bisect_right(self._time_index_ts, start)
-        right = bisect_left(self._time_index_ts, stop)
-        for ts, key in self._time_index[left:right]:
-            if start < ts < stop:
-                yield key
+            stop = datetime.fromisoformat(stop).timestamp() if stop else time.time()
+            left = bisect_right(self._time_index_ts, start)
+            right = bisect_left(self._time_index_ts, stop)
+            for ts, key in self._time_index[left:right]:
+                if start < ts < stop:
+                    yield key
 
     @gen.coroutine
     def replay(self, start=None, end=None, interval=None):

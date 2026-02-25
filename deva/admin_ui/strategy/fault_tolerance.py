@@ -58,6 +58,7 @@ import functools
 import hashlib
 
 from deva import Stream, NS, NB, log, Dtalk
+from .logging_context import get_logging_context, create_enhanced_log_record
 
 
 class ErrorSeverity:
@@ -167,16 +168,32 @@ class SafeProcessor:
             return None
     
     def _create_error_record(self, error: Exception, data: Any) -> ErrorRecord:
+        """创建错误记录 - 包含策略和数据源上下文"""
         error_id = hashlib.md5(
             f"{self.strategy_id}_{time.time()}".encode()
         ).hexdigest()[:12]
+        
+        # 获取当前日志上下文以包含数据源信息
+        context = get_logging_context()
+        
+        # 构建增强的错误消息
+        error_message = str(error)
+        context_parts = []
+        
+        if self.strategy_name:
+            context_parts.append(f"策略[{self.strategy_name}]")
+        if context.datasource_name:
+            context_parts.append(f"数据源[{context.datasource_name}]")
+        
+        if context_parts:
+            error_message = f"[{'|'.join(context_parts)}] {error_message}"
         
         return ErrorRecord(
             id=error_id,
             strategy_id=self.strategy_id,
             strategy_name=self.strategy_name,
             error_type=type(error).__name__,
-            error_message=str(error),
+            error_message=error_message,
             traceback=traceback.format_exc(),
             data_preview=str(data)[:500] if data else "",
             severity=ErrorSeverity.ERROR,
@@ -430,6 +447,7 @@ class AlertManager:
         return len(self._alert_counts[strategy_id]) >= self.config.dtalk_threshold
     
     def _log_alert(self, alert: dict):
+        """记录告警 - 使用增强的日志系统"""
         level_map = {
             ErrorSeverity.INFO: "INFO",
             ErrorSeverity.WARNING: "WARNING",
@@ -437,26 +455,87 @@ class AlertManager:
             ErrorSeverity.CRITICAL: "CRITICAL",
         }
         
-        payload = {
-            "level": level_map.get(alert["severity"], "ERROR"),
-            "source": "deva.alert",
-            "message": f"[{alert['strategy_name']}] {alert['message']}",
-            "strategy_id": alert["strategy_id"],
+        # 获取当前日志上下文
+        context = get_logging_context()
+        
+        # 构建消息，包含策略和数据源信息
+        message_parts = []
+        if alert.get('strategy_name'):
+            message_parts.append(f"策略[{alert['strategy_name']}]")
+        if context.datasource_name:
+            message_parts.append(f"数据源[{context.datasource_name}]")
+        
+        if message_parts:
+            message = f"[{'|'.join(message_parts)}] {alert['message']}"
+        else:
+            message = alert['message']
+        
+        # 创建增强的日志记录
+        extra_info = {
+            "alert_id": alert.get("id"),
+            "severity": alert["severity"],
+            "alert_message": alert["message"],
         }
         
+        # 添加策略信息
+        if alert.get("strategy_id"):
+            extra_info["strategy_id"] = alert["strategy_id"]
+        if alert.get("strategy_name"):
+            extra_info["strategy_name"] = alert["strategy_name"]
+        
+        # 添加详细信息
+        if alert.get("details"):
+            extra_info["details"] = alert["details"]
+        
+        record = create_enhanced_log_record(
+            level_map.get(alert["severity"], "ERROR"),
+            message,
+            "deva.alert",
+            **extra_info
+        )
+        
         try:
-            payload >> log
+            record >> log
         except Exception:
             pass
     
     def _send_dtalk(self, alert: dict):
-        message = (
-            f"### 🚨 策略告警\n"
-            f"- **策略**: {alert['strategy_name']}\n"
-            f"- **级别**: {alert['severity'].upper()}\n"
-            f"- **消息**: {alert['message']}\n"
-            f"- **时间**: {alert['ts_readable']}\n"
-        )
+        """发送钉钉告警 - 包含策略和数据源上下文"""
+        # 获取当前日志上下文
+        context = get_logging_context()
+        
+        # 构建消息，包含策略和数据源信息
+        message_parts = ["### 🚨 策略告警"]
+        
+        if alert.get('strategy_name'):
+            message_parts.append(f"- **策略**: {alert['strategy_name']}")
+        if context.datasource_name:
+            message_parts.append(f"- **数据源**: {context.datasource_name}")
+        if context.source_type:
+            message_parts.append(f"- **类型**: {context.source_type}")
+            
+        message_parts.extend([
+            f"- **级别**: {alert['severity'].upper()}",
+            f"- **消息**: {alert['message']}",
+            f"- **时间**: {alert['ts_readable']}"
+        ])
+        
+        # 添加策略ID和数据源ID（如果有）
+        if alert.get('strategy_id'):
+            message_parts.append(f"- **策略ID**: {alert['strategy_id']}")
+        if context.datasource_id:
+            message_parts.append(f"- **数据源ID**: {context.datasource_id}")
+        
+        # 添加详细信息
+        if alert.get('details'):
+            details = alert['details']
+            if isinstance(details, dict):
+                if details.get('error_type'):
+                    message_parts.append(f"- **错误类型**: {details['error_type']}")
+                if details.get('error_message'):
+                    message_parts.append(f"- **错误详情**: {details['error_message']}")
+        
+        message = "\n".join(message_parts)
         
         try:
             message >> Dtalk()

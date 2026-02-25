@@ -47,6 +47,7 @@ from .core import Stream
 from .store import DBStream
 from .sources import Topic, TCPTopic
 import logging
+import threading
 
 
 logger = logging.getLogger(__name__)
@@ -70,6 +71,7 @@ class Namespace(dict):
         self['table'] = {}    # 存储DBStream对象
         self['data'] = {}     # 存储数据对象
         self['webserver'] = {} # 存储PageServer对象
+        self._lock = threading.RLock()  # 线程安全锁
 
     def create(self, name, typ='stream', obj_type=None, **kwargs):
         """创建或获取一个命名对象
@@ -97,10 +99,12 @@ class Namespace(dict):
             from .page import PageServer
             constructors['webserver'] = PageServer
 
-        # 先尝试获取已存在对象
-        try:
-            return self[object_type][name]
-        except KeyError:
+        # 使用锁保护，支持递归锁
+        with self._lock:
+            # 先尝试获取已存在对象
+            if name in self[object_type]:
+                return self[object_type][name]
+            
             constructor = constructors.get(object_type)
             if constructor is None:
                 valid_types = ', '.join(sorted(constructors.keys()))
@@ -109,10 +113,9 @@ class Namespace(dict):
                     f"Expected one of: {valid_types}"
                 )
             # 不存在则创建新对象并存储
-            return self[object_type].setdefault(
-                name,
-                constructor(name=name, **kwargs)
-            )
+            obj = constructor(name=name, **kwargs)
+            self[object_type][name] = obj
+            return obj
 
 global_namespace = Namespace()
 # Backward-compatible alias

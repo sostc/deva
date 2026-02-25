@@ -32,6 +32,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import os
 import threading
@@ -55,6 +56,11 @@ from .base import (
     CallbackMixin,
 )
 from .utils import format_duration
+from .logging_context import (
+    log_datasource_event,
+    logging_context_manager,
+    with_datasource_logging
+)
 
 
 class DataSourceStatus(str, Enum):
@@ -268,23 +274,34 @@ class DataSource(StatusMixin, CallbackMixin):
             local_vars = {}
             exec(self.metadata.data_func_code, global_env, local_vars)
             
-            # 创建函数包装器，确保所有函数都在同一个作用域中
             if "fetch_data" in local_vars and callable(local_vars["fetch_data"]):
-                def wrapped_fetch_data():
-                    # 创建完整的执行环境，包含所有函数和变量
-                    exec_env = global_env.copy()
-                    exec_env.update(local_vars)  # 包含所有用户定义的函数和变量
-                    
-                    # 让所有函数共享同一个全局作用域
-                    for name, obj in local_vars.items():
-                        if callable(obj) and hasattr(obj, '__globals__'):
-                            # 修改函数的全局作用域，让它能访问其他函数
-                            obj.__globals__.update(exec_env)
-                    
-                    # 现在调用 fetch_data，它应该能访问其他函数了
-                    return local_vars["fetch_data"]()
+                original_func = local_vars["fetch_data"]
+                is_async = asyncio.iscoroutinefunction(original_func)
                 
-                return wrapped_fetch_data
+                if is_async:
+                    async def wrapped_fetch_data():
+                        exec_env = global_env.copy()
+                        exec_env.update(local_vars)
+                        
+                        for name, obj in local_vars.items():
+                            if callable(obj) and hasattr(obj, '__globals__'):
+                                obj.__globals__.update(exec_env)
+                        
+                        return await local_vars["fetch_data"]()
+                    
+                    return wrapped_fetch_data
+                else:
+                    def wrapped_fetch_data():
+                        exec_env = global_env.copy()
+                        exec_env.update(local_vars)
+                        
+                        for name, obj in local_vars.items():
+                            if callable(obj) and hasattr(obj, '__globals__'):
+                                obj.__globals__.update(exec_env)
+                        
+                        return local_vars["fetch_data"]()
+                    
+                    return wrapped_fetch_data
             return None
         except Exception as e:
             self.state.record_error(f"代码编译错误: {str(e)}")
@@ -476,24 +493,49 @@ class DataSource(StatusMixin, CallbackMixin):
             return {"success": False, "error": str(e)}
     
     def _timer_loop(self, func: Callable):
-        # 为timer线程设置事件循环
-        try:
-            import asyncio
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-        except Exception:
-            pass
+        import asyncio
         
-        while not self._stop_event.is_set():
+        # 使用数据源上下文包装整个定时器循环
+        with logging_context_manager.datasource_context(
+            self.id, 
+            self.name, 
+            self.metadata.source_type.value if hasattr(self.metadata, 'source_type') else None
+        ):
             try:
-                data = func()
-                if data is not None:
-                    self.record_data(data)
-            except Exception as e:
-                self.state.record_error(str(e))
-                self._log_event("ERROR", f"数据获取错误: {str(e)}")
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+            except Exception:
+                loop = None
             
-            self._stop_event.wait(self.metadata.interval)
+            is_async = asyncio.iscoroutinefunction(func) if func else False
+            
+            while not self._stop_event.is_set():
+                try:
+                    if is_async:
+                        if loop:
+                            result = loop.run_until_complete(func())
+                        else:
+                            result = asyncio.run(func())
+                        
+                        if asyncio.iscoroutine(result):
+                            if loop:
+                                result = loop.run_until_complete(result)
+                            else:
+                                result = asyncio.run(result)
+                        data = result
+                    else:
+                        data = func()
+                    
+                    if data is not None and not asyncio.iscoroutine(data):
+                        self.record_data(data)
+                except Exception as e:
+                    self.state.record_error(str(e))
+                    self._log_event("ERROR", f"数据获取错误: {str(e)}")
+                
+                self._stop_event.wait(self.metadata.interval)
+            
+            if loop:
+                loop.close()
     
     def start(self) -> dict:
         if self.state.status == DataSourceStatus.RUNNING.value:
@@ -593,6 +635,11 @@ class DataSource(StatusMixin, CallbackMixin):
         self._trigger_data_callbacks(self, count)
     
     def record_data(self, data: Any):
+        import asyncio
+        
+        if asyncio.iscoroutine(data):
+            return
+        
         if self._stream is None:
             self._stream = NS(self.name, cache_max_len=50, cache_max_age_seconds=3600, description=f'{self.name}数据源的数据流')
         
@@ -604,7 +651,6 @@ class DataSource(StatusMixin, CallbackMixin):
                 if current_thread is main_thread:
                     self._stream.emit(data)
                 else:
-                    # 在非主线程中，尝试获取IOLoop，如果不存在则直接emit
                     try:
                         loop = get_io_loop()
                         if loop is not None and not loop._closing:
@@ -612,7 +658,6 @@ class DataSource(StatusMixin, CallbackMixin):
                         else:
                             self._stream.emit(data)
                     except Exception:
-                        # 如果获取IOLoop失败，直接emit
                         self._stream.emit(data)
             except Exception:
                 self._stream.emit(data)
@@ -722,17 +767,8 @@ class DataSource(StatusMixin, CallbackMixin):
             return None
     
     def _log_event(self, level: str, message: str, **extra):
-        payload = {
-            "level": level,
-            "source": f"deva.datasource.{self.name}",
-            "message": message,
-            "datasource_id": self._id,
-            **extra
-        }
-        try:
-            payload >> log
-        except Exception:
-            pass
+        """记录数据源事件 - 使用增强的日志系统"""
+        log_datasource_event(level, message, datasource=self, **extra)
     
     def to_dict(self) -> dict:
         return {
@@ -855,6 +891,10 @@ class DataSourceManager(BaseManager[DataSource]):
         if status:
             sources = [s for s in sources if s.status == status]
         return sources
+    
+    def list_source_objects(self) -> List["DataSource"]:
+        with self._items_lock:
+            return list(self._items.values())
     
     def list_all(self) -> List[dict]:
         with self._items_lock:
