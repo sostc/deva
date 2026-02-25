@@ -129,7 +129,20 @@ from pywebio.platform.tornado import webio_handler
 from pywebio_battery import put_logbox, logbox_append, set_localstorage, get_localstorage
 from pywebio.pin import pin, put_file_upload, put_input
 from pywebio.session import set_env, run_async, run_js, run_asyncio_coroutine, get_session_implement
-from pywebio.input import input, input_group, PASSWORD, textarea, actions, TEXT, file_upload, NUMBER
+from pywebio.input import input, input_group, PASSWORD, textarea, actions, TEXT, file_upload, NUMBER, select, radio, checkbox
+
+
+def put_info(text):
+    return put_html(f'<div style="background:#e3f2fd;color:#1565c0;padding:8px 12px;border-radius:4px;margin:4px 0;">{text}</div>')
+
+def put_success(text):
+    return put_html(f'<div style="background:#e8f5e9;color:#2e7d32;padding:8px 12px;border-radius:4px;margin:4px 0;">{text}</div>')
+
+def put_error(text):
+    return put_html(f'<div style="background:#ffebee;color:#c62828;padding:8px 12px;border-radius:4px;margin:4px 0;">{text}</div>')
+
+def put_warning(text):
+    return put_html(f'<div style="background:#fff3e0;color:#e65100;padding:8px 12px;border-radius:4px;margin:4px 0;">{text}</div>')
 
 
 @timer(5,start=False)
