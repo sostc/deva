@@ -511,6 +511,21 @@ async def document():
 
 def _document_ui_ctx():
     return admin_contexts.document_ui_ctx(globals())
+
+# ============================================================================
+# AI 功能中心
+# ============================================================================
+
+async def aicenter():
+    """AI 功能中心"""
+    await init_admin_ui("Deva AI 功能中心")
+    from .admin_ui.ai_center import render_ai_tab_ui
+    return render_ai_tab_ui(_aicenter_ctx())
+
+
+def _aicenter_ctx():
+    """AI 中心上下文"""
+    return admin_contexts.document_ui_ctx(globals())
 def show_dtalk_archive():
     return admin_main_ui.show_dtalk_archive(_main_ui_ctx())
 
@@ -733,18 +748,3 @@ if __name__ == '__main__':
  
 
     Deva.run()
-
-# ============================================================================
-# AI 功能中心
-# ============================================================================
-
-async def aicenter():
-    """AI 功能中心"""
-    await init_admin_ui("Deva AI 功能中心")
-    from .admin_ui.ai_center import render_ai_tab_ui
-    return render_ai_tab_ui(_aicenter_ctx())
-
-
-def _aicenter_ctx():
-    """AI 中心上下文"""
-    return admin_contexts.document_ui_ctx(globals())
