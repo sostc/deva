@@ -79,6 +79,7 @@ class DataSourceType(str, Enum):
     TCP = "tcp"
     FILE = "file"
     CUSTOM = "custom"
+    REPLAY = "replay"
 
 
 @dataclass
@@ -562,6 +563,121 @@ class DataSource(StatusMixin, CallbackMixin):
                 )
                 self._timer_thread.start()
             
+            elif self.metadata.source_type == DataSourceType.REPLAY:
+                # 处理回放数据源
+                config = self.metadata.config
+                table_name = config.get("table_name")
+                if not table_name:
+                    return {"success": False, "error": "缺少表名配置"}
+                
+                # 创建 DBStream 对象用于读取数据
+                from deva import NB, NS
+                db_stream = NB(table_name, key_mode='time')
+                # 创建普通 Stream 对象作为数据源的输出流
+                output_stream = NS(self.name, cache_max_len=50, cache_max_age_seconds=3600, description=f'{self.name}回放数据源的数据流')
+                self.set_stream(output_stream)
+                
+                # 获取回放配置
+                start_time = config.get("start_time")
+                end_time = config.get("end_time")
+                interval = config.get("interval", 1.0)
+                
+                # 启动回放线程
+                def replay_loop():
+                    try:
+                        self._log_event("INFO", f"开始回放表 {table_name}")
+                        # 执行回放
+                        # 处理 start_time 和 end_time 为 None 的情况
+                        if start_time is None and end_time is None:
+                            # 回放所有数据
+                            self._log_event("INFO", "回放所有数据")
+                            keys = list(db_stream.keys())
+                            self._log_event("INFO", f"找到 {len(keys)} 条数据")
+                            for key in keys:
+                                if self._stop_event.is_set():
+                                    self._log_event("INFO", "回放被手动停止")
+                                    break
+                                try:
+                                    data = db_stream[key]
+                                    if data is not None:
+                                        self._log_event("INFO", f"回放数据: {data}")
+                                        self.record_data(data)
+                                    if interval > 0:
+                                        if self._stop_event.wait(timeout=interval):
+                                            self._log_event("INFO", "回放被手动停止")
+                                            break
+                                except Exception as e:
+                                    self._log_event("ERROR", f"处理数据 {key} 时出错: {str(e)}")
+                        else:
+                            # 按时间范围回放
+                            self._log_event("INFO", f"按时间范围回放: {start_time} 到 {end_time}")
+                            keys = list(db_stream[start_time:end_time])
+                            self._log_event("INFO", f"找到 {len(keys)} 条数据")
+                            for key in keys:
+                                if self._stop_event.is_set():
+                                    self._log_event("INFO", "回放被手动停止")
+                                    break
+                                try:
+                                    data = db_stream[key]
+                                    if data is not None:
+                                        self._log_event("INFO", f"回放数据: {data}")
+                                        self.record_data(data)
+                                    if interval > 0:
+                                        if self._stop_event.wait(timeout=interval):
+                                            self._log_event("INFO", "回放被手动停止")
+                                            break
+                                except Exception as e:
+                                    self._log_event("ERROR", f"处理数据 {key} 时出错: {str(e)}")
+                    except Exception as e:
+                        import traceback
+                        self.state.record_error(str(e))
+                        self._log_event("ERROR", f"回放错误: {str(e)}")
+                        self._log_event("ERROR", f"错误堆栈: {traceback.format_exc()}")
+                    finally:
+                        # 回放完成后自动停止数据源
+                        self._log_event("INFO", "回放完成，自动停止数据源")
+                        # 直接更新状态为停止，避免调用 stop 方法可能引起的错误
+                        try:
+                            self._stop_event.set()
+                            # 不要在当前线程中调用 join()
+                            # if self._timer_thread and self._timer_thread.is_alive():
+                            #     self._timer_thread.join(timeout=2)
+                            
+                            if self._stream:
+                                try:
+                                    # 检查 stream 是否有 stop 方法
+                                    if hasattr(self._stream, 'stop'):
+                                        self._stream.stop()
+                                except Exception as e:
+                                    self._log_event("WARNING", f"停止流时出错: {str(e)}")
+                                    pass
+                            
+                            self.state.status = DataSourceStatus.STOPPED.value
+                            self.metadata.touch()
+                            
+                            # 保存停止状态
+                            self._save_running_state(False)
+                            self.save()
+                            
+                            self._trigger_stop_callbacks(self)
+                            
+                            self._log_event("INFO", "Data source stopped")
+                        except Exception as e:
+                            self.state.status = DataSourceStatus.ERROR.value
+                            self.state.record_error(str(e))
+                            # 保存错误状态
+                            self._save_running_state(False)
+                            self.save()
+                            self._log_event("ERROR", f"停止数据源时出错: {str(e)}")
+                
+                self._stop_event.clear()
+                self._timer_thread = threading.Thread(
+                    target=replay_loop,
+                    daemon=True,
+                    name=f"ds_replay_{self.name}"
+                )
+                self._timer_thread.start()
+            
             self.state.status = DataSourceStatus.RUNNING.value
             self.stats.start_time = time.time()
             self.metadata.touch()
@@ -596,8 +712,11 @@ class DataSource(StatusMixin, CallbackMixin):
             
             if self._stream:
                 try:
-                    self._stream.stop()
-                except Exception:
+                    # 检查 stream 是否有 stop 方法
+                    if hasattr(self._stream, 'stop'):
+                        self._stream.stop()
+                except Exception as e:
+                    self._log_event("WARNING", f"停止流时出错: {str(e)}")
                     pass
             
             self.state.status = DataSourceStatus.STOPPED.value
@@ -986,24 +1105,35 @@ class DataSourceManager(BaseManager[DataSource]):
             }
     
     def load_from_db(self) -> int:
+        """从数据库加载数据源配置"""
         db = NB("data_sources")
         count = 0
         all_items = list(db.items())
+        
+        print(f"[DataSourceManager] 从数据库加载数据源，共 {len(all_items)} 条记录")
+        
         with self._items_lock:
             existing_names = {s.name for s in self._items.values()}
             for source_id, data in all_items:
                 if isinstance(data, dict):
                     try:
                         source = DataSource.from_dict(data)
+                        saved_status = data.get("state", {}).get("status", "stopped")
+                        was_running = saved_status == "running"
+                        
                         if source.id not in self._items and source.name not in existing_names:
                             self._items[source.id] = source
                             existing_names.add(source.name)
                             count += 1
-                    except Exception:
+                            print(f"[DataSourceManager] 加载数据源：{source.name} (was_running={was_running})")
+                    except Exception as e:
+                        print(f"[DataSourceManager] 加载数据源失败：{source_id}, 错误：{e}")
                         pass
         return count
     
     def restore_running_states(self) -> dict:
+        """恢复数据源的运行状态"""
+        print(f"[DataSourceManager] 开始恢复数据源状态，共{len(list(self._items.values()))}个数据源")
         restored_count = 0
         failed_count = 0
         results = []
@@ -1036,6 +1166,7 @@ class DataSourceManager(BaseManager[DataSource]):
                     should_restore = True
                     restore_reason = "current_status_running"
                 
+                print(f"[DataSourceManager] 检查数据源：{source.name} (should_restore={should_restore}, reason={restore_reason})")
                 if not should_restore:
                     continue
                 
@@ -1161,6 +1292,81 @@ def create_stream_source(
         source_type=DataSourceType.STREAM,
         description=description or f"Named stream: {name}",
         stream=stream,
+        auto_start=auto_start,
+    )
+    
+    ds_manager.register(source)
+    return source
+
+
+def get_replay_tables() -> List[dict]:
+    """获取支持回放的数据库表
+    
+    返回所有使用 key_mode='time' 创建的表，这些表支持按时间顺序回放数据
+    """
+    from deva import NB
+    
+    try:
+        # 获取默认数据库的所有表
+        db = NB('default')
+        tables = db.tables
+        
+        # 过滤出支持回放的表
+        replay_tables = []
+        for table in tables:
+            # 尝试创建 DBStream 对象并检查 key_mode
+            try:
+                # 这里我们不能直接检查 key_mode，因为它是在初始化时设置的
+                # 但我们可以通过尝试按时间范围查询来判断是否支持回放
+                test_stream = NB(table, key_mode='time')
+                # 尝试获取一个时间范围的键，如果成功，说明表支持时间索引
+                keys = list(test_stream['2000-01-01 00:00:00':'2000-01-01 00:01:00'])
+                replay_tables.append({
+                    'name': table,
+                    'description': f'支持时间回放的表: {table}'
+                })
+            except Exception:
+                # 如果创建失败或查询失败，说明表不支持回放
+                pass
+        
+        return replay_tables
+    except Exception as e:
+        print(f"获取回放表失败: {e}")
+        return []
+
+
+def create_replay_source(
+    name: str,
+    table_name: str,
+    start_time: str = None,
+    end_time: str = None,
+    interval: float = 1.0,
+    description: str = "",
+    auto_start: bool = False,
+) -> DataSource:
+    """创建回放数据源
+    
+    Args:
+        name: 数据源名称
+        table_name: 要回放的表名
+        start_time: 开始时间，格式为 'YYYY-MM-DD HH:MM:SS'
+        end_time: 结束时间，格式为 'YYYY-MM-DD HH:MM:SS'
+        interval: 回放间隔（秒）
+        description: 数据源描述
+        auto_start: 是否自动启动
+    """
+    config = {
+        'table_name': table_name,
+        'start_time': start_time,
+        'end_time': end_time,
+        'interval': interval,
+    }
+    
+    source = DataSource(
+        name=name,
+        source_type=DataSourceType.REPLAY,
+        description=description or f"回放数据源: {table_name}",
+        config=config,
         auto_start=auto_start,
     )
     
