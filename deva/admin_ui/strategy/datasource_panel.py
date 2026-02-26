@@ -76,6 +76,7 @@ DS_TYPE_LABELS = {
     DataSourceType.TCP: "TCP端口",
     DataSourceType.FILE: "文件",
     DataSourceType.CUSTOM: "自定义",
+    DataSourceType.REPLAY: "数据回放",
 }
 
 
@@ -294,6 +295,7 @@ def _render_datasource_table(ctx):
         
         actions = ctx["put_buttons"]([
             {"label": "详情", "value": f"detail_{source_id}"},
+            {"label": "编辑", "value": f"edit_{source_id}"},
             {"label": "停止" if status == "running" else "启动", "value": f"toggle_{source_id}"},
             {"label": "删除", "value": f"delete_{source_id}"},
         ], onclick=lambda v, sid=source_id: _handle_datasource_action(ctx, v, sid))
@@ -616,6 +618,9 @@ def _handle_datasource_action(ctx, action_value: str, source_id: str):
     if action == "detail":
         ctx["run_async"](_show_datasource_detail(ctx, source_id))
         return
+    elif action == "edit":
+        ctx["run_async"](_edit_datasource_dialog(ctx, source_id))
+        return
     elif action == "toggle":
         source = ds_mgr.get_source(source_id)
         if source:
@@ -664,7 +669,23 @@ async def _show_datasource_detail(ctx, source_id: str):
         </div>
         ''')
         
-        if source.metadata.source_type == DataSourceType.TIMER and source.metadata.data_func_code:
+        # 显示回放数据源的特定信息
+        if source.metadata.source_type == DataSourceType.REPLAY:
+            config = source.metadata.config or {}
+            table_name = config.get("table_name", "-")
+            start_time = config.get("start_time", "-")
+            end_time = config.get("end_time", "-")
+            interval = config.get("interval", 1.0)
+            
+            ctx["put_collapse"]("回放配置信息", [
+                ctx["put_table"]([
+                    ["回放表名", table_name],
+                    ["开始时间", start_time],
+                    ["结束时间", end_time],
+                    ["回放间隔(秒)", str(interval)]
+                ])
+            ], open=True)
+        elif source.metadata.source_type == DataSourceType.TIMER and source.metadata.data_func_code:
             ctx["put_collapse"]("查看数据获取代码", [
                 ctx["put_code"](source.metadata.data_func_code, language="python")
             ], open=False)
@@ -819,15 +840,85 @@ async def _edit_datasource_dialog(ctx, source_id: str):
         ctx["toast"]("数据源不存在", color="error")
         return
     
+    # 导入需要的函数
+    from .datasource import get_replay_tables
+    
+    # 获取支持回放的表
+    replay_tables = get_replay_tables()
+    
     source_types = [
         {"label": "定时器 (Timer)", "value": "timer"},
         {"label": "命名流 (Stream)", "value": "stream"},
+        {"label": "数据回放 (Replay)", "value": "replay"},
         {"label": "自定义 (Custom)", "value": "custom"},
     ]
+    
+    # 获取当前回放配置
+    config = source.metadata.config or {}
+    replay_table = config.get("table_name", "")
+    replay_start_time = config.get("start_time", "")
+    replay_end_time = config.get("end_time", "")
+    replay_interval = config.get("interval", 1.0)
     
     with ctx["popup"](f"编辑数据源: {source.name}", size="large", closable=True):
         ctx["put_markdown"]("### 编辑数据源配置")
         ctx["put_html"]("<p style='color:#666;font-size:12px;'>可以直接修改代码，也可以点击「AI生成」按钮，由AI根据需求描述自动生成代码</p>")
+        
+        # 添加JavaScript来处理表单字段的动态显示
+        ctx["put_html"]('''
+        <script>
+        (function() {
+            // 监听数据源类型选择变化
+            const sourceTypeSelect = document.querySelector('select[name="source_type"]');
+            if (sourceTypeSelect) {
+                sourceTypeSelect.addEventListener('change', function() {
+                    const selectedType = this.value;
+                    
+                    // 显示/隐藏定时器相关字段
+                    const intervalInput = document.querySelector('input[name="interval"]').closest('.form-group');
+                    const codeTextarea = document.querySelector('textarea[name="data_func_code"]').closest('.form-group');
+                    
+                    // 显示/隐藏回放相关字段
+                    const replayTableSelect = document.querySelector('select[name="replay_table"]').closest('.form-group');
+                    const replayStartTimeInput = document.querySelector('input[name="replay_start_time"]').closest('.form-group');
+                    const replayEndTimeInput = document.querySelector('input[name="replay_end_time"]').closest('.form-group');
+                    const replayIntervalInput = document.querySelector('input[name="replay_interval"]').closest('.form-group');
+                    
+                    if (selectedType === 'timer') {
+                        // 显示定时器字段
+                        if (intervalInput) intervalInput.style.display = 'block';
+                        if (codeTextarea) codeTextarea.style.display = 'block';
+                        // 隐藏回放字段
+                        if (replayTableSelect) replayTableSelect.style.display = 'none';
+                        if (replayStartTimeInput) replayStartTimeInput.style.display = 'none';
+                        if (replayEndTimeInput) replayEndTimeInput.style.display = 'none';
+                        if (replayIntervalInput) replayIntervalInput.style.display = 'none';
+                    } else if (selectedType === 'replay') {
+                        // 隐藏定时器字段
+                        if (intervalInput) intervalInput.style.display = 'none';
+                        if (codeTextarea) codeTextarea.style.display = 'none';
+                        // 显示回放字段
+                        if (replayTableSelect) replayTableSelect.style.display = 'block';
+                        if (replayStartTimeInput) replayStartTimeInput.style.display = 'block';
+                        if (replayEndTimeInput) replayEndTimeInput.style.display = 'block';
+                        if (replayIntervalInput) replayIntervalInput.style.display = 'block';
+                    } else {
+                        // 隐藏所有特定字段
+                        if (intervalInput) intervalInput.style.display = 'none';
+                        if (codeTextarea) codeTextarea.style.display = 'none';
+                        if (replayTableSelect) replayTableSelect.style.display = 'none';
+                        if (replayStartTimeInput) replayStartTimeInput.style.display = 'none';
+                        if (replayEndTimeInput) replayEndTimeInput.style.display = 'none';
+                        if (replayIntervalInput) replayIntervalInput.style.display = 'none';
+                    }
+                });
+                
+                // 初始触发一次，确保默认状态正确
+                sourceTypeSelect.dispatchEvent(new Event('change'));
+            }
+        })();
+        </script>
+        ''');
         
         form = await ctx["input_group"]("数据源配置", [
             ctx["input"]("数据源名称", name="name", required=True, value=source.name),
@@ -835,6 +926,11 @@ async def _edit_datasource_dialog(ctx, source_id: str):
             ctx["textarea"]("描述", name="description", value=source.metadata.description or "", rows=2),
             ctx["input"]("定时器间隔(秒)", name="interval", type=ctx["NUMBER"], value=source.metadata.interval or 5),
             ctx["textarea"]("数据获取代码", name="data_func_code", value=source.metadata.data_func_code or DEFAULT_DATA_FUNC_CODE, rows=12, code={"mode": "python", "theme": "darcula"}),
+            # 数据回放类型的特定字段
+            ctx["select"]("回放表名", name="replay_table", options=[{"label": table["name"], "value": table["name"]} for table in replay_tables], value=replay_table, placeholder="选择要回放的表"),
+            ctx["input"]("开始时间", name="replay_start_time", value=replay_start_time, placeholder="格式: YYYY-MM-DD HH:MM:SS，留空表示从最早数据开始"),
+            ctx["input"]("结束时间", name="replay_end_time", value=replay_end_time, placeholder="格式: YYYY-MM-DD HH:MM:SS，留空表示到最新数据结束"),
+            ctx["input"]("回放间隔(秒)", name="replay_interval", type=ctx["NUMBER"], value=replay_interval, placeholder="回放数据的时间间隔"),
             ctx["actions"]("操作", [
                 {"label": "保存", "value": "save"},
                 {"label": "AI生成", "value": "ai_generate"},
@@ -899,6 +995,20 @@ async def _edit_datasource_dialog(ctx, source_id: str):
         source.metadata.source_type = DataSourceType(form["source_type"])
         source.metadata.interval = form.get("interval", 5)
         source.metadata.data_func_code = form.get("data_func_code", "")
+        
+        # 处理回放数据源的配置
+        if source.metadata.source_type == DataSourceType.REPLAY:
+            source.metadata.config = {
+                'table_name': form.get("replay_table"),
+                'start_time': form.get("replay_start_time") or None,
+                'end_time': form.get("replay_end_time") or None,
+                'interval': form.get("replay_interval", 1.0),
+            }
+        elif source.metadata.source_type == DataSourceType.TIMER:
+            source.metadata.config = {"interval": form.get("interval", 5)}
+        else:
+            source.metadata.config = {}
+        
         source.metadata.updated_at = time.time()
         
         result = source.save()
@@ -926,16 +1036,80 @@ def fetch_data():
 '''
 
 async def _create_datasource_dialog(ctx):
+    # 导入需要的函数
+    from .datasource import get_replay_tables
+    
+    # 获取支持回放的表
+    replay_tables = get_replay_tables()
+    
     source_types = [
         {"label": "定时器 (Timer)", "value": "timer"},
         {"label": "命名流 (Stream)", "value": "stream"},
+        {"label": "数据回放 (Replay)", "value": "replay"},
         {"label": "自定义 (Custom)", "value": "custom"},
     ]
     
     with ctx["popup"]("创建数据源", size="large", closable=True):
         ctx["put_markdown"]("### 数据源配置")
         ctx["put_markdown"]("**定时器类型**：需要提供 `fetch_data()` 函数，定时执行获取数据")
+        ctx["put_markdown"]("**数据回放类型**：从数据库表中按时间顺序回放数据")
         ctx["put_html"]("<p style='color:#666;font-size:12px;'>可以直接输入代码，也可以点击「AI生成」按钮，由AI根据需求描述自动生成代码</p>")
+        
+        # 添加JavaScript来处理表单字段的动态显示
+        ctx["put_html"]('''
+        <script>
+        (function() {
+            // 监听数据源类型选择变化
+            const sourceTypeSelect = document.querySelector('select[name="source_type"]');
+            if (sourceTypeSelect) {
+                sourceTypeSelect.addEventListener('change', function() {
+                    const selectedType = this.value;
+                    
+                    // 显示/隐藏定时器相关字段
+                    const intervalInput = document.querySelector('input[name="interval"]').closest('.form-group');
+                    const codeTextarea = document.querySelector('textarea[name="data_func_code"]').closest('.form-group');
+                    
+                    // 显示/隐藏回放相关字段
+                    const replayTableSelect = document.querySelector('select[name="replay_table"]').closest('.form-group');
+                    const replayStartTimeInput = document.querySelector('input[name="replay_start_time"]').closest('.form-group');
+                    const replayEndTimeInput = document.querySelector('input[name="replay_end_time"]').closest('.form-group');
+                    const replayIntervalInput = document.querySelector('input[name="replay_interval"]').closest('.form-group');
+                    
+                    if (selectedType === 'timer') {
+                        // 显示定时器字段
+                        if (intervalInput) intervalInput.style.display = 'block';
+                        if (codeTextarea) codeTextarea.style.display = 'block';
+                        // 隐藏回放字段
+                        if (replayTableSelect) replayTableSelect.style.display = 'none';
+                        if (replayStartTimeInput) replayStartTimeInput.style.display = 'none';
+                        if (replayEndTimeInput) replayEndTimeInput.style.display = 'none';
+                        if (replayIntervalInput) replayIntervalInput.style.display = 'none';
+                    } else if (selectedType === 'replay') {
+                        // 隐藏定时器字段
+                        if (intervalInput) intervalInput.style.display = 'none';
+                        if (codeTextarea) codeTextarea.style.display = 'none';
+                        // 显示回放字段
+                        if (replayTableSelect) replayTableSelect.style.display = 'block';
+                        if (replayStartTimeInput) replayStartTimeInput.style.display = 'block';
+                        if (replayEndTimeInput) replayEndTimeInput.style.display = 'block';
+                        if (replayIntervalInput) replayIntervalInput.style.display = 'block';
+                    } else {
+                        // 隐藏所有特定字段
+                        if (intervalInput) intervalInput.style.display = 'none';
+                        if (codeTextarea) codeTextarea.style.display = 'none';
+                        if (replayTableSelect) replayTableSelect.style.display = 'none';
+                        if (replayStartTimeInput) replayStartTimeInput.style.display = 'none';
+                        if (replayEndTimeInput) replayEndTimeInput.style.display = 'none';
+                        if (replayIntervalInput) replayIntervalInput.style.display = 'none';
+                    }
+                });
+                
+                // 初始触发一次，确保默认状态正确
+                sourceTypeSelect.dispatchEvent(new Event('change'));
+            }
+        })();
+        </script>
+        ''');
         
         form = await ctx["input_group"]("数据源配置", [
             ctx["input"]("数据源名称", name="name", required=True, placeholder="输入数据源名称"),
@@ -943,6 +1117,11 @@ async def _create_datasource_dialog(ctx):
             ctx["textarea"]("描述", name="description", placeholder="数据源描述（可选）", rows=2),
             ctx["input"]("定时器间隔(秒)", name="interval", type=ctx["NUMBER"], value=5, placeholder="仅定时器类型需要"),
             ctx["textarea"]("数据获取代码", name="data_func_code", value=DEFAULT_DATA_FUNC_CODE, rows=12, placeholder="定义 fetch_data() 函数", code={"mode": "python", "theme": "darcula"}),
+            # 数据回放类型的特定字段
+            ctx["select"]("回放表名", name="replay_table", options=[{"label": table["name"], "value": table["name"]} for table in replay_tables], placeholder="选择要回放的表"),
+            ctx["input"]("开始时间", name="replay_start_time", placeholder="格式: YYYY-MM-DD HH:MM:SS，留空表示从最早数据开始"),
+            ctx["input"]("结束时间", name="replay_end_time", placeholder="格式: YYYY-MM-DD HH:MM:SS，留空表示到最新数据结束"),
+            ctx["input"]("回放间隔(秒)", name="replay_interval", type=ctx["NUMBER"], value=1.0, placeholder="回放数据的时间间隔"),
             ctx["actions"]("操作", [
                 {"label": "创建", "value": "create"},
                 {"label": "AI生成", "value": "ai_generate"},
@@ -1005,15 +1184,41 @@ async def _create_datasource_dialog(ctx):
         ds_mgr = get_ds_manager()
         source_type = DataSourceType(form["source_type"])
         
-        result = ds_mgr.create_source(
-            name=form["name"],
-            source_type=source_type,
-            description=form.get("description", ""),
-            config={"interval": form.get("interval", 5)} if source_type == DataSourceType.TIMER else {},
-            data_func_code=form.get("data_func_code", "") if source_type == DataSourceType.TIMER else "",
-            interval=form.get("interval", 5) if source_type == DataSourceType.TIMER else 5.0,
-            auto_start=False,
-        )
+        if source_type == DataSourceType.REPLAY:
+            # 处理回放数据源
+            from .datasource import create_replay_source
+            
+            table_name = form.get("replay_table")
+            if not table_name:
+                ctx["toast"]("请选择回放表名", color="error")
+                return
+            
+            start_time = form.get("replay_start_time") or None
+            end_time = form.get("replay_end_time") or None
+            interval = form.get("replay_interval", 1.0)
+            
+            source = create_replay_source(
+                name=form["name"],
+                table_name=table_name,
+                start_time=start_time,
+                end_time=end_time,
+                interval=interval,
+                description=form.get("description", ""),
+                auto_start=False,
+            )
+            
+            result = {"success": True, "source_id": source.id, "source": source.to_dict()}
+        else:
+            # 处理其他类型的数据源
+            result = ds_mgr.create_source(
+                name=form["name"],
+                source_type=source_type,
+                description=form.get("description", ""),
+                config={"interval": form.get("interval", 5)} if source_type == DataSourceType.TIMER else {},
+                data_func_code=form.get("data_func_code", "") if source_type == DataSourceType.TIMER else "",
+                interval=form.get("interval", 5) if source_type == DataSourceType.TIMER else 5.0,
+                auto_start=False,
+            )
         
         if result.get("success"):
             ctx["toast"](f"数据源创建成功: {result['source_id']}", color="success")
