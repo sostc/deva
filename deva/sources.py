@@ -35,35 +35,51 @@ logger = logging.getLogger(__name__)
 
 def _decode_http_body(body, as_dataframe=False):
     """Best-effort decoder for HTTP payloads."""
-    try:
-        return dill.loads(body)
-    except Exception:
-        pass
-
-    text = body
-    if isinstance(body, (bytes, bytearray)):
+    from .pipe import P
+    
+    def try_dill_loads(b):
         try:
-            text = body.decode('utf-8')
+            return dill.loads(b)
         except Exception:
-            return body
-
-    try:
-        obj = json.loads(text)
-    except Exception:
-        return text
-
-    if as_dataframe:
+            return None
+    
+    def try_decode(b):
+        if isinstance(b, (bytes, bytearray)):
+            try:
+                return b.decode('utf-8')
+            except Exception:
+                return b
+        return b
+    
+    def try_json_loads(t):
         try:
-            return pd.DataFrame.from_dict(obj)
+            return json.loads(t)
         except Exception:
-            pass
-    return obj
+            return t
+    
+    def try_dataframe(obj):
+        if as_dataframe:
+            try:
+                return pd.DataFrame.from_dict(obj)
+            except Exception:
+                pass
+        return obj
+    
+    return (body >> P.map(try_dill_loads)
+            >> P.map(lambda x: x if x is not None else try_decode(body))
+            >> P.map(try_json_loads)
+            >> P.map(try_dataframe))
 
 
 def _encode_http_body(body):
-    if isinstance(body, pd.DataFrame):
-        return body.sample(20).to_html()
-    return json.dumps(body, ensure_ascii=False)
+    from .pipe import P
+    
+    def encode_dataframe(b):
+        if isinstance(b, pd.DataFrame):
+            return b.sample(20).to_html()
+        return b
+    
+    return body >> P.map(encode_dataframe) >> P.map(lambda x: json.dumps(x, ensure_ascii=False))
 
 
 def _new_redis_client(address='localhost', db=0, password=None):
@@ -73,6 +89,7 @@ def _new_redis_client(address='localhost', db=0, password=None):
     if aioredis is not None:
         return aioredis.Redis(host=address, db=db, password=password)
     raise RuntimeError("Redis client unavailable: install `redis` or `aioredis`")
+
 
 """
 Source 类的辅助函数和工具类
@@ -233,16 +250,16 @@ class from_textfile(PollingSource):
         返回:
             list: 分割后的数据列表，如果没有新数据则返回空列表
         """
-        data = []
+        from .pipe import P, ls
+        
         line = self.file.read()
         if line:
             self._buffer += line
             if self.delimiter in self._buffer:
                 parts = self._buffer.split(self.delimiter)
                 self._buffer = parts.pop(-1)
-                for part in parts:
-                    data.append(part + self.delimiter)
-        return data
+                return parts >> P.map(lambda part: part + self.delimiter) >> ls
+        return []
     
 @Stream.register_api(staticmethod)
 class filenames(PollingSource):
