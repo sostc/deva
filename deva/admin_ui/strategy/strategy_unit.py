@@ -871,7 +871,27 @@ class StrategyUnit(StatusMixin):
         ai_documentation = data.get("ai_documentation", "")
         if processor_code:
             try:
-                unit.set_processor_from_code(processor_code, ai_doc=ai_documentation)
+                # 尝试不同的函数名
+                func_names = ["process", "processor", "test_strategy_processor"]
+                success = False
+                for func_name in func_names:
+                    try:
+                        unit.set_processor_from_code(processor_code, func_name=func_name, ai_doc=ai_documentation)
+                        success = True
+                        break
+                    except Exception:
+                        continue
+                if not success:
+                    # 尝试动态查找函数
+                    import re
+                    match = re.search(r'def\s+(\w+)\s*\(', processor_code)
+                    if match:
+                        func_name = match.group(1)
+                        unit.set_processor_from_code(processor_code, func_name=func_name, ai_doc=ai_documentation)
+                        success = True
+                if not success:
+                    unit._processor_code = processor_code
+                    unit._ai_documentation = ai_documentation
             except Exception:
                 unit._processor_code = processor_code
                 unit._ai_documentation = ai_documentation

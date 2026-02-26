@@ -546,8 +546,26 @@ class StrategyManager(BaseManager[StrategyUnit]):
                     try:
                         code = unit._processor_code or unit.metadata.strategy_func_code
                         if code:
-                            unit.set_processor_from_code(code)
-                            units_to_start.append(unit)
+                            # 尝试不同的函数名
+                            func_names = ["process", "processor", "test_strategy_processor"]
+                            success = False
+                            for func_name in func_names:
+                                try:
+                                    unit.set_processor_from_code(code, func_name=func_name)
+                                    success = True
+                                    break
+                                except Exception:
+                                    continue
+                            if not success:
+                                # 尝试动态查找函数
+                                import re
+                                match = re.search(r'def\s+(\w+)\s*\(', code)
+                                if match:
+                                    func_name = match.group(1)
+                                    unit.set_processor_from_code(code, func_name=func_name)
+                                    success = True
+                            if success:
+                                units_to_start.append(unit)
                     except Exception as e:
                         results.append({
                             "unit_id": unit.id,

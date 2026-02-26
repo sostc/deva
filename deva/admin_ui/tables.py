@@ -240,6 +240,7 @@ def paginate_dataframe(ctx, scope, df, page_size):
         if pd_module.api.types.is_datetime64_any_dtype(df[column]):
             df[column] = df[column].dt.strftime("%Y-%m-%d %H:%M:%S")
     df = df.fillna("")
+    df = df.infer_objects(copy=False)
 
     def show_page(page, filtered_df=None):
         if filtered_df is None:
