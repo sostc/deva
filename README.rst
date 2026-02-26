@@ -48,14 +48,14 @@ Deva - 异步流式处理框架
 安装后，5 分钟快速体验 Deva 的核心功能。
 
 1. 安装 Deva
-~~~~~~~~~~~
+~~~~~~~~~~~~
 
 .. code-block:: bash
 
    pip install deva
 
 2. 第一个流处理程序
-~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~
 
 创建 ``hello.py``：
 
@@ -95,7 +95,7 @@ Deva - 异步流式处理框架
 
 
 3. 定时任务示例
-~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~
 
 .. code-block:: python
 
@@ -109,7 +109,7 @@ Deva - 异步流式处理框架
 
 
 4. Web 可视化
-~~~~~~~~~~~
+~~~~~~~~~~~~~~
 
 .. code-block:: python
 
@@ -248,7 +248,7 @@ Deva - 异步流式处理框架
    Deva.run()
 
 数据采集与存储
-~~~~~~~~~~~~
+~~~~~~~~~~~~~~~
 
 .. code-block:: python
 
@@ -292,7 +292,7 @@ Deva - 异步流式处理框架
    Deva.run()
 
 Web 可视化面板
-~~~~~~~~~~~~
+~~~~~~~~~~~~~~
 
 .. code-block:: python
 
@@ -323,19 +323,7 @@ Web 可视化面板
 API 参考           `source/api.rst`_
 ================== ==================
 
-完整文档目录：
-
-.. toctree::
-   :maxdepth: 2
-
-   source/quickstart
-   source/manual_cn
-   source/installation
-   source/usage
-   source/storage
-   source/logging
-   source/modules
-   deva/examples/README
+完整文档目录详见项目仓库：https://github.com/sostc/deva/tree/master/docs
 
 
 社区与支持
