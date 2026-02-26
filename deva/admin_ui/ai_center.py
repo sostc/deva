@@ -6,12 +6,9 @@ Deva AI 功能中心
 整合 Deva 代码库中所有 LLM 和 AI 相关功能，提供可视化 UI 体验界面。
 
 功能模块：
-1. AI 模型配置 - 配置和管理 LLM 模型
-2. AI 智能对话 - 与 AI 进行多轮对话
-3. AI 代码生成 - 生成 Python/Deva 代码
-4. AI 文本处理 - 摘要、翻译、润色等
-5. AI JSON 处理 - JSON 格式数据生成和解析
-6. AI 测试工具 - 测试 AI 功能和性能
+1. AI 智能对话 - 与 AI 进行多轮对话
+2. AI 代码生成 - 生成 Python/Deva 代码
+3. AI 文本处理 - 摘要、翻译、润色等
 """
 
 from __future__ import annotations
@@ -21,245 +18,9 @@ import time
 from datetime import datetime
 from typing import Dict, Any, List, Optional
 
-
-# ============================================================================
-# AI 模型配置管理
-# ============================================================================
-
-def show_llm_config_panel(ctx):
-    """显示 LLM 模型配置面板"""
-    put_markdown = ctx['put_markdown']
-    put_table = ctx['put_table']
-    put_button = ctx['put_button']
-    put_row = ctx['put_row']
-    run_async = ctx['run_async']
-    NB = ctx['NB']
-    
-    put_markdown("### 🤖 AI 模型配置")
-    put_markdown("配置和管理大型语言模型连接信息")
-    
-    # 获取配置状态
-    from deva.llm.config_utils import get_model_config_status, build_model_config_example
-    
-    config = NB('llm_config', key_mode='explicit')
-    
-    # 支持的模型列表
-    models = [
-        {'name': 'DeepSeek', 'type': 'deepseek', 'default_url': 'https://api.deepseek.com/v1', 'default_model': 'deepseek-chat'},
-        {'name': 'Kimi (月之暗面)', 'type': 'kimi', 'default_url': 'https://api.moonshot.cn/v1', 'default_model': 'moonshot-v1-8k'},
-        {'name': 'Sambanova', 'type': 'sambanova', 'default_url': 'https://api.sambanova.ai/v1', 'default_model': 'Meta-Llama-3.1-70B-Instruct'},
-        {'name': 'Qwen (通义千问)', 'type': 'qwen', 'default_url': 'https://dashscope.aliyuncs.com/compatible-mode/v1', 'default_model': 'qwen-plus'},
-    ]
-    
-    # 显示配置状态表格
-    table_data = [["模型", "状态", "API Key", "Base URL", "模型名称", "操作"]]
-    
-    for model in models:
-        model_config = config.get(model['type'], {})
-        api_key = model_config.get('api_key', '')
-        base_url = model_config.get('base_url', '')
-        model_name = model_config.get('model', '')
-        
-        # 状态判断
-        if api_key and base_url and model_name:
-            status = '<span style="color:#28a745">✅ 已配置</span>'
-        elif api_key:
-            status = '<span style="color:#ffc107">⚠️ 部分配置</span>'
-        else:
-            status = '<span style="color:#dc3545">❌ 未配置</span>'
-        
-        # 脱敏显示 API Key
-        api_key_display = f"{api_key[:4]}...{api_key[-4:]}" if api_key else '-'
-        
-        table_data.append([
-            model['name'],
-            status,
-            api_key_display,
-            base_url[:40] + '...' if len(base_url) > 40 else base_url,
-            model_name,
-            put_button('配置', onclick=lambda m=model['type']: run_async(show_model_config_dialog(ctx, m)), link_style=True)
-        ])
-    
-    put_table(table_data)
-    
-    # 快捷操作
-    put_markdown("**快捷操作：**")
-    put_row([
-        put_button('📝 配置 DeepSeek', onclick=lambda: run_async(show_model_config_dialog(ctx, 'deepseek')), color='primary'),
-        put_button('📝 配置 Kimi', onclick=lambda: run_async(show_model_config_dialog(ctx, 'kimi')), color='primary'),
-        put_button('🧪 测试连接', onclick=lambda: run_async(test_llm_connection(ctx)), color='success'),
-        put_button('📖 配置指南', onclick=lambda: show_config_guide(ctx), color='info'),
-    ])
-
-
-async def show_model_config_dialog(ctx, model_type):
-    """显示模型配置对话框"""
-    put_markdown = ctx['put_markdown']
-    input = ctx['input']
-    NB = ctx['NB']
-    toast = ctx['toast']
-    
-    # 获取当前配置
-    config = NB('llm_config', key_mode='explicit')
-    current_config = config.get(model_type, {})
-    
-    # 默认配置
-    defaults = {
-        'deepseek': {'base_url': 'https://api.deepseek.com/v1', 'model': 'deepseek-chat'},
-        'kimi': {'base_url': 'https://api.moonshot.cn/v1', 'model': 'moonshot-v1-8k'},
-        'sambanova': {'base_url': 'https://api.sambanova.ai/v1', 'model': 'Meta-Llama-3.1-70B-Instruct'},
-        'qwen': {'base_url': 'https://dashscope.aliyuncs.com/compatible-mode/v1', 'model': 'qwen-plus'},
-    }
-    
-    default = defaults.get(model_type, {})
-    
-    with ctx['popup'](f'配置 {model_type.upper()} 模型', size='large', closable=True):
-        put_markdown(f"### {model_type.upper()} 模型配置")
-        
-        put_markdown("""
-        💡 **提示：**
-        - API Key 可以从对应平台的控制台获取
-        - Base URL 是 API 服务的地址
-        - 模型名称是具体使用的模型
-        """)
-        
-        # 配置表单
-        config_data = await ctx['input_group']('模型配置', [
-            input('API Key', name='api_key', type='password', 
-                  value=current_config.get('api_key', ''), 
-                  required=True, placeholder='请输入 API Key'),
-            input('Base URL', name='base_url', type='text',
-                  value=current_config.get('base_url', default['base_url']),
-                  placeholder='https://api.example.com/v1'),
-            input('模型名称', name='model', type='text',
-                  value=current_config.get('model', default['model']),
-                  placeholder='model-name'),
-            ctx['actions']('操作', [
-                {'label': '💾 保存', 'value': 'save'},
-                {'label': '❌ 取消', 'value': 'cancel'}
-            ], name='action')
-        ])
-        
-        if config_data['action'] == 'save':
-            # 保存配置
-            config.upsert(model_type, {
-                'api_key': config_data['api_key'],
-                'base_url': config_data['base_url'],
-                'model': config_data['model']
-            })
-            toast(f'{model_type.upper()} 配置已保存', color='success')
-            
-            # 刷新配置面板
-            ctx['clear']('llm_config_panel')
-            with ctx['use_scope']('llm_config_panel'):
-                show_llm_config_panel(ctx)
-
-
-async def test_llm_connection(ctx):
-    """测试 LLM 连接"""
-    put_markdown = ctx['put_markdown']
-    toast = ctx['toast']
-    NB = ctx['NB']
-    log = ctx['log']
-    
-    with ctx['popup']('测试 AI 连接', size='large', closable=True):
-        put_markdown("### 🧪 测试 AI 连接")
-        
-        # 选择要测试的模型
-        model_type = await ctx['radio']('选择要测试的模型', 
-            options=[
-                {'label': 'DeepSeek', 'value': 'deepseek'},
-                {'label': 'Kimi', 'value': 'kimi'},
-                {'label': 'Sambanova', 'value': 'sambanova'},
-            ],
-            value='deepseek'
-        )
-        
-        # 测试问题
-        test_prompt = await ctx['input']('测试问题', value='你好，请用一句话介绍你自己', placeholder='输入测试问题')
-        
-        put_markdown("**开始测试...**")
-        
-        try:
-            # 调用 AI
-            from deva.admin_ui.llm_service import get_gpt_response
-            response = await get_gpt_response(ctx, test_prompt, model_type=model_type)
-            
-            if response:
-                put_markdown("### ✅ 连接成功")
-                put_markdown(f"**AI 回复：** {response}")
-                toast(f'{model_type.upper()} 连接测试成功', color='success')
-            else:
-                put_markdown("### ❌ 连接失败")
-                put_markdown("AI 返回为空")
-                toast(f'{model_type.upper()} 连接测试失败', color='error')
-                
-        except Exception as e:
-            put_markdown(f"### ❌ 连接异常")
-            put_markdown(f"**错误信息：** {str(e)}")
-            toast(f'{model_type.upper()} 连接异常：{e}', color='error')
-
-
-def show_config_guide(ctx):
-    """显示配置指南"""
-    with ctx['popup']('配置指南', size='large', closable=True):
-        ctx['put_markdown']("### 📖 AI 模型配置指南")
-        
-        ctx['put_markdown']("""
-        #### 1. DeepSeek (深度求索)
-        
-        **获取 API Key：**
-        1. 访问 https://platform.deepseek.com/
-        2. 注册/登录账号
-        3. 进入控制台 -> API Keys
-        4. 创建 API Key
-        
-        **配置信息：**
-        - Base URL: `https://api.deepseek.com/v1`
-        - 模型：`deepseek-chat`
-        
-        ---
-        
-        #### 2. Kimi (月之暗面)
-        
-        **获取 API Key：**
-        1. 访问 https://platform.moonshot.cn/
-        2. 注册/登录账号
-        3. 进入控制台 -> API 管理
-        4. 创建 API Key
-        
-        **配置信息：**
-        - Base URL: `https://api.moonshot.cn/v1`
-        - 模型：`moonshot-v1-8k`, `moonshot-v1-32k`, `moonshot-v1-128k`
-        
-        ---
-        
-        #### 3. Sambanova
-        
-        **获取 API Key：**
-        1. 访问 https://cloud.sambanova.ai/
-        2. 注册/登录账号
-        3. 进入 API Keys 页面
-        4. 创建 API Key
-        
-        **配置信息：**
-        - Base URL: `https://api.sambanova.ai/v1`
-        - 模型：`Meta-Llama-3.1-70B-Instruct`
-        
-        ---
-        
-        #### 4. Qwen (通义千问)
-        
-        **获取 API Key：**
-        1. 访问 https://dashscope.console.aliyun.com/
-        2. 注册/登录阿里云账号
-        3. 开通 DashScope 服务
-        4. 创建 API Key
-        
-        **配置信息：**
-        - Base URL: `https://dashscope.aliyuncs.com/compatible-mode/v1`
-        - 模型：`qwen-turbo`, `qwen-plus`, `qwen-max`
-        """)
+from .ai_studio import (
+    show_ai_studio,
+)
 
 
 # ============================================================================
@@ -366,6 +127,7 @@ async def show_ai_code_generator(ctx):
     """显示 AI 代码生成器"""
     put_markdown = ctx['put_markdown']
     put_button = ctx['put_button']
+    put_row = ctx['put_row']
     run_async = ctx['run_async']
     
     put_markdown("### 💻 AI 代码生成")
@@ -551,6 +313,7 @@ async def show_ai_text_processor(ctx):
     """显示 AI 文本处理器"""
     put_markdown = ctx['put_markdown']
     put_button = ctx['put_button']
+    put_row = ctx['put_row']
     run_async = ctx['run_async']
     
     put_markdown("### 📝 AI 文本处理")
@@ -704,66 +467,20 @@ async def show_text_analysis(ctx):
 # AI Tab 主界面
 # ============================================================================
 
-def render_ai_tab_ui(ctx):
-    """渲染 AI Tab 主界面"""
-    put_markdown = ctx['put_markdown']
-    put_tabs = ctx['put_tabs']
-    run_async = ctx['run_async']
-    
-    put_markdown("## 🤖 AI 功能中心")
-    put_markdown("体验 Deva 的强大 AI 功能，包括模型配置、智能对话、代码生成、文本处理等")
-    
-    # 构建 Tabs
-    tabs = [
-        {
-            'title': '🤖 模型配置',
-            'content': show_llm_config_panel(ctx)
-        },
-        {
-            'title': '💬 智能对话',
-            'content': run_async(show_ai_chat(ctx))
-        },
-        {
-            'title': '💻 代码生成',
-            'content': run_async(show_ai_code_generator(ctx))
-        },
-        {
-            'title': '📝 文本处理',
-            'content': run_async(show_ai_text_processor(ctx))
-        }
-    ]
-    
-    put_tabs(tabs)
-
+async def render_ai_tab_ui(ctx):
+    """渲染 AI Tab 主界面 - 使用 AI Studio"""
+    return await show_ai_studio(ctx)
 
 if __name__ == '__main__':
-    # 测试运行
     from pywebio import start_server
     from pywebio.output import *
     from pywebio.input import *
+    from pywebio.session import *
     
     def test_ai_tab():
-        ctx = {
-            'put_markdown': put_markdown,
-            'put_tabs': put_tabs,
-            'run_async': lambda f: f(),
-            'input': input,
-            'textarea': textarea,
-            'input_group': input_group,
-            'popup': popup,
-            'toast': toast,
-            'put_button': put_button,
-            'put_table': put_table,
-            'put_row': put_row,
-            'put_code': put_code,
-            'clear': clear,
-            'use_scope': use_scope,
-            'run_js': run_js,
-            'radio': radio,
-            'NB': None,
-            'log': None,
-            'warn': None,
-        }
-        render_ai_tab_ui(ctx)
+        put_markdown("### 🤖 Deva AI 功能中心")
+        put_markdown("体验 Deva 的强大 AI 功能，包括智能对话、代码生成、文本处理等")
+        put_markdown("---")
+        put_markdown("💡 功能开发中，敬请期待...")
     
     start_server(test_ai_tab, port=8080, debug=True)
