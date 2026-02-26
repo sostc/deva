@@ -25,3 +25,4 @@ trafilatura
 newspaper3k
 boilerpy3
 sumy
+pywebio==1.8.3
