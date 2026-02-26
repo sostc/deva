@@ -6,7 +6,7 @@ setup(
     version='1.4.2',
     include_package_data=True,
     packages=find_packages(),
-    python_requires='>=3.5',
+    python_requires='>=3.8',
     author='spark',
     author_email='zjw0358@gmail.com',
     url='https://github.com/sostc/deva',
@@ -14,9 +14,61 @@ setup(
     description='data eval in future',
     long_description=(open('README.rst').read() if exists('README.rst')
                       else ''),
-    install_requires=list(open('requirements.txt').read().strip().split('\n')),
+    long_description_content_type='text/x-rst',
+    install_requires=[
+        # Core
+        'tornado>=6.0',
+        'pandas>=1.0',
+        'dill>=0.3',
+        'toolz>=0.10',
+        
+        # AI/LLM
+        'openai>=1.0.0',
+        
+        # Search and text processing
+        'whoosh>=2.7',
+        'jieba>=0.39',
+        
+        # Web framework and UI
+        'pywebio>=1.8',
+        'pywebio-battery>=0.2',
+        
+        # Database and storage
+        'sqlalchemy>=2.0',
+        'walrus>=0.3',
+        
+        # Scheduling
+        'apscheduler>=3.9',
+        
+        # HTTP and networking
+        'requests>=2.28',
+        'requests-html>=0.10',
+        'aiohttp>=3.8',
+        
+        # Data analysis
+        'akshare>=1.0',
+        
+        # Utilities
+        'pymaybe>=0.2',
+        'pampy>=0.3',
+        'expiringdict>=1.2',
+        
+        # Newspaper and content extraction
+        'newspaper3k>=0.2',
+        
+        # WebSocket
+        'sockjs-tornado>=1.0',
+        
+        # WSGI utilities
+        'Werkzeug>=2.0',
+    ],
     extras_require={
-        'llm': ['openai>=1.0.0']
+        'dev': [
+            'IPython>=8.0',
+            'pytest>=7.0',
+            'twine>=4.0',
+            'readme_renderer',
+        ],
     },
     zip_safe=False
 
