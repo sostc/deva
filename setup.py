@@ -3,7 +3,7 @@ from os.path import exists
 
 setup(
     name='deva',
-    version='1.4.3',
+    version='1.4.4',
     include_package_data=True,
     packages=find_packages(),
     python_requires='>=3.8',
@@ -11,8 +11,9 @@ setup(
     author_email='zjw0358@gmail.com',
     url='https://github.com/sostc/deva',
     license='http://www.apache.org/licenses/LICENSE-2.0.html',
-    description='data eval in future',
-    long_description=(open('README.rst').read() if exists('README.rst')
+    description='异步流式处理框架 - Asynchronous stream processing framework',
+    long_description=(open('README_PYPI.rst').read() if exists('README_PYPI.rst')
+                      else open('README.rst').read() if exists('README.rst')
                       else ''),
     long_description_content_type='text/x-rst',
     install_requires=[
@@ -21,44 +22,44 @@ setup(
         'pandas>=1.0',
         'dill>=0.3',
         'toolz>=0.10',
-        
+
         # AI/LLM
         'openai>=1.0.0',
-        
+
         # Search and text processing
         'whoosh>=2.7',
         'jieba>=0.39',
-        
+
         # Web framework and UI
         'pywebio>=1.8',
         'pywebio-battery>=0.2',
-        
+
         # Database and storage
         'sqlalchemy>=2.0',
         'walrus>=0.3',
-        
+
         # Scheduling
         'apscheduler>=3.9',
-        
+
         # HTTP and networking
         'requests>=2.28',
         'requests-html>=0.10',
         'aiohttp>=3.8',
-        
+
         # Data analysis
         'akshare>=1.0',
-        
+
         # Utilities
-        'pymaybe>=0.2',
+        'pymaybe',
         'pampy>=0.3',
         'expiringdict>=1.2',
-        
+
         # Newspaper and content extraction
         'newspaper3k>=0.2',
-        
+
         # WebSocket
         'sockjs-tornado>=1.0',
-        
+
         # WSGI utilities
         'Werkzeug>=2.0',
     ],
