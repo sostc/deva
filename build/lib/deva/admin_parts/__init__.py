@@ -1,1 +1,0 @@
-"""Admin modularized components."""
