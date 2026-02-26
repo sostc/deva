@@ -28,6 +28,21 @@
 - 根目录散乱的测试文件
 - 根目录工具脚本
 
+## [1.4.2] - 2026-02-27
+
+### 变更
+- deva/sources.py - 使用 Pipe 模式重构 HTTP 编解码逻辑
+  - `_decode_http_body` - 使用 `P.map` 链式调用重构解码逻辑
+  - `_encode_http_body` - 使用 `P.map` 重构编码逻辑
+  - `from_textfile.get_data` - 使用 Pipe 和 `ls` 重构数据分割
+
+### 文档
+- 规整文档结构，将根目录报告文件移动到 docs/ 子目录
+  - docs/reports/admin_ui/ - Admin UI 相关报告
+  - docs/reports/ai/ - AI 相关报告
+  - docs/guides/ai/ - AI 相关指南
+  - docs/reports/ - 通用报告
+
 ## [1.4.1] - 2026-02-26
 
 ### 新增
