@@ -126,7 +126,7 @@ from pywebio.platform.tornado import webio_handler
 from pywebio_battery import put_logbox, logbox_append, set_localstorage, get_localstorage
 from pywebio.pin import pin, put_file_upload, put_input
 from pywebio.session import set_env, run_async, run_js, run_asyncio_coroutine, get_session_implement
-from pywebio.input import input, input_group, PASSWORD, textarea, actions, TEXT, file_upload, NUMBER
+from pywebio.input import input, input_group, PASSWORD, textarea, actions, TEXT, file_upload, NUMBER, radio, select, checkbox
 
 
 @timer(5,start=False)
@@ -520,12 +520,12 @@ async def aicenter():
     """AI 功能中心"""
     await init_admin_ui("Deva AI 功能中心")
     from .admin_ui.ai_center import render_ai_tab_ui
-    return render_ai_tab_ui(_aicenter_ctx())
+    return await render_ai_tab_ui(_aicenter_ctx())
 
 
 def _aicenter_ctx():
     """AI 中心上下文"""
-    return admin_contexts.document_ui_ctx(globals())
+    return admin_contexts.main_ui_ctx(globals(), admin_tables)
 def show_dtalk_archive():
     return admin_main_ui.show_dtalk_archive(_main_ui_ctx())
 
@@ -720,7 +720,13 @@ def create_nav_menu():
 if __name__ == '__main__':
     from deva.page import page
     setup_admin_runtime(enable_webviews=True, enable_timer=True, enable_scheduler=True)
-    # admin_tasks.restore_tasks_from_db(_tasks_ctx())  # 暂时注释，避免启动错误
+    admin_tasks.restore_tasks_from_db(_tasks_ctx())  # 系统启动时从数据库恢复任务
+    # 系统启动时恢复数据源的运行状态
+    from .admin_ui.strategy.datasource import get_ds_manager
+    ds_mgr = get_ds_manager()
+    # 先从数据库加载数据源配置，再恢复运行状态
+    ds_mgr.load_from_db()
+    ds_mgr.restore_running_states()
 
     # 创建一个名为'stream_webview'的Web服务器实例，监听所有网络接口(0.0.0.0)
     # 然后为该服务器添加路由处理器，将'/admin'路径映射到dbadmin处理函数
