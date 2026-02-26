@@ -28,6 +28,18 @@
 - 根目录散乱的测试文件
 - 根目录工具脚本
 
+## [1.4.3] - 2026-02-27
+
+### 修复
+- requirements.txt - 补全缺失的依赖项（从 6 个扩展到 20+ 个）
+- setup.py - 内联依赖列表，添加版本约束
+- README.rst - 移除 PyPI 不支持的 Sphinx toctree 指令
+
+### 变更
+- python_requires: '>=3.5' -> '>=3.8'
+- 添加 'dev' extras_require（开发依赖）
+- 从 git 跟踪中移除 build/ 和 dist/ 目录
+
 ## [1.4.2] - 2026-02-27
 
 ### 变更
