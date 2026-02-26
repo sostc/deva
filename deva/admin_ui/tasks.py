@@ -600,10 +600,10 @@ def recover_task(ctx, name):
     db[name] = info
     job_func = _load_job_from_code(info["job_code"], ctx["global_ns"])
     _schedule_job(
-        ctx["scheduler"], 
-        name, 
-        job_func, 
-        info["type"], 
+        ctx["scheduler"],
+        name,
+        job_func,
+        info["type"],
         info["time"],
         info.get("retry_count", 0),
         info.get("retry_interval", 5)
@@ -623,27 +623,31 @@ def remove_task_forever(ctx, name):
 
 
 def restore_tasks_from_db(ctx):
+    """从数据库恢复任务（系统启动时调用）"""
     db = ctx["NB"]("tasks")
     tasks = ctx["tasks"]
     scheduler = ctx["scheduler"]
+    
     for name, info in db.items():
         tasks[name] = info
+        # 只恢复运行中的任务
         if info.get("status") != "运行中":
             continue
         try:
             job_func = _load_job_from_code(info["job_code"], ctx["global_ns"])
             _schedule_job(
-                scheduler, 
-                name, 
-                job_func, 
-                info["type"], 
+                scheduler,
+                name,
+                job_func,
+                info["type"],
                 info["time"],
                 info.get("retry_count", 0),
                 info.get("retry_interval", 5)
             )
+            (f"任务 '{name}' 已从数据库恢复") >> ctx["log"]
         except Exception as e:
-            e >> ctx["log"]
-    
+            (f"恢复任务 '{name}' 失败：{e}") >> ctx["log"]
+
     _ensure_default_strategy_task(ctx, db, tasks, scheduler)
 
 

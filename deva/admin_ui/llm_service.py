@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import time
+import queue
 
 try:
     from openai import APIStatusError
@@ -141,7 +142,7 @@ async def get_gpt_response(ctx, prompt, session=None, scope=None, model_type="de
     # Unified AI execution model: prefer dedicated worker loop (streaming in worker).
     if run_ai_in_worker is not None and submit_ai_coro is not None:
         SENTINEL = object()
-        async_q = asyncio.Queue()
+        sync_q = queue.Queue()
 
         async def _worker_stream_call():
             client = AsyncOpenAI(api_key=api_key, base_url=base_url)
@@ -160,10 +161,10 @@ async def get_gpt_response(ctx, prompt, session=None, scope=None, model_type="de
                         content = getattr(delta, "content", "") or ""
                     if content and not content.startswith("检索"):
                         text += content
-                        await async_q.put(content)
+                        sync_q.put(content)
                 return text
             finally:
-                await async_q.put(SENTINEL)
+                sync_q.put(SENTINEL)
                 await client.close()
 
         try:
@@ -175,8 +176,19 @@ async def get_gpt_response(ctx, prompt, session=None, scope=None, model_type="de
             while True:
                 item = None
                 try:
-                    item = await asyncio.wait_for(async_q.get(), timeout=0.2)
-                except asyncio.TimeoutError:
+                    # 检查 worker_future 是否完成，避免无限等待
+                    if worker_future.done():
+                        # 尝试获取队列中的剩余数据
+                        try:
+                            item = sync_q.get(block=False)
+                        except queue.Empty:
+                            break
+                    else:
+                        try:
+                            item = sync_q.get(block=True, timeout=0.2)
+                        except queue.Empty:
+                            pass
+                except Exception:
                     pass
                 
                 if item is None:
@@ -202,7 +214,13 @@ async def get_gpt_response(ctx, prompt, session=None, scope=None, model_type="de
                         buffer = ""
                         last_flush_ts = time.time()
 
-            worker_text = await asyncio.wrap_future(worker_future)
+            # 确保获取 worker_future 的结果
+            try:
+                worker_text = await asyncio.wrap_future(worker_future)
+            except Exception as e:
+                (f"获取 worker 结果失败: {e}") >> log
+                raise
+                
             if buffer.strip():
                 logfunc(buffer)
                 accumulated_text += buffer
