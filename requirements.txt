@@ -31,7 +31,7 @@ aiohttp>=3.8
 akshare>=1.0
 
 # Utilities
-pymaybe>=0.2
+pymaybe
 pampy>=0.3
 expiringdict>=1.2
 
