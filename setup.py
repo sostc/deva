@@ -3,7 +3,7 @@ from os.path import exists
 
 setup(
     name='deva',
-    version='1.4.4',
+    version='1.5.0',
     include_package_data=True,
     packages=find_packages(),
     python_requires='>=3.8',
@@ -11,7 +11,7 @@ setup(
     author_email='zjw0358@gmail.com',
     url='https://github.com/sostc/deva',
     license='http://www.apache.org/licenses/LICENSE-2.0.html',
-    description='异步流式处理框架 - Asynchronous stream processing framework',
+    description='智能数据处理平台 - Intelligent data processing platform with streaming and AI capabilities',
     long_description=(open('README_PYPI.rst').read() if exists('README_PYPI.rst')
                       else open('README.rst').read() if exists('README.rst')
                       else ''),
