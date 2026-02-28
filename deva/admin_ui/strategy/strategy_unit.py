@@ -58,7 +58,7 @@ import pandas as pd
 
 from deva import Stream, NS, NB, log
 
-from .base import (
+from ..common.base import (
     BaseMetadata,
     BaseState,
     StatusMixin,
@@ -72,10 +72,8 @@ from .logging_context import (
 
 
 class StrategyStatus(str, Enum):
-    DRAFT = "draft"
+    STOPPED = "stopped"
     RUNNING = "running"
-    PAUSED = "paused"
-    ARCHIVED = "archived"
 
 
 class OutputType(str, Enum):
@@ -113,74 +111,7 @@ class SchemaDefinition:
         return True, ""
 
 
-@dataclass
-class UpstreamSource:
-    name: str
-    source_type: str
-    description: str = ""
-    
-    def to_dict(self) -> dict:
-        return asdict(self)
 
-
-@dataclass
-class DownstreamSink:
-    name: str
-    sink_type: OutputType
-    target: str
-    description: str = ""
-    exclusive: bool = False
-    
-    def to_dict(self) -> dict:
-        return {
-            "name": self.name,
-            "sink_type": self.sink_type.value if hasattr(self.sink_type, 'value') else str(self.sink_type),
-            "target": self.target,
-            "description": self.description,
-            "exclusive": self.exclusive,
-        }
-
-
-@dataclass
-class Lineage:
-    upstream: List[UpstreamSource] = field(default_factory=list)
-    downstream: List[DownstreamSink] = field(default_factory=list)
-    
-    def to_dict(self) -> dict:
-        return {
-            "upstream": [u.to_dict() for u in self.upstream],
-            "downstream": [d.to_dict() for d in self.downstream],
-        }
-    
-    def add_upstream(self, source: UpstreamSource):
-        # Handle case where existing upstream items might be dictionaries
-        def get_name(item):
-            if isinstance(item, dict):
-                return item.get("name", "")
-            elif hasattr(item, "name"):
-                return item.name
-            return str(item)
-        
-        if not any(get_name(u) == source.name for u in self.upstream):
-            self.upstream.append(source)
-    
-    def add_downstream(self, sink: DownstreamSink):
-        # Handle case where existing downstream items might be dictionaries
-        def get_name(item):
-            if isinstance(item, dict):
-                return item.get("name", "")
-            elif hasattr(item, "name"):
-                return item.name
-            return str(item)
-        
-        if not any(get_name(d) == sink.name for d in self.downstream):
-            self.downstream.append(sink)
-    
-    def remove_upstream(self, name: str):
-        self.upstream = [u for u in self.upstream if u.name != name]
-    
-    def remove_downstream(self, name: str):
-        self.downstream = [d for d in self.downstream if d.name != name]
 
 
 @dataclass
@@ -191,6 +122,8 @@ class StrategyMetadata(BaseMetadata):
     strategy_func_code: str = ""
     bound_datasource_id: str = ""
     bound_datasource_name: str = ""
+    summary: str = ""
+    max_history_count: int = 30
 
 
 @dataclass
@@ -228,6 +161,7 @@ class StrategyUnit(StatusMixin):
         strategy_func_code: str = "",
         bound_datasource_id: str = "",
         bound_datasource_name: str = "",
+        max_history_count: int = 30,
     ):
         self._id = self._generate_id(name)
         self.metadata = StrategyMetadata(
@@ -238,12 +172,13 @@ class StrategyUnit(StatusMixin):
             strategy_func_code=strategy_func_code,
             bound_datasource_id=bound_datasource_id,
             bound_datasource_name=bound_datasource_name,
+            max_history_count=max_history_count,
         )
         
-        self.lineage = Lineage()
         self.input_schema = input_schema or SchemaDefinition()
         self.output_schema = output_schema or SchemaDefinition()
         self.state = ExecutionState()
+        self.state.status = StrategyStatus.STOPPED.value
         
         self._processor_func = None
         self._processor_code = ""
@@ -255,6 +190,8 @@ class StrategyUnit(StatusMixin):
         self._error_stream: Optional[Stream] = None
         self._processing_lock = threading.Lock()
         self._was_running: bool = False
+        self._input_data_buffer: List[Dict] = []
+        self._input_buffer_lock = threading.Lock()
         
         if processor_func:
             self.set_processor(processor_func)
@@ -305,11 +242,22 @@ class StrategyUnit(StatusMixin):
     
     @property
     def status(self) -> StrategyStatus:
-        return StrategyStatus(self.state.status)
+        # 处理旧的状态值，映射到新的状态
+        old_status = self.state.status
+        if old_status in ["paused", "draft", "archived"]:
+            return StrategyStatus.STOPPED
+        elif old_status == "running":
+            return StrategyStatus.RUNNING
+        else:
+            return StrategyStatus.STOPPED
     
     @property
     def is_paused(self) -> bool:
-        return self.state.status == StrategyStatus.PAUSED.value
+        return self.state.status == StrategyStatus.STOPPED.value
+    
+    @property
+    def is_running(self) -> bool:
+        return self.state.status == StrategyStatus.RUNNING.value
     
     def set_processor(self, func: Callable, code: str = None, ai_doc: str = None):
         if not callable(func):
@@ -430,6 +378,9 @@ class StrategyUnit(StatusMixin):
             if not params or params[0] not in ("data", "df"):
                 return {"success": False, "error": f"process函数的第一个参数名必须是 'data' 或 'df'，当前为 '{params[0] if params else '无参数'}'"}
             
+            # 提取函数文档
+            func_doc = test_locals["process"].__doc__ or ""
+            
             old_code = self.metadata.strategy_func_code
             
             self.metadata.strategy_func_code = code
@@ -438,7 +389,7 @@ class StrategyUnit(StatusMixin):
             self._save_code_version(code, old_code)
             
             try:
-                self.set_processor_from_code(code, ai_doc=self._ai_documentation)
+                self.set_processor_from_code(code, ai_doc=func_doc)
             except Exception as e:
                 pass
             
@@ -492,11 +443,53 @@ class StrategyUnit(StatusMixin):
     
     def set_input_stream(self, stream: Stream):
         self._input_stream = stream
-        stream_name = getattr(stream, 'name', None) or str(stream)
-        self.lineage.add_upstream(UpstreamSource(
-            name=stream_name,
-            source_type="stream",
-        ))
+        
+        # Add a sink to track input data
+        def track_input_data(data):
+            from datetime import datetime
+            input_info = {
+                "data": data,
+                "timestamp": datetime.now().isoformat(),
+                "data_type": type(data).__name__,
+                "data_size": len(data) if hasattr(data, '__len__') else 0
+            }
+            with self._input_buffer_lock:
+                self._input_data_buffer.append(input_info)
+                # Keep only the most recent 3 items
+                if len(self._input_data_buffer) > 3:
+                    self._input_data_buffer = self._input_data_buffer[-3:]
+        
+        if hasattr(stream, 'sink'):
+            stream.sink(track_input_data)
+    
+    def get_recent_input_data(self, limit: int = 3) -> List[Dict]:
+        """获取最近的输入数据概览"""
+        # First try to get data from bound datasource
+        if self.metadata.bound_datasource_id:
+            try:
+                from deva.admin_ui.datasource.datasource import get_ds_manager
+                ds_mgr = get_ds_manager()
+                datasource = ds_mgr.get_source(self.metadata.bound_datasource_id)
+                if datasource:
+                    recent_data = datasource.get_recent_data(limit)
+                    if recent_data:
+                        from datetime import datetime
+                        formatted_data = []
+                        for data in recent_data:
+                            data_info = {
+                                "data": data,
+                                "timestamp": datetime.now().isoformat(),
+                                "data_type": type(data).__name__,
+                                "data_size": len(data) if hasattr(data, '__len__') else 0
+                            }
+                            formatted_data.append(data_info)
+                        return formatted_data
+            except Exception:
+                pass
+        
+        # Fall back to input stream data
+        with self._input_buffer_lock:
+            return self._input_data_buffer[-limit:]
     
     def bind_datasource(self, datasource_id: str, datasource_name: str):
         """绑定到数据源"""
@@ -514,54 +507,27 @@ class StrategyUnit(StatusMixin):
         self.save()
         self._log_event("INFO", "Unbound from datasource")
     
-    def set_output_stream(self, stream: Stream):
-        self._output_stream = stream
-        stream_name = getattr(stream, 'name', None) or str(stream)
-        self.lineage.add_downstream(DownstreamSink(
-            name=stream_name,
-            sink_type=OutputType.STREAM,
-            target=stream_name,
-        ))
+
     
     def set_error_stream(self, stream: Stream):
         self._error_stream = stream
     
-    def connect_upstream(self, source_name: str, source_type: str = "stream", description: str = ""):
-        self.lineage.add_upstream(UpstreamSource(
-            name=source_name,
-            source_type=source_type,
-            description=description,
-        ))
-        if source_type == "stream":
-            self._input_stream = NS(source_name, description=f'{self.name}策略的输入流')
-    
-    def connect_downstream(
-        self,
-        sink_name: str,
-        sink_type: OutputType = OutputType.STREAM,
-        target: str = None,
-        exclusive: bool = False,
-        description: str = "",
-    ):
-        self.lineage.add_downstream(DownstreamSink(
-            name=sink_name,
-            sink_type=sink_type,
-            target=target or sink_name,
-            exclusive=exclusive,
-            description=description,
-        ))
-        if sink_type == OutputType.STREAM:
-            self._output_stream = NS(sink_name, description=f'{self.name}策略的输出流')
+
     
     def start(self) -> dict:
         if self.state.status == StrategyStatus.RUNNING.value:
             return {"success": True, "message": "Already running"}
         
-        if self.state.status == StrategyStatus.ARCHIVED.value:
-            return {"success": False, "error": "Cannot start archived strategy"}
-        
         if not self._processor_func:
             return {"success": False, "error": "No processor function set"}
+        
+        # 确保函数文档已更新
+        if self._processor_code:
+            try:
+                # 重新设置处理器以确保文档已更新
+                self.set_processor_from_code(self._processor_code, ai_doc=self._ai_documentation)
+            except Exception as e:
+                self._log_event("ERROR", f"Failed to update processor documentation: {str(e)}")
         
         self.state.status = StrategyStatus.RUNNING.value
         self.metadata.touch()
@@ -570,9 +536,11 @@ class StrategyUnit(StatusMixin):
         
         if self.metadata.bound_datasource_id:
             self._bind_to_datasource_on_start()
+        else:
+            self._log_event("WARNING", "Strategy started without bound datasource. Please bind a datasource for proper operation.")
         
         self._log_event("INFO", "Strategy started")
-        return {"success": True, "status": self.state.status}
+        return {"success": True, "status": self.state.status, "ai_documentation": self._ai_documentation}
     
     def _bind_to_datasource_on_start(self):
         """启动时重新绑定到数据源"""
@@ -580,7 +548,7 @@ class StrategyUnit(StatusMixin):
             return
             
         try:
-            from deva.admin_ui.strategy.datasource import get_ds_manager
+            from deva.admin_ui.datasource import get_ds_manager
             
             ds_mgr = get_ds_manager()
             source = ds_mgr.get_source(self.metadata.bound_datasource_id)
@@ -597,65 +565,57 @@ class StrategyUnit(StatusMixin):
                         description=f"策略 {self.name} 的输出流"
                     )
                     
-                    source_stream.map(lambda data: self._processor_func(data)) >> output_stream
+                    source_stream.map(lambda data: self.process(data)) >> output_stream
                     
-                    self.set_input_stream(source_stream)
-                    self.set_output_stream(output_stream)
+                    self._input_stream = source_stream
+                    self._output_stream = output_stream
         except Exception as e:
             self._log_event("ERROR", f"Failed to bind to datasource on start: {str(e)}")
     
-    def pause(self) -> dict:
+    def stop(self) -> dict:
         if self.state.status != StrategyStatus.RUNNING.value:
             return {"success": True, "message": "Not running"}
         
-        self.state.status = StrategyStatus.PAUSED.value
+        self.state.status = StrategyStatus.STOPPED.value
         self.metadata.touch()
+        
+        # 断开与数据源的连接，确保策略真正停止执行
+        if self.metadata.bound_datasource_id:
+            try:
+                from deva.admin_ui.datasource import get_ds_manager
+                ds_mgr = get_ds_manager()
+                source = ds_mgr.get_source(self.metadata.bound_datasource_id)
+                if source:
+                    # 这里可以添加断开连接的逻辑
+                    pass
+            except Exception as e:
+                self._log_event("ERROR", f"Failed to disconnect from datasource: {str(e)}")
         
         self._save_running_state(False)
         self.save()
         
-        self._log_event("INFO", "Strategy paused")
+        self._log_event("INFO", "Strategy stopped")
         return {"success": True, "status": self.state.status}
     
     def resume(self) -> dict:
-        if self.state.status != StrategyStatus.PAUSED.value:
-            return {"success": False, "error": "Not paused"}
+        if self.state.status != StrategyStatus.STOPPED.value:
+            return {"success": False, "error": "Not stopped"}
         
-        return self.start()
+        result = self.start()
+        # 确保返回函数文档
+        result["ai_documentation"] = self._ai_documentation
+        return result
     
     def archive(self) -> dict:
-        impact = self._analyze_downstream_impact()
-        
-        self.state.status = StrategyStatus.ARCHIVED.value
+        self.state.status = StrategyStatus.STOPPED.value
         self.metadata.touch()
         
         self._save_running_state(False)
         
-        self._log_event("INFO", "Strategy archived", impact=impact)
-        return {"success": True, "status": self.state.status, "impact": impact}
+        self._log_event("INFO", "Strategy archived")
+        return {"success": True, "status": self.state.status}
     
-    def _analyze_downstream_impact(self) -> dict:
-        impact = {
-            "downstreams": [],
-            "exclusive_sinks": [],
-            "warnings": [],
-        }
-        
-        for sink in self.lineage.downstream:
-            sink_info = {
-                "name": sink.name,
-                "type": sink.sink_type.value,
-                "exclusive": sink.exclusive,
-            }
-            impact["downstreams"].append(sink_info)
-            
-            if sink.exclusive:
-                impact["exclusive_sinks"].append(sink.name)
-                impact["warnings"].append(
-                    f"Downstream '{sink.name}' is exclusive and will lose data input"
-                )
-        
-        return impact
+
     
     def process(self, data: Any) -> Any:
         if not self.is_running:
@@ -729,6 +689,11 @@ class StrategyUnit(StatusMixin):
                 error=error,
                 persist=True,
             )
+            
+            # 检查并清理超过限制的历史记录
+            max_count = self.metadata.max_history_count
+            if max_count > 0:
+                store.cleanup(strategy_id=self._id, max_count=max_count)
         except Exception:
             pass
     
@@ -784,9 +749,30 @@ class StrategyUnit(StatusMixin):
         self._log_event("INFO", "Logic updated", version=self._code_version)
     
     def to_dict(self) -> dict:
+        recent_inputs = self.get_recent_input_data()
+        # Format input data for display
+        formatted_inputs = []
+        for input_item in recent_inputs:
+            formatted_input = {
+                "timestamp": input_item["timestamp"],
+                "data_type": input_item["data_type"],
+                "data_size": input_item["data_size"]
+            }
+            # Add a preview if possible
+            if isinstance(input_item["data"], (list, dict, str)):
+                if isinstance(input_item["data"], str):
+                    preview = input_item["data"][:100] + ("..." if len(input_item["data"]) > 100 else "")
+                else:
+                    import json
+                    try:
+                        preview = json.dumps(input_item["data"], ensure_ascii=False)[:100] + ("..." if len(str(input_item["data"])) > 100 else "")
+                    except:
+                        preview = str(input_item["data"])[:100] + ("..." if len(str(input_item["data"])) > 100 else "")
+                formatted_input["preview"] = preview
+            formatted_inputs.append(formatted_input)
+        
         return {
             "metadata": self.metadata.to_dict(),
-            "lineage": self.lineage.to_dict(),
             "input_schema": self.input_schema.to_dict(),
             "output_schema": self.output_schema.to_dict(),
             "state": self.state.to_dict(),
@@ -794,6 +780,7 @@ class StrategyUnit(StatusMixin):
             "has_processor": self._processor_func is not None,
             "processor_code": self._processor_code,
             "ai_documentation": self._ai_documentation,
+            "recent_inputs": formatted_inputs,
         }
     
     def to_json(self) -> str:
@@ -813,55 +800,19 @@ class StrategyUnit(StatusMixin):
         unit.metadata.created_at = metadata.get("created_at", time.time())
         unit.metadata.updated_at = metadata.get("updated_at", time.time())
         unit.metadata.version = metadata.get("version", 1)
-        
-        lineage_data = data.get("lineage", {})
-        
-        # Handle upstream sources
-        for upstream in lineage_data.get("upstream", []):
-            if isinstance(upstream, dict):
-                unit.lineage.add_upstream(UpstreamSource(**upstream))
-            elif isinstance(upstream, UpstreamSource):
-                unit.lineage.add_upstream(upstream)
-            else:
-                # Handle case where upstream might be stored in a different format
-                try:
-                    upstream_source = UpstreamSource(
-                        name=upstream.get("name", "") if hasattr(upstream, "get") else str(upstream),
-                        source_type=upstream.get("source_type", "stream") if hasattr(upstream, "get") else "stream",
-                        description=upstream.get("description", "") if hasattr(upstream, "get") else ""
-                    )
-                    unit.lineage.add_upstream(upstream_source)
-                except Exception as e:
-                    # Log the error but continue processing
-                    print(f"Warning: Failed to create upstream source from {upstream}: {e}")
-        
-        # Handle downstream sinks
-        for downstream in lineage_data.get("downstream", []):
-            if isinstance(downstream, dict):
-                if "sink_type" in downstream and isinstance(downstream["sink_type"], str):
-                    downstream["sink_type"] = OutputType(downstream["sink_type"])
-                unit.lineage.add_downstream(DownstreamSink(**downstream))
-            elif isinstance(downstream, DownstreamSink):
-                unit.lineage.add_downstream(downstream)
-            else:
-                # Handle case where downstream might be stored in a different format
-                try:
-                    downstream_sink = DownstreamSink(
-                        name=downstream.get("name", "") if hasattr(downstream, "get") else str(downstream),
-                        sink_type=OutputType(downstream.get("sink_type", "stream")) if hasattr(downstream, "get") else OutputType.STREAM,
-                        target=downstream.get("target", "") if hasattr(downstream, "get") else "",
-                        description=downstream.get("description", "") if hasattr(downstream, "get") else "",
-                        exclusive=downstream.get("exclusive", False) if hasattr(downstream, "get") else False
-                    )
-                    unit.lineage.add_downstream(downstream_sink)
-                except Exception as e:
-                    # Log the error but continue processing
-                    print(f"Warning: Failed to create downstream sink from {downstream}: {e}")
+        unit.metadata.summary = metadata.get("summary", "")
+        unit.metadata.max_history_count = metadata.get("max_history_count", 0)
         
         state_data = data.get("state", {})
         saved_status = state_data.get("status", "draft")
-        unit._was_running = (saved_status == StrategyStatus.RUNNING.value)
-        unit.state.status = StrategyStatus.PAUSED.value if saved_status == StrategyStatus.RUNNING.value else saved_status
+        # 处理旧的状态值，映射到新的状态
+        if saved_status in ["paused", "draft", "archived"]:
+            unit.state.status = StrategyStatus.STOPPED.value
+        elif saved_status == "running":
+            unit.state.status = StrategyStatus.RUNNING.value
+        else:
+            unit.state.status = StrategyStatus.STOPPED.value
+        unit._was_running = (saved_status == "running")
         unit.state.error_count = state_data.get("error_count", 0)
         unit.state.last_error = state_data.get("last_error", "")
         unit.state.processed_count = state_data.get("processed_count", 0)
@@ -915,8 +866,6 @@ class StrategyUnit(StatusMixin):
         return None
     
     def delete(self) -> dict:
-        impact = self._analyze_downstream_impact()
-        
         self.archive()
         
         with self._instances_lock:
@@ -926,8 +875,8 @@ class StrategyUnit(StatusMixin):
         if self._id in db:
             del db[self._id]
         
-        self._log_event("INFO", "Strategy deleted", impact=impact)
-        return {"success": True, "impact": impact}
+        self._log_event("INFO", "Strategy deleted")
+        return {"success": True}
     
     def __repr__(self) -> str:
         return f"<StrategyUnit: {self.name} [{self.state.status}]>"
@@ -939,22 +888,16 @@ class StrategyUnit(StatusMixin):
 def create_strategy_unit(
     name: str,
     processor_func: Callable = None,
-    upstream_source: str = None,
-    downstream_sink: str = None,
     description: str = "",
+    max_history_count: int = 30,
     **kwargs,
 ) -> StrategyUnit:
     unit = StrategyUnit(
         name=name,
         processor_func=processor_func,
         description=description,
+        max_history_count=max_history_count,
         **kwargs,
     )
-    
-    if upstream_source:
-        unit.connect_upstream(upstream_source)
-    
-    if downstream_sink:
-        unit.connect_downstream(downstream_sink)
     
     return unit

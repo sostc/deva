@@ -35,6 +35,7 @@ from .strategy_unit import (
     DataSchema,
     OutputType,
 )
+from .strategy_logic_db import get_logic_db
 from .utils import (
     format_pct,
     prepare_df,
@@ -71,6 +72,8 @@ class StockStrategyUnit(StrategyUnit):
         window_seconds: int = 30,
         output_stream_name: str = None,
         auto_start: bool = False,
+        logic_id: str = None,
+        strategy_type: str = None,
     ):
         super().__init__(
             name=name,
@@ -84,6 +87,11 @@ class StockStrategyUnit(StrategyUnit):
         self.window_seconds = window_seconds
         self._data_buffer: List[pd.DataFrame] = []
         self._buffer_lock = None
+        self.logic_id = logic_id
+        self.strategy_type = strategy_type
+        
+        # 从数据库加载策略逻辑
+        self._load_logic_from_db()
         
         if output_stream_name:
             self.connect_downstream(output_stream_name)
@@ -117,6 +125,30 @@ class StockStrategyUnit(StrategyUnit):
         self._ensure_buffer_lock()
         with self._buffer_lock:
             self._data_buffer.clear()
+    
+    def _load_logic_from_db(self):
+        """从数据库加载策略逻辑"""
+        if not self.logic_id and not self.strategy_type:
+            return
+        
+        logic_db = get_logic_db()
+        logic = None
+        
+        if self.logic_id:
+            logic = logic_db.get_logic(self.logic_id)
+        elif self.strategy_type:
+            logic = logic_db.get_logic_by_type(self.strategy_type)
+        
+        if logic and logic.code:
+            try:
+                local_ns = {"pd": pd, "__builtins__": __builtins__}
+                exec(logic.code, local_ns, local_ns)
+                
+                if "process" in local_ns and callable(local_ns["process"]):
+                    self.set_processor(local_ns["process"])
+                    log.info(f"[StockStrategy] Loaded logic from DB for {self.name}")
+            except Exception as e:
+                log.error(f"[StockStrategy] Failed to load logic from DB: {e}")
 
 
 class BlockChangeStrategy(StockStrategyUnit):
@@ -142,40 +174,9 @@ class BlockChangeStrategy(StockStrategyUnit):
             description="计算板块在时间窗口内的涨跌幅",
             window_seconds=window_seconds,
             output_stream_name=output_stream_name,
+            strategy_type="block_change",
             **kwargs,
         )
-        
-        self.set_processor(self._process)
-    
-    def _process(self, df: pd.DataFrame) -> Dict:
-        if df is None or len(df) == 0:
-            return {"success": False, "error": "No data"}
-        
-        try:
-            prepared = prepare_df(df, ["code", "change", "name"])
-            if prepared.empty:
-                return {"success": False, "error": "No valid data after preparation"}
-            
-            html = build_block_change_html(
-                prepared,
-                top_n=self.top_n,
-                sample_n=self.sample_n,
-                col="change"
-            )
-            
-            return {
-                "success": True,
-                "html": html,
-                "data_count": len(prepared),
-                "window_seconds": self.window_seconds,
-                "ts": datetime.now().isoformat(),
-            }
-        except Exception as e:
-            return {
-                "success": False,
-                "error": str(e),
-                "ts": datetime.now().isoformat(),
-            }
 
 
 class LimitUpDownStrategy(StockStrategyUnit):
@@ -200,38 +201,9 @@ class LimitUpDownStrategy(StockStrategyUnit):
             description="统计涨跌停股票数量",
             window_seconds=0,
             output_stream_name=output_stream_name,
+            strategy_type="limit_up_down",
             **kwargs,
         )
-        
-        self.set_processor(self._process)
-    
-    def _process(self, df: pd.DataFrame) -> Dict:
-        if df is None or len(df) == 0:
-            return {"success": False, "error": "No data"}
-        
-        try:
-            html = build_limit_up_down_html(
-                df,
-                threshold=self.threshold,
-                top_n=self.top_n
-            )
-            
-            zt_count = int(df.query(f"p_change>{self.threshold}")["code"].nunique())
-            dt_count = int(df.query(f"p_change<-{self.threshold}")["code"].nunique())
-            
-            return {
-                "success": True,
-                "html": html,
-                "limit_up_count": zt_count,
-                "limit_down_count": dt_count,
-                "ts": datetime.now().isoformat(),
-            }
-        except Exception as e:
-            return {
-                "success": False,
-                "error": str(e),
-                "ts": datetime.now().isoformat(),
-            }
 
 
 class BlockRankingStrategy(StockStrategyUnit):
@@ -258,37 +230,9 @@ class BlockRankingStrategy(StockStrategyUnit):
             description="按涨跌幅对板块排序",
             window_seconds=0,
             output_stream_name=output_stream_name,
+            strategy_type="block_ranking",
             **kwargs,
         )
-        
-        self.set_processor(self._process)
-    
-    def _process(self, df: pd.DataFrame) -> Dict:
-        if df is None or len(df) == 0:
-            return {"success": False, "error": "No data"}
-        
-        try:
-            html = build_block_ranking_html(
-                df,
-                sample_sizes=self.sample_sizes,
-                top_n=self.top_n,
-                sample_n=self.sample_n,
-                col="p_change"
-            )
-            
-            return {
-                "success": True,
-                "html": html,
-                "data_count": len(df),
-                "sample_sizes": self.sample_sizes,
-                "ts": datetime.now().isoformat(),
-            }
-        except Exception as e:
-            return {
-                "success": False,
-                "error": str(e),
-                "ts": datetime.now().isoformat(),
-            }
 
 
 class CustomStockFilterStrategy(StockStrategyUnit):
@@ -310,6 +254,7 @@ class CustomStockFilterStrategy(StockStrategyUnit):
             description="应用自定义筛选条件",
             window_seconds=0,
             output_stream_name=output_stream_name,
+            strategy_type="custom_filter",
             **kwargs,
         )
         
@@ -392,6 +337,9 @@ def create_stock_strategy(
     if name:
         kwargs["name"] = name
     
+    # 传递strategy_type参数，以便从数据库加载逻辑
+    kwargs["strategy_type"] = strategy_type
+    
     return cls(**kwargs)
 
 
@@ -441,7 +389,7 @@ def initialize_default_stock_strategies(
         策略实例字典
     """
     from .strategy_manager import get_manager
-    from .datasource import get_ds_manager
+    from ..datasource.datasource import get_ds_manager
     
     strategies = {}
     

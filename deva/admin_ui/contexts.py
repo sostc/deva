@@ -1,5 +1,8 @@
 """Context builders for admin route wrappers."""
 
+from .menus import create_nav_menu, create_sidebar, init_floating_menu_manager
+from .utils import stable_widget_id
+
 
 SSE_LOG_JS = r'''
 // 确保DOM元素存在
@@ -43,14 +46,23 @@ function createSSEConnection() {
             try {
                 const data = JSON.parse(event.data);
                 const message = data.message || data;
-                const logbox = document.querySelector("#webio-logbox-log");
-                if (logbox) {
-                    const logEntry = `${new Date().toLocaleTimeString()} - ${message}\n`;
-                    logbox.textContent += logEntry;
-                    logbox.scrollTop = logbox.scrollHeight;
-                } else {
-                    console.warn('未找到logbox元素');
+                const logEntry = `${new Date().toLocaleTimeString()} - ${message}\n`;
+                
+                // 更新首页日志框
+                const mainLogbox = document.querySelector("#webio-logbox-log");
+                if (mainLogbox) {
+                    mainLogbox.textContent += logEntry;
+                    mainLogbox.scrollTop = mainLogbox.scrollHeight;
                 }
+                
+                // 更新 sidebar 日志框
+                const sidebarLogbox = document.querySelector("#webio-logbox-sidebar_log");
+                if (sidebarLogbox) {
+                    sidebarLogbox.textContent += logEntry;
+                    sidebarLogbox.scrollTop = sidebarLogbox.scrollHeight;
+                }
+                
+                // 滚动 sidebar 容器
                 const messageList = document.querySelector('#webio-scope-sidebar');
                 if (messageList) {
                     messageList.scrollTop = messageList.scrollHeight;
@@ -273,7 +285,7 @@ def main_ui_ctx(ns, admin_tables):
         'toast': ns['toast'],
         'PASSWORD': ns['PASSWORD'],
         'datetime': ns['datetime'],
-        'stable_widget_id': admin_tables.stable_widget_id,
+        'stable_widget_id': stable_widget_id,
         'edit_data_popup': ns['edit_data_popup'],
         'write_to_log': ns['write_to_log'],
         'show_timer_detail': ns['show_timer_detail'],
@@ -297,9 +309,9 @@ def main_ui_ctx(ns, admin_tables):
         'view_dtalk_message': ns['view_dtalk_message'],
         'delete_dtalk_message': ns['delete_dtalk_message'],
         'clear_all_dtalk_messages': ns['clear_all_dtalk_messages'],
-        'init_floating_menu_manager': ns['init_floating_menu_manager'],
-        'create_sidebar': ns['create_sidebar'],
-        'create_nav_menu': ns['create_nav_menu'],
+        'init_floating_menu_manager': init_floating_menu_manager,
+        'create_sidebar': create_sidebar,
+        'create_nav_menu': create_nav_menu,
         'run_ai_in_worker': ns['run_ai_in_worker'],
         'get_bus_runtime_status': ns['get_bus_runtime_status'],
         'get_bus_clients': ns['get_bus_clients'],
@@ -316,17 +328,8 @@ def strategy_ctx(ns):
         'get_strategy_basic_meta': ns.get('get_strategy_basic_meta'),
         'refresh_strategy_basic_df': ns.get('refresh_strategy_basic_df'),
         'refresh_strategy_basic_df_async': ns.get('refresh_strategy_basic_df_async'),
-        'get_replay_config': ns.get('get_replay_config'),
-        'set_replay_config': ns.get('set_replay_config'),
-        'get_history_metadata': ns.get('get_history_metadata'),
-        'save_current_quant_to_history': ns.get('save_current_quant_to_history'),
-        'get_auto_save_config': ns.get('get_auto_save_config'),
-        'set_auto_save': ns.get('set_auto_save'),
-        'get_tick_metadata': ns.get('get_tick_metadata'),
-        'is_replay_running': ns.get('is_replay_running'),
-        'start_history_replay': ns.get('start_history_replay'),
-        'stop_history_replay': ns.get('stop_history_replay'),
-        'get_tick_stream': ns.get('get_tick_stream'),
+
+
         'put_markdown': ns['put_markdown'],
         'put_text': ns['put_text'],
         'put_table': ns['put_table'],
@@ -346,6 +349,8 @@ def strategy_ctx(ns):
         'input': ns['input'],
         'textarea': ns['textarea'],
         'select': ns['select'],
+        'radio': ns['radio'],
+        'checkbox': ns['checkbox'],
         'NUMBER': ns['NUMBER'],
         'popup': ns['popup'],
         'close_popup': ns['close_popup'],
@@ -470,7 +475,7 @@ def follow_ui_ctx(ns, admin_tables):
         'toast': ns['toast'],
         'PASSWORD': ns['PASSWORD'],
         'datetime': ns['datetime'],
-        'stable_widget_id': admin_tables.stable_widget_id,
+        'stable_widget_id': stable_widget_id,
         'edit_data_popup': ns.get('edit_data_popup'),
         'write_to_log': ns['write_to_log'],
         'sse_js': SSE_LOG_JS,
@@ -478,8 +483,8 @@ def follow_ui_ctx(ns, admin_tables):
         'truncate': ns['truncate'],
         'set_table_style': ns['set_table_style'],
         'apply_global_styles': ns['apply_global_styles'],
-        'init_floating_menu_manager': ns['init_floating_menu_manager'],
-        'create_nav_menu': ns['create_nav_menu'],
+        'init_floating_menu_manager': init_floating_menu_manager,
+        'create_nav_menu': create_nav_menu,
         'run_ai_in_worker': ns['run_ai_in_worker'],
         'render_llm_config_guide': ns['render_llm_config_guide'],  # 添加LLM配置引导函数
     }
@@ -537,7 +542,7 @@ def browser_ui_ctx(ns, admin_tables):
         'toast': ns['toast'],
         'PASSWORD': ns['PASSWORD'],
         'datetime': ns['datetime'],
-        'stable_widget_id': admin_tables.stable_widget_id,
+        'stable_widget_id': stable_widget_id,
         'edit_data_popup': ns.get('edit_data_popup'),
         'write_to_log': ns['write_to_log'],
         'sse_js': SSE_LOG_JS,
@@ -555,8 +560,8 @@ def browser_ui_ctx(ns, admin_tables):
         'process_tabs': ns['process_tabs'],
         'extended_reading': ns['extended_reading'],
         'close_all_tabs': ns['close_all_tabs'],
-        'init_floating_menu_manager': ns['init_floating_menu_manager'],
-        'create_nav_menu': ns['create_nav_menu'],
+        'init_floating_menu_manager': init_floating_menu_manager,
+        'create_nav_menu': create_nav_menu,
         'run_ai_in_worker': ns['run_ai_in_worker'],
     }
 

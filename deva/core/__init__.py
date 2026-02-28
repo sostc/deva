@@ -6,6 +6,8 @@ from .bus import *
 from .when import *
 from .sources import *
 from .compute import *
+from .namespace import NS, NT
+from .store import DBStream
 from .utils.ioloop import get_io_loop
 
 __all__ = [

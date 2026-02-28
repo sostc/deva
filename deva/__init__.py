@@ -5,7 +5,7 @@ from .core.pipe import *
 from .core.bus import *
 from .endpoints import *
 from .core.when import *
-from .namespace import *
+from .core.namespace import *
 from .core.sources import *
 from .core.compute import *
 from .core.core import *

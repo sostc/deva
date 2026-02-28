@@ -102,7 +102,7 @@ class RedisBusBackend(BaseBusBackend):
     def __init__(self, group: str):
         self.group = group
     def build_stream(self, topic: str):
-        from .config import config
+        from ..config import config
         db_config = config.get_database_config()
         return NT(
             topic,
@@ -177,7 +177,7 @@ class FileIpcBusBackend(BaseBusBackend):
 class BusRuntime:
     def __init__(self, *, warn_stream, topic: str = "bus"):
         from .namespace import NB
-        from .config import config
+        from ..config import config
         bus_config = config.get_bus_config()
         self.warn_stream = warn_stream
         self.topic = bus_config.get("topic", topic)
