@@ -14,6 +14,7 @@
 - UI 增强集成：`reports/ui/enhanced_task_ui_integration_report.md`
 
 ### 用户指南
+- **数据字典 + 数据补齐 + 策略执行 E2E**：`guides/dictionary_enrichment_datasource_strategy_e2e.md` ⭐
 - 快速开始：`guides/quickstart.md`
 - 安装指南：`guides/installation.md`
 - 实时行情与窗口策略：`guides/realtime_quant_strategy_workflow_guide.md`
