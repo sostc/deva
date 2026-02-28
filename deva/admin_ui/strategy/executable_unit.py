@@ -33,7 +33,7 @@ from typing import Any, Callable, Dict, List, Optional, Type
 
 from deva import Stream, NS, log
 
-from .base import (
+from ..common.base import (
     BaseMetadata,
     BaseState,
     BaseManager,

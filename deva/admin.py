@@ -73,12 +73,12 @@ try:
     from .admin_ui import contexts as admin_contexts
     from .admin_ui import monitor_routes as admin_monitor_routes
     from .admin_ui import monitor_ui as admin_monitor_ui
-    from .admin_ui.strategy import panel as admin_strategy_panel
-    from .admin_ui.strategy import runtime as admin_strategy_runtime
-    from .admin_ui import follow_ui as admin_follow_ui
-    from .admin_ui import browser_ui as admin_browser_ui
+    from .admin_ui.strategy.strategy_panel import render_strategy_admin as admin_strategy_panel
+    from .admin_ui.strategy.runtime import get_strategy_config, set_strategy_config, get_strategy_basic_meta, refresh_strategy_basic_df, refresh_strategy_basic_df_async
+    from .admin_ui.follow import follow_ui as admin_follow_ui
+    from .admin_ui.browser import browser_ui as admin_browser_ui
     from .llm.worker_runtime import run_ai_in_worker
-    from .admin_ui import ai_center as admin_ai_center
+    from .admin_ui.ai import ai_center as admin_ai_center
 except ImportError:
     # Allow running as a script: python deva/admin.py
     from deva.admin_ui import runtime as admin_runtime
@@ -92,22 +92,23 @@ except ImportError:
     from deva.admin_ui import contexts as admin_contexts
     from deva.admin_ui import monitor_routes as admin_monitor_routes
     from deva.admin_ui import monitor_ui as admin_monitor_ui
-    from deva.admin_ui.strategy import panel as admin_strategy_panel
-    from deva.admin_ui.strategy import runtime as admin_strategy_runtime
-    from deva.admin_ui import follow_ui as admin_follow_ui
-    from deva.admin_ui import browser_ui as admin_browser_ui
+    from deva.admin_ui.strategy.strategy_panel import render_strategy_admin as admin_strategy_panel
+    from deva.admin_ui.strategy.runtime import get_strategy_config, set_strategy_config, get_strategy_basic_meta, refresh_strategy_basic_df, refresh_strategy_basic_df_async
+    from deva.admin_ui.follow import follow_ui as admin_follow_ui
+    from deva.admin_ui.browser import browser_ui as admin_browser_ui
     from deva.llm.worker_runtime import run_ai_in_worker
+    from deva.admin_ui.ai import ai_center as admin_ai_center
 
 import pandas as pd
 from openai import AsyncOpenAI
-from tornado.web import create_signed_value, decode_signed_value
+from tornado.web import create_signed_value, decode_signed_value, RequestHandler
 
 from deva import (
     NW, NB, log, ls, Stream, first, sample, Deva, print, timer, NS, concat, Dtalk
 )
-from deva.store import DBStream
+from deva.core.store import DBStream
 from deva.browser import browser, tab, tabs
-from deva.bus import (
+from deva.core.bus import (
     warn,
     get_bus_runtime_status,
     get_bus_clients,
@@ -487,26 +488,26 @@ async def strategyadmin():
 
 
 async def datasourceadmin():
-    from .admin_ui.strategy.datasource_panel import render_datasource_admin
+    from .admin_ui.datasource.datasource_panel import render_datasource_admin
     return await render_datasource_admin(_datasource_ctx())
 
 async def followadmin():
-    from .admin_ui.follow_ui import render_follow_ui
+    from .admin_ui.follow.follow_ui import render_follow_ui
     return await render_follow_ui(_follow_ui_ctx())
 
 async def browseradmin():
-    from .admin_ui.browser_ui import render_browser_ui
+    from .admin_ui.browser.browser_ui import render_browser_ui
     return await render_browser_ui(_browser_ui_ctx())
 
 async def configadmin():
-    from .admin_ui.config_ui import render_config_admin
+    from .admin_ui.config.config_ui import render_config_admin
     return await render_config_admin(_config_ui_ctx())
 
 async def inspect_object(obj):
-    return admin_document.inspect_object_ui(_document_ui_ctx(), obj)
+    return admin_document.inspect_object(_document_ui_ctx(), obj)
 async def document():
     await init_admin_ui("Deva管理面板")
-    return admin_document.render_document_ui(_document_ui_ctx())
+    return admin_document.admin_document(_document_ui_ctx())
 
 
 def _document_ui_ctx():
@@ -519,7 +520,7 @@ def _document_ui_ctx():
 async def aicenter():
     """AI 功能中心"""
     await init_admin_ui("Deva AI 功能中心")
-    from .admin_ui.ai_center import render_ai_tab_ui
+    from .admin_ui.ai.ai_center import render_ai_tab_ui
     return await render_ai_tab_ui(_aicenter_ctx())
 
 
@@ -600,83 +601,7 @@ async def alltables():
     return await admin_monitor_ui.render_all_tables(_monitor_ui_ctx())
 
 
-def get_strategy_config():
-    return admin_strategy_runtime.get_strategy_config()
 
-
-def set_strategy_config(force_fetch=None, sync_bus=None):
-    return admin_strategy_runtime.set_strategy_config(force_fetch=force_fetch, sync_bus=sync_bus)
-
-
-def get_strategy_basic_meta():
-    return admin_strategy_runtime.get_strategy_basic_meta()
-
-
-def refresh_strategy_basic_df(force=True):
-    return admin_strategy_runtime.refresh_strategy_basic_df(force=force)
-
-
-async def refresh_strategy_basic_df_async(force=True):
-    return await admin_strategy_runtime.refresh_strategy_basic_df_async(force=force)
-
-
-def get_replay_config():
-    return admin_strategy_runtime.get_replay_config()
-
-
-def set_replay_config(mode=None, replay_date=None, replay_interval=None):
-    return admin_strategy_runtime.set_replay_config(mode=mode, replay_date=replay_date, replay_interval=replay_interval)
-
-
-def get_history_metadata():
-    return admin_strategy_runtime.get_history_metadata()
-
-
-def save_current_quant_to_history():
-    return admin_strategy_runtime.save_current_quant_to_history()
-
-
-def get_auto_save_config():
-    return admin_strategy_runtime.get_auto_save_config()
-
-
-def set_auto_save(enabled):
-    return admin_strategy_runtime.set_auto_save(enabled)
-
-
-def get_tick_metadata():
-    return admin_strategy_runtime.get_tick_metadata()
-
-
-def get_tick_stream():
-    return admin_strategy_runtime.get_tick_stream()
-
-
-def get_tick_keys_in_range(start, end=None):
-    return admin_strategy_runtime.get_tick_keys_in_range(start, end)
-
-
-def load_tick_by_key(key):
-    return admin_strategy_runtime.load_tick_by_key(key)
-
-
-def replay_ticks(start, end=None, interval=None):
-    return admin_strategy_runtime.replay_ticks(start, end, interval)
-
-
-def is_replay_running():
-    return admin_strategy_runtime.is_replay_running()
-
-
-def start_history_replay(date_str=None, interval=5.0, use_ticks=False, start_time=None, end_time=None):
-    return admin_strategy_runtime.start_history_replay(
-        date_str=date_str, interval=interval, use_ticks=use_ticks,
-        start_time=start_time, end_time=end_time
-    )
-
-
-def stop_history_replay():
-    return admin_strategy_runtime.stop_history_replay()
 
 
 def paginate_dataframe(scope,df, page_size):
@@ -713,6 +638,33 @@ def stream_click(streamname):
     return admin_route_helpers.stream_click(_stream_ctx(), streamname)
 
 
+class DataSourceInfoHandler(RequestHandler):
+    """数据源信息API处理器"""
+    def get(self, datasource_id):
+        try:
+            from .admin_ui.datasource import get_ds_manager
+            ds_mgr = get_ds_manager()
+            source = ds_mgr.get_source(datasource_id)
+            
+            if not source:
+                self.set_status(404)
+                self.write({"success": False, "error": "数据源不存在"})
+                return
+            
+            # 获取数据类型实例
+            data_type_instance = source.get_data_type_instance()
+            
+            self.write({
+                "success": True,
+                "datasource_id": datasource_id,
+                "datasource_name": source.name,
+                "data_type_instance": data_type_instance
+            })
+        except Exception as e:
+            self.set_status(500)
+            self.write({"success": False, "error": str(e)})
+
+
 def create_nav_menu():
     return admin_main_ui.create_nav_menu(_main_ui_ctx())
 
@@ -722,7 +674,7 @@ if __name__ == '__main__':
     setup_admin_runtime(enable_webviews=True, enable_timer=True, enable_scheduler=True)
     admin_tasks.restore_tasks_from_db(_tasks_ctx())  # 系统启动时从数据库恢复任务
     # 系统启动时恢复数据源的运行状态
-    from .admin_ui.strategy.datasource import get_ds_manager
+    from .admin_ui.datasource import get_ds_manager
     ds_mgr = get_ds_manager()
     # 先从数据库加载数据源配置，再恢复运行状态
     ds_mgr.load_from_db()
@@ -748,6 +700,7 @@ if __name__ == '__main__':
         (r'/monitor', webio_handler(monitor, cdn=cdn)),
         (r'/allstreams', webio_handler(allstreams, cdn=cdn)),
         (r'/alltables', webio_handler(alltables, cdn=cdn)),
+        (r'/api/datasource/info/(.*)', DataSourceInfoHandler),
         *admin_monitor_routes.monitor_route_handlers(globals()),
     ]
     NW('stream_webview',host='0.0.0.0').application.add_handlers('.*$', handlers)

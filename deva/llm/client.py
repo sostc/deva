@@ -2,8 +2,8 @@ import threading
 import time
 import traceback
 from openai import APIStatusError
-from ..namespace import NB
-from ..bus import log, warn, debug
+from ..core.namespace import NB
+from ..core.bus import log, warn, debug
 from .worker_runtime import run_ai_in_worker, run_sync_in_worker
 from .config_utils import (
     build_model_config_example,

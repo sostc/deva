@@ -1,7 +1,7 @@
 import os
 import time
 
-from .pipe import passed
+from .core.pipe import passed
 from .core import Stream
 from .utils.simhash import Simhash, SimhashIndex
 

@@ -18,7 +18,7 @@ from pymaybe import maybe
 from sockjs.tornado import SockJSRouter, SockJSConnection
 from tornado import gen
 
-from deva.bus import log
+from deva.core.bus import log
 from deva.core import Stream
 
 from .rendering import DebuggableHandler, TemplateProxy, render_template
@@ -91,7 +91,13 @@ class StreamsConnection(SockJSConnection):
         if self._closed:
             return
         try:
-            self.send(payload)
+            # 确保在正确的事件循环中执行发送操作
+            from deva.core.utils.ioloop import get_io_loop
+            loop = get_io_loop(asynchronous=False)
+            if loop is not None:
+                loop.add_callback(lambda p=payload: self.send(p))
+            else:
+                self.send(payload)
         except (WebSocketClosedError, StreamClosedError):
             self._closed = True
 

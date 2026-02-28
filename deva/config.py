@@ -161,7 +161,7 @@ class ConfigManager:
     def nb(self):
         """延迟加载 NB 命名空间"""
         if self._nb is None:
-            from .namespace import NB
+            from .core.namespace import NB
             self._nb = NB(CONFIG_NAMESPACE)
             if not self._migrated:
                 self._migrate_old_config()
@@ -177,7 +177,7 @@ class ConfigManager:
             return
         
         try:
-            from .namespace import NB
+            from .core.namespace import NB
             
             migrated = False
             for old_ns, new_key in OLD_NAMESPACE_MAPPING.items():
@@ -423,7 +423,7 @@ class ConfigManager:
     
     def cleanup_old_namespaces(self):
         """清理旧的配置命名空间"""
-        from .namespace import NB
+        from .core.namespace import NB
         
         cleaned = 0
         for old_ns in OLD_NAMESPACE_MAPPING.keys():

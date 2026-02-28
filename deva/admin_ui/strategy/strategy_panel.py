@@ -1,10 +1,51 @@
 """策略管理UI面板(Strategy Admin Panel)
 
 提供策略的可视化管理界面，包括：
-- 策略拓扑图
-- 资产概览
-- AI逻辑说明书
-- 操作控制台
+- 策略管理（创建、编辑、启动/停止、删除）
+- 历史记录管理（配置保留条数、查看历史结果）
+- 执行监控（状态、统计、错误处理）
+- 系统配置（全局历史记录限制设置）
+
+================================================================================
+系统架构
+================================================================================
+
+【架构流程图】
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                               用户界面                                     │
+├─────────────────────────────────────────────────────────────────────────────┤
+│  ┌─────────────────────────┐  ┌─────────────────────────┐                │
+│  │   策略管理界面          │  │   配置管理界面          │                │
+│  ├─────────────────────────┤  ├─────────────────────────┤                │
+│  │ - 创建/编辑策略         │  │ - 全局历史记录限制      │                │
+│  │ - 启动/停止策略         │  │ - 其他系统配置         │                │
+│  │ - 查看历史记录          │  └─────────────────────────┘                │
+│  └─────────────────────────┘                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+                                   ↓
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                            策略管理器                                      │
+├─────────────────────────────────────────────────────────────────────────────┤
+│ - 策略生命周期管理                                                          │
+│ - 历史记录管理                                                              │
+│ - 执行状态监控                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+                                   ↓
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                            策略执行单元                                     │
+├─────────────────────────────────────────────────────────────────────────────┤
+│ - 数据处理逻辑                                                              │
+│ - 历史记录保存                                                              │
+│ - 自动清理过期记录                                                          │
+└─────────────────────────────────────────────────────────────────────────────┘
+                                   ↓
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                            结果存储                                        │
+├─────────────────────────────────────────────────────────────────────────────┤
+│ - 内存缓存（最近记录）                                                      │
+│ - 持久化存储（SQLite）                                                     │
+│ - 历史记录清理                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
 
 ================================================================================
 UI 组件结构
@@ -21,20 +62,50 @@ UI 组件结构
 ├─────────────────────────────────────────────────────────────────────────────┤
 │  策略列表表格                                                                │
 │  ┌──────────────────────────────────────────────────────────────────────┐   │
-│  │ 名称 │ 状态 │ 上游 │ 下游 │ 处理数 │ 错误数 │ 操作 │                  │   │
+│  │ 名称 │ 状态 │ 绑定数据源 │ 策略简介 │ 最近数据 │ 操作 │                  │   │
 │  ├──────────────────────────────────────────────────────────────────────┤   │
-│  │ ...  │ ...  │ ... │ ... │ ...   │ ...   │ 暂停/恢复/删除 │            │   │
+│  │ ...  │ ...  │ ...         │ ...      │ ...      │ 启动/停止/编辑/删除 │  │
 │  └──────────────────────────────────────────────────────────────────────┘   │
 ├─────────────────────────────────────────────────────────────────────────────┤
-│  策略实验室                                                                  │
+│  使用说明与文档                                                              │
 │  ┌──────────────────────────────────────────────────────────────────────┐   │
-│  │ 代码编辑器 │ 测试数据选择 │ 结果对比 │                                │   │
+│  │ 系统架构 │ 核心功能 │ 使用流程 │ 最佳实践 │                            │   │
 │  └──────────────────────────────────────────────────────────────────────┘   │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+================================================================================
+历史记录管理流程
+================================================================================
+
+【历史记录管理】
+┌─────────────────────────────────────────────────────────────────────────────┐
+│  1. 创建/编辑策略                                                           │
 ├─────────────────────────────────────────────────────────────────────────────┤
-│  错误监控面板                                                                │
-│  ┌──────────────────────────────────────────────────────────────────────┐   │
-│  │ 最新错误列表 │ 错误趋势图 │ 一键反馈AI │                              │   │
-│  └──────────────────────────────────────────────────────────────────────┘   │
+│  - 设置历史记录保留条数（默认30条）                                           │
+│  - 系统自动检查是否超过全局限制（默认300条）                                 │
+└─────────────────────────────────────────────────────────────────────────────┘
+                                   ↓
+┌─────────────────────────────────────────────────────────────────────────────┐
+│  2. 策略执行                                                                │
+├─────────────────────────────────────────────────────────────────────────────┤
+│  - 执行处理逻辑                                                              │
+│  - 保存执行结果                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+                                   ↓
+┌─────────────────────────────────────────────────────────────────────────────┐
+│  3. 历史记录管理                                                            │
+├─────────────────────────────────────────────────────────────────────────────┤
+│  - 检查是否超过保留限制                                                      │
+│  - 自动清理最旧的记录                                                        │
+│  - 更新内存缓存和持久化存储                                                  │
+└─────────────────────────────────────────────────────────────────────────────┘
+                                   ↓
+┌─────────────────────────────────────────────────────────────────────────────┐
+│  4. 查看历史记录                                                            │
+├─────────────────────────────────────────────────────────────────────────────┤
+│  - 在策略详情页面查看                                                      │
+│  - 支持按条件筛选                                                          │
+│  - 可导出为JSON/CSV格式                                                    │
 └─────────────────────────────────────────────────────────────────────────────┘
 """
 
@@ -48,15 +119,14 @@ from deva import NS, NB
 
 from .strategy_unit import StrategyUnit, StrategyStatus
 from .strategy_manager import get_manager
-from .replay_lab import get_lab
+
 from .fault_tolerance import (
     get_error_collector,
     get_metrics_collector,
 )
-from .datasource import get_ds_manager
-from .ai_strategy_generator import (
+from ..datasource.datasource import get_ds_manager
+from ..ai.ai_strategy_generator import (
     generate_strategy_code,
-    generate_strategy_documentation,
     validate_strategy_code,
     test_strategy_code,
     analyze_data_schema,
@@ -70,19 +140,21 @@ from .strategy_logic_db import (
 from .result_store import get_result_store
 import pandas as pd
 
+# 导入策略详情和编辑模块
+from .strategy_detail import _show_strategy_detail, _show_code_version_detail, _show_result_detail
+from .strategy_edit import _edit_strategy_dialog, _save_strategy, _bind_datasource_and_start, _create_strategy_dialog, _create_ai_strategy_dialog
+# 导入数据源详情函数
+from ..datasource.datasource_panel import _show_datasource_detail
+
 
 STATUS_COLORS = {
-    StrategyStatus.DRAFT: "#6c757d",
+    StrategyStatus.STOPPED: "#6c757d",
     StrategyStatus.RUNNING: "#28a745",
-    StrategyStatus.PAUSED: "#ffc107",
-    StrategyStatus.ARCHIVED: "#dc3545",
 }
 
 STATUS_LABELS = {
-    StrategyStatus.DRAFT: "草稿",
+    StrategyStatus.STOPPED: "已停止",
     StrategyStatus.RUNNING: "运行中",
-    StrategyStatus.PAUSED: "已暂停",
-    StrategyStatus.ARCHIVED: "已归档",
 }
 
 
@@ -98,8 +170,7 @@ def render_strategy_admin_panel(ctx):
     ctx["put_markdown"]("### 📡 策略输出监控")
     _render_result_monitor(ctx)
     
-    ctx["put_markdown"]("### 🧪 策略实验室")
-    _render_lab_section(ctx)
+
     
     ctx["put_markdown"]("### 🚨 错误监控")
     _render_error_panel(ctx)
@@ -142,43 +213,71 @@ def _render_strategy_table(ctx):
     units = manager.list_all()
     
     if not units:
-        ctx["put_text"]("暂无策略，请创建新策略")
-        ctx["put_button"]("创建策略", onclick=lambda: ctx["run_async"](_create_strategy_dialog(ctx)))
+        ctx["put_text"]('暂无策略，请创建新策略')
+        ctx["put_button"]('创建策略', onclick=lambda: ctx["run_async"](_create_strategy_dialog(ctx)))
         return
     
-    table_data = [["名称", "状态", "绑定数据源", "处理函数", "处理数", "错误数", "操作"]]
+    table_data = [["名称", "状态", "绑定数据源", "策略简介", "最近数据", "操作"]]
     
     for unit_data in units:
-        status = unit_data.get("state", {}).get("status", "draft")
-        status_color = STATUS_COLORS.get(StrategyStatus(status), "#666")
-        status_label = STATUS_LABELS.get(StrategyStatus(status), status)
+        # 安全获取状态
+        state_data = unit_data.get("state", {})
+        status = state_data.get("status", "stopped")
+        
+        # 处理状态值，确保与StrategyStatus兼容
+        try:
+            status_enum = StrategyStatus(status)
+        except ValueError:
+            # 对于未知状态，默认为stopped
+            status_enum = StrategyStatus.STOPPED
+        
+        status_color = STATUS_COLORS.get(status_enum, "#666")
+        status_label = STATUS_LABELS.get(status_enum, "未知")
         
         metadata = unit_data.get("metadata", {})
         bound_ds_name = metadata.get("bound_datasource_name", "")
-        strategy_func_code = metadata.get("strategy_func_code", "")
+        bound_ds_id = metadata.get("bound_datasource_id", "")
+        summary = metadata.get("summary", "")
         
-        bound_datasource = bound_ds_name if bound_ds_name else "-"
+        # 绑定数据源显示 - 添加点击事件
+        if bound_ds_name and bound_ds_id:
+            # 使用 put_button 创建可点击的数据源名称，并使用默认参数捕获当前的 bound_ds_id 值
+            bound_datasource = ctx["put_button"](
+                bound_ds_name[:20] + "..." if len(bound_ds_name) > 20 else bound_ds_name,
+                onclick=lambda ds_id=bound_ds_id: ctx["run_async"](_show_datasource_detail(ctx, ds_id)),
+                outline=True
+            )
+        else:
+            bound_datasource = "-"
         
-        func_preview = "-"
-        if strategy_func_code:
-            if "def process" in strategy_func_code:
-                func_preview = "✅ 已定义 process 函数"
-            else:
-                func_preview = "⚠️ 未定义 process 函数"
+        # 策略简介显示 - 优先使用summary，其次使用description
+        summary_text = summary or metadata.get("description", "")
+        summary_preview = summary_text[:100] + ("..." if len(summary_text) > 100 else "") if summary_text else "-"
         
-        processed = unit_data.get("state", {}).get("processed_count", 0)
-        errors = unit_data.get("state", {}).get("error_count", 0)
+        # 最近数据显示
+        processed_count = state_data.get("processed_count", 0)
+        last_process_ts = state_data.get("last_process_ts", 0)
+        
+        recent_data = "-"
+        if last_process_ts > 0:
+            from datetime import datetime
+            try:
+                last_process_time = datetime.fromtimestamp(last_process_ts).strftime("%Y-%m-%d %H:%M:%S")
+                recent_data = f"执行 {processed_count} 次<br>最后执行: {last_process_time}"
+            except Exception:
+                # 时间戳异常时只显示计数
+                recent_data = f"执行 {processed_count} 次"
+        else:
+            recent_data = f"执行 {processed_count} 次"
         
         unit_id = metadata.get("id", "")
         
         status_html = f'<span style="background:{status_color};color:#fff;padding:2px 8px;border-radius:4px;font-size:12px;">{status_label}</span>'
         
-        if status == "running":
-            toggle_label = "暂停"
-        elif status == "draft":
-            toggle_label = "启动"
+        if status_enum == StrategyStatus.RUNNING:
+            toggle_label = "停止"
         else:
-            toggle_label = "恢复"
+            toggle_label = "启动"
         
         actions = ctx["put_buttons"]([
             {"label": "详情", "value": f"detail_{unit_id}"},
@@ -190,10 +289,9 @@ def _render_strategy_table(ctx):
         table_data.append([
             metadata.get("name", "-"),
             ctx["put_html"](status_html),
-            bound_datasource[:20] + "..." if len(bound_datasource) > 20 else bound_datasource,
-            ctx["put_html"](f'<span style="font-size:12px;">{func_preview}</span>'),
-            str(processed),
-            str(errors),
+            bound_datasource,
+            ctx["put_html"](f'<span style="font-size:12px;">{summary_preview}</span>'),
+            ctx["put_html"](f'<span style="font-size:12px;">{recent_data}</span>'),
             actions,
         ])
     
@@ -202,7 +300,7 @@ def _render_strategy_table(ctx):
     ctx["put_row"]([
         ctx["put_button"]("创建策略", onclick=lambda: ctx["run_async"](_create_strategy_dialog(ctx))).style("margin-right: 10px"),
         ctx["put_button"]("全部启动", onclick=lambda: _start_all_strategies(ctx)),
-        ctx["put_button"]("全部暂停", onclick=lambda: _pause_all_strategies(ctx)).style("margin-left: 10px"),
+        ctx["put_button"]("全部停止", onclick=lambda: _stop_all_strategies(ctx)).style("margin-left: 10px"),
     ]).style("margin-top: 10px")
 
 
@@ -304,47 +402,7 @@ def _refresh_recent_results(ctx, limit: int = 10):
         ctx["put_table"](table_data)
 
 
-def _show_result_detail(ctx, result_id: str):
-    store = get_result_store()
-    result = store.get_by_id(result_id)
-    
-    if not result:
-        ctx["toast"]("结果不存在", color="error")
-        return
-    
-    with ctx["popup"](f"执行结果详情: {result.strategy_name}", size="large", closable=True):
-        ctx["put_markdown"]("### 基本信息")
-        info_table = [
-            ["结果ID", result.id],
-            ["策略名称", result.strategy_name],
-            ["执行时间", datetime.fromtimestamp(result.ts).strftime("%Y-%m-%d %H:%M:%S")],
-            ["状态", "✅ 成功" if result.success else "❌ 失败"],
-            ["处理耗时", f"{result.process_time_ms:.2f}ms"],
-        ]
-        if result.error:
-            info_table.append(["错误信息", result.error])
-        ctx["put_table"](info_table)
-        
-        ctx["put_markdown"]("### 输入数据预览")
-        ctx["put_code"](result.input_preview, language="text")
-        
-        if result.success and result.output_full is not None:
-            ctx["put_markdown"]("### 输出结果")
-            output_data = result.output_full
-            if isinstance(output_data, dict):
-                if "html" in output_data:
-                    ctx["put_html"](output_data["html"])
-                else:
-                    ctx["put_code"](json.dumps(output_data, ensure_ascii=False, indent=2), language="json")
-            elif isinstance(output_data, str):
-                if output_data.startswith("<"):
-                    ctx["put_html"](output_data)
-                else:
-                    ctx["put_code"](output_data[:2000], language="text")
-            elif isinstance(output_data, list):
-                ctx["put_code"](json.dumps(output_data[:20], ensure_ascii=False, indent=2), language="json")
-            else:
-                ctx["put_code"](str(output_data)[:2000], language="text")
+
 
 
 def _export_results(ctx, format: str):
@@ -352,7 +410,20 @@ def _export_results(ctx, format: str):
     export_data = manager.export_results(format=format, limit=1000)
     
     filename = f"strategy_results.{format}"
-    ctx["put_file"](filename, export_data.encode('utf-8'))
+    
+    # 创建弹窗显示下载链接
+    with ctx["popup"]("导出结果", size="small", closable=True):
+        ctx["put_markdown"]("### 📥 导出完成")
+        ctx["put_text"]("文件已准备就绪，请点击下方链接下载")
+        ctx["put_text"]("")  # 空行用于间距
+        
+        from pywebio.output import put_file
+        put_file(filename, export_data.encode('utf-8'))
+        
+        ctx["put_row"]([
+            ctx["put_button"]("关闭", onclick=lambda: ctx["close_popup"](), color="primary"),
+        ]).style("margin-top: 20px")
+    
     ctx["toast"](f"已导出 {filename}", color="success")
 
 
@@ -375,11 +446,13 @@ async def _show_result_history_dialog(ctx):
         for u in units
     ]
     
+    # 创建弹窗
     with ctx["popup"]("📜 执行历史", size="large", closable=True):
+        # 显示查询表单
         form = await ctx["input_group"]("查询条件", [
             ctx["select"]("策略", name="unit_id", options=unit_options, value=""),
             ctx["input"]("时间范围(分钟)", name="minutes", type=ctx["NUMBER"], value=60, placeholder="查询最近N分钟"),
-            ctx["checkbox"]("仅成功", name="success_only", options=[{"label": "仅显示成功", "value": True}]),
+            ctx["checkbox"]('仅成功', name="success_only", options=[{"label": "仅显示成功", "value": "success_only", "selected": False}]),
             ctx["input"]("限制条数", name="limit", type=ctx["NUMBER"], value=100),
             ctx["actions"]("操作", [
                 {"label": "查询", "value": "query"},
@@ -390,166 +463,55 @@ async def _show_result_history_dialog(ctx):
         if not form or form.get("action") == "cancel":
             return
         
+        # 计算时间范围
         import time as time_module
         start_ts = time_module.time() - form["minutes"] * 60
         
+        # 查询结果
         results = manager.query_results(
             unit_id=form["unit_id"] or None,
             start_ts=start_ts,
-            success_only=form.get("success_only", False),
+            success_only="success_only" in form.get("success_only", []),
             limit=form["limit"],
         )
         
-        ctx["put_markdown"](f"### 查询结果 ({len(results)} 条)")
+        # 关闭当前弹窗并打开新的结果弹窗
+        ctx["close_popup"]()
         
-        if not results:
-            ctx["put_text"]("未找到符合条件的记录")
-            return
-        
-        table_data = [["时间", "策略", "状态", "耗时", "预览"]]
-        for r in results:
-            status = "✅" if r.get("success") else "❌"
-            preview = r.get("output_preview", "")[:50] or r.get("error", "")[:50]
-            table_data.append([
-                r.get("ts_readable", "")[:16],
-                r.get("strategy_name", "")[:15],
-                status,
-                f"{r.get('process_time_ms', 0):.1f}ms",
-                preview[:50] + "...",
-            ])
-        
-        ctx["put_table"](table_data)
+        # 创建结果显示弹窗
+        with ctx["popup"]("📜 执行历史查询结果", size="large", closable=True):
+            # 显示结果标题
+            ctx["put_markdown"](f"### 📜 执行历史查询结果")
+            ctx["put_markdown"](f"**查询条件:** 时间范围: {form['minutes']}分钟, 限制条数: {form['limit']}")
+            ctx["put_markdown"](f"**查询结果:** 共找到 {len(results)} 条记录")
+            
+            if not results:
+                ctx["put_html"]("<div style='padding:20px;background:#f8d7da;border-radius:4px;color:#721c24;'>未找到符合条件的记录</div>")
+                ctx["put_button"]("关闭", onclick=lambda: ctx["close_popup"]())
+                return
+            
+            # 显示结果表格
+            table_data = [["时间", "策略", "状态", "耗时", "预览"]]
+            for r in results:
+                status = "✅" if r.get("success") else "❌"
+                preview = r.get("output_preview", "")[:50] or r.get("error", "")[:50]
+                table_data.append([
+                    r.get("ts_readable", "")[:16],
+                    r.get("strategy_name", "")[:15],
+                    status,
+                    f"{r.get('process_time_ms', 0):.1f}ms",
+                    preview[:50] + "...",
+                ])
+            
+            ctx["put_table"](table_data)
+            
+            # 添加关闭按钮
+            ctx["put_row"]([
+                ctx["put_button"]("关闭", onclick=lambda: ctx["close_popup"](), color="primary"),
+            ]).style("margin-top: 20px")
 
 
-async def _create_ai_strategy_dialog(ctx):
-    ds_mgr = get_ds_manager()
-    sources = ds_mgr.list_source_objects()
-    
-    if not sources:
-        ctx["toast"]("请先创建数据源", color="warning")
-        return
-    
-    source_options = [
-        {"label": f"{s.name} ({s.status.value})", "value": s.id}
-        for s in sources
-    ]
-    
-    with ctx["popup"]("🤖 AI生成策略代码", size="large", closable=True):
-        ctx["put_markdown"]("### 步骤1: 选择数据源并描述需求")
-        
-        form = await ctx["input_group"]("策略配置", [
-            ctx["input"]("策略名称", name="name", required=True, placeholder="输入策略名称"),
-            ctx["select"]("选择数据源", name="datasource_id", options=source_options, required=True),
-            ctx["textarea"]("需求描述", name="requirement", required=True, placeholder="描述你的策略需求，例如：筛选涨幅超过5%的股票，按板块分组统计", rows=4),
-            ctx["input"]("下游输出流名称", name="downstream", placeholder="输出流名称（可选）"),
-            ctx["actions"]("操作", [
-                {"label": "生成代码", "value": "generate"},
-                {"label": "取消", "value": "cancel"},
-            ], name="action"),
-        ])
-        
-        if not form or form.get("action") == "cancel":
-            return
-        
-        source = ds_mgr.get_source(form["datasource_id"])
-        if not source:
-            ctx["toast"]("数据源不存在", color="error")
-            return
-        
-        ctx["put_markdown"]("### 步骤2: 分析数据源结构")
-        
-        recent_data = source.get_recent_data(1)
-        if not recent_data:
-            ctx["toast"]("数据源暂无数据，请先启动数据源", color="warning")
-            return
-        
-        sample_data = recent_data[0]
-        data_schema = analyze_data_schema(sample_data)
-        
-        ctx["put_markdown"]("**数据结构分析:**")
-        ctx["put_code"](json.dumps(data_schema, ensure_ascii=False, indent=2), language="json")
-        
-        ctx["put_markdown"]("### 步骤3: AI生成代码中...")
-        
-        try:
-            code = await generate_strategy_code(
-                ctx,
-                data_schema=data_schema,
-                user_requirement=form["requirement"],
-                strategy_name=form["name"],
-            )
-        except Exception as e:
-            ctx["toast"](f"AI生成失败: {e}", color="error")
-            return
-        
-        ctx["put_markdown"]("### 步骤4: 审核生成的代码")
-        ctx["put_code"](code, language="python")
-        
-        validation = validate_strategy_code(code)
-        if not validation["valid"]:
-            ctx["toast"](f"代码验证失败: {validation['errors']}", color="error")
-            return
-        
-        if validation["warnings"]:
-            ctx["put_html"](f"<div style='color:#856404;background:#fff3cd;padding:8px;border-radius:4px;'>警告: {'; '.join(validation['warnings'])}</div>")
-        
-        ctx["put_markdown"]("### 步骤5: 测试代码")
-        
-        test_result = test_strategy_code(code, sample_data)
-        if test_result["success"]:
-            ctx["put_html"](f"<div style='color:#155724;background:#d4edda;padding:8px;border-radius:4px;'>✅ 测试通过，执行时间: {test_result['execution_time_ms']:.2f}ms</div>")
-            
-            output = test_result["output"]
-            if output is not None:
-                ctx["put_markdown"]("**测试输出预览:**")
-                if isinstance(output, pd.DataFrame):
-                    ctx["put_html"](output.head(5).to_html(classes='df-table', index=False))
-                elif isinstance(output, str) and len(output) > 50:
-                    ctx["put_html"](output[:500])
-                else:
-                    ctx["put_text"](str(output))
-        else:
-            ctx["put_html"](f"<div style='color:#721c24;background:#f8d7da;padding:8px;border-radius:4px;'>❌ 测试失败: {test_result['error']}</div>")
-        
-        ctx["put_markdown"]("### 步骤6: 确认保存")
-        
-        confirm = await ctx["input_group"]("确认", [
-            ctx["actions"]("是否保存此策略?", [
-                {"label": "保存策略", "value": "save"},
-                {"label": "重新生成", "value": "regenerate"},
-                {"label": "取消", "value": "cancel"},
-            ], name="action"),
-        ])
-        
-        if not confirm or confirm.get("action") == "cancel":
-            return
-        
-        if confirm.get("action") == "regenerate":
-            ctx["close_popup"]()
-            await _create_ai_strategy_dialog(ctx)
-            return
-        
-        manager = get_manager()
-        
-        result = manager.create_strategy(
-            name=form["name"],
-            processor_code=code,
-            description=form["requirement"],
-            upstream_source=source.name,
-            downstream_sink=form.get("downstream"),
-            auto_start=False,
-        )
-        
-        if result.get("success"):
-            unit = manager.get_unit(result["unit_id"])
-            if unit:
-                ds_mgr.link_strategy(source.id, unit.id)
-                unit.save()
-            
-            ctx["toast"](f"策略创建成功: {result['unit_id']}", color="success")
-            ctx["run_js"]("location.reload()")
-        else:
-            ctx["toast"](f"创建失败: {result.get('error', '')}", color="error")
+
 
 
 def _handle_strategy_action(ctx, action_value: str, unit_id: str):
@@ -559,898 +521,49 @@ def _handle_strategy_action(ctx, action_value: str, unit_id: str):
     manager = get_manager()
     
     if action == "detail":
-        ctx["run_async"](_show_strategy_detail(ctx, unit_id))
+        _show_strategy_detail(ctx, unit_id)
         return
     elif action == "edit":
-        ctx["run_async"](_edit_strategy_code_dialog(ctx, unit_id))
+        ctx["run_async"](_edit_strategy_dialog(ctx, unit_id))
         return
     elif action == "toggle":
         unit = manager.get_unit(unit_id)
         if unit:
             if unit.status == StrategyStatus.RUNNING:
-                result = manager.pause(unit_id)
-                ctx["toast"](f"已暂停: {result.get('status', '')}", color="success")
-            elif unit.status == StrategyStatus.DRAFT:
+                result = manager.stop(unit_id)
+                ctx["toast"](f"已停止: {result.get('status', '')}", color="success")
+            else:
                 if not unit.metadata.bound_datasource_id:
                     ctx["run_async"](_bind_datasource_and_start(ctx, unit_id))
                 else:
                     result = manager.start(unit_id)
                     ctx["toast"](f"已启动: {result.get('status', '')}", color="success")
-            else:
-                if not unit.metadata.bound_datasource_id:
-                    ctx["run_async"](_bind_datasource_and_start(ctx, unit_id))
-                else:
-                    result = manager.resume(unit_id)
-                    ctx["toast"](f"已恢复: {result.get('status', '')}", color="success")
     elif action == "delete":
-        result = manager.analyze_deletion_impact(unit_id)
-        if result.get("success"):
-            impact = result.get("impact", {})
-            warnings = impact.get("warnings", [])
-            if warnings:
-                ctx["toast"](f"警告: {'; '.join(warnings)}", color="warning")
-            else:
-                manager.delete(unit_id)
-                ctx["toast"]("策略已删除", color="success")
+        manager.delete(unit_id)
+        ctx["toast"]("策略已删除", color="success")
     
     ctx["run_js"]("location.reload()")
 
 
-async def _show_strategy_detail(ctx, unit_id: str):
-    manager = get_manager()
-    unit = manager.get_unit(unit_id)
-    
-    if not unit:
-        ctx["toast"]("策略不存在", color="error")
-        return
-    
-    logic_db = get_logic_db()
-    instance_db = get_instance_db()
-    
-    strategy_type = getattr(unit, 'STRATEGY_TYPE', 'custom')
-    logic_meta = logic_db.get_logic_by_type(strategy_type) if strategy_type != 'custom' else None
-    instance_state = instance_db.get_instance_state(unit_id)
-    
-    with ctx["popup"](f"策略详情: {unit.name}", size="large", closable=True):
-        ctx["put_markdown"](f"### 📋 基本信息")
-        
-        info_table = [
-            ["ID", unit.id],
-            ["名称", unit.name],
-            ["描述", unit.metadata.description or "-"],
-            ["标签", ", ".join(unit.metadata.tags) or "-"],
-            ["状态", STATUS_LABELS.get(unit.status, unit.status.value)],
-            ["策略类型", strategy_type or "自定义"],
-            ["绑定数据源", unit.metadata.bound_datasource_name or "-"],
-            ["创建时间", datetime.fromtimestamp(unit.metadata.created_at).strftime("%Y-%m-%d %H:%M:%S")],
-            ["更新时间", datetime.fromtimestamp(unit.metadata.updated_at).strftime("%Y-%m-%d %H:%M:%S")],
-            ["代码版本", str(unit._code_version)],
-        ]
-        ctx["put_table"](info_table)
-        
-        ctx["put_row"]([
-            ctx["put_button"]("编辑策略", onclick=lambda: ctx["run_async"](_edit_strategy_code_dialog(ctx, unit_id)), color="primary"),
-        ]).style("margin-top: 10px")
-        
-        if hasattr(unit, 'params') and unit.params:
-            ctx["put_markdown"]("### ⚙️ 策略参数")
-            params_table = [["参数名", "值"]]
-            for key, value in unit.params.items():
-                params_table.append([key, str(value)])
-            ctx["put_table"](params_table)
-        
-        ctx["put_markdown"]("### 🔗 血缘关系")
-        lineage_table = [["类型", "名称", "说明"]]
-        
-        for upstream in unit.lineage.upstream:
-            lineage_table.append(["上游", upstream.name, upstream.description or "-"])
-        for downstream in unit.lineage.downstream:
-            exclusive = " (独占)" if downstream.exclusive else ""
-            lineage_table.append(["下游", downstream.name + exclusive, downstream.description or "-"])
-        
-        if len(lineage_table) > 1:
-            ctx["put_table"](lineage_table)
-        else:
-            ctx["put_text"]("暂无血缘关系")
-        
-        ctx["put_markdown"]("### 📊 执行状态")
-        state_table = [
-            ["处理计数", str(unit.state.processed_count)],
-            ["错误计数", str(unit.state.error_count)],
-            ["最近错误", unit.state.last_error or "-"],
-            ["最后处理时间", datetime.fromtimestamp(unit.state.last_process_ts).strftime("%Y-%m-%d %H:%M:%S") if unit.state.last_process_ts > 0 else "-"],
-        ]
-        ctx["put_table"](state_table)
-        
-        ctx["put_markdown"]("### 📤 最近输出结果")
-        
-        try:
-            output_stream = None
-            
-            if hasattr(unit, '_output_stream') and unit._output_stream:
-                output_stream = unit._output_stream
-            
-            if not output_stream:
-                for downstream in unit.lineage.downstream:
-                    if downstream.sink_type.value == "stream" if hasattr(downstream.sink_type, 'value') else downstream.sink_type == "stream":
-                        try:
-                            from deva.namespace import _registry
-                            stream_name = downstream.name
-                            if stream_name in _registry:
-                                output_stream = _registry[stream_name]
-                                break
-                        except:
-                            pass
-            
-            if output_stream:
-                recent_data = output_stream.recent(5)
-                if recent_data:
-                    ctx["put_markdown"]("#### 输出流数据 (最近5条)")
-                    for i, data in enumerate(recent_data):
-                        data_preview = str(data)[:200]
-                        ctx["put_html"](f"<div style='padding:8px;margin:4px 0;background:#f8f9fa;border-radius:4px;font-family:monospace;'>[{i+1}] {data_preview}</div>")
-                else:
-                    ctx["put_text"]("暂无输出数据")
-            else:
-                ctx["put_text"]("暂无输出流")
-        except Exception as e:
-            ctx["put_text"](f"获取输出流失败: {str(e)}")
-        
-        ctx["put_markdown"]("#### 历史执行结果")
-        recent_results = unit.get_recent_results(limit=10)
-        if recent_results:
-            result_table = [["时间", "状态", "耗时", "输出预览", "操作"]]
-            for r in recent_results:
-                status_html = '<span style="color:#28a745;">✅</span>' if r.get("success") else '<span style="color:#dc3545;">❌</span>'
-                output_preview = r.get("output_preview", "")[:50]
-                if not r.get("success") and r.get("error"):
-                    output_preview = f"错误: {r.get('error', '')[:40]}"
-                
-                actions = ctx["put_buttons"]([
-                    {"label": "详情", "value": f"detail_{r.get('id', '')}"},
-                ], onclick=lambda v, rid=r.get("id", ""): _show_result_detail(ctx, rid))
-                
-                result_table.append([
-                    r.get("ts_readable", "")[:16],
-                    ctx["put_html"](status_html),
-                    f"{r.get('process_time_ms', 0):.1f}ms",
-                    output_preview[:50] + "..." if len(output_preview) > 50 else output_preview,
-                    actions,
-                ])
-            ctx["put_table"](result_table)
-            
-            result_stats = get_result_store().get_stats(unit_id)
-            ctx["put_html"](f"""
-            <div style="margin-top:10px;padding:10px;background:#f5f5f5;border-radius:4px;">
-                <strong>执行统计:</strong> 
-                总计 {result_stats.get('results_count', 0)} 次 | 
-                成功率 {result_stats.get('success_rate', 0)*100:.1f}% | 
-                平均耗时 {result_stats.get('avg_process_time_ms', 0):.2f}ms
-            </div>
-            """)
-            
-            trend_data = get_result_store().get_trend_data(unit_id, interval_minutes=5, limit=20)
-            if trend_data.get("timestamps"):
-                ctx["put_markdown"]("#### 执行趋势")
-                timestamps = trend_data["timestamps"][::-1]
-                success_counts = trend_data["success_counts"][::-1]
-                failed_counts = trend_data["failed_counts"][::-1]
-                process_counts = trend_data["process_counts"][::-1]
-                
-                max_count = max(process_counts) if process_counts else 1
-                chart_html = '<div style="display:flex;gap:2px;align-items:flex-end;height:60px;margin-top:10px;">'
-                for i, ts in enumerate(timestamps):
-                    total = process_counts[i] if i < len(process_counts) else 0
-                    success = success_counts[i] if i < len(success_counts) else 0
-                    failed = failed_counts[i] if i < len(failed_counts) else 0
-                    
-                    total_height = int((total / max_count) * 50) if max_count > 0 else 0
-                    success_height = int((success / max_count) * 50) if max_count > 0 else 0
-                    failed_height = int((failed / max_count) * 50) if max_count > 0 else 0
-                    
-                    chart_html += f'''
-                    <div style="display:flex;flex-direction:column;align-items:center;width:30px;">
-                        <div style="display:flex;flex-direction:column-reverse;height:50px;width:20px;background:#f0f0f0;border-radius:2px;">
-                            <div style="height:{success_height}px;background:#28a745;border-radius:2px;"></div>
-                            <div style="height:{failed_height}px;background:#dc3545;border-radius:2px;"></div>
-                        </div>
-                        <div style="font-size:8px;color:#666;margin-top:2px;">{ts}</div>
-                    </div>
-                    '''
-                chart_html += '</div>'
-                chart_html += '<div style="margin-top:5px;font-size:11px;color:#666;"><span style="color:#28a745;">■</span> 成功 <span style="color:#dc3545;">■</span> 失败</div>'
-                ctx["put_html"](chart_html)
-        else:
-            ctx["put_text"]("暂无执行结果")
-        
-        if instance_state:
-            ctx["put_markdown"]("### 💾 持久化状态")
-            persist_table = [
-                ["持久化状态", instance_state.state],
-                ["持久化处理计数", str(instance_state.processed_count)],
-                ["持久化错误计数", str(instance_state.error_count)],
-                ["持久化更新时间", datetime.fromtimestamp(instance_state.updated_at).strftime("%Y-%m-%d %H:%M:%S")],
-            ]
-            ctx["put_table"](persist_table)
-        
-        if logic_meta:
-            ctx["put_markdown"]("### 📚 策略逻辑信息")
-            logic_table = [
-                ["逻辑ID", logic_meta.id],
-                ["逻辑名称", logic_meta.name],
-                ["策略类型", logic_meta.strategy_type],
-                ["版本", str(logic_meta.version)],
-                ["描述", logic_meta.description or "-"],
-                ["标签", ", ".join(logic_meta.tags) or "-"],
-            ]
-            ctx["put_table"](logic_table)
-            
-            if logic_meta.params_schema:
-                ctx["put_markdown"]("#### 参数模式定义")
-                schema_table = [["参数名", "类型", "默认值", "描述"]]
-                for param_name, param_def in logic_meta.params_schema.items():
-                    schema_table.append([
-                        param_name,
-                        param_def.get("type", "-"),
-                        str(param_def.get("default", "-")),
-                        param_def.get("description", "-"),
-                    ])
-                ctx["put_table"](schema_table)
-            
-            ctx["put_markdown"]("#### 策略逻辑代码")
-            ctx["put_html"]("<details open><summary style='cursor:pointer;font-weight:bold;'>点击展开/收起代码</summary>")
-            ctx["put_code"](logic_meta.code, language="python")
-            ctx["put_html"]("</details>")
-        
-        if unit._ai_documentation:
-            ctx["put_markdown"]("### 🤖 AI 说明文档")
-            ctx["put_markdown"](unit._ai_documentation)
-        
-        strategy_code = unit.metadata.strategy_func_code or unit._processor_code
-        if strategy_code:
-            ctx["put_markdown"]("### 🔧 策略执行代码")
-            ctx["put_html"]("<details open><summary style='cursor:pointer;font-weight:bold;'>点击展开/收起代码</summary>")
-            ctx["put_code"](strategy_code, language="python")
-            ctx["put_html"]("</details>")
-        
-        code_versions = unit.get_code_versions(5)
-        if code_versions:
-            ctx["put_markdown"]("### 📜 代码版本历史")
-            version_table = [["版本", "更新时间", "操作"]]
-            for idx, ver in enumerate(code_versions):
-                ts = ver.get("timestamp", 0)
-                ts_readable = datetime.fromtimestamp(ts).strftime("%m-%d %H:%M:%S") if ts > 0 else "-"
-                version_table.append([
-                    f"v{idx + 1}",
-                    ts_readable,
-                    ctx["put_buttons"]([
-                        {"label": "查看", "value": f"view_{idx}"},
-                    ], onclick=lambda v, vid=idx: _show_code_version_detail(ctx, unit, vid))
-                ])
-            ctx["put_table"](version_table)
-        
-        
-        ctx["put_markdown"]("### 📤 导出策略配置")
-        export_json = json.dumps(unit.to_dict(), ensure_ascii=False, indent=2)
-        ctx["put_code"](export_json, language="json")
 
 
-def _show_code_version_detail(ctx, unit, version_idx):
-    """显示代码版本详情"""
-    code_versions = unit.get_code_versions(10)
-    
-    if version_idx >= len(code_versions):
-        ctx["toast"]("版本不存在", color="error")
-        return
-    
-    version = code_versions[version_idx]
-    code = version.get("new_code", "")
-    ts = version.get("timestamp", 0)
-    ts_readable = datetime.fromtimestamp(ts).strftime("%Y-%m-%d %H:%M:%S") if ts > 0 else "-"
-    
-    with ctx["popup"](f"代码版本 v{version_idx + 1}", size="large", closable=True):
-        ctx["put_markdown"]("### 版本信息")
-        info = [
-            ["版本", f"v{version_idx + 1}"],
-            ["更新时间", ts_readable],
-            ["策略名称", version.get("name", "-")],
-        ]
-        ctx["put_table"](info)
-        
-        ctx["put_markdown"]("### 代码内容")
-        ctx["put_code"](code, language="python")
 
 
-async def _bind_datasource_and_start(ctx, unit_id: str):
-    """绑定数据源并启动策略"""
-    manager = get_manager()
-    unit = manager.get_unit(unit_id)
-    
-    if not unit:
-        ctx["toast"]("策略不存在", color="error")
-        return
-    
-    ds_mgr = get_ds_manager()
-    sources = ds_mgr.list_source_objects()
-    
-    if not sources:
-        ctx["toast"]("没有可用的数据源，请先创建数据源", color="warning")
-        return
-    
-    source_options = []
-    for s in sources:
-        source_name = getattr(s, 'name', '')
-        source_id = getattr(s, 'id', '')
-        source_status = getattr(s, 'status', 'stopped')
-        if hasattr(source_status, 'value'):
-            source_status = source_status.value
-        status_label = "运行中" if source_status == "running" else "已停止"
-        source_options.append({
-            "label": f"{source_name} [{status_label}]",
-            "value": source_id,
-        })
-    
-    with ctx["popup"]("绑定数据源并启动", size="small", closable=True):
-        ctx["put_markdown"]("**选择数据源**")
-        
-        form = await ctx["input_group"]("绑定数据源", [
-            ctx["select"]("绑定数据源", name="datasource_id", options=source_options),
-            ctx["actions"]("操作", [
-                {"label": "绑定并启动", "value": "bind_start"},
-                {"label": "取消", "value": "cancel"},
-            ], name="action"),
-        ])
-        
-        if not form or form.get("action") == "cancel":
-            ctx["close_popup"]()
-            return
-        
-        datasource_id = form.get("datasource_id", "")
-        if not datasource_id:
-            ctx["toast"]("请选择数据源", color="warning")
-            return
-        
-        ds_mgr = get_ds_manager()
-        source = ds_mgr.get_source(datasource_id)
-        
-        if not source:
-            ctx["toast"]("数据源不存在", color="error")
-            return
-        
-        unit = manager.get_unit(unit_id)
-        if not unit:
-            ctx["toast"]("策略不存在", color="error")
-            return
-        
-        code = unit.metadata.strategy_func_code or unit._processor_code
-        if not code:
-            ctx["toast"]("策略没有代码，请先编辑策略代码", color="warning")
-            return
-        
-        unit.bind_datasource(datasource_id, source.name)
-        
-        source_stream = source.get_stream()
-        if source_stream and code:
-            try:
-                from deva import NS
-                
-                local_ns = {"__builtins__": __builtins__}
-                exec(code, local_ns, local_ns)
-                process_func = local_ns.get("process")
-                
-                if process_func:
-                    output_stream_name = f"strategy_output_{unit.id}"
-                    output_stream = NS(
-                        output_stream_name,
-                        cache_max_len=3,
-                        cache_max_age_seconds=3600,
-                        description=f"策略 {unit.name} 的输出流"
-                    )
-                    
-                    source_stream.map(lambda data: process_func(data)) >> output_stream
-                    
-                    unit.set_input_stream(source_stream)
-                    unit.set_output_stream(output_stream)
-                    
-                    unit.save()
-            except Exception as e:
-                ctx["toast"](f"绑定数据源时出错: {str(e)}", color="warning")
-        
-        result = manager.start(unit_id)
-        if result.get("success"):
-            ctx["toast"](f"已绑定数据源并启动: {source.name}", color="success")
-        else:
-            ctx["toast"](f"启动失败: {result.get('error', '')}", color="error")
-        
-        ctx["close_popup"]()
 
 
-async def _edit_strategy_dialog(ctx, unit_id: str):
-    manager = get_manager()
-    unit = manager.get_unit(unit_id)
-    
-    if not unit:
-        ctx["toast"]("策略不存在", color="error")
-        return
-    
-    ds_mgr = get_ds_manager()
-    sources = ds_mgr.list_source_objects()
-    source_options = [
-        {"label": f"{s['name']}", "value": s['id']}
-        for s in sources
-    ] if sources else []
-    
-    with ctx["popup"](f"编辑策略: {unit.name}", size="large", closable=True):
-        ctx["put_markdown"]("### 编辑策略配置")
-        ctx["put_html"]("<p style='color:#666;font-size:12px;'>可以直接修改代码，也可以点击「AI生成」按钮，由AI根据需求描述自动生成代码</p>")
-        
-        form = await ctx["input_group"]("策略配置", [
-            ctx["input"]("策略名称", name="name", required=True, value=unit.name),
-            ctx["textarea"]("描述", name="description", value=unit.metadata.description or "", rows=2),
-            ctx["input"]("标签", name="tags", value=", ".join(unit.metadata.tags or [])),
-            ctx["input"]("上游数据源", name="upstream", value=unit.lineage.upstream[0].name if unit.lineage.upstream else ""),
-            ctx["input"]("下游输出", name="downstream", value=unit.lineage.downstream[0].name if unit.lineage.downstream else ""),
-            ctx["textarea"]("处理器代码", name="code", value=unit._processor_code or "", rows=10),
-            ctx["actions"]("操作", [
-                {"label": "保存", "value": "save"},
-                {"label": "AI生成", "value": "ai_generate"},
-                {"label": "取消", "value": "cancel"},
-            ], name="action"),
-        ])
-        
-        if not form or form.get("action") == "cancel":
-            ctx["close_popup"]()
-            return
-        
-        if form.get("action") == "ai_generate":
-            if not source_options:
-                ctx["toast"]("请先创建数据源，AI需要基于数据源结构生成代码", color="warning")
-                return
-            
-            ai_form = await ctx["input_group"]("AI生成代码", [
-                ctx["select"]("选择数据源", name="datasource_id", options=source_options, required=True),
-                ctx["textarea"]("需求描述", name="requirement", required=True, placeholder="描述你的策略需求，例如：筛选涨幅超过5%的股票", rows=4),
-                ctx["actions"]("操作", [
-                    {"label": "生成代码", "value": "generate"},
-                    {"label": "取消", "value": "cancel"},
-                ], name="action"),
-            ])
-            
-            if not ai_form or ai_form.get("action") == "cancel":
-                return
-            
-            source = ds_mgr.get_source(ai_form["datasource_id"])
-            if not source:
-                ctx["toast"]("数据源不存在", color="error")
-                return
-            
-            datasource_context = build_datasource_context(source)
-            
-            recent_data = source.get_recent_data(1)
-            sample_data = None
-            if recent_data:
-                sample_data = recent_data[0]
-                data_schema = analyze_data_schema(sample_data)
-                ctx["put_markdown"]("**数据结构分析（来自实际数据）:**")
-            else:
-                data_schema = build_schema_from_metadata(source)
-                ctx["put_markdown"]("**数据结构分析（来自元数据推断）:**")
-                ctx["put_html"]("<div style='color:#856404;background:#fff3cd;padding:8px;border-radius:4px;margin-bottom:10px;'>⚠️ 数据源暂无实际数据，AI将根据数据获取代码推断数据结构</div>")
-            
-            ctx["put_code"](json.dumps(data_schema, ensure_ascii=False, indent=2), language="json")
-            
-            ctx["put_markdown"]("**AI生成代码中...**")
-            
-            try:
-                code = await generate_strategy_code(
-                    ctx,
-                    data_schema=data_schema,
-                    user_requirement=ai_form["requirement"],
-                    strategy_name=form.get("name", ""),
-                    datasource_context=datasource_context,
-                )
-            except Exception as e:
-                ctx["toast"](f"AI生成失败: {e}", color="error")
-                return
-            
-            ctx["put_markdown"]("**生成的代码:**")
-            ctx["put_code"](code, language="python")
-            
-            validation = validate_strategy_code(code)
-            if validation["valid"]:
-                ctx["put_html"]("<div style='color:#155724;background:#d4edda;padding:8px;border-radius:4px;'>✅ 代码验证通过</div>")
-            else:
-                ctx["put_html"](f"<div style='color:#721c24;background:#f8d7da;padding:8px;border-radius:4px;'>❌ 验证失败: {'; '.join(validation['errors'])}</div>")
-                return
-            
-            if sample_data is not None:
-                test_result = test_strategy_code(code, sample_data)
-                if test_result["success"]:
-                    ctx["put_html"](f"<div style='color:#155724;background:#d4edda;padding:8px;border-radius:4px;'>✅ 测试通过，执行时间: {test_result['execution_time_ms']:.2f}ms</div>")
-                else:
-                    ctx["put_html"](f"<div style='color:#856404;background:#fff3cd;padding:8px;border-radius:4px;'>⚠️ 测试警告: {test_result['error']}</div>")
-            else:
-                ctx["put_html"]("<div style='color:#856404;background:#fff3cd;padding:8px;border-radius:4px;'>⚠️ 无实际数据，跳过测试</div>")
-            
-            confirm = await ctx["input_group"]("确认", [
-                ctx["actions"]("是否使用此代码?", [
-                    {"label": "使用此代码", "value": "use"},
-                    {"label": "重新生成", "value": "regenerate"},
-                    {"label": "取消", "value": "cancel"},
-                ], name="action"),
-            ])
-            
-            if not confirm or confirm.get("action") == "cancel":
-                return
-            
-            if confirm.get("action") == "regenerate":
-                ctx["close_popup"]()
-                await _edit_strategy_dialog(ctx, unit_id)
-                return
-            
-            form["code"] = code
-        
-        result = manager.hot_update(
-            unit_id=unit_id,
-            code=form.get("code"),
-            validate=True,
-        )
-        
-        if result.get("success"):
-            unit.metadata.description = form.get("description", "")
-            unit.metadata.tags = [t.strip() for t in form.get("tags", "").split(",") if t.strip()]
-            unit.metadata.strategy_func_code = form.get("code") or ""
-            unit.save()
-            
-            ctx["toast"](f"策略更新成功，版本: {result['code_version']}", color="success")
-            ctx["close_popup"]()
-            ctx["run_js"]("location.reload()")
-        else:
-            ctx["toast"](f"更新失败: {result.get('error', '')}", color="error")
 
 
-DEFAULT_STRATEGY_FUNC_CODE = '''# 策略执行函数
-# 必须定义 process(data) 函数，处理输入数据并返回结果
-
-def process(data):
-    """
-    策略执行主体函数
-    
-    参数:
-        data: 输入数据 (通常为 pandas.DataFrame)
-    
-    返回:
-        处理后的数据
-    """
-    import pandas as pd
-    import numpy as np
-    from typing import Dict, Any
-    
-    # 示例：直接返回原始数据
-    # 你可以在这里添加自定义处理逻辑
-    
-    # 示例：筛选涨幅大于5%的股票
-    # if isinstance(data, pd.DataFrame) and 'p_change' in data.columns:
-    #     return data[data['p_change'] > 5]
-    
-    return data
-'''
 
 
-async def _edit_strategy_code_dialog(ctx, unit_id: str):
-    """编辑策略执行代码的弹窗"""
-    manager = get_manager()
-    unit = manager.get_unit(unit_id)
-    
-    if not unit:
-        ctx["toast"]("策略不存在", color="error")
-        return
-    
-    ds_mgr = get_ds_manager()
-    sources = ds_mgr.list_source_objects()
-    
-    current_code = unit.metadata.strategy_func_code or unit._processor_code or DEFAULT_STRATEGY_FUNC_CODE
-    
-    source_options = []
-    for s in sources:
-        if isinstance(s, dict):
-            source_name = s.get('name', '')
-            source_type = s.get('source_type', 'custom')
-            source_id = s.get('id', '')
-            source_status = s.get('state', {}).get('status', 'stopped')
-        else:
-            source_name = getattr(s, 'name', '')
-            source_type = getattr(s.metadata, 'source_type', 'custom')
-            source_id = getattr(s, 'id', '')
-            source_status = getattr(s, 'status', 'stopped')
-            if hasattr(source_type, 'value'):
-                source_type = source_type.value
-            if hasattr(source_status, 'value'):
-                source_status = source_status.value
-        
-        status_label = "运行中" if source_status == "running" else "已停止"
-        
-        source_options.append({
-            "label": f"{source_name} [{status_label}]",
-            "value": source_id,
-            "selected": source_id == unit.metadata.bound_datasource_id
-        })
-    
-    if not any(s.get('selected') for s in source_options):
-        source_options = [{"label": "无", "value": ""}] + source_options
-    
-    with ctx["popup"](f"编辑策略代码: {unit.name}", size="large", closable=True):
-        ctx["put_markdown"]("### 策略执行代码")
-        
-        ctx["put_html"]("""
-        <div style="background:#e8f5e9;padding:10px;border-radius:6px;margin-bottom:12px;">
-            <p style="margin:0 0 8px 0;color:#1565c0;"><b>💡 代码编写说明</b></p>
-            <ul style="margin:0;padding-left:20px;color:#666;font-size:12px;">
-                <li>必须定义 <code>def process(data):</code> 函数作为策略执行主体</li>
-                <li><code>data</code> 参数为输入数据（通常是 pandas.DataFrame）</li>
-                <li>函数返回值将作为策略输出</li>
-                <li>可用库：pandas, numpy, datetime, time, json, random, math</li>
-            </ul>
-        </div>
-        """)
-        
-        form = await ctx["input_group"]("策略代码配置", [
-            ctx["select"]("绑定数据源", name="datasource_id", options=source_options, value=unit.metadata.bound_datasource_id or ""),
-            ctx["textarea"]("执行代码", name="code", value=current_code, rows=15, code={"mode": "python", "theme": "darcula"}),
-            ctx["actions"]("操作", [
-                {"label": "保存代码", "value": "save"},
-                {"label": "测试代码", "value": "test"},
-                {"label": "取消", "value": "cancel"},
-            ], name="action"),
-        ])
-        
-        if not form or form.get("action") == "cancel":
-            ctx["close_popup"]()
-            return
-        
-        code = form.get("code", "")
-        
-        if form.get("action") == "test":
-            ctx["put_markdown"]("### 测试代码")
-            
-            source = ds_mgr.get_source(form.get("datasource_id"))
-            if source:
-                recent_data = source.get_recent_data(1)
-                if recent_data:
-                    test_result = test_strategy_code(code, recent_data[0])
-                    if test_result["success"]:
-                        ctx["put_html"](f"<div style='color:#155724;background:#d4edda;padding:8px;border-radius:4px;margin-bottom:10px;'>✅ 测试通过，执行时间: {test_result['execution_time_ms']:.2f}ms</div>")
-                        
-                        output = test_result.get("output")
-                        if output is not None:
-                            ctx["put_markdown"]("**测试输出预览:**")
-                            if isinstance(output, pd.DataFrame):
-                                ctx["put_html"](output.head(5).to_html(classes='df-table', index=False))
-                            else:
-                                ctx["put_text"](str(output)[:500])
-                    else:
-                        ctx["put_html"](f"<div style='color:#721c24;background:#f8d7da;padding:8px;border-radius:4px;margin-bottom:10px;'>❌ 测试失败: {test_result.get('error', '未知错误')}</div>")
-                else:
-                    ctx["put_html"](f"<div style='color:#856404;background:#fff3cd;padding:8px;border-radius:4px;margin-bottom:10px;'>⚠️ 数据源暂无数据，无法测试</div>")
-            else:
-                ctx["put_html"](f"<div style='color:#856404;background:#fff3cd;padding:8px;border-radius:4px;margin-bottom:10px;'>⚠️ 请先选择数据源或确保数据源有数据</div>")
-            
-            ctx["put_row"]([
-                ctx["put_button"]("保存代码", onclick=lambda: ctx["run_async"](_do_save_strategy_code(ctx, unit, form, code)), color="primary"),
-            ])
-            return
-        
-        await _do_save_strategy_code(ctx, unit, form, code)
 
 
-async def _do_save_strategy_code(ctx, unit, form, code):
-    """保存策略代码"""
-    code = form.get("code", "")
-    
-    if code:
-        code = code.rstrip()
-        lines = code.split('\n')
-        
-        if len(lines) > 1:
-            non_empty_lines = [line for line in lines if line.strip()]
-            if non_empty_lines:
-                min_indent = min(len(line) - len(line.lstrip()) for line in non_empty_lines)
-                
-                if min_indent > 0:
-                    fixed_lines = []
-                    for line in lines:
-                        if line.strip():
-                            fixed_lines.append(line[min_indent:])
-                        else:
-                            fixed_lines.append(line)
-                    code = '\n'.join(fixed_lines)
-    
-    update_result = unit.update_strategy_func_code(code)
-    
-    if not update_result.get("success"):
-        ctx["toast"](f"代码保存失败: {update_result.get('error', '')}", color="error")
-        return
-    
-    datasource_id = form.get("datasource_id", "")
-    if datasource_id:
-        ds_mgr = get_ds_manager()
-        source = ds_mgr.get_source(datasource_id)
-        if source:
-            unit.bind_datasource(datasource_id, source.name)
-            
-            source_stream = source.get_stream()
-            if source_stream and code:
-                try:
-                    from deva import NS
-                    
-                    local_ns = {"__builtins__": __builtins__}
-                    exec(code, local_ns, local_ns)
-                    process_func = local_ns.get("process")
-                    
-                    if process_func:
-                        output_stream_name = f"strategy_output_{unit.id}"
-                        output_stream = NS(
-                            output_stream_name,
-                            cache_max_len=3,
-                            cache_max_age_seconds=3600,
-                            description=f"策略 {unit.name} 的输出流"
-                        )
-                        
-                        source_stream.map(lambda data: process_func(data)) >> output_stream
-                        
-                        unit.set_input_stream(source_stream)
-                        unit.set_output_stream(output_stream)
-                        
-                        unit.save()
-                except Exception as e:
-                    ctx["toast"](f"绑定数据源时出错: {str(e)}", color="warning")
-    
-    ctx["toast"]("策略代码保存成功", color="success")
-    ctx["close_popup"]()
-    ctx["run_js"]("location.reload()")
 
 
-async def _create_strategy_dialog(ctx):
-    ds_mgr = get_ds_manager()
-    sources = ds_mgr.list_source_objects()
-    
-    source_options = []
-    for s in sources:
-        if isinstance(s, dict):
-            source_name = s.get('name', '')
-            source_id = s.get('id', '')
-        else:
-            source_name = getattr(s, 'name', '')
-            source_id = getattr(s, 'id', '')
-        source_options.append({"label": source_name, "value": source_id})
-    
-    source_options = source_options if source_options else []
-    
-    with ctx["popup"]("创建新策略", size="large", closable=True):
-        ctx["put_markdown"]("### 策略配置")
-        ctx["put_html"]("<p style='color:#666;font-size:12px;'>可以直接输入代码，也可以点击「AI生成」按钮，由AI根据需求描述自动生成代码</p>")
-        
-        form = await ctx["input_group"]("策略配置", [
-            ctx["input"]("策略名称", name="name", required=True, placeholder="输入策略名称"),
-            ctx["textarea"]("描述", name="description", placeholder="策略描述（可选）", rows=2),
-            ctx["input"]("标签", name="tags", placeholder="多个标签用逗号分隔"),
-            ctx["input"]("上游数据源", name="upstream", placeholder="数据源名称（可选）"),
-            ctx["input"]("下游输出", name="downstream", placeholder="输出目标名称（可选）"),
-            ctx["textarea"]("处理器代码", name="code", placeholder="def process(data): ...", rows=8),
-            ctx["actions"]("操作", [
-                {"label": "创建", "value": "create"},
-                {"label": "AI生成", "value": "ai_generate"},
-                {"label": "取消", "value": "cancel"},
-            ], name="action"),
-        ])
-        
-        if not form or form.get("action") == "cancel":
-            ctx["close_popup"]()
-            return
-        
-        if form.get("action") == "ai_generate":
-            if not source_options:
-                ctx["toast"]("请先创建数据源，AI需要基于数据源结构生成代码", color="warning")
-                return
-            
-            ai_form = await ctx["input_group"]("AI生成代码", [
-                ctx["select"]("选择数据源", name="datasource_id", options=source_options, required=True),
-                ctx["textarea"]("需求描述", name="requirement", required=True, placeholder="描述你的策略需求，例如：筛选涨幅超过5%的股票", rows=4),
-                ctx["actions"]("操作", [
-                    {"label": "生成代码", "value": "generate"},
-                    {"label": "取消", "value": "cancel"},
-                ], name="action"),
-            ])
-            
-            if not ai_form or ai_form.get("action") == "cancel":
-                return
-            
-            source = ds_mgr.get_source(ai_form["datasource_id"])
-            if not source:
-                ctx["toast"]("数据源不存在", color="error")
-                return
-            
-            datasource_context = build_datasource_context(source)
-            
-            recent_data = source.get_recent_data(1)
-            sample_data = None
-            if recent_data:
-                sample_data = recent_data[0]
-                data_schema = analyze_data_schema(sample_data)
-                ctx["put_markdown"]("**数据结构分析（来自实际数据）:**")
-            else:
-                data_schema = build_schema_from_metadata(source)
-                ctx["put_markdown"]("**数据结构分析（来自元数据推断）:**")
-                ctx["put_html"]("<div style='color:#856404;background:#fff3cd;padding:8px;border-radius:4px;margin-bottom:10px;'>⚠️ 数据源暂无实际数据，AI将根据数据获取代码推断数据结构</div>")
-            
-            ctx["put_code"](json.dumps(data_schema, ensure_ascii=False, indent=2), language="json")
-            
-            ctx["put_markdown"]("**AI生成代码中...**")
-            
-            try:
-                code = await generate_strategy_code(
-                    ctx,
-                    data_schema=data_schema,
-                    user_requirement=ai_form["requirement"],
-                    strategy_name=form.get("name", ""),
-                    datasource_context=datasource_context,
-                )
-            except Exception as e:
-                ctx["toast"](f"AI生成失败: {e}", color="error")
-                return
-            
-            ctx["put_markdown"]("**生成的代码:**")
-            ctx["put_code"](code, language="python")
-            
-            validation = validate_strategy_code(code)
-            if validation["valid"]:
-                ctx["put_html"]("<div style='color:#155724;background:#d4edda;padding:8px;border-radius:4px;'>✅ 代码验证通过</div>")
-            else:
-                ctx["put_html"](f"<div style='color:#721c24;background:#f8d7da;padding:8px;border-radius:4px;'>❌ 验证失败: {'; '.join(validation['errors'])}</div>")
-                return
-            
-            if sample_data is not None:
-                test_result = test_strategy_code(code, sample_data)
-                if test_result["success"]:
-                    ctx["put_html"](f"<div style='color:#155724;background:#d4edda;padding:8px;border-radius:4px;'>✅ 测试通过，执行时间: {test_result['execution_time_ms']:.2f}ms</div>")
-                else:
-                    ctx["put_html"](f"<div style='color:#856404;background:#fff3cd;padding:8px;border-radius:4px;'>⚠️ 测试警告: {test_result['error']}</div>")
-            else:
-                ctx["put_html"]("<div style='color:#856404;background:#fff3cd;padding:8px;border-radius:4px;'>⚠️ 无实际数据，跳过测试</div>")
-            
-            confirm = await ctx["input_group"]("确认", [
-                ctx["actions"]("是否使用此代码?", [
-                    {"label": "使用此代码", "value": "use"},
-                    {"label": "重新生成", "value": "regenerate"},
-                    {"label": "取消", "value": "cancel"},
-                ], name="action"),
-            ])
-            
-            if not confirm or confirm.get("action") == "cancel":
-                return
-            
-            if confirm.get("action") == "regenerate":
-                ctx["close_popup"]()
-                await _create_strategy_dialog(ctx)
-                return
-            
-            form["code"] = code
-        
-        manager = get_manager()
-        result = manager.create_strategy(
-            name=form["name"],
-            description=form.get("description", ""),
-            tags=[t.strip() for t in form.get("tags", "").split(",") if t.strip()],
-            processor_code=form.get("code") or None,
-            upstream_source=form.get("upstream") or None,
-            downstream_sink=form.get("downstream") or None,
-        )
-        
-        if result.get("success"):
-            ctx["toast"](f"策略创建成功: {result['unit_id']}", color="success")
-            ctx["run_js"]("location.reload()")
-        else:
-            ctx["toast"](f"创建失败: {result.get('error', '')}", color="error")
+
+
+
+
+
 
 
 def _start_all_strategies(ctx):
@@ -1460,10 +573,10 @@ def _start_all_strategies(ctx):
     ctx["run_js"]("location.reload()")
 
 
-def _pause_all_strategies(ctx):
+def _stop_all_strategies(ctx):
     manager = get_manager()
-    result = manager.pause_all()
-    ctx["toast"](f"暂停完成: 成功{result['success']}, 失败{result['failed']}, 跳过{result['skipped']}", color="info")
+    result = manager.stop_all()
+    ctx["toast"](f"停止完成: 成功{result['success']}, 失败{result['failed']}, 跳过{result['skipped']}", color="info")
     ctx["run_js"]("location.reload()")
 
 
@@ -1485,95 +598,6 @@ def _render_lab_section(ctx):
     </details>
     """)
     
-    ctx["put_button"]("打开策略实验室", onclick=lambda: ctx["run_async"](_open_lab_dialog(ctx)))
-
-
-async def _open_lab_dialog(ctx):
-    manager = get_manager()
-    units = manager.list_all()
-    
-    with ctx["popup"]("🧪 策略实验室", size="large", closable=True):
-        ctx["put_markdown"]("### 选择策略进行测试")
-        
-        unit_options = [
-            {"label": u.get("metadata", {}).get("name", u.get("metadata", {}).get("id", "unknown")), 
-             "value": u.get("metadata", {}).get("id", "")}
-            for u in units
-        ]
-        
-        if not unit_options:
-            ctx["put_text"]("暂无可测试的策略")
-            return
-        
-        form = await ctx["input_group"]("实验室配置", [
-            ctx["select"]("选择策略", name="unit_id", options=unit_options),
-            ctx["input"]("测试数据条数", name="limit", type=ctx["NUMBER"], value=10),
-            ctx["textarea"]("新策略代码", name="new_code", placeholder="def process(data): ...", rows=8),
-            ctx["actions"]("操作", [
-                {"label": "开始测试", "value": "test"},
-                {"label": "取消", "value": "cancel"},
-            ], name="action"),
-        ])
-        
-        if not form or form.get("action") == "cancel":
-            return
-        
-        unit = manager.get_unit(form["unit_id"])
-        if not unit or not unit._processor_func:
-            ctx["toast"]("策略不存在或无处理器", color="error")
-            return
-        
-        lab = get_lab()
-        
-        test_data = []
-        if unit._input_stream and unit._input_stream.is_cache:
-            test_data = list(unit._input_stream.recent(form["limit"]))
-        
-        if not test_data:
-            ctx["toast"]("无可用测试数据", color="warning")
-            return
-        
-        ctx["put_markdown"]("### 测试进行中...")
-        ctx["set_scope"]("lab_results")
-        
-        report = lab.test_strategy(
-            strategy_name=unit.name,
-            original_processor=unit._processor_func,
-            new_code=form["new_code"],
-            test_data=test_data,
-        )
-        
-        with ctx["use_scope"]("lab_results", clear=True):
-            ctx["put_markdown"](report.summary)
-            
-            ctx["put_markdown"]("### 测试结果详情")
-            result_table = [["状态", "输入预览", "新输出预览", "差异说明"]]
-            
-            for r in report.results[:10]:
-                result_table.append([
-                    r.status,
-                    r._preview(r.input_data, 50),
-                    r._preview(r.new_output, 50),
-                    r.diff_note[:50] if r.diff_note else "-",
-                ])
-            
-            ctx["put_table"](result_table)
-            
-            ctx["put_row"]([
-                ctx["put_button"]("采纳新策略", onclick=lambda: _adopt_new_logic(ctx, unit.id, form["new_code"]), color="success").style("margin-right: 10px"),
-                ctx["put_button"]("放弃更新", onclick=lambda: ctx["close_popup"](), color="danger"),
-            ]).style("margin-top: 10px")
-
-
-def _adopt_new_logic(ctx, unit_id: str, new_code: str):
-    manager = get_manager()
-    result = manager.hot_update(unit_id, code=new_code, validate=True)
-    
-    if result.get("success"):
-        ctx["toast"](f"策略已更新，版本: {result['code_version']}", color="success")
-    else:
-        ctx["toast"](f"更新失败: {result.get('error', '')}", color="error")
-
 
 def _render_error_panel(ctx):
     error_collector = get_error_collector()
@@ -1656,23 +680,7 @@ def _render_metrics_panel(ctx):
     </div>
     """)
     
-    manager = get_manager()
-    topology = manager.get_topology()
-    
-    if topology["nodes"]:
-        ctx["put_markdown"]("### 拓扑概览")
-        
-        node_count = len(topology["nodes"])
-        edge_count = len(topology["edges"])
-        
-        ctx["put_html"](f"""
-        <div style="padding:12px;background:#f5f5f5;border-radius:4px;">
-            <p>节点数: {node_count} | 连接数: {edge_count}</p>
-            <p style="font-size:12px;color:#666;">
-                数据源(蓝色) → 策略(绿色) → 下游(橙色)
-            </p>
-        </div>
-        """)
+
 
 
 async def render_strategy_admin(ctx):
@@ -1690,26 +698,137 @@ async def render_strategy_admin(ctx):
     ctx["put_markdown"]("### 📚 使用说明")
     ctx["put_collapse"]("点击查看文档", [
         ctx["put_markdown"]("""
-#### 策略执行单元
+## 系统架构
+
+### 架构流程图
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                               用户界面                                     │
+├─────────────────────────────────────────────────────────────────────────────┤
+│  ┌─────────────────────────┐  ┌─────────────────────────┐                │
+│  │   策略管理界面          │  │   配置管理界面          │                │
+│  ├─────────────────────────┤  ├─────────────────────────┤                │
+│  │ - 创建/编辑策略         │  │ - 全局历史记录限制      │                │
+│  │ - 启动/停止策略         │  │ - 其他系统配置         │                │
+│  │ - 查看历史记录          │  └─────────────────────────┘                │
+│  └─────────────────────────┘                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+                                   ↓
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                            策略管理器                                      │
+├─────────────────────────────────────────────────────────────────────────────┤
+│ - 策略生命周期管理                                                          │
+│ - 历史记录管理                                                              │
+│ - 执行状态监控                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+                                   ↓
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                            策略执行单元                                     │
+├─────────────────────────────────────────────────────────────────────────────┤
+│ - 数据处理逻辑                                                              │
+│ - 历史记录保存                                                              │
+│ - 自动清理过期记录                                                          │
+└─────────────────────────────────────────────────────────────────────────────┘
+                                   ↓
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                            结果存储                                        │
+├─────────────────────────────────────────────────────────────────────────────┤
+│ - 内存缓存（最近记录）                                                      │
+│ - 持久化存储（SQLite）                                                     │
+│ - 历史记录清理                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+## 策略执行单元
 
 策略执行单元是一个独立的逻辑资产，封装了：
-- **元数据**：名称、ID、备注、属性、上下游血缘
-- **执行体**：AI生成的Python函数，负责数据转换
-- **数据模版**：输入与输出的数据结构定义
-- **状态机**：管理生命周期（运行、暂停、归档）
 
-#### 生命周期管理
+- **元数据**：名称、ID、备注、标签、历史记录保留设置
+- **执行体**：Python处理函数，负责数据转换和处理
+- **状态管理**：运行、停止状态管理和执行统计
+- **数据处理**：输入数据流处理和输出结果生成
+- **历史记录**：可配置的执行结果持久化存储
 
-- **创建策略**：基于数据源和AI生成的代码初始化流
-- **策略暂停**：停止处理输入，下游流变为"空数据流"
-- **热更新**：动态替换处理器函数，无需重启
-- **策略删除**：检查下游影响，提示级联处理
+## 核心功能
 
-#### 策略实验室
+### 1. 策略生命周期管理
 
-- **数据回放**：从存储中提取历史数据
-- **影子测试**：创建隔离沙盒运行新逻辑
-- **可视化比对**：并排对比新旧输出
-- **合规性检查**：验证Schema兼容性
+- **创建策略**：手动编写或通过AI生成策略代码，设置基本信息和历史记录保留条数
+- **编辑策略**：修改策略代码、配置和历史记录保留设置
+- **启动/停止**：控制策略的运行状态
+- **删除策略**：移除不需要的策略及其相关数据
+
+### 2. 历史记录管理
+
+- **保留设置**：创建或编辑策略时可设置历史记录保留条数（默认30条）
+- **系统限制**：单个策略的保留条数不能超过系统配置的最大值（默认300条）
+- **自动清理**：当历史记录超过设置的限制时，系统会自动清理最旧的记录
+- **查看历史**：在策略详情页面可查看历史执行结果，支持按条件筛选
+
+### 3. 执行与监控
+
+- **数据处理**：策略接收数据源输入，执行处理逻辑，输出结果到下游
+- **执行统计**：实时记录执行次数、成功率、处理时间等指标
+- **错误处理**：捕获和记录执行过程中的错误
+- **状态监控**：实时显示策略运行状态和健康状况
+
+### 4. 系统配置
+
+- **全局设置**：在Admin配置页面的"策略配置"标签页中设置全局最大历史记录条数限制
+- **范围限制**：全局历史记录限制范围为1-1000条
+- **配置生效**：修改配置后立即生效，新创建的策略会使用新的限制
+
+## 历史记录管理流程
+
+### 历史记录管理流程图
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│  1. 创建/编辑策略                                                           │
+├─────────────────────────────────────────────────────────────────────────────┤
+│  - 设置历史记录保留条数（默认30条）                                           │
+│  - 系统自动检查是否超过全局限制（默认300条）                                 │
+└─────────────────────────────────────────────────────────────────────────────┘
+                                   ↓
+┌─────────────────────────────────────────────────────────────────────────────┐
+│  2. 策略执行                                                                │
+├─────────────────────────────────────────────────────────────────────────────┤
+│  - 执行处理逻辑                                                              │
+│  - 保存执行结果                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+                                   ↓
+┌─────────────────────────────────────────────────────────────────────────────┐
+│  3. 历史记录管理                                                            │
+├─────────────────────────────────────────────────────────────────────────────┤
+│  - 检查是否超过保留限制                                                      │
+│  - 自动清理最旧的记录                                                        │
+│  - 更新内存缓存和持久化存储                                                  │
+└─────────────────────────────────────────────────────────────────────────────┘
+                                   ↓
+┌─────────────────────────────────────────────────────────────────────────────┐
+│  4. 查看历史记录                                                            │
+├─────────────────────────────────────────────────────────────────────────────┤
+│  - 在策略详情页面查看                                                      │
+│  - 支持按条件筛选                                                          │
+│  - 可导出为JSON/CSV格式                                                    │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+## 使用流程
+
+1. **创建策略**：点击"创建策略"按钮，填写策略名称、简介，编写或生成策略代码，设置历史记录保留条数
+2. **绑定数据源**：选择并绑定数据源，建立数据输入通道
+3. **启动策略**：点击"启动"按钮，开始处理数据
+4. **监控运行**：在策略列表页面查看执行状态和统计信息
+5. **查看历史**：在策略详情页面查看历史执行结果
+6. **调整配置**：根据需要编辑策略，调整历史记录保留设置
+
+## 最佳实践
+
+- **合理设置历史记录**：根据策略执行频率和数据量，设置合适的历史记录保留条数
+- **定期清理**：对于执行频率高的策略，建议设置较小的保留条数
+- **监控性能**：关注策略执行时间和成功率，及时优化代码
+- **错误处理**：在策略代码中添加适当的错误处理，提高稳定性
         """),
     ], open=False)
