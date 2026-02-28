@@ -124,6 +124,11 @@ class StrategyMetadata(BaseMetadata):
     bound_datasource_name: str = ""
     summary: str = ""
     max_history_count: int = 30
+    compute_mode: str = "record"
+    window_type: str = "sliding"
+    window_size: int = 5
+    window_interval: str = "10s"
+    window_return_partial: bool = False
 
 
 @dataclass
@@ -162,6 +167,11 @@ class StrategyUnit(StatusMixin):
         bound_datasource_id: str = "",
         bound_datasource_name: str = "",
         max_history_count: int = 30,
+        compute_mode: str = "record",
+        window_type: str = "sliding",
+        window_size: int = 5,
+        window_interval: str = "10s",
+        window_return_partial: bool = False,
     ):
         self._id = self._generate_id(name)
         self.metadata = StrategyMetadata(
@@ -173,6 +183,11 @@ class StrategyUnit(StatusMixin):
             bound_datasource_id=bound_datasource_id,
             bound_datasource_name=bound_datasource_name,
             max_history_count=max_history_count,
+            compute_mode=compute_mode,
+            window_type=window_type,
+            window_size=window_size,
+            window_interval=window_interval,
+            window_return_partial=window_return_partial,
         )
         
         self.input_schema = input_schema or SchemaDefinition()
@@ -511,6 +526,9 @@ class StrategyUnit(StatusMixin):
     
     def set_error_stream(self, stream: Stream):
         self._error_stream = stream
+
+    def set_output_stream(self, stream: Stream):
+        self._output_stream = stream
     
 
     
@@ -556,21 +574,42 @@ class StrategyUnit(StatusMixin):
             if source and self._processor_code:
                 source_stream = source.get_stream()
                 if source_stream:
-                    from deva import NS
-                    output_stream_name = f"strategy_output_{self.id}"
-                    output_stream = NS(
-                        output_stream_name,
-                        cache_max_len=3,
-                        cache_max_age_seconds=3600,
-                        description=f"策略 {self.name} 的输出流"
-                    )
-                    
-                    source_stream.map(lambda data: self.process(data)) >> output_stream
-                    
-                    self._input_stream = source_stream
-                    self._output_stream = output_stream
+                    self.build_runtime_pipeline(source_stream)
         except Exception as e:
             self._log_event("ERROR", f"Failed to bind to datasource on start: {str(e)}")
+
+    def _build_compute_stream(self, source_stream: Stream) -> Stream:
+        """根据策略模式构建计算流。"""
+        mode = getattr(self.metadata, "compute_mode", "record") or "record"
+        if mode != "window":
+            return source_stream
+
+        window_type = getattr(self.metadata, "window_type", "sliding") or "sliding"
+        if window_type == "timed":
+            interval = getattr(self.metadata, "window_interval", "10s") or "10s"
+            return source_stream.timed_window(interval)
+
+        size = max(1, int(getattr(self.metadata, "window_size", 5) or 5))
+        return_partial = bool(getattr(self.metadata, "window_return_partial", False))
+        return source_stream.sliding_window(n=size, return_partial=return_partial)
+
+    def build_runtime_pipeline(self, source_stream: Stream) -> Optional[Stream]:
+        """构建数据源到策略的运行时管道。"""
+        if source_stream is None:
+            return None
+
+        output_stream_name = f"strategy_output_{self.id}"
+        output_stream = NS(
+            output_stream_name,
+            cache_max_len=3,
+            cache_max_age_seconds=3600,
+            description=f"策略 {self.name} 的输出流"
+        )
+        compute_stream = self._build_compute_stream(source_stream)
+        compute_stream.map(lambda data: self.process(data)) >> output_stream
+        self.set_input_stream(source_stream)
+        self.set_output_stream(output_stream)
+        return output_stream
     
     def stop(self) -> dict:
         if self.state.status != StrategyStatus.RUNNING.value:
@@ -802,6 +841,11 @@ class StrategyUnit(StatusMixin):
         unit.metadata.version = metadata.get("version", 1)
         unit.metadata.summary = metadata.get("summary", "")
         unit.metadata.max_history_count = metadata.get("max_history_count", 0)
+        unit.metadata.compute_mode = metadata.get("compute_mode", "record")
+        unit.metadata.window_type = metadata.get("window_type", "sliding")
+        unit.metadata.window_size = metadata.get("window_size", 5)
+        unit.metadata.window_interval = metadata.get("window_interval", "10s")
+        unit.metadata.window_return_partial = metadata.get("window_return_partial", False)
         
         state_data = data.get("state", {})
         saved_status = state_data.get("status", "draft")

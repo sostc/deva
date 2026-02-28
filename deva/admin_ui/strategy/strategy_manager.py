@@ -336,6 +336,11 @@ class StrategyManager(BaseManager[StrategyUnit]):
         datasource_id: str = None,
         datasource_name: str = None,
         max_history_count: int = 30,
+        compute_mode: str = "record",
+        window_type: str = "sliding",
+        window_size: int = 5,
+        window_interval: str = "10s",
+        window_return_partial: bool = False,
     ) -> dict:
         try:
             unit = StrategyUnit(
@@ -347,6 +352,11 @@ class StrategyManager(BaseManager[StrategyUnit]):
                 bound_datasource_id=datasource_id or "",
                 bound_datasource_name=datasource_name or "",
                 max_history_count=max_history_count,
+                compute_mode=compute_mode,
+                window_type=window_type,
+                window_size=window_size,
+                window_interval=window_interval,
+                window_return_partial=window_return_partial,
             )
             unit.metadata.summary = summary
             
