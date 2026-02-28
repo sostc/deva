@@ -9,8 +9,6 @@ import json
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
-from deva import NS
-
 from .strategy_unit import StrategyUnit, StrategyStatus
 from .strategy_manager import get_manager
 from .fault_tolerance import get_error_collector, get_metrics_collector
@@ -332,6 +330,35 @@ async def _edit_strategy_dialog(ctx, unit_id: str):
             ctx["textarea"]("策略简介", name="summary", value=unit.metadata.summary or unit.metadata.description or "", rows=3),
             ctx["input"]("标签", name="tags", value=", ".join(unit.metadata.tags or [])),
             ctx["select"]("绑定数据源", name="datasource_id", options=source_options, value=unit.metadata.bound_datasource_id or ""),
+            ctx["select"](
+                "计算模式",
+                name="compute_mode",
+                options=[
+                    {"label": "逐条处理 (record)", "value": "record"},
+                    {"label": "窗口处理 (window)", "value": "window"},
+                ],
+                value=getattr(unit.metadata, "compute_mode", "record"),
+            ),
+            ctx["select"](
+                "窗口类型",
+                name="window_type",
+                options=[
+                    {"label": "滑动窗口 (sliding)", "value": "sliding"},
+                    {"label": "定时窗口 (timed)", "value": "timed"},
+                ],
+                value=getattr(unit.metadata, "window_type", "sliding"),
+            ),
+            ctx["input"]("滑动窗口大小", name="window_size", type="number", min=1, value=getattr(unit.metadata, "window_size", 5)),
+            ctx["input"]("定时窗口间隔", name="window_interval", value=getattr(unit.metadata, "window_interval", "10s"), placeholder="如 5s / 1min"),
+            ctx["select"](
+                "窗口未满是否输出",
+                name="window_return_partial",
+                options=[
+                    {"label": "否 (False)", "value": "false"},
+                    {"label": "是 (True)", "value": "true"},
+                ],
+                value="true" if getattr(unit.metadata, "window_return_partial", False) else "false",
+            ),
             ctx["input"]("历史记录保留条数", name="max_history_count", type="number", min=0, max=max_system_history, value=getattr(unit.metadata, "max_history_count", 30), placeholder="默认30，不超过系统限制"),
             ctx["textarea"]("执行代码", name="code", value=current_code, rows=15, code={"mode": "python", "theme": "darcula"}),
             ctx["actions"]("操作", [
@@ -508,6 +535,16 @@ async def _save_strategy(ctx, unit, form, code):
     summary = form.get("summary", "")
     tags = [t.strip() for t in form.get("tags", "").split(",") if t.strip()]
     max_history_count = form.get("max_history_count", 0)
+    compute_mode = form.get("compute_mode", getattr(unit.metadata, "compute_mode", "record")) or "record"
+    window_type = form.get("window_type", getattr(unit.metadata, "window_type", "sliding")) or "sliding"
+    window_interval = (form.get("window_interval", getattr(unit.metadata, "window_interval", "10s")) or "10s").strip()
+    try:
+        window_size = int(form.get("window_size", getattr(unit.metadata, "window_size", 5)) or 5)
+    except (TypeError, ValueError):
+        window_size = 5
+    if window_size < 1:
+        window_size = 1
+    window_return_partial = str(form.get("window_return_partial", "false")).lower() in ("1", "true", "yes", "on")
     
     unit.metadata.name = name
     unit.metadata.description = summary
@@ -515,6 +552,11 @@ async def _save_strategy(ctx, unit, form, code):
     unit.metadata.tags = tags
     unit.metadata.strategy_func_code = code or ""
     unit.metadata.max_history_count = max_history_count
+    unit.metadata.compute_mode = compute_mode
+    unit.metadata.window_type = window_type
+    unit.metadata.window_size = window_size
+    unit.metadata.window_interval = window_interval
+    unit.metadata.window_return_partial = window_return_partial
     unit.save()
     
     # 绑定数据源
@@ -528,27 +570,8 @@ async def _save_strategy(ctx, unit, form, code):
             source_stream = source.get_stream()
             if source_stream and code:
                 try:
-                    from deva import NS
-                    
-                    local_ns = {"__builtins__": __builtins__}
-                    exec(code, local_ns, local_ns)
-                    process_func = local_ns.get("process")
-                    
-                    if process_func:
-                        output_stream_name = f"strategy_output_{unit.id}"
-                        output_stream = NS(
-                            output_stream_name,
-                            cache_max_len=3,
-                            cache_max_age_seconds=3600,
-                            description=f"策略 {unit.name} 的输出流"
-                        )
-                        
-                        source_stream.map(lambda data: unit.process(data)) >> output_stream
-                        
-                        unit.set_input_stream(source_stream)
-                        unit.set_output_stream(output_stream)
-                        
-                        unit.save()
+                    unit.build_runtime_pipeline(source_stream)
+                    unit.save()
                 except Exception as e:
                     ctx["toast"](f"绑定数据源时出错: {str(e)}", color="warning")
     
@@ -628,27 +651,8 @@ async def _bind_datasource_and_start(ctx, unit_id: str):
         source_stream = source.get_stream()
         if source_stream and code:
             try:
-                from deva import NS
-                
-                local_ns = {"__builtins__": __builtins__}
-                exec(code, local_ns, local_ns)
-                process_func = local_ns.get("process")
-                
-                if process_func:
-                    output_stream_name = f"strategy_output_{unit.id}"
-                    output_stream = NS(
-                        output_stream_name,
-                        cache_max_len=3,
-                        cache_max_age_seconds=3600,
-                        description=f"策略 {unit.name} 的输出流"
-                    )
-                    
-                    source_stream.map(lambda data: unit.process(data)) >> output_stream
-                    
-                    unit.set_input_stream(source_stream)
-                    unit.set_output_stream(output_stream)
-                    
-                    unit.save()
+                unit.build_runtime_pipeline(source_stream)
+                unit.save()
             except Exception as e:
                 ctx["toast"](f"绑定数据源时出错: {str(e)}", color="warning")
         
@@ -851,6 +855,35 @@ async def _create_strategy_dialog(ctx):
             ctx["textarea"]("策略简介", name="summary", placeholder="策略简介（将显示在列表页）", rows=3),
             ctx["input"]("标签", name="tags", placeholder="多个标签用逗号分隔"),
             ctx["select"]("绑定数据源", name="datasource_id", options=source_options, value=""),
+            ctx["select"](
+                "计算模式",
+                name="compute_mode",
+                options=[
+                    {"label": "逐条处理 (record)", "value": "record"},
+                    {"label": "窗口处理 (window)", "value": "window"},
+                ],
+                value="record",
+            ),
+            ctx["select"](
+                "窗口类型",
+                name="window_type",
+                options=[
+                    {"label": "滑动窗口 (sliding)", "value": "sliding"},
+                    {"label": "定时窗口 (timed)", "value": "timed"},
+                ],
+                value="sliding",
+            ),
+            ctx["input"]("滑动窗口大小", name="window_size", type="number", min=1, value=5),
+            ctx["input"]("定时窗口间隔", name="window_interval", value="10s", placeholder="如 5s / 1min"),
+            ctx["select"](
+                "窗口未满是否输出",
+                name="window_return_partial",
+                options=[
+                    {"label": "否 (False)", "value": "false"},
+                    {"label": "是 (True)", "value": "true"},
+                ],
+                value="false",
+            ),
             ctx["input"]("历史记录保留条数", name="max_history_count", type="number", min=0, max=max_system_history, value=30, placeholder="默认30，不超过系统限制"),
             ctx["textarea"]("处理器代码", name="code", placeholder="def process(data): ...", rows=8),
             ctx["actions"]("操作", [
@@ -962,6 +995,17 @@ async def _create_strategy_dialog(ctx):
         
         manager = get_manager()
         summary = form.get("summary", "")
+        compute_mode = form.get("compute_mode", "record") or "record"
+        window_type = form.get("window_type", "sliding") or "sliding"
+        window_interval = (form.get("window_interval", "10s") or "10s").strip()
+        try:
+            window_size = int(form.get("window_size", 5) or 5)
+        except (TypeError, ValueError):
+            window_size = 5
+        if window_size < 1:
+            window_size = 1
+        window_return_partial = str(form.get("window_return_partial", "false")).lower() in ("1", "true", "yes", "on")
+
         result = manager.create_strategy(
             name=form["name"],
             description=summary,
@@ -969,6 +1013,11 @@ async def _create_strategy_dialog(ctx):
             tags=[t.strip() for t in form.get("tags", "").split(",") if t.strip()],
             processor_code=form.get("code") or None,
             max_history_count=form.get("max_history_count", 0),
+            compute_mode=compute_mode,
+            window_type=window_type,
+            window_size=window_size,
+            window_interval=window_interval,
+            window_return_partial=window_return_partial,
         )
         
         if result.get("success"):
