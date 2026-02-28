@@ -59,7 +59,7 @@ Deva 数据源管理系统提供统一的数据采集、处理和分发功能，
 **方法 1：手动创建**
 
 ```python
-from deva.admin_ui.strategy.datasource import DataSource
+from deva.admin_ui.datasource import DataSource
 
 class TimerDataSource(DataSource):
     """定时器数据源"""
@@ -173,7 +173,7 @@ class DatabaseDataSource(DataSource):
 
 **生成的代码：**
 ```python
-from deva.admin_ui.strategy.datasource import DataSource
+from deva.admin_ui.datasource import DataSource
 import requests
 
 class WeatherDataSource(DataSource):
@@ -291,7 +291,7 @@ for data in data_store[:100]:
 
 ```python
 # 查看数据源的上下游
-from deva.admin_ui.strategy.datasource_manager import get_datasource_manager
+from deva.admin_ui.datasource import get_ds_manager as get_datasource_manager
 
 mgr = get_datasource_manager()
 
@@ -390,7 +390,7 @@ class MyDataSource(DataSource):
 python -m py_compile datasource.py
 
 # 2. 检查导入
-from deva.admin_ui.strategy.datasource import DataSource
+from deva.admin_ui.datasource import DataSource
 
 # 3. 检查配置
 # 在 Admin UI 中查看数据源配置

@@ -56,6 +56,134 @@ Deva - 智能数据处理平台
 - 量化交易策略执行
 - 事件驱动的微服务
 
+Admin 管理模块
+--------------
+
+Deva Admin 模块是一个功能完整的管理系统，采用分层架构设计，将核心业务逻辑与 UI 展示层清晰分离。
+
+**模块结构**：
+
+::
+
+    deva/admin_ui/
+    ├── 核心模块（不依赖 UI，可独立使用）
+    │   ├── common/base.py           # 基础类和接口定义
+    │   ├── strategy/
+    │   │   ├── base.py              # 策略基类
+    │   │   ├── executable_unit.py   # 可执行单元基类
+    │   │   ├── persistence.py       # 持久化层
+    │   │   ├── logging_context.py   # 日志上下文
+    │   │   ├── result_store.py      # 结果存储
+    │   │   ├── utils.py             # 工具函数
+    │   │   ├── tradetime.py         # 交易时间工具
+    │   │   └── error_handler.py     # 错误处理
+    │   └── llm/
+    │       ├── worker_runtime.py    # AI 异步工作器
+    │       └── config_utils.py      # LLM 配置工具
+    │
+    ├── 业务模块（部分依赖 UI）
+    │   ├── tasks/                   # 任务管理
+    │   ├── ai/                      # AI 功能
+    │   ├── datasource/              # 数据源管理
+    │   └── strategy/                # 策略管理（业务层）
+    │
+    └── UI 模块（依赖 PyWebIO）
+        ├── main_ui.py               # 主页面
+        ├── contexts.py              # 上下文构建器
+        ├── menus/                   # 菜单渲染
+        └── ...                      # 其他 UI 组件
+
+**核心功能**：
+
+- **任务管理**：定时任务、周期任务、一次性任务的创建和管理
+- **数据源管理**：定时器、流、回放等多种数据源的配置和监控
+- **策略管理**：量化策略的创建、回测、执行和监控
+- **AI 功能中心**：智能代码生成、策略生成、数据分析
+- **监控面板**：实时日志、系统状态、性能指标监控
+
+**不依赖 UI 的核心库**（可独立使用）：
+
+以下模块可以独立使用，无需 PyWebIO 或任何 UI 依赖：
+
+1. **基础架构** (`deva.admin_ui.strategy.base`)
+   - ``BaseManager`` - 通用管理器基类
+   - ``BaseMetadata`` - 元数据基类
+   - ``BaseState`` - 状态基类
+   - ``BaseStatus`` - 状态枚举
+
+2. **可执行单元** (`deva.admin_ui.strategy.executable_unit`)
+   - ``ExecutableUnit`` - 策略/数据源/任务的统一基类
+
+3. **持久化层** (`deva.admin_ui.strategy.persistence`)
+   - ``PersistenceManager`` - 多后端持久化管理器
+   - 支持内存、文件、数据库、混合后端
+
+4. **日志上下文** (`deva.admin_ui.strategy.logging_context`)
+   - ``LoggingContext`` - 线程安全的日志上下文
+   - ``strategy_log``, ``datasource_log``, ``task_log`` - 分类日志
+
+5. **结果存储** (`deva.admin_ui.strategy.result_store`)
+   - ``ResultStore`` - 策略执行结果缓存和持久化
+
+6. **工具函数** (`deva.admin_ui.strategy.utils`)
+   - 数据格式化、DataFrame 处理、板块分析等
+
+7. **交易时间** (`deva.admin_ui.strategy.tradetime`)
+   - 交易日判断、交易时间判断、交易时间执行装饰器
+
+8. **AI 工作器** (`deva.admin_ui.llm.worker_runtime`)
+   - ``run_ai_in_worker`` - 异步 AI 操作执行器
+
+9. **错误处理** (`deva.admin_ui.strategy.error_handler`)
+   - ``ErrorHandler`` - 统一错误处理
+   - ``ErrorCollector`` - 错误收集器
+
+**使用示例**：
+
+.. code-block:: python
+
+   # 1. 任务管理
+   from deva.admin_ui.tasks import TaskType, get_task_manager
+   
+   task_manager = get_task_manager()
+   task_manager.create_task(
+       name='daily_report',
+       task_type=TaskType.CRON,
+       cron_expression='0 9 * * *',
+       code='print("生成日报表")'
+   )
+   
+   # 2. 数据源管理
+   from deva.admin_ui.datasource import create_timer_source, get_ds_manager
+   
+   ds_manager = get_ds_manager()
+   source = create_timer_source(
+       source_id='stock_data',
+       interval=60,
+       code='import akshare as ak; return ak.stock_zh_a_spot_em()'
+   )
+   
+   # 3. AI 生成策略
+   from deva.admin_ui.ai import generate_strategy_code, validate_strategy_code
+   
+   code = generate_strategy_code(
+       data_schema={'type': 'stock', 'fields': ['open', 'close']},
+       requirement='生成一个双均线策略，金叉买入，死叉卖出'
+   )
+   
+   # 验证代码
+   result = validate_strategy_code(code)
+   
+   # 4. 日志上下文
+   from deva.admin_ui.strategy.logging_context import LoggingContext, strategy_log
+   
+   ctx = LoggingContext(component_type='strategy', component_id='my_strategy')
+   with ctx:
+       strategy_log.info('策略启动')
+       # 策略逻辑...
+
+详细文档请参考：`deva/admin_ui/README.md <deva/admin_ui/README.md>`_
+
 
 快速开始
 --------

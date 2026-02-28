@@ -2,10 +2,10 @@ from tornado import gen
 from tornado.httpclient import HTTPRequest, HTTPError
 from tornado.httpclient import AsyncHTTPClient
 
-from .pipe import passed, P
+from .core.pipe import passed, P
 from .core import Stream
-from .sources import RedisStream
-from .namespace import NB
+from .core.sources import RedisStream
+from .core.namespace import NB
 from pymaybe import maybe
 import json
 

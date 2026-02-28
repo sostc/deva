@@ -1,8 +1,8 @@
 import asyncio
 
-from deva.bus import log, warn
+from deva.core.bus import log, warn
 from deva.core import Stream
-from deva.namespace import NW
+from deva.core.namespace import NW
 
 from .rendering import render_template
 
@@ -37,25 +37,44 @@ def sse_view(stream, url, server=None):
 
             def write_to_sse(data):
                 try:
-                    # Handle pandas DataFrame objects by converting them to a serializable format
-                    import pandas as pd
-                    if isinstance(data, pd.DataFrame):
-                        # Convert DataFrame to JSON-serializable format
-                        data = {
-                            'type': 'dataframe',
-                            'data': data.to_dict('records'),
-                            'columns': list(data.columns),
-                            'shape': data.shape
-                        }
-                    elif isinstance(data, pd.Series):
-                        # Convert Series to JSON-serializable format
-                        data = {
-                            'type': 'series',
-                            'data': data.to_dict(),
-                            'name': data.name
-                        }
+                    # 确保在正确的事件循环中执行操作
+                    from deva.core.utils.ioloop import get_io_loop
+                    loop = get_io_loop(asynchronous=False)
                     
-                    self.write(f"data: {json_encode(data)}\n\n")
+                    def do_write(data):
+                        try:
+                            # Handle pandas DataFrame objects by converting them to a serializable format
+                            import pandas as pd
+                            if isinstance(data, pd.DataFrame):
+                                # Convert DataFrame to JSON-serializable format
+                                data = {
+                                    'type': 'dataframe',
+                                    'data': data.to_dict('records'),
+                                    'columns': list(data.columns),
+                                    'shape': data.shape
+                                }
+                            elif isinstance(data, pd.Series):
+                                # Convert Series to JSON-serializable format
+                                data = {
+                                    'type': 'series',
+                                    'data': data.to_dict(),
+                                    'name': data.name
+                                }
+                            
+                            self.write(f"data: {json_encode(data)}\n\n")
+                            self.flush()
+                        except Exception as e:
+                            {
+                                "level": "WARNING",
+                                "source": "deva.page",
+                                "message": "sse write failed",
+                                "error": str(e),
+                            } >> warn
+                    
+                    if loop is not None:
+                        loop.add_callback(do_write, data)
+                    else:
+                        do_write(data)
                 except Exception as e:
                     {
                         "level": "WARNING",
@@ -63,7 +82,6 @@ def sse_view(stream, url, server=None):
                         "message": "sse write failed",
                         "error": str(e),
                     } >> warn
-                self.flush()
 
             sink = SSEHandler.stream.sink(write_to_sse)
             while not self.request.connection.stream.closed():
