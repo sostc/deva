@@ -35,7 +35,7 @@
 
 import operator
 from typing import Callable, Mapping, TypeVar
-from .pipe import P
+from .core.pipe import P
 
 T1 = TypeVar('T1')
 T2 = TypeVar('T2')

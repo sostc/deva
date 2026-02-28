@@ -29,13 +29,11 @@ import traceback
 
 from deva import Stream, NS, NB, log
 
-from .base import BaseManager
+from ..common.base import BaseManager
 from .strategy_unit import (
     StrategyUnit,
     StrategyStatus,
     OutputType,
-    DownstreamSink,
-    UpstreamSource,
 )
 from .result_store import get_result_store
 
@@ -152,12 +150,12 @@ class StrategyManager(BaseManager[StrategyUnit]):
         
         return result
     
-    def pause(self, unit_id: str) -> dict:
+    def stop(self, unit_id: str) -> dict:
         unit = self.get_unit(unit_id)
         if not unit:
             return {"success": False, "error": "Strategy not found"}
         
-        result = unit.pause()
+        result = unit.stop()
         if result.get("success"):
             self._update_stats()
         
@@ -189,16 +187,6 @@ class StrategyManager(BaseManager[StrategyUnit]):
         unit = self.get_unit(unit_id)
         if not unit:
             return {"success": False, "error": "Strategy not found"}
-        
-        impact = unit._analyze_downstream_impact()
-        
-        if impact.get("exclusive_sinks") and not force:
-            return {
-                "success": False,
-                "error": "Strategy has exclusive downstream sinks",
-                "impact": impact,
-                "hint": "Use force=True to delete anyway",
-            }
         
         result = unit.delete()
         if result.get("success"):
@@ -270,43 +258,9 @@ class StrategyManager(BaseManager[StrategyUnit]):
         
         return {"valid": False, "error": "Either func or code must be provided"}
     
-    def analyze_deletion_impact(self, unit_id: str) -> dict:
-        unit = self.get_unit(unit_id)
-        if not unit:
-            return {"success": False, "error": "Strategy not found"}
-        
-        impact = unit._analyze_downstream_impact()
-        
-        for sink in unit.lineage.downstream:
-            other_upstreams = self._find_other_upstreams(sink.name, unit_id)
-            sink_info = {
-                "name": sink.name,
-                "type": sink.sink_type.value,
-                "exclusive": sink.exclusive,
-                "has_other_inputs": len(other_upstreams) > 0,
-                "other_upstreams": other_upstreams,
-            }
-            impact["downstreams"] = [
-                s if s["name"] != sink.name else sink_info
-                for s in impact["downstreams"]
-            ]
-        
-        return {
-            "success": True,
-            "unit_id": unit_id,
-            "unit_name": unit.name,
-            "impact": impact,
-        }
+
     
-    def _find_other_upstreams(self, sink_name: str, exclude_unit_id: str) -> List[str]:
-        other_upstreams = []
-        for unit in self._items.values():
-            if unit.id == exclude_unit_id:
-                continue
-            for sink in unit.lineage.downstream:
-                if sink.name == sink_name:
-                    other_upstreams.append(unit.name)
-        return other_upstreams
+
     
     def _get_or_create_error_stream(self) -> Stream:
         if self._error_stream is None:
@@ -352,13 +306,13 @@ class StrategyManager(BaseManager[StrategyUnit]):
             1 for u in self._items.values() if u.status == StrategyStatus.RUNNING
         )
         self._stats.paused_count = sum(
-            1 for u in self._items.values() if u.status == StrategyStatus.PAUSED
+            1 for u in self._items.values() if u.status == StrategyStatus.STOPPED
         )
         self._stats.draft_count = sum(
-            1 for u in self._items.values() if u.status == StrategyStatus.DRAFT
+            1 for u in self._items.values() if u.status == StrategyStatus.STOPPED
         )
         self._stats.archived_count = sum(
-            1 for u in self._items.values() if u.status == StrategyStatus.ARCHIVED
+            1 for u in self._items.values() if u.status == StrategyStatus.STOPPED
         )
         self._stats.total_processed = sum(
             u.state.processed_count for u in self._items.values()
@@ -368,50 +322,7 @@ class StrategyManager(BaseManager[StrategyUnit]):
         self._update_stats()
         return self._stats.to_dict()
     
-    def get_topology(self) -> dict:
-        nodes = []
-        edges = []
-        
-        for unit in self._items.values():
-            nodes.append({
-                "id": unit.id,
-                "name": unit.name,
-                "type": "strategy",
-                "status": unit.status.value,
-            })
-            
-            for upstream in unit.lineage.upstream:
-                source_id = f"source_{upstream.name}"
-                if not any(n["id"] == source_id for n in nodes):
-                    nodes.append({
-                        "id": source_id,
-                        "name": upstream.name,
-                        "type": "source",
-                        "source_type": upstream.source_type,
-                    })
-                edges.append({
-                    "source": source_id,
-                    "target": unit.id,
-                })
-            
-            for downstream in unit.lineage.downstream:
-                sink_id = f"sink_{downstream.name}"
-                if not any(n["id"] == sink_id for n in nodes):
-                    nodes.append({
-                        "id": sink_id,
-                        "name": downstream.name,
-                        "type": "sink",
-                        "sink_type": downstream.sink_type.value,
-                    })
-                edges.append({
-                    "source": unit.id,
-                    "target": sink_id,
-                })
-        
-        return {
-            "nodes": nodes,
-            "edges": edges,
-        }
+
     
     def create_strategy(
         self,
@@ -419,12 +330,12 @@ class StrategyManager(BaseManager[StrategyUnit]):
         processor_func: Callable = None,
         processor_code: str = None,
         description: str = "",
+        summary: str = "",
         tags: List[str] = None,
-        upstream_source: str = None,
-        downstream_sink: str = None,
         auto_start: bool = False,
         datasource_id: str = None,
         datasource_name: str = None,
+        max_history_count: int = 30,
     ) -> dict:
         try:
             unit = StrategyUnit(
@@ -435,18 +346,14 @@ class StrategyManager(BaseManager[StrategyUnit]):
                 strategy_func_code=processor_code or "",
                 bound_datasource_id=datasource_id or "",
                 bound_datasource_name=datasource_name or "",
+                max_history_count=max_history_count,
             )
+            unit.metadata.summary = summary
             
             if processor_func:
                 unit.set_processor(processor_func)
             elif processor_code:
                 unit.set_processor_from_code(processor_code)
-            
-            if upstream_source:
-                unit.connect_upstream(upstream_source)
-            
-            if downstream_sink:
-                unit.connect_downstream(downstream_sink)
             
             self.register(unit)
             unit.save()
@@ -501,7 +408,7 @@ class StrategyManager(BaseManager[StrategyUnit]):
     def start_all(self) -> dict:
         results = {"success": 0, "failed": 0, "skipped": 0}
         for unit in self._items.values():
-            if unit.status == StrategyStatus.DRAFT or unit.status == StrategyStatus.PAUSED:
+            if unit.status == StrategyStatus.STOPPED:
                 result = unit.start()
                 if result.get("success"):
                     results["success"] += 1
@@ -512,11 +419,11 @@ class StrategyManager(BaseManager[StrategyUnit]):
         self._update_stats()
         return results
     
-    def pause_all(self) -> dict:
+    def stop_all(self) -> dict:
         results = {"success": 0, "failed": 0, "skipped": 0}
         for unit in self._items.values():
             if unit.status == StrategyStatus.RUNNING:
-                result = unit.pause()
+                result = unit.stop()
                 if result.get("success"):
                     results["success"] += 1
                 else:

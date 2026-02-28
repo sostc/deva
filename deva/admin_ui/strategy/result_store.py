@@ -232,10 +232,43 @@ class ResultStore:
         limit: int = 10,
     ) -> List[StrategyResult]:
         with self._data_lock:
-            if strategy_id not in self._cache:
-                return []
-            results = list(self._cache[strategy_id])[:limit]
-        return results
+            if strategy_id in self._cache:
+                results = list(self._cache[strategy_id])[:limit]
+                if results:
+                    return results
+            
+            # If cache is empty, load from database
+            db_results = []
+            items = list(self._db.items())
+            for key, data in items:
+                if isinstance(data, dict) and data.get("strategy_id") == strategy_id:
+                    result = StrategyResult(
+                        id=data.get("id", ""),
+                        strategy_id=data.get("strategy_id", ""),
+                        strategy_name=data.get("strategy_name", ""),
+                        ts=data.get("ts", 0),
+                        success=data.get("success", False),
+                        input_preview=data.get("input_preview", ""),
+                        output_preview=data.get("output_preview", ""),
+                        output_full=data.get("output_full"),
+                        process_time_ms=data.get("process_time_ms", 0),
+                        error=data.get("error", ""),
+                        metadata=data.get("metadata", {}),
+                    )
+                    db_results.append(result)
+            
+            # Sort by timestamp (newest first)
+            db_results.sort(key=lambda x: x.ts, reverse=True)
+            db_results = db_results[:limit]
+            
+            # Update cache
+            if db_results:
+                if strategy_id not in self._cache:
+                    self._cache[strategy_id] = deque(maxlen=self._max_cache_size)
+                for result in reversed(db_results):  # Add in reverse order to maintain newest first
+                    self._cache[strategy_id].appendleft(result)
+            
+            return db_results
     
     def get_by_id(self, result_id: str) -> Optional[StrategyResult]:
         with self._data_lock:
@@ -415,6 +448,38 @@ class ResultStore:
             "avg_process_times": [b["total_time"] / b["count"] if b["count"] > 0 else 0 for _, b in sorted_buckets],
             "process_counts": [b["count"] for _, b in sorted_buckets],
         }
+    
+    def cleanup(self, strategy_id: str, max_count: int):
+        """清理超过限制的历史记录"""
+        with self._data_lock:
+            # 收集该策略的所有结果键
+            keys = []
+            for key in self._db.keys():
+                if key.startswith(f"{strategy_id}:"):
+                    keys.append(key)
+            
+            # 如果数量超过限制，删除最旧的记录
+            if len(keys) > max_count:
+                # 收集所有结果并按时间戳排序
+                results = []
+                for key in keys:
+                    data = self._db.get(key)
+                    if isinstance(data, dict):
+                        results.append((key, data.get("ts", 0)))
+                
+                # 按时间戳排序（最新的在前）
+                results.sort(key=lambda x: x[1], reverse=True)
+                
+                # 保留前 max_count 条，删除其余的
+                keys_to_delete = [key for key, _ in results[max_count:]]
+                for key in keys_to_delete:
+                    del self._db[key]
+                
+                # 同时清理缓存
+                if strategy_id in self._cache:
+                    cache_results = list(self._cache[strategy_id])
+                    if len(cache_results) > max_count:
+                        self._cache[strategy_id] = deque(cache_results[:max_count], maxlen=self._max_cache_size)
 
 
 store = ResultStore()

@@ -1,6 +1,6 @@
 from tornado import gen
 from .core import Stream, httpx, sync, Deva
-from .bus import log
+from .core.bus import log
 from newspaper import Article
 from requests_html import HTMLResponse
 
@@ -480,7 +480,7 @@ def open_tabs_in_browser():
 if __name__ == "__main__":
     from deva.browser import tab,browser,tabs
     from deva import *
-    from deva.pipe import Pipe
+    from deva.core.pipe import Pipe
     tab('http://secsay.com').page>>Pipe(lambda p:p.html.search('<title>{}</title>')>>log)
     
     browser.page_stream.filter(lambda page:page.url=='http://baidu.com').map(lambda p:p.article>>log)

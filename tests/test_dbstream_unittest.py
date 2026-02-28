@@ -4,8 +4,8 @@ import time
 import unittest
 from datetime import datetime
 
-from deva.store import DBStream
-from deva.pipe import passed
+from deva.core.store import DBStream
+from deva.core.pipe import passed
 
 
 class TestDBStream(unittest.TestCase):
