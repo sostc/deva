@@ -17,6 +17,7 @@ from . import tables
 from . import config
 from . import follow
 from . import browser
+from . import dictionary
 
 # Strategy module (complex submodule)
 from . import strategy
@@ -38,6 +39,7 @@ __all__ = [
     'config',
     'follow',
     'browser',
+    'dictionary',
     # Strategy
     'strategy',
 ]

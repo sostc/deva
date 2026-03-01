@@ -46,6 +46,7 @@ from __future__ import annotations
 import hashlib
 import inspect
 import json
+import re
 import threading
 import time
 import traceback
@@ -129,6 +130,7 @@ class StrategyMetadata(BaseMetadata):
     window_size: int = 5
     window_interval: str = "10s"
     window_return_partial: bool = False
+    dictionary_profile_ids: List[str] = field(default_factory=list)
 
 
 @dataclass
@@ -153,6 +155,7 @@ class StrategyUnit(StatusMixin):
     
     _instances: Dict[str, weakref.ref] = {}
     _instances_lock = threading.Lock()
+    _MULTI_SPLIT_RE = re.compile(r"[|,，;；]+")
     
     def __init__(
         self,
@@ -172,6 +175,7 @@ class StrategyUnit(StatusMixin):
         window_size: int = 5,
         window_interval: str = "10s",
         window_return_partial: bool = False,
+        dictionary_profile_ids: List[str] = None,
     ):
         self._id = self._generate_id(name)
         self.metadata = StrategyMetadata(
@@ -188,6 +192,7 @@ class StrategyUnit(StatusMixin):
             window_size=window_size,
             window_interval=window_interval,
             window_return_partial=window_return_partial,
+            dictionary_profile_ids=dictionary_profile_ids or [],
         )
         
         self.input_schema = input_schema or SchemaDefinition()
@@ -593,6 +598,161 @@ class StrategyUnit(StatusMixin):
         return_partial = bool(getattr(self.metadata, "window_return_partial", False))
         return source_stream.sliding_window(n=size, return_partial=return_partial)
 
+    def _infer_join_key(self, left_df: pd.DataFrame, right_df: pd.DataFrame) -> Optional[str]:
+        common_cols = set(left_df.columns).intersection(set(right_df.columns))
+        for key in ("code", "ts_code", "symbol", "name"):
+            if key in common_cols:
+                return key
+        return None
+
+    def _as_dataframe(self, data: Any) -> Optional[pd.DataFrame]:
+        if isinstance(data, pd.DataFrame):
+            return data
+        if isinstance(data, list) and data and isinstance(data[0], dict):
+            try:
+                return pd.DataFrame(data)
+            except Exception:
+                return None
+        if isinstance(data, dict):
+            try:
+                return pd.DataFrame([data])
+            except Exception:
+                return None
+        return None
+
+    @classmethod
+    def _merge_multi_value_text(cls, series: pd.Series) -> str:
+        values = []
+        seen = set()
+        for raw in series:
+            if raw is None:
+                continue
+            text = str(raw).strip()
+            if not text or text.lower() in {"nan", "none", "null"}:
+                continue
+            for part in cls._MULTI_SPLIT_RE.split(text):
+                item = part.strip()
+                if not item:
+                    continue
+                low = item.lower()
+                if low in {"unknown", "nan", "none", "null"}:
+                    continue
+                if item not in seen:
+                    values.append(item)
+                    seen.add(item)
+        return "|".join(values) if values else "unknown"
+
+    @classmethod
+    def _aggregate_dimension_rows(cls, dim_df: pd.DataFrame, join_key: str) -> pd.DataFrame:
+        if dim_df is None or dim_df.empty:
+            return dim_df
+        if join_key not in dim_df.columns:
+            return dim_df
+        enrich_cols = [c for c in dim_df.columns if c != join_key]
+        if not enrich_cols:
+            return dim_df[[join_key]].drop_duplicates(subset=[join_key], keep="last")
+        grouped = dim_df.groupby(join_key, dropna=False, as_index=False)
+        agg_spec = {}
+        for col in enrich_cols:
+            if pd.api.types.is_numeric_dtype(dim_df[col]):
+                agg_spec[col] = "last"
+            else:
+                agg_spec[col] = cls._merge_multi_value_text
+        return grouped.agg(agg_spec)
+
+    def _enrich_dataframe_by_profile(self, df: pd.DataFrame, profile_id: str) -> pd.DataFrame:
+        try:
+            from deva.admin_ui.dictionary import get_dictionary_manager
+            dict_mgr = get_dictionary_manager()
+            entry = dict_mgr.get_entry(profile_id)
+            if not entry:
+                # lazy reload in case dictionary manager has not loaded DB state yet
+                try:
+                    dict_mgr.load_from_db()
+                except Exception:
+                    pass
+                entry = dict_mgr.get_entry(profile_id)
+            if not entry:
+                return df
+
+            dim_data = dict_mgr.get_latest_payload(entry)
+            dim_df = self._as_dataframe(dim_data)
+            if dim_df is None or dim_df.empty:
+                return df
+
+            join_key = self._infer_join_key(df, dim_df)
+            if not join_key:
+                return df
+
+            left_df = df.copy()
+            right_df = dim_df.copy()
+            if join_key == "code":
+                left_df[join_key] = left_df[join_key].astype(str)
+                right_df[join_key] = right_df[join_key].astype(str)
+            right_df = self._aggregate_dimension_rows(right_df, join_key=join_key)
+
+            enrich_cols = [c for c in right_df.columns if c != join_key]
+            if not enrich_cols:
+                return left_df
+
+            merged = left_df.merge(
+                right_df[[join_key] + enrich_cols],
+                on=join_key,
+                how="left",
+                suffixes=("", "__dict"),
+            )
+
+            for col in enrich_cols:
+                dict_col = f"{col}__dict"
+                if dict_col not in merged.columns:
+                    continue
+                if col in left_df.columns:
+                    merged[col] = merged[col].where(merged[col].notna(), merged[dict_col])
+                    merged.drop(columns=[dict_col], inplace=True)
+                else:
+                    merged.rename(columns={dict_col: col}, inplace=True)
+
+            return merged
+        except Exception:
+            return df
+
+    def _enrich_input_data(self, data: Any) -> Any:
+        profile_ids = list(getattr(self.metadata, "dictionary_profile_ids", []) or [])
+        if not profile_ids:
+            return data
+
+        if isinstance(data, pd.DataFrame):
+            out = data
+            for profile_id in profile_ids:
+                out = self._enrich_dataframe_by_profile(out, profile_id)
+            return out
+
+        if isinstance(data, tuple):
+            items = []
+            for item in data:
+                if isinstance(item, pd.DataFrame):
+                    out = item
+                    for profile_id in profile_ids:
+                        out = self._enrich_dataframe_by_profile(out, profile_id)
+                    items.append(out)
+                else:
+                    items.append(item)
+            return tuple(items)
+
+        if isinstance(data, list):
+            items = []
+            for item in data:
+                if isinstance(item, pd.DataFrame):
+                    out = item
+                    for profile_id in profile_ids:
+                        out = self._enrich_dataframe_by_profile(out, profile_id)
+                    items.append(out)
+                else:
+                    items.append(item)
+            return items
+
+        return data
+
     def build_runtime_pipeline(self, source_stream: Stream) -> Optional[Stream]:
         """构建数据源到策略的运行时管道。"""
         if source_stream is None:
@@ -605,9 +765,13 @@ class StrategyUnit(StatusMixin):
             cache_max_age_seconds=3600,
             description=f"策略 {self.name} 的输出流"
         )
-        compute_stream = self._build_compute_stream(source_stream)
+        profile_ids = list(getattr(self.metadata, "dictionary_profile_ids", []) or [])
+        enrich_stream = source_stream
+        if profile_ids:
+            enrich_stream = source_stream.map(lambda data: self._enrich_input_data(data))
+        compute_stream = self._build_compute_stream(enrich_stream)
         compute_stream.map(lambda data: self.process(data)) >> output_stream
-        self.set_input_stream(source_stream)
+        self.set_input_stream(enrich_stream)
         self.set_output_stream(output_stream)
         return output_stream
     
@@ -846,6 +1010,7 @@ class StrategyUnit(StatusMixin):
         unit.metadata.window_size = metadata.get("window_size", 5)
         unit.metadata.window_interval = metadata.get("window_interval", "10s")
         unit.metadata.window_return_partial = metadata.get("window_return_partial", False)
+        unit.metadata.dictionary_profile_ids = metadata.get("dictionary_profile_ids", [])
         
         state_data = data.get("state", {})
         saved_status = state_data.get("status", "draft")

@@ -406,6 +406,32 @@ def datasource_ctx(ns):
     }
 
 
+def dictionary_ctx(ns):
+    return {
+        'init_admin_ui': ns['init_admin_ui'],
+        'put_markdown': ns['put_markdown'],
+        'put_text': ns['put_text'],
+        'put_table': ns['put_table'],
+        'put_row': ns['put_row'],
+        'put_button': ns['put_button'],
+        'put_buttons': ns['put_buttons'],
+        'put_html': ns['put_html'],
+        'put_code': ns['put_code'],
+        'run_async': ns['run_async'],
+        'run_js': ns['run_js'],
+        'toast': ns['toast'],
+        'input_group': ns['input_group'],
+        'input': ns['input'],
+        'textarea': ns['textarea'],
+        'select': ns['select'],
+        'actions': ns['actions'],
+        'popup': ns['popup'],
+        'close_popup': ns['close_popup'],
+        'NUMBER': ns['NUMBER'],
+        'NB': ns['NB'],
+    }
+
+
 def monitor_ui_ctx(ns):
     return {
         'init_admin_ui': ns['init_admin_ui'],

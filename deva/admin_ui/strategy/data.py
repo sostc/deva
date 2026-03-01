@@ -138,7 +138,44 @@ def normalize_and_dedup_stock_rows(df):
         out["code"] = ""
     out["code"] = out["code"].map(normalize_stock_code)
     out = out[out["code"] != ""]
-    out = out.drop_duplicates(subset=["code"], keep="first")
+    if out.empty:
+        return out
+
+    split_re = re.compile(r"[|,，;；]+")
+
+    def _merge_multi_value_series(series):
+        values = []
+        seen = set()
+        for raw in series:
+            if raw is None:
+                continue
+            text = str(raw).strip()
+            if not text or text.lower() in {"nan", "none", "null", "unknown"}:
+                continue
+            for part in split_re.split(text):
+                item = part.strip()
+                if not item:
+                    continue
+                low = item.lower()
+                if low in {"nan", "none", "null", "unknown"}:
+                    continue
+                if item not in seen:
+                    values.append(item)
+                    seen.add(item)
+        return "|".join(values) if values else "unknown"
+
+    enrich_cols = [c for c in out.columns if c != "code"]
+    if not enrich_cols:
+        return out.drop_duplicates(subset=["code"], keep="first")
+
+    grouped = out.groupby("code", as_index=False, dropna=False)
+    agg_spec = {}
+    for col in enrich_cols:
+        if pd.api.types.is_numeric_dtype(out[col]):
+            agg_spec[col] = "first"
+        else:
+            agg_spec[col] = _merge_multi_value_series
+    out = grouped.agg(agg_spec)
     return out
 
 
