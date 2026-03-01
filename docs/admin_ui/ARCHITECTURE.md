@@ -114,8 +114,8 @@ deva/admin_ui/
     ├── # 任务管理
     ├── task_unit.py         # 任务单元
     ├── task_manager.py      # 任务管理器
-    ├── enhanced_task_panel.py
-    ├── enhanced_task_admin.py
+    ├── task_dialog.py       # 任务对话框
+    ├── task_admin.py        # 任务管理界面
     │
     ├── # AI 代码生成
     ├── ai_code_generator.py          # AI 代码生成器
@@ -123,7 +123,6 @@ deva/admin_ui/
     ├── ai_code_generation_dialog.py  # AI 代码生成对话框
     ├── interactive_ai_code_generator.py
     ├── ai_strategy_generator.py
-    ├── task_ai_generator.py
     ├── complete_ai_workflow.py
     │
     ├── # 支持功能

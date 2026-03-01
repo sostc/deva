@@ -70,8 +70,8 @@ try:
     from .admin_ui import main_ui as admin_main_ui
     from .admin_ui import llm_service as admin_llm_response_service
     from .admin_ui import contexts as admin_contexts
-    from .admin_ui import monitor_routes as admin_monitor_routes
-    from .admin_ui import monitor_ui as admin_monitor_ui
+    from .admin_ui.monitor import monitor_routes as admin_monitor_routes
+    from .admin_ui.monitor import monitor_ui as admin_monitor_ui
     from .admin_ui.strategy.strategy_panel import render_strategy_admin as admin_strategy_panel
     from .admin_ui.strategy.runtime import get_strategy_config, set_strategy_config, get_strategy_basic_meta, refresh_strategy_basic_df, refresh_strategy_basic_df_async
     from .admin_ui.follow import follow_ui as admin_follow_ui
@@ -88,8 +88,8 @@ except ImportError:
     from deva.admin_ui import main_ui as admin_main_ui
     from deva.admin_ui import llm_service as admin_llm_response_service
     from deva.admin_ui import contexts as admin_contexts
-    from deva.admin_ui import monitor_routes as admin_monitor_routes
-    from deva.admin_ui import monitor_ui as admin_monitor_ui
+    from deva.admin_ui.monitor import monitor_routes as admin_monitor_routes
+    from deva.admin_ui.monitor import monitor_ui as admin_monitor_ui
     from deva.admin_ui.strategy.strategy_panel import render_strategy_admin as admin_strategy_panel
     from deva.admin_ui.strategy.runtime import get_strategy_config, set_strategy_config, get_strategy_basic_meta, refresh_strategy_basic_df, refresh_strategy_basic_df_async
     from deva.admin_ui.follow import follow_ui as admin_follow_ui
@@ -376,7 +376,7 @@ def _tasks_ctx():
 async def taskadmin():
     await init_admin_ui('Deva任务管理')
     from .admin_ui.tasks.task_manager import get_task_manager
-    from .admin_ui.tasks.enhanced_task_admin import render_enhanced_task_admin
+    from .admin_ui.tasks.task_admin import render_task_admin
 
     task_manager = get_task_manager()
     task_manager.load_from_db()
@@ -384,7 +384,7 @@ async def taskadmin():
     if not task_manager.get_scheduler().running:
         task_manager.start_scheduler()
 
-    return await render_enhanced_task_admin(_tasks_ctx())
+    return await render_task_admin(_tasks_ctx())
   
 
 async def dbadmin():
@@ -479,6 +479,10 @@ async def datasourceadmin():
 async def dictadmin():
     from .admin_ui.dictionary import render_dictionary_admin
     return await render_dictionary_admin(_dictionary_ctx())
+
+async def dictv2admin():
+    from .admin_ui.dictionary.dictionary_v2_panel import render_dictionary_v2_admin
+    return await render_dictionary_v2_admin(_dictionary_ctx())
 
 async def followadmin():
     from .admin_ui.follow.follow_ui import render_follow_ui
@@ -691,6 +695,7 @@ if __name__ == '__main__':
         (r'/strategyadmin', webio_handler(strategyadmin, cdn=cdn)),
         (r'/datasourceadmin', webio_handler(datasourceadmin, cdn=cdn)),
         (r'/dictadmin', webio_handler(dictadmin, cdn=cdn)),
+        (r'/dictv2admin', webio_handler(dictv2admin, cdn=cdn)),
         (r'/followadmin', webio_handler(followadmin, cdn=cdn)),
         (r'/browseradmin', webio_handler(browseradmin, cdn=cdn)),
         (r'/configadmin', webio_handler(configadmin, cdn=cdn)),

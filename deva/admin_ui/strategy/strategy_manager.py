@@ -42,7 +42,6 @@ from .result_store import get_result_store
 class ManagerStats:
     total_units: int = 0
     running_count: int = 0
-    paused_count: int = 0
     draft_count: int = 0
     archived_count: int = 0
     total_processed: int = 0
@@ -52,7 +51,6 @@ class ManagerStats:
         return {
             "total_units": self.total_units,
             "running_count": self.running_count,
-            "paused_count": self.paused_count,
             "draft_count": self.draft_count,
             "archived_count": self.archived_count,
             "total_processed": self.total_processed,
@@ -305,15 +303,8 @@ class StrategyManager(BaseManager[StrategyUnit]):
         self._stats.running_count = sum(
             1 for u in self._items.values() if u.status == StrategyStatus.RUNNING
         )
-        self._stats.paused_count = sum(
-            1 for u in self._items.values() if u.status == StrategyStatus.STOPPED
-        )
-        self._stats.draft_count = sum(
-            1 for u in self._items.values() if u.status == StrategyStatus.STOPPED
-        )
-        self._stats.archived_count = sum(
-            1 for u in self._items.values() if u.status == StrategyStatus.STOPPED
-        )
+        self._stats.draft_count = 0
+        self._stats.archived_count = 0
         self._stats.total_processed = sum(
             u.state.processed_count for u in self._items.values()
         )

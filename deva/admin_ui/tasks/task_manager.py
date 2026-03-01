@@ -25,7 +25,7 @@ import traceback
 from typing import Any, Dict, List, Optional, Type
 from datetime import datetime
 
-from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.job import Job
 
 from deva import NB, log
@@ -69,15 +69,14 @@ class TaskManager(BaseManager[TaskUnit]):
     继承自BaseManager，提供专业的任务管理功能
     """
     
-    def __init__(self, scheduler: AsyncIOScheduler = None):
+    def __init__(self, scheduler: BackgroundScheduler = None):
         """
         Args:
             scheduler: APScheduler调度器实例，如果为None则创建默认实例
         """
         super().__init__()
         
-        # 调度器
-        self._scheduler = scheduler or AsyncIOScheduler()
+        self._scheduler = scheduler or BackgroundScheduler()
         self._scheduler_lock = threading.Lock()
         
         # 执行统计
@@ -290,12 +289,13 @@ class TaskManager(BaseManager[TaskUnit]):
             logger.error(error_msg)
             return {"success": False, "error": error_msg, "traceback": traceback.format_exc()}
     
-    async def _execute_task_wrapper(self, task: TaskUnit):
+    def _execute_task_wrapper(self, task: TaskUnit):
         """任务执行包装器
         
         Args:
             task: 任务单元
         """
+        import asyncio
         start_time = time.time()
         
         try:
@@ -306,8 +306,12 @@ class TaskManager(BaseManager[TaskUnit]):
             # 构建执行上下文
             context = self._build_execution_context(task)
             
-            # 执行任务
-            result = await task.execute_task(context)
+            # 执行任务（运行异步任务）
+            loop = asyncio.new_event_loop()
+            try:
+                result = loop.run_until_complete(task.execute_task(context))
+            finally:
+                loop.close()
             
             # 更新成功统计
             with self._stats_lock:
@@ -775,7 +779,7 @@ class TaskManager(BaseManager[TaskUnit]):
     # 工具方法
     # ==========================================================================
     
-    def get_scheduler(self) -> AsyncIOScheduler:
+    def get_scheduler(self) -> BackgroundScheduler:
         """获取调度器实例"""
         return self._scheduler
     
