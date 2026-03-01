@@ -16,22 +16,51 @@
 
 from __future__ import annotations
 
+import ast
 import asyncio
+import hashlib
 import threading
 import time
+import traceback
 from typing import Any, Dict, List, Optional, Type
 from datetime import datetime
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.job import Job
 
-from deva import log
+from deva import NB, log
 
 from ..common.base import BaseManager
 from ..strategy.logging_context import task_log, log_task_event
 from .task_unit import TaskUnit, TaskMetadata, TaskState, TaskStats, TaskExecution, TaskType
 from ..strategy.error_handler import get_global_error_collector, ErrorLevel, ErrorCategory
 from ..strategy.persistence import get_global_persistence_manager
+
+
+class _TaskModuleLogger:
+    """Compatibility logger for Stream-based log."""
+
+    def _emit(self, level: str, message: str):
+        payload = {"level": level.upper(), "source": "deva.admin.tasks", "message": str(message)}
+        try:
+            payload >> log
+        except Exception:
+            print(f"[{level.upper()}][deva.admin.tasks] {message}")
+
+    def debug(self, message: str):
+        self._emit("DEBUG", message)
+
+    def info(self, message: str):
+        self._emit("INFO", message)
+
+    def warning(self, message: str):
+        self._emit("WARNING", message)
+
+    def error(self, message: str):
+        self._emit("ERROR", message)
+
+
+logger = _TaskModuleLogger()
 
 
 class TaskManager(BaseManager[TaskUnit]):
@@ -70,6 +99,9 @@ class TaskManager(BaseManager[TaskUnit]):
         # 依赖关系图
         self._dependency_graph: Dict[str, List[str]] = {}
         self._dependency_lock = threading.Lock()
+        self._loaded_from_db = False
+        self._load_lock = threading.Lock()
+        self._pending_resume_task_ids: List[str] = []
         
         task_log("info", "任务管理器已初始化")
     
@@ -82,12 +114,9 @@ class TaskManager(BaseManager[TaskUnit]):
         super()._on_registered(item)
         
         # 保存到持久化存储
-        try:
-            self._persistence.save_unit("task", item.id, item.to_dict())
-        except Exception as e:
-            log.error(f"任务注册时持久化失败: {e}")
+        self._persist_task(item, "任务注册")
         
-        log.info(f"任务已注册: {item.name} ({item.id})")
+        logger.info(f"任务已注册: {item.name} ({item.id})")
     
     def _on_unregistered(self, item: TaskUnit):
         """注销后回调"""
@@ -97,7 +126,7 @@ class TaskManager(BaseManager[TaskUnit]):
         try:
             self._persistence.delete_unit("task", item.id)
         except Exception as e:
-            log.error(f"任务注销时删除持久化失败: {e}")
+            logger.error(f"任务注销时删除持久化失败: {e}")
         
         # 清理依赖关系
         with self._dependency_lock:
@@ -106,7 +135,7 @@ class TaskManager(BaseManager[TaskUnit]):
                 if item.id in deps:
                     deps.remove(item.id)
         
-        log.info(f"任务已注销: {item.name} ({item.id})")
+        logger.info(f"任务已注销: {item.name} ({item.id})")
     
     def _do_start(self, item: TaskUnit) -> dict:
         """执行启动"""
@@ -121,14 +150,16 @@ class TaskManager(BaseManager[TaskUnit]):
             if not schedule_result["success"]:
                 # 如果调度失败，回滚任务状态
                 item.stop()
+                self._persist_task(item, "任务启动回滚")
                 return schedule_result
             
-            log.info(f"任务已启动并调度: {item.name}")
+            self._persist_task(item, "任务启动")
+            logger.info(f"任务已启动并调度: {item.name}")
             return {"success": True, "message": "任务启动并调度成功"}
             
         except Exception as e:
             error_msg = f"任务启动失败: {str(e)}"
-            log.error(error_msg)
+            logger.error(error_msg)
             return {"success": False, "error": error_msg, "traceback": traceback.format_exc()}
     
     def _do_stop(self, item: TaskUnit) -> dict:
@@ -137,17 +168,18 @@ class TaskManager(BaseManager[TaskUnit]):
             # 取消调度
             unschedule_result = self._unschedule_task(item)
             if not unschedule_result["success"]:
-                log.warning(f"任务取消调度失败: {item.name} - {unschedule_result.get('error')}")
+                logger.warning(f"任务取消调度失败: {item.name} - {unschedule_result.get('error')}")
             
             # 调用任务单元的停止方法
             result = item.stop()
+            self._persist_task(item, "任务停止")
             
-            log.info(f"任务已停止: {item.name}")
+            logger.info(f"任务已停止: {item.name}")
             return result
             
         except Exception as e:
             error_msg = f"任务停止失败: {str(e)}"
-            log.error(error_msg)
+            logger.error(error_msg)
             return {"success": False, "error": error_msg, "traceback": traceback.format_exc()}
     
     # ==========================================================================
@@ -220,12 +252,12 @@ class TaskManager(BaseManager[TaskUnit]):
                 task._scheduler_job = job
                 task._scheduler = self._scheduler
                 
-                log.info(f"任务已调度: {task.name} (类型: {task.metadata.task_type.value})")
+                logger.info(f"任务已调度: {task.name} (类型: {task.metadata.task_type.value})")
                 return {"success": True, "message": "任务调度成功"}
                 
         except Exception as e:
             error_msg = f"任务调度失败: {str(e)}"
-            log.error(error_msg)
+            logger.error(error_msg)
             return {"success": False, "error": error_msg, "traceback": traceback.format_exc()}
     
     def _unschedule_task(self, task: TaskUnit) -> Dict[str, Any]:
@@ -244,18 +276,18 @@ class TaskManager(BaseManager[TaskUnit]):
                     self._scheduler.remove_job(task.id)
                 except Exception as e:
                     # 任务可能不存在，这不是严重错误
-                    log.warning(f"从调度器移除任务失败: {task.name} - {e}")
+                    logger.warning(f"从调度器移除任务失败: {task.name} - {e}")
                 
                 # 清理任务引用
                 task._scheduler_job = None
                 task._scheduler = None
                 
-                log.info(f"任务调度已取消: {task.name}")
+                logger.info(f"任务调度已取消: {task.name}")
                 return {"success": True, "message": "任务调度取消成功"}
                 
         except Exception as e:
             error_msg = f"任务调度取消失败: {str(e)}"
-            log.error(error_msg)
+            logger.error(error_msg)
             return {"success": False, "error": error_msg, "traceback": traceback.format_exc()}
     
     async def _execute_task_wrapper(self, task: TaskUnit):
@@ -285,7 +317,7 @@ class TaskManager(BaseManager[TaskUnit]):
                 total_success = self._execution_stats["successful_executions"]
                 self._execution_stats["avg_duration"] = self._execution_stats["total_duration"] / total_success
             
-            log.info(f"任务执行成功: {task.name} (耗时: {duration:.2f}s)")
+            logger.info(f"任务执行成功: {task.name} (耗时: {duration:.2f}s)")
             
         except Exception as e:
             # 更新失败统计
@@ -304,10 +336,12 @@ class TaskManager(BaseManager[TaskUnit]):
             )
             
             duration = time.time() - start_time
-            log.error(f"任务执行失败: {task.name} (耗时: {duration:.2f}s) - {e}")
+            logger.error(f"任务执行失败: {task.name} (耗时: {duration:.2f}s) - {e}")
             
             # 重新抛出异常，让调度器处理重试逻辑
             raise
+        finally:
+            self._persist_task(task, "任务执行状态更新")
     
     def _build_execution_context(self, task: TaskUnit) -> Dict[str, Any]:
         """构建任务执行上下文
@@ -365,12 +399,12 @@ class TaskManager(BaseManager[TaskUnit]):
                 if depends_on not in self._dependency_graph[task_id]:
                     self._dependency_graph[task_id].append(depends_on)
             
-            log.info(f"任务依赖已添加: {task_id} -> {depends_on}")
+            logger.info(f"任务依赖已添加: {task_id} -> {depends_on}")
             return {"success": True, "message": "依赖添加成功"}
             
         except Exception as e:
             error_msg = f"添加任务依赖失败: {str(e)}"
-            log.error(error_msg)
+            logger.error(error_msg)
             return {"success": False, "error": error_msg}
     
     def remove_dependency(self, task_id: str, depends_on: str) -> Dict[str, Any]:
@@ -390,14 +424,14 @@ class TaskManager(BaseManager[TaskUnit]):
                     if not self._dependency_graph[task_id]:
                         del self._dependency_graph[task_id]
                     
-                    log.info(f"任务依赖已移除: {task_id} -/> {depends_on}")
+                    logger.info(f"任务依赖已移除: {task_id} -/> {depends_on}")
                     return {"success": True, "message": "依赖移除成功"}
                 else:
                     return {"success": False, "error": "依赖关系不存在"}
                     
         except Exception as e:
             error_msg = f"移除任务依赖失败: {str(e)}"
-            log.error(error_msg)
+            logger.error(error_msg)
             return {"success": False, "error": error_msg}
     
     def get_dependencies(self, task_id: str) -> List[str]:
@@ -561,9 +595,9 @@ class TaskManager(BaseManager[TaskUnit]):
                 results["success"] += 1
             else:
                 results["failed"] += 1
-                log.error(f"批量启动任务失败: {task.name} - {result.get('error')}")
+                logger.error(f"批量启动任务失败: {task.name} - {result.get('error')}")
         
-        log.info(f"批量启动任务完成: 成功={results['success']}, 失败={results['failed']}, 跳过={results['skipped']}")
+        logger.info(f"批量启动任务完成: 成功={results['success']}, 失败={results['failed']}, 跳过={results['skipped']}")
         return results
     
     def stop_all_tasks(self, task_type: TaskType = None) -> Dict[str, Any]:
@@ -593,9 +627,9 @@ class TaskManager(BaseManager[TaskUnit]):
                 results["success"] += 1
             else:
                 results["failed"] += 1
-                log.error(f"批量停止任务失败: {task.name} - {result.get('error')}")
+                logger.error(f"批量停止任务失败: {task.name} - {result.get('error')}")
         
-        log.info(f"批量停止任务完成: 成功={results['success']}, 失败={results['failed']}, 跳过={results['skipped']}")
+        logger.info(f"批量停止任务完成: 成功={results['success']}, 失败={results['failed']}, 跳过={results['skipped']}")
         return results
     
     def load_from_db(self) -> int:
@@ -605,6 +639,10 @@ class TaskManager(BaseManager[TaskUnit]):
             加载的任务数量
         """
         try:
+            with self._load_lock:
+                if self._loaded_from_db:
+                    return 0
+
             # 获取持久化管理器
             persistence = get_global_persistence_manager()
             
@@ -612,35 +650,126 @@ class TaskManager(BaseManager[TaskUnit]):
             task_ids = persistence.list_units("task")
             loaded_count = 0
             
+            pending_resume_ids: List[str] = []
             for task_id in task_ids:
                 try:
                     # 加载任务数据
                     task_data = persistence.load_unit("task", task_id)
                     if not task_data:
-                        log.warning(f"任务数据不存在: {task_id}")
+                        logger.warning(f"任务数据不存在: {task_id}")
                         continue
                     
                     # 创建任务单元
                     task_unit = TaskUnit.from_dict(task_data)
+                    raw_status = str((task_data.get("state", {}) or {}).get("status", "")).strip().lower()
+                    if raw_status == "running":
+                        # 重启恢复场景：先置为 stopped，等调度器就绪后再统一 start()
+                        task_unit.state.status = "stopped"
                     
                     # 注册任务（不启动）
                     result = self.register(task_unit)
                     if result["success"]:
                         loaded_count += 1
-                        log.info(f"任务已从数据库加载: {task_unit.name}")
+                        if raw_status == "running":
+                            pending_resume_ids.append(task_unit.id)
+                        logger.info(f"任务已从数据库加载: {task_unit.name}")
                     else:
-                        log.error(f"任务注册失败: {task_unit.name} - {result.get('error')}")
+                        logger.error(f"任务注册失败: {task_unit.name} - {result.get('error')}")
                         
                 except Exception as e:
-                    log.error(f"加载任务失败: {task_id} - {e}")
+                    logger.error(f"加载任务失败: {task_id} - {e}")
                     continue
             
-            log.info(f"任务加载完成: 成功加载 {loaded_count} 个任务")
+            logger.info(f"任务加载完成: 成功加载 {loaded_count} 个任务")
+            self._pending_resume_task_ids = pending_resume_ids
+            if pending_resume_ids and self._scheduler.running:
+                self._restore_pending_running_tasks()
+            with self._load_lock:
+                self._loaded_from_db = True
             return loaded_count
             
         except Exception as e:
-            log.error(f"从数据库加载任务失败: {e}")
+            logger.error(f"从数据库加载任务失败: {e}")
             return 0
+
+    def import_legacy_tasks(self) -> int:
+        """从旧任务表 NB('tasks') 导入到统一任务模型。"""
+        imported = 0
+        legacy_db = NB("tasks")
+        for name, info in legacy_db.items():
+            if not isinstance(info, dict):
+                continue
+            if self.get_by_name(name):
+                continue
+
+            task_type_raw = str(info.get("type", "interval")).strip().lower()
+            task_type = TaskType.CRON if task_type_raw == "cron" else TaskType.INTERVAL
+            schedule_config: Dict[str, Any] = {}
+            time_value = str(info.get("time", "60")).strip()
+            if task_type == TaskType.CRON:
+                if ":" in time_value:
+                    try:
+                        hour, minute = time_value.split(":", 1)
+                        schedule_config["hour"] = int(hour)
+                        schedule_config["minute"] = int(minute)
+                    except Exception:
+                        schedule_config["hour"] = 0
+                        schedule_config["minute"] = 0
+                else:
+                    schedule_config["hour"] = 0
+                    schedule_config["minute"] = int(time_value or 0)
+            else:
+                schedule_config["interval"] = int(time_value or 60)
+
+            task_id = hashlib.md5(f"legacy:{name}".encode()).hexdigest()[:12]
+            normalized_code = self._normalize_legacy_job_code(str(info.get("job_code", "") or ""))
+            metadata = TaskMetadata(
+                id=task_id,
+                name=name,
+                description=str(info.get("description", "") or ""),
+                func_code=normalized_code,
+                task_type=task_type,
+                schedule_config=schedule_config,
+                retry_config={
+                    "max_retries": int(info.get("retry_count", 0) or 0),
+                    "retry_interval": int(info.get("retry_interval", 5) or 5),
+                },
+            )
+            state = TaskState(status="stopped")
+            execution = TaskExecution(job_code=normalized_code)
+            task = TaskUnit(metadata=metadata, state=state, execution=execution, stats=TaskStats())
+            register_result = self.register(task)
+            if not register_result.get("success"):
+                continue
+            imported += 1
+
+            if info.get("status") == "运行中":
+                self.start(task.id)
+        if imported:
+            logger.info(f"已导入旧任务: {imported} 个")
+        return imported
+
+    def _normalize_legacy_job_code(self, code: str) -> str:
+        """将旧任务代码转换为包含 execute(context=None) 的形式。"""
+        code = (code or "").strip()
+        if not code:
+            return code
+        try:
+            tree = ast.parse(code)
+            async_funcs = [n for n in ast.walk(tree) if isinstance(n, ast.AsyncFunctionDef)]
+            if any(fn.name == "execute" for fn in async_funcs):
+                return code
+            if not async_funcs:
+                return code
+            target = async_funcs[0]
+            arg_count = len(target.args.args)
+            if arg_count <= 0:
+                wrapper = f"\n\nasync def execute(context=None):\n    return await {target.name}()\n"
+            else:
+                wrapper = f"\n\nasync def execute(context=None):\n    return await {target.name}(context)\n"
+            return code + wrapper
+        except Exception:
+            return code
     
     # ==========================================================================
     # 工具方法
@@ -660,14 +789,51 @@ class TaskManager(BaseManager[TaskUnit]):
             with self._scheduler_lock:
                 if not self._scheduler.running:
                     self._scheduler.start()
-                    log.info("任务调度器已启动")
+                    logger.info("任务调度器已启动")
+                    self._restore_pending_running_tasks()
                     return {"success": True, "message": "调度器启动成功"}
                 else:
                     return {"success": False, "error": "调度器已在运行"}
         except Exception as e:
             error_msg = f"调度器启动失败: {str(e)}"
-            log.error(error_msg)
+            logger.error(error_msg)
             return {"success": False, "error": error_msg}
+
+    def _persist_task(self, task: TaskUnit, scene: str = ""):
+        """持久化任务当前状态。"""
+        try:
+            self._persistence.save_unit("task", task.id, task.to_dict())
+        except Exception as e:
+            prefix = f"{scene} " if scene else ""
+            logger.error(f"{prefix}持久化失败: {task.name} - {e}")
+
+    def _restore_pending_running_tasks(self):
+        """恢复上次运行中的任务。"""
+        if not self._pending_resume_task_ids:
+            return
+
+        resumed = 0
+        failed = 0
+        pending = list(self._pending_resume_task_ids)
+        self._pending_resume_task_ids = []
+
+        for task_id in pending:
+            task = self.get(task_id)
+            if not task:
+                failed += 1
+                continue
+            if task.is_running:
+                resumed += 1
+                continue
+
+            result = self.start(task_id)
+            if result.get("success"):
+                resumed += 1
+            else:
+                failed += 1
+                logger.error(f"重启恢复任务失败: {task.name} - {result.get('error')}")
+
+        logger.info(f"任务恢复完成: 成功={resumed}, 失败={failed}")
     
     def stop_scheduler(self) -> Dict[str, Any]:
         """停止调度器
@@ -679,13 +845,13 @@ class TaskManager(BaseManager[TaskUnit]):
             with self._scheduler_lock:
                 if self._scheduler.running:
                     self._scheduler.shutdown()
-                    log.info("任务调度器已停止")
+                    logger.info("任务调度器已停止")
                     return {"success": True, "message": "调度器停止成功"}
                 else:
                     return {"success": False, "error": "调度器未运行"}
         except Exception as e:
             error_msg = f"调度器停止失败: {str(e)}"
-            log.error(error_msg)
+            logger.error(error_msg)
             return {"success": False, "error": error_msg}
 
 
