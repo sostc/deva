@@ -22,6 +22,7 @@
 
 from __future__ import annotations
 
+import re
 import threading
 from typing import List, Optional
 import pandas as pd
@@ -41,6 +42,7 @@ TABLE_STYLE = """
 
 _TABLE_STYLE_ADDED = False
 _table_style_lock = threading.Lock()
+_MULTI_VALUE_SPLIT_RE = re.compile(r"[|,，;；]+")
 
 
 def format_pct(val) -> str:
@@ -118,9 +120,53 @@ def ensure_required_columns(df: pd.DataFrame) -> pd.DataFrame:
     out = df.copy()
     if "blockname" not in out.columns:
         out["blockname"] = "unknown"
+    if "industry" not in out.columns:
+        out["industry"] = "unknown"
     if "name" not in out.columns:
         out["name"] = out["code"].astype(str) if "code" in out.columns else "unknown"
     return out
+
+
+def split_multi_value_text(value, unknown: str = "unknown") -> List[str]:
+    """将多值文本拆分为列表，兼容 | , ， ; ； 分隔符。"""
+    if value is None:
+        return [unknown]
+    text = str(value).strip()
+    if not text or text.lower() == "nan":
+        return [unknown]
+    parts = [item.strip() for item in _MULTI_VALUE_SPLIT_RE.split(text) if item and item.strip()]
+    dedup: List[str] = []
+    seen = set()
+    for item in parts:
+        key = item.lower()
+        if key in {"unknown", "none", "null", "nan"}:
+            continue
+        if item not in seen:
+            dedup.append(item)
+            seen.add(item)
+    return dedup or [unknown]
+
+
+def expand_multi_value_rows(
+    df: pd.DataFrame,
+    source_col: str,
+    target_col: str,
+    unknown: str = "unknown",
+) -> pd.DataFrame:
+    """按多值字段展开行。"""
+    if df is None:
+        return pd.DataFrame(columns=[source_col, target_col])
+    if len(df) == 0:
+        out = df.copy()
+        if target_col not in out.columns:
+            out[target_col] = []
+        return out
+    out = df.copy()
+    if source_col not in out.columns:
+        out[source_col] = unknown
+    out[source_col] = out[source_col].fillna(unknown).astype(str)
+    out[target_col] = out[source_col].map(lambda x: split_multi_value_text(x, unknown=unknown))
+    return out.explode(target_col, ignore_index=True)
 
 
 def enrich_with_metadata(df: pd.DataFrame) -> pd.DataFrame:
@@ -156,27 +202,24 @@ def expand_blockname_rows(
     Returns:
         展开后的 DataFrame
     """
-    if df is None:
-        return pd.DataFrame(columns=[block_col, target_col])
-    if len(df) == 0:
-        out = df.copy()
-        if target_col not in out.columns:
-            out[target_col] = []
-        return out
-
-    out = df.copy()
-    if block_col not in out.columns:
-        out[block_col] = "unknown"
-
-    out[block_col] = out[block_col].fillna("unknown").astype(str)
-    out[target_col] = out[block_col].map(
-        lambda x: [item.strip() for item in x.split("|") if item and item.strip()] or ["unknown"]
-    )
-    out = out.explode(target_col, ignore_index=True)
-    return out
+    return expand_multi_value_rows(df, source_col=block_col, target_col=target_col, unknown="unknown")
 
 
-def prepare_df(df: pd.DataFrame, cols: List[str] = None) -> pd.DataFrame:
+def expand_industry_rows(
+    df: pd.DataFrame,
+    industry_col: str = "industry",
+    target_col: str = "industry_item",
+) -> pd.DataFrame:
+    """展开行业名称行，支持一股多行业。"""
+    return expand_multi_value_rows(df, source_col=industry_col, target_col=target_col, unknown="unknown")
+
+
+def prepare_df(
+    df: pd.DataFrame,
+    cols: List[str] = None,
+    group_col: str = "blockname",
+    group_item_col: Optional[str] = None,
+) -> pd.DataFrame:
     """数据预处理
     
     完整的数据预处理流程：选择列 → 添加元数据 → 确保必需列 → 展开板块
@@ -200,7 +243,8 @@ def prepare_df(df: pd.DataFrame, cols: List[str] = None) -> pd.DataFrame:
         df = df.copy()
     
     df = ensure_required_columns(enrich_with_metadata(df))
-    df = expand_blockname_rows(df)
+    item_col = group_item_col or f"{group_col}_item"
+    df = expand_multi_value_rows(df, source_col=group_col, target_col=item_col, unknown="unknown")
     return df
 
 
@@ -208,7 +252,8 @@ def calc_block_ranking(
     df: pd.DataFrame, 
     col: str, 
     n: int = 20, 
-    top: bool = True
+    top: bool = True,
+    group_item_col: str = "blockname_item",
 ) -> pd.DataFrame:
     """计算板块排名
     
@@ -227,8 +272,8 @@ def calc_block_ranking(
     df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0.0)
     grouped = (
         df.sort_values([col], ascending=not top)
-        .groupby("blockname_item").head(n)
-        .groupby("blockname_item")[col].mean()
+        .groupby(group_item_col).head(n)
+        .groupby(group_item_col)[col].mean()
         .to_frame(col)
         .sort_values(col, ascending=not top).head(10)
     )
@@ -240,7 +285,8 @@ def get_top_stocks_in_block(
     blockname: str, 
     col: str, 
     n: int = 3, 
-    top: bool = True
+    top: bool = True,
+    group_item_col: str = "blockname_item",
 ) -> pd.DataFrame:
     """获取板块内股票
     
@@ -256,7 +302,7 @@ def get_top_stocks_in_block(
     Returns:
         股票 DataFrame
     """
-    block_df = df[df["blockname_item"] == blockname].copy()
+    block_df = df[df[group_item_col] == blockname].copy()
     block_df = block_df.sort_values(col, ascending=not top).head(n)
     return block_df
 
