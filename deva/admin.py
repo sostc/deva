@@ -66,7 +66,6 @@ try:
     from .admin_ui import auth_routes as admin_auth
     from .admin_ui import auth_routes as admin_route_helpers
     from .admin_ui import document as admin_document
-    from .admin_ui import tasks as admin_tasks
     from .admin_ui import tables as admin_tables
     from .admin_ui import main_ui as admin_main_ui
     from .admin_ui import llm_service as admin_llm_response_service
@@ -85,7 +84,6 @@ except ImportError:
     from deva.admin_ui import auth_routes as admin_auth
     from deva.admin_ui import auth_routes as admin_route_helpers
     from deva.admin_ui import document as admin_document
-    from deva.admin_ui import tasks as admin_tasks
     from deva.admin_ui import tables as admin_tables
     from deva.admin_ui import main_ui as admin_main_ui
     from deva.admin_ui import llm_service as admin_llm_response_service
@@ -364,31 +362,12 @@ tasks = {}
 
 
 async def watch_topic(topic):
-    return await admin_tasks.watch_topic(_tasks_ctx(), topic)
-
-
-async def create_task():
-    return await admin_tasks.create_task(_tasks_ctx())
-
-
-def manage_tasks():
-    return admin_tasks.manage_tasks(_tasks_ctx())
-
-
-def stop_task(name):
-    return admin_tasks.stop_task(_tasks_ctx(), name)
-
-def start_task(name):
-    return admin_tasks.start_task(_tasks_ctx(), name)
-
-def delete_task(name):
-    return admin_tasks.delete_task(_tasks_ctx(), name)
-        
-def recover_task(name):
-    return admin_tasks.recover_task(_tasks_ctx(), name)
-
-def remove_task_forever(name):
-    return admin_tasks.remove_task_forever(_tasks_ctx(), name)
+    full_prompt = (
+        f" 获取{topic},要求返回的内容每一行都是一个一句话，开头用一个和内容对应的图标，"
+        "然后是一个不大于十个字的高度浓缩概括词，概括词用加粗字体，再后面是一句话摘要，"
+        "用破折号区隔开。每行一个内容，不要有标题等其他任何介绍性内容，只需要返回6 条新闻即可。"
+    )
+    return await get_gpt_response(prompt=full_prompt, model_type="kimi")
 
 
 def _tasks_ctx():
@@ -396,10 +375,16 @@ def _tasks_ctx():
     
 async def taskadmin():
     await init_admin_ui('Deva任务管理')
-    
-    put_button("创建定时任务", onclick=create_task)
-    manage_tasks()  # 直接展示任务列表
-    set_scope('task_log')
+    from .admin_ui.tasks.task_manager import get_task_manager
+    from .admin_ui.tasks.enhanced_task_admin import render_enhanced_task_admin
+
+    task_manager = get_task_manager()
+    task_manager.load_from_db()
+    task_manager.import_legacy_tasks()
+    if not task_manager.get_scheduler().running:
+        task_manager.start_scheduler()
+
+    return await render_enhanced_task_admin(_tasks_ctx())
   
 
 async def dbadmin():
@@ -679,7 +664,15 @@ def create_nav_menu():
 if __name__ == '__main__':
     from deva.page import page
     setup_admin_runtime(enable_webviews=True, enable_timer=True, enable_scheduler=True)
-    admin_tasks.restore_tasks_from_db(_tasks_ctx())  # 系统启动时从数据库恢复任务
+    try:
+        from .admin_ui.tasks.task_manager import get_task_manager
+    except ImportError:
+        from deva.admin_ui.tasks.task_manager import get_task_manager
+    task_manager = get_task_manager()
+    task_manager.load_from_db()
+    task_manager.import_legacy_tasks()
+    if not task_manager.get_scheduler().running:
+        task_manager.start_scheduler()
     # 系统启动时恢复数据源的运行状态
     from .admin_ui.datasource import get_ds_manager
     ds_mgr = get_ds_manager()
