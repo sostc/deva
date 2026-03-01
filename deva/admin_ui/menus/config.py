@@ -43,6 +43,7 @@ MAIN_MENU_ITEMS: List[MenuItem] = [
     MenuItem("📊 命名流", "/streamadmin"),
     MenuItem("📡 数据源", "/datasourceadmin"),
     MenuItem("📚 数据字典", "/dictadmin"),
+    MenuItem("📖 数据字典V2", "/dictv2admin"),
     MenuItem("📈 策略", "/strategyadmin"),
     MenuItem("👁 监控", "/monitor"),
     MenuItem("⏰ 任务", "/taskadmin"),

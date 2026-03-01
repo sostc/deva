@@ -1,20 +1,19 @@
 #!/usr/bin/env python3
 """
-简化测试增强版任务面板功能
+简化测试任务面板功能
 
-这个脚本测试增强版任务面板的核心功能，避开复杂的日志系统。
+这个脚本测试任务面板的核心功能，避开复杂的日志系统。
 """
 
 import asyncio
-from deva.admin_ui.strategy.enhanced_task_panel import validate_task_code
-from deva.admin_ui.strategy.task_unit import TaskType
+from deva.admin_ui.tasks.task_dialog import validate_task_code
+from deva.admin_ui.tasks.task_unit import TaskType
 
 
 def test_task_code_validation():
     """测试任务代码验证功能"""
     print("=== 测试任务代码验证功能 ===")
     
-    # 测试有效代码
     valid_code = '''
 async def execute(context=None):
     """测试任务"""
@@ -24,7 +23,6 @@ async def execute(context=None):
     result = validate_task_code(valid_code)
     print(f"有效代码验证结果: {result}")
     
-    # 测试无效代码
     invalid_code = '''
 def some_function():
     return 'not a task'
@@ -33,7 +31,6 @@ def some_function():
     result = validate_task_code(invalid_code)
     print(f"无效代码验证结果: {result}")
     
-    # 测试带警告的代码
     warning_code = '''
 async def execute(context=None):
     eval('some_code')
@@ -50,16 +47,14 @@ def test_ai_code_generator():
     print("=== 测试AI代码生成器 ===")
     
     try:
-        from deva.admin_ui.strategy.ai_code_generator import TaskAIGenerator
+        from deva.admin_ui.ai.ai_code_generator import TaskAIGenerator
         
         generator = TaskAIGenerator()
         print(f"AI生成器已准备: {generator.unit_type}")
         
-        # 测试获取默认模板
         template = generator._get_default_task_template()
         print(f"默认任务模板:\n{template}")
         
-        # 测试代码优化
         test_code = '''
 async def execute(context=None):
     result = 0
@@ -83,7 +78,6 @@ def test_task_templates():
     """测试任务模板"""
     print("=== 测试任务模板 ===")
     
-    # 模拟enhanced_task_panel.py中的模板
     templates = {
         "database_backup": {
             "name": "数据库备份任务",
@@ -94,7 +88,6 @@ def test_task_templates():
     from datetime import datetime
     
     try:
-        # 模拟数据库备份
         backup_data = f"数据库备份数据 - {datetime.now().isoformat()}"
         await asyncio.sleep(1)
         return f'数据库备份完成: {backup_data}'
@@ -113,7 +106,6 @@ def test_task_templates():
     from datetime import datetime
     
     try:
-        # 模拟系统监控
         cpu_usage = random.uniform(10, 90)
         memory_usage = random.uniform(30, 80)
         
@@ -131,7 +123,6 @@ def test_task_templates():
         print(f"模板: {template_info['name']}")
         print(f"描述: {template_info['description']}")
         
-        # 验证模板代码
         validation_result = validate_task_code(template_info['code'])
         print(f"代码验证: {'✅ 通过' if validation_result['valid'] else '❌ 失败'}")
         if validation_result.get('warnings'):
@@ -143,12 +134,11 @@ async def test_task_workflow():
     """测试任务工作流"""
     print("=== 测试任务工作流 ===")
     
-    # 模拟任务创建流程
     print("1. 任务需求收集")
     task_requirements = {
         "name": "数据备份任务",
         "task_type": TaskType.INTERVAL,
-        "time_config": "3600",  # 每小时
+        "time_config": "3600",
         "description": "定期备份重要数据"
     }
     print(f"任务需求: {task_requirements}")
@@ -165,9 +155,8 @@ async def execute(context=None):
     try:
         f"数据备份任务 {task_name} 开始执行"
         
-        # 模拟数据备份过程
         backup_data = f"备份数据 - {datetime.now().isoformat()}"
-        await asyncio.sleep(2)  # 模拟耗时操作
+        await asyncio.sleep(2)
         
         result = f'数据备份完成: {backup_data}'
         return result
@@ -195,25 +184,21 @@ async def execute(context=None):
 
 def main():
     """主测试函数"""
-    print("开始测试增强版任务面板功能...")
+    print("开始测试任务面板功能...")
     print("=" * 60)
     
-    # 测试代码验证
     test_task_code_validation()
     
-    # 测试AI代码生成器
     test_ai_code_generator()
     
-    # 测试任务模板
     test_task_templates()
     
-    # 测试任务工作流（异步）
     asyncio.run(test_task_workflow())
     
     print("=" * 60)
     print("测试完成！")
     print()
-    print("增强版任务面板功能总结:")
+    print("任务面板功能总结:")
     print("✅ 任务代码验证功能 - 语法检查、函数验证、安全警告")
     print("✅ AI代码生成功能 - 智能代码生成、模板支持、代码优化")
     print("✅ 多种代码输入方式 - AI生成、手动编写、模板选择、文件导入")

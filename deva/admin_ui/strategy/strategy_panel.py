@@ -196,10 +196,6 @@ def _render_stats_overview(ctx):
             <div style="font-size:24px;font-weight:bold;color:#28a745;">{stats['running_count']}</div>
         </div>
         <div style="flex:1;background:#fff;padding:16px;border-radius:8px;box-shadow:0 2px 4px rgba(0,0,0,0.1);">
-            <div style="font-size:12px;color:#666;">已暂停</div>
-            <div style="font-size:24px;font-weight:bold;color:#ffc107;">{stats['paused_count']}</div>
-        </div>
-        <div style="flex:1;background:#fff;padding:16px;border-radius:8px;box-shadow:0 2px 4px rgba(0,0,0,0.1);">
             <div style="font-size:12px;color:#666;">错误数</div>
             <div style="font-size:24px;font-weight:bold;color:#dc3545;">{error_stats['unresolved']}</div>
         </div>

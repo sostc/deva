@@ -19,6 +19,12 @@ from .datasource_panel import (
     render_datasource_admin_panel,
 )
 
+from .datasource_v2 import (
+    DataSourceEntry,
+    DataSourceManager as DataSourceManagerV2,
+    get_datasource_manager as get_datasource_manager_v2,
+)
+
 from ..contexts import datasource_ctx
 
 __all__ = [
@@ -38,6 +44,10 @@ __all__ = [
     # Admin UI (aliased for admin.py compatibility)
     'admin_datasource_ui',
     'render_datasource_admin_panel',
+    # V2
+    'DataSourceEntry',
+    'DataSourceManagerV2',
+    'get_datasource_manager_v2',
     # Context
     'datasource_ctx',
 ]

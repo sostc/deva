@@ -13,7 +13,7 @@ from .strategy_unit import StrategyUnit, StrategyStatus
 from .strategy_manager import get_manager
 from .fault_tolerance import get_error_collector, get_metrics_collector
 from ..datasource.datasource import get_ds_manager
-from ..dictionary import get_dictionary_manager
+from ..dictionary import get_dictionary_manager_v2
 from ..ai.ai_strategy_generator import (
     generate_strategy_code,
     validate_strategy_code,
@@ -63,8 +63,8 @@ async def _edit_strategy_dialog(ctx, unit_id: str):
     
     ds_mgr = get_ds_manager()
     sources = ds_mgr.list_source_objects()
-    dict_mgr = get_dictionary_manager()
-    dict_entries = dict_mgr.list_entries()
+    dict_mgr = get_dictionary_manager_v2()
+    dict_entries = dict_mgr.list_all()
     dict_options = [{"label": e.name, "value": e.id} for e in dict_entries]
     
     current_code = unit.metadata.strategy_func_code or unit._processor_code or DEFAULT_STRATEGY_FUNC_CODE
@@ -680,8 +680,8 @@ async def _bind_datasource_and_start(ctx, unit_id: str):
 async def _create_strategy_dialog(ctx):
     ds_mgr = get_ds_manager()
     sources = ds_mgr.list_source_objects()
-    dict_mgr = get_dictionary_manager()
-    dict_entries = dict_mgr.list_entries()
+    dict_mgr = get_dictionary_manager_v2()
+    dict_entries = dict_mgr.list_all()
     dict_options = [{"label": e.name, "value": e.id} for e in dict_entries]
     
     # 构建数据源选项，显示运行状态并优先排序运行中的数据源

@@ -1,14 +1,13 @@
 #!/usr/bin/env python3
 """
-测试增强版任务管理UI集成
+测试任务管理UI集成
 
-这个脚本演示如何在PyWebIO环境中测试增强版任务管理界面。
+这个脚本演示如何在PyWebIO环境中测试任务管理界面。
 """
 
 import asyncio
 from datetime import datetime
 
-# 模拟PyWebIO上下文环境
 class MockContext:
     def __init__(self):
         self.log = []
@@ -53,11 +52,11 @@ class MockContext:
     
     def mock_actions(self, label, options):
         print(f"[ACTIONS] {label}")
-        return "confirm"  # 模拟用户确认
+        return "confirm"
     
     def mock_popup(self, title, size="medium"):
         print(f"[POPUP] {title} ({size})")
-        return self  # 返回self以支持with语句
+        return self
     
     def mock_collapse(self, title, open=False):
         print(f"[COLLAPSE] {title} (open={open})")
@@ -70,21 +69,19 @@ class MockContext:
         pass
 
 
-async def test_enhanced_task_admin():
-    """测试增强版任务管理界面"""
+async def test_task_admin():
+    """测试任务管理界面"""
     print("=" * 60)
-    print("测试增强版任务管理UI集成")
+    print("测试任务管理UI集成")
     print("=" * 60)
     
-    # 导入增强版任务管理
-    from deva.admin_ui.enhanced_task_admin import render_enhanced_task_admin
+    from deva.admin_ui.tasks.task_admin import render_task_admin
     
-    # 创建模拟上下文
     ctx = MockContext()
     
-    print("\n1. 渲染增强版任务管理界面")
+    print("\n1. 渲染任务管理界面")
     try:
-        await render_enhanced_task_admin(ctx)
+        await render_task_admin(ctx)
         print("✅ 界面渲染成功")
     except Exception as e:
         print(f"❌ 界面渲染失败: {e}")
@@ -92,23 +89,23 @@ async def test_enhanced_task_admin():
     
     print("\n2. 测试任务统计信息")
     try:
-        from deva.admin_ui.strategy.task_manager import get_task_manager
+        from deva.admin_ui.tasks.task_manager import get_task_manager
         task_manager = get_task_manager()
         stats = task_manager.get_overall_stats()
         print(f"✅ 任务统计获取成功: {len(stats.get('task_details', []))} 个任务")
     except Exception as e:
         print(f"❌ 任务统计获取失败: {e}")
     
-    print("\n3. 测试AI代码生成功能")
+    print("\n3. 测试任务对话框功能")
     try:
-        from deva.admin_ui.strategy.enhanced_task_panel import show_enhanced_create_task_dialog
-        print("✅ AI代码生成功能可用")
+        from deva.admin_ui.tasks.task_dialog import show_create_task_dialog
+        print("✅ 任务对话框功能可用")
     except Exception as e:
-        print(f"❌ AI代码生成功能不可用: {e}")
+        print(f"❌ 任务对话框功能不可用: {e}")
     
     print("\n4. 测试任务代码验证")
     try:
-        from deva.admin_ui.strategy.enhanced_task_panel import validate_task_code
+        from deva.admin_ui.tasks.task_dialog import validate_task_code
         
         test_code = '''
 async def execute(context=None):
@@ -122,7 +119,7 @@ async def execute(context=None):
     
     print("\n5. 测试AI代码生成器")
     try:
-        from deva.admin_ui.strategy.ai_code_generator import TaskAIGenerator
+        from deva.admin_ui.ai.ai_code_generator import TaskAIGenerator
         
         generator = TaskAIGenerator()
         template = generator._get_default_task_template()
@@ -132,7 +129,7 @@ async def execute(context=None):
     
     print("\n" + "=" * 60)
     print("测试总结:")
-    print("✅ 增强版任务管理UI框架完整")
+    print("✅ 任务管理UI框架完整")
     print("✅ AI代码生成功能集成成功")
     print("✅ 任务代码验证功能正常")
     print("✅ 与任务管理器集成成功")
@@ -149,4 +146,4 @@ async def execute(context=None):
 
 
 if __name__ == "__main__":
-    asyncio.run(test_enhanced_task_admin())
+    asyncio.run(test_task_admin())

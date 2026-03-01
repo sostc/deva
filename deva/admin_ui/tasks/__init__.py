@@ -13,14 +13,23 @@ from .task_unit import (
     TaskStats,
 )
 
-from .enhanced_task_panel import (
-    show_enhanced_create_task_dialog,
-    show_enhanced_edit_task_dialog,
+from .task_dialog import (
+    show_create_task_dialog,
+    show_edit_task_dialog,
     validate_task_code,
 )
 
+from .task_admin import (
+    render_task_admin,
+)
+
+from .task_v2 import (
+    TaskEntry,
+    TaskManager as TaskManagerV2,
+    get_task_manager as get_task_manager_v2,
+)
+
 __all__ = [
-    # Core classes
     'TaskUnit',
     'TaskType',
     'TaskMetadata',
@@ -28,8 +37,12 @@ __all__ = [
     'TaskStats',
     'TaskManager',
     'get_task_manager',
-    # Enhanced UI
-    'show_enhanced_create_task_dialog',
-    'show_enhanced_edit_task_dialog',
+    'show_create_task_dialog',
+    'show_edit_task_dialog',
     'validate_task_code',
+    'render_task_admin',
+    # V2
+    'TaskEntry',
+    'TaskManagerV2',
+    'get_task_manager_v2',
 ]

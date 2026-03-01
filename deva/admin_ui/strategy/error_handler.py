@@ -157,7 +157,10 @@ class ErrorCollector:
                 data_type = type(data).__name__
                 data_size = self._get_data_size(data)
             except Exception as e:
-                log.warning(f"格式化数据预览失败: {e}")
+                try:
+                    {"level": "WARNING", "source": "deva.error_handler", "message": f"格式化数据预览失败: {e}"} >> log
+                except Exception:
+                    print(f"[WARNING][deva.error_handler] 格式化数据预览失败: {e}")
         
         # 创建错误记录
         record = ErrorRecord(
@@ -205,7 +208,10 @@ class ErrorCollector:
             if error.error_id == error_id:
                 error.recovered = True
                 error.recovery_time = time.time()
-                log.info(f"错误已恢复: {error_id}")
+                try:
+                    {"level": "INFO", "source": "deva.error_handler", "message": f"错误已恢复: {error_id}"} >> log
+                except Exception:
+                    print(f"[INFO][deva.error_handler] 错误已恢复: {error_id}")
                 break
     
     def get_errors(
@@ -397,14 +403,27 @@ class ErrorCollector:
     def _log_error(self, error: ErrorRecord):
         """记录错误日志"""
         # 根据级别选择日志级别
-        if error.level == ErrorLevel.CRITICAL:
-            log.critical(f"[{error.unit_type}:{error.unit_name}] {error.message}")
-        elif error.level == ErrorLevel.HIGH:
-            log.error(f"[{error.unit_type}:{error.unit_name}] {error.message}")
-        elif error.level == ErrorLevel.MEDIUM:
-            log.warning(f"[{error.unit_type}:{error.unit_name}] {error.message}")
-        else:
-            log.info(f"[{error.unit_type}:{error.unit_name}] {error.message}")
+        level_map = {
+            ErrorLevel.CRITICAL: "CRITICAL",
+            ErrorLevel.HIGH: "ERROR",
+            ErrorLevel.MEDIUM: "WARNING",
+            ErrorLevel.LOW: "INFO"
+        }
+        level = level_map.get(error.level, "INFO")
+        payload = {
+            "level": level,
+            "source": "deva.error_handler",
+            "message": f"[{error.unit_type}:{error.unit_name}] {error.message}",
+            "unit_id": error.unit_id,
+            "unit_name": error.unit_name,
+            "unit_type": error.unit_type,
+            "error_id": error.error_id
+        }
+        try:
+            payload >> log
+        except Exception:
+            # 降级到标准输出
+            print(f"[{level}][deva.error_handler] [{error.unit_type}:{error.unit_name}] {error.message}")
     
     def _trigger_callbacks(self, error: ErrorRecord):
         """触发错误回调"""
@@ -412,7 +431,10 @@ class ErrorCollector:
             try:
                 callback(error)
             except Exception as e:
-                log.error(f"错误回调执行失败: {e}")
+                try:
+                    {"level": "ERROR", "source": "deva.error_handler", "message": f"错误回调执行失败: {e}"} >> log
+                except Exception:
+                    print(f"[ERROR][deva.error_handler] 错误回调执行失败: {e}")
 
 
 class ErrorHandler:
