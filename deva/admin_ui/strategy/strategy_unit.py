@@ -272,10 +272,6 @@ class StrategyUnit(StatusMixin):
             return StrategyStatus.STOPPED
     
     @property
-    def is_paused(self) -> bool:
-        return self.state.status == StrategyStatus.STOPPED.value
-    
-    @property
     def is_running(self) -> bool:
         return self.state.status == StrategyStatus.RUNNING.value
     
@@ -661,20 +657,19 @@ class StrategyUnit(StatusMixin):
 
     def _enrich_dataframe_by_profile(self, df: pd.DataFrame, profile_id: str) -> pd.DataFrame:
         try:
-            from deva.admin_ui.dictionary import get_dictionary_manager
-            dict_mgr = get_dictionary_manager()
-            entry = dict_mgr.get_entry(profile_id)
+            from deva.admin_ui.dictionary import get_dictionary_manager_v2
+            dict_mgr = get_dictionary_manager_v2()
+            entry = dict_mgr.get(profile_id)
             if not entry:
-                # lazy reload in case dictionary manager has not loaded DB state yet
                 try:
                     dict_mgr.load_from_db()
                 except Exception:
                     pass
-                entry = dict_mgr.get_entry(profile_id)
+                entry = dict_mgr.get(profile_id)
             if not entry:
                 return df
 
-            dim_data = dict_mgr.get_latest_payload(entry)
+            dim_data = entry.get_payload()
             dim_df = self._as_dataframe(dim_data)
             if dim_df is None or dim_df.empty:
                 return df
@@ -816,8 +811,6 @@ class StrategyUnit(StatusMixin):
         
         self._log_event("INFO", "Strategy archived")
         return {"success": True, "status": self.state.status}
-    
-
     
     def process(self, data: Any) -> Any:
         if not self.is_running:

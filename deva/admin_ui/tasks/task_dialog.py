@@ -1,4 +1,7 @@
-"""增强版任务面板(Task Panel)."""
+"""任务对话框(Task Dialog)
+
+提供任务创建和编辑的对话框界面。
+"""
 
 from __future__ import annotations
 
@@ -10,12 +13,12 @@ from deva import log
 from .task_unit import TaskType
 
 
-def _panel_log(level: str, message: str):
-    payload = {"level": level.upper(), "source": "deva.admin.task_panel", "message": str(message)}
+def _dialog_log(level: str, message: str):
+    payload = {"level": level.upper(), "source": "deva.admin.task_dialog", "message": str(message)}
     try:
         payload >> log
     except Exception:
-        print(f"[{level.upper()}][deva.admin.task_panel] {message}")
+        print(f"[{level.upper()}][deva.admin.task_dialog] {message}")
 
 
 def _default_task_code() -> str:
@@ -72,8 +75,8 @@ def _parse_schedule_config(task_type: str, time_config: str) -> tuple[Dict[str, 
     return {}, "不支持的任务类型"
 
 
-async def show_enhanced_create_task_dialog(ctx):
-    """增强版创建任务对话框。"""
+async def show_create_task_dialog(ctx):
+    """创建任务对话框。"""
     try:
         with ctx["popup"]("创建新任务", size="large", closable=True):
             ctx["put_markdown"]("### 创建任务（单页编辑）")
@@ -149,7 +152,7 @@ async def show_enhanced_create_task_dialog(ctx):
                     ctx["toast"]("请勾选必要确认项", color="warning")
                     continue
 
-                await _create_enhanced_task(
+                await _create_task(
                     ctx,
                     {
                         "name": draft["name"],
@@ -163,7 +166,7 @@ async def show_enhanced_create_task_dialog(ctx):
                 return
             
     except Exception as e:
-        _panel_log("ERROR", f"增强版创建任务对话框错误: {e}")
+        _dialog_log("ERROR", f"创建任务对话框错误: {e}")
         ctx["toast"](f"创建任务对话框错误: {e}", color="error")
         ctx["close_popup"]()
 
@@ -203,7 +206,6 @@ async def _manual_task_code_input(ctx) -> str:
     code = code_input["code"]
     
     if code_input.get("action") == "validate":
-        # 验证代码
         validation = validate_task_code(code)
         if validation["valid"]:
             ctx["put_success"]("✅ 代码验证通过")
@@ -234,7 +236,6 @@ async def _task_template_selection(ctx) -> str:
     </div>
     """)
     
-    # 预定义任务模板
     templates = {
         "database_backup": {
             "name": "数据库备份任务",
@@ -246,22 +247,17 @@ async def _task_template_selection(ctx) -> str:
     from datetime import datetime
     from deva import log, write_to_file
     
-    # 获取任务信息
     task_name = context.get('task_name', 'unknown') if context else 'unknown'
     start_time = time.time()
     
     try:
-        # 任务开始
         f'数据库备份任务 {task_name} 开始执行' >> log
         
-        # 模拟数据库备份
         backup_data = f"数据库备份数据 - {datetime.now().isoformat()}"
         backup_file = f"backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}.sql"
         
-        # 写入备份文件
         backup_data >> write_to_file(backup_file)
         
-        # 模拟备份过程
         await asyncio.sleep(2)
         
         result = f'数据库备份完成: {backup_file} (耗时: {time.time() - start_time:.2f}s)'
@@ -284,30 +280,19 @@ async def _task_template_selection(ctx) -> str:
     from datetime import datetime
     from deva import log
     
-    # 获取任务信息
     task_name = context.get('task_name', 'unknown') if context else 'unknown'
     start_time = time.time()
     
     try:
-        # 任务开始
         f'系统监控任务 {task_name} 开始执行' >> log
         
-        # 模拟系统监控
         import random
         
-        # 模拟CPU使用率
         cpu_usage = random.uniform(10, 90)
-        
-        # 模拟内存使用率
         memory_usage = random.uniform(30, 80)
-        
-        # 模拟磁盘使用率
         disk_usage = random.uniform(40, 95)
-        
-        # 模拟网络状态
         network_status = random.choice(["正常", "警告", "异常"])
         
-        # 生成监控报告
         report = f"""系统监控报告 ({datetime.now().strftime('%Y-%m-%d %H:%M:%S')}):
 CPU使用率: {cpu_usage:.1f}%
 内存使用率: {memory_usage:.1f}%
@@ -338,19 +323,14 @@ CPU使用率: {cpu_usage:.1f}%
     from datetime import datetime, timedelta
     from deva import log
     
-    # 获取任务信息
     task_name = context.get('task_name', 'unknown') if context else 'unknown'
     start_time = time.time()
     
     try:
-        # 任务开始
         f'数据清理任务 {task_name} 开始执行' >> log
         
-        # 模拟数据清理
-        # 清理7天前的临时文件
         cutoff_date = datetime.now() - timedelta(days=7)
         
-        # 模拟临时文件列表
         temp_files = [
             f"temp_file_{i}.tmp" for i in range(10)
         ]
@@ -359,7 +339,6 @@ CPU使用率: {cpu_usage:.1f}%
         
         for file_path in temp_files:
             try:
-                # 模拟文件删除
                 f'删除文件: {file_path}' >> log
                 deleted_count += 1
             except Exception as e:
@@ -385,18 +364,14 @@ CPU使用率: {cpu_usage:.1f}%
     from datetime import datetime
     from deva import log, write_to_file
     
-    # 获取任务信息
     task_name = context.get('task_name', 'unknown') if context else 'unknown'
     start_time = time.time()
     
     try:
-        # 任务开始
         f'报告生成任务 {task_name} 开始执行' >> log
         
-        # 模拟报告生成
         import random
         
-        # 生成模拟业务数据
         report_data = {
             "report_date": datetime.now().strftime("%Y-%m-%d"),
             "total_sales": random.uniform(10000, 100000),
@@ -406,7 +381,6 @@ CPU使用率: {cpu_usage:.1f}%
             "satisfaction_score": random.uniform(3.0, 5.0)
         }
         
-        # 生成报告内容
         report_content = f"""# 业务日报 - {report_data['report_date']}
 
 ## 销售数据
@@ -422,7 +396,6 @@ CPU使用率: {cpu_usage:.1f}%
 今日业务表现良好，各项指标均在预期范围内。
 """
         
-        # 保存报告到文件
         report_file = f"daily_report_{report_data['report_date']}.md"
         report_content >> write_to_file(report_file)
         
@@ -438,7 +411,6 @@ CPU使用率: {cpu_usage:.1f}%
         }
     }
     
-    # 显示模板选择
     template_options = []
     for key, template in templates.items():
         template_options.append({
@@ -455,7 +427,6 @@ CPU使用率: {cpu_usage:.1f}%
     if not selected_template:
         return ""
     
-    # 显示模板代码
     template_info = templates[selected_template]
     
     ctx["put_markdown"](f"#### 模板: {template_info['name']}")
@@ -464,7 +435,6 @@ CPU使用率: {cpu_usage:.1f}%
     with ctx["put_collapse"]("📋 模板代码预览", open=True):
         ctx["put_code"](template_info['code'], language="python")
     
-    # 确认使用
     confirm_use = await ctx["actions"]("是否使用此模板？", [
         {"label": "✅ 使用模板", "value": "use"},
         {"label": "✏️ 编辑模板", "value": "edit"},
@@ -472,7 +442,6 @@ CPU使用率: {cpu_usage:.1f}%
     ])
     
     if confirm_use == "edit":
-        # 允许用户编辑模板
         edited_code = await ctx["textarea"](
             "编辑代码",
             value=template_info['code'],
@@ -502,7 +471,6 @@ async def _task_file_import(ctx) -> str:
     </div>
     """)
     
-    # 文件上传
     uploaded_file = await ctx["file_upload"](
         "选择Python文件",
         accept=".py",
@@ -514,20 +482,16 @@ async def _task_file_import(ctx) -> str:
         return ""
     
     try:
-        # 读取文件内容
         file_content = uploaded_file['content'].decode('utf-8')
         
-        # 验证代码
         validation = validate_task_code(file_content)
         
         if validation["valid"]:
             ctx["put_success"]("✅ 文件验证通过")
             
-            # 显示代码预览
             with ctx["put_collapse"]("📋 文件内容预览", open=False):
                 ctx["put_code"](file_content, language="python")
             
-            # 确认使用
             confirm = await ctx["actions"]("是否使用此文件？", [
                 {"label": "✅ 使用文件", "value": "use"},
                 {"label": "❌ 取消", "value": "cancel"}
@@ -546,15 +510,14 @@ async def _task_file_import(ctx) -> str:
         return ""
 
 
-async def _create_enhanced_task(ctx, basic_form: Dict[str, Any], generated_code: str):
-    """创建增强版任务"""
+async def _create_task(ctx, basic_form: Dict[str, Any], generated_code: str):
+    """创建任务"""
     try:
         from .task_manager import get_task_manager
         from .task_unit import TaskUnit, TaskMetadata, TaskState, TaskExecution
         
         task_manager = get_task_manager()
         
-        # 转换任务类型
         task_type_map = {
             "interval": TaskType.INTERVAL,
             "cron": TaskType.CRON,
@@ -573,7 +536,6 @@ async def _create_enhanced_task(ctx, basic_form: Dict[str, Any], generated_code:
                 ctx["toast"](f"创建任务失败: {schedule_error}", color="error")
                 return
         
-        # 创建任务元数据
         metadata = TaskMetadata(
             id=f"task_{basic_form['name']}_{int(datetime.now().timestamp())}",
             name=basic_form["name"],
@@ -584,7 +546,6 @@ async def _create_enhanced_task(ctx, basic_form: Dict[str, Any], generated_code:
             func_code=generated_code
         )
         
-        # 创建任务状态
         state = TaskState(
             status="stopped",
             last_run_time=0,
@@ -593,26 +554,22 @@ async def _create_enhanced_task(ctx, basic_form: Dict[str, Any], generated_code:
             error_count=0
         )
         
-        # 创建执行信息
         execution = TaskExecution(
             job_code=generated_code,
             execution_history=[]
         )
         
-        # 创建任务单元
         task_unit = TaskUnit(
             metadata=metadata,
             state=state,
             execution=execution
         )
         
-        # 注册任务
         register_result = task_manager.register(task_unit)
         
         if register_result.get("success"):
             ctx["toast"](f"任务创建成功: {task_unit.id}", color="success")
             
-            # 可选：自动启动任务
             start_result = task_manager.start(task_unit.id)
             if start_result.get("success"):
                 ctx["toast"]("任务已自动启动", color="info")
@@ -624,18 +581,17 @@ async def _create_enhanced_task(ctx, basic_form: Dict[str, Any], generated_code:
             ctx["toast"](f"任务创建失败: {register_result.get('error', '')}", color="error")
             
     except Exception as e:
-        _panel_log("ERROR", f"创建增强版任务错误: {e}")
+        _dialog_log("ERROR", f"创建任务错误: {e}")
         ctx["toast"](f"创建任务错误: {e}", color="error")
 
 
-async def show_enhanced_edit_task_dialog(ctx, task_name: str):
-    """增强版编辑任务对话框。"""
+async def show_edit_task_dialog(ctx, task_name: str):
+    """编辑任务对话框。"""
     try:
         from .task_manager import get_task_manager
         
         task_manager = get_task_manager()
         
-        # 查找任务
         task_unit = None
         for task in task_manager.list_all():
             if task.name == task_name:
@@ -752,7 +708,7 @@ async def show_enhanced_edit_task_dialog(ctx, task_name: str):
                 return
             
     except Exception as e:
-        _panel_log("ERROR", f"增强版编辑任务对话框错误: {e}")
+        _dialog_log("ERROR", f"编辑任务对话框错误: {e}")
         ctx["toast"](f"编辑任务对话框错误: {e}", color="error")
         ctx["close_popup"]()
 
@@ -793,7 +749,6 @@ async def _manual_task_code_edit(ctx, current_code: str) -> str:
     code = code_input["code"]
     
     if code_input.get("action") == "validate":
-        # 验证代码
         validation = validate_task_code(code)
         if validation["valid"]:
             ctx["put_success"]("✅ 代码验证通过")
@@ -815,7 +770,6 @@ def validate_task_code(code: str) -> Dict[str, Any]:
     try:
         import ast
         
-        # 语法检查
         try:
             tree = ast.parse(code)
         except SyntaxError as e:
@@ -824,7 +778,6 @@ def validate_task_code(code: str) -> Dict[str, Any]:
                 "errors": [f"语法错误: {e}"]
             }
         
-        # 检查函数定义
         functions = []
         for node in ast.walk(tree):
             if isinstance(node, ast.AsyncFunctionDef):
@@ -838,7 +791,6 @@ def validate_task_code(code: str) -> Dict[str, Any]:
                 "errors": ["未找到'execute'函数定义，任务必须包含execute函数"]
             }
         
-        # 安全性检查
         dangerous_keywords = ['eval', 'exec', '__import__', 'open', 'file']
         warnings = []
         for keyword in dangerous_keywords:
@@ -857,3 +809,10 @@ def validate_task_code(code: str) -> Dict[str, Any]:
             "valid": False,
             "errors": [f"验证过程出错: {e}"]
         }
+
+
+__all__ = [
+    "show_create_task_dialog",
+    "show_edit_task_dialog",
+    "validate_task_code",
+]
