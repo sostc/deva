@@ -119,48 +119,67 @@ def _format_pct(val):
     return f"{pct:.2f}%"
 
 
-def _prepare_df(df, cols=None):
-    """准备DataFrame，添加元数据并展开板块"""
+def _split_multi_value_text(value):
+    text = "" if value is None else str(value).strip()
+    if (not text) or (text.lower() in {"nan", "none", "null"}):
+        return ["unknown"]
+    for sep in ["|", ",", "，", ";", "；"]:
+        text = text.replace(sep, "|")
+    items = []
+    seen = set()
+    for item in text.split("|"):
+        item = item.strip()
+        if not item:
+            continue
+        low = item.lower()
+        if low in {"unknown", "nan", "none", "null"}:
+            continue
+        if item not in seen:
+            items.append(item)
+            seen.add(item)
+    return items or ["unknown"]
+
+
+def _prepare_df(df, cols=None, group_field="blockname", group_item_field=None):
+    """准备DataFrame，添加元数据并展开板块/行业"""
     if df is None or len(df) == 0:
         return pd.DataFrame()
     if cols:
-        missing = [c for c in cols if c not in df.columns]
-        if missing:
-            raise ValueError(f"Missing columns: {missing}")
-        df = df[cols].copy()
+        exist_cols = [c for c in cols if c in df.columns]
+        if not exist_cols:
+            return pd.DataFrame()
+        df = df[exist_cols].copy()
     else:
         df = df.copy()
     
-    if "blockname" not in df.columns:
-        df["blockname"] = "unknown"
+    if group_field not in df.columns:
+        df[group_field] = "unknown"
     if "name" not in df.columns:
         df["name"] = df["code"].astype(str) if "code" in df.columns else "unknown"
-    
-    df["blockname"] = df["blockname"].fillna("unknown").astype(str)
-    df["blockname_item"] = df["blockname"].map(
-        lambda x: [item.strip() for item in x.split("|") if item and item.strip()] or ["unknown"]
-    )
-    df = df.explode("blockname_item", ignore_index=True)
+    group_item_field = group_item_field or f"{group_field}_item"
+    df[group_field] = df[group_field].fillna("unknown").astype(str)
+    df[group_item_field] = df[group_field].map(_split_multi_value_text)
+    df = df.explode(group_item_field, ignore_index=True)
     return df
 
 
-def _calc_block_ranking(df, col, n=20, top=True):
+def _calc_block_ranking(df, col, n=20, top=True, group_item_field="blockname_item"):
     """计算板块排名"""
     df = df.copy()
     df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0.0)
     grouped = (
         df.sort_values([col], ascending=not top)
-        .groupby("blockname_item").head(n)
-        .groupby("blockname_item")[col].mean()
+        .groupby(group_item_field).head(n)
+        .groupby(group_item_field)[col].mean()
         .to_frame(col)
         .sort_values(col, ascending=not top).head(10)
     )
     return grouped
 
 
-def _get_top_stocks_in_block(df, blockname, col, n=3, top=True):
+def _get_top_stocks_in_block(df, blockname, col, n=3, top=True, group_item_field="blockname_item"):
     """获取板块内TOP股票"""
-    block_df = df[df["blockname_item"] == blockname].copy()
+    block_df = df[df[group_item_field] == blockname].copy()
     block_df = block_df.sort_values(col, ascending=not top).head(n)
     return block_df
 
@@ -184,6 +203,11 @@ def process(df, window_data, params):
     window_size = params.get("window_size", 6)
     top_n = params.get("top_n", 5)
     sample_n = params.get("sample_n", 3)
+    group_field = params.get("group_field", "blockname")
+    if group_field not in {"blockname", "industry"}:
+        group_field = "blockname"
+    group_item_field = f"{group_field}_item"
+    group_label = "行业" if group_field == "industry" else "板块"
     
     if len(window_data) < 2:
         return None, window_data
@@ -200,17 +224,17 @@ def process(df, window_data, params):
     start_df = start_df[valid_mask].copy()
     end_df["change"] = (end_df["now"] - start_df["now"]) / start_df["close"]
     
-    df = _prepare_df(end_df, ["code", "change", "p_change", "name"])
+    df = _prepare_df(end_df, ["code", "change", "p_change", "name", "blockname", "industry"], group_field=group_field, group_item_field=group_item_field)
     if df.empty:
         return "<p>暂无有效数据</p>", window_data
     
-    max_group = _calc_block_ranking(df, "change", n=sample_n, top=True)
-    min_group = _calc_block_ranking(df, "change", n=sample_n, top=False)
+    max_group = _calc_block_ranking(df, "change", n=sample_n, top=True, group_item_field=group_item_field)
+    min_group = _calc_block_ranking(df, "change", n=sample_n, top=False, group_item_field=group_item_field)
     
     def build_detail(group, df, top):
         parts = []
         for blockname in group.index[:top_n]:
-            stocks = _get_top_stocks_in_block(df, blockname, "change", n=sample_n, top=top)
+            stocks = _get_top_stocks_in_block(df, blockname, "change", n=sample_n, top=top, group_item_field=group_item_field)
             if len(stocks) > 0:
                 stock_info = ", ".join([
                     f"{row['name']}({_format_pct(row['change'])})"
@@ -224,9 +248,9 @@ def process(df, window_data, params):
     down_detail = build_detail(min_group, df, top=False)
     
     html = f"""
-    <h4>板块异动-涨幅TOP{top_n}</h4>
+    <h4>{group_label}异动-涨幅TOP{top_n}</h4>
     <div style='padding:8px;background:#fff5f5;border-radius:6px;margin:4px 0;'>{up_detail}</div>
-    <h4>板块异动-跌幅TOP{top_n}</h4>
+    <h4>{group_label}异动-跌幅TOP{top_n}</h4>
     <div style='padding:8px;background:#f0fff4;border-radius:6px;margin:4px 0;'>{down_detail}</div>
     """
     return html, window_data
@@ -246,48 +270,67 @@ def _format_pct(val):
     return f"{pct:.2f}%"
 
 
-def _prepare_df(df, cols=None):
-    """准备DataFrame，添加元数据并展开板块"""
+def _split_multi_value_text(value):
+    text = "" if value is None else str(value).strip()
+    if (not text) or (text.lower() in {"nan", "none", "null"}):
+        return ["unknown"]
+    for sep in ["|", ",", "，", ";", "；"]:
+        text = text.replace(sep, "|")
+    items = []
+    seen = set()
+    for item in text.split("|"):
+        item = item.strip()
+        if not item:
+            continue
+        low = item.lower()
+        if low in {"unknown", "nan", "none", "null"}:
+            continue
+        if item not in seen:
+            items.append(item)
+            seen.add(item)
+    return items or ["unknown"]
+
+
+def _prepare_df(df, cols=None, group_field="blockname", group_item_field=None):
+    """准备DataFrame，添加元数据并展开板块/行业"""
     if df is None or len(df) == 0:
         return pd.DataFrame()
     if cols:
-        missing = [c for c in cols if c not in df.columns]
-        if missing:
-            raise ValueError(f"Missing columns: {missing}")
-        df = df[cols].copy()
+        exist_cols = [c for c in cols if c in df.columns]
+        if not exist_cols:
+            return pd.DataFrame()
+        df = df[exist_cols].copy()
     else:
         df = df.copy()
     
-    if "blockname" not in df.columns:
-        df["blockname"] = "unknown"
+    if group_field not in df.columns:
+        df[group_field] = "unknown"
     if "name" not in df.columns:
         df["name"] = df["code"].astype(str) if "code" in df.columns else "unknown"
-    
-    df["blockname"] = df["blockname"].fillna("unknown").astype(str)
-    df["blockname_item"] = df["blockname"].map(
-        lambda x: [item.strip() for item in x.split("|") if item and item.strip()] or ["unknown"]
-    )
-    df = df.explode("blockname_item", ignore_index=True)
+    group_item_field = group_item_field or f"{group_field}_item"
+    df[group_field] = df[group_field].fillna("unknown").astype(str)
+    df[group_item_field] = df[group_field].map(_split_multi_value_text)
+    df = df.explode(group_item_field, ignore_index=True)
     return df
 
 
-def _calc_block_ranking(df, col, n=20, top=True):
+def _calc_block_ranking(df, col, n=20, top=True, group_item_field="blockname_item"):
     """计算板块排名"""
     df = df.copy()
     df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0.0)
     grouped = (
         df.sort_values([col], ascending=not top)
-        .groupby("blockname_item").head(n)
-        .groupby("blockname_item")[col].mean()
+        .groupby(group_item_field).head(n)
+        .groupby(group_item_field)[col].mean()
         .to_frame(col)
         .sort_values(col, ascending=not top).head(10)
     )
     return grouped
 
 
-def _get_top_stocks_in_block(df, blockname, col, n=3, top=True):
+def _get_top_stocks_in_block(df, blockname, col, n=3, top=True, group_item_field="blockname_item"):
     """获取板块内TOP股票"""
-    block_df = df[df["blockname_item"] == blockname].copy()
+    block_df = df[df[group_item_field] == blockname].copy()
     block_df = block_df.sort_values(col, ascending=not top).head(n)
     return block_df
 
@@ -310,20 +353,25 @@ def process(df, params):
     sample_sizes = params.get("sample_sizes", [20, 50])
     top_n = params.get("top_n", 5)
     sample_n = params.get("sample_n", 3)
+    group_field = params.get("group_field", "blockname")
+    if group_field not in {"blockname", "industry"}:
+        group_field = "blockname"
+    group_item_field = f"{group_field}_item"
+    group_label = "行业" if group_field == "industry" else "板块"
     
-    df = _prepare_df(df, ["code", "p_change", "name"])
+    df = _prepare_df(df, ["code", "p_change", "name", "blockname", "industry"], group_field=group_field, group_item_field=group_item_field)
     if df.empty:
         return "<p>暂无有效数据</p>"
     
     parts = []
     for n in sample_sizes:
-        max_g = _calc_block_ranking(df, "p_change", n=n, top=True)
-        min_g = _calc_block_ranking(df, "p_change", n=n, top=False)
+        max_g = _calc_block_ranking(df, "p_change", n=n, top=True, group_item_field=group_item_field)
+        min_g = _calc_block_ranking(df, "p_change", n=n, top=False, group_item_field=group_item_field)
         
         def build_block_detail(group, top):
             details = []
             for blockname in group.index[:top_n]:
-                stocks = _get_top_stocks_in_block(df, blockname, "p_change", n=sample_n, top=top)
+                stocks = _get_top_stocks_in_block(df, blockname, "p_change", n=sample_n, top=top, group_item_field=group_item_field)
                 if len(stocks) > 0:
                     stock_info = ", ".join([
                         f"{row['name']}({_format_pct(row['p_change'])})"
@@ -333,8 +381,8 @@ def process(df, params):
                     details.append(f"<b>{blockname}</b>({_format_pct(avg)}): {stock_info}")
             return "<br>".join(details) if details else "暂无数据"
         
-        up_html = f"<h4>领涨板块TOP{top_n} (样本{n}只)</h4><div style='padding:8px;background:#fff5f5;border-radius:6px;margin:4px 0;'>{build_block_detail(max_g, top=True)}</div>"
-        down_html = f"<h4>领跌板块TOP{top_n} (样本{n}只)</h4><div style='padding:8px;background:#f0fff4;border-radius:6px;margin:4px 0;'>{build_block_detail(min_g, top=False)}</div>"
+        up_html = f"<h4>领涨{group_label}TOP{top_n} (样本{n}只)</h4><div style='padding:8px;background:#fff5f5;border-radius:6px;margin:4px 0;'>{build_block_detail(max_g, top=True)}</div>"
+        down_html = f"<h4>领跌{group_label}TOP{top_n} (样本{n}只)</h4><div style='padding:8px;background:#f0fff4;border-radius:6px;margin:4px 0;'>{build_block_detail(min_g, top=False)}</div>"
         parts.extend([up_html, down_html])
     
     return "".join(parts)
@@ -354,28 +402,47 @@ def _format_pct(val):
     return f"{pct:.2f}%"
 
 
-def _prepare_df(df, cols=None):
-    """准备DataFrame，添加元数据并展开板块"""
+def _split_multi_value_text(value):
+    text = "" if value is None else str(value).strip()
+    if (not text) or (text.lower() in {"nan", "none", "null"}):
+        return ["unknown"]
+    for sep in ["|", ",", "，", ";", "；"]:
+        text = text.replace(sep, "|")
+    items = []
+    seen = set()
+    for item in text.split("|"):
+        item = item.strip()
+        if not item:
+            continue
+        low = item.lower()
+        if low in {"unknown", "nan", "none", "null"}:
+            continue
+        if item not in seen:
+            items.append(item)
+            seen.add(item)
+    return items or ["unknown"]
+
+
+def _prepare_df(df, cols=None, group_field="blockname", group_item_field=None):
+    """准备DataFrame，添加元数据并展开板块/行业"""
     if df is None or len(df) == 0:
         return pd.DataFrame()
     if cols:
-        missing = [c for c in cols if c not in df.columns]
-        if missing:
-            raise ValueError(f"Missing columns: {missing}")
-        df = df[cols].copy()
+        exist_cols = [c for c in cols if c in df.columns]
+        if not exist_cols:
+            return pd.DataFrame()
+        df = df[exist_cols].copy()
     else:
         df = df.copy()
     
-    if "blockname" not in df.columns:
-        df["blockname"] = "unknown"
+    if group_field not in df.columns:
+        df[group_field] = "unknown"
     if "name" not in df.columns:
         df["name"] = df["code"].astype(str) if "code" in df.columns else "unknown"
-    
-    df["blockname"] = df["blockname"].fillna("unknown").astype(str)
-    df["blockname_item"] = df["blockname"].map(
-        lambda x: [item.strip() for item in x.split("|") if item and item.strip()] or ["unknown"]
-    )
-    df = df.explode("blockname_item", ignore_index=True)
+    group_item_field = group_item_field or f"{group_field}_item"
+    df[group_field] = df[group_field].fillna("unknown").astype(str)
+    df[group_item_field] = df[group_field].map(_split_multi_value_text)
+    df = df.explode(group_item_field, ignore_index=True)
     return df
 
 
@@ -395,12 +462,18 @@ def process(df, params):
     
     threshold = params.get("limit_threshold", 0.098)
     top_n = params.get("top_n", 5)
+    group_field = params.get("group_field", "blockname")
+    if group_field not in {"blockname", "industry"}:
+        group_field = "blockname"
+    group_item_field = f"{group_field}_item"
+    group_label = "行业" if group_field == "industry" else "板块"
     
-    zt_raw = df.query(f"p_change>{threshold}")[["code", "p_change"]]
-    dt_raw = df.query(f"p_change<-{threshold}")[["code", "p_change"]]
+    raw_cols = [c for c in ["code", "p_change", "name", "blockname", "industry"] if c in df.columns]
+    zt_raw = df.query(f"p_change>{threshold}")[raw_cols]
+    dt_raw = df.query(f"p_change<-{threshold}")[raw_cols]
     
-    zt_df = _prepare_df(zt_raw, ["code", "p_change"])
-    dt_df = _prepare_df(dt_raw, ["code", "p_change"])
+    zt_df = _prepare_df(zt_raw, ["code", "p_change", "name", "blockname", "industry"], group_field=group_field, group_item_field=group_item_field)
+    dt_df = _prepare_df(dt_raw, ["code", "p_change", "name", "blockname", "industry"], group_field=group_field, group_item_field=group_item_field)
     
     zt_count = int(df.query(f"p_change>{threshold}")["code"].nunique())
     dt_count = int(df.query(f"p_change<-{threshold}")["code"].nunique())
@@ -408,7 +481,7 @@ def process(df, params):
     def build_stock_list(stock_df, top=True):
         if len(stock_df) == 0:
             return "暂无数据"
-        grouped = stock_df.groupby("blockname_item").apply(
+        grouped = stock_df.groupby(group_item_field).apply(
             lambda g: ", ".join([
                 f"{row['name']}({_format_pct(row['p_change'])})"
                 for _, row in g.sort_values("p_change", ascending=not top).head(top_n).iterrows()
@@ -417,8 +490,8 @@ def process(df, params):
         parts = [f"<b>{block}</b>: {stocks}" for block, stocks in grouped.head(10).items()]
         return "<br>".join(parts)
     
-    zt_html = f"<h4>涨停 {zt_count} 只</h4><div style='padding:8px;background:#fff5f5;border-radius:6px;margin:4px 0;'>{build_stock_list(zt_df, top=True)}</div>"
-    dt_html = f"<h4>跌停 {dt_count} 只</h4><div style='padding:8px;background:#f0fff4;border-radius:6px;margin:4px 0;'>{build_stock_list(dt_df, top=False)}</div>"
+    zt_html = f"<h4>涨停 {zt_count} 只（按{group_label}）</h4><div style='padding:8px;background:#fff5f5;border-radius:6px;margin:4px 0;'>{build_stock_list(zt_df, top=True)}</div>"
+    dt_html = f"<h4>跌停 {dt_count} 只（按{group_label}）</h4><div style='padding:8px;background:#f0fff4;border-radius:6px;margin:4px 0;'>{build_stock_list(dt_df, top=False)}</div>"
     
     return zt_html + dt_html
 '''
@@ -476,10 +549,11 @@ DEFAULT_STRATEGY_LOGICS = [
             "window_size": {"type": "int", "default": 6, "description": "滑动窗口大小"},
             "top_n": {"type": "int", "default": 5, "description": "返回的板块数量"},
             "sample_n": {"type": "int", "default": 3, "description": "每个板块取样的股票数量"},
+            "group_field": {"type": "str", "default": "blockname", "description": "分组维度: blockname 或 industry"},
         },
-        "default_params": {"window_size": 6, "top_n": 5, "sample_n": 3},
-        "description": "计算板块在时间窗口内的涨跌幅变化，支持多时间窗口",
-        "tags": ["板块", "异动", "实时"],
+        "default_params": {"window_size": 6, "top_n": 5, "sample_n": 3, "group_field": "blockname"},
+        "description": "计算板块/行业在时间窗口内的涨跌幅变化，支持一股多板块/多行业",
+        "tags": ["板块", "行业", "异动", "实时"],
     },
     {
         "id": "block_ranking_v1",
@@ -490,10 +564,11 @@ DEFAULT_STRATEGY_LOGICS = [
             "sample_sizes": {"type": "list", "default": [20, 50], "description": "样本数量列表"},
             "top_n": {"type": "int", "default": 5, "description": "返回的板块数量"},
             "sample_n": {"type": "int", "default": 3, "description": "每个板块取样的股票数量"},
+            "group_field": {"type": "str", "default": "blockname", "description": "分组维度: blockname 或 industry"},
         },
-        "default_params": {"sample_sizes": [20, 50], "top_n": 5, "sample_n": 3},
-        "description": "计算当日各板块的涨跌幅排名，支持多样本量统计",
-        "tags": ["板块", "排名", "领涨领跌"],
+        "default_params": {"sample_sizes": [20, 50], "top_n": 5, "sample_n": 3, "group_field": "blockname"},
+        "description": "计算当日各板块/行业的涨跌幅排名，支持多样本量统计和一对多关系",
+        "tags": ["板块", "行业", "排名", "领涨领跌"],
     },
     {
         "id": "limit_up_down_v1",
@@ -503,10 +578,11 @@ DEFAULT_STRATEGY_LOGICS = [
         "params_schema": {
             "limit_threshold": {"type": "float", "default": 0.098, "description": "涨跌停阈值"},
             "top_n": {"type": "int", "default": 5, "description": "每个板块显示的股票数量"},
+            "group_field": {"type": "str", "default": "blockname", "description": "分组维度: blockname 或 industry"},
         },
-        "default_params": {"limit_threshold": 0.098, "top_n": 5},
-        "description": "统计涨停和跌停的股票数量及板块分布",
-        "tags": ["涨跌停", "统计", "实时"],
+        "default_params": {"limit_threshold": 0.098, "top_n": 5, "group_field": "blockname"},
+        "description": "统计涨停和跌停的股票数量及板块/行业分布，支持一股多归属",
+        "tags": ["涨跌停", "板块", "行业", "统计", "实时"],
     },
     {
         "id": "custom_filter_v1",
@@ -785,8 +861,8 @@ class StrategyInstanceDB:
                     name=unit.name,
                     params=getattr(unit, 'params', {}),
                     state=unit.status.value,
-                    upstream=unit.lineage.upstream[0].to_dict() if unit.lineage.upstream else {},
-                    downstream=unit.lineage.downstream[0].to_dict() if unit.lineage.downstream else {},
+                    upstream={},
+                    downstream={},
                     processed_count=unit.state.processed_count,
                     error_count=unit.state.error_count,
                     last_error=unit.state.last_error,

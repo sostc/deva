@@ -491,6 +491,10 @@ async def datasourceadmin():
     from .admin_ui.datasource.datasource_panel import render_datasource_admin
     return await render_datasource_admin(_datasource_ctx())
 
+async def dictadmin():
+    from .admin_ui.dictionary import render_dictionary_admin
+    return await render_dictionary_admin(_dictionary_ctx())
+
 async def followadmin():
     from .admin_ui.follow.follow_ui import render_follow_ui
     return await render_follow_ui(_follow_ui_ctx())
@@ -570,6 +574,9 @@ def _strategy_ctx():
 
 def _datasource_ctx():
     return admin_contexts.datasource_ctx(globals())
+
+def _dictionary_ctx():
+    return admin_contexts.dictionary_ctx(globals())
 
 
 def _follow_ui_ctx():
@@ -690,6 +697,7 @@ if __name__ == '__main__':
         (r'/streamadmin', webio_handler(streamadmin, cdn=cdn)),
         (r'/strategyadmin', webio_handler(strategyadmin, cdn=cdn)),
         (r'/datasourceadmin', webio_handler(datasourceadmin, cdn=cdn)),
+        (r'/dictadmin', webio_handler(dictadmin, cdn=cdn)),
         (r'/followadmin', webio_handler(followadmin, cdn=cdn)),
         (r'/browseradmin', webio_handler(browseradmin, cdn=cdn)),
         (r'/configadmin', webio_handler(configadmin, cdn=cdn)),

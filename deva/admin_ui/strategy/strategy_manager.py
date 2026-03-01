@@ -341,6 +341,7 @@ class StrategyManager(BaseManager[StrategyUnit]):
         window_size: int = 5,
         window_interval: str = "10s",
         window_return_partial: bool = False,
+        dictionary_profile_ids: List[str] = None,
     ) -> dict:
         try:
             unit = StrategyUnit(
@@ -357,6 +358,7 @@ class StrategyManager(BaseManager[StrategyUnit]):
                 window_size=window_size,
                 window_interval=window_interval,
                 window_return_partial=window_return_partial,
+                dictionary_profile_ids=dictionary_profile_ids or [],
             )
             unit.metadata.summary = summary
             

@@ -13,6 +13,7 @@ from .strategy_unit import StrategyUnit, StrategyStatus
 from .strategy_manager import get_manager
 from .fault_tolerance import get_error_collector, get_metrics_collector
 from ..datasource.datasource import get_ds_manager
+from ..dictionary import get_dictionary_manager
 from ..ai.ai_strategy_generator import (
     generate_strategy_code,
     validate_strategy_code,
@@ -62,6 +63,9 @@ async def _edit_strategy_dialog(ctx, unit_id: str):
     
     ds_mgr = get_ds_manager()
     sources = ds_mgr.list_source_objects()
+    dict_mgr = get_dictionary_manager()
+    dict_entries = dict_mgr.list_entries()
+    dict_options = [{"label": e.name, "value": e.id} for e in dict_entries]
     
     current_code = unit.metadata.strategy_func_code or unit._processor_code or DEFAULT_STRATEGY_FUNC_CODE
     
@@ -330,6 +334,12 @@ async def _edit_strategy_dialog(ctx, unit_id: str):
             ctx["textarea"]("策略简介", name="summary", value=unit.metadata.summary or unit.metadata.description or "", rows=3),
             ctx["input"]("标签", name="tags", value=", ".join(unit.metadata.tags or [])),
             ctx["select"]("绑定数据源", name="datasource_id", options=source_options, value=unit.metadata.bound_datasource_id or ""),
+            ctx["checkbox"](
+                "自动补齐数据字典 Profiles",
+                name="dictionary_profile_ids",
+                options=dict_options,
+                value=getattr(unit.metadata, "dictionary_profile_ids", []),
+            ),
             ctx["select"](
                 "计算模式",
                 name="compute_mode",
@@ -545,6 +555,7 @@ async def _save_strategy(ctx, unit, form, code):
     if window_size < 1:
         window_size = 1
     window_return_partial = str(form.get("window_return_partial", "false")).lower() in ("1", "true", "yes", "on")
+    dictionary_profile_ids = form.get("dictionary_profile_ids", []) or []
     
     unit.metadata.name = name
     unit.metadata.description = summary
@@ -557,6 +568,7 @@ async def _save_strategy(ctx, unit, form, code):
     unit.metadata.window_size = window_size
     unit.metadata.window_interval = window_interval
     unit.metadata.window_return_partial = window_return_partial
+    unit.metadata.dictionary_profile_ids = dictionary_profile_ids
     unit.save()
     
     # 绑定数据源
@@ -668,6 +680,9 @@ async def _bind_datasource_and_start(ctx, unit_id: str):
 async def _create_strategy_dialog(ctx):
     ds_mgr = get_ds_manager()
     sources = ds_mgr.list_source_objects()
+    dict_mgr = get_dictionary_manager()
+    dict_entries = dict_mgr.list_entries()
+    dict_options = [{"label": e.name, "value": e.id} for e in dict_entries]
     
     # 构建数据源选项，显示运行状态并优先排序运行中的数据源
     source_options = []
@@ -855,6 +870,7 @@ async def _create_strategy_dialog(ctx):
             ctx["textarea"]("策略简介", name="summary", placeholder="策略简介（将显示在列表页）", rows=3),
             ctx["input"]("标签", name="tags", placeholder="多个标签用逗号分隔"),
             ctx["select"]("绑定数据源", name="datasource_id", options=source_options, value=""),
+            ctx["checkbox"]("自动补齐数据字典 Profiles", name="dictionary_profile_ids", options=dict_options, value=[]),
             ctx["select"](
                 "计算模式",
                 name="compute_mode",
@@ -1005,6 +1021,7 @@ async def _create_strategy_dialog(ctx):
         if window_size < 1:
             window_size = 1
         window_return_partial = str(form.get("window_return_partial", "false")).lower() in ("1", "true", "yes", "on")
+        dictionary_profile_ids = form.get("dictionary_profile_ids", []) or []
 
         result = manager.create_strategy(
             name=form["name"],
@@ -1018,6 +1035,7 @@ async def _create_strategy_dialog(ctx):
             window_size=window_size,
             window_interval=window_interval,
             window_return_partial=window_return_partial,
+            dictionary_profile_ids=dictionary_profile_ids,
         )
         
         if result.get("success"):
