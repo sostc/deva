@@ -10,6 +10,15 @@ from .base import (
     CallbackMixin,
 )
 
+from .recoverable import (
+    RecoverableUnit,
+    UnitMetadata,
+    UnitState,
+    UnitStatus,
+    RecoveryManager,
+    recovery_manager,
+)
+
 __all__ = [
     'BaseMetadata',
     'BaseState',
@@ -18,4 +27,10 @@ __all__ = [
     'BaseStatus',
     'StatusMixin',
     'CallbackMixin',
+    'RecoverableUnit',
+    'UnitMetadata',
+    'UnitState',
+    'UnitStatus',
+    'RecoveryManager',
+    'recovery_manager',
 ]

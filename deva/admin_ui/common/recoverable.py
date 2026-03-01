@@ -1,0 +1,514 @@
+"""可恢复单元基类(Recoverable Unit Base Class)
+
+统一状态保存恢复与执行函数恢复的抽象模型。
+
+================================================================================
+架构设计
+================================================================================
+
+【核心概念】
+┌─────────────────────────────────────────────────────────────────────────────┐
+│  RecoverableUnit (可恢复单元基类)                                            │
+│  ├── 状态持久化: save() / to_dict() / from_dict()                           │
+│  ├── 代码编译: compile_code() / ensure_compiled()                           │
+│  ├── 恢复判断: should_restore() / prepare_for_recovery()                    │
+│  ├── 生命周期: start() / stop() / recover()                                 │
+│  └── 执行函数: _do_start() / _do_stop() / _do_compile()                     │
+│                                                                             │
+│  实现类:                                                                    │
+│  ├── DictionaryEntry → 数据字典条目                                         │
+│  ├── DataSource → 数据源                                                    │
+│  ├── TaskUnit → 任务                                                        │
+│  └── StrategyUnit → 策略                                                    │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+【生命周期】
+创建 → 启动 → 运行 → 停止 → 恢复
+  │       │       │       │       │
+  │       │       │       │       └── should_restore() → ensure_compiled() → start()
+  │       │       │       └── save_running_state(False)
+  │       │       └── 执行函数循环
+  │       └── ensure_compiled() → _do_start()
+  └── to_dict() 持久化
+
+"""
+
+from __future__ import annotations
+
+import os
+import threading
+import time
+import traceback
+from abc import ABC, abstractmethod
+from dataclasses import dataclass, field
+from enum import Enum
+from typing import Any, Callable, Dict, List, Optional
+
+
+class UnitStatus(str, Enum):
+    """单元状态枚举"""
+    STOPPED = "stopped"
+    RUNNING = "running"
+    ERROR = "error"
+    INITIALIZING = "initializing"
+
+
+@dataclass
+class UnitState:
+    """单元状态数据类"""
+    status: str = UnitStatus.STOPPED.value
+    start_time: float = 0
+    last_activity_ts: float = 0
+    error_count: int = 0
+    last_error: str = ""
+    last_error_ts: float = 0
+    run_count: int = 0
+    
+    def to_dict(self) -> dict:
+        return {
+            "status": self.status,
+            "start_time": self.start_time,
+            "last_activity_ts": self.last_activity_ts,
+            "error_count": self.error_count,
+            "last_error": self.last_error,
+            "last_error_ts": self.last_error_ts,
+            "run_count": self.run_count,
+        }
+    
+    @classmethod
+    def from_dict(cls, data: dict) -> "UnitState":
+        if isinstance(data, cls):
+            return data
+        return cls(
+            status=data.get("status", UnitStatus.STOPPED.value),
+            start_time=data.get("start_time", 0),
+            last_activity_ts=data.get("last_activity_ts", 0),
+            error_count=data.get("error_count", 0),
+            last_error=data.get("last_error", ""),
+            last_error_ts=data.get("last_error_ts", 0),
+            run_count=data.get("run_count", 0),
+        )
+    
+    def record_error(self, error: str):
+        self.error_count += 1
+        self.last_error = error
+        self.last_error_ts = time.time()
+    
+    def record_success(self):
+        self.run_count += 1
+        self.last_activity_ts = time.time()
+
+
+@dataclass
+class UnitMetadata:
+    """单元元数据基类"""
+    id: str = ""
+    name: str = ""
+    description: str = ""
+    tags: List[str] = field(default_factory=list)
+    created_at: float = field(default_factory=time.time)
+    updated_at: float = field(default_factory=time.time)
+    
+    def to_dict(self) -> dict:
+        return {
+            "id": self.id,
+            "name": self.name,
+            "description": self.description,
+            "tags": self.tags,
+            "created_at": self.created_at,
+            "updated_at": self.updated_at,
+        }
+    
+    @classmethod
+    def from_dict(cls, data: dict) -> "UnitMetadata":
+        if isinstance(data, cls):
+            return data
+        return cls(
+            id=data.get("id", ""),
+            name=data.get("name", ""),
+            description=data.get("description", ""),
+            tags=data.get("tags", []),
+            created_at=data.get("created_at", time.time()),
+            updated_at=data.get("updated_at", time.time()),
+        )
+    
+    def touch(self):
+        self.updated_at = time.time()
+
+
+class RecoverableUnit(ABC):
+    """可恢复单元基类
+    
+    统一状态保存恢复与执行函数恢复的抽象模型。
+    
+    子类需要实现:
+    - _do_compile(code: str) -> Callable: 编译代码
+    - _get_func_name() -> str: 获取函数名
+    - _do_start(func: Callable) -> dict: 启动执行
+    - _do_stop() -> dict: 停止执行
+    - save() -> dict: 持久化
+    - to_dict() -> dict: 序列化
+    - from_dict(data: dict) -> RecoverableUnit: 反序列化
+    """
+    
+    def __init__(
+        self,
+        metadata: UnitMetadata = None,
+        state: UnitState = None,
+    ):
+        self._metadata = metadata or UnitMetadata()
+        self._state = state or UnitState()
+        
+        self._func_code: str = ""
+        self._compiled_func: Optional[Callable] = None
+        self._compile_error: str = ""
+        
+        self._stop_event = threading.Event()
+        self._thread: Optional[threading.Thread] = None
+        self._execution_lock = threading.Lock()
+        
+        self._was_running: bool = False
+    
+    @property
+    def id(self) -> str:
+        return self._metadata.id
+    
+    @id.setter
+    def id(self, value: str):
+        self._metadata.id = value
+    
+    @property
+    def name(self) -> str:
+        return self._metadata.name
+    
+    @name.setter
+    def name(self, value: str):
+        self._metadata.name = value
+    
+    @property
+    def status(self) -> str:
+        return self._state.status
+    
+    @property
+    def is_running(self) -> bool:
+        return self._state.status == UnitStatus.RUNNING.value
+    
+    @property
+    def enabled(self) -> bool:
+        return self._state.status == UnitStatus.RUNNING.value
+    
+    @enabled.setter
+    def enabled(self, value: bool):
+        if value and not self.is_running:
+            self.start()
+        elif not value and self.is_running:
+            self.stop()
+    
+    @property
+    def state(self) -> UnitState:
+        return self._state
+    
+    @property
+    def metadata(self) -> UnitMetadata:
+        return self._metadata
+    
+    @property
+    def func_code(self) -> str:
+        return self._func_code
+    
+    @func_code.setter
+    def func_code(self, value: str):
+        self._func_code = value
+        self._compiled_func = None
+        self._compile_error = ""
+    
+    @property
+    def compiled_func(self) -> Optional[Callable]:
+        return self._compiled_func
+    
+    @property
+    def compile_error(self) -> str:
+        return self._compile_error
+    
+    @property
+    def was_running(self) -> bool:
+        return self._was_running
+    
+    @was_running.setter
+    def was_running(self, value: bool):
+        self._was_running = value
+    
+    def _log(self, level: str, message: str, **extra):
+        ts = time.strftime("%Y-%m-%d %H:%M:%S")
+        extra_str = " ".join([f"{k}={v}" for k, v in extra.items()])
+        print(f"[{ts}][{self.__class__.__name__}][{level}] {message} | {extra_str}")
+    
+    def _build_execution_env(self) -> Dict[str, Any]:
+        import pandas as pd
+        import numpy as np
+        import json
+        import datetime
+        import time as time_module
+        import random
+        import math
+        import re
+        
+        return {
+            "pd": pd,
+            "pandas": pd,
+            "np": np,
+            "numpy": np,
+            "json": json,
+            "datetime": datetime,
+            "time": time_module,
+            "random": random,
+            "math": math,
+            "re": re,
+            "__builtins__": __builtins__,
+        }
+    
+    def compile_code(self) -> dict:
+        if self._compiled_func is not None:
+            return {"success": True, "func": self._compiled_func, "cached": True}
+        
+        if not self._func_code:
+            return {"success": False, "error": "No code to compile"}
+        
+        try:
+            self._compiled_func = self._do_compile(self._func_code)
+            self._compile_error = ""
+            self._log("INFO", "Code compiled successfully", id=self.id)
+            return {"success": True, "func": self._compiled_func}
+        except Exception as e:
+            self._compile_error = str(e)
+            self._log("ERROR", "Code compilation failed", id=self.id, error=str(e))
+            return {"success": False, "error": str(e), "traceback": traceback.format_exc()}
+    
+    @abstractmethod
+    def _do_compile(self, code: str) -> Callable:
+        pass
+    
+    @abstractmethod
+    def _get_func_name(self) -> str:
+        pass
+    
+    def ensure_compiled(self) -> dict:
+        if self._compiled_func is not None:
+            return {"success": True, "func": self._compiled_func, "cached": True}
+        return self.compile_code()
+    
+    @abstractmethod
+    def save(self) -> dict:
+        pass
+    
+    @abstractmethod
+    def to_dict(self) -> dict:
+        pass
+    
+    @classmethod
+    @abstractmethod
+    def from_dict(cls, data: dict) -> "RecoverableUnit":
+        pass
+    
+    def save_running_state(self, is_running: bool):
+        if is_running:
+            self._state.status = UnitStatus.RUNNING.value
+        else:
+            self._state.status = UnitStatus.STOPPED.value
+        self.save()
+    
+    def get_saved_running_state(self) -> dict:
+        return {
+            "is_running": self.is_running,
+            "status": self._state.status,
+            "pid": os.getpid(),
+            "timestamp": time.time(),
+        }
+    
+    def should_restore(self) -> tuple:
+        if self.is_running:
+            return False, "already_running"
+        
+        if self._was_running:
+            return True, "was_running_flag"
+        
+        return False, ""
+    
+    def _is_process_alive(self, pid: int) -> bool:
+        try:
+            os.kill(pid, 0)
+            return True
+        except (OSError, ProcessLookupError):
+            return False
+    
+    def prepare_for_recovery(self) -> dict:
+        should, reason = self.should_restore()
+        if not should:
+            return {"can_recover": False, "reason": reason}
+        
+        result = self.ensure_compiled()
+        if not result["success"]:
+            return {
+                "can_recover": False,
+                "reason": "compile_failed",
+                "error": result.get("error"),
+            }
+        
+        return {
+            "can_recover": True,
+            "func": self._compiled_func,
+            "reason": reason,
+        }
+    
+    def start(self) -> dict:
+        with self._execution_lock:
+            if self.is_running:
+                return {"success": True, "message": "Already running"}
+            
+            result = self.ensure_compiled()
+            if not result["success"]:
+                return {"success": False, "error": f"编译失败: {result['error']}"}
+            
+            try:
+                self._state.status = UnitStatus.INITIALIZING.value
+                self._stop_event.clear()
+                
+                start_result = self._do_start(self._compiled_func)
+                if not start_result["success"]:
+                    self._state.status = UnitStatus.ERROR.value
+                    self._state.record_error(start_result.get("error", "Unknown error"))
+                    self.save()
+                    return start_result
+                
+                self._state.status = UnitStatus.RUNNING.value
+                self._state.start_time = time.time()
+                self._was_running = True
+                self.save()
+                
+                self._log("INFO", "Unit started", id=self.id, name=self.name)
+                return {"success": True, "status": self._state.status}
+                
+            except Exception as e:
+                self._state.status = UnitStatus.ERROR.value
+                self._state.record_error(str(e))
+                self.save()
+                self._log("ERROR", "Start failed", id=self.id, error=str(e))
+                return {"success": False, "error": str(e), "traceback": traceback.format_exc()}
+    
+    def stop(self) -> dict:
+        with self._execution_lock:
+            if not self.is_running:
+                return {"success": True, "message": "Not running"}
+            
+            try:
+                self._stop_event.set()
+                
+                stop_result = self._do_stop()
+                
+                if self._thread and self._thread.is_alive():
+                    self._thread.join(timeout=5.0)
+                
+                self._state.status = UnitStatus.STOPPED.value
+                self._was_running = False
+                self.save()
+                
+                self._log("INFO", "Unit stopped", id=self.id, name=self.name)
+                return {"success": True, "status": self._state.status}
+                
+            except Exception as e:
+                self._state.status = UnitStatus.ERROR.value
+                self._state.record_error(str(e))
+                self.save()
+                self._log("ERROR", "Stop failed", id=self.id, error=str(e))
+                return {"success": False, "error": str(e)}
+    
+    def recover(self) -> dict:
+        prep = self.prepare_for_recovery()
+        if not prep.get("can_recover"):
+            return {
+                "success": False,
+                "reason": prep.get("reason"),
+                "error": prep.get("error"),
+            }
+        return self.start()
+    
+    @abstractmethod
+    def _do_start(self, func: Callable) -> dict:
+        pass
+    
+    @abstractmethod
+    def _do_stop(self) -> dict:
+        pass
+    
+    def delete(self) -> dict:
+        if self.is_running:
+            stop_result = self.stop()
+            if not stop_result.get("success"):
+                return stop_result
+        
+        self._log("INFO", "Unit deleted", id=self.id, name=self.name)
+        return {"success": True}
+
+
+class RecoveryManager:
+    """恢复管理器
+    
+    统一管理所有可恢复单元的恢复流程。
+    """
+    
+    _instance = None
+    _lock = threading.Lock()
+    
+    def __new__(cls):
+        if cls._instance is None:
+            with cls._lock:
+                if cls._instance is None:
+                    cls._instance = super().__new__(cls)
+        return cls._instance
+    
+    def __init__(self):
+        if hasattr(self, '_initialized'):
+            return
+        self._managers: Dict[str, Any] = {}
+        self._initialized = True
+    
+    def register(self, unit_type: str, manager: Any):
+        self._managers[unit_type] = manager
+    
+    def unregister(self, unit_type: str):
+        self._managers.pop(unit_type, None)
+    
+    def restore_all(self, order: List[str] = None) -> dict:
+        results = {}
+        unit_types = order or ["datasource", "dictionary", "strategy", "task"]
+        
+        for unit_type in unit_types:
+            manager = self._managers.get(unit_type)
+            if not manager:
+                results[unit_type] = {"success": False, "error": "Manager not registered"}
+                continue
+            
+            try:
+                if hasattr(manager, 'load_from_db'):
+                    manager.load_from_db()
+                
+                if hasattr(manager, 'restore_running_states'):
+                    result = manager.restore_running_states()
+                else:
+                    result = {"success": True, "message": "No restore method"}
+                
+                results[unit_type] = result
+            except Exception as e:
+                results[unit_type] = {"success": False, "error": str(e)}
+        
+        return results
+    
+    def get_recovery_info(self) -> dict:
+        info = {}
+        for unit_type, manager in self._managers.items():
+            if hasattr(manager, 'get_all_recovery_info'):
+                info[unit_type] = manager.get_all_recovery_info()
+        return info
+
+
+recovery_manager = RecoveryManager()

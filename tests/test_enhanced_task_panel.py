@@ -1,26 +1,25 @@
 #!/usr/bin/env python3
 """
-测试增强版任务面板功能
+测试任务面板功能
 
-这个脚本演示如何使用增强版任务面板创建和编辑任务，
+这个脚本演示如何使用任务面板创建和编辑任务，
 包括AI代码生成功能。
 """
 
 import asyncio
-from deva.admin_ui.strategy.enhanced_task_panel import (
-    show_enhanced_create_task_dialog,
-    show_enhanced_edit_task_dialog,
+from deva.admin_ui.tasks.task_dialog import (
+    show_create_task_dialog,
+    show_edit_task_dialog,
     validate_task_code
 )
-from deva.admin_ui.strategy.task_manager import get_task_manager
-from deva.admin_ui.strategy.task_unit import TaskUnit, TaskMetadata, TaskState, TaskExecution, TaskType
+from deva.admin_ui.tasks.task_manager import get_task_manager
+from deva.admin_ui.tasks.task_unit import TaskUnit, TaskMetadata, TaskState, TaskExecution, TaskType
 
 
 def test_task_code_validation():
     """测试任务代码验证功能"""
     print("=== 测试任务代码验证功能 ===")
     
-    # 测试有效代码
     valid_code = '''
 async def execute(context=None):
     """测试任务"""
@@ -30,7 +29,6 @@ async def execute(context=None):
     result = validate_task_code(valid_code)
     print(f"有效代码验证结果: {result}")
     
-    # 测试无效代码
     invalid_code = '''
 def some_function():
     return 'not a task'
@@ -39,7 +37,6 @@ def some_function():
     result = validate_task_code(invalid_code)
     print(f"无效代码验证结果: {result}")
     
-    # 测试带警告的代码
     warning_code = '''
 async def execute(context=None):
     eval('some_code')
@@ -55,10 +52,8 @@ def test_task_creation():
     """测试任务创建功能"""
     print("=== 测试任务创建功能 ===")
     
-    # 获取任务管理器
     task_manager = get_task_manager()
     
-    # 创建测试任务
     from datetime import datetime
     
     metadata = TaskMetadata(
@@ -88,14 +83,12 @@ async def execute(context=None):
         execution_history=[]
     )
     
-    # 创建任务单元
     task_unit = TaskUnit(
         metadata=metadata,
         state=state,
         execution=execution
     )
     
-    # 注册任务
     result = task_manager.register(task_unit)
     print(f"任务注册结果: {result}")
     
@@ -116,11 +109,9 @@ def test_task_manager():
     
     task_manager = get_task_manager()
     
-    # 获取统计信息
     stats = task_manager.get_overall_stats()
     print(f"任务统计: {stats}")
     
-    # 列出所有任务
     tasks = task_manager.list_all()
     print(f"任务数量: {len(tasks)}")
     
@@ -130,14 +121,11 @@ def test_task_manager():
     print()
 
 
-async def test_enhanced_task_panel():
-    """测试增强版任务面板"""
-    print("=== 测试增强版任务面板 ===")
+async def test_task_dialog():
+    """测试任务对话框"""
+    print("=== 测试任务对话框 ===")
     
-    # 注意：由于这是命令行测试，无法直接测试PyWebIO界面
-    # 但我们可以测试底层功能
-    
-    print("增强版任务面板功能包括:")
+    print("任务对话框功能包括:")
     print("1. AI代码生成与审核编辑")
     print("2. 多种代码输入方式 (AI生成、手动编写、模板选择、文件导入)")
     print("3. 实时代码验证")
@@ -145,12 +133,10 @@ async def test_enhanced_task_panel():
     print("5. 任务创建和编辑集成")
     print()
     
-    # 测试AI代码生成器
-    from deva.admin_ui.strategy.ai_code_generator import TaskAIGenerator
+    from deva.admin_ui.ai.ai_code_generator import TaskAIGenerator
     
     generator = TaskAIGenerator()
     
-    # 测试生成任务代码
     requirement = "创建一个每天凌晨2点执行的备份任务"
     context = {
         "task_name": "备份任务",
@@ -168,25 +154,21 @@ async def test_enhanced_task_panel():
 
 def main():
     """主测试函数"""
-    print("开始测试增强版任务面板功能...")
+    print("开始测试任务面板功能...")
     print("=" * 50)
     
-    # 测试代码验证
     test_task_code_validation()
     
-    # 测试任务创建
     test_task_creation()
     
-    # 测试任务管理器
     test_task_manager()
     
-    # 测试增强版面板（异步）
-    asyncio.run(test_enhanced_task_panel())
+    asyncio.run(test_task_dialog())
     
     print("=" * 50)
     print("测试完成！")
     print()
-    print("增强版任务面板功能总结:")
+    print("任务面板功能总结:")
     print("✅ 任务代码验证功能")
     print("✅ 任务创建和管理功能") 
     print("✅ AI代码生成功能")

@@ -95,6 +95,12 @@ from .logging_context import (
     log_datasource_event,
 )
 
+from .strategy_v2 import (
+    StrategyEntry,
+    StrategyManager as StrategyManagerV2,
+    get_strategy_manager as get_strategy_manager_v2,
+)
+
 __all__ = [
     # Base classes
     'BaseMetadata',
@@ -178,4 +184,8 @@ __all__ = [
     'strategy_log',
     'datasource_log',
     'log_datasource_event',
+    # V2
+    'StrategyEntry',
+    'StrategyManagerV2',
+    'get_strategy_manager_v2',
 ]

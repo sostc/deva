@@ -1,16 +1,19 @@
-"""任务管理UI."""
+"""任务管理界面(Task Admin UI)
+
+提供任务管理的页面界面，包括任务列表、统计、批量操作等。
+"""
 
 from __future__ import annotations
 
-from .enhanced_task_panel import (
-    show_enhanced_create_task_dialog,
-    show_enhanced_edit_task_dialog,
+from .task_dialog import (
+    show_create_task_dialog,
+    show_edit_task_dialog,
 )
 from .task_manager import get_task_manager
 from .task_unit import TaskType
 
 
-async def render_enhanced_task_admin(ctx):
+async def render_task_admin(ctx):
     """渲染任务管理界面。"""
     ctx["put_markdown"]("## ⏰ 任务管理")
     ctx["put_markdown"]("> 支持任务创建、编辑、启动/停止、详情查看和批量操作。")
@@ -19,7 +22,7 @@ async def render_enhanced_task_admin(ctx):
     ctx["put_row"]([
         ctx["put_button"](
             "➕ 创建任务",
-            onclick=lambda: ctx["run_async"](show_enhanced_create_task_dialog(ctx)),
+            onclick=lambda: ctx["run_async"](show_create_task_dialog(ctx)),
             color="primary",
             outline=True,
         ),
@@ -65,7 +68,7 @@ async def render_task_list(ctx):
     task_manager = get_task_manager()
     tasks = task_manager.list_all()
     if not tasks:
-        ctx["put_markdown"]("> 📝 暂无任务，点击上方“创建任务”开始。")
+        ctx["put_markdown"]("> 📝 暂无任务，点击上方「创建任务」开始。")
         return
 
     table_data = []
@@ -140,7 +143,7 @@ async def handle_task_action(ctx, action):
     elif action_type == "code":
         await show_task_code(ctx, task)
     elif action_type == "edit":
-        await show_enhanced_edit_task_dialog(ctx, task.name)
+        await show_edit_task_dialog(ctx, task.name)
     elif action_type == "details":
         await show_task_details(ctx, task)
     elif action_type == "delete":
@@ -172,7 +175,6 @@ async def show_task_details(ctx, task):
     with ctx["popup"](f"任务详情: {task.name}", size="large"):
         put_markdown(f"### 📊 {task.name} 详细信息")
         
-        # 基本信息
         put_text("")
         put_markdown(f"""
 **基本信息**
@@ -186,7 +188,6 @@ async def show_task_details(ctx, task):
 """)
         put_text("")
         
-        # 执行统计
         if task_stats and task_stats.get("execution_stats"):
             exec_stats = task_stats["execution_stats"]
             put_text("")
@@ -202,7 +203,6 @@ async def show_task_details(ctx, task):
 """)
             put_text("")
         
-        # 代码预览
         code = (task.metadata.func_code or "").strip() or (task.execution.job_code or "").strip()
         if code:
             with put_collapse("📋 任务代码预览", open=False):
@@ -210,7 +210,6 @@ async def show_task_details(ctx, task):
         else:
             put_markdown("**任务代码:** `暂无`")
         
-        # 执行历史
         if task.execution.execution_history:
             with put_collapse("📈 最近执行历史", open=False):
                 recent_history = task.execution.get_recent_history(5)
@@ -311,4 +310,4 @@ async def refresh_task_list(ctx):
         await render_task_list(ctx)
 
 
-__all__ = ["render_enhanced_task_admin"]
+__all__ = ["render_task_admin"]

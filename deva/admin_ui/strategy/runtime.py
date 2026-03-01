@@ -263,10 +263,10 @@ def initialize_strategy_monitor_streams(attach_webviews=True, strategies_config:
                     strategy.set_input_stream(bound_stream.filter(lambda x: x is not None))
         else:
             strategy.set_input_stream(quant)
-            # 无绑定数据流的策略，运行状态需要设置成已暂停
+            # 无绑定数据流的策略，运行状态需要设置成已停止
             if strategy.state.status == "running":
-                strategy.pause()
-                log_strategy_event("INFO", f"Paused strategy without bound datasource: {strategy.name}")
+                strategy.stop()
+                log_strategy_event("INFO", f"Stopped strategy without bound datasource: {strategy.name}")
         
         processed_strategies[strategy.name] = strategy
 

@@ -174,9 +174,16 @@ class ExecutableUnit(ABC, StatusMixin, CallbackMixin):
             if not validation_result["success"]:
                 return validation_result
             
+            # 修改函数的全局变量字典，使其包含所有本地变量
+            # 这样函数就可以访问同一代码中定义的其他函数
+            func.__globals__.update(local_vars)
+            
+            # 保存修改后的函数
+            closure_func = func
+            
             return {
                 "success": True,
-                "func": func,
+                "func": closure_func,
                 "func_name": func_name
             }
             
