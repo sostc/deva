@@ -31,7 +31,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional, Type
 
-from deva import Stream, NS, log
+from deva import Stream, NS, NB, log
 
 from ..common.base import (
     BaseMetadata,
@@ -41,6 +41,14 @@ from ..common.base import (
     CallbackMixin,
 )
 from .logging_context import logging_context_manager
+
+
+def _exec_log(level: str, message: str):
+    payload = {"level": level.upper(), "source": "deva.admin.executable_unit", "message": str(message)}
+    try:
+        payload >> log
+    except Exception:
+        print(f"[{level.upper()}][deva.admin.executable_unit] {message}")
 
 
 class ExecutableUnitStatus(str):
@@ -174,7 +182,7 @@ class ExecutableUnit(ABC, StatusMixin, CallbackMixin):
             
         except Exception as e:
             error_msg = f"代码编译失败: {str(e)}"
-            log.error(error_msg)
+            _exec_log("ERROR", error_msg)
             return {
                 "success": False,
                 "error": error_msg,
@@ -239,6 +247,8 @@ class ExecutableUnit(ABC, StatusMixin, CallbackMixin):
                 "min": min,
                 "abs": abs,
                 "round": round,
+                "print": print,
+                "__import__": __import__,
                 "str": str,
                 "int": int,
                 "float": float,
@@ -247,7 +257,12 @@ class ExecutableUnit(ABC, StatusMixin, CallbackMixin):
                 "dict": dict,
                 "tuple": tuple,
                 "set": set,
-            }
+            },
+            # 兼容旧任务代码中直接使用 deva 对象
+            "log": log,
+            "NB": NB,
+            "Stream": Stream,
+            "NS": NS,
         }
     
     @abstractmethod
@@ -328,13 +343,13 @@ class ExecutableUnit(ABC, StatusMixin, CallbackMixin):
                 # 触发回调
                 self._trigger_start_callbacks(self)
                 
-                log.info(f"可执行单元已启动: {self.metadata.name} ({self.metadata.id})")
+                _exec_log("INFO", f"可执行单元已启动: {self.metadata.name} ({self.metadata.id})")
                 
                 return {"success": True, "message": "启动成功"}
                 
             except Exception as e:
                 error_msg = f"启动失败: {str(e)}"
-                log.error(error_msg)
+                _exec_log("ERROR", error_msg)
                 self.state.status = ExecutableUnitStatus.ERROR
                 self.state.record_error(error_msg)
                 return {"success": False, "error": error_msg, "traceback": traceback.format_exc()}
@@ -363,13 +378,13 @@ class ExecutableUnit(ABC, StatusMixin, CallbackMixin):
                 # 触发回调
                 self._trigger_stop_callbacks(self)
                 
-                log.info(f"可执行单元已停止: {self.metadata.name} ({self.metadata.id})")
+                _exec_log("INFO", f"可执行单元已停止: {self.metadata.name} ({self.metadata.id})")
                 
                 return {"success": True, "message": "停止成功"}
                 
             except Exception as e:
                 error_msg = f"停止失败: {str(e)}"
-                log.error(error_msg)
+                _exec_log("ERROR", error_msg)
                 return {"success": False, "error": error_msg, "traceback": traceback.format_exc()}
     
     def delete(self) -> Dict[str, Any]:
@@ -392,13 +407,13 @@ class ExecutableUnit(ABC, StatusMixin, CallbackMixin):
                     # 清理流资源
                     self._stream = None
             
-            log.info(f"可执行单元已删除: {self.metadata.name} ({self.metadata.id})")
+            _exec_log("INFO", f"可执行单元已删除: {self.metadata.name} ({self.metadata.id})")
             
             return {"success": True, "message": "删除成功"}
             
         except Exception as e:
             error_msg = f"删除失败: {str(e)}"
-            log.error(error_msg)
+            _exec_log("ERROR", error_msg)
             return {"success": False, "error": error_msg, "traceback": traceback.format_exc()}
     
     @abstractmethod
@@ -463,7 +478,7 @@ class ExecutableUnit(ABC, StatusMixin, CallbackMixin):
             try:
                 stream.emit(data)
             except Exception as e:
-                log.error(f"流数据发射失败: {e}")
+                _exec_log("ERROR", f"流数据发射失败: {e}")
                 self.state.record_error(f"流数据发射失败: {e}")
     
     # ==========================================================================
@@ -481,7 +496,7 @@ class ExecutableUnit(ABC, StatusMixin, CallbackMixin):
         if context:
             error_msg = f"{context}: {error_msg}"
         
-        log.error(f"可执行单元错误 [{self.metadata.name}]: {error_msg}")
+        _exec_log("ERROR", f"可执行单元错误 [{self.metadata.name}]: {error_msg}")
         
         # 记录错误到状态
         self.state.record_error(error_msg)
@@ -497,7 +512,7 @@ class ExecutableUnit(ABC, StatusMixin, CallbackMixin):
             if hasattr(self, 'save'):
                 self.save()
         except Exception as e:
-            log.error(f"错误状态保存失败: {e}")
+            _exec_log("ERROR", f"错误状态保存失败: {e}")
     
     # ==========================================================================
     # 工具方法

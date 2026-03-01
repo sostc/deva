@@ -63,6 +63,13 @@ from ..strategy.logging_context import (
 )
 
 
+def _admin_log(level: str, message: str, **extra):
+    payload = {"level": level, "source": "deva.admin.datasource", "message": message}
+    if extra:
+        payload.update(extra)
+    payload >> log
+
+
 class DataSourceStatus(str, Enum):
     RUNNING = "running"
     STOPPED = "stopped"
@@ -1033,8 +1040,8 @@ class DataSource(StatusMixin, CallbackMixin):
             try:
                 if hasattr(self._stream, 'destroy'):
                     self._stream.destroy()
-            except Exception:
-                pass
+            except Exception as e:
+                self._log_event("WARNING", "Failed to destroy stream during delete", error=str(e))
             self._stream = None
         
         from . import get_ds_manager
@@ -1191,6 +1198,7 @@ class DataSourceManager(BaseManager[DataSource]):
         """从数据库加载数据源配置"""
         db = NB("data_sources")
         count = 0
+        failed_count = 0
         all_items = list(db.items())
         
         print(f"[DataSourceManager] 从数据库加载数据源，共 {len(all_items)} 条记录")
@@ -1210,8 +1218,30 @@ class DataSourceManager(BaseManager[DataSource]):
                             count += 1
                             print(f"[DataSourceManager] 加载数据源：{source.name} (was_running={was_running})")
                     except Exception as e:
+                        failed_count += 1
                         print(f"[DataSourceManager] 加载数据源失败：{source_id}, 错误：{e}")
-                        pass
+                        _admin_log(
+                            "ERROR",
+                            "load_from_db failed for datasource",
+                            source_id=source_id,
+                            error=str(e),
+                            traceback=traceback.format_exc(),
+                        )
+                else:
+                    failed_count += 1
+                    _admin_log(
+                        "WARNING",
+                        "skip invalid datasource record",
+                        source_id=source_id,
+                        data_type=type(data).__name__,
+                    )
+        _admin_log(
+            "INFO",
+            "load_from_db completed",
+            loaded_count=count,
+            failed_count=failed_count,
+            total=len(all_items),
+        )
         return count
     
     def restore_running_states(self) -> dict:
@@ -1321,6 +1351,14 @@ class DataSourceManager(BaseManager[DataSource]):
                     "error": str(e),
                     "reason": restore_reason if 'restore_reason' in locals() else "unknown",
                 })
+                _admin_log(
+                    "ERROR",
+                    "restore_running_states failed for datasource",
+                    source_id=source.id,
+                    source_name=source.name,
+                    error=str(e),
+                    traceback=traceback.format_exc(),
+                )
         
         return {
             "success": True,

@@ -44,7 +44,9 @@ TaskManager → BaseManager → 统一的注册、启动、停止、统计管理
 from __future__ import annotations
 
 import asyncio
+import inspect
 import time
+import traceback
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
@@ -56,6 +58,14 @@ from ..common.base import BaseMetadata, BaseState, BaseStats, BaseManager
 from ..strategy.executable_unit import ExecutableUnit, ExecutableUnitMetadata, ExecutableUnitState
 from ..strategy.error_handler import ErrorHandler, ErrorLevel, ErrorCategory
 from ..strategy.persistence import get_global_persistence_manager
+
+
+def _task_log(level: str, message: str):
+    payload = {"level": level.upper(), "source": "deva.admin.task_unit", "message": str(message)}
+    try:
+        payload >> log
+    except Exception:
+        print(f"[{level.upper()}][deva.admin.task_unit] {message}")
 
 
 class TaskType(str, Enum):
@@ -211,15 +221,13 @@ class TaskUnit(ExecutableUnit):
                 "error": "任务函数必须是异步函数(async def)"
             }
         
-        # 检查参数数量
+        # 允许无参 execute() 或 execute(context)
         sig = inspect.signature(func)
         params = list(sig.parameters.keys())
-        
-        # 任务函数应该接收context参数
-        if len(params) < 1:
+        if len(params) > 1:
             return {
                 "success": False,
-                "error": "任务函数必须至少接收一个参数(上下文)"
+                "error": "任务函数参数过多，只允许 execute() 或 execute(context)"
             }
         
         return {"success": True}
@@ -248,10 +256,11 @@ class TaskUnit(ExecutableUnit):
             self.state.last_activity_ts = start_time
             
             # 执行函数
-            if context:
-                result = await self._func(context)
-            else:
+            param_len = len(inspect.signature(self._func).parameters)
+            if param_len == 0:
                 result = await self._func()
+            else:
+                result = await self._func(context)
             
             # 更新统计
             duration = time.time() - start_time
@@ -277,7 +286,7 @@ class TaskUnit(ExecutableUnit):
             else:
                 self.state.status = TaskStatus.RUNNING
             
-            log.info(f"任务执行成功: {self.name} (耗时: {duration:.2f}s)")
+            _task_log("INFO", f"任务执行成功: {self.name} (耗时: {duration:.2f}s)")
             return result
             
         except Exception as e:
@@ -311,7 +320,7 @@ class TaskUnit(ExecutableUnit):
             # 更新状态
             self.state.status = TaskStatus.ERROR
             
-            log.error(f"任务执行失败: {self.name} - {error_msg}")
+            _task_log("ERROR", f"任务执行失败: {self.name} - {error_msg}")
             raise
     
     def get_schedule_description(self) -> str:
@@ -386,12 +395,12 @@ class TaskUnit(ExecutableUnit):
             if next_run_time:
                 self.state.next_run_time = next_run_time
             
-            log.info(f"任务启动成功: {self.name}")
+            _task_log("INFO", f"任务启动成功: {self.name}")
             return {"success": True, "message": "任务启动成功"}
             
         except Exception as e:
             error_msg = f"任务启动失败: {str(e)}"
-            log.error(error_msg)
+            _task_log("ERROR", error_msg)
             return {"success": False, "error": error_msg, "traceback": traceback.format_exc()}
     
     def _do_stop(self) -> Dict[str, Any]:
@@ -407,12 +416,12 @@ class TaskUnit(ExecutableUnit):
                 # 具体实现取决于使用的调度器
                 pass
             
-            log.info(f"任务停止成功: {self.name}")
+            _task_log("INFO", f"任务停止成功: {self.name}")
             return {"success": True, "message": "任务停止成功"}
             
         except Exception as e:
             error_msg = f"任务停止失败: {str(e)}"
-            log.error(error_msg)
+            _task_log("ERROR", error_msg)
             return {"success": False, "error": error_msg, "traceback": traceback.format_exc()}
     
     def _do_delete(self) -> Dict[str, Any]:
@@ -425,12 +434,12 @@ class TaskUnit(ExecutableUnit):
             # 清理执行历史
             self.execution.execution_history.clear()
             
-            log.info(f"任务删除成功: {self.name}")
+            _task_log("INFO", f"任务删除成功: {self.name}")
             return {"success": True, "message": "任务删除成功"}
             
         except Exception as e:
             error_msg = f"任务删除失败: {str(e)}"
-            log.error(error_msg)
+            _task_log("ERROR", error_msg)
             return {"success": False, "error": error_msg, "traceback": traceback.format_exc()}
     
     # ==========================================================================
@@ -458,9 +467,9 @@ class TaskUnit(ExecutableUnit):
         try:
             persistence = get_global_persistence_manager()
             persistence.save_unit("task", self.id, self.to_dict())
-            log.debug(f"任务已保存: {self.name}")
+            _task_log("DEBUG", f"任务已保存: {self.name}")
         except Exception as e:
-            log.error(f"任务保存失败: {self.name} - {e}")
+            _task_log("ERROR", f"任务保存失败: {self.name} - {e}")
     
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> 'TaskUnit':
@@ -525,6 +534,6 @@ class TaskUnit(ExecutableUnit):
                     task_unit.execution.compiled_func = compile_result["func"]
                     task_unit._func = compile_result["func"]
             except Exception as e:
-                log.error(f"任务代码编译失败: {e}")
+                _task_log("ERROR", f"任务代码编译失败: {e}")
         
         return task_unit

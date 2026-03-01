@@ -401,17 +401,16 @@ class StrategyUnit(StatusMixin):
             # 提取函数文档
             func_doc = test_locals["process"].__doc__ or ""
             
-            old_code = self.metadata.strategy_func_code
-            
-            self.metadata.strategy_func_code = code
-            self.metadata.touch()
-            
-            self._save_code_version(code, old_code)
-            
             try:
                 self.set_processor_from_code(code, ai_doc=func_doc)
             except Exception as e:
-                pass
+                self._log_event("ERROR", "Failed to apply strategy function code", error=str(e))
+                return {"success": False, "error": f"代码更新失败，无法加载 process 函数: {str(e)}"}
+
+            old_code = self.metadata.strategy_func_code
+            self.metadata.strategy_func_code = code
+            self.metadata.touch()
+            self._save_code_version(code, old_code)
             
             self.save()
             
@@ -897,8 +896,8 @@ class StrategyUnit(StatusMixin):
             max_count = self.metadata.max_history_count
             if max_count > 0:
                 store.cleanup(strategy_id=self._id, max_count=max_count)
-        except Exception:
-            pass
+        except Exception as e:
+            self._log_event("WARNING", "Failed to persist strategy result", error=str(e))
     
     def get_recent_results(self, limit: int = 10) -> list:
         store = get_result_store()
@@ -938,8 +937,8 @@ class StrategyUnit(StatusMixin):
                 "error_count": self.state.error_count,
             }
             state_db[f"{self._id}_running_state"] = state_info
-        except Exception:
-            pass
+        except Exception as e:
+            self._log_event("WARNING", "Failed to persist running state", error=str(e))
     
     def update_logic(self, func: Callable = None, code: str = None, ai_doc: str = None):
         if func:

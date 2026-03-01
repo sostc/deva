@@ -1,345 +1,171 @@
-"""增强版任务面板(AI Enhanced Task Panel)
-
-为任务面板集成AI代码生成功能，提供用户审核编辑界面。
-"""
+"""增强版任务面板(Task Panel)."""
 
 from __future__ import annotations
 
-import json
-import traceback
-from typing import Any, Dict, List, Optional, Callable
+from typing import Any, Dict, List, Optional
 from datetime import datetime
 
 from deva import log
 
-from ..ai.ai_code_generation_dialog import AICodeGenerationDialog
-from ..ai.interactive_ai_code_generator import InteractiveCodeGenerator, CodeReviewResult
-from ..ai.ai_code_generation_ui import AICodeGenerationUI, get_ai_code_generation_ui
 from .task_unit import TaskType
 
 
-async def show_enhanced_create_task_dialog(ctx):
-    """增强版创建任务对话框 - 集成AI代码生成功能"""
+def _panel_log(level: str, message: str):
+    payload = {"level": level.upper(), "source": "deva.admin.task_panel", "message": str(message)}
     try:
-        from pywebio import output as pw_output
-        from pywebio import input as pw_input
-        
-        with ctx["popup"]("创建新任务 (AI增强版)", size="large", closable=True):
-            ctx["put_markdown"]("### 任务配置 (AI增强版)")
-            ctx["put_html"]("""
-            <div style='background:#e3f2fd;padding:12px;border-radius:8px;margin-bottom:15px;'>
-                <p style='color:#1565c0;font-size:14px;margin:0;'>
-                    💡 <strong>AI代码生成</strong>：点击「AI生成」按钮，由AI根据需求描述自动生成任务代码
-                </p>
-                <p style='color:#1565c0;font-size:12px;margin:5px 0 0 0;'>
-                    📝 <strong>代码审核</strong>：生成的代码需要您的审核和编辑确认
-                </p>
-            </div>
-            """)
-            
-            # 基础信息收集
-            basic_form = await ctx["input_group"]("基础信息", [
-                ctx["input"]("任务名称", name="name", required=True, placeholder="输入任务名称"),
-                ctx["select"](
-                    "任务类型",
-                    name="task_type",
-                    options=[
-                        {"label": "间隔任务（每隔X秒执行）", "value": "interval"},
-                        {"label": "定时任务（每天固定时间执行）", "value": "cron"},
-                        {"label": "一次性任务（指定时间执行）", "value": "one_time"}
-                    ],
-                    value="interval"
-                ),
-                ctx["textarea"]("任务描述", name="description", placeholder="任务描述（可选）", rows=2),
-                ctx["input"]("执行时间配置", name="time_config", placeholder="间隔秒数(如60) 或 时间HH:MM(如02:00)", help_text="根据任务类型设置执行时间或间隔")
-            ])
-            
-            if not basic_form:
-                ctx["close_popup"]()
-                return
-            
-            # 代码生成选项
-            ctx["put_markdown"]("### 代码生成选项")
-            code_generation_method = await ctx["radio"](
-                "选择代码生成方式",
-                options=[
-                    {"label": "🤖 AI智能生成 - 描述需求，AI自动生成代码", "value": "ai_generate"},
-                    {"label": "✏️ 手动编写 - 直接输入Python代码", "value": "manual_write"},
-                    {"label": "📋 从模板选择 - 选择预设代码模板", "value": "template_select"},
-                    {"label": "📁 从文件导入 - 上传Python代码文件", "value": "file_import"}
-                ],
-                value="ai_generate"
-            )
-            
-            generated_code = ""
-            
-            if code_generation_method == "ai_generate":
-                generated_code = await _enhanced_task_ai_generation(ctx, basic_form)
-                
-            elif code_generation_method == "manual_write":
-                generated_code = await _manual_task_code_input(ctx)
-                
-            elif code_generation_method == "template_select":
-                generated_code = await _task_template_selection(ctx)
-                
-            elif code_generation_method == "file_import":
-                generated_code = await _task_file_import(ctx)
-            
-            if not generated_code:
-                ctx["toast"]("代码生成被取消", color="warning")
-                return
-            
-            # 最终确认
-            ctx["put_markdown"]("### 最终确认")
-            ctx["put_info"](f"任务名称: {basic_form['name']}")
-            ctx["put_info"](f"任务类型: {basic_form['task_type']}")
-            ctx["put_info"](f"代码长度: {len(generated_code)} 字符")
-            
-            with ctx["put_collapse"]("预览代码", open=False):
-                ctx["put_code"](generated_code, language="python")
-            
-            final_confirm = await ctx["input_group"]("确认创建", [
-                ctx["checkbox"](
-                    "确认选项",
-                    name="confirmations",
-                    options=[
-                        {"label": "我已审核生成的代码", "value": "code_reviewed", "selected": True},
-                        {"label": "我理解代码的执行逻辑", "value": "logic_understood", "selected": True},
-                        {"label": "我确认使用此代码", "value": "code_approved", "selected": True}
-                    ]
-                ),
-                ctx["actions"]("操作", [
-                    {"label": "✅ 创建任务", "value": "create", "color": "success"},
-                    {"label": "❌ 取消", "value": "cancel", "color": "danger"}
-                ], name="action")
-            ])
-            
-            if not final_confirm or final_confirm.get("action") != "create":
-                return
-            
-            # 检查确认选项
-            required_confirmations = ["code_reviewed", "code_approved"]
-            selected_confirmations = final_confirm.get("confirmations", [])
-            
-            for req in required_confirmations:
-                if req not in selected_confirmations:
-                    ctx["toast"]("请确认所有必要选项", color="warning")
+        payload >> log
+    except Exception:
+        print(f"[{level.upper()}][deva.admin.task_panel] {message}")
+
+
+def _default_task_code() -> str:
+    return """async def execute(context=None):
+    # 在这里编写任务逻辑
+    return "ok"
+"""
+
+
+def _format_time_config(task_type: str, schedule_config: Dict[str, Any]) -> str:
+    if task_type == "interval":
+        return str(schedule_config.get("interval", 60))
+    if task_type == "cron":
+        hour = int(schedule_config.get("hour", 2))
+        minute = int(schedule_config.get("minute", 0))
+        return f"{hour:02d}:{minute:02d}"
+    if task_type == "one_time":
+        return str(schedule_config.get("run_date", "") or "")
+    return "60"
+
+
+def _parse_schedule_config(task_type: str, time_config: str) -> tuple[Dict[str, Any], Optional[str]]:
+    value = (time_config or "").strip()
+    if task_type == "interval":
+        try:
+            interval = int(value)
+            if interval <= 0:
+                return {}, "间隔任务执行时间必须大于0秒"
+            return {"interval": interval}, None
+        except Exception:
+            return {}, "间隔任务执行时间必须是整数秒"
+
+    if task_type == "cron":
+        if ":" in value:
+            try:
+                hour_str, minute_str = value.split(":", 1)
+                hour, minute = int(hour_str), int(minute_str)
+            except Exception:
+                return {}, "定时任务时间格式应为 HH:MM"
+        else:
+            try:
+                hour, minute = 0, int(value)
+            except Exception:
+                return {}, "定时任务时间格式应为 HH:MM"
+        if hour < 0 or hour > 23 or minute < 0 or minute > 59:
+            return {}, "定时任务时间超出范围，小时0-23，分钟0-59"
+        return {"hour": hour, "minute": minute}, None
+
+    if task_type == "one_time":
+        if not value:
+            return {}, "一次性任务需要填写 run_date"
+        return {"run_date": value}, None
+
+    return {}, "不支持的任务类型"
+
+
+async def show_enhanced_create_task_dialog(ctx):
+    """增强版创建任务对话框。"""
+    try:
+        with ctx["popup"]("创建新任务", size="large", closable=True):
+            ctx["put_markdown"]("### 创建任务（单页编辑）")
+            ctx["put_markdown"]("> 在同一页面完成基础信息和执行代码填写。")
+
+            draft = {
+                "name": "",
+                "task_type": "interval",
+                "description": "",
+                "time_config": "60",
+                "code": _default_task_code(),
+                "confirmations": ["code_reviewed", "code_approved"],
+            }
+
+            while True:
+                form = await ctx["input_group"]("任务信息与代码", [
+                    ctx["input"]("任务名称", name="name", required=True, value=draft["name"], placeholder="输入任务名称"),
+                    ctx["select"](
+                        "任务类型",
+                        name="task_type",
+                        options=[
+                            {"label": "间隔任务（每隔X秒执行）", "value": "interval"},
+                            {"label": "定时任务（每天固定时间执行）", "value": "cron"},
+                            {"label": "一次性任务（指定时间执行）", "value": "one_time"},
+                        ],
+                        value=draft["task_type"],
+                    ),
+                    ctx["textarea"]("任务描述", name="description", rows=2, value=draft["description"], placeholder="任务描述（可选）"),
+                    ctx["input"](
+                        "执行时间配置",
+                        name="time_config",
+                        value=draft["time_config"],
+                        help_text="interval: 秒数，例如 60；cron: HH:MM，例如 02:00；one_time: run_date 字符串",
+                    ),
+                    ctx["textarea"](
+                        "任务代码",
+                        name="code",
+                        rows=16,
+                        required=True,
+                        value=draft["code"],
+                        placeholder="async def execute(context=None):\n    return 'ok'",
+                    ),
+                    ctx["checkbox"](
+                        "确认选项",
+                        name="confirmations",
+                        options=[
+                            {"label": "我已审核代码", "value": "code_reviewed", "selected": "code_reviewed" in draft["confirmations"]},
+                            {"label": "我确认创建任务", "value": "code_approved", "selected": "code_approved" in draft["confirmations"]},
+                        ],
+                    ),
+                    ctx["actions"]("操作", [
+                        {"label": "✅ 创建任务", "value": "create", "color": "success"},
+                        {"label": "❌ 取消", "value": "cancel", "color": "danger"},
+                    ], name="action"),
+                ])
+
+                if not form or form.get("action") != "create":
                     return
-            
-            # 创建任务
-            await _create_enhanced_task(ctx, basic_form, generated_code)
+
+                draft.update(form)
+                validation = validate_task_code(draft["code"])
+                if not validation["valid"]:
+                    ctx["toast"](f"代码验证失败: {'; '.join(validation['errors'])}", color="error")
+                    continue
+
+                schedule_config, schedule_error = _parse_schedule_config(draft["task_type"], draft["time_config"])
+                if schedule_error:
+                    ctx["toast"](schedule_error, color="error")
+                    continue
+
+                selected_confirmations = draft.get("confirmations", [])
+                if "code_reviewed" not in selected_confirmations or "code_approved" not in selected_confirmations:
+                    ctx["toast"]("请勾选必要确认项", color="warning")
+                    continue
+
+                await _create_enhanced_task(
+                    ctx,
+                    {
+                        "name": draft["name"],
+                        "task_type": draft["task_type"],
+                        "description": draft.get("description", ""),
+                        "time_config": draft["time_config"],
+                        "schedule_config": schedule_config,
+                    },
+                    draft["code"],
+                )
+                return
             
     except Exception as e:
-        log.error(f"增强版创建任务对话框错误: {e}")
+        _panel_log("ERROR", f"增强版创建任务对话框错误: {e}")
         ctx["toast"](f"创建任务对话框错误: {e}", color="error")
         ctx["close_popup"]()
-
-
-async def _enhanced_task_ai_generation(ctx, basic_form: Dict[str, Any]) -> str:
-    """增强版AI任务代码生成流程"""
-    try:
-        # 创建AI代码生成对话框
-        ai_dialog = AICodeGenerationDialog("task", ctx)
-        
-        # 显示AI代码生成向导
-        ctx["put_markdown"]("#### 🤖 AI任务代码生成向导")
-        ctx["put_html"]("""
-        <div style='background:#e8f5e9;padding:12px;border-radius:8px;margin-bottom:15px;'>
-            <p style='color:#2e7d32;font-size:14px;margin:0;'>
-                💡 <strong>AI任务代码生成向导</strong>将引导您完成代码生成过程
-            </p>
-            <p style='color:#2e7d32;font-size:12px;margin:5px 0 0 0;'>
-                📝 请详细描述您的任务需求，AI将生成相应的Python异步代码
-            </p>
-        </div>
-        """)
-        
-        # 步骤1: 收集需求信息
-        ctx["put_markdown"]("##### 步骤1: 任务需求收集")
-        
-        requirement_form = await _collect_enhanced_task_requirements(ctx, basic_form)
-        
-        if not requirement_form:
-            return ""
-        
-        # 步骤2: AI代码生成
-        ctx["put_markdown"]("##### 步骤2: AI代码生成")
-        ctx["put_info"]("正在生成代码，请稍候...")
-        
-        # 构建生成上下文
-        generation_context = {
-            "task_name": basic_form.get("name", "未命名任务"),
-            "task_type": basic_form.get("task_type", "interval"),
-            "time_config": basic_form.get("time_config", "60"),
-            "schedule_config": requirement_form.get("schedule_config", ""),
-            "retry_config": requirement_form.get("retry_config", ""),
-            "task_options": requirement_form.get("task_options", []),
-            "enable_retry": "enable_retry" in requirement_form.get("task_options", []),
-            "send_notification": "send_notification" in requirement_form.get("task_options", []),
-            "detailed_logging": "detailed_logging" in requirement_form.get("task_options", [])
-        }
-        
-        # 转换任务类型
-        task_type_map = {
-            "interval": TaskType.INTERVAL,
-            "cron": TaskType.CRON,
-            "one_time": TaskType.ONE_TIME
-        }
-        
-        # 使用交互式代码生成器
-        generator = InteractiveCodeGenerator("task")
-        
-        review_result = await generator.generate_and_review(
-            requirement=requirement_form["requirement"],
-            context=generation_context,
-            show_comparison=True,
-            enable_realtime_validation=True,
-            task_type=task_type_map.get(basic_form.get("task_type", "interval"), TaskType.INTERVAL),
-            include_monitoring=True,
-            include_retry=generation_context["enable_retry"]
-        )
-        
-        if not review_result.approved:
-            ctx["toast"]("代码生成被取消", color="warning")
-            return ""
-        
-        # 步骤3: 代码审核与编辑
-        ctx["put_markdown"]("##### 步骤3: 代码审核与编辑")
-        
-        # 显示生成结果
-        ctx["put_success"](f"✅ 代码生成完成 (长度: {len(review_result.code)} 字符)")
-        if review_result.user_modified:
-            ctx["put_info"]("📝 用户对代码进行了修改")
-        
-        # 显示代码预览
-        with ctx["put_collapse"]("📋 生成代码预览", open=False):
-            ctx["put_code"](review_result.code, language="python")
-        
-        # 显示代码说明
-        if review_result.validation_result:
-            with ctx["put_collapse"]("📖 代码说明和验证结果", open=False):
-                if review_result.validation_result.get("success"):
-                    ctx["put_success"]("✅ 代码验证通过")
-                else:
-                    ctx["put_error"](f"❌ 代码验证失败: {review_result.validation_result.get('error', '')}")
-                
-                warnings = review_result.validation_result.get("warnings", [])
-                if warnings:
-                    ctx["put_warning"](f"⚠️  发现 {len(warnings)} 个警告:")
-                    for warning in warnings:
-                        ctx["put_text"](f"   • {warning}")
-        
-        # 最终确认
-        final_confirm = await ctx["input_group"]("代码确认", [
-            ctx["checkbox"](
-                "确认选项",
-                name="code_confirmations",
-                options=[
-                    {"label": "我已审核生成的代码", "value": "reviewed", "selected": True},
-                    {"label": "我理解代码的执行逻辑", "value": "understood", "selected": True},
-                    {"label": "我确认使用此代码", "value": "approved", "selected": True}
-                ]
-            ),
-            ctx["actions"]("操作", [
-                {"label": "✅ 使用此代码", "value": "use_code", "color": "success"},
-                {"label": "🔄 重新生成", "value": "regenerate", "color": "warning"},
-                {"label": "❌ 取消", "value": "cancel", "color": "danger"}
-            ], name="action")
-        ])
-        
-        if not final_confirm or final_confirm.get("action") == "cancel":
-            return ""
-        
-        if final_confirm.get("action") == "regenerate":
-            return await _enhanced_task_ai_generation(ctx, basic_form)
-        
-        # 检查确认选项
-        required_confirmations = ["reviewed", "approved"]
-        selected_confirmations = final_confirm.get("code_confirmations", [])
-        
-        for req in required_confirmations:
-            if req not in selected_confirmations:
-                ctx["toast"]("请确认所有必要选项", color="warning")
-                return await _enhanced_task_ai_generation(ctx, basic_form)
-        
-        return review_result.code
-        
-    except Exception as e:
-        log.error(f"增强版AI任务代码生成错误: {e}")
-        ctx["toast"](f"AI代码生成错误: {e}", color="error")
-        return ""
-
-
-async def _collect_enhanced_task_requirements(ctx, basic_form: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-    """收集增强版任务需求信息"""
-    try:
-        # 根据任务类型显示不同的配置选项
-        task_type = basic_form.get("task_type", "interval")
-        time_config = basic_form.get("time_config", "60")
-        
-        # 构建默认配置
-        default_schedule_config = ""
-        default_retry_config = ""
-        
-        if task_type == "interval":
-            default_schedule_config = f"每{time_config}秒执行一次"
-            default_retry_config = "失败后重试3次，间隔5分钟"
-        elif task_type == "cron":
-            default_schedule_config = f"每天{time_config}执行"
-            default_retry_config = "失败后重试3次，间隔10分钟"
-        elif task_type == "one_time":
-            default_schedule_config = f"在{time_config}执行一次"
-            default_retry_config = "失败后不重试"
-        
-        # 显示需求收集表单
-        requirement_form = await ctx["input_group"]("任务需求配置", [
-            ctx["textarea"](
-                "任务需求描述",
-                name="requirement",
-                placeholder="请详细描述您的任务需求，例如：\n- 每天凌晨2点备份数据库\n- 包含数据导出和文件压缩\n- 完成后发送通知邮件",
-                rows=4,
-                required=True,
-                value=f"为任务'{basic_form.get('name', '')}'生成执行函数" if basic_form.get('name') else ""
-            ),
-            ctx["textarea"](
-                "执行时间配置",
-                name="schedule_config",
-                placeholder="根据任务类型填写：\n- 间隔任务：间隔秒数(如3600)\n- 定时任务：时间HH:MM(如02:00)\n- 一次性任务：具体日期时间",
-                rows=2,
-                help_text="设置任务的执行时间或间隔",
-                value=default_schedule_config
-            ),
-            ctx["textarea"](
-                "失败重试配置",
-                name="retry_config",
-                placeholder="失败后重试次数和间隔，例如：\n- 重试3次，间隔5分钟\n- 重试5次，间隔10分钟\n- 不重试",
-                rows=2,
-                help_text="设置任务失败后的重试策略",
-                value=default_retry_config
-            ),
-            ctx["checkbox"](
-                "任务选项",
-                name="task_options",
-                options=[
-                    {"label": "失败后重试", "value": "enable_retry", "selected": True},
-                    {"label": "发送执行通知", "value": "send_notification", "selected": False},
-                    {"label": "记录详细日志", "value": "detailed_logging", "selected": True},
-                    {"label": "记录执行历史", "value": "record_history", "selected": True}
-                ]
-            ),
-            ctx["textarea"](
-                "特殊要求或约束",
-                name="constraints",
-                placeholder="任何特殊要求或约束条件，例如：\n- 需要考虑网络超时\n- 处理大文件时需要分块\n- 避免重复执行",
-                rows=2
-            )
-        ])
-        
-        return requirement_form
-        
-    except Exception as e:
-        log.error(f"收集增强版任务需求错误: {e}")
-        return None
 
 
 async def _manual_task_code_input(ctx) -> str:
@@ -737,24 +563,15 @@ async def _create_enhanced_task(ctx, basic_form: Dict[str, Any], generated_code:
         
         task_type = task_type_map.get(basic_form.get("task_type", "interval"), TaskType.INTERVAL)
         
-        # 解析时间配置
-        schedule_config = {}
-        time_config = basic_form.get("time_config", "60")
-        
-        if basic_form.get("task_type") == "interval":
-            schedule_config["interval"] = int(time_config)
-        elif basic_form.get("task_type") == "cron":
-            # 解析时间格式 HH:MM
-            if ":" in time_config:
-                hour, minute = time_config.split(":")
-                schedule_config["hour"] = int(hour)
-                schedule_config["minute"] = int(minute)
-            else:
-                schedule_config["hour"] = 0
-                schedule_config["minute"] = int(time_config)
-        elif basic_form.get("task_type") == "one_time":
-            # 一次性任务的时间配置
-            schedule_config["run_date"] = time_config
+        schedule_config = basic_form.get("schedule_config")
+        if not isinstance(schedule_config, dict):
+            schedule_config, schedule_error = _parse_schedule_config(
+                basic_form.get("task_type", "interval"),
+                basic_form.get("time_config", "60"),
+            )
+            if schedule_error:
+                ctx["toast"](f"创建任务失败: {schedule_error}", color="error")
+                return
         
         # 创建任务元数据
         metadata = TaskMetadata(
@@ -807,15 +624,13 @@ async def _create_enhanced_task(ctx, basic_form: Dict[str, Any], generated_code:
             ctx["toast"](f"任务创建失败: {register_result.get('error', '')}", color="error")
             
     except Exception as e:
-        log.error(f"创建增强版任务错误: {e}")
+        _panel_log("ERROR", f"创建增强版任务错误: {e}")
         ctx["toast"](f"创建任务错误: {e}", color="error")
 
 
 async def show_enhanced_edit_task_dialog(ctx, task_name: str):
-    """增强版编辑任务对话框 - 集成AI代码生成功能"""
+    """增强版编辑任务对话框。"""
     try:
-        from pywebio import output as pw_output
-        from pywebio import input as pw_input
         from .task_manager import get_task_manager
         
         task_manager = get_task_manager()
@@ -831,163 +646,113 @@ async def show_enhanced_edit_task_dialog(ctx, task_name: str):
             ctx["toast"]("任务不存在", color="error")
             return
         
-        with ctx["popup"](f"编辑任务: {task_unit.name} (AI增强版)", size="large", closable=True):
+        with ctx["popup"](f"编辑任务: {task_unit.name}", size="large", closable=True):
             ctx["put_markdown"](f"### 编辑任务: {task_unit.name}")
-            ctx["put_html"]("""
-            <div style='background:#e3f2fd;padding:12px;border-radius:8px;margin-bottom:15px;'>
-                <p style='color:#1565c0;font-size:14px;margin:0;'>
-                    💡 <strong>AI代码生成</strong>：点击「AI生成」按钮，由AI根据需求描述自动生成任务代码
-                </p>
-                <p style='color:#1565c0;font-size:12px;margin:5px 0 0 0;'>
-                    📝 <strong>代码审核</strong>：生成的代码需要您的审核和编辑确认
-                </p>
-            </div>
-            """)
-            
-            # 基础信息编辑
-            basic_form = await ctx["input_group"]("基础信息", [
-                ctx["input"]("任务名称", name="name", required=True, value=task_unit.name),
-                ctx["select"](
-                    "任务类型",
-                    name="task_type",
-                    options=[
-                        {"label": "间隔任务（每隔X秒执行）", "value": "interval"},
-                        {"label": "定时任务（每天固定时间执行）", "value": "cron"},
-                        {"label": "一次性任务（指定时间执行）", "value": "one_time"}
-                    ],
-                    value=task_unit.metadata.task_type.value
-                ),
-                ctx["textarea"]("任务描述", name="description", placeholder="任务描述（可选）", 
-                               rows=2, value=task_unit.metadata.description or ""),
-                ctx["input"]("执行时间配置", name="time_config", 
-                           value=str(task_unit.metadata.schedule_config.get("interval", 60)) if task_unit.metadata.task_type == TaskType.INTERVAL else "02:00",
-                           help_text="根据任务类型设置执行时间或间隔")
-            ])
-            
-            if not basic_form:
-                ctx["close_popup"]()
-                return
-            
-            # 代码编辑选项
-            ctx["put_markdown"]("### 代码编辑选项")
-            
-            # 显示当前代码
-            current_code = task_unit.metadata.func_code or ""
-            if current_code:
-                with ctx["put_collapse"]("📋 当前代码", open=False):
-                    ctx["put_code"](current_code, language="python")
-            
-            code_edit_method = await ctx["radio"](
-                "选择代码编辑方式",
-                options=[
-                    {"label": "🤖 AI智能生成 - 描述需求，AI自动生成代码", "value": "ai_generate"},
-                    {"label": "✏️ 手动编辑 - 直接修改Python代码", "value": "manual_edit"},
-                    {"label": "📋 从模板选择 - 选择预设代码模板", "value": "template_select"},
-                    {"label": "📁 从文件导入 - 上传Python代码文件", "value": "file_import"},
-                    {"label": "💾 保持现有代码 - 不修改代码", "value": "keep_existing"}
-                ],
-                value="keep_existing"
-            )
-            
-            new_code = current_code
-            
-            if code_edit_method == "ai_generate":
-                new_code = await _enhanced_task_ai_generation(ctx, basic_form)
-            elif code_edit_method == "manual_edit":
-                new_code = await _manual_task_code_edit(ctx, current_code)
-            elif code_edit_method == "template_select":
-                new_code = await _task_template_selection(ctx)
-            elif code_edit_method == "file_import":
-                new_code = await _task_file_import(ctx)
-            
-            if code_edit_method != "keep_existing" and not new_code:
-                ctx["toast"]("代码编辑被取消", color="warning")
-                return
-            
-            # 最终确认
-            ctx["put_markdown"]("### 最终确认")
-            ctx["put_info"](f"任务名称: {basic_form['name']}")
-            ctx["put_info"](f"任务类型: {basic_form['task_type']}")
-            
-            if new_code != current_code:
-                ctx["put_info"](f"代码长度: {len(new_code)} 字符")
-                with ctx["put_collapse"]("预览新代码", open=False):
-                    ctx["put_code"](new_code, language="python")
-            else:
-                ctx["put_info"]("代码未修改")
-            
-            final_confirm = await ctx["input_group"]("确认编辑", [
-                ctx["checkbox"](
-                    "确认选项",
-                    name="confirmations",
-                    options=[
-                        {"label": "我已审核代码修改", "value": "code_reviewed", "selected": True},
-                        {"label": "我理解代码的执行逻辑", "value": "logic_understood", "selected": True},
-                        {"label": "我确认保存修改", "value": "save_approved", "selected": True}
-                    ]
-                ),
-                ctx["actions"]("操作", [
-                    {"label": "✅ 保存修改", "value": "save", "color": "success"},
-                    {"label": "❌ 取消", "value": "cancel", "color": "danger"}
-                ], name="action")
-            ])
-            
-            if not final_confirm or final_confirm.get("action") != "save":
-                return
-            
-            # 检查确认选项
-            required_confirmations = ["code_reviewed", "save_approved"]
-            selected_confirmations = final_confirm.get("confirmations", [])
-            
-            for req in required_confirmations:
-                if req not in selected_confirmations:
-                    ctx["toast"]("请确认所有必要选项", color="warning")
-                    return
-            
-            # 更新任务
-            # 转换任务类型
-            task_type_map = {
-                "interval": TaskType.INTERVAL,
-                "cron": TaskType.CRON,
-                "one_time": TaskType.ONE_TIME
+            ctx["put_markdown"]("> 在同一页面完成内容编辑和代码输入。")
+
+            current_code = (task_unit.metadata.func_code or "").strip() or (task_unit.execution.job_code or "").strip() or _default_task_code()
+            current_type = task_unit.metadata.task_type.value
+            draft = {
+                "name": task_unit.name,
+                "task_type": current_type,
+                "description": task_unit.metadata.description or "",
+                "time_config": _format_time_config(current_type, task_unit.metadata.schedule_config or {}),
+                "code": current_code,
+                "confirmations": ["code_reviewed", "save_approved"],
             }
-            
-            task_type = task_type_map.get(basic_form.get("task_type", "interval"), TaskType.INTERVAL)
-            
-            # 解析时间配置
-            schedule_config = {}
-            time_config = basic_form.get("time_config", "60")
-            
-            if basic_form.get("task_type") == "interval":
-                schedule_config["interval"] = int(time_config)
-            elif basic_form.get("task_type") == "cron":
-                if ":" in time_config:
-                    hour, minute = time_config.split(":")
-                    schedule_config["hour"] = int(hour)
-                    schedule_config["minute"] = int(minute)
-                else:
-                    schedule_config["hour"] = 0
-                    schedule_config["minute"] = int(time_config)
-            elif basic_form.get("task_type") == "one_time":
-                schedule_config["run_date"] = time_config
-            
-            # 更新元数据
-            task_unit.metadata.name = basic_form["name"]
-            task_unit.metadata.description = basic_form.get("description", "")
-            task_unit.metadata.task_type = task_type
-            task_unit.metadata.schedule_config = schedule_config
-            
-            if new_code != current_code:
-                task_unit.metadata.func_code = new_code
-            
-            # 保存修改
-            task_unit.save()
-            
-            ctx["toast"]("任务修改保存成功", color="success")
-            ctx["run_js"]("location.reload()")
+
+            while True:
+                form = await ctx["input_group"]("任务信息与代码", [
+                    ctx["input"]("任务名称", name="name", required=True, value=draft["name"]),
+                    ctx["select"](
+                        "任务类型",
+                        name="task_type",
+                        options=[
+                            {"label": "间隔任务（每隔X秒执行）", "value": "interval"},
+                            {"label": "定时任务（每天固定时间执行）", "value": "cron"},
+                            {"label": "一次性任务（指定时间执行）", "value": "one_time"},
+                        ],
+                        value=draft["task_type"],
+                    ),
+                    ctx["textarea"]("任务描述", name="description", rows=2, value=draft["description"], placeholder="任务描述（可选）"),
+                    ctx["input"](
+                        "执行时间配置",
+                        name="time_config",
+                        value=draft["time_config"],
+                        help_text="interval: 秒数，例如 60；cron: HH:MM，例如 02:00；one_time: run_date 字符串",
+                    ),
+                    ctx["textarea"]("任务代码", name="code", rows=16, required=True, value=draft["code"]),
+                    ctx["checkbox"](
+                        "确认选项",
+                        name="confirmations",
+                        options=[
+                            {"label": "我已审核代码修改", "value": "code_reviewed", "selected": "code_reviewed" in draft["confirmations"]},
+                            {"label": "我确认保存修改", "value": "save_approved", "selected": "save_approved" in draft["confirmations"]},
+                        ],
+                    ),
+                    ctx["actions"]("操作", [
+                        {"label": "✅ 保存修改", "value": "save", "color": "success"},
+                        {"label": "❌ 取消", "value": "cancel", "color": "danger"},
+                    ], name="action"),
+                ])
+
+                if not form or form.get("action") != "save":
+                    return
+
+                draft.update(form)
+                selected_confirmations = draft.get("confirmations", [])
+                if "code_reviewed" not in selected_confirmations or "save_approved" not in selected_confirmations:
+                    ctx["toast"]("请勾选必要确认项", color="warning")
+                    continue
+
+                validation = validate_task_code(draft["code"])
+                if not validation["valid"]:
+                    ctx["toast"](f"代码验证失败: {'; '.join(validation['errors'])}", color="error")
+                    continue
+
+                schedule_config, schedule_error = _parse_schedule_config(draft["task_type"], draft["time_config"])
+                if schedule_error:
+                    ctx["toast"](schedule_error, color="error")
+                    continue
+
+                task_type_map = {
+                    "interval": TaskType.INTERVAL,
+                    "cron": TaskType.CRON,
+                    "one_time": TaskType.ONE_TIME,
+                }
+                task_type = task_type_map.get(draft["task_type"], TaskType.INTERVAL)
+
+                task_unit.metadata.name = draft["name"]
+                task_unit.metadata.description = draft.get("description", "")
+                task_unit.metadata.task_type = task_type
+                task_unit.metadata.schedule_config = schedule_config
+
+                if draft["code"] != current_code:
+                    task_unit.metadata.func_code = draft["code"]
+                    task_unit.execution.job_code = draft["code"]
+                    compile_result = task_unit.compile_code(draft["code"], "execute")
+                    if not compile_result.get("success"):
+                        ctx["toast"](f"代码编译失败: {compile_result.get('error', '')}", color="error")
+                        continue
+                    task_unit.execution.compiled_func = compile_result["func"]
+                    task_unit._func = compile_result["func"]
+
+                task_unit.save()
+
+                if task_unit.is_running:
+                    stop_result = task_manager.stop(task_unit.id)
+                    if not stop_result.get("success"):
+                        ctx["toast"](f"重载任务停止失败: {stop_result.get('error', '')}", color="warning")
+                    start_result = task_manager.start(task_unit.id)
+                    if not start_result.get("success"):
+                        ctx["toast"](f"重载任务启动失败: {start_result.get('error', '')}", color="warning")
+
+                ctx["toast"]("任务修改保存成功", color="success")
+                ctx["run_js"]("location.reload()")
+                return
             
     except Exception as e:
-        log.error(f"增强版编辑任务对话框错误: {e}")
+        _panel_log("ERROR", f"增强版编辑任务对话框错误: {e}")
         ctx["toast"](f"编辑任务对话框错误: {e}", color="error")
         ctx["close_popup"]()
 
