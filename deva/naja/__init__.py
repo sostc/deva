@@ -36,6 +36,12 @@ from .dictionary import (
     get_dictionary_manager,
 )
 
+from .signal import (
+    render_signal_page,
+    set_auto_refresh,
+    is_auto_refresh_enabled,
+)
+
 from .tables import (
     get_table_list,
     get_table_info,
@@ -81,6 +87,10 @@ __all__ = [
     "DictionaryEntry",
     "DictionaryManager",
     "get_dictionary_manager",
+    # Signal
+    "render_signal_page",
+    "set_auto_refresh",
+    "is_auto_refresh_enabled",
     # Tables
     "get_table_list",
     "get_table_info",
