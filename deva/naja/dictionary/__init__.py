@@ -110,6 +110,8 @@ class DictionaryEntry(RecoverableUnit):
             return {"success": False, "error": str(e)}
     
     def _do_stop(self) -> dict:
+        if self._thread and hasattr(self._thread, 'cancel'):
+            self._thread.cancel()
         return {"success": True}
     
     def _schedule_interval(self, func: Callable):
@@ -164,6 +166,12 @@ class DictionaryEntry(RecoverableUnit):
                     loop.close()
             else:
                 data = func()
+                if asyncio.iscoroutine(data):
+                    loop = asyncio.new_event_loop()
+                    try:
+                        data = loop.run_until_complete(data)
+                    finally:
+                        loop.close()
             
             self._save_payload(data)
             self._state.last_status = "success"
@@ -357,13 +365,22 @@ class DictionaryManager:
         name: str,
         func_code: str,
         schedule_type: str = "interval",
-        interval_seconds: int = 300,
-        daily_time: str = "03:00",
+        interval_seconds: int = None,
+        daily_time: str = None,
         description: str = "",
         tags: List[str] = None,
     ) -> dict:
+        from ..config import get_dictionary_config
+        
         import hashlib
         entry_id = hashlib.md5(f"{name}_{time.time()}".encode()).hexdigest()[:12]
+        
+        # 使用配置默认值
+        dict_config = get_dictionary_config()
+        if interval_seconds is None:
+            interval_seconds = dict_config.get("default_interval", 300)
+        if daily_time is None:
+            daily_time = dict_config.get("default_daily_time", "03:00")
         
         if "fetch_data" not in func_code:
             return {"success": False, "error": "代码必须包含 fetch_data 函数"}
@@ -451,9 +468,6 @@ class DictionaryManager:
         entry = self.get(entry_id)
         if not entry:
             return {"success": False, "error": "Entry not found"}
-        
-        if entry.is_running:
-            return {"success": False, "error": "Entry is already running"}
         
         def _run_in_thread():
             try:
