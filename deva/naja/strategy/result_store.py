@@ -193,20 +193,24 @@ class ResultStore:
             items = list(self._db.items())
             for key, data in items:
                 if isinstance(data, dict) and data.get("strategy_id") == strategy_id:
-                    result = StrategyResult(
-                        id=data.get("id", ""),
-                        strategy_id=data.get("strategy_id", ""),
-                        strategy_name=data.get("strategy_name", ""),
-                        ts=data.get("ts", 0),
-                        success=data.get("success", False),
-                        input_preview=data.get("input_preview", ""),
-                        output_preview=data.get("output_preview", ""),
-                        output_full=data.get("output_full"),
-                        process_time_ms=data.get("process_time_ms", 0),
-                        error=data.get("error", ""),
-                        metadata=data.get("metadata", {}),
-                    )
-                    db_results.append(result)
+                    # 过滤无效数据：时间戳必须有效，ID必须存在
+                    ts = data.get("ts", 0)
+                    result_id = data.get("id", "")
+                    if ts > 1000000000 and result_id:  # 时间戳必须大于2001年
+                        result = StrategyResult(
+                            id=result_id,
+                            strategy_id=data.get("strategy_id", ""),
+                            strategy_name=data.get("strategy_name", ""),
+                            ts=ts,
+                            success=data.get("success", False),
+                            input_preview=data.get("input_preview", ""),
+                            output_preview=data.get("output_preview", ""),
+                            output_full=data.get("output_full"),
+                            process_time_ms=data.get("process_time_ms", 0),
+                            error=data.get("error", ""),
+                            metadata=data.get("metadata", {}),
+                        )
+                        db_results.append(result)
             
             db_results.sort(key=lambda x: x.ts, reverse=True)
             db_results = db_results[:limit]
@@ -237,6 +241,28 @@ class ResultStore:
                         metadata=data.get("metadata", {}),
                     )
         return None
+    
+    def delete(self, result_id: str) -> bool:
+        """删除指定结果"""
+        with self._data_lock:
+            for key, data in list(self._db.items()):
+                if isinstance(data, dict) and data.get("id") == result_id:
+                    strategy_id = data.get("strategy_id", "")
+                    del self._db[key]
+                    
+                    # 清除该策略的缓存，下次查询时会重新从数据库加载
+                    if strategy_id in self._cache:
+                        del self._cache[strategy_id]
+                    
+                    # 更新统计
+                    if data.get("success"):
+                        self._stats["total_success"] = max(0, self._stats["total_success"] - 1)
+                    else:
+                        self._stats["total_failed"] = max(0, self._stats["total_failed"] - 1)
+                    self._stats["total_results"] = max(0, self._stats["total_results"] - 1)
+                    
+                    return True
+        return False
     
     def query(
         self,
@@ -379,6 +405,38 @@ class ResultStore:
                     cache_results = list(self._cache[strategy_id])
                     if len(cache_results) > max_count:
                         self._cache[strategy_id] = deque(cache_results[:max_count], maxlen=self._max_cache_size)
+    
+    def cleanup_total(self, max_count: int):
+        """清理总历史记录数（所有策略合计）"""
+        from ..config import get_strategy_config
+        
+        with self._data_lock:
+            all_keys = list(self._db.keys())
+            
+            if len(all_keys) > max_count:
+                results = []
+                for key in all_keys:
+                    data = self._db.get(key)
+                    if isinstance(data, dict):
+                        results.append((key, data.get("ts", 0)))
+                
+                results.sort(key=lambda x: x[1], reverse=True)
+                
+                keys_to_delete = [key for key, _ in results[max_count:]]
+                for key in keys_to_delete:
+                    try:
+                        if key in self._db:
+                            del self._db[key]
+                    except KeyError:
+                        pass
+                
+                for sid in list(self._cache.keys()):
+                    cache_results = list(self._cache[sid])
+                    cache_items = [(k, r) for k, r in zip([f"{sid}:{r.id}" for r in cache_results], cache_results) if k not in keys_to_delete]
+                    if cache_items:
+                        self._cache[sid] = deque([r for _, r in cache_items], maxlen=self._max_cache_size)
+                    else:
+                        self._cache[sid] = deque(maxlen=self._max_cache_size)
     
     def clear_cache(self, strategy_id: str = None):
         with self._data_lock:

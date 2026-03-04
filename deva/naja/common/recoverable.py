@@ -364,7 +364,7 @@ class RecoverableUnit(ABC):
                 stop_result = self._do_stop()
                 
                 if self._thread and self._thread.is_alive():
-                    self._thread.join(timeout=5.0)
+                    self._thread.join(timeout=1.0)
                 
                 self._state.status = UnitStatus.STOPPED.value
                 self._was_running = False

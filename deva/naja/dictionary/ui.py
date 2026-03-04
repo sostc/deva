@@ -81,24 +81,27 @@ async def render_dictionary_admin(ctx: dict):
 def _render_dict_content(ctx: dict):
     """渲染字典内容（支持局部刷新）"""
     from . import get_dictionary_manager
+    from pywebio.output import clear
+    
     mgr = get_dictionary_manager()
     
     entries = mgr.list_all()
     stats = mgr.get_stats()
     
-    with use_scope("dict_content", clear=True):
-        ctx["put_html"](_render_dict_stats_html(stats))
-        
-        if entries:
-            table_data = _build_table_data(ctx, entries, mgr)
-            ctx["put_table"](table_data, header=["名称", "类型", "状态", "健康", "大小", "最后更新", "更新频率", "操作"])
-        else:
-            ctx["put_html"]('<div style="padding:40px;text-align:center;color:#999;background:#f9f9f9;border-radius:8px;">暂无字典，点击下方按钮创建</div>')
-        
-        ctx["put_html"]('<div style="margin-top:16px;display:flex;gap:12px;flex-wrap:wrap;">')
-        ctx["put_buttons"]([{"label": "➕ 创建字典", "value": "create"}], 
-                           onclick=lambda v, m=mgr, c=ctx: _create_dict_dialog(m, c))
-        ctx["put_html"]('</div>')
+    clear("dict_content")
+    
+    ctx["put_html"](_render_dict_stats_html(stats), scope="dict_content")
+    
+    if entries:
+        table_data = _build_table_data(ctx, entries, mgr)
+        ctx["put_table"](table_data, header=["名称", "类型", "状态", "健康", "大小", "最后更新", "更新频率", "操作"], scope="dict_content")
+    else:
+        ctx["put_html"]('<div style="padding:40px;text-align:center;color:#999;background:#f9f9f9;border-radius:8px;">暂无字典，点击下方按钮创建</div>', scope="dict_content")
+    
+    ctx["put_html"]('<div style="margin-top:16px;display:flex;gap:12px;flex-wrap:wrap;">', scope="dict_content")
+    ctx["put_buttons"]([{"label": "➕ 创建字典", "value": "create"}], 
+                       onclick=lambda v, m=mgr, c=ctx: _create_dict_dialog(m, c), scope="dict_content")
+    ctx["put_html"]('</div>', scope="dict_content")
 
 
 def _render_dict_stats_html(stats: dict) -> str:
@@ -185,14 +188,18 @@ def _handle_dict_action(action: str, mgr, ctx: dict):
             mgr.stop(entry_id)
             ctx["toast"]("已停止", color="warning")
         else:
-            mgr.start(entry_id)
-            ctx["toast"]("已启动", color="success")
+            result = mgr.start(entry_id)
+            if result.get("success"):
+                ctx["toast"]("已启动", color="success")
+            else:
+                ctx["toast"](f"启动失败: {result.get('error')}", color="error")
     elif action_type == "run":
         result = mgr.run_once_async(entry_id)
         if result.get("success"):
-            ctx["toast"]("已提交异步执行任务", color="success")
+            ctx["toast"]("执行任务已提交", color="success")
         else:
             ctx["toast"](f"执行失败: {result.get('error')}", color="error")
+        return
     elif action_type == "clear":
         entry = mgr.get(entry_id)
         if entry:
@@ -288,7 +295,7 @@ async def _edit_dict_dialog(ctx: dict, mgr, entry_id: str):
     
     with ctx["popup"](f"编辑字典: {entry.name}", size="large", closable=True):
         form = await ctx["input_group"]("字典配置", [
-            ctx["input"]("名称", name="name", required=True, value=entry.name),
+            ctx["input"]("名称", name="name", value=entry.name),
             ctx["textarea"]("描述", name="description", rows=2, 
                           value=getattr(entry._metadata, "description", "") or ""),
             ctx["select"]("字典类型", name="dict_type", options=[
@@ -318,7 +325,15 @@ async def _edit_dict_dialog(ctx: dict, mgr, entry_id: str):
             ], name="action"),
         ])
         
+        if form and form.get("action") == "cancel":
+            ctx["close_popup"]()
+            return
+        
         if form and form.get("action") == "save":
+            if not form.get("name", "").strip():
+                ctx["toast"]("名称不能为空", color="error")
+                return
+            
             result = entry.update_config(
                 name=form["name"].strip(),
                 description=form.get("description", "").strip(),
@@ -330,9 +345,9 @@ async def _edit_dict_dialog(ctx: dict, mgr, entry_id: str):
             )
             
             if result.get("success"):
+                _render_dict_content(ctx)
                 ctx["toast"]("保存成功", color="success")
                 ctx["close_popup"]()
-                _render_dict_content(ctx)
             else:
                 ctx["toast"](f"保存失败: {result.get('error')}", color="error")
 
@@ -349,7 +364,7 @@ async def _create_dict_dialog_async(mgr, ctx: dict):
         ctx["put_html"]("<p style='color:#666;font-size:13px;'>定时执行 fetch_data() 函数更新字典数据</p>")
         
         form = await ctx["input_group"]("字典配置", [
-            ctx["input"]("名称", name="name", required=True, placeholder="输入字典名称"),
+            ctx["input"]("名称", name="name", placeholder="输入字典名称"),
             ctx["textarea"]("描述", name="description", rows=2, placeholder="字典描述（可选）"),
             ctx["select"]("字典类型", name="dict_type", options=[
                 {"label": "维表", "value": "dimension"},
@@ -375,7 +390,15 @@ async def _create_dict_dialog_async(mgr, ctx: dict):
             ], name="action"),
         ])
         
+        if form and form.get("action") == "cancel":
+            ctx["close_popup"]()
+            return
+        
         if form and form.get("action") == "create":
+            if not form.get("name", "").strip():
+                ctx["toast"]("名称不能为空", color="error")
+                return
+            
             result = mgr.create(
                 name=form["name"].strip(),
                 func_code=form.get("code", ""),
@@ -386,8 +409,8 @@ async def _create_dict_dialog_async(mgr, ctx: dict):
             )
             
             if result.get("success"):
+                _render_dict_content(ctx)
                 ctx["toast"]("创建成功", color="success")
                 ctx["close_popup"]()
-                _render_dict_content(ctx)
             else:
                 ctx["toast"](f"创建失败: {result.get('error')}", color="error")

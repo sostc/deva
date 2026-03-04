@@ -36,6 +36,25 @@ from .dictionary import (
     get_dictionary_manager,
 )
 
+from .tables import (
+    get_table_list,
+    get_table_info,
+    create_table,
+    delete_table,
+)
+
+from .config import (
+    get_config,
+    set_config,
+    get_datasource_config,
+    get_strategy_config,
+    get_task_config,
+    get_dictionary_config,
+    get_strategy_single_history_count,
+    get_strategy_total_history_count,
+    get_enabled_datasource_types,
+)
+
 __version__ = "2.0.0"
 
 __all__ = [
@@ -62,4 +81,18 @@ __all__ = [
     "DictionaryEntry",
     "DictionaryManager",
     "get_dictionary_manager",
+    # Tables
+    "get_table_list",
+    "get_table_info",
+    "create_table",
+    "delete_table",
+    # Config
+    "get_config",
+    "set_config",
+    "get_datasource_config",
+    "get_strategy_config",
+    "get_task_config",
+    "get_dictionary_config",
+    "get_strategy_single_history_count",
+    "get_strategy_total_history_count",
 ]
