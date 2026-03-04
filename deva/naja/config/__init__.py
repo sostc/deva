@@ -1,0 +1,163 @@
+"""Naja 配置管理模块
+
+提供数据源、策略、任务、字典四个类别的配置管理。
+配置存储在 NB('naja_config') 命名空间中。
+"""
+
+from __future__ import annotations
+
+from typing import Any, Dict, Optional
+
+from deva import NB
+
+NAJA_CONFIG_TABLE = "naja_config"
+
+DEFAULT_CONFIG = {
+    "datasource": {
+        "default_interval": 5,
+        "max_retries": 3,
+        "retry_delay": 1.0,
+        "timeout": 30,
+        "enabled_types": ["timer", "file", "directory", "custom", "replay"],
+    },
+    "strategy": {
+        "single_history_count": 30,
+        "total_history_count": 500,
+        "default_window_size": 5,
+        "default_window_interval": "10s",
+    },
+    "task": {
+        "default_interval": 60,
+        "max_concurrent": 10,
+        "retry_count": 3,
+        "retry_delay": 5,
+    },
+    "dictionary": {
+        "default_interval": 300,
+        "default_daily_time": "03:00",
+        "max_cache_size": 10000,
+    },
+}
+
+
+def get_config(category: str = None, key: str = None, default: Any = None) -> Any:
+    """获取配置值
+    
+    Args:
+        category: 配置类别 (datasource/strategy/task/dictionary)
+        key: 配置键名
+        default: 默认值
+    
+    Returns:
+        配置值
+    """
+    db = NB(NAJA_CONFIG_TABLE)
+    
+    if category is None:
+        return dict(db.items())
+    
+    category_config = db.get(category, {})
+    
+    if key is None:
+        return {**DEFAULT_CONFIG.get(category, {}), **category_config}
+    
+    return category_config.get(key, DEFAULT_CONFIG.get(category, {}).get(key, default))
+
+
+def set_config(category: str, key: str, value: Any) -> bool:
+    """设置配置值
+    
+    Args:
+        category: 配置类别
+        key: 配置键名
+        value: 配置值
+    
+    Returns:
+        是否成功
+    """
+    try:
+        db = NB(NAJA_CONFIG_TABLE)
+        category_config = db.get(category, {})
+        category_config[key] = value
+        db[category] = category_config
+        return True
+    except Exception as e:
+        print(f"设置配置失败: {e}")
+        return False
+
+
+def set_category_config(category: str, config: Dict[str, Any]) -> bool:
+    """设置整个类别的配置
+    
+    Args:
+        category: 配置类别
+        config: 配置字典
+    
+    Returns:
+        是否成功
+    """
+    try:
+        db = NB(NAJA_CONFIG_TABLE)
+        db[category] = config
+        return True
+    except Exception as e:
+        print(f"设置配置失败: {e}")
+        return False
+
+
+def get_datasource_config() -> Dict[str, Any]:
+    """获取数据源配置"""
+    return get_config("datasource")
+
+
+def get_enabled_datasource_types() -> list:
+    """获取启用的数据源类型列表"""
+    config = get_config("datasource")
+    return config.get("enabled_types", ["timer", "custom", "replay"])
+
+
+def get_strategy_config() -> Dict[str, Any]:
+    """获取策略配置"""
+    return get_config("strategy")
+
+
+def get_task_config() -> Dict[str, Any]:
+    """获取任务配置"""
+    return get_config("task")
+
+
+def get_dictionary_config() -> Dict[str, Any]:
+    """获取字典配置"""
+    return get_config("dictionary")
+
+
+def get_strategy_single_history_count() -> int:
+    """获取单条策略的历史保留条数"""
+    return get_config("strategy", "single_history_count", 30)
+
+
+def get_strategy_total_history_count() -> int:
+    """获取总历史数据保留条数"""
+    return get_config("strategy", "total_history_count", 500)
+
+
+def reset_to_default(category: str = None) -> bool:
+    """重置配置为默认值
+    
+    Args:
+        category: 配置类别，为 None 则重置所有
+    
+    Returns:
+        是否成功
+    """
+    try:
+        db = NB(NAJA_CONFIG_TABLE)
+        if category:
+            db[category] = DEFAULT_CONFIG.get(category, {})
+        else:
+            for cat, config in DEFAULT_CONFIG.items():
+                db[cat] = config
+        return True
+    except Exception as e:
+        print(f"重置配置失败: {e}")
+        return False

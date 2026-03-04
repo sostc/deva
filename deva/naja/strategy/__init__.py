@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import threading
 import time
 from dataclasses import dataclass, field
@@ -33,6 +34,8 @@ class StrategyMetadata(UnitMetadata):
     window_return_partial: bool = False
     dictionary_profile_ids: List[str] = field(default_factory=list)
     max_history_count: int = 100
+    diagram_info: Dict[str, Any] = field(default_factory=dict)
+    category: str = "默认"  # 策略类别
 
 
 @dataclass
@@ -60,6 +63,7 @@ class StrategyEntry(RecoverableUnit):
         self._output_stream: Optional[Any] = None
         self._processing_lock = threading.Lock()
         self._window_buffer: List[Any] = []
+        self._last_window_trigger: float = 0  # 上次窗口触发时间
     
     def _get_func_name(self) -> str:
         return "process"
@@ -147,6 +151,8 @@ class StrategyEntry(RecoverableUnit):
             success = False
             result = None
             error = ""
+            skipped = False  # 是否跳过（如 timed 窗口未触发）
+            duplicate = False  # 是否与上次结果相同
             
             try:
                 data = self._enrich_data(data)
@@ -155,27 +161,88 @@ class StrategyEntry(RecoverableUnit):
                 
                 if compute_mode == "window":
                     result = self._process_window(data)
+                    # timed 窗口未触发时返回 None，标记为跳过
+                    if result is None and getattr(self._metadata, "window_type", "sliding") == "timed":
+                        skipped = True
                 else:
                     result = self._process_record(data)
                 
-                success = True
-                self._state.processed_count += 1
-                self._state.last_process_ts = time.time()
-                
-                if result is not None:
-                    self._emit_result(result)
-                    self._state.output_count += 1
+                if not skipped:
+                    success = True
+                    self._state.processed_count += 1
+                    self._state.last_process_ts = time.time()
+                    
+                    if result is not None:
+                        # 检查是否与上次结果相同
+                        if self._is_duplicate_result(result):
+                            duplicate = True
+                        else:
+                            self._emit_result(result)
+                            self._state.output_count += 1
                 
             except Exception as e:
                 error = str(e)
                 self._state.record_error(error)
                 self._log("ERROR", "Process data failed", error=str(e))
             
-            process_time_ms = (time.time() - start_time) * 1000
-            self._save_result_to_store(data, result, process_time_ms, success, error)
+            # 保存结果（包括未命中的情况）
+            if not skipped and not duplicate:
+                process_time_ms = (time.time() - start_time) * 1000
+                # 只有命中策略（result 不为 None）才保存到结果存储
+                if result is not None:
+                    self._save_result_to_store(data, result, process_time_ms, success, error)
+    
+    def _is_duplicate_result(self, result: Any) -> bool:
+        """检查结果是否与上次相同"""
+        import json
+        
+        try:
+            # 获取上次结果
+            from .result_store import get_result_store
+            store = get_result_store()
+            recent = store.get_recent(self.id, limit=1)
+            
+            if not recent:
+                return False
+            
+            last_result = recent[0].output_full
+            
+            # 比较结果
+            if last_result is None and result is None:
+                return True
+            
+            if last_result is None or result is None:
+                return False
+            
+            # 排除时间戳等动态字段后比较
+            exclude_keys = {'timestamp', 'ts', 'datetime', 'time', 'created_at', 'updated_at'}
+            
+            def filter_result(r):
+                if isinstance(r, dict):
+                    return {k: v for k, v in r.items() if k not in exclude_keys}
+                return r
+            
+            last_filtered = filter_result(last_result)
+            current_filtered = filter_result(result)
+            
+            # 序列化比较
+            last_json = json.dumps(last_filtered, sort_keys=True, default=str)
+            current_json = json.dumps(current_filtered, sort_keys=True, default=str)
+            
+            return last_json == current_json
+            
+        except Exception:
+            return False
     
     def _process_record(self, data: Any) -> Any:
-        return self._compiled_func(data)
+        result = self._compiled_func(data)
+        if asyncio.iscoroutine(result):
+            loop = asyncio.new_event_loop()
+            try:
+                result = loop.run_until_complete(result)
+            finally:
+                loop.close()
+        return result
     
     def _process_window(self, data: Any) -> Any:
         window_type = getattr(self._metadata, "window_type", "sliding") or "sliding"
@@ -191,12 +258,50 @@ class StrategyEntry(RecoverableUnit):
             if not return_partial and len(self._window_buffer) < window_size:
                 return None
             
-            return self._compiled_func(list(self._window_buffer))
+            result = self._compiled_func(list(self._window_buffer))
+            if asyncio.iscoroutine(result):
+                loop = asyncio.new_event_loop()
+                try:
+                    result = loop.run_until_complete(result)
+                finally:
+                    loop.close()
+            return result
         
         elif window_type == "timed":
+            # 定时窗口：按时间间隔触发
+            window_interval_str = getattr(self._metadata, "window_interval", "10s") or "10s"
+            interval_seconds = self._parse_interval(window_interval_str)
+            
+            now = time.time()
+            
+            # 首次调用时，初始化触发时间，等待下一个周期
+            if self._last_window_trigger == 0:
+                self._last_window_trigger = now
+                return None
+            
+            should_trigger = (now - self._last_window_trigger) >= interval_seconds
+            
+            if not should_trigger:
+                return None
+            
+            # 触发窗口处理
+            self._last_window_trigger = now
+            
             if len(self._window_buffer) < 1:
                 return None
-            return self._compiled_func(list(self._window_buffer))
+            
+            result = self._compiled_func(list(self._window_buffer))
+            
+            # 清空窗口缓冲区，开始新的窗口周期
+            self._window_buffer = []
+            
+            if asyncio.iscoroutine(result):
+                loop = asyncio.new_event_loop()
+                try:
+                    result = loop.run_until_complete(result)
+                finally:
+                    loop.close()
+            return result
         
         else:
             if len(self._window_buffer) > window_size:
@@ -205,7 +310,43 @@ class StrategyEntry(RecoverableUnit):
             if len(self._window_buffer) < window_size:
                 return None
             
-            return self._compiled_func(list(self._window_buffer))
+            result = self._compiled_func(list(self._window_buffer))
+            if asyncio.iscoroutine(result):
+                loop = asyncio.new_event_loop()
+                try:
+                    result = loop.run_until_complete(result)
+                finally:
+                    loop.close()
+            return result
+    
+    def _parse_interval(self, interval_str: str) -> float:
+        """解析时间间隔字符串，返回秒数"""
+        if not interval_str:
+            return 10.0
+        
+        interval_str = str(interval_str).strip().lower()
+        
+        # 支持的格式: 10s, 5min, 1h, 30m, 2hour 等
+        import re
+        match = re.match(r'^(\d+(?:\.\d+)?)\s*(s|sec|second|seconds|m|min|minute|minutes|h|hour|hours)?$', interval_str)
+        
+        if not match:
+            try:
+                return float(interval_str)
+            except ValueError:
+                return 10.0
+        
+        value = float(match.group(1))
+        unit = match.group(2) or 's'
+        
+        if unit in ('s', 'sec', 'second', 'seconds'):
+            return value
+        elif unit in ('m', 'min', 'minute', 'minutes'):
+            return value * 60
+        elif unit in ('h', 'hour', 'hours'):
+            return value * 3600
+        
+        return value
     
     def _enrich_data(self, data: Any) -> Any:
         """数据补齐"""
@@ -320,6 +461,8 @@ class StrategyEntry(RecoverableUnit):
     def _save_result_to_store(self, input_data: Any, output_data: Any, process_time_ms: float, success: bool, error: str = ""):
         """保存执行结果到 ResultStore"""
         from .result_store import get_result_store
+        from ..config import get_strategy_total_history_count
+        
         store = get_result_store()
         store.save(
             strategy_id=self.id,
@@ -332,9 +475,15 @@ class StrategyEntry(RecoverableUnit):
             persist=True,
         )
         
+        # 清理单个策略的历史记录
         max_count = getattr(self._metadata, "max_history_count", 100)
         if max_count > 0:
             store.cleanup(strategy_id=self.id, max_count=max_count)
+        
+        # 清理总历史记录
+        total_max_count = get_strategy_total_history_count()
+        if total_max_count > 0:
+            store.cleanup_total(max_count=total_max_count)
     
     def get_recent_results(self, limit: int = 10) -> List[dict]:
         """获取最近执行结果"""
@@ -379,7 +528,11 @@ class StrategyEntry(RecoverableUnit):
         window_return_partial: bool = None,
         max_history_count: int = None,
         dictionary_profile_ids: List[str] = None,
+        category: str = None,
     ) -> dict:
+        # 记录是否正在运行
+        was_running = self.is_running
+        
         if name is not None:
             self._metadata.name = name
         if description is not None:
@@ -398,6 +551,8 @@ class StrategyEntry(RecoverableUnit):
             self._metadata.max_history_count = max(1, int(max_history_count))
         if dictionary_profile_ids is not None:
             self._metadata.dictionary_profile_ids = dictionary_profile_ids
+        if category is not None:
+            self._metadata.category = category
         
         if bound_datasource_id is not None:
             self._metadata.bound_datasource_id = bound_datasource_id
@@ -413,8 +568,20 @@ class StrategyEntry(RecoverableUnit):
             if not result["success"]:
                 return result
         
+        # 重置窗口状态（配置变更后需要重新开始）
+        self._window_buffer = []
+        self._last_window_trigger = 0
+        
         self.save()
-        return {"success": True}
+        
+        # 如果之前在运行，重启以应用新配置
+        if was_running:
+            self.stop()
+            start_result = self.start()
+            if not start_result.get("success"):
+                return {"success": False, "error": f"重启失败: {start_result.get('error')}"}
+        
+        return {"success": True, "was_running": was_running, "restarted": was_running}
     
     def save(self) -> dict:
         try:
@@ -439,6 +606,8 @@ class StrategyEntry(RecoverableUnit):
                 "window_return_partial": getattr(self._metadata, "window_return_partial", False),
                 "dictionary_profile_ids": getattr(self._metadata, "dictionary_profile_ids", []),
                 "max_history_count": getattr(self._metadata, "max_history_count", 100),
+                "diagram_info": getattr(self._metadata, "diagram_info", {}),
+                "category": getattr(self._metadata, "category", "默认"),
                 "created_at": self._metadata.created_at,
                 "updated_at": self._metadata.updated_at,
             },
@@ -463,6 +632,8 @@ class StrategyEntry(RecoverableUnit):
             window_return_partial=metadata_data.get("window_return_partial", False),
             dictionary_profile_ids=metadata_data.get("dictionary_profile_ids", []),
             max_history_count=metadata_data.get("max_history_count", 100),
+            diagram_info=metadata_data.get("diagram_info", {}),
+            category=metadata_data.get("category", "默认"),
             created_at=metadata_data.get("created_at", time.time()),
             updated_at=metadata_data.get("updated_at", time.time()),
         )
@@ -513,13 +684,28 @@ class StrategyManager:
         bound_datasource_id: str = "",
         description: str = "",
         compute_mode: str = "record",
-        window_size: int = 5,
-        max_history_count: int = 100,
+        window_size: int = None,
+        window_type: str = "sliding",
+        window_interval: str = None,
+        window_return_partial: bool = False,
+        max_history_count: int = None,
         dictionary_profile_ids: List[str] = None,
         tags: List[str] = None,
+        category: str = "默认",
     ) -> dict:
+        from ..config import get_strategy_config
+        
         import hashlib
         entry_id = hashlib.md5(f"{name}_{time.time()}".encode()).hexdigest()[:12]
+        
+        # 使用配置默认值
+        strategy_config = get_strategy_config()
+        if window_size is None:
+            window_size = strategy_config.get("default_window_size", 5)
+        if max_history_count is None:
+            max_history_count = strategy_config.get("single_history_count", 30)
+        if window_interval is None:
+            window_interval = strategy_config.get("default_window_interval", "10s")
         
         if "process" not in func_code:
             return {"success": False, "error": "代码必须包含 process 函数"}
@@ -532,8 +718,12 @@ class StrategyManager:
             bound_datasource_id=bound_datasource_id,
             compute_mode=compute_mode,
             window_size=window_size,
+            window_type=window_type,
+            window_interval=window_interval,
+            window_return_partial=window_return_partial,
             dictionary_profile_ids=dictionary_profile_ids or [],
             max_history_count=max_history_count,
+            category=category or "默认",
         )
         
         entry = StrategyEntry(metadata=metadata)
@@ -621,6 +811,83 @@ class StrategyManager:
         
         self._log("INFO", "Load from db finished", count=count)
         return count
+    
+    def reload_entry(self, entry_id: str) -> dict:
+        """热重载单个策略（从数据库重新加载配置和代码）
+        
+        Args:
+            entry_id: 策略ID
+            
+        Returns:
+            重载结果
+        """
+        db = NB(STRATEGY_TABLE)
+        data = db.get(entry_id)
+        
+        if not data or not isinstance(data, dict):
+            return {"success": False, "error": "策略不存在"}
+        
+        try:
+            # 获取当前运行状态
+            current_entry = self._items.get(entry_id)
+            was_running = current_entry and current_entry.is_running
+            
+            # 先停止旧的策略
+            if current_entry and current_entry.is_running:
+                current_entry.stop()
+                self._log("INFO", "Stopped old strategy before reload", id=entry_id)
+            
+            # 从数据库加载新数据
+            new_entry = StrategyEntry.from_dict(data)
+            
+            with self._items_lock:
+                self._items[entry_id] = new_entry
+            
+            # 如果之前在运行，重新启动
+            if was_running:
+                new_entry.start()
+            
+            self._log("INFO", "Strategy reloaded", id=entry_id, name=new_entry.name, was_running=was_running)
+            return {
+                "success": True, 
+                "entry": new_entry.to_dict(),
+                "was_running": was_running,
+                "restarted": was_running,
+            }
+            
+        except Exception as e:
+            self._log("ERROR", "Reload entry failed", id=entry_id, error=str(e))
+            return {"success": False, "error": str(e)}
+    
+    def reload_all(self) -> dict:
+        """热重载所有策略（从数据库重新加载）
+        
+        Returns:
+            重载结果统计
+        """
+        db = NB(STRATEGY_TABLE)
+        reloaded = 0
+        failed = 0
+        results = []
+        
+        for entry_id, data in list(db.items()):
+            if not isinstance(data, dict):
+                continue
+            
+            result = self.reload_entry(entry_id)
+            if result.get("success"):
+                reloaded += 1
+            else:
+                failed += 1
+            results.append({"id": entry_id, "result": result})
+        
+        self._log("INFO", "Reload all finished", reloaded=reloaded, failed=failed)
+        return {
+            "success": True,
+            "reloaded": reloaded,
+            "failed": failed,
+            "results": results,
+        }
     
     def restore_running_states(self) -> dict:
         restored_count = 0
