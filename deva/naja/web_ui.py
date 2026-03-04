@@ -123,6 +123,7 @@ def create_nav_menu():
     """创建导航菜单"""
     menu_items = [
         {"name": "🏠 首页", "path": "/"},
+        {"name": "📡 信号流", "path": "/signaladmin"},
         {"name": "📡 数据源", "path": "/dsadmin"},
         {"name": "⏰ 任务", "path": "/taskadmin"},
         {"name": "📊 策略", "path": "/strategyadmin"},
@@ -316,6 +317,12 @@ async def render_main(ctx: dict):
                     <div style="font-size: 16px; font-weight: 600; margin-top: 8px;">数据源管理</div>
                 </div>
             </a>
+            <a href="/signaladmin" style="text-decoration: none;">
+                <div style="padding: 20px; background: linear-gradient(135deg, #f5576c 0%, #f093fb 100%); border-radius: 12px; color: white; text-align: center;">
+                    <div style="font-size: 24px;">🚨</div>
+                    <div style="font-size: 16px; font-weight: 600; margin-top: 8px;">信号流</div>
+                </div>
+            </a>
             <a href="/taskadmin" style="text-decoration: none;">
                 <div style="padding: 20px; background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); border-radius: 12px; color: white; text-align: center;">
                     <div style="font-size: 24px;">⏰</div>
@@ -383,6 +390,20 @@ async def render_main(ctx: dict):
             <!-- 箭头2 -->
             <div style="color: #4facfe; font-size: 28px; animation: pulse 1.5s infinite;">→</div>
             
+            <!-- 信号流 -->
+            <div style="text-align: center;">
+                <div style="width: 120px; height: 120px; background: linear-gradient(135deg, #f5576c 0%, #f093fb 100%); border-radius: 50%; display: flex; align-items: center; justify-content: center; box-shadow: 0 8px 25px rgba(245,87,108,0.4); cursor: pointer; transition: transform 0.3s;" onmouseover="this.style.transform='scale(1.1)'" onmouseout="this.style.transform='scale(1)'">
+                    <div>
+                        <div style="font-size: 36px;">🚨</div>
+                        <div style="color: #fff; font-size: 14px; font-weight: 600; margin-top: 5px;">信号流</div>
+                    </div>
+                </div>
+                <div style="color: #aaa; font-size: 12px; margin-top: 10px; max-width: 140px;">收集并展示信号<br>实时监控异动</div>
+            </div>
+            
+            <!-- 箭头3 -->
+            <div style="color: #4facfe; font-size: 28px; animation: pulse 1.5s infinite;">→</div>
+            
             <!-- 数据表 -->
             <div style="text-align: center;">
                 <div style="width: 120px; height: 120px; background: linear-gradient(135deg, #fa709a 0%, #fee140 100%); border-radius: 50%; display: flex; align-items: center; justify-content: center; box-shadow: 0 8px 25px rgba(250,112,154,0.4); cursor: pointer; transition: transform 0.3s;" onmouseover="this.style.transform='scale(1.1)'" onmouseout="this.style.transform='scale(1)'">
@@ -438,9 +459,10 @@ async def render_main(ctx: dict):
                 <span style="color: #ccc;">
                 1️⃣ 创建 <strong style="color: #667eea;">数据源</strong> 获取实时数据流（如股票行情、API数据）<br>
                 2️⃣ 创建 <strong style="color: #4facfe;">策略</strong> 绑定数据源，定义处理逻辑，生成信号<br>
-                3️⃣ 创建 <strong style="color: #43e97b;">字典</strong> 维护参考数据（如股票代码、配置项）<br>
-                4️⃣ 创建 <strong style="color: #f093fb;">任务</strong> 执行一次性或定时任务（如每日汇总）<br>
-                5️⃣ 所有数据自动存储到 <strong style="color: #fa709a;">数据表</strong>，支持查询分析
+                3️⃣ 通过 <strong style="color: #f5576c;">信号流</strong> 实时监控和查看生成的信号<br>
+                4️⃣ 创建 <strong style="color: #43e97b;">字典</strong> 维护参考数据（如股票代码、配置项）<br>
+                5️⃣ 创建 <strong style="color: #f093fb;">任务</strong> 执行一次性或定时任务（如每日汇总）<br>
+                6️⃣ 所有数据自动存储到 <strong style="color: #fa709a;">数据表</strong>，支持查询分析
                 </span>
             </div>
         </div>
@@ -703,6 +725,14 @@ async def dsadmin():
     return await render_datasource_admin(_ctx())
 
 
+async def signaladmin():
+    """信号流"""
+    from .signal.ui import render_signal_page
+    ctx = _ctx()
+    await ctx["init_naja_ui"]("信号流")
+    await render_signal_page(ctx)
+
+
 async def taskadmin():
     """任务管理"""
     from .tasks.ui import render_task_admin
@@ -746,6 +776,7 @@ def create_handlers(cdn: str = None):
     
     return [
         (r'/', webio_handler(main, cdn=cdn_url)),
+        (r'/signaladmin', webio_handler(signaladmin, cdn=cdn_url)),
         (r'/dsadmin', webio_handler(dsadmin, cdn=cdn_url)),
         (r'/taskadmin', webio_handler(taskadmin, cdn=cdn_url)),
         (r'/strategyadmin', webio_handler(strategyadmin, cdn=cdn_url)),
