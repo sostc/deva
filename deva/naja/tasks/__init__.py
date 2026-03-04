@@ -140,6 +140,12 @@ class TaskEntry(RecoverableUnit):
                     loop.close()
             else:
                 result = func()
+                if asyncio.iscoroutine(result):
+                    loop = asyncio.new_event_loop()
+                    try:
+                        result = loop.run_until_complete(result)
+                    finally:
+                        loop.close()
             
             self._state.success_count += 1
             self._state.last_result = str(result)[:500] if result else "None"
@@ -307,8 +313,15 @@ class TaskManager:
         description: str = "",
         tags: List[str] = None,
     ) -> dict:
+        from ..config import get_task_config
+        
         import hashlib
         entry_id = hashlib.md5(f"{name}_{time.time()}".encode()).hexdigest()[:12]
+        
+        # 使用配置默认值
+        task_config = get_task_config()
+        if interval_seconds is None:
+            interval_seconds = task_config.get("default_interval", 60)
         
         if "execute" not in func_code:
             return {"success": False, "error": "代码必须包含 execute 函数"}
@@ -388,6 +401,26 @@ class TaskManager:
         if not entry:
             return {"success": False, "error": "Entry not found"}
         return entry.run_once()
+    
+    def run_once_async(self, entry_id: str) -> dict:
+        """异步执行一次（不阻塞UI）"""
+        entry = self.get(entry_id)
+        if not entry:
+            return {"success": False, "error": "Entry not found"}
+        
+        def _run_in_thread():
+            try:
+                entry.run_once()
+            except Exception as e:
+                self._log("ERROR", "Async run failed", id=entry_id, error=str(e))
+        
+        t = threading.Thread(
+            target=_run_in_thread,
+            daemon=True,
+            name=f"task_run_once_{entry_id}",
+        )
+        t.start()
+        return {"success": True, "message": "已提交执行任务"}
     
     def load_from_db(self) -> int:
         db = NB(TASK_TABLE)
