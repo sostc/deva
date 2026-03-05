@@ -40,7 +40,6 @@ def _render_detail_section(title: str) -> str:
 
 async def render_task_admin(ctx: dict):
     """渲染任务管理面板"""
-    await ctx["init_naja_ui"]("任务管理")
     set_scope("task_content")
     _render_task_content(ctx)
 

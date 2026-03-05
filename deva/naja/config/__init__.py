@@ -37,6 +37,12 @@ DEFAULT_CONFIG = {
         "default_daily_time": "03:00",
         "max_cache_size": 10000,
     },
+    "auth": {
+        "username": "",
+        "password": "",
+        "secret": "",
+        "dev_mode": False,
+    },
 }
 
 
@@ -161,3 +167,22 @@ def reset_to_default(category: str = None) -> bool:
     except Exception as e:
         print(f"重置配置失败: {e}")
         return False
+
+
+def get_auth_config() -> Dict[str, Any]:
+    """获取认证配置"""
+    return get_config("auth")
+
+
+def ensure_auth_secret() -> str:
+    """确保认证密钥存在，不存在则生成
+    
+    Returns:
+        认证密钥
+    """
+    import secrets
+    secret = get_config("auth", "secret", "")
+    if not secret:
+        secret = secrets.token_hex(32)
+        set_config("auth", "secret", secret)
+    return secret

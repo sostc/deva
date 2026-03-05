@@ -69,6 +69,22 @@ class StrategyResult:
             "process_time_ms": self.process_time_ms,
             "error": self.error[:100] if self.error else "",
         }
+    
+    def to_dict(self) -> dict:
+        """转换为字典"""
+        return {
+            "id": self.id,
+            "strategy_id": self.strategy_id,
+            "strategy_name": self.strategy_name,
+            "ts": self.ts,
+            "success": self.success,
+            "input_preview": self.input_preview,
+            "output_preview": self.output_preview,
+            "output_full": self.output_full,
+            "process_time_ms": self.process_time_ms,
+            "error": self.error,
+            "metadata": self.metadata,
+        }
 
 
 class ResultStore:
@@ -176,6 +192,14 @@ class ResultStore:
                 except Exception:
                     pass
         
+        # 发送到信号流
+        try:
+            from ..signal.stream import get_signal_stream
+            signal_stream = get_signal_stream()
+            signal_stream.update(result)
+        except Exception as e:
+            pass
+        
         return result
     
     def get_recent(
@@ -190,9 +214,11 @@ class ResultStore:
                     return results
             
             db_results = []
-            items = list(self._db.items())
-            for key, data in items:
-                if isinstance(data, dict) and data.get("strategy_id") == strategy_id:
+            # 优化：只遍历以strategy_id开头的键，避免遍历所有数据库项
+            strategy_keys = [key for key in self._db.keys() if key.startswith(f"{strategy_id}:")]
+            for key in strategy_keys:
+                data = self._db.get(key)
+                if isinstance(data, dict):
                     # 过滤无效数据：时间戳必须有效，ID必须存在
                     ts = data.get("ts", 0)
                     result_id = data.get("id", "")
@@ -225,43 +251,49 @@ class ResultStore:
     
     def get_by_id(self, result_id: str) -> Optional[StrategyResult]:
         with self._data_lock:
-            for key, data in self._db.items():
-                if isinstance(data, dict) and data.get("id") == result_id:
-                    return StrategyResult(
-                        id=data.get("id", ""),
-                        strategy_id=data.get("strategy_id", ""),
-                        strategy_name=data.get("strategy_name", ""),
-                        ts=data.get("ts", 0),
-                        success=data.get("success", False),
-                        input_preview=data.get("input_preview", ""),
-                        output_preview=data.get("output_preview", ""),
-                        output_full=data.get("output_full"),
-                        process_time_ms=data.get("process_time_ms", 0),
-                        error=data.get("error", ""),
-                        metadata=data.get("metadata", {}),
-                    )
+            # 优化：遍历所有键，查找包含result_id的键
+            for key in self._db.keys():
+                if result_id in key:
+                    data = self._db.get(key)
+                    if isinstance(data, dict) and data.get("id") == result_id:
+                        return StrategyResult(
+                            id=data.get("id", ""),
+                            strategy_id=data.get("strategy_id", ""),
+                            strategy_name=data.get("strategy_name", ""),
+                            ts=data.get("ts", 0),
+                            success=data.get("success", False),
+                            input_preview=data.get("input_preview", ""),
+                            output_preview=data.get("output_preview", ""),
+                            output_full=data.get("output_full"),
+                            process_time_ms=data.get("process_time_ms", 0),
+                            error=data.get("error", ""),
+                            metadata=data.get("metadata", {}),
+                        )
         return None
     
     def delete(self, result_id: str) -> bool:
         """删除指定结果"""
         with self._data_lock:
-            for key, data in list(self._db.items()):
-                if isinstance(data, dict) and data.get("id") == result_id:
-                    strategy_id = data.get("strategy_id", "")
-                    del self._db[key]
-                    
-                    # 清除该策略的缓存，下次查询时会重新从数据库加载
-                    if strategy_id in self._cache:
-                        del self._cache[strategy_id]
-                    
-                    # 更新统计
-                    if data.get("success"):
-                        self._stats["total_success"] = max(0, self._stats["total_success"] - 1)
-                    else:
-                        self._stats["total_failed"] = max(0, self._stats["total_failed"] - 1)
-                    self._stats["total_results"] = max(0, self._stats["total_results"] - 1)
-                    
-                    return True
+            # 优化：遍历所有键，查找包含result_id的键
+            for key in list(self._db.keys()):
+                if result_id in key:
+                    data = self._db.get(key)
+                    if isinstance(data, dict) and data.get("id") == result_id:
+                        strategy_id = data.get("strategy_id", "")
+                        del self._db[key]
+                        
+                        # 清除该策略的缓存，下次查询时会重新从数据库加载
+                        if strategy_id in self._cache:
+                            del self._cache[strategy_id]
+                        
+                        # 更新统计
+                        if data.get("success"):
+                            self._stats["total_success"] = max(0, self._stats["total_success"] - 1)
+                        else:
+                            self._stats["total_failed"] = max(0, self._stats["total_failed"] - 1)
+                        self._stats["total_results"] = max(0, self._stats["total_results"] - 1)
+                        
+                        return True
         return False
     
     def query(
@@ -275,38 +307,43 @@ class ResultStore:
         results = []
         
         with self._data_lock:
-            items = list(self._db.items())
-        
-        for key, data in items:
-            if not isinstance(data, dict):
-                continue
+            # 优化：如果指定了strategy_id，只遍历以该ID开头的键
+            if strategy_id:
+                keys = [key for key in self._db.keys() if key.startswith(f"{strategy_id}:")]
+            else:
+                keys = list(self._db.keys())
             
-            if strategy_id and data.get("strategy_id") != strategy_id:
-                continue
-            
-            ts = data.get("ts", 0)
-            if start_ts and ts < start_ts:
-                continue
-            if end_ts and ts > end_ts:
-                continue
-            
-            if success_only and not data.get("success", False):
-                continue
-            
-            result = StrategyResult(
-                id=data.get("id", ""),
-                strategy_id=data.get("strategy_id", ""),
-                strategy_name=data.get("strategy_name", ""),
-                ts=ts,
-                success=data.get("success", False),
-                input_preview=data.get("input_preview", ""),
-                output_preview=data.get("output_preview", ""),
-                output_full=data.get("output_full"),
-                process_time_ms=data.get("process_time_ms", 0),
-                error=data.get("error", ""),
-                metadata=data.get("metadata", {}),
-            )
-            results.append(result)
+            for key in keys:
+                data = self._db.get(key)
+                if not isinstance(data, dict):
+                    continue
+                
+                if strategy_id and data.get("strategy_id") != strategy_id:
+                    continue
+                
+                ts = data.get("ts", 0)
+                if start_ts and ts < start_ts:
+                    continue
+                if end_ts and ts > end_ts:
+                    continue
+                
+                if success_only and not data.get("success", False):
+                    continue
+                
+                result = StrategyResult(
+                    id=data.get("id", ""),
+                    strategy_id=data.get("strategy_id", ""),
+                    strategy_name=data.get("strategy_name", ""),
+                    ts=ts,
+                    success=data.get("success", False),
+                    input_preview=data.get("input_preview", ""),
+                    output_preview=data.get("output_preview", ""),
+                    output_full=data.get("output_full"),
+                    process_time_ms=data.get("process_time_ms", 0),
+                    error=data.get("error", ""),
+                    metadata=data.get("metadata", {}),
+                )
+                results.append(result)
         
         results.sort(key=lambda x: x.ts, reverse=True)
         return results[:limit]

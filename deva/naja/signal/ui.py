@@ -28,6 +28,7 @@ def is_auto_refresh_enabled() -> bool:
 async def _auto_insert_new_signals(ctx: dict):
     """自动插入新信号的后台任务"""
     import asyncio
+    from pywebio.exceptions import SessionClosedException
     
     await asyncio.sleep(3)
     
@@ -42,18 +43,10 @@ async def _auto_insert_new_signals(ctx: dict):
             continue
         
         try:
-            from ..strategy import get_strategy_manager
-            from ..strategy.result_store import get_result_store
+            from .stream import get_signal_stream
             
-            mgr = get_strategy_manager()
-            store = get_result_store()
-            entries = list(mgr.list_all())
-            
-            all_results = []
-            for e in entries:
-                # 只查询最近3条结果，减少数据传输
-                results = store.get_recent(e.id, limit=3)
-                all_results.extend(results)
+            signal_stream = get_signal_stream()
+            all_results = signal_stream.get_recent(limit=30)  # 获取最近30条信号
             
             # 按时间戳排序
             all_results.sort(key=lambda x: x.ts, reverse=True)
@@ -85,6 +78,9 @@ async def _auto_insert_new_signals(ctx: dict):
                 # 稍微延迟，避免DOM操作过于集中
                 await asyncio.sleep(0.1)
                 
+        except SessionClosedException:
+            # 会话已关闭，退出循环
+            break
         except Exception as e:
             # 记录异常但不中断循环
             import traceback
@@ -110,7 +106,7 @@ def _insert_signal_item(ctx, result):
         border_width = "2px"
         bg_style = "background:#fff;"
     
-    highlights_str = " | ".join(detail['highlights'][:4]) if detail['highlights'] else ""
+    highlights_str = " | ".join(str(h) for h in detail['highlights'][:4]) if detail['highlights'] else ""
     
     expanded_content = _generate_expanded_content(result, detail)
     expanded_content_escaped = json.dumps(expanded_content)
@@ -535,15 +531,15 @@ def _generate_expanded_content(result, detail: dict) -> str:
     return "".join(parts) if parts else "<div style='color:#999;font-size:12px;'>暂无详细信息</div>"
 
 
-def _render_signal_stream_content(ctx, entries, store, limit: int = 20):
+def _render_signal_stream_content(ctx, limit: int = 20):
     """渲染实时信号流内容"""
-    all_results = []
-    for e in entries:
-        results = store.get_recent(e.id, limit=10)
-        all_results.extend(results)
-
+    from .stream import get_signal_stream
+    
+    signal_stream = get_signal_stream()
+    all_results = signal_stream.get_recent(limit=limit)
+    
+    # 按时间戳排序
     all_results.sort(key=lambda x: x.ts, reverse=True)
-    all_results = all_results[:limit]
 
     ctx["put_html"]("""
     <div style="margin:16px 0 12px 0;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
@@ -600,7 +596,7 @@ def _render_signal_stream_content(ctx, entries, store, limit: int = 20):
             border_width = "2px"
             bg_style = "background:#fff;"
         
-        highlights_str = " | ".join(detail['highlights'][:4]) if detail['highlights'] else ""
+        highlights_str = " | ".join(str(h) for h in detail['highlights'][:4]) if detail['highlights'] else ""
         expanded_content = _generate_expanded_content(r, detail)
 
         signals_html.append(f"""
@@ -705,26 +701,9 @@ def _render_signal_stream_content(ctx, entries, store, limit: int = 20):
 
 async def render_signal_page(ctx: dict):
     """渲染信号流页面"""
-    from ..strategy import get_strategy_manager
-    from ..strategy.result_store import get_result_store
-    from pywebio.output import clear
     from pywebio.session import run_async
     
-    mgr = get_strategy_manager()
-    store = get_result_store()
-    entries = list(mgr.list_all())
-    
-    clear()
-    
-    ctx["put_html"]("""
-    <div style="padding:20px;">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;">
-            <h2 style="margin:0;font-size:20px;color:#333;">📡 信号流</h2>
-        </div>
-    </div>
-    """)
-    
     with use_scope("signal_stream", clear=True):
-        _render_signal_stream_content(ctx, entries, store, limit=30)
+        _render_signal_stream_content(ctx, limit=20)
     
     run_async(_auto_insert_new_signals(ctx))

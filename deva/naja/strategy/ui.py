@@ -124,8 +124,6 @@ def _render_strategy_diagram_section(ctx: dict, entry):
 
 async def render_strategy_admin(ctx: dict):
     """渲染策略管理面板"""
-    await ctx["init_naja_ui"]("策略管理")
-
     set_scope("strategy_content")
     _render_strategy_content(ctx)
 
