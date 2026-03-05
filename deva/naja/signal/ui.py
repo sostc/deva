@@ -179,7 +179,11 @@ def _insert_signal_item(ctx, result):
 
 def _get_signal_type(result) -> tuple:
     """根据结果判断信号类型和重要性"""
-    output = result.output_full or {}
+    output_full = result.output_full
+    if output_full is None or (hasattr(output_full, 'empty') and output_full.empty):
+        output = {}
+    else:
+        output = output_full
     if isinstance(output, dict):
         signal_type = output.get('signal_type', '')
         
@@ -246,7 +250,11 @@ def _get_signal_type(result) -> tuple:
 
 def _get_signal_detail(result) -> dict:
     """获取信号详细信息"""
-    output = result.output_full or {}
+    output_full = result.output_full
+    if output_full is None or (hasattr(output_full, 'empty') and output_full.empty):
+        output = {}
+    else:
+        output = output_full
     detail = {
         'summary': '',
         'highlights': [],
@@ -481,7 +489,11 @@ def _generate_expanded_content(result, detail: dict) -> str:
     """生成展开后的详细内容"""
     import json
     
-    output = result.output_full or {}
+    output_full = result.output_full
+    if output_full is None or (hasattr(output_full, 'empty') and output_full.empty):
+        output = {}
+    else:
+        output = output_full
     time_full = datetime.fromtimestamp(result.ts).strftime("%Y-%m-%d %H:%M:%S")
     
     parts = []
@@ -509,9 +521,11 @@ def _generate_expanded_content(result, detail: dict) -> str:
             </div>
             """)
         
-        if output:
+        if output is not None:
             try:
-                if isinstance(output, dict):
+                if hasattr(output, 'empty') and not output.empty:
+                    output_str = str(output)
+                elif isinstance(output, dict) and output:
                     output_str = json.dumps(output, ensure_ascii=False, indent=2)
                 else:
                     output_str = str(output)
@@ -531,6 +545,44 @@ def _generate_expanded_content(result, detail: dict) -> str:
     return "".join(parts) if parts else "<div style='color:#999;font-size:12px;'>暂无详细信息</div>"
 
 
+def _resolve_datasource_name(datasource_id: str) -> str:
+    if not datasource_id:
+        return "-"
+    try:
+        from ..datasource import get_datasource_manager
+        ds_mgr = get_datasource_manager()
+        ds = ds_mgr.get(datasource_id)
+        if ds:
+            return ds.name
+    except Exception:
+        pass
+    return datasource_id
+
+
+def _render_experiment_status_html() -> str:
+    try:
+        from ..strategy import get_strategy_manager
+        mgr = get_strategy_manager()
+        exp_info = mgr.get_experiment_info()
+    except Exception:
+        exp_info = {"active": False}
+
+    if not exp_info.get("active"):
+        return ""
+
+    categories_text = "、".join(exp_info.get("categories", []))
+    ds_name = exp_info.get("datasource_name") or _resolve_datasource_name(exp_info.get("datasource_id", ""))
+    target_count = int(exp_info.get("target_count", 0))
+    return f"""
+    <div style="margin:0 0 12px 0;padding:12px 14px;border-radius:10px;
+                background:linear-gradient(135deg,#fff3cd,#ffe8a1);
+                border:1px solid #f5d37a;color:#7a5a00;font-size:13px;">
+        <strong>🧪 实验模式已开启</strong><br>
+        类别：{categories_text or "-"} ｜ 数据源：{ds_name} ｜ 策略数：{target_count}
+    </div>
+    """
+
+
 def _render_signal_stream_content(ctx, limit: int = 20):
     """渲染实时信号流内容"""
     from .stream import get_signal_stream
@@ -540,6 +592,10 @@ def _render_signal_stream_content(ctx, limit: int = 20):
     
     # 按时间戳排序
     all_results.sort(key=lambda x: x.ts, reverse=True)
+
+    exp_status_html = _render_experiment_status_html()
+    if exp_status_html:
+        ctx["put_html"](exp_status_html)
 
     ctx["put_html"]("""
     <div style="margin:16px 0 12px 0;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">

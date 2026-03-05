@@ -5,6 +5,8 @@ from typing import Optional
 
 from pywebio.session import run_async
 
+from ..common.ui_style import apply_strategy_like_styles, render_empty_state, render_stats_cards
+
 
 DEFAULT_TASK_CODE = '''# 任务执行函数
 # 必须定义 execute() 函数
@@ -712,6 +714,7 @@ def _render_task_content(ctx: dict):
     stats = _build_task_stats(visible_entries)
 
     clear("task_content")
+    apply_strategy_like_styles(ctx, scope="task_content", include_compact_table=True)
 
     ctx["put_html"](_render_task_stats_html(stats), scope="task_content")
 
@@ -730,19 +733,16 @@ def _render_task_content(ctx: dict):
         table_data = _build_table_data(ctx, visible_entries, mgr)
         ctx["put_table"](
             table_data,
-            header=["名称", "执行方式", "状态", "触发配置", "成功", "失败", "最后运行", "操作"],
+            header=["名称", "执行方式", "状态", "成功", "失败", "最后运行", "操作"],
             scope="task_content",
         )
     else:
-        ctx["put_html"](
-            '<div style="padding:40px;text-align:center;color:#999;background:#f9f9f9;border-radius:8px;">当前标签下暂无任务</div>',
-            scope="task_content",
-        )
+        ctx["put_html"](render_empty_state("当前标签下暂无任务"), scope="task_content")
 
     ctx["put_html"]('<div style="margin-top:16px;display:flex;gap:12px;flex-wrap:wrap;">', scope="task_content")
     if active_tab == "normal":
         ctx["put_buttons"](
-            [{"label": "➕ 创建任务", "value": "create"}], onclick=lambda v, m=mgr, c=ctx: _create_task_dialog(m, c), scope="task_content"
+            [{"label": "➕ 创建任务", "value": "create", "color": "primary"}], onclick=lambda v, m=mgr, c=ctx: _create_task_dialog(m, c), scope="task_content"
         )
     ctx["put_html"]("</div>", scope="task_content")
 
@@ -763,22 +763,11 @@ def _build_task_stats(entries: list) -> dict:
 
 
 def _render_task_stats_html(stats: dict) -> str:
-    return f"""
-    <div style="display:flex;flex-wrap:wrap;gap:16px;margin-bottom:24px;">
-        <div style="flex:1;min-width:140px;background:linear-gradient(135deg,#667eea,#764ba2);padding:20px;border-radius:12px;color:#fff;box-shadow:0 4px 12px rgba(102,126,234,0.3);">
-            <div style="font-size:13px;opacity:0.9;margin-bottom:4px;">总任务数</div>
-            <div style="font-size:32px;font-weight:700;">{stats['total']}</div>
-        </div>
-        <div style="flex:1;min-width:140px;background:linear-gradient(135deg,#11998e,#38ef7d);padding:20px;border-radius:12px;color:#fff;box-shadow:0 4px 12px rgba(17,153,142,0.3);">
-            <div style="font-size:13px;opacity:0.9;margin-bottom:4px;">成功次数</div>
-            <div style="font-size:32px;font-weight:700;">{stats['total_success']}</div>
-        </div>
-        <div style="flex:1;min-width:140px;background:linear-gradient(135deg,#ff416c,#ff4b2b);padding:20px;border-radius:12px;color:#fff;box-shadow:0 4px 12px rgba(255,65,108,0.3);">
-            <div style="font-size:13px;opacity:0.9;margin-bottom:4px;">失败次数</div>
-            <div style="font-size:32px;font-weight:700;">{stats['total_failure']}</div>
-        </div>
-    </div>
-    """
+    return render_stats_cards([
+        {"label": "总任务数", "value": stats["total"], "gradient": "linear-gradient(135deg,#667eea,#764ba2)", "shadow": "rgba(102,126,234,0.3)"},
+        {"label": "成功次数", "value": stats["total_success"], "gradient": "linear-gradient(135deg,#11998e,#38ef7d)", "shadow": "rgba(17,153,142,0.3)"},
+        {"label": "失败次数", "value": stats["total_failure"], "gradient": "linear-gradient(135deg,#ff416c,#ff4b2b)", "shadow": "rgba(255,65,108,0.3)"},
+    ])
 
 
 def _build_table_data(ctx: dict, entries: list, mgr) -> list:
@@ -787,18 +776,19 @@ def _build_table_data(ctx: dict, entries: list, mgr) -> list:
         status_html = _render_status_badge(e.is_running)
 
         mode = _normalize_mode(e)
-        type_html = f'<span style="background:#e3f2fd;color:#1565c0;padding:2px 8px;border-radius:4px;font-size:12px;">{_mode_label(mode)}</span>'
+        execution_mode_html = f'<span style="display:block;"><span style="background:#e3f2fd;color:#1565c0;padding:2px 8px;border-radius:4px;font-size:12px;">{_mode_label(mode)}</span><br><span style="font-size:11px;">{_schedule_desc(e)}</span></span>'
 
         last_run_ts = getattr(e._state, "last_run_time", 0)
         last_run = _fmt_ts(last_run_ts) if last_run_ts else "-"
+        toggle_color = "danger" if e.is_running else "success"
 
         action_btns = ctx["put_buttons"](
             [
-                {"label": "详情", "value": f"detail_{e.id}"},
-                {"label": "编辑", "value": f"edit_{e.id}"},
-                {"label": "停止" if e.is_running else "启动", "value": f"toggle_{e.id}"},
-                {"label": "执行一次", "value": f"run_{e.id}"},
-                {"label": "删除", "value": f"delete_{e.id}"},
+                {"label": "详情", "value": f"detail_{e.id}", "color": "info"},
+                {"label": "编辑", "value": f"edit_{e.id}", "color": "primary"},
+                {"label": "停止" if e.is_running else "启动", "value": f"toggle_{e.id}", "color": toggle_color},
+                {"label": "执行一次", "value": f"run_{e.id}", "color": "warning"},
+                {"label": "删除", "value": f"delete_{e.id}", "color": "danger"},
             ],
             onclick=lambda v, m=mgr, c=ctx: _handle_task_action(v, m, c),
         )
@@ -806,11 +796,10 @@ def _build_table_data(ctx: dict, entries: list, mgr) -> list:
         table_data.append(
             [
                 ctx["put_html"](
-                    f'<div title="{e.name}" style="max-width:260px;white-space:normal;word-break:break-word;line-height:1.4;"><strong>{e.name}</strong></div>'
+                    f'<div title="{e.name}" style="max-width:460px;white-space:normal;word-break:break-word;line-height:1.4;"><strong>{e.name}</strong></div>'
                 ),
-                ctx["put_html"](type_html),
+                ctx["put_html"](execution_mode_html),
                 ctx["put_html"](status_html),
-                _schedule_desc(e),
                 ctx["put_html"](f'<span style="color:#28a745;font-weight:500;">{e._state.success_count}</span>'),
                 ctx["put_html"](f'<span style="color:#dc3545;font-weight:500;">{e._state.failure_count}</span>'),
                 ctx["put_html"](f'<span style="color:#666;font-size:12px;">{last_run}</span>'),

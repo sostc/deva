@@ -7,6 +7,8 @@ from pywebio.output import put_text, put_markdown, put_table, put_buttons, put_h
 from pywebio.input import input_group, input, textarea, select, actions
 from pywebio.session import run_async
 
+from ..common.ui_style import apply_strategy_like_styles, render_empty_state
+
 
 DEFAULT_STRATEGY_CODE = '''# 策略处理函数
 # 必须定义 process(data) 函数
@@ -141,6 +143,20 @@ def _get_all_categories(entries: list) -> list:
     return sorted(list(categories))
 
 
+def _resolve_datasource_name(datasource_id: str) -> str:
+    if not datasource_id:
+        return "-"
+    try:
+        from ..datasource import get_datasource_manager
+        ds_mgr = get_datasource_manager()
+        ds = ds_mgr.get(datasource_id)
+        if ds:
+            return ds.name
+    except Exception:
+        pass
+    return datasource_id
+
+
 def _render_strategy_content(ctx: dict):
     """渲染策略管理内容（支持局部刷新）"""
     from . import get_strategy_manager
@@ -161,108 +177,24 @@ def _render_strategy_content(ctx: dict):
 
     clear("strategy_content")
 
-    # 添加全局按钮样式
-    ctx["put_html"]("""
-    <style>
-        /* 全局按钮样式 */
-        .pywebio-btn {
-            border-radius: 6px !important;
-            font-size: 13px !important;
-            font-weight: 500 !important;
-            transition: all 0.2s ease !important;
-            border: 1px solid transparent !important;
-        }
-        .pywebio-btn:hover {
-            transform: translateY(-1px);
-            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
-        }
-        
-        /* 主要按钮 - 淡蓝 */
-        .btn-primary, .pywebio-btn-primary {
-            background: #5c8dd6 !important;
-            color: white !important;
-            border-color: #4a7bc4 !important;
-        }
-        .btn-primary:hover {
-            background: #4a7bc4 !important;
-        }
-        
-        /* 成功按钮 - 淡绿 */
-        .btn-success {
-            background: #5cb85c !important;
-            color: white !important;
-            border-color: #4cae4c !important;
-        }
-        .btn-success:hover {
-            background: #4cae4c !important;
-        }
-        
-        /* 危险按钮 - 淡红 */
-        .btn-danger {
-            background: #d9534f !important;
-            color: white !important;
-            border-color: #c9302c !important;
-        }
-        .btn-danger:hover {
-            background: #c9302c !important;
-        }
-        
-        /* 警告按钮 - 淡橙 */
-        .btn-warning {
-            background: #f0ad4e !important;
-            color: white !important;
-            border-color: #ec971f !important;
-        }
-        .btn-warning:hover {
-            background: #ec971f !important;
-        }
-        
-        /* 信息按钮 - 淡青 */
-        .btn-info {
-            background: #5bc0de !important;
-            color: white !important;
-            border-color: #46b8da !important;
-        }
-        .btn-info:hover {
-            background: #46b8da !important;
-        }
-        
-        /* 默认按钮 - 浅灰 */
-        .btn-default {
-            background: #f8f9fa !important;
-            color: #495057 !important;
-            border-color: #dee2e6 !important;
-        }
-        .btn-default:hover {
-            background: #e9ecef !important;
-        }
-        
-        /* 按钮组样式 */
-        .pywebio-btn-group {
-            display: flex !important;
-            flex-wrap: wrap !important;
-            gap: 8px !important;
-        }
-        .pywebio-btn-group .pywebio-btn {
-            margin: 0 !important;
-        }
-        
-        /* 小按钮样式 */
-        .pywebio-btn-sm {
-            padding: 4px 12px !important;
-            font-size: 12px !important;
-        }
-        
-        /* 表格内按钮 */
-        .pywebio-table .pywebio-btn {
-            padding: 3px 10px !important;
-            font-size: 12px !important;
-        }
-    </style>
-    """, scope="strategy_content")
+    apply_strategy_like_styles(ctx, scope="strategy_content", include_compact_table=True, include_category_tabs=True)
 
     ctx["put_html"](_render_strategy_stats_html(
         stats, running_count, error_count), scope="strategy_content")
+
+    exp_info = mgr.get_experiment_info()
+    if exp_info.get("active"):
+        categories_text = "、".join(exp_info.get("categories", []))
+        ds_name = exp_info.get("datasource_name") or _resolve_datasource_name(exp_info.get("datasource_id", ""))
+        target_count = int(exp_info.get("target_count", 0))
+        ctx["put_html"](f"""
+        <div style="margin-bottom:14px;padding:12px 14px;border-radius:10px;
+                    background:linear-gradient(135deg,#fff3cd,#ffe8a1);
+                    border:1px solid #f5d37a;color:#7a5a00;font-size:13px;">
+            <strong>🧪 实验模式已开启</strong><br>
+            类别：{categories_text or "-"} ｜ 数据源：{ds_name} ｜ 策略数：{target_count}
+        </div>
+        """, scope="strategy_content")
 
     # 渲染类别 Tab
     categories = _get_all_categories(entries)
@@ -276,31 +208,28 @@ def _render_strategy_content(ctx: dict):
 
     if filtered_entries:
         table_data = _build_table_data(ctx, filtered_entries, mgr)
-        # 添加表格样式，限制行高
-        ctx["put_html"]("""
-        <style>
-            .pywebio-table tbody tr { height: 48px; max-height: 48px; }
-            .pywebio-table tbody td { vertical-align: middle; padding: 8px 12px; }
-            .pywebio-table tbody td > div { max-height: 40px; overflow: hidden; }
-        </style>
-        """, scope="strategy_content")
         ctx["put_table"](table_data, header=["名称", "状态", "数据源", "简介",
                                              "最近数据", "操作"], scope="strategy_content")
 
         ctx["put_html"](
             '<div style="margin-top:16px;display:flex;gap:12px;flex-wrap:wrap;">', scope="strategy_content")
-        ctx["put_buttons"]([
+        toolbar_buttons = [
             {"label": "➕ 创建策略", "value": "create", "color": "primary"},
             {"label": "▶️ 全部启动", "value": "start_all", "color": "success"},
             {"label": "⏹️ 全部停止", "value": "stop_all", "color": "danger"},
             {"label": "🔄 重载配置", "value": "reload_all", "color": "info"},
             {"label": "🔄 刷新结果", "value": "refresh_results", "color": "info"},
             {"label": "📜 执行历史", "value": "show_history", "color": "default"},
-        ], onclick=lambda v, m=mgr, c=ctx: _handle_toolbar_action(v, m, c), group=True, scope="strategy_content")
+        ]
+        if exp_info.get("active"):
+            toolbar_buttons.append({"label": "🧪 关闭实验模式", "value": "close_experiment", "color": "danger"})
+        else:
+            toolbar_buttons.append({"label": "🧪 开启实验模式", "value": "open_experiment", "color": "warning"})
+
+        ctx["put_buttons"](toolbar_buttons, onclick=lambda v, m=mgr, c=ctx: _handle_toolbar_action(v, m, c), group=True, scope="strategy_content")
         ctx["put_html"]('</div>', scope="strategy_content")
     else:
-        ctx["put_html"](
-            '<div style="padding:40px;text-align:center;color:#999;background:#f9f9f9;border-radius:8px;">暂无策略，点击下方按钮创建</div>', scope="strategy_content")
+        ctx["put_html"](render_empty_state("暂无策略，点击下方按钮创建"), scope="strategy_content")
         ctx["put_buttons"]([{"label": "➕ 创建策略", "value": "create", "color": "primary"}],
                            onclick=lambda v, m=mgr, c=ctx: _create_strategy_dialog(m, c), scope="strategy_content")
 
@@ -321,25 +250,7 @@ def _render_category_tabs(ctx: dict, categories: list, entries: list, mgr):
         count = len([e for e in entries if getattr(e._metadata, "category", "默认") == cat])
         tab_buttons.append({"label": f"📁 {cat} ({count})", "value": cat})
 
-    # 渲染 Tab 样式
-    ctx["put_html"]("""
-    <style>
-        .category-tabs { margin-bottom: 16px; }
-        .category-tabs .pywebio-btn-group { display: flex; flex-wrap: wrap; gap: 8px; }
-        .category-tabs button { 
-            border-radius: 20px !important; 
-            padding: 6px 16px !important;
-            font-size: 13px !important;
-            transition: all 0.2s ease;
-        }
-        .category-tabs button:hover { transform: translateY(-1px); }
-        .category-tabs button.active { 
-            background: linear-gradient(135deg, #667eea, #764ba2) !important;
-            color: white !important;
-        }
-    </style>
-    <div class="category-tabs">
-    """, scope="strategy_content")
+    ctx["put_html"]('<div class="category-tabs">', scope="strategy_content")
 
     ctx["put_buttons"](tab_buttons, onclick=lambda v, c=ctx, m=mgr: _switch_category(v, c, m), scope="strategy_content")
     
@@ -641,6 +552,86 @@ def _handle_toolbar_action(action: str, mgr, ctx: dict):
         ctx["toast"](f"自动刷新已{'开启' if enabled else '关闭'}", color="success")
     elif action == "show_history":
         run_async(_show_history_dialog(ctx, mgr))
+    elif action == "open_experiment":
+        run_async(_open_experiment_dialog(ctx, mgr))
+    elif action == "close_experiment":
+        _close_experiment_mode(ctx, mgr)
+
+
+async def _open_experiment_dialog(ctx, mgr):
+    """开启实验模式"""
+    from ..datasource import get_datasource_manager
+
+    entries = mgr.list_all()
+    categories = _get_all_categories(entries)
+
+    if not categories:
+        ctx["toast"]("没有可用策略类别", color="warning")
+        return
+
+    ds_mgr = get_datasource_manager()
+    ds_entries = ds_mgr.list_all()
+    if not ds_entries:
+        ctx["toast"]("没有可用数据源", color="warning")
+        return
+
+    default_categories = ["实验"] if "实验" in categories else []
+    category_options = []
+    for cat in categories:
+        count = len([e for e in entries if getattr(e._metadata, "category", "默认") == cat])
+        category_options.append({
+            "label": f"{cat} ({count})",
+            "value": cat,
+            "selected": cat in default_categories,
+        })
+
+    ds_options = [{"label": ds.name, "value": ds.id} for ds in ds_entries]
+    replay_ds = next((
+        ds for ds in ds_entries
+        if "回放" in ((getattr(ds, "name", "") or "").strip())
+    ), None)
+    default_ds_id = replay_ds.id if replay_ds else ds_entries[0].id
+
+    form = await ctx["input_group"]("🧪 开启策略实验模式", [
+        ctx["checkbox"]("策略类别（可逐项选择）", name="categories", options=category_options, value=default_categories),
+        ctx["select"]("实验数据源", name="datasource_id", options=ds_options, value=default_ds_id),
+        ctx["actions"]("操作", [
+            {"label": "开启并启动策略", "value": "start"},
+            {"label": "取消", "value": "cancel"},
+        ], name="action"),
+    ])
+
+    if not form or form.get("action") == "cancel":
+        return
+
+    categories_selected = form.get("categories", []) or []
+    datasource_id = form.get("datasource_id", "")
+    result = mgr.start_experiment(categories=categories_selected, datasource_id=datasource_id)
+
+    if result.get("success"):
+        if result.get("datasource_started"):
+            ds_name = result.get("datasource_name", "实验数据源")
+            ctx["toast"](f"已自动启动数据源：{ds_name}", color="info")
+        failed_switch = len(result.get("failed_switch", []))
+        failed_start = len(result.get("failed_start", []))
+        if failed_switch or failed_start:
+            ctx["toast"](f"实验模式已开启，切换失败 {failed_switch} 个，启动失败 {failed_start} 个", color="warning")
+        else:
+            ctx["toast"]("实验模式已开启，策略已切换到新数据源并启动", color="success")
+        _render_strategy_content(ctx)
+        return
+
+    ctx["toast"](f"开启失败: {result.get('error', 'unknown error')}", color="error")
+
+
+def _close_experiment_mode(ctx, mgr):
+    """关闭实验模式并恢复策略配置"""
+    result = mgr.stop_experiment()
+    if result.get("success"):
+        ctx["toast"]("实验模式已关闭，策略已恢复到原数据源和原运行状态", color="success")
+    else:
+        ctx["toast"](f"关闭失败: {result.get('error', 'unknown error')}", color="error")
+    _render_strategy_content(ctx)
 
 
 def _show_result_detail_by_id(ctx, result_id: str):
