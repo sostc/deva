@@ -10,17 +10,12 @@ from . import menus
 # Feature modules
 from . import tasks
 from . import ai
-from . import datasource
 from . import document
 from . import monitor
 from . import tables
 from . import config
 from . import follow
 from . import browser
-from . import dictionary
-
-# Strategy module (complex submodule)
-from . import strategy
 
 __all__ = [
     # Core
@@ -32,14 +27,10 @@ __all__ = [
     # Features
     'tasks',
     'ai',
-    'datasource',
     'document',
     'monitor',
     'tables',
     'config',
     'follow',
     'browser',
-    'dictionary',
-    # Strategy
-    'strategy',
 ]

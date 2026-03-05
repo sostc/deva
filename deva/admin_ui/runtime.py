@@ -33,16 +33,17 @@ def setup_admin_runtime(state: Dict[str, Any], *, enable_webviews=True, enable_t
     log.map(lambda x: log.recent(10) >> concat('<br>')) >> access_log_stream
     access_log_stream.webview(f'/{hash(access_log_stream)}')
 
-    if state.get("enable_strategy", True) and not state.get("strategy_initialized", False):
-        try:
-            from deva.admin_ui.strategy.runtime import initialize_strategy_monitor_streams
+    # Strategy module has been removed
+    # if state.get("enable_strategy", True) and not state.get("strategy_initialized", False):
+    #     try:
+    #         from deva.admin_ui.strategy.runtime import initialize_strategy_monitor_streams
 
-            initialize_strategy_monitor_streams(attach_webviews=True)
-            state["strategy_initialized"] = True
-            {"level": "INFO", "source": "deva.admin", "message": "strategy runtime initialized"} >> log
-        except Exception as e:
-            {"level": "WARNING", "source": "deva.admin",
-                "message": "strategy runtime init failed", "error": str(e)} >> log
+    #         initialize_strategy_monitor_streams(attach_webviews=True)
+    #         state["strategy_initialized"] = True
+    #         {"level": "INFO", "source": "deva.admin", "message": "strategy runtime initialized"} >> log
+    #     except Exception as e:
+    #         {"level": "WARNING", "source": "deva.admin",
+    #             "message": "strategy runtime init failed", "error": str(e)} >> log
 
     if enable_scheduler and not scheduler.running:
         scheduler.start()
