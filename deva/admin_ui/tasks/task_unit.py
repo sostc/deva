@@ -55,9 +55,9 @@ from typing import Any, Callable, Dict, List, Optional
 from deva import log
 
 from ..common.base import BaseMetadata, BaseState, BaseStats, BaseManager
-from ..strategy.executable_unit import ExecutableUnit, ExecutableUnitMetadata, ExecutableUnitState
-from ..strategy.error_handler import ErrorHandler, ErrorLevel, ErrorCategory
-from ..strategy.persistence import get_global_persistence_manager
+from .executable_unit import ExecutableUnit, ExecutableUnitMetadata, ExecutableUnitState
+from .error_handler import ErrorHandler, ErrorLevel, ErrorCategory
+from .persistence import get_global_persistence_manager
 
 
 def _task_log(level: str, message: str):

@@ -95,7 +95,12 @@ class StreamsConnection(SockJSConnection):
             from deva.core.utils.ioloop import get_io_loop
             loop = get_io_loop(asynchronous=False)
             if loop is not None:
-                loop.add_callback(lambda p=payload: self.send(p))
+                def send_with_error_handling():
+                    try:
+                        self.send(payload)
+                    except (WebSocketClosedError, StreamClosedError):
+                        self._closed = True
+                loop.add_callback(send_with_error_handling)
             else:
                 self.send(payload)
         except (WebSocketClosedError, StreamClosedError):

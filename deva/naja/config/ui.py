@@ -1,7 +1,7 @@
 """Naja 配置管理 UI"""
 
 from pywebio.output import put_text, put_markdown, put_table, put_buttons, put_html, toast, popup, close_popup, put_row
-from pywebio.input import input_group, input, select, NUMBER
+from pywebio.input import input_group, input, select, NUMBER, PASSWORD
 from pywebio.session import run_async
 from pywebio import pin
 
@@ -13,6 +13,8 @@ from . import (
     get_strategy_config,
     get_task_config,
     get_dictionary_config,
+    get_auth_config,
+    ensure_auth_secret,
     reset_to_default,
     DEFAULT_CONFIG,
 )
@@ -25,6 +27,7 @@ def render_config_page(ctx: dict):
     
     ctx["put_html"]('<div style="margin:16px 0;">')
     ctx["put_buttons"]([
+        {"label": "🔐 认证配置", "value": "auth"},
         {"label": "📡 数据源配置", "value": "datasource"},
         {"label": "📈 策略配置", "value": "strategy"},
         {"label": "⏰ 任务配置", "value": "task"},
@@ -71,6 +74,13 @@ def _render_config_summary(ctx: dict):
         f"缓存大小: {dict_config.get('max_cache_size', 10000)}"
     ])
     
+    auth_config = get_auth_config()
+    config_data.append([
+        "🔐 认证",
+        f"用户名: {auth_config.get('username', '未设置')}",
+        f"开发模式: {'启用' if auth_config.get('dev_mode', False) else '禁用'}"
+    ])
+    
     ctx["put_table"](config_data)
 
 
@@ -80,6 +90,7 @@ async def _show_config_dialog(ctx: dict, category: str):
     defaults = DEFAULT_CONFIG.get(category, {})
     
     category_names = {
+        "auth": "认证",
         "datasource": "数据源",
         "strategy": "策略",
         "task": "任务",
@@ -89,7 +100,9 @@ async def _show_config_dialog(ctx: dict, category: str):
     with ctx["popup"](f"⚙️ {category_names.get(category, category)}配置", size="large", closable=True):
         ctx["put_markdown"](f"### {category_names.get(category, category)}配置")
         
-        if category == "datasource":
+        if category == "auth":
+            await _render_auth_config(ctx, config, defaults)
+        elif category == "datasource":
             await _render_datasource_config(ctx, config, defaults)
         elif category == "strategy":
             await _render_strategy_config(ctx, config, defaults)
@@ -264,5 +277,74 @@ async def _render_dictionary_config(ctx: dict, config: dict, defaults: dict):
         reset_to_default("dictionary")
         ctx["toast"]("已恢复默认配置", color="success")
         ctx["close_popup"]()
+    elif form and form.get("action") == "cancel":
+        ctx["close_popup"]()
+
+
+async def _render_auth_config(ctx: dict, config: dict, defaults: dict):
+    """渲染认证配置"""
+    import secrets
+    
+    ctx["put_markdown"]("### 🔐 认证配置")
+    ctx["put_markdown"]("管理管理员登录凭证和认证密钥。")
+    
+    form = await ctx["input_group"]("认证配置", [
+        ctx["input"]("管理员用户名", name="username", 
+                    value=config.get("username", defaults.get("username", "")),
+                    placeholder="请输入管理员用户名"),
+        ctx["input"]("新密码", name="password", type=ctx["PASSWORD"], 
+                    value="", placeholder="输入新密码（留空则不修改）"),
+        ctx["input"]("确认新密码", name="password_confirm", type=ctx["PASSWORD"], 
+                    value="", placeholder="再次输入新密码"),
+        ctx["checkbox"]("开发模式", name="dev_mode", options=[
+            {"label": "启用开发模式（免认证）", "value": "dev_mode", "selected": config.get("dev_mode", defaults.get("dev_mode", False))}
+        ], help_text="启用后跳过认证，仅用于开发环境"),
+        ctx["actions"]("操作", [
+            {"label": "保存", "value": "save"},
+            {"label": "重新生成密钥", "value": "regen_secret"},
+            {"label": "取消", "value": "cancel"},
+        ], name="action"),
+    ])
+    
+    if form and form.get("action") == "save":
+        username = form.get("username", "").strip()
+        if not username:
+            ctx["toast"]("用户名不能为空", color="error")
+            return
+        
+        password = form.get("password", "")
+        password_confirm = form.get("password_confirm", "")
+        
+        if password:
+            if len(password) < 6:
+                ctx["toast"]("密码至少6位", color="error")
+                return
+            if password != password_confirm:
+                ctx["toast"]("两次密码不一致", color="error")
+                return
+            set_config("auth", "password", password)
+        
+        set_config("auth", "username", username)
+        
+        # 保存开发模式设置
+        dev_mode = "dev_mode" in form.get("dev_mode", [])
+        set_config("auth", "dev_mode", dev_mode)
+        
+        ctx["toast"]("认证配置已保存", color="success")
+        ctx["close_popup"]()
+    elif form and form.get("action") == "regen_secret":
+        confirm = await ctx["popup"]("确认重新生成认证密钥？", [
+            ctx["put_text"]("重新生成后，所有已登录用户需要重新登录。"),
+            ctx["put_buttons"]([
+                {"label": "确认生成", "value": "confirm"},
+                {"label": "取消", "value": "cancel"},
+            ], onclick=lambda v: v),
+        ])
+        
+        if confirm == "confirm":
+            new_secret = secrets.token_hex(32)
+            set_config("auth", "secret", new_secret)
+            ctx["toast"]("认证密钥已重新生成", color="success")
+            ctx["close_popup"]()
     elif form and form.get("action") == "cancel":
         ctx["close_popup"]()
