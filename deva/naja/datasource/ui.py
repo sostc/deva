@@ -1,6 +1,7 @@
 """数据源管理 UI"""
 
 from datetime import datetime
+from typing import Optional
 
 from pywebio.output import put_text, put_markdown, put_table, put_buttons, put_html, toast, popup, close_popup, put_code, use_scope, set_scope
 from pywebio.input import input_group, input, textarea, select, actions, radio
@@ -77,6 +78,30 @@ def _fmt_ts_short(ts: float) -> str:
     if not ts:
         return "-"
     return datetime.fromtimestamp(ts).strftime("%m-%d %H:%M:%S")
+
+
+def _humanize_cron(expr: str) -> str:
+    cron = str(expr or "").strip()
+    if not cron:
+        return "按计划执行"
+    parts = cron.split()
+    if len(parts) != 5:
+        return f"按计划执行（规则: {cron}）"
+    minute, hour, day, month, weekday = parts
+    if minute.startswith("*/") and hour == "*" and day == "*" and month == "*" and weekday == "*":
+        n = minute[2:]
+        if n.isdigit():
+            return f"每 {n} 分钟执行一次"
+    if hour == "*" and day == "*" and month == "*" and weekday == "*" and minute.isdigit():
+        return f"每小时第 {int(minute):02d} 分执行"
+    if minute.isdigit() and hour.isdigit() and day == "*" and month == "*" and weekday == "*":
+        return f"每天 {int(hour):02d}:{int(minute):02d} 执行"
+    weekday_map = {"mon": "周一", "tue": "周二", "wed": "周三", "thu": "周四", "fri": "周五", "sat": "周六", "sun": "周日"}
+    if minute.isdigit() and hour.isdigit() and day == "*" and month == "*" and weekday.lower() in weekday_map:
+        return f"每{weekday_map[weekday.lower()]} {int(hour):02d}:{int(minute):02d} 执行"
+    if minute.isdigit() and hour.isdigit() and day.isdigit() and month == "*" and weekday == "*":
+        return f"每月 {int(day)} 日 {int(hour):02d}:{int(minute):02d} 执行"
+    return f"按计划执行（规则: {cron}）"
 
 
 async def render_datasource_admin(ctx: dict):
@@ -267,7 +292,20 @@ def _get_type_label(entry) -> str:
     text_color = config["text_color"]
 
     if source_type == "timer":
-        return f'<span title="{title}" style="background:{bg_color};color:{text_color};padding:2px 8px;border-radius:4px;font-size:12px;cursor:help;">{icon} {label} ({interval:.0f}s)</span>'
+        mode = (getattr(entry._metadata, "execution_mode", "timer") or "timer").strip().lower()
+        if mode == "scheduler":
+            trig = (getattr(entry._metadata, "scheduler_trigger", "interval") or "interval").strip().lower()
+            if trig == "cron":
+                desc = _humanize_cron(getattr(entry._metadata, "cron_expr", ""))
+            elif trig == "date":
+                desc = "一次性计划"
+            else:
+                desc = f"间隔 {interval:.0f}s"
+        elif mode == "event_trigger":
+            desc = "事件触发"
+        else:
+            desc = f"每 {interval:.0f}s"
+        return f'<span title="{title}" style="background:{bg_color};color:{text_color};padding:2px 8px;border-radius:4px;font-size:12px;cursor:help;">{icon} {label} ({desc})</span>'
 
     return f'<span title="{title}" style="background:{bg_color};color:{text_color};padding:2px 8px;border-radius:4px;font-size:12px;cursor:help;">{icon} {label}</span>'
 
@@ -283,6 +321,21 @@ def _get_recent_data_info(entry) -> str:
     if last_data_ts > 0:
         return f"{_fmt_ts_short(last_data_ts)} ({total_emitted}条)"
     return f"无数据 ({total_emitted}条)"
+
+
+def _timer_trigger_text(entry) -> str:
+    mode = (getattr(entry._metadata, "execution_mode", "timer") or "timer").strip().lower()
+    interval = float(getattr(entry._metadata, "interval", 5) or 5)
+    if mode == "timer":
+        return f"Timer：每 {interval:.1f} 秒执行"
+    if mode == "scheduler":
+        trig = (getattr(entry._metadata, "scheduler_trigger", "interval") or "interval").strip().lower()
+        if trig == "interval":
+            return f"Scheduler/interval：每 {interval:.1f} 秒执行"
+        if trig == "date":
+            return f"Scheduler/date：{getattr(entry._metadata, 'run_at', '') or '-'}"
+        return f"Scheduler/cron：{_humanize_cron(getattr(entry._metadata, 'cron_expr', '') or '')}"
+    return f"EventTrigger：来源 {getattr(entry._metadata, 'event_source', 'log')} / 条件 {getattr(entry._metadata, 'event_condition', '') or '任意事件'}"
 
 
 def _start_all_ds(mgr, ctx: dict):
@@ -367,7 +420,7 @@ async def _show_ds_detail(ctx: dict, mgr, entry_id: str):
             ["类型", type_label],
             ["描述", getattr(entry._metadata, "description", "") or "-"],
             ["状态", "运行中" if entry.is_running else "已停止"],
-            ["间隔", f"{getattr(entry._metadata, 'interval', 5):.1f} 秒"],
+            ["触发配置", _timer_trigger_text(entry) if source_type == "timer" else f"{getattr(entry._metadata, 'interval', 5):.1f} 秒"],
             ["创建时间", _fmt_ts(entry._metadata.created_at)],
             ["更新时间", _fmt_ts(entry._metadata.updated_at)],
         ], header=["字段", "值"])
@@ -465,26 +518,93 @@ async def _edit_ds_dialog(ctx: dict, mgr, entry_id: str):
 
     # 根据数据源类型显示对应的编辑表单
     if source_type == "timer":
-        form = await ctx["input_group"](f"编辑数据源: {entry.name}", [
+        timer_cfg = await _collect_timer_schedule_config(
+            ctx,
+            defaults={
+                "execution_mode": getattr(entry._metadata, "execution_mode", "timer"),
+                "scheduler_trigger": getattr(entry._metadata, "scheduler_trigger", "interval"),
+                "interval": interval,
+                "cron_expr": getattr(entry._metadata, "cron_expr", ""),
+                "run_at": getattr(entry._metadata, "run_at", ""),
+                "event_source": getattr(entry._metadata, "event_source", "log"),
+                "event_condition": getattr(entry._metadata, "event_condition", ""),
+                "event_condition_type": getattr(entry._metadata, "event_condition_type", "contains"),
+            },
+        )
+        if not timer_cfg:
+            ctx["close_popup"]()
+            return
+
+        fields = [
             ctx["input"]("名称", name="name", value=entry.name, required=True),
             ctx["textarea"]("描述", name="description", rows=2, value=description),
-            ctx["input"]("间隔(秒)", name="interval", type="number", value=interval),
-            ctx["textarea"]("代码", name="code", value=func_code, rows=14,
-                            code={"mode": "python", "theme": "darcula"}),
+        ]
+        mode = timer_cfg.get("execution_mode", "timer")
+        trig = timer_cfg.get("scheduler_trigger", "interval")
+        if mode == "timer":
+            fields.append(ctx["input"]("间隔(秒)", name="interval", type="number", value=timer_cfg.get("interval", interval)))
+        elif mode == "scheduler":
+            if trig == "interval":
+                fields.append(ctx["input"]("间隔(秒)", name="interval", type="number", value=timer_cfg.get("interval", interval)))
+            elif trig == "date":
+                fields.append(ctx["input"]("执行时间", name="run_at", value=timer_cfg.get("run_at", ""), placeholder="例如：2026-03-05 15:30:00"))
+            else:
+                fields.append(ctx["input"]("Cron 表达式", name="cron_expr", value=timer_cfg.get("cron_expr", ""), placeholder="例如：*/5 * * * *"))
+        else:
+            fields.extend([
+                ctx["select"]("事件源", name="event_source", options=[
+                    {"label": "log", "value": "log"},
+                    {"label": "bus", "value": "bus"},
+                ], value=timer_cfg.get("event_source", "log")),
+                ctx["select"]("条件类型", name="event_condition_type", options=[
+                    {"label": "contains", "value": "contains"},
+                    {"label": "python_expr", "value": "python_expr"},
+                ], value=timer_cfg.get("event_condition_type", "contains")),
+                ctx["input"]("事件条件", name="event_condition", value=timer_cfg.get("event_condition", ""), placeholder="例如：error 或 x.get('type') == 'signal'"),
+            ])
+
+        fields.extend([
+            ctx["textarea"]("代码", name="code", value=func_code, rows=14, code={"mode": "python", "theme": "darcula"}),
             ctx["actions"]("操作", [
                 {"label": "保存", "value": "save"},
                 {"label": "取消", "value": "cancel", "color": "danger"},
             ], name="action"),
         ])
+        form = await ctx["input_group"](f"编辑数据源: {entry.name}", fields)
 
         if not form or form.get("action") == "cancel":
             ctx["close_popup"]()
             return
 
+        interval_val = timer_cfg.get("interval", interval)
+        if mode in {"timer", "scheduler"} and trig == "interval":
+            interval_val = float(form.get("interval", interval_val) or interval_val)
+        if mode == "scheduler" and trig == "date":
+            timer_cfg["run_at"] = str(form.get("run_at", timer_cfg.get("run_at", "")) or "").strip()
+        if mode == "scheduler" and trig == "cron":
+            timer_cfg["cron_expr"] = str(form.get("cron_expr", timer_cfg.get("cron_expr", "")) or "").strip()
+            if not timer_cfg["cron_expr"]:
+                ctx["toast"]("Cron 表达式不能为空", color="error")
+                return
+        if mode == "event_trigger":
+            timer_cfg["event_source"] = str(form.get("event_source", timer_cfg.get("event_source", "log")) or "log").strip().lower()
+            timer_cfg["event_condition_type"] = str(form.get("event_condition_type", timer_cfg.get("event_condition_type", "contains")) or "contains").strip().lower()
+            timer_cfg["event_condition"] = str(form.get("event_condition", timer_cfg.get("event_condition", "")) or "")
+            if timer_cfg["event_condition_type"] == "python_expr" and not timer_cfg["event_condition"].strip():
+                ctx["toast"]("python_expr 条件不能为空", color="error")
+                return
+
         result = entry.update_config(
             name=form["name"].strip(),
             description=form.get("description", "").strip(),
-            interval=float(form.get("interval", 5)),
+            interval=interval_val,
+            execution_mode=timer_cfg.get("execution_mode", "timer"),
+            scheduler_trigger=timer_cfg.get("scheduler_trigger", "interval"),
+            cron_expr=timer_cfg.get("cron_expr", ""),
+            run_at=timer_cfg.get("run_at", ""),
+            event_source=timer_cfg.get("event_source", "log"),
+            event_condition=timer_cfg.get("event_condition", ""),
+            event_condition_type=timer_cfg.get("event_condition_type", "contains"),
             func_code=form.get("code"),
         )
 
@@ -673,6 +793,247 @@ def _get_replay_tables():
         return []
 
 
+def _parse_hhmm(value: str) -> Optional[tuple]:
+    raw = str(value or "").strip().replace("：", ":")
+    parts = raw.split(":")
+    if len(parts) != 2:
+        return None
+    try:
+        hour = int(parts[0])
+        minute = int(parts[1])
+    except Exception:
+        return None
+    if hour < 0 or hour > 23 or minute < 0 or minute > 59:
+        return None
+    return hour, minute
+
+
+def _preview_next_runs(cron_expr: str, count: int = 5) -> list:
+    try:
+        from apscheduler.triggers.cron import CronTrigger
+        import pytz
+    except Exception:
+        return []
+    try:
+        trigger = CronTrigger.from_crontab(str(cron_expr or "").strip(), timezone=pytz.timezone("Asia/Shanghai"))
+        out = []
+        now = datetime.now(pytz.timezone("Asia/Shanghai"))
+        prev = None
+        current = now
+        for _ in range(max(1, count)):
+            nxt = trigger.get_next_fire_time(prev, current)
+            if not nxt:
+                break
+            out.append(nxt.strftime("%Y-%m-%d %H:%M:%S"))
+            prev = nxt
+            current = nxt
+        return out
+    except Exception:
+        return []
+
+
+async def _choose_timer_mode(ctx: dict, default_mode: str = "timer", title: str = "步骤2.1: 选择调度方式") -> Optional[str]:
+    from ..config import get_enabled_timer_execution_modes
+
+    enabled_modes = list(get_enabled_timer_execution_modes() or [])
+    all_options = [
+        {"label": "Timer（固定间隔执行）", "value": "timer"},
+        {"label": "Scheduler（计划调度执行）", "value": "scheduler"},
+        {"label": "EventTrigger（事件触发执行）", "value": "event_trigger"},
+    ]
+    mode_options = [o for o in all_options if o["value"] in enabled_modes]
+    if not mode_options:
+        mode_options = [all_options[0]]
+    mode_values = {o["value"] for o in mode_options}
+    if default_mode not in mode_values:
+        default_mode = mode_options[0]["value"]
+
+    form = await ctx["input_group"](
+        title,
+        [
+            ctx["select"](
+                "调度方式",
+                name="execution_mode",
+                options=mode_options,
+                value=default_mode,
+            ),
+            ctx["actions"]("操作", [{"label": "下一步", "value": "next"}, {"label": "取消", "value": "cancel"}], name="action"),
+        ],
+    )
+    if not form or form.get("action") == "cancel":
+        return None
+    return str(form.get("execution_mode", default_mode) or default_mode).strip().lower()
+
+
+async def _choose_scheduler_trigger(ctx: dict, default_trigger: str = "interval", title: str = "步骤2.2: 选择 Scheduler 触发方式") -> Optional[str]:
+    form = await ctx["input_group"](
+        title,
+        [
+            ctx["select"](
+                "触发方式",
+                name="scheduler_trigger",
+                options=[
+                    {"label": "interval（固定间隔）", "value": "interval"},
+                    {"label": "cron（计划表达式）", "value": "cron"},
+                    {"label": "date（指定时间一次性）", "value": "date"},
+                ],
+                value=default_trigger,
+            ),
+            ctx["actions"]("操作", [{"label": "下一步", "value": "next"}, {"label": "取消", "value": "cancel"}], name="action"),
+        ],
+    )
+    if not form or form.get("action") == "cancel":
+        return None
+    return str(form.get("scheduler_trigger", default_trigger) or default_trigger).strip().lower()
+
+
+async def _build_cron_expr_wizard(ctx: dict, default_expr: str = "") -> Optional[str]:
+    template_default = "custom" if default_expr else "every_n_minutes"
+    while True:
+        form = await ctx["input_group"](
+            "步骤2.3: Cron 快速生成",
+            [
+                ctx["select"](
+                    "模板",
+                    name="template",
+                    options=[
+                        {"label": "每 N 分钟", "value": "every_n_minutes"},
+                        {"label": "每天固定时间", "value": "daily"},
+                        {"label": "每周固定时间", "value": "weekly"},
+                        {"label": "每月固定日期时间", "value": "monthly"},
+                        {"label": "自定义 Cron（高级）", "value": "custom"},
+                    ],
+                    value=template_default,
+                ),
+                ctx["actions"]("操作", [{"label": "下一步", "value": "next"}, {"label": "取消", "value": "cancel"}], name="action"),
+            ],
+        )
+        if not form or form.get("action") == "cancel":
+            return None
+
+        template = str(form.get("template", template_default) or template_default).strip().lower()
+        cron_expr = ""
+        if template == "every_n_minutes":
+            f = await ctx["input_group"]("Cron 模板：每 N 分钟", [
+                ctx["input"]("N（1-59）", name="n", type="number", value=5),
+                ctx["actions"]("操作", [{"label": "生成", "value": "ok"}, {"label": "返回", "value": "back"}], name="action"),
+            ])
+            if not f or f.get("action") == "back":
+                continue
+            try:
+                n = int(f.get("n", 5))
+                if n < 1 or n > 59:
+                    raise ValueError("n")
+                cron_expr = f"*/{n} * * * *"
+            except Exception:
+                ctx["toast"]("N 必须在 1-59", color="error")
+                continue
+        elif template == "daily":
+            f = await ctx["input_group"]("Cron 模板：每天固定时间", [
+                ctx["input"]("时间(HH:MM)", name="hhmm", value="09:30"),
+                ctx["actions"]("操作", [{"label": "生成", "value": "ok"}, {"label": "返回", "value": "back"}], name="action"),
+            ])
+            if not f or f.get("action") == "back":
+                continue
+            t = _parse_hhmm(f.get("hhmm", ""))
+            if not t:
+                ctx["toast"]("时间格式应为 HH:MM", color="error")
+                continue
+            hour, minute = t
+            cron_expr = f"{minute} {hour} * * *"
+        elif template == "weekly":
+            f = await ctx["input_group"]("Cron 模板：每周固定时间", [
+                ctx["select"]("星期", name="weekday", options=[
+                    {"label": "周一", "value": "mon"},
+                    {"label": "周二", "value": "tue"},
+                    {"label": "周三", "value": "wed"},
+                    {"label": "周四", "value": "thu"},
+                    {"label": "周五", "value": "fri"},
+                    {"label": "周六", "value": "sat"},
+                    {"label": "周日", "value": "sun"},
+                ], value="mon"),
+                ctx["input"]("时间(HH:MM)", name="hhmm", value="09:30"),
+                ctx["actions"]("操作", [{"label": "生成", "value": "ok"}, {"label": "返回", "value": "back"}], name="action"),
+            ])
+            if not f or f.get("action") == "back":
+                continue
+            t = _parse_hhmm(f.get("hhmm", ""))
+            if not t:
+                ctx["toast"]("时间格式应为 HH:MM", color="error")
+                continue
+            hour, minute = t
+            cron_expr = f"{minute} {hour} * * {f.get('weekday', 'mon')}"
+        elif template == "monthly":
+            f = await ctx["input_group"]("Cron 模板：每月固定日期时间", [
+                ctx["input"]("日期(1-31)", name="day", type="number", value=1),
+                ctx["input"]("时间(HH:MM)", name="hhmm", value="09:30"),
+                ctx["actions"]("操作", [{"label": "生成", "value": "ok"}, {"label": "返回", "value": "back"}], name="action"),
+            ])
+            if not f or f.get("action") == "back":
+                continue
+            try:
+                day = int(f.get("day", 1))
+                if day < 1 or day > 31:
+                    raise ValueError("day")
+            except Exception:
+                ctx["toast"]("日期必须在 1-31", color="error")
+                continue
+            t = _parse_hhmm(f.get("hhmm", ""))
+            if not t:
+                ctx["toast"]("时间格式应为 HH:MM", color="error")
+                continue
+            hour, minute = t
+            cron_expr = f"{minute} {hour} {day} * *"
+        else:
+            f = await ctx["input_group"]("Cron 模板：自定义", [
+                ctx["input"]("Cron 表达式", name="cron_expr", value=default_expr, placeholder="例如：*/5 * * * *"),
+                ctx["actions"]("操作", [{"label": "确认", "value": "ok"}, {"label": "返回", "value": "back"}], name="action"),
+            ])
+            if not f or f.get("action") == "back":
+                continue
+            cron_expr = str(f.get("cron_expr", "") or "").strip()
+            if not cron_expr:
+                ctx["toast"]("Cron 表达式不能为空", color="error")
+                continue
+
+        preview = _preview_next_runs(cron_expr, count=5)
+        if preview:
+            ctx["put_markdown"]("#### 未来 5 次执行预览")
+            for i, item in enumerate(preview, start=1):
+                ctx["put_text"](f"{i}. {item}")
+        return cron_expr
+
+
+async def _collect_timer_schedule_config(ctx: dict, *, defaults: dict = None) -> Optional[dict]:
+    defaults = defaults or {}
+    mode = await _choose_timer_mode(ctx, default_mode=str(defaults.get("execution_mode", "timer") or "timer"))
+    if not mode:
+        return None
+
+    config = {
+        "execution_mode": mode,
+        "scheduler_trigger": "interval",
+        "interval": float(defaults.get("interval", 5) or 5),
+        "cron_expr": str(defaults.get("cron_expr", "") or ""),
+        "run_at": str(defaults.get("run_at", "") or ""),
+        "event_source": str(defaults.get("event_source", "log") or "log"),
+        "event_condition": str(defaults.get("event_condition", "") or ""),
+        "event_condition_type": str(defaults.get("event_condition_type", "contains") or "contains"),
+    }
+
+    if mode == "scheduler":
+        trig = await _choose_scheduler_trigger(ctx, default_trigger=str(defaults.get("scheduler_trigger", "interval") or "interval"))
+        if not trig:
+            return None
+        config["scheduler_trigger"] = trig
+        if trig == "cron":
+            cron_expr = await _build_cron_expr_wizard(ctx, default_expr=config["cron_expr"])
+            if not cron_expr:
+                return None
+            config["cron_expr"] = cron_expr
+    return config
+
+
 def _get_ds_type_js() -> str:
     return ''
 
@@ -755,16 +1116,51 @@ async def _create_ds_config_form(ctx: dict, source_type: str) -> dict:
     """根据数据源类型显示配置表单"""
 
     if source_type == "timer":
-        return await ctx["input_group"]("步骤2: 定时器配置", [
-            ctx["input"]("间隔(秒)", name="interval", type="number", value=5, help_text="每隔多少秒执行一次"),
-            ctx["textarea"]("代码", name="code", value=DEFAULT_DS_CODE, rows=14,
-                            code={"mode": "python", "theme": "darcula"}),
+        timer_cfg = await _collect_timer_schedule_config(ctx, defaults={"execution_mode": "timer", "scheduler_trigger": "interval", "interval": 5})
+        if not timer_cfg:
+            return None
+        mode = timer_cfg.get("execution_mode", "timer")
+        trig = timer_cfg.get("scheduler_trigger", "interval")
+        fields = []
+        if mode == "timer":
+            fields.append(ctx["input"]("间隔(秒)", name="interval", type="number", value=timer_cfg.get("interval", 5), help_text="每隔多少秒执行一次"))
+        elif mode == "scheduler":
+            if trig == "interval":
+                fields.append(ctx["input"]("间隔(秒)", name="interval", type="number", value=timer_cfg.get("interval", 5), help_text="每隔多少秒执行一次"))
+            elif trig == "date":
+                fields.append(ctx["input"]("执行时间", name="run_at", value=timer_cfg.get("run_at", ""), placeholder="例如：2026-03-05 15:30:00"))
+            else:
+                fields.append(ctx["input"]("Cron 表达式", name="cron_expr", value=timer_cfg.get("cron_expr", ""), placeholder="例如：*/5 * * * *"))
+        else:
+            fields.extend([
+                ctx["select"]("事件源", name="event_source", options=[
+                    {"label": "log", "value": "log"},
+                    {"label": "bus", "value": "bus"},
+                ], value=timer_cfg.get("event_source", "log")),
+                ctx["select"]("条件类型", name="event_condition_type", options=[
+                    {"label": "contains", "value": "contains"},
+                    {"label": "python_expr", "value": "python_expr"},
+                ], value=timer_cfg.get("event_condition_type", "contains")),
+                ctx["input"]("事件条件", name="event_condition", value=timer_cfg.get("event_condition", ""), placeholder="例如：error 或 x.get('type') == 'signal'"),
+            ])
+        fields.extend([
+            ctx["textarea"]("代码", name="code", value=DEFAULT_DS_CODE, rows=14, code={"mode": "python", "theme": "darcula"}),
             ctx["actions"]("操作", [
                 {"label": "创建", "value": "create"},
                 {"label": "返回", "value": "back"},
                 {"label": "取消", "value": "cancel"},
             ], name="action"),
         ])
+        form = await ctx["input_group"]("步骤2: 定时器配置", fields)
+        if form:
+            form["execution_mode"] = timer_cfg.get("execution_mode", "timer")
+            form["scheduler_trigger"] = timer_cfg.get("scheduler_trigger", "interval")
+            form["cron_expr"] = str(form.get("cron_expr", timer_cfg.get("cron_expr", "")) or timer_cfg.get("cron_expr", ""))
+            form["run_at"] = str(form.get("run_at", timer_cfg.get("run_at", "")) or timer_cfg.get("run_at", ""))
+            form["event_source"] = str(form.get("event_source", timer_cfg.get("event_source", "log")) or timer_cfg.get("event_source", "log"))
+            form["event_condition"] = str(form.get("event_condition", timer_cfg.get("event_condition", "")) or timer_cfg.get("event_condition", ""))
+            form["event_condition_type"] = str(form.get("event_condition_type", timer_cfg.get("event_condition_type", "contains")) or timer_cfg.get("event_condition_type", "contains"))
+        return form
 
     elif source_type == "file":
         return await ctx["input_group"]("步骤2: 文件监控配置", [
@@ -858,6 +1254,14 @@ def _create_ds_from_form(mgr, name: str, description: str, source_type: str, for
     func_code = ""
     interval = 5
 
+    execution_mode = "timer"
+    scheduler_trigger = "interval"
+    cron_expr = ""
+    run_at = ""
+    event_source = "log"
+    event_condition = ""
+    event_condition_type = "contains"
+
     if source_type == "replay":
         config = {
             "table_name": form.get("replay_table", ""),
@@ -892,6 +1296,22 @@ def _create_ds_from_form(mgr, name: str, description: str, source_type: str, for
     else:
         interval = float(form.get("interval", 5))
         func_code = form.get("code", DEFAULT_DS_CODE)
+        if source_type == "timer":
+            execution_mode = str(form.get("execution_mode", "timer") or "timer").strip().lower()
+            scheduler_trigger = str(form.get("scheduler_trigger", "interval") or "interval").strip().lower()
+            cron_expr = str(form.get("cron_expr", "") or "").strip()
+            run_at = str(form.get("run_at", "") or "").strip()
+            event_source = str(form.get("event_source", "log") or "log").strip().lower()
+            event_condition = str(form.get("event_condition", "") or "")
+            event_condition_type = str(form.get("event_condition_type", "contains") or "contains").strip().lower()
+            if execution_mode == "event_trigger":
+                interval = 0.1
+            if execution_mode == "scheduler" and scheduler_trigger != "interval":
+                interval = max(0.1, interval)
+            if execution_mode == "scheduler" and scheduler_trigger == "cron" and not cron_expr:
+                return {"success": False, "error": "Cron 表达式不能为空"}
+            if execution_mode == "event_trigger" and event_condition_type == "python_expr" and not event_condition.strip():
+                return {"success": False, "error": "python_expr 条件不能为空"}
 
     return mgr.create(
         name=name,
@@ -900,4 +1320,11 @@ def _create_ds_from_form(mgr, name: str, description: str, source_type: str, for
         description=description,
         source_type=source_type,
         config=config,
+        execution_mode=execution_mode,
+        scheduler_trigger=scheduler_trigger,
+        cron_expr=cron_expr,
+        run_at=run_at,
+        event_source=event_source,
+        event_condition=event_condition,
+        event_condition_type=event_condition_type,
     )
