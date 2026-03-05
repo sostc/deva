@@ -7,6 +7,7 @@ from pywebio.input import actions, file_upload, input, input_group, select, text
 from pywebio.session import run_async
 
 from ..tables import parse_uploaded_dataframe
+from ..common.ui_style import apply_strategy_like_styles, render_empty_state, render_stats_cards
 
 
 DEFAULT_DICT_CODE = '''# 字典数据获取函数
@@ -520,6 +521,7 @@ def _render_dict_content(ctx: dict):
     stats = mgr.get_stats()
 
     clear("dict_content")
+    apply_strategy_like_styles(ctx, scope="dict_content", include_compact_table=True)
 
     ctx["put_html"](_render_dict_stats_html(stats), scope="dict_content")
 
@@ -527,34 +529,20 @@ def _render_dict_content(ctx: dict):
         table_data = _build_table_data(ctx, entries, mgr)
         ctx["put_table"](table_data, header=["名称", "类型", "状态", "健康", "大小", "最后更新", "鲜活方式", "操作"], scope="dict_content")
     else:
-        ctx["put_html"]('<div style="padding:40px;text-align:center;color:#999;background:#f9f9f9;border-radius:8px;">暂无字典，点击下方按钮创建</div>', scope="dict_content")
+        ctx["put_html"](render_empty_state("暂无字典，点击下方按钮创建"), scope="dict_content")
 
     ctx["put_html"]('<div style="margin-top:16px;display:flex;gap:12px;flex-wrap:wrap;">', scope="dict_content")
-    ctx["put_buttons"]([{"label": "➕ 创建字典", "value": "create"}], onclick=lambda v, m=mgr, c=ctx: _create_dict_dialog(m, c), scope="dict_content")
+    ctx["put_buttons"]([{"label": "➕ 创建字典", "value": "create", "color": "primary"}], onclick=lambda v, m=mgr, c=ctx: _create_dict_dialog(m, c), scope="dict_content")
     ctx["put_html"]("</div>", scope="dict_content")
 
 
 def _render_dict_stats_html(stats: dict) -> str:
-    return f"""
-    <div style="display:flex;flex-wrap:wrap;gap:16px;margin-bottom:24px;">
-        <div style="flex:1;min-width:140px;background:linear-gradient(135deg,#667eea,#764ba2);padding:20px;border-radius:12px;color:#fff;box-shadow:0 4px 12px rgba(102,126,234,0.3);">
-            <div style="font-size:13px;opacity:0.9;margin-bottom:4px;">总字典数</div>
-            <div style="font-size:32px;font-weight:700;">{stats['total']}</div>
-        </div>
-        <div style="flex:1;min-width:140px;background:linear-gradient(135deg,#11998e,#38ef7d);padding:20px;border-radius:12px;color:#fff;box-shadow:0 4px 12px rgba(17,153,142,0.3);">
-            <div style="font-size:13px;opacity:0.9;margin-bottom:4px;">运行中</div>
-            <div style="font-size:32px;font-weight:700;">{stats['running']}</div>
-        </div>
-        <div style="flex:1;min-width:140px;background:linear-gradient(135deg,#4facfe,#00f2fe);padding:20px;border-radius:12px;color:#fff;box-shadow:0 4px 12px rgba(79,172,254,0.3);">
-            <div style="font-size:13px;opacity:0.9;margin-bottom:4px;">健康</div>
-            <div style="font-size:32px;font-weight:700;">{stats['success']}</div>
-        </div>
-        <div style="flex:1;min-width:140px;background:linear-gradient(135deg,#ff416c,#ff4b2b);padding:20px;border-radius:12px;color:#fff;box-shadow:0 4px 12px rgba(255,65,108,0.3);">
-            <div style="font-size:13px;opacity:0.9;margin-bottom:4px;">异常</div>
-            <div style="font-size:32px;font-weight:700;">{stats['error']}</div>
-        </div>
-    </div>
-    """
+    return render_stats_cards([
+        {"label": "总字典数", "value": stats["total"], "gradient": "linear-gradient(135deg,#667eea,#764ba2)", "shadow": "rgba(102,126,234,0.3)"},
+        {"label": "运行中", "value": stats["running"], "gradient": "linear-gradient(135deg,#11998e,#38ef7d)", "shadow": "rgba(17,153,142,0.3)"},
+        {"label": "健康", "value": stats["success"], "gradient": "linear-gradient(135deg,#4facfe,#00f2fe)", "shadow": "rgba(79,172,254,0.3)"},
+        {"label": "异常", "value": stats["error"], "gradient": "linear-gradient(135deg,#ff416c,#ff4b2b)", "shadow": "rgba(255,65,108,0.3)"},
+    ])
 
 
 def _build_table_data(ctx: dict, entries: list, mgr) -> list:
@@ -576,15 +564,16 @@ def _build_table_data(ctx: dict, entries: list, mgr) -> list:
         }
         type_label = type_labels.get(dict_type, dict_type)
         type_html = f'<span style="background:#f3e5f5;color:#7b1fa2;padding:2px 8px;border-radius:4px;font-size:12px;">{type_label}</span>'
+        toggle_color = "danger" if e.is_running else "success"
 
         action_btns = ctx["put_buttons"](
             [
-                {"label": "详情", "value": f"detail_{e.id}"},
-                {"label": "编辑", "value": f"edit_{e.id}"},
-                {"label": "执行", "value": f"run_{e.id}"},
-                {"label": "清空", "value": f"clear_{e.id}"},
-                {"label": "停止" if e.is_running else "启动", "value": f"toggle_{e.id}"},
-                {"label": "删除", "value": f"delete_{e.id}"},
+                {"label": "详情", "value": f"detail_{e.id}", "color": "info"},
+                {"label": "编辑", "value": f"edit_{e.id}", "color": "primary"},
+                {"label": "执行", "value": f"run_{e.id}", "color": "warning"},
+                {"label": "清空", "value": f"clear_{e.id}", "color": "default"},
+                {"label": "停止" if e.is_running else "启动", "value": f"toggle_{e.id}", "color": toggle_color},
+                {"label": "删除", "value": f"delete_{e.id}", "color": "danger"},
             ],
             onclick=lambda v, m=mgr, c=ctx: _handle_dict_action(v, m, c),
         )
@@ -596,8 +585,8 @@ def _build_table_data(ctx: dict, entries: list, mgr) -> list:
                 ctx["put_html"](status_html),
                 ctx["put_html"](health_html),
                 _fmt_size(getattr(e._state, "data_size_bytes", 0)),
-                _fmt_ts(getattr(e._state, "last_update_ts", 0)),
-                _refresh_label(e),
+                ctx["put_html"](f"<span style='font-size:12px;'>{_fmt_ts(getattr(e._state, "last_update_ts", 0))}</span>"),
+                ctx["put_html"](f"<span style='font-size:12px;'>{_refresh_label(e)}</span>"),
                 action_btns,
             ]
         )

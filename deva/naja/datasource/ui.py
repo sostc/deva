@@ -7,6 +7,8 @@ from pywebio.output import put_text, put_markdown, put_table, put_buttons, put_h
 from pywebio.input import input_group, input, textarea, select, actions, radio
 from pywebio.session import run_async
 
+from ..common.ui_style import apply_strategy_like_styles, render_empty_state, render_stats_cards
+
 
 DEFAULT_DS_CODE = '''# 数据获取函数
 # 必须定义 fetch_data() 函数，返回获取的数据
@@ -121,6 +123,7 @@ def _render_ds_content(ctx: dict):
     stats = mgr.get_stats()
 
     clear("ds_content")
+    apply_strategy_like_styles(ctx, scope="ds_content", include_compact_table=True)
 
     ctx["put_html"](_render_stats_html(stats), scope="ds_content")
 
@@ -129,39 +132,24 @@ def _render_ds_content(ctx: dict):
         ctx["put_table"](table_data, header=["名称", "类型", "状态",
                                              "简介", "最近数据", "操作"], scope="ds_content")
     else:
-        ctx["put_html"](
-            '<div style="padding:40px;text-align:center;color:#999;background:#f9f9f9;border-radius:8px;">暂无数据源，点击下方按钮创建</div>', scope="ds_content")
+        ctx["put_html"](render_empty_state("暂无数据源，点击下方按钮创建"), scope="ds_content")
 
     ctx["put_html"](_render_toolbar_html(), scope="ds_content")
     ctx["put_buttons"]([
-        {"label": "➕ 创建数据源", "value": "create"},
-        {"label": "▶ 全部启动", "value": "start_all"},
-        {"label": "⏹ 全部停止", "value": "stop_all"},
+        {"label": "➕ 创建数据源", "value": "create", "color": "primary"},
+        {"label": "▶ 全部启动", "value": "start_all", "color": "success"},
+        {"label": "⏹ 全部停止", "value": "stop_all", "color": "danger"},
     ], onclick=lambda v, m=mgr, c=ctx: _handle_toolbar_action(v, m, c), group=True, scope="ds_content")
     ctx["put_html"]('</div>', scope="ds_content")
 
 
 def _render_stats_html(stats: dict) -> str:
-    return f"""
-    <div style="display:flex;flex-wrap:wrap;gap:16px;margin-bottom:24px;">
-        <div style="flex:1;min-width:140px;background:linear-gradient(135deg,#667eea,#764ba2);padding:20px;border-radius:12px;color:#fff;box-shadow:0 4px 12px rgba(102,126,234,0.3);">
-            <div style="font-size:13px;opacity:0.9;margin-bottom:4px;">总数据源</div>
-            <div style="font-size:32px;font-weight:700;">{stats['total']}</div>
-        </div>
-        <div style="flex:1;min-width:140px;background:linear-gradient(135deg,#11998e,#38ef7d);padding:20px;border-radius:12px;color:#fff;box-shadow:0 4px 12px rgba(17,153,142,0.3);">
-            <div style="font-size:13px;opacity:0.9;margin-bottom:4px;">运行中</div>
-            <div style="font-size:32px;font-weight:700;">{stats['running']}</div>
-        </div>
-        <div style="flex:1;min-width:140px;background:linear-gradient(135deg,#636363,#a2abba);padding:20px;border-radius:12px;color:#fff;box-shadow:0 4px 12px rgba(99,99,99,0.3);">
-            <div style="font-size:13px;opacity:0.9;margin-bottom:4px;">已停止</div>
-            <div style="font-size:32px;font-weight:700;">{stats['stopped']}</div>
-        </div>
-        <div style="flex:1;min-width:140px;background:linear-gradient(135deg,#ff416c,#ff4b2b);padding:20px;border-radius:12px;color:#fff;box-shadow:0 4px 12px rgba(255,65,108,0.3);">
-            <div style="font-size:13px;opacity:0.9;margin-bottom:4px;">错误数</div>
-            <div style="font-size:32px;font-weight:700;">{stats['error']}</div>
-        </div>
-    </div>
-    """
+    return render_stats_cards([
+        {"label": "总数据源", "value": stats["total"], "gradient": "linear-gradient(135deg,#667eea,#764ba2)", "shadow": "rgba(102,126,234,0.3)"},
+        {"label": "运行中", "value": stats["running"], "gradient": "linear-gradient(135deg,#11998e,#38ef7d)", "shadow": "rgba(17,153,142,0.3)"},
+        {"label": "已停止", "value": stats["stopped"], "gradient": "linear-gradient(135deg,#636363,#a2abba)", "shadow": "rgba(99,99,99,0.3)"},
+        {"label": "错误数", "value": stats["error"], "gradient": "linear-gradient(135deg,#ff416c,#ff4b2b)", "shadow": "rgba(255,65,108,0.3)"},
+    ])
 
 
 def _render_toolbar_html() -> str:
@@ -175,19 +163,20 @@ def _build_table_data(ctx: dict, entries: list, mgr) -> list:
         type_label = _get_type_label(e)
         desc_short = _get_description_short(e)
         recent_data_info = _get_recent_data_info(e)
+        toggle_color = "danger" if e.is_running else "success"
 
         action_btns = ctx["put_buttons"]([
-            {"label": "详情", "value": f"detail_{e.id}"},
-            {"label": "编辑", "value": f"edit_{e.id}"},
-            {"label": "停止" if e.is_running else "启动", "value": f"toggle_{e.id}"},
-            {"label": "删除", "value": f"delete_{e.id}"},
+            {"label": "详情", "value": f"detail_{e.id}", "color": "info"},
+            {"label": "编辑", "value": f"edit_{e.id}", "color": "primary"},
+            {"label": "停止" if e.is_running else "启动", "value": f"toggle_{e.id}", "color": toggle_color},
+            {"label": "删除", "value": f"delete_{e.id}", "color": "danger"},
         ], onclick=lambda v, m=mgr, c=ctx: _handle_ds_action(v, m, c))
 
         table_data.append([
-            ctx["put_html"](f"<strong>{e.name}</strong>"),
+            ctx["put_html"](f'<div style="max-width:200px;white-space:normal;word-break:break-word;line-height:1.4;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;"><strong>{e.name}</strong></div>'),
             ctx["put_html"](type_label),
             ctx["put_html"](status_html),
-            ctx["put_html"](f'<span style="color:#666;font-size:12px;" title="{getattr(e._metadata, "description", "") or ""}">{desc_short}</span>'),
+            ctx["put_html"](f'<div style="color:#666;font-size:12px;line-height:1.4;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;" title="{getattr(e._metadata, "description", "") or ""}">{desc_short}</div>'),
             ctx["put_html"](f'<span style="color:#666;font-size:12px;">{recent_data_info}</span>'),
             action_btns,
         ])
@@ -777,10 +766,12 @@ def _get_replay_tables():
     """获取可用的回放表列表"""
     try:
         from deva import NB
-        tables = NB.list_tables()
+        # 创建一个临时的DBStream对象来获取所有表
+        temp_db = NB('temp')
+        tables = temp_db.tables
         replay_tables = []
         for table in tables:
-            if table.startswith("ds_") or table.startswith("data_") or "_stream" in table or "_output" in table:
+            if table.startswith("ds_") or table.startswith("data_") or table.startswith("quant_") or "_stream" in table or "snapshot" in table:
                 try:
                     db = NB(table)
                     count = len(list(db.keys()))
