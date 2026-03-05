@@ -128,6 +128,10 @@ async def _render_datasource_config(ctx: dict, config: dict, defaults: dict):
     ]
     
     enabled_types = config.get("enabled_types", defaults.get("enabled_types", ["timer", "custom", "replay"]))
+    enabled_timer_modes = config.get(
+        "enabled_timer_execution_modes",
+        defaults.get("enabled_timer_execution_modes", ["timer", "scheduler", "event_trigger"]),
+    )
     
     form = await ctx["input_group"]("数据源配置", [
         ctx["input"]("默认间隔(秒)", name="default_interval", type="number",
@@ -140,6 +144,17 @@ async def _render_datasource_config(ctx: dict, config: dict, defaults: dict):
                     value=config.get("timeout", defaults.get("timeout", 30))),
         ctx["checkbox"]("启用的数据源类型", name="enabled_types", options=all_types, 
                        value=enabled_types, help_text="勾选的类型将在创建/编辑数据源时显示"),
+        ctx["checkbox"](
+            "定时器可用调度方式",
+            name="enabled_timer_execution_modes",
+            options=[
+                {"label": "Timer（固定间隔执行）", "value": "timer"},
+                {"label": "Scheduler（计划调度执行）", "value": "scheduler"},
+                {"label": "EventTrigger（事件触发执行）", "value": "event_trigger"},
+            ],
+            value=enabled_timer_modes,
+            help_text="勾选后会在“定时器”数据源的创建/编辑流程中显示",
+        ),
         ctx["actions"]("操作", [
             {"label": "保存", "value": "save"},
             {"label": "恢复默认", "value": "reset"},
@@ -154,6 +169,9 @@ async def _render_datasource_config(ctx: dict, config: dict, defaults: dict):
             "retry_delay": float(form.get("retry_delay", 1.0)),
             "timeout": int(form.get("timeout", 30)),
             "enabled_types": form.get("enabled_types", ["timer", "custom", "replay"]),
+            "enabled_timer_execution_modes": form.get(
+                "enabled_timer_execution_modes", ["timer", "scheduler", "event_trigger"]
+            ),
         })
         ctx["toast"]("数据源配置已保存", color="success")
         ctx["close_popup"]()

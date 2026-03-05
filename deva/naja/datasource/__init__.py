@@ -8,9 +8,10 @@ import sys
 import threading
 import time
 from dataclasses import dataclass, field
+from datetime import datetime, timedelta
 from typing import Any, Callable, Dict, List, Optional
 
-from deva import NB
+from deva import NB, EventTrigger, bus, log, scheduler as deva_scheduler, timer as deva_timer
 from deva.core.namespace import NS
 
 from ..common.recoverable import (
@@ -25,12 +26,56 @@ DS_TABLE = "naja_datasources"
 DS_LATEST_DATA_TABLE = "naja_ds_latest_data"
 
 
+def _parse_cron_expr(expr: str) -> Dict[str, str]:
+    parts = [p for p in str(expr or "").strip().split() if p]
+    if len(parts) == 5:
+        minute, hour, day, month, day_of_week = parts
+        return {
+            "minute": minute,
+            "hour": hour,
+            "day": day,
+            "month": month,
+            "day_of_week": day_of_week,
+        }
+    if len(parts) == 6:
+        second, minute, hour, day, month, day_of_week = parts
+        return {
+            "second": second,
+            "minute": minute,
+            "hour": hour,
+            "day": day,
+            "month": month,
+            "day_of_week": day_of_week,
+        }
+    raise ValueError("cron 表达式必须是 5 或 6 段")
+
+
+_shared_scheduler = None
+_shared_scheduler_lock = threading.Lock()
+
+
+def _get_shared_scheduler():
+    global _shared_scheduler
+    if _shared_scheduler is None:
+        with _shared_scheduler_lock:
+            if _shared_scheduler is None:
+                _shared_scheduler = deva_scheduler(start=True)
+    return _shared_scheduler
+
+
 @dataclass
 class DataSourceMetadata(UnitMetadata):
     """数据源元数据"""
     source_type: str = "custom"
     config: Dict[str, Any] = field(default_factory=dict)
     interval: float = 5.0
+    execution_mode: str = "timer"
+    scheduler_trigger: str = "interval"
+    cron_expr: str = ""
+    run_at: str = ""
+    event_source: str = "log"
+    event_condition: str = ""
+    event_condition_type: str = "contains"
 
 
 @dataclass
@@ -83,6 +128,9 @@ class DataSourceEntry(RecoverableUnit):
         self._stream: Optional[Any] = None
         self._latest_data: Any = None
         self._event_loop: Optional[asyncio.AbstractEventLoop] = None
+        self._timer_handle = None
+        self._scheduler_job_name: Optional[str] = None
+        self._event_sink = None
 
     def _get_func_name(self) -> str:
         return "fetch_data"
@@ -150,6 +198,9 @@ class DataSourceEntry(RecoverableUnit):
             if source_type == "directory":
                 return self._start_directory_source(func)
 
+            if source_type == "timer":
+                return self._start_timer_source(func)
+
             self._event_loop = asyncio.new_event_loop()
 
             self._thread = threading.Thread(
@@ -165,6 +216,112 @@ class DataSourceEntry(RecoverableUnit):
             return {"success": True}
         except Exception as e:
             return {"success": False, "error": str(e)}
+
+    def _start_timer_source(self, func: Callable) -> dict:
+        try:
+            self._clear_timer_handles()
+            mode = (getattr(self._metadata, "execution_mode", "timer") or "timer").strip().lower()
+            if mode not in {"timer", "scheduler", "event_trigger"}:
+                mode = "timer"
+
+            if mode == "timer":
+                interval = max(0.1, float(getattr(self._metadata, "interval", 5.0) or 5.0))
+                self._timer_handle = deva_timer(
+                    interval=interval,
+                    start=False,
+                    func=lambda: self._execute_scheduled_fetch(func),
+                )
+                self._timer_handle.start()
+                return {"success": True}
+
+            if mode == "scheduler":
+                sched = _get_shared_scheduler()
+                trig = (getattr(self._metadata, "scheduler_trigger", "interval") or "interval").strip().lower()
+                job_name = f"naja_ds_{self.id}"
+                try:
+                    sched.remove_job(job_name)
+                except Exception:
+                    pass
+
+                if trig == "interval":
+                    interval = max(1.0, float(getattr(self._metadata, "interval", 5.0) or 5.0))
+                    sched.add_job(
+                        func=lambda: self._execute_scheduled_fetch(func),
+                        name=job_name,
+                        trigger="interval",
+                        seconds=interval,
+                    )
+                elif trig == "cron":
+                    cron_expr = str(getattr(self._metadata, "cron_expr", "") or "").strip()
+                    if not cron_expr:
+                        return {"success": False, "error": "scheduler=cron 时 cron_expr 不能为空"}
+                    sched.add_job(
+                        func=lambda: self._execute_scheduled_fetch(func),
+                        name=job_name,
+                        trigger="cron",
+                        **_parse_cron_expr(cron_expr),
+                    )
+                elif trig == "date":
+                    run_at_raw = str(getattr(self._metadata, "run_at", "") or "").strip()
+                    run_at = datetime.fromisoformat(run_at_raw) if run_at_raw else datetime.now() + timedelta(seconds=1)
+                    sched.add_job(
+                        func=lambda: self._execute_scheduled_fetch(func),
+                        name=job_name,
+                        trigger="date",
+                        run_date=run_at,
+                    )
+                else:
+                    return {"success": False, "error": f"不支持的 scheduler trigger: {trig}"}
+
+                self._scheduler_job_name = job_name
+                return {"success": True}
+
+            source_name = (getattr(self._metadata, "event_source", "log") or "log").strip().lower()
+            if source_name == "bus":
+                source_stream = bus
+            else:
+                source_stream = log
+
+            cond_type = (getattr(self._metadata, "event_condition_type", "contains") or "contains").strip().lower()
+            cond = str(getattr(self._metadata, "event_condition", "") or "")
+            if cond_type == "python_expr":
+                if not cond:
+                    return {"success": False, "error": "event_condition_type=python_expr 时 event_condition 不能为空"}
+                compiled_expr = compile(cond, "<ds_event_condition>", "eval")
+
+                def checker(x):
+                    return bool(eval(compiled_expr, {"__builtins__": __builtins__}, {"x": x}))
+            else:
+                checker = (lambda x: cond in str(x)) if cond else (lambda x: True)
+
+            self._event_sink = EventTrigger(condition=checker, source=source_stream).then(
+                lambda x: self._execute_scheduled_fetch(func, event_payload=x)
+            )
+            return {"success": True}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+    def _clear_timer_handles(self):
+        if self._timer_handle is not None:
+            try:
+                self._timer_handle.stop()
+            except Exception:
+                pass
+            self._timer_handle = None
+
+        if self._scheduler_job_name:
+            try:
+                _get_shared_scheduler().remove_job(self._scheduler_job_name)
+            except Exception:
+                pass
+            self._scheduler_job_name = None
+
+        if self._event_sink is not None:
+            try:
+                self._event_sink.destroy()
+            except Exception:
+                pass
+            self._event_sink = None
 
     def _start_replay_source(self) -> dict:
         """启动回放数据源"""
@@ -512,12 +669,58 @@ class DataSourceEntry(RecoverableUnit):
 
     def _do_stop(self) -> dict:
         try:
+            self._clear_timer_handles()
             if self._event_loop and not self._event_loop.is_closed():
                 self._event_loop.call_soon_threadsafe(self._event_loop.stop)
 
             return {"success": True}
         except Exception as e:
             return {"success": False, "error": str(e)}
+
+    def _invoke_fetch_func(self, func: Callable, event_payload: Any = None):
+        if event_payload is None:
+            return func()
+
+        try:
+            import inspect
+
+            sig = inspect.signature(func)
+            params = list(sig.parameters.values())
+        except Exception:
+            return func(event_payload)
+
+        if not params:
+            return func()
+
+        has_var_pos = any(p.kind == p.VAR_POSITIONAL for p in params)
+        positional = [p for p in params if p.kind in (p.POSITIONAL_ONLY, p.POSITIONAL_OR_KEYWORD)]
+        if positional or has_var_pos:
+            return func(event_payload)
+        if "event" in sig.parameters:
+            return func(event=event_payload)
+        return func()
+
+    def _execute_scheduled_fetch(self, func: Callable, event_payload: Any = None):
+        try:
+            data = self._invoke_fetch_func(func, event_payload=event_payload)
+            if asyncio.iscoroutine(data):
+                loop = asyncio.new_event_loop()
+                try:
+                    data = loop.run_until_complete(data)
+                finally:
+                    loop.close()
+
+            if data is not None:
+                self._emit_data(data)
+                self._state.last_data_ts = time.time()
+                self._state.total_emitted += 1
+                self._latest_data = data
+                self._state.record_success()
+            self.save()
+        except Exception as e:
+            self._state.record_error(str(e))
+            self._log("ERROR", "fetch_data failed", error=str(e))
+            self.save()
 
     def _worker_loop(self, func: Callable):
         """工作线程循环"""
@@ -591,6 +794,13 @@ class DataSourceEntry(RecoverableUnit):
         source_type: str = None,
         config: dict = None,
         description: str = None,
+        execution_mode: str = None,
+        scheduler_trigger: str = None,
+        cron_expr: str = None,
+        run_at: str = None,
+        event_source: str = None,
+        event_condition: str = None,
+        event_condition_type: str = None,
     ) -> dict:
         if name is not None:
             self._metadata.name = name
@@ -602,6 +812,20 @@ class DataSourceEntry(RecoverableUnit):
             self._metadata.config = config
         if description is not None:
             self._metadata.description = description
+        if execution_mode is not None:
+            self._metadata.execution_mode = str(execution_mode).strip().lower()
+        if scheduler_trigger is not None:
+            self._metadata.scheduler_trigger = str(scheduler_trigger).strip().lower()
+        if cron_expr is not None:
+            self._metadata.cron_expr = str(cron_expr).strip()
+        if run_at is not None:
+            self._metadata.run_at = str(run_at).strip()
+        if event_source is not None:
+            self._metadata.event_source = str(event_source).strip().lower()
+        if event_condition is not None:
+            self._metadata.event_condition = str(event_condition)
+        if event_condition_type is not None:
+            self._metadata.event_condition_type = str(event_condition_type).strip().lower()
 
         if func_code is not None:
             if self._get_func_name() not in func_code:
@@ -635,6 +859,13 @@ class DataSourceEntry(RecoverableUnit):
                 "source_type": getattr(self._metadata, "source_type", "custom"),
                 "config": getattr(self._metadata, "config", {}),
                 "interval": getattr(self._metadata, "interval", 5.0),
+                "execution_mode": getattr(self._metadata, "execution_mode", "timer"),
+                "scheduler_trigger": getattr(self._metadata, "scheduler_trigger", "interval"),
+                "cron_expr": getattr(self._metadata, "cron_expr", ""),
+                "run_at": getattr(self._metadata, "run_at", ""),
+                "event_source": getattr(self._metadata, "event_source", "log"),
+                "event_condition": getattr(self._metadata, "event_condition", ""),
+                "event_condition_type": getattr(self._metadata, "event_condition_type", "contains"),
                 "created_at": self._metadata.created_at,
                 "updated_at": self._metadata.updated_at,
             },
@@ -654,6 +885,13 @@ class DataSourceEntry(RecoverableUnit):
             source_type=metadata_data.get("source_type", "custom"),
             config=metadata_data.get("config", {}),
             interval=metadata_data.get("interval", 5.0),
+            execution_mode=metadata_data.get("execution_mode", "timer"),
+            scheduler_trigger=metadata_data.get("scheduler_trigger", "interval"),
+            cron_expr=metadata_data.get("cron_expr", ""),
+            run_at=metadata_data.get("run_at", ""),
+            event_source=metadata_data.get("event_source", "log"),
+            event_condition=metadata_data.get("event_condition", ""),
+            event_condition_type=metadata_data.get("event_condition_type", "contains"),
             created_at=metadata_data.get("created_at", time.time()),
             updated_at=metadata_data.get("updated_at", time.time()),
         )
@@ -706,6 +944,13 @@ class DataSourceManager:
         tags: List[str] = None,
         source_type: str = "custom",
         config: dict = None,
+        execution_mode: str = "timer",
+        scheduler_trigger: str = "interval",
+        cron_expr: str = "",
+        run_at: str = "",
+        event_source: str = "log",
+        event_condition: str = "",
+        event_condition_type: str = "contains",
     ) -> dict:
         from ..config import get_datasource_config
 
@@ -732,6 +977,13 @@ class DataSourceManager:
             interval=interval,
             source_type=source_type,
             config=config or {},
+            execution_mode=str(execution_mode or "timer").strip().lower(),
+            scheduler_trigger=str(scheduler_trigger or "interval").strip().lower(),
+            cron_expr=str(cron_expr or "").strip(),
+            run_at=str(run_at or "").strip(),
+            event_source=str(event_source or "log").strip().lower(),
+            event_condition=str(event_condition or ""),
+            event_condition_type=str(event_condition_type or "contains").strip().lower(),
         )
 
         entry = DataSourceEntry(metadata=metadata)
