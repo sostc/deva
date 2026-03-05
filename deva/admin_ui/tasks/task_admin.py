@@ -90,8 +90,7 @@ async def render_task_list(ctx):
         table_data.append([
             f"{_get_task_type_icon(task.metadata.task_type)} {task.name}",
             _get_status_text(task.state.status),
-            task.metadata.task_type.value,
-            task.get_schedule_description(),
+            ctx["put_html"](f"<span style='font-size:12px;'>{task.metadata.task_type.value}<br>{task.get_schedule_description()}</span>"),
             str(task.state.run_count),
             f"{success_rate:.1f}%",
             actions,
@@ -101,7 +100,7 @@ async def render_task_list(ctx):
         ctx["put_markdown"]("### 📋 任务列表")
         ctx["put_table"](
             table_data,
-            header=["任务名称", "状态", "类型", "调度配置", "执行次数", "成功率", "操作"],
+            header=["任务名称", "状态", "执行方式", "执行次数", "成功率", "操作"],
         )
 
 
