@@ -8,6 +8,7 @@ from pywebio.input import input_group, input, textarea, select, actions, file_up
 from pywebio.session import run_async
 from pywebio import pin
 
+from ..common.ui_style import apply_strategy_like_styles, render_empty_state, render_stats_cards
 from . import (
     get_table_list,
     get_table_info,
@@ -28,6 +29,11 @@ from . import (
 def render_tables_page(ctx: dict):
     """渲染数据表管理页面"""
     clear("tables_content")
+    apply_strategy_like_styles(ctx, scope="tables_content", include_compact_table=True)
+    ctx["put_html"](
+        "<style>.pywebio-table .pywebio-btn-group{flex-wrap:nowrap!important;gap:6px!important;}</style>",
+        scope="tables_content",
+    )
     
     tables = get_table_list()
     
@@ -35,26 +41,21 @@ def render_tables_page(ctx: dict):
     
     if tables:
         table_data = _build_table_list(ctx, tables)
-        ctx["put_table"](table_data, header=["表名", "记录数", "描述", "操作"], scope="tables_content")
+        ctx["put_table"](table_data, header=["表名", "描述", "操作"], scope="tables_content")
     else:
-        ctx["put_html"]('<div style="padding:40px;text-align:center;color:#999;background:#f9f9f9;border-radius:8px;">暂无数据表，点击下方按钮创建</div>', scope="tables_content")
+        ctx["put_html"](render_empty_state("暂无数据表，点击下方按钮创建"), scope="tables_content")
     
     ctx["put_html"]('<div style="margin-top:16px;">', scope="tables_content")
     ctx["put_buttons"]([
-        {"label": "➕ 创建表", "value": "create"},
+        {"label": "➕ 创建表", "value": "create", "color": "primary"},
     ], onclick=lambda v, c=ctx: _handle_create_table(c), scope="tables_content")
     ctx["put_html"]('</div>', scope="tables_content")
 
 
 def _render_stats_html(count: int) -> str:
-    return f"""
-    <div style="display:flex;flex-wrap:wrap;gap:16px;margin-bottom:24px;">
-        <div style="flex:1;min-width:140px;background:linear-gradient(135deg,#667eea,#764ba2);padding:20px;border-radius:12px;color:#fff;box-shadow:0 4px 12px rgba(102,126,234,0.3);">
-            <div style="font-size:13px;opacity:0.9;margin-bottom:4px;">总表数</div>
-            <div style="font-size:32px;font-weight:700;">{count}</div>
-        </div>
-    </div>
-    """
+    return render_stats_cards([
+        {"label": "总表数", "value": count, "gradient": "linear-gradient(135deg,#667eea,#764ba2)", "shadow": "rgba(102,126,234,0.3)"},
+    ])
 
 
 def _build_table_list(ctx: dict, tables: list) -> list:
@@ -69,14 +70,17 @@ def _build_table_list(ctx: dict, tables: list) -> list:
             desc = default_db.get(name) or ""
             
             actions = ctx["put_buttons"]([
-                {"label": "查看", "value": f"view_{name}"},
-                {"label": "删除", "value": f"delete_{name}"},
+                {"label": "查看", "value": f"view_{name}", "color": "info"},
+                {"label": "删除", "value": f"delete_{name}", "color": "danger"},
             ], onclick=lambda v, c=ctx: _handle_table_action(v, c), small=True)
             
             table_data.append([
-                ctx["put_html"](f'<span style="font-weight:600;color:#333;">{name}</span>'),
-                "-",
-                desc[:30] + "..." if len(desc) > 30 else desc,
+                ctx["put_html"](
+                    f'<div style="max-width:260px;font-weight:600;color:#333;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="{name}">{name}</div>'
+                ),
+                ctx["put_html"](
+                    f'<div style="max-width:360px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:#666;" title="{desc}">{desc or "-"}</div>'
+                ),
                 actions,
             ])
         except Exception:

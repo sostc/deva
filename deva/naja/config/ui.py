@@ -5,6 +5,7 @@ from pywebio.input import input_group, input, select, NUMBER, PASSWORD
 from pywebio.session import run_async
 from pywebio import pin
 
+from ..common.ui_style import apply_strategy_like_styles, render_stats_cards
 from . import (
     get_config,
     set_config,
@@ -22,16 +23,21 @@ from . import (
 
 def render_config_page(ctx: dict):
     """渲染配置管理页面"""
-    ctx["put_markdown"]("## ⚙️ Naja 配置管理")
-    ctx["put_markdown"]("管理数据源、策略、任务、字典四个模块的配置参数。配置存储在 `NB('naja_config')` 命名空间中。")
+    apply_strategy_like_styles(ctx)
+    ctx["put_html"](
+        '<div style="margin:0 0 14px 0;">'
+        '<div style="font-size:24px;font-weight:700;color:#2c3e50;">⚙️ Naja 配置管理</div>'
+        '<div style="font-size:13px;color:#6c757d;margin-top:6px;">管理数据源、策略、任务、字典四个模块的配置参数，配置存储在 NB(\'naja_config\') 命名空间中。</div>'
+        '</div>'
+    )
     
     ctx["put_html"]('<div style="margin:16px 0;">')
     ctx["put_buttons"]([
-        {"label": "🔐 认证配置", "value": "auth"},
-        {"label": "📡 数据源配置", "value": "datasource"},
-        {"label": "📈 策略配置", "value": "strategy"},
-        {"label": "⏰ 任务配置", "value": "task"},
-        {"label": "📚 字典配置", "value": "dictionary"},
+        {"label": "🔐 认证配置", "value": "auth", "color": "warning"},
+        {"label": "📡 数据源配置", "value": "datasource", "color": "info"},
+        {"label": "📈 策略配置", "value": "strategy", "color": "primary"},
+        {"label": "⏰ 任务配置", "value": "task", "color": "success"},
+        {"label": "📚 字典配置", "value": "dictionary", "color": "default"},
     ], onclick=lambda v: run_async(_show_config_dialog(ctx, v)), group=True)
     ctx["put_html"]('</div>')
     
@@ -40,7 +46,7 @@ def render_config_page(ctx: dict):
 
 def _render_config_summary(ctx: dict):
     """渲染配置摘要"""
-    ctx["put_markdown"]("### 当前配置摘要")
+    ctx["put_html"]('<div style="margin:8px 0 10px 0;font-size:18px;font-weight:600;color:#333;">📊 当前配置摘要</div>')
     
     config_data = [
         ["类别", "关键配置", "当前值"],
@@ -80,6 +86,12 @@ def _render_config_summary(ctx: dict):
         f"用户名: {auth_config.get('username', '未设置')}",
         f"开发模式: {'启用' if auth_config.get('dev_mode', False) else '禁用'}"
     ])
+
+    ctx["put_html"](render_stats_cards([
+        {"label": "配置模块", "value": 5, "gradient": "linear-gradient(135deg,#667eea,#764ba2)", "shadow": "rgba(102,126,234,0.3)"},
+        {"label": "启用开发模式", "value": 1 if auth_config.get('dev_mode', False) else 0, "gradient": "linear-gradient(135deg,#f0ad4e,#ec971f)", "shadow": "rgba(240,173,78,0.3)"},
+        {"label": "默认策略窗口", "value": strategy_config.get('default_window_size', 5), "gradient": "linear-gradient(135deg,#11998e,#38ef7d)", "shadow": "rgba(17,153,142,0.3)"},
+    ]))
     
     ctx["put_table"](config_data)
 
@@ -156,9 +168,9 @@ async def _render_datasource_config(ctx: dict, config: dict, defaults: dict):
             help_text="勾选后会在“定时器”数据源的创建/编辑流程中显示",
         ),
         ctx["actions"]("操作", [
-            {"label": "保存", "value": "save"},
-            {"label": "恢复默认", "value": "reset"},
-            {"label": "取消", "value": "cancel"},
+            {"label": "保存", "value": "save", "color": "primary"},
+            {"label": "恢复默认", "value": "reset", "color": "warning"},
+            {"label": "取消", "value": "cancel", "color": "default"},
         ], name="action"),
     ])
     
@@ -198,9 +210,9 @@ async def _render_strategy_config(ctx: dict, config: dict, defaults: dict):
                     value=config.get("default_window_interval", defaults.get("default_window_interval", "10s")),
                     placeholder="如 5s / 1min / 1h"),
         ctx["actions"]("操作", [
-            {"label": "保存", "value": "save"},
-            {"label": "恢复默认", "value": "reset"},
-            {"label": "取消", "value": "cancel"},
+            {"label": "保存", "value": "save", "color": "primary"},
+            {"label": "恢复默认", "value": "reset", "color": "warning"},
+            {"label": "取消", "value": "cancel", "color": "default"},
         ], name="action"),
     ])
     
@@ -243,9 +255,9 @@ async def _render_task_config(ctx: dict, config: dict, defaults: dict):
         ctx["input"]("重试延迟(秒)", name="retry_delay", type="number",
                     value=config.get("retry_delay", defaults.get("retry_delay", 5))),
         ctx["actions"]("操作", [
-            {"label": "保存", "value": "save"},
-            {"label": "恢复默认", "value": "reset"},
-            {"label": "取消", "value": "cancel"},
+            {"label": "保存", "value": "save", "color": "primary"},
+            {"label": "恢复默认", "value": "reset", "color": "warning"},
+            {"label": "取消", "value": "cancel", "color": "default"},
         ], name="action"),
     ])
     
@@ -277,9 +289,9 @@ async def _render_dictionary_config(ctx: dict, config: dict, defaults: dict):
         ctx["input"]("最大缓存大小", name="max_cache_size", type="number",
                     value=config.get("max_cache_size", defaults.get("max_cache_size", 10000))),
         ctx["actions"]("操作", [
-            {"label": "保存", "value": "save"},
-            {"label": "恢复默认", "value": "reset"},
-            {"label": "取消", "value": "cancel"},
+            {"label": "保存", "value": "save", "color": "primary"},
+            {"label": "恢复默认", "value": "reset", "color": "warning"},
+            {"label": "取消", "value": "cancel", "color": "default"},
         ], name="action"),
     ])
     
@@ -318,9 +330,9 @@ async def _render_auth_config(ctx: dict, config: dict, defaults: dict):
             {"label": "启用开发模式（免认证）", "value": "dev_mode", "selected": config.get("dev_mode", defaults.get("dev_mode", False))}
         ], help_text="启用后跳过认证，仅用于开发环境"),
         ctx["actions"]("操作", [
-            {"label": "保存", "value": "save"},
-            {"label": "重新生成密钥", "value": "regen_secret"},
-            {"label": "取消", "value": "cancel"},
+            {"label": "保存", "value": "save", "color": "primary"},
+            {"label": "重新生成密钥", "value": "regen_secret", "color": "warning"},
+            {"label": "取消", "value": "cancel", "color": "default"},
         ], name="action"),
     ])
     
@@ -354,8 +366,8 @@ async def _render_auth_config(ctx: dict, config: dict, defaults: dict):
         confirm = await ctx["popup"]("确认重新生成认证密钥？", [
             ctx["put_text"]("重新生成后，所有已登录用户需要重新登录。"),
             ctx["put_buttons"]([
-                {"label": "确认生成", "value": "confirm"},
-                {"label": "取消", "value": "cancel"},
+                {"label": "确认生成", "value": "confirm", "color": "warning"},
+                {"label": "取消", "value": "cancel", "color": "default"},
             ], onclick=lambda v: v),
         ])
         

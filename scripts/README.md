@@ -17,6 +17,7 @@ python scripts/analysis/analyze_refresh_issue.py
 
 # 运行演示
 python scripts/demo/demo_bounce_effects.py
+python scripts/demo/create_river_replay_strategies.py --start
 
 # 运行验证
 python scripts/verify/final_verification.py
@@ -35,4 +36,4 @@ python scripts/fix/fix_quant_source_code.py
 
 ---
 
-**最后更新：** 2026-02-26
+**最后更新：** 2026-03-06

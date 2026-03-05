@@ -21,6 +21,8 @@ from ..common.recoverable import (
 
 STRATEGY_TABLE = "naja_strategies"
 STRATEGY_RESULTS_TABLE = "naja_strategy_results"
+STRATEGY_EXPERIMENT_TABLE = "naja_strategy_experiment"
+STRATEGY_EXPERIMENT_ACTIVE_KEY = "active_session"
 
 
 @dataclass
@@ -677,7 +679,90 @@ class StrategyManager:
             return
         self._items: Dict[str, StrategyEntry] = {}
         self._items_lock = threading.Lock()
+        self._experiment_lock = threading.Lock()
+        self._experiment_session: Optional[Dict[str, Any]] = None
         self._initialized = True
+
+    def _normalize_categories(self, categories: List[str]) -> List[str]:
+        normalized: List[str] = []
+        for cat in categories or []:
+            cat_name = str(cat or "").strip()
+            if not cat_name:
+                continue
+            if cat_name not in normalized:
+                normalized.append(cat_name)
+        return normalized
+
+    def _list_by_categories(self, categories: List[str]) -> List[StrategyEntry]:
+        category_set = set(self._normalize_categories(categories))
+        if not category_set:
+            return []
+        return [
+            entry for entry in self.list_all()
+            if str(getattr(entry._metadata, "category", "默认") or "默认") in category_set
+        ]
+
+    def _save_experiment_session(self):
+        try:
+            db = NB(STRATEGY_EXPERIMENT_TABLE)
+            if self._experiment_session is None:
+                if STRATEGY_EXPERIMENT_ACTIVE_KEY in db:
+                    del db[STRATEGY_EXPERIMENT_ACTIVE_KEY]
+                return
+            db[STRATEGY_EXPERIMENT_ACTIVE_KEY] = self._experiment_session
+        except Exception as e:
+            self._log("ERROR", "Save experiment session failed", error=str(e))
+
+    def _load_experiment_session(self):
+        try:
+            db = NB(STRATEGY_EXPERIMENT_TABLE)
+            data = db.get(STRATEGY_EXPERIMENT_ACTIVE_KEY)
+            if not isinstance(data, dict):
+                self._experiment_session = None
+                return
+
+            snapshot = data.get("snapshot", {}) or {}
+            normalized_snapshot = {}
+            for entry_id, snap in snapshot.items():
+                if entry_id not in self._items:
+                    continue
+                if not isinstance(snap, dict):
+                    continue
+                normalized_snapshot[entry_id] = {
+                    "entry_id": entry_id,
+                    "name": snap.get("name", self._items[entry_id].name),
+                    "category": snap.get("category", getattr(self._items[entry_id]._metadata, "category", "默认")),
+                    "pre_experiment_bound_datasource_id": snap.get(
+                        "pre_experiment_bound_datasource_id",
+                        snap.get("bound_datasource_id", ""),
+                    ) or "",
+                    "pre_experiment_was_running": bool(
+                        snap.get("pre_experiment_was_running", snap.get("was_running", False))
+                    ),
+                    # 兼容旧字段
+                    "bound_datasource_id": snap.get("bound_datasource_id", "") or "",
+                    "was_running": bool(snap.get("was_running", False)),
+                }
+
+            if not normalized_snapshot:
+                self._experiment_session = None
+                if STRATEGY_EXPERIMENT_ACTIVE_KEY in db:
+                    del db[STRATEGY_EXPERIMENT_ACTIVE_KEY]
+                return
+
+            self._experiment_session = {
+                "active": bool(data.get("active", True)),
+                "started_at": float(data.get("started_at", time.time())),
+                "datasource_id": str(data.get("datasource_id", "") or ""),
+                "datasource_name": str(data.get("datasource_name", "") or ""),
+                "categories": self._normalize_categories(data.get("categories", [])),
+                "target_count": int(data.get("target_count", len(normalized_snapshot))),
+                "snapshot": normalized_snapshot,
+            }
+            self._save_experiment_session()
+        except Exception as e:
+            self._experiment_session = None
+            self._log("ERROR", "Load experiment session failed", error=str(e))
     
     def create(
         self,
@@ -788,6 +873,196 @@ class StrategyManager:
         if not entry:
             return {"success": False, "error": "Entry not found"}
         return entry.stop()
+
+    def get_experiment_info(self) -> dict:
+        with self._experiment_lock:
+            session = self._experiment_session
+            if not session:
+                return {"active": False}
+            info = dict(session)
+            info.pop("snapshot", None)
+            return info
+
+    def start_experiment(self, categories: List[str], datasource_id: str) -> dict:
+        normalized_categories = self._normalize_categories(categories)
+        datasource_id = str(datasource_id or "").strip()
+
+        if not normalized_categories:
+            return {"success": False, "error": "请至少选择一个策略类别"}
+        if not datasource_id:
+            return {"success": False, "error": "请先选择实验数据源"}
+
+        with self._experiment_lock:
+            if self._experiment_session is not None:
+                return {"success": False, "error": "实验模式已开启，请先关闭"}
+
+            from ..datasource import get_datasource_manager
+            ds_mgr = get_datasource_manager()
+            ds_entry = ds_mgr.get(datasource_id)
+            if ds_entry is None:
+                return {"success": False, "error": "实验数据源不存在"}
+
+            # 开启实验时确保实验数据源处于运行中（如“回放行情”）
+            datasource_started = False
+            datasource_start_error = ""
+            if not ds_entry.is_running:
+                ds_start_result = ds_entry.start()
+                if not ds_start_result.get("success"):
+                    datasource_start_error = ds_start_result.get("error", "unknown error")
+                    return {"success": False, "error": f"实验数据源启动失败: {datasource_start_error}"}
+                datasource_started = True
+
+            target_entries = self._list_by_categories(normalized_categories)
+            if not target_entries:
+                return {"success": False, "error": "所选类别下没有策略"}
+
+            snapshot: Dict[str, Dict[str, Any]] = {}
+            failed_switch = []
+            started = 0
+            failed_start = []
+
+            for entry in target_entries:
+                snapshot[entry.id] = {
+                    "entry_id": entry.id,
+                    "name": entry.name,
+                    "category": getattr(entry._metadata, "category", "默认") or "默认",
+                    # 实验前快照（关闭实验时用于恢复）
+                    "pre_experiment_bound_datasource_id": getattr(entry._metadata, "bound_datasource_id", "") or "",
+                    "pre_experiment_was_running": bool(entry.is_running),
+                    # 兼容旧字段
+                    "bound_datasource_id": getattr(entry._metadata, "bound_datasource_id", "") or "",
+                    "was_running": bool(entry.is_running),
+                }
+
+                switch_result = entry.update_config(bound_datasource_id=datasource_id)
+                if not switch_result.get("success"):
+                    failed_switch.append({
+                        "entry_id": entry.id,
+                        "name": entry.name,
+                        "error": switch_result.get("error", "unknown error"),
+                    })
+                    continue
+
+                if not entry.is_running:
+                    start_result = entry.start()
+                    if start_result.get("success"):
+                        started += 1
+                    else:
+                        failed_start.append({
+                            "entry_id": entry.id,
+                            "name": entry.name,
+                            "error": start_result.get("error", "unknown error"),
+                        })
+
+            switched_ok = len(target_entries) - len(failed_switch)
+            if switched_ok <= 0:
+                return {
+                    "success": False,
+                    "error": "未能切换任何策略到实验数据源",
+                    "categories": normalized_categories,
+                    "target_count": len(target_entries),
+                    "failed_switch": failed_switch,
+                    "failed_start": failed_start,
+                }
+
+            self._experiment_session = {
+                "active": True,
+                "started_at": time.time(),
+                "datasource_id": datasource_id,
+                "datasource_name": ds_entry.name,
+                "categories": normalized_categories,
+                "target_count": len(target_entries),
+                "snapshot": snapshot,
+            }
+            self._save_experiment_session()
+
+            return {
+                "success": True,
+                "active": True,
+                "datasource_id": datasource_id,
+                "datasource_name": ds_entry.name,
+                "categories": normalized_categories,
+                "target_count": len(target_entries),
+                "switched_count": switched_ok,
+                "started_count": started,
+                "datasource_started": datasource_started,
+                "failed_switch": failed_switch,
+                "failed_start": failed_start,
+            }
+
+    def stop_experiment(self) -> dict:
+        with self._experiment_lock:
+            session = self._experiment_session
+            if not session:
+                return {"success": False, "error": "实验模式未开启"}
+
+            snapshot = session.get("snapshot", {}) or {}
+            restored_bind = 0
+            restored_run = 0
+            failed = []
+
+            for entry_id, snap in snapshot.items():
+                entry = self.get(entry_id)
+                if entry is None:
+                    failed.append({
+                        "entry_id": entry_id,
+                        "name": snap.get("name", ""),
+                        "error": "策略不存在",
+                    })
+                    continue
+
+                prev_ds_id = snap.get(
+                    "pre_experiment_bound_datasource_id",
+                    snap.get("bound_datasource_id", ""),
+                ) or ""
+                prev_running = bool(
+                    snap.get("pre_experiment_was_running", snap.get("was_running", False))
+                )
+
+                bind_result = entry.update_config(bound_datasource_id=prev_ds_id)
+                if not bind_result.get("success"):
+                    failed.append({
+                        "entry_id": entry.id,
+                        "name": entry.name,
+                        "error": f"恢复数据源失败: {bind_result.get('error', 'unknown error')}",
+                    })
+                    continue
+                restored_bind += 1
+
+                state_result = {"success": True}
+                if prev_running and not entry.is_running:
+                    state_result = entry.start()
+                elif not prev_running and entry.is_running:
+                    state_result = entry.stop()
+
+                if state_result.get("success"):
+                    restored_run += 1
+                else:
+                    failed.append({
+                        "entry_id": entry.id,
+                        "name": entry.name,
+                        "error": f"恢复运行状态失败: {state_result.get('error', 'unknown error')}",
+                    })
+
+            if not failed:
+                self._experiment_session = None
+                self._save_experiment_session()
+                return {
+                    "success": True,
+                    "active": False,
+                    "restored_bind_count": restored_bind,
+                    "restored_state_count": restored_run,
+                    "failed": failed,
+                }
+
+            return {
+                "success": False,
+                "active": True,
+                "error": "部分策略恢复失败，请修复后重试关闭实验模式",
+                "restored_bind_count": restored_bind,
+                "restored_state_count": restored_run,
+                "failed": failed,
+            }
     
     def load_from_db(self) -> int:
         db = NB(STRATEGY_TABLE)
@@ -810,6 +1085,9 @@ class StrategyManager:
                     
                 except Exception as e:
                     self._log("ERROR", "Load entry failed", id=entry_id, error=str(e))
+
+        with self._experiment_lock:
+            self._load_experiment_session()
         
         self._log("INFO", "Load from db finished", count=count)
         return count

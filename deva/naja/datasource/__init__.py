@@ -828,15 +828,19 @@ class DataSourceEntry(RecoverableUnit):
             self._metadata.event_condition_type = str(event_condition_type).strip().lower()
 
         if func_code is not None:
-            if self._get_func_name() not in func_code:
-                return {"success": False, "error": f"代码必须包含 {self._get_func_name()} 函数"}
+            source_type = getattr(self._metadata, "source_type", "custom") or "custom"
+            if source_type != "replay":
+                if self._get_func_name() not in func_code:
+                    return {"success": False, "error": f"代码必须包含 {self._get_func_name()} 函数"}
 
             self._func_code = func_code
             self._compiled_func = None
 
-            result = self.compile_code()
-            if not result["success"]:
-                return result
+            # 对于replay类型，不需要编译代码
+            if source_type != "replay":
+                result = self.compile_code()
+                if not result["success"]:
+                    return result
 
         self.save()
         return {"success": True}
@@ -968,6 +972,8 @@ class DataSourceManager:
         if source_type == "replay":
             if not config or not config.get("table_name"):
                 return {"success": False, "error": "回放数据源必须指定表名"}
+            # 对于replay类型，不需要函数代码
+            func_code = ""
 
         metadata = DataSourceMetadata(
             id=entry_id,
