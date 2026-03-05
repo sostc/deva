@@ -19,6 +19,7 @@ DEFAULT_CONFIG = {
         "retry_delay": 1.0,
         "timeout": 30,
         "enabled_types": ["timer", "file", "directory", "custom", "replay"],
+        "enabled_timer_execution_modes": ["timer", "scheduler", "event_trigger"],
     },
     "strategy": {
         "single_history_count": 30,
@@ -120,6 +121,12 @@ def get_enabled_datasource_types() -> list:
     """获取启用的数据源类型列表"""
     config = get_config("datasource")
     return config.get("enabled_types", ["timer", "custom", "replay"])
+
+
+def get_enabled_timer_execution_modes() -> list:
+    """获取定时器数据源启用的调度方式列表"""
+    config = get_config("datasource")
+    return config.get("enabled_timer_execution_modes", ["timer", "scheduler", "event_trigger"])
 
 
 def get_strategy_config() -> Dict[str, Any]:
