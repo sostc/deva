@@ -31,10 +31,10 @@ from apscheduler.job import Job
 from deva import NB, log
 
 from ..common.base import BaseManager
-from ..strategy.logging_context import task_log, log_task_event
+from .logging_context import task_log, log_task_event
 from .task_unit import TaskUnit, TaskMetadata, TaskState, TaskStats, TaskExecution, TaskType
-from ..strategy.error_handler import get_global_error_collector, ErrorLevel, ErrorCategory
-from ..strategy.persistence import get_global_persistence_manager
+from .persistence import get_global_persistence_manager
+from .error_handler import get_global_error_collector, ErrorLevel, ErrorCategory
 
 
 class _TaskModuleLogger:

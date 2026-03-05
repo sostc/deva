@@ -73,7 +73,6 @@ def _render_detail_section(title: str) -> str:
 
 async def render_dictionary_admin(ctx: dict):
     """渲染字典管理面板"""
-    await ctx["init_naja_ui"]("数据字典管理")
     set_scope("dict_content")
     _render_dict_content(ctx)
 

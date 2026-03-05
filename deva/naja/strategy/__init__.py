@@ -592,24 +592,26 @@ class StrategyEntry(RecoverableUnit):
             return {"success": False, "error": str(e)}
     
     def to_dict(self) -> dict:
+        # 优化：直接访问属性，避免使用getattr
+        metadata = self._metadata
         return {
             "metadata": {
-                "id": self._metadata.id,
-                "name": self._metadata.name,
-                "description": self._metadata.description,
-                "tags": self._metadata.tags,
-                "bound_datasource_id": getattr(self._metadata, "bound_datasource_id", ""),
-                "compute_mode": getattr(self._metadata, "compute_mode", "record"),
-                "window_size": getattr(self._metadata, "window_size", 5),
-                "window_type": getattr(self._metadata, "window_type", "sliding"),
-                "window_interval": getattr(self._metadata, "window_interval", "10s"),
-                "window_return_partial": getattr(self._metadata, "window_return_partial", False),
-                "dictionary_profile_ids": getattr(self._metadata, "dictionary_profile_ids", []),
-                "max_history_count": getattr(self._metadata, "max_history_count", 100),
-                "diagram_info": getattr(self._metadata, "diagram_info", {}),
-                "category": getattr(self._metadata, "category", "默认"),
-                "created_at": self._metadata.created_at,
-                "updated_at": self._metadata.updated_at,
+                "id": metadata.id,
+                "name": metadata.name,
+                "description": metadata.description,
+                "tags": metadata.tags,
+                "bound_datasource_id": getattr(metadata, "bound_datasource_id", ""),
+                "compute_mode": getattr(metadata, "compute_mode", "record"),
+                "window_size": getattr(metadata, "window_size", 5),
+                "window_type": getattr(metadata, "window_type", "sliding"),
+                "window_interval": getattr(metadata, "window_interval", "10s"),
+                "window_return_partial": getattr(metadata, "window_return_partial", False),
+                "dictionary_profile_ids": getattr(metadata, "dictionary_profile_ids", []),
+                "max_history_count": getattr(metadata, "max_history_count", 100),
+                "diagram_info": getattr(metadata, "diagram_info", {}),
+                "category": getattr(metadata, "category", "默认"),
+                "created_at": metadata.created_at,
+                "updated_at": metadata.updated_at,
             },
             "state": self._state.to_dict(),
             "func_code": self._func_code,

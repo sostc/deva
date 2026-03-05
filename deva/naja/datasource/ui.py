@@ -81,7 +81,6 @@ def _fmt_ts_short(ts: float) -> str:
 
 async def render_datasource_admin(ctx: dict):
     """渲染数据源管理面板"""
-    await ctx["init_naja_ui"]("数据源管理")
     set_scope("ds_content")
     _render_ds_content(ctx)
 
@@ -379,6 +378,7 @@ async def _show_ds_detail(ctx: dict, mgr, entry_id: str):
             ["发射次数", entry._state.total_emitted],
             ["错误次数", entry._state.error_count],
             ["最后错误", entry._state.last_error or "-"],
+            ["错误时间", _fmt_ts(entry._state.last_error_ts)],
             ["最后活动", _fmt_ts(entry._state.last_data_ts)],
             ["启动时间", _fmt_ts(entry._state.start_time)],
         ], header=["字段", "值"])

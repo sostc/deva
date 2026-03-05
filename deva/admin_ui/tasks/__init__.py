@@ -23,12 +23,6 @@ from .task_admin import (
     render_task_admin,
 )
 
-from .task_v2 import (
-    TaskEntry,
-    TaskManager as TaskManagerV2,
-    get_task_manager as get_task_manager_v2,
-)
-
 __all__ = [
     'TaskUnit',
     'TaskType',
@@ -41,8 +35,5 @@ __all__ = [
     'show_edit_task_dialog',
     'validate_task_code',
     'render_task_admin',
-    # V2
-    'TaskEntry',
-    'TaskManagerV2',
-    'get_task_manager_v2',
 ]
+
