@@ -446,6 +446,7 @@ def run_server(port: int = 8080, host: str = '0.0.0.0'):
     from .tasks import get_task_manager
     from .strategy import get_strategy_manager
     from .dictionary import get_dictionary_manager
+    from .signal.stream import get_signal_stream
     
     ds_mgr = get_datasource_manager()
     task_mgr = get_task_manager()
@@ -467,6 +468,9 @@ def run_server(port: int = 8080, host: str = '0.0.0.0'):
     print("📂 加载字典...")
     dict_mgr.load_from_db()
     dict_mgr.restore_running_states()
+    
+    print("📡 初始化信号流...")
+    get_signal_stream()  # 初始化信号流并从持久化存储加载数据
     
     handlers = create_handlers()
     
