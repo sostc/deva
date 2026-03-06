@@ -10,6 +10,8 @@ def list_strategies():
     """列出所有策略"""
     mgr = get_strategy_manager()
     
+    mgr.load_from_db()
+    
     entries = mgr.list_all()
     
     if not entries:
@@ -21,8 +23,7 @@ def list_strategies():
     for entry in entries:
         print(f"Strategy: {entry.name}")
         print(f"ID: {entry.id}")
-        print(f"Description: {entry._metadata.description}")
-        print(f"Status: {'Running' if entry.is_running else 'Stopped'}")
+        print(f"Code length: {len(entry._func_code)}")
         print("-" * 50)
 
 

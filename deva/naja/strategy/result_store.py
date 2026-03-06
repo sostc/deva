@@ -9,6 +9,7 @@ import json
 import threading
 import time
 from collections import deque
+from queue import Queue
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Dict, List, Optional
@@ -115,7 +116,43 @@ class ResultStore:
         }
         self._data_lock = threading.RLock()
         
+        # 异步写入相关
+        self._write_queue = Queue(maxsize=10000)
+        self._write_thread = threading.Thread(target=self._process_write_queue, daemon=True)
+        self._write_thread.start()
+        
+        # 缓存管理
         self._max_cache_size = 100
+        self._cache_stats = {}
+        self._cache_cleanup_interval = 60  # 60秒
+        self._last_cache_cleanup = time.time()
+        
+        # 数据清理管理
+        self._data_cleanup_interval = 3600  # 1小时
+        self._last_data_cleanup = time.time()
+        self._max_history_days = 7  # 默认保留7天数据
+        
+        # 监控和限流
+        self._monitoring = {
+            'write_queue_size': 0,
+            'write_rate': 0,
+            'last_write_time': 0,
+            'total_writes': 0,
+            'failed_writes': 0
+        }
+        self._max_queue_size = 10000  # 最大队列大小
+        self._write_rate_limit = 1000  # 每分钟最大写入数
+        self._last_rate_check = time.time()
+        self._writes_in_period = 0
+        
+        # 启动缓存清理线程
+        self._cache_cleanup_thread = threading.Thread(target=self._cleanup_cache, daemon=True)
+        self._cache_cleanup_thread.start()
+        
+        # 启动数据清理线程
+        self._data_cleanup_thread = threading.Thread(target=self._cleanup_data, daemon=True)
+        self._data_cleanup_thread.start()
+        
         self._initialized = True
     
     def _generate_id(self, strategy_id: str, ts: float) -> str:
@@ -143,6 +180,138 @@ class ResultStore:
             return preview[:max_len] + "..." if len(preview) > max_len else preview
         except Exception:
             return str(type(data))
+    
+    def _process_write_queue(self):
+        """后台线程处理写入队列（支持批量写入）"""
+        batch_size = 100
+        batch_timeout = 1.0  # 1秒超时
+        batch = []
+        last_batch_time = time.time()
+        
+        while True:
+            try:
+                # 非阻塞获取队列中的数据
+                try:
+                    item = self._write_queue.get(block=False)
+                    if item is None:
+                        break
+                    batch.append(item)
+                    last_batch_time = time.time()
+                except Exception:
+                    # 队列为空，检查是否需要执行批量写入
+                    if batch and (len(batch) >= batch_size or time.time() - last_batch_time >= batch_timeout):
+                        # 执行批量写入
+                        self._batch_write(batch)
+                        batch = []
+                        last_batch_time = time.time()
+                    else:
+                        # 短暂休眠，避免CPU空转
+                        time.sleep(0.01)
+                        continue
+                
+                # 检查是否达到批量大小
+                if len(batch) >= batch_size:
+                    self._batch_write(batch)
+                    batch = []
+                    last_batch_time = time.time()
+            except Exception:
+                # 线程异常，继续运行
+                time.sleep(0.1)
+    
+    def _batch_write(self, batch):
+        """批量写入数据"""
+        try:
+            for item in batch:
+                strategy_id, result_id, result_dict = item
+                key = f"{strategy_id}:{result_id}"
+                try:
+                    self._db[key] = result_dict
+                except Exception:
+                    # 单个写入失败，继续处理其他项
+                    pass
+                finally:
+                    # 标记任务完成
+                    self._write_queue.task_done()
+        except Exception:
+            # 批量写入失败，确保所有任务都被标记为完成
+            for _ in batch:
+                self._write_queue.task_done()
+    
+    def _cleanup_cache(self):
+        """定期清理缓存"""
+        while True:
+            try:
+                time.sleep(self._cache_cleanup_interval)
+                
+                current_time = time.time()
+                if current_time - self._last_cache_cleanup < self._cache_cleanup_interval:
+                    continue
+                
+                self._last_cache_cleanup = current_time
+                
+                with self._data_lock:
+                    # 清理长时间未使用的缓存
+                    for strategy_id in list(self._cache.keys()):
+                        if strategy_id not in self._cache_stats:
+                            # 从未使用过的缓存，清理掉
+                            del self._cache[strategy_id]
+                            continue
+                        
+                        last_access = self._cache_stats.get(strategy_id, {}).get('last_access', 0)
+                        if current_time - last_access > 3600:  # 1小时未使用
+                            del self._cache[strategy_id]
+                            if strategy_id in self._cache_stats:
+                                del self._cache_stats[strategy_id]
+            except Exception:
+                # 清理线程异常，继续运行
+                time.sleep(1)
+    
+    def _cleanup_data(self):
+        """定期清理过期数据"""
+        while True:
+            try:
+                time.sleep(self._data_cleanup_interval)
+                
+                current_time = time.time()
+                if current_time - self._last_data_cleanup < self._data_cleanup_interval:
+                    continue
+                
+                self._last_data_cleanup = current_time
+                
+                # 计算过期时间戳（7天前）
+                expire_ts = current_time - (self._max_history_days * 24 * 3600)
+                
+                with self._data_lock:
+                    # 清理过期数据
+                    keys_to_delete = []
+                    for key in list(self._db.keys()):
+                        data = self._db.get(key)
+                        if isinstance(data, dict):
+                            ts = data.get("ts", 0)
+                            if ts < expire_ts:
+                                keys_to_delete.append(key)
+                    
+                    # 执行删除
+                    for key in keys_to_delete:
+                        try:
+                            if key in self._db:
+                                del self._db[key]
+                        except KeyError:
+                            pass
+                    
+                    # 清理缓存中可能存在的过期数据
+                    for strategy_id in list(self._cache.keys()):
+                        cache_items = list(self._cache[strategy_id])
+                        valid_items = [item for item in cache_items if item.ts >= expire_ts]
+                        if valid_items:
+                            self._cache[strategy_id] = deque(valid_items, maxlen=self._max_cache_size)
+                        else:
+                            del self._cache[strategy_id]
+                            if strategy_id in self._cache_stats:
+                                del self._cache_stats[strategy_id]
+            except Exception:
+                # 清理线程异常，继续运行
+                time.sleep(1)
     
     def save(
         self,
@@ -178,6 +347,16 @@ class ResultStore:
                 self._cache[strategy_id] = deque(maxlen=self._max_cache_size)
             self._cache[strategy_id].appendleft(result)
             
+            # 更新缓存统计
+            if strategy_id not in self._cache_stats:
+                self._cache_stats[strategy_id] = {
+                    'access_count': 0,
+                    'last_access': ts,
+                    'last_write': ts
+                }
+            else:
+                self._cache_stats[strategy_id]['last_write'] = ts
+            
             self._stats["total_results"] += 1
             if success:
                 self._stats["total_success"] += 1
@@ -187,9 +366,33 @@ class ResultStore:
             
             if persist:
                 try:
-                    key = f"{strategy_id}:{result_id}"
-                    self._db[key] = result.to_dict()
+                    # 检查速率限制
+                    current_time = time.time()
+                    if current_time - self._last_rate_check >= 60:  # 每分钟重置
+                        self._writes_in_period = 0
+                        self._last_rate_check = current_time
+                    
+                    if self._writes_in_period >= self._write_rate_limit:
+                        # 超过速率限制，暂时不写入
+                        return result
+                    
+                    # 检查队列大小
+                    queue_size = self._write_queue.qsize()
+                    if queue_size >= self._max_queue_size:
+                        # 队列已满，暂时不写入
+                        return result
+                    
+                    # 将写入操作放入队列，由后台线程处理
+                    self._write_queue.put((strategy_id, result_id, result.to_dict()))
+                    
+                    # 更新监控统计
+                    self._monitoring['write_queue_size'] = queue_size + 1
+                    self._monitoring['last_write_time'] = current_time
+                    self._monitoring['total_writes'] += 1
+                    self._writes_in_period += 1
+                    self._monitoring['write_rate'] = self._writes_in_period / max(1, current_time - self._last_rate_check) * 60
                 except Exception:
+                    self._monitoring['failed_writes'] += 1
                     pass
         
         # 发送到信号流
@@ -207,10 +410,16 @@ class ResultStore:
         strategy_id: str,
         limit: int = 10,
     ) -> List[StrategyResult]:
+        current_time = time.time()
+        
         with self._data_lock:
             if strategy_id in self._cache:
                 results = list(self._cache[strategy_id])[:limit]
                 if results:
+                    # 更新缓存访问统计
+                    if strategy_id in self._cache_stats:
+                        self._cache_stats[strategy_id]['access_count'] += 1
+                        self._cache_stats[strategy_id]['last_access'] = current_time
                     return results
             
             db_results = []
@@ -246,6 +455,17 @@ class ResultStore:
                     self._cache[strategy_id] = deque(maxlen=self._max_cache_size)
                 for result in reversed(db_results):
                     self._cache[strategy_id].appendleft(result)
+                
+                # 更新缓存统计
+                if strategy_id not in self._cache_stats:
+                    self._cache_stats[strategy_id] = {
+                        'access_count': 1,
+                        'last_access': current_time,
+                        'last_write': current_time
+                    }
+                else:
+                    self._cache_stats[strategy_id]['access_count'] += 1
+                    self._cache_stats[strategy_id]['last_access'] = current_time
             
             return db_results
     
