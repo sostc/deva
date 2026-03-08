@@ -139,7 +139,7 @@ class DBStream(Stream):
         self.db = SqliteDict(
             self.filename,
             tablename=self.tablename,
-            autocommit=True,
+            autocommit=False,  # 关闭自动提交以提高性能
             **kwargs)
 
         # 绑定常用方法
@@ -254,6 +254,7 @@ class DBStream(Stream):
         """将一条事件按时间戳键写入。"""
         store_key = time.time() if key is None else key
         self.db.update({store_key: value})
+        self.db.commit()  # 手动提交事务
         self._mark_time_index_dirty()
         self._check_size_limit()
         return store_key
@@ -261,6 +262,7 @@ class DBStream(Stream):
     def upsert(self, key, value):
         """按显式键写入/覆盖一条记录。"""
         self.db.update({key: value})
+        self.db.commit()  # 手动提交事务
         self._mark_time_index_dirty()
         self._check_size_limit()
         return key
@@ -268,6 +270,7 @@ class DBStream(Stream):
     def bulk_update(self, mapping):
         """批量写入映射。"""
         self.db.update(mapping)
+        self.db.commit()  # 手动提交事务
         self._mark_time_index_dirty()
         self._check_size_limit()
         return self
@@ -338,6 +341,7 @@ class DBStream(Stream):
     def __delitem__(self, x):
         """删除数据"""
         result = self.db.__delitem__(x)
+        self.db.commit()  # 手动提交事务
         self._mark_time_index_dirty()
         return result
 

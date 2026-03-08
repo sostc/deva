@@ -334,6 +334,7 @@ class DataSourceEntry(RecoverableUnit):
         start_time = config.get("start_time")
         end_time = config.get("end_time")
         interval = float(config.get("interval", 1.0) or 1.0)
+        print(f"回放表 {table_name}，开始时间 {start_time}，结束时间 {end_time}，间隔 {interval}")
 
         def replay_loop():
             try:
@@ -383,6 +384,7 @@ class DataSourceEntry(RecoverableUnit):
             daemon=True,
             name=f"ds-replay-{self.id[:8]}",
         )
+        self._log("INFO", f"启动回放线程 {self._thread.name}")
         self._thread.start()
 
         self._state.pid = os.getpid()

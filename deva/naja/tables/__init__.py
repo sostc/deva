@@ -157,13 +157,49 @@ def get_table_list() -> List[str]:
 
 def get_table_info(tablename: str) -> dict:
     """获取表信息"""
+    import pandas as pd
+    import time
+    
     db = NB(tablename)
     default_db = NB("default")
+    
+    # 计算记录数，对于大表使用估计值
+    if tablename == "naja_strategy_results":
+        # 对于策略结果表，使用时间切片快速估算
+        current_time = time.time()
+        one_day_ago = current_time - (24 * 3600)
+        start_str = pd.Timestamp(one_day_ago).strftime("%Y-%m-%d %H:%M:%S")
+        end_str = pd.Timestamp(current_time).strftime("%Y-%m-%d %H:%M:%S")
+        
+        if start_str and end_str:
+            try:
+                # 获取一天内的记录数，然后估算总记录数
+                day_count = len(list(db[start_str:end_str]))
+                # 假设数据均匀分布，估算7天的记录数
+                estimated_count = day_count * 7
+                count = estimated_count
+            except:
+                # 如果估算失败，返回一个合理的估计值
+                count = "大量记录（估算）"
+        else:
+            count = "大量记录"
+    else:
+        # 对于其他表，尝试计算实际记录数，但限制最大计数
+        try:
+            count = 0
+            max_count = 10000  # 最多计数10000条
+            for _ in db.keys():
+                count += 1
+                if count >= max_count:
+                    count = f"{max_count}+"
+                    break
+        except:
+            count = "未知"
     
     return {
         "name": tablename,
         "desc": default_db.get(tablename) or "",
-        "count": len(db),
+        "count": count,
         "maxsize": db.maxsize or "无限制",
         "filename": db.db.filename,
         "data_types": {},
@@ -225,10 +261,65 @@ def get_table_data(tablename: str, sample_size: int = 10) -> dict:
     from random import sample as rand_sample
     
     db = NB(tablename)
-    items = list(db.items())
     
-    if len(items) > sample_size:
-        items = rand_sample(items, sample_size)
+    # 特别处理策略结果表，利用时间切片功能
+    if tablename == "naja_strategy_results":
+        # 获取最近的sample_size条记录
+        import time
+        current_time = time.time()
+        # 计算7天前的时间戳
+        seven_days_ago = current_time - (7 * 24 * 3600)
+        # 转换为时间字符串格式
+        start_str = pd.Timestamp(seven_days_ago).strftime("%Y-%m-%d %H:%M:%S")
+        end_str = pd.Timestamp(current_time).strftime("%Y-%m-%d %H:%M:%S")
+        
+        # 使用时间切片获取键
+        time_slice_keys = list(db[start_str:end_str])
+        
+        # 如果时间范围内的记录不足sample_size，获取所有键
+        if len(time_slice_keys) < sample_size:
+            all_keys = list(db.keys())
+            # 按时间戳排序，取最近的sample_size条
+            try:
+                # 尝试按时间戳排序
+                sorted_keys = sorted(all_keys, key=lambda x: float(x.split(":")[1]) if ":" in x else 0, reverse=True)
+                keys_to_use = sorted_keys[:sample_size]
+            except:
+                # 如果排序失败，随机采样
+                if len(all_keys) > sample_size:
+                    keys_to_use = rand_sample(all_keys, sample_size)
+                else:
+                    keys_to_use = all_keys
+        else:
+            # 按时间戳排序，取最近的sample_size条
+            try:
+                sorted_keys = sorted(time_slice_keys, key=lambda x: float(x.split(":")[1]) if ":" in x else 0, reverse=True)
+                keys_to_use = sorted_keys[:sample_size]
+            except:
+                # 如果排序失败，随机采样
+                keys_to_use = rand_sample(time_slice_keys, sample_size)
+        
+        # 构建items列表
+        items = []
+        for key in keys_to_use:
+            try:
+                value = db.get(key)
+                items.append((key, value))
+            except:
+                pass
+    else:
+        # 对于其他表，使用原逻辑，但限制最大加载数量
+        max_load = min(1000, sample_size * 10)  # 最多加载1000条
+        items = []
+        count = 0
+        for k, v in db.items():
+            items.append((k, v))
+            count += 1
+            if count >= max_load:
+                break
+        
+        if len(items) > sample_size:
+            items = rand_sample(items, sample_size)
     
     categorized = {
         "dataframes": [],

@@ -51,6 +51,88 @@ def _render_detail_section(title: str) -> str:
     """
 
 
+def _render_principle_section(ctx: dict, entry, principle: dict, color: str):
+    """渲染原理解释部分（河流比喻）"""
+    title = principle.get("title", "策略原理解释")
+    core_concept = principle.get("core_concept", "")
+    five_dimensions = principle.get("five_dimensions", {})
+    learning_mechanism = principle.get("learning_mechanism", "")
+    output_meaning = principle.get("output_meaning", "")
+
+    # 生成五个维度的 HTML
+    dimensions_html = ""
+    dim_icons = {
+        "向": "🌊",
+        "速": "⚡",
+        "弹": "💥",
+        "深": "📏",
+        "波": "🌀"
+    }
+
+    for dim_key, dim_data in five_dimensions.items():
+        # 提取第一个字作为图标
+        first_char = dim_key.split("_")[0] if "_" in dim_key else dim_key[0]
+        icon = dim_icons.get(first_char, "📌")
+
+        dimensions_html += f"""
+        <div style="background:#f8f9fa;padding:15px;border-radius:8px;margin-bottom:12px;
+                    border-left:3px solid {color};">
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;">
+                <span style="font-size:18px;">{icon}</span>
+                <span style="font-weight:600;color:#333;font-size:14px;">{dim_key}</span>
+            </div>
+            <div style="margin-bottom:8px;">
+                <span style="color:#666;font-size:12px;">📖 {dim_data.get('description', '')}</span>
+            </div>
+            <div style="margin-bottom:8px;">
+                <span style="color:#666;font-size:12px;">⚙️ {dim_data.get('implementation', '')}</span>
+            </div>
+            <div style="margin-bottom:8px;">
+                <div style="color:#888;font-size:11px;margin-bottom:4px;">📊 指标:</div>
+                <div style="background:#fff;padding:8px;border-radius:4px;font-family:monospace;
+                            font-size:11px;color:#555;">
+                    {'<br>'.join(dim_data.get('metrics', []))}
+                </div>
+            </div>
+            <div>
+                <span style="color:#666;font-size:12px;">💭 {dim_data.get('interpretation', '')}</span>
+            </div>
+        </div>
+        """
+
+    # 学习机制和输出含义
+    extra_html = ""
+    if learning_mechanism or output_meaning:
+        extra_html = f"""
+        <div style="margin-top:15px;display:grid;grid-template-columns:1fr 1fr;gap:15px;">
+            {'<div style="background:#e3f2fd;padding:12px;border-radius:8px;font-size:12px;color:#333;">'
+             '<strong>🧠 学习机制:</strong><br>' + learning_mechanism + '</div>' if learning_mechanism else ''}
+            {'<div style="background:#e8f5e9;padding:12px;border-radius:8px;font-size:12px;color:#333;">'
+             '<strong>📤 输出含义:</strong><br>' + output_meaning + '</div>' if output_meaning else ''}
+        </div>
+        """
+
+    ctx["put_html"](f"""
+    <div style="background:#fff;border-radius:12px;box-shadow:0 2px 12px rgba(0,0,0,0.08);
+                overflow:hidden;border:1px solid #eee;margin-bottom:15px;">
+        <div style="background:linear-gradient(135deg,{color} 0%,{color}dd 100%);
+                    padding:15px 20px;color:white;">
+            <div style="display:flex;align-items:center;gap:12px;">
+                <div style="font-size:24px;">🌊</div>
+                <div>
+                    <div style="font-size:16px;font-weight:600;">{title}</div>
+                    <div style="font-size:12px;opacity:0.9;margin-top:3px;">{core_concept}</div>
+                </div>
+            </div>
+        </div>
+        <div style="padding:20px;">
+            {dimensions_html}
+            {extra_html}
+        </div>
+    </div>
+    """)
+
+
 def _render_strategy_diagram_section(ctx: dict, entry):
     """渲染策略详解图表部分"""
     diagram_info = getattr(entry._metadata, "diagram_info", {}) or {}
@@ -66,6 +148,7 @@ def _render_strategy_diagram_section(ctx: dict, entry):
     formula = diagram_info.get("formula", "")
     logic = diagram_info.get("logic", [])
     output = diagram_info.get("output", "")
+    principle = diagram_info.get("principle", {})
 
     # 生成流程步骤 HTML
     logic_html = "".join([
@@ -75,6 +158,7 @@ def _render_strategy_diagram_section(ctx: dict, entry):
         for i, step in enumerate(logic)
     ])
 
+    # 渲染原有的策略详解
     ctx["put_html"](f"""
     <div style="background:#fff;border-radius:12px;box-shadow:0 2px 12px rgba(0,0,0,0.08);
                 overflow:hidden;border:1px solid #eee;margin-bottom:15px;">
@@ -122,6 +206,10 @@ def _render_strategy_diagram_section(ctx: dict, entry):
         </div>
     </div>
     """)
+
+    # 渲染原理解释（如果有）
+    if principle:
+        _render_principle_section(ctx, entry, principle, color)
 
 
 async def render_strategy_admin(ctx: dict):
@@ -447,16 +535,20 @@ def _stop_all_strategies(ctx, mgr):
 
 def _reload_all_strategies(ctx, mgr):
     """热重载所有策略"""
-    result = mgr.reload_all()
-    reloaded = result.get("reloaded", 0)
-    failed = result.get("failed", 0)
+    try:
+        result = mgr.reload_all()
+        reloaded = result.get("reloaded", 0)
+        failed = result.get("failed", 0)
 
-    if failed > 0:
-        ctx["toast"](f"重载完成: {reloaded} 成功, {failed} 失败", color="warning")
-    else:
-        ctx["toast"](f"已重载 {reloaded} 个策略", color="success")
-
-    _render_strategy_content(ctx)
+        if failed > 0:
+            ctx["toast"](f"重载完成: {reloaded} 成功, {failed} 失败", color="warning")
+        else:
+            ctx["toast"](f"已重载 {reloaded} 个策略", color="success")
+    except Exception as e:
+        ctx["toast"](f"重载过程中出现错误: {str(e)}", color="error")
+    finally:
+        # 无论重载是否成功，都刷新策略列表页
+        _render_strategy_content(ctx)
 
 
 def _refresh_results(ctx, mgr):
