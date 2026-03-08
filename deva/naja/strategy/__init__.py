@@ -237,7 +237,21 @@ class StrategyEntry(RecoverableUnit):
             return False
     
     def _process_record(self, data: Any) -> Any:
-        result = self._compiled_func(data)
+        # Create context object
+        context = {
+            'strategy_id': self.id,
+            'strategy_name': self.name,
+            'metadata': self._metadata.to_dict(),
+            'state': self._state.to_dict()
+        }
+        
+        # Try calling with context first, then fallback to data only
+        try:
+            result = self._compiled_func(data, context)
+        except TypeError:
+            # Fallback to data only for backward compatibility
+            result = self._compiled_func(data)
+            
         if asyncio.iscoroutine(result):
             loop = asyncio.new_event_loop()
             try:
@@ -260,7 +274,21 @@ class StrategyEntry(RecoverableUnit):
             if not return_partial and len(self._window_buffer) < window_size:
                 return None
             
-            result = self._compiled_func(list(self._window_buffer))
+            # Create context object
+            context = {
+                'strategy_id': self.id,
+                'strategy_name': self.name,
+                'metadata': self._metadata.to_dict(),
+                'state': self._state.to_dict()
+            }
+            
+            # Try calling with context first, then fallback to data only
+            try:
+                result = self._compiled_func(list(self._window_buffer), context)
+            except TypeError:
+                # Fallback to data only for backward compatibility
+                result = self._compiled_func(list(self._window_buffer))
+                
             if asyncio.iscoroutine(result):
                 loop = asyncio.new_event_loop()
                 try:
@@ -292,8 +320,21 @@ class StrategyEntry(RecoverableUnit):
             if len(self._window_buffer) < 1:
                 return None
             
-            result = self._compiled_func(list(self._window_buffer))
+            # Create context object
+            context = {
+                'strategy_id': self.id,
+                'strategy_name': self.name,
+                'metadata': self._metadata.to_dict(),
+                'state': self._state.to_dict()
+            }
             
+            # Try calling with context first, then fallback to data only
+            try:
+                result = self._compiled_func(list(self._window_buffer), context)
+            except TypeError:
+                # Fallback to data only for backward compatibility
+                result = self._compiled_func(list(self._window_buffer))
+                
             # 清空窗口缓冲区，开始新的窗口周期
             self._window_buffer = []
             
@@ -312,7 +353,21 @@ class StrategyEntry(RecoverableUnit):
             if len(self._window_buffer) < window_size:
                 return None
             
-            result = self._compiled_func(list(self._window_buffer))
+            # Create context object
+            context = {
+                'strategy_id': self.id,
+                'strategy_name': self.name,
+                'metadata': self._metadata.to_dict(),
+                'state': self._state.to_dict()
+            }
+            
+            # Try calling with context first, then fallback to data only
+            try:
+                result = self._compiled_func(list(self._window_buffer), context)
+            except TypeError:
+                # Fallback to data only for backward compatibility
+                result = self._compiled_func(list(self._window_buffer))
+                
             if asyncio.iscoroutine(result):
                 loop = asyncio.new_event_loop()
                 try:

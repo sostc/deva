@@ -61,6 +61,24 @@ from .config import (
     get_enabled_datasource_types,
 )
 
+from .agent import (
+    # Base classes
+    BaseAgent,
+    AgentMetadata,
+    AgentState,
+    AgentRole,
+    AgentStateEnum,
+    # Agent implementations
+    ZhangLiangAgent,
+    HanXinAgent,
+    XiaoHeAgent,
+    LiuBangAgent,
+    # Manager
+    AgentManager,
+    get_agent_manager,
+    create_four_agents,
+)
+
 __version__ = "2.0.0"
 
 __all__ = [
@@ -105,4 +123,17 @@ __all__ = [
     "get_dictionary_config",
     "get_strategy_single_history_count",
     "get_strategy_total_history_count",
+    # Agent
+    "BaseAgent",
+    "AgentMetadata",
+    "AgentState",
+    "AgentRole",
+    "AgentStateEnum",
+    "ZhangLiangAgent",
+    "HanXinAgent",
+    "XiaoHeAgent",
+    "LiuBangAgent",
+    "AgentManager",
+    "get_agent_manager",
+    "create_four_agents",
 ]
