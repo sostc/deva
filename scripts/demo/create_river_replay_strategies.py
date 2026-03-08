@@ -53,7 +53,7 @@ STRATEGY_1 = textwrap.dedent(
         return str(row.get("code") or row.get("symbol") or row.get("ts_code") or "").strip()
 
     def _price(row):
-        for k in ("now", "price", "last", "close"):
+        for k in ("current", "now", "price", "last", "close", "open", "high", "low"):
             if k in row:
                 p = _f(row.get(k), 0.0)
                 if p > 0:
@@ -165,7 +165,7 @@ STRATEGY_2 = textwrap.dedent(
         return str(row.get("code") or row.get("symbol") or row.get("ts_code") or "").strip()
 
     def _price(row):
-        for k in ("now", "price", "last", "close"):
+        for k in ("current", "now", "price", "last", "close", "open", "high", "low"):
             if k in row:
                 p = _f(row.get(k), 0.0)
                 if p > 0:
@@ -221,6 +221,7 @@ STRATEGY_2 = textwrap.dedent(
                 "code": s,
                 "name": row.get("name", ""),
                 "anomaly_score": round(score, 4),
+                "price": round(price, 4),
                 "ret": round(ret, 6),
                 "vol_ratio": round(vol_ratio, 4),
                 "imbalance_jump": round(imbalance_jump, 4),
@@ -280,7 +281,7 @@ STRATEGY_3 = textwrap.dedent(
         return str(row.get("code") or row.get("symbol") or row.get("ts_code") or "").strip()
 
     def _price(row):
-        for k in ("now", "price", "last", "close"):
+        for k in ("current", "now", "price", "last", "close", "open", "high", "low"):
             if k in row:
                 p = _f(row.get(k), 0.0)
                 if p > 0:
@@ -392,7 +393,7 @@ STRATEGY_4 = textwrap.dedent(
         return str(row.get("code") or row.get("symbol") or row.get("ts_code") or "").strip()
 
     def _price(row):
-        for k in ("now", "price", "last", "close"):
+        for k in ("current", "now", "price", "last", "close", "open", "high", "low"):
             if k in row:
                 p = _f(row.get(k), 0.0)
                 if p > 0:
@@ -448,6 +449,7 @@ STRATEGY_4 = textwrap.dedent(
                 "code": s,
                 "name": row.get("name", ""),
                 "order_flow_up_probability": round(float(up_proba), 4),
+                "price": round(price, 4),
                 "ofi": round(ofi, 2),
                 "depth_imb": round(depth_imb, 4),
                 "spread_change": round(spread_change, 6),
@@ -509,7 +511,7 @@ STRATEGY_5 = textwrap.dedent(
         return str(row.get("code") or row.get("symbol") or row.get("ts_code") or "").strip()
 
     def _price(row):
-        for k in ("now", "price", "last", "close"):
+        for k in ("current", "now", "price", "last", "close", "open", "high", "low"):
             if k in row:
                 p = _f(row.get(k), 0.0)
                 if p > 0:
@@ -558,6 +560,7 @@ STRATEGY_5 = textwrap.dedent(
                 "code": s,
                 "name": row.get("name", ""),
                 "micro_vol_anomaly_score": round(score, 4),
+                "price": round(price, 4),
                 "vol_ratio": round(vol_ratio, 4),
                 "micro_jitter": round(micro_jitter, 6),
                 "blockname": row.get("blockname"),
@@ -618,7 +621,7 @@ STRATEGY_6 = textwrap.dedent(
         return str(row.get("code") or row.get("symbol") or row.get("ts_code") or "").strip()
 
     def _price(row):
-        for k in ("now", "price", "last", "close"):
+        for k in ("current", "now", "price", "last", "close", "open", "high", "low"):
             if k in row:
                 p = _f(row.get(k), 0.0)
                 if p > 0:
@@ -699,6 +702,7 @@ STRATEGY_6 = textwrap.dedent(
                 "code": s,
                 "name": row.get("name", ""),
                 "cluster_id": cid,
+                "price": round(price, 4),
                 "burst": round(burst, 6),
                 "abs_ret": round(abs(ret), 6),
                 "blockname": row.get("blockname"),

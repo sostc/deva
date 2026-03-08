@@ -70,22 +70,6 @@ class StrategyResult:
             "process_time_ms": self.process_time_ms,
             "error": self.error[:100] if self.error else "",
         }
-    
-    def to_dict(self) -> dict:
-        """转换为字典"""
-        return {
-            "id": self.id,
-            "strategy_id": self.strategy_id,
-            "strategy_name": self.strategy_name,
-            "ts": self.ts,
-            "success": self.success,
-            "input_preview": self.input_preview,
-            "output_preview": self.output_preview,
-            "output_full": self.output_full,
-            "process_time_ms": self.process_time_ms,
-            "error": self.error,
-            "metadata": self.metadata,
-        }
 
 
 class ResultStore:
@@ -108,6 +92,7 @@ class ResultStore:
         
         self._cache: Dict[str, deque] = {}
         self._db = NB("naja_strategy_results")
+        self._index_db = NB("naja_result_index")  # 用于存储反向索引
         self._stats = {
             "total_results": 0,
             "total_success": 0,
@@ -214,26 +199,38 @@ class ResultStore:
                     self._batch_write(batch)
                     batch = []
                     last_batch_time = time.time()
-            except Exception:
-                # 线程异常，继续运行
+            except Exception as e:
+                # 线程异常，记录并继续运行
+                self._monitoring['failed_writes'] += 1
                 time.sleep(0.1)
     
     def _batch_write(self, batch):
         """批量写入数据"""
         try:
+            # 构建批量更新的映射
+            batch_data = {}
+            index_data = {}
             for item in batch:
                 strategy_id, result_id, result_dict = item
                 key = f"{strategy_id}:{result_id}"
-                try:
-                    self._db[key] = result_dict
-                except Exception:
-                    # 单个写入失败，继续处理其他项
-                    pass
-                finally:
-                    # 标记任务完成
-                    self._write_queue.task_done()
-        except Exception:
-            # 批量写入失败，确保所有任务都被标记为完成
+                batch_data[key] = result_dict
+                # 创建反向索引：result_id -> key
+                index_data[f"id:{result_id}"] = key
+            
+            # 使用 bulk_update 进行真正的批量写入
+            if batch_data:
+                self._db.bulk_update(batch_data)
+            
+            # 批量更新索引
+            if index_data:
+                self._index_db.bulk_update(index_data)
+            
+            # 标记所有任务完成
+            for _ in batch:
+                self._write_queue.task_done()
+        except Exception as e:
+            # 批量写入失败，记录失败次数并确保所有任务都被标记为完成
+            self._monitoring['failed_writes'] += len(batch)
             for _ in batch:
                 self._write_queue.task_done()
     
@@ -282,20 +279,37 @@ class ResultStore:
                 expire_ts = current_time - (self._max_history_days * 24 * 3600)
                 
                 with self._data_lock:
-                    # 清理过期数据
+                    # 遍历数据库获取过期数据的键
                     keys_to_delete = []
-                    for key in list(self._db.keys()):
+                    for key in self._db.keys():
                         data = self._db.get(key)
                         if isinstance(data, dict):
                             ts = data.get("ts", 0)
                             if ts < expire_ts:
                                 keys_to_delete.append(key)
                     
-                    # 执行删除
+                    # 收集要删除的索引
+                    index_keys_to_delete = []
+                    for key in keys_to_delete:
+                        data = self._db.get(key)
+                        if isinstance(data, dict):
+                            result_id = data.get("id")
+                            if result_id:
+                                index_keys_to_delete.append(f"id:{result_id}")
+                    
+                    # 执行批量删除数据
                     for key in keys_to_delete:
                         try:
                             if key in self._db:
                                 del self._db[key]
+                        except KeyError:
+                            pass
+                    
+                    # 执行批量删除索引
+                    for index_key in index_keys_to_delete:
+                        try:
+                            if index_key in self._index_db:
+                                del self._index_db[index_key]
                         except KeyError:
                             pass
                     
@@ -342,6 +356,14 @@ class ResultStore:
             metadata=metadata or {},
         )
         
+        # 先发送到信号流
+        try:
+            from ..signal.stream import get_signal_stream
+            signal_stream = get_signal_stream()
+            signal_stream.update(result)
+        except Exception as e:
+            pass
+        
         with self._data_lock:
             if strategy_id not in self._cache:
                 self._cache[strategy_id] = deque(maxlen=self._max_cache_size)
@@ -386,7 +408,7 @@ class ResultStore:
                     self._write_queue.put((strategy_id, result_id, result.to_dict()))
                     
                     # 更新监控统计
-                    self._monitoring['write_queue_size'] = queue_size + 1
+                    self._monitoring['write_queue_size'] = self._write_queue.qsize()
                     self._monitoring['last_write_time'] = current_time
                     self._monitoring['total_writes'] += 1
                     self._writes_in_period += 1
@@ -394,14 +416,6 @@ class ResultStore:
                 except Exception:
                     self._monitoring['failed_writes'] += 1
                     pass
-        
-        # 发送到信号流
-        try:
-            from ..signal.stream import get_signal_stream
-            signal_stream = get_signal_stream()
-            signal_stream.update(result)
-        except Exception as e:
-            pass
         
         return result
     
@@ -423,8 +437,34 @@ class ResultStore:
                     return results
             
             db_results = []
-            # 优化：只遍历以strategy_id开头的键，避免遍历所有数据库项
-            strategy_keys = [key for key in self._db.keys() if key.startswith(f"{strategy_id}:")]
+            
+            # 利用时间切片获取最近的数据，避免全表扫描
+            # 计算30天前的时间戳
+            thirty_days_ago = current_time - (30 * 24 * 3600)
+            start_str = datetime.fromtimestamp(thirty_days_ago).strftime("%Y-%m-%d %H:%M:%S")
+            end_str = datetime.fromtimestamp(current_time).strftime("%Y-%m-%d %H:%M:%S")
+            
+            # 使用时间切片获取键
+            time_slice_keys = list(self._db[start_str:end_str])
+            
+            # 过滤策略ID
+            strategy_keys = [key for key in time_slice_keys if key.startswith(f"{strategy_id}:")]
+            
+            # 如果时间切片内的数据不足，再使用原有逻辑
+            if len(strategy_keys) < limit:
+                # 只获取以strategy_id开头的键，避免遍历所有数据库项
+                # 限制遍历数量，最多遍历limit * 2个键
+                temp_keys = []
+                count = 0
+                max_scan = limit * 2
+                for key in self._db.keys():
+                    if key.startswith(f"{strategy_id}:"):
+                        temp_keys.append(key)
+                        count += 1
+                        if count >= max_scan:
+                            break
+                strategy_keys = temp_keys
+            
             for key in strategy_keys:
                 data = self._db.get(key)
                 if isinstance(data, dict):
@@ -471,11 +511,34 @@ class ResultStore:
     
     def get_by_id(self, result_id: str) -> Optional[StrategyResult]:
         with self._data_lock:
-            # 优化：遍历所有键，查找包含result_id的键
+            # 使用反向索引快速查找
+            index_key = f"id:{result_id}"
+            key = self._index_db.get(index_key)
+            
+            if key:
+                data = self._db.get(key)
+                if isinstance(data, dict) and data.get("id") == result_id:
+                    return StrategyResult(
+                        id=data.get("id", ""),
+                        strategy_id=data.get("strategy_id", ""),
+                        strategy_name=data.get("strategy_name", ""),
+                        ts=data.get("ts", 0),
+                        success=data.get("success", False),
+                        input_preview=data.get("input_preview", ""),
+                        output_preview=data.get("output_preview", ""),
+                        output_full=data.get("output_full"),
+                        process_time_ms=data.get("process_time_ms", 0),
+                        error=data.get("error", ""),
+                        metadata=data.get("metadata", {}),
+                    )
+            
+            #  fallback: 如果索引不存在，使用原有逻辑
             for key in self._db.keys():
                 if result_id in key:
                     data = self._db.get(key)
                     if isinstance(data, dict) and data.get("id") == result_id:
+                        # 同时更新索引
+                        self._index_db[index_key] = key
                         return StrategyResult(
                             id=data.get("id", ""),
                             strategy_id=data.get("strategy_id", ""),
@@ -494,13 +557,44 @@ class ResultStore:
     def delete(self, result_id: str) -> bool:
         """删除指定结果"""
         with self._data_lock:
-            # 优化：遍历所有键，查找包含result_id的键
+            # 使用反向索引快速查找
+            index_key = f"id:{result_id}"
+            key = self._index_db.get(index_key)
+            
+            if key:
+                data = self._db.get(key)
+                if isinstance(data, dict) and data.get("id") == result_id:
+                    strategy_id = data.get("strategy_id", "")
+                    del self._db[key]
+                    # 删除对应的索引
+                    del self._index_db[index_key]
+                    
+                    # 清除该策略的缓存，下次查询时会重新从数据库加载
+                    if strategy_id in self._cache:
+                        del self._cache[strategy_id]
+                    
+                    # 更新统计
+                    if data.get("success"):
+                        self._stats["total_success"] = max(0, self._stats["total_success"] - 1)
+                    else:
+                        self._stats["total_failed"] = max(0, self._stats["total_failed"] - 1)
+                    self._stats["total_results"] = max(0, self._stats["total_results"] - 1)
+                    
+                    return True
+            
+            #  fallback: 如果索引不存在，使用原有逻辑
             for key in list(self._db.keys()):
                 if result_id in key:
                     data = self._db.get(key)
                     if isinstance(data, dict) and data.get("id") == result_id:
                         strategy_id = data.get("strategy_id", "")
                         del self._db[key]
+                        # 删除对应的索引
+                        try:
+                            if index_key in self._index_db:
+                                del self._index_db[index_key]
+                        except Exception:
+                            pass
                         
                         # 清除该策略的缓存，下次查询时会重新从数据库加载
                         if strategy_id in self._cache:
@@ -527,11 +621,56 @@ class ResultStore:
         results = []
         
         with self._data_lock:
-            # 优化：如果指定了strategy_id，只遍历以该ID开头的键
-            if strategy_id:
-                keys = [key for key in self._db.keys() if key.startswith(f"{strategy_id}:")]
+            # 利用DBStream的时间切片功能
+            if start_ts or end_ts:
+                # 转换为时间字符串格式
+                start_str = datetime.fromtimestamp(start_ts).strftime("%Y-%m-%d %H:%M:%S") if start_ts else None
+                end_str = datetime.fromtimestamp(end_ts).strftime("%Y-%m-%d %H:%M:%S") if end_ts else None
+                
+                # 使用时间切片获取键
+                time_slice_keys = list(self._db[start_str:end_str])
+                
+                # 过滤策略ID
+                if strategy_id:
+                    keys = [key for key in time_slice_keys if key.startswith(f"{strategy_id}:")]
+                else:
+                    keys = time_slice_keys
             else:
-                keys = list(self._db.keys())
+                # 未指定时间范围，使用时间切片获取最近数据
+                current_time = time.time()
+                # 计算30天前的时间戳
+                thirty_days_ago = current_time - (30 * 24 * 3600)
+                start_str = datetime.fromtimestamp(thirty_days_ago).strftime("%Y-%m-%d %H:%M:%S")
+                end_str = datetime.fromtimestamp(current_time).strftime("%Y-%m-%d %H:%M:%S")
+                
+                # 使用时间切片获取键
+                time_slice_keys = list(self._db[start_str:end_str])
+                
+                # 过滤策略ID
+                if strategy_id:
+                    keys = [key for key in time_slice_keys if key.startswith(f"{strategy_id}:")]
+                else:
+                    keys = time_slice_keys
+                
+                # 如果时间切片内的数据不足，再使用原有逻辑
+                if len(keys) < limit:
+                    if strategy_id:
+                        # 只获取以strategy_id开头的键，避免遍历所有数据库项
+                        # 限制遍历数量，最多遍历limit * 2个键
+                        temp_keys = []
+                        count = 0
+                        max_scan = limit * 2
+                        for key in self._db.keys():
+                            if key.startswith(f"{strategy_id}:"):
+                                temp_keys.append(key)
+                                count += 1
+                                if count >= max_scan:
+                                    break
+                        keys = temp_keys
+                    else:
+                        # 对于未指定策略ID的情况，仍然使用时间切片结果
+                        # 因为全表扫描可能会导致性能问题
+                        pass
             
             for key in keys:
                 data = self._db.get(key)
@@ -636,10 +775,24 @@ class ResultStore:
     def cleanup(self, strategy_id: str, max_count: int):
         """清理超过限制的历史记录"""
         with self._data_lock:
-            keys = []
-            for key in self._db.keys():
-                if key.startswith(f"{strategy_id}:"):
-                    keys.append(key)
+            # 利用时间切片获取最近的数据，避免全表扫描
+            import time
+            current_time = time.time()
+            # 计算30天前的时间戳（足够覆盖大部分数据）
+            thirty_days_ago = current_time - (30 * 24 * 3600)
+            start_str = datetime.fromtimestamp(thirty_days_ago).strftime("%Y-%m-%d %H:%M:%S")
+            end_str = datetime.fromtimestamp(current_time).strftime("%Y-%m-%d %H:%M:%S")
+            
+            # 使用时间切片获取键
+            time_slice_keys = list(self._db[start_str:end_str])
+            
+            # 过滤策略ID
+            keys = [key for key in time_slice_keys if key.startswith(f"{strategy_id}:")]
+            
+            # 如果时间切片内的数据不足，再使用原有逻辑
+            if len(keys) < max_count:
+                # 只获取以strategy_id开头的键，避免遍历所有数据库项
+                keys = [key for key in self._db.keys() if key.startswith(f"{strategy_id}:")]
             
             if len(keys) > max_count:
                 results = []
@@ -651,10 +804,29 @@ class ResultStore:
                 results.sort(key=lambda x: x[1], reverse=True)
                 
                 keys_to_delete = [key for key, _ in results[max_count:]]
+                
+                # 收集要删除的索引
+                index_keys_to_delete = []
+                for key in keys_to_delete:
+                    data = self._db.get(key)
+                    if isinstance(data, dict):
+                        result_id = data.get("id")
+                        if result_id:
+                            index_keys_to_delete.append(f"id:{result_id}")
+                
+                # 执行批量删除数据
                 for key in keys_to_delete:
                     try:
                         if key in self._db:
                             del self._db[key]
+                    except KeyError:
+                        pass
+                
+                # 执行批量删除索引
+                for index_key in index_keys_to_delete:
+                    try:
+                        if index_key in self._index_db:
+                            del self._index_db[index_key]
                     except KeyError:
                         pass
                 
@@ -668,7 +840,31 @@ class ResultStore:
         from ..config import get_strategy_config
         
         with self._data_lock:
-            all_keys = list(self._db.keys())
+            # 利用时间切片获取最近的数据，避免全表扫描
+            import time
+            current_time = time.time()
+            # 计算60天前的时间戳（足够覆盖大部分数据）
+            sixty_days_ago = current_time - (60 * 24 * 3600)
+            start_str = datetime.fromtimestamp(sixty_days_ago).strftime("%Y-%m-%d %H:%M:%S")
+            end_str = datetime.fromtimestamp(current_time).strftime("%Y-%m-%d %H:%M:%S")
+            
+            # 使用时间切片获取键
+            time_slice_keys = list(self._db[start_str:end_str])
+            
+            # 如果时间切片内的数据不足，再使用原有逻辑
+            if len(time_slice_keys) < max_count:
+                # 只获取最近的数据，避免全表扫描
+                # 这里使用限制遍历的方式，最多遍历2倍max_count的数据
+                all_keys = []
+                count = 0
+                max_scan = max_count * 2
+                for key in self._db.keys():
+                    all_keys.append(key)
+                    count += 1
+                    if count >= max_scan:
+                        break
+            else:
+                all_keys = time_slice_keys
             
             if len(all_keys) > max_count:
                 results = []
@@ -680,10 +876,29 @@ class ResultStore:
                 results.sort(key=lambda x: x[1], reverse=True)
                 
                 keys_to_delete = [key for key, _ in results[max_count:]]
+                
+                # 收集要删除的索引
+                index_keys_to_delete = []
+                for key in keys_to_delete:
+                    data = self._db.get(key)
+                    if isinstance(data, dict):
+                        result_id = data.get("id")
+                        if result_id:
+                            index_keys_to_delete.append(f"id:{result_id}")
+                
+                # 执行批量删除数据
                 for key in keys_to_delete:
                     try:
                         if key in self._db:
                             del self._db[key]
+                    except KeyError:
+                        pass
+                
+                # 执行批量删除索引
+                for index_key in index_keys_to_delete:
+                    try:
+                        if index_key in self._index_db:
+                            del self._index_db[index_key]
                     except KeyError:
                         pass
                 
@@ -709,10 +924,27 @@ class ResultStore:
                     k for k in self._db.keys()
                     if k.startswith(f"{strategy_id}:")
                 ]
+                
+                # 收集要删除的索引
+                index_keys_to_delete = []
+                for key in keys_to_delete:
+                    data = self._db.get(key)
+                    if isinstance(data, dict):
+                        result_id = data.get("id")
+                        if result_id:
+                            index_keys_to_delete.append(f"id:{result_id}")
+                
+                # 执行批量删除数据
                 for key in keys_to_delete:
                     del self._db[key]
+                
+                # 执行批量删除索引
+                for index_key in index_keys_to_delete:
+                    if index_key in self._index_db:
+                        del self._index_db[index_key]
             else:
                 self._db.clear()
+                self._index_db.clear()
 
 
 store = ResultStore()

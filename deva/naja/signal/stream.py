@@ -4,6 +4,7 @@
 """
 
 import threading
+import time
 from datetime import datetime, timedelta
 from typing import List
 
@@ -74,7 +75,9 @@ class SignalStream(Stream):
         )
 
     def _cache_key_from_result(self, result: StrategyResult) -> datetime:
-        cache_key = datetime.fromtimestamp(result.ts or datetime.now().timestamp())
+        # 确保时间戳有效，否则使用当前时间
+        ts = result.ts if result.ts and result.ts > 0 else datetime.now().timestamp()
+        cache_key = datetime.fromtimestamp(ts)
         while cache_key in self.cache:
             cache_key += timedelta(microseconds=1)
         return cache_key
@@ -98,7 +101,26 @@ class SignalStream(Stream):
 
     def update(self, result: StrategyResult, who=None):
         """更新流数据，仅写入 Stream cache，不做实时落库。"""
+        from deva.naja.strategy.result_store import StrategyResult
+        
         with self._persist_lock:
+            # 确保 result 是 StrategyResult 类型
+            if not isinstance(result, StrategyResult):
+                # 如果不是 StrategyResult 类型，创建一个新的 StrategyResult 对象
+                result = StrategyResult(
+                    id="",
+                    strategy_id="",
+                    strategy_name="",
+                    ts=result.ts if hasattr(result, 'ts') else time.time(),
+                    success=True,
+                    output_full=result
+                )
+            
+            # 直接添加到缓存中
+            cache_key = self._cache_key_from_result(result)
+            self.cache[cache_key] = result
+            
+            # 调用父类的 _emit 方法
             return self._emit(result)
 
     def get_recent(self, limit: int = 20) -> List[StrategyResult]:
