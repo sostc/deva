@@ -6,6 +6,7 @@
 - 策略管理
 - 数据字典管理
 - 数据表管理
+- 思想雷达（龙虾记忆系统）
 """
 
 from pywebio.output import (
@@ -18,6 +19,9 @@ from pywebio.platform.tornado import webio_handler
 
 from deva import NW, Deva, NB
 from .config import get_auth_config, set_config, ensure_auth_secret
+
+# 导入思想雷达UI
+from .home.lobster_tab import LobsterRadarUI
 
 
 def apply_global_styles():
@@ -124,13 +128,14 @@ def create_nav_menu():
     """创建导航菜单"""
     menu_items = [
         {"name": "🏠 首页", "path": "/"},
-        {"name": "📡 信号流", "path": "/signaladmin"},
-        {"name": "📡 数据源", "path": "/dsadmin"},
-        {"name": "⏰ 任务", "path": "/taskadmin"},
-        {"name": "📊 策略", "path": "/strategyadmin"},
-        {"name": "📚 字典", "path": "/dictadmin"},
-        {"name": "🗃️ 数据表", "path": "/tableadmin"},
-        {"name": "⚙️ 配置", "path": "/configadmin"},
+        {"name": "📡 雷达", "path": "/lobster"},
+        {"name": "💰 信号", "path": "/signaladmin"},
+        {"name": "🗃️ 数据源", "path": "/dsadmin"},
+        {"name": "⏱️ 任务", "path": "/taskadmin"},
+        {"name": "🎯 策略", "path": "/strategyadmin"},
+        {"name": "📖 字典", "path": "/dictadmin"},
+        {"name": "🗄️ 数据表", "path": "/tableadmin"},
+        {"name": "🔧 配置", "path": "/configadmin"},
     ]
     
     menu_items_js = ",\n            ".join([
@@ -420,12 +425,19 @@ async def configadmin():
     render_config_page(ctx)
 
 
+def lobster_page():
+    """思想雷达页面"""
+    ui = LobsterRadarUI()
+    ui.render()
+
+
 def create_handlers(cdn: str = None):
     """创建路由处理器"""
     cdn_url = cdn or 'https://fastly.jsdelivr.net/gh/wang0618/PyWebIO-assets@v1.8.3/'
     
     return [
         (r'/', webio_handler(main, cdn=cdn_url)),
+        (r'/lobster', webio_handler(lobster_page, cdn=cdn_url)),
         (r'/signaladmin', webio_handler(signaladmin, cdn=cdn_url)),
         (r'/dsadmin', webio_handler(dsadmin, cdn=cdn_url)),
         (r'/taskadmin', webio_handler(taskadmin, cdn=cdn_url)),
@@ -447,6 +459,7 @@ def run_server(port: int = 8080, host: str = '0.0.0.0'):
     from .strategy import get_strategy_manager
     from .dictionary import get_dictionary_manager
     from .signal.stream import get_signal_stream
+    from .supervisor import start_supervisor
     
     ds_mgr = get_datasource_manager()
     task_mgr = get_task_manager()
@@ -471,6 +484,9 @@ def run_server(port: int = 8080, host: str = '0.0.0.0'):
     
     print("📡 初始化信号流...")
     get_signal_stream()  # 初始化信号流并从持久化存储加载数据
+    
+    print("🛡️ 启动系统监控...")
+    start_supervisor()
     
     handlers = create_handlers()
     
