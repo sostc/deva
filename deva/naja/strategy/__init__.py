@@ -29,6 +29,7 @@ STRATEGY_EXPERIMENT_ACTIVE_KEY = "active_session"
 class StrategyMetadata(UnitMetadata):
     """策略元数据"""
     bound_datasource_id: str = ""
+    bound_datasource_ids: List[str] = field(default_factory=list)  # 多数据源支持
     compute_mode: str = "record"
     window_size: int = 5
     window_type: str = "sliding"
@@ -62,6 +63,8 @@ class StrategyEntry(RecoverableUnit):
         )
         
         self._input_stream: Optional[Any] = None
+        self._input_streams: Dict[str, Any] = {}  # 多数据源支持：数据源ID -> 流
+        self._datasource_names: Dict[str, str] = {}  # 数据源ID -> 名称
         self._output_stream: Optional[Any] = None
         self._processing_lock = threading.Lock()
         self._window_buffer: List[Any] = []
@@ -82,20 +85,43 @@ class StrategyEntry(RecoverableUnit):
     
     def _do_start(self, func: Callable) -> dict:
         try:
-            datasource_id = getattr(self._metadata, "bound_datasource_id", "")
-            if not datasource_id:
+            # 获取多数据源ID列表
+            datasource_ids = getattr(self._metadata, "bound_datasource_ids", [])
+            if not datasource_ids:
+                # 兼容旧版本单数据源
+                datasource_id = getattr(self._metadata, "bound_datasource_id", "")
+                if datasource_id:
+                    datasource_ids = [datasource_id]
+            
+            if not datasource_ids:
                 return {"success": True, "message": "No datasource bound"}
             
             from ..datasource import get_datasource_manager
             ds_mgr = get_datasource_manager()
-            ds = ds_mgr.get(datasource_id)
             
-            if ds is None:
-                return {"success": True, "message": "Datasource not found, will bind later"}
+            bound_count = 0
+            failed_datasources = []
             
-            self._bind_datasource(ds)
+            for ds_id in datasource_ids:
+                ds = ds_mgr.get(ds_id)
+                if ds is None:
+                    failed_datasources.append(ds_id)
+                    continue
+                
+                try:
+                    self._bind_datasource(ds)
+                    bound_count += 1
+                except Exception as e:
+                    self._log("ERROR", f"Bind datasource failed", datasource_id=ds_id, error=str(e))
+                    failed_datasources.append(ds_id)
             
-            return {"success": True}
+            if bound_count == 0:
+                return {"success": True, "message": f"No datasources could be bound. Failed: {failed_datasources}"}
+            
+            return {
+                "success": True, 
+                "message": f"Bound {bound_count} datasources, failed: {len(failed_datasources)}"
+            }
         except Exception as e:
             return {"success": False, "error": str(e)}
     
@@ -110,11 +136,21 @@ class StrategyEntry(RecoverableUnit):
     def _bind_datasource(self, datasource: Any):
         """绑定数据源"""
         try:
-            self._input_stream = datasource.get_stream()
+            ds_id = datasource.id
+            ds_name = datasource.name
+            stream = datasource.get_stream()
             
-            if self._input_stream is None:
-                self._log("ERROR", "Bind datasource failed: stream is None")
+            if stream is None:
+                self._log("ERROR", "Bind datasource failed: stream is None", datasource_id=ds_id)
                 return
+            
+            # 保存流和名称（多数据源支持）
+            self._input_streams[ds_id] = stream
+            self._datasource_names[ds_id] = ds_name
+            
+            # 兼容单数据源模式
+            if self._input_stream is None:
+                self._input_stream = stream
             
             output_stream_name = f"strategy_output_{self.id}"
             self._output_stream = NS(
@@ -124,18 +160,32 @@ class StrategyEntry(RecoverableUnit):
                 description=f"Strategy {self.name} output",
             )
             
-            def on_data(data: Any):
-                self._process_data(data)
+            # 创建数据源特定的数据处理函数
+            def create_on_data(datasource_id: str, datasource_name: str):
+                def on_data(data: Any):
+                    # 添加数据源信息到数据
+                    enriched_data = {
+                        "_datasource_id": datasource_id,
+                        "_datasource_name": datasource_name,
+                        "_receive_time": time.time(),
+                        "data": data,
+                    }
+                    self._process_data(enriched_data)
+                return on_data
             
-            if hasattr(self._input_stream, "sink"):
-                self._input_stream.sink(on_data)
-            elif hasattr(self._input_stream, "map"):
-                mapped_stream = self._input_stream.map(on_data)
+            on_data = create_on_data(ds_id, ds_name)
+            
+            if hasattr(stream, "sink"):
+                stream.sink(on_data)
+            elif hasattr(stream, "map"):
+                mapped_stream = stream.map(on_data)
                 mapped_stream.sink(lambda x: None)
-            elif hasattr(self._input_stream, "subscribe"):
-                self._input_stream.subscribe(on_data)
+            elif hasattr(stream, "subscribe"):
+                stream.subscribe(on_data)
             else:
-                self._log("ERROR", "No valid subscription method found on stream")
+                self._log("ERROR", "No valid subscription method found on stream", datasource_id=ds_id)
+            
+            self._log("INFO", f"Datasource bound successfully", datasource_id=ds_id, name=ds_name)
                 
         except Exception as e:
             self._log("ERROR", "Bind datasource failed", error=str(e))
@@ -578,6 +628,7 @@ class StrategyEntry(RecoverableUnit):
         description: str = None,
         func_code: str = None,
         bound_datasource_id: str = None,
+        bound_datasource_ids: List[str] = None,
         compute_mode: str = None,
         window_size: int = None,
         window_type: str = None,
@@ -589,7 +640,7 @@ class StrategyEntry(RecoverableUnit):
     ) -> dict:
         # 记录是否正在运行
         was_running = self.is_running
-        
+
         if name is not None:
             self._metadata.name = name
         if description is not None:
@@ -610,9 +661,20 @@ class StrategyEntry(RecoverableUnit):
             self._metadata.dictionary_profile_ids = dictionary_profile_ids
         if category is not None:
             self._metadata.category = category
-        
-        if bound_datasource_id is not None:
+
+        # 处理多数据源绑定
+        if bound_datasource_ids is not None:
+            self._metadata.bound_datasource_ids = bound_datasource_ids
+            # 同步更新单数据源字段（取第一个）
+            self._metadata.bound_datasource_id = bound_datasource_ids[0] if bound_datasource_ids else ""
+        elif bound_datasource_id is not None:
             self._metadata.bound_datasource_id = bound_datasource_id
+            # 同步更新多数据源列表
+            if bound_datasource_id:
+                if bound_datasource_id not in self._metadata.bound_datasource_ids:
+                    self._metadata.bound_datasource_ids = [bound_datasource_id]
+            else:
+                self._metadata.bound_datasource_ids = []
         
         if func_code is not None:
             if self._get_func_name() not in func_code:
@@ -658,6 +720,7 @@ class StrategyEntry(RecoverableUnit):
                 "description": metadata.description,
                 "tags": metadata.tags,
                 "bound_datasource_id": getattr(metadata, "bound_datasource_id", ""),
+                "bound_datasource_ids": getattr(metadata, "bound_datasource_ids", []),  # 多数据源支持
                 "compute_mode": getattr(metadata, "compute_mode", "record"),
                 "window_size": getattr(metadata, "window_size", 5),
                 "window_type": getattr(metadata, "window_type", "sliding"),
@@ -684,6 +747,7 @@ class StrategyEntry(RecoverableUnit):
             description=metadata_data.get("description", ""),
             tags=metadata_data.get("tags", []),
             bound_datasource_id=metadata_data.get("bound_datasource_id", ""),
+            bound_datasource_ids=metadata_data.get("bound_datasource_ids", []),  # 多数据源支持
             compute_mode=metadata_data.get("compute_mode", "record"),
             window_size=metadata_data.get("window_size", 5),
             window_type=metadata_data.get("window_type", "sliding"),
@@ -824,6 +888,7 @@ class StrategyManager:
         name: str,
         func_code: str,
         bound_datasource_id: str = "",
+        bound_datasource_ids: List[str] = None,
         description: str = "",
         compute_mode: str = "record",
         window_size: int = None,
@@ -836,10 +901,10 @@ class StrategyManager:
         category: str = "默认",
     ) -> dict:
         from ..config import get_strategy_config
-        
+
         import hashlib
         entry_id = hashlib.md5(f"{name}_{time.time()}".encode()).hexdigest()[:12]
-        
+
         # 使用配置默认值
         strategy_config = get_strategy_config()
         if window_size is None:
@@ -848,16 +913,24 @@ class StrategyManager:
             max_history_count = strategy_config.get("single_history_count", 30)
         if window_interval is None:
             window_interval = strategy_config.get("default_window_interval", "10s")
-        
+
         if "process" not in func_code:
             return {"success": False, "error": "代码必须包含 process 函数"}
-        
+
+        # 处理多数据源绑定
+        if bound_datasource_ids is None:
+            bound_datasource_ids = [bound_datasource_id] if bound_datasource_id else []
+        elif bound_datasource_id and bound_datasource_id not in bound_datasource_ids:
+            # 如果提供了单数据源但不在列表中，添加到列表
+            bound_datasource_ids = [bound_datasource_id] + list(bound_datasource_ids)
+
         metadata = StrategyMetadata(
             id=entry_id,
             name=name,
             description=description,
             tags=tags or [],
-            bound_datasource_id=bound_datasource_id,
+            bound_datasource_id=bound_datasource_ids[0] if bound_datasource_ids else "",  # 兼容单数据源
+            bound_datasource_ids=bound_datasource_ids,
             compute_mode=compute_mode,
             window_size=window_size,
             window_type=window_type,
