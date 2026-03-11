@@ -207,6 +207,21 @@ def _render_strategy_diagram_section(ctx: dict, entry):
     </div>
     """)
 
+    # 渲染河流比喻（如果有）
+    river_metaphor = diagram_info.get("river_metaphor", {})
+    if river_metaphor:
+        _render_river_metaphor_section(ctx, river_metaphor, color)
+
+    # 渲染记忆结构（如果有）
+    memory_structure = diagram_info.get("memory_structure", {})
+    if memory_structure:
+        _render_memory_structure_section(ctx, memory_structure, color)
+
+    # 渲染信号类型（如果有）
+    signal_types = diagram_info.get("signal_types", [])
+    if signal_types:
+        _render_signal_types_section(ctx, signal_types, color)
+
     # 渲染原理解释（如果有）
     if principle:
         _render_principle_section(ctx, entry, principle, color)
@@ -1411,7 +1426,13 @@ async def _edit_strategy_dialog(ctx: dict, mgr, entry_id: str):
         compute_mode = getattr(entry._metadata, "compute_mode", "record")
         window_type = getattr(entry._metadata, "window_type", "sliding")
         window_return_partial = getattr(entry._metadata, "window_return_partial", False)
-        bound_datasource_id = getattr(entry._metadata, "bound_datasource_id", "")
+        # 支持多数据源绑定
+        bound_datasource_ids = getattr(entry._metadata, "bound_datasource_ids", [])
+        if not bound_datasource_ids:
+            # 兼容旧版本单数据源
+            bound_datasource_id = getattr(entry._metadata, "bound_datasource_id", "")
+            if bound_datasource_id:
+                bound_datasource_ids = [bound_datasource_id]
         dictionary_profile_ids = getattr(entry._metadata, "dictionary_profile_ids", [])
 
         form = await ctx["input_group"]("策略配置", [
@@ -1420,8 +1441,8 @@ async def _edit_strategy_dialog(ctx: dict, mgr, entry_id: str):
                             value=getattr(entry._metadata, "description", "") or ""),
             ctx["select"]("类别", name="category_select", options=category_options, value=current_category),
             ctx["input"]("新类别名称", name="category_new", placeholder="输入新类别名称（如选择新建类别）"),
-            ctx["select"]("绑定数据源", name="datasource_id", options=source_options,
-                          value=bound_datasource_id),
+            ctx["select"]("绑定数据源（可多选）", name="datasource_ids", options=source_options,
+                          multiple=True, value=bound_datasource_ids),
             ctx["select"]("字典配置", name="dictionary_profile_ids", options=dict_options,
                           multiple=True, value=dictionary_profile_ids),
             ctx["select"]("计算模式", name="compute_mode", options=[
@@ -1464,10 +1485,17 @@ async def _edit_strategy_dialog(ctx: dict, mgr, entry_id: str):
             elif category == "__new__":
                 category = current_category
 
+            # 获取多数据源绑定列表
+            datasource_ids = form.get("datasource_ids", [])
+            # 兼容处理：如果是字符串（单选情况），转换为列表
+            if isinstance(datasource_ids, str):
+                datasource_ids = [datasource_ids] if datasource_ids else []
+            
             result = entry.update_config(
                 name=form["name"].strip(),
                 description=form.get("description", "").strip(),
-                bound_datasource_id=form.get("datasource_id", ""),
+                bound_datasource_id=datasource_ids[0] if datasource_ids else "",  # 兼容单数据源
+                bound_datasource_ids=datasource_ids,  # 多数据源
                 dictionary_profile_ids=form.get("dictionary_profile_ids", []),
                 compute_mode=form.get("compute_mode"),
                 window_type=form.get("window_type"),
@@ -1526,7 +1554,7 @@ async def _create_strategy_dialog_async(mgr, ctx: dict):
             ctx["textarea"]("描述", name="description", rows=2, placeholder="策略描述（可选）"),
             ctx["select"]("类别", name="category_select", options=category_options, value="默认"),
             ctx["input"]("新类别名称", name="category_new", placeholder="输入新类别名称（如选择新建类别）"),
-            ctx["select"]("绑定数据源", name="datasource_id", options=source_options, value=""),
+            ctx["select"]("绑定数据源（可多选）", name="datasource_ids", options=source_options, multiple=True, value=[]),
             ctx["select"]("字典配置", name="dictionary_profile_ids",
                           options=dict_options, multiple=True, value=[]),
             ctx["select"]("计算模式", name="compute_mode", options=[
@@ -1565,11 +1593,18 @@ async def _create_strategy_dialog_async(mgr, ctx: dict):
             elif category == "__new__":
                 category = "默认"
 
+            # 获取多数据源绑定列表
+            datasource_ids = form.get("datasource_ids", [])
+            # 兼容处理：如果是字符串（单选情况），转换为列表
+            if isinstance(datasource_ids, str):
+                datasource_ids = [datasource_ids] if datasource_ids else []
+
             result = mgr.create(
                 name=form["name"].strip(),
                 func_code=form.get("code", ""),
                 description=form.get("description", "").strip(),
-                bound_datasource_id=form.get("datasource_id", ""),
+                bound_datasource_id=datasource_ids[0] if datasource_ids else "",  # 兼容单数据源
+                bound_datasource_ids=datasource_ids,  # 多数据源
                 dictionary_profile_ids=form.get("dictionary_profile_ids", []),
                 compute_mode=form.get("compute_mode", "record"),
                 window_type=form.get("window_type", "sliding"),
@@ -1586,3 +1621,47 @@ async def _create_strategy_dialog_async(mgr, ctx: dict):
                 _render_strategy_content(ctx)
             else:
                 ctx["toast"](f"创建失败: {result.get('error')}", color="error")
+
+
+def _render_river_metaphor_section(ctx: dict, river_metaphor: dict, color: str):
+    """渲染河流比喻部分"""
+    title = river_metaphor.get("title", "�� 河流比喻")
+    description = river_metaphor.get("description", "")
+    elements = river_metaphor.get("elements", {})
+    process = river_metaphor.get("process", [])
+    
+    # 生成元素 HTML
+    elements_html = ""
+    for key, value in elements.items():
+        elements_html += f'''<div style="padding:8px 12px;background:#f8f9fa;border-radius:6px;margin-bottom:6px;"><span style="font-weight:600;color:{color};">{key}</span><span style="color:#666;margin-left:8px;">{value}</span></div>'''
+    
+    # 生成流程 HTML
+    process_html = ""
+    for step in process:
+        process_html += f'''<div style="padding:6px 0;color:#555;font-size:13px;border-left:2px solid {color};padding-left:12px;margin-bottom:4px;">{step}</div>'''
+    
+    ctx["put_html"](f'''<div style="background:#fff;border-radius:12px;box-shadow:0 2px 12px rgba(0,0,0,0.08);overflow:hidden;border:1px solid #eee;margin-bottom:15px;"><div style="background:linear-gradient(135deg,{color} 0%,{color}dd 100%);padding:12px 20px;color:white;"><div style="font-size:16px;font-weight:600;">{title}</div><div style="font-size:12px;opacity:0.9;margin-top:4px;">{description}</div></div><div style="padding:20px;"><div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;"><div><div style="font-weight:600;color:#333;margin-bottom:10px;">🏞️ 河流元素</div><div style="background:#f8f9fa;padding:12px;border-radius:8px;">{elements_html}</div></div><div><div style="font-weight:600;color:#333;margin-bottom:10px;">🔄 处理流程</div><div style="background:#f8f9fa;padding:12px;border-radius:8px;">{process_html}</div></div></div></div></div>''')
+
+
+def _render_memory_structure_section(ctx: dict, memory_structure: dict, color: str):
+    """渲染记忆结构部分"""
+    # 生成记忆层级 HTML
+    levels_html = ""
+    level_colors = ["#e3f2fd", "#fff3e0", "#f3e5f5", "#e8f5e9"]
+    for i, (key, value) in enumerate(memory_structure.items()):
+        bg_color = level_colors[i % len(level_colors)]
+        levels_html += f'''<div style="padding:10px 12px;background:{bg_color};border-radius:6px;margin-bottom:8px;border-left:3px solid {color};"><div style="font-weight:600;color:#333;">{key}</div><div style="color:#666;font-size:12px;margin-top:2px;">{value}</div></div>'''
+    
+    ctx["put_html"](f'''<div style="background:#fff;border-radius:12px;box-shadow:0 2px 12px rgba(0,0,0,0.08);overflow:hidden;border:1px solid #eee;margin-bottom:15px;"><div style="background:linear-gradient(135deg,{color} 0%,{color}dd 100%);padding:12px 20px;color:white;"><div style="font-size:16px;font-weight:600;">🧠 记忆结构</div><div style="font-size:12px;opacity:0.9;margin-top:4px;">分层记忆存储系统</div></div><div style="padding:20px;">{levels_html}</div></div>''')
+
+
+def _render_signal_types_section(ctx: dict, signal_types: list, color: str):
+    """渲染信号类型部分"""
+    # 生成信号类型 HTML
+    signals_html = ""
+    signal_colors = ["#e8f5e9", "#fff3e0", "#ffebee", "#e3f2fd", "#f3e5f5", "#e0f2f1"]
+    for i, signal in enumerate(signal_types):
+        bg_color = signal_colors[i % len(signal_colors)]
+        signals_html += f'''<div style="padding:8px 12px;background:{bg_color};border-radius:6px;margin-bottom:6px;font-size:13px;color:#333;">{signal}</div>'''
+    
+    ctx["put_html"](f'''<div style="background:#fff;border-radius:12px;box-shadow:0 2px 12px rgba(0,0,0,0.08);overflow:hidden;border:1px solid #eee;margin-bottom:15px;"><div style="background:linear-gradient(135deg,{color} 0%,{color}dd 100%);padding:12px 20px;color:white;"><div style="font-size:16px;font-weight:600;">📡 信号类型</div><div style="font-size:12px;opacity:0.9;margin-top:4px;">策略可能输出的信号</div></div><div style="padding:20px;">{signals_html}</div></div>''')
