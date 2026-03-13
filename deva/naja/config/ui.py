@@ -1,7 +1,7 @@
 """Naja 配置管理 UI"""
 
 from pywebio.output import put_text, put_markdown, put_table, put_buttons, put_html, toast, popup, close_popup, put_row
-from pywebio.input import input_group, input, select, NUMBER, PASSWORD
+from pywebio.input import input_group, input, select, NUMBER, PASSWORD, textarea
 from pywebio.session import run_async
 from pywebio import pin
 
@@ -39,6 +39,9 @@ def render_config_page(ctx: dict):
         {"label": "📈 策略配置", "value": "strategy", "color": "primary"},
         {"label": "⏰ 任务配置", "value": "task", "color": "success"},
         {"label": "📚 字典配置", "value": "dictionary", "color": "default"},
+        {"label": "🧠 记忆配置", "value": "memory", "color": "primary"},
+        {"label": "🧭 雷达配置", "value": "radar", "color": "info"},
+        {"label": "🤖 LLM调节", "value": "llm", "color": "warning"},
         {"label": "⚡ 性能监控", "value": "performance", "color": "danger"},
     ], onclick=lambda v: run_async(_show_config_dialog(ctx, v)), group=True)
     ctx["put_html"]('</div>')
@@ -99,8 +102,29 @@ def _render_config_summary(ctx: dict):
         f"存储监控: {'启用' if storage_enabled else '禁用'}\n阈值: {perf_config.get('lock_monitoring_threshold_ms', 100)}ms"
     ])
 
+    memory_config = get_config("memory") or {}
+    config_data.append([
+        "🧠 记忆",
+        f"自动保存: {'启用' if memory_config.get('auto_save_enabled', True) else '禁用'}\n自动加载: {'启用' if memory_config.get('auto_load_on_start', True) else '禁用'}",
+        f"保存间隔: {memory_config.get('auto_save_interval', 300)}s"
+    ])
+
+    radar_config = get_config("radar") or {}
+    config_data.append([
+        "🧭 雷达",
+        f"事件保留: {radar_config.get('event_retention_days', 7)} 天",
+        f"清理间隔: {radar_config.get('cleanup_interval_seconds', 600)}s"
+    ])
+
+    llm_config = get_config("llm") or {}
+    config_data.append([
+        "🤖 LLM调节",
+        f"自动调节: {'启用' if llm_config.get('auto_adjust_enabled', True) else '禁用'}\n最小间隔: {llm_config.get('min_interval_seconds', 300)}s",
+        f"调节间隔: {llm_config.get('auto_adjust_interval_seconds', 900)}s"
+    ])
+
     ctx["put_html"](render_stats_cards([
-        {"label": "配置模块", "value": 5, "gradient": "linear-gradient(135deg,#667eea,#764ba2)", "shadow": "rgba(102,126,234,0.3)"},
+        {"label": "配置模块", "value": 8, "gradient": "linear-gradient(135deg,#667eea,#764ba2)", "shadow": "rgba(102,126,234,0.3)"},
         {"label": "启用开发模式", "value": 1 if auth_config.get('dev_mode', False) else 0, "gradient": "linear-gradient(135deg,#f0ad4e,#ec971f)", "shadow": "rgba(240,173,78,0.3)"},
         {"label": "默认策略窗口", "value": strategy_config.get('default_window_size', 5), "gradient": "linear-gradient(135deg,#11998e,#38ef7d)", "shadow": "rgba(17,153,142,0.3)"},
     ]))
@@ -119,6 +143,9 @@ async def _show_config_dialog(ctx: dict, category: str):
         "strategy": "策略",
         "task": "任务",
         "dictionary": "字典",
+        "memory": "记忆",
+        "radar": "雷达",
+        "llm": "LLM调节",
         "performance": "性能监控",
     }
     
@@ -137,6 +164,23 @@ async def _show_config_dialog(ctx: dict, category: str):
             await _render_dictionary_config(ctx, config, defaults)
         elif category == "performance":
             await _render_performance_config(ctx, config, defaults)
+        elif category == "memory":
+            await _render_memory_config(ctx, config, defaults)
+        elif category == "radar":
+            await _render_radar_config(ctx, config, defaults)
+        elif category == "llm":
+            await _render_llm_config(ctx, config, defaults)
+
+
+def _split_list(value: str) -> list:
+    if not value:
+        return []
+    parts = []
+    for chunk in str(value).replace("\n", ",").split(","):
+        item = chunk.strip()
+        if item:
+            parts.append(item)
+    return parts
 
 
 async def _render_datasource_config(ctx: dict, config: dict, defaults: dict):
@@ -452,6 +496,145 @@ async def _render_dictionary_config(ctx: dict, config: dict, defaults: dict):
         ctx["close_popup"]()
     elif form and form.get("action") == "reset":
         reset_to_default("dictionary")
+        ctx["toast"]("已恢复默认配置", color="success")
+        ctx["close_popup"]()
+    elif form and form.get("action") == "cancel":
+        ctx["close_popup"]()
+
+
+async def _render_memory_config(ctx: dict, config: dict, defaults: dict):
+    """渲染记忆配置"""
+    form = await ctx["input_group"]("记忆配置", [
+        ctx["checkbox"]("自动加载", name="auto_load_on_start", options=[
+            {"label": "启动时自动加载记忆状态", "value": "auto_load_on_start", "selected": config.get("auto_load_on_start", defaults.get("auto_load_on_start", True))}
+        ]),
+        ctx["checkbox"]("自动保存", name="auto_save_enabled", options=[
+            {"label": "启用记忆自动保存", "value": "auto_save_enabled", "selected": config.get("auto_save_enabled", defaults.get("auto_save_enabled", True))}
+        ]),
+        ctx["input"]("自动保存间隔(秒)", name="auto_save_interval", type="number",
+                    value=config.get("auto_save_interval", defaults.get("auto_save_interval", 300))),
+        ctx["actions"]("操作", [
+            {"label": "保存", "value": "save", "color": "primary"},
+            {"label": "恢复默认", "value": "reset", "color": "warning"},
+            {"label": "取消", "value": "cancel", "color": "default"},
+        ], name="action"),
+    ])
+
+    if form and form.get("action") == "save":
+        set_category_config("memory", {
+            "auto_load_on_start": "auto_load_on_start" in form.get("auto_load_on_start", []),
+            "auto_save_enabled": "auto_save_enabled" in form.get("auto_save_enabled", []),
+            "auto_save_interval": int(form.get("auto_save_interval", 300)),
+        })
+        ctx["toast"]("记忆配置已保存", color="success")
+        ctx["close_popup"]()
+    elif form and form.get("action") == "reset":
+        reset_to_default("memory")
+        ctx["toast"]("已恢复默认配置", color="success")
+        ctx["close_popup"]()
+    elif form and form.get("action") == "cancel":
+        ctx["close_popup"]()
+
+
+async def _render_radar_config(ctx: dict, config: dict, defaults: dict):
+    """渲染雷达配置"""
+    form = await ctx["input_group"]("雷达配置", [
+        ctx["input"]("事件保留天数", name="event_retention_days", type="number",
+                    value=config.get("event_retention_days", defaults.get("event_retention_days", 7))),
+        ctx["input"]("清理间隔(秒)", name="cleanup_interval_seconds", type="number",
+                    value=config.get("cleanup_interval_seconds", defaults.get("cleanup_interval_seconds", 600))),
+        ctx["actions"]("操作", [
+            {"label": "保存", "value": "save", "color": "primary"},
+            {"label": "恢复默认", "value": "reset", "color": "warning"},
+            {"label": "取消", "value": "cancel", "color": "default"},
+        ], name="action"),
+    ])
+
+    if form and form.get("action") == "save":
+        set_category_config("radar", {
+            "event_retention_days": float(form.get("event_retention_days", 7)),
+            "cleanup_interval_seconds": int(form.get("cleanup_interval_seconds", 600)),
+        })
+        ctx["toast"]("雷达配置已保存", color="success")
+        ctx["close_popup"]()
+    elif form and form.get("action") == "reset":
+        reset_to_default("radar")
+        ctx["toast"]("已恢复默认配置", color="success")
+        ctx["close_popup"]()
+    elif form and form.get("action") == "cancel":
+        ctx["close_popup"]()
+
+
+async def _render_llm_config(ctx: dict, config: dict, defaults: dict):
+    """渲染 LLM 调节配置"""
+    actions_options = [
+        {"label": "update_params", "value": "update_params"},
+        {"label": "update_strategy", "value": "update_strategy"},
+        {"label": "reset", "value": "reset"},
+        {"label": "start", "value": "start"},
+        {"label": "stop", "value": "stop"},
+        {"label": "restart", "value": "restart"},
+    ]
+    current_actions = config.get("allowed_actions", defaults.get("allowed_actions", []))
+
+    form = await ctx["input_group"]("LLM 调节配置", [
+        ctx["checkbox"]("自动调节", name="auto_adjust_enabled", options=[
+            {"label": "启用 LLM 自动调节任务", "value": "auto_adjust_enabled", "selected": config.get("auto_adjust_enabled", defaults.get("auto_adjust_enabled", True))}
+        ]),
+        ctx["input"]("最小调节间隔(秒)", name="min_interval_seconds", type="number",
+                    value=config.get("min_interval_seconds", defaults.get("min_interval_seconds", 300))),
+        ctx["input"]("自动调节间隔(秒)", name="auto_adjust_interval_seconds", type="number",
+                    value=config.get("auto_adjust_interval_seconds", defaults.get("auto_adjust_interval_seconds", 900))),
+        ctx["input"]("调节窗口(秒)", name="auto_adjust_window_seconds", type="number",
+                    value=config.get("auto_adjust_window_seconds", defaults.get("auto_adjust_window_seconds", 600))),
+        ctx["input"]("最小雷达事件数", name="auto_adjust_min_events", type="number",
+                    value=config.get("auto_adjust_min_events", defaults.get("auto_adjust_min_events", 3))),
+        ctx["checkbox"]("Dry Run", name="auto_adjust_dry_run", options=[
+            {"label": "只模拟不落地", "value": "auto_adjust_dry_run", "selected": config.get("auto_adjust_dry_run", defaults.get("auto_adjust_dry_run", False))}
+        ]),
+        ctx["checkbox"]("允许动作", name="allowed_actions", options=actions_options, value=current_actions),
+        ctx["input"]("单次最大动作数", name="max_actions_per_run", type="number",
+                    value=config.get("max_actions_per_run", defaults.get("max_actions_per_run", 5))),
+        ctx["input"]("最小样本数(调节阈值)", name="min_results_count_for_adjust", type="number",
+                    value=config.get("min_results_count_for_adjust", defaults.get("min_results_count_for_adjust", 20))),
+        ctx["input"]("高成功率保护阈值(0-1)", name="max_success_rate_to_adjust", type="number",
+                    value=config.get("max_success_rate_to_adjust", defaults.get("max_success_rate_to_adjust", 1.0))),
+        ctx["textarea"]("策略白名单(逗号/换行分隔)", name="strategy_allowlist",
+                        value="\n".join(config.get("strategy_allowlist", defaults.get("strategy_allowlist", [])))),
+        ctx["textarea"]("策略黑名单(逗号/换行分隔)", name="strategy_denylist",
+                        value="\n".join(config.get("strategy_denylist", defaults.get("strategy_denylist", [])))),
+        ctx["textarea"]("允许参数键(可选)", name="allowed_param_keys",
+                        value="\n".join(config.get("allowed_param_keys", defaults.get("allowed_param_keys", [])))),
+        ctx["textarea"]("禁止参数键(可选)", name="blocked_param_keys",
+                        value="\n".join(config.get("blocked_param_keys", defaults.get("blocked_param_keys", [])))),
+        ctx["actions"]("操作", [
+            {"label": "保存", "value": "save", "color": "primary"},
+            {"label": "恢复默认", "value": "reset", "color": "warning"},
+            {"label": "取消", "value": "cancel", "color": "default"},
+        ], name="action"),
+    ])
+
+    if form and form.get("action") == "save":
+        set_category_config("llm", {
+            "min_interval_seconds": int(form.get("min_interval_seconds", 300)),
+            "auto_adjust_enabled": "auto_adjust_enabled" in form.get("auto_adjust_enabled", []),
+            "auto_adjust_interval_seconds": int(form.get("auto_adjust_interval_seconds", 900)),
+            "auto_adjust_window_seconds": int(form.get("auto_adjust_window_seconds", 600)),
+            "auto_adjust_min_events": int(form.get("auto_adjust_min_events", 3)),
+            "auto_adjust_dry_run": "auto_adjust_dry_run" in form.get("auto_adjust_dry_run", []),
+            "allowed_actions": form.get("allowed_actions", []),
+            "max_actions_per_run": int(form.get("max_actions_per_run", 5)),
+            "strategy_allowlist": _split_list(form.get("strategy_allowlist", "")),
+            "strategy_denylist": _split_list(form.get("strategy_denylist", "")),
+            "min_results_count_for_adjust": int(form.get("min_results_count_for_adjust", 20)),
+            "max_success_rate_to_adjust": float(form.get("max_success_rate_to_adjust", 1.0)),
+            "allowed_param_keys": _split_list(form.get("allowed_param_keys", "")),
+            "blocked_param_keys": _split_list(form.get("blocked_param_keys", "")),
+        })
+        ctx["toast"]("LLM 调节配置已保存", color="success")
+        ctx["close_popup"]()
+    elif form and form.get("action") == "reset":
+        reset_to_default("llm")
         ctx["toast"]("已恢复默认配置", color="success")
         ctx["close_popup"]()
     elif form and form.get("action") == "cancel":

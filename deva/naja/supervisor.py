@@ -47,7 +47,9 @@ class NajaSupervisor:
             'task': None,
             'dictionary': None,
             'signal': None,
-            'agent': None
+            'agent': None,
+            'radar': None,
+            'llm_controller': None,
         }
         self._status_history: List[Dict[str, Any]] = []
         self._monitor_thread: Optional[threading.Thread] = None
@@ -88,6 +90,12 @@ class NajaSupervisor:
             elif name == 'agent':
                 from .agent.manager import get_agent_manager
                 self._components[name] = get_agent_manager()
+            elif name == 'radar':
+                from .radar import get_radar_engine
+                self._components[name] = get_radar_engine()
+            elif name == 'llm_controller':
+                from .llm_controller import get_llm_controller
+                self._components[name] = get_llm_controller()
         except Exception as e:
             log.error(f"加载组件 {name} 失败: {e}")
         
@@ -297,6 +305,34 @@ class NajaSupervisor:
                 }
         except Exception as e:
             status['components']['signal'] = {
+                'status': 'error',
+                'error': str(e)
+            }
+
+        # 检查雷达状态
+        try:
+            radar_engine = self._get_component('radar')
+            if radar_engine:
+                status['components']['radar'] = {
+                    'status': 'healthy',
+                    'info': 'Radar engine active'
+                }
+        except Exception as e:
+            status['components']['radar'] = {
+                'status': 'error',
+                'error': str(e)
+            }
+
+        # 检查 LLM 调节器状态
+        try:
+            llm_controller = self._get_component('llm_controller')
+            if llm_controller:
+                status['components']['llm_controller'] = {
+                    'status': 'healthy',
+                    'info': 'LLM controller ready'
+                }
+        except Exception as e:
+            status['components']['llm_controller'] = {
                 'status': 'error',
                 'error': str(e)
             }

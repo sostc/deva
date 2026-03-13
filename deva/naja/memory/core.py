@@ -627,8 +627,8 @@ class LobsterRadarStrategy:
         self.topic_counter = 0
         
         # 记忆归档阈值
-        self.mid_memory_threshold = 0.7   # 注意力评分超过此值进入中期记忆
-        self.long_memory_interval = 24    # 小时，生成长期记忆的时间间隔
+        self.mid_memory_threshold = self.config.get("mid_memory_threshold", 0.7)   # 注意力评分超过此值进入中期记忆
+        self.long_memory_interval = self.config.get("long_memory_interval", 24)    # 小时，生成长期记忆的时间间隔
         self.last_long_memory_time = datetime.now() - timedelta(hours=24)
         
         # River组件
@@ -636,9 +636,9 @@ class LobsterRadarStrategy:
             # 使用River的在线聚类
             self.clustering = cluster.DBSTREAM(
                 clustering_threshold=self.topic_threshold,
-                fading_factor=0.05,
-                cleanup_interval=10,
-                intersection_factor=0.5,
+                fading_factor=self.config.get("fading_factor", 0.05),
+                cleanup_interval=self.config.get("cleanup_interval", 10),
+                intersection_factor=self.config.get("intersection_factor", 0.5),
             )
             # 漂移检测
             self.drift_detector = drift.ADWIN()

@@ -450,6 +450,22 @@ class ResultStore:
             signal_stream.update(result)
         except Exception as e:
             pass
+
+        # 发送到雷达引擎
+        try:
+            from ..radar import get_radar_engine
+            radar = get_radar_engine()
+            radar.ingest_result(result)
+        except Exception:
+            pass
+
+        # 发送到记忆引擎
+        try:
+            from ..memory import get_memory_engine
+            memory = get_memory_engine()
+            memory.ingest_result(result)
+        except Exception:
+            pass
         
         with self._data_lock:
             if strategy_id not in self._cache:

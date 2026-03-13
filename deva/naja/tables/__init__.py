@@ -13,7 +13,18 @@ from deva import NB
 
 
 TABLE_NAME_RE = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9_\-]{0,63}$")
-DEFAULT_RESERVED_TABLES = {"default", "naja_strategies", "naja_datasources", "naja_dictionaries", "naja_tasks"}
+DEFAULT_RESERVED_TABLES = {
+    "default",
+    "naja_strategies",
+    "naja_datasources",
+    "naja_dictionaries",
+    "naja_tasks",
+    "naja_radar_events",
+    "naja_strategy_metrics",
+    "naja_llm_decisions",
+    "naja_strategy_runtime_state",
+    "naja_strategy_registry",
+}
 DEFAULT_ALLOWED_EXTS = {".csv", ".xls", ".xlsx"}
 DEFAULT_ALLOWED_MIME = {
     "text/csv",

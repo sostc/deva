@@ -38,6 +38,31 @@ DEFAULT_CONFIG = {
         "default_daily_time": "03:00",
         "max_cache_size": 10000,
     },
+    "memory": {
+        "auto_save_enabled": True,
+        "auto_save_interval": 300,
+        "auto_load_on_start": True,
+    },
+    "radar": {
+        "event_retention_days": 7,
+        "cleanup_interval_seconds": 600,
+    },
+    "llm": {
+        "min_interval_seconds": 300,
+        "auto_adjust_enabled": True,
+        "auto_adjust_interval_seconds": 900,
+        "auto_adjust_window_seconds": 600,
+        "auto_adjust_min_events": 3,
+        "auto_adjust_dry_run": False,
+        "allowed_actions": ["update_params", "reset", "start", "stop", "restart"],
+        "max_actions_per_run": 5,
+        "strategy_allowlist": [],
+        "strategy_denylist": [],
+        "min_results_count_for_adjust": 20,
+        "max_success_rate_to_adjust": 1.0,
+        "allowed_param_keys": [],
+        "blocked_param_keys": ["class_path", "code", "func_code", "strategy_code"],
+    },
     "auth": {
         "username": "",
         "password": "",
@@ -149,6 +174,21 @@ def get_task_config() -> Dict[str, Any]:
 def get_dictionary_config() -> Dict[str, Any]:
     """获取字典配置"""
     return get_config("dictionary")
+
+
+def get_memory_config() -> Dict[str, Any]:
+    """获取记忆配置"""
+    return get_config("memory")
+
+
+def get_radar_config() -> Dict[str, Any]:
+    """获取雷达配置"""
+    return get_config("radar")
+
+
+def get_llm_config() -> Dict[str, Any]:
+    """获取 LLM 调节配置"""
+    return get_config("llm")
 
 
 def get_strategy_single_history_count() -> int:

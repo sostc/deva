@@ -106,58 +106,91 @@ async def render_home(ctx: dict):
     <div style="margin-top: 40px; padding: 30px; background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%); border-radius: 16px; box-shadow: 0 10px 40px rgba(0,0,0,0.2);">
         <h3 style="color: #fff; margin-bottom: 25px; text-align: center; font-size: 22px;">🔄 Naja 数据流向与功能关系</h3>
         
-        <div style="display: flex; justify-content: center; align-items: center; flex-wrap: wrap; gap: 20px; margin-bottom: 30px;">
-            <!-- 数据源 -->
-            <div style="text-align: center;">
-                <div style="width: 120px; height: 120px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 50%; display: flex; align-items: center; justify-content: center; box-shadow: 0 8px 25px rgba(102,126,234,0.4); cursor: pointer; transition: transform 0.3s;" onmouseover="this.style.transform='scale(1.1)'" onmouseout="this.style.transform='scale(1)'">
-                    <div>
-                        <div style="font-size: 36px;">📡</div>
-                        <div style="color: #fff; font-size: 14px; font-weight: 600; margin-top: 5px;">数据源</div>
+        <div style="display: flex; flex-direction: column; gap: 20px; margin-bottom: 30px;">
+            <!-- 主链路 -->
+            <div style="display: flex; justify-content: center; align-items: center; flex-wrap: wrap; gap: 18px;">
+                <div style="text-align: center;">
+                    <div style="width: 110px; height: 110px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 50%; display: flex; align-items: center; justify-content: center; box-shadow: 0 8px 22px rgba(102,126,234,0.35); cursor: pointer; transition: transform 0.3s;" onmouseover="this.style.transform='scale(1.08)'" onmouseout="this.style.transform='scale(1)'">
+                        <div>
+                            <div style="font-size: 34px;">📡</div>
+                            <div style="color: #fff; font-size: 13px; font-weight: 600; margin-top: 5px;">数据源</div>
+                        </div>
                     </div>
+                    <div style="color: #aaa; font-size: 11px; margin-top: 8px; max-width: 140px;">实时/定时采集<br>形成数据流</div>
                 </div>
-                <div style="color: #aaa; font-size: 12px; margin-top: 10px; max-width: 140px;">定时获取外部数据<br>生成实时数据流</div>
+
+                <div style="color: #4facfe; font-size: 26px; animation: pulse 1.5s infinite;">→</div>
+
+                <div style="text-align: center;">
+                    <div style="width: 120px; height: 120px; background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%); border-radius: 50%; display: flex; align-items: center; justify-content: center; box-shadow: 0 9px 24px rgba(79,172,254,0.4); cursor: pointer; transition: transform 0.3s;" onmouseover="this.style.transform='scale(1.08)'" onmouseout="this.style.transform='scale(1)'">
+                        <div>
+                            <div style="font-size: 36px;">📊</div>
+                            <div style="color: #fff; font-size: 13px; font-weight: 600; margin-top: 5px;">策略</div>
+                        </div>
+                    </div>
+                    <div style="color: #aaa; font-size: 11px; margin-top: 8px; max-width: 150px;">处理数据流<br>产出结果</div>
+                </div>
+
+                <div style="color: #4facfe; font-size: 26px; animation: pulse 1.5s infinite;">→</div>
+
+                <div style="text-align: center;">
+                    <div style="width: 120px; height: 120px; background: linear-gradient(135deg, #f5576c 0%, #f093fb 100%); border-radius: 50%; display: flex; align-items: center; justify-content: center; box-shadow: 0 9px 24px rgba(245,87,108,0.4); cursor: pointer; transition: transform 0.3s;" onmouseover="this.style.transform='scale(1.08)'" onmouseout="this.style.transform='scale(1)'">
+                        <div>
+                            <div style="font-size: 34px;">🧭</div>
+                            <div style="color: #fff; font-size: 13px; font-weight: 600; margin-top: 5px;">雷达事件</div>
+                        </div>
+                    </div>
+                    <div style="color: #aaa; font-size: 11px; margin-top: 8px; max-width: 150px;">模式/漂移/异常检测<br>形成事件摘要</div>
+                </div>
+
+                <div style="color: #4facfe; font-size: 26px; animation: pulse 1.5s infinite;">→</div>
+
+                <div style="text-align: center;">
+                    <div style="width: 120px; height: 120px; background: linear-gradient(135deg, #43e97b 0%, #38f9d7 100%); border-radius: 50%; display: flex; align-items: center; justify-content: center; box-shadow: 0 9px 24px rgba(67,233,123,0.4); cursor: pointer; transition: transform 0.3s;" onmouseover="this.style.transform='scale(1.08)'" onmouseout="this.style.transform='scale(1)'">
+                        <div>
+                            <div style="font-size: 34px;">🤖</div>
+                            <div style="color: #fff; font-size: 13px; font-weight: 600; margin-top: 5px;">AI 大脑自调节</div>
+                        </div>
+                    </div>
+                    <div style="color: #aaa; font-size: 11px; margin-top: 8px; max-width: 150px;">结合雷达与记忆<br>自动调整策略</div>
+                </div>
             </div>
-            
-            <!-- 箭头1 -->
-            <div style="color: #4facfe; font-size: 28px; animation: pulse 1.5s infinite;">→</div>
-            
-            <!-- 策略 -->
-            <div style="text-align: center;">
-                <div style="width: 120px; height: 120px; background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%); border-radius: 50%; display: flex; align-items: center; justify-content: center; box-shadow: 0 8px 25px rgba(79,172,254,0.4); cursor: pointer; transition: transform 0.3s;" onmouseover="this.style.transform='scale(1.1)'" onmouseout="this.style.transform='scale(1)'">
-                    <div>
-                        <div style="font-size: 36px;">📊</div>
-                        <div style="color: #fff; font-size: 14px; font-weight: 600; margin-top: 5px;">策略</div>
+
+            <!-- 记忆与信号（侧链路） -->
+            <div style="display: flex; justify-content: center; align-items: center; flex-wrap: wrap; gap: 16px; margin-top: 8px;">
+                <div style="text-align: center;">
+                    <div style="width: 98px; height: 98px; background: linear-gradient(135deg, #6a11cb 0%, #2575fc 100%); border-radius: 50%; display: flex; align-items: center; justify-content: center; box-shadow: 0 7px 20px rgba(106,17,203,0.35); cursor: pointer; transition: transform 0.3s;" onmouseover="this.style.transform='scale(1.06)'" onmouseout="this.style.transform='scale(1)'">
+                        <div>
+                            <div style="font-size: 30px;">🧠</div>
+                            <div style="color: #fff; font-size: 12px; font-weight: 600; margin-top: 4px;">记忆系统</div>
+                        </div>
                     </div>
+                    <div style="color: #aaa; font-size: 11px; margin-top: 8px; max-width: 150px;">策略结果沉淀为<br>短/中/长期记忆</div>
                 </div>
-                <div style="color: #aaa; font-size: 12px; margin-top: 10px; max-width: 140px;">处理数据流<br>生成信号/结果</div>
-            </div>
-            
-            <!-- 箭头2 -->
-            <div style="color: #4facfe; font-size: 28px; animation: pulse 1.5s infinite;">→</div>
-            
-            <!-- 信号流 -->
-            <div style="text-align: center;">
-                <div style="width: 120px; height: 120px; background: linear-gradient(135deg, #f5576c 0%, #f093fb 100%); border-radius: 50%; display: flex; align-items: center; justify-content: center; box-shadow: 0 8px 25px rgba(245,87,108,0.4); cursor: pointer; transition: transform 0.3s;" onmouseover="this.style.transform='scale(1.1)'" onmouseout="this.style.transform='scale(1)'">
-                    <div>
-                        <div style="font-size: 36px;">🚨</div>
-                        <div style="color: #fff; font-size: 14px; font-weight: 600; margin-top: 5px;">信号流</div>
+
+                <div style="color: #4facfe; font-size: 22px;">↔</div>
+
+                <div style="text-align: center;">
+                    <div style="width: 98px; height: 98px; background: linear-gradient(135deg, #fa709a 0%, #fee140 100%); border-radius: 50%; display: flex; align-items: center; justify-content: center; box-shadow: 0 7px 20px rgba(250,112,154,0.35); cursor: pointer; transition: transform 0.3s;" onmouseover="this.style.transform='scale(1.06)'" onmouseout="this.style.transform='scale(1)'">
+                        <div>
+                            <div style="font-size: 30px;">🚨</div>
+                            <div style="color: #fff; font-size: 12px; font-weight: 600; margin-top: 4px;">信号流</div>
+                        </div>
                     </div>
+                    <div style="color: #aaa; font-size: 11px; margin-top: 8px; max-width: 150px;">结果与事件可视化<br>支持监控与回看</div>
                 </div>
-                <div style="color: #aaa; font-size: 12px; margin-top: 10px; max-width: 140px;">收集并展示信号<br>实时监控异动</div>
-            </div>
-            
-            <!-- 箭头3 -->
-            <div style="color: #4facfe; font-size: 28px; animation: pulse 1.5s infinite;">→</div>
-            
-            <!-- 数据表 -->
-            <div style="text-align: center;">
-                <div style="width: 120px; height: 120px; background: linear-gradient(135deg, #fa709a 0%, #fee140 100%); border-radius: 50%; display: flex; align-items: center; justify-content: center; box-shadow: 0 8px 25px rgba(250,112,154,0.4); cursor: pointer; transition: transform 0.3s;" onmouseover="this.style.transform='scale(1.1)'" onmouseout="this.style.transform='scale(1)'">
-                    <div>
-                        <div style="font-size: 36px;">🗃️</div>
-                        <div style="color: #fff; font-size: 14px; font-weight: 600; margin-top: 5px;">数据表</div>
+
+                <div style="color: #4facfe; font-size: 22px;">↔</div>
+
+                <div style="text-align: center;">
+                    <div style="width: 98px; height: 98px; background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%); border-radius: 50%; display: flex; align-items: center; justify-content: center; box-shadow: 0 7px 20px rgba(79,172,254,0.35); cursor: pointer; transition: transform 0.3s;" onmouseover="this.style.transform='scale(1.06)'" onmouseout="this.style.transform='scale(1)'">
+                        <div>
+                            <div style="font-size: 30px;">📊</div>
+                            <div style="color: #fff; font-size: 12px; font-weight: 600; margin-top: 4px;">策略</div>
+                        </div>
                     </div>
+                    <div style="color: #aaa; font-size: 11px; margin-top: 8px; max-width: 150px;">复用记忆与信号<br>形成自适应闭环</div>
                 </div>
-                <div style="color: #aaa; font-size: 12px; margin-top: 10px; max-width: 140px;">存储所有数据<br>支持查询分析</div>
             </div>
         </div>
         
@@ -202,11 +235,11 @@ async def render_home(ctx: dict):
             <div style="color: #fff; font-size: 14px; line-height: 1.8;">
                 <strong style="color: #4facfe;">💡 使用流程：</strong><br>
                 <span style="color: #ccc;">
-                1️⃣ 创建 <strong style="color: #667eea;">数据源</strong> 获取实时数据流（如股票行情、API数据）<br>
-                2️⃣ 创建 <strong style="color: #4facfe;">策略</strong> 绑定数据源，定义处理逻辑，生成信号<br>
-                3️⃣ 通过 <strong style="color: #f5576c;">信号流</strong> 实时监控和查看生成的信号<br>
-                4️⃣ 创建 <strong style="color: #43e97b;">字典</strong> 维护参考数据（如股票代码、配置项）<br>
-                5️⃣ 创建 <strong style="color: #f093fb;">任务</strong> 执行一次性或定时任务（如每日汇总）<br>
+                1️⃣ 创建 <strong style="color: #667eea;">数据源</strong> 获取实时数据流（行情 / 新闻 / 日志等）<br>
+                2️⃣ 创建 <strong style="color: #4facfe;">策略</strong> 绑定数据源，产出结果与信号<br>
+                3️⃣ 策略结果进入 <strong style="color: #f5576c;">雷达事件</strong> 做模式/漂移/异常检测<br>
+                4️⃣ 同时沉淀为 <strong style="color: #6a11cb;">记忆系统</strong>，供策略/雷达/AI 大脑复用<br>
+                5️⃣ <strong style="color: #43e97b;">AI 大脑自调节</strong> 读取雷达与记忆摘要，自动调整策略<br>
                 6️⃣ 所有数据自动存储到 <strong style="color: #fa709a;">数据表</strong>，支持查询分析
                 </span>
             </div>
