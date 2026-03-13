@@ -30,6 +30,19 @@ def process(data):
     return data
 '''
 
+DEFAULT_DECLARATIVE_CONFIG = {
+    "pipeline": [
+        {"type": "feature", "name": "price_change"},
+        {"type": "feature", "name": "volume_spike"},
+    ],
+    "model": {"type": "logistic_regression"},
+    "params": {"learning_rate": 0.01},
+    "logic": {"type": "threshold", "buy": 0.7, "sell": 0.3},
+    "state_persist": True,
+    "state_persist_interval": 300,
+    "state_persist_every_n": 200,
+}
+
 
 def _fmt_ts(ts: float) -> str:
     if not ts:
@@ -41,6 +54,28 @@ def _render_status_badge(is_running: bool) -> str:
     if is_running:
         return '<span style="display:inline-block;padding:4px 12px;border-radius:20px;font-size:12px;font-weight:500;background:#e8f5e9;color:#2e7d32;">● 运行中</span>'
     return '<span style="display:inline-block;padding:4px 12px;border-radius:20px;font-size:12px;font-weight:500;background:#f5f5f5;color:#757575;">○ 已停止</span>'
+
+
+def _render_type_badge(strategy_type: str) -> str:
+    stype = str(strategy_type or "legacy").lower()
+    color = "#64748b"
+    bg = "#f1f5f9"
+    label = stype
+    if stype == "declarative":
+        color = "#0ea5e9"
+        bg = "#e0f2fe"
+        label = "declarative"
+    elif stype == "river":
+        color = "#10b981"
+        bg = "#dcfce7"
+        label = "river"
+    elif stype == "plugin":
+        color = "#8b5cf6"
+        bg = "#ede9fe"
+        label = "plugin"
+    elif stype == "legacy":
+        label = "legacy"
+    return f'<span style="display:inline-block;padding:2px 8px;border-radius:999px;font-size:11px;font-weight:600;background:{bg};color:{color};">{label}</span>'
 
 
 def _render_detail_section(title: str) -> str:
@@ -339,7 +374,7 @@ def _render_strategy_content(ctx: dict):
         _t11 = time_module.time()
         print(f"[PERF] _build_table_data: {(_t11-_t10)*1000:.1f}ms, entries={len(filtered_entries)}")
         
-        ctx["put_table"](table_data, header=["名称", "状态", "数据源", "简介",
+        ctx["put_table"](table_data, header=["名称", "类型", "状态", "数据源", "简介",
                                              "最近数据", "操作"], scope="strategy_content")
 
         ctx["put_html"](
@@ -469,6 +504,7 @@ def _build_table_data(ctx: dict, entries: list, mgr) -> list:
         _entry_start = time_module.time()
         
         status_html = _render_status_badge(e.is_running)
+        type_html = _render_type_badge(getattr(e._metadata, "strategy_type", "legacy"))
 
         # 获取多数据源绑定列表
         bound_datasource_ids = getattr(e._metadata, "bound_datasource_ids", [])
@@ -533,6 +569,7 @@ def _build_table_data(ctx: dict, entries: list, mgr) -> list:
 
         table_data.append([
             ctx["put_html"](f"<strong style='display:inline-block;max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;'>{e.name}</strong>"),
+            ctx["put_html"](type_html),
             ctx["put_html"](status_html),
             bound_ds,
             ctx["put_html"](f'<span style="display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;font-size:12px;color:#666;max-width:200px;line-height:1.4;">{summary_preview}</span>'),
@@ -1314,10 +1351,19 @@ async def _show_strategy_detail(ctx: dict, mgr, entry_id: str):
     with ctx["popup"](f"策略详情: {entry.name}", size="large", closable=True):
         ctx["put_html"](_render_detail_section("📊 基本信息"))
 
+        state_persist = False
+        try:
+            cfg = getattr(entry._metadata, "strategy_config", {}) or {}
+            state_persist = bool(cfg.get("state_persist", False))
+        except Exception:
+            state_persist = False
+
         ctx["put_table"]([
             ["ID", entry.id],
             ["名称", entry.name],
             ["描述", getattr(entry._metadata, "description", "") or "-"],
+            ["策略类型", getattr(entry._metadata, "strategy_type", "legacy") or "legacy"],
+            ["模型持久化", "开启" if state_persist else "关闭"],
             ["状态", "运行中" if entry.is_running else "已停止"],
             ["计算模式", getattr(entry._metadata, "compute_mode", "record")],
             ["窗口大小", getattr(entry._metadata, "window_size", 5)],
@@ -1331,6 +1377,42 @@ async def _show_strategy_detail(ctx: dict, mgr, entry_id: str):
         if dict_ids:
             ctx["put_html"]("<p><strong>数据字典:</strong> " + ", ".join(dict_ids) + "</p>")
 
+        ctx["put_html"](_render_detail_section("🧩 结构化配置"))
+        try:
+            config = getattr(entry._metadata, "strategy_config", {}) or {}
+            params = getattr(entry._metadata, "strategy_params", {}) or {}
+            if params:
+                config = dict(config)
+                config["params"] = {**(config.get("params", {}) or {}), **params}
+            ctx["put_code"](json.dumps(config, ensure_ascii=False, indent=2), language="json")
+        except Exception:
+            ctx["put_html"]("<div style='color:#999;'>暂无结构化配置</div>")
+
+        # 参数说明
+        try:
+            config = getattr(entry._metadata, "strategy_config", {}) or {}
+            params = getattr(entry._metadata, "strategy_params", {}) or {}
+            param_help = {}
+            if isinstance(config, dict):
+                param_help = config.get("param_help", {}) or {}
+
+            if params or param_help:
+                ctx["put_html"](_render_detail_section("🧪 可调参数与说明"))
+                rows = [["参数", "当前值", "说明"]]
+                keys = list(params.keys())
+                for k in param_help.keys():
+                    if k not in keys:
+                        keys.append(k)
+                for key in keys:
+                    rows.append([
+                        key,
+                        json.dumps(params.get(key), ensure_ascii=False),
+                        param_help.get(key, "-"),
+                    ])
+                ctx["put_table"](rows, header=["参数", "当前值", "说明"])
+        except Exception:
+            pass
+
         # 策略详解图表
         _render_strategy_diagram_section(ctx, entry)
 
@@ -1343,6 +1425,17 @@ async def _show_strategy_detail(ctx: dict, mgr, entry_id: str):
             ["最后错误", entry._state.last_error or "-"],
             ["最后处理", _fmt_ts(entry._state.last_process_ts)],
         ], header=["字段", "值"])
+
+        # LLM 调节历史
+        ctx["put_html"](_render_detail_section("🤖 AI 调节历史"))
+        try:
+            llm_rows = _get_llm_adjustments(entry)
+            if llm_rows:
+                ctx["put_table"](llm_rows, header=["时间", "摘要", "动作", "原因"])
+            else:
+                ctx["put_html"]("<div style='color:#999;'>暂无调节记录</div>")
+        except Exception:
+            ctx["put_html"]("<div style='color:#999;'>暂无调节记录</div>")
 
         ctx["put_html"](_render_detail_section("📜 历史执行结果"))
 
@@ -1523,6 +1616,12 @@ async def _edit_strategy_dialog(ctx: dict, mgr, entry_id: str):
         compute_mode = getattr(entry._metadata, "compute_mode", "record")
         window_type = getattr(entry._metadata, "window_type", "sliding")
         window_return_partial = getattr(entry._metadata, "window_return_partial", False)
+        strategy_type = getattr(entry._metadata, "strategy_type", "legacy") or "legacy"
+        strategy_config = getattr(entry._metadata, "strategy_config", {}) or {}
+        strategy_params = getattr(entry._metadata, "strategy_params", {}) or {}
+        config_json = json.dumps(strategy_config, ensure_ascii=False, indent=2) if strategy_config else json.dumps(DEFAULT_DECLARATIVE_CONFIG, ensure_ascii=False, indent=2)
+        params_json = json.dumps(strategy_params, ensure_ascii=False, indent=2) if strategy_params else "{}"
+        param_help = strategy_config.get("param_help", {}) if isinstance(strategy_config, dict) else {}
         # 支持多数据源绑定
         bound_datasource_ids = getattr(entry._metadata, "bound_datasource_ids", [])
         if not bound_datasource_ids:
@@ -1531,6 +1630,14 @@ async def _edit_strategy_dialog(ctx: dict, mgr, entry_id: str):
             if bound_datasource_id:
                 bound_datasource_ids = [bound_datasource_id]
         dictionary_profile_ids = getattr(entry._metadata, "dictionary_profile_ids", [])
+
+        if param_help:
+            ctx["put_html"](
+                "<div style='margin:0 0 8px 0; color:#64748b; font-size:12px;'>"
+                "<div style='font-weight:600; color:#475569; margin-bottom:4px;'>参数说明</div>"
+                + "".join([f"<div><code>{k}</code>：{v}</div>" for k, v in param_help.items()])
+                + "</div>"
+            )
 
         form = await ctx["input_group"]("策略配置", [
             ctx["input"]("名称", name="name", required=True, value=entry.name),
@@ -1561,6 +1668,18 @@ async def _edit_strategy_dialog(ctx: dict, mgr, entry_id: str):
             ], value="true" if window_return_partial else "false"),
             ctx["input"]("历史保留条数", name="max_history_count", type="number",
                          value=getattr(entry._metadata, "max_history_count", 100)),
+            ctx["select"]("策略类型", name="strategy_type", options=[
+                {"label": "legacy（代码）", "value": "legacy"},
+                {"label": "river", "value": "river"},
+                {"label": "declarative（声明式）", "value": "declarative"},
+                {"label": "plugin", "value": "plugin"},
+            ], value=strategy_type),
+            ctx["textarea"]("结构化配置(JSON)", name="strategy_config_json",
+                            value=config_json, rows=8,
+                            code={"mode": "application/json", "theme": "darcula"}),
+            ctx["textarea"]("可调参数(JSON)", name="strategy_params_json",
+                            value=params_json, rows=6,
+                            code={"mode": "application/json", "theme": "darcula"}),
             ctx["textarea"]("代码", name="code",
                             value=entry.func_code or DEFAULT_STRATEGY_CODE,
                             rows=14,
@@ -1587,6 +1706,30 @@ async def _edit_strategy_dialog(ctx: dict, mgr, entry_id: str):
             # 兼容处理：如果是字符串（单选情况），转换为列表
             if isinstance(datasource_ids, str):
                 datasource_ids = [datasource_ids] if datasource_ids else []
+
+            stype = str(form.get("strategy_type") or "legacy").strip().lower()
+            config_text = (form.get("strategy_config_json") or "").strip()
+            params_text = (form.get("strategy_params_json") or "").strip()
+            try:
+                strategy_config = json.loads(config_text) if config_text else {}
+            except Exception:
+                ctx["toast"]("结构化配置 JSON 解析失败", color="error")
+                return
+            try:
+                strategy_params = json.loads(params_text) if params_text else {}
+            except Exception:
+                ctx["toast"]("可调参数 JSON 解析失败", color="error")
+                return
+
+            if stype == "declarative" and not strategy_config:
+                strategy_config = DEFAULT_DECLARATIVE_CONFIG.copy()
+
+            if stype == "declarative":
+                logic = dict(strategy_config.get("logic") or {})
+                if form.get("code") and (not logic or str(logic.get("type", "")).lower() == "python"):
+                    logic["type"] = "python"
+                    logic["code"] = form.get("code")
+                    strategy_config["logic"] = logic
             
             result = entry.update_config(
                 name=form["name"].strip(),
@@ -1600,8 +1743,11 @@ async def _edit_strategy_dialog(ctx: dict, mgr, entry_id: str):
                 window_interval=form.get("window_interval", "10s"),
                 window_return_partial=form_window_return_partial,
                 max_history_count=int(form.get("max_history_count", 100)),
-                func_code=form.get("code"),
+                func_code=form.get("code") if stype == "legacy" else "",
                 category=category,
+                strategy_type=stype,
+                strategy_config=strategy_config,
+                strategy_params=strategy_params,
             )
 
             if result.get("success"):
@@ -1670,6 +1816,17 @@ async def _create_strategy_dialog_async(mgr, ctx: dict):
                 {"label": "是", "value": "true"},
             ], value="false"),
             ctx["input"]("历史保留条数", name="max_history_count", type="number", value=100),
+            ctx["select"]("策略类型", name="strategy_type", options=[
+                {"label": "legacy（代码）", "value": "legacy"},
+                {"label": "river", "value": "river"},
+                {"label": "declarative（声明式）", "value": "declarative"},
+                {"label": "plugin", "value": "plugin"},
+            ], value="legacy"),
+            ctx["textarea"]("结构化配置(JSON)", name="strategy_config_json",
+                            value=json.dumps(DEFAULT_DECLARATIVE_CONFIG, ensure_ascii=False, indent=2),
+                            rows=8, code={"mode": "application/json", "theme": "darcula"}),
+            ctx["textarea"]("可调参数(JSON)", name="strategy_params_json",
+                            value="{}", rows=6, code={"mode": "application/json", "theme": "darcula"}),
             ctx["textarea"]("代码", name="code",
                             value=DEFAULT_STRATEGY_CODE,
                             rows=14,
@@ -1697,9 +1854,33 @@ async def _create_strategy_dialog_async(mgr, ctx: dict):
             if isinstance(datasource_ids, str):
                 datasource_ids = [datasource_ids] if datasource_ids else []
 
+            stype = str(form.get("strategy_type") or "legacy").strip().lower()
+            config_text = (form.get("strategy_config_json") or "").strip()
+            params_text = (form.get("strategy_params_json") or "").strip()
+            try:
+                strategy_config = json.loads(config_text) if config_text else {}
+            except Exception:
+                ctx["toast"]("结构化配置 JSON 解析失败", color="error")
+                return
+            try:
+                strategy_params = json.loads(params_text) if params_text else {}
+            except Exception:
+                ctx["toast"]("可调参数 JSON 解析失败", color="error")
+                return
+
+            if stype == "declarative" and not strategy_config:
+                strategy_config = DEFAULT_DECLARATIVE_CONFIG.copy()
+
+            if stype == "declarative":
+                logic = dict(strategy_config.get("logic") or {})
+                if form.get("code") and (not logic or str(logic.get("type", "")).lower() == "python"):
+                    logic["type"] = "python"
+                    logic["code"] = form.get("code")
+                    strategy_config["logic"] = logic
+
             result = mgr.create(
                 name=form["name"].strip(),
-                func_code=form.get("code", ""),
+                func_code=form.get("code", "") if stype == "legacy" else "",
                 description=form.get("description", "").strip(),
                 bound_datasource_id=datasource_ids[0] if datasource_ids else "",  # 兼容单数据源
                 bound_datasource_ids=datasource_ids,  # 多数据源
@@ -1711,6 +1892,9 @@ async def _create_strategy_dialog_async(mgr, ctx: dict):
                 window_return_partial=window_return_partial,
                 max_history_count=int(form.get("max_history_count", 100)),
                 category=category,
+                strategy_type=stype,
+                strategy_config=strategy_config,
+                strategy_params=strategy_params,
             )
 
             if result.get("success"):
@@ -1739,6 +1923,41 @@ def _render_river_metaphor_section(ctx: dict, river_metaphor: dict, color: str):
         process_html += f'''<div style="padding:6px 0;color:#555;font-size:13px;border-left:2px solid {color};padding-left:12px;margin-bottom:4px;">{step}</div>'''
     
     ctx["put_html"](f'''<div style="background:#fff;border-radius:12px;box-shadow:0 2px 12px rgba(0,0,0,0.08);overflow:hidden;border:1px solid #eee;margin-bottom:15px;"><div style="background:linear-gradient(135deg,{color} 0%,{color}dd 100%);padding:12px 20px;color:white;"><div style="font-size:16px;font-weight:600;">{title}</div><div style="font-size:12px;opacity:0.9;margin-top:4px;">{description}</div></div><div style="padding:20px;"><div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;"><div><div style="font-weight:600;color:#333;margin-bottom:10px;">🏞️ 河流元素</div><div style="background:#f8f9fa;padding:12px;border-radius:8px;">{elements_html}</div></div><div><div style="font-weight:600;color:#333;margin-bottom:10px;">🔄 处理流程</div><div style="background:#f8f9fa;padding:12px;border-radius:8px;">{process_html}</div></div></div></div></div>''')
+
+
+def _get_llm_adjustments(entry, limit: int = 10):
+    """获取与该策略相关的 LLM 调节历史"""
+    try:
+        from deva import NB
+        db = NB("naja_llm_decisions")
+        items = []
+        for _, value in list(db.items()):
+            if not isinstance(value, dict):
+                continue
+            actions = value.get("actions", []) or []
+            matched_actions = []
+            for action in actions:
+                if not isinstance(action, dict):
+                    continue
+                target = str(action.get("strategy", "") or "")
+                if target == entry.id or target == entry.name:
+                    matched_actions.append(action)
+            if matched_actions:
+                items.append((value, matched_actions))
+
+        items.sort(key=lambda x: float(x[0].get("timestamp", 0) or 0), reverse=True)
+        rows = []
+        for value, acts in items[:limit]:
+            ts = _fmt_ts(float(value.get("timestamp", 0) or 0))
+            summary = value.get("summary", "") or "-"
+            reason = value.get("reason", "") or "-"
+            act_texts = []
+            for a in acts:
+                act_texts.append(f"{a.get('action', '')}({a.get('strategy', '')})")
+            rows.append([ts, summary, "; ".join(act_texts), reason])
+        return rows
+    except Exception:
+        return []
 
 
 def _render_memory_structure_section(ctx: dict, memory_structure: dict, color: str):

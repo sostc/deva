@@ -39,6 +39,33 @@ class StrategyMetadata(UnitMetadata):
     max_history_count: int = 100
     diagram_info: Dict[str, Any] = field(default_factory=dict)
     category: str = "默认"  # 策略类别
+    strategy_type: str = "legacy"  # legacy/river/plugin
+    strategy_params: Dict[str, Any] = field(default_factory=dict)
+    strategy_config: Dict[str, Any] = field(default_factory=dict)
+    version: int = 1
+
+    def to_dict(self) -> dict:
+        data = super().to_dict()
+        data.update(
+            {
+                "bound_datasource_id": self.bound_datasource_id,
+                "bound_datasource_ids": self.bound_datasource_ids,
+                "compute_mode": self.compute_mode,
+                "window_size": self.window_size,
+                "window_type": self.window_type,
+                "window_interval": self.window_interval,
+                "window_return_partial": self.window_return_partial,
+                "dictionary_profile_ids": self.dictionary_profile_ids,
+                "max_history_count": self.max_history_count,
+                "diagram_info": self.diagram_info,
+                "category": self.category,
+                "strategy_type": self.strategy_type,
+                "strategy_params": self.strategy_params,
+                "strategy_config": self.strategy_config,
+                "version": self.version,
+            }
+        )
+        return data
 
 
 @dataclass
@@ -69,11 +96,67 @@ class StrategyEntry(RecoverableUnit):
         self._processing_lock = threading.Lock()
         self._window_buffer: List[Any] = []
         self._last_window_trigger: float = 0  # 上次窗口触发时间
+        self._runtime = None
+        self._runtime_type = ""
+        self._runtime_config_hash = ""
+
+        self._ensure_runtime_stub_code()
     
     def _get_func_name(self) -> str:
         return "process"
+
+    def _ensure_runtime_stub_code(self):
+        if self._get_strategy_type() == "legacy":
+            return
+        if not self._func_code:
+            self._func_code = "def process(data, context=None):\n    return None\n"
+
+    def _get_strategy_type(self) -> str:
+        return str(getattr(self._metadata, "strategy_type", "legacy") or "legacy").strip().lower()
+
+    def _get_strategy_config(self) -> Dict[str, Any]:
+        config = dict(getattr(self._metadata, "strategy_config", {}) or {})
+        params = dict(getattr(self._metadata, "strategy_params", {}) or {})
+        if params:
+            merged = dict(config)
+            merged.update(params)
+            existing_params = dict(config.get("params", {}) or {})
+            existing_params.update(params)
+            merged["params"] = existing_params
+            return merged
+        return config
+
+    def _get_runtime(self):
+        strategy_type = self._get_strategy_type()
+        if strategy_type in ("", "legacy"):
+            return None
+
+        config = self._get_strategy_config()
+        try:
+            import json
+            config_hash = f"{strategy_type}:{hash(json.dumps(config, sort_keys=True, default=str))}"
+        except Exception:
+            config_hash = f"{strategy_type}:{hash(str(config))}"
+
+        if self._runtime is not None and self._runtime_type == strategy_type and self._runtime_config_hash == config_hash:
+            return self._runtime
+
+        try:
+            from .runtime import StrategyRegistry
+            runtime = StrategyRegistry.create(strategy_type, config=config, entry=self)
+        except Exception as e:
+            self._log("ERROR", "Build runtime failed", error=str(e), strategy_type=strategy_type)
+            return None
+
+        self._runtime = runtime
+        self._runtime_type = strategy_type
+        self._runtime_config_hash = config_hash
+        return runtime
     
     def _do_compile(self, code: str) -> Callable:
+        if self._get_strategy_type() != "legacy":
+            return lambda *_args, **_kwargs: None
+
         env = self._build_execution_env()
         exec(code, env)
         
@@ -117,7 +200,14 @@ class StrategyEntry(RecoverableUnit):
             
             if bound_count == 0:
                 return {"success": True, "message": f"No datasources could be bound. Failed: {failed_datasources}"}
-            
+
+            runtime = self._get_runtime()
+            if runtime is not None and hasattr(runtime, "on_start"):
+                try:
+                    runtime.on_start()
+                except Exception as e:
+                    self._log("ERROR", "Runtime on_start failed", error=str(e))
+
             return {
                 "success": True, 
                 "message": f"Bound {bound_count} datasources, failed: {len(failed_datasources)}"
@@ -129,6 +219,12 @@ class StrategyEntry(RecoverableUnit):
         try:
             self._input_stream = None
             self._output_stream = None
+            runtime = self._get_runtime()
+            if runtime is not None:
+                try:
+                    runtime.close()
+                except Exception:
+                    pass
             return {"success": True}
         except Exception as e:
             return {"success": False, "error": str(e)}
@@ -194,8 +290,9 @@ class StrategyEntry(RecoverableUnit):
         """处理数据"""
         if not self.is_running:
             return
-        
-        if self._compiled_func is None:
+
+        runtime = self._get_runtime()
+        if self._compiled_func is None and runtime is None:
             return
         
         # 将策略执行放到后台线程，避免阻塞主线程
@@ -309,6 +406,8 @@ class StrategyEntry(RecoverableUnit):
             return False
     
     def _process_record(self, data: Any) -> Any:
+        runtime = self._get_runtime()
+
         # Create context object
         context = {
             'strategy_id': self.id,
@@ -319,6 +418,10 @@ class StrategyEntry(RecoverableUnit):
         
         # 提取实际数据（如果是 enriched_data 结构）
         actual_data = data.get('data', data) if isinstance(data, dict) else data
+
+        if runtime is not None:
+            runtime.on_data(actual_data)
+            return runtime.get_signal()
         
         # Try calling with context first, then fallback to data only
         try:
@@ -344,6 +447,8 @@ class StrategyEntry(RecoverableUnit):
         actual_data = data.get('data', data) if isinstance(data, dict) else data
         self._window_buffer.append(actual_data)
         
+        runtime = self._get_runtime()
+
         if window_type == "sliding":
             if len(self._window_buffer) > window_size:
                 self._window_buffer = self._window_buffer[-window_size:]
@@ -359,12 +464,16 @@ class StrategyEntry(RecoverableUnit):
                 'state': self._state.to_dict()
             }
             
-            # Try calling with context first, then fallback to data only
-            try:
-                result = self._compiled_func(list(self._window_buffer), context)
-            except TypeError:
-                # Fallback to data only for backward compatibility
-                result = self._compiled_func(list(self._window_buffer))
+            if runtime is not None:
+                runtime.on_data(list(self._window_buffer))
+                result = runtime.get_signal()
+            else:
+                # Try calling with context first, then fallback to data only
+                try:
+                    result = self._compiled_func(list(self._window_buffer), context)
+                except TypeError:
+                    # Fallback to data only for backward compatibility
+                    result = self._compiled_func(list(self._window_buffer))
                 
             if asyncio.iscoroutine(result):
                 loop = asyncio.new_event_loop()
@@ -405,12 +514,16 @@ class StrategyEntry(RecoverableUnit):
                 'state': self._state.to_dict()
             }
             
-            # Try calling with context first, then fallback to data only
-            try:
-                result = self._compiled_func(list(self._window_buffer), context)
-            except TypeError:
-                # Fallback to data only for backward compatibility
-                result = self._compiled_func(list(self._window_buffer))
+            if runtime is not None:
+                runtime.on_data(list(self._window_buffer))
+                result = runtime.get_signal()
+            else:
+                # Try calling with context first, then fallback to data only
+                try:
+                    result = self._compiled_func(list(self._window_buffer), context)
+                except TypeError:
+                    # Fallback to data only for backward compatibility
+                    result = self._compiled_func(list(self._window_buffer))
                 
             # 清空窗口缓冲区，开始新的窗口周期
             self._window_buffer = []
@@ -438,12 +551,16 @@ class StrategyEntry(RecoverableUnit):
                 'state': self._state.to_dict()
             }
             
-            # Try calling with context first, then fallback to data only
-            try:
-                result = self._compiled_func(list(self._window_buffer), context)
-            except TypeError:
-                # Fallback to data only for backward compatibility
-                result = self._compiled_func(list(self._window_buffer))
+            if runtime is not None:
+                runtime.on_data(list(self._window_buffer))
+                result = runtime.get_signal()
+            else:
+                # Try calling with context first, then fallback to data only
+                try:
+                    result = self._compiled_func(list(self._window_buffer), context)
+                except TypeError:
+                    # Fallback to data only for backward compatibility
+                    result = self._compiled_func(list(self._window_buffer))
                 
             if asyncio.iscoroutine(result):
                 loop = asyncio.new_event_loop()
@@ -616,6 +733,18 @@ class StrategyEntry(RecoverableUnit):
             error=error,
             persist=True,
         )
+
+        try:
+            from .registry import record_performance_snapshot
+            record_performance_snapshot(
+                strategy_id=self.id,
+                strategy_name=self.name,
+                version=getattr(self._metadata, "version", 1),
+                process_time_ms=process_time_ms,
+                success=success,
+            )
+        except Exception:
+            pass
         
         # 清理单个策略的历史记录
         max_count = getattr(self._metadata, "max_history_count", 100)
@@ -656,6 +785,33 @@ class StrategyEntry(RecoverableUnit):
         
         if ds is not None:
             self._bind_datasource(ds)
+
+    def _bump_version(self) -> int:
+        current = int(getattr(self._metadata, "version", 1) or 1)
+        current += 1
+        self._metadata.version = current
+        return current
+
+    def _record_registry_event(
+        self,
+        event_type: str,
+        before: Dict[str, Any] = None,
+        after: Dict[str, Any] = None,
+        extra: Dict[str, Any] = None,
+    ) -> None:
+        try:
+            from .registry import record_event
+            record_event(
+                strategy_id=self.id,
+                strategy_name=self.name,
+                version=getattr(self._metadata, "version", 1),
+                event_type=event_type,
+                before=before,
+                after=after,
+                extra=extra,
+            )
+        except Exception:
+            return
     
     def update_config(
         self,
@@ -672,9 +828,20 @@ class StrategyEntry(RecoverableUnit):
         max_history_count: int = None,
         dictionary_profile_ids: List[str] = None,
         category: str = None,
+        strategy_type: str = None,
+        strategy_params: Dict[str, Any] = None,
+        strategy_config: Dict[str, Any] = None,
+        pipeline: List[Dict[str, Any]] = None,
+        model: Dict[str, Any] = None,
+        logic: Dict[str, Any] = None,
+        plugin: str = None,
     ) -> dict:
         # 记录是否正在运行
         was_running = self.is_running
+        before_params = dict(getattr(self._metadata, "strategy_params", {}) or {})
+        before_config = dict(getattr(self._metadata, "strategy_config", {}) or {})
+        before_type = self._get_strategy_type()
+        before_code = self._func_code
 
         if name is not None:
             self._metadata.name = name
@@ -696,6 +863,24 @@ class StrategyEntry(RecoverableUnit):
             self._metadata.dictionary_profile_ids = dictionary_profile_ids
         if category is not None:
             self._metadata.category = category
+        if strategy_type is not None:
+            self._metadata.strategy_type = str(strategy_type or "legacy")
+            self._ensure_runtime_stub_code()
+        if strategy_params is not None:
+            self._metadata.strategy_params = strategy_params or {}
+        if strategy_config is not None:
+            self._metadata.strategy_config = strategy_config or {}
+        if pipeline is not None or model is not None or logic is not None or plugin is not None:
+            merged = dict(getattr(self._metadata, "strategy_config", {}) or {})
+            if pipeline is not None:
+                merged["pipeline"] = pipeline
+            if model is not None:
+                merged["model"] = model
+            if logic is not None:
+                merged["logic"] = logic
+            if plugin is not None:
+                merged["plugin"] = plugin
+            self._metadata.strategy_config = merged
 
         # 处理多数据源绑定
         if bound_datasource_ids is not None:
@@ -712,19 +897,46 @@ class StrategyEntry(RecoverableUnit):
                 self._metadata.bound_datasource_ids = []
         
         if func_code is not None:
-            if self._get_func_name() not in func_code:
+            if self._get_strategy_type() == "legacy" and self._get_func_name() not in func_code:
                 return {"success": False, "error": f"代码必须包含 {self._get_func_name()} 函数"}
             
             self._func_code = func_code
             self._compiled_func = None
             
-            result = self.compile_code()
-            if not result["success"]:
-                return result
+            if self._get_strategy_type() == "legacy":
+                result = self.compile_code()
+                if not result["success"]:
+                    return result
         
         # 重置窗口状态（配置变更后需要重新开始）
         self._window_buffer = []
         self._last_window_trigger = 0
+        self._runtime = None
+        self._runtime_type = ""
+        self._runtime_config_hash = ""
+
+        changed_params = before_params != getattr(self._metadata, "strategy_params", {})
+        changed_config = before_config != getattr(self._metadata, "strategy_config", {})
+        changed_type = before_type != self._get_strategy_type()
+        changed_code = before_code != self._func_code
+        if changed_params or changed_config or changed_type or changed_code:
+            self._bump_version()
+            self._record_registry_event(
+                "strategy_update",
+                before={
+                    "strategy_type": before_type,
+                    "strategy_params": before_params,
+                    "strategy_config": before_config,
+                    "func_code": before_code,
+                },
+                after={
+                    "strategy_type": self._get_strategy_type(),
+                    "strategy_params": getattr(self._metadata, "strategy_params", {}),
+                    "strategy_config": getattr(self._metadata, "strategy_config", {}),
+                    "func_code": self._func_code,
+                },
+                extra={"restarted": bool(was_running)},
+            )
         
         self.save()
         
@@ -744,6 +956,70 @@ class StrategyEntry(RecoverableUnit):
             return {"success": True, "id": self.id}
         except Exception as e:
             return {"success": False, "error": str(e)}
+
+    def supports_action(self, action: str) -> bool:
+        action = str(action or "").strip().lower()
+        strategy_type = self._get_strategy_type()
+        if strategy_type == "legacy":
+            return action in ("start", "stop", "restart", "reset")
+        return action in ("start", "stop", "restart", "reset", "update_params", "update_strategy")
+
+    def update_params(self, params: Dict[str, Any]) -> dict:
+        before = dict(getattr(self._metadata, "strategy_params", {}) or {})
+        self._metadata.strategy_params = params or {}
+        runtime = self._get_runtime()
+        if runtime is not None:
+            try:
+                runtime.update_params(self._metadata.strategy_params)
+            except Exception as e:
+                self._log("ERROR", "Update params failed", error=str(e))
+                return {"success": False, "error": str(e)}
+        if before != self._metadata.strategy_params:
+            self._bump_version()
+            self._record_registry_event(
+                "params_update",
+                before=before,
+                after=dict(self._metadata.strategy_params),
+            )
+        self.save()
+        return {"success": True}
+
+    def update_strategy(self, config: Dict[str, Any]) -> dict:
+        before = dict(getattr(self._metadata, "strategy_config", {}) or {})
+        merged = dict(before)
+        merged.update(config or {})
+        self._metadata.strategy_config = merged
+        self._runtime = None
+        self._runtime_type = ""
+        self._runtime_config_hash = ""
+        if before != merged:
+            self._bump_version()
+            self._record_registry_event(
+                "config_update",
+                before=before,
+                after=merged,
+            )
+        self.save()
+        return {"success": True}
+
+    def reset(self) -> dict:
+        runtime = self._get_runtime()
+        if runtime is not None:
+            try:
+                runtime.reset()
+            except Exception as e:
+                self._log("ERROR", "Reset runtime failed", error=str(e))
+                return {"success": False, "error": str(e)}
+
+        # 重置窗口状态
+        self._window_buffer = []
+        self._last_window_trigger = 0
+
+        # 运行中则重启
+        if self.is_running:
+            self.stop()
+            return self.start()
+        return {"success": True}
     
     def to_dict(self) -> dict:
         # 优化：直接访问属性，避免使用getattr
@@ -765,6 +1041,10 @@ class StrategyEntry(RecoverableUnit):
                 "max_history_count": getattr(metadata, "max_history_count", 100),
                 "diagram_info": getattr(metadata, "diagram_info", {}),
                 "category": getattr(metadata, "category", "默认"),
+                "strategy_type": getattr(metadata, "strategy_type", "legacy"),
+                "strategy_params": getattr(metadata, "strategy_params", {}),
+                "strategy_config": getattr(metadata, "strategy_config", {}),
+                "version": getattr(metadata, "version", 1),
                 "created_at": metadata.created_at,
                 "updated_at": metadata.updated_at,
             },
@@ -792,6 +1072,10 @@ class StrategyEntry(RecoverableUnit):
             max_history_count=metadata_data.get("max_history_count", 100),
             diagram_info=metadata_data.get("diagram_info", {}),
             category=metadata_data.get("category", "默认"),
+            strategy_type=metadata_data.get("strategy_type", "legacy"),
+            strategy_params=metadata_data.get("strategy_params", {}),
+            strategy_config=metadata_data.get("strategy_config", {}),
+            version=metadata_data.get("version", 1),
             created_at=metadata_data.get("created_at", time.time()),
             updated_at=metadata_data.get("updated_at", time.time()),
         )
@@ -808,6 +1092,13 @@ class StrategyEntry(RecoverableUnit):
                 entry.compile_code()
             except Exception:
                 pass
+        else:
+            if entry._get_strategy_type() != "legacy":
+                entry._func_code = "def process(data, context=None):\n    return None\n"
+                try:
+                    entry.compile_code()
+                except Exception:
+                    pass
         
         entry._was_running = data.get("was_running", False)
         entry._state.status = UnitStatus.STOPPED.value
@@ -934,6 +1225,9 @@ class StrategyManager:
         dictionary_profile_ids: List[str] = None,
         tags: List[str] = None,
         category: str = "默认",
+        strategy_type: str = "legacy",
+        strategy_params: Dict[str, Any] = None,
+        strategy_config: Dict[str, Any] = None,
     ) -> dict:
         from ..config import get_strategy_config
 
@@ -949,8 +1243,12 @@ class StrategyManager:
         if window_interval is None:
             window_interval = strategy_config.get("default_window_interval", "10s")
 
-        if "process" not in func_code:
-            return {"success": False, "error": "代码必须包含 process 函数"}
+        normalized_type = str(strategy_type or "legacy").strip().lower()
+        if normalized_type == "legacy":
+            if "process" not in func_code:
+                return {"success": False, "error": "代码必须包含 process 函数"}
+        elif not func_code:
+            func_code = "def process(data, context=None):\n    return None\n"
 
         # 处理多数据源绑定
         if bound_datasource_ids is None:
@@ -974,6 +1272,9 @@ class StrategyManager:
             dictionary_profile_ids=dictionary_profile_ids or [],
             max_history_count=max_history_count,
             category=category or "默认",
+            strategy_type=normalized_type or "legacy",
+            strategy_params=strategy_params or {},
+            strategy_config=strategy_config or {},
         )
         
         entry = StrategyEntry(metadata=metadata)

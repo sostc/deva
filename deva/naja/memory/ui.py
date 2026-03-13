@@ -1,52 +1,27 @@
 """
-龙虾思想雷达 Web UI Tab
-集成到naja首页的独立标签页
-风格与其他naja页面保持一致
+记忆系统 Web UI Tab
+集成到 naja 首页的独立标签页
+风格与其他 naja 页面保持一致
 """
+
+from datetime import datetime, timedelta
 
 from pywebio.output import *
 from pywebio.input import *
 from pywebio.pin import *
 from pywebio.session import run_js, set_env
-import json
-from datetime import datetime, timedelta
 
-# 导入思想雷达策略
-import sys
-sys.path.insert(0, '/Users/spark/pycharmproject/deva')
-from deva.naja.strategy.plugins.lobster_radar import LobsterRadarStrategy, AttentionScorer
+from .engine import get_memory_engine
+from .core import AttentionScorer
 
 
-def get_running_radar_strategy():
-    """
-    获取运行中的龙虾思想雷达策略实例
-    从策略管理器中查找
-    """
+def get_running_memory_engine():
+    """获取运行中的记忆引擎实例（单例）"""
     try:
-        from deva.naja.strategy import get_strategy_manager
-        
-        strategy_mgr = get_strategy_manager()
-        
-        # 遍历所有策略，找到龙虾思想雷达
-        # StrategyManager 使用 _items 存储策略条目
-        for strategy_id, strategy_entry in strategy_mgr._items.items():
-            if hasattr(strategy_entry, '_metadata'):
-                name = strategy_entry._metadata.name
-                if name == '龙虾思想雷达':
-                    # 尝试从策略代码中获取雷达实例
-                    if hasattr(strategy_entry, '_compiled_func'):
-                        # 从编译后的函数中获取 _radar 变量
-                        func_globals = strategy_entry._compiled_func.__globals__
-                        if '_radar' in func_globals:
-                            print(f"[LobsterTab] 成功获取运行中的策略实例")
-                            return func_globals['_radar']
-        
-        # 如果没有找到运行的策略，返回一个新的实例（用于测试）
-        print(f"[LobsterTab] 未找到运行中的策略，使用新实例")
-        return LobsterRadarStrategy()
+        return get_memory_engine()
     except Exception as e:
-        print(f"[LobsterTab] 获取运行策略失败: {e}")
-        return LobsterRadarStrategy()
+        print(f"[MemoryUI] 获取记忆引擎失败: {e}")
+        return get_memory_engine()
 
 
 def create_nav_menu():
@@ -64,44 +39,50 @@ def apply_global_styles():
 
 
 class LobsterRadarUI:
-    """思想雷达UI"""
-    
+    """记忆系统 UI"""
+
     def __init__(self):
-        self.radar = get_running_radar_strategy()
+        self.radar = get_running_memory_engine()
         self.refresh_interval = 5  # 秒
-    
+
     def render(self):
         """渲染主页面"""
         # 设置页面标题
-        set_env(title="Naja - 思想雷达", output_animation=False)
-        
+        set_env(title="Naja - 记忆", output_animation=False)
+
         # 应用全局样式
         apply_global_styles()
-        
+
         # 创建导航菜单
         create_nav_menu()
-        
+
         # 主容器
         put_html('<div class="container">')
-        
+
         # 页面标题
         put_html("""
         <div style="margin-bottom: 24px;">
             <h1 style="font-size: 28px; font-weight: 700; color: #1e293b; margin-bottom: 8px;">
-                🦞 龙虾思想雷达
+                🧠 记忆系统
             </h1>
             <p style="color: #64748b; font-size: 14px;">
-                流式学习 + 分层记忆 + 周期性自我反思
+                策略结果沉淀为共享记忆，供策略、雷达事件与 AI 大脑共同复用
             </p>
         </div>
         """)
-        
+
+        # 架构概览
+        self._render_arch_overview()
+
+        # 记忆与系统关系
+        self._render_memory_flow()
+
         # 控制面板
         self._render_control_panel()
-        
+
         # 实时状态
         self._render_status_panel()
-        
+
         # 三层记忆展示
         self._render_memory_layers()
 
@@ -116,66 +97,131 @@ class LobsterRadarUI:
 
         # 思想报告
         self._render_thought_report()
-        
+
         put_html('</div>')
-    
+
     def _render_control_panel(self):
         """渲染控制面板"""
         put_html('<div class="card">')
         put_html('<div class="card-header">⚙️ 控制面板</div>')
-        
+
         with put_row():
             put_button("🔄 刷新数据", onclick=self._refresh_data, color="primary")
             put_button("📊 生成报告", onclick=self._generate_report, color="success")
             put_button("🧹 清空记忆", onclick=self._clear_memory, color="danger")
-            put_button("⚡ 测试事件", onclick=self._test_event, color="warning")
-        
+            put_button("⚡ 注入测试事件", onclick=self._test_event, color="warning")
+
         put_html('</div>')
-    
+
     def _render_status_panel(self):
         """渲染状态面板"""
         report = self.radar.get_memory_report()
         stats = report['stats']
-        
+        memory_layers = report.get('memory_layers', {})
+        short_size = memory_layers.get('short', {}).get('size', 0)
+        mid_size = memory_layers.get('mid', {}).get('size', 0)
+        long_size = memory_layers.get('long', {}).get('size', 0)
+
         put_html('<div class="card">')
-        put_html('<div class="card-header">📊 实时状态</div>')
-        
+        put_html('<div class="card-header">📊 记忆核心指标</div>')
+
         # 统计卡片
         with put_row():
             with put_column():
                 put_html(f"""
                 <div class="stat-card">
                     <div class="stat-value" style="color: #3b82f6;">{stats['total_events']}</div>
-                    <div class="stat-label">总事件数</div>
+                    <div class="stat-label">累计事件</div>
                 </div>
                 """)
-            
+
             with put_column():
                 put_html(f"""
                 <div class="stat-card">
                     <div class="stat-value" style="color: #ef4444;">{stats['high_attention_events']}</div>
-                    <div class="stat-label">高注意力事件</div>
+                    <div class="stat-label">高注意力</div>
                 </div>
                 """)
-            
+
             with put_column():
                 put_html(f"""
                 <div class="stat-card">
                     <div class="stat-value" style="color: #10b981;">{stats['topics_created']}</div>
-                    <div class="stat-label">主题数</div>
+                    <div class="stat-label">主题数量</div>
                 </div>
                 """)
-            
+
             with put_column():
                 put_html(f"""
                 <div class="stat-card">
                     <div class="stat-value" style="color: #f59e0b;">{stats['drifts_detected']}</div>
-                    <div class="stat-label">漂移检测</div>
+                    <div class="stat-label">漂移次数</div>
                 </div>
                 """)
-        
+
+        put_html("""
+        <div style="display:flex; gap:16px; flex-wrap:wrap; margin-top:16px;">
+            <div style="flex:1; min-width:160px; background:#f8fafc; padding:12px 16px; border-radius:10px;">
+                <div style="font-size:12px; color:#64748b;">短期记忆</div>
+                <div style="font-size:18px; font-weight:600; color:#0f172a;">{}</div>
+            </div>
+            <div style="flex:1; min-width:160px; background:#f8fafc; padding:12px 16px; border-radius:10px;">
+                <div style="font-size:12px; color:#64748b;">中期记忆</div>
+                <div style="font-size:18px; font-weight:600; color:#0f172a;">{}</div>
+            </div>
+            <div style="flex:1; min-width:160px; background:#f8fafc; padding:12px 16px; border-radius:10px;">
+                <div style="font-size:12px; color:#64748b;">长期记忆</div>
+                <div style="font-size:18px; font-weight:600; color:#0f172a;">{}</div>
+            </div>
+        </div>
+        """.format(short_size, mid_size, long_size))
+
         put_html('</div>')
-    
+
+    def _render_arch_overview(self):
+        """渲染架构概览"""
+        put_html("""
+        <div class="card">
+            <div class="card-header">🧭 记忆系统定位</div>
+            <div style="color:#475569; font-size:14px; line-height:1.8;">
+                记忆系统是平台级共享能力，不再是单一策略的私有状态。策略结果会沉淀为分层记忆与主题，
+                并被策略、雷达事件与 AI 大脑共同读取与复用，形成自调节闭环。
+            </div>
+        </div>
+        """)
+
+    def _render_memory_flow(self):
+        """渲染记忆系统关系图"""
+        put_html("""
+        <div class="card">
+            <div class="card-header">🔄 记忆与系统关系</div>
+            <div style="display:flex; align-items:center; justify-content:center; flex-wrap:wrap; gap:16px;">
+                <div style="width:90px; height:90px; border-radius:14px; background:linear-gradient(135deg,#4facfe,#00f2fe); display:flex; align-items:center; justify-content:center; color:#fff; font-weight:600;">
+                    策略结果
+                </div>
+                <div style="color:#3b82f6; font-size:20px;">→</div>
+                <div style="width:90px; height:90px; border-radius:14px; background:linear-gradient(135deg,#6a11cb,#2575fc); display:flex; align-items:center; justify-content:center; color:#fff; font-weight:600;">
+                    记忆沉淀
+                </div>
+                <div style="color:#3b82f6; font-size:20px;">→</div>
+                <div style="display:flex; gap:10px; flex-wrap:wrap;">
+                    <div style="width:90px; height:90px; border-radius:14px; background:linear-gradient(135deg,#f5576c,#f093fb); display:flex; align-items:center; justify-content:center; color:#fff; font-weight:600;">
+                        雷达事件
+                    </div>
+                    <div style="width:90px; height:90px; border-radius:14px; background:linear-gradient(135deg,#43e97b,#38f9d7); display:flex; align-items:center; justify-content:center; color:#fff; font-weight:600;">
+                        AI 大脑
+                    </div>
+                    <div style="width:90px; height:90px; border-radius:14px; background:linear-gradient(135deg,#fa709a,#fee140); display:flex; align-items:center; justify-content:center; color:#fff; font-weight:600;">
+                        策略复用
+                    </div>
+                </div>
+            </div>
+            <div style="margin-top:12px; color:#94a3b8; font-size:12px; text-align:center;">
+                记忆既是沉淀层，也是调节与复用层
+            </div>
+        </div>
+        """)
+
     def _render_memory_layers(self):
         """渲染三层记忆"""
         put_html('<div class="card">')
@@ -274,46 +320,33 @@ class LobsterRadarUI:
     def _render_long_memory(self, long_memory):
         """渲染长期记忆"""
         size = long_memory.get('size', 0)
-        capacity = long_memory.get('capacity', 30)
-        interval = long_memory.get('interval_hours', 24)
         data = long_memory.get('data', [])
 
         put_html(f'''
         <div class="memory-layer-card memory-layer-long">
             <div class="memory-header">
                 <div class="memory-title">
-                    <span>🏛️</span>
+                    <span>🧠</span>
                     <span>长期记忆</span>
-                    <span style="font-size: 12px; color: #64748b; font-weight: normal;">周期性总结 (每{interval}小时)</span>
+                    <span style="font-size: 12px; color: #64748b; font-weight: normal;">周期性总结</span>
                 </div>
-                <div class="memory-badge">{size} / {capacity}</div>
+                <div class="memory-badge">{size} / 30</div>
             </div>
         ''')
 
         if not data:
             put_html('<div style="color: #94a3b8; font-size: 13px; text-align: center; padding: 20px;">暂无长期记忆数据</div>')
         else:
-            for item in data[:3]:
-                summary = item.get('summary', {})
-                total_events = summary.get('total_events', 0)
-                avg_attention = summary.get('avg_attention', 0)
-                top_topics = summary.get('top_topics', [])
-
-                topics_html = ''
-                if top_topics:
-                    topics_html = '<div style="margin-top: 8px; display: flex; flex-wrap: wrap; gap: 4px;">'
-                    for topic in top_topics[:3]:
-                        topic_name = topic.get('name', f"主题{topic.get('id', '?')}")
-                        topics_html += f'<span class="topic-tag">{topic_name}</span>'
-                    topics_html += '</div>'
-
+            for item in data[:5]:
+                period_start = item.get('period_start', '')
+                period_end = item.get('period_end', '')
+                summary = item.get('summary', '')
                 put_html(f'''
                 <div class="memory-item">
                     <div class="memory-item-header">
-                        <span>📅 {item.get('period_start', '')[:10]} ~ {item.get('period_end', '')[:10]}</span>
-                        <span>{total_events} 事件 | 平均注意力: {avg_attention:.3f}</span>
+                        <span>📆 {period_start} ~ {period_end}</span>
                     </div>
-                    {topics_html}
+                    <div class="memory-item-content">{summary}</div>
                 </div>
                 ''')
 
@@ -322,122 +355,102 @@ class LobsterRadarUI:
     def _render_topic_cloud(self):
         """渲染主题云图"""
         put_html('<div class="card">')
-        put_html('<div class="card-header">🔥 热门主题 TOP10</div>')
-        
+        put_html('<div class="card-header">☁️ 主题云图</div>')
         report = self.radar.get_memory_report()
         topics = report.get('top_topics', [])
-        
+
         if not topics:
-            put_info("暂无主题数据，等待事件流入...")
+            put_html('<div style="color: #94a3b8; font-size: 13px; text-align: center; padding: 20px;">暂无主题数据</div>')
         else:
-            # 主题表格
-            topic_data = []
-            for t in topics[:10]:
-                growth_color = "🟢" if t['growth_rate'] > 0 else "🔴"
-                # 使用主题名称，如果没有则显示默认名称
-                topic_name = t.get('name', f"主题{t['id']}")
-                topic_data.append([
-                    topic_name,
-                    t['event_count'],
-                    f"{t['avg_attention']:.3f}",
-                    f"{growth_color} {t['growth_rate']:.3f}",
-                    t['created_at'][:16]
-                ])
-            
-            put_table(
-                topic_data,
-                header=['主题', '事件数', '平均注意力', '增长率', '创建时间']
-            )
-        
+            put_html('<div style="display: flex; flex-wrap: wrap; gap: 8px;">')
+            for topic in topics[:20]:
+                size = 12 + min(topic.get('event_count', 1), 20)
+                put_html(f'''
+                <span style="background: #f1f5f9; color: #334155; padding: 6px 10px; border-radius: 999px; font-size: {size}px;">
+                    {topic.get('name', '主题')}
+                </span>
+                ''')
+            put_html('</div>')
         put_html('</div>')
-    
+
     def _render_attention_timeline(self):
         """渲染注意力时间线"""
         put_html('<div class="card">')
-        put_html('<div class="card-header">⚡ 高注意力事件</div>')
-        
+        put_html('<div class="card-header">📈 注意力时间线</div>')
         report = self.radar.get_memory_report()
         events = report.get('recent_high_attention', [])
-        
+
         if not events:
-            put_info("暂无高注意力事件")
+            put_html('<div style="color: #94a3b8; font-size: 13px; text-align: center; padding: 20px;">暂无高注意力事件</div>')
         else:
-            # 事件列表
-            for event in events:
-                score_color = "#ef4444" if event['score'] > 0.8 else "#f59e0b"
-                put_html(f"""
-                <div class="event-card" style="border-left-color: {score_color};">
-                    <strong>[{event['type'].upper()}]</strong> 
-                    <span style="color: {score_color}; font-weight: bold;">评分: {event['score']}</span>
-                    <p style="margin: 5px 0 0 0; color: #64748b; font-size: 13px;">{event['content']}</p>
+            for event in events[:10]:
+                put_html(f'''
+                <div class="memory-item">
+                    <div class="memory-item-header">
+                        <span>⏰ {event.get('timestamp', '')}</span>
+                        <span class="memory-score memory-score-high">注意力: {event.get('score', 0)}</span>
+                    </div>
+                    <div class="memory-item-content">{event.get('content', '')}</div>
                 </div>
-                """)
-        
+                ''')
         put_html('</div>')
-    
+
     def _render_signal_stream(self):
         """渲染信号流"""
         put_html('<div class="card">')
-        put_html('<div class="card-header">📡 信号流</div>')
-        
-        # 模拟信号（实际应从策略输出获取）
-        signals = [
-            {"type": "topic_emerge", "message": "新主题出现: AI算力", "time": "10:23:15", "color": "#10b981"},
-            {"type": "high_attention", "message": "高注意力事件: 英伟达涨10%", "time": "10:20:33", "color": "#ef4444"},
-            {"type": "topic_grow", "message": "主题快速增长: 量化交易", "time": "10:15:22", "color": "#3b82f6"},
-        ]
-        
-        for signal in signals:
-            put_html(f"""
-            <div class="signal-item" style="border-left-color: {signal['color']};">
-                <span class="signal-time">{signal['time']}</span>
-                <span class="signal-content">{signal['message']}</span>
-            </div>
-            """)
-        
+        put_html('<div class="card-header">🌊 信号流</div>')
+        report = self.radar.get_memory_report()
+        signals = report.get('recent_signals', [])
+
+        if not signals:
+            put_html('<div style="color: #94a3b8; font-size: 13px; text-align: center; padding: 20px;">暂无信号数据</div>')
+        else:
+            for signal in signals[:10]:
+                put_html(f'''
+                <div class="memory-item">
+                    <div class="memory-item-header">
+                        <span>📡 {signal.get('type', 'signal')}</span>
+                        <span>{signal.get('timestamp', '')}</span>
+                    </div>
+                    <div class="memory-item-content">{signal.get('message', '')}</div>
+                </div>
+                ''')
         put_html('</div>')
-    
+
     def _render_thought_report(self):
         """渲染思想报告"""
         put_html('<div class="card">')
-        put_html('<div class="card-header">🧠 思想报告</div>')
-        
+        put_html('<div class="card-header">📝 思想报告</div>')
         report_text = self.radar.generate_thought_report()
-        
-        put_textarea(
-            label="",
-            name="thought_report",
-            value=report_text,
-            readonly=True,
-            rows=20
-        )
-        
+        put_code(report_text)
         put_html('</div>')
-    
+
     def _refresh_data(self):
         """刷新数据"""
-        run_js("location.reload()")
-    
+        run_js("setTimeout(function() { location.reload(); }, 200)")
+
     def _generate_report(self):
         """生成报告"""
-        report = self.radar.generate_thought_report()
-        popup("思想雷达报告", put_text(report))
-    
+        report_text = self.radar.generate_thought_report()
+        popup("记忆报告", put_text(report_text))
+
     def _clear_memory(self):
         """清空记忆"""
-        # 清空当前雷达实例的记忆
-        if hasattr(self.radar, 'short_term_memory'):
-            self.radar.short_term_memory.clear()
+        if hasattr(self.radar, 'short_memory'):
+            self.radar.short_memory.clear()
+        if hasattr(self.radar, 'mid_memory'):
+            self.radar.mid_memory.clear()
+        if hasattr(self.radar, 'long_memory'):
+            self.radar.long_memory.clear()
         if hasattr(self.radar, 'topics'):
             self.radar.topics.clear()
         if hasattr(self.radar, 'attention_scorer'):
             self.radar.attention_scorer = AttentionScorer()
         toast("记忆已清空", color="success")
         run_js("setTimeout(function() { location.reload(); }, 1000)")
-    
+
     def _test_event(self):
         """测试事件"""
-        # 模拟一个测试事件
         test_record = {
             "timestamp": datetime.now(),
             "source": "test",
@@ -446,10 +459,10 @@ class LobsterRadarUI:
                 "content": "AI算力突破！英伟达发布新一代GPU，性能提升100%",
             }
         }
-        
+
         signals = self.radar.process_record(test_record)
         toast(f"测试事件已处理，生成 {len(signals)} 个信号", color="info")
-        
+
         for signal in signals:
             put_html(f"<p>📡 {signal['type']}: {signal['message']}</p>")
 

@@ -145,7 +145,7 @@ def get_stream():
     return ds_id
 
 
-def bind_to_lobster_strategy(ds_id: str):
+def bind_to_memory_strategy(ds_id: str):
     """绑定数据源到龙虾思想雷达策略"""
     
     db = NB('naja_strategies')
@@ -190,7 +190,7 @@ def main():
     ds_id = create_and_register_datasource()
     
     # 2. 绑定到龙虾思想雷达策略
-    bind_to_lobster_strategy(ds_id)
+    bind_to_memory_strategy(ds_id)
     
     print()
     print("=" * 60)
