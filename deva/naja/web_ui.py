@@ -20,8 +20,8 @@ from pywebio.platform.tornado import webio_handler
 from deva import NW, Deva, NB
 from .config import get_auth_config, set_config, ensure_auth_secret
 
-# 导入思想雷达UI
-from .lobster.lobster_tab import LobsterRadarUI
+# 导入记忆系统UI
+from .memory.ui import LobsterRadarUI
 from .performance import PerformanceMonitorUI
 
 
@@ -318,6 +318,22 @@ async def strategyadmin():
     return await render_strategy_admin(ctx)
 
 
+async def radaradmin():
+    """雷达事件"""
+    from .radar.ui import render_radar_admin
+    ctx = _ctx()
+    await ctx["init_naja_ui"]("雷达事件")
+    return await render_radar_admin(ctx)
+
+
+async def llmadmin():
+    """LLM 调节"""
+    from .llm_controller.ui import render_llm_admin
+    ctx = _ctx()
+    await ctx["init_naja_ui"]("LLM 调节")
+    return await render_llm_admin(ctx)
+
+
 async def dictadmin():
     """字典管理"""
     from .dictionary.ui import render_dictionary_admin
@@ -345,8 +361,8 @@ async def configadmin():
     render_config_page(ctx)
 
 
-def lobster_page():
-    """思想雷达页面"""
+def memory_page():
+    """记忆页面"""
     ui = LobsterRadarUI()
     ui.render()
 
@@ -363,12 +379,14 @@ def create_handlers(cdn: str = None):
     
     return [
         (r'/', webio_handler(main, cdn=cdn_url)),
-        (r'/lobster', webio_handler(lobster_page, cdn=cdn_url)),
+        (r'/memory', webio_handler(memory_page, cdn=cdn_url)),
         (r'/performance', webio_handler(performance_page, cdn=cdn_url)),
         (r'/signaladmin', webio_handler(signaladmin, cdn=cdn_url)),
         (r'/dsadmin', webio_handler(dsadmin, cdn=cdn_url)),
         (r'/taskadmin', webio_handler(taskadmin, cdn=cdn_url)),
         (r'/strategyadmin', webio_handler(strategyadmin, cdn=cdn_url)),
+        (r'/radaradmin', webio_handler(radaradmin, cdn=cdn_url)),
+        (r'/llmadmin', webio_handler(llmadmin, cdn=cdn_url)),
         (r'/dictadmin', webio_handler(dictadmin, cdn=cdn_url)),
         (r'/tableadmin', webio_handler(tableadmin, cdn=cdn_url)),
         (r'/configadmin', webio_handler(configadmin, cdn=cdn_url)),
@@ -400,6 +418,11 @@ def run_server(port: int = 8080, host: str = '0.0.0.0'):
     print("📂 加载任务...")
     task_mgr.load_from_db()
     task_mgr.restore_running_states()
+    try:
+        from .llm_controller import ensure_llm_auto_adjust_task
+        ensure_llm_auto_adjust_task()
+    except Exception as e:
+        print(f"⚠️ LLM 自动调节任务初始化失败: {e}")
     
     print("📂 加载策略...")
     strategy_mgr.load_from_db()

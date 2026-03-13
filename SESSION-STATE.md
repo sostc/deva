@@ -1,7 +1,7 @@
 # SESSION-STATE.md - Active Working Memory
 
-**Last Updated:** 2026-03-10T23:55:00Z
-**Current Task:** 龙虾思想雷达 v1 - 已实现核心功能
+**Last Updated:** 2026-03-14T09:20:00+08:00
+**Current Task:** Naja 记忆/雷达/LLM 自调节闭环完善
 
 ---
 
@@ -9,13 +9,21 @@
 
 **系统名称**: 龙虾思想雷达 v1 (Lobster Mind Radar)
 **状态**: ✅ MVP版本已完成
-**位置**: `/Users/spark/pycharmproject/deva/deva/naja/strategy/plugins/lobster_radar.py`
+**位置**: `/Users/spark/pycharmproject/deva/deva/naja/memory/core.py`
+
+---
+
+## 最新决策（2026-03-14）
+
+- ✅ 记忆引擎启用自动加载/定时持久化（`MemoryEngine`）
+- ✅ 雷达事件增加保留天数与后台清理线程
+- ✅ LLM 自调节新增定时任务（可配置、自动启动）
 
 ---
 
 ## 已实现功能
 
-### 1. 核心策略 (`lobster_radar.py`)
+### 1. 核心策略 (`memory/core.py`)
 - ✅ 统一事件结构 (LobsterEvent)
 - ✅ 注意力评分系统 (5维度评分)
 - ✅ 主题聚类 (在线聚类 + 最近邻)
@@ -25,7 +33,7 @@
 - ✅ 信号生成 (6种信号类型)
 - ✅ 思想报告生成
 
-### 2. Web UI (`home/lobster_tab.py`)
+### 2. Web UI (`memory/ui.py`)
 - ✅ 独立Tab页面
 - ✅ 实时状态面板
 - ✅ 主题云图
@@ -77,7 +85,6 @@ Web UI展示
 - [ ] 接入naja信号流系统
 - [ ] 添加周期性自我总结任务
 - [ ] 使用sentence-transformers替代简化embedding
-- [ ] 中期/长期记忆持久化
 - [ ] 思想对话模块 (大模型集成)
 
 ---
@@ -85,7 +92,7 @@ Web UI展示
 ## 使用方式
 
 1. 启动naja: `python -m deva.naja`
-2. 访问: `http://localhost:8080/lobster`
+2. 访问: `http://localhost:8080/memory`
 3. 绑定数据源到策略
 4. 查看实时思想雷达
 
@@ -95,7 +102,7 @@ Web UI展示
 
 ```python
 # 策略使用示例
-from deva.naja.strategy.plugins import LobsterRadarStrategy
+from deva.naja.memory import LobsterRadarStrategy
 
 radar = LobsterRadarStrategy(config={
     "short_term_size": 1000,
