@@ -14,7 +14,7 @@ def get_signal_type(result) -> tuple:
     else:
         output = output_full
     if isinstance(output, dict):
-        signal_type = output.get('signal_type', '')
+        signal_type = output.get('signal_type', output.get('signal', ''))
         
         if 'contrarian' in signal_type or '逆势' in result.strategy_name:
             importance = 'high'
@@ -94,7 +94,7 @@ def get_signal_detail(result) -> dict:
         detail['summary'] = result.output_preview[:80]
         return detail
     
-    signal_type = output.get('signal_type', '')
+    signal_type = output.get('signal_type', output.get('signal', ''))
     
     if signal_type == 'market_strength':
         strength = output.get('strength', 0)
@@ -307,6 +307,20 @@ def get_signal_detail(result) -> dict:
             detail['highlights'] = [f"📈 {b.get('block', '')} +{b.get('avg_p_change', 0):.2f}%" for b in top10[:3]]
         if bottom10:
             detail['highlights'].extend([f"📉 {b.get('block', '')} {b.get('avg_p_change', 0):.2f}%" for b in bottom10[:2]])
+    
+    # 处理 river 策略的输出格式
+    elif 'river' in result.strategy_name.lower() or 'river' in signal_type.lower():
+        picks = output.get('picks', [])
+        if picks:
+            detail['summary'] = f"River 策略信号: {len(picks)} 个标的"
+            highlights = []
+            for pick in picks[:3]:
+                code = pick.get('code', '')
+                name = pick.get('name', '')
+                price = pick.get('price', 0)
+                if code or name:
+                    highlights.append(f"{name}({code}) {price:.2f}")
+            detail['highlights'] = highlights
     
     if not detail['summary']:
         detail['summary'] = result.output_preview[:60]

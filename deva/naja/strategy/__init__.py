@@ -198,6 +198,12 @@ class StrategyEntry(RecoverableUnit):
         if self._compiled_func is None:
             return
         
+        # 将策略执行放到后台线程，避免阻塞主线程
+        import threading
+        threading.Thread(target=self._process_data_async, args=(data,), daemon=True).start()
+    
+    def _process_data_async(self, data: Any):
+        """异步处理数据"""
         with self._processing_lock:
             start_time = time.time()
             success = False
@@ -237,9 +243,25 @@ class StrategyEntry(RecoverableUnit):
                 self._state.record_error(error)
                 self._log("ERROR", "Process data failed", error=str(e))
             
+            # 计算执行时间
+            process_time_ms = (time.time() - start_time) * 1000
+            
+            # 记录性能指标
+            try:
+                from ..performance import record_component_execution, ComponentType
+                record_component_execution(
+                    component_id=self.id,
+                    component_name=self.name,
+                    component_type=ComponentType.STRATEGY,
+                    execution_time_ms=process_time_ms,
+                    success=success and not error,
+                    error=error,
+                )
+            except Exception:
+                pass  # 性能监控不应影响主流程
+            
             # 保存结果（包括未命中的情况）
             if not skipped and not duplicate:
-                process_time_ms = (time.time() - start_time) * 1000
                 # 只有命中策略（result 不为 None）才保存到结果存储
                 if result is not None:
                     self._save_result_to_store(data, result, process_time_ms, success, error)
@@ -295,12 +317,15 @@ class StrategyEntry(RecoverableUnit):
             'state': self._state.to_dict()
         }
         
+        # 提取实际数据（如果是 enriched_data 结构）
+        actual_data = data.get('data', data) if isinstance(data, dict) else data
+        
         # Try calling with context first, then fallback to data only
         try:
-            result = self._compiled_func(data, context)
+            result = self._compiled_func(actual_data, context)
         except TypeError:
             # Fallback to data only for backward compatibility
-            result = self._compiled_func(data)
+            result = self._compiled_func(actual_data)
             
         if asyncio.iscoroutine(result):
             loop = asyncio.new_event_loop()
@@ -315,7 +340,9 @@ class StrategyEntry(RecoverableUnit):
         window_size = max(1, int(getattr(self._metadata, "window_size", 5) or 5))
         return_partial = bool(getattr(self._metadata, "window_return_partial", False))
         
-        self._window_buffer.append(data)
+        # 提取实际数据（如果是 enriched_data 结构）
+        actual_data = data.get('data', data) if isinstance(data, dict) else data
+        self._window_buffer.append(actual_data)
         
         if window_type == "sliding":
             if len(self._window_buffer) > window_size:
@@ -463,14 +490,22 @@ class StrategyEntry(RecoverableUnit):
         if not profile_ids:
             return data
         
-        if not isinstance(data, pd.DataFrame):
+        # 提取实际数据（如果是 enriched_data 结构）
+        actual_data = data.get('data', data) if isinstance(data, dict) else data
+        
+        if not isinstance(actual_data, pd.DataFrame):
             return data
         
-        result = data
+        result = actual_data
         for profile_id in profile_ids:
             result = self._enrich_dataframe(result, profile_id)
         
-        return result
+        # 如果是 enriched_data 结构，更新 data 中的实际数据
+        if isinstance(data, dict) and 'data' in data:
+            data['data'] = result
+            return data
+        else:
+            return result
     
     def _enrich_dataframe(self, df: Any, profile_id: str) -> Any:
         """使用字典数据补齐 DataFrame"""
@@ -1381,6 +1416,24 @@ class StrategyManager:
             "total_processed": total_processed,
             "total_output": total_output,
         }
+    
+    def get_performance_stats(self) -> dict:
+        """获取策略性能统计"""
+        try:
+            from .performance_monitor import get_performance_monitor
+            monitor = get_performance_monitor()
+            return monitor.get_slow_strategies_summary()
+        except Exception as e:
+            return {"error": str(e)}
+    
+    def get_performance_report(self) -> str:
+        """获取策略性能报告"""
+        try:
+            from .performance_monitor import get_performance_monitor
+            monitor = get_performance_monitor()
+            return monitor.get_performance_report()
+        except Exception as e:
+            return f"获取性能报告失败: {e}"
     
     def _log(self, level: str, message: str, **extra):
         ts = time.strftime("%Y-%m-%d %H:%M:%S")

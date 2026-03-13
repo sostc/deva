@@ -8,6 +8,8 @@ from pywebio.input import input_group, input, textarea, select, actions, radio
 from pywebio.session import run_async
 
 from ..common.ui_style import apply_strategy_like_styles, render_empty_state, render_stats_cards
+from ..scheduler.ui import humanize_cron
+from ..scheduler import preview_next_runs
 
 
 DEFAULT_DS_CODE = '''# 数据获取函数
@@ -83,27 +85,8 @@ def _fmt_ts_short(ts: float) -> str:
 
 
 def _humanize_cron(expr: str) -> str:
-    cron = str(expr or "").strip()
-    if not cron:
-        return "按计划执行"
-    parts = cron.split()
-    if len(parts) != 5:
-        return f"按计划执行（规则: {cron}）"
-    minute, hour, day, month, weekday = parts
-    if minute.startswith("*/") and hour == "*" and day == "*" and month == "*" and weekday == "*":
-        n = minute[2:]
-        if n.isdigit():
-            return f"每 {n} 分钟执行一次"
-    if hour == "*" and day == "*" and month == "*" and weekday == "*" and minute.isdigit():
-        return f"每小时第 {int(minute):02d} 分执行"
-    if minute.isdigit() and hour.isdigit() and day == "*" and month == "*" and weekday == "*":
-        return f"每天 {int(hour):02d}:{int(minute):02d} 执行"
-    weekday_map = {"mon": "周一", "tue": "周二", "wed": "周三", "thu": "周四", "fri": "周五", "sat": "周六", "sun": "周日"}
-    if minute.isdigit() and hour.isdigit() and day == "*" and month == "*" and weekday.lower() in weekday_map:
-        return f"每{weekday_map[weekday.lower()]} {int(hour):02d}:{int(minute):02d} 执行"
-    if minute.isdigit() and hour.isdigit() and day.isdigit() and month == "*" and weekday == "*":
-        return f"每月 {int(day)} 日 {int(hour):02d}:{int(minute):02d} 执行"
-    return f"按计划执行（规则: {cron}）"
+    """将 cron 表达式转换为人类可读描述（使用共享函数）"""
+    return humanize_cron(expr)
 
 
 async def render_datasource_admin(ctx: dict):

@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+BASE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/.skillhub"
+CLI="${BASE}/skills_store_cli.py"
+
+if [[ ! -f "${CLI}" ]]; then
+  echo "Error: CLI not found at ${CLI}" >&2
+  exit 1
+fi
+
+exec python3 "${CLI}" "$@"
