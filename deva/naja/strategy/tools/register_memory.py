@@ -12,7 +12,7 @@ from deva.naja.datasource import get_datasource_manager
 from deva import NB
 
 
-def register_lobster_radar_strategy():
+def register_memory_strategy():
     """注册龙虾思想雷达策略"""
     
     strategy_mgr = get_strategy_manager()
@@ -47,15 +47,10 @@ def register_lobster_radar_strategy():
 import sys
 sys.path.insert(0, '/Users/spark/pycharmproject/deva')
 
-from deva.naja.strategy.plugins.lobster_radar import LobsterRadarStrategy
+from deva.naja.memory import get_memory_engine
 
-# 初始化策略实例
-_radar = LobsterRadarStrategy(config={
-    "short_term_size": 1000,
-    "topic_threshold": 0.7,
-    "attention_threshold": 0.7,
-    "max_topics": 50,
-})
+# 初始化策略实例（记忆引擎单例）
+_radar = get_memory_engine()
 
 def process(record):
     """
@@ -209,7 +204,7 @@ def main():
     
     # 2. 注册策略
     print("[2/3] 注册龙虾思想雷达策略...")
-    strategy = register_lobster_radar_strategy()
+    strategy = register_memory_strategy()
     print()
     
     # 3. 绑定数据源
@@ -225,7 +220,7 @@ def main():
     print("使用说明:")
     print("  1. 启动naja: python -m deva.naja")
     print("  2. 访问策略管理: http://localhost:8080/strategyadmin")
-    print("  3. 查看思想雷达: http://localhost:8080/lobster")
+    print("  3. 查看记忆: http://localhost:8080/memory")
     print()
     print("策略信息:")
     if strategy:

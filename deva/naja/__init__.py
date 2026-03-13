@@ -42,6 +42,16 @@ from .signal import (
     is_auto_refresh_enabled,
 )
 
+from .radar import (
+    RadarEngine,
+    get_radar_engine,
+)
+
+from .llm_controller import (
+    LLMController,
+    get_llm_controller,
+)
+
 from .tables import (
     get_table_list,
     get_table_info,
@@ -116,6 +126,12 @@ __all__ = [
     "render_signal_page",
     "set_auto_refresh",
     "is_auto_refresh_enabled",
+    # Radar
+    "RadarEngine",
+    "get_radar_engine",
+    # LLM controller
+    "LLMController",
+    "get_llm_controller",
     # Tables
     "get_table_list",
     "get_table_info",

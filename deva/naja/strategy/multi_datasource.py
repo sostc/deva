@@ -304,7 +304,7 @@ def example_usage():
     """使用示例"""
     print("# 创建多数据源策略示例")
     print("")
-    print("from deva.naja.strategy.plugins.multi_datasource_strategy import MultiDatasourceStrategyEntry, MultiDatasourceStrategyMetadata")
+    print("from deva.naja.strategy.multi_datasource import MultiDatasourceStrategyEntry, MultiDatasourceStrategyMetadata")
     print("")
     print("# 创建元数据")
     print('metadata = MultiDatasourceStrategyMetadata(')
