@@ -1,0 +1,35 @@
+{
+  "skill_name": "strategy-creator",
+  "evals": [
+    {
+      "id": 1,
+      "name": "create-price-monitor-with-dict",
+      "prompt": "帮我创建一个策略，数据源选择 realtime_quant_5s，数据字典选择 stock_block_dict_pytdx，处理方式：当股票价格超过100元且属于科技板块时发出警报",
+      "expected_output": "AI自动生成策略名称'价格监控智能策略'，自动整合数据源字段(price,volume,symbol)和字典字段(code,name,industry,blockname)，生成数据关联和整合代码"
+    },
+    {
+      "id": 2,
+      "name": "create-news-keyword-strategy",
+      "prompt": "创建一个策略，数据源选择财经新闻模拟源，不绑定数据字典，处理方式：监控新闻中出现'上涨'、'下跌'关键词",
+      "expected_output": "创建新闻监控策略，不整合字典数据，代码中包含title/content字段提取和关键词匹配逻辑"
+    },
+    {
+      "id": 3,
+      "name": "create-fundamental-filter-strategy",
+      "prompt": "创建一个策略，数据源选择 realtime_quant_5s，数据字典选择 snowball_stock_dict，处理方式：筛选市盈率低于20且涨幅超过5%的股票",
+      "expected_output": "创建基本面筛选策略，整合行情数据和基本面数据，生成关联symbol和code的代码，整合财务指标字段"
+    },
+    {
+      "id": 4,
+      "name": "create-multi-datasource-multi-dict",
+      "prompt": "创建一个策略，同时绑定 realtime_quant_5s 和 财经新闻模拟源 两个数据源，绑定 stock_block_dict_pytdx 数据字典，处理方式：分别处理不同类型数据并关联板块信息",
+      "expected_output": "创建复杂策略，处理多数据源和多字典，生成多分支处理逻辑和数据整合代码"
+    },
+    {
+      "id": 5,
+      "name": "create-window-with-dict",
+      "prompt": "创建一个策略，数据源选择 realtime_quant_5s，数据字典选择 stock_block_dict_pytdx，使用window模式，窗口大小10，处理方式：计算科技板块股票的10日平均价格",
+      "expected_output": "创建window模式策略，整合字典数据筛选科技板块，计算滑动窗口平均价格"
+    }
+  ]
+}

@@ -1,0 +1,54 @@
+[
+  {
+    "id": "eval-1",
+    "mode": "direction_search",
+    "prompt": "帮我找 agent runtime 相关的 GitHub 项目",
+    "script": "python scripts/search_repos.py \"agent runtime\"",
+    "expectations": [
+      "输出包含 Layer 分类（至少标注 L2/L3）",
+      "至少识别出一个 L2 Runtime 层项目",
+      "每个推荐项目有一句 PM 洞察",
+      "末尾有整体范式判断",
+      "数据指标标注精度 [精确/估算/趋势判断]"
+    ]
+  },
+  {
+    "id": "eval-2",
+    "mode": "signal_watch",
+    "prompt": "监控异常信号",
+    "script": "python scripts/watch_signals.py --domain ai-agent",
+    "expectations": [
+      "检测到至少一个增长异常项目",
+      "每个异常项目标注异常类型（新星/爆发/持续升温）",
+      "包含关键开发者动态检测",
+      "对每个信号给出三级判断（值得深挖/观察/忽略）",
+      "列出被忽略的项目及原因"
+    ]
+  },
+  {
+    "id": "eval-3",
+    "mode": "deep_link",
+    "prompt": "分析 langchain-ai/langgraph 的关联生态",
+    "script": "python scripts/deep_link.py langchain-ai/langgraph",
+    "expectations": [
+      "输出完整 metadata（stars, forks, commits, contributors）",
+      "Issue 构成分析含各类占比",
+      "包含 Ecosystem Map（ASCII 图）",
+      "正确识别为 L2 Runtime",
+      "范式判断说明 stack 哪层在移动"
+    ]
+  },
+  {
+    "id": "eval-4",
+    "mode": "radar_pulse",
+    "prompt": "今天有什么值得看的",
+    "script": "python scripts/radar_pulse.py --days 7",
+    "expectations": [
+      "过滤掉 L1 和 L5 项目",
+      "只保留 L2/L3/L4 项目",
+      "精选 1-2 个有 PM 价值的项目",
+      "每个精选有选择理由",
+      "包含简短范式信号"
+    ]
+  }
+]

@@ -1,0 +1,23 @@
+{
+  "skill_name": "stock-tick-analyzer",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Analyze tick data for AAPL to identify intraday momentum shifts",
+      "expected_output": "Identified significant momentum shifts in AAPL tick data",
+      "files": []
+    },
+    {
+      "id": 2,
+      "prompt": "Find key support and resistance levels for MSFT using tick data",
+      "expected_output": "Based on tick data analysis, MSFT has strong support and resistance levels",
+      "files": []
+    },
+    {
+      "id": 3,
+      "prompt": "Analyze market depth for GOOGL to assess liquidity",
+      "expected_output": "GOOGL shows strong liquidity with detailed bid-ask spread and depth information",
+      "files": []
+    }
+  ]
+}

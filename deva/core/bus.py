@@ -188,7 +188,7 @@ class BusRuntime:
         self.meta: Dict[str, Any] = {"mode": self.mode, "topic": self.topic, "group": self.group, "connected": None, "error": None}
         self.clients_table = NB("deva_bus_clients")
         self.client_ttl_seconds = 30
-        self.heartbeat_interval_seconds = 5
+        self.heartbeat_interval_seconds = 10  # 增加到10秒，减少数据库访问频率
         self.client_key = f"{socket.gethostname()}:{os.getpid()}"
         self.started_at = time.time()
         self._stop_event = threading.Event()

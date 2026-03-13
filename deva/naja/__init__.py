@@ -79,6 +79,13 @@ from .agent import (
     create_four_agents,
 )
 
+from .supervisor import (
+    NajaSupervisor,
+    get_naja_supervisor,
+    start_supervisor,
+    stop_supervisor,
+)
+
 __version__ = "2.0.0"
 
 __all__ = [
@@ -136,4 +143,9 @@ __all__ = [
     "AgentManager",
     "get_agent_manager",
     "create_four_agents",
+    # Supervisor
+    "NajaSupervisor",
+    "get_naja_supervisor",
+    "start_supervisor",
+    "stop_supervisor",
 ]

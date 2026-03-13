@@ -22,6 +22,9 @@
 
 
 from deva import Stream,concat,print,stdout,warn
+import asyncio
+import time
+import random
 
 # 1. 将山的数据结构改为生成器，节省内存
 山 = ['土','土',' 黄金','土','土','碑','土','土','土','土','墓','土','土','土','土','平']
@@ -34,19 +37,30 @@ def 挖土(x):
     if x == '土':
         '挖土土ing' >> print
     else:
-        raise Exception(x)
+        # 不抛出异常，而是直接处理
+        '发现非土材料: ' + x >> print
 
 def 处理异常(x):
     if '墓' in str(x) or '黄金' in str(x):
         '⚠️⚠️⚠️挖出异常，警察叔叔吗，挖到个国宝' >> print
         # mixer.music.play()
 
-打卡= lambda x:x if '<日常打卡>'>>stdout else None
-打卡.__name__='打卡'
-周末放假 = lambda x :'🍺🍺周末'>>print
-移山成功 = lambda x:'🎉🎉🎈🎈🎉🎉🎈🎈山挖空了'>>print
-打110 = lambda x:'⚠️⚠️⚠️挖出异常，警察叔叔吗，挖到个国宝'>>print
-里程碑 = lambda x:'😺🐱🐯挖到一块碑，叫做里程碑'>>print
+def 打卡(x):
+    '<日常打卡>' >> stdout
+    return x
+
+def 周末放假(x):
+    '🍺🍺周末' >> print
+
+def 移山成功(x):
+    '🎉🎉🎈🎈🎉🎉🎈🎈山挖空了' >> print
+
+def 打110(x):
+    '⚠️⚠️⚠️挖出异常，警察叔叔吗，挖到个国宝' >> print
+
+def 里程碑(x):
+    '😺🐱🐯挖到一块碑，叫做里程碑' >> print
+
 异常管理 = Stream()
 挖土项目 = Stream()
 日常工作 = 挖土项目.map(打卡)>>(挖土^异常管理)
@@ -60,7 +74,9 @@ def 处理异常(x):
 异常管理.filter(处理异常) >> warn
 
 
-日报= lambda x:'日报：'+(x>>concat('|'))>>print
+def 日报(x):
+    '日报：' + (x >> concat('|')) >> print
+
 挖土项目.sliding_window(3)>>日报
 
 
@@ -79,7 +95,6 @@ def AI分析(x):
 团队成员 = ['愚公', '儿子', '孙子', '邻居']
 
 def 分配任务(x):
-    import random
     执行人 = random.choice(团队成员)
     return f"{执行人}正在处理：{x}"
 
@@ -96,7 +111,6 @@ def 消耗资源(x):
 挖土项目 >> 消耗资源
 
 # 5. 添加天气系统
-import random
 
 def 模拟天气():
     天气 = random.choice(['晴天', '雨天', '大风'])
@@ -133,10 +147,12 @@ def 检查成就(x):
 异常管理>>warn
 # 
 
-# 3. 主循环保持不变
-for 土 in 生成山():
-    土 >> 挖土项目
-    import time
-    time.sleep(1)
-    
-    
+
+# 3. 主循环改为异步
+async def 主循环():
+    for 土 in 生成山():
+        土 >> 挖土项目
+        await asyncio.sleep(1)
+
+if __name__ == '__main__':
+    asyncio.run(主循环())

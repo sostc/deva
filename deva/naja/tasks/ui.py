@@ -6,6 +6,16 @@ from typing import Optional
 from pywebio.session import run_async
 
 from ..common.ui_style import apply_strategy_like_styles, render_empty_state, render_stats_cards
+from ..scheduler.ui import (
+    build_cron_expr_wizard,
+    choose_execution_mode,
+    choose_scheduler_trigger,
+    get_mode_intro_html,
+    get_mode_label,
+    get_schedule_desc,
+    humanize_cron,
+)
+from ..scheduler import normalize_execution_mode
 
 
 DEFAULT_TASK_CODE = '''# 任务执行函数
@@ -41,80 +51,35 @@ def _render_detail_section(title: str) -> str:
 
 
 def _normalize_mode(entry) -> str:
+    """标准化执行模式（使用共享函数）"""
     mode = (getattr(entry._metadata, "execution_mode", "") or "").strip().lower()
     task_type = (getattr(entry._metadata, "task_type", "") or "").strip().lower()
-
-    if mode in {"timer", "scheduler", "event_trigger"}:
-        return mode
-    if task_type == "interval":
-        return "timer"
-    if task_type in {"once", "schedule", "cron"}:
-        return "scheduler"
-    if task_type in {"event", "eventtrigger", "event_trigger"}:
-        return "event_trigger"
-    return "timer"
+    return normalize_execution_mode(mode, task_type)
 
 
 def _mode_label(mode: str) -> str:
-    labels = {
-        "timer": "Timer",
-        "scheduler": "Scheduler",
-        "event_trigger": "EventTrigger",
-    }
-    return labels.get(mode, mode)
+    """获取模式标签（使用共享函数）"""
+    return get_mode_label(mode)
 
 
 def _schedule_desc(entry) -> str:
+    """获取调度描述（使用共享函数）"""
     mode = _normalize_mode(entry)
-
-    if mode == "timer":
-        return f"每 {float(getattr(entry._metadata, 'interval_seconds', 60) or 60):.1f} 秒执行一次"
-
-    if mode == "scheduler":
-        trigger = (getattr(entry._metadata, "scheduler_trigger", "interval") or "interval").strip().lower()
-        if trigger == "cron":
-            expr = (getattr(entry._metadata, "cron_expr", "") or "").strip()
-            return _humanize_cron(expr)
-        if trigger == "date":
-            run_at = (getattr(entry._metadata, "run_at", "") or "").strip()
-            return f"一次性: {run_at or '-'}"
-        return f"按固定间隔执行（{float(getattr(entry._metadata, 'interval_seconds', 60) or 60):.1f} 秒）"
-
-    source = (getattr(entry._metadata, "event_source", "log") or "log").strip().lower()
-    cond_type = (getattr(entry._metadata, "event_condition_type", "contains") or "contains").strip().lower()
-    condition = (getattr(entry._metadata, "event_condition", "") or "").strip()
-    return f"事件触发（来源: {source}，条件: {condition or '任意事件'}）"
+    return get_schedule_desc(
+        execution_mode=mode,
+        scheduler_trigger=getattr(entry._metadata, "scheduler_trigger", "interval"),
+        interval_seconds=getattr(entry._metadata, "interval_seconds", 60.0),
+        cron_expr=getattr(entry._metadata, "cron_expr", ""),
+        run_at=getattr(entry._metadata, "run_at", ""),
+        event_source=getattr(entry._metadata, "event_source", "log"),
+        event_condition=getattr(entry._metadata, "event_condition", ""),
+        event_condition_type=getattr(entry._metadata, "event_condition_type", "contains"),
+    )
 
 
 def _humanize_cron(expr: str) -> str:
-    cron = str(expr or "").strip()
-    if not cron:
-        return "按计划执行"
-
-    parts = cron.split()
-    if len(parts) != 5:
-        return f"按计划执行（规则: {cron}）"
-
-    minute, hour, day, month, weekday = parts
-    if minute.startswith("*/") and hour == "*" and day == "*" and month == "*" and weekday == "*":
-        n = minute[2:]
-        if n.isdigit():
-            return f"每 {n} 分钟执行一次"
-
-    if hour == "*" and day == "*" and month == "*" and weekday == "*" and minute.isdigit():
-        return f"每小时第 {int(minute):02d} 分执行"
-
-    if minute.isdigit() and hour.isdigit() and day == "*" and month == "*" and weekday == "*":
-        return f"每天 {int(hour):02d}:{int(minute):02d} 执行"
-
-    weekday_map = {"mon": "周一", "tue": "周二", "wed": "周三", "thu": "周四", "fri": "周五", "sat": "周六", "sun": "周日"}
-    if minute.isdigit() and hour.isdigit() and day == "*" and month == "*" and weekday.lower() in weekday_map:
-        return f"每{weekday_map[weekday.lower()]} {int(hour):02d}:{int(minute):02d} 执行"
-
-    if minute.isdigit() and hour.isdigit() and day.isdigit() and month == "*" and weekday == "*":
-        return f"每月 {int(day)} 日 {int(hour):02d}:{int(minute):02d} 执行"
-
-    return f"按计划执行（规则: {cron}）"
+    """将 cron 表达式转换为人类可读描述（使用共享函数）"""
+    return humanize_cron(expr)
 
 
 def _is_dictionary_refresh_task(entry) -> bool:
@@ -143,348 +108,42 @@ def _resolve_task_type(mode: str, scheduler_trigger: str) -> str:
 
 
 def _parse_hhmm(value: str) -> Optional[tuple]:
-    raw = str(value or "").strip()
-    if not raw:
-        return None
-    raw = raw.replace("：", ":")
-    parts = raw.split(":")
-    if len(parts) != 2:
-        return None
-    try:
-        hour = int(parts[0])
-        minute = int(parts[1])
-    except Exception:
-        return None
-    if hour < 0 or hour > 23 or minute < 0 or minute > 59:
-        return None
-    return hour, minute
+    """解析 HH:MM 格式时间（使用共享函数）"""
+    from ..scheduler import parse_hhmm
+    return parse_hhmm(value)
 
 
 def _preview_next_runs(cron_expr: str, count: int = 5) -> list:
-    try:
-        from apscheduler.triggers.cron import CronTrigger
-        import pytz
-    except Exception:
-        return []
-
-    try:
-        trigger = CronTrigger.from_crontab(str(cron_expr or "").strip(), timezone=pytz.timezone("Asia/Shanghai"))
-        out = []
-        now = datetime.now(pytz.timezone("Asia/Shanghai"))
-        prev = None
-        current = now
-        for _ in range(max(1, count)):
-            nxt = trigger.get_next_fire_time(prev, current)
-            if not nxt:
-                break
-            out.append(nxt.strftime("%Y-%m-%d %H:%M:%S"))
-            prev = nxt
-            current = nxt
-        return out
-    except Exception:
-        return []
+    """预览 cron 表达式未来执行时间（使用共享函数）"""
+    from ..scheduler import preview_next_runs
+    return preview_next_runs(cron_expr, count)
 
 
 async def _build_cron_expr_wizard(ctx: dict, default_expr: str = "") -> Optional[str]:
-    template_default = "custom" if default_expr else "every_n_minutes"
-    while True:
-        template_form = await ctx["input_group"](
-            "第 2.1 步：选择 Cron 模板",
-            [
-                ctx["select"](
-                    "模板",
-                    name="template",
-                    options=[
-                        {"label": "每 N 分钟", "value": "every_n_minutes"},
-                        {"label": "每天固定时间", "value": "daily"},
-                        {"label": "每周固定时间", "value": "weekly"},
-                        {"label": "每月固定日期时间", "value": "monthly"},
-                        {"label": "自定义 Cron（高级）", "value": "custom"},
-                    ],
-                    value=template_default,
-                ),
-                ctx["actions"](
-                    "操作",
-                    [
-                        {"label": "下一步", "value": "next"},
-                        {"label": "取消", "value": "cancel"},
-                    ],
-                    name="action",
-                ),
-            ],
-        )
-        if not template_form or template_form.get("action") == "cancel":
-            return None
-
-        template = str(template_form.get("template", template_default) or template_default).strip().lower()
-        cron_expr = ""
-        if template == "every_n_minutes":
-            f = await ctx["input_group"](
-                "第 2.2 步：每 N 分钟",
-                [
-                    ctx["input"]("间隔分钟数", name="n", type="number", value=5),
-                    ctx["actions"]("操作", [{"label": "生成", "value": "ok"}, {"label": "返回模板", "value": "back"}, {"label": "取消", "value": "cancel"}], name="action"),
-                ],
-            )
-            if not f or f.get("action") == "cancel":
-                return None
-            if f.get("action") == "back":
-                continue
-            try:
-                n = int(f.get("n", 5))
-                if n < 1 or n > 59:
-                    raise ValueError("N 必须在 1-59")
-                cron_expr = f"*/{n} * * * *"
-            except Exception:
-                ctx["toast"]("分钟数无效，应为 1-59", color="error")
-                continue
-        elif template == "daily":
-            f = await ctx["input_group"](
-                "第 2.2 步：每天固定时间",
-                [
-                    ctx["input"]("时间（HH:MM）", name="hhmm", value="09:30", placeholder="例如：09:30"),
-                    ctx["actions"]("操作", [{"label": "生成", "value": "ok"}, {"label": "返回模板", "value": "back"}, {"label": "取消", "value": "cancel"}], name="action"),
-                ],
-            )
-            if not f or f.get("action") == "cancel":
-                return None
-            if f.get("action") == "back":
-                continue
-            t = _parse_hhmm(f.get("hhmm", ""))
-            if not t:
-                ctx["toast"]("时间格式无效，应为 HH:MM", color="error")
-                continue
-            hour, minute = t
-            cron_expr = f"{minute} {hour} * * *"
-        elif template == "weekly":
-            f = await ctx["input_group"](
-                "第 2.2 步：每周固定时间",
-                [
-                    ctx["select"](
-                        "星期几",
-                        name="weekday",
-                        options=[
-                            {"label": "周一", "value": "mon"},
-                            {"label": "周二", "value": "tue"},
-                            {"label": "周三", "value": "wed"},
-                            {"label": "周四", "value": "thu"},
-                            {"label": "周五", "value": "fri"},
-                            {"label": "周六", "value": "sat"},
-                            {"label": "周日", "value": "sun"},
-                        ],
-                        value="mon",
-                    ),
-                    ctx["input"]("时间（HH:MM）", name="hhmm", value="09:30", placeholder="例如：09:30"),
-                    ctx["actions"]("操作", [{"label": "生成", "value": "ok"}, {"label": "返回模板", "value": "back"}, {"label": "取消", "value": "cancel"}], name="action"),
-                ],
-            )
-            if not f or f.get("action") == "cancel":
-                return None
-            if f.get("action") == "back":
-                continue
-            t = _parse_hhmm(f.get("hhmm", ""))
-            if not t:
-                ctx["toast"]("时间格式无效，应为 HH:MM", color="error")
-                continue
-            hour, minute = t
-            cron_expr = f"{minute} {hour} * * {f.get('weekday', 'mon')}"
-        elif template == "monthly":
-            f = await ctx["input_group"](
-                "第 2.2 步：每月固定日期时间",
-                [
-                    ctx["input"]("日期（1-31）", name="day", type="number", value=1),
-                    ctx["input"]("时间（HH:MM）", name="hhmm", value="09:30", placeholder="例如：09:30"),
-                    ctx["actions"]("操作", [{"label": "生成", "value": "ok"}, {"label": "返回模板", "value": "back"}, {"label": "取消", "value": "cancel"}], name="action"),
-                ],
-            )
-            if not f or f.get("action") == "cancel":
-                return None
-            if f.get("action") == "back":
-                continue
-            try:
-                day = int(f.get("day", 1))
-                if day < 1 or day > 31:
-                    raise ValueError("day")
-            except Exception:
-                ctx["toast"]("日期无效，应为 1-31", color="error")
-                continue
-            t = _parse_hhmm(f.get("hhmm", ""))
-            if not t:
-                ctx["toast"]("时间格式无效，应为 HH:MM", color="error")
-                continue
-            hour, minute = t
-            cron_expr = f"{minute} {hour} {day} * *"
-        else:
-            f = await ctx["input_group"](
-                "第 2.2 步：自定义 Cron",
-                [
-                    ctx["input"]("Cron 表达式", name="cron_expr", value=default_expr or "", placeholder="例如：*/5 * * * *"),
-                    ctx["actions"]("操作", [{"label": "确认", "value": "ok"}, {"label": "返回模板", "value": "back"}, {"label": "取消", "value": "cancel"}], name="action"),
-                ],
-            )
-            if not f or f.get("action") == "cancel":
-                return None
-            if f.get("action") == "back":
-                continue
-            cron_expr = str(f.get("cron_expr", "") or "").strip()
-            if not cron_expr:
-                ctx["toast"]("Cron 表达式不能为空", color="error")
-                continue
-
-        preview = _preview_next_runs(cron_expr, count=5)
-        if preview:
-            ctx["put_markdown"]("#### 未来 5 次执行预览")
-            for i, ts in enumerate(preview, start=1):
-                ctx["put_text"](f"{i}. {ts}")
-
-        confirm = await ctx["input_group"](
-            "第 2.3 步：确认 Cron",
-            [
-                ctx["input"]("生成的 Cron", name="cron_expr", value=cron_expr),
-                ctx["actions"](
-                    "操作",
-                    [
-                        {"label": "使用这个 Cron", "value": "use"},
-                        {"label": "重新生成", "value": "regen"},
-                        {"label": "取消", "value": "cancel"},
-                    ],
-                    name="action",
-                ),
-            ],
-        )
-        if not confirm or confirm.get("action") == "cancel":
-            return None
-        if confirm.get("action") == "regen":
-            default_expr = str(confirm.get("cron_expr", cron_expr) or cron_expr).strip()
-            template_default = "custom"
-            continue
-
-        final_expr = str(confirm.get("cron_expr", cron_expr) or cron_expr).strip()
-        if not final_expr:
-            ctx["toast"]("Cron 表达式不能为空", color="error")
-            continue
-        return final_expr
+    """构建 Cron 表达式生成向导（使用共享 UI 组件）"""
+    return await build_cron_expr_wizard(ctx, default_expr=default_expr, step_title="步骤2")
 
 
 def _mode_intro_html(mode: str) -> str:
-    if mode == "timer":
-        return """
-        <div style="margin:8px 0 14px 0;padding:12px;border-radius:8px;background:#eef7ff;color:#245b8f;">
-            <div style="font-weight:600;margin-bottom:6px;">Timer（固定间隔执行）</div>
-            <div style="font-size:13px;line-height:1.6;">
-                适合心跳任务、轮询任务。<br/>
-                例如：每 60 秒拉取一次状态、每 5 秒检查一次指标。
-            </div>
-        </div>
-        """
-    if mode == "scheduler":
-        return """
-        <div style="margin:8px 0 14px 0;padding:12px;border-radius:8px;background:#f1f8ef;color:#2f6b2f;">
-            <div style="font-weight:600;margin-bottom:6px;">Scheduler（计划调度执行）</div>
-            <div style="font-size:13px;line-height:1.6;">
-                适合按日程执行。支持 interval / cron / date(一次性)。<br/>
-                例如：每天 09:30 执行、每 5 分钟执行、在指定时间执行一次。
-            </div>
-        </div>
-        """
-    return """
-    <div style="margin:8px 0 14px 0;padding:12px;border-radius:8px;background:#fff5ec;color:#7a4d1f;">
-        <div style="font-weight:600;margin-bottom:6px;">EventTrigger（事件触发执行）</div>
-        <div style="font-size:13px;line-height:1.6;">
-            适合被动触发任务。监听 log 或 bus 流，在匹配条件时执行。<br/>
-            例如：日志包含 error 时触发、bus 收到 open 事件时触发。
-        </div>
-    </div>
-    """
+    """获取执行模式的介绍 HTML（使用共享函数）"""
+    return get_mode_intro_html(mode)
 
 
 async def _choose_create_mode(ctx: dict, default_mode: str = "timer", title: str = "第 1 步：选择任务运行分类") -> Optional[str]:
-    mode_form = await ctx["input_group"](
-        title,
-        [
-            ctx["select"](
-                "任务运行分类",
-                name="execution_mode",
-                options=[
-                    {"label": "Timer（固定间隔执行）", "value": "timer"},
-                    {"label": "Scheduler（计划调度执行）", "value": "scheduler"},
-                    {"label": "EventTrigger（事件触发执行）", "value": "event_trigger"},
-                ],
-                value=default_mode,
-            ),
-            ctx["actions"](
-                "操作",
-                [
-                    {"label": "下一步", "value": "next"},
-                    {"label": "取消", "value": "cancel"},
-                ],
-                name="action",
-            ),
-        ],
-    )
-    if not mode_form or mode_form.get("action") == "cancel":
-        return None
-    return str(mode_form.get("execution_mode", "timer") or "timer").strip().lower()
+    """选择创建模式（使用共享 UI 组件）"""
+    return await choose_execution_mode(ctx, default_mode=default_mode, title=title)
 
 
 async def _choose_scheduler_trigger(ctx: dict) -> Optional[str]:
-    trigger_form = await ctx["input_group"](
-        "第 2 步：选择 Scheduler 触发方式",
-        [
-            ctx["select"](
-                "触发方式",
-                name="scheduler_trigger",
-                options=[
-                    {"label": "interval（按固定间隔）", "value": "interval"},
-                    {"label": "cron（按 cron 表达式）", "value": "cron"},
-                    {"label": "date（指定时间执行一次）", "value": "date"},
-                ],
-                value="interval",
-            ),
-            ctx["actions"](
-                "操作",
-                [
-                    {"label": "下一步", "value": "next"},
-                    {"label": "取消", "value": "cancel"},
-                ],
-                name="action",
-            ),
-        ],
-    )
-    if not trigger_form or trigger_form.get("action") == "cancel":
-        return None
-    return str(trigger_form.get("scheduler_trigger", "interval") or "interval").strip().lower()
+    """选择调度触发方式（使用共享 UI 组件）"""
+    return await choose_scheduler_trigger(ctx, default_trigger="interval")
 
 
 async def _choose_scheduler_trigger_with_default(
     ctx: dict, default_trigger: str = "interval", title: str = "第 2 步：选择 Scheduler 触发方式"
 ) -> Optional[str]:
-    trigger_form = await ctx["input_group"](
-        title,
-        [
-            ctx["select"](
-                "触发方式",
-                name="scheduler_trigger",
-                options=[
-                    {"label": "interval（按固定间隔）", "value": "interval"},
-                    {"label": "cron（按 cron 表达式）", "value": "cron"},
-                    {"label": "date（指定时间执行一次）", "value": "date"},
-                ],
-                value=default_trigger,
-            ),
-            ctx["actions"](
-                "操作",
-                [
-                    {"label": "下一步", "value": "next"},
-                    {"label": "取消", "value": "cancel"},
-                ],
-                name="action",
-            ),
-        ],
-    )
-    if not trigger_form or trigger_form.get("action") == "cancel":
-        return None
-    return str(trigger_form.get("scheduler_trigger", default_trigger) or default_trigger).strip().lower()
+    """选择调度触发方式（使用共享 UI 组件）"""
+    return await choose_scheduler_trigger(ctx, default_trigger=default_trigger, title=title)
 
 
 def _create_base_fields(ctx: dict, *, default_name: str = "", default_desc: str = "", default_code: str = DEFAULT_TASK_CODE) -> list:

@@ -16,6 +16,13 @@ from typing import Any, Dict, List, Optional
 
 from deva import NB
 
+# 尝试导入锁监控模块
+try:
+    from ..performance.lock_monitor import LockMonitor, MonitoredLock, enable_lock_monitoring, disable_lock_monitoring
+    LOCK_MONITOR_AVAILABLE = True
+except ImportError:
+    LOCK_MONITOR_AVAILABLE = False
+
 
 @dataclass
 class StrategyResult:
@@ -99,7 +106,17 @@ class ResultStore:
             "total_failed": 0,
             "total_process_time_ms": 0,
         }
-        self._data_lock = threading.RLock()
+        
+        # 使用可监控的锁
+        if LOCK_MONITOR_AVAILABLE:
+            self._data_lock = MonitoredLock("ResultStore._data_lock")
+        else:
+            self._data_lock = threading.RLock()
+        
+        # 统计缓存
+        self._stats_cache = None
+        self._stats_cache_time = 0
+        self._stats_cache_ttl = 2.0  # 缓存2秒
         
         # 异步写入相关
         self._write_queue = Queue(maxsize=10000)
@@ -114,6 +131,76 @@ class ResultStore:
         
         # 数据清理管理
         self._data_cleanup_interval = 3600  # 1小时
+        self._last_data_cleanup = time.time()
+        
+        # 写入速率限制
+        self._write_rate_limit = 1000
+        self._writes_in_period = 0
+        self._last_rate_check = time.time()
+    
+    def _get_cached_stats(self) -> dict:
+        """获取缓存的统计数据（带缓存机制）- 非阻塞版本"""
+        import time
+        now = time.time()
+        
+        # 检查缓存是否有效（优先使用缓存）
+        if self._stats_cache is not None and (now - self._stats_cache_time) < self._stats_cache_ttl:
+            return self._stats_cache
+        
+        # 尝试非阻塞获取锁
+        wait_start = time.time()
+        acquired = self._data_lock.acquire(blocking=False)
+        wait_time = (time.time() - wait_start) * 1000  # 转换为毫秒
+        
+        # 记录锁等待性能（只有超过阈值才记录，避免干扰）
+        if wait_time > 10 and LOCK_MONITOR_AVAILABLE and LockMonitor.is_enabled():
+            try:
+                from ..performance import record_lock_wait
+                record_lock_wait(
+                    lock_name="ResultStore_stats",
+                    wait_time_ms=wait_time,
+                    operation="get_stats",
+                )
+            except Exception:
+                pass
+        
+        if acquired:
+            try:
+                stats = dict(self._stats)
+                self._stats_cache = stats
+                self._stats_cache_time = now
+                return stats
+            finally:
+                self._data_lock.release()
+        else:
+            # 如果无法获取锁，返回过期的缓存（避免阻塞）
+            if self._stats_cache is not None:
+                return self._stats_cache
+            
+            # 如果没有缓存，强制获取锁
+            wait_start = time.time()
+            with self._data_lock:
+                wait_time = (time.time() - wait_start) * 1000
+                # 记录锁等待性能
+                if wait_time > 10 and LOCK_MONITOR_AVAILABLE and LockMonitor.is_enabled():
+                    try:
+                        from ..performance import record_lock_wait
+                        record_lock_wait(
+                            lock_name="ResultStore_stats",
+                            wait_time_ms=wait_time,
+                            operation="get_stats_fallback",
+                        )
+                    except Exception:
+                        pass
+                
+                stats = dict(self._stats)
+                self._stats_cache = stats
+                self._stats_cache_time = now
+                return stats
+    
+    def _invalidate_stats_cache(self):
+        """使统计缓存失效"""
+        self._stats_cache = None
         self._last_data_cleanup = time.time()
         self._max_history_days = 7  # 默认保留7天数据
         
@@ -386,6 +473,9 @@ class ResultStore:
                 self._stats["total_failed"] += 1
             self._stats["total_process_time_ms"] += process_time_ms
             
+            # 使统计缓存失效
+            self._invalidate_stats_cache()
+            
             if persist:
                 try:
                     # 检查速率限制
@@ -580,6 +670,9 @@ class ResultStore:
                         self._stats["total_failed"] = max(0, self._stats["total_failed"] - 1)
                     self._stats["total_results"] = max(0, self._stats["total_results"] - 1)
                     
+                    # 使统计缓存失效
+                    self._invalidate_stats_cache()
+                    
                     return True
             
             #  fallback: 如果索引不存在，使用原有逻辑
@@ -606,6 +699,9 @@ class ResultStore:
                         else:
                             self._stats["total_failed"] = max(0, self._stats["total_failed"] - 1)
                         self._stats["total_results"] = max(0, self._stats["total_results"] - 1)
+                        
+                        # 使统计缓存失效
+                        self._invalidate_stats_cache()
                         
                         return True
         return False
@@ -708,8 +804,13 @@ class ResultStore:
         return results[:limit]
     
     def get_stats(self, strategy_id: str = None) -> dict:
-        with self._data_lock:
-            stats = dict(self._stats)
+        import time
+        t0 = time.time()
+        
+        # 使用缓存的统计数据
+        stats = self._get_cached_stats()
+        
+        t1 = time.time()
         
         if strategy_id:
             results = self.get_recent(strategy_id, limit=1000)
@@ -724,6 +825,7 @@ class ResultStore:
                     "success_rate": success_count / len(results) if results else 0,
                 })
         
+        t2 = time.time()
         if stats.get("total_results", 0) > 0:
             stats["avg_process_time_ms"] = stats["total_process_time_ms"] / stats["total_results"]
             stats["success_rate"] = stats["total_success"] / stats["total_results"]

@@ -15,6 +15,10 @@ from ..common.recoverable import (
     UnitState,
     UnitStatus,
 )
+from ..scheduler import (
+    daily_time_to_cron,
+    normalize_execution_mode,
+)
 
 
 DICT_ENTRY_TABLE = "naja_dictionary_entries"
@@ -33,7 +37,8 @@ def _normalize_source_mode(source_mode: Optional[str], has_upload: bool, has_cod
 
 
 def _task_type_from_refresh_config(execution_mode: str, scheduler_trigger: str) -> str:
-    mode = str(execution_mode or "timer").strip().lower()
+    """从刷新配置推断任务类型（用于向后兼容）"""
+    mode = normalize_execution_mode(execution_mode)
     trig = str(scheduler_trigger or "interval").strip().lower()
     if mode == "scheduler" and trig == "date":
         return "once"
@@ -42,18 +47,6 @@ def _task_type_from_refresh_config(execution_mode: str, scheduler_trigger: str) 
     if mode == "scheduler":
         return "schedule"
     return "interval"
-
-
-def _daily_time_to_cron(daily_time: str) -> str:
-    raw = str(daily_time or "03:00").strip().replace("：", ":")
-    parts = raw.split(":")
-    if len(parts) != 2:
-        raise ValueError("daily_time 格式应为 HH:MM")
-    hour = int(parts[0])
-    minute = int(parts[1])
-    if hour < 0 or hour > 23 or minute < 0 or minute > 59:
-        raise ValueError("daily_time 无效")
-    return f"{minute} {hour} * * *"
 
 
 def _build_refresh_task_code(entry_id: str, fetch_code: str) -> str:

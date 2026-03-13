@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Direction Search: {{topic}} — {{date}}</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f5f5f4; color: #1f2937; font-size: 17px; line-height: 1.6; padding: 32px 24px; max-width: 900px; margin: 0 auto; }
+
+  /* Header */
+  .header { margin-bottom: 32px; }
+  .header h1 { font-size: 28px; font-weight: 700; margin-bottom: 8px; }
+  .header .meta { color: #78716c; font-size: 14px; }
+  .headline { font-size: 22px; font-weight: 600; color: #111827; line-height: 1.4; margin: 20px 0 0; padding: 16px 20px; background: #ffffff; border-left: 4px solid #2563eb; border-radius: 0 6px 6px 0; }
+
+  /* Legend & Keywords */
+  .legend { display: flex; gap: 16px; flex-wrap: wrap; margin: 20px 0 0; font-size: 13px; color: #78716c; }
+  .keywords-details { margin: 16px 0 0; }
+  .keywords-summary { cursor: pointer; font-size: 14px; font-weight: 600; color: #78716c; padding: 4px 0; }
+  .keywords-list { margin-top: 8px; line-height: 2; }
+  .keywords-list code { background: #e7e5e4; color: #44403c; padding: 3px 8px; border-radius: 3px; font-size: 13px; display: inline-block; margin: 2px 4px 2px 0; }
+
+  /* Sections */
+  h2 { font-size: 18px; font-weight: 600; color: #57534e; text-transform: uppercase; letter-spacing: 0.5px; margin: 40px 0 16px; }
+  h3.section-sub { font-size: 15px; font-weight: 600; color: #78716c; margin: 24px 0 10px; text-transform: uppercase; letter-spacing: 0.3px; }
+
+  /* Cards */
+  .card { background: #ffffff; border-radius: 8px; padding: 24px; margin: 16px 0; border: 1px solid #d6d3d1; }
+  .card-header { display: flex; align-items: baseline; gap: 10px; margin-bottom: 14px; flex-wrap: wrap; }
+  .card-header h3 { margin: 0; font-size: 19px; font-weight: 700; }
+  .card-desc { color: #57534e; font-size: 15px; margin-bottom: 16px; font-style: italic; }
+  .badge { display: inline-block; font-size: 12px; font-weight: 600; padding: 3px 10px; border-radius: 4px; }
+  .badge-l1 { background: #f3f4f6; color: #6b7280; }
+  .badge-l2 { background: #dbeafe; color: #1e40af; }
+  .badge-l3 { background: #e0e7ff; color: #3730a3; }
+  .badge-l4 { background: #fef3c7; color: #92400e; }
+  .badge-l5 { background: #f3f4f6; color: #78716c; }
+  .badge-std { background: #fce7f3; color: #9d174d; }
+  .signal-tag { display: inline-block; font-size: 12px; font-weight: 600; padding: 3px 8px; border-radius: 4px; background: #fef2f2; color: #dc2626; margin-left: 4px; }
+
+  /* Metrics */
+  .metric-table { width: auto; min-width: 300px; margin: 12px 0 16px; }
+  .metric-table td { padding: 6px 14px 6px 0; border: none; font-size: 15px; }
+  .metric-table td:first-child { font-weight: 600; color: #78716c; width: 100px; }
+  .precision { font-size: 11px; color: #a8a29e; margin-left: 4px; }
+
+  /* Insight */
+  .insight { font-size: 16px; margin: 10px 0; line-height: 1.65; }
+  .insight strong { color: #374151; }
+
+  /* Paradigm */
+  .paradigm-box { border-left: 4px solid #2563eb; padding: 16px 20px; margin: 20px 0; background: #f0f5ff; font-size: 16px; color: #1e3a5f; line-height: 1.7; }
+
+  /* Landscape Tables */
+  table.landscape { width: 100%; border-collapse: collapse; font-size: 14px; margin: 8px 0; }
+  table.landscape th { text-align: left; font-weight: 600; padding: 8px 10px; border-bottom: 2px solid #d6d3d1; color: #78716c; font-size: 12px; text-transform: uppercase; letter-spacing: 0.3px; }
+  table.landscape td { padding: 7px 10px; border-bottom: 1px solid #e7e5e4; }
+  table.landscape tr:hover td { background: #f9fafb; }
+  table.landscape .stale { color: #a8a29e; }
+  table.landscape .hot { color: #059669; font-weight: 600; }
+
+  /* Suggestion Table */
+  table.suggestion { width: 100%; border-collapse: collapse; font-size: 15px; margin: 8px 0; }
+  table.suggestion th { text-align: left; font-weight: 600; padding: 10px 12px; border-bottom: 2px solid #d6d3d1; color: #78716c; font-size: 13px; text-transform: uppercase; }
+  table.suggestion td { padding: 10px 12px; border-bottom: 1px solid #e7e5e4; }
+
+  /* Links */
+  a { color: #2563eb; text-decoration: none; }
+  a:hover { text-decoration: underline; }
+
+  /* Misc */
+  hr { border: none; border-top: 1px solid #d6d3d1; margin: 32px 0; }
+  details { margin: 16px 0; }
+  summary { cursor: pointer; font-weight: 600; color: #78716c; font-size: 14px; padding: 8px 0; }
+  details[open] summary { margin-bottom: 8px; }
+  .filtered-list { color: #78716c; font-size: 14px; line-height: 1.8; }
+  .footer { color: #a8a29e; font-size: 12px; text-align: center; margin-top: 40px; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>Direction Search: {{topic}}</h1>
+  <span class="meta">{{meta}}</span>
+</div>
+
+<p class="headline">{{headline}}</p>
+
+<div class="legend">
+  {{legend_html}}
+</div>
+
+<details class="keywords-details">
+  <summary class="keywords-summary">搜索关键词 ({{keywords_count}} 个)</summary>
+  <p class="keywords-list">
+    {{keywords_html}}
+  </p>
+</details>
+
+<h2>值得关注</h2>
+
+{{#each picks}}
+<div class="card">
+  <div class="card-header">
+    <h3><a href="{{url}}">{{full_name}}</a></h3>
+    {{badge_html}}
+    {{signals_html}}
+  </div>
+  <p class="card-desc">{{description}}</p>
+  <table class="metric-table">
+    {{metrics_html}}
+  </table>
+  <p class="insight"><strong>为什么值得关注</strong> — {{why}}</p>
+  <p class="insight"><strong>范式信号</strong> — {{paradigm}}</p>
+</div>
+{{/each}}
+
+<h2>竞争格局</h2>
+
+{{landscape_html}}
+
+<h2>范式判断</h2>
+
+<div class="paradigm-box">
+  {{paradigm_content}}
+</div>
+
+<h2>建议深挖</h2>
+
+<table class="suggestion">
+  <thead><tr><th>Repo</th><th>建议</th></tr></thead>
+  <tbody>
+{{#each suggestions}}
+    <tr>
+      <td><a href="{{url}}">{{name}}</a></td>
+      <td>{{suggestion}}</td>
+    </tr>
+{{/each}}
+  </tbody>
+</table>
+
+<hr>
+
+<details>
+  <summary>过滤掉的项目 ({{filtered_summary}})</summary>
+  {{filtered_html}}
+</details>
+
+<p class="footer">Generated by GitHub Radar v0.1.0 · {{footer_stats}}</p>
+
+</body>
+</html>

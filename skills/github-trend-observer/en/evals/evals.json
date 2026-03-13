@@ -1,0 +1,54 @@
+[
+  {
+    "id": "eval-1",
+    "mode": "direction_search",
+    "prompt": "Find GitHub projects related to agent runtime",
+    "script": "python scripts/search_repos.py \"agent runtime\"",
+    "expectations": [
+      "Output includes Layer classification (at least L2/L3 labeled)",
+      "At least one L2 Runtime layer project identified",
+      "Each recommended project has a one-line PM insight",
+      "Ends with an overall paradigm assessment",
+      "Data metric precision annotated [exact/estimated/trend-based]"
+    ]
+  },
+  {
+    "id": "eval-2",
+    "mode": "signal_watch",
+    "prompt": "Monitor abnormal signals",
+    "script": "python scripts/watch_signals.py --domain ai-agent",
+    "expectations": [
+      "At least one growth-anomaly project detected",
+      "Each anomaly project labeled with anomaly type (rising star/burst/sustained growth)",
+      "Includes key developer activity detection",
+      "Each signal given a three-tier assessment (worth deep-diving/watch/ignore)",
+      "Lists filtered-out projects with reasons"
+    ]
+  },
+  {
+    "id": "eval-3",
+    "mode": "deep_link",
+    "prompt": "Analyze the ecosystem of langchain-ai/langgraph",
+    "script": "python scripts/deep_link.py langchain-ai/langgraph",
+    "expectations": [
+      "Output includes complete metadata (stars, forks, commits, contributors)",
+      "Issue composition analysis with category percentages",
+      "Includes Ecosystem Map (ASCII diagram)",
+      "Correctly identified as L2 Runtime",
+      "Paradigm assessment explains which stack layer is shifting"
+    ]
+  },
+  {
+    "id": "eval-4",
+    "mode": "radar_pulse",
+    "prompt": "What's worth looking at today",
+    "script": "python scripts/radar_pulse.py --days 7",
+    "expectations": [
+      "L1 and L5 projects filtered out",
+      "Only L2/L3/L4 projects retained",
+      "1-2 projects with PM value selected",
+      "Each selection includes reasoning",
+      "Includes brief paradigm signal"
+    ]
+  }
+]
