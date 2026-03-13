@@ -11,7 +11,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import Any, Callable, Dict, List, Optional
 
-from deva import NB, EventTrigger, bus, log, scheduler as deva_scheduler, timer as deva_timer
+from deva import NB, EventTrigger, bus, log
 from deva.core.namespace import NS
 
 from ..common.recoverable import (
@@ -20,47 +20,18 @@ from ..common.recoverable import (
     UnitState,
     UnitStatus,
 )
+from ..scheduler import (
+    SchedulerManager,
+    parse_cron_expr,
+    build_event_condition_checker,
+)
 
 
 DS_TABLE = "naja_datasources"
 DS_LATEST_DATA_TABLE = "naja_ds_latest_data"
 
-
-def _parse_cron_expr(expr: str) -> Dict[str, str]:
-    parts = [p for p in str(expr or "").strip().split() if p]
-    if len(parts) == 5:
-        minute, hour, day, month, day_of_week = parts
-        return {
-            "minute": minute,
-            "hour": hour,
-            "day": day,
-            "month": month,
-            "day_of_week": day_of_week,
-        }
-    if len(parts) == 6:
-        second, minute, hour, day, month, day_of_week = parts
-        return {
-            "second": second,
-            "minute": minute,
-            "hour": hour,
-            "day": day,
-            "month": month,
-            "day_of_week": day_of_week,
-        }
-    raise ValueError("cron 表达式必须是 5 或 6 段")
-
-
-_shared_scheduler = None
-_shared_scheduler_lock = threading.Lock()
-
-
-def _get_shared_scheduler():
-    global _shared_scheduler
-    if _shared_scheduler is None:
-        with _shared_scheduler_lock:
-            if _shared_scheduler is None:
-                _shared_scheduler = deva_scheduler(start=True)
-    return _shared_scheduler
+# 共享调度管理器实例
+_scheduler_manager = SchedulerManager()
 
 
 @dataclass
@@ -218,36 +189,33 @@ class DataSourceEntry(RecoverableUnit):
             return {"success": False, "error": str(e)}
 
     def _start_timer_source(self, func: Callable) -> dict:
+        """启动定时器数据源（使用共享调度管理器）"""
         try:
             self._clear_timer_handles()
             mode = (getattr(self._metadata, "execution_mode", "timer") or "timer").strip().lower()
             if mode not in {"timer", "scheduler", "event_trigger"}:
                 mode = "timer"
 
+            entry_id = getattr(self, 'id', 'unknown')
+
             if mode == "timer":
                 interval = max(0.1, float(getattr(self._metadata, "interval", 5.0) or 5.0))
-                self._timer_handle = deva_timer(
+                result = _scheduler_manager.start_timer(
+                    name=f"ds_timer_{entry_id}",
                     interval=interval,
-                    start=False,
                     func=lambda: self._execute_scheduled_fetch(func),
                 )
-                self._timer_handle.start()
-                return {"success": True}
+                return result
 
             if mode == "scheduler":
-                sched = _get_shared_scheduler()
                 trig = (getattr(self._metadata, "scheduler_trigger", "interval") or "interval").strip().lower()
-                job_name = f"naja_ds_{self.id}"
-                try:
-                    sched.remove_job(job_name)
-                except Exception:
-                    pass
+                job_name = f"naja_ds_{entry_id}"
 
                 if trig == "interval":
                     interval = max(1.0, float(getattr(self._metadata, "interval", 5.0) or 5.0))
-                    sched.add_job(
-                        func=lambda: self._execute_scheduled_fetch(func),
+                    result = _scheduler_manager.add_scheduler_job(
                         name=job_name,
+                        func=lambda: self._execute_scheduled_fetch(func),
                         trigger="interval",
                         seconds=interval,
                     )
@@ -255,18 +223,18 @@ class DataSourceEntry(RecoverableUnit):
                     cron_expr = str(getattr(self._metadata, "cron_expr", "") or "").strip()
                     if not cron_expr:
                         return {"success": False, "error": "scheduler=cron 时 cron_expr 不能为空"}
-                    sched.add_job(
-                        func=lambda: self._execute_scheduled_fetch(func),
+                    result = _scheduler_manager.add_scheduler_job(
                         name=job_name,
+                        func=lambda: self._execute_scheduled_fetch(func),
                         trigger="cron",
-                        **_parse_cron_expr(cron_expr),
+                        **parse_cron_expr(cron_expr),
                     )
                 elif trig == "date":
                     run_at_raw = str(getattr(self._metadata, "run_at", "") or "").strip()
                     run_at = datetime.fromisoformat(run_at_raw) if run_at_raw else datetime.now() + timedelta(seconds=1)
-                    sched.add_job(
-                        func=lambda: self._execute_scheduled_fetch(func),
+                    result = _scheduler_manager.add_scheduler_job(
                         name=job_name,
+                        func=lambda: self._execute_scheduled_fetch(func),
                         trigger="date",
                         run_date=run_at,
                     )
@@ -274,48 +242,42 @@ class DataSourceEntry(RecoverableUnit):
                     return {"success": False, "error": f"不支持的 scheduler trigger: {trig}"}
 
                 self._scheduler_job_name = job_name
-                return {"success": True}
+                return result
 
+            # event_trigger mode
             source_name = (getattr(self._metadata, "event_source", "log") or "log").strip().lower()
-            if source_name == "bus":
-                source_stream = bus
-            else:
-                source_stream = log
+            source_stream = bus if source_name == "bus" else log
 
             cond_type = (getattr(self._metadata, "event_condition_type", "contains") or "contains").strip().lower()
             cond = str(getattr(self._metadata, "event_condition", "") or "")
-            if cond_type == "python_expr":
-                if not cond:
-                    return {"success": False, "error": "event_condition_type=python_expr 时 event_condition 不能为空"}
-                compiled_expr = compile(cond, "<ds_event_condition>", "eval")
+            
+            checker = build_event_condition_checker(cond_type, cond)
 
-                def checker(x):
-                    return bool(eval(compiled_expr, {"__builtins__": __builtins__}, {"x": x}))
-            else:
-                checker = (lambda x: cond in str(x)) if cond else (lambda x: True)
-
-            self._event_sink = EventTrigger(condition=checker, source=source_stream).then(
+            event_sink = EventTrigger(condition=checker, source=source_stream).then(
                 lambda x: self._execute_scheduled_fetch(func, event_payload=x)
             )
+            
+            _scheduler_manager.register_event_sink(f"ds_event_{entry_id}", event_sink)
             return {"success": True}
         except Exception as e:
             return {"success": False, "error": str(e)}
 
     def _clear_timer_handles(self):
-        if self._timer_handle is not None:
-            try:
-                self._timer_handle.stop()
-            except Exception:
-                pass
-            self._timer_handle = None
+        """清除所有调度资源（使用共享调度管理器）"""
+        entry_id = getattr(self, 'id', 'unknown')
+        
+        # 停止定时器
+        _scheduler_manager.stop_timer(f"ds_timer_{entry_id}")
 
+        # 移除调度作业
         if self._scheduler_job_name:
-            try:
-                _get_shared_scheduler().remove_job(self._scheduler_job_name)
-            except Exception:
-                pass
+            _scheduler_manager.remove_scheduler_job(self._scheduler_job_name)
             self._scheduler_job_name = None
 
+        # 注销事件接收器
+        _scheduler_manager.unregister_event_sink(f"ds_event_{entry_id}")
+        
+        # 清理旧的事件接收器引用（向后兼容）
         if self._event_sink is not None:
             try:
                 self._event_sink.destroy()
@@ -703,7 +665,12 @@ class DataSourceEntry(RecoverableUnit):
         return func()
 
     def _execute_scheduled_fetch(self, func: Callable, event_payload: Any = None):
+        start_time = time.time()
+        success = False
+        error_msg = ""
+        
         try:
+            # 1. 只计算 fetch_data 的执行时间
             data = self._invoke_fetch_func(func, event_payload=event_payload)
             if asyncio.iscoroutine(data):
                 loop = asyncio.new_event_loop()
@@ -711,18 +678,42 @@ class DataSourceEntry(RecoverableUnit):
                     data = loop.run_until_complete(data)
                 finally:
                     loop.close()
+            
+            # 计算 fetch_data 执行时间
+            fetch_time_ms = (time.time() - start_time) * 1000
 
+            # 调试：打印 fetch_data 返回的数据
+            # print(f"[DataSourceEntry] fetch_data 返回: {data}, 类型: {type(data)}")
+
+            # 2. 发送数据（不包含在执行时间内）
             if data is not None:
                 self._emit_data(data)
                 self._state.last_data_ts = time.time()
                 self._state.total_emitted += 1
                 self._latest_data = data
                 self._state.record_success()
+            success = True
             self.save()
         except Exception as e:
-            self._state.record_error(str(e))
-            self._log("ERROR", "fetch_data failed", error=str(e))
+            error_msg = str(e)
+            self._state.record_error(error_msg)
+            self._log("ERROR", "fetch_data failed", error=error_msg)
+            print(f"[DataSourceEntry] fetch_data 异常: {e}")
             self.save()
+        finally:
+            # 记录性能指标（只包含 fetch_data 的执行时间）
+            try:
+                from ..performance import record_component_execution, ComponentType
+                record_component_execution(
+                    component_id=self.id,
+                    component_name=self.name,
+                    component_type=ComponentType.DATASOURCE,
+                    execution_time_ms=fetch_time_ms,
+                    success=success,
+                    error=error_msg,
+                )
+            except Exception:
+                pass  # 性能监控不应影响主流程
 
     def _worker_loop(self, func: Callable):
         """工作线程循环"""

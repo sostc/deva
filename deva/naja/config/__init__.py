@@ -44,6 +44,13 @@ DEFAULT_CONFIG = {
         "secret": "",
         "dev_mode": False,
     },
+    "performance": {
+        "lock_monitoring_enabled": False,
+        "lock_monitoring_threshold_ms": 100,
+        "web_request_monitoring_enabled": True,
+        "storage_monitoring_enabled": False,
+        "monitored_modules": ["strategy", "datasource", "task", "storage"],
+    },
 }
 
 
@@ -179,6 +186,11 @@ def reset_to_default(category: str = None) -> bool:
 def get_auth_config() -> Dict[str, Any]:
     """获取认证配置"""
     return get_config("auth")
+
+
+def get_performance_config() -> Dict[str, Any]:
+    """获取性能监控配置"""
+    return get_config("performance")
 
 
 def ensure_auth_secret() -> str:

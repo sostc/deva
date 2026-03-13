@@ -425,15 +425,16 @@ class SqliteMultithread(Thread):
     def run(self):
         if self.autocommit:
             conn = sqlite3.connect(
-                self.filename, isolation_level=None, check_same_thread=False, timeout=30.0)
+                self.filename, isolation_level=None, check_same_thread=False, timeout=60.0)
         else:
-            conn = sqlite3.connect(self.filename, check_same_thread=False, timeout=30.0)
+            conn = sqlite3.connect(self.filename, check_same_thread=False, timeout=60.0)
         conn.execute('PRAGMA journal_mode = %s' % self.journal_mode)
-        conn.execute('PRAGMA busy_timeout = 30000')
+        conn.execute('PRAGMA busy_timeout = 60000')  # 增加到60秒
+        conn.execute('PRAGMA synchronous = NORMAL')  # 降低同步级别
+        conn.execute('PRAGMA temp_store = MEMORY')  # 临时表使用内存
         conn.text_factory = str
         cursor = conn.cursor()
         conn.commit()
-        cursor.execute('PRAGMA synchronous=OFF')
 
         res = None
         max_consecutive_errors = 10
@@ -469,35 +470,73 @@ class SqliteMultithread(Thread):
                 if res:
                     res.put('--no more--')
             else:
-                try:
-                    cursor.execute(req, arg)
-                except Exception as err:
-                    self.exception = (e_type, e_value, e_tb) = sys.exc_info()
-                    inner_stack = traceback.extract_stack()
+                max_retries = 5
+                retry_delay = 0.1
+                for attempt in range(max_retries):
+                    try:
+                        cursor.execute(req, arg)
+                        break
+                    except sqlite3.OperationalError as err:
+                        if 'database is locked' in str(err):
+                            self.log.warning(f'Database locked, retrying ({attempt+1}/{max_retries})...')
+                            time.sleep(retry_delay)
+                            retry_delay *= 2  # 指数退避
+                        else:
+                            self.exception = (e_type, e_value, e_tb) = sys.exc_info()
+                            inner_stack = traceback.extract_stack()
 
-                    # An exception occurred in our thread, but we may not
-                    # immediately able to throw it in our calling thread, if it has
-                    # no return `res` queue: log as level ERROR both the inner and
-                    # outer exception immediately.
-                    #
-                    # Any iteration of res.get() or any next call will detect the
-                    # inner exception and re-raise it in the calling Thread; though
-                    # it may be confusing to see an exception for an unrelated
-                    # statement, an ERROR log statement from the 'sqlitedict.*'
-                    # namespace contains the original outer stack location.
-                    self.log.error('Inner exception:')
-                    for item in traceback.format_list(inner_stack):
-                        self.log.error(item)
-                    # deliniate traceback & exception w/blank line
-                    self.log.error('')
-                    for item in traceback.format_exception_only(e_type, e_value):
-                        self.log.error(item)
+                            # An exception occurred in our thread, but we may not
+                            # immediately able to throw it in our calling thread, if it has
+                            # no return `res` queue: log as level ERROR both the inner and
+                            # outer exception immediately.
+                            #
+                            # Any iteration of res.get() or any next call will detect the
+                            # inner exception and re-raise it in the calling Thread; though
+                            # it may be confusing to see an exception for an unrelated
+                            # statement, an ERROR log statement from the 'sqlitedict.*'
+                            # namespace contains the original outer stack location.
+                            self.log.error('Inner exception:')
+                            for item in traceback.format_list(inner_stack):
+                                self.log.error(item)
+                            # deliniate traceback & exception w/blank line
+                            self.log.error('')
+                            for item in traceback.format_exception_only(e_type, e_value):
+                                self.log.error(item)
 
-                    self.log.error('')  # exception & outer stack w/blank line
-                    self.log.error('Outer stack:')
-                    for item in traceback.format_list(outer_stack):
-                        self.log.error(item)
-                    self.log.error('Exception will be re-raised at next call.')
+                            self.log.error('')  # exception & outer stack w/blank line
+                            self.log.error('Outer stack:')
+                            for item in traceback.format_list(outer_stack):
+                                self.log.error(item)
+                            self.log.error('Exception will be re-raised at next call.')
+                            break
+                    except Exception as err:
+                        self.exception = (e_type, e_value, e_tb) = sys.exc_info()
+                        inner_stack = traceback.extract_stack()
+
+                        # An exception occurred in our thread, but we may not
+                        # immediately able to throw it in our calling thread, if it has
+                        # no return `res` queue: log as level ERROR both the inner and
+                        # outer exception immediately.
+                        #
+                        # Any iteration of res.get() or any next call will detect the
+                        # inner exception and re-raise it in the calling Thread; though
+                        # it may be confusing to see an exception for an unrelated
+                        # statement, an ERROR log statement from the 'sqlitedict.*'
+                        # namespace contains the original outer stack location.
+                        self.log.error('Inner exception:')
+                        for item in traceback.format_list(inner_stack):
+                            self.log.error(item)
+                        # deliniate traceback & exception w/blank line
+                        self.log.error('')
+                        for item in traceback.format_exception_only(e_type, e_value):
+                            self.log.error(item)
+
+                        self.log.error('')  # exception & outer stack w/blank line
+                        self.log.error('Outer stack:')
+                        for item in traceback.format_list(outer_stack):
+                            self.log.error(item)
+                        self.log.error('Exception will be re-raised at next call.')
+                        break
 
                 if res:
                     for rec in cursor:

@@ -1,0 +1,7 @@
+{
+  "skills_index_url": "https://skillhub-1388575217.cos.ap-guangzhou.myqcloud.com/skills.json",
+  "skills_search_url": "http://lb-3zbg86f6-0gwe3n7q8t4sv2za.clb.gz-tencentclb.com/api/v1/search",
+  "skills_primary_download_url_template": "http://lb-3zbg86f6-0gwe3n7q8t4sv2za.clb.gz-tencentclb.com/api/v1/download?slug={slug}",
+  "skills_download_url_template": "https://skillhub-1388575217.cos.ap-guangzhou.myqcloud.com/skills/{slug}.zip",
+  "self_update_manifest_url": "https://skillhub-1388575217.cos.ap-guangzhou.myqcloud.com/version.json"
+}

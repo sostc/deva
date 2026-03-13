@@ -15,6 +15,7 @@ from . import (
     get_task_config,
     get_dictionary_config,
     get_auth_config,
+    get_performance_config,
     ensure_auth_secret,
     reset_to_default,
     DEFAULT_CONFIG,
@@ -38,6 +39,7 @@ def render_config_page(ctx: dict):
         {"label": "📈 策略配置", "value": "strategy", "color": "primary"},
         {"label": "⏰ 任务配置", "value": "task", "color": "success"},
         {"label": "📚 字典配置", "value": "dictionary", "color": "default"},
+        {"label": "⚡ 性能监控", "value": "performance", "color": "danger"},
     ], onclick=lambda v: run_async(_show_config_dialog(ctx, v)), group=True)
     ctx["put_html"]('</div>')
     
@@ -86,6 +88,16 @@ def _render_config_summary(ctx: dict):
         f"用户名: {auth_config.get('username', '未设置')}",
         f"开发模式: {'启用' if auth_config.get('dev_mode', False) else '禁用'}"
     ])
+    
+    perf_config = get_config("performance") or {}
+    lock_enabled = perf_config.get("lock_monitoring_enabled", False)
+    web_enabled = perf_config.get("web_request_monitoring_enabled", True)
+    storage_enabled = perf_config.get("storage_monitoring_enabled", False)
+    config_data.append([
+        "⚡ 性能监控",
+        f"锁监控: {'启用' if lock_enabled else '禁用'}\nWeb请求: {'启用' if web_enabled else '禁用'}",
+        f"存储监控: {'启用' if storage_enabled else '禁用'}\n阈值: {perf_config.get('lock_monitoring_threshold_ms', 100)}ms"
+    ])
 
     ctx["put_html"](render_stats_cards([
         {"label": "配置模块", "value": 5, "gradient": "linear-gradient(135deg,#667eea,#764ba2)", "shadow": "rgba(102,126,234,0.3)"},
@@ -107,6 +119,7 @@ async def _show_config_dialog(ctx: dict, category: str):
         "strategy": "策略",
         "task": "任务",
         "dictionary": "字典",
+        "performance": "性能监控",
     }
     
     with ctx["popup"](f"⚙️ {category_names.get(category, category)}配置", size="large", closable=True):
@@ -122,6 +135,8 @@ async def _show_config_dialog(ctx: dict, category: str):
             await _render_task_config(ctx, config, defaults)
         elif category == "dictionary":
             await _render_dictionary_config(ctx, config, defaults)
+        elif category == "performance":
+            await _render_performance_config(ctx, config, defaults)
 
 
 async def _render_datasource_config(ctx: dict, config: dict, defaults: dict):
@@ -193,6 +208,138 @@ async def _render_datasource_config(ctx: dict, config: dict, defaults: dict):
         ctx["close_popup"]()
     elif form and form.get("action") == "cancel":
         ctx["close_popup"]()
+
+
+async def _render_performance_config(ctx: dict, config: dict, defaults: dict):
+    """渲染性能监控配置"""
+    # 获取配置值
+    strategy_enabled = config.get("strategy_monitoring_enabled", True)
+    task_enabled = config.get("task_monitoring_enabled", True)
+    datasource_enabled = config.get("datasource_monitoring_enabled", True)
+    storage_enabled = config.get("storage_monitoring_enabled", False)
+    lock_enabled = config.get("lock_monitoring_enabled", False)
+    web_enabled = config.get("web_request_monitoring_enabled", True)
+    lock_threshold = config.get("lock_monitoring_threshold_ms", 100)
+    
+    # 显示说明和表单
+    ctx["put_html"](f"""
+    <div style="background:#f8f9fa;padding:12px;border-radius:8px;margin-bottom:16px;">
+        <div style="font-weight:600;margin-bottom:8px;">💡 性能监控配置</div>
+        <div style="font-size:13px;color:#666;">
+            开启/关闭各类性能监控<br>
+            • 阈值：只有超过此值的操作才会被记录
+        </div>
+    </div>
+    <form id="perf_config_form">
+        <div style="margin-bottom:12px;">
+            <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
+                <input type="checkbox" name="strategy_monitoring" {"checked" if strategy_enabled else ""}>
+                📊 策略监控
+            </label>
+        </div>
+        <div style="margin-bottom:12px;">
+            <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
+                <input type="checkbox" name="task_monitoring" {"checked" if task_enabled else ""}>
+                ⏰ 任务监控
+            </label>
+        </div>
+        <div style="margin-bottom:12px;">
+            <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
+                <input type="checkbox" name="datasource_monitoring" {"checked" if datasource_enabled else ""}>
+                📡 数据源监控
+            </label>
+        </div>
+        <div style="margin-bottom:12px;">
+            <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
+                <input type="checkbox" name="storage_monitoring" {"checked" if storage_enabled else ""}>
+                💾 存储监控
+            </label>
+        </div>
+        <div style="margin-bottom:12px;">
+            <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
+                <input type="checkbox" name="lock_monitoring" {"checked" if lock_enabled else ""}>
+                🔒 锁监控
+            </label>
+        </div>
+        <div style="margin-bottom:12px;">
+            <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
+                <input type="checkbox" name="web_monitoring" {"checked" if web_enabled else ""}>
+                🌐 Web请求监控
+            </label>
+        </div>
+        <div style="margin-bottom:16px;">
+            <label style="display:block;margin-bottom:4px;">锁监控阈值 (ms)</label>
+            <input type="number" name="lock_threshold" value="{lock_threshold}" style="width:200px;padding:6px;border:1px solid #ddd;border-radius:4px;">
+        </div>
+        <div style="display:flex;gap:8px;">
+            <button type="button" onclick="savePerformanceConfig()" style="padding:8px 16px;background:#0d6efd;color:white;border:none;border-radius:4px;cursor:pointer;">💾 保存配置</button>
+            <button type="button" onclick="PyWebIO.closePopup()" style="padding:8px 16px;background:#6c757d;color:white;border:none;border-radius:4px;cursor:pointer;">取消</button>
+        </div>
+    </form>
+    <script>
+    function savePerformanceConfig() {{
+        var form = document.getElementById('perf_config_form');
+        var formData = new FormData(form);
+        var data = {{
+            strategy_monitoring: formData.has('strategy_monitoring'),
+            task_monitoring: formData.has('task_monitoring'),
+            datasource_monitoring: formData.has('datasource_monitoring'),
+            storage_monitoring: formData.has('storage_monitoring'),
+            lock_monitoring: formData.has('lock_monitoring'),
+            web_monitoring: formData.has('web_monitoring'),
+            lock_threshold: parseInt(formData.get('lock_threshold') || 100)
+        }};
+        PyWebIO.call_pyfunc(save_performance_config, [data]);
+    }}
+    </script>
+    """)
+
+
+async def _render_performance_config(ctx: dict, config: dict, defaults: dict):
+    pass  # 已废弃，使用 JavaScript 方式
+
+
+async def save_performance_config(data: dict):
+    """通过 JavaScript 调用保存性能监控配置"""
+    from . import set_config
+    
+    strategy_monitoring = data.get("strategy_monitoring", True)
+    task_monitoring = data.get("task_monitoring", True)
+    datasource_monitoring = data.get("datasource_monitoring", True)
+    storage_monitoring = data.get("storage_monitoring", False)
+    lock_monitoring = data.get("lock_monitoring", False)
+    web_monitoring = data.get("web_monitoring", True)
+    lock_threshold = data.get("lock_threshold", 100)
+    
+    # 保存配置
+    set_config("performance", "strategy_monitoring_enabled", strategy_monitoring)
+    set_config("performance", "task_monitoring_enabled", task_monitoring)
+    set_config("performance", "datasource_monitoring_enabled", datasource_monitoring)
+    set_config("performance", "storage_monitoring_enabled", storage_monitoring)
+    set_config("performance", "lock_monitoring_enabled", lock_monitoring)
+    set_config("performance", "web_request_monitoring_enabled", web_monitoring)
+    set_config("performance", "lock_monitoring_threshold_ms", lock_threshold)
+    
+    # 更新 LockMonitor 状态
+    try:
+        from ..performance.lock_monitor import LockMonitor
+        if lock_monitoring:
+            LockMonitor.set_threshold(lock_threshold)
+            LockMonitor.enable()
+        else:
+            LockMonitor.disable()
+    except Exception as e:
+        print(f"[Performance Config] 更新LockMonitor失败: {e}")
+    
+    from pywebio import toast
+    toast("性能监控配置已保存", color="success")
+    
+    from pywebio import close_popup
+    close_popup()
+
+
+async def _save_performance_config(ctx: dict, config: dict, defaults: dict):
+    pass  # 已废弃
 
 
 async def _render_strategy_config(ctx: dict, config: dict, defaults: dict):
