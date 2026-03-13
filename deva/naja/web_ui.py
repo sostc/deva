@@ -21,7 +21,8 @@ from deva import NW, Deva, NB
 from .config import get_auth_config, set_config, ensure_auth_secret
 
 # 导入思想雷达UI
-from .home.lobster_tab import LobsterRadarUI
+from .lobster.lobster_tab import LobsterRadarUI
+from .performance import PerformanceMonitorUI
 
 
 def apply_global_styles():
@@ -125,90 +126,9 @@ def apply_global_styles():
 
 
 def create_nav_menu():
-    """创建导航菜单"""
-    menu_items = [
-        {"name": "🏠 首页", "path": "/"},
-        {"name": "📡 雷达", "path": "/lobster"},
-        {"name": "💰 信号", "path": "/signaladmin"},
-        {"name": "🗃️ 数据源", "path": "/dsadmin"},
-        {"name": "⏱️ 任务", "path": "/taskadmin"},
-        {"name": "🎯 策略", "path": "/strategyadmin"},
-        {"name": "📖 字典", "path": "/dictadmin"},
-        {"name": "🗄️ 数据表", "path": "/tableadmin"},
-        {"name": "🔧 配置", "path": "/configadmin"},
-    ]
-    
-    menu_items_js = ",\n            ".join([
-        f"{{name: '{item["name"]}', path: '{item["path"]}'}}"
-        for item in menu_items
-    ])
-    
-    js_code = f"""
-    (function() {{
-        const nav = document.createElement('nav');
-        nav.className = 'navbar';
-        Object.assign(nav.style, {{
-            position: 'fixed',
-            top: '0',
-            left: '0',
-            right: '0',
-            width: '100%',
-            zIndex: '999',
-            backgroundColor: '#ffffff',
-            borderBottom: '1px solid #e2e8f0',
-            padding: '0 24px',
-            height: '56px',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            boxShadow: '0 1px 3px rgba(0,0,0,0.05)'
-        }});
-        
-        const brand = document.createElement('div');
-        const brandLink = document.createElement('a');
-        brandLink.href = '/';
-        brandLink.innerHTML = '<span style="font-size: 22px;">🚀</span><span style="font-size: 18px; font-weight: 600; color: #1e293b; margin-left: 8px;">Naja</span>';
-        brandLink.style.textDecoration = 'none';
-        brandLink.style.display = 'flex';
-        brandLink.style.alignItems = 'center';
-        brand.appendChild(brandLink);
-
-        const menu = document.createElement('div');
-        Object.assign(menu.style, {{
-            display: 'flex',
-            gap: '4px',
-            alignItems: 'center'
-        }});
-
-        const currentPath = window.location.pathname;
-        const menuItems = [
-            {menu_items_js}
-        ];
-        
-        menuItems.forEach(item => {{
-            const link = document.createElement('a');
-            link.href = item.path;
-            link.innerText = item.name;
-            const isActive = currentPath === item.path;
-            Object.assign(link.style, {{
-                padding: '8px 14px',
-                color: isActive ? '#3b82f6' : '#64748b',
-                textDecoration: 'none',
-                borderRadius: '8px',
-                fontSize: '14px',
-                fontWeight: isActive ? '600' : '500',
-                backgroundColor: isActive ? '#eff6ff' : 'transparent',
-                transition: 'all 0.2s ease'
-            }});
-            menu.appendChild(link);
-        }});
-
-        nav.appendChild(brand);
-        nav.appendChild(menu);
-        document.body.insertBefore(nav, document.body.firstChild);
-        document.body.style.paddingTop = '56px';
-    }})();
-    """
+    """创建导航菜单 - 使用统一模块"""
+    from .common.ui_theme import get_nav_menu_js
+    js_code = get_nav_menu_js()
     
     run_js(js_code)
 
@@ -431,6 +351,12 @@ def lobster_page():
     ui.render()
 
 
+def performance_page():
+    """性能监控页面"""
+    ui = PerformanceMonitorUI()
+    ui.render()
+
+
 def create_handlers(cdn: str = None):
     """创建路由处理器"""
     cdn_url = cdn or 'https://fastly.jsdelivr.net/gh/wang0618/PyWebIO-assets@v1.8.3/'
@@ -438,6 +364,7 @@ def create_handlers(cdn: str = None):
     return [
         (r'/', webio_handler(main, cdn=cdn_url)),
         (r'/lobster', webio_handler(lobster_page, cdn=cdn_url)),
+        (r'/performance', webio_handler(performance_page, cdn=cdn_url)),
         (r'/signaladmin', webio_handler(signaladmin, cdn=cdn_url)),
         (r'/dsadmin', webio_handler(dsadmin, cdn=cdn_url)),
         (r'/taskadmin', webio_handler(taskadmin, cdn=cdn_url)),

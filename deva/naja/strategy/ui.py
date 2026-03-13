@@ -262,25 +262,47 @@ def _resolve_datasource_name(datasource_id: str) -> str:
 
 def _render_strategy_content(ctx: dict):
     """渲染策略管理内容（支持局部刷新）"""
+    import time as time_module
+    _perf_start = time_module.time()
+    
     from . import get_strategy_manager
     from .result_store import get_result_store
     from pywebio.output import clear
 
     global _current_category
 
+    _t0 = time_module.time()
     mgr = get_strategy_manager()
+    _t1 = time_module.time()
+    print(f"[PERF] get_strategy_manager: {(_t1-_t0)*1000:.1f}ms")
+    
     store = get_result_store()
+    _t2 = time_module.time()
+    print(f"[PERF] get_result_store: {(_t2-_t1)*1000:.1f}ms")
 
+    _t3 = time_module.time()
     entries = mgr.list_all()
+    _t4 = time_module.time()
+    print(f"[PERF] mgr.list_all(): {(_t4-_t3)*1000:.1f}ms, count={len(entries)}")
+    
     stats = mgr.get_stats()
+    _t5 = time_module.time()
+    print(f"[PERF] mgr.get_stats(): {(_t5-_t4)*1000:.1f}ms")
+    
     result_stats = store.get_stats()
+    _t6 = time_module.time()
+    print(f"[PERF] store.get_stats(): {(_t6-_t5)*1000:.1f}ms")
 
     running_count = sum(1 for e in entries if e.is_running)
     error_count = sum(1 for e in entries if e._state.error_count > 0)
 
     clear("strategy_content")
+    _t7 = time_module.time()
+    print(f"[PERF] clear scope: {(_t7-_t6)*1000:.1f}ms")
 
     apply_strategy_like_styles(ctx, scope="strategy_content", include_compact_table=True, include_category_tabs=True)
+    _t8 = time_module.time()
+    print(f"[PERF] apply_styles: {(_t8-_t7)*1000:.1f}ms")
 
     ctx["put_html"](_render_strategy_stats_html(
         stats, running_count, error_count), scope="strategy_content")
@@ -302,6 +324,8 @@ def _render_strategy_content(ctx: dict):
     # 渲染类别 Tab
     categories = _get_all_categories(entries)
     _render_category_tabs(ctx, categories, entries, mgr)
+    _t9 = time_module.time()
+    print(f"[PERF] render category tabs: {(_t9-_t8)*1000:.1f}ms")
 
     # 根据当前类别筛选策略
     if _current_category == "全部":
@@ -310,7 +334,11 @@ def _render_strategy_content(ctx: dict):
         filtered_entries = [e for e in entries if getattr(e._metadata, "category", "默认") == _current_category]
 
     if filtered_entries:
+        _t10 = time_module.time()
         table_data = _build_table_data(ctx, filtered_entries, mgr)
+        _t11 = time_module.time()
+        print(f"[PERF] _build_table_data: {(_t11-_t10)*1000:.1f}ms, entries={len(filtered_entries)}")
+        
         ctx["put_table"](table_data, header=["名称", "状态", "数据源", "简介",
                                              "最近数据", "操作"], scope="strategy_content")
 
@@ -340,6 +368,21 @@ def _render_strategy_content(ctx: dict):
         "<hr style='margin:24px 0;border:none;border-top:1px solid #e0e0e0;'>", scope="strategy_content")
 
     ctx["put_html"](_render_result_stats_html(result_stats), scope="strategy_content")
+    
+    _t12 = time_module.time()
+    total_time_ms = (_t12-_perf_start)*1000
+    print(f"[PERF] TOTAL _render_strategy_content: {total_time_ms:.1f}ms")
+    
+    # 记录 Web 请求性能
+    try:
+        from ..performance import record_web_request
+        record_web_request(
+            request_path="/naja/strategy",
+            execution_time_ms=total_time_ms,
+            success=True,
+        )
+    except Exception:
+        pass
 
 
 def _render_category_tabs(ctx: dict, categories: list, entries: list, mgr):
@@ -418,23 +461,46 @@ def _render_result_stats_html(result_stats: dict) -> str:
 
 
 def _build_table_data(ctx: dict, entries: list, mgr) -> list:
+    import time as time_module
+    _table_start = time_module.time()
+    
     table_data = []
-    for e in entries:
+    for idx, e in enumerate(entries):
+        _entry_start = time_module.time()
+        
         status_html = _render_status_badge(e.is_running)
 
-        bound_ds_id = getattr(e._metadata, "bound_datasource_id", "")
-        bound_ds_name = bound_ds_id
-        if bound_ds_id:
+        # 获取多数据源绑定列表
+        bound_datasource_ids = getattr(e._metadata, "bound_datasource_ids", [])
+        if not bound_datasource_ids:
+            # 兼容旧版本单数据源
+            bound_ds_id = getattr(e._metadata, "bound_datasource_id", "")
+            if bound_ds_id:
+                bound_datasource_ids = [bound_ds_id]
+
+        # 构建数据源按钮列表（使用透明/浅色样式）
+        if bound_datasource_ids:
             from ..datasource import get_datasource_manager
             ds_mgr = get_datasource_manager()
-            ds = ds_mgr.get(bound_ds_id)
-            if ds:
-                bound_ds_name = ds.name
-                bound_ds = ctx["put_buttons"]([
-                    {"label": bound_ds_name[:20], "value": bound_ds_id}
-                ], onclick=lambda v, c=ctx: _show_ds_detail_from_strategy(c, v), small=True)
-            else:
-                bound_ds = bound_ds_id[:12]
+            ds_buttons_html = '<div style="display:flex;flex-wrap:wrap;gap:4px;">'
+            for ds_id in bound_datasource_ids:
+                ds = ds_mgr.get(ds_id)
+                ds_name = ds.name[:10] if ds else ds_id[:8]
+                ds_buttons_html += f'''<button onclick="showDsDetail('{ds_id}')" 
+                    style="padding:2px 8px;font-size:11px;border:1px solid #e0e0e0;
+                    background:#f5f5f5;color:#666;border-radius:4px;cursor:pointer;
+                    transition:all 0.2s;"
+                    onmouseover="this.style.background='#e8e8e8';this.style.borderColor='#d0d0d0';"
+                    onmouseout="this.style.background='#f5f5f5';this.style.borderColor='#e0e0e0';"
+                    >{ds_name}</button>'''
+            ds_buttons_html += '</div>'
+            ds_buttons_html += '''<script>
+                function showDsDetail(dsId) {
+                    // 触发数据源详情查看
+                    window.parent.postMessage({type: 'show_datasource_detail', dsId: dsId}, '*');
+                }
+            </script>'''
+            bound_ds = ctx["put_html"](ds_buttons_html)
         else:
             bound_ds = "-"
 
@@ -473,7 +539,14 @@ def _build_table_data(ctx: dict, entries: list, mgr) -> list:
             ctx["put_html"](f'<span style="font-size:12px;color:#666;white-space:nowrap;">{recent_data}</span>'),
             actions,
         ])
+        
+        _entry_end = time_module.time()
+        if idx < 3:  # 只打印前3个条目的日志，避免日志过多
+            print(f"[PERF] entry[{idx}] {e.name}: {(_entry_end-_entry_start)*1000:.1f}ms")
 
+    _table_end = time_module.time()
+    print(f"[PERF] _build_table_data TOTAL: {(_table_end-_table_start)*1000:.1f}ms, entries={len(entries)}")
+    
     return table_data
 
 
@@ -1215,6 +1288,29 @@ async def _show_strategy_detail(ctx: dict, mgr, entry_id: str):
         ctx["toast"]("策略不存在", color="error")
         return
 
+    # 获取多数据源绑定列表
+    bound_datasource_ids = getattr(entry._metadata, "bound_datasource_ids", [])
+    if not bound_datasource_ids:
+        # 兼容旧版本单数据源
+        bound_ds_id = getattr(entry._metadata, "bound_datasource_id", "")
+        if bound_ds_id:
+            bound_datasource_ids = [bound_ds_id]
+
+    # 构建数据源名称列表
+    if bound_datasource_ids:
+        from ..datasource import get_datasource_manager
+        ds_mgr = get_datasource_manager()
+        ds_names = []
+        for ds_id in bound_datasource_ids:
+            ds = ds_mgr.get(ds_id)
+            if ds:
+                ds_names.append(f"{ds.name} ({ds_id[:8]}...)")
+            else:
+                ds_names.append(ds_id[:12])
+        bound_ds_display = "\n".join([f"• {name}" for name in ds_names]) if ds_names else "-"
+    else:
+        bound_ds_display = "-"
+
     with ctx["popup"](f"策略详情: {entry.name}", size="large", closable=True):
         ctx["put_html"](_render_detail_section("📊 基本信息"))
 
@@ -1225,7 +1321,7 @@ async def _show_strategy_detail(ctx: dict, mgr, entry_id: str):
             ["状态", "运行中" if entry.is_running else "已停止"],
             ["计算模式", getattr(entry._metadata, "compute_mode", "record")],
             ["窗口大小", getattr(entry._metadata, "window_size", 5)],
-            ["绑定数据源", getattr(entry._metadata, "bound_datasource_id", "") or "-"],
+            ["绑定数据源", bound_ds_display],
             ["历史保留", getattr(entry._metadata, "max_history_count", 100)],
             ["创建时间", _fmt_ts(entry._metadata.created_at)],
             ["更新时间", _fmt_ts(entry._metadata.updated_at)],
@@ -1404,9 +1500,10 @@ async def _edit_strategy_dialog(ctx: dict, mgr, entry_id: str):
     ds_mgr = get_datasource_manager()
     dict_mgr = get_dictionary_manager()
 
-    source_options = [{"label": "无", "value": ""}]
+    # 构建数据源选项（用于checkbox）
+    source_options = []
     for ds in ds_mgr.list_all():
-        source_options.append({"label": ds.name, "value": ds.id})
+        source_options.append({"label": f"{ds.name} ({ds.id[:8]}...)", "value": ds.id})
 
     dict_options = []
     for d in dict_mgr.list_all():
@@ -1441,8 +1538,8 @@ async def _edit_strategy_dialog(ctx: dict, mgr, entry_id: str):
                             value=getattr(entry._metadata, "description", "") or ""),
             ctx["select"]("类别", name="category_select", options=category_options, value=current_category),
             ctx["input"]("新类别名称", name="category_new", placeholder="输入新类别名称（如选择新建类别）"),
-            ctx["select"]("绑定数据源（可多选）", name="datasource_ids", options=source_options,
-                          multiple=True, value=bound_datasource_ids),
+            ctx["checkbox"]("绑定数据源", name="datasource_ids", options=source_options,
+                            value=bound_datasource_ids),
             ctx["select"]("字典配置", name="dictionary_profile_ids", options=dict_options,
                           multiple=True, value=dictionary_profile_ids),
             ctx["select"]("计算模式", name="compute_mode", options=[
@@ -1528,9 +1625,10 @@ async def _create_strategy_dialog_async(mgr, ctx: dict):
     ds_mgr = get_datasource_manager()
     dict_mgr = get_dictionary_manager()
 
-    source_options = [{"label": "无", "value": ""}]
+    # 构建数据源选项（用于checkbox）
+    source_options = []
     for ds in ds_mgr.list_all():
-        source_options.append({"label": ds.name, "value": ds.id})
+        source_options.append({"label": f"{ds.name} ({ds.id[:8]}...)", "value": ds.id})
 
     dict_options = []
     for d in dict_mgr.list_all():
@@ -1554,7 +1652,7 @@ async def _create_strategy_dialog_async(mgr, ctx: dict):
             ctx["textarea"]("描述", name="description", rows=2, placeholder="策略描述（可选）"),
             ctx["select"]("类别", name="category_select", options=category_options, value="默认"),
             ctx["input"]("新类别名称", name="category_new", placeholder="输入新类别名称（如选择新建类别）"),
-            ctx["select"]("绑定数据源（可多选）", name="datasource_ids", options=source_options, multiple=True, value=[]),
+            ctx["checkbox"]("绑定数据源", name="datasource_ids", options=source_options, value=[]),
             ctx["select"]("字典配置", name="dictionary_profile_ids",
                           options=dict_options, multiple=True, value=[]),
             ctx["select"]("计算模式", name="compute_mode", options=[

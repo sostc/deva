@@ -1,0 +1,7 @@
+{
+  "ai-agent": ["AI agent", "agent framework", "autonomous agent", "multi-agent"],
+  "llm-tools": ["LLM tool", "AI developer tool", "AI coding", "code assistant"],
+  "ai-infra": ["AI infrastructure", "LLM inference", "model serving", "vector database"],
+  "mcp": ["MCP server", "model context protocol", "MCP tool"],
+  "agent-memory": ["agent memory", "AI memory", "context management"]
+}

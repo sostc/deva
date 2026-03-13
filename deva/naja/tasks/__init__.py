@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any, Callable, Dict, List, Optional
 
-from deva import NB, EventTrigger, bus, log, scheduler as deva_scheduler, timer as deva_timer
+from deva import NB, EventTrigger, bus, log
 
 from ..common.recoverable import (
     RecoverableUnit,
@@ -18,63 +18,19 @@ from ..common.recoverable import (
     UnitState,
     UnitStatus,
 )
+from ..scheduler import (
+    SchedulerManager,
+    normalize_execution_mode,
+    parse_cron_expr,
+    build_event_condition_checker,
+)
 
 
 TASK_TABLE = "naja_tasks"
 TASK_HISTORY_TABLE = "naja_task_history"
 
-
-def _normalize_execution_mode(execution_mode: Optional[str], task_type: Optional[str] = None) -> str:
-    raw = (execution_mode or task_type or "timer").strip().lower()
-    mapping = {
-        "interval": "timer",
-        "once": "scheduler",
-        "schedule": "scheduler",
-        "cron": "scheduler",
-        "timer": "timer",
-        "scheduler": "scheduler",
-        "eventtrigger": "event_trigger",
-        "event_trigger": "event_trigger",
-        "event": "event_trigger",
-    }
-    return mapping.get(raw, "timer")
-
-
-def _parse_cron_expr(expr: str) -> Dict[str, str]:
-    parts = [p for p in str(expr or "").strip().split() if p]
-    if len(parts) == 5:
-        minute, hour, day, month, day_of_week = parts
-        return {
-            "minute": minute,
-            "hour": hour,
-            "day": day,
-            "month": month,
-            "day_of_week": day_of_week,
-        }
-    if len(parts) == 6:
-        second, minute, hour, day, month, day_of_week = parts
-        return {
-            "second": second,
-            "minute": minute,
-            "hour": hour,
-            "day": day,
-            "month": month,
-            "day_of_week": day_of_week,
-        }
-    raise ValueError("cron 表达式必须是 5 或 6 段")
-
-
-_shared_scheduler = None
-_shared_scheduler_lock = threading.Lock()
-
-
-def _get_shared_scheduler():
-    global _shared_scheduler
-    if _shared_scheduler is None:
-        with _shared_scheduler_lock:
-            if _shared_scheduler is None:
-                _shared_scheduler = deva_scheduler(start=True)
-    return _shared_scheduler
+# 共享调度管理器实例
+_scheduler_manager = SchedulerManager()
 
 
 @dataclass
@@ -192,16 +148,16 @@ class TaskEntry(RecoverableUnit):
             return {"success": False, "error": str(e)}
 
     def _start_timer(self, func: Callable):
+        """启动定时器（使用共享调度管理器）"""
         interval = max(0.1, float(getattr(self._metadata, "interval_seconds", 60.0) or 60.0))
-        self._timer_handle = deva_timer(
+        _scheduler_manager.start_timer(
+            name=f"task_timer_{self.id}",
             interval=interval,
-            start=False,
             func=lambda: self._execute_once(func),
         )
-        self._timer_handle.start()
 
     def _start_scheduler(self, func: Callable):
-        scheduler_stream = _get_shared_scheduler()
+        """启动调度器（使用共享调度管理器）"""
         trigger = (getattr(self._metadata, "scheduler_trigger", "interval") or "interval").strip().lower()
         raw_task_type = (getattr(self._metadata, "task_type", "") or "").strip().lower()
 
@@ -209,16 +165,12 @@ class TaskEntry(RecoverableUnit):
             trigger = "date"
 
         job_name = f"naja_task_{self.id}"
-        try:
-            scheduler_stream.remove_job(job_name)
-        except Exception:
-            pass
 
         if trigger == "interval":
             interval = max(1.0, float(getattr(self._metadata, "interval_seconds", 60.0) or 60.0))
-            scheduler_stream.add_job(
-                func=lambda: self._execute_once(func),
+            _scheduler_manager.add_scheduler_job(
                 name=job_name,
+                func=lambda: self._execute_once(func),
                 trigger="interval",
                 seconds=interval,
             )
@@ -226,18 +178,18 @@ class TaskEntry(RecoverableUnit):
             cron_expr = str(getattr(self._metadata, "cron_expr", "") or "").strip()
             if not cron_expr:
                 raise ValueError("scheduler=cron 时 cron_expr 不能为空")
-            scheduler_stream.add_job(
-                func=lambda: self._execute_once(func),
+            _scheduler_manager.add_scheduler_job(
                 name=job_name,
+                func=lambda: self._execute_once(func),
                 trigger="cron",
-                **_parse_cron_expr(cron_expr),
+                **parse_cron_expr(cron_expr),
             )
         elif trigger == "date":
             run_at_raw = str(getattr(self._metadata, "run_at", "") or "").strip()
             run_at = datetime.fromisoformat(run_at_raw) if run_at_raw else datetime.now() + timedelta(seconds=1)
-            scheduler_stream.add_job(
-                func=lambda: self._execute_once(func),
+            _scheduler_manager.add_scheduler_job(
                 name=job_name,
+                func=lambda: self._execute_once(func),
                 trigger="date",
                 run_date=run_at,
             )
@@ -247,62 +199,41 @@ class TaskEntry(RecoverableUnit):
         self._scheduler_job_name = job_name
 
     def _start_event_trigger(self, func: Callable):
-        source = self._resolve_event_source()
-        condition = self._build_event_condition()
-        self._event_sink = EventTrigger(condition=condition, source=source).then(
+        """启动事件触发（使用共享调度管理器）"""
+        source_name = (getattr(self._metadata, "event_source", "log") or "log").strip().lower()
+        source = bus if source_name == "bus" else log
+        
+        condition_type = (getattr(self._metadata, "event_condition_type", "contains") or "contains").strip().lower()
+        condition = str(getattr(self._metadata, "event_condition", "") or "")
+        
+        checker = build_event_condition_checker(condition_type, condition)
+        
+        event_sink = EventTrigger(condition=checker, source=source).then(
             lambda x: self._execute_once(func, event_payload=x)
         )
+        
+        _scheduler_manager.register_event_sink(f"task_event_{self.id}", event_sink)
 
     def _clear_runtime_handles(self):
-        if self._timer_handle is not None:
-            try:
-                self._timer_handle.stop()
-            except Exception:
-                pass
-            self._timer_handle = None
+        """清除所有调度资源（使用共享调度管理器）"""
+        # 停止定时器
+        _scheduler_manager.stop_timer(f"task_timer_{self.id}")
 
+        # 移除调度作业
         if self._scheduler_job_name:
-            try:
-                _get_shared_scheduler().remove_job(self._scheduler_job_name)
-            except Exception:
-                pass
+            _scheduler_manager.remove_scheduler_job(self._scheduler_job_name)
             self._scheduler_job_name = None
 
+        # 注销事件接收器
+        _scheduler_manager.unregister_event_sink(f"task_event_{self.id}")
+        
+        # 清理旧的事件接收器引用（向后兼容）
         if self._event_sink is not None:
             try:
                 self._event_sink.destroy()
             except Exception:
                 pass
             self._event_sink = None
-
-    def _resolve_event_source(self):
-        source_name = (getattr(self._metadata, "event_source", "log") or "log").strip().lower()
-        if source_name == "bus":
-            return bus
-        if source_name == "log":
-            return log
-        raise ValueError(f"不支持的事件源: {source_name}")
-
-    def _build_event_condition(self) -> Callable[[Any], bool]:
-        condition_type = (getattr(self._metadata, "event_condition_type", "contains") or "contains").strip().lower()
-        condition = str(getattr(self._metadata, "event_condition", "") or "")
-
-        if condition_type == "contains":
-            if not condition:
-                return lambda x: True
-            return lambda x: condition in str(x)
-
-        if condition_type == "python_expr":
-            if not condition:
-                raise ValueError("event_condition_type=python_expr 时 event_condition 不能为空")
-            compiled_expr = compile(condition, "<task_event_condition>", "eval")
-
-            def _checker(x: Any) -> bool:
-                return bool(eval(compiled_expr, {"__builtins__": __builtins__}, {"x": x}))
-
-            return _checker
-
-        raise ValueError(f"不支持的事件条件类型: {condition_type}")
 
     def _invoke_user_func(self, func: Callable, event_payload: Any = None):
         if event_payload is None:
@@ -339,6 +270,7 @@ class TaskEntry(RecoverableUnit):
         start_time = time.time()
         is_success = False
         result_text = ""
+        error_msg = ""
 
         try:
             result = self._invoke_user_func(func, event_payload=event_payload)
@@ -362,8 +294,26 @@ class TaskEntry(RecoverableUnit):
             self._state.last_result = f"Error: {str(e)}"
             self._state.record_error(str(e))
 
+            error_msg = str(e)
             result_text = str(e)
             self._save_history(False, time.time() - start_time, result_text)
+
+        # 计算执行时间
+        execution_time_ms = (time.time() - start_time) * 1000
+        
+        # 记录性能指标
+        try:
+            from ..performance import record_component_execution, ComponentType
+            record_component_execution(
+                component_id=self.id,
+                component_name=self.name,
+                component_type=ComponentType.TASK,
+                execution_time_ms=execution_time_ms,
+                success=is_success,
+                error=error_msg,
+            )
+        except Exception:
+            pass  # 性能监控不应影响主流程
 
         self._state.last_run_time = time.time()
         self._execution_count += 1
@@ -503,7 +453,7 @@ class TaskEntry(RecoverableUnit):
     def from_dict(cls, data: dict) -> "TaskEntry":
         metadata_data = data.get("metadata", {})
         legacy_task_type = metadata_data.get("task_type", "interval")
-        execution_mode = _normalize_execution_mode(metadata_data.get("execution_mode", ""), legacy_task_type)
+        execution_mode = normalize_execution_mode(metadata_data.get("execution_mode", ""), legacy_task_type)
 
         scheduler_trigger = metadata_data.get("scheduler_trigger")
         if not scheduler_trigger:

@@ -1,0 +1,23 @@
+{
+  "skill_name": "skills-sh",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "How do I install a skill from Skills.sh?",
+      "expected_output": "You can install a skill from Skills.sh using the command: npx skillsadd <owner/repo>",
+      "files": []
+    },
+    {
+      "id": 2,
+      "prompt": "What are the core features of Skills.sh?",
+      "expected_output": "Skills.sh provides features like installing skills, searching for available skills, discovering popular skills, and integrating skills into workflows",
+      "files": []
+    },
+    {
+      "id": 3,
+      "prompt": "How can I find popular skills on Skills.sh?",
+      "expected_output": "You can check the Skills.sh leaderboard for the most installed skills",
+      "files": []
+    }
+  ]
+}

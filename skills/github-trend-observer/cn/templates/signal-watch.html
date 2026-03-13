@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Signal Watch — {{date}}</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #fafafa; color: #1f2937; font-size: 17px; line-height: 1.6; padding: 32px 24px; max-width: 860px; margin: 0 auto; }
+
+  /* Header */
+  .header { margin-bottom: 32px; }
+  .header h1 { font-size: 28px; font-weight: 700; margin-bottom: 8px; }
+  .header .meta { color: #9ca3af; font-size: 14px; }
+  .headline { font-size: 22px; font-weight: 600; color: #111827; line-height: 1.4; margin: 20px 0 0; padding: 16px 20px; background: #ffffff; border-left: 4px solid #2563eb; border-radius: 0 6px 6px 0; }
+
+  /* Layer legend */
+  .legend { display: flex; gap: 16px; flex-wrap: wrap; margin: 20px 0 0; font-size: 13px; color: #9ca3af; }
+
+  /* Sections */
+  h2 { font-size: 18px; font-weight: 600; color: #6b7280; text-transform: uppercase; letter-spacing: 0.5px; margin: 40px 0 16px; }
+
+  /* PM Focus */
+  .focus-list { list-style: none; padding: 0; }
+  .focus-list li { padding: 10px 0; border-bottom: 1px solid #e5e7eb; font-size: 16px; line-height: 1.65; }
+  .focus-list li:last-child { border-bottom: none; }
+  .focus-list strong { font-weight: 600; }
+
+  /* Badges */
+  .badge { display: inline-block; font-size: 12px; font-weight: 600; padding: 3px 10px; border-radius: 4px; }
+  .badge-l1 { background: #f3f4f6; color: #6b7280; }
+  .badge-l2 { background: #dbeafe; color: #1e40af; }
+  .badge-l3 { background: #e0e7ff; color: #3730a3; }
+  .badge-l4 { background: #fef3c7; color: #92400e; }
+  .badge-l5 { background: #f3f4f6; color: #9ca3af; }
+  .signal-tag { display: inline-block; font-size: 12px; font-weight: 600; padding: 3px 8px; border-radius: 4px; }
+  .tag-sustained { background: #dcfce7; color: #166534; }
+  .tag-accelerating { background: #dbeafe; color: #1e40af; }
+  .tag-spike { background: #fef2f2; color: #dc2626; }
+  .tag-step { background: #fef3c7; color: #92400e; }
+  .tag-unverified { background: #f3f4f6; color: #6b7280; }
+
+  /* Tables */
+  table { width: 100%; border-collapse: collapse; font-size: 15px; margin: 8px 0; }
+  th { text-align: left; font-weight: 600; padding: 10px 12px; border-bottom: 2px solid #e5e7eb; color: #9ca3af; font-size: 13px; text-transform: uppercase; letter-spacing: 0.3px; }
+  td { padding: 10px 12px; border-bottom: 1px solid #f3f4f6; }
+  tr:hover td { background: #f9fafb; }
+  td.stars { font-variant-numeric: tabular-nums; white-space: nowrap; }
+  a { color: #2563eb; text-decoration: none; }
+  a:hover { text-decoration: underline; }
+
+  /* Card */
+  .card { background: #ffffff; border-radius: 8px; padding: 24px; margin: 16px 0; border: 1px solid #e5e7eb; }
+  .card-header { display: flex; align-items: baseline; gap: 10px; margin-bottom: 14px; flex-wrap: wrap; }
+  .card-header h3 { margin: 0; font-size: 19px; font-weight: 700; }
+  .card-header h3 a { color: #1f2937; }
+  .card-desc { color: #6b7280; font-size: 15px; margin-bottom: 16px; font-style: italic; }
+  .card-meta { font-size: 15px; color: #9ca3af; margin-bottom: 10px; }
+  .card-meta span { margin-right: 14px; }
+  .card .spark { margin: 8px 0 14px; }
+  .card .spark svg { display: block; }
+  .spark-label { font-size: 12px; color: #9ca3af; }
+  .pm { font-size: 16px; padding: 10px 14px; background: #eff6ff; border-left: 3px solid #2563eb; border-radius: 0 4px 4px 0; line-height: 1.65; }
+  .pm strong { font-weight: 600; }
+
+  /* Developer activity */
+  .dev-item { padding: 12px 0; border-bottom: 1px solid #e5e7eb; font-size: 16px; }
+  .dev-item:last-child { border-bottom: none; }
+  .dev-item .dev-name { font-weight: 600; }
+  .dev-item .dev-note { color: #9ca3af; font-size: 15px; }
+
+  /* Misc */
+  hr { border: none; border-top: 1px solid #e5e7eb; margin: 32px 0; }
+  details { margin: 16px 0; }
+  summary { cursor: pointer; font-weight: 600; color: #9ca3af; font-size: 14px; padding: 8px 0; }
+  details[open] summary { margin-bottom: 8px; }
+  .filtered-list { color: #9ca3af; font-size: 14px; line-height: 1.8; }
+  .cost { font-size: 14px; color: #9ca3af; margin-top: 32px; line-height: 1.7; }
+  .footer { color: #d1d5db; font-size: 12px; text-align: center; margin-top: 24px; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>Signal Watch</h1>
+  <span class="meta">{{date}} · {{total_candidates}} 个候选 · {{verified_count}} 个已验证增长曲线 · {{scan_mode}}</span>
+</div>
+
+<p class="headline">{{headline}}</p>
+
+<div class="legend">
+  <span><span class="badge badge-l2">L2</span> Agent Runtime</span>
+  <span><span class="badge badge-l3">L3</span> 开发工具</span>
+  <span><span class="badge badge-l4">L4</span> 终端产品</span>
+  <span><span class="badge badge-l5">L5</span> Wrapper/Demo</span>
+</div>
+
+<h2>PM 关注重点</h2>
+<ul class="focus-list">
+  {{#each focus_items}}
+  <li><strong>{{title}}</strong> — {{detail}}</li>
+  {{/each}}
+</ul>
+
+<h2>Picks</h2>
+
+<table>
+  <thead>
+    <tr><th>项目</th><th>层级</th><th>星数</th><th>创建</th><th>形态</th><th>一句话</th></tr>
+  </thead>
+  <tbody>
+  {{#each picks}}
+    <tr>
+      <td><a href="{{url}}">{{full_name}}</a></td>
+      <td><span class="badge badge-{{layer_class}}">{{layer}}</span></td>
+      <td class="stars">{{stars_fmt}}</td>
+      <td>{{created_short}}</td>
+      <td><span class="signal-tag tag-{{pattern_class}}">{{pattern_label}}</span></td>
+      <td>{{one_liner}}</td>
+    </tr>
+  {{/each}}
+  </tbody>
+</table>
+
+<h2>Pick 详情</h2>
+
+{{#each pick_details}}
+<div class="card">
+  <div class="card-header">
+    <h3><a href="{{url}}">{{full_name}}</a></h3>
+    <span class="badge badge-{{layer_class}}">{{layer}}</span>
+    <span class="signal-tag tag-{{pattern_class}}">{{pattern_label}}</span>
+  </div>
+  <p class="card-desc">{{description}}</p>
+  <div class="card-meta">
+    <span>{{language}}</span>
+    <span>{{stars_fmt}} 星</span>
+    <span>{{forks_fmt}} 人 fork</span>
+    <span>创建于 {{created_short}}</span>
+  </div>
+  <div class="card-meta">
+    <span>近 7 天 {{growth_7d_fmt}}</span>
+    <span>日均 {{avg_daily}}</span>
+    <span>{{consecutive_label}}</span>
+  </div>
+  <div class="spark">
+    <svg width="200" height="32" viewBox="0 0 200 32">
+      <polyline points="{{spark_points}}" fill="none" stroke="#2563eb" stroke-width="1.5"/>
+      {{spark_markers}}
+    </svg>
+    <span class="spark-label">{{spark_label}}</span>
+  </div>
+  <div class="pm"><strong>PM:</strong> {{pm_insight}}</div>
+</div>
+{{/each}}
+
+<h2>开发者动态</h2>
+<p style="font-size:13px;color:#9ca3af;margin:-8px 0 16px">种子名单开发者近 30 天新建项目（追踪 {{seed_count}} 人）</p>
+
+{{#each dev_activities}}
+<div class="dev-item">
+  <span class="dev-name">{{github}}</span> <span class="dev-note">{{note}}</span>
+  <br>{{activity_html}}
+</div>
+{{/each}}
+
+<!-- 当没有开发者动态时 -->
+<!-- <p style="font-size:15px;color:#9ca3af">本期种子名单开发者无新建项目。</p> -->
+
+<h2>其他信号</h2>
+<p style="font-size:13px;color:#9ca3af;margin:-8px 0 16px">未拉取增长曲线但粗速度较高的候选</p>
+
+<table>
+  <thead><tr><th>项目</th><th>星数</th><th>创建</th><th>日均</th><th>描述</th></tr></thead>
+  <tbody>
+  {{#each other_signals}}
+    <tr>
+      <td><a href="{{url}}">{{full_name}}</a></td>
+      <td class="stars">{{stars_fmt}}</td>
+      <td>{{created_short}}</td>
+      <td class="stars">{{velocity}}</td>
+      <td>{{description_short}}</td>
+    </tr>
+  {{/each}}
+  </tbody>
+</table>
+
+<hr>
+
+<details>
+  <summary>已过滤 — {{filtered_summary}}</summary>
+  {{#each filtered_groups}}
+  <p style="margin: 8px 0;">
+    <strong>{{label}} ({{count}} 个)</strong> — {{reason}}<br>
+    <span class="filtered-list">{{items}}</span>
+  </p>
+  {{/each}}
+</details>
+
+<div class="cost">
+  <strong>本次成本</strong> — {{cost_detail}}
+</div>
+
+<p class="footer">GitHub Radar v0.1.0 · Signal Watch · {{date}} · {{scan_mode}} · {{total_candidates}} 个候选 · {{verified_count}} 个已验证</p>
+
+</body>
+</html>

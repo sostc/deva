@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Radar Pulse — {{date}}</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #fafafa; color: #1f2937; font-size: 17px; line-height: 1.6; padding: 32px 24px; max-width: 860px; margin: 0 auto; }
+
+  /* Header */
+  .header { margin-bottom: 32px; }
+  .header h1 { font-size: 28px; font-weight: 700; margin-bottom: 8px; }
+  .header .meta { color: #9ca3af; font-size: 14px; }
+  .headline { font-size: 22px; font-weight: 600; color: #111827; line-height: 1.4; margin: 20px 0 0; padding: 16px 20px; background: #ffffff; border-left: 4px solid #2563eb; border-radius: 0 6px 6px 0; }
+
+  /* Sections */
+  h2 { font-size: 18px; font-weight: 600; color: #6b7280; text-transform: uppercase; letter-spacing: 0.5px; margin: 40px 0 16px; }
+
+  /* Cards */
+  .card { background: #ffffff; border-radius: 8px; padding: 24px; margin: 16px 0; border: 1px solid #e5e7eb; }
+  .card-header { display: flex; align-items: baseline; gap: 10px; margin-bottom: 14px; }
+  .card-header h3 { margin: 0; font-size: 19px; font-weight: 700; }
+  .card-desc { color: #6b7280; font-size: 15px; margin-bottom: 16px; font-style: italic; }
+  .badge { display: inline-block; font-size: 12px; font-weight: 600; padding: 3px 10px; border-radius: 4px; }
+  .badge-l1 { background: #f3f4f6; color: #6b7280; }
+  .badge-l2 { background: #dbeafe; color: #1e40af; }
+  .badge-l3 { background: #e0e7ff; color: #3730a3; }
+  .badge-l4 { background: #fef3c7; color: #92400e; }
+  .badge-l5 { background: #f3f4f6; color: #9ca3af; }
+  .signal-tag { display: inline-block; font-size: 12px; font-weight: 600; padding: 3px 8px; border-radius: 4px; background: #fef2f2; color: #dc2626; margin-left: 4px; }
+
+  /* Metrics */
+  .metric-table { width: auto; min-width: 300px; margin: 12px 0 16px; }
+  .metric-table td { padding: 6px 14px 6px 0; border: none; font-size: 15px; }
+  .metric-table td:first-child { font-weight: 600; color: #9ca3af; width: 90px; }
+  .precision { font-size: 11px; color: #d1d5db; margin-left: 4px; }
+
+  /* Insight */
+  .insight { font-size: 16px; margin: 10px 0; line-height: 1.65; }
+  .insight strong { color: #374151; }
+
+  /* Trends */
+  .trend-block { background: #ffffff; border-radius: 8px; padding: 20px 24px; margin: 12px 0; border: 1px solid #f3f4f6; }
+  .trend-title { font-size: 17px; font-weight: 700; color: #1f2937; margin-bottom: 8px; }
+  .trend-narrative { font-size: 16px; color: #4b5563; line-height: 1.7; }
+  .trend-repos { font-size: 14px; color: #9ca3af; margin-top: 10px; }
+  .trend-repos a { color: #2563eb; }
+
+  /* Table */
+  table { width: 100%; border-collapse: collapse; font-size: 15px; margin: 8px 0; }
+  th { text-align: left; font-weight: 600; padding: 10px 12px; border-bottom: 2px solid #e5e7eb; color: #9ca3af; font-size: 13px; text-transform: uppercase; letter-spacing: 0.3px; }
+  td { padding: 10px 12px; border-bottom: 1px solid #f3f4f6; }
+  tr:hover td { background: #f9fafb; }
+  a { color: #2563eb; text-decoration: none; }
+  a:hover { text-decoration: underline; }
+
+  /* Misc */
+  hr { border: none; border-top: 1px solid #e5e7eb; margin: 32px 0; }
+  details { margin: 16px 0; }
+  summary { cursor: pointer; font-weight: 600; color: #9ca3af; font-size: 14px; padding: 8px 0; }
+  details[open] summary { margin-bottom: 8px; }
+  .filtered-list { color: #9ca3af; font-size: 14px; line-height: 1.8; }
+  .footer { color: #d1d5db; font-size: 12px; text-align: center; margin-top: 40px; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>Radar Pulse</h1>
+  <span class="meta">{{date}} · {{picks_count}} notable picks from {{total_scanned}} candidates</span>
+</div>
+
+<p class="headline">{{headline}}</p>
+
+<div style="display:flex; gap:16px; flex-wrap:wrap; margin:20px 0 0; font-size:13px; color:#9ca3af;">
+  <span><span class="badge badge-l1">L1</span> Model/Inference</span>
+  <span><span class="badge badge-l2">L2</span> Agent Runtime</span>
+  <span><span class="badge badge-l3">L3</span> Dev Framework/SDK</span>
+  <span><span class="badge badge-l4">L4</span> Vertical Product</span>
+  <span><span class="badge badge-l5">L5</span> Wrapper/Demo</span>
+</div>
+
+<h2>Featured Picks</h2>
+
+{{#each picks}}
+<div class="card">
+  <div class="card-header">
+    <h3><a href="{{url}}">{{full_name}}</a></h3>
+    <span class="badge badge-{{layer_class}}">{{layer}}</span>
+    {{signals_html}}
+  </div>
+  <p class="card-desc">{{description}}</p>
+  <table class="metric-table">
+    <tr><td>Stars</td><td>{{stars_fmt}}<span class="precision">[{{precision}}]</span></td></tr>
+    <tr><td>30d Growth</td><td>{{growth_30d_fmt}}<span class="precision">[{{precision}}]</span></td></tr>
+    <tr><td>7d Growth</td><td>{{growth_7d_fmt}}<span class="precision">[{{precision}}]</span></td></tr>
+    <tr><td>Language</td><td>{{language}}</td></tr>
+    <tr><td>Created</td><td>{{created}}</td></tr>
+  </table>
+  <p class="insight"><strong>Why it matters</strong> — {{why}}</p>
+  <p class="insight"><strong>Paradigm signal</strong> — {{paradigm}}</p>
+</div>
+{{/each}}
+
+<h2>Trend Narrative</h2>
+
+{{#each trends}}
+<div class="trend-block">
+  <p class="trend-title">{{title}}</p>
+  <p class="trend-narrative">{{narrative}}</p>
+  <p class="trend-repos">{{repos_html}}</p>
+</div>
+{{/each}}
+
+<h2>Also Worth Watching</h2>
+
+<table>
+  <thead>
+    <tr><th>Repo</th><th>Layer</th><th>Stars</th><th>Summary</th></tr>
+  </thead>
+  <tbody>
+{{#each scan_overview}}
+    <tr>
+      <td><a href="{{url}}">{{full_name}}</a></td>
+      <td><span class="badge badge-{{layer_class}}">{{layer}}</span></td>
+      <td>{{stars_fmt}}</td>
+      <td>{{one_liner}}</td>
+    </tr>
+{{/each}}
+  </tbody>
+</table>
+
+<hr>
+
+<details>
+  <summary>Filtered Out</summary>
+{{#each filtered_groups}}
+  <p style="margin: 8px 0;"><strong>{{label}} ({{count}})</strong> — {{reason}}<br>
+  <span class="filtered-list">{{items}}</span></p>
+{{/each}}
+</details>
+
+<p class="footer">Generated by GitHub Radar v0.1.0 · {{date}}</p>
+
+</body>
+</html>

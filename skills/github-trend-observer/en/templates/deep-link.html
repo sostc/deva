@@ -1,0 +1,377 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Deep Link: {{repo_name}} — {{date}}</title>
+<style>
+  :root {
+    --bg: #fafafa; --surface: #ffffff; --border: #e5e7eb;
+    --text: #1f2937; --muted: #6b7280; --accent: #2563eb;
+    --accent-light: #eff6ff;
+    --green: #16a34a; --red: #dc2626; --amber: #d97706;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+    background: var(--bg); color: var(--text); line-height: 1.75;
+    max-width: 760px; margin: 0 auto; padding: 48px 24px 80px;
+    font-size: 17px;
+  }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  hr { border: none; border-top: 1px solid var(--border); margin: 36px 0; }
+  h1 { font-size: 26px; font-weight: 700; margin-bottom: 4px; }
+  h2 { font-size: 20px; font-weight: 700; margin-bottom: 12px; color: var(--text); letter-spacing: -0.01em; }
+  h3 { font-size: 17px; font-weight: 600; margin-bottom: 4px; }
+  p { margin-bottom: 12px; font-size: 16px; }
+
+  .meta { color: var(--muted); font-size: 15px; margin-bottom: 24px; }
+  .meta span { margin-right: 16px; }
+
+  table { width: 100%; border-collapse: collapse; font-size: 16px; margin-bottom: 8px; }
+  th { text-align: left; font-weight: 600; padding: 10px 10px; border-bottom: 2px solid var(--text); font-size: 14px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
+  td { padding: 12px 10px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  tr:last-child td { border-bottom: none; }
+  td.num { font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+  .layer-badge { display: inline-block; font-size: 14px; font-weight: 600; padding: 3px 12px; border-radius: 4px; letter-spacing: 0.02em; }
+  .layer-badge-l2 { background: #dbeafe; color: #1e40af; }
+  .layer-badge-l3 { background: #e0e7ff; color: #3730a3; }
+  .layer-badge-l4 { background: #fef3c7; color: #92400e; }
+
+  .layer-box { background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 16px 18px; margin-bottom: 16px; }
+  .layer-box p { font-size: 16px; margin-bottom: 8px; }
+  .layer-box .reason { font-size: 15px; color: var(--muted); margin-top: 8px; padding-left: 24px; }
+  .layer-box .reason li { margin-bottom: 4px; list-style: disc; margin-left: 0; }
+  .layer-box .not-l { font-size: 15px; color: var(--muted); margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--border); }
+
+  .badge { display: inline-block; font-size: 12px; font-weight: 600; padding: 3px 10px; border-radius: 4px; }
+  .badge-l1 { background: #f3f4f6; color: #6b7280; }
+  .badge-l2 { background: #dbeafe; color: #1e40af; }
+  .badge-l3 { background: #e0e7ff; color: #3730a3; }
+  .badge-l4 { background: #fef3c7; color: #92400e; }
+  .badge-l5 { background: #f3f4f6; color: #9ca3af; }
+
+  .pm-box { background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 16px 18px; margin-bottom: 16px; font-size: 16px; }
+  .pm-box ul { padding-left: 20px; }
+  .pm-box li { margin-bottom: 6px; list-style: disc; }
+  .pm-box strong { font-weight: 600; }
+
+  .paradigm { background: var(--accent-light); border: 1px solid #bfdbfe; border-radius: 6px; padding: 18px 20px; font-size: 16px; margin-bottom: 16px; }
+  .paradigm strong { font-weight: 600; }
+  .paradigm .sub { margin-top: 12px; }
+  .paradigm .sub-title { font-weight: 600; margin-bottom: 4px; }
+  .paradigm ul { padding-left: 20px; }
+  .paradigm li { margin-bottom: 4px; list-style: disc; }
+
+  .arch { background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 18px 20px; margin-bottom: 16px; overflow-x: auto; }
+  .arch pre { font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace; font-size: 13px; line-height: 1.5; white-space: pre; color: var(--text); }
+
+  .header { margin-bottom: 32px; }
+  .header h1 { font-size: 28px; font-weight: 700; margin-bottom: 8px; }
+  .header .meta { color: var(--muted); font-size: 14px; }
+  .headline { font-size: 22px; font-weight: 600; color: #111827; line-height: 1.4; margin: 20px 0 0; padding: 16px 20px; background: var(--surface); border-left: 4px solid var(--accent); border-radius: 0 6px 6px 0; }
+  .legend { display: flex; gap: 16px; flex-wrap: wrap; margin: 20px 0 0; font-size: 13px; color: var(--muted); }
+
+  .timeline { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
+  .timeline .rel { font-size: 13px; padding: 3px 8px; border-radius: 3px; background: var(--accent-light); border: 1px solid #bfdbfe; color: var(--accent); white-space: nowrap; }
+
+  .summary-table td:first-child { font-weight: 600; white-space: nowrap; width: 80px; vertical-align: top; }
+  .summary-table td { font-size: 16px; }
+
+  .alert { background: #fef2f2; border: 1px solid #fecaca; border-radius: 6px; padding: 14px 18px; font-size: 15px; color: var(--red); margin-bottom: 16px; }
+  .alert strong { font-weight: 600; }
+
+  details { margin: 16px 0; }
+  summary { cursor: pointer; font-weight: 600; color: var(--muted); font-size: 14px; padding: 8px 0; }
+  details[open] summary { margin-bottom: 8px; }
+
+  .footer { color: #d1d5db; font-size: 12px; text-align: center; margin-top: 24px; }
+
+  @media (max-width: 600px) {
+    body { padding: 24px 16px 60px; }
+    table { font-size: 14px; }
+    .arch pre { font-size: 11px; }
+  }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>Deep Link: {{owner}}/{{repo_name}}</h1>
+  <span class="meta">{{date}} · Mode 4: Deep Link Analysis · Data precision: [Exact]</span>
+</div>
+
+<p class="headline">{{oneliner}}</p>
+
+<div class="legend">
+  <span><span class="badge badge-l1">L1</span> Model/Inference</span>
+  <span><span class="badge badge-l2">L2</span> Agent Runtime</span>
+  <span><span class="badge badge-l3">L3</span> Dev Framework/SDK</span>
+  <span><span class="badge badge-l4">L4</span> Vertical Product</span>
+  <span><span class="badge badge-l5">L5</span> Wrapper/Demo</span>
+</div>
+
+<hr>
+
+<!-- ==================== Profile ==================== -->
+<h2>Profile</h2>
+<table>
+  <colgroup><col style="width:90px"><col style="width:180px"><col></colgroup>
+  <tbody>
+    <tr><td>Stars</td><td class="num">{{stars}} [Exact]</td><td></td></tr>
+    <tr><td>Forks</td><td class="num">{{forks}} [Exact]</td><td>{{forks_comment}}</td></tr>
+    <tr><td>7d Growth</td><td class="num">{{growth_7d}} [Exact]</td><td>{{growth_comment}}</td></tr>
+    <tr><td>Peak Day</td><td class="num">{{peak_day}}</td><td>{{peak_comment}}</td></tr>
+    <tr><td>Growth Pattern</td><td class="num">{{growth_pattern}}</td><td>{{growth_pattern_comment}}</td></tr>
+    <tr><td colspan="3" style="border-bottom:2px solid var(--border);padding:4px"></td></tr>
+    <tr><td>Commits</td><td class="num">{{commits_90d}} (last 90d)</td><td></td></tr>
+    <tr><td></td><td class="num" style="color:var(--muted)">└ last 7d: {{commits_7d}} (avg/day {{commits_7d_avg}})</td><td>{{commits_7d_comment}}</td></tr>
+    <tr><td></td><td class="num" style="color:var(--muted)">└ last 30d: {{commits_30d}} (avg/day {{commits_30d_avg}})</td><td>{{commits_30d_comment}}</td></tr>
+    <tr><td colspan="3" style="border-bottom:2px solid var(--border);padding:4px"></td></tr>
+    <tr><td>Language</td><td>{{language}}</td><td>{{language_comment}}</td></tr>
+    <tr><td>License</td><td>{{license}}</td><td></td></tr>
+    <tr><td>Created</td><td>{{created_at}}</td><td>{{age_comment}}</td></tr>
+    <!-- Optional: Homepage -->
+    <!-- <tr><td>Homepage</td><td><a href="{{homepage_url}}">{{homepage_display}}</a></td><td></td></tr> -->
+  </tbody>
+</table>
+
+<!-- Daily growth line chart: SVG area chart, X-axis dates, Y-axis daily new stars -->
+<h3 style="margin-top:20px">Daily Growth</h3>
+<div style="background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:20px 20px 12px;">
+  <svg viewBox="0 0 560 200" style="width:100%;height:auto;display:block;">
+    <!-- Grid lines -->
+    <line x1="50" y1="20" x2="540" y2="20" stroke="var(--border)" stroke-width="0.5" stroke-dasharray="4,4"/>
+    <line x1="50" y1="55" x2="540" y2="55" stroke="var(--border)" stroke-width="0.5" stroke-dasharray="4,4"/>
+    <line x1="50" y1="90" x2="540" y2="90" stroke="var(--border)" stroke-width="0.5" stroke-dasharray="4,4"/>
+    <line x1="50" y1="125" x2="540" y2="125" stroke="var(--border)" stroke-width="0.5" stroke-dasharray="4,4"/>
+    <line x1="50" y1="160" x2="540" y2="160" stroke="var(--border)" stroke-width="1"/>
+    <line x1="50" y1="20" x2="50" y2="160" stroke="var(--border)" stroke-width="1"/>
+
+    <!-- Y-axis labels: adjust based on data max -->
+    <text x="46" y="164" text-anchor="end" font-size="11" fill="var(--muted)">0</text>
+    <text x="46" y="129" text-anchor="end" font-size="11" fill="var(--muted)">{{y_25pct}}</text>
+    <text x="46" y="94" text-anchor="end" font-size="11" fill="var(--muted)">{{y_50pct}}</text>
+    <text x="46" y="59" text-anchor="end" font-size="11" fill="var(--muted)">{{y_75pct}}</text>
+    <text x="46" y="24" text-anchor="end" font-size="11" fill="var(--muted)">{{y_max}}</text>
+
+    <!-- Area fill: calculate coordinates from actual data points -->
+    <!-- Y mapping: y = 160 - (val / y_max) * 140 -->
+    <path d="{{area_path}}" fill="var(--accent-light)" opacity="0.5"/>
+
+    <!-- Line -->
+    <polyline points="{{line_points}}" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+
+    <!-- Data points: peak in var(--red), others in var(--accent) -->
+    {{data_circles}}
+
+    <!-- Peak annotation -->
+    {{peak_annotation}}
+
+    <!-- X-axis date labels -->
+    {{x_labels}}
+
+    <!-- Unit -->
+    <text x="300" y="192" text-anchor="middle" font-size="10" fill="var(--muted)">New stars / day</text>
+  </svg>
+</div>
+<p style="font-size:14px;color:var(--muted);margin-top:8px">{{star_chart_summary}}</p>
+
+<hr>
+
+<!-- ==================== Layer Classification ==================== -->
+<h2>Layer Classification</h2>
+<div class="layer-box">
+  <!-- Use the corresponding layer-badge-l2 / l3 / l4 class -->
+  <span class="layer-badge {{layer_badge_class}}">{{layer_label}}</span>
+  <p style="margin-top:10px;font-size:16px;">{{layer_description}}</p>
+  <ul class="reason">
+    {{layer_reasons}}
+    <!-- <li>Reason 1</li> -->
+    <!-- <li>Reason 2</li> -->
+  </ul>
+  <div class="not-l"><strong>Why not {{layer_alternative}}?</strong> {{layer_alternative_reason}}</div>
+</div>
+
+<hr>
+
+<!-- ==================== Adoption Depth ==================== -->
+<h2>Adoption Depth</h2>
+
+<!-- Optional: use alert when adoption signals are abnormal -->
+<!-- <div class="alert"><strong>{{adoption_alert_title}}</strong> {{adoption_alert_body}}</div> -->
+
+<table>
+  <colgroup><col style="width:110px"><col style="width:100px"><col></colgroup>
+  <thead><tr><th>Metric</th><th>Value</th><th>Interpretation</th></tr></thead>
+  <tbody>
+    <tr><td>Fork ratio</td><td class="num">{{fork_ratio}}%</td><td>{{fork_ratio_comment}}</td></tr>
+    <tr><td>Watch ratio</td><td class="num">{{watch_ratio}}% ({{watchers}})</td><td>{{watch_ratio_comment}}</td></tr>
+    <tr><td>Issue activity</td><td class="num">{{issue_rate}}%</td><td>{{issue_rate_comment}}</td></tr>
+    <tr><td>Issue zero-reply rate</td><td class="num">{{zero_reply_pct}}%</td><td>{{zero_reply_comment}}</td></tr>
+    <tr><td>Avg comments</td><td class="num">{{avg_comments}} /issue</td><td>{{avg_comments_comment}}</td></tr>
+    <tr><td>High-star forks</td><td class="num">{{high_star_forks_count}}</td><td>{{high_star_forks_comment}}</td></tr>
+  </tbody>
+</table>
+
+<div class="pm-box">
+  <p><strong>{{adoption_pm_title}}</strong></p>
+  <ul>
+    {{adoption_pm_bullets}}
+    <!-- <li><strong>Key point</strong> — Interpretation</li> -->
+  </ul>
+</div>
+
+<hr>
+
+<!-- ==================== Contributor Structure ==================== -->
+<h2>Contributor Structure</h2>
+<table>
+  <colgroup><col style="width:30px"><col style="width:160px"><col style="width:80px"><col></colgroup>
+  <thead><tr><th>#</th><th>Contributor</th><th>Commits</th><th>Role</th></tr></thead>
+  <tbody>
+    {{contributor_rows}}
+    <!-- <tr><td>1</td><td><a href="https://github.com/{{login}}">{{login}}</a></td><td class="num">{{contributions}}</td><td>{{role}}</td></tr> -->
+  </tbody>
+</table>
+
+<div class="pm-box">
+  <ul>
+    {{contributor_pm_bullets}}
+    <!-- <li><strong>Bus factor = N</strong> — Interpretation</li> -->
+  </ul>
+</div>
+
+<hr>
+
+<!-- ==================== Release Cadence ==================== -->
+<h2>Release Cadence</h2>
+<div class="timeline">
+  {{release_tags}}
+  <!-- <span class="rel">v1.0.0 <small>MM-DD</small></span> -->
+</div>
+<p style="font-size:16px;color:var(--muted)">{{release_analysis}}</p>
+
+<hr>
+
+<!-- ==================== Issue Composition ==================== -->
+<h2>Issue Composition</h2>
+<table>
+  <colgroup><col style="width:140px"><col style="width:60px"><col style="width:60px"><col></colgroup>
+  <thead><tr><th>Type</th><th>Count</th><th>Share</th><th>Interpretation</th></tr></thead>
+  <tbody>
+    {{issue_rows}}
+    <!-- <tr><td>Bug</td><td class="num">30</td><td class="num">30%</td><td>Interpretation</td></tr> -->
+  </tbody>
+</table>
+<p style="font-size:14px;color:var(--muted)">{{issue_sample_note}}</p>
+
+<!-- When uncategorized share > 50%, add manual sampling analysis -->
+<!-- <div class="pm-box">
+  <p><strong>Manual sampling (last 10 issues):</strong></p>
+  <ul>
+    {{issue_manual_analysis}}
+  </ul>
+  <p style="margin-bottom:0"><strong>Cross-validation with auto-classification:</strong>{{issue_cross_validation}}</p>
+</div> -->
+
+<hr>
+
+<!-- ==================== Core Innovation ==================== -->
+<h2>Core Innovation</h2>
+<p style="font-size:16px;margin-bottom:12px">{{innovation_intro}}</p>
+
+<!-- Before/after architecture diagram (required) -->
+<div class="arch"><pre>
+{{innovation_diagram}}
+</pre></div>
+
+<div class="pm-box">
+  <p><strong>{{innovation_pm_title}}</strong></p>
+  <ul>
+    {{innovation_pm_bullets}}
+  </ul>
+</div>
+
+<hr>
+
+<!-- ==================== Ecosystem Map ==================== -->
+<h2>Ecosystem Map</h2>
+<div class="arch"><pre>
+{{ecosystem_diagram}}
+</pre></div>
+
+<div class="pm-box">
+  <ul>
+    {{ecosystem_pm_bullets}}
+  </ul>
+</div>
+
+<hr>
+
+<!-- ==================== Paradigm Analysis ==================== -->
+<!-- Note: does not include "Relevance to you" section -->
+<h2>Paradigm Analysis</h2>
+<div class="paradigm">
+  <p><strong>{{paradigm_headline}}</strong></p>
+  <p>{{paradigm_body}}</p>
+
+  <div class="sub">
+    <p class="sub-title">Potentially threatened:</p>
+    <ul>
+      {{paradigm_threatened}}
+      <!-- <li><strong>Who</strong> — Why</li> -->
+    </ul>
+  </div>
+  <div class="sub">
+    <p class="sub-title">Not threatened:</p>
+    <ul>
+      {{paradigm_not_threatened}}
+      <!-- <li><strong>Who</strong> — Why</li> -->
+    </ul>
+  </div>
+</div>
+
+<hr>
+
+<!-- ==================== PM Summary ==================== -->
+<h2>PM Summary</h2>
+<table class="summary-table">
+  <tbody>
+    <tr><td>Maturity</td><td>{{maturity}}</td></tr>
+    <tr><td>Credibility</td><td>{{credibility}}</td></tr>
+    <tr><td>Growth nature</td><td>{{growth_nature}}</td></tr>
+    <tr><td>PM value</td><td>{{pm_value}}</td></tr>
+    <tr><td>Risks</td><td>{{risks}}</td></tr>
+    <tr><td>Recommendation</td><td>{{recommendation}}</td></tr>
+  </tbody>
+</table>
+
+<hr>
+
+<!-- ==================== Competitor Candidates (collapsed) ==================== -->
+<details>
+  <summary>Raw data: Competitor Candidates ({{competitor_count}} returned by script)</summary>
+  <p style="font-size:14px;color:var(--muted);margin-top:8px">{{competitor_note}}</p>
+  <table style="margin-top:8px;font-size:14px">
+    <thead><tr><th>Project</th><th>Stars</th><th>Direct competitor?</th></tr></thead>
+    <tbody>
+      {{competitor_rows}}
+      <!-- <tr><td>owner/repo</td><td>10k</td><td>Assessment</td></tr> -->
+    </tbody>
+  </table>
+</details>
+
+<hr>
+
+<p style="font-size:14px;color:var(--muted)">
+  <strong>Data collection</strong> — deep_link.py 9 steps + star history (approx. 80 GitHub API calls)<br>
+  <strong>Analysis cost</strong> — est. ~${{cost}}
+</p>
+
+<p class="footer">GitHub Radar v0.1.0 &middot; Deep Link &middot; {{date}} &middot; Data precision: [Exact]</p>
+
+</body>
+</html>

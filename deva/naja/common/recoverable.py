@@ -214,6 +214,7 @@ class RecoverableUnit(ABC):
         import random
         import math
         import re
+        from collections import defaultdict
         
         return {
             "pd": pd,
@@ -221,7 +222,7 @@ class RecoverableUnit(ABC):
             "np": np,
             "numpy": np,
             "json": json,
-            "datetime": datetime_module,
+            "datetime": datetime,
             "datetime_module": datetime_module,
             "timedelta": timedelta,
             "date": date,
@@ -229,6 +230,7 @@ class RecoverableUnit(ABC):
             "random": random,
             "math": math,
             "re": re,
+            "defaultdict": defaultdict,
             "__builtins__": __builtins__,
         }
     
