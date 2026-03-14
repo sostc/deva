@@ -202,7 +202,22 @@ class RecoverableUnit(ABC):
     def _log(self, level: str, message: str, **extra):
         ts = time.strftime("%Y-%m-%d %H:%M:%S")
         extra_str = " ".join([f"{k}={v}" for k, v in extra.items()])
-        print(f"[{ts}][{self.__class__.__name__}][{level}] {message} | {extra_str}")
+        print_msg = f"[{ts}][{self.__class__.__name__}][{level}] {message} | {extra_str}"
+        print(print_msg)
+        try:
+            from deva.naja.log_stream import get_log_stream
+            source_type = "datasource" if "DataSource" in self.__class__.__name__ else "task" if "Task" in self.__class__.__name__ else "strategy"
+            source_id = getattr(self, 'id', 'unknown')
+            source_name = getattr(self, 'name', 'unknown')
+            log_stream = get_log_stream()
+            if source_type == "datasource":
+                log_stream.log_datasource(level, source_id, source_name, message, **extra)
+            elif source_type == "task":
+                log_stream.log_task(level, source_id, source_name, message, **extra)
+            else:
+                log_stream.log_strategy(level, source_id, source_name, message, **extra)
+        except Exception:
+            pass
     
     def _build_execution_env(self) -> Dict[str, Any]:
         import pandas as pd
