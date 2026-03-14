@@ -40,6 +40,13 @@ class StrategyResult:
     metadata: Dict = field(default_factory=dict)
     
     def to_dict(self) -> dict:
+        """序列化为用于持久化/传输的精简字典。
+
+        设计目标：
+        - 始终包含元信息与 preview（input/output_preview）
+        - 默认不持久化 output_full，避免占用大量磁盘空间
+          （完整结果在内存和下游组件中使用，如 SignalStream / Radar / Memory）
+        """
         result = {
             "id": self.id,
             "strategy_id": self.strategy_id,
@@ -53,18 +60,6 @@ class StrategyResult:
             "error": self.error,
             "metadata": self.metadata,
         }
-        if self.output_full is not None:
-            try:
-                if isinstance(self.output_full, (dict, list)):
-                    result["output_full"] = self.output_full
-                elif hasattr(self.output_full, 'to_dict'):
-                    result["output_full"] = self.output_full.to_dict()
-                elif hasattr(self.output_full, 'to_json'):
-                    result["output_full"] = json.loads(self.output_full.to_json())
-                else:
-                    result["output_full"] = str(self.output_full)[:5000]
-            except Exception:
-                result["output_full"] = str(self.output_full)[:5000]
         return result
     
     def to_summary(self) -> dict:
@@ -443,7 +438,7 @@ class ResultStore:
             metadata=metadata or {},
         )
         
-        # 先发送到信号流
+        # 先发送到信号流（始终发送，除非明确关闭）
         try:
             from ..signal.stream import get_signal_stream
             signal_stream = get_signal_stream()
@@ -451,21 +446,52 @@ class ResultStore:
         except Exception as e:
             pass
 
-        # 发送到雷达引擎
+        # 检查输出配置
         try:
-            from ..radar import get_radar_engine
-            radar = get_radar_engine()
-            radar.ingest_result(result)
+            from .output_controller import get_output_controller
+            controller = get_output_controller()
+            should_radar = controller.should_send_to(strategy_id, "radar")
+            should_memory = controller.should_send_to(strategy_id, "memory")
+            should_bandit = controller.should_send_to(strategy_id, "bandit")
         except Exception:
-            pass
+            should_radar = True  # 默认开启
+            should_memory = True
+            should_bandit = False
 
-        # 发送到记忆引擎
+        # 规范化输出数据
+        targets = set()
+        if should_radar:
+            targets.add("radar")
+        if should_memory:
+            targets.add("memory")
+        if should_bandit:
+            targets.add("bandit")
+        
         try:
-            from ..memory import get_memory_engine
-            memory = get_memory_engine()
-            memory.ingest_result(result)
+            from .output_schema import normalize_output
+            normalized = normalize_output(result, targets)
         except Exception:
-            pass
+            normalized = {}
+
+        # 发送到雷达引擎（根据配置，使用规范化数据）
+        if should_radar and normalized.get("radar"):
+            try:
+                from ..radar import get_radar_engine
+                radar = get_radar_engine()
+                radar.ingest_result(result)
+            except Exception:
+                pass
+
+        # 发送到记忆引擎（根据配置）
+        if should_memory:
+            try:
+                from ..memory import get_memory_engine
+                memory = get_memory_engine()
+                memory.ingest_result(result)
+            except Exception:
+                pass
+        
+        # Bandit 信号处理（在信号流中过滤）
         
         with self._data_lock:
             if strategy_id not in self._cache:

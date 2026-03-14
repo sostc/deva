@@ -136,7 +136,22 @@ class SignalStream(Stream):
                 return
             try:
                 recent_results = list(reversed(self.get_recent(limit=self.max_cache_size)))
-                recent_signals = [result.to_dict() for result in recent_results]
+                recent_signals = []
+                for result in recent_results:
+                    d = {
+                        "id": result.id,
+                        "strategy_id": result.strategy_id,
+                        "strategy_name": result.strategy_name,
+                        "ts": result.ts,
+                        "success": result.success,
+                        "input_preview": result.input_preview,
+                        "output_preview": result.output_preview,
+                        "output_full": result.output_full,
+                        "process_time_ms": result.process_time_ms,
+                        "error": result.error,
+                        "metadata": result.metadata,
+                    }
+                    recent_signals.append(d)
                 self.db.upsert("recentSignal", recent_signals)
             except Exception as e:
                 print(f"持久化信号流失败: {e}")
