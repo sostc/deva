@@ -567,3 +567,63 @@ strategy_id = save_strategy_to_db(strategy_record)
 3. **字典查询**：在 process 函数中使用 NB 查询字典数据
 4. **性能考虑**：避免每次处理都全量查询字典，可考虑缓存
 5. **代码质量**：生成的代码包含完整注释和错误处理
+
+## 输出目标配置
+
+创建策略时需要配置输出目标，策略会根据输出目标返回不同格式的数据：
+
+### 四种输出目标
+
+| 目标 | 用途 | 必需字段 | 可选字段 |
+|------|------|----------|----------|
+| **💰 信号流** | 存储所有策略结果 | 无（任意格式） | 无 |
+| **📡 雷达** | 技术信号 | signal_type, score | value, message |
+| **🧠 记忆** | 叙事记忆 | content | topic, sentiment |
+| **🎰 Bandit** | 交易执行 | signal_type(BUY/SELL), stock_code, price | confidence, amount, reason |
+
+### 输出结构规范示例
+
+**雷达 (技术信号)：**
+```python
+return {
+    "signal_type": "fast_anomaly",  # 必填：信号类型
+    "score": 8.5,                    # 必填：评分
+    "value": 100,                    # 可选：数值
+    "message": "价格突破"             # 可选：消息
+}
+```
+
+**记忆 (叙事)：**
+```python
+return {
+    "content": "AI芯片板块持续火热",  # 必填：叙事内容
+    "topic": "科技",                  # 可选：主题
+    "sentiment": "positive"          # 可选：情感
+}
+```
+
+**Bandit (交易)：**
+```python
+return {
+    "signal_type": "BUY",            # 必填：BUY/SELL
+    "stock_code": "000001",          # 必填：股票代码
+    "price": 12.50,                 # 必填：价格
+    "confidence": 0.85,              # 可选：置信度
+    "amount": 10000,                 # 可选：金额
+    "reason": "放量突破"             # 可选：原因
+}
+```
+
+### 默认配置
+
+新创建的策略默认开启：**信号流、雷达、记忆**
+- Bandit 交易需要手动开启
+
+### 信号类型参考
+
+常见的 signal_type 值：
+- `fast_anomaly` - 快速异动
+- `volume_breakout` - 放量突破
+- `trend_analysis` - 市场气候
+- `block_leader` - 板块龙头
+- `contrarian` - 逆势信号

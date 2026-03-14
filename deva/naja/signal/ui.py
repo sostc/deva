@@ -8,7 +8,7 @@ from datetime import datetime
 from pywebio.output import use_scope
 
 # 从策略模块导入信号处理工具
-from ..strategy.signal_processor import get_signal_type, get_signal_detail, generate_expanded_content
+from .processor import get_signal_type, get_signal_detail, generate_expanded_content
 
 # 存储已显示的信号 ID
 _shown_signal_ids = set()
@@ -151,7 +151,7 @@ def _insert_signal_item(ctx, result):
         div.style.cssText = 'display:flex;flex-direction:column;padding:0;margin:6px 0;' + data.bg_style + 'border-radius:10px;border-left:' + data.border_width + ' solid ' + data.color + ';box-shadow:0 2px 8px rgba(0,0,0,0.06);opacity:0;transform:translateY(-20px);transition:all 0.3s ease;cursor:pointer;';
         div.onclick = function() {{ toggleSignalExpand(this); }};
         
-        div.innerHTML = '<div class="signal-header" style="display:flex;align-items:stretch;"><div style="display:flex;align-items:center;justify-content:center;padding:0 12px;"><div style="font-size:24px;">' + data.icon + '</div></div><div style="flex:1;padding:10px 12px 10px 0;min-width:0;"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;"><div style="display:flex;align-items:center;gap:8px;"><span style="font-weight:600;color:#333;font-size:14px;">' + data.strategy_name + '</span><span style="display:inline-block;padding:1px 6px;border-radius:10px;font-size:10px;background:' + data.color + '22;color:' + data.color + ';">' + data.signal_label + '</span></div><div style="display:flex;align-items:center;gap:6px;"><span style="font-size:11px;color:#999;white-space:nowrap;">' + data.time_str + '</span><span class="expand-icon" style="font-size:10px;color:#999;transition:transform 0.2s;">▼</span></div></div><div style="font-size:13px;color:#333;font-weight:500;margin-bottom:2px;">' + data.summary + '</div>' + (data.highlights ? '<div style="font-size:11px;color:#666;margin-top:4px;">' + data.highlights + '</div>' : '') + '</div></div><div class="signal-detail" style="display:none;padding:0 12px 12px 48px;">' + JSON.parse(data.expanded_content) + '</div>';
+        div.innerHTML = '<div class="signal-header" style="display:flex;align-items:stretch;"><div style="display:flex;align-items:center;justify-content:center;padding:0 12px;"><div style="font-size:24px;">' + data.icon + '</div></div><div style="flex:1;padding:10px 12px 10px 0;min-width:0;"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;"><div style="display:flex;align-items:center;gap:8px;"><span style="font-weight:600;color:#333;font-size:14px;">' + data.strategy_name + '</span><span style="display:inline-block;padding:1px 6px;border-radius:10px;font-size:10px;background:' + data.color + '22;color:' + data.color + ';">' + data.signal_label + '</span></div><div style="display:flex;align-items:center;gap:6px;"><span style="font-size:11px;color:#999;white-space:nowrap;">' + data.time_str + '</span><span class="expand-icon" style="font-size:10px;color:#999;transition:transform 0.2s;">▼</span></div></div><div style="font-size:13px;color:#333;font-weight:500;margin-bottom:2px;">' + data.summary + '</div>' + (data.highlights ? '<div style="font-size:11px;color:#666;margin-top:4px;">' + data.highlights + '</div>' : '') + '</div></div><div class="signal-detail" style="display:none;padding:0 12px 12px 48px;">' + data.expanded_content + '</div>';
         
         var filterCb = document.querySelector('.signal-filter[value="' + data.importance + '"]');
         if (filterCb && !filterCb.checked) {{
@@ -335,8 +335,112 @@ def _render_signal_stream_content(ctx, limit: int = 20):
             from {{ opacity: 0; }}
             to {{ opacity: 1; }}
         }}
+        .json-popup-overlay {{
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.5);
+            z-index: 10000;
+            justify-content: center;
+            align-items: center;
+        }}
+        .json-popup-overlay.active {{
+            display: flex;
+        }}
+        .json-popup-content {{
+            background: #fff;
+            border-radius: 8px;
+            max-width: 80%;
+            max-height: 80%;
+            display: flex;
+            flex-direction: column;
+            box-shadow: 0 4px 24px rgba(0,0,0,0.2);
+        }}
+        .json-popup-header {{
+            padding: 12px 16px;
+            border-bottom: 1px solid #e0e0e0;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background: #f5f7fa;
+            border-radius: 8px 8px 0 0;
+        }}
+        .json-popup-title {{
+            font-weight: 600;
+            color: #333;
+            font-size: 14px;
+        }}
+        .json-popup-close {{
+            background: none;
+            border: none;
+            font-size: 20px;
+            cursor: pointer;
+            color: #666;
+            padding: 0;
+            line-height: 1;
+        }}
+        .json-popup-close:hover {{
+            color: #333;
+        }}
+        .json-popup-body {{
+            padding: 16px;
+            overflow: auto;
+            flex: 1;
+        }}
+        .json-popup-body pre {{
+            margin: 0;
+            font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+            font-size: 12px;
+            line-height: 1.5;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+            background: #282c34;
+            color: #abb2bf;
+            padding: 12px;
+            border-radius: 4px;
+        }}
     </style>
+    <div id="json-popup-overlay" class="json-popup-overlay" onclick="closeJsonPopup(event)">
+        <div class="json-popup-content" onclick="event.stopPropagation()">
+            <div class="json-popup-header">
+                <span class="json-popup-title">📄 完整 JSON 数据</span>
+                <button class="json-popup-close" onclick="closeJsonPopup()">&times;</button>
+            </div>
+            <div class="json-popup-body">
+                <pre id="json-popup-content"></pre>
+            </div>
+        </div>
+    </div>
     <script>
+    function showSignalJsonPopup(jsonStr) {{
+        var overlay = document.getElementById('json-popup-overlay');
+        var content = document.getElementById('json-popup-content');
+        try {{
+            var obj = JSON.parse(jsonStr.replace(/\\\\n/g, '\\n').replace(/\\\\'/g, \"'\"));
+            content.textContent = JSON.stringify(obj, null, 2);
+        }} catch(e) {{
+            content.textContent = jsonStr.replace(/\\\\n/g, '\\n').replace(/\\\\'/g, \"'\");
+        }}
+        overlay.classList.add('active');
+    }}
+    
+    function closeJsonPopup(event) {{
+        if (event && event.target !== event.currentTarget) {{
+            return;
+        }}
+        var overlay = document.getElementById('json-popup-overlay');
+        overlay.classList.remove('active');
+    }}
+    
+    document.addEventListener('keydown', function(e) {{
+        if (e.key === 'Escape') {{
+            closeJsonPopup();
+        }}
+    }});
+    
     function toggleSignalExpand(el) {{
         var detail = el.querySelector('.signal-detail');
         var isExpanded = detail.style.display !== 'none';

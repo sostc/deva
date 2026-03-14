@@ -718,11 +718,30 @@ class StrategyEntry(RecoverableUnit):
             pass
     
     def _save_result_to_store(self, input_data: Any, output_data: Any, process_time_ms: float, success: bool, error: str = ""):
-        """保存执行结果到 ResultStore"""
+        """保存执行结果到 ResultStore。
+
+        注意：
+        - 无论是否持久化到数据库，结果都会发送到 SignalStream / Radar / Memory 等下游组件，
+          并缓存在内存中用于 UI 展示和统计。
+        - 是否持久化到 DB 由策略配置中的 persist_mode 决定，避免结果过多占用磁盘。
+        """
         from .result_store import get_result_store
-        from ..config import get_strategy_total_history_count
-        
+        from ..config import get_strategy_total_history_count, get_strategy_persist_mode
+
         store = get_result_store()
+
+        persist_mode = get_strategy_persist_mode()
+        # 默认策略：
+        # - summary: 持久化摘要（DB 中仅保存精简信息）
+        # - errors_only: 仅在失败时持久化
+        # - none: 完全不持久化到 DB（仅内存/流）
+        if persist_mode == "none":
+            persist_flag = False
+        elif persist_mode == "errors_only":
+            persist_flag = not success
+        else:  # "summary" 及其他未知值均视为 summary
+            persist_flag = True
+
         store.save(
             strategy_id=self.id,
             strategy_name=self.name,
@@ -731,7 +750,7 @@ class StrategyEntry(RecoverableUnit):
             output_data=output_data,
             process_time_ms=process_time_ms,
             error=error,
-            persist=True,
+            persist=persist_flag,
         )
 
         try:

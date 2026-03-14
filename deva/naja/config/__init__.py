@@ -26,6 +26,11 @@ DEFAULT_CONFIG = {
         "total_history_count": 500,
         "default_window_size": 5,
         "default_window_interval": "10s",
+        # 策略结果持久化模式:
+        # - "summary": 持久化精简摘要（默认）
+        # - "errors_only": 仅持久化失败结果
+        # - "none": 不持久化结果（仅内存与流）
+        "persist_mode": "summary",
     },
     "task": {
         "default_interval": 60,
@@ -164,6 +169,21 @@ def get_enabled_timer_execution_modes() -> list:
 def get_strategy_config() -> Dict[str, Any]:
     """获取策略配置"""
     return get_config("strategy")
+
+
+def get_strategy_persist_mode() -> str:
+    """获取策略结果持久化模式。
+
+    返回值:
+        "summary"     - 持久化精简摘要（默认）
+        "errors_only" - 仅持久化失败结果
+        "none"        - 不持久化结果
+    """
+    mode = get_config("strategy", "persist_mode", "summary")
+    mode = str(mode or "summary").strip().lower()
+    if mode in {"summary", "errors_only", "none"}:
+        return mode
+    return "summary"
 
 
 def get_task_config() -> Dict[str, Any]:
