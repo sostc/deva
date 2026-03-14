@@ -499,12 +499,6 @@ def generate_expanded_content(result, detail: dict) -> str:
     html_content = raw.get('html', '')
     
     if html_content:
-        import codecs
-        if isinstance(html_content, str) and '\\u' in html_content:
-            try:
-                html_content = codecs.decode(html_content, 'unicode_escape')
-            except Exception:
-                pass
         return html_content
     else:
         html = '<div style="font-size:12px;">'
