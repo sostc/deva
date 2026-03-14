@@ -1,0 +1,174 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="380" height="750" viewBox="0 0 380 750" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="gradDataSource" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#667eea;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#764ba2;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="gradStrategy" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#4facfe;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#00f2fe;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="gradResultStream" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#f5576c;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#f093fb;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="gradRadar" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#f59e0b;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#ef4444;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="gradMemory" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#8b5cf6;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#ec4899;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="gradLLM" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#10b981;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#059669;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="gradBandit" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#f43f5e;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#fbbf24;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="gradLog" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#6366f1;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#8b5cf6;stop-opacity:1" />
+    </linearGradient>
+  </defs>
+  
+  <!-- 背景 -->
+  <rect width="380" height="750" fill="#1a1a2e" rx="20"/>
+  
+  <!-- 标题 -->
+  <text x="190" y="30" text-anchor="middle" fill="#fff" font-size="15" font-weight="bold">Naja 数据流动架构</text>
+  <text x="190" y="46" text-anchor="middle" fill="#666" font-size="9">📱 手机阅读友好版</text>
+  
+  <!-- ===== 主链路 ===== -->
+  
+  <!-- 数据源 -->
+  <g transform="translate(110, 65)">
+    <circle cx="80" cy="25" r="30" fill="url(#gradDataSource)"/>
+    <text x="80" y="21" text-anchor="middle" font-size="22">📡</text>
+    <text x="80" y="38" text-anchor="middle" fill="#fff" font-size="9" font-weight="bold">数据源</text>
+  </g>
+  
+  <!-- 箭头 -->
+  <line x1="190" y1="125" x2="190" y2="145" stroke="#4facfe" stroke-width="2"/>
+  <polygon points="190,150 185,140 195,140" fill="#4facfe"/>
+  
+  <!-- 策略 -->
+  <g transform="translate(110, 165)">
+    <circle cx="80" cy="25" r="30" fill="url(#gradStrategy)"/>
+    <text x="80" y="21" text-anchor="middle" font-size="22">📊</text>
+    <text x="80" y="38" text-anchor="middle" fill="#fff" font-size="9" font-weight="bold">策略</text>
+  </g>
+  
+  <!-- 箭头 -->
+  <line x1="190" y1="220" x2="190" y2="240" stroke="#4facfe" stroke-width="2"/>
+  <polygon points="190,245 185,235 195,235" fill="#4facfe"/>
+  
+  <!-- 策略结果流 -->
+  <g transform="translate(110, 260)">
+    <circle cx="80" cy="25" r="32" fill="url(#gradResultStream)"/>
+    <text x="80" y="21" text-anchor="middle" font-size="22">📊</text>
+    <text x="80" y="38" text-anchor="middle" fill="#fff" font-size="9" font-weight="bold">策略结果流</text>
+  </g>
+  
+  <!-- 分隔线 -->
+  <line x1="30" y1="320" x2="350" y2="320" stroke="#333" stroke-width="1" stroke-dasharray="8,4"/>
+  
+  <!-- 箭头向下 -->
+  <line x1="190" y1="325" x2="190" y2="345" stroke="#4facfe" stroke-width="2"/>
+  <polygon points="190,350 185,340 195,340" fill="#4facfe"/>
+  
+  <!-- ===== 消费者 ===== -->
+  
+  <!-- 监控台 -->
+  <g transform="translate(25, 370)">
+    <circle cx="40" cy="25" r="26" fill="url(#gradResultStream)"/>
+    <text x="40" y="20" text-anchor="middle" font-size="18">📊</text>
+    <text x="40" y="36" text-anchor="middle" fill="#fff" font-size="8" font-weight="bold">监控台</text>
+    <text x="40" y="47" text-anchor="middle" fill="#ccc" font-size="6">人类阅读</text>
+  </g>
+  
+  <!-- 箭头 -->
+  <text x="100" y="400" fill="#f5576c" font-size="14">→</text>
+  
+  <!-- Bandit -->
+  <g transform="translate(130, 370)">
+    <circle cx="40" cy="25" r="26" fill="url(#gradBandit)"/>
+    <text x="40" y="20" text-anchor="middle" font-size="18">🎰</text>
+    <text x="40" y="36" text-anchor="middle" fill="#fff" font-size="8" font-weight="bold">Bandit</text>
+    <text x="40" y="47" text-anchor="middle" fill="#ccc" font-size="6">交易执行</text>
+  </g>
+  
+  <!-- 箭头 -->
+  <text x="205" y="400" fill="#f5576c" font-size="14">→</text>
+  
+  <!-- 雷达 -->
+  <g transform="translate(235, 370)">
+    <circle cx="40" cy="25" r="26" fill="url(#gradRadar)"/>
+    <text x="40" y="20" text-anchor="middle" font-size="18">📡</text>
+    <text x="40" y="36" text-anchor="middle" fill="#fff" font-size="8" font-weight="bold">市场偏好</text>
+    <text x="40" y="47" text-anchor="middle" fill="#ccc" font-size="6">技术雷达</text>
+  </g>
+  
+  <!-- ===== 第二层 ===== -->
+  
+  <!-- 分隔线 -->
+  <line x1="30" y1="450" x2="350" y2="450" stroke="#333" stroke-width="1" stroke-dasharray="8,4"/>
+  
+  <!-- 记忆 -->
+  <g transform="translate(50, 475)">
+    <circle cx="50" cy="25" r="28" fill="url(#gradMemory)"/>
+    <text x="50" y="20" text-anchor="middle" font-size="20">🧠</text>
+    <text x="50" y="36" text-anchor="middle" fill="#fff" font-size="8" font-weight="bold">叙事主题</text>
+    <text x="50" y="47" text-anchor="middle" fill="#ccc" font-size="6">记忆</text>
+  </g>
+  
+  <!-- 箭头 -->
+  <text x="130" y="508" fill="#10b981" font-size="16">→</text>
+  
+  <!-- LLM调节 -->
+  <g transform="translate(160, 475)">
+    <circle cx="50" cy="25" r="28" fill="url(#gradLLM)"/>
+    <text x="50" y="20" text-anchor="middle" font-size="20">🤖</text>
+    <text x="50" y="36" text-anchor="middle" fill="#fff" font-size="8" font-weight="bold">LLM调节</text>
+    <text x="50" y="47" text-anchor="middle" fill="#ccc" font-size="6">自动调参</text>
+  </g>
+  
+  <!-- 箭头向下 -->
+  <line x1="210" y1="525" x2="210" y2="550" stroke="#10b981" stroke-width="2"/>
+  <polygon points="210,555 205,543 215,543" fill="#10b981"/>
+  
+  <!-- 策略(调节后) -->
+  <g transform="translate(135, 570)">
+    <circle cx="45" cy="25" r="24" fill="url(#gradStrategy)"/>
+    <text x="45" y="20" text-anchor="middle" font-size="16">📊</text>
+    <text x="45" y="35" text-anchor="middle" fill="#fff" font-size="8" font-weight="bold">策略</text>
+    <text x="45" y="45" text-anchor="middle" fill="#ccc" font-size="6">调参后</text>
+  </g>
+  
+  <!-- 循环箭头 ↺ -->
+  <path d="M95 595 Q140 625 140 595" stroke="#10b981" stroke-width="2" fill="none"/>
+  <polygon points="140,585 135,595 145,595" fill="#10b981"/>
+  
+  <!-- ===== 说明 ===== -->
+  <rect x="20" y="625" width="340" height="60" rx="10" fill="rgba(255,255,255,0.05)" stroke="#333" stroke-width="1"/>
+  <text x="190" y="645" text-anchor="middle" fill="#fff" font-size="11" font-weight="bold">📊 数据流动说明</text>
+  <text x="190" y="665" text-anchor="middle" fill="#ccc" font-size="9">策略执行 → 策略结果流 → 四大消费者</text>
+  <text x="190" y="680" text-anchor="middle" fill="#888" font-size="8">监控台(人类) | Bandit(交易) | 雷达(技术) | 记忆(叙事)</text>
+  
+  <!-- ===== 图例 ===== -->
+  <g transform="translate(25, 700)">
+    <rect x="0" y="0" width="330" height="16" fill="#222" rx="8"/>
+    <circle cx="18" cy="8" r="5" fill="#f5576c"/>
+    <text x="30" y="12" fill="#888" font-size="7">策略结果流</text>
+    <circle cx="90" cy="8" r="5" fill="#f59e0b"/>
+    <text x="102" y="12" fill="#888" font-size="7">雷达</text>
+    <circle cx="150" cy="8" r="5" fill="#8b5cf6"/>
+    <text x="162" y="12" fill="#888" font-size="7">记忆</text>
+    <circle cx="210" cy="8" r="5" fill="#10b981"/>
+    <text x="222" y="12" fill="#888" font-size="7">LLM</text>
+    <text x="280" y="12" fill="#666" font-size="7">←横屏更清晰</text>
+  </g>
+</svg>

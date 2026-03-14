@@ -6,6 +6,7 @@ from pywebio.output import put_html, put_table, use_scope, set_scope
 
 from deva import NB
 from ..common.ui_style import apply_strategy_like_styles, render_empty_state
+from ..page_help import render_help_collapse
 
 
 def _fmt_ts(ts: float) -> str:
@@ -17,6 +18,11 @@ def _fmt_ts(ts: float) -> str:
 async def render_llm_admin(ctx: dict):
     set_scope("llm_content")
     apply_strategy_like_styles(ctx, scope="llm_content", include_compact_table=True)
+
+    try:
+        render_help_collapse("llm_controller")
+    except Exception:
+        pass
 
     decisions_db = NB("naja_llm_decisions")
     decisions = []

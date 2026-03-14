@@ -1,0 +1,238 @@
+"""Bandit 自适应交易系统 UI"""
+
+from datetime import datetime
+from pywebio.output import *
+from pywebio import session
+import threading
+
+from deva.naja.page_help import render_help_collapse
+
+_auto_refresh_enabled = True
+
+
+def set_auto_refresh(enabled: bool):
+    global _auto_refresh_enabled
+    _auto_refresh_enabled = enabled
+
+
+async def render_bandit_admin(ctx: dict):
+    """渲染 Bandit 管理页面"""
+    
+    from deva.naja.bandit import (
+        get_adaptive_cycle,
+        get_bandit_optimizer,
+        get_virtual_portfolio,
+        get_signal_listener,
+        get_market_observer,
+    )
+    
+    cycle = get_adaptive_cycle()
+    optimizer = get_bandit_optimizer()
+    portfolio = get_virtual_portfolio()
+    listener = get_signal_listener()
+    observer = get_market_observer()
+    
+    status = cycle.get_status()
+    positions = cycle.get_positions()
+    history = cycle.get_history(limit=20)
+    bandit_stats = optimizer.get_all_stats()
+    portfolio_summary = portfolio.get_summary()
+    
+    with use_scope("bandit_header"):
+        put_html("<h2>🎰 Bandit 自适应交易系统</h2>")
+        
+        try:
+            render_help_collapse("bandit")
+        except Exception:
+            pass
+        
+        put_row([
+            put_button("启动循环", onclick=lambda: _do_start(cycle), small=True),
+            put_button("停止循环", onclick=lambda: _do_stop(cycle), small=True),
+        ], size="auto")
+        
+        put_text("")
+    
+    with use_scope("bandit_status"):
+        put_row([
+            put_column([
+                put_html("<b>运行状态</b>"),
+                put_text(f"循环: {'🟢 运行中' if status['running'] else '🔴 已停止'}"),
+                put_text(f"自动买入: {'✅ 启用' if status['auto_buy_enabled'] else '❌ 禁用'}"),
+                put_text(f"自动调节: {'✅ 启用' if status['auto_adjust_enabled'] else '❌ 禁用'}"),
+            ]),
+            put_column([
+                put_html("<b>信号监听</b>"),
+                put_text(f"轮询间隔: {status['signal_listener']['poll_interval']}s"),
+                put_text(f"最小置信度: {status['signal_listener']['min_confidence']}"),
+                put_text(f"已处理信号: {status['signal_listener']['processed_count']}"),
+            ]),
+            put_column([
+                put_html("<b>市场观察</b>"),
+                put_text(f"更新间隔: {status['market_observer']['update_interval']}s"),
+                put_text(f"跟踪股票: {len(status['market_observer']['tracked_stocks'])}"),
+                put_text(f"最新价格: {len(status['market_observer']['prices'])}"),
+            ]),
+        ], size="1fr 1fr 1fr")
+    
+    put_text("")
+    
+    with use_scope("bandit_portfolio"):
+        put_html("<h3>💰 虚拟持仓</h3>")
+        put_row([
+            put_column([
+                put_html("<b>资金状况</b>"),
+                put_text(f"总资金: ¥{portfolio_summary['total_value']:,.2f}"),
+                put_text(f"已用: ¥{portfolio_summary['used_capital']:,.2f}"),
+                put_text(f"可用: ¥{portfolio_summary['available_capital']:,.2f}"),
+            ]),
+            put_column([
+                put_html("<b>持仓统计</b>"),
+                put_text(f"持仓数量: {portfolio_summary['position_count']}"),
+                put_text(f"总收益: {portfolio_summary['total_return']:.2f}%"),
+                put_text(f"总盈亏: ¥{portfolio_summary['total_profit_loss']:,.2f}"),
+            ]),
+        ], size="1fr 1fr")
+    
+    if positions:
+        put_text("")
+        put_html("<h4>当前持仓</h4>")
+        positions_data = []
+        for p in positions:
+            color = "green" if p['return_pct'] > 0 else "red"
+            positions_data.append([
+                p['stock_name'],
+                p['stock_code'],
+                f"¥{p['entry_price']:.2f}",
+                f"¥{p['current_price']:.2f}",
+                f"<span style='color:{color}'>{p['return_pct']:.2f}%</span>",
+                f"¥{p['profit_loss']:.2f}",
+                f"{p['holding_seconds'] / 3600:.1f}h",
+            ])
+        
+        put_table(positions_data, header=[
+            "股票名称", "代码", "入场价", "现价", "收益率", "盈亏", "持仓时间"
+        ])
+    else:
+        put_text("暂无持仓")
+    
+    if history:
+        put_text("")
+        put_html("<h4>历史平仓记录</h4>")
+        history_data = []
+        for h in history:
+            color = "green" if h['return_pct'] > 0 else "red"
+            history_data.append([
+                h['stock_name'],
+                h['stock_code'],
+                f"¥{h['entry_price']:.2f}",
+                f"¥{h['current_price']:.2f}",
+                f"<span style='color:{color}'>{h['return_pct']:.2f}%</span>",
+                f"¥{h['profit_loss']:.2f}",
+                datetime.fromtimestamp(h['entry_time']).strftime("%m-%d %H:%M"),
+            ])
+        
+        put_table(history_data, header=[
+            "股票名称", "代码", "入场价", "出场价", "收益率", "盈亏", "时间"
+        ])
+    
+    put_text("")
+    
+    with use_scope("bandit_stats"):
+        put_html("<h3>📊 Bandit 策略统计</h3>")
+        
+        if bandit_stats:
+            stats_data = []
+            for s in bandit_stats:
+                stats_data.append([
+                    s['strategy_id'],
+                    s['pull_count'],
+                    f"{s['avg_reward']:.2f}%",
+                    f"¥{s['total_reward']:.2f}",
+                ])
+            
+            put_table(stats_data, header=[
+                "策略 ID", "执行次数", "平均收益", "总收益"
+            ])
+        else:
+            put_text("暂无策略数据")
+    
+    put_text("")
+    
+    with use_scope("bandit_controls"):
+        put_html("<h3>⚙️ 控制面板</h3>")
+        
+        put_row([
+            put_column([
+                put_button("手动选择策略", onclick=lambda: _do_select(optimizer), small=True),
+                put_button("触发调节", onclick=lambda: _do_adjust(optimizer), small=True),
+            ]),
+            put_column([
+                put_button("清空持仓", onclick=lambda: _do_clear(portfolio), small=True),
+                put_button("重置 Bandit", onclick=lambda: _do_reset(optimizer), small=True),
+            ]),
+        ], size="1fr 1fr")
+
+
+def _do_start(cycle):
+    try:
+        cycle.start()
+        put_text("✅ 自适应循环已启动")
+    except Exception as e:
+        put_text(f"❌ 启动失败: {e}")
+
+
+def _do_stop(cycle):
+    try:
+        cycle.stop()
+        put_text("✅ 自适应循环已停止")
+    except Exception as e:
+        put_text(f"❌ 停止失败: {e}")
+
+
+def _do_select(optimizer):
+    try:
+        from deva.naja.strategy import get_strategy_manager
+        mgr = get_strategy_manager()
+        entries = mgr.list_all()
+        
+        if not entries:
+            put_text("⚠️ 没有可用策略")
+            return
+        
+        available = [e.id for e in entries]
+        result = optimizer.select_strategy(available)
+        
+        if result.get("success"):
+            put_text(f"✅ 选择策略: {result['selected']}")
+        else:
+            put_text(f"❌ 选择失败: {result.get('error')}")
+    except Exception as e:
+        put_text(f"❌ 错误: {e}")
+
+
+def _do_adjust(optimizer):
+    try:
+        result = optimizer.review_and_adjust()
+        if result.get("success"):
+            put_text(f"✅ 调节完成: {result.get('summary')}")
+        else:
+            put_text(f"❌ 调节失败: {result.get('error')}")
+    except Exception as e:
+        put_text(f"❌ 错误: {e}")
+
+
+def _do_clear(portfolio):
+    try:
+        count = portfolio.close_all("MANUAL")
+        put_text(f"✅ 已清空 {count} 个持仓")
+    except Exception as e:
+        put_text(f"❌ 清空失败: {e}")
+
+
+def _do_reset(optimizer):
+    try:
+        optimizer._arms.clear()
+        put_text("✅ Bandit 已重置")
+    except Exception as e:
+        put_text(f"❌ 重置失败: {e}")

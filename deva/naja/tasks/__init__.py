@@ -121,7 +121,7 @@ class TaskEntry(RecoverableUnit):
 
     def _do_start(self, func: Callable) -> dict:
         try:
-            mode = _normalize_execution_mode(
+            mode = normalize_execution_mode(
                 getattr(self._metadata, "execution_mode", ""),
                 getattr(self._metadata, "task_type", ""),
             )
@@ -318,7 +318,7 @@ class TaskEntry(RecoverableUnit):
         self._state.last_run_time = time.time()
         self._execution_count += 1
 
-        mode = _normalize_execution_mode(
+        mode = normalize_execution_mode(
             getattr(self._metadata, "execution_mode", ""),
             getattr(self._metadata, "task_type", ""),
         )
@@ -333,20 +333,16 @@ class TaskEntry(RecoverableUnit):
         return result_text if is_success else None
 
     def _save_history(self, success: bool, duration: float, result: str):
-        """保存执行历史"""
-        try:
-            db = NB(TASK_HISTORY_TABLE)
-            history_key = f"{self.id}_{int(time.time() * 1000)}"
-            db[history_key] = {
-                "task_id": self.id,
-                "task_name": self.name,
-                "success": success,
-                "duration": duration,
-                "result": result[:500] if result else "",
-                "timestamp": time.time(),
-            }
-        except Exception:
-            pass
+        """保存执行历史（精简为仅流化记录，默认不落库）。
+
+        设计目标：
+        - 任务面板主要关注「计数 + 最近一次结果」，这些已经在 TaskState 中维护；
+        - 避免为每次任务执行都写入 DB，从而降低锁竞争与磁盘占用。
+        - 如需审计/回放，可后续引入专门的任务日志流或按需持久化，而不是每次都写 DB。
+        """
+        # 目前仅更新 TaskState，保留扩展点，避免频繁 DB 写入。
+        # 如果后续需要，可以在这里将摘要写入某个日志流（例如 NS('naja_task_log')）。
+        return
 
     def run_once(self) -> dict:
         """手动执行一次"""
@@ -383,7 +379,7 @@ class TaskEntry(RecoverableUnit):
         if task_type is not None:
             self._metadata.task_type = task_type
         if execution_mode is not None or task_type is not None:
-            self._metadata.execution_mode = _normalize_execution_mode(execution_mode, task_type)
+            self._metadata.execution_mode = normalize_execution_mode(execution_mode, task_type)
         if interval_seconds is not None:
             self._metadata.interval_seconds = max(0.1, float(interval_seconds))
         if scheduler_trigger is not None:
@@ -422,7 +418,7 @@ class TaskEntry(RecoverableUnit):
             return {"success": False, "error": str(e)}
 
     def to_dict(self) -> dict:
-        mode = _normalize_execution_mode(
+        mode = normalize_execution_mode(
             getattr(self._metadata, "execution_mode", ""),
             getattr(self._metadata, "task_type", ""),
         )
@@ -552,7 +548,7 @@ class TaskManager:
         if "execute" not in func_code:
             return {"success": False, "error": "代码必须包含 execute 函数"}
 
-        mode = _normalize_execution_mode(execution_mode, task_type)
+        mode = normalize_execution_mode(execution_mode, task_type)
         metadata = TaskMetadata(
             id=entry_id,
             name=name,
