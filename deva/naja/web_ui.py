@@ -295,7 +295,7 @@ async def dsadmin():
 
 
 async def signaladmin():
-    """信号流"""
+    """信号流 - 策略结果可视化"""
     from .signal.ui import render_signal_page
     ctx = _ctx()
     await ctx["init_naja_ui"]("信号流")
@@ -319,10 +319,10 @@ async def strategyadmin():
 
 
 async def radaradmin():
-    """雷达事件"""
+    """市场偏好雷达 - 技术偏好变化检测"""
     from .radar.ui import render_radar_admin
     ctx = _ctx()
-    await ctx["init_naja_ui"]("雷达事件")
+    await ctx["init_naja_ui"]("市场偏好雷达")
     return await render_radar_admin(ctx)
 
 
@@ -332,6 +332,14 @@ async def llmadmin():
     ctx = _ctx()
     await ctx["init_naja_ui"]("LLM 调节")
     return await render_llm_admin(ctx)
+
+
+async def banditadmin():
+    """Bandit 自适应交易"""
+    from .bandit.ui import render_bandit_admin
+    ctx = _ctx()
+    await ctx["init_naja_ui"]("Bandit 自适应交易")
+    await render_bandit_admin(ctx)
 
 
 async def dictadmin():
@@ -362,7 +370,7 @@ async def configadmin():
 
 
 def memory_page():
-    """记忆页面"""
+    """叙事主题记忆 - 叙事与主题分析"""
     ui = LobsterRadarUI()
     ui.render()
 
@@ -373,10 +381,15 @@ def performance_page():
     ui.render()
 
 
+def _get_log_stream_page():
+    from .log_stream import log_stream_page
+    return log_stream_page
+
+
 def create_handlers(cdn: str = None):
     """创建路由处理器"""
     cdn_url = cdn or 'https://fastly.jsdelivr.net/gh/wang0618/PyWebIO-assets@v1.8.3/'
-    
+
     return [
         (r'/', webio_handler(main, cdn=cdn_url)),
         (r'/memory', webio_handler(memory_page, cdn=cdn_url)),
@@ -387,9 +400,11 @@ def create_handlers(cdn: str = None):
         (r'/strategyadmin', webio_handler(strategyadmin, cdn=cdn_url)),
         (r'/radaradmin', webio_handler(radaradmin, cdn=cdn_url)),
         (r'/llmadmin', webio_handler(llmadmin, cdn=cdn_url)),
+        (r'/banditadmin', webio_handler(banditadmin, cdn=cdn_url)),
         (r'/dictadmin', webio_handler(dictadmin, cdn=cdn_url)),
         (r'/tableadmin', webio_handler(tableadmin, cdn=cdn_url)),
         (r'/configadmin', webio_handler(configadmin, cdn=cdn_url)),
+        (r'/logstream', webio_handler(lambda: _get_log_stream_page()(), cdn=cdn_url)),
     ]
 
 
@@ -432,7 +447,7 @@ def run_server(port: int = 8080, host: str = '0.0.0.0'):
     dict_mgr.load_from_db()
     dict_mgr.restore_running_states()
     
-    print("📡 初始化信号流...")
+    print("📊 初始化监控台...")
     get_signal_stream()  # 初始化信号流并从持久化存储加载数据
     
     print("🛡️ 启动系统监控...")
