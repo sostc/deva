@@ -1048,7 +1048,7 @@ async def _auto_refresh_strategy_board(ctx: dict, strategy_id: str, strategy_nam
                 # 处理新结果
                 for r in new_results:
                     # 使用信号处理器生成详细内容
-                    from .signal_processor import get_signal_type, get_signal_detail, generate_expanded_content
+                    from ..signal.processor import get_signal_type, get_signal_detail, generate_expanded_content
                     icon, color, signal_label, importance = get_signal_type(r)
                     signal_detail = get_signal_detail(r)
                     expanded_content = generate_expanded_content(r, signal_detail)
@@ -1190,12 +1190,12 @@ async def _show_strategy_board(ctx: dict, mgr, entry_id: str):
         time_full = datetime.fromtimestamp(r.ts).strftime("%Y-%m-%d %H:%M:%S")
         
         # 使用信号处理器生成详细内容
-        from .signal_processor import get_signal_detail, generate_expanded_content
+        from ..signal.processor import get_signal_detail, generate_expanded_content
         detail = get_signal_detail(r)
         expanded_content = generate_expanded_content(r, detail)
 
         # 使用信号处理器获取信号类型和详细信息
-        from .signal_processor import get_signal_type, get_signal_detail
+        from ..signal.processor import get_signal_type, get_signal_detail
         icon, color, signal_label, importance = get_signal_type(r)
         signal_detail = get_signal_detail(r)
         
@@ -1613,6 +1613,68 @@ async def _edit_strategy_dialog(ctx: dict, mgr, entry_id: str):
     category_options.append({"label": "+ 新建类别...", "value": "__new__"})
 
     with ctx["popup"](f"编辑策略: {entry.name}", size="large", closable=True):
+        
+        # 先获取输出目标配置（在 popup 里面，表单之前）
+        from .output_controller import get_output_controller
+        output_ctrl = get_output_controller()
+        current_config = output_ctrl.get_config(entry_id)
+        
+        # 显示输出目标配置
+        ctx["put_html"]("""
+        <div style="margin-bottom:15px;padding:12px;background:#f8fafc;border-radius:8px;border:1px solid #e2e8f0;">
+            <div style="font-weight:600;color:#334155;margin-bottom:10px;">📤 输出目标配置</div>
+            <div style="display:flex;gap:20px;flex-wrap:wrap;margin-bottom:8px;">
+                <label style="display:flex;align-items:center;gap:6px;cursor:pointer;">
+                    <input type="checkbox" name="output_signal" """ + ("checked" if current_config.signal else "") + """ style="width:16px;height:16px;">
+                    <span style="font-size:13px;">💰 信号流</span>
+                    <span style="font-size:11px;color:#64748b;">(存储)</span>
+                </label>
+                <label style="display:flex;align-items:center;gap:6px;cursor:pointer;">
+                    <input type="checkbox" name="output_radar" """ + ("checked" if current_config.radar else "") + """ style="width:16px;height:16px;">
+                    <span style="font-size:13px;">📡 雷达</span>
+                    <span style="font-size:11px;color:#f59e0b;">(技术)</span>
+                </label>
+                <label style="display:flex;align-items:center;gap:6px;cursor:pointer;">
+                    <input type="checkbox" name="output_memory" """ + ("checked" if current_config.memory else "") + """ style="width:16px;height:16px;">
+                    <span style="font-size:13px;">🧠 记忆</span>
+                    <span style="font-size:11px;color:#8b5cf6;">(叙事)</span>
+                </label>
+                <label style="display:flex;align-items:center;gap:6px;cursor:pointer;">
+                    <input type="checkbox" name="output_bandit" """ + ("checked" if current_config.bandit else "") + """ style="width:16px;height:16px;">
+                    <span style="font-size:13px;">🎰 Bandit</span>
+                    <span style="font-size:11px;color:#f43f5e;">(交易)</span>
+                </label>
+            </div>
+            
+            <!-- 输出结构规范说明 -->
+            <div style="margin-top:12px;padding-top:12px;border-top:1px solid #e2e8f0;">
+                <div style="font-size:11px;color:#64748b;margin-bottom:8px;">📋 输出结构规范（开启目标后需按此结构输出）</div>
+                <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;font-size:10px;">
+                    <div style="background:#fff;padding:8px;border-radius:6px;border:1px solid #f5576c;">
+                        <div style="font-weight:600;color:#f5576c;margin-bottom:4px;">💰 信号流</div>
+                        <div style="color:#666;">输出所有结果</div>
+                        <div style="color:#999;">任意格式均支持</div>
+                    </div>
+                    <div style="background:#fff;padding:8px;border-radius:6px;border:1px solid #f59e0b;">
+                        <div style="font-weight:600;color:#f59e0b;margin-bottom:4px;">📡 雷达</div>
+                        <div style="color:#666;">signal_type, score</div>
+                        <div style="color:#999;">例: fast_anomaly</div>
+                    </div>
+                    <div style="background:#fff;padding:8px;border-radius:6px;border:1px solid #8b5cf6;">
+                        <div style="font-weight:600;color:#8b5cf6;margin-bottom:4px;">🧠 记忆</div>
+                        <div style="color:#666;">content 必需</div>
+                        <div style="color:#999;">topic, sentiment</div>
+                    </div>
+                    <div style="background:#fff;padding:8px;border-radius:6px;border:1px solid #f43f5e;grid-column:span 3;">
+                        <div style="font-weight:600;color:#f43f5e;margin-bottom:4px;">🎰 Bandit</div>
+                        <div style="color:#666;">signal_type(BUY/SELL), stock_code, price</div>
+                        <div style="color:#999;">confidence, amount, reason 可选</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        """)
+        
         compute_mode = getattr(entry._metadata, "compute_mode", "record")
         window_type = getattr(entry._metadata, "window_type", "sliding")
         window_return_partial = getattr(entry._metadata, "window_return_partial", False)
@@ -1638,6 +1700,17 @@ async def _edit_strategy_dialog(ctx: dict, mgr, entry_id: str):
                 + "".join([f"<div><code>{k}</code>：{v}</div>" for k, v in param_help.items()])
                 + "</div>"
             )
+
+        ctx["put_html"]("""
+        <div style="margin:0 0 15px 0;padding:10px 12px;background:#f8fafc;border-radius:6px;border:1px solid #e2e8f0;font-size:12px;">
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+                <div><b style="color:#6366f1;">legacy</b> - 传统代码模式，编写 Python process 函数处理数据</div>
+                <div><b style="color:#10b981;">river</b> - 使用 River 机器学习库，适合在线学习/预测场景</div>
+                <div><b style="color:#f59e0b;">declarative</b> - 声明式配置，通过 pipeline/model/logic 定义处理流程</div>
+                <div><b style="color:#ec4899;">plugin</b> - 插件模式，通过类路径加载自定义策略实现</div>
+            </div>
+        </div>
+        """)
 
         form = await ctx["input_group"]("策略配置", [
             ctx["input"]("名称", name="name", required=True, value=entry.name),
@@ -1750,6 +1823,20 @@ async def _edit_strategy_dialog(ctx: dict, mgr, entry_id: str):
                 strategy_params=strategy_params,
             )
 
+            # 保存输出目标配置
+            try:
+                from .output_controller import get_output_controller
+                output_ctrl = get_output_controller()
+                output_ctrl.update_targets(
+                    entry_id,
+                    signal=form.get("output_signal", True),
+                    radar=form.get("output_radar", True),
+                    memory=form.get("output_memory", True),
+                    bandit=form.get("output_bandit", False),
+                )
+            except Exception as e:
+                print(f"保存输出配置失败: {e}")
+
             if result.get("success"):
                 ctx["toast"]("保存成功", color="success")
                 ctx["close_popup"]()
@@ -1791,7 +1878,16 @@ async def _create_strategy_dialog_async(mgr, ctx: dict):
 
     with ctx["popup"]("创建策略", size="large", closable=True):
         ctx["put_markdown"]("### 创建策略")
-        ctx["put_html"]("<p style='color:#666;font-size:13px;'>处理数据流中的数据</p>")
+        ctx["put_html"]("""
+        <div style="margin:0 0 15px 0;padding:10px 12px;background:#f8fafc;border-radius:6px;border:1px solid #e2e8f0;font-size:12px;">
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+                <div><b style="color:#6366f1;">legacy</b> - 传统代码模式，编写 Python process 函数处理数据</div>
+                <div><b style="color:#10b981;">river</b> - 使用 River 机器学习库，适合在线学习/预测场景</div>
+                <div><b style="color:#f59e0b;">declarative</b> - 声明式配置，通过 pipeline/model/logic 定义处理流程</div>
+                <div><b style="color:#ec4899;">plugin</b> - 插件模式，通过类路径加载自定义策略实现</div>
+            </div>
+        </div>
+        """)
 
         form = await ctx["input_group"]("策略配置", [
             ctx["input"]("名称", name="name", required=True, placeholder="输入策略名称"),
@@ -1831,6 +1927,68 @@ async def _create_strategy_dialog_async(mgr, ctx: dict):
                             value=DEFAULT_STRATEGY_CODE,
                             rows=14,
                             code={"mode": "python", "theme": "darcula"}),
+        ])
+
+        # 添加输出目标配置（创建时默认全部开启信号）
+        ctx["put_html"]("""
+        <div style="margin:15px 0;padding:12px;background:#f8fafc;border-radius:8px;border:1px solid #e2e8f0;">
+            <div style="font-weight:600;color:#334155;margin-bottom:10px;">📤 输出目标配置</div>
+            <div style="display:flex;gap:20px;flex-wrap:wrap;margin-bottom:8px;">
+                <label style="display:flex;align-items:center;gap:6px;cursor:pointer;">
+                    <input type="checkbox" name="output_signal" checked style="width:16px;height:16px;">
+                    <span style="font-size:13px;">📡 信号流</span>
+                    <span style="font-size:11px;color:#64748b;">(存储)</span>
+                </label>
+                <label style="display:flex;align-items:center;gap:6px;cursor:pointer;">
+                    <input type="checkbox" name="output_radar" checked style="width:16px;height:16px;">
+                    <span style="font-size:13px;">📡 雷达</span>
+                    <span style="font-size:11px;color:#f59e0b;">(技术)</span>
+                </label>
+                <label style="display:flex;align-items:center;gap:6px;cursor:pointer;">
+                    <input type="checkbox" name="output_memory" checked style="width:16px;height:16px;">
+                    <span style="font-size:13px;">🧠 记忆</span>
+                    <span style="font-size:11px;color:#8b5cf6;">(叙事)</span>
+                </label>
+                <label style="display:flex;align-items:center;gap:6px;cursor:pointer;">
+                    <input type="checkbox" name="output_bandit" style="width:16px;height:16px;">
+                    <span style="font-size:13px;">🎰 Bandit</span>
+                    <span style="font-size:11px;color:#f43f5e;">(交易)</span>
+                </label>
+            </div>
+            <div style="font-size:11px;color:#94a3b8;">
+                新策略默认开启信号流、雷达、记忆输出。Bandit 交易需要手动开启。
+            </div>
+            
+            <!-- 输出结构规范说明 -->
+            <div style="margin-top:12px;padding-top:12px;border-top:1px solid #e2e8f0;">
+                <div style="font-size:11px;color:#64748b;margin-bottom:8px;">📋 输出结构规范</div>
+                <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;font-size:10px;">
+                    <div style="background:#fff;padding:8px;border-radius:6px;border:1px solid #f5576c;">
+                        <div style="font-weight:600;color:#f5576c;margin-bottom:4px;">💰 信号流</div>
+                        <div style="color:#666;">输出所有结果</div>
+                        <div style="color:#999;">任意格式均支持</div>
+                    </div>
+                    <div style="background:#fff;padding:8px;border-radius:6px;border:1px solid #f59e0b;">
+                        <div style="font-weight:600;color:#f59e0b;margin-bottom:4px;">📡 雷达</div>
+                        <div style="color:#666;">signal_type, score</div>
+                        <div style="color:#999;">例: fast_anomaly</div>
+                    </div>
+                    <div style="background:#fff;padding:8px;border-radius:6px;border:1px solid #8b5cf6;">
+                        <div style="font-weight:600;color:#8b5cf6;margin-bottom:4px;">🧠 记忆</div>
+                        <div style="color:#666;">content 必需</div>
+                        <div style="color:#999;">topic, sentiment</div>
+                    </div>
+                    <div style="background:#fff;padding:8px;border-radius:6px;border:1px solid #f43f5e;grid-column:span 3;">
+                        <div style="font-weight:600;color:#f43f5e;margin-bottom:4px;">🎰 Bandit</div>
+                        <div style="color:#666;">signal_type(BUY/SELL), stock_code, price</div>
+                        <div style="color:#999;">confidence, amount, reason 可选</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        """)
+
+        form = await ctx["input_group"]("确认", [
             ctx["actions"]("操作", [
                 {"label": "创建", "value": "create"},
                 {"label": "取消", "value": "cancel"},
@@ -1897,7 +2055,24 @@ async def _create_strategy_dialog_async(mgr, ctx: dict):
                 strategy_params=strategy_params,
             )
 
+            # 创建成功后设置默认输出目标配置
             if result.get("success"):
+                try:
+                    from .output_controller import get_output_controller
+                    output_ctrl = get_output_controller()
+                    # 新策略默认开启：信号流、雷达、记忆
+                    strategy_id = result.get("strategy_id", "")
+                    if strategy_id:
+                        output_ctrl.update_targets(
+                            strategy_id,
+                            signal=True,
+                            radar=True,
+                            memory=True,
+                            bandit=False
+                        )
+                except Exception:
+                    pass
+
                 ctx["toast"]("创建成功", color="success")
                 ctx["close_popup"]()
                 _render_strategy_content(ctx)
