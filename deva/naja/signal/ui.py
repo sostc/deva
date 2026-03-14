@@ -112,7 +112,8 @@ def _insert_signal_item(ctx, result):
     highlights_str = " | ".join(str(h) for h in detail['highlights'][:4]) if detail['highlights'] else ""
     
     expanded_content = generate_expanded_content(result, detail)
-    expanded_content_escaped = json.dumps(expanded_content)
+    import json
+    expanded_content_json = json.dumps(expanded_content, ensure_ascii=False)
     
     signal_data = {
         'icon': icon,
@@ -124,7 +125,7 @@ def _insert_signal_item(ctx, result):
         'highlights': highlights_str,
         'border_width': border_width,
         'bg_style': bg_style,
-        'expanded_content': expanded_content_escaped,
+        'expanded_content': expanded_content_json,
         'importance': importance,
     }
     
@@ -151,7 +152,7 @@ def _insert_signal_item(ctx, result):
         div.style.cssText = 'display:flex;flex-direction:column;padding:0;margin:6px 0;' + data.bg_style + 'border-radius:10px;border-left:' + data.border_width + ' solid ' + data.color + ';box-shadow:0 2px 8px rgba(0,0,0,0.06);opacity:0;transform:translateY(-20px);transition:all 0.3s ease;cursor:pointer;';
         div.onclick = function() {{ toggleSignalExpand(this); }};
         
-        div.innerHTML = '<div class="signal-header" style="display:flex;align-items:stretch;"><div style="display:flex;align-items:center;justify-content:center;padding:0 12px;"><div style="font-size:24px;">' + data.icon + '</div></div><div style="flex:1;padding:10px 12px 10px 0;min-width:0;"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;"><div style="display:flex;align-items:center;gap:8px;"><span style="font-weight:600;color:#333;font-size:14px;">' + data.strategy_name + '</span><span style="display:inline-block;padding:1px 6px;border-radius:10px;font-size:10px;background:' + data.color + '22;color:' + data.color + ';">' + data.signal_label + '</span></div><div style="display:flex;align-items:center;gap:6px;"><span style="font-size:11px;color:#999;white-space:nowrap;">' + data.time_str + '</span><span class="expand-icon" style="font-size:10px;color:#999;transition:transform 0.2s;">▼</span></div></div><div style="font-size:13px;color:#333;font-weight:500;margin-bottom:2px;">' + data.summary + '</div>' + (data.highlights ? '<div style="font-size:11px;color:#666;margin-top:4px;">' + data.highlights + '</div>' : '') + '</div></div><div class="signal-detail" style="display:none;padding:0 12px 12px 48px;">' + data.expanded_content + '</div>';
+        div.innerHTML = '<div class="signal-header" style="display:flex;align-items:stretch;"><div style="display:flex;align-items:center;justify-content:center;padding:0 12px;"><div style="font-size:24px;">' + data.icon + '</div></div><div style="flex:1;padding:10px 12px 10px 0;min-width:0;"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;"><div style="display:flex;align-items:center;gap:8px;"><span style="font-weight:600;color:#333;font-size:14px;">' + data.strategy_name + '</span><span style="display:inline-block;padding:1px 6px;border-radius:10px;font-size:10px;background:' + data.color + '22;color:' + data.color + ';">' + data.signal_label + '</span></div><div style="display:flex;align-items:center;gap:6px;"><span style="font-size:11px;color:#999;white-space:nowrap;">' + data.time_str + '</span><span class="expand-icon" style="font-size:10px;color:#999;transition:transform 0.2s;">▼</span></div></div><div style="font-size:13px;color:#333;font-weight:500;margin-bottom:2px;">' + data.summary + '</div>' + (data.highlights ? '<div style="font-size:11px;color:#666;margin-top:4px;">' + data.highlights + '</div>' : '') + '</div></div><div class="signal-detail" style="display:none;padding:0 12px 12px 48px;">' + JSON.parse(data.expanded_content) + '</div>';
         
         var filterCb = document.querySelector('.signal-filter[value="' + data.importance + '"]');
         if (filterCb && !filterCb.checked) {{
@@ -175,7 +176,7 @@ def _insert_signal_item(ctx, result):
         }}
     }})();
     </script>
-    '''.format(data=json.dumps(signal_data))
+    '''.format(data=json.dumps(signal_data, ensure_ascii=False))
     
     ctx["put_html"](insert_script, scope="signal_stream")
 
