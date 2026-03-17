@@ -21,7 +21,7 @@ from deva import NW, Deva, NB
 from .config import get_auth_config, set_config, ensure_auth_secret
 
 # 导入记忆系统UI
-from .memory.ui import LobsterRadarUI
+from .memory.ui import NewsRadarUI
 from .performance import PerformanceMonitorUI
 
 
@@ -371,7 +371,7 @@ async def configadmin():
 
 def memory_page():
     """叙事主题记忆 - 叙事与主题分析"""
-    ui = LobsterRadarUI()
+    ui = NewsRadarUI()
     ui.render()
 
 

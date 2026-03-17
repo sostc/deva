@@ -103,7 +103,42 @@ class RiverTickAnomalyHST:
         }
 
     def get_signal(self) -> Optional[Dict[str, Any]]:
-        return self._last
+        if self._last is None:
+            return None
+        
+        signal = dict(self._last)
+        
+        score = signal.get("score", 0)
+        features = signal.get("features", {})
+        
+        html_parts = []
+        html_parts.append('<div style="margin-bottom:12px;">')
+        html_parts.append('<div style="font-weight:600;color:#2563eb;margin-bottom:8px;">🧪 市场异常检测 (HST)</div>')
+        html_parts.append('<div style="color:#666;font-size:12px;margin-bottom:8px;">HalfSpaceTrees 计算市场整体异常度</div>')
+        
+        score_color = '#ef4444' if score > 0.8 else '#f59e0b' if score > 0.5 else '#22c55e'
+        score_bg = '#fef2f2' if score > 0.8 else '#fffbeb' if score > 0.5 else '#f0fdf4'
+        
+        html_parts.append('<div style="background:' + score_bg + ';border:1px solid ' + score_color + ';padding:12px;border-radius:12px;margin-bottom:12px;">')
+        html_parts.append('<div style="font-size:12px;color:#666;">异常分数</div>')
+        html_parts.append('<div style="font-size:28px;font-weight:700;color:' + score_color + ';">' + '{:.3f}'.format(score) + '</div>')
+        html_parts.append('</div>')
+        
+        html_parts.append('<div style="display:grid;grid-template-columns:repeat(2,1fr);gap:8px;">')
+        html_parts.append('<div style="background:#fff;padding:10px;border-radius:8px;text-align:center;">')
+        html_parts.append('<div style="font-size:16px;font-weight:600;">' + str(int(features.get("rows", 0))) + '</div>')
+        html_parts.append('<div style="font-size:11px;color:#888;">样本数</div>')
+        html_parts.append('</div>')
+        html_parts.append('<div style="background:#fff;padding:10px;border-radius:8px;text-align:center;">')
+        html_parts.append('<div style="font-size:16px;font-weight:600;">' + '{:.2f}'.format(features.get("price_std", 0)) + '</div>')
+        html_parts.append('<div style="font-size:11px;color:#888;">价格波动</div>')
+        html_parts.append('</div>')
+        html_parts.append('</div>')
+        
+        html_parts.append('</div>')
+        
+        signal["html"] = ''.join(html_parts)
+        return signal
 
     def update_params(self, params: Dict[str, Any]) -> None:
         # Rebuild model if core params change
@@ -138,7 +173,51 @@ class RiverTickRegimeCluster:
         }
 
     def get_signal(self) -> Optional[Dict[str, Any]]:
-        return self._last
+        if self._last is None:
+            return None
+        
+        signal = dict(self._last)
+        
+        cluster_id = signal.get("cluster", 0)
+        features = signal.get("features", {})
+        
+        html_parts = []
+        html_parts.append('<div style="margin-bottom:12px;">')
+        html_parts.append('<div style="font-weight:600;color:#8b5cf6;margin-bottom:8px;">🎯 市场状态聚类</div>')
+        html_parts.append('<div style="color:#666;font-size:12px;margin-bottom:8px;">KMeans 聚类判断市场状态</div>')
+        
+        state_names = {0: "震荡", 1: "上涨", 2: "下跌"}
+        state_colors = {"震荡": "#f59e0b", "上涨": "#22c55e", "下跌": "#ef4444"}
+        state_name = state_names.get(cluster_id, "未知")
+        state_color = state_colors.get(state_name, "#6b7280")
+        
+        html_parts.append('<div style="background:#f8f9fa;border-radius:12px;padding:16px;margin-bottom:12px;">')
+        html_parts.append('<div style="display:flex;justify-content:space-between;align-items:center;">')
+        html_parts.append('<div>')
+        html_parts.append('<div style="font-size:14px;color:#666;">市场状态</div>')
+        html_parts.append('<div style="font-size:24px;font-weight:700;color:' + state_color + ';">' + state_name + '</div>')
+        html_parts.append('</div>')
+        html_parts.append('<div style="text-align:right;">')
+        html_parts.append('<div style="font-size:14px;color:#666;">聚类ID</div>')
+        html_parts.append('<div style="font-size:20px;font-weight:600;">' + str(cluster_id) + '</div>')
+        html_parts.append('</div>')
+        html_parts.append('</div>')
+        
+        html_parts.append('<div style="display:grid;grid-template-columns:repeat(2,1fr);gap:8px;">')
+        html_parts.append('<div style="background:#fff;padding:10px;border-radius:8px;text-align:center;">')
+        html_parts.append('<div style="font-size:16px;font-weight:600;">' + '{:+.2f}%'.format(features.get("avg_p_change", 0)) + '</div>')
+        html_parts.append('<div style="font-size:11px;color:#888;">平均涨跌</div>')
+        html_parts.append('</div>')
+        html_parts.append('<div style="background:#fff;padding:10px;border-radius:8px;text-align:center;">')
+        html_parts.append('<div style="font-size:16px;font-weight:600;">' + '{:.2f}'.format(features.get("std_p_change", 0)) + '</div>')
+        html_parts.append('<div style="font-size:11px;color:#888;">波动率</div>')
+        html_parts.append('</div>')
+        html_parts.append('</div>')
+        
+        html_parts.append('</div>')
+        
+        signal["html"] = ''.join(html_parts)
+        return signal
 
     def update_params(self, params: Dict[str, Any]) -> None:
         n_clusters = int(params.get("n_clusters", 3))
@@ -163,7 +242,7 @@ class RiverTickDriftADWIN:
         value = _safe_float(feats.get("avg_p_change", 0.0))
         self._model.update(value)
         self._count += 1
-        drifted = bool(self._model.change_detected) if self._count >= self._min_n else False
+        drifted = bool(self._model.drift_detected) if self._count >= self._min_n else False
         self._last = {
             "signal_type": "tick_drift_adwin",
             "score": 1.0 if drifted else 0.0,
@@ -173,7 +252,34 @@ class RiverTickDriftADWIN:
         }
 
     def get_signal(self) -> Optional[Dict[str, Any]]:
-        return self._last
+        if self._last is None:
+            return None
+        signal = dict(self._last)
+        drifted = signal.get("drift", False)
+        features = signal.get("features", {})
+        html_parts = []
+        html_parts.append('<div style="margin-bottom:12px;">')
+        html_parts.append('<div style="font-weight:600;color:#ec4899;margin-bottom:8px;">📉 漂移检测 (ADWIN)</div>')
+        html_parts.append('<div style="color:#666;font-size:12px;margin-bottom:8px;">在线漂移检测，捕捉趋势突变</div>')
+        drift_color = '#ef4444' if drifted else '#22c55e'
+        drift_text = '⚠️ 检测到漂移' if drifted else '✓ 稳定'
+        drift_bg = '#fef2f2' if drifted else '#f0fdf4'
+        html_parts.append('<div style="background:' + drift_bg + ';border:1px solid ' + drift_color + ';padding:12px;border-radius:12px;margin-bottom:12px;">')
+        html_parts.append('<div style="font-size:14px;font-weight:600;color:' + drift_color + ';">' + drift_text + '</div>')
+        html_parts.append('</div>')
+        html_parts.append('<div style="display:grid;grid-template-columns:repeat(2,1fr);gap:8px;">')
+        html_parts.append('<div style="background:#fff;padding:10px;border-radius:8px;text-align:center;">')
+        html_parts.append('<div style="font-size:16px;font-weight:600;">' + str(int(features.get("n", 0))) + '</div>')
+        html_parts.append('<div style="font-size:11px;color:#888;">样本数</div>')
+        html_parts.append('</div>')
+        html_parts.append('<div style="background:#fff;padding:10px;border-radius:8px;text-align:center;">')
+        html_parts.append('<div style="font-size:16px;font-weight:600;">' + '{:.2f}'.format(features.get("avg_p_change", 0)) + '</div>')
+        html_parts.append('<div style="font-size:11px;color:#888;">平均变化</div>')
+        html_parts.append('</div>')
+        html_parts.append('</div>')
+        html_parts.append('</div>')
+        signal["html"] = ''.join(html_parts)
+        return signal
 
     def update_params(self, params: Dict[str, Any]) -> None:
         self._min_n = int(params.get("min_n", self._min_n))
@@ -205,7 +311,42 @@ class RiverTickVolumePriceSpike:
         }
 
     def get_signal(self) -> Optional[Dict[str, Any]]:
-        return self._last
+        if self._last is None:
+            return None
+        
+        signal = dict(self._last)
+        
+        score = signal.get("score", 0)
+        features = signal.get("features", {})
+        
+        html_parts = []
+        html_parts.append('<div style="margin-bottom:12px;">')
+        html_parts.append('<div style="font-weight:600;color:#f97316;margin-bottom:8px;">⚡ 量价尖峰识别</div>')
+        html_parts.append('<div style="color:#666;font-size:12px;margin-bottom:8px;">量价瞬时冲击评分，快速捕捉尖峰异动</div>')
+        
+        score_color = '#ef4444' if score > 2.0 else '#f59e0b' if score > 1.0 else '#22c55e'
+        score_bg = '#fef2f2' if score > 2.0 else '#fffbeb' if score > 1.0 else '#f0fdf4'
+        
+        html_parts.append('<div style="background:' + score_bg + ';border:1px solid ' + score_color + ';padding:12px;border-radius:12px;margin-bottom:12px;">')
+        html_parts.append('<div style="font-size:12px;color:#666;">尖峰分数</div>')
+        html_parts.append('<div style="font-size:28px;font-weight:700;color:' + score_color + ';">' + '{:.3f}'.format(score) + '</div>')
+        html_parts.append('</div>')
+        
+        html_parts.append('<div style="display:grid;grid-template-columns:repeat(2,1fr);gap:8px;">')
+        html_parts.append('<div style="background:#fff;padding:10px;border-radius:8px;text-align:center;">')
+        html_parts.append('<div style="font-size:16px;font-weight:600;">' + '{:.1f}'.format(features.get("volume_sum", 0)/1e6) + 'M</div>')
+        html_parts.append('<div style="font-size:11px;color:#888;">成交量</div>')
+        html_parts.append('</div>')
+        html_parts.append('<div style="background:#fff;padding:10px;border-radius:8px;text-align:center;">')
+        html_parts.append('<div style="font-size:16px;font-weight:600;">' + '{:.2f}'.format(features.get("price_std", 0)) + '</div>')
+        html_parts.append('<div style="font-size:11px;color:#888;">价格波动</div>')
+        html_parts.append('</div>')
+        html_parts.append('</div>')
+        
+        html_parts.append('</div>')
+        
+        signal["html"] = ''.join(html_parts)
+        return signal
 
     def update_params(self, params: Dict[str, Any]) -> None:
         self._vol_z_threshold = float(params.get("vol_z_threshold", self._vol_z_threshold))
@@ -234,13 +375,40 @@ class RiverTickMomentumTrend:
         }
 
     def get_signal(self) -> Optional[Dict[str, Any]]:
-        return self._last
-
-    def update_params(self, params: Dict[str, Any]) -> None:
-        self._trend_scale = float(params.get("trend_scale", self._trend_scale))
-
-
-class RiverTickTrendReversal:
+        if self._last is None:
+            return None
+        
+        signal = dict(self._last)
+        
+        score = signal.get("score", 0)
+        direction = signal.get("direction", "unknown")
+        
+        html_parts = []
+        html_parts.append('<div style="margin-bottom:12px;">')
+        html_parts.append('<div style="font-weight:600;color:#06b6d4;margin-bottom:8px;">📈 动量趋势</div>')
+        html_parts.append('<div style="color:#666;font-size:12px;margin-bottom:8px;">基于近期涨跌和波动率计算动量</div>')
+        
+        dir_colors = {"up": "#22c55e", "down": "#ef4444", "unknown": "#6b7280"}
+        dir_names = {"up": "上涨", "down": "下跌", "unknown": "震荡"}
+        
+        dir_color = dir_colors.get(direction, "#6b7280")
+        dir_name = dir_names.get(direction, "震荡")
+        
+        html_parts.append('<div style="background:#f8f9fa;border-radius:12px;padding:16px;margin-bottom:12px;">')
+        html_parts.append('<div style="display:flex;justify-content:space-between;align-items:center;">')
+        html_parts.append('<div>')
+        html_parts.append('<div style="font-size:14px;color:#666;">趋势方向</div>')
+        html_parts.append('<div style="font-size:24px;font-weight:700;color:' + dir_color + ';">' + dir_name + '</div>')
+        html_parts.append('</div>')
+        html_parts.append('<div style="text-align:right;">')
+        html_parts.append('<div style="font-size:14px;color:#666;">动量分数</div>')
+        html_parts.append('<div style="font-size:20px;font-weight:600;">' + '{:.2f}'.format(score) + '</div>')
+        html_parts.append('</div>')
+        html_parts.append('</div>')
+        html_parts.append('</div>')
+        
+        signal["html"] = ''.join(html_parts)
+        return signal
     """Detect potential trend reversal using avg_p_change sign flip."""
 
     def __init__(self, min_delta: float = 0.001):
@@ -269,7 +437,35 @@ class RiverTickTrendReversal:
         }
 
     def get_signal(self) -> Optional[Dict[str, Any]]:
-        return self._last
+        if self._last is None:
+            return None
+        signal = dict(self._last)
+        reversal = signal.get("score", 0) > 0.5
+        direction = signal.get("direction", "unknown")
+        features = signal.get("features", {})
+        html_parts = []
+        html_parts.append('<div style="margin-bottom:12px;">')
+        html_parts.append('<div style="font-weight:600;color:#f59e0b;margin-bottom:8px;">🔄 趋势反转检测</div>')
+        html_parts.append('<div style="color:#666;font-size:12px;margin-bottom:8px;">检测平均涨跌sign翻转，识别潜在反转</div>')
+        rev_color = '#ef4444' if reversal else '#22c55e'
+        rev_text = '⚠️ 可能反转' if reversal else '✓ 趋势延续'
+        rev_bg = '#fef2f2' if reversal else '#f0fdf4'
+        html_parts.append('<div style="background:' + rev_bg + ';border:1px solid ' + rev_color + ';padding:12px;border-radius:12px;margin-bottom:12px;">')
+        html_parts.append('<div style="font-size:14px;font-weight:600;color:' + rev_color + ';">' + rev_text + '</div>')
+        html_parts.append('</div>')
+        html_parts.append('<div style="display:grid;grid-template-columns:repeat(2,1fr);gap:8px;">')
+        html_parts.append('<div style="background:#fff;padding:10px;border-radius:8px;text-align:center;">')
+        html_parts.append('<div style="font-size:16px;font-weight:600;">' + direction + '</div>')
+        html_parts.append('<div style="font-size:11px;color:#888;">当前方向</div>')
+        html_parts.append('</div>')
+        html_parts.append('<div style="background:#fff;padding:10px;border-radius:8px;text-align:center;">')
+        html_parts.append('<div style="font-size:16px;font-weight:600;">' + '{:.2f}'.format(features.get("avg_p_change", 0)) + '</div>')
+        html_parts.append('<div style="font-size:11px;color:#888;">平均变化</div>')
+        html_parts.append('</div>')
+        html_parts.append('</div>')
+        html_parts.append('</div>')
+        signal["html"] = ''.join(html_parts)
+        return signal
 
     def update_params(self, params: Dict[str, Any]) -> None:
         self._min_delta = float(params.get("min_delta", self._min_delta))

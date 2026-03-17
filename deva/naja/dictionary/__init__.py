@@ -20,6 +20,16 @@ from ..scheduler import (
     normalize_execution_mode,
 )
 
+from .tongdaxin_blocks import (
+    get_stock_blocks,
+    get_block_info,
+    get_block_stocks,
+    get_all_blocks,
+    get_blocks_by_keyword,
+    get_stock_block_mapping,
+    get_dataframe,
+)
+
 
 DICT_ENTRY_TABLE = "naja_dictionary_entries"
 DICT_PAYLOAD_TABLE = "naja_dictionary_payloads"
@@ -1035,3 +1045,65 @@ def get_dictionary_manager() -> DictionaryManager:
             if _dict_manager is None:
                 _dict_manager = DictionaryManager()
     return _dict_manager
+
+
+def create_tongdaxin_blocks_dict(
+    name: str = "通达信概念板块", 
+    interval_seconds: int = 86400,
+    blocks_file: str = None
+) -> dict:
+    """创建通达信概念板块字典
+    
+    鲜活任务会定期读取 infoharbor_block.dat 文件来更新数据
+    
+    Args:
+        name: 字典名称
+        interval_seconds: 自动刷新间隔（秒），默认24小时
+        blocks_file: 板块数据文件路径，默认使用项目根目录的 infoharbor_block.dat
+    
+    Returns:
+        创建结果
+    """
+    from pathlib import Path
+    from deva.naja.dictionary.tongdaxin_blocks import BLOCKS_FILE
+    
+    file_path = blocks_file or BLOCKS_FILE
+    
+    func_code = f'''import pandas as pd
+from pathlib import Path
+
+def fetch_data():
+    blocks_file = "{file_path}"
+    from deva.naja.dictionary.tongdaxin_blocks import get_dataframe
+    return get_dataframe(filepath=blocks_file)
+'''
+    
+    mgr = get_dictionary_manager()
+    return mgr.create(
+        name=name,
+        description=f"通达信概念板块数据，从 {Path(file_path).name} 文件读取，包含股票与所属板块的映射关系",
+        dict_type="stock_basic_block",
+        source_mode="task",
+        func_code=func_code,
+        execution_mode="timer",
+        interval_seconds=interval_seconds,
+    )
+
+
+def enrich_stock_with_blocks(df: pd.DataFrame, code_column: str = "code") -> pd.DataFrame:
+    """为股票DataFrame补充板块信息
+    
+    Args:
+        df: 包含股票代码的DataFrame
+        code_column: 股票代码列名
+    
+    Returns:
+        补充了blocks列的DataFrame
+    """
+    from .tongdaxin_blocks import get_stock_blocks
+    
+    df = df.copy()
+    df[code_column] = df[code_column].astype(str).str.zfill(6)
+    df["blocks"] = df[code_column].apply(lambda x: "|".join(get_stock_blocks(x)))
+    df["block_count"] = df["blocks"].apply(lambda x: len(x.split("|")) if x else 0)
+    return df
