@@ -202,11 +202,11 @@ async def render_llm_admin(ctx: dict):
         })
 
     for idx, e in enumerate(tune_events):
-        before = e.get("before_value")
-        after = e.get("after_value")
-        param = e.get("param_name", "")
+        before = e.get("before")
+        after = e.get("after")
+        param = e.get("param", "")
         reason = e.get("reason", "")
-        action_type = e.get("action_type", "")
+        action_type = e.get("action", "")
         
         change_info = ""
         if before is not None and after is not None:
@@ -217,26 +217,24 @@ async def render_llm_admin(ctx: dict):
             "performance_degradation": "🟡 性能下降",
             "low_utilization": "🟢 资源低效",
             "business_change": "🔵 业务变化",
+            "manual": "🎯 手动调优",
         }
         
         all_events.append({
             "id": f"auto_{idx}",
-            "ts": e.get("ts", 0),
+            "ts": e.get("timestamp", 0),
             "type": "auto",
             "category": e.get("category", ""),
-            "title": e.get("condition", "-")[:40],
+            "title": param[:40] if param else "自动调优",
             "actions": 1,
             "status": "auto",
-            "detail": e.get("action", "-"),
+            "detail": e.get("explanation", "")[:100] or reason[:100],
             "full_detail": f"""━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 📌 调节详情
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-【条件名称】{e.get('condition', '-')}
+【参数名称】{param}
 【触发类别】{category_labels.get(e.get('category', ''), e.get('category', ''))}
-【当前数值】{e.get('current_value', 0):.2f}
-【触发阈值】{e.get('threshold', 0)}
 【动作类型】{action_type or '系统自动调节'}
-【执行动作】{e.get('action', '-')}
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 📋 调整原因
@@ -246,14 +244,18 @@ async def render_llm_admin(ctx: dict):
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ⚙️ 参数变化
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-【调整参数】{param or '-'}
 【调整前】{before if before is not None else '-'}
 【调整后】{after if after is not None else '-'}
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-📊 执行结果
+📊 影响说明
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-{str(e.get('result', {}))}""",
+{e.get('impact', '-')}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+💡 LLM 建议
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+{e.get('llm_suggestion', '-')}""",
             "change_info": change_info,
             "reason": reason,
             "action_type": action_type,
