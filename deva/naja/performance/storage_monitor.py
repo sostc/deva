@@ -68,13 +68,9 @@ def patch_dbstream_for_monitoring():
     try:
         from deva.core.store import DBStream
         
-        # 保存原始方法
         original_getitem = DBStream.__getitem__
         original_setitem = DBStream.__setitem__
         original_delitem = DBStream.__delitem__
-        original_get = DBStream.get
-        original_keys = DBStream.keys
-        original_values = DBStream.values
         
         def monitored_getitem(self, key):
             """监控读取操作"""
@@ -167,7 +163,7 @@ def patch_dbstream_for_monitoring():
             error_msg = ""
             
             try:
-                result = original_get(self, key, default)
+                result = self.db.get(key, default)
                 success = True
                 return result
             except Exception as e:
@@ -194,7 +190,7 @@ def patch_dbstream_for_monitoring():
             error_msg = ""
             
             try:
-                result = original_keys(self)
+                result = self.db.keys()
                 success = True
                 return result
             except Exception as e:
@@ -221,7 +217,7 @@ def patch_dbstream_for_monitoring():
             error_msg = ""
             
             try:
-                result = original_values(self)
+                result = self.db.values()
                 success = True
                 return result
             except Exception as e:
@@ -241,7 +237,6 @@ def patch_dbstream_for_monitoring():
                 except Exception:
                     pass
         
-        # 替换方法
         DBStream.__getitem__ = monitored_getitem
         DBStream.__setitem__ = monitored_setitem
         DBStream.__delitem__ = monitored_delitem

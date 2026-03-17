@@ -1,5 +1,5 @@
 """
-龙虾思想雷达策略 - Lobster Mind Radar Strategy
+新闻舆情雷达策略 - News Mind Radar Strategy
 
 核心思想: 流式学习 + 分层记忆 + 周期性自我反思
 作为naja策略系统的一个插件运行
@@ -27,7 +27,7 @@ try:
     RIVER_AVAILABLE = True
 except ImportError:
     RIVER_AVAILABLE = False
-    print("[LobsterRadar] Warning: river not installed, using fallback implementations")
+    print("[NewsRadar] Warning: river not installed, using fallback implementations")
 
 # 持久化数据库
 try:
@@ -35,7 +35,7 @@ try:
     NAJA_DB_AVAILABLE = True
 except ImportError:
     NAJA_DB_AVAILABLE = False
-    print("[LobsterRadar] Warning: NB not available, persistence disabled")
+    print("[NewsRadar] Warning: NB not available, persistence disabled")
 
 
 class SignalType(Enum):
@@ -54,6 +54,9 @@ DATASOURCE_TYPE_MAP = {
     "财经新闻模拟源": "news",
     "新闻": "news",
     "news": "news",
+    "金十数据快讯": "news",
+    "金十": "news",
+    "jin10": "news",
     # 行情数据源
     "行情回放": "tick",
     "tick": "tick",
@@ -99,7 +102,7 @@ def get_datasource_type(source_name: str) -> str:
 
 
 @dataclass
-class LobsterEvent:
+class NewsEvent:
     """龙虾事件结构"""
     id: str
     timestamp: datetime
@@ -112,7 +115,7 @@ class LobsterEvent:
     topic_id: Optional[int] = None
     
     @classmethod
-    def from_datasource_record(cls, record) -> "LobsterEvent":
+    def from_datasource_record(cls, record) -> "NewsEvent":
         """从naja数据源记录创建事件"""
         import numpy as np
         
@@ -480,7 +483,7 @@ class AttentionScorer:
         self.history = deque(maxlen=history_size)
         self.recent_events = deque(maxlen=100)
     
-    def score(self, event: LobsterEvent) -> float:
+    def score(self, event: NewsEvent) -> float:
         """计算注意力评分"""
         scores = {
             "novelty": self._novelty_score(event),
@@ -488,14 +491,16 @@ class AttentionScorer:
             "market": self._market_score(event),
             "keywords": self._keyword_score(event),
             "velocity": self._velocity_score(event),
+            "importance": self._importance_score(event),  # 新增：数据源标记的重要性
         }
         
         weights = {
-            "novelty": 0.25,
-            "sentiment": 0.15,
-            "market": 0.25,
-            "keywords": 0.20,
-            "velocity": 0.15,
+            "novelty": 0.20,
+            "sentiment": 0.12,
+            "market": 0.20,
+            "keywords": 0.15,
+            "velocity": 0.13,
+            "importance": 0.20,  # 数据源标记的重要性权重
         }
         
         total = sum(scores[k] * weights[k] for k in scores)
@@ -508,7 +513,30 @@ class AttentionScorer:
         
         return min(1.0, max(0.0, total))
     
-    def _novelty_score(self, event: LobsterEvent) -> float:
+    def _importance_score(self, event: NewsEvent) -> float:
+        """数据源标记的重要性评分
+        
+        如果数据源标记了 importance="high"，则直接给高分
+        """
+        # 从 meta 中获取 importance
+        importance = event.meta.get('importance', '')
+        
+        if isinstance(importance, str):
+            importance = importance.lower()
+            if importance == 'high':
+                return 1.0
+            elif importance == 'medium':
+                return 0.6
+            elif importance == 'normal':
+                return 0.3
+        
+        # 也检查 meta 中的其他可能字段
+        if event.meta.get('important'):
+            return 0.9
+        
+        return 0.0
+    
+    def _novelty_score(self, event: NewsEvent) -> float:
         """新颖度评分"""
         if not self.history or event.vector is None:
             return 0.5
@@ -524,7 +552,7 @@ class AttentionScorer:
         
         return 1.0 - np.mean(similarities)
     
-    def _sentiment_score(self, event: LobsterEvent) -> float:
+    def _sentiment_score(self, event: NewsEvent) -> float:
         """情绪强度评分"""
         text = event.content.lower()
         score = 0.0
@@ -537,7 +565,7 @@ class AttentionScorer:
         score += min(0.2, text.count("!") * 0.05)
         return min(1.0, score)
     
-    def _market_score(self, event: LobsterEvent) -> float:
+    def _market_score(self, event: NewsEvent) -> float:
         """市场波动评分"""
         if event.event_type != "tick":
             return 0.0
@@ -555,7 +583,7 @@ class AttentionScorer:
         
         return min(1.0, score)
     
-    def _keyword_score(self, event: LobsterEvent) -> float:
+    def _keyword_score(self, event: NewsEvent) -> float:
         """关键词评分"""
         text = event.content.lower()
         score = 0.0
@@ -570,7 +598,7 @@ class AttentionScorer:
         
         return min(1.0, score)
     
-    def _velocity_score(self, event: LobsterEvent) -> float:
+    def _velocity_score(self, event: NewsEvent) -> float:
         """传播速度评分"""
         if not self.recent_events:
             return 0.0
@@ -599,7 +627,7 @@ class AttentionScorer:
         return float(np.dot(v1, v2) / norm)
 
 
-class LobsterRadarStrategy:
+class NewsRadarStrategy:
     """
     龙虾思想雷达策略
     
@@ -659,15 +687,33 @@ class LobsterRadarStrategy:
         处理单条记录（naja策略接口）
         
         Args:
-            record: 数据源记录
+            record: 数据源记录（单个dict或包含data字段的dict）
             
         Returns:
             信号列表
         """
+        # 检测是否是 numpy 数组
+        import numpy as np
+        if isinstance(record, np.ndarray):
+            import logging
+            logging.warning(f"[NewsRadar] 收到 numpy 数组数据，已跳过: type={type(record)}, shape={getattr(record, 'shape', 'N/A')}")
+            return []
+        
+        # 检测是否是批量数据（列表）
+        if isinstance(record, list):
+            return self.process_batch(record)
+        
+        # 检测是否是包装格式（包含data字段，data是列表）
+        if isinstance(record, dict) and 'data' in record:
+            data = record['data']
+            if isinstance(data, list):
+                return self.process_batch(data)
+        
+        # 单条数据处理
         signals = []
         
         # 1. 转换为龙虾事件
-        event = LobsterEvent.from_datasource_record(record)
+        event = NewsEvent.from_datasource_record(record)
         
         # 2. 语义编码（改进版：使用关键词特征向量 + 数据源特征 + 事件类型特征）
         event.vector = self._simple_embedding(event.content, event.source, event.event_type)
@@ -699,6 +745,100 @@ class LobsterRadarStrategy:
         self._update_long_memory()
         
         # 8. 生成信号
+        signals.extend(self._generate_signals_for_event(event, topic_id))
+        
+        # 9. 漂移检测
+        if self.drift_detector and event.vector:
+            signals.extend(self._check_drift(event))
+        
+        return signals
+    
+    def process_batch(self, records: List[Dict]) -> List[Dict]:
+        """
+        批量处理记录列表（支持一次性处理多条数据）
+        
+        Args:
+            records: 数据源记录列表
+            
+        Returns:
+            信号列表
+        """
+        all_signals = []
+        
+        if not records:
+            return all_signals
+        
+        # 用于去重的已见内容集合
+        seen_contents = set()
+        
+        # 检测 numpy 数组
+        import numpy as np
+        filtered_records = [r for r in records if not isinstance(r, np.ndarray)]
+        if len(filtered_records) < len(records):
+            import logging
+            removed_count = len(records) - len(filtered_records)
+            logging.warning(f"[NewsRadar] 批量数据中包含 {removed_count} 个 numpy 数组，已过滤")
+        records = filtered_records
+        
+        # 逐条处理，但进行去重检测
+        for record in records:
+            # 转换为事件
+            event = NewsEvent.from_datasource_record(record)
+            
+            # 简单去重：基于内容hash
+            content_hash = hash(event.content[:100])
+            if content_hash in seen_contents:
+                continue
+            seen_contents.add(content_hash)
+            
+            # 语义编码
+            event.vector = self._simple_embedding(event.content, event.source, event.event_type)
+            
+            # 注意力评分（批量模式下使用相同的scorer）
+            event.attention_score = self.attention_scorer.score(event)
+            
+            # 主题聚类
+            topic_id = self._assign_topic(event)
+            event.topic_id = topic_id
+            
+            # 存入短期记忆
+            self.short_memory.append(event)
+            self.stats["total_events"] += 1
+            
+            # 归档到中期记忆
+            if event.attention_score >= self.mid_memory_threshold:
+                self.mid_memory.append({
+                    "id": event.id,
+                    "timestamp": event.timestamp,
+                    "source": event.source,
+                    "event_type": event.event_type,
+                    "content": event.content,
+                    "attention_score": event.attention_score,
+                    "topic_id": event.topic_id,
+                })
+            
+            # 生成信号
+            all_signals.extend(self._generate_signals_for_event(event, topic_id))
+            
+            # 漂移检测
+            if self.drift_detector and event.vector:
+                all_signals.extend(self._check_drift(event))
+        
+        # 批量处理后检查是否需要生成长期记忆
+        self._update_long_memory()
+        
+        # 批量处理完成后，如果累积数据足够，进行窗口分析
+        if len(self.short_memory) >= 100:
+            window_signals = self._analyze_window()
+            all_signals.extend(window_signals)
+        
+        return all_signals
+    
+    def _generate_signals_for_event(self, event: NewsEvent, topic_id: Optional[int]) -> List[Dict]:
+        """为单个事件生成信号"""
+        signals = []
+        
+        # 高注意力信号
         if event.attention_score >= self.attention_threshold:
             signals.append(self._create_signal(
                 SignalType.HIGH_ATTENTION,
@@ -708,7 +848,7 @@ class LobsterRadarStrategy:
             ))
             self.stats["high_attention_events"] += 1
         
-        # 检查主题变化
+        # 主题相关信号
         if topic_id is not None and topic_id in self.topics:
             topic = self.topics[topic_id]
             topic_name = topic.display_name
@@ -731,7 +871,11 @@ class LobsterRadarStrategy:
                     {"topic_id": topic_id, "topic_name": topic_name, "growth_rate": topic.growth_rate}
                 ))
         
-        # 7. 漂移检测
+        return signals
+    
+    def _check_drift(self, event: NewsEvent) -> List[Dict]:
+        """检查漂移"""
+        signals = []
         if self.drift_detector and event.vector:
             self.drift_detector.update(event.attention_score)
             if self.drift_detector.drift_detected:
@@ -742,7 +886,6 @@ class LobsterRadarStrategy:
                     {"drift_point": self.stats["total_events"]}
                 ))
                 self.stats["drifts_detected"] += 1
-        
         return signals
     
     def process_window(self, records: List[Dict]) -> List[Dict]:
@@ -844,7 +987,7 @@ class LobsterRadarStrategy:
         
         return vector
     
-    def _assign_topic(self, event: LobsterEvent) -> Optional[int]:
+    def _assign_topic(self, event: NewsEvent) -> Optional[int]:
         """分配主题"""
         if event.vector is None:
             return None
@@ -995,7 +1138,7 @@ class LobsterRadarStrategy:
             counts[val] = counts.get(val, 0) + 1
         return counts
     
-    def _create_signal(self, signal_type: SignalType, event: Optional[LobsterEvent],
+    def _create_signal(self, signal_type: SignalType, event: Optional[NewsEvent],
                        message: str, data: Dict) -> Dict:
         """创建信号"""
         return {
@@ -1072,6 +1215,8 @@ class LobsterRadarStrategy:
             "recent_high_attention": [
                 {
                     "id": e.id,
+                    "timestamp": e.timestamp.isoformat() if isinstance(e.timestamp, datetime) else str(e.timestamp),
+                    "source": e.source,
                     "type": e.event_type,
                     "score": round(e.attention_score, 3),
                     "content": e.content[:100] + "..." if len(e.content) > 100 else e.content,
@@ -1168,8 +1313,8 @@ class LobsterRadarStrategy:
     # 持久化方法
     # ============================================================================
     
-    PERSISTENCE_TABLE = "naja_lobster_radar_state"
-    PERSISTENCE_KEY = "lobster_radar_main"
+    PERSISTENCE_TABLE = "naja_news_radar_state"
+    PERSISTENCE_KEY = "news_radar_main"
     PERSISTENCE_LOCK = threading.Lock()
     
     def save_state(self) -> dict:
@@ -1191,7 +1336,7 @@ class LobsterRadarStrategy:
                 # 保存到数据库
                 db[self.PERSISTENCE_KEY] = state_data
                 
-                print(f"[LobsterRadar] 状态已保存: {len(self.short_memory)} 短期记忆, "
+                print(f"[NewsRadar] 状态已保存: {len(self.short_memory)} 短期记忆, "
                       f"{len(self.mid_memory)} 中期记忆, {len(self.long_memory)} 长期记忆, "
                       f"{len(self.topics)} 主题")
                 
@@ -1203,7 +1348,7 @@ class LobsterRadarStrategy:
                     "topics_count": len(self.topics),
                 }
         except Exception as e:
-            print(f"[LobsterRadar] 保存状态失败: {e}")
+            print(f"[NewsRadar] 保存状态失败: {e}")
             return {"success": False, "error": str(e)}
     
     def load_state(self) -> dict:
@@ -1220,7 +1365,7 @@ class LobsterRadarStrategy:
                 db = NB(self.PERSISTENCE_TABLE)
                 
                 if self.PERSISTENCE_KEY not in db:
-                    print("[LobsterRadar] 没有找到保存的状态")
+                    print("[NewsRadar] 没有找到保存的状态")
                     return {"success": True, "loaded": False, "message": "No saved state found"}
                 
                 state_data = db.get(self.PERSISTENCE_KEY)
@@ -1230,7 +1375,7 @@ class LobsterRadarStrategy:
                 # 反序列化状态
                 self._deserialize_state(state_data)
                 
-                print(f"[LobsterRadar] 状态已加载: {len(self.short_memory)} 短期记忆, "
+                print(f"[NewsRadar] 状态已加载: {len(self.short_memory)} 短期记忆, "
                       f"{len(self.mid_memory)} 中期记忆, {len(self.long_memory)} 长期记忆, "
                       f"{len(self.topics)} 主题")
                 
@@ -1243,7 +1388,7 @@ class LobsterRadarStrategy:
                     "topics_count": len(self.topics),
                 }
         except Exception as e:
-            print(f"[LobsterRadar] 加载状态失败: {e}")
+            print(f"[NewsRadar] 加载状态失败: {e}")
             return {"success": False, "error": str(e)}
     
     def _serialize_state(self) -> dict:
@@ -1345,7 +1490,7 @@ class LobsterRadarStrategy:
         self.short_memory.clear()
         for e_data in data.get("short_memory", []):
             try:
-                event = LobsterEvent(
+                event = NewsEvent(
                     id=e_data["id"],
                     timestamp=datetime.fromisoformat(e_data["timestamp"]),
                     source=e_data["source"],
@@ -1358,7 +1503,7 @@ class LobsterRadarStrategy:
                 event.topic_id = e_data.get("topic_id")
                 self.short_memory.append(event)
             except Exception as e:
-                print(f"[LobsterRadar] 恢复短期记忆事件失败: {e}")
+                print(f"[NewsRadar] 恢复短期记忆事件失败: {e}")
         
         # 恢复中期记忆
         self.mid_memory.clear()
@@ -1377,7 +1522,7 @@ class LobsterRadarStrategy:
                     "topic_id": e_data.get("topic_id"),
                 })
             except Exception as e:
-                print(f"[LobsterRadar] 恢复中期记忆事件失败: {e}")
+                print(f"[NewsRadar] 恢复中期记忆事件失败: {e}")
         
         # 恢复长期记忆
         self.long_memory = data.get("long_memory", [])
@@ -1403,7 +1548,7 @@ class LobsterRadarStrategy:
                 for e_data in t_data.get("events", []):
                     if isinstance(e_data, dict) and "id" in e_data:
                         try:
-                            event = LobsterEvent(
+                            event = NewsEvent(
                                 id=e_data["id"],
                                 timestamp=datetime.fromisoformat(e_data["timestamp"]) if isinstance(e_data["timestamp"], str) else e_data["timestamp"],
                                 source=e_data.get("source", ""),
@@ -1416,7 +1561,7 @@ class LobsterRadarStrategy:
                 
                 self.topics[topic_id] = topic
             except Exception as e:
-                print(f"[LobsterRadar] 恢复主题失败: {e}")
+                print(f"[NewsRadar] 恢复主题失败: {e}")
     
     def clear_saved_state(self) -> dict:
         """清除保存的状态"""
@@ -1428,10 +1573,10 @@ class LobsterRadarStrategy:
                 db = NB(self.PERSISTENCE_TABLE)
                 if self.PERSISTENCE_KEY in db:
                     del db[self.PERSISTENCE_KEY]
-                print("[LobsterRadar] 已清除保存的状态")
+                print("[NewsRadar] 已清除保存的状态")
                 return {"success": True}
         except Exception as e:
-            print(f"[LobsterRadar] 清除状态失败: {e}")
+            print(f"[NewsRadar] 清除状态失败: {e}")
             return {"success": False, "error": str(e)}
 
 
@@ -1440,7 +1585,7 @@ class Strategy:
     """naja策略包装类"""
     
     def __init__(self, config: Dict = None):
-        self.radar = LobsterRadarStrategy(config)
+        self.radar = NewsRadarStrategy(config)
         self._save_interval = 300  # 默认5分钟保存一次
         self._save_thread = None
         self._stop_save_thread = threading.Event()
@@ -1453,9 +1598,9 @@ class Strategy:
         """初始化时自动加载保存的状态"""
         result = self.radar.load_state()
         if result.get("success") and result.get("loaded"):
-            print(f"[LobsterRadarStrategy] 成功恢复之前的状态")
+            print(f"[NewsRadarStrategy] 成功恢复之前的状态")
         elif not result.get("loaded"):
-            print(f"[LobsterRadarStrategy] 没有找到保存的状态，使用新实例")
+            print(f"[NewsRadarStrategy] 没有找到保存的状态，使用新实例")
     
     def _start_auto_save(self):
         """启动定时保存线程"""
@@ -1465,7 +1610,7 @@ class Strategy:
         self._stop_save_thread.clear()
         self._save_thread = threading.Thread(target=self._auto_save_loop, daemon=True)
         self._save_thread.start()
-        print(f"[LobsterRadarStrategy] 定时保存已启动，间隔 {self._save_interval} 秒")
+        print(f"[NewsRadarStrategy] 定时保存已启动，间隔 {self._save_interval} 秒")
     
     def _auto_save_loop(self):
         """自动保存循环"""
@@ -1479,18 +1624,18 @@ class Strategy:
             try:
                 result = self.radar.save_state()
                 if result.get("success"):
-                    print(f"[LobsterRadarStrategy] 定时保存完成")
+                    print(f"[NewsRadarStrategy] 定时保存完成")
                 else:
-                    print(f"[LobsterRadarStrategy] 定时保存失败: {result.get('error')}")
+                    print(f"[NewsRadarStrategy] 定时保存失败: {result.get('error')}")
             except Exception as e:
-                print(f"[LobsterRadarStrategy] 定时保存异常: {e}")
+                print(f"[NewsRadarStrategy] 定时保存异常: {e}")
     
     def _stop_auto_save(self):
         """停止定时保存线程"""
         if self._save_thread is not None:
             self._stop_save_thread.set()
             self._save_thread.join(timeout=5)
-            print("[LobsterRadarStrategy] 定时保存已停止")
+            print("[NewsRadarStrategy] 定时保存已停止")
     
     def on_record(self, record: Dict) -> List[Dict]:
         """逐条处理"""
@@ -1522,12 +1667,12 @@ class Strategy:
     
     def on_stop(self):
         """策略停止时自动保存"""
-        print("[LobsterRadarStrategy] 策略停止，自动保存状态...")
+        print("[NewsRadarStrategy] 策略停止，自动保存状态...")
         self._stop_auto_save()
         return self.radar.save_state()
 
     def on_start(self):
         """策略启动时自动加载"""
-        print("[LobsterRadarStrategy] 策略启动，自动加载状态...")
+        print("[NewsRadarStrategy] 策略启动，自动加载状态...")
         self._start_auto_save()
         return self.radar.load_state()

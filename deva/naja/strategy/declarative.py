@@ -192,6 +192,60 @@ class StrategyEngine:
         func = self._code_cache.get(code)
         if func is None:
             scope: Dict[str, Any] = {}
+            
+            COMMON_HELPERS = '''
+def _f(v, d=0.0):
+    try:
+        return float(v)
+    except Exception:
+        return d
+
+def _rows(data):
+    import pandas as pd
+    try:
+        if isinstance(data, pd.DataFrame):
+            return data.to_dict("records")
+    except Exception:
+        pass
+    if isinstance(data, dict):
+        return [data]
+    if isinstance(data, list):
+        return data
+    return []
+
+def _sym(row):
+    return str(row.get("code") or row.get("symbol") or row.get("ts_code") or "").strip()
+
+def _price(row):
+    for k in ("current", "now", "price", "last", "close", "open", "high", "low"):
+        if k in row:
+            p = _f(row.get(k), 0.0)
+            if p > 0:
+                return p
+    return 0.0
+
+def _first_multi(v, default="unknown"):
+    if v is None:
+        return default
+    text = str(v).strip()
+    if not text or text.lower() in {"nan", "none", "null", "unknown"}:
+        return default
+    for sep in ["|", ",", "，", ";", "；"]:
+        text = text.replace(sep, "|")
+    vals = list(dict.fromkeys(x.strip() for x in text.split("|") if x.strip()))
+    return vals[0] if vals else default
+
+def _split_multi(v):
+    if v is None:
+        return []
+    text = str(v).strip()
+    if not text or text.lower() in {"nan", "none", "null", "unknown"}:
+        return []
+    for sep in ["|", ",", "，", ";", "；"]:
+        text = text.replace(sep, "|")
+    return list(dict.fromkeys(x.strip() for x in text.split("|") if x.strip()))
+'''
+            exec(COMMON_HELPERS, scope)
             exec(code, scope)
             func = scope.get("process") or scope.get("apply")
             if not callable(func):

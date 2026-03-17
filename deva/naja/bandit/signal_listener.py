@@ -57,7 +57,7 @@ class SignalListener:
         self._callbacks: List[Callable[[DetectedSignal], None]] = []
         
         self._poll_interval = 2.0
-        self._min_confidence = 0.5
+        self._min_confidence = 0.6
         
         self._processed_signals: Dict[str, float] = {}
         self._max_processed = 1000
@@ -71,7 +71,7 @@ class SignalListener:
             config = db.get("listener_config")
             if config:
                 self._poll_interval = config.get("poll_interval", 2.0)
-                self._min_confidence = config.get("min_confidence", 0.5)
+                self._min_confidence = config.get("min_confidence", 0.6)
         except Exception:
             pass
     
@@ -137,6 +137,7 @@ class SignalListener:
         """处理信号流中的新信号"""
         try:
             recent = self._signal_stream.get_recent(limit=50)
+            log.debug(f"[Bandit] 获取到 {len(recent)} 个信号")
         except Exception as e:
             log.error(f"获取信号流失败: {e}")
             return
@@ -152,9 +153,13 @@ class SignalListener:
             if signal is None:
                 continue
             
+            log.info(f"[Bandit] 收到信号: {signal.stock_code} {signal.stock_name} 置信度={signal.confidence} 类型={signal.signal_type}")
+            
             if signal.confidence < self._min_confidence:
-                log.debug(f"信号置信度低于阈值: {signal.confidence} < {self._min_confidence}")
+                log.warning(f"[Bandit] ❌ 置信度低于阈值: {signal.confidence} < {self._min_confidence}")
                 continue
+            
+            log.info(f"[Bandit] ✅ 置信度通过: {signal.confidence} >= {self._min_confidence}")
             
             self._mark_processed(result.id, result.ts)
             
@@ -163,12 +168,18 @@ class SignalListener:
             
             for callback in self._callbacks:
                 try:
+                    log.info(f"[Bandit] 📤 发送信号到回调: {signal.stock_code}")
                     callback(signal)
                 except Exception as e:
                     log.error(f"信号回调执行失败: {e}")
     
     def _parse_signal(self, result: StrategyResult) -> Optional[DetectedSignal]:
-        """解析信号"""
+        """解析信号
+        
+        支持两种格式：
+        1. 直接格式: {signal_type: "BUY", stock_code: "xxx", price: xxx}
+        2. River picks 格式: {signal: "xxx", picks: [{code, name, price, up_probability}]}
+        """
         try:
             output = result.output_full
             if not output:
@@ -181,15 +192,41 @@ class SignalListener:
             else:
                 return None
             
-            stock_code = self._extract_stock_code(signal_data)
-            stock_name = signal_data.get('name', '') or signal_data.get('stock_name', '')
+            stock_code = ""
+            stock_name = ""
+            price = 0.0
+            confidence = 0.7
+            signal_type = "BUY"
+            
+            if 'picks' in signal_data and isinstance(signal_data['picks'], list) and signal_data['picks']:
+                picks = signal_data['picks']
+                top_pick = picks[0]
+                
+                stock_code = str(top_pick.get('code', '') or top_pick.get('stock_code', ''))
+                stock_name = top_pick.get('name', '') or top_pick.get('stock_name', '')
+                price = float(top_pick.get('price', 0) or top_pick.get('close', 0) or top_pick.get('current', 0))
+                
+                signal_type = "BUY"
+                
+                prob_fields = ['up_probability', 'order_flow_up_probability', 'anomaly_score', 'probability']
+                for pf in prob_fields:
+                    if pf in top_pick:
+                        confidence = float(top_pick[pf])
+                        if pf == 'anomaly_score':
+                            confidence = min(1.0, confidence / 10.0)
+                        break
+                
+                if signal_data.get('signal'):
+                    signal_type = f"BUY ({signal_data['signal']})"
+            else:
+                stock_code = self._extract_stock_code(signal_data)
+                stock_name = signal_data.get('name', '') or signal_data.get('stock_name', '')
+                price = self._extract_price(signal_data)
+                confidence = float(signal_data.get('confidence', 0.7))
+                signal_type = signal_data.get('signal_type', signal_data.get('type', 'BUY'))
             
             if not stock_code:
                 return None
-            
-            price = self._extract_price(signal_data)
-            confidence = float(signal_data.get('confidence', 0.7))
-            signal_type = signal_data.get('signal_type', signal_data.get('type', 'BUY'))
             
             return DetectedSignal(
                 signal_id=result.id,

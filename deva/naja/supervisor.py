@@ -126,6 +126,15 @@ class NajaSupervisor:
         except Exception as e:
             log.error(f"存储性能监控启用失败: {e}")
         
+        # 启动自动调优
+        try:
+            from .common.auto_tuner import _init_help_to_db, start_auto_tuner
+            _init_help_to_db()
+            start_auto_tuner()
+            log.info("自动调优已启动")
+        except Exception as e:
+            log.error(f"自动调优启动失败: {e}")
+        
         log.info("系统监控已启动")
     
     def stop_monitoring(self):
