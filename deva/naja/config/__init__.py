@@ -53,6 +53,7 @@ DEFAULT_CONFIG = {
         "cleanup_interval_seconds": 600,
     },
     "llm": {
+        "model_type": "kimi",
         "min_interval_seconds": 300,
         "auto_adjust_enabled": True,
         "auto_adjust_interval_seconds": 900,

@@ -115,56 +115,132 @@ class MarketDataObserver:
     def _update_prices(self):
         """更新所有跟踪股票的价格"""
         if not self._tracked_stocks:
+            log.debug("[MarketObserver] 无跟踪股票")
             return
+        
+        log.debug(f"[MarketObserver] 跟踪股票: {self._tracked_stocks}")
         
         for stock_code in list(self._tracked_stocks):
             price = self._fetch_price(stock_code)
+            log.debug(f"[MarketObserver] {stock_code} 价格: {price}")
+            
             if price > 0:
                 self._last_prices[stock_code] = price
                 
                 for callback in self._price_callbacks:
                     try:
+                        log.debug(f"[MarketObserver] 触发价格回调: {stock_code} @ {price}")
                         callback(stock_code, price)
                     except Exception as e:
                         log.error(f"价格回调失败: {e}")
+            else:
+                log.warning(f"[MarketObserver] 无法获取价格: {stock_code}")
     
     def _fetch_price(self, stock_code: str) -> float:
         """获取股票价格
         
         尝试多种方式获取价格：
-        1. 从雪球 MCP 获取
-        2. 从数据源获取
+        1. 从数据源 realtime_tick_5s 获取最新行情
+        2. 从雪球 MCP 获取
         3. 使用模拟价格
         """
+        # 方式1: 从数据源获取
         try:
             from deva.naja.datasource import get_datasource_manager
             
             mgr = get_datasource_manager()
+            mgr.load_from_db()  # 确保加载
             datasources = mgr.list_all()
             
+            log.info(f"[MarketObserver] 找到 {len(datasources)} 个数据源")
+            
+            # 优先使用 189e3042171a 数据源
+            priority_ds = mgr.get('189e3042171a')
+            if priority_ds:
+                latest = priority_ds.get_latest_data()
+                if latest is not None:
+                    log.info(f"[MarketObserver] 优先使用数据源 {priority_ds._metadata.name}")
+                    import pandas as pd
+                    if isinstance(latest, pd.DataFrame):
+                        matches = latest[latest['code'] == stock_code]
+                        if not matches.empty:
+                            row = matches.iloc[0]
+                            price = float(row.get('now', row.get('price', row.get('current', 0))))
+                            if price > 0:
+                                log.debug(f"[MarketObserver] 从数据源 {priority_ds._metadata.name} 获取 {stock_code}: {price}")
+                                return price
+            
+            # 遍历其他数据源
             for ds in datasources:
+                if ds.id == '189e3042171a':
+                    continue
                 try:
-                    if hasattr(ds, 'get_latest_price'):
-                        price = ds.get_latest_price(stock_code)
-                        if price and price > 0:
-                            return price
-                except Exception:
+                    # 获取数据源的最新数据
+                    latest = ds.get_latest_data()
+                    if latest is None:
+                        continue
+                    
+                    log.info(f"[MarketObserver] 数据源 {ds._metadata.name} 有数据: {type(latest)}")
+                    
+                    # 处理不同数据格式
+                    data = None
+                    if hasattr(latest, 'to_dict'):
+                        data = latest.to_dict()
+                    elif isinstance(latest, dict):
+                        data = latest
+                    elif hasattr(latest, 'data'):
+                        data = latest.data
+                    else:
+                        data = latest
+                    
+                    if not data:
+                        continue
+                    
+                    # 如果是 DataFrame
+                    if hasattr(data, 'iterrows'):
+                        import pandas as pd
+                        if isinstance(data, pd.DataFrame) and not data.empty:
+                            # 尝试匹配股票代码（直接匹配）
+                            matches = data[data['code'] == stock_code]
+                            if not matches.empty:
+                                row = matches.iloc[0]
+                                price = float(row.get('now', row.get('price', row.get('current', 0))))
+                                if price > 0:
+                                    log.debug(f"[MarketObserver] 从数据源 {ds._metadata.name} 获取 {stock_code}: {price}")
+                                    return price
+                    
+                    # 如果是 dict，检查是否直接包含股票数据
+                    if isinstance(data, dict):
+                        # 可能直接是单只股票的数据
+                        code = str(data.get('code', data.get('stock_code', '')))
+                        if code == stock_code:
+                            price = float(data.get('now', data.get('price', data.get('current', 0))))
+                            if price > 0:
+                                log.debug(f"[MarketObserver] 从数据源 {ds._metadata.name} 获取 {stock_code}: {price}")
+                                return price
+                                
+                except Exception as e:
+                    log.debug(f"[MarketObserver] 数据源 {getattr(ds, '_metadata', {}).get('name', 'unknown')} 获取失败: {e}")
                     continue
         
         except Exception as e:
-            log.debug(f"从数据源获取价格失败: {e}")
+            log.debug(f"[MarketObserver] 数据源获取失败: {e}")
         
+        # 方式2: 从雪球 MCP 获取
         try:
             from deva import xueqiu
             quote = xueqiu.get_quote(stock_code)
             if quote and quote.get('current'):
-                return float(quote.get('current'))
-        except Exception:
-            pass
+                price = float(quote.get('current'))
+                log.debug(f"[MarketObserver] 从雪球获取 {stock_code}: {price}")
+                return price
+        except Exception as e:
+            log.debug(f"[MarketObserver] 雪球获取失败: {e}")
         
+        # 方式3: 使用模拟价格 (基于时间)
         last = self._last_prices.get(stock_code)
         if last:
-            return last * (1 + (time.time() % 100 - 50) / 10000)
+            return last
         
         return 0.0
     

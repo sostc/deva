@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import threading
 import time
+import traceback
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional
 
@@ -17,6 +18,9 @@ from ..common.recoverable import (
     UnitState,
     UnitStatus,
 )
+
+from ..common.thread_pool import get_thread_pool
+from .output_controller import get_output_controller
 
 
 STRATEGY_TABLE = "naja_strategies"
@@ -43,6 +47,7 @@ class StrategyMetadata(UnitMetadata):
     strategy_params: Dict[str, Any] = field(default_factory=dict)
     strategy_config: Dict[str, Any] = field(default_factory=dict)
     version: int = 1
+    handler_type: str = "unknown"  # radar/memory/bandit/llm/unknown - 策略处理器类型
 
     def to_dict(self) -> dict:
         data = super().to_dict()
@@ -63,6 +68,7 @@ class StrategyMetadata(UnitMetadata):
                 "strategy_params": self.strategy_params,
                 "strategy_config": self.strategy_config,
                 "version": self.version,
+                "handler_type": self.handler_type,
             }
         )
         return data
@@ -117,6 +123,22 @@ class StrategyEntry(RecoverableUnit):
     def _get_strategy_config(self) -> Dict[str, Any]:
         config = dict(getattr(self._metadata, "strategy_config", {}) or {})
         params = dict(getattr(self._metadata, "strategy_params", {}) or {})
+        
+        strategy_type = self._get_strategy_type()
+        
+        if strategy_type not in ("", "legacy"):
+            func_code = getattr(self, "_func_code", None) or ""
+            if not func_code:
+                func_code = self._metadata.func_code if hasattr(self._metadata, "func_code") else ""
+            
+            if func_code and "logic" not in config:
+                config["logic"] = {
+                    "type": "python",
+                    "code": func_code
+                }
+            elif func_code and "logic" in config and not config.get("logic", {}).get("code"):
+                config["logic"]["code"] = func_code
+        
         if params:
             merged = dict(config)
             merged.update(params)
@@ -171,33 +193,40 @@ class StrategyEntry(RecoverableUnit):
             # 获取多数据源ID列表
             datasource_ids = getattr(self._metadata, "bound_datasource_ids", [])
             if not datasource_ids:
-                # 兼容旧版本单数据源
                 datasource_id = getattr(self._metadata, "bound_datasource_id", "")
                 if datasource_id:
                     datasource_ids = [datasource_id]
-            
+
             if not datasource_ids:
                 return {"success": True, "message": "No datasource bound"}
-            
+
             from ..datasource import get_datasource_manager
             ds_mgr = get_datasource_manager()
-            
+
             bound_count = 0
             failed_datasources = []
-            
+            valid_datasource_ids = []
+
             for ds_id in datasource_ids:
                 ds = ds_mgr.get(ds_id)
                 if ds is None:
                     failed_datasources.append(ds_id)
                     continue
-                
+
+                valid_datasource_ids.append(ds_id)
                 try:
                     self._bind_datasource(ds)
                     bound_count += 1
                 except Exception as e:
                     self._log("ERROR", f"Bind datasource failed", datasource_id=ds_id, error=str(e))
                     failed_datasources.append(ds_id)
-            
+
+            if failed_datasources:
+                self._log("INFO", f"Removing deleted datasources from bound list", removed=failed_datasources)
+                if hasattr(self, '_metadata') and hasattr(self._metadata, 'bound_datasource_ids'):
+                    self._metadata.bound_datasource_ids = valid_datasource_ids
+                    self.save()
+
             if bound_count == 0:
                 return {"success": True, "message": f"No datasources could be bound. Failed: {failed_datasources}"}
 
@@ -209,7 +238,7 @@ class StrategyEntry(RecoverableUnit):
                     self._log("ERROR", "Runtime on_start failed", error=str(e))
 
             return {
-                "success": True, 
+                "success": True,
                 "message": f"Bound {bound_count} datasources, failed: {len(failed_datasources)}"
             }
         except Exception as e:
@@ -294,10 +323,9 @@ class StrategyEntry(RecoverableUnit):
         runtime = self._get_runtime()
         if self._compiled_func is None and runtime is None:
             return
-        
-        # 将策略执行放到后台线程，避免阻塞主线程
-        import threading
-        threading.Thread(target=self._process_data_async, args=(data,), daemon=True).start()
+
+        pool = get_thread_pool()
+        pool.submit(self._process_data_async, data)
     
     def _process_data_async(self, data: Any):
         """异步处理数据"""
@@ -337,11 +365,26 @@ class StrategyEntry(RecoverableUnit):
                 
             except Exception as e:
                 error = str(e)
+                error_traceback = traceback.format_exc()
                 self._state.record_error(error)
-                self._log("ERROR", "Process data failed", error=str(e))
+                self._log("ERROR", "Process data failed", error=str(e), traceback=error_traceback)
             
             # 计算执行时间
             process_time_ms = (time.time() - start_time) * 1000
+            
+            # 调试日志：只打印策略返回结果
+            try:
+                from ..config import get_strategy_debug
+                if get_strategy_debug():
+                    import json
+                    if result is not None:
+                        if isinstance(result, dict):
+                            debug_result_summary = json.dumps(result, ensure_ascii=False, default=str)
+                        else:
+                            debug_result_summary = str(result)
+                        print(f"[STRATEGY_RESULT] {self.name}: {debug_result_summary}")
+            except Exception:
+                pass
             
             # 记录性能指标
             try:
@@ -854,6 +897,7 @@ class StrategyEntry(RecoverableUnit):
         model: Dict[str, Any] = None,
         logic: Dict[str, Any] = None,
         plugin: str = None,
+        handler_type: str = None,
     ) -> dict:
         # 记录是否正在运行
         was_running = self.is_running
@@ -900,6 +944,9 @@ class StrategyEntry(RecoverableUnit):
             if plugin is not None:
                 merged["plugin"] = plugin
             self._metadata.strategy_config = merged
+        
+        if handler_type is not None:
+            self._metadata.handler_type = str(handler_type)
 
         # 处理多数据源绑定
         if bound_datasource_ids is not None:
@@ -916,6 +963,10 @@ class StrategyEntry(RecoverableUnit):
                 self._metadata.bound_datasource_ids = []
         
         if func_code is not None:
+            # 对于非 legacy 类型，如果 func_code 为空，设置 stub 代码
+            if self._get_strategy_type() != "legacy" and not func_code:
+                func_code = "def process(data, context=None):\n    return None\n"
+            
             if self._get_strategy_type() == "legacy" and self._get_func_name() not in func_code:
                 return {"success": False, "error": f"代码必须包含 {self._get_func_name()} 函数"}
             
@@ -1064,6 +1115,7 @@ class StrategyEntry(RecoverableUnit):
                 "strategy_params": getattr(metadata, "strategy_params", {}),
                 "strategy_config": getattr(metadata, "strategy_config", {}),
                 "version": getattr(metadata, "version", 1),
+                "handler_type": getattr(metadata, "handler_type", "unknown"),
                 "created_at": metadata.created_at,
                 "updated_at": metadata.updated_at,
             },
@@ -1095,6 +1147,7 @@ class StrategyEntry(RecoverableUnit):
             strategy_params=metadata_data.get("strategy_params", {}),
             strategy_config=metadata_data.get("strategy_config", {}),
             version=metadata_data.get("version", 1),
+            handler_type=metadata_data.get("handler_type", "unknown"),
             created_at=metadata_data.get("created_at", time.time()),
             updated_at=metadata_data.get("updated_at", time.time()),
         )
@@ -1192,6 +1245,12 @@ class StrategyManager:
                     continue
                 if not isinstance(snap, dict):
                     continue
+                
+                # 获取当前策略的配置作为默认值（兼容旧snapshot）
+                entry = self._items[entry_id]
+                output_ctrl = get_output_controller()
+                output_cfg = output_ctrl.get_config(entry_id)
+                
                 normalized_snapshot[entry_id] = {
                     "entry_id": entry_id,
                     "name": snap.get("name", self._items[entry_id].name),
@@ -1203,6 +1262,27 @@ class StrategyManager:
                     "pre_experiment_was_running": bool(
                         snap.get("pre_experiment_was_running", snap.get("was_running", False))
                     ),
+                    # 输出配置快照（兼容旧snapshot：使用当前配置作为默认值）
+                    "pre_experiment_output_config": snap.get("pre_experiment_output_config") or {
+                        "signal": output_cfg.signal,
+                        "radar": output_cfg.radar,
+                        "memory": output_cfg.memory,
+                        "bandit": output_cfg.bandit,
+                        "radar_tags": list(output_cfg.radar_tags or []),
+                        "memory_tags": list(output_cfg.memory_tags or []),
+                    },
+                    # 策略参数快照
+                    "pre_experiment_strategy_params": snap.get("pre_experiment_strategy_params") or dict(getattr(entry._metadata, "strategy_params", {}) or {}),
+                    "pre_experiment_strategy_config": snap.get("pre_experiment_strategy_config") or dict(getattr(entry._metadata, "strategy_config", {}) or {}),
+                    # 窗口配置快照
+                    "pre_experiment_window_size": snap.get("pre_experiment_window_size") or getattr(entry._metadata, "window_size", 5),
+                    "pre_experiment_window_type": snap.get("pre_experiment_window_type") or getattr(entry._metadata, "window_type", "sliding"),
+                    "pre_experiment_window_interval": snap.get("pre_experiment_window_interval") or getattr(entry._metadata, "window_interval", "10s"),
+                    "pre_experiment_compute_mode": snap.get("pre_experiment_compute_mode") or getattr(entry._metadata, "compute_mode", "record"),
+                    # 字典配置快照
+                    "pre_experiment_dictionary_profile_ids": snap.get("pre_experiment_dictionary_profile_ids") or list(getattr(entry._metadata, "dictionary_profile_ids", []) or []),
+                    # 历史记录配置快照
+                    "pre_experiment_max_history_count": snap.get("pre_experiment_max_history_count") or getattr(entry._metadata, "max_history_count", 100),
                     # 兼容旧字段
                     "bound_datasource_id": snap.get("bound_datasource_id", "") or "",
                     "was_running": bool(snap.get("was_running", False)),
@@ -1247,6 +1327,7 @@ class StrategyManager:
         strategy_type: str = "legacy",
         strategy_params: Dict[str, Any] = None,
         strategy_config: Dict[str, Any] = None,
+        handler_type: str = "unknown",
     ) -> dict:
         from ..config import get_strategy_config
 
@@ -1294,6 +1375,7 @@ class StrategyManager:
             strategy_type=normalized_type or "legacy",
             strategy_params=strategy_params or {},
             strategy_config=strategy_config or {},
+            handler_type=handler_type or "unknown",
         )
         
         entry = StrategyEntry(metadata=metadata)
@@ -1405,6 +1487,10 @@ class StrategyManager:
             failed_start = []
 
             for entry in target_entries:
+                # 获取输出配置
+                output_ctrl = get_output_controller()
+                output_cfg = output_ctrl.get_config(entry.id)
+                
                 snapshot[entry.id] = {
                     "entry_id": entry.id,
                     "name": entry.name,
@@ -1412,6 +1498,27 @@ class StrategyManager:
                     # 实验前快照（关闭实验时用于恢复）
                     "pre_experiment_bound_datasource_id": getattr(entry._metadata, "bound_datasource_id", "") or "",
                     "pre_experiment_was_running": bool(entry.is_running),
+                    # 输出配置快照
+                    "pre_experiment_output_config": {
+                        "signal": output_cfg.signal,
+                        "radar": output_cfg.radar,
+                        "memory": output_cfg.memory,
+                        "bandit": output_cfg.bandit,
+                        "radar_tags": list(output_cfg.radar_tags or []),
+                        "memory_tags": list(output_cfg.memory_tags or []),
+                    },
+                    # 策略参数快照
+                    "pre_experiment_strategy_params": dict(getattr(entry._metadata, "strategy_params", {}) or {}),
+                    "pre_experiment_strategy_config": dict(getattr(entry._metadata, "strategy_config", {}) or {}),
+                    # 窗口配置快照
+                    "pre_experiment_window_size": getattr(entry._metadata, "window_size", 5),
+                    "pre_experiment_window_type": getattr(entry._metadata, "window_type", "sliding"),
+                    "pre_experiment_window_interval": getattr(entry._metadata, "window_interval", "10s"),
+                    "pre_experiment_compute_mode": getattr(entry._metadata, "compute_mode", "record"),
+                    # 字典配置快照
+                    "pre_experiment_dictionary_profile_ids": list(getattr(entry._metadata, "dictionary_profile_ids", []) or []),
+                    # 历史记录配置快照
+                    "pre_experiment_max_history_count": getattr(entry._metadata, "max_history_count", 100),
                     # 兼容旧字段
                     "bound_datasource_id": getattr(entry._metadata, "bound_datasource_id", "") or "",
                     "was_running": bool(entry.is_running),
@@ -1482,6 +1589,9 @@ class StrategyManager:
             snapshot = session.get("snapshot", {}) or {}
             restored_bind = 0
             restored_run = 0
+            restored_output = 0
+            restored_params = 0
+            restored_window = 0
             failed = []
 
             for entry_id, snap in snapshot.items():
@@ -1502,6 +1612,92 @@ class StrategyManager:
                     snap.get("pre_experiment_was_running", snap.get("was_running", False))
                 )
 
+                # 1. 恢复输出配置
+                output_config = snap.get("pre_experiment_output_config")
+                if output_config:
+                    try:
+                        output_ctrl = get_output_controller()
+                        from .output_controller import OutputConfig
+                        new_output_cfg = OutputConfig(
+                            strategy_id=entry_id,
+                            signal=output_config.get("signal", True),
+                            radar=output_config.get("radar", True),
+                            memory=output_config.get("memory", True),
+                            bandit=output_config.get("bandit", False),
+                            radar_tags=output_config.get("radar_tags", []),
+                            memory_tags=output_config.get("memory_tags", []),
+                        )
+                        output_ctrl.set_config(new_output_cfg)
+                        restored_output += 1
+                    except Exception as e:
+                        failed.append({
+                            "entry_id": entry_id,
+                            "name": snap.get("name", ""),
+                            "error": f"恢复输出配置失败: {str(e)}",
+                        })
+                        continue
+
+                # 2. 恢复策略参数和策略配置
+                strategy_params = snap.get("pre_experiment_strategy_params")
+                strategy_config = snap.get("pre_experiment_strategy_config")
+                if strategy_params is not None or strategy_config is not None:
+                    try:
+                        update_result = entry.update_config(
+                            strategy_params=strategy_params,
+                            strategy_config=strategy_config,
+                        )
+                        if update_result.get("success"):
+                            restored_params += 1
+                        else:
+                            failed.append({
+                                "entry_id": entry_id,
+                                "name": entry.name,
+                                "error": f"恢复策略参数失败: {update_result.get('error', 'unknown error')}",
+                            })
+                            continue
+                    except Exception as e:
+                        failed.append({
+                            "entry_id": entry_id,
+                            "name": snap.get("name", ""),
+                            "error": f"恢复策略参数失败: {str(e)}",
+                        })
+                        continue
+
+                # 3. 恢复窗口配置和计算模式
+                window_size = snap.get("pre_experiment_window_size")
+                window_type = snap.get("pre_experiment_window_type")
+                window_interval = snap.get("pre_experiment_window_interval")
+                compute_mode = snap.get("pre_experiment_compute_mode")
+                if window_size or window_type or window_interval or compute_mode:
+                    try:
+                        update_result = entry.update_config(
+                            window_size=window_size,
+                            window_type=window_type,
+                            window_interval=window_interval,
+                            compute_mode=compute_mode,
+                        )
+                        if update_result.get("success"):
+                            restored_window += 1
+                    except Exception:
+                        pass
+
+                # 4. 恢复字典配置
+                dictionary_profile_ids = snap.get("pre_experiment_dictionary_profile_ids")
+                if dictionary_profile_ids is not None:
+                    try:
+                        entry.update_config(dictionary_profile_ids=dictionary_profile_ids)
+                    except Exception:
+                        pass
+
+                # 5. 恢复历史记录配置
+                max_history_count = snap.get("pre_experiment_max_history_count")
+                if max_history_count is not None:
+                    try:
+                        entry.update_config(max_history_count=max_history_count)
+                    except Exception:
+                        pass
+
+                # 6. 恢复数据源绑定
                 bind_result = entry.update_config(bound_datasource_id=prev_ds_id)
                 if not bind_result.get("success"):
                     failed.append({
@@ -1512,6 +1708,7 @@ class StrategyManager:
                     continue
                 restored_bind += 1
 
+                # 7. 恢复运行状态
                 state_result = {"success": True}
                 if prev_running and not entry.is_running:
                     state_result = entry.start()
@@ -1535,6 +1732,9 @@ class StrategyManager:
                     "active": False,
                     "restored_bind_count": restored_bind,
                     "restored_state_count": restored_run,
+                    "restored_output_count": restored_output,
+                    "restored_params_count": restored_params,
+                    "restored_window_count": restored_window,
                     "failed": failed,
                 }
 
@@ -1544,6 +1744,9 @@ class StrategyManager:
                 "error": "部分策略恢复失败，请修复后重试关闭实验模式",
                 "restored_bind_count": restored_bind,
                 "restored_state_count": restored_run,
+                "restored_output_count": restored_output,
+                "restored_params_count": restored_params,
+                "restored_window_count": restored_window,
                 "failed": failed,
             }
     

@@ -60,6 +60,13 @@ class LLMController:
         self._min_interval_seconds = float(cfg.get("min_interval_seconds", 300))
         self._initialized = True
 
+    def _ensure_strategies_loaded(self):
+        mgr = get_strategy_manager()
+        strategies = mgr.list_all()
+        if not strategies:
+            mgr.reload_all()
+        return mgr.list_all()
+
     def review_and_adjust(
         self,
         *,
@@ -76,13 +83,17 @@ class LLMController:
                 "next_available_in": self._min_interval_seconds - (now - self._last_run_ts),
             }
 
+        mgr = get_strategy_manager()
+        all_strategies = self._ensure_strategies_loaded()
+        strategy_list = [{"id": s.id, "name": s.name} for s in all_strategies]
+
         radar_summary = get_radar_engine().summarize(window_seconds=window_seconds)
         memory_summary = get_memory_engine().summarize_for_llm()
         metrics = self._collect_strategy_metrics(strategy_ids)
         metrics_index = {m.get("strategy_id"): m for m in metrics if isinstance(m, dict)}
 
         try:
-            decision = self._request_llm(radar_summary, memory_summary, metrics, cfg)
+            decision = self._request_llm(radar_summary, memory_summary, metrics, strategy_list, cfg)
         except Exception as e:
             return {"success": False, "error": str(e)}
 
@@ -136,13 +147,15 @@ class LLMController:
         radar_summary: dict,
         memory_summary: dict,
         metrics: List[Dict[str, Any]],
+        strategy_list: List[Dict[str, str]],
         cfg: Dict[str, Any],
     ) -> LLMDecision:
-        prompt = self._build_prompt(radar_summary, memory_summary, metrics, cfg)
+        prompt = self._build_prompt(radar_summary, memory_summary, metrics, strategy_list, cfg)
 
         try:
             from deva.llm import GPT
-            gpt = GPT()
+            model_type = cfg.get("model_type", "deepseek")
+            gpt = GPT(model_type=model_type)
             response = gpt.sync_query(prompt)
         except Exception as e:
             raise RuntimeError(f"LLM 调节失败: {e}") from e
@@ -165,6 +178,7 @@ class LLMController:
         radar_summary: dict,
         memory_summary: dict,
         metrics: List[Dict[str, Any]],
+        strategy_list: List[Dict[str, str]],
         cfg: Dict[str, Any],
     ) -> str:
         allow_actions = cfg.get("allowed_actions", [])
@@ -173,6 +187,7 @@ class LLMController:
         return (
             "你是策略系统的元认知调节器。请基于雷达摘要和策略性能给出可执行调整建议。"
             "只返回 JSON：{\"summary\":\"...\",\"reason\":\"...\",\"actions\":[...]}\n\n"
+            f"已注册策略列表:\n{json.dumps(strategy_list, ensure_ascii=False)}\n\n"
             f"雷达摘要:\n{json.dumps(radar_summary, ensure_ascii=False)}\n\n"
             f"记忆摘要:\n{json.dumps(memory_summary, ensure_ascii=False)}\n\n"
             f"策略指标:\n{json.dumps(metrics, ensure_ascii=False)}\n\n"
@@ -181,7 +196,7 @@ class LLMController:
             f"策略黑名单(禁止): {json.dumps(denylist, ensure_ascii=False)}\n\n"
             "actions 每项格式:\n"
             "{\"strategy\":\"<策略名或ID>\",\"action\":\"update_params|update_strategy|reset|start|stop|restart\",\"params\":{...}}\n"
-            "legacy 策略只能使用 restart/stop/start。"
+            "重要：strategy 必须从上面的已注册策略列表中选择，不能随意编造！"
         )
 
     def _safe_parse_json(self, text: str) -> dict:
