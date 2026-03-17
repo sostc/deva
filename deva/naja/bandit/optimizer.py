@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import math
 import random
 import threading
@@ -15,6 +16,8 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
 from deva import NB
+
+log = logging.getLogger(__name__)
 
 BANDIT_STATS_TABLE = "naja_bandit_stats"
 BANDIT_DECISIONS_TABLE = "naja_bandit_decisions"
@@ -145,6 +148,7 @@ class BanditOptimizer:
         all_scores = {arm: self._get_arm_score(arm) for arm in available_strategies}
         
         if dry_run:
+            log.info(f"[Bandit] DRY RUN 选择策略: {selected}, 分数: {all_scores}")
             return {
                 "success": True,
                 "selected": selected,
@@ -154,6 +158,7 @@ class BanditOptimizer:
             }
         
         self._record_decision(selected, available_strategies, 0.0, "")
+        log.info(f"[Bandit] 选择策略: {selected}, 分数: {all_scores}")
         
         return {
             "success": True,
@@ -281,6 +286,7 @@ class BanditOptimizer:
         
         if not actions:
             self._last_update_ts = now
+            log.info("[Bandit] 审查结果: 无需调节")
             return {
                 "success": True,
                 "summary": "无需调节",
@@ -289,6 +295,7 @@ class BanditOptimizer:
             }
         
         apply_result = self._apply_actions(actions, mgr, dry_run)
+        log.info(f"[Bandit] 审查完成: 生成 {len(actions)} 个调节动作")
         
         self._last_update_ts = now
         

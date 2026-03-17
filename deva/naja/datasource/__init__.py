@@ -19,7 +19,11 @@ from ..common.recoverable import (
     UnitMetadata,
     UnitState,
     UnitStatus,
+    RecoveryManager,
+    recovery_manager,
 )
+
+from ..common.thread_pool import get_thread_pool
 from ..scheduler import (
     SchedulerManager,
     parse_cron_expr,
@@ -323,6 +327,7 @@ class DataSourceEntry(RecoverableUnit):
                             self._state.last_data_ts = time.time()
                             self._state.total_emitted += 1
                             self._latest_data = data
+                            self._save_latest_data(data)
 
                         if interval > 0:
                             if self._stop_event.wait(timeout=interval):
@@ -410,6 +415,7 @@ class DataSourceEntry(RecoverableUnit):
                                     self._state.last_data_ts = time.time()
                                     self._state.total_emitted += 1
                                     self._latest_data = data
+                                    self._save_latest_data(data)
                         else:
                             if current_size < last_size:
                                 self._log("INFO", "文件被截断，重新从头开始")
@@ -435,6 +441,7 @@ class DataSourceEntry(RecoverableUnit):
                                                 self._state.last_data_ts = time.time()
                                                 self._state.total_emitted += 1
                                                 self._latest_data = data
+                                                self._save_latest_data(data)
 
                         if self._stop_event.wait(timeout=poll_interval):
                             break
@@ -596,6 +603,7 @@ class DataSourceEntry(RecoverableUnit):
                                 self._state.last_data_ts = time.time()
                                 self._state.total_emitted += 1
                                 self._latest_data = data
+                                self._save_latest_data(data)
 
                         last_files = current_files
 
@@ -673,24 +681,42 @@ class DataSourceEntry(RecoverableUnit):
             # 1. 只计算 fetch_data 的执行时间
             data = self._invoke_fetch_func(func, event_payload=event_payload)
             if asyncio.iscoroutine(data):
-                loop = asyncio.new_event_loop()
                 try:
-                    data = loop.run_until_complete(data)
-                finally:
-                    loop.close()
+                    loop = asyncio.get_event_loop()
+                    if loop.is_running():
+                        pool = get_thread_pool()
+                        data = pool.submit(asyncio.run, data).result()
+                    else:
+                        data = loop.run_until_complete(data)
+                except RuntimeError:
+                    loop = asyncio.new_event_loop()
+                    try:
+                        data = loop.run_until_complete(data)
+                    finally:
+                        loop.close()
             
             # 计算 fetch_data 执行时间
             fetch_time_ms = (time.time() - start_time) * 1000
 
-            # 调试：打印 fetch_data 返回的数据
-            # print(f"[DataSourceEntry] fetch_data 返回: {data}, 类型: {type(data)}")
-
             # 2. 发送数据（不包含在执行时间内）
             if data is not None:
-                self._emit_data(data)
-                self._state.last_data_ts = time.time()
-                self._state.total_emitted += 1
-                self._latest_data = data
+                # 检测是否是批量数据（列表）
+                if isinstance(data, list):
+                    # 批量发送：直接发送整个列表
+                    self._emit_data(data, is_batch=True)
+                    self._state.last_data_ts = time.time()
+                    self._state.total_emitted += len(data)
+                    self._state.latest_data = data
+                    self._latest_data = data
+                    self._save_latest_data(data)
+                else:
+                    # 单条发送
+                    self._emit_data(data)
+                    self._state.last_data_ts = time.time()
+                    self._state.total_emitted += 1
+                    self._state.latest_data = data
+                    self._latest_data = data
+                    self._save_latest_data(data)
                 self._state.record_success()
             success = True
             self.save()
@@ -733,10 +759,21 @@ class DataSourceEntry(RecoverableUnit):
                         data = self._event_loop.run_until_complete(data)
 
                 if data is not None:
-                    self._emit_data(data)
-                    self._state.last_data_ts = time.time()
-                    self._state.total_emitted += 1
-                    self._latest_data = data
+                    # 支持批量数据发送
+                    if isinstance(data, list):
+                        self._emit_data(data, is_batch=True)
+                        self._state.last_data_ts = time.time()
+                        self._state.total_emitted += len(data)
+                        self._state.latest_data = data
+                        self._latest_data = data
+                        self._save_latest_data(data)
+                    else:
+                        self._emit_data(data)
+                        self._state.last_data_ts = time.time()
+                        self._state.total_emitted += 1
+                        self._state.latest_data = data
+                        self._latest_data = data
+                        self._save_latest_data(data)
 
             except Exception as e:
                 self._state.record_error(str(e))
@@ -748,8 +785,13 @@ class DataSourceEntry(RecoverableUnit):
         if self._event_loop and not self._event_loop.is_closed():
             self._event_loop.close()
 
-    def _emit_data(self, data: Any):
-        """发送数据到流"""
+    def _emit_data(self, data: Any, is_batch: bool = False):
+        """发送数据到流
+        
+        Args:
+            data: 要发送的数据
+            is_batch: 是否是批量数据（列表）
+        """
         try:
             if self._stream is None:
                 self._stream = NS(
@@ -759,8 +801,14 @@ class DataSourceEntry(RecoverableUnit):
                     description=f"DataSource {self.name} output",
                 )
 
+            # 发送数据
             if hasattr(self._stream, "emit"):
-                self._stream.emit(data)
+                if is_batch and isinstance(data, list):
+                    # 批量发送：直接发送整个列表
+                    self._stream.emit(data)
+                else:
+                    # 单条发送
+                    self._stream.emit(data)
 
         except Exception as e:
             self._log("ERROR", "emit data failed", error=str(e))
@@ -777,7 +825,30 @@ class DataSourceEntry(RecoverableUnit):
         return self._stream
 
     def get_latest_data(self) -> Any:
-        return self._latest_data
+        # 1. 先从内存获取
+        if hasattr(self, '_latest_data') and self._latest_data is not None:
+            return self._latest_data
+        if hasattr(self._state, 'latest_data') and self._state.latest_data is not None:
+            return self._state.latest_data
+        
+        # 2. 从数据库获取持久化的最新数据
+        try:
+            db = NB(DS_LATEST_DATA_TABLE)
+            cached = db.get(self.id)
+            if cached is not None:
+                return cached
+        except Exception:
+            pass
+        
+        return None
+    
+    def _save_latest_data(self, data: Any):
+        """保存最新数据到数据库"""
+        try:
+            db = NB(DS_LATEST_DATA_TABLE)
+            db[self.id] = data
+        except Exception:
+            pass
 
     def update_config(
         self,
@@ -1013,6 +1084,8 @@ class DataSourceManager:
         return None
 
     def list_all(self) -> List[DataSourceEntry]:
+        if not self._items:
+            self.load_from_db()
         return list(self._items.values())
 
     def list_all_dict(self) -> List[dict]:

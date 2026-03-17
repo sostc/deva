@@ -10,9 +10,12 @@
 """
 
 import json
+import logging
 import re
 from datetime import datetime
 from typing import Dict, Any, Optional, Tuple, Callable
+
+logger = logging.getLogger(__name__)
 
 
 def parse_strategy_result(result) -> Dict[str, Any]:
@@ -67,13 +70,40 @@ def parse_strategy_result(result) -> Dict[str, Any]:
                 if codes:
                     output['extracted_codes'] = codes[:5]
     else:
-        output = output_full
+        if isinstance(output_full, dict):
+            output = output_full
+        elif hasattr(output_full, 'to_dict'):
+            output = output_full.to_dict('records') if hasattr(output_full, 'empty') else output_full.to_dict()
+        elif isinstance(output_full, list):
+            if output_full and isinstance(output_full[0], dict) and 'type' in output_full[0]:
+                signal_types = [s.get('type', 'unknown') for s in output_full if isinstance(s, dict)]
+                messages = [s.get('message', '')[:50] for s in output_full if isinstance(s, dict) and s.get('message')]
+                output = {
+                    'signal_type': signal_types[0] if signal_types else 'news_radar',
+                    'signals': output_full,
+                    'signal_count': len(output_full),
+                    'messages': messages,
+                }
+            else:
+                output = {'data': output_full, 'signal_type': 'data_list'}
+        else:
+            logger.warning(
+                f"parse_strategy_result: output_full is not a dict (type={type(output_full).__name__}), "
+                f"strategy={getattr(result, 'strategy_name', 'unknown')}"
+            )
+            output = {}
     
     if output is None:
         output = {}
     
+    signal_type = ''
+    if isinstance(output, dict):
+        signal_type = output.get('signal_type', output.get('signal', ''))
+    elif isinstance(output, list) and output:
+        signal_type = 'data_list'
+    
     return {
-        'signal_type': output.get('signal_type', output.get('signal', '')),
+        'signal_type': signal_type,
         'raw': output,
         'is_truncated': is_truncated,
         'strategy_name': strategy_name,
@@ -93,6 +123,40 @@ def parse_strategy_result(result) -> Dict[str, Any]:
 # 支持通配符: *pattern* 匹配任意字符
 
 SIGNAL_REGISTRY: Dict[str, Dict[str, Any]] = {
+    # === 买入信号 ===
+    'BUY': {
+        'icon': '📈', 'color': '#28a745', 'label': '买入信号',
+        'importance': 'high'
+    },
+    'buy': {
+        'icon': '📈', 'color': '#28a745', 'label': '买入信号',
+        'importance': 'high'
+    },
+    'unified_capital': {
+        'icon': '💰', 'color': '#fd7e14', 'label': '资金流向',
+        'importance': 'high'
+    },
+    'unified_market_state': {
+        'icon': '📊', 'color': '#17a2b8', 'label': '市场状态',
+        'importance': 'medium'
+    },
+    'unified_trend': {
+        'icon': '📈', 'color': '#28a745', 'label': '趋势分析',
+        'importance': 'high'
+    },
+    'unified_probability': {
+        'icon': '🎯', 'color': '#6f42c1', 'label': '概率预测',
+        'importance': 'high'
+    },
+    'microstructure_volatility_anomaly': {
+        'icon': '⚡', 'color': '#dc3545', 'label': '微观波动异常',
+        'importance': 'high'
+    },
+    'river_block_rotation_map': {
+        'icon': '🔄', 'color': '#fd7e14', 'label': '板块轮动',
+        'importance': 'medium'
+    },
+    
     # === 逆势/ contrarian ===
     'contrarian': {
         'icon': '🔴', 'color': '#dc3545', 'label': '逆势信号', 
@@ -231,6 +295,36 @@ SIGNAL_REGISTRY: Dict[str, Dict[str, Any]] = {
         'importance': 'low'
     },
     
+    # === 新闻舆情/雷达 ===
+    'news_radar': {
+        'icon': '📰', 'color': '#fd7e14', 'label': '新闻舆情',
+        'importance': 'medium'
+    },
+    'topic_emerge': {
+        'icon': '🆕', 'color': '#17a2b8', 'label': '新主题出现',
+        'importance': 'medium'
+    },
+    'topic_grow': {
+        'icon': '📈', 'color': '#28a745', 'label': '主题增长',
+        'importance': 'medium'
+    },
+    'topic_fade': {
+        'icon': '📉', 'color': '#6c757d', 'label': '主题消退',
+        'importance': 'low'
+    },
+    'high_attention': {
+        'icon': '🔥', 'color': '#dc3545', 'label': '高注意力',
+        'importance': 'high'
+    },
+    'trend_shift': {
+        'icon': '↔️', 'color': '#ffc107', 'label': '趋势转变',
+        'importance': 'medium'
+    },
+    'drift_detected': {
+        'icon': '⚠️', 'color': '#dc3545', 'label': '漂移检测',
+        'importance': 'high'
+    },
+    
     # === 监控类 ===
     'limit_monitor': {
         'icon': '👁️', 'color': '#6c757d', 'label': '涨跌停监控',
@@ -364,6 +458,23 @@ def get_signal_detail(result) -> Dict[str, Any]:
         
     elif 'block' in signal_type or 'industry' in signal_type:
         detail['summary'] = _handle_block_signal(raw, signal_count, signals)
+        
+    elif signal_type in ['news_radar', 'topic_emerge', 'topic_grow', 'topic_fade', 'high_attention', 'trend_shift', 'drift_detected']:
+        messages = raw.get('messages', [])
+        if messages:
+            detail['summary'] = f"舆情监控: {messages[0]}"
+            detail['highlights'] = messages[1:5] if len(messages) > 1 else []
+        else:
+            signal_type_labels = {
+                'news_radar': '舆情监控',
+                'topic_emerge': '新主题出现',
+                'topic_grow': '主题增长',
+                'topic_fade': '主题消退',
+                'high_attention': '高注意力',
+                'trend_shift': '趋势转变',
+                'drift_detected': '漂移检测',
+            }
+            detail['summary'] = f"{signal_type_labels.get(signal_type, signal_type)} - {signal_count} 个信号"
         
     elif is_truncated and extracted_names:
         # 截断数据的通用处理
@@ -523,6 +634,41 @@ def generate_expanded_content(result, detail: dict) -> str:
                 html += '<td style="padding:4px;border:1px solid #dee2e6;">%d</td></tr>' % score
             
             html += '</table>'
+        elif raw.get('market_state'):
+            state = raw.get('market_state', '未知')
+            cluster = raw.get('cluster_id', '-')
+            drift = '是' if raw.get('drift_detected') else '否'
+            
+            state_colors = {"震荡": "#f59e0b", "上涨": "#22c55e", "下跌": "#ef4444", "未知": "#6b7280"}
+            state_color = state_colors.get(state, "#6b7280")
+            drift_color = "#ef4444" if drift == "是" else "#22c55e"
+            
+            html += f'''<div style="background:#f8f9fa;border-radius:12px;padding:16px;margin:8px 0;border-left:4px solid {state_color};">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+                    <div>
+                        <div style="font-size:12px;color:#666;">🌡️ 市场状态</div>
+                        <div style="font-size:24px;font-weight:700;color:{state_color};">{state}</div>
+                    </div>
+                    <div style="text-align:right;">
+                        <div style="font-size:12px;color:#666;">聚类ID</div>
+                        <div style="font-size:20px;font-weight:600;">{cluster}</div>
+                    </div>
+                </div>
+                <div style="background:{ '#fef2f2' if drift == '是' else '#f0fdf4' };padding:8px 12px;border-radius:8px;display:flex;align-items:center;gap:8px;">
+                    <span style="font-size:14px;">📡 概念漂移:</span>
+                    <span style="font-size:14px;font-weight:600;color:{drift_color};">{drift}</span>
+                </div>'''
+            
+            features = raw.get('market_features', {})
+            if features:
+                html += f'''<div style="margin-top:12px;padding-top:12px;border-top:1px solid #dee2e6;">
+                    <div style="font-size:12px;color:#666;margin-bottom:8px;">📊 市场特征</div>
+                    <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:8px;">'''
+                for k, v in features.items():
+                    feature_key = str(k).replace('_', ' ')
+                    html += f'<div style="background:#fff;padding:8px;border-radius:6px;text-align:center;"><div style="font-size:11px;color:#888;">{feature_key}</div><div style="font-size:14px;font-weight:600;">{v}</div></div>'
+                html += '</div></div>'
+            html += '</div>'
         
         return html + '</div>'
 

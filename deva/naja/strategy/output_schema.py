@@ -21,8 +21,22 @@
    - stock_name: 股票名称
    - price: 价格
    - confidence: 置信度
+
+5. LLM (LLM调节)
+   - 包含所有上述字段的组合，用于 LLM 分析和参数调节
+
+使用方式:
+    from deva.naja.strategy.output_schema import (
+        enrich_signal_for_radar,
+        enrich_signal_for_memory,
+        enrich_signal_for_bandit,
+        enrich_signal_for_llm,
+    )
 """
 
+from __future__ import annotations
+
+import time
 from typing import Any, Dict, List, Optional
 from dataclasses import dataclass, field
 
@@ -297,3 +311,250 @@ DEFAULT_OUTPUT_TEMPLATES = {
         "reason": ""
     }
 }
+
+
+def enrich_signal_for_radar(
+    signal: Dict[str, Any],
+    source_data: Optional[Dict[str, Any]] = None,
+    strategy_info: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    """为雷达模块增强信号
+
+    自动补充必要字段:
+    - ts: 时间戳
+    - strategy_id/strategy_name: 策略信息
+    - source_data: 原始数据引用
+
+    Args:
+        signal: 原始信号
+        source_data: 源数据
+        strategy_info: 策略信息
+
+    Returns:
+        Dict: 增强后的信号
+    """
+    enriched = dict(signal)
+
+    if "ts" not in enriched:
+        enriched["ts"] = time.time()
+
+    if strategy_info:
+        if "strategy_id" not in enriched:
+            enriched["strategy_id"] = strategy_info.get("id", "")
+        if "strategy_name" not in enriched:
+            enriched["strategy_name"] = strategy_info.get("name", "")
+
+    if source_data and "source" not in enriched:
+        enriched["source"] = {
+            "data_ts": source_data.get("ts"),
+            "data_code": source_data.get("code"),
+        }
+
+    enriched["_target"] = "radar"
+    enriched["_enriched"] = True
+
+    return enriched
+
+
+def enrich_signal_for_memory(
+    signal: Dict[str, Any],
+    source_data: Optional[Dict[str, Any]] = None,
+    strategy_info: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    """为记忆模块增强信号
+
+    自动补充必要字段:
+    - ts: 时间戳
+    - content: 内容 (如果缺失，从其他字段提取)
+    - strategy_id: 策略ID
+
+    Args:
+        signal: 原始信号
+        source_data: 源数据
+        strategy_info: 策略信息
+
+    Returns:
+        Dict: 增强后的信号
+    """
+    enriched = dict(signal)
+
+    if "ts" not in enriched:
+        enriched["ts"] = time.time()
+
+    if "content" not in enriched or not enriched["content"]:
+        content_parts = []
+        for key in ["text", "title", "message", "description"]:
+            if key in enriched:
+                content_parts.append(str(enriched[key]))
+        if content_parts:
+            enriched["content"] = " | ".join(content_parts)
+
+    if strategy_info:
+        if "strategy_id" not in enriched:
+            enriched["strategy_id"] = strategy_info.get("id", "")
+        if "strategy_name" not in enriched:
+            enriched["strategy_name"] = strategy_info.get("name", "")
+
+    if source_data and "source" not in enriched:
+        enriched["source"] = {
+            "data_ts": source_data.get("ts"),
+            "data_code": source_data.get("code"),
+        }
+
+    enriched["_target"] = "memory"
+    enriched["_enriched"] = True
+
+    return enriched
+
+
+def enrich_signal_for_bandit(
+    signal: Dict[str, Any],
+    source_data: Optional[Dict[str, Any]] = None,
+    strategy_info: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    """为交易模块增强信号
+
+    自动补充必要字段:
+    - ts: 时间戳
+    - stock_code: 股票代码 (如果缺失，从源数据获取)
+    - price: 价格 (如果缺失，从源数据获取)
+    - strategy_id: 策略ID
+    - reason: 交易原因 (自动生成)
+
+    Args:
+        signal: 原始信号
+        source_data: 源数据
+        strategy_info: 策略信息
+
+    Returns:
+        Dict: 增强后的信号
+    """
+    enriched = dict(signal)
+
+    if "ts" not in enriched:
+        enriched["ts"] = time.time()
+
+    if source_data:
+        if "stock_code" not in enriched or not enriched["stock_code"]:
+            enriched["stock_code"] = source_data.get("code", "")
+        if "price" not in enriched or enriched["price"] == 0:
+            enriched["price"] = source_data.get("price") or source_data.get("close", 0)
+
+    if "confidence" not in enriched:
+        enriched["confidence"] = 0.5
+
+    if "reason" not in enriched or not enriched["reason"]:
+        signal_type = enriched.get("signal_type", "")
+        score = enriched.get("score", 0)
+        reason = f"{signal_type}信号, 置信度: {score:.2f}"
+        if strategy_info:
+            reason += f", 策略: {strategy_info.get('name', 'unknown')}"
+        enriched["reason"] = reason
+
+    if strategy_info:
+        if "strategy_id" not in enriched:
+            enriched["strategy_id"] = strategy_info.get("id", "")
+
+    enriched["_target"] = "bandit"
+    enriched["_enriched"] = True
+
+    return enriched
+
+
+def enrich_signal_for_llm(
+    signal: Dict[str, Any],
+    source_data: Optional[Dict[str, Any]] = None,
+    strategy_info: Optional[Dict[str, Any]] = None,
+    include_all_targets: bool = True,
+) -> Dict[str, Any]:
+    """为 LLM 调节增强信号
+
+    包含所有模块的字段，用于 LLM 分析和参数调节:
+    - radar: 雷达数据
+    - memory: 记忆数据
+    - bandit: 交易数据
+    - metadata: 元数据
+
+    Args:
+        signal: 原始信号
+        source_data: 源数据
+        strategy_info: 策略信息
+        include_all_targets: 是否包含所有目标的数据
+
+    Returns:
+        Dict: 增强后的信号
+    """
+    enriched = dict(signal)
+
+    if "ts" not in enriched:
+        enriched["ts"] = time.time()
+
+    enriched["radar"] = {
+        "signal_type": signal.get("signal_type", "unknown"),
+        "score": signal.get("score", 0),
+        "value": signal.get("value", 0),
+    }
+
+    enriched["memory"] = {
+        "content": signal.get("content", ""),
+        "topic": signal.get("topic", "general"),
+        "sentiment": signal.get("sentiment", 0),
+    }
+
+    enriched["bandit"] = {
+        "signal_type": signal.get("signal_type", ""),
+        "stock_code": signal.get("stock_code", ""),
+        "price": signal.get("price", 0),
+        "confidence": signal.get("confidence", 0.5),
+    }
+
+    if strategy_info:
+        enriched["metadata"] = {
+            "strategy_id": strategy_info.get("id", ""),
+            "strategy_name": strategy_info.get("name", ""),
+            "strategy_type": strategy_info.get("strategy_type", ""),
+        }
+
+    if source_data:
+        enriched["context"] = {
+            "data_ts": source_data.get("ts"),
+            "data_code": source_data.get("code", ""),
+            "data_price": source_data.get("price", 0),
+        }
+
+    enriched["_target"] = "llm"
+    enriched["_enriched"] = True
+
+    return enriched
+
+
+def auto_enrich_signal(
+    signal: Dict[str, Any],
+    handler_type: str,
+    source_data: Optional[Dict[str, Any]] = None,
+    strategy_info: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    """自动根据 handler_type 增强信号
+
+    Args:
+        signal: 原始信号
+        handler_type: 处理器类型 (radar/memory/bandit/llm)
+        source_data: 源数据
+        strategy_info: 策略信息
+
+    Returns:
+        Dict: 增强后的信号
+    """
+    enrichers = {
+        "radar": enrich_signal_for_radar,
+        "memory": enrich_signal_for_memory,
+        "bandit": enrich_signal_for_bandit,
+        "llm": enrich_signal_for_llm,
+    }
+
+    enricher = enrichers.get(handler_type.lower())
+    if enricher:
+        return enricher(signal, source_data, strategy_info)
+
+    return signal
+

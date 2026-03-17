@@ -187,16 +187,16 @@ def generate_datasource_name(description: str) -> str:
 def infer_data_schema(description: str, source_type: str) -> Dict[str, Any]:
     """
     推断数据格式 schema
-    
+
     Args:
         description: 用户描述
         source_type: 数据源类型
-        
+
     Returns:
         data_schema 字典
     """
     desc_lower = description.lower()
-    
+
     # 根据关键词推断数据类型
     if any(kw in desc_lower for kw in ['股票', '行情', '价格', 'stock', 'tick', 'price', 'symbol']):
         return DATA_SCHEMA_TEMPLATES["tick"].copy()
@@ -211,20 +211,80 @@ def infer_data_schema(description: str, source_type: str) -> Dict[str, Any]:
         return DATA_SCHEMA_TEMPLATES["tick"].copy()
 
 
-def generate_timer_func_code(data_fields: List[str], fetch_logic: str = "") -> str:
-    """生成 timer 类型的 func_code"""
-    code = '''def fetch_data():
+def infer_is_async(description: str) -> bool:
+    """
+    推断是否应该使用异步函数
+
+    Args:
+        description: 用户描述
+
+    Returns:
+        是否使用异步（涉及网络IO时返回True）
+    """
+    desc_lower = description.lower()
+
+    # 涉及网络IO的关键词
+    network_keywords = [
+        'api', 'http', 'https', '请求', '网络', '爬虫', '抓取',
+        'fetch', 'request', 'web', 'url', '接口', 'rest',
+        '股票', '行情', '新闻', '资讯', '数据', '实时'
+    ]
+
+    return any(kw in desc_lower for kw in network_keywords)
+
+
+def generate_timer_func_code(data_fields: List[str], fetch_logic: str = "", is_async: bool = True) -> str:
+    """
+    生成 timer 类型的 func_code
+
+    Args:
+        data_fields: 数据字段列表
+        fetch_logic: 用户描述的获取逻辑
+        is_async: 是否生成异步函数（涉及网络IO时推荐使用）
+
+    Returns:
+        func_code 字符串
+    """
+    if is_async:
+        code = '''async def fetch_data():
+    """
+    获取数据（异步版本）
+    涉及网络IO，使用异步以提高性能
+    """
+    import aiohttp
+    import json
+    import time
+
+    # TODO: 实现数据获取逻辑
+    # 用户描述：''' + fetch_logic + '''
+
+    # 示例：HTTP 请求
+    # url = "https://api.example.com/data"
+    # try:
+    #     async with aiohttp.ClientSession() as session:
+    #         async with session.get(url, timeout=aiohttp.ClientTimeout(total=10)) as resp:
+    #             data = await resp.json()
+    # except Exception as e:
+    #     print(f"请求失败: {e}")
+    #     return None
+
+    # 模拟数据（请替换为实际逻辑）
+    import random
+
+'''
+    else:
+        code = '''def fetch_data():
     """
     获取数据
     """
     import time
     import random
-    
+
     # TODO: 实现数据获取逻辑
     # 用户描述：''' + fetch_logic + '''
-    
+
 '''
-    
+
     # 根据字段生成示例数据
     code += '    data = {\n'
     for field in data_fields:
@@ -244,12 +304,12 @@ def generate_timer_func_code(data_fields: List[str], fetch_logic: str = "") -> s
             code += '        "content": "示例内容",  # 内容\n'
         else:
             code += f'        "{field}": "",  # {field}\n'
-    
+
     code += '''    }
-    
+
     return data
 '''
-    
+
     return code
 
 
@@ -502,7 +562,10 @@ def analyze_user_requirement(description: str) -> Dict[str, Any]:
     
     # 推断数据格式
     data_schema = infer_data_schema(description, source_type)
-    
+
+    # 推断是否使用异步（涉及网络IO时使用异步）
+    is_async = infer_is_async(description)
+
     # 构建配置
     config = {}
     if source_type == "file" and path:
@@ -522,7 +585,7 @@ def analyze_user_requirement(description: str) -> Dict[str, Any]:
         config = {
             "interval": interval
         }
-    
+
     return {
         "name": name,
         "source_type": source_type,
@@ -531,7 +594,8 @@ def analyze_user_requirement(description: str) -> Dict[str, Any]:
         "execution_mode": execution_mode,
         "config": config,
         "data_schema": data_schema,
-        "path": path
+        "path": path,
+        "is_async": is_async
     }
 
 

@@ -5,6 +5,7 @@ from datetime import datetime
 from pywebio.output import put_html, put_table, use_scope, set_scope, put_collapse
 
 from ..common.ui_style import apply_strategy_like_styles, render_empty_state
+from ..page_help import render_help_collapse
 from .engine import get_radar_engine
 
 
@@ -14,88 +15,44 @@ def _fmt_ts(ts: float) -> str:
     return datetime.fromtimestamp(ts).strftime("%Y-%m-%d %H:%M:%S")
 
 
+def _render_event_type_badge(event_type: str) -> str:
+    """渲染事件类型徽章"""
+    badges = {
+        "pattern": {"icon": "📊", "color": "#2563eb", "bg": "rgba(37,99,235,0.1)", "label": "模式"},
+        "drift": {"icon": "📉", "color": "#d97706", "bg": "rgba(217,119,6,0.1)", "label": "漂移"},
+        "anomaly": {"icon": "⚡", "color": "#dc2626", "bg": "rgba(220,38,38,0.1)", "label": "异常"},
+    }
+    info = badges.get(event_type, {"icon": "❓", "color": "#6b7280", "bg": "rgba(107,114,128,0.1)", "label": event_type})
+    return f'''<span style="display:inline-flex;align-items:center;gap:3px;padding:3px 8px;border-radius:4px;font-size:12px;font-weight:500;background:{info['bg']};color:{info['color']};">
+        {info['icon']} {info['label']}
+    </span>'''
+
+
+def _render_signal_type_badge(signal_type: str) -> str:
+    """渲染信号类型徽章"""
+    signal_lower = signal_type.lower() if signal_type else ""
+    
+    if "anomaly" in signal_lower or "fast" in signal_lower:
+        color, bg, icon = "#dc2626", "rgba(220,38,38,0.1)", "⚡"
+    elif "drift" in signal_lower:
+        color, bg, icon = "#9333ea", "rgba(147,51,234,0.1)", "📉"
+    elif "breakout" in signal_lower or "volume" in signal_lower:
+        color, bg, icon = "#d97706", "rgba(217,119,6,0.1)", "📈"
+    elif "rotation" in signal_lower or "block" in signal_lower:
+        color, bg, icon = "#2563eb", "rgba(37,99,235,0.1)", "🔄"
+    elif "trend" in signal_lower:
+        color, bg, icon = "#16a34a", "rgba(22,163,74,0.1)", "📊"
+    else:
+        color, bg, icon = "#6b7280", "rgba(107,114,128,0.1)", "📌"
+    
+    return f'''<span style="display:inline-flex;align-items:center;gap:2px;padding:2px 6px;border-radius:3px;font-size:11px;background:{bg};color:{color};">
+        {icon} {signal_type}
+    </span>'''
+
+
 def _render_radar_help():
     """渲染雷达帮助说明"""
-    return put_collapse(
-        "📖 帮助说明",
-        put_html("""
-        <div style="font-size:13px;line-height:1.6;color:#374151;">
-            <p><strong>雷达系统</strong>专注检测市场<strong>技术层面</strong>的变化，包括量价突破、波动率变化、模式切换等可交易的技术信号。</p>
-            
-            <h4 style="margin:12px 0 8px;color:#1f2937;">🎯 与记忆系统的区别</h4>
-            <table style="width:100%;border-collapse:collapse;font-size:12px;">
-                <tr style="background:#fef2f2;">
-                    <td style="padding:8px;border:1px solid #fecaca;"><strong>雷达 (技术)</strong></td>
-                    <td style="padding:8px;border:1px solid #fecaca;"><strong>记忆 (叙事)</strong></td>
-                </tr>
-                <tr>
-                    <td style="padding:8px;border:1px solid #e5e7eb;">量价突破、波动率变化</td>
-                    <td style="padding:8px;border:1px solid #e5e7eb;">热点主题、叙事变化</td>
-                </tr>
-                <tr style="background:#f9fafb;">
-                    <td style="padding:8px;border:1px solid #e5e7eb;">技术模式切换</td>
-                    <td style="padding:8px;border:1px solid #e5e7eb;">市场注意力焦点</td>
-                </tr>
-                <tr>
-                    <td style="padding:8px;border:1px solid #e5e7eb;">可交易的信号</td>
-                    <td style="padding:8px;border:1px solid #e5e7eb;">市场共识/情绪</td>
-                </tr>
-            </table>
-            
-            <h4 style="margin:12px 0 8px;color:#1f2937;">📊 字段说明</h4>
-            <table style="width:100%;border-collapse:collapse;font-size:12px;">
-                <tr style="background:#f3f4f6;">
-                    <td style="padding:6px 10px;border:1px solid #e5e7eb;"><strong>时间</strong></td>
-                    <td style="padding:6px 10px;border:1px solid #e5e7eb;">事件发生时间</td>
-                </tr>
-                <tr>
-                    <td style="padding:6px 10px;border:1px solid #e5e7eb;"><strong>事件</strong></td>
-                    <td style="padding:6px 10px;border:1px solid #e5e7eb;">事件类型：pattern(模式)、drift(漂移)、anomaly(异常)</td>
-                </tr>
-                <tr style="background:#f3f4f6;">
-                    <td style="padding:6px 10px;border:1px solid #e5e7eb;"><strong>分数</strong></td>
-                    <td style="padding:6px 10px;border:1px solid #e5e7eb;">事件严重程度/置信度 (0-10)</td>
-                </tr>
-                <tr>
-                    <td style="padding:6px 10px;border:1px solid #e5e7eb;"><strong>策略</strong></td>
-                    <td style="padding:6px 10px;border:1px solid #e5e7eb;">触发该事件的策略名称</td>
-                </tr>
-                <tr style="background:#f3f4f6;">
-                    <td style="padding:6px 10px;border:1px solid #e5e7eb;"><strong>信号类型</strong></td>
-                    <td style="padding:6px 10px;border:1px solid #e5e7eb;">检测到的具体信号类型</td>
-                </tr>
-                <tr>
-                    <td style="padding:6px 10px;border:1px solid #e5e7eb;"><strong>说明</strong></td>
-                    <td style="padding:6px 10px;border:1px solid #e5e7eb;">事件的详细描述</td>
-                </tr>
-            </table>
-            
-            <h4 style="margin:12px 0 8px;color:#1f2937;">📈 技术信号类型</h4>
-            <table style="width:100%;border-collapse:collapse;font-size:12px;">
-                <tr style="background:#fef2f2;">
-                    <td style="padding:6px 10px;border:1px solid #fecaca;color:#dc2626;"><strong>fast_anomaly</strong></td>
-                    <td style="padding:6px 10px;border:1px solid #fecaca;">快速异常 - 短时间内数据分布剧烈变化</td>
-                </tr>
-                <tr style="background:#fffbeb;">
-                    <td style="padding:6px 10px;border:1px solid #fde68a;color:#d97706;"><strong>volume_breakout</strong></td>
-                    <td style="padding:6px 10px;border:1px solid #fde68a;">成交量突破 - 成交量模式突变，可能预示突破</td>
-                </tr>
-                <tr style="background:#eff6ff;">
-                    <td style="padding:6px 10px;border:1px solid #bfdbfe;color:#2563eb;"><strong>block_rotation</strong></td>
-                    <td style="padding:6px 10px;border:1px solid #bfdbfe;">板块轮动 - 资金在板块间流动</td>
-                </tr>
-                <tr style="background:#f0fdf4;">
-                    <td style="padding:6px 10px;border:1px solid #bbf7d0;color:#16a34a;"><strong>trend_analysis</strong></td>
-                    <td style="padding:6px 10px;border:1px solid #bbf7d0;">趋势分析 - 市场趋势模式漂移</td>
-                </tr>
-                <tr style="background:#f3e8ff;">
-                    <td style="padding:6px 10px;border:1px solid #e9d5ff;color:#9333ea;"><strong>tick_drift_adwin</strong></td>
-                    <td style="padding:6px 10px;border:1px solid #e9d5ff;">ADWIN漂移 - 基于ADWIN算法的价格漂移</td>
-                </tr>
-            </table>
-        </div>
-        """)
-    )
+    return render_help_collapse("radar")
 
 
 async def render_radar_admin(ctx: dict):
@@ -134,13 +91,16 @@ async def render_radar_admin(ctx: dict):
 
     table_data = [["时间", "事件", "分数", "策略", "信号类型", "说明"]]
     for e in events[:50]:
+        event_type = e.get("event_type", "-")
+        signal_type = e.get("signal_type", "-")
+        
         table_data.append(
             [
                 _fmt_ts(float(e.get("timestamp", 0))),
-                e.get("event_type", "-"),
+                ctx["put_html"](_render_event_type_badge(event_type)),
                 f"{float(e.get('score', 0)):.2f}" if e.get("score") is not None else "-",
                 e.get("strategy_name", "-"),
-                e.get("signal_type", "-"),
+                ctx["put_html"](_render_signal_type_badge(signal_type)),
                 e.get("message", "-"),
             ]
         )
