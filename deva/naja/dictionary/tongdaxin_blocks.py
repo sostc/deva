@@ -11,7 +11,7 @@ _block_info = None
 
 BLOCKS_FILE = os.environ.get(
     "TONGDAXIN_BLOCKS_FILE",
-    str(Path(__file__).resolve().parent.parent.parent.parent / "infoharbor_block.dat")
+    str(Path(__file__).resolve().parent / "infoharbor_block.dat")
 )
 
 MARKET_NAMES = {
