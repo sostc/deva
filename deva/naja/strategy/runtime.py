@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import importlib
 from abc import ABC, abstractmethod
-from typing import Any, Dict, Optional, Type
+from typing import Any, Dict, List, Optional, Type
 
 from .declarative import StrategyEngine
 
@@ -69,12 +69,19 @@ class LegacyStrategyAdapter(BaseStrategy):
 
 
 class RiverStrategyAdapter(BaseStrategy):
-    """River 策略适配器（最小通用版本）。"""
+    """River 策略适配器（最小通用版本）。
+
+    支持:
+    - 单条预测: on_data() -> predict_one()
+    - 批量预测: on_batch() -> predict_many()
+    - 在线学习: learn_one()
+    """
 
     def __init__(self, config: Optional[Dict[str, Any]] = None):
         super().__init__(config=config)
         self._model = None
         self._pred = None
+        self._preds = None
         self._feature_key = "features"
         self._label_key = "label"
         self._learn_on_label = True
@@ -127,7 +134,46 @@ class RiverStrategyAdapter(BaseStrategy):
         if y is not None and self._learn_on_label and hasattr(self._model, "learn_one"):
             self._model.learn_one(x, y)
 
+    def on_batch(self, data_list: List[Any]) -> None:
+        """批量处理数据
+
+        Args:
+            data_list: 数据列表
+        """
+        if self._model is None:
+            return
+
+        if not hasattr(self._model, "predict_many"):
+            for data in data_list:
+                self.on_data(data)
+            return
+
+        features_list = []
+        labels_list = []
+
+        for data in data_list:
+            if isinstance(data, dict):
+                x = data.get(self._feature_key, data)
+                y = data.get(self._label_key)
+            else:
+                x = data
+                y = None
+            features_list.append(x)
+            if y is not None:
+                labels_list.append(y)
+
+        self._preds = self._model.predict_many(features_list)
+
+        if self._learn_on_label and labels_list and hasattr(self._model, "learn_many"):
+            self._model.learn_many(features_list, labels_list)
+
     def get_signal(self) -> Any:
+        if self._preds is not None:
+            return {
+                "signals": self._preds,
+                "signal_type": self._signal_type,
+                "batch_size": len(self._preds) if isinstance(self._preds, list) else 1,
+            }
         if isinstance(self._pred, dict):
             return self._pred
         return {
@@ -137,6 +183,7 @@ class RiverStrategyAdapter(BaseStrategy):
 
     def reset(self) -> None:
         self._pred = None
+        self._preds = None
         self._init_from_config()
 
     def update_params(self, params: Dict[str, Any]) -> None:

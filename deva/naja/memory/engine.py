@@ -1,4 +1,4 @@
-"""Memory engine built on the Lobster radar strategy."""
+"""Memory engine built on the News radar strategy."""
 
 from __future__ import annotations
 
@@ -6,11 +6,11 @@ import threading
 import time
 from typing import Any, Dict, Optional
 
-from .core import LobsterRadarStrategy
+from .core import NewsRadarStrategy
 from ..config import get_memory_config
 
 
-class MemoryEngine(LobsterRadarStrategy):
+class MemoryEngine(NewsRadarStrategy):
     """Memory engine entrypoint for platform-wide reads/writes."""
 
     def __init__(self, config: Optional[Dict[str, Any]] = None):
@@ -32,7 +32,7 @@ class MemoryEngine(LobsterRadarStrategy):
         """
         Ingest a StrategyResult (or similar) into memory.
 
-        This adapts strategy outputs into the Lobster record format.
+        This adapts strategy outputs into the News record format.
         """
         try:
             ts = getattr(result, "ts", None) or time.time()

@@ -6,6 +6,7 @@ from typing import Optional
 from pywebio.session import run_async
 
 from ..common.ui_style import apply_strategy_like_styles, render_empty_state, render_stats_cards
+from ..page_help import render_help_collapse
 from ..scheduler.ui import (
     build_cron_expr_wizard,
     choose_execution_mode,
@@ -88,15 +89,23 @@ def _is_dictionary_refresh_task(entry) -> bool:
     return name.startswith("dict_refresh_") or ("字典" in desc and "鲜活任务" in desc)
 
 
+def _is_llm_or_bandit_auto_task(entry) -> bool:
+    name = str(getattr(entry, "name", "") or "").strip().lower()
+    return name in ("llm_auto_adjust", "bandit_auto_run", "llm_auto_adjust_task")
+
+
 def _split_entries_by_tab(entries: list):
     normal = []
     dict_tasks = []
+    llm_bandit_tasks = []
     for e in entries:
         if _is_dictionary_refresh_task(e):
             dict_tasks.append(e)
+        elif _is_llm_or_bandit_auto_task(e):
+            llm_bandit_tasks.append(e)
         else:
             normal.append(e)
-    return normal, dict_tasks
+    return normal, dict_tasks, llm_bandit_tasks
 
 
 def _resolve_task_type(mode: str, scheduler_trigger: str) -> str:
@@ -365,11 +374,18 @@ def _render_task_content(ctx: dict):
     mgr = get_task_manager()
 
     entries = mgr.list_all()
-    normal_entries, dict_entries = _split_entries_by_tab(entries)
+    normal_entries, dict_entries, llm_bandit_entries = _split_entries_by_tab(entries)
     active_tab = str(ctx.get("_task_tab", "normal") or "normal").strip().lower()
-    if active_tab not in {"normal", "dictionary"}:
+    if active_tab not in {"normal", "dictionary", "llm_bandit"}:
         active_tab = "normal"
-    visible_entries = normal_entries if active_tab == "normal" else dict_entries
+    
+    if active_tab == "normal":
+        visible_entries = normal_entries
+    elif active_tab == "dictionary":
+        visible_entries = dict_entries
+    else:
+        visible_entries = llm_bandit_entries
+    
     stats = _build_task_stats(visible_entries)
 
     clear("task_content")
@@ -380,8 +396,9 @@ def _render_task_content(ctx: dict):
     ctx["put_html"]('<div style="margin-bottom:12px;display:flex;gap:10px;flex-wrap:wrap;">', scope="task_content")
     ctx["put_buttons"](
         [
-            {"label": f"任务列表 ({len(normal_entries)})", "value": "tab_normal"},
-            {"label": f"数据字典任务 ({len(dict_entries)})", "value": "tab_dictionary"},
+            {"label": f"普通任务 ({len(normal_entries)})", "value": "tab_normal"},
+            {"label": f"LLM/Bandit ({len(llm_bandit_entries)})", "value": "tab_llm_bandit"},
+            {"label": f"数据字典 ({len(dict_entries)})", "value": "tab_dictionary"},
         ],
         onclick=lambda v, c=ctx: _handle_task_tab_switch(v, c),
         scope="task_content",
@@ -405,10 +422,14 @@ def _render_task_content(ctx: dict):
         )
     ctx["put_html"]("</div>", scope="task_content")
 
+    render_help_collapse("task")
+
 
 def _handle_task_tab_switch(action: str, ctx: dict):
     if action == "tab_dictionary":
         ctx["_task_tab"] = "dictionary"
+    elif action == "tab_llm_bandit":
+        ctx["_task_tab"] = "llm_bandit"
     else:
         ctx["_task_tab"] = "normal"
     _render_task_content(ctx)
@@ -435,7 +456,14 @@ def _build_table_data(ctx: dict, entries: list, mgr) -> list:
         status_html = _render_status_badge(e.is_running)
 
         mode = _normalize_mode(e)
-        execution_mode_html = f'<span style="display:block;"><span style="background:#e3f2fd;color:#1565c0;padding:2px 8px;border-radius:4px;font-size:12px;">{_mode_label(mode)}</span><br><span style="font-size:11px;">{_schedule_desc(e)}</span></span>'
+        
+        is_llm_bandit = _is_llm_or_bandit_auto_task(e)
+        if is_llm_bandit:
+            badge_html = '<span style="background:#10b981;color:#fff;padding:2px 6px;border-radius:4px;font-size:10px;margin-right:4px;">🤖</span>'
+        else:
+            badge_html = ''
+        
+        execution_mode_html = f'<span style="display:block;">{badge_html}<span style="background:#e3f2fd;color:#1565c0;padding:2px 8px;border-radius:4px;font-size:12px;">{_mode_label(mode)}</span><br><span style="font-size:11px;">{_schedule_desc(e)}</span></span>'
 
         last_run_ts = getattr(e._state, "last_run_time", 0)
         last_run = _fmt_ts(last_run_ts) if last_run_ts else "-"

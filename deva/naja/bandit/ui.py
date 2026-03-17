@@ -97,44 +97,64 @@ async def render_bandit_admin(ctx: dict):
     if positions:
         put_text("")
         put_html("<h4>当前持仓</h4>")
-        positions_data = []
+        
+        html = """<table style='width:100%;border-collapse:collapse;font-size:14px;'>
+        <tr style='background:#f0f0f0;'>
+            <th style='padding:8px;border:1px solid #ddd;'>股票名称</th>
+            <th style='padding:8px;border:1px solid #ddd;'>代码</th>
+            <th style='padding:8px;border:1px solid #ddd;'>入场价</th>
+            <th style='padding:8px;border:1px solid #ddd;'>现价</th>
+            <th style='padding:8px;border:1px solid #ddd;'>收益率</th>
+            <th style='padding:8px;border:1px solid #ddd;'>盈亏</th>
+            <th style='padding:8px;border:1px solid #ddd;'>持仓时间</th>
+        </tr>"""
+        
         for p in positions:
             color = "green" if p['return_pct'] > 0 else "red"
-            positions_data.append([
-                p['stock_name'],
-                p['stock_code'],
-                f"¥{p['entry_price']:.2f}",
-                f"¥{p['current_price']:.2f}",
-                f"<span style='color:{color}'>{p['return_pct']:.2f}%</span>",
-                f"¥{p['profit_loss']:.2f}",
-                f"{p['holding_seconds'] / 3600:.1f}h",
-            ])
+            html += f"""<tr>
+                <td style='padding:8px;border:1px solid #ddd;'>{p['stock_name']}</td>
+                <td style='padding:8px;border:1px solid #ddd;'>{p['stock_code']}</td>
+                <td style='padding:8px;border:1px solid #ddd;'>¥{p['entry_price']:.2f}</td>
+                <td style='padding:8px;border:1px solid #ddd;'>¥{p['current_price']:.2f}</td>
+                <td style='padding:8px;border:1px solid #ddd;color:{color};font-weight:bold;'>{p['return_pct']:.2f}%</td>
+                <td style='padding:8px;border:1px solid #ddd;color:{color};'>¥{p['profit_loss']:.2f}</td>
+                <td style='padding:8px;border:1px solid #ddd;'>{p['holding_seconds'] / 3600:.1f}h</td>
+            </tr>"""
         
-        put_table(positions_data, header=[
-            "股票名称", "代码", "入场价", "现价", "收益率", "盈亏", "持仓时间"
-        ])
+        html += "</table>"
+        put_html(html)
     else:
         put_text("暂无持仓")
     
     if history:
         put_text("")
         put_html("<h4>历史平仓记录</h4>")
-        history_data = []
+        
+        html = """<table style='width:100%;border-collapse:collapse;font-size:14px;'>
+        <tr style='background:#f0f0f0;'>
+            <th style='padding:8px;border:1px solid #ddd;'>股票名称</th>
+            <th style='padding:8px;border:1px solid #ddd;'>代码</th>
+            <th style='padding:8px;border:1px solid #ddd;'>入场价</th>
+            <th style='padding:8px;border:1px solid #ddd;'>出场价</th>
+            <th style='padding:8px;border:1px solid #ddd;'>收益率</th>
+            <th style='padding:8px;border:1px solid #ddd;'>盈亏</th>
+            <th style='padding:8px;border:1px solid #ddd;'>时间</th>
+        </tr>"""
+        
         for h in history:
             color = "green" if h['return_pct'] > 0 else "red"
-            history_data.append([
-                h['stock_name'],
-                h['stock_code'],
-                f"¥{h['entry_price']:.2f}",
-                f"¥{h['current_price']:.2f}",
-                f"<span style='color:{color}'>{h['return_pct']:.2f}%</span>",
-                f"¥{h['profit_loss']:.2f}",
-                datetime.fromtimestamp(h['entry_time']).strftime("%m-%d %H:%M"),
-            ])
+            html += f"""<tr>
+                <td style='padding:8px;border:1px solid #ddd;'>{h['stock_name']}</td>
+                <td style='padding:8px;border:1px solid #ddd;'>{h['stock_code']}</td>
+                <td style='padding:8px;border:1px solid #ddd;'>¥{h['entry_price']:.2f}</td>
+                <td style='padding:8px;border:1px solid #ddd;'>¥{h['current_price']:.2f}</td>
+                <td style='padding:8px;border:1px solid #ddd;color:{color};font-weight:bold;'>{h['return_pct']:.2f}%</td>
+                <td style='padding:8px;border:1px solid #ddd;color:{color};'>¥{h['profit_loss']:.2f}</td>
+                <td style='padding:8px;border:1px solid #ddd;'>{datetime.fromtimestamp(h['entry_time']).strftime("%m-%d %H:%M")}</td>
+            </tr>"""
         
-        put_table(history_data, header=[
-            "股票名称", "代码", "入场价", "出场价", "收益率", "盈亏", "时间"
-        ])
+        html += "</table>"
+        put_html(html)
     
     put_text("")
     

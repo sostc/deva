@@ -28,6 +28,7 @@ class ComponentType(Enum):
     STORAGE = "storage"
     WEB_REQUEST = "web_request"  # Web 请求
     LOCK_WAIT = "lock_wait"     # 锁等待
+    THREAD_POOL = "thread_pool"  # 线程池
 
 
 class SeverityLevel(Enum):
@@ -528,3 +529,120 @@ def record_lock_wait(
         success=wait_time_ms < 1000,  # 超过1秒认为有问题
         error=f"等待时间: {wait_time_ms:.1f}ms" if wait_time_ms >= 1000 else "",
     )
+
+
+def record_thread_pool_metrics():
+    """记录线程池性能指标
+    
+    从全局线程池获取统计数据并记录到性能监控中。
+    建议定期调用（如每10秒）以监控线程池状态。
+    """
+    try:
+        from deva.naja.common.thread_pool import get_thread_pool
+        
+        pool = get_thread_pool()
+        stats = pool.get_stats()
+        
+        pending = stats.get("pending_tasks", 0)
+        max_workers = stats.get("max_workers", 8)
+        
+        pending_per_worker = pending / max_workers if max_workers > 0 else 0
+        
+        record_component_execution(
+            component_id="global_thread_pool",
+            component_name="全局线程池",
+            component_type=ComponentType.THREAD_POOL,
+            execution_time_ms=pending_per_worker * 10,
+            success=pending < max_workers * 10,
+            error=f"待处理: {pending}, 线程: {max_workers}" if pending >= max_workers * 10 else "",
+        )
+        
+        return stats
+    except Exception as e:
+        return {"error": str(e)}
+
+
+def get_thread_pool_status() -> Dict[str, Any]:
+    """获取线程池状态（便捷函数）
+    
+    Returns:
+        包含线程池统计和健康状态的字典
+    """
+    try:
+        from deva.naja.common.thread_pool import get_thread_pool
+        
+        pool = get_thread_pool()
+        stats = pool.get_stats()
+        
+        pending = stats.get("pending_tasks", 0)
+        max_workers = stats.get("max_workers", 8)
+        
+        health_status = "healthy"
+        if pending > max_workers * 10:
+            health_status = "overloaded"
+        elif pending > max_workers * 5:
+            health_status = "busy"
+        elif pending > max_workers * 2:
+            health_status = "moderate"
+        
+        return {
+            "status": health_status,
+            "stats": stats,
+            "recommendation": _get_thread_pool_recommendation(stats),
+        }
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
+
+
+def _get_thread_pool_recommendation(stats: Dict[str, Any]) -> str:
+    """根据线程池统计生成优化建议"""
+    pending = stats.get("pending_tasks", 0)
+    max_workers = stats.get("max_workers", 8)
+    rejected = stats.get("total_rejected", 0)
+    
+    if rejected > 0:
+        return f"建议增加线程数，当前拒绝任务数: {rejected}"
+    
+    if pending > max_workers * 15:
+        return f"严重过载！建议立即增加线程数（当前 {max_workers}）到 {max_workers * 2} 或更多"
+    
+    if pending > max_workers * 10:
+        return f"过载警告，建议增加线程数（当前 {max_workers}）"
+    
+    if pending < max_workers and max_workers > 4:
+        return f"负载较低，可考虑减少线程数（当前 {max_workers}）以节省资源"
+    
+    return "运行正常"
+
+
+def adjust_thread_pool(max_workers: int = None, max_queue_size: int = None) -> Dict[str, Any]:
+    """动态调整线程池参数
+    
+    Args:
+        max_workers: 最大工作线程数（1-32）
+        max_queue_size: 最大队列大小（10-10000）
+    
+    Returns:
+        调整后的状态
+    """
+    try:
+        from deva.naja.common.thread_pool import get_thread_pool
+        
+        pool = get_thread_pool()
+        
+        if max_workers is not None:
+            pool.max_workers = max_workers
+        
+        if max_queue_size is not None:
+            pool.max_queue_size = max_queue_size
+        
+        return {
+            "success": True,
+            "new_config": {
+                "max_workers": pool.max_workers,
+                "max_queue_size": pool.max_queue_size,
+            },
+            "status": get_thread_pool_status(),
+        }
+    except Exception as e:
+        return {"success": False, "error": str(e)}
