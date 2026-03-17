@@ -10,7 +10,7 @@
 
 ### 1. 修改 document.py
 
-**文件：** `deva/admin_ui/document.py`
+**文件：** `deva/admin/document.py`
 
 **主要改进：**
 
@@ -249,7 +249,7 @@ if cache.get('data') is not None and now - cache.get('ts', 0) < cache_ttl:
 ### 修改的文件
 
 ```
-deva/admin_ui/document.py  (完全重写)
+deva/admin/document.py  (完全重写)
 ```
 
 **变更内容：**
@@ -289,7 +289,7 @@ python3 test_document_integration.py
 ### 方式 3：在代码中调用
 
 ```python
-from deva.admin_ui.document import render_document_ui
+from deva.admin.document import render_document_ui
 
 # 在 PyWebIO 上下文中
 render_document_ui(ctx)

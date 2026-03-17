@@ -5,8 +5,8 @@
 
 import time
 import datetime
-from deva.admin_ui.strategy.datasource import get_ds_manager
-from deva.admin_ui.strategy.runtime import gen_quant_data_func_code
+from deva.admin.strategy.datasource import get_ds_manager
+from deva.admin.strategy.runtime import gen_quant_data_func_code
 
 def test_always_run_code():
     """创建总是运行的测试代码"""
@@ -29,7 +29,7 @@ def test_datasource_with_always_run():
     ds_manager.load_from_db()
     
     # 创建测试数据源
-    from deva.admin_ui.strategy.datasource import DataSource, DataSourceType
+    from deva.admin.strategy.datasource import DataSource, DataSourceType
     from deva import NS
     
     test_source = DataSource(

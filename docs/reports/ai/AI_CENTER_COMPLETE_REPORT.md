@@ -10,7 +10,7 @@
 
 ### 1. AI 功能中心核心模块
 
-**文件：** `deva/admin_ui/ai_center.py` (950+ 行)
+**文件：** `deva/admin/ai_center.py` (950+ 行)
 
 **功能模块：**
 
@@ -111,13 +111,13 @@
 **代码：**
 ```python
 # 导入模块
-from .admin_ui import ai_center as admin_ai_center
+from .admin import ai_center as admin_ai_center
 
 # 处理函数
 async def aicenter():
     """AI 功能中心"""
-    await init_admin_ui("Deva AI 功能中心")
-    from .admin_ui.ai_center import render_ai_tab_ui
+    await init_admin("Deva AI 功能中心")
+    from .admin.ai_center import render_ai_tab_ui
     return render_ai_tab_ui(_aicenter_ctx())
 
 # 路由注册
@@ -193,7 +193,7 @@ python test_ai_center.py
 
 | 文件 | 变更 | 说明 |
 |------|------|------|
-| `deva/admin_ui/ai_center.py` | 完全重写 | AI 功能中心主模块 (950+ 行) |
+| `deva/admin/ai_center.py` | 完全重写 | AI 功能中心主模块 (950+ 行) |
 | `deva/admin.py` | +20 行 | 添加 AI 中心路由和处理函数 |
 | `test_ai_center.py` | 重写 | 测试脚本 |
 | `AI_CENTER_GUIDE.md` | 重写 | 使用指南 (400+ 行) |
@@ -305,7 +305,7 @@ config.update('llm.kimi', {
 ## 📚 相关文档
 
 - [AI_CENTER_GUIDE.md](AI_CENTER_GUIDE.md) - 使用指南
-- [deva/admin_ui/ai_center.py](deva/admin_ui/ai_center.py) - 源代码
+- [deva/admin/ai_center.py](deva/admin/ai_center.py) - 源代码
 - [test_ai_center.py](test_ai_center.py) - 测试脚本
 
 ---

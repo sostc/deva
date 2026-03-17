@@ -17,7 +17,7 @@ AI 代码创建器功能存在多个 bug，导致无法正常使用。
 - 使用 `ctx['ai_current_tab']` 跟踪当前 Tab
 - 通过 `switch_tab()` 异步函数切换内容
 
-**修改文件**: `deva/admin_ui/ai_center.py`
+**修改文件**: `deva/admin/ai_center.py`
 
 ### 2. 数据源保存问题
 **问题**: 
@@ -41,7 +41,7 @@ if close_popup:
     close_popup()
 ```
 
-**修改文件**: `deva/admin_ui/ai_code_creator.py`
+**修改文件**: `deva/admin/ai_code_creator.py`
 
 ### 3. 最近创建记录刷新问题
 **问题**: `add_to_recent_creations()` 是同步函数但需要异步刷新 UI
@@ -51,7 +51,7 @@ if close_popup:
 - 添加异常处理避免刷新失败导致整个流程中断
 - 所有调用处添加 `await`
 
-**修改文件**: `deva/admin_ui/ai_code_creator.py`
+**修改文件**: `deva/admin/ai_code_creator.py`
 
 ### 4. 保存策略和任务的问题
 **问题**: 
@@ -68,7 +68,7 @@ if close_popup:
     close_popup()
 ```
 
-**修改文件**: `deva/admin_ui/ai_code_creator.py`
+**修改文件**: `deva/admin/ai_code_creator.py`
 
 ## 修复详情
 
@@ -139,7 +139,7 @@ await add_to_recent_creations(ctx, {...})
 ### 导入测试
 ```bash
 cd /Users/spark/pycharmproject/deva
-python -c "from deva.admin_ui import ai_code_creator; print('OK')"
+python -c "from deva.admin import ai_code_creator; print('OK')"
 ```
 结果：✅ 通过
 
@@ -185,8 +185,8 @@ python -c "from deva.admin_ui import ai_code_creator; print('OK')"
 ## 文件清单
 
 ### 修改的文件
-1. `deva/admin_ui/ai_center.py` - Tab 切换逻辑
-2. `deva/admin_ui/ai_code_creator.py` - 代码创建逻辑
+1. `deva/admin/ai_center.py` - Tab 切换逻辑
+2. `deva/admin/ai_code_creator.py` - 代码创建逻辑
 
 ### 新增的文件
 1. `AI_CODE_CREATOR_GUIDE.md` - 使用指南

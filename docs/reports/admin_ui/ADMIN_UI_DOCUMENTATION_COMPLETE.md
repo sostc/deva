@@ -40,7 +40,7 @@
 
 #### 2.1 文档中心索引
 
-**文件：** `docs/admin_ui/README.md`
+**文件：** `docs/admin/README.md`
 
 **内容：**
 - 文档导航中心
@@ -57,7 +57,7 @@
 
 #### 2.2 快速开始指南
 
-**文件：** `docs/admin_ui/QUICKSTART.md`
+**文件：** `docs/admin/QUICKSTART.md`
 
 **内容：**
 - 5 分钟上手教程
@@ -74,7 +74,7 @@
 
 #### 2.3 架构文档
 
-**文件：** `docs/admin_ui/ARCHITECTURE.md`
+**文件：** `docs/admin/ARCHITECTURE.md`
 
 **内容：**
 - 整体架构图
@@ -101,7 +101,7 @@ Level 5: 基础设施层
 
 #### 3.1 策略管理指南
 
-**文件：** `docs/admin_ui/strategy_guide.md`
+**文件：** `docs/admin/strategy_guide.md`
 
 **内容：**
 - 策略管理架构
@@ -124,7 +124,7 @@ Level 5: 基础设施层
 
 #### 3.2 数据源管理指南
 
-**文件：** `docs/admin_ui/datasource_guide.md`
+**文件：** `docs/admin/datasource_guide.md`
 
 **内容：**
 - 数据源管理架构
@@ -146,7 +146,7 @@ Level 5: 基础设施层
 
 #### 3.3 任务管理指南
 
-**文件：** `docs/admin_ui/task_guide.md`
+**文件：** `docs/admin/task_guide.md`
 
 **内容：**
 - 任务管理架构
@@ -175,7 +175,7 @@ Level 5: 基础设施层
 
 ```
 deva/docs/
-└── admin_ui/
+└── admin/
     ├── README.md                      # 文档中心索引
     ├── QUICKSTART.md                  # 快速开始指南
     ├── ARCHITECTURE.md                # 架构设计文档
@@ -329,17 +329,17 @@ Admin UI 的文档 Tab 现在包含：
 
 1. **快速开始**
    - source/quickstart.rst
-   - docs/admin_ui/QUICKSTART.md
+   - docs/admin/QUICKSTART.md
 
 2. **使用指南**
    - source/usage.rst
-   - docs/admin_ui/README.md
-   - docs/admin_ui/strategy_guide.md
-   - docs/admin_ui/datasource_guide.md
-   - docs/admin_ui/task_guide.md
+   - docs/admin/README.md
+   - docs/admin/strategy_guide.md
+   - docs/admin/datasource_guide.md
+   - docs/admin/task_guide.md
 
 3. **架构文档**
-   - docs/admin_ui/ARCHITECTURE.md
+   - docs/admin/ARCHITECTURE.md
 
 4. **最佳实践**
    - source/best_practices.rst
@@ -361,8 +361,8 @@ Admin UI 的文档 Tab 现在包含：
 **方式 2：直接阅读**
 ```bash
 # 查看文档
-cat docs/admin_ui/README.md
-cat docs/admin_ui/QUICKSTART.md
+cat docs/admin/README.md
+cat docs/admin/QUICKSTART.md
 ```
 
 **方式 3：Sphinx 生成**
@@ -501,7 +501,7 @@ Admin UI 文档体系已完整建立：
 
 **使用入口：**
 1. Admin UI 文档 Tab
-2. docs/admin_ui/README.md
+2. docs/admin/README.md
 3. Sphinx 生成的 HTML 文档
 
 **下一步：**

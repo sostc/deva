@@ -32,7 +32,7 @@ Naja 数据源系统支持多种数据获取方式，包括定时拉取、实时
 ## 数据源代码示例
 
 ```python
-from deva.admin_ui.datasource import (
+from deva.admin.datasource import (
     create_timer_source,
     create_stream_source,
     DataSourceType

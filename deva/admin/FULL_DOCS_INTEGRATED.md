@@ -250,11 +250,11 @@
 
 ### 修改的文件
 
-**`deva/admin_ui/document/document.py`**
+**`deva/admin/document/document.py`**
 
 #### 修改函数
 
-**`_build_admin_ui_docs_tab(ctx)`**
+**`_build_admin_docs_tab(ctx)`**
 - 新增核心模块文档列表（9 篇）
 - 添加 `🌊 核心模块文档` 分类
 - 包含流计算、Bus、存储、定时器等文档
@@ -307,7 +307,7 @@
 ### 语法检查
 
 ```bash
-python -m py_compile deva/admin_ui/document/document.py
+python -m py_compile deva/admin/document/document.py
 # ✅ Syntax OK
 ```
 

@@ -9,7 +9,7 @@ Admin UI 是基于 PyWebIO 的 Web 管理后台，提供任务、数据源、策
 ## 核心模块
 
 ```
-deva/admin_ui/
+deva/admin/
 ├── 核心模块（不依赖 UI）
 │   ├── common/          # 基础类和接口
 │   ├── strategy/        # 策略基类、可执行单元
@@ -59,7 +59,7 @@ deva/admin_ui/
 ### 任务管理
 
 ```python
-from deva.admin_ui.tasks import TaskType, get_task_manager
+from deva.admin.tasks import TaskType, get_task_manager
 
 manager = get_task_manager()
 manager.create_task(name='my_task', task_type=TaskType.INTERVAL, interval=60)
@@ -68,7 +68,7 @@ manager.create_task(name='my_task', task_type=TaskType.INTERVAL, interval=60)
 ### 数据源管理
 
 ```python
-from deva.admin_ui.datasource import get_ds_manager, create_timer_source
+from deva.admin.datasource import get_ds_manager, create_timer_source
 
 ds_manager = get_ds_manager()
 source = create_timer_source(source_id='my_source', interval=60, code='...')
@@ -77,7 +77,7 @@ source = create_timer_source(source_id='my_source', interval=60, code='...')
 ### 策略管理
 
 ```python
-from deva.admin_ui.strategy import get_manager
+from deva.admin.strategy import get_manager
 
 strategy_manager = get_manager()
 ```
@@ -85,7 +85,7 @@ strategy_manager = get_manager()
 ### 持久化
 
 ```python
-from deva.admin_ui.strategy.persistence import PersistenceManager, StorageConfig
+from deva.admin.strategy.persistence import PersistenceManager, StorageConfig
 
 config = StorageConfig(backend='hybrid', memory_cache=True)
 pm = PersistenceManager(config)

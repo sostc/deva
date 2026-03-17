@@ -10,7 +10,7 @@
 
 ### 1. 创建 AI 功能中心模块
 
-**文件：** `deva/admin_ui/ai_center.py` (793 行)
+**文件：** `deva/admin/ai_center.py` (793 行)
 
 **功能模块：**
 
@@ -41,7 +41,7 @@
 
 ### 2. 集成到导航菜单
 
-**修改文件：** `deva/admin_ui/main_ui.py`
+**修改文件：** `deva/admin/main_ui.py`
 
 **变更内容：**
 - 在导航栏添加 **🤖 AI** 菜单项
@@ -69,12 +69,12 @@
 **代码示例：**
 ```python
 # 导入模块
-from .admin_ui import ai_center as admin_ai_center
+from .admin import ai_center as admin_ai_center
 
 # 处理函数
 async def aicenter():
     """AI 功能中心"""
-    await init_admin_ui("Deva AI 功能中心")
+    await init_admin("Deva AI 功能中心")
     return admin_ai_center.render_ai_tab_ui(_aicenter_ctx())
 
 # 路由注册
@@ -200,7 +200,7 @@ async def aicenter():
 
 | 文件 | 行数 | 说明 |
 |------|------|------|
-| `deva/admin_ui/ai_center.py` | 793 | AI 功能中心主模块 |
+| `deva/admin/ai_center.py` | 793 | AI 功能中心主模块 |
 | `AI_CENTER_GUIDE.md` | 461 | 使用指南文档 |
 | `test_ai_center.py` | 60 | 测试脚本 |
 
@@ -208,7 +208,7 @@ async def aicenter():
 
 | 文件 | 变更 | 说明 |
 |------|------|------|
-| `deva/admin_ui/main_ui.py` | +10 行 | 添加 AI 菜单项 |
+| `deva/admin/main_ui.py` | +10 行 | 添加 AI 菜单项 |
 | `deva/admin.py` | +15 行 | 添加路由和处理函数 |
 
 ---

@@ -3,7 +3,7 @@
 为现有数据源补齐介绍信息
 """
 
-from deva.admin_ui.strategy.datasource import get_ds_manager
+from deva.admin.strategy.datasource import get_ds_manager
 
 def update_datasource_descriptions():
     """为数据源更新描述信息"""

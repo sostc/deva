@@ -11,7 +11,7 @@
 将 74 个 Python 文件重新组织为以下模块：
 
 ```
-deva/admin_ui/
+deva/admin/
 ├── 核心基础层（10 个文件，不依赖 UI）
 │   ├── common/base.py           # 基础类和接口
 │   ├── strategy/
@@ -69,7 +69,7 @@ deva/admin_ui/
 
 生成了两份详细文档：
 
-#### deva/admin_ui/README.md
+#### deva/admin/README.md
 - **模块结构说明**：详细的目录结构和分层架构
 - **核心 API 参考**：所有公开类和函数的完整文档
 - **使用示例**：5 个完整的代码示例
@@ -79,7 +79,7 @@ deva/admin_ui/
 #### README.rst（主项目文档）
 - 新增 **Admin 管理模块** 章节
 - 包含模块结构、核心功能、使用示例
-- 链接到详细的 admin_ui/README.md
+- 链接到详细的 admin/README.md
 
 ### 4. 代码质量改进
 
@@ -128,7 +128,7 @@ deva/admin_ui/
 ### 1. 任务调度系统
 
 ```python
-from deva.admin_ui.tasks import TaskType, get_task_manager
+from deva.admin.tasks import TaskType, get_task_manager
 
 manager = get_task_manager()
 manager.create_task(
@@ -142,7 +142,7 @@ manager.create_task(
 ### 2. 数据持久化服务
 
 ```python
-from deva.admin_ui.strategy.persistence import PersistenceManager
+from deva.admin.strategy.persistence import PersistenceManager
 
 pm = PersistenceManager(auto_save=True)
 pm.save_config('app_config', config_data)
@@ -151,7 +151,7 @@ pm.save_config('app_config', config_data)
 ### 3. 日志管理系统
 
 ```python
-from deva.admin_ui.strategy.logging_context import LoggingContext
+from deva.admin.strategy.logging_context import LoggingContext
 
 ctx = LoggingContext(component_type='service', component_id='api')
 with ctx:
@@ -162,7 +162,7 @@ with ctx:
 ### 4. AI 代码生成服务
 
 ```python
-from deva.admin_ui.ai import AICodeGenerator
+from deva.admin.ai import AICodeGenerator
 
 generator = AICodeGenerator()
 code = generator.generate(requirement, context)
@@ -173,15 +173,15 @@ code = generator.generate(requirement, context)
 ### 快速开始
 
 1. **查看主文档**：`README.rst` - 了解 Deva 整体架构
-2. **查看 Admin 文档**：`deva/admin_ui/README.md` - 详细 API 和使用示例
+2. **查看 Admin 文档**：`deva/admin/README.md` - 详细 API 和使用示例
 3. **运行示例**：参考文档中的代码示例快速上手
 
 ### 核心库使用
 
 ```python
 # 1. 导入核心类
-from deva.admin_ui.strategy.base import BaseManager
-from deva.admin_ui.strategy.persistence import PersistenceManager
+from deva.admin.strategy.base import BaseManager
+from deva.admin.strategy.persistence import PersistenceManager
 
 # 2. 继承基类
 class MyManager(BaseManager):
@@ -189,7 +189,7 @@ class MyManager(BaseManager):
         pass
 
 # 3. 使用工具
-from deva.admin_ui.strategy.utils import format_pct
+from deva.admin.strategy.utils import format_pct
 result = format_pct(0.0523)  # "5.23%"
 ```
 
@@ -229,10 +229,10 @@ admin.main()
 
 ```bash
 # 语法检查
-python -m py_compile deva/admin_ui/*.py deva/admin_ui/*/*.py
+python -m py_compile deva/admin/*.py deva/admin/*/*.py
 
 # 导入测试
-python -c "from deva.admin_ui import tasks, ai, datasource, strategy"
+python -c "from deva.admin import tasks, ai, datasource, strategy"
 python -c "from deva import admin"
 
 # 结果

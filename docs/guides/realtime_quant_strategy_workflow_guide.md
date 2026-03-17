@@ -22,7 +22,7 @@
 pip install easyquotation pandas
 ```
 
-4. 盘中判断依赖：`deva.admin_ui.strategy.tradetime` 模块可正常导入。
+4. 盘中判断依赖：`deva.admin.strategy.tradetime` 模块可正常导入。
 5. 板块补齐依赖：`NB("naja")["basic_df"]` 可用（由系统已有股票基础信息准备流程生成）。
 
 ---
@@ -66,7 +66,7 @@ def gen_quant():
 def get_realtime_quant():
     """获取实盘实时行情,非盘中时间不获取数据"""
     import datetime
-    from deva.admin_ui.strategy.tradetime import is_tradedate, is_tradetime
+    from deva.admin.strategy.tradetime import is_tradedate, is_tradetime
 
     if is_tradedate(datetime.datetime.today()) and is_tradetime(datetime.datetime.now()):
         return gen_quant()
@@ -181,7 +181,7 @@ def process(data):
 def process(data):
     """30秒内板块变化排序，输出涨幅/跌幅Top10的HTML"""
     import pandas as pd
-    from deva.admin_ui.strategy.data import Stock
+    from deva.admin.strategy.data import Stock
 
     if data is None:
         return None

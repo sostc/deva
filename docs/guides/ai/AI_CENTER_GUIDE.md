@@ -320,8 +320,8 @@ class MovingAverageStrategy(StrategyUnit):
 
 ### 内部文档
 
-- [AI_CODE_GENERATION_SYSTEM.md](deva/admin_ui/strategy/AI_CODE_GENERATION_SYSTEM.md)
-- [ENHANCED_LOGGING_GUIDE.md](deva/admin_ui/strategy/ENHANCED_LOGGING_GUIDE.md)
+- [AI_CODE_GENERATION_SYSTEM.md](deva/admin/strategy/AI_CODE_GENERATION_SYSTEM.md)
+- [ENHANCED_LOGGING_GUIDE.md](deva/admin/strategy/ENHANCED_LOGGING_GUIDE.md)
 
 ### 外部资源
 

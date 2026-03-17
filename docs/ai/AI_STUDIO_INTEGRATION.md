@@ -271,15 +271,15 @@ async def show_creation_center(ctx):
 ## 文件清单
 
 ### 新增文件
-1. `deva/admin_ui/ai_studio.py` - AI 工作室主模块
+1. `deva/admin/ai_studio.py` - AI 工作室主模块
 2. `AI_STUDIO_INTEGRATION.md` - 本文档
 
 ### 修改文件
-1. `deva/admin_ui/ai_center.py` - 更新入口
-2. `deva/admin_ui/ai_code_creator.py` - 之前已修复
+1. `deva/admin/ai_center.py` - 更新入口
+2. `deva/admin/ai_code_creator.py` - 之前已修复
 
 ### 保留文件
-1. `deva/admin_ui/ai_code_creator.py` - 完整创建器功能
+1. `deva/admin/ai_code_creator.py` - 完整创建器功能
 2. `AI_CODE_CREATOR_GUIDE.md` - 使用指南
 3. `AI_CODE_CREATOR_BUGFIX.md` - Bug 修复报告
 

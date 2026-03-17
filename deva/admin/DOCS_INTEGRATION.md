@@ -12,21 +12,21 @@
 
 #### 文档列表
 
-1. **Admin 模块文档** (`deva/admin_ui/README.md`)
+1. **Admin 模块文档** (`deva/admin/README.md`)
    - 模块结构和分层架构
    - 10 个不依赖 UI 的核心库
    - 完整的 API 参考
    - 5 个使用示例
    - 最佳实践指南
 
-2. **UI 使用指南** (`deva/admin_ui/UI_GUIDE.md`)
+2. **UI 使用指南** (`deva/admin/UI_GUIDE.md`)
    - 界面概览和布局
    - 13 个导航菜单说明
    - 12 个功能页面教程
    - 快捷键列表
    - 8 个常见问题
 
-3. **重构总结** (`deva/admin_ui/REFACTORING_SUMMARY.md`)
+3. **重构总结** (`deva/admin/REFACTORING_SUMMARY.md`)
    - 重构成果
    - 架构优势
    - 可独立使用场景
@@ -70,9 +70,9 @@
 
 ### 修改的文件
 
-**`deva/admin_ui/document/document.py`**
+**`deva/admin/document/document.py`**
 
-1. 新增函数 `_build_admin_ui_docs_tab(ctx)`
+1. 新增函数 `_build_admin_docs_tab(ctx)`
    - 读取 3 个文档文件
    - 构建文档内容
    - 返回 Tab 数据结构
@@ -84,7 +84,7 @@
 ### 代码示例
 
 ```python
-def _build_admin_ui_docs_tab(ctx):
+def _build_admin_docs_tab(ctx):
     """Build the Admin UI documentation tab."""
     import os
     
@@ -122,7 +122,7 @@ def _build_admin_ui_docs_tab(ctx):
 ### 语法检查
 
 ```bash
-python -m py_compile deva/admin_ui/document/document.py
+python -m py_compile deva/admin/document/document.py
 # ✅ Syntax OK
 ```
 
@@ -146,7 +146,7 @@ python -c "from deva import admin"
 所有文档文件位于：
 
 ```
-deva/admin_ui/
+deva/admin/
 ├── README.md                 # Admin 模块文档
 ├── UI_GUIDE.md               # UI 使用指南
 ├── REFACTORING_SUMMARY.md    # 重构总结
@@ -169,13 +169,13 @@ deva/admin_ui/
 
 ```bash
 # 查看 Admin 模块文档
-cat deva/admin_ui/README.md
+cat deva/admin/README.md
 
 # 查看 UI 使用指南
-cat deva/admin_ui/UI_GUIDE.md
+cat deva/admin/UI_GUIDE.md
 
 # 查看重构总结
-cat deva/admin_ui/REFACTORING_SUMMARY.md
+cat deva/admin/REFACTORING_SUMMARY.md
 ```
 
 ## 后续优化

@@ -199,7 +199,7 @@ def main():
     print("=== 更新runtime.py中的gen_quant_data_func_code ===")
     
     # 读取runtime.py文件
-    with open('/Users/spark/pycharmproject/deva/deva/admin_ui/strategy/runtime.py', 'r') as f:
+    with open('/Users/spark/pycharmproject/deva/deva/admin/strategy/runtime.py', 'r') as f:
         content = f.read()
     
     # 找到并替换gen_quant_data_func_code
@@ -224,7 +224,7 @@ def main():
     new_content = content.replace(old_code, new_code)
     
     # 写回文件
-    with open('/Users/spark/pycharmproject/deva/deva/admin_ui/strategy/runtime.py', 'w') as f:
+    with open('/Users/spark/pycharmproject/deva/deva/admin/strategy/runtime.py', 'w') as f:
         f.write(new_content)
     
     print("✅ gen_quant_data_func_code已更新")

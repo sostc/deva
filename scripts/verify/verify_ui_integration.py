@@ -18,7 +18,7 @@ def test_core_functionality():
     
     print("\n1. 测试任务管理模块导入")
     try:
-        from deva.admin_ui.tasks.task_admin import render_task_admin
+        from deva.admin.tasks.task_admin import render_task_admin
         print("✅ 任务管理模块导入成功")
         success_count += 1
     except Exception as e:
@@ -26,7 +26,7 @@ def test_core_functionality():
     
     print("\n2. 测试任务对话框功能导入")
     try:
-        from deva.admin_ui.tasks.task_dialog import (
+        from deva.admin.tasks.task_dialog import (
             show_create_task_dialog,
             show_edit_task_dialog,
             validate_task_code
@@ -38,7 +38,7 @@ def test_core_functionality():
     
     print("\n3. 测试任务代码验证功能")
     try:
-        from deva.admin_ui.tasks.task_dialog import validate_task_code
+        from deva.admin.tasks.task_dialog import validate_task_code
         
         test_code = '''
 async def execute(context=None):
@@ -56,7 +56,7 @@ async def execute(context=None):
     
     print("\n4. 测试AI代码生成器")
     try:
-        from deva.admin_ui.ai.ai_code_generator import TaskAIGenerator
+        from deva.admin.ai.ai_code_generator import TaskAIGenerator
         
         generator = TaskAIGenerator()
         template = generator._get_default_task_template()
@@ -70,7 +70,7 @@ async def execute(context=None):
     
     print("\n5. 测试任务管理器集成")
     try:
-        from deva.admin_ui.tasks.task_manager import get_task_manager
+        from deva.admin.tasks.task_manager import get_task_manager
         
         task_manager = get_task_manager()
         stats = task_manager.get_overall_stats()
@@ -81,7 +81,7 @@ async def execute(context=None):
     
     print("\n6. 测试任务单元功能")
     try:
-        from deva.admin_ui.tasks.task_unit import TaskUnit, TaskMetadata, TaskState, TaskExecution, TaskType
+        from deva.admin.tasks.task_unit import TaskUnit, TaskMetadata, TaskState, TaskExecution, TaskType
         
         metadata = TaskMetadata(
             id="test_task",

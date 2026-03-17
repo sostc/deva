@@ -120,7 +120,7 @@ def get_model_status_info(ctx, model_type: str) -> dict:
     """获取模型配置状态"""
     try:
         # 检查模型配置
-        from deva.admin_ui.llm_service import get_gpt_response
+        from deva.admin.llm_service import get_gpt_response
         return {'ready': True, 'model_type': model_type}
     except Exception:
         return {'ready': False, 'model_type': model_type}
@@ -190,7 +190,7 @@ await generate_code_simple(ctx, "写一个排序函数")
 - `AI_MODEL_SETTINGS.md` - 本文档
 
 ### 修改文件
-- `deva/admin_ui/ai_studio.py`
+- `deva/admin/ai_studio.py`
   - 添加 `show_model_settings()`
   - 添加 `get_model_status_info()`
   - 更新 `show_ai_studio()` 显示设置区域

@@ -21,7 +21,7 @@ deva/
 ├── deva/examples/
 │   ├── README.md                   # 示例索引
 │   └── */README.md                 # 各示例说明（质量不一）
-├── deva/admin_ui/strategy/
+├── deva/admin/strategy/
 │   ├── AI_CODE_GENERATION_SYSTEM.md  # AI 代码生成系统文档
 │   └── ENHANCED_LOGGING_GUIDE.md     # 增强日志指南
 └── *.md                            # 各类功能报告（25+ 个）
@@ -227,7 +227,7 @@ License、贡献指南、问题反馈
 ```
 datasource_auto_refresh_report.md  ->  data_source.rst
 datasource_persistence_guide.md    ->  storage.rst (扩展)
-AI_CODE_GENERATION_SYSTEM.md       ->  admin_ui.rst
+AI_CODE_GENERATION_SYSTEM.md       ->  admin.rst
 ENHANCED_LOGGING_GUIDE.md          ->  logging.rst (扩展)
 ```
 

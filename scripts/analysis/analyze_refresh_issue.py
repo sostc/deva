@@ -5,7 +5,7 @@
 
 import time
 import datetime
-from deva.admin_ui.strategy.datasource import get_ds_manager
+from deva.admin.strategy.datasource import get_ds_manager
 
 def analyze_refresh_issue():
     """分析刷新问题的原因"""
@@ -55,7 +55,7 @@ def create_test_datasource():
     """创建测试数据源"""
     print("\n🔧 创建测试数据源...")
     
-    from deva.admin_ui.strategy.datasource import DataSource, DataSourceType
+    from deva.admin.strategy.datasource import DataSource, DataSourceType
     
     test_source = DataSource(
         name="test_visible_refresh",

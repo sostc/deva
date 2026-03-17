@@ -5,7 +5,7 @@
 This report documents the issues found in the `admin` module and provides optimization recommendations.
 
 **Analysis Date:** 2026-02-26  
-**Files Analyzed:** 12 Python files in `deva/admin.py` and `deva/admin_ui/`
+**Files Analyzed:** 12 Python files in `deva/admin.py` and `deva/admin/`
 
 ---
 
@@ -14,7 +14,7 @@ This report documents the issues found in the `admin` module and provides optimi
 ### 1.1 Critical Issues
 
 #### Issue 1.1.1: Global Context Leakage in tasks.py
-**Location:** `deva/admin_ui/tasks.py`, line ~135  
+**Location:** `deva/admin/tasks.py`, line ~135  
 **Severity:** HIGH  
 **Problem:** Hardcoded context creation inside `_schedule_job`:
 ```python
@@ -79,7 +79,7 @@ logger.error(...)
 ---
 
 #### Issue 1.2.3: Nested Async Functions
-**Location:** `deva/admin_ui/tables.py`  
+**Location:** `deva/admin/tables.py`  
 **Severity:** MEDIUM  
 **Problem:** Deep nesting of async functions inside `table_click`:
 ```python
@@ -98,7 +98,7 @@ def table_click(ctx, tablename):
 ---
 
 #### Issue 1.2.4: Duplicate Code Patterns
-**Location:** `deva/admin_ui/document.py`  
+**Location:** `deva/admin/document.py`  
 **Severity:** LOW  
 **Problem:** Similar markdown-to-HTML conversion in multiple functions:
 - `_build_examples_tab()`
@@ -317,8 +317,8 @@ The optimized `admin_optimized.py` provides a starting point for these improveme
 ## Appendix A: Files Modified
 
 1. `deva/admin_optimized.py` - Created (refactored version)
-2. `deva/admin_ui/tasks.py` - Recommended changes documented
-3. `deva/admin_ui/tables.py` - Recommended changes documented
+2. `deva/admin/tasks.py` - Recommended changes documented
+3. `deva/admin/tables.py` - Recommended changes documented
 
 ## Appendix B: Related Documentation
 

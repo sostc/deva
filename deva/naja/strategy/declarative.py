@@ -60,7 +60,7 @@ class LogicRegistry:
         return cls._logics[name](prediction, config or {})
 
 
-class PluginRegistry:
+class PluginLoader:
     _plugins: Dict[str, Any] = {}
 
     @classmethod
@@ -112,7 +112,7 @@ class StrategyEngine:
             model_state.learn_one(features, label)
 
         if plugin:
-            plugin_obj = PluginRegistry.get(plugin)
+            plugin_obj = PluginLoader.get(plugin)
             if hasattr(plugin_obj, "run"):
                 return plugin_obj.run(data=data, features=features, model=model_state, prediction=prediction), model_state
             if hasattr(plugin_obj, "apply_logic"):
