@@ -4,7 +4,7 @@
 """
 
 import datetime
-from deva.admin_ui.strategy.datasource import get_ds_manager
+from deva.admin.strategy.datasource import get_ds_manager
 
 def main():
     """验证gen_quant代码存储功能"""

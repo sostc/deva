@@ -67,11 +67,11 @@
 
 | 文档 | 文件 | 大小 | 内容 |
 |------|------|------|------|
-| Admin 模块文档 | `deva/admin_ui/README.md` | 22.9 KB | API 参考、使用示例 |
-| UI 使用指南 | `deva/admin_ui/UI_GUIDE.md` | 16.6 KB | 界面操作、功能说明 |
-| 重构总结 | `deva/admin_ui/REFACTORING_SUMMARY.md` | 8.9 KB | 重构成果、架构分析 |
-| 菜单重构 | `deva/admin_ui/menus/REFACTORING.md` | 5.2 KB | 菜单模块重构 |
-| 文档集成 | `deva/admin_ui/DOCS_INTEGRATION.md` | 3.8 KB | 集成说明 |
+| Admin 模块文档 | `deva/admin/README.md` | 22.9 KB | API 参考、使用示例 |
+| UI 使用指南 | `deva/admin/UI_GUIDE.md` | 16.6 KB | 界面操作、功能说明 |
+| 重构总结 | `deva/admin/REFACTORING_SUMMARY.md` | 8.9 KB | 重构成果、架构分析 |
+| 菜单重构 | `deva/admin/menus/REFACTORING.md` | 5.2 KB | 菜单模块重构 |
+| 文档集成 | `deva/admin/DOCS_INTEGRATION.md` | 3.8 KB | 集成说明 |
 
 ### 📚 项目文档
 
@@ -96,9 +96,9 @@
 
 | 文档 | 文件 | 内容 |
 |------|------|------|
-| 策略指南 | `docs/admin_ui/strategy_guide.md` | 量化策略开发 |
-| 数据源指南 | `docs/admin_ui/datasource_guide.md` | 数据源管理 |
-| 任务指南 | `docs/admin_ui/task_guide.md` | 定时任务管理 |
+| 策略指南 | `docs/admin/strategy_guide.md` | 量化策略开发 |
+| 数据源指南 | `docs/admin/datasource_guide.md` | 数据源管理 |
+| 任务指南 | `docs/admin/task_guide.md` | 定时任务管理 |
 
 ### 📋 技术报告
 
@@ -132,11 +132,11 @@
 
 ### 修改的文件
 
-**`deva/admin_ui/document/document.py`**
+**`deva/admin/document/document.py`**
 
 #### 修改函数
 
-**`_build_admin_ui_docs_tab(ctx)`**
+**`_build_admin_docs_tab(ctx)`**
 - 扩展文档列表，包含所有核心文档
 - 按分类组织文档（5 个分类）
 - 每个文档显示 2000 字符预览
@@ -184,7 +184,7 @@
 ### 语法检查
 
 ```bash
-python -m py_compile deva/admin_ui/document/document.py
+python -m py_compile deva/admin/document/document.py
 # ✅ Syntax OK
 ```
 
@@ -262,7 +262,7 @@ deva/
 │   └── best_practices.rst              # 最佳实践
 ├── docs/
 │   ├── README.md                       # 文档中心
-│   ├── admin_ui/
+│   ├── admin/
 │   │   ├── README.md                   # Admin UI 文档
 │   │   ├── strategy_guide.md           # 策略指南
 │   │   ├── datasource_guide.md         # 数据源指南
@@ -276,7 +276,7 @@ deva/
 │   │       └── AI_CENTER_GUIDE.md      # AI 中心指南
 │   └── reports/
 │       └── integration/                # 集成报告
-└── deva/admin_ui/
+└── deva/admin/
     ├── README.md                       # Admin 模块文档
     ├── UI_GUIDE.md                     # UI 使用指南
     ├── REFACTORING_SUMMARY.md          # 重构总结

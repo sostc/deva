@@ -86,7 +86,7 @@
 
 ### 文档
 - 规整文档结构，将根目录报告文件移动到 docs/ 子目录
-  - docs/reports/admin_ui/ - Admin UI 相关报告
+  - docs/reports/admin/ - Admin UI 相关报告
   - docs/reports/ai/ - AI 相关报告
   - docs/guides/ai/ - AI 相关指南
   - docs/reports/ - 通用报告
@@ -114,7 +114,7 @@
 ## [1.4.0] - 2026-02-15
 
 ### 新增
-- 任务管理模块（deva.admin_ui.strategy.task_*）
+- 任务管理模块（deva.admin.strategy.task_*）
 - AI 代码生成对话框
 - 错误处理和容错机制（SafeProcessor, AlertConfig）
 - 上下文管理器（contexts.py）
@@ -228,14 +228,14 @@ Deva 遵循语义化版本规范：
 from deva.admin import TaskManager
 
 # 新代码
-from deva.admin_ui.strategy import TaskManager, TaskUnit
+from deva.admin.strategy import TaskManager, TaskUnit
 ```
 
 2. **日志系统增强**
 
 ```python
 # 新增导入
-from deva.admin_ui.strategy.logging_context import log_strategy_event
+from deva.admin.strategy.logging_context import log_strategy_event
 
 # 使用增强的日志
 log_strategy_event("INFO", "策略启动", strategy_unit=my_strategy)

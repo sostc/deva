@@ -121,7 +121,7 @@ report = liubang.get_performance_report()
 ## 📚 相关文档
 
 - [Deva 核心文档](../../README.rst)
-- [策略管理指南](../../docs/admin_ui/strategy_guide.md)
+- [策略管理指南](../../docs/admin/strategy_guide.md)
 
 ## ⚠️ 注意事项
 

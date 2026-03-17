@@ -6,7 +6,7 @@ Refactored the admin UI menu bar code to improve organization, maintainability, 
 ## New Structure
 
 ```
-deva/admin_ui/
+deva/admin/
 ├── menus/                    # NEW: Centralized menu management
 │   ├── __init__.py          # Menu configuration and data structures
 │   └── renderer.py          # Menu rendering functions
@@ -17,7 +17,7 @@ deva/admin_ui/
 
 ## Changes Made
 
-### 1. Created `deva/admin_ui/menus/__init__.py`
+### 1. Created `deva/admin/menus/__init__.py`
 **Purpose**: Centralized menu configuration and management
 
 **Key Components**:
@@ -32,7 +32,7 @@ deva/admin_ui/
   - `add_menu_item(...)`: Add new menu items dynamically
   - `remove_menu_item(path)`: Remove menu items
 
-### 2. Created `deva/admin_ui/menus/renderer.py`
+### 2. Created `deva/admin/menus/renderer.py`
 **Purpose**: Menu rendering logic
 
 **Key Functions**:
@@ -40,7 +40,7 @@ deva/admin_ui/
 - `create_sidebar(ctx)`: Create sidebar with access logs
 - `init_floating_menu_manager(ctx)`: Initialize floating summary menus
 
-### 3. Updated `deva/admin_ui/main_ui.py`
+### 3. Updated `deva/admin/main_ui.py`
 **Changes**:
 - **Removed** (~370 lines):
   - `init_floating_menu_manager()` function (lines ~206-273)
@@ -51,7 +51,7 @@ deva/admin_ui/
   from .menus import create_nav_menu, create_sidebar, init_floating_menu_manager
   ```
 
-### 4. Updated `deva/admin_ui/contexts.py`
+### 4. Updated `deva/admin/contexts.py`
 **Changes**:
 - **Added** import at top:
   ```python
@@ -66,7 +66,7 @@ deva/admin_ui/
 **Changes**:
 - **Added** import:
   ```python
-  from .admin_ui.menus import create_nav_menu as render_create_nav_menu, create_sidebar as render_create_sidebar
+  from .admin.menus import create_nav_menu as render_create_nav_menu, create_sidebar as render_create_sidebar
   ```
 - **Updated** wrapper functions:
   - `create_sidebar()` (line ~345)
@@ -122,9 +122,9 @@ ctx["init_floating_menu_manager"](ctx)
 
 ### Files Updated
 
-- `deva/admin_ui/main_ui.py`: Lines 115-117, 730
-- `deva/admin_ui/browser_ui.py`: Line 10
-- `deva/admin_ui/follow_ui.py`: Line 11
+- `deva/admin/main_ui.py`: Lines 115-117, 730
+- `deva/admin/browser_ui.py`: Line 10
+- `deva/admin/follow_ui.py`: Line 11
 
 ### Migration Guide
 

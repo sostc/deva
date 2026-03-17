@@ -288,7 +288,7 @@ state_store.upsert('my_strategy', state)
 ### 历史数据
 
 ```python
-from deva.admin_ui.strategy.history_db import StrategyHistoryDB
+from deva.admin.strategy.history_db import StrategyHistoryDB
 
 # 创建历史数据库
 history_db = StrategyHistoryDB('strategy_history.db')
@@ -339,7 +339,7 @@ history = history_db.query('my_strategy', limit=100)
 
 ```python
 # 查看策略的上下游
-from deva.admin_ui.strategy.strategy_manager import get_strategy_manager
+from deva.admin.strategy.strategy_manager import get_strategy_manager
 
 mgr = get_strategy_manager()
 

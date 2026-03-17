@@ -9,7 +9,7 @@
 | 组件 | 说明 | 路径 |
 |------|------|------|
 | **Deva Core** | 核心引擎（消息总线、管道、数据源、调度） | `deva/core/` |
-| **Admin UI** | Web 管理后台（PyWebIO） | `deva/admin_ui/` |
+| **Admin UI** | Web 管理后台（PyWebIO） | `deva/admin/` |
 | **Naja** | 量化交易平台 | `deva/naja/` |
 | **Skills** | 用户技能（OpenClaw） | `skills/` |
 | **Trae Skills** | Trae IDE 集成技能 | `.trae/skills/` |
@@ -45,11 +45,11 @@
 
 ### 🖥️ Admin UI 管理后台
 
-- [Admin UI 架构](admin_ui/ARCHITECTURE.md)
-- [Admin UI 快速指南](admin_ui/QUICKSTART.md)
-- [任务管理](admin_ui/task_guide.md)
-- [数据源管理](admin_ui/datasource_guide.md)
-- [策略管理](admin_ui/strategy_guide.md)
+- [Admin UI 架构](admin/ARCHITECTURE.md)
+- [Admin UI 快速指南](admin/QUICKSTART.md)
+- [任务管理](admin/task_guide.md)
+- [数据源管理](admin/datasource_guide.md)
+- [策略管理](admin/strategy_guide.md)
 
 ### 🧠 Skills 技能系统
 

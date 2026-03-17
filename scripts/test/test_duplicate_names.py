@@ -5,7 +5,7 @@
 验证系统是否禁止创建同名的数据源
 """
 
-from deva.admin_ui.datasource.datasource import get_ds_manager, DataSourceType
+from deva.admin.datasource.datasource import get_ds_manager, DataSourceType
 
 def main():
     """测试数据源名称唯一性"""

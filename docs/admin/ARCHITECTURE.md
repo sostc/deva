@@ -74,7 +74,7 @@ Level 5: 基础设施层
 ## 📁 目录结构
 
 ```
-deva/admin_ui/
+deva/admin/
 ├── __init__.py              # 包初始化
 ├── main_ui.py               # 主界面
 ├── runtime.py               # 运行时
@@ -154,7 +154,7 @@ deva/admin_ui/
 
 **核心函数：**
 ```python
-async def init_admin_ui(ctx, title)         # 初始化 Admin UI
+async def init_admin(ctx, title)         # 初始化 Admin UI
 async def render_main(ctx)                   # 渲染主界面
 def create_nav_menu(ctx)                     # 创建导航菜单
 async def summarize_tabs(ctx)                # 总结标签页
@@ -163,10 +163,10 @@ async def process_tabs(ctx, session)         # 处理标签页
 
 **使用示例：**
 ```python
-from deva.admin_ui.main_ui import init_admin_ui, render_main
+from deva.admin.main_ui import init_admin, render_main
 
 # 初始化
-await init_admin_ui(ctx, 'Deva 管理面板')
+await init_admin(ctx, 'Deva 管理面板')
 
 # 渲染主界面
 await render_main(ctx)
@@ -194,7 +194,7 @@ class StrategyManager:
 
 **使用示例：**
 ```python
-from deva.admin_ui.strategy.strategy_manager import get_strategy_manager
+from deva.admin.strategy.strategy_manager import get_strategy_manager
 
 mgr = get_strategy_manager()
 
@@ -230,7 +230,7 @@ class DataSource:
 
 **使用示例：**
 ```python
-from deva.admin_ui.strategy.datasource import DataSource
+from deva.admin.strategy.datasource import DataSource
 
 class MyDataSource(DataSource):
     def fetch_data(self):
@@ -260,7 +260,7 @@ async def show_llm_config_panel(ctx)        # 显示模型配置
 
 **使用示例：**
 ```python
-from deva.admin_ui.ai_center import render_ai_tab_ui
+from deva.admin.ai_center import render_ai_tab_ui
 
 # 渲染 AI 功能中心
 render_ai_tab_ui(ctx)

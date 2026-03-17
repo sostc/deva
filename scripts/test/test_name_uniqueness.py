@@ -5,7 +5,7 @@
 验证系统是否在创建和编辑数据源时都禁止使用重复名称
 """
 
-from deva.admin_ui.datasource.datasource import get_ds_manager, DataSourceType, create_timer_source, create_stream_source, create_replay_source
+from deva.admin.datasource.datasource import get_ds_manager, DataSourceType, create_timer_source, create_stream_source, create_replay_source
 
 def main():
     """测试数据源名称唯一性"""

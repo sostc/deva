@@ -109,11 +109,11 @@ http://localhost:8080/document
 
 ### 修改的文件
 
-**`deva/admin_ui/document/document.py`**
+**`deva/admin/document/document.py`**
 
 #### 新增函数
 
-1. **`_build_admin_ui_docs_tab(ctx)`**
+1. **`_build_admin_docs_tab(ctx)`**
    - 读取 5 个文档文件
    - 构建 Admin UI 文档 Tab 内容
    - 包含文档预览和概览
@@ -135,8 +135,8 @@ http://localhost:8080/document
 ```python
 def render_document_ui(ctx):
     # Tab 1: Admin UI 完整文档中心
-    admin_ui_docs_tab = _build_admin_ui_docs_tab(ctx)
-    tabs.append(admin_ui_docs_tab)
+    admin_docs_tab = _build_admin_docs_tab(ctx)
+    tabs.append(admin_docs_tab)
     
     # Tab 2: 核心库文档
     core_libs_tab = _build_core_libraries_tab(ctx)
@@ -159,7 +159,7 @@ def render_document_ui(ctx):
 ### 语法检查
 
 ```bash
-python -m py_compile deva/admin_ui/document/document.py
+python -m py_compile deva/admin/document/document.py
 # ✅ Syntax OK
 ```
 

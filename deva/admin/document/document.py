@@ -10,7 +10,7 @@ from pathlib import Path
 DOCUMENT_MODULE_WHITELIST = {
     'core', 'pipe', 'store', 'sources', 'when', 'namespace', 'bus',
     'endpoints', 'compute', 'search', 'browser',
-    'page', 'lambdas', 'admin', 'llm', 'admin_ui', 'page_ui',
+    'page', 'lambdas', 'admin', 'llm', 'admin', 'page_ui',
 }
 
 
@@ -474,7 +474,7 @@ def _build_optimization_report_tab(ctx):
         }
 
 
-def _build_admin_ui_docs_tab(ctx):
+def _build_admin_docs_tab(ctx):
     """Build the Admin UI documentation tab."""
     import os
     
@@ -506,9 +506,9 @@ def _build_admin_ui_docs_tab(ctx):
         ('💻 AI 代码生成', os.path.join(docs_root, 'ai', 'AI_CODE_CREATOR_GUIDE.md')),
         
         # Strategy docs
-        ('📈 策略指南', os.path.join(docs_root, 'admin_ui', 'strategy_guide.md')),
-        ('📡 数据源指南', os.path.join(docs_root, 'admin_ui', 'datasource_guide.md')),
-        ('⏰ 任务指南', os.path.join(docs_root, 'admin_ui', 'task_guide.md')),
+        ('📈 策略指南', os.path.join(docs_root, 'admin', 'strategy_guide.md')),
+        ('📡 数据源指南', os.path.join(docs_root, 'admin', 'datasource_guide.md')),
+        ('⏰ 任务指南', os.path.join(docs_root, 'admin', 'task_guide.md')),
         
         # Core modules docs
         ('🌊 流计算指南', os.path.join(examples_root, 'README.md')),
@@ -580,17 +580,17 @@ def _build_admin_ui_docs_tab(ctx):
 
 | 分类 | 目录路径 |
 |------|---------|
-| 📘 Admin UI 文档 | `deva/admin_ui/` |
+| 📘 Admin 文档 | `deva/admin/` |
 | 📚 项目文档 | `docs/`, `source/` |
 | 🤖 AI 相关文档 | `docs/ai/`, `docs/guides/ai/` |
-| 📈 业务指南 | `docs/admin_ui/` |
+| 📈 业务指南 | `docs/admin/` |
 | 🌊 核心模块文档 | `deva/examples/` |
 | 📋 技术报告 | `docs/reports/` |
     """))
     
     content.append(ctx['put_markdown']("\n### 🎯 文档内容概览"))
     content.append(ctx['put_markdown']("""
-#### 📘 Admin UI 文档
+#### 📘 Admin 文档
 - Admin 模块结构和分层架构
 - 10 个不依赖 UI 的核心库
 - 完整的 API 参考和使用示例
@@ -648,61 +648,61 @@ def _build_core_libraries_tab(ctx):
     core_libs = [
         {
             'name': '基础架构',
-            'module': 'deva.admin_ui.strategy.base',
+            'module': 'deva.admin.strategy.base',
             'exports': ['BaseManager', 'BaseMetadata', 'BaseState', 'BaseStatus'],
             'desc': '所有管理器、单元类的基类，提供生命周期管理、状态跟踪、回调机制'
         },
         {
             'name': '可执行单元',
-            'module': 'deva.admin_ui.strategy.executable_unit',
+            'module': 'deva.admin.strategy.executable_unit',
             'exports': ['ExecutableUnit', 'ExecutableUnitMetadata', 'ExecutableUnitState'],
             'desc': '策略、数据源、任务的统一基类，提供代码执行、状态管理能力'
         },
         {
             'name': '持久化层',
-            'module': 'deva.admin_ui.strategy.persistence',
+            'module': 'deva.admin.strategy.persistence',
             'exports': ['PersistenceManager', 'MemoryBackend', 'FileBackend', 'DatabaseBackend'],
             'desc': '多后端数据持久化，支持配置序列化/反序列化'
         },
         {
             'name': '日志上下文',
-            'module': 'deva.admin_ui.strategy.logging_context',
+            'module': 'deva.admin.strategy.logging_context',
             'exports': ['LoggingContext', 'strategy_log', 'datasource_log', 'task_log'],
             'desc': '线程安全的日志上下文管理，自动携带组件信息'
         },
         {
             'name': '结果存储',
-            'module': 'deva.admin_ui.strategy.result_store',
+            'module': 'deva.admin.strategy.result_store',
             'exports': ['StrategyResult', 'ResultStore', 'get_result_store'],
             'desc': '策略执行结果的缓存和持久化'
         },
         {
             'name': '工具函数',
-            'module': 'deva.admin_ui.strategy.utils',
+            'module': 'deva.admin.strategy.utils',
             'exports': ['format_pct', 'format_duration', 'df_to_html', 'prepare_df'],
             'desc': '数据格式化、DataFrame 处理、板块分析等'
         },
         {
             'name': '交易时间',
-            'module': 'deva.admin_ui.strategy.tradetime',
+            'module': 'deva.admin.strategy.tradetime',
             'exports': ['is_tradetime', 'is_tradedate', 'get_next_trade_date'],
             'desc': '交易日判断、交易时间判断、交易时间执行装饰器'
         },
         {
             'name': 'AI 工作器',
-            'module': 'deva.admin_ui.llm.worker_runtime',
+            'module': 'deva.admin.llm.worker_runtime',
             'exports': ['run_ai_in_worker', 'submit_ai_coro'],
             'desc': '在独立线程中运行 AI 相关操作，避免阻塞主线程'
         },
         {
             'name': 'LLM 配置',
-            'module': 'deva.admin_ui.llm.config_utils',
+            'module': 'deva.admin.llm.config_utils',
             'exports': ['get_model_config_status', 'build_model_config_example'],
             'desc': 'LLM 配置工具，提供配置状态检查和示例生成'
         },
         {
             'name': '错误处理',
-            'module': 'deva.admin_ui.strategy.error_handler',
+            'module': 'deva.admin.strategy.error_handler',
             'exports': ['ErrorHandler', 'ErrorCollector', 'ErrorLevel'],
             'desc': '统一错误处理，提供错误收集、分类、统计功能'
         },
@@ -726,25 +726,25 @@ def _build_core_libraries_tab(ctx):
     content.append(ctx['put_markdown']("""
 ```python
 # 1. 使用基础架构
-from deva.admin_ui.strategy.base import BaseManager
+from deva.admin.strategy.base import BaseManager
 
 class MyManager(BaseManager):
     def _do_start(self, item):
         pass
 
 # 2. 使用持久化层
-from deva.admin_ui.strategy.persistence import PersistenceManager
+from deva.admin.strategy.persistence import PersistenceManager
 pm = PersistenceManager()
 pm.save_config('key', data)
 
 # 3. 使用日志上下文
-from deva.admin_ui.strategy.logging_context import LoggingContext
+from deva.admin.strategy.logging_context import LoggingContext
 ctx = LoggingContext(component_type='strategy', component_id='my_strategy')
 with ctx:
     strategy_log.info('策略启动')
 
 # 4. 使用 AI 工作器
-from deva.admin_ui.llm.worker_runtime import run_ai_in_worker
+from deva.admin.llm.worker_runtime import run_ai_in_worker
 result = await run_ai_in_worker(call_llm_api())
 ```
     """))
@@ -764,8 +764,8 @@ def render_document_ui(ctx):
     tabs = []
 
     # Tab 1: Admin UI 完整文档中心 (main documentation hub)
-    admin_ui_docs_tab = _build_admin_ui_docs_tab(ctx)
-    tabs.append(admin_ui_docs_tab)
+    admin_docs_tab = _build_admin_docs_tab(ctx)
+    tabs.append(admin_docs_tab)
 
     # Tab 2: 核心库文档 (Core libraries - UI independent)
     core_libs_tab = _build_core_libraries_tab(ctx)
