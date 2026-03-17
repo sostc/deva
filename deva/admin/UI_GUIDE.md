@@ -513,7 +513,7 @@ abc
 
 ```python
 # ✅ 推荐：使用日志上下文
-from deva.admin_ui.strategy.logging_context import task_log
+from deva.admin.strategy.logging_context import task_log
 
 task_log.info('任务启动', extra={'task_id': 'my_task'})
 task_log.error('任务失败', exc_info=True)
@@ -561,7 +561,7 @@ create_task(
 
 ## 技术支持
 
-- **文档**：`deva/admin_ui/README.md`
+- **文档**：`deva/admin/README.md`
 - **问题反馈**：GitHub Issues
 - **讨论交流**：GitHub Discussions
 

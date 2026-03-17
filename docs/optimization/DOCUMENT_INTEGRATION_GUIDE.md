@@ -48,7 +48,7 @@
 - `lambdas` - Lambda 函数
 - `admin` - 管理功能
 - `llm` - LLM 集成
-- `admin_ui` - 管理界面
+- `admin` - 管理界面
 - `page_ui` - 页面 UI
 
 ### 4. 文档优化报告 Tab
@@ -89,7 +89,7 @@ python3 test_document_integration.py
 ### 方式 3：在代码中调用
 
 ```python
-from deva.admin_ui.document import render_document_ui
+from deva.admin.document import render_document_ui
 
 # 在 PyWebIO 上下文中调用
 render_document_ui(ctx)
@@ -189,7 +189,7 @@ deva/
 ├── deva/
 │   ├── examples/
 │   │   └── README.md                # ✅ 已集成
-│   └── admin_ui/
+│   └── admin/
 │       └── document.py              # 文档 UI 渲染逻辑
 ├── DOCUMENTATION_OPTIMIZATION_SUMMARY.md  # ✅ 已集成
 └── test_document_integration.py     # 测试脚本

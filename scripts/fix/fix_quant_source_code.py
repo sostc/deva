@@ -3,7 +3,7 @@
 修复quant_source数据源的代码导入问题
 """
 
-from deva.admin_ui.strategy.datasource import get_ds_manager
+from deva.admin.strategy.datasource import get_ds_manager
 from deva import NS
 
 # 创建完整的、自包含的执行代码

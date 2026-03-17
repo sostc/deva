@@ -31,6 +31,12 @@ except Exception:
 
 from river import anomaly, compose, drift, linear_model, stats
 
+from deva.naja.dictionary.tongdaxin_blocks import (
+    get_stock_blocks,
+    get_block_stocks,
+    get_all_blocks,
+)
+
 
 def _safe_float(value: Any, default: float = 0.0) -> float:
     try:
@@ -48,33 +54,6 @@ def _safe_int(value: Any, default: int = 0) -> int:
         return int(value)
     except Exception:
         return int(default)
-
-
-def get_stock_blocks(code: str) -> List[str]:
-    """获取股票所属板块"""
-    try:
-        from deva.naja.dictionary.tongdaxin_blocks import get_stock_blocks as _get
-        return _get(code)
-    except Exception:
-        return []
-
-
-def get_block_stocks(block_name: str) -> List[str]:
-    """获取板块股票列表"""
-    try:
-        from deva.naja.dictionary.tongdaxin_blocks import get_block_stocks as _get
-        return _get(block_name)
-    except Exception:
-        return []
-
-
-def get_all_blocks() -> List[str]:
-    """获取所有板块"""
-    try:
-        from deva.naja.dictionary.tongdaxin_blocks import get_all_blocks as _get
-        return _get()
-    except Exception:
-        return []
 
 
 @dataclass

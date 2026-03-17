@@ -8,7 +8,7 @@
 
 ### 1. 核心UI界面升级
 
-**文件位置**: `/Users/spark/pycharmproject/deva/deva/admin_ui/enhanced_task_admin.py`
+**文件位置**: `/Users/spark/pycharmproject/deva/deva/admin/enhanced_task_admin.py`
 
 **主要特性**:
 - 🎨 **现代化界面设计**: 渐变背景、统计卡片、响应式布局
@@ -18,7 +18,7 @@
 
 ### 2. AI代码生成集成
 
-**文件位置**: `/Users/spark/pycharmproject/deva/deva/admin_ui/strategy/enhanced_task_panel.py`
+**文件位置**: `/Users/spark/pycharmproject/deva/deva/admin/strategy/enhanced_task_panel.py`
 
 **核心功能**:
 - 🤖 **自然语言生成**: 用户描述需求，AI自动生成代码

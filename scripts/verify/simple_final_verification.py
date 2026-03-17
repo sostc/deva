@@ -5,7 +5,7 @@
 
 import time
 import datetime
-from deva.admin_ui.strategy.datasource import get_ds_manager, DataSourceStatus
+from deva.admin.strategy.datasource import get_ds_manager, DataSourceStatus
 
 def main():
     """简化版最终验证"""

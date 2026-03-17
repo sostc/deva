@@ -5,7 +5,7 @@
 
 import time
 import datetime
-from deva.admin_ui.strategy.datasource import get_ds_manager
+from deva.admin.strategy.datasource import get_ds_manager
 
 def create_demo_datasources():
     """创建演示用的数据源"""
@@ -77,7 +77,7 @@ def fetch_data():
         }
     ]
     
-    from deva.admin_ui.strategy.datasource import DataSource, DataSourceType
+    from deva.admin.strategy.datasource import DataSource, DataSourceType
     
     created_sources = []
     for config in demo_sources:

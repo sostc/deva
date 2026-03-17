@@ -68,33 +68,33 @@ import re
 import inspect
 import pkgutil
 try:
-    from .admin_ui import runtime as admin_runtime
-    from .admin_ui import auth_routes as admin_auth
-    from .admin_ui import auth_routes as admin_route_helpers
-    from .admin_ui import document as admin_document
-    from .admin_ui import tables as admin_tables
-    from .admin_ui import main_ui as admin_main_ui
-    from .admin_ui import llm_service as admin_llm_response_service
-    from .admin_ui import contexts as admin_contexts
-    from .admin_ui.monitor import monitor_routes as admin_monitor_routes
-    from .admin_ui.monitor import monitor_ui as admin_monitor_ui
-    from .admin_ui.follow import follow_ui as admin_follow_ui
-    from .admin_ui.browser import browser_ui as admin_browser_ui
+    from .admin import runtime as admin_runtime
+    from .admin import auth_routes as admin_auth
+    from .admin import auth_routes as admin_route_helpers
+    from .admin import document as admin_document
+    from .admin import tables as admin_tables
+    from .admin import main_ui as admin_main_ui
+    from .admin import llm_service as admin_llm_response_service
+    from .admin import contexts as admin_contexts
+    from .admin.monitor import monitor_routes as admin_monitor_routes
+    from .admin.monitor import monitor_ui as admin_monitor_ui
+    from .admin.follow import follow_ui as admin_follow_ui
+    from .admin.browser import browser_ui as admin_browser_ui
     from .llm.worker_runtime import run_ai_in_worker
 except ImportError:
     # Allow running as a script: python deva/admin.py
-    from deva.admin_ui import runtime as admin_runtime
-    from deva.admin_ui import auth_routes as admin_auth
-    from deva.admin_ui import auth_routes as admin_route_helpers
-    from deva.admin_ui import document as admin_document
-    from deva.admin_ui import tables as admin_tables
-    from deva.admin_ui import main_ui as admin_main_ui
-    from deva.admin_ui import llm_service as admin_llm_response_service
-    from deva.admin_ui import contexts as admin_contexts
-    from deva.admin_ui.monitor import monitor_routes as admin_monitor_routes
-    from deva.admin_ui.monitor import monitor_ui as admin_monitor_ui
-    from deva.admin_ui.follow import follow_ui as admin_follow_ui
-    from deva.admin_ui.browser import browser_ui as admin_browser_ui
+    from deva.admin import runtime as admin_runtime
+    from deva.admin import auth_routes as admin_auth
+    from deva.admin import auth_routes as admin_route_helpers
+    from deva.admin import document as admin_document
+    from deva.admin import tables as admin_tables
+    from deva.admin import main_ui as admin_main_ui
+    from deva.admin import llm_service as admin_llm_response_service
+    from deva.admin import contexts as admin_contexts
+    from deva.admin.monitor import monitor_routes as admin_monitor_routes
+    from deva.admin.monitor import monitor_ui as admin_monitor_ui
+    from deva.admin.follow import follow_ui as admin_follow_ui
+    from deva.admin.browser import browser_ui as admin_browser_ui
     from deva.llm.worker_runtime import run_ai_in_worker
 
 import pandas as pd
@@ -381,8 +381,8 @@ def _tasks_ctx():
 
 async def taskadmin():
     await init_admin_ui('Deva任务管理')
-    from .admin_ui.tasks.task_manager import get_task_manager
-    from .admin_ui.tasks.task_admin import render_task_admin
+    from .admin.tasks.task_manager import get_task_manager
+    from .admin.tasks.task_admin import render_task_admin
 
     task_manager = get_task_manager()
     task_manager.load_from_db()
@@ -477,17 +477,17 @@ async def streamadmin():
 
 
 async def followadmin():
-    from .admin_ui.follow.follow_ui import render_follow_ui
+    from .admin.follow.follow_ui import render_follow_ui
     return await render_follow_ui(_follow_ui_ctx())
 
 
 async def browseradmin():
-    from .admin_ui.browser.browser_ui import render_browser_ui
+    from .admin.browser.browser_ui import render_browser_ui
     return await render_browser_ui(_browser_ui_ctx())
 
 
 async def configadmin():
-    from .admin_ui.config.config_ui import render_config_admin
+    from .admin.config.config_ui import render_config_admin
     return await render_config_admin(_config_ui_ctx())
 
 
@@ -635,9 +635,9 @@ if __name__ == '__main__':
     from deva.page import page
     setup_admin_runtime(enable_webviews=True, enable_timer=True, enable_scheduler=True)
     try:
-        from .admin_ui.tasks.task_manager import get_task_manager
+        from .admin.tasks.task_manager import get_task_manager
     except ImportError:
-        from deva.admin_ui.tasks.task_manager import get_task_manager
+        from deva.admin.tasks.task_manager import get_task_manager
     task_manager = get_task_manager()
     task_manager.load_from_db()
     task_manager.import_legacy_tasks()

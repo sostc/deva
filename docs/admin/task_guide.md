@@ -21,7 +21,7 @@ Deva 任务管理系统提供定时任务的创建、调度、监控和管理功
 **方法 1：手动创建**
 
 ```python
-from deva.admin_ui.strategy.task_unit import TaskUnit
+from deva.admin.strategy.task_unit import TaskUnit
 
 class BackupTask(TaskUnit):
     """备份任务"""
@@ -129,7 +129,7 @@ async def delayed_task():
 
 **生成的代码：**
 ```python
-from deva.admin_ui.strategy.task_unit import TaskUnit
+from deva.admin.strategy.task_unit import TaskUnit
 from datetime import datetime, timedelta
 
 class DataCleanupTask(TaskUnit):
@@ -263,7 +263,7 @@ tasks = list(task_store.keys())
 ### 执行历史
 
 ```python
-from deva.admin_ui.strategy.history_db import TaskHistoryDB
+from deva.admin.strategy.history_db import TaskHistoryDB
 
 # 创建历史数据库
 history_db = TaskHistoryDB('task_history.db')

@@ -36,7 +36,7 @@
 ### 基本使用
 
 ```python
-from deva.admin_ui.strategy.datasource import DataSource, DataSourceManager, DataSourceType
+from deva.admin.strategy.datasource import DataSource, DataSourceManager, DataSourceType
 
 # 创建数据源管理器
 manager = DataSourceManager()

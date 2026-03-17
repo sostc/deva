@@ -134,6 +134,50 @@ async def render_llm_admin(ctx: dict):
         scope="llm_content",
     )
 
+    async def handle_manual_tune():
+        try:
+            from deva.naja.common.auto_tuner import manual_llm_tune
+            result = manual_llm_tune(requirement)
+            ctx["toast"](result.get('status', '调优已提交'), status="success")
+        except Exception as e:
+            ctx["toast"](f"调优失败: {str(e)}", status="error")
+
+    async def do_manual_tune(requirement: str):
+        try:
+            from deva.naja.common.auto_tuner import manual_llm_tune
+            result = manual_llm_tune(requirement)
+            ctx["toast"](result.get('status', '调优已提交'), status="success")
+        except Exception as e:
+            ctx["toast"](f"调优失败: {str(e)}", status="error")
+
+    ctx["put_html"](
+        """
+        <div style="background:linear-gradient(135deg,#f0f9ff,#e0f2fe);padding:20px;border-radius:12px;margin-bottom:20px;border:2px solid #0ea5e9;">
+            <div style="display:flex;align-items:center;margin-bottom:12px;">
+                <span style="font-size:24px;margin-right:8px;">🎯</span>
+                <div>
+                    <h3 style="margin:0;color:#0369a1;font-size:16px;font-weight:600;">手动触发 LLM 调优</h3>
+                    <p style="margin:0;color:#0c4a6e;font-size:12px;">输入您的调优要求，LLM 将结合当前配置进行智能调优</p>
+                </div>
+            </div>
+        </div>
+        """,
+        scope="llm_content",
+    )
+
+    form = await ctx["input_group"]("手动 LLM 调优", [
+        ctx["textarea"]("调优要求", name="requirement", 
+            placeholder="例如：优化策略延迟、降低内存占用、提高数据源稳定性、调整线程池参数...",
+            rows=3, required=True),
+        ctx["actions"]("操作", [
+            {"label": "🚀 立即调优", "value": "tune", "color": "primary"},
+            {"label": "取消", "value": "cancel", "color": "default"},
+        ], name="action"),
+    ])
+
+    if form and form.get("action") == "tune":
+        await do_manual_tune(form.get("requirement", ""))
+
     ctx["put_html"]("<div style='margin:20px 0 12px 0;font-size:15px;font-weight:600;color:#374151;'>📜 调节历史记录 <span style='font-weight:400;font-size:12px;color:#9ca3af;'>(点击查看详情)</span></div>", scope="llm_content")
 
     all_events = []
