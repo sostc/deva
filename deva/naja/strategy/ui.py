@@ -8,6 +8,13 @@ from pywebio.input import input_group, input, textarea, select, actions
 from pywebio.session import run_async
 
 from ..common.ui_style import apply_strategy_like_styles, render_empty_state
+from ..page_help import render_help_collapse
+
+try:
+    from ..strategy.handler_type import get_strategy_handler_type, StrategyHandlerType
+    HANDLER_TYPE_AVAILABLE = True
+except ImportError:
+    HANDLER_TYPE_AVAILABLE = False
 
 
 DEFAULT_STRATEGY_CODE = '''# 策略处理函数
@@ -42,6 +49,11 @@ DEFAULT_DECLARATIVE_CONFIG = {
     "state_persist_interval": 300,
     "state_persist_every_n": 200,
 }
+
+
+def _render_strategy_help(ctx: dict):
+    """渲染策略系统帮助说明"""
+    render_help_collapse("strategy")
 
 
 def _fmt_ts(ts: float) -> str:
@@ -403,7 +415,9 @@ def _render_strategy_content(ctx: dict):
         "<hr style='margin:24px 0;border:none;border-top:1px solid #e0e0e0;'>", scope="strategy_content")
 
     ctx["put_html"](_render_result_stats_html(result_stats), scope="strategy_content")
-    
+
+    _render_strategy_help(ctx)
+
     _t12 = time_module.time()
     total_time_ms = (_t12-_perf_start)*1000
     print(f"[PERF] TOTAL _render_strategy_content: {total_time_ms:.1f}ms")
@@ -505,6 +519,20 @@ def _build_table_data(ctx: dict, entries: list, mgr) -> list:
         
         status_html = _render_status_badge(e.is_running)
         type_html = _render_type_badge(getattr(e._metadata, "strategy_type", "legacy"))
+        
+        handler_type = getattr(e._metadata, "handler_type", "unknown")
+        if HANDLER_TYPE_AVAILABLE and handler_type != "unknown":
+            handler_info = {
+                "radar": {"icon": "📡", "color": "#ef4444", "bg": "rgba(239,68,68,0.1)"},
+                "memory": {"icon": "🧠", "color": "#8b5cf6", "bg": "rgba(139,92,246,0.1)"},
+                "bandit": {"icon": "🎰", "color": "#f59e0b", "bg": "rgba(245,158,11,0.1)"},
+                "llm": {"icon": "🤖", "color": "#10b981", "bg": "rgba(16,185,129,0.1)"},
+            }.get(handler_type, {"icon": "❓", "color": "#6b7280", "bg": "rgba(107,114,128,0.1)"})
+            
+            handler_html = f'''<span style="display:inline-flex;align-items:center;gap:2px;padding:2px 6px;border-radius:4px;font-size:10px;font-weight:500;background:{handler_info['bg']};color:{handler_info['color']};margin-left:4px;">
+                {handler_info['icon']} {handler_type}
+            </span>'''
+            type_html = type_html.replace('</span>', f'{handler_html}</span>')
 
         # 获取多数据源绑定列表
         bound_datasource_ids = getattr(e._metadata, "bound_datasource_ids", [])
@@ -845,7 +873,23 @@ def _close_experiment_mode(ctx, mgr):
     """关闭实验模式并恢复策略配置"""
     result = mgr.stop_experiment()
     if result.get("success"):
-        ctx["toast"]("实验模式已关闭，策略已恢复到原数据源和原运行状态", color="success")
+        # 构建详细的恢复信息
+        restored_bind = result.get("restored_bind_count", 0)
+        restored_state = result.get("restored_state_count", 0)
+        restored_output = result.get("restored_output_count", 0)
+        restored_params = result.get("restored_params_count", 0)
+        restored_window = result.get("restored_window_count", 0)
+        
+        detail_parts = []
+        if restored_output > 0:
+            detail_parts.append(f"输出配置({restored_output})")
+        if restored_params > 0:
+            detail_parts.append(f"策略参数({restored_params})")
+        if restored_window > 0:
+            detail_parts.append(f"窗口配置({restored_window})")
+        
+        detail_str = "、" + "、".join(detail_parts) if detail_parts else ""
+        ctx["toast"](f"实验模式已关闭，策略已恢复：数据源绑定({restored_bind})、运行状态({restored_state}){detail_str}", color="success")
     else:
         ctx["toast"](f"关闭失败: {result.get('error', 'unknown error')}", color="error")
     _render_strategy_content(ctx)
@@ -1349,186 +1393,170 @@ async def _show_strategy_detail(ctx: dict, mgr, entry_id: str):
         bound_ds_display = "-"
 
     with ctx["popup"](f"策略详情: {entry.name}", size="large", closable=True):
-        ctx["put_html"](_render_detail_section("📊 基本信息"))
-
+        # 计算 state_persist 状态
         state_persist = False
         try:
             cfg = getattr(entry._metadata, "strategy_config", {}) or {}
             state_persist = bool(cfg.get("state_persist", False))
         except Exception:
             state_persist = False
-
-        ctx["put_table"]([
-            ["ID", entry.id],
-            ["名称", entry.name],
-            ["描述", getattr(entry._metadata, "description", "") or "-"],
-            ["策略类型", getattr(entry._metadata, "strategy_type", "legacy") or "legacy"],
-            ["模型持久化", "开启" if state_persist else "关闭"],
-            ["状态", "运行中" if entry.is_running else "已停止"],
-            ["计算模式", getattr(entry._metadata, "compute_mode", "record")],
-            ["窗口大小", getattr(entry._metadata, "window_size", 5)],
-            ["绑定数据源", bound_ds_display],
-            ["历史保留", getattr(entry._metadata, "max_history_count", 100)],
-            ["创建时间", _fmt_ts(entry._metadata.created_at)],
-            ["更新时间", _fmt_ts(entry._metadata.updated_at)],
-        ], header=["字段", "值"])
-
+        
+        strategy_type = getattr(entry._metadata, "strategy_type", "legacy") or "legacy"
+        is_running = entry.is_running
+        
+        type_colors = {
+            "legacy": {"bg": "#f1f5f9", "color": "#64748b"},
+            "declarative": {"bg": "#e0f2fe", "color": "#0284c7"},
+            "river": {"bg": "#dcfce7", "color": "#16a34a"},
+            "plugin": {"bg": "#ede9fe", "color": "#7c3aed"},
+        }
+        type_style = type_colors.get(strategy_type, type_colors["legacy"])
+        
+        # 紧凑顶部栏
+        ctx["put_html"](f"""
+        <div style="margin-bottom:12px;padding:10px 14px;background:#f8fafc;border-radius:8px;border:1px solid #e2e8f0;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
+            <div style="display:flex;align-items:center;gap:10px;">
+                <span style="font-size:16px;font-weight:600;color:#1e293b;">{entry.name}</span>
+                <span style="background:{type_style['bg']};color:{type_style['color']};padding:2px 6px;border-radius:4px;font-size:11px;font-weight:500;">{strategy_type.upper()}</span>
+                <span style="font-size:11px;color:#64748b;">{getattr(entry._metadata, "compute_mode", "record")}</span>
+            </div>
+            <div style="display:flex;align-items:center;gap:10px;">
+                <span style="display:inline-flex;align-items:center;gap:4px;padding:3px 10px;background:{"#dcfce7" if is_running else "#f3f4f6"};color:{"#22c55e" if is_running else "#9ca3af"};border-radius:12px;font-size:11px;font-weight:500;">
+                    {"●" if is_running else "○"} {"运行中" if is_running else "已停止"}
+                </span>
+                <span style="font-size:11px;color:#64748b;">{entry._state.processed_count}次</span>
+            </div>
+        </div>
+        """)
+        
+        # 紧凑二列布局：基本信息 + 执行统计
+        ctx["put_html"]('<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px;">')
+        
+        # 左侧：关键信息
+        ctx["put_html"](f"""
+        <div style="background:#fff;padding:12px;border-radius:8px;border:1px solid #e5e7eb;font-size:11px;">
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;">
+                <div><span style="color:#64748b;">窗口:</span> <span style="color:#1e293b;">{getattr(entry._metadata, "window_size", 5)}</span></div>
+                <div><span style="color:#64748b;">历史:</span> <span style="color:#1e293b;">{getattr(entry._metadata, "max_history_count", 100)}</span></div>
+                <div><span style="color:#64748b;">持久化:</span> <span style="color:{"#22c55e" if state_persist else "#9ca3af"};">{"开" if state_persist else "关"}</span></div>
+                <div><span style="color:#64748b;">输出:</span> <span style="color:#1e293b;">{entry._state.output_count}</span></div>
+                <div><span style="color:#64748b;">错误:</span> <span style="color:{"#ef4444" if entry._state.error_count > 0 else "#1e293b"};">{entry._state.error_count}</span></div>
+                <div><span style="color:#64748b;">最后:</span> <span style="color:#1e293b;">{_fmt_ts(entry._state.last_process_ts) if entry._state.last_process_ts > 0 else "-"}</span></div>
+            </div>
+        </div>
+        """)
+        
+        # 错误信息 + 最新正确信息并排显示
+        try:
+            recent_results = entry.get_recent_results(limit=2)
+            has_error = entry._state.error_count > 0 and entry._state.last_error
+            has_success = any(r.get("success") for r in recent_results if r.get("success"))
+            
+            if has_error or has_success:
+                ctx["put_html"]('<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px;">')
+                
+                # 错误信息 - 红色背景
+                if has_error and entry._state.last_error:
+                    ctx["put_html"](f'''
+                    <div style="padding:8px;background:#fef2f2;border-radius:6px;border:1px solid #fecaca;">
+                        <div style="font-size:10px;font-weight:600;color:#dc2626;margin-bottom:4px;">❌ 最新错误</div>
+                        <div style="font-size:10px;color:#991b1b;">{entry._state.last_error or ""}</div>
+                        <div style="font-size:9px;color:#f87171;margin-top:4px;">{_fmt_ts(entry._state.last_error_ts) if entry._state.last_error_ts > 0 else ""}</div>
+                    </div>
+                    ''')
+                
+                # 最新正确信息 - 绿色背景
+                success_result = next((r for r in recent_results if r.get("success")), None)
+                if success_result:
+                    ctx["put_html"](f'''
+                    <div style="padding:8px;background:#f0fdf4;border-radius:6px;border:1px solid #bbf7d0;">
+                        <div style="font-size:10px;font-weight:600;color:#16a34a;margin-bottom:4px;">✅ 最新成功</div>
+                        <div style="font-size:10px;color:#166534;">{(success_result.get("output_preview") or "-")[:60]}</div>
+                        <div style="font-size:9px;color:#4ade80;margin-top:4px;">{success_result.get("ts_readable", "")[:19] if success_result.get("ts_readable") else ""}</div>
+                    </div>
+                    ''')
+                
+                ctx["put_html"]('</div>')
+        except Exception:
+            pass
+        
+        # 右侧：数据源
+        ctx["put_html"](f"""
+        <div style="background:#fff;padding:12px;border-radius:8px;border:1px solid #e5e7eb;font-size:11px;">
+            <div style="font-weight:600;color:#1e293b;margin-bottom:6px;">🔗 数据源</div>
+            <div style="color:#64748b;line-height:1.6;">{bound_ds_display.replace(chr(10), '<br>').replace('• ', '• ') if bound_ds_display != '-' else '<span style="color:#9ca3af;">未绑定</span>'}</div>
+        </div>
+        """)
+        ctx["put_html"]('</div>')
+        
         dict_ids = getattr(entry._metadata, "dictionary_profile_ids", [])
         if dict_ids:
-            ctx["put_html"]("<p><strong>数据字典:</strong> " + ", ".join(dict_ids) + "</p>")
+            ctx["put_html"](f'<div style="margin-bottom:12px;font-size:11px;"><span style="color:#64748b;">📖 字典:</span> <span style="color:#1e293b;">{", ".join(dict_ids)}</span></div>')
 
-        ctx["put_html"](_render_detail_section("🧩 结构化配置"))
+        # AI调节历史 - 提前到更前面
         try:
-            config = getattr(entry._metadata, "strategy_config", {}) or {}
-            params = getattr(entry._metadata, "strategy_params", {}) or {}
-            if params:
-                config = dict(config)
-                config["params"] = {**(config.get("params", {}) or {}), **params}
-            ctx["put_code"](json.dumps(config, ensure_ascii=False, indent=2), language="json")
-        except Exception:
-            ctx["put_html"]("<div style='color:#999;'>暂无结构化配置</div>")
-
-        # 参数说明
-        try:
-            config = getattr(entry._metadata, "strategy_config", {}) or {}
-            params = getattr(entry._metadata, "strategy_params", {}) or {}
-            param_help = {}
-            if isinstance(config, dict):
-                param_help = config.get("param_help", {}) or {}
-
-            if params or param_help:
-                ctx["put_html"](_render_detail_section("🧪 可调参数与说明"))
-                rows = [["参数", "当前值", "说明"]]
-                keys = list(params.keys())
-                for k in param_help.keys():
-                    if k not in keys:
-                        keys.append(k)
-                for key in keys:
-                    rows.append([
-                        key,
-                        json.dumps(params.get(key), ensure_ascii=False),
-                        param_help.get(key, "-"),
-                    ])
-                ctx["put_table"](rows, header=["参数", "当前值", "说明"])
+            llm_rows = _get_llm_adjustments(entry, limit=5)
+            if llm_rows:
+                ctx["put_html"]('<div style="margin-top:12px;">')
+                ctx["put_collapse"](f"🤖 AI调节 ({len(llm_rows)}条)", [
+                    ctx["put_table"](llm_rows, header=["时间", "摘要", "动作"])
+                ])
+                ctx["put_html"]('</div>')
         except Exception:
             pass
 
-        # 策略详解图表
+        # 策略详解 - 直接调用（内部已处理空数据情况）
         _render_strategy_diagram_section(ctx, entry)
 
-        ctx["put_html"](_render_detail_section("📈 执行统计"))
-
-        ctx["put_table"]([
-            ["处理次数", entry._state.processed_count],
-            ["输出次数", entry._state.output_count],
-            ["错误次数", entry._state.error_count],
-            ["最后错误", entry._state.last_error or "-"],
-            ["最后处理", _fmt_ts(entry._state.last_process_ts)],
-        ], header=["字段", "值"])
-
-        # LLM 调节历史
-        ctx["put_html"](_render_detail_section("🤖 AI 调节历史"))
-        try:
-            llm_rows = _get_llm_adjustments(entry)
-            if llm_rows:
-                ctx["put_table"](llm_rows, header=["时间", "摘要", "动作", "原因"])
-            else:
-                ctx["put_html"]("<div style='color:#999;'>暂无调节记录</div>")
-        except Exception:
-            ctx["put_html"]("<div style='color:#999;'>暂无调节记录</div>")
-
-        ctx["put_html"](_render_detail_section("📜 历史执行结果"))
-
-        try:
-            recent_results = entry.get_recent_results(limit=10)
-            if recent_results:
-                result_table = [["时间", "状态", "耗时", "输出预览", "操作"]]
-                for r in recent_results:
-                    status_html = '<span style="color:#28a745;">✅</span>' if r.get(
-                        "success") else '<span style="color:#dc3545;">❌</span>'
-                    output_preview = r.get("output_preview", "")[:50]
-                    if not r.get("success") and r.get("error"):
-                        output_preview = f"错误: {r.get('error', '')[:40]}"
-
-                    actions = ctx["put_buttons"]([
-                        {"label": "详情", "value": f"result_{r.get('id', '')}", "color": "info"},
-                        {"label": "删除", "value": f"delete_{r.get('id', '')}", "color": "danger"},
-                    ], onclick=lambda v, rid=r.get("id", ""), e=entry: _handle_result_action(ctx, e, rid, v))
-
-                    result_table.append([
-                        r.get("ts_readable", "")[:16],
-                        ctx["put_html"](status_html),
-                        f"{r.get('process_time_ms', 0):.1f}ms",
-                        output_preview[:50] +
-                        "..." if len(output_preview) > 50 else output_preview,
-                        actions,
-                    ])
-                ctx["put_table"](result_table)
-
-                result_stats = entry.get_result_stats()
-                ctx["put_html"](f"""
-                <div style="margin-top:10px;padding:10px;background:#f5f5f5;border-radius:4px;">
-                    <strong>执行统计:</strong> 
-                    总计 {result_stats.get('results_count', 0)} 次 | 
-                    成功率 {result_stats.get('success_rate', 0)*100:.1f}% | 
-                    平均耗时 {result_stats.get('avg_process_time_ms', 0):.2f}ms
-                </div>
-                """)
-
-                trend_data = entry.get_result_trend(interval_minutes=5, limit=20)
-                if trend_data.get("timestamps"):
-                    ctx["put_html"]("<p style='margin-top:15px;'><strong>执行趋势:</strong></p>")
-                    timestamps = trend_data["timestamps"][::-1]
-                    success_counts = trend_data["success_counts"][::-1]
-                    failed_counts = trend_data["failed_counts"][::-1]
-                    process_counts = trend_data["process_counts"][::-1]
-
-                    max_count = max(process_counts) if process_counts else 1
-                    chart_html = '<div style="display:flex;gap:2px;align-items:flex-end;height:60px;margin-top:10px;">'
-                    for i, ts in enumerate(timestamps):
-                        total = process_counts[i] if i < len(process_counts) else 0
-                        success = success_counts[i] if i < len(success_counts) else 0
-                        failed = failed_counts[i] if i < len(failed_counts) else 0
-
-                        total_height = int((total / max_count) * 50) if max_count > 0 else 0
-                        success_height = int((success / max_count) * 50) if max_count > 0 else 0
-                        failed_height = int((failed / max_count) * 50) if max_count > 0 else 0
-
-                        chart_html += f'''
-                        <div style="display:flex;flex-direction:column;align-items:center;width:30px;">
-                            <div style="display:flex;flex-direction:column-reverse;height:50px;width:20px;background:#f0f0f0;border-radius:2px;">
-                                <div style="height:{success_height}px;background:#28a745;border-radius:2px;"></div>
-                                <div style="height:{failed_height}px;background:#dc3545;border-radius:2px;"></div>
-                            </div>
-                            <div style="font-size:8px;color:#666;margin-top:2px;">{ts}</div>
-                        </div>
-                        '''
-                    chart_html += '</div>'
-                    chart_html += '<div style="margin-top:5px;font-size:11px;color:#666;"><span style="color:#28a745;">■</span> 成功 <span style="color:#dc3545;">■</span> 失败</div>'
-                    ctx["put_html"](chart_html)
-            else:
-                ctx["put_html"](
-                    '<div style="padding:20px;text-align:center;color:#999;background:#f9f9f9;border-radius:8px;">暂无执行结果</div>')
-        except Exception as e:
-            ctx["put_text"](f"获取历史结果失败: {str(e)}")
-
-        ctx["put_html"](_render_detail_section("💻 处理代码"))
-
-        if entry.func_code:
-            ctx["put_code"](entry.func_code, language="python")
-        else:
-            ctx["put_text"]("暂无代码")
-
-        export_json = json.dumps(entry.to_dict(), ensure_ascii=False, indent=2)
-        ctx["put_html"](_render_detail_section("📤 导出策略配置"))
-        ctx["put_collapse"]("点击展开/收起配置", [
-            ctx["put_code"](export_json, language="json")
+        # 代码区块 - 折叠显示
+        strategy_config = getattr(entry._metadata, "strategy_config", {}) or {}
+        display_code = entry.func_code
+        if not display_code and strategy_type in ("declarative", "river", "plugin"):
+            logic_config = strategy_config.get("logic", {})
+            display_code = logic_config.get("code", "")
+        
+        code_char_count = len(display_code) if display_code else 0
+        ctx["put_collapse"](f"💻 代码 {f'({strategy_type.upper()})' if strategy_type != 'legacy' else ''} [{code_char_count}字符]", [
+            ctx["put_code"](display_code[:2000], language="python") if display_code else ctx["put_html"]('<div style="color:#9ca3af;font-size:11px;">暂无代码</div>')
         ])
 
-        # 添加删除按钮
-        ctx["put_html"]("<div style='margin-top:20px;'>")
+        # 配置折叠
+        config = getattr(entry._metadata, "strategy_config", {}) or {}
+        params = getattr(entry._metadata, "strategy_params", {}) or {}
+        if params:
+            config = dict(config)
+            config["params"] = {**(config.get("params", {}) or {}), **params}
+        
+        if config:
+            ctx["put_collapse"](f"🧩 配置 ({len(json.dumps(config))//512 + 1}KB)", [
+                ctx["put_code"](json.dumps(config, ensure_ascii=False, indent=2), language="json")
+            ])
+
+        # 执行结果 - 紧凑
+        try:
+            recent_results = entry.get_recent_results(limit=5)
+            if recent_results:
+                ctx["put_html"]('<div style="margin-top:12px;">')
+                ctx["put_html"]('<div style="font-size:12px;font-weight:600;color:#1e293b;margin-bottom:8px;">📜 最近结果</div>')
+                result_table = [["时间", "状态", "耗时", "预览"]]
+                for r in recent_results:
+                    status = "✅" if r.get("success") else "❌"
+                    preview = (r.get("output_preview", "") or r.get("error", ""))[:30]
+                    result_table.append([
+                        r.get("ts_readable", "")[:12] if r.get("ts_readable") else "-",
+                        status,
+                        f"{r.get('process_time_ms', 0):.0f}ms",
+                        preview + "..." if len(preview) >= 30 else preview
+                    ])
+                ctx["put_table"](result_table)
+                ctx["put_html"]('</div>')
+        except Exception:
+            pass
+
+        # 操作按钮
+        ctx["put_html"]("<div style='margin-top:16px;text-align:center;'>")
         ctx["put_buttons"]([
-            {"label": "🗑️ 删除策略", "value": f"delete_{entry.id}", "color": "danger"},
+            {"label": "🗑️ 删除", "value": f"delete_{entry.id}", "color": "danger"},
         ], onclick=lambda v, m=mgr, c=ctx: _handle_strategy_action(v, m, c))
         ctx["put_html"]("</div>")
 

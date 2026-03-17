@@ -13,6 +13,7 @@ from pywebio.session import run_js, set_env
 
 from .engine import get_memory_engine
 from .core import AttentionScorer
+from ..page_help import render_help_collapse
 
 
 def get_running_memory_engine():
@@ -38,7 +39,7 @@ def apply_global_styles():
     put_html(get_global_styles())
 
 
-class LobsterRadarUI:
+class NewsRadarUI:
     """记忆系统 UI"""
 
     def __init__(self):
@@ -47,70 +48,49 @@ class LobsterRadarUI:
 
     def render(self):
         """渲染主页面"""
-        # 设置页面标题
         set_env(title="Naja - 记忆", output_animation=False)
-
-        # 应用全局样式
         apply_global_styles()
-
-        # 创建导航菜单
         create_nav_menu()
 
-        # 主容器
-        put_html('<div class="container">')
+        put_html('<div class="container" style="max-width:1400px;margin:0 auto;padding:16px;">')
 
-        # 页面标题
         put_html("""
-        <div style="margin-bottom: 24px;">
-            <h1 style="font-size: 28px; font-weight: 700; color: #1e293b; margin-bottom: 8px;">
+        <div style="margin-bottom: 20px;">
+            <h1 style="font-size: 22px; font-weight: 700; color: #1e293b; margin-bottom: 6px;">
                 🧠 记忆系统
             </h1>
-            <p style="color: #64748b; font-size: 14px;">
+            <p style="color: #64748b; font-size: 13px;">
                 策略结果沉淀为共享记忆，供策略、雷达事件与 AI 大脑共同复用
             </p>
         </div>
         """)
 
-        # 架构概览
-        self._render_arch_overview()
-
-        # 记忆与系统关系
-        self._render_memory_flow()
-
-        # 控制面板
-        self._render_control_panel()
-
-        # 实时状态
         self._render_status_panel()
 
-        # 三层记忆展示
+        self._render_control_panel()
+
+        put_html('<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px;">')
+        self._render_signal_stream()
+        self._render_attention_timeline()
+        put_html('</div>')
+
         self._render_memory_layers()
 
-        # 主题云图
         self._render_topic_cloud()
 
-        # 注意力时间线
-        self._render_attention_timeline()
-
-        # 信号流
-        self._render_signal_stream()
-
-        # 思想报告
         self._render_thought_report()
+
+        self._render_memory_help()
 
         put_html('</div>')
 
     def _render_control_panel(self):
         """渲染控制面板"""
-        put_html('<div class="card">')
-        put_html('<div class="card-header">⚙️ 控制面板</div>')
-
-        with put_row():
-            put_button("🔄 刷新数据", onclick=self._refresh_data, color="primary")
-            put_button("📊 生成报告", onclick=self._generate_report, color="success")
-            put_button("🧹 清空记忆", onclick=self._clear_memory, color="danger")
-            put_button("⚡ 注入测试事件", onclick=self._test_event, color="warning")
-
+        put_html('<div style="margin-bottom:16px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;">')
+        put_button("🔄 刷新数据", onclick=self._refresh_data, color="primary")
+        put_button("📊 生成报告", onclick=self._generate_report, color="success")
+        put_button("🧹 清空记忆", onclick=self._clear_memory, color="danger")
+        put_button("⚡ 注入测试事件", onclick=self._test_event, color="warning")
         put_html('</div>')
 
     def _render_status_panel(self):
@@ -122,126 +102,73 @@ class LobsterRadarUI:
         mid_size = memory_layers.get('mid', {}).get('size', 0)
         long_size = memory_layers.get('long', {}).get('size', 0)
 
-        put_html('<div class="card">')
-        put_html('<div class="card-header">📊 记忆核心指标</div>')
-
-        # 统计卡片
-        with put_row():
-            with put_column():
-                put_html(f"""
-                <div class="stat-card">
-                    <div class="stat-value" style="color: #3b82f6;">{stats['total_events']}</div>
-                    <div class="stat-label">累计事件</div>
-                </div>
-                """)
-
-            with put_column():
-                put_html(f"""
-                <div class="stat-card">
-                    <div class="stat-value" style="color: #ef4444;">{stats['high_attention_events']}</div>
-                    <div class="stat-label">高注意力</div>
-                </div>
-                """)
-
-            with put_column():
-                put_html(f"""
-                <div class="stat-card">
-                    <div class="stat-value" style="color: #10b981;">{stats['topics_created']}</div>
-                    <div class="stat-label">主题数量</div>
-                </div>
-                """)
-
-            with put_column():
-                put_html(f"""
-                <div class="stat-card">
-                    <div class="stat-value" style="color: #f59e0b;">{stats['drifts_detected']}</div>
-                    <div class="stat-label">漂移次数</div>
-                </div>
-                """)
-
         put_html("""
-        <div style="display:flex; gap:16px; flex-wrap:wrap; margin-top:16px;">
-            <div style="flex:1; min-width:160px; background:#f8fafc; padding:12px 16px; border-radius:10px;">
-                <div style="font-size:12px; color:#64748b;">短期记忆</div>
-                <div style="font-size:18px; font-weight:600; color:#0f172a;">{}</div>
+        <div style="display:flex;flex-wrap:wrap;gap:12px;margin-bottom:16px;">
+            <div style="flex:1;min-width:140px;background:linear-gradient(135deg,#3b82f6,#1d4ed8);padding:16px 20px;border-radius:12px;color:#fff;box-shadow:0 4px 12px rgba(59,130,246,0.3);">
+                <div style="font-size:12px;opacity:0.9;margin-bottom:4px;">累计事件</div>
+                <div style="font-size:28px;font-weight:700;">{}</div>
             </div>
-            <div style="flex:1; min-width:160px; background:#f8fafc; padding:12px 16px; border-radius:10px;">
-                <div style="font-size:12px; color:#64748b;">中期记忆</div>
-                <div style="font-size:18px; font-weight:600; color:#0f172a;">{}</div>
+            <div style="flex:1;min-width:140px;background:linear-gradient(135deg,#ef4444,#dc2626);padding:16px 20px;border-radius:12px;color:#fff;box-shadow:0 4px 12px rgba(239,68,68,0.3);">
+                <div style="font-size:12px;opacity:0.9;margin-bottom:4px;">高注意力</div>
+                <div style="font-size:28px;font-weight:700;">{}</div>
             </div>
-            <div style="flex:1; min-width:160px; background:#f8fafc; padding:12px 16px; border-radius:10px;">
-                <div style="font-size:12px; color:#64748b;">长期记忆</div>
-                <div style="font-size:18px; font-weight:600; color:#0f172a;">{}</div>
+            <div style="flex:1;min-width:140px;background:linear-gradient(135deg,#10b981,#059669);padding:16px 20px;border-radius:12px;color:#fff;box-shadow:0 4px 12px rgba(16,185,129,0.3);">
+                <div style="font-size:12px;opacity:0.9;margin-bottom:4px;">主题数量</div>
+                <div style="font-size:28px;font-weight:700;">{}</div>
+            </div>
+            <div style="flex:1;min-width:140px;background:linear-gradient(135deg,#f59e0b,#d97706);padding:16px 20px;border-radius:12px;color:#fff;box-shadow:0 4px 12px rgba(245,158,11,0.3);">
+                <div style="font-size:12px;opacity:0.9;margin-bottom:4px;">漂移次数</div>
+                <div style="font-size:28px;font-weight:700;">{}</div>
             </div>
         </div>
-        """.format(short_size, mid_size, long_size))
-
-        put_html('</div>')
-
-    def _render_arch_overview(self):
-        """渲染架构概览"""
-        put_html("""
-        <div class="card">
-            <div class="card-header">🧭 记忆系统定位</div>
-            <div style="color:#475569; font-size:14px; line-height:1.8;">
-                记忆系统是平台级共享能力，不再是单一策略的私有状态。策略结果会沉淀为分层记忆与主题，
-                并被策略、雷达事件与 AI 大脑共同读取与复用，形成自调节闭环。
+        <div style="display:flex;gap:12px;margin-bottom:16px;flex-wrap:wrap;">
+            <div style="flex:1;min-width:120px;background:#f8fafc;padding:12px 16px;border-radius:10px;border:1px solid #e2e8f0;">
+                <div style="font-size:11px;color:#64748b;margin-bottom:2px;">⚡ 短期记忆</div>
+                <div style="font-size:18px;font-weight:600;color:#0f172a;">{}</div>
+            </div>
+            <div style="flex:1;min-width:120px;background:#f8fafc;padding:12px 16px;border-radius:10px;border:1px solid #e2e8f0;">
+                <div style="font-size:11px;color:#64748b;margin-bottom:2px;">📦 中期记忆</div>
+                <div style="font-size:18px;font-weight:600;color:#0f172a;">{}</div>
+            </div>
+            <div style="flex:1;min-width:120px;background:#f8fafc;padding:12px 16px;border-radius:10px;border:1px solid #e2e8f0;">
+                <div style="font-size:11px;color:#64748b;margin-bottom:2px;">🧠 长期记忆</div>
+                <div style="font-size:18px;font-weight:600;color:#0f172a;">{}</div>
             </div>
         </div>
-        """)
+        """.format(
+            stats['total_events'],
+            stats['high_attention_events'],
+            stats['topics_created'],
+            stats['drifts_detected'],
+            f"{short_size} / {memory_layers.get('short', {}).get('capacity', 1000)}",
+            f"{mid_size} / {memory_layers.get('mid', {}).get('capacity', 5000)}",
+            f"{long_size} / 30"
+        ))
 
-    def _render_memory_flow(self):
-        """渲染记忆系统关系图"""
-        put_html("""
-        <div class="card">
-            <div class="card-header">🔄 记忆与系统关系</div>
-            <div style="display:flex; align-items:center; justify-content:center; flex-wrap:wrap; gap:16px;">
-                <div style="width:90px; height:90px; border-radius:14px; background:linear-gradient(135deg,#4facfe,#00f2fe); display:flex; align-items:center; justify-content:center; color:#fff; font-weight:600;">
-                    策略结果
-                </div>
-                <div style="color:#3b82f6; font-size:20px;">→</div>
-                <div style="width:90px; height:90px; border-radius:14px; background:linear-gradient(135deg,#6a11cb,#2575fc); display:flex; align-items:center; justify-content:center; color:#fff; font-weight:600;">
-                    记忆沉淀
-                </div>
-                <div style="color:#3b82f6; font-size:20px;">→</div>
-                <div style="display:flex; gap:10px; flex-wrap:wrap;">
-                    <div style="width:90px; height:90px; border-radius:14px; background:linear-gradient(135deg,#f5576c,#f093fb); display:flex; align-items:center; justify-content:center; color:#fff; font-weight:600;">
-                        雷达事件
-                    </div>
-                    <div style="width:90px; height:90px; border-radius:14px; background:linear-gradient(135deg,#43e97b,#38f9d7); display:flex; align-items:center; justify-content:center; color:#fff; font-weight:600;">
-                        AI 大脑
-                    </div>
-                    <div style="width:90px; height:90px; border-radius:14px; background:linear-gradient(135deg,#fa709a,#fee140); display:flex; align-items:center; justify-content:center; color:#fff; font-weight:600;">
-                        策略复用
-                    </div>
-                </div>
-            </div>
-            <div style="margin-top:12px; color:#94a3b8; font-size:12px; text-align:center;">
-                记忆既是沉淀层，也是调节与复用层
-            </div>
-        </div>
-        """)
+    def _render_memory_help(self):
+        """渲染记忆系统帮助说明"""
+        render_help_collapse("memory")
 
     def _render_memory_layers(self):
         """渲染三层记忆"""
-        put_html('<div class="card">')
-        put_html('<div class="card-header">🧠 三层记忆系统</div>')
+        put_html('<div style="margin-bottom:16px;">')
+        put_html('<div style="font-size:15px;font-weight:600;color:#333;margin-bottom:12px;">🧠 三层记忆系统</div>')
 
         report = self.radar.get_memory_report()
         memory_layers = report.get('memory_layers', {})
 
-        # 短期记忆
+        put_html('<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;">')
+
         short_memory = memory_layers.get('short', {})
         self._render_short_memory(short_memory)
 
-        # 中期记忆
         mid_memory = memory_layers.get('mid', {})
         self._render_mid_memory(mid_memory)
 
-        # 长期记忆
         long_memory = memory_layers.get('long', {})
         self._render_long_memory(long_memory)
 
+        put_html('</div>')
         put_html('</div>')
 
     def _render_short_memory(self, short_memory):
@@ -251,32 +178,46 @@ class LobsterRadarUI:
         data = short_memory.get('data', [])
 
         put_html(f'''
-        <div class="memory-layer-card memory-layer-short">
-            <div class="memory-header">
-                <div class="memory-title">
-                    <span>⚡</span>
-                    <span>短期记忆</span>
-                    <span style="font-size: 12px; color: #64748b; font-weight: normal;">最近的事件流</span>
+        <div style="background:#fff;border-radius:10px;box-shadow:0 2px 8px rgba(0,0,0,0.06);overflow:hidden;border:1px solid #e0e7ff;">
+            <div style="background:linear-gradient(135deg,#3b82f6,#1d4ed8);padding:10px 12px;color:#fff;">
+                <div style="display:flex;justify-content:space-between;align-items:center;">
+                    <div style="display:flex;align-items:center;gap:6px;">
+                        <span style="font-size:14px;">⚡</span>
+                        <span style="font-weight:600;font-size:13px;">短期记忆</span>
+                    </div>
+                    <span style="background:rgba(255,255,255,0.2);padding:2px 8px;border-radius:10px;font-size:11px;">{size}/{capacity}</span>
                 </div>
-                <div class="memory-badge">{size} / {capacity}</div>
+                <div style="font-size:11px;opacity:0.8;margin-top:2px;">最近的事件流</div>
             </div>
         ''')
 
         if not data:
-            put_html('<div style="color: #94a3b8; font-size: 13px; text-align: center; padding: 20px;">暂无短期记忆数据</div>')
+            put_html('<div style="color: #94a3b8; font-size: 12px; text-align: center; padding: 16px;">暂无数据</div>')
         else:
-            for item in data[:5]:
+            put_html('<div style="padding:8px;max-height:180px;overflow-y:auto;">')
+            for item in data[:4]:
                 score = item.get('attention_score', 0)
-                score_class = 'memory-score-high' if score > 0.7 else ('memory-score-mid' if score > 0.4 else 'memory-score-low')
+                score_class = '#ef4444' if score > 0.7 else ('#f59e0b' if score > 0.4 else '#64748b')
+                timestamp_str = item.get('timestamp', '')
+                if 'T' in timestamp_str:
+                    try:
+                        from datetime import datetime
+                        ts = datetime.fromisoformat(timestamp_str.replace('Z', '+00:00'))
+                        timestamp_str = ts.strftime('%m-%d %H:%M')
+                    except:
+                        pass
+                source = item.get('source', 'unknown')
                 put_html(f'''
-                <div class="memory-item">
-                    <div class="memory-item-header">
-                        <span>[{item.get('event_type', 'unknown').upper()}] {item.get('source', 'unknown')}</span>
-                        <span class="memory-score {score_class}">注意力: {score}</span>
+                <div style="padding:8px;margin-bottom:6px;background:#f8fafc;border-radius:6px;border-left:3px solid {score_class};">
+                    <div style="display:flex;justify-content:space-between;align-items:center;font-size:11px;margin-bottom:4px;">
+                        <span style="color:#475569;font-weight:500;">[{item.get('event_type', 'unknown').upper()}] {source}</span>
+                        <span style="color:{score_class};font-weight:600;">{score:.2f}</span>
                     </div>
-                    <div class="memory-item-content">{item.get('content', '')}</div>
+                    <div style="font-size:10px;color:#94a3b8;margin-bottom:4px;">⏰ {timestamp_str}</div>
+                    <div style="font-size:11px;color:#64748b;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{item.get('content', '')}</div>
                 </div>
                 ''')
+            put_html('</div>')
 
         put_html('</div>')
 
@@ -288,32 +229,46 @@ class LobsterRadarUI:
         data = mid_memory.get('data', [])
 
         put_html(f'''
-        <div class="memory-layer-card memory-layer-mid">
-            <div class="memory-header">
-                <div class="memory-title">
-                    <span>📦</span>
-                    <span>中期记忆</span>
-                    <span style="font-size: 12px; color: #64748b; font-weight: normal;">高注意力事件归档 (≥{threshold})</span>
+        <div style="background:#fff;border-radius:10px;box-shadow:0 2px 8px rgba(0,0,0,0.06);overflow:hidden;border:1px solid #fef3c7;">
+            <div style="background:linear-gradient(135deg,#f59e0b,#d97706);padding:10px 12px;color:#fff;">
+                <div style="display:flex;justify-content:space-between;align-items:center;">
+                    <div style="display:flex;align-items:center;gap:6px;">
+                        <span style="font-size:14px;">📦</span>
+                        <span style="font-weight:600;font-size:13px;">中期记忆</span>
+                    </div>
+                    <span style="background:rgba(255,255,255,0.2);padding:2px 8px;border-radius:10px;font-size:11px;">{size}/{capacity}</span>
                 </div>
-                <div class="memory-badge">{size} / {capacity}</div>
+                <div style="font-size:11px;opacity:0.8;margin-top:2px;">高注意力事件归档 (≥{threshold})</div>
             </div>
         ''')
 
         if not data:
-            put_html('<div style="color: #94a3b8; font-size: 13px; text-align: center; padding: 20px;">暂无中期记忆数据</div>')
+            put_html('<div style="color: #94a3b8; font-size: 12px; text-align: center; padding: 16px;">暂无数据</div>')
         else:
-            for item in data[:5]:
+            put_html('<div style="padding:8px;max-height:180px;overflow-y:auto;">')
+            for item in data[:4]:
                 score = item.get('attention_score', 0)
-                score_class = 'memory-score-high' if score > 0.7 else ('memory-score-mid' if score > 0.4 else 'memory-score-low')
+                score_class = '#ef4444' if score > 0.7 else ('#f59e0b' if score > 0.4 else '#64748b')
+                timestamp_str = item.get('timestamp', '')
+                if 'T' in timestamp_str:
+                    try:
+                        from datetime import datetime
+                        ts = datetime.fromisoformat(timestamp_str.replace('Z', '+00:00'))
+                        timestamp_str = ts.strftime('%m-%d %H:%M')
+                    except:
+                        pass
+                source = item.get('source', 'unknown')
                 put_html(f'''
-                <div class="memory-item">
-                    <div class="memory-item-header">
-                        <span>[{item.get('event_type', 'unknown').upper()}] {item.get('source', 'unknown')}</span>
-                        <span class="memory-score {score_class}">注意力: {score}</span>
+                <div style="padding:8px;margin-bottom:6px;background:#f8fafc;border-radius:6px;border-left:3px solid {score_class};">
+                    <div style="display:flex;justify-content:space-between;align-items:center;font-size:11px;margin-bottom:4px;">
+                        <span style="color:#475569;font-weight:500;">[{item.get('event_type', 'unknown').upper()}] {source}</span>
+                        <span style="color:{score_class};font-weight:600;">{score:.2f}</span>
                     </div>
-                    <div class="memory-item-content">{item.get('content', '')}</div>
+                    <div style="font-size:10px;color:#94a3b8;margin-bottom:4px;">⏰ {timestamp_str}</div>
+                    <div style="font-size:11px;color:#64748b;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{item.get('content', '')}</div>
                 </div>
                 ''')
+            put_html('</div>')
 
         put_html('</div>')
 
@@ -323,51 +278,72 @@ class LobsterRadarUI:
         data = long_memory.get('data', [])
 
         put_html(f'''
-        <div class="memory-layer-card memory-layer-long">
-            <div class="memory-header">
-                <div class="memory-title">
-                    <span>🧠</span>
-                    <span>长期记忆</span>
-                    <span style="font-size: 12px; color: #64748b; font-weight: normal;">周期性总结</span>
+        <div style="background:#fff;border-radius:10px;box-shadow:0 2px 8px rgba(0,0,0,0.06);overflow:hidden;border:1px solid #ede9fe;">
+            <div style="background:linear-gradient(135deg,#8b5cf6,#7c3aed);padding:10px 12px;color:#fff;">
+                <div style="display:flex;justify-content:space-between;align-items:center;">
+                    <div style="display:flex;align-items:center;gap:6px;">
+                        <span style="font-size:14px;">🧠</span>
+                        <span style="font-weight:600;font-size:13px;">长期记忆</span>
+                    </div>
+                    <span style="background:rgba(255,255,255,0.2);padding:2px 8px;border-radius:10px;font-size:11px;">{size}/30</span>
                 </div>
-                <div class="memory-badge">{size} / 30</div>
+                <div style="font-size:11px;opacity:0.8;margin-top:2px;">周期性总结</div>
             </div>
         ''')
 
         if not data:
-            put_html('<div style="color: #94a3b8; font-size: 13px; text-align: center; padding: 20px;">暂无长期记忆数据</div>')
+            put_html('<div style="color: #94a3b8; font-size: 12px; text-align: center; padding: 16px;">暂无数据</div>')
         else:
-            for item in data[:5]:
+            put_html('<div style="padding:8px;max-height:180px;overflow-y:auto;">')
+            for item in data[:4]:
                 period_start = item.get('period_start', '')
                 period_end = item.get('period_end', '')
+                if 'T' in period_start:
+                    try:
+                        from datetime import datetime
+                        ps = datetime.fromisoformat(period_start.replace('Z', '+00:00'))
+                        period_start = ps.strftime('%m-%d %H:%M')
+                    except:
+                        pass
+                if 'T' in period_end:
+                    try:
+                        from datetime import datetime
+                        pe = datetime.fromisoformat(period_end.replace('Z', '+00:00'))
+                        period_end = pe.strftime('%m-%d %H:%M')
+                    except:
+                        pass
                 summary = item.get('summary', '')
                 put_html(f'''
-                <div class="memory-item">
-                    <div class="memory-item-header">
-                        <span>📆 {period_start} ~ {period_end}</span>
+                <div style="padding:8px;margin-bottom:6px;background:#f8fafc;border-radius:6px;border-left:3px solid #8b5cf6;">
+                    <div style="display:flex;justify-content:space-between;align-items:center;font-size:11px;margin-bottom:4px;">
+                        <span style="color:#8b5cf6;font-weight:500;">📆 {period_start} → {period_end}</span>
                     </div>
-                    <div class="memory-item-content">{summary}</div>
+                    <div style="font-size:11px;color:#64748b;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{summary}</div>
                 </div>
                 ''')
+            put_html('</div>')
 
         put_html('</div>')
 
     def _render_topic_cloud(self):
         """渲染主题云图"""
-        put_html('<div class="card">')
-        put_html('<div class="card-header">☁️ 主题云图</div>')
+        put_html('<div style="margin-bottom:16px;">')
+        put_html('<div style="font-size:15px;font-weight:600;color:#333;margin-bottom:12px;">☁️ 主题云图</div>')
         report = self.radar.get_memory_report()
         topics = report.get('top_topics', [])
 
         if not topics:
-            put_html('<div style="color: #94a3b8; font-size: 13px; text-align: center; padding: 20px;">暂无主题数据</div>')
+            put_html('<div style="color: #94a3b8; font-size: 12px; text-align: center; padding: 20px;background:#f8fafc;border-radius:10px;">暂无主题数据</div>')
         else:
-            put_html('<div style="display: flex; flex-wrap: wrap; gap: 8px;">')
+            put_html('<div style="display: flex; flex-wrap: wrap; gap: 8px;padding:12px;background:#f8fafc;border-radius:10px;">')
             for topic in topics[:20]:
-                size = 12 + min(topic.get('event_count', 1), 20)
+                size = 12 + min(topic.get('event_count', 1), 16)
+                color_idx = hash(topic.get('name', '')) % 5
+                colors = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6']
+                bg_color = colors[color_idx]
                 put_html(f'''
-                <span style="background: #f1f5f9; color: #334155; padding: 6px 10px; border-radius: 999px; font-size: {size}px;">
-                    {topic.get('name', '主题')}
+                <span style="background:{bg_color}15;color:{bg_color};padding:6px 10px;border-radius:999px;font-size:{size}px;font-weight:500;border:1px solid {bg_color}30;">
+                    {topic.get('name', '主题')} ({topic.get('event_count', 0)})
                 </span>
                 ''')
             put_html('</div>')
@@ -375,54 +351,77 @@ class LobsterRadarUI:
 
     def _render_attention_timeline(self):
         """渲染注意力时间线"""
-        put_html('<div class="card">')
-        put_html('<div class="card-header">📈 注意力时间线</div>')
+        put_html('<div style="background:#fff;border-radius:10px;box-shadow:0 2px 8px rgba(0,0,0,0.06);overflow:hidden;border:1px solid #e2e8f0;">')
+        put_html('<div style="background:linear-gradient(135deg,#6366f1,#4f46e5);padding:10px 12px;color:#fff;"><span style="font-weight:600;font-size:13px;">📈 注意力时间线</span></div>')
         report = self.radar.get_memory_report()
         events = report.get('recent_high_attention', [])
 
         if not events:
-            put_html('<div style="color: #94a3b8; font-size: 13px; text-align: center; padding: 20px;">暂无高注意力事件</div>')
+            put_html('<div style="color: #94a3b8; font-size: 12px; text-align: center; padding: 20px;">暂无高注意力事件</div>')
         else:
-            for event in events[:10]:
+            put_html('<div style="padding:10px;max-height:240px;overflow-y:auto;">')
+            for event in events[:8]:
+                timestamp_str = event.get('timestamp', '')
+                if 'T' in timestamp_str:
+                    try:
+                        from datetime import datetime
+                        ts = datetime.fromisoformat(timestamp_str.replace('Z', '+00:00'))
+                        timestamp_str = ts.strftime('%m-%d %H:%M')
+                    except:
+                        pass
+                source = event.get('source', '')
+                event_type = event.get('type', '')
                 put_html(f'''
-                <div class="memory-item">
-                    <div class="memory-item-header">
-                        <span>⏰ {event.get('timestamp', '')}</span>
-                        <span class="memory-score memory-score-high">注意力: {event.get('score', 0)}</span>
+                <div style="padding:8px;margin-bottom:6px;background:#f8fafc;border-radius:6px;border-left:3px solid #ef4444;">
+                    <div style="display:flex;justify-content:space-between;align-items:center;font-size:11px;margin-bottom:4px;">
+                        <span style="color:#6366f1;font-weight:500;">[{event_type.upper()}] {source}</span>
+                        <span style="color:#ef4444;font-weight:600;">{event.get('score', 0):.2f}</span>
                     </div>
-                    <div class="memory-item-content">{event.get('content', '')}</div>
+                    <div style="font-size:10px;color:#94a3b8;margin-bottom:4px;">⏰ {timestamp_str}</div>
+                    <div style="font-size:12px;color:#334155;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{event.get('content', '')}</div>
                 </div>
                 ''')
+            put_html('</div>')
         put_html('</div>')
 
     def _render_signal_stream(self):
         """渲染信号流"""
-        put_html('<div class="card">')
-        put_html('<div class="card-header">🌊 信号流</div>')
+        put_html('<div style="background:#fff;border-radius:10px;box-shadow:0 2px 8px rgba(0,0,0,0.06);overflow:hidden;border:1px solid #e2e8f0;">')
+        put_html('<div style="background:linear-gradient(135deg,#06b6d4,#0891b2);padding:10px 12px;color:#fff;"><span style="font-weight:600;font-size:13px;">🌊 信号流</span></div>')
         report = self.radar.get_memory_report()
         signals = report.get('recent_signals', [])
 
         if not signals:
-            put_html('<div style="color: #94a3b8; font-size: 13px; text-align: center; padding: 20px;">暂无信号数据</div>')
+            put_html('<div style="color: #94a3b8; font-size: 12px; text-align: center; padding: 20px;">暂无信号数据</div>')
         else:
-            for signal in signals[:10]:
+            put_html('<div style="padding:10px;max-height:240px;overflow-y:auto;">')
+            for signal in signals[:8]:
+                signal_type = signal.get('type', 'signal')
+                type_colors = {
+                    'radar': '#f59e0b',
+                    'memory': '#8b5cf6',
+                    'trade': '#ef4444',
+                    'alert': '#dc2626'
+                }
+                color = type_colors.get(signal_type, '#64748b')
                 put_html(f'''
-                <div class="memory-item">
-                    <div class="memory-item-header">
-                        <span>📡 {signal.get('type', 'signal')}</span>
-                        <span>{signal.get('timestamp', '')}</span>
+                <div style="padding:8px;margin-bottom:6px;background:#f8fafc;border-radius:6px;border-left:3px solid {color};">
+                    <div style="display:flex;justify-content:space-between;align-items:center;font-size:11px;margin-bottom:4px;">
+                        <span style="color:{color};font-weight:500;">📡 {signal.get('type', 'signal')}</span>
+                        <span style="color:#64748b;">{signal.get('timestamp', '')}</span>
                     </div>
-                    <div class="memory-item-content">{signal.get('message', '')}</div>
+                    <div style="font-size:12px;color:#334155;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{signal.get('message', '')}</div>
                 </div>
                 ''')
+            put_html('</div>')
         put_html('</div>')
 
     def _render_thought_report(self):
         """渲染思想报告"""
-        put_html('<div class="card">')
-        put_html('<div class="card-header">📝 思想报告</div>')
+        put_html('<div style="margin-bottom:16px;">')
+        put_html('<div style="font-size:15px;font-weight:600;color:#333;margin-bottom:12px;">📝 思想报告</div>')
         report_text = self.radar.generate_thought_report()
-        put_code(report_text)
+        put_html(f'<div style="background:#f8fafc;padding:12px;border-radius:10px;border:1px solid #e2e8f0;"><pre style="white-space:pre-wrap;word-break:break-word;font-size:12px;line-height:1.6;color:#334155;margin:0;">{report_text}</pre></div>')
         put_html('</div>')
 
     def _refresh_data(self):
@@ -469,7 +468,7 @@ class LobsterRadarUI:
 
 def main():
     """主入口"""
-    ui = LobsterRadarUI()
+    ui = NewsRadarUI()
     ui.render()
 
 

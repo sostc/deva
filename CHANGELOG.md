@@ -5,30 +5,54 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，
 遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
-## [未发布]
+## [1.6.0] - 2026-03-17
 
 ### 新增
-- 完整的文档体系（快速开始、安装指南、使用手册、最佳实践、故障排查、API 参考、术语表）
-- Admin UI 文档中心集成（25 个文档 Tab）
-- 文件组织自动化工具（organize_files.py）
-- 版本管理工具（scripts/version.py）
-
-### 修复
-- 数据源列表页自动刷新功能
-- 任务管理面板 UI 问题
-- 文档 RST 渲染问题
+- **Bandit 模块大幅增强**
+  - 市场观察器（MarketObserver）：实时监控自选股行情
+  - 自适应周期（AdaptiveCycle）：智能调整交易周期
+  - 信号监听器（SignalListener）：监听多源交易信号
+  - 虚拟组合（VirtualPortfolio）：模拟交易绩效跟踪
+- **信号处理增强**（signal/processor.py）
+  - 支持多源信号聚合
+  - 新增信号过滤和转换功能
+- **内存系统升级**（memory/core.py, memory/engine.py, memory/ui.py）
+  - 记忆存储引擎优化
+  - 向量搜索增强
+  - UI 界面重构
+- **策略系统增强**
+  - 输出模式定义（output_schema.py）
+  - 声明式策略（declarative.py）
+  - 结果存储（result_store.py）
+  - River 策略增强（river_tick_strategies.py）
+  - 新增策略类型：advanced_river_strategies, bandit_stock_strategies, market_classifier_strategies
+- **LLM 控制器升级**（llm_controller/ui.py, controller.py）
+  - 对话历史管理
+  - 多模型支持
+- **字典模块**（dictionary/）
+  - 同花顺板块数据（tongdaxin_blocks.py）
+  - 字典管理 UI
+- **性能监控**（performance/performance_monitor.py）
+  - 性能指标采集
+  - 存储监控增强
+- **数据源模块增强**（datasource/__init__.py）
+  - 插件化数据源架构
+  - 实时数据源支持
 
 ### 变更
-- 重构项目文件结构（根目录从 60+ 文件精简到 19 个）
-- 优化文档渲染性能
-- 改进测试组织结构
+- UI 界面全面优化
+  - 任务管理面板改进
+  - 雷达页面重构
+  - 策略管理界面增强
+- 核心总线增强（core/bus.py）
+- Supervisor 模块增强
 
-### 移除
-- 根目录临时报告文件
-- 根目录散乱的测试文件
-- 根目录工具脚本
+### 修复
+- 信号处理稳定性问题
+- 内存泄漏问题
+- 数据源启动问题
 
-## [1.4.4] - 2026-02-27
+## [1.5.0] - 2026-03-
 
 ### 新增
 - README_PYPI.rst - 专为 PyPI 优化的简洁文档

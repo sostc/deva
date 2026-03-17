@@ -16,6 +16,12 @@ from typing import Any, Dict, List, Optional
 
 from deva import NB
 
+try:
+    from ..log_stream import get_log_stream, log_strategy
+    LOG_STREAM_AVAILABLE = True
+except ImportError:
+    LOG_STREAM_AVAILABLE = False
+
 # 尝试导入锁监控模块
 try:
     from ..performance.lock_monitor import LockMonitor, MonitoredLock, enable_lock_monitoring, disable_lock_monitoring
@@ -492,6 +498,29 @@ class ResultStore:
                 pass
         
         # Bandit 信号处理（在信号流中过滤）
+        if should_bandit:
+            try:
+                from ..bandit import get_bandit_optimizer
+                optimizer = get_bandit_optimizer()
+                score = normalized.get("bandit", {}).get("score", 0)
+                if score != 0:
+                    optimizer.update_reward(strategy_id, score)
+            except Exception:
+                pass
+        
+        # 记录策略执行日志
+        if LOG_STREAM_AVAILABLE:
+            try:
+                signal_type = ""
+                if isinstance(output_data, dict):
+                    signal_type = output_data.get("signal_type", "")
+                level = "INFO" if success else "ERROR"
+                message = f"策略执行{'成功' if success else '失败'}: {strategy_name}, 信号类型: {signal_type}"
+                log_strategy(level, strategy_id, strategy_name, message, 
+                           score=output_data.get("score") if isinstance(output_data, dict) else None,
+                           process_time_ms=process_time_ms)
+            except Exception:
+                pass
         
         with self._data_lock:
             if strategy_id not in self._cache:

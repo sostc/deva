@@ -14,6 +14,7 @@ from typing import Any, Dict, List, Optional
 from deva import NB, when
 
 from .optimizer import get_bandit_optimizer
+from ..log_stream import get_log_stream, log_strategy
 
 log = logging.getLogger(__name__)
 
@@ -135,6 +136,9 @@ class BanditAutoRunner:
         if result.get("success"):
             selected = result.get("selected")
             log.info(f"Bandit 自动选择策略: {selected}")
+            log_strategy("INFO", "bandit", "auto_select", f"自动选择策略: {selected}")
+        else:
+            log_strategy("WARN", "bandit", "auto_select", f"选择失败: {result.get('error')}")
     
     def _do_adjust(self):
         """执行策略调节"""
@@ -143,6 +147,12 @@ class BanditAutoRunner:
         
         if result.get("success") and result.get("actions"):
             log.info(f"Bandit 自动调节: {result.get('summary')}")
+            log_strategy("INFO", "bandit", "auto_adjust", 
+                        f"调节成功: {result.get('summary')}, 动作数: {len(result.get('actions', []))}")
+        elif result.get("success"):
+            log_strategy("INFO", "bandit", "auto_adjust", "无需调节")
+        else:
+            log_strategy("WARN", "bandit", "auto_adjust", f"调节失败: {result.get('error')}")
     
     def run_once(self, dry_run: bool = False) -> dict:
         """手动运行一次

@@ -118,6 +118,7 @@ class AdaptiveCycle:
         self._signal_listener.register_callback(on_signal)
         
         def on_price_update(stock_code: str, price: float):
+            log.info(f"[AdaptiveCycle] 收到价格更新: {stock_code} @ {price}")
             self._on_price_update(stock_code, price)
         
         self._market_observer.register_price_callback(on_price_update)
@@ -129,17 +130,25 @@ class AdaptiveCycle:
     
     def _on_new_signal(self, signal: DetectedSignal):
         """处理新信号"""
-        if signal.signal_type.upper() not in ["BUY", "买入", "信号"]:
+        log.info(f"[AdaptiveCycle] 收到信号: {signal.stock_code} {signal.stock_name} 价格={signal.price} 置信度={signal.confidence}")
+        
+        signal_type_upper = signal.signal_type.upper()
+        is_buy_signal = "BUY" in signal_type_upper or "买入" in signal_type_upper
+        
+        if not is_buy_signal:
+            log.warning(f"[AdaptiveCycle] ❌ 信号类型不支持: {signal.signal_type}")
             return
         
         if signal.price <= 0:
-            log.warning(f"信号价格无效: {signal.stock_code}")
+            log.warning(f"[AdaptiveCycle] ❌ 信号价格无效: {signal.stock_code}")
             return
         
         positions = self._portfolio.get_positions_by_stock(signal.stock_code)
         if positions:
-            log.debug(f"股票已有持仓，跳过: {signal.stock_code}")
+            log.warning(f"[AdaptiveCycle] ⏭️ 股票已有持仓，跳过: {signal.stock_code}")
             return
+        
+        log.info(f"[AdaptiveCycle] ✅ 准备创建持仓: {signal.stock_code} @ {signal.price}")
         
         position = self._portfolio.open_position(
             strategy_id=signal.strategy_id,
@@ -153,6 +162,7 @@ class AdaptiveCycle:
         )
         
         if position:
+            log.info(f"[AdaptiveCycle] 🎉 持仓创建成功! ID={position.position_id} {signal.stock_name}({signal.stock_code}) @ {signal.price}")
             self._market_observer.track_stock(signal.stock_code)
             
             self._optimizer.select_strategy(
@@ -160,7 +170,9 @@ class AdaptiveCycle:
                 context={"stock_code": signal.stock_code, "price": signal.price}
             )
             
-            log.info(f"自适应循环: 创建虚拟持仓 {signal.stock_name}({signal.stock_code}) @ {signal.price}")
+            log.info(f"[AdaptiveCycle] ✅ 自适应循环: 创建虚拟持仓 {signal.stock_name}({signal.stock_code}) @ {signal.price}")
+        else:
+            log.error(f"[AdaptiveCycle] ❌ 持仓创建失败: {signal.stock_code}")
     
     def _on_price_update(self, stock_code: str, price: float):
         """处理价格更新"""

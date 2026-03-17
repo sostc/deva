@@ -120,9 +120,40 @@ AI 分析用户描述，推断以下字段：
 
 ### 第四步：生成 func_code
 
+**重要：对于涉及网络 IO 的数据源（如 HTTP 请求、API 调用），应使用异步函数以提高性能。**
+
 根据确定的配置生成 `func_code`：
 
-#### timer 类型示例：
+#### timer 类型示例（异步版本 - 推荐用于网络 IO）：
+```python
+async def fetch_data():
+    """
+    获取股票行情数据（异步版本）
+    使用 aiohttp 进行异步 HTTP 请求
+    """
+    import aiohttp
+    import json
+    import time
+
+    url = "https://api.example.com/stockquote"
+
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url, timeout=aiohttp.ClientTimeout(total=10)) as resp:
+                data = await resp.json()
+    except Exception as e:
+        print(f"请求失败: {e}")
+        return None
+
+    return {
+        "symbol": data.get("symbol"),
+        "price": data.get("price"),
+        "volume": data.get("volume"),
+        "timestamp": time.time()
+    }
+```
+
+#### timer 类型示例（同步版本 - 适用于简单逻辑）：
 ```python
 def fetch_data():
     """
@@ -130,7 +161,7 @@ def fetch_data():
     """
     import time
     import random
-    
+
     # TODO: 实现数据获取逻辑
     # 示例：模拟行情数据
     data = {
@@ -139,7 +170,7 @@ def fetch_data():
         "volume": random.randint(1000, 10000),
         "timestamp": time.time()
     }
-    
+
     return data
 ```
 
@@ -401,3 +432,4 @@ def create_datasource_via_manager(name, func_code, ...):
 5. **用户确认**：在保存前让用户确认所有配置信息
 6. **唯一性检查**：保存前检查名称是否已存在
 7. **ID生成**：使用 `hashlib.md5(f"{name}_{time.time()}".encode()).hexdigest()[:12]`
+8. **异步优先**：对于涉及网络 IO 的数据源（HTTP 请求、API 调用等），应优先使用异步函数（`async def fetch_data`）以避免阻塞，提高并发性能

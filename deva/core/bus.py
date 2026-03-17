@@ -472,6 +472,25 @@ log = NS(
     cache_max_age_seconds=60 * 60 * 24,
     description='日志流，用于记录系统运行日志和信息流',
 )
+
+
+def _log_info(msg, *args, **kwargs):
+    """便捷方法：发送信息日志，等同于 log.emit"""
+    if args:
+        msg = msg % args
+    log.emit(msg, **kwargs)
+
+
+def _log_warn(msg, *args, **kwargs):
+    """便捷方法：发送警告日志，等同于 warn.emit"""
+    if args:
+        msg = msg % args
+    warn.emit(msg, **kwargs)
+
+
+log.info = _log_info
+log.warn = _log_warn
+
 configure_log_behavior()
 
 _BUS_RUNTIME = BusRuntime(

@@ -123,8 +123,15 @@ STRATEGY_1 = textwrap.dedent(
             return None
 
         ranked.sort(key=lambda r: r["up_probability"], reverse=True)
+        top_pick = ranked[0] if ranked else None
+        
         return {
             "signal": "short_term_up_probability",
+            "signal_type": "BUY",
+            "stock_code": top_pick.get("code") if top_pick else "",
+            "stock_name": top_pick.get("name") if top_pick else "",
+            "price": top_pick.get("price") if top_pick else 0,
+            "confidence": top_pick.get("up_probability", 0.5) if top_pick else 0.5,
             "top_n": 8,
             "picks": ranked[:8],
         }
@@ -239,8 +246,15 @@ STRATEGY_2 = textwrap.dedent(
             return None
 
         scores.sort(key=lambda r: r["anomaly_score"], reverse=True)
+        top_pick = scores[0] if scores else None
+        
         return {
             "signal": "tick_abnormal_score",
+            "signal_type": "BUY",
+            "stock_code": top_pick.get("code") if top_pick else "",
+            "stock_name": top_pick.get("name") if top_pick else "",
+            "price": top_pick.get("price") if top_pick else 0,
+            "confidence": min(1.0, top_pick.get("anomaly_score", 0) / 10.0) if top_pick else 0.5,
             "top_n": 8,
             "picks": scores[:8],
         }
@@ -469,8 +483,15 @@ STRATEGY_4 = textwrap.dedent(
             return None
 
         out.sort(key=lambda r: r["order_flow_up_probability"], reverse=True)
+        top_pick = out[0] if out else None
+        
         return {
             "signal": "order_flow_imbalance_lead",
+            "signal_type": "BUY",
+            "stock_code": top_pick.get("code") if top_pick else "",
+            "stock_name": top_pick.get("name") if top_pick else "",
+            "price": top_pick.get("price") if top_pick else 0,
+            "confidence": top_pick.get("order_flow_up_probability", 0.5) if top_pick else 0.5,
             "top_n": 8,
             "picks": out[:8],
         }
@@ -578,8 +599,15 @@ STRATEGY_5 = textwrap.dedent(
             return None
 
         out.sort(key=lambda r: r["micro_vol_anomaly_score"], reverse=True)
+        top_pick = out[0] if out else None
+        
         return {
             "signal": "microstructure_volatility_anomaly",
+            "signal_type": "BUY",
+            "stock_code": top_pick.get("code") if top_pick else "",
+            "stock_name": top_pick.get("name") if top_pick else "",
+            "price": top_pick.get("price") if top_pick else 0,
+            "confidence": min(1.0, top_pick.get("micro_vol_anomaly_score", 0) / 10.0) if top_pick else 0.5,
             "top_n": 8,
             "picks": out[:8],
         }
@@ -717,8 +745,15 @@ STRATEGY_6 = textwrap.dedent(
             item["behavior_label"] = label_map.get(item["cluster_id"], "待学习")
 
         out.sort(key=lambda r: r["burst"], reverse=True)
+        top_pick = out[0] if out else None
+        
         return {
             "signal": "trading_behavior_footprint",
+            "signal_type": "BUY",
+            "stock_code": top_pick.get("code") if top_pick else "",
+            "stock_name": top_pick.get("name") if top_pick else "",
+            "price": top_pick.get("price") if top_pick else 0,
+            "confidence": 0.7,
             "top_n": 8,
             "picks": out[:8],
         }
