@@ -48,3 +48,8 @@ archive/
 
 # Documentation build
 docs/api/_build/
+
+# Hidden files and directories (starting with .) - except special cases
+.*/
+# Keep these
+!.gitignore
