@@ -1,6 +1,7 @@
 import inspect
 import os
 import atexit
+import threading
 
 from .utils.ioloop import get_io_loop
 from .bus import log
@@ -217,6 +218,20 @@ class timer(Stream):
         timer(interval=5, func=heavy_task, thread=True, threadcount=3)
     """
 
+    # 全局线程池，所有 timer 实例共享
+    _thread_pool = None
+    _thread_pool_lock = threading.Lock()
+
+    @classmethod
+    def _get_thread_pool(cls):
+        """获取全局线程池"""
+        if cls._thread_pool is None:
+            with cls._thread_pool_lock:
+                if cls._thread_pool is None:
+                    from concurrent.futures import ThreadPoolExecutor
+                    cls._thread_pool = ThreadPoolExecutor(10, thread_name_prefix="timer")
+        return cls._thread_pool
+
     def __init__(self,
                  interval=1,
                  ttl=None,
@@ -232,11 +247,9 @@ class timer(Stream):
         self.ttl = convert_interval(ttl) if ttl else None  # 转换并存储生命周期
         self.thread = thread
 
-        worker_count = thread_count if thread_count is not None else threadcount
-
-        if self.thread:  # 如果使用线程池则创建线程池
-            from concurrent.futures import ThreadPoolExecutor
-            self.thread_pool = ThreadPoolExecutor(worker_count)
+        # 如果使用线程池则使用全局线程池
+        if self.thread:
+            self.thread_pool = self._get_thread_pool()
 
         super(timer, self).__init__(ensure_io_loop=ensure_io_loop, **kwargs)
         self.started =  start  # 初始状态为停止

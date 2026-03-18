@@ -324,8 +324,17 @@ class StrategyEntry(RecoverableUnit):
         if self._compiled_func is None and runtime is None:
             return
 
-        pool = get_thread_pool()
-        pool.submit(self._process_data_async, data)
+        # 检查解释器是否正在关闭
+        import sys
+        if sys.is_finalizing():
+            return
+
+        try:
+            pool = get_thread_pool()
+            pool.submit(self._process_data_async, data)
+        except RuntimeError:
+            # 线程池已关闭，忽略
+            pass
     
     def _process_data_async(self, data: Any):
         """异步处理数据"""
@@ -1959,9 +1968,8 @@ class StrategyManager:
             return f"获取性能报告失败: {e}"
     
     def _log(self, level: str, message: str, **extra):
-        ts = time.strftime("%Y-%m-%d %H:%M:%S")
         extra_str = " ".join([f"{k}={v}" for k, v in extra.items()])
-        print(f"[{ts}][StrategyManager][{level}] {message} | {extra_str}")
+        print(f"[StrategyManager][{level}] {message} | {extra_str}")
 
 
 _strategy_manager: Optional[StrategyManager] = None

@@ -138,6 +138,27 @@ class ResultStore:
         self._write_rate_limit = 1000
         self._writes_in_period = 0
         self._last_rate_check = time.time()
+        
+        # 监控和限流
+        self._monitoring = {
+            'write_queue_size': 0,
+            'write_rate': 0,
+            'last_write_time': 0,
+            'total_writes': 0,
+            'failed_writes': 0
+        }
+        self._max_queue_size = 10000  # 最大队列大小
+        self._max_history_days = 7  # 默认保留7天数据
+        
+        # 启动缓存清理线程（只启动一次）
+        self._cache_cleanup_thread = threading.Thread(target=self._cleanup_cache, daemon=True)
+        self._cache_cleanup_thread.start()
+        
+        # 启动数据清理线程（只启动一次）
+        self._data_cleanup_thread = threading.Thread(target=self._cleanup_data, daemon=True)
+        self._data_cleanup_thread.start()
+        
+        self._initialized = True
     
     def _get_cached_stats(self) -> dict:
         """获取缓存的统计数据（带缓存机制）- 非阻塞版本"""
@@ -202,31 +223,6 @@ class ResultStore:
     def _invalidate_stats_cache(self):
         """使统计缓存失效"""
         self._stats_cache = None
-        self._last_data_cleanup = time.time()
-        self._max_history_days = 7  # 默认保留7天数据
-        
-        # 监控和限流
-        self._monitoring = {
-            'write_queue_size': 0,
-            'write_rate': 0,
-            'last_write_time': 0,
-            'total_writes': 0,
-            'failed_writes': 0
-        }
-        self._max_queue_size = 10000  # 最大队列大小
-        self._write_rate_limit = 1000  # 每分钟最大写入数
-        self._last_rate_check = time.time()
-        self._writes_in_period = 0
-        
-        # 启动缓存清理线程
-        self._cache_cleanup_thread = threading.Thread(target=self._cleanup_cache, daemon=True)
-        self._cache_cleanup_thread.start()
-        
-        # 启动数据清理线程
-        self._data_cleanup_thread = threading.Thread(target=self._cleanup_data, daemon=True)
-        self._data_cleanup_thread.start()
-        
-        self._initialized = True
     
     def _generate_id(self, strategy_id: str, ts: float) -> str:
         import hashlib

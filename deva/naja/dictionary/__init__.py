@@ -900,12 +900,12 @@ class DictionaryManager:
             except Exception as e:
                 self._log("ERROR", "Async run failed", id=entry_id, error=str(e))
 
-        t = threading.Thread(
-            target=_run_in_thread,
-            daemon=True,
-            name=f"dict_run_once_{entry_id}",
-        )
-        t.start()
+        # 使用全局线程池而不是直接创建线程
+        from ..common.thread_pool import get_thread_pool
+        pool = get_thread_pool()
+        future = pool.submit(_run_in_thread)
+        if future is None:
+            return {"success": False, "error": "线程池过载，无法提交任务"}
 
         self._log("INFO", "Dictionary refresh queued", id=entry_id)
         return {"success": True, "queued": True, "entry_id": entry_id}
@@ -1029,9 +1029,8 @@ class DictionaryManager:
         }
 
     def _log(self, level: str, message: str, **extra):
-        ts = time.strftime("%Y-%m-%d %H:%M:%S")
         extra_str = " ".join([f"{k}={v}" for k, v in extra.items()])
-        print(f"[{ts}][DictionaryManager][{level}] {message} | {extra_str}")
+        print(f"[DictionaryManager][{level}] {message} | {extra_str}")
 
 
 _dict_manager: Optional[DictionaryManager] = None
