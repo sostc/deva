@@ -1,5 +1,6 @@
 import subprocess
 import json
+import threading
 from tornado.web import RequestHandler, Application
 # from tornado.httpserver import HTTPServer
 from tornado import gen
@@ -529,6 +530,20 @@ class from_command(Stream):
     >>> source = Source.from_command('ping localhost')  # doctest: +SKIP
     """
 
+    # 全局线程池，所有 from_command 实例共享
+    _thread_pool = None
+    _thread_pool_lock = threading.Lock()
+
+    @classmethod
+    def _get_thread_pool(cls):
+        """获取全局线程池"""
+        if cls._thread_pool is None:
+            with cls._thread_pool_lock:
+                if cls._thread_pool is None:
+                    from concurrent.futures import ThreadPoolExecutor
+                    cls._thread_pool = ThreadPoolExecutor(4, thread_name_prefix="from_command")
+        return cls._thread_pool
+
     def __init__(self, interval=0.1, command=None, **kwargs):
         """初始化命令流
 
@@ -537,11 +552,12 @@ class from_command(Stream):
             command: 要执行的命令字符串
             **kwargs: 传递给Stream基类的其他参数
         """
+        import threading
         self.interval = interval
         super(from_command, self).__init__(ensure_io_loop=True, **kwargs)
         self.stopped = True
-        from concurrent.futures import ThreadPoolExecutor
-        self.thread_pool = ThreadPoolExecutor(2)
+        # 使用全局线程池而不是每个实例创建新的
+        self.thread_pool = self._get_thread_pool()
         self.command = command
         if self.command:
             self.emit(self.command)

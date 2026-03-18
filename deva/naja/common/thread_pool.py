@@ -98,6 +98,11 @@ class ThreadPoolManager:
     
     def submit(self, fn: Callable, *args, **kwargs) -> Optional[Future]:
         """提交任务到线程池"""
+        import sys
+        # 检查解释器是否正在关闭
+        if sys.is_finalizing():
+            return None
+        
         if self._total_submitted >= self._max_queue_size * self._max_workers:
             self._total_rejected += 1
             return None
@@ -107,7 +112,8 @@ class ThreadPoolManager:
             self._total_submitted += 1
             future.add_done_callback(lambda _: self._on_task_done())
             return future
-        except Full:
+        except (Full, RuntimeError):
+            # 队列已满或线程池已关闭
             self._total_rejected += 1
             return None
     
