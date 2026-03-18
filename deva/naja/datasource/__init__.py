@@ -7,6 +7,7 @@ import os
 import sys
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import Any, Callable, Dict, List, Optional
@@ -676,24 +677,29 @@ class DataSourceEntry(RecoverableUnit):
         start_time = time.time()
         success = False
         error_msg = ""
-        
+
         try:
             # 1. 只计算 fetch_data 的执行时间
             data = self._invoke_fetch_func(func, event_payload=event_payload)
             if asyncio.iscoroutine(data):
-                try:
-                    loop = asyncio.get_event_loop()
-                    if loop.is_running():
-                        pool = get_thread_pool()
-                        data = pool.submit(asyncio.run, data).result()
-                    else:
-                        data = loop.run_until_complete(data)
-                except RuntimeError:
-                    loop = asyncio.new_event_loop()
+                # 在新的事件循环中运行协程，避免与主事件循环冲突
+                def run_async_in_new_loop(coro):
+                    new_loop = asyncio.new_event_loop()
                     try:
-                        data = loop.run_until_complete(data)
+                        return new_loop.run_until_complete(coro)
                     finally:
-                        loop.close()
+                        new_loop.close()
+
+                # 使用全局线程池执行，避免频繁创建线程导致资源耗尽
+                pool = get_thread_pool()
+                future = pool.submit(run_async_in_new_loop, data)
+                if future is None:
+                    raise RuntimeError("线程池过载，无法提交任务")
+                try:
+                    data = future.result(timeout=30)
+                except TimeoutError:
+                    future.cancel()
+                    raise TimeoutError("fetch_data 执行超时(30s)，可能是网络请求过慢")
             
             # 计算 fetch_data 执行时间
             fetch_time_ms = (time.time() - start_time) * 1000
@@ -721,10 +727,13 @@ class DataSourceEntry(RecoverableUnit):
             success = True
             self.save()
         except Exception as e:
-            error_msg = str(e)
+            import traceback
+            error_msg = str(e) or type(e).__name__
+            error_traceback = traceback.format_exc()
             self._state.record_error(error_msg)
             self._log("ERROR", "fetch_data failed", error=error_msg)
             print(f"[DataSourceEntry] fetch_data 异常: {e}")
+            print(f"[DataSourceEntry] 详细错误:\n{error_traceback}")
             self.save()
         finally:
             # 记录性能指标（只包含 fetch_data 的执行时间）
@@ -776,8 +785,12 @@ class DataSourceEntry(RecoverableUnit):
                         self._save_latest_data(data)
 
             except Exception as e:
-                self._state.record_error(str(e))
-                self._log("ERROR", "fetch_data failed", error=str(e))
+                import traceback
+                error_msg = str(e) or type(e).__name__
+                self._state.record_error(error_msg)
+                self._log("ERROR", "fetch_data failed", error=error_msg)
+                print(f"[DataSourceEntry] _worker_loop 异常: {e}")
+                print(f"[DataSourceEntry] 详细错误:\n{traceback.format_exc()}")
 
             interval = getattr(self._metadata, "interval", 5.0) or 5.0
             self._stop_event.wait(interval)
@@ -1264,9 +1277,8 @@ class DataSourceManager:
         return {"success": success, "failed": failed, "skipped": skipped}
 
     def _log(self, level: str, message: str, **extra):
-        ts = time.strftime("%Y-%m-%d %H:%M:%S")
         extra_str = " ".join([f"{k}={v}" for k, v in extra.items()])
-        print(f"[{ts}][DataSourceManager][{level}] {message} | {extra_str}")
+        print(f"[DataSourceManager][{level}] {message} | {extra_str}")
 
 
 _ds_manager: Optional[DataSourceManager] = None
