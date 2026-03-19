@@ -436,7 +436,8 @@ class TickNoiseFilter:
         filtered_df = df[mask].copy()
         
         filtered_count = len(df) - len(filtered_df)
-        if filtered_count > 0:
+        # 只在过滤数量较多时打印日志，避免频繁输出
+        if filtered_count > 50:
             log.info(f"[Tick噪音过滤] 原始{len(df)}条 -> 过滤后{len(filtered_df)}条 (过滤{filtered_count}条)")
         
         return filtered_df, reports

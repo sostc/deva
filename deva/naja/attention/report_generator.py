@@ -1,7 +1,11 @@
 """
-注意力系统报告生成器
+注意力系统报告生成器 - 优化版
 
 定时汇总注意力系统的重要信息并写入文件
+- 生成易读的 Markdown 格式报告
+- 只在交易时间生成（9:30-11:30, 13:00-15:00）
+- 只在有内容时生成
+- 每5分钟生成一次
 """
 
 import json
@@ -22,22 +26,22 @@ class AttentionReportGenerator:
     
     功能：
     1. 定时收集注意力系统的关键指标
-    2. 生成结构化的报告数据
-    3. 按时间命名写入文件
-    4. 支持自动清理过期文件
+    2. 生成易读的 Markdown 报告
+    3. 只在交易时间生成（A股：9:30-11:30, 13:00-15:00）
+    4. 只在有内容时生成
+    5. 按时间命名写入文件
+    6. 支持自动清理过期文件
     """
     
     def __init__(
         self,
         output_dir: str = "~/.naja/attention_reports",
-        interval_minutes: int = 5,  # 默认每5分钟生成一次报告
+        interval_minutes: int = 5,  # 每5分钟检查一次
         max_history_days: int = 7,   # 保留7天的历史报告
-        max_file_size_mb: int = 10   # 单个文件最大10MB
     ):
         self.output_dir = os.path.expanduser(output_dir)
         self.interval_seconds = interval_minutes * 60
         self.max_history_days = max_history_days
-        self.max_file_size_bytes = max_file_size_mb * 1024 * 1024
         
         # 确保输出目录存在
         os.makedirs(self.output_dir, exist_ok=True)
@@ -49,6 +53,9 @@ class AttentionReportGenerator:
         # 当前报告数据缓存
         self._current_report: Dict[str, Any] = {}
         self._report_lock = threading.Lock()
+        
+        # 上次生成时间，避免重复生成
+        self._last_report_time: Optional[datetime] = None
         
         log.info(f"报告生成器初始化完成: 输出目录={self.output_dir}, 间隔={interval_minutes}分钟")
     
@@ -70,12 +77,84 @@ class AttentionReportGenerator:
             self._thread.join(timeout=5)
         log.info("报告生成器已停止")
     
+    def _is_trading_time(self) -> bool:
+        """检查当前是否是A股交易时间"""
+        now = datetime.now()
+        weekday = now.weekday()
+        
+        # 周末不交易
+        if weekday >= 5:  # 5=周六, 6=周日
+            return False
+        
+        hour = now.hour
+        minute = now.minute
+        time_val = hour * 100 + minute  # 转换为如 930, 1130, 1300 等格式
+        
+        # A股交易时间: 9:30-11:30, 13:00-15:00
+        morning_session = 930 <= time_val <= 1130
+        afternoon_session = 1300 <= time_val <= 1500
+        
+        return morning_session or afternoon_session
+    
+    def _should_generate_report(self) -> bool:
+        """检查是否应该生成报告"""
+        # 1. 检查是否在交易时间
+        if not self._is_trading_time():
+            return False
+        
+        # 2. 检查是否已经在这个5分钟窗口生成过
+        now = datetime.now()
+        if self._last_report_time:
+            # 计算当前5分钟窗口的开始时间
+            current_window_start = now.replace(minute=(now.minute // 5) * 5, second=0, microsecond=0)
+            last_window_start = self._last_report_time.replace(minute=(self._last_report_time.minute // 5) * 5, second=0, microsecond=0)
+            
+            if current_window_start == last_window_start:
+                return False
+        
+        return True
+    
+    def _has_content(self, report: Dict[str, Any]) -> bool:
+        """检查报告是否有实质内容"""
+        # 检查关键指标
+        if report.get('summary', {}).get('total_snapshots', 0) == 0:
+            return False
+        
+        # 检查是否有热点事件
+        if not report.get('hotspots'):
+            return False
+        
+        # 检查是否有热门板块或个股
+        sector_attention = report.get('sector_attention', [])
+        symbol_weights = report.get('symbol_weights', [])
+        
+        if not sector_attention and not symbol_weights:
+            return False
+        
+        return True
+    
     def _generate_loop(self):
         """报告生成循环"""
         while not self._stop_event.is_set():
             try:
-                # 生成报告
-                self._generate_report()
+                # 检查是否应该生成报告
+                if self._should_generate_report():
+                    # 生成报告
+                    report = self._generate_report()
+                    
+                    # 检查是否有内容
+                    if report and self._has_content(report):
+                        # 写入文件
+                        self._write_report_to_file(report)
+                        self._last_report_time = datetime.now()
+                        log.info(f"报告已生成: {report['datetime']}")
+                    else:
+                        log.debug("报告内容为空，跳过生成")
+                else:
+                    if not self._is_trading_time():
+                        log.debug("当前非交易时间，跳过报告生成")
+                    else:
+                        log.debug("已在当前时间窗口生成过报告，跳过")
                 
                 # 清理过期文件
                 self._cleanup_old_files()
@@ -83,10 +162,10 @@ class AttentionReportGenerator:
             except Exception as e:
                 log.error(f"生成报告失败: {e}", exc_info=True)
             
-            # 等待下一次生成
+            # 等待下一次检查
             self._stop_event.wait(self.interval_seconds)
     
-    def _generate_report(self):
+    def _generate_report(self) -> Optional[Dict[str, Any]]:
         """生成注意力系统报告"""
         try:
             from ..attention_integration import get_attention_integration
@@ -96,7 +175,7 @@ class AttentionReportGenerator:
             integration = get_attention_integration()
             if not integration or not integration.attention_system:
                 log.debug("注意力系统未初始化，跳过报告生成")
-                return
+                return None
             
             # 收集数据
             report = {
@@ -116,13 +195,11 @@ class AttentionReportGenerator:
             with self._report_lock:
                 self._current_report = report
             
-            # 写入文件
-            self._write_report_to_file(report)
-            
-            log.info(f"报告已生成: {report['datetime']}")
+            return report
             
         except Exception as e:
             log.error(f"生成报告失败: {e}", exc_info=True)
+            return None
     
     def _collect_summary(self, integration) -> Dict[str, Any]:
         """收集汇总信息"""
@@ -287,20 +364,130 @@ class AttentionReportGenerator:
             return []
     
     def _write_report_to_file(self, report: Dict[str, Any]):
-        """将报告写入文件"""
+        """将报告写入文件（Markdown格式）"""
         try:
-            # 生成文件名: attention_report_YYYY-MM-DD_HH-MM-SS.json
-            filename = f"attention_report_{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}.json"
+            # 生成文件名: attention_report_YYYY-MM-DD_HH-MM-SS.md
+            filename = f"attention_report_{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}.md"
             filepath = os.path.join(self.output_dir, filename)
             
-            # 写入JSON文件
+            # 生成易读的Markdown内容
+            markdown_content = self._generate_markdown(report)
+            
+            # 写入文件
             with open(filepath, 'w', encoding='utf-8') as f:
-                json.dump(report, f, ensure_ascii=False, indent=2)
+                f.write(markdown_content)
             
             log.debug(f"报告已写入: {filepath}")
             
         except Exception as e:
             log.error(f"写入报告文件失败: {e}")
+    
+    def _generate_markdown(self, report: Dict[str, Any]) -> str:
+        """生成易读的Markdown格式报告"""
+        lines = []
+        
+        # 标题
+        lines.append(f"# 注意力系统报告")
+        lines.append(f"")
+        lines.append(f"**生成时间**: {report['datetime']}")
+        lines.append(f"")
+        
+        # 全局摘要
+        summary = report.get('summary', {})
+        lines.append(f"## 📊 全局摘要")
+        lines.append(f"")
+        lines.append(f"| 指标 | 数值 |")
+        lines.append(f"|------|------|")
+        lines.append(f"| 全局注意力 | {summary.get('global_attention', 0):.3f} |")
+        lines.append(f"| 活跃板块数 | {summary.get('active_sectors', 0)} |")
+        lines.append(f"| 高关注个股数 | {summary.get('high_attention_symbols', 0)} |")
+        lines.append(f"| 总快照数 | {summary.get('total_snapshots', 0):,} |")
+        lines.append(f"| 平均延迟 | {summary.get('avg_latency_ms', 0):.2f} ms |")
+        lines.append(f"")
+        
+        # 热门板块
+        sectors = report.get('sector_attention', [])
+        if sectors:
+            lines.append(f"## 🔥 热门板块 Top {len(sectors)}")
+            lines.append(f"")
+            lines.append(f"| 排名 | 板块 | 权重 |")
+            lines.append(f"|------|------|------|")
+            for i, sector in enumerate(sectors, 1):
+                sector_id = sector.get('sector_id', '未知')
+                weight = sector.get('weight', 0)
+                lines.append(f"| {i} | {sector_id} | {weight:.3f} |")
+            lines.append(f"")
+        
+        # 热门个股
+        symbols = report.get('symbol_weights', [])
+        if symbols:
+            lines.append(f"## 📈 热门个股 Top {min(len(symbols), 10)}")
+            lines.append(f"")
+            lines.append(f"| 排名 | 股票 | 权重 |")
+            lines.append(f"|------|------|------|")
+            for i, symbol in enumerate(symbols[:10], 1):
+                symbol_code = symbol.get('symbol', '未知')
+                weight = symbol.get('weight', 0)
+                lines.append(f"| {i} | {symbol_code} | {weight:.2f} |")
+            lines.append(f"")
+        
+        # 板块热点事件
+        hotspots = report.get('hotspots', [])
+        if hotspots:
+            lines.append(f"## ⚡ 板块热点事件")
+            lines.append(f"")
+            lines.append(f"| 时间 | 板块 | 事件 | 变化 |")
+            lines.append(f"|------|------|------|------|")
+            for event in reversed(hotspots[-5:]):  # 只显示最近5个
+                market_time = event.get('market_time', '--:--')
+                sector_name = event.get('sector_name', '未知')
+                event_type = event.get('event_type', '')
+                change_pct = event.get('change_percent', 0)
+                
+                # 事件类型中文映射
+                type_map = {
+                    'new_hot': '🔥 新热点',
+                    'cooled': '❄️ 消退',
+                    'rise': '📈 拉升',
+                    'fall': '📉 回调'
+                }
+                event_desc = type_map.get(event_type, event_type)
+                change_str = f"{change_pct:+.1f}%"
+                
+                lines.append(f"| {market_time} | {sector_name} | {event_desc} | {change_str} |")
+            lines.append(f"")
+        
+        # 双引擎统计
+        dual = report.get('dual_engine', {})
+        lines.append(f"## ⚙️ 双引擎统计")
+        lines.append(f"")
+        lines.append(f"| 引擎 | 统计项 | 数值 |")
+        lines.append(f"|------|--------|------|")
+        lines.append(f"| River | 处理数据 | {dual.get('river_processed', 0):,} |")
+        lines.append(f"| River | 异常检测 | {dual.get('river_anomaly', 0):,} |")
+        lines.append(f"| PyTorch | 深度推理 | {dual.get('pytorch_inference', 0):,} |")
+        lines.append(f"| PyTorch | 待处理队列 | {dual.get('pytorch_pending', 0):,} |")
+        lines.append(f"| - | 触发次数 | {dual.get('trigger_count', 0):,} |")
+        lines.append(f"")
+        
+        # 策略统计
+        strategies = report.get('strategies', {})
+        lines.append(f"## 🎯 策略统计")
+        lines.append(f"")
+        lines.append(f"| 指标 | 数值 |")
+        lines.append(f"|------|------|")
+        lines.append(f"| 总策略数 | {strategies.get('total', 0)} |")
+        lines.append(f"| 活跃策略 | {strategies.get('active', 0)} |")
+        lines.append(f"| 运行中 | {strategies.get('running', 0)} |")
+        lines.append(f"| 最近信号 | {strategies.get('recent_signals', 0)} |")
+        lines.append(f"")
+        
+        # 页脚
+        lines.append(f"---")
+        lines.append(f"")
+        lines.append(f"*报告由注意力系统自动生成*")
+        
+        return '\n'.join(lines)
     
     def _cleanup_old_files(self):
         """清理过期的报告文件"""
@@ -308,7 +495,7 @@ class AttentionReportGenerator:
             cutoff_time = time.time() - (self.max_history_days * 24 * 3600)
             
             for filename in os.listdir(self.output_dir):
-                if not filename.startswith('attention_report_') or not filename.endswith('.json'):
+                if not filename.startswith('attention_report_') or not filename.endswith('.md'):
                     continue
                 
                 filepath = os.path.join(self.output_dir, filename)
@@ -319,15 +506,6 @@ class AttentionReportGenerator:
                     if mtime < cutoff_time:
                         os.remove(filepath)
                         log.debug(f"删除过期报告: {filename}")
-                except OSError:
-                    pass
-                
-                # 检查文件大小
-                try:
-                    size = os.path.getsize(filepath)
-                    if size > self.max_file_size_bytes:
-                        os.remove(filepath)
-                        log.warning(f"删除超大报告: {filename} ({size / 1024 / 1024:.1f}MB)")
                 except OSError:
                     pass
                     
@@ -344,19 +522,19 @@ class AttentionReportGenerator:
         try:
             files = [
                 f for f in os.listdir(self.output_dir)
-                if f.startswith('attention_report_') and f.endswith('.json')
+                if f.startswith('attention_report_') and f.endswith('.md')
             ]
             files.sort(reverse=True)
             return files[:limit]
         except:
             return []
     
-    def read_report(self, filename: str) -> Optional[Dict[str, Any]]:
-        """读取指定报告文件"""
+    def read_report(self, filename: str) -> Optional[str]:
+        """读取指定报告文件内容"""
         try:
             filepath = os.path.join(self.output_dir, filename)
             with open(filepath, 'r', encoding='utf-8') as f:
-                return json.load(f)
+                return f.read()
         except:
             return None
 

@@ -66,13 +66,12 @@ class NajaAttentionIntegration:
         self._symbol_sector_map: Dict[str, List[str]] = {}
         self._sectors: List[SectorConfig] = []
         self._last_datasource_control: Optional[Dict] = None
-        
+
         # 统计
         self._processed_snapshots = 0
         self._total_latency = 0.0
-        
+
         self._initialized = True
-        log.info("Naja Attention Integration 初始化完成")
     
     def initialize(self, config: Optional[AttentionSystemConfig] = None):
         """
@@ -82,25 +81,21 @@ class NajaAttentionIntegration:
         """
         if config:
             self.config = config
-        
-        log.info("开始初始化 Attention System...")
-        
+
         # 1. 自动发现板块和个股
         self._discover_sectors_and_symbols()
-        
+
         # 2. 创建注意力系统
         self.attention_system = AttentionSystem(self.config)
-        
+
         # 3. 初始化
         self.attention_system.initialize(self._sectors, self._symbol_sector_map)
-        
+
         # 4. 注册板块和个股名称到历史追踪器
         self._register_names_to_tracker()
-        
-        log.info(f"Attention System 初始化完成:")
-        log.info(f"  - 板块数量: {len(self._sectors)}")
-        log.info(f"  - 个股数量: {len(self._symbol_sector_map)}")
-        
+
+        log.info(f"🧠 注意力系统: 板块({len(self._sectors)}) 个股({len(self._symbol_sector_map)})")
+
         return self.attention_system
     
     def _register_names_to_tracker(self):
@@ -139,10 +134,10 @@ class NajaAttentionIntegration:
             except Exception as e:
                 log.debug(f"从行情数据注册个股名称失败: {e}")
             
-            log.info(f"已注册 {len(tracker.sector_names)} 个板块名称, {len(tracker.symbol_names)} 个个股名称")
-            
+            log.debug(f"已注册 {len(tracker.sector_names)} 个板块名称, {len(tracker.symbol_names)} 个个股名称")
+
         except Exception as e:
-            log.warning(f"注册名称到历史追踪器失败: {e}")
+            log.debug(f"注册名称到历史追踪器失败: {e}")
     
     def _discover_sectors_and_symbols(self):
         """
@@ -164,7 +159,6 @@ class NajaAttentionIntegration:
         
         # 如果没有板块，使用默认配置
         if not self._sectors:
-            log.info("使用默认板块配置")
             self._load_default_sectors()
         
         # 确保所有个股都有板块映射
@@ -455,16 +449,12 @@ class NajaAttentionIntegration:
         self._running = True
         self._monitor_thread = threading.Thread(target=self._monitor_loop, daemon=True)
         self._monitor_thread.start()
-        
-        log.info("Attention System 监控已启动")
     
     def stop_monitoring(self):
         """停止监控线程"""
         self._running = False
         if self._monitor_thread:
             self._monitor_thread.join(timeout=5)
-        
-        log.info("Attention System 监控已停止")
     
     def _monitor_loop(self):
         """监控循环"""
@@ -473,7 +463,7 @@ class NajaAttentionIntegration:
                 # 定期输出报告（每1000个快照输出一次，减少日志频率）
                 if self._processed_snapshots % 1000 == 0 and self._processed_snapshots > 0:
                     report = self.get_attention_report()
-                    log.info(f"Attention System 状态: processed={report.get('processed_snapshots', 0)}, global={report.get('global_attention', 0):.3f}")
+                    log.debug(f"Attention System 状态: processed={report.get('processed_snapshots', 0)}, global={report.get('global_attention', 0):.3f}")
 
                 time.sleep(self._check_interval)
             except Exception as e:
@@ -487,8 +477,6 @@ class NajaAttentionIntegration:
         
         self._processed_snapshots = 0
         self._total_latency = 0.0
-        
-        log.info("Attention System 已重置")
 
 
 # 全局实例
@@ -536,7 +524,7 @@ def register_strategy_manager(manager):
     """
     global _strategy_manager
     _strategy_manager = manager
-    log.info(f"策略管理器已注册: {manager}")
+    log.debug(f"策略管理器已注册: {manager}")
 
 
 def get_strategy_manager():

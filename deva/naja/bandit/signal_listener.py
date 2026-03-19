@@ -77,7 +77,7 @@ class SignalListener:
                 was_running = config.get("was_running", False)
                 if was_running:
                     self._running = True
-                    log.info("检测到 SignalListener 上次运行中，将自动恢复")
+                    log.debug("SignalListener 上次运行中，将自动恢复")
         except Exception:
             pass
     
@@ -96,7 +96,7 @@ class SignalListener:
     def register_callback(self, callback: Callable[[DetectedSignal], None]):
         """注册信号处理回调"""
         self._callbacks.append(callback)
-        log.info(f"已注册信号回调: {callback.__name__}")
+        log.debug(f"已注册信号回调: {callback.__name__}")
     
     def unregister_callback(self, callback: Callable[[DetectedSignal], None]):
         """注销信号处理回调"""
@@ -116,8 +116,8 @@ class SignalListener:
         self._thread.start()
         
         self._save_config()  # 保存运行状态
-        
-        log.info(f"SignalListener 已启动 (轮询间隔: {self._poll_interval}s)")
+
+        log.debug(f"SignalListener 已启动 (轮询间隔: {self._poll_interval}s)")
     
     def stop(self):
         """停止监听"""
@@ -164,22 +164,19 @@ class SignalListener:
             if signal is None:
                 continue
             
-            log.info(f"[Bandit] 收到信号: {signal.stock_code} {signal.stock_name} 置信度={signal.confidence} 类型={signal.signal_type}")
-            
+            log.debug(f"[Bandit] 收到信号: {signal.stock_code} {signal.stock_name} 置信度={signal.confidence} 类型={signal.signal_type}")
+
             if signal.confidence < self._min_confidence:
-                log.warning(f"[Bandit] ❌ 置信度低于阈值: {signal.confidence} < {self._min_confidence}")
+                log.debug(f"[Bandit] 置信度低于阈值: {signal.confidence} < {self._min_confidence}")
                 continue
-            
-            log.info(f"[Bandit] ✅ 置信度通过: {signal.confidence} >= {self._min_confidence}")
-            
+
             self._mark_processed(result.id, result.ts)
-            
+
             if result.ts > self._last_processed_ts:
                 self._last_processed_ts = result.ts
-            
+
             for callback in self._callbacks:
                 try:
-                    log.info(f"[Bandit] 📤 发送信号到回调: {signal.stock_code}")
                     callback(signal)
                 except Exception as e:
                     log.error(f"信号回调执行失败: {e}")

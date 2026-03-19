@@ -1819,8 +1819,7 @@ class StrategyManager:
 
         with self._experiment_lock:
             self._load_experiment_session()
-        
-        self._log("INFO", "Load from db finished", count=count)
+
         return count
     
     def reload_entry(self, entry_id: str) -> dict:
@@ -1947,9 +1946,7 @@ class StrategyManager:
                     "success": False,
                     "error": str(e),
                 })
-        
-        self._log("INFO", "Restore finished", restored=restored_count, failed=failed_count)
-        
+
         return {
             "success": True,
             "restored_count": restored_count,

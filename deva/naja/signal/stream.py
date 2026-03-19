@@ -47,9 +47,10 @@ class SignalStream(Stream):
         self._persist_lock = threading.RLock()
         self._closed = False
 
-        self._load_from_persistence()
+        loaded_count = self._load_from_persistence()
         self._register_shutdown_hook()
         self._initialized = True
+        print(f"📊 初始化信号流: 加载历史信号({loaded_count})")
 
     @classmethod
     def _register_shutdown_hook(cls):
@@ -82,8 +83,9 @@ class SignalStream(Stream):
             cache_key += timedelta(microseconds=1)
         return cache_key
 
-    def _load_from_persistence(self):
+    def _load_from_persistence(self) -> int:
         """从持久化存储加载固定长度历史数据。"""
+        count = 0
         try:
             recent_signals = self.db.get("recentSignal")
             if isinstance(recent_signals, list):
@@ -96,8 +98,10 @@ class SignalStream(Stream):
 
                 for result in items[-self.max_cache_size:]:
                     self.cache[self._cache_key_from_result(result)] = result
+                count = len(items)
         except Exception as e:
             print(f"加载持久化数据失败: {e}")
+        return count
 
     def update(self, result: StrategyResult, who=None):
         """更新流数据，仅写入 Stream cache，不做实时落库。"""

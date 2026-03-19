@@ -70,12 +70,12 @@ class MarketDataObserver:
                 tracked_stocks = config.get("tracked_stocks", [])
                 if tracked_stocks:
                     self._tracked_stocks = set(tracked_stocks)
-                    log.info(f"[MarketObserver] 已恢复 {len(tracked_stocks)} 个跟踪股票")
+                    log.debug(f"[MarketObserver] 已恢复 {len(tracked_stocks)} 个跟踪股票")
                 # 恢复运行状态
                 was_running = config.get("was_running", False)
                 if was_running:
                     self._running = True
-                    log.info("[MarketObserver] 检测到上次运行中，将自动恢复")
+                    log.debug("[MarketObserver] 上次运行中，将自动恢复")
         except Exception:
             pass
 
@@ -151,14 +151,14 @@ class MarketDataObserver:
             daemon=True
         )
         self._experiment_monitor_thread.start()
-        log.info("[MarketObserver] 实验模式监控已启动")
+        log.debug("[MarketObserver] 实验模式监控已启动")
 
     def _stop_experiment_monitor(self):
         """停止实验模式监控线程"""
         self._experiment_monitor_stop_event.set()
         if self._experiment_monitor_thread:
             self._experiment_monitor_thread.join(timeout=2)
-        log.info("[MarketObserver] 实验模式监控已停止")
+        log.debug("[MarketObserver] 实验模式监控已停止")
 
     def _experiment_monitor_loop(self):
         """实验模式监控循环"""
@@ -168,7 +168,7 @@ class MarketDataObserver:
 
                 # 如果数据源发生变化，重新连接
                 if current_datasource_id != self._current_datasource_id:
-                    log.info(f"[MarketObserver] 检测到数据源变化: {self._current_datasource_id} -> {current_datasource_id}")
+                    log.debug(f"[MarketObserver] 数据源变化: {self._current_datasource_id} -> {current_datasource_id}")
                     self._reconnect_datasource(current_datasource_id)
 
             except Exception as e:
@@ -204,12 +204,12 @@ class MarketDataObserver:
         if is_running:
             # 数据源运行中，尝试订阅数据流
             if self._subscribe_stream(ds):
-                log.info(f"[MarketObserver] 已订阅数据源流: {ds.name}")
+                log.debug(f"[MarketObserver] 已订阅数据源流: {ds.name}")
                 return True
             else:
-                log.warning(f"[MarketObserver] 订阅流失败，切换到主动获取模式: {ds.name}")
+                log.debug(f"[MarketObserver] 订阅流失败，切换到主动获取模式: {ds.name}")
         else:
-            log.info(f"[MarketObserver] 数据源未运行，使用主动获取模式: {ds.name}")
+            log.debug(f"[MarketObserver] 数据源未运行，使用主动获取模式: {ds.name}")
 
         return True  # 返回True表示连接成功（即使使用主动获取模式）
 
@@ -225,7 +225,7 @@ class MarketDataObserver:
 
         self._current_datasource = None
         self._current_datasource_id = None
-        log.info("[MarketObserver] 已断开数据源连接")
+        log.debug("[MarketObserver] 已断开数据源连接")
 
     def _subscribe_stream(self, ds) -> bool:
         """订阅数据源流"""
@@ -245,54 +245,37 @@ class MarketDataObserver:
         try:
             import pandas as pd
 
-            log.info(f"[MarketObserver] 📥 收到数据源数据: {type(data)}")
-
             if isinstance(data, pd.DataFrame):
-                log.info(f"[MarketObserver] 📊 DataFrame 数据: {len(data)} 行, 列: {list(data.columns)}")
-                log.info(f"[MarketObserver] 📊 跟踪的股票: {list(self._tracked_stocks)}")
                 self._process_dataframe(data)
             elif isinstance(data, list):
-                log.info(f"[MarketObserver] 📋 List 数据: {len(data)} 项")
                 for item in data:
                     self._process_single_item(item)
             elif isinstance(data, dict):
-                log.info(f"[MarketObserver] 📄 Dict 数据: {data.keys() if hasattr(data, 'keys') else 'N/A'}")
                 self._process_single_item(data)
             else:
-                log.warning(f"[MarketObserver] ⚠️ 未知数据类型: {type(data)}")
+                log.debug(f"[MarketObserver] 未知数据类型: {type(data)}")
 
         except Exception as e:
-            log.error(f"[MarketObserver] ❌ 处理数据失败: {e}")
-            import traceback
-            log.error(traceback.format_exc())
+            log.error(f"[MarketObserver] 处理数据失败: {e}")
 
     def _process_dataframe(self, df):
         """处理 DataFrame 格式的数据"""
         if df is None or df.empty:
-            log.warning("[MarketObserver] ⚠️ DataFrame 为空")
             return
 
         tracked = list(self._tracked_stocks)
-        log.info(f"[MarketObserver] 🔍 处理 DataFrame，跟踪股票: {tracked}")
 
         for stock_code in tracked:
             try:
                 matches = df[df['code'] == stock_code]
-                log.info(f"[MarketObserver] 🔍 查找 {stock_code}: 找到 {len(matches)} 条匹配")
 
                 if not matches.empty:
                     row = matches.iloc[0]
                     price = float(row.get('now', row.get('price', row.get('current', 0))))
-                    log.info(f"[MarketObserver] 💰 {stock_code} 价格: {price}")
                     if price > 0:
                         self._update_price(stock_code, price)
-                    else:
-                        log.warning(f"[MarketObserver] ⚠️ {stock_code} 价格无效: {price}")
-                else:
-                    log.info(f"[MarketObserver] ⚠️ DataFrame 中未找到 {stock_code}")
-                    log.info(f"[MarketObserver] 📋 DataFrame 中的股票代码: {df['code'].tolist()[:10]}...")
             except Exception as e:
-                log.error(f"[MarketObserver] ❌ 处理 {stock_code} 失败: {e}")
+                log.debug(f"[MarketObserver] 处理 {stock_code} 失败: {e}")
 
     def _process_single_item(self, item: dict):
         """处理单条数据"""
@@ -311,18 +294,12 @@ class MarketDataObserver:
     def _update_price(self, stock_code: str, price: float):
         """更新价格并触发回调"""
         self._last_prices[stock_code] = price
-        log.info(f"[MarketObserver] 💰 价格更新: {stock_code} @ {price}")
-        log.info(f"[MarketObserver] 📞 回调数量: {len(self._price_callbacks)}")
 
-        for i, callback in enumerate(self._price_callbacks):
+        for callback in self._price_callbacks:
             try:
-                log.info(f"[MarketObserver] 📞 触发回调 {i+1}/{len(self._price_callbacks)}: {callback.__name__ if hasattr(callback, '__name__') else 'anonymous'}")
                 callback(stock_code, price)
-                log.info(f"[MarketObserver] ✅ 回调 {i+1} 成功")
             except Exception as e:
-                log.error(f"[MarketObserver] ❌ 回调 {i+1} 失败: {e}")
-                import traceback
-                log.error(traceback.format_exc())
+                log.debug(f"[MarketObserver] 回调失败: {e}")
 
     def _start_fetch_loop(self):
         """启动数据获取轮询线程"""
@@ -401,13 +378,13 @@ class MarketDataObserver:
         """跟踪股票"""
         self._tracked_stocks.add(stock_code)
         self._save_config()
-        log.info(f"[MarketObserver] 开始跟踪股票: {stock_code}")
+        log.debug(f"[MarketObserver] 开始跟踪股票: {stock_code}")
 
     def untrack_stock(self, stock_code: str):
         """取消跟踪"""
         self._tracked_stocks.discard(stock_code)
         self._save_config()
-        log.info(f"[MarketObserver] 取消跟踪股票: {stock_code}")
+        log.debug(f"[MarketObserver] 取消跟踪股票: {stock_code}")
 
     def register_price_callback(self, callback: Callable[[str, float], None]):
         """注册价格更新回调"""
@@ -416,7 +393,7 @@ class MarketDataObserver:
     def start(self):
         """启动观察"""
         if self._running:
-            log.warning("[MarketObserver] 已在运行")
+            log.debug("[MarketObserver] 已在运行")
             return
 
         self._running = True
@@ -434,7 +411,7 @@ class MarketDataObserver:
 
         self._save_config()
 
-        log.info("[MarketObserver] 已启动")
+        log.debug("[MarketObserver] 已启动")
 
     def stop(self):
         """停止观察"""
@@ -454,7 +431,7 @@ class MarketDataObserver:
 
         self._save_config()
 
-        log.info("[MarketObserver] 已停止")
+        log.debug("[MarketObserver] 已停止")
 
     def get_price(self, stock_code: str) -> float:
         """获取股票当前价格"""

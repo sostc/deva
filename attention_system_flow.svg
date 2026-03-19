@@ -1,0 +1,239 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 900" width="1200" height="900">
+  <defs>
+    <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#666"/>
+    </marker>
+    <linearGradient id="datasourceGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#4a90e2;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#2c5aa0;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="filterGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#f5a623;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#d48c1c;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="engineGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#7ed321;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#5fa91a;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="strategyGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#bd10e0;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#8a0aa8;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="outputGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#50e3c2;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#35b899;stop-opacity:1" />
+    </linearGradient>
+  </defs>
+
+  <!-- 背景 -->
+  <rect width="1200" height="900" fill="#f8f9fa"/>
+
+  <!-- 标题 -->
+  <text x="600" y="40" text-anchor="middle" font-family="Arial, sans-serif" font-size="28" font-weight="bold" fill="#333">
+    Naja 注意力调度系统 - 数据流程图
+  </text>
+
+  <!-- ===== 第一层：数据源 ===== -->
+  <g id="datasource-layer">
+    <rect x="50" y="80" width="200" height="100" rx="10" fill="url(#datasourceGrad)"/>
+    <text x="150" y="110" text-anchor="middle" font-family="Arial, sans-serif" font-size="16" font-weight="bold" fill="white">数据源</text>
+    <text x="150" y="135" text-anchor="middle" font-family="Arial, sans-serif" font-size="12" fill="white">realtime_tick_5s</text>
+    <text x="150" y="155" text-anchor="middle" font-family="Arial, sans-serif" font-size="12" fill="white">历史行情回放</text>
+    <text x="150" y="170" text-anchor="middle" font-family="Arial, sans-serif" font-size="10" fill="#e0e0e0">3000+ 股票 Tick 数据</text>
+  </g>
+
+  <!-- ===== 第二层：噪音过滤 ===== -->
+  <g id="filter-layer">
+    <rect x="300" y="80" width="220" height="120" rx="10" fill="url(#filterGrad)"/>
+    <text x="410" y="105" text-anchor="middle" font-family="Arial, sans-serif" font-size="16" font-weight="bold" fill="white">🔇 噪音过滤器</text>
+    
+    <text x="320" y="130" font-family="Arial, sans-serif" font-size="11" fill="white">• 低流动性过滤 (&lt;10万)</text>
+    <text x="320" y="148" font-family="Arial, sans-serif" font-size="11" fill="white">• B股/ST股过滤</text>
+    <text x="320" y="166" font-family="Arial, sans-serif" font-size="11" fill="white">• 价格异常检测</text>
+    <text x="320" y="184" font-family="Arial, sans-serif" font-size="11" fill="white">• 跨天/周末特殊处理</text>
+  </g>
+
+  <!-- ===== 第三层：注意力系统核心 ===== -->
+  <g id="attention-core">
+    <rect x="560" y="60" width="280" height="160" rx="10" fill="#fff" stroke="#333" stroke-width="2"/>
+    <text x="700" y="85" text-anchor="middle" font-family="Arial, sans-serif" font-size="16" font-weight="bold" fill="#333">🧠 注意力系统核心</text>
+    
+    <!-- 子模块 -->
+    <rect x="575" y="95" width="120" height="50" rx="5" fill="#e3f2fd" stroke="#1976d2" stroke-width="1"/>
+    <text x="635" y="115" text-anchor="middle" font-family="Arial, sans-serif" font-size="11" fill="#1976d2">全局注意力引擎</text>
+    <text x="635" y="130" text-anchor="middle" font-family="Arial, sans-serif" font-size="9" fill="#666">计算市场整体热度</text>
+    
+    <rect x="705" y="95" width="120" height="50" rx="5" fill="#e8f5e9" stroke="#388e3c" stroke-width="1"/>
+    <text x="765" y="115" text-anchor="middle" font-family="Arial, sans-serif" font-size="11" fill="#388e3c">板块注意力引擎</text>
+    <text x="765" y="130" text-anchor="middle" font-family="Arial, sans-serif" font-size="9" fill="#666">追踪板块轮动</text>
+    
+    <rect x="575" y="155" width="120" height="50" rx="5" fill="#fff3e0" stroke="#f57c00" stroke-width="1"/>
+    <text x="635" y="175" text-anchor="middle" font-family="Arial, sans-serif" font-size="11" fill="#f57c00">权重池</text>
+    <text x="635" y="190" text-anchor="middle" font-family="Arial, sans-serif" font-size="9" fill="#666">个股关注度评分</text>
+    
+    <rect x="705" y="155" width="120" height="50" rx="5" fill="#fce4ec" stroke="#c2185b" stroke-width="1"/>
+    <text x="765" y="175" text-anchor="middle" font-family="Arial, sans-serif" font-size="11" fill="#c2185b">频率调度器</text>
+    <text x="765" y="190" text-anchor="middle" font-family="Arial, sans-serif" font-size="9" fill="#666">动态调整频率</text>
+  </g>
+
+  <!-- ===== 第四层：双引擎处理 ===== -->
+  <g id="dual-engine">
+    <rect x="560" y="240" width="280" height="100" rx="10" fill="url(#engineGrad)"/>
+    <text x="700" y="265" text-anchor="middle" font-family="Arial, sans-serif" font-size="16" font-weight="bold" fill="white">⚡ 双引擎处理系统</text>
+    
+    <rect x="575" y="280" width="120" height="45" rx="5" fill="rgba(255,255,255,0.2)"/>
+    <text x="635" y="298" text-anchor="middle" font-family="Arial, sans-serif" font-size="12" font-weight="bold" fill="white">River Engine</text>
+    <text x="635" y="315" text-anchor="middle" font-family="Arial, sans-serif" font-size="10" fill="white">轻量级实时检测</text>
+    
+    <rect x="705" y="280" width="120" height="45" rx="5" fill="rgba(255,255,255,0.2)"/>
+    <text x="765" y="298" text-anchor="middle" font-family="Arial, sans-serif" font-size="12" font-weight="bold" fill="white">PyTorch Engine</text>
+    <text x="765" y="315" text-anchor="middle" font-family="Arial, sans-serif" font-size="10" fill="white">深度推理(按需)</text>
+  </g>
+
+  <!-- ===== 第五层：策略层 ===== -->
+  <g id="strategies">
+    <text x="150" y="380" font-family="Arial, sans-serif" font-size="14" font-weight="bold" fill="#333">🎯 注意力策略层</text>
+    
+    <!-- 策略1: 全局监控 -->
+    <rect x="50" y="400" width="200" height="80" rx="8" fill="url(#strategyGrad)"/>
+    <text x="150" y="425" text-anchor="middle" font-family="Arial, sans-serif" font-size="13" font-weight="bold" fill="white">GlobalMarketSentinel</text>
+    <text x="150" y="445" text-anchor="middle" font-family="Arial, sans-serif" font-size="10" fill="white">全局市场状态监控</text>
+    <text x="150" y="462" text-anchor="middle" font-family="Arial, sans-serif" font-size="9" fill="#e0e0e0">风险等级: 0-4级</text>
+    <text x="150" y="475" text-anchor="middle" font-family="Arial, sans-serif" font-size="9" fill="#e0e0e0">波动率/恐慌指数</text>
+    
+    <!-- 策略2: 板块轮动 -->
+    <rect x="280" y="400" width="200" height="80" rx="8" fill="url(#strategyGrad)"/>
+    <text x="380" y="425" text-anchor="middle" font-family="Arial, sans-serif" font-size="13" font-weight="bold" fill="white">SectorRotationHunter</text>
+    <text x="380" y="445" text-anchor="middle" font-family="Arial, sans-serif" font-size="10" fill="white">板块轮动捕捉</text>
+    <text x="380" y="462" text-anchor="middle" font-family="Arial, sans-serif" font-size="9" fill="#e0e0e0">资金流入/流出检测</text>
+    <text x="380" y="475" text-anchor="middle" font-family="Arial, sans-serif" font-size="9" fill="#e0e0e0">轮动转折点识别</text>
+    
+    <!-- 策略3: 动量突破 -->
+    <rect x="510" y="400" width="200" height="80" rx="8" fill="url(#strategyGrad)"/>
+    <text x="610" y="425" text-anchor="middle" font-family="Arial, sans-serif" font-size="13" font-weight="bold" fill="white">MomentumSurgeTracker</text>
+    <text x="610" y="445" text-anchor="middle" font-family="Arial, sans-serif" font-size="10" fill="white">动量突破追踪</text>
+    <text x="610" y="462" text-anchor="middle" font-family="Arial, sans-serif" font-size="9" fill="#e0e0e0">价格动量 + 成交量动量</text>
+    <text x="610" y="475" text-anchor="middle" font-family="Arial, sans-serif" font-size="9" fill="#e0e0e0">突破阈值: 3%价格/2倍量</text>
+    
+    <!-- 策略4: 异常狙击 -->
+    <rect x="740" y="400" width="200" height="80" rx="8" fill="url(#strategyGrad)"/>
+    <text x="840" y="425" text-anchor="middle" font-family="Arial, sans-serif" font-size="13" font-weight="bold" fill="white">AnomalyPatternSniper</text>
+    <text x="840" y="445" text-anchor="middle" font-family="Arial, sans-serif" font-size="10" fill="white">异常模式狙击</text>
+    <text x="840" y="462" text-anchor="middle" font-family="Arial, sans-serif" font-size="9" fill="#e0e0e0">闪崩/闪涨检测</text>
+    <text x="840" y="475" text-anchor="middle" font-family="Arial, sans-serif" font-size="9" fill="#e0e0e0">对敲/操纵识别</text>
+    
+    <!-- 策略5: 资金流向 -->
+    <rect x="970" y="400" width="200" height="80" rx="8" fill="url(#strategyGrad)"/>
+    <text x="1070" y="425" text-anchor="middle" font-family="Arial, sans-serif" font-size="13" font-weight="bold" fill="white">SmartMoneyFlowDetector</text>
+    <text x="1070" y="445" text-anchor="middle" font-family="Arial, sans-serif" font-size="10" fill="white">聪明资金流向检测</text>
+    <text x="1070" y="462" text-anchor="middle" font-family="Arial, sans-serif" font-size="9" fill="#e0e0e0">大单追踪</text>
+    <text x="1070" y="475" text-anchor="middle" font-family="Arial, sans-serif" font-size="9" fill="#e0e0e0">主力建仓/出货识别</text>
+  </g>
+
+  <!-- ===== 第六层：输出 ===== -->
+  <g id="outputs">
+    <rect x="100" y="520" width="250" height="100" rx="10" fill="url(#outputGrad)"/>
+    <text x="225" y="545" text-anchor="middle" font-family="Arial, sans-serif" font-size="14" font-weight="bold" fill="white">📊 监控与报告</text>
+    <text x="225" y="570" text-anchor="middle" font-family="Arial, sans-serif" font-size="11" fill="white">Web UI 实时监控</text>
+    <text x="225" y="590" text-anchor="middle" font-family="Arial, sans-serif" font-size="11" fill="white">定时报告生成 (JSON)</text>
+    <text x="225" y="610" text-anchor="middle" font-family="Arial, sans-serif" font-size="10" fill="#e0e0e0">~/.naja/attention_reports/</text>
+    
+    <rect x="400" y="520" width="250" height="100" rx="10" fill="url(#outputGrad)"/>
+    <text x="525" y="545" text-anchor="middle" font-family="Arial, sans-serif" font-size="14" font-weight="bold" fill="white">🎯 交易信号</text>
+    <text x="525" y="570" text-anchor="middle" font-family="Arial, sans-serif" font-size="11" fill="white">买入/卖出/观望信号</text>
+    <text x="525" y="590" text-anchor="middle" font-family="Arial, sans-serif" font-size="11" fill="white">信号置信度评分</text>
+    <text x="525" y="610" text-anchor="middle" font-family="Arial, sans-serif" font-size="10" fill="#e0e0e0">推送到策略执行器</text>
+    
+    <rect x="700" y="520" width="250" height="100" rx="10" fill="url(#outputGrad)"/>
+    <text x="825" y="545" text-anchor="middle" font-family="Arial, sans-serif" font-size="14" font-weight="bold" fill="white">⚙️ 数据源控制</text>
+    <text x="825" y="570" text-anchor="middle" font-family="Arial, sans-serif" font-size="11" fill="white">高/中/低频调度</text>
+    <text x="825" y="590" text-anchor="middle" font-family="Arial, sans-serif" font-size="11" fill="white">动态调整采集频率</text>
+    <text x="825" y="610" text-anchor="middle" font-family="Arial, sans-serif" font-size="10" fill="#e0e0e0">节省 60%+ 计算资源</text>
+  </g>
+
+  <!-- ===== 数据流箭头 ===== -->
+  <g id="arrows" stroke="#666" stroke-width="2" fill="none" marker-end="url(#arrowhead)">
+    <!-- 数据源 -> 噪音过滤 -->
+    <path d="M 250 130 L 300 140"/>
+    
+    <!-- 噪音过滤 -> 注意力核心 -->
+    <path d="M 520 140 L 560 140"/>
+    
+    <!-- 注意力核心 -> 双引擎 -->
+    <path d="M 700 220 L 700 240"/>
+    
+    <!-- 注意力核心 -> 策略层 -->
+    <path d="M 560 140 L 450 140 L 450 380 L 150 380 L 150 400" opacity="0.3" stroke-dasharray="5,5"/>
+    <path d="M 560 160 L 500 160 L 500 380 L 380 400" opacity="0.3" stroke-dasharray="5,5"/>
+    <path d="M 700 220 L 700 350 L 610 400" opacity="0.3" stroke-dasharray="5,5"/>
+    <path d="M 840 220 L 840 350 L 840 400" opacity="0.3" stroke-dasharray="5,5"/>
+    <path d="M 840 180 L 950 180 L 950 350 L 1070 400" opacity="0.3" stroke-dasharray="5,5"/>
+    
+    <!-- 策略层 -> 输出 -->
+    <path d="M 150 480 L 150 500 L 225 520"/>
+    <path d="M 380 480 L 380 500 L 525 520"/>
+    <path d="M 610 480 L 610 500 L 610 500 L 825 520"/>
+    <path d="M 840 480 L 840 500 L 825 520"/>
+    <path d="M 1070 480 L 1070 500 L 825 520"/>
+  </g>
+
+  <!-- ===== 图例 ===== -->
+  <g id="legend" transform="translate(50, 650)">
+    <text x="0" y="0" font-family="Arial, sans-serif" font-size="14" font-weight="bold" fill="#333">图例说明</text>
+    
+    <rect x="0" y="15" width="20" height="15" fill="url(#datasourceGrad)"/>
+    <text x="30" y="27" font-family="Arial, sans-serif" font-size="12" fill="#333">数据源输入</text>
+    
+    <rect x="150" y="15" width="20" height="15" fill="url(#filterGrad)"/>
+    <text x="180" y="27" font-family="Arial, sans-serif" font-size="12" fill="#333">噪音过滤</text>
+    
+    <rect x="280" y="15" width="20" height="15" fill="#fff" stroke="#333" stroke-width="1"/>
+    <text x="310" y="27" font-family="Arial, sans-serif" font-size="12" fill="#333">注意力核心</text>
+    
+    <rect x="430" y="15" width="20" height="15" fill="url(#engineGrad)"/>
+    <text x="460" y="27" font-family="Arial, sans-serif" font-size="12" fill="#333">双引擎处理</text>
+    
+    <rect x="580" y="15" width="20" height="15" fill="url(#strategyGrad)"/>
+    <text x="610" y="27" font-family="Arial, sans-serif" font-size="12" fill="#333">策略层</text>
+    
+    <rect x="700" y="15" width="20" height="15" fill="url(#outputGrad)"/>
+    <text x="730" y="27" font-family="Arial, sans-serif" font-size="12" fill="#333">输出</text>
+  </g>
+
+  <!-- ===== 策略原理说明 ===== -->
+  <g id="strategy-details" transform="translate(50, 700)">
+    <text x="0" y="0" font-family="Arial, sans-serif" font-size="14" font-weight="bold" fill="#333">策略原理详解</text>
+    
+    <text x="0" y="25" font-family="Arial, sans-serif" font-size="11" fill="#555">
+      <tspan font-weight="bold" fill="#bd10e0">GlobalMarketSentinel:</tspan> 计算全市场波动率、涨跌分布、恐慌指数，输出0-4级风险信号
+    </text>
+    <text x="0" y="45" font-family="Arial, sans-serif" font-size="11" fill="#555">
+      <tspan font-weight="bold" fill="#bd10e0">SectorRotationHunter:</tspan> 监控板块权重变化率，识别资金流入(&gt;15%)/流出(&lt;-15%)，捕捉轮动时机
+    </text>
+    <text x="0" y="65" font-family="Arial, sans-serif" font-size="11" fill="#555">
+      <tspan font-weight="bold" fill="#bd10e0">MomentumSurgeTracker:</tspan> 价格动量(10窗口) + 成交量动量(5窗口)，双突破时生成信号(价格&gt;3% + 成交量&gt;2倍)
+    </text>
+    <text x="0" y="85" font-family="Arial, sans-serif" font-size="11" fill="#555">
+      <tspan font-weight="bold" fill="#bd10e0">AnomalyPatternSniper:</tspan> River Engine检测异常，PyTorch深度推理确认，识别闪崩/闪涨/对敲模式
+    </text>
+    <text x="0" y="105" font-family="Arial, sans-serif" font-size="11" fill="#555">
+      <tspan font-weight="bold" fill="#bd10e0">SmartMoneyFlowDetector:</tspan> 追踪大单流向，识别主力建仓(持续流入)和出货(持续流出)行为
+    </text>
+  </g>
+
+  <!-- ===== 核心优势 ===== -->
+  <g id="advantages" transform="translate(50, 820)">
+    <text x="0" y="0" font-family="Arial, sans-serif" font-size="14" font-weight="bold" fill="#333">核心优势</text>
+    
+    <text x="0" y="25" font-family="Arial, sans-serif" font-size="11" fill="#2e7d32">✓ 智能过滤: 自动识别并过滤低流动性、异常数据，减少90%噪音</text>
+    <text x="350" y="25" font-family="Arial, sans-serif" font-size="11" fill="#2e7d32">✓ 分层处理: 全局→板块→个股三级注意力，精准定位机会</text>
+    <text x="750" y="25" font-family="Arial, sans-serif" font-size="11" fill="#2e7d32">✓ 动态调度: 根据注意力权重调整数据源频率，节省60%+资源</text>
+    
+    <text x="0" y="45" font-family="Arial, sans-serif" font-size="11" fill="#2e7d32">✓ 双引擎: River轻量级实时检测 + PyTorch深度推理，平衡效率与精度</text>
+    <text x="350" y="45" font-family="Arial, sans-serif" font-size="11" fill="#2e7d32">✓ 跨天处理: 智能识别跨天/周末数据，避免误判价格跳空</text>
+    <text x="750" y="45" font-family="Arial, sans-serif" font-size="11" fill="#2e7d32">✓ 自动报告: 定时生成JSON报告，便于回溯分析</text>
+  </g>
+
+  <!-- 边框装饰 -->
+  <rect x="10" y="60" width="1180" height="820" fill="none" stroke="#ddd" stroke-width="2" rx="15"/>
+</svg>

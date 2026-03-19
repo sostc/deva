@@ -69,30 +69,20 @@ class AdaptiveCycle:
     def _restore_running_state(self):
         """恢复运行状态，重新追踪已持仓的股票"""
         try:
-            log.info("=== 开始恢复 Bandit 自适应循环状态 ===")
-            
-            # 1. 恢复持仓追踪
+            # 恢复持仓追踪
             positions = self._portfolio.get_all_positions(status="OPEN")
             for pos in positions:
                 self._market_observer.track_stock(pos.stock_code)
-            log.info(f"✓ 已恢复持仓追踪，{len(positions)} 个持仓")
-            
-            # 2. 启动信号监听器（如果之前是运行状态）
+
+            # 启动各组件（如果之前是运行状态）
             if self._signal_listener._running:
                 self._signal_listener.start()
-                log.info("✓ SignalListener 已自动启动")
-            
-            # 3. 启动市场观察器（如果之前是运行状态）
             if self._market_observer._running:
                 self._market_observer.start()
-                log.info("✓ MarketDataObserver 已自动启动")
-            
-            # 4. 启动 BanditAutoRunner（如果之前是运行状态）
             if self._runner._running:
                 self._runner.start()
-                log.info("✓ BanditAutoRunner 已自动启动")
-            
-            log.info("=== Bandit 自适应循环状态恢复完成 ===")
+
+            log.info(f"✓ Bandit 恢复完成: 持仓({len(positions)})")
         except Exception as e:
             log.error(f"恢复运行状态失败: {e}")
     
@@ -107,7 +97,7 @@ class AdaptiveCycle:
                 
                 if config.get("was_running", False) and self._auto_start:
                     self._running = True
-                    log.info("检测到上次运行状态为运行中，将自动启动")
+                    log.debug("检测到上次运行状态为运行中，将自动启动")
         except Exception:
             pass
     
@@ -131,55 +121,50 @@ class AdaptiveCycle:
             self._callbacks_registered = False
 
         if self._callbacks_registered:
-            log.info("[AdaptiveCycle] ⏭️ 回调已注册，跳过")
+            log.debug("[AdaptiveCycle] 回调已注册，跳过")
             return
-
-        log.info("[AdaptiveCycle] 🔧 开始注册回调...")
 
         def on_signal(signal: DetectedSignal):
             if self._auto_buy_enabled:
                 self._on_new_signal(signal)
 
         self._signal_listener.register_callback(on_signal)
-        log.info(f"[AdaptiveCycle] ✅ SignalListener 回调已注册，当前回调数: {len(self._signal_listener._callbacks)}")
 
         def on_price_update(stock_code: str, price: float):
-            log.info(f"[AdaptiveCycle] 📈 收到价格更新: {stock_code} @ {price}")
+            log.debug(f"[AdaptiveCycle] 收到价格更新: {stock_code} @ {price}")
             self._on_price_update(stock_code, price)
 
         self._market_observer.register_price_callback(on_price_update)
-        log.info(f"[AdaptiveCycle] ✅ MarketObserver 价格回调已注册，当前回调数: {len(self._market_observer._price_callbacks)}")
 
         def on_position_close(position_id: str, position: VirtualPosition, reason: str):
             self._on_position_closed(position_id, position, reason)
 
         self._portfolio.register_close_callback(on_position_close)
-        log.info(f"[AdaptiveCycle] ✅ Portfolio 平仓回调已注册")
 
         self._callbacks_registered = True
-        log.info("[AdaptiveCycle] 🎉 所有回调注册完成")
+        log.debug("[AdaptiveCycle] 回调注册完成")
     
     def _on_new_signal(self, signal: DetectedSignal):
         """处理新信号"""
-        log.info(f"[AdaptiveCycle] 收到信号: {signal.stock_code} {signal.stock_name} 价格={signal.price} 置信度={signal.confidence}")
-        
+        log.debug(f"[AdaptiveCycle] 收到信号: {signal.stock_code} {signal.stock_name} 价格={signal.price} 置信度={signal.confidence}")
+
         signal_type_upper = signal.signal_type.upper()
         is_buy_signal = "BUY" in signal_type_upper or "买入" in signal_type_upper
-        
+
         if not is_buy_signal:
-            log.warning(f"[AdaptiveCycle] ❌ 信号类型不支持: {signal.signal_type}")
+            log.debug(f"[AdaptiveCycle] 信号类型不支持: {signal.signal_type}")
             return
-        
+
         if signal.price <= 0:
-            log.warning(f"[AdaptiveCycle] ❌ 信号价格无效: {signal.stock_code}")
+            log.warning(f"[AdaptiveCycle] 信号价格无效: {signal.stock_code}")
             return
-        
+
         positions = self._portfolio.get_positions_by_stock(signal.stock_code)
         if positions:
-            log.warning(f"[AdaptiveCycle] ⏭️ 股票已有持仓，跳过: {signal.stock_code}")
+            log.debug(f"[AdaptiveCycle] 股票已有持仓，跳过: {signal.stock_code}")
             return
-        
-        log.info(f"[AdaptiveCycle] ✅ 准备创建持仓: {signal.stock_code} @ {signal.price}")
+
+        log.info(f"[AdaptiveCycle] 准备创建持仓: {signal.stock_code} @ {signal.price}")
 
         position = self._portfolio.open_position(
             strategy_id=signal.strategy_id,

@@ -678,7 +678,6 @@ class TaskManager:
                 except Exception as e:
                     self._log("ERROR", "Load entry failed", id=entry_id, error=str(e))
 
-        self._log("INFO", "Load from db finished", count=count)
         return count
 
     def restore_running_states(self) -> dict:
@@ -736,8 +735,6 @@ class TaskManager:
                         "error": str(e),
                     }
                 )
-
-        self._log("INFO", "Restore finished", restored=restored_count, failed=failed_count)
 
         return {
             "success": True,

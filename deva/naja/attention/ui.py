@@ -1083,12 +1083,16 @@ def _render_recent_signals(signals: List[Any], limit: int = 10) -> str:
     return html
 
 
-def _render_sector_hotspot_timeline() -> str:
-    """渲染板块热点切换时间线"""
+def _render_sector_hotspot_timeline(threshold: str = "medium") -> str:
+    """渲染板块热点切换时间线 - 支持多阈值
+    
+    Args:
+        threshold: 阈值级别 - 'low'(3%), 'medium'(5%), 'high'(10%)
+    """
     from datetime import datetime
     
     tracker = _get_history_tracker()
-    if not tracker or not tracker.sector_hotspot_events:
+    if not tracker:
         return """
     <div style="
         background: white;
@@ -1099,20 +1103,31 @@ def _render_sector_hotspot_timeline() -> str:
     ">
         <div style="font-weight: 600; margin-bottom: 16px; color: #1e293b;">
             🔥 板块热点切换时间线
-            <span style="font-size: 12px; color: #64748b; font-weight: normal; margin-left: 8px;">重大变化事件记录</span>
+            <span style="font-size: 12px; color: #64748b; font-weight: normal; margin-left: 8px;">多阈值事件记录</span>
         </div>
         <div style="color: #64748b; text-align: center; padding: 40px 20px;">
             <div style="font-size: 24px; margin-bottom: 8px;">📊</div>
-            <div>暂无重大板块变化事件</div>
-            <div style="font-size: 12px; margin-top: 8px; color: #94a3b8;">
-                当板块权重变化超过 ±5% 时会自动记录<br>
-                等待数据更新中...
-            </div>
+            <div>历史追踪器未初始化</div>
         </div>
     </div>
     """
     
-    html = """
+    # 根据阈值选择对应的事件队列
+    threshold_config = {
+        'low': {'events': tracker.sector_hotspot_events_low, 'pct': 3, 'label': '低敏感度', 'color': '#16a34a'},
+        'medium': {'events': tracker.sector_hotspot_events_medium, 'pct': 5, 'label': '中敏感度', 'color': '#ca8a04'},
+        'high': {'events': tracker.sector_hotspot_events_high, 'pct': 10, 'label': '高敏感度', 'color': '#dc2626'},
+    }
+    
+    config = threshold_config.get(threshold, threshold_config['medium'])
+    events = config['events']
+    pct = config['pct']
+    label = config['label']
+    header_color = config['color']
+    
+    # 如果没有事件，显示空状态
+    if not events:
+        return f"""
     <div style="
         background: white;
         border: 1px solid #e2e8f0;
@@ -1120,9 +1135,32 @@ def _render_sector_hotspot_timeline() -> str:
         padding: 20px;
         margin-top: 16px;
     ">
-        <div style="font-weight: 600; margin-bottom: 16px; color: #1e293b;">
-            🔥 板块热点切换时间线
-            <span style="font-size: 12px; color: #64748b; font-weight: normal; margin-left: 8px;">重大变化事件记录</span>
+        <div style="font-weight: 600; margin-bottom: 16px; color: {header_color};">
+            🔥 {label} ({pct}%阈值)
+            <span style="font-size: 12px; color: #64748b; font-weight: normal; margin-left: 8px;">暂无事件</span>
+        </div>
+        <div style="color: #64748b; text-align: center; padding: 40px 20px;">
+            <div style="font-size: 24px; margin-bottom: 8px;">📊</div>
+            <div>暂无板块变化事件</div>
+            <div style="font-size: 12px; margin-top: 8px; color: #94a3b8;">
+                当板块权重变化超过 ±{pct}% 时会自动记录<br>
+                等待数据更新中...
+            </div>
+        </div>
+    </div>
+    """
+    
+    html = f"""
+    <div style="
+        background: white;
+        border: 1px solid #e2e8f0;
+        border-radius: 12px;
+        padding: 20px;
+        margin-top: 16px;
+    ">
+        <div style="font-weight: 600; margin-bottom: 16px; color: {header_color};">
+            🔥 {label} ({pct}%阈值)
+            <span style="font-size: 12px; color: #64748b; font-weight: normal; margin-left: 8px;">共{len(events)}个事件</span>
         </div>
     """
     
@@ -1135,7 +1173,7 @@ def _render_sector_hotspot_timeline() -> str:
     }
     
     # 按时间倒序显示最近的事件
-    recent_events = list(tracker.sector_hotspot_events)[-15:]
+    recent_events = list(events)[-15:]
     current_date = None
     
     for event in reversed(recent_events):
@@ -1214,6 +1252,155 @@ def _render_sector_hotspot_timeline() -> str:
             html += "</div></div>"
         
         html += "</div>"
+    
+    html += "</div>"
+    return html
+
+
+def _render_multi_threshold_timeline() -> str:
+    """渲染多阈值板块热点切换时间线 - 三栏并排展示"""
+    html = """
+    <div style="
+        background: white;
+        border: 1px solid #e2e8f0;
+        border-radius: 12px;
+        padding: 20px;
+        margin-top: 16px;
+    ">
+        <div style="font-weight: 600; margin-bottom: 20px; color: #1e293b; font-size: 16px;">
+            🔥 板块热点切换时间线
+            <span style="font-size: 12px; color: #64748b; font-weight: normal; margin-left: 8px;">多阈值对比分析</span>
+        </div>
+        
+        <!-- 阈值说明 -->
+        <div style="
+            display: flex;
+            gap: 16px;
+            margin-bottom: 20px;
+            padding: 12px 16px;
+            background: linear-gradient(135deg, #f8fafc, #f1f5f9);
+            border-radius: 8px;
+            font-size: 12px;
+        ">
+            <div style="display: flex; align-items: center; gap: 6px;">
+                <span style="width: 12px; height: 12px; background: #16a34a; border-radius: 3px;"></span>
+                <span><strong>低阈值 (3%)</strong>: 捕捉细微变化，事件较多</span>
+            </div>
+            <div style="display: flex; align-items: center; gap: 6px;">
+                <span style="width: 12px; height: 12px; background: #ca8a04; border-radius: 3px;"></span>
+                <span><strong>中阈值 (5%)</strong>: 平衡敏感度，推荐关注</span>
+            </div>
+            <div style="display: flex; align-items: center; gap: 6px;">
+                <span style="width: 12px; height: 12px; background: #dc2626; border-radius: 3px;"></span>
+                <span><strong>高阈值 (10%)</strong>: 重大变化，事件较少</span>
+            </div>
+        </div>
+        
+        <!-- 三栏时间线 -->
+        <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px;">
+    """
+    
+    # 三个阈值的时间线
+    thresholds = ['low', 'medium', 'high']
+    for threshold in thresholds:
+        html += f"""
+            <div style="min-width: 0;">
+                {_render_single_threshold_column(threshold)}
+            </div>
+        """
+    
+    html += """
+        </div>
+    </div>
+    """
+    return html
+
+
+def _render_single_threshold_column(threshold: str) -> str:
+    """渲染单个阈值的紧凑时间线列"""
+    from datetime import datetime
+    
+    tracker = _get_history_tracker()
+    if not tracker:
+        return "<div style='color: #64748b; text-align: center;'>未初始化</div>"
+    
+    # 配置
+    threshold_config = {
+        'low': {'events': tracker.sector_hotspot_events_low, 'pct': 3, 'label': '低敏感度', 'color': '#16a34a', 'bg': '#f0fdf4'},
+        'medium': {'events': tracker.sector_hotspot_events_medium, 'pct': 5, 'label': '中敏感度', 'color': '#ca8a04', 'bg': '#fefce8'},
+        'high': {'events': tracker.sector_hotspot_events_high, 'pct': 10, 'label': '高敏感度', 'color': '#dc2626', 'bg': '#fef2f2'},
+    }
+    
+    config = threshold_config.get(threshold, threshold_config['medium'])
+    events = list(config['events'])[-10:]  # 只显示最近10个
+    pct = config['pct']
+    label = config['label']
+    color = config['color']
+    bg = config['bg']
+    
+    if not events:
+        return f"""
+        <div style="
+            background: {bg};
+            border: 1px solid {color}33;
+            border-radius: 8px;
+            padding: 16px;
+            text-align: center;
+        ">
+            <div style="font-weight: 600; color: {color}; margin-bottom: 8px;">{label} ({pct}%)</div>
+            <div style="font-size: 12px; color: #64748b;">暂无事件</div>
+        </div>
+        """
+    
+    html = f"""
+    <div style="
+        background: {bg};
+        border: 1px solid {color}33;
+        border-radius: 8px;
+        padding: 12px;
+    ">
+        <div style="font-weight: 600; color: {color}; margin-bottom: 12px; font-size: 13px;">
+            {label} ({pct}%) <span style="font-weight: normal; color: #64748b;">· {len(events)}个</span>
+        </div>
+    """
+    
+    # 事件类型样式
+    event_styles = {
+        'new_hot': ('🔥', '#dc2626'),
+        'cooled': ('❄️', '#3b82f6'),
+        'rise': ('📈', '#16a34a'),
+        'fall': ('📉', '#f59e0b'),
+    }
+    
+    current_date = None
+    
+    for event in reversed(events):
+        # 日期分隔
+        event_date = datetime.fromtimestamp(event.timestamp).strftime("%m-%d")
+        if event_date != current_date:
+            current_date = event_date
+            html += f'<div style="font-size: 10px; color: #94a3b8; margin: 8px 0 4px 0; padding-top: 4px; border-top: 1px dashed #e2e8f0;">{event_date}</div>'
+        
+        emoji, evt_color = event_styles.get(event.event_type, ('•', '#64748b'))
+        change_sign = '+' if event.change_percent > 0 else ''
+        
+        html += f"""
+        <div style="
+            padding: 8px;
+            margin-bottom: 6px;
+            background: white;
+            border-radius: 6px;
+            border-left: 2px solid {evt_color};
+            font-size: 11px;
+        ">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 2px;">
+                <span style="color: #64748b; font-family: monospace; font-size: 10px;">{event.market_time}</span>
+                <span>{emoji}</span>
+            </div>
+            <div style="font-weight: 500; color: #1e293b; margin-bottom: 2px;">{event.sector_name}</div>
+            <div style="color: {evt_color}; font-size: 10px;">{change_sign}{event.change_percent:.1f}%</div>
+        </div>
+        """
     
     html += "</div>"
     return html
@@ -1552,9 +1739,9 @@ async def render_attention_admin(ctx: dict):
         hot_data = _get_hot_sectors_and_stocks()
         put_html(_render_hot_sectors_and_stocks(hot_data))
     
-    # 板块热点切换时间线（重大事件）
+    # 板块热点切换时间线（多阈值对比）
     with use_scope("attention_sector_hotspot"):
-        put_html(_render_sector_hotspot_timeline())
+        put_html(_render_multi_threshold_timeline())
     
     # 注意力变化动态
     with use_scope("attention_changes"):
