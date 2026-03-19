@@ -488,8 +488,22 @@ def _log_warn(msg, *args, **kwargs):
     warn.emit(msg, **kwargs)
 
 
+def _log_warning(msg, *args, **kwargs):
+    """便捷方法：发送警告日志（兼容 logging.warning）"""
+    _log_warn(msg, *args, **kwargs)
+
+
+def _log_error(msg, *args, **kwargs):
+    """便捷方法：发送错误日志，使用 warn 流输出"""
+    if args:
+        msg = msg % args
+    warn.emit(msg, **kwargs)
+
+
 log.info = _log_info
 log.warn = _log_warn
+log.warning = _log_warning
+log.error = _log_error
 
 configure_log_behavior()
 

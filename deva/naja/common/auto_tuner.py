@@ -125,6 +125,11 @@ class AutoTuner:
             threshold=0.3,
             action='call_llm'
         )
+        self._conditions['datasource_error_rate'] = TuneCondition(
+            cooldown=300,
+            threshold=0.3,  # 错误率超过30%
+            action='adjust_datasource_interval'
+        )
 
         for name in self._conditions:
             self._condition_states[name] = ConditionState()
@@ -286,6 +291,7 @@ class AutoTuner:
     def _check_datasource_delay(self) -> Optional[Dict]:
         try:
             from deva.naja.datasource import get_datasource_manager
+            from deva.naja.common.recoverable import UnitStatus
 
             mgr = get_datasource_manager()
             datasources = mgr.list_all()
@@ -294,16 +300,27 @@ class AutoTuner:
             now = time.time()
             for ds in datasources:
                 state = getattr(ds, '_state', None)
-                if state:
-                    last_ts = getattr(state, 'last_data_ts', 0)
-                    delay = (now - last_ts) * 1000
-                    threshold = self._conditions['datasource_delay'].threshold
-                    if delay > threshold:
-                        delayed.append({
-                            'id': ds.id,
-                            'name': ds.name,
-                            'delay_ms': delay
-                        })
+                if not state:
+                    continue
+
+                # 只检查运行中的数据源
+                status = getattr(state, 'status', UnitStatus.STOPPED.value)
+                if status != UnitStatus.RUNNING.value:
+                    continue
+
+                last_ts = getattr(state, 'last_data_ts', 0)
+                # 如果从未产生过数据，跳过（避免将新启动的数据源误判为延迟）
+                if last_ts == 0:
+                    continue
+
+                delay = (now - last_ts) * 1000
+                threshold = self._conditions['datasource_delay'].threshold
+                if delay > threshold:
+                    delayed.append({
+                        'id': ds.id,
+                        'name': ds.name,
+                        'delay_ms': delay
+                    })
 
             if delayed:
                 log.info(f"[AutoTuner] 发现 {len(delayed)} 个延迟数据源，需要 LLM 分析")
@@ -322,6 +339,91 @@ class AutoTuner:
         return None
 
     def _check_cache_hit_rate(self) -> Optional[Dict]:
+        return None
+
+    def _check_datasource_error_rate(self) -> Optional[Dict]:
+        """检查数据源错误率，自动调整执行间隔
+
+        策略:
+        - 错误率 > 50%: 间隔增加 2 倍
+        - 错误率 > 30%: 间隔增加 1.5 倍
+        - 连续成功 > 10 次: 间隔减少 10%（最小 5 秒）
+        """
+        try:
+            from deva.naja.datasource import get_datasource_manager
+
+            mgr = get_datasource_manager()
+            datasources = mgr.list_all()
+
+            adjusted = []
+            for ds in datasources:
+                state = getattr(ds, '_state', None)
+                if not state:
+                    continue
+
+                run_count = getattr(state, 'run_count', 0)
+                error_count = getattr(state, 'error_count', 0)
+
+                # 至少需要 5 次运行才进行判断
+                if run_count < 5:
+                    continue
+
+                error_rate = error_count / run_count if run_count > 0 else 0
+                current_interval = getattr(ds._metadata, 'interval', 5.0)
+                threshold = self._conditions['datasource_error_rate'].threshold
+
+                # 高错误率：增加间隔
+                if error_rate > 0.5:
+                    new_interval = min(current_interval * 2, 300)  # 最大 5 分钟
+                    ds.update_config(interval=new_interval)
+                    adjusted.append({
+                        'id': ds.id,
+                        'name': ds.name,
+                        'old_interval': current_interval,
+                        'new_interval': new_interval,
+                        'error_rate': error_rate,
+                        'reason': f'错误率过高({error_rate:.1%})，自动增加执行间隔'
+                    })
+                elif error_rate > threshold:
+                    new_interval = min(current_interval * 1.5, 300)
+                    ds.update_config(interval=new_interval)
+                    adjusted.append({
+                        'id': ds.id,
+                        'name': ds.name,
+                        'old_interval': current_interval,
+                        'new_interval': new_interval,
+                        'error_rate': error_rate,
+                        'reason': f'错误率较高({error_rate:.1%})，自动增加执行间隔'
+                    })
+                # 低错误率且间隔较大：可以尝试减少间隔
+                elif error_rate < 0.05 and current_interval > 10:
+                    new_interval = max(current_interval * 0.9, 5)  # 最小 5 秒
+                    ds.update_config(interval=new_interval)
+                    adjusted.append({
+                        'id': ds.id,
+                        'name': ds.name,
+                        'old_interval': current_interval,
+                        'new_interval': new_interval,
+                        'error_rate': error_rate,
+                        'reason': f'运行稳定(错误率{error_rate:.1%})，自动优化执行间隔'
+                    })
+
+            if adjusted:
+                log.info(f"[AutoTuner] 自动调整 {len(adjusted)} 个数据源的执行间隔")
+                return {
+                    'param': 'datasource_error_rate',
+                    'current': len(adjusted),
+                    'suggested': 'auto_adjusted',
+                    'reason': f"自动调整 {len(adjusted)} 个数据源的执行间隔",
+                    'category': 'performance_degradation',
+                    'action': 'adjust',
+                    'auto_executed': True,
+                    'explanation': f"根据错误率自动调整数据源执行间隔，降低失败频率",
+                    'impact': f"已调整 {len(adjusted)} 个数据源",
+                    'datasources': adjusted
+                }
+        except Exception as e:
+            log.error(f"[AutoTuner] 数据源错误率检查失败: {e}")
         return None
 
     def _call_llm_for_tuning(self, issue: Dict):
@@ -404,6 +506,7 @@ class AutoTuner:
             self._check_strategy_performance,
             self._check_lock_contention,
             self._check_datasource_delay,
+            self._check_datasource_error_rate,
             self._check_cache_hit_rate,
         ]
 

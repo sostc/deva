@@ -3,7 +3,7 @@
 from datetime import datetime
 from typing import Optional
 
-from pywebio.output import put_text, put_markdown, put_table, put_buttons, put_html, toast, popup, close_popup, put_code, use_scope, set_scope
+from pywebio.output import put_text, put_markdown, put_table, put_buttons, put_html, toast, popup, close_popup, put_code, put_collapse, use_scope, set_scope
 from pywebio.input import input_group, input, textarea, select, actions, radio
 from pywebio.session import run_async
 
@@ -95,25 +95,103 @@ async def render_datasource_admin(ctx: dict):
     _render_ds_content(ctx)
 
 
+# 全局变量：当前选中的类别
+_current_category = "全部"
+
+
+def _categorize_datasource(entry) -> str:
+    """根据数据源名称分类"""
+    name = entry.name
+    if name.startswith("产业链_L1_"):
+        return "🔋 第1层-电力能源"
+    elif name.startswith("产业链_L2_"):
+        return "💻 第2层-芯片算力"
+    elif name.startswith("产业链_L3_"):
+        return "🏢 第3层-数据中心"
+    elif name.startswith("产业链_L4_"):
+        return "🤖 第4层-大模型平台"
+    elif name.startswith("产业链_L5_"):
+        return "🎯 第5层-AI应用"
+    elif name.startswith("板块_"):
+        return "📊 概念板块"
+    elif name.startswith("realtime_tick_"):
+        return "📈 市场分类"
+    elif "news" in name.lower() or "新闻" in name or "财经" in name:
+        return "📰 新闻资讯"
+    elif "replay" in name.lower() or "回放" in name:
+        return "📼 数据回放"
+    else:
+        return "📦 其他"
+
+
+def _get_all_categories(entries: list) -> list:
+    """获取所有类别"""
+    categories = set()
+    for e in entries:
+        cat = _categorize_datasource(e)
+        categories.add(cat)
+    return sorted(list(categories))
+
+
 def _render_ds_content(ctx: dict):
-    """渲染数据源内容（支持局部刷新）"""
+    """渲染数据源内容（支持局部刷新，使用Tab分类）"""
     from . import get_datasource_manager
     from pywebio.output import clear
 
-    mgr = get_datasource_manager()
+    global _current_category
 
+    mgr = get_datasource_manager()
     entries = mgr.list_all()
     stats = mgr.get_stats()
 
     clear("ds_content")
-    apply_strategy_like_styles(ctx, scope="ds_content", include_compact_table=True)
+    apply_strategy_like_styles(ctx, scope="ds_content", include_compact_table=True, include_category_tabs=True)
 
     ctx["put_html"](_render_stats_html(stats), scope="ds_content")
 
-    if entries:
-        table_data = _build_table_data(ctx, entries, mgr)
-        ctx["put_table"](table_data, header=["名称", "类型", "状态",
-                                             "简介", "最近数据", "操作"], scope="ds_content")
+    # 渲染类别 Tab
+    categories = _get_all_categories(entries)
+    _render_category_tabs(ctx, categories, entries, mgr)
+
+    # 根据当前类别筛选数据源
+    if _current_category == "全部":
+        filtered_entries = entries
+    else:
+        filtered_entries = [e for e in entries if _categorize_datasource(e) == _current_category]
+
+    if filtered_entries:
+        # 按类别分组显示（使用折叠面板）
+        grouped = {}
+        for e in filtered_entries:
+            cat = _categorize_datasource(e)
+            if cat not in grouped:
+                grouped[cat] = []
+            grouped[cat].append(e)
+
+        # 为每个类别创建折叠面板
+        for category, cat_entries in sorted(grouped.items()):
+            running_count = sum(1 for e in cat_entries if e.is_running)
+            stopped_count = len(cat_entries) - running_count
+
+            # 构建表格数据
+            table_data = _build_table_data(ctx, cat_entries, mgr)
+
+            # 创建折叠面板内容
+            collapse_content = [
+                ctx["put_table"](table_data, header=["名称", "类型", "状态", "简介", "最近数据", "操作"], scope="ds_content"),
+                ctx["put_buttons"]([
+                    {"label": "▶ 启动全部", "value": f"start_cat_{category}", "color": "success"},
+                    {"label": "⏹ 停止全部", "value": f"stop_cat_{category}", "color": "danger"},
+                ], onclick=lambda v, m=mgr, c=ctx: _handle_category_action(v, m, c), scope="ds_content"),
+            ]
+
+            # 使用 put_collapse 创建可折叠面板
+            ctx["put_collapse"](
+                f"{category} ({len(cat_entries)}个 | 运行中:{running_count} | 已停止:{stopped_count})",
+                collapse_content,
+                open=False,  # 默认折叠
+                scope="ds_content"
+            )
     else:
         ctx["put_html"](render_empty_state("暂无数据源，点击下方按钮创建"), scope="ds_content")
 
@@ -124,6 +202,43 @@ def _render_ds_content(ctx: dict):
         {"label": "⏹ 全部停止", "value": "stop_all", "color": "danger"},
     ], onclick=lambda v, m=mgr, c=ctx: _handle_toolbar_action(v, m, c), group=True, scope="ds_content")
     ctx["put_html"]('</div>', scope="ds_content")
+
+
+def _render_category_tabs(ctx: dict, categories: list, entries: list, mgr):
+    """渲染类别 Tab"""
+    global _current_category
+
+    tab_buttons = []
+    tab_buttons.append({"label": f"全部 ({len(entries)})", "value": "全部", "color": "primary" if _current_category == "全部" else "light"})
+
+    for cat in categories:
+        count = len([e for e in entries if _categorize_datasource(e) == cat])
+        tab_buttons.append({
+            "label": f"{cat} ({count})",
+            "value": cat,
+            "color": "primary" if _current_category == cat else "light"
+        })
+
+    ctx["put_html"]('<div class="category-tabs">', scope="ds_content")
+    ctx["put_buttons"](tab_buttons, onclick=lambda v, c=ctx, m=mgr: _switch_category(v, c, m), scope="ds_content")
+    ctx["put_html"]('</div>', scope="ds_content")
+
+
+def _switch_category(category: str, ctx: dict, mgr):
+    """切换类别"""
+    global _current_category
+    _current_category = category
+    _render_ds_content(ctx)
+
+
+def _handle_category_action(action: str, mgr, ctx: dict):
+    """处理分类批量操作"""
+    if action.startswith("start_cat_"):
+        category = action.replace("start_cat_", "")
+        _start_category_ds(mgr, ctx, category)
+    elif action.startswith("stop_cat_"):
+        category = action.replace("stop_cat_", "")
+        _stop_category_ds(mgr, ctx, category)
 
 
 def _render_stats_html(stats: dict) -> str:
@@ -137,6 +252,40 @@ def _render_stats_html(stats: dict) -> str:
 
 def _render_toolbar_html() -> str:
     return '<div style="margin-top:16px;display:flex;gap:12px;flex-wrap:wrap;">'
+
+
+def _start_category_ds(mgr, ctx: dict, category: str):
+    """按分类启动数据源"""
+    entries = mgr.list_all()
+    target_entries = [e for e in entries if _categorize_datasource(e) == category]
+
+    success = 0
+    failed = 0
+    for entry in target_entries:
+        if not entry.is_running:
+            result = mgr.start(entry.id)
+            if result.get("success"):
+                success += 1
+            else:
+                failed += 1
+
+    ctx["toast"](f"{category}: 启动完成，成功{success}个，失败{failed}个", color="info")
+    _render_ds_content(ctx)
+
+
+def _stop_category_ds(mgr, ctx: dict, category: str):
+    """按分类停止数据源"""
+    entries = mgr.list_all()
+    target_entries = [e for e in entries if _categorize_datasource(e) == category]
+
+    success = 0
+    for entry in target_entries:
+        if entry.is_running:
+            mgr.stop(entry.id)
+            success += 1
+
+    ctx["toast"](f"{category}: 已停止{success}个数据源", color="info")
+    _render_ds_content(ctx)
 
 
 def _build_table_data(ctx: dict, entries: list, mgr) -> list:

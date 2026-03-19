@@ -16,6 +16,7 @@ from . import (
     get_dictionary_config,
     get_auth_config,
     get_performance_config,
+    get_noise_filter_config,
     ensure_auth_secret,
     reset_to_default,
     DEFAULT_CONFIG,
@@ -28,10 +29,10 @@ def render_config_page(ctx: dict):
     ctx["put_html"](
         '<div style="margin:0 0 14px 0;">'
         '<div style="font-size:24px;font-weight:700;color:#2c3e50;">⚙️ Naja 配置管理</div>'
-        '<div style="font-size:13px;color:#6c757d;margin-top:6px;">管理数据源、策略、任务、字典四个模块的配置参数，配置存储在 NB(\'naja_config\') 命名空间中。</div>'
+        '<div style="font-size:13px;color:#6c757d;margin-top:6px;">管理数据源、策略、任务、字典等模块的配置参数，配置存储在 NB(\'naja_config\') 命名空间中。</div>'
         '</div>'
     )
-    
+
     ctx["put_html"]('<div style="margin:16px 0;">')
     ctx["put_buttons"]([
         {"label": "🔐 认证配置", "value": "auth", "color": "warning"},
@@ -43,6 +44,7 @@ def render_config_page(ctx: dict):
         {"label": "🧭 雷达配置", "value": "radar", "color": "info"},
         {"label": "🤖 LLM调节", "value": "llm", "color": "warning"},
         {"label": "⚡ 性能监控", "value": "performance", "color": "danger"},
+        {"label": "🔇 噪音过滤", "value": "noise_filter", "color": "secondary"},
     ], onclick=lambda v: run_async(_show_config_dialog(ctx, v)), group=True)
     ctx["put_html"]('</div>')
     
@@ -123,6 +125,13 @@ def _render_config_summary(ctx: dict):
         f"调节间隔: {llm_config.get('auto_adjust_interval_seconds', 900)}s"
     ])
 
+    nf_config = get_noise_filter_config()
+    config_data.append([
+        "🔇 噪音过滤",
+        f"状态: {'启用' if nf_config.get('enabled', True) else '禁用'}\n最小金额: {nf_config.get('min_amount', 1000000):,.0f}",
+        f"B股过滤: {'启用' if nf_config.get('filter_b_shares', True) else '禁用'}\nST过滤: {'启用' if nf_config.get('filter_st', False) else '禁用'}"
+    ])
+
     ctx["put_html"](render_stats_cards([
         {"label": "配置模块", "value": 8, "gradient": "linear-gradient(135deg,#667eea,#764ba2)", "shadow": "rgba(102,126,234,0.3)"},
         {"label": "启用开发模式", "value": 1 if auth_config.get('dev_mode', False) else 0, "gradient": "linear-gradient(135deg,#f0ad4e,#ec971f)", "shadow": "rgba(240,173,78,0.3)"},
@@ -147,11 +156,12 @@ async def _show_config_dialog(ctx: dict, category: str):
         "radar": "雷达",
         "llm": "LLM调节",
         "performance": "性能监控",
+        "noise_filter": "噪音过滤",
     }
-    
+
     with ctx["popup"](f"⚙️ {category_names.get(category, category)}配置", size="large", closable=True):
         ctx["put_markdown"](f"### {category_names.get(category, category)}配置")
-        
+
         if category == "auth":
             await _render_auth_config(ctx, config, defaults)
         elif category == "datasource":
@@ -170,6 +180,8 @@ async def _show_config_dialog(ctx: dict, category: str):
             await _render_radar_config(ctx, config, defaults)
         elif category == "llm":
             await _render_llm_config(ctx, config, defaults)
+        elif category == "noise_filter":
+            await _render_noise_filter_config(ctx, config, defaults)
 
 
 def _split_list(value: str) -> list:
@@ -248,6 +260,93 @@ async def _render_datasource_config(ctx: dict, config: dict, defaults: dict):
         ctx["close_popup"]()
     elif form and form.get("action") == "reset":
         reset_to_default("datasource")
+        ctx["toast"]("已恢复默认配置", color="success")
+        ctx["close_popup"]()
+    elif form and form.get("action") == "cancel":
+        ctx["close_popup"]()
+
+
+async def _render_noise_filter_config(ctx: dict, config: dict, defaults: dict):
+    """渲染噪音过滤配置"""
+    form = await ctx["input_group"]("噪音过滤配置", [
+        ctx["checkbox"]("启用噪音过滤", name="enabled", options=[
+            {"label": "启用噪音过滤", "value": "enabled", "selected": config.get("enabled", defaults.get("enabled", True))}
+        ]),
+        ctx["input"]("最小成交金额(元)", name="min_amount", type="number",
+                    value=config.get("min_amount", defaults.get("min_amount", 1000000))),
+        ctx["input"]("最小成交量(股)", name="min_volume", type="number",
+                    value=config.get("min_volume", defaults.get("min_volume", 100000))),
+        ctx["input"]("最小价格(元)", name="min_price", type="number",
+                    value=config.get("min_price", defaults.get("min_price", 1.0))),
+        ctx["input"]("最大价格(元)", name="max_price", type="number",
+                    value=config.get("max_price", defaults.get("max_price", 1000.0))),
+        ctx["input"]("价格跳变阈值(%)", name="max_price_change_pct", type="number",
+                    value=config.get("max_price_change_pct", defaults.get("max_price_change_pct", 20.0))),
+        ctx["put_html"]("<div style='margin:12px 0;padding:8px;background:#f0f9ff;border-radius:4px;font-size:12px;color:#0369a1;'><strong>⏱️ 时间跨度处理配置</strong><br>用于处理不连续的历史行情数据</div>"),
+        ctx["input"]("正常时间间隔(秒)", name="normal_time_interval", type="number",
+                    value=config.get("normal_time_interval", defaults.get("normal_time_interval", 5.0)),
+                    help_text="正常的数据间隔，如5秒tick数据填5"),
+        ctx["input"]("最大允许时间间隔(秒)", name="max_time_gap", type="number",
+                    value=config.get("max_time_gap", defaults.get("max_time_gap", 300.0)),
+                    help_text="超过此间隔视为不连续数据，默认5分钟"),
+        ctx["checkbox"]("时间跨度调整", name="time_gap_options", options=[
+            {"label": "根据时间跨度自动调整阈值", "value": "time_gap_adjustment", "selected": config.get("time_gap_adjustment", defaults.get("time_gap_adjustment", True))},
+        ]),
+        ctx["put_html"]("<div style='margin:12px 0;padding:8px;background:#f0fdf4;border-radius:4px;font-size:12px;color:#166534;'><strong>📊 其他检测配置</strong></div>"),
+        ctx["input"]("横盘振幅阈值(%)", name="flat_threshold", type="number",
+                    value=config.get("flat_threshold", defaults.get("flat_threshold", 0.5))),
+        ctx["input"]("横盘连续帧数", name="flat_consecutive_frames", type="number",
+                    value=config.get("flat_consecutive_frames", defaults.get("flat_consecutive_frames", 10))),
+        ctx["input"]("对敲量增倍数", name="wash_trading_volume_ratio", type="number",
+                    value=config.get("wash_trading_volume_ratio", defaults.get("wash_trading_volume_ratio", 3.0))),
+        ctx["input"]("对敲价格变动阈值(%)", name="wash_trading_price_change_max", type="number",
+                    value=config.get("wash_trading_price_change_max", defaults.get("wash_trading_price_change_max", 0.5))),
+        ctx["input"]("异常波动阈值(%)", name="abnormal_volatility_threshold", type="number",
+                    value=config.get("abnormal_volatility_threshold", defaults.get("abnormal_volatility_threshold", 10.0))),
+        ctx["checkbox"]("特殊股票过滤", name="filter_options", options=[
+            {"label": "过滤B股", "value": "filter_b_shares", "selected": config.get("filter_b_shares", defaults.get("filter_b_shares", True))},
+            {"label": "过滤ST股", "value": "filter_st", "selected": config.get("filter_st", defaults.get("filter_st", False))},
+        ]),
+        ctx["textarea"]("黑名单(逗号/换行分隔)", name="blacklist",
+                        value="\n".join(config.get("blacklist", defaults.get("blacklist", []))),
+                        help_text="强制过滤的股票代码列表"),
+        ctx["textarea"]("白名单(逗号/换行分隔)", name="whitelist",
+                        value="\n".join(config.get("whitelist", defaults.get("whitelist", []))),
+                        help_text="保护不被过滤的股票代码列表"),
+        ctx["actions"]("操作", [
+            {"label": "保存", "value": "save", "color": "primary"},
+            {"label": "恢复默认", "value": "reset", "color": "warning"},
+            {"label": "取消", "value": "cancel", "color": "default"},
+        ], name="action"),
+    ])
+
+    if form and form.get("action") == "save":
+        filter_options = form.get("filter_options", [])
+        time_gap_options = form.get("time_gap_options", [])
+        set_category_config("noise_filter", {
+            "enabled": "enabled" in form.get("enabled", []),
+            "min_amount": float(form.get("min_amount", 1000000)),
+            "min_volume": float(form.get("min_volume", 100000)),
+            "min_price": float(form.get("min_price", 1.0)),
+            "max_price": float(form.get("max_price", 1000.0)),
+            "max_price_change_pct": float(form.get("max_price_change_pct", 20.0)),
+            "normal_time_interval": float(form.get("normal_time_interval", 5.0)),
+            "max_time_gap": float(form.get("max_time_gap", 300.0)),
+            "time_gap_adjustment": "time_gap_adjustment" in time_gap_options,
+            "flat_threshold": float(form.get("flat_threshold", 0.5)),
+            "flat_consecutive_frames": int(form.get("flat_consecutive_frames", 10)),
+            "wash_trading_volume_ratio": float(form.get("wash_trading_volume_ratio", 3.0)),
+            "wash_trading_price_change_max": float(form.get("wash_trading_price_change_max", 0.5)),
+            "abnormal_volatility_threshold": float(form.get("abnormal_volatility_threshold", 10.0)),
+            "filter_b_shares": "filter_b_shares" in filter_options,
+            "filter_st": "filter_st" in filter_options,
+            "blacklist": _split_list(form.get("blacklist", "")),
+            "whitelist": _split_list(form.get("whitelist", "")),
+        })
+        ctx["toast"]("噪音过滤配置已保存", color="success")
+        ctx["close_popup"]()
+    elif form and form.get("action") == "reset":
+        reset_to_default("noise_filter")
         ctx["toast"]("已恢复默认配置", color="success")
         ctx["close_popup"]()
     elif form and form.get("action") == "cancel":

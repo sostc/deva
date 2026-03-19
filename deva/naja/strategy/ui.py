@@ -840,6 +840,9 @@ async def _open_experiment_dialog(ctx, mgr):
     form = await ctx["input_group"]("🧪 开启策略实验模式", [
         ctx["checkbox"]("策略类别（可逐项选择）", name="categories", options=category_options, value=default_categories),
         ctx["select"]("实验数据源", name="datasource_id", options=ds_options, value=default_ds_id),
+        ctx["checkbox"]("包含注意力策略", name="include_attention", options=[
+            {"label": "👁️ 同时运行注意力策略系统（5个策略）", "value": True, "selected": True}
+        ], value=[True]),
         ctx["actions"]("操作", [
             {"label": "开启并启动策略", "value": "start"},
             {"label": "取消", "value": "cancel"},
@@ -851,7 +854,8 @@ async def _open_experiment_dialog(ctx, mgr):
 
     categories_selected = form.get("categories", []) or []
     datasource_id = form.get("datasource_id", "")
-    result = mgr.start_experiment(categories=categories_selected, datasource_id=datasource_id)
+    include_attention = bool(form.get("include_attention", [True]))
+    result = mgr.start_experiment(categories=categories_selected, datasource_id=datasource_id, include_attention=include_attention)
 
     if result.get("success"):
         if result.get("datasource_started"):
@@ -859,10 +863,22 @@ async def _open_experiment_dialog(ctx, mgr):
             ctx["toast"](f"已自动启动数据源：{ds_name}", color="info")
         failed_switch = len(result.get("failed_switch", []))
         failed_start = len(result.get("failed_start", []))
+        
+        # 构建成功消息
+        msg_parts = []
+        if result.get("target_count", 0) > 0:
+            msg_parts.append(f"原有策略 {result['target_count']} 个")
+        if result.get("include_attention"):
+            msg_parts.append(f"注意力策略 5 个")
+        
+        msg = "实验模式已开启"
+        if msg_parts:
+            msg += "：" + "、".join(msg_parts)
+        
         if failed_switch or failed_start:
-            ctx["toast"](f"实验模式已开启，切换失败 {failed_switch} 个，启动失败 {failed_start} 个", color="warning")
+            ctx["toast"](f"{msg}，切换失败 {failed_switch} 个，启动失败 {failed_start} 个", color="warning")
         else:
-            ctx["toast"]("实验模式已开启，策略已切换到新数据源并启动", color="success")
+            ctx["toast"](msg, color="success")
         _render_strategy_content(ctx)
         return
 

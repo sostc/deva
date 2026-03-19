@@ -1,0 +1,67 @@
+# Naja Attention Scheduling System 配置文件
+# 放置路径: ~/.naja/attention_config.yaml
+
+# 主开关
+enabled: true
+
+# 全局注意力配置
+global_history_window: 20
+
+# 板块注意力配置
+max_sectors: 100
+sector_decay_half_life: 300.0
+
+# 权重池配置
+max_symbols: 5000
+
+# 频率调度配置
+low_interval: 60.0
+medium_interval: 10.0
+high_interval: 1.0
+
+# 双引擎配置
+river_history_window: 20
+pytorch_max_concurrent: 10
+pytorch_batch_size: 32
+
+# 噪音过滤配置
+noise_filter:
+  # 主开关
+  enabled: true
+  
+  # 流动性阈值
+  min_amount: 1000000          # 最小成交金额（元），低于此值视为噪音
+  min_volume: 100000           # 最小成交量（股），低于此值视为噪音
+  min_price: 1.0               # 最小价格
+  max_price: 1000.0            # 最大价格（防止除权异常）
+  
+  # 价格异常阈值
+  max_price_change_pct: 20.0   # 最大价格变动%（跳变检测）
+  flat_threshold: 0.5          # 横盘振幅阈值%，低于此值视为横盘
+  flat_consecutive_frames: 10  # 连续横盘帧数（5秒*10=50秒）
+  
+  # 交易行为阈值
+  wash_trading_volume_ratio: 3.0      # 成交量突增倍数（对敲检测）
+  wash_trading_price_change_max: 0.5  # 对敲时最大价格变动%
+  abnormal_volatility_threshold: 10.0 # 异常波动阈值%
+  
+  # 特殊股票过滤
+  filter_b_shares: true        # 过滤B股（如南玻Ｂ）
+  filter_st: false             # 不过滤ST股（可能有机会）
+  
+  # 黑白名单
+  blacklist:                   # 强制过滤的股票代码
+    # - "200012"               # 南玻Ｂ示例
+    # - "200413"               # 东旭Ｂ示例
+  
+  whitelist:                   # 保护不被过滤的股票代码
+    # - "000001"               # 平安银行示例
+    # - "000002"               # 万科A示例
+
+# 监控配置
+enable_monitoring: true
+report_interval: 60.0
+
+# 调试配置
+debug_mode: false
+log_level: INFO

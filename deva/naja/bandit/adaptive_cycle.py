@@ -69,15 +69,30 @@ class AdaptiveCycle:
     def _restore_running_state(self):
         """恢复运行状态，重新追踪已持仓的股票"""
         try:
+            log.info("=== 开始恢复 Bandit 自适应循环状态 ===")
+            
+            # 1. 恢复持仓追踪
             positions = self._portfolio.get_all_positions(status="OPEN")
             for pos in positions:
                 self._market_observer.track_stock(pos.stock_code)
-            log.info(f"已恢复持仓追踪，{len(positions)} 个持仓")
+            log.info(f"✓ 已恢复持仓追踪，{len(positions)} 个持仓")
             
-            self._signal_listener.start()
-            self._market_observer.start()
+            # 2. 启动信号监听器（如果之前是运行状态）
+            if self._signal_listener._running:
+                self._signal_listener.start()
+                log.info("✓ SignalListener 已自动启动")
             
-            log.info("自适应循环已自动恢复运行")
+            # 3. 启动市场观察器（如果之前是运行状态）
+            if self._market_observer._running:
+                self._market_observer.start()
+                log.info("✓ MarketDataObserver 已自动启动")
+            
+            # 4. 启动 BanditAutoRunner（如果之前是运行状态）
+            if self._runner._running:
+                self._runner.start()
+                log.info("✓ BanditAutoRunner 已自动启动")
+            
+            log.info("=== Bandit 自适应循环状态恢复完成 ===")
         except Exception as e:
             log.error(f"恢复运行状态失败: {e}")
     
@@ -110,23 +125,39 @@ class AdaptiveCycle:
     
     def _setup_callbacks(self):
         """设置回调"""
-        
+
+        # 使用实例属性存储回调函数，避免重复注册
+        if not hasattr(self, '_callbacks_registered'):
+            self._callbacks_registered = False
+
+        if self._callbacks_registered:
+            log.info("[AdaptiveCycle] ⏭️ 回调已注册，跳过")
+            return
+
+        log.info("[AdaptiveCycle] 🔧 开始注册回调...")
+
         def on_signal(signal: DetectedSignal):
             if self._auto_buy_enabled:
                 self._on_new_signal(signal)
-        
+
         self._signal_listener.register_callback(on_signal)
-        
+        log.info(f"[AdaptiveCycle] ✅ SignalListener 回调已注册，当前回调数: {len(self._signal_listener._callbacks)}")
+
         def on_price_update(stock_code: str, price: float):
-            log.info(f"[AdaptiveCycle] 收到价格更新: {stock_code} @ {price}")
+            log.info(f"[AdaptiveCycle] 📈 收到价格更新: {stock_code} @ {price}")
             self._on_price_update(stock_code, price)
-        
+
         self._market_observer.register_price_callback(on_price_update)
-        
+        log.info(f"[AdaptiveCycle] ✅ MarketObserver 价格回调已注册，当前回调数: {len(self._market_observer._price_callbacks)}")
+
         def on_position_close(position_id: str, position: VirtualPosition, reason: str):
             self._on_position_closed(position_id, position, reason)
-        
+
         self._portfolio.register_close_callback(on_position_close)
+        log.info(f"[AdaptiveCycle] ✅ Portfolio 平仓回调已注册")
+
+        self._callbacks_registered = True
+        log.info("[AdaptiveCycle] 🎉 所有回调注册完成")
     
     def _on_new_signal(self, signal: DetectedSignal):
         """处理新信号"""
@@ -149,7 +180,7 @@ class AdaptiveCycle:
             return
         
         log.info(f"[AdaptiveCycle] ✅ 准备创建持仓: {signal.stock_code} @ {signal.price}")
-        
+
         position = self._portfolio.open_position(
             strategy_id=signal.strategy_id,
             strategy_name=signal.strategy_name,
@@ -158,7 +189,8 @@ class AdaptiveCycle:
             price=signal.price,
             amount=10000,
             stop_loss_pct=-5.0,
-            take_profit_pct=10.0
+            take_profit_pct=10.0,
+            market_time=signal.market_time
         )
         
         if position:
@@ -176,10 +208,13 @@ class AdaptiveCycle:
     
     def _on_price_update(self, stock_code: str, price: float):
         """处理价格更新"""
+        log.info(f"[AdaptiveCycle] 📈 收到价格更新: {stock_code} @ {price}")
+        
         closed = self._portfolio.update_price(stock_code, price)
+        log.info(f"[AdaptiveCycle] 📊 止盈止损检查完成，平仓数量: {len(closed)}")
         
         for close_info in closed:
-            log.info(f"自适应循环: 触发止盈止损平仓 {stock_code} @ {price}")
+            log.info(f"[AdaptiveCycle] 💰 触发止盈止损平仓 {stock_code} @ {price}")
     
     def _on_position_closed(self, position_id: str, position: VirtualPosition, reason: str):
         """处理持仓平仓"""
@@ -202,12 +237,16 @@ class AdaptiveCycle:
         if self._running:
             log.warning("AdaptiveCycle 已在运行")
             return
-        
+
         self._running = True
-        
+        self._save_config()  # 保存运行状态
+
+        # 重新设置回调（确保 MarketObserver 的回调已注册）
+        self._setup_callbacks()
+
         self._signal_listener.start()
         self._market_observer.start()
-        
+
         log.info("自适应循环已启动")
     
     def stop(self):
@@ -216,6 +255,7 @@ class AdaptiveCycle:
             return
         
         self._running = False
+        self._save_config()  # 保存运行状态
         
         self._signal_listener.stop()
         self._market_observer.stop()
@@ -267,7 +307,9 @@ class AdaptiveCycle:
                 "profit_loss": p.profit_loss,
                 "holding_seconds": p.holding_seconds,
                 "stop_loss": p.stop_loss,
-                "take_profit": p.take_profit
+                "take_profit": p.take_profit,
+                "market_time": p.market_time,
+                "entry_time": p.entry_time
             }
             for p in positions
         ]
@@ -275,7 +317,7 @@ class AdaptiveCycle:
     def get_history(self, limit: int = 50) -> List[dict]:
         """获取历史持仓"""
         positions = self._portfolio.get_all_positions(status="CLOSED")
-        positions.sort(key=lambda x: x.last_update_time, reverse=True)
+        positions.sort(key=lambda x: x.exit_time or x.last_update_time, reverse=True)
         return [
             {
                 "position_id": p.position_id,
@@ -283,13 +325,17 @@ class AdaptiveCycle:
                 "stock_code": p.stock_code,
                 "stock_name": p.stock_name,
                 "entry_price": p.entry_price,
+                "exit_price": p.exit_price,
                 "current_price": p.current_price,
                 "quantity": p.quantity,
                 "return_pct": p.return_pct,
                 "profit_loss": p.profit_loss,
                 "holding_seconds": p.holding_seconds,
                 "entry_time": p.entry_time,
-                "last_update_time": p.last_update_time
+                "exit_time": p.exit_time,
+                "last_update_time": p.last_update_time,
+                "close_reason": p.close_reason,  # 平仓原因
+                "market_time": p.market_time
             }
             for p in positions[:limit]
         ]

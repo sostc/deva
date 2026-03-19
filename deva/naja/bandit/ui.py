@@ -15,6 +15,52 @@ def set_auto_refresh(enabled: bool):
     _auto_refresh_enabled = enabled
 
 
+def _get_close_reason_display(reason: str) -> str:
+    """获取平仓原因的显示文本"""
+    reason_map = {
+        "STOP_LOSS": "<span style='color:red;font-weight:bold;'>🔻 止损</span>",
+        "TAKE_PROFIT": "<span style='color:green;font-weight:bold;'>🔺 止盈</span>",
+        "MANUAL": "<span style='color:gray;'>手动</span>",
+        "FORCE": "<span style='color:orange;'>强制</span>",
+        "": "<span style='color:gray;'>-</span>"
+    }
+    return reason_map.get(reason, f"<span style='color:gray;'>{reason}</span>")
+
+
+def _get_experiment_banner_html() -> str:
+    """获取实验模式提示横幅的 HTML"""
+    try:
+        from deva.naja.strategy import get_strategy_manager
+        mgr = get_strategy_manager()
+        exp_info = mgr.get_experiment_info()
+        
+        if not exp_info.get("active"):
+            return ""
+        
+        # 获取数据源名称
+        from deva.naja.datasource import get_datasource_manager
+        ds_mgr = get_datasource_manager()
+        ds_mgr.load_from_db()
+        ds_id = exp_info.get("datasource_id", "")
+        ds_entry = ds_mgr.get(ds_id)
+        ds_name = ds_entry.name if ds_entry else ds_id[:8] + "..."
+        
+        categories = exp_info.get("categories", [])
+        categories_text = "、".join(categories) if categories else "-"
+        target_count = int(exp_info.get("target_count", 0))
+        
+        return f"""
+        <div style="margin-bottom:14px;padding:12px 14px;border-radius:10px;
+                    background:linear-gradient(135deg,#fff3cd,#ffe8a1);
+                    border:1px solid #f5d37a;color:#7a5a00;font-size:13px;">
+            <strong>🧪 实验模式已开启</strong><br>
+            类别：{categories_text} ｜ 数据源：{ds_name} ｜ 策略数：{target_count}
+        </div>
+        """
+    except Exception:
+        return ""
+
+
 async def render_bandit_admin(ctx: dict):
     """渲染 Bandit 管理页面"""
     
@@ -40,6 +86,11 @@ async def render_bandit_admin(ctx: dict):
     
     with use_scope("bandit_header"):
         put_html("<h2>🎰 Bandit 自适应交易系统</h2>")
+        
+        # 显示实验模式提示
+        experiment_banner = _get_experiment_banner_html()
+        if experiment_banner:
+            put_html(experiment_banner)
         
         try:
             render_help_collapse("bandit")
@@ -69,7 +120,7 @@ async def render_bandit_admin(ctx: dict):
             ]),
             put_column([
                 put_html("<b>市场观察</b>"),
-                put_text(f"更新间隔: {status['market_observer']['update_interval']}s"),
+                put_text(f"模式: 被动订阅"),
                 put_text(f"跟踪股票: {len(status['market_observer']['tracked_stocks'])}"),
                 put_text(f"最新价格: {len(status['market_observer']['prices'])}"),
             ]),
@@ -97,7 +148,7 @@ async def render_bandit_admin(ctx: dict):
     if positions:
         put_text("")
         put_html("<h4>当前持仓</h4>")
-        
+
         html = """<table style='width:100%;border-collapse:collapse;font-size:14px;'>
         <tr style='background:#f0f0f0;'>
             <th style='padding:8px;border:1px solid #ddd;'>股票名称</th>
@@ -106,11 +157,25 @@ async def render_bandit_admin(ctx: dict):
             <th style='padding:8px;border:1px solid #ddd;'>现价</th>
             <th style='padding:8px;border:1px solid #ddd;'>收益率</th>
             <th style='padding:8px;border:1px solid #ddd;'>盈亏</th>
+            <th style='padding:8px;border:1px solid #ddd;'>止盈价</th>
+            <th style='padding:8px;border:1px solid #ddd;'>止损价</th>
+            <th style='padding:8px;border:1px solid #ddd;'>买入时间</th>
             <th style='padding:8px;border:1px solid #ddd;'>持仓时间</th>
         </tr>"""
-        
+
         for p in positions:
             color = "green" if p['return_pct'] > 0 else "red"
+            # 获取止盈止损价格
+            stop_loss = p.get('stop_loss', 0)
+            take_profit = p.get('take_profit', 0)
+            stop_loss_str = f"¥{stop_loss:.2f}" if stop_loss > 0 else "-"
+            take_profit_str = f"¥{take_profit:.2f}" if take_profit > 0 else "-"
+            # 获取买入时间（优先使用行情时间）
+            market_time = p.get('market_time', 0)
+            entry_time = p.get('entry_time', 0)
+            buy_time = market_time if market_time > 0 else entry_time
+            buy_time_str = datetime.fromtimestamp(buy_time).strftime("%m-%d %H:%M") if buy_time > 0 else "-"
+
             html += f"""<tr>
                 <td style='padding:8px;border:1px solid #ddd;'>{p['stock_name']}</td>
                 <td style='padding:8px;border:1px solid #ddd;'>{p['stock_code']}</td>
@@ -118,18 +183,29 @@ async def render_bandit_admin(ctx: dict):
                 <td style='padding:8px;border:1px solid #ddd;'>¥{p['current_price']:.2f}</td>
                 <td style='padding:8px;border:1px solid #ddd;color:{color};font-weight:bold;'>{p['return_pct']:.2f}%</td>
                 <td style='padding:8px;border:1px solid #ddd;color:{color};'>¥{p['profit_loss']:.2f}</td>
+                <td style='padding:8px;border:1px solid #ddd;color:green;'>{take_profit_str}</td>
+                <td style='padding:8px;border:1px solid #ddd;color:red;'>{stop_loss_str}</td>
+                <td style='padding:8px;border:1px solid #ddd;'>{buy_time_str}</td>
                 <td style='padding:8px;border:1px solid #ddd;'>{p['holding_seconds'] / 3600:.1f}h</td>
             </tr>"""
-        
+
         html += "</table>"
         put_html(html)
+        
+        # 添加止盈止损说明
+        put_html("""
+        <div style='margin-top:8px;font-size:12px;color:#666;'>
+            <span style='color:green;'>▲ 止盈价</span> - 达到此价格自动卖出获利 | 
+            <span style='color:red;'>▼ 止损价</span> - 跌破此价格自动卖出止损
+        </div>
+        """)
     else:
         put_text("暂无持仓")
     
     if history:
         put_text("")
         put_html("<h4>历史平仓记录</h4>")
-        
+
         html = """<table style='width:100%;border-collapse:collapse;font-size:14px;'>
         <tr style='background:#f0f0f0;'>
             <th style='padding:8px;border:1px solid #ddd;'>股票名称</th>
@@ -138,21 +214,37 @@ async def render_bandit_admin(ctx: dict):
             <th style='padding:8px;border:1px solid #ddd;'>出场价</th>
             <th style='padding:8px;border:1px solid #ddd;'>收益率</th>
             <th style='padding:8px;border:1px solid #ddd;'>盈亏</th>
-            <th style='padding:8px;border:1px solid #ddd;'>时间</th>
+            <th style='padding:8px;border:1px solid #ddd;'>买入时间</th>
+            <th style='padding:8px;border:1px solid #ddd;'>平仓原因</th>
+            <th style='padding:8px;border:1px solid #ddd;'>平仓时间</th>
         </tr>"""
-        
+
         for h in history:
             color = "green" if h['return_pct'] > 0 else "red"
+            # 使用 exit_price 作为出场价，如果没有则使用 current_price
+            exit_price = h.get('exit_price', 0) or h['current_price']
+            # 使用 exit_time 作为平仓时间，如果没有则使用 last_update_time
+            exit_time = h.get('exit_time', 0) or h['last_update_time']
+            # 获取平仓原因
+            close_reason = h.get('close_reason', '')
+            reason_display = _get_close_reason_display(close_reason)
+            # 获取买入时间（优先使用行情时间）
+            market_time = h.get('market_time', 0)
+            entry_time = h.get('entry_time', 0)
+            buy_time = market_time if market_time > 0 else entry_time
+            buy_time_str = datetime.fromtimestamp(buy_time).strftime("%m-%d %H:%M") if buy_time > 0 else "-"
             html += f"""<tr>
                 <td style='padding:8px;border:1px solid #ddd;'>{h['stock_name']}</td>
                 <td style='padding:8px;border:1px solid #ddd;'>{h['stock_code']}</td>
                 <td style='padding:8px;border:1px solid #ddd;'>¥{h['entry_price']:.2f}</td>
-                <td style='padding:8px;border:1px solid #ddd;'>¥{h['current_price']:.2f}</td>
+                <td style='padding:8px;border:1px solid #ddd;'>¥{exit_price:.2f}</td>
                 <td style='padding:8px;border:1px solid #ddd;color:{color};font-weight:bold;'>{h['return_pct']:.2f}%</td>
                 <td style='padding:8px;border:1px solid #ddd;color:{color};'>¥{h['profit_loss']:.2f}</td>
-                <td style='padding:8px;border:1px solid #ddd;'>{datetime.fromtimestamp(h['entry_time']).strftime("%m-%d %H:%M")}</td>
+                <td style='padding:8px;border:1px solid #ddd;'>{buy_time_str}</td>
+                <td style='padding:8px;border:1px solid #ddd;'>{reason_display}</td>
+                <td style='padding:8px;border:1px solid #ddd;'>{datetime.fromtimestamp(exit_time).strftime("%m-%d %H:%M")}</td>
             </tr>"""
-        
+
         html += "</table>"
         put_html(html)
     
