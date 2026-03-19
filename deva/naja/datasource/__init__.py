@@ -814,6 +814,17 @@ class DataSourceEntry(RecoverableUnit):
                     description=f"DataSource {self.name} output",
                 )
 
+            # 发送数据到注意力调度中心（如果是 DataFrame 格式）
+            try:
+                import pandas as pd
+                if isinstance(data, pd.DataFrame):
+                    from ..attention_orchestrator import get_orchestrator
+                    orchestrator = get_orchestrator()
+                    orchestrator.process_datasource_data(self.name, data)
+            except Exception as e:
+                # 注意力系统处理失败不影响正常数据流
+                pass
+
             # 发送数据
             if hasattr(self._stream, "emit"):
                 if is_batch and isinstance(data, list):

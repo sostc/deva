@@ -34,6 +34,7 @@ class DetectedSignal:
     confidence: float
     timestamp: float
     raw_data: Dict[str, Any] = field(default_factory=dict)
+    market_time: float = 0.0  # 行情数据时间
 
 
 class SignalListener:
@@ -72,6 +73,11 @@ class SignalListener:
             if config:
                 self._poll_interval = config.get("poll_interval", 2.0)
                 self._min_confidence = config.get("min_confidence", 0.6)
+                # 恢复运行状态
+                was_running = config.get("was_running", False)
+                if was_running:
+                    self._running = True
+                    log.info("检测到 SignalListener 上次运行中，将自动恢复")
         except Exception:
             pass
     
@@ -81,7 +87,8 @@ class SignalListener:
             db = NB(SIGNAL_CONFIG_TABLE)
             db["listener_config"] = {
                 "poll_interval": self._poll_interval,
-                "min_confidence": self._min_confidence
+                "min_confidence": self._min_confidence,
+                "was_running": self._running  # 保存运行状态
             }
         except Exception:
             pass
@@ -98,7 +105,7 @@ class SignalListener:
     
     def start(self):
         """启动监听"""
-        if self._running:
+        if self._running and self._thread and self._thread.is_alive():
             log.warning("SignalListener 已在运行")
             return
         
@@ -107,6 +114,8 @@ class SignalListener:
         
         self._thread = threading.Thread(target=self._run_loop, daemon=True)
         self._thread.start()
+        
+        self._save_config()  # 保存运行状态
         
         log.info(f"SignalListener 已启动 (轮询间隔: {self._poll_interval}s)")
     
@@ -120,6 +129,8 @@ class SignalListener:
         
         if self._thread:
             self._thread.join(timeout=5)
+        
+        self._save_config()  # 保存运行状态
         
         log.info("SignalListener 已停止")
     
@@ -197,6 +208,7 @@ class SignalListener:
             price = 0.0
             confidence = 0.7
             signal_type = "BUY"
+            market_time = 0.0
             
             if 'picks' in signal_data and isinstance(signal_data['picks'], list) and signal_data['picks']:
                 picks = signal_data['picks']
@@ -228,6 +240,9 @@ class SignalListener:
             if not stock_code:
                 return None
             
+            # 提取行情时间
+            market_time = self._extract_market_time(signal_data, result.ts)
+            
             return DetectedSignal(
                 signal_id=result.id,
                 strategy_id=result.strategy_id,
@@ -238,12 +253,68 @@ class SignalListener:
                 price=price,
                 confidence=confidence,
                 timestamp=result.ts,
-                raw_data=signal_data
+                raw_data=signal_data,
+                market_time=market_time
             )
             
         except Exception as e:
             log.debug(f"解析信号失败: {e}")
             return None
+    
+    def _extract_market_time(self, data: Dict[str, Any], default_ts: float) -> float:
+        """提取行情数据时间
+        
+        尝试从多个可能的字段中提取行情时间：
+        - data_time: 行情数据时间
+        - datetime: 日期时间
+        - timestamp: 时间戳
+        - market_time: 市场时间
+        """
+        try:
+            # 尝试直接获取时间戳字段
+            for key in ['data_time', 'timestamp', 'market_time', 'ts']:
+                if key in data:
+                    value = data[key]
+                    if isinstance(value, (int, float)) and value > 1000000000:
+                        return float(value)
+            
+            # 尝试解析 datetime 字符串
+            for key in ['datetime', 'time', 'date']:
+                if key in data:
+                    value = data[key]
+                    if isinstance(value, str):
+                        try:
+                            from datetime import datetime
+                            # 尝试多种格式
+                            for fmt in ['%Y-%m-%d %H:%M:%S', '%Y%m%d%H%M%S', '%H:%M:%S']:
+                                try:
+                                    dt = datetime.strptime(value, fmt)
+                                    # 如果是只有时间格式，使用当前日期
+                                    if fmt == '%H:%M:%S':
+                                        from datetime import datetime as dt2
+                                        now = dt2.now()
+                                        dt = dt.replace(year=now.year, month=now.month, day=now.day)
+                                    return dt.timestamp()
+                                except ValueError:
+                                    continue
+                        except Exception:
+                            pass
+            
+            # 如果从 picks 中获取，尝试第一个 pick 的时间字段
+            if 'picks' in data and isinstance(data['picks'], list) and data['picks']:
+                top_pick = data['picks'][0]
+                for key in ['data_time', 'timestamp', 'market_time', 'ts']:
+                    if key in top_pick:
+                        value = top_pick[key]
+                        if isinstance(value, (int, float)) and value > 1000000000:
+                            return float(value)
+            
+            # 如果都没有找到，使用默认时间戳
+            return default_ts
+            
+        except Exception as e:
+            log.debug(f"提取行情时间失败: {e}")
+            return default_ts
     
     def _extract_stock_code(self, data: Dict[str, Any]) -> str:
         """提取股票代码"""

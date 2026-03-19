@@ -34,6 +34,10 @@ class VirtualPosition:
     status: str = "OPEN"
     stop_loss: float = 0.0
     take_profit: float = 0.0
+    exit_price: float = 0.0
+    exit_time: float = 0.0
+    close_reason: str = ""  # 平仓原因: STOP_LOSS, TAKE_PROFIT, MANUAL, FORCE
+    market_time: float = 0.0  # 行情数据时间（买入时的行情时间）
     
     @property
     def return_pct(self) -> float:
@@ -146,6 +150,7 @@ class VirtualPortfolio:
         amount: float = 0.0,
         stop_loss_pct: float = -5.0,
         take_profit_pct: float = 10.0,
+        market_time: float = 0.0,
     ) -> Optional[VirtualPosition]:
         """开仓（虚拟买入）
         
@@ -203,7 +208,8 @@ class VirtualPortfolio:
                 last_update_time=entry_time,
                 status="OPEN",
                 stop_loss=price * (1 + stop_loss_pct / 100),
-                take_profit=price * (1 + take_profit_pct / 100)
+                take_profit=price * (1 + take_profit_pct / 100),
+                market_time=market_time if market_time > 0 else entry_time
             )
             
             self._positions[position_id] = position
@@ -217,24 +223,29 @@ class VirtualPortfolio:
     
     def update_price(self, stock_code: str, current_price: float) -> List[dict]:
         """更新持仓价格
-        
+
         Args:
             stock_code: 股票代码
             current_price: 当前价格
-            
+
         Returns:
             List[dict]: 触发止盈止损的平仓列表
         """
+        log.info(f"[VirtualPortfolio] 📈 update_price 被调用: {stock_code} @ {current_price}")
+
         with self._lock:
             closed = []
-            
-            for pos_id, position in self._positions.items():
-                if position.stock_code != stock_code or position.status != "OPEN":
-                    continue
-                
+            matching_positions = [(pos_id, pos) for pos_id, pos in self._positions.items()
+                                  if pos.stock_code == stock_code and pos.status == "OPEN"]
+
+            log.info(f"[VirtualPortfolio] 🔍 找到 {len(matching_positions)} 个匹配的持仓")
+
+            for pos_id, position in matching_positions:
                 old_price = position.current_price
                 position.current_price = current_price
                 position.last_update_time = time.time()
+
+                log.info(f"[VirtualPortfolio] 💰 更新持仓 {pos_id}: {stock_code} {old_price} -> {current_price}")
                 
                 for callback in self._position_callbacks:
                     try:
@@ -277,9 +288,12 @@ class VirtualPortfolio:
             if not position or position.status != "OPEN":
                 return None
             
+            position.exit_price = exit_price
             position.current_price = exit_price
             position.status = "CLOSED"
-            
+            position.exit_time = time.time()
+            position.close_reason = reason  # 记录平仓原因
+
             self._used_capital -= position.entry_price * position.quantity
             
             for callback in self._close_callbacks:

@@ -15,6 +15,40 @@ def _fmt_ts(ts: float) -> str:
     return datetime.fromtimestamp(ts).strftime("%Y-%m-%d %H:%M:%S")
 
 
+def _get_experiment_banner_html() -> str:
+    """获取实验模式提示横幅的 HTML"""
+    try:
+        from deva.naja.strategy import get_strategy_manager
+        mgr = get_strategy_manager()
+        exp_info = mgr.get_experiment_info()
+
+        if not exp_info.get("active"):
+            return ""
+
+        # 获取数据源名称
+        from deva.naja.datasource import get_datasource_manager
+        ds_mgr = get_datasource_manager()
+        ds_mgr.load_from_db()
+        ds_id = exp_info.get("datasource_id", "")
+        ds_entry = ds_mgr.get(ds_id)
+        ds_name = ds_entry.name if ds_entry else ds_id[:8] + "..."
+
+        categories = exp_info.get("categories", [])
+        categories_text = "、".join(categories) if categories else "-"
+        target_count = int(exp_info.get("target_count", 0))
+
+        return f"""
+        <div style="margin-bottom:14px;padding:12px 14px;border-radius:10px;
+                    background:linear-gradient(135deg,#fff3cd,#ffe8a1);
+                    border:1px solid #f5d37a;color:#7a5a00;font-size:13px;">
+            <strong>🧪 实验模式已开启</strong><br>
+            类别：{categories_text} ｜ 数据源：{ds_name} ｜ 策略数：{target_count}
+        </div>
+        """
+    except Exception:
+        return ""
+
+
 def _render_event_type_badge(event_type: str) -> str:
     """渲染事件类型徽章"""
     badges = {
@@ -58,6 +92,11 @@ def _render_radar_help():
 async def render_radar_admin(ctx: dict):
     set_scope("radar_content")
     apply_strategy_like_styles(ctx, scope="radar_content", include_compact_table=True)
+
+    # 显示实验模式提示
+    experiment_banner = _get_experiment_banner_html()
+    if experiment_banner:
+        ctx["put_html"](experiment_banner, scope="radar_content")
 
     radar = get_radar_engine()
     summary = radar.summarize(window_seconds=600)

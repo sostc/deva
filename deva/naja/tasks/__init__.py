@@ -777,9 +777,8 @@ class TaskManager:
         }
 
     def _log(self, level: str, message: str, **extra):
-        ts = time.strftime("%Y-%m-%d %H:%M:%S")
         extra_str = " ".join([f"{k}={v}" for k, v in extra.items()])
-        print(f"[{ts}][TaskManager][{level}] {message} | {extra_str}")
+        print(f"[TaskManager][{level}] {message} | {extra_str}")
 
 
 _task_manager: Optional[TaskManager] = None

@@ -135,6 +135,43 @@ class NajaSupervisor:
         except Exception as e:
             log.error(f"自动调优启动失败: {e}")
         
+        # 启动注意力系统
+        try:
+            from .attention_config import load_config
+            from .attention_integration import initialize_attention_system
+            
+            # 加载配置
+            attention_config = load_config()
+            
+            if attention_config.enabled:
+                # 转换为 AttentionSystemConfig
+                config = attention_config.to_attention_system_config()
+                attention_system = initialize_attention_system(config)
+                self._components['attention'] = attention_system
+                log.info(f"注意力调度系统已启动: {attention_config}")
+                
+                # 启动注意力策略系统
+                try:
+                    from naja_attention_strategies import setup_attention_strategies
+                    strategy_manager = setup_attention_strategies()
+                    self._components['attention_strategy_manager'] = strategy_manager
+                    log.info("注意力策略系统已启动")
+                except Exception as se:
+                    log.error(f"注意力策略系统启动失败: {se}")
+                
+                # 启动报告生成器
+                try:
+                    from .attention.report_generator import start_report_generator
+                    report_generator = start_report_generator()
+                    self._components['attention_report_generator'] = report_generator
+                    log.info("注意力报告生成器已启动")
+                except Exception as re:
+                    log.error(f"注意力报告生成器启动失败: {re}")
+            else:
+                log.info("注意力调度系统已禁用（通过配置）")
+        except Exception as e:
+            log.error(f"注意力调度系统启动失败: {e}")
+        
         log.info("系统监控已启动")
     
     def stop_monitoring(self):
@@ -142,6 +179,15 @@ class NajaSupervisor:
         self._running = False
         if self._monitor_thread:
             self._monitor_thread.join(timeout=5)
+        
+        # 停止报告生成器
+        try:
+            from .attention.report_generator import stop_report_generator
+            stop_report_generator()
+            log.info("注意力报告生成器已停止")
+        except:
+            pass
+        
         log.info("系统监控已停止")
     
     def _monitor_loop(self):

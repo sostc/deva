@@ -53,6 +53,11 @@ class BanditAutoRunner:
                 self._select_interval = config.get("select_interval", 60)
                 self._adjust_interval = config.get("adjust_interval", 300)
                 self._enabled = config.get("enabled", True)
+                # 恢复运行状态
+                was_running = config.get("was_running", False)
+                if was_running and self._enabled:
+                    self._running = True
+                    log.info("检测到 BanditAutoRunner 上次运行中，将自动恢复")
         except Exception:
             pass
     
@@ -63,14 +68,15 @@ class BanditAutoRunner:
             db["auto_config"] = {
                 "select_interval": self._select_interval,
                 "adjust_interval": self._adjust_interval,
-                "enabled": self._enabled
+                "enabled": self._enabled,
+                "was_running": self._running  # 保存运行状态
             }
         except Exception:
             pass
     
     def start(self):
         """启动自动运行"""
-        if self._running:
+        if self._running and self._thread and self._thread.is_alive():
             log.warning("BanditAutoRunner 已在运行中")
             return
         
@@ -79,6 +85,8 @@ class BanditAutoRunner:
         
         self._thread = threading.Thread(target=self._run_loop, daemon=True)
         self._thread.start()
+        
+        self._save_config()  # 保存运行状态
         
         log.info(f"BanditAutoRunner 已启动 (选择间隔: {self._select_interval}s, 调节间隔: {self._adjust_interval}s)")
     
@@ -92,6 +100,8 @@ class BanditAutoRunner:
         
         if self._thread:
             self._thread.join(timeout=5)
+        
+        self._save_config()  # 保存运行状态
         
         log.info("BanditAutoRunner 已停止")
     

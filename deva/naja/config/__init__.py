@@ -32,6 +32,44 @@ DEFAULT_CONFIG = {
         # - "none": 不持久化结果（仅内存与流）
         "persist_mode": "summary",
     },
+    "attention": {
+        "enabled": True,
+        "global_history_window": 20,
+        "max_sectors": 100,
+        "sector_decay_half_life": 300.0,
+        "max_symbols": 5000,
+        "low_interval": 60.0,
+        "medium_interval": 10.0,
+        "high_interval": 1.0,
+        "river_history_window": 20,
+        "pytorch_max_concurrent": 10,
+        "pytorch_batch_size": 32,
+        "enable_monitoring": True,
+        "report_interval": 60.0,
+        "debug_mode": False,
+        "log_level": "INFO",
+    },
+    "noise_filter": {
+        "enabled": True,
+        "min_amount": 100000,          # 降低到10万，避免过度过滤
+        "min_volume": 10000,           # 降低到1万股
+        "min_price": 0.1,              # 降低到0.1元
+        "max_price": 5000.0,           # 提高到5000元
+        "max_price_change_pct": 20.0,
+        # 时间跨度相关配置
+        "normal_time_interval": 5.0,           # 正常时间间隔（秒）
+        "max_time_gap": 300.0,                 # 最大允许时间间隔（5分钟）
+        "time_gap_adjustment": True,           # 是否根据时间跨度调整阈值
+        "flat_threshold": 0.5,
+        "flat_consecutive_frames": 10,
+        "wash_trading_volume_ratio": 3.0,
+        "wash_trading_price_change_max": 0.5,
+        "abnormal_volatility_threshold": 10.0,
+        "filter_b_shares": True,
+        "filter_st": False,
+        "blacklist": [],
+        "whitelist": [],
+    },
     "task": {
         "default_interval": 60,
         "max_concurrent": 10,
@@ -252,6 +290,16 @@ def get_auth_config() -> Dict[str, Any]:
 def get_performance_config() -> Dict[str, Any]:
     """获取性能监控配置"""
     return get_config("performance")
+
+
+def get_attention_config() -> Dict[str, Any]:
+    """获取注意力系统配置"""
+    return get_config("attention")
+
+
+def get_noise_filter_config() -> Dict[str, Any]:
+    """获取噪音过滤配置"""
+    return get_config("noise_filter")
 
 
 def ensure_auth_secret() -> str:
