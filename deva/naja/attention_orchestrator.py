@@ -80,6 +80,10 @@ class AttentionOrchestrator:
         self._processed_frames = 0
         self._filtered_frames = 0
         
+        # 日志频率控制
+        self._last_noise_log_time = 0
+        self._noise_log_interval = 60  # 每60秒打印一次噪音过滤日志
+        
         # 从 naja 配置表加载噪音过滤配置
         nf_config = get_noise_filter_config()
         
@@ -158,12 +162,14 @@ class AttentionOrchestrator:
                 queue_size = len(pytorch._pending_queue)
                 
                 if queue_size > 0:
-                    log.info(f"[PyTorchProcessor] 队列中有 {queue_size} 个待处理信号，开始处理...")
+                    # 只在队列较大时打印日志，避免频繁输出
+                    if queue_size >= 100:
+                        log.info(f"[PyTorchProcessor] 队列中有 {queue_size} 个待处理信号，开始处理...")
                     
                     # 运行异步处理
                     try:
                         results = loop.run_until_complete(pytorch.process_batch())
-                        if results:
+                        if results and len(results) >= 100:
                             log.info(f"[PyTorchProcessor] 完成 {len(results)} 个推理")
                             # 这里可以添加结果处理逻辑
                     except Exception as e:
@@ -286,6 +292,9 @@ class AttentionOrchestrator:
             return
         
         try:
+            # 检查是否需要打印日志（控制频率）
+            should_log_noise = current_time - self._last_noise_log_time >= self._noise_log_interval
+            
             # ===== 基础噪音过滤 =====
             if self._noise_filter:
                 original_count = len(data)
@@ -300,8 +309,9 @@ class AttentionOrchestrator:
                 filtered_count = original_count - len(filtered_data)
                 self._noise_filtered_count += filtered_count
                 
-                # 总是输出过滤日志，方便调试
-                log.info(f"[基础噪音过滤] 原始{original_count}条 -> 过滤后{len(filtered_data)}条 (过滤{filtered_count}条, 过滤率{filtered_count/max(original_count,1)*100:.1f}%)")
+                # 控制日志频率，每60秒打印一次
+                if should_log_noise:
+                    log.info(f"[基础噪音过滤] 原始{original_count}条 -> 过滤后{len(filtered_data)}条 (过滤{filtered_count}条, 过滤率{filtered_count/max(original_count,1)*100:.1f}%)")
                 
                 if len(filtered_data) == 0:
                     log.warning("⚠️ 基础噪音过滤后数据为空！所有股票都被过滤了")
@@ -328,8 +338,10 @@ class AttentionOrchestrator:
                 )
                 tick_filtered_count = tick_original_count - len(filtered_data)
                 
-                # 总是输出过滤日志
-                log.info(f"[Tick噪音过滤] 原始{tick_original_count}条 -> 过滤后{len(filtered_data)}条 (过滤{tick_filtered_count}条, 过滤率{tick_filtered_count/max(tick_original_count,1)*100:.1f}%)")
+                # 控制日志频率
+                if should_log_noise:
+                    log.info(f"[Tick噪音过滤] 原始{tick_original_count}条 -> 过滤后{len(filtered_data)}条 (过滤{tick_filtered_count}条, 过滤率{tick_filtered_count/max(tick_original_count,1)*100:.1f}%)")
+                    self._last_noise_log_time = current_time
                 
                 if len(filtered_data) == 0:
                     log.warning("⚠️ Tick噪音过滤后数据为空！所有股票都被过滤了")

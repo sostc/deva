@@ -65,37 +65,34 @@ def restore_bandit_state():
     import logging
     log = logging.getLogger(__name__)
     
-    log.info("=== 开始恢复 Bandit 状态 ===")
-    
-    # 1. 获取自适应循环（会自动触发各组件的恢复）
+    # 获取各组件
     cycle = get_adaptive_cycle()
-    
-    # 2. 如果 AdaptiveCycle 之前是运行状态，启动它
+    runner = get_bandit_runner()
+    listener = get_signal_listener()
+    observer = get_market_observer()
+    portfolio = get_virtual_portfolio()
+
+    # 统计需要恢复的组件
+    running_components = []
     if cycle._running:
-        log.info("AdaptiveCycle 之前处于运行状态，正在恢复...")
+        running_components.append("AdaptiveCycle")
+    if runner._running:
+        running_components.append("BanditAutoRunner")
+    if listener._running:
+        running_components.append("SignalListener")
+    if observer._running:
+        running_components.append("MarketDataObserver")
+
+    if running_components:
+        log.info(f"🎯 恢复 Bandit: {', '.join(running_components)}")
+
+    # 恢复各组件（cycle 会自动触发其他组件恢复）
+    if cycle._running:
         cycle._restore_running_state()
     else:
-        log.info("AdaptiveCycle 之前未运行，跳过恢复")
-    
-    # 3. 获取并恢复 BanditAutoRunner
-    runner = get_bandit_runner()
-    if runner._running:
-        log.info("BanditAutoRunner 之前处于运行状态，正在启动...")
-        runner.start()
-    
-    # 4. 获取并恢复 SignalListener
-    listener = get_signal_listener()
-    if listener._running:
-        log.info("SignalListener 之前处于运行状态，正在启动...")
-        listener.start()
-    
-    # 5. 获取并恢复 MarketDataObserver
-    observer = get_market_observer()
-    if observer._running:
-        log.info("MarketDataObserver 之前处于运行状态，正在启动...")
-        observer.start()
-    
-    log.info("=== Bandit 状态恢复完成 ===")
+        runner.start() if runner._running else None
+        listener.start() if listener._running else None
+        observer.start() if observer._running else None
 
 
 __all__ = [

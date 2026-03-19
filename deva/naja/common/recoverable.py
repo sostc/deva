@@ -258,7 +258,6 @@ class RecoverableUnit(ABC):
         try:
             self._compiled_func = self._do_compile(self._func_code)
             self._compile_error = ""
-            self._log("INFO", "Code compiled successfully", id=self.id)
             return {"success": True, "func": self._compiled_func}
         except Exception as e:
             self._compile_error = str(e)
