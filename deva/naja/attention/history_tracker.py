@@ -1,0 +1,417 @@
+"""
+注意力历史追踪系统
+
+追踪注意力随时间的变化，包括：
+- 板块注意力的变化趋势
+- 个股注意力的变化趋势
+- 注意力转移检测
+- 注意力加强/减弱检测
+"""
+
+import time
+from typing import Dict, List, Optional, Any
+from collections import deque
+from dataclasses import dataclass, field
+from datetime import datetime
+
+
+@dataclass
+class AttentionSnapshot:
+    """注意力快照"""
+    timestamp: float
+    global_attention: float
+    sector_weights: Dict[str, float]
+    symbol_weights: Dict[str, float]
+    
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            'timestamp': self.timestamp,
+            'datetime': datetime.fromtimestamp(self.timestamp).strftime('%Y-%m-%d %H:%M:%S'),
+            'global_attention': self.global_attention,
+            'sector_weights': self.sector_weights,
+            'symbol_weights': self.symbol_weights
+        }
+
+
+@dataclass
+class AttentionChange:
+    """注意力变化记录"""
+    timestamp: float
+    change_type: str  # 'sector_shift', 'symbol_shift', 'strengthen', 'weaken', 'new_hot', 'cooled'
+    item_type: str  # 'sector' | 'symbol'
+    item_id: str
+    item_name: str
+    old_weight: float
+    new_weight: float
+    change_percent: float
+    description: str
+    related_symbols: List[Dict] = field(default_factory=list)  # 关联的个股变化
+    market_time: str = ""  # 行情数据时间
+
+
+@dataclass
+class SectorHotspotEvent:
+    """板块热点切换事件"""
+    timestamp: float
+    market_time: str
+    sector_id: str
+    sector_name: str
+    event_type: str  # 'rise', 'fall', 'new_hot', 'cooled'
+    weight_change: float
+    change_percent: float
+    top_symbols: List[Dict]  # 板块内涨跌最多的个股
+    description: str
+
+
+class AttentionHistoryTracker:
+    """
+    注意力历史追踪器
+    
+    功能：
+    1. 保存注意力历史快照
+    2. 检测注意力变化
+    3. 追踪热门板块/股票的变迁
+    4. 生成变化报告
+    """
+    
+    def __init__(self, max_history: int = 100):
+        self.max_history = max_history
+        self.snapshots: deque = deque(maxlen=max_history)
+        self.changes: deque = deque(maxlen=max_history * 2)
+        
+        # 板块热点切换事件记录
+        self.sector_hotspot_events: deque = deque(maxlen=50)
+        
+        # 当前热门记录
+        self.current_hot_sectors: Dict[str, float] = {}
+        self.current_hot_symbols: Dict[str, float] = {}
+        
+        # 历史热门记录（用于检测变迁）
+        self.sector_history: Dict[str, List[Dict]] = {}
+        self.symbol_history: Dict[str, List[Dict]] = {}
+        
+        # 股票代码到名称的映射
+        self.symbol_names: Dict[str, str] = {}
+        # 板块ID到名称的映射
+        self.sector_names: Dict[str, str] = {}
+        
+        # 个股到板块的映射（简化版）
+        self.symbol_to_sector: Dict[str, str] = {}
+    
+    def register_symbol_name(self, symbol: str, name: str):
+        """注册股票名称"""
+        self.symbol_names[symbol] = name
+    
+    def register_sector_name(self, sector_id: str, name: str):
+        """注册板块名称"""
+        self.sector_names[sector_id] = name
+    
+    def get_symbol_name(self, symbol: str) -> str:
+        """获取股票名称"""
+        return self.symbol_names.get(symbol, symbol)
+    
+    def get_sector_name(self, sector_id: str) -> str:
+        """获取板块名称"""
+        return self.sector_names.get(sector_id, sector_id)
+    
+    def record_snapshot(self, global_attention: float, 
+                       sector_weights: Dict[str, float],
+                       symbol_weights: Dict[str, float],
+                       timestamp: float = None,
+                       timestamp_str: str = None):
+        """
+        记录注意力快照
+        
+        Args:
+            global_attention: 全局注意力
+            sector_weights: 板块权重字典
+            symbol_weights: 个股权重字典
+            timestamp: 时间戳（优先使用行情数据时间）
+            timestamp_str: 时间字符串（用于日志显示）
+        """
+        import logging
+        log = logging.getLogger(__name__)
+        
+        # 使用传入的时间戳，如果没有则使用当前时间
+        actual_timestamp = timestamp if timestamp is not None else time.time()
+        
+        snapshot = AttentionSnapshot(
+            timestamp=actual_timestamp,
+            global_attention=global_attention,
+            sector_weights=sector_weights.copy(),
+            symbol_weights=symbol_weights.copy()
+        )
+        
+        # 检测变化（只在有历史快照时）
+        if self.snapshots:
+            last_snapshot = self.snapshots[-1]
+            self._detect_changes(last_snapshot, snapshot, timestamp_str)
+        
+        self.snapshots.append(snapshot)
+        
+        # 更新当前热门
+        self.current_hot_sectors = dict(sorted(
+            sector_weights.items(), 
+            key=lambda x: x[1], 
+            reverse=True
+        )[:10])
+        
+        self.current_hot_symbols = dict(sorted(
+            symbol_weights.items(),
+            key=lambda x: x[1],
+            reverse=True
+        )[:20])
+    
+    def _detect_changes(self, old: AttentionSnapshot, new: AttentionSnapshot, timestamp_str: str = None):
+        """检测注意力变化 - 增强版：记录板块热点切换和个股关联"""
+        import logging
+        log = logging.getLogger(__name__)
+        
+        current_time = time.time()
+        
+        # 时间显示
+        time_display = timestamp_str if timestamp_str else datetime.fromtimestamp(current_time).strftime("%H:%M:%S")
+        
+        # ========== 检测板块重大变化 ==========
+        all_sectors = set(old.sector_weights.keys()) | set(new.sector_weights.keys())
+        
+        for sector_id in all_sectors:
+            old_weight = old.sector_weights.get(sector_id, 0)
+            new_weight = new.sector_weights.get(sector_id, 0)
+            sector_name = self.get_sector_name(sector_id)
+            
+            # 计算变化
+            if old_weight > 0:
+                change_pct = (new_weight - old_weight) / old_weight * 100
+            else:
+                change_pct = float('inf') if new_weight > 0 else 0
+            
+            # 只记录重大变化（变化超过5%）
+            if abs(change_pct) >= 5 or (old_weight == 0 and new_weight > 0) or (old_weight > 0 and new_weight == 0):
+                # 确定事件类型
+                if old_weight == 0 and new_weight > 0:
+                    event_type = 'new_hot'
+                    event_emoji = '🔥'
+                    description = f"{sector_name} 成为新热点"
+                elif old_weight > 0 and new_weight == 0:
+                    event_type = 'cooled'
+                    event_emoji = '❄️'
+                    description = f"{sector_name} 热点消退"
+                elif change_pct > 10:
+                    event_type = 'rise'
+                    event_emoji = '📈'
+                    description = f"{sector_name} 大幅拉升 +{change_pct:.1f}%"
+                else:
+                    event_type = 'fall'
+                    event_emoji = '📉'
+                    description = f"{sector_name} 明显回调 {change_pct:.1f}%"
+                
+                # 获取该板块下的个股变化（简化：取所有个股中变化最大的前3个）
+                # 实际应该根据 symbol_to_sector 映射
+                related_symbols = []
+                
+                # 找所有个股中变化最大的
+                all_symbol_changes = []
+                for symbol in set(old.symbol_weights.keys()) | set(new.symbol_weights.keys()):
+                    s_old = old.symbol_weights.get(symbol, 0)
+                    s_new = new.symbol_weights.get(symbol, 0)
+                    if s_old > 0:
+                        s_change_pct = (s_new - s_old) / s_old * 100
+                        if abs(s_change_pct) > 5:  # 只记录变化超过5%的个股
+                            all_symbol_changes.append({
+                                'symbol': symbol,
+                                'name': self.get_symbol_name(symbol),
+                                'old': s_old,
+                                'new': s_new,
+                                'change_pct': s_change_pct
+                            })
+                
+                # 按变化幅度排序，取前3个
+                all_symbol_changes.sort(key=lambda x: abs(x['change_pct']), reverse=True)
+                top_symbols = all_symbol_changes[:3]
+                
+                # 记录板块热点事件
+                event = SectorHotspotEvent(
+                    timestamp=current_time,
+                    market_time=time_display,
+                    sector_id=sector_id,
+                    sector_name=sector_name,
+                    event_type=event_type,
+                    weight_change=new_weight - old_weight,
+                    change_percent=change_pct if change_pct != float('inf') else 999,
+                    top_symbols=top_symbols,
+                    description=description
+                )
+                self.sector_hotspot_events.append(event)
+                
+                # 打印详细日志
+                log.info(f"[{time_display}] {event_emoji} {description}")
+                log.info(f"  权重: {old_weight:.3f} → {new_weight:.3f}")
+                if top_symbols:
+                    log.info(f"  领涨/领跌个股:")
+                    for s in top_symbols:
+                        emoji = '📈' if s['change_pct'] > 0 else '📉'
+                        log.info(f"    {emoji} {s['symbol']} {s['name']}: {s['old']:.2f} → {s['new']:.2f} ({s['change_pct']:+.1f}%)")
+        
+        # ========== 检测个股重大变化（优化版） ==========
+        # 只关注高权重个股的重大变化，减少噪音
+        all_symbols = set(old.symbol_weights.keys()) | set(new.symbol_weights.keys())
+        
+        # 筛选出高权重个股（权重大于2.0或变化前权重大于2.0）
+        significant_symbols = [
+            symbol for symbol in all_symbols
+            if old.symbol_weights.get(symbol, 0) > 2.0 or new.symbol_weights.get(symbol, 0) > 2.0
+        ]
+        
+        for symbol in significant_symbols:
+            old_weight = old.symbol_weights.get(symbol, 0)
+            new_weight = new.symbol_weights.get(symbol, 0)
+            symbol_name = self.get_symbol_name(symbol)
+            
+            if old_weight > 0:
+                change_pct = (new_weight - old_weight) / old_weight * 100
+            else:
+                change_pct = float('inf') if new_weight > 0 else 0
+            
+            # 只记录重大变化（变化超过30%或进入/退出高权重区间）
+            is_new_hot = old_weight <= 2.0 and new_weight > 3.0
+            is_cooled = old_weight > 3.0 and new_weight <= 2.0
+            is_major_change = abs(change_pct) >= 30
+            
+            if is_new_hot or is_cooled or is_major_change:
+                if is_new_hot:
+                    description = f"{symbol} {symbol_name} 成为新热门"
+                    emoji = '🔥'
+                elif is_cooled:
+                    description = f"{symbol} {symbol_name} 热门消退"
+                    emoji = '❄️'
+                elif change_pct > 30:
+                    description = f"{symbol} {symbol_name} 大幅拉升 +{change_pct:.1f}%"
+                    emoji = '🚀'
+                else:
+                    description = f"{symbol} {symbol_name} 明显回调 {change_pct:.1f}%"
+                    emoji = '🔻'
+                
+                change = AttentionChange(
+                    timestamp=current_time,
+                    change_type='new_hot' if is_new_hot else 'cooled' if is_cooled else ('strengthen' if change_pct > 0 else 'weaken'),
+                    item_type='symbol',
+                    item_id=symbol,
+                    item_name=symbol_name,
+                    old_weight=old_weight,
+                    new_weight=new_weight,
+                    change_percent=change_pct if change_pct != float('inf') else 999,
+                    description=description,
+                    market_time=time_display
+                )
+                self.changes.append(change)
+                
+                log.info(f"[{time_display}] {emoji} {description}")
+                log.info(f"  得分: {old_weight:.2f} → {new_weight:.2f}")
+        
+        # 注意：个股变化检测已合并到上面的逻辑中（第256-299行）
+        # 避免重复检测导致记录过于频繁
+        # 只保留权重大于1.0的个股的重大变化（更有参考意义）
+    
+    def get_recent_changes(self, n: int = 20) -> List[AttentionChange]:
+        """获取最近的变化记录"""
+        return list(self.changes)[-n:]
+    
+    def get_sector_trend(self, sector_id: str, n: int = 10) -> List[Dict]:
+        """获取板块趋势"""
+        trend = []
+        for snapshot in list(self.snapshots)[-n:]:
+            weight = snapshot.sector_weights.get(sector_id, 0)
+            trend.append({
+                'timestamp': snapshot.timestamp,
+                'datetime': datetime.fromtimestamp(snapshot.timestamp).strftime('%H:%M:%S'),
+                'weight': weight
+            })
+        return trend
+    
+    def get_symbol_trend(self, symbol: str, n: int = 10) -> List[Dict]:
+        """获取个股趋势"""
+        trend = []
+        for snapshot in list(self.snapshots)[-n:]:
+            weight = snapshot.symbol_weights.get(symbol, 0)
+            trend.append({
+                'timestamp': snapshot.timestamp,
+                'datetime': datetime.fromtimestamp(snapshot.timestamp).strftime('%H:%M:%S'),
+                'weight': weight
+            })
+        return trend
+    
+    def get_attention_shift_report(self) -> Dict[str, Any]:
+        """
+        获取注意力转移报告
+        
+        Returns:
+            包含注意力转移信息的字典
+        """
+        if len(self.snapshots) < 2:
+            return {
+                'has_shift': False,
+                'message': '数据不足，无法检测转移'
+            }
+        
+        old_snapshot = self.snapshots[0]
+        new_snapshot = self.snapshots[-1]
+        
+        # 检测板块转移
+        old_top_sectors = set(sorted(old_snapshot.sector_weights.keys(), 
+                                     key=lambda x: old_snapshot.sector_weights[x], 
+                                     reverse=True)[:3])
+        new_top_sectors = set(sorted(new_snapshot.sector_weights.keys(),
+                                     key=lambda x: new_snapshot.sector_weights[x],
+                                     reverse=True)[:3])
+        
+        sector_shift = old_top_sectors != new_top_sectors
+        
+        # 检测个股转移
+        old_top_symbols = set(sorted(old_snapshot.symbol_weights.keys(),
+                                     key=lambda x: old_snapshot.symbol_weights[x],
+                                     reverse=True)[:5])
+        new_top_symbols = set(sorted(new_snapshot.symbol_weights.keys(),
+                                     key=lambda x: new_snapshot.symbol_weights[x],
+                                     reverse=True)[:5])
+        
+        symbol_shift = old_top_symbols != new_top_symbols
+        
+        return {
+            'has_shift': sector_shift or symbol_shift,
+            'sector_shift': sector_shift,
+            'symbol_shift': symbol_shift,
+            'old_top_sectors': [(s, self.get_sector_name(s), old_snapshot.sector_weights.get(s, 0)) 
+                               for s in old_top_sectors],
+            'new_top_sectors': [(s, self.get_sector_name(s), new_snapshot.sector_weights.get(s, 0))
+                               for s in new_top_sectors],
+            'old_top_symbols': [(s, self.get_symbol_name(s), old_snapshot.symbol_weights.get(s, 0))
+                               for s in old_top_symbols],
+            'new_top_symbols': [(s, self.get_symbol_name(s), new_snapshot.symbol_weights.get(s, 0))
+                               for s in new_top_symbols],
+            'time_span': new_snapshot.timestamp - old_snapshot.timestamp
+        }
+    
+    def get_summary(self) -> Dict[str, Any]:
+        """获取历史追踪摘要"""
+        return {
+            'snapshot_count': len(self.snapshots),
+            'change_count': len(self.changes),
+            'current_hot_sectors': [(k, self.get_sector_name(k), v) 
+                                   for k, v in self.current_hot_sectors.items()],
+            'current_hot_symbols': [(k, self.get_symbol_name(k), v)
+                                   for k, v in self.current_hot_symbols.items()],
+            'recent_changes': len(self.get_recent_changes(10))
+        }
+
+
+# 全局追踪器实例
+_history_tracker: Optional[AttentionHistoryTracker] = None
+
+
+def get_history_tracker() -> AttentionHistoryTracker:
+    """获取全局历史追踪器"""
+    global _history_tracker
+    if _history_tracker is None:
+        _history_tracker = AttentionHistoryTracker()
+    return _history_tracker

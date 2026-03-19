@@ -239,9 +239,8 @@ class RecoverableUnit(ABC):
         self._was_running = value
     
     def _log(self, level: str, message: str, **extra):
-        ts = time.strftime("%Y-%m-%d %H:%M:%S")
         extra_str = " ".join([f"{k}={v}" for k, v in extra.items()])
-        print(f"[{ts}][{self.__class__.__name__}][{level}] {message} | {extra_str}")
+        print(f"[{self.__class__.__name__}][{level}] {message} | {extra_str}")
     
     def _build_execution_env(self) -> Dict[str, Any]:
         import pandas as pd

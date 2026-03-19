@@ -342,6 +342,14 @@ async def banditadmin():
     await render_bandit_admin(ctx)
 
 
+async def attentionadmin():
+    """注意力调度系统"""
+    from .attention.ui import render_attention_admin
+    ctx = _ctx()
+    await ctx["init_naja_ui"]("注意力调度系统")
+    await render_attention_admin(ctx)
+
+
 async def dictadmin():
     """字典管理"""
     from .dictionary.ui import render_dictionary_admin
@@ -401,6 +409,7 @@ def create_handlers(cdn: str = None):
         (r'/radaradmin', webio_handler(radaradmin, cdn=cdn_url)),
         (r'/llmadmin', webio_handler(llmadmin, cdn=cdn_url)),
         (r'/banditadmin', webio_handler(banditadmin, cdn=cdn_url)),
+        (r'/attentionadmin', webio_handler(attentionadmin, cdn=cdn_url)),
         (r'/dictadmin', webio_handler(dictadmin, cdn=cdn_url)),
         (r'/tableadmin', webio_handler(tableadmin, cdn=cdn_url)),
         (r'/configadmin', webio_handler(configadmin, cdn=cdn_url)),
@@ -449,6 +458,15 @@ def run_server(port: int = 8080, host: str = '0.0.0.0'):
     
     print("📊 初始化监控台...")
     get_signal_stream()  # 初始化信号流并从持久化存储加载数据
+    
+    # 恢复 Bandit 自适应循环状态
+    print("🎯 恢复 Bandit 自适应循环...")
+    try:
+        from .bandit import restore_bandit_state
+        restore_bandit_state()
+        print("✓ Bandit 自适应循环状态已恢复")
+    except Exception as e:
+        print(f"⚠️ Bandit 自适应循环恢复失败: {e}")
     
     print("🛡️ 启动系统监控...")
     start_supervisor()

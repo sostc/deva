@@ -200,9 +200,8 @@ class RecoverableUnit(ABC):
         self._was_running = value
     
     def _log(self, level: str, message: str, **extra):
-        ts = time.strftime("%Y-%m-%d %H:%M:%S")
         extra_str = " ".join([f"{k}={v}" for k, v in extra.items()])
-        print_msg = f"[{ts}][{self.__class__.__name__}][{level}] {message} | {extra_str}"
+        print_msg = f"[{self.__class__.__name__}][{level}] {message} | {extra_str}"
         print(print_msg)
         try:
             from deva.naja.log_stream import get_log_stream

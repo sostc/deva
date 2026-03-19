@@ -1,0 +1,470 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>实时选股策略 - 信号流</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+        
+        .header {
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 16px;
+            padding: 30px;
+            margin-bottom: 20px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.1);
+        }
+        
+        .header h1 {
+            font-size: 28px;
+            color: #333;
+            margin-bottom: 10px;
+        }
+        
+        .header .subtitle {
+            color: #666;
+            font-size: 14px;
+        }
+        
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+            margin-bottom: 20px;
+        }
+        
+        .stat-card {
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 12px;
+            padding: 20px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.08);
+            transition: transform 0.3s;
+        }
+        
+        .stat-card:hover {
+            transform: translateY(-5px);
+        }
+        
+        .stat-card .label {
+            font-size: 12px;
+            color: #999;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-bottom: 8px;
+        }
+        
+        .stat-card .value {
+            font-size: 32px;
+            font-weight: bold;
+            color: #333;
+        }
+        
+        .stat-card .change {
+            font-size: 14px;
+            margin-top: 5px;
+        }
+        
+        .positive { color: #52c41a; }
+        .negative { color: #f5222d; }
+        
+        .signals-container {
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 16px;
+            padding: 30px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.1);
+        }
+        
+        .signals-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+        
+        .signals-header h2 {
+            font-size: 20px;
+            color: #333;
+        }
+        
+        .filter-buttons {
+            display: flex;
+            gap: 10px;
+        }
+        
+        .filter-btn {
+            padding: 8px 16px;
+            border: none;
+            border-radius: 20px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: all 0.3s;
+        }
+        
+        .filter-btn.active {
+            background: #667eea;
+            color: white;
+        }
+        
+        .filter-btn:not(.active) {
+            background: #f0f0f0;
+            color: #666;
+        }
+        
+        .signal-list {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+        
+        .signal-item {
+            display: flex;
+            align-items: center;
+            padding: 16px 20px;
+            background: #f8f9fa;
+            border-radius: 12px;
+            border-left: 4px solid;
+            transition: all 0.3s;
+            animation: slideIn 0.5s ease-out;
+        }
+        
+        @keyframes slideIn {
+            from {
+                opacity: 0;
+                transform: translateX(-20px);
+            }
+            to {
+                opacity: 1;
+                transform: translateX(0);
+            }
+        }
+        
+        .signal-item:hover {
+            background: #e8f4f8;
+            transform: translateX(5px);
+        }
+        
+        .signal-item.buy {
+            border-left-color: #52c41a;
+        }
+        
+        .signal-item.sell {
+            border-left-color: #f5222d;
+        }
+        
+        .signal-icon {
+            width: 48px;
+            height: 48px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 24px;
+            margin-right: 16px;
+        }
+        
+        .signal-item.buy .signal-icon {
+            background: rgba(82, 196, 26, 0.1);
+        }
+        
+        .signal-item.sell .signal-icon {
+            background: rgba(245, 34, 45, 0.1);
+        }
+        
+        .signal-content {
+            flex: 1;
+        }
+        
+        .signal-title {
+            font-size: 16px;
+            font-weight: 600;
+            color: #333;
+            margin-bottom: 4px;
+        }
+        
+        .signal-details {
+            font-size: 14px;
+            color: #666;
+        }
+        
+        .signal-meta {
+            text-align: right;
+        }
+        
+        .signal-time {
+            font-size: 12px;
+            color: #999;
+            margin-bottom: 4px;
+        }
+        
+        .signal-confidence {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: 600;
+        }
+        
+        .signal-item.buy .signal-confidence {
+            background: rgba(82, 196, 26, 0.1);
+            color: #52c41a;
+        }
+        
+        .signal-item.sell .signal-confidence {
+            background: rgba(245, 34, 45, 0.1);
+            color: #f5222d;
+        }
+        
+        .positions-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+        }
+        
+        .positions-table th,
+        .positions-table td {
+            padding: 12px;
+            text-align: left;
+            border-bottom: 1px solid #e8e8e8;
+        }
+        
+        .positions-table th {
+            font-weight: 600;
+            color: #333;
+            background: #f5f5f5;
+        }
+        
+        .positions-table tr:hover {
+            background: #f8f9fa;
+        }
+        
+        .badge {
+            display: inline-block;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 12px;
+            font-weight: 600;
+        }
+        
+        .badge-buy {
+            background: #52c41a;
+            color: white;
+        }
+        
+        .badge-sell {
+            background: #f5222d;
+            color: white;
+        }
+        
+        .empty-state {
+            text-align: center;
+            padding: 60px 20px;
+            color: #999;
+        }
+        
+        .empty-state-icon {
+            font-size: 64px;
+            margin-bottom: 16px;
+        }
+        
+        .refresh-indicator {
+            display: inline-block;
+            width: 8px;
+            height: 8px;
+            background: #52c41a;
+            border-radius: 50%;
+            margin-left: 8px;
+            animation: pulse 2s infinite;
+        }
+        
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🦞 实时选股策略 - 信号流</h1>
+            <p class="subtitle">基于 River 在线学习的智能选股系统 <span class="refresh-indicator"></span></p>
+        </div>
+        
+        <div class="stats-grid">
+            <div class="stat-card">
+                <div class="label">总收益率</div>
+                <div class="value positive" id="total-return">+0.00%</div>
+                <div class="change positive">策略运行中</div>
+            </div>
+            <div class="stat-card">
+                <div class="label">当前持仓</div>
+                <div class="value" id="positions-count">0</div>
+                <div class="change">只股票</div>
+            </div>
+            <div class="stat-card">
+                <div class="label">今日信号</div>
+                <div class="value" id="signals-today">0</div>
+                <div class="change">个交易信号</div>
+            </div>
+            <div class="stat-card">
+                <div class="label">总资产</div>
+                <div class="value" id="total-assets">¥100,000</div>
+                <div class="change">初始资金 ¥100,000</div>
+            </div>
+        </div>
+        
+        <div class="signals-container">
+            <div class="signals-header">
+                <h2>📊 实时交易信号</h2>
+                <div class="filter-buttons">
+                    <button class="filter-btn active" onclick="filterSignals('all')">全部</button>
+                    <button class="filter-btn" onclick="filterSignals('buy')">买入</button>
+                    <button class="filter-btn" onclick="filterSignals('sell')">卖出</button>
+                </div>
+            </div>
+            
+            <div class="signal-list" id="signal-list">
+                <!-- 信号将在这里动态显示 -->
+                <div class="empty-state">
+                    <div class="empty-state-icon">📈</div>
+                    <p>等待交易信号...</p>
+                    <p style="font-size: 12px; margin-top: 8px;">策略正在实时分析行情数据</p>
+                </div>
+            </div>
+        </div>
+        
+        <div class="signals-container" style="margin-top: 20px;">
+            <h2 style="margin-bottom: 20px;">💼 当前持仓</h2>
+            <table class="positions-table">
+                <thead>
+                    <tr>
+                        <th>股票代码</th>
+                        <th>股票名称</th>
+                        <th>买入价格</th>
+                        <th>当前价格</th>
+                        <th>持仓数量</th>
+                        <th>盈亏</th>
+                    </tr>
+                </thead>
+                <tbody id="positions-tbody">
+                    <tr>
+                        <td colspan="6" style="text-align: center; color: #999; padding: 40px;">
+                            暂无持仓
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+    
+    <script>
+        // 模拟信号数据（实际使用时从后端 API 获取）
+        let signals = [];
+        let positions = [];
+        
+        // 添加新信号
+        function addSignal(signal) {
+            signals.unshift(signal);
+            if (signals.length > 50) signals.pop(); // 只保留最近50个
+            renderSignals();
+            updateStats();
+        }
+        
+        // 渲染信号列表
+        function renderSignals(filter = 'all') {
+            const list = document.getElementById('signal-list');
+            
+            if (signals.length === 0) {
+                list.innerHTML = `
+                    <div class="empty-state">
+                        <div class="empty-state-icon">📈</div>
+                        <p>等待交易信号...</p>
+                        <p style="font-size: 12px; margin-top: 8px;">策略正在实时分析行情数据</p>
+                    </div>
+                `;
+                return;
+            }
+            
+            const filtered = filter === 'all' ? signals : signals.filter(s => s.type === filter);
+            
+            list.innerHTML = filtered.map(signal => `
+                <div class="signal-item ${signal.type}">
+                    <div class="signal-icon">${signal.type === 'buy' ? '📈' : '📉'}</div>
+                    <div class="signal-content">
+                        <div class="signal-title">
+                            ${signal.type === 'buy' ? '买入' : '卖出'} ${signal.stock_name} (${signal.stock_code})
+                        </div>
+                        <div class="signal-details">
+                            价格: ¥${signal.price.toFixed(2)} | 数量: ${signal.volume}股 | ${signal.reason}
+                        </div>
+                    </div>
+                    <div class="signal-meta">
+                        <div class="signal-time">${signal.time}</div>
+                        <span class="signal-confidence">置信度 ${(signal.confidence * 100).toFixed(1)}%</span>
+                    </div>
+                </div>
+            `).join('');
+        }
+        
+        // 过滤信号
+        function filterSignals(type) {
+            document.querySelectorAll('.filter-btn').forEach(btn => btn.classList.remove('active'));
+            event.target.classList.add('active');
+            renderSignals(type);
+        }
+        
+        // 更新统计
+        function updateStats() {
+            const buySignals = signals.filter(s => s.type === 'buy').length;
+            const sellSignals = signals.filter(s => s.type === 'sell').length;
+            document.getElementById('signals-today').textContent = buySignals + sellSignals;
+        }
+        
+        // 模拟接收信号（实际使用时替换为 WebSocket 或轮询）
+        function simulateSignal() {
+            const stocks = [
+                { code: '000001', name: '平安银行' },
+                { code: '000002', name: '万科A' },
+                { code: '600036', name: '招商银行' },
+                { code: '000858', name: '五粮液' },
+                { code: '002415', name: '海康威视' }
+            ];
+            
+            const stock = stocks[Math.floor(Math.random() * stocks.length)];
+            const type = Math.random() > 0.5 ? 'buy' : 'sell';
+            
+            addSignal({
+                type: type,
+                stock_code: stock.code,
+                stock_name: stock.name,
+                price: Math.random() * 100 + 10,
+                volume: 100,
+                confidence: Math.random() * 0.4 + 0.6,
+                reason: type === 'buy' ? 'River模型选股得分 0.72，超过阈值 0.55' : '止损卖出，亏损 -5.23%',
+                time: new Date().toLocaleTimeString('zh-CN')
+            });
+        }
+        
+        // 每5秒模拟一个信号（演示用）
+        // setInterval(simulateSignal, 5000);
+        
+        // 初始化
+        renderSignals();
+    </script>
+</body>
+</html>

@@ -181,7 +181,15 @@ class GPT:
                 )
             {"level": "DEBUG", "source": "deva.llm", "message": "sync query response received"} >> debug
             
-            return response.choices[0].message.content
+            # 检查响应是否有效
+            if response is None or response.choices is None or len(response.choices) == 0:
+                raise RuntimeError("LLM 返回空响应")
+            
+            message_content = response.choices[0].message.content if response.choices[0].message else None
+            if message_content is None:
+                raise RuntimeError("LLM 返回空消息内容")
+            
+            return message_content
         except APIStatusError as e:
             friendly_msg = _get_friendly_error_message(e)
             {"level": "ERROR", "source": "deva.llm", "message": f"同步查询失败: {friendly_msg}", "traceback": traceback.format_exc()} >> warn

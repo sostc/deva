@@ -1457,12 +1457,12 @@ class StrategyManager:
             info.pop("snapshot", None)
             return info
 
-    def start_experiment(self, categories: List[str], datasource_id: str) -> dict:
+    def start_experiment(self, categories: List[str], datasource_id: str, include_attention: bool = True) -> dict:
         normalized_categories = self._normalize_categories(categories)
         datasource_id = str(datasource_id or "").strip()
 
-        if not normalized_categories:
-            return {"success": False, "error": "请至少选择一个策略类别"}
+        if not normalized_categories and not include_attention:
+            return {"success": False, "error": "请至少选择一个策略类别或启用注意力策略"}
         if not datasource_id:
             return {"success": False, "error": "请先选择实验数据源"}
 
@@ -1487,7 +1487,8 @@ class StrategyManager:
                 datasource_started = True
 
             target_entries = self._list_by_categories(normalized_categories)
-            if not target_entries:
+            # 允许只运行注意力策略（不选择其他策略类别）
+            if not target_entries and not include_attention:
                 return {"success": False, "error": "所选类别下没有策略"}
 
             snapshot: Dict[str, Dict[str, Any]] = {}
@@ -1554,7 +1555,8 @@ class StrategyManager:
                         })
 
             switched_ok = len(target_entries) - len(failed_switch)
-            if switched_ok <= 0:
+            # 允许只运行注意力策略（原有策略数为0但注意力策略已启动）
+            if switched_ok <= 0 and not include_attention:
                 return {
                     "success": False,
                     "error": "未能切换任何策略到实验数据源",
@@ -1574,6 +1576,24 @@ class StrategyManager:
                 "snapshot": snapshot,
             }
             self._save_experiment_session()
+            
+            # 启动注意力策略的实验模式（如果用户选择包含）
+            attention_started = False
+            if include_attention:
+                try:
+                    from naja_attention_strategies import get_strategy_manager
+                    attention_manager = get_strategy_manager()
+                    attention_result = attention_manager.start_experiment(datasource_id)
+                    if attention_result.get("success"):
+                        print(f"✅ 注意力策略实验模式已启动: {datasource_id}")
+                        attention_started = True
+                    else:
+                        print(f"⚠️ 注意力策略实验模式启动失败: {attention_result.get('error')}")
+                except Exception as e:
+                    print(f"⚠️ 启动注意力策略实验模式失败: {e}")
+            
+            # 保存实验会话时记录是否包含注意力策略
+            self._experiment_session["include_attention"] = include_attention
 
             return {
                 "success": True,
@@ -1587,6 +1607,8 @@ class StrategyManager:
                 "datasource_started": datasource_started,
                 "failed_switch": failed_switch,
                 "failed_start": failed_start,
+                "include_attention": include_attention,
+                "attention_started": attention_started,
             }
 
     def stop_experiment(self) -> dict:
@@ -1733,6 +1755,20 @@ class StrategyManager:
                         "error": f"恢复运行状态失败: {state_result.get('error', 'unknown error')}",
                     })
 
+            # 停止注意力策略的实验模式（如果启动时包含）
+            include_attention = session.get("include_attention", True)
+            if include_attention:
+                try:
+                    from naja_attention_strategies import get_strategy_manager
+                    attention_manager = get_strategy_manager()
+                    attention_result = attention_manager.stop_experiment()
+                    if attention_result.get("success"):
+                        print(f"✅ 注意力策略实验模式已停止")
+                    else:
+                        print(f"⚠️ 注意力策略实验模式停止失败: {attention_result.get('error')}")
+                except Exception as e:
+                    print(f"⚠️ 停止注意力策略实验模式失败: {e}")
+            
             if not failed:
                 self._experiment_session = None
                 self._save_experiment_session()
