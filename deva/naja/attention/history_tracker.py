@@ -79,8 +79,13 @@ class AttentionHistoryTracker:
         self.snapshots: deque = deque(maxlen=max_history)
         self.changes: deque = deque(maxlen=max_history * 2)
         
-        # 板块热点切换事件记录
-        self.sector_hotspot_events: deque = deque(maxlen=50)
+        # 板块热点切换事件记录 - 多阈值支持
+        # 不同敏感度的事件分别存储
+        self.sector_hotspot_events_low: deque = deque(maxlen=50)      # 低阈值 (3%)
+        self.sector_hotspot_events_medium: deque = deque(maxlen=50)   # 中阈值 (5%)
+        self.sector_hotspot_events_high: deque = deque(maxlen=50)     # 高阈值 (10%)
+        # 保留旧接口兼容
+        self.sector_hotspot_events = self.sector_hotspot_events_medium
         
         # 当前热门记录
         self.current_hot_sectors: Dict[str, float] = {}
@@ -187,64 +192,72 @@ class AttentionHistoryTracker:
                 change_pct = float('inf') if new_weight > 0 else 0
             
             # 只记录重大变化（变化超过5%）
+            # 获取该板块下的个股变化
+            all_symbol_changes = []
+            for symbol in set(old.symbol_weights.keys()) | set(new.symbol_weights.keys()):
+                s_old = old.symbol_weights.get(symbol, 0)
+                s_new = new.symbol_weights.get(symbol, 0)
+                if s_old > 0:
+                    s_change_pct = (s_new - s_old) / s_old * 100
+                    if abs(s_change_pct) > 5:  # 只记录变化超过5%的个股
+                        all_symbol_changes.append({
+                            'symbol': symbol,
+                            'name': self.get_symbol_name(symbol),
+                            'old': s_old,
+                            'new': s_new,
+                            'change_pct': s_change_pct
+                        })
+            
+            # 按变化幅度排序，取前3个
+            all_symbol_changes.sort(key=lambda x: abs(x['change_pct']), reverse=True)
+            top_symbols = all_symbol_changes[:3]
+            
+            # 定义事件类型
+            if old_weight == 0 and new_weight > 0:
+                event_type = 'new_hot'
+                event_emoji = '🔥'
+                description = f"{sector_name} 成为新热点"
+            elif old_weight > 0 and new_weight == 0:
+                event_type = 'cooled'
+                event_emoji = '❄️'
+                description = f"{sector_name} 热点消退"
+            elif change_pct > 10:
+                event_type = 'rise'
+                event_emoji = '📈'
+                description = f"{sector_name} 大幅拉升 +{change_pct:.1f}%"
+            else:
+                event_type = 'fall'
+                event_emoji = '📉'
+                description = f"{sector_name} 明显回调 {change_pct:.1f}%"
+            
+            # 创建事件对象
+            event = SectorHotspotEvent(
+                timestamp=current_time,
+                market_time=time_display,
+                sector_id=sector_id,
+                sector_name=sector_name,
+                event_type=event_type,
+                weight_change=new_weight - old_weight,
+                change_percent=change_pct if change_pct != float('inf') else 999,
+                top_symbols=top_symbols,
+                description=description
+            )
+            
+            # 根据变化幅度记录到不同阈值的事件队列
+            # 低阈值: 3%
+            if abs(change_pct) >= 3 or (old_weight == 0 and new_weight > 0) or (old_weight > 0 and new_weight == 0):
+                self.sector_hotspot_events_low.append(event)
+            
+            # 中阈值: 5%
             if abs(change_pct) >= 5 or (old_weight == 0 and new_weight > 0) or (old_weight > 0 and new_weight == 0):
-                # 确定事件类型
-                if old_weight == 0 and new_weight > 0:
-                    event_type = 'new_hot'
-                    event_emoji = '🔥'
-                    description = f"{sector_name} 成为新热点"
-                elif old_weight > 0 and new_weight == 0:
-                    event_type = 'cooled'
-                    event_emoji = '❄️'
-                    description = f"{sector_name} 热点消退"
-                elif change_pct > 10:
-                    event_type = 'rise'
-                    event_emoji = '📈'
-                    description = f"{sector_name} 大幅拉升 +{change_pct:.1f}%"
-                else:
-                    event_type = 'fall'
-                    event_emoji = '📉'
-                    description = f"{sector_name} 明显回调 {change_pct:.1f}%"
-                
-                # 获取该板块下的个股变化（简化：取所有个股中变化最大的前3个）
-                # 实际应该根据 symbol_to_sector 映射
-                related_symbols = []
-                
-                # 找所有个股中变化最大的
-                all_symbol_changes = []
-                for symbol in set(old.symbol_weights.keys()) | set(new.symbol_weights.keys()):
-                    s_old = old.symbol_weights.get(symbol, 0)
-                    s_new = new.symbol_weights.get(symbol, 0)
-                    if s_old > 0:
-                        s_change_pct = (s_new - s_old) / s_old * 100
-                        if abs(s_change_pct) > 5:  # 只记录变化超过5%的个股
-                            all_symbol_changes.append({
-                                'symbol': symbol,
-                                'name': self.get_symbol_name(symbol),
-                                'old': s_old,
-                                'new': s_new,
-                                'change_pct': s_change_pct
-                            })
-                
-                # 按变化幅度排序，取前3个
-                all_symbol_changes.sort(key=lambda x: abs(x['change_pct']), reverse=True)
-                top_symbols = all_symbol_changes[:3]
-                
-                # 记录板块热点事件
-                event = SectorHotspotEvent(
-                    timestamp=current_time,
-                    market_time=time_display,
-                    sector_id=sector_id,
-                    sector_name=sector_name,
-                    event_type=event_type,
-                    weight_change=new_weight - old_weight,
-                    change_percent=change_pct if change_pct != float('inf') else 999,
-                    top_symbols=top_symbols,
-                    description=description
-                )
-                self.sector_hotspot_events.append(event)
-                
-                # 打印详细日志
+                self.sector_hotspot_events_medium.append(event)
+            
+            # 高阈值: 10%
+            if abs(change_pct) >= 10 or (old_weight == 0 and new_weight > 0) or (old_weight > 0 and new_weight == 0):
+                self.sector_hotspot_events_high.append(event)
+            
+            # 打印详细日志（只打印中阈值及以上的）
+            if abs(change_pct) >= 5:
                 log.info(f"[{time_display}] {event_emoji} {description}")
                 log.info(f"  权重: {old_weight:.3f} → {new_weight:.3f}")
                 if top_symbols:

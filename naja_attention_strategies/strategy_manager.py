@@ -54,30 +54,30 @@ class AttentionStrategyManager:
         # 注意力系统引用
         self._attention_integration = None
         self._orchestrator = None
-        
+
         # 实验模式状态
         self._experiment_mode: bool = False
         self._experiment_datasource_id: Optional[str] = None
         self._experiment_snapshot: Dict[str, Any] = {}
-        
+
     def _get_attention_integration(self):
         """获取注意力系统集成"""
         if self._attention_integration is None:
             try:
                 from deva.naja.attention_integration import get_attention_integration
                 self._attention_integration = get_attention_integration()
-            except Exception as e:
-                print(f"⚠️ 无法获取注意力系统集成: {e}")
+            except Exception:
+                pass
         return self._attention_integration
-    
+
     def _get_orchestrator(self):
         """获取调度中心"""
         if self._orchestrator is None:
             try:
                 from deva.naja.attention_orchestrator import get_orchestrator
                 self._orchestrator = get_orchestrator()
-            except Exception as e:
-                print(f"⚠️ 无法获取调度中心: {e}")
+            except Exception:
+                pass
         return self._orchestrator
     
     def register_strategy(
@@ -87,66 +87,61 @@ class AttentionStrategyManager:
     ) -> bool:
         """
         注册策略
-        
+
         Args:
             strategy: 策略实例
             config: 策略配置
-        
+
         Returns:
             是否注册成功
         """
         if strategy.strategy_id in self.strategies:
-            print(f"⚠️ 策略 {strategy.strategy_id} 已存在，跳过注册")
             return False
-        
+
         self.strategies[strategy.strategy_id] = strategy
-        
+
         if config is None:
             config = StrategyConfig(strategy_id=strategy.strategy_id)
-        
+
         self.configs[strategy.strategy_id] = config
-        
-        print(f"✅ 策略已注册: {strategy.name} (ID: {strategy.strategy_id})")
+
         return True
     
     def unregister_strategy(self, strategy_id: str) -> bool:
         """注销策略"""
         if strategy_id not in self.strategies:
             return False
-        
+
         strategy = self.strategies[strategy_id]
         strategy.deactivate()
-        
+
         del self.strategies[strategy_id]
         del self.configs[strategy_id]
-        
-        print(f"🗑️ 策略已注销: {strategy_id}")
+
         return True
-    
+
     def enable_strategy(self, strategy_id: str) -> bool:
         """启用策略"""
         if strategy_id not in self.configs:
             return False
-        
+
         self.configs[strategy_id].enabled = True
-        
+
         if strategy_id in self.strategies:
             self.strategies[strategy_id].activate()
-        
-        print(f"▶️ 策略已启用: {strategy_id}")
+
         return True
-    
+
     def disable_strategy(self, strategy_id: str) -> bool:
         """禁用策略"""
         if strategy_id not in self.configs:
             return False
-        
+
         self.configs[strategy_id].enabled = False
-        
+
         if strategy_id in self.strategies:
             self.strategies[strategy_id].deactivate()
-        
-        print(f"⏸️ 策略已禁用: {strategy_id}")
+
         return True
     
     def initialize_default_strategies(self):
@@ -196,8 +191,6 @@ class AttentionStrategyManager:
             enabled=True,
             priority=7
         ))
-        
-        print(f"\n✅ 已初始化 {len(self.strategies)} 个默认策略")
     
     def process_data(
         self,
@@ -252,8 +245,8 @@ class AttentionStrategyManager:
                         execution_time_ms=strategy_latency,
                         success=True
                     )
-            except Exception as e:
-                print(f"❌ 策略 {strategy_id} 执行失败: {e}")
+            except Exception:
+                pass
                 if _PERFORMANCE_MONITORING_AVAILABLE:
                     strategy_latency = (time.time() - strategy_start) * 1000
                     record_component_execution(
@@ -310,20 +303,16 @@ class AttentionStrategyManager:
     def start(self):
         """启动策略管理器"""
         if self.is_running:
-            print("⚠️ 策略管理器已在运行")
             return
-        
+
         self.is_running = True
         self.start_time = time.time()
-        
+
         # 激活所有启用的策略
         for strategy_id, strategy in self.strategies.items():
             config = self.configs.get(strategy_id)
             if config and config.enabled:
                 strategy.activate()
-        
-        print("\n🚀 注意力策略管理器已启动")
-        print(f"   活跃策略数: {sum(1 for c in self.configs.values() if c.enabled)}")
     
     def stop(self):
         """停止策略管理器"""
@@ -331,12 +320,10 @@ class AttentionStrategyManager:
             return
         
         self.is_running = False
-        
+
         # 停用所有策略
         for strategy in self.strategies.values():
             strategy.deactivate()
-        
-        print("\n⏹️ 注意力策略管理器已停止")
     
     def get_all_stats(self) -> Dict[str, Any]:
         """获取所有策略的统计信息"""
@@ -376,17 +363,14 @@ class AttentionStrategyManager:
     def clear_signals(self):
         """清空信号历史"""
         self.all_signals.clear()
-        print("🗑️ 信号历史已清空")
-    
+
     def reset_all_strategies(self):
         """重置所有策略"""
         for strategy in self.strategies.values():
             strategy.reset()
-        
+
         self.all_signals.clear()
         self.total_signals_generated = 0
-        
-        print("🔄 所有策略已重置")
     
     # ==================== 实验模式支持 ====================
     
@@ -420,9 +404,8 @@ class AttentionStrategyManager:
         
         # 确保策略已初始化（如果还没有初始化）
         if not self.strategies:
-            print("🔄 初始化注意力策略...")
             self.initialize_default_strategies()
-        
+
         # 确保管理器已启动
         if not self.is_running:
             self.start()
@@ -451,12 +434,8 @@ class AttentionStrategyManager:
             if orchestrator:
                 # 注册实验数据源到调度中心
                 orchestrator.register_datasource(datasource_id)
-        except Exception as e:
-            print(f"⚠️ 注册实验数据源到调度中心失败: {e}")
-        
-        print(f"\n🧪 注意力策略实验模式已启动")
-        print(f"   实验数据源: {datasource_id}")
-        print(f"   策略数: {len(self.strategies)}")
+        except Exception:
+            pass
         
         return {
             "success": True,
@@ -498,15 +477,13 @@ class AttentionStrategyManager:
             orchestrator = self._get_orchestrator()
             if orchestrator and self._experiment_datasource_id:
                 orchestrator.unregister_datasource(self._experiment_datasource_id)
-        except Exception as e:
-            print(f"⚠️ 从调度中心注销实验数据源失败: {e}")
-        
+        except Exception:
+            pass
+
         # 清理实验状态
         self._experiment_snapshot = {}
         self._experiment_mode = False
         self._experiment_datasource_id = None
-        
-        print("\n🛑 注意力策略实验模式已停止")
         
         return {
             "success": True,
@@ -558,11 +535,7 @@ def initialize_attention_strategies():
     try:
         from deva.naja.attention_integration import register_strategy_manager
         register_strategy_manager(manager)
-    except Exception as e:
-        print(f"⚠️ 注册到注意力系统失败: {e}")
-    
-    print("\n" + "="*50)
-    print("🎯 注意力策略系统初始化完成")
-    print("="*50)
-    
+    except Exception:
+        pass
+
     return manager

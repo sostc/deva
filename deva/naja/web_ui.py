@@ -344,10 +344,22 @@ async def banditadmin():
 
 async def attentionadmin():
     """注意力调度系统"""
-    from .attention.ui import render_attention_admin
     ctx = _ctx()
     await ctx["init_naja_ui"]("注意力调度系统")
-    await render_attention_admin(ctx)
+    
+    # 默认使用新版UI，通过URL参数切换
+    from pywebio.session import eval_js
+    try:
+        url_params = await eval_js("new URLSearchParams(window.location.search).get('ui')")
+    except:
+        url_params = None
+    
+    if url_params == 'v1':
+        from .attention.ui import render_attention_admin
+        await render_attention_admin(ctx)
+    else:
+        from .attention.ui_v2 import render_attention_admin_v2
+        await render_attention_admin_v2(ctx)
 
 
 async def dictadmin():
@@ -434,29 +446,25 @@ def run_server(port: int = 8080, host: str = '0.0.0.0'):
     task_mgr = get_task_manager()
     strategy_mgr = get_strategy_manager()
     dict_mgr = get_dictionary_manager()
-    
-    print("📂 加载数据源...")
-    ds_mgr.load_from_db()
+
+    ds_count = ds_mgr.load_from_db()
+    task_count = task_mgr.load_from_db()
+    strategy_count = strategy_mgr.load_from_db()
+    dict_count = dict_mgr.load_from_db()
+
+    print(f"📂 加载完成: 数据源({ds_count}) 任务({task_count}) 策略({strategy_count}) 字典({dict_count})")
+
     ds_mgr.restore_running_states()
-    
-    print("📂 加载任务...")
-    task_mgr.load_from_db()
     task_mgr.restore_running_states()
     try:
         from .llm_controller import ensure_llm_auto_adjust_task
         ensure_llm_auto_adjust_task()
     except Exception as e:
         print(f"⚠️ LLM 自动调节任务初始化失败: {e}")
-    
-    print("📂 加载策略...")
-    strategy_mgr.load_from_db()
+
     strategy_mgr.restore_running_states()
-    
-    print("📂 加载字典...")
-    dict_mgr.load_from_db()
     dict_mgr.restore_running_states()
-    
-    print("📊 初始化监控台...")
+
     get_signal_stream()  # 初始化信号流并从持久化存储加载数据
     
     # 恢复 Bandit 自适应循环状态

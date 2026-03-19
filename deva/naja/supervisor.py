@@ -56,14 +56,12 @@ class NajaSupervisor:
         self._running = False
         self._check_interval = 5  # 检查间隔（秒）
         self._initialized = True
-        
-        log.info("Naja 监控器初始化完成")
     
     def register_component(self, name: str, component: Any):
         """注册系统组件"""
         if name in self._components:
             self._components[name] = component
-            log.info(f"已注册组件: {name}")
+            log.debug(f"已注册组件: {name}")
     
     def _get_component(self, name: str) -> Optional[Any]:
         """获取组件实例"""
@@ -114,26 +112,23 @@ class NajaSupervisor:
         try:
             from .performance import start_performance_monitoring
             start_performance_monitoring()
-            log.info("统一性能监控已启动")
         except Exception as e:
-            log.error(f"统一性能监控启动失败: {e}")
-        
+            log.debug(f"统一性能监控启动失败: {e}")
+
         # 启用存储性能监控
         try:
             from .performance.storage_monitor import enable_storage_monitoring
             enable_storage_monitoring()
-            log.info("存储性能监控已启用")
         except Exception as e:
-            log.error(f"存储性能监控启用失败: {e}")
-        
+            log.debug(f"存储性能监控启用失败: {e}")
+
         # 启动自动调优
         try:
             from .common.auto_tuner import _init_help_to_db, start_auto_tuner
             _init_help_to_db()
             start_auto_tuner()
-            log.info("自动调优已启动")
         except Exception as e:
-            log.error(f"自动调优启动失败: {e}")
+            log.debug(f"自动调优启动失败: {e}")
         
         # 启动注意力系统
         try:
@@ -148,31 +143,24 @@ class NajaSupervisor:
                 config = attention_config.to_attention_system_config()
                 attention_system = initialize_attention_system(config)
                 self._components['attention'] = attention_system
-                log.info(f"注意力调度系统已启动: {attention_config}")
-                
+
                 # 启动注意力策略系统
                 try:
                     from naja_attention_strategies import setup_attention_strategies
                     strategy_manager = setup_attention_strategies()
                     self._components['attention_strategy_manager'] = strategy_manager
-                    log.info("注意力策略系统已启动")
                 except Exception as se:
-                    log.error(f"注意力策略系统启动失败: {se}")
-                
+                    log.debug(f"注意力策略系统启动失败: {se}")
+
                 # 启动报告生成器
                 try:
                     from .attention.report_generator import start_report_generator
                     report_generator = start_report_generator()
                     self._components['attention_report_generator'] = report_generator
-                    log.info("注意力报告生成器已启动")
                 except Exception as re:
-                    log.error(f"注意力报告生成器启动失败: {re}")
-            else:
-                log.info("注意力调度系统已禁用（通过配置）")
+                    log.debug(f"注意力报告生成器启动失败: {re}")
         except Exception as e:
-            log.error(f"注意力调度系统启动失败: {e}")
-        
-        log.info("系统监控已启动")
+            log.debug(f"注意力调度系统启动失败: {e}")
     
     def stop_monitoring(self):
         """停止监控系统"""
