@@ -1,0 +1,294 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1400 1000" font-family="Arial, sans-serif">
+  <defs>
+    <linearGradient id="headerGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" style="stop-color:#1a1a2e"/>
+      <stop offset="100%" style="stop-color:#16213e"/>
+    </linearGradient>
+    <linearGradient id="datasourceGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#2d6a4f"/>
+      <stop offset="100%" style="stop-color:#1b4332"/>
+    </linearGradient>
+    <linearGradient id="attentionV1Grad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#e07b39"/>
+      <stop offset="100%" style="stop-color:#c4570e"/>
+    </linearGradient>
+    <linearGradient id="attentionV2Grad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#9d4edd"/>
+      <stop offset="100%" style="stop-color:#7b2cbf"/>
+    </linearGradient>
+    <linearGradient id="banditGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#3a86ff"/>
+      <stop offset="100%" style="stop-color:#2667ff"/>
+    </linearGradient>
+    <linearGradient id="strategyGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#ff6b6b"/>
+      <stop offset="100%" style="stop-color:#ee5a5a"/>
+    </linearGradient>
+    <linearGradient id="arrowGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" style="stop-color:#888"/>
+      <stop offset="100%" style="stop-color:#555"/>
+    </linearGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="2" dy="2" stdDeviation="3" flood-opacity="0.3"/>
+    </filter>
+  </defs>
+
+  <!-- Background -->
+  <rect width="1400" height="1000" fill="#f5f5f5"/>
+
+  <!-- Title -->
+  <rect x="50" y="20" width="1300" height="50" rx="8" fill="url(#headerGrad)"/>
+  <text x="700" y="52" text-anchor="middle" fill="white" font-size="22" font-weight="bold">
+    Naja 量化系统架构总览
+  </text>
+
+  <!-- ========== DATASOURCE LAYER ========== -->
+  <rect x="50" y="90" width="300" height="380" rx="8" fill="white" stroke="#2d6a4f" stroke-width="2" filter="url(#shadow)"/>
+  <rect x="50" y="90" width="300" height="35" rx="8" fill="url(#datasourceGrad)"/>
+  <text x="200" y="113" text-anchor="middle" fill="white" font-size="14" font-weight="bold">📊 DATASOURCE 数据源层</text>
+
+  <!-- DataSource Types -->
+  <rect x="70" y="140" width="260" height="40" rx="5" fill="#d8f3dc"/>
+  <text x="200" y="166" text-anchor="middle" fill="#1b4332" font-size="12" font-weight="bold">timer / scheduler / replay</text>
+
+  <rect x="70" y="190" width="260" height="40" rx="5" fill="#d8f3dc"/>
+  <text x="200" y="216" text-anchor="middle" fill="#1b4332" font-size="12" font-weight="bold">file / directory 监控</text>
+
+  <rect x="70" y="240" width="260" height="40" rx="5" fill="#d8f3dc"/>
+  <text x="200" y="266" text-anchor="middle" fill="#1b4332" font-size="12" font-weight="bold">event_trigger 事件触发</text>
+
+  <rect x="70" y="290" width="260" height="40" rx="5" fill="#b7e4c7"/>
+  <text x="200" y="316" text-anchor="middle" fill="#1b4332" font-size="12" font-weight="bold">自定义 fetch_data()</text>
+
+  <rect x="70" y="340" width="260" height="40" rx="5" fill="#95d5b2"/>
+  <text x="200" y="366" text-anchor="middle" fill="#1b4332" font-size="12" font-weight="bold">NS Stream 输出</text>
+
+  <rect x="70" y="390" width="260" height="60" rx="5" fill="#74c69d"/>
+  <text x="200" y="415" text-anchor="middle" fill="#1b4332" font-size="11">DataSourceEntry</text>
+  <text x="200" y="435" text-anchor="middle" fill="#1b4332" font-size="11">(RecoverableUnit)</text>
+
+  <!-- ========== ATTENTION V1 LAYER ========== -->
+  <rect x="380" y="90" width="300" height="380" rx="8" fill="white" stroke="#c4570e" stroke-width="2" filter="url(#shadow)"/>
+  <rect x="380" y="90" width="300" height="35" rx="8" fill="url(#attentionV1Grad)"/>
+  <text x="530" y="113" text-anchor="middle" fill="white" font-size="14" font-weight="bold">🔥 ATTENTION V1 注意力系统</text>
+
+  <!-- Module 1 -->
+  <rect x="400" y="140" width="260" height="45" rx="5" fill="#fde4cf"/>
+  <text x="530" y="160" text-anchor="middle" fill="#c4570e" font-size="11" font-weight="bold">1. Global Attention</text>
+  <text x="530" y="175" text-anchor="middle" fill="#8b4513" font-size="10">市场波动 + 成交量 + 涨跌分布</text>
+
+  <!-- Module 2 -->
+  <rect x="400" y="195" width="260" height="45" rx="5" fill="#fde4cf"/>
+  <text x="530" y="215" text-anchor="middle" fill="#c4570e" font-size="11" font-weight="bold">2. Sector Attention</text>
+  <text x="530" y="230" text-anchor="middle" fill="#8b4513" font-size="10">板块领涨 + 成交集中 + 相关性</text>
+
+  <!-- Module 3 -->
+  <rect x="400" y="250" width="260" height="45" rx="5" fill="#fde4cf"/>
+  <text x="530" y="270" text-anchor="middle" fill="#c4570e" font-size="11" font-weight="bold">3. Weight Pool</text>
+  <text x="530" y="285" text-anchor="middle" fill="#8b4513" font-size="10">个股 ↔ 多板块 多对多映射</text>
+
+  <!-- Module 4 -->
+  <rect x="400" y="305" width="260" height="45" rx="5" fill="#fde4cf"/>
+  <text x="530" y="325" text-anchor="middle" fill="#c4570e" font-size="11" font-weight="bold">4. Frequency Scheduler</text>
+  <text x="530" y="340" text-anchor="middle" fill="#8b4513" font-size="10">LOW(60s) / MEDIUM(10s) / HIGH(1s)</text>
+
+  <!-- Module 5 -->
+  <rect x="400" y="360" width="260" height="45" rx="5" fill="#fde4cf"/>
+  <text x="530" y="380" text-anchor="middle" fill="#c4570e" font-size="11" font-weight="bold">5. Strategy Allocation</text>
+  <text x="530" y="395" text-anchor="middle" fill="#8b4513" font-size="10">Global / Sector / Symbol 三层</text>
+
+  <!-- Module 6 -->
+  <rect x="400" y="415" width="260" height="45" rx="5" fill="#fdd9b5"/>
+  <text x="530" y="435" text-anchor="middle" fill="#c4570e" font-size="11" font-weight="bold">6. Dual Engine</text>
+  <text x="530" y="450" text-anchor="middle" fill="#8b4513" font-size="10">River(O(1)) + PyTorch(异常)</text>
+
+  <!-- ========== ATTENTION V2 LAYER ========== -->
+  <rect x="710" y="90" width="320" height="380" rx="8" fill="white" stroke="#7b2cbf" stroke-width="2" filter="url(#shadow)"/>
+  <rect x="710" y="90" width="320" height="35" rx="8" fill="url(#attentionV2Grad)"/>
+  <text x="870" y="113" text-anchor="middle" fill="white" font-size="14" font-weight="bold">🧠 ATTENTION V2 增强层</text>
+
+  <!-- V2 Modules -->
+  <rect x="730" y="140" width="280" height="40" rx="5" fill="#e8daef"/>
+  <text x="870" y="158" text-anchor="middle" fill="#7b2cbf" font-size="11" font-weight="bold">7. Predictive Attention Engine</text>
+  <text x="870" y="172" text-anchor="middle" fill="#5a189a" font-size="9">EMA加速 / 二阶导数 / 动量预测</text>
+
+  <rect x="730" y="190" width="280" height="40" rx="5" fill="#e8daef"/>
+  <text x="870" y="208" text-anchor="middle" fill="#7b2cbf" font-size="11" font-weight="bold">8. Attention Feedback Loop</text>
+  <text x="870" y="222" text-anchor="middle" fill="#5a189a" font-size="9">策略结果 → 注意力调整</text>
+
+  <rect x="730" y="240" width="280" height="40" rx="5" fill="#e8daef"/>
+  <text x="870" y="258" text-anchor="middle" fill="#7b2cbf" font-size="11" font-weight="bold">9. Attention Budget System</text>
+  <text x="870" y="272" text-anchor="middle" fill="#5a189a" font-size="9">Tier1/2/3 预算分配 + Top-K</text>
+
+  <rect x="730" y="290" width="280" height="40" rx="5" fill="#e8daef"/>
+  <text x="870" y="308" text-anchor="middle" fill="#7b2cbf" font-size="11" font-weight="bold">10. Attention Propagation</text>
+  <text x="870" y="322" text-anchor="middle" fill="#5a189a" font-size="9">注意力扩散 / 关联板块</text>
+
+  <rect x="730" y="340" width="280" height="40" rx="5" fill="#d7bde2"/>
+  <text x="870" y="358" text-anchor="middle" fill="#7b2cbf" font-size="11" font-weight="bold">11. Strategy Learning</text>
+  <text x="870" y="372" text-anchor="middle" fill="#5a189a" font-size="9">Market State → Bandit策略选择</text>
+
+  <rect x="730" y="390" width="280" height="60" rx="5" fill="#c39bd3"/>
+  <text x="870" y="415" text-anchor="middle" fill="#5a189a" font-size="11" font-weight="bold">V2EnhancedAttentionSystem</text>
+  <text x="870" y="435" text-anchor="middle" fill="#7b2cbf" font-size="10">Backward Compatible + Progressive</text>
+
+  <!-- ========== BANDIT LAYER ========== -->
+  <rect x="1060" y="90" width="290" height="380" rx="8" fill="white" stroke="#2667ff" stroke-width="2" filter="url(#shadow)"/>
+  <rect x="1060" y="90" width="290" height="35" rx="8" fill="url(#banditGrad)"/>
+  <text x="1205" y="113" text-anchor="middle" fill="white" font-size="14" font-weight="bold">🎰 BANDIT 交易系统</text>
+
+  <rect x="1080" y="140" width="250" height="35" rx="5" fill="#d4e6ff"/>
+  <text x="1205" y="163" text-anchor="middle" fill="#2667ff" font-size="11" font-weight="bold">SignalListener - 信号监听</text>
+
+  <rect x="1080" y="185" width="250" height="35" rx="5" fill="#d4e6ff"/>
+  <text x="1205" y="208" text-anchor="middle" fill="#2667ff" font-size="11" font-weight="bold">VirtualPortfolio - 虚拟持仓</text>
+
+  <rect x="1080" y="230" width="250" height="35" rx="5" fill="#d4e6ff"/>
+  <text x="1205" y="253" text-anchor="middle" fill="#2667ff" font-size="11" font-weight="bold">MarketObserver - 市场观察</text>
+
+  <rect x="1080" y="275" width="250" height="35" rx="5" fill="#a3c9ff"/>
+  <text x="1205" y="298" text-anchor="middle" fill="#2667ff" font-size="11" font-weight="bold">AdaptiveCycle - 自适应循环</text>
+
+  <rect x="1080" y="320" width="250" height="35" rx="5" fill="#a3c9ff"/>
+  <text x="1205" y="343" text-anchor="middle" fill="#2667ff" font-size="11" font-weight="bold">BanditOptimizer - 策略优化</text>
+
+  <rect x="1080" y="365" width="250" height="35" rx="5" fill="#a3c9ff"/>
+  <text x="1205" y="388" text-anchor="middle" fill="#2667ff" font-size="11" font-weight="bold">BanditAutoRunner - 自动运行</text>
+
+  <rect x="1080" y="410" width="250" height="45" rx="5" fill="#7eb8ff"/>
+  <text x="1205" y="430" text-anchor="middle" fill="#1a4499" font-size="10" font-weight="bold">XiaoHeBanditIntegration</text>
+  <text x="1205" y="445" text-anchor="middle" fill="#1a4499" font-size="9">与小何系统的集成</text>
+
+  <!-- ========== STRATEGY LAYER ========== -->
+  <rect x="50" y="490" width="500" height="280" rx="8" fill="white" stroke="#ee5a5a" stroke-width="2" filter="url(#shadow)"/>
+  <rect x="50" y="490" width="500" height="35" rx="8" fill="url(#strategyGrad)"/>
+  <text x="300" y="513" text-anchor="middle" fill="white" font-size="14" font-weight="bold">⚡ STRATEGY 策略层</text>
+
+  <!-- Strategy Entry -->
+  <rect x="70" y="540" width="200" height="80" rx="5" fill="#ffe3e3"/>
+  <text x="170" y="562" text-anchor="middle" fill="#ee5a5a" font-size="11" font-weight="bold">StrategyEntry</text>
+  <text x="170" y="578" text-anchor="middle" fill="#c44" font-size="9">compute_mode:</text>
+  <text x="170" y="590" text-anchor="middle" fill="#c44" font-size="9">record / window</text>
+  <text x="170" y="602" text-anchor="middle" fill="#c44" font-size="9">window_type:</text>
+  <text x="170" y="614" text-anchor="middle" fill="#c44" font-size="9">sliding / timed</text>
+
+  <!-- StrategyManager -->
+  <rect x="290" y="540" width="240" height="80" rx="5" fill="#ffe3e3"/>
+  <text x="410" y="562" text-anchor="middle" fill="#ee5a5a" font-size="11" font-weight="bold">StrategyManager</text>
+  <text x="410" y="578" text-anchor="middle" fill="#c44" font-size="9">bind datasource</text>
+  <text x="410" y="590" text-anchor="middle" fill="#c44" font-size="9">start/stop/restart</text>
+  <text x="410" y="602" text-anchor="middle" fill="#c44" font-size="9">experiment mode</text>
+  <text x="410" y="614" text-anchor="middle" fill="#c44" font-size="9">restore running</text>
+
+  <!-- Strategy Types -->
+  <rect x="70" y="635" width="460" height="50" rx="5" fill="#ffcccc"/>
+  <text x="300" y="655" text-anchor="middle" fill="#c44" font-size="11" font-weight="bold">strategy_type: legacy / river / plugin / multi_datasource</text>
+  <text x="300" y="675" text-anchor="middle" fill="#c44" font-size="9">handler_type: radar / memory / bandit / llm / unknown</text>
+
+  <!-- Output -->
+  <rect x="70" y="700" width="460" height="55" rx="5" fill="#ffb3b3"/>
+  <text x="300" y="720" text-anchor="middle" fill="#990000" font-size="11" font-weight="bold">OUTPUT CONTROLLER</text>
+  <text x="300" y="738" text-anchor="middle" fill="#990000" font-size="9">Signal / Radar / Memory / Bandit</text>
+  <text x="300" y="750" text-anchor="middle" fill="#990000" font-size="9">ResultStore (持久化)</text>
+
+  <!-- ========== ATTENTION STRATEGIES ========== -->
+  <rect x="580" y="490" width="400" height="280" rx="8" fill="white" stroke="#9d4edd" stroke-width="2" filter="url(#shadow)"/>
+  <rect x="580" y="490" width="400" height="35" rx="8" fill="url(#attentionV2Grad)"/>
+  <text x="780" y="513" text-anchor="middle" fill="white" font-size="14" font-weight="bold">🎯 NAJA_ATTENTION_STRATEGIES</text>
+
+  <rect x="600" y="540" width="360" height="35" rx="5" fill="#f0e6ff"/>
+  <text x="780" y="562" text-anchor="middle" fill="#7b2cbf" font-size="11" font-weight="bold">GlobalMarketSentinel - 全局市场监控</text>
+
+  <rect x="600" y="585" width="360" height="35" rx="5" fill="#f0e6ff"/>
+  <text x="780" y="607" text-anchor="middle" fill="#7b2cbf" font-size="11" font-weight="bold">SectorRotationHunter - 板块轮动捕捉</text>
+
+  <rect x="600" y="630" width="360" height="35" rx="5" fill="#f0e6ff"/>
+  <text x="780" y="652" text-anchor="middle" fill="#7b2cbf" font-size="11" font-weight="bold">MomentumSurgeTracker - 动量突破追踪</text>
+
+  <rect x="600" y="675" width="360" height="35" rx="5" fill="#f0e6ff"/>
+  <text x="780" y="697" text-anchor="middle" fill="#7b2cbf" font-size="11" font-weight="bold">AnomalyPatternSniper - 异常模式狙击</text>
+
+  <rect x="600" y="720" width="360" height="35" rx="5" fill="#e6d9ff"/>
+  <text x="780" y="742" text-anchor="middle" fill="#7b2cbf" font-size="11" font-weight="bold">SmartMoneyFlowDetector - 聪明资金检测</text>
+
+  <rect x="600" y="765" width="360" height="55" rx="5" fill="#d4c4e8"/>
+  <text x="780" y="787" text-anchor="middle" fill="#5a189a" font-size="11" font-weight="bold">AttentionStrategyManager</text>
+  <text x="780" y="802" text-anchor="middle" fill="#5a189a" font-size="9">基于注意力调度，只在高注意力时执行</text>
+  <text x="780" y="814" text-anchor="middle" fill="#5a189a" font-size="9">实验模式支持 (start_experiment)</text>
+
+  <!-- ========== FLOW ARROWS ========== -->
+
+  <!-- DataSource → Attention V1 -->
+  <path d="M 350 180 Q 365 180 365 200 Q 365 250 380 250" fill="none" stroke="#555" stroke-width="2" marker-end="url(#arrowhead)"/>
+  <text x="358" y="210" fill="#666" font-size="9">Market</text>
+  <text x="358" y="222" fill="#666" font-size="9">Snapshot</text>
+
+  <!-- Attention V1 → V2 -->
+  <path d="M 680 280 L 710 280" fill="none" stroke="#7b2cbf" stroke-width="2" stroke-dasharray="5,2"/>
+  <text x="692" y="272" fill="#7b2cbf" font-size="9">增强</text>
+
+  <!-- V2 → Bandit -->
+  <path d="M 1030 280 L 1060 280" fill="none" stroke="#2667ff" stroke-width="2"/>
+  <text x="1042" y="272" fill="#2667ff" font-size="9">策略</text>
+  <text x="1042" y="284" fill="#2667ff" font-size="9">选择</text>
+
+  <!-- DataSource → Strategy -->
+  <path d="M 200 470 L 200 490" fill="none" stroke="#ee5a5a" stroke-width="2"/>
+  <text x="172" y="482" fill="#ee5a5a" font-size="9">数据流</text>
+
+  <!-- Attention V1 → Strategy -->
+  <path d="M 450 475 Q 300 485 300 490" fill="none" stroke="#ee5a5a" stroke-width="1.5" stroke-dasharray="3,2"/>
+  <text x="380" y="478" fill="#ee5a5a" font-size="8">注意力参数</text>
+
+  <!-- Strategy → Attention Strategies -->
+  <path d="M 550 640 L 580 640" fill="none" stroke="#9d4edd" stroke-width="2"/>
+  <text x="562" y="632" fill="#9d4edd" font-size="9">绑定</text>
+
+  <!-- Bandit → Strategy -->
+  <path d="M 1100 350 Q 1100 400 700 450 Q 400 480 300 490" fill="none" stroke="#2667ff" stroke-width="1.5" stroke-dasharray="4,2"/>
+  <text x="750" y="440" fill="#2667ff" font-size="8">策略调节/反馈</text>
+
+  <!-- Bandit → Virtual -->
+  <path d="M 1205 320 L 1205 220" fill="none" stroke="#2667ff" stroke-width="1.5" stroke-dasharray="3,2"/>
+
+  <!-- Attention V2 Feedback → V1 -->
+  <path d="M 870 90 L 530 90 L 530 130" fill="none" stroke="#7b2cbf" stroke-width="1.5" stroke-dasharray="4,2"/>
+  <text x="700" y="85" fill="#7b2cbf" font-size="8">Feedback</text>
+
+  <!-- Strategy → Bandit -->
+  <path d="M 300 770 L 1205 770 L 1205 410" fill="none" stroke="#ee5a5a" stroke-width="1.5"/>
+  <text x="900" y="760" fill="#ee5a5a" font-size="8">策略输出</text>
+
+  <!-- ========== LEGEND ========== -->
+  <rect x="1010" y="490" width="340" height="280" rx="8" fill="white" stroke="#888" stroke-width="1" filter="url(#shadow)"/>
+  <text x="1180" y="515" text-anchor="middle" fill="#333" font-size="14" font-weight="bold">📋 数据流说明</text>
+
+  <line x1="1030" y1="535" x2="1070" y2="535" stroke="#2d6a4f" stroke-width="3"/>
+  <text x="1080" y="539" fill="#333" font-size="11">DataSource 产生市场数据</text>
+
+  <line x1="1030" y1="565" x2="1070" y2="565" stroke="#c4570e" stroke-width="3"/>
+  <text x="1080" y="569" fill="#333" font-size="11">Attention V1 计算注意力权重</text>
+
+  <line x1="1030" y1="595" x2="1070" y2="595" stroke="#7b2cbf" stroke-width="3" stroke-dasharray="5,2"/>
+  <text x="1080" y="599" fill="#333" font-size="11">Attention V2 增强预测/反馈</text>
+
+  <line x1="1030" y1="625" x2="1070" y2="625" stroke="#2667ff" stroke-width="3"/>
+  <text x="1080" y="629" fill="#333" font-size="11">Bandit 策略选择与优化</text>
+
+  <line x1="1030" y1="655" x2="1070" y2="655" stroke="#ee5a5a" stroke-width="3"/>
+  <text x="1080" y="659" fill="#333" font-size="11">Strategy 执行策略逻辑</text>
+
+  <line x1="1030" y1="685" x2="1070" y2="685" stroke="#9d4edd" stroke-width="3"/>
+  <text x="1080" y="689" fill="#333" font-size="11">Attention Strategies 注意力策略</text>
+
+  <line x1="1030" y1="715" x2="1070" y2="715" stroke="#555" stroke-width="3" stroke-dasharray="3,2"/>
+  <text x="1080" y="719" fill="#333" font-size="11">反馈调节回路</text>
+
+  <!-- Key Flow Numbers -->
+  <text x="1030" y="750" fill="#666" font-size="10" font-weight="bold">核心流程:</text>
+  <text x="1030" y="768" fill="#666" font-size="9">① DataSource → ② Attention(V1+V2)</text>
+  <text x="1030" y="782" fill="#666" font-size="9">③ Bandit策略选择 → ④ Strategy执行</text>
+  <text x="1030" y="796" fill="#666" font-size="9">⑤ 结果反馈 → 注意力调整</text>
+
+</svg>

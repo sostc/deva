@@ -18,6 +18,9 @@ from typing import Dict, List, Optional, Set, Tuple
 from dataclasses import dataclass
 from collections import defaultdict
 import time
+import logging
+
+log = logging.getLogger(__name__)
 
 
 @dataclass
@@ -106,29 +109,40 @@ class WeightPool:
     ) -> Dict[str, float]:
         """
         更新权重池
-        
+
         Args:
             symbols: 股票代码数组
             returns: 涨跌幅数组
             volumes: 成交量数组
             sector_attention: 板块注意力字典
             timestamp: 当前时间戳
-            
+
         Returns:
             symbol_weights: 个股权重字典
         """
         self._sector_attention = sector_attention
-        
-        # 更新局部活动
-        self._update_local_activity(symbols, returns, volumes)
-        
-        # 计算每个 symbol 的权重
-        for symbol, idx in self._symbol_to_idx.items():
-            weight = self._calc_symbol_weight(symbol, idx)
-            self._weights[idx] = weight
-        
+
+        # 清理异常值
+        returns = np.nan_to_num(returns, nan=0.0, posinf=50.0, neginf=-50.0)
+        returns = np.clip(returns, -50.0, 50.0)
+        volumes = np.nan_to_num(volumes, nan=0.0, posinf=1e15, neginf=0.0)
+        volumes = np.clip(volumes, 0, 1e15)
+
+        try:
+            # 更新局部活动
+            self._update_local_activity(symbols, returns, volumes)
+
+            # 计算每个 symbol 的权重
+            for symbol, idx in self._symbol_to_idx.items():
+                weight = self._calc_symbol_weight(symbol, idx)
+                self._weights[idx] = weight
+        except Exception as e:
+            import traceback
+            log.error(f"WeightPool 计算失败: {e}")
+            log.error(traceback.format_exc())
+
         self._last_update_time = timestamp
-        
+
         # 构建返回字典
         return {
             symbol: float(self._weights[idx])

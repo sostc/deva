@@ -196,21 +196,31 @@ class RiverEngine:
             'volume_ratio': 1.0,
             'volatility': 0.0
         }
-        
+
         prices = list(self._price_history[symbol])
         volumes = list(self._volume_history[symbol])
-        
+
         if len(prices) >= 2:
-            features['price_change'] = (price - prices[-2]) / prices[-2] * 100
-        
+            prev_price = prices[-2]
+            if prev_price > 0.01:  # 避免除零或极小值
+                features['price_change'] = (price - prev_price) / prev_price * 100
+                # 限制范围，防止异常值
+                features['price_change'] = max(-50.0, min(50.0, features['price_change']))
+
         if len(volumes) >= 2:
             avg_volume = np.mean(volumes[:-1]) if len(volumes) > 1 else volumes[0]
             if avg_volume > 0:
                 features['volume_ratio'] = volume / avg_volume
-        
+                # 限制范围
+                features['volume_ratio'] = max(0.01, min(100.0, features['volume_ratio']))
+
         if len(prices) >= 5:
-            features['volatility'] = np.std(prices[-5:]) / np.mean(prices[-5:]) * 100
-        
+            price_window = prices[-5:]
+            mean_price = np.mean(price_window)
+            if mean_price > 0.01:
+                volatility = np.std(price_window) / mean_price * 100
+                features['volatility'] = max(0.0, min(50.0, volatility))
+
         return features
     
     def _classify_anomaly(self, score: float) -> AnomalyLevel:
@@ -641,26 +651,47 @@ class DualEngineCoordinator:
     ) -> float:
         """
         计算触发分数
-        
+
         trigger_score = f(anomaly_score, symbol_weight, sector_attention, global_attention)
         """
-        # 板块注意力取平均
-        avg_sector_attention = np.mean(list(sector_attention.values())) if sector_attention else 0.0
-        
-        # 归一化 anomaly_score (假设正常范围 0-5)
-        normalized_anomaly = min(anomaly_signal.anomaly_score / 5.0, 1.0)
-        
-        # 归一化 symbol_weight (假设正常范围 0-5)
-        normalized_symbol = min(symbol_weight / 5.0, 1.0)
-        
-        score = (
-            normalized_anomaly * self._anomaly_weight +
-            normalized_symbol * self._symbol_weight +
-            avg_sector_attention * self._sector_weight +
-            global_attention * self._global_weight
-        )
-        
-        return score
+        try:
+            # 板块注意力取平均 - 添加数值检查
+            if sector_attention:
+                values = list(sector_attention.values())
+                # 过滤掉异常值
+                valid_values = [v for v in values if isinstance(v, (int, float)) and not np.isnan(v) and not np.isinf(v)]
+                avg_sector_attention = np.mean(valid_values) if valid_values else 0.0
+            else:
+                avg_sector_attention = 0.0
+
+            # 确保 global_attention 是有效数值
+            if not isinstance(global_attention, (int, float)) or np.isnan(global_attention) or np.isinf(global_attention):
+                global_attention = 0.0
+
+            # 确保 symbol_weight 是有效数值
+            if not isinstance(symbol_weight, (int, float)) or np.isnan(symbol_weight) or np.isinf(symbol_weight):
+                symbol_weight = 0.0
+
+            # 归一化 anomaly_score (假设正常范围 0-5)
+            normalized_anomaly = min(max(anomaly_signal.anomaly_score, 0.0) / 5.0, 1.0)
+
+            # 归一化 symbol_weight (假设正常范围 0-5)
+            normalized_symbol = min(max(symbol_weight, 0.0) / 5.0, 1.0)
+
+            # 限制 sector_attention 和 global_attention 范围
+            avg_sector_attention = max(0.0, min(1.0, avg_sector_attention))
+            global_attention = max(0.0, min(1.0, global_attention))
+
+            score = (
+                normalized_anomaly * self._anomaly_weight +
+                normalized_symbol * self._symbol_weight +
+                avg_sector_attention * self._sector_weight +
+                global_attention * self._global_weight
+            )
+
+            return max(0.0, min(1.0, score))
+        except Exception:
+            return 0.0
     
     def _should_trigger_pytorch(
         self,

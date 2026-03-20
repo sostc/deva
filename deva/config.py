@@ -93,6 +93,14 @@ DEFAULT_CONFIG_SCHEMA = {
         "level": {"type": "string", "default": "INFO", "sensitive": False, "description": "日志级别"},
         "cache_max_len": {"type": "int", "default": 200, "sensitive": False, "description": "日志缓存最大长度"},
     },
+    "attention_v2": {
+        "enabled": {"type": "bool", "default": True, "sensitive": False, "description": "是否启用 V2 增强系统"},
+        "predictive": {"type": "bool", "default": True, "sensitive": False, "description": "启用预测注意力模块"},
+        "feedback": {"type": "bool", "default": True, "sensitive": False, "description": "启用反馈循环模块"},
+        "budget": {"type": "bool", "default": True, "sensitive": False, "description": "启用预算系统模块"},
+        "propagation": {"type": "bool", "default": False, "sensitive": False, "description": "启用扩散传播模块"},
+        "strategy_learning": {"type": "bool", "default": False, "sensitive": False, "description": "启用策略学习模块"},
+    },
 }
 
 OLD_NAMESPACE_MAPPING = {

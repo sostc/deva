@@ -146,7 +146,7 @@ def render_attention_diagnostic():
     # 4. 检查策略管理器
     put_html("<h3>4. 策略管理器状态</h3>")
     try:
-        from naja_attention_strategies import get_strategy_manager
+        from deva.naja.attention.strategies import get_strategy_manager
         manager = get_strategy_manager()
         
         stats = manager.get_all_stats()

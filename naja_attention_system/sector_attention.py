@@ -18,6 +18,9 @@ from typing import Dict, List, Optional, Set, Tuple
 from dataclasses import dataclass, field
 from collections import defaultdict
 import time
+import logging
+
+log = logging.getLogger(__name__)
 
 
 @dataclass
@@ -99,56 +102,73 @@ class SectorAttentionEngine:
     ) -> Dict[str, float]:
         """
         更新板块注意力分数
-        
+
         Args:
             symbols: 股票代码数组
             returns: 涨跌幅数组
             volumes: 成交量数组
             timestamp: 当前时间戳
-            
+
         Returns:
             sector_attention: 板块注意力字典
         """
         start_time = time.time()
-        
-        # 按板块聚合数据 (增量方式，避免 groupby)
-        sector_data = self._aggregate_by_sector(symbols, returns, volumes)
-        
-        # 计算每个板块的注意力
-        for sector_id, data in sector_data.items():
-            if sector_id not in self._sectors:
-                continue
-            
-            sector = self._sectors[sector_id]
-            idx = self._sector_id_to_idx[sector_id]
-            
-            # 计算新分数
-            new_score = self._calc_sector_attention(
-                data['returns'],
-                data['volumes'],
-                sector
-            )
-            
-            # 应用半衰期衰减
+
+        # 清理异常值
+        returns = np.nan_to_num(returns, nan=0.0, posinf=50.0, neginf=-50.0)
+        returns = np.clip(returns, -50.0, 50.0)
+        volumes = np.nan_to_num(volumes, nan=0.0, posinf=1e15, neginf=0.0)
+        volumes = np.clip(volumes, 0, 1e15)
+
+        try:
+            # 按板块聚合数据 (增量方式，避免 groupby)
+            sector_data = self._aggregate_by_sector(symbols, returns, volumes)
+
+            # 计算每个板块的注意力
+            for sector_id, data in sector_data.items():
+                if sector_id not in self._sectors:
+                    continue
+
+                sector = self._sectors[sector_id]
+                idx = self._sector_id_to_idx[sector_id]
+
+                # 计算新分数
+                new_score = self._calc_sector_attention(
+                    data['returns'],
+                    data['volumes'],
+                    sector
+                )
+
+                # 应用半衰期衰减
             last_time = self._last_update_time.get(sector_id, timestamp)
             time_delta = timestamp - last_time
-            decay_factor = 0.5 ** (time_delta / sector.decay_half_life)
-            
-            # 混合新旧分数
-            old_score = self._attention_scores[idx]
-            blended_score = max(new_score, old_score * decay_factor)
-            
-            # 只有当变化超过阈值时才更新
-            if abs(blended_score - old_score) > self.update_threshold:
-                self._attention_scores[idx] = blended_score
-                self._last_update_time[sector_id] = timestamp
-        
+            # 限制 time_delta，防止指数溢出
+            max_time_delta = sector.decay_half_life * 10  # 最多10个半衰期
+            time_delta = min(time_delta, max_time_delta)
+            try:
+                decay_factor = 0.5 ** (time_delta / sector.decay_half_life)
+            except OverflowError:
+                decay_factor = 0.0  # 如果溢出，视为完全衰减
+
+                # 混合新旧分数
+                old_score = self._attention_scores[idx]
+                blended_score = max(new_score, old_score * decay_factor)
+
+                # 只有当变化超过阈值时才更新
+                if abs(blended_score - old_score) > self.update_threshold:
+                    self._attention_scores[idx] = blended_score
+                    self._last_update_time[sector_id] = timestamp
+        except Exception as e:
+            import traceback
+            log.error(f"SectorAttention 计算失败: {e}")
+            log.error(traceback.format_exc())
+
         # 构建返回字典
         result = {
             sector_id: self._attention_scores[idx]
             for sector_id, idx in self._sector_id_to_idx.items()
         }
-        
+
         self._last_calc_time = time.time()
         return result
     
@@ -209,12 +229,19 @@ class SectorAttentionEngine:
         leader_score = min(leader_ratio * 2, 1.0)  # 归一化
         
         # 2. 成交量集中度 (使用 Gini 系数思想)
-        if len(volumes) > 0 and np.sum(volumes) > 0:
-            sorted_volumes = np.sort(volumes)
-            cumsum = np.cumsum(sorted_volumes)
-            n = len(volumes)
-            concentration = (n + 1 - 2 * np.sum(cumsum) / cumsum[-1]) / n
-            volume_score = concentration
+        if len(volumes) > 0:
+            total_volume = np.sum(volumes)
+            if total_volume > 1e-10:  # 避免除零
+                sorted_volumes = np.sort(volumes)
+                cumsum = np.cumsum(sorted_volumes)
+                n = len(volumes)
+                if cumsum[-1] > 1e-10:  # 再次检查
+                    concentration = (n + 1 - 2 * np.sum(cumsum) / cumsum[-1]) / n
+                    volume_score = max(0.0, min(1.0, concentration))
+                else:
+                    volume_score = 0.0
+            else:
+                volume_score = 0.0
         else:
             volume_score = 0.0
         

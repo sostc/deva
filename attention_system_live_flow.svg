@@ -1,0 +1,392 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 900" font-family="Arial, sans-serif">
+  <defs>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#0f0f23"/>
+      <stop offset="100%" style="stop-color:#1a1a3e"/>
+    </linearGradient>
+    <linearGradient id="datasourceGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" style="stop-color:#2d6a4f"/>
+      <stop offset="100%" style="stop-color:#40916c"/>
+    </linearGradient>
+    <linearGradient id="attV1Grad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#f77f00"/>
+      <stop offset="100%" style="stop-color:#d62828"/>
+    </linearGradient>
+    <linearGradient id="attV2Grad" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" style="stop-color:#7209b7"/>
+      <stop offset="100%" style="stop-color:#560bad"/>
+    </linearGradient>
+    <linearGradient id="banditGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" style="stop-color:#023e8a"/>
+      <stop offset="100%" style="stop-color:#0077b6"/>
+    </linearGradient>
+    <linearGradient id="strategyGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" style="stop-color:#e85d04"/>
+      <stop offset="100%" style="stop-color:#dc2f02"/>
+    </linearGradient>
+    <linearGradient id="feedbackGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" style="stop-color:#06d6a0"/>
+      <stop offset="100%" style="stop-color:#118ab2"/>
+    </linearGradient>
+    <linearGradient id="timeGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" style="stop-color:#ffd166"/>
+      <stop offset="100%" style="stop-color:#f77f00"/>
+    </linearGradient>
+    <filter id="glow">
+      <feGaussianBlur stdDeviation="3" result="coloredBlur"/>
+      <feMerge>
+        <feMergeNode in="coloredBlur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+    <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#888"/>
+    </marker>
+    <marker id="greenArrow" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#06d6a0"/>
+    </marker>
+    <marker id="redArrow" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#ef476f"/>
+    </marker>
+  </defs>
+
+  <!-- Background -->
+  <rect width="1200" height="900" fill="url(#bgGrad)"/>
+
+  <!-- Title Bar -->
+  <rect x="20" y="15" width="1160" height="45" rx="10" fill="#1a1a2e" stroke="#333" stroke-width="1"/>
+  <text x="600" y="45" text-anchor="middle" fill="#ffd166" font-size="20" font-weight="bold">
+    ⚡ NAJA 注意力系统实盘运行流程
+  </text>
+
+  <!-- ========== TIME AXIS ========== -->
+  <rect x="20" y="70" width="1160" height="40" rx="8" fill="#1a1a2e" stroke="#ffd166" stroke-width="1"/>
+  <text x="100" y="95" text-anchor="middle" fill="#ffd166" font-size="14" font-weight="bold">09:30</text>
+  <text x="100" y="105" text-anchor="middle" fill="#888" font-size="9">行情开始</text>
+  <line x1="100" y1="110" x2="100" y2="850" stroke="#ffd166" stroke-width="1" stroke-dasharray="5,5" opacity="0.5"/>
+
+  <text x="280" y="95" text-anchor="middle" fill="#ffd166" font-size="14" font-weight="bold">09:30.1</text>
+  <text x="280" y="105" text-anchor="middle" fill="#888" font-size="9">注意力计算</text>
+  <line x1="280" y1="110" x2="280" y2="850" stroke="#ffd166" stroke-width="1" stroke-dasharray="5,5" opacity="0.5"/>
+
+  <text x="480" y="95" text-anchor="middle" fill="#ffd166" font-size="14" font-weight="bold">09:30.2</text>
+  <text x="480" y="105" text-anchor="middle" fill="#888" font-size="9">V2增强</text>
+  <line x1="480" y1="110" x2="480" y2="850" stroke="#ffd166" stroke-width="1" stroke-dasharray="5,5" opacity="0.5"/>
+
+  <text x="680" y="95" text-anchor="middle" fill="#ffd166" font-size="14" font-weight="bold">09:30.3</text>
+  <text x="680" y="105" text-anchor="middle" fill="#888" font-size="9">策略响应</text>
+  <line x1="680" y1="110" x2="680" y2="850" stroke="#ffd166" stroke-width="1" stroke-dasharray="5,5" opacity="0.5"/>
+
+  <text x="880" y="95" text-anchor="middle" fill="#ffd166" font-size="14" font-weight="bold">09:30.4</text>
+  <text x="880" y="105" text-anchor="middle" fill="#888" font-size="9">Bandit选择</text>
+  <line x1="880" y1="110" x2="880" y2="850" stroke="#ffd166" stroke-width="1" stroke-dasharray="5,5" opacity="0.5"/>
+
+  <text x="1050" y="95" text-anchor="middle" fill="#ffd166" font-size="14" font-weight="bold">09:30.5+</text>
+  <text x="1050" y="105" text-anchor="middle" fill="#888" font-size="9">执行与反馈</text>
+  <line x1="1050" y1="110" x2="1050" y2="850" stroke="#ffd166" stroke-width="1" stroke-dasharray="5,5" opacity="0.5"/>
+
+  <!-- ========== PHASE 1: DATA SOURCE ========== -->
+  <g id="phase1">
+    <rect x="30" y="130" width="200" height="220" rx="10" fill="#0d1b2a" stroke="#40916c" stroke-width="2"/>
+    <rect x="30" y="130" width="200" height="35" rx="10" fill="url(#datasourceGrad)"/>
+    <text x="130" y="153" text-anchor="middle" fill="white" font-size="13" font-weight="bold">📊 PHASE 1</text>
+    <text x="130" y="173" text-anchor="middle" fill="#95d5b2" font-size="11">DataSource 数据源</text>
+
+    <rect x="45" y="185" width="170" height="30" rx="5" fill="#1b4332"/>
+    <text x="130" y="205" text-anchor="middle" fill="#95d5b2" font-size="10">timer 模式</text>
+
+    <rect x="45" y="225" width="170" height="30" rx="5" fill="#1b4332"/>
+    <text x="130" y="245" text-anchor="middle" fill="#95d5b2" font-size="10">fetch_data() 拉取行情</text>
+
+    <rect x="45" y="265" width="170" height="30" rx="5" fill="#2d6a4f"/>
+    <text x="130" y="285" text-anchor="middle" fill="white" font-size="10" font-weight="bold">NS Stream 广播</text>
+
+    <!-- Data output -->
+    <rect x="45" y="305" width="170" height="35" rx="5" fill="#1b4332" stroke="#40916c" stroke-dasharray="3,2"/>
+    <text x="130" y="322" text-anchor="middle" fill="#80ed99" font-size="9">Market Snapshot:</text>
+    <text x="130" y="334" text-anchor="middle" fill="#80ed99" font-size="9">{AAPL, JPM, MSFT, ...}</text>
+  </g>
+
+  <!-- Arrow: Phase1 → Phase2 -->
+  <path d="M 230 240 L 260 240" fill="none" stroke="#ffd166" stroke-width="3" marker-end="url(#arrowhead)"/>
+
+  <!-- ========== PHASE 2: ATTENTION V1 ========== -->
+  <g id="phase2">
+    <rect x="270" y="130" width="220" height="320" rx="10" fill="#0d1b2a" stroke="#d62828" stroke-width="2"/>
+    <rect x="270" y="130" width="220" height="35" rx="10" fill="url(#attV1Grad)"/>
+    <text x="380" y="153" text-anchor="middle" fill="white" font-size="13" font-weight="bold">🔥 PHASE 2</text>
+    <text x="380" y="173" text-anchor="middle" fill="#ffccd5" font-size="11">Attention V1 注意力计算</text>
+
+    <!-- Global Attention -->
+    <rect x="285" y="190" width="190" height="45" rx="5" fill="#3d0000"/>
+    <text x="380" y="208" text-anchor="middle" fill="#ff6b6b" font-size="10" font-weight="bold">Global Attention</text>
+    <text x="380" y="222" text-anchor="middle" fill="#ffb3b3" font-size="9">市场波动率↑ → 0.8</text>
+    <text x="380" y="232" text-anchor="middle" fill="#ffd166" font-size="8">▲ 30%</text>
+
+    <!-- Sector Attention -->
+    <rect x="285" y="245" width="190" height="55" rx="5" fill="#3d0000"/>
+    <text x="380" y="263" text-anchor="middle" fill="#ff6b6b" font-size="10" font-weight="bold">Sector Attention</text>
+    <text x="380" y="277" text-anchor="middle" fill="#80ed99" font-size="9">科技板块: 0.9 ▲</text>
+    <text x="380" y="289" text-anchor="middle" fill="#ef476f" font-size="9">金融板块: 0.3 ▼</text>
+
+    <!-- Weight Pool -->
+    <rect x="285" y="310" width="190" height="55" rx="5" fill="#3d0000"/>
+    <text x="380" y="328" text-anchor="middle" fill="#ff6b6b" font-size="10" font-weight="bold">Weight Pool</text>
+    <text x="380" y="342" text-anchor="middle" fill="#ffd166" font-size="9">AAPL(科技): 0.95</text>
+    <text x="380" y="354" text-anchor="middle" fill="#ffd166" font-size="9">JPM(金融): 0.35</text>
+
+    <!-- Frequency -->
+    <rect x="285" y="375" width="190" height="45" rx="5" fill="#7d0000"/>
+    <text x="380" y="393" text-anchor="middle" fill="#ff6b6b" font-size="10" font-weight="bold">Frequency Scheduler</text>
+    <text x="380" y="407" text-anchor="middle" fill="#ffd166" font-size="9">AAPL: HIGH(1s) | JPM: LOW(60s)</text>
+
+    <!-- Output -->
+    <rect x="285" y="430" width="190" height="25" rx="5" fill="#d62828"/>
+    <text x="380" y="447" text-anchor="middle" fill="white" font-size="9" font-weight="bold">Symbol Weights → V2</text>
+  </g>
+
+  <!-- Arrow: Phase2 → Phase3 -->
+  <path d="M 490 280 L 520 280" fill="none" stroke="#ffd166" stroke-width="3" marker-end="url(#arrowhead)"/>
+
+  <!-- ========== PHASE 3: ATTENTION V2 ========== -->
+  <g id="phase3">
+    <rect x="530" y="130" width="240" height="320" rx="10" fill="#0d1b2a" stroke="#560bad" stroke-width="2"/>
+    <rect x="530" y="130" width="240" height="35" rx="10" fill="url(#attV2Grad)"/>
+    <text x="650" y="153" text-anchor="middle" fill="white" font-size="13" font-weight="bold">🧠 PHASE 3</text>
+    <text x="650" y="173" text-anchor="middle" fill="#e0aaff" font-size="11">Attention V2 增强层</text>
+
+    <!-- Predictive -->
+    <rect x="545" y="190" width="210" height="50" rx="5" fill="#240046"/>
+    <text x="650" y="208" text-anchor="middle" fill="#c77dff" font-size="10" font-weight="bold">7. Predictive Engine</text>
+    <text x="650" y="222" text-anchor="middle" fill="#80ed99" font-size="9">预测AAPL动量继续增强</text>
+    <text x="650" y="234" text-anchor="middle" fill="#ffd166" font-size="8">预测分数: 0.87</text>
+
+    <!-- Budget -->
+    <rect x="545" y="250" width="210" height="60" rx="5" fill="#240046"/>
+    <text x="650" y="268" text-anchor="middle" fill="#c77dff" font-size="10" font-weight="bold">9. Budget System</text>
+    <text x="650" y="282" text-anchor="middle" fill="#ffd166" font-size="9">Tier1: AAPL(高优先级)</text>
+    <text x="650" y="294" text-anchor="middle" fill="#80ed99" font-size="8">预算分配: 20/50 已用</text>
+    <text x="650" y="305" text-anchor="middle" fill="#888" font-size="8">Tier2: MSFT | Tier3: JPM</text>
+
+    <!-- Feedback -->
+    <rect x="545" y="320" width="210" height="50" rx="5" fill="#3c096c"/>
+    <text x="650" y="338" text-anchor="middle" fill="#c77dff" font-size="10" font-weight="bold">8. Feedback Loop</text>
+    <text x="650" y="352" text-anchor="middle" fill="#80ed99" font-size="9">记录注意力状态</text>
+    <text x="650" y="364" text-anchor="middle" fill="#888" font-size="8">等待策略执行结果</text>
+
+    <!-- Propagation -->
+    <rect x="545" y="380" width="210" height="40" rx="5" fill="#3c096c"/>
+    <text x="650" y="398" text-anchor="middle" fill="#c77dff" font-size="10" font-weight="bold">10. Propagation</text>
+    <text x="650" y="412" text-anchor="middle" fill="#e0aaff" font-size="9">扩散至关联板块</text>
+
+    <!-- Output -->
+    <rect x="545" y="430" width="210" height="25" rx="5" fill="#560bad"/>
+    <text x="650" y="447" text-anchor="middle" fill="white" font-size="9" font-weight="bold">Adjusted Weights → Strategies</text>
+  </g>
+
+  <!-- Arrow: Phase3 → Phase4 -->
+  <path d="M 770 280 L 800 280" fill="none" stroke="#ffd166" stroke-width="3" marker-end="url(#arrowhead)"/>
+
+  <!-- ========== PHASE 4: ATTENTION STRATEGIES ========== -->
+  <g id="phase4">
+    <rect x="810" y="130" width="190" height="320" rx="10" fill="#0d1b2a" stroke="#e85d04" stroke-width="2"/>
+    <rect x="810" y="130" width="190" height="35" rx="10" fill="url(#strategyGrad)"/>
+    <text x="905" y="153" text-anchor="middle" fill="white" font-size="13" font-weight="bold">⚡ PHASE 4</text>
+    <text x="905" y="173" text-anchor="middle" fill="#ffccd5" font-size="11">Attention Strategies</text>
+
+    <!-- Strategy 1 -->
+    <rect x="825" y="190" width="160" height="35" rx="5" fill="#7d2500">
+      <animate attributeName="opacity" values="1;0.7;1" dur="1s" repeatCount="indefinite"/>
+    </rect>
+    <text x="905" y="208" text-anchor="middle" fill="#ffd166" font-size="9" font-weight="bold">🎯 MomentumSurgeTracker</text>
+    <text x="905" y="218" text-anchor="middle" fill="#80ed99" font-size="8">触发 AAPL 动量信号!</text>
+
+    <!-- Strategy 2 -->
+    <rect x="825" y="235" width="160" height="35" rx="5" fill="#7d2500"/>
+    <text x="905" y="253" text-anchor="middle" fill="#ffd166" font-size="9" font-weight="bold">🎯 AnomalyPatternSniper</text>
+    <text x="905" y="263" text-anchor="middle" fill="#e0aaff" font-size="8">检测异常模式: 成交量突增</text>
+
+    <!-- Strategy 3 -->
+    <rect x="825" y="280" width="160" height="35" rx="5" fill="#5c1900"/>
+    <text x="905" y="298" text-anchor="middle" fill="#ffd166" font-size="9" font-weight="bold">🎯 SectorRotationHunter</text>
+    <text x="905" y="308" text-anchor="middle" fill="#888" font-size="8">科技板块轮动确认</text>
+
+    <!-- Strategy 4 -->
+    <rect x="825" y="325" width="160" height="35" rx="5" fill="#5c1900"/>
+    <text x="905" y="343" text-anchor="middle" fill="#ffd166" font-size="9" font-weight="bold">🎯 SmartMoneyFlowDetector</text>
+    <text x="905" y="353" text-anchor="middle" fill="#888" font-size="8">聪明资金流入科技</text>
+
+    <!-- Strategy 5 -->
+    <rect x="825" y="370" width="160" height="35" rx="5" fill="#5c1900"/>
+    <text x="905" y="388" text-anchor="middle" fill="#ffd166" font-size="9" font-weight="bold">🎯 GlobalMarketSentinel</text>
+    <text x="905" y="398" text-anchor="middle" fill="#888" font-size="8">全局风险: 低</text>
+
+    <!-- Output -->
+    <rect x="825" y="415" width="160" height="35" rx="5" fill="#dc2f02"/>
+    <text x="905" y="430" text-anchor="middle" fill="white" font-size="8" font-weight="bold">Signal → Bandit</text>
+    <text x="905" y="442" text-anchor="middle" fill="#ffd166" font-size="7">buy(AAPL, confidence=0.85)</text>
+  </g>
+
+  <!-- ========== PHASE 5: BANDIT ========== -->
+  <g id="phase5">
+    <rect x="30" y="480" width="260" height="280" rx="10" fill="#0d1b2a" stroke="#0077b6" stroke-width="2"/>
+    <rect x="30" y="480" width="260" height="35" rx="10" fill="url(#banditGrad)"/>
+    <text x="160" y="503" text-anchor="middle" fill="white" font-size="13" font-weight="bold">🎰 PHASE 5</text>
+    <text x="160" y="523" text-anchor="middle" fill="#ade8f4" font-size="11">Bandit 策略选择与优化</text>
+
+    <!-- SignalListener -->
+    <rect x="50" y="545" width="220" height="35" rx="5" fill="#023e8a">
+      <animate attributeName="fill" values="#023e8a;#0077b6;#023e8a" dur="0.5s" repeatCount="indefinite"/>
+    </rect>
+    <text x="160" y="562" text-anchor="middle" fill="#ade8f4" font-size="10" font-weight="bold">SignalListener</text>
+    <text x="160" y="575" text-anchor="middle" fill="#80ed99" font-size="8">接收到: buy(AAPL, 0.85)</text>
+
+    <!-- VirtualPortfolio -->
+    <rect x="50" y="590" width="220" height="35" rx="5" fill="#023e8a"/>
+    <text x="160" y="607" text-anchor="middle" fill="#ade8f4" font-size="10" font-weight="bold">VirtualPortfolio</text>
+    <text x="160" y="620" text-anchor="middle" fill="#ffd166" font-size="8">模拟建仓: +100股 @ $175</text>
+
+    <!-- BanditOptimizer -->
+    <rect x="50" y="635" width="220" height="50" rx="5" fill="#0353a4"/>
+    <text x="160" y="653" text-anchor="middle" fill="#ade8f4" font-size="10" font-weight="bold">BanditOptimizer</text>
+    <text x="160" y="667" text-anchor="middle" fill="#80ed99" font-size="8">选择策略: momentum_v1</text>
+    <text x="160" y="679" text-anchor="middle" fill="#ffd166" font-size="8">UCB1 分数: 0.92</text>
+
+    <!-- Decision -->
+    <rect x="50" y="695" width="220" height="30" rx="5" fill="#0077b6"/>
+    <text x="160" y="715" text-anchor="middle" fill="white" font-size="10" font-weight="bold">决策: EXECUTE</text>
+  </g>
+
+  <!-- Arrow: Phase4 → Phase5 -->
+  <path d="M 905 450 L 160 545" fill="none" stroke="#ffd166" stroke-width="2" stroke-dasharray="5,3" marker-end="url(#arrowhead)"/>
+
+  <!-- ========== PHASE 6: STRATEGY EXECUTION ========== -->
+  <g id="phase6">
+    <rect x="310" y="480" width="280" height="280" rx="10" fill="#0d1b2a" stroke="#dc2f02" stroke-width="2"/>
+    <rect x="310" y="480" width="280" height="35" rx="10" fill="url(#strategyGrad)"/>
+    <text x="450" y="503" text-anchor="middle" fill="white" font-size="13" font-weight="bold">⚡ PHASE 6</text>
+    <text x="450" y="523" text-anchor="middle" fill="#ffccd5" font-size="11">Strategy 执行与输出</text>
+
+    <!-- Execution -->
+    <rect x="330" y="545" width="240" height="35" rx="5" fill="#7d2500">
+      <animate attributeName="opacity" values="1;0.5;1" dur="0.8s" repeatCount="indefinite"/>
+    </rect>
+    <text x="450" y="562" text-anchor="middle" fill="#ffd166" font-size="10" font-weight="bold">StrategyEntry.process(data)</text>
+    <text x="450" y="575" text-anchor="middle" fill="#80ed99" font-size="8">执行 momentum_v1 策略</text>
+
+    <!-- Signal Output -->
+    <rect x="330" y="590" width="240" height="35" rx="5" fill="#5c1900"/>
+    <text x="450" y="607" text-anchor="middle" fill="#ffd166" font-size="10" font-weight="bold">📤 Signal Output</text>
+    <text x="450" y="620" text-anchor="middle" fill="#80ed99" font-size="8">signal: BUY | symbol: AAPL</text>
+
+    <!-- Radar Output -->
+    <rect x="330" y="635" width="240" height="35" rx="5" fill="#5c1900"/>
+    <text x="450" y="652" text-anchor="middle" fill="#ffd166" font-size="10" font-weight="bold">📡 Radar Output</text>
+    <text x="450" y="665" text-anchor="middle" fill="#e0aaff" font-size="8">radar_tags: [momentum, tech, high_conf]</text>
+
+    <!-- Result Store -->
+    <rect x="330" y="680" width="240" height="35" rx="5" fill="#7d2500"/>
+    <text x="450" y="697" text-anchor="middle" fill="#ffd166" font-size="10" font-weight="bold">💾 ResultStore</text>
+    <text x="450" y="710" text-anchor="middle" fill="#ffd166" font-size="8">持久化策略执行结果</text>
+
+    <!-- Feedback -->
+    <rect x="330" y="725" width="240" height="30" rx="5" fill="#dc2f02"/>
+    <text x="450" y="745" text-anchor="middle" fill="white" font-size="10" font-weight="bold">→ Bandit 反馈</text>
+  </g>
+
+  <!-- Arrow: Phase5 → Phase6 -->
+  <path d="M 290 600 L 330 600" fill="none" stroke="#ffd166" stroke-width="3" marker-end="url(#arrowhead)"/>
+
+  <!-- ========== PHASE 7: FEEDBACK LOOP ========== -->
+  <g id="phase7">
+    <rect x="610" y="480" width="380" height="280" rx="10" fill="#0d1b2a" stroke="#06d6a0" stroke-width="2"/>
+    <rect x="610" y="480" width="380" height="35" rx="10" fill="url(#feedbackGrad)"/>
+    <text x="800" y="503" text-anchor="middle" fill="#0d1b2a" font-size="13" font-weight="bold">🔄 PHASE 7</text>
+    <text x="800" y="523" text-anchor="middle" fill="#023e2e" font-size="11">Feedback Loop 注意力权重更新</text>
+
+    <!-- Outcome Recording -->
+    <rect x="630" y="545" width="340" height="55" rx="5" fill="#023e2e"/>
+    <text x="800" y="562" text-anchor="middle" fill="#06d6a0" font-size="10" font-weight="bold">记录策略执行结果</text>
+    <text x="800" y="577" text-anchor="middle" fill="#ade8f4" font-size="9">action: BUY | pnl: +2.3% | holding: 5min</text>
+    <text x="800" y="592" text-anchor="middle" fill="#ffd166" font-size="8">market_state: trending | volatility: 0.15</text>
+
+    <!-- Effectiveness Analysis -->
+    <rect x="630" y="610" width="340" height="45" rx="5" fill="#023e2e"/>
+    <text x="800" y="627" text-anchor="middle" fill="#06d6a0" font-size="10" font-weight="bold">AttentionEffectiveness 分析</text>
+    <text x="800" y="642" text-anchor="middle" fill="#80ed99" font-size="9">高注意力时策略收益: +2.3% (有效)</text>
+    <text x="800" y="650" fill="#888" font-size="8">模式: momentum_breaker 有效</text>
+
+    <!-- Weight Adjustment -->
+    <rect x="630" y="665" width="340" height="50" rx="5" fill="#006d44"/>
+    <text x="800" y="682" text-anchor="middle" fill="#06d6a0" font-size="10" font-weight="bold">注意力权重调整</text>
+    <text x="800" y="697" text-anchor="middle" fill="#ffd166" font-size="9">AAPL attention: 0.95 → 0.98 (↑3%)</text>
+    <text x="800" y="709" fill="#ffd166" font-size="9">科技板块: 0.9 → 0.93 (↑3%)</text>
+
+    <!-- Strategy Learning -->
+    <rect x="630" y="725" width="340" height="30" rx="5" fill="#06d6a0"/>
+    <text x="800" y="745" text-anchor="middle" fill="#0d1b2a" font-size="10" font-weight="bold">→ Strategy Learning 更新状态</text>
+  </g>
+
+  <!-- Arrow: Phase6 → Phase7 -->
+  <path d="M 590 700 L 630 700" fill="none" stroke="#06d6a0" stroke-width="3" marker-end="url(#greenArrow)"/>
+
+  <!-- ========== FEEDBACK LOOP ARROWS ========== -->
+  <!-- Phase7 → Phase2 (back to start) -->
+  <path d="M 800 480 Q 400 450 380 180" fill="none" stroke="#06d6a0" stroke-width="2" stroke-dasharray="8,4">
+    <animate attributeName="stroke-dashoffset" from="0" to="24" dur="1s" repeatCount="indefinite"/>
+  </path>
+  <text x="550" y="400" fill="#06d6a0" font-size="10">注意力反馈循环</text>
+  <polygon points="380,180 390,195 370,195" fill="#06d6a0"/>
+
+  <!-- ========== CYCLE INDICATOR ========== -->
+  <g id="cycleIndicator">
+    <rect x="1010" y="480" width="170" height="200" rx="10" fill="#0d1b2a" stroke="#ffd166" stroke-width="1"/>
+    <text x="1095" y="505" text-anchor="middle" fill="#ffd166" font-size="12" font-weight="bold">🔁 循环进行中</text>
+
+    <text x="1095" y="535" fill="#888" font-size="10">下次迭代:</text>
+    <text x="1095" y="555" fill="#80ed99" font-size="10">09:31 行情推送</text>
+
+    <text x="1095" y="585" fill="#888" font-size="10">注意力状态:</text>
+    <rect x="1030" y="595" width="130" height="15" rx="3" fill="#1b4332"/>
+    <rect x="1030" y="595" width="125" height="15" rx="3" fill="#40916c">
+      <animate attributeName="width" from="0" to="125" dur="2s" repeatCount="1" fill="freeze"/>
+    </rect>
+    <text x="1095" y="607" fill="white" font-size="8" text-anchor="middle">87%</text>
+
+    <text x="1095" y="635" fill="#888" font-size="10">Budget 使用:</text>
+    <rect x="1030" y="645" width="130" height="15" rx="3" fill="#1b4332"/>
+    <rect x="1030" y="645" width="52" height="15" rx="3" fill="#7209b7">
+      <animate attributeName="width" from="0" to="52" dur="1.5s" repeatCount="1" fill="freeze"/>
+    </rect>
+    <text x="1095" y="657" fill="white" font-size="8" text-anchor="middle">40%</text>
+
+    <text x="1095" y="685" fill="#ffd166" font-size="11" font-weight="bold">V2 系统稳定运行</text>
+  </g>
+
+  <!-- ========== BOTTOM FLOW LEGEND ========== -->
+  <rect x="30" y="800" width="1150" height="85" rx="8" fill="#0d1b2a" stroke="#333" stroke-width="1"/>
+  <text x="60" y="822" fill="#ffd166" font-size="12" font-weight="bold">数据流:</text>
+
+  <line x1="60" y1="840" x2="100" y2="840" stroke="#40916c" stroke-width="3"/>
+  <text x="110" y="844" fill="#95d5b2" font-size="10">DataSource</text>
+
+  <line x1="200" y1="840" x2="240" y2="840" stroke="#d62828" stroke-width="3"/>
+  <text x="250" y="844" fill="#ffccd5" font-size="10">Attention V1</text>
+
+  <line x1="350" y1="840" x2="390" y2="840" stroke="#560bad" stroke-width="3"/>
+  <text x="400" y="844" fill="#e0aaff" font-size="10">Attention V2</text>
+
+  <line x1="490" y1="840" x2="530" y2="840" stroke="#dc2f02" stroke-width="3"/>
+  <text x="540" y="844" fill="#ffccd5" font-size="10">Strategies</text>
+
+  <line x1="630" y1="840" x2="670" y2="840" stroke="#0077b6" stroke-width="3"/>
+  <text x="680" y="844" fill="#ade8f4" font-size="10">Bandit</text>
+
+  <line x1="750" y1="840" x2="790" y2="840" stroke="#06d6a0" stroke-width="3" stroke-dasharray="5,2"/>
+  <text x="800" y="844" fill="#80ed99" font-size="10">Feedback</text>
+
+  <text x="920" y="822" fill="#ffd166" font-size="12" font-weight="bold">核心原则:</text>
+  <text x="920" y="844" fill="#888" font-size="10">"平时如常，异常才深看" - Attention = 势 | Strategy = 术</text>
+
+</svg>

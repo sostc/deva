@@ -1581,7 +1581,7 @@ class StrategyManager:
             attention_started = False
             if include_attention:
                 try:
-                    from naja_attention_strategies import get_strategy_manager
+                    from deva.naja.attention.strategies import get_strategy_manager
                     attention_manager = get_strategy_manager()
                     attention_result = attention_manager.start_experiment(datasource_id)
                     if attention_result.get("success"):
@@ -1759,7 +1759,7 @@ class StrategyManager:
             include_attention = session.get("include_attention", True)
             if include_attention:
                 try:
-                    from naja_attention_strategies import get_strategy_manager
+                    from deva.naja.attention.strategies import get_strategy_manager
                     attention_manager = get_strategy_manager()
                     attention_result = attention_manager.stop_experiment()
                     if attention_result.get("success"):
