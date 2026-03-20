@@ -346,20 +346,20 @@ async def attentionadmin():
     """注意力调度系统"""
     ctx = _ctx()
     await ctx["init_naja_ui"]("注意力调度系统")
-    
-    # 默认使用新版UI，通过URL参数切换
+
+    # 默认使用 ui.py，通过URL参数切换到 V2 版本
     from pywebio.session import eval_js
     try:
         url_params = await eval_js("new URLSearchParams(window.location.search).get('ui')")
     except:
         url_params = None
-    
-    if url_params == 'v1':
-        from .attention.ui import render_attention_admin
-        await render_attention_admin(ctx)
-    else:
+
+    if url_params == 'v2':
         from .attention.ui_v2 import render_attention_admin_v2
         await render_attention_admin_v2(ctx)
+    else:
+        from .attention.ui import render_attention_admin
+        await render_attention_admin(ctx)
 
 
 async def dictadmin():

@@ -423,7 +423,12 @@ class StrategyAllocator:
         if strategy.config.scope == StrategyScope.GLOBAL:
             effective_attention = global_attention
         elif strategy.config.scope == StrategyScope.SECTOR:
-            effective_attention = np.mean(list(sector_attention.values())) if sector_attention else global_attention
+            if sector_attention:
+                # 过滤异常值
+                values = [v for v in sector_attention.values() if isinstance(v, (int, float)) and not np.isnan(v) and not np.isinf(v)]
+                effective_attention = np.mean(values) if values else global_attention
+            else:
+                effective_attention = global_attention
         else:
             effective_attention = global_attention
         

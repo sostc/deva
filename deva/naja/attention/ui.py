@@ -38,7 +38,7 @@ def _get_attention_integration():
 def _get_strategy_manager():
     """获取策略管理器"""
     try:
-        from naja_attention_strategies import get_strategy_manager
+        from deva.naja.attention.strategies import get_strategy_manager
         return get_strategy_manager()
     except Exception:
         return None
@@ -150,41 +150,251 @@ def _register_stock_names(data: pd.DataFrame):
         pass
 
 
-def _render_global_attention_card(global_attention: float) -> str:
-    """渲染全局注意力卡片"""
-    # 根据注意力水平设置颜色
+def _render_global_attention_card(global_attention: float, activity: float = None) -> str:
+    """渲染全局注意力和活跃度卡片"""
+    # 注意力颜色（市场焦点集中程度）
     if global_attention >= 0.7:
-        color = "#dc2626"  # 红色 - 高
-        emoji = "🔥"
-        level = "极高"
+        att_color = "#dc2626"  # 红色
+        att_emoji = "🔥"
+        att_level = "焦点集中"
     elif global_attention >= 0.5:
-        color = "#ea580c"  # 橙色 - 中高
-        emoji = "⚡"
-        level = "高"
+        att_color = "#ea580c"  # 橙色
+        att_emoji = "⚡"
+        att_level = "焦点较集中"
     elif global_attention >= 0.3:
-        color = "#ca8a04"  # 黄色 - 中
-        emoji = "👁️"
-        level = "中"
+        att_color = "#ca8a04"  # 黄色
+        att_emoji = "👁️"
+        att_level = "焦点分散"
     else:
-        color = "#16a34a"  # 绿色 - 低
-        emoji = "💤"
-        level = "低"
-    
+        att_color = "#16a34a"  # 绿色
+        att_emoji = "💤"
+        att_level = "焦点涣散"
+
+    # 活跃度颜色（市场热闘程度）
+    if activity is None:
+        act_color = "#64748b"
+        act_emoji = "❓"
+        act_level = "未知"
+    elif activity >= 0.7:
+        act_color = "#dc2626"
+        act_emoji = "🔥"
+        act_level = "非常活跃"
+    elif activity >= 0.4:
+        act_color = "#ca8a04"
+        act_emoji = "📊"
+        act_level = "温和"
+    elif activity >= 0.15:
+        act_color = "#0284c7"
+        act_emoji = "🌊"
+        act_level = "清淡"
+    else:
+        act_color = "#16a34a"
+        act_emoji = "❄️"
+        act_level = "冷清"
+
     return f"""
     <div style="
-        background: linear-gradient(135deg, {color}22, {color}11);
-        border: 2px solid {color};
+        background: linear-gradient(135deg, {att_color}22, {att_color}11);
+        border: 2px solid {att_color};
         border-radius: 16px;
         padding: 24px;
         text-align: center;
-        min-width: 200px;
+        min-width: 280px;
     ">
-        <div style="font-size: 48px; margin-bottom: 8px;">{emoji}</div>
-        <div style="font-size: 42px; font-weight: bold; color: {color};">{global_attention:.3f}</div>
-        <div style="font-size: 14px; color: #64748b; margin-top: 4px;">全局注意力</div>
-        <div style="font-size: 12px; color: {color}; margin-top: 4px; font-weight: 600;">{level}</div>
+        <div style="display: flex; gap: 24px; justify-content: center; margin-bottom: 16px;">
+            <div>
+                <div style="font-size: 32px; margin-bottom: 4px;">{att_emoji}</div>
+                <div style="font-size: 28px; font-weight: bold; color: {att_color};">{global_attention:.2f}</div>
+                <div style="font-size: 12px; color: #64748b;">注意力</div>
+                <div style="font-size: 11px; color: {att_color}; font-weight: 600;">{att_level}</div>
+            </div>
+            <div style="border-left: 2px solid #e2e8f0; height: 80px;"></div>
+            <div>
+                <div style="font-size: 32px; margin-bottom: 4px;">{act_emoji}</div>
+                <div style="font-size: 28px; font-weight: bold; color: {act_color};">{activity if activity is not None else 0:.2f}</div>
+                <div style="font-size: 12px; color: #64748b;">活跃度</div>
+                <div style="font-size: 11px; color: {act_color}; font-weight: 600;">{act_level}</div>
+            </div>
+        </div>
     </div>
     """
+
+
+def _render_market_state_panel() -> str:
+    """渲染当前市场注意力状态面板 - 无论是否有热点事件都展示当前注意力分布"""
+    tracker = _get_history_tracker()
+
+    if not tracker:
+        return """
+        <div style="
+            background: white;
+            border: 1px solid #e2e8f0;
+            border-radius: 12px;
+            padding: 20px;
+            margin-top: 16px;
+        ">
+            <div style="font-weight: 600; margin-bottom: 16px; color: #1e293b;">
+                👁️ 当前市场注意力状态
+            </div>
+            <div style="color: #64748b; text-align: center; padding: 20px;">
+                历史追踪器未初始化
+            </div>
+        </div>
+        """
+
+    state_info = tracker.get_market_state_info()
+    state = state_info.get('state', 'unknown')
+    description = state_info.get('description', '等待数据...')
+    global_attn = state_info.get('global_attention', 0)
+    market_time = state_info.get('market_time', '')
+
+    # 状态颜色和图标（基于注意力焦点集中度）
+    state_config = {
+        'active': {'color': '#dc2626', 'bg': '#fef2f2', 'emoji': '🔥', 'label': '焦点集中'},
+        'moderate': {'color': '#ca8a04', 'bg': '#fefce8', 'emoji': '⚡', 'label': '焦点较集中'},
+        'quiet': {'color': '#0284c7', 'bg': '#f0f9ff', 'emoji': '👁️', 'label': '焦点分散'},
+        'very_quiet': {'color': '#16a34a', 'bg': '#f0fdf4', 'emoji': '💤', 'label': '焦点涣散'},
+        'unknown': {'color': '#64748b', 'bg': '#f8fafc', 'emoji': '❓', 'label': '未知状态'}
+    }
+    config = state_config.get(state, state_config['unknown'])
+
+    # 获取当前热门板块和个股
+    hot_sectors = list(tracker.current_hot_sectors.items())[:5]
+    hot_symbols = list(tracker.current_hot_symbols.items())[:10]
+
+    # 时间显示
+    time_display = f"📅 {market_time}" if market_time else "📅 等待行情数据..."
+
+    html = f"""
+    <div style="
+        background: white;
+        border: 1px solid #e2e8f0;
+        border-radius: 12px;
+        padding: 20px;
+        margin-top: 16px;
+    ">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+            <div style="font-weight: 600; color: #1e293b;">
+                👁️ 当前市场注意力状态
+            </div>
+            <div style="display: flex; align-items: center; gap: 12px;">
+                <div style="font-size: 12px; color: #64748b;">
+                    {time_display}
+                </div>
+                <div style="
+                    background: {config['bg']};
+                    color: {config['color']};
+                    padding: 4px 12px;
+                    border-radius: 20px;
+                    font-size: 12px;
+                    font-weight: 600;
+                ">
+                    {config['emoji']} {config['label']}
+                </div>
+            </div>
+        </div>
+
+        <div style="
+            background: {config['bg']};
+            border-left: 4px solid {config['color']};
+            padding: 12px 16px;
+            margin-bottom: 16px;
+            border-radius: 0 8px 8px 0;
+        ">
+            <div style="font-size: 13px; color: #1e293b; line-height: 1.5;">
+                <strong>📊 {description}</strong>
+            </div>
+            <div style="font-size: 12px; color: #64748b; margin-top: 6px;">
+                全局注意力分数: <strong>{global_attn:.3f}</strong>
+            </div>
+        </div>
+    """
+
+    # 当前热门板块
+    if hot_sectors:
+        html += """
+        <div style="margin-bottom: 16px;">
+            <div style="font-size: 13px; font-weight: 600; color: #475569; margin-bottom: 8px;">
+                📈 注意力集中板块 Top5
+            </div>
+            <div style="display: flex; flex-wrap: wrap; gap: 8px;">
+        """
+        for sector_id, weight in hot_sectors:
+            sector_name = tracker.get_sector_name(sector_id)
+            bar_width = min(weight * 20, 100)
+            html += f"""
+                <div style="
+                    background: #f1f5f9;
+                    border-radius: 8px;
+                    padding: 8px 12px;
+                    min-width: 120px;
+                ">
+                    <div style="font-size: 12px; color: #64748b;">{sector_name}</div>
+                    <div style="display: flex; align-items: center; gap: 8px; margin-top: 4px;">
+                        <div style="
+                            background: {config['color']};
+                            height: 6px;
+                            border-radius: 3px;
+                            width: {bar_width}px;
+                            min-width: 6px;
+                        "></div>
+                        <span style="font-size: 12px; font-weight: 600; color: #1e293b;">{weight:.2f}</span>
+                    </div>
+                </div>
+            """
+        html += """
+            </div>
+        </div>
+        """
+
+    # 当前热门个股
+    if hot_symbols:
+        html += """
+        <div>
+            <div style="font-size: 13px; font-weight: 600; color: #475569; margin-bottom: 8px;">
+                🔥 注意力集中个股 Top10
+            </div>
+            <div style="display: flex; flex-wrap: wrap; gap: 6px;">
+        """
+        for symbol, weight in hot_symbols:
+            symbol_name = tracker.get_symbol_name(symbol) or symbol
+            sector = tracker.get_symbol_sector(symbol) or ''
+            change = tracker.get_symbol_change(symbol)
+            change_str = f"{change:+.2f}%" if change is not None else ""
+            change_color = "#16a34a" if change and change > 0 else ("#dc2626" if change and change < 0 else "#64748b")
+
+            html += f"""
+                <div style="background: #fef3c7; border: 1px solid #fcd34d; border-radius: 6px; padding: 4px 8px; font-size: 11px; display: flex; align-items: center; gap: 4px; min-width: 0;">
+                    <span style="color: #92400e; font-weight: 600;">{symbol}</span>
+                    <span style="color: #1e293b; max-width: 50px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{symbol_name}</span>
+                    {f'<span style="font-size: 10px; color: #64748b;">{sector}</span>' if sector else ''}
+                    {f'<span style="font-size: 10px; color: {change_color}; font-weight: 600;">{change_str}</span>' if change_str else ''}
+                    <span style="color: #92400e; font-weight: 600;">{weight:.1f}</span>
+                </div>
+            """
+        html += """
+            </div>
+        </div>
+        """
+
+    # 如果什么都没有，显示空状态提示
+    if not hot_sectors and not hot_symbols:
+        html += """
+        <div style="
+            background: #f8fafc;
+            border-radius: 8px;
+            padding: 24px;
+            text-align: center;
+            color: #64748b;
+        ">
+            <div style="font-size: 24px; margin-bottom: 8px;">📊</div>
+            <div>暂无注意力数据</div>
+            <div style="font-size: 12px; margin-top: 4px;">等待市场数据输入...</div>
+        </div>
+        """
+
+    html += "</div>"
+    return html
 
 
 def _render_frequency_distribution(freq_summary: Dict[str, int]) -> str:
@@ -270,7 +480,19 @@ def _render_strategy_status(strategy_stats: Dict[str, Any]) -> str:
         exec_count = stats.get('execution_count', 0)
         signal_count = stats.get('signal_count', 0)
         skip_count = stats.get('skip_count', 0)
-        
+        priority = stats.get('priority', 5)
+
+        # 判断跳过原因（基于优先级）
+        if skip_count > 0:
+            if priority < 5:
+                skip_reason = "(市场冷清)"
+            elif priority < 8:
+                skip_reason = "(注意力不足)"
+            else:
+                skip_reason = "(冷却中)"
+        else:
+            skip_reason = ""
+
         html += f"""
         <div style="
             display: flex;
@@ -285,11 +507,11 @@ def _render_strategy_status(strategy_stats: Dict[str, Any]) -> str:
             <div>
                 <div style="font-weight: 500;">{status} {name}</div>
                 <div style="font-size: 12px; color: #64748b; margin-top: 2px;">
-                    执行: {exec_count} | 信号: {signal_count} | 跳过: {skip_count}
+                    执行: {exec_count} | 信号: {signal_count} | 跳过: {skip_count} {skip_reason}
                 </div>
             </div>
             <div style="font-size: 12px; color: #64748b;">
-                优先级: {stats.get('priority', 5)}
+                优先级: {priority}
             </div>
         </div>
         """
@@ -338,7 +560,7 @@ def _render_dual_engine_status(dual_summary: Dict[str, Any]) -> str:
             ⚙️ 双引擎状态
             <span style="font-size: 12px; color: #64748b; font-weight: normal; margin-left: 8px;">轻量筛选 → 深度分析</span>
         </div>
-        
+
         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
             <!-- River Engine -->
             <div style="
@@ -346,7 +568,10 @@ def _render_dual_engine_status(dual_summary: Dict[str, Any]) -> str:
                 padding: 16px;
                 border-radius: 8px;
             ">
-                <div style="font-weight: 600; color: #1e40af; margin-bottom: 8px;">🌊 River Engine</div>
+                <div style="font-weight: 600; color: #1e40af; margin-bottom: 8px;">
+                    🌊 轻量检测
+                    <span style="font-size: 10px; color: #64748b; font-weight: normal;">(River)</span>
+                </div>
                 <div style="font-size: 12px; color: #1e3a8a; line-height: 1.6;">
                     <div style="display: flex; justify-content: space-between;">
                         <span>处理数据:</span>
@@ -359,6 +584,7 @@ def _render_dual_engine_status(dual_summary: Dict[str, Any]) -> str:
                     <div style="display: flex; justify-content: space-between;">
                         <span>异常率:</span>
                         <span style="font-weight: 600;">{anomaly_ratio:.1f}%</span>
+                        <span style="font-size: 10px; color: #64748b;">(正常10-20%)</span>
                     </div>
                     <div style="display: flex; justify-content: space-between;">
                         <span>活跃股票:</span>
@@ -369,14 +595,17 @@ def _render_dual_engine_status(dual_summary: Dict[str, Any]) -> str:
                     💡 快速检测价格/成交量异常波动
                 </div>
             </div>
-            
+
             <!-- PyTorch Engine -->
             <div style="
                 background: linear-gradient(135deg, #fce7f3, #fbcfe8);
                 padding: 16px;
                 border-radius: 8px;
             ">
-                <div style="font-weight: 600; color: #9d174d; margin-bottom: 8px;">🔥 PyTorch Engine</div>
+                <div style="font-weight: 600; color: #9d174d; margin-bottom: 8px;">
+                    🔥 深度分析
+                    <span style="font-size: 10px; color: #64748b; font-weight: normal;">(PyTorch)</span>
+                </div>
                 <div style="font-size: 12px; color: #831843; line-height: 1.6;">
                     <div style="display: flex; justify-content: space-between;">
                         <span>深度推理:</span>
@@ -400,10 +629,10 @@ def _render_dual_engine_status(dual_summary: Dict[str, Any]) -> str:
                 </div>
             </div>
         </div>
-        
+
         <!-- 触发统计 -->
         <div style="
-            margin-top: 16px; 
+            margin-top: 16px;
             padding: 12px;
             background: linear-gradient(135deg, #f0fdf4, #dcfce7);
             border-radius: 8px;
@@ -419,7 +648,7 @@ def _render_dual_engine_status(dual_summary: Dict[str, Any]) -> str:
                 </div>
             </div>
         </div>
-        
+
         <!-- 说明文字 -->
         <div style="margin-top: 12px; padding: 12px; background: #f8fafc; border-radius: 6px; font-size: 11px; color: #64748b; line-height: 1.5;">
             <strong>📊 数据解读:</strong><br>
@@ -434,7 +663,7 @@ def _render_dual_engine_status(dual_summary: Dict[str, Any]) -> str:
 def _render_noise_filter_status() -> str:
     """渲染噪音过滤状态"""
     try:
-        from naja_attention_system import get_noise_filter
+        from deva.naja.attention import get_noise_filter
         noise_filter = get_noise_filter()
         stats = noise_filter.get_stats()
         
@@ -793,47 +1022,36 @@ def _render_hot_sectors_and_stocks(hot_data: Dict[str, Any]) -> str:
     if stocks:
         html += """
             <div>
-                <div style="font-weight: 600; color: #2563eb; margin-bottom: 12px; font-size: 14px;
-                            display: flex; justify-content: space-between; align-items: center;">
-                    <span>📈 热门股票 Top 20</span>
-                    <span style="font-size: 11px; color: #94a3b8; font-weight: normal;">注意力得分</span>
+                <div style="font-weight: 600; color: #2563eb; margin-bottom: 12px; font-size: 14px;">
+                    📈 热门股票 Top 20
                 </div>
-                <div style="max-height: 500px; overflow-y: auto; padding-right: 4px;">
+                <div style="display: flex; flex-wrap: wrap; gap: 6px;">
         """
-        
-        # 计算最大权重用于进度条
-        max_stock_weight = max([w for _, w in stocks[:20]]) if stocks else 1
-        
+
         for i, (symbol, weight) in enumerate(stocks[:20], 1):
-            # 根据权重确定颜色和状态
             if weight > 5:
                 color = "#dc2626"
-                status = "🔥 爆发"
                 bg_color = "#fef2f2"
                 border_color = "#fecaca"
             elif weight > 3:
                 color = "#ea580c"
-                status = "⚡ 强势"
                 bg_color = "#fff7ed"
                 border_color = "#fed7aa"
             elif weight > 2:
                 color = "#ca8a04"
-                status = "📊 活跃"
                 bg_color = "#fefce8"
                 border_color = "#fef08a"
             else:
                 color = "#16a34a"
-                status = "💤 平稳"
                 bg_color = "#f0fdf4"
                 border_color = "#bbf7d0"
-            
-            # 获取股票名称
+
             symbol_name = tracker.get_symbol_name(symbol) if tracker else symbol
-            display_name = symbol_name if symbol_name != symbol else ""
-            
-            # 获取趋势
-            trend = "➡️"
-            change_str = ""
+            symbol_change = tracker.get_symbol_change(symbol) if tracker else None
+            change_str = f"{symbol_change:+.2f}%" if symbol_change is not None else ""
+            change_color = "#16a34a" if symbol_change and symbol_change > 0 else ("#dc2626" if symbol_change and symbol_change < 0 else "#64748b")
+
+            trend = ""
             if tracker:
                 trend_data = tracker.get_symbol_trend(symbol, n=3)
                 if len(trend_data) >= 2:
@@ -848,43 +1066,21 @@ def _render_hot_sectors_and_stocks(hot_data: Dict[str, Any]) -> str:
                         trend = "📉"
                     elif change_pct < -5:
                         trend = "🔻"
-                    
-                    if abs(change_pct) > 1:
-                        change_str = f"{change_pct:+.1f}%"
-            
-            # 进度条宽度
-            progress_width = (weight / max_stock_weight * 100) if max_stock_weight > 0 else 0
-            
+
             html += f"""
-                <div style="
-                    padding: 8px 10px;
-                    margin-bottom: 6px;
-                    background: {bg_color};
-                    border: 1px solid {border_color};
-                    border-radius: 8px;
-                ">
-                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
-                        <div style="display: flex; align-items: center; gap: 6px; flex: 1;">
-                            <span style="color: #64748b; font-weight: 600; min-width: 18px; font-size: 12px;">{i}.</span>
-                            <span style="font-weight: 600; color: #1e293b; font-size: 13px;">{symbol}</span>
-                            {f'<span style="font-size: 11px; color: #64748b; flex: 1;">{display_name}</span>' if display_name else ''}
-                            <span style="font-size: 11px;">{trend}</span>
-                        </div>
-                        <div style="text-align: right; margin-left: 8px;">
-                            <span style="color: {color}; font-weight: 700; font-size: 13px;">{weight:.2f}</span>
-                            {f'<span style="font-size: 9px; color: {color}; margin-left: 3px;">{change_str}</span>' if change_str else ''}
-                        </div>
-                    </div>
-                    <div style="display: flex; align-items: center; gap: 6px;">
-                        <div style="background: rgba(255,255,255,0.6); height: 3px; border-radius: 2px; overflow: hidden; flex: 1;">
-                            <div style="background: {color}; height: 100%; width: {progress_width}%; border-radius: 2px; transition: width 0.3s;"></div>
-                        </div>
-                        <span style="font-size: 9px; color: {color}; min-width: 35px; text-align: right;">{status}</span>
-                    </div>
+                <div style="background: {bg_color}; border: 1px solid {border_color}; border-radius: 6px; padding: 4px 8px; font-size: 11px; display: flex; align-items: center; gap: 4px; min-width: 0;">
+                    <span style="color: #64748b; font-weight: 600;">{i}.</span>
+                    <span style="font-weight: 600; color: #1e293b; max-width: 60px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{symbol}</span>
+                    <span style="color: #475569; max-width: 50px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{symbol_name}</span>
+                    {f'<span style="font-size: 10px; color: {change_color}; font-weight: 600; white-space: nowrap;">{change_str}</span>' if change_str else ''}
+                    {f'<span style="font-size: 10px;">{trend}</span>' if trend else ''}
+                    <span style="color: {color}; font-weight: 600;">{weight:.1f}</span>
                 </div>
             """
-        html += "</div></div>"
-    
+        html += """
+                </div>
+            </div>
+        """
     html += "</div></div>"
     return html
 
@@ -914,11 +1110,20 @@ def _render_sector_trends() -> str:
         </div>
     """
     
-    # 获取所有板块
-    all_sectors = set()
+    # 获取所有板块并排序，只取 Top 5
+    all_sectors_with_weight = []
     for snapshot in recent_snapshots:
-        all_sectors.update(snapshot.sector_weights.keys())
-    
+        for sector_id, weight in snapshot.sector_weights.items():
+            all_sectors_with_weight.append((sector_id, weight))
+
+    # 按权重排序，取 Top 5
+    sector_weights_sum = {}
+    for sector_id, weight in all_sectors_with_weight:
+        sector_weights_sum[sector_id] = sector_weights_sum.get(sector_id, 0) + weight
+
+    top5_sectors = sorted(sector_weights_sum.items(), key=lambda x: x[1], reverse=True)[:5]
+    top5_sector_ids = [s[0] for s in top5_sectors]
+
     # 板块颜色配置
     sector_colors = {
         'tech': '#3b82f6',      # 蓝色
@@ -927,9 +1132,9 @@ def _render_sector_trends() -> str:
         'energy': '#ef4444',    # 红色
         'consumer': '#8b5cf6',  # 紫色
     }
-    
-    # 为每个板块渲染趋势
-    for sector_id in sorted(all_sectors):
+
+    # 只为 Top 5 板块渲染趋势
+    for sector_id in top5_sector_ids:
         sector_name = tracker.get_sector_name(sector_id)
         color = sector_colors.get(sector_id, '#64748b')
         
@@ -1033,6 +1238,143 @@ def _render_sector_trends() -> str:
         </div>
         """
     
+    html += "</div>"
+    return html
+
+
+def _render_attention_timeline() -> str:
+    """渲染注意力转移时间线 - 专注板块转移"""
+    tracker = _get_history_tracker()
+    if not tracker or len(tracker.snapshots) < 2:
+        return ""
+
+    recent_snapshots = list(tracker.snapshots)[-20:]
+    if len(recent_snapshots) < 2:
+        return ""
+
+    html = """
+    <div style="
+        background: linear-gradient(135deg, #fef3c7, #fef9c3);
+        border: 1px solid #fcd34d;
+        border-radius: 12px;
+        padding: 16px;
+        margin-top: 16px;
+    ">
+        <div style="font-weight: 600; margin-bottom: 12px; color: #92400e;">
+            🕐 板块注意力转移
+        </div>
+    """
+
+    # 分析板块注意力转移
+    transfers = []
+    prev_top_sectors = []
+
+    for i, snapshot in enumerate(recent_snapshots):
+        if not snapshot.sector_weights:
+            continue
+
+        # 当前板块排序
+        sorted_sectors = sorted(snapshot.sector_weights.items(), key=lambda x: x[1], reverse=True)
+        current_top3 = [s[0] for s in sorted_sectors[:3]]
+
+        # 检测是否有板块排名变化（只关注前3名）
+        if prev_top_sectors:
+            # 检查是否有新进入前3的板块
+            new_in_top3 = set(current_top3) - set(prev_top_sectors)
+            for sector_id in new_in_top3:
+                sector_weight = snapshot.sector_weights[sector_id]
+                sector_name = tracker.get_sector_name(sector_id) or sector_id
+                # 判断是崛起还是衰落
+                time_str = snapshot.market_time_str if hasattr(snapshot, 'market_time_str') else f"t{i}"
+
+                # 检查是从多少名升上来的
+                prev_rank = None
+                for j, (s, w) in enumerate(sorted(snapshot.sector_weights.items(), key=lambda x: x[1], reverse=True)):
+                    if s == sector_id:
+                        prev_rank = j + 1
+                        break
+
+                rank_change = ""
+                if prev_rank and prev_rank > 3:
+                    rank_change = f"↑升至第{prev_rank}名"
+                elif prev_rank:
+                    rank_change = f"↑第{prev_rank}名"
+
+                transfers.append({
+                    'time': time_str,
+                    'sector': sector_name,
+                    'sector_id': sector_id,
+                    'weight': sector_weight,
+                    'action': 'rise',
+                    'change': rank_change
+                })
+
+        prev_top_sectors = current_top3
+
+    # 当前排行榜
+    if recent_snapshots:
+        latest = recent_snapshots[-1]
+        if latest.sector_weights:
+            ranked = sorted(latest.sector_weights.items(), key=lambda x: x[1], reverse=True)
+            medals = ["🥇", "🥈", "🥉"]
+            html += """
+            <div style="margin-bottom: 12px;">
+                <div style="font-size: 11px; color: #64748b; margin-bottom: 6px;">当前排行榜:</div>
+            """
+            for rank, (sector_id, weight) in enumerate(ranked[:5], 1):
+                sector_name = tracker.get_sector_name(sector_id) or sector_id
+                medal = medals[rank-1] if rank <= 3 else f"{rank}."
+                color = "#dc2626" if rank == 1 else ("#ea580c" if rank == 2 else ("#ca8a04" if rank == 3 else "#64748b"))
+
+                # 检查注意力变化趋势
+                trend = ""
+                trend_color = "#64748b"
+                if len(recent_snapshots) >= 3:
+                    prev_weight = snapshot.sector_weights.get(sector_id, weight)
+                    for snp in recent_snapshots[-4:-1]:
+                        if snp.sector_weights and sector_id in snp.sector_weights:
+                            prev_weight = snp.sector_weights[sector_id]
+                            break
+                    if weight > prev_weight * 1.1:
+                        trend = "📈"
+                        trend_color = "#16a34a"
+                    elif weight < prev_weight * 0.9:
+                        trend = "📉"
+                        trend_color = "#dc2626"
+
+                html += f"""
+                <div style="display: flex; align-items: center; gap: 8px; padding: 4px 0; border-bottom: 1px solid #fef9c3;">
+                    <span style="font-size: 12px; color: {color}; min-width: 24px;">{medal}</span>
+                    <span style="font-weight: 500; color: #1e293b; flex: 1;">{sector_name}</span>
+                    <span style="font-size: 12px; color: {trend_color};">{trend}</span>
+                    <span style="font-weight: 600; color: {color};">{weight:.1f}</span>
+                </div>
+                """
+            html += "</div>"
+
+    # 转移历史（只显示板块崛起）
+    if transfers:
+        html += """
+        <div style="border-top: 1px dashed #fcd34d; padding-top: 12px;">
+            <div style="font-size: 11px; color: #64748b; margin-bottom: 6px;">板块崛起记录:</div>
+        """
+        for transfer in transfers[-6:]:
+            html += f"""
+            <div style="display: flex; align-items: center; gap: 8px; padding: 4px 6px; background: white; border-radius: 4px; margin-bottom: 4px;">
+                <span style="font-size: 10px; color: #64748b; min-width: 50px;">{transfer['time']}</span>
+                <span style="font-size: 12px; color: #16a34a; font-weight: 600;">↑</span>
+                <span style="font-size: 12px; color: #1e293b;">{transfer['sector']}</span>
+                <span style="font-size: 10px; color: #16a34a;">{transfer['change']}</span>
+            </div>
+            """
+        html += "</div>"
+    else:
+        html += """
+        <div style="text-align: center; color: #64748b; padding: 10px; font-size: 12px;">
+            近20个时间点内板块排名无明显变化
+        </div>
+        """
+
     html += "</div>"
     return html
 
@@ -1479,7 +1821,28 @@ def _render_attention_changes(changes: List[Any]) -> str:
         
         # 类型标签
         type_label = "板块" if change.item_type == 'sector' else "个股"
-        
+
+        # 构建行情信息
+        market_info_parts = []
+        if hasattr(change, 'price') and change.price > 0:
+            market_info_parts.append(f"¥{change.price:.2f}")
+        if hasattr(change, 'price_change') and change.price_change != 0:
+            market_info_parts.append(f"{change.price_change:+.2f}%")
+        if hasattr(change, 'sector') and change.sector:
+            market_info_parts.append(f"[{change.sector}]")
+        market_info_str = " | ".join(market_info_parts) if market_info_parts else ""
+
+        # 格式化成交量
+        volume_str = ""
+        if hasattr(change, 'volume') and change.volume > 0:
+            vol = change.volume
+            if vol >= 1e8:
+                volume_str = f"量: {vol/1e8:.1f}亿"
+            elif vol >= 1e4:
+                volume_str = f"量: {vol/1e4:.1f}万"
+            else:
+                volume_str = f"量: {vol:.0f}"
+
         html += f"""
         <div style="
             padding: 10px 12px;
@@ -1498,7 +1861,9 @@ def _render_attention_changes(changes: List[Any]) -> str:
                         <span style="font-size: 10px; color: {color}; background: rgba(255,255,255,0.6); padding: 1px 6px; border-radius: 4px;">{label}</span>
                     </div>
                     <div style="font-size: 11px; color: #64748b; margin-left: 46px;">
-                        {type_label} | {change.old_weight:.2f} → {change.new_weight:.2f} ({change.change_percent:+.1f}%)
+                        权重: {change.old_weight:.2f} → {change.new_weight:.2f} ({change.change_percent:+.1f}%)
+                        {f' | {market_info_str}' if market_info_str else ''}
+                        {f' | {volume_str}' if volume_str else ''}
                     </div>
                 </div>
             </div>
@@ -1643,6 +2008,7 @@ async def render_attention_admin(ctx: dict):
     experiment_info = _get_experiment_info()
     
     global_attention = report.get('global_attention', 0)
+    activity = report.get('activity', 0)
     freq_summary = report.get('frequency_summary', {})
     dual_summary = report.get('dual_engine_summary', {})
     processed = report.get('processed_snapshots', 0)
@@ -1691,7 +2057,7 @@ async def render_attention_admin(ctx: dict):
     
     # 主要指标卡片
     with use_scope("attention_metrics"):
-        put_html(_render_global_attention_card(global_attention))
+        put_html(_render_global_attention_card(global_attention, activity))
         
         put_row([
             put_column([
@@ -1716,7 +2082,15 @@ async def render_attention_admin(ctx: dict):
             put_html(_render_frequency_distribution(freq_summary)),
             put_html(_render_strategy_status(strategy_stats)),
         ], size="1fr 1fr")
-    
+
+    # 当前市场注意力状态面板 - 始终显示当前注意力分布
+    with use_scope("attention_market_state"):
+        put_html(_render_market_state_panel())
+
+    # 注意力转移时间线
+    with use_scope("attention_timeline"):
+        put_html(_render_attention_timeline())
+
     # 双引擎状态
     with use_scope("attention_dual_engine"):
         put_html(_render_dual_engine_status(dual_summary))
@@ -1755,6 +2129,14 @@ async def render_attention_admin(ctx: dict):
             signals = manager.get_recent_signals(n=20)
             put_html(_render_recent_signals(signals))
     
+    # 智能增强面板
+    with use_scope("attention_intelligence_panels"):
+        try:
+            from deva.naja.attention.attention_v2_ui import render_intelligence_panels
+            put_html(render_intelligence_panels())
+        except Exception as e:
+            pass
+    
     # 诊断按钮和管理按钮
     put_html("<hr>")
     put_row([
@@ -1777,7 +2159,7 @@ def _manage_noise_filter():
     """管理噪音过滤黑白名单"""
     from pywebio.output import popup, put_html, put_buttons, put_row, put_column
     from pywebio.input import input_group, input, textarea
-    from naja_attention_system import get_noise_filter
+    from deva.naja.attention import get_noise_filter
     
     noise_filter = get_noise_filter()
     

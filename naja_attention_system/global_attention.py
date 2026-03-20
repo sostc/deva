@@ -17,6 +17,9 @@ from typing import Dict, List, Optional, Tuple
 from dataclasses import dataclass
 from collections import deque
 import time
+import logging
+
+log = logging.getLogger(__name__)
 
 
 @dataclass
@@ -69,35 +72,52 @@ class GlobalAttentionEngine:
     def update(self, snapshot: MarketSnapshot) -> float:
         """
         更新并计算全局注意力分数
-        
+
         Args:
             snapshot: 市场快照数据
-            
+
         Returns:
             global_attention: 全局注意力分数 ∈ [0, +∞)
         """
         start_time = time.time()
-        
+
         # 提取基础数据
         returns = snapshot.returns
         volumes = snapshot.volumes
-        
-        # 计算四个维度
-        volatility_score = self._calc_volatility(returns)
-        volume_score = self._calc_volume_anomaly(volumes)
-        distribution_score = self._calc_distribution(returns)
-        trend_score = self._calc_trend_strength(returns)
-        
-        # 加权求和
-        scores = np.array([
-            volatility_score,
-            volume_score,
-            distribution_score,
-            trend_score
-        ])
-        
-        attention = float(np.dot(scores, self.weights))
-        
+
+        # 检查数据有效性
+        if len(returns) == 0:
+            return 0.0
+
+        # 清理异常值
+        returns = np.nan_to_num(returns, nan=0.0, posinf=50.0, neginf=-50.0)
+        returns = np.clip(returns, -50.0, 50.0)
+        volumes = np.nan_to_num(volumes, nan=0.0, posinf=1e15, neginf=0.0)
+        volumes = np.clip(volumes, 0, 1e15)
+
+        try:
+            # 计算四个维度
+            volatility_score = self._calc_volatility(returns)
+            volume_score = self._calc_volume_anomaly(volumes)
+            distribution_score = self._calc_distribution(returns)
+            trend_score = self._calc_trend_strength(returns)
+
+            # 加权求和
+            scores = np.array([
+                volatility_score,
+                volume_score,
+                distribution_score,
+                trend_score
+            ])
+
+            attention = float(np.dot(scores, self.weights))
+            attention = max(0.0, min(1.0, attention))  # 限制范围
+        except Exception as e:
+            import traceback
+            log.error(f"GlobalAttention 计算失败: {e}")
+            log.error(traceback.format_exc())
+            attention = 0.0
+
         # 更新历史
         self._history_buffer.append({
             'returns': returns.copy(),
@@ -105,10 +125,10 @@ class GlobalAttentionEngine:
             'attention': attention,
             'timestamp': snapshot.timestamp
         })
-        
+
         self._last_attention = attention
         self._last_calc_time = time.time()
-        
+
         return attention
     
     def _calc_volatility(self, returns: np.ndarray) -> float:

@@ -14,6 +14,9 @@ from typing import Dict, List, Optional, Any, Tuple, Callable
 from dataclasses import dataclass
 import time
 import asyncio
+import logging
+
+log = logging.getLogger(__name__)
 
 from .global_attention import GlobalAttentionEngine, MarketSnapshot
 from .sector_attention import SectorAttentionEngine, SectorConfig
@@ -152,66 +155,102 @@ class AttentionSystem:
             raise RuntimeError("AttentionSystem not initialized. Call initialize() first.")
         
         start_time = time.time()
-        
-        # Step 1: Global Attention
-        snapshot = MarketSnapshot(
-            symbols=symbols,
-            returns=returns,
-            volumes=volumes,
-            prices=prices,
-            sector_ids=sector_ids,
-            timestamp=timestamp
-        )
-        global_attention = self.global_attention.update(snapshot)
-        self._last_global_attention = global_attention
-        
-        # Step 2: Sector Attention
-        sector_attention = self.sector_attention.update(
-            symbols, returns, volumes, timestamp
-        )
-        self._last_sector_attention = sector_attention
-        
-        # Step 3: Weight Pool
-        symbol_weights = self.weight_pool.update(
-            symbols, returns, volumes, sector_attention, timestamp
-        )
-        self._last_symbol_weights = symbol_weights
-        
-        # Step 4: Frequency Scheduler
-        # 根据 global_attention 调整频率配置
-        freq_config = self.frequency_controller.adapt(global_attention, timestamp)
-        self.frequency_scheduler.config = freq_config
-        
-        frequency_levels = self.frequency_scheduler.schedule(
-            symbol_weights, timestamp
-        )
-        
-        # Step 5: Strategy Allocation
-        strategy_allocation = self.strategy_allocator.allocate(
-            global_attention,
-            sector_attention,
-            symbol_weights,
-            timestamp
-        )
-        
-        # Step 6: Dual Engine (处理每个 tick)
-        pattern_signals = []
-        for i, symbol in enumerate(symbols):
-            symbol_str = str(symbol)
-            weight = symbol_weights.get(symbol_str, 1.0)
-            
-            pattern = self.dual_engine.process_tick(
-                symbol=symbol_str,
-                price=float(prices[i]),
-                volume=float(volumes[i]),
-                global_attention=global_attention,
-                sector_attention=sector_attention,
-                symbol_weight=weight,
+
+        try:
+            # Step 1: Global Attention
+            snapshot = MarketSnapshot(
+                symbols=symbols,
+                returns=returns,
+                volumes=volumes,
+                prices=prices,
+                sector_ids=sector_ids,
                 timestamp=timestamp
             )
-            
-            if pattern:
-                pattern_signals.append(pattern)
+            global_attention = self.global_attention.update(snapshot)
+            self._last_global_attention = global_attention
+        except Exception as e:
+            import traceback
+            log.error(f"[Step 1 GlobalAttention] 失败: {e}")
+            log.error(traceback.format_exc())
+            raise
+
+        try:
+            # Step 2: Sector Attention
+            sector_attention = self.sector_attention.update(
+                symbols, returns, volumes, timestamp
+            )
+            self._last_sector_attention = sector_attention
+        except Exception as e:
+            import traceback
+            log.error(f"[Step 2 SectorAttention] 失败: {e}")
+            log.error(traceback.format_exc())
+            raise
+
+        try:
+            # Step 3: Weight Pool
+            symbol_weights = self.weight_pool.update(
+                symbols, returns, volumes, sector_attention, timestamp
+            )
+            self._last_symbol_weights = symbol_weights
+        except Exception as e:
+            import traceback
+            log.error(f"[Step 3 WeightPool] 失败: {e}")
+            log.error(traceback.format_exc())
+            raise
+
+        try:
+            # Step 4: Frequency Scheduler
+            # 根据 global_attention 调整频率配置
+            freq_config = self.frequency_controller.adapt(global_attention, timestamp)
+            self.frequency_scheduler.config = freq_config
+
+            frequency_levels = self.frequency_scheduler.schedule(
+                symbol_weights, timestamp
+            )
+        except Exception as e:
+            import traceback
+            log.error(f"[Step 4 FrequencyScheduler] 失败: {e}")
+            log.error(traceback.format_exc())
+            raise
+
+        try:
+            # Step 5: Strategy Allocation
+            strategy_allocation = self.strategy_allocator.allocate(
+                global_attention,
+                sector_attention,
+                symbol_weights,
+                timestamp
+            )
+        except Exception as e:
+            import traceback
+            log.error(f"[Step 5 StrategyAllocation] 失败: {e}")
+            log.error(traceback.format_exc())
+            raise
+
+        try:
+            # Step 6: Dual Engine (处理每个 tick)
+            pattern_signals = []
+            for i, symbol in enumerate(symbols):
+                symbol_str = str(symbol)
+                weight = symbol_weights.get(symbol_str, 1.0)
+
+                pattern = self.dual_engine.process_tick(
+                    symbol=symbol_str,
+                    price=float(prices[i]),
+                    volume=float(volumes[i]),
+                    global_attention=global_attention,
+                    sector_attention=sector_attention,
+                    symbol_weight=weight,
+                    timestamp=timestamp
+                )
+
+                if pattern:
+                    pattern_signals.append(pattern)
+        except Exception as e:
+            import traceback
+            log.error(f"[Step 6 DualEngine] 失败: {e}")
+            log.error(traceback.format_exc())
+            raise
         
         # 计算延迟
         latency = (time.time() - start_time) * 1000  # ms

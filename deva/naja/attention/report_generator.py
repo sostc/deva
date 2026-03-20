@@ -169,7 +169,7 @@ class AttentionReportGenerator:
         """生成注意力系统报告"""
         try:
             from ..attention_integration import get_attention_integration
-            from naja_attention_strategies import get_strategy_manager
+            from deva.naja.attention.strategies import get_strategy_manager
             from .history_tracker import get_history_tracker
             
             integration = get_attention_integration()
@@ -298,7 +298,7 @@ class AttentionReportGenerator:
     def _collect_strategy_stats(self) -> Dict[str, Any]:
         """收集策略统计信息"""
         try:
-            from naja_attention_strategies import get_strategy_manager
+            from deva.naja.attention.strategies import get_strategy_manager
             manager = get_strategy_manager()
             if not manager:
                 return {}

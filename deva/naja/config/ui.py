@@ -269,9 +269,9 @@ async def _render_datasource_config(ctx: dict, config: dict, defaults: dict):
 async def _render_noise_filter_config(ctx: dict, config: dict, defaults: dict):
     """渲染噪音过滤配置"""
     form = await ctx["input_group"]("噪音过滤配置", [
-        ctx["checkbox"]("启用噪音过滤", name="enabled", options=[
-            {"label": "启用噪音过滤", "value": "enabled", "selected": config.get("enabled", defaults.get("enabled", True))}
-        ]),
+        ctx["select"]("启用噪音过滤", name="enabled",
+                     options=[{"label": "是", "value": "1"}, {"label": "否", "value": "0"}],
+                     value="1" if config.get("enabled", defaults.get("enabled", True)) else "0"),
         ctx["input"]("最小成交金额(元)", name="min_amount", type="number",
                     value=config.get("min_amount", defaults.get("min_amount", 1000000))),
         ctx["input"]("最小成交量(股)", name="min_volume", type="number",
@@ -289,9 +289,9 @@ async def _render_noise_filter_config(ctx: dict, config: dict, defaults: dict):
         ctx["input"]("最大允许时间间隔(秒)", name="max_time_gap", type="number",
                     value=config.get("max_time_gap", defaults.get("max_time_gap", 300.0)),
                     help_text="超过此间隔视为不连续数据，默认5分钟"),
-        ctx["checkbox"]("时间跨度调整", name="time_gap_options", options=[
-            {"label": "根据时间跨度自动调整阈值", "value": "time_gap_adjustment", "selected": config.get("time_gap_adjustment", defaults.get("time_gap_adjustment", True))},
-        ]),
+        ctx["select"]("时间跨度调整", name="time_gap_adjustment",
+                     options=[{"label": "是", "value": "1"}, {"label": "否", "value": "0"}],
+                     value="1" if config.get("time_gap_adjustment", defaults.get("time_gap_adjustment", True)) else "0"),
         ctx["put_html"]("<div style='margin:12px 0;padding:8px;background:#f0fdf4;border-radius:4px;font-size:12px;color:#166534;'><strong>📊 其他检测配置</strong></div>"),
         ctx["input"]("横盘振幅阈值(%)", name="flat_threshold", type="number",
                     value=config.get("flat_threshold", defaults.get("flat_threshold", 0.5))),
@@ -303,10 +303,12 @@ async def _render_noise_filter_config(ctx: dict, config: dict, defaults: dict):
                     value=config.get("wash_trading_price_change_max", defaults.get("wash_trading_price_change_max", 0.5))),
         ctx["input"]("异常波动阈值(%)", name="abnormal_volatility_threshold", type="number",
                     value=config.get("abnormal_volatility_threshold", defaults.get("abnormal_volatility_threshold", 10.0))),
-        ctx["checkbox"]("特殊股票过滤", name="filter_options", options=[
-            {"label": "过滤B股", "value": "filter_b_shares", "selected": config.get("filter_b_shares", defaults.get("filter_b_shares", True))},
-            {"label": "过滤ST股", "value": "filter_st", "selected": config.get("filter_st", defaults.get("filter_st", False))},
-        ]),
+        ctx["select"]("过滤B股", name="filter_b_shares",
+                     options=[{"label": "是", "value": "1"}, {"label": "否", "value": "0"}],
+                     value="1" if config.get("filter_b_shares", defaults.get("filter_b_shares", True)) else "0"),
+        ctx["select"]("过滤ST股", name="filter_st",
+                     options=[{"label": "是", "value": "1"}, {"label": "否", "value": "0"}],
+                     value="1" if config.get("filter_st", defaults.get("filter_st", False)) else "0"),
         ctx["textarea"]("黑名单(逗号/换行分隔)", name="blacklist",
                         value="\n".join(config.get("blacklist", defaults.get("blacklist", []))),
                         help_text="强制过滤的股票代码列表"),
@@ -321,10 +323,8 @@ async def _render_noise_filter_config(ctx: dict, config: dict, defaults: dict):
     ])
 
     if form and form.get("action") == "save":
-        filter_options = form.get("filter_options", [])
-        time_gap_options = form.get("time_gap_options", [])
         set_category_config("noise_filter", {
-            "enabled": "enabled" in form.get("enabled", []),
+            "enabled": form.get("enabled") == "1",
             "min_amount": float(form.get("min_amount", 1000000)),
             "min_volume": float(form.get("min_volume", 100000)),
             "min_price": float(form.get("min_price", 1.0)),
@@ -332,14 +332,14 @@ async def _render_noise_filter_config(ctx: dict, config: dict, defaults: dict):
             "max_price_change_pct": float(form.get("max_price_change_pct", 20.0)),
             "normal_time_interval": float(form.get("normal_time_interval", 5.0)),
             "max_time_gap": float(form.get("max_time_gap", 300.0)),
-            "time_gap_adjustment": "time_gap_adjustment" in time_gap_options,
+            "time_gap_adjustment": form.get("time_gap_adjustment") == "1",
             "flat_threshold": float(form.get("flat_threshold", 0.5)),
             "flat_consecutive_frames": int(form.get("flat_consecutive_frames", 10)),
             "wash_trading_volume_ratio": float(form.get("wash_trading_volume_ratio", 3.0)),
             "wash_trading_price_change_max": float(form.get("wash_trading_price_change_max", 0.5)),
             "abnormal_volatility_threshold": float(form.get("abnormal_volatility_threshold", 10.0)),
-            "filter_b_shares": "filter_b_shares" in filter_options,
-            "filter_st": "filter_st" in filter_options,
+            "filter_b_shares": form.get("filter_b_shares") == "1",
+            "filter_st": form.get("filter_st") == "1",
             "blacklist": _split_list(form.get("blacklist", "")),
             "whitelist": _split_list(form.get("whitelist", "")),
         })
@@ -604,12 +604,12 @@ async def _render_dictionary_config(ctx: dict, config: dict, defaults: dict):
 async def _render_memory_config(ctx: dict, config: dict, defaults: dict):
     """渲染记忆配置"""
     form = await ctx["input_group"]("记忆配置", [
-        ctx["checkbox"]("自动加载", name="auto_load_on_start", options=[
-            {"label": "启动时自动加载记忆状态", "value": "auto_load_on_start", "selected": config.get("auto_load_on_start", defaults.get("auto_load_on_start", True))}
-        ]),
-        ctx["checkbox"]("自动保存", name="auto_save_enabled", options=[
-            {"label": "启用记忆自动保存", "value": "auto_save_enabled", "selected": config.get("auto_save_enabled", defaults.get("auto_save_enabled", True))}
-        ]),
+        ctx["select"]("自动加载", name="auto_load_on_start",
+                     options=[{"label": "是", "value": "1"}, {"label": "否", "value": "0"}],
+                     value="1" if config.get("auto_load_on_start", defaults.get("auto_load_on_start", True)) else "0"),
+        ctx["select"]("自动保存", name="auto_save_enabled",
+                     options=[{"label": "是", "value": "1"}, {"label": "否", "value": "0"}],
+                     value="1" if config.get("auto_save_enabled", defaults.get("auto_save_enabled", True)) else "0"),
         ctx["input"]("自动保存间隔(秒)", name="auto_save_interval", type="number",
                     value=config.get("auto_save_interval", defaults.get("auto_save_interval", 300))),
         ctx["actions"]("操作", [
@@ -621,8 +621,8 @@ async def _render_memory_config(ctx: dict, config: dict, defaults: dict):
 
     if form and form.get("action") == "save":
         set_category_config("memory", {
-            "auto_load_on_start": "auto_load_on_start" in form.get("auto_load_on_start", []),
-            "auto_save_enabled": "auto_save_enabled" in form.get("auto_save_enabled", []),
+            "auto_load_on_start": form.get("auto_load_on_start") == "1",
+            "auto_save_enabled": form.get("auto_save_enabled") == "1",
             "auto_save_interval": int(form.get("auto_save_interval", 300)),
         })
         ctx["toast"]("记忆配置已保存", color="success")
@@ -677,9 +677,9 @@ async def _render_llm_config(ctx: dict, config: dict, defaults: dict):
     current_actions = config.get("allowed_actions", defaults.get("allowed_actions", []))
 
     form = await ctx["input_group"]("LLM 调节配置", [
-        ctx["checkbox"]("自动调节", name="auto_adjust_enabled", options=[
-            {"label": "启用 LLM 自动调节任务", "value": "auto_adjust_enabled", "selected": config.get("auto_adjust_enabled", defaults.get("auto_adjust_enabled", True))}
-        ]),
+        ctx["select"]("自动调节", name="auto_adjust_enabled",
+                     options=[{"label": "是", "value": "1"}, {"label": "否", "value": "0"}],
+                     value="1" if config.get("auto_adjust_enabled", defaults.get("auto_adjust_enabled", True)) else "0"),
         ctx["input"]("最小调节间隔(秒)", name="min_interval_seconds", type="number",
                     value=config.get("min_interval_seconds", defaults.get("min_interval_seconds", 300))),
         ctx["input"]("自动调节间隔(秒)", name="auto_adjust_interval_seconds", type="number",
@@ -688,9 +688,9 @@ async def _render_llm_config(ctx: dict, config: dict, defaults: dict):
                     value=config.get("auto_adjust_window_seconds", defaults.get("auto_adjust_window_seconds", 600))),
         ctx["input"]("最小雷达事件数", name="auto_adjust_min_events", type="number",
                     value=config.get("auto_adjust_min_events", defaults.get("auto_adjust_min_events", 3))),
-        ctx["checkbox"]("Dry Run", name="auto_adjust_dry_run", options=[
-            {"label": "只模拟不落地", "value": "auto_adjust_dry_run", "selected": config.get("auto_adjust_dry_run", defaults.get("auto_adjust_dry_run", False))}
-        ]),
+        ctx["select"]("Dry Run", name="auto_adjust_dry_run",
+                     options=[{"label": "是", "value": "1"}, {"label": "否", "value": "0"}],
+                     value="1" if config.get("auto_adjust_dry_run", defaults.get("auto_adjust_dry_run", False)) else "0"),
         ctx["checkbox"]("允许动作", name="allowed_actions", options=actions_options, value=current_actions),
         ctx["input"]("单次最大动作数", name="max_actions_per_run", type="number",
                     value=config.get("max_actions_per_run", defaults.get("max_actions_per_run", 5))),
@@ -716,11 +716,11 @@ async def _render_llm_config(ctx: dict, config: dict, defaults: dict):
     if form and form.get("action") == "save":
         set_category_config("llm", {
             "min_interval_seconds": int(form.get("min_interval_seconds", 300)),
-            "auto_adjust_enabled": "auto_adjust_enabled" in form.get("auto_adjust_enabled", []),
+            "auto_adjust_enabled": form.get("auto_adjust_enabled") == "1",
             "auto_adjust_interval_seconds": int(form.get("auto_adjust_interval_seconds", 900)),
             "auto_adjust_window_seconds": int(form.get("auto_adjust_window_seconds", 600)),
             "auto_adjust_min_events": int(form.get("auto_adjust_min_events", 3)),
-            "auto_adjust_dry_run": "auto_adjust_dry_run" in form.get("auto_adjust_dry_run", []),
+            "auto_adjust_dry_run": form.get("auto_adjust_dry_run") == "1",
             "allowed_actions": form.get("allowed_actions", []),
             "max_actions_per_run": int(form.get("max_actions_per_run", 5)),
             "strategy_allowlist": _split_list(form.get("strategy_allowlist", "")),
@@ -755,9 +755,10 @@ async def _render_auth_config(ctx: dict, config: dict, defaults: dict):
                     value="", placeholder="输入新密码（留空则不修改）"),
         ctx["input"]("确认新密码", name="password_confirm", type=ctx["PASSWORD"], 
                     value="", placeholder="再次输入新密码"),
-        ctx["checkbox"]("开发模式", name="dev_mode", options=[
-            {"label": "启用开发模式（免认证）", "value": "dev_mode", "selected": config.get("dev_mode", defaults.get("dev_mode", False))}
-        ], help_text="启用后跳过认证，仅用于开发环境"),
+        ctx["select"]("开发模式", name="dev_mode",
+                     options=[{"label": "是", "value": "1"}, {"label": "否", "value": "0"}],
+                     value="1" if config.get("dev_mode", defaults.get("dev_mode", False)) else "0",
+                     help_text="启用后跳过认证，仅用于开发环境"),
         ctx["actions"]("操作", [
             {"label": "保存", "value": "save", "color": "primary"},
             {"label": "重新生成密钥", "value": "regen_secret", "color": "warning"},
@@ -784,11 +785,10 @@ async def _render_auth_config(ctx: dict, config: dict, defaults: dict):
             set_config("auth", "password", password)
         
         set_config("auth", "username", username)
-        
-        # 保存开发模式设置
-        dev_mode = "dev_mode" in form.get("dev_mode", [])
+
+        dev_mode = form.get("dev_mode") == "1"
         set_config("auth", "dev_mode", dev_mode)
-        
+
         ctx["toast"]("认证配置已保存", color="success")
         ctx["close_popup"]()
     elif form and form.get("action") == "regen_secret":
