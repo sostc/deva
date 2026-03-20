@@ -132,21 +132,20 @@ class NajaSupervisor:
         
         # 启动注意力系统
         try:
-            from .attention_config import load_config
+            from .attention_config import load_config, get_intelligence_config
             from .attention_integration import initialize_attention_system
-            
-            # 加载配置
+
             attention_config = load_config()
-            
+            intelligence_config = get_intelligence_config()
+
             if attention_config.enabled:
-                # 转换为 AttentionSystemConfig
                 config = attention_config.to_attention_system_config()
-                attention_system = initialize_attention_system(config)
+                attention_system = initialize_attention_system(config, intelligence_config=intelligence_config)
                 self._components['attention'] = attention_system
 
                 # 启动注意力策略系统
                 try:
-                    from naja_attention_strategies import setup_attention_strategies
+                    from deva.naja.attention.strategies import setup_attention_strategies
                     strategy_manager = setup_attention_strategies()
                     self._components['attention_strategy_manager'] = strategy_manager
                 except Exception as se:

@@ -23,8 +23,8 @@ except Exception:
     pd = None
 
 from .attention_integration import get_attention_integration
-from naja_attention_system import get_noise_filter, NoiseFilterConfig
-from naja_attention_system.tick_noise_filter import get_tick_noise_filter, TickNoiseFilterConfig
+from deva.naja.attention import get_noise_filter, NoiseFilterConfig
+from deva.naja.attention.processing.tick_filter import get_tick_noise_filter, TickNoiseFilterConfig
 from .config import get_noise_filter_config
 
 # 性能监控支持
@@ -75,6 +75,7 @@ class AttentionOrchestrator:
         self._cached_high_attention_symbols: Set[str] = set()
         self._cached_active_sectors: Set[str] = set()
         self._cached_global_attention = 0.5
+        self._cached_activity = 0.5  # 市场活跃度
         
         # 统计
         self._processed_frames = 0
@@ -283,8 +284,24 @@ class AttentionOrchestrator:
     
     def _update_attention(self, data: pd.DataFrame):
         """更新注意力系统"""
-        if self._integration.attention_system is None:
-            return
+        # 自动初始化：如果注意力系统未初始化，则自动初始化
+        if self._integration.attention_system is None or not self._integration.attention_system._initialized:
+            log.warning("注意力系统未初始化，尝试自动初始化...")
+            try:
+                from deva.naja.attention_integration import initialize_attention_system
+                from deva.naja.attention_config import load_config
+                config = load_config()
+                if config.enabled:
+                    initialize_attention_system(config.to_attention_system_config())
+                    log.warning("注意力系统自动初始化成功")
+                else:
+                    log.warning("注意力系统未启用 (enabled=False)，跳过")
+                    return
+            except Exception as e:
+                log.error(f"注意力系统自动初始化失败: {e}")
+                import traceback
+                log.error(traceback.format_exc())
+                return
         
         # 检查缓存
         current_time = time.time()
@@ -367,12 +384,31 @@ class AttentionOrchestrator:
             
             # 提取必要字段
             symbols = data.index.values if 'code' not in data.columns else data['code'].values
-            
-            returns = data['p_change'].values if 'p_change' in data.columns else \
-                     (data['now'].values - data['close'].values) / data['close'].values * 100
-            
+
+            # 计算涨跌幅，添加数值保护
+            if 'p_change' in data.columns:
+                returns = data['p_change'].values
+            else:
+                close_values = data['close'].values
+                now_values = data['now'].values
+                # 避免除零
+                returns = np.where(
+                    close_values > 0.01,
+                    (now_values - close_values) / close_values * 100,
+                    0.0
+                )
+
+            # 清理异常值
+            returns = np.nan_to_num(returns, nan=0.0, posinf=50.0, neginf=-50.0)
+            returns = np.clip(returns, -50.0, 50.0)  # 限制在合理范围
+
             volumes = data['volume'].values if 'volume' in data.columns else np.ones(len(symbols)) * 1000000
+            volumes = np.nan_to_num(volumes, nan=0.0, posinf=1e15, neginf=0.0)
+            volumes = np.clip(volumes, 0, 1e15)  # 限制范围
+
             prices = data['now'].values if 'now' in data.columns else data['close'].values
+            prices = np.nan_to_num(prices, nan=0.0, posinf=1e6, neginf=0.0)
+            prices = np.clip(prices, 0.01, 1e6)  # 限制范围
             
             # 提取行情数据时间（优先使用数据中的时间）
             market_time = current_time
@@ -388,7 +424,7 @@ class AttentionOrchestrator:
                     dt_str = f"{date_val} {time_val}"
                     dt = datetime.strptime(dt_str, "%Y-%m-%d %H:%M:%S")
                     market_time = dt.timestamp()
-                    market_time_str = dt.strftime("%H:%M:%S")
+                    market_time_str = dt.strftime("%Y-%m-%d %H:%M:%S")
                 except:
                     pass
             
@@ -407,6 +443,19 @@ class AttentionOrchestrator:
             self._cached_high_attention_symbols = set(control.get('high_freq_symbols', []))
             self._cached_active_sectors = set(self._integration.get_active_sectors(threshold=0.3))
             self._cached_global_attention = self._integration.attention_system._last_global_attention
+            self._cached_activity = self._integration.attention_system._last_activity
+
+            # 获取注意力分量详情
+            attention_engine = self._integration.attention_system.global_attention
+            history_size = len(attention_engine._history_buffer) if hasattr(attention_engine, '_history_buffer') else 0
+
+            # 每50帧输出一次全局注意力和活跃度（用于调试策略跳过问题）
+            if self._processed_frames % 50 == 0:
+                log.info(f"[Attention] 注意力: {self._cached_global_attention:.3f}, "
+                        f"活跃度: {self._cached_activity:.3f}, "
+                        f"历史缓冲: {history_size}/{attention_engine.history_window}, "
+                        f"活跃板块: {len(self._cached_active_sectors)}, "
+                        f"高注意力个股: {len(self._cached_high_attention_symbols)}")
             
             # 每100帧输出一次 River Engine 统计（用于调试）
             if self._processed_frames % 100 == 0:
@@ -420,17 +469,40 @@ class AttentionOrchestrator:
             try:
                 from .attention.history_tracker import get_history_tracker
                 tracker = get_history_tracker()
-                
+
                 # 获取板块和个股权重
                 sector_weights = self._integration.attention_system.sector_attention.get_all_weights()
                 symbol_weights = self._integration.attention_system.weight_pool.get_all_weights()
-                
+
+                # 调试日志：每100帧输出一次板块权重变化
+                if self._processed_frames % 100 == 0 and sector_weights:
+                    sorted_sectors = sorted(sector_weights.items(), key=lambda x: x[1], reverse=True)[:5]
+                    log.info(f"[SectorWeights] Top5: {[(f'{s}({w:.2f})') for s, w in sorted_sectors]}")
+
+                # 构建个股行情数据字典
+                symbol_market_data = {}
+                for idx, row in data.iterrows():
+                    symbol = str(row['code']) if 'code' in row else str(idx)
+                    price = float(row.get('now', row.get('close', 0)))
+                    change = float(row.get('p_change', 0)) if 'p_change' in row else 0.0
+                    volume = float(row.get('volume', 0))
+                    sector = str(row.get('sector', row.get('industry', ''))) if 'sector' in row or 'industry' in row else ''
+                    if symbol:
+                        symbol_market_data[symbol] = {
+                            'price': price,
+                            'change': change,
+                            'volume': volume,
+                            'sector': sector
+                        }
+
                 tracker.record_snapshot(
                     global_attention=self._cached_global_attention,
                     sector_weights=sector_weights,
                     symbol_weights=symbol_weights,
                     timestamp=market_time,
-                    timestamp_str=market_time_str
+                    timestamp_str=market_time_str,
+                    symbol_market_data=symbol_market_data,
+                    activity=self._cached_activity
                 )
                 
                 # 注册股票名称（如果数据中有）
@@ -451,10 +523,34 @@ class AttentionOrchestrator:
         except Exception as e:
             import traceback
             log.error(f"更新注意力系统失败: {e}")
-            log.debug(f"错误详情: {traceback.format_exc()}")
+            log.error(f"错误详情: {traceback.format_exc()}")
+            # 记录数据状态以便调试
+            try:
+                log.error(f"数据形状: symbols={len(symbols)}, returns={len(returns)}, volumes={len(volumes)}, prices={len(prices)}")
+                log.error(f"Returns 范围: [{np.min(returns):.2f}, {np.max(returns):.2f}]")
+                log.error(f"Prices 范围: [{np.min(prices):.2f}, {np.max(prices):.2f}]")
+                log.error(f"Volumes 范围: [{np.min(volumes):.2f}, {np.max(volumes):.2f}]")
+            except:
+                pass
     
-    def _dispatch_to_strategies(self, datasource_id: str, data: pd.DataFrame):
+    def _dispatch_to_strategies(self, datasource_id: str, data: pd.DataFrame, market_time: Optional[float] = None):
         """分发数据到各策略"""
+        # 如果没有传入市场时间，尝试从数据中提取
+        if market_time is None and not data.empty:
+            try:
+                if 'date' in data.columns and 'time' in data.columns:
+                    first_row = data.iloc[0]
+                    date_val = str(first_row['date'])
+                    time_val = str(first_row['time'])
+                    from datetime import datetime
+                    dt_str = f"{date_val} {time_val}"
+                    dt = datetime.strptime(dt_str, "%Y-%m-%d %H:%M:%S")
+                    market_time = dt.timestamp()
+            except Exception:
+                market_time = time.time()
+        elif market_time is None:
+            market_time = time.time()
+
         # 1. 分发到旧版策略（回调方式）
         for strategy_id, config in self._strategies.items():
             try:
@@ -503,7 +599,7 @@ class AttentionOrchestrator:
         # 2. 分发到新版注意力策略系统
         try:
             # 直接从 naja_attention_strategies 获取策略管理器
-            from naja_attention_strategies import get_strategy_manager
+            from deva.naja.attention.strategies import get_strategy_manager
             
             strategy_mgr = get_strategy_manager()
             
@@ -520,11 +616,13 @@ class AttentionOrchestrator:
             if strategy_mgr and strategy_mgr.is_running:
                 context = {
                     'global_attention': self._cached_global_attention,
+                    'activity': self._cached_activity,
                     'high_attention_symbols': self._cached_high_attention_symbols,
                     'active_sectors': self._cached_active_sectors,
                     'datasource_id': datasource_id,
                     'sector_weights': self._get_sector_weights(),
-                    'symbol_weights': self._get_symbol_weights()
+                    'symbol_weights': self._get_symbol_weights(),
+                    'timestamp': market_time if market_time else time.time()
                 }
                 signals = strategy_mgr.process_data(data, context)
                 if signals:

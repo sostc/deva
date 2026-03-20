@@ -58,7 +58,7 @@ class NajaAttentionConfig:
     global_history_window: int = 20
     
     # 板块注意力配置
-    max_sectors: int = 100
+    max_sectors: int = 500  # 增加到500以支持更多板块
     sector_decay_half_life: float = 300.0  # 秒
     
     # 权重池配置
@@ -95,7 +95,7 @@ class NajaAttentionConfig:
         
         # 数值配置
         config.global_history_window = int(os.getenv("NAJA_ATTENTION_GLOBAL_WINDOW", "20"))
-        config.max_sectors = int(os.getenv("NAJA_ATTENTION_MAX_SECTORS", "100"))
+        config.max_sectors = int(os.getenv("NAJA_ATTENTION_MAX_SECTORS", "500"))
         config.max_symbols = int(os.getenv("NAJA_ATTENTION_MAX_SYMBOLS", "5000"))
         
         config.low_interval = float(os.getenv("NAJA_ATTENTION_LOW_INTERVAL", "60.0"))
@@ -126,7 +126,7 @@ class NajaAttentionConfig:
     
     def to_attention_system_config(self):
         """转换为 AttentionSystemConfig"""
-        from naja_attention_system import AttentionSystemConfig
+        from deva.naja.attention import AttentionSystemConfig
         
         return AttentionSystemConfig(
             global_history_window=self.global_history_window,
@@ -157,13 +157,11 @@ default_config = NajaAttentionConfig()
 def load_config() -> NajaAttentionConfig:
     """
     加载配置
-    
+
     优先级：环境变量 > 配置文件 > 默认值
     """
-    # 首先尝试从环境变量加载
     config = NajaAttentionConfig.from_env()
-    
-    # 然后尝试从配置文件加载（如果存在）
+
     try:
         config_file = os.path.expanduser("~/.naja/attention_config.yaml")
         if os.path.exists(config_file):
@@ -171,16 +169,48 @@ def load_config() -> NajaAttentionConfig:
             with open(config_file, 'r') as f:
                 file_config = yaml.safe_load(f)
                 if file_config:
-                    # 处理顶层配置
                     for key, value in file_config.items():
                         if key == 'noise_filter' and isinstance(value, dict):
-                            # 特殊处理噪音过滤配置
                             for nf_key, nf_value in value.items():
                                 if hasattr(config.noise_filter, nf_key):
                                     setattr(config.noise_filter, nf_key, nf_value)
                         elif hasattr(config, key):
                             setattr(config, key, value)
     except Exception as e:
+        import logging
         logging.getLogger(__name__).debug(f"加载配置文件失败: {e}")
-    
+
     return config
+
+
+def get_intelligence_config() -> dict:
+    """
+    获取智能增强系统配置
+
+    使用统一的 config 系统: deva.config
+    """
+    from deva import config
+
+    intelligence_config = {
+        'enable_predictive': False,
+        'enable_feedback': False,
+        'enable_budget': False,
+        'enable_propagation': False,
+        'enable_strategy_learning': False,
+    }
+
+    intelligence_enabled = config.get('attention_v2.enabled', False)
+    if not intelligence_enabled:
+        return {}
+
+    intelligence_config['enable_predictive'] = config.get('attention_v2.predictive', True)
+    intelligence_config['enable_feedback'] = config.get('attention_v2.feedback', True)
+    intelligence_config['enable_budget'] = config.get('attention_v2.budget', True)
+    intelligence_config['enable_propagation'] = config.get('attention_v2.propagation', False)
+    intelligence_config['enable_strategy_learning'] = config.get('attention_v2.strategy_learning', False)
+
+    has_any = any(intelligence_config.values())
+    if not has_any:
+        return {}
+
+    return intelligence_config

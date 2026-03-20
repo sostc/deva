@@ -1,8 +1,169 @@
-"""注意力调度系统模块
+"""
+Naja Attention System - 统一注意力调度系统
 
-提供注意力系统的 Web UI 和管理功能
+按功能模块组织的注意力系统架构：
+
+core/          - 核心注意力计算引擎
+processing/    - 数据预处理（噪音过滤）
+scheduling/    - 频率调度和策略分配
+intelligence/  - 智能增强（预测、反馈、预算、学习）
+engine/        - River + PyTorch 双引擎
+integration/   - 系统集成和主控制器
+strategies/    - 基于注意力的交易策略
 """
 
-from .ui import render_attention_admin, set_auto_refresh
+from .core import (
+    GlobalAttentionEngine,
+    MarketSnapshot,
+    SectorAttentionEngine,
+    SectorConfig,
+    WeightPool,
+    WeightPoolView,
+    SymbolWeightConfig,
+)
+from .processing import (
+    NoiseFilter,
+    NoiseFilterConfig,
+    get_noise_filter,
+    get_tick_noise_filter,
+    TickNoiseFilterConfig,
+)
+from .scheduling import (
+    FrequencyScheduler,
+    FrequencyLevel,
+    FrequencyConfig,
+    AdaptiveFrequencyController,
+    StrategyAllocator,
+    StrategyRegistry,
+    Strategy,
+    StrategyConfig,
+    StrategyParams,
+    StrategyScope,
+    StrategyType,
+)
+from .engine import (
+    RiverEngine,
+    PyTorchEngine,
+    DualEngineCoordinator,
+    AnomalySignal,
+    PatternSignal,
+)
+from .intelligence import (
+    PredictiveAttentionEngine,
+    PredictionResult,
+    EMAAccelerator,
+    SecondOrderDifferentiator,
+    MomentumPredictor,
+    AttentionFeedbackLoop,
+    FeedbackCollector,
+    AttentionEffectivenessAnalyzer,
+    BanditUpdater,
+    StrategyOutcome,
+    AttentionEffectiveness,
+    AttentionBudgetSystem,
+    BudgetConfig,
+    BudgetLevel,
+    BudgetAllocation,
+    TopKBudgetAllocator,
+    AdaptiveBudgetController,
+    ResourceMonitor,
+    AttentionPropagation,
+    PropagationEngine,
+    RelationMatrix,
+    SectorRelation,
+    StrategyLearning,
+    MarketStateDetector,
+    BanditStrategySelector,
+    RuleBasedStrategySelector,
+    MarketState,
+    StrategyPerformance,
+    StrategySelection,
+)
+from .integration import (
+    AttentionSystem,
+    AttentionSystemConfig,
+    AttentionSystemIntegration,
+    IntelligenceAugmentedSystem,
+    IntelligenceConfig,
+    create_intelligence_system,
+    create_system,
+    create_v2_system,
+    migrate_legacy,
+)
 
-__all__ = ['render_attention_admin', 'set_auto_refresh']
+__all__ = [
+    # Core
+    "GlobalAttentionEngine",
+    "MarketSnapshot",
+    "SectorAttentionEngine",
+    "SectorConfig",
+    "WeightPool",
+    "WeightPoolView",
+    "SymbolWeightConfig",
+    # Processing
+    "NoiseFilter",
+    "NoiseFilterConfig",
+    "get_noise_filter",
+    "get_tick_noise_filter",
+    "TickNoiseFilterConfig",
+    # Scheduling
+    "FrequencyScheduler",
+    "FrequencyLevel",
+    "FrequencyConfig",
+    "AdaptiveFrequencyController",
+    "StrategyAllocator",
+    "StrategyRegistry",
+    "Strategy",
+    "StrategyConfig",
+    "StrategyParams",
+    "StrategyScope",
+    "StrategyType",
+    # Engine
+    "RiverEngine",
+    "PyTorchEngine",
+    "DualEngineCoordinator",
+    "AnomalySignal",
+    "PatternSignal",
+    # Intelligence
+    "PredictiveAttentionEngine",
+    "PredictionResult",
+    "EMAAccelerator",
+    "SecondOrderDifferentiator",
+    "MomentumPredictor",
+    "AttentionFeedbackLoop",
+    "FeedbackCollector",
+    "AttentionEffectivenessAnalyzer",
+    "BanditUpdater",
+    "StrategyOutcome",
+    "AttentionEffectiveness",
+    "AttentionBudgetSystem",
+    "BudgetConfig",
+    "BudgetLevel",
+    "BudgetAllocation",
+    "TopKBudgetAllocator",
+    "AdaptiveBudgetController",
+    "ResourceMonitor",
+    "AttentionPropagation",
+    "PropagationEngine",
+    "RelationMatrix",
+    "SectorRelation",
+    "StrategyLearning",
+    "MarketStateDetector",
+    "BanditStrategySelector",
+    "RuleBasedStrategySelector",
+    "MarketState",
+    "StrategyPerformance",
+    "StrategySelection",
+    # Integration
+    "AttentionSystem",
+    "AttentionSystemConfig",
+    "AttentionSystemIntegration",
+    "IntelligenceAugmentedSystem",
+    "IntelligenceConfig",
+    "create_intelligence_system",
+    "create_system",
+    "create_v2_system",
+    "migrate_legacy",
+]
+
+__version__ = "3.0.0"

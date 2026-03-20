@@ -43,7 +43,7 @@ def _get_attention_integration():
 def _get_strategy_manager():
     """获取策略管理器"""
     try:
-        from naja_attention_strategies import get_strategy_manager
+        from deva.naja.attention.strategies import get_strategy_manager
         return get_strategy_manager()
     except Exception:
         return None
@@ -796,7 +796,7 @@ def _render_compact_signals(limit: int = 5) -> str:
 def _render_compact_noise_filter() -> str:
     """简化的噪音过滤状态"""
     try:
-        from naja_attention_system import get_noise_filter
+        from deva.naja.attention import get_noise_filter
         noise_filter = get_noise_filter()
         stats = noise_filter.get_stats()
         
