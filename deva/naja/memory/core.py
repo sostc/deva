@@ -21,6 +21,7 @@ import threading
 import os
 
 from .narrative_tracker import NarrativeTracker
+from .semantic_cold_start import SemanticColdStart
 
 # River流式学习库
 try:
@@ -792,6 +793,10 @@ class NewsRadarStrategy:
         # 叙事追踪器
         self.narrative_tracker = NarrativeTracker(self.config)
         self.narrative_events: deque = deque(maxlen=200)
+
+        # 语义冷启动（种子词 -> 语义图谱）
+        self.semantic_cold_start = SemanticColdStart(self.config)
+        self.semantic_graph: Dict[str, Any] = dict(self.semantic_cold_start.graph)
         
         # 缓存的市场活跃度（避免频繁查询）
         self._cached_market_activity: float = 0.5
@@ -1192,6 +1197,19 @@ class NewsRadarStrategy:
                 strategy_id="narrative_tracker",
                 strategy_name="Narrative Tracker",
             )
+
+    def build_semantic_cold_start_prompt(self, seeds: Optional[List[str]] = None) -> str:
+        """构建语义冷启动 prompt（给 LLM 使用）"""
+        if not self.semantic_cold_start:
+            return ""
+        return self.semantic_cold_start.build_prompt(seeds)
+
+    def apply_semantic_cold_start(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        """应用 LLM 冷启动输出，更新语义图谱"""
+        if not self.semantic_cold_start:
+            return {}
+        self.semantic_graph = self.semantic_cold_start.apply_graph_payload(payload)
+        return self.semantic_graph
     
     def process_window(self, records: List[Dict]) -> List[Dict]:
         """
@@ -1537,6 +1555,7 @@ class NewsRadarStrategy:
                 "graph": self.narrative_tracker.get_graph() if self.narrative_tracker else {"nodes": [], "edges": []},
                 "events": list(self.narrative_events)[-10:],
             },
+            "semantic_graph": self.semantic_cold_start.get_summary(limit=10) if self.semantic_cold_start else {},
         }
 
     def _get_user_focus_events(self, limit: int = 8) -> List[Dict[str, Any]]:
@@ -1875,6 +1894,7 @@ class NewsRadarStrategy:
             "mid_memory_threshold": self.mid_memory_threshold,
             "long_memory_interval": self.long_memory_interval,
             "last_long_memory_time": self.last_long_memory_time.isoformat(),
+            "semantic_graph": self.semantic_graph,
         }
     
     def _deserialize_state(self, data: dict):
@@ -1896,6 +1916,11 @@ class NewsRadarStrategy:
         
         # 恢复主题计数器
         self.topic_counter = data.get("topic_counter", 0)
+
+        # 恢复语义图谱
+        self.semantic_graph = data.get("semantic_graph", self.semantic_graph or {})
+        if self.semantic_cold_start and self.semantic_graph:
+            self.semantic_cold_start.graph = self.semantic_graph
         
         # 恢复记忆阈值
         self.mid_memory_threshold = data.get("mid_memory_threshold", 0.7)
