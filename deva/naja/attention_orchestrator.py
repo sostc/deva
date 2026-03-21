@@ -445,6 +445,9 @@ class AttentionOrchestrator:
             self._cached_global_attention = self._integration.attention_system._last_global_attention
             self._cached_activity = self._integration.attention_system._last_activity
 
+            # 从记忆系统引入提示（白名单/热度线索）
+            self._apply_memory_hints(data)
+
             # 获取注意力分量详情
             attention_engine = self._integration.attention_system.global_attention
             history_size = len(attention_engine._history_buffer) if hasattr(attention_engine, '_history_buffer') else 0
@@ -664,6 +667,40 @@ class AttentionOrchestrator:
         if self._integration.attention_system is None:
             return {}
         return self._integration.attention_system.weight_pool.get_all_weights()
+
+    def _apply_memory_hints(self, data: pd.DataFrame) -> None:
+        """将记忆系统中的热点提示合并到注意力上下文"""
+        try:
+            from .memory import get_memory_engine
+        except Exception:
+            return
+
+        try:
+            memory = get_memory_engine()
+            hints = memory.get_attention_hints(lookback=200)
+        except Exception:
+            return
+
+        symbols = hints.get("symbols") or set()
+        sectors = hints.get("sectors") or set()
+
+        if symbols:
+            try:
+                if 'code' in data.columns:
+                    available = set(str(s) for s in data['code'].values)
+                else:
+                    available = set(str(s) for s in data.index.values)
+                extra = symbols & available
+                if extra:
+                    self._cached_high_attention_symbols.update(extra)
+            except Exception:
+                pass
+
+        if sectors:
+            try:
+                self._cached_active_sectors.update(sectors)
+            except Exception:
+                pass
     
     def get_attention_context(self) -> Dict[str, Any]:
         """获取注意力上下文"""

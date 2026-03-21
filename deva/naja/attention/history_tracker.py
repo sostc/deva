@@ -116,6 +116,10 @@ class AttentionHistoryTracker:
         self.current_market_state_description: str = "等待数据..."
         self.last_update_time: float = 0
         self.current_market_time_str: str = ""  # 行情时间字符串（如 "2024-01-15 10:30:00"）
+
+        # 事件桥接与节流
+        self._emit_last: Dict[str, float] = {}
+        self._emit_cooldown_seconds: float = 30.0
     
     def register_symbol_name(self, symbol: str, name: str):
         """注册股票名称"""
@@ -158,6 +162,149 @@ class AttentionHistoryTracker:
         else:
             return f"{volume:.0f}"
 
+    def _should_emit(self, key: str, now_ts: float) -> bool:
+        last_ts = self._emit_last.get(key, 0.0)
+        if now_ts - last_ts < self._emit_cooldown_seconds:
+            return False
+        self._emit_last[key] = now_ts
+        return True
+
+    def _emit_attention_event(
+        self,
+        *,
+        event_type: str,
+        title: str,
+        content: str,
+        score: float,
+        payload: Optional[Dict[str, Any]] = None,
+        symbol: str = "",
+        sector: str = "",
+        market_time: str = "",
+    ) -> None:
+        now_ts = time.time()
+        key = f"{event_type}:{symbol or sector or 'global'}"
+        if not self._should_emit(key, now_ts):
+            return
+        self._emit_to_insight_pool(
+            event_type=event_type,
+            title=title,
+            content=content,
+            score=score,
+            payload=payload or {},
+            symbol=symbol,
+            sector=sector,
+            market_time=market_time,
+        )
+        self._emit_to_radar(
+            event_type=event_type,
+            score=score,
+            message=content,
+            payload=payload or {},
+        )
+        self._emit_to_memory(
+            timestamp=now_ts,
+            title=title,
+            content=content,
+            payload=payload or {},
+            symbol=symbol,
+            sector=sector,
+            market_time=market_time,
+        )
+
+    def _emit_to_radar(
+        self,
+        *,
+        event_type: str,
+        score: float,
+        message: str,
+        payload: Dict[str, Any],
+    ) -> None:
+        try:
+            from deva.naja.radar import get_radar_engine
+        except Exception:
+            return
+        try:
+            radar = get_radar_engine()
+            radar.ingest_attention_event(
+                event_type=event_type,
+                score=score,
+                message=message,
+                payload=payload,
+                signal_type="attention",
+                strategy_id="attention_system",
+                strategy_name="Attention System",
+            )
+        except Exception:
+            return
+
+    def _emit_to_memory(
+        self,
+        *,
+        timestamp: float,
+        title: str,
+        content: str,
+        payload: Dict[str, Any],
+        symbol: str = "",
+        sector: str = "",
+        market_time: str = "",
+    ) -> None:
+        try:
+            from deva.naja.memory import get_memory_engine
+        except Exception:
+            return
+        try:
+            memory = get_memory_engine()
+            record = {
+                "timestamp": timestamp,
+                "source": "attention:history_tracker",
+                "title": title,
+                "content": content,
+                "symbol": symbol,
+                "sector": sector,
+                "market_time": market_time,
+                "payload": payload,
+                "importance": "high",
+            }
+            memory.process_record(record)
+        except Exception:
+            return
+
+    def _emit_to_insight_pool(
+        self,
+        *,
+        event_type: str,
+        title: str,
+        content: str,
+        score: float,
+        payload: Dict[str, Any],
+        symbol: str = "",
+        sector: str = "",
+        market_time: str = "",
+    ) -> None:
+        try:
+            from deva.naja.insight import get_insight_pool
+        except Exception:
+            return
+        try:
+            pool = get_insight_pool()
+            pool.ingest_attention_event(
+                {
+                    "theme": title,
+                    "title": title,
+                    "content": content,
+                    "score": score,
+                    "symbols": [symbol] if symbol else [],
+                    "sectors": [sector] if sector else [],
+                    "signal_type": event_type,
+                    "market_time": market_time,
+                    "payload": payload,
+                    "actionability": 0.5,
+                    "confidence": 0.7,
+                }
+            )
+        except Exception:
+            return
+
     def record_snapshot(self, global_attention: float,
                        sector_weights: Dict[str, float],
                        symbol_weights: Dict[str, float],
@@ -183,6 +330,8 @@ class AttentionHistoryTracker:
         actual_timestamp = timestamp if timestamp is not None else time.time()
         market_data = symbol_market_data if symbol_market_data else {}
         actual_activity = activity if activity is not None else 0.5
+        prev_state = self.current_market_state
+        prev_attention = self.snapshots[-1].global_attention if self.snapshots else None
 
         snapshot = AttentionSnapshot(
             timestamp=actual_timestamp,
@@ -223,6 +372,49 @@ class AttentionHistoryTracker:
 
         # 更新行情时间
         self.current_market_time_str = timestamp_str or ""
+
+        # 全局注意力变化事件
+        if prev_attention is not None:
+            delta = global_attention - prev_attention
+            if abs(delta) >= 0.2:
+                direction = "提升" if delta > 0 else "回落"
+                title = "注意力强度变化"
+                content = f"全局注意力{direction}: {prev_attention:.2f} → {global_attention:.2f}"
+                payload = {
+                    "old_attention": prev_attention,
+                    "new_attention": global_attention,
+                    "delta": delta,
+                    "activity": actual_activity,
+                }
+                score = min(1.0, abs(delta))
+                self._emit_attention_event(
+                    event_type="global_attention_shift",
+                    title=title,
+                    content=content,
+                    score=score,
+                    payload=payload,
+                    market_time=self.current_market_time_str,
+                )
+
+        # 市场状态变化事件
+        if prev_state != "unknown" and prev_state != self.current_market_state:
+            title = "市场注意力状态切换"
+            content = f"市场状态由 {prev_state} 切换为 {self.current_market_state}"
+            payload = {
+                "old_state": prev_state,
+                "new_state": self.current_market_state,
+                "description": self.current_market_state_description,
+                "global_attention": global_attention,
+                "activity": actual_activity,
+            }
+            self._emit_attention_event(
+                event_type="market_state_shift",
+                title=title,
+                content=content,
+                score=min(1.0, max(global_attention, actual_activity)),
+                payload=payload,
+                market_time=self.current_market_time_str,
+            )
 
     def _update_market_state(self, global_attention: float, activity: float,
                              sector_weights: Dict[str, float],
@@ -352,6 +544,25 @@ class AttentionHistoryTracker:
             # 中阈值: 5%
             if abs(change_pct) >= 5 or (old_weight == 0 and new_weight > 0) or (old_weight > 0 and new_weight == 0):
                 self.sector_hotspot_events_medium.append(event)
+                score = min(1.0, abs(change_pct) / 100.0) if change_pct != float('inf') else 1.0
+                payload = {
+                    "sector_id": sector_id,
+                    "sector_name": sector_name,
+                    "old_weight": old_weight,
+                    "new_weight": new_weight,
+                    "change_percent": change_pct if change_pct != float('inf') else 999,
+                    "event_type": event_type,
+                    "top_symbols": top_symbols,
+                }
+                self._emit_attention_event(
+                    event_type="sector_hotspot",
+                    title=f"板块热点变化: {sector_name}",
+                    content=description,
+                    score=score,
+                    payload=payload,
+                    sector=sector_id,
+                    market_time=time_display,
+                )
 
             # 高阈值: 10%
             if abs(change_pct) >= 10 or (old_weight == 0 and new_weight > 0) or (old_weight > 0 and new_weight == 0):
@@ -429,6 +640,29 @@ class AttentionHistoryTracker:
                     sector=sector
                 )
                 self.changes.append(change)
+                score = min(1.0, abs(change.change_percent) / 100.0)
+                payload = {
+                    "symbol": symbol,
+                    "symbol_name": symbol_name,
+                    "old_weight": old_weight,
+                    "new_weight": new_weight,
+                    "change_percent": change.change_percent,
+                    "price": price,
+                    "price_change": change_val,
+                    "volume": volume,
+                    "sector": sector,
+                    "change_type": change.change_type,
+                }
+                self._emit_attention_event(
+                    event_type="symbol_attention_change",
+                    title=f"个股注意力变化: {symbol} {symbol_name}",
+                    content=description,
+                    score=score,
+                    payload=payload,
+                    symbol=symbol,
+                    sector=sector,
+                    market_time=time_display,
+                )
 
                 log.debug(f"[{time_display}] {emoji} {description}")
                 if price > 0 and change_val != 0:

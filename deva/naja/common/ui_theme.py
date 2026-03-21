@@ -17,11 +17,12 @@ from .ui_style import apply_strategy_like_styles, render_stats_cards, render_emp
 def get_nav_menu_items() -> List[Dict[str, str]]:
     """获取导航菜单项配置
     
-    菜单顺序：首页 -> 记忆 -> 雷达 -> 信号流 -> 数据源 -> 任务 -> 策略 -> LLM -> Bandit -> 注意力 -> 字典 -> 数据表 -> 性能 -> 配置
+    菜单顺序：首页 -> 记忆 -> 洞察 -> 雷达 -> 信号流 -> 数据源 -> 任务 -> 策略 -> LLM -> Bandit -> 注意力 -> 字典 -> 数据表 -> 性能 -> 配置
     """
     return [
         {"name": "🏠 首页", "path": "/"},
         {"name": "🧠 记忆", "path": "/memory"},
+        {"name": "💡 洞察", "path": "/insight"},
         {"name": "📡 雷达", "path": "/radaradmin"},
         {"name": "💰 信号流", "path": "/signaladmin"},
         {"name": "🗃️ 数据源", "path": "/dsadmin"},

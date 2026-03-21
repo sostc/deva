@@ -21,6 +21,18 @@ except Exception:
     _RIVER_AVAILABLE = False
 
 
+def _clamp_event_score(score: Any) -> float:
+    try:
+        value = abs(float(score))
+    except Exception:
+        return 0.5
+    if value <= 1.0:
+        return value
+    if value <= 100.0:
+        return min(1.0, value / 100.0)
+    return min(1.0, value / 5.0)
+
+
 RADAR_EVENTS_TABLE = "naja_radar_events"
 
 
@@ -104,7 +116,34 @@ class RadarEngine:
 
         for event in events:
             self._store_event(event)
+        self._emit_events_to_memory(events)
         return events
+
+    def ingest_attention_event(
+        self,
+        *,
+        event_type: str,
+        score: float,
+        message: str,
+        payload: Optional[Dict[str, Any]] = None,
+        signal_type: str = "attention",
+        strategy_id: str = "attention_system",
+        strategy_name: str = "Attention System",
+        ts: Optional[float] = None,
+    ) -> RadarEvent:
+        event = self._build_event_from_fields(
+            event_type=event_type,
+            score=score,
+            signal_type=signal_type,
+            message=message,
+            payload=payload or {},
+            strategy_id=strategy_id,
+            strategy_name=strategy_name,
+            ts=ts,
+        )
+        self._store_event(event)
+        self._emit_events_to_memory([event])
+        return event
 
     def get_recent_events(self, limit: int = 20) -> List[dict]:
         try:
@@ -323,12 +362,93 @@ class RadarEngine:
             payload=payload or {},
         )
 
+    def _build_event_from_fields(
+        self,
+        *,
+        event_type: str,
+        score: float,
+        signal_type: str,
+        message: str,
+        payload: Dict[str, Any],
+        strategy_id: str,
+        strategy_name: str,
+        ts: Optional[float] = None,
+    ) -> RadarEvent:
+        return RadarEvent(
+            id=f"radar_{uuid.uuid4().hex[:12]}",
+            ts=time.time() if ts is None else float(ts),
+            event_type=event_type,
+            score=score,
+            strategy_id=strategy_id,
+            strategy_name=strategy_name,
+            signal_type=str(signal_type or ""),
+            message=message,
+            payload=payload or {},
+        )
+
     def _store_event(self, event: RadarEvent) -> None:
         try:
             key = f"{int(event.ts * 1000)}_{event.id}"
             self._db[key] = event.to_dict()
         except Exception:
             return
+
+    def _emit_events_to_memory(self, events: List[RadarEvent]) -> None:
+        if not events:
+            return
+        try:
+            from ..memory import get_memory_engine
+        except Exception:
+            return
+
+        try:
+            memory = get_memory_engine()
+        except Exception:
+            return
+
+        for event in events:
+            record = {
+                "timestamp": event.ts,
+                "source": f"radar:{event.strategy_name}",
+                "title": f"雷达事件: {event.event_type}",
+                "content": event.message,
+                "signal_type": event.signal_type,
+                "score": event.score,
+                "event_type": event.event_type,
+                "strategy_id": event.strategy_id,
+                "strategy_name": event.strategy_name,
+                "payload": event.payload,
+                "importance": "high",
+            }
+            try:
+                memory.process_record(record)
+            except Exception:
+                continue
+
+        # 同步到洞察池（表达层）
+        try:
+            from ..insight import get_insight_pool
+        except Exception:
+            return
+
+        try:
+            pool = get_insight_pool()
+        except Exception:
+            return
+
+        for event in events:
+            pool.ingest_attention_event(
+                {
+                    "theme": f"雷达{event.event_type}",
+                    "title": f"雷达事件: {event.event_type}",
+                    "content": event.message,
+                    "score": _clamp_event_score(event.score),
+                    "signal_type": event.signal_type or "radar",
+                    "payload": event.payload,
+                    "confidence": 0.6,
+                    "actionability": 0.4,
+                }
+            )
 
     def _start_cleanup_thread(self) -> None:
         if self._cleanup_thread is not None and self._cleanup_thread.is_alive():

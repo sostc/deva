@@ -1225,6 +1225,36 @@ class NewsRadarStrategy:
                 if e.attention_score >= self.attention_threshold
             ][-5:],
         }
+
+    def get_attention_hints(self, lookback: int = 200) -> Dict[str, Any]:
+        """
+        从记忆中提取可用于注意力系统的提示。
+
+        返回:
+            {
+                "symbols": set[str],
+                "sectors": set[str],
+            }
+        """
+        symbols = set()
+        sectors = set()
+
+        recent_events = list(self.short_memory)[-max(1, int(lookback)):]
+        for event in recent_events:
+            meta = getattr(event, "meta", {}) or {}
+            for key in ("symbol", "code", "ticker", "stock"):
+                val = meta.get(key)
+                if val:
+                    symbols.add(str(val))
+            for key in ("sector", "industry", "sector_id"):
+                val = meta.get(key)
+                if val:
+                    sectors.add(str(val))
+
+        return {
+            "symbols": symbols,
+            "sectors": sectors,
+        }
     
     def _get_short_term_memory_data(self) -> List[Dict]:
         """获取短期记忆数据（最近10条）"""
