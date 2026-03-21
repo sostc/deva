@@ -20,6 +20,8 @@ import hashlib
 import threading
 import os
 
+from .narrative_tracker import NarrativeTracker
+
 # River流式学习库
 try:
     from river import cluster
@@ -218,6 +220,23 @@ class NewsEvent:
 
 STOCK_RELEVANT_PREFIXES = ["[新闻]", "[行情]", "[财经]"]
 STOCK_RELEVANT_SOURCES = ["news", "tick", "jin10", "财经", "新闻", "金十", "行情"]
+
+
+def _get_market_activity() -> float:
+    """
+    获取当前市场活跃度 (0.0 ~ 1.0)
+    
+    从 AttentionOrchestrator 获取 GlobalAttentionEngine 的 activity 值
+    如果获取失败，返回 0.5（默认值）
+    """
+    try:
+        from deva.naja.attention_orchestrator import AttentionOrchestrator
+        orchestrator = AttentionOrchestrator()
+        if hasattr(orchestrator, '_integration') and orchestrator._integration.attention_system:
+            return orchestrator._integration.attention_system._last_activity
+    except Exception:
+        pass
+    return 0.5  # 默认值
 
 def _is_stock_relevant_topic(topic: "Topic") -> bool:
     """判断主题是否与股票相关"""
@@ -769,6 +788,42 @@ class NewsRadarStrategy:
 
         # 频率控制
         self._rate_buckets: Dict[str, deque] = {}
+
+        # 叙事追踪器
+        self.narrative_tracker = NarrativeTracker(self.config)
+        self.narrative_events: deque = deque(maxlen=200)
+        
+        # 缓存的市场活跃度（避免频繁查询）
+        self._cached_market_activity: float = 0.5
+        self._last_activity_update: float = 0.0
+        self._activity_cache_ttl: float = 5.0  # 5秒缓存
+    
+    def _get_dynamic_mid_memory_threshold(self) -> float:
+        """
+        获取动态中期记忆阈值
+        
+        根据市场活跃度动态调整阈值：
+        - 市场活跃时（activity > 0.6）：提高阈值，减少噪音
+        - 市场平淡时（activity < 0.3）：降低阈值，保留更多信号
+        - 市场温和时：使用默认值
+        """
+        now = time.time()
+        
+        # 每5秒更新一次缓存的市场活跃度
+        if now - self._last_activity_update > self._activity_cache_ttl:
+            self._cached_market_activity = _get_market_activity()
+            self._last_activity_update = now
+        
+        activity = self._cached_market_activity
+        
+        base_threshold = self.mid_memory_threshold
+        
+        if activity > 0.6:
+            return min(0.85, base_threshold + 0.15)
+        elif activity < 0.3:
+            return max(0.5, base_threshold - 0.2)
+        else:
+            return base_threshold
     
     def process_record(self, record: Dict) -> List[Dict]:
         """
@@ -817,13 +872,17 @@ class NewsRadarStrategy:
         # 4. 主题聚类
         topic_id = self._assign_topic(event)
         event.topic_id = topic_id
-        
+
+        # 4.5 叙事追踪（避免对叙事/雷达/注意力事件重复触发）
+        narrative_signals = self._process_narratives(event)
+
         # 5. 存入短期记忆
         self.short_memory.append(event)
         self.stats["total_events"] += 1
         
-        # 6. 归档到中期记忆（高注意力事件）
-        if event.attention_score >= self.mid_memory_threshold:
+        # 6. 归档到中期记忆（高注意力事件，使用动态阈值）
+        dynamic_threshold = self._get_dynamic_mid_memory_threshold()
+        if event.attention_score >= dynamic_threshold:
             self.mid_memory.append({
                 "id": event.id,
                 "timestamp": event.timestamp,
@@ -844,6 +903,7 @@ class NewsRadarStrategy:
         if self.drift_detector and event.vector:
             signals.extend(self._check_drift(event))
         
+        signals.extend(narrative_signals)
         return signals
     
     def process_batch(self, records: List[Dict]) -> List[Dict]:
@@ -907,13 +967,16 @@ class NewsRadarStrategy:
             # 主题聚类
             topic_id = self._assign_topic(event)
             event.topic_id = topic_id
+
+            narrative_signals = self._process_narratives(event)
             
             # 存入短期记忆
             self.short_memory.append(event)
             self.stats["total_events"] += 1
             
-            # 归档到中期记忆
-            if event.attention_score >= self.mid_memory_threshold:
+            # 归档到中期记忆（使用动态阈值）
+            dynamic_threshold = self._get_dynamic_mid_memory_threshold()
+            if event.attention_score >= dynamic_threshold:
                 self.mid_memory.append({
                     "id": event.id,
                     "timestamp": event.timestamp,
@@ -926,6 +989,7 @@ class NewsRadarStrategy:
             
             # 生成信号
             all_signals.extend(self._generate_signals_for_event(event, topic_id))
+            all_signals.extend(narrative_signals)
             
             # 漂移检测
             if self.drift_detector and event.vector:
@@ -942,16 +1006,36 @@ class NewsRadarStrategy:
         return all_signals
 
     def _should_ingest_event(self, event: NewsEvent) -> bool:
-        """根据频率与注意力门控决定是否纳入记忆"""
-        # 注意力/雷达事件直接放行
+        """
+        根据频率与注意力门控决定是否纳入记忆
+        
+        改进版：增加价值驱动豁免逻辑，确保高价值事件不被过滤
+        """
+        # ========== 价值驱动豁免逻辑 ==========
+        
+        # 1. 注意力/雷达事件直接放行
         if event.source.startswith("attention:") or event.source.startswith("radar:"):
             return True
 
-        # 高重要性直接放行
+        # 2. 高重要性直接放行
         importance = str(event.meta.get("importance", "")).lower()
         if importance == "high":
             return True
 
+        # 3. 首次出现的话题（新主题）直接放行
+        if self._is_first_appearance_topic(event):
+            return True
+
+        # 4. 重大关键词触发（政策、突发、革命性变化）直接放行
+        if self._has_critical_keywords(event):
+            return True
+
+        # 5. 新数据源类型首次出现直接放行
+        if self._is_new_event_type(event):
+            return True
+        
+        # ========== 频率/评分门控逻辑 ==========
+        
         # 计算当前频率
         bucket = self._rate_buckets.setdefault(event.event_type, deque())
         now_ts = time.time()
@@ -971,6 +1055,46 @@ class NewsRadarStrategy:
             return True
 
         return False
+    
+    def _is_first_appearance_topic(self, event: NewsEvent) -> bool:
+        """检测是否是首次出现的话题（新话题萌芽期）"""
+        if not self.topics:
+            return True
+        
+        if event.vector is None:
+            return False
+        
+        for topic in self.topics.values():
+            if topic.event_count <= 2:
+                sim = self._cosine_similarity(event.vector, topic.center)
+                if sim > self.topic_threshold * 0.8:
+                    return False
+        
+        return True
+    
+    def _has_critical_keywords(self, event: NewsEvent) -> bool:
+        """检测是否包含重大关键词（政策、突发等）"""
+        CRITICAL_KEYWORDS = [
+            "政策", "监管", "改革", "革命", "突破", "重大", "紧急", "突发",
+            "制裁", "禁止", "限制", "放开", "降准", "加息", "缩表",
+            "战争", "灾难", "黑天鹅", "灰犀牛",
+            "OpenAI", "英伟达", "ChatGPT", "AI", "人工智能",
+        ]
+        
+        content_lower = event.content.lower()
+        for kw in CRITICAL_KEYWORDS:
+            if kw in event.content or kw.lower() in content_lower:
+                return True
+        
+        return False
+    
+    def _is_new_event_type(self, event: NewsEvent) -> bool:
+        """检测是否是新的事件类型（数据源的首条消息）"""
+        seen_types = set()
+        for e in self.short_memory:
+            seen_types.add((e.source, e.event_type))
+        
+        return (event.source, event.event_type) not in seen_types
     
     def _generate_signals_for_event(self, event: NewsEvent, topic_id: Optional[int]) -> List[Dict]:
         """为单个事件生成信号"""
@@ -1025,6 +1149,49 @@ class NewsRadarStrategy:
                 ))
                 self.stats["drifts_detected"] += 1
         return signals
+
+    def _process_narratives(self, event: NewsEvent) -> List[Dict]:
+        """叙事追踪与事件桥接"""
+        if not self.narrative_tracker or not self.narrative_tracker.enabled:
+            return []
+        if event.source.startswith(("narrative:", "radar:", "attention:")):
+            return []
+        narrative_events = self.narrative_tracker.ingest_event(event)
+        if narrative_events:
+            self.narrative_events.extend(narrative_events)
+            self._emit_narrative_events(narrative_events)
+        return narrative_events
+
+    def _emit_narrative_events(self, events: List[Dict[str, Any]]) -> None:
+        try:
+            from ..radar import get_radar_engine
+        except Exception:
+            return
+        try:
+            radar = get_radar_engine()
+        except Exception:
+            return
+        for event in events:
+            event_type = str(event.get("event_type", "narrative_event"))
+            narrative = str(event.get("narrative", "unknown"))
+            stage = str(event.get("stage", ""))
+            score = float(event.get("attention_score", 0.0) or 0.0)
+            message = (
+                f"叙事{narrative}进入{stage}"
+                if event_type == "narrative_stage_change"
+                else f"叙事{narrative}注意力飙升"
+            )
+            payload = dict(event)
+            payload["signal_type"] = "narrative"
+            radar.ingest_attention_event(
+                event_type=event_type,
+                score=score,
+                message=message,
+                payload=payload,
+                signal_type="narrative",
+                strategy_id="narrative_tracker",
+                strategy_name="Narrative Tracker",
+            )
     
     def process_window(self, records: List[Dict]) -> List[Dict]:
         """
@@ -1365,6 +1532,11 @@ class NewsRadarStrategy:
                 if e.attention_score >= self.attention_threshold
             ][-5:],
             "user_focus": self._get_user_focus_events(limit=8),
+            "narratives": {
+                "summary": self.narrative_tracker.get_summary(limit=10) if self.narrative_tracker else [],
+                "graph": self.narrative_tracker.get_graph() if self.narrative_tracker else {"nodes": [], "edges": []},
+                "events": list(self.narrative_events)[-10:],
+            },
         }
 
     def _get_user_focus_events(self, limit: int = 8) -> List[Dict[str, Any]]:
@@ -1424,32 +1596,57 @@ class NewsRadarStrategy:
 
     def get_attention_hints(self, lookback: int = 200) -> Dict[str, Any]:
         """
-        从记忆中提取可用于注意力系统的提示。
+        从记忆中提取可用于注意力系统的提示（带权重版）。
 
         返回:
             {
-                "symbols": set[str],
-                "sectors": set[str],
+                "symbols": {"SYMBOL": weight, ...},  # 权重 = 平均注意力 * 频率归一化
+                "sectors": {"SECTOR": weight, ...},
             }
         """
-        symbols = set()
-        sectors = set()
+        symbol_scores: Dict[str, List[float]] = {}
+        sector_scores: Dict[str, List[float]] = {}
 
         recent_events = list(self.short_memory)[-max(1, int(lookback)):]
         for event in recent_events:
             meta = getattr(event, "meta", {}) or {}
+            attention = getattr(event, "attention_score", 0.5)
+
             for key in ("symbol", "code", "ticker", "stock"):
                 val = meta.get(key)
                 if val:
-                    symbols.add(str(val))
+                    symbol = str(val)
+                    if symbol not in symbol_scores:
+                        symbol_scores[symbol] = []
+                    symbol_scores[symbol].append(attention)
+
             for key in ("sector", "industry", "sector_id"):
                 val = meta.get(key)
                 if val:
-                    sectors.add(str(val))
+                    sector = str(val)
+                    if sector not in sector_scores:
+                        sector_scores[sector] = []
+                    sector_scores[sector].append(attention)
+
+        def compute_weight(scores: List[float]) -> float:
+            if not scores:
+                return 0.0
+            avg_attention = sum(scores) / len(scores)
+            frequency_factor = min(1.0, len(scores) / 10.0)
+            return avg_attention * 0.7 + frequency_factor * 0.3
+
+        symbols_weighted = {
+            sym: compute_weight(scores)
+            for sym, scores in symbol_scores.items()
+        }
+        sectors_weighted = {
+            sec: compute_weight(scores)
+            for sec, scores in sector_scores.items()
+        }
 
         return {
-            "symbols": symbols,
-            "sectors": sectors,
+            "symbols": symbols_weighted,
+            "sectors": sectors_weighted,
         }
     
     def _get_short_term_memory_data(self) -> List[Dict]:
