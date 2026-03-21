@@ -326,6 +326,14 @@ async def radaradmin():
     return await render_radar_admin(ctx)
 
 
+async def insightadmin():
+    """洞察中心 - 用户注意力输出"""
+    from .insight.ui import render_insight_page
+    ctx = _ctx()
+    await ctx["init_naja_ui"]("洞察中心")
+    return await render_insight_page(ctx)
+
+
 async def llmadmin():
     """LLM 调节"""
     from .llm_controller.ui import render_llm_admin
@@ -413,6 +421,7 @@ def create_handlers(cdn: str = None):
     return [
         (r'/', webio_handler(main, cdn=cdn_url)),
         (r'/memory', webio_handler(memory_page, cdn=cdn_url)),
+        (r'/insight', webio_handler(insightadmin, cdn=cdn_url)),
         (r'/performance', webio_handler(performance_page, cdn=cdn_url)),
         (r'/signaladmin', webio_handler(signaladmin, cdn=cdn_url)),
         (r'/dsadmin', webio_handler(dsadmin, cdn=cdn_url)),
