@@ -736,15 +736,15 @@ class AttentionOrchestrator:
         return self._integration.attention_system.weight_pool.get_all_weights()
 
     def _apply_memory_hints(self, data: pd.DataFrame) -> None:
-        """将记忆系统中的热点提示合并到注意力上下文（带权重版）"""
+        """将洞察系统中的热点提示合并到注意力上下文（带权重版）"""
         try:
-            from .memory import get_memory_engine
+            from .insight import get_insight_engine
         except Exception:
             return
 
         try:
-            memory = get_memory_engine()
-            hints = memory.get_attention_hints(lookback=200)
+            insight = get_insight_engine()
+            hints = insight.get_attention_hints(lookback=200)
         except Exception:
             return
 
