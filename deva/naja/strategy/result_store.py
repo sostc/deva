@@ -447,6 +447,14 @@ class ResultStore:
             signal_stream.update(result)
         except Exception as e:
             pass
+        
+        # 发送到洞察池（用户注意力输出）
+        try:
+            from ..insight import get_insight_pool
+            pool = get_insight_pool()
+            pool.ingest_result(result)
+        except Exception:
+            pass
 
         # 检查输出配置
         try:
