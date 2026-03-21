@@ -165,20 +165,15 @@ class GPT:
         try:
             if isinstance(prompts, str):
                 prompts = [prompts]
-                
+
             messages = [{"role": "user", "content": prompt} for prompt in prompts]
-            
-            from .worker_runtime import _is_in_async_context
-            if _is_in_async_context():
-                import asyncio
-                loop = asyncio.get_event_loop()
-                response = loop.run_until_complete(
-                    run_ai_in_worker(self._chat_create(messages=messages, stream=False, max_tokens=8000))
-                )
-            else:
-                response = run_sync_in_worker(
-                    self._chat_create(messages=messages, stream=False, max_tokens=8000)
-                )
+
+            import warnings
+            warnings.filterwarnings("ignore", message="run_sync_in_worker.*async context", category=RuntimeWarning)
+            from .worker_runtime import run_sync_in_worker
+            response = run_sync_in_worker(
+                self._chat_create(messages=messages, stream=False, max_tokens=8000)
+            )
             {"level": "DEBUG", "source": "deva.llm", "message": "sync query response received"} >> debug
             
             # 检查响应是否有效

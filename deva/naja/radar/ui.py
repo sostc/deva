@@ -1,12 +1,14 @@
 """Radar UI."""
 
 from datetime import datetime
+from typing import List
 
 from pywebio.output import put_html, put_table, use_scope, set_scope, put_collapse
 
 from ..common.ui_style import apply_strategy_like_styles, render_empty_state
 from ..page_help import render_help_collapse
 from .engine import get_radar_engine
+from ..config import get_radar_config
 
 
 def _fmt_ts(ts: float) -> str:
@@ -55,6 +57,12 @@ def _render_event_type_badge(event_type: str) -> str:
         "pattern": {"icon": "📊", "color": "#2563eb", "bg": "rgba(37,99,235,0.1)", "label": "模式"},
         "drift": {"icon": "📉", "color": "#d97706", "bg": "rgba(217,119,6,0.1)", "label": "漂移"},
         "anomaly": {"icon": "⚡", "color": "#dc2626", "bg": "rgba(220,38,38,0.1)", "label": "异常"},
+        "sector_hotspot": {"icon": "🔥", "color": "#ef4444", "bg": "rgba(239,68,68,0.1)", "label": "板块热点"},
+        "symbol_attention_change": {"icon": "🎯", "color": "#0f766e", "bg": "rgba(15,118,110,0.1)", "label": "个股注意力"},
+        "global_attention_shift": {"icon": "🌊", "color": "#0ea5e9", "bg": "rgba(14,165,233,0.1)", "label": "全局注意力"},
+        "market_state_shift": {"icon": "🧭", "color": "#7c3aed", "bg": "rgba(124,58,237,0.1)", "label": "市场状态"},
+        "market_activity_shift": {"icon": "🔥", "color": "#f97316", "bg": "rgba(249,115,22,0.1)", "label": "活跃度突变"},
+        "sector_concentration_shift": {"icon": "🎯", "color": "#22c55e", "bg": "rgba(34,197,94,0.1)", "label": "集中度突变"},
     }
     info = badges.get(event_type, {"icon": "❓", "color": "#6b7280", "bg": "rgba(107,114,128,0.1)", "label": event_type})
     return f'''<span style="display:inline-flex;align-items:center;gap:3px;padding:3px 8px;border-radius:4px;font-size:12px;font-weight:500;background:{info['bg']};color:{info['color']};">
@@ -89,6 +97,29 @@ def _render_radar_help():
     return render_help_collapse("radar")
 
 
+def _get_user_focus_events(events: List[dict], limit: int = 6) -> List[dict]:
+    """基于双注意力筛选用户关注事件"""
+    scored = []
+    for e in events:
+        payload = e.get("payload", {}) or {}
+        user_score = payload.get("user_score")
+        if user_score is None:
+            # fallback 估算
+            score = float(e.get("score", 0))
+            confidence = float(payload.get("confidence", 0.5))
+            actionability = 0.4 if payload.get("signal_type") else 0.3
+            novelty = 0.5
+            user_score = 0.4 * score + 0.2 * confidence + 0.2 * actionability + 0.2 * novelty
+        scored.append(
+            {
+                "title": e.get("message", e.get("event_type", "radar")),
+                "summary": e.get("message", ""),
+                "user_score": float(user_score),
+            }
+        )
+    scored.sort(key=lambda x: x["user_score"], reverse=True)
+    return scored[: max(1, int(limit))]
+
 async def render_radar_admin(ctx: dict):
     set_scope("radar_content")
     apply_strategy_like_styles(ctx, scope="radar_content", include_compact_table=True)
@@ -98,9 +129,23 @@ async def render_radar_admin(ctx: dict):
     if experiment_banner:
         ctx["put_html"](experiment_banner, scope="radar_content")
 
+    cfg = get_radar_config()
+    if cfg.get("macro_only", True):
+        ctx["put_html"](
+            """
+            <div style="margin-bottom:12px;padding:10px 12px;border-radius:8px;
+                        background:linear-gradient(135deg,#ecfeff,#cffafe);
+                        border:1px solid #67e8f9;color:#0e7490;font-size:12px;">
+                📡 雷达模式：宏观市场监控（聚焦市场活跃度/板块切换/趋势变化）
+            </div>
+            """,
+            scope="radar_content",
+        )
+
     radar = get_radar_engine()
     summary = radar.summarize(window_seconds=600)
     events = summary.get("events", []) or []
+    top_user_events = _get_user_focus_events(events)
 
     ctx["put_html"](
         f"""
@@ -121,6 +166,40 @@ async def render_radar_admin(ctx: dict):
         """,
         scope="radar_content",
     )
+
+    # 用户重点雷达事件
+    ctx["put_html"](
+        """
+        <div style="margin-bottom:16px;background:#fff;border-radius:12px;padding:14px 16px;
+                    box-shadow:0 2px 10px rgba(0,0,0,0.06);border:1px solid #e2e8f0;">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+                <div style="font-size:14px;font-weight:600;color:#0f172a;">🎯 用户关注雷达</div>
+            </div>
+        """,
+        scope="radar_content",
+    )
+    if not top_user_events:
+        ctx["put_html"]('<div style="color:#94a3b8;font-size:12px;">暂无重点事件</div></div>', scope="radar_content")
+    else:
+        ctx["put_html"]('<div style="display:grid;grid-template-columns:repeat(2,1fr);gap:10px;">', scope="radar_content")
+        for item in top_user_events:
+            title = item.get("title", "-")
+            summary_text = item.get("summary", "")
+            score = float(item.get("user_score", 0))
+            ctx["put_html"](
+                f"""
+                <div style="background:#f8fafc;border-radius:10px;padding:10px 12px;border-left:4px solid #0ea5e9;">
+                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
+                        <div style="font-size:12px;font-weight:600;color:#0f172a;">{title}</div>
+                        <div style="font-size:12px;color:#0284c7;font-weight:600;">{score:.2f}</div>
+                    </div>
+                    <div style="font-size:11px;color:#475569;">{summary_text[:60]}</div>
+                </div>
+                """,
+                scope="radar_content",
+            )
+        ctx["put_html"]("</div></div>", scope="radar_content")
+
 
     _render_radar_help()
 

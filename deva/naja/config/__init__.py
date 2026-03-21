@@ -85,10 +85,16 @@ DEFAULT_CONFIG = {
         "auto_save_enabled": True,
         "auto_save_interval": 300,
         "auto_load_on_start": True,
+        "attention_filter_enabled": True,
+        "attention_gate_base": 0.35,
+        "target_rate_per_min": 30,
+        "rate_window_seconds": 300,
+        "max_batch_keep": 80,
     },
     "radar": {
         "event_retention_days": 7,
         "cleanup_interval_seconds": 600,
+        "macro_only": True,
     },
     "llm": {
         "model_type": "kimi",

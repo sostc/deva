@@ -86,6 +86,8 @@ class AutoTuner:
         self._llm_queue: deque = deque(maxlen=100)
         self._last_llm_call_ts = 0
         self._llm_cooldown = 300
+        # 待处理的 LLM 调优请求（合并用）
+        self._pending_llm_issues: List[Dict] = []
         self._register_all_conditions()
         self._initialized = True
 
@@ -323,7 +325,10 @@ class AutoTuner:
                     })
 
             if delayed:
-                log.info(f"[AutoTuner] 发现 {len(delayed)} 个延迟数据源，需要 LLM 分析")
+                details = ", ".join([f"{d['name']}({d['delay_ms']:.0f}ms)" for d in delayed[:3]])
+                if len(delayed) > 3:
+                    details += f" 等{len(delayed)}个"
+                log.info(f"[AutoTuner] 发现 {len(delayed)} 个延迟数据源，需要 LLM 分析: {details}")
                 return {
                     'param': 'datasource_delay',
                     'current': len(delayed),
@@ -409,7 +414,10 @@ class AutoTuner:
                     })
 
             if adjusted:
-                log.info(f"[AutoTuner] 自动调整 {len(adjusted)} 个数据源的执行间隔")
+                details = ", ".join([f"{d['name']}({d['old_interval']:.0f}s→{d['new_interval']:.0f}s)" for d in adjusted[:3]])
+                if len(adjusted) > 3:
+                    details += f" 等{len(adjusted)}个"
+                log.info(f"[AutoTuner] 自动调整 {len(adjusted)} 个数据源的执行间隔: {details}")
                 return {
                     'param': 'datasource_error_rate',
                     'current': len(adjusted),
@@ -477,6 +485,67 @@ class AutoTuner:
         self._llm_thread = threading.Thread(target=_async_llm, daemon=True)
         self._llm_thread.start()
 
+    def _call_llm_for_tuning_batch(self, issues: List[Dict]):
+        """批量调用 LLM 进行调优（合并多个问题一次提交）"""
+        now = time.time()
+
+        # 合并待处理的请求和新请求
+        if self._pending_llm_issues:
+            issues = self._pending_llm_issues + issues
+            self._pending_llm_issues.clear()
+            log.info(f"[AutoTuner] 合并 {len(issues)} 个待处理请求一起提交")
+
+        if now - self._last_llm_call_ts < self._llm_cooldown:
+            log.info(f"[AutoTuner] LLM 调用冷却中 ({self._llm_cooldown}秒)，{len(issues)} 个请求暂缓")
+            for issue in issues:
+                self._pending_llm_issues.append(issue)
+            return
+
+        self._last_llm_call_ts = now
+
+        if self._llm_thread and self._llm_thread.is_alive():
+            log.info("[AutoTuner] LLM 线程忙碌中，将在下个周期重试")
+            for issue in issues:
+                self._pending_llm_issues.append(issue)
+            return
+
+        def _async_llm_batch():
+            try:
+                from deva.naja.llm_controller import get_llm_controller
+                controller = get_llm_controller()
+
+                params = ", ".join([f"{i.get('param', 'unknown')}({i.get('reason', '')[:30]})" for i in issues[:5]])
+                if len(issues) > 5:
+                    params += f" 等{len(issues)}项"
+                log.info(f"[AutoTuner] 批量调用 LLM 调优 ({len(issues)} 项): {params}")
+
+                result = controller.review_and_adjust(
+                    window_seconds=600,
+                    dry_run=False
+                )
+
+                if result.get('success'):
+                    decision = result.get('decision', {})
+                    log.info(f"[AutoTuner] LLM 批量调优完成: {decision.get('reasoning', '已完成')[:100]}")
+                    for issue in issues:
+                        issue['llm_suggestion'] = decision.get('reasoning', 'LLM 已完成分析')
+                        issue['llm_action'] = decision.get('action', '无需操作')
+                        issue['llm_success'] = True
+                else:
+                    log.warning(f"[AutoTuner] LLM 批量调优失败: {result.get('error')}")
+                    for issue in issues:
+                        issue['llm_suggestion'] = f"调优失败: {result.get('error')}"
+                        issue['llm_success'] = False
+
+            except Exception as e:
+                log.error(f"[AutoTuner] LLM 批量调优调用失败: {e}")
+                for issue in issues:
+                    issue['llm_suggestion'] = f"调用失败: {str(e)}"
+                    issue['llm_success'] = False
+
+        self._llm_thread = threading.Thread(target=_async_llm_batch, daemon=True)
+        self._llm_thread.start()
+
     def start(self):
         if self._running:
             return
@@ -510,13 +579,38 @@ class AutoTuner:
             self._check_cache_hit_rate,
         ]
 
+        # 先收集所有检测结果
+        all_issues = []
         for method in check_methods:
             try:
                 result = method()
                 if result:
-                    self._handle_issue(result)
+                    all_issues.append(result)
             except Exception as e:
                 log.error(f"调优检查失败: {method.__name__}, {e}")
+
+        # 分类处理：自动执行的立即执行，需要 LLM 的收集起来
+        llm_issues = []
+        for issue in all_issues:
+            action = issue.get('action', 'adjust')
+            param = issue.get('param', 'unknown')
+
+            condition = self._conditions.get(param)
+            if condition:
+                state = self._condition_states.get(param)
+                if state:
+                    state.trigger_count += 1
+                    state.last_trigger_ts = time.time()
+
+            if action == 'call_llm':
+                llm_issues.append(issue)
+                self._record_event(issue, triggered_by_llm=True)
+            else:
+                self._record_event(issue, triggered_by_llm=False)
+
+        # 合并所有 LLM 请求，一次性调用
+        if llm_issues:
+            self._call_llm_for_tuning_batch(llm_issues)
 
     def _handle_issue(self, issue: Dict):
         """处理检测到的问题"""
@@ -594,7 +688,7 @@ class AutoTuner:
 
         self._record_event(issue, triggered_by_llm=True)
 
-        self._call_llm_for_tuning(issue)
+        self._call_llm_for_tuning_batch([issue])
 
         return {
             'success': True,

@@ -76,6 +76,10 @@ class AttentionOrchestrator:
         self._cached_active_sectors: Set[str] = set()
         self._cached_global_attention = 0.5
         self._cached_activity = 0.5  # 市场活跃度
+
+        # 板块ID映射（支持 sector/industry 文本）
+        self._sector_id_map: Dict[str, int] = {}
+        self._next_sector_id = 1
         
         # 统计
         self._processed_frames = 0
@@ -163,9 +167,13 @@ class AttentionOrchestrator:
                 queue_size = len(pytorch._pending_queue)
                 
                 if queue_size > 0:
-                    # 只在队列较大时打印日志，避免频繁输出
-                    if queue_size >= 100:
+                    # 只在队列较大且间隔较长时打印日志
+                    current_time = time.time()
+                    if not hasattr(self, '_last_queue_log_time'):
+                        self._last_queue_log_time = 0
+                    if queue_size >= 500 and current_time - self._last_queue_log_time >= 60:
                         log.info(f"[PyTorchProcessor] 队列中有 {queue_size} 个待处理信号，开始处理...")
+                        self._last_queue_log_time = current_time
                     
                     # 运行异步处理
                     try:
@@ -384,6 +392,7 @@ class AttentionOrchestrator:
             
             # 提取必要字段
             symbols = data.index.values if 'code' not in data.columns else data['code'].values
+            sector_ids = self._extract_sector_ids(data)
 
             # 计算涨跌幅，添加数值保护
             if 'p_change' in data.columns:
@@ -434,14 +443,20 @@ class AttentionOrchestrator:
                 returns=returns,
                 volumes=volumes,
                 prices=prices,
-                sector_ids=np.zeros(len(symbols)),  # 简化处理
+                sector_ids=sector_ids,
                 timestamp=market_time
             )
             
             # 更新缓存
             control = self._integration.get_datasource_control()
             self._cached_high_attention_symbols = set(control.get('high_freq_symbols', []))
-            self._cached_active_sectors = set(self._integration.get_active_sectors(threshold=0.3))
+            active_ids = set(str(s) for s in self._integration.get_active_sectors(threshold=0.3))
+            self._cached_active_sectors = set(active_ids)
+            # 补充名称映射，便于按名称过滤
+            if self._sector_id_map:
+                for name, sid in self._sector_id_map.items():
+                    if str(sid) in active_ids:
+                        self._cached_active_sectors.add(name)
             self._cached_global_attention = self._integration.attention_system._last_global_attention
             self._cached_activity = self._integration.attention_system._last_activity
 
@@ -507,6 +522,16 @@ class AttentionOrchestrator:
                     symbol_market_data=symbol_market_data,
                     activity=self._cached_activity
                 )
+
+                # 注册板块名称
+                if 'sector' in data.columns or 'industry' in data.columns:
+                    sector_col = 'sector' if 'sector' in data.columns else 'industry'
+                    for _, row in data.iterrows():
+                        sector_name = str(row.get(sector_col, '')).strip()
+                        if sector_name:
+                            sector_id = self._sector_id_map.get(sector_name)
+                            if sector_id:
+                                tracker.register_sector_name(str(sector_id), sector_name)
                 
                 # 注册股票名称（如果数据中有）
                 if 'code' in data.columns:
@@ -652,9 +677,51 @@ class AttentionOrchestrator:
     
     def _filter_by_sectors(self, data: pd.DataFrame) -> pd.DataFrame:
         """根据板块过滤数据"""
-        # 这里简化处理，实际应该根据股票所属板块过滤
-        # 暂时返回全量数据
-        return data
+        if not self._cached_active_sectors:
+            return data
+
+        sector_col = None
+        if 'sector' in data.columns:
+            sector_col = 'sector'
+        elif 'industry' in data.columns:
+            sector_col = 'industry'
+
+        if sector_col is None:
+            return data
+
+        try:
+            return data[data[sector_col].astype(str).isin(self._cached_active_sectors)]
+        except Exception:
+            return data
+
+    def _extract_sector_ids(self, data: pd.DataFrame) -> np.ndarray:
+        """从数据中提取板块ID（支持数值ID和文本映射）"""
+        if 'sector_id' in data.columns:
+            try:
+                return data['sector_id'].fillna(0).astype(int).values
+            except Exception:
+                return np.zeros(len(data))
+
+        sector_col = None
+        if 'sector' in data.columns:
+            sector_col = 'sector'
+        elif 'industry' in data.columns:
+            sector_col = 'industry'
+
+        if sector_col is None:
+            return np.zeros(len(data))
+
+        sector_ids: List[int] = []
+        for value in data[sector_col].values:
+            name = str(value).strip()
+            if not name:
+                sector_ids.append(0)
+                continue
+            if name not in self._sector_id_map:
+                self._sector_id_map[name] = self._next_sector_id
+                self._next_sector_id += 1
+            sector_ids.append(self._sector_id_map[name])
+        return np.array(sector_ids, dtype=int)
     
     def _get_sector_weights(self) -> Dict[str, float]:
         """获取板块权重"""
