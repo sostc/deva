@@ -736,7 +736,7 @@ class AttentionOrchestrator:
         return self._integration.attention_system.weight_pool.get_all_weights()
 
     def _apply_memory_hints(self, data: pd.DataFrame) -> None:
-        """将记忆系统中的热点提示合并到注意力上下文"""
+        """将记忆系统中的热点提示合并到注意力上下文（带权重版）"""
         try:
             from .memory import get_memory_engine
         except Exception:
@@ -748,24 +748,28 @@ class AttentionOrchestrator:
         except Exception:
             return
 
-        symbols = hints.get("symbols") or set()
-        sectors = hints.get("sectors") or set()
+        weighted_symbols = hints.get("symbols") or {}
+        weighted_sectors = hints.get("sectors") or {}
 
-        if symbols:
+        if weighted_symbols:
             try:
                 if 'code' in data.columns:
                     available = set(str(s) for s in data['code'].values)
                 else:
                     available = set(str(s) for s in data.index.values)
-                extra = symbols & available
-                if extra:
-                    self._cached_high_attention_symbols.update(extra)
+
+                for sym, weight in weighted_symbols.items():
+                    sym_str = str(sym)
+                    if sym_str in available and weight > 0.5:
+                        self._cached_high_attention_symbols.add(sym_str)
             except Exception:
                 pass
 
-        if sectors:
+        if weighted_sectors:
             try:
-                self._cached_active_sectors.update(sectors)
+                for sec, weight in weighted_sectors.items():
+                    if weight > 0.5:
+                        self._cached_active_sectors.add(str(sec))
             except Exception:
                 pass
     
