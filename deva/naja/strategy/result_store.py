@@ -492,12 +492,25 @@ class ResultStore:
             except Exception:
                 pass
 
-        # 发送到记忆引擎（根据配置）
+        # 发送到洞察引擎（根据配置）
         if should_memory:
             try:
-                from ..memory import get_memory_engine
-                memory = get_memory_engine()
-                memory.ingest_result(result)
+                from ..insight import get_insight_engine
+                insight = get_insight_engine()
+                signal = {
+                    "source": "strategy",
+                    "signal_type": result.strategy_id,
+                    "score": result.output_full.get("score", 0.5) if result.output_full else 0.5,
+                    "content": str(result.output_full)[:200] if result.output_full else "",
+                    "raw_data": {
+                        "strategy_id": result.strategy_id,
+                        "strategy_name": result.strategy_name,
+                        "output": result.output_full,
+                    },
+                    "timestamp": result.ts,
+                    "metadata": {},
+                }
+                insight.ingest_signal(signal)
             except Exception:
                 pass
         

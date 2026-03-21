@@ -11,7 +11,7 @@ from typing import Any, Dict, List, Optional
 from deva import NB
 
 from ..radar import get_radar_engine
-from ..memory import get_memory_engine
+from ..insight import get_insight_engine
 from ..strategy import get_strategy_manager
 from ..strategy.result_store import get_result_store
 from ..config import get_llm_config
@@ -88,7 +88,7 @@ class LLMController:
         strategy_list = [{"id": s.id, "name": s.name} for s in all_strategies]
 
         radar_summary = get_radar_engine().summarize(window_seconds=window_seconds)
-        memory_summary = get_memory_engine().summarize_for_llm()
+        memory_summary = get_insight_engine().summarize_for_llm()
         metrics = self._collect_strategy_metrics(strategy_ids)
         metrics_index = {m.get("strategy_id"): m for m in metrics if isinstance(m, dict)}
 
@@ -189,7 +189,7 @@ class LLMController:
             "只返回 JSON：{\"summary\":\"...\",\"reason\":\"...\",\"actions\":[...]}\n\n"
             f"已注册策略列表:\n{json.dumps(strategy_list, ensure_ascii=False)}\n\n"
             f"雷达摘要:\n{json.dumps(radar_summary, ensure_ascii=False)}\n\n"
-            f"记忆摘要:\n{json.dumps(memory_summary, ensure_ascii=False)}\n\n"
+            f"洞察摘要:\n{json.dumps(memory_summary, ensure_ascii=False)}\n\n"
             f"策略指标:\n{json.dumps(metrics, ensure_ascii=False)}\n\n"
             f"允许动作: {json.dumps(allow_actions, ensure_ascii=False)}\n"
             f"策略白名单(如非空仅允许这些): {json.dumps(allowlist, ensure_ascii=False)}\n"

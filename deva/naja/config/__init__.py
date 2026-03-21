@@ -125,6 +125,18 @@ DEFAULT_CONFIG = {
         "semantic_new_term_min_mentions": 3,
         "semantic_new_term_min_sources": 2,
     },
+    "insight": {
+        "auto_save_enabled": True,
+        "auto_save_interval": 300,
+        "auto_load_on_start": True,
+        "llm_reflect_interval": 3600,
+        "llm_reflect_window": 7200,
+        "short_memory_size": 1000,
+        "mid_memory_size": 5000,
+        "long_memory_size": 30,
+        "signal_buffer_size": 1000,
+        "mid_memory_threshold": 0.6,
+    },
     "radar": {
         "event_retention_days": 7,
         "cleanup_interval_seconds": 600,
@@ -278,6 +290,11 @@ def get_dictionary_config() -> Dict[str, Any]:
 def get_memory_config() -> Dict[str, Any]:
     """获取记忆配置"""
     return get_config("memory")
+
+
+def get_insight_config() -> Dict[str, Any]:
+    """获取洞察配置"""
+    return get_config("insight")
 
 
 def get_radar_config() -> Dict[str, Any]:
