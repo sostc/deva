@@ -149,10 +149,7 @@ class NajaAttentionIntegration:
                 return
             
             # 注册板块名称
-            for sector in self._sectors:
-                if sector.name:
-                    tracker.register_sector_name(sector.sector_id, sector.name)
-                    log.info(f"注册板块名称: {sector.sector_id} -> {sector.name}")
+            tracker.register_sectors(self._sectors)
             log.info(f"共注册 {len(self._sectors)} 个板块名称到tracker")
             
             # 尝试从行情数据注册个股名称

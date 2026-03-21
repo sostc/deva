@@ -66,6 +66,10 @@ class SectorAttentionEngine:
         self._last_update_time: Dict[str, float] = {}
         self._leader_counts: Dict[str, int] = {}
         self._volume_concentration: Dict[str, float] = {}
+
+        # 日志节流
+        self._last_summary_log_time: float = 0.0
+        self._summary_log_interval: float = 60.0  # 60秒打印一次摘要
         
         # 初始化板块
         if sectors:
@@ -130,10 +134,14 @@ class SectorAttentionEngine:
             elif all(len(d.get('returns', [])) == 0 for d in sector_data.values()):
                 log.warning(f"[SectorAttention] 警告: 所有板块的returns为空! sector_data keys={list(sector_data.keys())[:5]}")
             else:
-                # 输出有数据的板块数量
+                # 输出有数据的板块数量（节流）
                 sectors_with_data = [k for k, v in sector_data.items() if len(v.get('returns', [])) > 0]
                 if len(sectors_with_data) > 0:
-                    log.info(f"[SectorAttention] 有数据的板块数: {len(sectors_with_data)}, 样本: {sectors_with_data[:3]}")
+                    current_time = time.time()
+                    if current_time - self._last_summary_log_time >= self._summary_log_interval:
+                        sample_names = [self._sectors[k].name if k in self._sectors else k for k in sectors_with_data[:3]]
+                        log.info(f"[SectorAttention] 有数据的板块数: {len(sectors_with_data)}, 样本: {sample_names}")
+                        self._last_summary_log_time = current_time
 
             # 计算每个板块的注意力
             for sector_id, data in sector_data.items():
@@ -152,7 +160,7 @@ class SectorAttentionEngine:
 
                 # 调试日志
                 if len(sector_data) <= 5:  # 只在板块少时输出
-                    log.info(f"[SectorAttention] sector={sector_id}, new_score={new_score:.3f}, data_returns={list(data['returns'][:3]) if len(data['returns']) > 0 else 'empty'}")
+                    log.info(f"[SectorAttention] sector={sector.name}, new_score={new_score:.3f}, data_returns={list(data['returns'][:3]) if len(data['returns']) > 0 else 'empty'}")
 
                 # 应用半衰期衰减
                 last_time = self._last_update_time.get(sector_id, timestamp)
@@ -314,7 +322,8 @@ class SectorAttentionEngine:
         }
         # 调试日志
         if len(weights) < 5:
-            log.info(f"[SectorAttention] get_all_weights: 返回 {len(weights)} 个板块: {list(weights.keys())}")
+            weight_names = [self._sectors[k].name if k in self._sectors else k for k in weights.keys()]
+            log.info(f"[SectorAttention] get_all_weights: 返回 {len(weights)} 个板块: {weight_names}")
         return weights
     
     def reset(self):

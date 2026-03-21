@@ -824,6 +824,8 @@ def _render_compact_noise_filter() -> str:
         return ""
 
 
+
+
 # ==================== 主页面 ====================
 
 async def render_attention_admin_v2(ctx: dict):
@@ -871,7 +873,7 @@ async def render_attention_admin_v2(ctx: dict):
     # ========== 第一优先级：核心摘要 ==========
     with use_scope("attention_summary"):
         put_html(_render_key_metrics_summary(report, strategy_stats))
-    
+
     # ========== 第二优先级：实时热点 ==========
     with use_scope("attention_live"):
         put_html(_render_live_hotspots())

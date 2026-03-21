@@ -95,6 +95,7 @@ class RadarEngine:
         cfg = get_radar_config()
         self._retention_days = float(cfg.get("event_retention_days", 7))
         self._cleanup_interval_seconds = float(cfg.get("cleanup_interval_seconds", 600))
+        self._macro_only = bool(cfg.get("macro_only", True))
         self._cleanup_thread = None
         self._stop_cleanup = threading.Event()
 
@@ -114,10 +115,15 @@ class RadarEngine:
             events.extend(self._detect_drift(result, payload))
             events.extend(self._detect_anomaly(result, payload))
 
+        stored_events: List[RadarEvent] = []
         for event in events:
+            self._apply_user_attention(event)
+            if self._macro_only and not self._is_macro_event(event):
+                continue
             self._store_event(event)
-        self._emit_events_to_memory(events)
-        return events
+            stored_events.append(event)
+        self._emit_events_to_memory(stored_events)
+        return stored_events
 
     def ingest_attention_event(
         self,
@@ -141,9 +147,65 @@ class RadarEngine:
             strategy_name=strategy_name,
             ts=ts,
         )
+        self._apply_user_attention(event)
+        if self._macro_only and not self._is_macro_event(event):
+            return event
         self._store_event(event)
         self._emit_events_to_memory([event])
         return event
+
+    def _apply_user_attention(self, event: RadarEvent) -> None:
+        """为雷达事件打用户注意力分"""
+        system_attention = _clamp_event_score(event.score)
+        confidence = 0.5
+        actionability = 0.4
+        novelty = 0.5
+
+        payload = event.payload or {}
+        signal_type = str(payload.get("signal_type", event.signal_type)).upper()
+        if signal_type in {"BUY", "SELL"}:
+            actionability = 0.9
+            confidence = max(confidence, 0.7)
+        elif signal_type:
+            actionability = 0.5
+
+        if "confidence" in payload:
+            try:
+                confidence = max(confidence, float(payload.get("confidence")))
+            except Exception:
+                pass
+
+        user_score = (
+            0.4 * system_attention
+            + 0.2 * confidence
+            + 0.2 * actionability
+            + 0.2 * novelty
+        )
+
+        payload["user_score"] = round(user_score, 3)
+        payload["system_attention"] = round(system_attention, 3)
+        payload["scope"] = self._infer_scope(payload)
+        event.payload = payload
+
+    def _infer_scope(self, payload: Dict[str, Any]) -> str:
+        """判断事件作用域（macro / symbol）"""
+        for key in ("stock_code", "symbol", "code", "ticker", "stock_name"):
+            if payload.get(key):
+                return "symbol"
+        symbols = payload.get("symbols")
+        if isinstance(symbols, list) and len(symbols) == 1:
+            return "symbol"
+        return "macro"
+
+    def _is_macro_event(self, event: RadarEvent) -> bool:
+        """宏观事件过滤"""
+        if event.event_type == "symbol_attention_change":
+            return False
+        payload = event.payload or {}
+        scope = payload.get("scope")
+        if scope == "symbol":
+            return False
+        return True
 
     def get_recent_events(self, limit: int = 20) -> List[dict]:
         try:
