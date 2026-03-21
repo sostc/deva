@@ -216,6 +216,30 @@ class NewsEvent:
         )
 
 
+STOCK_RELEVANT_PREFIXES = ["[新闻]", "[行情]", "[财经]"]
+STOCK_RELEVANT_SOURCES = ["news", "tick", "jin10", "财经", "新闻", "金十", "行情"]
+
+def _is_stock_relevant_topic(topic: "Topic") -> bool:
+    """判断主题是否与股票相关"""
+    name = topic.name if topic.name else ""
+
+    for prefix in STOCK_RELEVANT_PREFIXES:
+        if prefix in name:
+            return True
+
+    for source_keyword in STOCK_RELEVANT_SOURCES:
+        if source_keyword in name:
+            return True
+
+    keywords = topic.keywords if topic.keywords else []
+    stock_keywords = ["新能源", "半导体", "医药", "消费", "金融", "地产", "传媒", "军工", "AI", "芯片", "茅台", "宁德", "比亚迪"]
+    for kw in keywords:
+        if kw in stock_keywords:
+            return True
+
+    return False
+
+
 @dataclass
 class Topic:
     """主题结构"""
@@ -239,11 +263,11 @@ class Topic:
         if not self.events:
             self.name = f"主题{self.id}"
             return
-        
+
         # 获取数据源标识（强制在主题名称前加上数据源）
         first_event = self.events[0]
         source = getattr(first_event, 'source', 'unknown')
-        
+
         # 使用数据源类型映射获取类型前缀
         ds_type = get_datasource_type(source)
         type_prefix_map = {
@@ -255,98 +279,112 @@ class Topic:
             'text': '[文本]',
         }
         source_prefix = type_prefix_map.get(ds_type, f"[{source[:4]}]")
-        
+
         # 收集所有事件的关键词
         all_keywords = []
         all_content = []
-        
+
         for event in self.events:
             content = getattr(event, 'content', '')
             if content:
                 all_content.append(content)
                 content_lower = content.lower()
-                
+
                 # 提取公司名称
                 companies = ["腾讯", "阿里", "字节", "华为", "比亚迪", "宁德时代", "茅台", "美团", "小米", "百度", "京东", "拼多多"]
                 for company in companies:
                     if company in content:
                         all_keywords.append(company)
-                
+
                 # 提取行业关键词
                 sectors = ["新能源", "半导体", "医药", "消费", "金融", "地产", "传媒", "军工", "AI", "芯片"]
                 for sector in sectors:
                     if sector in content:
                         all_keywords.append(sector)
-                
+
                 # 提取日志级别和类型（针对日志数据源）
                 if '日志' in source or 'log' in source.lower():
                     log_levels = ["ERROR", "WARN", "INFO", "DEBUG", "CRITICAL", "FATAL"]
                     for level in log_levels:
                         if level in content or level.lower() in content_lower:
                             all_keywords.append(level)
-                    
+
                     log_actions = ["启动", "停止", "失败", "成功", "超时", "重试", "连接", "断开", "创建", "删除"]
                     for action in log_actions:
                         if action in content:
                             all_keywords.append(action)
-                
+
                 # 提取文件操作
                 if '文件' in source or 'file' in source.lower() or '目录' in source:
                     file_ops = ["创建", "修改", "删除", "下载", "上传", "移动", "复制"]
                     for op in file_ops:
                         if op in content:
                             all_keywords.append(op)
-                    
+
                     import re
                     file_exts = re.findall(r'\.([a-zA-Z0-9]+)', content)
                     for ext in file_exts[:3]:
                         all_keywords.append(f".{ext}")
-        
+
         # 统计词频并生成主题名称
         from collections import Counter
-        
+
         # 获取第一条内容用于提取主题
         first_content = all_content[0] if all_content else ''
-        
+
         # 使用数据源类型映射来判断数据源类型
         ds_type = get_datasource_type(source)
-        
-        # 针对不同数据源类型使用不同的主题提取策略
-        if ds_type == 'news' and first_content:
-            # 新闻数据源：提取新闻标题
-            content_name = self._extract_news_topic(first_content)
-            self.name = f"{source_prefix} {content_name}"
-            if all_keywords:
-                keyword_counts = Counter(all_keywords)
-                self.keywords = [k for k, _ in keyword_counts.most_common(5)]
-        elif ds_type == 'log' and first_content:
-            # 日志数据源：提取日志内容
-            content_name = self._extract_log_topic(first_content)
-            self.name = f"{source_prefix} {content_name}"
-            if all_keywords:
-                keyword_counts = Counter(all_keywords)
-                self.keywords = [k for k, _ in keyword_counts.most_common(5)]
-        elif ds_type == 'tick' and first_content:
-            # 行情数据源：使用内容预览
-            preview = first_content[:20].strip()
-            self.name = f"{source_prefix} {preview}"
-        elif ds_type == 'file' and first_content:
-            # 文件数据源：使用内容预览
-            preview = first_content[:20].strip()
-            self.name = f"{source_prefix} {preview}"
-        elif all_keywords:
-            # 其他数据源有关键词时使用关键词
+
+        # 无意义名称模式
+        meaningless_patterns = [
+            "主题", "未命名", "未知", "无内容", "无标题",
+            "array", "dict", "object", "none", "null"
+        ]
+
+        def is_meaningful_name(name: str) -> bool:
+            """判断名称是否有意义"""
+            if not name or len(name.strip()) < 2:
+                return False
+            name_lower = name.lower()
+            for pattern in meaningless_patterns:
+                if pattern.lower() in name_lower:
+                    return False
+            return True
+
+        # 优先使用关键词生成名称
+        if all_keywords:
             keyword_counts = Counter(all_keywords)
             top_keywords = [k for k, _ in keyword_counts.most_common(3)]
-            content_name = "·".join(top_keywords)
-            self.name = f"{source_prefix} {content_name}"
-            self.keywords = top_keywords
+            keyword_name = "·".join(top_keywords)
+            if is_meaningful_name(keyword_name):
+                self.name = f"{source_prefix} {keyword_name}"
+                self.keywords = top_keywords
+                return
+
+        # 针对不同数据源类型使用不同的主题提取策略
+        extracted_name = ""
+        if ds_type == 'news' and first_content:
+            extracted_name = self._extract_news_topic(first_content)
+        elif ds_type == 'tick' and first_content:
+            extracted_name = self._extract_tick_topic(first_content)
+        elif ds_type == 'log' and first_content:
+            extracted_name = self._extract_log_topic(first_content)
         elif first_content:
-            # 没有关键词时，使用内容预览
-            preview = first_content[:15].strip()
-            self.name = f"{source_prefix} {preview}"
+            extracted_name = first_content[:20].strip()
+
+        # 如果提取的名称无意义，尝试使用关键词
+        if not is_meaningful_name(extracted_name):
+            if all_keywords:
+                keyword_counts = Counter(all_keywords)
+                top_keywords = [k for k, _ in keyword_counts.most_common(3)]
+                extracted_name = "·".join(top_keywords)
+
+        # 最终检查
+        if is_meaningful_name(extracted_name):
+            self.name = f"{source_prefix} {extracted_name}"
         else:
-            self.name = f"{source_prefix} 主题{self.id}"
+            self.name = f"{source_prefix} 热点关注"
+        self.keywords = [k for k, _ in Counter(all_keywords).most_common(5)] if all_keywords else []
     
     def _extract_news_topic(self, content: str) -> str:
         """从新闻内容中提取热点主题名称"""
@@ -405,9 +443,9 @@ class Topic:
         """从日志内容中提取主题名称"""
         if not content or not content.strip():
             return "未命名日志"
-        
+
         content = content.strip()
-        
+
         # 如果内容是字典的字符串表示，尝试提取其中的 content
         if content.startswith('{') and content.endswith('}'):
             try:
@@ -416,14 +454,34 @@ class Topic:
                 if isinstance(data, dict):
                     log_content = data.get('content', '')
                     if log_content:
-                        # 提取日志内容的前20个字符
                         return log_content[:20].strip()
             except:
                 pass
-        
-        # 提取前20个字符作为主题
+
         return content[:20].strip() if content else "未命名日志"
-    
+
+    def _extract_tick_topic(self, content: str) -> str:
+        """从行情内容中提取主题名称"""
+        if not content or not content.strip():
+            return ""
+
+        content = content.strip()
+
+        # 尝试解析为字典提取 symbol 或 code
+        if content.startswith('{') and content.endswith('}'):
+            try:
+                import ast
+                data = ast.literal_eval(content)
+                if isinstance(data, dict):
+                    symbol = data.get('symbol', '') or data.get('code', '')
+                    if symbol:
+                        return f"行情 {symbol}"
+            except:
+                pass
+
+        # 直接返回内容前15字符
+        return content[:15].strip() if content else ""
+
     def update_name(self):
         """更新主题名称（当有新事件加入时）"""
         self._auto_name()
@@ -511,6 +569,27 @@ class AttentionScorer:
             "type": event.event_type,
         })
         
+        return min(1.0, max(0.0, total))
+
+    def peek_score(self, event: NewsEvent) -> float:
+        """计算注意力评分（不写入历史，用于预筛选）"""
+        scores = {
+            "novelty": self._novelty_score(event),
+            "sentiment": self._sentiment_score(event),
+            "market": self._market_score(event),
+            "keywords": self._keyword_score(event),
+            "velocity": self._velocity_score(event),
+            "importance": self._importance_score(event),
+        }
+        weights = {
+            "novelty": 0.20,
+            "sentiment": 0.12,
+            "market": 0.20,
+            "keywords": 0.15,
+            "velocity": 0.13,
+            "importance": 0.20,
+        }
+        total = sum(scores[k] * weights[k] for k in scores)
         return min(1.0, max(0.0, total))
     
     def _importance_score(self, event: NewsEvent) -> float:
@@ -643,6 +722,11 @@ class NewsRadarStrategy:
         self.topic_threshold = self.config.get("topic_threshold", 0.5)  # 降低阈值，让新主题更容易创建
         self.attention_threshold = self.config.get("attention_threshold", 0.6)
         self.max_topics = self.config.get("max_topics", 50)
+        self.enable_attention_filter = bool(self.config.get("attention_filter_enabled", True))
+        self.base_attention_gate = float(self.config.get("attention_gate_base", 0.35))
+        self.target_rate_per_min = float(self.config.get("target_rate_per_min", 30))
+        self.rate_window_seconds = int(self.config.get("rate_window_seconds", 300))
+        self.max_batch_keep = int(self.config.get("max_batch_keep", 80))
         
         # 核心组件
         self.attention_scorer = AttentionScorer(history_size=self.short_term_size)
@@ -680,7 +764,11 @@ class NewsRadarStrategy:
             "high_attention_events": 0,
             "topics_created": 0,
             "drifts_detected": 0,
+            "filtered_events": 0,
         }
+
+        # 频率控制
+        self._rate_buckets: Dict[str, deque] = {}
     
     def process_record(self, record: Dict) -> List[Dict]:
         """
@@ -714,6 +802,11 @@ class NewsRadarStrategy:
         
         # 1. 转换为龙虾事件
         event = NewsEvent.from_datasource_record(record)
+
+        # 1.5 注意力门控（频率+重要性）
+        if self.enable_attention_filter and not self._should_ingest_event(event):
+            self.stats["filtered_events"] += 1
+            return []
         
         # 2. 语义编码（改进版：使用关键词特征向量 + 数据源特征 + 事件类型特征）
         event.vector = self._simple_embedding(event.content, event.source, event.event_type)
@@ -781,8 +874,8 @@ class NewsRadarStrategy:
         records = filtered_records
         
         # 逐条处理，但进行去重检测
+        candidates = []
         for record in records:
-            # 转换为事件
             event = NewsEvent.from_datasource_record(record)
             
             # 简单去重：基于内容hash
@@ -790,7 +883,21 @@ class NewsRadarStrategy:
             if content_hash in seen_contents:
                 continue
             seen_contents.add(content_hash)
-            
+
+            if self.enable_attention_filter and not self._should_ingest_event(event):
+                self.stats["filtered_events"] += 1
+                continue
+
+            # 预评分用于批量筛选
+            event.attention_score = self.attention_scorer.peek_score(event)
+            candidates.append(event)
+
+        # 批量过载时，只保留高分事件
+        if len(candidates) > self.max_batch_keep:
+            candidates.sort(key=lambda e: e.attention_score, reverse=True)
+            candidates = candidates[: self.max_batch_keep]
+
+        for event in candidates:
             # 语义编码
             event.vector = self._simple_embedding(event.content, event.source, event.event_type)
             
@@ -833,6 +940,37 @@ class NewsRadarStrategy:
             all_signals.extend(window_signals)
         
         return all_signals
+
+    def _should_ingest_event(self, event: NewsEvent) -> bool:
+        """根据频率与注意力门控决定是否纳入记忆"""
+        # 注意力/雷达事件直接放行
+        if event.source.startswith("attention:") or event.source.startswith("radar:"):
+            return True
+
+        # 高重要性直接放行
+        importance = str(event.meta.get("importance", "")).lower()
+        if importance == "high":
+            return True
+
+        # 计算当前频率
+        bucket = self._rate_buckets.setdefault(event.event_type, deque())
+        now_ts = time.time()
+        cutoff = now_ts - self.rate_window_seconds
+        while bucket and bucket[0] < cutoff:
+            bucket.popleft()
+        bucket.append(now_ts)
+        rate_per_min = len(bucket) / max(1.0, self.rate_window_seconds / 60.0)
+
+        # 动态门槛：频率越高，门槛越高
+        rate_factor = min(1.5, rate_per_min / max(1.0, self.target_rate_per_min))
+        dynamic_gate = min(0.9, self.base_attention_gate + rate_factor * 0.25)
+
+        # 预评分（不写历史）
+        pre_score = self.attention_scorer.peek_score(event)
+        if pre_score >= dynamic_gate:
+            return True
+
+        return False
     
     def _generate_signals_for_event(self, event: NewsEvent, topic_id: Optional[int]) -> List[Dict]:
         """为单个事件生成信号"""
@@ -1161,12 +1299,14 @@ class NewsRadarStrategy:
     
     def get_memory_report(self) -> Dict:
         """获取记忆报告"""
-        # 主题排序（按活跃度）
+        # 主题排序（按活跃度），过滤掉噪音主题
         sorted_topics = sorted(
             self.topics.values(),
             key=lambda t: t.event_count,
             reverse=True
         )
+        # 只保留股票相关主题
+        stock_topics = [t for t in sorted_topics if _is_stock_relevant_topic(t)]
         
         # 三层记忆统计
         short_term_data = self._get_short_term_memory_data()
@@ -1198,7 +1338,7 @@ class NewsRadarStrategy:
                     "data": long_term_data,
                 },
             },
-            "active_topics": len(self.topics),
+            "active_topics": len(stock_topics),
             "top_topics": [
                 {
                     "id": t.id,
@@ -1210,7 +1350,7 @@ class NewsRadarStrategy:
                     "created_at": t.created_at.isoformat(),
                     "last_updated": t.last_updated.isoformat(),
                 }
-                for t in sorted_topics[:10]
+                for t in stock_topics[:10]
             ],
             "recent_high_attention": [
                 {
@@ -1224,7 +1364,63 @@ class NewsRadarStrategy:
                 for e in list(self.short_memory)[-20:]
                 if e.attention_score >= self.attention_threshold
             ][-5:],
+            "user_focus": self._get_user_focus_events(limit=8),
         }
+
+    def _get_user_focus_events(self, limit: int = 8) -> List[Dict[str, Any]]:
+        """基于双注意力计算用户重点记忆"""
+        events = list(self.short_memory)[-200:]
+        if not events:
+            return []
+
+        scored = []
+        now_ts = datetime.now().timestamp()
+        for event in events:
+            system_attention = float(getattr(event, "attention_score", 0.0))
+            confidence = 0.4
+            actionability = 0.3
+            novelty = 0.5
+
+            meta = getattr(event, "meta", {}) or {}
+            importance = str(meta.get("importance", "")).lower()
+            if importance == "high":
+                confidence = 0.8
+            elif importance == "medium":
+                confidence = 0.6
+
+            if event.event_type in {"tick"}:
+                actionability = 0.6
+            if meta.get("symbol") or meta.get("code"):
+                actionability = max(actionability, 0.7)
+
+            # 简单新颖度：用时间差近似
+            ts = event.timestamp.timestamp() if isinstance(event.timestamp, datetime) else now_ts
+            delta = max(0.0, now_ts - ts)
+            novelty = min(1.0, delta / 3600.0)
+
+            user_score = (
+                0.4 * system_attention
+                + 0.2 * confidence
+                + 0.2 * actionability
+                + 0.2 * novelty
+            )
+
+            theme = meta.get("topic") or meta.get("sector") or meta.get("industry") or event.event_type
+            summary = event.content[:80] + ("..." if len(event.content) > 80 else "")
+
+            scored.append(
+                {
+                    "id": event.id,
+                    "timestamp": event.timestamp.isoformat() if isinstance(event.timestamp, datetime) else str(event.timestamp),
+                    "theme": str(theme),
+                    "summary": summary,
+                    "user_score": round(user_score, 3),
+                    "system_attention": round(system_attention, 3),
+                }
+            )
+
+        scored.sort(key=lambda x: x["user_score"], reverse=True)
+        return scored[: max(1, int(limit))]
 
     def get_attention_hints(self, lookback: int = 200) -> Dict[str, Any]:
         """

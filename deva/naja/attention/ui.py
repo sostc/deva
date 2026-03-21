@@ -132,6 +132,8 @@ def _get_attention_shift_report():
     return {'has_shift': False}
 
 
+
+
 def _register_stock_names(data: pd.DataFrame):
     """注册股票名称到历史追踪器"""
     tracker = _get_history_tracker()
@@ -1356,9 +1358,9 @@ def _render_attention_timeline() -> str:
     if transfers:
         html += """
         <div style="border-top: 1px dashed #fcd34d; padding-top: 12px;">
-            <div style="font-size: 11px; color: #64748b; margin-bottom: 6px;">板块崛起记录:</div>
-        """
-        for transfer in transfers[-6:]:
+            <div style="font-size: 11px; color: #64748b; margin-bottom: 6px;">板块崛起记录 (共{}条):</div>
+        """.format(len(transfers))
+        for transfer in transfers[-20:]:
             html += f"""
             <div style="display: flex; align-items: center; gap: 8px; padding: 4px 6px; background: white; border-radius: 4px; margin-bottom: 4px;">
                 <span style="font-size: 10px; color: #64748b; min-width: 50px;">{transfer['time']}</span>
@@ -1674,7 +1676,7 @@ def _render_single_threshold_column(threshold: str) -> str:
     }
     
     config = threshold_config.get(threshold, threshold_config['medium'])
-    events = list(config['events'])[-10:]  # 只显示最近10个
+    events = list(config['events'])[-20:]  # 只显示最近20个
     pct = config['pct']
     label = config['label']
     color = config['color']
@@ -1715,10 +1717,11 @@ def _render_single_threshold_column(threshold: str) -> str:
     }
     
     current_date = None
-    
+
     for event in reversed(events):
         # 日期分隔
-        event_date = datetime.fromtimestamp(event.timestamp).strftime("%m-%d")
+        full_time = datetime.fromtimestamp(event.timestamp).strftime("%m-%d %H:%M:%S")
+        event_date = full_time.split(' ')[0]
         if event_date != current_date:
             current_date = event_date
             html += f'<div style="font-size: 10px; color: #94a3b8; margin: 8px 0 4px 0; padding-top: 4px; border-top: 1px dashed #e2e8f0;">{event_date}</div>'
@@ -1736,7 +1739,7 @@ def _render_single_threshold_column(threshold: str) -> str:
             font-size: 11px;
         ">
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 2px;">
-                <span style="color: #64748b; font-family: monospace; font-size: 10px;">{event.market_time}</span>
+                <span style="color: #64748b; font-family: monospace; font-size: 10px;">{full_time}</span>
                 <span>{emoji}</span>
             </div>
             <div style="font-weight: 500; color: #1e293b; margin-bottom: 2px;">{event.sector_name}</div>
@@ -2054,7 +2057,7 @@ async def render_attention_admin(ctx: dict):
         ], size="auto")
         
         put_text("")
-    
+
     # 主要指标卡片
     with use_scope("attention_metrics"):
         put_html(_render_global_attention_card(global_attention, activity))

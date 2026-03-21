@@ -14,8 +14,11 @@ class MemoryEngine(NewsRadarStrategy):
     """Memory engine entrypoint for platform-wide reads/writes."""
 
     def __init__(self, config: Optional[Dict[str, Any]] = None):
-        super().__init__(config or {})
         cfg = get_memory_config()
+        merged = dict(cfg or {})
+        if config:
+            merged.update(config)
+        super().__init__(merged)
         self._auto_save_enabled = bool(cfg.get("auto_save_enabled", True))
         self._auto_save_interval = float(cfg.get("auto_save_interval", 300))
         self._auto_load_on_start = bool(cfg.get("auto_load_on_start", True))
@@ -40,8 +43,30 @@ class MemoryEngine(NewsRadarStrategy):
             output_full = getattr(result, "output_full", None)
             output_preview = getattr(result, "output_preview", None)
             input_preview = getattr(result, "input_preview", None)
+            metadata = getattr(result, "metadata", {}) or {}
 
             payload = output_full or output_preview or input_preview or {}
+            if isinstance(payload, dict):
+                # 置信度/分数触发重要性
+                confidence = payload.get("confidence", payload.get("score"))
+                try:
+                    confidence_val = float(confidence)
+                except Exception:
+                    confidence_val = None
+                if confidence_val is not None and confidence_val >= 0.8:
+                    payload.setdefault("importance", "high")
+
+                # 行动型信号优先
+                signal_type = str(payload.get("signal_type", "")).upper()
+                if signal_type in {"BUY", "SELL"}:
+                    payload.setdefault("importance", "high")
+
+                # 透传注意力上下文
+                if "global_attention" in metadata:
+                    payload.setdefault("global_attention", metadata.get("global_attention"))
+                if "attention" in metadata:
+                    payload.setdefault("attention", metadata.get("attention"))
+
             record: Dict[str, Any] = {
                 "timestamp": ts,
                 "source": f"strategy:{strategy_name}",

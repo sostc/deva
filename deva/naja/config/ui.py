@@ -612,6 +612,17 @@ async def _render_memory_config(ctx: dict, config: dict, defaults: dict):
                      value="1" if config.get("auto_save_enabled", defaults.get("auto_save_enabled", True)) else "0"),
         ctx["input"]("自动保存间隔(秒)", name="auto_save_interval", type="number",
                     value=config.get("auto_save_interval", defaults.get("auto_save_interval", 300))),
+        ctx["select"]("注意力门控", name="attention_filter_enabled",
+                     options=[{"label": "开启", "value": "1"}, {"label": "关闭", "value": "0"}],
+                     value="1" if config.get("attention_filter_enabled", defaults.get("attention_filter_enabled", True)) else "0"),
+        ctx["input"]("注意力门槛基线(0-1)", name="attention_gate_base", type="number",
+                    value=config.get("attention_gate_base", defaults.get("attention_gate_base", 0.35))),
+        ctx["input"]("目标频率(条/分钟)", name="target_rate_per_min", type="number",
+                    value=config.get("target_rate_per_min", defaults.get("target_rate_per_min", 30))),
+        ctx["input"]("频率窗口(秒)", name="rate_window_seconds", type="number",
+                    value=config.get("rate_window_seconds", defaults.get("rate_window_seconds", 300))),
+        ctx["input"]("批量最大保留", name="max_batch_keep", type="number",
+                    value=config.get("max_batch_keep", defaults.get("max_batch_keep", 80))),
         ctx["actions"]("操作", [
             {"label": "保存", "value": "save", "color": "primary"},
             {"label": "恢复默认", "value": "reset", "color": "warning"},
@@ -624,6 +635,11 @@ async def _render_memory_config(ctx: dict, config: dict, defaults: dict):
             "auto_load_on_start": form.get("auto_load_on_start") == "1",
             "auto_save_enabled": form.get("auto_save_enabled") == "1",
             "auto_save_interval": int(form.get("auto_save_interval", 300)),
+            "attention_filter_enabled": form.get("attention_filter_enabled") == "1",
+            "attention_gate_base": float(form.get("attention_gate_base", 0.35)),
+            "target_rate_per_min": float(form.get("target_rate_per_min", 30)),
+            "rate_window_seconds": int(form.get("rate_window_seconds", 300)),
+            "max_batch_keep": int(form.get("max_batch_keep", 80)),
         })
         ctx["toast"]("记忆配置已保存", color="success")
         ctx["close_popup"]()
@@ -642,6 +658,9 @@ async def _render_radar_config(ctx: dict, config: dict, defaults: dict):
                     value=config.get("event_retention_days", defaults.get("event_retention_days", 7))),
         ctx["input"]("清理间隔(秒)", name="cleanup_interval_seconds", type="number",
                     value=config.get("cleanup_interval_seconds", defaults.get("cleanup_interval_seconds", 600))),
+        ctx["select"]("宏观模式", name="macro_only",
+                     options=[{"label": "开启", "value": "1"}, {"label": "关闭", "value": "0"}],
+                     value="1" if config.get("macro_only", defaults.get("macro_only", True)) else "0"),
         ctx["actions"]("操作", [
             {"label": "保存", "value": "save", "color": "primary"},
             {"label": "恢复默认", "value": "reset", "color": "warning"},
@@ -653,6 +672,7 @@ async def _render_radar_config(ctx: dict, config: dict, defaults: dict):
         set_category_config("radar", {
             "event_retention_days": float(form.get("event_retention_days", 7)),
             "cleanup_interval_seconds": int(form.get("cleanup_interval_seconds", 600)),
+            "macro_only": form.get("macro_only") == "1",
         })
         ctx["toast"]("雷达配置已保存", color="success")
         ctx["close_popup"]()

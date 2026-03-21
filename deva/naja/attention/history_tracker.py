@@ -24,6 +24,7 @@ class AttentionSnapshot:
     symbol_weights: Dict[str, float]
     symbol_market_data: Dict[str, Dict] = field(default_factory=dict)
     market_time_str: str = ""  # 行情时间字符串（如 "2024-01-15 10:30:00"）
+    activity: float = 0.5
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -33,7 +34,8 @@ class AttentionSnapshot:
             'global_attention': self.global_attention,
             'sector_weights': self.sector_weights,
             'symbol_weights': self.symbol_weights,
-            'symbol_market_data': self.symbol_market_data
+            'symbol_market_data': self.symbol_market_data,
+            'activity': self.activity,
         }
 
 
@@ -107,6 +109,8 @@ class AttentionHistoryTracker:
         self.symbol_names: Dict[str, str] = {}
         # 板块ID到名称的映射
         self.sector_names: Dict[str, str] = {}
+        # 板块配置引用（用于查找名称）
+        self._sector_configs: Dict[str, Any] = {}
 
         # 个股到板块的映射（简化版）
         self.symbol_to_sector: Dict[str, str] = {}
@@ -120,6 +124,10 @@ class AttentionHistoryTracker:
         # 事件桥接与节流
         self._emit_last: Dict[str, float] = {}
         self._emit_cooldown_seconds: float = 30.0
+
+        # 宏观变化阈值
+        self._activity_shift_threshold: float = 0.2
+        self._concentration_shift_threshold: float = 0.2
     
     def register_symbol_name(self, symbol: str, name: str):
         """注册股票名称"""
@@ -128,6 +136,13 @@ class AttentionHistoryTracker:
     def register_sector_name(self, sector_id: str, name: str):
         """注册板块名称"""
         self.sector_names[sector_id] = name
+
+    def register_sectors(self, sectors: List):
+        """批量注册板块配置（用于初始化）"""
+        for sector in sectors:
+            if hasattr(sector, 'sector_id') and hasattr(sector, 'name'):
+                self.sector_names[sector.sector_id] = sector.name
+                self._sector_configs[sector.sector_id] = sector
     
     def get_symbol_name(self, symbol: str) -> str:
         """获取股票名称"""
@@ -151,7 +166,11 @@ class AttentionHistoryTracker:
 
     def get_sector_name(self, sector_id: str) -> str:
         """获取板块名称"""
-        return self.sector_names.get(sector_id, sector_id)
+        if sector_id in self.sector_names:
+            return self.sector_names[sector_id]
+        if sector_id in self._sector_configs:
+            return self._sector_configs[sector_id].name
+        return sector_id
 
     def _format_volume(self, volume: float) -> str:
         """格式化成交量显示"""
@@ -339,7 +358,8 @@ class AttentionHistoryTracker:
             sector_weights=sector_weights.copy(),
             symbol_weights=symbol_weights.copy(),
             symbol_market_data=market_data.copy(),
-            market_time_str=timestamp_str or ""
+            market_time_str=timestamp_str or "",
+            activity=actual_activity,
         )
 
         # 检测注意力变化
@@ -348,7 +368,9 @@ class AttentionHistoryTracker:
 
             # 调试日志
             if len(self.snapshots) <= 2:
-                log.info(f"[HistoryTracker] 快照{len(self.snapshots)+1}: sector_weights样本={dict(list(sector_weights.items())[:3])}")
+                sample_items = list(sector_weights.items())[:3]
+                sample_named = {self.get_sector_name(k): v for k, v in sample_items}
+                log.info(f"[HistoryTracker] 快照{len(self.snapshots)+1}: sector_weights样本={sample_named}")
 
             self._detect_changes(last_snapshot, snapshot, timestamp_str)
         
@@ -392,6 +414,60 @@ class AttentionHistoryTracker:
                     title=title,
                     content=content,
                     score=score,
+                    payload=payload,
+                    market_time=self.current_market_time_str,
+                )
+
+        # 活跃度突变事件
+        if self.snapshots:
+            last_activity = self.snapshots[-1].activity
+            delta_act = actual_activity - last_activity
+            if abs(delta_act) >= self._activity_shift_threshold:
+                direction = "升温" if delta_act > 0 else "降温"
+                title = "市场活跃度突变"
+                content = f"市场活跃度{direction}: {last_activity:.2f} → {actual_activity:.2f}"
+                payload = {
+                    "old_activity": last_activity,
+                    "new_activity": actual_activity,
+                    "delta": delta_act,
+                }
+                self._emit_attention_event(
+                    event_type="market_activity_shift",
+                    title=title,
+                    content=content,
+                    score=min(1.0, abs(delta_act)),
+                    payload=payload,
+                    market_time=self.current_market_time_str,
+                )
+
+        # 板块集中度突变事件
+        if self.snapshots and sector_weights:
+            last_snapshot = self.snapshots[-1]
+            last_weights = last_snapshot.sector_weights or {}
+            if last_weights:
+                last_top = max(last_weights.values()) if last_weights else 0
+                last_total = sum(last_weights.values()) if last_weights else 1
+                last_conc = last_top / last_total if last_total > 0 else 0
+            else:
+                last_conc = 0
+            new_top = max(sector_weights.values()) if sector_weights else 0
+            new_total = sum(sector_weights.values()) if sector_weights else 1
+            new_conc = new_top / new_total if new_total > 0 else 0
+            delta_conc = new_conc - last_conc
+            if abs(delta_conc) >= self._concentration_shift_threshold:
+                direction = "集中" if delta_conc > 0 else "分散"
+                title = "板块集中度突变"
+                content = f"资金{direction}: {last_conc:.2f} → {new_conc:.2f}"
+                payload = {
+                    "old_concentration": last_conc,
+                    "new_concentration": new_conc,
+                    "delta": delta_conc,
+                }
+                self._emit_attention_event(
+                    event_type="sector_concentration_shift",
+                    title=title,
+                    content=content,
+                    score=min(1.0, abs(delta_conc)),
                     payload=payload,
                     market_time=self.current_market_time_str,
                 )
