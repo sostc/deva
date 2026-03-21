@@ -220,7 +220,7 @@ class AttentionHistoryTracker:
             message=content,
             payload=payload or {},
         )
-        self._emit_to_memory(
+        self._emit_to_insight(
             timestamp=now_ts,
             title=title,
             content=content,
@@ -256,7 +256,7 @@ class AttentionHistoryTracker:
         except Exception:
             return
 
-    def _emit_to_memory(
+    def _emit_to_insight(
         self,
         *,
         timestamp: float,
@@ -268,23 +268,29 @@ class AttentionHistoryTracker:
         market_time: str = "",
     ) -> None:
         try:
-            from deva.naja.memory import get_memory_engine
+            from deva.naja.insight import get_insight_engine
         except Exception:
             return
         try:
-            memory = get_memory_engine()
-            record = {
-                "timestamp": timestamp,
-                "source": "attention:history_tracker",
-                "title": title,
+            insight = get_insight_engine()
+            signal = {
+                "source": "attention",
+                "signal_type": "attention_history",
+                "score": payload.get("score", 0.5),
                 "content": content,
-                "symbol": symbol,
-                "sector": sector,
-                "market_time": market_time,
-                "payload": payload,
-                "importance": "high",
+                "raw_data": {
+                    "symbol": symbol,
+                    "sector": sector,
+                    "market_time": market_time,
+                    "payload": payload,
+                },
+                "timestamp": timestamp,
+                "metadata": {
+                    "title": title,
+                    "source": "attention_history_tracker",
+                },
             }
-            memory.process_record(record)
+            insight.ingest_signal(signal)
         except Exception:
             return
 

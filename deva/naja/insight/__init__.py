@@ -1,5 +1,8 @@
-"""Insight module: presentation-layer attention."""
+"""Insight Engine - 思考层"""
 
-from .engine import Insight, InsightPool, get_insight_pool
+from .engine import InsightEngine, get_insight_engine
 
-__all__ = ["Insight", "InsightPool", "get_insight_pool"]
+__all__ = [
+    "InsightEngine",
+    "get_insight_engine",
+]
