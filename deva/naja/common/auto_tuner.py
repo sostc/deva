@@ -86,6 +86,8 @@ class AutoTuner:
         self._llm_queue: deque = deque(maxlen=100)
         self._last_llm_call_ts = 0
         self._llm_cooldown = 300
+        self._startup_grace_period = 300
+        self._startup_time = time.time()
         # 待处理的 LLM 调优请求（合并用）
         self._pending_llm_issues: List[Dict] = []
         self._register_all_conditions()
@@ -291,6 +293,8 @@ class AutoTuner:
         return None
 
     def _check_datasource_delay(self) -> Optional[Dict]:
+        if time.time() - self._startup_time < self._startup_grace_period:
+            return None
         try:
             from deva.naja.datasource import get_datasource_manager
             from deva.naja.common.recoverable import UnitStatus
@@ -380,38 +384,41 @@ class AutoTuner:
                 # 高错误率：增加间隔
                 if error_rate > 0.5:
                     new_interval = min(current_interval * 2, 300)  # 最大 5 分钟
-                    ds.update_config(interval=new_interval)
-                    adjusted.append({
-                        'id': ds.id,
-                        'name': ds.name,
-                        'old_interval': current_interval,
-                        'new_interval': new_interval,
-                        'error_rate': error_rate,
-                        'reason': f'错误率过高({error_rate:.1%})，自动增加执行间隔'
-                    })
+                    if new_interval != current_interval:
+                        ds.update_config(interval=new_interval)
+                        adjusted.append({
+                            'id': ds.id,
+                            'name': ds.name,
+                            'old_interval': current_interval,
+                            'new_interval': new_interval,
+                            'error_rate': error_rate,
+                            'reason': f'错误率过高({error_rate:.1%})，自动增加执行间隔'
+                        })
                 elif error_rate > threshold:
                     new_interval = min(current_interval * 1.5, 300)
-                    ds.update_config(interval=new_interval)
-                    adjusted.append({
-                        'id': ds.id,
-                        'name': ds.name,
-                        'old_interval': current_interval,
-                        'new_interval': new_interval,
-                        'error_rate': error_rate,
-                        'reason': f'错误率较高({error_rate:.1%})，自动增加执行间隔'
-                    })
+                    if new_interval != current_interval:
+                        ds.update_config(interval=new_interval)
+                        adjusted.append({
+                            'id': ds.id,
+                            'name': ds.name,
+                            'old_interval': current_interval,
+                            'new_interval': new_interval,
+                            'error_rate': error_rate,
+                            'reason': f'错误率较高({error_rate:.1%})，自动增加执行间隔'
+                        })
                 # 低错误率且间隔较大：可以尝试减少间隔
                 elif error_rate < 0.05 and current_interval > 10:
                     new_interval = max(current_interval * 0.9, 5)  # 最小 5 秒
-                    ds.update_config(interval=new_interval)
-                    adjusted.append({
-                        'id': ds.id,
-                        'name': ds.name,
-                        'old_interval': current_interval,
-                        'new_interval': new_interval,
-                        'error_rate': error_rate,
-                        'reason': f'运行稳定(错误率{error_rate:.1%})，自动优化执行间隔'
-                    })
+                    if new_interval != current_interval:
+                        ds.update_config(interval=new_interval)
+                        adjusted.append({
+                            'id': ds.id,
+                            'name': ds.name,
+                            'old_interval': current_interval,
+                            'new_interval': new_interval,
+                            'error_rate': error_rate,
+                            'reason': f'运行稳定(错误率{error_rate:.1%})，自动优化执行间隔'
+                        })
 
             if adjusted:
                 details = ", ".join([f"{d['name']}({d['old_interval']:.0f}s→{d['new_interval']:.0f}s)" for d in adjusted[:3]])
@@ -448,6 +455,7 @@ class AutoTuner:
         def _async_llm():
             try:
                 from deva.naja.llm_controller import get_llm_controller
+                from deva.llm.worker_runtime import run_ai_in_worker
                 controller = get_llm_controller()
 
                 param = issue.get('param', 'unknown')
@@ -456,9 +464,11 @@ class AutoTuner:
 
                 log.info(f"[AutoTuner] 调用 LLM 调优: {param}, 原因: {reason}")
 
-                result = controller.review_and_adjust(
-                    window_seconds=600,
-                    dry_run=False
+                result = run_sync_in_worker(
+                    controller.review_and_adjust(
+                        window_seconds=600,
+                        dry_run=False
+                    )
                 )
 
                 if result.get('success'):
@@ -512,6 +522,7 @@ class AutoTuner:
         def _async_llm_batch():
             try:
                 from deva.naja.llm_controller import get_llm_controller
+                from deva.llm.worker_runtime import run_ai_in_worker
                 controller = get_llm_controller()
 
                 params = ", ".join([f"{i.get('param', 'unknown')}({i.get('reason', '')[:30]})" for i in issues[:5]])
@@ -519,9 +530,11 @@ class AutoTuner:
                     params += f" 等{len(issues)}项"
                 log.info(f"[AutoTuner] 批量调用 LLM 调优 ({len(issues)} 项): {params}")
 
-                result = controller.review_and_adjust(
-                    window_seconds=600,
-                    dry_run=False
+                result = run_sync_in_worker(
+                    controller.review_and_adjust(
+                        window_seconds=600,
+                        dry_run=False
+                    )
                 )
 
                 if result.get('success'):
@@ -562,12 +575,16 @@ class AutoTuner:
         log.info("自动调优器已停止")
 
     def _check_loop(self):
+        time.sleep(60)
         while self._running:
             if self._enabled:
                 self._perform_checks()
             time.sleep(60)
 
     def _perform_checks(self):
+        if time.time() - self._startup_time < self._startup_grace_period:
+            return
+
         check_methods = [
             self._check_thread_pool,
             self._check_thread_pool_rejected,
@@ -588,6 +605,10 @@ class AutoTuner:
                     all_issues.append(result)
             except Exception as e:
                 log.error(f"调优检查失败: {method.__name__}, {e}")
+
+        if self._pending_llm_issues:
+            all_issues.extend(self._pending_llm_issues)
+            self._pending_llm_issues.clear()
 
         # 分类处理：自动执行的立即执行，需要 LLM 的收集起来
         llm_issues = []

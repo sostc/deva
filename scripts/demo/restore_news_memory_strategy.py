@@ -31,9 +31,9 @@ def restore_news_memory_strategy():
 import sys
 sys.path.insert(0, '/Users/spark/pycharmproject/deva')
 
-from deva.naja.memory import get_memory_engine
+from deva.naja.cognition import get_cognition_engine
 
-_radar = get_memory_engine()
+_radar = get_cognition_engine()
 
 def process(data):
     """

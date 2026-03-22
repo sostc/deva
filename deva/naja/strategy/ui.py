@@ -321,35 +321,28 @@ def _render_strategy_content(ctx: dict):
     _t0 = time_module.time()
     mgr = get_strategy_manager()
     _t1 = time_module.time()
-    print(f"[PERF] get_strategy_manager: {(_t1-_t0)*1000:.1f}ms")
-    
+
     store = get_result_store()
     _t2 = time_module.time()
-    print(f"[PERF] get_result_store: {(_t2-_t1)*1000:.1f}ms")
 
     _t3 = time_module.time()
     entries = mgr.list_all()
     _t4 = time_module.time()
-    print(f"[PERF] mgr.list_all(): {(_t4-_t3)*1000:.1f}ms, count={len(entries)}")
-    
+
     stats = mgr.get_stats()
     _t5 = time_module.time()
-    print(f"[PERF] mgr.get_stats(): {(_t5-_t4)*1000:.1f}ms")
-    
+
     result_stats = store.get_stats()
     _t6 = time_module.time()
-    print(f"[PERF] store.get_stats(): {(_t6-_t5)*1000:.1f}ms")
 
     running_count = sum(1 for e in entries if e.is_running)
     error_count = sum(1 for e in entries if e._state.error_count > 0)
 
     clear("strategy_content")
     _t7 = time_module.time()
-    print(f"[PERF] clear scope: {(_t7-_t6)*1000:.1f}ms")
 
     apply_strategy_like_styles(ctx, scope="strategy_content", include_compact_table=True, include_category_tabs=True)
     _t8 = time_module.time()
-    print(f"[PERF] apply_styles: {(_t8-_t7)*1000:.1f}ms")
 
     ctx["put_html"](_render_strategy_stats_html(
         stats, running_count, error_count), scope="strategy_content")
@@ -372,7 +365,6 @@ def _render_strategy_content(ctx: dict):
     categories = _get_all_categories(entries)
     _render_category_tabs(ctx, categories, entries, mgr)
     _t9 = time_module.time()
-    print(f"[PERF] render category tabs: {(_t9-_t8)*1000:.1f}ms")
 
     # 根据当前类别筛选策略
     if _current_category == "全部":
@@ -384,8 +376,7 @@ def _render_strategy_content(ctx: dict):
         _t10 = time_module.time()
         table_data = _build_table_data(ctx, filtered_entries, mgr)
         _t11 = time_module.time()
-        print(f"[PERF] _build_table_data: {(_t11-_t10)*1000:.1f}ms, entries={len(filtered_entries)}")
-        
+
         ctx["put_table"](table_data, header=["名称", "类型", "状态", "数据源", "简介",
                                              "最近数据", "操作"], scope="strategy_content")
 
@@ -420,8 +411,7 @@ def _render_strategy_content(ctx: dict):
 
     _t12 = time_module.time()
     total_time_ms = (_t12-_perf_start)*1000
-    print(f"[PERF] TOTAL _render_strategy_content: {total_time_ms:.1f}ms")
-    
+
     # 记录 Web 请求性能
     try:
         from ..performance import record_web_request
@@ -604,14 +594,9 @@ def _build_table_data(ctx: dict, entries: list, mgr) -> list:
             ctx["put_html"](f'<span style="font-size:12px;color:#666;white-space:nowrap;">{recent_data}</span>'),
             actions,
         ])
-        
-        _entry_end = time_module.time()
-        if idx < 3:  # 只打印前3个条目的日志，避免日志过多
-            print(f"[PERF] entry[{idx}] {e.name}: {(_entry_end-_entry_start)*1000:.1f}ms")
 
     _table_end = time_module.time()
-    print(f"[PERF] _build_table_data TOTAL: {(_table_end-_table_start)*1000:.1f}ms, entries={len(entries)}")
-    
+
     return table_data
 
 

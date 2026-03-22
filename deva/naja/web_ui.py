@@ -20,8 +20,23 @@ from pywebio.platform.tornado import webio_handler
 from deva import NW, Deva, NB
 from .config import get_auth_config, set_config, ensure_auth_secret
 
-# 导入记忆系统UI
-from .memory.ui import NewsRadarUI
+_request_theme = None
+
+
+def get_request_theme():
+    """获取请求中的主题（从 Cookie 读取）"""
+    global _request_theme
+    return _request_theme
+
+
+def set_request_theme(theme_name: str):
+    """设置请求中的主题"""
+    global _request_theme
+    _request_theme = theme_name
+
+# 导入认知系统UI
+from .cognition.ui import CognitionUI
+from .radar.ui import RadarUI
 from .performance import PerformanceMonitorUI
 
 
@@ -319,19 +334,46 @@ async def strategyadmin():
 
 
 async def radaradmin():
-    """市场偏好雷达 - 技术偏好变化检测"""
-    from .radar.ui import render_radar_admin
+    """雷达感知层"""
+    from pywebio.session import eval_js
+    try:
+        theme = await eval_js("document.cookie.includes('naja-theme=') ? document.cookie.split('naja-theme=')[1].split(';')[0] : null")
+        if theme:
+            set_request_theme(theme)
+    except:
+        pass
+    from .radar.ui import RadarUI
     ctx = _ctx()
-    await ctx["init_naja_ui"]("市场偏好雷达")
-    return await render_radar_admin(ctx)
+    await ctx["init_naja_ui"]("雷达")
+    ui = RadarUI()
+    ui.render()
 
 
 async def insightadmin():
-    """洞察中心 - 用户注意力输出"""
-    from .insight.ui import render_insight_page
+    """洞察中心已整合到认知页面"""
     ctx = _ctx()
-    await ctx["init_naja_ui"]("洞察中心")
-    return await render_insight_page(ctx)
+    await ctx["init_naja_ui"]("认知")
+    ui = CognitionUI()
+    ui.render()
+
+
+async def cognition_page():
+    """认知中枢页面"""
+    from pywebio.session import eval_js
+    try:
+        theme = await eval_js("document.cookie.includes('naja-theme=') ? document.cookie.split('naja-theme=')[1].split(';')[0] : null")
+        if theme:
+            set_request_theme(theme)
+    except:
+        pass
+    ui = CognitionUI()
+    ui.render()
+
+
+def memory_page():
+    """兼容旧入口：重定向到认知页面"""
+    ui = CognitionUI()
+    ui.render()
 
 
 async def llmadmin():
@@ -352,22 +394,30 @@ async def banditadmin():
 
 async def attentionadmin():
     """注意力调度系统"""
+    from pywebio.session import eval_js
+    try:
+        theme = await eval_js("document.cookie.includes('naja-theme=') ? document.cookie.split('naja-theme=')[1].split(';')[0] : null")
+        if theme:
+            set_request_theme(theme)
+    except:
+        pass
+
     ctx = _ctx()
     await ctx["init_naja_ui"]("注意力调度系统")
 
     # 默认使用 ui.py，通过URL参数切换到 V2 版本
     from pywebio.session import eval_js
+    url_params = None
     try:
         url_params = await eval_js("new URLSearchParams(window.location.search).get('ui')")
     except:
-        url_params = None
+        pass
 
     if url_params == 'v2':
-        from .attention.ui_v2 import render_attention_admin_v2
-        await render_attention_admin_v2(ctx)
-    else:
-        from .attention.ui import render_attention_admin
-        await render_attention_admin(ctx)
+        toast("V2 UI 已合并到主版本", color="info")
+
+    from .attention.ui import render_attention_admin
+    await render_attention_admin(ctx)
 
 
 async def dictadmin():
@@ -403,8 +453,15 @@ def memory_page():
     ui.render()
 
 
-def performance_page():
+async def performance_page():
     """性能监控页面"""
+    from pywebio.session import eval_js
+    try:
+        theme = await eval_js("document.cookie.includes('naja-theme=') ? document.cookie.split('naja-theme=')[1].split(';')[0] : null")
+        if theme:
+            set_request_theme(theme)
+    except:
+        pass
     ui = PerformanceMonitorUI()
     ui.render()
 
@@ -420,6 +477,7 @@ def create_handlers(cdn: str = None):
 
     return [
         (r'/', webio_handler(main, cdn=cdn_url)),
+        (r'/cognition', webio_handler(cognition_page, cdn=cdn_url)),
         (r'/memory', webio_handler(memory_page, cdn=cdn_url)),
         (r'/insight', webio_handler(insightadmin, cdn=cdn_url)),
         (r'/performance', webio_handler(performance_page, cdn=cdn_url)),
