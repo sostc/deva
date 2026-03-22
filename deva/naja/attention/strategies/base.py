@@ -262,6 +262,11 @@ class AttentionStrategyBase(ABC):
         将信号转发到 Bandit 系统
         
         Bandit 会监听这些信号并创建虚拟持仓
+        
+        同时启动 AttentionTracker 跟踪:
+        - 只要注意力系统识别到内容，就开始跟踪价格变化
+        - 不需要实际成交
+        - 形成持续的学习反馈
         """
         try:
             # 只转发 buy/sell 信号
@@ -304,8 +309,61 @@ class AttentionStrategyBase(ABC):
             # 发送到信号流
             stream.update(result)
             
+            # 启动 AttentionTracker 跟踪
+            # 这是用户新思路的核心: 不需要成交，只要注意力选中就开始跟踪
+            self._track_attention_signal(signal)
+            
         except Exception as e:
             # 转发失败不影响策略执行
+            pass
+    
+    def _track_attention_signal(self, signal: Signal):
+        """
+        启动 AttentionTracker 跟踪注意力信号
+
+        实现用户思路:
+        - 只要注意力系统识别到内容，就去关注它的价格变化
+        - 形成持续的反馈学习
+        - 回放模式下也会创建跟踪，由 PriceMonitor 后续更新价格
+        """
+        try:
+            from deva.naja.attention.tracker import get_attention_tracker
+
+            tracker = get_attention_tracker()
+
+            price = 0.0
+            if signal.metadata:
+                price = float(signal.metadata.get('price', signal.metadata.get('current', 0)))
+
+            sector_id = signal.metadata.get('sector_id', '') if signal.metadata else ''
+
+            # 如果价格为空，先尝试从实时行情获取
+            if price <= 0:
+                try:
+                    from deva import NB
+                    db = NB("naja_realtime_quotes")
+                    quote = db.get(signal.symbol)
+                    if isinstance(quote, dict):
+                        price = float(quote.get('price', quote.get('now', quote.get('current', 0))))
+                except Exception:
+                    pass
+
+            # 即使价格为空也创建跟踪，让 PriceMonitor 后续更新
+            # 回放模式下 PriceMonitor 会收到 tick 数据并更新价格
+            tracker.track_attention(
+                symbol=signal.symbol,
+                sector_id=sector_id,
+                strategy_id=self.strategy_id,
+                strategy_name=self.name,
+                attention_score=signal.score,
+                prediction_score=signal.confidence,
+                action=signal.signal_type.upper(),
+                entry_price=price,
+                market_state=signal.metadata.get('market_state', 'unknown') if signal.metadata else 'unknown',
+            )
+
+        except Exception as e:
+            # 跟踪失败不影响策略执行
             pass
     
     def _forward_signal_to_stream(self, signal: Signal):

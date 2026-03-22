@@ -455,7 +455,7 @@ class AutoTuner:
         def _async_llm():
             try:
                 from deva.naja.llm_controller import get_llm_controller
-                from deva.llm.worker_runtime import run_ai_in_worker
+                from deva.llm.worker_runtime import run_ai_in_worker, run_sync_in_worker
                 controller = get_llm_controller()
 
                 param = issue.get('param', 'unknown')
@@ -522,7 +522,7 @@ class AutoTuner:
         def _async_llm_batch():
             try:
                 from deva.naja.llm_controller import get_llm_controller
-                from deva.llm.worker_runtime import run_ai_in_worker
+                from deva.llm.worker_runtime import run_ai_in_worker, run_sync_in_worker
                 controller = get_llm_controller()
 
                 params = ", ".join([f"{i.get('param', 'unknown')}({i.get('reason', '')[:30]})" for i in issues[:5]])

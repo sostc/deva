@@ -150,7 +150,7 @@ def render_market_state_panel() -> str:
         for sector_id, weight in hot_sectors:
             sector_name = tracker.get_sector_name(sector_id)
             bar_width = min(weight * 20, 100)
-            html += f"""<div style="background: #f1f5f9; border-radius: 8px; padding: 8px 12px; min-width: 120px;"><div style="font-size: 12px; color: #64748b;">{sector_name}</div><div style="display: flex; align-items: center; gap: 8px; margin-top: 4px;"><div style="background: {config['color']}; height: 6px; border-radius: 3px; width: {bar_width}px; min-width: 6px;"></div><span style="font-size: 12px; font-weight: 600; color: #1e293b;">{weight:.2f}</span></div></div>"""
+            html += f"""<div style="background: #f1f5f9; border-radius: 8px; padding: 10px 14px; min-width: 140px;"><div style="font-size: 14px; font-weight: 600; color: #1e293b;">{sector_name}</div><div style="display: flex; align-items: center; gap: 8px; margin-top: 6px;"><div style="background: {config['color']}; height: 6px; border-radius: 3px; width: {bar_width}px; min-width: 6px;"></div><span style="font-size: 13px; font-weight: 600; color: #1e293b;">{weight:.2f}</span></div></div>"""
         html += "</div></div>"
 
     if hot_symbols:

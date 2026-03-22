@@ -473,30 +473,91 @@ class BanditUpdater:
 class AttentionFeedbackLoop:
     """
     注意力反馈循环主控制器
-    
+
     整合:
     - FeedbackCollector: 收集反馈
     - AttentionEffectivenessAnalyzer: 分析有效性
     - BanditUpdater: 在线学习
-    
+
     数据流:
     Strategy执行结果 → FeedbackCollector → EffectivenessAnalyzer →
     BanditUpdater → Attention权重调整
+
+    修复内容:
+    - 添加异步批量更新机制，避免同步阻塞
+    - 添加冷却期控制更新频率
     """
-    
+
     def __init__(
         self,
         store_path: Optional[str] = None,
         enable_bandit: bool = True,
-        enable_effectiveness: bool = True
+        enable_effectiveness: bool = True,
+        update_interval: int = 10,
+        batch_size: int = 100
     ):
         self.collector = FeedbackCollector(store_path=store_path)
         self.analyzer = AttentionEffectivenessAnalyzer()
         self.bandit = BanditUpdater() if enable_bandit else None
         self.enable_effectiveness = enable_effectiveness
-        
+
         self._last_adjustment: Dict[str, float] = {}
         self._adjustment_history: List[Dict] = []
+
+        self._pending_updates: deque = deque(maxlen=10000)
+        self._update_interval = update_interval
+        self._batch_size = batch_size
+        self._tick_counter = 0
+        self._last_batch_update_time = 0.0
+        self._lock_update = False
+
+    def _should_update(self) -> bool:
+        """检查是否应该执行批量更新"""
+        if self._lock_update:
+            return False
+
+        self._tick_counter += 1
+        if self._tick_counter >= self._update_interval:
+            self._tick_counter = 0
+            return True
+
+        return False
+
+    def _do_batch_update(self):
+        """执行批量更新"""
+        if self._lock_update:
+            return
+
+        self._lock_update = True
+
+        try:
+            if len(self._pending_updates) == 0:
+                return
+
+            updates_to_process = list(self._pending_updates)
+            self._pending_updates.clear()
+
+            if self.enable_effectiveness:
+                for update in updates_to_process:
+                    pass
+
+            self.analyzer.analyze(self.collector)
+
+            if self.bandit:
+                for update in updates_to_process:
+                    self.bandit.update(
+                        update['attention'],
+                        update['prediction'],
+                        update.get('volatility', 0.0),
+                        update.get('volume_ratio', 1.0),
+                        update.get('trend', 0.0),
+                        update['reward']
+                    )
+
+            self._last_batch_update_time = time.time()
+
+        finally:
+            self._lock_update = False
         
     def record_outcome(
         self,
@@ -515,7 +576,9 @@ class AttentionFeedbackLoop:
         trend: float = 0.0
     ) -> StrategyOutcome:
         """
-        记录一次策略执行结果并更新学习
+        记录一次策略执行结果（异步批量更新）
+
+        不再同步执行分析器和 bandit 更新，而是加入待处理队列
         """
         outcome = self.collector.record(
             strategy_id=strategy_id,
@@ -529,35 +592,168 @@ class AttentionFeedbackLoop:
             holding_period=holding_period,
             market_state=market_state
         )
-        
+
+        reward = self._calc_reward(pnl, holding_period)
+
+        self._pending_updates.append({
+            'attention': attention_before,
+            'prediction': prediction_score,
+            'volatility': volatility,
+            'volume_ratio': volume_ratio,
+            'trend': trend,
+            'reward': reward,
+            'strategy_id': strategy_id,
+            'symbol': symbol
+        })
+
+        if self._should_update():
+            self._do_batch_update()
+
+        return outcome
+    
+    def _calc_reward(self, pnl: float, holding_period: int) -> float:
+        """
+        计算奖励
+
+        归一化到 [-1, 1]
+        """
+        pnl_norm = np.clip(pnl / 0.1, -1, 1)
+
+        time_penalty = holding_period / 100.0
+
+        return pnl_norm - time_penalty * 0.1
+
+    def record_observation(
+        self,
+        symbol: str,
+        sector_id: str,
+        strategy_id: str,
+        attention_score: float,
+        prediction_score: float,
+        action: str,
+        entry_price: float,
+        exit_price: float,
+        holding_seconds: float,
+        market_state: str = "unknown",
+        max_favorable_move: float = 0.0,
+        max_adverse_move: float = 0.0,
+    ) -> StrategyOutcome:
+        """
+        记录一次观察结果（不需要实际成交）
+
+        这是用户新思路的核心:
+        - 只要注意力系统识别到内容，就开始跟踪
+        - 不需要实际买入
+        - 根据价格变化形成反馈
+
+        Args:
+            symbol: 股票代码
+            sector_id: 板块ID
+            strategy_id: 策略ID
+            attention_score: 注意力分数
+            prediction_score: 预测分数
+            action: 动作
+            entry_price: 入场价格
+            exit_price: 出场价格
+            holding_seconds: 持仓时长（秒）
+            market_state: 市场状态
+            max_favorable_move: 最大有利移动
+            max_adverse_move: 最大不利移动
+
+        Returns:
+            StrategyOutcome
+        """
+        pnl = (exit_price - entry_price) / entry_price * 100 if entry_price > 0 else 0
+
+        outcome = self.collector.record(
+            strategy_id=strategy_id,
+            symbol=symbol,
+            sector_id=sector_id,
+            attention_before=attention_score,
+            attention_after=attention_score,
+            prediction_score=prediction_score,
+            action=action,
+            pnl=pnl,
+            holding_period=int(holding_seconds),
+            market_state=market_state
+        )
+
         if self.enable_effectiveness:
             self.analyzer.analyze(self.collector)
-        
+
         if self.bandit:
-            reward = self._calc_reward(pnl, holding_period)
+            volatility = abs(max_adverse_move) / 10.0 if max_adverse_move != 0 else 0
+            volume_ratio = 1.0 + abs(max_favorable_move) / 100.0
+            trend = max_favorable_move - abs(max_adverse_move)
+
+            reward = self._calc_reward(pnl, int(holding_seconds))
+
             self.bandit.update(
-                attention_before,
+                attention_score,
                 prediction_score,
                 volatility,
                 volume_ratio,
                 trend,
                 reward
             )
-        
+
         return outcome
-    
-    def _calc_reward(self, pnl: float, holding_period: int) -> float:
+
+    def record_price_feedback(
+        self,
+        symbol: str,
+        attention_score: float,
+        prediction_score: float,
+        current_price: float,
+        entry_price: float,
+        holding_seconds: float,
+        market_state: str = "unknown",
+        is_new_high: bool = False,
+        is_new_low: bool = False,
+    ) -> Optional[float]:
         """
-        计算奖励
-        
-        归一化到 [-1, 1]
+        记录实时价格反馈（不需要等待观察结束）
+
+        用于持续学习:
+        - 每次价格更新都可以形成小的反馈
+        - 加速学习，收敛更快
+
+        Args:
+            symbol: 股票代码
+            attention_score: 注意力分数
+            prediction_score: 预测分数
+            current_price: 当前价格
+            entry_price: 入场价格
+            holding_seconds: 持仓时长
+            market_state: 市场状态
+            is_new_high: 是否创新高
+            is_new_low: 是否创新低
+
+        Returns:
+            reward 值或 None
         """
-        pnl_norm = np.clip(pnl / 0.1, -1, 1)
-        
-        time_penalty = holding_period / 100.0
-        
-        return pnl_norm - time_penalty * 0.1
-    
+        if not self.bandit:
+            return None
+
+        pnl = (current_price - entry_price) / entry_price * 100 if entry_price > 0 else 0
+
+        volatility = 0.5 if is_new_low else (0.3 if is_new_high else 0.1)
+        volume_ratio = 1.0
+        trend = pnl / 100.0
+
+        reward = self._calc_reward(pnl, int(holding_seconds))
+
+        self.bandit.update(
+            attention_score,
+            prediction_score,
+            volatility,
+            volume_ratio,
+            trend,
+            reward
+        )
+
+        return reward
+
     def get_attention_adjustment(
         self,
         symbol: str,
