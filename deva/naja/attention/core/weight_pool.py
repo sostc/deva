@@ -35,41 +35,50 @@ class SymbolWeightConfig:
 class WeightPool:
     """
     多对多权重池
-    
+
     权重计算:
     symbol_weight = f(sector_attention, local_activity)
-    
+
     其中:
     - sector_attention: 来自 SectorAttentionEngine
     - local_activity: 个股波动、成交量变化、tick 异动
+
+    修复内容:
+    - 添加历史字典key清理机制，防止内存泄漏
     """
-    
+
     def __init__(
         self,
         max_symbols: int = 5000,
-        config: Optional[SymbolWeightConfig] = None
+        config: Optional[SymbolWeightConfig] = None,
+        max_history_stale_seconds: float = 3600.0
     ):
         self.max_symbols = max_symbols
         self.config = config or SymbolWeightConfig()
-        
+        self.max_history_stale_seconds = max_history_stale_seconds
+
         # Symbol 映射
         self._symbol_to_idx: Dict[str, int] = {}
         self._idx_to_symbol: Dict[int, str] = {}
         self._symbol_sectors: Dict[str, List[str]] = defaultdict(list)
-        
+
         # 预分配权重数组
         self._weights = np.zeros(max_symbols)
-        self._base_weights = np.ones(max_symbols)  # 基础权重
+        self._base_weights = np.ones(max_symbols)
         self._local_activity = np.zeros(max_symbols)
-        
+
         # 缓存 sector 注意力
         self._sector_attention: Dict[str, float] = {}
-        
+
         # 局部活动历史 (用于计算 local_activity)
-        self._price_history: Dict[str, List[float]] = defaultdict(list)
-        self._volume_history: Dict[str, List[float]] = defaultdict(list)
+        # 修复：使用带时间戳的字典，支持自动清理
+        self._price_history: Dict[str, List[float]] = {}
+        self._volume_history: Dict[str, List[float]] = {}
+        self._symbol_last_seen: Dict[str, float] = {}  # 跟踪symbol最后活跃时间
         self._history_window = 10
-        
+        self._cleanup_counter = 0
+        self._cleanup_interval = 100  # 每100次update清理一次
+
         self._last_update_time = 0.0
     
     def register_symbol(self, symbol: str, sectors: List[str], base_weight: float = 1.0) -> bool:
@@ -155,26 +164,54 @@ class WeightPool:
         returns: np.ndarray,
         volumes: np.ndarray
     ):
-        """更新个股局部活动度"""
+        """更新个股局部活动度（带自动清理）"""
+        current_time = time.time()
+
         for i, symbol in enumerate(symbols):
             symbol_str = str(symbol)
             if symbol_str not in self._symbol_to_idx:
                 continue
-            
+
             idx = self._symbol_to_idx[symbol_str]
-            
-            # 更新历史
+
+            if symbol_str not in self._price_history:
+                self._price_history[symbol_str] = []
+                self._volume_history[symbol_str] = []
+
             self._price_history[symbol_str].append(float(returns[i]))
             self._volume_history[symbol_str].append(float(volumes[i]))
-            
-            # 限制历史长度
+            self._symbol_last_seen[symbol_str] = current_time
+
             if len(self._price_history[symbol_str]) > self._history_window:
                 self._price_history[symbol_str] = self._price_history[symbol_str][-self._history_window:]
                 self._volume_history[symbol_str] = self._volume_history[symbol_str][-self._history_window:]
-            
-            # 计算局部活动度
+
             activity = self._calc_local_activity(symbol_str)
             self._local_activity[idx] = activity
+
+        self._cleanup_counter += 1
+        if self._cleanup_counter >= self._cleanup_interval:
+            self._cleanup_stale_history(current_time)
+
+    def _cleanup_stale_history(self, current_time: float):
+        """清理长期不活跃symbol的历史数据，防止内存泄漏"""
+        stale_symbols = [
+            symbol for symbol, last_seen in self._symbol_last_seen.items()
+            if current_time - last_seen > self.max_history_stale_seconds
+        ]
+
+        for symbol in stale_symbols:
+            if symbol in self._price_history:
+                del self._price_history[symbol]
+            if symbol in self._volume_history:
+                del self._volume_history[symbol]
+            if symbol in self._symbol_last_seen:
+                del self._symbol_last_seen[symbol]
+
+        if stale_symbols:
+            log.info(f"[WeightPool] 清理了 {len(stale_symbols)} 个不活跃symbol的历史数据")
+
+        self._cleanup_counter = 0
     
     def _calc_local_activity(self, symbol: str) -> float:
         """
@@ -294,6 +331,8 @@ class WeightPool:
         self._sector_attention.clear()
         self._price_history.clear()
         self._volume_history.clear()
+        self._symbol_last_seen.clear()
+        self._cleanup_counter = 0
 
 
 class WeightPoolView:
