@@ -11,10 +11,11 @@ snapshot → Global Attention → Sector Attention → Weight Pool →
 
 import numpy as np
 from typing import Dict, List, Optional, Any, Tuple, Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import time
 import asyncio
 import logging
+import threading
 
 log = logging.getLogger(__name__)
 
@@ -33,74 +34,138 @@ except ImportError:
 @dataclass
 class AttentionSystemConfig:
     """注意力系统配置"""
-    # 全局注意力
     global_history_window: int = 20
-    
-    # 板块注意力
     max_sectors: int = 100
     sector_decay_half_life: float = 300.0
-    
-    # 权重池
     max_symbols: int = 5000
-    
-    # 频率调度
     low_interval: float = 60.0
     medium_interval: float = 10.0
     high_interval: float = 1.0
-    
-    # 双引擎
     river_history_window: int = 20
     pytorch_max_concurrent: int = 10
+
+
+@dataclass
+class StepResult:
+    """Pipeline步骤结果（用于优雅降级）"""
+    success: bool
+    data: Any = None
+    error: str = ""
+    using_fallback: bool = False
+
+
+@dataclass
+class FallbackConfig:
+    """降级配置"""
+    enable_graceful_degradation: bool = True
+    max_consecutive_failures: int = 3
+    circuit_breaker_timeout: float = 5.0
+    return_last_valid_result: bool = True
 
 
 class AttentionSystem:
     """
     注意力系统主控制器
-    
+
     职责:
     1. 协调所有子模块
     2. 处理市场数据快照
     3. 输出调度决策
     4. 监控性能指标
+
+    修复内容:
+    - 添加线程安全锁
+    - 添加优雅降级机制（熔断器模式）
+    - 各步骤独立错误处理
     """
-    
-    def __init__(self, config: Optional[AttentionSystemConfig] = None):
+
+    def __init__(self, config: Optional[AttentionSystemConfig] = None, fallback_config: Optional[FallbackConfig] = None):
         self.config = config or AttentionSystemConfig()
-        
-        # 初始化子模块
+        self.fallback_config = fallback_config or FallbackConfig()
+
         self.global_attention = GlobalAttentionEngine(
             history_window=self.config.global_history_window
         )
-        
+
         self.sector_attention = SectorAttentionEngine(
             max_sectors=self.config.max_sectors
         )
-        
+
         self.weight_pool = WeightPool(
             max_symbols=self.config.max_symbols
         )
-        
+
         self.frequency_scheduler = FrequencyScheduler(
             max_symbols=self.config.max_symbols
         )
-        
+
         self.frequency_controller = AdaptiveFrequencyController()
-        
+
         self.strategy_allocator = StrategyAllocator()
-        
+
         self.dual_engine = DualEngineCoordinator()
-        
+
         # 状态
         self._initialized = False
         self._last_snapshot_time = 0.0
         self._processing_count = 0
         self._total_latency = 0.0
-        
-        # 缓存
+
+        # 缓存（带线程安全）
+        self._cache_lock = threading.RLock()
         self._last_global_attention = 0.0
-        self._last_activity = 0.0  # 市场活跃度
+        self._last_activity = 0.0
         self._last_sector_attention: Dict[str, float] = {}
         self._last_symbol_weights: Dict[str, float] = {}
+
+        # 上次有效结果（用于降级）
+        self._last_valid_result: Optional[Dict[str, Any]] = None
+
+        # 熔断器状态
+        self._step_failures: Dict[str, int] = {}
+        self._step_circuit_open: Dict[str, float] = {}
+        self._default_results: Dict[str, Any] = {
+            'global_attention': 0.5,
+            'sector_attention': {},
+            'symbol_weights': {},
+            'frequency_levels': {},
+            'strategy_allocation': {},
+            'pattern_signals': [],
+            'market_state': {},
+        }
+
+    def _get_step_result(self, step_name: str, fallback_data: Any) -> Tuple[bool, Any]:
+        """检查熔断器状态，返回是否应该执行或使用降级结果"""
+        if not self.fallback_config.enable_graceful_degradation:
+            return True, None
+
+        current_time = time.time()
+        circuit_key = step_name
+
+        if circuit_key in self._step_circuit_open:
+            open_time = self._step_circuit_open[circuit_key]
+            if current_time - open_time < self.fallback_config.circuit_breaker_timeout:
+                return False, fallback_data
+            else:
+                del self._step_circuit_open[circuit_key]
+                self._step_failures[circuit_key] = 0
+
+        return True, None
+
+    def _record_step_success(self, step_name: str):
+        """记录步骤成功，重置失败计数"""
+        with self._cache_lock:
+            self._step_failures[step_name] = 0
+            if step_name in self._step_circuit_open:
+                del self._step_circuit_open[step_name]
+
+    def _record_step_failure(self, step_name: str):
+        """记录步骤失败，触发熔断"""
+        with self._cache_lock:
+            self._step_failures[step_name] = self._step_failures.get(step_name, 0) + 1
+            if self._step_failures[step_name] >= self.fallback_config.max_consecutive_failures:
+                self._step_circuit_open[step_name] = time.time()
+                log.warning(f"[AttentionSystem] 熔断器开启: {step_name}, 持续 {self.fallback_config.circuit_breaker_timeout}s")
     
     def initialize(
         self,
@@ -133,6 +198,20 @@ class AttentionSystem:
 
         self._initialized = True
     
+    def _get_fallback_for_step(self, step_name: str) -> Any:
+        """获取步骤的降级数据"""
+        fallbacks = {
+            'global_attention': lambda: (0.5, 0.5),
+            'sector_attention': lambda: {},
+            'symbol_weights': lambda: {},
+            'frequency_levels': lambda: {},
+            'strategy_allocation': lambda: self.strategy_allocator.get_allocation_summary() if hasattr(self.strategy_allocator, 'get_allocation_summary') else {},
+            'pattern_signals': lambda: [],
+            'market_state': lambda: {'attention': 0.5, 'activity': 0.5, 'trend': 'degraded', 'description': '降级模式运行'},
+        }
+        fallback_fn = fallbacks.get(step_name, lambda: None)
+        return fallback_fn()
+
     def process_snapshot(
         self,
         symbols: np.ndarray,
@@ -143,8 +222,8 @@ class AttentionSystem:
         timestamp: float
     ) -> Dict[str, Any]:
         """
-        处理市场快照
-        
+        处理市场快照（带优雅降级和线程安全）
+
         Args:
             symbols: 股票代码数组
             returns: 涨跌幅数组 (%)
@@ -152,133 +231,198 @@ class AttentionSystem:
             prices: 价格数组
             sector_ids: 板块ID数组
             timestamp: 时间戳
-            
+
         Returns:
             调度决策结果
         """
         if not self._initialized:
             raise RuntimeError("AttentionSystem not initialized. Call initialize() first.")
-        
+
         start_time = time.time()
+        result = {
+            'timestamp': timestamp,
+            'latency_ms': 0.0,
+            'global_attention': 0.5,
+            'sector_attention': {},
+            'symbol_weights': {},
+            'frequency_levels': {},
+            'strategy_allocation': {},
+            'pattern_signals': [],
+            'market_state': {},
+            'dual_engine_summary': {},
+            'degraded': False,
+            'degraded_steps': [],
+        }
 
-        try:
-            # Step 1: Global Attention
-            snapshot = MarketSnapshot(
-                symbols=symbols,
-                returns=returns,
-                volumes=volumes,
-                prices=prices,
-                sector_ids=sector_ids,
-                timestamp=timestamp
-            )
-            global_attention, activity = self.global_attention.get_attention_and_activity(snapshot)
-            self.global_attention.update(snapshot)  # 保持历史更新
-            self._last_global_attention = global_attention
-            self._last_activity = activity
-        except Exception as e:
-            import traceback
-            log.error(f"[Step 1 GlobalAttention] 失败: {e}")
-            log.error(traceback.format_exc())
-            raise
+        global_attention = 0.5
+        activity = 0.5
+        sector_attention = {}
+        symbol_weights = {}
+        frequency_levels = {}
 
-        try:
-            # Step 2: Sector Attention
-            sector_attention = self.sector_attention.update(
-                symbols, returns, volumes, timestamp
-            )
-            self._last_sector_attention = sector_attention
-        except Exception as e:
-            import traceback
-            log.error(f"[Step 2 SectorAttention] 失败: {e}")
-            log.error(traceback.format_exc())
-            raise
-
-        try:
-            # Step 3: Weight Pool
-            symbol_weights = self.weight_pool.update(
-                symbols, returns, volumes, sector_attention, timestamp
-            )
-            self._last_symbol_weights = symbol_weights
-        except Exception as e:
-            import traceback
-            log.error(f"[Step 3 WeightPool] 失败: {e}")
-            log.error(traceback.format_exc())
-            raise
-
-        try:
-            # Step 4: Frequency Scheduler
-            # 根据 global_attention 调整频率配置
-            freq_config = self.frequency_controller.adapt(global_attention, timestamp)
-            self.frequency_scheduler.config = freq_config
-
-            frequency_levels = self.frequency_scheduler.schedule(
-                symbol_weights, timestamp
-            )
-        except Exception as e:
-            import traceback
-            log.error(f"[Step 4 FrequencyScheduler] 失败: {e}")
-            log.error(traceback.format_exc())
-            raise
-
-        try:
-            # Step 5: Strategy Allocation
-            strategy_allocation = self.strategy_allocator.allocate(
-                global_attention,
-                sector_attention,
-                symbol_weights,
-                timestamp
-            )
-        except Exception as e:
-            import traceback
-            log.error(f"[Step 5 StrategyAllocation] 失败: {e}")
-            log.error(traceback.format_exc())
-            raise
-
-        try:
-            # Step 6: Dual Engine (处理每个 tick)
-            pattern_signals = []
-            for i, symbol in enumerate(symbols):
-                symbol_str = str(symbol)
-                weight = symbol_weights.get(symbol_str, 1.0)
-
-                pattern = self.dual_engine.process_tick(
-                    symbol=symbol_str,
-                    price=float(prices[i]),
-                    volume=float(volumes[i]),
-                    global_attention=global_attention,
-                    sector_attention=sector_attention,
-                    symbol_weight=weight,
+        should_execute, fallback = self._get_step_result('global_attention', (0.5, 0.5))
+        if should_execute:
+            try:
+                snapshot = MarketSnapshot(
+                    symbols=symbols,
+                    returns=returns,
+                    volumes=volumes,
+                    prices=prices,
+                    sector_ids=sector_ids,
                     timestamp=timestamp
                 )
+                global_attention, activity = self.global_attention.get_attention_and_activity(snapshot)
+                self.global_attention.update(snapshot)
+                self._record_step_success('global_attention')
+            except Exception as e:
+                log.error(f"[Step 1 GlobalAttention] 失败: {e}")
+                self._record_step_failure('global_attention')
+                fallback_attn, fallback_act = fallback if fallback else (0.5, 0.5)
+                global_attention = fallback_attn
+                activity = fallback_act
+                result['degraded'] = True
+                result['degraded_steps'].append('global_attention')
+        else:
+            log.warning(f"[Step 1 GlobalAttention] 熔断器开启，使用降级值")
+            fallback_attn, fallback_act = fallback if fallback else (0.5, 0.5)
+            global_attention = fallback_attn
+            activity = fallback_act
+            result['degraded'] = True
+            result['degraded_steps'].append('global_attention')
 
-                if pattern:
-                    pattern_signals.append(pattern)
-        except Exception as e:
-            import traceback
-            log.error(f"[Step 6 DualEngine] 失败: {e}")
-            log.error(traceback.format_exc())
-            raise
-        
-        # 计算延迟
-        latency = (time.time() - start_time) * 1000  # ms
-        self._total_latency += latency
-        self._processing_count += 1
-        self._last_snapshot_time = timestamp
+        with self._cache_lock:
+            self._last_global_attention = global_attention
+            self._last_activity = activity
 
-        # 获取 Dual Engine 统计
+        should_execute, fallback = self._get_step_result('sector_attention', {})
+        if should_execute:
+            try:
+                sector_attention = self.sector_attention.update(symbols, returns, volumes, timestamp)
+                self._record_step_success('sector_attention')
+            except Exception as e:
+                log.error(f"[Step 2 SectorAttention] 失败: {e}")
+                self._record_step_failure('sector_attention')
+                sector_attention = fallback if fallback else {}
+                result['degraded'] = True
+                result['degraded_steps'].append('sector_attention')
+        else:
+            log.warning(f"[Step 2 SectorAttention] 熔断器开启，使用降级值")
+            sector_attention = fallback if fallback else {}
+            result['degraded'] = True
+            result['degraded_steps'].append('sector_attention')
+
+        with self._cache_lock:
+            self._last_sector_attention = sector_attention
+
+        should_execute, fallback = self._get_step_result('symbol_weights', {})
+        if should_execute:
+            try:
+                symbol_weights = self.weight_pool.update(symbols, returns, volumes, sector_attention, timestamp)
+                self._record_step_success('symbol_weights')
+            except Exception as e:
+                log.error(f"[Step 3 WeightPool] 失败: {e}")
+                self._record_step_failure('symbol_weights')
+                symbol_weights = fallback if fallback else {}
+                result['degraded'] = True
+                result['degraded_steps'].append('symbol_weights')
+        else:
+            log.warning(f"[Step 3 WeightPool] 熔断器开启，使用降级值")
+            symbol_weights = fallback if fallback else {}
+            result['degraded'] = True
+            result['degraded_steps'].append('symbol_weights')
+
+        with self._cache_lock:
+            self._last_symbol_weights = symbol_weights
+
+        should_execute, fallback = self._get_step_result('frequency_scheduler', {})
+        if should_execute:
+            try:
+                freq_config = self.frequency_controller.adapt(global_attention, timestamp)
+                self.frequency_scheduler.config = freq_config
+                frequency_levels = self.frequency_scheduler.schedule(symbol_weights, timestamp)
+                self._record_step_success('frequency_scheduler')
+            except Exception as e:
+                log.error(f"[Step 4 FrequencyScheduler] 失败: {e}")
+                self._record_step_failure('frequency_scheduler')
+                frequency_levels = fallback if fallback else {}
+                result['degraded'] = True
+                result['degraded_steps'].append('frequency_scheduler')
+        else:
+            log.warning(f"[Step 4 FrequencyScheduler] 熔断器开启，使用降级值")
+            frequency_levels = fallback if fallback else {}
+            result['degraded'] = True
+            result['degraded_steps'].append('frequency_scheduler')
+
+        should_execute, fallback = self._get_step_result('strategy_allocation', {})
+        if should_execute:
+            try:
+                strategy_allocation = self.strategy_allocator.allocate(
+                    global_attention, sector_attention, symbol_weights, timestamp
+                )
+                self._record_step_success('strategy_allocation')
+            except Exception as e:
+                log.error(f"[Step 5 StrategyAllocation] 失败: {e}")
+                self._record_step_failure('strategy_allocation')
+                strategy_allocation = fallback if fallback else {}
+                result['degraded'] = True
+                result['degraded_steps'].append('strategy_allocation')
+        else:
+            log.warning(f"[Step 5 StrategyAllocation] 熔断器开启，使用降级值")
+            strategy_allocation = fallback if fallback else {}
+            result['degraded'] = True
+            result['degraded_steps'].append('strategy_allocation')
+
+        pattern_signals = []
+        should_execute, fallback = self._get_step_result('dual_engine', [])
+        if should_execute:
+            try:
+                for i, symbol in enumerate(symbols):
+                    symbol_str = str(symbol)
+                    weight = symbol_weights.get(symbol_str, 1.0)
+                    pattern = self.dual_engine.process_tick(
+                        symbol=symbol_str,
+                        price=float(prices[i]),
+                        volume=float(volumes[i]),
+                        global_attention=global_attention,
+                        sector_attention=sector_attention,
+                        symbol_weight=weight,
+                        timestamp=timestamp
+                    )
+                    if pattern:
+                        pattern_signals.append(pattern)
+                self._record_step_success('dual_engine')
+            except Exception as e:
+                log.error(f"[Step 6 DualEngine] 失败: {e}")
+                self._record_step_failure('dual_engine')
+                pattern_signals = fallback if fallback else []
+                result['degraded'] = True
+                result['degraded_steps'].append('dual_engine')
+        else:
+            log.warning(f"[Step 6 DualEngine] 熔断器开启，使用降级值")
+            pattern_signals = fallback if fallback else []
+            result['degraded'] = True
+            result['degraded_steps'].append('dual_engine')
+
+        latency = (time.time() - start_time) * 1000
+
+        with self._cache_lock:
+            self._total_latency += latency
+            self._processing_count += 1
+            self._last_snapshot_time = timestamp
+
         dual_engine_summary = self.dual_engine.get_trigger_summary()
 
-        # 记录性能监控
-        if _PERFORMANCE_MONITORING_AVAILABLE:
-            record_component_execution(
-                component_id="attention_system",
-                component_name="注意力系统",
-                component_type=ComponentType.STRATEGY,
-                execution_time_ms=latency,
-                success=True
-            )
+        market_state = {}
+        try:
+            market_state = self.global_attention.get_market_state()
+        except Exception:
+            market_state = {'attention': global_attention, 'activity': activity, 'trend': 'unknown', 'description': '状态获取失败'}
 
-        return {
+        if not result['degraded'] and self.fallback_config.return_last_valid_result:
+            result['degraded'] = False
+            result['degraded_steps'] = []
+
+        final_result = {
             'timestamp': timestamp,
             'latency_ms': latency,
             'global_attention': global_attention,
@@ -287,9 +431,26 @@ class AttentionSystem:
             'frequency_levels': frequency_levels,
             'strategy_allocation': strategy_allocation,
             'pattern_signals': pattern_signals,
-            'market_state': self.global_attention.get_market_state(),
-            'dual_engine_summary': dual_engine_summary
+            'market_state': market_state,
+            'dual_engine_summary': dual_engine_summary,
+            'degraded': result['degraded'],
+            'degraded_steps': result['degraded_steps'],
         }
+
+        if not result['degraded']:
+            with self._cache_lock:
+                self._last_valid_result = final_result
+
+        if _PERFORMANCE_MONITORING_AVAILABLE:
+            record_component_execution(
+                component_id="attention_system",
+                component_name="注意力系统",
+                component_type=ComponentType.STRATEGY,
+                execution_time_ms=latency,
+                success=not result['degraded']
+            )
+
+        return final_result
     
     async def process_pytorch_batch(self) -> List[Any]:
         """处理 PyTorch 批量推理"""
@@ -368,12 +529,17 @@ class AttentionSystem:
         self.frequency_scheduler.reset()
         self.strategy_allocator.reset()
         self.dual_engine.reset()
-        
-        self._processing_count = 0
-        self._total_latency = 0.0
-        self._last_global_attention = 0.0
-        self._last_sector_attention.clear()
-        self._last_symbol_weights.clear()
+
+        with self._cache_lock:
+            self._processing_count = 0
+            self._total_latency = 0.0
+            self._last_global_attention = 0.0
+            self._last_sector_attention.clear()
+            self._last_symbol_weights.clear()
+            self._last_valid_result = None
+
+        self._step_failures.clear()
+        self._step_circuit_open.clear()
 
 
 class AttentionSystemIntegration:

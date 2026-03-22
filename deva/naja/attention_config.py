@@ -188,26 +188,25 @@ def get_intelligence_config() -> dict:
     获取智能增强系统配置
 
     使用统一的 config 系统: deva.config
+    
+    默认启用:
+    - enable_feedback: True (注意力反馈学习)
+    - enable_strategy_learning: True (策略学习)
     """
     from deva import config
 
+    intelligence_enabled = config.get('attention_v2.enabled', False)
+    
     intelligence_config = {
-        'enable_predictive': False,
-        'enable_feedback': False,
-        'enable_budget': False,
-        'enable_propagation': False,
-        'enable_strategy_learning': False,
+        'enable_predictive': config.get('attention_v2.predictive', False),
+        'enable_feedback': config.get('attention_v2.feedback', True),
+        'enable_budget': config.get('attention_v2.budget', False),
+        'enable_propagation': config.get('attention_v2.propagation', False),
+        'enable_strategy_learning': config.get('attention_v2.strategy_learning', True),
     }
 
-    intelligence_enabled = config.get('attention_v2.enabled', False)
     if not intelligence_enabled:
         return {}
-
-    intelligence_config['enable_predictive'] = config.get('attention_v2.predictive', True)
-    intelligence_config['enable_feedback'] = config.get('attention_v2.feedback', True)
-    intelligence_config['enable_budget'] = config.get('attention_v2.budget', True)
-    intelligence_config['enable_propagation'] = config.get('attention_v2.propagation', False)
-    intelligence_config['enable_strategy_learning'] = config.get('attention_v2.strategy_learning', False)
 
     has_any = any(intelligence_config.values())
     if not has_any:

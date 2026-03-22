@@ -60,37 +60,40 @@ class AttentionOrchestrator:
     def __init__(self):
         if hasattr(self, '_initialized'):
             return
-        
+
         self._integration = get_attention_integration()
-        
+
+        # 线程安全锁
+        self._state_lock = threading.RLock()
+
         # 策略注册表
-        self._strategies: Dict[str, Dict] = {}  # strategy_id -> config
-        
+        self._strategies: Dict[str, Dict] = {}
+
         # 数据源注册表
-        self._datasources: Dict[str, Dict] = {}  # datasource_id -> config
-        
-        # 缓存（_high_attention_symbols 和 _active_sectors 是自己计算的）
+        self._datasources: Dict[str, Dict] = {}
+
+        # 缓存
         self._last_attention_update = 0
-        self._attention_cache_ttl = 1.0  # 1秒缓存
+        self._attention_cache_ttl = 1.0
         self._cached_high_attention_symbols: Set[str] = set()
         self._cached_active_sectors: Set[str] = set()
 
-        # 板块ID映射（支持 sector/industry 文本）
+        # 板块ID映射
         self._sector_id_map: Dict[str, int] = {}
         self._next_sector_id = 1
-        
-        # 统计
+
+        # 统计（线程安全）
         self._processed_frames = 0
         self._filtered_frames = 0
-        
+        self._noise_filtered_count = 0
+
         # 日志频率控制
         self._last_noise_log_time = 0
-        self._noise_log_interval = 60  # 每60秒打印一次噪音过滤日志
-        
-        # 从 naja 配置表加载噪音过滤配置
+        self._noise_log_interval = 60
+
+        # 噪音过滤器
         nf_config = get_noise_filter_config()
-        
-        # 基础噪音过滤器
+
         noise_config = NoiseFilterConfig(
             min_amount=nf_config.get('min_amount', 1_000_000),
             min_volume=nf_config.get('min_volume', 100_000),
@@ -102,9 +105,7 @@ class AttentionOrchestrator:
             filter_st=nf_config.get('filter_st', False),
         )
         self._noise_filter = get_noise_filter(noise_config) if nf_config.get('enabled', True) else None
-        self._noise_filtered_count = 0
-        
-        # Tick级别噪音过滤器（增强版）
+
         tick_config = TickNoiseFilterConfig(
             min_amount=nf_config.get('min_amount', 1_000_000),
             min_volume=nf_config.get('min_volume', 100_000),
@@ -123,7 +124,7 @@ class AttentionOrchestrator:
         )
         self._tick_noise_filter = get_tick_noise_filter(tick_config) if nf_config.get('enabled', True) else None
         self._tick_noise_reports = []
-        
+
         # PyTorch 队列处理线程
         self._pytorch_processing = False
         self._pytorch_thread = None
@@ -445,15 +446,25 @@ class AttentionOrchestrator:
                 except:
                     pass
             
-            # 更新注意力系统
-            result = self._integration.attention_system.process_snapshot(
-                symbols=symbols,
-                returns=returns,
-                volumes=volumes,
-                prices=prices,
-                sector_ids=sector_ids,
-                timestamp=market_time
-            )
+            # 更新注意力系统（优先使用 intelligence_system，它会调用 base_system 并执行预算分配）
+            if self._integration.intelligence_system is not None:
+                result = self._integration.intelligence_system.process_snapshot(
+                    symbols=symbols,
+                    returns=returns,
+                    volumes=volumes,
+                    prices=prices,
+                    sector_ids=sector_ids,
+                    timestamp=market_time
+                )
+            else:
+                result = self._integration.attention_system.process_snapshot(
+                    symbols=symbols,
+                    returns=returns,
+                    volumes=volumes,
+                    prices=prices,
+                    sector_ids=sector_ids,
+                    timestamp=market_time
+                )
             
             # 更新缓存
             control = self._integration.get_datasource_control()

@@ -158,6 +158,91 @@ class NajaSupervisor:
                     self._components['attention_report_generator'] = report_generator
                 except Exception as re:
                     log.debug(f"注意力报告生成器启动失败: {re}")
+
+            # 启动 Bandit 自动运行器
+            if intelligence_config.get('enable_feedback') or intelligence_config.get('enable_strategy_learning'):
+                try:
+                    from .bandit.runner import ensure_bandit_auto_runner
+                    bandit_runner = ensure_bandit_auto_runner(auto_start=True)
+                    self._components['bandit_runner'] = bandit_runner
+                    log.info("BanditAutoRunner 已启动")
+                except Exception as be:
+                    log.debug(f"BanditAutoRunner 启动失败: {be}")
+
+            # 启动 AttentionTracker (注意力跟踪器)
+            if intelligence_config.get('enable_feedback'):
+                try:
+                    from .attention.tracker import ensure_attention_tracker
+                    from .attention.price_monitor import ensure_price_monitor
+
+                    attention_tracker = ensure_attention_tracker(
+                        observation_duration=3600.0,
+                        min_confidence=0.5,
+                    )
+                    self._components['attention_tracker'] = attention_tracker
+
+                    # 启动 PriceMonitor 并注册回调
+                    price_monitor = ensure_price_monitor(update_interval=60.0)
+                    self._components['price_monitor'] = price_monitor
+
+                    # 注册价格更新回调：将价格更新传递给 FeedbackLoop
+                    def _on_price_update(metrics_list):
+                        try:
+                            if hasattr(attention_system, 'feedback_loop') and attention_system.feedback_loop:
+                                feedback_loop = attention_system.feedback_loop
+                                for metrics in metrics_list:
+                                    tracked = attention_tracker.get_tracked(metrics.symbol)
+                                    if tracked:
+                                        feedback_loop.record_price_feedback(
+                                            symbol=metrics.symbol,
+                                            attention_score=tracked.attention_score,
+                                            prediction_score=tracked.prediction_score,
+                                            current_price=metrics.current_price,
+                                            entry_price=tracked.entry_price,
+                                            holding_seconds=metrics.holding_seconds,
+                                            market_state=tracked.market_state,
+                                            is_new_high=metrics.max_favorable_move > tracked.max_favorable_move if tracked.max_favorable_move > 0 else False,
+                                            is_new_low=metrics.max_adverse_move < tracked.max_adverse_move if tracked.max_adverse_move < 0 else False,
+                                        )
+                        except Exception as e:
+                            log.debug(f"价格更新反馈处理失败: {e}")
+
+                    price_monitor.register_callback(_on_price_update)
+
+                    # 注册观察结果回调
+                    def _on_observation_result(result):
+                        try:
+                            if hasattr(attention_system, 'feedback_loop') and attention_system.feedback_loop:
+                                attention_system.feedback_loop.record_observation(
+                                    symbol=result.symbol,
+                                    sector_id=result.sector_id,
+                                    strategy_id=result.strategy_id,
+                                    attention_score=result.attention_score,
+                                    prediction_score=result.prediction_score,
+                                    action=result.action,
+                                    entry_price=result.entry_price,
+                                    exit_price=result.exit_price,
+                                    holding_seconds=result.holding_seconds,
+                                    market_state=result.market_state,
+                                    max_favorable_move=result.max_favorable_move,
+                                    max_adverse_move=result.max_adverse_move,
+                                )
+                        except Exception as e:
+                            log.debug(f"观察结果反馈处理失败: {e}")
+
+                    attention_tracker.register_observation_callback(_on_observation_result)
+
+                    # 将 price_monitor 的价格更新同步到 attention_tracker
+                    def _sync_price_to_tracker(metrics_list):
+                        for metrics in metrics_list:
+                            attention_tracker.update_price(metrics.symbol, metrics.current_price)
+
+                    price_monitor.register_callback(_sync_price_to_tracker)
+
+                    log.info("AttentionTracker 和 PriceMonitor 已启动")
+                except Exception as te:
+                    log.debug(f"AttentionTracker 启动失败: {te}")
+
         except Exception as e:
             log.debug(f"注意力调度系统启动失败: {e}")
     

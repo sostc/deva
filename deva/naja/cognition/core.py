@@ -226,14 +226,14 @@ STOCK_RELEVANT_SOURCES = ["news", "tick", "jin10", "财经", "新闻", "金十",
 def _get_market_activity() -> float:
     """
     获取当前市场活跃度 (0.0 ~ 1.0)
-    
+
     从 AttentionOrchestrator 获取 GlobalAttentionEngine 的 activity 值
     如果获取失败，返回 0.5（默认值）
     """
     try:
-        from deva.naja.attention_orchestrator import AttentionOrchestrator
-        orchestrator = AttentionOrchestrator()
-        if hasattr(orchestrator, '_integration') and orchestrator._integration.attention_system:
+        from deva.naja.attention_orchestrator import get_orchestrator
+        orchestrator = get_orchestrator()
+        if orchestrator and hasattr(orchestrator, '_integration') and orchestrator._integration.attention_system:
             return orchestrator._integration.attention_system._last_activity
     except Exception:
         pass

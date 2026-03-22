@@ -46,46 +46,52 @@ class SectorConfig:
 class SectorAttentionEngine:
     """
     板块注意力引擎
-    
+
     计算逻辑:
     1. 板块内领涨股数量比例
     2. 板块内成交量集中度
     3. 板块内相关性变化
     4. 半衰期衰减
+
+    修复内容:
+    - 添加不活跃板块的清理机制
     """
-    
+
     def __init__(
         self,
         sectors: Optional[List[SectorConfig]] = None,
         max_sectors: int = 100,
-        update_threshold: float = 0.05,  # 最小变化才更新
+        update_threshold: float = 0.05,
+        stale_threshold_seconds: float = 1800.0
     ):
         self.max_sectors = max_sectors
         self.update_threshold = update_threshold
-        
+        self.stale_threshold_seconds = stale_threshold_seconds
+
         # 板块配置
         self._sectors: Dict[str, SectorConfig] = {}
         self._symbol_to_sectors: Dict[str, List[str]] = defaultdict(list)
-        
+
         # 预分配注意力分数数组
         self._attention_scores = np.zeros(max_sectors)
         self._sector_id_to_idx: Dict[str, int] = {}
         self._idx_to_sector_id: Dict[int, str] = {}
-        
+
         # 历史状态 (用于增量计算)
         self._last_update_time: Dict[str, float] = {}
         self._leader_counts: Dict[str, int] = {}
         self._volume_concentration: Dict[str, float] = {}
+        self._sector_last_activity: Dict[str, float] = {}  # 跟踪板块最后活跃时间
 
         # 日志节流
         self._last_summary_log_time: float = 0.0
-        self._summary_log_interval: float = 60.0  # 60秒打印一次摘要
-        
+        self._summary_log_interval: float = 60.0
+
         # 初始化板块
         if sectors:
             for sector in sectors:
                 self.register_sector(sector)
-        
+
         self._last_calc_time = 0.0
     
     def register_sector(self, config: SectorConfig) -> bool:
@@ -128,23 +134,19 @@ class SectorAttentionEngine:
         """
         start_time = time.time()
 
-        # 清理异常值
         returns = np.nan_to_num(returns, nan=0.0, posinf=50.0, neginf=-50.0)
         returns = np.clip(returns, -50.0, 50.0)
         volumes = np.nan_to_num(volumes, nan=0.0, posinf=1e15, neginf=0.0)
         volumes = np.clip(volumes, 0, 1e15)
 
         try:
-            # 按板块聚合数据 (增量方式，避免 groupby)
             sector_data = self._aggregate_by_sector(symbols, returns, volumes)
 
-            # 调试日志 - 只在第一次或sector_data变化时输出
             if not sector_data:
                 log.warning(f"[SectorAttention] 警告: sector_data为空! symbols数量={len(symbols)}")
             elif all(len(d.get('returns', [])) == 0 for d in sector_data.values()):
                 log.warning(f"[SectorAttention] 警告: 所有板块的returns为空! sector_data keys={list(sector_data.keys())[:5]}")
             else:
-                # 输出有数据的板块数量（节流）
                 sectors_with_data = [k for k, v in sector_data.items() if len(v.get('returns', [])) > 0]
                 if len(sectors_with_data) > 0:
                     current_time = time.time()
@@ -153,26 +155,24 @@ class SectorAttentionEngine:
                         log.info(f"[SectorAttention] 有数据的板块数: {len(sectors_with_data)}, 样本: {sample_names}")
                         self._last_summary_log_time = current_time
 
-            # 计算每个板块的注意力
+            active_sectors = set()
             for sector_id, data in sector_data.items():
                 if sector_id not in self._sectors:
                     continue
 
+                active_sectors.add(sector_id)
                 sector = self._sectors[sector_id]
                 idx = self._sector_id_to_idx[sector_id]
 
-                # 计算新分数
                 new_score = self._calc_sector_attention(
                     data['returns'],
                     data['volumes'],
                     sector
                 )
 
-                # 调试日志
-                if len(sector_data) <= 5:  # 只在板块少时输出
+                if len(sector_data) <= 5:
                     log.info(f"[SectorAttention] sector={sector.name}, new_score={new_score:.3f}, data_returns={list(data['returns'][:3]) if len(data['returns']) > 0 else 'empty'}")
 
-                # 应用半衰期衰减
                 last_time = self._last_update_time.get(sector_id, timestamp)
                 time_delta = timestamp - last_time
                 max_time_delta = sector.decay_half_life * 10
@@ -182,14 +182,16 @@ class SectorAttentionEngine:
                 except OverflowError:
                     decay_factor = 0.0
 
-                # 混合新旧分数
                 old_score = self._attention_scores[idx]
                 blended_score = max(new_score, old_score * decay_factor)
 
-                # 只有当变化超过阈值时才更新
                 if abs(blended_score - old_score) > self.update_threshold:
                     self._attention_scores[idx] = blended_score
                     self._last_update_time[sector_id] = timestamp
+
+                self._sector_last_activity[sector_id] = timestamp
+
+            self._cleanup_stale_sectors(timestamp)
         except Exception as e:
             import traceback
             log.error(f"SectorAttention 计算失败: {e}")
@@ -344,10 +346,27 @@ class SectorAttentionEngine:
             weight_names = [self._sectors[k].name if k in self._sectors else k for k in weights.keys()]
             log.info(f"[SectorAttention] get_all_weights: 返回 {len(weights)} 个有效板块: {weight_names}")
         return weights
-    
+
     def reset(self):
         """重置引擎状态"""
         self._attention_scores.fill(0.0)
         self._last_update_time.clear()
         self._leader_counts.clear()
         self._volume_concentration.clear()
+        self._sector_last_activity.clear()
+
+    def _cleanup_stale_sectors(self, current_time: float):
+        """清理长期不活跃的板块数据，防止内存泄漏"""
+        stale_sectors = [
+            sector_id for sector_id, last_activity in self._sector_last_activity.items()
+            if current_time - last_activity > self.stale_threshold_seconds
+        ]
+
+        for sector_id in stale_sectors:
+            if sector_id in self._leader_counts:
+                del self._leader_counts[sector_id]
+            if sector_id in self._volume_concentration:
+                del self._volume_concentration[sector_id]
+
+        if stale_sectors and len(stale_sectors) > 0:
+            log.info(f"[SectorAttention] 清理了 {len(stale_sectors)} 个不活跃板块的状态数据")

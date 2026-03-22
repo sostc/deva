@@ -24,7 +24,7 @@ async def render_attention_admin(ctx: dict):
 
     from .common import (
         get_attention_report, get_strategy_stats, is_attention_initialized,
-        initialize_attention_system, get_hot_sectors_and_stocks, get_strategy_manager,
+        initialize_attention_system, get_strategy_manager,
     )
     from .cards import (
         render_frequency_distribution, render_strategy_status,
@@ -149,10 +149,6 @@ async def render_attention_admin(ctx: dict):
     with use_scope("attention_market_state"):
         put_html(render_market_state_panel())
 
-    with use_scope("attention_hot"):
-        hot_data = get_hot_sectors_and_stocks()
-        put_html(render_hot_sectors_and_stocks(hot_data))
-
     with use_scope("attention_shift"):
         shift_report = _get_attention_shift_report_impl()
         put_html(render_attention_shift_report(shift_report))
@@ -162,6 +158,9 @@ async def render_attention_admin(ctx: dict):
         if manager:
             signals = manager.get_recent_signals(n=20)
             put_html(render_recent_signals(signals))
+
+    with use_scope("attention_intelligence"):
+        put_html(render_intelligence_panels())
 
     with use_scope("attention_sector_micro"):
         put_html(_render_micro_change_indicator())
@@ -362,7 +361,7 @@ def _get_history_tracker():
 
 def _run_diagnostic():
     """运行诊断"""
-    from .diagnostic import render_attention_diagnostic
+    from deva.naja.attention.diagnostic import render_attention_diagnostic
     render_attention_diagnostic()
 
 

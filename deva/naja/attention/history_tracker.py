@@ -841,7 +841,7 @@ class AttentionHistoryTracker:
             'has_shift': sector_shift or symbol_shift,
             'sector_shift': sector_shift,
             'symbol_shift': symbol_shift,
-            'old_top_sectors': [(s, self.get_sector_name(s), old_snapshot.sector_weights.get(s, 0)) 
+            'old_top_sectors': [(s, self.get_sector_name(s), old_snapshot.sector_weights.get(s, 0))
                                for s in old_top_sectors],
             'new_top_sectors': [(s, self.get_sector_name(s), new_snapshot.sector_weights.get(s, 0))
                                for s in new_top_sectors],
@@ -849,7 +849,9 @@ class AttentionHistoryTracker:
                                for s in old_top_symbols],
             'new_top_symbols': [(s, self.get_symbol_name(s), new_snapshot.symbol_weights.get(s, 0))
                                for s in new_top_symbols],
-            'time_span': new_snapshot.timestamp - old_snapshot.timestamp
+            'time_span': new_snapshot.timestamp - old_snapshot.timestamp,
+            'old_snapshot': old_snapshot.to_dict() if hasattr(old_snapshot, 'to_dict') else {'timestamp': old_snapshot.timestamp},
+            'new_snapshot': new_snapshot.to_dict() if hasattr(new_snapshot, 'to_dict') else {'timestamp': new_snapshot.timestamp},
         }
     
     def get_summary(self) -> Dict[str, Any]:

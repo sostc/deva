@@ -562,6 +562,8 @@ def render_attention_changes(changes: List[Any]) -> str:
 
 def render_attention_shift_report(report: Dict[str, Any]) -> str:
     """渲染注意力转移报告"""
+    from datetime import datetime
+
     html = """
     <div style="background: linear-gradient(135deg, #f0f9ff, #e0f2fe); border: 1px solid #7dd3fc; border-radius: 12px; padding: 20px; margin-top: 16px;">
         <div style="font-weight: 600; margin-bottom: 16px; color: #0369a1;">🔄 注意力转移监测</div>
@@ -574,54 +576,107 @@ def render_attention_shift_report(report: Dict[str, Any]) -> str:
         html += "</div>"
         return html
 
-    html = """
+    old_snapshot = report.get('old_snapshot')
+    new_snapshot = report.get('new_snapshot')
+    time_span = report.get('time_span', 0)
+
+    old_time_str = ""
+    new_time_str = ""
+    if old_snapshot:
+        old_ts = old_snapshot.get('timestamp', 0)
+        old_time_str = datetime.fromtimestamp(old_ts).strftime('%m-%d %H:%M') if old_ts else ""
+    if new_snapshot:
+        new_ts = new_snapshot.get('timestamp', 0)
+        new_time_str = datetime.fromtimestamp(new_ts).strftime('%m-%d %H:%M') if new_ts else ""
+
+    time_display = ""
+    if old_time_str and new_time_str:
+        duration_str = f"{time_span/60:.1f}分钟" if time_span < 3600 else f"{time_span/3600:.1f}小时"
+        time_display = f'<div style="display: flex; align-items: center; gap: 12px; margin-bottom: 12px; font-size: 11px;"><span style="background: #dbeafe; color: #1e40af; padding: 2px 8px; border-radius: 4px;">⏱️ {old_time_str}</span><span style="color: #64748b;">→</span><span style="background: #fef3c7; color: #92400e; padding: 2px 8px; border-radius: 4px;">⏱️ {new_time_str}</span><span style="color: #94a3b8;">({duration_str})</span></div>'
+
+    html = f"""
     <div style="background: linear-gradient(135deg, #fef3c7, #fde68a); border: 1px solid #f59e0b; border-radius: 12px; padding: 20px; margin-top: 16px;">
-        <div style="font-weight: 600; margin-bottom: 16px; color: #92400e;">🔄 注意力转移 detected</div>
+        <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 12px;">
+            <span style="font-size: 18px;">🚨</span>
+            <span style="font-weight: 700; color: #92400e; font-size: 15px;">注意力转移 detected</span>
+        </div>
+        {time_display}
     """
 
     if report.get('sector_shift'):
-        html += """
-        <div style="margin-bottom: 16px;">
-            <div style="font-weight: 500; color: #78350f; margin-bottom: 8px;">板块转移:</div>
-            <div style="display: flex; justify-content: space-between; font-size: 12px;">
-                <div style="flex: 1;">
-                    <div style="color: #9ca3af; margin-bottom: 4px;">之前 Top 3:</div>
-        """
-        for sector_id, sector_name, weight in report.get('old_top_sectors', []):
-            html += f"<div>• {sector_name} ({weight:.3f})</div>"
+        old_sectors = report.get('old_top_sectors', [])
+        new_sectors = report.get('new_top_sectors', [])
 
-        html += """
-                </div>
-                <div style="flex: 1;">
-                    <div style="color: #9ca3af; margin-bottom: 4px;">现在 Top 3:</div>
-        """
-        for sector_id, sector_name, weight in report.get('new_top_sectors', []):
-            html += f"<div>• {sector_name} ({weight:.3f})</div>"
+        removed_sectors = [s for s in old_sectors if s[0] not in [ns[0] for ns in new_sectors]]
+        added_sectors = [s for s in new_sectors if s[0] not in [os[0] for os in old_sectors]]
+        kept_sectors = [s for s in new_sectors if s[0] in [os[0] for os in old_sectors]]
 
-        html += "</div></div></div>"
+        html += """<div style="margin-bottom: 14px;">"""
+        if removed_sectors:
+            html += """<div style="font-weight: 500; color: #dc2626; margin-bottom: 6px;">📤 退出 Top3:</div>"""
+            html += """<div style="display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px;">"""
+            for sector_id, sector_name, weight in removed_sectors:
+                html += f"""<span style="background: #fee2e2; color: #dc2626; padding: 3px 10px; border-radius: 6px; font-size: 12px;">{sector_name} <span style="opacity: 0.7;">{weight:.2f}</span></span>"""
+            html += """</div>"""
+
+        if added_sectors:
+            html += """<div style="font-weight: 500; color: #16a34a; margin-bottom: 6px;">📥 新进入 Top3:</div>"""
+            html += """<div style="display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px;">"""
+            for sector_id, sector_name, weight in added_sectors:
+                html += f"""<span style="background: #dcfce7; color: #16a34a; padding: 3px 10px; border-radius: 6px; font-size: 12px;">{sector_name} <span style="opacity: 0.7;">{weight:.2f}</span></span>"""
+            html += """</div>"""
+
+        if kept_sectors:
+            html += """<div style="font-weight: 500; color: #475569; margin-bottom: 6px;">🔸 保持:</div>"""
+            html += """<div style="display: flex; flex-wrap: wrap; gap: 6px;">"""
+            for sector_id, sector_name, weight in kept_sectors:
+                old_weight = next((w for s, n, w in old_sectors if s == sector_id), 0)
+                change = weight - old_weight
+                change_str = f"+{change:.2f}" if change > 0 else f"{change:.2f}"
+                change_color = "#16a34a" if change > 0 else "#dc2626"
+                html += f"""<span style="background: #f1f5f9; color: #1e293b; padding: 3px 10px; border-radius: 6px; font-size: 12px;">{sector_name} <span style="color: {change_color};">{change_str}</span></span>"""
+            html += """</div>"""
+
+        html += """</div>"""
 
     if report.get('symbol_shift'):
-        html += """
-        <div>
-            <div style="font-weight: 500; color: #78350f; margin-bottom: 8px;">个股转移:</div>
-            <div style="display: flex; justify-content: space-between; font-size: 12px;">
-                <div style="flex: 1;">
-                    <div style="color: #9ca3af; margin-bottom: 4px;">之前 Top 5:</div>
-        """
-        for symbol, symbol_name, weight in report.get('old_top_symbols', []):
-            name_str = f" {symbol_name}" if symbol_name != symbol else ""
-            html += f"<div>• {symbol}{name_str} ({weight:.2f})</div>"
+        old_symbols = report.get('old_top_symbols', [])
+        new_symbols = report.get('new_top_symbols', [])
 
-        html += """
-                </div>
-                <div style="flex: 1;">
-                    <div style="color: #9ca3af; margin-bottom: 4px;">现在 Top 5:</div>
-        """
-        for symbol, symbol_name, weight in report.get('new_top_symbols', []):
-            name_str = f" {symbol_name}" if symbol_name != symbol else ""
-            html += f"<div>• {symbol}{name_str} ({weight:.2f})</div>"
+        removed_symbols = [s for s in old_symbols if s[0] not in [ns[0] for ns in new_symbols]]
+        added_symbols = [s for s in new_symbols if s[0] not in [os[0] for os in old_symbols]]
+        kept_symbols = [s for s in new_symbols if s[0] in [os[0] for os in old_symbols]]
 
-        html += "</div></div></div>"
+        html += """<div style="margin-top: 8px;">"""
+        if removed_symbols:
+            html += """<div style="font-weight: 500; color: #dc2626; margin-bottom: 6px;">📤 退出 Top5 个股:</div>"""
+            html += """<div style="display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px;">"""
+            for symbol, symbol_name, weight in removed_symbols:
+                name_str = f"{symbol_name}" if symbol_name != symbol else ""
+                html += f"""<span style="background: #fee2e2; color: #dc2626; padding: 2px 8px; border-radius: 4px; font-size: 11px;">{symbol}{name_str} <span style="opacity: 0.7;">{weight:.1f}</span></span>"""
+            html += """</div>"""
+
+        if added_symbols:
+            html += """<div style="font-weight: 500; color: #16a34a; margin-bottom: 6px;">📥 新进入 Top5 个股:</div>"""
+            html += """<div style="display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px;">"""
+            for symbol, symbol_name, weight in added_symbols:
+                name_str = f"{symbol_name}" if symbol_name != symbol else ""
+                html += f"""<span style="background: #dcfce7; color: #16a34a; padding: 2px 8px; border-radius: 4px; font-size: 11px;">{symbol}{name_str} <span style="opacity: 0.7;">{weight:.1f}</span></span>"""
+            html += """</div>"""
+
+        if kept_symbols:
+            html += """<div style="font-weight: 500; color: #475569; margin-bottom: 6px;">🔸 保持:</div>"""
+            html += """<div style="display: flex; flex-wrap: wrap; gap: 6px;">"""
+            for symbol, symbol_name, weight in kept_symbols:
+                old_weight = next((w for s, n, w in old_symbols if s == symbol), 0)
+                change = weight - old_weight
+                change_str = f"+{change:.1f}" if change > 0 else f"{change:.1f}"
+                change_color = "#16a34a" if change > 0 else "#dc2626"
+                name_str = f"{symbol_name}" if symbol_name != symbol else ""
+                html += f"""<span style="background: #f1f5f9; color: #1e293b; padding: 2px 8px; border-radius: 4px; font-size: 11px;">{symbol}{name_str} <span style="color: {change_color};">{change_str}</span></span>"""
+            html += """</div>"""
+
+        html += """</div>"""
 
     html += "</div>"
     return html
