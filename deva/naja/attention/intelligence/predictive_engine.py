@@ -276,6 +276,7 @@ class PredictiveAttentionEngine:
         
         self._prediction_history: Dict[str, List[float]] = {}
         self._last_scores: Dict[str, float] = {}
+        self._last_sector_scores: Dict[str, float] = {}
         
     def predict(
         self,
@@ -399,7 +400,84 @@ class PredictiveAttentionEngine:
             reverse=True
         )
         return sorted_items[:k]
-    
+
+    def predict_sector(
+        self,
+        sector_id: str,
+        sector_attention: float,
+        sector_returns: float,
+        sector_volume_ratio: float,
+        timestamp: Optional[float] = None
+    ) -> float:
+        """执行板块预测"""
+        timestamp = timestamp or time.time()
+
+        scores = []
+        weights = []
+
+        if self.ema and sector_returns is not None:
+            _, _, ema_score = self.ema.update(f"sector_{sector_id}", sector_returns, timestamp)
+            scores.append(ema_score)
+            weights.append(0.3)
+
+        if self.diff and sector_returns is not None:
+            diff_score = self.diff.update(f"sector_{sector_id}", sector_returns, timestamp)
+            scores.append(diff_score)
+            weights.append(0.3)
+
+        if self.momentum and sector_returns is not None and sector_volume_ratio is not None:
+            momentum_score = self.momentum.update(
+                f"sector_{sector_id}", sector_returns, sector_volume_ratio, timestamp
+            )
+            scores.append(momentum_score)
+            weights.append(0.4)
+
+        if not scores:
+            prediction_score = 0.5
+        else:
+            weights = np.array(weights)
+            weights = weights / weights.sum()
+            prediction_score = float(np.clip(np.dot(np.array(scores), weights), 0, 1))
+
+        self._last_sector_scores[sector_id] = prediction_score
+        return prediction_score
+
+    def batch_predict_sectors(
+        self,
+        sector_attentions: Dict[str, float],
+        sector_returns: Dict[str, float],
+        sector_volume_ratios: Dict[str, float],
+        timestamp: Optional[float] = None
+    ) -> Dict[str, float]:
+        """批量预测板块"""
+        timestamp = timestamp or time.time()
+        results = {}
+
+        for sector_id in sector_attentions.keys():
+            attention = sector_attentions.get(sector_id, 0.0)
+            returns = sector_returns.get(sector_id, 0.0)
+            vol_ratio = sector_volume_ratios.get(sector_id, 1.0)
+
+            pred_score = self.predict_sector(
+                sector_id, attention, returns, vol_ratio, timestamp
+            )
+            results[sector_id] = pred_score
+
+        return results
+
+    def get_sector_prediction(self, sector_id: str) -> float:
+        """获取板块预测分数"""
+        return self._last_sector_scores.get(sector_id, 0.5)
+
+    def get_sector_predictions_top_k(self, k: int = 5) -> List[Tuple[str, float]]:
+        """获取预测分数最高的 K 个板块"""
+        sorted_items = sorted(
+            self._last_sector_scores.items(),
+            key=lambda x: x[1],
+            reverse=True
+        )
+        return sorted_items[:k]
+
     def update_weights(self, alpha: float, beta: float):
         """更新组合权重"""
         if alpha + beta > 0:

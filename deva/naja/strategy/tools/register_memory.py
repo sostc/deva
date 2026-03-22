@@ -47,7 +47,7 @@ def register_memory_strategy():
 import sys
 sys.path.insert(0, '/Users/spark/pycharmproject/deva')
 
-from deva.naja.memory import get_memory_engine
+from deva.naja.cognition import get_memory_engine
 
 # 初始化策略实例（记忆引擎单例）
 _radar = get_memory_engine()

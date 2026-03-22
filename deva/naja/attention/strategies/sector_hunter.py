@@ -12,6 +12,15 @@ from collections import deque
 from .base import AttentionStrategyBase, Signal
 
 
+def _get_noise_detector():
+    """延迟导入避免循环依赖"""
+    try:
+        from deva.naja.attention.processing.sector_noise_detector import get_sector_noise_detector
+        return get_sector_noise_detector()
+    except ImportError:
+        return None
+
+
 class SectorRotationHunter(AttentionStrategyBase):
     """
     板块轮动捕捉策略
@@ -97,18 +106,19 @@ class SectorRotationHunter(AttentionStrategyBase):
         """检测板块轮动"""
         signals = []
         current_time = time.time()
-        
-        # 计算各板块动量
+        noise_detector = _get_noise_detector()
+
         for sector, weight in sector_weights.items():
+            if noise_detector and noise_detector.is_noise(sector):
+                continue
+
             if weight < self.min_sector_attention:
                 continue
-            
+
             momentum = self._calculate_sector_momentum(sector)
             self.sector_momentum[sector] = momentum
-            
-            # 检测资金流入
+
             if momentum > self.momentum_threshold:
-                # 检查是否从其他板块轮动而来
                 if self._is_rotation_source(sector, sector_weights):
                     if self.can_emit_signal(sector):
                         signal = Signal(
@@ -128,8 +138,7 @@ class SectorRotationHunter(AttentionStrategyBase):
                         self.emit_signal(signal)
                         signals.append(signal)
                         self.sector_signals[sector] = 'inflow'
-            
-            # 检测资金流出
+
             elif momentum < -self.momentum_threshold:
                 if self.can_emit_signal(f"{sector}_out"):
                     signal = Signal(
@@ -165,11 +174,14 @@ class SectorRotationHunter(AttentionStrategyBase):
     def _identify_hot_sectors(self, sector_weights: Dict[str, float]) -> List[str]:
         """识别热点板块"""
         hot_sectors = []
-        
+        noise_detector = _get_noise_detector()
+
         for sector, weight in sector_weights.items():
+            if noise_detector and noise_detector.is_noise(sector):
+                continue
+
             momentum = self.sector_momentum.get(sector, 0.0)
-            
-            # 高权重且正向动量
+
             if weight > self.min_sector_attention and momentum > 0:
                 hot_sectors.append({
                     'sector': sector,
@@ -177,11 +189,10 @@ class SectorRotationHunter(AttentionStrategyBase):
                     'momentum': momentum,
                     'score': weight * (1 + momentum)
                 })
-        
-        # 按得分排序
+
         hot_sectors.sort(key=lambda x: x['score'], reverse=True)
-        
-        return [h['sector'] for h in hot_sectors[:5]]  # Top 5
+
+        return [h['sector'] for h in hot_sectors[:5]]
     
     def analyze(self, data, context: Dict[str, Any]) -> List[Signal]:
         """

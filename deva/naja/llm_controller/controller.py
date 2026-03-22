@@ -11,7 +11,8 @@ from typing import Any, Dict, List, Optional
 from deva import NB
 
 from ..radar import get_radar_engine
-from ..insight import get_insight_engine
+from ..cognition.insight import get_insight_engine
+from ..cognition.engine import get_cognition_engine
 from ..strategy import get_strategy_manager
 from ..strategy.result_store import get_result_store
 from ..config import get_llm_config
@@ -67,7 +68,7 @@ class LLMController:
             mgr.reload_all()
         return mgr.list_all()
 
-    def review_and_adjust(
+    async def review_and_adjust(
         self,
         *,
         window_seconds: int = 600,
@@ -88,12 +89,12 @@ class LLMController:
         strategy_list = [{"id": s.id, "name": s.name} for s in all_strategies]
 
         radar_summary = get_radar_engine().summarize(window_seconds=window_seconds)
-        memory_summary = get_insight_engine().summarize_for_llm()
+        memory_summary = get_cognition_engine().summarize_for_llm()
         metrics = self._collect_strategy_metrics(strategy_ids)
         metrics_index = {m.get("strategy_id"): m for m in metrics if isinstance(m, dict)}
 
         try:
-            decision = self._request_llm(radar_summary, memory_summary, metrics, strategy_list, cfg)
+            decision = await self._request_llm(radar_summary, memory_summary, metrics, strategy_list, cfg)
         except Exception as e:
             return {"success": False, "error": str(e)}
 
@@ -142,7 +143,7 @@ class LLMController:
                 pass
         return metrics
 
-    def _request_llm(
+    async def _request_llm(
         self,
         radar_summary: dict,
         memory_summary: dict,
@@ -156,7 +157,7 @@ class LLMController:
             from deva.llm import GPT
             model_type = cfg.get("model_type", "deepseek")
             gpt = GPT(model_type=model_type)
-            response = gpt.sync_query(prompt)
+            response = await gpt.async_query(prompt)
         except Exception as e:
             raise RuntimeError(f"LLM 调节失败: {e}") from e
 
@@ -325,7 +326,8 @@ def _build_auto_adjust_task_code() -> str:
     return (
         "from deva.naja.config import get_llm_config\n"
         "from deva.naja.llm_controller import get_llm_controller\n"
-        "from deva.naja.radar import get_radar_engine\n\n"
+        "from deva.naja.radar import get_radar_engine\n"
+        "from deva.llm.worker_runtime import run_ai_in_worker\n\n"
         "def execute():\n"
         "    cfg = get_llm_config()\n"
         "    if not cfg.get('auto_adjust_enabled', True):\n"
@@ -336,7 +338,9 @@ def _build_auto_adjust_task_code() -> str:
         "    summary = get_radar_engine().summarize(window_seconds=window_seconds)\n"
         "    if summary.get('event_count', 0) < min_events:\n"
         "        return {'success': False, 'error': 'not_enough_events', 'event_count': summary.get('event_count', 0)}\n"
-        "    return get_llm_controller().review_and_adjust(window_seconds=window_seconds, dry_run=dry_run)\n"
+        "    return run_ai_in_worker(\n"
+        "        get_llm_controller().review_and_adjust(window_seconds=window_seconds, dry_run=dry_run)\n"
+        "    )\n"
     )
 
 

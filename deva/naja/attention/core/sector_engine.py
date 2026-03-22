@@ -6,6 +6,7 @@ Sector Attention Module - 板块注意力计算
 - 反映板块内部"变化是否扩散"
 - 支持多板块并行
 - 支持半衰期衰减
+- 集成噪音板块过滤
 
 性能优化:
 - 使用预分配 numpy 数组避免动态扩容
@@ -21,6 +22,15 @@ import time
 import logging
 
 log = logging.getLogger(__name__)
+
+
+def _get_noise_detector():
+    """延迟导入避免循环依赖"""
+    try:
+        from deva.naja.attention.processing.sector_noise_detector import get_sector_noise_detector
+        return get_sector_noise_detector()
+    except ImportError:
+        return None
 
 
 @dataclass
@@ -314,16 +324,25 @@ class SectorAttentionEngine:
         sectors.sort(key=lambda x: x[1], reverse=True)
         return sectors[:n]
     
-    def get_all_weights(self) -> Dict[str, float]:
-        """获取所有板块的权重"""
-        weights = {
-            sector_id: float(self._attention_scores[idx])
-            for sector_id, idx in self._sector_id_to_idx.items()
-        }
-        # 调试日志
+    def get_all_weights(self, filter_noise: bool = True) -> Dict[str, float]:
+        """获取所有板块的权重
+
+        Args:
+            filter_noise: 是否过滤噪音板块
+        """
+        noise_detector = _get_noise_detector() if filter_noise else None
+
+        weights = {}
+        for sector_id, idx in self._sector_id_to_idx.items():
+            if filter_noise and noise_detector:
+                sector_name = self._sectors[sector_id].name if sector_id in self._sectors else None
+                if noise_detector.is_noise(sector_id, sector_name):
+                    continue
+            weights[sector_id] = float(self._attention_scores[idx])
+
         if len(weights) < 5:
             weight_names = [self._sectors[k].name if k in self._sectors else k for k in weights.keys()]
-            log.info(f"[SectorAttention] get_all_weights: 返回 {len(weights)} 个板块: {weight_names}")
+            log.info(f"[SectorAttention] get_all_weights: 返回 {len(weights)} 个有效板块: {weight_names}")
         return weights
     
     def reset(self):

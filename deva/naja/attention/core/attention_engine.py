@@ -56,13 +56,19 @@ class GlobalAttentionEngine:
     ):
         self.history_window = history_window
 
-        # 预分配历史缓冲区 (ring buffer)
         self._history_buffer: deque = deque(maxlen=history_window)
 
-        # 缓存上次计算结果
         self._last_attention: float = 0.0
         self._last_activity: float = 0.0
         self._last_calc_time: float = 0.0
+
+        self._activity_history: deque = deque(maxlen=100)
+        self._returns_abs_history: deque = deque(maxlen=100)
+        self._volatility_history: deque = deque(maxlen=100)
+
+        self._ema_attention: float = 0.3
+        self._ema_activity: float = 0.3
+        self._ema_alpha: float = 0.3
 
     def update(self, snapshot: MarketSnapshot) -> float:
         """
@@ -112,35 +118,65 @@ class GlobalAttentionEngine:
         volumes = np.nan_to_num(volumes, nan=0.0, posinf=1e15, neginf=0.0)
         volumes = np.clip(volumes, 0, 1e15)
 
-        # ===== 1. 市场活跃度（绝对波动，和历史无关） =====
+        # ===== 1. 市场活跃度（历史百分位） =====
         mean_abs_return = np.mean(np.abs(returns))
         volatility = np.std(returns)
 
-        # 活跃度 = (平均涨跌幅绝对值 + 波动率) 归一化
-        # 假设正常: 平均涨跌 > 1%, 波动率 > 2% 为活跃
-        activity = min((mean_abs_return / 2.0 + volatility / 4.0) / 2, 1.0)
-        activity = max(0.0, min(1.0, activity))
+        self._returns_abs_history.append(mean_abs_return)
+        self._volatility_history.append(volatility)
 
-        # ===== 2. 全局注意力（相对分布） =====
-        # 计算涨跌幅分布的集中程度
-        up_count = np.sum(returns > 0.5)
-        down_count = np.sum(returns < -0.5)
+        if len(self._returns_abs_history) >= 10:
+            abs_values = list(self._returns_abs_history)
+            vol_values = list(self._volatility_history)
+
+            abs_percentile = sum(1 for v in abs_values if v < mean_abs_return) / len(abs_values)
+            vol_percentile = sum(1 for v in vol_values if v < volatility) / len(vol_values)
+
+            activity = (abs_percentile * 0.6 + vol_percentile * 0.4)
+            activity = 0.1 + activity * 0.8
+        else:
+            raw_activity = mean_abs_return / 0.6 + volatility / 1.0
+            activity = min(raw_activity / 4.0, 0.8)
+
+        activity = max(0.05, min(0.95, activity))
+
+        self._activity_history.append(activity)
+
+        # ===== 2. 全局注意力（蓄势市场评分法） =====
+        up_count = np.sum(returns > 0.1)
+        down_count = np.sum(returns < -0.1)
         flat_count = len(returns) - up_count - down_count
         total = max(len(returns), 1)
 
-        # 注意力 = 最大类别的占比（越集中注意力越高）
-        max_count = max(up_count, down_count, flat_count)
-        attention = max_count / total  # 0.33（完全均匀）~ 1.0（极度集中）
+        up_ratio = up_count / total
+        down_ratio = down_count / total
+        flat_ratio = flat_count / total
+        direction_total = up_ratio + down_ratio
 
-        # 如果有历史数据，计算注意力变化趋势
-        if len(self._history_buffer) >= 5:
-            recent_attentions = [h['attention'] for h in list(self._history_buffer)[-5:]]
-            avg_recent = np.mean(recent_attentions)
-            # 当前注意力与近期平均的比值（加入趋势因素）
-            attention = attention * 0.7 + (attention / max(avg_recent, 0.1)) * 0.3
-            attention = min(attention, 1.0)
+        if flat_ratio > 0.95:
+            attention = 0.5
+        elif flat_ratio > 0.80:
+            attention = 0.4
+        elif flat_ratio > 0.50:
+            if direction_total < 0.05:
+                attention = 0.35
+            else:
+                max_dir = max(up_ratio, down_ratio)
+                attention = 0.3 + (max_dir - 0.5) * 0.6 * (1 - 0.3)
+        else:
+            max_dir = max(up_ratio, down_ratio)
+            attention = 0.5 + max_dir * 0.3
 
-        return attention, activity
+        attention = max(0.1, min(0.9, attention))
+
+        if len(self._activity_history) > 1:
+            self._ema_attention = self._ema_alpha * attention + (1 - self._ema_alpha) * self._ema_attention
+            self._ema_activity = self._ema_alpha * activity + (1 - self._ema_alpha) * self._ema_activity
+        else:
+            self._ema_attention = attention
+            self._ema_activity = activity
+
+        return self._ema_attention, self._ema_activity
 
     def get_market_state(self) -> Dict:
         """获取当前市场状态摘要"""
@@ -182,6 +218,102 @@ class GlobalAttentionEngine:
             'avg_activity': avg_activity,
             'trend': trend,
             'description': description
+        }
+
+    def get_attention_details(self, snapshot: 'MarketSnapshot') -> Dict:
+        """
+        获取注意力计算的详细数据（用于UI展示）
+        """
+        returns = np.nan_to_num(snapshot.returns, nan=0.0, posinf=50.0, neginf=-50.0)
+        returns = np.clip(returns, -50.0, 50.0)
+        volumes = np.nan_to_num(snapshot.volumes, nan=0.0, posinf=1e15, neginf=0.0)
+        volumes = np.clip(volumes, 0, 1e15)
+
+        if len(returns) == 0:
+            return {
+                'up_count': 0, 'down_count': 0, 'flat_count': 0,
+                'up_ratio': 0, 'down_ratio': 0, 'flat_ratio': 0,
+                'mean_abs_return': 0, 'volatility': 0,
+                'attention': 0, 'activity': 0,
+                'attention_level': '无数据',
+                'activity_level': '无数据',
+                'attention_formula': '无数据',
+                'activity_formula': '无数据',
+                'total_stocks': 0,
+            }
+
+        mean_abs_return = float(np.mean(np.abs(returns)))
+        volatility = float(np.std(returns))
+
+        raw_activity = mean_abs_return / 0.6 + volatility / 1.0
+        activity = min(raw_activity / 4.0, 0.8)
+        activity = max(0.05, activity)
+
+        up_count = int(np.sum(returns > 0.1))
+        down_count = int(np.sum(returns < -0.1))
+        flat_count = len(returns) - up_count - down_count
+        total = max(len(returns), 1)
+
+        up_ratio = up_count / total
+        down_ratio = down_count / total
+        flat_ratio = flat_count / total
+        direction_total = up_ratio + down_ratio
+
+        if flat_ratio > 0.95:
+            attention = 0.5
+            formula = "平盘占比>95%，注意力极高"
+        elif flat_ratio > 0.80:
+            attention = 0.4
+            formula = "平盘占比>80%，注意力较高"
+        elif flat_ratio > 0.50:
+            if direction_total < 0.05:
+                attention = 0.35
+                formula = "方向占比<5%，几乎无方向"
+            else:
+                max_dir = max(up_ratio, down_ratio)
+                attention = 0.3 + (max_dir - 0.5) * 0.6 * (1 - 0.3)
+                formula = f"平盘50-80%，max_dir={max_dir:.1%}"
+        else:
+            max_dir = max(up_ratio, down_ratio)
+            attention = 0.5 + max_dir * 0.3
+            formula = f"平盘<50%，主导方向占比={max_dir:.1%}"
+
+        attention = max(0.1, min(0.9, attention))
+
+        if attention >= 0.7:
+            att_level = "焦点集中"
+        elif attention >= 0.5:
+            att_level = "焦点较集中"
+        elif attention >= 0.3:
+            att_level = "焦点分散"
+        else:
+            att_level = "焦点涣散"
+
+        if activity >= 0.7:
+            act_level = "非常活跃"
+        elif activity >= 0.4:
+            act_level = "温和"
+        elif activity >= 0.15:
+            act_level = "清淡"
+        else:
+            act_level = "冷清"
+
+        return {
+            'up_count': up_count,
+            'down_count': down_count,
+            'flat_count': flat_count,
+            'up_ratio': up_ratio,
+            'down_ratio': down_ratio,
+            'flat_ratio': flat_ratio,
+            'mean_abs_return': mean_abs_return,
+            'volatility': volatility,
+            'attention': attention,
+            'activity': activity,
+            'attention_level': att_level,
+            'activity_level': act_level,
+            'attention_formula': formula,
+            'activity_formula': f"均值={mean_abs_return:.4f}, 波动率={volatility:.4f}",
+            'total_stocks': total,
         }
 
     def reset(self):

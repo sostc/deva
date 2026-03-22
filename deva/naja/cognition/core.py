@@ -726,11 +726,12 @@ class AttentionScorer:
         return float(np.dot(v1, v2) / norm)
 
 
-class NewsRadarStrategy:
+class NewsMindStrategy:
     """
-    龙虾思想雷达策略
-    
-    作为naja策略系统的插件运行
+    新闻心智策略 - News Mind Strategy
+
+    作为naja策略系统的插件运行，驱动认知流水线：
+    信号 → 注意力 → 记忆 → 洞察
     """
     
     def __init__(self, config: Dict[str, Any] = None):
@@ -834,13 +835,14 @@ class NewsRadarStrategy:
         """
         处理单条记录（naja策略接口）
         
-        Args:
+
             record: 数据源记录（单个dict或包含data字段的dict）
             
-        Returns:
+
             信号列表
         """
         # 检测是否是 numpy 数组
+        # Defensive: ensure stats has required keys
         import numpy as np
         if isinstance(record, np.ndarray):
             import logging
@@ -865,13 +867,10 @@ class NewsRadarStrategy:
 
         # 1.5 注意力门控（频率+重要性）
         if self.enable_attention_filter and not self._should_ingest_event(event):
-            self.stats["filtered_events"] += 1
+            self.stats["filtered_events"] = self.stats.get("filtered_events", 0) + 1
             return []
-        
+
         # 2. 语义编码（改进版：使用关键词特征向量 + 数据源特征 + 事件类型特征）
-        event.vector = self._simple_embedding(event.content, event.source, event.event_type)
-        
-        # 3. 注意力评分
         event.attention_score = self.attention_scorer.score(event)
         
         # 4. 主题聚类
@@ -930,12 +929,13 @@ class NewsRadarStrategy:
         seen_contents = set()
         
         # 检测 numpy 数组
+        # Defensive: ensure stats has required keys (in case of loaded state without them)
         import numpy as np
         filtered_records = [r for r in records if not isinstance(r, np.ndarray)]
-        if len(filtered_records) < len(records):
+        removed_count = len(records) - len(filtered_records)
+        if removed_count > 0:
             import logging
-            removed_count = len(records) - len(filtered_records)
-            logging.warning(f"[NewsRadar] 批量数据中包含 {removed_count} 个 numpy 数组，已过滤")
+            logging.warning(f"[NewsMind] 批量数据中包含 {removed_count} 个 numpy 数组，已过滤")
         records = filtered_records
         
         # 逐条处理，但进行去重检测
@@ -950,14 +950,13 @@ class NewsRadarStrategy:
             seen_contents.add(content_hash)
 
             if self.enable_attention_filter and not self._should_ingest_event(event):
-                self.stats["filtered_events"] += 1
+                self.stats["filtered_events"] = self.stats.get("filtered_events", 0) + 1
                 continue
 
             # 预评分用于批量筛选
             event.attention_score = self.attention_scorer.peek_score(event)
             candidates.append(event)
 
-        # 批量过载时，只保留高分事件
         if len(candidates) > self.max_batch_keep:
             candidates.sort(key=lambda e: e.attention_score, reverse=True)
             candidates = candidates[: self.max_batch_keep]
@@ -1550,12 +1549,160 @@ class NewsRadarStrategy:
                 if e.attention_score >= self.attention_threshold
             ][-5:],
             "user_focus": self._get_user_focus_events(limit=8),
-            "narratives": {
-                "summary": self.narrative_tracker.get_summary(limit=10) if self.narrative_tracker else [],
-                "graph": self.narrative_tracker.get_graph() if self.narrative_tracker else {"nodes": [], "edges": []},
-                "events": list(self.narrative_events)[-10:],
-            },
+            "narratives": self._get_narratives_report(),
             "semantic_graph": self.semantic_cold_start.get_summary(limit=10) if self.semantic_cold_start else {},
+        }
+
+    def _get_narratives_report(self) -> Dict[str, Any]:
+        """从短期记忆动态计算叙事报告"""
+        if not self.narrative_tracker:
+            return {"summary": [], "graph": {"nodes": [], "edges": []}, "events": []}
+
+        recent_events = list(self.short_memory)[-500:]
+        if not recent_events:
+            return {
+                "summary": self.narrative_tracker.get_summary(limit=10),
+                "graph": self.narrative_tracker.get_graph(),
+                "events": list(self.narrative_events)[-10:],
+            }
+
+        keyword_hits: Dict[str, Dict[str, Any]] = {}
+        cooccurrence: Dict[Tuple[str, str], int] = {}
+        now_ts = datetime.now().timestamp()
+        recent_window = 6 * 3600
+        prev_window = 6 * 3600
+
+        for event in recent_events:
+            event_ts = getattr(event, "timestamp", None)
+            if isinstance(event_ts, datetime):
+                event_ts = event_ts.timestamp()
+            elif not isinstance(event_ts, float):
+                event_ts = now_ts
+
+            if now_ts - event_ts > recent_window + prev_window:
+                continue
+
+            content = getattr(event, "content", "") or ""
+            meta = getattr(event, "meta", {}) or {}
+            for key in ("title", "topic", "sector", "industry", "theme", "summary"):
+                val = meta.get(key)
+                if val:
+                    content += " " + str(val)
+
+            for key in ("tags", "keywords", "narratives", "narrative"):
+                val = meta.get(key)
+                if isinstance(val, list):
+                    content += " " + " ".join(str(v) for v in val)
+                elif val:
+                    content += " " + str(val)
+
+            if not content:
+                continue
+
+            content_lower = content.lower()
+            matched_narratives: List[str] = []
+
+            for narrative, keywords in self.narrative_tracker._keywords.items():
+                if narrative not in keyword_hits:
+                    keyword_hits[narrative] = {
+                        "name": narrative,
+                        "recent_hits": 0,
+                        "prev_hits": 0,
+                        "attention_sum": 0.0,
+                        "recent_ts": 0.0,
+                        "last_keywords": [],
+                    }
+
+                hit_kws = []
+                for kw in keywords:
+                    if kw.lower() in content_lower if kw.isascii() else kw in content:
+                        hit_kws.append(kw)
+
+                if hit_kws:
+                    matched_narratives.append(narrative)
+                    event_age = now_ts - event_ts
+                    if event_age <= recent_window:
+                        keyword_hits[narrative]["recent_hits"] += 1
+                        if event_ts > keyword_hits[narrative]["recent_ts"]:
+                            keyword_hits[narrative]["recent_ts"] = event_ts
+                            keyword_hits[narrative]["last_keywords"] = hit_kws
+                    elif event_age <= recent_window + prev_window:
+                        keyword_hits[narrative]["prev_hits"] += 1
+
+                    att_score = float(getattr(event, "attention_score", 0.0))
+                    keyword_hits[narrative]["attention_sum"] += att_score
+
+            for i, nar1 in enumerate(matched_narratives):
+                for nar2 in matched_narratives[i + 1:]:
+                    key = tuple(sorted([nar1, nar2]))
+                    cooccurrence[key] = cooccurrence.get(key, 0) + 1
+
+        summary = []
+        for narrative, data in keyword_hits.items():
+            recent_count = data["recent_hits"]
+            prev_count = data["prev_hits"]
+            attention_avg = data["attention_sum"] / max(1, recent_count + prev_count)
+            trend = (recent_count - prev_count) / max(1, prev_count)
+
+            import math
+            count_score = 1.0 - math.exp(-recent_count / max(self.narrative_tracker._count_scale, 1e-6))
+            attention_score = 0.6 * count_score + 0.4 * attention_avg
+
+            if recent_count <= self.narrative_tracker._fade_count and attention_score <= self.narrative_tracker._fade_score:
+                stage = "消退"
+            elif recent_count >= self.narrative_tracker._peak_count or attention_score >= self.narrative_tracker._peak_score:
+                stage = "高潮"
+            elif recent_count >= self.narrative_tracker._spread_count or trend >= self.narrative_tracker._trend_threshold or attention_score >= self.narrative_tracker._spread_score:
+                stage = "扩散"
+            else:
+                stage = "萌芽"
+
+            summary.append({
+                "narrative": data["name"],
+                "stage": stage,
+                "attention_score": round(attention_score, 3),
+                "recent_count": recent_count,
+                "trend": round(trend, 3),
+                "last_updated": data["recent_ts"],
+                "keywords": data["last_keywords"][:5],
+            })
+
+        summary.sort(key=lambda x: x["attention_score"], reverse=True)
+
+        tracker_summary = self.narrative_tracker.get_summary(limit=10)
+        if not summary and tracker_summary:
+            summary = tracker_summary
+
+        graph = self.narrative_tracker.get_graph()
+        if not graph.get("nodes") and summary:
+            max_score = max(s["attention_score"] for s in summary) if summary else 1.0
+            nodes = []
+            for s in summary:
+                nodes.append({
+                    "id": s["narrative"],
+                    "stage": s["stage"],
+                    "attention_score": s["attention_score"],
+                    "recent_count": s["recent_count"],
+                })
+
+            edges = []
+            min_weight = 0.2
+            for (src, tgt), weight in cooccurrence.items():
+                norm_weight = min(1.0, weight / 10.0)
+                if norm_weight >= min_weight:
+                    edges.append({
+                        "source": src,
+                        "target": tgt,
+                        "weight": round(norm_weight, 3),
+                    })
+
+            edges.sort(key=lambda e: e["weight"], reverse=True)
+            graph = {"nodes": nodes, "edges": edges[:15]}
+
+        return {
+            "summary": summary[:10],
+            "graph": graph,
+            "events": list(self.narrative_events)[-10:],
         }
 
     def _get_user_focus_events(self, limit: int = 8) -> List[Dict[str, Any]]:
@@ -1907,24 +2054,19 @@ class NewsRadarStrategy:
         self.max_topics = self.config.get("max_topics", 50)
         
         # 恢复统计信息
-        self.stats = data.get("stats", {
+        default_stats = {
             "total_events": 0,
             "high_attention_events": 0,
             "topics_created": 0,
             "drifts_detected": 0,
-        })
-        
-        # 恢复主题计数器
+            "filtered_events": 0,
+        }
+        saved_stats = data.get("stats", {})
+        self.stats = {**default_stats, **saved_stats}
         self.topic_counter = data.get("topic_counter", 0)
-
-        # 恢复语义图谱
-        self.semantic_graph = data.get("semantic_graph", self.semantic_graph or {})
-        if self.semantic_cold_start and self.semantic_graph:
-            self.semantic_cold_start.graph = self.semantic_graph
-        
-        # 恢复记忆阈值
         self.mid_memory_threshold = data.get("mid_memory_threshold", 0.7)
         self.long_memory_interval = data.get("long_memory_interval", 24)
+        self.semantic_graph = data.get("semantic_graph", self.semantic_graph or {})
         
         # 恢复长期记忆时间
         last_long_time_str = data.get("last_long_memory_time")
@@ -2031,9 +2173,9 @@ class NewsRadarStrategy:
 # naja策略系统接口
 class Strategy:
     """naja策略包装类"""
-    
+
     def __init__(self, config: Dict = None):
-        self.radar = NewsRadarStrategy(config)
+        self.radar = NewsMindStrategy(config)
         self._save_interval = 300  # 默认5分钟保存一次
         self._save_thread = None
         self._stop_save_thread = threading.Event()
@@ -2046,7 +2188,7 @@ class Strategy:
         """初始化时自动加载保存的状态"""
         result = self.radar.load_state()
         if result.get("success") and result.get("loaded"):
-            print(f"[NewsRadarStrategy] 成功恢复之前的状态")
+            print(f"[NewsMindStrategy] 成功恢复之前的状态")
         elif not result.get("loaded"):
             print(f"[NewsRadarStrategy] 没有找到保存的状态，使用新实例")
     
@@ -2072,7 +2214,7 @@ class Strategy:
             try:
                 result = self.radar.save_state()
                 if result.get("success"):
-                    print(f"[NewsRadarStrategy] 定时保存完成")
+                    print(f"[NewsMindStrategy] 定时保存完成")
                 else:
                     print(f"[NewsRadarStrategy] 定时保存失败: {result.get('error')}")
             except Exception as e:
@@ -2121,6 +2263,6 @@ class Strategy:
 
     def on_start(self):
         """策略启动时自动加载"""
-        print("[NewsRadarStrategy] 策略启动，自动加载状态...")
+        print("[NewsMindStrategy] 策略启动，自动加载状态...")
         self._start_auto_save()
         return self.radar.load_state()

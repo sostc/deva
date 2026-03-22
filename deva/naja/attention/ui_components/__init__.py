@@ -1,0 +1,81 @@
+"""注意力系统 UI 组件"""
+
+from .common import (
+    get_attention_integration,
+    get_strategy_manager,
+    get_history_tracker,
+    get_hot_sectors_and_stocks,
+    get_attention_report,
+    get_strategy_stats,
+    get_attention_changes,
+    get_attention_shift_report,
+    register_stock_names,
+    is_attention_initialized,
+    initialize_attention_system,
+)
+
+from .cards import (
+    render_market_state_panel,
+    render_frequency_distribution,
+    render_strategy_status,
+    render_dual_engine_status,
+    render_noise_filter_status,
+    render_pytorch_patterns,
+    render_hot_sectors_and_stocks,
+    render_key_metrics_summary,
+    render_live_hotspots,
+    render_collapsible_system_status,
+    render_compact_signals,
+    render_compact_noise_filter,
+)
+
+from .timeline import (
+    render_sector_trends,
+    render_attention_timeline,
+    render_sector_hotspot_timeline,
+    render_multi_threshold_timeline,
+    render_attention_changes,
+    render_attention_shift_report,
+    render_recent_signals,
+    render_sector_trading_timeline,
+)
+
+from .intelligence import render_intelligence_panels
+
+from .admin import render_attention_admin
+
+__all__ = [
+    "get_attention_integration",
+    "get_strategy_manager",
+    "get_history_tracker",
+    "get_hot_sectors_and_stocks",
+    "get_attention_report",
+    "get_strategy_stats",
+    "get_attention_changes",
+    "get_attention_shift_report",
+    "register_stock_names",
+    "is_attention_initialized",
+    "initialize_attention_system",
+    "render_market_state_panel",
+    "render_frequency_distribution",
+    "render_strategy_status",
+    "render_dual_engine_status",
+    "render_noise_filter_status",
+    "render_pytorch_patterns",
+    "render_hot_sectors_and_stocks",
+    "render_key_metrics_summary",
+    "render_live_hotspots",
+    "render_collapsible_system_status",
+    "render_compact_signals",
+    "render_compact_noise_filter",
+    "render_sector_trends",
+    "render_attention_timeline",
+    "render_sector_hotspot_timeline",
+    "render_multi_threshold_timeline",
+    "render_attention_changes",
+    "render_attention_shift_report",
+    "render_recent_signals",
+    "render_sector_trading_timeline",
+    "render_intelligence_panels",
+    "render_attention_admin",
+]

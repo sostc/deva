@@ -5,24 +5,159 @@
 主要功能：
 - 统一导航菜单配置
 - 全局页面样式
-- 与 ui_style.py 配合使用
+- 多主题支持
 """
 
 from typing import List, Dict
 
-# 导入已有的 ui_style 模块
-from .ui_style import apply_strategy_like_styles, render_stats_cards, render_empty_state
+THEMES = {
+    "dark": {
+        "name": "🌙 暗夜紫",
+        "description": "紫色调的暗色主题",
+        "header_gradient": "linear-gradient(135deg, #0f172a 0%, #1e293b 100%)",
+        "header_border": "#334155",
+        "header_accent": "#0ea5e9",
+        "header_title": "#f1f5f9",
+        "header_subtitle": "#94a3b8",
+        "body_bg": "#1e293b",
+        "card_bg": "rgba(255,255,255,0.03)",
+        "card_border": "rgba(255,255,255,0.08)",
+        "card_title": "#64748b",
+        "card_text": "#475569",
+        "accent_blue": "#60a5fa",
+        "accent_purple": "#c084fc",
+        "accent_red": "#f87171",
+        "accent_orange": "#fb923c",
+        "accent_green": "#4ade80",
+        "accent_yellow": "#fbbf24",
+    },
+    "midnight": {
+        "name": "🌌 午夜蓝",
+        "description": "蓝色调的深邃主题",
+        "header_gradient": "linear-gradient(135deg, #0c1929 0%, #1a365d 100%)",
+        "header_border": "#2d4a6f",
+        "header_accent": "#38bdf8",
+        "header_title": "#e2e8f0",
+        "header_subtitle": "#94a3b8",
+        "body_bg": "#0f172a",
+        "card_bg": "rgba(56, 189, 248, 0.05)",
+        "card_border": "rgba(56, 189, 248, 0.15)",
+        "card_title": "#64748b",
+        "card_text": "#475569",
+        "accent_blue": "#38bdf8",
+        "accent_purple": "#818cf8",
+        "accent_red": "#f87171",
+        "accent_orange": "#fb923c",
+        "accent_green": "#34d399",
+        "accent_yellow": "#fbbf24",
+    },
+    "forest": {
+        "name": "🌲 森林绿",
+        "description": "绿色调的自然主题",
+        "header_gradient": "linear-gradient(135deg, #022c22 0%, #064e3b 100%)",
+        "header_border": "#065f46",
+        "header_accent": "#10b981",
+        "header_title": "#ecfdf5",
+        "header_subtitle": "#a7f3d0",
+        "body_bg": "#064e3b",
+        "card_bg": "rgba(16, 185, 129, 0.08)",
+        "card_border": "rgba(16, 185, 129, 0.2)",
+        "card_title": "#6ee7b7",
+        "card_text": "#a7f3d0",
+        "accent_blue": "#38bdf8",
+        "accent_purple": "#a78bfa",
+        "accent_red": "#f87171",
+        "accent_orange": "#fb923c",
+        "accent_green": "#34d399",
+        "accent_yellow": "#fcd34d",
+    },
+    "sunset": {
+        "name": "🌅 落日橙",
+        "description": "暖色调的夕阳主题",
+        "header_gradient": "linear-gradient(135deg, #1c0a00 0%, #3d1c00 100%)",
+        "header_border": "#78350f",
+        "header_accent": "#f97316",
+        "header_title": "#fff7ed",
+        "header_subtitle": "#fed7aa",
+        "body_bg": "#3d1c00",
+        "card_bg": "rgba(249, 115, 22, 0.08)",
+        "card_border": "rgba(249, 115, 22, 0.2)",
+        "card_title": "#fdba74",
+        "card_text": "#fed7aa",
+        "accent_blue": "#38bdf8",
+        "accent_purple": "#c084fc",
+        "accent_red": "#ef4444",
+        "accent_orange": "#fb923c",
+        "accent_green": "#4ade80",
+        "accent_yellow": "#fbbf24",
+    },
+    "steel": {
+        "name": "⚙️ 钢铁灰",
+        "description": "冷灰色的工业主题",
+        "header_gradient": "linear-gradient(135deg, #18181b 0%, #27272a 100%)",
+        "header_border": "#3f3f46",
+        "header_accent": "#a1a1aa",
+        "header_title": "#fafafa",
+        "header_subtitle": "#a1a1aa",
+        "body_bg": "#09090b",
+        "card_bg": "rgba(161, 161, 170, 0.05)",
+        "card_border": "rgba(161, 161, 170, 0.15)",
+        "card_title": "#71717a",
+        "card_text": "#a1a1aa",
+        "accent_blue": "#60a5fa",
+        "accent_purple": "#a78bfa",
+        "accent_red": "#f87171",
+        "accent_orange": "#fb923c",
+        "accent_green": "#4ade80",
+        "accent_yellow": "#fbbf24",
+    },
+    "daylight": {
+        "name": "☀️ 白天",
+        "description": "清爽的浅色主题，适合白天使用",
+        "header_gradient": "linear-gradient(135deg, #e0f2fe 0%, #f0f9ff 100%)",
+        "header_border": "#bae6fd",
+        "header_accent": "#0ea5e9",
+        "header_title": "#0c4a6e",
+        "header_subtitle": "#0284c7",
+        "body_bg": "#e0f2fe",
+        "card_bg": "rgba(224, 242, 254, 0.7)",
+        "card_border": "rgba(14, 165, 233, 0.4)",
+        "card_title": "#0369a1",
+        "card_text": "#475569",
+        "accent_blue": "#0ea5e9",
+        "accent_purple": "#7c3aed",
+        "accent_red": "#dc2626",
+        "accent_orange": "#ea580c",
+        "accent_green": "#16a34a",
+        "accent_yellow": "#ca8a04",
+    },
+}
+
+_current_theme = "dark"
+
+
+def set_theme(theme_name: str):
+    """设置当前主题"""
+    global _current_theme
+    if theme_name in THEMES:
+        _current_theme = theme_name
+
+
+def get_current_theme() -> dict:
+    """获取当前主题配置（优先从请求上下文读取）"""
+    global _current_theme
+    from deva.naja.web_ui import get_request_theme
+    theme_name = get_request_theme()
+    if theme_name and theme_name in THEMES:
+        return THEMES[theme_name]
+    return THEMES.get(_current_theme, THEMES["dark"])
 
 
 def get_nav_menu_items() -> List[Dict[str, str]]:
-    """获取导航菜单项配置
-    
-    菜单顺序：首页 -> 记忆 -> 洞察 -> 雷达 -> 信号流 -> 数据源 -> 任务 -> 策略 -> LLM -> Bandit -> 注意力 -> 字典 -> 数据表 -> 性能 -> 配置
-    """
+    """获取导航菜单项配置"""
     return [
         {"name": "🏠 首页", "path": "/"},
-        {"name": "🧠 记忆", "path": "/memory"},
-        {"name": "💡 洞察", "path": "/insight"},
+        {"name": "🧠 认知", "path": "/cognition"},
         {"name": "📡 雷达", "path": "/radaradmin"},
         {"name": "💰 信号流", "path": "/signaladmin"},
         {"name": "🗃️ 数据源", "path": "/dsadmin"},
@@ -41,257 +176,125 @@ def get_nav_menu_items() -> List[Dict[str, str]]:
 def get_nav_menu_js() -> str:
     """获取导航菜单的 JavaScript 代码"""
     menu_items = get_nav_menu_items()
-    
+
     menu_items_js = ",\n            ".join([
         f"{{name: '{item['name']}', path: '{item['path']}'}}"
         for item in menu_items
     ])
-    
+
+    theme_options_json = []
+    for key, theme in THEMES.items():
+        theme_options_json.append(f'{{value: "{key}", label: "{theme["name"]}"}}')
+    theme_options_str = ",".join(theme_options_json)
+
     return f"""
-    (function() {{
-        // 如果已存在导航栏，先移除
-        const existingNav = document.querySelector('.navbar');
-        if (existingNav) {{
-            existingNav.remove();
-        }}
-        
-        const nav = document.createElement('nav');
-        nav.className = 'navbar';
-        Object.assign(nav.style, {{
-            position: 'fixed',
-            top: '0',
-            left: '0',
-            right: '0',
-            width: '100%',
-            zIndex: '999',
-            backgroundColor: '#ffffff',
-            borderBottom: '1px solid #e2e8f0',
-            padding: '0 24px',
-            height: '56px',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            boxShadow: '0 1px 3px rgba(0,0,0,0.05)'
-        }});
-        
-        const brand = document.createElement('div');
-        const brandLink = document.createElement('a');
-        brandLink.href = '/';
-        brandLink.innerHTML = '<span style="font-size: 22px;">🚀</span><span style="font-size: 18px; font-weight: 600; color: #1e293b; margin-left: 8px;">Naja</span>';
-        brandLink.style.textDecoration = 'none';
-        brandLink.style.display = 'flex';
-        brandLink.style.alignItems = 'center';
-        brand.appendChild(brandLink);
+(function() {{
+    var existingNav = document.querySelector('.navbar');
+    if (existingNav) {{ existingNav.remove(); }}
+    var existingTheme = document.getElementById('theme-panel');
+    if (existingTheme) {{ existingTheme.remove(); }}
 
-        const menu = document.createElement('div');
-        Object.assign(menu.style, {{
-            display: 'flex',
-            gap: '4px',
-            alignItems: 'center'
-        }});
+    var nav = document.createElement('nav');
+    nav.className = 'navbar';
+    Object.assign(nav.style, {{
+        position: 'fixed', top: '0', left: '0', right: '0', width: '100%',
+        zIndex: '999', backgroundColor: '#0f172a', borderBottom: '1px solid #334155',
+        padding: '0 24px', height: '56px', display: 'flex',
+        alignItems: 'center', justifyContent: 'space-between',
+        boxShadow: '0 2px 8px rgba(0,0,0,0.3)'
+    }});
 
-        const currentPath = window.location.pathname;
-        const menuItems = [
-            {menu_items_js}
-        ];
-        
-        menuItems.forEach(item => {{
-            const link = document.createElement('a');
-            link.href = item.path;
-            link.innerText = item.name;
-            const isActive = currentPath === item.path;
-            Object.assign(link.style, {{
-                padding: '8px 14px',
-                color: isActive ? '#3b82f6' : '#64748b',
-                textDecoration: 'none',
-                borderRadius: '8px',
-                fontSize: '14px',
-                fontWeight: isActive ? '600' : '500',
-                backgroundColor: isActive ? '#eff6ff' : 'transparent',
-                transition: 'all 0.2s ease'
-            }});
-            menu.appendChild(link);
-        }});
+    var brand = document.createElement('div');
+    var brandLink = document.createElement('a');
+    brandLink.href = '/';
+    brandLink.innerHTML = '<span style="font-size: 22px;">🚀</span><span style="font-size: 18px; font-weight: 600; color: #f1f5f9; margin-left: 8px;">Naja</span>';
+    brandLink.style.textDecoration = 'none';
+    brandLink.style.display = 'flex';
+    brandLink.style.alignItems = 'center';
+    brand.appendChild(brandLink);
 
-        nav.appendChild(brand);
-        nav.appendChild(menu);
-        document.body.insertBefore(nav, document.body.firstChild);
-        document.body.style.paddingTop = '56px';
-    }})();
+    var menu = document.createElement('div');
+    Object.assign(menu.style, {{ display: 'flex', gap: '4px', alignItems: 'center' }});
+
+    var currentPath = window.location.pathname;
+    var menuItems = [{menu_items_js}];
+
+    menuItems.forEach(function(item) {{
+        var link = document.createElement('a');
+        link.href = item.path;
+        link.innerText = item.name;
+        var isActive = currentPath === item.path;
+        Object.assign(link.style, {{
+            padding: '8px 14px',
+            color: isActive ? '#60a5fa' : '#94a3b8',
+            textDecoration: 'none', borderRadius: '8px', fontSize: '14px',
+            fontWeight: isActive ? '600' : '500',
+            backgroundColor: isActive ? 'rgba(96, 165, 250, 0.15)' : 'transparent',
+            transition: 'all 0.2s ease'
+        }});
+        menu.appendChild(link);
+    }});
+
+    nav.appendChild(brand);
+    nav.appendChild(menu);
+    document.body.insertBefore(nav, document.body.firstChild);
+    document.body.style.paddingTop = '56px';
+
+    var themePanel = document.createElement('div');
+    themePanel.id = 'theme-panel';
+    Object.assign(themePanel.style, {{
+        position: 'fixed', top: '70px', right: '20px', zIndex: '1000',
+        background: 'rgba(15, 23, 42, 0.95)', border: '1px solid #334155',
+        borderRadius: '10px', padding: '12px',
+        boxShadow: '0 4px 20px rgba(0,0,0,0.4)'
+    }});
+
+    var themeOptions = [{theme_options_str}];
+    var selectHtml = '<div style="font-size: 11px; color: #94a3b8; margin-bottom: 8px;">🎨 页面风格</div><select id="theme-select" onchange="window.switchTheme(this.value)" style="background: rgba(255,255,255,0.1); border: 1px solid #334155; border-radius: 6px; color: #f1f5f9; padding: 6px 10px; font-size: 12px; cursor: pointer; min-width: 120px;">';
+    themeOptions.forEach(function(opt) {{
+        selectHtml += '<option value="' + opt.value + '">' + opt.label + '</option>';
+    }});
+    selectHtml += '</select>';
+    themePanel.innerHTML = selectHtml;
+    document.body.appendChild(themePanel);
+}})();
     """
 
 
 def get_global_styles() -> str:
-    """获取全局样式"""
-    return """
+    """获取全局样式（兼容主题系统）"""
+    theme = get_current_theme()
+    return f"""
     <style>
-        body {
+        body {{
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
-            background-color: #f8fafc;
+            background-color: {theme['body_bg']};
             margin: 0;
             padding: 0;
-        }
-        .container {
-            max-width: 1400px;
+        }}
+        .container {{
+            max-width: 880px;
             margin: 0 auto;
             padding: 20px;
-        }
-        .card {
-            background: white;
-            border-radius: 12px;
-            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
-            padding: 20px;
-            margin-bottom: 20px;
-        }
-        .card-header {
-            font-size: 18px;
-            font-weight: 600;
-            color: #1e293b;
-            margin-bottom: 16px;
-            padding-bottom: 12px;
-            border-bottom: 1px solid #e2e8f0;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
-        .severity-badge {
-            display: inline-flex;
-            align-items: center;
-            padding: 4px 12px;
-            border-radius: 20px;
-            font-size: 12px;
-            font-weight: 600;
-        }
-        .severity-severe {
-            background: #fee2e2;
-            color: #dc2626;
-        }
-        .severity-critical {
-            background: #fef3c7;
-            color: #d97706;
-        }
-        .severity-warning {
-            background: #dbeafe;
-            color: #2563eb;
-        }
-        .severity-normal {
-            background: #d1fae5;
-            color: #059669;
-        }
-        .metric-card {
-            background: white;
-            border-radius: 12px;
-            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
-            padding: 16px;
-            text-align: center;
-        }
-        .metric-value {
-            font-size: 28px;
-            font-weight: 700;
-            margin-bottom: 4px;
-        }
-        .metric-label {
-            font-size: 13px;
-            color: #64748b;
-        }
-        .component-row {
-            display: flex;
-            align-items: center;
-            padding: 12px 16px;
-            border-bottom: 1px solid #e2e8f0;
-            transition: background 0.2s;
-        }
-        .component-row:hover {
-            background: #f8fafc;
-        }
-        .component-row:last-child {
-            border-bottom: none;
-        }
-        .component-icon {
-            width: 40px;
-            height: 40px;
-            border-radius: 10px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 20px;
-            margin-right: 16px;
-        }
-        .component-info {
-            flex: 1;
-        }
-        .component-name {
-            font-weight: 600;
-            color: #1e293b;
-            font-size: 14px;
-        }
-        .component-meta {
-            color: #64748b;
-            font-size: 12px;
-            margin-top: 2px;
-        }
-        .component-metrics {
-            text-align: right;
-            margin-right: 16px;
-        }
-        .component-time {
-            font-weight: 600;
-            font-size: 14px;
-        }
-        .component-calls {
-            color: #64748b;
-            font-size: 12px;
-        }
-        .filter-tabs {
-            display: flex;
-            gap: 8px;
-            margin-bottom: 20px;
-        }
-        .filter-tab {
-            padding: 8px 16px;
-            border-radius: 8px;
-            font-size: 14px;
-            cursor: pointer;
-            transition: all 0.2s;
-            border: none;
-            background: #f1f5f9;
-            color: #64748b;
-        }
-        .filter-tab:hover {
-            background: #e2e8f0;
-        }
-        .filter-tab.active {
-            background: #3b82f6;
-            color: white;
-        }
-        .recommendation-box {
-            background: #fef3c7;
-            border-left: 4px solid #f59e0b;
-            padding: 12px 16px;
-            border-radius: 0 8px 8px 0;
-            margin-top: 8px;
-            font-size: 13px;
-            color: #92400e;
-        }
-        table {
-            width: 100%;
-            border-collapse: collapse;
-        }
-        th, td {
-            padding: 12px 16px;
-            text-align: left;
-            border-bottom: 1px solid #e2e8f0;
-        }
-        th {
-            font-weight: 600;
-            color: #64748b;
-            font-size: 12px;
-            text-transform: uppercase;
-            background: #f8fafc;
-        }
-        tr:hover {
-            background: #f8fafc;
-        }
+        }}
+        :root {{
+            --header-gradient: {theme['header_gradient']};
+            --header-border: {theme['header_border']};
+            --header-accent: {theme['header_accent']};
+            --header-title: {theme['header_title']};
+            --header-subtitle: {theme['header_subtitle']};
+            --body-bg: {theme['body_bg']};
+            --card-bg: {theme['card_bg']};
+            --card-border: {theme['card_border']};
+            --card-title: {theme['card_title']};
+            --card-text: {theme['card_text']};
+            --accent-blue: {theme['accent_blue']};
+            --accent-purple: {theme['accent_purple']};
+            --accent-red: {theme['accent_red']};
+            --accent-orange: {theme['accent_orange']};
+            --accent-green: {theme['accent_green']};
+            --accent-yellow: {theme['accent_yellow']};
+        }}
     </style>
     """
 
@@ -300,13 +303,6 @@ def render_nav_menu():
     """渲染导航菜单（供 pywebio 使用）"""
     from pywebio.output import put_html
     from pywebio.session import run_js
-    
+
     js_code = get_nav_menu_js()
     run_js(js_code)
-
-
-def render_global_styles():
-    """渲染全局样式（供 pywebio 使用）"""
-    from pywebio.output import put_html
-    
-    put_html(get_global_styles())

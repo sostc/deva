@@ -69,13 +69,11 @@ class AttentionOrchestrator:
         # 数据源注册表
         self._datasources: Dict[str, Dict] = {}  # datasource_id -> config
         
-        # 缓存
+        # 缓存（_high_attention_symbols 和 _active_sectors 是自己计算的）
         self._last_attention_update = 0
         self._attention_cache_ttl = 1.0  # 1秒缓存
         self._cached_high_attention_symbols: Set[str] = set()
         self._cached_active_sectors: Set[str] = set()
-        self._cached_global_attention = 0.5
-        self._cached_activity = 0.5  # 市场活跃度
 
         # 板块ID映射（支持 sector/industry 文本）
         self._sector_id_map: Dict[str, int] = {}
@@ -130,10 +128,20 @@ class AttentionOrchestrator:
         self._pytorch_processing = False
         self._pytorch_thread = None
         self._start_pytorch_processor()
-        
+
         self._initialized = True
         log.info("AttentionOrchestrator 初始化完成")
-    
+
+    @property
+    def _cached_global_attention(self) -> float:
+        """直接代理到 attention_system，消除缓存同步问题"""
+        return self._integration.attention_system._last_global_attention
+
+    @property
+    def _cached_activity(self) -> float:
+        """直接代理到 attention_system，消除缓存同步问题"""
+        return self._integration.attention_system._last_activity
+
     def _start_pytorch_processor(self):
         """启动 PyTorch 队列处理线程"""
         if self._pytorch_processing:
@@ -457,8 +465,6 @@ class AttentionOrchestrator:
                 for name, sid in self._sector_id_map.items():
                     if str(sid) in active_ids:
                         self._cached_active_sectors.add(name)
-            self._cached_global_attention = self._integration.attention_system._last_global_attention
-            self._cached_activity = self._integration.attention_system._last_activity
 
             # 从记忆系统引入提示（白名单/热度线索）
             self._apply_memory_hints(data)
@@ -738,7 +744,7 @@ class AttentionOrchestrator:
     def _apply_memory_hints(self, data: pd.DataFrame) -> None:
         """将洞察系统中的热点提示合并到注意力上下文（带权重版）"""
         try:
-            from .insight import get_insight_engine
+            from .cognition.insight import get_insight_engine
         except Exception:
             return
 

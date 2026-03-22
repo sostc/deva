@@ -36,13 +36,16 @@ class SectorRelation:
 class RelationMatrix:
     """
     板块关系矩阵
-    
+
     支持:
     - 手动定义关系
     - 从历史数据学习关系
     - 稀疏矩阵存储
+    - 集成统一的 SectorNoiseDetector 进行噪音板块过滤
     """
-    
+
+    _noise_detector = None
+
     def __init__(
         self,
         max_sectors: int = 100,
@@ -52,15 +55,47 @@ class RelationMatrix:
         self.max_sectors = max_sectors
         self.default_correlation = default_correlation
         self.learning_rate = learning_rate
-        
+
         self._sector_to_idx: Dict[str, int] = {}
         self._idx_to_sector: Dict[int, str] = {}
-        
+
         self._relation_matrix: Dict[str, Dict[str, float]] = defaultdict(dict)
         self._delay_matrix: Dict[str, Dict[str, int]] = defaultdict(dict)
-        
+
         self._sector_history: Dict[str, List[float]] = {}
         self._history_window = 50
+
+        self._relation_quality_scores: Dict[str, float] = {}
+        self._auto_blacklist_enabled: bool = True
+
+        if RelationMatrix._noise_detector is None:
+            try:
+                from deva.naja.attention.processing.sector_noise_detector import get_sector_noise_detector
+                RelationMatrix._noise_detector = get_sector_noise_detector()
+            except ImportError:
+                RelationMatrix._noise_detector = None
+
+    def _get_noise_detector(self):
+        """获取噪音检测器"""
+        return RelationMatrix._noise_detector
+
+    def _is_noise_by_pattern(self, sector_id: str, sector_name: str = None) -> bool:
+        """检查板块是否匹配噪音模式"""
+        detector = self._get_noise_detector()
+        if detector:
+            return detector.is_noise(sector_id, sector_name)
+
+        blacklist_patterns = [
+            '通达信', '系统', 'ST', 'B股', '基金', '指数', '期权', '期货',
+            '上证', '深证', '沪深', '大盘', '权重', '综合', '行业', '地域',
+            '概念', '风格', '上证所', '深交所', '_sys', '_index', '884',
+            '物业管理', '含B股', '地方版', '预预', '昨日', '近日',
+        ]
+        display = sector_name if sector_name else sector_id
+        for pattern in blacklist_patterns:
+            if pattern in display or pattern in sector_id:
+                return True
+        return False
         
     def register_sector(self, sector_id: str) -> bool:
         """注册板块"""
@@ -147,15 +182,102 @@ class RelationMatrix:
         self._sector_history[sector_id].append(attention)
         
         if len(self._sector_history[sector_id]) > self._history_window:
-            self._sector_history[sector_id] = self._sector_history[sector_id][-self._history_window:]
-    
+            self._sector_history[sector_id] = self._sector_history[sector_id][-self._history_window():]
+
+    def _should_blacklist(self, sector_name: str) -> bool:
+        """检查板块是否应该加入黑名单（兼容旧接口）"""
+        return self._is_noise_by_pattern(sector_name, sector_name)
+
+    def is_sector_valid(self, sector_id: str) -> bool:
+        """判断板块是否有效（非噪声）"""
+        detector = self._get_noise_detector()
+        if detector:
+            return not detector.is_noise(sector_id)
+        return True
+
+    def _compute_relation_quality(self, source: str, target: str, correlation: float, delay: int) -> float:
+        """计算关系质量分数"""
+        quality = 0.0
+        if abs(correlation) >= 0.98:
+            quality -= 0.5
+        elif abs(correlation) >= 0.5 and abs(correlation) <= 0.95:
+            quality += 0.3
+        if 1 <= delay <= 5:
+            quality += 0.2
+        elif delay > 8:
+            quality -= 0.1
+        source_history = self._sector_history.get(source, [])
+        target_history = self._sector_history.get(target, [])
+        if len(source_history) >= 10 and len(target_history) >= 10:
+            variance_source = np.var(source_history) if source_history else 0
+            variance_target = np.var(target_history) if target_history else 0
+            if variance_source > 0.001 and variance_target > 0.001:
+                quality += 0.2
+            else:
+                quality -= 0.3
+        return max(0.0, quality)
+
+    def _auto_update_blacklist(self):
+        """自动更新黑名单"""
+        detector = self._get_noise_detector()
+        if not self._auto_blacklist_enabled:
+            return
+        for sector_id in list(self._sector_history.keys()):
+            if detector and detector.is_noise(sector_id):
+                continue
+            history = self._sector_history.get(sector_id, [])
+            if len(history) < 10:
+                continue
+            variance = np.var(history)
+            if variance < 0.0001:
+                if detector:
+                    detector.add_to_blacklist(sector_id, reason="低方差噪音")
+                continue
+            quality_scores = []
+            for other_sector in self._sector_history.keys():
+                if other_sector == sector_id:
+                    continue
+                if detector and detector.is_noise(other_sector):
+                    continue
+                if sector_id not in self._relation_matrix.get(other_sector, {}):
+                    continue
+                corr = self._relation_matrix[other_sector].get(sector_id, 0)
+                delay = self._delay_matrix.get(other_sector, {}).get(sector_id, 1)
+                quality = self._compute_relation_quality(other_sector, sector_id, corr, delay)
+                quality_scores.append(quality)
+            if quality_scores:
+                avg_quality = sum(quality_scores) / len(quality_scores)
+                self._relation_quality_scores[sector_id] = avg_quality
+                if avg_quality < 0.1:
+                    if detector:
+                        detector.add_to_blacklist(sector_id, reason=f"低关系质量 {avg_quality:.3f}")
+
+    def add_to_blacklist(self, sector_id: str):
+        """手动添加板块到黑名单"""
+        detector = self._get_noise_detector()
+        if detector:
+            detector.add_to_blacklist(sector_id, reason="手动添加")
+
+    def remove_from_blacklist(self, sector_id: str):
+        """从黑名单移除"""
+        detector = self._get_noise_detector()
+        if detector:
+            detector.remove_from_blacklist(sector_id)
+
+    def get_blacklist(self) -> set:
+        """获取当前黑名单"""
+        detector = self._get_noise_detector()
+        if detector:
+            return detector.get_all_noise_sectors()
+        return set()
+
     def learn_relations(self, min_correlation: float = 0.3):
-        """
-        从历史数据学习板块关系
-        
-        使用滞后相关性计算
-        """
-        sectors = list(self._sector_history.keys())
+        """从历史数据学习板块关系"""
+        self._auto_update_blacklist()
+        detector = self._get_noise_detector()
+        sectors = [s for s in self._sector_history.keys()]
+        if detector:
+            sectors = detector.get_valid_sectors(sectors)
         
         for i, source in enumerate(sectors):
             for j, target in enumerate(sectors):
@@ -195,9 +317,10 @@ class RelationMatrix:
             
             source_arr = np.array(source_shifted[-min_len:])
             target_arr = np.array(target_aligned[-min_len:])
-            
-            corr = np.corrcoef(source_arr, target_arr)[0, 1]
-            
+
+            with np.errstate(invalid='ignore'):
+                corr = np.corrcoef(source_arr, target_arr)[0, 1]
+
             if not np.isnan(corr) and abs(corr) > abs(best_corr):
                 best_corr = corr
                 best_delay = delay
@@ -227,12 +350,13 @@ class RelationMatrix:
             min_len = min(len(source_shifted), len(target_aligned))
             if min_len < 5:
                 continue
-            
-            corr = np.corrcoef(
-                source_shifted[-min_len:],
-                target_aligned[-min_len:]
-            )[0, 1]
-            
+
+            with np.errstate(invalid='ignore'):
+                corr = np.corrcoef(
+                    source_shifted[-min_len:],
+                    target_aligned[-min_len:]
+                )[0, 1]
+
             if not np.isnan(corr) and abs(corr) > abs(best_corr):
                 best_corr = corr
                 best_delay = delay
@@ -509,7 +633,19 @@ class AttentionPropagation:
         """从历史学习关系"""
         if self.enable_learning:
             self.relation_matrix.learn_relations()
-    
+
+    def get_blacklist(self) -> set:
+        """获取黑名单"""
+        return self.relation_matrix.get_blacklist()
+
+    def add_to_blacklist(self, sector_id: str):
+        """添加板块到黑名单"""
+        self.relation_matrix.add_to_blacklist(sector_id)
+
+    def remove_from_blacklist(self, sector_id: str):
+        """从黑名单移除"""
+        self.relation_matrix.remove_from_blacklist(sector_id)
+
     def get_upstream_sectors(self, sector_id: str) -> List[Tuple[str, float, int]]:
         """获取上游板块"""
         return self.relation_matrix.get_upstream_sectors(sector_id)
