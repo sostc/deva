@@ -292,8 +292,8 @@ class AttentionStrategyManager:
             # 全局注意力
             context['global_attention'] = attention_system._last_global_attention
             
-            # 板块权重
-            context['sector_weights'] = attention_system.sector_attention.get_all_weights()
+            # 板块权重（过滤噪音板块）
+            context['sector_weights'] = attention_system.sector_attention.get_all_weights(filter_noise=True)
             
             # 个股权重
             context['symbol_weights'] = attention_system.weight_pool.get_all_weights()

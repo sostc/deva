@@ -64,6 +64,7 @@ class SectorHotspotEvent:
     """板块热点切换事件"""
     timestamp: float
     market_time: str
+    market_date: str
     sector_id: str
     sector_name: str
     event_type: str  # 'rise', 'fall', 'new_hot', 'cooled'
@@ -153,8 +154,23 @@ class AttentionHistoryTracker:
         if self.snapshots:
             latest = self.snapshots[-1]
             market_data = latest.symbol_market_data.get(symbol, {})
-            return market_data.get('sector', '')
-        return ''
+            sector = market_data.get('sector', '')
+            if sector:
+                return sector
+
+        return self.symbol_to_sector.get(symbol, '')
+
+    def get_symbol_sector_name(self, symbol: str) -> str:
+        """获取股票所属板块名称（带板块名翻译）"""
+        sector_id = self.get_symbol_sector(symbol)
+        if not sector_id:
+            return ''
+        return self.get_sector_name(sector_id)
+
+    def register_symbol_sector(self, symbol: str, sector_id: str):
+        """注册个股-板块映射"""
+        if sector_id:
+            self.symbol_to_sector[symbol] = sector_id
 
     def get_symbol_change(self, symbol: str) -> float:
         """获取股票涨跌幅"""
@@ -220,7 +236,7 @@ class AttentionHistoryTracker:
             message=content,
             payload=payload or {},
         )
-        self._emit_to_insight(
+        self._emit_to_memory(
             timestamp=now_ts,
             title=title,
             content=content,
@@ -256,7 +272,7 @@ class AttentionHistoryTracker:
         except Exception:
             return
 
-    def _emit_to_insight(
+    def _emit_to_memory(
         self,
         *,
         timestamp: float,
@@ -268,29 +284,23 @@ class AttentionHistoryTracker:
         market_time: str = "",
     ) -> None:
         try:
-            from deva.naja.insight import get_insight_engine
+            from deva.naja.memory import get_memory_engine
         except Exception:
             return
         try:
-            insight = get_insight_engine()
-            signal = {
-                "source": "attention",
-                "signal_type": "attention_history",
-                "score": payload.get("score", 0.5),
-                "content": content,
-                "raw_data": {
-                    "symbol": symbol,
-                    "sector": sector,
-                    "market_time": market_time,
-                    "payload": payload,
-                },
+            memory = get_memory_engine()
+            record = {
                 "timestamp": timestamp,
-                "metadata": {
-                    "title": title,
-                    "source": "attention_history_tracker",
-                },
+                "source": "attention:history_tracker",
+                "title": title,
+                "content": content,
+                "symbol": symbol,
+                "sector": sector,
+                "market_time": market_time,
+                "payload": payload,
+                "importance": "high",
             }
-            insight.ingest_signal(signal)
+            memory.process_record(record)
         except Exception:
             return
 
@@ -546,11 +556,13 @@ class AttentionHistoryTracker:
         """检测注意力变化 - 增强版：记录板块热点切换和个股关联"""
         import logging
         log = logging.getLogger(__name__)
-        
+
         current_time = time.time()
-        
+
         # 时间显示
         time_display = timestamp_str if timestamp_str else datetime.fromtimestamp(current_time).strftime("%H:%M:%S")
+        # 提取行情日期（格式如 "2024-01-15 10:30:00" -> "2024-01-15"）
+        market_date = timestamp_str.split(" ")[0] if timestamp_str else datetime.fromtimestamp(current_time).strftime("%Y-%m-%d")
         
         # ========== 检测板块重大变化 ==========
         all_sectors = set(old.sector_weights.keys()) | set(new.sector_weights.keys())
@@ -609,6 +621,7 @@ class AttentionHistoryTracker:
             event = SectorHotspotEvent(
                 timestamp=current_time,
                 market_time=time_display,
+                market_date=market_date,
                 sector_id=sector_id,
                 sector_name=sector_name,
                 event_type=event_type,
@@ -865,6 +878,32 @@ class AttentionHistoryTracker:
             'hot_symbols': self.current_hot_symbols,
             'global_attention': self.snapshots[-1].global_attention if self.snapshots else 0
         }
+
+    def get_hot_sectors_with_names(self) -> list:
+        """获取热门板块列表（带名称）"""
+        result = []
+        for sector_id, weight in self.current_hot_sectors.items():
+            sector_name = self.get_sector_name(sector_id)
+            result.append({
+                'id': sector_id,
+                'name': sector_name,
+                'weight': weight
+            })
+        return result
+
+    def get_hot_symbols_with_names(self, limit: int = 10) -> list:
+        """获取热门股票列表（带名称）"""
+        result = []
+        for symbol, weight in list(self.current_hot_symbols.items())[:limit]:
+            symbol_name = self.get_symbol_name(symbol)
+            sector = self.get_symbol_sector_name(symbol)
+            result.append({
+                'code': symbol,
+                'name': symbol_name,
+                'sector': sector,
+                'weight': weight
+            })
+        return result
 
 
 # 全局追踪器实例

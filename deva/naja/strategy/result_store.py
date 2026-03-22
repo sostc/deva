@@ -495,7 +495,7 @@ class ResultStore:
         # 发送到洞察引擎（根据配置）
         if should_memory:
             try:
-                from ..insight import get_insight_engine
+                from ..cognition.insight import get_insight_engine
                 insight = get_insight_engine()
                 signal = {
                     "source": "strategy",

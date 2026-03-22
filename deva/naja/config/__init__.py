@@ -70,6 +70,17 @@ DEFAULT_CONFIG = {
         "blacklist": [],
         "whitelist": [],
     },
+    "sector_noise": {
+        "enabled": True,
+        "auto_blacklist_enabled": True,
+        "min_attention_threshold": 0.01,
+        "blacklist_patterns": [
+            '通达信', '系统', 'ST', 'B股', '基金', '指数', '期权', '期货',
+            '上证', '深证', '沪深', '大盘', '权重', '综合', '行业', '地域',
+            '概念', '风格', '上证所', '深交所', '_sys', '_index', '884',
+            '物业管理', '含B股', '地方版', '预预', '昨日', '近日',
+        ],
+    },
     "task": {
         "default_interval": 60,
         "max_concurrent": 10,
@@ -158,6 +169,10 @@ DEFAULT_CONFIG = {
         "max_success_rate_to_adjust": 1.0,
         "allowed_param_keys": [],
         "blocked_param_keys": ["class_path", "code", "func_code", "strategy_code"],
+        "reflection_enabled": True,
+        "reflection_interval_seconds": 1800,
+        "reflection_min_signals": 3,
+        "reflection_max_signals": 50,
     },
     "auth": {
         "username": "",
@@ -357,6 +372,11 @@ def get_attention_config() -> Dict[str, Any]:
 def get_noise_filter_config() -> Dict[str, Any]:
     """获取噪音过滤配置"""
     return get_config("noise_filter")
+
+
+def get_sector_noise_config() -> Dict[str, Any]:
+    """获取板块噪音配置"""
+    return get_config("sector_noise")
 
 
 def ensure_auth_secret() -> str:
