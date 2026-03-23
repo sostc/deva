@@ -90,6 +90,11 @@ from .integration import (
     create_v2_system,
     migrate_legacy,
 )
+from .realtime_data_fetcher import (
+    RealtimeDataFetcher,
+    AsyncRealtimeDataFetcher,
+    FetchConfig,
+)
 
 __all__ = [
     # Core
@@ -164,6 +169,10 @@ __all__ = [
     "create_system",
     "create_v2_system",
     "migrate_legacy",
+    # Realtime Fetcher
+    "RealtimeDataFetcher",
+    "AsyncRealtimeDataFetcher",
+    "FetchConfig",
 ]
 
 __version__ = "3.0.0"

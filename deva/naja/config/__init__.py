@@ -152,6 +152,10 @@ DEFAULT_CONFIG = {
         "event_retention_days": 7,
         "cleanup_interval_seconds": 600,
         "macro_only": True,
+        "auto_start_news_fetcher": True,
+        "news_fetch_interval": 60,
+        "news_attention_threshold": 0.6,
+        "news_force_trading": False,
     },
     "llm": {
         "model_type": "kimi",
