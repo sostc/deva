@@ -289,13 +289,18 @@ class RecoverableUnit(ABC):
     @abstractmethod
     def from_dict(cls, data: dict) -> "RecoverableUnit":
         pass
-    
+
     def save_running_state(self, is_running: bool):
-        if is_running:
-            self._state.status = UnitStatus.RUNNING.value
-        else:
-            self._state.status = UnitStatus.STOPPED.value
-        self.save()
+        old_status = self._state.status
+        new_status = UnitStatus.RUNNING.value if is_running else UnitStatus.STOPPED.value
+
+        self._state.status = new_status
+        try:
+            self.save()
+        except Exception as e:
+            self._state.status = old_status
+            self._log("ERROR", "Save running state failed, rolled back", error=str(e))
+            raise
     
     def get_saved_running_state(self) -> dict:
         return {
@@ -403,7 +408,17 @@ class RecoverableUnit(ABC):
                 "reason": prep.get("reason"),
                 "error": prep.get("error"),
             }
-        return self.start()
+
+        result = self.start()
+
+        if result.get("success") and not self.is_running:
+            return {
+                "success": False,
+                "error": "Recovery started but not running",
+                "reason": "start_returned_success_but_status_not_running",
+            }
+
+        return result
     
     @abstractmethod
     def _do_start(self, func: Callable) -> dict:

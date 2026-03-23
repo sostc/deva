@@ -217,7 +217,18 @@ class GPT:
             completion = await run_ai_in_worker(
                 self._chat_create(messages=messages, stream=False, max_tokens=8000)
             )
-            
+
+            if completion is None:
+                raise RuntimeError("异步查询返回结果为空，请稍后重试")
+
+            if not completion.choices:
+                import traceback
+                log.error(f"[LLM调用来源]\n{''.join(traceback.format_stack())}")
+                raise RuntimeError("异步查询返回结果为空，choices 为空")
+
+            if completion.choices[0].message is None:
+                raise RuntimeError("异步查询返回结果为空，message 为 None")
+
             return completion.choices[0].message.content
         except APIStatusError as e:
             friendly_msg = _get_friendly_error_message(e)
@@ -256,7 +267,10 @@ class GPT:
                 response_format={'type': 'json_object'}
             )
         )
-        
+
+        if completion is None:
+            raise RuntimeError("异步查询返回结果为空，请稍后重试")
+
         return completion.choices[0].message.content
     
     async def close(self):

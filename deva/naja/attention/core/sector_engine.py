@@ -144,6 +144,10 @@ class SectorAttentionEngine:
 
             if not sector_data:
                 log.warning(f"[SectorAttention] 警告: sector_data为空! symbols数量={len(symbols)}")
+                # 调试：检查 symbols 和 sector_ids 的内容
+                import os
+                if os.environ.get("NAJA_LAB_DEBUG") == "true":
+                    log.info(f"[Lab-Debug] symbols[:5]={symbols[:5]}, returns[:5]={returns[:5]}")
             elif all(len(d.get('returns', [])) == 0 for d in sector_data.values()):
                 log.warning(f"[SectorAttention] 警告: 所有板块的returns为空! sector_data keys={list(sector_data.keys())[:5]}")
             else:
@@ -202,6 +206,16 @@ class SectorAttentionEngine:
             sector_id: self._attention_scores[idx]
             for sector_id, idx in self._sector_id_to_idx.items()
         }
+
+        # 调试日志
+        import os
+        if os.environ.get("NAJA_LAB_DEBUG") == "true":
+            sample_items = list(self._sector_id_to_idx.items())[:3]
+            debug_scores = {s: float(self._attention_scores[idx]) for s, idx in sample_items}
+            debug_result = dict(list(result.items())[:3])
+            import traceback
+            stack = ''.join(traceback.format_stack()[-5:]).replace('\n', ' | ')
+            log.info(f"[Lab-Debug] _attention_scores 样本: {debug_scores}, 返回结果样本: {debug_result}, 调用栈: {stack[:200]}")
 
         self._last_calc_time = time.time()
         return result
@@ -337,13 +351,13 @@ class SectorAttentionEngine:
         weights = {}
         for sector_id, idx in self._sector_id_to_idx.items():
             if filter_noise and noise_detector:
-                sector_name = self._sectors[sector_id].name if sector_id in self._sectors else None
+                sector_name = self._sectors[idx].name if idx in self._sectors else None
                 if noise_detector.is_noise(sector_id, sector_name):
                     continue
             weights[sector_id] = float(self._attention_scores[idx])
 
         if len(weights) < 5:
-            weight_names = [self._sectors[k].name if k in self._sectors else k for k in weights.keys()]
+            weight_names = [self._sectors[idx].name if idx in self._sectors else k for k, idx in self._sector_id_to_idx.items() if k in weights]
             log.info(f"[SectorAttention] get_all_weights: 返回 {len(weights)} 个有效板块: {weight_names}")
         return weights
 

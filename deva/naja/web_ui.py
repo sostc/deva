@@ -40,6 +40,86 @@ from .radar.ui import RadarUI
 from .performance import PerformanceMonitorUI
 
 
+def _init_lab_mode(lab_config: dict):
+    """初始化实验室模式
+
+    1. 创建回放数据源（如果指定了 table_name）
+    2. 启动注意力系统实验模式
+
+    Args:
+        lab_config: 实验室配置，包含:
+            - table_name: 回放数据表名
+            - interval: 回放间隔（秒）
+            - speed: 回放速度倍数
+    """
+    import uuid
+    import time
+    import os
+
+    # 设置调试模式环境变量
+    if lab_config.get("debug"):
+        os.environ["NAJA_LAB_DEBUG"] = "true"
+        print("🧪 实验室调试模式已启用")
+    else:
+        os.environ["NAJA_LAB_DEBUG"] = "false"
+
+    from .datasource import get_datasource_manager, DataSourceEntry, UnitStatus
+    from .strategy import get_strategy_manager
+
+    table_name = lab_config.get("table_name")
+    interval = lab_config.get("interval", 1.0)
+    speed = lab_config.get("speed", 1.0)
+
+    ds_mgr = get_datasource_manager()
+    strategy_mgr = get_strategy_manager()
+
+    datasource_id = None
+
+    if table_name:
+        result = ds_mgr.create(
+            name=f"实验室-历史行情回放-{uuid.uuid4().hex[:8]}",
+            source_type="replay",
+            config={
+                "table_name": table_name,
+                "interval": interval,
+                "speed": speed,
+            }
+        )
+
+        if not result.get("success"):
+            print(f"⚠️ 创建实验室数据源失败: {result.get('error', '未知错误')}")
+            return
+
+        datasource_id = result.get("id")
+        print(f"🧪 已创建实验室数据源: {datasource_id}")
+
+        time.sleep(0.5)
+
+        lab_datasource = ds_mgr._items.get(datasource_id)
+        if lab_datasource:
+            lab_datasource.start()
+            print(f"🧪 实验室数据源已启动，回放间隔: {interval}s")
+        else:
+            print(f"⚠️ 找不到已创建的数据源: {datasource_id}")
+            datasource_id = None
+
+    if strategy_mgr:
+        time.sleep(0.5)
+
+        if datasource_id:
+            result = strategy_mgr.start_experiment(
+                categories=[],  # 空列表表示所有类别
+                datasource_id=datasource_id,
+                include_attention=True  # 启用注意力策略
+            )
+            if result.get("success"):
+                print(f"✅ 注意力策略实验模式已启动 (数据源: {datasource_id})")
+            else:
+                print(f"⚠️ 启动实验模式失败: {result.get('error', '未知错误')}")
+        else:
+            print("⚠️ 未指定回放数据表，仅启动注意力系统")
+
+
 def apply_global_styles():
     """应用全局样式"""
     put_html("""
@@ -496,45 +576,101 @@ def create_handlers(cdn: str = None):
     ]
 
 
-def run_server(port: int = 8080, host: str = '0.0.0.0'):
-    """启动服务器"""
+def run_server(port: int = 8080, host: str = '0.0.0.0', lab_config: dict = None):
+    """启动服务器
+
+    Args:
+        port: Web 服务器端口
+        host: 绑定地址
+        lab_config: 实验室模式配置，如 {'enabled': True, 'table_name': 'xxx', 'interval': 1.0}
+    """
     print("=" * 60)
     print("🚀 Naja 管理平台启动中...")
     print("=" * 60)
-    
+
     from .datasource import get_datasource_manager
     from .tasks import get_task_manager
     from .strategy import get_strategy_manager
     from .dictionary import get_dictionary_manager
     from .signal.stream import get_signal_stream
     from .supervisor import start_supervisor
-    
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+    from tornado.ioloop import IOLoop
+    import threading
+
     ds_mgr = get_datasource_manager()
     task_mgr = get_task_manager()
     strategy_mgr = get_strategy_manager()
     dict_mgr = get_dictionary_manager()
 
-    ds_count = ds_mgr.load_from_db()
-    task_count = task_mgr.load_from_db()
-    strategy_count = strategy_mgr.load_from_db()
-    dict_count = dict_mgr.load_from_db()
+    load_results = {}
+    restore_results = {}
+    load_errors = {}
+    restore_errors = {}
+
+    def load_manager(manager, name):
+        try:
+            count = manager.load_from_db()
+            return (name, count, None)
+        except Exception as e:
+            return (name, 0, str(e))
+
+    def restore_manager(manager, name):
+        try:
+            result = manager.restore_running_states()
+            return (name, result, None)
+        except Exception as e:
+            return (name, None, str(e))
+
+    print("📂 并行加载持久化数据...")
+    with ThreadPoolExecutor(max_workers=4) as executor:
+        futures = {
+            executor.submit(load_manager, ds_mgr, "datasource"): "datasource",
+            executor.submit(load_manager, task_mgr, "task"): "task",
+            executor.submit(load_manager, strategy_mgr, "strategy"): "strategy",
+            executor.submit(load_manager, dict_mgr, "dictionary"): "dictionary",
+        }
+
+        for future in as_completed(futures):
+            name, count, error = future.result()
+            if error:
+                load_errors[name] = error
+            else:
+                load_results[name] = count
+
+    ds_count = load_results.get("datasource", 0)
+    task_count = load_results.get("task", 0)
+    strategy_count = load_results.get("strategy", 0)
+    dict_count = load_results.get("dictionary", 0)
+
+    if load_errors:
+        error_info = ", ".join([f"{k}: {v}" for k, v in load_errors.items()])
+        print(f"⚠️ 部分数据加载失败: {error_info}")
 
     print(f"📂 加载完成: 数据源({ds_count}) 任务({task_count}) 策略({strategy_count}) 字典({dict_count})")
 
-    ds_mgr.restore_running_states()
-    task_mgr.restore_running_states()
-    try:
-        from .llm_controller import ensure_llm_auto_adjust_task
-        ensure_llm_auto_adjust_task()
-    except Exception as e:
-        print(f"⚠️ LLM 自动调节任务初始化失败: {e}")
+    print("🔄 并行恢复运行状态...")
+    with ThreadPoolExecutor(max_workers=4) as executor:
+        futures = {
+            executor.submit(restore_manager, ds_mgr, "datasource"): "datasource",
+            executor.submit(restore_manager, task_mgr, "task"): "task",
+            executor.submit(restore_manager, strategy_mgr, "strategy"): "strategy",
+            executor.submit(restore_manager, dict_mgr, "dictionary"): "dictionary",
+        }
 
-    strategy_mgr.restore_running_states()
-    dict_mgr.restore_running_states()
+        for future in as_completed(futures):
+            name, result, error = future.result()
+            if error:
+                restore_errors[name] = error
+            else:
+                restore_results[name] = result
 
-    get_signal_stream()  # 初始化信号流并从持久化存储加载数据
-    
-    # 恢复 Bandit 自适应循环状态
+    if restore_errors:
+        error_info = ", ".join([f"{k}: {v}" for k, v in restore_errors.items()])
+        print(f"⚠️ 部分状态恢复失败: {error_info}")
+
+    get_signal_stream()
+
     print("🎯 恢复 Bandit 自适应循环...")
     try:
         from .bandit import restore_bandit_state
@@ -542,15 +678,43 @@ def run_server(port: int = 8080, host: str = '0.0.0.0'):
         print("✓ Bandit 自适应循环状态已恢复")
     except Exception as e:
         print(f"⚠️ Bandit 自适应循环恢复失败: {e}")
-    
+
     print("🛡️ 启动系统监控...")
     start_supervisor()
-    
+
+    # 实验室模式初始化
+    if lab_config and lab_config.get("enabled"):
+        print("🧪 实验室模式已启用，准备启动...")
+        _init_lab_mode(lab_config)
+
     handlers = create_handlers()
-    
+
     print(f"🌐 启动 Web 服务器: http://localhost:{port}")
     print("=" * 60)
-    
-    NW('naja_webview', host=host, port=port).application.add_handlers('.*$', handlers)
-    
-    Deva.run()
+
+    server = NW('naja_webview', host=host, port=port, start=False)
+    server.application.add_handlers('.*$', handlers)
+    server.start()
+
+    asyncio_loop = getattr(IOLoop.current(), 'asyncio_loop', None)
+    if asyncio_loop is None or not asyncio_loop.is_running():
+        Deva.run()
+    else:
+        import signal
+        import threading
+
+        shutdown_event = threading.Event()
+
+        def shutdown_handler(signum, frame):
+            import logging
+            logger = logging.getLogger("deva.naja")
+            logger.info("收到退出信号，正在优雅关闭...")
+            shutdown_event.set()
+
+        signal.signal(signal.SIGINT, shutdown_handler)
+        signal.signal(signal.SIGTERM, shutdown_handler)
+
+        try:
+            shutdown_event.wait()
+        except KeyboardInterrupt:
+            shutdown_handler(None, None)

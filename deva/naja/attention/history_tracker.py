@@ -9,10 +9,18 @@
 """
 
 import time
+import os
 from typing import Dict, List, Optional, Any
 from collections import deque
 from dataclasses import dataclass, field
 from datetime import datetime
+
+
+def _lab_debug_log(msg: str):
+    """实验室模式调试日志"""
+    if os.environ.get("NAJA_LAB_DEBUG") == "true":
+        import logging
+        logging.getLogger(__name__).info(f"[Lab-Debug] {msg}")
 
 
 @dataclass
@@ -386,7 +394,7 @@ class AttentionHistoryTracker:
             if len(self.snapshots) <= 2:
                 sample_items = list(sector_weights.items())[:3]
                 sample_named = {self.get_sector_name(k): v for k, v in sample_items}
-                log.info(f"[HistoryTracker] 快照{len(self.snapshots)+1}: sector_weights样本={sample_named}")
+                _lab_debug_log(f"快照{len(self.snapshots)+1}: sector_weights样本={sample_named}")
 
             self._detect_changes(last_snapshot, snapshot, timestamp_str)
         

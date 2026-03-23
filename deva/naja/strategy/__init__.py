@@ -100,6 +100,7 @@ class StrategyEntry(RecoverableUnit):
         self._datasource_names: Dict[str, str] = {}  # 数据源ID -> 名称
         self._output_stream: Optional[Any] = None
         self._processing_lock = threading.Lock()
+        self._window_lock = threading.Lock()
         self._window_buffer: List[Any] = []
         self._last_window_trigger: float = 0  # 上次窗口触发时间
         self._runtime = None
@@ -107,7 +108,36 @@ class StrategyEntry(RecoverableUnit):
         self._runtime_config_hash = ""
 
         self._ensure_runtime_stub_code()
-    
+
+        self._pipeline = None
+
+    def _get_pipeline(self):
+        """获取或创建 Pipeline"""
+        if self._pipeline is not None:
+            return self._pipeline
+
+        from ..attention.pipeline import PipelineManager, PipelineConfig, StrategyEnrichStage, StrategyProcessStage
+
+        config = PipelineConfig(
+            name=f"strategy_{self.name}",
+            stop_on_error=False,
+        )
+        self._pipeline = PipelineManager(config)
+
+        profile_ids = getattr(self._metadata, "dictionary_profile_ids", [])
+        if profile_ids:
+            enrich_stage = StrategyEnrichStage(name=f"enrich_{self.name}", profile_ids=profile_ids)
+            self._pipeline.add_stage(enrich_stage)
+
+        process_stage = StrategyProcessStage(
+            name=f"process_{self.name}",
+            compute_mode=getattr(self._metadata, "compute_mode", "record"),
+            window_type=getattr(self._metadata, "window_type", "sliding"),
+        )
+        self._pipeline.add_stage(process_stage)
+
+        return self._pipeline
+
     def _get_func_name(self) -> str:
         return "process"
 
@@ -147,6 +177,22 @@ class StrategyEntry(RecoverableUnit):
             merged["params"] = existing_params
             return merged
         return config
+
+    def is_processing_data(self, timeout: float = 300) -> bool:
+        """检测策略是否正在活跃处理数据
+        
+        Args:
+            timeout: 超时时间(秒)，超过该时间没处理数据则视为不活跃
+            
+        Returns:
+            bool: 策略是否在超时时间内处理过数据
+        """
+        if not self.is_running:
+            return False
+        if self._state.processed_count == 0:
+            return False
+        elapsed = time.time() - self._state.last_process_ts
+        return elapsed < timeout
 
     def _get_runtime(self):
         strategy_type = self._get_strategy_type()
@@ -483,145 +529,166 @@ class StrategyEntry(RecoverableUnit):
             result = self._compiled_func(actual_data)
             
         if asyncio.iscoroutine(result):
-            loop = asyncio.new_event_loop()
             try:
-                result = loop.run_until_complete(result)
-            finally:
-                loop.close()
+                loop = asyncio.get_running_loop()
+                import concurrent.futures
+                with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+                    future = executor.submit(asyncio.run, result)
+                    result = future.result(timeout=30)
+            except RuntimeError:
+                loop = asyncio.new_event_loop()
+                try:
+                    result = loop.run_until_complete(result)
+                finally:
+                    loop.close()
         return result
-    
+
     def _process_window(self, data: Any) -> Any:
         window_type = getattr(self._metadata, "window_type", "sliding") or "sliding"
         window_size = max(1, int(getattr(self._metadata, "window_size", 5) or 5))
         return_partial = bool(getattr(self._metadata, "window_return_partial", False))
-        
-        # 提取实际数据（如果是 enriched_data 结构）
+
         actual_data = data.get('data', data) if isinstance(data, dict) else data
-        self._window_buffer.append(actual_data)
-        
+
         runtime = self._get_runtime()
 
         if window_type == "sliding":
-            if len(self._window_buffer) > window_size:
-                self._window_buffer = self._window_buffer[-window_size:]
-            
-            if not return_partial and len(self._window_buffer) < window_size:
-                return None
-            
-            # Create context object
-            context = {
-                'strategy_id': self.id,
-                'strategy_name': self.name,
-                'metadata': self._metadata.to_dict(),
-                'state': self._state.to_dict()
-            }
-            
+            with self._window_lock:
+                self._window_buffer.append(actual_data)
+                if len(self._window_buffer) > window_size:
+                    self._window_buffer = self._window_buffer[-window_size:]
+
+                if not return_partial and len(self._window_buffer) < window_size:
+                    return None
+
+                context = {
+                    'strategy_id': self.id,
+                    'strategy_name': self.name,
+                    'metadata': self._metadata.to_dict(),
+                    'state': self._state.to_dict()
+                }
+
+                buffer_copy = list(self._window_buffer)
+
             if runtime is not None:
-                runtime.on_data(list(self._window_buffer))
+                runtime.on_data(buffer_copy)
                 result = runtime.get_signal()
             else:
-                # Try calling with context first, then fallback to data only
                 try:
-                    result = self._compiled_func(list(self._window_buffer), context)
+                    result = self._compiled_func(buffer_copy, context)
                 except TypeError:
-                    # Fallback to data only for backward compatibility
-                    result = self._compiled_func(list(self._window_buffer))
-                
+                    result = self._compiled_func(buffer_copy)
+
             if asyncio.iscoroutine(result):
-                loop = asyncio.new_event_loop()
                 try:
-                    result = loop.run_until_complete(result)
-                finally:
-                    loop.close()
+                    loop = asyncio.get_running_loop()
+                    import concurrent.futures
+                    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+                        future = executor.submit(asyncio.run, result)
+                        result = future.result(timeout=30)
+                except RuntimeError:
+                    loop = asyncio.new_event_loop()
+                    try:
+                        result = loop.run_until_complete(result)
+                    finally:
+                        loop.close()
             return result
-        
+
         elif window_type == "timed":
-            # 定时窗口：按时间间隔触发
             window_interval_str = getattr(self._metadata, "window_interval", "10s") or "10s"
             interval_seconds = self._parse_interval(window_interval_str)
-            
+
             now = time.time()
-            
-            # 首次调用时，初始化触发时间，等待下一个周期
-            if self._last_window_trigger == 0:
+
+            with self._window_lock:
+                if self._last_window_trigger == 0:
+                    self._last_window_trigger = now
+                    return None
+
+                should_trigger = (now - self._last_window_trigger) >= interval_seconds
+
+                if not should_trigger:
+                    return None
+
                 self._last_window_trigger = now
-                return None
-            
-            should_trigger = (now - self._last_window_trigger) >= interval_seconds
-            
-            if not should_trigger:
-                return None
-            
-            # 触发窗口处理
-            self._last_window_trigger = now
-            
-            if len(self._window_buffer) < 1:
-                return None
-            
-            # Create context object
-            context = {
-                'strategy_id': self.id,
-                'strategy_name': self.name,
-                'metadata': self._metadata.to_dict(),
-                'state': self._state.to_dict()
-            }
-            
+
+                if len(self._window_buffer) < 1:
+                    return None
+
+                context = {
+                    'strategy_id': self.id,
+                    'strategy_name': self.name,
+                    'metadata': self._metadata.to_dict(),
+                    'state': self._state.to_dict()
+                }
+
+                buffer_copy = list(self._window_buffer)
+                self._window_buffer = []
+
             if runtime is not None:
-                runtime.on_data(list(self._window_buffer))
+                runtime.on_data(buffer_copy)
                 result = runtime.get_signal()
             else:
-                # Try calling with context first, then fallback to data only
                 try:
-                    result = self._compiled_func(list(self._window_buffer), context)
+                    result = self._compiled_func(buffer_copy, context)
                 except TypeError:
-                    # Fallback to data only for backward compatibility
-                    result = self._compiled_func(list(self._window_buffer))
-                
-            # 清空窗口缓冲区，开始新的窗口周期
-            self._window_buffer = []
-            
+                    result = self._compiled_func(buffer_copy)
+
             if asyncio.iscoroutine(result):
-                loop = asyncio.new_event_loop()
                 try:
-                    result = loop.run_until_complete(result)
-                finally:
-                    loop.close()
+                    loop = asyncio.get_running_loop()
+                    import concurrent.futures
+                    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+                        future = executor.submit(asyncio.run, result)
+                        result = future.result(timeout=30)
+                except RuntimeError:
+                    loop = asyncio.new_event_loop()
+                    try:
+                        result = loop.run_until_complete(result)
+                    finally:
+                        loop.close()
             return result
-        
         else:
-            if len(self._window_buffer) > window_size:
-                self._window_buffer = self._window_buffer[-window_size:]
-            
-            if len(self._window_buffer) < window_size:
-                return None
-            
-            # Create context object
-            context = {
-                'strategy_id': self.id,
-                'strategy_name': self.name,
-                'metadata': self._metadata.to_dict(),
-                'state': self._state.to_dict()
-            }
-            
+            with self._window_lock:
+                if len(self._window_buffer) > window_size:
+                    self._window_buffer = self._window_buffer[-window_size:]
+
+                if len(self._window_buffer) < window_size:
+                    return None
+
+                context = {
+                    'strategy_id': self.id,
+                    'strategy_name': self.name,
+                    'metadata': self._metadata.to_dict(),
+                    'state': self._state.to_dict()
+                }
+
+                buffer_copy = list(self._window_buffer)
+
             if runtime is not None:
-                runtime.on_data(list(self._window_buffer))
+                runtime.on_data(buffer_copy)
                 result = runtime.get_signal()
             else:
-                # Try calling with context first, then fallback to data only
                 try:
-                    result = self._compiled_func(list(self._window_buffer), context)
+                    result = self._compiled_func(buffer_copy, context)
                 except TypeError:
-                    # Fallback to data only for backward compatibility
-                    result = self._compiled_func(list(self._window_buffer))
-                
+                    result = self._compiled_func(buffer_copy)
+
             if asyncio.iscoroutine(result):
-                loop = asyncio.new_event_loop()
                 try:
-                    result = loop.run_until_complete(result)
-                finally:
-                    loop.close()
+                    loop = asyncio.get_running_loop()
+                    import concurrent.futures
+                    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+                        future = executor.submit(asyncio.run, result)
+                        result = future.result(timeout=30)
+                except RuntimeError:
+                    loop = asyncio.new_event_loop()
+                    try:
+                        result = loop.run_until_complete(result)
+                    finally:
+                        loop.close()
             return result
-    
+
     def _parse_interval(self, interval_str: str) -> float:
         """解析时间间隔字符串，返回秒数"""
         if not interval_str:
@@ -988,7 +1055,8 @@ class StrategyEntry(RecoverableUnit):
                     return result
         
         # 重置窗口状态（配置变更后需要重新开始）
-        self._window_buffer = []
+        with self._window_lock:
+            self._window_buffer = []
         self._last_window_trigger = 0
         self._runtime = None
         self._runtime_type = ""
@@ -1091,7 +1159,8 @@ class StrategyEntry(RecoverableUnit):
                 return {"success": False, "error": str(e)}
 
         # 重置窗口状态
-        self._window_buffer = []
+        with self._window_lock:
+            self._window_buffer = []
         self._last_window_trigger = 0
 
         # 运行中则重启
@@ -1208,6 +1277,24 @@ class StrategyManager:
         self._experiment_lock = threading.Lock()
         self._experiment_session: Optional[Dict[str, Any]] = None
         self._initialized = True
+        self.load_from_db()
+
+    def health_check(self):
+        """健康检查"""
+        from ..common.manager_health import ManagerHealthReport
+
+        items = list(self._items.values())
+        running = sum(1 for i in items if i.is_running)
+        errors = sum(1 for i in items if i._state.error_count > 0)
+
+        return ManagerHealthReport(
+            component="StrategyManager",
+            healthy=errors == 0,
+            timestamp=time.time(),
+            item_count=len(items),
+            running_count=running,
+            error_count=errors,
+        )
 
     def _normalize_categories(self, categories: List[str]) -> List[str]:
         normalized: List[str] = []
@@ -1903,49 +1990,90 @@ class StrategyManager:
         restored_count = 0
         failed_count = 0
         results = []
-        
+
         with self._items_lock:
             entries_to_check = list(self._items.values())
-        
-        for entry in entries_to_check:
+
+        if not entries_to_check:
+            return {
+                "success": True,
+                "restored_count": 0,
+                "failed_count": 0,
+                "results": [],
+            }
+
+        from ..common.thread_pool import get_thread_pool
+        pool = get_thread_pool()
+        futures = {}
+
+        def restore_one(entry):
             try:
                 prep = entry.prepare_for_recovery()
-                
+
                 if not prep.get("can_recover"):
-                    results.append({
+                    return {
                         "entry_id": entry.id,
                         "entry_name": entry.name,
                         "success": False,
                         "reason": prep.get("reason"),
-                    })
-                    continue
-                
+                    }
+
                 result = entry.start()
-                
+
                 if result.get("success"):
-                    restored_count += 1
-                    results.append({
+                    return {
                         "entry_id": entry.id,
                         "entry_name": entry.name,
                         "success": True,
-                    })
+                    }
                 else:
-                    failed_count += 1
-                    results.append({
+                    return {
                         "entry_id": entry.id,
                         "entry_name": entry.name,
                         "success": False,
                         "error": result.get("error"),
-                    })
-                    
+                    }
+
             except Exception as e:
-                failed_count += 1
-                results.append({
+                return {
                     "entry_id": entry.id,
                     "entry_name": entry.name,
                     "success": False,
                     "error": str(e),
-                })
+                }
+
+        for entry in entries_to_check:
+            try:
+                future = pool.submit(restore_one, entry)
+                futures[future] = entry.id
+            except RuntimeError:
+                restore_one(entry)
+
+        if futures:
+            for future in futures:
+                try:
+                    result = future.result(timeout=30)
+                    results.append(result)
+                    if result.get("success"):
+                        restored_count += 1
+                    else:
+                        failed_count += 1
+                except Exception as e:
+                    failed_count += 1
+                    entry_id = futures.get(future, "unknown")
+                    results.append({
+                        "entry_id": entry_id,
+                        "success": False,
+                        "error": str(e),
+                    })
+        else:
+            for entry in entries_to_check:
+                result = restore_one(entry)
+                results.append(result)
+                if result.get("success"):
+                    restored_count += 1
+                else:
+                    failed_count += 1
 
         return {
             "success": True,

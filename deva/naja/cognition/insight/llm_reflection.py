@@ -74,7 +74,7 @@ class LLMReflectionEngine:
         self._min_signals = int(cfg.get("reflection_min_signals", 5))
         self._max_signals = int(cfg.get("reflection_max_signals", 50))
 
-        self._last_run_ts = 0.0
+        self._last_run_ts = time.time()
         self._last_success_ts = 0.0
         self._reflections_count = 0
         self._running_reflections: List[Reflection] = []

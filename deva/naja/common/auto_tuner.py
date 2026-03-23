@@ -86,7 +86,7 @@ class AutoTuner:
         self._llm_queue: deque = deque(maxlen=100)
         self._last_llm_call_ts = 0
         self._llm_cooldown = 300
-        self._startup_grace_period = 300
+        self._startup_grace_period = 86400
         self._startup_time = time.time()
         # 待处理的 LLM 调优请求（合并用）
         self._pending_llm_issues: List[Dict] = []
