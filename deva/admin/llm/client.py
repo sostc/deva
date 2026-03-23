@@ -206,7 +206,10 @@ class GPT:
             completion = await run_ai_in_worker(
                 self._chat_create(messages=messages, stream=False, max_tokens=8000)
             )
-            
+
+            if completion is None:
+                raise RuntimeError("异步查询返回结果为空，请稍后重试")
+
             return completion.choices[0].message.content
         except APIStatusError as e:
             friendly_msg = _get_friendly_error_message(e)
@@ -217,26 +220,26 @@ class GPT:
             {"level": "ERROR", "source": "deva.llm", "message": "异步查询失败", "traceback": traceback.format_exc()} >> warn
             self._switch_model()
             raise
-            
+
     async def async_json_query(self, prompts):
         """
         异步查询大模型并返回JSON格式结果
-        
+
         参数:
             prompts (str|list): 提示词，可以是字符串或字符串列表
-            
+
         返回:
             str: JSON格式的模型响应
-            
+
         示例:
         >>> response = await gpt.async_json_query("返回JSON格式的天气数据")
         >>> print(response)  # 输出: {"weather": "sunny", "temperature": 25}
         """
         if isinstance(prompts, str):
             prompts = [prompts]
-            
+
         messages = [{"role": "user", "content": prompt} for prompt in prompts]
-        
+
         completion = await run_ai_in_worker(
             self._chat_create(
                 messages=messages,
@@ -245,7 +248,10 @@ class GPT:
                 response_format={'type': 'json_object'}
             )
         )
-        
+
+        if completion is None:
+            raise RuntimeError("异步查询返回结果为空，请稍后重试")
+
         return completion.choices[0].message.content
     
     async def close(self):

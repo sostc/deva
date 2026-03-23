@@ -47,7 +47,6 @@ class NajaSupervisor:
             'task': None,
             'dictionary': None,
             'signal': None,
-            'agent': None,
             'radar': None,
             'llm_controller': None,
         }
@@ -85,9 +84,6 @@ class NajaSupervisor:
             elif name == 'signal':
                 from .signal.stream import get_signal_stream
                 self._components[name] = get_signal_stream()
-            elif name == 'agent':
-                from .agent.manager import get_agent_manager
-                self._components[name] = get_agent_manager()
             elif name == 'radar':
                 from .radar import get_radar_engine
                 self._components[name] = get_radar_engine()
@@ -406,22 +402,7 @@ class NajaSupervisor:
                 'status': 'error',
                 'error': str(e)
             }
-        
-        # 检查智能体状态
-        try:
-            agent_mgr = self._get_component('agent')
-            if agent_mgr:
-                agent_status = agent_mgr.get_system_status()
-                status['components']['agent'] = {
-                    'status': 'healthy',
-                    'stats': agent_status
-                }
-        except Exception as e:
-            status['components']['agent'] = {
-                'status': 'error',
-                'error': str(e)
-            }
-        
+
         # 检查信号流状态
         try:
             signal_stream = self._get_component('signal')
@@ -569,33 +550,38 @@ class NajaSupervisor:
             return {'success': False, 'error': str(e)}
     
     def restore_all_states(self) -> Dict[str, Any]:
-        """恢复所有组件的运行状态"""
+        """恢复所有组件的运行状态（并行执行）"""
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+
         results = {}
-        
-        # 恢复数据源
-        try:
-            ds_mgr = self._get_component('datasource')
-            if ds_mgr:
-                results['datasource'] = ds_mgr.restore_running_states()
-        except Exception as e:
-            results['datasource'] = {'success': False, 'error': str(e)}
-        
-        # 恢复策略
-        try:
-            strategy_mgr = self._get_component('strategy')
-            if strategy_mgr:
-                results['strategy'] = strategy_mgr.restore_running_states()
-        except Exception as e:
-            results['strategy'] = {'success': False, 'error': str(e)}
-        
-        # 恢复任务
-        try:
-            task_mgr = self._get_component('task')
-            if task_mgr:
-                results['task'] = task_mgr.restore_running_states()
-        except Exception as e:
-            results['task'] = {'success': False, 'error': str(e)}
-        
+        components = {
+            'datasource': lambda: self._get_component('datasource'),
+            'strategy': lambda: self._get_component('strategy'),
+            'task': lambda: self._get_component('task'),
+        }
+
+        def restore_component(name, getter):
+            try:
+                comp = getter()
+                if comp:
+                    return (name, comp.restore_running_states(), None)
+                return (name, None, "Component not found")
+            except Exception as e:
+                return (name, None, str(e))
+
+        with ThreadPoolExecutor(max_workers=3) as executor:
+            futures = {
+                executor.submit(restore_component, name, getter): name
+                for name, getter in components.items()
+            }
+
+            for future in as_completed(futures):
+                name, result, error = future.result()
+                if error:
+                    results[name] = {'success': False, 'error': error}
+                else:
+                    results[name] = result
+
         return results
     
     def shutdown(self) -> Dict[str, Any]:

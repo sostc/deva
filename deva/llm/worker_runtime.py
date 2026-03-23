@@ -36,9 +36,31 @@ def submit_ai_coro(coro):
     return asyncio.run_coroutine_threadsafe(coro, loop)
 
 
-async def run_ai_in_worker(coro):
-    future = submit_ai_coro(coro)
-    return await asyncio.wrap_future(future)
+async def run_ai_in_worker(coro, timeout: float = 60.0):
+    """
+    在工作线程中运行异步协程
+    
+    Args:
+        coro: 要执行的协程
+        timeout: 超时时间（秒），默认60秒
+        
+    Returns:
+        协程的执行结果
+        
+    Raises:
+        TimeoutError: 执行超时
+        RuntimeError: 执行返回None或失败
+    """
+    try:
+        future = submit_ai_coro(coro)
+        result = await asyncio.wait_for(asyncio.wrap_future(future), timeout=timeout)
+        
+        if result is None:
+            raise RuntimeError("Worker thread returned None - possible crash or API error")
+        
+        return result
+    except asyncio.TimeoutError:
+        raise TimeoutError(f"LLM query timed out after {timeout} seconds")
 
 
 def _is_in_async_context():

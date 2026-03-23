@@ -11,9 +11,16 @@
 import time
 import threading
 import asyncio
+import os
 from typing import Dict, List, Optional, Set, Callable, Any
 from collections import defaultdict
 import logging
+
+
+def _lab_debug_log(msg: str):
+    """实验室模式调试日志"""
+    if os.environ.get("NAJA_LAB_DEBUG") == "true":
+        logging.getLogger(__name__).info(f"[Lab-Debug] {msg}")
 
 import numpy as np
 
@@ -74,7 +81,7 @@ class AttentionOrchestrator:
 
         # 缓存
         self._last_attention_update = 0
-        self._attention_cache_ttl = 1.0
+        self._attention_cache_ttl = 0.1  # 100ms，避免回放数据被跳过
         self._cached_high_attention_symbols: Set[str] = set()
         self._cached_active_sectors: Set[str] = set()
 
@@ -90,6 +97,35 @@ class AttentionOrchestrator:
         # 日志频率控制
         self._last_noise_log_time = 0
         self._noise_log_interval = 60
+
+        # ===== 新架构组件 =====
+        # Pipeline 管理器
+        from deva.naja.attention.pipeline import PipelineManager, PipelineConfig, create_default_pipeline
+        pipeline_config = PipelineConfig(
+            name="attention_pipeline",
+            stop_on_error=False,
+            enable_stats=True,
+        )
+        self._pipeline = PipelineManager(pipeline_config)
+
+        # 数据质量门控
+        from deva.naja.common.data_quality_gate import DataQualityGate
+        self._quality_gate = DataQualityGate()
+
+        # EnrichStage (板块数据合并)
+        from deva.naja.attention.pipeline import EnrichStage
+        self._enrich_stage = EnrichStage(name="enrich_sector", use_direct_load=True)
+        self._pipeline.add_stage(self._enrich_stage)
+
+        # FilterStage (噪音过滤)
+        from deva.naja.attention.pipeline import FilterStage
+        self._filter_stage = FilterStage(
+            name="filter_noise",
+            min_amount=1_000_000,
+            min_volume=100_000,
+        )
+        self._pipeline.add_stage(self._filter_stage)
+        # =====================
 
         # 噪音过滤器
         nf_config = get_noise_filter_config()
@@ -277,10 +313,29 @@ class AttentionOrchestrator:
         start_time = time.time()
         self._processed_frames += 1
 
+        # ===== 数据质量检查 =====
+        quality_report = self._quality_gate.validate(data, context=datasource_id)
+        if not quality_report.passed:
+            log.error(f"[Orchestrator] 数据质量不合格: {quality_report.failed_count} 项失败")
+            return
+        if quality_report.warning_count > 0:
+            log.warning(f"[Orchestrator] 数据质量有警告: {quality_report.warning_count} 项")
+
+        # ===== 使用 Pipeline 处理数据 =====
+        pipeline_result = self._pipeline.execute(data, context={'datasource_id': datasource_id})
+
+        if pipeline_result.passed:
+            data = pipeline_result.data
+            if pipeline_result.warning:
+                if self._processed_frames % 10 == 0:
+                    log.warning(f"[Orchestrator] Pipeline 警告: {pipeline_result.warning}")
+        else:
+            log.error(f"[Orchestrator] Pipeline 执行失败: {pipeline_result.error}")
+            return
+
         # 每10帧输出一次日志
         if self._processed_frames % 10 == 0:
-            log.info(f"[Orchestrator] 已处理 {self._processed_frames} 帧数据，当前数据源: {datasource_id}")
-            log.info(f"[Orchestrator] 数据形状: {data.shape}, 列: {list(data.columns)}")
+            log.info(f"[Orchestrator] 已处理 {self._processed_frames} 帧数据, Pipeline: {pipeline_result.rows_in}→{pipeline_result.rows_out}")
 
         # 更新注意力系统
         self._update_attention(data)
@@ -465,7 +520,46 @@ class AttentionOrchestrator:
                     sector_ids=sector_ids,
                     timestamp=market_time
                 )
-            
+
+            _lab_debug_log(f"process_snapshot result: global_attention={result.get('global_attention')}, sector_attention count={len(result.get('sector_attention', {}))}")
+
+            # 检查是同一个实例吗？
+            int_base = self._integration.intelligence_system.base_system.sector_attention
+            att_base = self._integration.attention_system.sector_attention
+            _lab_debug_log(f"同一个实例? intelligence.base={id(int_base)}, attention.base={id(att_base)}, 相同={int_base is att_base}")
+
+            # 检查 process_snapshot 后 _attention_scores 的状态
+            sector_engine = self._integration.attention_system.sector_attention
+            if sector_engine._sector_id_to_idx:
+                sample_items = list(sector_engine._sector_id_to_idx.items())[:3]
+                raw_scores_sample = {s: float(sector_engine._attention_scores[idx]) for s, idx in sample_items}
+                _lab_debug_log(f"process_snapshot 后 _attention_scores 样本: {raw_scores_sample}")
+
+            # 详细调试：检查 sector_attention 的内容
+            sec_attn = result.get('sector_attention', {})
+            if sec_attn:
+                non_zero = {k: v for k, v in sec_attn.items() if v > 0}
+                if non_zero:
+                    _lab_debug_log(f"sector_attention 非零项: {len(non_zero)}/{len(sec_attn)}, 样本: {dict(list(non_zero.items())[:3])}")
+                else:
+                    _lab_debug_log(f"sector_attention 全部为0! 样本: {dict(list(sec_attn.items())[:3])}")
+
+            # 详细调试：检查噪音检测器状态
+            try:
+                from deva.naja.attention.processing.sector_noise_detector import get_sector_noise_detector
+                detector = get_sector_noise_detector()
+                report = detector.get_noise_report()
+                _lab_debug_log(f"噪音检测器状态: 黑名单={report['manual_blacklist_size']}, 自动黑名单={report['auto_blacklist_size']}")
+            except Exception as e:
+                _lab_debug_log(f"获取噪音检测器失败: {e}")
+
+            # 详细调试：检查 get_all_weights 的结果和过滤情况
+            sw_with_filter = self._integration.attention_system.sector_attention.get_all_weights(filter_noise=True)
+            sw_no_filter = self._integration.attention_system.sector_attention.get_all_weights(filter_noise=False)
+            non_zero_filter = {k: v for k, v in sw_with_filter.items() if v > 0}
+            non_zero_no_filter = {k: v for k, v in sw_no_filter.items() if v > 0}
+            _lab_debug_log(f"get_all_weights: filter=True ({len(non_zero_filter)} non-zero), filter=False ({len(non_zero_no_filter)} non-zero)")
+
             # 更新缓存
             control = self._integration.get_datasource_control()
             self._cached_high_attention_symbols = set(control.get('high_freq_symbols', []))
@@ -486,7 +580,7 @@ class AttentionOrchestrator:
 
             # 每50帧输出一次全局注意力和活跃度（用于调试策略跳过问题）
             if self._processed_frames % 50 == 0:
-                log.info(f"[Attention] 注意力: {self._cached_global_attention:.3f}, "
+                _lab_debug_log(f"[Attention] 注意力: {self._cached_global_attention:.3f}, "
                         f"活跃度: {self._cached_activity:.3f}, "
                         f"历史缓冲: {history_size}/{attention_engine.history_window}, "
                         f"活跃板块: {len(self._cached_active_sectors)}, "
@@ -496,7 +590,7 @@ class AttentionOrchestrator:
             if self._processed_frames % 100 == 0:
                 dual_summary = result.get('dual_engine_summary', {})
                 river_stats = dual_summary.get('river_stats', {})
-                log.info(f"[River Engine] 处理: {river_stats.get('processed_count', 0)}, "
+                _lab_debug_log(f"[River Engine] 处理: {river_stats.get('processed_count', 0)}, "
                         f"异常: {river_stats.get('anomaly_count', 0)}, "
                         f"活跃: {river_stats.get('active_symbols', 0)}")
             
@@ -509,10 +603,12 @@ class AttentionOrchestrator:
                 sector_weights = self._integration.attention_system.sector_attention.get_all_weights()
                 symbol_weights = self._integration.attention_system.weight_pool.get_all_weights()
 
-                # 调试日志：每100帧输出一次板块权重变化
-                if self._processed_frames % 100 == 0 and sector_weights:
+                # 实验室调试日志
+                _lab_debug_log(f"快照记录: sector_weights count={len(sector_weights)}, symbol_weights count={len(symbol_weights)}, tracker.snapshots={len(tracker.snapshots)}")
+
+                if sector_weights:
                     sorted_sectors = sorted(sector_weights.items(), key=lambda x: x[1], reverse=True)[:5]
-                    log.info(f"[SectorWeights] Top5: {[(f'{s}({w:.2f})') for s, w in sorted_sectors]}")
+                    _lab_debug_log(f"SectorWeights Top5: {[(f'{s}({w:.2f})') for s, w in sorted_sectors]}")
 
                 # 构建个股行情数据字典
                 symbol_market_data = {}
@@ -709,6 +805,62 @@ class AttentionOrchestrator:
         try:
             return data[data[sector_col].astype(str).isin(self._cached_active_sectors)]
         except Exception:
+            return data
+
+    def _enrich_sector_data(self, data: pd.DataFrame) -> pd.DataFrame:
+        """从板块字典合并板块数据到行情数据"""
+        try:
+            from deva.naja.dictionary import get_dictionary_manager
+            mgr = get_dictionary_manager()
+            entry = mgr.get_by_name("通达信概念板块")
+
+            if entry is None:
+                log.debug(f"[Orchestrator] 未找到板块字典，跳过合并")
+                return data
+
+            block_df = entry.get_payload()
+            if block_df is None:
+                log.debug(f"[Orchestrator] 板块字典数据为空，跳过合并")
+                return data
+
+            if not isinstance(block_df, pd.DataFrame) or block_df.empty:
+                log.debug(f"[Orchestrator] 板块数据格式不正确，跳过合并")
+                return data
+
+            # 保存原始索引名
+            original_index_name = data.index.name
+            original_index = data.index.copy()
+
+            # 重置索引，将 code 变为列
+            data = data.reset_index()
+
+            # 确保有 code 列
+            if 'code' not in data.columns and len(data.columns) > 0:
+                data = data.rename(columns={0: 'code'})
+
+            # 合并板块数据
+            if 'code' in data.columns and 'blocks' in block_df.columns:
+                data = data.merge(block_df[['code', 'blocks']], on='code', how='left')
+
+                # 重命名 blocks 为 sector
+                if 'blocks' in data.columns:
+                    data = data.rename(columns={'blocks': 'sector'})
+                    data['sector'] = data['sector'].fillna('')
+
+                # 恢复原始索引
+                data = data.set_index(original_index_name or 'code')
+                data.index.name = original_index_name
+
+                merged_count = (data['sector'] != '').sum()
+                log.info(f"[Orchestrator] 合并板块数据完成: {len(data)} 条, 有板块数据: {merged_count}")
+                return data
+
+            # 恢复索引
+            data = data.set_index(original_index_name or data.columns[0])
+            return data
+
+        except Exception as e:
+            log.debug(f"[Orchestrator] 合并板块数据失败: {e}")
             return data
 
     def _extract_sector_ids(self, data: pd.DataFrame) -> np.ndarray:

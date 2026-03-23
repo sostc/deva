@@ -131,18 +131,23 @@ class BanditAutoRunner:
     def _do_select(self):
         """执行策略选择"""
         from ..strategy import get_strategy_manager
-        
+
         mgr = get_strategy_manager()
         entries = mgr.list_all()
-        
+
         if not entries:
             return
-        
+
+        active_entries = [e for e in entries if e.is_processing_data()]
+        if not active_entries:
+            log.debug("[Bandit] 没有策略在处理数据，跳过选择")
+            return
+
         available = [e.id for e in entries]
-        
+
         optimizer = get_bandit_optimizer()
         result = optimizer.select_strategy(available)
-        
+
         if result.get("success"):
             selected = result.get("selected")
             log.info(f"Bandit 自动选择策略: {selected}")

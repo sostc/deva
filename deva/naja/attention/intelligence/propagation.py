@@ -182,7 +182,7 @@ class RelationMatrix:
         self._sector_history[sector_id].append(attention)
         
         if len(self._sector_history[sector_id]) > self._history_window:
-            self._sector_history[sector_id] = self._sector_history[sector_id][-self._history_window():]
+            self._sector_history[sector_id] = self._sector_history[sector_id][-self._history_window:]
 
     def _should_blacklist(self, sector_name: str) -> bool:
         """检查板块是否应该加入黑名单（兼容旧接口）"""
