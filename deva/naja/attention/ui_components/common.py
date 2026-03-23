@@ -2,6 +2,13 @@
 
 from typing import Dict, List, Any
 import pandas as pd
+import os
+import logging
+
+def _lab_debug_log(msg: str):
+    """实验室模式调试日志"""
+    if os.environ.get("NAJA_LAB_DEBUG") == "true":
+        logging.getLogger(__name__).info(f"[Lab-Debug-UI] {msg}")
 
 
 def get_attention_integration():
@@ -35,11 +42,14 @@ def get_hot_sectors_and_stocks() -> Dict[str, Any]:
     """获取热门板块和股票"""
     integration = get_attention_integration()
     if not integration:
+        _lab_debug_log("get_hot_sectors_and_stocks: integration 为空")
         return {"sectors": [], "stocks": []}
 
     try:
         sector_weights = integration.attention_system.sector_attention.get_all_weights(filter_noise=True) if integration.attention_system else {}
         symbol_weights = integration.attention_system.weight_pool.get_all_weights() if integration.attention_system else {}
+
+        _lab_debug_log(f"get_hot_sectors_and_stocks: sector_weights={len(sector_weights)} 个, symbol_weights={len(symbol_weights)} 个")
 
         hot_sectors = sorted(
             [(sector, weight) for sector, weight in sector_weights.items()],
@@ -51,8 +61,16 @@ def get_hot_sectors_and_stocks() -> Dict[str, Any]:
             key=lambda x: x[1], reverse=True
         )[:20]
 
+        if hot_sectors:
+            top_sectors = [(s, f"{w:.4f}") for s, w in hot_sectors[:3]]
+            _lab_debug_log(f"热门板块 Top3: {top_sectors}")
+        if hot_stocks:
+            top_stocks = [(s, f"{w:.4f}") for s, w in hot_stocks[:3]]
+            _lab_debug_log(f"热门股票 Top3: {top_stocks}")
+
         return {"sectors": hot_sectors, "stocks": hot_stocks}
-    except Exception:
+    except Exception as e:
+        _lab_debug_log(f"get_hot_sectors_and_stocks 异常: {e}")
         return {"sectors": [], "stocks": []}
 
 
@@ -61,9 +79,14 @@ def get_attention_report() -> Dict[str, Any]:
     integration = get_attention_integration()
     if integration:
         try:
-            return integration.get_attention_report()
-        except Exception:
+            report = integration.get_attention_report()
+            _lab_debug_log(f"get_attention_report: global_attention={report.get('global_attention', 0):.4f}, activity={report.get('activity', 0):.4f}")
+            return report
+        except Exception as e:
+            _lab_debug_log(f"get_attention_report 异常: {e}")
             pass
+    else:
+        _lab_debug_log("get_attention_report: integration 为空")
     return {}
 
 

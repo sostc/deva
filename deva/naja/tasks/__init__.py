@@ -275,11 +275,18 @@ class TaskEntry(RecoverableUnit):
         try:
             result = self._invoke_user_func(func, event_payload=event_payload)
             if asyncio.iscoroutine(result):
-                loop = asyncio.new_event_loop()
                 try:
-                    result = loop.run_until_complete(result)
-                finally:
-                    loop.close()
+                    loop = asyncio.get_running_loop()
+                    import concurrent.futures
+                    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+                        future = executor.submit(asyncio.run, result)
+                        result = future.result(timeout=30)
+                except RuntimeError:
+                    loop = asyncio.new_event_loop()
+                    try:
+                        result = loop.run_until_complete(result)
+                    finally:
+                        loop.close()
 
             self._state.success_count += 1
             self._state.last_result = str(result)[:500] if result is not None else "None"
@@ -520,6 +527,7 @@ class TaskManager:
         self._items: Dict[str, TaskEntry] = {}
         self._items_lock = threading.Lock()
         self._initialized = True
+        self.load_from_db()
 
     def create(
         self,
@@ -689,6 +697,18 @@ class TaskManager:
             entries_to_check = list(self._items.values())
 
         for entry in entries_to_check:
+            if entry.name == "llm_auto_adjust":
+                results.append(
+                    {
+                        "entry_id": entry.id,
+                        "entry_name": entry.name,
+                        "success": True,
+                        "skipped": True,
+                        "reason": "llm_auto_adjust excluded from auto start",
+                    }
+                )
+                continue
+
             try:
                 prep = entry.prepare_for_recovery()
 

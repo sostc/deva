@@ -367,8 +367,6 @@ def ensure_llm_auto_adjust_task() -> dict:
             scheduler_trigger="interval",
             func_code=func_code,
         )
-        if update_result.get("success") and not task.is_running:
-            task_mgr.start(task.id)
         return update_result
 
     create_result = task_mgr.create(
@@ -381,6 +379,4 @@ def ensure_llm_auto_adjust_task() -> dict:
         description="LLM 自动调节策略任务",
         tags=["llm", "auto", "strategy"],
     )
-    if create_result.get("success"):
-        task_mgr.start(create_result.get("id", ""))
     return create_result

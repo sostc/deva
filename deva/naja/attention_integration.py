@@ -122,22 +122,31 @@ class NajaAttentionIntegration:
             return
 
         try:
-            from deva.naja.attention import create_intelligence_system
+            from deva.naja.attention.integration.integration import migrate_legacy, IntelligenceConfig
 
-            self.intelligence_system = create_intelligence_system(
-                config=self.config,
-                enable_predictive=self.intelligence_config.get('enable_predictive', True),
-                enable_feedback=self.intelligence_config.get('enable_feedback', True),
-                enable_budget=self.intelligence_config.get('enable_budget', True),
-                enable_propagation=self.intelligence_config.get('enable_propagation', False),
-                enable_strategy_learning=self.intelligence_config.get('enable_strategy_learning', False)
+            # 将字典配置转换为 IntelligenceConfig 对象
+            if isinstance(self.intelligence_config, dict):
+                ic = IntelligenceConfig(
+                    enable_predictive=self.intelligence_config.get('enable_predictive', True),
+                    enable_feedback=self.intelligence_config.get('enable_feedback', True),
+                    enable_budget=self.intelligence_config.get('enable_budget', True),
+                    enable_propagation=self.intelligence_config.get('enable_propagation', False),
+                    enable_strategy_learning=self.intelligence_config.get('enable_strategy_learning', False)
+                )
+            else:
+                ic = self.intelligence_config
+
+            # 使用 migrate_legacy 复用已创建的 attention_system
+            self.intelligence_system = migrate_legacy(
+                existing_system=self.attention_system,
+                intelligence_config=ic
             )
-
-            self.intelligence_system.initialize(self._sectors, self._symbol_sector_map)
 
             log.info("🧠 智能增强系统初始化完成")
         except Exception as e:
+            import traceback
             log.error(f"智能增强系统初始化失败: {e}")
+            log.error(traceback.format_exc())
             self.intelligence_system = None
     
     def _register_names_to_tracker(self):

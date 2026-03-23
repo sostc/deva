@@ -26,12 +26,6 @@ from .runner import (
     get_bandit_runner,
     ensure_bandit_auto_runner,
 )
-from .xiaohe_integration import (
-    XiaoHeBanditIntegration,
-    get_xiaohe_bandit_integration,
-    enable_xiaohe_bandit,
-    disable_xiaohe_bandit,
-)
 from .signal_listener import (
     SignalListener,
     DetectedSignal,
@@ -106,10 +100,6 @@ __all__ = [
     "BanditAutoRunner",
     "get_bandit_runner",
     "ensure_bandit_auto_runner",
-    "XiaoHeBanditIntegration",
-    "get_xiaohe_bandit_integration",
-    "enable_xiaohe_bandit",
-    "disable_xiaohe_bandit",
     "SignalListener",
     "DetectedSignal",
     "get_signal_listener",

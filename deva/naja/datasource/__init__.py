@@ -1026,6 +1026,7 @@ class DataSourceManager:
         self._items: Dict[str, DataSourceEntry] = {}
         self._items_lock = threading.Lock()
         self._initialized = True
+        self.load_from_db()
 
     def create(
         self,

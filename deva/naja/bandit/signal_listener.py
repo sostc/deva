@@ -147,6 +147,17 @@ class SignalListener:
     def _process_signals(self):
         """处理信号流中的新信号"""
         try:
+            active_count = 0
+            from ..strategy import get_strategy_manager
+            mgr = get_strategy_manager()
+            for entry in mgr.list_all():
+                if entry.is_processing_data(timeout=300):
+                    active_count += 1
+
+            if active_count == 0:
+                log.debug("[SignalListener] 没有策略在处理数据，进入低频模式")
+                return
+
             recent = self._signal_stream.get_recent(limit=50)
             log.debug(f"[Bandit] 获取到 {len(recent)} 个信号")
         except Exception as e:

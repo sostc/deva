@@ -538,6 +538,7 @@ class DictionaryManager:
         self._items: Dict[str, DictionaryEntry] = {}
         self._items_lock = threading.Lock()
         self._initialized = True
+        self.load_from_db()
 
     def _sync_legacy_schedule_fields(self, entry: DictionaryEntry):
         mode = str(getattr(entry._metadata, "execution_mode", "timer") or "timer").strip().lower()
@@ -932,7 +933,31 @@ class DictionaryManager:
                 except Exception as e:
                     self._log("ERROR", "Load entry failed", id=entry_id, error=str(e))
 
+            self._deduplicate_by_name()
+
         return count
+
+    def _deduplicate_by_name(self) -> int:
+        """删除名称重复的字典，保留最新创建的一个"""
+        name_to_entries = {}
+        for entry in list(self._items.values()):
+            if entry.name not in name_to_entries:
+                name_to_entries[entry.name] = []
+            name_to_entries[entry.name].append(entry)
+
+        removed_count = 0
+        for name, entries in name_to_entries.items():
+            if len(entries) > 1:
+                entries.sort(key=lambda e: getattr(e._metadata, 'created_at', 0), reverse=True)
+                for entry in entries[1:]:
+                    self._log("WARNING", f"删除重复字典: {name} (ID: {entry.id})")
+                    self.delete(entry.id)
+                    removed_count += 1
+
+        if removed_count > 0:
+            self._log("INFO", f"删除了 {removed_count} 个重复字典")
+
+        return removed_count
 
     def restore_running_states(self) -> dict:
         restored_count = 0

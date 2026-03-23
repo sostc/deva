@@ -307,12 +307,20 @@ class TaskManager(BaseManager[TaskUnit]):
             context = self._build_execution_context(task)
             
             # 执行任务（运行异步任务）
-            loop = asyncio.new_event_loop()
             try:
-                result = loop.run_until_complete(task.execute_task(context))
-            finally:
-                loop.close()
-            
+                try:
+                    loop = asyncio.get_running_loop()
+                    import concurrent.futures
+                    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+                        future = executor.submit(asyncio.run, task.execute_task(context))
+                        result = future.result(timeout=30)
+                except RuntimeError:
+                    loop = asyncio.new_event_loop()
+                    try:
+                        result = loop.run_until_complete(task.execute_task(context))
+                    finally:
+                        loop.close()
+
             # 更新成功统计
             with self._stats_lock:
                 self._execution_stats["successful_executions"] += 1
