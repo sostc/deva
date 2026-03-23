@@ -23,6 +23,20 @@ import os
 from .narrative_tracker import NarrativeTracker
 from .semantic_cold_start import SemanticColdStart
 
+
+def _radar_debug_log(msg: str):
+    """雷达调试日志"""
+    if os.environ.get("NAJA_RADAR_DEBUG") == "true":
+        import logging
+        logging.getLogger(__name__).info(f"[Radar-Debug] {msg}")
+
+
+def _cognition_debug_log(msg: str):
+    """认知系统调试日志"""
+    if os.environ.get("NAJA_COGNITION_DEBUG") == "true":
+        import logging
+        logging.getLogger(__name__).info(f"[Cognition-Debug] {msg}")
+
 # River流式学习库
 try:
     from river import cluster
@@ -861,7 +875,15 @@ class NewsMindStrategy:
         
         # 单条数据处理
         signals = []
-        
+
+        # ========== 雷达调试日志 ==========
+        if os.environ.get("NAJA_RADAR_DEBUG") == "true":
+            import logging
+            log = logging.getLogger(__name__)
+            _type = record.get('type', 'unknown') if isinstance(record, dict) else type(record).__name__
+            _title = record.get('title', '')[:50] if isinstance(record, dict) else str(record)[:50]
+            log.info(f"[Radar-Debug] process_record: type={_type}, title={_title}")
+
         # 1. 转换为龙虾事件
         event = NewsEvent.from_datasource_record(record)
 
@@ -872,18 +894,23 @@ class NewsMindStrategy:
 
         # 2. 语义编码（改进版：使用关键词特征向量 + 数据源特征 + 事件类型特征）
         event.attention_score = self.attention_scorer.score(event)
-        
+
         # 4. 主题聚类
         topic_id = self._assign_topic(event)
         event.topic_id = topic_id
 
+        _cognition_debug_log(f"注意力评分: {event.attention_score:.3f}, 阈值={self.attention_threshold}, 主题ID={topic_id}")
+        _radar_debug_log(f"  [process_record] attention_score={event.attention_score:.3f}, threshold={self.attention_threshold}, topic_id={topic_id}")
+
         # 4.5 叙事追踪（避免对叙事/雷达/注意力事件重复触发）
         narrative_signals = self._process_narratives(event)
+        if narrative_signals:
+            _cognition_debug_log(f"叙事信号: {len(narrative_signals)} 个")
 
         # 5. 存入短期记忆
         self.short_memory.append(event)
         self.stats["total_events"] += 1
-        
+
         # 6. 归档到中期记忆（高注意力事件，使用动态阈值）
         dynamic_threshold = self._get_dynamic_mid_memory_threshold()
         if event.attention_score >= dynamic_threshold:
@@ -896,18 +923,35 @@ class NewsMindStrategy:
                 "attention_score": event.attention_score,
                 "topic_id": event.topic_id,
             })
-        
+            _cognition_debug_log(f"归档中期记忆: attention_score={event.attention_score:.3f} >= threshold={dynamic_threshold:.3f}")
+
         # 7. 检查是否需要生成长期记忆
         self._update_long_memory()
-        
+
         # 8. 生成信号
         signals.extend(self._generate_signals_for_event(event, topic_id))
-        
+
         # 9. 漂移检测
         if self.drift_detector and event.vector:
             signals.extend(self._check_drift(event))
-        
+
         signals.extend(narrative_signals)
+
+        # ========== 雷达调试日志 ==========
+        if os.environ.get("NAJA_RADAR_DEBUG") == "true" and signals:
+            import logging
+            log = logging.getLogger(__name__)
+            for sig in signals:
+                sig_type = sig.get('signal_type', 'unknown')
+                sig_score = sig.get('score', 0)
+                log.info(f"[Radar-Debug] 生成信号: type={sig_type}, score={sig_score:.3f}")
+
+        # ========== 认知调试日志 ==========
+        if signals:
+            _cognition_debug_log(f"生成信号: {[sig.get('type', 'unknown') for sig in signals]}")
+        else:
+            _cognition_debug_log(f"未生成信号: attention_score={event.attention_score:.3f} < threshold={self.attention_threshold}")
+
         return signals
     
     def process_batch(self, records: List[Dict]) -> List[Dict]:
@@ -1103,40 +1147,53 @@ class NewsMindStrategy:
     def _generate_signals_for_event(self, event: NewsEvent, topic_id: Optional[int]) -> List[Dict]:
         """为单个事件生成信号"""
         signals = []
-        
+
+        _radar_debug_log(f"[_generate_signals_for_event] event: attention_score={event.attention_score:.3f}, threshold={self.attention_threshold}, topic_id={topic_id}")
+
         # 高注意力信号
         if event.attention_score >= self.attention_threshold:
-            signals.append(self._create_signal(
+            sig = self._create_signal(
                 SignalType.HIGH_ATTENTION,
                 event,
                 f"高注意力事件: {event.content[:50]}...",
                 {"attention_score": event.attention_score}
-            ))
+            )
+            signals.append(sig)
+            _radar_debug_log(f"  -> 生成 HIGH_ATTENTION 信号: score={sig.get('score', 0):.3f}")
             self.stats["high_attention_events"] += 1
-        
+
         # 主题相关信号
         if topic_id is not None and topic_id in self.topics:
             topic = self.topics[topic_id]
             topic_name = topic.display_name
-            
+
+            _radar_debug_log(f"  主题: {topic_name}, event_count={topic.event_count}, growth_rate={topic.growth_rate:.3f}")
+
             # 新主题信号
             if topic.event_count == 1:
-                signals.append(self._create_signal(
+                sig = self._create_signal(
                     SignalType.TOPIC_EMERGE,
                     event,
                     f"新主题出现: {topic_name}",
                     {"topic_id": topic_id, "topic_name": topic_name, "event_type": event.event_type}
-                ))
-            
+                )
+                signals.append(sig)
+                _radar_debug_log(f"  -> 生成 TOPIC_EMERGE 信号: {topic_name}")
+
             # 主题增长信号
             elif topic.growth_rate > 0.5:
-                signals.append(self._create_signal(
+                sig = self._create_signal(
                     SignalType.TOPIC_GROW,
                     event,
                     f"主题快速增长: {topic_name}",
                     {"topic_id": topic_id, "topic_name": topic_name, "growth_rate": topic.growth_rate}
-                ))
-        
+                )
+                signals.append(sig)
+                _radar_debug_log(f"  -> 生成 TOPIC_GROW 信号: {topic_name}, growth={topic.growth_rate:.3f}")
+
+        if not signals:
+            _radar_debug_log(f"  -> 未生成任何信号")
+
         return signals
     
     def _check_drift(self, event: NewsEvent) -> List[Dict]:

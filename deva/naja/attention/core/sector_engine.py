@@ -186,8 +186,14 @@ class SectorAttentionEngine:
                 except OverflowError:
                     decay_factor = 0.0
 
-                old_score = self._attention_scores[idx]
-                blended_score = max(new_score, old_score * decay_factor)
+                old_score = float(self._attention_scores[idx])
+                if old_score > 1e10 or old_score < -1e10:
+                    log.warning(f"[SectorAttention] sector_id={sector_id} old_score 异常={old_score:.2f}, 重置")
+                    old_score = 0.0
+
+                new_score_capped = max(0.0, min(1.0, new_score))
+                blended_score = max(new_score_capped, old_score * decay_factor)
+                blended_score = max(0.0, min(1.0, blended_score))
 
                 if abs(blended_score - old_score) > self.update_threshold:
                     self._attention_scores[idx] = blended_score
@@ -201,11 +207,11 @@ class SectorAttentionEngine:
             log.error(f"SectorAttention 计算失败: {e}")
             log.error(traceback.format_exc())
 
-        # 构建返回字典
-        result = {
-            sector_id: self._attention_scores[idx]
-            for sector_id, idx in self._sector_id_to_idx.items()
-        }
+        # 构建返回字典（使用限制后的值）
+        result = {}
+        for sector_id, idx in self._sector_id_to_idx.items():
+            raw_score = float(self._attention_scores[idx])
+            result[sector_id] = max(0.0, min(1.0, raw_score))
 
         # 调试日志
         import os
@@ -314,14 +320,15 @@ class SectorAttentionEngine:
     def get_active_sectors(self, threshold: Optional[float] = None) -> List[str]:
         """获取活跃的板块列表"""
         threshold = threshold or 0.3
-        
+
         active = []
         for sector_id, idx in self._sector_id_to_idx.items():
-            if self._attention_scores[idx] >= threshold:
+            score = float(self._attention_scores[idx])
+            clamped_score = max(0.0, min(1.0, score))
+            if clamped_score >= threshold:
                 active.append(sector_id)
-        
-        # 按注意力分数排序
-        active.sort(key=lambda s: self._attention_scores[self._sector_id_to_idx[s]], reverse=True)
+
+        active.sort(key=lambda s: max(0.0, min(1.0, float(self._attention_scores[self._sector_id_to_idx[s]]))), reverse=True)
         return active
     
     def get_sector_attention(self, sector_id: str) -> float:
@@ -329,14 +336,19 @@ class SectorAttentionEngine:
         idx = self._sector_id_to_idx.get(sector_id)
         if idx is None:
             return 0.0
-        return float(self._attention_scores[idx])
+        raw_score = float(self._attention_scores[idx])
+        clamped_score = max(0.0, min(1.0, raw_score))
+        if abs(raw_score - clamped_score) > 0.01:
+            log.warning(f"[SectorAttention] sector_id={sector_id} 分数异常: {raw_score:.6f} -> 限制到 {clamped_score:.6f}")
+        return clamped_score
     
     def get_top_sectors(self, n: int = 5) -> List[Tuple[str, float]]:
         """获取注意力最高的 N 个板块"""
-        sectors = [
-            (sector_id, float(self._attention_scores[idx]))
-            for sector_id, idx in self._sector_id_to_idx.items()
-        ]
+        sectors = []
+        for sector_id, idx in self._sector_id_to_idx.items():
+            raw_score = float(self._attention_scores[idx])
+            clamped_score = max(0.0, min(1.0, raw_score))
+            sectors.append((sector_id, clamped_score))
         sectors.sort(key=lambda x: x[1], reverse=True)
         return sectors[:n]
     
@@ -354,7 +366,11 @@ class SectorAttentionEngine:
                 sector_name = self._sectors[idx].name if idx in self._sectors else None
                 if noise_detector.is_noise(sector_id, sector_name):
                     continue
-            weights[sector_id] = float(self._attention_scores[idx])
+            raw_score = float(self._attention_scores[idx])
+            clamped_score = max(0.0, min(1.0, raw_score))
+            if abs(raw_score - clamped_score) > 0.01:
+                log.warning(f"[SectorAttention] get_all_weights sector_id={sector_id} 分数异常: {raw_score:.6f} -> 限制到 {clamped_score:.6f}")
+            weights[sector_id] = clamped_score
 
         if len(weights) < 5:
             weight_names = [self._sectors[idx].name if idx in self._sectors else k for k, idx in self._sector_id_to_idx.items() if k in weights]

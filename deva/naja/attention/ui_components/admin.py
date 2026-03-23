@@ -1,5 +1,6 @@
 """注意力系统 UI 管理页面入口"""
 
+from datetime import datetime
 from pywebio.output import put_html, put_row, put_column, put_text, put_button, use_scope
 from pywebio.session import run_js, run_async
 from pywebio.output import toast
@@ -50,7 +51,6 @@ async def render_attention_admin(ctx: dict):
     activity_level = attention_details.get('activity_level', '未知') if attention_details else '未知'
     market_timestamp = attention_details.get('timestamp') if attention_details and not attention_details.get('error') else None
     if market_timestamp:
-        from datetime import datetime
         dt = datetime.fromtimestamp(market_timestamp)
         market_time_str = dt.strftime('%Y-%m-%d %H:%M:%S')
     else:
@@ -138,6 +138,96 @@ async def render_attention_admin(ctx: dict):
             <div style="margin-bottom:14px;padding:12px 14px;border-radius:10px;background:linear-gradient(135deg,#dbeafe,#bfdbfe);border:1px solid #93c5fd;color:#1e40af;font-size:13px;">
                 <strong>🧪 实验模式运行中</strong><br>
                 数据源: {exp_ds} | 策略数: {experiment_info.get('strategy_count', 0)}
+            </div>
+            """)
+
+        fetcher = report.get('realtime_fetcher')
+        if fetcher:
+            fetcher_running = fetcher.get('running', False)
+            is_trading = fetcher.get('is_trading', False)
+            fetcher_status_icon = "🟢" if fetcher_running else "🔴"
+            trading_icon = "✅" if is_trading else "⏰"
+
+            current_time = fetcher.get('current_time', '')
+            weekday = fetcher.get('weekday', '')
+            next_trading = fetcher.get('next_trading', '')
+            reasons = fetcher.get('not_running_reasons', [])
+
+            if fetcher_running and is_trading:
+                panel_html = f"""
+                <div style="margin-bottom:14px;padding:12px 14px;border-radius:10px;background:linear-gradient(135deg,#f0fdf4,#dcfce7);border:1px solid #86efac;color:#166534;font-size:13px;">
+                    <strong>📡 实盘获取器 {fetcher_status_icon}</strong> 运行中<br>
+                    <span style="font-size:12px;">
+                    🕐 当前时间: {weekday} {current_time} |
+                    📊 交易状态: <span style="color:#22c55e;font-weight:bold;">交易中</span> |
+                    🔄 获取次数: {fetcher.get('fetch_count', 0)} |
+                    ❌ 错误: {fetcher.get('error_count', 0)}
+                    </span><br>
+                    <span style="font-size:11px;color:#64748b;">
+                    📈 档位: HIGH={fetcher.get('high_count', 0)} | MEDIUM={fetcher.get('medium_count', 0)} | LOW={fetcher.get('low_count', 0)}
+                    </span>
+                </div>
+                """
+            elif fetcher_running and not is_trading:
+                reasons_str = " | ".join(reasons) if reasons else "非交易时间"
+                panel_html = f"""
+                <div style="margin-bottom:14px;padding:12px 14px;border-radius:10px;background:linear-gradient(135deg,#fef3c7,#fde68a);border:1px solid #f59e0b;color:#92400e;font-size:13px;">
+                    <strong>📡 实盘获取器 {fetcher_status_icon}</strong> 待机中<br>
+                    <span style="font-size:12px;">
+                    🕐 当前时间: {weekday} {current_time} |
+                    📊 交易状态: <span style="color:#f59e0b;font-weight:bold;">{reasons_str}</span>
+                    </span><br>
+                    <span style="font-size:11px;color:#92400e;">
+                    ⏰ 下次开市: {next_trading} |
+                    🔄 获取次数: {fetcher.get('fetch_count', 0)} |
+                    ❌ 错误: {fetcher.get('error_count', 0)}
+                    </span>
+                </div>
+                """
+            else:
+                reasons_str = " | ".join(reasons) if reasons else "未启动"
+                panel_html = f"""
+                <div style="margin-bottom:14px;padding:12px 14px;border-radius:10px;background:linear-gradient(135deg,#fef2f2,#fee2e2);border:1px solid #fca5a5;color:#991b1b;font-size:13px;">
+                    <strong>📡 实盘获取器 {fetcher_status_icon}</strong> 已停止<br>
+                    <span style="font-size:12px;">
+                    🕐 当前时间: {weekday} {current_time} |
+                    📊 状态: <span style="color:#dc2626;font-weight:bold;">{reasons_str}</span>
+                    </span><br>
+                    <span style="font-size:11px;color:#991b1b;">
+                    ⏰ 下次启动: {next_trading}
+                    </span>
+                </div>
+                """
+            put_html(panel_html)
+        else:
+            current_time_str = datetime.now().strftime("%H:%M")
+            weekday = datetime.now().weekday()
+            weekday_names = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"]
+            current_weekday = weekday_names[weekday]
+
+            if weekday >= 5:
+                next_start = "周一 09:30"
+                status_reason = "周末休市"
+            elif current_time_str < "09:30":
+                next_start = "今天 09:30"
+                status_reason = "盘前时间"
+            elif current_time_str >= "15:00":
+                next_start = "明天 09:30"
+                status_reason = "已收盘"
+            else:
+                next_start = "立即"
+                status_reason = "未启用"
+
+            put_html(f"""
+            <div style="margin-bottom:14px;padding:12px 14px;border-radius:10px;background:linear-gradient(135deg,#f1f5f9,#e2e8f0);border:1px solid #cbd5e1;color:#475569;font-size:13px;">
+                <strong>📡 实盘获取器</strong> 未启动<br>
+                <span style="font-size:12px;">
+                🕐 当前时间: {current_weekday} {current_time_str} |
+                📊 状态: <span style="color:#f59e0b;font-weight:bold;">{status_reason}</span>
+                </span><br>
+                <span style="font-size:11px;color:#64748b;">
+                ⏰ 下次启动: {next_start} | 调用 start_realtime_fetcher() 手动启动
+                </span>
             </div>
             """)
 
