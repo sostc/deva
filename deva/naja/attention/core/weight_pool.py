@@ -290,15 +290,20 @@ class WeightPool:
         idx = self._symbol_to_idx.get(symbol)
         if idx is None:
             return 0.0
-        return float(self._weights[idx])
+        raw_weight = float(self._weights[idx])
+        if raw_weight < self.config.min_weight or raw_weight > self.config.max_weight:
+            log.warning(f"[WeightPool] symbol={symbol} weight={raw_weight:.2f} 超出范围 [{self.config.min_weight}, {self.config.max_weight}], 限制")
+            return max(self.config.min_weight, min(raw_weight, self.config.max_weight))
+        return raw_weight
     
     def get_top_symbols(self, n: int = 50, min_weight: float = 0.0) -> List[Tuple[str, float]]:
         """获取权重最高的 N 个个股"""
-        symbols = [
-            (symbol, float(self._weights[idx]))
-            for symbol, idx in self._symbol_to_idx.items()
-            if self._weights[idx] >= min_weight
-        ]
+        symbols = []
+        for symbol, idx in self._symbol_to_idx.items():
+            raw_weight = float(self._weights[idx])
+            clipped_weight = max(self.config.min_weight, min(raw_weight, self.config.max_weight))
+            if clipped_weight >= min_weight:
+                symbols.append((symbol, clipped_weight))
         symbols.sort(key=lambda x: x[1], reverse=True)
         return symbols[:n]
     
@@ -319,10 +324,12 @@ class WeightPool:
     
     def get_all_weights(self) -> Dict[str, float]:
         """获取所有权重的字典"""
-        return {
-            symbol: float(self._weights[idx])
-            for symbol, idx in self._symbol_to_idx.items()
-        }
+        result = {}
+        for symbol, idx in self._symbol_to_idx.items():
+            raw_weight = float(self._weights[idx])
+            clipped_weight = max(self.config.min_weight, min(raw_weight, self.config.max_weight))
+            result[symbol] = clipped_weight
+        return result
     
     def reset(self):
         """重置权重池"""

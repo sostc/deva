@@ -127,6 +127,15 @@ class AttentionOrchestrator:
         self._pipeline.add_stage(self._filter_stage)
         # =====================
 
+        # 跨信号分析器（认知系统）
+        try:
+            from deva.naja.cognition.cross_signal_analyzer import get_cross_signal_analyzer
+            self._cross_analyzer = get_cross_signal_analyzer()
+            _lab_debug_log("跨信号分析器已初始化")
+        except Exception as e:
+            _lab_debug_log(f"跨信号分析器初始化失败: {e}")
+            self._cross_analyzer = None
+
         # 噪音过滤器
         nf_config = get_noise_filter_config()
 
@@ -523,10 +532,11 @@ class AttentionOrchestrator:
 
             _lab_debug_log(f"process_snapshot result: global_attention={result.get('global_attention')}, sector_attention count={len(result.get('sector_attention', {}))}")
 
-            # 检查是同一个实例吗？
-            int_base = self._integration.intelligence_system.base_system.sector_attention
-            att_base = self._integration.attention_system.sector_attention
-            _lab_debug_log(f"同一个实例? intelligence.base={id(int_base)}, attention.base={id(att_base)}, 相同={int_base is att_base}")
+            # 检查 sector_attention 实例是否一致（仅在 intelligence_system 存在时）
+            if self._integration.intelligence_system is not None:
+                int_base = self._integration.intelligence_system.base_system.sector_attention
+                att_base = self._integration.attention_system.sector_attention
+                _lab_debug_log(f"同一个实例? intelligence.base={id(int_base)}, attention.base={id(att_base)}, 相同={int_base is att_base}")
 
             # 检查 process_snapshot 后 _attention_scores 的状态
             sector_engine = self._integration.attention_system.sector_attention
@@ -658,9 +668,12 @@ class AttentionOrchestrator:
                                 
             except Exception as e:
                 log.debug(f"记录注意力历史失败: {e}")
-            
+
+            # 通知跨信号分析器（认知系统）
+            self._notify_cognition()
+
             self._last_attention_update = current_time
-            
+
         except Exception as e:
             import traceback
             log.error(f"更新注意力系统失败: {e}")
@@ -673,6 +686,102 @@ class AttentionOrchestrator:
                 log.error(f"Volumes 范围: [{np.min(volumes):.2f}, {np.max(volumes):.2f}]")
             except:
                 pass
+
+    def _notify_cognition(self):
+        """通知认知系统（跨信号分析器）注意力更新"""
+        if not self._cross_analyzer:
+            return
+
+        try:
+            from deva.naja.cognition.cross_signal_analyzer import AttentionSnapshot
+
+            snapshot = AttentionSnapshot(
+                sector_weights=self._integration.attention_system.sector_attention.get_all_weights() if self._integration.attention_system else {},
+                symbol_weights=self._integration.attention_system.weight_pool.get_all_weights() if self._integration.attention_system else {},
+                high_attention_symbols=self._cached_high_attention_symbols,
+                active_sectors=self._cached_active_sectors,
+                global_attention=self._cached_global_attention,
+                activity=self._cached_activity,
+                timestamp=time.time(),
+                sector_names=dict(self._sector_id_map)
+            )
+
+            resonances = self._cross_analyzer.ingest_attention(snapshot)
+
+            if resonances and self._processed_frames % 10 == 0:
+                _lab_debug_log(f"[Cognition] 检测到 {len(resonances)} 个共振信号")
+                for r in resonances[:3]:
+                    _lab_debug_log(f"  共振: {r.sector_name} (score={r.resonance_score:.3f}, type={r.resonance_type.value})")
+
+            if self._cross_analyzer.should_trigger_llm():
+                self._trigger_llm_analysis()
+
+        except Exception as e:
+            log.debug(f"通知认知系统失败: {e}")
+
+    def _trigger_llm_analysis(self):
+        """触发LLM分析（认知系统深度分析）"""
+        if not self._cross_analyzer:
+            return
+
+        try:
+            recent_signals = self._cross_analyzer.get_recent_resonances(n=5)
+            if not recent_signals:
+                return
+
+            prompt = self._cross_analyzer.batch_for_llm(recent_signals)
+            _lab_debug_log(f"[Cognition-LLM] 准备LLM分析，信号数: {len(recent_signals)}")
+
+            import asyncio
+            asyncio.create_task(self._async_llm_analysis(prompt, recent_signals))
+
+        except Exception as e:
+            log.debug(f"触发LLM分析失败: {e}")
+
+    async def _async_llm_analysis(self, prompt: str, signals):
+        """异步执行LLM分析"""
+        try:
+            from deva.naja.llm_controller import get_llm_controller
+            controller = get_llm_controller()
+
+            if controller is None:
+                _lab_debug_log("[Cognition-LLM] LLM控制器未初始化")
+                return
+
+            response = await controller.chat(
+                prompt=prompt,
+                system="你是一个专业的金融市场分析师，擅长识别新闻和行情的共振机会。",
+                temperature=0.7
+            )
+
+            if response:
+                _lab_debug_log(f"[Cognition-LLM] LLM分析完成，响应长度: {len(response)}")
+
+                feedback = self._cross_analyzer.create_feedback(
+                    resonance=signals[0] if signals else None,
+                    insight_text=response
+                )
+
+                self._apply_cognition_feedback(feedback)
+
+        except Exception as e:
+            log.debug(f"异步LLM分析失败: {e}")
+
+    def _apply_cognition_feedback(self, feedback):
+        """应用认知系统反馈"""
+        try:
+            adjustment = feedback.attention_adjustment
+
+            if adjustment.get("increase_weight_on"):
+                _lab_debug_log(f"[Cognition-Feedback] 建议提高板块权重: {adjustment['increase_weight_on']}")
+
+            if adjustment.get("decrease_weight_on"):
+                _lab_debug_log(f"[Cognition-Feedback] 建议降低板块权重: {adjustment['decrease_weight_on']}")
+
+            _lab_debug_log(f"[Cognition-Feedback] 优先级: {feedback.priority}, 操作建议: {feedback.insight_text[:100] if feedback.insight_text else 'N/A'}...")
+
+        except Exception as e:
+            log.debug(f"应用认知反馈失败: {e}")
     
     def _dispatch_to_strategies(self, datasource_id: str, data: pd.DataFrame, market_time: Optional[float] = None):
         """分发数据到各策略"""

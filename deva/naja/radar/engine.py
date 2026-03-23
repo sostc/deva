@@ -2,6 +2,7 @@
 
 只负责发现行情异常信号，不做调度与结论
 叙事追踪已移至 cognition 层
+新闻获取已移至 news_fetcher.py
 """
 
 from __future__ import annotations
@@ -10,6 +11,7 @@ import threading
 import time
 import uuid
 import math
+import os
 from collections import defaultdict, deque
 from dataclasses import dataclass, field
 from typing import Any, Deque, Dict, List, Optional
@@ -24,6 +26,15 @@ try:
 except Exception:
     drift = None
     _RIVER_AVAILABLE = False
+
+from .news_fetcher import RadarNewsFetcher, RadarNewsProcessor
+
+
+def _radar_debug_log(msg: str):
+    """雷达调试日志"""
+    if os.environ.get("NAJA_RADAR_DEBUG") == "true":
+        import logging
+        logging.getLogger(__name__).info(f"[Radar-Debug] {msg}")
 
 
 def _clamp_event_score(score: Any) -> float:
@@ -271,16 +282,28 @@ class RadarEngine:
 
         self.market_scanner = MarketScanner(cfg)
 
+        self._news_fetcher: Optional[RadarNewsFetcher] = None
+        self._news_processor: Optional[RadarNewsProcessor] = None
+
+        self._auto_start_news_fetcher = cfg.get("auto_start_news_fetcher", True)
+        if self._auto_start_news_fetcher:
+            _radar_debug_log("自动启动新闻获取器...")
+            self.start_news_fetcher(cfg)
+
         if self._retention_days > 0 and self._cleanup_interval_seconds > 0:
             self._start_cleanup_thread()
 
         self._initialized = True
+
+        _radar_debug_log("RadarEngine 初始化完成")
 
     def ingest_result(self, result: Any) -> List[RadarEvent]:
         """处理策略结果（行情相关）"""
         payload = self._extract_payload(result)
         if payload is None:
             return []
+
+        _radar_debug_log(f"ingest_result: strategy={getattr(result, 'strategy_id', 'unknown')}, payload_keys={list(payload.keys()) if payload else []}")
 
         events: List[RadarEvent] = []
         with self._state_lock:
@@ -290,6 +313,7 @@ class RadarEngine:
                 timestamp=time.time()
             )
             if pattern_sig:
+                _radar_debug_log(f"  检测到模式信号: {pattern_sig.get('content', '')[:50]}")
                 events.append(self._signal_to_event(pattern_sig))
 
             drift_sig = self.market_scanner.scan_drift(
@@ -298,6 +322,7 @@ class RadarEngine:
                 timestamp=time.time()
             )
             if drift_sig:
+                _radar_debug_log(f"  检测到漂移信号: score={drift_sig.get('score', 0):.3f}")
                 events.append(self._signal_to_event(drift_sig))
 
             anomaly_sig = self.market_scanner.scan_anomaly(
@@ -307,15 +332,21 @@ class RadarEngine:
                 timestamp=time.time()
             )
             if anomaly_sig:
+                _radar_debug_log(f"  检测到异常信号: {anomaly_sig.get('content', '')[:50]}")
                 events.append(self._signal_to_event(anomaly_sig))
 
         stored_events: List[RadarEvent] = []
         for event in events:
             self._apply_user_attention(event)
             if self._macro_only and not self._is_macro_event(event):
+                _radar_debug_log(f"  事件被过滤(macro_only): {event.event_type}")
                 continue
             self._store_event(event)
             stored_events.append(event)
+            _radar_debug_log(f"  事件已存储: {event.event_type}, score={event.score:.3f}, message={event.message[:30]}")
+
+        if stored_events:
+            _radar_debug_log(f"ingest_result 完成: 产生 {len(stored_events)} 个事件")
 
         self._emit_to_insight(stored_events)
         return stored_events
@@ -379,6 +410,82 @@ class RadarEngine:
         self._store_event(event)
         self._emit_to_insight([event])
         return event
+
+    def start_news_fetcher(self, config: Optional[Dict[str, Any]] = None) -> bool:
+        """
+        启动雷达内置新闻获取器
+
+        雷达完全独立获取和处理新闻，不依赖数据源系统
+
+        Args:
+            config: 雷达配置（从中提取新闻获取器配置）
+
+        Returns:
+            是否启动成功
+        """
+        try:
+            if self._news_fetcher is not None and self._news_fetcher._running:
+                _radar_debug_log("新闻获取器已在运行中")
+                return True
+
+            cfg = config or {}
+
+            news_config = {
+                "fetch_interval": cfg.get("news_fetch_interval", 60),
+                "attention_threshold": cfg.get("news_attention_threshold", 0.6),
+                "force_trading_mode": cfg.get("news_force_trading", False),
+            }
+
+            self._news_processor = RadarNewsProcessor(news_config)
+
+            self._news_fetcher = RadarNewsFetcher(
+                processor=self._news_processor,
+                config=news_config,
+            )
+
+            self._news_fetcher.set_signal_callback(self._on_news_signal)
+
+            self._news_fetcher.start()
+
+            _radar_debug_log(f"新闻获取器启动成功, 间隔: {news_config['fetch_interval']}s")
+            return True
+
+        except Exception as e:
+            _radar_debug_log(f"新闻获取器启动失败: {e}")
+            return False
+
+    def stop_news_fetcher(self):
+        """停止雷达内置新闻获取器"""
+        if self._news_fetcher:
+            self._news_fetcher.stop()
+            self._news_fetcher = None
+            _radar_debug_log("新闻获取器已停止")
+
+    def _on_news_signal(self, signal: Dict[str, Any]):
+        """处理新闻信号"""
+        _radar_debug_log(f"收到新闻信号: {signal.get('content', '')[:50]}")
+
+        event = RadarEvent(
+            id=signal.get("id", uuid.uuid4().hex[:16]),
+            ts=signal.get("timestamp", time.time()),
+            event_type="news_topic",
+            score=signal.get("score", 0.5),
+            strategy_id="radar_news",
+            strategy_name="Radar News Fetcher",
+            signal_type=signal.get("signal_type", "news_topic"),
+            message=signal.get("content", ""),
+            payload=signal.get("raw_data", {}),
+            source="radar_news",
+        )
+
+        self._store_event(event)
+        self._emit_to_insight([event])
+
+    def get_news_fetcher_stats(self) -> Optional[Dict[str, Any]]:
+        """获取新闻获取器统计"""
+        if self._news_fetcher is None:
+            return None
+        return self._news_fetcher.get_stats()
 
     def _signal_to_event(self, signal: Dict[str, Any]) -> RadarEvent:
         """将扫描信号转换为雷达事件"""
@@ -570,26 +677,40 @@ class RadarEngine:
             return
 
     def _emit_to_insight(self, events: List[RadarEvent]) -> None:
-        """将雷达事件发送到 InsightEngine"""
+        """将雷达事件发送到 InsightEngine 和 CrossSignalAnalyzer"""
         if not events:
             return
 
         try:
             from ..cognition.insight import get_insight_engine
         except Exception:
-            return
+            pass
+        else:
+            try:
+                insight = get_insight_engine()
+                for event in events:
+                    signal = event.to_insight_signal()
+                    try:
+                        insight.ingest_signal(signal)
+                    except Exception:
+                        continue
+            except Exception:
+                pass
 
         try:
-            insight = get_insight_engine()
+            from ..cognition.cross_signal_analyzer import get_cross_signal_analyzer
         except Exception:
             return
 
-        for event in events:
-            signal = event.to_insight_signal()
-            try:
-                insight.ingest_signal(signal)
-            except Exception:
-                continue
+        try:
+            analyzer = get_cross_signal_analyzer()
+            for event in events:
+                try:
+                    analyzer.ingest_news_from_event(event)
+                except Exception:
+                    continue
+        except Exception:
+            pass
 
     def _start_cleanup_thread(self) -> None:
         if self._cleanup_thread is not None and self._cleanup_thread.is_alive():

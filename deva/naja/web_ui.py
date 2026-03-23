@@ -120,6 +120,383 @@ def _init_lab_mode(lab_config: dict):
             print("⚠️ 未指定回放数据表，仅启动注意力系统")
 
 
+def _init_radar_debug_mode(radar_config: dict, lab_config: dict = None):
+    """初始化雷达调试模式
+
+    1. 创建模拟新闻数据源（高速间隔）
+    2. 绑定到雷达策略
+    3. 如果有lab_config，同时启动实验室模式
+
+    Args:
+        radar_config: 雷达调试配置，包含:
+            - interval: 模拟新闻间隔（秒）
+            - news_speed: 新闻模拟速度倍数
+        lab_config: 实验室模式配置（可选）
+    """
+    import uuid
+    import time
+    import os
+
+    os.environ["NAJA_RADAR_DEBUG"] = "true"
+
+    from .datasource import get_datasource_manager
+    from .strategy import get_strategy_manager
+
+    interval = radar_config.get("interval", 0.5)
+    news_speed = radar_config.get("news_speed", 1.0)
+    actual_interval = interval / max(news_speed, 0.1)
+
+    ds_mgr = get_datasource_manager()
+    strategy_mgr = get_strategy_manager()
+
+    news_ds_name = f"雷达调试-模拟新闻-{uuid.uuid4().hex[:8]}"
+
+    news_func_code = '''
+import time
+import random
+from datetime import datetime
+
+NEWS_TEMPLATES = [
+    "{company}股价今日上涨{percent}%，市场信心增强",
+    "央行宣布降准{percent}%，释放流动性约{amount}亿元",
+    "{index}指数突破{points}点，创{period}新高",
+    "{company}发布财报，Q{quarter}营收同比增长{percent}%",
+    "北向资金今日净流入{amount}亿元，连续{days}日净流入",
+    "{sector}板块集体走强，{company}领涨",
+    "美联储宣布维持利率不变，符合市场预期",
+    "人民币汇率突破{rate}，创{period}新高",
+    "{company}发布新一代AI芯片，算力提升{percent}%",
+    "{company}宣布投资{amount}亿元建设数据中心",
+    "OpenAI发布GPT-{version}，性能大幅提升",
+    "新能源汽车销量同比增长{percent}%，渗透率突破{percent2}%",
+    "{company}宣布建设{amount}GWh动力电池工厂",
+    "光伏组件价格下降{percent}%，装机量创新高",
+    "半导体设备国产化率提升至{percent}%",
+    "{sector}板块突然放量，疑似有主力介入",
+    "{company}发布重组公告，市场反应热烈",
+    "证监会宣布新政策，{sector}迎利好",
+]
+
+COMPANIES = ["腾讯", "阿里", "字节", "华为", "比亚迪", "宁德时代", "茅台", "美团", "小米", "百度", "京东", "拼多多", "科大讯飞", "海康威视"]
+SECTORS = ["新能源", "半导体", "医药", "消费", "金融", "地产", "传媒", "军工", "AI", "DeepSeek", "机器人", "汽车电子"]
+INDICES = ["沪深300", "上证指数", "深证成指", "创业板指", "科创50"]
+
+class NewsGenerator:
+    def __init__(self):
+        self.count = 0
+
+    def create_news(self):
+        self.count += 1
+        template = random.choice(NEWS_TEMPLATES)
+        sentiment = random.choice(["positive", "neutral", "negative"])
+
+        news_content = template.format(
+            company=random.choice(COMPANIES),
+            percent=random.randint(1, 30),
+            percent2=random.randint(20, 80),
+            amount=random.randint(10, 1000),
+            points=random.randint(3000, 5000),
+            period=random.choice(["年内", "月内", "季度", "半年"]),
+            quarter=random.randint(1, 4),
+            days=random.randint(3, 15),
+            sector=random.choice(SECTORS),
+            index=random.choice(INDICES),
+            rate=round(random.uniform(6.5, 7.5), 2),
+            version=random.randint(4, 6),
+        )
+
+        return {
+            "id": f"radar_news_{{int(time.time() * 1000)}}_{{self.count}}",
+            "timestamp": time.time(),
+            "datetime": datetime.now().isoformat(),
+            "type": "finance",
+            "title": news_content,
+            "content": news_content + "。分析师认为，这一趋势反映了市场的积极变化。",
+            "importance": random.choice(["高", "中", "低"]),
+            "sentiment": sentiment,
+            "keywords": [random.choice(COMPANIES), random.choice(SECTORS)],
+        }
+
+_generator = NewsGenerator()
+
+def fetch_data():
+    news = _generator.create_news()
+    return news
+
+def get_stream():
+    return None
+'''
+
+    result = ds_mgr.create(
+        name=news_ds_name,
+        func_code=news_func_code,
+        source_type="timer",
+        config={"interval": actual_interval},
+        execution_mode="timer",
+    )
+
+    if not result.get("success"):
+        print(f"⚠️ 创建雷达调试新闻数据源失败: {result.get('error', '未知错误')}")
+        return
+
+    news_ds_id = result.get("id")
+    print(f"🛸 已创建雷达调试新闻数据源: {news_ds_name}, 间隔: {actual_interval}s")
+
+    time.sleep(0.3)
+
+    news_ds = ds_mgr._items.get(news_ds_id)
+    if news_ds:
+        news_ds.start()
+        print(f"🛸 雷达调试新闻数据源已启动")
+    else:
+        print(f"⚠️ 找不到已创建的数据源")
+        return
+
+    if strategy_mgr and news_ds_id:
+        time.sleep(0.3)
+
+        all_strategies = strategy_mgr.list_all()
+        for entry in all_strategies:
+            strategy_name = entry.name
+            if "雷达" in strategy_name or "NewsRadar" in strategy_name or "龙虾" in strategy_name or "NewsMind" in strategy_name:
+                try:
+                    entry.bind_datasource(news_ds_id)
+                    print(f"🛸 已绑定新闻数据源到策略: {strategy_name}")
+                except Exception as e:
+                    print(f"⚠️ 绑定策略失败 {strategy_name}: {e}")
+
+    print(f"🛸 雷达调试模式初始化完成")
+
+    return {
+        "datasource_id": news_ds_id,
+        "datasource_name": news_ds_name,
+    }
+
+
+def _init_realtime_simulation_mode(interval: float = 0.5):
+    """初始化实盘模拟模式
+
+    在非交易时间模拟实盘 tick 数据，用于测试注意力系统的数据驱动能力。
+
+    模拟数据格式与 realtime_tick_5s 一致，包含：
+    - code: 股票代码
+    - now: 当前价格
+    - change_pct: 涨跌幅
+    - volume: 成交量
+
+    Args:
+        interval: 数据生成间隔（秒），默认 0.5
+    """
+    import uuid
+    import time
+    import os
+
+    os.environ["NAJA_LAB_DEBUG"] = "true"
+    os.environ["NAJA_ATTENTION_ENABLED"] = "true"
+
+    from .datasource import get_datasource_manager
+
+    ds_mgr = get_datasource_manager()
+
+    sim_ds_name = f"实盘模拟-行情Tick-{uuid.uuid4().hex[:8]}"
+
+    tick_func_code = '''
+import time
+import random
+import pandas as pd
+from datetime import datetime
+
+SYMBOLS = [
+    "000001", "000002", "000063", "000333", "000338", "000651", "000858", "000876",
+    "002415", "002594", "002714", "002230", "002236", "002371", "002460", "002475",
+    "600000", "600009", "600016", "600019", "600028", "600030", "600036", "600050",
+    "600100", "600104", "600109", "600111", "600150", "600170", "600183", "600196",
+    "600276", "600309", "600406", "600436", "600438", "600519", "600570", "600585",
+    "600690", "600703", "600745", "600760", "600809", "600837", "600887", "600893",
+    "600905", "600918", "600941", "601006", "601012", "601066", "601088", "601118",
+    "601138", "601166", "601169", "601186", "601211", "601288", "601318", "601328",
+    "601336", "601390", "601398", "601601", "601628", "601658", "601688", "601698",
+    "601728", "601766", "601800", "601816", "601857", "601888", "601899", "601919",
+    "601939", "601988", "601989", "601995", "603259", "603288", "603501", "603799",
+]
+
+PRICE_BASE = {s: 10 + random.random() * 90 for s in SYMBOLS}
+
+class TickSimulator:
+    def __init__(self):
+        self.prices = PRICE_BASE.copy()
+        self.count = 0
+
+    def generate_tick(self):
+        self.count += 1
+        data = []
+        for symbol in SYMBOLS:
+            prev_price = self.prices[symbol]
+            change_pct = random.uniform(-5, 5)
+            now_price = prev_price * (1 + change_pct / 100)
+            self.prices[symbol] = now_price
+
+            volume = int(random.uniform(10000, 1000000))
+
+            data.append({
+                "code": symbol,
+                "now": round(now_price, 2),
+                "change_pct": round(change_pct, 2),
+                "p_change": round(change_pct, 2),
+                "volume": volume,
+                "amount": round(volume * now_price, 2),
+                "timestamp": time.time(),
+                "datetime": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            })
+
+        df = pd.DataFrame(data)
+
+        try:
+            from deva import NB
+            nb = NB("naja_realtime_quotes")
+            for _, row in df.iterrows():
+                nb.set(row['code'], {
+                    'now': row['now'],
+                    'change_pct': row['change_pct'],
+                    'p_change': row['p_change'],
+                    'volume': row['volume'],
+                    'amount': row['amount'],
+                })
+        except Exception:
+            pass
+
+        return df
+
+_simulator = TickSimulator()
+
+def fetch_data():
+    return _simulator.generate_tick()
+
+def get_stream():
+    return None
+'''
+
+    result = ds_mgr.create(
+        name=sim_ds_name,
+        func_code=tick_func_code,
+        source_type="timer",
+        config={"interval": interval},
+        execution_mode="timer",
+    )
+
+    if not result.get("success"):
+        print(f"⚠️ 创建实盘模拟数据源失败: {result.get('error', '未知错误')}")
+        return None
+
+    sim_ds_id = result.get("id")
+    print(f"📈 已创建实盘模拟数据源: {sim_ds_name}, 间隔: {interval}s")
+
+    time.sleep(0.3)
+
+    sim_ds = ds_mgr._items.get(sim_ds_id)
+    if sim_ds:
+        sim_ds.start()
+        print(f"📈 实盘模拟数据源已启动")
+    else:
+        print(f"⚠️ 找不到已创建的实盘模拟数据源")
+        return None
+
+    return {
+        "datasource_id": sim_ds_id,
+        "datasource_name": sim_ds_name,
+    }
+
+
+def _init_news_radar_mode(news_datasource_id: str = None):
+    """初始化新闻舆情策略
+
+    Args:
+        news_datasource_id: 新闻数据源ID（可选，如果没有则使用已有的）
+    """
+    import time
+
+    from .datasource import get_datasource_manager
+    from .strategy import get_strategy_manager
+
+    ds_mgr = get_datasource_manager()
+    strategy_mgr = get_strategy_manager()
+
+    if not news_datasource_id:
+        for ds_id, ds in ds_mgr._items.items():
+            ds_name = getattr(ds, 'name', '') or ''
+            if '新闻' in ds_name or 'news' in ds_name.lower() or '舆情' in ds_name:
+                news_datasource_id = ds_id
+                print(f"📰 自动找到新闻数据源: {ds_name} ({ds_id})")
+                break
+
+    if news_datasource_id:
+        print(f"📰 新闻舆情策略已启用，数据源ID: {news_datasource_id}")
+
+    time.sleep(0.3)
+
+    if strategy_mgr:
+        all_strategies = strategy_mgr.list_all()
+        started_count = 0
+        for entry in all_strategies:
+            strategy_name = entry.name
+            is_radar_strategy = "雷达" in strategy_name or "NewsRadar" in strategy_name or "龙虾" in strategy_name or "NewsMind" in strategy_name or "舆情" in strategy_name
+
+            if is_radar_strategy:
+                try:
+                    if news_datasource_id:
+                        entry.bind_datasource(news_datasource_id)
+
+                    if not entry.is_running:
+                        entry.start()
+                        print(f"📰 已启动新闻舆情策略: {strategy_name}")
+
+                    started_count += 1
+                except Exception as e:
+                    print(f"⚠️ 启动策略失败 {strategy_name}: {e}")
+
+        if started_count > 0:
+            print(f"📰 共启动了 {started_count} 个新闻舆情策略")
+        else:
+            print(f"⚠️ 未找到可启动的新闻舆情策略")
+
+
+def _init_cognition_debug_mode():
+    """初始化认知系统调试模式
+
+    自动启用：
+    1. 实验室模式（历史行情回放）
+    2. 雷达调试模式（模拟新闻高速流入）
+    3. 新闻舆情策略
+    """
+    import os
+    os.environ["NAJA_COGNITION_DEBUG"] = "true"
+
+    from .datasource import get_datasource_manager
+    from .strategy import get_strategy_manager
+
+    print("🧠 认知系统调试模式已初始化")
+
+    lab_config = {
+        "enabled": True,
+        "table_name": "quant_snapshot_5min_window",
+        "interval": 0.5,
+        "speed": 1.0,
+        "debug": True,
+    }
+    _init_lab_mode(lab_config)
+
+    radar_config = {
+        "enabled": True,
+        "interval": 0.3,
+        "news_speed": 2.0,
+    }
+    _init_radar_debug_mode(radar_config, lab_config)
+
+    _init_news_radar_mode(radar_config.get("datasource_id"))
+
+    print("🧠 认知系统调试模式已完成初始化（实验室+雷达+新闻舆情）")
+
+
 def apply_global_styles():
     """应用全局样式"""
     put_html("""
@@ -576,13 +953,14 @@ def create_handlers(cdn: str = None):
     ]
 
 
-def run_server(port: int = 8080, host: str = '0.0.0.0', lab_config: dict = None):
+def run_server(port: int = 8080, host: str = '0.0.0.0', lab_config: dict = None, radar_debug_config: dict = None, news_radar_config: dict = None, cognition_debug_config: dict = None):
     """启动服务器
 
     Args:
         port: Web 服务器端口
         host: 绑定地址
         lab_config: 实验室模式配置，如 {'enabled': True, 'table_name': 'xxx', 'interval': 1.0}
+        radar_debug_config: 雷达调试模式配置，如 {'enabled': True, 'interval': 0.5}
     """
     print("=" * 60)
     print("🚀 Naja 管理平台启动中...")
@@ -686,6 +1064,22 @@ def run_server(port: int = 8080, host: str = '0.0.0.0', lab_config: dict = None)
     if lab_config and lab_config.get("enabled"):
         print("🧪 实验室模式已启用，准备启动...")
         _init_lab_mode(lab_config)
+
+    # 雷达调试模式初始化
+    if radar_debug_config and radar_debug_config.get("enabled"):
+        print("🛸 雷达调试模式已启用，准备启动...")
+        radar_debug_config = _init_radar_debug_mode(radar_debug_config, lab_config)
+
+    # 新闻舆情策略初始化
+    if news_radar_config and news_radar_config.get("enabled"):
+        print("📰 新闻舆情策略已启用，准备启动...")
+        news_datasource_id = radar_debug_config.get("datasource_id") if radar_debug_config else None
+        _init_news_radar_mode(news_datasource_id)
+
+    # 认知系统调试模式初始化
+    if cognition_debug_config and cognition_debug_config.get("enabled"):
+        print("🧠 认知系统调试模式已启用，准备启动...")
+        _init_cognition_debug_mode()
 
     handlers = create_handlers()
 

@@ -22,6 +22,7 @@ log = logging.getLogger(__name__)
 from ..core import GlobalAttentionEngine, MarketSnapshot, SectorAttentionEngine, SectorConfig, WeightPool, WeightPoolView
 from ..scheduling import FrequencyScheduler, FrequencyLevel, AdaptiveFrequencyController, StrategyAllocator, StrategyRegistry
 from ..engine import DualEngineCoordinator
+from ..realtime_data_fetcher import RealtimeDataFetcher, AsyncRealtimeDataFetcher, FetchConfig
 
 # 性能监控支持
 try:
@@ -104,6 +105,10 @@ class AttentionSystem:
         self.strategy_allocator = StrategyAllocator()
 
         self.dual_engine = DualEngineCoordinator()
+
+        # 实盘数据获取器
+        self._realtime_fetcher: Optional[RealtimeDataFetcher] = None
+        self._async_realtime_fetcher: Optional[AsyncRealtimeDataFetcher] = None
 
         # 状态
         self._initialized = False
@@ -197,7 +202,95 @@ class AttentionSystem:
         log.info(f"[AttentionSystem] 已注册 {len(symbol_sector_map)} 个个股")
 
         self._initialized = True
-    
+
+    def start_realtime_fetcher(self, config: Optional[FetchConfig] = None):
+        """
+        启动实盘数据获取器
+
+        根据注意力权重动态获取实盘数据:
+        - 高注意力 symbol: 每秒获取
+        - 中注意力 symbol: 每10秒获取
+        - 低注意力 symbol: 每60秒获取
+
+        Args:
+            config: 获取配置，为None时使用默认配置
+        """
+        if not self._initialized:
+            log.error("[AttentionSystem] 系统未初始化，无法启动实盘获取器")
+            return
+
+        if self._realtime_fetcher is not None and self._realtime_fetcher._running:
+            log.warning("[AttentionSystem] 实盘获取器已在运行中")
+            return
+
+        config = config or FetchConfig()
+        self._realtime_fetcher = RealtimeDataFetcher(self, config)
+        self._realtime_fetcher.start()
+
+        log.info("[AttentionSystem] 实盘获取器已启动")
+
+    def stop_realtime_fetcher(self):
+        """停止实盘数据获取器"""
+        if self._realtime_fetcher:
+            self._realtime_fetcher.stop()
+            self._realtime_fetcher = None
+            log.info("[AttentionSystem] 实盘获取器已停止")
+
+    async def start_async_realtime_fetcher(self, config: Optional[FetchConfig] = None):
+        """
+        启动异步实盘数据获取器
+
+        Args:
+            config: 获取配置，为None时使用默认配置
+        """
+        if not self._initialized:
+            log.error("[AttentionSystem] 系统未初始化，无法启动异步实盘获取器")
+            return
+
+        if self._async_realtime_fetcher is not None and self._async_realtime_fetcher._running:
+            log.warning("[AttentionSystem] 异步实盘获取器已在运行中")
+            return
+
+        config = config or FetchConfig()
+        self._async_realtime_fetcher = AsyncRealtimeDataFetcher(self, config)
+        await self._async_realtime_fetcher.start()
+
+        log.info("[AttentionSystem] 异步实盘获取器已启动")
+
+    async def stop_async_realtime_fetcher(self):
+        """停止异步实盘数据获取器"""
+        if self._async_realtime_fetcher:
+            await self._async_realtime_fetcher.stop()
+            self._async_realtime_fetcher = None
+            log.info("[AttentionSystem] 异步实盘获取器已停止")
+
+    def process_data(self, data):
+        """
+        处理外部数据（用于实盘获取器推送数据）
+
+        Args:
+            data: DataFrame 或 dict，包含 code, now, change_pct, volume 等字段
+        """
+        import pandas as pd
+
+        if isinstance(data, pd.DataFrame):
+            if data.empty:
+                return
+
+            symbols = data['code'].values if 'code' in data.columns else []
+            returns = data['change_pct'].values if 'change_pct' in data.columns else np.zeros(len(data))
+            volumes = data['volume'].values if 'volume' in data.columns else np.zeros(len(data))
+            prices = data['now'].values if 'now' in data.columns else np.zeros(len(data))
+
+            self.process_snapshot(
+                symbols=symbols,
+                returns=returns,
+                volumes=volumes,
+                prices=prices,
+                sector_ids=np.array([''] * len(symbols)),
+                timestamp=time.time()
+            )
+
     def _get_fallback_for_step(self, step_name: str) -> Any:
         """获取步骤的降级数据"""
         fallbacks = {
@@ -474,7 +567,11 @@ class AttentionSystem:
         avg_latency = (
             self._total_latency / max(self._processing_count, 1)
         )
-        
+
+        fetcher_status = None
+        if self._realtime_fetcher:
+            fetcher_status = self._realtime_fetcher.get_stats()
+
         return {
             'initialized': self._initialized,
             'processing_count': self._processing_count,
@@ -484,7 +581,8 @@ class AttentionSystem:
             'activity': self._last_activity,
             'frequency_summary': self.frequency_scheduler.get_schedule_summary(),
             'strategy_summary': self.strategy_allocator.get_allocation_summary(),
-            'dual_engine_summary': self.dual_engine.get_trigger_summary()
+            'dual_engine_summary': self.dual_engine.get_trigger_summary(),
+            'realtime_fetcher': fetcher_status
         }
     
     def get_datasource_control(self) -> Dict[str, Any]:
