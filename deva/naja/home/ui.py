@@ -19,6 +19,7 @@ async def render_home(ctx: dict):
     task_stats = task_mgr.get_stats()
     strategy_stats = strategy_mgr.get_stats()
     dict_stats = dict_mgr.get_stats()
+
     
     ctx["put_markdown"]('''### 🚀 Naja 管理平台
     
@@ -61,6 +62,7 @@ async def render_home(ctx: dict):
         </div>
     </div>
     """)
+
     
     ctx["put_html"]('''
     <div style="margin-top: 30px;">
@@ -442,15 +444,15 @@ async def render_home(ctx: dict):
             </div>
             
             <div style="text-align: center;">
-                <a href="/performance" style="text-decoration: none;">
+                <a href="/system" style="text-decoration: none;">
                     <div style="width: 80px; height: 80px; background: linear-gradient(135deg, #0ea5e9 0%, #38bdf8 100%); border-radius: 50%; display: flex; align-items: center; justify-content: center; box-shadow: 0 6px 20px rgba(14,165,233,0.4); cursor: pointer; transition: transform 0.3s;" onmouseover="this.style.transform='scale(1.1)'" onmouseout="this.style.transform='scale(1)'">
                         <div>
-                            <div style="font-size: 24px;">📈</div>
-                            <div style="color: #fff; font-size: 11px; font-weight: 600;">监控</div>
+                            <div style="font-size: 24px;">🛠️</div>
+                            <div style="color: #fff; font-size: 11px; font-weight: 600;">系统</div>
                         </div>
                     </div>
                 </a>
-                <div style="color: #aaa; font-size: 11px; margin-top: 8px;">性能监控</div>
+                <div style="color: #aaa; font-size: 11px; margin-top: 8px;">系统监控</div>
             </div>
         </div>
         

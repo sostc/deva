@@ -168,7 +168,7 @@ def get_nav_menu_items() -> List[Dict[str, str]]:
         {"name": "👁️ 注意力", "path": "/attentionadmin"},
         {"name": "📖 字典", "path": "/dictadmin"},
         {"name": "🗄️ 数据表", "path": "/tableadmin"},
-        {"name": "📈 性能", "path": "/performance"},
+        {"name": "🛠️ 系统", "path": "/system"},
         {"name": "🔧 配置", "path": "/configadmin"},
     ]
 

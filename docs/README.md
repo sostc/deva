@@ -36,10 +36,10 @@
 |------|------|------|
 | 策略系统 | River 策略、多数据源、信号处理 | [策略指南](naja/strategy_guide.md) |
 | 数据源 | 数据源创建与管理 | [数据源指南](naja/datasource_guide.md) |
-| 记忆系统 | 分层记忆、主题沉淀 | [记忆系统](naja/memory_guide.md) |
+| 认知系统 | 认知中枢、叙事追踪、跨信号分析 | [认知系统](naja/cognition_guide.md) |
+| 注意力系统 | 注意力调度、策略管理、预算分配 | [注意力系统](naja/attention_guide.md) |
 | 雷达检测 | 模式检测、异常检测、漂移检测 | [雷达系统](naja/radar_guide.md) |
 | Bandit 交易 | 自适应交易、虚拟组合 | [Bandit 交易](naja/bandit_guide.md) |
-| Agent 系统 | Hanxin、Liubang、Zhangliang、Xiaohe | [Agent 指南](naja/agent_guide.md) |
 | LLM 调节 | 模型控制、性能优化 | [LLM 调节](naja/llm_controller_guide.md) |
 | 性能监控 | 锁监控、存储监控 | [性能监控](naja/performance_guide.md) |
 
@@ -116,10 +116,10 @@ python -m deva.naja
 | ⏰ 任务管理 | `/taskadmin` | 定时任务 |
 | 📡 数据源 | `/dsadmin` | 数据源配置 |
 | 📈 策略管理 | `/strategyadmin` | 量化策略 |
-| 🧠 记忆系统 | `/memory` | 记忆沉淀 |
+| 🧠 认知系统 | `/cognition` | 认知中枢 |
+| 🧩 注意力系统 | `/attentionadmin` | 注意力调度 |
 | 📡 雷达事件 | `/radaradmin` | 雷达检测 |
-| 🤖 Agent | `/agentadmin` | Agent 管理 |
-| 🤖 AI 中心 | `/aicenter` | AI 功能 |
+| 🤖 Bandit | `/banditadmin` | 自适应交易 |
 | ⚙️ 配置 | `/configadmin` | 系统配置 |
 
 ---

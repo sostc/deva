@@ -1,0 +1,370 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 1800" width="600" height="1800">
+  <defs>
+    <style>
+      .node-main { fill: #e3f2fd; stroke: #1565c0; stroke-width: 2px; }
+      .node-system { fill: #f3e5f5; stroke: #7b1fa2; stroke-width: 2px; }
+      .node-attention { fill: #fff3e0; stroke: #e65100; stroke-width: 2px; }
+      .node-cognition { fill: #e0f2f1; stroke: #00695c; stroke-width: 2px; }
+      .node-radar { fill: #fce4ec; stroke: #ad1457; stroke-width: 2px; }
+      .node-strategy { fill: #e8f5e9; stroke: #2e7d32; stroke-width: 2px; }
+      .node-optional { fill: #fafafa; stroke: #757575; stroke-width: 1.5px; stroke-dasharray: 5,3; }
+      .node-title { fill: #212529; font-family: Arial, sans-serif; font-size: 14px; font-weight: bold; }
+      .node-subtitle { fill: #495057; font-family: Arial, sans-serif; font-size: 11px; }
+      .node-detail { fill: #212529; font-family: Arial, sans-serif; font-size: 10px; }
+      .arrow-main { fill: none; stroke: #1565c0; stroke-width: 2px; marker-end: url(#arrowhead-blue); }
+      .arrow-data { fill: none; stroke: #2e7d32; stroke-width: 2px; marker-end: url(#arrowhead-green); }
+      .arrow-optional { fill: none; stroke: #757575; stroke-width: 1.5px; stroke-dasharray: 4,3; marker-end: url(#arrowhead-gray); }
+      .title-main { fill: #1565c0; font-family: Arial, sans-serif; font-size: 20px; font-weight: bold; }
+      .section-title { fill: #212529; font-family: Arial, sans-serif; font-size: 13px; font-weight: bold; }
+      .comment { fill: #6c757d; font-family: Arial, sans-serif; font-size: 11px; font-style: italic; }
+    </style>
+    <linearGradient id="bg-gradient" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#fafafa"/>
+      <stop offset="100%" style="stop-color:#f0f0f0"/>
+    </linearGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="2" dy="2" stdDeviation="3" flood-opacity="0.2"/>
+    </filter>
+    <marker id="arrowhead-blue" markerWidth="10" markerHeight="8" refX="9" refY="4" orient="auto">
+      <polygon points="0 0, 10 4, 0 8" fill="#1565c0"/>
+    </marker>
+    <marker id="arrowhead-green" markerWidth="10" markerHeight="8" refX="9" refY="4" orient="auto">
+      <polygon points="0 0, 10 4, 0 8" fill="#2e7d32"/>
+    </marker>
+    <marker id="arrowhead-gray" markerWidth="10" markerHeight="8" refX="9" refY="4" orient="auto">
+      <polygon points="0 0, 10 4, 0 8" fill="#757575"/>
+    </marker>
+  </defs>
+
+  <rect width="100%" height="100%" fill="url(#bg-gradient)"/>
+
+  <!-- Title -->
+  <text x="300" y="35" text-anchor="middle" class="title-main">Naja 系统架构图</text>
+  <text x="300" y="55" text-anchor="middle" class="comment">python -m deva.naja 启动流程</text>
+
+  <!-- ========== 一、入口层 ========== -->
+  <g transform="translate(240, 70)">
+    <rect class="node-main" x="0" y="0" width="120" height="45" rx="8" filter="url(#shadow)"/>
+    <text class="node-title" x="60" y="18" text-anchor="middle">CLI 入口</text>
+    <text class="node-subtitle" x="60" y="34" text-anchor="middle">python -m deva.naja</text>
+  </g>
+
+  <path class="arrow-main" d="M 300 115 L 300 135"/>
+
+  <!-- ========== 二、Web UI / run_server ========== -->
+  <g transform="translate(240, 140)">
+    <rect class="node-main" x="0" y="0" width="120" height="45" rx="8" filter="url(#shadow)"/>
+    <text class="node-title" x="60" y="18" text-anchor="middle">Web UI 启动</text>
+    <text class="node-subtitle" x="60" y="34" text-anchor="middle">run_server()</text>
+  </g>
+
+  <path class="arrow-main" d="M 300 185 L 300 205"/>
+
+  <!-- ========== 三、核心管理器并行加载 ========== -->
+  <g transform="translate(30, 215)">
+    <rect class="node-main" x="0" y="0" width="130" height="45" rx="6" filter="url(#shadow)"/>
+    <text class="node-title" x="65" y="16" text-anchor="middle">DataSourceManager</text>
+    <text class="node-subtitle" x="65" y="32" text-anchor="middle">load_from_db()</text>
+  </g>
+
+  <g transform="translate(170, 215)">
+    <rect class="node-main" x="0" y="0" width="110" height="45" rx="6" filter="url(#shadow)"/>
+    <text class="node-title" x="55" y="16" text-anchor="middle">TaskManager</text>
+    <text class="node-subtitle" x="55" y="32" text-anchor="middle">load_from_db()</text>
+  </g>
+
+  <g transform="translate(290, 215)">
+    <rect class="node-main" x="0" y="0" width="130" height="45" rx="6" filter="url(#shadow)"/>
+    <text class="node-title" x="65" y="16" text-anchor="middle">DictionaryManager</text>
+    <text class="node-subtitle" x="65" y="32" text-anchor="middle">load_from_db()</text>
+  </g>
+
+  <g transform="translate(430, 215)">
+    <rect class="node-main" x="0" y="0" width="130" height="45" rx="6" filter="url(#shadow)"/>
+    <text class="node-title" x="65" y="16" text-anchor="middle">StrategyManager</text>
+    <text class="node-subtitle" x="65" y="32" text-anchor="middle">load_from_db()</text>
+  </g>
+
+  <path class="arrow-main" d="M 260 185 L 95 215"/>
+  <path class="arrow-main" d="M 280 185 L 225 215"/>
+  <path class="arrow-main" d="M 300 185 L 355 215"/>
+  <path class="arrow-main" d="M 320 185 L 495 215"/>
+
+  <!-- ========== 四、Signal Stream & Bandit ========== -->
+  <g transform="translate(30, 290)">
+    <rect class="node-main" x="0" y="0" width="130" height="45" rx="6" filter="url(#shadow)"/>
+    <text class="node-title" x="65" y="16" text-anchor="middle">SignalStream</text>
+    <text class="node-subtitle" x="65" y="32" text-anchor="middle">signal/stream.py</text>
+  </g>
+
+  <g transform="translate(180, 290)">
+    <rect class="node-main" x="0" y="0" width="130" height="45" rx="6" filter="url(#shadow)"/>
+    <text class="node-title" x="65" y="16" text-anchor="middle">restore_bandit</text>
+    <text class="node-subtitle" x="65" y="32" text-anchor="middle">bandit/runner</text>
+  </g>
+
+  <g transform="translate(330, 290)">
+    <rect class="node-system" x="0" y="0" width="140" height="45" rx="6" filter="url(#shadow)"/>
+    <text class="node-title" x="70" y="16" text-anchor="middle">start_supervisor</text>
+    <text class="node-subtitle" x="70" y="32" text-anchor="middle">NajaSupervisor</text>
+  </g>
+
+  <path class="arrow-main" d="M 260 260 L 95 290"/>
+  <path class="arrow-main" d="M 280 260 L 245 290"/>
+  <path class="arrow-main" d="M 300 260 L 400 290"/>
+
+  <!-- ========== Supervisor 子系统 ========== -->
+  <g transform="translate(330, 365)">
+    <rect class="node-system" x="0" y="0" width="100" height="40" rx="5" filter="url(#shadow)"/>
+    <text class="node-title" x="50" y="15" text-anchor="middle">性能监控</text>
+    <text class="node-subtitle" x="50" y="30" text-anchor="middle">performance</text>
+  </g>
+
+  <g transform="translate(440, 365)">
+    <rect class="node-system" x="0" y="0" width="100" height="40" rx="5" filter="url(#shadow)"/>
+    <text class="node-title" x="50" y="15" text-anchor="middle">存储监控</text>
+    <text class="node-subtitle" x="50" y="30" text-anchor="middle">storage</text>
+  </g>
+
+  <g transform="translate(330, 415)">
+    <rect class="node-system" x="0" y="0" width="100" height="40" rx="5" filter="url(#shadow)"/>
+    <text class="node-title" x="50" y="15" text-anchor="middle">自动调优</text>
+    <text class="node-subtitle" x="50" y="30" text-anchor="middle">auto_tuner</text>
+  </g>
+
+  <path class="arrow-main" d="M 400 335 L 380 365"/>
+  <path class="arrow-main" d="M 430 335 L 490 365"/>
+  <path class="arrow-main" d="M 420 335 L 380 415"/>
+
+  <!-- ========== 五、注意力系统 ========== -->
+  <g transform="translate(30, 365)">
+    <rect class="node-attention" x="0" y="0" width="280" height="50" rx="6" filter="url(#shadow)"/>
+    <text class="section-title" x="140" y="18" text-anchor="middle">注意力系统</text>
+    <text class="node-subtitle" x="140" y="35" text-anchor="middle">NajaAttentionIntegration + IntelligenceSystem</text>
+  </g>
+
+  <path class="arrow-main" d="M 260 260 L 170 365"/>
+
+  <!-- Attention System Details -->
+  <g transform="translate(30, 430)">
+    <rect class="node-attention" x="0" y="0" width="280" height="120" rx="5" filter="url(#shadow)"/>
+    <text class="section-title" x="140" y="16" text-anchor="middle" font-size="12px">注意力系统详情</text>
+    <line x1="10" y1="24" x2="270" y2="24" stroke="#e65100" stroke-width="1"/>
+    <text class="node-detail" x="15" y="38" text-anchor="start">NajaAttentionIntegration:</text>
+    <text class="node-detail" x="15" y="52" text-anchor="start">• process_market_data() 处理市场数据</text>
+    <text class="node-detail" x="15" y="64" text-anchor="start">• 频率档位: HIGH / MEDIUM / LOW</text>
+    <text class="node-detail" x="15" y="80" text-anchor="start">IntelligenceSystem (v2):</text>
+    <text class="node-detail" x="15" y="94" text-anchor="start">• PredictiveEngine 预测注意力</text>
+    <text class="node-detail" x="15" y="108" text-anchor="start">• FeedbackLoop 反馈循环</text>
+  </g>
+
+  <g transform="translate(30, 560)">
+    <rect class="node-attention" x="0" y="0" width="280" height="110" rx="5" filter="url(#shadow)"/>
+    <text class="section-title" x="140" y="16" text-anchor="middle" font-size="12px">注意力策略 (5个)</text>
+    <line x1="10" y1="24" x2="270" y2="24" stroke="#e65100" stroke-width="1"/>
+    <text class="node-detail" x="15" y="38" text-anchor="start">优先级 策略名称</text>
+    <text class="node-detail" x="15" y="52" text-anchor="start">10 GlobalMarketSentinel 全局市场监控</text>
+    <text class="node-detail" x="15" y="64" text-anchor="start">8  SectorRotationHunter 板块轮动捕捉</text>
+    <text class="node-detail" x="15" y="76" text-anchor="start">7  MomentumSurgeTracker 动量突破追踪</text>
+    <text class="node-detail" x="15" y="88" text-anchor="start">6  AnomalyPatternSniper 异常模式狙击</text>
+    <text class="node-detail" x="15" y="100" text-anchor="start">7  SmartMoneyFlowDetector 聪明资金</text>
+  </g>
+
+  <g transform="translate(30, 680)">
+    <rect class="node-attention" x="0" y="0" width="280" height="80" rx="5" filter="url(#shadow)"/>
+    <text class="section-title" x="140" y="16" text-anchor="middle" font-size="12px">Tracker / Monitor / Report</text>
+    <line x1="10" y1="24" x2="270" y2="24" stroke="#e65100" stroke-width="1"/>
+    <text class="node-detail" x="15" y="38" text-anchor="start">• AttentionTracker 不需成交即可跟踪学习</text>
+    <text class="node-detail" x="15" y="52" text-anchor="start">• PriceMonitor 持续监控价格/计算指标</text>
+    <text class="node-detail" x="15" y="66" text-anchor="start">• ReportGenerator 交易时间每5分钟生成</text>
+  </g>
+
+  <!-- ========== 六、雷达系统 ========== -->
+  <g transform="translate(330, 475)">
+    <rect class="node-radar" x="0" y="0" width="250" height="50" rx="6" filter="url(#shadow)"/>
+    <text class="section-title" x="125" y="18" text-anchor="middle">雷达系统 RadarEngine</text>
+    <text class="node-subtitle" x="125" y="35" text-anchor="middle">MarketScanner + NewsFetcher</text>
+  </g>
+
+  <path class="arrow-main" d="M 400 335 L 455 475"/>
+
+  <g transform="translate(330, 535)">
+    <rect class="node-radar" x="0" y="0" width="250" height="115" rx="5" filter="url(#shadow)"/>
+    <text class="section-title" x="125" y="16" text-anchor="middle" font-size="12px">MarketScanner 检测方法</text>
+    <line x1="10" y1="24" x2="240" y2="24" stroke="#ad1457" stroke-width="1"/>
+    <text class="node-detail" x="15" y="38" text-anchor="start">• scan_pattern() 模式重复检测</text>
+    <text class="node-detail" x="15" y="52" text-anchor="start">  窗口内命中≥3次触发</text>
+    <text class="node-detail" x="15" y="66" text-anchor="start">• scan_drift() 概念漂移 ADWIN算法</text>
+    <text class="node-detail" x="15" y="80" text-anchor="start">• scan_anomaly() 统计异常 z-score>3</text>
+    <text class="node-detail" x="15" y="94" text-anchor="start">• scan_sector_anomaly() 板块联动</text>
+    <text class="node-detail" x="15" y="108" text-anchor="start">  涨跌股占比 > 70%</text>
+  </g>
+
+  <g transform="translate(330, 660)">
+    <rect class="node-radar" x="0" y="0" width="250" height="100" rx="5" filter="url(#shadow)"/>
+    <text class="section-title" x="125" y="16" text-anchor="middle" font-size="12px">RadarNewsFetcher / Processor</text>
+    <line x1="10" y1="24" x2="240" y2="24" stroke="#ad1457" stroke-width="1"/>
+    <text class="node-detail" x="15" y="38" text-anchor="start">• 新闻获取器 独立线程运行</text>
+    <text class="node-detail" x="15" y="52" text-anchor="start">• 自动判断交易时段调整频率</text>
+    <text class="node-detail" x="15" y="66" text-anchor="start">• V2支持金十数据API</text>
+    <text class="node-detail" x="15" y="80" text-anchor="start">• NewsTopicCluster 20+预定义主题</text>
+    <text class="node-detail" x="15" y="94" text-anchor="start">  AI/芯片/华为/新能源/宏观等</text>
+  </g>
+
+  <!-- ========== 七、认知系统 ========== -->
+  <g transform="translate(30, 780)">
+    <rect class="node-cognition" x="0" y="0" width="550" height="50" rx="6" filter="url(#shadow)"/>
+    <text class="section-title" x="275" y="18" text-anchor="middle">认知系统 CognitionEngine</text>
+    <text class="node-subtitle" x="275" y="35" text-anchor="middle">NewsMindStrategy + InsightEngine</text>
+  </g>
+
+  <path class="arrow-main" d="M 300 455 L 300 780"/>
+  <path class="arrow-main" d="M 380 455 L 380 780"/>
+  <path class="arrow-main" d="M 455 650 L 380 780"/>
+
+  <g transform="translate(30, 840)">
+    <rect class="node-cognition" x="0" y="0" width="270" height="120" rx="5" filter="url(#shadow)"/>
+    <text class="section-title" x="135" y="16" text-anchor="middle" font-size="12px">NewsMindStrategy</text>
+    <line x1="10" y1="24" x2="260" y2="24" stroke="#00695c" stroke-width="1"/>
+    <text class="node-detail" x="15" y="38" text-anchor="start">三层记忆架构:</text>
+    <text class="node-detail" x="15" y="52" text-anchor="start">• short_memory: 1000条 短期</text>
+    <text class="node-detail" x="15" y="64" text-anchor="start">• mid_memory: 5000条 (≥0.7归档)</text>
+    <text class="node-detail" x="15" y="76" text-anchor="start">• long_memory: 30周期 (每24h)</text>
+    <text class="node-detail" x="15" y="92" text-anchor="start">AttentionScorer 6维评分:</text>
+    <text class="node-detail" x="15" y="106" text-anchor="start">novelty:0.2 / market:0.2 / imp:0.2</text>
+    <text class="node-detail" x="15" y="118" text-anchor="start">sentiment:0.12 / velocity:0.13</text>
+  </g>
+
+  <g transform="translate(310, 840)">
+    <rect class="node-cognition" x="0" y="0" width="270" height="120" rx="5" filter="url(#shadow)"/>
+    <text class="section-title" x="135" y="16" text-anchor="middle" font-size="12px">NarrativeTracker 叙事追踪</text>
+    <line x1="10" y1="24" x2="260" y2="24" stroke="#00695c" stroke-width="1"/>
+    <text class="node-detail" x="15" y="38" text-anchor="start">主题生命周期:</text>
+    <text class="node-detail" x="15" y="52" text-anchor="start">萌芽 → 扩散(count≥4) →</text>
+    <text class="node-detail" x="15" y="64" text-anchor="start">高潮(count≥8/att≥0.8) →</text>
+    <text class="node-detail" x="15" y="76" text-anchor="start">消退(count≤1且att≤0.25)</text>
+    <text class="node-detail" x="15" y="92" text-anchor="start">CrossSignalAnalyzer 三层分析:</text>
+    <text class="node-detail" x="15" y="106" text-anchor="start">Layer1: 规则引擎 (实时)</text>
+    <text class="node-detail" x="15" y="118" text-anchor="start">Layer2: 统计 / Layer3: LLM</text>
+  </g>
+
+  <g transform="translate(30, 970)">
+    <rect class="node-cognition" x="0" y="0" width="550" height="90" rx="5" filter="url(#shadow)"/>
+    <text class="section-title" x="275" y="16" text-anchor="middle" font-size="12px">InsightEngine 洞察引擎</text>
+    <line x1="10" y1="24" x2="540" y2="24" stroke="#00695c" stroke-width="1"/>
+    <text class="node-detail" x="15" y="38" text-anchor="start">InsightPool 洞察池:</text>
+    <text class="node-detail" x="15" y="52" text-anchor="start">• ingest_result() 从策略结果构建 / ingest_attention_event() 从注意力事件</text>
+    <text class="node-detail" x="15" y="66" text-anchor="start">• _append_or_merge() 600秒合并窗口 / get_top_insights() 按user_score</text>
+    <text class="node-detail" x="15" y="80" text-anchor="start">UserAttentionRanker: system_attention:0.4 / confidence:0.2 / actionability:0.2 / novelty:0.2</text>
+  </g>
+
+  <g transform="translate(30, 1070)">
+    <rect class="node-cognition" x="0" y="0" width="550" height="60" rx="5" filter="url(#shadow)"/>
+    <text class="section-title" x="275" y="16" text-anchor="middle" font-size="12px">LLMReflectionEngine</text>
+    <line x1="10" y1="24" x2="540" y2="24" stroke="#00695c" stroke-width="1"/>
+    <text class="node-detail" x="15" y="38" text-anchor="start">每3600秒调用LLM生成反思:</text>
+    <text class="node-detail" x="15" y="52" text-anchor="start">• 收集信号 → 调用LLM → 保存 → 推送到InsightPool</text>
+  </g>
+
+  <!-- ========== 八、策略系统 ========== -->
+  <g transform="translate(30, 1150)">
+    <rect class="node-strategy" x="0" y="0" width="180" height="45" rx="6" filter="url(#shadow)"/>
+    <text class="node-title" x="90" y="16" text-anchor="middle">策略系统运行时</text>
+    <text class="node-subtitle" x="90" y="32" text-anchor="middle">StrategyManager</text>
+  </g>
+
+  <g transform="translate(220, 1150)">
+    <rect class="node-strategy" x="0" y="0" width="100" height="45" rx="6" filter="url(#shadow)"/>
+    <text class="node-title" x="50" y="16" text-anchor="middle">ResultStore</text>
+    <text class="node-subtitle" x="50" y="32" text-anchor="middle">result_store</text>
+  </g>
+
+  <g transform="translate(330, 1150)">
+    <rect class="node-strategy" x="0" y="0" width="110" height="45" rx="6" filter="url(#shadow)"/>
+    <text class="node-title" x="55" y="16" text-anchor="middle">LLM Controller</text>
+  </g>
+
+  <g transform="translate(450, 1150)">
+    <rect class="node-system" x="0" y="0" width="130" height="45" rx="6" filter="url(#shadow)"/>
+    <text class="node-title" x="65" y="16" text-anchor="middle">BanditOptimizer</text>
+    <text class="node-subtitle" x="65" y="32" text-anchor="middle">update/select</text>
+  </g>
+
+  <path class="arrow-main" d="M 400 335 L 120 1150"/>
+  <path class="arrow-main" d="M 210 1160 L 270 1160"/>
+  <path class="arrow-main" d="M 320 1160 L 385 1160"/>
+  <path class="arrow-main" d="M 380 1160 L 415 1160"/>
+
+  <!-- ========== 九、ResultStore 数据分发 ========== -->
+  <g transform="translate(30, 1220)">
+    <rect class="node-strategy" x="0" y="0" width="550" height="80" rx="5" filter="url(#shadow)"/>
+    <text class="section-title" x="275" y="16" text-anchor="middle" font-size="12px">ResultStore 数据分发</text>
+    <line x1="10" y1="24" x2="540" y2="24" stroke="#2e7d32" stroke-width="1"/>
+    <text class="node-detail" x="15" y="38" text-anchor="start">StrategyEntry._save_result_to_store()</text>
+    <text class="node-detail" x="15" y="52" text-anchor="start">  → SignalStream.update()</text>
+    <text class="node-detail" x="15" y="66" text-anchor="start">  → RadarEngine.ingest_result() / InsightEngine.ingest_signal()</text>
+    <text class="node-detail" x="15" y="80" text-anchor="start">  → BanditOptimizer.update_reward()</text>
+  </g>
+
+  <!-- ========== 十、可选模式 ========== -->
+  <g transform="translate(30, 1320)">
+    <rect class="node-optional" x="0" y="0" width="550" height="100" rx="5" filter="url(#shadow)"/>
+    <text class="section-title" x="275" y="16" text-anchor="middle" font-size="12px">可选模式</text>
+    <line x1="10" y1="24" x2="540" y2="24" stroke="#757575" stroke-width="1"/>
+    <text class="node-detail" x="15" y="40" text-anchor="start">• lab 实验室模式 - 历史行情回放</text>
+    <text class="node-detail" x="15" y="55" text-anchor="start">• radar-debug 雷达调试 - 模拟新闻数据</text>
+    <text class="node-detail" x="15" y="70" text-anchor="start">• news-radar 新闻舆情策略</text>
+    <text class="node-detail" x="15" y="85" text-anchor="start">• cognition-debug 认知调试 - 自动启用上述所有</text>
+  </g>
+
+  <!-- ========== 十一、注意力系统数据流 ========== -->
+  <g transform="translate(30, 1440)">
+    <rect class="node-attention" x="0" y="0" width="550" height="70" rx="5" filter="url(#shadow)"/>
+    <text class="section-title" x="275" y="16" text-anchor="middle" font-size="12px">注意力系统数据流</text>
+    <line x1="10" y1="24" x2="540" y2="24" stroke="#e65100" stroke-width="1"/>
+    <text class="node-detail" x="15" y="38" text-anchor="start">市场快照 → NajaAttentionIntegration → AttentionSystem →</text>
+    <text class="node-detail" x="15" y="52" text-anchor="start">IntelligenceAugmented → StrategyManager → Signal → Bandit/Tracker</text>
+  </g>
+
+  <!-- ========== 十二、认知系统数据流 ========== -->
+  <g transform="translate(30, 1520)">
+    <rect class="node-cognition" x="0" y="0" width="550" height="70" rx="5" filter="url(#shadow)"/>
+    <text class="section-title" x="275" y="16" text-anchor="middle" font-size="12px">认知系统数据流</text>
+    <line x1="10" y1="24" x2="540" y2="24" stroke="#00695c" stroke-width="1"/>
+    <text class="node-detail" x="15" y="38" text-anchor="start">新闻事件 → NewsMindStrategy → AttentionScorer →</text>
+    <text class="node-detail" x="15" y="52" text-anchor="start">三层记忆/NarrativeTracker → CrossSignalAnalyzer → LLM反思</text>
+  </g>
+
+  <!-- ========== Legend ========== -->
+  <g transform="translate(30, 1620)">
+    <text class="node-title" x="0" y="0" font-weight="bold">图例</text>
+
+    <rect x="0" y="10" width="20" height="14" class="node-main" rx="2"/>
+    <text class="comment" x="25" y="22">核心入口</text>
+
+    <rect x="100" y="10" width="20" height="14" class="node-system" rx="2"/>
+    <text class="comment" x="125" y="22">系统监控</text>
+
+    <rect x="210" y="10" width="20" height="14" class="node-attention" rx="2"/>
+    <text class="comment" x="235" y="22">注意力系统</text>
+
+    <rect x="330" y="10" width="20" height="14" class="node-cognition" rx="2"/>
+    <text class="comment" x="355" y="22">认知系统</text>
+
+    <rect x="0" y="35" width="20" height="14" class="node-radar" rx="2"/>
+    <text class="comment" x="25" y="47">雷达系统</text>
+
+    <rect x="100" y="35" width="20" height="14" class="node-strategy" rx="2"/>
+    <text class="comment" x="125" y="47">策略/引擎</text>
+
+    <rect x="210" y="35" width="20" height="14" class="node-optional" rx="2"/>
+    <text class="comment" x="235" y="47">可选模式</text>
+
+    <line x1="330" y1="42" x2="360" y2="42" class="arrow-main"/>
+    <text class="comment" x="370" y="47">控制流</text>
+
+    <line x1="430" y1="42" x2="460" y2="42" class="arrow-data"/>
+    <text class="comment" x="470" y="47">数据流</text>
+  </g>
+
+</svg>

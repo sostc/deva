@@ -7,7 +7,7 @@ from typing import List, Dict, Any
 def get_history_tracker():
     """获取历史追踪器"""
     try:
-        from deva.naja.attention.history_tracker import get_history_tracker as _get
+        from deva.naja.cognition.history_tracker import get_history_tracker as _get
         return _get()
     except Exception:
         return None

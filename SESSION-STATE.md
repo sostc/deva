@@ -7,7 +7,7 @@
 
 ## 项目状态
 
-**系统名称**: 龙虾思想雷达 v1 (Lobster Mind Radar)
+**系统名称**: 记忆系统 v1 (Memory System)
 **状态**: ✅ MVP版本已完成
 **位置**: `/Users/spark/pycharmproject/deva/deva/naja/memory/core.py`
 
@@ -24,7 +24,7 @@
 ## 已实现功能
 
 ### 1. 核心策略 (`memory/core.py`)
-- ✅ 统一事件结构 (LobsterEvent)
+- ✅ 统一事件结构 (MemoryEvent)
 - ✅ 注意力评分系统 (5维度评分)
 - ✅ 主题聚类 (在线聚类 + 最近邻)
 - ✅ 漂移检测 (River ADWIN)
@@ -44,7 +44,7 @@
 
 ### 3. Naja集成
 - ✅ 策略插件化 (符合naja策略接口)
-- ✅ Web路由配置 (`/lobster`)
+- ✅ Web路由配置 (`/memory`)
 - ✅ 导航菜单集成
 - ✅ 模块初始化文件
 
@@ -55,7 +55,7 @@
 ```
 数据源 (tick/news/text)
     ↓
-LobsterEvent (统一事件)
+MemoryEvent (统一事件)
     ↓
 注意力评分 (5维度)
     ↓
@@ -102,9 +102,9 @@ Web UI展示
 
 ```python
 # 策略使用示例
-from deva.naja.memory import LobsterRadarStrategy
+from deva.naja.memory import MemoryStrategy
 
-radar = LobsterRadarStrategy(config={
+radar = MemoryStrategy(config={
     "short_term_size": 1000,
     "topic_threshold": 0.7,
     "attention_threshold": 0.7,

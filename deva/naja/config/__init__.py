@@ -158,7 +158,7 @@ DEFAULT_CONFIG = {
         "news_force_trading": False,
     },
     "llm": {
-        "model_type": "kimi",
+        "model_type": "deepseek",
         "min_interval_seconds": 300,
         "auto_adjust_enabled": True,
         "auto_adjust_interval_seconds": 900,

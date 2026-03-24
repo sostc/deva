@@ -1,0 +1,6 @@
+{
+  "name": "naja-test-launcher",
+  "description": "启动 Naja 系统各种测试模式（实验室、雷达、认知系统调试等）",
+  "version": "1.0.0",
+  "type": "local"
+}

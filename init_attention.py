@@ -3,8 +3,8 @@ import os
 os.environ['NAJA_ATTENTION_ENABLED'] = 'true'
 os.environ['NAJA_LAB_DEBUG'] = 'true'
 
-from deva.naja.attention_integration import initialize_attention_system, get_attention_integration
-from deva.naja.attention_config import load_config
+from deva.naja.attention import initialize_attention_system, get_attention_integration
+from deva.naja.attention.config import load_config
 
 print("Loading config...")
 config = load_config()

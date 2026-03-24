@@ -14,7 +14,7 @@ def _lab_debug_log(msg: str):
 def get_attention_integration():
     """获取注意力系统集成"""
     try:
-        from deva.naja.attention_integration import get_attention_integration
+        from deva.naja.attention.integration import get_attention_integration
         return get_attention_integration()
     except Exception:
         return None
@@ -32,7 +32,7 @@ def get_strategy_manager():
 def get_history_tracker():
     """获取历史追踪器"""
     try:
-        from deva.naja.attention.history_tracker import get_history_tracker
+        from deva.naja.cognition.history_tracker import get_history_tracker
         return get_history_tracker()
     except Exception:
         return None
@@ -151,8 +151,8 @@ def is_attention_initialized():
 def initialize_attention_system():
     """初始化注意力系统"""
     try:
-        from deva.naja.attention_config import load_config
-        from deva.naja.attention_integration import initialize_attention_system
+        from deva.naja.attention.config import load_config
+        from deva.naja.attention.integration import initialize_attention_system
         from pywebio.session import run_js
         from pywebio.output import toast
 

@@ -7,10 +7,18 @@
 - 计算收益/变化率
 - 触发价格更新回调
 - 自动管理跟踪列表
+- 与注意力系统 FrequencyScheduler 对接实现动态频率调度
 
 数据源:
 - 优先使用市场 tick 数据源 (MarketDataObserver 机制)
 - 备用从 NB("naja_realtime_quotes") 缓存获取
+
+频率调度:
+- 通过 FrequencyScheduler 实现个股级别的动态更新频率
+- HIGH: 高注意力标的，每1秒更新
+- MEDIUM: 中注意力标的，每10秒更新
+- LOW: 低注意力标的，每60秒更新
+- AdaptiveFrequencyController 根据 global_attention 动态调整
 """
 
 from __future__ import annotations
@@ -78,10 +86,17 @@ class PriceMonitor:
     - 计算实时性能指标
     - 触发价格更新回调
     - 与 AttentionTracker 集成
+    - 与 FrequencyScheduler 集成实现动态频率调度
 
     数据源优先级:
     1. 市场 tick 数据源 (运行时订阅流)
     2. NB("naja_realtime_quotes") 缓存 (备用)
+
+    频率调度:
+    - 通过 FrequencyScheduler 实现个股级别的动态更新频率
+    - HIGH: 高注意力标的，每1秒更新
+    - MEDIUM: 中注意力标的，每10秒更新
+    - LOW: 低注意力标的，每60秒更新
     """
 
     DEFAULT_TRADING_DATASOURCE = '189e3042171a'
@@ -90,9 +105,13 @@ class PriceMonitor:
         self,
         update_interval: float = 60.0,
         price_fetch_timeout: float = 10.0,
+        frequency_scheduler=None,
+        adaptive_frequency_controller=None,
     ):
         self._update_interval = update_interval
         self._price_fetch_timeout = price_fetch_timeout
+        self._frequency_scheduler = frequency_scheduler
+        self._adaptive_freq_controller = adaptive_frequency_controller
 
         self._running = False
         self._thread: Optional[threading.Thread] = None
@@ -398,24 +417,49 @@ class PriceMonitor:
         )
 
     def _process_update(self) -> List[PerformanceMetrics]:
-        """处理价格更新"""
+        """处理价格更新（使用频率调度）"""
         if not self._tracked:
             return []
 
-        symbols = list(self._tracked.keys())
-        prices = self._fetch_prices(symbols)
-
+        current_time = time.time()
         signals = []
 
-        for symbol, current_price in prices.items():
-            if symbol not in self._tracked:
-                continue
+        if self._frequency_scheduler is not None:
+            symbols_to_update = []
+            for symbol in self._tracked.keys():
+                if self._should_update_symbol(symbol, current_time):
+                    symbols_to_update.append(symbol)
 
-            metrics = self._update_price(symbol, current_price)
-            if metrics:
-                signals.append(metrics)
+            if symbols_to_update:
+                prices = self._fetch_prices(symbols_to_update)
+                for symbol, current_price in prices.items():
+                    if symbol in self._tracked:
+                        metrics = self._update_price(symbol, current_price)
+                        if metrics:
+                            signals.append(metrics)
+        else:
+            symbols = list(self._tracked.keys())
+            prices = self._fetch_prices(symbols)
+
+            for symbol, current_price in prices.items():
+                if symbol not in self._tracked:
+                    continue
+
+                metrics = self._update_price(symbol, current_price)
+                if metrics:
+                    signals.append(metrics)
 
         return signals
+
+    def _should_update_symbol(self, symbol: str, current_time: float) -> bool:
+        """判断是否应该更新该标的（基于频率调度）"""
+        if self._frequency_scheduler is None:
+            return True
+
+        try:
+            return self._frequency_scheduler.should_fetch(symbol, current_time)
+        except Exception:
+            return True
 
     def start(self):
         """启动监控"""
@@ -470,7 +514,12 @@ class PriceMonitor:
         log.info("PriceMonitor 已停止")
 
     def _run_loop(self):
-        """主循环"""
+        """主循环
+
+        当启用频率调度时，使用1秒基准间隔，让 FrequencyScheduler 决定每只股票是否更新
+        """
+        base_interval = 1.0 if self._frequency_scheduler is not None else self._update_interval
+
         while self._running and not self._stop_event.is_set():
             try:
                 signals = self._process_update()
@@ -480,7 +529,7 @@ class PriceMonitor:
             except Exception as e:
                 log.error(f"PriceMonitor 处理错误: {e}")
 
-            self._stop_event.wait(self._update_interval)
+            self._stop_event.wait(base_interval)
 
     def register_callback(self, callback: Callable[[List[PerformanceMetrics]], None]):
         """注册更新回调"""
@@ -503,14 +552,21 @@ class PriceMonitor:
 
     def get_status(self) -> dict:
         """获取状态"""
-        return {
+        status = {
             "running": self._running,
             "tracked_count": len(self._tracked),
             "update_interval": self._update_interval,
             "last_fetch_time": self._last_fetch_time,
             "fetch_errors": self._fetch_errors,
             "subscribed": self._stream_subscription is not None,
+            "frequency_scheduling_enabled": self._frequency_scheduler is not None,
         }
+
+        if self._frequency_scheduler is not None:
+            freq_summary = self._frequency_scheduler.get_schedule_summary()
+            status["frequency_summary"] = freq_summary
+
+        return status
 
 
 _price_monitor: Optional[PriceMonitor] = None
@@ -519,21 +575,37 @@ _monitor_lock = threading.Lock()
 
 def get_price_monitor(
     update_interval: float = 60.0,
+    frequency_scheduler=None,
+    adaptive_frequency_controller=None,
 ) -> PriceMonitor:
     """获取 PriceMonitor 单例"""
     global _price_monitor
     if _price_monitor is None:
         with _monitor_lock:
             if _price_monitor is None:
-                _price_monitor = PriceMonitor(update_interval=update_interval)
+                _price_monitor = PriceMonitor(
+                    update_interval=update_interval,
+                    frequency_scheduler=frequency_scheduler,
+                    adaptive_frequency_controller=adaptive_frequency_controller,
+                )
     return _price_monitor
 
 
 def ensure_price_monitor(
     update_interval: float = 60.0,
+    frequency_scheduler=None,
+    adaptive_frequency_controller=None,
 ) -> PriceMonitor:
     """确保 PriceMonitor 已初始化"""
-    monitor = get_price_monitor(update_interval)
-    if not monitor._running:
-        monitor.start()
-    return monitor
+    global _price_monitor
+    if _price_monitor is None:
+        with _monitor_lock:
+            if _price_monitor is None:
+                _price_monitor = PriceMonitor(
+                    update_interval=update_interval,
+                    frequency_scheduler=frequency_scheduler,
+                    adaptive_frequency_controller=adaptive_frequency_controller,
+                )
+    if not _price_monitor._running:
+        _price_monitor.start()
+    return _price_monitor

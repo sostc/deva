@@ -8,6 +8,11 @@ import uuid
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Set
 
+from deva import NB
+
+
+INSIGHT_POOL_TABLE = "naja_insight_pool"
+
 
 def _clamp(value: float, low: float = 0.0, high: float = 1.0) -> float:
     return max(low, min(high, value))
@@ -57,6 +62,54 @@ class Insight:
             "payload": self.payload,
         }
 
+    def get_summary_text(self, max_len: int = 100) -> str:
+        """获取易读的 summary 文本，用于 UI 展示"""
+        if not self.summary:
+            return self.theme
+
+        if isinstance(self.summary, dict):
+            return self._format_dict_for_display(self.summary, max_len)
+
+        text = str(self.summary)
+        if text.startswith("{") and text.endswith("}"):
+            try:
+                import ast
+                parsed = ast.literal_eval(text)
+                if isinstance(parsed, dict):
+                    return self._format_dict_for_display(parsed, max_len)
+            except Exception:
+                pass
+
+        if len(text) > max_len:
+            return text[:max_len].rstrip() + "…"
+        return text
+
+    @staticmethod
+    def _format_dict_for_display(d: Dict[str, Any], max_len: int = 100) -> str:
+        """将字典格式化为易读的展示文本"""
+        parts = []
+        for key, value in d.items():
+            if key in ("signals", "events", "items", "data", "results"):
+                if isinstance(value, list) and len(value) > 0:
+                    parts.append(f"{len(value)}条{key}")
+                continue
+            if isinstance(value, str) and 0 < len(value) < 60:
+                parts.append(value)
+            elif isinstance(value, (int, float)) and abs(value) < 10000:
+                parts.append(f"{key}={value}")
+            elif isinstance(value, bool):
+                parts.append(f"{key}={'是' if value else '否'}")
+        if parts:
+            result = " | ".join(parts[:4])
+            if len(result) > max_len:
+                return result[:max_len].rstrip() + "…"
+            return result
+        if d:
+            first_val = next((str(v) for v in d.values() if v), "")
+            if first_val and len(first_val) < max_len:
+                return first_val
+        return str(d)[:max_len].rstrip() + "…" if len(str(d)) > max_len else str(d)
+
 
 class InsightBuilder:
     """Build candidate insights from strategy results or attention events."""
@@ -103,8 +156,9 @@ class InsightBuilder:
         if not event:
             return None
 
-        theme = event.get("theme") or event.get("title") or "attention"
-        summary = event.get("content") or event.get("summary") or theme
+        theme = str(event.get("theme") or event.get("title") or "attention")
+        summary_raw = event.get("content") or event.get("summary") or theme
+        summary = str(summary_raw) if not isinstance(summary_raw, str) else summary_raw
         symbols = event.get("symbols") or []
         sectors = event.get("sectors") or []
         system_attention = _clamp(_safe_float(event.get("score", 0.6)))
@@ -139,9 +193,35 @@ class InsightBuilder:
             for key in ("message", "content", "reason", "summary", "title"):
                 value = output.get(key)
                 if value:
-                    return str(value)
+                    if isinstance(value, str):
+                        return value
+                    elif isinstance(value, dict):
+                        return self._format_dict_as_text(value)
+                    else:
+                        return str(value)
+            narrative = output.get("narrative")
+            if narrative:
+                return str(narrative)
         text = str(output) if output is not None else ""
+        if text.startswith("{") and text.endswith("}"):
+            return strategy_name
         return text[:120] if text else strategy_name
+
+    def _format_dict_as_text(self, d: Dict[str, Any]) -> str:
+        """将字典格式化为易读的文本"""
+        parts = []
+        for key, value in d.items():
+            if key in ("signals", "events", "items"):
+                if isinstance(value, list) and len(value) > 0:
+                    parts.append(f"{len(value)}条{key}")
+                continue
+            if isinstance(value, str) and len(value) < 50:
+                parts.append(value)
+            elif isinstance(value, (int, float)):
+                parts.append(f"{key}={value}")
+        if parts:
+            return " | ".join(parts[:3])
+        return str(d)[:80]
 
     def _extract_symbols(self, output: Any) -> List[str]:
         if not isinstance(output, dict):
@@ -246,6 +326,8 @@ class InsightPool:
         self._ranker = UserAttentionRanker()
         self._last_seen: Dict[str, float] = {}
         self._latest_by_theme: Dict[str, str] = {}
+        self._db = NB(INSIGHT_POOL_TABLE)
+        self._load_from_db()
 
     def ingest_result(self, result: Any) -> Optional[Insight]:
         candidate = self._builder.build_from_result(result)
@@ -290,6 +372,7 @@ class InsightPool:
             merged = self._merge_if_possible(insight)
             if merged:
                 self._last_seen[theme] = now_ts
+                self.persist()
                 return merged
 
             self._insights.append(insight)
@@ -297,6 +380,7 @@ class InsightPool:
                 self._insights = self._insights[-self.max_size :]
             self._last_seen[theme] = now_ts
             self._latest_by_theme[theme] = insight.id
+            self.persist()
             return insight
 
     def _merge_if_possible(self, new_insight: Insight) -> Optional[Insight]:
@@ -357,6 +441,42 @@ class InsightPool:
                 "active_themes": themes,
                 "avg_user_score": round(avg_score, 3),
             }
+
+    def _load_from_db(self):
+        """从持久化存储加载"""
+        try:
+            data = self._db.get("insights")
+            if not data:
+                return
+            insights_data = data.get("insights", [])
+            self._insights = [
+                Insight(**item) for item in insights_data
+            ]
+            self._last_seen = data.get("last_seen", {})
+            self._latest_by_theme = data.get("latest_by_theme", {})
+        except Exception:
+            pass
+
+    def persist(self):
+        """持久化到存储"""
+        try:
+            with self._lock:
+                data = {
+                    "insights": [i.to_dict() for i in self._insights],
+                    "last_seen": self._last_seen,
+                    "latest_by_theme": self._latest_by_theme,
+                }
+                self._db["insights"] = data
+        except Exception:
+            pass
+
+    def clear(self):
+        """清空洞察池"""
+        with self._lock:
+            self._insights.clear()
+            self._last_seen.clear()
+            self._latest_by_theme.clear()
+            self.persist()
 
 
 _insight_pool: Optional[InsightPool] = None

@@ -5,12 +5,15 @@
 协调策略与注意力系统的交互
 """
 
+import logging
 import time
 import asyncio
 from typing import Dict, List, Optional, Any
 from dataclasses import dataclass, field
 
 from .base import AttentionStrategyBase, Signal
+
+log = logging.getLogger(__name__)
 
 # 性能监控支持
 try:
@@ -64,7 +67,7 @@ class AttentionStrategyManager:
         """获取注意力系统集成"""
         if self._attention_integration is None:
             try:
-                from deva.naja.attention_integration import get_attention_integration
+                from deva.naja.attention.integration import get_attention_integration
                 self._attention_integration = get_attention_integration()
             except Exception:
                 pass
@@ -74,7 +77,7 @@ class AttentionStrategyManager:
         """获取调度中心"""
         if self._orchestrator is None:
             try:
-                from deva.naja.attention_orchestrator import get_orchestrator
+                from deva.naja.attention.center import get_orchestrator
                 self._orchestrator = get_orchestrator()
             except Exception:
                 pass
@@ -427,12 +430,20 @@ class AttentionStrategyManager:
         # 切换到实验模式
         self._experiment_mode = True
         self._experiment_datasource_id = datasource_id
-        
+
+        # 启动反馈报告收集
+        try:
+            from deva.naja.attention.intelligence.feedback_report import get_feedback_report_generator
+            reporter = get_feedback_report_generator()
+            experiment_id = reporter.start_collection(datasource_id=datasource_id)
+            log.info(f"反馈报告收集已启动: {experiment_id}")
+        except Exception as e:
+            log.warning(f"启动反馈报告收集失败: {e}")
+
         # 确保注意力系统的调度中心也切换到实验数据源
         try:
             orchestrator = self._get_orchestrator()
             if orchestrator:
-                # 注册实验数据源到调度中心
                 orchestrator.register_datasource(datasource_id)
         except Exception:
             pass
@@ -480,15 +491,53 @@ class AttentionStrategyManager:
         except Exception:
             pass
 
+        # 停止实验数据源（如果是 replay 类型）
+        experiment_datasource_id = self._experiment_datasource_id
+        if experiment_datasource_id:
+            try:
+                from deva.naja.datasource import get_datasource_manager
+                ds_mgr = get_datasource_manager()
+                ds_entry = ds_mgr.get(experiment_datasource_id)
+                if ds_entry and ds_entry.is_running:
+                    ds_mgr.stop(experiment_datasource_id)
+                    log.info(f"实验数据源已停止: {experiment_datasource_id}")
+            except Exception as e:
+                log.warning(f"停止实验数据源失败: {e}")
+
         # 清理实验状态
         self._experiment_snapshot = {}
         self._experiment_mode = False
         self._experiment_datasource_id = None
-        
-        return {
+
+        # 停止反馈报告收集并生成报告
+        report_path = None
+        insights_pushed = 0
+        try:
+            from deva.naja.attention.intelligence.feedback_report import get_feedback_report_generator
+            reporter = get_feedback_report_generator()
+            reporter.stop_collection()
+
+            # 推送到认知系统的 InsightPool，供 LLM Reflection 生成洞察
+            insights_pushed = reporter._emit_to_insight()
+
+            if reporter.get_summary()['signals_count'] > 0:
+                report_path = reporter.save_report()
+                log.info(f"反馈报告已保存: {report_path}")
+            else:
+                log.info("本次实验无信号，跳过报告生成")
+            reporter.clear()
+        except Exception as e:
+            log.warning(f"生成反馈报告失败: {e}")
+
+        result = {
             "success": True,
             "experiment_mode": False
         }
+        if report_path:
+            result["report_path"] = report_path
+        if insights_pushed > 0:
+            result["insights_pushed"] = insights_pushed
+        return result
     
     def get_experiment_info(self) -> dict:
         """获取实验模式信息"""
@@ -533,7 +582,7 @@ def initialize_attention_strategies():
     
     # 注册到注意力系统
     try:
-        from deva.naja.attention_integration import register_strategy_manager
+        from deva.naja.attention.integration import register_strategy_manager
         register_strategy_manager(manager)
     except Exception:
         pass

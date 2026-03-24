@@ -17,6 +17,12 @@ from typing import Dict, Any, List, Optional
 from threading import Thread, Event
 import threading
 
+from deva.naja.radar.trading_clock import (
+    get_trading_clock,
+    TRADING_CLOCK_STREAM,
+    is_trading_time as is_trading_time_clock,
+)
+
 log = logging.getLogger(__name__)
 
 
@@ -79,22 +85,7 @@ class AttentionReportGenerator:
     
     def _is_trading_time(self) -> bool:
         """检查当前是否是A股交易时间"""
-        now = datetime.now()
-        weekday = now.weekday()
-        
-        # 周末不交易
-        if weekday >= 5:  # 5=周六, 6=周日
-            return False
-        
-        hour = now.hour
-        minute = now.minute
-        time_val = hour * 100 + minute  # 转换为如 930, 1130, 1300 等格式
-        
-        # A股交易时间: 9:30-11:30, 13:00-15:00
-        morning_session = 930 <= time_val <= 1130
-        afternoon_session = 1300 <= time_val <= 1500
-        
-        return morning_session or afternoon_session
+        return is_trading_time_clock()
     
     def _should_generate_report(self) -> bool:
         """检查是否应该生成报告"""
@@ -168,9 +159,9 @@ class AttentionReportGenerator:
     def _generate_report(self) -> Optional[Dict[str, Any]]:
         """生成注意力系统报告"""
         try:
-            from ..attention_integration import get_attention_integration
+            from ..attention.integration import get_attention_integration
             from deva.naja.attention.strategies import get_strategy_manager
-            from .history_tracker import get_history_tracker
+            from deva.naja.cognition.history_tracker import get_history_tracker
             
             integration = get_attention_integration()
             if not integration or not integration.attention_system:
@@ -316,7 +307,7 @@ class AttentionReportGenerator:
     def _collect_recent_changes(self) -> List[Dict[str, Any]]:
         """收集最近的注意力变化"""
         try:
-            from .history_tracker import get_history_tracker
+            from deva.naja.cognition.history_tracker import get_history_tracker
             tracker = get_history_tracker()
             if not tracker:
                 return []
@@ -341,7 +332,7 @@ class AttentionReportGenerator:
     def _collect_sector_hotspots(self) -> List[Dict[str, Any]]:
         """收集板块热点事件"""
         try:
-            from .history_tracker import get_history_tracker
+            from deva.naja.cognition.history_tracker import get_history_tracker
             tracker = get_history_tracker()
             if not tracker:
                 return []

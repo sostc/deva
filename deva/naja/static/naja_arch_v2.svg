@@ -1,0 +1,253 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 900">
+  <defs>
+    <style>
+      .title { font-family: Arial, sans-serif; font-weight: bold; font-size: 14px; fill: #1e293b; }
+      .subtitle { font-family: Arial, sans-serif; font-size: 11px; fill: #64748b; }
+      .box-title { font-family: Arial, sans-serif; font-weight: bold; font-size: 12px; fill: white; }
+      .box-subtitle { font-family: Arial, sans-serif; font-size: 10px; fill: rgba(255,255,255,0.8); }
+      .arrow { stroke: #94a3b8; stroke-width: 1.5; fill: none; marker-end: url(#arrowhead); }
+      .arrow-highlight { stroke: #3b82f6; stroke-width: 2; }
+      .arrow-dashed { stroke: #94a3b8; stroke-width: 1.5; stroke-dasharray: 5,5; fill: none; marker-end: url(#arrowhead); }
+      .layer-label { font-family: Arial, sans-serif; font-size: 13px; fill: #475569; font-weight: bold; }
+    </style>
+    <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#94a3b8"/>
+    </marker>
+    <linearGradient id="cognitionGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#6366f1;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#4f46e5;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="insightGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#8b5cf6;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#7c3aed;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="attentionGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#06b6d4;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#0891b2;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="radarGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#f59e0b;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#d97706;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="strategyGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#10b981;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#059669;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="dataGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#ec4899;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#db2777;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="banditGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#f97316;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#ea580c;stop-opacity:1" />
+    </linearGradient>
+  </defs>
+
+  <!-- 标题 -->
+  <text x="600" y="30" text-anchor="middle" class="title" font-size="18">Naja 系统架构图</text>
+
+  <!-- ========== 认知层（最上层） ========== -->
+  <rect x="50" y="50" width="1100" height="240" rx="12" fill="none" stroke="#e2e8f0" stroke-width="2" stroke-dasharray="5,5"/>
+  <text x="70" y="70" class="layer-label">🧠 认知层（Cognition）</text>
+  <text x="70" y="85" class="subtitle">最高层：综合分析、反思、决策支持</text>
+
+  <!-- LLM Reflection -->
+  <rect x="80" y="100" width="180" height="130" rx="8" fill="url(#cognitionGrad)"/>
+  <text x="170" y="125" text-anchor="middle" class="box-title">🤖 LLM Reflection</text>
+  <text x="170" y="145" text-anchor="middle" class="box-subtitle">LLM 反思引擎</text>
+  <text x="170" y="165" text-anchor="middle" class="box-subtitle">• 自动定时触发</text>
+  <text x="170" y="180" text-anchor="middle" class="box-subtitle">• 手动触发</text>
+  <text x="170" y="195" text-anchor="middle" class="box-subtitle">• 反思结果→洞察池</text>
+
+  <!-- Insight Pool -->
+  <rect x="280" y="100" width="160" height="130" rx="8" fill="url(#insightGrad)"/>
+  <text x="360" y="125" text-anchor="middle" class="box-title">💡 Insight Pool</text>
+  <text x="360" y="145" text-anchor="middle" class="box-subtitle">洞察池 + InsightBuilder</text>
+  <text x="360" y="165" text-anchor="middle" class="box-subtitle">• 合并机制（10分钟）</text>
+  <text x="360" y="180" text-anchor="middle" class="box-subtitle">• UserAttentionRanker</text>
+  <text x="360" y="195" text-anchor="middle" class="box-subtitle">• 持久化存储</text>
+
+  <!-- Narrative Tracker -->
+  <rect x="460" y="100" width="160" height="130" rx="8" fill="url(#insightGrad)"/>
+  <text x="540" y="125" text-anchor="middle" class="box-title">🌊 Narrative Tracker</text>
+  <text x="540" y="145" text-anchor="middle" class="box-subtitle">叙事追踪器</text>
+  <text x="540" y="165" text-anchor="middle" class="box-subtitle">• 叙事主题提取</text>
+  <text x="540" y="180" text-anchor="middle" class="box-subtitle">• 阶段：萌芽→扩散→高潮→消退</text>
+  <text x="540" y="195" text-anchor="middle" class="box-subtitle">• 趋势变化</text>
+
+  <!-- Cross Signal Analyzer -->
+  <rect x="640" y="100" width="160" height="130" rx="8" fill="url(#insightGrad)"/>
+  <text x="720" y="125" text-anchor="middle" class="box-title">🔄 Cross Signal</text>
+  <text x="720" y="145" text-anchor="middle" class="box-subtitle">跨信号共振分析</text>
+  <text x="720" y="165" text-anchor="middle" class="box-subtitle">• 新闻×注意力共振</text>
+  <text x="720" y="180" text-anchor="middle" class="box-subtitle">• 共振分数 ≥0.7 → 洞察池</text>
+  <text x="720" y="195" text-anchor="middle" class="box-subtitle">• TEMPORAL/INTENSITY/NARRATIVE</text>
+
+  <!-- History Tracker (移动到认知层) -->
+  <rect x="820" y="100" width="160" height="130" rx="8" fill="url(#insightGrad)"/>
+  <text x="900" y="125" text-anchor="middle" class="box-title">📜 History Tracker</text>
+  <text x="900" y="145" text-anchor="middle" class="box-subtitle">历史事件追踪器 ⭐已迁移</text>
+  <text x="900" y="165" text-anchor="middle" class="box-subtitle">• sector_hotspot → 洞察池</text>
+  <text x="900" y="180" text-anchor="middle" class="box-subtitle">• symbol_attention_change</text>
+  <text x="900" y="195" text-anchor="middle" class="box-subtitle">• market_state_shift</text>
+
+  <!-- Cognition Core / Memory -->
+  <rect x="1000" y="100" width="120" height="130" rx="8" fill="url(#insightGrad)"/>
+  <text x="1060" y="125" text-anchor="middle" class="box-title">🧩 Cognition Core</text>
+  <text x="1060" y="145" text-anchor="middle" class="box-subtitle">认知引擎/记忆</text>
+  <text x="1060" y="165" text-anchor="middle" class="box-subtitle">• Short/Mid/Long</text>
+  <text x="1060" y="180" text-anchor="middle" class="box-subtitle">• Semantic Graph</text>
+  <text x="1060" y="195" text-anchor="middle" class="box-subtitle">• User Focus</text>
+
+  <!-- ========== 注意力层 ========== -->
+  <rect x="50" y="310" width="1100" height="130" rx="12" fill="none" stroke="#e2e8f0" stroke-width="2" stroke-dasharray="5,5"/>
+  <text x="70" y="330" class="layer-label">👁️ 注意力层（Attention）</text>
+  <text x="70" y="345" class="subtitle">市场关注度感知：板块/个股权重计算、反馈学习</text>
+
+  <!-- Global Attention Engine -->
+  <rect x="80" y="355" width="180" height="70" rx="8" fill="url(#attentionGrad)"/>
+  <text x="170" y="380" text-anchor="middle" class="box-title">⚡ GlobalAttention</text>
+  <text x="170" y="400" text-anchor="middle" class="box-subtitle">全局注意力引擎 | market_state | global_attention</text>
+
+  <!-- Attention Strategies -->
+  <rect x="280" y="355" width="220" height="70" rx="8" fill="url(#attentionGrad)"/>
+  <text x="390" y="380" text-anchor="middle" class="box-title">📊 Attention Strategies</text>
+  <text x="390" y="400" text-anchor="middle" class="box-subtitle">MomentumTracker | SectorHunter | AnomalySniper | +更多</text>
+
+  <!-- Feedback Loop -->
+  <rect x="520" y="355" width="180" height="70" rx="8" fill="url(#attentionGrad)"/>
+  <text x="610" y="380" text-anchor="middle" class="box-title">🔄 Feedback Loop</text>
+  <text x="610" y="400" text-anchor="middle" class="box-subtitle">AttentionEffectiveness | 有效性分析</text>
+
+  <!-- Experiment Feedback -->
+  <rect x="720" y="355" width="180" height="70" rx="8" fill="url(#attentionGrad)"/>
+  <text x="810" y="380" text-anchor="middle" class="box-title">🧪 Experiment Feedback</text>
+  <text x="810" y="400" text-anchor="middle" class="box-subtitle">Bandit学习 | SignalRecord | 总结报告</text>
+
+  <!-- Data Flow Arrow: Attention → Cognition -->
+  <path d="M 900 355 L 900 280" class="arrow-dashed" marker-end="url(#arrowhead)"/>
+  <text x="920" y="320" class="subtitle" fill="#64748b">数据流向</text>
+
+  <!-- ========== 雷达层 ========== -->
+  <rect x="50" y="460" width="1100" height="100" rx="12" fill="none" stroke="#e2e8f0" stroke-width="2" stroke-dasharray="5,5"/>
+  <text x="70" y="480" class="layer-label">📡 雷达层（Radar）</text>
+  <text x="70" y="495" class="subtitle">市场异常检测：模式重复、概念漂移、统计异常、新闻舆情</text>
+
+  <!-- Radar Engine -->
+  <rect x="80" y="505" width="260" height="45" rx="8" fill="url(#radarGrad)"/>
+  <text x="210" y="530" text-anchor="middle" class="box-title">🎯 Radar Engine</text>
+  <text x="210" y="540" text-anchor="middle" class="box-subtitle">MarketScanner: pattern/drift/anomaly/sector_anomaly → 洞察池</text>
+
+  <!-- News Fetcher -->
+  <rect x="360" y="505" width="200" height="45" rx="8" fill="url(#radarGrad)"/>
+  <text x="460" y="530" text-anchor="middle" class="box-title">📰 News Fetcher</text>
+  <text x="460" y="540" text-anchor="middle" class="box-subtitle">新闻获取 | 主题聚类 | 注意力评分</text>
+
+  <!-- 新闻主题分类 -->
+  <rect x="580" y="505" width="540" height="45" rx="8" fill="url(#radarGrad)"/>
+  <text x="850" y="530" text-anchor="middle" class="box-title">📋 新闻主题分类（20+类别）</text>
+  <text x="850" y="540" text-anchor="middle" class="box-subtitle">AI/大模型 | 半导体 | 华为 | 新能源 | 光伏 | 锂电池 | 新能源汽车 | 苹果 | 金融 | 美股 | 港股 | 宏观 | 地缘政治 | ...</text>
+
+  <!-- ========== 策略层 ========== -->
+  <rect x="50" y="580" width="1100" height="100" rx="12" fill="none" stroke="#e2e8f0" stroke-width="2" stroke-dasharray="5,5"/>
+  <text x="70" y="600" class="layer-label">⚙️ 策略层（Strategy）</text>
+  <text x="70" y="615" class="subtitle">行情数据处理、信号生成、结果存储</text>
+
+  <!-- Strategy Manager -->
+  <rect x="80" y="625" width="160" height="45" rx="8" fill="url(#strategyGrad)"/>
+  <text x="160" y="650" text-anchor="middle" class="box-title">📋 Strategy Manager</text>
+  <text x="160" y="662" text-anchor="middle" class="box-subtitle">策略启停控制</text>
+
+  <!-- River Strategies -->
+  <rect x="260" y="625" width="180" height="45" rx="8" fill="url(#strategyGrad)"/>
+  <text x="350" y="650" text-anchor="middle" class="box-title">🌊 River Strategies</text>
+  <text x="350" y="662" text-anchor="middle" class="box-subtitle">Tick流式策略</text>
+
+  <!-- Result Store -->
+  <rect x="460" y="625" width="180" height="45" rx="8" fill="url(#strategyGrad)"/>
+  <text x="550" y="650" text-anchor="middle" class="box-title">💾 Result Store</text>
+  <text x="550" y="662" text-anchor="middle" class="box-subtitle">结果 → 分发各系统</text>
+
+  <!-- Output Schema -->
+  <rect x="660" y="625" width="180" height="45" rx="8" fill="url(#strategyGrad)"/>
+  <text x="750" y="650" text-anchor="middle" class="box-title">📤 Output Schema</text>
+  <text x="750" y="662" text-anchor="middle" class="box-subtitle">规范化输出</text>
+
+  <!-- Bandit -->
+  <rect x="860" y="625" width="160" height="45" rx="8" fill="url(#banditGrad)"/>
+  <text x="940" y="650" text-anchor="middle" class="box-title">🎰 Bandit</text>
+  <text x="940" y="662" text-anchor="middle" class="box-subtitle">强化学习调参</text>
+
+  <!-- ========== 数据层 ========== -->
+  <rect x="50" y="700" width="1100" height="90" rx="12" fill="none" stroke="#e2e8f0" stroke-width="2" stroke-dasharray="5,5"/>
+  <text x="70" y="720" class="layer-label">📦 数据层（Data）</text>
+  <text x="70" y="735" class="subtitle">外部数据源接入、数据字典管理</text>
+
+  <!-- Data Source -->
+  <rect x="80" y="745" width="280" height="40" rx="8" fill="url(#dataGrad)"/>
+  <text x="220" y="770" text-anchor="middle" class="box-title">🗄️ Data Source 数据源</text>
+  <text x="220" y="780" text-anchor="middle" class="box-subtitle">Tushare | 聚宽 | 掘金 | 自定义 | 实时行情</text>
+
+  <!-- Dictionary -->
+  <rect x="380" y="745" width="280" height="40" rx="8" fill="url(#dataGrad)"/>
+  <text x="520" y="770" text-anchor="middle" class="box-title">📖 Dictionary 数据字典</text>
+  <text x="520" y="780" text-anchor="middle" class="box-subtitle">股票池 | 板块映射 | 概念分类 | 因子定义</text>
+
+  <!-- Scheduler -->
+  <rect x="680" y="745" width="180" height="40" rx="8" fill="url(#dataGrad)"/>
+  <text x="770" y="770" text-anchor="middle" class="box-title">⏰ Scheduler</text>
+  <text x="770" y="780" text-anchor="middle" class="box-subtitle">定时调度 | 任务管理</text>
+
+  <!-- Stream Skill -->
+  <rect x="880" y="745" width="180" height="40" rx="8" fill="url(#dataGrad)"/>
+  <text x="970" y="770" text-anchor="middle" class="box-title">🌊 Stream Skill</text>
+  <text x="970" y="780" text-anchor="middle" class="box-subtitle">流式技能框架</text>
+
+  <!-- ========== 数据流箭头 ========== -->
+  <!-- 策略层 → 雷达层 -->
+  <path d="M 160 580 L 210 555" class="arrow" marker-end="url(#arrowhead)"/>
+  <text x="185" y="570" class="subtitle">策略结果</text>
+
+  <!-- 策略层 → Attention层 -->
+  <path d="M 550 625 L 520 430" class="arrow" marker-end="url(#arrowhead)"/>
+  <text x="560" y="540" class="subtitle">行情快照</text>
+
+  <!-- Radar → Insight Pool -->
+  <path d="M 210 505 L 320 280" class="arrow" marker-end="url(#arrowhead)"/>
+  <text x="265" y="400" class="subtitle">pattern/drift/anomaly/news_topic</text>
+
+  <!-- Attention → Insight Pool (via History Tracker) -->
+  <path d="M 900 430 L 440 280" class="arrow arrow-highlight" marker-end="url(#arrowhead)"/>
+  <text x="670" y="360" class="subtitle" fill="#3b82f6">sector_hotspot / symbol_change</text>
+
+  <!-- Experiment → Insight Pool -->
+  <path d="M 810 355 L 480 280" class="arrow arrow-highlight" marker-end="url(#arrowhead)"/>
+  <text x="645" y="320" class="subtitle" fill="#3b82f6">feedback_summary / bandit</text>
+
+  <!-- CrossSignal → Insight Pool -->
+  <path d="M 720 230 L 440 230" class="arrow arrow-highlight" marker-end="url(#arrowhead)"/>
+  <text x="580" y="220" class="subtitle" fill="#3b82f6">共振信号</text>
+
+  <!-- Narrative → LLM Reflection -->
+  <path d="M 540 200 L 170 200" class="arrow" marker-end="url(#arrowhead)"/>
+  <text x="355" y="190" class="subtitle">叙事变化</text>
+
+  <!-- Insight Pool → LLM Reflection -->
+  <path d="M 280 165 L 170 165" class="arrow" marker-end="url(#arrowhead)"/>
+  <text x="225" y="155" class="subtitle">洞察数据</text>
+
+  <!-- LLM Reflection → Insight Pool -->
+  <path d="M 170 145 L 280 145" class="arrow" marker-end="url(#arrowhead)"/>
+  <text x="225" y="135" class="subtitle">反思结论</text>
+
+  <!-- ========== 图例 ========== -->
+  <rect x="50" y="810" width="1100" height="70" rx="8" fill="#f8fafc" stroke="#e2e8f0"/>
+  <text x="80" y="835" class="subtitle" font-weight="bold">架构说明：</text>
+  <text x="80" y="855" class="subtitle">• 认知层包含：LLM反思、洞察池、叙事追踪、历史事件追踪（已迁移）、跨信号共振分析</text>
+  <text x="80" y="870" class="subtitle">• 历史事件追踪器（HistoryTracker）已从 Attention 层迁移到 Cognition 层</text>
+  <text x="580" y="835" class="subtitle">• ─── 普通数据流</text>
+  <line x1="680" y1="830" x2="720" y2="830" stroke="#3b82f6" stroke-width="2"/>
+  <text x="730" y="835" class="subtitle">── 进入洞察池的数据流</text>
+  <text x="580" y="855" class="subtitle">• --- 虚线表示跨层数据流</text>
+
+</svg>

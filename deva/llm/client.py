@@ -119,7 +119,10 @@ class GPT:
         self.config = status["config"]
         self._missing_configs = status["missing"]
         self.api_key = self.config.get("api_key")
-        self.base_url = self.config.get("base_url")
+        base_url = self.config.get("base_url", "")
+        if base_url.endswith(','):
+            base_url = base_url[:-1].rstrip()
+        self.base_url = base_url
         self.model = self.config.get("model")
 
         if status["ready"]:
@@ -224,6 +227,9 @@ class GPT:
             if not completion.choices:
                 import traceback
                 log.error(f"[LLM调用来源]\n{''.join(traceback.format_stack())}")
+                log.error(f"[LLM响应详情] completion={completion}, dir={dir(completion)}")
+                if hasattr(completion, 'model_dump'):
+                    log.error(f"[LLM响应] model_dump={completion.model_dump()}")
                 raise RuntimeError("异步查询返回结果为空，choices 为空")
 
             if completion.choices[0].message is None:

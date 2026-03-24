@@ -29,6 +29,13 @@ try:
 except ImportError:
     LOCK_MONITOR_AVAILABLE = False
 
+# 尝试导入性能监控模块
+try:
+    from ..performance import record_component_execution, ComponentType
+    PERFORMANCE_MONITOR_AVAILABLE = True
+except ImportError:
+    PERFORMANCE_MONITOR_AVAILABLE = False
+
 
 @dataclass
 class StrategyResult:
@@ -157,7 +164,12 @@ class ResultStore:
         # 启动数据清理线程（只启动一次）
         self._data_cleanup_thread = threading.Thread(target=self._cleanup_data, daemon=True)
         self._data_cleanup_thread.start()
-        
+
+        # 启动健康状态监控线程（接入 PerformanceMonitor 统一监控）
+        self._health_check_interval = 30  # 30秒检查一次
+        self._health_thread = threading.Thread(target=self._monitor_health, daemon=True)
+        self._health_thread.start()
+
         self._initialized = True
     
     def _get_cached_stats(self) -> dict:
@@ -223,6 +235,46 @@ class ResultStore:
     def _invalidate_stats_cache(self):
         """使统计缓存失效"""
         self._stats_cache = None
+
+    def get_health_summary(self, stale_seconds: int = 300) -> Dict[str, Any]:
+        """获取结果存储健康摘要"""
+        now = time.time()
+        last_write = self._monitoring.get("last_write_time", 0) or 0
+        seconds_since_write = now - last_write if last_write > 0 else None
+
+        return {
+            "last_write_time": last_write,
+            "seconds_since_write": seconds_since_write,
+            "has_recent_writes": seconds_since_write is not None and seconds_since_write <= stale_seconds,
+            "write_queue_size": self._monitoring.get("write_queue_size", 0),
+            "write_rate": self._monitoring.get("write_rate", 0),
+            "total_writes": self._monitoring.get("total_writes", 0),
+            "failed_writes": self._monitoring.get("failed_writes", 0),
+        }
+
+    def should_alert_no_writes(
+        self,
+        stale_seconds: int = 300,
+        cooldown_seconds: int = 300,
+    ) -> Dict[str, Any]:
+        """判断是否需要触发无写入告警（带冷却）"""
+        now = time.time()
+        last_write = self._monitoring.get("last_write_time", 0) or 0
+
+        if last_write == 0:
+            seconds_since_write = None
+        else:
+            seconds_since_write = now - last_write
+
+        if seconds_since_write is None or seconds_since_write < stale_seconds:
+            return {"should_alert": False, "seconds_since_write": seconds_since_write}
+
+        last_alert = self._monitoring.get("last_alert_time", 0) or 0
+        if now - last_alert < cooldown_seconds:
+            return {"should_alert": False, "seconds_since_write": seconds_since_write}
+
+        self._monitoring["last_alert_time"] = now
+        return {"should_alert": True, "seconds_since_write": seconds_since_write}
     
     def _generate_id(self, strategy_id: str, ts: float) -> str:
         import hashlib
@@ -410,7 +462,35 @@ class ResultStore:
             except Exception:
                 # 清理线程异常，继续运行
                 time.sleep(1)
-    
+
+    def _monitor_health(self):
+        """监控 ResultStore 健康状态，接入 PerformanceMonitor 统一告警体系"""
+        while True:
+            try:
+                time.sleep(self._health_check_interval)
+
+                if not PERFORMANCE_MONITOR_AVAILABLE:
+                    continue
+
+                health = self.get_health_summary()
+                seconds_since_write = health.get("seconds_since_write")
+
+                if seconds_since_write is None:
+                    continue
+
+                if seconds_since_write >= 300:
+                    severity_indicator = min(seconds_since_write / 60, 999)
+                    record_component_execution(
+                        component_id="result_store_write",
+                        component_name="ResultStore 写入健康",
+                        component_type=ComponentType.STORAGE,
+                        execution_time_ms=severity_indicator * 100,
+                        success=(seconds_since_write < 300),
+                        error=f"ResultStore 超过 {seconds_since_write:.0f}s 未写入" if seconds_since_write >= 300 else "",
+                    )
+            except Exception:
+                time.sleep(1)
+
     def save(
         self,
         strategy_id: str,

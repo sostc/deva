@@ -137,7 +137,7 @@ def main():
 def show_attention_report():
     """显示注意力系统状态报告"""
     try:
-        from .attention_integration import get_attention_integration
+        from .attention.integration import get_attention_integration
         
         integration = get_attention_integration()
         report = integration.get_attention_report()

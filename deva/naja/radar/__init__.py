@@ -8,6 +8,14 @@ from .news_fetcher import (
     NewsItem,
     NewsTopicCluster,
 )
+from .trading_clock import (
+    TradingClock,
+    get_trading_clock,
+    trading_clock_signal,
+    is_trading_time,
+    is_market_closed,
+    TRADING_CLOCK_STREAM,
+)
 
 __all__ = [
     "RadarEngine",
@@ -18,4 +26,10 @@ __all__ = [
     "RadarNewsProcessor",
     "NewsItem",
     "NewsTopicCluster",
+    "TradingClock",
+    "get_trading_clock",
+    "trading_clock_signal",
+    "is_trading_time",
+    "is_market_closed",
+    "TRADING_CLOCK_STREAM",
 ]

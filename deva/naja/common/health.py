@@ -273,7 +273,7 @@ def get_health_check_manager() -> HealthCheckManager:
 
 def create_attention_health_checks() -> Dict[str, Callable[[], bool]]:
     """创建注意力系统健康检查项"""
-    from deva.naja.attention_integration import get_attention_integration
+    from deva.naja.attention.integration import get_attention_integration
 
     def check_attention_system():
         integration = get_attention_integration()

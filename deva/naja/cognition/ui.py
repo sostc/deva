@@ -88,6 +88,7 @@ class CognitionUI:
 
         self._render_cognition_summary()
         self._render_narrative_lifecycle()
+        self._render_cross_signal_section()
         self._render_insight_section()
         self._render_storage()
         self._render_control_panel()
@@ -243,6 +244,205 @@ class CognitionUI:
                 """)
             put_html('</div>')
 
+        DATA_SOURCES = [
+            {"type": "radar", "icon": "📡", "name": "雷达事件", "color": "#f97316", "desc": "市场异常检测信号"},
+            {"type": "attention", "icon": "👁️", "name": "注意力事件", "color": "#14b8a6", "desc": "市场关注度变化"},
+            {"type": "cross_signal", "icon": "🔄", "name": "共振信号", "color": "#8b5cf6", "desc": "新闻与注意力共振"},
+            {"type": "attention_shift", "icon": "🔀", "name": "注意力转移", "color": "#f59e0b", "desc": "Top5板块/个股变化"},
+            {"type": "feedback_experiment", "icon": "📊", "name": "实验反馈", "color": "#22c55e", "desc": "注意力策略有效性"},
+            {"type": "sector_hotspot", "icon": "🔥", "name": "板块热点", "color": "#ef4444", "desc": "板块成为/退出热点"},
+            {"type": "symbol_attention_change", "icon": "📈", "name": "个股权重变化", "color": "#3b82f6", "desc": "个股注意力显著变化"},
+            {"type": "market_activity_shift", "icon": "📉", "name": "活跃度变化", "color": "#ec4899", "desc": "市场活跃度显著变化"},
+            {"type": "llm_reflection", "icon": "🤖", "name": "LLM反思", "color": "#0ea5e9", "desc": "深度市场分析洞察"},
+        ]
+
+        source_counts = {}
+        for insight in recent_insights:
+            src = insight.get('source', '')
+            signal = insight.get('signal_type', '')
+            if src.startswith('llm_reflection') or signal == 'llm_reflection':
+                key = 'llm_reflection'
+            elif src == 'attention' or signal == 'attention_shift':
+                key = 'attention_shift'
+            elif src == 'cross_signal':
+                key = 'cross_signal'
+            elif src.startswith('feedback') or signal.startswith('effective'):
+                key = 'feedback_experiment'
+            elif src == 'radar' or signal == 'radar':
+                key = 'radar'
+            elif signal == 'sector_hotspot':
+                key = 'sector_hotspot'
+            elif signal == 'symbol_attention_change':
+                key = 'symbol_attention_change'
+            elif signal == 'market_activity_shift':
+                key = 'market_activity_shift'
+            else:
+                key = src if src else 'other'
+            source_counts[key] = source_counts.get(key, 0) + 1
+
+        put_html("""
+        <div style="
+            margin-bottom: 12px;
+            background: rgba(255,255,255,0.03);
+            border-radius: 12px;
+            padding: 14px 18px;
+            border: 1px solid rgba(255,255,255,0.08);
+        ">
+            <div style="font-size: 12px; font-weight: 600; color: #64748b; margin-bottom: 12px;">
+                📥 数据来源监控
+            </div>
+            <div style="display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px;">
+        """)
+
+        for ds in DATA_SOURCES:
+            count = source_counts.get(ds['type'], 0)
+            count_html = f'<span style="background: {ds["color"]}22; color: {ds["color"]}; padding: 1px 6px; border-radius: 10px; font-size: 10px; margin-left: 6px;">{count}</span>' if count > 0 else ''
+            put_html(f"""
+                <div style="display: flex; align-items: center; padding: 6px 10px; background: rgba(255,255,255,0.03); border-radius: 6px; border-left: 3px solid {ds['color']};">
+                    <span style="font-size: 14px; margin-right: 6px;">{ds['icon']}</span>
+                    <div>
+                        <div style="font-size: 11px; color: #e2e8f0; font-weight: 600;">{ds['name']}{count_html}</div>
+                        <div style="font-size: 9px; color: #64748b;">{ds['desc']}</div>
+                    </div>
+                </div>
+            """)
+
+        put_html('</div>')
+
+        recent_by_source = {}
+        for insight in recent_insights:
+            src = insight.get('source', '')
+            signal = insight.get('signal_type', '')
+            if src.startswith('llm_reflection') or signal == 'llm_reflection':
+                key = 'llm_reflection'
+            elif src == 'attention' or signal == 'attention_shift':
+                key = 'attention_shift'
+            elif src == 'cross_signal':
+                key = 'cross_signal'
+            elif src.startswith('feedback') or signal.startswith('effective'):
+                key = 'feedback_experiment'
+            elif src == 'radar' or signal == 'radar':
+                key = 'radar'
+            elif signal == 'sector_hotspot':
+                key = 'sector_hotspot'
+            elif signal == 'symbol_attention_change':
+                key = 'symbol_attention_change'
+            elif signal == 'market_activity_shift':
+                key = 'market_activity_shift'
+            else:
+                key = src if src else 'other'
+            if key not in recent_by_source:
+                recent_by_source[key] = []
+            recent_by_source[key].append(insight)
+
+        for ds in DATA_SOURCES:
+            insights = recent_by_source.get(ds['type'], [])[:3]
+            if not insights:
+                continue
+            items_html = ""
+            for item in insights:
+                ts = _fmt_ts(float(item.get('ts', 0)))
+                theme = item.get('theme', '-')[:40]
+                summary = item.get('summary', '')
+                if isinstance(summary, dict):
+                    from .insight.engine import Insight
+                    summary = Insight._format_dict_for_display(summary, 60)
+                elif len(str(summary)) > 60:
+                    summary = str(summary)[:60] + "..."
+                items_html += f"""
+                <div style="display: flex; align-items: center; gap: 8px; padding: 6px 8px; background: rgba(255,255,255,0.02); border-radius: 4px; margin-bottom: 4px;">
+                    <div style="font-size: 9px; color: #475569; flex-shrink: 0;">{ts}</div>
+                    <div style="flex: 1; min-width: 0;">
+                        <div style="font-size: 10px; color: #94a3b8; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{theme}</div>
+                        <div style="font-size: 9px; color: #64748b; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{summary}</div>
+                    </div>
+                </div>
+                """
+
+            if items_html:
+                put_html(f"""
+                <div style="margin-bottom: 10px;">
+                    <div style="display: flex; align-items: center; margin-bottom: 6px;">
+                        <span style="font-size: 12px; margin-right: 6px;">{ds['icon']}</span>
+                        <span style="font-size: 11px; font-weight: 600; color: {ds['color']};">{ds['name']}</span>
+                    </div>
+                    {items_html}
+                </div>
+                """)
+
+        put_html('</div>')
+
+        attention_shift_insights = [i for i in recent_insights if i.get('signal_type') == 'attention_shift']
+        if attention_shift_insights:
+            put_html("""
+            <div style="
+                margin-bottom: 12px;
+                background: linear-gradient(135deg, rgba(254,240,138,0.1), rgba(253,224,71,0.05));
+                border: 1px solid rgba(245,158,11,0.3);
+                border-radius: 12px;
+                padding: 14px 18px;
+            ">
+                <div style="font-size: 12px; font-weight: 600; color: #f59e0b; margin-bottom: 10px;">
+                    🔄 注意力转移监测
+                </div>
+            """)
+            for item in attention_shift_insights[:5]:
+                theme = item.get('theme', '-')
+                summary_raw = item.get('summary', '')
+                if isinstance(summary_raw, dict):
+                    from .insight.engine import Insight
+                    summary = Insight._format_dict_for_display(summary_raw, 120)
+                elif isinstance(summary_raw, str) and summary_raw.startswith('{') and summary_raw.endswith('}'):
+                    try:
+                        import ast
+                        parsed = ast.literal_eval(summary_raw)
+                        if isinstance(parsed, dict):
+                            from .insight.engine import Insight
+                            summary = Insight._format_dict_for_display(parsed, 120)
+                        else:
+                            summary = summary_raw[:120]
+                    except Exception:
+                        summary = summary_raw[:120]
+                else:
+                    summary = summary_raw[:120] if summary_raw else '-'
+                summary = summary.replace('{', '{{').replace('}', '}}').replace('<', '&lt;').replace('>', '&gt;')
+
+                payload = item.get('payload', {})
+                removed_symbols = payload.get('removed_symbols', [])
+                added_symbols = payload.get('added_symbols', [])
+                duration = payload.get('duration', '')
+                shift_type = payload.get('shift_type', '')
+
+                ts = _fmt_ts(float(item.get('ts', 0)))
+                score = float(item.get('user_score', 0))
+
+                removed_html = ''
+                if removed_symbols:
+                    removed_list = [f"{s}({n})" for s, n in removed_symbols[:5]]
+                    removed_html = f'<div style="font-size: 10px; color: #dc2626; margin-bottom: 4px;">📤 退出: {" | ".join(removed_list)}</div>'
+
+                added_html = ''
+                if added_symbols:
+                    added_list = [f"{s}({n})" for s, n in added_symbols[:5]]
+                    added_html = f'<div style="font-size: 10px; color: #16a34a; margin-bottom: 4px;">📥 新进: {" | ".join(added_list)}</div>'
+
+                put_html(f"""
+                <div style="background: rgba(255,255,255,0.03); border-radius: 8px; padding: 12px; margin-bottom: 8px; border-left: 3px solid #f59e0b;">
+                    <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 6px;">
+                        <div style="font-size: 12px; font-weight: 600; color: #fbbf24;">{theme}</div>
+                        <div style="font-size: 10px; color: #475569;">{ts}</div>
+                    </div>
+                    {removed_html}
+                    {added_html}
+                    <div style="font-size: 11px; color: #94a3b8; margin-bottom: 4px;">{summary}</div>
+                    <div style="display: flex; gap: 8px;">
+                        <span style="font-size: 9px; color: #64748b;">类型: <b style="color: #fbbf24;">{shift_type}</b></span>
+                        <span style="font-size: 9px; color: #64748b;">评分 <b style="color: #f59e0b;">{score:.2f}</b></span>
+                    </div>
+                </div>
+                """)
+            put_html('</div>')
+
         if top_insights:
             put_html("""
             <div style="
@@ -258,22 +458,49 @@ class CognitionUI:
             """)
             for item in top_insights:
                 theme = item.get('theme', '-')
-                summary = item.get('summary', '')
+                summary_raw = item.get('summary', '')
+                if isinstance(summary_raw, dict):
+                    from .insight.engine import Insight
+                    summary = Insight._format_dict_for_display(summary_raw, 150)
+                elif isinstance(summary_raw, str) and summary_raw.startswith('{') and summary_raw.endswith('}'):
+                    try:
+                        import ast
+                        parsed = ast.literal_eval(summary_raw)
+                        if isinstance(parsed, dict):
+                            from .insight.engine import Insight
+                            summary = Insight._format_dict_for_display(parsed, 150)
+                        else:
+                            summary = summary_raw[:150] + ('…' if len(summary_raw) > 150 else '')
+                    except Exception:
+                        summary = summary_raw[:150] + ('…' if len(summary_raw) > 150 else '')
+                else:
+                    summary = summary_raw[:150] + ('…' if len(summary_raw) > 150 else '') if summary_raw else '-'
+                summary = summary.replace('{', '{{').replace('}', '}}').replace('<', '&lt;').replace('>', '&gt;')
                 score = float(item.get('user_score', 0))
                 system_attention = float(item.get('system_attention', 0))
                 confidence = float(item.get('confidence', 0))
                 actionability = float(item.get('actionability', 0))
                 novelty = float(item.get('novelty', 0))
-                symbols = ', '.join(item.get('symbols', [])[:4]) or '-'
-                sectors = ', '.join(item.get('sectors', [])[:4]) or '-'
+                symbols = ', '.join(str(s) for s in item.get('symbols', [])[:4]) or '-'
+                sectors = ', '.join(str(s) for s in item.get('sectors', [])[:4]) or '-'
                 ts = _fmt_ts(float(item.get('ts', 0)))
+                source = item.get('source', '')
+                signal_type = item.get('signal_type', '')
 
                 score_color = '#f87171' if score > 0.7 else ('#fb923c' if score > 0.5 else '#60a5fa')
+
+                source_badge = ''
+                if 'feedback_experiment' in source or signal_type == 'experiment_feedback_summary':
+                    source_badge = '<span style="padding: 2px 6px; border-radius: 4px; background: rgba(34,197,94,0.2); color: #4ade80; font-size: 9px; margin-left: 6px;">📊 实验反馈</span>'
+                elif 'llm_reflection' in source or signal_type == 'llm_reflection':
+                    source_badge = '<span style="padding: 2px 6px; border-radius: 4px; background: rgba(14,165,233,0.2); color: #0ea5e9; font-size: 9px; margin-left: 6px;">🤖 LLM反思</span>'
+                elif 'bandit_learning' in signal_type:
+                    source_badge = '<span style="padding: 2px 6px; border-radius: 4px; background: rgba(168,85,247,0.2); color: #a855f7; font-size: 9px; margin-left: 6px;">🎯 Bandit学习</span>'
 
                 put_html(f"""
                 <div style="background: rgba(255,255,255,0.02); border-radius: 8px; padding: 12px; margin-bottom: 8px; border-left: 3px solid {score_color};">
                     <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 6px;">
-                        <div style="font-size: 13px; font-weight: 600; color: #cbd5e1;">{theme}</div>
+                        <div style="font-size: 13px; font-weight: 600; color: #cbd5e1;">{theme}{source_badge}</div>
                         <div style="font-size: 10px; color: #475569;">{ts}</div>
                     </div>
                     <div style="font-size: 12px; color: #94a3b8; margin-bottom: 6px; line-height: 1.4;">{summary}</div>
@@ -306,7 +533,24 @@ class CognitionUI:
             """)
             for item in recent_insights[:8]:
                 theme = item.get('theme', '-')
-                summary = item.get('summary', '')[:60]
+                summary_raw = item.get('summary', '')
+                if isinstance(summary_raw, dict):
+                    from .insight.engine import Insight
+                    summary = Insight._format_dict_for_display(summary_raw, 60)
+                elif isinstance(summary_raw, str) and summary_raw.startswith('{') and summary_raw.endswith('}'):
+                    try:
+                        import ast
+                        parsed = ast.literal_eval(summary_raw)
+                        if isinstance(parsed, dict):
+                            from .insight.engine import Insight
+                            summary = Insight._format_dict_for_display(parsed, 60)
+                        else:
+                            summary = summary_raw[:60]
+                    except Exception:
+                        summary = summary_raw[:60]
+                else:
+                    summary = summary_raw[:60] if summary_raw else '-'
+                summary = summary.replace('{', '{{').replace('}', '}}').replace('<', '&lt;').replace('>', '&gt;')
                 score = float(item.get('user_score', 0))
                 ts = _fmt_ts(float(item.get('ts', 0)))
 
@@ -456,8 +700,28 @@ class CognitionUI:
         radar_lines = "".join(
             [f"<li>{e.get('message','-')[:80]}</li>" for e in recent_radar]
         ) or "<li>暂无雷达事件</li>"
+        def _format_insight_summary(insight: Dict) -> str:
+            summary_raw = insight.get('summary', '')
+            if isinstance(summary_raw, dict):
+                from .insight.engine import Insight
+                text = Insight._format_dict_for_display(summary_raw, 80)
+            elif isinstance(summary_raw, str) and summary_raw.startswith('{') and summary_raw.endswith('}'):
+                try:
+                    import ast
+                    parsed = ast.literal_eval(summary_raw)
+                    if isinstance(parsed, dict):
+                        from .insight.engine import Insight
+                        text = Insight._format_dict_for_display(parsed, 80)
+                    else:
+                        text = summary_raw[:80]
+                except Exception:
+                    text = summary_raw[:80]
+            else:
+                text = summary_raw[:80] if summary_raw else '-'
+            return text
+
         insight_lines = "".join(
-            [f"<li>{i.get('summary','-')[:80]}</li>" for i in top_insights]
+            [f"<li>{_format_insight_summary(i)}</li>" for i in top_insights]
         ) or "<li>暂无洞察</li>"
 
         self._put_html(
@@ -492,14 +756,228 @@ class CognitionUI:
         put_html(html)
 
     def _render_control_panel(self):
-        """渲染控制面板 - 底部样式"""
-        put_html('''
-        <div style="margin-top: 16px; padding-top: 16px; border-top: 1px solid rgba(255,255,255,0.08); display: flex; gap: 8px;">
-        ''')
+        """渲染控制面板 - 包含反思数据预览"""
+        from .insight import get_llm_reflection_engine, get_insight_pool
+        from ..attention.intelligence.feedback_report import get_feedback_report_generator
+
+        llm_engine = get_llm_reflection_engine()
+        pool = get_insight_pool()
+        feedback_reporter = get_feedback_report_generator()
+
+        stats = llm_engine.get_stats()
+        pending_signals = stats.get('pending_signals', 0)
+        interval = int(stats.get('interval_seconds', 3600))
+
+        signals = pool.get_recent_insights(limit=100) if pool else []
+        narratives_data = self.engine.get_memory_report().get('narratives', {}).get('summary', []) if self.engine else []
+        narratives = []
+        for n in narratives_data:
+            narrative = n.get('narrative', '')
+            if narrative:
+                narratives.append({
+                    'narrative': narrative,
+                    'stage': n.get('stage', '萌芽'),
+                    'trend': n.get('trend', 0),
+                })
+
+        feedback_summary = feedback_reporter.get_summary()
+        feedback_signals = feedback_summary.get('signals_count', 0)
+        feedback_bandit = feedback_summary.get('bandit_count', 0)
+        feedback_records = feedback_summary.get('feedback_count', 0)
+        is_collecting = feedback_summary.get('is_collecting', False)
+
+        radar_signals = [s for s in signals if s.get('source') in ('market', 'radar', 'radar_news') or s.get('signal_type') in ('pattern', 'drift', 'anomaly', 'sector_anomaly', 'news_topic')]
+        attention_signals = [s for s in signals if s.get('source') == 'attention' or s.get('signal_type') in ('global_attention_shift', 'market_activity_shift', 'sector_concentration_shift', 'sector_hotspot', 'symbol_attention_change', 'market_state_shift')]
+        cross_signals = [s for s in signals if s.get('source') == 'cross_signal' or 'resonance' in str(s.get('signal_type', ''))]
+        feedback_insights = [s for s in signals if s.get('source') == 'feedback_experiment' or s.get('signal_type') in ('experiment_feedback_summary', 'bandit_learning_analysis')]
+        effectiveness_signals = [s for s in signals if s.get('source') == 'attention_effectiveness' or s.get('signal_type') in ('effective_pattern', 'ineffective_pattern')]
+        llm_signals = [s for s in signals if s.get('source', '').startswith('llm_reflection') or s.get('signal_type') == 'llm_reflection']
+
+        normal_signals = [s for s in signals if s not in radar_signals + attention_signals + cross_signals + feedback_insights + effectiveness_signals + llm_signals]
+
+        def _render_source_section(title, icon, color, signals_list, max_show=4, max_len=18):
+            if not signals_list:
+                return f'<div style="margin-bottom: 8px;"><div style="font-size: 11px; color: {color}; margin-bottom: 4px;">{icon} {title} (0)</div><div style="color: #64748b; font-size: 10px;">暂无数据</div></div>'
+            tags = ''.join([
+                f'<span style="display: inline-block; padding: 2px 6px; background: rgba({color.replace("#", "").lower()}, 0.1); color: {color}; border-radius: 4px; font-size: 10px; margin: 2px;" title="{s.get("theme", "-")}">{s.get("theme", "-")[:max_len]}</span>'
+                for s in signals_list[:max_show]
+            ])
+            count = len(signals_list)
+            more = f' <span style="color: #64748b; font-size: 9px;">+{count - max_show}</span>' if count > max_show else ''
+            return f'<div style="margin-bottom: 8px;"><div style="font-size: 11px; color: {color}; margin-bottom: 4px;">{icon} {title} ({count}){more}</div><div>{tags}</div></div>'
+
+        def _render_signal_with_time(signals_list, title, icon, color, max_show=3):
+            if not signals_list:
+                return f'<div style="margin-bottom: 8px;"><div style="font-size: 11px; color: {color}; margin-bottom: 4px;">{icon} {title} (0)</div><div style="color: #64748b; font-size: 10px;">暂无数据</div></div>'
+            items = []
+            for s in signals_list[:max_show]:
+                ts = s.get('ts', s.get('timestamp', 0))
+                if ts:
+                    from datetime import datetime
+                    dt = datetime.fromtimestamp(ts)
+                    now = datetime.now()
+                    diff = (now - dt).total_seconds()
+                    if diff < 60:
+                        time_str = "刚刚"
+                    elif diff < 3600:
+                        time_str = f"{int(diff // 60)}m"
+                    elif diff < 86400:
+                        time_str = f"{int(diff // 3600)}h"
+                    else:
+                        time_str = dt.strftime("%m-%d")
+                else:
+                    time_str = ""
+                theme = s.get('theme', '-')[:15]
+                score = s.get('system_attention', s.get('score', 0))
+                items.append(f'<div style="display: flex; justify-content: space-between; font-size: 10px; color: #94a3b8; margin: 2px 0;"><span style="color: {color};">{time_str}</span><span style="flex: 1; margin-left: 6px;">{theme}</span><span>{score:.2f}</span></div>')
+            count = len(signals_list)
+            more = f'<div style="color: #64748b; font-size: 9px;">+{count - max_show} more</div>' if count > max_show else ''
+            return f'<div style="margin-bottom: 8px;"><div style="font-size: 11px; color: {color}; margin-bottom: 4px;">{icon} {title} ({count})</div>{"".join(items)}{more}</div>'
+
+        def _render_narrative_section(narratives_list, max_show=5):
+            if not narratives_list:
+                return f'<div style="margin-bottom: 8px;"><div style="font-size: 11px; color: #fb923c; margin-bottom: 4px;">🌊 叙事变化 (0)</div><div style="color: #64748b; font-size: 10px;">暂无叙事数据</div></div>'
+            parts = []
+            for n in narratives_list[:max_show]:
+                narrative = n.get('narrative', '-')[:10]
+                stage = n.get('stage', '萌芽')
+                trend = n.get('trend', 0)
+                ts = n.get('last_updated', 0)
+                if ts:
+                    from datetime import datetime
+                    dt = datetime.fromtimestamp(ts)
+                    now = datetime.now()
+                    diff = (now - dt).total_seconds()
+                    if diff < 60:
+                        time_str = "刚刚"
+                    elif diff < 3600:
+                        time_str = f"{int(diff // 60)}m"
+                    elif diff < 86400:
+                        time_str = f"{int(diff // 3600)}h"
+                    else:
+                        time_str = dt.strftime("%m-%d")
+                else:
+                    time_str = ""
+                trend_icon = '📈' if trend > 0.3 else '📉' if trend < -0.3 else '➡️'
+                color = '#4ade80' if stage == '高潮' else '#a855f7' if stage == '扩散' else '#94a3b8'
+                parts.append(f'<div style="display: flex; justify-content: space-between; font-size: 10px; color: #94a3b8; margin: 2px 0;"><span style="color: #fb923c;">{time_str}</span><span style="color: {color};">{narrative}</span><span>{stage[:2]}{trend_icon}</span></div>')
+            count = len(narratives_list)
+            more = f'<div style="color: #64748b; font-size: 9px;">+{count - max_show} more</div>' if count > max_show else ''
+            return f'<div style="margin-bottom: 8px;"><div style="font-size: 11px; color: #fb923c; margin-bottom: 4px;">🌊 叙事变化 ({count})</div>{"".join(parts)}{more}</div>'
+
+        radar_section = _render_signal_with_time(radar_signals, "雷达事件", "📡", "#f59e0b")
+        attention_section = _render_signal_with_time(attention_signals, "注意力事件", "👁️", "#0ea5e9")
+        cross_section = _render_signal_with_time(cross_signals, "共振信号", "🔄", "#a855f7")
+        feedback_section = _render_signal_with_time(feedback_insights, "实验反馈", "📊", "#4ade80")
+        effectiveness_section = _render_signal_with_time(effectiveness_signals, "有效性分析", "✅", "#34d399")
+        llm_section = _render_signal_with_time(llm_signals, "LLM反思", "🤖", "#60a5fa")
+        narrative_section = _render_narrative_section(narratives)
+
+        can_reflect = pending_signals >= 1
+        reflect_btn_color = "success" if can_reflect else "secondary"
+
+        self._put_html(f"""
+        <div style="margin-top: 16px; padding-top: 16px; border-top: 1px solid rgba(255,255,255,0.08);">
+            <div style="
+                margin-bottom: 12px;
+                background: rgba(255,255,255,0.03);
+                border-radius: 12px;
+                padding: 14px 18px;
+                border: 1px solid rgba(255,255,255,0.08);
+            ">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+                    <div style="font-size: 12px; font-weight: 600; color: #0ea5e9;">🤖 反思数据预览</div>
+                    <div style="font-size: 10px; color: #64748b;">共 {pending_signals} 条洞察 | 每 {interval}s 触发</div>
+                </div>
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px;">
+                    <div style="background: rgba(245,158,11,0.08); border-radius: 8px; padding: 10px;">
+                        {radar_section}
+                        {attention_section}
+                    </div>
+                    <div style="background: rgba(168,85,247,0.08); border-radius: 8px; padding: 10px;">
+                        {cross_section}
+                        {effectiveness_section}
+                    </div>
+                    <div style="background: rgba(34,197,94,0.08); border-radius: 8px; padding: 10px;">
+                        {feedback_section}
+                        {llm_section}
+                    </div>
+                    <div style="background: rgba(249,115,22,0.08); border-radius: 8px; padding: 10px;">
+                        {narrative_section}
+                        <div style="margin-bottom: 8px;">
+                            <div style="font-size: 11px; color: #94a3b8; margin-bottom: 4px;">📈 常规洞察 ({len(normal_signals)})</div>
+                            <div style="color: #64748b; font-size: 10px;">{' | '.join([s.get("theme", "-")[:12] for s in normal_signals[:3]]) or "暂无"}</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div style="display: flex; gap: 8px;">
+        """)
         put_button("🔄 刷新", onclick=self._refresh_data, color="secondary", small=True)
+        put_button(f"🧠 立即反思 ({pending_signals}条)", onclick=self._trigger_reflection, color=reflect_btn_color, small=True)
         put_button("📊 完整报告", onclick=self._generate_report, color="secondary", small=True)
         put_button("🧹 清空", onclick=self._clear_storage, color="secondary", small=True)
-        put_html('</div>')
+        put_html('</div></div>')
+
+    def _trigger_reflection(self):
+        """手动触发 LLM 反思"""
+        from .insight import get_llm_reflection_engine
+
+        try:
+            engine = get_llm_reflection_engine()
+
+            reflection_count = engine.get_stats().get('reflections_count', 0)
+            pending_signals = engine.get_stats().get('pending_signals', 0)
+
+            if pending_signals < 1:
+                put_html("""
+                <div style="margin: 16px 0; padding: 16px; background: rgba(249,115,22,0.1); border: 1px solid rgba(249,115,22,0.3); border-radius: 8px;">
+                    <div style="color: #fb923c; font-weight: 600; margin-bottom: 8px;">⚠️ 反思条件不足</div>
+                    <div style="color: #94a3b8; font-size: 12px;">
+                        当前洞察池中只有 <b style="color: #fb923c;">{}</b> 条洞察，需要至少 <b style="color: #14b8a6;">1</b> 条才能触发 LLM 反思。
+                    </div>
+                    <div style="color: #64748b; font-size: 11px; margin-top: 8px;">
+                        提示：请先运行实验模式产生反馈数据，或等待系统积累更多洞察。
+                    </div>
+                </div>
+                """.format(pending_signals))
+                return
+
+            result = engine.trigger_now()
+            if result:
+                put_html("""
+                <div style="margin: 16px 0; padding: 16px; background: rgba(34,197,94,0.1); border: 1px solid rgba(34,197,94,0.3); border-radius: 8px;">
+                    <div style="color: #4ade80; font-weight: 600; margin-bottom: 8px;">✅ LLM 反思已生成</div>
+                    <div style="color: #94a3b8; font-size: 12px;">
+                        主题：<b style="color: #e2e8f0;">{}</b>
+                    </div>
+                    <div style="color: #64748b; font-size: 11px; margin-top: 8px;">
+                        反思已添加到洞察池，页面刷新后将显示在「🤖 LLM 反思」区域。
+                    </div>
+                </div>
+                """.format(result.theme))
+            else:
+                put_html("""
+                <div style="margin: 16px 0; padding: 16px; background: rgba(249,115,22,0.1); border: 1px solid rgba(249,115,22,0.3); border-radius: 8px;">
+                    <div style="color: #fb923c; font-weight: 600;">⚠️ 反思生成失败</div>
+                    <div style="color: #94a3b8; font-size: 12px; margin-top: 8px;">
+                        请检查 LLM 配置是否正确，或稍后重试。
+                    </div>
+                </div>
+                """)
+
+        except Exception as e:
+            import traceback
+            error_detail = str(e)
+            log_msg = traceback.format_exc()
+            put_html(f"""
+            <div style="margin: 16px 0; padding: 16px; background: rgba(239,68,68,0.1); border: 1px solid rgba(239,68,68,0.3); border-radius: 8px;">
+                <div style="color: #f87171; font-weight: 600;">❌ 触发反思时出错</div>
+                <div style="color: #94a3b8; font-size: 12px; margin-top: 8px;">
+                    错误信息：<b style="color: #fb923c;">{error_detail}</b>
+                </div>
+            </div>
+            """)
 
     def _render_narrative_lifecycle(self):
         """渲染叙事生命周期可视化 - 深色主题风格"""
@@ -759,6 +1237,165 @@ class CognitionUI:
 
         svg_parts.append('</svg>')
         return ''.join(svg_parts)
+
+    def _render_cross_signal_section(self):
+        """渲染跨信号分析器 - 共振检测三层架构展示"""
+        try:
+            from .cross_signal_analyzer import get_cross_signal_analyzer, ResonanceType, SignalSource
+            analyzer = get_cross_signal_analyzer()
+            if not analyzer:
+                return
+        except Exception:
+            return
+
+        stats = analyzer.get_stats()
+        recent_resonances = analyzer.get_recent_resonances(n=8)
+        high_resonance_sectors = analyzer.get_high_resonance_sectors(threshold=0.7, n=5)
+
+        news_buffer_size = stats.get('news_buffer_size', 0)
+        attention_buffer_size = stats.get('attention_buffer_size', 0)
+        resonance_history_size = stats.get('resonance_history_size', 0)
+        recent_resonance_count = stats.get('recent_resonance_count', 0)
+        llm_cooldown_remaining = stats.get('llm_cooldown_remaining', 0)
+
+        should_trigger_llm = analyzer.should_trigger_llm()
+        llm_ready = "🔥 就绪" if should_trigger_llm else f"💤 冷却 ({int(llm_cooldown_remaining)}s)"
+
+        resonance_type_colors = {
+            "temporal": "#60a5fa",
+            "intensity": "#f97316",
+            "narrative": "#a855f7",
+            "correlation": "#14b8a6",
+        }
+
+        put_html("""
+        <div style="
+            margin-bottom: 12px;
+            background: rgba(255,255,255,0.03);
+            border-radius: 12px;
+            padding: 14px 18px;
+            border: 1px solid rgba(255,255,255,0.08);
+        ">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+                <div style="font-size: 13px; font-weight: 600; color: #f97316;">
+                    🔄 跨信号分析（共振检测）
+                </div>
+                <div style="font-size: 10px; color: #475569;">
+                    LLM层: {llm_ready}
+                </div>
+            </div>
+            <div style="font-size: 11px; color: #475569; margin-bottom: 14px;">
+                新闻/雷达信号 × 注意力信号 → 三层共振分析
+            </div>
+        """.format(llm_ready=llm_ready))
+
+        put_html(f"""
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 10px; margin-bottom: 14px;">
+            <div style="background: rgba(249,115,22,0.12); border: 1px solid rgba(249,115,22,0.25); padding: 10px 14px; border-radius: 8px; text-align: center;">
+                <div style="font-size: 10px; color: #64748b; margin-bottom: 2px;">📰 新闻缓冲</div>
+                <div style="font-size: 18px; font-weight: 700; color: #fb923c;">{news_buffer_size}</div>
+            </div>
+            <div style="background: rgba(168,85,247,0.12); border: 1px solid rgba(168,85,247,0.25); padding: 10px 14px; border-radius: 8px; text-align: center;">
+                <div style="font-size: 10px; color: #64748b; margin-bottom: 2px;">👁️ 注意力缓冲</div>
+                <div style="font-size: 18px; font-weight: 700; color: #a855f7;">{attention_buffer_size}</div>
+            </div>
+            <div style="background: rgba(96,165,250,0.12); border: 1px solid rgba(96,165,250,0.25); padding: 10px 14px; border-radius: 8px; text-align: center;">
+                <div style="font-size: 10px; color: #64748b; margin-bottom: 2px;">⚡ 共振历史</div>
+                <div style="font-size: 18px; font-weight: 700; color: #60a5fa;">{resonance_history_size}</div>
+            </div>
+            <div style="background: rgba(20,184,166,0.12); border: 1px solid rgba(20,184,166,0.25); padding: 10px 14px; border-radius: 8px; text-align: center;">
+                <div style="font-size: 10px; color: #64748b; margin-bottom: 2px;">🔥 近1分钟</div>
+                <div style="font-size: 18px; font-weight: 700; color: #14b8a6;">{recent_resonance_count}</div>
+            </div>
+        </div>
+        """)
+
+        put_html("""
+        <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 14px;">
+            <div style="background: rgba(96,165,250,0.1); border: 1px solid rgba(96,165,250,0.2); padding: 8px 12px; border-radius: 8px; text-align: center;">
+                <div style="font-size: 11px; color: #60a5fa; font-weight: 600;">Layer 1</div>
+                <div style="font-size: 10px; color: #94a3b8;">规则引擎</div>
+                <div style="font-size: 9px; color: #64748b; margin-top: 2px;">实时 | 零成本</div>
+            </div>
+            <div style="background: rgba(168,85,247,0.1); border: 1px solid rgba(168,85,247,0.2); padding: 8px 12px; border-radius: 8px; text-align: center;">
+                <div style="font-size: 11px; color: #a855f7; font-weight: 600;">Layer 2</div>
+                <div style="font-size: 10px; color: #94a3b8;">统计分析</div>
+                <div style="font-size: 9px; color: #64748b; margin-top: 2px;">快速 | 低成本</div>
+            </div>
+            <div style="background: rgba(249,115,22,0.1); border: 1px solid rgba(249,115,22,0.2); padding: 8px 12px; border-radius: 8px; text-align: center;">
+                <div style="font-size: 11px; color: #fb923c; font-weight: 600;">Layer 3</div>
+                <div style="font-size: 10px; color: #94a3b8;">LLM分析</div>
+                <div style="font-size: 9px; color: #64748b; margin-top: 2px;">深度 | 高成本</div>
+            </div>
+        </div>
+        """)
+
+        if high_resonance_sectors:
+            sector_bars = ""
+            for sector_id, avg_score in high_resonance_sectors[:5]:
+                bar_width = min(100, int(avg_score * 100))
+                score_color = '#f87171' if avg_score >= 0.85 else ('#fb923c' if avg_score >= 0.7 else '#60a5fa')
+                sector_bars += f'''
+                <div style="margin-bottom: 6px;">
+                    <div style="display: flex; justify-content: space-between; font-size: 11px; color: #94a3b8; margin-bottom: 2px;">
+                        <span style="color: #cbd5e1;">{sector_id}</span>
+                        <span style="color: {score_color}; font-weight: 600;">{avg_score:.2f}</span>
+                    </div>
+                    <div style="height: 4px; background: rgba(255,255,255,0.08); border-radius: 2px; overflow: hidden;">
+                        <div style="width: {bar_width}%; height: 100%; background: linear-gradient(90deg, {score_color}, {score_color}cc); border-radius: 2px;"></div>
+                    </div>
+                </div>
+                '''
+
+            put_html(f"""
+            <div style="
+                margin-bottom: 12px;
+                background: rgba(255,255,255,0.02);
+                border-radius: 8px;
+                padding: 12px;
+            ">
+                <div style="font-size: 11px; font-weight: 600; color: #f97316; margin-bottom: 8px;">
+                    🔥 高共振板块
+                </div>
+                {sector_bars}
+            </div>
+            """)
+
+        if recent_resonances:
+            resonance_items = ""
+            for res in recent_resonances[-6:]:
+                res_type_color = resonance_type_colors.get(res.resonance_type.value, '#60a5fa')
+                sentiment_icon = "📈" if res.news_sentiment > 0.2 else "📉" if res.news_sentiment < -0.2 else "📊"
+                attention_icon = "🔥" if res.attention_weight > 0.6 else "⚡" if res.attention_weight > 0.3 else "💤"
+                ts_str = _fmt_ts(res.timestamp) if res.timestamp else "-"
+
+                resonance_items += f"""
+                <div style="display: flex; align-items: center; gap: 8px; padding: 6px 8px; background: rgba(255,255,255,0.02); border-radius: 6px; margin-bottom: 4px; border-left: 2px solid {res_type_color};">
+                    <div style="flex: 1; min-width: 0;">
+                        <div style="font-size: 11px; font-weight: 600; color: #cbd5e1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{res.sector_name or res.sector_id}</div>
+                        <div style="font-size: 9px; color: #64748b;">{sentiment_icon} {res.news_sentiment:+.2f} {attention_icon} {res.attention_weight:.2f}</div>
+                    </div>
+                    <div style="text-align: right; flex-shrink: 0;">
+                        <div style="font-size: 11px; font-weight: 600; color: {res_type_color};">{res.resonance_score:.2f}</div>
+                        <div style="font-size: 9px; color: #475569;">{ts_str[-8:]}</div>
+                    </div>
+                </div>
+                """
+
+            put_html(f"""
+            <div style="
+                background: rgba(255,255,255,0.02);
+                border-radius: 8px;
+                padding: 12px;
+            ">
+                <div style="font-size: 11px; font-weight: 600; color: #64748b; margin-bottom: 8px;">
+                    📋 最近共振信号
+                </div>
+                {resonance_items}
+            </div>
+            """)
+
+        put_html("</div>")
 
     def _render_stats_overview(self):
         """渲染统计概览"""

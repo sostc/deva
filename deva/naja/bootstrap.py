@@ -16,6 +16,7 @@ class BootStage(Enum):
     LOAD_PERSISTENT = "load_persistent"
     INIT_CORE = "init_core"
     REGISTER_COMPONENTS = "register_components"
+    RESTORE_RUNTIME = "restore_runtime"
     VALIDATE = "validate"
     START_SCHEDULERS = "start_schedulers"
     READY = "ready"
@@ -58,6 +59,7 @@ class SystemBootstrap:
         self._boot_stage = BootStage.INIT
         self._boot_results: List[BootResult] = []
         self._initialized = False
+        self._boot_details: Dict[str, Any] = {}
 
     def boot(self) -> BootResult:
         """
@@ -73,19 +75,22 @@ class SystemBootstrap:
             self._log("INFO", "开始系统启动...")
 
             self._boot_stage = BootStage.LOAD_PERSISTENT
-            self._load_persistent_data()
+            self._merge_details(self._load_persistent_data())
 
             self._boot_stage = BootStage.INIT_CORE
-            self._init_core_components()
+            self._merge_details(self._init_core_components())
 
             self._boot_stage = BootStage.REGISTER_COMPONENTS
-            self._register_components()
+            self._merge_details(self._register_components())
+
+            self._boot_stage = BootStage.RESTORE_RUNTIME
+            self._merge_details(self._restore_runtime_states())
 
             self._boot_stage = BootStage.VALIDATE
-            self._validate_pipeline()
+            self._merge_details(self._validate_pipeline())
 
             self._boot_stage = BootStage.START_SCHEDULERS
-            self._start_schedulers()
+            self._merge_details(self._start_schedulers())
 
             self._boot_stage = BootStage.READY
             self._initialized = True
@@ -93,54 +98,97 @@ class SystemBootstrap:
             duration_ms = (time.time() - start_time) * 1000
             logger.info(f"系统启动完成，耗时 {duration_ms:.1f}ms")
 
-            return BootResult(
+            result = BootResult(
                 success=True,
                 stage=BootStage.READY,
                 message="系统启动成功",
                 duration_ms=duration_ms,
+                details=dict(self._boot_details),
             )
+            _set_last_boot_report(result)
+            return result
 
         except Exception as e:
             duration_ms = (time.time() - start_time) * 1000
             logger.exception(f"系统启动失败: {e}")
 
-            return BootResult(
+            result = BootResult(
                 success=False,
                 stage=self._boot_stage,
                 message=f"启动失败: {e}",
                 duration_ms=duration_ms,
                 error=str(e),
+                details=dict(self._boot_details),
             )
+            _set_last_boot_report(result)
+            return result
 
     def _load_persistent_data(self) -> BootResult:
         """加载持久化数据"""
         start = time.time()
-        logger.info("[1/5] 加载持久化数据...")
+        logger.info("[1/6] 加载持久化数据...")
 
         try:
             from deva.naja.dictionary import get_dictionary_manager
+            from deva.naja.datasource import get_datasource_manager
+            from deva.naja.tasks import get_task_manager
+            from deva.naja.strategy import get_strategy_manager
+
             dict_mgr = get_dictionary_manager()
+            ds_mgr = get_datasource_manager()
+            task_mgr = get_task_manager()
+            strategy_mgr = get_strategy_manager()
 
-            count = dict_mgr.load_from_db()
-            logger.info(f"  加载了 {count} 个字典")
+            counts: Dict[str, int] = {}
+            errors: Dict[str, str] = {}
 
-            entry = dict_mgr.get_by_name("通达信概念板块")
-            if entry:
-                payload = entry.get_payload()
-                if payload is not None:
-                    logger.info(f"  板块字典数据: {payload.shape}")
-                else:
-                    logger.warning("  板块字典数据为空")
-            else:
-                logger.warning("  未找到通达信概念板块字典")
+            # 先加载字典（可能被策略/数据源引用）
+            try:
+                counts["dictionary"] = dict_mgr.load_from_db()
+                logger.info(f"  加载了 {counts['dictionary']} 个字典")
+            except Exception as e:
+                errors["dictionary"] = str(e)
+                logger.warning(f"  字典加载失败: {e}")
+
+            # 依赖字典之后再加载其他组件
+            for name, mgr in (
+                ("datasource", ds_mgr),
+                ("task", task_mgr),
+                ("strategy", strategy_mgr),
+            ):
+                try:
+                    counts[name] = mgr.load_from_db()
+                    logger.info(f"  加载了 {counts[name]} 个{name}")
+                except Exception as e:
+                    errors[name] = str(e)
+                    logger.warning(f"  {name} 加载失败: {e}")
+
+            # 可选健康检查：字典板块
+            if "dictionary" in counts and counts["dictionary"] > 0:
+                try:
+                    entry = dict_mgr.get_by_name("通达信概念板块")
+                    if entry:
+                        payload = entry.get_payload()
+                        if payload is not None:
+                            logger.info(f"  板块字典数据: {payload.shape}")
+                        else:
+                            logger.warning("  板块字典数据为空")
+                    else:
+                        logger.warning("  未找到通达信概念板块字典")
+                except Exception as e:
+                    logger.warning(f"  板块字典健康检查失败: {e}")
 
             duration_ms = (time.time() - start) * 1000
 
             return BootResult(
                 success=True,
                 stage=BootStage.LOAD_PERSISTENT,
-                message=f"加载了 {count} 个字典",
+                message="持久化加载完成",
                 duration_ms=duration_ms,
+                details={
+                    "load_counts": counts,
+                    "load_errors": errors,
+                },
             )
 
         except Exception as e:
@@ -151,13 +199,13 @@ class SystemBootstrap:
     def _init_core_components(self) -> BootResult:
         """初始化核心组件"""
         start = time.time()
-        logger.info("[2/5] 初始化核心组件...")
+        logger.info("[2/6] 初始化核心组件...")
 
         try:
-            from deva.naja.attention_orchestrator import AttentionOrchestrator
+            from deva.naja.attention import AttentionCenter, initialize_orchestrator
 
-            orchestrator = AttentionOrchestrator()
-            logger.info(f"  AttentionOrchestrator 初始化完成")
+            orchestrator = initialize_orchestrator()
+            logger.info("  AttentionCenter 初始化完成")
 
             duration_ms = (time.time() - start) * 1000
 
@@ -176,7 +224,14 @@ class SystemBootstrap:
     def _register_components(self) -> BootResult:
         """注册组件"""
         start = time.time()
-        logger.info("[3/5] 注册组件...")
+        logger.info("[3/6] 注册组件...")
+
+        try:
+            from deva.naja.signal.stream import get_signal_stream
+            get_signal_stream()
+            logger.info("  SignalStream 初始化完成")
+        except Exception as e:
+            logger.warning(f"  SignalStream 初始化失败: {e}")
 
         duration_ms = (time.time() - start) * 1000
 
@@ -187,10 +242,66 @@ class SystemBootstrap:
             duration_ms=duration_ms,
         )
 
+    def _restore_runtime_states(self) -> BootResult:
+        """恢复运行时状态"""
+        start = time.time()
+        logger.info("[4/6] 恢复运行状态...")
+
+        try:
+            from deva.naja.datasource import get_datasource_manager
+            from deva.naja.tasks import get_task_manager
+            from deva.naja.strategy import get_strategy_manager
+            from deva.naja.dictionary import get_dictionary_manager
+
+            ds_mgr = get_datasource_manager()
+            task_mgr = get_task_manager()
+            strategy_mgr = get_strategy_manager()
+            dict_mgr = get_dictionary_manager()
+
+            results: Dict[str, Any] = {}
+            errors: Dict[str, str] = {}
+
+            # 先恢复字典，再恢复其他组件
+            for name, mgr in (
+                ("dictionary", dict_mgr),
+                ("datasource", ds_mgr),
+                ("task", task_mgr),
+                ("strategy", strategy_mgr),
+            ):
+                try:
+                    results[name] = mgr.restore_running_states()
+                    logger.info(f"  {name} 状态已恢复")
+                except Exception as e:
+                    errors[name] = str(e)
+                    logger.warning(f"  {name} 状态恢复失败: {e}")
+
+            duration_ms = (time.time() - start) * 1000
+
+            return BootResult(
+                success=True,
+                stage=BootStage.RESTORE_RUNTIME,
+                message="运行状态恢复完成",
+                duration_ms=duration_ms,
+                details={
+                    "restore_results": results,
+                    "restore_errors": errors,
+                },
+            )
+        except Exception as e:
+            duration_ms = (time.time() - start) * 1000
+            logger.warning(f"  恢复运行状态失败（非致命）: {e}")
+            return BootResult(
+                success=True,
+                stage=BootStage.RESTORE_RUNTIME,
+                message=f"运行状态恢复失败: {e}",
+                duration_ms=duration_ms,
+                details={"warning": True},
+            )
+
     def _validate_pipeline(self) -> BootResult:
         """验证数据流"""
         start = time.time()
-        logger.info("[4/5] 验证数据流...")
+        logger.info("[5/6] 验证数据流...")
 
         try:
             from deva.naja.attention.pipeline import PipelineManager, create_default_pipeline
@@ -221,7 +332,17 @@ class SystemBootstrap:
     def _start_schedulers(self) -> BootResult:
         """启动调度器"""
         start = time.time()
-        logger.info("[5/5] 启动调度器...")
+        logger.info("[6/6] 启动调度器...")
+
+        details: Dict[str, Any] = {}
+        try:
+            from deva.naja.supervisor import start_supervisor
+            start_supervisor()
+            details["supervisor"] = "started"
+            logger.info("  Supervisor 已启动")
+        except Exception as e:
+            details["supervisor_error"] = str(e)
+            logger.warning(f"  Supervisor 启动失败: {e}")
 
         duration_ms = (time.time() - start) * 1000
 
@@ -230,11 +351,42 @@ class SystemBootstrap:
             stage=BootStage.START_SCHEDULERS,
             message="调度器启动完成",
             duration_ms=duration_ms,
+            details=details,
         )
 
     def _log(self, level: str, message: str):
         """日志辅助"""
         getattr(logger, level.lower())(message)
+
+    def _merge_details(self, result: BootResult):
+        """合并阶段详情"""
+        if result and result.details:
+            self._boot_details.update(result.details)
+
+
+_last_boot_report: Optional[BootResult] = None
+_last_boot_report_ts: float = 0.0
+
+
+def _set_last_boot_report(result: BootResult):
+    global _last_boot_report, _last_boot_report_ts
+    _last_boot_report = result
+    _last_boot_report_ts = time.time()
+
+
+def get_last_boot_report() -> Dict[str, Any]:
+    """获取最近一次启动报告"""
+    if _last_boot_report is None:
+        return {}
+    return {
+        "success": _last_boot_report.success,
+        "stage": _last_boot_report.stage.value,
+        "message": _last_boot_report.message,
+        "duration_ms": _last_boot_report.duration_ms,
+        "error": _last_boot_report.error,
+        "details": _last_boot_report.details,
+        "ts": _last_boot_report_ts,
+    }
 
     @property
     def is_initialized(self) -> bool:

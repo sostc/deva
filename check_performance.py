@@ -11,7 +11,7 @@ def check_performance():
     # 1. 检查注意力集成
     print("\n1. 检查注意力集成...")
     try:
-        from deva.naja.attention_integration import get_attention_integration
+        from deva.naja.attention.integration import get_attention_integration
         integration = get_attention_integration()
         
         if integration is None:
@@ -53,7 +53,7 @@ def check_performance():
     # 2. 检查调度中心
     print("\n2. 检查调度中心...")
     try:
-        from deva.naja.attention_orchestrator import get_orchestrator
+        from deva.naja.attention.center import get_orchestrator
         orchestrator = get_orchestrator()
         
         print(f"✅ 调度中心已创建")

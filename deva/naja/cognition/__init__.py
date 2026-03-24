@@ -5,6 +5,7 @@
 - CognitionEngine: 认知引擎，平台级认知输入输出入口
 - InsightEngine/InsightPool: 洞察引擎，管理认知产物
 - CrossSignalAnalyzer: 跨信号分析器，合并新闻和注意力信号
+- HistoryTracker: 历史事件追踪器，追踪注意力变化
 """
 
 from .core import NewsMindStrategy, AttentionScorer
@@ -12,13 +13,20 @@ from .engine import CognitionEngine, get_cognition_engine
 from .narrative_tracker import NarrativeTracker
 from .semantic_cold_start import SemanticColdStart
 from .insight import InsightEngine, InsightPool, get_insight_engine, get_insight_pool
+from .history_tracker import (
+    AttentionHistoryTracker,
+    AttentionSnapshot,
+    AttentionChange,
+    SectorHotspotEvent,
+    get_history_tracker,
+)
 from .cross_signal_analyzer import (
     CrossSignalAnalyzer,
     ResonanceSignal,
     ResonanceType,
     SignalSource,
     NewsSignal,
-    AttentionSnapshot,
+    AttentionSnapshot as CrossAttentionSnapshot,
     CognitionFeedback,
     get_cross_signal_analyzer,
 )
@@ -41,13 +49,18 @@ __all__ = [
     "InsightPool",
     "get_insight_engine",
     "get_insight_pool",
+    # 历史事件追踪器
+    "AttentionHistoryTracker",
+    "AttentionSnapshot",
+    "AttentionChange",
+    "SectorHotspotEvent",
+    "get_history_tracker",
     # 跨信号分析器
     "CrossSignalAnalyzer",
     "ResonanceSignal",
     "ResonanceType",
     "SignalSource",
     "NewsSignal",
-    "AttentionSnapshot",
     "CognitionFeedback",
     "get_cross_signal_analyzer",
 ]
