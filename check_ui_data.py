@@ -77,7 +77,7 @@ print("\n3️⃣ 检查注意力系统")
 print("-"*60)
 
 try:
-    from deva.naja.attention_integration import get_attention_integration
+    from deva.naja.attention.integration import get_attention_integration
     integration = get_attention_integration()
     
     if integration is None:
@@ -99,7 +99,7 @@ print("\n4️⃣ 检查调度中心")
 print("-"*60)
 
 try:
-    from deva.naja.attention_orchestrator import get_orchestrator
+    from deva.naja.attention.center import get_orchestrator
     orchestrator = get_orchestrator()
     
     print(f"   ✅ 调度中心已创建")

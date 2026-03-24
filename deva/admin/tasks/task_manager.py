@@ -297,46 +297,32 @@ class TaskManager(BaseManager[TaskUnit]):
         """
         import asyncio
         start_time = time.time()
-        
-        try:
-            # 更新执行统计
-            with self._stats_lock:
-                self._execution_stats["total_executions"] += 1
-            
-            # 构建执行上下文
-            context = self._build_execution_context(task)
-            
-            # 执行任务（运行异步任务）
-            try:
-                try:
-                    loop = asyncio.get_running_loop()
-                    import concurrent.futures
-                    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
-                        future = executor.submit(asyncio.run, task.execute_task(context))
-                        result = future.result(timeout=30)
-                except RuntimeError:
-                    loop = asyncio.new_event_loop()
-                    try:
-                        result = loop.run_until_complete(task.execute_task(context))
-                    finally:
-                        loop.close()
 
-            # 更新成功统计
-            with self._stats_lock:
-                self._execution_stats["successful_executions"] += 1
-                duration = time.time() - start_time
-                self._execution_stats["total_duration"] += duration
-                total_success = self._execution_stats["successful_executions"]
-                self._execution_stats["avg_duration"] = self._execution_stats["total_duration"] / total_success
-            
-            logger.info(f"任务执行成功: {task.name} (耗时: {duration:.2f}s)")
-            
+        with self._stats_lock:
+            self._execution_stats["total_executions"] += 1
+
+        context = self._build_execution_context(task)
+        result = None
+        error = None
+
+        try:
+            try:
+                loop = asyncio.get_running_loop()
+                import concurrent.futures
+                with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+                    future = executor.submit(asyncio.run, task.execute_task(context))
+                    result = future.result(timeout=30)
+            except RuntimeError:
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                try:
+                    result = loop.run_until_complete(task.execute_task(context))
+                finally:
+                    loop.close()
         except Exception as e:
-            # 更新失败统计
+            error = e
             with self._stats_lock:
                 self._execution_stats["failed_executions"] += 1
-            
-            # 记录错误
             self._error_collector.add_error(
                 error=e,
                 unit_id=task.id,
@@ -346,15 +332,23 @@ class TaskManager(BaseManager[TaskUnit]):
                 category=ErrorCategory.CODE_EXECUTION,
                 context="任务执行失败"
             )
-            
             duration = time.time() - start_time
             logger.error(f"任务执行失败: {task.name} (耗时: {duration:.2f}s) - {e}")
-            
-            # 重新抛出异常，让调度器处理重试逻辑
             raise
         finally:
             self._persist_task(task, "任务执行状态更新")
-    
+
+        if error is None:
+            with self._stats_lock:
+                self._execution_stats["successful_executions"] += 1
+                duration = time.time() - start_time
+                self._execution_stats["total_duration"] += duration
+                total_success = self._execution_stats["successful_executions"]
+                self._execution_stats["avg_duration"] = self._execution_stats["total_duration"] / total_success
+            logger.info(f"任务执行成功: {task.name} (耗时: {duration:.2f}s)")
+
+        return result
+
     def _build_execution_context(self, task: TaskUnit) -> Dict[str, Any]:
         """构建任务执行上下文
         

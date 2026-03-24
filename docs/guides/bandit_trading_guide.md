@@ -1,5 +1,7 @@
 # Bandit 自适应交易系统
 
+> 基于最新代码结构（2026-03-24）
+
 ## 概述
 
 Bandit 自适应交易系统是 Naja 平台的策略自适应模块，基于 Multi-armed Bandit 算法实现策略的在线选择和参数调节。系统与 LLM Controller 架构一致，支持相同的动作类型。
@@ -186,7 +188,7 @@ cycle.start()  # 启动完整循环
 ┌──────────────────────────────────────┐
 │   LLM Controller (低频/周期)         │
 │  • 分钟/小时级                       │
-│  • Radar + Memory + Bandit Stats     │
+│  • Radar + Cognition + Bandit Stats │
 │  • 深度分析、策略重组                │
 └──────────────────────────────────────┘
 ```
@@ -235,17 +237,6 @@ print(cycle.get_positions())
 
 # 查看历史
 print(cycle.get_history(limit=20))
-```
-
-### 与萧何集成
-
-```python
-from deva.naja.bandit import enable_xiaohe_bandit
-
-# 启用萧何与 Bandit 的集成
-enable_xiaohe_bandit()
-
-# 之后萧何平仓时会自动触发 Bandit 更新
 ```
 
 ## 配置选项
@@ -307,7 +298,6 @@ deva/naja/bandit/
 ├── optimizer.py              # Bandit 核心算法
 ├── tracker.py                # 持仓收益追踪
 ├── runner.py                 # 自动运行器
-├── xiaohe_integration.py    # 萧何集成
 ├── signal_listener.py        # 信号监听器
 ├── virtual_portfolio.py     # 虚拟持仓管理
 ├── market_observer.py        # 市场数据观察器

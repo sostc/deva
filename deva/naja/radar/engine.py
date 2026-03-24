@@ -270,6 +270,10 @@ class RadarEngine:
         if getattr(self, "_initialized", False):
             return
 
+        # 确保交易时钟启动
+        from .trading_clock import get_trading_clock
+        get_trading_clock()
+
         self._db = NB(RADAR_EVENTS_TABLE)
         self._state_lock = threading.RLock()
 
@@ -348,7 +352,7 @@ class RadarEngine:
         if stored_events:
             _radar_debug_log(f"ingest_result 完成: 产生 {len(stored_events)} 个事件")
 
-        self._emit_to_insight(stored_events)
+        self._emit_to_insight_pool(stored_events)
         return stored_events
 
     def ingest_sector_data(
@@ -408,7 +412,7 @@ class RadarEngine:
         if self._macro_only and not self._is_macro_event(event):
             return event
         self._store_event(event)
-        self._emit_to_insight([event])
+        self._emit_to_insight_pool([event])
         return event
 
     def start_news_fetcher(self, config: Optional[Dict[str, Any]] = None) -> bool:
@@ -479,7 +483,7 @@ class RadarEngine:
         )
 
         self._store_event(event)
-        self._emit_to_insight([event])
+        self._emit_to_insight_pool([event])
 
     def get_news_fetcher_stats(self) -> Optional[Dict[str, Any]]:
         """获取新闻获取器统计"""
@@ -676,22 +680,22 @@ class RadarEngine:
         except Exception:
             return
 
-    def _emit_to_insight(self, events: List[RadarEvent]) -> None:
-        """将雷达事件发送到 InsightEngine 和 CrossSignalAnalyzer"""
+    def _emit_to_insight_pool(self, events: List[RadarEvent]) -> None:
+        """将雷达事件发送到 InsightPool 和 CrossSignalAnalyzer"""
         if not events:
             return
 
         try:
-            from ..cognition.insight import get_insight_engine
+            from ..cognition.insight import get_insight_pool
         except Exception:
             pass
         else:
             try:
-                insight = get_insight_engine()
+                pool = get_insight_pool()
                 for event in events:
                     signal = event.to_insight_signal()
                     try:
-                        insight.ingest_signal(signal)
+                        pool.ingest_attention_event(signal)
                     except Exception:
                         continue
             except Exception:

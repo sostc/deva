@@ -149,22 +149,24 @@ class AttentionTracker:
         observation_duration: float = 3600.0,
         min_confidence: float = 0.5,
         auto_close_on_expire: bool = True,
+        frequency_scheduler=None,
     ):
         self._tracked: Dict[str, TrackedAttention] = {}
         self._lock = threading.RLock()
-        
+
         self._db = NB(ATTENTION_TRACKER_TABLE)
-        
+
         self._observation_duration = observation_duration
         self._min_confidence = min_confidence
         self._auto_close_on_expire = auto_close_on_expire
-        
+        self._frequency_scheduler = frequency_scheduler
+
         self._callbacks: List[Callable[[PriceUpdateSignal], None]] = []
         self._observation_callbacks: List[Callable[[ObservationResult], None]] = []
-        
+
         self._price_history: Dict[str, deque] = {}
         self._max_history_len = 100
-        
+
         self._load_from_db()
     
     def _load_from_db(self):
@@ -292,13 +294,68 @@ class AttentionTracker:
                 market_state=market_state,
                 status="TRACKING",
             )
-            
+
             self._tracked[symbol] = tracked
             self._price_history[symbol] = deque(maxlen=self._max_history_len)
             self._save_to_db(tracked)
-            
+
+            self._register_to_frequency_scheduler(symbol, attention_score)
+            self._add_to_price_monitor(symbol, entry_price, now)
+
+            self._record_signal_to_reporter(
+                symbol, sector_id, strategy_id, strategy_name,
+                action, attention_score, prediction_score, entry_price, market_state
+            )
+
             log.info(f"开始跟踪注意力: {symbol} 注意力={attention_score:.2f} 预测={prediction_score:.2f}")
             return tracked
+
+    def _register_to_frequency_scheduler(self, symbol: str, attention_score: float):
+        """将 symbol 注册到频率调度器"""
+        if self._frequency_scheduler is not None:
+            try:
+                self._frequency_scheduler.register_symbol(symbol)
+            except Exception:
+                pass
+
+    def _add_to_price_monitor(self, symbol: str, entry_price: float, entry_time: float):
+        """将 symbol 添加到 PriceMonitor"""
+        try:
+            from .price_monitor import get_price_monitor
+            pm = get_price_monitor()
+            if pm is not None:
+                pm.add_tracked(symbol, entry_price, entry_time)
+        except Exception:
+            pass
+
+    def _record_signal_to_reporter(
+        self,
+        symbol: str,
+        sector_id: str,
+        strategy_id: str,
+        strategy_name: str,
+        action: str,
+        attention_score: float,
+        prediction_score: float,
+        entry_price: float,
+        market_state: str,
+    ):
+        """记录信号到报告生成器"""
+        try:
+            from deva.naja.attention.intelligence.feedback_report import get_feedback_report_generator
+            reporter = get_feedback_report_generator()
+            reporter.record_signal(
+                symbol=symbol,
+                sector_id=sector_id,
+                strategy_id=strategy_id,
+                action=action,
+                attention_score=attention_score,
+                prediction_score=prediction_score,
+                entry_price=entry_price,
+                market_state=market_state,
+            )
+        except Exception:
+            pass
     
     def update_price(self, symbol: str, current_price: float, timestamp: Optional[float] = None) -> Optional[PriceUpdateSignal]:
         """
@@ -501,6 +558,7 @@ _tracker_lock = threading.Lock()
 def get_attention_tracker(
     observation_duration: float = 3600.0,
     min_confidence: float = 0.5,
+    frequency_scheduler=None,
 ) -> AttentionTracker:
     """获取 AttentionTracker 单例"""
     global _attention_tracker
@@ -510,6 +568,7 @@ def get_attention_tracker(
                 _attention_tracker = AttentionTracker(
                     observation_duration=observation_duration,
                     min_confidence=min_confidence,
+                    frequency_scheduler=frequency_scheduler,
                 )
     return _attention_tracker
 
@@ -517,6 +576,7 @@ def get_attention_tracker(
 def ensure_attention_tracker(
     observation_duration: float = 3600.0,
     min_confidence: float = 0.5,
+    frequency_scheduler=None,
 ) -> AttentionTracker:
     """确保 AttentionTracker 已初始化"""
-    return get_attention_tracker(observation_duration, min_confidence)
+    return get_attention_tracker(observation_duration, min_confidence, frequency_scheduler)

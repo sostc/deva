@@ -32,7 +32,7 @@ class AttentionAwareMixin:
         """懒加载注意力集成"""
         if self._attention_integration is None:
             try:
-                from ..attention_integration import get_attention_integration
+                from ..attention.integration import get_attention_integration
                 self._attention_integration = get_attention_integration()
             except Exception:
                 self._use_attention = False

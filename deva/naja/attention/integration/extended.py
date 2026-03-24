@@ -1,0 +1,509 @@
+"""
+Naja Attention System Extended Integration - Naja注意力系统扩展集成
+
+将注意力系统集成到 Naja 中：
+
+职责:
+1. 自动从 naja 数据源获取板块和个股信息
+2. 初始化 AttentionSystem (v1) 和 IntelligenceSystem (v2)
+3. 提供统一的单例访问接口
+4. 管理字典数据加载
+"""
+
+import numpy as np
+import pandas as pd
+from typing import Dict, List, Optional, Any
+import time
+import threading
+import logging
+
+from deva import NB
+
+from .attention_system import AttentionSystem, AttentionSystemConfig
+from ..core import SectorConfig
+
+log = logging.getLogger(__name__)
+
+
+class NajaAttentionIntegration:
+    """
+    Naja 注意力系统集成器
+
+    职责：
+    1. 自动从 naja 数据源获取板块和个股信息
+    2. 初始化注意力系统
+    3. 拦截数据源数据进行处理
+    4. 提供频率控制接口
+    5. 监控和报告
+    6. V2 增强功能支持
+    """
+
+    _instance = None
+    _lock = threading.Lock()
+
+    def __new__(cls):
+        if cls._instance is None:
+            with cls._lock:
+                if cls._instance is None:
+                    cls._instance = super().__new__(cls)
+        return cls._instance
+
+    def __init__(self):
+        if hasattr(self, '_initialized'):
+            return
+
+        self.attention_system: Optional[AttentionSystem] = None
+        self.intelligence_system = None
+        self.intelligence_config = None
+        self.config: AttentionSystemConfig = AttentionSystemConfig()
+        self._running = False
+        self._monitor_thread: Optional[threading.Thread] = None
+        self._check_interval = 5.0
+
+        self._symbol_sector_map: Dict[str, List[str]] = {}
+        self._sectors: List[SectorConfig] = []
+        self._last_datasource_control: Optional[Dict] = None
+
+        self._processed_snapshots = 0
+        self._total_latency = 0.0
+
+        self._initialized = True
+
+    def initialize(self, config: Optional[AttentionSystemConfig] = None, intelligence_config: Optional[Any] = None):
+        """
+        初始化注意力系统
+
+        自动从 naja 数据源获取板块和个股信息
+
+        Args:
+            config: v1 注意力系统配置
+            intelligence_config: 智能增强系统配置
+        """
+        if config:
+            self.config = config
+
+        self.intelligence_config = intelligence_config
+
+        self._discover_sectors_and_symbols()
+
+        self.attention_system = AttentionSystem(self.config)
+        self.attention_system.initialize(self._sectors, self._symbol_sector_map)
+
+        self._register_names_to_tracker()
+
+        self._initialize_intelligence_system()
+
+        log.info(f"🧠 注意力系统: 板块({len(self._sectors)}) 个股({len(self._symbol_sector_map)})")
+        if self.intelligence_system:
+            modules = []
+            if hasattr(self.intelligence_system, 'predictive_engine'):
+                modules.append('Predictive')
+            if hasattr(self.intelligence_system, 'feedback_loop'):
+                modules.append('Feedback')
+            if hasattr(self.intelligence_system, 'budget_system'):
+                modules.append('Budget')
+            if hasattr(self.intelligence_system, 'propagation'):
+                modules.append('Propagation')
+            if hasattr(self.intelligence_system, 'strategy_learning'):
+                modules.append('StrategyLearning')
+            log.info(f"🧠 智能增强: {', '.join(modules)}")
+
+        return self.attention_system
+
+    def _initialize_intelligence_system(self):
+        """初始化智能增强系统"""
+        if self.intelligence_config is None:
+            return
+
+        try:
+            from .integration import migrate_legacy, IntelligenceConfig
+
+            if isinstance(self.intelligence_config, dict):
+                ic = IntelligenceConfig(
+                    enable_predictive=self.intelligence_config.get('enable_predictive', True),
+                    enable_feedback=self.intelligence_config.get('enable_feedback', True),
+                    enable_budget=self.intelligence_config.get('enable_budget', True),
+                    enable_propagation=self.intelligence_config.get('enable_propagation', False),
+                    enable_strategy_learning=self.intelligence_config.get('enable_strategy_learning', False)
+                )
+            else:
+                ic = self.intelligence_config
+
+            self.intelligence_system = migrate_legacy(
+                existing_system=self.attention_system,
+                intelligence_config=ic
+            )
+
+            log.info("🧠 智能增强系统初始化完成")
+        except Exception as e:
+            import traceback
+            log.error(f"智能增强系统初始化失败: {e}")
+            log.error(traceback.format_exc())
+            self.intelligence_system = None
+
+    def _register_names_to_tracker(self):
+        """注册板块和个股名称到历史追踪器"""
+        try:
+            from deva.naja.cognition.history_tracker import get_history_tracker
+            tracker = get_history_tracker()
+            if tracker is None:
+                return
+
+            tracker.register_sectors(self._sectors)
+            log.info(f"共注册 {len(self._sectors)} 个板块名称到tracker")
+
+            try:
+                db = NB("quant_snapshot_5min_window")
+                if db.keys():
+                    latest_key = sorted(db.keys())[-1]
+                    df = db[latest_key]
+                    if isinstance(df, pd.DataFrame):
+                        if 'code' in df.columns and 'name' in df.columns:
+                            for _, row in df.iterrows():
+                                symbol = str(row['code'])
+                                name = row.get('name', symbol)
+                                if symbol and name and name != symbol:
+                                    tracker.register_symbol_name(symbol, name)
+                        elif 'code' in df.columns and 'stock_name' in df.columns:
+                            for _, row in df.iterrows():
+                                symbol = str(row['code'])
+                                name = row.get('stock_name', symbol)
+                                if symbol and name and name != symbol:
+                                    tracker.register_symbol_name(symbol, name)
+            except Exception as e:
+                log.debug(f"从行情数据注册个股名称失败: {e}")
+
+            log.debug(f"已注册 {len(tracker.sector_names)} 个板块名称, {len(tracker.symbol_names)} 个个股名称")
+
+        except Exception as e:
+            log.debug(f"注册名称到历史追踪器失败: {e}")
+
+    def _discover_sectors_and_symbols(self):
+        """
+        自动从 naja 数据源发现板块和个股
+
+        策略：
+        1. 尝试从字典数据源获取板块信息
+        2. 尝试从行情数据源获取个股列表
+        3. 如果没有，使用默认配置
+        """
+        self._sectors = []
+        self._symbol_sector_map = {}
+
+        try:
+            self._load_sectors_from_dictionary()
+        except Exception as e:
+            log.warning(f"从字典加载板块失败: {e}")
+
+        if not self._sectors:
+            self._load_default_sectors()
+
+        self._ensure_symbol_mappings()
+
+    def _load_sectors_from_dictionary(self):
+        """从字典数据源加载板块信息"""
+        try:
+            from deva.naja.dictionary import get_dictionary_manager
+            mgr = get_dictionary_manager()
+
+            entry = mgr.get_by_name("通达信概念板块")
+            if entry:
+                data = entry.get_payload()
+                if isinstance(data, pd.DataFrame):
+                    log.info(f"[Dictionary] ✅ 找到通达信板块数据, columns={list(data.columns)}, rows={len(data)}")
+                    self._parse_sector_data(data)
+                else:
+                    log.warning(f"[Dictionary] 通达信板块数据不是DataFrame: {type(data)}")
+            else:
+                log.warning(f"[Dictionary] 未找到'通达信概念板块'字典")
+
+            log.info(f"[Dictionary] 加载完成: 板块数={len(self._sectors)}")
+            if len(self._sectors) > 0:
+                log.info(f"[Dictionary] 前5个板块: {[s.name for s in self._sectors[:5]]}")
+        except Exception as e:
+            log.warning(f"加载字典数据失败: {e}")
+            import traceback
+            log.warning(traceback.format_exc())
+
+    def _parse_sector_data(self, df: pd.DataFrame):
+        """解析板块数据"""
+        sector_col = None
+        for col in ['blocks', 'block', 'sector', 'industry', 'concept', '板块', '行业']:
+            if col in df.columns:
+                sector_col = col
+                break
+
+        if not sector_col:
+            log.warning(f"[Dictionary] 未找到板块列，可用列: {list(df.columns)}")
+            return
+
+        symbol_col = None
+        for col in ['code', 'symbol', 'ts_code', 'stock_code', '股票代码']:
+            if col in df.columns:
+                symbol_col = col
+                break
+
+        if not symbol_col:
+            log.warning(f"[Dictionary] 未找到股票代码列，可用列: {list(df.columns)}")
+            return
+
+        log.info(f"[Dictionary] 解析板块数据: sector_col={sector_col}, symbol_col={symbol_col}, 行数={len(df)}")
+
+        if sector_col == 'blocks' or '|' in str(df[sector_col].iloc[0] if len(df) > 0 else ''):
+            log.info(f"[Dictionary] 使用多值板块解析模式")
+
+            for _, row in df.iterrows():
+                code = str(row[symbol_col])
+                blocks_str = str(row[sector_col])
+                blocks = blocks_str.split('|') if '|' in blocks_str else [blocks_str]
+
+                for block_name in blocks:
+                    block_name = block_name.strip()
+                    if not block_name:
+                        continue
+
+                    import hashlib
+                    sector_id = f"block_{int(hashlib.md5(block_name.encode()).hexdigest()[:8], 16) % 100000}"
+
+                    existing_sector = None
+                    for s in self._sectors:
+                        if s.name == block_name:
+                            existing_sector = s
+                            break
+
+                    if existing_sector:
+                        existing_sector.symbols.add(code)
+                        self._symbol_sector_map.setdefault(code, []).append(existing_sector.sector_id)
+                    else:
+                        sector = SectorConfig(
+                            sector_id=sector_id,
+                            name=block_name,
+                            symbols={code},
+                            decay_half_life=300.0
+                        )
+                        self._sectors.append(sector)
+                        self._symbol_sector_map.setdefault(code, []).append(sector_id)
+
+            log.info(f"[Dictionary] 多值解析完成: 板块数={len(self._sectors)}, 个股数={len(self._symbol_sector_map)}")
+        else:
+            sector_groups = df.groupby(sector_col)[symbol_col].apply(list).to_dict()
+
+            for sector_name, symbols in sector_groups.items():
+                sector_id = f"sector_{len(self._sectors)}"
+                sector = SectorConfig(
+                    sector_id=sector_id,
+                    name=str(sector_name),
+                    symbols=set(str(s) for s in symbols),
+                    decay_half_life=300.0
+                )
+                self._sectors.append(sector)
+
+                for symbol in symbols:
+                    symbol_str = str(symbol)
+                    if symbol_str not in self._symbol_sector_map:
+                        self._symbol_sector_map[symbol_str] = []
+                    self._symbol_sector_map[symbol_str].append(sector_id)
+
+    def _load_default_sectors(self):
+        """加载默认板块配置"""
+        default_sectors = [
+            SectorConfig(sector_id="tech", name="科技", symbols=set(), decay_half_life=300.0),
+            SectorConfig(sector_id="finance", name="金融", symbols=set(), decay_half_life=300.0),
+            SectorConfig(sector_id="healthcare", name="医疗", symbols=set(), decay_half_life=300.0),
+            SectorConfig(sector_id="energy", name="能源", symbols=set(), decay_half_life=300.0),
+            SectorConfig(sector_id="consumer", name="消费", symbols=set(), decay_half_life=300.0),
+        ]
+
+        self._sectors = default_sectors
+
+    def _ensure_symbol_mappings(self):
+        """确保所有个股都有板块映射"""
+        try:
+            db = NB("quant_snapshot_5min_window")
+            if db.keys():
+                latest_key = sorted(db.keys())[-1]
+                df = db[latest_key]
+
+                if isinstance(df, pd.DataFrame) and 'code' in df.columns:
+                    for _, row in df.iterrows():
+                        symbol = str(row['code'])
+                        if symbol not in self._symbol_sector_map:
+                            sector_id = self._guess_sector(symbol)
+                            self._symbol_sector_map[symbol] = [sector_id]
+
+                            for sector in self._sectors:
+                                if sector.sector_id == sector_id:
+                                    sector.symbols.add(symbol)
+                                    break
+        except Exception as e:
+            log.warning(f"确保个股映射失败: {e}")
+
+    def _guess_sector(self, symbol: str) -> str:
+        """根据股票代码猜测所属板块"""
+        hash_val = hash(symbol) % len(self._sectors)
+        return self._sectors[hash_val].sector_id if self._sectors else "default"
+
+    def get_datasource_control(self) -> Dict[str, Any]:
+        """获取数据源控制指令"""
+        if self.attention_system is None:
+            return {}
+
+        control = self.attention_system.get_datasource_control()
+        self._last_datasource_control = control
+        return control
+
+    def get_frequency_for_symbol(self, symbol: str):
+        """获取个股的数据频率档位"""
+        if self.attention_system is None:
+            from ..scheduling import FrequencyLevel
+            return FrequencyLevel.LOW
+
+        return self.attention_system.frequency_scheduler.get_symbol_level(symbol)
+
+    def should_fetch_symbol(self, symbol: str, timestamp: Optional[float] = None) -> bool:
+        """判断是否应该获取该个股的数据"""
+        if self.attention_system is None:
+            return True
+
+        if timestamp is None:
+            timestamp = time.time()
+
+        return self.attention_system.frequency_scheduler.should_fetch(symbol, timestamp)
+
+    def get_high_attention_symbols(self, threshold: float = 2.0) -> List[str]:
+        """获取高注意力个股列表"""
+        if self.attention_system is None:
+            return []
+
+        symbols = self.attention_system.get_high_attention_symbols(threshold)
+        return [s for s, _ in symbols]
+
+    def get_active_sectors(self, threshold: float = 0.3) -> List[str]:
+        """获取活跃板块列表"""
+        if self.attention_system is None:
+            return []
+
+        return self.attention_system.get_active_sectors(threshold)
+
+    def get_attention_report(self) -> Dict[str, Any]:
+        """获取注意力系统报告"""
+        if self.attention_system is None:
+            return {'status': 'not_initialized'}
+
+        status = self.attention_system.get_system_status()
+
+        avg_latency = self._total_latency / max(self._processed_snapshots, 1)
+
+        report = {
+            'status': 'running' if self._running else 'stopped',
+            'processed_snapshots': self._processed_snapshots,
+            'avg_latency_ms': avg_latency,
+            'global_attention': status.get('global_attention', 0),
+            'activity': status.get('activity', 0),
+            'frequency_summary': status.get('frequency_summary', {}),
+            'strategy_summary': status.get('strategy_summary', {}),
+            'dual_engine_summary': status.get('dual_engine_summary', {}),
+        }
+
+        return report
+
+    def start_monitoring(self):
+        """启动监控线程"""
+        if self._running:
+            return
+
+        self._running = True
+        self._monitor_thread = threading.Thread(target=self._monitor_loop, daemon=True)
+        self._monitor_thread.start()
+
+    def stop_monitoring(self):
+        """停止监控线程"""
+        self._running = False
+        if self._monitor_thread:
+            self._monitor_thread.join(timeout=5)
+
+    def _monitor_loop(self):
+        """监控循环"""
+        while self._running:
+            try:
+                if self._processed_snapshots % 1000 == 0 and self._processed_snapshots > 0:
+                    report = self.get_attention_report()
+                    log.debug(f"Attention System 状态: processed={report.get('processed_snapshots', 0)}, global={report.get('global_attention', 0):.3f}")
+
+                time.sleep(self._check_interval)
+            except Exception as e:
+                log.error(f"监控循环错误: {e}")
+                time.sleep(self._check_interval)
+
+    def reset(self):
+        """重置系统"""
+        if self.attention_system:
+            self.attention_system.reset()
+
+        self._processed_snapshots = 0
+        self._total_latency = 0.0
+
+
+_naja_attention_integration: Optional[NajaAttentionIntegration] = None
+_integration_lock = threading.Lock()
+
+
+def get_attention_integration() -> NajaAttentionIntegration:
+    """获取 Attention Integration 单例"""
+    global _naja_attention_integration
+    if _naja_attention_integration is None:
+        with _integration_lock:
+            if _naja_attention_integration is None:
+                _naja_attention_integration = NajaAttentionIntegration()
+    return _naja_attention_integration
+
+
+def initialize_attention_system(
+    config: Optional[AttentionSystemConfig] = None,
+    intelligence_config: Optional[dict] = None
+) -> AttentionSystem:
+    """
+    初始化注意力系统
+
+    这是主要的初始化入口，在 naja 启动时调用
+    """
+    integration = get_attention_integration()
+    attention_system = integration.initialize(config, intelligence_config=intelligence_config)
+    integration.start_monitoring()
+    return attention_system
+
+
+def get_attention_system() -> Optional[AttentionSystem]:
+    """获取 Attention System 实例"""
+    integration = get_attention_integration()
+    return integration.attention_system
+
+
+_strategy_manager = None
+
+
+def register_strategy_manager(manager):
+    """注册策略管理器"""
+    global _strategy_manager
+    _strategy_manager = manager
+    log.debug(f"策略管理器已注册: {manager}")
+
+
+def get_strategy_manager():
+    """获取策略管理器"""
+    return _strategy_manager
+
+
+def process_data_with_strategies(data: pd.DataFrame, context: Optional[Dict] = None) -> List[Any]:
+    """使用注意力策略处理数据"""
+    global _strategy_manager
+
+    if _strategy_manager is None:
+        return []
+
+    try:
+        signals = _strategy_manager.process_data(data, context)
+        return signals
+    except Exception as e:
+        log.error(f"策略处理数据失败: {e}")
+        return []

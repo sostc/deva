@@ -104,17 +104,17 @@ class AttentionStrategyBase(ABC):
         """获取注意力系统"""
         if self._attention_integration is None:
             try:
-                from deva.naja.attention_integration import get_attention_integration
+                from deva.naja.attention.integration import get_attention_integration
                 self._attention_integration = get_attention_integration()
             except Exception:
                 pass
         return self._attention_integration
-    
+
     def _get_orchestrator(self):
         """获取调度中心"""
         if self._orchestrator is None:
             try:
-                from deva.naja.attention_orchestrator import get_orchestrator
+                from deva.naja.attention.center import get_orchestrator
                 self._orchestrator = get_orchestrator()
             except Exception:
                 pass

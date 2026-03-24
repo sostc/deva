@@ -109,14 +109,14 @@ class NajaSupervisor:
             from .performance import start_performance_monitoring
             start_performance_monitoring()
         except Exception as e:
-            log.debug(f"统一性能监控启动失败: {e}")
+            log.warning(f"统一性能监控启动失败: {e}")
 
         # 启用存储性能监控
         try:
             from .performance.storage_monitor import enable_storage_monitoring
             enable_storage_monitoring()
         except Exception as e:
-            log.debug(f"存储性能监控启用失败: {e}")
+            log.warning(f"存储性能监控启用失败: {e}")
 
         # 启动自动调优
         try:
@@ -124,12 +124,12 @@ class NajaSupervisor:
             _init_help_to_db()
             start_auto_tuner()
         except Exception as e:
-            log.debug(f"自动调优启动失败: {e}")
+            log.warning(f"自动调优启动失败: {e}")
         
         # 启动注意力系统
         try:
-            from .attention_config import load_config, get_intelligence_config
-            from .attention_integration import initialize_attention_system
+            from .attention.config import load_config, get_intelligence_config
+            from .attention.integration import initialize_attention_system
 
             attention_config = load_config()
             intelligence_config = get_intelligence_config()
@@ -145,7 +145,7 @@ class NajaSupervisor:
                     strategy_manager = setup_attention_strategies()
                     self._components['attention_strategy_manager'] = strategy_manager
                 except Exception as se:
-                    log.debug(f"注意力策略系统启动失败: {se}")
+                    log.warning(f"注意力策略系统启动失败: {se}")
 
                 # 启动报告生成器
                 try:
@@ -153,7 +153,7 @@ class NajaSupervisor:
                     report_generator = start_report_generator()
                     self._components['attention_report_generator'] = report_generator
                 except Exception as re:
-                    log.debug(f"注意力报告生成器启动失败: {re}")
+                    log.warning(f"注意力报告生成器启动失败: {re}")
 
             # 启动 Bandit 自动运行器
             if intelligence_config.get('enable_feedback') or intelligence_config.get('enable_strategy_learning'):
@@ -163,7 +163,7 @@ class NajaSupervisor:
                     self._components['bandit_runner'] = bandit_runner
                     log.info("BanditAutoRunner 已启动")
                 except Exception as be:
-                    log.debug(f"BanditAutoRunner 启动失败: {be}")
+                    log.warning(f"BanditAutoRunner 启动失败: {be}")
 
             # 启动 AttentionTracker (注意力跟踪器)
             if intelligence_config.get('enable_feedback'):
@@ -171,15 +171,30 @@ class NajaSupervisor:
                     from .attention.tracker import ensure_attention_tracker
                     from .attention.price_monitor import ensure_price_monitor
 
+                    freq_scheduler = None
+                    freq_controller = None
+                    if attention_system and hasattr(attention_system, 'frequency_scheduler'):
+                        freq_scheduler = attention_system.frequency_scheduler
+                        freq_controller = attention_system.frequency_controller
+
                     attention_tracker = ensure_attention_tracker(
                         observation_duration=3600.0,
                         min_confidence=0.5,
+                        frequency_scheduler=freq_scheduler,
                     )
                     self._components['attention_tracker'] = attention_tracker
 
-                    # 启动 PriceMonitor 并注册回调
-                    price_monitor = ensure_price_monitor(update_interval=60.0)
+                    price_monitor = ensure_price_monitor(
+                        update_interval=60.0,
+                        frequency_scheduler=freq_scheduler,
+                        adaptive_frequency_controller=freq_controller,
+                    )
                     self._components['price_monitor'] = price_monitor
+
+                    if freq_scheduler:
+                        log.info(f"频率调度已启用: HIGH=1s, MEDIUM=10s, LOW=60s")
+                    else:
+                        log.warning("频率调度未启用，PriceMonitor 使用固定间隔")
 
                     # 注册价格更新回调：将价格更新传递给 FeedbackLoop
                     def _on_price_update(metrics_list):
@@ -201,7 +216,7 @@ class NajaSupervisor:
                                             is_new_low=metrics.max_adverse_move < tracked.max_adverse_move if tracked.max_adverse_move < 0 else False,
                                         )
                         except Exception as e:
-                            log.debug(f"价格更新反馈处理失败: {e}")
+                            log.warning(f"价格更新反馈处理失败: {e}")
 
                     price_monitor.register_callback(_on_price_update)
 
@@ -224,7 +239,7 @@ class NajaSupervisor:
                                     max_adverse_move=result.max_adverse_move,
                                 )
                         except Exception as e:
-                            log.debug(f"观察结果反馈处理失败: {e}")
+                            log.warning(f"观察结果反馈处理失败: {e}")
 
                     attention_tracker.register_observation_callback(_on_observation_result)
 
@@ -237,10 +252,10 @@ class NajaSupervisor:
 
                     log.info("AttentionTracker 和 PriceMonitor 已启动")
                 except Exception as te:
-                    log.debug(f"AttentionTracker 启动失败: {te}")
+                    log.warning(f"AttentionTracker 启动失败: {te}")
 
         except Exception as e:
-            log.debug(f"注意力调度系统启动失败: {e}")
+            log.warning(f"注意力调度系统启动失败: {e}")
     
     def stop_monitoring(self):
         """停止监控系统"""

@@ -6,7 +6,7 @@
 - 策略管理
 - 数据字典管理
 - 数据表管理
-- 思想雷达（龙虾记忆系统）
+- 记忆系统
 """
 
 from pywebio.output import (
@@ -37,7 +37,6 @@ def set_request_theme(theme_name: str):
 # 导入认知系统UI
 from .cognition.ui import CognitionUI
 from .radar.ui import RadarUI
-from .performance import PerformanceMonitorUI
 
 
 def _init_lab_mode(lab_config: dict):
@@ -910,8 +909,8 @@ def memory_page():
     ui.render()
 
 
-async def performance_page():
-    """性能监控页面"""
+async def system_page():
+    """系统页面"""
     from pywebio.session import eval_js
     try:
         theme = await eval_js("document.cookie.includes('naja-theme=') ? document.cookie.split('naja-theme=')[1].split(';')[0] : null")
@@ -919,8 +918,9 @@ async def performance_page():
             set_request_theme(theme)
     except:
         pass
-    ui = PerformanceMonitorUI()
-    ui.render()
+    from .system.ui import render_system_page
+    ctx = _ctx()
+    await render_system_page(ctx)
 
 
 def _get_log_stream_page():
@@ -937,7 +937,8 @@ def create_handlers(cdn: str = None):
         (r'/cognition', webio_handler(cognition_page, cdn=cdn_url)),
         (r'/memory', webio_handler(memory_page, cdn=cdn_url)),
         (r'/insight', webio_handler(insightadmin, cdn=cdn_url)),
-        (r'/performance', webio_handler(performance_page, cdn=cdn_url)),
+        (r'/system', webio_handler(system_page, cdn=cdn_url)),
+        (r'/performance', webio_handler(system_page, cdn=cdn_url)),
         (r'/signaladmin', webio_handler(signaladmin, cdn=cdn_url)),
         (r'/dsadmin', webio_handler(dsadmin, cdn=cdn_url)),
         (r'/taskadmin', webio_handler(taskadmin, cdn=cdn_url)),
@@ -966,88 +967,34 @@ def run_server(port: int = 8080, host: str = '0.0.0.0', lab_config: dict = None,
     print("🚀 Naja 管理平台启动中...")
     print("=" * 60)
 
-    from .datasource import get_datasource_manager
-    from .tasks import get_task_manager
-    from .strategy import get_strategy_manager
-    from .dictionary import get_dictionary_manager
-    from .signal.stream import get_signal_stream
-    from .supervisor import start_supervisor
-    from concurrent.futures import ThreadPoolExecutor, as_completed
+    from .bootstrap import SystemBootstrap
+    from .attention.config import load_config
     from tornado.ioloop import IOLoop
     import threading
 
-    ds_mgr = get_datasource_manager()
-    task_mgr = get_task_manager()
-    strategy_mgr = get_strategy_manager()
-    dict_mgr = get_dictionary_manager()
+    print("📂 启动系统引导流程...")
+    bootstrap = SystemBootstrap()
+    boot_result = bootstrap.boot()
 
-    load_results = {}
-    restore_results = {}
-    load_errors = {}
-    restore_errors = {}
+    if not boot_result.success:
+        print(f"❌ 系统引导失败: {boot_result.error}")
 
-    def load_manager(manager, name):
-        try:
-            count = manager.load_from_db()
-            return (name, count, None)
-        except Exception as e:
-            return (name, 0, str(e))
+    load_counts = boot_result.details.get("load_counts", {}) if boot_result.details else {}
+    load_errors = boot_result.details.get("load_errors", {}) if boot_result.details else {}
+    restore_results = boot_result.details.get("restore_results", {}) if boot_result.details else {}
+    restore_errors = boot_result.details.get("restore_errors", {}) if boot_result.details else {}
 
-    def restore_manager(manager, name):
-        try:
-            result = manager.restore_running_states()
-            return (name, result, None)
-        except Exception as e:
-            return (name, None, str(e))
-
-    print("📂 并行加载持久化数据...")
-    with ThreadPoolExecutor(max_workers=4) as executor:
-        futures = {
-            executor.submit(load_manager, ds_mgr, "datasource"): "datasource",
-            executor.submit(load_manager, task_mgr, "task"): "task",
-            executor.submit(load_manager, strategy_mgr, "strategy"): "strategy",
-            executor.submit(load_manager, dict_mgr, "dictionary"): "dictionary",
-        }
-
-        for future in as_completed(futures):
-            name, count, error = future.result()
-            if error:
-                load_errors[name] = error
-            else:
-                load_results[name] = count
-
-    ds_count = load_results.get("datasource", 0)
-    task_count = load_results.get("task", 0)
-    strategy_count = load_results.get("strategy", 0)
-    dict_count = load_results.get("dictionary", 0)
-
+    if load_counts:
+        print(f"📂 加载完成: 数据源({load_counts.get('datasource', 0)}) 任务({load_counts.get('task', 0)}) 策略({load_counts.get('strategy', 0)}) 字典({load_counts.get('dictionary', 0)})")
     if load_errors:
         error_info = ", ".join([f"{k}: {v}" for k, v in load_errors.items()])
         print(f"⚠️ 部分数据加载失败: {error_info}")
 
-    print(f"📂 加载完成: 数据源({ds_count}) 任务({task_count}) 策略({strategy_count}) 字典({dict_count})")
-
-    print("🔄 并行恢复运行状态...")
-    with ThreadPoolExecutor(max_workers=4) as executor:
-        futures = {
-            executor.submit(restore_manager, ds_mgr, "datasource"): "datasource",
-            executor.submit(restore_manager, task_mgr, "task"): "task",
-            executor.submit(restore_manager, strategy_mgr, "strategy"): "strategy",
-            executor.submit(restore_manager, dict_mgr, "dictionary"): "dictionary",
-        }
-
-        for future in as_completed(futures):
-            name, result, error = future.result()
-            if error:
-                restore_errors[name] = error
-            else:
-                restore_results[name] = result
-
+    if restore_results:
+        print("🔄 运行状态恢复完成")
     if restore_errors:
         error_info = ", ".join([f"{k}: {v}" for k, v in restore_errors.items()])
         print(f"⚠️ 部分状态恢复失败: {error_info}")
-
-    get_signal_stream()
 
     print("🎯 恢复 Bandit 自适应循环...")
     try:
@@ -1057,8 +1004,21 @@ def run_server(port: int = 8080, host: str = '0.0.0.0', lab_config: dict = None,
     except Exception as e:
         print(f"⚠️ Bandit 自适应循环恢复失败: {e}")
 
-    print("🛡️ 启动系统监控...")
-    start_supervisor()
+    # 注意力系统配置摘要（启动可见性）
+    try:
+        attention_config = load_config()
+        config_source = "env"
+        import os
+        if os.path.exists(os.path.expanduser("~/.naja/attention_config.yaml")):
+            config_source = "file+env"
+        print(
+            "🧭 注意力配置摘要: enabled="
+            f"{attention_config.enabled}, intervals="
+            f"{attention_config.high_interval}/{attention_config.medium_interval}/{attention_config.low_interval}s, "
+            f"monitoring={attention_config.enable_monitoring}, source={config_source}"
+        )
+    except Exception as e:
+        print(f"⚠️ 注意力配置读取失败: {e}")
 
     # 实验室模式初始化
     if lab_config and lab_config.get("enabled"):

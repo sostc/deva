@@ -134,6 +134,11 @@ class AutoTuner:
             threshold=0.3,  # 错误率超过30%
             action='adjust_datasource_interval'
         )
+        self._conditions['replay_processing'] = TuneCondition(
+            cooldown=30,
+            threshold=500,  # 500ms 处理时间阈值
+            action='adjust_replay_interval'
+        )
 
         for name in self._conditions:
             self._condition_states[name] = ConditionState()
@@ -441,6 +446,65 @@ class AutoTuner:
             log.error(f"[AutoTuner] 数据源错误率检查失败: {e}")
         return None
 
+    def _check_replay_processing(self) -> Optional[Dict]:
+        """检查回放处理性能，动态调整间隔"""
+        try:
+            from deva.naja.performance import ComponentType
+
+            metrics_dict = self.get_metrics_by_type(ComponentType.DATASOURCE)
+            replay_metrics = metrics_dict.get("datasource:replay_scheduler")
+
+            if not replay_metrics:
+                return None
+
+            avg_time = replay_metrics.get('avg_execution_time_ms', 0)
+            max_time = replay_metrics.get('max_execution_time_ms', 0)
+            threshold = self._conditions['replay_processing'].threshold
+
+            if max_time > threshold * 2:
+                new_interval = 0.1
+                return {
+                    'param': 'replay_processing',
+                    'current': max_time,
+                    'suggested': new_interval,
+                    'reason': f"处理时间过长 (max={max_time:.0f}ms)，大幅增加间隔",
+                    'category': 'system_overload',
+                    'action': 'adjust_replay_interval',
+                    'auto_executed': True,
+                    'explanation': f"检测到回放处理时间过长，系统自动增加间隔以减轻压力",
+                    'impact': f"间隔调整为 {new_interval}s"
+                }
+            elif avg_time > threshold:
+                new_interval = 2.0
+                return {
+                    'param': 'replay_processing',
+                    'current': avg_time,
+                    'suggested': new_interval,
+                    'reason': f"处理时间较长 (avg={avg_time:.0f}ms)，增加间隔",
+                    'category': 'system_overload',
+                    'action': 'adjust_replay_interval',
+                    'auto_executed': True,
+                    'explanation': f"检测到回放处理时间超过阈值，系统自动增加间隔",
+                    'impact': f"间隔调整为 {new_interval}s"
+                }
+            elif avg_time < threshold * 0.3 and avg_time > 0:
+                new_interval = 0.5
+                return {
+                    'param': 'replay_processing',
+                    'current': avg_time,
+                    'suggested': new_interval,
+                    'reason': f"处理时间充裕 (avg={avg_time:.0f}ms)，可以加快",
+                    'category': 'performance_good',
+                    'action': 'adjust_replay_interval',
+                    'auto_executed': True,
+                    'explanation': f"检测到回放处理时间充裕，系统自动加快处理节奏",
+                    'impact': f"间隔调整为 {new_interval}s"
+                }
+
+        except Exception as e:
+            log.debug(f"[AutoTuner] 回放处理检查失败: {e}")
+        return None
+
     def _call_llm_for_tuning(self, issue: Dict):
         """调用 LLM 进行调优"""
         now = time.time()
@@ -594,6 +658,7 @@ class AutoTuner:
             self._check_datasource_delay,
             self._check_datasource_error_rate,
             self._check_cache_hit_rate,
+            self._check_replay_processing,
         ]
 
         # 先收集所有检测结果
@@ -644,6 +709,19 @@ class AutoTuner:
             if state:
                 state.trigger_count += 1
                 state.last_trigger_ts = time.time()
+
+        if action == 'adjust_replay_interval':
+            new_interval = issue.get('suggested', 1.0)
+            reason = issue.get('reason', '')
+            try:
+                from deva.naja.replay import get_replay_scheduler
+                scheduler = get_replay_scheduler()
+                if scheduler:
+                    scheduler.adjust_interval(new_interval, reason)
+                    self._record_event(issue, triggered_by_llm=False)
+                    return
+            except Exception as e:
+                log.warning(f"[AutoTuner] 调整回放间隔失败: {e}")
 
         if action == 'call_llm':
             self._call_llm_for_tuning(issue)

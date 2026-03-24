@@ -12,8 +12,8 @@ from pywebio.session import run_js
 def _initialize_from_diagnostic():
     """从诊断页面初始化注意力系统"""
     try:
-        from ..attention_config import load_config
-        from ..attention_integration import initialize_attention_system
+        from ..attention.config import load_config
+        from ..attention.integration import initialize_attention_system
         
         config = load_config()
         if config.enabled:
@@ -37,7 +37,7 @@ def render_attention_diagnostic():
     # 1. 检查注意力集成
     put_html("<h3>1. 注意力集成状态</h3>")
     try:
-        from ..attention_integration import get_attention_integration
+        from ..attention.integration import get_attention_integration
         integration = get_attention_integration()
         
         if integration is None:
@@ -89,7 +89,7 @@ def render_attention_diagnostic():
     # 2. 检查调度中心
     put_html("<h3>2. 调度中心状态</h3>")
     try:
-        from ..attention_orchestrator import get_orchestrator
+        from ..attention.center import get_orchestrator
         orchestrator = get_orchestrator()
         
         put_success("✅ 调度中心已创建")
@@ -112,7 +112,7 @@ def render_attention_diagnostic():
     # 3. 检查历史追踪器
     put_html("<h3>3. 历史追踪器状态</h3>")
     try:
-        from .history_tracker import get_history_tracker
+        from deva.naja.cognition.history_tracker import get_history_tracker
         tracker = get_history_tracker()
         
         put_success("✅ 历史追踪器已创建")

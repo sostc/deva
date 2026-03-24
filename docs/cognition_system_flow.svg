@@ -1,0 +1,274 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1400 1100">
+  <defs>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#0f172a"/>
+      <stop offset="100%" style="stop-color:#1e293b"/>
+    </linearGradient>
+    <linearGradient id="radarGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#f97316"/>
+      <stop offset="100%" style="stop-color:#ea580c"/>
+    </linearGradient>
+    <linearGradient id="attentionGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#14b8a6"/>
+      <stop offset="100%" style="stop-color:#0d9488"/>
+    </linearGradient>
+    <linearGradient id="feedbackGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#22c55e"/>
+      <stop offset="100%" style="stop-color:#16a34a"/>
+    </linearGradient>
+    <linearGradient id="crossGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#8b5cf6"/>
+      <stop offset="100%" style="stop-color:#7c3aed"/>
+    </linearGradient>
+    <linearGradient id="insightGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#3b82f6"/>
+      <stop offset="100%" style="stop-color:#2563eb"/>
+    </linearGradient>
+    <linearGradient id="llmGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#0ea5e9"/>
+      <stop offset="100%" style="stop-color:#0284c7"/>
+    </linearGradient>
+    <linearGradient id="cognitionGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#ec4899"/>
+      <stop offset="100%" style="stop-color:#db2777"/>
+    </linearGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="4" stdDeviation="8" flood-color="#000" flood-opacity="0.3"/>
+    </filter>
+    <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#64748b"/>
+    </marker>
+  </defs>
+
+  <!-- Background -->
+  <rect width="1400" height="1100" fill="url(#bgGrad)" rx="16"/>
+
+  <!-- Title -->
+  <text x="700" y="45" text-anchor="middle" font-family="system-ui, -apple-system, sans-serif" font-size="24" font-weight="700" fill="#f8fafc">认知系统 · 数据流转全景图</text>
+  <text x="700" y="70" text-anchor="middle" font-family="system-ui, -apple-system, sans-serif" font-size="13" fill="#94a3b8">从市场信号 → 注意力分析 → 跨信号共振 → 洞察池 → LLM反思 → 深度报告</text>
+
+  <!-- ==================== 数据源层 ==================== -->
+  <text x="120" y="115" font-family="system-ui, -apple-system, sans-serif" font-size="11" font-weight="600" fill="#64748b">▎数据源层</text>
+
+  <!-- Radar Box -->
+  <g filter="url(#shadow)">
+    <rect x="30" y="130" width="180" height="120" rx="12" fill="#1e293b" stroke="#f97316" stroke-width="2"/>
+    <rect x="30" y="130" width="180" height="32" rx="12" fill="url(#radarGrad)"/>
+    <text x="120" y="152" text-anchor="middle" font-family="system-ui, sans-serif" font-size="13" font-weight="700" fill="white">📡 雷达系统</text>
+    <text x="120" y="178" text-anchor="middle" font-family="system-ui, sans-serif" font-size="10" fill="#cbd5e1">RadarEngine</text>
+    <text x="120" y="200" text-anchor="middle" font-family="system-ui, sans-serif" font-size="9" fill="#94a3b8">• 模式检测 Pattern</text>
+    <text x="120" y="216" text-anchor="middle" font-family="system-ui, sans-serif" font-size="9" fill="#94a3b8">• 异常检测 Anomaly</text>
+    <text x="120" y="232" text-anchor="middle" font-family="system-ui, sans-serif" font-size="9" fill="#94a3b8">• 概念漂移 Drift</text>
+  </g>
+
+  <!-- Attention Box -->
+  <g filter="url(#shadow)">
+    <rect x="240" y="130" width="180" height="120" rx="12" fill="#1e293b" stroke="#14b8a6" stroke-width="2"/>
+    <rect x="240" y="130" width="180" height="32" rx="12" fill="url(#attentionGrad)"/>
+    <text x="330" y="152" text-anchor="middle" font-family="system-ui, sans-serif" font-size="13" font-weight="700" fill="white">👁️ 注意力系统</text>
+    <text x="330" y="178" text-anchor="middle" font-family="system-ui, sans-serif" font-size="10" fill="#cbd5e1">AttentionOrchestrator</text>
+    <text x="330" y="200" text-anchor="middle" font-family="system-ui, sans-serif" font-size="9" fill="#94a3b8">• 全局注意力 Global</text>
+    <text x="330" y="216" text-anchor="middle" font-family="system-ui, sans-serif" font-size="9" fill="#94a3b8">• 板块热度 Sector</text>
+    <text x="330" y="232" text-anchor="middle" font-family="system-ui, sans-serif" font-size="9" fill="#94a3b8">• 个股权重 Symbol</text>
+  </g>
+
+  <!-- Feedback Box -->
+  <g filter="url(#shadow)">
+    <rect x="450" y="130" width="180" height="120" rx="12" fill="#1e293b" stroke="#22c55e" stroke-width="2"/>
+    <rect x="450" y="130" width="180" height="32" rx="12" fill="url(#feedbackGrad)"/>
+    <text x="540" y="152" text-anchor="middle" font-family="system-ui, sans-serif" font-size="13" font-weight="700" fill="white">📊 反馈系统</text>
+    <text x="540" y="178" text-anchor="middle" font-family="system-ui, sans-serif" font-size="10" fill="#cbd5e1">FeedbackLoop + Report</text>
+    <text x="540" y="200" text-anchor="middle" font-family="system-ui, sans-serif" font-size="9" fill="#94a3b8">• 策略有效性 Pattern</text>
+    <text x="540" y="216" text-anchor="middle" font-family="system-ui, sans-serif" font-size="9" fill="#94a3b8">• 实验反馈 Experiment</text>
+    <text x="540" y="232" text-anchor="middle" font-family="system-ui, sans-serif" font-size="9" fill="#94a3b8">• Bandit 学习分析</text>
+  </g>
+
+  <!-- Narrative Box -->
+  <g filter="url(#shadow)">
+    <rect x="660" y="130" width="180" height="120" rx="12" fill="#1e293b" stroke="#a855f7" stroke-width="2"/>
+    <rect x="660" y="130" width="180" height="32" rx="12" fill="#9333ea"/>
+    <text x="750" y="152" text-anchor="middle" font-family="system-ui, sans-serif" font-size="13" font-weight="700" fill="white">📖 叙事追踪</text>
+    <text x="750" y="178" text-anchor="middle" font-family="system-ui, sans-serif" font-size="10" fill="#cbd5e1">NarrativeTracker</text>
+    <text x="750" y="200" text-anchor="middle" font-family="system-ui, sans-serif" font-size="9" fill="#94a3b8">• 叙事阶段 Stage</text>
+    <text x="750" y="216" text-anchor="middle" font-family="system-ui, sans-serif" font-size="9" fill="#94a3b8">• 趋势 Trend</text>
+    <text x="750" y="232" text-anchor="middle" font-family="system-ui, sans-serif" font-size="9" fill="#94a3b8">• 注意力分数</text>
+  </g>
+
+  <!-- 数据源 Arrow to Cross -->
+  <line x1="120" y1="250" x2="120" y2="310" stroke="#64748b" stroke-width="2" marker-end="url(#arrowhead)"/>
+  <line x1="330" y1="250" x2="330" y2="310" stroke="#64748b" stroke-width="2" marker-end="url(#arrowhead)"/>
+  <line x1="540" y1="250" x2="540" y2="310" stroke="#64748b" stroke-width="2" marker-end="url(#arrowhead)"/>
+  <line x1="750" y1="250" x2="750" y2="310" stroke="#64748b" stroke-width="2" marker-end="url(#arrowhead)"/>
+
+  <!-- ==================== 跨信号分析层 ==================== -->
+  <text x="120" y="300" font-family="system-ui, -apple-system, sans-serif" font-size="11" font-weight="600" fill="#64748b">▎跨信号分析层</text>
+
+  <!-- Cross Signal Analyzer -->
+  <g filter="url(#shadow)">
+    <rect x="240" y="320" width="400" height="130" rx="12" fill="#1e293b" stroke="#8b5cf6" stroke-width="2"/>
+    <rect x="240" y="320" width="400" height="36" rx="12" fill="url(#crossGrad)"/>
+    <text x="440" y="344" text-anchor="middle" font-family="system-ui, sans-serif" font-size="14" font-weight="700" fill="white">🔄 CrossSignalAnalyzer 跨信号分析器</text>
+    <text x="280" y="375" font-family="system-ui, sans-serif" font-size="10" fill="#cbd5e1">Layer 1: 规则引擎</text>
+    <text x="280" y="395" font-family="system-ui, sans-serif" font-size="9" fill="#94a3b8">共振 = 相关性×0.3 + 注意力权重×0.4 + 密度×0.1 + 情绪×0.2</text>
+    <text x="280" y="415" font-family="system-ui, sans-serif" font-size="10" fill="#cbd5e1">Layer 2: 统计分析 + Layer 3: LLM 高价值共振分析</text>
+    <text x="280" y="435" font-family="system-ui, sans-serif" font-size="9" fill="#94a3b8">新闻 vs 注意力 → 检测共振信号 → 60s cooldown</text>
+  </g>
+
+  <!-- Arrow to InsightPool -->
+  <path d="M 440 450 L 440 510" stroke="#64748b" stroke-width="2" marker-end="url(#arrowhead)"/>
+  <text x="460" y="485" font-family="system-ui, sans-serif" font-size="9" fill="#94a3b8">resonance_signal</text>
+
+  <!-- ==================== 洞察池 ==================== -->
+  <text x="120" y="505" font-family="system-ui, -apple-system, sans-serif" font-size="11" font-weight="600" fill="#64748b">▎认知产物层</text>
+
+  <!-- InsightPool -->
+  <g filter="url(#shadow)">
+    <rect x="170" y="520" width="540" height="100" rx="12" fill="#1e293b" stroke="#3b82f6" stroke-width="2"/>
+    <rect x="170" y="520" width="540" height="36" rx="12" fill="url(#insightGrad)"/>
+    <text x="440" y="544" text-anchor="middle" font-family="system-ui, sans-serif" font-size="14" font-weight="700" fill="white">🧠 InsightPool 洞察池</text>
+    <text x="220" y="578" font-family="system-ui, sans-serif" font-size="10" fill="#cbd5e1">• max_size: 200 条</text>
+    <text x="220" y="598" font-family="system-ui, sans-serif" font-size="9" fill="#94a3b8">• merge_window: 600s</text>
+    <text x="400" y="578" font-family="system-ui, sans-serif" font-size="10" fill="#cbd5e1">• novelty_window: 3600s</text>
+    <text x="400" y="598" font-family="system-ui, sans-serif" font-size="9" fill="#94a3b8">• 自动持久化到 NB 数据库</text>
+  </g>
+
+  <!-- 流入来源标注 -->
+  <text x="180" y="515" font-family="system-ui, sans-serif" font-size="8" fill="#64748b">radar</text>
+  <text x="240" y="515" font-family="system-ui, sans-serif" font-size="8" fill="#64748b">attention</text>
+  <text x="310" y="515" font-family="system-ui, sans-serif" font-size="8" fill="#64748b">cross_signal</text>
+  <text x="400" y="515" font-family="system-ui, sans-serif" font-size="8" fill="#64748b">feedback</text>
+  <text x="480" y="515" font-family="system-ui, sans-serif" font-size="8" fill="#64748b">narrative</text>
+
+  <!-- Arrow to LLM Reflection -->
+  <path d="M 440 620 L 440 680" stroke="#64748b" stroke-width="2" marker-end="url(#arrowhead)"/>
+  <text x="460" y="655" font-family="system-ui, sans-serif" font-size="9" fill="#94a3b8">get_recent_insights()</text>
+
+  <!-- ==================== LLM 反思层 ==================== -->
+  <text x="120" y="680" font-family="system-ui, -apple-system, sans-serif" font-size="11" font-weight="600" fill="#64748b">▎LLM 反思层</text>
+
+  <!-- LLM Reflection Engine -->
+  <g filter="url(#shadow)">
+    <rect x="170" y="700" width="540" height="150" rx="12" fill="#1e293b" stroke="#0ea5e9" stroke-width="2"/>
+    <rect x="170" y="700" width="540" height="36" rx="12" fill="url(#llmGrad)"/>
+    <text x="440" y="724" text-anchor="middle" font-family="system-ui, sans-serif" font-size="14" font-weight="700" fill="white">🤖 LLMReflectionEngine LLM 反思引擎</text>
+
+    <text x="195" y="755" font-family="system-ui, sans-serif" font-size="10" fill="#cbd5e1">触发条件:</text>
+    <text x="195" y="773" font-family="system-ui, sans-serif" font-size="9" fill="#94a3b8">• 定时触发: 每 3600秒 (1小时)</text>
+    <text x="195" y="791" font-family="system-ui, sans-serif" font-size="9" fill="#94a3b8">• 信号数量: 最少 5 条，最多 50 条</text>
+
+    <text x="440" y="755" font-family="system-ui, sans-serif" font-size="10" fill="#cbd5e1">输入收集:</text>
+    <text x="440" y="773" font-family="system-ui, sans-serif" font-size="9" fill="#94a3b8">• InsightPool → signals</text>
+    <text x="440" y="791" font-family="system-ui, sans-serif" font-size="9" fill="#94a3b8">• NarrativeTracker → narratives</text>
+    <text x="440" y="809" font-family="system-ui, sans-serif" font-size="9" fill="#94a3b8">• _extract_themes/symbols/sectors</text>
+
+    <text x="640" y="755" font-family="system-ui, sans-serif" font-size="10" fill="#cbd5e1">输出结构:</text>
+    <text x="640" y="773" font-family="system-ui, sans-serif" font-size="9" fill="#94a3b8">• theme: 反思主题</text>
+    <text x="640" y="791" font-family="system-ui, sans-serif" font-size="9" fill="#94a3b8">• summary: 深度分析</text>
+    <text x="640" y="809" font-family="system-ui, sans-serif" font-size="9" fill="#94a3b8">• confidence / actionability / novelty</text>
+  </g>
+
+  <!-- Arrow to Cognition -->
+  <path d="M 440 850 L 440 900" stroke="#64748b" stroke-width="2" marker-end="url(#arrowhead)"/>
+  <text x="460" y="880" font-family="system-ui, sans-serif" font-size="9" fill="#94a3b8">Reflection 反思结果</text>
+
+  <!-- ==================== 认知系统 UI ==================== -->
+  <text x="120" y="905" font-family="system-ui, -apple-system, sans-serif" font-size="11" font-weight="600" fill="#64748b">▎认知系统 UI</text>
+
+  <!-- Cognition UI -->
+  <g filter="url(#shadow)">
+    <rect x="120" y="920" width="640" height="150" rx="12" fill="#1e293b" stroke="#ec4899" stroke-width="2"/>
+    <rect x="120" y="920" width="640" height="36" rx="12" fill="url(#cognitionGrad)"/>
+    <text x="440" y="944" text-anchor="middle" font-family="system-ui, sans-serif" font-size="14" font-weight="700" fill="white">💎 认知页面 /cognition 展示</text>
+
+    <text x="150" y="975" font-family="system-ui, sans-serif" font-size="10" fill="#cbd5e1">📥 数据来源监控:</text>
+    <text x="150" y="993" font-family="system-ui, sans-serif" font-size="9" fill="#94a3b8">雷达事件 | 注意力事件 | 共振信号 | 注意力转移 | 实验反馈</text>
+    <text x="150" y="1011" font-family="system-ui, sans-serif" font-size="9" fill="#94a3b8">板块热点 | 个股权重变化 | 活跃度变化 | LLM反思</text>
+
+    <text x="440" y="975" font-family="system-ui, sans-serif" font-size="10" fill="#cbd5e1">🏆 Top 洞察:</text>
+    <text x="440" y="993" font-family="system-ui, sans-serif" font-size="9" fill="#94a3b8">按 user_score 排序的高分洞察</text>
+
+    <text x="440" y="1011" font-family="system-ui, sans-serif" font-size="9" fill="#94a3b8">按时间排序的最新洞察</text>
+
+    <text x="620" y="975" font-family="system-ui, sans-serif" font-size="10" fill="#cbd5e1">🤖 LLM 反思报告:</text>
+    <text x="620" y="993" font-family="system-ui, sans-serif" font-size="9" fill="#94a3b8">深度分析内容</text>
+    <text x="620" y="1011" font-family="system-ui, sans-serif" font-size="9" fill="#94a3b8">置信度 + 可执行性</text>
+  </g>
+
+  <!-- ==================== 右侧 详细说明 ==================== -->
+  <text x="870" y="115" font-family="system-ui, -apple-system, sans-serif" font-size="11" font-weight="600" fill="#64748b">▎信号类型详解</text>
+
+  <g filter="url(#shadow)">
+    <rect x="870" y="130" width="480" height="940" rx="12" fill="#1e293b" stroke="#334155" stroke-width="1"/>
+
+    <!-- Signal Types -->
+    <text x="895" y="160" font-family="system-ui, sans-serif" font-size="11" font-weight="600" fill="#f97316">📡 雷达事件 RadarEvent</text>
+    <text x="895" y="180" font-family="system-ui, sans-serif" font-size="9" fill="#94a3b8">source: "radar"</text>
+    <text x="895" y="198" font-family="system-ui, sans-serif" font-size="9" fill="#cbd5e1">PatternSignal | AnomalySignal | DriftSignal</text>
+    <text x="895" y="216" font-family="system-ui, sans-serif" font-size="9" fill="#94a3b8">SectorAnomalySignal | NewsTopicSignal</text>
+
+    <line x1="895" y1="235" x2="1325" y2="235" stroke="#334155" stroke-width="1"/>
+
+    <text x="895" y="260" font-family="system-ui, sans-serif" font-size="11" font-weight="600" fill="#14b8a6">👁️ 注意力事件 AttentionEvent</text>
+    <text x="895" y="280" font-family="system-ui, sans-serif" font-size="9" fill="#94a3b8">source: "attention"</text>
+    <text x="895" y="298" font-family="system-ui, sans-serif" font-size="9" fill="#cbd5e1">global_attention_shift | sector_concentration_shift</text>
+    <text x="895" y="316" font-family="system-ui, sans-serif" font-size="9" fill="#cbd5e1">market_state_shift | sector_hotspot</text>
+    <text x="895" y="334" font-family="system-ui, sans-serif" font-size="9" fill="#cbd5e1">symbol_attention_change | market_activity_shift</text>
+    <text x="895" y="352" font-family="system-ui, sans-serif" font-size="9" fill="#cbd5e1">attention_shift (注意力 Top5 转移)</text>
+
+    <line x1="895" y1="370" x2="1325" y2="370" stroke="#334155" stroke-width="1"/>
+
+    <text x="895" y="395" font-family="system-ui, sans-serif" font-size="11" font-weight="600" fill="#8b5cf6">🔄 共振信号 ResonanceSignal</text>
+    <text x="895" y="415" font-family="system-ui, sans-serif" font-size="9" fill="#94a3b8">source: "cross_signal"</text>
+    <text x="895" y="433" font-family="system-ui, sans-serif" font-size="9" fill="#cbd5e1">signal_type: resonance_news_attention</text>
+    <text x="895" y="451" font-family="system-ui, sans-serif" font-size="9" fill="#cbd5e1">resonance_score = f(相关性, 注意力权重, 密度, 情绪)</text>
+
+    <line x1="895" y1="470" x2="1325" y2="470" stroke="#334155" stroke-width="1"/>
+
+    <text x="895" y="495" font-family="system-ui, sans-serif" font-size="11" font-weight="600" fill="#22c55e">📊 实验反馈 FeedbackInsight</text>
+    <text x="895" y="515" font-family="system-ui, sans-serif" font-size="9" fill="#94a3b8">source: "attention_effectiveness" | "feedback_experiment"</text>
+    <text x="895" y="533" font-family="system-ui, sans-serif" font-size="9" fill="#cbd5e1">effective_pattern | ineffective_pattern</text>
+    <text x="895" y="551" font-family="system-ui, sans-serif" font-size="9" fill="#cbd5e1">experiment_feedback_summary | bandit_learning_analysis</text>
+    <text x="895" y="569" font-family="system-ui, sans-serif" font-size="9" fill="#cbd5e1">包含: hit_count, win_rate, avg_pnl</text>
+
+    <line x1="895" y1="588" x2="1325" y2="588" stroke="#334155" stroke-width="1"/>
+
+    <text x="895" y="613" font-family="system-ui, sans-serif" font-size="11" font-weight="600" fill="#f59e0b">🔀 注意力转移 AttentionShift</text>
+    <text x="895" y="633" font-family="system-ui, sans-serif" font-size="9" fill="#94a3b8">source: "attention" | signal_type: "attention_shift"</text>
+    <text x="895" y="651" font-family="system-ui, sans-serif" font-size="9" fill="#cbd5e1">检测 Top5 个股/板块 的注意力转移</text>
+    <text x="895" y="669" font-family="system-ui, sans-serif" font-size="9" fill="#cbd5e1">removed_symbols | added_symbols</text>
+    <text x="895" y="687" font-family="system-ui, sans-serif" font-size="9" fill="#cbd5e1">shift_type: 板块 | 个股 | 综合</text>
+
+    <line x1="895" y1="706" x2="1325" y2="706" stroke="#334155" stroke-width="1"/>
+
+    <text x="895" y="731" font-family="system-ui, sans-serif" font-size="11" font-weight="600" fill="#0ea5e9">🤖 LLM 反思 Reflection</text>
+    <text x="895" y="751" font-family="system-ui, sans-serif" font-size="9" fill="#94a3b8">source: "llm_reflection"</text>
+    <text x="895" y="769" font-family="system-ui, sans-serif" font-size="9" fill="#cbd5e1">theme: 反思主题 (一句话)</text>
+    <text x="895" y="787" font-family="system-ui, sans-serif" font-size="9" fill="#cbd5e1">summary: 深度分析内容 (150-300字)</text>
+    <text x="895" y="805" font-family="system-ui, sans-serif" font-size="9" fill="#cbd5e1">confidence: 置信度 | actionability: 可执行性</text>
+    <text x="895" y="823" font-family="system-ui, sans-serif" font-size="9" fill="#cbd5e1">novelty: 新颖程度 | symbols: 涉及股票</text>
+    <text x="895" y="841" font-family="system-ui, sans-serif" font-size="9" fill="#cbd5e1">sectors: 涉及板块 | narratives: 涉及叙事</text>
+
+    <line x1="895" y1="860" x2="1325" y2="860" stroke="#334155" stroke-width="1"/>
+
+    <text x="895" y="885" font-family="system-ui, sans-serif" font-size="11" font-weight="600" fill="#ef4444">🔥 板块热点 SectorHotspot</text>
+    <text x="895" y="905" font-family="system-ui, sans-serif" font-size="9" fill="#94a3b8">signal_type: "sector_hotspot"</text>
+    <text x="895" y="923" font-family="system-ui, sans-serif" font-size="9" fill="#cbd5e1">板块成为热点 (+5% 变化) 或退出热点</text>
+    <text x="895" y="941" font-family="system-ui, sans-serif" font-size="9" fill="#cbd5e1">sector_id | sector_name | change_type</text>
+
+    <line x1="895" y1="960" x2="1325" y2="960" stroke="#334155" stroke-width="1"/>
+
+    <text x="895" y="985" font-family="system-ui, sans-serif" font-size="11" font-weight="600" fill="#3b82f6">📈 个股权重变化 SymbolAttention</text>
+    <text x="895" y="1005" font-family="system-ui, sans-serif" font-size="9" fill="#94a3b8">signal_type: "symbol_attention_change"</text>
+    <text x="895" y="1023" font-family="system-ui, sans-serif" font-size="9" fill="#cbd5e1">个股注意力发生重大变化</text>
+
+    <line x1="895" y1="1042" x2="1325" y2="1042" stroke="#334155" stroke-width="1"/>
+
+    <text x="895" y="1067" font-family="system-ui, sans-serif" font-size="11" font-weight="600" fill="#ec4899">📉 活跃度变化 ActivityShift</text>
+    <text x="895" y="1087" font-family="system-ui, sans-serif" font-size="9" fill="#94a3b8">signal_type: "market_activity_shift"</text>
+    <text x="895" y="1105" font-family="system-ui, sans-serif" font-size="9" fill="#cbd5e1">market_activity: 活跃 | 平静 | 休眠</text>
+  </g>
+
+  <!-- Footer -->
+  <text x="700" y="1085" text-anchor="middle" font-family="system-ui, sans-serif" font-size="10" fill="#475569">数据驱动认知 · 市场深度洞察 · 智能决策支持</text>
+</svg>

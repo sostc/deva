@@ -47,5 +47,5 @@ Naja 雷达系统用于检测市场模式、异常和概念漂移。
 
 ## 相关文档
 
-- [memory_guide.md](memory_guide.md) - 记忆系统
+- [cognition_guide.md](cognition_guide.md) - 认知系统
 - [river-market-insight skill](../.trae/skills/river-market-insight/SKILL.md)

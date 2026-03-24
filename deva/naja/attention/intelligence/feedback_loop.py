@@ -419,27 +419,66 @@ class BanditUpdater:
         volatility: float,
         volume_ratio: float,
         trend: float,
-        reward: float
+        reward: float,
+        symbol: str = None
     ):
         """
         更新模型
-        
+
         reward: 策略执行的收益 (归一化到 [-1, 1])
+        symbol: 股票代码（用于报告）
         """
         context = self._get_context(
             attention, prediction_score, volatility, volume_ratio, trend
         )
-        
+
         self._context_history.append((context, reward))
         self._reward_history.append(reward)
-        
+
         context_key = self._make_context_key(context)
-        
+
         if len(self._context_history) > 1000:
             self._context_history = self._context_history[-500:]
             self._reward_history = self._reward_history[-500:]
-        
+
+        old_theta = self._theta.get(context_key, np.zeros(self._context_dim))
         self._update_theta(context_key, context, reward)
+        new_theta = self._theta[context_key]
+
+        adjustment = float(np.dot(new_theta, context)) if np.any(new_theta) else 1.0
+        exploration = (old_theta == np.zeros(self._context_dim)).all()
+
+        self._record_bandit_update(symbol, context, reward, adjustment, exploration)
+
+    def _record_bandit_update(
+        self,
+        symbol: str,
+        context: np.ndarray,
+        reward: float,
+        adjustment: float,
+        exploration: bool
+    ):
+        """记录 Bandit 更新到报告生成器"""
+        if not symbol:
+            return
+        try:
+            from .feedback_report import get_feedback_report_generator
+            reporter = get_feedback_report_generator()
+            reporter.record_bandit_update(
+                symbol=symbol,
+                context={
+                    'attention': float(context[0]),
+                    'prediction_score': float(context[1]),
+                    'volatility': float(context[2]),
+                    'volume_ratio': float(context[3]),
+                    'trend': float(context[4]),
+                },
+                reward=float(reward),
+                adjustment=float(adjustment),
+                exploration=exploration,
+            )
+        except Exception:
+            pass
     
     def _update_theta(self, context_key: str, context: np.ndarray, reward: float):
         """更新 theta 参数"""
@@ -551,7 +590,8 @@ class AttentionFeedbackLoop:
                         update.get('volatility', 0.0),
                         update.get('volume_ratio', 1.0),
                         update.get('trend', 0.0),
-                        update['reward']
+                        update['reward'],
+                        symbol=update.get('symbol')
                     )
 
             self._last_batch_update_time = time.time()
@@ -694,7 +734,8 @@ class AttentionFeedbackLoop:
                 volatility,
                 volume_ratio,
                 trend,
-                reward
+                reward,
+                symbol=symbol
             )
 
         return outcome
@@ -749,7 +790,8 @@ class AttentionFeedbackLoop:
             volatility,
             volume_ratio,
             trend,
-            reward
+            reward,
+            symbol=symbol
         )
 
         return reward
@@ -850,7 +892,97 @@ class AttentionFeedbackLoop:
             'bandit_enabled': self.bandit is not None,
             'effectiveness_enabled': self.enable_effectiveness
         }
-    
+
+    def _emit_to_insight(self) -> int:
+        """将注意力有效性分析结果推送到 InsightPool"""
+        try:
+            from deva.naja.cognition.insight.engine import get_insight_pool
+        except Exception:
+            return 0
+
+        try:
+            pool = get_insight_pool()
+            count = 0
+
+            effective = self.analyzer.get_effective_patterns()
+            ineffective = self.analyzer.get_ineffective_patterns()
+
+            if effective or ineffective:
+                all_effectiveness = self.analyzer.get_all_effectiveness()
+
+                if effective:
+                    top_patterns = sorted(
+                        [(k, v) for k, v in all_effectiveness.items() if v.effectiveness_score > 0.1],
+                        key=lambda x: x[1].effectiveness_score,
+                        reverse=True
+                    )[:3]
+
+                    for pattern_id, eff in top_patterns:
+                        theme = f"✅ 有效注意力模式: {eff.pattern_type}"
+                        summary = (
+                            f"模式「{eff.pattern_type}」有效性较高。"
+                            f"命中 {eff.hit_count} 次，胜率 {eff.win_rate:.1%}，"
+                            f"平均收益 {eff.avg_pnl:+.2f}%，有效性评分 {eff.effectiveness_score:.2f}"
+                        )
+                        pool.ingest_attention_event({
+                            "theme": theme,
+                            "summary": summary,
+                            "symbols": [],
+                            "sectors": [],
+                            "confidence": min(0.9, 0.5 + eff.hit_count * 0.02),
+                            "actionability": 0.8,
+                            "system_attention": eff.effectiveness_score,
+                            "source": "attention_effectiveness",
+                            "signal_type": "effective_pattern",
+                            "payload": {
+                                "pattern_id": pattern_id,
+                                "pattern_type": eff.pattern_type,
+                                "hit_count": eff.hit_count,
+                                "win_rate": eff.win_rate,
+                                "avg_pnl": eff.avg_pnl,
+                                "effectiveness_score": eff.effectiveness_score,
+                            },
+                        })
+                        count += 1
+
+                if ineffective:
+                    worst_patterns = sorted(
+                        [(k, v) for k, v in all_effectiveness.items() if v.effectiveness_score < -0.1],
+                        key=lambda x: x[1].effectiveness_score
+                    )[:2]
+
+                    for pattern_id, eff in worst_patterns:
+                        theme = f"⚠️ 低效注意力模式: {eff.pattern_type}"
+                        summary = (
+                            f"模式「{eff.pattern_type}」有效性较低或为负。"
+                            f"命中 {eff.hit_count} 次，胜率 {eff.win_rate:.1%}，"
+                            f"平均收益 {eff.avg_pnl:+.2f}%，有效性评分 {eff.effectiveness_score:.2f}"
+                        )
+                        pool.ingest_attention_event({
+                            "theme": theme,
+                            "summary": summary,
+                            "symbols": [],
+                            "sectors": [],
+                            "confidence": min(0.9, 0.5 + eff.hit_count * 0.02),
+                            "actionability": 0.3,
+                            "system_attention": abs(eff.effectiveness_score),
+                            "source": "attention_effectiveness",
+                            "signal_type": "ineffective_pattern",
+                            "payload": {
+                                "pattern_id": pattern_id,
+                                "pattern_type": eff.pattern_type,
+                                "hit_count": eff.hit_count,
+                                "win_rate": eff.win_rate,
+                                "avg_pnl": eff.avg_pnl,
+                                "effectiveness_score": eff.effectiveness_score,
+                            },
+                        })
+                        count += 1
+
+            return count
+        except Exception:
+            return 0
+
     def reset(self):
         """重置"""
         self.collector.reset()
