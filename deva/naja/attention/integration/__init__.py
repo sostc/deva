@@ -16,6 +16,15 @@ from .integration import (
     create_v2_system,
     migrate_legacy,
 )
+from .extended import (
+    NajaAttentionIntegration,
+    get_attention_integration,
+    initialize_attention_system,
+    get_attention_system,
+    register_strategy_manager,
+    get_strategy_manager,
+    process_data_with_strategies,
+)
 
 __all__ = [
     "AttentionSystem",
@@ -28,4 +37,11 @@ __all__ = [
     "create_system",
     "create_v2_system",
     "migrate_legacy",
+    "NajaAttentionIntegration",
+    "get_attention_integration",
+    "initialize_attention_system",
+    "get_attention_system",
+    "register_strategy_manager",
+    "get_strategy_manager",
+    "process_data_with_strategies",
 ]

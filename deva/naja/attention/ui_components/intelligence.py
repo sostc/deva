@@ -4,7 +4,7 @@
 def get_intelligence_system():
     """获取智能增强系统"""
     try:
-        from deva.naja.attention_integration import get_attention_integration
+        from deva.naja.attention.integration import get_attention_integration
         integration = get_attention_integration()
         if hasattr(integration, 'intelligence_system') and integration.intelligence_system:
             return integration.intelligence_system
@@ -16,7 +16,7 @@ def get_intelligence_system():
 def get_history_tracker():
     """获取历史追踪器"""
     try:
-        from deva.naja.attention.history_tracker import get_history_tracker
+        from deva.naja.cognition.history_tracker import get_history_tracker
         return get_history_tracker()
     except Exception:
         return None

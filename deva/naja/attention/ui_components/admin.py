@@ -443,7 +443,7 @@ def _render_micro_change_indicator() -> str:
 def _get_history_tracker():
     """获取历史追踪器"""
     try:
-        from deva.naja.attention.history_tracker import get_history_tracker
+        from deva.naja.cognition.history_tracker import get_history_tracker
         return get_history_tracker()
     except Exception:
         return None

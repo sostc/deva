@@ -325,6 +325,8 @@ class CrossSignalAnalyzer:
 
             self._resonance_history.append(resonance)
             self._emit("resonance_detected", resonance)
+            if resonance.resonance_score >= 0.7:
+                self._emit_to_insight_pool(resonance)
 
             return resonance
 
@@ -386,6 +388,8 @@ class CrossSignalAnalyzer:
                 if resonance not in list(self._resonance_history)[-10:]:
                     self._resonance_history.append(resonance)
                     self._emit("resonance_detected", resonance)
+                    if resonance.resonance_score >= 0.7:
+                        self._emit_to_insight_pool(resonance)
                     resonances.append(resonance)
                     _cognition_debug_log(f"检测到共振: sector={resonance.sector_name}, score={resonance.resonance_score:.3f}, type={resonance.resonance_type.value}")
 
@@ -668,6 +672,61 @@ class CrossSignalAnalyzer:
             action_required=resonance.resonance_score > 0.85,
             priority="high" if resonance.resonance_score > 0.85 else "normal"
         )
+
+    def _emit_to_insight_pool(self, resonance: ResonanceSignal) -> None:
+        """将共振信号推送到 InsightPool"""
+        try:
+            from ..insight.engine import get_insight_pool
+        except Exception:
+            return
+
+        try:
+            pool = get_insight_pool()
+            sentiment_desc = "正面" if resonance.news_sentiment > 0.2 else "负面" if resonance.news_sentiment < -0.2 else "中性"
+            resonance_type_desc = {
+                "temporal": "时间共振",
+                "intensity": "强度共振",
+                "narrative": "叙事共振",
+                "correlation": "相关性共振",
+            }.get(resonance.resonance_type.value, "共振")
+
+            theme = f"📈 {resonance.sector_name or resonance.sector_id} - {resonance_type_desc}"
+            summary = (
+                f"板块「{resonance.sector_name}」检测到{sentiment_desc}共振。"
+                f"新闻情绪 {resonance.news_sentiment:+.2f}，注意力权重 {resonance.attention_weight:.2f}，"
+                f"共振分数 {resonance.resonance_score:.2f}。"
+                f"主题: {', '.join(resonance.news_themes[:3]) if resonance.news_themes else '暂无'}"
+            )
+
+            pool.ingest_attention_event({
+                "theme": theme,
+                "summary": summary,
+                "symbols": [],
+                "sectors": [resonance.sector_id] if resonance.sector_id else [],
+                "confidence": resonance.resonance_score,
+                "actionability": 0.7 if resonance.resonance_score > 0.8 else 0.5,
+                "system_attention": resonance.resonance_score,
+                "source": "cross_signal",
+                "signal_type": f"resonance_{resonance.resonance_type.value}",
+                "payload": resonance.to_dict(),
+            })
+        except Exception:
+            pass
+
+    def _emit_high_resonance_to_insight(self) -> int:
+        """将高共振信号推送到 InsightPool"""
+        count = 0
+        threshold = 0.75
+        recent = [r for r in self._resonance_history if r.resonance_score >= threshold]
+        if not recent:
+            return 0
+        for resonance in recent[-5:]:
+            try:
+                self._emit_to_insight_pool(resonance)
+                count += 1
+            except Exception:
+                continue
+        return count
 
     def get_stats(self) -> Dict[str, Any]:
         """获取分析器统计信息"""

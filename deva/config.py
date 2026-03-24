@@ -93,13 +93,13 @@ DEFAULT_CONFIG_SCHEMA = {
         "level": {"type": "string", "default": "INFO", "sensitive": False, "description": "日志级别"},
         "cache_max_len": {"type": "int", "default": 200, "sensitive": False, "description": "日志缓存最大长度"},
     },
-    "attention_v2": {
-        "enabled": {"type": "bool", "default": True, "sensitive": False, "description": "是否启用 V2 增强系统"},
+    "attention_intelligence": {
+        "enabled": {"type": "bool", "default": True, "sensitive": False, "description": "是否启用智能增强系统"},
         "predictive": {"type": "bool", "default": True, "sensitive": False, "description": "启用预测注意力模块"},
         "feedback": {"type": "bool", "default": True, "sensitive": False, "description": "启用反馈循环模块"},
         "budget": {"type": "bool", "default": True, "sensitive": False, "description": "启用预算系统模块"},
         "propagation": {"type": "bool", "default": False, "sensitive": False, "description": "启用扩散传播模块"},
-        "strategy_learning": {"type": "bool", "default": False, "sensitive": False, "description": "启用策略学习模块"},
+        "strategy_learning": {"type": "bool", "default": True, "sensitive": False, "description": "启用策略学习模块"},
     },
 }
 
@@ -111,6 +111,15 @@ OLD_NAMESPACE_MAPPING = {
     "dtalk_deva": "dtalk",
     "mail": "mail",
     "tushare": "tushare",
+}
+
+OLD_ATTENTION_V2_TO_INTELLIGENCE = {
+    "attention_v2.enabled": "attention_intelligence.enabled",
+    "attention_v2.predictive": "attention_intelligence.predictive",
+    "attention_v2.feedback": "attention_intelligence.feedback",
+    "attention_v2.budget": "attention_intelligence.budget",
+    "attention_v2.propagation": "attention_intelligence.propagation",
+    "attention_v2.strategy_learning": "attention_intelligence.strategy_learning",
 }
 
 CONFIG_NAMESPACE = "deva_config"
@@ -179,37 +188,48 @@ class ConfigManager:
         """迁移旧配置到新的命名空间"""
         if self._migrated:
             return
-        
+
         if MIGRATION_FLAG in self._nb:
             self._migrated = True
             return
-        
+
         try:
             from .core.namespace import NB
-            
+
             migrated = False
             for old_ns, new_key in OLD_NAMESPACE_MAPPING.items():
                 try:
                     old_table = NB(old_ns)
                     if not old_table:
                         continue
-                    
+
                     for key, value in old_table.items():
                         self._nb[f"{new_key}.{key}"] = value
                         migrated = True
-                    
+
                     old_table.clear()
                     logger.info(f"已迁移并清理旧配置: {old_ns}")
                 except Exception:
                     continue
-            
+
+            for old_key, new_key in OLD_ATTENTION_V2_TO_INTELLIGENCE.items():
+                try:
+                    old_value = self._nb.get(old_key)
+                    if old_value is not None:
+                        self._nb[new_key] = old_value
+                        del self._nb[old_key]
+                        migrated = True
+                        logger.info(f"已迁移配置键: {old_key} -> {new_key}")
+                except Exception:
+                    continue
+
             self._nb[MIGRATION_FLAG] = True
-            
+
             if migrated:
                 logger.info("配置迁移完成，所有配置已合并到 deva_config")
         except Exception as e:
             logger.debug(f"配置迁移跳过: {e}")
-        
+
         self._migrated = True
     
     def _get_env_key(self, path: str) -> str:

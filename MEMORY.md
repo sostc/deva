@@ -4,16 +4,17 @@
 
 ---
 
-## About [Human Name]
+## About User
 
 ### Key Context
-[Important background that affects how you help them]
+- 用户使用 Naja 系统进行量化交易/策略运行
 
 ### Preferences Learned
-[Things you've discovered about how they like to work]
+- **发送图片**: 用户希望直接通过 iMessage 发送图片
+- **iMessage 手机号**: +8618626880688（中国号码，86是国家码）
 
 ### Important Dates
-[Birthdays, anniversaries, deadlines they care about]
+[重要日期]
 
 ---
 

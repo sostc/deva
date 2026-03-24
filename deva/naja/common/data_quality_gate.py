@@ -140,7 +140,7 @@ class DataQualityGate:
         if report.level == QualityLevel.FAIL:
             logger.error(f"[{context}] 数据质量不合格: {report.failed_count} 项失败")
         elif report.level == QualityLevel.WARNING:
-            logger.warning(f"[{context}] 数据质量有警告: {report.warning_count} 项")
+            logger.info(f"[{context}] 数据质量有警告: {report.warning_count} 项")
 
         return report
 

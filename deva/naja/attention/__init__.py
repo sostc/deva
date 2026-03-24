@@ -89,6 +89,26 @@ from .integration import (
     create_system,
     create_v2_system,
     migrate_legacy,
+    NajaAttentionIntegration,
+    get_attention_integration,
+    initialize_attention_system,
+    get_attention_system,
+    register_strategy_manager,
+    get_strategy_manager,
+    process_data_with_strategies,
+)
+from .config import (
+    NoiseFilterConfig,
+    NajaAttentionConfig,
+    load_config,
+    get_intelligence_config,
+    default_config,
+)
+from .center import (
+    AttentionCenter,
+    Orchestrator,
+    get_orchestrator,
+    initialize_orchestrator,
 )
 from .realtime_data_fetcher import (
     RealtimeDataFetcher,
@@ -169,6 +189,23 @@ __all__ = [
     "create_system",
     "create_v2_system",
     "migrate_legacy",
+    "NajaAttentionIntegration",
+    "get_attention_integration",
+    "initialize_attention_system",
+    "get_attention_system",
+    "register_strategy_manager",
+    "get_strategy_manager",
+    "process_data_with_strategies",
+    # Config
+    "NajaAttentionConfig",
+    "load_config",
+    "get_intelligence_config",
+    "default_config",
+    # Center
+    "AttentionCenter",
+    "Orchestrator",
+    "get_orchestrator",
+    "initialize_orchestrator",
     # Realtime Fetcher
     "RealtimeDataFetcher",
     "AsyncRealtimeDataFetcher",

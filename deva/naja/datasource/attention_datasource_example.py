@@ -133,7 +133,7 @@ class SimpleAttentionDataSource(DataSourceEntry):
     
     def fetch_data(self):
         """获取数据"""
-        from ..attention_integration import get_attention_integration
+        from ..attention.integration import get_attention_integration
         
         while self._running:
             try:
@@ -203,8 +203,8 @@ def example_usage():
     print("\n" + "=" * 60)
     print("方式2：直接调用集成模块")
     print("=" * 60)
-    
-    from ..attention_integration import get_attention_integration
+
+    from ..attention.integration import get_attention_integration
     
     integration = get_attention_integration()
     
