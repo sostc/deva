@@ -280,19 +280,108 @@ class AttentionSystem:
             if data.empty:
                 return
 
+            data = self._apply_noise_filter(data)
+
             symbols = data['code'].values if 'code' in data.columns else []
             returns = data['change_pct'].values if 'change_pct' in data.columns else np.zeros(len(data))
             volumes = data['volume'].values if 'volume' in data.columns else np.zeros(len(data))
             prices = data['now'].values if 'now' in data.columns else np.zeros(len(data))
+            sector_ids = self._extract_sector_ids_from_data(data)
 
             self.process_snapshot(
                 symbols=symbols,
                 returns=returns,
                 volumes=volumes,
                 prices=prices,
-                sector_ids=np.array([''] * len(symbols)),
+                sector_ids=sector_ids,
                 timestamp=time.time()
             )
+
+    def _apply_noise_filter(self, data: 'pd.DataFrame') -> 'pd.DataFrame':
+        """对数据进行噪音过滤（B股、ST股等）"""
+        try:
+            from ..processing.noise_filter import NoiseFilter
+            from ..processing.tick_filter import TickNoiseFilter
+
+            nf_config = self._get_noise_filter_config()
+            noise_filter = NoiseFilter(config=nf_config)
+
+            name_col = 'name' if 'name' in data.columns else ('stock_name' if 'stock_name' in data.columns else None)
+            symbol_col = 'code' if 'code' in data.columns else data.index.name or 'code'
+
+            filtered = noise_filter.filter_dataframe(
+                data,
+                symbol_col=symbol_col,
+                amount_col='amount' if 'amount' in data.columns else None,
+                volume_col='volume' if 'volume' in data.columns else None,
+                price_col='now' if 'now' in data.columns else ('close' if 'close' in data.columns else None),
+                name_col=name_col
+            )
+
+            return filtered
+        except Exception as e:
+            log.debug(f"[AttentionSystem] 噪音过滤失败: {e}")
+            return data
+
+    def _extract_sector_ids_from_data(self, data: 'pd.DataFrame') -> np.ndarray:
+        """从数据中提取板块ID"""
+        try:
+            block_df = self._get_block_dataframe()
+            if block_df is None or block_df.empty:
+                return np.zeros(len(data))
+
+            code_col = 'code' if 'code' in data.columns else data.index.name
+            if code_col is None:
+                return np.zeros(len(data))
+
+            block_df = block_df.copy()
+            block_df['code'] = block_df['code'].astype(str).str.zfill(6)
+
+            sector_map = dict(zip(block_df['code'].astype(str), block_df['blocks']))
+
+            sector_ids = []
+            raw_codes = data[code_col].astype(str).values
+            for code in raw_codes:
+                code_str = str(code)
+                code_str = code_str.replace('sh', '').replace('sz', '').replace('bj', '').zfill(6)
+                blocks_str = sector_map.get(code_str, '')
+                if not blocks_str:
+                    sector_ids.append(0)
+                else:
+                    sector_ids.append(abs(hash(blocks_str)) % 100000)
+
+            return np.array(sector_ids, dtype=int)
+        except Exception as e:
+            log.debug(f"[AttentionSystem] 提取sector_ids失败: {e}")
+            return np.zeros(len(data))
+
+    def _get_block_dataframe(self):
+        """获取板块数据"""
+        try:
+            from deva.naja.dictionary.tongdaxin_blocks import get_dataframe
+            return get_dataframe()
+        except Exception:
+            return None
+
+    def _get_noise_filter_config(self) -> 'NoiseFilterConfig':
+        """获取噪音过滤器配置"""
+        try:
+            from ..processing.noise_filter import NoiseFilterConfig
+            from deva.naja.config import get_noise_filter_config
+            nf_config = get_noise_filter_config()
+            return NoiseFilterConfig(
+                min_amount=nf_config.get('min_amount', 1_000_000),
+                min_volume=nf_config.get('min_volume', 100_000),
+                min_price=nf_config.get('min_price', 1.0),
+                blacklist=set(nf_config.get('blacklist', [])),
+                whitelist=set(nf_config.get('whitelist', [])),
+                dynamic_threshold=nf_config.get('dynamic_threshold', True),
+                filter_b_shares=nf_config.get('filter_b_shares', True),
+                filter_st=nf_config.get('filter_st', False),
+            )
+        except Exception:
+            from ..processing.noise_filter import NoiseFilterConfig
+            return NoiseFilterConfig()
 
     def _get_fallback_for_step(self, step_name: str) -> Any:
         """获取步骤的降级数据"""
@@ -393,7 +482,7 @@ class AttentionSystem:
         should_execute, fallback = self._get_step_result('sector_attention', {})
         if should_execute:
             try:
-                sector_attention = self.sector_attention.update(symbols, returns, volumes, timestamp)
+                sector_attention = self.sector_attention.update(symbols, returns, volumes, timestamp, sector_ids)
                 self._record_step_success('sector_attention')
             except Exception as e:
                 log.error(f"[Step 2 SectorAttention] 失败: {e}")

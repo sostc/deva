@@ -118,7 +118,8 @@ class SectorAttentionEngine:
         symbols: np.ndarray,
         returns: np.ndarray,
         volumes: np.ndarray,
-        timestamp: float
+        timestamp: float,
+        sector_ids: Optional[np.ndarray] = None
     ) -> Dict[str, float]:
         """
         更新板块注意力分数
@@ -128,6 +129,7 @@ class SectorAttentionEngine:
             returns: 涨跌幅数组
             volumes: 成交量数组
             timestamp: 当前时间戳
+            sector_ids: 板块ID数组（可选，如果提供将优先使用，否则使用内部映射）
 
         Returns:
             sector_attention: 板块注意力字典
@@ -140,7 +142,7 @@ class SectorAttentionEngine:
         volumes = np.clip(volumes, 0, 1e15)
 
         try:
-            sector_data = self._aggregate_by_sector(symbols, returns, volumes)
+            sector_data = self._aggregate_by_sector(symbols, returns, volumes, sector_ids)
 
             if not sector_data:
                 log.warning(f"[SectorAttention] 警告: sector_data为空! symbols数量={len(symbols)}")
@@ -230,34 +232,47 @@ class SectorAttentionEngine:
         self,
         symbols: np.ndarray,
         returns: np.ndarray,
-        volumes: np.ndarray
+        volumes: np.ndarray,
+        sector_ids: Optional[np.ndarray] = None
     ) -> Dict[str, Dict[str, np.ndarray]]:
         """
         按板块聚合数据
         使用预分配数组避免动态扩容
+
+        Args:
+            symbols: 股票代码数组
+            returns: 涨跌幅数组
+            volumes: 成交量数组
+            sector_ids: 板块ID数组（可选，如果提供将优先使用）
         """
         sector_data = defaultdict(lambda: {
             'returns': [],
             'volumes': []
         })
-        
-        # 遍历所有股票，分配到对应板块
+
+        use_external_sectors = sector_ids is not None and len(sector_ids) == len(symbols)
+
         for i, symbol in enumerate(symbols):
             symbol_str = str(symbol)
-            sector_ids = self._symbol_to_sectors.get(symbol_str, [])
-            
-            for sector_id in sector_ids:
-                sector_data[sector_id]['returns'].append(returns[i])
-                sector_data[sector_id]['volumes'].append(volumes[i])
-        
-        # 转换为 numpy 数组
+
+            if use_external_sectors:
+                sector_id = str(sector_ids[i])
+                if sector_id and sector_id != '0':
+                    sector_data[sector_id]['returns'].append(returns[i])
+                    sector_data[sector_id]['volumes'].append(volumes[i])
+            else:
+                sector_id_list = self._symbol_to_sectors.get(symbol_str, [])
+                for sector_id in sector_id_list:
+                    sector_data[sector_id]['returns'].append(returns[i])
+                    sector_data[sector_id]['volumes'].append(volumes[i])
+
         result = {}
         for sector_id, data in sector_data.items():
             result[sector_id] = {
                 'returns': np.array(data['returns']),
                 'volumes': np.array(data['volumes'])
             }
-        
+
         return result
     
     def _calc_sector_attention(

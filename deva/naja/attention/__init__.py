@@ -105,15 +105,28 @@ from .config import (
     default_config,
 )
 from .center import (
-    AttentionCenter,
+    AttentionOrchestrator,
     Orchestrator,
     get_orchestrator,
     initialize_orchestrator,
 )
+
+AttentionCenter = AttentionOrchestrator
 from .realtime_data_fetcher import (
     RealtimeDataFetcher,
     AsyncRealtimeDataFetcher,
     FetchConfig,
+)
+from .kernel import (
+    AttentionEvent,
+    QueryState,
+    Encoder,
+    AttentionHead,
+    MultiHeadAttention,
+    AttentionMemory,
+    AttentionKernel,
+    get_default_heads,
+    get_regime_aware_heads,
 )
 
 __all__ = [
@@ -202,6 +215,7 @@ __all__ = [
     "get_intelligence_config",
     "default_config",
     # Center
+    "AttentionOrchestrator",
     "AttentionCenter",
     "Orchestrator",
     "get_orchestrator",
@@ -210,6 +224,16 @@ __all__ = [
     "RealtimeDataFetcher",
     "AsyncRealtimeDataFetcher",
     "FetchConfig",
+    # Kernel
+    "AttentionEvent",
+    "QueryState",
+    "Encoder",
+    "AttentionHead",
+    "MultiHeadAttention",
+    "AttentionMemory",
+    "AttentionKernel",
+    "get_default_heads",
+    "get_regime_aware_heads",
 ]
 
 __version__ = "3.0.0"

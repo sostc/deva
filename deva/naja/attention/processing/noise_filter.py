@@ -149,10 +149,12 @@ class NoiseFilter:
         
         # 6. B股过滤
         if self.config.filter_b_shares and name_col and name_col in df.columns:
-            # 检测股票名称中包含"Ｂ"或代码以特定前缀结尾的B股
-            b_share_mask = ~df[name_col].astype(str).str.contains(r'[ＢB]$', regex=True, na=False)
+            b_share_mask = ~(
+                df[name_col].astype(str).str.endswith('B') |
+                df[name_col].astype(str).str.contains('B股', regex=False, na=False)
+            )
             mask &= b_share_mask
-            
+
             filtered_b = df[~b_share_mask & ~df[symbol_col].astype(str).isin(whitelist_symbols)]
             for _, row in filtered_b.iterrows():
                 symbol = str(row[symbol_col])

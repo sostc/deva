@@ -403,6 +403,7 @@ class NajaAttentionIntegration:
             'frequency_summary': status.get('frequency_summary', {}),
             'strategy_summary': status.get('strategy_summary', {}),
             'dual_engine_summary': status.get('dual_engine_summary', {}),
+            'realtime_fetcher': status.get('realtime_fetcher'),
         }
 
         return report
@@ -467,9 +468,14 @@ def initialize_attention_system(
 
     这是主要的初始化入口，在 naja 启动时调用
     """
+    log.info("[initialize_attention_system] 开始初始化...")
     integration = get_attention_integration()
     attention_system = integration.initialize(config, intelligence_config=intelligence_config)
+    log.info(f"[initialize_attention_system] integration.initialize 完成, _initialized={attention_system._initialized}")
     integration.start_monitoring()
+    log.info("[initialize_attention_system] 调用 start_realtime_fetcher...")
+    attention_system.start_realtime_fetcher()
+    log.info("[initialize_attention_system] 初始化完成")
     return attention_system
 
 
