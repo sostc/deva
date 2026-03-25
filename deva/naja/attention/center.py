@@ -1,11 +1,15 @@
 """
-Attention Center - 注意力调度中心
+Attention Orchestrator - 注意力编排器
 
-统一协调数据源、策略和注意力系统之间的关系：
+核心职责：
 1. 接收所有数据源的数据
-2. 计算注意力分数
-3. 根据注意力动态调度策略执行
-4. 提供统一的查询接口
+2. 通过 AttentionKernel 计算事件级注意力
+3. 协调板块/个股权重计算
+4. 根据注意力动态调度策略执行
+5. 提供统一的查询接口
+
+架构：
+Radar/DataSource → AttentionKernel → AttentionOrchestrator → CognitionEngine → Strategy/Bandit
 """
 
 import time
@@ -48,14 +52,14 @@ except ImportError:
 log = logging.getLogger(__name__)
 
 
-class AttentionCenter:
+class AttentionOrchestrator:
     """
-    注意力调度中心
+    注意力编排器
 
     作为数据源和策略之间的中间层：
     - 数据源始终emit全量数据
-    - 调度中心计算注意力
-    - 策略通过调度中心获取数据（已过滤）
+    - 编排器协调 AttentionKernel 和注意力系统
+    - 策略通过编排器获取数据（已过滤）
     """
 
     _instance = None
@@ -94,6 +98,8 @@ class AttentionCenter:
 
         self._last_noise_log_time = 0
         self._noise_log_interval = 60
+
+        self._init_attention_kernel()
 
         from .pipeline import PipelineManager, PipelineConfig
         pipeline_config = PipelineConfig(
@@ -164,7 +170,87 @@ class AttentionCenter:
         self._start_pytorch_processor()
 
         self._initialized = True
-        log.info("AttentionCenter 初始化完成")
+        log.info("AttentionOrchestrator 初始化完成")
+
+    def _init_attention_kernel(self):
+        """初始化 AttentionKernel 事件级注意力核心"""
+        try:
+            from .kernel import (
+                AttentionEvent,
+                QueryState,
+                Encoder,
+                MultiHeadAttention,
+                AttentionMemory,
+                AttentionKernel,
+                get_default_heads,
+            )
+
+            encoder = Encoder()
+            heads = get_default_heads()
+            multi_head = MultiHeadAttention(heads)
+            memory = AttentionMemory(decay_rate=300)
+
+            self._attention_kernel = AttentionKernel(encoder, multi_head, memory)
+            self._attention_query_state = QueryState()
+
+            _lab_debug_log("AttentionKernel 初始化完成")
+        except Exception as e:
+            log.error(f"AttentionKernel 初始化失败: {e}")
+            self._attention_kernel = None
+            self._attention_query_state = None
+
+    def get_attention_kernel(self):
+        """获取 AttentionKernel 实例"""
+        return self._attention_kernel
+
+    def get_query_state(self):
+        """获取 QueryState 实例"""
+        return self._attention_query_state
+
+    def _process_with_kernel(self, data, symbols, returns, volumes, prices, timestamp):
+        """使用 AttentionKernel 处理市场快照数据"""
+        if self._attention_kernel is None or self._attention_query_state is None:
+            return None
+
+        try:
+            from .kernel import AttentionEvent
+
+            events = []
+            for i in range(len(symbols)):
+                symbol = str(symbols[i]) if i < len(symbols) else f"unknown_{i}"
+                price_change = float(returns[i]) if i < len(returns) else 0.0
+                volume_spike = float(volumes[i]) / 1e6 if i < len(volumes) else 0.0
+                sentiment = 0.5
+                historical_alpha = 0.0
+
+                event = AttentionEvent(
+                    source="market",
+                    data={"symbol": symbol, "price": float(prices[i]) if i < len(prices) else 0.0},
+                    features={
+                        "price_change": price_change,
+                        "sentiment": sentiment,
+                        "volume_spike": volume_spike,
+                        "historical_alpha": historical_alpha,
+                        "alpha": abs(price_change) * 0.5 + volume_spike * 0.3,
+                        "risk": abs(price_change) * 0.8,
+                        "confidence": min(1.0, volume_spike * 0.5 + abs(price_change) * 10),
+                    },
+                    timestamp=timestamp
+                )
+                events.append(event)
+
+            if not events:
+                return None
+
+            result = self._attention_kernel.process(self._attention_query_state, events)
+
+            _lab_debug_log(f"[Kernel] 处理 {len(events)} 个事件: alpha={result.get('alpha', 0):.4f}, confidence={result.get('confidence', 0):.4f}")
+
+            return result
+
+        except Exception as e:
+            log.debug(f"[Kernel] 处理失败: {e}")
+            return None
 
     @property
     def _cached_global_attention(self) -> float:
@@ -445,6 +531,10 @@ class AttentionCenter:
                 except:
                     pass
 
+            kernel_result = self._process_with_kernel(
+                data, symbols, returns, volumes, prices, market_time
+            )
+
             if self._integration.intelligence_system is not None:
                 result = self._integration.intelligence_system.process_snapshot(
                     symbols=symbols,
@@ -463,6 +553,9 @@ class AttentionCenter:
                     sector_ids=sector_ids,
                     timestamp=market_time
                 )
+
+            if kernel_result:
+                result['kernel_attention'] = kernel_result
 
             _lab_debug_log(f"process_snapshot result: global_attention={result.get('global_attention')}, sector_attention count={len(result.get('sector_attention', {}))}")
 
@@ -906,25 +999,25 @@ class AttentionCenter:
         }
 
 
-_orchestrator: Optional[AttentionCenter] = None
+_orchestrator: Optional[AttentionOrchestrator] = None
 _orchestrator_lock = threading.Lock()
 
 
-def get_orchestrator() -> AttentionCenter:
-    """获取调度中心单例"""
+def get_orchestrator() -> AttentionOrchestrator:
+    """获取编排器单例"""
     global _orchestrator
     if _orchestrator is None:
         with _orchestrator_lock:
             if _orchestrator is None:
-                _orchestrator = AttentionCenter()
+                _orchestrator = AttentionOrchestrator()
     return _orchestrator
 
 
-def initialize_orchestrator() -> AttentionCenter:
-    """初始化调度中心"""
+def initialize_orchestrator() -> AttentionOrchestrator:
+    """初始化编排器"""
     orchestrator = get_orchestrator()
-    log.info("注意力调度中心已初始化")
+    log.info("注意力编排器已初始化")
     return orchestrator
 
 
-Orchestrator = AttentionCenter
+Orchestrator = AttentionOrchestrator

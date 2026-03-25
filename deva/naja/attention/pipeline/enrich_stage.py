@@ -114,6 +114,14 @@ class EnrichStage(Stage):
                     metadata={'enriched': False, 'reason': 'no_blocks_column'}
                 )
 
+            block_df = block_df.copy()
+            block_df['code'] = block_df['code'].astype(str).str.zfill(6)
+
+            if 'code' in data.columns:
+                data = data.copy()
+                data['code'] = data['code'].astype(str)
+                data['code'] = data['code'].str.replace(r'^(sh|sz|bj)', '', regex=True).str.zfill(6)
+
             data = data.merge(
                 block_df[['code', 'blocks']],
                 on='code',

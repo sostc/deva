@@ -132,7 +132,7 @@ class InsightBuilder:
             return None
 
         summary = self._extract_summary(output, strategy_name)
-        symbols = self._extract_symbols(output)
+        symbols = self._extract_symbols_from_output(output)
         sectors = self._extract_sectors(output)
         confidence = self._extract_confidence(output)
         actionability = self._extract_actionability(output)
@@ -355,7 +355,7 @@ class InsightBuilder:
             return " | ".join(parts[:3])
         return str(d)[:80]
 
-    def _extract_symbols(self, output: Any) -> List[str]:
+    def _extract_symbols_from_output(self, output: Any) -> List[str]:
         if not isinstance(output, dict):
             return []
         symbols: Set[str] = set()
