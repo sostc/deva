@@ -227,6 +227,40 @@ class NarrativeTracker:
 
         return {"nodes": nodes, "edges": edges}
 
+    def get_linked_sectors(self, narrative: str) -> List[str]:
+        """获取叙事主题关联的板块列表
+
+        这是叙事-板块联动的关键接口：
+        NarrativeTracker 识别叙事主题后，通过此方法获取关联的 sector_id，
+        从而实现"舆情 → 板块轮动"的联动。
+
+        Args:
+            narrative: 叙事主题名称，如 "AI"、"芯片"、"新能源"
+
+        Returns:
+            关联的 sector_id 列表
+        """
+        from .narrative_sector_mapping import get_linked_sectors as _get_linked_sectors
+        return _get_linked_sectors(narrative)
+
+    def get_narrative_with_sectors(self) -> List[Dict[str, Any]]:
+        """获取所有叙事主题及其关联板块
+
+        Returns:
+            包含 narrative 和 linked_sectors 的字典列表
+        """
+        from .narrative_sector_mapping import get_linked_sectors as _get_linked_sectors
+
+        result = []
+        for state in self._states.values():
+            result.append({
+                "narrative": state.name,
+                "stage": state.stage,
+                "attention_score": round(state.attention_score, 3),
+                "linked_sectors": _get_linked_sectors(state.name),
+            })
+        return result
+
     def _collect_texts(self, event: Any) -> List[str]:
         texts: List[str] = []
         if event is None:
@@ -337,7 +371,8 @@ class NarrativeTracker:
         metrics: Dict[str, Any],
         keywords: List[str],
     ) -> Dict[str, Any]:
-        return {
+        payload = {
+            "type": event_type,
             "event_type": event_type,
             "narrative": narrative,
             "stage": stage,
@@ -346,8 +381,10 @@ class NarrativeTracker:
             "prev_count": metrics["prev_count"],
             "trend": round(metrics["trend"], 3),
             "keywords": keywords,
+            "linked_sectors": self.get_linked_sectors(narrative),
             "timestamp": time.time(),
         }
+        return payload
 
     def _update_graph(self, now_ts: float, narratives: List[str]) -> None:
         cutoff = now_ts - self._graph_window

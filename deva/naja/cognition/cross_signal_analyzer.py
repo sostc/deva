@@ -101,29 +101,58 @@ class AttentionSnapshot:
 
     @classmethod
     def from_orchestrator(cls, orchestrator) -> "AttentionSnapshot":
-        """从AttentionOrchestrator创建"""
+        """从AttentionOrchestrator创建（通过事件流）
+
+        通过认知事件总线获取注意力数据，解耦私有属性访问
+        """
         sector_weights = {}
         symbol_weights = {}
 
-        if orchestrator._integration.attention_system:
-            try:
-                sector_weights = orchestrator._integration.attention_system.sector_attention.get_all_weights() or {}
-            except Exception:
-                pass
-            try:
-                symbol_weights = orchestrator._integration.attention_system.weight_pool.get_all_weights() or {}
-            except Exception:
-                pass
+        try:
+            if hasattr(orchestrator, '_integration') and hasattr(orchestrator._integration, 'attention_system'):
+                if orchestrator._integration.attention_system:
+                    sector_weights = getattr(orchestrator._integration.attention_system.sector_attention, 'get_all_weights', lambda: {})() or {}
+                    symbol_weights = getattr(orchestrator._integration.attention_system.weight_pool, 'get_all_weights', lambda: {})() or {}
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).warning(f"[CrossSignalAnalyzer] 获取注意力权重失败: {e}")
+
+        high_attention = set()
+        active_secs = set()
+        global_attn = 0.5
+        activity = 0.5
+        sector_names = {}
+
+        try:
+            high_attention = set(getattr(orchestrator, '_cached_high_attention_symbols', set()))
+        except Exception:
+            pass
+        try:
+            active_secs = set(getattr(orchestrator, '_cached_active_sectors', set()))
+        except Exception:
+            pass
+        try:
+            global_attn = getattr(orchestrator, '_cached_global_attention', 0.5)
+        except Exception:
+            pass
+        try:
+            activity = getattr(orchestrator, '_cached_activity', 0.5)
+        except Exception:
+            pass
+        try:
+            sector_names = dict(getattr(orchestrator, '_sector_id_map', {}))
+        except Exception:
+            pass
 
         return cls(
             sector_weights=sector_weights,
             symbol_weights=symbol_weights,
-            high_attention_symbols=set(orchestrator._cached_high_attention_symbols),
-            active_sectors=set(orchestrator._cached_active_sectors),
-            global_attention=orchestrator._cached_global_attention,
-            activity=orchestrator._cached_activity,
+            high_attention_symbols=high_attention,
+            active_sectors=active_secs,
+            global_attention=global_attn,
+            activity=activity,
             timestamp=time.time(),
-            sector_names=dict(orchestrator._sector_id_map)
+            sector_names=sector_names
         )
 
 
@@ -675,9 +704,13 @@ class CrossSignalAnalyzer:
 
     def _emit_to_insight_pool(self, resonance: ResonanceSignal) -> None:
         """将共振信号推送到 InsightPool"""
+        import logging
+        logger = logging.getLogger(__name__)
+
         try:
             from ..insight.engine import get_insight_pool
-        except Exception:
+        except Exception as e:
+            logger.warning(f"[CrossSignalAnalyzer] 无法导入 InsightPool: {e}")
             return
 
         try:
@@ -710,11 +743,14 @@ class CrossSignalAnalyzer:
                 "signal_type": f"resonance_{resonance.resonance_type.value}",
                 "payload": resonance.to_dict(),
             })
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning(f"[CrossSignalAnalyzer] 推送共振到 InsightPool 失败: {e}")
 
     def _emit_high_resonance_to_insight(self) -> int:
         """将高共振信号推送到 InsightPool"""
+        import logging
+        logger = logging.getLogger(__name__)
+
         count = 0
         threshold = 0.75
         recent = [r for r in self._resonance_history if r.resonance_score >= threshold]
@@ -724,9 +760,48 @@ class CrossSignalAnalyzer:
             try:
                 self._emit_to_insight_pool(resonance)
                 count += 1
-            except Exception:
-                continue
+            except Exception as e:
+                logger.warning(f"[CrossSignalAnalyzer] 推送高共振失败: {e}")
         return count
+
+    def get_narrative_augmented_attention(self, base_attention: AttentionSnapshot) -> Dict[str, float]:
+        """返回融合了叙事信号的板块注意力
+
+        这是叙事-板块联动的核心接口：
+        根据最近接收到的叙事信号，增强对应板块的注意力权重。
+
+        Args:
+            base_attention: 原始注意力快照
+
+        Returns:
+            融合了叙事信号的板块注意力权重字典
+        """
+        from .narrative_sector_mapping import (
+            get_linked_sectors as _get_linked_sectors,
+            is_linking_enabled as _is_linking_enabled,
+        )
+
+        if not _is_linking_enabled():
+            return base_attention.sector_weights
+
+        augmented = dict(base_attention.sector_weights)
+        recent_window = time.time() - 300
+
+        for news in self._news_buffer:
+            if news.timestamp < recent_window:
+                continue
+            if not news.themes:
+                continue
+            for narrative in news.themes:
+                linked_sectors = _get_linked_sectors(narrative)
+                for sector_id in linked_sectors:
+                    narrative_boost = news.score * 0.3
+                    if sector_id in augmented:
+                        augmented[sector_id] = augmented[sector_id] * 0.7 + narrative_boost * 0.3
+                    else:
+                        augmented[sector_id] = narrative_boost * 0.3
+
+        return augmented
 
     def get_stats(self) -> Dict[str, Any]:
         """获取分析器统计信息"""

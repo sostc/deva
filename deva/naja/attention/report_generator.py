@@ -29,7 +29,7 @@ log = logging.getLogger(__name__)
 class AttentionReportGenerator:
     """
     注意力系统报告生成器
-    
+
     功能：
     1. 定时收集注意力系统的关键指标
     2. 生成易读的 Markdown 报告
@@ -37,32 +37,37 @@ class AttentionReportGenerator:
     4. 只在有内容时生成
     5. 按时间命名写入文件
     6. 支持自动清理过期文件
+
+    事件驱动：
+    - 订阅 TRADING_CLOCK_STREAM 信号
+    - 只在 trading/pre_market 时段生成
+    - 支持实验模式和强制模式
     """
-    
+
     def __init__(
         self,
         output_dir: str = "~/.naja/attention_reports",
-        interval_minutes: int = 5,  # 每5分钟检查一次
-        max_history_days: int = 7,   # 保留7天的历史报告
+        interval_minutes: int = 5,
+        max_history_days: int = 7,
     ):
         self.output_dir = os.path.expanduser(output_dir)
         self.interval_seconds = interval_minutes * 60
         self.max_history_days = max_history_days
-        
-        # 确保输出目录存在
+
         os.makedirs(self.output_dir, exist_ok=True)
-        
-        # 定时器控制
+
         self._stop_event = Event()
         self._thread: Optional[Thread] = None
-        
-        # 当前报告数据缓存
+
         self._current_report: Dict[str, Any] = {}
         self._report_lock = threading.Lock()
-        
-        # 上次生成时间，避免重复生成
+
         self._last_report_time: Optional[datetime] = None
-        
+
+        self._current_phase: str = 'closed'
+        self._force_mode: bool = False
+        self._experiment_mode: bool = False
+
         log.info(f"报告生成器初始化完成: 输出目录={self.output_dir}, 间隔={interval_minutes}分钟")
     
     def start(self):
@@ -70,11 +75,50 @@ class AttentionReportGenerator:
         if self._thread is not None and self._thread.is_alive():
             log.warning("报告生成器已经在运行")
             return
-        
+
         self._stop_event.clear()
+
+        TRADING_CLOCK_STREAM.sink(self._on_trading_clock_signal)
+        log.info("报告生成器已订阅交易时钟信号")
+
         self._thread = Thread(target=self._generate_loop, name="AttentionReportGenerator", daemon=True)
         self._thread.start()
         log.info("报告生成器已启动")
+
+    def _on_trading_clock_signal(self, signal: Dict[str, Any]):
+        """处理交易时钟信号"""
+        signal_type = signal.get('type')
+        phase = signal.get('phase')
+
+        if signal_type == 'current_state':
+            self._current_phase = phase
+        elif signal_type == 'phase_change':
+            old_phase = self._current_phase
+            self._current_phase = phase
+            if phase in ('trading', 'pre_market'):
+                log.info(f"[AttentionReport] 进入交易时段，允许生成报告")
+            elif old_phase in ('trading', 'pre_market'):
+                log.info(f"[AttentionReport] 退出交易时段，暂停生成报告")
+
+    def _is_experiment_mode(self) -> bool:
+        """检查是否处于实验模式"""
+        try:
+            from deva.naja.strategy import get_strategy_manager
+            mgr = get_strategy_manager()
+            experiment_info = mgr.get_experiment_info()
+            return experiment_info.get("active", False)
+        except Exception:
+            return False
+
+    def _is_allowed_to_generate(self) -> bool:
+        """检查是否允许生成报告"""
+        if self._force_mode:
+            return True
+        if self._is_experiment_mode():
+            return True
+        if self._current_phase in ('trading', 'pre_market'):
+            return True
+        return False
     
     def stop(self):
         """停止报告生成线程"""
@@ -89,20 +133,17 @@ class AttentionReportGenerator:
     
     def _should_generate_report(self) -> bool:
         """检查是否应该生成报告"""
-        # 1. 检查是否在交易时间
-        if not self._is_trading_time():
+        if not self._is_allowed_to_generate():
             return False
-        
-        # 2. 检查是否已经在这个5分钟窗口生成过
+
         now = datetime.now()
         if self._last_report_time:
-            # 计算当前5分钟窗口的开始时间
             current_window_start = now.replace(minute=(now.minute // 5) * 5, second=0, microsecond=0)
             last_window_start = self._last_report_time.replace(minute=(self._last_report_time.minute // 5) * 5, second=0, microsecond=0)
-            
+
             if current_window_start == last_window_start:
                 return False
-        
+
         return True
     
     def _has_content(self, report: Dict[str, Any]) -> bool:

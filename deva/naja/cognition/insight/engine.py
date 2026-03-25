@@ -156,28 +156,160 @@ class InsightBuilder:
         if not event:
             return None
 
-        theme = str(event.get("theme") or event.get("title") or "attention")
-        summary_raw = event.get("content") or event.get("summary") or theme
+        signal_type = str(event.get("signal_type") or event.get("type", "attention"))
+        payload = event.get("payload", {}) or {}
+        raw_data = event.get("raw_data", {})
+
+        theme = str(event.get("theme") or event.get("title") or "")
+        if not theme or theme == "None":
+            theme = self._extract_theme_from_signal(event, signal_type, payload, raw_data)
+
+        summary_raw = event.get("content") or event.get("summary") or event.get("message") or ""
+        if isinstance(summary_raw, dict):
+            summary_raw = self._format_dict_for_display(summary_raw, 200)
+        if not summary_raw or summary_raw == "None":
+            summary_raw = self._extract_summary_from_signal(event, signal_type, payload, raw_data)
         summary = str(summary_raw) if not isinstance(summary_raw, str) else summary_raw
-        symbols = event.get("symbols") or []
-        sectors = event.get("sectors") or []
-        system_attention = _clamp(_safe_float(event.get("score", 0.6)))
+
+        symbols = self._extract_symbols(event, payload)
+        sectors = self._extract_sectors(event, payload)
+        system_attention = _clamp(_safe_float(event.get("score", event.get("system_attention", 0.6))))
         confidence = _clamp(_safe_float(event.get("confidence", 0.6)))
         actionability = _clamp(_safe_float(event.get("actionability", 0.4)))
-        signal_type = str(event.get("signal_type", "attention"))
+        novelty = _clamp(_safe_float(event.get("novelty", None)))
+
+        if signal_type.startswith("topic_"):
+            theme = self._extract_topic_signal_info(event, signal_type, payload, raw_data)
+        elif signal_type.startswith("narrative_"):
+            theme = self._extract_narrative_signal_info(event, signal_type, payload, raw_data)
+        elif signal_type == "attention_shift":
+            theme = self._extract_attention_shift_info(event, payload, raw_data)
+        elif signal_type in ("sector_hotspot", "sector_anomaly"):
+            theme = self._extract_sector_signal_info(event, signal_type, payload, raw_data)
+
+        if len(summary) < 15 and theme:
+            summary = theme
+
+        merged_payload = {**event}
+        if raw_data:
+            merged_payload.update(raw_data)
 
         return {
             "theme": theme,
             "summary": summary,
-            "symbols": list(symbols),
-            "sectors": list(sectors),
+            "symbols": symbols,
+            "sectors": sectors,
             "confidence": confidence,
             "actionability": actionability,
             "system_attention": system_attention,
-            "source": "attention",
+            "novelty": novelty,
+            "source": event.get("source", "attention"),
             "signal_type": signal_type,
-            "payload": event,
+            "payload": merged_payload,
         }
+
+    def _extract_theme_from_signal(self, event: Dict[str, Any], signal_type: str, payload: Dict, raw_data: Dict) -> str:
+        """从信号中提取主题"""
+        if signal_type.startswith("topic_"):
+            topic_name = payload.get("topic_name", "") or raw_data.get("topic_name", "")
+            if topic_name and topic_name != "UNKNOWN":
+                return f"📊 {topic_name}"
+        elif signal_type.startswith("narrative_"):
+            narrative = payload.get("narrative", "") or raw_data.get("narrative", "")
+            if narrative:
+                return f"🌊 {narrative}"
+        return f"📡 {signal_type}"
+
+    def _extract_summary_from_signal(self, event: Dict[str, Any], signal_type: str, payload: Dict, raw_data: Dict) -> str:
+        """从信号中提取摘要"""
+        message = event.get("message", "")
+        if message and message != "None":
+            return message
+
+        signal_labels = {
+            "topic_emerge": "新话题出现",
+            "topic_grow": "话题快速增长",
+            "topic_fade": "话题逐渐消退",
+            "topic_high_attention": "话题获得高度关注",
+            "topic_trend_shift": "话题趋势发生转变",
+            "narrative_drift": "叙事漂移检测",
+            "attention_shift": "注意力发生转移",
+            "sector_hotspot": "板块成为热点",
+            "sector_anomaly": "板块出现异常",
+        }
+        return signal_labels.get(signal_type, f"信号类型: {signal_type}")
+
+    def _extract_symbols(self, event: Dict[str, Any], payload: Dict) -> List:
+        """从信号中提取标的"""
+        symbols = event.get("symbols") or []
+        if symbols:
+            return list(symbols)
+        symbol = payload.get("symbol") or payload.get("标的") or ""
+        if symbol and symbol != "-":
+            return [symbol]
+        return []
+
+    def _extract_sectors(self, event: Dict[str, Any], payload: Dict) -> List:
+        """从信号中提取板块"""
+        sectors = event.get("sectors") or []
+        if sectors:
+            return list(sectors)
+        sector = payload.get("sector") or payload.get("板块") or ""
+        if sector and sector != "-":
+            return [sector]
+        return []
+
+    def _extract_topic_signal_info(self, event: Dict[str, Any], signal_type: str, payload: Dict, raw_data: Dict) -> str:
+        """从 topic_* 信号中提取有意义的 theme"""
+        topic_name = payload.get("topic_name", "") or raw_data.get("topic_name", "")
+        topic_id = payload.get("topic_id", "") or raw_data.get("topic_id", "")
+        message = event.get("message", "")
+
+        if topic_name and topic_name != "UNKNOWN":
+            return f"📉 {topic_name}"
+        if topic_id:
+            return f"📉 话题: {topic_id[:15]}"
+
+        signal_labels = {
+            "topic_emerge": "📈 新话题出现",
+            "topic_grow": "📈 话题增长",
+            "topic_fade": "📉 话题消退",
+            "topic_high_attention": "🔥 话题高关注",
+            "topic_trend_shift": "🔄 话题趋势转变",
+        }
+        return signal_labels.get(signal_type, f"📊 {signal_type}")
+
+    def _extract_narrative_signal_info(self, event: Dict[str, Any], signal_type: str, payload: Dict, raw_data: Dict) -> str:
+        """从 narrative_* 信号中提取有意义的 theme"""
+        narrative = payload.get("narrative", "") or raw_data.get("narrative", "")
+        if narrative and narrative != "UNKNOWN":
+            return f"🌊 {narrative[:20]}"
+        return f"🌊 叙事: {signal_type.replace('narrative_', '')}"
+
+    def _extract_attention_shift_info(self, event: Dict[str, Any], payload: Dict, raw_data: Dict) -> str:
+        """从 attention_shift 信号中提取有意义的 theme"""
+        shift_type = payload.get("shift_type", "") or raw_data.get("shift_type", "")
+        if shift_type:
+            return f"🔄 注意力转移: {shift_type}"
+
+        from_symbol = payload.get("from_symbol", "") or raw_data.get("from_symbol", "")
+        to_symbol = payload.get("to_symbol", "") or raw_data.get("to_symbol", "")
+        if from_symbol and to_symbol:
+            return f"🔄 {from_symbol} → {to_symbol}"
+
+        from_sector = payload.get("from_sector", "") or raw_data.get("from_sector", "")
+        to_sector = payload.get("to_sector", "") or raw_data.get("to_sector", "")
+        if from_sector and to_sector:
+            return f"🔄 板块: {from_sector} → {to_sector}"
+
+        return "🔄 注意力转移"
+
+    def _extract_sector_signal_info(self, event: Dict[str, Any], signal_type: str, payload: Dict, raw_data: Dict) -> str:
+        """从 sector_* 信号中提取有意义的 theme"""
+        sector = payload.get("sector", "") or payload.get("板块", "") or raw_data.get("sector", "") or raw_data.get("板块", "")
+        if sector and sector != "-":
+            return f"🔥 板块: {sector}"
+        return f"🔥 {signal_type}"
 
     def _extract_theme(self, output: Any, strategy_name: str) -> str:
         if isinstance(output, dict):
@@ -344,7 +476,12 @@ class InsightPool:
     def _append_or_merge(self, candidate: Dict[str, Any]) -> Insight:
         now_ts = time.time()
         theme = str(candidate.get("theme", "unknown"))
-        novelty = self._calc_novelty(theme, now_ts)
+
+        candidate_novelty = _clamp(_safe_float(candidate.get("novelty", None)))
+        if candidate_novelty is not None and candidate_novelty > 0:
+            novelty = candidate_novelty
+        else:
+            novelty = self._calc_novelty(theme, now_ts)
 
         insight = Insight(
             id=f"insight_{uuid.uuid4().hex[:12]}",
@@ -444,6 +581,9 @@ class InsightPool:
 
     def _load_from_db(self):
         """从持久化存储加载"""
+        import logging
+        logger = logging.getLogger(__name__)
+
         try:
             data = self._db.get("insights")
             if not data:
@@ -454,11 +594,15 @@ class InsightPool:
             ]
             self._last_seen = data.get("last_seen", {})
             self._latest_by_theme = data.get("latest_by_theme", {})
-        except Exception:
-            pass
+            logger.info(f"[InsightPool] 从数据库加载了 {len(self._insights)} 条历史洞察")
+        except Exception as e:
+            logger.warning(f"[InsightPool] 从数据库加载洞察失败: {e}，将使用空洞察池")
 
     def persist(self):
         """持久化到存储"""
+        import logging
+        logger = logging.getLogger(__name__)
+
         try:
             with self._lock:
                 data = {
@@ -467,8 +611,8 @@ class InsightPool:
                     "latest_by_theme": self._latest_by_theme,
                 }
                 self._db["insights"] = data
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning(f"[InsightPool] 持久化洞察失败: {e}")
 
     def clear(self):
         """清空洞察池"""

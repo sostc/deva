@@ -138,8 +138,8 @@ class MarketScanner:
 
         self._pattern_last_emit[key] = timestamp
         return {
-            "source": "market",
-            "signal_type": "pattern",
+            "source": "radar",
+            "signal_type": "radar_pattern",
             "score": min(1.0, len(window) / 10.0),
             "content": f"{signal_type}模式在短时间内重复 {len(window)} 次",
             "raw_data": {"count": len(window), "window_seconds": self._pattern_window_seconds},
@@ -148,7 +148,7 @@ class MarketScanner:
         }
 
     def scan_drift(self, strategy_id: str, score: float, timestamp: float) -> Optional[Dict]:
-        """检测概念漂移"""
+        """检测感知数据分布漂移 (Radar 感知层职责)"""
         if not _RIVER_AVAILABLE:
             return None
 
@@ -158,12 +158,12 @@ class MarketScanner:
             self._drift_detectors[strategy_id] = detector
 
         detector.update(score)
-        if detector.change_detected:
+        if detector.drift_detected:
             return {
-                "source": "market",
-                "signal_type": "drift",
+                "source": "radar",
+                "signal_type": "radar_data_distribution_shift",
                 "score": abs(score),
-                "content": "检测到概念漂移",
+                "content": "Radar感知层检测到数据分布漂移",
                 "raw_data": {"value": score},
                 "timestamp": timestamp,
                 "metadata": {"strategy_id": strategy_id},
@@ -196,10 +196,10 @@ class MarketScanner:
             return None
 
         return {
-            "source": "market",
-            "signal_type": "anomaly",
+            "source": "radar",
+            "signal_type": "radar_anomaly",
             "score": min(1.0, abs(z) / 5.0),
-            "content": f"异常波动 (z={z:.2f})",
+            "content": f"Radar检测到统计异常 (z={z:.2f})",
             "raw_data": {"z_score": z, "value": score, "mean": stats["mean"]},
             "timestamp": timestamp,
             "metadata": {"strategy_id": strategy_id, "signal_type": signal_type},
@@ -226,8 +226,8 @@ class MarketScanner:
         if up_ratio > 0.7 or down_ratio > 0.7:
             direction = "上涨" if up_ratio > 0.7 else "下跌"
             return {
-                "source": "market",
-                "signal_type": "sector_anomaly",
+                "source": "radar",
+                "signal_type": "radar_sector_anomaly",
                 "score": max(up_ratio, down_ratio),
                 "content": f"板块{sector_id}出现齐涨齐跌异常：{direction}家数占比{max(up_ratio, down_ratio):.1%}",
                 "raw_data": {
