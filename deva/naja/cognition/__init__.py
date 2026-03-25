@@ -8,6 +8,18 @@
 - HistoryTracker: 历史事件追踪器，追踪注意力变化
 """
 
+from .cognition_bus import (
+    cognition_bus,
+    CognitionEventType,
+    CognitionEvent,
+    emit_attention_snapshot,
+    emit_news_signal,
+    emit_resonance,
+    emit_insight,
+    emit_cognition_feedback,
+    subscribe_to_event,
+    subscribe_to_all,
+)
 from .core import NewsMindStrategy, AttentionScorer
 from .engine import CognitionEngine, get_cognition_engine
 from .narrative_tracker import NarrativeTracker
@@ -32,6 +44,17 @@ from .cross_signal_analyzer import (
 )
 
 __all__ = [
+    # 认知事件总线
+    "cognition_bus",
+    "CognitionEventType",
+    "CognitionEvent",
+    "emit_attention_snapshot",
+    "emit_news_signal",
+    "emit_resonance",
+    "emit_insight",
+    "emit_cognition_feedback",
+    "subscribe_to_event",
+    "subscribe_to_all",
     # 核心策略
     "NewsMindStrategy",
     "AttentionScorer",

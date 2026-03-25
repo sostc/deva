@@ -44,7 +44,7 @@ try:
     RIVER_AVAILABLE = True
 except ImportError:
     RIVER_AVAILABLE = False
-    print("[NewsRadar] Warning: river not installed, using fallback implementations")
+    print("[NewsMind] Warning: river not installed, using fallback implementations")
 
 # 持久化数据库
 try:
@@ -52,17 +52,37 @@ try:
     NAJA_DB_AVAILABLE = True
 except ImportError:
     NAJA_DB_AVAILABLE = False
-    print("[NewsRadar] Warning: NB not available, persistence disabled")
+    print("[NewsMind] Warning: NB not available, persistence disabled")
 
 
 class SignalType(Enum):
-    """信号类型"""
-    TOPIC_EMERGE = "topic_emerge"       # 新主题出现
-    TOPIC_GROW = "topic_grow"           # 主题增长
-    TOPIC_FADE = "topic_fade"           # 主题消退
-    HIGH_ATTENTION = "high_attention"   # 高注意力事件
-    TREND_SHIFT = "trend_shift"         # 趋势转变
-    DRIFT_DETECTED = "drift_detected"   # 检测到漂移
+    """Cognition 信号类型
+
+    命名规范：
+    - topic_: 话题相关信号
+    - narrative_: 叙事相关信号
+    """
+    TOPIC_EMERGE = "topic_emerge"
+    TOPIC_GROW = "topic_grow"
+    TOPIC_FADE = "topic_fade"
+    TOPIC_HIGH_ATTENTION = "topic_high_attention"
+    TOPIC_TREND_SHIFT = "topic_trend_shift"
+    NARRATIVE_DRIFT = "narrative_drift"
+
+    @classmethod
+    def get_all_signal_types(cls) -> List[str]:
+        """获取所有信号类型"""
+        return [s.value for s in cls]
+
+    @classmethod
+    def is_topic_signal(cls, signal_type: str) -> bool:
+        """判断是否为话题信号"""
+        return signal_type.startswith("topic_")
+
+    @classmethod
+    def is_narrative_signal(cls, signal_type: str) -> bool:
+        """判断是否为叙事信号"""
+        return signal_type.startswith("narrative_")
 
 
 # 数据源类型映射表 - 根据数据源名称识别数据类型
@@ -188,7 +208,11 @@ class NewsEvent:
             # 使用数据源类型映射来识别数据类型
             if ds_type == 'tick' or 'price' in str(data):
                 event_type = 'tick'
-                content = f"{data.get('symbol', 'UNKNOWN')} 价格:{data.get('price', 0)} 成交量:{data.get('volume', 0)}"
+                symbol = data.get('symbol', '')
+                if symbol and symbol != 'UNKNOWN':
+                    content = f"{symbol} 价格:{data.get('price', 0)} 成交量:{data.get('volume', 0)}"
+                else:
+                    content = f"行情 价格:{data.get('price', 0)} 成交量:{data.get('volume', 0)}"
             elif ds_type == 'news' or 'title' in data:
                 # 新闻数据
                 event_type = 'news'
@@ -746,6 +770,8 @@ class NewsMindStrategy:
 
     作为naja策略系统的插件运行，驱动认知流水线：
     信号 → 注意力 → 记忆 → 洞察
+
+    日志标签: [NewsMind]
     """
     
     def __init__(self, config: Dict[str, Any] = None):
@@ -860,7 +886,7 @@ class NewsMindStrategy:
         import numpy as np
         if isinstance(record, np.ndarray):
             import logging
-            logging.warning(f"[NewsRadar] 收到 numpy 数组数据，已跳过: type={type(record)}, shape={getattr(record, 'shape', 'N/A')}")
+            logging.warning(f"[NewsMind] 收到 numpy 数组数据，已跳过: type={type(record)}, shape={getattr(record, 'shape', 'N/A')}")
             return []
         
         # 检测是否是批量数据（列表）
@@ -1153,13 +1179,13 @@ class NewsMindStrategy:
         # 高注意力信号
         if event.attention_score >= self.attention_threshold:
             sig = self._create_signal(
-                SignalType.HIGH_ATTENTION,
+                SignalType.TOPIC_HIGH_ATTENTION,
                 event,
                 f"高注意力事件: {event.content[:50]}...",
                 {"attention_score": event.attention_score}
             )
             signals.append(sig)
-            _radar_debug_log(f"  -> 生成 HIGH_ATTENTION 信号: score={sig.get('score', 0):.3f}")
+            _radar_debug_log(f"  -> 生成 TOPIC_HIGH_ATTENTION 信号: score={sig.get('score', 0):.3f}")
             self.stats["high_attention_events"] += 1
 
         # 主题相关信号
@@ -1197,15 +1223,15 @@ class NewsMindStrategy:
         return signals
     
     def _check_drift(self, event: NewsEvent) -> List[Dict]:
-        """检查漂移"""
+        """检查叙事漂移 (Cognition 认知层职责)"""
         signals = []
         if self.drift_detector and event.vector:
             self.drift_detector.update(event.attention_score)
             if self.drift_detector.drift_detected:
                 signals.append(self._create_signal(
-                    SignalType.DRIFT_DETECTED,
+                    SignalType.NARRATIVE_DRIFT,
                     event,
-                    "检测到数据分布漂移",
+                    "Cognition认知层检测到叙事漂移",
                     {"drift_point": self.stats["total_events"]}
                 ))
                 self.stats["drifts_detected"] += 1
@@ -1526,7 +1552,7 @@ class NewsMindStrategy:
             "event_id": event.id if event else None,
             "message": message,
             "data": data,
-            "priority": "high" if signal_type in [SignalType.HIGH_ATTENTION, SignalType.DRIFT_DETECTED] else "normal",
+            "priority": "high" if signal_type in [SignalType.TOPIC_HIGH_ATTENTION, SignalType.NARRATIVE_DRIFT] else "normal",
         }
     
     @staticmethod
@@ -1982,7 +2008,7 @@ class NewsMindStrategy:
                 # 保存到数据库
                 db[self.PERSISTENCE_KEY] = state_data
                 
-                print(f"[NewsRadar] 状态已保存: {len(self.short_memory)} 短期记忆, "
+                print(f"[NewsMind] 状态已保存: {len(self.short_memory)} 短期记忆, "
                       f"{len(self.mid_memory)} 中期记忆, {len(self.long_memory)} 长期记忆, "
                       f"{len(self.topics)} 主题")
                 
@@ -1994,7 +2020,7 @@ class NewsMindStrategy:
                     "topics_count": len(self.topics),
                 }
         except Exception as e:
-            print(f"[NewsRadar] 保存状态失败: {e}")
+            print(f"[NewsMind] 保存状态失败: {e}")
             return {"success": False, "error": str(e)}
     
     def load_state(self) -> dict:
@@ -2011,7 +2037,7 @@ class NewsMindStrategy:
                 db = NB(self.PERSISTENCE_TABLE)
                 
                 if self.PERSISTENCE_KEY not in db:
-                    print("[NewsRadar] 没有找到保存的状态")
+                    print("[NewsMind] 没有找到保存的状态")
                     return {"success": True, "loaded": False, "message": "No saved state found"}
                 
                 state_data = db.get(self.PERSISTENCE_KEY)
@@ -2021,7 +2047,7 @@ class NewsMindStrategy:
                 # 反序列化状态
                 self._deserialize_state(state_data)
                 
-                print(f"[NewsRadar] 状态已加载: {len(self.short_memory)} 短期记忆, "
+                print(f"[NewsMind] 状态已加载: {len(self.short_memory)} 短期记忆, "
                       f"{len(self.mid_memory)} 中期记忆, {len(self.long_memory)} 长期记忆, "
                       f"{len(self.topics)} 主题")
                 
@@ -2034,7 +2060,7 @@ class NewsMindStrategy:
                     "topics_count": len(self.topics),
                 }
         except Exception as e:
-            print(f"[NewsRadar] 加载状态失败: {e}")
+            print(f"[NewsMind] 加载状态失败: {e}")
             return {"success": False, "error": str(e)}
     
     def _serialize_state(self) -> dict:
@@ -2150,7 +2176,7 @@ class NewsMindStrategy:
                 event.topic_id = e_data.get("topic_id")
                 self.short_memory.append(event)
             except Exception as e:
-                print(f"[NewsRadar] 恢复短期记忆事件失败: {e}")
+                print(f"[NewsMind] 恢复短期记忆事件失败: {e}")
         
         # 恢复中期记忆
         self.mid_memory.clear()
@@ -2169,7 +2195,7 @@ class NewsMindStrategy:
                     "topic_id": e_data.get("topic_id"),
                 })
             except Exception as e:
-                print(f"[NewsRadar] 恢复中期记忆事件失败: {e}")
+                print(f"[NewsMind] 恢复中期记忆事件失败: {e}")
         
         # 恢复长期记忆
         self.long_memory = data.get("long_memory", [])
@@ -2208,7 +2234,7 @@ class NewsMindStrategy:
                 
                 self.topics[topic_id] = topic
             except Exception as e:
-                print(f"[NewsRadar] 恢复主题失败: {e}")
+                print(f"[NewsMind] 恢复主题失败: {e}")
     
     def clear_saved_state(self) -> dict:
         """清除保存的状态"""
@@ -2220,10 +2246,10 @@ class NewsMindStrategy:
                 db = NB(self.PERSISTENCE_TABLE)
                 if self.PERSISTENCE_KEY in db:
                     del db[self.PERSISTENCE_KEY]
-                print("[NewsRadar] 已清除保存的状态")
+                print("[NewsMind] 已清除保存的状态")
                 return {"success": True}
         except Exception as e:
-            print(f"[NewsRadar] 清除状态失败: {e}")
+            print(f"[NewsMind] 清除状态失败: {e}")
             return {"success": False, "error": str(e)}
 
 
@@ -2245,9 +2271,9 @@ class Strategy:
         """初始化时自动加载保存的状态"""
         result = self.radar.load_state()
         if result.get("success") and result.get("loaded"):
-            print(f"[NewsMindStrategy] 成功恢复之前的状态")
+            print(f"[NewsMind] 策略恢复成功")
         elif not result.get("loaded"):
-            print(f"[NewsRadarStrategy] 没有找到保存的状态，使用新实例")
+            print(f"[NewsMind] 没有找到保存的状态，使用新实例")
     
     def _start_auto_save(self):
         """启动定时保存线程"""
@@ -2257,7 +2283,7 @@ class Strategy:
         self._stop_save_thread.clear()
         self._save_thread = threading.Thread(target=self._auto_save_loop, daemon=True)
         self._save_thread.start()
-        print(f"[NewsRadarStrategy] 定时保存已启动，间隔 {self._save_interval} 秒")
+        print(f"[NewsMind] 定时保存已启动，间隔 {self._save_interval} 秒")
     
     def _auto_save_loop(self):
         """自动保存循环"""
@@ -2271,18 +2297,18 @@ class Strategy:
             try:
                 result = self.radar.save_state()
                 if result.get("success"):
-                    print(f"[NewsMindStrategy] 定时保存完成")
+                    print(f"[NewsMind] 定时保存完成")
                 else:
-                    print(f"[NewsRadarStrategy] 定时保存失败: {result.get('error')}")
+                    print(f"[NewsMind] 定时保存失败: {result.get('error')}")
             except Exception as e:
-                print(f"[NewsRadarStrategy] 定时保存异常: {e}")
+                print(f"[NewsMind] 定时保存异常: {e}")
     
     def _stop_auto_save(self):
         """停止定时保存线程"""
         if self._save_thread is not None:
             self._stop_save_thread.set()
             self._save_thread.join(timeout=5)
-            print("[NewsRadarStrategy] 定时保存已停止")
+            print("[NewsMind] 定时保存已停止")
     
     def on_record(self, record: Dict) -> List[Dict]:
         """逐条处理"""
@@ -2314,12 +2340,12 @@ class Strategy:
     
     def on_stop(self):
         """策略停止时自动保存"""
-        print("[NewsRadarStrategy] 策略停止，自动保存状态...")
+        print("[NewsMind] 策略停止，自动保存状态...")
         self._stop_auto_save()
         return self.radar.save_state()
 
     def on_start(self):
         """策略启动时自动加载"""
-        print("[NewsMindStrategy] 策略启动，自动加载状态...")
+        print("[NewsMind] 策略启动，自动加载状态...")
         self._start_auto_save()
         return self.radar.load_state()

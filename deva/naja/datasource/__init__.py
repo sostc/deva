@@ -804,18 +804,25 @@ class DataSourceEntry(RecoverableUnit):
     def _worker_loop(self, func: Callable):
         """工作线程循环"""
         is_async = asyncio.iscoroutinefunction(func)
+        self._event_loop = None
 
         while not self._stop_event.is_set():
             try:
                 if is_async:
                     if self._event_loop is None or self._event_loop.is_closed():
+                        if self._event_loop and not self._event_loop.is_closed():
+                            self._event_loop.close()
                         self._event_loop = asyncio.new_event_loop()
+                        asyncio.set_event_loop(self._event_loop)
                     data = self._event_loop.run_until_complete(func())
                 else:
                     data = func()
                     if asyncio.iscoroutine(data):
                         if self._event_loop is None or self._event_loop.is_closed():
+                            if self._event_loop and not self._event_loop.is_closed():
+                                self._event_loop.close()
                             self._event_loop = asyncio.new_event_loop()
+                            asyncio.set_event_loop(self._event_loop)
                         data = self._event_loop.run_until_complete(data)
 
                 if data is not None:

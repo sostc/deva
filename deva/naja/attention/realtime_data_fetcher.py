@@ -2,7 +2,7 @@
 Realtime Data Fetcher - 实盘数据获取器（注意力系统内置）
 
 功能:
-1. 直接从行情源获取实盘数据，不依赖数据源系统
+1. 直接从 Sina 行情源获取实盘数据，不依赖数据源系统
 2. 只在交易时间运行（订阅交易时钟信号）
 3. 根据注意力权重动态调整获取频率（由 FrequencyScheduler 控制）
 
@@ -20,6 +20,11 @@ Realtime Data Fetcher - 实盘数据获取器（注意力系统内置）
 - 使用历史/回放数据
 - 压缩时间间隔，快速推进
 - 保持相同的处理节奏
+
+Sina 数据获取：
+- 使用 aiohttp 异步获取新浪行情
+- 全量获取后按档位分离处理
+- 复用 sample_sina_tick.py 的分类过滤逻辑
 """
 
 import asyncio
@@ -37,6 +42,127 @@ from deva.naja.radar.trading_clock import (
 )
 
 log = logging.getLogger(__name__)
+
+_session = None
+
+
+def _get_sina_session():
+    """获取全局 aiohttp session"""
+    global _session
+    if _session is None or _session.closed:
+        import aiohttp
+        _session = aiohttp.ClientSession(
+            connector=aiohttp.TCPConnector(limit=50, limit_per_host=20),
+            timeout=aiohttp.ClientTimeout(total=30),
+        )
+    return _session
+
+
+def _parse_sina_response(text: str) -> Dict:
+    """解析新浪返回的数据"""
+    result = {}
+    for line in text.strip().split("\n"):
+        if not line or '="' not in line:
+            continue
+        try:
+            prefix, data = line.split('="')
+            code = prefix.split("_")[-1]
+            data = data.rstrip('"')
+            if not data:
+                continue
+            fields = data.split(",")
+            if len(fields) < 33:
+                continue
+            result[code] = {
+                "name": fields[0],
+                "open": float(fields[1]),
+                "close": float(fields[2]),
+                "now": float(fields[3]),
+                "high": float(fields[4]),
+                "low": float(fields[5]),
+                "volume": int(fields[8]),
+            }
+        except Exception:
+            continue
+    return result
+
+
+async def _fetch_sina_batch_async(codes: List[str]) -> Dict:
+    """异步获取一批股票数据"""
+    if not codes:
+        return {}
+    session = _get_sina_session()
+    codes_str = ",".join(codes)
+    url = f"https://hq.sinajs.cn/list={codes_str}"
+    headers = {
+        "Referer": "https://finance.sina.com.cn",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+    }
+    try:
+        async with session.get(url, headers=headers) as resp:
+            if resp.status != 200:
+                return {}
+            text = await resp.text()
+            return _parse_sina_response(text)
+    except Exception:
+        return {}
+
+
+async def _fetch_all_stocks_async() -> Optional[pd.DataFrame]:
+    """异步获取全量股票数据"""
+    from deva.naja.common.tradetime import is_tradedate, is_tradetime
+
+    now = datetime.now()
+    if not is_tradedate(now) or not is_tradetime(now):
+        return None
+
+    STOCK_CATEGORIES = {
+        "沪市主板": [f"sh{i}" for i in range(600000, 610000)] +
+                   [f"sh{i}" for i in range(601000, 602000)] +
+                   [f"sh{i}" for i in range(603000, 604000)] +
+                   [f"sh{i}" for i in range(605000, 606000)],
+        "科创板": [f"sh{i}" for i in range(688000, 689999)],
+        "深市主板": [f"sz{i:06d}" for i in range(0, 1000)],
+        "中小板": [f"sz{i:06d}" for i in range(2000, 3000)],
+        "创业板": [f"sz{i:06d}" for i in range(300000, 302000)],
+        "北交所": [f"bj{i}" for i in range(430000, 440000)] +
+                 [f"bj{i}" for i in range(830000, 840000)] +
+                 [f"bj{i}" for i in range(870000, 880000)],
+    }
+
+    codes = []
+    for cat_codes in STOCK_CATEGORIES.values():
+        codes.extend(cat_codes)
+    codes = list(set(codes))
+
+    batch_size = 800
+    all_data = {}
+
+    for i in range(0, len(codes), batch_size):
+        batch = codes[i:i + batch_size]
+        batch_data = await _fetch_sina_batch_async(batch)
+        all_data.update(batch_data)
+        await asyncio.sleep(0.05)
+
+    if not all_data:
+        return None
+
+    df = pd.DataFrame(all_data).T
+    return df
+
+
+def _fetch_sina_sync() -> Optional[pd.DataFrame]:
+    """同步获取 Sina 全量数据（在子线程中调用）"""
+    try:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            return loop.run_until_complete(_fetch_all_stocks_async())
+        finally:
+            loop.close()
+    except Exception as e:
+        log.debug(f"[_fetch_sina_sync] 获取失败: {e}")
+        return None
 
 
 @dataclass
@@ -103,6 +229,8 @@ class RealtimeDataFetcher:
 
         self._running = True
         self._stop_event.clear()
+
+        log.info("[RealtimeDataFetcher] 启动中...")
 
         if self.config.force_trading_mode:
             self._current_phase = 'trading'
@@ -198,6 +326,11 @@ class RealtimeDataFetcher:
         medium_symbols = [s for s, level in self._symbol_levels.items() if level == "MEDIUM"]
         low_symbols = [s for s, level in self._symbol_levels.items() if level == "LOW"]
 
+        if not high_symbols and not medium_symbols and not low_symbols:
+            if self._fetch_count == 0:
+                log.debug(f"[RealtimeDataFetcher] 等待档位数据... (high: {len(high_symbols)}, medium: {len(medium_symbols)}, low: {len(low_symbols)})")
+            return
+
         speed = self.config.playback_speed if self.config.playback_mode else 1.0
 
         high_interval = self.config.base_high_interval / speed
@@ -240,6 +373,7 @@ class RealtimeDataFetcher:
             if data is not None and len(data) > 0:
                 self.attention_system.process_data(data)
                 self._fetch_count += 1
+                log.info(f"[RealtimeDataFetcher] [{level}] 获取 {len(data)} 条数据，累计 {self._fetch_count} 批")
 
                 if self._fetch_count % 100 == 0:
                     log.info(f"[RealtimeDataFetcher] 已获取 {self._fetch_count} 批")
@@ -251,37 +385,35 @@ class RealtimeDataFetcher:
 
     def _fetch_realtime_data(self, symbols: List[str]) -> Optional[pd.DataFrame]:
         """
-        从行情源获取实时数据
+        从 Sina 行情源获取实时数据
 
-        这里实现了两种模式：
-        1. 模拟模式：使用模拟数据（用于测试）
-        2. 实盘模式：从真实行情源获取数据
-
-        可以扩展支持：
-        - tushare
-        - baostock
-        - 券商API
-        - 期货数据源等
+        策略：全量获取后按 symbols 过滤
+        - 高频档位：每 1s 获取一次（HIGH symbols）
+        - 中频档位：每 10s 获取一次（MEDIUM symbols）
+        - 低频档位：每 60s 获取一次（LOW symbols）
         """
         try:
-            import random
+            df = _fetch_sina_sync()
 
-            data = []
-            for symbol in symbols:
-                change_pct = random.uniform(-5, 5)
-                now_price = 10 + random.random() * 90
-                volume = int(random.uniform(10000, 1000000))
+            if df is None or df.empty:
+                return None
 
-                data.append({
-                    'code': symbol,
-                    'now': round(now_price, 2),
-                    'change_pct': round(change_pct, 2),
-                    'p_change': round(change_pct, 2),
-                    'volume': volume,
-                    'amount': round(volume * now_price, 2),
-                })
+            if not symbols:
+                return df
 
-            return pd.DataFrame(data)
+            code_list = [s for s in symbols]
+            filtered = df[df.index.isin(code_list)]
+
+            if filtered.empty:
+                return df
+
+            filtered = filtered.copy()
+            filtered['code'] = filtered.index
+            if 'now' in filtered.columns and 'close' in filtered.columns:
+                filtered['p_change'] = (filtered['now'] - filtered['close']) / filtered['close']
+                filtered['change_pct'] = filtered['p_change']
+
+            return filtered
 
         except Exception as e:
             log.debug(f"[RealtimeDataFetcher] 获取数据失败: {e}")
@@ -345,3 +477,17 @@ class AsyncRealtimeDataFetcher:
                 await asyncio.sleep(1)
             except asyncio.CancelledError:
                 break
+
+
+_fetcher_instance: Optional[RealtimeDataFetcher] = None
+
+
+def get_data_fetcher() -> Optional[RealtimeDataFetcher]:
+    """获取全局 RealtimeDataFetcher 实例"""
+    return _fetcher_instance
+
+
+def set_data_fetcher(fetcher: RealtimeDataFetcher):
+    """设置全局 RealtimeDataFetcher 实例"""
+    global _fetcher_instance
+    _fetcher_instance = fetcher

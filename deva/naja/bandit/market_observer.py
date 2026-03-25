@@ -16,6 +16,8 @@ from typing import Any, Dict, List, Optional, Set, Callable
 
 from deva import NB
 
+from ..radar.trading_clock import TRADING_CLOCK_STREAM
+
 log = logging.getLogger(__name__)
 
 MARKET_DATA_CONFIG_TABLE = "naja_bandit_market_config"
@@ -43,21 +45,21 @@ class MarketDataObserver:
 
         self._price_callbacks: List[Callable[[str, float], None]] = []
 
-        # 数据源订阅管理
         self._stream_subscription = None
         self._current_datasource_id: Optional[str] = None
-        self._current_datasource = None  # 当前数据源对象
+        self._current_datasource = None
 
-        # 主动获取机制
         self._fetch_thread: Optional[threading.Thread] = None
         self._fetch_stop_event = threading.Event()
-        self._fetch_interval = 5.0  # 轮询间隔（秒）
-        self._last_data_time = 0  # 上次收到数据的时间
-        self._data_timeout = 10.0  # 数据超时时间（秒），超过此时间未收到数据则主动获取
+        self._fetch_interval = 5.0
+        self._last_data_time = 0
+        self._data_timeout = 10.0
 
-        # 实验模式监控线程
         self._experiment_monitor_thread: Optional[threading.Thread] = None
         self._experiment_monitor_stop_event = threading.Event()
+
+        self._current_phase: str = 'closed'
+        self._force_mode: bool = False
 
         self._load_config()
 
@@ -327,28 +329,25 @@ class MarketDataObserver:
         """
         while not self._fetch_stop_event.is_set():
             try:
-                # 检查是否需要主动获取数据
-                need_fetch = False
+                if self._is_allowed_to_run():
+                    need_fetch = False
 
-                if self._current_datasource:
-                    is_running = self._is_datasource_running(self._current_datasource)
+                    if self._current_datasource:
+                        is_running = self._is_datasource_running(self._current_datasource)
 
-                    if not is_running:
-                        # 数据源已停止，需要主动获取
-                        need_fetch = True
-                        log.debug("[MarketObserver] 数据源已停止，主动获取数据")
-                    elif time.time() - self._last_data_time > self._data_timeout:
-                        # 数据源运行但长时间未推送数据
-                        need_fetch = True
-                        log.debug("[MarketObserver] 数据源无推送，主动获取数据")
+                        if not is_running:
+                            need_fetch = True
+                            log.debug("[MarketObserver] 数据源已停止，主动获取数据")
+                        elif time.time() - self._last_data_time > self._data_timeout:
+                            need_fetch = True
+                            log.debug("[MarketObserver] 数据源无推送，主动获取数据")
 
-                if need_fetch:
-                    self._fetch_prices_from_datasource()
+                    if need_fetch:
+                        self._fetch_prices_from_datasource()
 
             except Exception as e:
                 log.debug(f"[MarketObserver] 数据获取异常: {e}")
 
-            # 等待下一次轮询
             self._fetch_stop_event.wait(self._fetch_interval)
 
     def _fetch_prices_from_datasource(self):
@@ -399,19 +398,43 @@ class MarketDataObserver:
         self._running = True
         self._last_data_time = time.time()
 
-        # 连接数据源（根据数据源状态自动选择订阅或主动获取）
+        TRADING_CLOCK_STREAM.sink(self._on_trading_clock_signal)
+        log.info("[MarketObserver] 已订阅交易时钟信号")
+
         datasource_id = self._get_active_datasource_id()
         self._reconnect_datasource(datasource_id)
 
-        # 启动数据获取轮询（无论数据源是否运行，都启动轮询作为备选）
         self._start_fetch_loop()
 
-        # 启动实验模式监控
         self._start_experiment_monitor()
 
         self._save_config()
 
         log.debug("[MarketObserver] 已启动")
+
+    def _on_trading_clock_signal(self, signal: Dict[str, Any]):
+        """处理交易时钟信号"""
+        signal_type = signal.get('type')
+        phase = signal.get('phase')
+
+        if signal_type == 'current_state':
+            self._current_phase = phase
+        elif signal_type == 'phase_change':
+            self._current_phase = phase
+            if phase in ('trading', 'pre_market'):
+                log.debug(f"[MarketObserver] 进入交易时段")
+            else:
+                log.debug(f"[MarketObserver] 退出交易时段")
+
+    def _is_allowed_to_run(self) -> bool:
+        """检查是否允许运行"""
+        if self._force_mode:
+            return True
+        if self._is_experiment_mode():
+            return True
+        if self._current_phase in ('trading', 'pre_market'):
+            return True
+        return False
 
     def stop(self):
         """停止观察"""

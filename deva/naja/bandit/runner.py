@@ -15,6 +15,7 @@ from deva import NB, when
 
 from .optimizer import get_bandit_optimizer
 from ..log_stream import get_log_stream, log_strategy
+from ..radar.trading_clock import TRADING_CLOCK_STREAM
 
 log = logging.getLogger(__name__)
 
@@ -34,14 +35,17 @@ class BanditAutoRunner:
         self._running = False
         self._thread: Optional[threading.Thread] = None
         self._stop_event = threading.Event()
-        
+
         self._select_interval = 60
         self._adjust_interval = 300
         self._enabled = True
-        
+        self._force_mode = False
+
         self._last_select_ts = 0.0
         self._last_adjust_ts = 0.0
-        
+
+        self._current_phase: str = 'closed'
+
         self._load_config()
     
     def _load_config(self):
@@ -53,14 +57,14 @@ class BanditAutoRunner:
                 self._select_interval = config.get("select_interval", 60)
                 self._adjust_interval = config.get("adjust_interval", 300)
                 self._enabled = config.get("enabled", True)
-                # 恢复运行状态
+                self._force_mode = config.get("force_mode", False)
                 was_running = config.get("was_running", False)
                 if was_running and self._enabled:
                     self._running = True
                     log.info("检测到 BanditAutoRunner 上次运行中，将自动恢复")
         except Exception:
             pass
-    
+
     def _save_config(self):
         """保存配置到数据库"""
         try:
@@ -69,7 +73,8 @@ class BanditAutoRunner:
                 "select_interval": self._select_interval,
                 "adjust_interval": self._adjust_interval,
                 "enabled": self._enabled,
-                "was_running": self._running  # 保存运行状态
+                "force_mode": self._force_mode,
+                "was_running": self._running
             }
         except Exception:
             pass
@@ -79,16 +84,53 @@ class BanditAutoRunner:
         if self._running and self._thread and self._thread.is_alive():
             log.warning("BanditAutoRunner 已在运行中")
             return
-        
+
         self._running = True
         self._stop_event.clear()
-        
+
+        TRADING_CLOCK_STREAM.sink(self._on_trading_clock_signal)
+        log.info("BanditAutoRunner 已订阅交易时钟信号")
+
         self._thread = threading.Thread(target=self._run_loop, daemon=True)
         self._thread.start()
-        
-        self._save_config()  # 保存运行状态
-        
+
+        self._save_config()
+
         log.info(f"BanditAutoRunner 已启动 (选择间隔: {self._select_interval}s, 调节间隔: {self._adjust_interval}s)")
+
+    def _on_trading_clock_signal(self, signal: Dict[str, Any]):
+        """处理交易时钟信号"""
+        signal_type = signal.get('type')
+        phase = signal.get('phase')
+
+        if signal_type == 'current_state':
+            self._current_phase = phase
+        elif signal_type == 'phase_change':
+            self._current_phase = phase
+            if phase in ('trading', 'pre_market'):
+                log.info(f"[Bandit] 进入交易时段，允许自动选择")
+            else:
+                log.info(f"[Bandit] 退出交易时段，暂停自动选择")
+
+    def _is_experiment_mode(self) -> bool:
+        """检查是否处于实验模式"""
+        try:
+            from deva.naja.strategy import get_strategy_manager
+            mgr = get_strategy_manager()
+            experiment_info = mgr.get_experiment_info()
+            return experiment_info.get("active", False)
+        except Exception:
+            return False
+
+    def _is_allowed_to_run(self) -> bool:
+        """检查是否允许运行"""
+        if self._force_mode:
+            return True
+        if self._is_experiment_mode():
+            return True
+        if self._current_phase in ('trading', 'pre_market'):
+            return True
+        return False
     
     def stop(self):
         """停止自动运行"""
@@ -117,13 +159,16 @@ class BanditAutoRunner:
     
     def _tick(self):
         """定时任务"""
+        if not self._is_allowed_to_run():
+            return
+
         now = time.time()
-        
+
         if self._enabled:
             if now - self._last_select_ts >= self._select_interval:
                 self._do_select()
                 self._last_select_ts = now
-            
+
             if now - self._last_adjust_ts >= self._adjust_interval:
                 self._do_adjust()
                 self._last_adjust_ts = now

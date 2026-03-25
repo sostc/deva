@@ -18,19 +18,29 @@ def _fmt_time(ts: float) -> str:
 def _render_event_badge(event_type: str, score: float = 0.5) -> str:
     """渲染事件类型徽章"""
     color_map = {
+        "radar_pattern": ("📊", "#2563eb", "rgba(37,99,235,0.1)"),
         "pattern": ("📊", "#2563eb", "rgba(37,99,235,0.1)"),
+        "radar_data_distribution_shift": ("📉", "#9333ea", "rgba(147,51,234,0.1)"),
         "drift": ("📉", "#9333ea", "rgba(147,51,234,0.1)"),
+        "radar_anomaly": ("⚡", "#dc2626", "rgba(220,38,38,0.1)"),
         "anomaly": ("⚡", "#dc2626", "rgba(220,38,38,0.1)"),
+        "radar_sector_anomaly": ("🔥", "#ef4444", "rgba(239,68,68,0.1)"),
         "sector_anomaly": ("🔥", "#ef4444", "rgba(239,68,68,0.1)"),
         "sector_hotspot": ("🔥", "#ef4444", "rgba(239,68,68,0.1)"),
     }
 
     icon, color, bg = color_map.get(event_type, ("📌", "#6b7280", "rgba(107,114,128,0.1)"))
 
-    if event_type == "sector_anomaly":
+    if event_type == "sector_anomaly" or event_type == "radar_sector_anomaly":
         label = "板块联动"
     elif event_type == "sector_hotspot":
         label = "板块热点"
+    elif event_type == "radar_data_distribution_shift":
+        label = "数据漂移"
+    elif event_type == "radar_pattern":
+        label = "模式"
+    elif event_type == "radar_anomaly":
+        label = "异常"
     else:
         label = event_type
 
@@ -93,10 +103,10 @@ class RadarUI:
 
         engine_status = "🟢 运行中" if self.engine else "🔴 已停止"
 
-        pattern_count = type_counts.get("pattern", 0)
-        drift_count = type_counts.get("drift", 0)
-        anomaly_count = type_counts.get("anomaly", 0)
-        sector_count = type_counts.get("sector_anomaly", 0) + type_counts.get("sector_hotspot", 0)
+        pattern_count = type_counts.get("radar_pattern", 0) + type_counts.get("pattern", 0)
+        drift_count = type_counts.get("radar_data_distribution_shift", 0) + type_counts.get("drift", 0)
+        anomaly_count = type_counts.get("radar_anomaly", 0) + type_counts.get("anomaly", 0)
+        sector_count = type_counts.get("radar_sector_anomaly", 0) + type_counts.get("sector_anomaly", 0) + type_counts.get("sector_hotspot", 0)
 
         put_html(f"""
         <div style="
