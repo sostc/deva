@@ -1,21 +1,19 @@
 """
 Attention Orchestrator - 兼容层
 
-此文件已废弃，请使用 deva.naja.attention.center
-新的 AttentionCenter 替代了旧的 AttentionOrchestrator
-
-此文件将在未来版本中移除
+此类名已从 AttentionCenter 重命名为 AttentionOrchestrator
 """
 
 import warnings
 warnings.warn(
     "deva.naja.attention.orchestrator 模块已废弃 "
-    "请使用 'from deva.naja.attention import AttentionCenter, get_orchestrator'",
+    "请使用 'from deva.naja.attention import AttentionOrchestrator, get_orchestrator'",
     DeprecationWarning,
     stacklevel=2
 )
 
 from deva.naja.attention.center import (
+    AttentionOrchestrator,
     AttentionCenter,
     Orchestrator,
     get_orchestrator as _get_orchestrator,
@@ -35,4 +33,7 @@ def get_orchestrator():
 
 __all__ = [
     "get_orchestrator",
+    "AttentionOrchestrator",
+    "AttentionCenter",
+    "Orchestrator",
 ]
