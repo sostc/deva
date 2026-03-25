@@ -78,62 +78,72 @@ class SemanticColdStart:
 
     def apply_graph_payload(self, payload: Dict[str, Any]) -> Dict[str, Any]:
         """Normalize LLM output into internal graph with weights and decay."""
+        import logging
+        logger = logging.getLogger(__name__)
+
         if not payload:
             return self.graph
 
-        seeds = payload.get("seeds") or self.seeds
-        nodes_payload = payload.get("nodes") or []
-        edges_payload = payload.get("edges") or []
-        decay_payload = payload.get("industry_decay") or []
+        backup_graph = dict(self.graph)
 
-        decay_map = {d.get("term"): float(d.get("lambda", self.default_lambda)) for d in decay_payload if d.get("term")}
-        decay_map.update(self.industry_lambdas)
+        try:
+            seeds = payload.get("seeds") or self.seeds
+            nodes_payload = payload.get("nodes") or []
+            edges_payload = payload.get("edges") or []
+            decay_payload = payload.get("industry_decay") or []
 
-        nodes: List[Dict[str, Any]] = []
-        now_ts = time.time()
-        for item in nodes_payload:
-            term = str(item.get("term", "")).strip()
-            if not term:
-                continue
-            confidence = float(item.get("confidence", 0.0) or 0.0)
-            historical = float(item.get("historical_relevance", 0.3) or 0.3)
-            weight = 0.6 * historical + 0.4 * confidence
-            decay_lambda = float(decay_map.get(term, self.default_lambda))
-            node = SemanticNode(
-                term=term,
-                level=int(item.get("level", 0) or 0),
-                relation=str(item.get("relation", "")),
-                confidence=confidence,
-                weight=round(weight, 4),
-                decay_lambda=decay_lambda,
-                last_seen_ts=now_ts,
-                meta={k: v for k, v in item.items() if k not in {"term", "level", "relation", "confidence", "historical_relevance"}},
-            )
-            nodes.append(node.__dict__)
+            decay_map = {d.get("term"): float(d.get("lambda", self.default_lambda)) for d in decay_payload if d.get("term")}
+            decay_map.update(self.industry_lambdas)
 
-        edges: List[Dict[str, Any]] = []
-        for item in edges_payload:
-            src = str(item.get("from", "")).strip()
-            dst = str(item.get("to", "")).strip()
-            if not src or not dst:
-                continue
-            edge = SemanticEdge(
-                src=src,
-                dst=dst,
-                relation=str(item.get("type", item.get("relation", "related"))),
-                weight=float(item.get("weight", 0.3) or 0.3),
-                meta={k: v for k, v in item.items() if k not in {"from", "to", "type", "relation", "weight"}},
-            )
-            edges.append(edge.__dict__)
+            nodes: List[Dict[str, Any]] = []
+            now_ts = time.time()
+            for item in nodes_payload:
+                term = str(item.get("term", "")).strip()
+                if not term:
+                    continue
+                confidence = float(item.get("confidence", 0.0) or 0.0)
+                historical = float(item.get("historical_relevance", 0.3) or 0.3)
+                weight = 0.6 * historical + 0.4 * confidence
+                decay_lambda = float(decay_map.get(term, self.default_lambda))
+                node = SemanticNode(
+                    term=term,
+                    level=int(item.get("level", 0) or 0),
+                    relation=str(item.get("relation", "")),
+                    confidence=confidence,
+                    weight=round(weight, 4),
+                    decay_lambda=decay_lambda,
+                    last_seen_ts=now_ts,
+                    meta={k: v for k, v in item.items() if k not in {"term", "level", "relation", "confidence", "historical_relevance"}},
+                )
+                nodes.append(node.__dict__)
 
-        self.graph = {
-            "seeds": list(seeds),
-            "nodes": nodes,
-            "edges": edges,
-            "industry_decay": [{"term": k, "lambda": v} for k, v in decay_map.items()],
-            "created_at": payload.get("created_at", now_ts),
-        }
-        return self.graph
+            edges: List[Dict[str, Any]] = []
+            for item in edges_payload:
+                src = str(item.get("from", "")).strip()
+                dst = str(item.get("to", "")).strip()
+                if not src or not dst:
+                    continue
+                edge = SemanticEdge(
+                    src=src,
+                    dst=dst,
+                    relation=str(item.get("type", item.get("relation", "related"))),
+                    weight=float(item.get("weight", 0.3) or 0.3),
+                    meta={k: v for k, v in item.items() if k not in {"from", "to", "type", "relation", "weight"}},
+                )
+                edges.append(edge.__dict__)
+
+            self.graph = {
+                "seeds": list(seeds),
+                "nodes": nodes,
+                "edges": edges,
+                "industry_decay": [{"term": k, "lambda": v} for k, v in decay_map.items()],
+                "created_at": payload.get("created_at", now_ts),
+            }
+            return self.graph
+        except Exception as e:
+            logger.warning(f"[SemanticColdStart] 解析图谱 payload 失败，恢复之前的图谱: {e}")
+            self.graph = backup_graph
+            return self.graph
 
     def get_summary(self, limit: int = 10) -> Dict[str, Any]:
         nodes = list(self.graph.get("nodes", []))

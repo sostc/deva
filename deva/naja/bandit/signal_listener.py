@@ -15,6 +15,7 @@ from deva import NB
 
 from ..signal.stream import get_signal_stream
 from ..strategy.result_store import StrategyResult
+from ..radar.trading_clock import TRADING_CLOCK_STREAM
 
 log = logging.getLogger(__name__)
 
@@ -51,18 +52,21 @@ class SignalListener:
         self._running = False
         self._thread: Optional[threading.Thread] = None
         self._stop_event = threading.Event()
-        
+
         self._signal_stream = get_signal_stream()
         self._last_processed_ts = 0.0
-        
+
         self._callbacks: List[Callable[[DetectedSignal], None]] = []
-        
+
         self._poll_interval = 2.0
         self._min_confidence = 0.6
-        
+        self._force_mode = False
+
         self._processed_signals: Dict[str, float] = {}
         self._max_processed = 1000
-        
+
+        self._current_phase: str = 'closed'
+
         self._load_config()
     
     def _load_config(self):
@@ -108,16 +112,53 @@ class SignalListener:
         if self._running and self._thread and self._thread.is_alive():
             log.warning("SignalListener 已在运行")
             return
-        
+
         self._running = True
         self._stop_event.clear()
-        
+
+        TRADING_CLOCK_STREAM.sink(self._on_trading_clock_signal)
+        log.info("SignalListener 已订阅交易时钟信号")
+
         self._thread = threading.Thread(target=self._run_loop, daemon=True)
         self._thread.start()
-        
-        self._save_config()  # 保存运行状态
+
+        self._save_config()
 
         log.debug(f"SignalListener 已启动 (轮询间隔: {self._poll_interval}s)")
+
+    def _on_trading_clock_signal(self, signal: Dict[str, Any]):
+        """处理交易时钟信号"""
+        signal_type = signal.get('type')
+        phase = signal.get('phase')
+
+        if signal_type == 'current_state':
+            self._current_phase = phase
+        elif signal_type == 'phase_change':
+            self._current_phase = phase
+            if phase in ('trading', 'pre_market'):
+                log.debug(f"[SignalListener] 进入交易时段")
+            else:
+                log.debug(f"[SignalListener] 退出交易时段")
+
+    def _is_experiment_mode(self) -> bool:
+        """检查是否处于实验模式"""
+        try:
+            from deva.naja.strategy import get_strategy_manager
+            mgr = get_strategy_manager()
+            experiment_info = mgr.get_experiment_info()
+            return experiment_info.get("active", False)
+        except Exception:
+            return False
+
+    def _is_allowed_to_run(self) -> bool:
+        """检查是否允许运行"""
+        if self._force_mode:
+            return True
+        if self._is_experiment_mode():
+            return True
+        if self._current_phase in ('trading', 'pre_market'):
+            return True
+        return False
     
     def stop(self):
         """停止监听"""
@@ -138,10 +179,11 @@ class SignalListener:
         """主循环"""
         while self._running and not self._stop_event.is_set():
             try:
-                self._process_signals()
+                if self._is_allowed_to_run():
+                    self._process_signals()
             except Exception as e:
                 log.error(f"SignalListener 处理错误: {e}")
-            
+
             self._stop_event.wait(self._poll_interval)
     
     def _process_signals(self):

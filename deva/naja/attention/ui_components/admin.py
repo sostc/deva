@@ -37,6 +37,14 @@ async def render_attention_admin(ctx: dict):
         render_multi_threshold_timeline, render_attention_changes, render_recent_signals,
     )
     from .intelligence import render_intelligence_panels
+    from .flow import (
+        render_attention_flow_ui,
+        render_attention_layers_detail,
+        render_data_frequency_panel,
+        render_noise_filter_panel,
+        render_strategy_status_panel,
+        render_dual_engine_panel,
+    )
 
     attention_initialized = is_attention_initialized()
 
@@ -146,7 +154,6 @@ async def render_attention_admin(ctx: dict):
             fetcher_running = fetcher.get('running', False)
             is_trading = fetcher.get('is_trading', False)
             fetcher_status_icon = "🟢" if fetcher_running else "🔴"
-            trading_icon = "✅" if is_trading else "⏰"
 
             current_time = fetcher.get('current_time', '')
             weekday = fetcher.get('weekday', '')
@@ -239,6 +246,24 @@ async def render_attention_admin(ctx: dict):
     with use_scope("attention_market_state"):
         put_html(render_market_state_panel())
 
+    with use_scope("attention_flow"):
+        put_html(render_attention_flow_ui())
+
+    with use_scope("attention_layers"):
+        put_html(render_attention_layers_detail())
+
+    with use_scope("attention_frequency_panel"):
+        put_html(render_data_frequency_panel())
+
+    with use_scope("attention_noise"):
+        put_html(render_noise_filter_panel())
+
+    with use_scope("attention_strategy"):
+        put_html(render_strategy_status_panel())
+
+    with use_scope("attention_dual_engine"):
+        put_html(render_dual_engine_panel())
+
     with use_scope("attention_shift"):
         shift_report = _get_attention_shift_report_impl()
         put_html(render_attention_shift_report(shift_report))
@@ -252,54 +277,13 @@ async def render_attention_admin(ctx: dict):
     with use_scope("attention_intelligence"):
         put_html(render_intelligence_panels())
 
+    put_text("")
+
     with use_scope("attention_sector_micro"):
         put_html(_render_micro_change_indicator())
 
     put_text("")
 
-    with use_scope("attention_frequency"):
-        freq_html = render_frequency_distribution(freq_summary)
-        dual_html = render_dual_engine_status(dual_summary)
-        noise_html = render_noise_filter_status()
-        pattern_html = _get_pytorch_patterns_html()
-        changes_html = _get_attention_changes_html()
-
-        tech_summary = f"River: {river_processed:,}处理/{river_anomalies:,}异常 | PyTorch: {pytorch_inferences:,}推理 | 噪音: {noise_filtered:,}过滤"
-        technical_debug_html = f"""
-        <details style="margin-top: 12px;">
-            <summary style="cursor: pointer; padding: 8px 12px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; font-weight: 500; color: #64748b; font-size: 12px; user-select: none;">
-                🔧 技术调试 <span style="font-size: 11px; color: #94a3b8;">({tech_summary})</span>
-            </summary>
-            <div style="padding: 12px; background: white; border: 1px solid #e2e8f0; border-top: none; border-radius: 0 0 6px 6px;">
-                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
-                    <div style="padding: 12px; background: #f8fafc; border-radius: 6px;">
-                        <div style="font-size: 11px; color: #94a3b8; margin-bottom: 8px;">📊 频率分布</div>
-                        {freq_html}
-                    </div>
-                    <div style="padding: 12px; background: #f8fafc; border-radius: 6px;">
-                        <div style="font-size: 11px; color: #94a3b8; margin-bottom: 8px;">⚙️ 双引擎状态</div>
-                        {dual_html}
-                    </div>
-                    <div style="padding: 12px; background: #f8fafc; border-radius: 6px;">
-                        <div style="font-size: 11px; color: #94a3b8; margin-bottom: 8px;">🔇 噪音过滤</div>
-                        {noise_html}
-                    </div>
-                    <div style="padding: 12px; background: #f8fafc; border-radius: 6px;">
-                        <div style="font-size: 11px; color: #94a3b8; margin-bottom: 8px;">🔥 PyTorch 模式</div>
-                        {pattern_html}
-                    </div>
-                    <div style="grid-column: span 2; padding: 12px; background: #f8fafc; border-radius: 6px;">
-                        <div style="font-size: 11px; color: #94a3b8; margin-bottom: 8px;">📈 个股变化记录</div>
-                        {changes_html}
-                    </div>
-                </div>
-            </div>
-        </details>
-        """
-        put_html(technical_debug_html)
-
-    put_html("<hr>")
-    put_text("")
     put_row([
         put_button("🔍 运行诊断", onclick=lambda: _run_diagnostic(), small=True),
         put_button("🔇 噪音过滤管理", onclick=lambda: _manage_noise_filter(), small=True, color="info"),

@@ -527,6 +527,7 @@ class LLMReflectionEngine:
                 "confidence": reflection.confidence,
                 "actionability": reflection.actionability,
                 "system_attention": reflection.novelty,
+                "novelty": reflection.novelty,
                 "source": f"llm_reflection:{reflection.id}",
                 "signal_type": "llm_reflection",
                 "payload": reflection.to_dict(),

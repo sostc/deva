@@ -227,6 +227,9 @@ class AttentionSystem:
         self._realtime_fetcher = RealtimeDataFetcher(self, config)
         self._realtime_fetcher.start()
 
+        from deva.naja.attention.realtime_data_fetcher import set_data_fetcher
+        set_data_fetcher(self._realtime_fetcher)
+
         log.info("[AttentionSystem] 实盘获取器已启动")
 
     def stop_realtime_fetcher(self):
