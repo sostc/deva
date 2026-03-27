@@ -1,0 +1,54 @@
+config:
+  compute_mode: record
+  handler_type: memory
+  strategy_type: declarative
+  window_type: sliding
+func_code: "\"\"\"\n新闻舆情记忆策略 - 实时记忆系统\n\n流式学习 + 分层记忆 + 周期性自我反思\n实时分析tick、新闻、文本数据，生成主题信号和注意力信号\n\
+  \"\"\"\n\nimport sys\nsys.path.insert(0, '/Users/spark/pycharmproject/deva')\n\n\
+  from deva.naja.cognition import get_cognition_engine\n\n_radar = get_cognition_engine()\n\
+  \ndef process(data):\n    \"\"\"\n    处理单条记录（naja策略接口）\n\n    Args:\n        data:\
+  \ 数据源记录\n\n    Returns:\n        信号列表或处理结果\n    \"\"\"\n    if data is None:\n \
+  \       return None\n\n    signals = _radar.process_record(data)\n\n    for signal\
+  \ in signals:\n        print(f\"[NEWS_MEMORY_SIGNAL] {signal.get('type', 'unknown')}:\
+  \ {signal.get('message', signal.get('content', ''))}\")\n\n    return {\n      \
+  \  \"signals\": signals,\n        \"stats\": _radar.get_memory_report(),\n    }\n\
+  \ndef process_window(records):\n    \"\"\"\n    处理窗口数据\n\n    Args:\n        records:\
+  \ 记录列表\n\n    Returns:\n        处理结果\n    \"\"\"\n    signals = _radar.process_window(records)\n\
+  \    return {\n        \"signals\": signals,\n        \"window_size\": len(records)\
+  \ if records else 0,\n        \"stats\": _radar.get_memory_report(),\n    }\n\n\
+  def get_report():\n    \"\"\"获取记忆报告\"\"\"\n    return _radar.get_memory_report()\n\
+  \ndef get_thought_report():\n    \"\"\"获取思想报告\"\"\"\n    return _radar.generate_thought_report()\n"
+metadata:
+  bound_datasource_id: e36125c8056c
+  bound_datasource_ids:
+  - e36125c8056c
+  category: 舆情记忆
+  compute_mode: record
+  created_at: 1773158826.178026
+  description: 流式学习 + 分层记忆 + 周期性自我反思。实时分析tick、新闻、文本数据，生成主题信号和注意力信号。
+  dictionary_profile_ids: []
+  enabled: true
+  func_code_file: ''
+  handler_type: memory
+  id: 1f9179d5a528
+  max_history_count: 100
+  name: 新闻舆情记忆
+  source: file
+  strategy_type: declarative
+  tags:
+  - 记忆
+  - 主题分析
+  - 注意力
+  - 流式学习
+  - River
+  updated_at: 1774627248.382981
+  version: 154
+  window_interval: 10s
+  window_return_partial: false
+  window_size: 5
+  window_type: sliding
+parameters:
+  enabled: true
+  max_history_count: 100
+  window_interval: 10s
+  window_size: 5

@@ -1,40 +1,36 @@
-"""策略执行结果存储模块
+"""策略执行结果存储模块 - 流式改造版
 
-提供策略执行结果的存储、查询和导出功能。
+架构设计：
+1. 热数据：SignalStream 内存流（实时处理用）
+2. 错误日志：JSON Lines 文件（按天存放，顺序写）
+3. 统计：内存增量统计（无持久化，需要可从日志重建）
+
+移除：SQLite 批量写入
 """
 
 from __future__ import annotations
 
+import gzip
 import json
+import logging
+import os
 import threading
 import time
 from collections import deque
-from queue import Queue
 from dataclasses import dataclass, field
 from datetime import datetime
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from deva import NB
+
+logger = logging.getLogger(__name__)
 
 try:
     from ..log_stream import get_log_stream, log_strategy
     LOG_STREAM_AVAILABLE = True
 except ImportError:
     LOG_STREAM_AVAILABLE = False
-
-# 尝试导入锁监控模块
-try:
-    from ..performance.lock_monitor import LockMonitor, MonitoredLock, enable_lock_monitoring, disable_lock_monitoring
-    LOCK_MONITOR_AVAILABLE = True
-except ImportError:
-    LOCK_MONITOR_AVAILABLE = False
-
-# 尝试导入性能监控模块
-try:
-    from ..performance import record_component_execution, ComponentType
-    PERFORMANCE_MONITOR_AVAILABLE = True
-except ImportError:
-    PERFORMANCE_MONITOR_AVAILABLE = False
 
 
 @dataclass
@@ -51,16 +47,15 @@ class StrategyResult:
     process_time_ms: float = 0
     error: str = ""
     metadata: Dict = field(default_factory=dict)
-    
-    def to_dict(self) -> dict:
-        """序列化为用于持久化/传输的精简字典。
 
-        设计目标：
-        - 始终包含元信息与 preview（input/output_preview）
-        - 默认不持久化 output_full，避免占用大量磁盘空间
-          （完整结果在内存和下游组件中使用，如 SignalStream / Radar / Memory）
-        """
-        result = {
+    priority: float = 0.5
+    attention_score: float = 0.0
+    matches_attention_focus: bool = False
+    matches_held_symbol: bool = False
+    tags: List[str] = field(default_factory=list)
+
+    def to_dict(self) -> dict:
+        return {
             "id": self.id,
             "strategy_id": self.strategy_id,
             "strategy_name": self.strategy_name,
@@ -72,9 +67,13 @@ class StrategyResult:
             "process_time_ms": self.process_time_ms,
             "error": self.error,
             "metadata": self.metadata,
+            "priority": self.priority,
+            "attention_score": self.attention_score,
+            "matches_attention_focus": self.matches_attention_focus,
+            "matches_held_symbol": self.matches_held_symbol,
+            "tags": self.tags,
         }
-        return result
-    
+
     def to_summary(self) -> dict:
         return {
             "id": self.id,
@@ -84,15 +83,113 @@ class StrategyResult:
             "success": self.success,
             "process_time_ms": self.process_time_ms,
             "error": self.error[:100] if self.error else "",
+            "priority": self.priority,
         }
 
+    def get_symbol(self) -> str:
+        """从 output_full 或 metadata 中提取股票代码"""
+        if self.output_full and isinstance(self.output_full, dict):
+            return self.output_full.get("symbol", "") or self.output_full.get("stock_code", "")
+        if isinstance(self.metadata, dict):
+            return self.metadata.get("symbol", "") or self.metadata.get("stock_code", "")
+        return ""
 
-class ResultStore:
-    """策略执行结果存储器"""
-    
+    def get_sector(self) -> str:
+        """从 output_full 或 metadata 中提取板块信息"""
+        if self.output_full and isinstance(self.output_full, dict):
+            return self.output_full.get("sector", "") or self.output_full.get("industry", "")
+        if isinstance(self.metadata, dict):
+            return self.metadata.get("sector", "") or self.metadata.get("industry", "")
+        return ""
+
+    def get_score(self) -> float:
+        """从 output_full 或 metadata 中提取信号分数"""
+        if self.output_full and isinstance(self.output_full, dict):
+            return float(self.output_full.get("score", 0.5))
+        if isinstance(self.metadata, dict):
+            return float(self.metadata.get("score", 0.5))
+        return 0.5
+
+    def compute_priority(self, query_state) -> float:
+        """根据 QueryState 计算信号优先级
+
+        Args:
+            query_state: QueryState 实例，包含:
+                - attention_focus: dict{sector/symbol: weight}
+                - portfolio_state: dict{held_symbols: [...]}
+                - market_regime: dict{type: str}
+
+        Returns:
+            float: 优先级 [0, 1]
+        """
+        priority = self.get_score()
+
+        if query_state:
+            attention_focus = getattr(query_state, 'attention_focus', {}) or {}
+            portfolio_state = getattr(query_state, 'portfolio_state', {}) or {}
+            market_regime = getattr(query_state, 'market_regime', {}) or {}
+
+            symbol = self.get_symbol()
+            sector = self.get_sector()
+
+            held_symbols = set(portfolio_state.get("held_symbols", []))
+            if symbol and symbol in held_symbols:
+                priority *= 0.3
+                self.matches_held_symbol = True
+                self.tags.append("already_held")
+
+            if attention_focus:
+                max_focus_weight = 0.0
+                for focus_key, focus_weight in attention_focus.items():
+                    if focus_key == symbol or focus_key == sector:
+                        max_focus_weight = max(max_focus_weight, focus_weight)
+
+                if max_focus_weight > 0:
+                    priority *= (1 + max_focus_weight * 0.5)
+                    self.matches_attention_focus = True
+                    self.tags.append("attention_focus")
+
+            regime_type = market_regime.get("type", "neutral") if isinstance(market_regime, dict) else "neutral"
+            if regime_type in ("trend_up", "trend_down"):
+                priority *= 1.2
+                self.tags.append(f"regime_{regime_type}")
+
+            global_attention = getattr(query_state, '_last_global_attention', None)
+            if global_attention is not None and global_attention < 0.3:
+                priority *= 0.7
+                self.tags.append("low_attention_period")
+
+        self.priority = max(0.0, min(1.0, priority))
+        return self.priority
+
+
+class StreamResultStore:
+    """流式策略结果存储器
+
+    设计原则：
+    - 热数据走 SignalStream（内存），不落盘
+    - 错误日志走文件（JSON Lines），按天切分
+    - 统计用内存增量计算，不持久化
+
+    ================================================================================
+    单例模式说明：为什么使用单例
+    ================================================================================
+    1. 资源管理：StreamResultStore 持有数据库连接（NB）和日志文件句柄，这些是
+       操作系统资源，多个实例会导致资源浪费和竞争。
+
+    2. 全局唯一性：策略执行结果应该只有一份，所有地方看到的结果应该一致。如果
+       存在多个实例，可能导致结果不一致。
+
+    3. 生命周期：ResultStore 的生命周期与系统一致，随系统启动和关闭。
+
+    4. 依赖注入支持：如需测试，可以设置 _signal_stream/_radar_engine/_insight_engine
+       等属性来注入 mock 对象。
+    ================================================================================
+    """
+
     _instance = None
     _lock = threading.Lock()
-    
+
     def __new__(cls):
         if cls._instance is None:
             with cls._lock:
@@ -100,187 +197,75 @@ class ResultStore:
                     cls._instance = super().__new__(cls)
                     cls._instance._initialized = False
         return cls._instance
-    
+
     def __init__(self):
-        if self._initialized:
+        if getattr(self, "_initialized", False):
             return
-        
+
         self._cache: Dict[str, deque] = {}
-        self._db = NB("naja_strategy_results")
-        self._index_db = NB("naja_result_index")  # 用于存储反向索引
+        self._max_cache_size = 200
+
         self._stats = {
             "total_results": 0,
             "total_success": 0,
             "total_failed": 0,
             "total_process_time_ms": 0,
         }
-        
-        # 使用可监控的锁
-        if LOCK_MONITOR_AVAILABLE:
-            self._data_lock = MonitoredLock("ResultStore._data_lock")
-        else:
-            self._data_lock = threading.RLock()
-        
-        # 统计缓存
-        self._stats_cache = None
-        self._stats_cache_time = 0
-        self._stats_cache_ttl = 2.0  # 缓存2秒
-        
-        # 异步写入相关
-        self._write_queue = Queue(maxsize=10000)
-        self._write_thread = threading.Thread(target=self._process_write_queue, daemon=True)
-        self._write_thread.start()
-        
-        # 缓存管理
-        self._max_cache_size = 100
-        self._cache_stats = {}
-        self._cache_cleanup_interval = 60  # 60秒
-        self._last_cache_cleanup = time.time()
-        
-        # 数据清理管理
-        self._data_cleanup_interval = 3600  # 1小时
-        self._last_data_cleanup = time.time()
-        
-        # 写入速率限制
-        self._write_rate_limit = 1000
-        self._writes_in_period = 0
-        self._last_rate_check = time.time()
-        
-        # 监控和限流
-        self._monitoring = {
-            'write_queue_size': 0,
-            'write_rate': 0,
-            'last_write_time': 0,
-            'total_writes': 0,
-            'failed_writes': 0
-        }
-        self._max_queue_size = 10000  # 最大队列大小
-        self._max_history_days = 7  # 默认保留7天数据
-        
-        # 启动缓存清理线程（只启动一次）
-        self._cache_cleanup_thread = threading.Thread(target=self._cleanup_cache, daemon=True)
-        self._cache_cleanup_thread.start()
-        
-        # 启动数据清理线程（只启动一次）
-        self._data_cleanup_thread = threading.Thread(target=self._cleanup_data, daemon=True)
-        self._data_cleanup_thread.start()
+        self._stats_lock = threading.Lock()
 
-        # 启动健康状态监控线程（接入 PerformanceMonitor 统一监控）
-        self._health_check_interval = 30  # 30秒检查一次
-        self._health_thread = threading.Thread(target=self._monitor_health, daemon=True)
-        self._health_thread.start()
+        self._log_dir = self._get_log_dir()
+        self._current_log_file: Optional[str] = None
+        self._current_log_handle: Optional[Any] = None
+        self._log_lock = threading.Lock()
 
         self._initialized = True
-    
-    def _get_cached_stats(self) -> dict:
-        """获取缓存的统计数据（带缓存机制）- 非阻塞版本"""
-        import time
-        now = time.time()
-        
-        # 检查缓存是否有效（优先使用缓存）
-        if self._stats_cache is not None and (now - self._stats_cache_time) < self._stats_cache_ttl:
-            return self._stats_cache
-        
-        # 尝试非阻塞获取锁
-        wait_start = time.time()
-        acquired = self._data_lock.acquire(blocking=False)
-        wait_time = (time.time() - wait_start) * 1000  # 转换为毫秒
-        
-        # 记录锁等待性能（只有超过阈值才记录，避免干扰）
-        if wait_time > 10 and LOCK_MONITOR_AVAILABLE and LockMonitor.is_enabled():
-            try:
-                from ..performance import record_lock_wait
-                record_lock_wait(
-                    lock_name="ResultStore_stats",
-                    wait_time_ms=wait_time,
-                    operation="get_stats",
-                )
-            except Exception:
-                pass
-        
-        if acquired:
-            try:
-                stats = dict(self._stats)
-                self._stats_cache = stats
-                self._stats_cache_time = now
-                return stats
-            finally:
-                self._data_lock.release()
-        else:
-            # 如果无法获取锁，返回过期的缓存（避免阻塞）
-            if self._stats_cache is not None:
-                return self._stats_cache
-            
-            # 如果没有缓存，强制获取锁
-            wait_start = time.time()
-            with self._data_lock:
-                wait_time = (time.time() - wait_start) * 1000
-                # 记录锁等待性能
-                if wait_time > 10 and LOCK_MONITOR_AVAILABLE and LockMonitor.is_enabled():
-                    try:
-                        from ..performance import record_lock_wait
-                        record_lock_wait(
-                            lock_name="ResultStore_stats",
-                            wait_time_ms=wait_time,
-                            operation="get_stats_fallback",
-                        )
-                    except Exception:
-                        pass
-                
-                stats = dict(self._stats)
-                self._stats_cache = stats
-                self._stats_cache_time = now
-                return stats
-    
-    def _invalidate_stats_cache(self):
-        """使统计缓存失效"""
-        self._stats_cache = None
+        logger.info(f"StreamResultStore 初始化，日志目录: {self._log_dir}")
 
-    def get_health_summary(self, stale_seconds: int = 300) -> Dict[str, Any]:
-        """获取结果存储健康摘要"""
-        now = time.time()
-        last_write = self._monitoring.get("last_write_time", 0) or 0
-        seconds_since_write = now - last_write if last_write > 0 else None
+    def _get_log_dir(self) -> str:
+        """获取日志目录"""
+        base_dir = os.path.expanduser("~/.deva/naja_logs")
+        log_dir = os.path.join(base_dir, "results")
+        Path(log_dir).mkdir(parents=True, exist_ok=True)
+        return log_dir
 
-        return {
-            "last_write_time": last_write,
-            "seconds_since_write": seconds_since_write,
-            "has_recent_writes": seconds_since_write is not None and seconds_since_write <= stale_seconds,
-            "write_queue_size": self._monitoring.get("write_queue_size", 0),
-            "write_rate": self._monitoring.get("write_rate", 0),
-            "total_writes": self._monitoring.get("total_writes", 0),
-            "failed_writes": self._monitoring.get("failed_writes", 0),
-        }
+    def _get_log_filename(self, ts: float = None) -> str:
+        """获取指定时间的日志文件名"""
+        if ts is None:
+            ts = time.time()
+        date_str = datetime.fromtimestamp(ts).strftime("%Y-%m-%d")
+        return os.path.join(self._log_dir, f"naja_results_{date_str}.log")
 
-    def should_alert_no_writes(
-        self,
-        stale_seconds: int = 300,
-        cooldown_seconds: int = 300,
-    ) -> Dict[str, Any]:
-        """判断是否需要触发无写入告警（带冷却）"""
-        now = time.time()
-        last_write = self._monitoring.get("last_write_time", 0) or 0
+    def _rotate_log_if_needed(self, ts: float = None):
+        """检查是否需要切换日志文件（按天切分）"""
+        new_filename = self._get_log_filename(ts)
+        if new_filename != self._current_log_file:
+            if self._current_log_handle:
+                try:
+                    self._current_log_handle.close()
+                except Exception:
+                    pass
+            self._current_log_file = new_filename
+            self._current_log_handle = open(new_filename, "a", buffering=1, encoding="utf-8")
+            logger.info(f"日志文件切换: {new_filename}")
 
-        if last_write == 0:
-            seconds_since_write = None
-        else:
-            seconds_since_write = now - last_write
+    def _write_log(self, record: dict):
+        """写入日志（线程安全，顺序写）"""
+        ts = record.get("ts", time.time())
+        self._rotate_log_if_needed(ts)
 
-        if seconds_since_write is None or seconds_since_write < stale_seconds:
-            return {"should_alert": False, "seconds_since_write": seconds_since_write}
+        with self._log_lock:
+            if self._current_log_handle:
+                try:
+                    self._current_log_handle.write(json.dumps(record, ensure_ascii=False) + "\n")
+                    self._current_log_handle.flush()
+                except Exception as e:
+                    logger.error(f"写入日志失败: {e}")
 
-        last_alert = self._monitoring.get("last_alert_time", 0) or 0
-        if now - last_alert < cooldown_seconds:
-            return {"should_alert": False, "seconds_since_write": seconds_since_write}
-
-        self._monitoring["last_alert_time"] = now
-        return {"should_alert": True, "seconds_since_write": seconds_since_write}
-    
     def _generate_id(self, strategy_id: str, ts: float) -> str:
         import hashlib
         hash_input = f"{strategy_id}_{ts}_{time.time()}".encode()
         return hashlib.md5(hash_input).hexdigest()[:12]
-    
+
     def _truncate_preview(self, data: Any, max_len: int = 500) -> str:
         if data is None:
             return ""
@@ -301,195 +286,6 @@ class ResultStore:
             return preview[:max_len] + "..." if len(preview) > max_len else preview
         except Exception:
             return str(type(data))
-    
-    def _process_write_queue(self):
-        """后台线程处理写入队列（支持批量写入）"""
-        batch_size = 100
-        batch_timeout = 1.0  # 1秒超时
-        batch = []
-        last_batch_time = time.time()
-        
-        while True:
-            try:
-                # 非阻塞获取队列中的数据
-                try:
-                    item = self._write_queue.get(block=False)
-                    if item is None:
-                        break
-                    batch.append(item)
-                    last_batch_time = time.time()
-                except Exception:
-                    # 队列为空，检查是否需要执行批量写入
-                    if batch and (len(batch) >= batch_size or time.time() - last_batch_time >= batch_timeout):
-                        # 执行批量写入
-                        self._batch_write(batch)
-                        batch = []
-                        last_batch_time = time.time()
-                    else:
-                        # 短暂休眠，避免CPU空转
-                        time.sleep(0.01)
-                        continue
-                
-                # 检查是否达到批量大小
-                if len(batch) >= batch_size:
-                    self._batch_write(batch)
-                    batch = []
-                    last_batch_time = time.time()
-            except Exception as e:
-                # 线程异常，记录并继续运行
-                self._monitoring['failed_writes'] += 1
-                time.sleep(0.1)
-    
-    def _batch_write(self, batch):
-        """批量写入数据"""
-        try:
-            # 构建批量更新的映射
-            batch_data = {}
-            index_data = {}
-            for item in batch:
-                strategy_id, result_id, result_dict = item
-                key = f"{strategy_id}:{result_id}"
-                batch_data[key] = result_dict
-                # 创建反向索引：result_id -> key
-                index_data[f"id:{result_id}"] = key
-            
-            # 使用 bulk_update 进行真正的批量写入
-            if batch_data:
-                self._db.bulk_update(batch_data)
-            
-            # 批量更新索引
-            if index_data:
-                self._index_db.bulk_update(index_data)
-            
-            # 标记所有任务完成
-            for _ in batch:
-                self._write_queue.task_done()
-        except Exception as e:
-            # 批量写入失败，记录失败次数并确保所有任务都被标记为完成
-            self._monitoring['failed_writes'] += len(batch)
-            for _ in batch:
-                self._write_queue.task_done()
-    
-    def _cleanup_cache(self):
-        """定期清理缓存"""
-        while True:
-            try:
-                time.sleep(self._cache_cleanup_interval)
-                
-                current_time = time.time()
-                if current_time - self._last_cache_cleanup < self._cache_cleanup_interval:
-                    continue
-                
-                self._last_cache_cleanup = current_time
-                
-                with self._data_lock:
-                    # 清理长时间未使用的缓存
-                    for strategy_id in list(self._cache.keys()):
-                        if strategy_id not in self._cache_stats:
-                            # 从未使用过的缓存，清理掉
-                            del self._cache[strategy_id]
-                            continue
-                        
-                        last_access = self._cache_stats.get(strategy_id, {}).get('last_access', 0)
-                        if current_time - last_access > 3600:  # 1小时未使用
-                            del self._cache[strategy_id]
-                            if strategy_id in self._cache_stats:
-                                del self._cache_stats[strategy_id]
-            except Exception:
-                # 清理线程异常，继续运行
-                time.sleep(1)
-    
-    def _cleanup_data(self):
-        """定期清理过期数据"""
-        while True:
-            try:
-                time.sleep(self._data_cleanup_interval)
-                
-                current_time = time.time()
-                if current_time - self._last_data_cleanup < self._data_cleanup_interval:
-                    continue
-                
-                self._last_data_cleanup = current_time
-                
-                # 计算过期时间戳（7天前）
-                expire_ts = current_time - (self._max_history_days * 24 * 3600)
-                
-                with self._data_lock:
-                    # 遍历数据库获取过期数据的键
-                    keys_to_delete = []
-                    for key in self._db.keys():
-                        data = self._db.get(key)
-                        if isinstance(data, dict):
-                            ts = data.get("ts", 0)
-                            if ts < expire_ts:
-                                keys_to_delete.append(key)
-                    
-                    # 收集要删除的索引
-                    index_keys_to_delete = []
-                    for key in keys_to_delete:
-                        data = self._db.get(key)
-                        if isinstance(data, dict):
-                            result_id = data.get("id")
-                            if result_id:
-                                index_keys_to_delete.append(f"id:{result_id}")
-                    
-                    # 执行批量删除数据
-                    for key in keys_to_delete:
-                        try:
-                            if key in self._db:
-                                del self._db[key]
-                        except KeyError:
-                            pass
-                    
-                    # 执行批量删除索引
-                    for index_key in index_keys_to_delete:
-                        try:
-                            if index_key in self._index_db:
-                                del self._index_db[index_key]
-                        except KeyError:
-                            pass
-                    
-                    # 清理缓存中可能存在的过期数据
-                    for strategy_id in list(self._cache.keys()):
-                        cache_items = list(self._cache[strategy_id])
-                        valid_items = [item for item in cache_items if item.ts >= expire_ts]
-                        if valid_items:
-                            self._cache[strategy_id] = deque(valid_items, maxlen=self._max_cache_size)
-                        else:
-                            del self._cache[strategy_id]
-                            if strategy_id in self._cache_stats:
-                                del self._cache_stats[strategy_id]
-            except Exception:
-                # 清理线程异常，继续运行
-                time.sleep(1)
-
-    def _monitor_health(self):
-        """监控 ResultStore 健康状态，接入 PerformanceMonitor 统一告警体系"""
-        while True:
-            try:
-                time.sleep(self._health_check_interval)
-
-                if not PERFORMANCE_MONITOR_AVAILABLE:
-                    continue
-
-                health = self.get_health_summary()
-                seconds_since_write = health.get("seconds_since_write")
-
-                if seconds_since_write is None:
-                    continue
-
-                if seconds_since_write >= 300:
-                    severity_indicator = min(seconds_since_write / 60, 999)
-                    record_component_execution(
-                        component_id="result_store_write",
-                        component_name="ResultStore 写入健康",
-                        component_type=ComponentType.STORAGE,
-                        execution_time_ms=severity_indicator * 100,
-                        success=(seconds_since_write < 300),
-                        error=f"ResultStore 超过 {seconds_since_write:.0f}s 未写入" if seconds_since_write >= 300 else "",
-                    )
-            except Exception:
-                time.sleep(1)
 
     def save(
         self,
@@ -502,10 +298,16 @@ class ResultStore:
         error: str = "",
         metadata: Dict = None,
         persist: bool = True,
+        dispatch: bool = True,
     ) -> StrategyResult:
+        """保存策略执行结果
+
+        Args:
+            dispatch: 是否触发分发（默认True，设为False可仅做存储）
+        """
         ts = time.time()
         result_id = self._generate_id(strategy_id, ts)
-        
+
         result = StrategyResult(
             id=result_id,
             strategy_id=strategy_id,
@@ -519,361 +321,111 @@ class ResultStore:
             error=error,
             metadata=metadata or {},
         )
-        
-        # 先发送到信号流（始终发送，除非明确关闭）
+
+        self._update_stats(result)
+
+        self._write_log(result.to_dict())
+
+        self._update_cache(strategy_id, result)
+
+        if dispatch:
+            self._do_dispatch(result, output_data)
+
+        return result
+
+    def _do_dispatch(self, result: StrategyResult, output_data: Any) -> None:
+        """触发信号分发（到 SignalStream/Radar/Cognition/Bandit）
+
+        注意：这是存储后的异步分发，不影响存储主流程。
+        分发逻辑已迁移到 SignalDispatcher，这里保留是为了向后兼容。
+        """
         try:
-            from ..signal.stream import get_signal_stream
-            signal_stream = get_signal_stream()
-            signal_stream.update(result)
-        except Exception as e:
-            pass
-        
-        # 发送到洞察池（用户注意力输出）
-        try:
-            from ..insight import get_insight_pool
-            pool = get_insight_pool()
-            pool.ingest_result(result)
+            from ..signal.dispatcher import dispatch_result
+            dispatch_result(result)
         except Exception:
             pass
 
-        # 检查输出配置
-        try:
-            from .output_controller import get_output_controller
-            controller = get_output_controller()
-            should_radar = controller.should_send_to(strategy_id, "radar")
-            should_memory = controller.should_send_to(strategy_id, "memory")
-            should_bandit = controller.should_send_to(strategy_id, "bandit")
-        except Exception:
-            should_radar = True  # 默认开启
-            should_memory = True
-            should_bandit = False
-
-        # 规范化输出数据
-        targets = set()
-        if should_radar:
-            targets.add("radar")
-        if should_memory:
-            targets.add("memory")
-        if should_bandit:
-            targets.add("bandit")
-        
-        try:
-            from .output_schema import normalize_output
-            normalized = normalize_output(result, targets)
-        except Exception:
-            normalized = {}
-
-        # 发送到雷达引擎（根据配置，使用规范化数据）
-        if should_radar and normalized.get("radar"):
-            try:
-                from ..radar import get_radar_engine
-                radar = get_radar_engine()
-                radar.ingest_result(result)
-            except Exception:
-                pass
-
-        # 发送到洞察引擎（根据配置）
-        if should_memory:
-            try:
-                from ..cognition.insight import get_insight_engine
-                insight = get_insight_engine()
-                signal = {
-                    "source": "strategy",
-                    "signal_type": result.strategy_id,
-                    "score": result.output_full.get("score", 0.5) if result.output_full else 0.5,
-                    "content": str(result.output_full)[:200] if result.output_full else "",
-                    "raw_data": {
-                        "strategy_id": result.strategy_id,
-                        "strategy_name": result.strategy_name,
-                        "output": result.output_full,
-                    },
-                    "timestamp": result.ts,
-                    "metadata": {},
-                }
-                insight.ingest_signal(signal)
-            except Exception:
-                pass
-        
-        # Bandit 信号处理（在信号流中过滤）
-        if should_bandit:
-            try:
-                from ..bandit import get_bandit_optimizer
-                optimizer = get_bandit_optimizer()
-                score = normalized.get("bandit", {}).get("score", 0)
-                if score != 0:
-                    optimizer.update_reward(strategy_id, score)
-            except Exception:
-                pass
-        
-        # 记录策略执行日志
         if LOG_STREAM_AVAILABLE:
             try:
+                from ..log_stream import log_strategy
                 signal_type = ""
                 if isinstance(output_data, dict):
                     signal_type = output_data.get("signal_type", "")
-                level = "INFO" if success else "ERROR"
-                message = f"策略执行{'成功' if success else '失败'}: {strategy_name}, 信号类型: {signal_type}"
-                log_strategy(level, strategy_id, strategy_name, message, 
+                level = "INFO" if result.success else "ERROR"
+                message = f"策略执行{'成功' if result.success else '失败'}: {result.strategy_name}, 信号类型: {signal_type}"
+                log_strategy(level, result.strategy_id, result.strategy_name, message,
                            score=output_data.get("score") if isinstance(output_data, dict) else None,
-                           process_time_ms=process_time_ms)
+                           process_time_ms=result.process_time_ms)
             except Exception:
                 pass
-        
-        with self._data_lock:
-            if strategy_id not in self._cache:
-                self._cache[strategy_id] = deque(maxlen=self._max_cache_size)
-            self._cache[strategy_id].appendleft(result)
-            
-            # 更新缓存统计
-            if strategy_id not in self._cache_stats:
-                self._cache_stats[strategy_id] = {
-                    'access_count': 0,
-                    'last_access': ts,
-                    'last_write': ts
-                }
-            else:
-                self._cache_stats[strategy_id]['last_write'] = ts
-            
+
+    def _update_stats(self, result: StrategyResult):
+        """增量更新统计"""
+        with self._stats_lock:
             self._stats["total_results"] += 1
-            if success:
+            if result.success:
                 self._stats["total_success"] += 1
             else:
                 self._stats["total_failed"] += 1
-            self._stats["total_process_time_ms"] += process_time_ms
-            
-            # 使统计缓存失效
-            self._invalidate_stats_cache()
-            
-            if persist:
-                try:
-                    # 检查速率限制
-                    current_time = time.time()
-                    if current_time - self._last_rate_check >= 60:  # 每分钟重置
-                        self._writes_in_period = 0
-                        self._last_rate_check = current_time
-                    
-                    if self._writes_in_period >= self._write_rate_limit:
-                        # 超过速率限制，暂时不写入
-                        return result
-                    
-                    # 检查队列大小
-                    queue_size = self._write_queue.qsize()
-                    if queue_size >= self._max_queue_size:
-                        # 队列已满，暂时不写入
-                        return result
-                    
-                    # 将写入操作放入队列，由后台线程处理
-                    self._write_queue.put((strategy_id, result_id, result.to_dict()))
-                    
-                    # 更新监控统计
-                    self._monitoring['write_queue_size'] = self._write_queue.qsize()
-                    self._monitoring['last_write_time'] = current_time
-                    self._monitoring['total_writes'] += 1
-                    self._writes_in_period += 1
-                    self._monitoring['write_rate'] = self._writes_in_period / max(1, current_time - self._last_rate_check) * 60
-                except Exception:
-                    self._monitoring['failed_writes'] += 1
-                    pass
-        
-        return result
-    
+            self._stats["total_process_time_ms"] += result.process_time_ms
+
+    def _update_cache(self, strategy_id: str, result: StrategyResult):
+        """更新内存缓存"""
+        if strategy_id not in self._cache:
+            self._cache[strategy_id] = deque(maxlen=self._max_cache_size)
+        self._cache[strategy_id].appendleft(result)
+
     def get_recent(
         self,
         strategy_id: str,
         limit: int = 10,
     ) -> List[StrategyResult]:
-        current_time = time.time()
-        
-        with self._data_lock:
-            if strategy_id in self._cache:
-                results = list(self._cache[strategy_id])[:limit]
-                if results:
-                    # 更新缓存访问统计
-                    if strategy_id in self._cache_stats:
-                        self._cache_stats[strategy_id]['access_count'] += 1
-                        self._cache_stats[strategy_id]['last_access'] = current_time
-                    return results
-            
-            db_results = []
-            
-            # 利用时间切片获取最近的数据，避免全表扫描
-            # 计算30天前的时间戳
-            thirty_days_ago = current_time - (30 * 24 * 3600)
-            start_str = datetime.fromtimestamp(thirty_days_ago).strftime("%Y-%m-%d %H:%M:%S")
-            end_str = datetime.fromtimestamp(current_time).strftime("%Y-%m-%d %H:%M:%S")
-            
-            # 使用时间切片获取键
-            time_slice_keys = list(self._db[start_str:end_str])
-            
-            # 过滤策略ID
-            strategy_keys = [key for key in time_slice_keys if key.startswith(f"{strategy_id}:")]
-            
-            # 如果时间切片内的数据不足，再使用原有逻辑
-            if len(strategy_keys) < limit:
-                # 只获取以strategy_id开头的键，避免遍历所有数据库项
-                # 限制遍历数量，最多遍历limit * 2个键
-                temp_keys = []
-                count = 0
-                max_scan = limit * 2
-                for key in self._db.keys():
-                    if key.startswith(f"{strategy_id}:"):
-                        temp_keys.append(key)
-                        count += 1
-                        if count >= max_scan:
-                            break
-                strategy_keys = temp_keys
-            
-            for key in strategy_keys:
-                data = self._db.get(key)
-                if isinstance(data, dict):
-                    # 过滤无效数据：时间戳必须有效，ID必须存在
-                    ts = data.get("ts", 0)
-                    result_id = data.get("id", "")
-                    if ts > 1000000000 and result_id:  # 时间戳必须大于2001年
-                        result = StrategyResult(
-                            id=result_id,
-                            strategy_id=data.get("strategy_id", ""),
-                            strategy_name=data.get("strategy_name", ""),
-                            ts=ts,
-                            success=data.get("success", False),
-                            input_preview=data.get("input_preview", ""),
-                            output_preview=data.get("output_preview", ""),
-                            output_full=data.get("output_full"),
-                            process_time_ms=data.get("process_time_ms", 0),
-                            error=data.get("error", ""),
-                            metadata=data.get("metadata", {}),
-                        )
-                        db_results.append(result)
-            
-            db_results.sort(key=lambda x: x.ts, reverse=True)
-            db_results = db_results[:limit]
-            
-            if db_results:
-                if strategy_id not in self._cache:
-                    self._cache[strategy_id] = deque(maxlen=self._max_cache_size)
-                for result in reversed(db_results):
-                    self._cache[strategy_id].appendleft(result)
-                
-                # 更新缓存统计
-                if strategy_id not in self._cache_stats:
-                    self._cache_stats[strategy_id] = {
-                        'access_count': 1,
-                        'last_access': current_time,
-                        'last_write': current_time
-                    }
-                else:
-                    self._cache_stats[strategy_id]['access_count'] += 1
-                    self._cache_stats[strategy_id]['last_access'] = current_time
-            
-            return db_results
-    
+        """获取最近的策略结果（从内存缓存）"""
+        if strategy_id in self._cache:
+            results = list(self._cache[strategy_id])[:limit]
+            if results:
+                return results
+
+        return []
+
     def get_by_id(self, result_id: str) -> Optional[StrategyResult]:
-        with self._data_lock:
-            # 使用反向索引快速查找
-            index_key = f"id:{result_id}"
-            key = self._index_db.get(index_key)
-            
-            if key:
-                data = self._db.get(key)
-                if isinstance(data, dict) and data.get("id") == result_id:
-                    return StrategyResult(
-                        id=data.get("id", ""),
-                        strategy_id=data.get("strategy_id", ""),
-                        strategy_name=data.get("strategy_name", ""),
-                        ts=data.get("ts", 0),
-                        success=data.get("success", False),
-                        input_preview=data.get("input_preview", ""),
-                        output_preview=data.get("output_preview", ""),
-                        output_full=data.get("output_full"),
-                        process_time_ms=data.get("process_time_ms", 0),
-                        error=data.get("error", ""),
-                        metadata=data.get("metadata", {}),
-                    )
-            
-            #  fallback: 如果索引不存在，使用原有逻辑
-            for key in self._db.keys():
-                if result_id in key:
-                    data = self._db.get(key)
-                    if isinstance(data, dict) and data.get("id") == result_id:
-                        # 同时更新索引
-                        self._index_db[index_key] = key
-                        return StrategyResult(
-                            id=data.get("id", ""),
-                            strategy_id=data.get("strategy_id", ""),
-                            strategy_name=data.get("strategy_name", ""),
-                            ts=data.get("ts", 0),
-                            success=data.get("success", False),
-                            input_preview=data.get("input_preview", ""),
-                            output_preview=data.get("output_preview", ""),
-                            output_full=data.get("output_full"),
-                            process_time_ms=data.get("process_time_ms", 0),
-                            error=data.get("error", ""),
-                            metadata=data.get("metadata", {}),
-                        )
+        """通过 ID 查询（从日志文件）"""
+        records = self._scan_logs_for_result_id(result_id)
+        if records:
+            return self._dict_to_result(records[0])
         return None
-    
-    def delete(self, result_id: str) -> bool:
-        """删除指定结果"""
-        with self._data_lock:
-            # 使用反向索引快速查找
-            index_key = f"id:{result_id}"
-            key = self._index_db.get(index_key)
-            
-            if key:
-                data = self._db.get(key)
-                if isinstance(data, dict) and data.get("id") == result_id:
-                    strategy_id = data.get("strategy_id", "")
-                    del self._db[key]
-                    # 删除对应的索引
-                    del self._index_db[index_key]
-                    
-                    # 清除该策略的缓存，下次查询时会重新从数据库加载
-                    if strategy_id in self._cache:
-                        del self._cache[strategy_id]
-                    
-                    # 更新统计
-                    if data.get("success"):
-                        self._stats["total_success"] = max(0, self._stats["total_success"] - 1)
-                    else:
-                        self._stats["total_failed"] = max(0, self._stats["total_failed"] - 1)
-                    self._stats["total_results"] = max(0, self._stats["total_results"] - 1)
-                    
-                    # 使统计缓存失效
-                    self._invalidate_stats_cache()
-                    
-                    return True
-            
-            #  fallback: 如果索引不存在，使用原有逻辑
-            for key in list(self._db.keys()):
-                if result_id in key:
-                    data = self._db.get(key)
-                    if isinstance(data, dict) and data.get("id") == result_id:
-                        strategy_id = data.get("strategy_id", "")
-                        del self._db[key]
-                        # 删除对应的索引
+
+    def _scan_logs_for_result_id(self, result_id: str, max_days: int = 7) -> List[dict]:
+        """扫描日志文件查找指定 result_id"""
+        results = []
+        now = time.time()
+
+        for day_offset in range(max_days):
+            ts = now - (day_offset * 86400)
+            log_file = self._get_log_filename(ts)
+
+            if not os.path.exists(log_file):
+                continue
+
+            try:
+                with open(log_file, "r", encoding="utf-8") as f:
+                    for line in f:
+                        line = line.strip()
+                        if not line:
+                            continue
                         try:
-                            if index_key in self._index_db:
-                                del self._index_db[index_key]
-                        except Exception:
-                            pass
-                        
-                        # 清除该策略的缓存，下次查询时会重新从数据库加载
-                        if strategy_id in self._cache:
-                            del self._cache[strategy_id]
-                        
-                        # 更新统计
-                        if data.get("success"):
-                            self._stats["total_success"] = max(0, self._stats["total_success"] - 1)
-                        else:
-                            self._stats["total_failed"] = max(0, self._stats["total_failed"] - 1)
-                        self._stats["total_results"] = max(0, self._stats["total_results"] - 1)
-                        
-                        # 使统计缓存失效
-                        self._invalidate_stats_cache()
-                        
-                        return True
-        return False
-    
+                            record = json.loads(line)
+                            if record.get("id") == result_id:
+                                results.append(record)
+                                if len(results) >= 1:
+                                    return results
+                        except json.JSONDecodeError:
+                            continue
+            except Exception as e:
+                logger.debug(f"读取日志文件 {log_file} 失败: {e}")
+
+        return results
+
     def query(
         self,
         strategy_id: str = None,
@@ -882,132 +434,176 @@ class ResultStore:
         success_only: bool = False,
         limit: int = 100,
     ) -> List[StrategyResult]:
+        """查询策略结果（从日志文件）"""
         results = []
-        
-        with self._data_lock:
-            # 利用DBStream的时间切片功能
-            if start_ts or end_ts:
-                # 转换为时间字符串格式
-                start_str = datetime.fromtimestamp(start_ts).strftime("%Y-%m-%d %H:%M:%S") if start_ts else None
-                end_str = datetime.fromtimestamp(end_ts).strftime("%Y-%m-%d %H:%M:%S") if end_ts else None
-                
-                # 使用时间切片获取键
-                time_slice_keys = list(self._db[start_str:end_str])
-                
-                # 过滤策略ID
-                if strategy_id:
-                    keys = [key for key in time_slice_keys if key.startswith(f"{strategy_id}:")]
-                else:
-                    keys = time_slice_keys
-            else:
-                # 未指定时间范围，使用时间切片获取最近数据
-                current_time = time.time()
-                # 计算30天前的时间戳
-                thirty_days_ago = current_time - (30 * 24 * 3600)
-                start_str = datetime.fromtimestamp(thirty_days_ago).strftime("%Y-%m-%d %H:%M:%S")
-                end_str = datetime.fromtimestamp(current_time).strftime("%Y-%m-%d %H:%M:%S")
-                
-                # 使用时间切片获取键
-                time_slice_keys = list(self._db[start_str:end_str])
-                
-                # 过滤策略ID
-                if strategy_id:
-                    keys = [key for key in time_slice_keys if key.startswith(f"{strategy_id}:")]
-                else:
-                    keys = time_slice_keys
-                
-                # 如果时间切片内的数据不足，再使用原有逻辑
-                if len(keys) < limit:
-                    if strategy_id:
-                        # 只获取以strategy_id开头的键，避免遍历所有数据库项
-                        # 限制遍历数量，最多遍历limit * 2个键
-                        temp_keys = []
-                        count = 0
-                        max_scan = limit * 2
-                        for key in self._db.keys():
-                            if key.startswith(f"{strategy_id}:"):
-                                temp_keys.append(key)
-                                count += 1
-                                if count >= max_scan:
-                                    break
-                        keys = temp_keys
-                    else:
-                        # 对于未指定策略ID的情况，仍然使用时间切片结果
-                        # 因为全表扫描可能会导致性能问题
-                        pass
-            
-            for key in keys:
-                data = self._db.get(key)
-                if not isinstance(data, dict):
-                    continue
-                
-                if strategy_id and data.get("strategy_id") != strategy_id:
-                    continue
-                
-                ts = data.get("ts", 0)
-                if start_ts and ts < start_ts:
-                    continue
-                if end_ts and ts > end_ts:
-                    continue
-                
-                if success_only and not data.get("success", False):
-                    continue
-                
-                result = StrategyResult(
-                    id=data.get("id", ""),
-                    strategy_id=data.get("strategy_id", ""),
-                    strategy_name=data.get("strategy_name", ""),
-                    ts=ts,
-                    success=data.get("success", False),
-                    input_preview=data.get("input_preview", ""),
-                    output_preview=data.get("output_preview", ""),
-                    output_full=data.get("output_full"),
-                    process_time_ms=data.get("process_time_ms", 0),
-                    error=data.get("error", ""),
-                    metadata=data.get("metadata", {}),
-                )
-                results.append(result)
-        
+        now = time.time()
+        max_days = 7
+
+        if start_ts:
+            start_date = datetime.fromtimestamp(start_ts)
+        else:
+            start_date = datetime.fromtimestamp(now - (max_days * 86400))
+
+        if end_ts:
+            end_date = datetime.fromtimestamp(end_ts)
+        else:
+            end_date = datetime.fromtimestamp(now)
+
+        current_date = start_date
+        while current_date <= end_date:
+            log_file = self._get_log_filename(current_date.timestamp())
+
+            if os.path.exists(log_file):
+                try:
+                    with open(log_file, "r", encoding="utf-8") as f:
+                        for line in f:
+                            line = line.strip()
+                            if not line:
+                                continue
+                            try:
+                                record = json.loads(line)
+                                if self._match_query(record, strategy_id, start_ts, end_ts, success_only):
+                                    results.append(self._dict_to_result(record))
+                                    if len(results) >= limit:
+                                        break
+                            except json.JSONDecodeError:
+                                continue
+                except Exception as e:
+                    logger.debug(f"读取日志文件 {log_file} 失败: {e}")
+
+            if len(results) >= limit:
+                break
+
+            current_date = current_date + __import__("datetime").timedelta(days=1)
+
         results.sort(key=lambda x: x.ts, reverse=True)
         return results[:limit]
-    
+
+    def _match_query(
+        self,
+        record: dict,
+        strategy_id: str = None,
+        start_ts: float = None,
+        end_ts: float = None,
+        success_only: bool = False,
+    ) -> bool:
+        """判断记录是否匹配查询条件"""
+        if strategy_id and record.get("strategy_id") != strategy_id:
+            return False
+
+        ts = record.get("ts", 0)
+        if start_ts and ts < start_ts:
+            return False
+        if end_ts and ts > end_ts:
+            return False
+
+        if success_only and not record.get("success", False):
+            return False
+
+        return True
+
+    def _dict_to_result(self, data: dict) -> StrategyResult:
+        """将字典转换为 StrategyResult"""
+        return StrategyResult(
+            id=data.get("id", ""),
+            strategy_id=data.get("strategy_id", ""),
+            strategy_name=data.get("strategy_name", ""),
+            ts=data.get("ts", 0),
+            success=data.get("success", False),
+            input_preview=data.get("input_preview", ""),
+            output_preview=data.get("output_preview", ""),
+            output_full=data.get("output_full"),
+            process_time_ms=data.get("process_time_ms", 0),
+            error=data.get("error", ""),
+            metadata=data.get("metadata", {}),
+        )
+
+    def query_errors(
+        self,
+        strategy_id: str = None,
+        start_ts: float = None,
+        end_ts: float = None,
+        limit: int = 100,
+    ) -> List[StrategyResult]:
+        """专门查询错误记录（从日志文件）"""
+        results = []
+        now = time.time()
+        max_days = 7
+
+        if start_ts:
+            start_date = datetime.fromtimestamp(start_ts)
+        else:
+            start_date = datetime.fromtimestamp(now - (max_days * 86400))
+
+        if end_ts:
+            end_date = datetime.fromtimestamp(end_ts)
+        else:
+            end_date = datetime.fromtimestamp(now)
+
+        current_date = start_date
+        while current_date <= end_date:
+            log_file = self._get_log_filename(current_date.timestamp())
+
+            if os.path.exists(log_file):
+                try:
+                    with open(log_file, "r", encoding="utf-8") as f:
+                        for line in f:
+                            line = line.strip()
+                            if not line:
+                                continue
+                            try:
+                                record = json.loads(line)
+                                if not record.get("success", True):
+                                    if self._match_query(record, strategy_id, start_ts, end_ts, False):
+                                        results.append(self._dict_to_result(record))
+                                        if len(results) >= limit:
+                                            break
+                            except json.JSONDecodeError:
+                                continue
+                except Exception:
+                    pass
+
+            if len(results) >= limit:
+                break
+
+            current_date = current_date + __import__("datetime").timedelta(days=1)
+
+        results.sort(key=lambda x: x.ts, reverse=True)
+        return results[:limit]
+
     def get_stats(self, strategy_id: str = None) -> dict:
-        import time
-        t0 = time.time()
-        
-        # 使用缓存的统计数据
-        stats = self._get_cached_stats()
-        
-        t1 = time.time()
-        
-        if strategy_id:
-            results = self.get_recent(strategy_id, limit=1000)
-            if results:
-                success_count = sum(1 for r in results if r.success)
-                total_time = sum(r.process_time_ms for r in results)
+        """获取统计信息"""
+        with self._stats_lock:
+            stats = dict(self._stats)
+
+        if strategy_id and strategy_id in self._cache:
+            cache_results = list(self._cache[strategy_id])
+            if cache_results:
+                success_count = sum(1 for r in cache_results if r.success)
+                total_time = sum(r.process_time_ms for r in cache_results)
                 stats.update({
-                    "results_count": len(results),
+                    "results_count": len(cache_results),
                     "success_count": success_count,
-                    "failed_count": len(results) - success_count,
-                    "avg_process_time_ms": total_time / len(results) if results else 0,
-                    "success_rate": success_count / len(results) if results else 0,
+                    "failed_count": len(cache_results) - success_count,
+                    "avg_process_time_ms": total_time / len(cache_results) if cache_results else 0,
+                    "success_rate": success_count / len(cache_results) if cache_results else 0,
                 })
-        
-        t2 = time.time()
+
         if stats.get("total_results", 0) > 0:
             stats["avg_process_time_ms"] = stats["total_process_time_ms"] / stats["total_results"]
             stats["success_rate"] = stats["total_success"] / stats["total_results"]
-        
+
         return stats
-    
+
     def get_trend_data(
         self,
         strategy_id: str,
         interval_minutes: int = 5,
         limit: int = 100,
     ) -> dict:
+        """获取趋势数据"""
         results = self.get_recent(strategy_id, limit=limit)
-        
+
         if not results:
             return {
                 "timestamps": [],
@@ -1016,24 +612,24 @@ class ResultStore:
                 "avg_process_times": [],
                 "process_counts": [],
             }
-        
+
         interval_seconds = interval_minutes * 60
-        
+
         buckets = {}
         for r in results:
             bucket_ts = int(r.ts // interval_seconds) * interval_seconds
             if bucket_ts not in buckets:
                 buckets[bucket_ts] = {"success": 0, "failed": 0, "total_time": 0, "count": 0}
-            
+
             if r.success:
                 buckets[bucket_ts]["success"] += 1
             else:
                 buckets[bucket_ts]["failed"] += 1
             buckets[bucket_ts]["total_time"] += r.process_time_ms
             buckets[bucket_ts]["count"] += 1
-        
+
         sorted_buckets = sorted(buckets.items(), key=lambda x: x[0], reverse=True)[:limit]
-        
+
         return {
             "timestamps": [datetime.fromtimestamp(ts).strftime("%H:%M") for ts, _ in sorted_buckets],
             "success_counts": [b["success"] for _, b in sorted_buckets],
@@ -1041,184 +637,115 @@ class ResultStore:
             "avg_process_times": [b["total_time"] / b["count"] if b["count"] > 0 else 0 for _, b in sorted_buckets],
             "process_counts": [b["count"] for _, b in sorted_buckets],
         }
-    
-    def cleanup(self, strategy_id: str, max_count: int):
-        """清理超过限制的历史记录"""
-        with self._data_lock:
-            # 利用时间切片获取最近的数据，避免全表扫描
-            import time
-            current_time = time.time()
-            # 计算30天前的时间戳（足够覆盖大部分数据）
-            thirty_days_ago = current_time - (30 * 24 * 3600)
-            start_str = datetime.fromtimestamp(thirty_days_ago).strftime("%Y-%m-%d %H:%M:%S")
-            end_str = datetime.fromtimestamp(current_time).strftime("%Y-%m-%d %H:%M:%S")
-            
-            # 使用时间切片获取键
-            time_slice_keys = list(self._db[start_str:end_str])
-            
-            # 过滤策略ID
-            keys = [key for key in time_slice_keys if key.startswith(f"{strategy_id}:")]
-            
-            # 如果时间切片内的数据不足，再使用原有逻辑
-            if len(keys) < max_count:
-                # 只获取以strategy_id开头的键，避免遍历所有数据库项
-                keys = [key for key in self._db.keys() if key.startswith(f"{strategy_id}:")]
-            
-            if len(keys) > max_count:
-                results = []
-                for key in keys:
-                    data = self._db.get(key)
-                    if isinstance(data, dict):
-                        results.append((key, data.get("ts", 0)))
-                
-                results.sort(key=lambda x: x[1], reverse=True)
-                
-                keys_to_delete = [key for key, _ in results[max_count:]]
-                
-                # 收集要删除的索引
-                index_keys_to_delete = []
-                for key in keys_to_delete:
-                    data = self._db.get(key)
-                    if isinstance(data, dict):
-                        result_id = data.get("id")
-                        if result_id:
-                            index_keys_to_delete.append(f"id:{result_id}")
-                
-                # 执行批量删除数据
-                for key in keys_to_delete:
-                    try:
-                        if key in self._db:
-                            del self._db[key]
-                    except KeyError:
-                        pass
-                
-                # 执行批量删除索引
-                for index_key in index_keys_to_delete:
-                    try:
-                        if index_key in self._index_db:
-                            del self._index_db[index_key]
-                    except KeyError:
-                        pass
-                
-                if strategy_id in self._cache:
-                    cache_results = list(self._cache[strategy_id])
-                    if len(cache_results) > max_count:
-                        self._cache[strategy_id] = deque(cache_results[:max_count], maxlen=self._max_cache_size)
-    
-    def cleanup_total(self, max_count: int):
-        """清理总历史记录数（所有策略合计）"""
-        from ..config import get_strategy_config
-        
-        with self._data_lock:
-            # 利用时间切片获取最近的数据，避免全表扫描
-            import time
-            current_time = time.time()
-            # 计算60天前的时间戳（足够覆盖大部分数据）
-            sixty_days_ago = current_time - (60 * 24 * 3600)
-            start_str = datetime.fromtimestamp(sixty_days_ago).strftime("%Y-%m-%d %H:%M:%S")
-            end_str = datetime.fromtimestamp(current_time).strftime("%Y-%m-%d %H:%M:%S")
-            
-            # 使用时间切片获取键
-            time_slice_keys = list(self._db[start_str:end_str])
-            
-            # 如果时间切片内的数据不足，再使用原有逻辑
-            if len(time_slice_keys) < max_count:
-                # 只获取最近的数据，避免全表扫描
-                # 这里使用限制遍历的方式，最多遍历2倍max_count的数据
-                all_keys = []
-                count = 0
-                max_scan = max_count * 2
-                for key in self._db.keys():
-                    all_keys.append(key)
-                    count += 1
-                    if count >= max_scan:
-                        break
-            else:
-                all_keys = time_slice_keys
-            
-            if len(all_keys) > max_count:
-                results = []
-                for key in all_keys:
-                    data = self._db.get(key)
-                    if isinstance(data, dict):
-                        results.append((key, data.get("ts", 0)))
-                
-                results.sort(key=lambda x: x[1], reverse=True)
-                
-                keys_to_delete = [key for key, _ in results[max_count:]]
-                
-                # 收集要删除的索引
-                index_keys_to_delete = []
-                for key in keys_to_delete:
-                    data = self._db.get(key)
-                    if isinstance(data, dict):
-                        result_id = data.get("id")
-                        if result_id:
-                            index_keys_to_delete.append(f"id:{result_id}")
-                
-                # 执行批量删除数据
-                for key in keys_to_delete:
-                    try:
-                        if key in self._db:
-                            del self._db[key]
-                    except KeyError:
-                        pass
-                
-                # 执行批量删除索引
-                for index_key in index_keys_to_delete:
-                    try:
-                        if index_key in self._index_db:
-                            del self._index_db[index_key]
-                    except KeyError:
-                        pass
-                
-                for sid in list(self._cache.keys()):
-                    cache_results = list(self._cache[sid])
-                    cache_items = [(k, r) for k, r in zip([f"{sid}:{r.id}" for r in cache_results], cache_results) if k not in keys_to_delete]
-                    if cache_items:
-                        self._cache[sid] = deque([r for _, r in cache_items], maxlen=self._max_cache_size)
-                    else:
-                        self._cache[sid] = deque(maxlen=self._max_cache_size)
-    
+
     def clear_cache(self, strategy_id: str = None):
-        with self._data_lock:
-            if strategy_id:
-                self._cache.pop(strategy_id, None)
-            else:
-                self._cache.clear()
-    
-    def clear_db(self, strategy_id: str = None):
-        with self._data_lock:
-            if strategy_id:
-                keys_to_delete = [
-                    k for k in self._db.keys()
-                    if k.startswith(f"{strategy_id}:")
-                ]
-                
-                # 收集要删除的索引
-                index_keys_to_delete = []
-                for key in keys_to_delete:
-                    data = self._db.get(key)
-                    if isinstance(data, dict):
-                        result_id = data.get("id")
-                        if result_id:
-                            index_keys_to_delete.append(f"id:{result_id}")
-                
-                # 执行批量删除数据
-                for key in keys_to_delete:
-                    del self._db[key]
-                
-                # 执行批量删除索引
-                for index_key in index_keys_to_delete:
-                    if index_key in self._index_db:
-                        del self._index_db[index_key]
-            else:
-                self._db.clear()
-                self._index_db.clear()
+        """清空缓存"""
+        if strategy_id:
+            self._cache.pop(strategy_id, None)
+        else:
+            self._cache.clear()
+
+    def get_health_summary(self) -> Dict[str, Any]:
+        """获取健康状态摘要"""
+        last_write_ts = self._get_last_write_timestamp()
+        seconds_since_write = None
+        if last_write_ts:
+            seconds_since_write = time.time() - last_write_ts
+
+        return {
+            "last_write_time": last_write_ts,
+            "seconds_since_write": seconds_since_write,
+            "total_results": self._stats.get("total_results", 0),
+            "total_success": self._stats.get("total_success", 0),
+            "total_failed": self._stats.get("total_failed", 0),
+        }
+
+    def _get_last_write_timestamp(self) -> Optional[float]:
+        """获取最后写入时间戳"""
+        for strategy_id, cache in self._cache.items():
+            if cache:
+                last_result = cache[0]
+                if last_result and hasattr(last_result, 'ts'):
+                    return last_result.ts
+        return None
+
+    def should_alert_no_writes(self, stale_seconds: float = 300, cooldown_seconds: float = 300) -> Dict[str, Any]:
+        """检查是否应该告警（久未写入）"""
+        health = self.get_health_summary()
+        seconds_since_write = health.get("seconds_since_write")
+
+        if seconds_since_write is None:
+            return {"should_alert": False, "reason": "no_data"}
+
+        if seconds_since_write > stale_seconds:
+            return {
+                "should_alert": True,
+                "seconds_since_write": seconds_since_write,
+                "reason": "stale",
+            }
+
+        return {"should_alert": False, "seconds_since_write": seconds_since_write}
+
+    def close(self):
+        """关闭 ResultStore"""
+        if self._current_log_handle:
+            try:
+                self._current_log_handle.close()
+            except Exception:
+                pass
+            self._current_log_handle = None
+            self._current_log_file = None
+        logger.info("StreamResultStore 已关闭")
 
 
-store = ResultStore()
+store = StreamResultStore()
 
 
-def get_result_store() -> ResultStore:
+def get_result_store() -> StreamResultStore:
     return store
+
+
+ResultStore = StreamResultStore
+
+
+def migrate_from_old_resultstore():
+    """从旧 ResultStore 迁移的辅助函数
+
+    如果之前有数据需要迁移，可以调用此函数。
+    注意：迁移是一次性的，迁移完成后旧数据可以删除。
+    """
+    old_db = NB("naja_strategy_results")
+    old_index_db = NB("naja_result_index")
+
+    results_written = 0
+    errors = 0
+
+    for key in old_db.keys():
+        try:
+            data = old_db.get(key)
+            if isinstance(data, dict):
+                log_record = {
+                    "id": data.get("id", ""),
+                    "strategy_id": data.get("strategy_id", ""),
+                    "strategy_name": data.get("strategy_name", ""),
+                    "ts": data.get("ts", 0),
+                    "success": data.get("success", False),
+                    "input_preview": data.get("input_preview", ""),
+                    "output_preview": data.get("output_preview", ""),
+                    "process_time_ms": data.get("process_time_ms", 0),
+                    "error": data.get("error", ""),
+                    "metadata": data.get("metadata", {}),
+                }
+
+                log_file = store._get_log_filename(log_record["ts"])
+                Path(log_file).parent.mkdir(parents=True, exist_ok=True)
+
+                with open(log_file, "a", buffering=1, encoding="utf-8") as f:
+                    f.write(json.dumps(log_record, ensure_ascii=False) + "\n")
+
+                results_written += 1
+        except Exception:
+            errors += 1
+
+    logger.info(f"迁移完成: 成功 {results_written} 条，失败 {errors} 条")
+    return {"success": results_written, "errors": errors}

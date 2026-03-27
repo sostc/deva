@@ -34,6 +34,7 @@
 
 | 模块 | 说明 | 文档 |
 |------|------|------|
+| **启动模式** | 正常交易/实验室/新闻雷达/认知调试 | **[启动指南](naja/startup_guide.md)** ⭐ |
 | 策略系统 | River 策略、多数据源、信号处理 | [策略指南](naja/strategy_guide.md) |
 | 数据源 | 数据源创建与管理 | [数据源指南](naja/datasource_guide.md) |
 | 认知系统 | 认知中枢、叙事追踪、跨信号分析 | [认知系统](naja/cognition_guide.md) |

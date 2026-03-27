@@ -96,6 +96,8 @@ from .integration import (
     register_strategy_manager,
     get_strategy_manager,
     process_data_with_strategies,
+    AttentionModeManager,
+    get_mode_manager,
 )
 from .config import (
     NoiseFilterConfig,
@@ -209,6 +211,8 @@ __all__ = [
     "register_strategy_manager",
     "get_strategy_manager",
     "process_data_with_strategies",
+    "AttentionModeManager",
+    "get_mode_manager",
     # Config
     "NajaAttentionConfig",
     "load_config",

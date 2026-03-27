@@ -1,5 +1,6 @@
 """Naja 管理页公共样式。"""
 
+from datetime import datetime
 from html import escape
 from typing import Iterable, Optional
 
@@ -150,3 +151,48 @@ def render_empty_state(message: str) -> str:
         f"{escape(message)}"
         "</div>"
     )
+
+
+def format_timestamp(ts: float, fmt: str = "%Y-%m-%d %H:%M:%S") -> str:
+    """格式化时间戳为可读字符串
+
+    参数:
+        ts: Unix时间戳
+        fmt: 时间格式字符串，默认为完整日期时间格式
+
+    返回:
+        格式化后的时间字符串，如果ts为空则返回"-"
+    """
+    if not ts:
+        return "-"
+    return datetime.fromtimestamp(ts).strftime(fmt)
+
+
+def render_status_badge(is_running: bool) -> str:
+    """渲染运行状态徽章
+
+    参数:
+        is_running: 是否运行中
+
+    返回:
+        HTML格式的状态徽章字符串
+    """
+    if is_running:
+        return '<span style="display:inline-block;padding:4px 12px;border-radius:20px;font-size:12px;font-weight:500;background:#e8f5e9;color:#2e7d32;">● 运行中</span>'
+    return '<span style="display:inline-block;padding:4px 12px;border-radius:20px;font-size:12px;font-weight:500;background:#f5f5f5;color:#757575;">○ 已停止</span>'
+
+
+def render_detail_section(title: str) -> str:
+    """渲染详情部分的标题分隔线
+
+    参数:
+        title: 部分标题
+
+    返回:
+        HTML格式的分隔线字符串
+    """
+    return f"""
+    <div style="margin:20px 0 12px 0;padding-bottom:8px;border-bottom:2px solid #e0e0e0;">
+        <span style="font-size:15px;font-weight:600;color:#333;">{title}</span>
+    </div>
+    """

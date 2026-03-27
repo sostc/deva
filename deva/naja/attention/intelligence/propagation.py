@@ -48,7 +48,7 @@ class RelationMatrix:
 
     def __init__(
         self,
-        max_sectors: int = 100,
+        max_sectors: int = 5000,
         default_correlation: float = 0.3,
         learning_rate: float = 0.01
     ):
@@ -563,7 +563,7 @@ class AttentionPropagation:
     
     def __init__(
         self,
-        max_sectors: int = 100,
+        max_sectors: int = 5000,
         enable_learning: bool = True,
         propagation_mode: str = "iterative"
     ):

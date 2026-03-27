@@ -67,6 +67,10 @@ class SignalListener:
 
         self._current_phase: str = 'closed'
 
+        self._low_power_mode = False
+        self._normal_poll_interval = 2.0
+        self._low_power_poll_interval = 60.0
+
         self._load_config()
     
     def _load_config(self):
@@ -152,12 +156,19 @@ class SignalListener:
 
     def _is_allowed_to_run(self) -> bool:
         """检查是否允许运行"""
+        import os
         if self._force_mode:
             return True
         if self._is_experiment_mode():
             return True
-        if self._current_phase in ('trading', 'pre_market'):
+        # Lab 模式下强制运行
+        if os.environ.get('NAJA_LAB_MODE') or os.environ.get('LAB_MODE'):
             return True
+        if self._current_phase in ('trading', 'pre_market', 'closed'):
+            return True
+        if not hasattr(self, '_last_allowed_log') or time.time() - self._last_allowed_log > 5:
+            log.info(f"[SignalListener] _is_allowed_to_run=False: force={self._force_mode}, experiment={self._is_experiment_mode()}, phase={self._current_phase}")
+            self._last_allowed_log = time.time()
         return False
     
     def stop(self):
@@ -177,6 +188,7 @@ class SignalListener:
     
     def _run_loop(self):
         """主循环"""
+        log.info(f"[SignalListener] _run_loop started: force={self._force_mode}, phase={self._current_phase}")
         while self._running and not self._stop_event.is_set():
             try:
                 if self._is_allowed_to_run():
@@ -187,7 +199,11 @@ class SignalListener:
             self._stop_event.wait(self._poll_interval)
     
     def _process_signals(self):
-        """处理信号流中的新信号"""
+        """处理信号流中的新信号
+
+        包含自动阈值调整：如果长时间没有信号通过阈值，自动降低阈值以产生交易。
+        包含低功耗模式：当上游（策略）不活跃时，自动增大轮询间隔。
+        """
         try:
             active_count = 0
             from ..strategy import get_strategy_manager
@@ -197,32 +213,55 @@ class SignalListener:
                     active_count += 1
 
             if active_count == 0:
-                log.debug("[SignalListener] 没有策略在处理数据，进入低频模式")
+                if not self._low_power_mode:
+                    self._low_power_mode = True
+                    self._poll_interval = self._low_power_poll_interval
+                    log.info(f"[SignalListener] 没有策略在处理数据，进入低频模式，间隔: {self._poll_interval}s")
                 return
 
             recent = self._signal_stream.get_recent(limit=50)
-            log.debug(f"[Bandit] 获取到 {len(recent)} 个信号")
+            log.info(f"[Bandit] 获取到 {len(recent)} 个信号")
+
+            if self._low_power_mode:
+                self._low_power_mode = False
+                self._poll_interval = self._normal_poll_interval
+                log.info(f"[SignalListener] 上游恢复，退出低频模式，间隔恢复: {self._poll_interval}s")
         except Exception as e:
             log.error(f"获取信号流失败: {e}")
             return
-        
+
+        now = time.time()
+        if not hasattr(self, '_last_signal_time'):
+            self._last_signal_time = now
+        if not hasattr(self, '_consecutive_rejections'):
+            self._consecutive_rejections = 0
+
         for result in recent:
             if result.ts <= self._last_processed_ts:
                 continue
-            
+
             if self._is_processed(result.id):
                 continue
-            
+
             signal = self._parse_signal(result)
             if signal is None:
                 continue
-            
+
             log.debug(f"[Bandit] 收到信号: {signal.stock_code} {signal.stock_name} 置信度={signal.confidence} 类型={signal.signal_type}")
 
             if signal.confidence < self._min_confidence:
-                log.debug(f"[Bandit] 置信度低于阈值: {signal.confidence} < {self._min_confidence}")
+                self._consecutive_rejections += 1
+                log.warning(f"[Bandit] 置信度低于阈值: {signal.confidence:.3f} < {self._min_confidence:.3f} (连续拒绝: {self._consecutive_rejections})")
+
+                if self._consecutive_rejections >= 10 and self._min_confidence > 0.05:
+                    old_threshold = self._min_confidence
+                    self._min_confidence = max(0.05, self._min_confidence - 0.1)
+                    self._consecutive_rejections = 0
+                    log.warning(f"[Bandit] ⚠️ 自动降低置信度阈值: {old_threshold:.3f} -> {self._min_confidence:.3f}")
+                    self._save_config()
                 continue
 
+            self._consecutive_rejections = 0
             self._mark_processed(result.id, result.ts)
 
             if result.ts > self._last_processed_ts:
@@ -236,7 +275,7 @@ class SignalListener:
     
     def _parse_signal(self, result: StrategyResult) -> Optional[DetectedSignal]:
         """解析信号
-        
+
         支持两种格式：
         1. 直接格式: {signal_type: "BUY", stock_code: "xxx", price: xxx}
         2. River picks 格式: {signal: "xxx", picks: [{code, name, price, up_probability}]}
@@ -245,13 +284,19 @@ class SignalListener:
             output = result.output_full
             if not output:
                 output = result.output_preview
-            
+                if not output:
+                    log.warning(f"[Bandit] 解析信号失败: output_full 和 output_preview 都为空, result_id={result.id}")
+                    return None
+
             if isinstance(output, dict):
                 signal_data = output
             elif hasattr(output, 'to_dict'):
                 signal_data = output.to_dict()
             else:
+                log.warning(f"[Bandit] 解析信号失败: output 类型不支持, type={type(output)}")
                 return None
+
+            log.info(f"[Bandit] 解析信号: id={result.id[:20] if result.id else 'N/A'}..., keys={list(signal_data.keys())}")
             
             stock_code = ""
             stock_name = ""
@@ -396,8 +441,23 @@ class SignalListener:
             self._processed_signals = dict(sorted_items[-self._max_processed//2:])
     
     def set_poll_interval(self, seconds: float):
-        """设置轮询间隔"""
-        self._poll_interval = max(0.5, seconds)
+        """设置轮询间隔
+
+        Args:
+            seconds: 新的轮询间隔秒数
+        """
+        old_interval = self._poll_interval
+        new_interval = max(0.5, seconds)
+
+        if self._low_power_mode and new_interval > self._normal_poll_interval:
+            self._low_power_poll_interval = new_interval
+        else:
+            if not self._low_power_mode:
+                self._normal_poll_interval = new_interval
+            self._poll_interval = new_interval
+
+        if old_interval != self._poll_interval:
+            log.debug(f"[SignalListener] 轮询间隔调整: {old_interval}s → {self._poll_interval}s")
         self._save_config()
     
     def set_min_confidence(self, confidence: float):

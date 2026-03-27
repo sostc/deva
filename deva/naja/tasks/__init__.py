@@ -509,7 +509,26 @@ class TaskEntry(RecoverableUnit):
 
 
 class TaskManager:
-    """任务管理器"""
+    """任务管理器
+
+    ================================================================================
+    单例模式说明：为什么使用单例
+    ================================================================================
+    1. 全局唯一性：任务系统是全局资源，只能有一个实例管理所有任务的生命周期。
+       如果存在多个实例，可能导致任务状态不一致。
+
+    2. 资源管理：TaskManager 持有任务字典（_items）和数据库连接（NB），
+       这些资源应该全局共享，而非重复创建。
+
+    3. 生命周期：Manager 的生命周期与系统一致，随系统启动和关闭。
+
+    4. 依赖注入支持：如需测试，可以注入 mock 对象。
+
+    5. Manager 类本身不是资源，而是通往资源的入口点。真正的系统资源
+       （如 NB 数据库连接）是单例的，而 Manager 类保持单例是为了方便
+       访问这些资源。
+    ================================================================================
+    """
 
     _instance = None
     _lock = threading.Lock()
@@ -687,6 +706,125 @@ class TaskManager:
                     self._log("ERROR", "Load entry failed", id=entry_id, error=str(e))
 
         return count
+
+    def load_prefer_files(self) -> int:
+        """优先从文件加载任务配置，NB 数据作为兜底
+
+        加载策略：
+        1. 先扫描 config/tasks/ 目录下的文件配置
+        2. 如果文件存在，优先使用文件配置
+        3. 如果文件不存在但 NB 中有，则使用 NB 数据
+        4. 合并去重，以文件配置优先
+
+        Returns:
+            加载的任务数量
+        """
+        from deva.naja.config.file_config import get_file_config_manager
+
+        file_mgr = get_file_config_manager('task')
+        file_names = set(file_mgr.list_names())
+
+        db = NB(TASK_TABLE)
+        loaded_count = 0
+
+        with self._items_lock:
+            self._items.clear()
+
+            for entry_id, data in list(db.items()):
+                if not isinstance(data, dict):
+                    continue
+
+                try:
+                    entry = TaskEntry.from_dict(data)
+                    if not entry.id:
+                        continue
+
+                    name = entry.name
+                    if name in file_names:
+                        file_item = file_mgr.get(name)
+                        if file_item and file_item.metadata.source == 'file':
+                            existing_time = getattr(entry._metadata, 'updated_at', 0) or 0
+                            file_time = file_item.metadata.updated_at or 0
+                            if file_time >= existing_time:
+                                file_entry = self._create_entry_from_file_config(file_item)
+                                if file_entry:
+                                    self._items[file_entry.id] = file_entry
+                                    loaded_count += 1
+                                    continue
+
+                    self._items[entry.id] = entry
+                    loaded_count += 1
+
+                except Exception as e:
+                    self._log("ERROR", "Load entry failed", id=entry_id, error=str(e))
+
+            for name in file_names:
+                file_item = file_mgr.get(name)
+                if not file_item:
+                    continue
+
+                name_already_loaded = any(e.name == name for e in self._items.values())
+                if name_already_loaded:
+                    continue
+
+                try:
+                    file_entry = self._create_entry_from_file_config(file_item)
+                    if file_entry:
+                        self._items[file_entry.id] = file_entry
+                        loaded_count += 1
+                except Exception as e:
+                    self._log("ERROR", f"Load from file failed: {name}", error=str(e))
+
+        return loaded_count
+
+    def _create_entry_from_file_config(self, file_item) -> Optional[TaskEntry]:
+        """从文件配置创建 TaskEntry"""
+        from deva.naja.config.file_config import ConfigFileItem
+
+        if not isinstance(file_item, ConfigFileItem):
+            return None
+
+        file_metadata = file_item.metadata
+        file_config = file_item.config
+
+        execution_mode = normalize_execution_mode(
+            file_config.get('execution_mode', ''),
+            file_config.get('task_type', 'timer')
+        )
+
+        scheduler_trigger = file_config.get('scheduler_trigger', 'interval')
+        if scheduler_trigger == 'interval' and file_config.get('cron_expr'):
+            scheduler_trigger = 'cron'
+
+        metadata = TaskMetadata(
+            id=file_metadata.id or file_item.name,
+            name=file_item.name,
+            description=file_metadata.description or '',
+            tags=file_metadata.tags or [],
+            task_type=file_config.get('task_type', 'timer'),
+            execution_mode=execution_mode,
+            interval_seconds=file_config.get('interval_seconds', 60.0),
+            scheduler_trigger=scheduler_trigger,
+            cron_expr=file_config.get('cron_expr', ''),
+            run_at=file_config.get('run_at', ''),
+            event_source=file_config.get('event_source', 'log'),
+            event_condition=file_config.get('event_condition', ''),
+            event_condition_type=file_config.get('event_condition_type', 'contains'),
+            created_at=file_metadata.created_at or time.time(),
+            updated_at=file_metadata.updated_at or time.time(),
+        )
+
+        state = TaskState()
+        entry = TaskEntry(metadata=metadata, state=state)
+
+        if file_item.func_code:
+            entry._func_code = file_item.func_code
+            try:
+                entry.compile_code()
+            except Exception:
+                pass
+
+        return entry
 
     def restore_running_states(self) -> dict:
         restored_count = 0

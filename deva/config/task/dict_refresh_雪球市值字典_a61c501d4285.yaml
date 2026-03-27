@@ -1,0 +1,72 @@
+config:
+  cron_expr: 30 9 * * *
+  execution_mode: scheduler
+  run_at: ''
+  scheduler_trigger: cron
+  task_type: schedule
+func_code: "# 字典数据获取函数\n# 必须定义 fetch_data() 函数\n# 返回字典数据 (通常是 pandas DataFrame)\n\n\
+  import pandas as pd\nimport requests\nimport json\n\ndef fetch_data():\n    \"\"\
+  \"\n    从雪球 MCP 获取股票市值数据\n    \"\"\"\n    # 雪球 MCP 服务地址\n    mcp_url = \"http://localhost:8000/quote_detail\"\
+  \n    \n    # 示例股票代码列表，可以根据需要扩展\n    stock_codes = [\"SZ000002\", \"SH600519\",\
+  \ \"SZ000858\", \"SH601318\", \"SZ002594\"]\n    \n    # 存储结果\n    data = []\n \
+  \   \n    for code in stock_codes:\n        try:\n            # 调用雪球 MCP 接口\n  \
+  \          response = requests.post(\n                mcp_url,\n               \
+  \ json={\"stock_code\": code}\n            )\n            \n            if response.status_code\
+  \ == 200:\n                result = response.json()\n                \n        \
+  \        # 提取市值数据\n                if \"data\" in result and result[\"data\"]:\n\
+  \                    stock_data = result[\"data\"]\n                    \n     \
+  \               # 提取市值信息（单位：亿元）\n                    market_cap = stock_data.get(\"\
+  market_cap\", 0) / 100000000 if stock_data.get(\"market_cap\") else 0\n        \
+  \            \n                    # 提取其他相关信息\n                    name = stock_data.get(\"\
+  name\", \"\")\n                    current = stock_data.get(\"current\", 0)\n  \
+  \                  change = stock_data.get(\"chg\", 0)\n                    change_pct\
+  \ = stock_data.get(\"percent\", 0)\n                    \n                    #\
+  \ 添加到结果列表\n                    data.append({\n                        \"code\":\
+  \ code,\n                        \"name\": name,\n                        \"market_cap\"\
+  : round(market_cap, 2),\n                        \"current\": current,\n       \
+  \                 \"change\": change,\n                        \"change_pct\": change_pct\n\
+  \                    })\n        except Exception as e:\n            print(f\"获取\
+  \ {code} 数据失败: {e}\")\n    \n    # 转换为 DataFrame\n    df = pd.DataFrame(data)\n\
+  \    return df\n\ndef _resolve_awaitable(value):\n    import asyncio\n    import\
+  \ inspect\n    import threading\n\n    if not inspect.isawaitable(value):\n    \
+  \    return value\n\n    try:\n        running_loop = asyncio.get_running_loop()\n\
+  \        loop_running = running_loop.is_running()\n    except RuntimeError:\n  \
+  \      loop_running = False\n\n    if not loop_running:\n        loop = asyncio.new_event_loop()\n\
+  \        try:\n            return loop.run_until_complete(value)\n        finally:\n\
+  \            loop.close()\n\n    box = {\"value\": None, \"error\": None}\n\n  \
+  \  def _runner():\n        loop = asyncio.new_event_loop()\n        try:\n     \
+  \       box[\"value\"] = loop.run_until_complete(value)\n        except Exception\
+  \ as e:\n            box[\"error\"] = e\n        finally:\n            loop.close()\n\
+  \n    t = threading.Thread(target=_runner, daemon=True)\n    t.start()\n    t.join()\n\
+  \    if box[\"error\"] is not None:\n        raise box[\"error\"]\n    return box[\"\
+  value\"]\n\ndef execute(event=None):\n    from deva.naja.dictionary import get_dictionary_manager\n\
+  \n    mgr = get_dictionary_manager()\n    entry = mgr.get(\"a61c501d4285\")\n  \
+  \  if entry is None:\n        return \"dictionary_not_found\"\n\n    try:\n    \
+  \    data = fetch_data()\n        data = _resolve_awaitable(data)\n        entry.apply_fresh_data(data)\n\
+  \        return \"ok\"\n    except Exception as e:\n        entry.mark_refresh_error(str(e))\n\
+  \        raise\n"
+metadata:
+  category: ''
+  created_at: 1773040340.828845
+  cron_expr: 30 9 * * *
+  description: 字典 雪球市值字典 鲜活任务
+  enabled: true
+  event_condition: ''
+  event_condition_type: contains
+  event_source: log
+  execution_mode: scheduler
+  func_code_file: ''
+  id: f2d2f6348631
+  interval_seconds: 300.0
+  name: dict_refresh_雪球市值字典_a61c501d4285
+  run_at: ''
+  scheduler_trigger: cron
+  source: nb
+  tags: []
+  task_type: schedule
+  updated_at: 1774624152.558305
+parameters:
+  enabled: true
+  retry_count: 3
+  retry_delay: 5
+  timeout: 30

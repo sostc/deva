@@ -93,6 +93,7 @@ class ReplayScheduler:
 
         self._downstream_callback: Optional[Callable] = None
         self._completion_event = threading.Event()
+        self._latest_sent_data: Optional[Any] = None  # 存储最后发送的数据，供 MarketObserver 查询
 
         self._db: Optional[Any] = None
         self._data_keys: List[Any] = []
@@ -273,6 +274,7 @@ class ReplayScheduler:
         self._fetch_count += 1
 
         filtered_data = self._filter_by_level(data)
+        self._latest_sent_data = filtered_data  # 存储最后发送的数据
 
         if self._downstream_callback:
             start_time = time.time()
