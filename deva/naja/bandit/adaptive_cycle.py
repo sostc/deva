@@ -69,10 +69,10 @@ class AdaptiveCycle:
     def _restore_running_state(self):
         """恢复运行状态，重新追踪已持仓的股票"""
         try:
-            # 恢复持仓追踪
             positions = self._portfolio.get_all_positions(status="OPEN")
-            for pos in positions:
-                self._market_observer.track_stock(pos.stock_code)
+            stock_codes = [pos.stock_code for pos in positions]
+            if stock_codes:
+                self._market_observer.track_stocks_batch(stock_codes)
 
             # 启动各组件（如果之前是运行状态）
             if self._signal_listener._running:
@@ -193,13 +193,13 @@ class AdaptiveCycle:
     
     def _on_price_update(self, stock_code: str, price: float):
         """处理价格更新"""
-        log.info(f"[AdaptiveCycle] 📈 收到价格更新: {stock_code} @ {price}")
+        log.debug(f"[AdaptiveCycle] 📈 收到价格更新: {stock_code} @ {price}")
         
         closed = self._portfolio.update_price(stock_code, price)
-        log.info(f"[AdaptiveCycle] 📊 止盈止损检查完成，平仓数量: {len(closed)}")
+        log.debug(f"[AdaptiveCycle] 📊 止盈止损检查完成，平仓数量: {len(closed)}")
         
         for close_info in closed:
-            log.info(f"[AdaptiveCycle] 💰 触发止盈止损平仓 {stock_code} @ {price}")
+            log.debug(f"[AdaptiveCycle] 💰 触发止盈止损平仓 {stock_code} @ {price}")
     
     def _on_position_closed(self, position_id: str, position: VirtualPosition, reason: str):
         """处理持仓平仓"""

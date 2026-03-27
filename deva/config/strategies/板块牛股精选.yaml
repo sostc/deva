@@ -1,0 +1,40 @@
+config:
+  compute_mode: record
+  handler_type: bandit
+  strategy_type: plugin
+  window_type: sliding
+func_code: "def process(data, context=None):\n    return None\n"
+metadata:
+  bound_datasource_id: e626eecd0b86
+  bound_datasource_ids:
+  - e626eecd0b86
+  category: 交易信号
+  compute_mode: record
+  created_at: 1773675576.956342
+  description: 从概念板块中精选最强牛股，过滤噪音股票，结合板块联动性
+  dictionary_profile_ids: []
+  enabled: true
+  func_code_file: ''
+  handler_type: bandit
+  id: 16a58126190e
+  max_history_count: 200
+  name: 板块牛股精选
+  source: file
+  strategy_type: plugin
+  tags:
+  - river
+  - block
+  - stock
+  - selector
+  - bandit
+  updated_at: 1774627248.3615239
+  version: 29
+  window_interval: 5s
+  window_return_partial: false
+  window_size: 5
+  window_type: sliding
+parameters:
+  enabled: true
+  max_history_count: 200
+  window_interval: 5s
+  window_size: 5

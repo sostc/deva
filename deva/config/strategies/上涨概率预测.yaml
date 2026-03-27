@@ -1,0 +1,101 @@
+config:
+  compute_mode: record
+  handler_type: bandit
+  strategy_type: declarative
+  window_type: sliding
+func_code: "\nfrom river import compose, linear_model, optim, preprocessing\n\nPARAMS\
+  \ = globals().setdefault(\"PARAMS\", {})\n\ndef _p(name, default):\n    try:\n \
+  \       return float(PARAMS.get(name, default))\n    except Exception:\n       \
+  \ return float(default)\n\n_STATE = globals().setdefault(\"_unified_prob_state\"\
+  , {\n    \"model\": None,\n    \"prev\": {},\n})\n\ndef _ensure_model():\n    if\
+  \ _STATE[\"model\"] is None:\n        _STATE[\"model\"] = compose.Pipeline(\n  \
+  \          preprocessing.StandardScaler(),\n            linear_model.LogisticRegression(optimizer=optim.SGD(0.03))\n\
+  \        )\n    return _STATE[\"model\"]\n\nimport pandas as pd\n\ndef _f(v, d=0.0):\n\
+  \    try:\n        return float(v)\n    except Exception:\n        return d\n\n\
+  def _rows(data):\n    try:\n        if isinstance(data, pd.DataFrame):\n       \
+  \     return data.to_dict(\"records\")\n    except Exception:\n        pass\n  \
+  \  if isinstance(data, dict):\n        return [data]\n    if isinstance(data, list):\n\
+  \        return data\n    return []\n\ndef _sym(row):\n    return str(row.get(\"\
+  code\") or row.get(\"symbol\") or \"\").strip()\n\ndef _price(row):\n    for k in\
+  \ (\"current\", \"now\", \"price\", \"close\"):\n        if k in row:\n        \
+  \    p = _f(row.get(k), 0.0)\n            if p > 0:\n                return p\n\
+  \    return 0.0\n\n\ndef process(data, context=None):\n    rows = _rows(data)\n\
+  \    if not rows:\n        return None\n    \n    model = _ensure_model()\n    \n\
+  \    scores = []\n    \n    for row in rows:\n        code = _sym(row)\n       \
+  \ if not code:\n            continue\n        \n        name = str(row.get(\"name\"\
+  , \"\")).strip()\n        price = _price(row)\n        if price <= 0:\n        \
+  \    continue\n        \n        prev = _STATE[\"prev\"].get(code, {})\n       \
+  \ prev_price = _f(prev.get(\"price\"), price)\n        \n        ret = 0.0\n   \
+  \     if prev_price > 0:\n            ret = (price - prev_price) / prev_price\n\
+  \        \n        volume = _f(row.get(\"volume\", row.get(\"vol\", 0.0)), 0.0)\n\
+  \        \n        prev_vol = _f(prev.get(\"vol_ema\"), volume)\n        vol_ema\
+  \ = 0.95 * prev_vol + 0.05 * volume\n        vol_ratio = volume / (vol_ema + 1e-9)\n\
+  \        \n        p_change = _f(row.get(\"p_change\", 0.0), 0.0)\n        \n  \
+  \      features = {\n            \"ret\": ret,\n            \"vol_ratio\": vol_ratio,\n\
+  \            \"p_change\": p_change / 100.0,\n        }\n        \n        prob\
+  \ = model.predict_one(features)\n        model.learn_one(features, int(ret > 0))\n\
+  \        \n        if abs(ret) > 0.001:\n            scores.append({\n         \
+  \       \"code\": code,\n                \"name\": name,\n                \"price\"\
+  : price,\n                \"ret\": ret,\n                \"prob\": prob,\n     \
+  \           \"vol_ratio\": vol_ratio,\n            })\n        \n        _STATE[\"\
+  prev\"][code] = {\"price\": price, \"vol_ema\": vol_ema}\n    \n    if not scores:\n\
+  \        return None\n    \n    scores.sort(key=lambda r: r.get(\"prob\", 0), reverse=True)\n\
+  \    top = scores[0] if scores else None\n    \n    # 生成 HTML 格式\n    html_parts\
+  \ = []\n    html_parts.append('<div style=\"margin-bottom:12px;\">')\n    html_parts.append('<div\
+  \ style=\"font-weight:600;color:#9b59b6;margin-bottom:8px;\">\U0001F3AF 上涨概率预测 ('\
+  \ + str(len(scores)) + '个)</div>')\n    html_parts.append('<div style=\"color:#666;font-size:12px;margin-bottom:8px;\"\
+  >基于在线逻辑回归学习短期上涨概率</div>')\n    \n    # Top 3 信号\n    if len(scores) >= 3:\n    \
+  \    html_parts.append('<div style=\"background:#f3e5f5;border:1px solid #ce93d8;padding:8px\
+  \ 12px;border-radius:8px;font-size:12px;color:#7b1fa2;margin-bottom:8px;\">')\n\
+  \        html_parts.append('<div style=\"font-weight:600;margin-bottom:4px;\">\U0001F3C6\
+  \ Top 预测</div>')\n        for i, s in enumerate(scores[:3]):\n            prob_pct\
+  \ = s.get(\"prob\", 0) * 100\n            html_parts.append('<div>Top' + str(i+1)\
+  \ + ': ' + str(s.get(\"name\",\"\")) + ' ' + '{:.1f}%'.format(prob_pct) + '</div>')\n\
+  \        html_parts.append('</div>')\n    \n    html_parts.append('<div style=\"\
+  display:flex;flex-wrap:wrap;gap:8px;\">')\n    for s in scores[:8]:\n        prob\
+  \ = s.get(\"prob\", 0)\n        prob_pct = prob * 100\n        ret = s.get(\"ret\"\
+  , 0) * 100\n        bg = '#e8f5e9' if prob > 0.5 else '#fff8e1' if prob > 0.3 else\
+  \ '#ffebee'\n        bd = '#a5d6a7' if prob > 0.5 else '#ffe082' if prob > 0.3 else\
+  \ '#ef9a9a'\n        color = '#2e7d32' if ret >= 0 else '#c62828'\n        html_parts.append('<div\
+  \ style=\"background:' + bg + ';border:1px solid ' + bd + ';padding:8px 12px;border-radius:8px;font-size:12px;min-width:160px;\"\
+  >')\n        html_parts.append('<div style=\"font-weight:600;color:#333;\">' + str(s.get(\"\
+  name\",\"\")) + '</div>')\n        html_parts.append('<div style=\"color:#9b59b6;margin-top:4px;\"\
+  >概率 ' + '{:.1f}%'.format(prob_pct) + '</div>')\n        html_parts.append('<div\
+  \ style=\"color:' + color + ';font-size:11px;\">涨跌 ' + '{:+.2f}%'.format(ret) +\
+  \ '</div>')\n        html_parts.append('</div>')\n    html_parts.append('</div></div>')\n\
+  \    \n    return {\n        \"signal\": \"unified_probability\",\n        \"signal_type\"\
+  : \"BUY\",\n        \"stock_code\": top.get(\"code\") if top else \"\",\n      \
+  \  \"stock_name\": top.get(\"name\") if top else \"\",\n        \"price\": top.get(\"\
+  price\", 0) if top else 0,\n        \"confidence\": top.get(\"prob\", 0.5) if top\
+  \ else 0.5,\n        \"picks\": scores[:8],\n        \"signals\": scores[:8],\n\
+  \        \"html\": ''.join(html_parts),\n    }\n"
+metadata:
+  bound_datasource_id: e626eecd0b86
+  bound_datasource_ids:
+  - e626eecd0b86
+  category: 交易信号
+  compute_mode: record
+  created_at: 1773590525.838903
+  description: 合并4个概率类策略，统一输出上涨概率信号（LogisticRegression + HalfSpaceTrees 集成）
+  dictionary_profile_ids:
+  - cd10098e6b5f
+  enabled: true
+  func_code_file: ''
+  handler_type: bandit
+  id: 8aa39ecfe86d
+  max_history_count: 30
+  name: 上涨概率预测
+  source: file
+  strategy_type: declarative
+  tags: []
+  updated_at: 1774627248.3771122
+  version: 160
+  window_interval: 10s
+  window_return_partial: false
+  window_size: 5
+  window_type: sliding
+parameters:
+  enabled: true
+  max_history_count: 30
+  window_interval: 10s
+  window_size: 5

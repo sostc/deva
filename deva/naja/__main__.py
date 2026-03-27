@@ -1,10 +1,12 @@
 """Naja 命令行入口
 
 使用方法:
-    python -m deva.naja
-    python -m deva.naja --port 8080
-    python -m deva.naja --lab --lab-table quant_snapshot_5min_window
-    python -m deva.naja --radar-debug --lab --lab-table quant_snapshot_5min_window
+    python -m deva.naja                                    # 默认启动（启用新闻雷达）
+    python -m deva.naja --port 8080                       # 指定端口
+    python -m deva.naja --lab --lab-table quant_snapshot_5min_window   # 实验室模式
+    python -m deva.naja --news-radar-speed 10             # 新闻雷达10倍速
+    python -m deva.naja --news-radar-sim                  # 新闻雷达模拟模式
+    python -m deva.naja --cognition-debug                 # 完整认知调试模式
 """
 
 import argparse
@@ -44,25 +46,35 @@ def main():
     parser.add_argument("--lab-debug", action="store_true",
                         help="实验室模式调试日志，输出详细处理信息")
 
-    # 雷达调试模式参数
-    parser.add_argument("--radar-debug", action="store_true",
-                        help="启用雷达调试模式，输出雷达核心产出日志")
-    parser.add_argument("--radar-interval", type=float, default=0.5,
-                        help="雷达模拟数据源间隔（秒），默认 0.5")
-    parser.add_argument("--news-speed", type=float, default=1.0,
-                        help="新闻模拟速度倍数，默认 1.0")
-    parser.add_argument("--news-radar", action="store_true",
-                        help="启动新闻舆情策略，启用新闻数据处理和雷达检测")
+    # 新闻雷达模式参数（统一命名）
+    # --news-radar: 默认启用新闻雷达（使用真实数据源）
+    # --news-radar-speed: 新闻雷达加速倍数（可与 --news-radar-sim 互斥）
+    # --news-radar-sim: 使用模拟数据源（与真实数据源互斥）
+    parser.add_argument("--news-radar", action="store_true", default=True,
+                        help="启用新闻雷达（默认启用，使用真实数据源）")
+    parser.add_argument("--news-radar-speed", type=float, default=1.0,
+                        help="新闻雷达加速倍数，默认 1.0（真实数据源模式）")
+    parser.add_argument("--news-radar-sim", action="store_true",
+                        help="启用新闻雷达模拟模式（使用模拟数据源）")
     parser.add_argument("--cognition-debug", action="store_true",
-                        help="启用认知系统调试日志，输出认知核心产出信息")
+                        help="启用认知系统调试日志，输出认知核心产出信息（自动启用新闻雷达+实验室模式）")
+
+    # 调参模式参数
+    parser.add_argument("--tuning-mode", action="store_true",
+                        help="启用调参模式，过滤日志只显示关键调参信息")
 
     args = parser.parse_args()
 
     # 设置日志级别
-    logging.basicConfig(
-        level=getattr(logging, args.log_level.upper()),
-        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-    )
+    if args.tuning_mode:
+        from .common.tuning_logger import setup_tuning_mode_logger, print_tuning_banner
+        setup_tuning_mode_logger(level=logging.INFO)
+        print_tuning_banner()
+    else:
+        logging.basicConfig(
+            level=getattr(logging, args.log_level.upper()),
+            format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+        )
 
     # 如果请求了注意力系统报告
     if args.attention_report:
@@ -76,6 +88,8 @@ def main():
     # 处理实验室模式参数
     lab_config = None
     if args.lab:
+        import os
+        os.environ['NAJA_LAB_MODE'] = '1'
         lab_config = {
             "enabled": True,
             "table_name": args.lab_table,
@@ -86,33 +100,44 @@ def main():
         if not args.lab_table:
             print("警告: --lab 已启用但未指定 --lab-table，将仅启动注意力系统而不回放数据")
 
-    # 雷达调试模式参数
-    radar_debug_config = None
-    if args.radar_debug:
-        radar_debug_config = {
-            "enabled": True,
-            "interval": args.radar_interval,
-            "news_speed": args.news_speed,
-        }
-        os.environ["NAJA_RADAR_DEBUG"] = "true"
-        print(f"🛸 雷达调试模式已启用，模拟间隔: {args.radar_interval}s")
-
-    # 新闻舆情策略配置
+    # 新闻雷达模式配置（默认启用，除非明确禁用）
+    # --news-radar-sim: 使用模拟数据源
+    # --news-radar-speed: 新闻雷达加速倍数（真实数据源模式）
     news_radar_config = None
-    if args.news_radar or args.cognition_debug:
+    news_radar_enabled = args.news_radar
+
+    if args.news_radar_sim:
+        # 模拟模式：创建模拟数据源
         news_radar_config = {
             "enabled": True,
-            "datasource_id": radar_debug_config.get("datasource_id") if radar_debug_config else None,
+            "mode": "sim",
+            "interval": args.news_radar_speed if args.news_radar_speed > 1.0 else 0.5,
+            "speed": args.news_radar_speed,
         }
-        print("📰 新闻舆情策略已启用")
+        print(f"📡 新闻雷达模拟模式已启用，间隔: {news_radar_config['interval']}s")
+    elif args.news_radar_speed != 1.0:
+        # 加速模式：加快真实数据源获取频率
+        news_radar_config = {
+            "enabled": True,
+            "mode": "speed",
+            "speed": args.news_radar_speed,
+        }
+        print(f"📡 新闻雷达加速模式已启用，倍速: {args.news_radar_speed}x")
+    elif news_radar_enabled:
+        # 默认模式：使用真实数据源，正常频率
+        news_radar_config = {
+            "enabled": True,
+            "mode": "normal",
+        }
+        print("📡 新闻雷达已启用（真实数据源模式）")
 
     # 认知系统调试配置
     cognition_debug_config = None
     if args.cognition_debug:
         cognition_debug_config = {"enabled": True}
         os.environ["NAJA_COGNITION_DEBUG"] = "true"
-        os.environ["NAJA_RADAR_DEBUG"] = "true"
         os.environ["NAJA_LAB_DEBUG"] = "true"
+        os.environ["NAJA_NEWS_RADAR_DEBUG"] = "true"
         if not lab_config:
             lab_config = {
                 "enabled": True,
@@ -121,17 +146,24 @@ def main():
                 "speed": args.lab_speed or 1.0,
                 "debug": True,
             }
-        if not radar_debug_config:
-            radar_debug_config = {
+        if not news_radar_config:
+            news_radar_config = {
                 "enabled": True,
-                "interval": args.radar_interval or 0.3,
-                "news_speed": args.news_speed or 2.0,
+                "mode": "sim",
+                "interval": 0.3,
+                "speed": 2.0,
             }
-        print("🧠 认知系统调试模式已启用（自动启用实验室+雷达+新闻舆情）")
+        print("🧠 认知系统调试模式已启用（自动启用实验室模式+新闻雷达模拟模式）")
 
     # 启动 Web UI
     from .web_ui import run_server
-    run_server(port=args.port, host=args.host, lab_config=lab_config, radar_debug_config=radar_debug_config, news_radar_config=news_radar_config, cognition_debug_config=cognition_debug_config)
+    run_server(
+        port=args.port,
+        host=args.host,
+        lab_config=lab_config,
+        news_radar_config=news_radar_config,
+        cognition_debug_config=cognition_debug_config
+    )
 
 
 def show_attention_report():

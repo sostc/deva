@@ -1,13 +1,14 @@
 """数据源管理 UI"""
 
 from datetime import datetime
+import time
 from typing import Optional
 
 from pywebio.output import put_text, put_markdown, put_table, put_buttons, put_html, toast, popup, close_popup, put_code, put_collapse, use_scope, set_scope
 from pywebio.input import input_group, input, textarea, select, actions, radio
 from pywebio.session import run_async
 
-from ..common.ui_style import apply_strategy_like_styles, render_empty_state, render_stats_cards
+from ..common.ui_style import apply_strategy_like_styles, render_empty_state, render_stats_cards, format_timestamp, render_status_badge, render_detail_section
 from ..scheduler.ui import humanize_cron
 from ..scheduler import preview_next_runs
 
@@ -70,12 +71,6 @@ def fetch_data(event):
         "timestamp": datetime.now().isoformat(),
     }
 '''
-
-
-def _fmt_ts(ts: float) -> str:
-    if not ts:
-        return "-"
-    return datetime.fromtimestamp(ts).strftime("%Y-%m-%d %H:%M:%S")
 
 
 def _fmt_ts_short(ts: float) -> str:
@@ -160,38 +155,9 @@ def _render_ds_content(ctx: dict):
         filtered_entries = [e for e in entries if _categorize_datasource(e) == _current_category]
 
     if filtered_entries:
-        # 按类别分组显示（使用折叠面板）
-        grouped = {}
-        for e in filtered_entries:
-            cat = _categorize_datasource(e)
-            if cat not in grouped:
-                grouped[cat] = []
-            grouped[cat].append(e)
-
-        # 为每个类别创建折叠面板
-        for category, cat_entries in sorted(grouped.items()):
-            running_count = sum(1 for e in cat_entries if e.is_running)
-            stopped_count = len(cat_entries) - running_count
-
-            # 构建表格数据
-            table_data = _build_table_data(ctx, cat_entries, mgr)
-
-            # 创建折叠面板内容
-            collapse_content = [
-                ctx["put_table"](table_data, header=["名称", "类型", "状态", "简介", "最近数据", "操作"], scope="ds_content"),
-                ctx["put_buttons"]([
-                    {"label": "▶ 启动全部", "value": f"start_cat_{category}", "color": "success"},
-                    {"label": "⏹ 停止全部", "value": f"stop_cat_{category}", "color": "danger"},
-                ], onclick=lambda v, m=mgr, c=ctx: _handle_category_action(v, m, c), scope="ds_content"),
-            ]
-
-            # 使用 put_collapse 创建可折叠面板
-            ctx["put_collapse"](
-                f"{category} ({len(cat_entries)}个 | 运行中:{running_count} | 已停止:{stopped_count})",
-                collapse_content,
-                open=False,  # 默认折叠
-                scope="ds_content"
-            )
+        # 直接显示所有数据源的表格（不再按类别折叠）
+        table_data = _build_table_data(ctx, filtered_entries, mgr)
+        ctx["put_table"](table_data, header=["名称", "来源", "类型", "状态", "简介", "最近数据", "操作"], scope="ds_content")
     else:
         ctx["put_html"](render_empty_state("暂无数据源，点击下方按钮创建"), scope="ds_content")
 
@@ -200,6 +166,7 @@ def _render_ds_content(ctx: dict):
         {"label": "➕ 创建数据源", "value": "create", "color": "primary"},
         {"label": "▶ 全部启动", "value": "start_all", "color": "success"},
         {"label": "⏹ 全部停止", "value": "stop_all", "color": "danger"},
+        {"label": "📁 导出全部", "value": "export_all", "color": "info"},
     ], onclick=lambda v, m=mgr, c=ctx: _handle_toolbar_action(v, m, c), group=True, scope="ds_content")
     ctx["put_html"]('</div>', scope="ds_content")
 
@@ -291,11 +258,17 @@ def _stop_category_ds(mgr, ctx: dict, category: str):
 def _build_table_data(ctx: dict, entries: list, mgr) -> list:
     table_data = []
     for e in entries:
-        status_html = _render_status_badge(e.is_running)
+        status_html = render_status_badge(e.is_running)
         type_label = _get_type_label(e)
         desc_short = _get_description_short(e)
         recent_data_info = _get_recent_data_info(e)
         toggle_color = "danger" if e.is_running else "success"
+
+        source = getattr(e._metadata, 'source', 'nb') if hasattr(e, '_metadata') else 'nb'
+        if source == 'file':
+            source_html = '<span style="background:#e8f5e9;color:#2e7d32;padding:2px 8px;border-radius:4px;font-size:11px;">📁 文件</span>'
+        else:
+            source_html = '<span style="background:#e3f2fd;color:#1565c0;padding:2px 8px;border-radius:4px;font-size:11px;">💾 NB</span>'
 
         action_btns = ctx["put_buttons"]([
             {"label": "详情", "value": f"detail_{e.id}", "color": "info"},
@@ -306,6 +279,7 @@ def _build_table_data(ctx: dict, entries: list, mgr) -> list:
 
         table_data.append([
             ctx["put_html"](f'<div style="max-width:200px;white-space:normal;word-break:break-word;line-height:1.4;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;"><strong>{e.name}</strong></div>'),
+            ctx["put_html"](source_html),
             ctx["put_html"](type_label),
             ctx["put_html"](status_html),
             ctx["put_html"](f'<div style="color:#666;font-size:12px;line-height:1.4;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;" title="{getattr(e._metadata, "description", "") or ""}">{desc_short}</div>'),
@@ -313,12 +287,6 @@ def _build_table_data(ctx: dict, entries: list, mgr) -> list:
             action_btns,
         ])
     return table_data
-
-
-def _render_status_badge(is_running: bool) -> str:
-    if is_running:
-        return '<span style="display:inline-block;padding:4px 12px;border-radius:20px;font-size:12px;font-weight:500;background:#e8f5e9;color:#2e7d32;">● 运行中</span>'
-    return '<span style="display:inline-block;padding:4px 12px;border-radius:20px;font-size:12px;font-weight:500;background:#f5f5f5;color:#757575;">○ 已停止</span>'
 
 
 def _get_type_label(entry) -> str:
@@ -479,6 +447,65 @@ def _handle_toolbar_action(action: str, mgr, ctx: dict):
         _start_all_ds(mgr, ctx)
     elif action == "stop_all":
         _stop_all_ds(mgr, ctx)
+    elif action == "export_all":
+        _export_all_ds_to_file(mgr, ctx)
+
+
+def _export_all_ds_to_file(mgr, ctx: dict):
+    """导出所有数据源到文件配置"""
+    from deva.naja.config.file_config import get_file_config_manager
+
+    file_mgr = get_file_config_manager('datasource')
+    count = 0
+
+    for entry in mgr.list_all():
+        if not entry or not entry.name:
+            continue
+
+        try:
+            from deva.naja.config.file_config import ConfigFileItem, DatasourceConfigMetadata
+
+            meta = entry._metadata
+            config_meta = DatasourceConfigMetadata(
+                id=entry.id,
+                name=entry.name,
+                description=meta.description or '',
+                tags=meta.tags or [],
+                category=getattr(meta, 'category', ''),
+                created_at=getattr(meta, 'created_at', 0),
+                updated_at=time.time(),
+                enabled=getattr(meta, 'enabled', True),
+                source='file',
+                source_type=getattr(meta, 'source_type', 'timer'),
+                interval_seconds=getattr(meta, 'interval', 5.0),
+                enabled_types=getattr(meta, 'enabled_types', []),
+            )
+
+            parameters = {
+                'interval_seconds': getattr(meta, 'interval', 5.0),
+                'timeout': getattr(meta, 'timeout', 30),
+            }
+
+            config = {
+                'source_type': getattr(meta, 'source_type', 'timer'),
+                'config': getattr(meta, 'config', {}),
+            }
+
+            item = ConfigFileItem(
+                name=entry.name,
+                config_type='datasource',
+                metadata=config_meta,
+                parameters=parameters,
+                config=config,
+                func_code=entry._func_code or '',
+            )
+
+            if file_mgr.save(item):
+                count += 1
+        except Exception as e:
+            print(f"Export datasource failed: {entry.name}, error: {e}")
+
+    ctx["toast"](f"已导出 {count} 个数据源到文件", color="success")
 
 
 def _handle_ds_action(action: str, mgr, ctx: dict):
@@ -519,7 +546,7 @@ async def _show_ds_detail(ctx: dict, mgr, entry_id: str):
         return
 
     with ctx["popup"](f"数据源详情: {entry.name}", size="large", closable=True):
-        ctx["put_html"](_render_detail_section("📊 基本信息"))
+        ctx["put_html"](render_detail_section("📊 基本信息"))
 
         source_type = getattr(entry._metadata, "source_type", "custom")
         type_labels = {
@@ -542,22 +569,22 @@ async def _show_ds_detail(ctx: dict, mgr, entry_id: str):
             ["描述", getattr(entry._metadata, "description", "") or "-"],
             ["状态", "运行中" if entry.is_running else "已停止"],
             ["触发配置", _timer_trigger_text(entry) if source_type == "timer" else f"{getattr(entry._metadata, 'interval', 5):.1f} 秒"],
-            ["创建时间", _fmt_ts(entry._metadata.created_at)],
-            ["更新时间", _fmt_ts(entry._metadata.updated_at)],
+            ["创建时间", format_timestamp(entry._metadata.created_at)],
+            ["更新时间", format_timestamp(entry._metadata.updated_at)],
         ], header=["字段", "值"])
 
-        ctx["put_html"](_render_detail_section("📈 运行统计"))
+        ctx["put_html"](render_detail_section("📈 运行统计"))
 
         ctx["put_table"]([
             ["发射次数", entry._state.total_emitted],
             ["错误次数", entry._state.error_count],
             ["最后错误", entry._state.last_error or "-"],
-            ["错误时间", _fmt_ts(entry._state.last_error_ts)],
-            ["最后活动", _fmt_ts(entry._state.last_data_ts)],
-            ["启动时间", _fmt_ts(entry._state.start_time)],
+            ["错误时间", format_timestamp(entry._state.last_error_ts)],
+            ["最后活动", format_timestamp(entry._state.last_data_ts)],
+            ["启动时间", format_timestamp(entry._state.start_time)],
         ], header=["字段", "值"])
 
-        ctx["put_html"](_render_detail_section("📦 最新数据"))
+        ctx["put_html"](render_detail_section("📦 最新数据"))
 
         latest_data = entry.get_latest_data()
         if latest_data is not None:
@@ -576,7 +603,7 @@ async def _show_ds_detail(ctx: dict, mgr, entry_id: str):
         else:
             ctx["put_text"]("暂无数据")
 
-        ctx["put_html"](_render_detail_section("💻 执行代码"))
+        ctx["put_html"](render_detail_section("💻 执行代码"))
 
         if entry.func_code:
             ctx["put_code"](entry.func_code, language="python")
@@ -584,24 +611,16 @@ async def _show_ds_detail(ctx: dict, mgr, entry_id: str):
             ctx["put_text"]("暂无代码")
 
         dependent_strategies = _get_dependent_strategies(entry_id)
-        ctx["put_html"](_render_detail_section("🔗 依赖策略"))
+        ctx["put_html"](render_detail_section("🔗 依赖策略"))
 
         if dependent_strategies:
             strategy_table = []
             for s in dependent_strategies:
-                status_html = _render_status_badge(s.get("is_running"))
+                status_html = render_status_badge(s.get("is_running"))
                 strategy_table.append([s.get("name", "-"), ctx["put_html"](status_html)])
             ctx["put_table"](strategy_table, header=["策略名称", "状态"])
         else:
             ctx["put_text"]("暂无依赖策略")
-
-
-def _render_detail_section(title: str) -> str:
-    return f"""
-    <div style="margin:20px 0 12px 0;padding-bottom:8px;border-bottom:2px solid #e0e0e0;">
-        <span style="font-size:15px;font-weight:600;color:#333;">{title}</span>
-    </div>
-    """
 
 
 def _get_dependent_strategies(ds_id: str) -> list:

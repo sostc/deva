@@ -4,8 +4,10 @@
 所有基于注意力的策略都继承此类
 """
 
+import sys
 import time
 import numpy as np
+import logging
 from typing import Dict, List, Optional, Any, Callable
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
@@ -16,12 +18,13 @@ try:
 except Exception:
     pd = None
 
-# 性能监控支持
 try:
     from deva.naja.performance import record_component_execution, ComponentType
     _PERFORMANCE_MONITORING_AVAILABLE = True
 except ImportError:
     _PERFORMANCE_MONITORING_AVAILABLE = False
+
+log = logging.getLogger(__name__)
 
 
 @dataclass
@@ -165,6 +168,8 @@ class AttentionStrategyBase(ABC):
 
         # 检查冷却期（使用市场时间计算）
         if current_time - self.last_execution_time < self._get_dynamic_interval(global_attention):
+            print(f"[{self.name}] skip: cooling down, last_exec={self.last_execution_time}, interval={self._get_dynamic_interval(global_attention)}, global_attention={global_attention}")
+            sys.stdout.flush()
             return False
 
         return True
@@ -308,7 +313,32 @@ class AttentionStrategyBase(ABC):
             
             # 发送到信号流
             stream.update(result)
-            
+
+            # 记录信号到 SignalTuner
+            try:
+                from deva.naja.attention.intelligence.signal_tuner import get_signal_tuner
+                tuner = get_signal_tuner()
+                if tuner:
+                    price = 0.0
+                    if signal.metadata:
+                        price = float(signal.metadata.get('price', signal.metadata.get('current', 0)))
+                    tuner.record_signal(
+                        symbol=signal.symbol,
+                        strategy_id=self.strategy_id,
+                        signal_type=signal.signal_type,
+                        confidence=signal.confidence,
+                        score=signal.score,
+                        price=price,
+                        params_snapshot={self.strategy_id: {
+                            'price_threshold': getattr(self, 'price_threshold', 0.03),
+                            'volume_threshold': getattr(self, 'volume_threshold', 2.0),
+                            'combined_threshold': getattr(self, 'combined_threshold', 0.5),
+                        }}
+                    )
+                    log.info(f"[SignalTuner] 📡 记录信号: {signal.signal_type} {signal.symbol} @{price:.2f} 置信度={signal.confidence:.2f}")
+            except Exception as te:
+                log.debug(f"[SignalTuner] 信号记录失败: {te}")
+
             # 启动 AttentionTracker 跟踪
             # 这是用户新思路的核心: 不需要成交，只要注意力选中就开始跟踪
             self._track_attention_signal(signal)

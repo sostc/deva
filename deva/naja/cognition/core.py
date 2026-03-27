@@ -1269,13 +1269,13 @@ class NewsMindStrategy:
                 else f"叙事{narrative}注意力飙升"
             )
             payload = dict(event)
-            payload["signal_type"] = "narrative"
+            payload["source_category"] = "narrative"
             radar.ingest_attention_event(
                 event_type=event_type,
                 score=score,
                 message=message,
                 payload=payload,
-                signal_type="narrative",
+                signal_type=event_type,
                 strategy_id="narrative_tracker",
                 strategy_name="Narrative Tracker",
             )

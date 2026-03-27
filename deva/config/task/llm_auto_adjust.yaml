@@ -1,0 +1,45 @@
+config:
+  cron_expr: ''
+  execution_mode: timer
+  run_at: ''
+  scheduler_trigger: interval
+  task_type: interval
+func_code: "from deva.naja.config import get_llm_config\nfrom deva.naja.llm_controller\
+  \ import get_llm_controller\nfrom deva.naja.radar import get_radar_engine\nfrom\
+  \ deva.llm.worker_runtime import run_ai_in_worker\n\ndef execute():\n    cfg = get_llm_config()\n\
+  \    if not cfg.get('auto_adjust_enabled', True):\n        return {'success': False,\
+  \ 'error': 'auto_adjust_disabled'}\n    window_seconds = int(cfg.get('auto_adjust_window_seconds',\
+  \ 600))\n    min_events = int(cfg.get('auto_adjust_min_events', 3))\n    dry_run\
+  \ = bool(cfg.get('auto_adjust_dry_run', False))\n    summary = get_radar_engine().summarize(window_seconds=window_seconds)\n\
+  \    if summary.get('event_count', 0) < min_events:\n        return {'success':\
+  \ False, 'error': 'not_enough_events', 'event_count': summary.get('event_count',\
+  \ 0)}\n    return run_ai_in_worker(\n        get_llm_controller().review_and_adjust(window_seconds=window_seconds,\
+  \ dry_run=dry_run)\n    )\n"
+metadata:
+  category: ''
+  created_at: 1773505274.098565
+  cron_expr: ''
+  description: LLM 自动调节策略任务
+  enabled: true
+  event_condition: ''
+  event_condition_type: contains
+  event_source: log
+  execution_mode: timer
+  func_code_file: ''
+  id: c543ee1adcad
+  interval_seconds: 90000.0
+  name: llm_auto_adjust
+  run_at: ''
+  scheduler_trigger: interval
+  source: nb
+  tags:
+  - llm
+  - auto
+  - strategy
+  task_type: interval
+  updated_at: 1774624152.5685859
+parameters:
+  enabled: true
+  retry_count: 3
+  retry_delay: 5
+  timeout: 30

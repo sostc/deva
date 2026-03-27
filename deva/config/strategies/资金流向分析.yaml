@@ -1,0 +1,98 @@
+config:
+  compute_mode: record
+  handler_type: bandit
+  strategy_type: declarative
+  window_type: sliding
+func_code: "\nimport pandas as pd\n\nPARAMS = globals().setdefault(\"PARAMS\", {})\n\
+  \ndef _f(v, d=0.0):\n    try:\n        return float(v)\n    except Exception:\n\
+  \        return d\n\ndef _rows(data):\n    try:\n        if isinstance(data, pd.DataFrame):\n\
+  \            return data.to_dict(\"records\")\n    except Exception:\n        pass\n\
+  \    if isinstance(data, dict):\n        return [data]\n    if isinstance(data,\
+  \ list):\n        return data\n    return []\n\ndef _sym(row):\n    return str(row.get(\"\
+  code\") or row.get(\"symbol\") or \"\").strip()\n\ndef _price(row):\n    for k in\
+  \ (\"current\", \"now\", \"price\", \"close\"):\n        if k in row:\n        \
+  \    p = _f(row.get(k), 0.0)\n            if p > 0:\n                return p\n\
+  \    return 0.0\n\ndef _first_multi(v):\n    if not v:\n        return \"\"\n  \
+  \  text = str(v).strip()\n    if not text or text.lower() in {\"nan\", \"none\"\
+  , \"null\", \"unknown\"}:\n        return \"\"\n    for sep in [\"|\", \",\", \"\
+  ，\", \";\", \"；\"]:\n        if sep in text:\n            return text.split(sep)[0].strip()\n\
+  \    return text\n\n\ndef process(data, context=None):\n    rows = _rows(data)\n\
+  \    if not rows:\n        return None\n    \n    capital_scores = []\n    \n  \
+  \  for row in rows:\n        code = _sym(row)\n        price = _price(row)\n   \
+  \     \n        if price <= 0:\n            continue\n        \n        name = str(row.get(\"\
+  name\", \"\")).strip()\n        volume = _f(row.get(\"volume\", row.get(\"vol\"\
+  , 0.0)), 0.0)\n        amount = _f(row.get(\"amount\", 0.0), 0.0)\n        p_change\
+  \ = _f(row.get(\"p_change\", 0.0), 0.0)\n        \n        money_score = 0.0\n \
+  \       if amount > 0 and price > 0:\n            money_score = min(1.0, amount\
+  \ / (price * 1000000))\n        \n        strength_score = (p_change + 10) / 20\n\
+  \        strength_score = max(0.0, min(1.0, strength_score))\n        \n       \
+  \ combined_score = (money_score * 0.6 + strength_score * 0.4)\n        \n      \
+  \  capital_scores.append({\n            \"code\": code,\n            \"name\": name,\n\
+  \            \"price\": price,\n            \"volume\": volume,\n            \"\
+  amount\": amount,\n            \"p_change\": p_change,\n            \"money_score\"\
+  : round(money_score, 4),\n            \"strength_score\": round(strength_score,\
+  \ 4),\n            \"combined_score\": round(combined_score, 4),\n            \"\
+  blocks\": _first_multi(row.get(\"blocks\")),\n            \"block_count\": _f(row.get(\"\
+  block_count\"), 0),\n        })\n    \n    if not capital_scores:\n        return\
+  \ None\n    \n    capital_scores.sort(key=lambda r: r[\"combined_score\"], reverse=True)\n\
+  \    top = capital_scores[0]\n    \n    # 生成 HTML 格式\n    html_parts = []\n    html_parts.append('<div\
+  \ style=\"margin-bottom:12px;\">')\n    html_parts.append('<div style=\"font-weight:600;color:#28a745;margin-bottom:8px;\"\
+  >\U0001F4B0 资金流向分析 (' + str(len(capital_scores)) + '个)</div>')\n    html_parts.append('<div\
+  \ style=\"color:#666;font-size:12px;margin-bottom:8px;\">资金集中度与涨跌强弱综合评分</div>')\n\
+  \    \n    # 资金信号\n    if len(capital_scores) >= 3:\n        html_parts.append('<div\
+  \ style=\"background:#e8f5e9;border:1px solid #a5d6a7;padding:8px 12px;border-radius:8px;font-size:12px;color:#2e7d32;margin-bottom:8px;\"\
+  >')\n        html_parts.append('<div style=\"font-weight:600;margin-bottom:4px;\"\
+  >\U0001F4CA 资金信号</div>')\n        for i, s in enumerate(capital_scores[:3]):\n \
+  \           html_parts.append('<div>Top' + str(i+1) + ': ' + str(s.get(\"name\"\
+  ,\"\")) + ' ' + str(s.get(\"code\",\"\")) + ' 得分 ' + '{:.2f}'.format(s.get(\"combined_score\"\
+  ,0)) + '</div>')\n        html_parts.append('</div>')\n    \n    html_parts.append('<div\
+  \ style=\"display:flex;flex-wrap:wrap;gap:8px;\">')\n    for s in capital_scores[:8]:\n\
+  \        score = s.get(\"combined_score\", 0)\n        pchg = s.get(\"p_change\"\
+  , 0)\n        bg = '#e8f5e9' if score >= 0.5 else '#fff8e1' if score >= 0.3 else\
+  \ '#ffebee'\n        bd = '#a5d6a7' if score >= 0.5 else '#ffe082' if score >= 0.3\
+  \ else '#ef9a9a'\n        color = '#2e7d32' if pchg >= 0 else '#c62828'\n      \
+  \  html_parts.append('<div style=\"background:' + bg + ';border:1px solid ' + bd\
+  \ + ';padding:8px 12px;border-radius:8px;font-size:12px;min-width:180px;\">')\n\
+  \        html_parts.append('<div style=\"font-weight:600;color:#333;\">' + str(s.get(\"\
+  name\",\"\")) + '</div>')\n        html_parts.append('<div style=\"color:' + color\
+  \ + ';margin-top:4px;\">得分 ' + '{:.2f}'.format(score) + ' | ' + '{:+.2f}'.format(pchg)\
+  \ + '%</div>')\n        html_parts.append('<div style=\"color:#666;font-size:11px;margin-top:2px;\"\
+  >金额 ' + '{:.2f}'.format(s.get(\"amount\",0)/1e8) + '亿</div>')\n        html_parts.append('</div>')\n\
+  \    html_parts.append('</div></div>')\n    \n    return {\n        \"signal\":\
+  \ \"unified_capital\",\n        \"signal_type\": \"BUY\",\n        \"stock_code\"\
+  : top.get(\"code\", \"\"),\n        \"stock_name\": top.get(\"name\", \"\"),\n \
+  \       \"price\": top.get(\"price\", 0),\n        \"confidence\": top.get(\"combined_score\"\
+  , 0.5),\n        \"money_score\": top.get(\"money_score\", 0),\n        \"strength_score\"\
+  : top.get(\"strength_score\", 0),\n        \"picks\": capital_scores[:8],\n    \
+  \    \"signals\": capital_scores[:8],\n        \"html\": ''.join(html_parts),\n\
+  \    }\n"
+metadata:
+  bound_datasource_id: e626eecd0b86
+  bound_datasource_ids:
+  - e626eecd0b86
+  category: 交易信号
+  compute_mode: record
+  created_at: 1773590525.841822
+  description: 合并资金集中度、强弱分布策略，统一输出资金信号
+  dictionary_profile_ids:
+  - cd10098e6b5f
+  enabled: true
+  func_code_file: ''
+  handler_type: bandit
+  id: 8f1603a84d16
+  max_history_count: 30
+  name: 资金流向分析
+  source: file
+  strategy_type: declarative
+  tags: []
+  updated_at: 1774627248.36847
+  version: 165
+  window_interval: 10s
+  window_return_partial: false
+  window_size: 5
+  window_type: sliding
+parameters:
+  enabled: true
+  max_history_count: 30
+  window_interval: 10s
+  window_size: 5

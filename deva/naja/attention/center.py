@@ -13,6 +13,7 @@ Radar/DataSource → AttentionKernel → AttentionOrchestrator → CognitionEngi
 """
 
 import time
+import sys
 import threading
 import asyncio
 import os
@@ -60,6 +61,23 @@ class AttentionOrchestrator:
     - 数据源始终emit全量数据
     - 编排器协调 AttentionKernel 和注意力系统
     - 策略通过编排器获取数据（已过滤）
+
+    ================================================================================
+    单例模式说明：为什么使用单例
+    ================================================================================
+    1. 全局协调器：AttentionOrchestrator 是流式计算系统的核心协调器，负责
+       接收所有数据源数据、计算注意力、协调策略执行。必须全局唯一。
+
+    2. 状态一致性：注意力计算、市场状态、板块映射等信息需要在全系统保持一致。
+       如果存在多个实例，会导致状态分裂，系统行为不可预测。
+
+    3. 资源管理：AttentionKernel 等核心计算组件本身就是单例的，作为协调器的
+       AttentionOrchestrator 也必须是单例才能正确访问这些资源。
+
+    4. 生命周期：协调器的生命周期与系统一致，随系统启动和关闭。
+
+    5. 这是流式计算系统的设计选择，不是过度工程。
+    ================================================================================
     """
 
     _instance = None
@@ -171,6 +189,19 @@ class AttentionOrchestrator:
 
         self._initialized = True
         log.info("AttentionOrchestrator 初始化完成")
+
+        self._initialize_strategies()
+
+    def _initialize_strategies(self):
+        """初始化注意力策略"""
+        try:
+            from deva.naja.attention.strategies import initialize_attention_strategies
+            mgr = initialize_attention_strategies()
+            log.info(f"注意力策略系统已初始化: {len(mgr.strategies)} 个策略, is_running={mgr.is_running}")
+        except Exception as e:
+            log.error(f"初始化注意力策略失败: {e}")
+            import traceback
+            log.error(traceback.format_exc())
 
     def _init_attention_kernel(self):
         """初始化 AttentionKernel 事件级注意力核心"""
@@ -360,6 +391,8 @@ class AttentionOrchestrator:
 
     def process_datasource_data(self, datasource_id: str, data: Any) -> None:
         """处理数据源数据"""
+        _lab_debug_log(f"[Center] process_datasource_data called: datasource={datasource_id}, data_type={type(data)}")
+
         if pd is None or not isinstance(data, pd.DataFrame):
             log.debug(f"[Center] 数据源 {datasource_id} 数据格式不正确，跳过")
             return
@@ -388,8 +421,19 @@ class AttentionOrchestrator:
         if self._processed_frames % 10 == 0:
             log.info(f"[Center] 已处理 {self._processed_frames} 帧数据, Pipeline: {pipeline_result.rows_in}→{pipeline_result.rows_out}")
 
-        self._update_attention(data)
+        print(f"[DEBUG] About to call _dispatch_to_strategies, data rows={len(data)}")
+        try:
+            self._update_attention(data)
+        except Exception as e:
+            print(f"[ERROR] _update_attention failed: {e}")
+            import traceback
+            traceback.print_exc()
+            return
+        print(f"[DEBUG] _update_attention done, calling _dispatch_to_strategies")
+        _lab_debug_log(f"[Center] _update_attention 完成, 调用 _dispatch_to_strategies")
+        print(f"[DEBUG] Calling _dispatch_to_strategies now")
         self._dispatch_to_strategies(datasource_id, data)
+        print(f"[DEBUG] _dispatch_to_strategies returned")
 
         if _PERFORMANCE_MONITORING_AVAILABLE:
             latency = (time.time() - start_time) * 1000
@@ -403,6 +447,8 @@ class AttentionOrchestrator:
 
     def _update_attention(self, data: pd.DataFrame):
         """更新注意力系统"""
+        print(f"[DEBUG] _update_attention ENTER")
+        sys.stdout.flush()
         if self._integration.attention_system is None or not self._integration.attention_system._initialized:
             log.warning("注意力系统未初始化，尝试自动初始化...")
             try:
@@ -491,8 +537,8 @@ class AttentionOrchestrator:
                 log.debug("过滤后数据为空，跳过本次更新")
                 return
 
-            symbols = data.index.values if 'code' not in data.columns else data['code'].values
-            sector_ids = self._extract_sector_ids(data)
+            code_col = 'code' if 'code' in data.columns else data.index.name
+            symbols = data.index.values if code_col == data.index.name else data[code_col].values
 
             if 'p_change' in data.columns:
                 returns = data['p_change'].values
@@ -516,6 +562,10 @@ class AttentionOrchestrator:
             prices = np.nan_to_num(prices, nan=0.0, posinf=1e6, neginf=0.0)
             prices = np.clip(prices, 0.01, 1e6)
 
+            symbols, returns, volumes, prices, sector_ids = self._expand_for_multi_sector(
+                symbols, returns, volumes, prices, data, code_col
+            )
+
             market_time = current_time
             market_time_str = None
             if 'date' in data.columns and 'time' in data.columns:
@@ -530,6 +580,22 @@ class AttentionOrchestrator:
                     market_time_str = dt.strftime("%Y-%m-%d %H:%M:%S")
                 except:
                     pass
+
+            # Update QueryState with current market context
+            if self._attention_query_state is not None:
+                self._attention_query_state.update_from_market(
+                    symbols=symbols,
+                    returns=returns,
+                    volumes=volumes,
+                    prices=prices,
+                    timestamp=market_time,
+                    sector_ids=sector_ids if 'sector' in data.columns else None,
+                    sector_map=self._get_sector_map(data),
+                )
+
+                self._update_portfolio_state()
+
+                self._update_signal_stream_query_state()
 
             kernel_result = self._process_with_kernel(
                 data, symbols, returns, volumes, prices, market_time
@@ -557,7 +623,8 @@ class AttentionOrchestrator:
             if kernel_result:
                 result['kernel_attention'] = kernel_result
 
-            _lab_debug_log(f"process_snapshot result: global_attention={result.get('global_attention')}, sector_attention count={len(result.get('sector_attention', {}))}")
+            if self._processed_frames % 10 == 0:
+                _lab_debug_log(f"process_snapshot result: global_attention={result.get('global_attention')}, sector_attention count={len(result.get('sector_attention', {}))}")
 
             control = self._integration.get_datasource_control()
             self._cached_high_attention_symbols = set(control.get('high_freq_symbols', []))
@@ -596,10 +663,48 @@ class AttentionOrchestrator:
 
                 _lab_debug_log(f"快照记录: sector_weights count={len(sector_weights)}, symbol_weights count={len(symbol_weights)}, tracker.snapshots={len(tracker.snapshots)}")
 
+                self._cached_high_attention_symbols.clear()
+                self._cached_active_sectors.clear()
+
+                available = set(str(s) for s in data['code'].values)
+                matched = 0
+                sample_matched = []
+                sample_unmatched = []
+
+                for sym, weight in symbol_weights.items():
+                    sym_str = str(sym)
+                    if sym_str in available:
+                        self._cached_high_attention_symbols.add(sym_str)
+                        matched += 1
+                        if len(sample_matched) < 3:
+                            sample_matched.append(sym_str)
+                    else:
+                        if len(sample_unmatched) < 3:
+                            sample_unmatched.append((sym_str, sym_str in available))
+
+                _lab_debug_log(f"[过滤调试] data codes: {len(available)}, symbol_weights: {len(symbol_weights)}, matched: {matched}")
+                if sample_matched:
+                    _lab_debug_log(f"[过滤调试] sample matched: {sample_matched}")
+                if sample_unmatched:
+                    _lab_debug_log(f"[过滤调试] sample unmatched: {sample_unmatched}")
+
+                for sec, weight in sector_weights.items():
+                    if weight >= 0.01:
+                        self._cached_active_sectors.add(str(sec))
+
                 if sector_weights:
-                    sorted_sectors = sorted(sector_weights.items(), key=lambda x: x[1], reverse=True)[:5]
-                    named_sectors = [(tracker.get_sector_name(s), w) for s, w in sorted_sectors]
-                    _lab_debug_log(f"SectorWeights Top5: {[(f'{n}({w:.2f})') for n, w in named_sectors]}")
+                    from deva.naja.attention.processing.sector_noise_detector import get_sector_noise_detector
+                    noise_detector = get_sector_noise_detector()
+                    sorted_sectors = sorted(sector_weights.items(), key=lambda x: x[1], reverse=True)
+                    valid_sectors = []
+                    for s, w in sorted_sectors:
+                        sector_name = tracker.get_sector_name(s)
+                        if sector_name and sector_name != s and not noise_detector.is_noise(s, sector_name):
+                            valid_sectors.append((sector_name, w))
+                        if len(valid_sectors) >= 5:
+                            break
+                    if valid_sectors:
+                        _lab_debug_log(f"SectorWeights Top5: {[(f'{n}({w:.2f})') for n, w in valid_sectors]}")
 
                 symbol_market_data = {}
                 for idx, row in data.iterrows():
@@ -760,6 +865,10 @@ class AttentionOrchestrator:
 
     def _dispatch_to_strategies(self, datasource_id: str, data: pd.DataFrame, market_time: Optional[float] = None):
         """分发数据到各策略"""
+        print(f"[DEBUG] _dispatch_to_strategies ENTER: data_rows={len(data)}, cached={len(self._cached_high_attention_symbols)}")
+        sys.stdout.flush()
+        _lab_debug_log(f"[_dispatch_to_strategies] data行数={len(data)}, cached_symbols={len(self._cached_high_attention_symbols)}")
+
         if market_time is None and not data.empty:
             try:
                 if 'date' in data.columns and 'time' in data.columns:
@@ -775,90 +884,58 @@ class AttentionOrchestrator:
         elif market_time is None:
             market_time = time.time()
 
-        for strategy_id, config in self._strategies.items():
-            try:
-                strategy_type = config['type']
-                callback = config['callback']
-                filter_by_attention = config['filter_by_attention']
+        from .strategies import get_strategy_manager
+        strategy_mgr = get_strategy_manager()
+        if strategy_mgr is None:
+            log.warning("策略管理器未初始化")
+            return
 
-                if not filter_by_attention:
-                    callback(data)
-                    continue
-
-                if strategy_type == 'global':
-                    context = {
-                        'global_attention': self._cached_global_attention,
-                        'datasource_id': datasource_id
-                    }
-                    callback(data, context)
-
-                elif strategy_type == 'sector':
-                    filtered = self._filter_by_sectors(data)
-                    if not filtered.empty:
-                        context = {
-                            'active_sectors': self._cached_active_sectors,
-                            'global_attention': self._cached_global_attention
-                        }
-                        callback(filtered, context)
-
-                elif strategy_type == 'symbol':
-                    filtered = self._filter_by_attention(data)
-                    if not filtered.empty:
-                        self._filtered_frames += 1
-                        context = {
-                            'high_attention_symbols': self._cached_high_attention_symbols,
-                            'global_attention': self._cached_global_attention
-                        }
-                        callback(filtered, context)
-
-            except Exception as e:
-                log.error(f"分发数据到策略 {strategy_id} 失败: {e}")
-
-        try:
-            from .strategies import get_strategy_manager
-
-            strategy_mgr = get_strategy_manager()
-
-            if strategy_mgr is None:
-                log.warning("策略管理器未初始化，跳过策略处理")
-            elif not strategy_mgr.is_running:
-                log.warning(f"策略管理器未运行 (is_running=False)，尝试启动...")
-                if not strategy_mgr.strategies:
-                    strategy_mgr.initialize_default_strategies()
+        if not strategy_mgr.is_running:
+            log.warning(f"策略管理器未运行 (is_running=False)")
+            if strategy_mgr.strategies:
+                log.info(f"尝试启动策略管理器, 策略数={len(strategy_mgr.strategies)}")
                 strategy_mgr.start()
 
-            if strategy_mgr and strategy_mgr.is_running:
-                context = {
-                    'global_attention': self._cached_global_attention,
-                    'activity': self._cached_activity,
-                    'high_attention_symbols': self._cached_high_attention_symbols,
-                    'active_sectors': self._cached_active_sectors,
-                    'datasource_id': datasource_id,
-                    'sector_weights': self._get_sector_weights(),
-                    'symbol_weights': self._get_symbol_weights(),
-                    'timestamp': market_time if market_time else time.time()
-                }
-                signals = strategy_mgr.process_data(data, context)
-                if signals:
-                    log.info(f"🎯 注意力策略生成 {len(signals)} 个信号")
-                elif self._processed_frames % 50 == 0:
-                    active_count = sum(1 for c in strategy_mgr.configs.values() if c.enabled)
-                    log.debug(f"策略处理完成，无信号生成 (活跃策略: {active_count}, 总策略: {len(strategy_mgr.strategies)})")
-        except ImportError as ie:
-            log.debug(f"注意力策略模块未安装: {ie}")
-        except Exception as e:
-            log.error(f"分发数据到注意力策略系统失败: {e}", exc_info=True)
+        context = {
+            'global_attention': self._cached_global_attention,
+            'high_attention_symbols': self._cached_high_attention_symbols,
+            'active_sectors': self._cached_active_sectors,
+            'datasource_id': datasource_id,
+            'market_time': market_time
+        }
+
+        print(f"[DEBUG] _dispatch: calling strategy_mgr.process_data with data rows={len(data)}, context keys={list(context.keys())}")
+        signals = strategy_mgr.process_data(data, context)
+        print(f"[DEBUG] _dispatch: process_data returned {len(signals) if signals else 0} signals")
+        if signals:
+            log.info(f"🎯 注意力策略生成 {len(signals)} 个信号")
+            self._execute_signals(signals)
+        elif self._processed_frames % 10 == 0:
+            active_count = sum(1 for c in strategy_mgr.configs.values() if c.enabled)
+            log.info(f"[策略执行] 帧{self._processed_frames}: 活跃策略={active_count}, 总策略={len(strategy_mgr.strategies)}, 无信号")
 
     def _filter_by_attention(self, data: pd.DataFrame) -> pd.DataFrame:
-        """根据注意力过滤数据"""
+        """根据注意力过滤数据，同时排除已有持仓"""
         if not self._cached_high_attention_symbols:
             return data
 
+        held_symbols = set()
+        if self._attention_query_state and self._attention_query_state.portfolio_state:
+            held_symbols = set(self._attention_query_state.portfolio_state.get("held_symbols", []))
+
         code_column = 'code' if 'code' in data.columns else data.index.name
         if code_column == 'code':
-            return data[data['code'].isin(self._cached_high_attention_symbols)]
+            filtered = data[data['code'].isin(self._cached_high_attention_symbols)]
         else:
-            return data[data.index.isin(self._cached_high_attention_symbols)]
+            filtered = data[data.index.isin(self._cached_high_attention_symbols)]
+
+        if held_symbols:
+            if code_column == 'code':
+                filtered = filtered[~filtered['code'].isin(held_symbols)]
+            else:
+                filtered = filtered[~filtered.index.isin(held_symbols)]
+
+        return filtered
 
     def _filter_by_sectors(self, data: pd.DataFrame) -> pd.DataFrame:
         """根据板块过滤数据"""
@@ -893,20 +970,233 @@ class AttentionOrchestrator:
         elif 'industry' in data.columns:
             sector_col = 'industry'
 
-        if sector_col is None:
+        if sector_col is not None:
+            sector_ids: List[int] = []
+            for value in data[sector_col].values:
+                name = str(value).strip()
+                if not name:
+                    sector_ids.append(0)
+                    continue
+                if name not in self._sector_id_map:
+                    self._sector_id_map[name] = self._next_sector_id
+                    self._next_sector_id += 1
+                sector_ids.append(self._sector_id_map[name])
+            return np.array(sector_ids, dtype=int)
+
+        try:
+            from deva.naja.attention.integration.extended import get_attention_integration
+            integration = get_attention_integration()
+            symbol_sector_map = getattr(integration, '_symbol_sector_map', {})
+            log.info(f"[_extract_sector_ids] symbol_sector_map size={len(symbol_sector_map)}, integration id={id(integration)}")
+            if not symbol_sector_map:
+                log.warning(f"[_extract_sector_ids] symbol_sector_map is empty")
+                return np.zeros(len(data))
+
+            code_col = 'code' if 'code' in data.columns else data.index.name
+            log.info(f"[_extract_sector_ids] code_col={code_col}, data len={len(data)}")
+            sector_ids = []
+            matched = 0
+            sample_count = 0
+            for symbol in data[code_col].values if code_col else data.index.values:
+                symbol_str = str(symbol)
+                sector_list = symbol_sector_map.get(symbol_str, [])
+                if sample_count < 3:
+                    log.info(f"[_extract_sector_ids] sample: {symbol_str} -> {sector_list}")
+                    sample_count += 1
+                for sector_id in sector_list:
+                    if sector_id != 0:
+                        matched += 1
+                    sector_ids.append(sector_id if sector_id else 0)
+            log.info(f"[_extract_sector_ids] matched {matched}/{len(sector_ids)} sector entries")
+            return np.array(sector_ids, dtype=object)
+        except Exception as e:
+            import traceback
+            log.error(f"[_extract_sector_ids] error: {e}")
+            log.error(traceback.format_exc())
             return np.zeros(len(data))
 
-        sector_ids: List[int] = []
-        for value in data[sector_col].values:
-            name = str(value).strip()
-            if not name:
-                sector_ids.append(0)
-                continue
-            if name not in self._sector_id_map:
-                self._sector_id_map[name] = self._next_sector_id
-                self._next_sector_id += 1
-            sector_ids.append(self._sector_id_map[name])
-        return np.array(sector_ids, dtype=int)
+    def _expand_for_multi_sector(
+        self,
+        symbols: np.ndarray,
+        returns: np.ndarray,
+        volumes: np.ndarray,
+        prices: np.ndarray,
+        data: pd.DataFrame,
+        code_col: str
+    ) -> tuple:
+        """展开多板块数据，使每个股票-板块组合成为独立的一行"""
+        try:
+            from deva.naja.attention.integration.extended import get_attention_integration
+            integration = get_attention_integration()
+            symbol_sector_map = getattr(integration, '_symbol_sector_map', {})
+
+            if not symbol_sector_map:
+                sector_ids = self._extract_sector_ids(data)
+                return symbols, returns, volumes, prices, sector_ids
+
+            expanded_symbols = []
+            expanded_returns = []
+            expanded_volumes = []
+            expanded_prices = []
+            expanded_sector_ids = []
+
+            multi_sector_count = 0
+            for i, symbol in enumerate(symbols):
+                symbol_str = str(symbol)
+                sector_list = symbol_sector_map.get(symbol_str, [])
+
+                if not sector_list:
+                    sector_list = ['0']
+
+                for sector_id in sector_list:
+                    expanded_symbols.append(symbol_str)
+                    expanded_returns.append(returns[i])
+                    expanded_volumes.append(volumes[i])
+                    expanded_prices.append(prices[i])
+                    expanded_sector_ids.append(sector_id if sector_id else 0)
+                    if len(sector_list) > 1:
+                        multi_sector_count += 1
+
+            if multi_sector_count > 0 and self._processed_frames % 10 == 0:
+                log.info(f"[_expand_for_multi_sector] 多板块股票: {multi_sector_count} 条展开记录")
+
+            return (
+                np.array(expanded_symbols),
+                np.array(expanded_returns),
+                np.array(expanded_volumes),
+                np.array(expanded_prices),
+                np.array(expanded_sector_ids, dtype=object)
+            )
+        except Exception as e:
+            log.error(f"[_expand_for_multi_sector] error: {e}")
+            import traceback
+            log.error(traceback.format_exc())
+            sector_ids = self._extract_sector_ids(data)
+            return symbols, returns, volumes, prices, sector_ids
+
+    def _get_sector_map(self, data: pd.DataFrame) -> Dict[str, List[str]]:
+        """从数据中提取 symbol -> [sectors] 的映射"""
+        sector_col = None
+        if 'sector' in data.columns:
+            sector_col = 'sector'
+        elif 'industry' in data.columns:
+            sector_col = 'industry'
+
+        if sector_col is None:
+            return {}
+
+        sector_map: Dict[str, List[str]] = {}
+        try:
+            code_col = 'code' if 'code' in data.columns else data.index.name
+            if code_col is None:
+                return {}
+
+            for idx, row in data.iterrows():
+                code = str(row[code_col]) if code_col in row else str(idx)
+                sector = str(row.get(sector_col, '')).strip()
+                if code and sector and sector != 'nan':
+                    if code not in sector_map:
+                        sector_map[code] = []
+                    if sector not in sector_map[code]:
+                        sector_map[code].append(sector)
+        except Exception:
+            pass
+
+        return sector_map
+
+    def _execute_signals(self, signals):
+        """将信号传递给 Bandit 的 SignalListener 执行"""
+        try:
+            from deva.naja.signal.stream import get_signal_stream
+            from deva.naja.strategy.result_store import StrategyResult
+            signal_stream = get_signal_stream()
+
+            for signal in signals:
+                if signal.signal_type not in ('buy', 'sell'):
+                    continue
+
+                price = 0.0
+                if signal.metadata:
+                    price = float(signal.metadata.get('price', signal.metadata.get('close', 0)))
+
+                result = StrategyResult(
+                    id=f"{signal.strategy_name}_{signal.symbol}_{int(signal.timestamp*1000)}",
+                    strategy_id=signal.strategy_name,
+                    strategy_name=signal.strategy_name,
+                    ts=signal.timestamp,
+                    success=True,
+                    input_preview=f"{signal.symbol}: {signal.signal_type}",
+                    output_preview=f"置信度: {signal.confidence:.2f}, 得分: {signal.score:.3f}",
+                    output_full={
+                        'signal_type': signal.signal_type.upper(),
+                        'stock_code': signal.symbol,
+                        'price': price,
+                        'confidence': signal.confidence,
+                        'score': signal.score,
+                        'reason': signal.reason,
+                    },
+                    process_time_ms=0,
+                    error="",
+                    metadata={'source': 'attention_center', 'attention_strategy': signal.strategy_name}
+                )
+
+                signal_stream.update(result, who='attention_center')
+
+            log.info(f"[Center] 已将 {len(signals)} 个信号添加到信号流")
+        except Exception as e:
+            log.error(f"[Center] 添加信号到信号流失败: {e}")
+
+    def _update_portfolio_state(self):
+        """从 VirtualPortfolio 更新 QueryState 的持仓状态"""
+        try:
+            from deva.naja.bandit import get_virtual_portfolio
+            portfolio = get_virtual_portfolio()
+
+            summary = portfolio.get_summary()
+            positions = portfolio.get_all_positions(status="OPEN")
+
+            held_symbols = list(set(p.stock_code for p in positions))
+
+            concentration = 0.0
+            if summary['total_value'] > 0 and positions:
+                max_position = max((p.market_value for p in positions), default=0)
+                concentration = max_position / summary['total_value']
+
+            exposed_sectors = list(set(p.strategy_id.split('_')[0] for p in positions if '_' in p.strategy_id))
+
+            self._attention_query_state.update({
+                "portfolio_state": {
+                    "held_symbols": held_symbols,
+                    "total_return": summary.get('total_return', 0),
+                    "profit_loss": summary.get('total_profit_loss', 0),
+                    "position_count": summary.get('position_count', 0),
+                    "available_capital": summary.get('available_capital', 0),
+                    "used_capital": summary.get('used_capital', 0),
+                    "concentration": concentration,
+                    "exposed_sectors": exposed_sectors,
+                    "timestamp": time.time(),
+                }
+            })
+
+            _lab_debug_log(f"[Portfolio] 持仓更新: {len(held_symbols)} 个, 收益率={summary.get('total_return', 0):.2f}%")
+
+        except ImportError:
+            pass
+        except Exception as e:
+            _lab_debug_log(f"[Portfolio] 更新持仓状态失败: {e}")
+
+    def _update_signal_stream_query_state(self):
+        """将 QueryState 同步到 SignalStream 用于优先级计算"""
+        try:
+            from deva.naja.signal.stream import get_signal_stream
+            signal_stream = get_signal_stream()
+            signal_stream.set_query_state(self._attention_query_state)
+
+            _lab_debug_log(f"[SignalStream] QueryState 已同步: regime={self._attention_query_state.market_regime.get('type', 'unknown')}, risk_bias={self._attention_query_state.risk_bias:.2f}")
+        except ImportError:
+            pass
+        except Exception as e:
+            _lab_debug_log(f"[SignalStream] 同步 QueryState 失败: {e}")
 
     def _get_sector_weights(self) -> Dict[str, float]:
         """获取板块权重"""
@@ -945,7 +1235,7 @@ class AttentionOrchestrator:
 
                 for sym, weight in weighted_symbols.items():
                     sym_str = str(sym)
-                    if sym_str in available and weight > 0.5:
+                    if sym_str in available and weight >= 0.001:
                         self._cached_high_attention_symbols.add(sym_str)
             except Exception:
                 pass
@@ -953,7 +1243,7 @@ class AttentionOrchestrator:
         if weighted_sectors:
             try:
                 for sec, weight in weighted_sectors.items():
-                    if weight > 0.5:
+                    if weight >= 0.01:
                         self._cached_active_sectors.add(str(sec))
             except Exception:
                 pass

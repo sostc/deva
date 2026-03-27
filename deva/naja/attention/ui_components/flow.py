@@ -6,21 +6,16 @@
 from typing import Dict, List, Any, Optional
 import time
 
+from ...common.ui_style import format_timestamp
+
 
 def _fmt_ts(ts: float) -> str:
-    """格式化时间戳"""
-    if not ts:
-        return "-"
-    try:
-        from datetime import datetime
-        dt = datetime.fromtimestamp(ts)
-        return dt.strftime("%H:%M:%S")
-    except Exception:
-        return str(ts)
+    """格式化时间戳（短格式：HH:MM:SS）"""
+    return format_timestamp(ts, fmt="%H:%M:%S")
 
 
 def _fmt_ts_full(ts: float) -> str:
-    """格式化完整时间戳"""
+    """格式化完整时间戳（微秒精度）"""
     if not ts:
         return "-"
     try:

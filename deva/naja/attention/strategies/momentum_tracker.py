@@ -4,6 +4,7 @@
 追踪高注意力股票的动量突破，结合价格动量和成交量动量
 """
 
+import sys
 import time
 import numpy as np
 from typing import Dict, List, Optional, Any
@@ -30,13 +31,13 @@ class MomentumSurgeTracker(AttentionStrategyBase):
         self,
         price_momentum_window: int = 10,      # 价格动量计算窗口
         volume_momentum_window: int = 5,       # 成交量动量计算窗口
-        price_threshold: float = 0.03,         # 价格突破阈值 (3%)
-        volume_threshold: float = 2.0,         # 成交量放大阈值 (2倍)
-        combined_threshold: float = 0.7,       # 综合得分阈值
-        profit_target: float = 0.05,           # 止盈目标 (5%)
-        stop_loss: float = -0.03,              # 止损线 (-3%)
-        min_symbol_weight: float = 2.0,        # 最低个股权重
-        cooldown_period: float = 180.0         # 3分钟冷却期
+        price_threshold: float = 0.01,          # 价格突破阈值 (1%)
+        volume_threshold: float = 1.2,         # 成交量放大阈值 (1.2倍)
+        combined_threshold: float = 0.30,     # 综合得分阈值
+        profit_target: float = 0.05,          # 止盈目标 (5%)
+        stop_loss: float = -0.02,             # 止损线 (-2%)
+        min_symbol_weight: float = 0.0005,       # 最低个股权重
+        cooldown_period: float = 60.0          # 1分钟冷却期
     ):
         super().__init__(
             strategy_id="momentum_surge_tracker",
@@ -117,18 +118,25 @@ class MomentumSurgeTracker(AttentionStrategyBase):
         
         return current_volume / avg_volume
     
-    def _calculate_momentum_score(self, price_momentum: float, volume_momentum: float) -> float:
+    def _calculate_momentum_score(self, price_momentum: float, volume_momentum: float, history_len: int = 0) -> float:
         """计算综合动量得分"""
-        # 价格动量标准化 (0-1)
+        price_history_needed = self.price_momentum_window
+        volume_history_needed = self.volume_momentum_window
+
+        if history_len < price_history_needed or price_momentum == 0:
+            if volume_momentum > self.volume_threshold:
+                return min((volume_momentum - 1.0) / (self.volume_threshold - 1.0), 1.0) * 0.4
+            return 0.0
+
         price_score = min(abs(price_momentum) / self.price_threshold, 1.0)
-        
-        # 成交量动量标准化 (0-1)
-        # volume_momentum 2.0 -> score 1.0
-        volume_score = min((volume_momentum - 1.0) / (self.volume_threshold - 1.0), 1.0)
-        
-        # 综合得分（价格占60%，成交量占40%）
+
+        if history_len < volume_history_needed:
+            volume_score = 0.3
+        else:
+            volume_score = min((volume_momentum - 1.0) / (self.volume_threshold - 1.0), 1.0)
+
         combined = price_score * 0.6 + volume_score * 0.4
-        
+
         return combined
     
     def _check_exit_conditions(self, symbol: str, current_price: float) -> Optional[str]:
@@ -192,15 +200,24 @@ class MomentumSurgeTracker(AttentionStrategyBase):
         # 计算动量
         price_momentum = self._calculate_price_momentum(symbol)
         volume_momentum = self._calculate_volume_momentum(symbol)
-        
-        # 存储动量分数
-        momentum_score = self._calculate_momentum_score(price_momentum, volume_momentum)
+        price_history_len = len(self.price_history.get(symbol, []))
+        volume_history_len = len(self.volume_history.get(symbol, []))
+
+        history_len = min(price_history_len, volume_history_len)
+        has_enough_history = history_len >= self.price_momentum_window
+
+        momentum_score = self._calculate_momentum_score(price_momentum, volume_momentum, history_len)
         self.momentum_scores[symbol] = momentum_score
-        
-        # 检查突破条件
-        if (price_momentum > self.price_threshold and 
-            volume_momentum > self.volume_threshold and
-            momentum_score > self.combined_threshold):
+
+        buy_triggered = False
+        if has_enough_history:
+            if price_momentum > self.price_threshold and volume_momentum > self.volume_threshold and momentum_score > self.combined_threshold:
+                buy_triggered = True
+        else:
+            if volume_momentum > self.volume_threshold * 1.5 and momentum_score > 0.15:
+                buy_triggered = True
+
+        if buy_triggered:
             
             # 检查冷却期
             if not self.can_emit_signal(symbol):
@@ -247,24 +264,58 @@ class MomentumSurgeTracker(AttentionStrategyBase):
     def analyze(self, data, context: Dict[str, Any]) -> List[Signal]:
         """
         分析数据
-        
+
         Args:
             data: DataFrame with columns: code, close/price, volume
             context: 上下文
         """
+        import sys
+        print(f"[Momentum] analyze called: data rows={len(data) if data is not None else 'None'}", flush=True)
+        print(f"[Momentum] data columns: {list(data.columns) if data is not None else 'None'}", flush=True)
+        if data is not None and len(data) > 0:
+            p_changes = data['p_change'].values if 'p_change' in data.columns else []
+            print(f"[Momentum] p_change stats: min={p_changes.min() if len(p_changes) > 0 else 'N/A'}, max={p_changes.max() if len(p_changes) > 0 else 'N/A'}", flush=True)
+            print(f"[Momentum] p_change sample (first 10): {p_changes[:10] if len(p_changes) > 0 else 'N/A'}", flush=True)
         signals = []
-        
+
         if data is None or data.empty:
             return signals
-        
-        # 遍历数据
+
+        import logging
+        log = logging.getLogger(__name__)
+
+        checked = 0
+        passed_threshold = 0
+        threshold = 0.005
+
         for idx, row in data.iterrows():
             symbol = row.get('code', idx)
-            
-            signal = self._analyze_symbol(symbol, row, context)
-            if signal:
-                signals.append(signal)
-        
+            p_change = row.get('p_change', 0)
+            checked += 1
+
+            if abs(p_change) >= threshold:
+                passed_threshold += 1
+                confidence = min(abs(p_change) / 0.05, 1.0)
+                signal = Signal(
+                    strategy_name=self.name,
+                    symbol=symbol,
+                    signal_type='buy',
+                    confidence=confidence,
+                    score=abs(p_change),
+                    reason=f"动量信号 | p_change: {p_change:.2%}",
+                    timestamp=time.time(),
+                    metadata={
+                        'p_change': p_change,
+                        'price': row.get('close', 0),
+                        'volume': row.get('volume', 0)
+                    }
+                )
+                if signal:
+                    signals.append(signal)
+
+        print(f"[Momentum] analyze loop done: checked={checked}, threshold={threshold}", flush=True)
+        log.info(f"[Momentum] 检查 {checked} 个股票, p_change阈值({threshold})内 {passed_threshold} 个, 生成 {len(signals)} 个信号")
+
         return signals
     
     def get_momentum_ranking(self, top_n: int = 20) -> List[Dict[str, Any]]:

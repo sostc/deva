@@ -60,7 +60,7 @@ class SectorAttentionEngine:
     def __init__(
         self,
         sectors: Optional[List[SectorConfig]] = None,
-        max_sectors: int = 100,
+        max_sectors: int = 5000,
         update_threshold: float = 0.05,
         stale_threshold_seconds: float = 1800.0
     ):
@@ -162,11 +162,27 @@ class SectorAttentionEngine:
                         self._last_summary_log_time = current_time
 
             active_sectors = set()
+            use_external_sectors = sector_ids is not None and len(sector_ids) == len(symbols)
             for sector_id, data in sector_data.items():
                 if sector_id not in self._sectors:
-                    continue
+                    if use_external_sectors and sector_id and sector_id != '0':
+                        config = SectorConfig(
+                            sector_id=sector_id,
+                            name=sector_id,
+                            symbols=set(),
+                            decay_half_life=300.0
+                        )
+                        result = self.register_sector(config)
+                        log.info(f"[SectorAttention] 自动注册外部板块: {sector_id}, result={result}, current count={len(self._sectors)}")
+                        if sector_id not in self._sectors:
+                            log.warning(f"[SectorAttention] 注册后仍然不在 _sectors 中!")
+                            continue
+                    else:
+                        continue
 
                 active_sectors.add(sector_id)
+                if sector_id not in self._sectors:
+                    continue
                 sector = self._sectors[sector_id]
                 idx = self._sector_id_to_idx[sector_id]
 
@@ -215,15 +231,18 @@ class SectorAttentionEngine:
             raw_score = float(self._attention_scores[idx])
             result[sector_id] = max(0.0, min(1.0, raw_score))
 
-        # 调试日志
+        # 调试日志（过滤噪音板块）
         import os
         if os.environ.get("NAJA_LAB_DEBUG") == "true":
-            sample_items = list(self._sector_id_to_idx.items())[:3]
-            debug_scores = {s: float(self._attention_scores[idx]) for s, idx in sample_items}
-            debug_result = dict(list(result.items())[:3])
-            import traceback
-            stack = ''.join(traceback.format_stack()[-5:]).replace('\n', ' | ')
-            log.info(f"[Lab-Debug] _attention_scores 样本: {debug_scores}, 返回结果样本: {debug_result}, 调用栈: {stack[:200]}")
+            noise_detector = _get_noise_detector()
+            all_items = [(s, float(self._attention_scores[idx])) for s, idx in self._sector_id_to_idx.items() if hasattr(self._sectors.get(s), 'name') and self._sectors.get(s).name]
+            if noise_detector:
+                valid_items = [(s, w) for s, w in all_items if not noise_detector.is_noise(s, self._sectors[s].name)]
+            else:
+                valid_items = all_items
+            valid_items.sort(key=lambda x: x[1], reverse=True)
+            if valid_items:
+                log.info(f"[Lab-Debug] 板块注意力 Top5: {[(f'{self._sectors[s].name}({w:.3f})') for s, w in valid_items[:5]]}")
 
         self._last_calc_time = time.time()
         return result

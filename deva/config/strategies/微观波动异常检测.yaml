@@ -1,0 +1,37 @@
+config:
+  compute_mode: record
+  handler_type: radar
+  strategy_type: declarative
+  window_type: sliding
+func_code: "def process(data, context=None):\n    return None\n"
+metadata:
+  bound_datasource_id: e626eecd0b86
+  bound_datasource_ids:
+  - e626eecd0b86
+  - be26640838a0
+  category: 技术雷达
+  compute_mode: record
+  created_at: 1772731905.229454
+  description: 识别小幅震荡/高频抖动/突然放大等微观结构波动异常
+  dictionary_profile_ids:
+  - cd10098e6b5f
+  enabled: true
+  func_code_file: ''
+  handler_type: radar
+  id: 88b104eca26c
+  max_history_count: 300
+  name: 微观波动异常检测
+  source: file
+  strategy_type: declarative
+  tags: []
+  updated_at: 1774627248.3743439
+  version: 51
+  window_interval: 10s
+  window_return_partial: false
+  window_size: 5
+  window_type: sliding
+parameters:
+  enabled: true
+  max_history_count: 300
+  window_interval: 10s
+  window_size: 5

@@ -340,7 +340,6 @@ class DataSourceEntry(RecoverableUnit):
             self._state.last_data_ts = time.time()
             self._state.total_emitted += 1
             self._latest_data = data
-            self._save_latest_data(data)
 
         scheduler.set_downstream_callback(on_data)
 
@@ -379,7 +378,6 @@ class DataSourceEntry(RecoverableUnit):
                             self._state.last_data_ts = time.time()
                             self._state.total_emitted += 1
                             self._latest_data = data
-                            self._save_latest_data(data)
 
                         if interval > 0:
                             if self._stop_event.wait(timeout=interval):
@@ -467,7 +465,6 @@ class DataSourceEntry(RecoverableUnit):
                                     self._state.last_data_ts = time.time()
                                     self._state.total_emitted += 1
                                     self._latest_data = data
-                                    self._save_latest_data(data)
                         else:
                             if current_size < last_size:
                                 self._log("INFO", "文件被截断，重新从头开始")
@@ -493,7 +490,6 @@ class DataSourceEntry(RecoverableUnit):
                                                 self._state.last_data_ts = time.time()
                                                 self._state.total_emitted += 1
                                                 self._latest_data = data
-                                                self._save_latest_data(data)
 
                         if self._stop_event.wait(timeout=poll_interval):
                             break
@@ -655,7 +651,6 @@ class DataSourceEntry(RecoverableUnit):
                                 self._state.last_data_ts = time.time()
                                 self._state.total_emitted += 1
                                 self._latest_data = data
-                                self._save_latest_data(data)
 
                         last_files = current_files
 
@@ -759,21 +754,17 @@ class DataSourceEntry(RecoverableUnit):
             if data is not None:
                 # 检测是否是批量数据（列表）
                 if isinstance(data, list):
-                    # 批量发送：直接发送整个列表
                     self._emit_data(data, is_batch=True)
                     self._state.last_data_ts = time.time()
                     self._state.total_emitted += len(data)
                     self._state.latest_data = data
                     self._latest_data = data
-                    self._save_latest_data(data)
                 else:
-                    # 单条发送
                     self._emit_data(data)
                     self._state.last_data_ts = time.time()
                     self._state.total_emitted += 1
                     self._state.latest_data = data
                     self._latest_data = data
-                    self._save_latest_data(data)
                 self._state.record_success()
             success = True
             self.save()
@@ -833,14 +824,12 @@ class DataSourceEntry(RecoverableUnit):
                         self._state.total_emitted += len(data)
                         self._state.latest_data = data
                         self._latest_data = data
-                        self._save_latest_data(data)
                     else:
                         self._emit_data(data)
                         self._state.last_data_ts = time.time()
                         self._state.total_emitted += 1
                         self._state.latest_data = data
                         self._latest_data = data
-                        self._save_latest_data(data)
 
             except Exception as e:
                 import traceback
@@ -918,10 +907,12 @@ class DataSourceEntry(RecoverableUnit):
             db = NB(DS_LATEST_DATA_TABLE)
             cached = db.get(self.id)
             if cached is not None:
+                if self._latest_data is None:
+                    self._latest_data = cached
                 return cached
         except Exception:
             pass
-        
+
         return None
     
     def _save_latest_data(self, data: Any):
@@ -995,6 +986,8 @@ class DataSourceEntry(RecoverableUnit):
         try:
             db = NB(DS_TABLE)
             db[self.id] = self.to_dict()
+            if self._latest_data is not None:
+                self._save_latest_data(self._latest_data)
             return {"success": True, "id": self.id}
         except Exception as e:
             return {"success": False, "error": str(e)}
@@ -1066,7 +1059,26 @@ class DataSourceEntry(RecoverableUnit):
 
 
 class DataSourceManager:
-    """数据源管理器"""
+    """数据源管理器
+
+    ================================================================================
+    单例模式说明：为什么使用单例
+    ================================================================================
+    1. 全局唯一性：数据源系统是全局资源，只能有一个实例管理所有数据源的生命周期。
+       如果存在多个实例，可能导致数据源状态不一致。
+
+    2. 资源管理：DataSourceManager 持有数据源字典（_items）和数据库连接（NB），
+       这些资源应该全局共享，而非重复创建。
+
+    3. 生命周期：Manager 的生命周期与系统一致，随系统启动和关闭。
+
+    4. 依赖注入支持：如需测试，可以注入 mock 对象。
+
+    5. Manager 类本身不是资源，而是通往资源的入口点。真正的系统资源
+       （如 NB 数据库连接）是单例的，而 Manager 类保持单例是为了方便
+       访问这些资源。
+    ================================================================================
+    """
 
     _instance = None
     _lock = threading.Lock()
@@ -1168,7 +1180,10 @@ class DataSourceManager:
 
     def list_all(self) -> List[DataSourceEntry]:
         if not self._items:
-            self.load_from_db()
+            if hasattr(self, 'load_prefer_files'):
+                self.load_prefer_files()
+            else:
+                self.load_from_db()
         return list(self._items.values())
 
     def list_all_dict(self) -> List[dict]:
@@ -1226,6 +1241,118 @@ class DataSourceManager:
                     self._log("ERROR", "Load entry failed", id=entry_id, error=str(e))
 
         return count
+
+    def load_prefer_files(self) -> int:
+        """优先从文件加载数据源配置，NB 数据作为兜底
+
+        加载策略：
+        1. 先扫描 config/datasources/ 目录下的文件配置
+        2. 如果文件存在，优先使用文件配置
+        3. 如果文件不存在但 NB 中有，则使用 NB 数据
+        4. 合并去重，以文件配置优先
+
+        Returns:
+            加载的数据源数量
+        """
+        from deva.naja.config.file_config import get_file_config_manager
+
+        file_mgr = get_file_config_manager('datasource')
+        file_names = set(file_mgr.list_names())
+
+        db = NB(DS_TABLE)
+        loaded_count = 0
+
+        with self._items_lock:
+            self._items.clear()
+
+            for entry_id, data in list(db.items()):
+                if not isinstance(data, dict):
+                    continue
+
+                try:
+                    entry = DataSourceEntry.from_dict(data)
+                    if not entry.id:
+                        continue
+
+                    name = entry.name
+                    if name in file_names:
+                        file_item = file_mgr.get(name)
+                        if file_item and file_item.metadata.source == 'file':
+                            existing_time = getattr(entry._metadata, 'updated_at', 0) or 0
+                            file_time = file_item.metadata.updated_at or 0
+                            if file_time >= existing_time:
+                                file_entry = self._create_entry_from_file_config(file_item)
+                                if file_entry:
+                                    self._items[file_entry.id] = file_entry
+                                    loaded_count += 1
+                                    continue
+
+                    self._items[entry.id] = entry
+                    loaded_count += 1
+
+                except Exception as e:
+                    self._log("ERROR", "Load entry failed", id=entry_id, error=str(e))
+
+            for name in file_names:
+                file_item = file_mgr.get(name)
+                if not file_item:
+                    continue
+
+                name_already_loaded = any(e.name == name for e in self._items.values())
+                if name_already_loaded:
+                    continue
+
+                try:
+                    file_entry = self._create_entry_from_file_config(file_item)
+                    if file_entry:
+                        self._items[file_entry.id] = file_entry
+                        loaded_count += 1
+                except Exception as e:
+                    self._log("ERROR", f"Load from file failed: {name}", error=str(e))
+
+        return loaded_count
+
+    def _create_entry_from_file_config(self, file_item) -> Optional['DataSourceEntry']:
+        """从文件配置创建 DataSourceEntry"""
+        from deva.naja.config.file_config import ConfigFileItem
+
+        if not isinstance(file_item, ConfigFileItem):
+            return None
+
+        file_metadata = file_item.metadata
+        file_config = file_item.config
+        file_params = file_item.parameters
+
+        metadata = DataSourceMetadata(
+            id=file_metadata.id or file_item.name,
+            name=file_item.name,
+            description=file_metadata.description or '',
+            tags=file_metadata.tags or [],
+            source_type=file_config.get('source_type', 'timer'),
+            config=file_config.get('config', {}),
+            interval=file_params.get('interval_seconds', 5.0),
+            execution_mode=file_config.get('execution_mode', 'timer'),
+            scheduler_trigger=file_config.get('scheduler_trigger', 'interval'),
+            cron_expr=file_config.get('cron_expr', ''),
+            run_at=file_config.get('run_at', ''),
+            event_source=file_config.get('event_source', 'log'),
+            event_condition=file_config.get('event_condition', ''),
+            event_condition_type=file_config.get('event_condition_type', 'contains'),
+            created_at=file_metadata.created_at or time.time(),
+            updated_at=file_metadata.updated_at or time.time(),
+        )
+
+        state = DataSourceState()
+        entry = DataSourceEntry(metadata=metadata, state=state)
+
+        if file_item.func_code:
+            entry._func_code = file_item.func_code
+            try:
+                entry.compile_code()
+            except Exception:
+                pass
+
+        return entry
 
     def restore_running_states(self) -> dict:
         restored_count = 0

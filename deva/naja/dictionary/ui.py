@@ -7,7 +7,7 @@ from pywebio.input import actions, file_upload, input, input_group, select, text
 from pywebio.session import run_async
 
 from ..tables import parse_uploaded_dataframe
-from ..common.ui_style import apply_strategy_like_styles, render_empty_state, render_stats_cards
+from ..common.ui_style import apply_strategy_like_styles, render_empty_state, render_stats_cards, format_timestamp, render_status_badge, render_detail_section
 from ..scheduler.ui import (
     build_cron_expr_wizard,
     choose_scheduler_trigger,
@@ -30,12 +30,6 @@ def fetch_data():
         "industry": ["银行", "房地产"]
     })
 '''
-
-
-def _fmt_ts(ts: float) -> str:
-    if not ts:
-        return "-"
-    return datetime.fromtimestamp(ts).strftime("%Y-%m-%d %H:%M:%S")
 
 
 def _fmt_size(size: int) -> str:
@@ -155,26 +149,12 @@ def _build_payload_overview(payload):
     return f"文本概要: 长度 {len(text)} 字符", ("text", snippet)
 
 
-def _render_status_badge(is_running: bool) -> str:
-    if is_running:
-        return '<span style="display:inline-block;padding:4px 12px;border-radius:20px;font-size:12px;font-weight:500;background:#e8f5e9;color:#2e7d32;">● 运行中</span>'
-    return '<span style="display:inline-block;padding:4px 12px;border-radius:20px;font-size:12px;font-weight:500;background:#f5f5f5;color:#757575;">○ 已停止</span>'
-
-
 def _render_health_badge(last_status: str) -> str:
     if last_status == "success":
         return '<span style="display:inline-block;padding:4px 12px;border-radius:20px;font-size:12px;font-weight:500;background:#e3f2fd;color:#1565c0;">✓ 健康</span>'
     if last_status == "error":
         return '<span style="display:inline-block;padding:4px 12px;border-radius:20px;font-size:12px;font-weight:500;background:#ffebee;color:#c62828;">✗ 异常</span>'
     return '<span style="display:inline-block;padding:4px 12px;border-radius:20px;font-size:12px;font-weight:500;background:#f5f5f5;color:#757575;">- -</span>'
-
-
-def _render_detail_section(title: str) -> str:
-    return f"""
-    <div style="margin:20px 0 12px 0;padding-bottom:8px;border-bottom:2px solid #e0e0e0;">
-        <span style="font-size:15px;font-weight:600;color:#333;">{title}</span>
-    </div>
-    """
 
 
 def _dict_type_options():
@@ -285,6 +265,116 @@ def _extract_uploaded_payload(file_payload: dict):
     return df
 
 
+def _open_file_config_manager(mgr, ctx: dict):
+    """打开文件配置管理器"""
+    from pywebio.session import run_async
+    run_async(_render_file_config_manager(ctx, mgr))
+
+
+async def _render_file_config_manager(ctx: dict, mgr):
+    """渲染文件配置管理界面"""
+    from pywebio.output import put_html, put_table, put_buttons, put_markdown, put_code, put_text, popup, close_popup
+    from pywebio.input import input_group, actions, input, textarea, select
+    from deva.naja.config.file_config import (
+        list_configs,
+        load_config,
+        save_config,
+        delete_config,
+        get_config_path,
+        get_dict_file_config_manager,
+        FileConfigMetadata,
+    )
+
+    file_mgr = get_dict_file_config_manager()
+
+    with popup("📁 文件配置管理", size="large", closable=True):
+        put_markdown("### 字典文件配置管理")
+        put_html("<p style='color:#666;font-size:13px;'>配置文件位于 <code>config/dictionaries/</code> 目录，可以提交 git 进行版本控制。</p>")
+
+        existing_configs = list_configs("dictionary")
+
+        if existing_configs:
+            table_data = []
+            for name in existing_configs:
+                config = load_config(name, "dictionary")
+                if not config:
+                    continue
+                meta = config.get('metadata', {})
+                func_code = config.get('func_code', '')
+                path = get_config_path(name, "dictionary")
+
+                edit_btn = ctx["put_buttons"](
+                    [{"label": "编辑", "value": f"edit_{name}", "color": "primary"}],
+                    onclick=lambda v, n=name: None
+                )
+                delete_btn = ctx["put_buttons"](
+                    [{"label": "删除", "value": f"delete_{name}", "color": "danger"}],
+                    onclick=lambda v, n=name: None
+                )
+                view_btn = ctx["put_buttons"](
+                    [{"label": "查看代码", "value": f"view_{name}", "color": "info"}],
+                    onclick=lambda v, n=name: None
+                )
+
+                table_data.append([
+                    name,
+                    f'<span style="color:#666;">{meta.get("description", "")[:40]}...</span>',
+                    len(func_code),
+                    str(path),
+                    edit_btn,
+                    delete_btn,
+                    view_btn,
+                ])
+
+            put_table(table_data, header=["名称", "描述", "代码行数", "文件路径", "编辑", "删除", "查看代码"])
+        else:
+            put_html('<div style="padding:20px;text-align:center;color:#999;background:#f9f9f9;border-radius:8px;">暂无文件配置</div>')
+
+        put_html('<div style="margin-top:16px;">', scope="dict_content")
+        put_buttons(
+            [{"label": "➕ 创建配置文件", "value": "create", "color": "primary"}],
+            onclick=lambda v: None,
+            scope="dict_content"
+        )
+        put_html('</div>', scope="dict_content")
+
+
+async def _show_file_config_detail(ctx: dict, name: str):
+    """显示文件配置的详细信息"""
+    from pywebio.output import popup, put_markdown, put_code, put_html, put_table, close_popup
+    from deva.naja.config.file_config import load_config, get_config_path
+
+    config = load_config(name, "dictionary")
+    if not config:
+        ctx["toast"]("配置文件不存在", color="error")
+        return
+
+    meta = config.get('metadata', {})
+    func_code = config.get('func_code', '')
+    path = get_config_path(name, "dictionary")
+
+    with popup(f"配置文件详情: {name}", size="large", closable=True):
+        put_markdown(f"### {name}")
+        put_html(f"<p style='color:#666;font-size:12px;'>路径: <code>{path}</code></p>")
+
+        put_markdown("#### 元数据")
+        put_table([
+            ["ID", meta.get('id', '')],
+            ["名称", meta.get('name', '')],
+            ["描述", meta.get('description', '')],
+            ["标签", ', '.join(meta.get('tags', []))],
+            ["字典类型", meta.get('dict_type', '')],
+            ["执行模式", meta.get('execution_mode', '')],
+            ["调度触发", meta.get('scheduler_trigger', '')],
+            ["Cron", meta.get('cron_expr', '')],
+            ["刷新启用", str(meta.get('refresh_enabled', ''))],
+        ], header=["字段", "值"])
+
+        if func_code:
+            put_markdown("#### fetch_data 代码")
+            put_code(func_code, language="python")
+
+
 async def render_dictionary_admin(ctx: dict):
     """渲染字典管理面板"""
     ctx["set_scope"]("dict_content")
@@ -309,12 +399,13 @@ def _render_dict_content(ctx: dict):
 
     if entries:
         table_data = _build_table_data(ctx, entries, mgr)
-        ctx["put_table"](table_data, header=["名称", "类型", "状态", "健康", "大小", "最后更新", "鲜活方式", "操作"], scope="dict_content")
+        ctx["put_table"](table_data, header=["名称", "类型", "来源", "状态", "健康", "大小", "最后更新", "鲜活方式", "操作"], scope="dict_content")
     else:
         ctx["put_html"](render_empty_state("暂无字典，点击下方按钮创建"), scope="dict_content")
 
     ctx["put_html"]('<div style="margin-top:16px;display:flex;gap:12px;flex-wrap:wrap;">', scope="dict_content")
     ctx["put_buttons"]([{"label": "➕ 创建字典", "value": "create", "color": "primary"}], onclick=lambda v, m=mgr, c=ctx: _create_dict_dialog(m, c), scope="dict_content")
+    ctx["put_buttons"]([{"label": "📁 文件配置管理", "value": "file_config", "color": "info"}], onclick=lambda v, m=mgr, c=ctx: _open_file_config_manager(m, c), scope="dict_content")
     ctx["put_html"]("</div>", scope="dict_content")
 
 
@@ -324,13 +415,14 @@ def _render_dict_stats_html(stats: dict) -> str:
         {"label": "运行中", "value": stats["running"], "gradient": "linear-gradient(135deg,#11998e,#38ef7d)", "shadow": "rgba(17,153,142,0.3)"},
         {"label": "健康", "value": stats["success"], "gradient": "linear-gradient(135deg,#4facfe,#00f2fe)", "shadow": "rgba(79,172,254,0.3)"},
         {"label": "异常", "value": stats["error"], "gradient": "linear-gradient(135deg,#ff416c,#ff4b2b)", "shadow": "rgba(255,65,108,0.3)"},
+        {"label": "文件配置", "value": stats.get("file_based", 0), "gradient": "linear-gradient(135deg,#f093fb,#f5576c)", "shadow": "rgba(245,87,108,0.3)"},
     ])
 
 
 def _build_table_data(ctx: dict, entries: list, mgr) -> list:
     table_data = []
     for e in entries:
-        status_html = _render_status_badge(e.is_running)
+        status_html = render_status_badge(e.is_running)
 
         last_status = getattr(e._state, "last_status", "")
         health_html = _render_health_badge(last_status)
@@ -346,6 +438,10 @@ def _build_table_data(ctx: dict, entries: list, mgr) -> list:
         }
         type_label = type_labels.get(dict_type, dict_type)
         type_html = f'<span style="background:#f3e5f5;color:#7b1fa2;padding:2px 8px;border-radius:4px;font-size:12px;">{type_label}</span>'
+
+        source_label = "📁 文件" if mgr._is_file_based(e) else "💾 NB"
+        source_html = f'<span style="background:#e8f5e9;color:#2e7d32;padding:2px 8px;border-radius:4px;font-size:12px;">{source_label}</span>'
+
         toggle_color = "danger" if e.is_running else "success"
 
         action_btns = ctx["put_buttons"](
@@ -364,10 +460,11 @@ def _build_table_data(ctx: dict, entries: list, mgr) -> list:
             [
                 ctx["put_html"](f"<strong>{e.name}</strong>"),
                 ctx["put_html"](type_html),
+                ctx["put_html"](source_html),
                 ctx["put_html"](status_html),
                 ctx["put_html"](health_html),
                 _fmt_size(getattr(e._state, "data_size_bytes", 0)),
-                ctx["put_html"](f"<span style='font-size:12px;'>{_fmt_ts(getattr(e._state, "last_update_ts", 0))}</span>"),
+                ctx["put_html"](f"<span style='font-size:12px;'>{format_timestamp(getattr(e._state, 'last_update_ts', 0))}</span>"),
                 ctx["put_html"](f"<span style='font-size:12px;'>{_refresh_label(e)}</span>"),
                 action_btns,
             ]
@@ -429,7 +526,7 @@ async def _show_dict_detail(ctx: dict, mgr, entry_id: str):
         return
 
     with ctx["popup"](f"字典详情: {entry.name}", size="large", closable=True):
-        ctx["put_html"](_render_detail_section("📊 基本信息"))
+        ctx["put_html"](render_detail_section("📊 基本信息"))
 
         dict_type = getattr(entry._metadata, "dict_type", "dimension")
         type_labels = {
@@ -451,28 +548,28 @@ async def _show_dict_detail(ctx: dict, mgr, entry_id: str):
                 ["状态", "运行中" if entry.is_running else "已停止"],
                 ["数据来源", _source_mode_label(entry)],
                 ["鲜活配置", _refresh_detail_text(entry)],
-                ["创建时间", _fmt_ts(entry._metadata.created_at)],
+                ["创建时间", format_timestamp(entry._metadata.created_at)],
             ],
             header=["字段", "值"],
         )
 
-        ctx["put_html"](_render_detail_section("📈 运行统计"))
+        ctx["put_html"](render_detail_section("📈 运行统计"))
 
         last_status = getattr(entry._state, "last_status", "")
         ctx["put_table"](
             [
                 ["最后状态", last_status or "-"],
-                ["最后更新", _fmt_ts(getattr(entry._state, "last_update_ts", 0))],
+                ["最后更新", format_timestamp(getattr(entry._state, "last_update_ts", 0))],
                 ["数据大小", _fmt_size(getattr(entry._state, "data_size_bytes", 0))],
                 ["运行次数", entry._state.run_count],
                 ["错误次数", entry._state.error_count],
-                ["最后错误时间", _fmt_ts(getattr(entry._state, "last_error_ts", 0))],
+                ["最后错误时间", format_timestamp(getattr(entry._state, "last_error_ts", 0))],
                 ["最后错误", entry._state.last_error or "-"],
             ],
             header=["字段", "值"],
         )
 
-        ctx["put_html"](_render_detail_section("📦 最新数据"))
+        ctx["put_html"](render_detail_section("📦 最新数据"))
 
         payload = entry.get_payload()
         if payload is not None:
@@ -496,7 +593,7 @@ async def _show_dict_detail(ctx: dict, mgr, entry_id: str):
         else:
             ctx["put_html"]('<div style="padding:20px;text-align:center;color:#999;background:#f9f9f9;border-radius:8px;">暂无数据</div>')
 
-        ctx["put_html"](_render_detail_section("💻 fetch_data 源码"))
+        ctx["put_html"](render_detail_section("💻 fetch_data 源码"))
 
         if entry.func_code:
             ctx["put_code"](entry.func_code, language="python")

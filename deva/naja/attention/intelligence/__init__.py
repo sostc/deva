@@ -41,6 +41,15 @@ from .strategy_learner import (
     StrategyPerformance,
     StrategySelection
 )
+from .signal_tuner import (
+    SignalTuner,
+    SignalRecord,
+    TradeRecord,
+    ParamAdjustment,
+    get_signal_tuner,
+    start_signal_tuner,
+    stop_signal_tuner
+)
 
 __all__ = [
     "PredictiveAttentionEngine",
@@ -72,4 +81,11 @@ __all__ = [
     "MarketState",
     "StrategyPerformance",
     "StrategySelection",
+    "SignalTuner",
+    "SignalRecord",
+    "TradeRecord",
+    "ParamAdjustment",
+    "get_signal_tuner",
+    "start_signal_tuner",
+    "stop_signal_tuner",
 ]

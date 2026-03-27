@@ -1,0 +1,78 @@
+config:
+  config:
+    data_schema:
+      description: 金十数据最新快讯
+      example:
+        content: 国际能源署（IEA）：各国政府已承诺从战略石油储备中释放2.717亿桶原油
+        importance: normal
+        timestamp: 1773168000.0
+        title: 国际能源署（IEA）：各国政府已承诺...
+      fields:
+      - description: 新闻标题
+        name: title
+        required: true
+        type: string
+      - description: 新闻内容
+        name: content
+        required: true
+        type: string
+      - description: 发布时间戳
+        name: timestamp
+        required: true
+        type: float
+      - description: 重要程度
+        name: importance
+        required: false
+        type: string
+      type: news
+    interval: 300.0
+  source_type: timer
+func_code: "async def fetch_data():\n    \"\"\"\n    抓取金十数据最新快讯（异步版本）\n\n    返回列表，每条为\
+  \ dict（适配龙虾思想雷达策略）：\n        - title:     新闻标题\n        - content:   新闻内容\n    \
+  \    - timestamp: 发布时间戳\n        - importance: 重要程度\n    \"\"\"\n    import aiohttp\n\
+  \    import json\n    import time\n    from datetime import datetime\n\n    headers\
+  \ = {\n        \"User-Agent\": (\n            \"Mozilla/5.0 (Macintosh; Intel Mac\
+  \ OS X 10_15_7) \"\n            \"AppleWebKit/537.36 (KHTML, like Gecko) \"\n  \
+  \          \"Chrome/122.0.0.0 Safari/537.36\"\n        ),\n        \"Referer\":\
+  \ \"https://www.jin10.com/\",\n    }\n\n    url = \"https://www.jin10.com/flash_newest.js\"\
+  \n\n    try:\n        async with aiohttp.ClientSession() as session:\n         \
+  \   async with session.get(url, headers=headers, timeout=aiohttp.ClientTimeout(total=10))\
+  \ as resp:\n                resp.raise_for_status()\n                text = await\
+  \ resp.text()\n                text = text.strip()\n    except Exception as e:\n\
+  \        print(f\"[jin10 fetch_data] 请求失败: {e}\")\n        return []\n\n    prefix\
+  \ = \"var newest =\"\n    if text.startswith(prefix):\n        text = text[len(prefix):].strip()\n\
+  \    if text.endswith(\";\"):\n        text = text[:-1]\n\n    try:\n        items\
+  \ = json.loads(text)\n    except json.JSONDecodeError as e:\n        print(f\"[jin10\
+  \ fetch_data] JSON 解析失败: {e}\")\n        return []\n\n    result = []\n    for idx,\
+  \ item in enumerate(items[:30]):\n        inner = item.get(\"data\", {})\n     \
+  \   content = inner.get(\"content\", \"\").strip()\n        if not content:\n  \
+  \          continue\n\n        time_str = item.get(\"time\", \"\")\n        important\
+  \ = bool(item.get(\"important\", 0))\n\n        # 解析时间字符串为时间戳\n        timestamp\
+  \ = time.time()\n        try:\n            dt = datetime.strptime(time_str, \"%Y-%m-%d\
+  \ %H:%M:%S\")\n            timestamp = dt.timestamp()\n        except:\n       \
+  \     pass\n\n        # 提取标题（取内容前50字符作为标题）\n        title = content[:50] + \"...\"\
+  \ if len(content) > 50 else content\n\n        result.append({\n            \"title\"\
+  : title,\n            \"content\": content,\n            \"timestamp\": timestamp,\n\
+  \            \"importance\": \"high\" if important else \"normal\",\n        })\n\
+  \n    return result\n"
+metadata:
+  category: ''
+  created_at: 1773589657.787589
+  description: 金十数据最新快讯，每5分钟获取一次
+  enabled: true
+  enabled_types: []
+  func_code_file: ''
+  id: e36125c8056c
+  interval_seconds: 0.5
+  name: 金十财经快讯
+  source: file
+  source_type: timer
+  tags:
+  - timer
+  - news
+  - jin10
+  updated_at: 1774627416.073784
+parameters:
+  enabled: true
+  interval_seconds: 0.5
+  timeout: 30

@@ -1,0 +1,39 @@
+config:
+  compute_mode: record
+  handler_type: radar
+  strategy_type: plugin
+  window_type: sliding
+func_code: "def process(data, context=None):\n    return None\n"
+metadata:
+  bound_datasource_id: e626eecd0b86
+  bound_datasource_ids:
+  - e626eecd0b86
+  category: 技术雷达
+  compute_mode: record
+  created_at: 1773675576.9537852
+  description: 使用KMeans聚类识别市场状态(牛市/熊市/震荡/分化/异常)
+  dictionary_profile_ids: []
+  enabled: true
+  func_code_file: ''
+  handler_type: radar
+  id: b049b4f53663
+  max_history_count: 200
+  name: 市场状态分类
+  source: file
+  strategy_type: plugin
+  tags:
+  - river
+  - regime
+  - market
+  - radar
+  updated_at: 1774627248.37573
+  version: 12
+  window_interval: 5s
+  window_return_partial: false
+  window_size: 5
+  window_type: sliding
+parameters:
+  enabled: true
+  max_history_count: 200
+  window_interval: 5s
+  window_size: 5

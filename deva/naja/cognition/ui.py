@@ -16,6 +16,7 @@ from pywebio.session import run_js, set_env
 from .engine import get_cognition_engine
 from .core import AttentionScorer
 from ..page_help import render_help_collapse
+from ..common.ui_style import format_timestamp
 
 
 def _get_stock_display_info(code: str) -> str:
@@ -29,12 +30,6 @@ def _get_stock_display_info(code: str) -> str:
         return f"{name} ({block_str})" if blocks else name
     except Exception:
         return code
-
-
-def _fmt_ts(ts: float) -> str:
-    if not ts:
-        return "-"
-    return datetime.fromtimestamp(ts).strftime("%Y-%m-%d %H:%M:%S")
 
 
 def get_running_cognition_engine():
@@ -58,6 +53,45 @@ def apply_global_styles():
     from ..common.ui_theme import get_global_styles
     from pywebio.output import put_html
     put_html(get_global_styles())
+
+
+def _get_data_sources():
+    return [
+        {"type": "radar", "icon": "📡", "name": "雷达事件", "color": "#f97316", "desc": "市场异常检测"},
+        {"type": "attention", "icon": "👁️", "name": "注意力事件", "color": "#14b8a6", "desc": "市场关注度变化"},
+        {"type": "cross_signal", "icon": "🔄", "name": "共振信号", "color": "#8b5cf6", "desc": "新闻×注意力共振"},
+        {"type": "attention_shift", "icon": "🔀", "name": "注意力转移", "color": "#f59e0b", "desc": "板块/个股变化"},
+        {"type": "feedback_experiment", "icon": "📊", "name": "实验反馈", "color": "#22c55e", "desc": "策略有效性"},
+        {"type": "sector_hotspot", "icon": "🔥", "name": "板块热点", "color": "#ef4444", "desc": "热点板块变化"},
+        {"type": "llm_reflection", "icon": "🤖", "name": "LLM反思", "color": "#0ea5e9", "desc": "深度市场分析"},
+    ]
+
+
+def _calc_source_counts(recent_insights):
+    source_counts = {}
+    recent_by_source = {}
+    for insight in recent_insights:
+        src = insight.get('source', '')
+        signal = insight.get('signal_type', '')
+        if src.startswith('llm_reflection') or signal == 'llm_reflection':
+            key = 'llm_reflection'
+        elif src == 'attention' or signal == 'attention_shift':
+            key = 'attention_shift'
+        elif src == 'cross_signal' or 'resonance' in str(signal):
+            key = 'cross_signal'
+        elif src.startswith('feedback') or signal.startswith('effective'):
+            key = 'feedback_experiment'
+        elif src == 'radar' or signal == 'radar':
+            key = 'radar'
+        elif signal == 'sector_hotspot':
+            key = 'sector_hotspot'
+        else:
+            key = src if src else 'other'
+        source_counts[key] = source_counts.get(key, 0) + 1
+        if key not in recent_by_source:
+            recent_by_source[key] = []
+        recent_by_source[key].append(insight)
+    return source_counts, recent_by_source
 
 
 class CognitionUI:
@@ -100,27 +134,7 @@ class CognitionUI:
         recent_insights = []
         if insight_pool:
             recent_insights = insight_pool.get_recent_insights(limit=100) or []
-            for insight in recent_insights:
-                src = insight.get('source', '')
-                signal = insight.get('signal_type', '')
-                if src.startswith('llm_reflection') or signal == 'llm_reflection':
-                    key = 'llm_reflection'
-                elif src == 'attention' or signal == 'attention_shift':
-                    key = 'attention_shift'
-                elif src == 'cross_signal' or 'resonance' in str(signal):
-                    key = 'cross_signal'
-                elif src.startswith('feedback') or signal.startswith('effective'):
-                    key = 'feedback_experiment'
-                elif src == 'radar' or signal == 'radar':
-                    key = 'radar'
-                elif signal == 'sector_hotspot':
-                    key = 'sector_hotspot'
-                else:
-                    key = src if src else 'other'
-                source_counts[key] = source_counts.get(key, 0) + 1
-                if key not in recent_by_source:
-                    recent_by_source[key] = []
-                recent_by_source[key].append(insight)
+            source_counts, recent_by_source = _calc_source_counts(recent_insights)
 
         self._render_event_bus_flow(source_counts, recent_by_source, recent_insights)
         self._render_narrative_lifecycle()
@@ -167,15 +181,7 @@ class CognitionUI:
             "semantic_graph_update": "#60a5fa",
         }
 
-        DATA_SOURCES = [
-            {"type": "radar", "icon": "📡", "name": "雷达事件", "color": "#f97316", "desc": "市场异常检测"},
-            {"type": "attention", "icon": "👁️", "name": "注意力事件", "color": "#14b8a6", "desc": "市场关注度变化"},
-            {"type": "cross_signal", "icon": "🔄", "name": "共振信号", "color": "#8b5cf6", "desc": "新闻×注意力共振"},
-            {"type": "attention_shift", "icon": "🔀", "name": "注意力转移", "color": "#f59e0b", "desc": "板块/个股变化"},
-            {"type": "feedback_experiment", "icon": "📊", "name": "实验反馈", "color": "#22c55e", "desc": "策略有效性"},
-            {"type": "sector_hotspot", "icon": "🔥", "name": "板块热点", "color": "#ef4444", "desc": "热点板块变化"},
-            {"type": "llm_reflection", "icon": "🤖", "name": "LLM反思", "color": "#0ea5e9", "desc": "深度市场分析"},
-        ]
+        DATA_SOURCES = _get_data_sources()
 
         event_type_cards = ""
         for ds in DATA_SOURCES:
@@ -202,7 +208,7 @@ class CognitionUI:
                 continue
             items = ""
             for item in insights:
-                ts = _fmt_ts(float(item.get('ts', 0)))
+                ts = format_timestamp(float(item.get('ts', 0)))
                 theme = item.get('theme', '-')[:25]
                 items += f"""
                 <div style="display: flex; justify-content: space-between; font-size: 9px; color: #94a3b8; padding: 2px 0;">
@@ -479,7 +485,7 @@ class CognitionUI:
         attention_hints = insight_engine.get_attention_hints() if insight_engine else {}
 
         last_reflection_ts = llm_stats.get('last_success_ts', 0)
-        last_reflection_str = _fmt_ts(last_reflection_ts) if last_reflection_ts > 0 else '从未'
+        last_reflection_str = format_timestamp(last_reflection_ts) if last_reflection_ts > 0 else '从未'
         next_reflection_in = max(0, int(llm_stats['interval_seconds'] - (time.time() - llm_stats['last_run_ts']))) if llm_stats['last_run_ts'] > 0 else int(llm_stats['interval_seconds'])
 
         put_html(f"""
@@ -583,7 +589,7 @@ class CognitionUI:
                 confidence = float(refl.get('confidence', 0.5))
                 actionability = float(refl.get('actionability', 0.5))
                 novelty = float(refl.get('novelty', 0.5))
-                ts = _fmt_ts(float(refl.get('ts', 0)))
+                ts = format_timestamp(float(refl.get('ts', 0)))
 
                 narrative_tags = ''.join([
                     f'<span style="display: inline-block; padding: 2px 6px; background: rgba(249,115,22,0.15); color: #fb923c; border-radius: 4px; font-size: 9px; margin-right: 4px;">{n}</span>'
@@ -607,41 +613,8 @@ class CognitionUI:
                 """)
             put_html('</div>')
 
-        DATA_SOURCES = [
-            {"type": "radar", "icon": "📡", "name": "雷达事件", "color": "#f97316", "desc": "市场异常检测信号"},
-            {"type": "attention", "icon": "👁️", "name": "注意力事件", "color": "#14b8a6", "desc": "市场关注度变化"},
-            {"type": "cross_signal", "icon": "🔄", "name": "共振信号", "color": "#8b5cf6", "desc": "新闻与注意力共振"},
-            {"type": "attention_shift", "icon": "🔀", "name": "注意力转移", "color": "#f59e0b", "desc": "Top5板块/个股变化"},
-            {"type": "feedback_experiment", "icon": "📊", "name": "实验反馈", "color": "#22c55e", "desc": "注意力策略有效性"},
-            {"type": "sector_hotspot", "icon": "🔥", "name": "板块热点", "color": "#ef4444", "desc": "板块成为/退出热点"},
-            {"type": "symbol_attention_change", "icon": "📈", "name": "个股权重变化", "color": "#3b82f6", "desc": "个股注意力显著变化"},
-            {"type": "market_activity_shift", "icon": "📉", "name": "活跃度变化", "color": "#ec4899", "desc": "市场活跃度显著变化"},
-            {"type": "llm_reflection", "icon": "🤖", "name": "LLM反思", "color": "#0ea5e9", "desc": "深度市场分析洞察"},
-        ]
-
-        source_counts = {}
-        for insight in recent_insights:
-            src = insight.get('source', '')
-            signal = insight.get('signal_type', '')
-            if src.startswith('llm_reflection') or signal == 'llm_reflection':
-                key = 'llm_reflection'
-            elif src == 'attention' or signal == 'attention_shift':
-                key = 'attention_shift'
-            elif src == 'cross_signal':
-                key = 'cross_signal'
-            elif src.startswith('feedback') or signal.startswith('effective'):
-                key = 'feedback_experiment'
-            elif src == 'radar' or signal == 'radar':
-                key = 'radar'
-            elif signal == 'sector_hotspot':
-                key = 'sector_hotspot'
-            elif signal == 'symbol_attention_change':
-                key = 'symbol_attention_change'
-            elif signal == 'market_activity_shift':
-                key = 'market_activity_shift'
-            else:
-                key = src if src else 'other'
-            source_counts[key] = source_counts.get(key, 0) + 1
+        DATA_SOURCES = _get_data_sources()
+        source_counts, _ = _calc_source_counts(recent_insights)
 
         attention_shift_insights = [i for i in recent_insights if i.get('signal_type') == 'attention_shift']
         if attention_shift_insights:
@@ -684,7 +657,7 @@ class CognitionUI:
                 duration = payload.get('duration', '')
                 shift_type = payload.get('shift_type', '')
 
-                ts = _fmt_ts(float(item.get('ts', 0)))
+                ts = format_timestamp(float(item.get('ts', 0)))
                 score = float(item.get('user_score', 0))
 
                 removed_html = ''
@@ -754,7 +727,7 @@ class CognitionUI:
                 novelty = float(item.get('novelty', 0))
                 symbols = ', '.join(str(s) for s in item.get('symbols', [])[:4]) or '-'
                 sectors = ', '.join(str(s) for s in item.get('sectors', [])[:4]) or '-'
-                ts = _fmt_ts(float(item.get('ts', 0)))
+                ts = format_timestamp(float(item.get('ts', 0)))
                 source = item.get('source', '')
                 signal_type = item.get('signal_type', '')
 
@@ -809,7 +782,9 @@ class CognitionUI:
                 payload = item.get('payload', {})
 
                 if signal_type == 'narrative_stage_change':
-                    narrative = payload.get('narrative', '未知')
+                    narrative = payload.get('narrative')
+                    if not narrative:
+                        narrative = theme.replace('🌊 叙事信号: ', '').replace('🌊 ', '') if '叙事信号' in theme or theme.startswith('🌊 ') else theme
                     stage = payload.get('stage', '-')
                     attention_score = float(payload.get('attention_score', 0))
                     trend = float(payload.get('trend', 0))
@@ -825,7 +800,9 @@ class CognitionUI:
                     summary = f'<span style="color: {stage_color}; font-weight: 600;">叙事{narrative}进入</span><span style="padding: 1px 6px; background: {stage_color}; color: #0f172a; border-radius: 4px; font-size: 10px; font-weight: 600; margin: 0 4px;">{stage}</span>{trend_icon} 注意力{int(attention_score*100)}% {kw_tags} {sector_tags}'
                     score_color = stage_color
                 elif signal_type.startswith('narrative_'):
-                    narrative = payload.get('narrative', '未知')
+                    narrative = payload.get('narrative')
+                    if not narrative:
+                        narrative = theme.replace('🌊 叙事信号: ', '').replace('🌊 ', '') if '叙事信号' in theme or theme.startswith('🌊 ') else theme
                     attention_score = float(payload.get('attention_score', 0))
                     keywords = payload.get('keywords', [])[:2]
                     kw_tags = ''.join([f'<span style="display: inline-block; padding: 1px 4px; background: rgba(255,255,255,0.08); color: #94a3b8; border-radius: 3px; font-size: 9px; margin-right: 2px;">{kw}</span>' for kw in keywords]) if keywords else ''
@@ -849,7 +826,7 @@ class CognitionUI:
                     summary = summary_raw[:60] if summary_raw else '-'
                 summary = summary.replace('{', '{{').replace('}', '}}').replace('<', '&lt;').replace('>', '&gt;')
                 score = float(item.get('user_score', 0))
-                ts = _fmt_ts(float(item.get('ts', 0)))
+                ts = format_timestamp(float(item.get('ts', 0)))
 
                 score_color = '#f87171' if score > 0.7 else ('#fb923c' if score > 0.5 else '#60a5fa')
 
@@ -1387,7 +1364,7 @@ class CognitionUI:
                 evt_type = evt.get('event_type', '')
                 evt_nar = evt.get('narrative', '')
                 evt_stage = evt.get('stage', '')
-                evt_ts = _fmt_ts(float(evt.get('timestamp', 0)))
+                evt_ts = format_timestamp(float(evt.get('timestamp', 0)))
                 evt_attention = float(evt.get('attention_score', 0))
                 evt_trend = float(evt.get('trend', 0))
                 evt_keywords = evt.get('keywords', [])[:2]
@@ -1687,7 +1664,7 @@ class CognitionUI:
                 res_type_color = resonance_type_colors.get(res.resonance_type.value, '#60a5fa')
                 sentiment_icon = "📈" if res.news_sentiment > 0.2 else "📉" if res.news_sentiment < -0.2 else "📊"
                 attention_icon = "🔥" if res.attention_weight > 0.6 else "⚡" if res.attention_weight > 0.3 else "💤"
-                ts_str = _fmt_ts(res.timestamp) if res.timestamp else "-"
+                ts_str = format_timestamp(res.timestamp) if res.timestamp else "-"
 
                 resonance_items += f"""
                 <div style="display: flex; align-items: center; gap: 8px; padding: 6px 8px; background: rgba(255,255,255,0.02); border-radius: 6px; margin-bottom: 4px; border-left: 2px solid {res_type_color};">
@@ -1716,236 +1693,6 @@ class CognitionUI:
             """)
 
         put_html("</div>")
-
-    def _render_stats_overview(self):
-        """渲染统计概览"""
-        if not self.engine:
-            put_html(render_empty_state("认知引擎未初始化"))
-            return
-
-        report = self.engine.get_memory_report()
-        stats = report['stats']
-        topics = report.get('top_topics', [])
-
-        total_events = stats.get('total_events', 0)
-        hot_events = stats.get('high_attention_events', 0)
-        topic_count = len(topics)
-
-        gradient = "linear-gradient(135deg,#667eea,#764ba2)"
-
-        put_html(f"""
-        <div style="display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 20px;">
-            <div style="flex: 1; min-width: 140px; background: {gradient}; padding: 16px 20px; border-radius: 12px; color: #fff; box-shadow: 0 4px 12px rgba(102,126,234,0.3);">
-                <div style="font-size: 12px; opacity: 0.9; margin-bottom: 4px;">📖 记忆总量</div>
-                <div style="font-size: 28px; font-weight: 700;">{total_events}</div>
-            </div>
-            <div style="flex: 1; min-width: 140px; background: linear-gradient(135deg,#ef4444,#dc2626); padding: 16px 20px; border-radius: 12px; color: #fff; box-shadow: 0 4px 12px rgba(239,68,68,0.3);">
-                <div style="font-size: 12px; opacity: 0.9; margin-bottom: 4px;">🔥 重要事件</div>
-                <div style="font-size: 28px; font-weight: 700;">{hot_events}</div>
-            </div>
-            <div style="flex: 1; min-width: 140px; background: linear-gradient(135deg,#10b981,#059669); padding: 16px 20px; border-radius: 12px; color: #fff; box-shadow: 0 4px 12px rgba(16,185,129,0.3);">
-                <div style="font-size: 12px; opacity: 0.9; margin-bottom: 4px;">📌 热点主题</div>
-                <div style="font-size: 28px; font-weight: 700;">{topic_count}</div>
-            </div>
-        </div>
-        """)
-
-        self._render_pipeline()
-
-    def _render_pipeline(self):
-        """渲染记忆流水线 - 深色主题风格"""
-        if not self.engine:
-            return
-
-        report = self.engine.get_memory_report()
-        stats = report.get('stats', {})
-        memory_layers = report.get('memory_layers', {})
-
-        total_events = stats.get('total_events', 0)
-        filtered_events = stats.get('filtered_events', 0)
-        processed_events = stats.get('processed_events', 0)
-
-        short_layer = memory_layers.get('short', {})
-        mid_layer = memory_layers.get('mid', {})
-
-        short_size = short_layer.get('size', 0)
-        short_capacity = short_layer.get('capacity', 0)
-        mid_size = mid_layer.get('size', 0)
-        mid_capacity = mid_layer.get('capacity', 0)
-
-        put_html("""
-        <div style="
-            margin-bottom: 12px;
-            background: rgba(255,255,255,0.03);
-            border-radius: 12px;
-            padding: 14px 18px;
-            border: 1px solid rgba(255,255,255,0.08);
-        ">
-            <div style="font-size: 13px; font-weight: 600; color: #a855f7; margin-bottom: 4px;">
-                🔍 记忆流水线
-            </div>
-            <div style="font-size: 11px; color: #475569; margin-bottom: 14px;">
-                雷达事件 → 过滤 → 短期记忆 → 中期沉淀 → 长期反思
-            </div>
-
-            <div style="display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 14px;">
-                <div style="flex: 1; min-width: 100px; padding: 10px; background: rgba(255,255,255,0.02); border-radius: 8px; text-align: center;">
-                    <div style="font-size: 20px; font-weight: 700; color: #60a5fa;">{total_events}</div>
-                    <div style="font-size: 10px; color: #475569;">接收事件</div>
-                </div>
-                <div style="flex: 1; min-width: 100px; padding: 10px; background: rgba(255,255,255,0.02); border-radius: 8px; text-align: center;">
-                    <div style="font-size: 20px; font-weight: 700; color: #f87171;">{filtered_events}</div>
-                    <div style="font-size: 10px; color: #475569;">过滤掉</div>
-                </div>
-                <div style="flex: 1; min-width: 100px; padding: 10px; background: rgba(255,255,255,0.02); border-radius: 8px; text-align: center;">
-                    <div style="font-size: 20px; font-weight: 700; color: #4ade80;">{processed_events}</div>
-                    <div style="font-size: 10px; color: #475569;">处理成功</div>
-                </div>
-            </div>
-
-            <div style="display: flex; gap: 12px;">
-                <div style="flex: 1; padding: 10px; background: rgba(168,85,247,0.12); border: 1px solid rgba(168,85,247,0.25); border-radius: 8px;">
-                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
-                        <span style="font-size: 11px; color: #a855f7; font-weight: 600;">短期</span>
-                        <span style="font-size: 11px; color: #cbd5e1;">{short_size}/{short_capacity}</span>
-                    </div>
-                    <div style="height: 6px; background: rgba(255,255,255,0.1); border-radius: 3px; overflow: hidden;">
-                        <div style="width: {short_pct}%; height: 100%; background: linear-gradient(90deg, #a855f7, #c084fc); border-radius: 3px;"></div>
-                    </div>
-                    <div style="font-size: 10px; color: #475569; margin-top: 4px;">{short_size} 条事件</div>
-                </div>
-                <div style="flex: 1; padding: 10px; background: rgba(34,197,94,0.12); border: 1px solid rgba(34,197,94,0.25); border-radius: 8px;">
-                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
-                        <span style="font-size: 11px; color: #4ade80; font-weight: 600;">中期</span>
-                        <span style="font-size: 11px; color: #cbd5e1;">{mid_size}/{mid_capacity}</span>
-                    </div>
-                    <div style="height: 6px; background: rgba(255,255,255,0.1); border-radius: 3px; overflow: hidden;">
-                        <div style="width: {mid_pct}%; height: 100%; background: linear-gradient(90deg, #4ade80, #6ee7b7); border-radius: 3px;"></div>
-                    </div>
-                    <div style="font-size: 10px; color: #475569; margin-top: 4px;">{mid_size} 条沉淀</div>
-                </div>
-            </div>
-        </div>
-        """.format(
-            total_events=total_events,
-            filtered_events=filtered_events,
-            processed_events=processed_events,
-            short_size=short_size,
-            short_capacity=short_capacity,
-            short_pct=min(100, int(short_size / max(1, short_capacity) * 100)) if short_capacity else 0,
-            mid_size=mid_size,
-            mid_capacity=mid_capacity,
-            mid_pct=min(100, int(mid_size / max(1, mid_capacity) * 100)) if mid_capacity else 0,
-        ))
-
-    def _render_hot_topics(self):
-        """渲染热点主题 - 深色主题风格"""
-        if not self.engine:
-            return
-
-        report = self.engine.get_memory_report()
-        topics = report.get('top_topics', [])
-
-        if not topics:
-            return
-
-        put_html("""
-        <div style="
-            margin-bottom: 12px;
-            background: rgba(255,255,255,0.03);
-            border-radius: 12px;
-            padding: 14px 18px;
-            border: 1px solid rgba(255,255,255,0.08);
-        ">
-            <div style="font-size: 13px; font-weight: 600; color: #f97316; margin-bottom: 4px;">
-                📈 热点主题
-            </div>
-            <div style="font-size: 11px; color: #475569; margin-bottom: 12px;">
-                基于事件频率和注意力得分计算的热点主题
-            </div>
-        """)
-
-        put_html('<div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 10px;">')
-        for topic in topics[:6]:
-            name = topic.get('name', '未命名')
-            count = topic.get('event_count', 0)
-            attention = topic.get('avg_attention', 0)
-            growth = topic.get('growth_rate', 0)
-
-            growth_icon = "📈" if growth > 0.2 else ("📉" if growth < -0.2 else "➡️")
-            growth_color = "#4ade80" if growth > 0.2 else ("#f87171" if growth < -0.2 else "#6b7280")
-            heat_level = "🔥🔥🔥" if attention > 0.7 else ("🔥🔥" if attention > 0.5 else "🔥")
-
-            put_html(f'''
-            <div style="background: rgba(255,255,255,0.03); border-radius: 8px; padding: 12px 14px; border: 1px solid rgba(255,255,255,0.08);">
-                <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 6px;">
-                    <div style="font-size: 13px; font-weight: 600; color: #cbd5e1; flex: 1;">{name}</div>
-                    <div style="font-size: 11px; color: #fb923c;">{heat_level}</div>
-                </div>
-                <div style="display: flex; justify-content: space-between; font-size: 11px; color: #475569;">
-                    <span>{count} 条</span>
-                    <span style="color: {growth_color};">{growth_icon} {growth:+.0%}</span>
-                </div>
-            </div>
-            ''')
-        put_html('</div>')
-        put_html('</div>')
-
-    def _render_recent_events(self):
-        """渲染最近重要事件 - 深色主题风格"""
-        if not self.engine:
-            return
-
-        report = self.engine.get_memory_report()
-        events = report.get('recent_high_attention', [])
-
-        if not events:
-            return
-
-        put_html("""
-        <div style="
-            margin-bottom: 12px;
-            background: rgba(255,255,255,0.03);
-            border-radius: 12px;
-            padding: 14px 18px;
-            border: 1px solid rgba(255,255,255,0.08);
-        ">
-            <div style="font-size: 13px; font-weight: 600; color: #fbbf24; margin-bottom: 4px;">
-                ⚡ 最近重要事件
-            </div>
-            <div style="font-size: 11px; color: #475569; margin-bottom: 12px;">
-                高注意力得分的事件，按时间倒序排列
-            </div>
-        """)
-
-        for event in events[:5]:
-                timestamp_str = event.get('timestamp', '')
-                if 'T' in timestamp_str:
-                    try:
-                        ts = datetime.fromisoformat(timestamp_str.replace('Z', '+00:00'))
-                        timestamp_str = ts.strftime('%m-%d %H:%M')
-                    except:
-                        pass
-
-                content = event.get('content', '')
-                score = event.get('score', 0)
-                bar_color = "#f87171" if score > 0.7 else ("#fb923c" if score > 0.5 else "#60a5fa")
-
-                put_html(f'''
-                <div style="display: flex; align-items: center; gap: 12px; padding: 10px 12px; background: rgba(255,255,255,0.02); border-radius: 8px; border-left: 3px solid {bar_color};">
-                    <div style="flex: 1; min-width: 0;">
-                        <div style="font-size: 12px; color: #cbd5e1; margin-bottom: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{content[:80]}</div>
-                        <div style="font-size: 10px; color: #475569;">🕐 {timestamp_str}</div>
-                    </div>
-                    <div style="display: flex; align-items: center; gap: 8px; flex-shrink: 0;">
-                        <div style="width: 50px; height: 5px; background: rgba(255,255,255,0.1); border-radius: 3px; overflow: hidden;">
-                            <div style="width: {int(score*100)}%; height: 100%; background: {bar_color}; border-radius: 3px;"></div>
-                        </div>
-                        <span style="font-size: 11px; color: #475569; min-width: 32px;">{score:.0%}</span>
-                    </div>
-                </div>
-                ''')
-        put_html('</div>')
 
     def _render_storage(self):
         """渲染存储"""

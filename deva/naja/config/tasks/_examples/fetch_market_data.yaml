@@ -1,0 +1,43 @@
+# 定时数据获取任务配置
+# 配置类型: task
+# 描述: 定时从券商获取行情数据
+
+metadata:
+  id: "fetch_market_data"
+  name: "拉取市场数据"
+  description: |
+    定时从券商 API 获取市场行情数据，包括股票价格、成交量等信息。
+    支持重试机制，确保数据获取的稳定性。
+  tags: ["行情", "定时任务", "数据获取"]
+  category: "数据获取"
+  enabled: true
+  source: "file"
+
+parameters:
+  timeout: 30              # 超时时间（秒）
+  retry_count: 3           # 重试次数
+  retry_delay: 5           # 重试延迟（秒）
+  batch_size: 100          # 批次大小
+
+config:
+  task_type: "timer"
+  execution_mode: "timer"
+  interval_seconds: 5.0
+  scheduler_trigger: "interval"
+
+func_code: |
+  import time
+  from datetime import datetime
+
+  def execute():
+      """执行数据拉取任务"""
+      print(f"[{datetime.now()}] 拉取市场数据...")
+
+      # 这里替换为实际的券商 API 调用
+      # data = broker_api.fetch_market()
+
+      return {
+          "success": True,
+          "timestamp": time.time(),
+          "count": 0
+      }

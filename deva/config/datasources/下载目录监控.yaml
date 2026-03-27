@@ -1,0 +1,71 @@
+config:
+  config:
+    data_schema:
+      description: 文件/目录监控数据，包含文件变更信息
+      example:
+        event_type: created
+        file_name: file.txt
+        file_path: /path/to/file.txt
+        file_size: 1024
+        timestamp: 1773168000.0
+      fields:
+      - description: 事件类型(created/modified/deleted)
+        name: event_type
+        required: true
+        type: string
+      - description: 文件路径
+        name: file_path
+        required: true
+        type: string
+      - description: 事件时间戳
+        name: timestamp
+        required: true
+        type: float
+      - description: 文件大小
+        name: file_size
+        required: false
+        type: int
+      - description: 文件名
+        name: file_name
+        required: false
+        type: string
+      type: file
+    directory_path: /Users/spark/Downloads
+    file_pattern: '*.*'
+    poll_interval: 2.0
+    recursive: false
+    watch_events:
+    - created
+    - modified
+    - deleted
+  source_type: directory
+func_code: "import time\nimport os\n\ndef fetch_data(event):\n    \"\"\"\n    处理下载目录变化事件\n\
+  \    \"\"\"\n    print(event)\n    event_type = event.get(\"event\")\n    file_info\
+  \ = event.get(\"file_info\", {})\n    file_path = event.get(\"path\", \"\")\n  \
+  \  \n    # 获取文件扩展名\n    _, ext = os.path.splitext(file_path)\n    ext = ext.lower()\
+  \ if ext else \"无扩展名\"\n    \n    # 格式化文件大小\n    size = file_info.get(\"size\",\
+  \ 0)\n    if size < 1024:\n        size_str = f\"{size} B\"\n    elif size < 1024\
+  \ * 1024:\n        size_str = f\"{size/1024:.1f} KB\"\n    elif size < 1024 * 1024\
+  \ * 1024:\n        size_str = f\"{size/1024/1024:.1f} MB\"\n    else:\n        size_str\
+  \ = f\"{size/1024/1024/1024:.1f} GB\"\n    \n    return {\n        \"event_type\"\
+  : event_type,\n        \"file_name\": file_info.get(\"name\", \"\"),\n        \"\
+  file_path\": file_path,\n        \"file_size\": size_str,\n        \"file_ext\"\
+  : ext,\n        \"timestamp\": time.strftime(\"%Y-%m-%d %H:%M:%S\"),\n    }\n"
+metadata:
+  category: ''
+  created_at: 1772478473.564977
+  description: 监控 macOS 下载目录变化
+  enabled: true
+  enabled_types: []
+  func_code_file: ''
+  id: 02bf46dfb976
+  interval_seconds: 5
+  name: 下载目录监控
+  source: file
+  source_type: directory
+  tags: []
+  updated_at: 1774627416.058225
+parameters:
+  enabled: true
+  interval_seconds: 5
+  timeout: 30

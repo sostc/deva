@@ -1,4 +1,9 @@
-"""Cognition Engine - 认知引擎"""
+"""Cognition Engine - 认知引擎
+
+平台级认知输入输出入口。
+注意：CognitionEngine 使用组合模式持有 NewsMindStrategy，而非继承，
+以保持清晰的职责边界。
+"""
 
 from __future__ import annotations
 
@@ -10,15 +15,23 @@ from .core import NewsMindStrategy
 from ..config import get_memory_config
 
 
-class CognitionEngine(NewsMindStrategy):
-    """认知引擎 - 平台级认知输入输出入口"""
+class CognitionEngine:
+    """认知引擎 - 平台级认知输入输出入口
+
+    使用组合模式：内部持有 NewsMindStrategy 实例，
+    只暴露认知系统需要的接口，隔离策略相关的方法。
+
+    组合优于继承：认知引擎是平台级服务，不应该继承策略类。
+    """
 
     def __init__(self, config: Optional[Dict[str, Any]] = None):
         cfg = get_memory_config()
         merged = dict(cfg or {})
         if config:
             merged.update(config)
-        super().__init__(merged)
+
+        self._news_mind = NewsMindStrategy(merged)
+
         self._auto_save_enabled = bool(cfg.get("auto_save_enabled", True))
         self._auto_save_interval = float(cfg.get("auto_save_interval", 300))
         self._auto_load_on_start = bool(cfg.get("auto_load_on_start", True))
@@ -32,10 +45,7 @@ class CognitionEngine(NewsMindStrategy):
             self._start_auto_save()
 
     def ingest_result(self, result: Any) -> Optional[list]:
-        """
-        摄入策略结果到认知系统。
-        将策略输出适配为认知记录格式。
-        """
+        """摄入策略结果到认知系统。"""
         try:
             ts = getattr(result, "ts", None) or time.time()
             strategy_name = getattr(result, "strategy_name", "") or "unknown"
@@ -68,13 +78,17 @@ class CognitionEngine(NewsMindStrategy):
                 "source": f"strategy:{strategy_name}",
                 "data": payload,
             }
-            return self.process_record(record)
+            return self._news_mind.process_record(record)
         except Exception:
             return None
 
+    def process_record(self, record: Dict[str, Any]) -> Optional[list]:
+        """委托给内部 NewsMindStrategy 处理记录（兼容接口）"""
+        return self._news_mind.process_record(record)
+
     def summarize_for_llm(self, max_topics: int = 5, max_events: int = 5) -> Dict[str, Any]:
         """返回紧凑的认知摘要，用于 LLM prompts。"""
-        report = self.get_memory_report()
+        report = self._news_mind.get_memory_report()
         top_topics = report.get("top_topics", [])[:max_topics]
         recent_events = report.get("recent_high_attention", [])[:max_events]
 
@@ -84,6 +98,22 @@ class CognitionEngine(NewsMindStrategy):
             "top_topics": top_topics,
             "recent_high_attention": recent_events,
         }
+
+    def get_memory_report(self) -> Dict[str, Any]:
+        """获取完整记忆报告。"""
+        return self._news_mind.get_memory_report()
+
+    def save_state(self) -> dict:
+        """保存认知状态。"""
+        return self._news_mind.save_state()
+
+    def load_state(self) -> dict:
+        """加载认知状态。"""
+        return self._news_mind.load_state()
+
+    def clear_saved_state(self) -> dict:
+        """清除保存的认知状态。"""
+        return self._news_mind.clear_saved_state()
 
     def _auto_load_state(self) -> None:
         try:

@@ -520,7 +520,26 @@ class DictionaryEntry(RecoverableUnit):
 
 
 class DictionaryManager:
-    """字典管理器"""
+    """字典管理器
+
+    ================================================================================
+    单例模式说明：为什么使用单例
+    ================================================================================
+    1. 全局唯一性：字典系统是全局资源，只能有一个实例管理所有字典的生命周期。
+       如果存在多个实例，可能导致字典状态不一致。
+
+    2. 资源管理：DictionaryManager 持有字典字典（_items）和数据库连接（NB），
+       这些资源应该全局共享，而非重复创建。
+
+    3. 生命周期：Manager 的生命周期与系统一致，随系统启动和关闭。
+
+    4. 依赖注入支持：如需测试，可以注入 mock 对象。
+
+    5. Manager 类本身不是资源，而是通往资源的入口点。真正的系统资源
+       （如 NB 数据库连接）是单例的，而 Manager 类保持单例是为了方便
+       访问这些资源。
+    ================================================================================
+    """
 
     _instance = None
     _lock = threading.Lock()
@@ -538,7 +557,16 @@ class DictionaryManager:
         self._items: Dict[str, DictionaryEntry] = {}
         self._items_lock = threading.Lock()
         self._initialized = True
+        self._file_config_mgr = None
         self.load_from_db()
+
+    @property
+    def file_config_manager(self):
+        """获取文件配置管理器（延迟加载）"""
+        if self._file_config_mgr is None:
+            from ..config.file_config import get_dict_file_config_manager
+            self._file_config_mgr = get_dict_file_config_manager()
+        return self._file_config_mgr
 
     def _sync_legacy_schedule_fields(self, entry: DictionaryEntry):
         mode = str(getattr(entry._metadata, "execution_mode", "timer") or "timer").strip().lower()
@@ -937,6 +965,161 @@ class DictionaryManager:
 
         return count
 
+    def load_from_files(self) -> int:
+        """从配置文件加载字典
+
+        配置文件位于 config/dictionaries/ 目录
+        每个字典一个 YAML 文件，包含 metadata 和 func_code
+        """
+        file_mgr = self.file_config_manager
+        count = 0
+
+        with self._items_lock:
+            for config_meta in file_mgr.list_all():
+                name = config_meta.name
+                if not name:
+                    continue
+
+                try:
+                    entry = self._create_entry_from_file_config(config_meta, file_mgr.get_func_code(name))
+                    if entry:
+                        self._items[entry.id] = entry
+                        count += 1
+                except Exception as e:
+                    self._log("ERROR", f"Load from file failed: {name}", error=str(e))
+
+        self._deduplicate_by_name()
+        return count
+
+    def _create_entry_from_file_config(self, config_meta, func_code: str) -> Optional[DictionaryEntry]:
+        """从文件配置创建字典条目"""
+        entry_id = config_meta.id or config_meta.name
+
+        payload = None
+        payload_table = NB(DICT_PAYLOAD_TABLE)
+        if entry_id in payload_table:
+            payload = payload_table.get(entry_id)
+
+        metadata_dict = {
+            'id': entry_id,
+            'name': config_meta.name,
+            'description': config_meta.description,
+            'tags': config_meta.tags or [],
+            'dict_type': config_meta.dict_type,
+            'schedule_type': config_meta.schedule_type,
+            'interval_seconds': config_meta.interval_seconds,
+            'daily_time': config_meta.daily_time,
+            'source_mode': config_meta.source_mode,
+            'refresh_enabled': config_meta.refresh_enabled,
+            'execution_mode': config_meta.execution_mode,
+            'scheduler_trigger': config_meta.scheduler_trigger,
+            'cron_expr': config_meta.cron_expr,
+            'run_at': config_meta.run_at,
+            'event_source': config_meta.event_source,
+            'event_condition': config_meta.event_condition,
+            'event_condition_type': config_meta.event_condition_type,
+            'created_at': config_meta.created_at,
+            'updated_at': config_meta.updated_at,
+            'func_code': func_code,
+        }
+
+        entry = DictionaryEntry(
+            id=entry_id,
+            metadata=metadata_dict,
+            payload=payload,
+        )
+
+        self._sync_legacy_schedule_fields(entry)
+        return entry
+
+    def export_to_file(self, entry_id: str) -> bool:
+        """将字典导出到文件
+
+        用于将 NB 中的字典迁移到文件
+        """
+        from ..config.file_config import FileConfigMetadata
+
+        with self._items_lock:
+            entry = self._items.get(entry_id)
+            if not entry:
+                return False
+
+            file_mgr = self.file_config_manager
+            config_meta = FileConfigMetadata(
+                id=entry.id,
+                name=entry.name,
+                description=entry.description or '',
+                tags=entry.tags or [],
+                dict_type=entry.dict_type or 'dimension',
+                schedule_type=getattr(entry._metadata, 'schedule_type', 'interval'),
+                interval_seconds=getattr(entry._metadata, 'interval_seconds', 300),
+                daily_time=getattr(entry._metadata, 'daily_time', '03:00'),
+                source_mode=entry.source_mode or 'task',
+                refresh_enabled=entry.refresh_enabled if entry.refresh_enabled is not None else True,
+                execution_mode=getattr(entry._metadata, 'execution_mode', 'timer'),
+                scheduler_trigger=getattr(entry._metadata, 'scheduler_trigger', 'interval'),
+                cron_expr=getattr(entry._metadata, 'cron_expr', ''),
+                run_at=getattr(entry._metadata, 'run_at', ''),
+                event_source=getattr(entry._metadata, 'event_source', 'log'),
+                event_condition=getattr(entry._metadata, 'event_condition', ''),
+                event_condition_type=getattr(entry._metadata, 'event_condition_type', 'contains'),
+                func_code_file='',
+                created_at=entry.created_at or 0,
+                updated_at=time.time(),
+            )
+
+            func_code = entry.metadata.get('func_code', '')
+            return file_mgr.save(entry.name, config_meta, func_code)
+
+    def save_to_file(self, entry_id: str) -> bool:
+        """保存字典到文件（实时同步）"""
+        return self.export_to_file(entry_id)
+
+    def load_prefer_files(self) -> int:
+        """优先从文件加载字典，NB 数据作为兜底
+
+        加载策略：
+        1. 先扫描 config/dictionaries/ 目录下的文件配置
+        2. 如果文件存在，优先使用文件配置（包含 func_code，方便代码审查）
+        3. 如果文件不存在但 NB 中有，则使用 NB 数据（向后兼容）
+        4. 合并去重，保留最新的配置
+
+        Returns:
+            加载的字典数量
+        """
+        file_mgr = self.file_config_manager
+        file_names = set(config.name for config in file_mgr.list_all())
+
+        with self._items_lock:
+            for name in file_names:
+                config_meta = file_mgr.get(name)
+                if not config_meta:
+                    continue
+
+                try:
+                    existing = self._items.get(config_meta.id or config_meta.name)
+                    should_overwrite = True
+
+                    if existing:
+                        existing_time = getattr(existing._metadata, 'updated_at', 0) or 0
+                        file_time = config_meta.updated_at or 0
+                        should_overwrite = file_time >= existing_time
+
+                    if should_overwrite:
+                        entry = self._create_entry_from_file_config(
+                            config_meta,
+                            file_mgr.get_func_code(name)
+                        )
+                        if entry:
+                            self._items[entry.id] = entry
+                            self._log("INFO", f"从文件加载字典: {name}")
+                except Exception as e:
+                    self._log("ERROR", f"从文件加载字典失败: {name}", error=str(e))
+
+            self._deduplicate_by_name()
+
+        return len(self._items)
+
     def _deduplicate_by_name(self) -> int:
         """删除名称重复的字典，保留最新创建的一个"""
         name_to_entries = {}
@@ -1042,13 +1225,22 @@ class DictionaryManager:
         running = sum(1 for e in entries if e.is_running)
         success = sum(1 for e in entries if e._state.last_status == "success")
         error = sum(1 for e in entries if e._state.last_status == "error")
+        file_based = sum(1 for e in entries if self._is_file_based(e))
 
         return {
             "total": len(entries),
             "running": running,
             "success": success,
             "error": error,
+            "file_based": file_based,
         }
+
+    def _is_file_based(self, entry) -> bool:
+        """检查字典是否来自文件配置"""
+        if not hasattr(self, '_file_config_mgr') or self._file_config_mgr is None:
+            return False
+        file_mgr = self.file_config_manager
+        return file_mgr.exists(entry.name)
 
     def _log(self, level: str, message: str, **extra):
         extra_str = " ".join([f"{k}={v}" for k, v in extra.items()])
@@ -1112,19 +1304,37 @@ def fetch_data():
 
 
 def enrich_stock_with_blocks(df: pd.DataFrame, code_column: str = "code") -> pd.DataFrame:
-    """为股票DataFrame补充板块信息
-    
+    """为股票DataFrame补充板块信息（展开格式，每行一个股票-板块组合）
+
     Args:
         df: 包含股票代码的DataFrame
         code_column: 股票代码列名
-    
+
     Returns:
-        补充了blocks列的DataFrame
+        补充了blocks列的DataFrame，每行是一个股票-板块组合
     """
     from .tongdaxin_blocks import get_stock_blocks
-    
+
     df = df.copy()
     df[code_column] = df[code_column].astype(str).str.zfill(6)
-    df["blocks"] = df[code_column].apply(lambda x: "|".join(get_stock_blocks(x)))
-    df["block_count"] = df["blocks"].apply(lambda x: len(x.split("|")) if x else 0)
-    return df
+
+    block_data = []
+    for _, row in df.iterrows():
+        code = row[code_column]
+        blocks = get_stock_blocks(code)
+        for block in blocks:
+            block_data.append({
+                code_column: code,
+                'blocks': block,
+                'block_count': len(blocks)
+            })
+
+    if not block_data:
+        df['blocks'] = ''
+        df['block_count'] = 0
+        return df
+
+    result_df = pd.DataFrame(block_data)
+    result_df = result_df.merge(df.drop(columns=['blocks', 'block_count'], errors='ignore'),
+                                 on=code_column, how='left')
+    return result_df

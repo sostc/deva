@@ -18,18 +18,32 @@ log = logging.getLogger(__name__)
 
 class NajaSupervisor:
     """Naja 系统监控器
-    
+
     负责：
     1. 监控系统各个组件的运行状态
     2. 检测并处理系统故障
     3. 自动恢复异常组件
     4. 提供系统健康状态报告
     5. 管理系统生命周期
+
+    ================================================================================
+    单例模式说明：为什么使用单例
+    ================================================================================
+    1. 全局系统监控：系统监控必须是全局的，才能准确反映整个系统的状态。
+       如果存在多个实例，会导致状态不一致，无法准确监控。
+
+    2. 组件协调：Supervisor 负责协调所有组件的健康检查和故障恢复，
+       必须全局唯一才能正确工作。
+
+    3. 生命周期：Supervisor 的生命周期与系统一致，随系统启动和关闭。
+
+    4. 这是系统监控的设计选择，不是过度工程。
+    ================================================================================
     """
-    
+
     _instance = None
     _lock = threading.Lock()
-    
+
     def __new__(cls):
         if cls._instance is None:
             with cls._lock:
@@ -49,6 +63,13 @@ class NajaSupervisor:
             'signal': None,
             'radar': None,
             'llm_controller': None,
+            'attention': None,
+            'attention_strategy_manager': None,
+            'attention_report_generator': None,
+            'bandit_runner': None,
+            'attention_tracker': None,
+            'price_monitor': None,
+            'cognition': None,
         }
         self._status_history: List[Dict[str, Any]] = []
         self._monitor_thread: Optional[threading.Thread] = None
@@ -197,10 +218,16 @@ class NajaSupervisor:
                         log.warning("频率调度未启用，PriceMonitor 使用固定间隔")
 
                     # 注册价格更新回调：将价格更新传递给 FeedbackLoop
+                    _price_feedback_count = 0
+                    _last_insight_emit_time = time.time()
+
                     def _on_price_update(metrics_list):
+                        nonlocal _price_feedback_count
                         try:
-                            if hasattr(attention_system, 'feedback_loop') and attention_system.feedback_loop:
-                                feedback_loop = attention_system.feedback_loop
+                            from deva.naja.attention.integration import get_attention_integration
+                            integration = get_attention_integration()
+                            if hasattr(integration, 'feedback_loop') and integration.feedback_loop:
+                                feedback_loop = integration.feedback_loop
                                 for metrics in metrics_list:
                                     tracked = attention_tracker.get_tracked(metrics.symbol)
                                     if tracked:
@@ -215,6 +242,9 @@ class NajaSupervisor:
                                             is_new_high=metrics.max_favorable_move > tracked.max_favorable_move if tracked.max_favorable_move > 0 else False,
                                             is_new_low=metrics.max_adverse_move < tracked.max_adverse_move if tracked.max_adverse_move < 0 else False,
                                         )
+                                        _price_feedback_count += 1
+                                        if _price_feedback_count % 10 == 0:
+                                            log.info(f"[AttentionTracker] 价格反馈计数: {_price_feedback_count}, 跟踪中: {len(attention_tracker.get_all_tracked())}")
                         except Exception as e:
                             log.warning(f"价格更新反馈处理失败: {e}")
 
@@ -223,8 +253,11 @@ class NajaSupervisor:
                     # 注册观察结果回调
                     def _on_observation_result(result):
                         try:
-                            if hasattr(attention_system, 'feedback_loop') and attention_system.feedback_loop:
-                                attention_system.feedback_loop.record_observation(
+                            from deva.naja.attention.integration import get_attention_integration
+                            integration = get_attention_integration()
+                            if hasattr(integration, 'feedback_loop') and integration.feedback_loop:
+                                feedback_loop = integration.feedback_loop
+                                feedback_loop.record_observation(
                                     symbol=result.symbol,
                                     sector_id=result.sector_id,
                                     strategy_id=result.strategy_id,
@@ -238,6 +271,7 @@ class NajaSupervisor:
                                     max_favorable_move=result.max_favorable_move,
                                     max_adverse_move=result.max_adverse_move,
                                 )
+                                log.info(f"[AttentionTracker] 观察完成: {result.symbol} 收益={result.return_pct:+.2f}% 时长={result.holding_seconds:.0f}s")
                         except Exception as e:
                             log.warning(f"观察结果反馈处理失败: {e}")
 
@@ -251,6 +285,10 @@ class NajaSupervisor:
                     price_monitor.register_callback(_sync_price_to_tracker)
 
                     log.info("AttentionTracker 和 PriceMonitor 已启动")
+
+                    # SignalTuner 已禁用 (自动调参导致策略过于激进)
+                    log.info("SignalTuner 已禁用 (NAJA_DISABLE_SIGNAL_TUNER)")
+
                 except Exception as te:
                     log.warning(f"AttentionTracker 启动失败: {te}")
 
@@ -275,22 +313,51 @@ class NajaSupervisor:
     
     def _monitor_loop(self):
         """监控循环"""
+        _last_insight_emit = time.time()
+        _insight_emit_interval = 60.0
+
         while self._running:
             try:
                 status = self.get_system_status()
                 self._status_history.append(status)
-                
+
                 # 保持历史记录不超过100条
                 if len(self._status_history) > 100:
                     self._status_history.pop(0)
-                
+
                 # 检查系统健康状态
                 self._check_health(status)
-                
+
+                # 定期将注意力反馈结果发送到认知中心
+                now = time.time()
+                if now - _last_insight_emit >= _insight_emit_interval:
+                    _last_insight_emit = now
+                    self._emit_feedback_to_cognition()
+
                 time.sleep(self._check_interval)
             except Exception as e:
                 log.error(f"监控循环错误: {e}")
                 time.sleep(self._check_interval)
+
+    def _emit_feedback_to_cognition(self):
+        """将注意力反馈结果发送到认知中心"""
+        try:
+            attention_system = self._get_component('attention')
+            if not attention_system or not hasattr(attention_system, 'feedback_loop') or not attention_system.feedback_loop:
+                return
+
+            feedback_loop = attention_system.feedback_loop
+            summary = feedback_loop.get_summary()
+
+            if summary['total_outcomes'] == 0:
+                return
+
+            count = feedback_loop._emit_to_insight()
+            if count > 0:
+                log.info(f"[Cognition] 已发送 {count} 个注意力有效性洞察到 InsightPool")
+
+        except Exception as e:
+            log.debug(f"发送反馈到认知中心失败: {e}")
     
     def _check_health(self, status: Dict[str, Any]):
         """检查系统健康状态并进行恢复"""
@@ -526,7 +593,73 @@ class NajaSupervisor:
     
     def _stop_all_components(self):
         """停止所有组件"""
-        # 停止策略
+        from .signal.stream import get_signal_stream
+        from .strategy.result_store import get_result_store
+        from .cognition.insight.engine import get_insight_pool
+
+        try:
+            signal_stream = get_signal_stream()
+            if hasattr(signal_stream, 'close'):
+                signal_stream.close(persist=True)
+        except Exception as e:
+            log.error(f"停止信号流失败: {e}")
+
+        try:
+            result_store = get_result_store()
+            if hasattr(result_store, 'close'):
+                result_store.close()
+        except Exception as e:
+            log.error(f"停止结果存储失败: {e}")
+
+        try:
+            insight_pool = get_insight_pool()
+            if hasattr(insight_pool, 'persist'):
+                insight_pool.persist()
+        except Exception as e:
+            log.error(f"持久化洞察池失败: {e}")
+
+        try:
+            bandit_runner = self._get_component('bandit_runner')
+            if bandit_runner and hasattr(bandit_runner, 'stop'):
+                bandit_runner.stop()
+        except Exception as e:
+            log.error(f"停止 Bandit Runner 失败: {e}")
+
+        try:
+            attention = self._get_component('attention')
+            if attention and hasattr(attention, 'persist_state'):
+                attention.persist_state()
+        except Exception as e:
+            log.error(f"持久化注意力系统状态失败: {e}")
+
+        try:
+            radar_engine = self._get_component('radar')
+            if radar_engine and hasattr(radar_engine, 'save_state'):
+                radar_engine.save_state()
+        except Exception as e:
+            log.error(f"保存雷达状态失败: {e}")
+
+        try:
+            cognition = self._get_component('cognition')
+            if cognition and hasattr(cognition, 'save_state'):
+                cognition.save_state()
+        except Exception as e:
+            log.error(f"保存认知状态失败: {e}")
+
+        try:
+            bandit_runner = self._get_component('bandit_runner')
+            if bandit_runner and hasattr(bandit_runner, 'stop'):
+                bandit_runner.stop()
+        except Exception as e:
+            log.error(f"停止 Bandit Runner 失败: {e}")
+
+        try:
+            attention = self._get_component('attention')
+            if attention and hasattr(attention, 'persist_state'):
+                attention.persist_state()
+        except Exception as e:
+            log.error(f"持久化注意力系统状态失败: {e}")
+
         try:
             strategy_mgr = self._get_component('strategy')
             if strategy_mgr:
@@ -534,8 +667,7 @@ class NajaSupervisor:
                     entry.stop()
         except Exception as e:
             log.error(f"停止策略失败: {e}")
-        
-        # 停止数据源
+
         try:
             ds_mgr = self._get_component('datasource')
             if ds_mgr:
@@ -543,8 +675,7 @@ class NajaSupervisor:
                     entry.stop()
         except Exception as e:
             log.error(f"停止数据源失败: {e}")
-        
-        # 停止任务
+
         try:
             task_mgr = self._get_component('task')
             if task_mgr:

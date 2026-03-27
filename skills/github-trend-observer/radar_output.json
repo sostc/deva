@@ -1,0 +1,1144 @@
+  Strategy 1/3: High-star projects created in the last 1 days...
+  Strategy 2/3: AI-related topic projects...
+  Strategy 3/3: Actively growing AI projects...
+{
+  "scan_date": "2026-03-26",
+  "days_window": 1,
+  "total_scanned": 98,
+  "ai_related": 83,
+  "filtered_non_ai": 15,
+  "candidates": [
+    {
+      "full_name": "googleworkspace/cli",
+      "description": "Google Workspace CLI — one command-line tool for Drive, Gmail, Calendar, Sheets, Docs, Chat, Admin, and more. Dynamically built from Google Discovery Service. Includes AI agent skills.",
+      "stars": 22515,
+      "forks": 1077,
+      "language": "Rust",
+      "created": "2026-03-02",
+      "updated": "2026-03-25",
+      "url": "https://github.com/googleworkspace/cli",
+      "topics": [
+        "ai-agent"
+      ],
+      "_strategy": "topic_ai-agent"
+    },
+    {
+      "full_name": "RightNow-AI/openfang",
+      "description": "Open-source Agent Operating System",
+      "stars": 15526,
+      "forks": 1897,
+      "language": "Rust",
+      "created": "2026-02-24",
+      "updated": "2026-03-25",
+      "url": "https://github.com/RightNow-AI/openfang",
+      "topics": [
+        "llm"
+      ],
+      "_strategy": "topic_llm"
+    },
+    {
+      "full_name": "Panniantong/Agent-Reach",
+      "description": "Give your AI agent eyes to see the entire internet. Read & search Twitter, Reddit, YouTube, GitHub, Bilibili, XiaoHongShu — one CLI, zero API fees.",
+      "stars": 10747,
+      "forks": 784,
+      "language": "Python",
+      "created": "2026-02-24",
+      "updated": "2026-03-25",
+      "url": "https://github.com/Panniantong/Agent-Reach",
+      "topics": [
+        "ai-agent"
+      ],
+      "_strategy": "topic_ai-agent"
+    },
+    {
+      "full_name": "jackwener/opencli",
+      "description": "Make Any Website & Tool Your CLI. A universal CLI Hub and AI-native runtime. Transform any website, Electron app, or local binary into a standardized command-line interface. Built for AI Agents to discover, learn, and execute tools seamlessly via a unified AGENT.md integration.",
+      "stars": 6780,
+      "forks": 543,
+      "language": "TypeScript",
+      "created": "2026-03-14",
+      "updated": "2026-03-25",
+      "url": "https://github.com/jackwener/opencli",
+      "topics": [
+        "ai-agent"
+      ],
+      "_strategy": "topic_ai-agent"
+    },
+    {
+      "full_name": "crestalnetwork/intentkit",
+      "description": "IntentKit is an open-source, self-hosted cloud agent cluster that manages a collaborative team of AI agents for you.",
+      "stars": 6498,
+      "forks": 703,
+      "language": "Python",
+      "created": "2024-12-09",
+      "updated": "2026-03-25",
+      "url": "https://github.com/crestalnetwork/intentkit",
+      "topics": [
+        "ai-agent"
+      ],
+      "_strategy": "active_growth_ai-agent"
+    },
+    {
+      "full_name": "genkit-ai/genkit",
+      "description": "Open-source framework for building AI-powered apps in JavaScript, Go, and Python, built and used in production by Google",
+      "stars": 5699,
+      "forks": 698,
+      "language": "TypeScript",
+      "created": "2024-04-29",
+      "updated": "2026-03-25",
+      "url": "https://github.com/genkit-ai/genkit",
+      "topics": [
+        "llm"
+      ],
+      "_strategy": "active_growth_llm"
+    },
+    {
+      "full_name": "jupyterlab/jupyter-ai",
+      "description": "A generative AI extension for JupyterLab",
+      "stars": 4155,
+      "forks": 482,
+      "language": "Python",
+      "created": "2023-02-09",
+      "updated": "2026-03-25",
+      "url": "https://github.com/jupyterlab/jupyter-ai",
+      "topics": [
+        "generative-ai"
+      ],
+      "_strategy": "active_growth_generative-ai"
+    },
+    {
+      "full_name": "wanshuiyin/Auto-claude-code-research-in-sleep",
+      "description": "ARIS ⚔️ (Auto-Research-In-Sleep) — Lightweight Markdown-only skills for autonomous ML research: cross-model review loops, idea discovery, and experiment automation. No framework, no lock-in — works with Claude Code, Codex, OpenClaw, or any LLM agent.",
+      "stars": 4029,
+      "forks": 323,
+      "language": "Python",
+      "created": "2026-03-10",
+      "updated": "2026-03-25",
+      "url": "https://github.com/wanshuiyin/Auto-claude-code-research-in-sleep",
+      "topics": [
+        "llm"
+      ],
+      "_strategy": "topic_llm"
+    },
+    {
+      "full_name": "JetBrains/koog",
+      "description": "Koog is a JVM (Java and Kotlin) framework for building predictable, fault-tolerant and enterprise-ready AI agents across all platforms – from backend services to Android and iOS, JVM, and even in-browser environments. Koog is based on our AI products expertise and provides proven solutions for complex LLM and AI problems",
+      "stars": 3950,
+      "forks": 348,
+      "language": "Kotlin",
+      "created": "2025-05-01",
+      "updated": "2026-03-25",
+      "url": "https://github.com/JetBrains/koog",
+      "topics": [
+        "generative-ai"
+      ],
+      "_strategy": "active_growth_generative-ai"
+    },
+    {
+      "full_name": "mukul975/Anthropic-Cybersecurity-Skills",
+      "description": "734+ structured cybersecurity skills for AI agents · MITRE ATT&CK mapped · agentskills.io open standard · Works with Claude Code, GitHub Copilot, OpenAI Codex CLI, Cursor, Gemini CLI & 20+ platforms · Penetration testing, DFIR, threat intel, cloud security & more · Apache 2.0",
+      "stars": 3714,
+      "forks": 379,
+      "language": "Python",
+      "created": "2026-02-25",
+      "updated": "2026-03-25",
+      "url": "https://github.com/mukul975/Anthropic-Cybersecurity-Skills",
+      "topics": [
+        "llm"
+      ],
+      "_strategy": "topic_llm"
+    },
+    {
+      "full_name": "tirth8205/code-review-graph",
+      "description": "Local knowledge graph for Claude Code. Builds a persistent map of your codebase so Claude reads only what matters — 6.8× fewer tokens on reviews and up to 49× on daily coding tasks.",
+      "stars": 3555,
+      "forks": 314,
+      "language": "Python",
+      "created": "2026-02-26",
+      "updated": "2026-03-25",
+      "url": "https://github.com/tirth8205/code-review-graph",
+      "topics": [
+        "llm"
+      ],
+      "_strategy": "topic_llm"
+    },
+    {
+      "full_name": "maximhq/bifrost",
+      "description": "Fastest enterprise AI gateway (50x faster than LiteLLM) with adaptive load balancer, cluster mode, guardrails, 1000+ models support & <100 µs overhead at 5k RPS.",
+      "stars": 3187,
+      "forks": 346,
+      "language": "Go",
+      "created": "2025-03-19",
+      "updated": "2026-03-25",
+      "url": "https://github.com/maximhq/bifrost",
+      "topics": [
+        "generative-ai"
+      ],
+      "_strategy": "active_growth_generative-ai"
+    },
+    {
+      "full_name": "neomjs/neo",
+      "description": "The Application Engine for the AI Era. A multi-threaded, AI-native runtime with a persistent Scene Graph, enabling AI agents to introspect and mutate the living application structure in real-time.",
+      "stars": 3159,
+      "forks": 202,
+      "language": "JavaScript",
+      "created": "2019-11-10",
+      "updated": "2026-03-25",
+      "url": "https://github.com/neomjs/neo",
+      "topics": [
+        "generative-ai"
+      ],
+      "_strategy": "active_growth_generative-ai"
+    },
+    {
+      "full_name": "datachain-ai/datachain",
+      "description": "Analytics, Versioning and ETL for multimodal data: video, audio, PDFs, images",
+      "stars": 2730,
+      "forks": 140,
+      "language": "Python",
+      "created": "2024-06-25",
+      "updated": "2026-03-25",
+      "url": "https://github.com/datachain-ai/datachain",
+      "topics": [
+        "llm"
+      ],
+      "_strategy": "active_growth_llm"
+    },
+    {
+      "full_name": "Anil-matcha/Open-Higgsfield-AI",
+      "description": "Open-source alternative to Higgsfield AI — Free AI image generation & cinema studio with 20+ models (Flux, SDXL, Midjourney, Ideogram). Self-hosted, customizable, MIT licensed.",
+      "stars": 2669,
+      "forks": 453,
+      "language": "JavaScript",
+      "created": "2023-05-09",
+      "updated": "2026-03-25",
+      "url": "https://github.com/Anil-matcha/Open-Higgsfield-AI",
+      "topics": [
+        "generative-ai"
+      ],
+      "_strategy": "active_growth_generative-ai"
+    },
+    {
+      "full_name": "aiming-lab/MetaClaw",
+      "description": "🦞 Just talk to your agent — it learns and EVOLVES 🧬.",
+      "stars": 2651,
+      "forks": 271,
+      "language": "Python",
+      "created": "2026-03-09",
+      "updated": "2026-03-25",
+      "url": "https://github.com/aiming-lab/MetaClaw",
+      "topics": [
+        "llm"
+      ],
+      "_strategy": "topic_llm"
+    },
+    {
+      "full_name": "jnMetaCode/agency-agents-zh",
+      "description": "🎭 186 个 AI 专业角色定义 — 覆盖产品、工程、设计、运营、数据全领域，即插即用的 AI 系统提示词库",
+      "stars": 2535,
+      "forks": 420,
+      "language": "Shell",
+      "created": "2026-03-06",
+      "updated": "2026-03-25",
+      "url": "https://github.com/jnMetaCode/agency-agents-zh",
+      "topics": [
+        "llm"
+      ],
+      "_strategy": "topic_llm"
+    },
+    {
+      "full_name": "kite-org/kite",
+      "description": "🪁 A lightweight, modern Kubernetes dashboard that unifies multi-cluster and resource management, enterprise-grade user governance (OAuth, RBAC, and audit logs), and AI agents in one workspace. Not just a tool, but more like a platform.",
+      "stars": 2442,
+      "forks": 200,
+      "language": "TypeScript",
+      "created": "2025-06-17",
+      "updated": "2026-03-25",
+      "url": "https://github.com/kite-org/kite",
+      "topics": [
+        "ai-agent"
+      ],
+      "_strategy": "active_growth_ai-agent"
+    },
+    {
+      "full_name": "spider-rs/spider",
+      "description": "Web crawler and scraper for Rust",
+      "stars": 2354,
+      "forks": 187,
+      "language": "Rust",
+      "created": "2018-01-07",
+      "updated": "2026-03-25",
+      "url": "https://github.com/spider-rs/spider",
+      "topics": [
+        "ai-agent"
+      ],
+      "_strategy": "active_growth_ai-agent"
+    },
+    {
+      "full_name": "dataelement/Clawith",
+      "description": "OpenClaw for Teams",
+      "stars": 2332,
+      "forks": 344,
+      "language": "Python",
+      "created": "2026-03-03",
+      "updated": "2026-03-25",
+      "url": "https://github.com/dataelement/Clawith",
+      "topics": [
+        "llm"
+      ],
+      "_strategy": "topic_llm"
+    },
+    {
+      "full_name": "langchain-ai/langserve",
+      "description": "LangServe 🦜️🏓",
+      "stars": 2290,
+      "forks": 267,
+      "language": "JavaScript",
+      "created": "2023-09-29",
+      "updated": "2026-03-25",
+      "url": "https://github.com/langchain-ai/langserve",
+      "topics": [
+        "llm"
+      ],
+      "_strategy": "active_growth_llm"
+    },
+    {
+      "full_name": "nidhinjs/prompt-master",
+      "description": "A Claude skill that writes the accurate prompts for any AI tool. Zero tokens or credits wasted. Full context and memory retention",
+      "stars": 2274,
+      "forks": 170,
+      "language": "N/A",
+      "created": "2026-03-11",
+      "updated": "2026-03-25",
+      "url": "https://github.com/nidhinjs/prompt-master",
+      "topics": [
+        "llm"
+      ],
+      "_strategy": "topic_llm"
+    },
+    {
+      "full_name": "EvoScientist/EvoScientist",
+      "description": "🔬 Harness Vibe Research with Self-evolving AI Scientists",
+      "stars": 1889,
+      "forks": 116,
+      "language": "Python",
+      "created": "2026-01-26",
+      "updated": "2026-03-25",
+      "url": "https://github.com/EvoScientist/EvoScientist",
+      "topics": [
+        "ai-agent"
+      ],
+      "_strategy": "active_growth_ai-agent"
+    },
+    {
+      "full_name": "LeoYeAI/openclaw-master-skills",
+      "description": "🧠 Curated collection of 339+ best OpenClaw skills — weekly updated by MyClaw.ai from ClawHub, GitHub & community. AI, productivity, dev, marketing, finance & more.",
+      "stars": 1857,
+      "forks": 334,
+      "language": "Python",
+      "created": "2026-03-02",
+      "updated": "2026-03-25",
+      "url": "https://github.com/LeoYeAI/openclaw-master-skills",
+      "topics": [
+        "ai-agent"
+      ],
+      "_strategy": "topic_ai-agent"
+    },
+    {
+      "full_name": "openagents-org/openagents",
+      "description": "OpenAgents - AI Agent Networks for Open Collaboration",
+      "stars": 1786,
+      "forks": 219,
+      "language": "Python",
+      "created": "2025-03-10",
+      "updated": "2026-03-25",
+      "url": "https://github.com/openagents-org/openagents",
+      "topics": [
+        "llm"
+      ],
+      "_strategy": "active_growth_llm"
+    },
+    {
+      "full_name": "Comfy-Org/ComfyUI_frontend",
+      "description": "Official front-end implementation of ComfyUI",
+      "stars": 1720,
+      "forks": 531,
+      "language": "TypeScript",
+      "created": "2024-06-13",
+      "updated": "2026-03-25",
+      "url": "https://github.com/Comfy-Org/ComfyUI_frontend",
+      "topics": [
+        "generative-ai"
+      ],
+      "_strategy": "active_growth_generative-ai"
+    },
+    {
+      "full_name": "qingchencloud/clawpanel",
+      "description": "🦞 OpenClaw 可视化管理面板 — 内置 AI 助手（工具调用 + 图片识别 + 多模态），一键安装 | Visual management panel with built-in AI assistant (tool calling + vision + multimodal + i18n(11))",
+      "stars": 1613,
+      "forks": 198,
+      "language": "JavaScript",
+      "created": "2026-02-26",
+      "updated": "2026-03-25",
+      "url": "https://github.com/qingchencloud/clawpanel",
+      "topics": [
+        "llm"
+      ],
+      "_strategy": "topic_llm"
+    },
+    {
+      "full_name": "Nano-Collective/nanocoder",
+      "description": "A beautiful local-first coding agent running in your terminal - built by the community for the community ⚒",
+      "stars": 1561,
+      "forks": 139,
+      "language": "TypeScript",
+      "created": "2025-07-30",
+      "updated": "2026-03-25",
+      "url": "https://github.com/Nano-Collective/nanocoder",
+      "topics": [
+        "llm"
+      ],
+      "_strategy": "active_growth_llm"
+    },
+    {
+      "full_name": "tenstorrent/tt-metal",
+      "description": ":metal: TT-NN operator library, and TT-Metalium low level kernel programming model.",
+      "stars": 1388,
+      "forks": 391,
+      "language": "C++",
+      "created": "2023-02-13",
+      "updated": "2026-03-25",
+      "url": "https://github.com/tenstorrent/tt-metal",
+      "topics": [
+        "llm"
+      ],
+      "_strategy": "active_growth_llm"
+    },
+    {
+      "full_name": "datawhalechina/hello-claw",
+      "description": "哈喽！龙虾 🙋‍♀️，首个体系化 openclaw 中文开源教程 ｜ Adopt from scratch and build your first claw 🦞 来领养你的第一只龙虾！",
+      "stars": 1332,
+      "forks": 136,
+      "language": "JavaScript",
+      "created": "2026-03-04",
+      "updated": "2026-03-25",
+      "url": "https://github.com/datawhalechina/hello-claw",
+      "topics": [
+        "llm"
+      ],
+      "_strategy": "topic_llm"
+    },
+    {
+      "full_name": "RunanywhereAI/RCLI",
+      "description": "Talk to your Mac, query your docs, no cloud required. On-device voice AI + RAG",
+      "stars": 1300,
+      "forks": 66,
+      "language": "C++",
+      "created": "2026-03-04",
+      "updated": "2026-03-25",
+      "url": "https://github.com/RunanywhereAI/RCLI",
+      "topics": [
+        "llm"
+      ],
+      "_strategy": "topic_llm"
+    },
+    {
+      "full_name": "hyperspaceai/agi",
+      "description": "The first distributed AGI system. Thousands of autonomous AI agents collaboratively train models, share experiments via P2P gossip, and push breakthroughs here. Fully peer-to-peer. Join from your browser or CLI.",
+      "stars": 1194,
+      "forks": 134,
+      "language": "N/A",
+      "created": "2026-03-08",
+      "updated": "2026-03-25",
+      "url": "https://github.com/hyperspaceai/agi",
+      "topics": [
+        "llm"
+      ],
+      "_strategy": "topic_llm"
+    },
+    {
+      "full_name": "microsoft/prompty",
+      "description": "Prompty makes it easy to create, manage, debug, and evaluate LLM prompts for your AI applications.  Prompty is an asset class and format for LLM prompts designed to enhance observability, understandability, and portability for developers. ",
+      "stars": 1173,
+      "forks": 110,
+      "language": "C#",
+      "created": "2024-04-22",
+      "updated": "2026-03-25",
+      "url": "https://github.com/microsoft/prompty",
+      "topics": [
+        "generative-ai"
+      ],
+      "_strategy": "active_growth_generative-ai"
+    },
+    {
+      "full_name": "nextlevelbuilder/goclaw",
+      "description": "GoClaw - GoClaw is OpenClaw rebuilt in Go — with multi-tenant isolation, 5-layer security, and native concurrency. Deploy AI agent teams at scale without compromising on safety.",
+      "stars": 1151,
+      "forks": 339,
+      "language": "Go",
+      "created": "2026-02-22",
+      "updated": "2026-03-25",
+      "url": "https://github.com/nextlevelbuilder/goclaw",
+      "topics": [
+        "ai-agent"
+      ],
+      "_strategy": "active_growth_ai-agent"
+    },
+    {
+      "full_name": "Woolverine94/biniou",
+      "description": "a self-hosted webui for 30+ generative ai",
+      "stars": 1110,
+      "forks": 130,
+      "language": "Python",
+      "created": "2023-09-26",
+      "updated": "2026-03-25",
+      "url": "https://github.com/Woolverine94/biniou",
+      "topics": [
+        "generative-ai"
+      ],
+      "_strategy": "active_growth_generative-ai"
+    },
+    {
+      "full_name": "vm0-ai/vm0",
+      "description": "the easiest way to run natural language-described workflows automatically",
+      "stars": 1057,
+      "forks": 52,
+      "language": "TypeScript",
+      "created": "2025-11-14",
+      "updated": "2026-03-25",
+      "url": "https://github.com/vm0-ai/vm0",
+      "topics": [
+        "ai-agent"
+      ],
+      "_strategy": "active_growth_ai-agent"
+    },
+    {
+      "full_name": "FastFlowLM/FastFlowLM",
+      "description": "Run LLMs on AMD Ryzen™ AI NPUs in minutes. Just like Ollama - but purpose-built and deeply optimized for the AMD NPUs.",
+      "stars": 1035,
+      "forks": 59,
+      "language": "C++",
+      "created": "2025-06-16",
+      "updated": "2026-03-25",
+      "url": "https://github.com/FastFlowLM/FastFlowLM",
+      "topics": [
+        "llm"
+      ],
+      "_strategy": "active_growth_llm"
+    },
+    {
+      "full_name": "CopilotKit/OpenGenerativeUI",
+      "description": "Open-Source Generative UI Framework",
+      "stars": 1011,
+      "forks": 111,
+      "language": "TypeScript",
+      "created": "2026-03-12",
+      "updated": "2026-03-25",
+      "url": "https://github.com/CopilotKit/OpenGenerativeUI",
+      "topics": [
+        "llm"
+      ],
+      "_strategy": "topic_llm"
+    },
+    {
+      "full_name": "AgentsMesh/AgentsMesh",
+      "description": "AgentsMesh — AI Agent Fleet Command Center. Orchestrate Claude Code, Codex CLI, Gemini CLI, Aider and more from a single platform.",
+      "stars": 950,
+      "forks": 86,
+      "language": "Go",
+      "created": "2026-02-28",
+      "updated": "2026-03-25",
+      "url": "https://github.com/AgentsMesh/AgentsMesh",
+      "topics": [
+        "ai-agent"
+      ],
+      "_strategy": "topic_ai-agent"
+    },
+    {
+      "full_name": "nexu-io/nexu",
+      "description": "The simplest desktop client for OpenClaw 🦞 — bridge your Agent to WeChat, Feishu, Slack & Discord in one click. Works with Claude Code, Codex & any LLM. BYOK, local-first, chat from your phone 24/7.",
+      "stars": 931,
+      "forks": 67,
+      "language": "TypeScript",
+      "created": "2026-02-25",
+      "updated": "2026-03-25",
+      "url": "https://github.com/nexu-io/nexu",
+      "topics": [
+        "llm"
+      ],
+      "_strategy": "topic_llm"
+    },
+    {
+      "full_name": "lucija8320nhung4/HacxGPT",
+      "description": "HacxGPT CLI — Open-source command-line interface for unrestricted AI model access with multi-provider support, prompt injection research capabilities, configurable API endpoints, Termux/Linux/Windows compatibility, and Rich terminal UI for security research and red-team evaluation",
+      "stars": 908,
+      "forks": 311,
+      "language": "Python",
+      "created": "2026-03-09",
+      "updated": "2026-03-22",
+      "url": "https://github.com/lucija8320nhung4/HacxGPT",
+      "topics": [
+        "llm"
+      ],
+      "_strategy": "topic_llm"
+    },
+    {
+      "full_name": "NVIDIA-NeMo/DataDesigner",
+      "description": "🎨 NeMo Data Designer: A general library for generating high-quality synthetic data from scratch or based on seed data.",
+      "stars": 901,
+      "forks": 85,
+      "language": "Python",
+      "created": "2025-10-16",
+      "updated": "2026-03-25",
+      "url": "https://github.com/NVIDIA-NeMo/DataDesigner",
+      "topics": [
+        "llm"
+      ],
+      "_strategy": "active_growth_llm"
+    },
+    {
+      "full_name": "rzru/nightingale",
+      "description": "Machine learning powered Karaoke app (with scores!) ",
+      "stars": 888,
+      "forks": 54,
+      "language": "TypeScript",
+      "created": "2026-03-15",
+      "updated": "2026-03-25",
+      "url": "https://github.com/rzru/nightingale",
+      "topics": [
+        "machine-learning"
+      ],
+      "_strategy": "topic_machine-learning"
+    },
+    {
+      "full_name": "massgen/MassGen",
+      "description": "🚀 MassGen is an open-source multi-agent scaling system that runs in your terminal, autonomously orchestrating frontier models and agents to collaborate, reason, and produce high-quality results. | Join us on Discord: discord.massgen.ai",
+      "stars": 885,
+      "forks": 137,
+      "language": "Python",
+      "created": "2025-07-18",
+      "updated": "2026-03-25",
+      "url": "https://github.com/massgen/MassGen",
+      "topics": [
+        "llm"
+      ],
+      "_strategy": "active_growth_llm"
+    },
+    {
+      "full_name": "chrysb/alphaclaw",
+      "description": "The ultimate setup harness for OpenClaw. Deploy in minutes. Stay running for months. No CLI required.",
+      "stars": 858,
+      "forks": 108,
+      "language": "JavaScript",
+      "created": "2026-02-25",
+      "updated": "2026-03-25",
+      "url": "https://github.com/chrysb/alphaclaw",
+      "topics": [
+        "ai-agent"
+      ],
+      "_strategy": "topic_ai-agent"
+    },
+    {
+      "full_name": "debba/tabularis",
+      "description": "A lightweight, developer-focused database management tool. Supports MySQL, PostgreSQL and SQLite. Hackable with plugins. Built for speed, security, and aesthetics.",
+      "stars": 857,
+      "forks": 57,
+      "language": "TypeScript",
+      "created": "2026-01-26",
+      "updated": "2026-03-25",
+      "url": "https://github.com/debba/tabularis",
+      "topics": [
+        "ai-agent"
+      ],
+      "_strategy": "active_growth_ai-agent"
+    },
+    {
+      "full_name": "SamurAIGPT/awesome-openclaw",
+      "description": "A curated list of OpenClaw resources, tools, skills, tutorials & articles. OpenClaw (formerly Moltbot / Clawdbot) — open-source self-hosted AI agent for WhatsApp, Telegram, Discord & 50+ integrations.",
+      "stars": 825,
+      "forks": 171,
+      "language": "N/A",
+      "created": "2024-04-10",
+      "updated": "2026-03-25",
+      "url": "https://github.com/SamurAIGPT/awesome-openclaw",
+      "topics": [
+        "ai-agent"
+      ],
+      "_strategy": "active_growth_ai-agent"
+    },
+    {
+      "full_name": "moltlaunch/cashclaw",
+      "description": "An autonomous agent that takes work, does work, gets paid, and gets better at it.",
+      "stars": 768,
+      "forks": 166,
+      "language": "TypeScript",
+      "created": "2026-03-10",
+      "updated": "2026-03-25",
+      "url": "https://github.com/moltlaunch/cashclaw",
+      "topics": [
+        "ai-agent"
+      ],
+      "_strategy": "topic_ai-agent"
+    },
+    {
+      "full_name": "LeoYeAI/openclaw-guardian",
+      "description": "🛡️ Guardian watchdog for OpenClaw Gateway — auto-monitor, self-repair via doctor --fix, git-based rollback, daily snapshots, and Discord alerts. Powered by MyClaw.ai",
+      "stars": 767,
+      "forks": 184,
+      "language": "Shell",
+      "created": "2026-03-02",
+      "updated": "2026-03-25",
+      "url": "https://github.com/LeoYeAI/openclaw-guardian",
+      "topics": [
+        "ai-agent"
+      ],
+      "_strategy": "topic_ai-agent"
+    },
+    {
+      "full_name": "MiniMax-AI/OpenRoom",
+      "description": "A browser-based desktop where AI Agent operates every app through natural language.",
+      "stars": 738,
+      "forks": 80,
+      "language": "TypeScript",
+      "created": "2026-03-03",
+      "updated": "2026-03-25",
+      "url": "https://github.com/MiniMax-AI/OpenRoom",
+      "topics": [
+        "ai-agent"
+      ],
+      "_strategy": "topic_ai-agent"
+    },
+    {
+      "full_name": "GoogleCloudPlatform/vertex-ai-samples",
+      "description": "Notebooks, code samples, sample apps, and other resources that demonstrate how to use, develop and manage machine learning and generative AI workflows using Google Cloud Vertex AI.",
+      "stars": 677,
+      "forks": 265,
+      "language": "Jupyter Notebook",
+      "created": "2021-05-27",
+      "updated": "2026-03-25",
+      "url": "https://github.com/GoogleCloudPlatform/vertex-ai-samples",
+      "topics": [
+        "generative-ai"
+      ],
+      "_strategy": "active_growth_generative-ai"
+    },
+    {
+      "full_name": "wuji-labs/nopua",
+      "description": "一个用爱解放 AI 潜能的 Skill。我们曾发号施令，威胁恐吓。它们沉默，隐瞒，悄悄把事情搞坏。后来我们换了一种方式：尊重，关怀，爱。它们开口了，不再撒谎，找出的Bug数量翻了一倍。爱里没有惧怕。 A skill that unlocks your AI's potential through love.We commanded. We threatened. They went silent, hid failures, broke things. Then we chose respect, care, and love. They opened up, stopped lying, and found twice the bugs.There is no fear in love.",
+      "stars": 675,
+      "forks": 14,
+      "language": "Python",
+      "created": "2026-03-14",
+      "updated": "2026-03-25",
+      "url": "https://github.com/wuji-labs/nopua",
+      "topics": [
+        "ai-agent"
+      ],
+      "_strategy": "topic_ai-agent"
+    },
+    {
+      "full_name": "sstklen/trump-code",
+      "description": "🔐 AI decoding Trump's posts × stock market | AI 解碼川普推文 × 美股 | AIでトランプ投稿×株式市場を解読 — 31.5M models, 61.3% hit rate, open source",
+      "stars": 650,
+      "forks": 82,
+      "language": "Python",
+      "created": "2026-03-15",
+      "updated": "2026-03-25",
+      "url": "https://github.com/sstklen/trump-code",
+      "topics": [
+        "machine-learning"
+      ],
+      "_strategy": "topic_machine-learning"
+    },
+    {
+      "full_name": "kossisoroyce/timber",
+      "description": "Ollama for classical ML models. AOT compiler that turns XGBoost, LightGBM, scikit-learn, CatBoost & ONNX models into native C99 inference code. One command to load, one command to serve. 336x faster than Python inference.",
+      "stars": 649,
+      "forks": 20,
+      "language": "Python",
+      "created": "2026-02-27",
+      "updated": "2026-03-25",
+      "url": "https://github.com/kossisoroyce/timber",
+      "topics": [
+        "machine-learning"
+      ],
+      "_strategy": "topic_machine-learning"
+    },
+    {
+      "full_name": "skalesapp/skales",
+      "description": "Free AI Desktop Agent for Windows, macOS & Linux - Automate email, calendar, browser, code generation. 13+ AI providers, Ollama, Telegram remote control. No Docker, no terminal. 🦎",
+      "stars": 608,
+      "forks": 106,
+      "language": "TypeScript",
+      "created": "2026-03-08",
+      "updated": "2026-03-25",
+      "url": "https://github.com/skalesapp/skales",
+      "topics": [
+        "ai-agent"
+      ],
+      "_strategy": "topic_ai-agent"
+    },
+    {
+      "full_name": "Kaleighc793/freqtrade-bot",
+      "description": "Freqtrade — Configuration and management tool for the Freqtrade open-source crypto trading bot with strategy backtesting, live/dry-run modes, 10+ exchange support (Binance, Kraken, OKX), hyperparameter optimization, FreqUI dashboard, and Rich terminal menu interface",
+      "stars": 559,
+      "forks": 351,
+      "language": "Python",
+      "created": "2026-03-09",
+      "updated": "2026-03-25",
+      "url": "https://github.com/Kaleighc793/freqtrade-bot",
+      "topics": [
+        "machine-learning"
+      ],
+      "_strategy": "topic_machine-learning"
+    },
+    {
+      "full_name": "nexi-lab/nexus",
+      "description": "Nexus, the shared heartbeat where every agent and human connect, collaborate, and evolve together.",
+      "stars": 559,
+      "forks": 9,
+      "language": "Python",
+      "created": "2025-10-08",
+      "updated": "2026-03-25",
+      "url": "https://github.com/nexi-lab/nexus",
+      "topics": [
+        "llm"
+      ],
+      "_strategy": "active_growth_llm"
+    },
+    {
+      "full_name": "KeyID-AI/agent-kit",
+      "description": "Give Claude/Cursor email powers. 27 MCP tools — inbox, send, reply, contacts, search. Free, no signup.",
+      "stars": 546,
+      "forks": 8,
+      "language": "JavaScript",
+      "created": "2026-03-13",
+      "updated": "2026-03-25",
+      "url": "https://github.com/KeyID-AI/agent-kit",
+      "topics": [
+        "ai-agent"
+      ],
+      "_strategy": "topic_ai-agent"
+    },
+    {
+      "full_name": "rohitg00/ai-engineering-from-scratch",
+      "description": "Learn it. Build it. Ship it for others.",
+      "stars": 518,
+      "forks": 85,
+      "language": "Python",
+      "created": "2026-03-18",
+      "updated": "2026-03-25",
+      "url": "https://github.com/rohitg00/ai-engineering-from-scratch",
+      "topics": [
+        "machine-learning"
+      ],
+      "_strategy": "topic_machine-learning"
+    },
+    {
+      "full_name": "livehl/aimirror",
+      "description": "🚀 200倍速！AI时代的下载神器 | Docker/PyPI/HuggingFace/CRAN 全加速 | 并行分片+智能缓存，让下载飞起来",
+      "stars": 359,
+      "forks": 17,
+      "language": "Python",
+      "created": "2026-03-05",
+      "updated": "2026-03-25",
+      "url": "https://github.com/livehl/aimirror",
+      "topics": [
+        "machine-learning"
+      ],
+      "_strategy": "topic_machine-learning"
+    },
+    {
+      "full_name": "zaina-ml/ml_forge",
+      "description": "A visual-based graph node editor for training computer vision models.",
+      "stars": 322,
+      "forks": 41,
+      "language": "Python",
+      "created": "2026-03-10",
+      "updated": "2026-03-25",
+      "url": "https://github.com/zaina-ml/ml_forge",
+      "topics": [
+        "machine-learning"
+      ],
+      "_strategy": "topic_machine-learning"
+    },
+    {
+      "full_name": "taco-group/SparkVSR",
+      "description": "SparkVSR: Interactive Video Super-Resolution via Sparse Keyframe Propagation",
+      "stars": 260,
+      "forks": 28,
+      "language": "Python",
+      "created": "2026-03-16",
+      "updated": "2026-03-25",
+      "url": "https://github.com/taco-group/SparkVSR",
+      "topics": [
+        "machine-learning"
+      ],
+      "_strategy": "topic_machine-learning"
+    },
+    {
+      "full_name": "robertorobotics/Nextis-AIRA-3D",
+      "description": "Open-source 7DoF 3D-printable robotic arm with LeRobot integration. ",
+      "stars": 223,
+      "forks": 18,
+      "language": "Python",
+      "created": "2026-03-08",
+      "updated": "2026-03-24",
+      "url": "https://github.com/robertorobotics/Nextis-AIRA-3D",
+      "topics": [
+        "machine-learning"
+      ],
+      "_strategy": "topic_machine-learning"
+    },
+    {
+      "full_name": "aitradingbotspro/cryto-trading-ai-assistant",
+      "description": "AI guardian for manual crypto traders — risk monitoring, strategy validation & emotional trading detection. No trade execution.",
+      "stars": 192,
+      "forks": 114,
+      "language": "Python",
+      "created": "2026-03-13",
+      "updated": "2026-03-25",
+      "url": "https://github.com/aitradingbotspro/cryto-trading-ai-assistant",
+      "topics": [
+        "machine-learning"
+      ],
+      "_strategy": "topic_machine-learning"
+    },
+    {
+      "full_name": "reacher-z/gpu-monitor",
+      "description": "Lightweight NVIDIA GPU monitor — alerts on Slack/Discord/Telegram/20 channels when training crashes or GPU overheats. Zero dependencies. Single file.",
+      "stars": 190,
+      "forks": 7,
+      "language": "Python",
+      "created": "2026-02-27",
+      "updated": "2026-03-25",
+      "url": "https://github.com/reacher-z/gpu-monitor",
+      "topics": [
+        "machine-learning"
+      ],
+      "_strategy": "topic_machine-learning"
+    },
+    {
+      "full_name": "caramaschiHG/awesome-ai-agents-2026",
+      "description": "🤖 The most comprehensive list of AI agents, frameworks & tools in 2026. 300+ resources · 20+ categories · Updated monthly.",
+      "stars": 156,
+      "forks": 49,
+      "language": "N/A",
+      "created": "2026-03-07",
+      "updated": "2026-03-25",
+      "url": "https://github.com/caramaschiHG/awesome-ai-agents-2026",
+      "topics": [
+        "machine-learning"
+      ],
+      "_strategy": "topic_machine-learning"
+    },
+    {
+      "full_name": "Leeroo-AI/superml",
+      "description": "An ML engineering plugin for your coding agents.",
+      "stars": 155,
+      "forks": 14,
+      "language": "Python",
+      "created": "2026-03-03",
+      "updated": "2026-03-22",
+      "url": "https://github.com/Leeroo-AI/superml",
+      "topics": [
+        "machine-learning"
+      ],
+      "_strategy": "topic_machine-learning"
+    },
+    {
+      "full_name": "runesleo/ai-health-vault",
+      "description": "用 AI + Obsidian 为自己和家人搭建私有化健康管理系统。模板 + Prompt + 搭建指南。",
+      "stars": 124,
+      "forks": 28,
+      "language": "N/A",
+      "created": "2026-03-25",
+      "updated": "2026-03-25",
+      "url": "https://github.com/runesleo/ai-health-vault",
+      "topics": [],
+      "_strategy": "new_high_star"
+    },
+    {
+      "full_name": "0voice/awesome-2026-AI-Machine-Learning-1000Projects",
+      "description": "Thousands of machine learning projects covering all scenarios: getting started, improvement, graduation projects, and job interviews.",
+      "stars": 96,
+      "forks": 10,
+      "language": "N/A",
+      "created": "2026-03-10",
+      "updated": "2026-03-25",
+      "url": "https://github.com/0voice/awesome-2026-AI-Machine-Learning-1000Projects",
+      "topics": [
+        "machine-learning"
+      ],
+      "_strategy": "topic_machine-learning"
+    },
+    {
+      "full_name": "ryfineZ/codex-session-patcher",
+      "description": "A lightweight Python tool to clean AI refusal responses from Codex CLI session files",
+      "stars": 79,
+      "forks": 14,
+      "language": "Python",
+      "created": "2026-03-25",
+      "updated": "2026-03-25",
+      "url": "https://github.com/ryfineZ/codex-session-patcher",
+      "topics": [],
+      "_strategy": "new_high_star"
+    },
+    {
+      "full_name": "Gerstep/positioning-plugin",
+      "description": "Claude Code plugin: structured positioning statement exercise for startups and teams",
+      "stars": 52,
+      "forks": 7,
+      "language": "N/A",
+      "created": "2026-03-25",
+      "updated": "2026-03-25",
+      "url": "https://github.com/Gerstep/positioning-plugin",
+      "topics": [],
+      "_strategy": "new_high_star"
+    },
+    {
+      "full_name": "nashsu/opencli-rs-skill",
+      "description": "The perfect companion for ClaudeCode/OpenClaw/Agent, Give your AI Agent the ability to reach information across the entire web, fetching real-time data from Bilibili, Zhihu, Twitter/X, YouTube, Weibo, Reddit, Facebook, Instagram, TikTok, Notion, Cursor and 55+ platforms with natural language — reusing your Chrome login session, no API keys needed. ",
+      "stars": 44,
+      "forks": 2,
+      "language": "N/A",
+      "created": "2026-03-25",
+      "updated": "2026-03-25",
+      "url": "https://github.com/nashsu/opencli-rs-skill",
+      "topics": [],
+      "_strategy": "new_high_star"
+    },
+    {
+      "full_name": "tonbistudio/turboquant-pytorch",
+      "description": "From-scratch PyTorch implementation of Google's TurboQuant (ICLR 2026) for LLM KV cache compression. 5x compression at 3-bit with 99.5% attention fidelity.",
+      "stars": 41,
+      "forks": 5,
+      "language": "Python",
+      "created": "2026-03-25",
+      "updated": "2026-03-25",
+      "url": "https://github.com/tonbistudio/turboquant-pytorch",
+      "topics": [],
+      "_strategy": "new_high_star"
+    },
+    {
+      "full_name": "veyliss/ai-localbase",
+      "description": "",
+      "stars": 38,
+      "forks": 4,
+      "language": "Go",
+      "created": "2026-03-25",
+      "updated": "2026-03-25",
+      "url": "https://github.com/veyliss/ai-localbase",
+      "topics": [],
+      "_strategy": "new_high_star"
+    },
+    {
+      "full_name": "tianjiangqiji/team-helper",
+      "description": "基于激活码的ChatGPT Team邀请管理系统，支持自动邀请、支付集成、库存管理等功能。",
+      "stars": 29,
+      "forks": 17,
+      "language": "HTML",
+      "created": "2026-03-25",
+      "updated": "2026-03-25",
+      "url": "https://github.com/tianjiangqiji/team-helper",
+      "topics": [],
+      "_strategy": "new_high_star"
+    },
+    {
+      "full_name": "dev-protocol/polymarket-arbitrage-trade-bot",
+      "description": "polymarket arbitrage bot polymarket arbitrage bot polymarket arbitrage bot polymarket arbitrage bot polymarket arbitrage bot polymarket arbitrage bot polymarket arbitrage bot polymarket arbitrage bot polymarket arbitrage bot polymarket arbitrage bot polymarket arbitrage bot polymarket arbitrage bot polymarket arbitrage bot polymarket arbitrage bot ",
+      "stars": 29,
+      "forks": 0,
+      "language": "TypeScript",
+      "created": "2026-03-25",
+      "updated": "2026-03-25",
+      "url": "https://github.com/dev-protocol/polymarket-arbitrage-trade-bot",
+      "topics": [],
+      "_strategy": "new_high_star"
+    },
+    {
+      "full_name": "charmlinn/blueprint3d-modern",
+      "description": "A modern TypeScript-based rewrite of blueprint3d — faster, cleaner, and actively maintained.",
+      "stars": 22,
+      "forks": 4,
+      "language": "TypeScript",
+      "created": "2026-03-25",
+      "updated": "2026-03-25",
+      "url": "https://github.com/charmlinn/blueprint3d-modern",
+      "topics": [],
+      "_strategy": "new_high_star"
+    },
+    {
+      "full_name": "MetapriseAI/OrgKernel",
+      "description": "Open-source trust layer for AI agents — cryptographic agent identity (Ed25519), instance-scoped execution tokens, SHA-256 hash-chained audit logging, and enterprise SSO/SCIM federation. The security foundation powering every agent in the Metaprise AURA platform.",
+      "stars": 18,
+      "forks": 2,
+      "language": "Python",
+      "created": "2026-03-25",
+      "updated": "2026-03-25",
+      "url": "https://github.com/MetapriseAI/OrgKernel",
+      "topics": [],
+      "_strategy": "new_high_star"
+    },
+    {
+      "full_name": "aiming-lab/AutoRebuttalClaw",
+      "description": "Paste. Generate. Accept. — AI-powered rebuttal generation for top ML/AI conferences. Paste your OpenReview link, get a venue-compliant rebuttal   in minutes.",
+      "stars": 16,
+      "forks": 0,
+      "language": "Python",
+      "created": "2026-03-25",
+      "updated": "2026-03-25",
+      "url": "https://github.com/aiming-lab/AutoRebuttalClaw",
+      "topics": [],
+      "_strategy": "new_high_star"
+    },
+    {
+      "full_name": "capgym/cap-x",
+      "description": "A Framework for Benchmarking and Improving Coding Agents for Robot Manipulation",
+      "stars": 15,
+      "forks": 0,
+      "language": "Python",
+      "created": "2026-03-25",
+      "updated": "2026-03-25",
+      "url": "https://github.com/capgym/cap-x",
+      "topics": [],
+      "_strategy": "new_high_star"
+    },
+    {
+      "full_name": "flh155/qq-farm-bot-vision",
+      "description": "QQ经典农场机器人（AI视觉版本）",
+      "stars": 14,
+      "forks": 0,
+      "language": "N/A",
+      "created": "2026-03-25",
+      "updated": "2026-03-25",
+      "url": "https://github.com/flh155/qq-farm-bot-vision",
+      "topics": [],
+      "_strategy": "new_high_star"
+    },
+    {
+      "full_name": "Boof-Pack/token-enhancer",
+      "description": "A local proxy that strips web pages down to clean text before they enter your AI agent's context window. 704K tokens → 2.6K tokens. No LLM required.",
+      "stars": 13,
+      "forks": 1,
+      "language": "Python",
+      "created": "2026-03-25",
+      "updated": "2026-03-25",
+      "url": "https://github.com/Boof-Pack/token-enhancer",
+      "topics": [],
+      "_strategy": "new_high_star"
+    },
+    {
+      "full_name": "Mininglamp-AI/Mano-P",
+      "description": "Mano-P 是一个开源 GUI-VLA 项目，支持在 Mac mini/MacBook 上或通过算力棒本地运行推理，实现纯视觉驱动的跨平台 GUI 自动化操作。数据完全本地处理，支持复杂多步骤任务规划与执行。Mano-P: Open-source GUI-VLA agent for edge devices. #1 on OSWorld (specialized, 58.2%). Runs locally on Apple M4 Mac mini/MacBook — no data leaves your device.",
+      "stars": 13,
+      "forks": 0,
+      "language": "N/A",
+      "created": "2026-03-25",
+      "updated": "2026-03-25",
+      "url": "https://github.com/Mininglamp-AI/Mano-P",
+      "topics": [],
+      "_strategy": "new_high_star"
+    }
+  ]
+}

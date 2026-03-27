@@ -1,13 +1,12 @@
 """策略管理 UI"""
 
 import json
-from datetime import datetime
 
 from pywebio.output import put_text, put_markdown, put_table, put_buttons, put_html, toast, popup, close_popup, put_code, put_collapse, put_row, use_scope, set_scope, clear
 from pywebio.input import input_group, input, textarea, select, actions
 from pywebio.session import run_async
 
-from ..common.ui_style import apply_strategy_like_styles, render_empty_state
+from ..common.ui_style import apply_strategy_like_styles, render_empty_state, format_timestamp, render_status_badge, render_detail_section
 from ..page_help import render_help_collapse
 
 try:
@@ -56,18 +55,6 @@ def _render_strategy_help(ctx: dict):
     render_help_collapse("strategy")
 
 
-def _fmt_ts(ts: float) -> str:
-    if not ts:
-        return "-"
-    return datetime.fromtimestamp(ts).strftime("%Y-%m-%d %H:%M:%S")
-
-
-def _render_status_badge(is_running: bool) -> str:
-    if is_running:
-        return '<span style="display:inline-block;padding:4px 12px;border-radius:20px;font-size:12px;font-weight:500;background:#e8f5e9;color:#2e7d32;">● 运行中</span>'
-    return '<span style="display:inline-block;padding:4px 12px;border-radius:20px;font-size:12px;font-weight:500;background:#f5f5f5;color:#757575;">○ 已停止</span>'
-
-
 def _render_type_badge(strategy_type: str) -> str:
     stype = str(strategy_type or "legacy").lower()
     color = "#64748b"
@@ -88,14 +75,6 @@ def _render_type_badge(strategy_type: str) -> str:
     elif stype == "legacy":
         label = "legacy"
     return f'<span style="display:inline-block;padding:2px 8px;border-radius:999px;font-size:11px;font-weight:600;background:{bg};color:{color};">{label}</span>'
-
-
-def _render_detail_section(title: str) -> str:
-    return f"""
-    <div style="margin:20px 0 12px 0;padding-bottom:8px;border-bottom:2px solid #e0e0e0;">
-        <span style="font-size:15px;font-weight:600;color:#333;">{title}</span>
-    </div>
-    """
 
 
 def _render_principle_section(ctx: dict, entry, principle: dict, color: str):
@@ -187,7 +166,7 @@ def _render_strategy_diagram_section(ctx: dict, entry):
     if not diagram_info:
         return
 
-    ctx["put_html"](_render_detail_section("📊 策略详解"))
+    ctx["put_html"](render_detail_section("📊 策略详解"))
 
     icon = diagram_info.get("icon", "📊")
     color = diagram_info.get("color", "#667eea")
@@ -377,7 +356,7 @@ def _render_strategy_content(ctx: dict):
         table_data = _build_table_data(ctx, filtered_entries, mgr)
         _t11 = time_module.time()
 
-        ctx["put_table"](table_data, header=["名称", "类型", "状态", "数据源", "简介",
+        ctx["put_table"](table_data, header=["名称", "来源", "类型", "状态", "数据源", "简介",
                                              "最近数据", "操作"], scope="strategy_content")
 
         ctx["put_html"](
@@ -401,6 +380,9 @@ def _render_strategy_content(ctx: dict):
         ctx["put_html"](render_empty_state("暂无策略，点击下方按钮创建"), scope="strategy_content")
         ctx["put_buttons"]([{"label": "➕ 创建策略", "value": "create", "color": "primary"}],
                            onclick=lambda v, m=mgr, c=ctx: _create_strategy_dialog(m, c), scope="strategy_content")
+
+    ctx["put_buttons"]([{"label": "📁 导出全部到文件", "value": "export_all", "color": "info"}],
+                       onclick=lambda v, m=mgr, c=ctx: _export_all_strategies_to_file(m, c), scope="strategy_content")
 
     ctx["put_html"](
         "<hr style='margin:24px 0;border:none;border-top:1px solid #e0e0e0;'>", scope="strategy_content")
@@ -507,7 +489,7 @@ def _build_table_data(ctx: dict, entries: list, mgr) -> list:
     for idx, e in enumerate(entries):
         _entry_start = time_module.time()
         
-        status_html = _render_status_badge(e.is_running)
+        status_html = render_status_badge(e.is_running)
         type_html = _render_type_badge(getattr(e._metadata, "strategy_type", "legacy"))
         
         handler_type = getattr(e._metadata, "handler_type", "unknown")
@@ -578,15 +560,22 @@ def _build_table_data(ctx: dict, entries: list, mgr) -> list:
         toggle_label = "停止" if e.is_running else "启动"
         toggle_color = "danger" if e.is_running else "success"
 
+        source = getattr(e._metadata, 'source', 'nb') if hasattr(e, '_metadata') else 'nb'
+        if source == 'file':
+            source_html = '<span style="background:#e8f5e9;color:#2e7d32;padding:2px 8px;border-radius:4px;font-size:11px;">📁 文件</span>'
+        else:
+            source_html = '<span style="background:#e3f2fd;color:#1565c0;padding:2px 8px;border-radius:4px;font-size:11px;">💾 NB</span>'
+
         actions = ctx["put_buttons"]([
             {"label": "详情", "value": f"detail_{e.id}", "color": "info"},
             {"label": "编辑", "value": f"edit_{e.id}", "color": "primary"},
             {"label": toggle_label, "value": f"toggle_{e.id}", "color": toggle_color},
             {"label": "看板", "value": f"board_{e.id}", "color": "warning"},
-        ], onclick=lambda v, m=mgr, c=ctx: _handle_strategy_action(v, m, c))
+        ], onclick=lambda v, m=mgr, c=ctx: _handle_strategy_action(v, m, c), small=True, group=True)
 
         table_data.append([
             ctx["put_html"](f"<strong style='display:inline-block;max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;'>{e.name}</strong>"),
+            ctx["put_html"](source_html),
             ctx["put_html"](type_html),
             ctx["put_html"](status_html),
             bound_ds,
@@ -598,6 +587,74 @@ def _build_table_data(ctx: dict, entries: list, mgr) -> list:
     _table_end = time_module.time()
 
     return table_data
+
+
+def _export_all_strategies_to_file(mgr, ctx: dict):
+    """导出所有策略到文件配置"""
+    from deva.naja.config.file_config import get_file_config_manager
+
+    file_mgr = get_file_config_manager('strategy')
+    count = 0
+
+    for entry in mgr.list_all():
+        if not entry or not entry.name:
+            continue
+
+        try:
+            from deva.naja.config.file_config import ConfigFileItem, StrategyConfigMetadata
+
+            meta = entry._metadata
+            config_meta = StrategyConfigMetadata(
+                id=entry.id,
+                name=entry.name,
+                description=meta.description or '',
+                tags=meta.tags or [],
+                category=meta.category or '默认',
+                created_at=getattr(meta, 'created_at', 0),
+                updated_at=time_module.time(),
+                enabled=getattr(meta, 'enabled', True),
+                source='file',
+                bound_datasource_id=getattr(meta, 'bound_datasource_id', ''),
+                bound_datasource_ids=getattr(meta, 'bound_datasource_ids', []),
+                compute_mode=getattr(meta, 'compute_mode', 'record'),
+                window_size=getattr(meta, 'window_size', 5),
+                window_type=getattr(meta, 'window_type', 'sliding'),
+                window_interval=getattr(meta, 'window_interval', '10s'),
+                window_return_partial=getattr(meta, 'window_return_partial', False),
+                dictionary_profile_ids=getattr(meta, 'dictionary_profile_ids', []),
+                max_history_count=getattr(meta, 'max_history_count', 100),
+                strategy_type=getattr(meta, 'strategy_type', 'legacy'),
+                handler_type=getattr(meta, 'handler_type', 'unknown'),
+            )
+
+            parameters = {
+                'window_size': getattr(meta, 'window_size', 5),
+                'max_history_count': getattr(meta, 'max_history_count', 100),
+                'enabled': getattr(meta, 'enabled', True),
+            }
+
+            config = {
+                'compute_mode': getattr(meta, 'compute_mode', 'record'),
+                'window_type': getattr(meta, 'window_type', 'sliding'),
+                'strategy_type': getattr(meta, 'strategy_type', 'legacy'),
+                'handler_type': getattr(meta, 'handler_type', 'unknown'),
+            }
+
+            item = ConfigFileItem(
+                name=entry.name,
+                config_type='strategy',
+                metadata=config_meta,
+                parameters=parameters,
+                config=config,
+                func_code=entry._func_code or '',
+            )
+
+            if file_mgr.save(item):
+                count += 1
+        except Exception as e:
+            print(f"Export strategy failed: {entry.name}, error: {e}")
+
+    ctx["toast"](f"已导出 {count} 个策略到文件", color="success")
 
 
 def _render_recent_results(ctx, entries, store, limit: int = 10):
@@ -626,7 +683,7 @@ def _render_recent_results(ctx, entries, store, limit: int = 10):
 
         actions = ctx["put_buttons"]([
             {"label": "详情", "value": f"detail_{r.id}", "color": "info"},
-        ], onclick=lambda v, rid=r.id: _show_result_detail_by_id(ctx, rid))
+        ], onclick=lambda v, rid=r.id: _show_result_detail_by_id(ctx, rid), small=True)
 
         table_data.append([
             r.ts_readable[:16] if hasattr(r, 'ts_readable') else datetime.fromtimestamp(
@@ -907,7 +964,7 @@ def _show_result_detail_by_id(ctx, result_id: str):
         return
 
     with ctx["popup"](f"执行结果详情", size="large", closable=True):
-        ctx["put_html"](_render_detail_section("基本信息"))
+        ctx["put_html"](render_detail_section("基本信息"))
         info_table = [
             ["结果ID", result.id],
             ["策略名称", result.strategy_name],
@@ -919,11 +976,11 @@ def _show_result_detail_by_id(ctx, result_id: str):
             info_table.append(["错误信息", result.error])
         ctx["put_table"](info_table)
 
-        ctx["put_html"](_render_detail_section("输入数据预览"))
+        ctx["put_html"](render_detail_section("输入数据预览"))
         ctx["put_code"](result.input_preview, language="text")
 
         if result.success and result.output_full is not None:
-            ctx["put_html"](_render_detail_section("输出结果"))
+            ctx["put_html"](render_detail_section("输出结果"))
             output_data = result.output_full
             if isinstance(output_data, dict):
                 if "html" in output_data:
@@ -1442,7 +1499,7 @@ async def _show_strategy_detail(ctx: dict, mgr, entry_id: str):
                 <div><span style="color:#64748b;">持久化:</span> <span style="color:{"#22c55e" if state_persist else "#9ca3af"};">{"开" if state_persist else "关"}</span></div>
                 <div><span style="color:#64748b;">输出:</span> <span style="color:#1e293b;">{entry._state.output_count}</span></div>
                 <div><span style="color:#64748b;">错误:</span> <span style="color:{"#ef4444" if entry._state.error_count > 0 else "#1e293b"};">{entry._state.error_count}</span></div>
-                <div><span style="color:#64748b;">最后:</span> <span style="color:#1e293b;">{_fmt_ts(entry._state.last_process_ts) if entry._state.last_process_ts > 0 else "-"}</span></div>
+                <div><span style="color:#64748b;">最后:</span> <span style="color:#1e293b;">{format_timestamp(entry._state.last_process_ts) if entry._state.last_process_ts > 0 else "-"}</span></div>
             </div>
         </div>
         """)
@@ -1462,7 +1519,7 @@ async def _show_strategy_detail(ctx: dict, mgr, entry_id: str):
                     <div style="padding:8px;background:#fef2f2;border-radius:6px;border:1px solid #fecaca;">
                         <div style="font-size:10px;font-weight:600;color:#dc2626;margin-bottom:4px;">❌ 最新错误</div>
                         <div style="font-size:10px;color:#991b1b;">{entry._state.last_error or ""}</div>
-                        <div style="font-size:9px;color:#f87171;margin-top:4px;">{_fmt_ts(entry._state.last_error_ts) if entry._state.last_error_ts > 0 else ""}</div>
+                        <div style="font-size:9px;color:#f87171;margin-top:4px;">{format_timestamp(entry._state.last_error_ts) if entry._state.last_error_ts > 0 else ""}</div>
                     </div>
                     ''')
                 
@@ -1573,7 +1630,7 @@ def _show_result_detail(ctx: dict, entry, result_id: str):
         return
 
     with ctx["popup"](f"执行结果详情", size="large", closable=True):
-        ctx["put_html"](_render_detail_section("基本信息"))
+        ctx["put_html"](render_detail_section("基本信息"))
         info_table = [
             ["结果ID", result.id],
             ["策略名称", result.strategy_name],
@@ -1585,11 +1642,11 @@ def _show_result_detail(ctx: dict, entry, result_id: str):
             info_table.append(["错误信息", result.error])
         ctx["put_table"](info_table)
 
-        ctx["put_html"](_render_detail_section("输入数据预览"))
+        ctx["put_html"](render_detail_section("输入数据预览"))
         ctx["put_code"](result.input_preview, language="text")
 
         if result.success and result.output_full is not None:
-            ctx["put_html"](_render_detail_section("输出结果"))
+            ctx["put_html"](render_detail_section("输出结果"))
             output_data = result.output_full
             if isinstance(output_data, dict):
                 if "html" in output_data:
@@ -2152,7 +2209,7 @@ def _get_llm_adjustments(entry, limit: int = 10):
         items.sort(key=lambda x: float(x[0].get("timestamp", 0) or 0), reverse=True)
         rows = []
         for value, acts in items[:limit]:
-            ts = _fmt_ts(float(value.get("timestamp", 0) or 0))
+            ts = format_timestamp(float(value.get("timestamp", 0) or 0))
             summary = value.get("summary", "") or "-"
             reason = value.get("reason", "") or "-"
             act_texts = []

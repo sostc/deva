@@ -1,0 +1,244 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 800">
+  <defs>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#0f172a"/>
+      <stop offset="100%" style="stop-color:#1e293b"/>
+    </linearGradient>
+    <linearGradient id="clockGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#f59e0b"/>
+      <stop offset="100%" style="stop-color:#d97706"/>
+    </linearGradient>
+    <linearGradient id="streamGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#3b82f6"/>
+      <stop offset="100%" style="stop-color:#1d4ed8"/>
+    </linearGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="4" stdDeviation="8" flood-color="#000" flood-opacity="0.3"/>
+    </filter>
+  </defs>
+
+  <!-- Background -->
+  <rect width="1200" height="800" fill="url(#bgGrad)"/>
+
+  <!-- Title -->
+  <text x="600" y="45" text-anchor="middle" fill="#f1f5f9" font-size="24" font-weight="bold">TradingClock 启动与订阅关系图</text>
+
+  <!-- ==================== TradingClock Core ==================== -->
+  <g filter="url(#shadow)">
+    <!-- Clock Box -->
+    <rect x="480" y="80" width="240" height="100" rx="12" fill="#1e293b" stroke="#f59e0b" stroke-width="2"/>
+    <rect x="490" y="90" width="220" height="80" rx="8" fill="#0f172a"/>
+
+    <!-- Clock Icon -->
+    <circle cx="540" cy="130" r="25" fill="none" stroke="#f59e0b" stroke-width="2"/>
+    <line x1="540" y1="130" x2="540" y2="115" stroke="#f59e0b" stroke-width="2" stroke-linecap="round"/>
+    <line x1="540" y1="130" x2="552" y2="135" stroke="#f59e0b" stroke-width="2" stroke-linecap="round"/>
+    <circle cx="540" cy="130" r="3" fill="#f59e0b"/>
+
+    <text x="620" y="120" text-anchor="middle" fill="#f59e0b" font-size="16" font-weight="bold">TradingClock</text>
+    <text x="620" y="140" text-anchor="middle" fill="#94a3b8" font-size="11">单例模式 · 线程运行</text>
+    <text x="620" y="158" text-anchor="middle" fill="#64748b" font-size="10">get_trading_clock()</text>
+  </g>
+
+  <!-- ==================== TRADING_CLOCK_STREAM ==================== -->
+  <g filter="url(#shadow)">
+    <rect x="480" y="210" width="240" height="70" rx="10" fill="#1e3a5f" stroke="#3b82f6" stroke-width="2"/>
+    <text x="600" y="238" text-anchor="middle" fill="#60a5fa" font-size="14" font-weight="bold">TRADING_CLOCK_STREAM</text>
+    <text x="600" y="260" text-anchor="middle" fill="#94a3b8" font-size="11">NS('trading_clock') · 信号流</text>
+  </g>
+
+  <!-- Arrow: Clock -> Stream -->
+  <line x1="600" y1="180" x2="600" y2="210" stroke="#f59e0b" stroke-width="2" marker-end="url(#arrowYellow)"/>
+  <defs>
+    <marker id="arrowYellow" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#f59e0b"/>
+    </marker>
+  </defs>
+
+  <!-- Phase Info Box -->
+  <g filter="url(#shadow)">
+    <rect x="50" y="90" width="180" height="180" rx="10" fill="#1e293b" stroke="#334155" stroke-width="1"/>
+    <text x="140" y="115" text-anchor="middle" fill="#e2e8f0" font-size="12" font-weight="bold">交易时段定义</text>
+
+    <rect x="60" y="125" width="60" height="18" rx="4" fill="#dc2626"/>
+    <text x="90" y="138" text-anchor="middle" fill="white" font-size="10">closed</text>
+    <text x="130" y="138" text-anchor="start" fill="#94a3b8" font-size="9">15:30-09:00</text>
+
+    <rect x="60" y="148" width="60" height="18" rx="4" fill="#f59e0b"/>
+    <text x="90" y="161" text-anchor="middle" fill="white" font-size="10">pre_market</text>
+    <text x="130" y="161" text-anchor="start" fill="#94a3b8" font-size="9">09:00-09:30</text>
+
+    <rect x="60" y="171" width="60" height="18" rx="4" fill="#22c55e"/>
+    <text x="90" y="184" text-anchor="middle" fill="white" font-size="10">trading</text>
+    <text x="130" y="184" text-anchor="start" fill="#94a3b8" font-size="9">09:30-11:30</text>
+
+    <rect x="60" y="194" width="60" height="18" rx="4" fill="#64748b"/>
+    <text x="90" y="207" text-anchor="middle" fill="white" font-size="10">lunch</text>
+    <text x="130" y="207" text-anchor="start" fill="#94a3b8" font-size="9">11:30-13:00</text>
+
+    <rect x="60" y="217" width="60" height="18" rx="4" fill="#22c55e"/>
+    <text x="90" y="230" text-anchor="middle" fill="white" font-size="10">trading</text>
+    <text x="130" y="230" text-anchor="start" fill="#94a3b8" font-size="9">13:00-15:00</text>
+
+    <rect x="60" y="240" width="60" height="18" rx="4" fill="#f59e0b"/>
+    <text x="90" y="253" text-anchor="middle" fill="white" font-size="10">post_market</text>
+    <text x="130" y="253" text-anchor="start" fill="#94a3b8" font-size="9">15:00-15:30</text>
+  </g>
+
+  <!-- Signal Types -->
+  <g filter="url(#shadow)">
+    <rect x="970" y="90" width="180" height="90" rx="10" fill="#1e293b" stroke="#334155" stroke-width="1"/>
+    <text x="1060" y="115" text-anchor="middle" fill="#e2e8f0" font-size="12" font-weight="bold">信号类型</text>
+
+    <rect x="985" y="125" width="70" height="20" rx="4" fill="#3b82f6"/>
+    <text x="1020" y="138" text-anchor="middle" fill="white" font-size="10">current_state</text>
+    <text x="1065" y="138" text-anchor="start" fill="#94a3b8" font-size="9">系统启动时</text>
+
+    <rect x="985" y="152" width="70" height="20" rx="4" fill="#8b5cf6"/>
+    <text x="1020" y="165" text-anchor="middle" fill="white" font-size="10">phase_change</text>
+    <text x="1065" y="165" text-anchor="start" fill="#94a3b8" font-size="9">时段变化时</text>
+  </g>
+
+  <!-- ==================== Stream to Subscribers ==================== -->
+  <line x1="480" y1="245" x2="200" y2="245" stroke="#3b82f6" stroke-width="2"/>
+  <line x1="480" y1="245" x2="200" y2="350" stroke="#3b82f6" stroke-width="2"/>
+  <line x1="480" y1="245" x2="200" y2="455" stroke="#3b82f6" stroke-width="2"/>
+  <line x1="480" y1="245" x2="200" y2="560" stroke="#3b82f6" stroke-width="2"/>
+  <line x1="480" y1="245" x2="200" y2="665" stroke="#3b82f6" stroke-width="2"/>
+  <line x1="480" y1="245" x2="800" y2="350" stroke="#3b82f6" stroke-width="2"/>
+  <line x1="480" y1="245" x2="800" y2="455" stroke="#3b82f6" stroke-width="2"/>
+
+  <!-- Horizontal line -->
+  <line x1="200" y1="245" x2="800" y2="245" stroke="#3b82f6" stroke-width="2"/>
+
+  <!-- Arrows down to each subscriber -->
+  <line x1="200" y1="245" x2="200" y2="300" stroke="#3b82f6" stroke-width="2" marker-end="url(#arrowBlue)"/>
+  <line x1="200" y1="350" x2="200" y2="405" stroke="#3b82f6" stroke-width="2" marker-end="url(#arrowBlue)"/>
+  <line x1="200" y1="455" x2="200" y2="510" stroke="#3b82f6" stroke-width="2" marker-end="url(#arrowBlue)"/>
+  <line x1="200" y1="560" x2="200" y2="615" stroke="#3b82f6" stroke-width="2" marker-end="url(#arrowBlue)"/>
+  <line x1="200" y1="665" x2="200" y2="720" stroke="#3b82f6" stroke-width="2" marker-end="url(#arrowBlue)"/>
+  <line x1="800" y1="350" x2="800" y2="405" stroke="#3b82f6" stroke-width="2" marker-end="url(#arrowBlue)"/>
+  <line x1="800" y1="455" x2="800" y2="510" stroke="#3b82f6" stroke-width="2" marker-end="url(#arrowBlue)"/>
+
+  <defs>
+    <marker id="arrowBlue" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#3b82f6"/>
+    </marker>
+  </defs>
+
+  <!-- ==================== Subscribers Left Column ==================== -->
+
+  <!-- 1. RadarNewsFetcher -->
+  <g filter="url(#shadow)">
+    <rect x="80" y="300" width="240" height="105" rx="10" fill="#1e293b" stroke="#22c55e" stroke-width="2"/>
+    <rect x="80" y="300" width="240" height="28" rx="10" fill="#22c55e"/>
+    <rect x="80" y="320" width="240" height="8" fill="#22c55e"/>
+    <text x="200" y="318" text-anchor="middle" fill="white" font-size="13" font-weight="bold">RadarNewsFetcher</text>
+
+    <text x="95" y="345" fill="#94a3b8" font-size="10">文件: radar/news_fetcher.py</text>
+    <text x="95" y="362" fill="#64748b" font-size="9">订阅方式: TRADING_CLOCK_STREAM.sink()</text>
+    <text x="95" y="379" fill="#64748b" font-size="9">行为: 根据时段调整获取间隔</text>
+    <text x="95" y="393" fill="#94a3b8" font-size="9">trading/pre_market: 60s</text>
+    <text x="95" y="406" fill="#94a3b8" font-size="9">非交易时间: 300s</text>
+  </g>
+
+  <!-- 2. RealtimeDataFetcher -->
+  <g filter="url(#shadow)">
+    <rect x="80" y="455" width="240" height="105" rx="10" fill="#1e293b" stroke="#3b82f6" stroke-width="2"/>
+    <rect x="80" y="455" width="240" height="28" rx="10" fill="#3b82f6"/>
+    <rect x="80" y="475" width="240" height="8" fill="#3b82f6"/>
+    <text x="200" y="473" text-anchor="middle" fill="white" font-size="13" font-weight="bold">RealtimeDataFetcher</text>
+
+    <text x="95" y="500" fill="#94a3b8" font-size="10">文件: attention/realtime_data_fetcher.py</text>
+    <text x="95" y="517" fill="#64748b" font-size="9">订阅方式: TRADING_CLOCK_STREAM.sink()</text>
+    <text x="95" y="534" fill="#64748b" font-size="9">行为: trading/pre_market时激活</text>
+    <text x="95" y="551" fill="#94a3b8" font-size="9">其他时段: 停止获取</text>
+  </g>
+
+  <!-- 3. AttentionReportGenerator -->
+  <g filter="url(#shadow)">
+    <rect x="80" y="560" width="240" height="105" rx="10" fill="#1e293b" stroke="#a855f7" stroke-width="2"/>
+    <rect x="80" y="560" width="240" height="28" rx="10" fill="#a855f7"/>
+    <rect x="80" y="580" width="240" height="8" fill="#a855f7"/>
+    <text x="200" y="578" text-anchor="middle" fill="white" font-size="13" font-weight="bold">AttentionReportGenerator</text>
+
+    <text x="95" y="605" fill="#94a3b8" font-size="10">文件: attention/report_generator.py</text>
+    <text x="95" y="622" fill="#64748b" font-size="9">订阅方式: TRADING_CLOCK_STREAM.sink()</text>
+    <text x="95" y="639" fill="#64748b" font-size="9">行为: 只在trading时段生成</text>
+    <text x="95" y="656" fill="#94a3b8" font-size="9">每5分钟检查一次</text>
+  </g>
+
+  <!-- 4. SignalListener -->
+  <g filter="url(#shadow)">
+    <rect x="80" y="665" width="240" height="105" rx="10" fill="#1e293b" stroke="#f59e0b" stroke-width="2"/>
+    <rect x="80" y="665" width="240" height="28" rx="10" fill="#f59e0b"/>
+    <rect x="80" y="685" width="240" height="8" fill="#f59e0b"/>
+    <text x="200" y="683" text-anchor="middle" fill="#0f172a" font-size="13" font-weight="bold">SignalListener</text>
+
+    <text x="95" y="710" fill="#94a3b8" font-size="10">文件: bandit/signal_listener.py</text>
+    <text x="95" y="727" fill="#64748b" font-size="9">订阅方式: TRADING_CLOCK_STREAM.sink()</text>
+    <text x="95" y="744" fill="#64748b" font-size="9">行为: 检查是否在交易时段</text>
+    <text x="95" y="761" fill="#94a3b8" font-size="9">处理信号</text>
+  </g>
+
+  <!-- ==================== Subscribers Right Column ==================== -->
+
+  <!-- 5. MarketDataObserver -->
+  <g filter="url(#shadow)">
+    <rect x="680" y="405" width="240" height="105" rx="10" fill="#1e293b" stroke="#14b8a6" stroke-width="2"/>
+    <rect x="680" y="405" width="240" height="28" rx="10" fill="#14b8a6"/>
+    <rect x="680" y="425" width="240" height="8" fill="#14b8a6"/>
+    <text x="800" y="423" text-anchor="middle" fill="white" font-size="13" font-weight="bold">MarketDataObserver</text>
+
+    <text x="695" y="450" fill="#94a3b8" font-size="10">文件: bandit/market_observer.py</text>
+    <text x="695" y="467" fill="#64748b" font-size="9">订阅方式: TRADING_CLOCK_STREAM.sink()</text>
+    <text x="695" y="484" fill="#64748b" font-size="9">行为: 根据时段决定是否运行</text>
+    <text x="695" y="501" fill="#94a3b8" font-size="9">数据获取启停</text>
+  </g>
+
+  <!-- 6. BanditAutoRunner -->
+  <g filter="url(#shadow)">
+    <rect x="680" y="510" width="240" height="105" rx="10" fill="#1e293b" stroke="#ec4899" stroke-width="2"/>
+    <rect x="680" y="510" width="240" height="28" rx="10" fill="#ec4899"/>
+    <rect x="680" y="530" width="240" height="8" fill="#ec4899"/>
+    <text x="800" y="528" text-anchor="middle" fill="white" font-size="13" font-weight="bold">BanditAutoRunner</text>
+
+    <text x="695" y="555" fill="#94a3b8" font-size="10">文件: bandit/runner.py</text>
+    <text x="695" y="572" fill="#64748b" font-size="9">订阅方式: TRADING_CLOCK_STREAM.sink()</text>
+    <text x="695" y="589" fill="#64748b" font-size="9">行为: 交易时段允许自动</text>
+    <text x="695" y="606" fill="#94a3b8" font-size="9">选择/调节策略</text>
+  </g>
+
+  <!-- ==================== Start Dependencies ==================== -->
+
+  <!-- RadarEngine start dependency -->
+  <g filter="url(#shadow)">
+    <rect x="50" y="460" width="160" height="60" rx="8" fill="#1e293b" stroke="#f59e0b" stroke-width="1" stroke-dasharray="4,2"/>
+    <text x="130" y="483" text-anchor="middle" fill="#94a3b8" font-size="11">RadarEngine</text>
+    <text x="130" y="500" text-anchor="middle" fill="#64748b" font-size="9">__init__调用get_trading_clock()</text>
+    <text x="130" y="515" text-anchor="middle" fill="#f59e0b" font-size="9">(确保启动)</text>
+  </g>
+  <line x1="210" y1="490" x2="480" y2="130" stroke="#f59e0b" stroke-width="1.5" stroke-dasharray="5,3" marker-end="url(#arrowYellow)"/>
+
+  <!-- MarketTimeUtils (independent) -->
+  <g filter="url(#shadow)">
+    <rect x="930" y="460" width="200" height="60" rx="8" fill="#1e293b" stroke="#64748b" stroke-width="1" stroke-dasharray="4,2"/>
+    <text x="1030" y="483" text-anchor="middle" fill="#94a3b8" font-size="11">MarketTimeUtils</text>
+    <text x="1030" y="500" text-anchor="middle" fill="#64748b" font-size="9">独立的时间判断工具</text>
+    <text x="1030" y="515" text-anchor="middle" fill="#64748b" font-size="9">不订阅交易时钟</text>
+  </g>
+  <line x1="920" y1="490" x2="720" y2="350" stroke="#64748b" stroke-width="1.5" stroke-dasharray="5,3"/>
+
+  <!-- Legend -->
+  <g transform="translate(50, 760)">
+    <rect x="0" y="0" width="400" height="35" rx="6" fill="#1e293b" stroke="#334155" stroke-width="1"/>
+    <line x1="20" y1="17" x2="60" y2="17" stroke="#3b82f6" stroke-width="2"/>
+    <polygon points="55,17 60,12 60,22" fill="#3b82f6"/>
+    <text x="70" y="21" fill="#94a3b8" font-size="10">TRADING_CLOCK_STREAM.sink() 订阅</text>
+
+    <line x1="220" y1="17" x2="260" y2="17" stroke="#f59e0b" stroke-width="1.5" stroke-dasharray="5,3"/>
+    <polygon points="255,17 260,12 260,22" fill="#f59e0b"/>
+    <text x="270" y="21" fill="#94a3b8" font-size="10">get_trading_clock() 调用</text>
+  </g>
+
+</svg>
