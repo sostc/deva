@@ -1,0 +1,60 @@
+# 趋势跟踪策略配置
+# 配置类型: strategy
+# 描述: 基于均线的趋势跟踪策略
+
+metadata:
+  id: "trend_following"
+  name: "均线趋势策略"
+  description: |
+    基于简单移动平均线的趋势跟踪策略。
+    当短期均线上穿长期均线时买入，下穿时卖出。
+  tags: ["趋势", "技术指标", "均线"]
+  category: "趋势跟踪"
+  enabled: false
+  source: "file"
+
+parameters:
+  enabled: false
+  window_size: 5            # 窗口大小
+  window_interval: "10s"     # 窗口间隔
+  max_history_count: 100    # 最大历史数
+
+config:
+  bound_datasource_ids: []  # 绑定的数据源ID
+  compute_mode: "record"    # 计算模式: record, batch
+  window_type: "sliding"    # 窗口类型: sliding, tumbling
+  strategy_type: "legacy"   # 策略类型: legacy, river, plugin
+  handler_type: "unknown"   # 处理器类型: unknown, radar, memory, bandit, llm
+
+func_code: |
+  import pandas as pd
+
+  def compute(data):
+      """计算交易信号
+
+      Args:
+          data: 包含价格数据的 DataFrame
+
+      Returns:
+          dict: 包含 signal (buy/sell/hold) 和 confidence (0-1)
+      """
+      if not data or len(data) < 20:
+          return {"signal": "hold", "confidence": 0}
+
+      # 简单均线策略
+      short_window = 5
+      long_window = 20
+
+      prices = data.get('close', [])
+      if len(prices) < long_window:
+          return {"signal": "hold", "confidence": 0}
+
+      short_ma = sum(prices[-short_window:]) / short_window
+      long_ma = sum(prices[-long_window:]) / long_window
+
+      if short_ma > long_ma:
+          return {"signal": "buy", "confidence": 0.7}
+      elif short_ma < long_ma:
+          return {"signal": "sell", "confidence": 0.7}
+      else:
+          return {"signal": "hold", "confidence": 0}

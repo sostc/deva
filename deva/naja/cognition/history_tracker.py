@@ -190,10 +190,17 @@ class AttentionHistoryTracker:
 
     def get_sector_name(self, sector_id: str) -> str:
         """获取板块名称"""
+        if not sector_id:
+            return ""
+
         if sector_id in self.sector_names:
             return self.sector_names[sector_id]
         if sector_id in self._sector_configs:
             return self._sector_configs[sector_id].name
+
+        if sector_id.startswith("block_") and len(sector_id) > 10:
+            return ""
+
         return sector_id
 
     def _format_volume(self, volume: float) -> str:
@@ -248,32 +255,6 @@ class AttentionHistoryTracker:
             sector=sector,
             market_time=market_time,
         )
-
-    def _emit_to_radar(
-        self,
-        *,
-        event_type: str,
-        score: float,
-        message: str,
-        payload: Dict[str, Any],
-    ) -> None:
-        try:
-            from deva.naja.radar import get_radar_engine
-        except Exception:
-            return
-        try:
-            radar = get_radar_engine()
-            radar.ingest_attention_event(
-                event_type=event_type,
-                score=score,
-                message=message,
-                payload=payload,
-                signal_type="attention",
-                strategy_id="attention_system",
-                strategy_name="Attention System",
-            )
-        except Exception:
-            return
 
     def _emit_to_memory(
         self,

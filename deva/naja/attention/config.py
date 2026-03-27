@@ -48,7 +48,7 @@ class NajaAttentionConfig:
 
     enabled: bool = True
     global_history_window: int = 20
-    max_sectors: int = 500
+    max_sectors: int = 5000
     sector_decay_half_life: float = 300.0
     max_symbols: int = 5000
     low_interval: float = 60.0
@@ -70,7 +70,7 @@ class NajaAttentionConfig:
 
         config.enabled = os.getenv("NAJA_ATTENTION_ENABLED", "true").lower() == "true"
         config.global_history_window = int(os.getenv("NAJA_ATTENTION_GLOBAL_WINDOW", "20"))
-        config.max_sectors = int(os.getenv("NAJA_ATTENTION_MAX_SECTORS", "500"))
+        config.max_sectors = int(os.getenv("NAJA_ATTENTION_MAX_SECTORS", "5000"))
         config.max_symbols = int(os.getenv("NAJA_ATTENTION_MAX_SYMBOLS", "5000"))
 
         config.low_interval = float(os.getenv("NAJA_ATTENTION_LOW_INTERVAL", "60.0"))

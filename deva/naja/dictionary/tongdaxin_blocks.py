@@ -231,12 +231,13 @@ def get_dataframe(filepath: str = None) -> "pd.DataFrame":
     
     rows = []
     for code, blocks in stock_to_blocks.items():
-        rows.append({
-            'code': code,
-            'blocks': '|'.join(sorted(blocks)),
-            'block_count': len(blocks)
-        })
-    
+        for block in sorted(blocks):
+            rows.append({
+                'code': code,
+                'blocks': block,
+                'block_count': len(blocks)
+            })
+
     return pd.DataFrame(rows)
 
 

@@ -249,9 +249,6 @@ async def render_attention_admin(ctx: dict):
     with use_scope("attention_flow"):
         put_html(render_attention_flow_ui())
 
-    with use_scope("attention_layers"):
-        put_html(render_attention_layers_detail())
-
     with use_scope("attention_frequency_panel"):
         put_html(render_data_frequency_panel())
 

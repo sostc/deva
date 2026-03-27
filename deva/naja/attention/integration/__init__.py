@@ -24,6 +24,8 @@ from .extended import (
     register_strategy_manager,
     get_strategy_manager,
     process_data_with_strategies,
+    AttentionModeManager,
+    get_mode_manager,
 )
 
 __all__ = [
@@ -44,4 +46,6 @@ __all__ = [
     "register_strategy_manager",
     "get_strategy_manager",
     "process_data_with_strategies",
+    "AttentionModeManager",
+    "get_mode_manager",
 ]

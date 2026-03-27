@@ -231,21 +231,21 @@ class VirtualPortfolio:
         Returns:
             List[dict]: 触发止盈止损的平仓列表
         """
-        log.info(f"[VirtualPortfolio] 📈 update_price 被调用: {stock_code} @ {current_price}")
+        log.debug(f"[VirtualPortfolio] 📈 update_price 被调用: {stock_code} @ {current_price}")
 
         with self._lock:
             closed = []
             matching_positions = [(pos_id, pos) for pos_id, pos in self._positions.items()
                                   if pos.stock_code == stock_code and pos.status == "OPEN"]
 
-            log.info(f"[VirtualPortfolio] 🔍 找到 {len(matching_positions)} 个匹配的持仓")
+            log.debug(f"[VirtualPortfolio] 🔍 找到 {len(matching_positions)} 个匹配的持仓")
 
             for pos_id, position in matching_positions:
                 old_price = position.current_price
                 position.current_price = current_price
                 position.last_update_time = time.time()
 
-                log.info(f"[VirtualPortfolio] 💰 更新持仓 {pos_id}: {stock_code} {old_price} -> {current_price}")
+                log.debug(f"[VirtualPortfolio] 💰 更新持仓 {pos_id}: {stock_code} {old_price} -> {current_price}")
                 
                 for callback in self._position_callbacks:
                     try:

@@ -1,0 +1,52 @@
+config:
+  cron_expr: ''
+  execution_mode: timer
+  run_at: ''
+  scheduler_trigger: interval
+  task_type: interval
+func_code: "import pandas as pd\nfrom pathlib import Path\n\ndef fetch_data():\n \
+  \   blocks_file = \"/Users/spark/pycharmproject/deva/deva/naja/dictionary/infoharbor_block.dat\"\
+  \n    from deva.naja.dictionary.tongdaxin_blocks import get_dataframe\n    return\
+  \ get_dataframe(filepath=blocks_file)\n\ndef _resolve_awaitable(value):\n    import\
+  \ asyncio\n    import inspect\n    import threading\n\n    if not inspect.isawaitable(value):\n\
+  \        return value\n\n    try:\n        running_loop = asyncio.get_running_loop()\n\
+  \        loop_running = running_loop.is_running()\n    except RuntimeError:\n  \
+  \      loop_running = False\n\n    if not loop_running:\n        loop = asyncio.new_event_loop()\n\
+  \        try:\n            return loop.run_until_complete(value)\n        finally:\n\
+  \            loop.close()\n\n    box = {\"value\": None, \"error\": None}\n\n  \
+  \  def _runner():\n        loop = asyncio.new_event_loop()\n        try:\n     \
+  \       box[\"value\"] = loop.run_until_complete(value)\n        except Exception\
+  \ as e:\n            box[\"error\"] = e\n        finally:\n            loop.close()\n\
+  \n    t = threading.Thread(target=_runner, daemon=True)\n    t.start()\n    t.join()\n\
+  \    if box[\"error\"] is not None:\n        raise box[\"error\"]\n    return box[\"\
+  value\"]\n\ndef execute(event=None):\n    from deva.naja.dictionary import get_dictionary_manager\n\
+  \n    mgr = get_dictionary_manager()\n    entry = mgr.get(\"cd10098e6b5f\")\n  \
+  \  if entry is None:\n        return \"dictionary_not_found\"\n\n    try:\n    \
+  \    data = fetch_data()\n        data = _resolve_awaitable(data)\n        entry.apply_fresh_data(data)\n\
+  \        return \"ok\"\n    except Exception as e:\n        entry.mark_refresh_error(str(e))\n\
+  \        raise\n"
+metadata:
+  category: ''
+  created_at: 1773598147.67044
+  cron_expr: ''
+  description: 字典 通达信概念板块 鲜活任务
+  enabled: true
+  event_condition: ''
+  event_condition_type: contains
+  event_source: log
+  execution_mode: timer
+  func_code_file: ''
+  id: e88e95f6714a
+  interval_seconds: 86400.0
+  name: dict_refresh_通达信概念板块_cd10098e6b5f
+  run_at: ''
+  scheduler_trigger: interval
+  source: file
+  tags: []
+  task_type: interval
+  updated_at: 1774624385.776493
+parameters:
+  enabled: true
+  retry_count: 3
+  retry_delay: 5
+  timeout: 30

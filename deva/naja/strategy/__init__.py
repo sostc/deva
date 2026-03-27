@@ -1257,18 +1257,38 @@ class StrategyEntry(RecoverableUnit):
 
 
 class StrategyManager:
-    """策略管理器"""
-    
+    """策略管理器
+
+    ================================================================================
+    单例模式说明：为什么使用单例
+    ================================================================================
+    1. 全局唯一性：策略系统是全局资源，只能有一个实例管理所有策略的生命周期。
+       如果存在多个实例，可能导致策略状态不一致。
+
+    2. 资源管理：StrategyManager 持有策略字典（_items）和数据库连接（NB），
+       这些资源应该全局共享，而非重复创建。
+
+    3. 生命周期：Manager 的生命周期与系统一致，随系统启动和关闭。
+
+    4. 依赖注入支持：如需测试，可以设置 _datasource_manager/_result_store
+       等属性来注入 mock 对象。
+
+    5. Manager 类本身不是资源，而是通往资源的入口点。真正的系统资源
+       （如 ResultStore 管理的数据库连接）是单例的，而 Manager 类
+       保持单例是为了方便访问这些资源。
+    ================================================================================
+    """
+
     _instance = None
     _lock = threading.Lock()
-    
+
     def __new__(cls):
         if cls._instance is None:
             with cls._lock:
                 if cls._instance is None:
                     cls._instance = super().__new__(cls)
         return cls._instance
-    
+
     def __init__(self):
         if hasattr(self, "_initialized"):
             return
@@ -1552,6 +1572,10 @@ class StrategyManager:
             return {"success": False, "error": "请至少选择一个策略类别或启用注意力策略"}
         if not datasource_id:
             return {"success": False, "error": "请先选择实验数据源"}
+
+        from ..radar.trading_clock import is_trading_time as is_trading_time_clock
+        if is_trading_time_clock():
+            return {"success": False, "error": "当前处于交易时间，实验模式需要在非交易时间启动（请在收盘后或周末操作）"}
 
         with self._experiment_lock:
             if self._experiment_session is not None:
@@ -1855,7 +1879,16 @@ class StrategyManager:
                         print(f"⚠️ 注意力策略实验模式停止失败: {attention_result.get('error')}")
                 except Exception as e:
                     print(f"⚠️ 停止注意力策略实验模式失败: {e}")
-            
+
+                try:
+                    from deva.naja.attention.integration import get_mode_manager
+                    mode_manager = get_mode_manager()
+                    if mode_manager.is_lab_mode():
+                        mode_manager.exit_lab_mode()
+                        print(f"✅ 注意力模式管理器已退出实验模式，恢复正常交易")
+                except Exception as e:
+                    print(f"⚠️ 退出实验模式失败: {e}")
+
             if not failed:
                 self._experiment_session = None
                 self._save_experiment_session()
@@ -1908,7 +1941,125 @@ class StrategyManager:
             self._load_experiment_session()
 
         return count
-    
+
+    def load_prefer_files(self) -> int:
+        """优先从文件加载策略配置，NB 数据作为兜底
+
+        加载策略：
+        1. 先扫描 config/strategies/ 目录下的文件配置
+        2. 如果文件存在，优先使用文件配置
+        3. 如果文件不存在但 NB 中有，则使用 NB 数据
+        4. 合并去重，以文件配置优先
+
+        Returns:
+            加载的策略数量
+        """
+        from deva.naja.config.file_config import get_file_config_manager
+
+        file_mgr = get_file_config_manager('strategy')
+        file_names = set(file_mgr.list_names())
+
+        db = NB(STRATEGY_TABLE)
+        loaded_count = 0
+
+        with self._items_lock:
+            self._items.clear()
+
+            for entry_id, data in list(db.items()):
+                if not isinstance(data, dict):
+                    continue
+
+                try:
+                    entry = StrategyEntry.from_dict(data)
+                    if not entry.id:
+                        continue
+
+                    name = entry.name
+                    if name in file_names:
+                        file_item = file_mgr.get(name)
+                        if file_item and file_item.metadata.source == 'file':
+                            existing_time = getattr(entry._metadata, 'updated_at', 0) or 0
+                            file_time = file_item.metadata.updated_at or 0
+                            if file_time >= existing_time:
+                                file_entry = self._create_entry_from_file_config(file_item)
+                                if file_entry:
+                                    self._items[file_entry.id] = file_entry
+                                    loaded_count += 1
+                                    continue
+
+                    self._items[entry.id] = entry
+                    loaded_count += 1
+
+                except Exception as e:
+                    self._log("ERROR", "Load entry failed", id=entry_id, error=str(e))
+
+            for name in file_names:
+                file_item = file_mgr.get(name)
+                if not file_item:
+                    continue
+
+                name_already_loaded = any(e.name == name for e in self._items.values())
+                if name_already_loaded:
+                    continue
+
+                try:
+                    file_entry = self._create_entry_from_file_config(file_item)
+                    if file_entry:
+                        self._items[file_entry.id] = file_entry
+                        loaded_count += 1
+                except Exception as e:
+                    self._log("ERROR", f"Load from file failed: {name}", error=str(e))
+
+        with self._experiment_lock:
+            self._load_experiment_session()
+
+        return loaded_count
+
+    def _create_entry_from_file_config(self, file_item) -> Optional['StrategyEntry']:
+        """从文件配置创建 StrategyEntry"""
+        from deva.naja.config.file_config import ConfigFileItem
+
+        if not isinstance(file_item, ConfigFileItem):
+            return None
+
+        file_metadata = file_item.metadata
+        file_config = file_item.config
+        file_params = file_item.parameters
+
+        metadata = StrategyMetadata(
+            id=file_metadata.id or file_item.name,
+            name=file_item.name,
+            description=file_metadata.description or '',
+            tags=file_metadata.tags or [],
+            category=file_metadata.category or '默认',
+            bound_datasource_id=file_config.get('bound_datasource_id', ''),
+            bound_datasource_ids=file_config.get('bound_datasource_ids', []),
+            compute_mode=file_config.get('compute_mode', 'record'),
+            window_size=file_params.get('window_size', 5),
+            window_type=file_config.get('window_type', 'sliding'),
+            window_interval=file_config.get('window_interval', '10s'),
+            window_return_partial=file_config.get('window_return_partial', False),
+            dictionary_profile_ids=file_config.get('dictionary_profile_ids', []),
+            max_history_count=file_params.get('max_history_count', 100),
+            strategy_type=file_config.get('strategy_type', 'legacy'),
+            handler_type=file_config.get('handler_type', 'unknown'),
+            version=1,
+            created_at=file_metadata.created_at or time.time(),
+            updated_at=file_metadata.updated_at or time.time(),
+        )
+
+        state = StrategyState()
+        entry = StrategyEntry(metadata=metadata, state=state)
+
+        if file_item.func_code:
+            entry._func_code = file_item.func_code
+            try:
+                entry.compile_code()
+            except Exception:
+                pass
+
+        return entry
+
     def reload_entry(self, entry_id: str) -> dict:
         """热重载单个策略（从数据库重新加载配置和代码）
         

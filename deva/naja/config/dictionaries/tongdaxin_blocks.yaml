@@ -1,0 +1,99 @@
+# 通达信概念板块字典配置
+# 配置文件路径: config/dictionaries/tongdaxin_blocks.yaml
+
+metadata:
+  # 唯一标识
+  id: "tongdaxin_blocks"
+  # 显示名称
+  name: "通达信概念板块"
+  # 描述信息
+  description: |
+    通达信概念板块数据，包含股票所属的概念板块信息。
+    数据从 infoharbor_block.dat 文件读取，每行一个股票-板块组合。
+  # 标签（用于分类检索）
+  tags:
+    - "板块"
+    - "概念"
+    - "通达信"
+    - "stock_basic"
+  # 字典类型
+  dict_type: "stock_basic_block"
+
+  # 执行模式
+  execution_mode: "scheduler"  # timer=定时器, scheduler=调度器
+  # 调度器触发方式
+  scheduler_trigger: "cron"  # interval=间隔, cron=cron表达式, date=指定时间
+  # cron 表达式（每天凌晨3点执行）
+  cron_expr: "0 3 * * *"
+  # 间隔秒数（当 scheduler_trigger=interval 时生效）
+  interval_seconds: 86400
+
+  # 数据来源模式
+  source_mode: "task"  # task=任务拉取, upload=手动上传, upload_and_task=混合
+  # 是否启用自动刷新
+  refresh_enabled: true
+
+  # 事件触发配置（当 execution_mode=event_trigger 时生效）
+  event_source: "log"
+  event_condition: ""
+  event_condition_type: "contains"
+
+  # 外部 func_code 文件路径（相对于 config/ 目录）
+  func_code_file: "dictionaries/_codes/tongdaxin_blocks_fetch.py"
+
+  # 创建时间（自动生成）
+  created_at: 0
+  # 更新时间
+  updated_at: 0
+
+# 内联 func_code（如果 func_code_file 存在，则优先使用文件）
+# 这里作为备选和文档参考
+func_code: |
+  import pandas as pd
+  from pathlib import Path
+
+  def fetch_data():
+      """获取通达信概念板块数据
+
+      返回展开格式的 DataFrame，每行一个股票-板块组合：
+      [
+          {'code': '000001', 'blocks': 'AI营销', 'block_count': 3},
+          {'code': '000001', 'blocks': '一带一路', 'block_count': 3},
+          {'code': '000002', 'blocks': 'AI营销', 'block_count': 2},
+          ...
+      ]
+      """
+      blocks_file = Path(__file__).parent.parent.parent / "dictionary" / "infoharbor_block.dat"
+
+      if not blocks_file.exists():
+          return pd.DataFrame(columns=['code', 'blocks', 'block_count'])
+
+      stock_to_blocks = {}
+      with open(blocks_file, 'r', encoding='utf-8') as f:
+          for line in f:
+              line = line.strip()
+              if not line or line.startswith('#'):
+                  continue
+              parts = line.split()
+              if len(parts) < 2:
+                  continue
+              block_name = parts[0]
+              codes = parts[1].split(',') if len(parts) > 1 else []
+
+              for code_entry in codes:
+                  code = code_entry.split('#')[0].strip()
+                  if code:
+                      if code not in stock_to_blocks:
+                          stock_to_blocks[code] = set()
+                      stock_to_blocks[code].add(block_name)
+
+      rows = []
+      for code, blocks in stock_to_blocks.items():
+          for block in sorted(blocks):
+              rows.append({
+                  'code': code,
+                  'blocks': block,
+                  'block_count': len(blocks)
+              })
+
+      return pd.DataFrame(rows)

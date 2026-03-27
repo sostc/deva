@@ -1,0 +1,53 @@
+# 定时数据源配置
+# 配置类型: datasource
+# 描述: 定时推送市场行情数据
+
+metadata:
+  id: "timer_market_datasource"
+  name: "定时行情数据源"
+  description: |
+    定时推送市场行情数据，包括股票价格、成交量、涨跌幅等。
+    支持多种市场：A股、港股、美股等。
+  tags: ["行情", "定时", "数据源"]
+  category: "市场数据"
+  enabled: true
+  source: "file"
+
+parameters:
+  enabled: true
+  interval_seconds: 5.0      # 推送间隔
+  timeout: 30               # 超时时间
+  batch_size: 100           # 批次大小
+
+config:
+  source_type: "timer"      # 数据源类型: timer, file, directory, replay, custom
+
+func_code: |
+  from datetime import datetime
+  import time
+
+  def fetch():
+      """获取行情数据
+
+      Returns:
+          list: 行情数据列表，每项包含 code, price, volume, change_pct 等字段
+      """
+      # 这里是模拟数据，实际使用时替换为真实数据源
+      return [
+          {
+              "code": "000001",
+              "name": "平安银行",
+              "price": 12.50,
+              "change_pct": 1.25,
+              "volume": 50000000,
+              "timestamp": time.time()
+          },
+          {
+              "code": "600519",
+              "name": "贵州茅台",
+              "price": 1850.00,
+              "change_pct": -0.52,
+              "volume": 2000000,
+              "timestamp": time.time()
+          }
+      ]

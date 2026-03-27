@@ -1,23 +1,47 @@
 """信号流模块
 
-提供固定缓存长度的信号流实现，使用 Stream 自带 cache，并接入 deva/naja 统一 exit 流程持久化。
+提供注意力感知的信号流实现：
+1. 固定缓存长度的信号流
+2. 根据 QueryState 动态计算信号优先级
+3. 分级路由：高优先级、中优先级、低优先级
+4. 接入 deva/naja 统一 exit 流程持久化
 """
 
 import threading
 import time
 from datetime import datetime, timedelta
-from typing import List
+from typing import List, Optional, Callable
 
 from deva import NB, Stream, log, when
 from deva.naja.strategy.result_store import StrategyResult
 
 
 class SignalStream(Stream):
-    """固定缓存长度的信号流。"""
+    """注意力感知的信号流。
+
+    ================================================================================
+    单例模式说明：为什么使用单例
+    ================================================================================
+    1. 全局信号总线：SignalStream 是策略执行结果的全局信号总线，所有策略的
+       执行结果都发送到同一个信号流。如果存在多个实例，会导致信号丢失或重复。
+
+    2. 优先级语义：信号的优先级（high/medium/low）是全局语义，需要所有地方
+       看到同一个优先级划分。
+
+    3. 状态一致性：信号历史缓存、持久化状态等需要在全系统保持一致。
+
+    4. 资源管理：数据库连接（NB）是系统资源，应该全局唯一。
+
+    5. 这是流式计算系统的设计选择，不是过度工程。
+    ================================================================================
+    """
 
     _instance = None
     _shutdown_hook_registered = False
     _CACHE_MAX_AGE_SECONDS = 60 * 60 * 24 * 365 * 10
+
+    HIGH_PRIORITY_THRESHOLD = 0.7
+    LOW_PRIORITY_THRESHOLD = 0.3
 
     def __new__(cls, *args, **kwargs):
         if cls._instance is None:
@@ -47,6 +71,13 @@ class SignalStream(Stream):
         self._persist_lock = threading.RLock()
         self._closed = False
 
+        self._query_state = None
+        self._query_state_lock = threading.Lock()
+
+        self._high_priority_stream: Optional[Stream] = None
+        self._medium_priority_stream: Optional[Stream] = None
+        self._low_priority_stream: Optional[Stream] = None
+
         loaded_count = self._load_from_persistence()
         self._register_shutdown_hook()
         self._initialized = True
@@ -58,6 +89,32 @@ class SignalStream(Stream):
             return
         when('exit', source=log).then(_close_signal_stream_on_shutdown)
         cls._shutdown_hook_registered = True
+
+    def set_query_state(self, query_state):
+        """设置 QueryState 用于优先级计算"""
+        with self._query_state_lock:
+            self._query_state = query_state
+
+    def get_query_state(self):
+        """获取当前的 QueryState"""
+        with self._query_state_lock:
+            return self._query_state
+
+    def _compute_priority(self, result: StrategyResult) -> float:
+        """计算信号优先级"""
+        if isinstance(result, StrategyResult):
+            return result.compute_priority(self._query_state)
+        return 0.5
+
+    def _get_priority_level(self, result: StrategyResult) -> str:
+        """根据优先级分类信号"""
+        priority = self._compute_priority(result)
+        if priority >= self.HIGH_PRIORITY_THRESHOLD:
+            return "high"
+        elif priority >= self.LOW_PRIORITY_THRESHOLD:
+            return "medium"
+        else:
+            return "low"
 
     @staticmethod
     def _deserialize_result(data: dict) -> StrategyResult:
@@ -73,10 +130,14 @@ class SignalStream(Stream):
             process_time_ms=data.get("process_time_ms", 0),
             error=data.get("error", ""),
             metadata=data.get("metadata", {}),
+            priority=data.get("priority", 0.5),
+            attention_score=data.get("attention_score", 0.0),
+            matches_attention_focus=data.get("matches_attention_focus", False),
+            matches_held_symbol=data.get("matches_held_symbol", False),
+            tags=data.get("tags", []),
         )
 
     def _cache_key_from_result(self, result: StrategyResult) -> datetime:
-        # 确保时间戳有效，否则使用当前时间
         ts = result.ts if result.ts and result.ts > 0 else datetime.now().timestamp()
         cache_key = datetime.fromtimestamp(ts)
         while cache_key in self.cache:
@@ -104,13 +165,9 @@ class SignalStream(Stream):
         return count
 
     def update(self, result: StrategyResult, who=None):
-        """更新流数据，仅写入 Stream cache，不做实时落库。"""
-        from deva.naja.strategy.result_store import StrategyResult
-        
+        """更新流数据，添加注意力感知路由。"""
         with self._persist_lock:
-            # 确保 result 是 StrategyResult 类型
             if not isinstance(result, StrategyResult):
-                # 如果不是 StrategyResult 类型，创建一个新的 StrategyResult 对象
                 result = StrategyResult(
                     id="",
                     strategy_id="",
@@ -119,19 +176,67 @@ class SignalStream(Stream):
                     success=True,
                     output_full=result
                 )
-            
-            # 直接添加到缓存中
+
+            priority = self._compute_priority(result)
+            result.priority = priority
+
             cache_key = self._cache_key_from_result(result)
             self.cache[cache_key] = result
-            
-            # 调用父类的 _emit 方法
+
             return self._emit(result)
 
-    def get_recent(self, limit: int = 20) -> List[StrategyResult]:
-        """获取最近的信号，按时间倒序返回。"""
+    def get_recent(self, limit: int = 20, priority_level: str = None) -> List[StrategyResult]:
+        """获取最近的信号，按时间倒序返回。
+
+        Args:
+            limit: 返回数量限制
+            priority_level: 可选过滤 'high', 'medium', 'low'
+        """
         with self._persist_lock:
             cached = list(self.cache.values())
+
+            if priority_level:
+                cached = [r for r in cached if self._get_priority_level(r) == priority_level]
+
             return list(reversed(cached[-limit:]))
+
+    def get_high_priority_stream(self) -> Stream:
+        """获取高优先级信号流（priority >= 0.7）"""
+        if self._high_priority_stream is None:
+            self._high_priority_stream = self.filter(
+                lambda r: isinstance(r, StrategyResult) and r.priority >= self.HIGH_PRIORITY_THRESHOLD
+            )
+        return self._high_priority_stream
+
+    def get_medium_priority_stream(self) -> Stream:
+        """获取中优先级信号流（0.3 <= priority < 0.7）"""
+        if self._medium_priority_stream is None:
+            self._medium_priority_stream = self.filter(
+                lambda r: isinstance(r, StrategyResult) and self.LOW_PRIORITY_THRESHOLD <= r.priority < self.HIGH_PRIORITY_THRESHOLD
+            )
+        return self._medium_priority_stream
+
+    def get_low_priority_stream(self) -> Stream:
+        """获取低优先级信号流（priority < 0.3）"""
+        if self._low_priority_stream is None:
+            self._low_priority_stream = self.filter(
+                lambda r: isinstance(r, StrategyResult) and r.priority < self.LOW_PRIORITY_THRESHOLD
+            )
+        return self._low_priority_stream
+
+    def get_stream_by_priority(self, priority: str) -> Stream:
+        """根据优先级名称获取对应的流
+
+        Args:
+            priority: 'high', 'medium', 'low'
+        """
+        if priority == "high":
+            return self.get_high_priority_stream()
+        elif priority == "medium":
+            return self.get_medium_priority_stream()
+        elif priority == "low":
+            return self.get_low_priority_stream()
+        return self
 
     def persist(self):
         """将当前固定长度缓存整体持久化到数据库。"""
@@ -154,6 +259,11 @@ class SignalStream(Stream):
                         "process_time_ms": result.process_time_ms,
                         "error": result.error,
                         "metadata": result.metadata,
+                        "priority": result.priority,
+                        "attention_score": result.attention_score,
+                        "matches_attention_focus": result.matches_attention_focus,
+                        "matches_held_symbol": result.matches_held_symbol,
+                        "tags": result.tags,
                     }
                     recent_signals.append(d)
                 self.db.upsert("recentSignal", recent_signals)

@@ -59,6 +59,19 @@ class AutoTuner:
 
     监控系统状态，自动触发调优操作。
     能自动调优的自动执行，不能调优的调用 LLM。
+
+    ================================================================================
+    单例模式说明：为什么使用单例
+    ================================================================================
+    1. 全局调优决策：AutoTuner 是全局自动调优决策器，所有自动调优操作
+       都通过这个实例。如果存在多个实例，可能导致调优冲突。
+
+    2. 状态一致性：调优条件、触发状态等需要在全系统保持一致。
+
+    3. 生命周期：Tuner 的生命周期与系统一致，随系统启动和关闭。
+
+    4. 这是系统自动调优的设计选择，不是过度工程。
+    ================================================================================
     """
 
     _instance = None
@@ -138,6 +151,21 @@ class AutoTuner:
             cooldown=30,
             threshold=500,  # 500ms 处理时间阈值
             action='adjust_replay_interval'
+        )
+        self._conditions['pytorch_error_rate'] = TuneCondition(
+            cooldown=300,
+            threshold=0.3,  # 错误率超过 30%
+            action='stop_pytorch'
+        )
+        self._conditions['memory_pressure'] = TuneCondition(
+            cooldown=120,
+            threshold=90,  # 内存使用 > 90%
+            action='stop_pytorch'
+        )
+        self._conditions['upstream_inactive'] = TuneCondition(
+            cooldown=30,
+            threshold=0,
+            action='adjust_consumer_interval'
         )
 
         for name in self._conditions:
@@ -354,6 +382,167 @@ class AutoTuner:
 
     def _check_cache_hit_rate(self) -> Optional[Dict]:
         return None
+
+    def _check_pytorch_error_rate(self) -> Optional[Dict]:
+        """检查 PyTorch 错误率，超过阈值时停止 PyTorch 处理"""
+        try:
+            from deva.naja.attention.center import get_attention_orchestrator
+            orchestrator = get_attention_orchestrator()
+            stats = orchestrator.get_stats()
+
+            pytorch_stats = stats.get('pytorch', {})
+            total = pytorch_stats.get('total', 0)
+            errors = pytorch_stats.get('errors', 0)
+
+            if total < 10:
+                return None
+
+            error_rate = errors / total if total > 0 else 0
+            threshold = self._conditions['pytorch_error_rate'].threshold
+
+            if error_rate > threshold:
+                log.warning(f"[AutoTuner] PyTorch 错误率过高 ({error_rate:.1%} > {threshold:.1%})，将停止 PyTorch 处理器")
+                return {
+                    'param': 'pytorch_error_rate',
+                    'current': error_rate,
+                    'suggested': 'stop',
+                    'reason': f'PyTorch 错误率 {error_rate:.1%} 超过阈值 {threshold:.1%}',
+                    'category': 'error_spike',
+                    'action': 'stop_pytorch'
+                }
+        except Exception as e:
+            log.debug(f"[AutoTuner] PyTorch 错误率检查失败: {e}")
+        return None
+
+    def _check_memory_pressure(self) -> Optional[Dict]:
+        """检查内存压力，超过 90% 时停止 PyTorch 处理释放内存"""
+        try:
+            import psutil
+            process = psutil.Process()
+            memory_percent = process.memory_percent()
+
+            threshold = self._conditions['memory_pressure'].threshold
+
+            if memory_percent > threshold:
+                log.warning(f"[AutoTuner] 内存压力过高 ({memory_percent:.1f}% > {threshold:.1f}%)，将停止 PyTorch 处理器释放内存")
+                return {
+                    'param': 'memory_pressure',
+                    'current': memory_percent,
+                    'suggested': 'stop',
+                    'reason': f'内存使用 {memory_percent:.1f}% 超过阈值 {threshold:.1f}%',
+                    'category': 'resource_exhaustion',
+                    'action': 'stop_pytorch'
+                }
+        except Exception as e:
+            log.debug(f"[AutoTuner] 内存压力检查失败: {e}")
+        return None
+
+    def _check_upstream_inactive(self) -> Optional[Dict]:
+        """检测上游数据源/策略是否活跃，调整消费者组件间隔
+
+        当上游（数据源、策略）不活跃时，相关消费者（SignalListener、MarketObserver）
+        会进入低频模式，此时可以增大其轮询间隔以节省资源。
+        """
+        try:
+            inactive_consumers = []
+
+            listener_info = self._check_signal_listener_upstream()
+            if listener_info:
+                inactive_consumers.append(listener_info)
+
+            observer_info = self._check_market_observer_upstream()
+            if observer_info:
+                inactive_consumers.append(observer_info)
+
+            if inactive_consumers:
+                return {
+                    'param': 'upstream_inactive',
+                    'inactive_consumers': inactive_consumers,
+                    'action': 'adjust_consumer_interval',
+                    'auto_executed': True,
+                    'reason': f"检测到 {len(inactive_consumers)} 个消费者上游不活跃",
+                    'category': 'resource_conservation'
+                }
+        except Exception as e:
+            log.debug(f"[AutoTuner] 上游不活跃检查失败: {e}")
+        return None
+
+    def _check_signal_listener_upstream(self) -> Optional[Dict]:
+        """检测 SignalListener 的上游（策略）是否活跃"""
+        try:
+            from deva.naja.bandit.signal_listener import get_signal_listener
+            listener = get_signal_listener()
+
+            if not listener._running:
+                return None
+
+            from deva.naja.strategy import get_strategy_manager
+            mgr = get_strategy_manager()
+            active_count = 0
+            for entry in mgr.list_all():
+                if entry.is_processing_data(timeout=300):
+                    active_count += 1
+
+            if active_count == 0:
+                current_interval = listener._poll_interval
+                target_interval = 60.0  # 低频模式目标间隔
+                if current_interval < target_interval:
+                    return {
+                        'consumer_name': 'signal_listener',
+                        'current_interval': current_interval,
+                        'target_interval': target_interval,
+                        'reason': f'无策略处理数据 (active_count=0)'
+                    }
+        except Exception as e:
+            log.debug(f"[AutoTuner] SignalListener 上游检测失败: {e}")
+        return None
+
+    def _check_market_observer_upstream(self) -> Optional[Dict]:
+        """检测 MarketObserver 的上游（数据源）是否可用"""
+        try:
+            from deva.naja.bandit.market_observer import get_market_observer
+            observer = get_market_observer()
+
+            if not observer._running:
+                return None
+
+            if observer._current_datasource is None:
+                current_interval = observer._fetch_interval
+                target_interval = 60.0  # 低频模式目标间隔
+                if current_interval < target_interval:
+                    return {
+                        'consumer_name': 'market_observer',
+                        'current_interval': current_interval,
+                        'target_interval': target_interval,
+                        'reason': f'数据源不可用 (_current_datasource is None)'
+                    }
+        except Exception as e:
+            log.debug(f"[AutoTuner] MarketObserver 上游检测失败: {e}")
+        return None
+
+    def _adjust_consumer_intervals(self, inactive_consumers: List[Dict]):
+        """调整消费者组件的轮询间隔"""
+        for consumer in inactive_consumers:
+            try:
+                consumer_name = consumer['consumer_name']
+                current_interval = consumer['current_interval']
+                target_interval = consumer['target_interval']
+                reason = consumer['reason']
+
+                if consumer_name == 'signal_listener':
+                    from deva.naja.bandit.signal_listener import get_signal_listener
+                    listener = get_signal_listener()
+                    listener.set_poll_interval(target_interval)
+                    log.info(f"[AutoTuner] SignalListener 间隔调整: {current_interval}s → {target_interval}s ({reason})")
+
+                elif consumer_name == 'market_observer':
+                    from deva.naja.bandit.market_observer import get_market_observer
+                    observer = get_market_observer()
+                    observer.adjust_interval(target_interval, reason)
+                    log.info(f"[AutoTuner] MarketObserver 间隔调整: {current_interval}s → {target_interval}s ({reason})")
+
+            except Exception as e:
+                log.warning(f"[AutoTuner] 调整 {consumer.get('consumer_name', 'unknown')} 间隔失败: {e}")
 
     def _check_datasource_error_rate(self) -> Optional[Dict]:
         """检查数据源错误率，自动调整执行间隔
@@ -659,6 +848,9 @@ class AutoTuner:
             self._check_datasource_error_rate,
             self._check_cache_hit_rate,
             self._check_replay_processing,
+            self._check_pytorch_error_rate,
+            self._check_memory_pressure,
+            self._check_upstream_inactive,
         ]
 
         # 先收集所有检测结果
@@ -693,10 +885,60 @@ class AutoTuner:
                 self._record_event(issue, triggered_by_llm=True)
             else:
                 self._record_event(issue, triggered_by_llm=False)
+                self._execute_auto_action(issue)
 
         # 合并所有 LLM 请求，一次性调用
         if llm_issues:
             self._call_llm_for_tuning_batch(llm_issues)
+
+    def _execute_auto_action(self, issue: Dict):
+        """执行自动动作（不需要 LLM 的调优动作）"""
+        action = issue.get('action', 'adjust')
+        param = issue.get('param', 'unknown')
+
+        if action == 'adjust_replay_interval':
+            new_interval = issue.get('suggested', 1.0)
+            reason = issue.get('reason', '')
+            try:
+                from deva.naja.replay import get_replay_scheduler
+                scheduler = get_replay_scheduler()
+                if scheduler:
+                    scheduler.adjust_interval(new_interval, reason)
+                    log.info(f"[AutoTuner] 调整回放间隔: {reason}")
+                    return
+            except Exception as e:
+                log.warning(f"[AutoTuner] 调整回放间隔失败: {e}")
+
+        elif action == 'stop_pytorch':
+            reason = issue.get('reason', '')
+            try:
+                from deva.naja.attention.center import get_attention_orchestrator
+                orchestrator = get_attention_orchestrator()
+                orchestrator.stop_pytorch_processor()
+                log.info(f"[AutoTuner] 已停止 PyTorch 处理器: {reason}")
+                return
+            except Exception as e:
+                log.warning(f"[AutoTuner] 停止 PyTorch 处理器失败: {e}")
+
+        elif action == 'adjust_consumer_interval':
+            inactive_consumers = issue.get('inactive_consumers', [])
+            if inactive_consumers:
+                self._adjust_consumer_intervals(inactive_consumers)
+            return
+
+        elif action == 'adjust_datasource_interval':
+            try:
+                from deva.naja.datasource import get_datasource_manager
+                mgr = get_datasource_manager()
+                for ds_info in issue.get('datasources', []):
+                    ds_id = ds_info.get('id')
+                    if ds_id:
+                        ds = mgr.get(ds_id)
+                        if ds and ds_info.get('new_interval'):
+                            ds.update_config(interval=ds_info['new_interval'])
+                log.info(f"[AutoTuner] 调整数据源间隔完成")
+            except Exception as e:
+                log.warning(f"[AutoTuner] 调整数据源间隔失败: {e}")
 
     def _handle_issue(self, issue: Dict):
         """处理检测到的问题"""
@@ -722,6 +964,18 @@ class AutoTuner:
                     return
             except Exception as e:
                 log.warning(f"[AutoTuner] 调整回放间隔失败: {e}")
+
+        if action == 'stop_pytorch':
+            reason = issue.get('reason', '')
+            try:
+                from deva.naja.attention.center import get_attention_orchestrator
+                orchestrator = get_attention_orchestrator()
+                orchestrator.stop_pytorch_processor()
+                log.info(f"[AutoTuner] 已停止 PyTorch 处理器: {reason}")
+                self._record_event(issue, triggered_by_llm=False)
+                return
+            except Exception as e:
+                log.warning(f"[AutoTuner] 停止 PyTorch 处理器失败: {e}")
 
         if action == 'call_llm':
             self._call_llm_for_tuning(issue)
@@ -834,16 +1088,20 @@ class AutoTuner:
         ]
 
     def get_conditions_status(self) -> List[Dict]:
-        return [
-            {
+        result = []
+        for name in self._condition_states:
+            condition = self._conditions.get(name)
+            state = self._condition_states[name]
+            result.append({
                 'name': name,
                 'has_condition': name in self._conditions,
-                'trigger_count': self._condition_states[name].trigger_count,
-                'last_trigger_ts': self._condition_states[name].last_trigger_ts,
-                'action': self._conditions[name].action if name in self._conditions else ''
-            }
-            for name in self._condition_states
-        ]
+                'trigger_count': state.trigger_count,
+                'last_trigger_ts': state.last_trigger_ts,
+                'action': condition.action if condition else '',
+                'threshold': condition.threshold if condition else None,
+                'cooldown': condition.cooldown if condition else None,
+            })
+        return result
 
     def enable(self):
         self._enabled = True

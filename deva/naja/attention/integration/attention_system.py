@@ -36,7 +36,7 @@ except ImportError:
 class AttentionSystemConfig:
     """注意力系统配置"""
     global_history_window: int = 20
-    max_sectors: int = 100
+    max_sectors: int = 5000
     sector_decay_half_life: float = 300.0
     max_symbols: int = 5000
     low_interval: float = 60.0
@@ -337,18 +337,34 @@ class AttentionSystem:
             block_df = block_df.copy()
             block_df['code'] = block_df['code'].astype(str).str.zfill(6)
 
-            sector_map = dict(zip(block_df['code'].astype(str), block_df['blocks']))
+            code_to_blocks: Dict[str, List[str]] = {}
+            for _, row in block_df.iterrows():
+                code = str(row['code'])
+                block = str(row['blocks']) if pd.notna(row['blocks']) else ''
+                if block and code:
+                    if code not in code_to_blocks:
+                        code_to_blocks[code] = []
+                    if block not in code_to_blocks[code]:
+                        code_to_blocks[code].append(block)
+
+            sector_id_map: Dict[str, int] = {}
+            next_sector_id = 1
+            for blocks in code_to_blocks.values():
+                for block in blocks:
+                    if block not in sector_id_map:
+                        sector_id_map[block] = next_sector_id
+                        next_sector_id += 1
 
             sector_ids = []
             raw_codes = data[code_col].astype(str).values
             for code in raw_codes:
                 code_str = str(code)
                 code_str = code_str.replace('sh', '').replace('sz', '').replace('bj', '').zfill(6)
-                blocks_str = sector_map.get(code_str, '')
-                if not blocks_str:
+                blocks = code_to_blocks.get(code_str, [])
+                if not blocks:
                     sector_ids.append(0)
                 else:
-                    sector_ids.append(abs(hash(blocks_str)) % 100000)
+                    sector_ids.append(sector_id_map.get(blocks[0], 0))
 
             return np.array(sector_ids, dtype=int)
         except Exception as e:
@@ -356,10 +372,16 @@ class AttentionSystem:
             return np.zeros(len(data))
 
     def _get_block_dataframe(self):
-        """获取板块数据"""
+        """获取板块数据（统一从字典获取）"""
         try:
-            from deva.naja.dictionary.tongdaxin_blocks import get_dataframe
-            return get_dataframe()
+            from deva.naja.dictionary import get_dictionary_manager
+            mgr = get_dictionary_manager()
+            entry = mgr.get_by_name("通达信概念板块")
+            if entry:
+                payload = entry.get_payload()
+                if isinstance(payload, pd.DataFrame):
+                    return payload
+            return None
         except Exception:
             return None
 

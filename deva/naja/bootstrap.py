@@ -143,22 +143,28 @@ class SystemBootstrap:
             errors: Dict[str, str] = {}
 
             # 先加载字典（可能被策略/数据源引用）
+            # 优先从文件加载，NB 数据作为兜底
             try:
-                counts["dictionary"] = dict_mgr.load_from_db()
-                logger.info(f"  加载了 {counts['dictionary']} 个字典")
+                counts["dictionary"] = dict_mgr.load_prefer_files()
+                logger.info(f"  加载了 {counts['dictionary']} 个字典（优先文件）")
             except Exception as e:
                 errors["dictionary"] = str(e)
                 logger.warning(f"  字典加载失败: {e}")
 
             # 依赖字典之后再加载其他组件
+            # 优先从文件加载，NB 数据作为兜底
             for name, mgr in (
                 ("datasource", ds_mgr),
                 ("task", task_mgr),
                 ("strategy", strategy_mgr),
             ):
                 try:
-                    counts[name] = mgr.load_from_db()
-                    logger.info(f"  加载了 {counts[name]} 个{name}")
+                    if hasattr(mgr, 'load_prefer_files'):
+                        counts[name] = mgr.load_prefer_files()
+                        logger.info(f"  加载了 {counts[name]} 个{name}（优先文件）")
+                    else:
+                        counts[name] = mgr.load_from_db()
+                        logger.info(f"  加载了 {counts[name]} 个{name}")
                 except Exception as e:
                     errors[name] = str(e)
                     logger.warning(f"  {name} 加载失败: {e}")

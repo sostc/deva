@@ -1,6 +1,10 @@
 """Naja 配置管理模块
 
 提供数据源、策略、任务、字典四个类别的配置管理。
+支持两种存储方式：
+1. 文件存储（配置 + func_code）- 方便版本控制和代码审查
+2. NB 存储（运行时数据）- 性能更好
+
 配置存储在 NB('naja_config') 命名空间中。
 """
 
@@ -26,16 +30,12 @@ DEFAULT_CONFIG = {
         "total_history_count": 500,
         "default_window_size": 5,
         "default_window_interval": "10s",
-        # 策略结果持久化模式:
-        # - "summary": 持久化精简摘要（默认）
-        # - "errors_only": 仅持久化失败结果
-        # - "none": 不持久化结果（仅内存与流）
         "persist_mode": "summary",
     },
     "attention": {
         "enabled": True,
         "global_history_window": 20,
-        "max_sectors": 100,
+        "max_sectors": 5000,
         "sector_decay_half_life": 300.0,
         "max_symbols": 5000,
         "low_interval": 60.0,
@@ -51,15 +51,14 @@ DEFAULT_CONFIG = {
     },
     "noise_filter": {
         "enabled": True,
-        "min_amount": 100000,          # 降低到10万，避免过度过滤
-        "min_volume": 10000,           # 降低到1万股
-        "min_price": 0.1,              # 降低到0.1元
-        "max_price": 5000.0,           # 提高到5000元
+        "min_amount": 100000,
+        "min_volume": 10000,
+        "min_price": 0.1,
+        "max_price": 5000.0,
         "max_price_change_pct": 20.0,
-        # 时间跨度相关配置
-        "normal_time_interval": 5.0,           # 正常时间间隔（秒）
-        "max_time_gap": 300.0,                 # 最大允许时间间隔（5分钟）
-        "time_gap_adjustment": True,           # 是否根据时间跨度调整阈值
+        "normal_time_interval": 5.0,
+        "max_time_gap": 300.0,
+        "time_gap_adjustment": True,
         "flat_threshold": 0.5,
         "flat_consecutive_frames": 10,
         "wash_trading_volume_ratio": 3.0,
@@ -102,39 +101,6 @@ DEFAULT_CONFIG = {
         "rate_window_seconds": 300,
         "max_batch_keep": 80,
         "narrative_enabled": True,
-        "narrative_recent_window_seconds": 6 * 3600,
-        "narrative_prev_window_seconds": 6 * 3600,
-        "narrative_history_window_seconds": 72 * 3600,
-        "narrative_graph_window_seconds": 6 * 3600,
-        "narrative_count_scale": 8.0,
-        "narrative_peak_score": 0.8,
-        "narrative_spread_score": 0.55,
-        "narrative_fade_score": 0.25,
-        "narrative_peak_count": 8,
-        "narrative_spread_count": 4,
-        "narrative_fade_count": 1,
-        "narrative_trend_threshold": 0.5,
-        "narrative_attention_spike_threshold": 0.75,
-        "narrative_spike_delta": 0.15,
-        "narrative_emit_cooldown_seconds": 120,
-        "narrative_graph_same_event_weight": 1.0,
-        "narrative_graph_temporal_weight": 0.3,
-        "semantic_cold_start_enabled": True,
-        "semantic_seed_terms": ["AI", "算力"],
-        "semantic_default_lambda": 0.005,
-        "semantic_industry_lambdas": {
-            "电力": 0.002,
-            "AI": 0.01,
-        },
-        "semantic_golden_sources": [
-            "交易所公告",
-            "上市公司官网",
-            "行业协会",
-            "头部媒体",
-            "核心供应链公告",
-        ],
-        "semantic_new_term_min_mentions": 3,
-        "semantic_new_term_min_sources": 2,
     },
     "insight": {
         "auto_save_enabled": True,
@@ -195,40 +161,22 @@ DEFAULT_CONFIG = {
 
 
 def get_config(category: str = None, key: str = None, default: Any = None) -> Any:
-    """获取配置值
-    
-    Args:
-        category: 配置类别 (datasource/strategy/task/dictionary)
-        key: 配置键名
-        default: 默认值
-    
-    Returns:
-        配置值
-    """
+    """获取配置值"""
     db = NB(NAJA_CONFIG_TABLE)
-    
+
     if category is None:
         return dict(db.items())
-    
+
     category_config = db.get(category, {})
-    
+
     if key is None:
         return {**DEFAULT_CONFIG.get(category, {}), **category_config}
-    
+
     return category_config.get(key, DEFAULT_CONFIG.get(category, {}).get(key, default))
 
 
 def set_config(category: str, key: str, value: Any) -> bool:
-    """设置配置值
-    
-    Args:
-        category: 配置类别
-        key: 配置键名
-        value: 配置值
-    
-    Returns:
-        是否成功
-    """
+    """设置配置值"""
     try:
         db = NB(NAJA_CONFIG_TABLE)
         category_config = db.get(category, {})
@@ -241,15 +189,7 @@ def set_config(category: str, key: str, value: Any) -> bool:
 
 
 def set_category_config(category: str, config: Dict[str, Any]) -> bool:
-    """设置整个类别的配置
-    
-    Args:
-        category: 配置类别
-        config: 配置字典
-    
-    Returns:
-        是否成功
-    """
+    """设置整个类别的配置"""
     try:
         db = NB(NAJA_CONFIG_TABLE)
         db[category] = config
@@ -282,13 +222,7 @@ def get_strategy_config() -> Dict[str, Any]:
 
 
 def get_strategy_persist_mode() -> str:
-    """获取策略结果持久化模式。
-
-    返回值:
-        "summary"     - 持久化精简摘要（默认）
-        "errors_only" - 仅持久化失败结果
-        "none"        - 不持久化结果
-    """
+    """获取策略结果持久化模式。"""
     mode = get_config("strategy", "persist_mode", "summary")
     mode = str(mode or "summary").strip().lower()
     if mode in {"summary", "errors_only", "none"}:
@@ -337,14 +271,7 @@ def get_strategy_total_history_count() -> int:
 
 
 def reset_to_default(category: str = None) -> bool:
-    """重置配置为默认值
-    
-    Args:
-        category: 配置类别，为 None 则重置所有
-    
-    Returns:
-        是否成功
-    """
+    """重置配置为默认值"""
     try:
         db = NB(NAJA_CONFIG_TABLE)
         if category:
@@ -384,14 +311,99 @@ def get_sector_noise_config() -> Dict[str, Any]:
 
 
 def ensure_auth_secret() -> str:
-    """确保认证密钥存在，不存在则生成
-    
-    Returns:
-        认证密钥
-    """
+    """确保认证密钥存在，不存在则生成"""
     import secrets
     secret = get_config("auth", "secret", "")
     if not secret:
         secret = secrets.token_hex(32)
         set_config("auth", "secret", secret)
     return secret
+
+
+from .file_config import (
+    get_file_config_manager,
+    get_dict_file_config_manager,
+    get_task_file_config_manager,
+    get_strategy_file_config_manager,
+    get_datasource_file_config_manager,
+    ConfigFileItem,
+    BaseConfigMetadata,
+    TaskConfigMetadata,
+    StrategyConfigMetadata,
+    DatasourceConfigMetadata,
+    TASK_CONFIG_DIR,
+    STRATEGY_CONFIG_DIR,
+    DATASOURCE_CONFIG_DIR,
+)
+
+from .migration import (
+    migrate_tasks_to_file,
+    migrate_strategies_to_file,
+    migrate_datasources_to_file,
+    migrate_all_to_file,
+    get_migration_status,
+    create_example_files as create_migration_examples,
+)
+
+from .ui import (
+    ConfigSchema,
+    ConfigEditorField,
+    build_editor_form,
+    parse_editor_form,
+    render_config_editor,
+    render_config_list,
+)
+
+
+__all__ = [
+    'NAJA_CONFIG_TABLE',
+    'DEFAULT_CONFIG',
+    'get_config',
+    'set_config',
+    'set_category_config',
+    'get_datasource_config',
+    'get_enabled_datasource_types',
+    'get_enabled_timer_execution_modes',
+    'get_strategy_config',
+    'get_strategy_persist_mode',
+    'get_task_config',
+    'get_dictionary_config',
+    'get_memory_config',
+    'get_insight_config',
+    'get_radar_config',
+    'get_llm_config',
+    'get_strategy_single_history_count',
+    'get_strategy_total_history_count',
+    'reset_to_default',
+    'get_auth_config',
+    'get_performance_config',
+    'get_attention_config',
+    'get_noise_filter_config',
+    'get_sector_noise_config',
+    'ensure_auth_secret',
+    'get_file_config_manager',
+    'get_dict_file_config_manager',
+    'get_task_file_config_manager',
+    'get_strategy_file_config_manager',
+    'get_datasource_file_config_manager',
+    'ConfigFileItem',
+    'BaseConfigMetadata',
+    'TaskConfigMetadata',
+    'StrategyConfigMetadata',
+    'DatasourceConfigMetadata',
+    'TASK_CONFIG_DIR',
+    'STRATEGY_CONFIG_DIR',
+    'DATASOURCE_CONFIG_DIR',
+    'migrate_tasks_to_file',
+    'migrate_strategies_to_file',
+    'migrate_datasources_to_file',
+    'migrate_all_to_file',
+    'get_migration_status',
+    'create_migration_examples',
+    'ConfigSchema',
+    'ConfigEditorField',
+    'build_editor_form',
+    'parse_editor_form',
+    'render_config_editor',
+    'render_config_list',
+]

@@ -1,0 +1,171 @@
+config:
+  config: {}
+  source_type: timer
+func_code: "\"\"\"\n异步实时行情数据源 - 分类过滤版\n支持按类别获取：个股、板块、指数、基金等\n\"\"\"\n\nimport asyncio\n\
+  import aiohttp\nimport pandas as pd\nimport re\nfrom datetime import datetime\n\
+  from typing import List, Dict, Set, Optional\n\n# 全局 session\n_session = None\n\n\
+  # ============ 股票分类规则 ============\n\n# 1. 个股分类（按板块）\nSTOCK_CATEGORIES = {\n   \
+  \ \"沪市主板\": {\n        \"codes\": [f\"sh{i}\" for i in range(600000, 610000)] +\
+  \ \n                 [f\"sh{i}\" for i in range(601000, 602000)] +\n           \
+  \      [f\"sh{i}\" for i in range(603000, 604000)] +\n                 [f\"sh{i}\"\
+  \ for i in range(605000, 606000)],\n        \"patterns\": [r\"^sh60[0-5]\\d{3}$\"\
+  ],\n    },\n    \"科创板\": {\n        \"codes\": [f\"sh{i}\" for i in range(688000,\
+  \ 689999)],\n        \"patterns\": [r\"^sh688\\d{3}$\"],\n    },\n    \"深市主板\":\
+  \ {\n        \"codes\": [f\"sz{i:06d}\" for i in range(0, 1000)],\n        \"patterns\"\
+  : [r\"^sz000\\d{3}$\"],\n    },\n    \"中小板\": {\n        \"codes\": [f\"sz{i:06d}\"\
+  \ for i in range(2000, 3000)],\n        \"patterns\": [r\"^sz002\\d{3}$\"],\n  \
+  \  },\n    \"创业板\": {\n        \"codes\": [f\"sz{i:06d}\" for i in range(300000,\
+  \ 302000)],\n        \"patterns\": [r\"^sz30\\d{4}$\"],\n    },\n    \"北交所\": {\n\
+  \        \"codes\": [f\"bj{i}\" for i in range(430000, 440000)] +\n            \
+  \     [f\"bj{i}\" for i in range(830000, 840000)] +\n                 [f\"bj{i}\"\
+  \ for i in range(870000, 880000)],\n        \"patterns\": [r\"^bj[48]\\d{5}$\"],\n\
+  \    },\n}\n\n# 2. 排除规则（噪音过滤）\nEXCLUSION_RULES = {\n    # 僵尸票：成交量过小或价格异常\n    \"\
+  僵尸票\": {\n        \"volume_threshold\": 100,  # 成交量小于100手\n        \"price_threshold\"\
+  : 0.5,   # 价格低于0.5元\n    },\n    # ST/退市风险\n    \"风险股\": {\n        \"name_patterns\"\
+  : [\"ST\", \"*ST\", \"退\", \"退市\"],\n    },\n    # 非个股（指数、基金等）\n    \"非个股\": {\n\
+  \        \"code_patterns\": [\n            r\"^sh000\",  # 上证指数\n            r\"\
+  ^sh880\",  # 行业指数\n            r\"^sz399\",  # 深证指数\n            r\"^sh51\",   #\
+  \ 上交所ETF\n            r\"^sh50\",   # 封闭式基金\n            r\"^sh501\",  # LOF基金\n\
+  \            r\"^sh502\",  # LOF基金\n            r\"^sh159\",  # 深交所ETF\n       \
+  \     r\"^sz159\",  # 深交所ETF\n            r\"^sz16\",   # LOF基金\n            r\"\
+  ^sz184\",  # 封闭式基金\n            r\"^sz15\",   # 分级基金\n        ],\n        \"name_keywords\"\
+  : [\"指数\", \"ETF\", \"LOF\", \"基金\", \"债券\", \"国债\", \"企债\"],\n    },\n}\n\n# 3.\
+  \ 行业板块（按代码特征）\nINDUSTRY_SECTORS = {\n    \"银行\": [r\"^sh6000[0-9]{2}$\", r\"^sz00000[0-9]$\"\
+  ],  # 6000xx, 00000x\n    \"券商\": [r\"^sh6008[0-9]{2}$\", r\"^sh6016[0-9]{2}$\"\
+  ],\n    \"保险\": [r\"^sh6013[0-9]{2}$\", r\"^sh6016[0-9]{2}$\"],\n    \"地产\": [r\"\
+  ^sh6006[0-9]{2}$\", r\"^sz0000[0-9]{2}$\"],\n    \"医药\": [r\"^sh600[0-9]{3}$\"],\
+  \  # 简化示例\n    \"科技\": [r\"^sh688[0-9]{3}$\", r\"^sz300[0-9]{3}$\"],  # 科创板、创业板\n\
+  }\n\n\nclass StockClassifier:\n    \"\"\"股票分类器\"\"\"\n    \n    @staticmethod\n\
+  \    def get_all_codes() -> List[str]:\n        \"\"\"获取所有可能的股票代码\"\"\"\n      \
+  \  codes = []\n        for category in STOCK_CATEGORIES.values():\n            codes.extend(category[\"\
+  codes\"])\n        return list(set(codes))  # 去重\n    \n    @staticmethod\n    def\
+  \ classify_by_code(code: str) -> Dict[str, bool]:\n        \"\"\"根据代码分类\"\"\"\n\
+  \        result = {}\n        for category_name, rules in STOCK_CATEGORIES.items():\n\
+  \            is_match = any(re.match(p, code) for p in rules[\"patterns\"])\n  \
+  \          result[category_name] = is_match\n        return result\n    \n    @staticmethod\n\
+  \    def is_individual_stock(code: str, name: str = \"\") -> bool:\n        \"\"\
+  \"判断是否是个股（非指数/基金）\"\"\"\n        # 检查代码规则\n        for pattern in EXCLUSION_RULES[\"\
+  非个股\"][\"code_patterns\"]:\n            if re.match(pattern, code):\n          \
+  \      return False\n        # 检查名称关键词\n        for keyword in EXCLUSION_RULES[\"\
+  非个股\"][\"name_keywords\"]:\n            if keyword in name:\n                return\
+  \ False\n        return True\n    \n    @staticmethod\n    def is_risky_stock(name:\
+  \ str) -> bool:\n        \"\"\"判断是否是风险股（ST/退市）\"\"\"\n        for pattern in EXCLUSION_RULES[\"\
+  风险股\"][\"name_patterns\"]:\n            if pattern in name:\n                return\
+  \ True\n        return False\n    \n    @staticmethod\n    def is_zombie_stock(volume:\
+  \ int, price: float) -> bool:\n        \"\"\"判断是否是僵尸票\"\"\"\n        rules = EXCLUSION_RULES[\"\
+  僵尸票\"]\n        if volume < rules[\"volume_threshold\"]:\n            return True\n\
+  \        if price < rules[\"price_threshold\"]:\n            return True\n     \
+  \   return False\n    \n    @staticmethod\n    def filter_by_category(df: pd.DataFrame,\
+  \ categories: List[str]) -> pd.DataFrame:\n        \"\"\"按类别过滤\"\"\"\n        if\
+  \ not categories or \"全部\" in categories:\n            return df\n        \n   \
+  \     mask = pd.Series(False, index=df.index)\n        for category in categories:\n\
+  \            if category in STOCK_CATEGORIES:\n                for pattern in STOCK_CATEGORIES[category][\"\
+  patterns\"]:\n                    mask |= df.index.str.match(pattern, na=False)\n\
+  \        \n        return df[mask]\n    \n    @staticmethod\n    def apply_all_filters(df:\
+  \ pd.DataFrame, \n                         exclude_zombie: bool = True,\n      \
+  \                   exclude_risky: bool = True,\n                         exclude_non_stock:\
+  \ bool = True) -> pd.DataFrame:\n        \"\"\"应用所有过滤规则\"\"\"\n        \n      \
+  \  # 1. 过滤非个股\n        if exclude_non_stock:\n            df = df[df.apply(lambda\
+  \ row: StockClassifier.is_individual_stock(\n                row.name, row.get(\"\
+  name\", \"\")\n            ), axis=1)]\n        \n        # 2. 过滤风险股\n        if\
+  \ exclude_risky and \"name\" in df.columns:\n            df = df[~df[\"name\"].apply(StockClassifier.is_risky_stock)]\n\
+  \        \n        # 3. 过滤僵尸票\n        if exclude_zombie:\n            df = df[~df.apply(lambda\
+  \ row: StockClassifier.is_zombie_stock(\n                row.get(\"volume\", 0),\
+  \ row.get(\"now\", 0)\n            ), axis=1)]\n        \n        # 4. 过滤价格异常\n\
+  \        df = df[(df[\"close\"] > 0) & (df[\"now\"] > 0)]\n        \n        return\
+  \ df\n\n\n# ============ 异步数据获取 ============\n\nasync def get_session():\n    \"\
+  \"\"获取全局 aiohttp session\"\"\"\n    global _session\n    if _session is None or\
+  \ _session.closed:\n        _session = aiohttp.ClientSession(\n            connector=aiohttp.TCPConnector(limit=50,\
+  \ limit_per_host=20),\n            timeout=aiohttp.ClientTimeout(total=30),\n  \
+  \      )\n    return _session\n\n\ndef parse_sina_response(text: str) -> Dict:\n\
+  \    \"\"\"解析新浪返回的数据\"\"\"\n    result = {}\n    for line in text.strip().split(\"\
+  \\n\"):\n        if not line or '=\"' not in line:\n            continue\n     \
+  \   try:\n            prefix, data = line.split('=\"')\n            code = prefix.split(\"\
+  _\")[-1]\n            data = data.rstrip('\"')\n            if not data:\n     \
+  \           continue\n            fields = data.split(\",\")\n            if len(fields)\
+  \ < 33:\n                continue\n            result[code] = {\n              \
+  \  \"name\": fields[0],\n                \"open\": float(fields[1]),\n         \
+  \       \"close\": float(fields[2]),\n                \"now\": float(fields[3]),\n\
+  \                \"high\": float(fields[4]),\n                \"low\": float(fields[5]),\n\
+  \                \"volume\": int(fields[8]),\n            }\n        except Exception:\n\
+  \            continue\n    return result\n\n\nasync def fetch_batch(codes: List[str])\
+  \ -> Dict:\n    \"\"\"异步获取一批股票数据\"\"\"\n    session = await get_session()\n    codes_str\
+  \ = \",\".join(codes)\n    url = f\"https://hq.sinajs.cn/list={codes_str}\"\n  \
+  \  headers = {\n        \"Referer\": \"https://finance.sina.com.cn\",\n        \"\
+  User-Agent\": \"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36\"\n\
+  \    }\n    try:\n        async with session.get(url, headers=headers) as resp:\n\
+  \            if resp.status != 200:\n                return {}\n            text\
+  \ = await resp.text()\n            return parse_sina_response(text)\n    except\
+  \ Exception:\n        return {}\n\n\nasync def fetch_all_stocks_async(categories:\
+  \ Optional[List[str]] = None) -> Optional[pd.DataFrame]:\n    \"\"\"\n    异步获取股票数据\n\
+  \    \n    Args:\n        categories: 类别列表，如 [\"沪市主板\", \"创业板\"] 或 [\"全部\"]\n  \
+  \  \"\"\"\n    classifier = StockClassifier()\n    \n    # 获取代码列表\n    if categories\
+  \ and \"全部\" not in categories:\n        codes = []\n        for cat in categories:\n\
+  \            if cat in STOCK_CATEGORIES:\n                codes.extend(STOCK_CATEGORIES[cat][\"\
+  codes\"])\n        codes = list(set(codes))\n    else:\n        codes = classifier.get_all_codes()\n\
+  \    \n    # 分批获取\n    batch_size = 800\n    all_data = {}\n    \n    for i in range(0,\
+  \ len(codes), batch_size):\n        batch = codes[i:i + batch_size]\n        batch_data\
+  \ = await fetch_batch(batch)\n        all_data.update(batch_data)\n    \n    if\
+  \ not all_data:\n        return None\n    \n    df = pd.DataFrame(all_data).T\n\
+  \    return df\n\n\n# ============ 主接口 ============\n\nasync def gen_quant_async(\n\
+  \    categories: Optional[List[str]] = None,\n    exclude_zombie: bool = True,\n\
+  \    exclude_risky: bool = True,\n    exclude_non_stock: bool = True\n) -> Optional[pd.DataFrame]:\n\
+  \    \"\"\"\n    获取并处理股票数据\n    \n    Args:\n        categories: 类别列表，如 [\"沪市主板\"\
+  , \"创业板\", \"科创板\"]\n                   传入 [\"全部\"] 或 None 获取所有类别\n        exclude_zombie:\
+  \ 是否排除僵尸票\n        exclude_risky: 是否排除风险股(ST/退市)\n        exclude_non_stock: 是否排除非个股(指数/基金)\n\
+  \    \"\"\"\n    # 1. 获取原始数据\n    df = await fetch_all_stocks_async(categories)\n\
+  \    if df is None or df.empty:\n        return None\n    \n    # 2. 应用过滤\n    classifier\
+  \ = StockClassifier()\n    df = classifier.apply_all_filters(\n        df, \n  \
+  \      exclude_zombie=exclude_zombie,\n        exclude_risky=exclude_risky,\n  \
+  \      exclude_non_stock=exclude_non_stock\n    )\n    \n    if df.empty:\n    \
+  \    return None\n    \n    # 3. 计算涨跌幅\n    df[\"p_change\"] = (df[\"now\"] - df[\"\
+  close\"]) / df[\"close\"]\n    df[\"code\"] = df.index\n    \n    return df\n\n\n\
+  def is_tradedate(dt):\n    from deva.naja.common.tradetime import is_tradedate as\
+  \ _is_tradedate\n    return _is_tradedate(dt)\n\n\ndef is_tradetime(dt):\n    from\
+  \ deva.naja.common.tradetime import is_tradetime as _is_tradetime\n    return _is_tradetime(dt)\n\
+  \n\nasync def get_realtime_quant_async() -> Optional[pd.DataFrame]:\n    \"\"\"\
+  获取实盘实时行情（默认获取全部个股，排除噪音）\"\"\"\n    now = datetime.now()\n    if is_tradedate(now)\
+  \ and is_tradetime(now):\n        # 默认：获取全部类别，排除僵尸票、风险股、非个股\n        return await\
+  \ gen_quant_async(\n            categories=[\"全部\"],\n            exclude_zombie=True,\n\
+  \            exclude_risky=True,\n            exclude_non_stock=True\n        )\n\
+  \    return None\n\n\nasync def fetch_data_async() -> Optional[pd.DataFrame]:\n\
+  \    \"\"\"异步入口\"\"\"\n    try:\n        return await get_realtime_quant_async()\n\
+  \    except Exception as e:\n        print(f\"[StockDataSource] 错误: {e}\")\n   \
+  \     return None\n\n\ndef fetch_data():\n    \"\"\"同步入口（数据源调用）\"\"\"\n    try:\n\
+  \        try:\n            loop = asyncio.get_running_loop()\n            import\
+  \ concurrent.futures\n            with concurrent.futures.ThreadPoolExecutor(max_workers=1)\
+  \ as executor:\n                future = executor.submit(asyncio.run, fetch_data_async())\n\
+  \                return future.result(timeout=30)\n        except RuntimeError:\n\
+  \            loop = asyncio.new_event_loop()\n            asyncio.set_event_loop(loop)\n\
+  \            try:\n                return loop.run_until_complete(fetch_data_async())\n\
+  \            finally:\n                loop.close()\n    except Exception as e:\n\
+  \        print(f\"[StockDataSource] fetch_data 错误: {e}\")\n        return None\n\
+  \ndef fetch_by_category(categories: List[str]) -> Optional[pd.DataFrame]:\n    \"\
+  \"\"\n    按类别获取股票\n    \n    示例:\n        fetch_by_category([\"沪市主板\", \"科创板\"])\
+  \  # 只获取沪市\n        fetch_by_category([\"创业板\"])              # 只获取创业板\n       \
+  \ fetch_by_category([\"全部\"])                # 获取全部\n    \"\"\"\n    try:\n    \
+  \    loop = asyncio.new_event_loop()\n        asyncio.set_event_loop(loop)\n   \
+  \     try:\n            return loop.run_until_complete(gen_quant_async(\n      \
+  \          categories=categories,\n                exclude_zombie=True,\n      \
+  \          exclude_risky=True,\n                exclude_non_stock=True\n       \
+  \     ))\n        finally:\n            loop.close()\n    except Exception as e:\n\
+  \        print(f\"[StockDataSource] fetch_by_category 错误: {e}\")\n        return\
+  \ None\n"
+metadata:
+  category: ''
+  created_at: 1772294960.659629
+  description: 盘中实时行情(5秒)
+  enabled: true
+  enabled_types: []
+  func_code_file: ''
+  id: e626eecd0b86
+  interval_seconds: 5.0
+  name: realtime_tick_5s
+  source: file
+  source_type: timer
+  tags: []
+  updated_at: 1774627416.0625339
+parameters:
+  enabled: true
+  interval_seconds: 5.0
+  timeout: 30

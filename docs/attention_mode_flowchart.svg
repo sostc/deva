@@ -1,0 +1,192 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 900">
+  <defs>
+    <style>
+      .title { font-family: Arial, sans-serif; font-size: 28px; font-weight: bold; fill: #1a1a2e; }
+      .subtitle { font-family: Arial, sans-serif; font-size: 14px; fill: #666; }
+      .box { rx: 8; ry: 8; }
+      .normal-box { fill: #e3f2fd; stroke: #1976d2; stroke-width: 2; }
+      .lab-box { fill: #fce4ec; stroke: #c2185b; stroke-width: 2; }
+      .common-box { fill: #f5f5f5; stroke: #757575; stroke-width: 2; }
+      .mode-box { fill: #fff9c4; stroke: #f9a825; stroke-width: 3; }
+      .arrow { fill: none; stroke-width: 2; }
+      .normal-arrow { stroke: #1976d2; }
+      .lab-arrow { stroke: #c2185b; }
+      .common-arrow { stroke: #757575; }
+      .label { font-family: Arial, sans-serif; font-size: 12px; }
+      .normal-label { fill: #1976d2; }
+      .lab-label { fill: #c2185b; }
+      .mode-label { fill: #f57f17; font-weight: bold; }
+      .component { font-family: 'Courier New', monospace; font-size: 11px; fill: #333; }
+      .note { font-family: Arial, sans-serif; font-size: 11px; fill: #666; font-style: italic; }
+    </style>
+  </defs>
+
+  <!-- Background -->
+  <rect width="1200" height="900" fill="white"/>
+
+  <!-- Title -->
+  <text x="600" y="40" text-anchor="middle" class="title">注意力系统 - 交易模式 vs 实验模式 数据流程</text>
+  <text x="600" y="65" text-anchor="middle" class="subtitle">NAJA Attention System Mode Architecture</text>
+
+  <!-- ==================== MODE MANAGER (Center) ==================== -->
+  <rect x="480" y="100" width="240" height="80" class="box mode-box"/>
+  <text x="600" y="130" text-anchor="middle" class="mode-label">AttentionModeManager</text>
+  <text x="600" y="150" text-anchor="middle" class="label" fill="#666">单例模式 | 确保互斥</text>
+  <text x="600" y="168" text-anchor="middle" class="label" fill="#666">MODE_NORMAL ↔ MODE_LAB</text>
+
+  <!-- Mode Indicators -->
+  <rect x="490" y="190" width="100" height="30" class="box normal-box"/>
+  <text x="540" y="210" text-anchor="middle" class="label normal-label">正常交易</text>
+
+  <rect x="610" y="190" width="100" height="30" class="box lab-box"/>
+  <text x="660" y="210" text-anchor="middle" class="label lab-label">实验模式</text>
+
+  <!-- ==================== LEFT SIDE: NORMAL TRADING MODE ==================== -->
+  <!-- Section Title -->
+  <text x="200" y="270" text-anchor="middle" class="subtitle" font-weight="bold" fill="#1976d2">【正常交易模式】Normal Trading Mode</text>
+
+  <!-- Sina Data Source -->
+  <rect x="50" y="300" width="200" height="80" class="box normal-box"/>
+  <text x="150" y="325" text-anchor="middle" class="component">Sina Finance API</text>
+  <text x="150" y="345" text-anchor="middle" class="label normal-label">实时行情数据</text>
+  <text x="150" y="365" text-anchor="middle" class="note">股票、板块、涨跌幅等</text>
+
+  <!-- Arrow: Sina -> RealtimeDataFetcher -->
+  <path d="M 250 340 L 280 340" class="arrow normal-arrow" marker-end="url(#arrowhead-normal)"/>
+  <text x="265" y="330" text-anchor="middle" class="label normal-label">HTTP</text>
+
+  <!-- RealtimeDataFetcher -->
+  <rect x="280" y="300" width="200" height="80" class="box normal-box"/>
+  <text x="380" y="325" text-anchor="middle" class="component">RealtimeDataFetcher</text>
+  <text x="380" y="345" text-anchor="middle" class="label normal-label">注意力系统内置</text>
+  <text x="380" y="365" text-anchor="middle" class="note">HIGH=1s | MEDIUM=10s | LOW=60s</text>
+
+  <!-- Arrow: RealtimeDataFetcher -> AttentionSystem -->
+  <path d="M 480 340 L 510 340" class="arrow normal-arrow" marker-end="url(#arrowhead-normal)"/>
+  <text x="495" y="330" text-anchor="middle" class="label normal-label">push</text>
+
+  <!-- ==================== RIGHT SIDE: LAB/REPLAY MODE ==================== -->
+  <!-- Section Title -->
+  <text x="900" y="270" text-anchor="middle" class="subtitle" font-weight="bold" fill="#c2185b">【实验/回放模式】Lab &amp; Replay Mode</text>
+
+  <!-- NB Database -->
+  <rect x="750" y="300" width="200" height="80" class="box lab-box"/>
+  <text x="850" y="325" text-anchor="middle" class="component">NB Database</text>
+  <text x="850" y="345" text-anchor="middle" class="label lab-label">历史行情数据</text>
+  <text x="850" y="365" text-anchor="middle" class="note">quant_snapshot_5min_window</text>
+
+  <!-- Arrow: NB -> ReplayScheduler -->
+  <path d="M 950 340 L 980 340" class="arrow lab-arrow" marker-end="url(#arrowhead-lab)"/>
+  <text x="965" y="330" text-anchor="middle" class="label lab-label">query</text>
+
+  <!-- ReplayScheduler -->
+  <rect x="980" y="300" width="200" height="80" class="box lab-box"/>
+  <text x="1080" y="325" text-anchor="middle" class="component">ReplayScheduler</text>
+  <text x="1080" y="345" text-anchor="middle" class="label lab-label">回放调度器 | 单例</text>
+  <text x="1080" y="365" text-anchor="middle" class="note">按时间顺序回放历史数据</text>
+
+  <!-- Arrow: ReplayScheduler -> AttentionSystem -->
+  <path d="M 1080 380 L 1080 420 L 510 420 L 510 390" class="arrow lab-arrow" marker-end="url(#arrowhead-lab)"/>
+  <text x="1090" y="400" text-anchor="middle" class="label lab-label">push</text>
+  <text x="800" y="415" text-anchor="middle" class="note">(跨模块)</text>
+
+  <!-- ==================== BOTTOM: SHARED Attention System ==================== -->
+  <!-- AttentionSystem -->
+  <rect x="300" y="420" width="420" height="100" class="box common-box"/>
+  <text x="510" y="450" text-anchor="middle" class="component">AttentionSystem + AttentionOrchestrator</text>
+  <text x="510" y="470" text-anchor="middle" class="label">├── process_data() / process_datasource_data()</text>
+  <text x="510" y="488" text-anchor="middle" class="label">├── _update_attention() → 计算注意力分数</text>
+  <text x="510" y="506" text-anchor="middle" class="label">└── _dispatch_to_strategies() → 分发到策略</text>
+
+  <!-- Arrow: AttentionSystem -> Intelligence/River Engine -->
+  <path d="M 510 520 L 510 550" class="arrow common-arrow" marker-end="url(#arrowhead-common)"/>
+
+  <!-- Intelligence/River Engine -->
+  <rect x="360" y="550" width="300" height="70" class="box common-box"/>
+  <text x="510" y="575" text-anchor="middle" class="component">DualEngineCoordinator</text>
+  <text x="510" y="595" text-anchor="middle" class="label">RiverEngine + PyTorchEngine</text>
+  <text x="510" y="612" text-anchor="middle" class="note">异常检测 + 模式识别</text>
+
+  <!-- Arrow: Intelligence -> Output -->
+  <path d="M 510 620 L 510 650" class="arrow common-arrow" marker-end="url(#arrowhead-common)"/>
+
+  <!-- Output: Signals -->
+  <rect x="410" y="650" width="200" height="50" class="box common-box"/>
+  <text x="510" y="675" text-anchor="middle" class="component">Signals → 策略执行</text>
+
+  <!-- ==================== CONNECTIONS TO MODE MANAGER ==================== -->
+  <!-- Mode Manager -> RealtimeDataFetcher (stop when lab mode) -->
+  <path d="M 580 180 L 380 180 L 380 300" class="arrow lab-arrow" stroke-dasharray="5,3" marker-end="url(#arrowhead-lab)"/>
+  <text x="480" y="175" text-anchor="middle" class="lab-label" font-size="10">stop()</text>
+
+  <!-- Mode Manager -> ReplayScheduler (informational) -->
+  <path d="M 620 180 L 1080 180 L 1080 300" class="arrow lab-arrow" stroke-dasharray="5,3" marker-end="url(#arrowhead-lab)"/>
+  <text x="850" y="175" text-anchor="middle" class="lab-label" font-size="10">enter_lab_mode()</text>
+
+  <!-- ==================== TRADING CLOCK CHECK ==================== -->
+  <!-- Trading Clock -->
+  <rect x="50" y="450" width="140" height="50" class="box common-box"/>
+  <text x="120" y="475" text-anchor="middle" class="component">TradingClock</text>
+  <text x="120" y="492" text-anchor="middle" class="note">交易时间判断</text>
+
+  <!-- Arrow: TradingClock -> ModeManager -->
+  <path d="M 190 475 L 480 140" class="arrow common-arrow" stroke-dasharray="3,3"/>
+  <text x="300" y="300" text-anchor="middle" class="note">is_trading_time()</text>
+
+  <!-- Arrow: TradingClock -> RealtimeDataFetcher -->
+  <path d="M 190 475 L 280 400 L 280 380" class="arrow common-arrow"/>
+  <text x="220" y="430" text-anchor="middle" class="note">phase_change</text>
+
+  <!-- ==================== LAB MODE STARTUP CHECK ==================== -->
+  <!-- Check: is_trading_time? -->
+  <rect x="750" y="450" width="180" height="60" class="box lab-box"/>
+  <text x="840" y="475" text-anchor="middle" class="component">_init_lab_mode()</text>
+  <text x="840" y="492" text-anchor="middle" class="lab-label">is_trading_time() ?</text>
+  <text x="840" y="505" text-anchor="middle" class="note">交易时间拒绝启动</text>
+
+  <!-- Arrow: Lab Check -> ReplayScheduler -->
+  <path d="M 840 510 L 840 520 L 1080 520 L 1080 380" class="arrow lab-arrow"/>
+  <text x="960" y="535" text-anchor="middle" class="lab-label">YES → 启动</text>
+
+  <!-- Note: Reject during trading -->
+  <text x="840" y="550" text-anchor="middle" class="lab-label" font-size="10">⚠️ NO → 拒绝</text>
+
+  <!-- ==================== LEGEND ==================== -->
+  <rect x="50" y="750" width="400" height="120" fill="#fafafa" stroke="#ddd" rx="5"/>
+  <text x="70" y="775" class="subtitle" font-weight="bold">图例 / Legend</text>
+
+  <line x1="70" y1="800" x2="120" y2="800" stroke="#1976d2" stroke-width="2"/>
+  <text x="130" y="805" class="label normal-label">正常交易模式数据流</text>
+
+  <line x1="70" y1="830" x2="120" y2="830" stroke="#c2185b" stroke-width="2"/>
+  <text x="130" y="835" class="label lab-label">实验模式数据流</text>
+
+  <line x1="250" y1="800" x2="300" y2="800" stroke="#757575" stroke-width="2"/>
+  <text x="310" y="805" class="label">共享组件数据流</text>
+
+  <line x1="250" y1="830" x2="300" y2="830" stroke="#c2185b" stroke-width="2" stroke-dasharray="5,3"/>
+  <text x="310" y="835" class="label lab-label">模式切换控制</text>
+
+  <!-- ==================== KEY POINTS ==================== -->
+  <rect x="500" y="750" width="400" height="120" fill="#fffde7" stroke="#f9a825" rx="5"/>
+  <text x="520" y="775" class="subtitle" font-weight="bold" fill="#f57f17">核心约束 / Core Constraints</text>
+
+  <text x="520" y="800" class="label" fill="#333">1. 交易时间不允许启动实验模式</text>
+  <text x="520" y="820" class="label" fill="#333">2. 实验模式启动时自动停止 RealtimeDataFetcher</text>
+  <text x="520" y="840" class="label" fill="#333">3. 实验模式退出时自动恢复 RealtimeDataFetcher</text>
+  <text x="520" y="860" class="label" fill="#333">4. 两种模式共享同一个 AttentionSystem</text>
+
+  <!-- Arrow Markers Definition -->
+  <defs>
+    <marker id="arrowhead-normal" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#1976d2"/>
+    </marker>
+    <marker id="arrowhead-lab" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#c2185b"/>
+    </marker>
+    <marker id="arrowhead-common" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#757575"/>
+    </marker>
+  </defs>
+</svg>

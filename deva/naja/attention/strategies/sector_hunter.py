@@ -58,7 +58,7 @@ class SectorRotationHunter(AttentionStrategyBase):
         # 板块历史数据
         self.sector_history: Dict[str, deque] = {}
         self.sector_momentum: Dict[str, float] = {}
-        self.sector_signals: Dict[str, str] = {}  # 'inflow' | 'outflow' | 'stable'
+        self.sector_signals: Dict[str, str] = {}  # 'watching_inflow' | 'watching_outflow' | 'stable'
         
         # 轮动状态
         self.current_hot_sectors: List[str] = []
@@ -124,7 +124,7 @@ class SectorRotationHunter(AttentionStrategyBase):
                         signal = Signal(
                             strategy_name=self.name,
                             symbol=sector,
-                            signal_type='buy',
+                            signal_type='watch',
                             confidence=min(abs(momentum) * 2, 1.0),
                             score=momentum,
                             reason=f"板块轮动资金流入，动量: {momentum:.3f}, 权重: {weight:.3f}",
@@ -137,14 +137,14 @@ class SectorRotationHunter(AttentionStrategyBase):
                         )
                         self.emit_signal(signal)
                         signals.append(signal)
-                        self.sector_signals[sector] = 'inflow'
+                        self.sector_signals[sector] = 'watching_inflow'
 
             elif momentum < -self.momentum_threshold:
                 if self.can_emit_signal(f"{sector}_out"):
                     signal = Signal(
                         strategy_name=self.name,
                         symbol=sector,
-                        signal_type='sell',
+                        signal_type='watch',
                         confidence=min(abs(momentum) * 2, 1.0),
                         score=momentum,
                         reason=f"板块轮动资金流出，动量: {momentum:.3f}, 权重: {weight:.3f}",
@@ -157,7 +157,7 @@ class SectorRotationHunter(AttentionStrategyBase):
                     )
                     self.emit_signal(signal)
                     signals.append(signal)
-                    self.sector_signals[sector] = 'outflow'
+                    self.sector_signals[sector] = 'watching_outflow'
         
         return signals
     

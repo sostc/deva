@@ -1,4 +1,9 @@
-"""数据表管理模块"""
+"""数据表管理模块
+
+NB数据库表注册表:
+- 所有使用 NB() 访问的表都应该在此注册
+- 表名格式: naja_<category>_<name>
+"""
 
 from __future__ import annotations
 
@@ -13,18 +18,100 @@ from deva import NB
 
 
 TABLE_NAME_RE = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9_\-]{0,63}$")
-DEFAULT_RESERVED_TABLES = {
-    "default",
-    "naja_strategies",
-    "naja_datasources",
-    "naja_dictionaries",
-    "naja_tasks",
-    "naja_radar_events",
-    "naja_strategy_metrics",
-    "naja_llm_decisions",
-    "naja_strategy_runtime_state",
-    "naja_strategy_registry",
+
+NAJA_TABLE_REGISTRY = {
+    # ===== 配置相关(已迁移到文件) =====
+    "naja_tasks": "Task配置表(已迁移到文件: config/tasks/)",
+    "naja_strategies": "Strategy配置表(已迁移到文件: config/strategies/)",
+    "naja_datasources": "Datasource配置表(已迁移到文件: config/datasources/)",
+
+    # ===== 运行时状态 =====
+    "naja_config": "Naja运行时配置",
+    "naja_meta": "Naja元数据(版本信息等)",
+    "naja_running_states": "组件运行状态",
+
+    # ===== 策略相关 =====
+    "naja_strategy_results": "策略执行结果(历史)",
+    "naja_strategy_metrics": "策略性能指标",
+    "naja_strategy_experiment": "策略实验记录",
+    "naja_strategy_runtime_state": "策略运行时状态(DeclarativeStrategy)",
+    "naja_strategy_registry": "策略注册表",
+    "naja_strategy_models": "策略模型持久化",
+    "naja_strategy_resets": "策略重置记录",
+    "naja_strategy_output_targets": "策略输出目标配置",
+
+    # ===== LLM相关 =====
+    "naja_llm_decisions": "LLM决策记录",
+    "naja_llm_tuning": "LLM调优参数",
+    "naja_llm_resets": "LLM重置记录",
+    "naja_llm_reflections": "LLM反思记录",
+
+    # ===== 数据源相关 =====
+    "naja_ds_latest_data": "数据源最新数据缓存",
+
+    # ===== 字典相关 =====
+    "naja_dictionary_entries": "字典条目表",
+    "naja_dictionary_payloads": "字典载荷表",
+
+    # ===== 注意力系统 =====
+    "naja_attention_tracker": "注意力追踪器状态",
+    "naja_price_monitor_config": "价格监控配置",
+    "naja_realtime_quotes": "实时行情缓存",
+    "naja_signal_tuner": "信号调优器状态",
+
+    # ===== Bandit系统 =====
+    "naja_bandit_config": "Bandit基础配置",
+    "naja_bandit_market_config": "Bandit市场数据配置",
+    "naja_bandit_signal_config": "Bandit信号配置",
+    "naja_bandit_adaptive_config": "Bandit自适应配置",
+    "naja_bandit_virtual_portfolio": "Bandit虚拟组合",
+    "naja_bandit_stats": "Bandit统计",
+    "naja_bandit_decisions": "Bandit决策记录",
+    "naja_bandit_actions": "Bandit动作记录",
+    "naja_bandit_position_rewards": "Bandit持仓收益",
+
+    # ===== 雷达/新闻 =====
+    "naja_radar_events": "雷达事件",
+    "naja_news_radar_state": "新闻雷达状态",
+
+    # ===== 洞察/认知 =====
+    "naja_insight_pool": "洞察池",
+
+    # ===== 任务 =====
+    "naja_task_history": "任务执行历史",
+
+    # ===== 页面帮助 =====
+    "naja_page_help": "页面帮助信息",
 }
+
+SYSTEM_TABLE_REGISTRY = {
+    # ===== 系统表 =====
+    "default": "默认命名空间(表描述存储)",
+    "__deleted_tables_meta": "已删除表审计记录",
+    "deva_config": "Deva主配置",
+    "deva_bus_clients": "Deva总线客户端注册",
+    "naja": "Naja启动状态标记",
+    "naja_result_index": "策略结果索引(已废弃)",
+
+    # ===== 临时/演示表 =====
+    "tmp": "临时数据(测试用)",
+    "sample": "示例数据",
+    "numbers": "数字序列数据",
+    "tasks": "旧任务表(废弃,仅迁移用)",
+    "temp": "临时数据存储",
+    "users": "用户数据(示例)",
+
+    # ===== 外部集成 =====
+    "dtalk_archive": "钉钉消息归档",
+    "dtalk_deva": "钉钉配置(Webhook/Secret)",
+    "mail": "邮件配置(SMTP)",
+
+    # ===== 行情数据 =====
+    "quant_snapshot_5min_window": "5分钟窗口行情快照",
+}
+
+ALL_TABLE_REGISTRIES = {**NAJA_TABLE_REGISTRY, **SYSTEM_TABLE_REGISTRY}
+DEFAULT_RESERVED_TABLES = set(NAJA_TABLE_REGISTRY.keys())
 DEFAULT_ALLOWED_EXTS = {".csv", ".xls", ".xlsx"}
 DEFAULT_ALLOWED_MIME = {
     "text/csv",

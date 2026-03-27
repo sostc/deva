@@ -7,14 +7,8 @@ from pywebio.input import textarea
 from pywebio.session import run_async
 
 from deva import NB
-from ..common.ui_style import apply_strategy_like_styles, render_empty_state
+from ..common.ui_style import apply_strategy_like_styles, render_empty_state, format_timestamp
 from ..page_help import render_help_collapse
-
-
-def _fmt_ts(ts: float) -> str:
-    if not ts:
-        return "-"
-    return datetime.fromtimestamp(ts).strftime("%Y-%m-%d %H:%M:%S")
 
 
 def _fmt_ts_short(ts: float) -> str:
@@ -134,6 +128,100 @@ async def render_llm_admin(ctx: dict):
         """,
         scope="llm_content",
     )
+
+    condition_labels = {
+        'thread_pool': ('线程池待处理', 'pending > threshold', 'adjust_max_workers'),
+        'thread_pool_rejected': ('线程池拒绝', 'rejected > threshold', 'adjust_queue_size'),
+        'memory': ('内存使用率', 'memory% > threshold', 'trigger_gc'),
+        'strategy_performance': ('策略性能', '成功率 < threshold', 'call_llm'),
+        'lock_contention': ('锁竞争', 'lock_wait > threshold', 'call_llm'),
+        'datasource_delay': ('数据源延迟', 'delay > threshold', 'call_llm'),
+        'cache_hit_rate': ('缓存命中率', 'hit_rate < threshold', 'call_llm'),
+        'datasource_error_rate': ('数据源错误率', 'error_rate > threshold', 'adjust_interval'),
+        'replay_processing': ('回放处理延迟', 'delay > threshold', 'adjust_replay_interval'),
+        'pytorch_error_rate': ('PyTorch错误率', 'error_rate > threshold', 'stop_pytorch'),
+        'memory_pressure': ('内存压力', 'memory% > threshold', 'stop_pytorch'),
+    }
+
+    action_colors = {
+        'adjust_max_workers': '#6366f1',
+        'adjust_queue_size': '#8b5cf6',
+        'trigger_gc': '#10b981',
+        'call_llm': '#f59e0b',
+        'adjust_interval': '#3b82f6',
+        'adjust_replay_interval': '#06b6d4',
+        'stop_pytorch': '#ef4444',
+    }
+
+    ctx["put_html"]("<div style='margin:20px 0 12px 0;font-size:15px;font-weight:600;color:#374151;'>📋 自动调优规则 <span style='font-weight:400;font-size:12px;color:#9ca3af;'>(系统监控条件及触发动作)</span></div>", scope="llm_content")
+
+    rules_html = """
+    <div style="background:#fff;border-radius:12px;box-shadow:0 2px 8px rgba(0,0,0,0.06);overflow:hidden;margin-bottom:20px;">
+        <table style="width:100%;border-collapse:collapse;font-size:13px;">
+            <thead>
+                <tr style="background:#f9fafb;">
+                    <th style="padding:12px 16px;text-align:left;font-weight:600;color:#374151;border-bottom:2px solid #e5e7eb;">监控项</th>
+                    <th style="padding:12px 16px;text-align:left;font-weight:600;color:#374151;border-bottom:2px solid #e5e7eb;">触发条件</th>
+                    <th style="padding:12px 16px;text-align:left;font-weight:600;color:#374151;border-bottom:2px solid #e5e7eb;">阈值</th>
+                    <th style="padding:12px 16px;text-align:left;font-weight:600;color:#374151;border-bottom:2px solid #e5e7eb;">触发动作</th>
+                    <th style="padding:12px 16px;text-align:center;font-weight:600;color:#374151;border-bottom:2px solid #e5e7eb;">触发次数</th>
+                    <th style="padding:12px 16px;text-align:center;font-weight:600;color:#374151;border-bottom:2px solid #e5e7eb;">最近触发</th>
+                </tr>
+            </thead>
+            <tbody>
+    """
+
+    for cond in conditions_status:
+        name = cond.get('name', '')
+        threshold = cond.get('threshold')
+        cooldown = cond.get('cooldown', 0)
+        trigger_count = cond.get('trigger_count', 0)
+        last_ts = cond.get('last_trigger_ts', 0)
+        action = cond.get('action', '')
+
+        label_info = condition_labels.get(name, (name, '', action))
+        display_name = label_info[0]
+        condition_desc = label_info[1]
+        action_display = label_info[2]
+
+        if threshold is not None:
+            if isinstance(threshold, float) and threshold < 1:
+                threshold_str = f"{threshold:.1%}"
+            else:
+                threshold_str = str(threshold)
+        else:
+            threshold_str = '-'
+
+        cooldown_str = f"{cooldown}秒" if cooldown else '-'
+        trigger_count_str = str(trigger_count) if trigger_count > 0 else '0'
+        last_ts_str = _fmt_ts_short(last_ts) if last_ts else '从未'
+
+        action_color = action_colors.get(action, '#6b7280')
+        trigger_bg = '#fef3c7' if trigger_count > 0 else 'transparent'
+
+        rules_html += f"""
+                <tr style="background:{trigger_bg};">
+                    <td style="padding:10px 16px;border-bottom:1px solid #f3f4f6;font-weight:500;color:#374151;">{display_name}</td>
+                    <td style="padding:10px 16px;border-bottom:1px solid #f3f4f6;color:#6b7280;font-size:12px;">{condition_desc}</td>
+                    <td style="padding:10px 16px;border-bottom:1px solid #f3f4f6;color:#374151;">
+                        <span style="background:#f3f4f6;padding:2px 8px;border-radius:4px;font-size:12px;">{threshold_str}</span>
+                        <span style="color:#9ca3af;font-size:11px;margin-left:4px;">(冷却{cooldown_str})</span>
+                    </td>
+                    <td style="padding:10px 16px;border-bottom:1px solid #f3f4f6;">
+                        <span style="background:{action_color};color:#fff;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:500;">{action}</span>
+                    </td>
+                    <td style="padding:10px 16px;border-bottom:1px solid #f3f4f6;text-align:center;color:{'#f59e0b;font-weight:600' if trigger_count > 0 else '#6b7280'};">{trigger_count_str}</td>
+                    <td style="padding:10px 16px;border-bottom:1px solid #f3f4f6;text-align:center;color:#6b7280;font-size:12px;">{last_ts_str}</td>
+                </tr>
+        """
+
+    rules_html += """
+            </tbody>
+        </table>
+    </div>
+    """
+
+    ctx["put_html"](rules_html, scope="llm_content")
 
     async def handle_manual_tune():
         try:

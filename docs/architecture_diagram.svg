@@ -1,0 +1,247 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 1200">
+  <defs>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#1a1a2e"/>
+      <stop offset="100%" style="stop-color:#16213e"/>
+    </linearGradient>
+    <linearGradient id="attentionGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#e94560"/>
+      <stop offset="100%" style="stop-color:#ff6b6b"/>
+    </linearGradient>
+    <linearGradient id="streamGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#0f3460"/>
+      <stop offset="100%" style="stop-color:#533483"/>
+    </linearGradient>
+    <linearGradient id="kernelGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#f39c12"/>
+      <stop offset="100%" style="stop-color:#e74c3c"/>
+    </linearGradient>
+    <linearGradient id="dataGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#3498db"/>
+      <stop offset="100%" style="stop-color:#9b59b6"/>
+    </linearGradient>
+    <linearGradient id="storageGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#27ae60"/>
+      <stop offset="100%" style="stop-color:#2ecc71"/>
+    </linearGradient>
+    <filter id="glow">
+      <feGaussianBlur stdDeviation="4" result="coloredBlur"/>
+      <feMerge>
+        <feMergeNode in="coloredBlur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+    <marker id="arrowhead" markerWidth="12" markerHeight="8" refX="10" refY="4" orient="auto">
+      <polygon points="0 0, 12 4, 0 8" fill="#e94560"/>
+    </marker>
+    <marker id="arrowheadBlue" markerWidth="12" markerHeight="8" refX="10" refY="4" orient="auto">
+      <polygon points="0 0, 12 4, 0 8" fill="#3498db"/>
+    </marker>
+    <marker id="arrowheadGreen" markerWidth="12" markerHeight="8" refX="10" refY="4" orient="auto">
+      <polygon points="0 0, 12 4, 0 8" fill="#27ae60"/>
+    </marker>
+  </defs>
+
+  <!-- Background -->
+  <rect width="1600" height="1200" fill="url(#bgGrad)"/>
+
+  <!-- Title -->
+  <text x="800" y="55" text-anchor="middle" fill="#fff" font-family="Arial, sans-serif" font-size="36" font-weight="bold">
+    注意力内核驱动架构
+  </text>
+  <text x="800" y="90" text-anchor="middle" fill="#888" font-family="Arial, sans-serif" font-size="18">
+    Attention Kernel Driven Architecture | 一切皆流 · 执处成真
+  </text>
+
+  <!-- Layer 1: Event Sources -->
+  <g id="layer1">
+    <rect x="50" y="120" width="1500" height="100" rx="12" fill="none" stroke="#3498db" stroke-width="2" stroke-dasharray="8,4"/>
+    <text x="80" y="150" fill="#3498db" font-family="Arial, sans-serif" font-size="16" font-weight="bold">📡 事件源层 EVENT SOURCES</text>
+
+    <!-- TradingClock -->
+    <rect x="120" y="170" width="280" height="45" rx="8" fill="url(#dataGrad)" filter="url(#glow)"/>
+    <text x="260" y="200" text-anchor="middle" fill="#fff" font-family="Arial, sans-serif" font-size="18">TradingClock</text>
+
+    <!-- Market Data -->
+    <rect x="450" y="170" width="280" height="45" rx="8" fill="url(#dataGrad)" filter="url(#glow)"/>
+    <text x="590" y="200" text-anchor="middle" fill="#fff" font-family="Arial, sans-serif" font-size="18">Market Data Stream</text>
+
+    <!-- VirtualPortfolio -->
+    <rect x="780" y="170" width="280" height="45" rx="8" fill="url(#dataGrad)" filter="url(#glow)"/>
+    <text x="920" y="200" text-anchor="middle" fill="#fff" font-family="Arial, sans-serif" font-size="18">VirtualPortfolio</text>
+
+    <!-- Strategy Execution -->
+    <rect x="1110" y="170" width="280" height="45" rx="8" fill="url(#dataGrad)" filter="url(#glow)"/>
+    <text x="1250" y="200" text-anchor="middle" fill="#fff" font-family="Arial, sans-serif" font-size="18">Strategy Result</text>
+  </g>
+
+  <!-- Arrows from sources -->
+  <line x1="260" y1="215" x2="260" y2="280" stroke="#3498db" stroke-width="3" marker-end="url(#arrowheadBlue)"/>
+  <line x1="590" y1="215" x2="590" y2="280" stroke="#3498db" stroke-width="3" marker-end="url(#arrowheadBlue)"/>
+  <line x1="920" y1="215" x2="920" y2="280" stroke="#3498db" stroke-width="3" marker-end="url(#arrowheadBlue)"/>
+  <line x1="1250" y1="215" x2="1250" y2="280" stroke="#3498db" stroke-width="3" marker-end="url(#arrowheadBlue)"/>
+
+  <!-- Data Flow Labels on arrows -->
+  <text x="280" y="250" fill="#3498db" font-family="Arial, sans-serif" font-size="12" transform="rotate(-90, 280, 250)">phase_change</text>
+  <text x="610" y="250" fill="#3498db" font-family="Arial, sans-serif" font-size="12" transform="rotate(-90, 610, 250)">market_tick</text>
+  <text x="940" y="250" fill="#3498db" font-family="Arial, sans-serif" font-size="12" transform="rotate(-90, 940, 250)">portfolio_state</text>
+  <text x="1270" y="250" fill="#3498db" font-family="Arial, sans-serif" font-size="12" transform="rotate(-90, 1270, 250)">result</text>
+
+  <!-- Layer 2: Attention Kernel Core -->
+  <g id="layer2">
+    <rect x="50" y="280" width="1500" height="380" rx="12" fill="none" stroke="#e94560" stroke-width="4"/>
+    <text x="80" y="315" fill="#e94560" font-family="Arial, sans-serif" font-size="16" font-weight="bold">⚡ 注意力内核层 ATTENTION KERNEL CORE</text>
+
+    <!-- Left: AttentionOrchestrator -->
+    <rect x="80" y="350" width="260" height="200" rx="12" fill="url(#streamGrad)" filter="url(#glow)"/>
+    <text x="210" y="400" text-anchor="middle" fill="#fff" font-family="Arial, sans-serif" font-size="20" font-weight="bold">Attention</text>
+    <text x="210" y="430" text-anchor="middle" fill="#fff" font-family="Arial, sans-serif" font-size="20" font-weight="bold">Orchestrator</text>
+    <line x1="340" y1="450" x2="400" y2="480" stroke="#e94560" stroke-width="3" marker-end="url(#arrowhead)"/>
+    <text x="370" y="440" text-anchor="middle" fill="#e94560" font-family="Arial, sans-serif" font-size="12">订阅事件</text>
+    <text x="210" y="520" text-anchor="middle" fill="#aaa" font-family="Arial, sans-serif" font-size="11">_update_attention()</text>
+
+    <!-- Center: QueryState - Large Ellipse -->
+    <ellipse cx="800" cy="500" rx="280" ry="140" fill="url(#attentionGrad)" filter="url(#glow)"/>
+    <text x="800" y="460" text-anchor="middle" fill="#fff" font-family="Arial, sans-serif" font-size="28" font-weight="bold">QueryState</text>
+    <text x="800" y="495" text-anchor="middle" fill="#fff" font-family="Arial, sans-serif" font-size="16">注意力查询状态中枢</text>
+    <line x1="520" y1="500" x2="550" y2="500" stroke="#fff" stroke-width="2" stroke-dasharray="5,3"/>
+    <text x="535" y="485" text-anchor="middle" fill="#fff" font-family="Arial, sans-serif" font-size="12">update_from_market()</text>
+
+    <!-- QueryState sub-components inside -->
+    <rect x="580" y="540" width="140" height="40" rx="6" fill="#fff" opacity="0.15"/>
+    <text x="650" y="565" text-anchor="middle" fill="#fff" font-family="Arial, sans-serif" font-size="14">market_regime</text>
+
+    <rect x="730" y="540" width="140" height="40" rx="6" fill="#fff" opacity="0.15"/>
+    <text x="800" y="565" text-anchor="middle" fill="#fff" font-family="Arial, sans-serif" font-size="14">risk_bias</text>
+
+    <rect x="880" y="540" width="140" height="40" rx="6" fill="#fff" opacity="0.15"/>
+    <text x="950" y="565" text-anchor="middle" fill="#fff" font-family="Arial, sans-serif" font-size="14">attention_focus</text>
+
+    <!-- Bottom: AttentionKernel -->
+    <rect x="420" y="600" width="760" height="50" rx="10" fill="url(#kernelGrad)" filter="url(#glow)"/>
+    <text x="800" y="632" text-anchor="middle" fill="#fff" font-family="Arial, sans-serif" font-size="20" font-weight="bold">AttentionKernel.process(QueryState, Events)</text>
+    <line x1="800" y1="500" x2="800" y2="600" stroke="#f39c12" stroke-width="3" marker-end="url(#arrowhead)"/>
+    <text x="850" y="550" text-anchor="middle" fill="#f39c12" font-family="Arial, sans-serif" font-size="14">MultiHead Attention</text>
+
+    <!-- Right: SignalStream -->
+    <rect x="1260" y="350" width="260" height="200" rx="12" fill="url(#streamGrad)" filter="url(#glow)"/>
+    <text x="1390" y="400" text-anchor="middle" fill="#fff" font-family="Arial, sans-serif" font-size="20" font-weight="bold">SignalStream</text>
+    <text x="1390" y="430" text-anchor="middle" fill="#fff" font-family="Arial, sans-serif" font-size="14">注意力感知路由</text>
+    <line x1="1100" y1="450" x2="1260" y2="450" stroke="#e94560" stroke-width="3" marker-end="url(#arrowhead)"/>
+    <text x="1180" y="440" text-anchor="middle" fill="#e94560" font-family="Arial, sans-serif" font-size="12">set_query_state()</text>
+
+    <!-- Priority Labels inside SignalStream -->
+    <rect x="1280" y="480" width="80" height="28" rx="4" fill="#e74c3c"/>
+    <text x="1320" y="500" text-anchor="middle" fill="#fff" font-family="Arial, sans-serif" font-size="12">HIGH ≥ 0.7</text>
+
+    <rect x="1370" y="480" width="80" height="28" rx="4" fill="#f39c12"/>
+    <text x="1410" y="500" text-anchor="middle" fill="#fff" font-family="Arial, sans-serif" font-size="12">MED 0.3~0.7</text>
+
+    <rect x="1280" y="515" width="170" height="28" rx="4" fill="#888"/>
+    <text x="1365" y="535" text-anchor="middle" fill="#fff" font-family="Arial, sans-serif" font-size="12">LOW &lt; 0.3</text>
+
+    <text x="1390" y="560" text-anchor="middle" fill="#aaa" font-family="Arial, sans-serif" font-size="11">compute_priority()</text>
+  </g>
+
+  <!-- Layer 3: Compute Layer -->
+  <g id="layer3">
+    <rect x="50" y="680" width="1500" height="180" rx="12" fill="none" stroke="#27ae60" stroke-width="3" stroke-dasharray="8,4"/>
+    <text x="80" y="715" fill="#27ae60" font-family="Arial, sans-serif" font-size="16" font-weight="bold">🔧 计算支撑层 COMPUTE LAYER</text>
+
+    <!-- BanditAutoRunner -->
+    <rect x="100" y="740" width="250" height="100" rx="10" fill="url(#storageGrad)" filter="url(#glow)"/>
+    <text x="225" y="775" text-anchor="middle" fill="#fff" font-family="Arial, sans-serif" font-size="18" font-weight="bold">BanditAutoRunner</text>
+    <text x="225" y="800" text-anchor="middle" fill="#fff" font-family="Arial, sans-serif" font-size="12">事件驱动 · 定时调节</text>
+    <text x="225" y="820" text-anchor="middle" fill="#fff" font-family="Arial, sans-serif" font-size="11">订阅 TRADING_CLOCK</text>
+
+    <!-- BanditOptimizer -->
+    <rect x="400" y="740" width="200" height="100" rx="10" fill="url(#storageGrad)" filter="url(#glow)"/>
+    <text x="500" y="775" text-anchor="middle" fill="#fff" font-family="Arial, sans-serif" font-size="18" font-weight="bold">Bandit</text>
+    <text x="500" y="798" text-anchor="middle" fill="#fff" font-family="Arial, sans-serif" font-size="18" font-weight="bold">Optimizer</text>
+    <text x="500" y="820" text-anchor="middle" fill="#fff" font-family="Arial, sans-serif" font-size="11">策略选择 · 奖励更新</text>
+
+    <!-- RadarEngine -->
+    <rect x="650" y="740" width="200" height="100" rx="10" fill="url(#storageGrad)" filter="url(#glow)"/>
+    <text x="750" y="775" text-anchor="middle" fill="#fff" font-family="Arial, sans-serif" font-size="18" font-weight="bold">Radar</text>
+    <text x="750" y="798" text-anchor="middle" fill="#fff" font-family="Arial, sans-serif" font-size="18" font-weight="bold">Engine</text>
+    <text x="750" y="820" text-anchor="middle" fill="#fff" font-family="Arial, sans-serif" font-size="11">模式识别 · 信号检测</text>
+
+    <!-- CognitionEngine -->
+    <rect x="900" y="740" width="200" height="100" rx="10" fill="url(#storageGrad)" filter="url(#glow)"/>
+    <text x="1000" y="775" text-anchor="middle" fill="#fff" font-family="Arial, sans-serif" font-size="18" font-weight="bold">Cognition</text>
+    <text x="1000" y="798" text-anchor="middle" fill="#fff" font-family="Arial, sans-serif" font-size="18" font-weight="bold">Engine</text>
+    <text x="1000" y="820" text-anchor="middle" fill="#fff" font-family="Arial, sans-serif" font-size="11">认知处理 · 洞察生成</text>
+
+    <!-- OutputController -->
+    <rect x="1150" y="740" width="200" height="100" rx="10" fill="url(#storageGrad)" filter="url(#glow)"/>
+    <text x="1250" y="775" text-anchor="middle" fill="#fff" font-family="Arial, sans-serif" font-size="18" font-weight="bold">Output</text>
+    <text x="1250" y="798" text-anchor="middle" fill="#fff" font-family="Arial, sans-serif" font-size="18" font-weight="bold">Controller</text>
+    <text x="1250" y="820" text-anchor="middle" fill="#fff" font-family="Arial, sans-serif" font-size="11">分流控制 · 按需发送</text>
+
+    <!-- Strategy Manager -->
+    <rect x="1400" y="740" width="150" height="100" rx="10" fill="url(#storageGrad)" filter="url(#glow)"/>
+    <text x="1475" y="775" text-anchor="middle" fill="#fff" font-family="Arial, sans-serif" font-size="18" font-weight="bold">Strategy</text>
+    <text x="1475" y="798" text-anchor="middle" fill="#fff" font-family="Arial, sans-serif" font-size="18" font-weight="bold">Manager</text>
+    <text x="1475" y="820" text-anchor="middle" fill="#fff" font-family="Arial, sans-serif" font-size="11">策略管理</text>
+
+    <!-- Arrows to compute layer -->
+    <line x1="225" y1="650" x2="225" y2="740" stroke="#27ae60" stroke-width="3" marker-end="url(#arrowheadGreen)"/>
+    <line x1="500" y1="650" x2="500" y2="740" stroke="#27ae60" stroke-width="3" marker-end="url(#arrowheadGreen)"/>
+    <line x1="750" y1="650" x2="750" y2="740" stroke="#27ae60" stroke-width="3" marker-end="url(#arrowheadGreen)"/>
+    <line x1="1000" y1="650" x2="1000" y2="740" stroke="#27ae60" stroke-width="3" marker-end="url(#arrowheadGreen)"/>
+    <line x1="1250" y1="650" x2="1250" y2="740" stroke="#27ae60" stroke-width="3" marker-end="url(#arrowheadGreen)"/>
+    <line x1="1475" y1="650" x2="1475" y2="740" stroke="#27ae60" stroke-width="3" marker-end="url(#arrowheadGreen)"/>
+  </g>
+
+  <!-- Layer 4: Storage Layer -->
+  <g id="layer4">
+    <rect x="50" y="880" width="1500" height="130" rx="12" fill="none" stroke="#9b59b6" stroke-width="3" stroke-dasharray="8,4"/>
+    <text x="80" y="915" fill="#9b59b6" font-family="Arial, sans-serif" font-size="16" font-weight="bold">💾 存储层 STORAGE LAYER</text>
+
+    <!-- JSON Lines Log -->
+    <rect x="100" y="935" width="450" height="65" rx="10" fill="#2c3e50" stroke="#27ae60" stroke-width="2"/>
+    <text x="325" y="965" text-anchor="middle" fill="#27ae60" font-family="Arial, sans-serif" font-size="18" font-weight="bold">JSON Lines 日志文件</text>
+    <text x="325" y="990" text-anchor="middle" fill="#888" font-family="Arial, sans-serif" font-size="12">顺序写 · 按天切分 · ~/.deva/naja_logs/results/</text>
+
+    <!-- Memory Cache -->
+    <rect x="600" y="935" width="350" height="65" rx="10" fill="#2c3e50" stroke="#f39c12" stroke-width="2"/>
+    <text x="775" y="965" text-anchor="middle" fill="#f39c12" font-family="Arial, sans-serif" font-size="18" font-weight="bold">Memory Cache</text>
+    <text x="775" y="990" text-anchor="middle" fill="#888" font-family="Arial, sans-serif" font-size="12">最近200条策略结果 · 自动淘汰</text>
+
+    <!-- Strategy Cache -->
+    <rect x="1000" y="935" width="500" height="65" rx="10" fill="#2c3e50" stroke="#3498db" stroke-width="2"/>
+    <text x="1250" y="965" text-anchor="middle" fill="#3498db" font-family="Arial, sans-serif" font-size="18" font-weight="bold">Strategy Cache</text>
+    <text x="1250" y="990" text-anchor="middle" fill="#888" font-family="Arial, sans-serif" font-size="12">策略缓存 · 快速访问 · 实验模式支持</text>
+  </g>
+
+  <!-- Key Metrics Box -->
+  <g id="metrics">
+    <rect x="50" y="1030" width="1500" height="140" rx="12" fill="#2c3e50" stroke="#e94560" stroke-width="2"/>
+    <text x="80" y="1065" fill="#e94560" font-family="Arial, sans-serif" font-size="18" font-weight="bold">核心指标</text>
+
+    <!-- Row 1 -->
+    <text x="120" y="1095" fill="#fff" font-family="Arial, sans-serif" font-size="14">⚡ 响应延迟: &lt;1s</text>
+    <text x="350" y="1095" fill="#fff" font-family="Arial, sans-serif" font-size="14">🔄 事件驱动</text>
+    <text x="550" y="1095" fill="#fff" font-family="Arial, sans-serif" font-size="14">🎯 优先级路由</text>
+    <text x="750" y="1095" fill="#fff" font-family="Arial, sans-serif" font-size="14">💼 持仓感知</text>
+    <text x="950" y="1095" fill="#fff" font-family="Arial, sans-serif" font-size="14">👁 注意力焦点</text>
+    <text x="1180" y="1095" fill="#fff" font-family="Arial, sans-serif" font-size="14">📊 市场状态感知</text>
+    <text x="1400" y="1095" fill="#fff" font-family="Arial, sans-serif" font-size="14">🧠 QueryState</text>
+
+    <!-- Row 2 -->
+    <text x="120" y="1120" fill="#888" font-family="Arial, sans-serif" font-size="11">vs 轮询 10s</text>
+    <text x="350" y="1120" fill="#888" font-family="Arial, sans-serif" font-size="11">vs 批量处理</text>
+    <text x="550" y="1120" fill="#888" font-family="Arial, sans-serif" font-size="11">vs 广播分发</text>
+    <text x="750" y="1120" fill="#888" font-family="Arial, sans-serif" font-size="11">vs 无过滤</text>
+    <text x="950" y="1120" fill="#888" font-family="Arial, sans-serif" font-size="11">vs 静态</text>
+    <text x="1180" y="1120" fill="#888" font-family="Arial, sans-serif" font-size="11">vs 无感知</text>
+    <text x="1400" y="1120" fill="#888" font-family="Arial, sans-serif" font-size="11">vs 孤立</text>
+  </g>
+
+  <!-- Architecture Philosophy -->
+  <g id="philosophy">
+    <text x="800" y="1155" text-anchor="middle" fill="#e94560" font-family="Arial, sans-serif" font-size="16">
+      境随心转 · 执处成真 · 一切皆流 · 无物永驻
+    </text>
+  </g>
+</svg>

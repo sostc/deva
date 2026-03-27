@@ -1,0 +1,26 @@
+config:
+  config:
+    end_time: null
+    interval: 1.0
+    start_time: null
+    table_name: quant_snapshot_5min_window
+  source_type: replay
+func_code: ''
+metadata:
+  category: ''
+  created_at: 1774447850.068785
+  description: quant_snapshot_5min_window 数据回放
+  enabled: true
+  enabled_types: []
+  func_code_file: ''
+  id: 523c666ec3a5
+  interval_seconds: 5
+  name: 历史行情回放
+  source: file
+  source_type: replay
+  tags: []
+  updated_at: 1774627416.061423
+parameters:
+  enabled: true
+  interval_seconds: 5
+  timeout: 30

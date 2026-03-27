@@ -1,0 +1,39 @@
+config:
+  compute_mode: record
+  handler_type: bandit
+  strategy_type: plugin
+  window_type: sliding
+func_code: "def process(data, context=None):\n    return None\n"
+metadata:
+  bound_datasource_id: e626eecd0b86
+  bound_datasource_ids:
+  - e626eecd0b86
+  category: 交易信号
+  compute_mode: record
+  created_at: 1773675576.9579048
+  description: 专门发现刚开始启动的牛股，在早期介入，实现超额收益
+  dictionary_profile_ids: []
+  enabled: true
+  func_code_file: ''
+  handler_type: bandit
+  id: e75e8d41d93f
+  max_history_count: 200
+  name: 早期牛股发现
+  source: file
+  strategy_type: plugin
+  tags:
+  - river
+  - early
+  - bull
+  - bandit
+  updated_at: 1774627248.3601549
+  version: 12
+  window_interval: 5s
+  window_return_partial: false
+  window_size: 5
+  window_type: sliding
+parameters:
+  enabled: true
+  max_history_count: 200
+  window_interval: 5s
+  window_size: 5

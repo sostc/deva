@@ -36,6 +36,19 @@ class NajaAttentionIntegration:
     4. 提供频率控制接口
     5. 监控和报告
     6. V2 增强功能支持
+
+    ================================================================================
+    单例模式说明：为什么使用单例
+    ================================================================================
+    1. 全局注意力集成：NajaAttentionIntegration 是全局注意力系统集成器，
+       负责协调 AttentionSystem 和数据流。如果存在多个实例，会导致状态不一致。
+
+    2. 状态一致性：注意力计算状态、频率控制状态等需要在全系统保持一致。
+
+    3. 生命周期：Integration 的生命周期与系统一致，随系统启动和关闭。
+
+    4. 这是流式计算系统的设计选择，不是过度工程。
+    ================================================================================
     """
 
     _instance = None
@@ -249,7 +262,7 @@ class NajaAttentionIntegration:
 
         log.info(f"[Dictionary] 解析板块数据: sector_col={sector_col}, symbol_col={symbol_col}, 行数={len(df)}")
 
-        if sector_col == 'blocks' or '|' in str(df[sector_col].iloc[0] if len(df) > 0 else ''):
+        if '|' in str(df[sector_col].iloc[0] if len(df) > 0 else ''):
             log.info(f"[Dictionary] 使用多值板块解析模式")
 
             for _, row in df.iterrows():
@@ -449,6 +462,120 @@ _naja_attention_integration: Optional[NajaAttentionIntegration] = None
 _integration_lock = threading.Lock()
 
 
+class AttentionModeManager:
+    """
+    注意力系统模式管理器 - 确保交易模式和实验模式互斥
+
+    核心原则：
+    1. 交易时间不允许启动实验模式
+    2. 实验模式启动时自动停止实盘获取器
+    3. 实验模式退出时自动恢复实盘获取器
+
+    两种模式：
+    - MODE_NORMAL: 正常交易模式，使用 RealtimeDataFetcher 从 Sina 获取实时数据
+    - MODE_LAB: 实验/回放模式，使用 ReplayScheduler 从数据库获取历史数据
+    """
+
+    MODE_NORMAL = "normal"
+    MODE_LAB = "lab"
+
+    _instance = None
+    _lock = threading.Lock()
+
+    def __new__(cls):
+        if cls._instance is None:
+            with cls._lock:
+                if cls._instance is None:
+                    cls._instance = super().__new__(cls)
+        return cls._instance
+
+    def __init__(self):
+        if hasattr(self, '_initialized'):
+            return
+        self._mode = self.MODE_NORMAL
+        self._original_fetcher_config: Optional[Dict] = None
+        self._initialized = True
+        log.info("[AttentionModeManager] 模式管理器初始化完成，当前模式: normal")
+
+    def set_mode(self, mode: str, fetcher_config: Optional[Dict] = None):
+        """
+        设置当前模式
+
+        Args:
+            mode: MODE_NORMAL 或 MODE_LAB
+            fetcher_config: 实验模式退出时用于恢复实盘获取器的配置
+        """
+        with self._lock:
+            if self._mode == mode:
+                log.debug(f"[AttentionModeManager] 模式未变化，仍为: {mode}")
+                return
+
+            old_mode = self._mode
+            self._mode = mode
+            log.info(f"[AttentionModeManager] 模式切换: {old_mode} -> {mode}")
+
+            if mode == self.MODE_LAB:
+                self._stop_realtime_fetcher_if_running()
+            elif mode == self.MODE_NORMAL and fetcher_config:
+                self._restore_realtime_fetcher(fetcher_config)
+
+    def get_mode(self) -> str:
+        """获取当前模式"""
+        return self._mode
+
+    def is_lab_mode(self) -> bool:
+        """是否实验模式"""
+        return self._mode == self.MODE_LAB
+
+    def is_normal_mode(self) -> bool:
+        """是否正常交易模式"""
+        return self._mode == self.MODE_NORMAL
+
+    def save_fetcher_config(self, config: Dict):
+        """保存实盘获取器配置（用于后续恢复）"""
+        self._original_fetcher_config = config
+
+    def get_fetcher_config(self) -> Optional[Dict]:
+        """获取保存的实盘获取器配置"""
+        return self._original_fetcher_config
+
+    def _stop_realtime_fetcher_if_running(self):
+        """停止实盘获取器"""
+        try:
+            attention_system = get_attention_system()
+            if attention_system and attention_system._realtime_fetcher:
+                attention_system._realtime_fetcher.stop()
+                log.info("[AttentionModeManager] 已停止实盘获取器")
+        except Exception as e:
+            log.warning(f"[AttentionModeManager] 停止实盘获取器失败: {e}")
+
+    def _restore_realtime_fetcher(self, config: Optional[Dict]):
+        """恢复实盘获取器"""
+        try:
+            attention_system = get_attention_system()
+            if attention_system and config:
+                from deva.naja.attention.realtime_data_fetcher import FetchConfig
+                fc = FetchConfig(**config) if config else None
+                attention_system.start_realtime_fetcher(fc)
+                log.info("[AttentionModeManager] 已恢复实盘获取器")
+        except Exception as e:
+            log.warning(f"[AttentionModeManager] 恢复实盘获取器失败: {e}")
+
+    def enter_lab_mode(self):
+        """进入实验模式"""
+        self.set_mode(self.MODE_LAB)
+
+    def exit_lab_mode(self):
+        """退出实验模式，恢复正常交易"""
+        config = self.get_fetcher_config()
+        self.set_mode(self.MODE_NORMAL, config)
+
+
+def get_mode_manager() -> AttentionModeManager:
+    """获取模式管理器单例"""
+    return AttentionModeManager()
+
+
 def get_attention_integration() -> NajaAttentionIntegration:
     """获取 Attention Integration 单例"""
     global _naja_attention_integration
@@ -467,14 +594,42 @@ def initialize_attention_system(
     初始化注意力系统
 
     这是主要的初始化入口，在 naja 启动时调用
+
+    Args:
+        config: 注意力系统配置
+        intelligence_config: 智能增强系统配置
     """
+    import os
+
     log.info("[initialize_attention_system] 开始初始化...")
+
+    mode_manager = get_mode_manager()
+    is_lab_mode = os.environ.get('NAJA_LAB_MODE') == '1'
+
     integration = get_attention_integration()
     attention_system = integration.initialize(config, intelligence_config=intelligence_config)
     log.info(f"[initialize_attention_system] integration.initialize 完成, _initialized={attention_system._initialized}")
     integration.start_monitoring()
-    log.info("[initialize_attention_system] 调用 start_realtime_fetcher...")
-    attention_system.start_realtime_fetcher()
+
+    if is_lab_mode:
+        log.info("[initialize_attention_system] 检测到实验模式 (NAJA_LAB_MODE=1)，设置模式管理器...")
+        mode_manager.enter_lab_mode()
+        log.info("[initialize_attention_system] 实验模式，跳过实盘获取器启动")
+    else:
+        mode_manager.set_mode(AttentionModeManager.MODE_NORMAL)
+        fetcher_config = {
+            'base_high_interval': 1.0,
+            'base_medium_interval': 10.0,
+            'base_low_interval': 60.0,
+            'enable_market_data': True,
+            'force_trading_mode': False,
+            'playback_mode': False,
+            'playback_speed': 1.0,
+        }
+        mode_manager.save_fetcher_config(fetcher_config)
+        log.info("[initialize_attention_system] 启动实盘获取器...")
+        attention_system.start_realtime_fetcher()
+
     log.info("[initialize_attention_system] 初始化完成")
     return attention_system
 

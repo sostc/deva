@@ -1,0 +1,217 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 900">
+  <defs>
+    <style>
+      .title { font-family: Arial, sans-serif; font-size: 24px; font-weight: bold; fill: #1e293b; }
+      .subtitle { font-family: Arial, sans-serif; font-size: 14px; fill: #64748b; }
+      .box { rx: 8; ry: 8; }
+      .box-start { fill: #dbeafe; stroke: #3b82f6; stroke-width: 2; }
+      .box-stop { fill: #fee2e2; stroke: #ef4444; stroke-width: 2; }
+      .box-load { fill: #dcfce7; stroke: #22c55e; stroke-width: 2; }
+      .box-save { fill: #fef3c7; stroke: #f59e0b; stroke-width: 2; }
+      .box-manager { fill: #f3e8ff; stroke: #a855f7; stroke-width: 2; }
+      .arrow { stroke: #94a3b8; stroke-width: 2; marker-end: url(#arrowhead); }
+      .label { font-family: Arial, sans-serif; font-size: 12px; fill: #475569; }
+      .label-bold { font-family: Arial, sans-serif; font-size: 12px; font-weight: bold; fill: #1e293b; }
+      .section-start { font-family: Arial, sans-serif; font-size: 18px; font-weight: bold; fill: #3b82f6; }
+      .section-stop { font-family: Arial, sans-serif; font-size: 18px; font-weight: bold; fill: #ef4444; }
+      .legend { font-family: Arial, sans-serif; font-size: 11px; }
+    </style>
+    <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#94a3b8"/>
+    </marker>
+  </defs>
+
+  <!-- Title -->
+  <text x="600" y="40" text-anchor="middle" class="title">Naja 系统持久化流程</text>
+  <text x="600" y="65" text-anchor="middle" class="subtitle">启动恢复 &amp; 关闭保存</text>
+
+  <!-- Legend -->
+  <rect x="850" y="85" width="320" height="120" fill="#f8fafc" stroke="#e2e8f0" rx="4"/>
+  <text x="860" y="105" class="label-bold">图例</text>
+  <rect x="860" y="115" width="20" height="14" class="box box-load"/>
+  <text x="888" y="127" class="legend">启动加载</text>
+  <rect x="860" y="135" width="20" height="14" class="box box-save"/>
+  <text x="888" y="147" class="legend">关闭保存</text>
+  <rect x="860" y="155" width="20" height="14" class="box box-manager"/>
+  <text x="888" y="167" class="legend">管理器</text>
+  <rect x="860" y="175" width="20" height="14" class="box box-start"/>
+  <text x="888" y="187" class="legend">系统入口</text>
+
+  <!-- ==================== 启动流程 (左侧) ==================== -->
+  <text x="280" y="110" text-anchor="middle" class="section-start">🚀 启动流程</text>
+
+  <!-- 启动入口 -->
+  <rect x="180" y="130" width="200" height="50" class="box box-start"/>
+  <text x="280" y="150" text-anchor="middle" class="label-bold">Bootstrap.start()</text>
+  <text x="280" y="168" text-anchor="middle" class="label">系统启动入口</text>
+
+  <!-- Supervisor start -->
+  <rect x="180" y="210" width="200" height="45" class="box box-manager"/>
+  <text x="280" y="230" text-anchor="middle" class="label-bold">Supervisor.start_monitoring()</text>
+  <text x="280" y="247" text-anchor="middle" class="label">启动监控线程</text>
+
+  <!-- 箭头: Bootstrap -> Supervisor -->
+  <line x1="280" y1="180" x2="280" y2="205" class="arrow"/>
+
+  <!-- 启动流程分组 -->
+  <rect x="30" y="275" width="500" height="380" fill="#f8fafc" stroke="#e2e8f0" rx="8" stroke-dasharray="5,5"/>
+  <text x="45" y="295" class="label-bold">并行加载各组件状态</text>
+
+  <!-- DataSource Manager -->
+  <rect x="50" y="310" width="180" height="55" class="box box-load"/>
+  <text x="140" y="330" text-anchor="middle" class="label-bold">DataSourceManager</text>
+  <text x="140" y="345" text-anchor="middle" class="label">load_from_db()</text>
+  <text x="140" y="360" text-anchor="middle" class="label" font-size="10">↓ get_latest_data() 恢复</text>
+
+  <!-- Strategy Manager -->
+  <rect x="270" y="310" width="180" height="55" class="box box-load"/>
+  <text x="360" y="330" text-anchor="middle" class="label-bold">StrategyManager</text>
+  <text x="360" y="345" text-anchor="middle" class="label">load_from_db()</text>
+  <text x="360" y="360" text-anchor="middle" class="label">restore_running_states()</text>
+
+  <!-- Task Manager -->
+  <rect x="50" y="385" width="180" height="55" class="box box-load"/>
+  <text x="140" y="405" text-anchor="middle" class="label-bold">TaskManager</text>
+  <text x="140" y="420" text-anchor="middle" class="label">load_from_db()</text>
+  <text x="140" y="435" text-anchor="middle" class="label">restore_running_states()</text>
+
+  <!-- Radar Engine -->
+  <rect x="270" y="385" width="180" height="55" class="box box-load"/>
+  <text x="360" y="405" text-anchor="middle" class="label-bold">RadarEngine</text>
+  <text x="360" y="420" text-anchor="middle" class="label">load_state()</text>
+  <text x="360" y="435" text-anchor="middle" class="label">恢复短期/中期/长期记忆</text>
+
+  <!-- Signal Stream -->
+  <rect x="50" y="460" width="180" height="55" class="box box-load"/>
+  <text x="140" y="480" text-anchor="middle" class="label-bold">SignalStream</text>
+  <text x="140" y="495" text-anchor="middle" class="label">_load_from_persistence()</text>
+  <text x="140" y="510" text-anchor="middle" class="label">恢复最近信号</text>
+
+  <!-- Insight Pool -->
+  <rect x="270" y="460" width="180" height="55" class="box box-load"/>
+  <text x="360" y="480" text-anchor="middle" class="label-bold">InsightPool</text>
+  <text x="360" y="495" text-anchor="middle" class="label">load()</text>
+  <text x="360" y="510" text-anchor="middle" class="label">恢复洞察数据</text>
+
+  <!-- Cognition Engine -->
+  <rect x="50" y="535" width="180" height="55" class="box box-load"/>
+  <text x="140" y="555" text-anchor="middle" class="label-bold">CognitionEngine</text>
+  <text x="140" y="570" text-anchor="middle" class="label">load_state()</text>
+  <text x="140" y="585" text-anchor="middle" class="label">恢复认知状态</text>
+
+  <!-- Attention Tracker -->
+  <rect x="270" y="535" width="180" height="55" class="box box-load"/>
+  <text x="360" y="555" text-anchor="middle" class="label-bold">AttentionTracker</text>
+  <text x="360" y="570" text-anchor="middle" class="label">_load_from_db()</text>
+  <text x="360" y="585" text-anchor="middle" class="label">恢复跟踪状态</text>
+
+  <!-- 箭头: Supervisor -> 组件组 -->
+  <line x1="280" y1="255" x2="280" y2="275" class="arrow"/>
+  <line x1="280" y1="275" x2="140" y2="275" class="arrow"/>
+  <line x1="280" y1="275" x2="360" y2="275" class="arrow"/>
+
+  <!-- ==================== 关闭流程 (右侧) ==================== -->
+  <text x="920" y="110" text-anchor="middle" class="section-stop">🛑 关闭流程</text>
+
+  <!-- 关闭入口 -->
+  <rect x="820" y="130" width="200" height="50" class="box box-stop"/>
+  <text x="920" y="150" text-anchor="middle" class="label-bold">shutdown_handler()</text>
+  <text x="920" y="168" text-anchor="middle" class="label">收到 SIGINT/SIGTERM</text>
+
+  <!-- Supervisor shutdown -->
+  <rect x="820" y="210" width="200" height="45" class="box box-manager"/>
+  <text x="920" y="230" text-anchor="middle" class="label-bold">Supervisor.shutdown()</text>
+  <text x="920" y="247" text-anchor="middle" class="label">_stop_all_components()</text>
+
+  <!-- 箭头: 入口 -> Supervisor -->
+  <line x1="920" y1="180" x2="920" y2="205" class="arrow"/>
+
+  <!-- 关闭流程分组 -->
+  <rect x="650" y="275" width="520" height="380" fill="#fef2f2" stroke="#fecaca" rx="8" stroke-dasharray="5,5"/>
+  <text x="665" y="295" class="label-bold">按顺序停止并保存各组件</text>
+
+  <!-- 第一阶段: 核心系统 -->
+  <text x="665" y="315" class="label-bold" fill="#dc2626">第一阶段：核心系统持久化</text>
+
+  <!-- SignalStream -->
+  <rect x="665" y="325" width="200" height="40" class="box box-save"/>
+  <text x="765" y="340" text-anchor="middle" class="label-bold">SignalStream</text>
+  <text x="765" y="355" text-anchor="middle" class="label">close(persist=True)</text>
+
+  <!-- ResultStore -->
+  <rect x="900" y="325" width="200" height="40" class="box box-save"/>
+  <text x="1000" y="340" text-anchor="middle" class="label-bold">ResultStore</text>
+  <text x="1000" y="355" text-anchor="middle" class="label">close()</text>
+
+  <!-- InsightPool -->
+  <rect x="665" y="380" width="200" height="40" class="box box-save"/>
+  <text x="765" y="395" text-anchor="middle" class="label-bold">InsightPool</text>
+  <text x="765" y="410" text-anchor="middle" class="label">persist()</text>
+
+  <!-- Attention persist_state -->
+  <rect x="900" y="380" width="200" height="40" class="box box-save"/>
+  <text x="1000" y="395" text-anchor="middle" class="label-bold">AttentionSystem</text>
+  <text x="1000" y="410" text-anchor="middle" class="label">persist_state()</text>
+
+  <!-- 第二阶段: 引擎状态 -->
+  <text x="665" y="440" class="label-bold" fill="#dc2626">第二阶段：引擎状态保存</text>
+
+  <!-- Radar save_state -->
+  <rect x="665" y="450" width="200" height="40" class="box box-save"/>
+  <text x="765" y="465" text-anchor="middle" class="label-bold">RadarEngine</text>
+  <text x="765" y="480" text-anchor="middle" class="label">save_state()</text>
+
+  <!-- Cognition save_state -->
+  <rect x="900" y="450" width="200" height="40" class="box box-save"/>
+  <text x="1000" y="465" text-anchor="middle" class="label-bold">CognitionEngine</text>
+  <text x="1000" y="480" text-anchor="middle" class="label">save_state()</text>
+
+  <!-- Bandit Runner -->
+  <rect x="665" y="505" width="200" height="40" class="box box-save"/>
+  <text x="765" y="520" text-anchor="middle" class="label-bold">BanditRunner</text>
+  <text x="765" y="535" text-anchor="middle" class="label">stop()</text>
+
+  <!-- 第三阶段: Manager 停止 -->
+  <text x="665" y="565" class="label-bold" fill="#dc2626">第三阶段：Manager 停止</text>
+
+  <!-- StrategyManager stop_all -->
+  <rect x="665" y="575" width="200" height="55" class="box box-manager"/>
+  <text x="765" y="595" text-anchor="middle" class="label-bold">StrategyManager</text>
+  <text x="765" y="610" text-anchor="middle" class="label">stop_all()</text>
+  <text x="765" y="625" text-anchor="middle" class="label" font-size="10">→ entry.stop() → save()</text>
+
+  <!-- DataSourceManager stop_all -->
+  <rect x="900" y="575" width="200" height="55" class="box box-manager"/>
+  <text x="1000" y="595" text-anchor="middle" class="label-bold">DataSourceManager</text>
+  <text x="1000" y="610" text-anchor="middle" class="label">stop_all()</text>
+  <text x="1000" y="625" text-anchor="middle" class="label" font-size="10">→ entry.stop() → save()</text>
+
+  <!-- TaskManager stop_all -->
+  <rect x="665" y="645" width="200" height="55" class="box box-manager"/>
+  <text x="765" y="665" text-anchor="middle" class="label-bold">TaskManager</text>
+  <text x="765" y="680" text-anchor="middle" class="label">stop_all()</text>
+  <text x="765" y="695" text-anchor="middle" class="label" font-size="10">→ entry.stop() → save()</text>
+
+  <!-- DictionaryManager stop -->
+  <rect x="900" y="645" width="200" height="55" class="box box-manager"/>
+  <text x="1000" y="665" text-anchor="middle" class="label-bold">DictionaryManager</text>
+  <text x="1000" y="680" text-anchor="middle" class="label">stop_all()</text>
+
+  <!-- 箭头: Supervisor -> 各组件 -->
+  <line x1="920" y1="255" x2="920" y2="275" class="arrow"/>
+  <line x1="920" y1="275" x2="765" y2="275" class="arrow"/>
+  <line x1="920" y1="275" x2="1000" y2="275" class="arrow"/>
+
+  <!-- 阶段箭头 -->
+  <line x1="920" y1="370" x2="920" y2="380" class="arrow" stroke="#ef4444"/>
+  <line x1="920" y1="495" x2="920" y2="505" class="arrow" stroke="#ef4444"/>
+  <line x1="920" y1="550" x2="920" y2="560" class="arrow" stroke="#ef4444"/>
+
+  <!-- 底部说明 -->
+  <rect x="50" y="780" width="1100" height="90" fill="#f0f9ff" stroke="#bae6fd" rx="8"/>
+  <text x="65" y="805" class="label-bold">关键设计：</text>
+  <text x="65" y="825" class="label">• DataSource 最新数据：运行时只存内存，关闭时 save() 才写入 DB，启动时从 DB 恢复</text>
+  <text x="65" y="845" class="label">• 关闭时 Supervisor 统一协调：先持久化核心系统，再停止各 Manager</text>
+  <text x="65" y="865" class="label">• 所有 Manager.stop_all() 都会调用 entry.stop() → save()，确保状态不丢失</text>
+</svg>

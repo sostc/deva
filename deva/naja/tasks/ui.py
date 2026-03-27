@@ -1,11 +1,12 @@
 """任务管理 UI"""
 
 from datetime import datetime
+import time
 from typing import Optional
 
 from pywebio.session import run_async
 
-from ..common.ui_style import apply_strategy_like_styles, render_empty_state, render_stats_cards
+from ..common.ui_style import apply_strategy_like_styles, render_empty_state, render_stats_cards, format_timestamp, render_status_badge, render_detail_section
 from ..page_help import render_help_collapse
 from ..scheduler.ui import (
     build_cron_expr_wizard,
@@ -29,26 +30,6 @@ def execute(event=None):
     print(f"Task executed at {time.strftime('%Y-%m-%d %H:%M:%S')}, event={event}")
     return "done"
 '''
-
-
-def _fmt_ts(ts: float) -> str:
-    if not ts:
-        return "-"
-    return datetime.fromtimestamp(ts).strftime("%Y-%m-%d %H:%M:%S")
-
-
-def _render_status_badge(is_running: bool) -> str:
-    if is_running:
-        return '<span style="display:inline-block;padding:4px 12px;border-radius:20px;font-size:12px;font-weight:500;background:#e8f5e9;color:#2e7d32;">● 运行中</span>'
-    return '<span style="display:inline-block;padding:4px 12px;border-radius:20px;font-size:12px;font-weight:500;background:#f5f5f5;color:#757575;">○ 已停止</span>'
-
-
-def _render_detail_section(title: str) -> str:
-    return f"""
-    <div style="margin:20px 0 12px 0;padding-bottom:8px;border-bottom:2px solid #e0e0e0;">
-        <span style="font-size:15px;font-weight:600;color:#333;">{title}</span>
-    </div>
-    """
 
 
 def _normalize_mode(entry) -> str:
@@ -409,7 +390,7 @@ def _render_task_content(ctx: dict):
         table_data = _build_table_data(ctx, visible_entries, mgr)
         ctx["put_table"](
             table_data,
-            header=["名称", "执行方式", "状态", "成功", "失败", "最后运行", "操作"],
+            header=["名称", "来源", "执行方式", "状态", "成功", "失败", "最后运行", "操作"],
             scope="task_content",
         )
     else:
@@ -419,6 +400,9 @@ def _render_task_content(ctx: dict):
     if active_tab == "normal":
         ctx["put_buttons"](
             [{"label": "➕ 创建任务", "value": "create", "color": "primary"}], onclick=lambda v, m=mgr, c=ctx: _create_task_dialog(m, c), scope="task_content"
+        )
+        ctx["put_buttons"](
+            [{"label": "📁 导出全部到文件", "value": "export_all", "color": "info"}], onclick=lambda v, m=mgr, c=ctx: _export_all_tasks_to_file(m, c), scope="task_content"
         )
     ctx["put_html"]("</div>", scope="task_content")
 
@@ -453,7 +437,7 @@ def _render_task_stats_html(stats: dict) -> str:
 def _build_table_data(ctx: dict, entries: list, mgr) -> list:
     table_data = []
     for e in entries:
-        status_html = _render_status_badge(e.is_running)
+        status_html = render_status_badge(e.is_running)
 
         mode = _normalize_mode(e)
         
@@ -466,8 +450,14 @@ def _build_table_data(ctx: dict, entries: list, mgr) -> list:
         execution_mode_html = f'<span style="display:block;">{badge_html}<span style="background:#e3f2fd;color:#1565c0;padding:2px 8px;border-radius:4px;font-size:12px;">{_mode_label(mode)}</span><br><span style="font-size:11px;">{_schedule_desc(e)}</span></span>'
 
         last_run_ts = getattr(e._state, "last_run_time", 0)
-        last_run = _fmt_ts(last_run_ts) if last_run_ts else "-"
+        last_run = format_timestamp(last_run_ts) if last_run_ts else "-"
         toggle_color = "danger" if e.is_running else "success"
+
+        source = getattr(e._metadata, 'source', 'nb') if hasattr(e, '_metadata') else 'nb'
+        if source == 'file':
+            source_html = '<span style="background:#e8f5e9;color:#2e7d32;padding:2px 8px;border-radius:4px;font-size:11px;">📁 文件</span>'
+        else:
+            source_html = '<span style="background:#e3f2fd;color:#1565c0;padding:2px 8px;border-radius:4px;font-size:11px;">💾 NB</span>'
 
         action_btns = ctx["put_buttons"](
             [
@@ -485,6 +475,7 @@ def _build_table_data(ctx: dict, entries: list, mgr) -> list:
                 ctx["put_html"](
                     f'<div title="{e.name}" style="max-width:460px;white-space:normal;word-break:break-word;line-height:1.4;"><strong>{e.name}</strong></div>'
                 ),
+                ctx["put_html"](source_html),
                 ctx["put_html"](execution_mode_html),
                 ctx["put_html"](status_html),
                 ctx["put_html"](f'<span style="color:#28a745;font-weight:500;">{e._state.success_count}</span>'),
@@ -495,6 +486,72 @@ def _build_table_data(ctx: dict, entries: list, mgr) -> list:
         )
 
     return table_data
+
+
+def _export_all_tasks_to_file(mgr, ctx: dict):
+    """导出所有任务到文件配置"""
+    from deva.naja.config.file_config import get_file_config_manager
+
+    file_mgr = get_file_config_manager('task')
+    count = 0
+
+    for entry in mgr.list_all():
+        if not entry or not entry.name:
+            continue
+
+        try:
+            from deva.naja.tasks import TaskEntry, TaskMetadata, TaskState
+            from deva.naja.config.file_config import ConfigFileItem, TaskConfigMetadata
+
+            meta = entry._metadata
+            config_meta = TaskConfigMetadata(
+                id=entry.id,
+                name=entry.name,
+                description=meta.description or '',
+                tags=meta.tags or [],
+                category=getattr(meta, 'category', ''),
+                created_at=getattr(meta, 'created_at', 0),
+                updated_at=getattr(meta, 'updated_at', time.time()),
+                enabled=getattr(meta, 'enabled', True),
+                source='file',
+                task_type=getattr(meta, 'task_type', 'timer'),
+                execution_mode=getattr(meta, 'execution_mode', 'timer'),
+                interval_seconds=getattr(meta, 'interval_seconds', 60.0),
+                scheduler_trigger=getattr(meta, 'scheduler_trigger', 'interval'),
+                cron_expr=getattr(meta, 'cron_expr', ''),
+                run_at=getattr(meta, 'run_at', ''),
+                event_source=getattr(meta, 'event_source', 'log'),
+                event_condition=getattr(meta, 'event_condition', ''),
+                event_condition_type=getattr(meta, 'event_condition_type', 'contains'),
+            )
+
+            parameters = {
+                'timeout': getattr(meta, 'timeout', 30),
+                'retry_count': getattr(meta, 'retry_count', 3),
+            }
+
+            config = {
+                'task_type': getattr(meta, 'task_type', 'timer'),
+                'execution_mode': getattr(meta, 'execution_mode', 'timer'),
+                'scheduler_trigger': getattr(meta, 'scheduler_trigger', 'interval'),
+                'cron_expr': getattr(meta, 'cron_expr', ''),
+            }
+
+            item = ConfigFileItem(
+                name=entry.name,
+                config_type='task',
+                metadata=config_meta,
+                parameters=parameters,
+                config=config,
+                func_code=entry._func_code or '',
+            )
+
+            if file_mgr.save(item):
+                count += 1
+        except Exception as e:
+            print(f"Export task failed: {entry.name}, error: {e}")
+
+    ctx["toast"](f"已导出 {count} 个任务到文件", color="success")
 
 
 def _handle_task_action(action: str, mgr, ctx: dict):
@@ -544,7 +601,7 @@ async def _show_task_detail(ctx: dict, mgr, entry_id: str):
     mode = _normalize_mode(entry)
 
     with ctx["popup"](f"任务详情: {entry.name}", size="large", closable=True):
-        ctx["put_html"](_render_detail_section("📊 基本信息"))
+        ctx["put_html"](render_detail_section("📊 基本信息"))
 
         ctx["put_table"](
             [
@@ -554,25 +611,25 @@ async def _show_task_detail(ctx: dict, mgr, entry_id: str):
                 ["状态", "运行中" if entry.is_running else "已停止"],
                 ["执行方式", _mode_label(mode)],
                 ["触发配置", _schedule_desc(entry)],
-                ["创建时间", _fmt_ts(entry._metadata.created_at)],
+                ["创建时间", format_timestamp(entry._metadata.created_at)],
             ],
             header=["字段", "值"],
         )
 
-        ctx["put_html"](_render_detail_section("📈 执行统计"))
+        ctx["put_html"](render_detail_section("📈 执行统计"))
 
         ctx["put_table"](
             [
                 ["成功次数", entry._state.success_count],
                 ["失败次数", entry._state.failure_count],
-                ["最后运行", _fmt_ts(entry._state.last_run_time)],
+                ["最后运行", format_timestamp(entry._state.last_run_time)],
                 ["最后结果", (entry._state.last_result or "-")[:100]],
                 ["最后错误", entry._state.last_error or "-"],
             ],
             header=["字段", "值"],
         )
 
-        ctx["put_html"](_render_detail_section("💻 执行代码"))
+        ctx["put_html"](render_detail_section("💻 执行代码"))
 
         if entry.func_code:
             ctx["put_code"](entry.func_code, language="python")
