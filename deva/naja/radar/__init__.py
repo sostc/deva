@@ -1,9 +1,16 @@
 """Radar Engine."""
 
-from .engine import RadarEngine, RadarEvent, get_radar_engine
+from .engine import (
+    RadarEngine,
+    RadarEvent,
+    RadarThread,
+    get_radar_engine,
+    _get_frequency_label,
+    RADAR_EVENTS_TABLE,
+    RADAR_THREAD_TABLE,
+)
 from .news_fetcher import (
     RadarNewsFetcher,
-    RadarNewsFetcherV2,
     RadarNewsProcessor,
     NewsItem,
     NewsTopicCluster,
@@ -16,13 +23,19 @@ from .trading_clock import (
     is_market_closed,
     TRADING_CLOCK_STREAM,
 )
+from .openrouter_monitor import (
+    get_openrouter_trend,
+    get_openrouter_full_data,
+    refresh_openrouter_data,
+    scheduled_openrouter_check,
+    TREND_TABLE,
+)
 
 __all__ = [
     "RadarEngine",
     "RadarEvent",
     "get_radar_engine",
     "RadarNewsFetcher",
-    "RadarNewsFetcherV2",
     "RadarNewsProcessor",
     "NewsItem",
     "NewsTopicCluster",
@@ -32,4 +45,9 @@ __all__ = [
     "is_trading_time",
     "is_market_closed",
     "TRADING_CLOCK_STREAM",
+    "get_openrouter_trend",
+    "get_openrouter_full_data",
+    "refresh_openrouter_data",
+    "scheduled_openrouter_check",
+    "TREND_TABLE",
 ]

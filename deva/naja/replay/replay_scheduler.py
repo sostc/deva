@@ -158,6 +158,8 @@ class ReplayScheduler:
         self._init_db()
         self._init_replay_time()
 
+        self._enable_market_time_service()
+
         self._thread = threading.Thread(target=self._fetch_loop, daemon=True)
         self._thread.start()
 
@@ -170,6 +172,8 @@ class ReplayScheduler:
 
         self._running = False
         self._stop_event.set()
+
+        self._disable_market_time_service()
 
         if self._thread:
             self._thread.join(timeout=5.0)
@@ -272,6 +276,8 @@ class ReplayScheduler:
         self._last_fetch_time = time.time()
         self._current_replay_time = self._parse_timestamp(key)
         self._fetch_count += 1
+
+        self._update_market_time()
 
         filtered_data = self._filter_by_level(data)
         self._latest_sent_data = filtered_data  # 存储最后发送的数据
@@ -383,6 +389,39 @@ class ReplayScheduler:
             'progress': f"{self._key_index}/{len(self._data_keys)}" if self._data_keys else "0/0",
             'last_processing_time_ms': self._last_processing_time,
         }
+
+    def _enable_market_time_service(self):
+        """启用市场时间服务（回放模式）"""
+        try:
+            from deva.naja.common.market_time import get_market_time_service
+            mts = get_market_time_service()
+            mts.set_replay_mode(True)
+            log.info("[ReplayScheduler] 已启用市场时间服务（回放模式）")
+        except Exception as e:
+            log.warning(f"[ReplayScheduler] 无法启用市场时间服务: {e}")
+
+    def _update_market_time(self):
+        """更新市场时间服务的时间"""
+        if self._current_replay_time is None:
+            return
+        try:
+            from deva.naja.common.market_time import get_market_time_service
+            mts = get_market_time_service()
+            replay_ts = self._current_replay_time.timestamp()
+            mts.set_market_time(replay_ts)
+            log.debug(f"[ReplayScheduler] 更新市场时间: {self._current_replay_time}")
+        except Exception as e:
+            log.debug(f"[ReplayScheduler] 更新市场时间失败: {e}")
+
+    def _disable_market_time_service(self):
+        """关闭市场时间服务（回放结束时）"""
+        try:
+            from deva.naja.common.market_time import get_market_time_service
+            mts = get_market_time_service()
+            mts.set_replay_mode(False)
+            log.info("[ReplayScheduler] 已关闭市场时间服务（退出回放模式）")
+        except Exception as e:
+            log.warning(f"[ReplayScheduler] 无法关闭市场时间服务: {e}")
 
     def set_interval(self, interval: float):
         """设置目标间隔（供外部调用）"""

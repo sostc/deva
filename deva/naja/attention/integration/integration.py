@@ -46,8 +46,8 @@ class IntelligenceConfig:
     enable_predictive: bool = True
     enable_feedback: bool = True
     enable_budget: bool = True
-    enable_propagation: bool = False
-    enable_strategy_learning: bool = False
+    enable_propagation: bool = True
+    enable_strategy_learning: bool = True
 
     alpha: float = 0.7
     beta: float = 0.3
@@ -495,27 +495,25 @@ def create_intelligence_system(
 
 
 create_system = create_intelligence_system
-create_v2_system = create_intelligence_system
 
 
-def migrate_legacy(
-    existing_system: AttentionSystem,
-    intelligence_config: Optional[IntelligenceConfig] = None
+def _get_intelligence_augmented_system(
+    intelligence_config: Optional[IntelligenceConfig] = None,
+    enable_propagation: bool = True,
+    enable_strategy_learning: bool = True
 ) -> _IntelligenceAugmentedSystemInternal:
     """
-    工厂函数: 从旧系统迁移
+    内部工厂函数：创建增强智能系统
     """
+    config = AttentionSystemConfig()
     intelligence_config = intelligence_config or IntelligenceConfig()
 
-    new_system = _IntelligenceAugmentedSystemInternal(
-        config=existing_system.config,
-        intelligence_config=intelligence_config
+    return _IntelligenceAugmentedSystemInternal(
+        config=config,
+        intelligence_config=intelligence_config,
+        enable_propagation=enable_propagation,
+        enable_strategy_learning=enable_strategy_learning
     )
-
-    new_system.base_system = existing_system
-    new_system._initialized = existing_system._initialized
-
-    return new_system
 
 
 IntelligenceAugmentedSystem = _IntelligenceAugmentedSystemInternal

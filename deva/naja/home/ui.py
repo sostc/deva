@@ -21,39 +21,84 @@ async def render_home(ctx: dict):
     dict_stats = dict_mgr.get_stats()
 
 
-    ctx["put_markdown"]('''### 🚀 Naja 管理平台
+    ctx["put_markdown"]('''### 🚀 Naja 智慧系统''')
 
-基于 **RecoverableUnit** 抽象的统一管理平台，集成 **Attention Kernel** 注意力中枢，实现"境随心转，执处成真"的智能决策系统。
+    try:
+        from deva.naja.attention.center import get_orchestrator
+        from deva.naja.radar import get_radar_engine
+        from deva.naja.bandit import get_bandit_runner
+        from deva.naja.cognition.core import get_cognition_system
 
-**核心特性：**
-- ✅ 多头注意力机制（Market / News / Flow / Meta）
-- ✅ 统一的状态管理
-- ✅ 自动恢复机制
-- ✅ 代码动态编译
-- ✅ 持久化存储
-- ✅ Bandit 反馈闭环
-''')
+        orch = get_orchestrator()
+        orch_stats = orch.get_stats() if hasattr(orch, 'get_stats') else {}
+
+        radar = get_radar_engine()
+        radar_events = radar.get_recent_events(limit=100) if hasattr(radar, 'get_recent_events') else []
+
+        bandit = get_bandit_runner()
+        bandit_stats = bandit.get_stats() if hasattr(bandit, 'get_stats') else {}
+
+        cognition = get_cognition_system()
+        cognition_stats = cognition.get_stats() if hasattr(cognition, 'get_stats') else {}
+
+        attention_total = orch_stats.get('registered_strategies', 0)
+        radar_count = len(radar_events)
+        bandit_actions = bandit_stats.get('total_actions', 0) if isinstance(bandit_stats, dict) else 0
+        cognition_signals = cognition_stats.get('signals_processed', 0) if isinstance(cognition_stats, dict) else 0
+
+    except Exception as e:
+        attention_total = ds_stats.get('total', 0)
+        radar_count = 0
+        bandit_actions = 0
+        cognition_signals = 0
 
     ctx["put_html"](f"""
-    <div style="display: flex; flex-wrap: wrap; gap: 15px; margin: 20px 0;">
-        <div class="stats-card" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);">
-            <div class="stats-value">{ds_stats['total']}</div>
-            <div class="stats-label">📡 数据源</div>
+    <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 15px; margin: 20px 0;">
+        <div style="background: linear-gradient(135deg, #1a3a5c 0%, #0d2137 100%); border-radius: 12px; padding: 20px; text-align: center; transition: transform 0.2s; cursor: pointer;" onmouseover="this.style.transform='scale(1.05)'" onmouseout="this.style.transform='scale(1)'">
+            <div style="font-size: 32px; font-weight: 700; color: #00d4ff;">{attention_total}</div>
+            <div style="font-size: 14px; color: #fff; margin-top: 8px;">🧠 注意力策略</div>
+            <div style="font-size: 11px; color: #94a3b8; margin-top: 5px;">聚焦核心问题，Query驱动优先级</div>
         </div>
-        <div class="stats-card" style="background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);">
-            <div class="stats-value">{task_stats['total']}</div>
-            <div class="stats-label">⏰ 任务</div>
+        <div style="background: linear-gradient(135deg, #3a2a1a 0%, #2a1a0d 100%); border-radius: 12px; padding: 20px; text-align: center; transition: transform 0.2s; cursor: pointer;" onmouseover="this.style.transform='scale(1.05)'" onmouseout="this.style.transform='scale(1)'">
+            <div style="font-size: 32px; font-weight: 700; color: #f59e0b;">{radar_count}</div>
+            <div style="font-size: 14px; color: #fff; margin-top: 8px;">📡 雷达事件</div>
+            <div style="font-size: 11px; color: #94a3b8; margin-top: 5px;">发现市场异常，感知风险信号</div>
         </div>
-        <div class="stats-card" style="background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);">
-            <div class="stats-value">{strategy_stats['total']}</div>
-            <div class="stats-label">📊 策略</div>
+        <div style="background: linear-gradient(135deg, #3a1a2a 0%, #2a0d1a 100%); border-radius: 12px; padding: 20px; text-align: center; transition: transform 0.2s; cursor: pointer;" onmouseover="this.style.transform='scale(1.05)'" onmouseout="this.style.transform='scale(1)'">
+            <div style="font-size: 32px; font-weight: 700; color: #f43f5e;">{bandit_actions}</div>
+            <div style="font-size: 14px; color: #fff; margin-top: 8px;">🎰 Bandit决策</div>
+            <div style="font-size: 11px; color: #94a3b8; margin-top: 5px;">交易闭环优化，持续学习反馈</div>
         </div>
-        <div class="stats-card" style="background: linear-gradient(135deg, #43e97b 0%, #38f9d7 100%);">
-            <div class="stats-value">{dict_stats['total']}</div>
-            <div class="stats-label">📚 字典</div>
+        <div style="background: linear-gradient(135deg, #2a1a3a 0%, #1a0d2a 100%); border-radius: 12px; padding: 20px; text-align: center; transition: transform 0.2s; cursor: pointer;" onmouseover="this.style.transform='scale(1.05)'" onmouseout="this.style.transform='scale(1)'">
+            <div style="font-size: 32px; font-weight: 700; color: #8b5cf6;">{cognition_signals}</div>
+            <div style="font-size: 14px; color: #fff; margin-top: 8px;">🧩 认知信号</div>
+            <div style="font-size: 11px; color: #94a3b8; margin-top: 5px;">跨信号共振，验证投资判断</div>
+        </div>
+        <div style="background: linear-gradient(135deg, #1a3a3a 0%, #0d2727 100%); border-radius: 12px; padding: 20px; text-align: center; transition: transform 0.2s; cursor: pointer;" onmouseover="this.style.transform='scale(1.05)'" onmouseout="this.style.transform='scale(1)'">
+            <div style="font-size: 32px; font-weight: 700; color: #667eea;">{ds_stats['total']}</div>
+            <div style="font-size: 14px; color: #fff; margin-top: 8px;">📡 数据源</div>
+            <div style="font-size: 11px; color: #94a3b8; margin-top: 5px;">实时/定时采集，数据驱动</div>
+        </div>
+        <div style="background: linear-gradient(135deg, #3a1a3a 0%, #2a0d2a 100%); border-radius: 12px; padding: 20px; text-align: center; transition: transform 0.2s; cursor: pointer;" onmouseover="this.style.transform='scale(1.05)'" onmouseout="this.style.transform='scale(1)'">
+            <div style="font-size: 32px; font-weight: 700; color: #f093fb;">{task_stats['total']}</div>
+            <div style="font-size: 14px; color: #fff; margin-top: 8px;">⏰ 任务</div>
+            <div style="font-size: 11px; color: #94a3b8; margin-top: 5px;">定时调度执行，自动运行</div>
+        </div>
+        <div style="background: linear-gradient(135deg, #1a3a4a 0%, #0d2a3a 100%); border-radius: 12px; padding: 20px; text-align: center; transition: transform 0.2s; cursor: pointer;" onmouseover="this.style.transform='scale(1.05)'" onmouseout="this.style.transform='scale(1)'">
+            <div style="font-size: 32px; font-weight: 700; color: #4facfe;">{strategy_stats['total']}</div>
+            <div style="font-size: 14px; color: #fff; margin-top: 8px;">📊 策略</div>
+            <div style="font-size: 11px; color: #94a3b8; margin-top: 5px;">处理与决策，执行交易</div>
+        </div>
+        <div style="background: linear-gradient(135deg, #1a3a1a 0%, #0d2a0d 100%); border-radius: 12px; padding: 20px; text-align: center; transition: transform 0.2s; cursor: pointer;" onmouseover="this.style.transform='scale(1.05)'" onmouseout="this.style.transform='scale(1)'">
+            <div style="font-size: 32px; font-weight: 700; color: #43e97b;">{dict_stats['total']}</div>
+            <div style="font-size: 14px; color: #fff; margin-top: 8px;">📚 字典</div>
+            <div style="font-size: 11px; color: #94a3b8; margin-top: 5px;">参考数据，配置管理</div>
         </div>
     </div>
     """)
+
+    values_html = _render_values_section()
+    ctx["put_html"](values_html)
 
     ctx["put_html"]('''
     <div style="margin-top: 30px; padding: 30px; background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%); border-radius: 16px; box-shadow: 0 10px 40px rgba(0,0,0,0.2);">
@@ -179,74 +224,6 @@ async def render_home(ctx: dict):
                 <div style="color: #fbbf24; font-weight: 600; margin-top: 8px;">Meta Head</div>
                 <div style="color: #aaa; font-size: 11px; margin-top: 5px;">历史alpha信号</div>
             </div>
-        </div>
-    </div>
-    ''')
-
-    ctx["put_html"]('''
-    <div style="margin-top: 30px;">
-        <h3>快速导航</h3>
-        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; margin-top: 15px;">
-            <a href="/dsadmin" style="text-decoration: none;">
-                <div style="padding: 20px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 12px; color: white; text-align: center;">
-                    <div style="font-size: 24px;">📡</div>
-                    <div style="font-size: 16px; font-weight: 600; margin-top: 8px;">数据源管理</div>
-                </div>
-            </a>
-            <a href="/signaladmin" style="text-decoration: none;">
-                <div style="padding: 20px; background: linear-gradient(135deg, #f5576c 0%, #f093fb 100%); border-radius: 12px; color: white; text-align: center;">
-                    <div style="font-size: 24px;">🚨</div>
-                    <div style="font-size: 16px; font-weight: 600; margin-top: 8px;">💰 信号流</div>
-                </div>
-            </a>
-            <a href="/attentionadmin" style="text-decoration: none;">
-                <div style="padding: 20px; background: linear-gradient(135deg, #00d4ff 0%, #0099cc 100%); border-radius: 12px; color: white; text-align: center;">
-                    <div style="font-size: 24px;">🧠</div>
-                    <div style="font-size: 16px; font-weight: 600; margin-top: 8px;">注意力系统</div>
-                </div>
-            </a>
-            <a href="/taskadmin" style="text-decoration: none;">
-                <div style="padding: 20px; background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); border-radius: 12px; color: white; text-align: center;">
-                    <div style="font-size: 24px;">⏰</div>
-                    <div style="font-size: 16px; font-weight: 600; margin-top: 8px;">任务管理</div>
-                </div>
-            </a>
-            <a href="/strategyadmin" style="text-decoration: none;">
-                <div style="padding: 20px; background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%); border-radius: 12px; color: white; text-align: center;">
-                    <div style="font-size: 24px;">📊</div>
-                    <div style="font-size: 16px; font-weight: 600; margin-top: 8px;">策略管理</div>
-                </div>
-            </a>
-            <a href="/radaradmin" style="text-decoration: none;">
-                <div style="padding: 20px; background: linear-gradient(135deg, #f59e0b 0%, #ef4444 100%); border-radius: 12px; color: white; text-align: center;">
-                    <div style="font-size: 24px;">📡</div>
-                    <div style="font-size: 16px; font-weight: 600; margin-top: 8px;">雷达</div>
-                </div>
-            </a>
-            <a href="/memory" style="text-decoration: none;">
-                <div style="padding: 20px; background: linear-gradient(135deg, #8b5cf6 0%, #ec4899 100%); border-radius: 12px; color: white; text-align: center;">
-                    <div style="font-size: 24px;">🧠</div>
-                    <div style="font-size: 16px; font-weight: 600; margin-top: 8px;">记忆</div>
-                </div>
-            </a>
-            <a href="/banditadmin" style="text-decoration: none;">
-                <div style="padding: 20px; background: linear-gradient(135deg, #f43f5e 0%, #fbbf24 100%); border-radius: 12px; color: white; text-align: center;">
-                    <div style="font-size: 24px;">🎰</div>
-                    <div style="font-size: 16px; font-weight: 600; margin-top: 8px;">Bandit</div>
-                </div>
-            </a>
-            <a href="/dictadmin" style="text-decoration: none;">
-                <div style="padding: 20px; background: linear-gradient(135deg, #43e97b 0%, #38f9d7 100%); border-radius: 12px; color: white; text-align: center;">
-                    <div style="font-size: 24px;">📚</div>
-                    <div style="font-size: 16px; font-weight: 600; margin-top: 8px;">字典管理</div>
-                </div>
-            </a>
-            <a href="/tableadmin" style="text-decoration: none;">
-                <div style="padding: 20px; background: linear-gradient(135deg, #fa709a 0%, #fee140 100%); border-radius: 12px; color: white; text-align: center;">
-                    <div style="font-size: 24px;">🗃️</div>
-                    <div style="font-size: 16px; font-weight: 600; margin-top: 8px;">数据表管理</div>
-                </div>
-            </a>
         </div>
     </div>
     ''')
@@ -498,3 +475,117 @@ async def render_home(ctx: dict):
         </div>
     </div>
     ''')
+
+
+def _render_values_section() -> str:
+    """渲染价值观展示区域 - 按主次展示三大功能"""
+    try:
+        from deva.naja.attention.values import get_value_system
+        vs = get_value_system()
+        profiles = vs.get_all_profiles() if vs else []
+        profile_list = [p.to_dict() for p in profiles] if profiles else []
+    except Exception:
+        profile_list = []
+
+    implemented = [p for p in profile_list if p.get("implemented", True)]
+    pending = [p for p in profile_list if not p.get("implemented", True)]
+
+    creative = [p for p in implemented if p.get("investment_direction") == "creative"]
+    speculative = [p for p in implemented if p.get("investment_direction") == "speculative"]
+    pending_creative = [p for p in pending if p.get("investment_direction") == "creative"]
+    pending_speculative = [p for p in pending if p.get("investment_direction") == "speculative"]
+
+    def make_value_chip(p: dict) -> str:
+        emoji = "🚀" if p.get("investment_direction") == "creative" else "🛠️"
+        name = p.get("name", p.get("value_type", ""))
+        desc = p.get("description", "")[:50]
+        return ('<div style="padding:8px 12px;background:rgba(255,255,255,0.05);border-radius:8px;margin:4px 0;">'
+                '<div style="font-weight:600;color:#fff;">' + emoji + ' ' + name + '</div>'
+                '<div style="font-size:11px;color:#94a3b8;margin-top:4px;">' + desc + '</div></div>')
+
+    def make_pending_chip(p: dict) -> str:
+        name = p.get("name", p.get("value_type", ""))
+        return ('<div style="padding:6px 10px;opacity:0.5;border:1px dashed rgba(255,255,255,0.2);border-radius:6px;margin:4px 0;">'
+                '🔒 ' + name + '</div>')
+
+    creative_chips = "".join(make_value_chip(p) for p in creative)
+    speculative_chips = "".join(make_value_chip(p) for p in speculative)
+    pending_creative_chips = "".join(make_pending_chip(p) for p in pending_creative)
+    pending_speculative_chips = "".join(make_pending_chip(p) for p in pending_speculative)
+
+    none_span = '<div style="color:#64748b;font-size:12px;padding:10px;">暂无</div>'
+
+    sector_section = '''
+        <div style="background: linear-gradient(135deg, rgba(34,197,94,0.2) 0%, rgba(34,197,94,0.05) 100%); border-radius: 12px; padding: 20px; border: 1px solid rgba(34,197,94,0.3);">
+            <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 15px;">
+                <span style="font-size: 28px;">🚀</span>
+                <div>
+                    <div style="font-size: 16px; font-weight: 600; color: #22c55e;">赛道投资（核心）</div>
+                    <div style="font-size: 11px; color: #94a3b8;">投资推动世界进步的赛道，长期持有，80%精力</div>
+                </div>
+            </div>
+            <div style="font-size: 12px; color: #64748b; margin-bottom: 10px;">已实现 (''' + str(len(creative)) + ''')</div>
+            <div>''' + (creative_chips if creative_chips else none_span) + '''</div>
+            <div style="margin-top: 15px;">
+                <div style="font-size: 12px; color: #64748b; margin-bottom: 10px;">待实现 (''' + str(len(pending_creative)) + ''')</div>
+                <div>''' + (pending_creative_chips if pending_creative_chips else none_span) + '''</div>
+            </div>
+        </div>'''
+
+    rhythm_section = '''
+        <div style="background: linear-gradient(135deg, rgba(249,115,22,0.2) 0%, rgba(249,115,22,0.05) 100%); border-radius: 12px; padding: 20px; border: 1px solid rgba(249,115,22,0.3);">
+            <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 15px;">
+                <span style="font-size: 28px;">🛠️</span>
+                <div>
+                    <div style="font-size: 16px; font-weight: 600; color: #f97316;">节奏调整（辅助）</div>
+                    <div style="font-size: 11px; color: #94a3b8;">利用市场波动降低成本，高抛低吸，15%精力</div>
+                </div>
+            </div>
+            <div style="font-size: 12px; color: #64748b; margin-bottom: 10px;">已实现 (''' + str(len(speculative)) + ''')</div>
+            <div>''' + (speculative_chips if speculative_chips else none_span) + '''</div>
+            <div style="margin-top: 15px;">
+                <div style="font-size: 12px; color: #64748b; margin-bottom: 10px;">待实现 (''' + str(len(pending_speculative)) + ''')</div>
+                <div>''' + (pending_speculative_chips if pending_speculative_chips else none_span) + '''</div>
+            </div>
+        </div>'''
+
+    rescue_section = '''
+        <div style="background: linear-gradient(135deg, rgba(168,85,247,0.15) 0%, rgba(168,85,247,0.05) 100%); border-radius: 12px; padding: 16px; border: 1px solid rgba(168,85,247,0.2);">
+            <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 10px;">
+                <span style="font-size: 20px;">🩹</span>
+                <div>
+                    <div style="font-size: 14px; font-weight: 600; color: #a855f7;">流动性救援（偶尔）</div>
+                    <div style="font-size: 10px; color: #94a3b8;">发现问题，闲暇时介入，5%精力</div>
+                </div>
+            </div>
+            <div style="font-size: 11px; color: #64748b;">发现问题：恐慌极点、流动性危机</div>
+        </div>'''
+
+    link_html = '''
+        <div style="margin-top: 20px; text-align: center;">
+            <a href="/attentionadmin" style="display: inline-block; padding: 10px 24px; background: linear-gradient(135deg, #00d4ff 0%, #0099cc 100%); border-radius: 20px; color: white; text-decoration: none; font-size: 13px; font-weight: 500;">
+                🧠 查看注意力系统详情 →
+            </a>
+        </div>'''
+
+    return '''
+    <div style="margin-top: 30px; padding: 30px; background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%); border-radius: 16px; box-shadow: 0 10px 40px rgba(0,0,0,0.2);">
+        <h3 style="color: #fff; margin-bottom: 10px; text-align: center; font-size: 22px;">🎯 我们的使命：发现问题 · 解决问题 · 推动世界发展</h3>
+        <p style="color: #94a3b8; text-align: center; margin-bottom: 25px; font-size: 13px;">
+            领先于市场观察，验证我们的判断，赚钱是为了让改变世界可持续
+        </p>
+
+        <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 20px; margin-bottom: 15px;">
+            ''' + sector_section + '''
+            ''' + rhythm_section + '''
+        </div>
+        <div style="margin-bottom: 15px;">
+            ''' + rescue_section + '''
+        </div>
+
+        ''' + link_html + '''
+    </div>
+    '''
+
+
+__all__ = ["render_home"]

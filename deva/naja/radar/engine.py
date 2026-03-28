@@ -50,6 +50,7 @@ def _clamp_event_score(score: Any) -> float:
 
 
 RADAR_EVENTS_TABLE = "naja_radar_events"
+RADAR_THREAD_TABLE = "naja_radar_thread"
 
 
 @dataclass
@@ -94,6 +95,79 @@ class RadarEvent:
                 "signal_type": self.signal_type,
             },
         }
+
+
+@dataclass
+class RadarThread:
+    """雷达监控脉络项
+
+    支持两种类型：
+    - producer: 信号生产者（策略、任务等产生信号的模块）
+    - consumer: 信号消费者（雷达检测器、新闻获取器等）
+    """
+    thread_id: str
+    name: str
+    description: str
+    category: str
+    update_frequency: str
+    update_interval_seconds: float
+    last_update_ts: float
+    last_status: str
+    alert_level: str
+    score: float
+    icon: str = "📡"
+    color: str = "default"
+    enabled: bool = True
+    thread_type: str = "consumer"
+
+    targets: List[str] = field(default_factory=list)
+    signal_types: List[str] = field(default_factory=list)
+
+    def to_dict(self) -> dict:
+        return {
+            "thread_id": self.thread_id,
+            "name": self.name,
+            "description": self.description,
+            "category": self.category,
+            "update_frequency": self.update_frequency,
+            "update_interval_seconds": self.update_interval_seconds,
+            "last_update_ts": self.last_update_ts,
+            "last_status": self.last_status,
+            "alert_level": self.alert_level,
+            "score": self.score,
+            "icon": self.icon,
+            "color": self._get_color_by_frequency(),
+            "enabled": self.enabled,
+            "thread_type": self.thread_type,
+            "targets": self.targets,
+            "signal_types": self.signal_types,
+        }
+
+    def _get_color_by_frequency(self) -> str:
+        """根据更新频率返回颜色"""
+        interval = self.update_interval_seconds
+        if interval < 3600:
+            return "red"
+        elif interval < 86400:
+            return "orange"
+        elif interval < 604800:
+            return "blue"
+        else:
+            return "gray"
+
+
+def _get_frequency_label(seconds: float) -> str:
+    """将秒数转换为可读频率标签"""
+    if seconds < 60:
+        return f"{seconds:.0f}秒"
+    elif seconds < 3600:
+        return f"{seconds/60:.0f}分钟"
+    elif seconds < 86400:
+        return f"{seconds/3600:.1f}小时"
+    elif seconds < 604800:
+        return f"{seconds/86400:.0f}天"
+    else:
+        return f"{seconds/604800:.1f}周"
 
 
 class MarketScanner:
@@ -302,6 +376,9 @@ class RadarEngine:
         self._news_fetcher: Optional[RadarNewsFetcher] = None
         self._news_processor: Optional[RadarNewsProcessor] = None
 
+        self._threads: Dict[str, RadarThread] = {}
+        self._thread_lock = threading.Lock()
+
         self._auto_start_news_fetcher = cfg.get("auto_start_news_fetcher", True)
         if self._auto_start_news_fetcher:
             _radar_debug_log("自动启动新闻获取器...")
@@ -309,6 +386,10 @@ class RadarEngine:
 
         if self._retention_days > 0 and self._cleanup_interval_seconds > 0:
             self._start_cleanup_thread()
+
+        self._load_threads_from_db()
+
+        self._discover_threads_from_configs()
 
         self._initialized = True
 
@@ -728,6 +809,310 @@ class RadarEngine:
                     continue
         except Exception:
             pass
+
+    def register_thread(self, thread: RadarThread) -> None:
+        """注册雷达监控脉络项"""
+        import traceback
+        with self._thread_lock:
+            self._threads[thread.thread_id] = thread
+            self._save_thread_to_db(thread)
+            _radar_debug_log(f"注册脉络: {thread.thread_id} ({thread.thread_type}) - {thread.name}")
+            _radar_debug_log(f"  调用堆栈: {traceback.format_stack()[-3].strip()}")
+
+    def update_thread(self, thread_id: str, **kwargs) -> bool:
+        """更新脉络项状态"""
+        with self._thread_lock:
+            if thread_id not in self._threads:
+                return False
+            thread = self._threads[thread_id]
+            for key, value in kwargs.items():
+                if hasattr(thread, key):
+                    setattr(thread, key, value)
+            self._save_thread_to_db(thread)
+            return True
+
+    def get_thread(self, thread_id: str) -> Optional[Dict]:
+        """获取单个脉络项"""
+        with self._thread_lock:
+            thread = self._threads.get(thread_id)
+            return thread.to_dict() if thread else None
+
+    def get_all_threads(self) -> List[Dict]:
+        """获取所有脉络项，按更新频率排序"""
+        with self._thread_lock:
+            threads = list(self._threads.values())
+            threads.sort(key=lambda t: t.update_interval_seconds)
+            return [t.to_dict() for t in threads]
+
+    def get_threads_by_category(self, category: str) -> List[Dict]:
+        """按类别获取脉络项"""
+        with self._thread_lock:
+            threads = [t for t in self._threads.values() if t.category == category]
+            threads.sort(key=lambda t: t.update_interval_seconds)
+            return [t.to_dict() for t in threads]
+
+    def get_producer_threads(self) -> List[Dict]:
+        """获取信号生产者脉络"""
+        with self._thread_lock:
+            threads = [t for t in self._threads.values() if t.thread_type == "producer"]
+            threads.sort(key=lambda t: t.name)
+            return [t.to_dict() for t in threads]
+
+    def get_consumer_threads(self) -> List[Dict]:
+        """获取信号消费者脉络"""
+        with self._thread_lock:
+            threads = [t for t in self._threads.values() if t.thread_type == "consumer"]
+            threads.sort(key=lambda t: t.update_interval_seconds)
+            return [t.to_dict() for t in threads]
+
+    def get_radar_feeding_strategies(self) -> List[Dict]:
+        """获取向雷达发送信号的策略脉络
+
+        这些是策略脉络中 signal_types 包含 radar 相关类型的策略
+        """
+        with self._thread_lock:
+            radar_signal_types = {'pattern', 'drift', 'anomaly', 'sector', 'openrouter_trend'}
+            threads = []
+            for t in self._threads.values():
+                if t.thread_type == "producer" and t.signal_types:
+                    if any(st in radar_signal_types for st in t.signal_types):
+                        threads.append(t)
+            threads.sort(key=lambda t: t.name)
+            return [t.to_dict() for t in threads]
+
+    def _save_thread_to_db(self, thread: RadarThread) -> None:
+        """保存脉络到数据库"""
+        try:
+            db = NB(RADAR_THREAD_TABLE)
+            db[thread.thread_id] = thread.to_dict()
+        except Exception:
+            pass
+
+    def _load_threads_from_db(self) -> None:
+        """从数据库加载脉络
+
+        只加载雷达相关的脉络（新代码注册）：
+        - strategy_xxx: 策略脉络
+        - radar_xxx: 雷达内置脉络
+        - openrouter_xxx: OpenRouter监控脉络
+
+        排除任务脉络（task_timer_xxx, task_scheduler_xxx）：
+        这些是纯数据刷新任务，不向雷达发送信号
+        """
+        _radar_debug_log("开始从数据库加载脉络...")
+        try:
+            db = NB(RADAR_THREAD_TABLE)
+            db_items = list(db.items())
+            _radar_debug_log(f"数据库中有 {len(db_items)} 条脉络")
+
+            allowed_prefixes = ("strategy_", "radar_", "openrouter_")
+            excluded_prefixes = ("task_timer_", "task_scheduler_", "task_event_")
+
+            for key, data in db_items:
+                if isinstance(data, dict) and "thread_id" in data:
+                    thread_id = data.get("thread_id", "")
+                    thread_type = data.get("thread_type", "")
+
+                    if thread_id.startswith(excluded_prefixes):
+                        _radar_debug_log(f"  跳过任务脉络: {thread_id}")
+                        continue
+
+                    if thread_type not in ["producer", "consumer"]:
+                        _radar_debug_log(f"    跳过（无效thread_type）")
+                        continue
+
+                    _radar_debug_log(f"  加载脉络: {thread_id} thread_type={thread_type}")
+
+                    thread = RadarThread(
+                        thread_id=thread_id,
+                        name=data.get("name", ""),
+                        description=data.get("description", ""),
+                        category=data.get("category", ""),
+                        update_frequency=data.get("update_frequency", ""),
+                        update_interval_seconds=data.get("update_interval_seconds", 0),
+                        last_update_ts=data.get("last_update_ts", 0),
+                        last_status=data.get("last_status", ""),
+                        alert_level=data.get("alert_level", "normal"),
+                        score=data.get("score", 0),
+                        icon=data.get("icon", "📡"),
+                        enabled=data.get("enabled", True),
+                        thread_type=thread_type,
+                        targets=data.get("targets", []),
+                        signal_types=data.get("signal_types", []),
+                    )
+                    self._threads[thread.thread_id] = thread
+        except Exception:
+            pass
+
+    def _discover_threads_from_configs(self) -> None:
+        """从配置自动发现监控脉络
+
+        注意：只有向雷达发送信号的策略才会被注册为信号生产者
+        纯数据刷新任务不会出现在脉络中（它们不向雷达发送信号）
+        """
+        print("[RADAR] _discover_threads_from_configs 开始执行")
+        discovered = {}
+
+        self._discover_news_fetcher_thread(discovered)
+        print(f"[RADAR] 新闻获取器脉络发现完成，discovered 数量: {len(discovered)}")
+
+        self._discover_strategy_producers(discovered)
+        print(f"[RADAR] 策略脉络发现完成，discovered 数量: {len(discovered)}")
+
+        for thread in discovered.values():
+            self.register_thread(thread)
+            print(f"[RADAR] 注册脉络: {thread.name} ({thread.thread_type})")
+
+    def _discover_strategy_producers(self, discovered: Dict) -> None:
+        """发现策略生产者脉络
+
+        扫描策略管理器，找出哪些策略会产生信号
+        """
+        try:
+            from deva.naja.strategy import get_strategy_manager
+        except ImportError:
+            _radar_debug_log("无法导入 StrategyManager，跳过策略脉络发现")
+            return
+
+        try:
+            sm = get_strategy_manager()
+            if sm:
+                for entry in sm.list_all():
+                    try:
+                        metadata = entry._metadata
+                        strategy_id = metadata.id
+                        name = getattr(metadata, 'name', strategy_id)
+
+                        if strategy_id.startswith('_') or strategy_id.startswith('test_'):
+                            continue
+
+                        output_targets = self._get_strategy_output_targets(strategy_id)
+
+                        signal_types = []
+                        if output_targets.get('radar'):
+                            signal_types.extend(['pattern', 'drift', 'anomaly', 'sector'])
+                        if output_targets.get('memory'):
+                            signal_types.extend(['signal', 'attention'])
+
+                        thread_id = f"strategy_{strategy_id}"
+                        if thread_id not in self._threads and thread_id not in discovered:
+                            discovered[thread_id] = RadarThread(
+                                thread_id=thread_id,
+                                name=name,
+                                description=f"策略: {name}",
+                                category="信号生产者",
+                                update_frequency="策略触发",
+                                update_interval_seconds=300,
+                                last_update_ts=0,
+                                last_status="待执行",
+                                alert_level="normal",
+                                score=0,
+                                icon="📊",
+                                thread_type="producer",
+                                targets=list(output_targets.keys()),
+                                signal_types=signal_types,
+                            )
+                    except Exception as e:
+                        _radar_debug_log(f"策略脉络发现失败: {e}")
+                        continue
+        except Exception as e:
+            _radar_debug_log(f"策略管理器脉络发现失败: {e}")
+
+    def _get_strategy_output_targets(self, strategy_id: str) -> Dict[str, bool]:
+        """获取策略的输出目标配置"""
+        try:
+            from deva.naja.signal.output_controller import get_output_controller
+            controller = get_output_controller()
+            return {
+                'radar': controller.should_send_to(strategy_id, "radar"),
+                'memory': controller.should_send_to(strategy_id, "memory"),
+                'bandit': controller.should_send_to(strategy_id, "bandit"),
+            }
+        except Exception:
+            return {'radar': True, 'memory': True, 'bandit': False}
+
+    def _discover_news_fetcher_thread(self, discovered: Dict) -> None:
+        """发现新闻获取器脉络"""
+        if self._news_fetcher and self._news_fetcher._running:
+            thread_id = "radar_news_fetcher"
+            if thread_id not in self._threads and thread_id not in discovered:
+                try:
+                    stats = self._news_fetcher.get_stats()
+                    interval = stats.get('fetch_interval', 60) if stats else 60
+                except Exception:
+                    interval = 60
+
+                discovered[thread_id] = RadarThread(
+                    thread_id=thread_id,
+                    name="新闻获取器",
+                    description="实时监控新闻动态",
+                    category="实时监控",
+                    update_frequency=_get_frequency_label(interval),
+                    update_interval_seconds=interval,
+                    last_update_ts=time.time(),
+                    last_status="运行中",
+                    alert_level="normal",
+                    score=0,
+                    icon="📰",
+                )
+
+    def _cron_to_seconds(self, cron_expr: str) -> float:
+        """将 cron 表达式转换为秒数（粗略估算）"""
+        if not cron_expr:
+            return 86400
+
+        parts = cron_expr.split()
+        if len(parts) >= 5:
+            if parts[0] == '*' and parts[1] == '*':
+                if parts[2] == '*':
+                    return 604800
+                elif parts[4] != '*':
+                    return 86400
+                else:
+                    return 3600
+            elif parts[0] != '*' and parts[1] == '*':
+                return 3600
+            elif parts[0] != '*':
+                return 60
+
+        return 86400
+
+    def get_thread_stats(self) -> Dict[str, Any]:
+        """获取脉络统计信息"""
+        threads = list(self._threads.values())
+
+        freq_buckets = {
+            "实时 (<1h)": 0,
+            "高频 (1h-1d)": 0,
+            "低频 (1d-1w)": 0,
+            "极低频 (>1w)": 0,
+        }
+
+        alert_counts = {
+            "normal": 0,
+            "attention": 0,
+            "warning": 0,
+            "critical": 0,
+        }
+
+        for t in threads:
+            interval = t.update_interval_seconds
+            if interval < 3600:
+                freq_buckets["实时 (<1h)"] += 1
+            elif interval < 86400:
+                freq_buckets["高频 (1h-1d)"] += 1
+            elif interval < 604800:
+                freq_buckets["低频 (1d-1w)"] += 1
+            else:
+                freq_buckets["极低频 (>1w)"] += 1
+
+            alert_counts[t.alert_level] += 1
+
+        return {
+            "total": len(threads),
+            "frequency_buckets": freq_buckets,
+            "alert_counts": alert_counts,
+        }
 
     def _start_cleanup_thread(self) -> None:
         if self._cleanup_thread is not None and self._cleanup_thread.is_alive():

@@ -699,9 +699,18 @@ class TaskManager(BaseManager[TaskUnit]):
             return 0
 
     def import_legacy_tasks(self) -> int:
-        """从旧任务表 NB('tasks') 导入到统一任务模型。"""
+        """从旧任务表 NB('tasks') 导入到统一任务模型。
+
+        注意：
+        - 旧 tasks 表已迁移到 deva_tasks 表。
+        - deva_tasks 表存储 deva 管理员任务的配置信息。
+        - 如果 tasks 表为空，说明已完成迁移。
+
+        Returns:
+            导入的任务数量
+        """
         imported = 0
-        legacy_db = NB("tasks")
+        legacy_db = NB("tasks")  # 旧表名，已废弃，现在使用 NB("deva_tasks")
         for name, info in legacy_db.items():
             if not isinstance(info, dict):
                 continue

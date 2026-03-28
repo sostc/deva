@@ -172,7 +172,8 @@ class InsightBuilder:
         summary = str(summary_raw) if not isinstance(summary_raw, str) else summary_raw
 
         symbols = self._extract_symbols(event, payload)
-        sectors = self._extract_sectors(event, payload)
+        event_for_extract = {"sectors": event.get("sectors"), "sector": payload.get("sector"), "板块": payload.get("板块")}
+        sectors = self._extract_sectors(event_for_extract)
         system_attention = _clamp(_safe_float(event.get("score", event.get("system_attention", 0.6))))
         confidence = _clamp(_safe_float(event.get("confidence", 0.6)))
         actionability = _clamp(_safe_float(event.get("actionability", 0.4)))
@@ -247,16 +248,6 @@ class InsightBuilder:
         symbol = payload.get("symbol") or payload.get("标的") or ""
         if symbol and symbol != "-":
             return [symbol]
-        return []
-
-    def _extract_sectors(self, event: Dict[str, Any], payload: Dict) -> List:
-        """从信号中提取板块"""
-        sectors = event.get("sectors") or []
-        if sectors:
-            return list(sectors)
-        sector = payload.get("sector") or payload.get("板块") or ""
-        if sector and sector != "-":
-            return [sector]
         return []
 
     def _extract_topic_signal_info(self, event: Dict[str, Any], signal_type: str, payload: Dict, raw_data: Dict) -> str:
@@ -473,6 +464,28 @@ class InsightPool:
             return None
         return self._append_or_merge(candidate)
 
+    def emit(self, event: Dict[str, Any]) -> Optional[Insight]:
+        """统一入口：发送任意事件到洞察池
+
+        自动识别事件类型并路由到正确的处理方法：
+        - 包含 strategy_id/strategy_name 的事件 → 视为 RadarEvent 转换的信号
+        - 包含 type=news/content 的事件 → 视为新闻/内容事件
+        - 其他事件 → 视为注意力事件
+        """
+        if not event:
+            return None
+
+        try:
+            if "strategy_id" in event or "strategy_name" in event:
+                return self.ingest_attention_event(event)
+
+            if event.get("type") in ("news", "content", "result"):
+                return self.ingest_result(event)
+
+            return self.ingest_attention_event(event)
+        except Exception:
+            return None
+
     def _append_or_merge(self, candidate: Dict[str, Any]) -> Insight:
         now_ts = time.time()
         theme = str(candidate.get("theme", "unknown"))
@@ -634,6 +647,19 @@ def get_insight_pool() -> InsightPool:
             if _insight_pool is None:
                 _insight_pool = InsightPool()
     return _insight_pool
+
+
+def emit_to_insight_pool(event: Dict[str, Any]) -> Optional[Insight]:
+    """全局统一入口：发送事件到洞察池
+
+    用法：
+        from deva.naja.cognition.insight import emit_to_insight_pool
+        emit_to_insight_pool({"type": "news", "content": "...", ...})
+        emit_to_insight_pool({"strategy_id": "...", "signal_type": "...", ...})
+        emit_to_insight_pool({"event_type": "pattern", "message": "...", ...})
+    """
+    pool = get_insight_pool()
+    return pool.emit(event)
 
 
 class InsightEngine:

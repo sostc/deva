@@ -49,33 +49,41 @@ class NajaSupervisor:
             with cls._lock:
                 if cls._instance is None:
                     cls._instance = super().__new__(cls)
+                    cls._instance._initialized = False
+                    cls._instance._init_lock = threading.Lock()
         return cls._instance
-    
+
     def __init__(self):
-        if hasattr(self, '_initialized'):
+        pass
+
+    def _ensure_initialized(self):
+        if getattr(self, '_initialized', False):
             return
-        
-        self._components = {
-            'datasource': None,
-            'strategy': None,
-            'task': None,
-            'dictionary': None,
-            'signal': None,
-            'radar': None,
-            'llm_controller': None,
-            'attention': None,
-            'attention_strategy_manager': None,
-            'attention_report_generator': None,
-            'bandit_runner': None,
-            'attention_tracker': None,
-            'price_monitor': None,
-            'cognition': None,
-        }
-        self._status_history: List[Dict[str, Any]] = []
-        self._monitor_thread: Optional[threading.Thread] = None
-        self._running = False
-        self._check_interval = 5  # 检查间隔（秒）
-        self._initialized = True
+        with self._init_lock:
+            if getattr(self, '_initialized', False):
+                return
+
+            self._components = {
+                'datasource': None,
+                'strategy': None,
+                'task': None,
+                'dictionary': None,
+                'signal': None,
+                'radar': None,
+                'llm_controller': None,
+                'attention': None,
+                'attention_strategy_manager': None,
+                'attention_report_generator': None,
+                'bandit_runner': None,
+                'attention_tracker': None,
+                'price_monitor': None,
+                'cognition': None,
+            }
+            self._status_history: List[Dict[str, Any]] = []
+            self._monitor_thread: Optional[threading.Thread] = None
+            self._running = False
+            self._check_interval = 5
+            self._initialized = True
     
     def register_component(self, name: str, component: Any):
         """注册系统组件"""
@@ -765,6 +773,7 @@ def get_naja_supervisor() -> NajaSupervisor:
 def start_supervisor() -> NajaSupervisor:
     """启动 Naja 监控器"""
     supervisor = get_naja_supervisor()
+    supervisor._ensure_initialized()
     supervisor.start_monitoring()
     return supervisor
 

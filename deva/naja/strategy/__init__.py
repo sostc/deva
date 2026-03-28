@@ -1,4 +1,4 @@
-"""Strategy V2 - 基于 RecoverableUnit 抽象"""
+"""Strategy - 基于 RecoverableUnit 抽象"""
 
 from __future__ import annotations
 
@@ -1287,20 +1287,29 @@ class StrategyManager:
             with cls._lock:
                 if cls._instance is None:
                     cls._instance = super().__new__(cls)
+                    cls._instance._initialized = False
+                    cls._instance._init_lock = threading.Lock()
         return cls._instance
 
     def __init__(self):
-        if hasattr(self, "_initialized"):
+        pass
+
+    def _ensure_initialized(self):
+        if getattr(self, '_initialized', False):
             return
-        self._items: Dict[str, StrategyEntry] = {}
-        self._items_lock = threading.Lock()
-        self._experiment_lock = threading.Lock()
-        self._experiment_session: Optional[Dict[str, Any]] = None
-        self._initialized = True
-        self.load_from_db()
+        with self._init_lock:
+            if getattr(self, '_initialized', False):
+                return
+            self._items: Dict[str, StrategyEntry] = {}
+            self._items_lock = threading.Lock()
+            self._experiment_lock = threading.Lock()
+            self._experiment_session: Optional[Dict[str, Any]] = None
+            self.load_prefer_files()
+            self._initialized = True
 
     def health_check(self):
         """健康检查"""
+        self._ensure_initialized()
         from ..common.manager_health import ManagerHealthReport
 
         items = list(self._items.values())
@@ -1512,21 +1521,26 @@ class StrategyManager:
         return {"success": True, "id": entry_id, "entry": entry.to_dict()}
     
     def get(self, entry_id: str) -> Optional[StrategyEntry]:
+        self._ensure_initialized()
         return self._items.get(entry_id)
-    
+
     def get_by_name(self, name: str) -> Optional[StrategyEntry]:
+        self._ensure_initialized()
         for entry in self._items.values():
             if entry.name == name:
                 return entry
         return None
-    
+
     def list_all(self) -> List[StrategyEntry]:
+        self._ensure_initialized()
         return list(self._items.values())
-    
+
     def list_all_dict(self) -> List[dict]:
+        self._ensure_initialized()
         return [entry.to_dict() for entry in self._items.values()]
-    
+
     def delete(self, entry_id: str) -> dict:
+        self._ensure_initialized()
         entry = self.get(entry_id)
         if not entry:
             return {"success": False, "error": "Entry not found"}
@@ -1544,18 +1558,21 @@ class StrategyManager:
         return {"success": True}
     
     def start(self, entry_id: str) -> dict:
+        self._ensure_initialized()
         entry = self.get(entry_id)
         if not entry:
             return {"success": False, "error": "Entry not found"}
         return entry.start()
-    
+
     def stop(self, entry_id: str) -> dict:
+        self._ensure_initialized()
         entry = self.get(entry_id)
         if not entry:
             return {"success": False, "error": "Entry not found"}
         return entry.stop()
 
     def get_experiment_info(self) -> dict:
+        self._ensure_initialized()
         with self._experiment_lock:
             session = self._experiment_session
             if not session:
@@ -1943,13 +1960,12 @@ class StrategyManager:
         return count
 
     def load_prefer_files(self) -> int:
-        """优先从文件加载策略配置，NB 数据作为兜底
+        """只从文件加载策略配置，不再从 NB 加载
 
         加载策略：
-        1. 先扫描 config/strategies/ 目录下的文件配置
-        2. 如果文件存在，优先使用文件配置
-        3. 如果文件不存在但 NB 中有，则使用 NB 数据
-        4. 合并去重，以文件配置优先
+        1. 扫描 config/strategies/ 目录下的所有 YAML 文件
+        2. 为每个文件创建 StrategyEntry
+        3. 文件名作为策略名
 
         Returns:
             加载的策略数量
@@ -1957,49 +1973,25 @@ class StrategyManager:
         from deva.naja.config.file_config import get_file_config_manager
 
         file_mgr = get_file_config_manager('strategy')
-        file_names = set(file_mgr.list_names())
+        file_names = file_mgr.list_names()
 
-        db = NB(STRATEGY_TABLE)
         loaded_count = 0
+
+        if not hasattr(self, '_items') or self._items is None:
+            self._items = {}
+        if not hasattr(self, '_items_lock') or self._items_lock is None:
+            self._items_lock = threading.Lock()
+        if not hasattr(self, '_experiment_lock') or self._experiment_lock is None:
+            self._experiment_lock = threading.Lock()
+        if not hasattr(self, '_experiment_session'):
+            self._experiment_session = None
 
         with self._items_lock:
             self._items.clear()
 
-            for entry_id, data in list(db.items()):
-                if not isinstance(data, dict):
-                    continue
-
-                try:
-                    entry = StrategyEntry.from_dict(data)
-                    if not entry.id:
-                        continue
-
-                    name = entry.name
-                    if name in file_names:
-                        file_item = file_mgr.get(name)
-                        if file_item and file_item.metadata.source == 'file':
-                            existing_time = getattr(entry._metadata, 'updated_at', 0) or 0
-                            file_time = file_item.metadata.updated_at or 0
-                            if file_time >= existing_time:
-                                file_entry = self._create_entry_from_file_config(file_item)
-                                if file_entry:
-                                    self._items[file_entry.id] = file_entry
-                                    loaded_count += 1
-                                    continue
-
-                    self._items[entry.id] = entry
-                    loaded_count += 1
-
-                except Exception as e:
-                    self._log("ERROR", "Load entry failed", id=entry_id, error=str(e))
-
             for name in file_names:
                 file_item = file_mgr.get(name)
                 if not file_item:
-                    continue
-
-                name_already_loaded = any(e.name == name for e in self._items.values())
-                if name_already_loaded:
                     continue
 
                 try:
@@ -2234,6 +2226,7 @@ class StrategyManager:
         }
     
     def get_all_recovery_info(self) -> List[dict]:
+        self._ensure_initialized()
         info = []
         for entry in self._items.values():
             prep = entry.prepare_for_recovery()
@@ -2245,8 +2238,9 @@ class StrategyManager:
                 "reason": prep.get("reason"),
             })
         return info
-    
+
     def get_stats(self) -> dict:
+        self._ensure_initialized()
         entries = self.list_all()
         running = sum(1 for e in entries if e.is_running)
         

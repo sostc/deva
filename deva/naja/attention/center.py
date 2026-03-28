@@ -88,109 +88,117 @@ class AttentionOrchestrator:
             with cls._lock:
                 if cls._instance is None:
                     cls._instance = super().__new__(cls)
+                    cls._instance._initialized = False
+                    cls._instance._init_lock = threading.Lock()
         return cls._instance
 
     def __init__(self):
-        if hasattr(self, '_initialized'):
+        pass
+
+    def _ensure_initialized(self):
+        if getattr(self, '_initialized', False):
             return
+        with self._init_lock:
+            if getattr(self, '_initialized', False):
+                return
 
-        self._integration = get_attention_integration()
+            self._integration = get_attention_integration()
 
-        self._state_lock = threading.RLock()
+            self._state_lock = threading.RLock()
 
-        self._strategies: Dict[str, Dict] = {}
-        self._datasources: Dict[str, Dict] = {}
+            self._strategies: Dict[str, Dict] = {}
+            self._datasources: Dict[str, Dict] = {}
 
-        self._last_attention_update = 0
-        self._attention_cache_ttl = 0.1
-        self._cached_high_attention_symbols: Set[str] = set()
-        self._cached_active_sectors: Set[str] = set()
-        self._cached_market_time_str: str = ""
+            self._last_attention_update = 0
+            self._attention_cache_ttl = 0.1
+            self._cached_high_attention_symbols: Set[str] = set()
+            self._cached_active_sectors: Set[str] = set()
+            self._cached_market_time_str: str = ""
 
-        self._sector_id_map: Dict[str, int] = {}
-        self._next_sector_id = 1
+            self._sector_id_map: Dict[str, int] = {}
+            self._next_sector_id = 1
 
-        self._processed_frames = 0
-        self._filtered_frames = 0
-        self._noise_filtered_count = 0
+            self._processed_frames = 0
+            self._filtered_frames = 0
+            self._noise_filtered_count = 0
 
-        self._last_noise_log_time = 0
-        self._noise_log_interval = 60
+            self._last_noise_log_time = 0
+            self._noise_log_interval = 60
 
-        self._init_attention_kernel()
+            self._init_attention_kernel()
 
-        from .pipeline import PipelineManager, PipelineConfig
-        pipeline_config = PipelineConfig(
-            name="attention_pipeline",
-            stop_on_error=False,
-            enable_stats=True,
-        )
-        self._pipeline = PipelineManager(pipeline_config)
+            from .pipeline import PipelineManager, PipelineConfig
+            pipeline_config = PipelineConfig(
+                name="attention_pipeline",
+                stop_on_error=False,
+                enable_stats=True,
+            )
+            self._pipeline = PipelineManager(pipeline_config)
 
-        from deva.naja.common.data_quality_gate import DataQualityGate
-        self._quality_gate = DataQualityGate()
+            from deva.naja.common.data_quality_gate import DataQualityGate
+            self._quality_gate = DataQualityGate()
 
-        from .pipeline import EnrichStage
-        self._enrich_stage = EnrichStage(name="enrich_sector", use_direct_load=True)
-        self._pipeline.add_stage(self._enrich_stage)
+            from .pipeline import EnrichStage
+            self._enrich_stage = EnrichStage(name="enrich_sector", use_direct_load=True)
+            self._pipeline.add_stage(self._enrich_stage)
 
-        from .pipeline import FilterStage
-        self._filter_stage = FilterStage(
-            name="filter_noise",
-            min_amount=1_000_000,
-            min_volume=100_000,
-        )
-        self._pipeline.add_stage(self._filter_stage)
+            from .pipeline import FilterStage
+            self._filter_stage = FilterStage(
+                name="filter_noise",
+                min_amount=1_000_000,
+                min_volume=100_000,
+            )
+            self._pipeline.add_stage(self._filter_stage)
 
-        try:
-            from deva.naja.cognition.cross_signal_analyzer import get_cross_signal_analyzer
-            self._cross_analyzer = get_cross_signal_analyzer()
-            _lab_debug_log("跨信号分析器已初始化")
-        except Exception as e:
-            _lab_debug_log(f"跨信号分析器初始化失败: {e}")
-            self._cross_analyzer = None
+            try:
+                from deva.naja.cognition.cross_signal_analyzer import get_cross_signal_analyzer
+                self._cross_analyzer = get_cross_signal_analyzer()
+                _lab_debug_log("跨信号分析器已初始化")
+            except Exception as e:
+                _lab_debug_log(f"跨信号分析器初始化失败: {e}")
+                self._cross_analyzer = None
 
-        nf_config = get_noise_filter_config()
+            nf_config = get_noise_filter_config()
 
-        noise_config = NoiseFilterConfig(
-            min_amount=nf_config.get('min_amount', 1_000_000),
-            min_volume=nf_config.get('min_volume', 100_000),
-            min_price=nf_config.get('min_price', 1.0),
-            blacklist=set(nf_config.get('blacklist', [])),
-            whitelist=set(nf_config.get('whitelist', [])),
-            dynamic_threshold=True,
-            filter_b_shares=nf_config.get('filter_b_shares', True),
-            filter_st=nf_config.get('filter_st', False),
-        )
-        self._noise_filter = get_noise_filter(noise_config) if nf_config.get('enabled', True) else None
+            noise_config = NoiseFilterConfig(
+                min_amount=nf_config.get('min_amount', 1_000_000),
+                min_volume=nf_config.get('min_volume', 100_000),
+                min_price=nf_config.get('min_price', 1.0),
+                blacklist=set(nf_config.get('blacklist', [])),
+                whitelist=set(nf_config.get('whitelist', [])),
+                dynamic_threshold=True,
+                filter_b_shares=nf_config.get('filter_b_shares', True),
+                filter_st=nf_config.get('filter_st', False),
+            )
+            self._noise_filter = get_noise_filter(noise_config) if nf_config.get('enabled', True) else None
 
-        tick_config = TickNoiseFilterConfig(
-            min_amount=nf_config.get('min_amount', 1_000_000),
-            min_volume=nf_config.get('min_volume', 100_000),
-            min_price=nf_config.get('min_price', 1.0),
-            max_price=nf_config.get('max_price', 1000.0),
-            max_price_change_pct=nf_config.get('max_price_change_pct', 20.0),
-            flat_threshold=nf_config.get('flat_threshold', 0.5),
-            flat_consecutive_frames=nf_config.get('flat_consecutive_frames', 10),
-            wash_trading_volume_ratio=nf_config.get('wash_trading_volume_ratio', 3.0),
-            wash_trading_price_change_max=nf_config.get('wash_trading_price_change_max', 0.5),
-            abnormal_volatility_threshold=nf_config.get('abnormal_volatility_threshold', 10.0),
-            filter_b_shares=nf_config.get('filter_b_shares', True),
-            filter_st=nf_config.get('filter_st', False),
-            blacklist=set(nf_config.get('blacklist', [])),
-            whitelist=set(nf_config.get('whitelist', [])),
-        )
-        self._tick_noise_filter = get_tick_noise_filter(tick_config) if nf_config.get('enabled', True) else None
-        self._tick_noise_reports = []
+            tick_config = TickNoiseFilterConfig(
+                min_amount=nf_config.get('min_amount', 1_000_000),
+                min_volume=nf_config.get('min_volume', 100_000),
+                min_price=nf_config.get('min_price', 1.0),
+                max_price=nf_config.get('max_price', 1000.0),
+                max_price_change_pct=nf_config.get('max_price_change_pct', 20.0),
+                flat_threshold=nf_config.get('flat_threshold', 0.5),
+                flat_consecutive_frames=nf_config.get('flat_consecutive_frames', 10),
+                wash_trading_volume_ratio=nf_config.get('wash_trading_volume_ratio', 3.0),
+                wash_trading_price_change_max=nf_config.get('wash_trading_price_change_max', 0.5),
+                abnormal_volatility_threshold=nf_config.get('abnormal_volatility_threshold', 10.0),
+                filter_b_shares=nf_config.get('filter_b_shares', True),
+                filter_st=nf_config.get('filter_st', False),
+                blacklist=set(nf_config.get('blacklist', [])),
+                whitelist=set(nf_config.get('whitelist', [])),
+            )
+            self._tick_noise_filter = get_tick_noise_filter(tick_config) if nf_config.get('enabled', True) else None
+            self._tick_noise_reports = []
 
-        self._pytorch_processing = False
-        self._pytorch_thread = None
-        self._start_pytorch_processor()
+            self._pytorch_processing = False
+            self._pytorch_thread = None
+            self._start_pytorch_processor()
 
-        self._initialized = True
-        log.info("AttentionOrchestrator 初始化完成")
+            self._initialized = True
+            log.info("AttentionOrchestrator 初始化完成")
 
-        self._initialize_strategies()
+            self._initialize_strategies()
 
     def _initialize_strategies(self):
         """初始化注意力策略"""
@@ -1304,8 +1312,9 @@ def get_orchestrator() -> AttentionOrchestrator:
 
 
 def initialize_orchestrator() -> AttentionOrchestrator:
-    """初始化编排器"""
+    """初始化编排器（强制初始化）"""
     orchestrator = get_orchestrator()
+    orchestrator._ensure_initialized()
     log.info("注意力编排器已初始化")
     return orchestrator
 

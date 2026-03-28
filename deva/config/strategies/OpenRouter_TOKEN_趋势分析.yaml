@@ -1,0 +1,384 @@
+metadata:
+  name: OpenRouter TOKEN 趋势分析
+  description: 分析 OpenRouter TOKEN 消耗趋势，检测上涨/下跌、加速/减速、异常拐点，为算力投资提供决策支持
+  id: openrouter_token_trend_strategy
+  category: AI 算力监控
+  tags:
+    - openrouter
+    - token
+    - 趋势
+    - AI算力
+    - 异常检测
+  created_at: 2026-03-28
+  updated_at: 2026-03-28
+
+config:
+  compute_mode: record
+  handler_type: radar
+  strategy_type: plugin
+  window_type: sliding
+  window_size: 1
+  window_interval: 1d
+  window_return_partial: false
+  max_history_count: 100
+
+  dynamic_frequency:
+    enabled: true
+
+    alert_levels:
+      - level: normal
+        condition: "trend.direction in ['up'] and trend.strength < 0.6"
+        interval: 7d
+        description: 正常监控，每周检查一次
+
+      - level: attention
+        condition: "trend.direction in ['strong_up'] or trend.strength >= 0.6"
+        interval: 7d
+        description: 强劲上涨，保持每周一次
+
+      - level: warning
+        condition: "trend.acceleration < -10 or trend.is_anomaly == true"
+        interval: 1d
+        description: 减速或异常，提高到每天检查
+
+      - level: critical
+        condition: "trend.is_anomaly == true and trend.anomaly_type in ['sudden_drop', 'uptrend_reversal']"
+        interval: 1d
+        description: 严重异常，每天检查
+        notify: true
+
+      - level: opportunity
+        condition: "trend.direction == 'down' and trend.acceleration < -15"
+        interval: 1d
+        description: 快速下跌机会信号
+
+  anomaly_detection:
+    rules:
+      - name: 突然下跌
+        condition: "last_3_weeks_avg_change < -20"
+        severity: high
+        action: alert
+
+      - name: 上涨趋势反转
+        condition: "trend.direction == 'up' and latest_change < -10"
+        severity: high
+        action: alert
+
+      - name: 波动率放大
+        condition: "recent_volatility > older_volatility * 3"
+        severity: medium
+        action: notify
+
+      - name: 增长停滞
+        condition: "trend.direction == 'up' and trend.acceleration < -5"
+        severity: medium
+        action: watch
+
+      - name: 加速上涨
+        condition: "trend.acceleration > 15"
+        severity: low
+        action: log
+
+  trend_analysis:
+    comparison_windows:
+      recent_weeks: 8
+      older_weeks: 8
+
+    thresholds:
+      strong_up_threshold: 5
+      strong_down_threshold: -5
+
+    output:
+      include_growth_rates: true
+      include_top_models: true
+      include_predictions: true
+      include_recommendations: true
+
+parameters:
+  enabled: true
+  max_history_count: 100
+  window_interval: 1d
+
+func_code: |
+  """
+  OpenRouter TOKEN 趋势分析策略
+  检测 AI 算力消耗趋势变化
+
+  功能：
+  1. 趋势方向检测：上涨/下跌/震荡
+  2. 趋势强度检测：加速/减速/保持
+  3. 异常检测：突然下跌、增长停滞、拐点
+  4. 预测警告：基于历史规律预测未来走势
+
+  信号输出：
+  - signal_type: openrouter_trend
+  - score: 0.0-1.0 (趋势强度)
+  - 内容包含：趋势方向、强度、异常标记、决策建议
+  """
+
+  import asyncio
+  import re
+  import httpx
+  from collections import deque
+  from dataclasses import dataclass
+  from typing import Optional, List, Dict
+
+  @dataclass
+  class TrendAnalysis:
+      direction: str
+      strength: float
+      acceleration: float
+      is_anomaly: bool
+      anomaly_type: str
+      message: str
+      recommendation: str
+
+  class OpenRouterTrendAnalyzer:
+      """
+      OpenRouter TOKEN 消耗趋势分析器
+      """
+
+      def __init__(self, history_window: int = 16):
+          self.history_window = history_window
+          self.weekly_data: deque = deque(maxlen=history_window + 5)
+          self.last_trend: Optional[TrendAnalysis] = None
+
+      async def fetch_weekly_data(self) -> list:
+          """获取 OpenRouter 每周 TOKEN 数据"""
+          BASE_URL = "https://openrouter.ai"
+          RANKINGS_URL = f"{BASE_URL}/rankings"
+
+          result = []
+
+          async with httpx.AsyncClient(
+              timeout=30.0,
+              headers={
+                  "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"
+              }
+          ) as client:
+              response = await client.get(RANKINGS_URL)
+              response.raise_for_status()
+
+              html_content = response.text
+
+              pattern = r'\\"x\\":\\"(\\d{4}-\\d{2}-\\d{2})\\",\\"ys\\":\\{([^}]+)\\}'
+              matches = re.findall(pattern, html_content)
+
+              for date_str, models_data in matches:
+                  models = {}
+                  model_pattern = r'\\"([^\\"]+)\\":\\s*(\\d+)'
+                  model_matches = re.findall(model_pattern, models_data)
+
+                  for model_id, token_count in model_matches:
+                      models[model_id] = int(token_count)
+
+                  if models:
+                      total = sum(models.values())
+                      result.append({
+                          "date": date_str,
+                          "total": total,
+                          "total_t": total / 1e12
+                      })
+
+          return sorted(result, key=lambda x: x["date"])
+
+      def calculate_growth_rates(self, data: list) -> list:
+          """计算周环比增长率"""
+          if len(data) < 2:
+              return []
+
+          rates = []
+          for i in range(1, len(data)):
+              prev = data[i-1]["total"]
+              curr = data[i]["total"]
+              rate = (curr - prev) / prev * 100
+              rates.append({
+                  "date": data[i]["date"],
+                  "rate": rate,
+                  "total": curr
+              })
+          return rates
+
+      def detect_trend(self, rates: list) -> dict:
+          """检测趋势特征"""
+          if len(rates) < 4:
+              return {
+                  "direction": "unknown",
+                  "strength": 0.0,
+                  "acceleration": 0.0,
+                  "recent_avg": 0.0,
+                  "older_avg": 0.0
+              }
+
+          recent_8 = rates[-8:]
+          older_8 = rates[-16:-8] if len(rates) >= 16 else rates[:-8]
+
+          recent_avg = sum(r["rate"] for r in recent_8) / len(recent_8) if recent_8 else 0
+          older_avg = sum(r["rate"] for r in older_8) / len(older_8) if older_8 else 0
+
+          acceleration = recent_avg - older_avg
+
+          if recent_avg > 5:
+              direction = "strong_up"
+              strength = min(1.0, recent_avg / 20)
+          elif recent_avg > 0:
+              direction = "up"
+              strength = min(1.0, recent_avg / 10)
+          elif recent_avg > -5:
+              direction = "down"
+              strength = min(1.0, abs(recent_avg) / 10)
+          else:
+              direction = "strong_down"
+              strength = min(1.0, abs(recent_avg) / 20)
+
+          return {
+              "direction": direction,
+              "strength": strength,
+              "acceleration": acceleration,
+              "recent_avg": recent_avg,
+              "older_avg": older_avg
+          }
+
+      def detect_anomaly(self, rates: list, trend: dict) -> tuple:
+          """检测异常"""
+          if len(rates) < 3:
+              return False, ""
+
+          last_3 = rates[-3:]
+          last_rate = last_3[-1]["rate"]
+
+          if last_rate < -20 and sum(r["rate"] for r in last_3) / 3 < -10:
+              return True, "sudden_drop"
+
+          if trend.get("direction") in ["up", "strong_up"] and last_rate < -5:
+              return True, "uptrend_reversal"
+
+          if len(rates) >= 8:
+              recent_4 = rates[-4:]
+              older_4 = rates[-8:-4]
+              if older_4:
+                  recent_avg = sum(r["rate"] for r in recent_4) / len(recent_4)
+                  older_avg = sum(r["rate"] for r in older_4) / len(older_4)
+                  recent_var = sum((r["rate"] - recent_avg)**2 for r in recent_4) / len(recent_4)
+                  older_var = sum((r["rate"] - older_avg)**2 for r in older_4) / len(older_4)
+                  if older_var > 0 and recent_var > older_var * 3:
+                      return True, "volatility_spike"
+
+          return False, ""
+
+      def generate_recommendation(self, trend: dict, is_anomaly: bool, anomaly_type: str) -> str:
+          """生成决策建议"""
+          if is_anomaly:
+              if anomaly_type == "sudden_drop":
+                  return "⚠️ 算力需求骤降！建议：密切关注是否短暂调整还是持续下跌"
+              elif anomaly_type == "uptrend_reversal":
+                  return "🔄 上涨趋势出现反转信号！建议：减仓算力投资，等待趋势确认"
+              elif anomaly_type == "volatility_spike":
+                  return "📊 波动率大幅上升！建议：谨慎操作，等待市场稳定"
+
+          direction = trend.get("direction", "unknown")
+          acceleration = trend.get("acceleration", 0)
+
+          if direction == "strong_up" and acceleration > 5:
+              return "🚀 算力需求强劲上涨！建议：适度增加算力投资配置"
+          elif direction == "strong_up":
+              return "📈 算力需求稳定上涨！建议：保持算力投资，观察趋势变化"
+          elif direction == "up":
+              if acceleration > 3:
+                  return "⬆️ 上涨加速中！建议：适度加仓"
+              elif acceleration < -3:
+                  return "⬆️ 上涨但增速放缓！建议：保持观察"
+              else:
+                  return "➡️ 温和上涨！建议：维持当前配置"
+          elif direction == "down":
+              if acceleration < -3:
+                  return "⬇️ 下跌加速！建议：减仓算力投资"
+              else:
+                  return "⬇️ 算力需求下降！建议：观望等待"
+          else:
+              return "➡️ 趋势不明！建议：保持观察"
+
+      def analyze(self, data: list) -> TrendAnalysis:
+          """执行完整分析"""
+          if len(data) < 2:
+              return TrendAnalysis(
+                  direction="unknown",
+                  strength=0.0,
+                  acceleration=0.0,
+                  is_anomaly=False,
+                  anomaly_type="",
+                  message="数据不足",
+                  recommendation="等待更多数据"
+              )
+
+          rates = self.calculate_growth_rates(data)
+          trend = self.detect_trend(rates)
+          is_anomaly, anomaly_type = self.detect_anomaly(rates, trend)
+          recommendation = self.generate_recommendation(trend, is_anomaly, anomaly_type)
+
+          latest = data[-1]
+          latest_rate = rates[-1] if rates else {"rate": 0}
+
+          direction_emoji = {
+              "strong_up": "🚀",
+              "up": "📈",
+              "down": "📉",
+              "strong_down": "⚠️",
+              "unknown": "❓"
+          }.get(trend.get("direction", "unknown"), "➡️")
+
+          message = f"{direction_emoji} {latest['date']} 总消耗: {latest['total_t']:.2f}T " \
+                    f"周环比: {latest_rate['rate']:+.1f}% " \
+                    f"趋势强度: {trend['strength']:.1%}"
+
+          if is_anomaly:
+              message += f" ⚠️ 异常: {anomaly_type}"
+
+          return TrendAnalysis(
+              direction=trend.get("direction", "unknown"),
+              strength=trend.get("strength", 0.0),
+              acceleration=trend.get("acceleration", 0.0),
+              is_anomaly=is_anomaly,
+              anomaly_type=anomaly_type,
+              message=message,
+              recommendation=recommendation
+          )
+
+  def process(data, context=None):
+      """
+      策略入口函数
+      接收数据并执行趋势分析
+      """
+      analyzer = OpenRouterTrendAnalyzer(history_window=16)
+
+      if isinstance(data, dict) and data.get("status") == "success":
+          token_data = data
+      else:
+          return None
+
+      latest_total = token_data.get("total_tokens", 0)
+      latest_date = token_data.get("date", "")
+
+      result = {
+          "signal_type": "openrouter_trend",
+          "score": 0.5,
+          "direction": "unknown",
+          "strength": 0.0,
+          "acceleration": 0.0,
+          "is_anomaly": False,
+          "anomaly_type": "",
+          "message": "",
+          "recommendation": "",
+          "metadata": {
+              "date": latest_date,
+              "total_tokens": latest_total,
+              "total_tokens_t": token_data.get("total_tokens_t", 0),
+              "trend": token_data.get("trend", {})
+          }
+      }
+
+      if latest_total > 0:
+          result["score"] = 0.6 + min(0.4, latest_total / 1e13 * 0.1)
+          result["message"] = f"OpenRouter TOKEN 监控 | {latest_date} | {token_data.get('total_tokens_t', 0):.2f}T"
+
+      return result
