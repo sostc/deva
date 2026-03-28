@@ -135,9 +135,13 @@ class SystemBootstrap:
             from deva.naja.strategy import get_strategy_manager
 
             dict_mgr = get_dictionary_manager()
+            dict_mgr._ensure_initialized()
             ds_mgr = get_datasource_manager()
+            ds_mgr._ensure_initialized()
             task_mgr = get_task_manager()
+            task_mgr._ensure_initialized()
             strategy_mgr = get_strategy_manager()
+            strategy_mgr._ensure_initialized()
 
             counts: Dict[str, int] = {}
             errors: Dict[str, str] = {}
@@ -254,43 +258,22 @@ class SystemBootstrap:
         logger.info("[4/6] 恢复运行状态...")
 
         try:
-            from deva.naja.datasource import get_datasource_manager
-            from deva.naja.tasks import get_task_manager
-            from deva.naja.strategy import get_strategy_manager
-            from deva.naja.dictionary import get_dictionary_manager
+            from deva.naja.runtime_state import register_all_adapters, load_all_state
 
-            ds_mgr = get_datasource_manager()
-            task_mgr = get_task_manager()
-            strategy_mgr = get_strategy_manager()
-            dict_mgr = get_dictionary_manager()
-
-            results: Dict[str, Any] = {}
-            errors: Dict[str, str] = {}
-
-            # 先恢复字典，再恢复其他组件
-            for name, mgr in (
-                ("dictionary", dict_mgr),
-                ("datasource", ds_mgr),
-                ("task", task_mgr),
-                ("strategy", strategy_mgr),
-            ):
-                try:
-                    results[name] = mgr.restore_running_states()
-                    logger.info(f"  {name} 状态已恢复")
-                except Exception as e:
-                    errors[name] = str(e)
-                    logger.warning(f"  {name} 状态恢复失败: {e}")
+            register_all_adapters()
+            result = load_all_state()
 
             duration_ms = (time.time() - start) * 1000
 
             return BootResult(
                 success=True,
                 stage=BootStage.RESTORE_RUNTIME,
-                message="运行状态恢复完成",
+                message=f"运行状态恢复完成: {result['success']}/{result['total']} 成功",
                 duration_ms=duration_ms,
                 details={
-                    "restore_results": results,
-                    "restore_errors": errors,
+                    "total": result.get("total", 0),
+                    "success": result.get("success", 0),
+                    "failed": result.get("failed", 0),
                 },
             )
         except Exception as e:

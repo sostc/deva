@@ -24,7 +24,7 @@ from .core import NewsMindStrategy, AttentionScorer
 from .engine import CognitionEngine, get_cognition_engine
 from .narrative_tracker import NarrativeTracker
 from .semantic_cold_start import SemanticColdStart
-from .insight import InsightEngine, InsightPool, get_insight_engine, get_insight_pool
+from .insight import InsightEngine, InsightPool, get_insight_engine, get_insight_pool, emit_to_insight_pool
 from .history_tracker import (
     AttentionHistoryTracker,
     AttentionSnapshot,
@@ -72,6 +72,7 @@ __all__ = [
     "InsightPool",
     "get_insight_engine",
     "get_insight_pool",
+    "emit_to_insight_pool",
     # 历史事件追踪器
     "AttentionHistoryTracker",
     "AttentionSnapshot",

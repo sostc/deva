@@ -12,6 +12,7 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
 from deva import NB
+from deva.naja.common.market_time import get_market_time_service
 
 log = logging.getLogger(__name__)
 
@@ -55,7 +56,8 @@ class VirtualPosition:
     
     @property
     def holding_seconds(self) -> float:
-        return time.time() - self.entry_time
+        market_time = get_market_time_service().get_market_time()
+        return market_time - self.entry_time
 
 
 class VirtualPortfolio:
@@ -192,9 +194,11 @@ class VirtualPortfolio:
                 return None
             
             position_id = f"VP_{stock_code}_{int(time.time() * 1000)}"
-            
-            entry_time = time.time()
-            
+
+            mts = get_market_time_service()
+            entry_time = mts.get_market_time()
+            current_market_time = mts.get_market_time()
+
             position = VirtualPosition(
                 position_id=position_id,
                 strategy_id=strategy_id,
@@ -209,7 +213,7 @@ class VirtualPortfolio:
                 status="OPEN",
                 stop_loss=price * (1 + stop_loss_pct / 100),
                 take_profit=price * (1 + take_profit_pct / 100),
-                market_time=market_time if market_time > 0 else entry_time
+                market_time=market_time if market_time > 0 else current_market_time
             )
             
             self._positions[position_id] = position
@@ -243,7 +247,7 @@ class VirtualPortfolio:
             for pos_id, position in matching_positions:
                 old_price = position.current_price
                 position.current_price = current_price
-                position.last_update_time = time.time()
+                position.last_update_time = get_market_time_service().get_market_time()
 
                 log.debug(f"[VirtualPortfolio] 💰 更新持仓 {pos_id}: {stock_code} {old_price} -> {current_price}")
                 
@@ -291,8 +295,8 @@ class VirtualPortfolio:
             position.exit_price = exit_price
             position.current_price = exit_price
             position.status = "CLOSED"
-            position.exit_time = time.time()
-            position.close_reason = reason  # 记录平仓原因
+            position.exit_time = get_market_time_service().get_market_time()
+            position.close_reason = reason
 
             self._used_capital -= position.entry_price * position.quantity
             

@@ -90,8 +90,57 @@ async def render_datasource_admin(ctx: dict):
     _render_ds_content(ctx)
 
 
-# 全局变量：当前选中的类别
+# 全局变量：当前选中的类别和视图模式
 _current_category = "全部"
+_view_mode = "name"  # "name": 按名称分类, "consumer": 按消费分类
+
+
+def _get_consumer_handler_types(ds_id: str) -> list:
+    """获取消费该数据源的策略的handler_type列表"""
+    try:
+        from ..strategy import get_strategy_manager
+        from ..strategy.handler_type import StrategyHandlerType
+        mgr = get_strategy_manager()
+        handler_types = set()
+        for s in mgr.list_all():
+            bound_ds = getattr(s._metadata, "bound_datasource_id", "")
+            if bound_ds == ds_id:
+                ht = getattr(s._metadata, "handler_type", "unknown")
+                if ht and ht != "unknown":
+                    handler_types.add(ht)
+        return sorted(list(handler_types))
+    except Exception:
+        return []
+
+
+def _get_handler_type_label(ht: str) -> str:
+    """获取handler_type的中文标签"""
+    labels = {
+        "radar": "📡 Radar雷达",
+        "memory": "🧠 Memory记忆",
+        "bandit": "🎰 Bandit交易",
+        "llm": "🤖 LLM调节",
+    }
+    return labels.get(ht, ht)
+
+
+def _categorize_datasource_by_consumer(entry) -> str:
+    """根据数据源被哪些handler_type消费来分类"""
+    handler_types = _get_consumer_handler_types(entry.id)
+    if not handler_types:
+        return "⚪ 未消费"
+    if len(handler_types) == 1:
+        return _get_handler_type_label(handler_types[0])
+    return "🌐 多消费"
+
+
+def _get_all_consumer_categories(entries: list) -> list:
+    """获取所有消费类别"""
+    categories = set()
+    for e in entries:
+        cat = _categorize_datasource_by_consumer(e)
+        categories.add(cat)
+    return sorted(list(categories))
 
 
 def _categorize_datasource(entry) -> str:
@@ -120,7 +169,9 @@ def _categorize_datasource(entry) -> str:
 
 
 def _get_all_categories(entries: list) -> list:
-    """获取所有类别"""
+    """获取所有类别（根据视图模式）"""
+    if _view_mode == "consumer":
+        return _get_all_consumer_categories(entries)
     categories = set()
     for e in entries:
         cat = _categorize_datasource(e)
@@ -152,7 +203,10 @@ def _render_ds_content(ctx: dict):
     if _current_category == "全部":
         filtered_entries = entries
     else:
-        filtered_entries = [e for e in entries if _categorize_datasource(e) == _current_category]
+        if _view_mode == "consumer":
+            filtered_entries = [e for e in entries if _categorize_datasource_by_consumer(e) == _current_category]
+        else:
+            filtered_entries = [e for e in entries if _categorize_datasource(e) == _current_category]
 
     if filtered_entries:
         # 直接显示所有数据源的表格（不再按类别折叠）
@@ -179,7 +233,10 @@ def _render_category_tabs(ctx: dict, categories: list, entries: list, mgr):
     tab_buttons.append({"label": f"全部 ({len(entries)})", "value": "全部", "color": "primary" if _current_category == "全部" else "light"})
 
     for cat in categories:
-        count = len([e for e in entries if _categorize_datasource(e) == cat])
+        if _view_mode == "consumer":
+            count = len([e for e in entries if _categorize_datasource_by_consumer(e) == cat])
+        else:
+            count = len([e for e in entries if _categorize_datasource(e) == cat])
         tab_buttons.append({
             "label": f"{cat} ({count})",
             "value": cat,
@@ -190,11 +247,27 @@ def _render_category_tabs(ctx: dict, categories: list, entries: list, mgr):
     ctx["put_buttons"](tab_buttons, onclick=lambda v, c=ctx, m=mgr: _switch_category(v, c, m), scope="ds_content")
     ctx["put_html"]('</div>', scope="ds_content")
 
+    view_mode_btns = [
+        {"label": "📛 按名称", "value": "name", "color": "primary" if _view_mode == "name" else "secondary"},
+        {"label": "📥 按消费", "value": "consumer", "color": "primary" if _view_mode == "consumer" else "secondary"},
+    ]
+    ctx["put_html"]('<div style="margin-top:8px;">', scope="ds_content")
+    ctx["put_buttons"](view_mode_btns, onclick=lambda v, c=ctx, m=mgr: _switch_view_mode(v, c, m), scope="ds_content")
+    ctx["put_html"]('</div>', scope="ds_content")
+
 
 def _switch_category(category: str, ctx: dict, mgr):
     """切换类别"""
     global _current_category
     _current_category = category
+    _render_ds_content(ctx)
+
+
+def _switch_view_mode(mode: str, ctx: dict, mgr):
+    """切换视图模式"""
+    global _view_mode, _current_category
+    _view_mode = mode
+    _current_category = "全部"
     _render_ds_content(ctx)
 
 
@@ -209,12 +282,56 @@ def _handle_category_action(action: str, mgr, ctx: dict):
 
 
 def _render_stats_html(stats: dict) -> str:
-    return render_stats_cards([
+    cards = [
         {"label": "总数据源", "value": stats["total"], "gradient": "linear-gradient(135deg,#667eea,#764ba2)", "shadow": "rgba(102,126,234,0.3)"},
         {"label": "运行中", "value": stats["running"], "gradient": "linear-gradient(135deg,#11998e,#38ef7d)", "shadow": "rgba(17,153,142,0.3)"},
         {"label": "已停止", "value": stats["stopped"], "gradient": "linear-gradient(135deg,#636363,#a2abba)", "shadow": "rgba(99,99,99,0.3)"},
         {"label": "错误数", "value": stats["error"], "gradient": "linear-gradient(135deg,#ff416c,#ff4b2b)", "shadow": "rgba(255,65,108,0.3)"},
-    ])
+    ]
+
+    attention = stats.get("attention")
+    if attention:
+        active_label = "运行中" if attention.get("active") else "已停止"
+        active_color = "linear-gradient(135deg,#11998e,#38ef7d)" if attention.get("active") else "linear-gradient(135deg,#636363,#a2abba)"
+        cards.append({
+            "label": "注意力获取",
+            "value": active_label,
+            "gradient": active_color,
+            "shadow": "rgba(17,153,142,0.3)" if attention.get("active") else "rgba(99,99,99,0.3)",
+        })
+        cards.append({
+            "label": "获取次数",
+            "value": attention.get("fetch_count", 0),
+            "gradient": "linear-gradient(135deg,#f093fb,#f5576c)",
+            "shadow": "rgba(240,147,251,0.3)",
+        })
+        cards.append({
+            "label": "高频档位",
+            "value": attention.get("high_count", 0),
+            "gradient": "linear-gradient(135deg,#4facfe,#00f2fe)",
+            "shadow": "rgba(79,172,254,0.3)",
+        })
+    else:
+        cards.append({
+            "label": "注意力获取",
+            "value": "未启动",
+            "gradient": "linear-gradient(135deg,#e0e0e0,#9e9e9e)",
+            "shadow": "rgba(158,158,158,0.3)",
+        })
+        cards.append({
+            "label": "获取次数",
+            "value": "-",
+            "gradient": "linear-gradient(135deg,#e0e0e0,#9e9e9e)",
+            "shadow": "rgba(158,158,158,0.3)",
+        })
+        cards.append({
+            "label": "高频档位",
+            "value": "-",
+            "gradient": "linear-gradient(135deg,#e0e0e0,#9e9e9e)",
+            "shadow": "rgba(158,158,158,0.3)",
+        })
+
+    return render_stats_cards(cards)
 
 
 def _render_toolbar_html() -> str:
@@ -573,6 +690,21 @@ async def _show_ds_detail(ctx: dict, mgr, entry_id: str):
             ["更新时间", format_timestamp(entry._metadata.updated_at)],
         ], header=["字段", "值"])
 
+        func_code_file = getattr(entry._metadata, "func_code_file", "") or ""
+        if not func_code_file:
+            try:
+                from ..config.file_config import get_file_config_manager
+                file_mgr = get_file_config_manager("datasource")
+                item = file_mgr.get(entry.name)
+                if item:
+                    func_code_file = item.func_code_file or ""
+            except Exception:
+                pass
+
+        if func_code_file:
+            ctx["put_html"](render_detail_section("📁 代码文件"))
+            ctx["put_text"](func_code_file)
+
         ctx["put_html"](render_detail_section("📈 运行统计"))
 
         ctx["put_table"]([
@@ -617,8 +749,10 @@ async def _show_ds_detail(ctx: dict, mgr, entry_id: str):
             strategy_table = []
             for s in dependent_strategies:
                 status_html = render_status_badge(s.get("is_running"))
-                strategy_table.append([s.get("name", "-"), ctx["put_html"](status_html)])
-            ctx["put_table"](strategy_table, header=["策略名称", "状态"])
+                ht = s.get("handler_type", "unknown")
+                ht_icon = "📡" if ht == "radar" else "🧠" if ht == "memory" else "🎰" if ht == "bandit" else "🤖" if ht == "llm" else "📋"
+                strategy_table.append([f"{ht_icon} {s.get('name', '-')}", status_html, ht])
+            ctx["put_table"](strategy_table, header=["策略名称", "状态", "消费类型"])
         else:
             ctx["put_text"]("暂无依赖策略")
 
@@ -632,10 +766,12 @@ def _get_dependent_strategies(ds_id: str) -> list:
         for s in mgr.list_all():
             bound_ds = getattr(s._metadata, "bound_datasource_id", "")
             if bound_ds == ds_id:
+                ht = getattr(s._metadata, "handler_type", "unknown") or "unknown"
                 strategies.append({
                     "id": s.id,
                     "name": s.name,
                     "is_running": s.is_running,
+                    "handler_type": ht,
                 })
         return strategies
     except Exception:

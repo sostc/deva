@@ -2,10 +2,12 @@
 QueryState - 全局查询状态
 
 维护系统当前的注意力焦点状态
+包含价值观系统集成
 """
 
 import time
 import numpy as np
+from typing import Dict, List, Optional, Any
 
 
 class QueryState:
@@ -18,6 +20,9 @@ class QueryState:
         market_regime: 市场状态（趋势/震荡）
         attention_focus: 当前注意力焦点
         risk_bias: 风险偏好 [0, 1]
+        active_value_type: 当前激活的价值观类型
+        value_system: 价值观系统引用
+        last_decision_reason: 最后决策的理由
     """
 
     def __init__(self):
@@ -31,6 +36,147 @@ class QueryState:
             "volumes": [],
             "symbols": [],
             "last_update": 0,
+        }
+        self._value_system = None
+        self.active_value_type = "trend"
+        self.last_decision_reason = ""
+
+    def _get_value_system(self):
+        """获取价值观系统（延迟初始化）"""
+        if self._value_system is None:
+            try:
+                from deva.naja.attention.values import get_value_system
+                self._value_system = get_value_system()
+            except ImportError:
+                pass
+        return self._value_system
+
+    def set_value_type(self, value_type: str) -> bool:
+        """
+        设置价值观类型
+
+        Args:
+            value_type: 价值观类型 (trend/contrarian/value/momentum/liquidity/balanced)
+
+        Returns:
+            是否成功
+        """
+        vs = self._get_value_system()
+        if vs:
+            return vs.set_active_value_type(value_type)
+        self.active_value_type = value_type
+        return True
+
+    def get_value_weights(self) -> Dict[str, float]:
+        """
+        获取当前价值观权重
+
+        Returns:
+            价值观权重字典
+        """
+        vs = self._get_value_system()
+        if vs:
+            return vs.get_active_weights().to_dict()
+        return {
+            "price_sensitivity": 0.5,
+            "volume_sensitivity": 0.5,
+            "sentiment_weight": 0.3,
+            "liquidity_weight": 0.4,
+            "fundamentals_weight": 0.3,
+        }
+
+    def get_value_preferences(self) -> Dict[str, Any]:
+        """
+        获取当前价值观偏好
+
+        Returns:
+            价值观偏好字典
+        """
+        vs = self._get_value_system()
+        if vs:
+            return vs.get_active_preferences().to_dict()
+        return {
+            "risk_preference": 0.5,
+            "time_horizon": 0.5,
+            "concentration": 0.5,
+        }
+
+    def calculate_value_alignment(self, features: Dict[str, Any]) -> float:
+        """
+        计算事件特征与当前价值观的匹配度
+
+        Args:
+            features: 事件特征字典
+
+        Returns:
+            匹配度 (0-1)
+        """
+        vs = self._get_value_system()
+        if vs:
+            return vs.calculate_alignment(features)
+        return 0.5
+
+    def explain_focus(self, symbol: str, features: Dict[str, Any]) -> str:
+        """
+        解释为什么关注这个标的
+
+        Args:
+            symbol: 股票代码
+            features: 事件特征
+
+        Returns:
+            解释字符串
+        """
+        alignment = self.calculate_value_alignment(features)
+        vs = self._get_value_system()
+
+        if vs:
+            reason = vs.generate_focus_reason(features)
+            vs.record_attention(symbol, alignment, reason)
+            self.last_decision_reason = reason
+            return reason
+
+        price_change = features.get("price_change", 0)
+        volume_spike = features.get("volume_spike", 1)
+        return f"价格变化{price_change:+.2f}%，成交量{volume_spike:.1f}倍，匹配度{alignment:.2f}"
+
+    def record_value_feedback(self, value_type: str, return_pct: float):
+        """
+        记录价值观表现反馈
+
+        Args:
+            value_type: 价值观类型
+            return_pct: 收益百分比
+        """
+        vs = self._get_value_system()
+        if vs:
+            vs.record_performance(value_type, return_pct)
+
+    def get_value_suggestions(self) -> List[str]:
+        """
+        获取价值观调整建议
+
+        Returns:
+            建议列表
+        """
+        vs = self._get_value_system()
+        if vs:
+            return vs.get_suggestions()
+        return []
+
+    def get_value_profile_info(self) -> Dict[str, Any]:
+        """
+        获取当前价值观配置信息
+
+        Returns:
+            价值观配置字典
+        """
+        vs = self._get_value_system()
+        if vs:
+            return vs.to_dict()
+        return {
+            "active_type": self.active_value_type,
+            "active_type_display": self.active_value_type,
         }
 
     def update(self, feedback):
@@ -250,4 +396,6 @@ class QueryState:
             "top_attention": list(self.attention_focus.keys())[:3] if self.attention_focus else [],
             "strategy_count": len(self.strategy_state),
             "portfolio_count": len(self.portfolio_state),
+            "active_value_type": self.active_value_type,
+            "value_weights": self.get_value_weights(),
         }

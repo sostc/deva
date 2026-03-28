@@ -3,6 +3,372 @@
 import json
 
 from pywebio.output import put_text, put_markdown, put_table, put_buttons, put_html, toast, popup, close_popup, put_code, put_collapse, put_row, use_scope, set_scope, clear
+
+
+STRATEGY_NAME_TO_DIAGRAM = {
+    "river_短期方向概率_top": {
+        "icon": "🌊",
+        "color": "#3b82f6",
+        "description": "河流比喻：短期方向概率预测",
+        "formula": "up_probability = sigmoid(linear_combination(features))",
+        "logic": [
+            "接收 tick 数据作为水波纹",
+            "计算五维河流特征（向、速、弹、深、波）",
+            "在线学习察觉水势变化",
+            "输出上涨概率"
+        ],
+        "output": "up_probability: 0.0-1.0, direction: up/down, confidence: 0.0-1.0",
+        "principle": {
+            "core_mechanism": "把市场想象成河流，tick是波纹。通过在线学习察觉水势变化，预测水流方向。",
+            "key_insights": [
+                "河流的水流方向代表价格变动方向，持续观察能发现规律",
+                "向：水流偏向哪边；速：水流有多急；弹：碰到石头会不会跳",
+                "深：河道宽窄；波：水面是否在起浪",
+                "up_probability 表示水流向上涨方向流动的概率"
+            ],
+            "when_to_use": "需要判断短期方向时使用，如择时、止损止盈等。"
+        }
+    },
+    "river_量价盘口异常分数_top": {
+        "icon": "🌊",
+        "color": "#8b5cf6",
+        "description": "河流比喻：量价盘口异常检测",
+        "formula": "anomaly_score = sum(|feature - expected|) / n",
+        "logic": [
+            "接收 tick 数据流",
+            "计算五维河流特征",
+            "HalfSpaceTrees 检测河流异常状态",
+            "输出异常分数"
+        ],
+        "output": "anomaly_score: 0.0-1.0, is_anomaly: bool, feature_contributions: {...}",
+        "principle": {
+            "core_mechanism": "用 HalfSpaceTrees 检测河流异常状态，识别水流突变、河道变化。",
+            "key_insights": [
+                "向：水流忽然回旋说明遇到阻挡；速：忽然急湍表示有新力量进入",
+                "弹：水花四溅代表价格冲击；深：河道宽窄反映盘口厚度",
+                "波：水面起浪说明成交在放大；异常分数越高，河流越不稳定",
+                "可以提前发现市场异常状态，如同在河流中提前发现漩涡"
+            ],
+            "when_to_use": "需要发现市场异常、规避风险时使用。"
+        }
+    },
+    "早期趋势检测": {
+        "icon": "🔮",
+        "color": "#f59e0b",
+        "description": "早期趋势发现，识别市场状态转变的早期信号",
+        "formula": "trend_indicator = α * price_change + β * volume_change",
+        "logic": [
+            "监测价格和成交量的早期变化",
+            "多周期窗口对比分析",
+            "识别趋势形成的前兆",
+            "输出早期预警信号"
+        ],
+        "output": "trend_score: 0.0-1.0, trend_type: emerging/established/reversing",
+        "principle": {
+            "core_mechanism": "像在河流中观察水流的早期变化，当上游开始下雨时，下游需要时间才能察觉。",
+            "key_insights": [
+                "趋势形成前总有前兆，如同天气预报看云层",
+                "价格变化 + 成交量变化 = 趋势强度",
+                "多周期对比能区分噪音和真实趋势",
+                "早期发现意味着更大的安全边际"
+            ],
+            "when_to_use": "需要捕捉趋势启动的早期信号时使用，如追涨、趋势跟踪策略。"
+        }
+    },
+    "市场状态分类": {
+        "icon": "📊",
+        "color": "#10b981",
+        "description": "市场状态分类，识别当前市场环境",
+        "formula": "market_state = argmax(P(trending|features), P(rangebound|features), P(volatile|features))",
+        "logic": [
+            "提取市场特征（波动率、趋势性、成交量）",
+            "基于历史模式分类",
+            "输出市场状态标签",
+            "持续更新状态估计"
+        ],
+        "output": "market_state: trending/rangebound/volatile, confidence: 0.0-1.0",
+        "principle": {
+            "core_mechanism": "如同观察河流是平静流淌、快速流动还是波涛汹涌。",
+            "key_insights": [
+                "trending：河流沿着河道稳定流动，适合顺流而下",
+                "rangebound：河流在两岸间来回摆动，适合区间操作",
+                "volatile：河流波涛汹涌，风险较高需要谨慎",
+                "知道当前状态才能选择合适的策略，如同看天出行"
+            ],
+            "when_to_use": "任何策略执行前都需要先判断市场状态，如同出行前先看天气。"
+        }
+    },
+    "板块动量分析": {
+        "icon": "🌊",
+        "color": "#8b5cf6",
+        "description": "河流比喻：板块间轮动与动量强度分析",
+        "formula": "momentum_score = Σ(block_imbalance) * rotation_speed",
+        "logic": [
+            "接收板块行情数据流",
+            "计算板块间资金流向（河流分支）",
+            "测量动量强度与轮动速度",
+            "识别强势板块与弱势板块"
+        ],
+        "output": "rising_blocks: [...], falling_blocks: [...], momentum_score: 0.0-1.0",
+        "principle": {
+            "core_mechanism": "把板块想象成河流的不同分支，资金在水流间转移形成轮动。观察哪些分支流得更快更急，能判断水的能量分布。",
+            "key_insights": [
+                "动量强的板块像急流，资金持续流入形成趋势",
+                "轮动速度反映热点切换频率，快轮动需要快进快出",
+                "强势板块回调后往往二次启动，如同瀑布落下后的反弹",
+                "资金集中度 = 河流宽度，越宽说明资金越集中"
+            ],
+            "when_to_use": "需要捕捉板块轮动、优化行业配置时使用。"
+        }
+    },
+    "资金流向分析": {
+        "icon": "💰",
+        "color": "#10b981",
+        "description": "河流比喻：大单资金追踪与资金集中度分析",
+        "formula": "capital_score = money_weight * 0.6 + strength_weight * 0.4",
+        "logic": [
+            "分解订单流为大单/小单（主流/支流）",
+            "计算资金集中度与涨跌强弱",
+            "综合评分排序",
+            "输出资金信号"
+        ],
+        "output": "capital_scores: [{code, score, money_flow}], top_picks: [...]",
+        "principle": {
+            "core_mechanism": "大单就像河流的主流，小单像支流。观察主流的流向和速度，能判断整条河的能量方向。",
+            "key_insights": [
+                "资金集中度 = 主流占比，主流越强趋势越明确",
+                "涨跌强弱 = 水流对河岸的冲击力度",
+                "综合得分高意味着资金和趋势共振，是强势信号",
+                "资金流入先于价格上涨，如同上游下雨下游水位先涨"
+            ],
+            "when_to_use": "需要跟随大资金、寻找强势股票时使用。"
+        }
+    },
+    "波动率分析": {
+        "icon": "🌊",
+        "color": "#ef4444",
+        "description": "河流比喻：水面波动幅度与市场风险检测",
+        "formula": "volatility_zscore = (current_vol - ema_vol) / std_vol",
+        "logic": [
+            "计算价格波动率序列",
+            "Z-score 标准化异常检测",
+            "多周期波动率对比",
+            "输出风险等级"
+        ],
+        "output": "volatility_level: low/medium/high/extreme, zscore: -3.0~3.0",
+        "principle": {
+            "core_mechanism": "水面平静如镜时风险低，波浪翻滚时风险高。通过测量波浪幅度判断市场情绪。",
+            "key_insights": [
+                "低波动率 = 水面平静，可能酝酿突破",
+                "高波动率 = 水面翻涌，风险与机会并存",
+                "Z-score > 2 表示异常波动，需要警惕",
+                "波动率聚集现象：剧烈波动后往往持续一段时间"
+            ],
+            "when_to_use": "需要评估市场风险、设置止损止盈时使用。"
+        }
+    },
+    "早期牛股发现": {
+        "icon": "🔮",
+        "color": "#f59e0b",
+        "description": "河流比喻：在源头发现最具潜力的种子股票",
+        "formula": "early_score = momentum * volume_ratio * age_factor",
+        "logic": [
+            "监测启动初期的股票",
+            "计算动量与成交量爆发因子",
+            "评估启动位置与时间窗口",
+            "输出早期牛股信号"
+        ],
+        "output": "early_bulls: [{code, score, startup_phase}], top_picks: [...]",
+        "principle": {
+            "core_mechanism": "像在河流源头发现最有潜力的小溪，在股票刚刚启动时就识别出来。",
+            "key_insights": [
+                "牛股启动时如同小溪汇入大河，初期能量虽小但方向明确",
+                "动量 + 成交量 + 启动位置 = 早期强度",
+                "启动位置越低，未来成长空间越大",
+                "早期发现意味着成本优势和更大的上涨空间"
+            ],
+            "when_to_use": "需要寻找高成长标的、愿意承担早期风险时使用。"
+        }
+    },
+    "市场异常检测(HST)": {
+        "icon": "🌊",
+        "color": "#dc2626",
+        "description": "河流比喻：HalfSpaceTrees 异常检测识别市场突变",
+        "formula": "anomaly_score = depth_score / tree_depth",
+        "logic": [
+            "HalfSpaceTrees 在线构建异常树",
+            "接收 tick 数据评估异常深度",
+            "多维度特征综合评分",
+            "输出异常信号与置信度"
+        ],
+        "output": "is_anomaly: bool, anomaly_score: 0.0-1.0, feature_contribs: {...}",
+        "principle": {
+            "core_mechanism": "用 HalfSpaceTrees 把正常市场状态建模为河流的正常流态，任何偏离都像漩涡或湍流被检测出来。",
+            "key_insights": [
+                " HST 像在河流中布下渔网，正常水流穿网而过，异常会被拦住",
+                "正常状态外的任何变化都是异常，如同平静水面突然出现漩涡",
+                "异常分数越高说明偏离正常流态越远",
+                "可以检测到大资金进出、新闻事件影响等引起的市场波动"
+            ],
+            "when_to_use": "需要实时监控市场异常、防范黑天鹅时使用。"
+        }
+    },
+    "微观波动异常检测": {
+        "icon": "🌊",
+        "color": "#7c3aed",
+        "description": "河流比喻：识别水面的细微涟漪与高频抖动",
+        "formula": "micro_volatility = σ(price_changes) * tick_frequency",
+        "logic": [
+            "高频采样价格变动",
+            "计算微观波动率与抖动",
+            "识别震荡/放大/收缩模式",
+            "输出微观结构信号"
+        ],
+        "output": "pattern: oscillation/spike/contraction, intensity: 0.0-1.0",
+        "principle": {
+            "core_mechanism": "观察水面的细微涟漪来预判大浪。微观波动往往先于宏观趋势出现。",
+            "key_insights": [
+                "小幅震荡 = 水面在积蓄能量，可能突破",
+                "突然放大 = 水面被投入石子，可能有大事发生",
+                "收缩模式 = 水流在变窄，可能酝酿方向选择",
+                "微观信号比宏观信号更早出现，但噪音也更大"
+            ],
+            "when_to_use": "需要高频交易、捕捉短期机会时使用。"
+        }
+    },
+    "早期预警系统": {
+        "icon": "⚠️",
+        "color": "#f97316",
+        "description": "河流比喻：综合多维度预警，提前发现风险与机会",
+        "formula": "warning_score = w1*trend + w2*volatility + w3*volume + w4*momentum",
+        "logic": [
+            "综合趋势、波动率、成交量等多维度",
+            "加权计算综合预警分数",
+            "设置多级别预警阈值",
+            "输出风险/机会预警信号"
+        ],
+        "output": "warning_level: green/yellow/orange/red, alert_type: risk/opportunity",
+        "principle": {
+            "core_mechanism": "像在河流中设置多个观测点，任何一个点出现异常都能触发预警。综合判断比单一指标更可靠。",
+            "key_insights": [
+                "趋势 + 波动率 + 成交量 + 动量 = 多维度预警",
+                "黄色预警：远端有乌云；橙色预警：开始下雨；红色预警：山洪暴发",
+                "预警级别越高，需要越快做出响应",
+                "机会预警和风险预警同等重要，都是预警"
+            ],
+            "when_to_use": "需要综合判断市场状态、设置风控预警时使用。"
+        }
+    },
+    "板块牛股精选": {
+        "icon": "🎯",
+        "color": "#10b981",
+        "description": "河流比喻：从概念板块的众多支流中精选最强的一支",
+        "formula": "block_strength = Σ(stock_momentum * block_correlation) / n",
+        "logic": [
+            "计算板块内个股动量",
+            "分析板块联动性强度",
+            "精选动量最强的牛股",
+            "过滤噪音与弱势股票"
+        ],
+        "output": "top_bulls: [{code, block_score, momentum}], selected: [...]",
+        "principle": {
+            "core_mechanism": "板块像多条汇入大河的支流，最强的支流往往带动整个水系。通过分析支流强弱选出真正的牛股。",
+            "key_insights": [
+                "板块联动性 = 支流间的相互影响强度",
+                "动量最强的个股 = 最强支流，有引领整个板块的潜力",
+                "过滤噪音 = 排除看起来水流急但实际是漩涡的股票",
+                "精选策略比广撒网更高效"
+            ],
+            "when_to_use": "需要精选个股而非选板块时使用。"
+        }
+    },
+    "上涨概率预测": {
+        "icon": "📈",
+        "color": "#8b5cf6",
+        "description": "河流比喻：LogisticRegression 在线学习预测短期方向概率",
+        "formula": "P(rise) = sigmoid(w0 + w1*ret + w2*vol_ratio + w3*p_change)",
+        "logic": [
+            "提取价格变动、成交量比率等特征",
+            "LogisticRegression 在线学习",
+            "预测短期上涨概率",
+            "输出概率排序结果"
+        ],
+        "output": "probabilities: [{code, prob, ret}], top_predictions: [...]",
+        "principle": {
+            "core_mechanism": "持续观察河流的水流方向变化，学习什么样的水势组合最可能导致上涨。类似老渔夫看水势判断鱼群走向。",
+            "key_insights": [
+                "ret = 水流速度，vol_ratio = 水流量，p_change = 水位变化",
+                "模型在线学习，根据最新水势不断调整判断",
+                "概率 > 0.5 意味着上涨可能性大于下跌",
+                "置信度越高，预测越可靠"
+            ],
+            "when_to_use": "需要预测短期方向概率时使用，如择时、风控等。"
+        }
+    },
+    "river_stock_picker_755b128e": {
+        "icon": "🌊",
+        "color": "#3b82f6",
+        "description": "河流比喻：基于机器学习在线选股，持续优化交易策略",
+        "formula": "stock_score = model.predict_proba(features) > buy_threshold",
+        "logic": [
+            "提取价格、波动率、成交量等特征",
+            "LogisticRegression 在线学习",
+            "持续更新选股模型",
+            "触发阈值时生成买入信号"
+        ],
+        "output": "buy_signals: [...], sell_signals: [...], portfolio: {...}",
+        "principle": {
+            "core_mechanism": "让模型像老船夫一样，通过长期观察河流学会判断什么时候该下网、什么时候该收网。",
+            "key_insights": [
+                "price_change = 水流方向和速度，volatility = 波浪大小，volume_ratio = 水流量",
+                "模型持续学习，不断优化判断准确性",
+                "buy_threshold = 下网的时机，score 超过阈值才行动",
+                "在线学习让模型能适应市场变化"
+            ],
+            "when_to_use": "需要自动化选股和交易时使用。"
+        }
+    },
+    "Bandit交易信号": {
+        "icon": "🎰",
+        "color": "#f59e0b",
+        "description": "河流比喻：Bandit算法优化交易信号的选择与执行",
+        "formula": "signal_value = Σ(reward * confidence) / exploration_bonus",
+        "logic": [
+            "收集多个信号源的候选信号",
+            "Bandit算法评估信号价值",
+            "平衡探索与利用",
+            "输出最优交易信号"
+        ],
+        "output": "best_signal: {type, stock, action, confidence}, all_signals: [...]",
+        "principle": {
+            "core_mechanism": "像在多条河流分支中选择最有价值的那一条。Bandit算法平衡'确定收益'和'探索新机会'。",
+            "key_insights": [
+                "多信号源 = 多条可能的河流，每条都通向不同的地方",
+                "exploitation = 走最熟悉的那条河，exploration = 探索新路线",
+                "UCB算法平衡两者：既不过于保守，也不过于冒险",
+                "奖励机制让算法学会选择真正能带来收益的信号"
+            ],
+            "when_to_use": "有多个策略信号需要选择时使用，如信号融合、策略组合等。"
+        }
+    },
+}
+
+
+def _get_fallback_diagram_info(entry) -> dict:
+    """如果策略没有 diagram_info，尝试通过策略名获取默认的图表信息"""
+    name = getattr(entry._metadata, 'name', '') or entry.name
+
+    if name in STRATEGY_NAME_TO_DIAGRAM:
+        return STRATEGY_NAME_TO_DIAGRAM[name]
+
+    # 支持策略ID别名映射
+    entry_id = getattr(entry._metadata, 'id', '') or entry.id
+    if entry_id in STRATEGY_NAME_TO_DIAGRAM:
+        return STRATEGY_NAME_TO_DIAGRAM[entry_id]
+
+    return {}
+
+
 from pywebio.input import input_group, input, textarea, select, actions
 from pywebio.session import run_async
 
@@ -72,20 +438,99 @@ def _render_type_badge(strategy_type: str) -> str:
         color = "#8b5cf6"
         bg = "#ede9fe"
         label = "plugin"
+    elif stype == "attention":
+        color = "#f59e0b"
+        bg = "#fef3c7"
+        label = "attention"
     elif stype == "legacy":
         label = "legacy"
     return f'<span style="display:inline-block;padding:2px 8px;border-radius:999px;font-size:11px;font-weight:600;background:{bg};color:{color};">{label}</span>'
 
 
 def _render_principle_section(ctx: dict, entry, principle: dict, color: str):
-    """渲染原理解释部分（河流比喻）"""
+    """渲染原理解释部分（河流比喻）
+
+    支持两种格式：
+    1. 新格式（推荐）：{core_mechanism, key_insights, when_to_use}
+    2. 旧格式（兼容）：{title, core_concept, five_dimensions, learning_mechanism, output_meaning}
+    """
+    # 检测格式类型
+    if "five_dimensions" in principle:
+        _render_principle_section_legacy(ctx, principle, color)
+        return
+
+    # 新格式渲染
+    title = principle.get("title", "🌊 策略原理解释")
+    core_mechanism = principle.get("core_mechanism", "")
+    key_insights = principle.get("key_insights", [])
+    when_to_use = principle.get("when_to_use", "")
+
+    # 核心机制部分
+    core_html = ""
+    if core_mechanism:
+        core_html = f'''
+        <div style="background:linear-gradient(135deg,{color}22 0%,{color}11 100%);
+                    padding:16px;border-radius:10px;margin-bottom:16px;border-left:4px solid {color};">
+            <div style="font-size:13px;color:#333;line-height:1.7;">
+                {core_mechanism}
+            </div>
+        </div>
+        '''
+
+    # 关键洞察部分
+    insights_html = ""
+    if key_insights:
+        insights_html = '<div style="margin-bottom:16px;"><div style="font-weight:600;color:#333;font-size:13px;margin-bottom:10px;">💡 关键洞察</div><div style="display:flex;flex-direction:column;gap:8px;">'
+        for insight in key_insights:
+            insights_html += f'''
+            <div style="background:#f8f9fa;padding:10px 12px;border-radius:8px;font-size:12px;color:#555;line-height:1.6;
+                        border-left:3px solid {color};">
+                {insight}
+            </div>
+            '''
+        insights_html += '</div></div>'
+
+    # 使用时机部分
+    when_html = ""
+    if when_to_use:
+        when_html = f'''
+        <div style="background:#fffbe6;padding:12px 16px;border-radius:10px;font-size:12px;color:#665500;
+                    border-left:4px solid #f59e0b;margin-top:16px;">
+            <div style="font-weight:600;margin-bottom:6px;">🎯 使用时机</div>
+            <div style="line-height:1.6;">{when_to_use}</div>
+        </div>
+        '''
+
+    ctx["put_html"](f"""
+    <div style="background:#fff;border-radius:12px;box-shadow:0 2px 12px rgba(0,0,0,0.08);
+                overflow:hidden;border:1px solid #eee;margin-bottom:15px;">
+        <div style="background:linear-gradient(135deg,{color} 0%,{color}cc 100%);
+                    padding:15px 20px;color:white;">
+            <div style="display:flex;align-items:center;gap:12px;">
+                <div style="font-size:24px;">🌊</div>
+                <div>
+                    <div style="font-size:16px;font-weight:600;">{title}</div>
+                    <div style="font-size:11px;opacity:0.9;margin-top:3px;">策略原理解释 · 河流比喻</div>
+                </div>
+            </div>
+        </div>
+        <div style="padding:20px;">
+            {core_html}
+            {insights_html}
+            {when_html}
+        </div>
+    </div>
+    """)
+
+
+def _render_principle_section_legacy(ctx: dict, principle: dict, color: str):
+    """渲染旧格式的原理解释（兼容）"""
     title = principle.get("title", "策略原理解释")
     core_concept = principle.get("core_concept", "")
     five_dimensions = principle.get("five_dimensions", {})
     learning_mechanism = principle.get("learning_mechanism", "")
     output_meaning = principle.get("output_meaning", "")
 
-    # 生成五个维度的 HTML
     dimensions_html = ""
     dim_icons = {
         "向": "🌊",
@@ -96,7 +541,6 @@ def _render_principle_section(ctx: dict, entry, principle: dict, color: str):
     }
 
     for dim_key, dim_data in five_dimensions.items():
-        # 提取第一个字作为图标
         first_char = dim_key.split("_")[0] if "_" in dim_key else dim_key[0]
         icon = dim_icons.get(first_char, "📌")
 
@@ -126,7 +570,6 @@ def _render_principle_section(ctx: dict, entry, principle: dict, color: str):
         </div>
         """
 
-    # 学习机制和输出含义
     extra_html = ""
     if learning_mechanism or output_meaning:
         extra_html = f"""
@@ -162,6 +605,9 @@ def _render_principle_section(ctx: dict, entry, principle: dict, color: str):
 def _render_strategy_diagram_section(ctx: dict, entry):
     """渲染策略详解图表部分"""
     diagram_info = getattr(entry._metadata, "diagram_info", {}) or {}
+
+    if not diagram_info:
+        diagram_info = _get_fallback_diagram_info(entry)
 
     if not diagram_info:
         return
@@ -259,17 +705,64 @@ async def render_strategy_admin(ctx: dict):
     _render_strategy_content(ctx)
 
 
-# 全局变量：当前选中的类别
+# 全局变量：当前选中的类别和视图模式
 _current_category = "全部"
+_view_mode = "category"  # "category": 按category分类, "handler": 按handler_type分类
+
+
+def _get_handler_type_label(ht: str) -> str:
+    """获取handler_type的中文标签"""
+    labels = {
+        "radar": "📡 Radar雷达",
+        "memory": "🧠 Memory记忆",
+        "bandit": "🎰 Bandit交易",
+        "llm": "🤖 LLM调节",
+        "attention": "👁️ Attention注意",
+    }
+    return labels.get(ht, ht)
+
+
+def _categorize_strategy_by_handler(entry) -> str:
+    """根据策略的handler_type来分类"""
+    ht = getattr(entry._metadata, "handler_type", "unknown") or "unknown"
+    if ht == "unknown":
+        return "⚪ 未分类"
+    return _get_handler_type_label(ht)
+
+
+def _get_all_handler_categories(entries: list) -> list:
+    """获取所有handler类别"""
+    categories = set()
+    for e in entries:
+        cat = _categorize_strategy_by_handler(e)
+        categories.add(cat)
+    return sorted(list(categories))
 
 
 def _get_all_categories(entries: list) -> list:
-    """获取所有类别"""
+    """获取所有类别（根据视图模式）"""
+    if _view_mode == "handler":
+        return _get_all_handler_categories(entries)
     categories = set()
     for e in entries:
         cat = getattr(e._metadata, "category", "默认") or "默认"
         categories.add(cat)
     return sorted(list(categories))
+
+
+def _get_strategy_func_code_file(entry) -> str:
+    """获取策略的代码文件路径"""
+    func_code_file = getattr(entry._metadata, "func_code_file", "") or ""
+    if not func_code_file:
+        try:
+            from ..config.file_config import get_file_config_manager
+            file_mgr = get_file_config_manager("strategy")
+            item = file_mgr.get(entry.name)
+            if item:
+                func_code_file = item.func_code_file or ""
+        except Exception:
+            pass
+    return func_code_file
 
 
 def _resolve_datasource_name(datasource_id: str) -> str:
@@ -349,7 +842,10 @@ def _render_strategy_content(ctx: dict):
     if _current_category == "全部":
         filtered_entries = entries
     else:
-        filtered_entries = [e for e in entries if getattr(e._metadata, "category", "默认") == _current_category]
+        if _view_mode == "handler":
+            filtered_entries = [e for e in entries if _categorize_strategy_by_handler(e) == _current_category]
+        else:
+            filtered_entries = [e for e in entries if getattr(e._metadata, "category", "默认") == _current_category]
 
     if filtered_entries:
         _t10 = time_module.time()
@@ -376,6 +872,11 @@ def _render_strategy_content(ctx: dict):
 
         ctx["put_buttons"](toolbar_buttons, onclick=lambda v, m=mgr, c=ctx: _handle_toolbar_action(v, m, c), group=True, scope="strategy_content")
         ctx["put_html"]('</div>', scope="strategy_content")
+
+        # 渲染策略关系图
+        from .relationship import build_relationship_html
+        ctx["put_html"](build_relationship_html(), scope="strategy_content")
+
     else:
         ctx["put_html"](render_empty_state("暂无策略，点击下方按钮创建"), scope="strategy_content")
         ctx["put_buttons"]([{"label": "➕ 创建策略", "value": "create", "color": "primary"}],
@@ -408,26 +909,50 @@ def _render_strategy_content(ctx: dict):
 
 def _render_category_tabs(ctx: dict, categories: list, entries: list, mgr):
     """渲染类别 Tab"""
-    global _current_category
+    global _current_category, _view_mode
 
-    # 构建Tab按钮
     tab_buttons = [{"label": f"📋 全部 ({len(entries)})", "value": "全部"}]
-    
+
     for cat in categories:
-        count = len([e for e in entries if getattr(e._metadata, "category", "默认") == cat])
-        tab_buttons.append({"label": f"📁 {cat} ({count})", "value": cat})
+        if _view_mode == "handler":
+            count = len([e for e in entries if _categorize_strategy_by_handler(e) == cat])
+        else:
+            count = len([e for e in entries if getattr(e._metadata, "category", "默认") == cat])
+        icon = "📡" if _view_mode == "handler" and "Radar" in cat else \
+               "🧠" if _view_mode == "handler" and "Memory" in cat else \
+               "🎰" if _view_mode == "handler" and "Bandit" in cat else \
+               "🤖" if _view_mode == "handler" and "LLM" in cat else \
+               "👁️" if _view_mode == "handler" and "Attention" in cat else \
+               "⚪" if _view_mode == "handler" else "📁"
+        tab_buttons.append({"label": f"{icon} {cat} ({count})", "value": cat})
 
     ctx["put_html"]('<div class="category-tabs">', scope="strategy_content")
 
     ctx["put_buttons"](tab_buttons, onclick=lambda v, c=ctx, m=mgr: _switch_category(v, c, m), scope="strategy_content")
-    
+
     ctx["put_html"]("</div>", scope="strategy_content")
+
+    view_mode_btns = [
+        {"label": "📂 按类别", "value": "category", "color": "primary" if _view_mode == "category" else "secondary"},
+        {"label": "📥 按消费", "value": "handler", "color": "primary" if _view_mode == "handler" else "secondary"},
+    ]
+    ctx["put_html"]('<div style="margin-top:8px;">', scope="strategy_content")
+    ctx["put_buttons"](view_mode_btns, onclick=lambda v, c=ctx, m=mgr: _switch_view_mode(v, c, m), scope="strategy_content")
+    ctx["put_html"]('</div>', scope="strategy_content")
 
 
 def _switch_category(category: str, ctx: dict, mgr):
     """切换类别"""
     global _current_category
     _current_category = category
+    _render_strategy_content(ctx)
+
+
+def _switch_view_mode(mode: str, ctx: dict, mgr):
+    """切换视图模式"""
+    global _view_mode, _current_category
+    _view_mode = mode
+    _current_category = "全部"
     _render_strategy_content(ctx)
 
 
@@ -499,6 +1024,7 @@ def _build_table_data(ctx: dict, entries: list, mgr) -> list:
                 "memory": {"icon": "🧠", "color": "#8b5cf6", "bg": "rgba(139,92,246,0.1)"},
                 "bandit": {"icon": "🎰", "color": "#f59e0b", "bg": "rgba(245,158,11,0.1)"},
                 "llm": {"icon": "🤖", "color": "#10b981", "bg": "rgba(16,185,129,0.1)"},
+                "attention": {"icon": "👁️", "color": "#f59e0b", "bg": "rgba(245,158,11,0.1)"},
             }.get(handler_type, {"icon": "❓", "color": "#6b7280", "bg": "rgba(107,114,128,0.1)"})
             
             handler_html = f'''<span style="display:inline-flex;align-items:center;gap:2px;padding:2px 6px;border-radius:4px;font-size:10px;font-weight:500;background:{handler_info['bg']};color:{handler_info['color']};margin-left:4px;">
@@ -561,8 +1087,13 @@ def _build_table_data(ctx: dict, entries: list, mgr) -> list:
         toggle_color = "danger" if e.is_running else "success"
 
         source = getattr(e._metadata, 'source', 'nb') if hasattr(e, '_metadata') else 'nb'
-        if source == 'file':
+        internal_to_cognition = getattr(e._metadata, 'internal_to_cognition', False)
+        if internal_to_cognition:
+            source_html = '<span style="background:#f3e5f5;color:#7b1fa2;padding:2px 8px;border-radius:4px;font-size:11px;">🧠 认知系统</span>'
+        elif source == 'file':
             source_html = '<span style="background:#e8f5e9;color:#2e7d32;padding:2px 8px;border-radius:4px;font-size:11px;">📁 文件</span>'
+        elif source == 'attention':
+            source_html = '<span style="background:#fef3c7;color:#f59e0b;padding:2px 8px;border-radius:4px;font-size:11px;">👁️ 注意力</span>'
         else:
             source_html = '<span style="background:#e3f2fd;color:#1565c0;padding:2px 8px;border-radius:4px;font-size:11px;">💾 NB</span>'
 
@@ -1467,6 +1998,7 @@ async def _show_strategy_detail(ctx: dict, mgr, entry_id: str):
             "declarative": {"bg": "#e0f2fe", "color": "#0284c7"},
             "river": {"bg": "#dcfce7", "color": "#16a34a"},
             "plugin": {"bg": "#ede9fe", "color": "#7c3aed"},
+            "attention": {"bg": "#fef3c7", "color": "#f59e0b"},
         }
         type_style = type_colors.get(strategy_type, type_colors["legacy"])
         
@@ -1489,21 +2021,72 @@ async def _show_strategy_detail(ctx: dict, mgr, entry_id: str):
         
         # 紧凑二列布局：基本信息 + 执行统计
         ctx["put_html"]('<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px;">')
-        
+
+        # 策略元数据概览
+        category = getattr(entry._metadata, "category", "-") or "-"
+        handler_type = getattr(entry._metadata, "handler_type", "-") or "-"
+        window_type = getattr(entry._metadata, "window_type", "-") or "-"
+        window_interval = getattr(entry._metadata, "window_interval", "-") or "-"
+        version = getattr(entry._metadata, "version", 1)
+        tags = getattr(entry._metadata, "tags", []) or []
+
+        # 标签显示
+        tags_html = ""
+        if tags:
+            for tag in tags[:5]:
+                tags_html += f'<span style="display:inline-block;padding:1px 6px;background:#f1f5f9;color:#64748b;border-radius:4px;font-size:10px;margin-right:4px;">{tag}</span>'
+
+        handler_icons = {
+            "radar": "📡",
+            "memory": "🧠",
+            "bandit": "🎰",
+            "llm": "🤖",
+            "attention": "👁️",
+        }
+        handler_icon = handler_icons.get(handler_type, "📋")
+        handler_html = f"{handler_icon} {handler_type}"
+
         # 左侧：关键信息
         ctx["put_html"](f"""
         <div style="background:#fff;padding:12px;border-radius:8px;border:1px solid #e5e7eb;font-size:11px;">
+            <div style="font-weight:600;color:#1e293b;margin-bottom:8px;padding-bottom:6px;border-bottom:1px solid #e5e7eb;">📋 基本信息</div>
             <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;">
-                <div><span style="color:#64748b;">窗口:</span> <span style="color:#1e293b;">{getattr(entry._metadata, "window_size", 5)}</span></div>
-                <div><span style="color:#64748b;">历史:</span> <span style="color:#1e293b;">{getattr(entry._metadata, "max_history_count", 100)}</span></div>
+                <div><span style="color:#64748b;">类别:</span> <span style="color:#1e293b;">{category}</span></div>
+                <div><span style="color:#64748b;">Handler:</span> <span style="color:#1e293b;">{handler_html}</span></div>
+                <div><span style="color:#64748b;">窗口:</span> <span style="color:#1e293b;">{getattr(entry._metadata, "window_size", 5)} ({window_type})</span></div>
+                <div><span style="color:#64748b;">间隔:</span> <span style="color:#1e293b;">{window_interval}</span></div>
                 <div><span style="color:#64748b;">持久化:</span> <span style="color:{"#22c55e" if state_persist else "#9ca3af"};">{"开" if state_persist else "关"}</span></div>
-                <div><span style="color:#64748b;">输出:</span> <span style="color:#1e293b;">{entry._state.output_count}</span></div>
-                <div><span style="color:#64748b;">错误:</span> <span style="color:{"#ef4444" if entry._state.error_count > 0 else "#1e293b"};">{entry._state.error_count}</span></div>
-                <div><span style="color:#64748b;">最后:</span> <span style="color:#1e293b;">{format_timestamp(entry._state.last_process_ts) if entry._state.last_process_ts > 0 else "-"}</span></div>
+                <div><span style="color:#64748b;">版本:</span> <span style="color:#1e293b;">v{version}</span></div>
             </div>
+            {f'<div style="margin-top:8px;padding-top:6px;border-top:1px solid #e5e7eb;"><span style="color:#64748b;">标签:</span> {tags_html}</div>' if tags_html else ''}
         </div>
         """)
-        
+
+        func_code_file = _get_strategy_func_code_file(entry)
+        if func_code_file:
+            ctx["put_html"](f'''
+            <div style="background:#fff;padding:12px;border-radius:8px;border:1px solid #e5e7eb;font-size:11px;margin-bottom:12px;">
+                <div style="font-weight:600;color:#1e293b;margin-bottom:6px;">📁 代码文件</div>
+                <div style="color:#1e293b;word-break:break-all;">{func_code_file}</div>
+            </div>
+            ''')
+
+        handler_labels = {
+            "radar": "📡 Radar雷达 → 信号检测异常检测",
+            "memory": "🧠 Memory记忆 → 主题聚类语义分析",
+            "bandit": "🎰 Bandit交易 → 交易信号仓位管理",
+            "llm": "🤖 LLM调节 → 参数优化策略调优",
+            "attention": "👁️ Attention注意 → 注意力评分",
+        }
+        handler_desc = handler_labels.get(handler_type, "")
+        if handler_desc:
+            ctx["put_html"](f'''
+            <div style="background:#fff;padding:12px;border-radius:8px;border:1px solid #e5e7eb;font-size:11px;margin-bottom:12px;">
+                <div style="font-weight:600;color:#1e293b;margin-bottom:6px;">📤 输出目标 (消费)</div>
+                <div style="color:#1e293b;">{handler_desc}</div>
+            </div>
+            ''')
+
         # 错误信息 + 最新正确信息并排显示
         try:
             recent_results = entry.get_recent_results(limit=2)
@@ -1538,6 +2121,19 @@ async def _show_strategy_detail(ctx: dict, mgr, entry_id: str):
         except Exception:
             pass
         
+        # 执行统计
+        ctx["put_html"](f"""
+        <div style="background:#fff;padding:12px;border-radius:8px;border:1px solid #e5e7eb;font-size:11px;">
+            <div style="font-weight:600;color:#1e293b;margin-bottom:6px;">📊 执行统计</div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;">
+                <div><span style="color:#64748b;">输出:</span> <span style="color:#1e293b;">{entry._state.output_count}</span></div>
+                <div><span style="color:#64748b;">错误:</span> <span style="color:{"#ef4444" if entry._state.error_count > 0 else "#1e293b"};">{entry._state.error_count}</span></div>
+                <div><span style="color:#64748b;">历史:</span> <span style="color:#1e293b;">{getattr(entry._metadata, "max_history_count", 100)}</span></div>
+                <div><span style="color:#64748b;">最后:</span> <span style="color:#1e293b;">{format_timestamp(entry._state.last_process_ts) if entry._state.last_process_ts > 0 else "-"}</span></div>
+            </div>
+        </div>
+        """)
+
         # 右侧：数据源
         ctx["put_html"](f"""
         <div style="background:#fff;padding:12px;border-radius:8px;border:1px solid #e5e7eb;font-size:11px;">
@@ -1550,6 +2146,60 @@ async def _show_strategy_detail(ctx: dict, mgr, entry_id: str):
         dict_ids = getattr(entry._metadata, "dictionary_profile_ids", [])
         if dict_ids:
             ctx["put_html"](f'<div style="margin-bottom:12px;font-size:11px;"><span style="color:#64748b;">📖 字典:</span> <span style="color:#1e293b;">{", ".join(dict_ids)}</span></div>')
+
+        # 注意力策略特有信息
+        if strategy_type == "attention":
+            attention_scope = getattr(entry, 'scope', getattr(entry._metadata, 'scope', '-'))
+            try:
+                attn_stats = entry.get_attention_stats() if hasattr(entry, 'get_attention_stats') else {}
+            except Exception:
+                attn_stats = {}
+            exec_count = attn_stats.get('execution_count', 0)
+            skip_count = attn_stats.get('skip_count', 0)
+            signal_count = attn_stats.get('signal_count', 0)
+            scope = attn_stats.get('scope', attention_scope)
+
+            priority = "-"
+            try:
+                from deva.naja.attention.strategies import get_strategy_manager as get_attn_mgr
+                attn_mgr = get_attn_mgr()
+                config = attn_mgr.configs.get(entry.id)
+                if config:
+                    priority = config.priority
+            except Exception:
+                pass
+
+            ctx["put_html"](f"""
+            <div style="margin-bottom:12px;padding:12px;background:linear-gradient(135deg, #fef3c7, #fde68a);border-radius:8px;border:1px solid #f59e0b;">
+                <div style="font-weight:600;color:#92400e;margin-bottom:8px;">👁️ 注意力策略信息</div>
+                <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;font-size:11px;">
+                    <div style="background:#fff;border-radius:4px;padding:6px 8px;">
+                        <div style="color:#64748b;">Scope</div>
+                        <div style="color:#1e293b;font-weight:600;">{scope}</div>
+                    </div>
+                    <div style="background:#fff;border-radius:4px;padding:6px 8px;">
+                        <div style="color:#64748b;">执行次数</div>
+                        <div style="color:#1e293b;font-weight:600;">{exec_count}</div>
+                    </div>
+                    <div style="background:#fff;border-radius:4px;padding:6px 8px;">
+                        <div style="color:#64748b;">跳过次数</div>
+                        <div style="color:#1e293b;font-weight:600;">{skip_count}</div>
+                    </div>
+                    <div style="background:#fff;border-radius:4px;padding:6px 8px;">
+                        <div style="color:#64748b;">信号数量</div>
+                        <div style="color:#1e293b;font-weight:600;">{signal_count}</div>
+                    </div>
+                    <div style="background:#fff;border-radius:4px;padding:6px 8px;">
+                        <div style="color:#64748b;">优先级</div>
+                        <div style="color:#1e293b;font-weight:600;">{priority}</div>
+                    </div>
+                    <div style="background:#fff;border-radius:4px;padding:6px 8px;">
+                        <div style="color:#64748b;">活跃状态</div>
+                        <div style="color:{'#22c55e' if attn_stats.get('is_active') else '#9ca3af'};font-weight:600;">{'● 运行中' if attn_stats.get('is_active') else '○ 已停止'}</div>
+                    </div>
+                </div>
+            </div>
+            """)
 
         # AI调节历史 - 提前到更前面
         try:

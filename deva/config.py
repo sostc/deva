@@ -113,15 +113,6 @@ OLD_NAMESPACE_MAPPING = {
     "tushare": "tushare",
 }
 
-OLD_ATTENTION_V2_TO_INTELLIGENCE = {
-    "attention_v2.enabled": "attention_intelligence.enabled",
-    "attention_v2.predictive": "attention_intelligence.predictive",
-    "attention_v2.feedback": "attention_intelligence.feedback",
-    "attention_v2.budget": "attention_intelligence.budget",
-    "attention_v2.propagation": "attention_intelligence.propagation",
-    "attention_v2.strategy_learning": "attention_intelligence.strategy_learning",
-}
-
 CONFIG_NAMESPACE = "deva_config"
 MIGRATION_FLAG = "__migration_done__"
 
@@ -212,17 +203,6 @@ class ConfigManager:
                 except Exception:
                     continue
 
-            for old_key, new_key in OLD_ATTENTION_V2_TO_INTELLIGENCE.items():
-                try:
-                    old_value = self._nb.get(old_key)
-                    if old_value is not None:
-                        self._nb[new_key] = old_value
-                        del self._nb[old_key]
-                        migrated = True
-                        logger.info(f"已迁移配置键: {old_key} -> {new_key}")
-                except Exception:
-                    continue
-
             self._nb[MIGRATION_FLAG] = True
 
             if migrated:
@@ -275,11 +255,11 @@ class ConfigManager:
         storage_key = self._parse_path(path)
         if not storage_key:
             return default
-        
+
         value = self.nb.get(storage_key)
         if value is not None:
             return value
-        
+
         parts = path.split('.')
         if parts:
             category = parts[0]
@@ -287,7 +267,7 @@ class ConfigManager:
                 key = '.'.join(parts[1:]) if len(parts) > 1 else None
                 if key and key in DEFAULT_CONFIG_SCHEMA[category]:
                     return DEFAULT_CONFIG_SCHEMA[category][key].get("default", default)
-        
+
         return default
     
     def set(self, path: str, value: Any) -> None:

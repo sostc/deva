@@ -5,7 +5,7 @@ Naja Attention System Extended Integration - Naja注意力系统扩展集成
 
 职责:
 1. 自动从 naja 数据源获取板块和个股信息
-2. 初始化 AttentionSystem (v1) 和 IntelligenceSystem (v2)
+2. 初始化注意力系统
 3. 提供统一的单例访问接口
 4. 管理字典数据加载
 """
@@ -35,7 +35,6 @@ class NajaAttentionIntegration:
     3. 拦截数据源数据进行处理
     4. 提供频率控制接口
     5. 监控和报告
-    6. V2 增强功能支持
 
     ================================================================================
     单例模式说明：为什么使用单例
@@ -136,8 +135,8 @@ class NajaAttentionIntegration:
                     enable_predictive=self.intelligence_config.get('enable_predictive', True),
                     enable_feedback=self.intelligence_config.get('enable_feedback', True),
                     enable_budget=self.intelligence_config.get('enable_budget', True),
-                    enable_propagation=self.intelligence_config.get('enable_propagation', False),
-                    enable_strategy_learning=self.intelligence_config.get('enable_strategy_learning', False)
+                    enable_propagation=self.intelligence_config.get('enable_propagation', True),
+                    enable_strategy_learning=self.intelligence_config.get('enable_strategy_learning', True)
                 )
             else:
                 ic = self.intelligence_config
@@ -487,15 +486,23 @@ class AttentionModeManager:
             with cls._lock:
                 if cls._instance is None:
                     cls._instance = super().__new__(cls)
+                    cls._instance._initialized = False
+                    cls._instance._init_lock = threading.Lock()
         return cls._instance
 
     def __init__(self):
-        if hasattr(self, '_initialized'):
+        pass
+
+    def _ensure_initialized(self):
+        if getattr(self, '_initialized', False):
             return
-        self._mode = self.MODE_NORMAL
-        self._original_fetcher_config: Optional[Dict] = None
-        self._initialized = True
-        log.info("[AttentionModeManager] 模式管理器初始化完成，当前模式: normal")
+        with self._init_lock:
+            if getattr(self, '_initialized', False):
+                return
+            self._mode = self.MODE_NORMAL
+            self._original_fetcher_config: Optional[Dict] = None
+            self._initialized = True
+            log.info("[AttentionModeManager] 模式管理器初始化完成，当前模式: normal")
 
     def set_mode(self, mode: str, fetcher_config: Optional[Dict] = None):
         """
@@ -505,6 +512,7 @@ class AttentionModeManager:
             mode: MODE_NORMAL 或 MODE_LAB
             fetcher_config: 实验模式退出时用于恢复实盘获取器的配置
         """
+        self._ensure_initialized()
         with self._lock:
             if self._mode == mode:
                 log.debug(f"[AttentionModeManager] 模式未变化，仍为: {mode}")
@@ -521,14 +529,17 @@ class AttentionModeManager:
 
     def get_mode(self) -> str:
         """获取当前模式"""
+        self._ensure_initialized()
         return self._mode
 
     def is_lab_mode(self) -> bool:
         """是否实验模式"""
+        self._ensure_initialized()
         return self._mode == self.MODE_LAB
 
     def is_normal_mode(self) -> bool:
         """是否正常交易模式"""
+        self._ensure_initialized()
         return self._mode == self.MODE_NORMAL
 
     def save_fetcher_config(self, config: Dict):

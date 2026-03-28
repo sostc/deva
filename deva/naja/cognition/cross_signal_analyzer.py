@@ -86,6 +86,24 @@ class NewsSignal:
             metadata=payload
         )
 
+    @classmethod
+    def from_signal(cls, signal: Dict) -> "NewsSignal":
+        """从信号字典创建"""
+        payload = signal.get("payload", {}) or {}
+        return cls(
+            source=signal.get("source", "news_mind"),
+            signal_type=signal.get("signal_type", signal.get("type", "")),
+            themes=signal.get("themes", payload.get("themes", [])),
+            sentiment=payload.get("sentiment", 0.0),
+            relevance_score=signal.get("score", 0.5),
+            sector_id=payload.get("sector_id", signal.get("sector", "")),
+            sector_name=payload.get("sector_name", ""),
+            content=signal.get("content", signal.get("summary", "")),
+            score=signal.get("score", 0.5),
+            timestamp=signal.get("timestamp", time.time()),
+            metadata=payload
+        )
+
 
 @dataclass
 class AttentionSnapshot:
@@ -197,6 +215,87 @@ class ResonanceSignal:
 
 
 @dataclass
+class MarketSnapshot:
+    """市场快照 - 跟踪大盘指数状态
+
+    用于市场级别的共振分析：
+    - 宏观叙事 → 大盘指数
+    - 例如：流动性紧张 → 纳斯达克下跌
+    """
+    market_index: str
+    market_name: str
+    price_change: float = 0.0
+    volume_ratio: float = 1.0
+    volatility: float = 0.0
+    activity: float = 0.5
+    timestamp: float = field(default_factory=time.time)
+    metadata: Dict[str, Any] = field(default_factory=dict)
+
+    @classmethod
+    def from_market_data(cls, market_index: str, market_name: str,
+                        price_change: float = 0.0, volume_ratio: float = 1.0,
+                        volatility: float = 0.0, activity: float = 0.5) -> "MarketSnapshot":
+        """从市场数据创建快照"""
+        return cls(
+            market_index=market_index,
+            market_name=market_name,
+            price_change=price_change,
+            volume_ratio=volume_ratio,
+            volatility=volatility,
+            activity=activity,
+        )
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "market_index": self.market_index,
+            "market_name": self.market_name,
+            "price_change": self.price_change,
+            "volume_ratio": self.volume_ratio,
+            "volatility": self.volatility,
+            "activity": self.activity,
+            "timestamp": self.timestamp,
+        }
+
+
+@dataclass
+class MarketResonanceSignal:
+    """市场级别共振信号 - 宏观叙事与大盘指数的共振"""
+    market_index: str
+    market_name: str
+
+    narrative: str
+    narrative_stage: str = "萌芽"
+    narrative_attention: float = 0.0
+
+    market_change: float = 0.0
+    market_volatility: float = 0.0
+    market_activity: float = 0.5
+
+    resonance_score: float = 0.0
+    resonance_type: ResonanceType = ResonanceType.INTENSITY
+    source: SignalSource = SignalSource.RULE
+
+    timestamp: float = field(default_factory=time.time)
+    metadata: Dict[str, Any] = field(default_factory=dict)
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "market_index": self.market_index,
+            "market_name": self.market_name,
+            "narrative": self.narrative,
+            "narrative_stage": self.narrative_stage,
+            "narrative_attention": self.narrative_attention,
+            "market_change": self.market_change,
+            "market_volatility": self.market_volatility,
+            "market_activity": self.market_activity,
+            "resonance_score": self.resonance_score,
+            "resonance_type": self.resonance_type.value,
+            "source": self.source.value,
+            "timestamp": self.timestamp,
+        }
+
+
+@dataclass
 class CognitionFeedback:
     """认知系统反馈"""
     feedback_id: str
@@ -228,7 +327,14 @@ class CrossSignalAnalyzer:
     """
     跨信号分析器
 
-    合并新闻/雷达信号和行情/注意力信号，提供分层分析
+    合并新闻/雷达信号和行情/注意力信号，提供分层分析：
+    - Layer 1: 规则引擎 (实时, 零成本) - 板块级别共振
+    - Layer 2: 统计分析 (快速, 低成本)
+    - Layer 3: LLM分析 (深度, 高成本)
+
+    市场级别分析：
+    - 行业叙事 → 板块 (AI→半导体)
+    - 宏观叙事 → 大盘指数 (流动性紧张→纳斯达克)
     """
 
     def __init__(
@@ -238,15 +344,18 @@ class CrossSignalAnalyzer:
         llm_cooldown_seconds: float = 60.0,
         news_buffer_seconds: float = 300.0,
         attention_buffer_seconds: float = 300.0,
+        market_buffer_seconds: float = 600.0,
     ):
         self._resonance_threshold = resonance_threshold
         self._llm_trigger_threshold = llm_trigger_threshold
         self._llm_cooldown_seconds = llm_cooldown_seconds
         self._news_buffer_seconds = news_buffer_seconds
         self._attention_buffer_seconds = attention_buffer_seconds
+        self._market_buffer_seconds = market_buffer_seconds
 
         self._news_buffer: deque = deque(maxlen=300)
         self._attention_buffer: deque = deque(maxlen=300)
+        self._market_buffer: deque = deque(maxlen=100)
 
         self._last_llm_call: float = 0
         self._llm_analyzed_cache: Set[str] = set()
@@ -254,6 +363,7 @@ class CrossSignalAnalyzer:
         self._sector_correlation_cache: Dict[str, float] = {}
 
         self._resonance_history: deque = deque(maxlen=100)
+        self._market_resonance_history: deque = deque(maxlen=100)
 
         self._callbacks: Dict[str, Callable] = {}
 
@@ -292,10 +402,67 @@ class CrossSignalAnalyzer:
         news_signal = NewsSignal.from_radar_event(event)
         return self.ingest_news(news_signal)
 
+    def ingest_news_from_signal(self, signal: Dict) -> Optional[ResonanceSignal]:
+        """从信号字典接收新闻信号"""
+        try:
+            news_signal = NewsSignal.from_signal(signal)
+            return self.ingest_news(news_signal)
+        except Exception:
+            return None
+
     def ingest_attention_from_orchestrator(self, orchestrator) -> List[ResonanceSignal]:
-        """从AttentionOrchestrator接收注意力快照"""
+        """从AttentionOrchestrator接收注意力快照
+
+        同时派生出市场快照，用于市场级别共振检测
+        """
         snapshot = AttentionSnapshot.from_orchestrator(orchestrator)
-        return self.ingest_attention(snapshot)
+        sector_resonances = self.ingest_attention(snapshot)
+
+        market_resonances = self._derive_market_resonance_from_attention(snapshot)
+
+        return sector_resonances
+
+    def _derive_market_resonance_from_attention(self, snapshot: AttentionSnapshot) -> List[MarketResonanceSignal]:
+        """从注意力快照派生市场快照并检测共振
+
+        注意力系统跟踪的 symbol_weights 中可能包含大盘指数（如 sp500, nasdaq）
+        用注意力权重作为市场活跃度的代理
+        """
+        from .narrative_sector_mapping import (
+            MARKET_INDEX_CONFIG, get_narrative_category, is_macro_narrative
+        )
+
+        resonances = []
+
+        market_symbols = {
+            "sp500": "sp500", "SP500": "sp500", "^GSPC": "sp500",
+            "nasdaq": "nasdaq", "NASDAQ": "nasdaq", "^IXIC": "nasdaq",
+            "dow": "dow_jones", "dow_jones": "dow_jones", "^DJI": "dow_jones",
+            "a50": "a_share", "上证": "a_share", "沪深300": "hs300",
+            "gold": "gold", "GC": "gold", "CL": "crude_oil",
+            "vix": "vix", "^VIX": "vix",
+        }
+
+        market_snapshots = []
+        for symbol, market_id in market_symbols.items():
+            weight = snapshot.symbol_weights.get(symbol, 0) or snapshot.symbol_weights.get(symbol.upper(), 0)
+            if weight > 0.1:
+                config = MARKET_INDEX_CONFIG.get(market_id, {"name": symbol, "type": "unknown"})
+                market_snapshot = MarketSnapshot(
+                    market_index=market_id,
+                    market_name=config.get("name", symbol),
+                    price_change=0.0,
+                    volume_ratio=1.0 + weight,
+                    volatility=min(1.0, weight * 2),
+                    activity=weight,
+                    timestamp=snapshot.timestamp,
+                )
+                market_snapshots.append(market_snapshot)
+
+        for market_snapshot in market_snapshots:
+            resonances.extend(self._check_market_resonance(market_snapshot))
+
+        return resonances
 
     def _cleanup_buffers(self):
         """清理过期的缓冲数据"""
@@ -469,6 +636,156 @@ class CrossSignalAnalyzer:
                 return name
 
         return sector_id
+
+    def ingest_market_snapshot(self, snapshot: MarketSnapshot) -> List[MarketResonanceSignal]:
+        """接收市场快照并检测宏观叙事共振
+
+        Args:
+            snapshot: MarketSnapshot 对象
+
+        Returns:
+            市场级别共振信号列表
+        """
+        with self._lock:
+            self._market_buffer.append(snapshot)
+            self._cleanup_buffers()
+            _cognition_debug_log(f"接收市场快照: {snapshot.market_name} ({snapshot.market_index}), change={snapshot.price_change:+.2f}%")
+            return self._check_market_resonance(snapshot)
+
+    def _check_market_resonance(self, snapshot: MarketSnapshot) -> List[MarketResonanceSignal]:
+        """检测市场快照与宏观叙事的共振
+
+        通过 NARRATIVE_TO_MARKET_LINK 映射检测：
+        - 宏观叙事 → 大盘指数
+        - 例如：流动性紧张 → 纳斯达克下跌
+        """
+        from .narrative_sector_mapping import (
+            get_linked_markets, get_market_config, is_macro_narrative,
+            get_narrative_category
+        )
+
+        resonances = []
+
+        active_markets = set()
+        for ms in self._market_buffer:
+            if time.time() - ms.timestamp < self._market_buffer_seconds:
+                active_markets.add(ms.market_index)
+
+        for market_id in get_linked_markets(snapshot.market_index):
+            for market_ms in self._market_buffer:
+                if market_ms.market_index != market_id:
+                    continue
+                if time.time() - market_ms.timestamp > self._market_buffer_seconds:
+                    continue
+
+                resonance_score = self._compute_market_resonance_score(
+                    market_snapshot=market_ms,
+                    linked_market=snapshot
+                )
+
+                if resonance_score >= self._resonance_threshold * 0.8:
+                    resonance = MarketResonanceSignal(
+                        market_index=market_ms.market_index,
+                        market_name=market_ms.market_name,
+                        narrative=snapshot.market_index,
+                        narrative_stage="扩散",
+                        narrative_attention=resonance_score,
+                        market_change=market_ms.price_change,
+                        market_volatility=market_ms.volatility,
+                        market_activity=market_ms.activity,
+                        resonance_score=resonance_score,
+                        resonance_type=ResonanceType.INTENSITY,
+                        source=SignalSource.RULE,
+                    )
+                    resonances.append(resonance)
+                    self._market_resonance_history.append(resonance)
+
+                    _cognition_debug_log(f"[市场共振] {market_ms.market_name} ↔ {snapshot.market_index}: score={resonance_score:.3f}")
+
+        return resonances
+
+    def _compute_market_resonance_score(self, market_snapshot: MarketSnapshot, linked_market: MarketSnapshot) -> float:
+        """计算市场共振分数
+
+        基于：
+        1. 价格变化方向一致性
+        2. 波动率
+        3. 活跃度
+        """
+        score = 0.0
+
+        price_alignment = 1.0 - min(1.0, abs(market_snapshot.price_change - linked_market.price_change) / 10.0)
+        score += price_alignment * 0.4
+
+        volatility_factor = min(1.0, (market_snapshot.volatility + linked_market.volatility) / 2.0)
+        score += volatility_factor * 0.3
+
+        activity_factor = (market_snapshot.activity + linked_market.activity) / 2.0
+        score += activity_factor * 0.3
+
+        return min(1.0, score)
+
+    def _get_market_name(self, market_index: str) -> str:
+        """获取市场指数名称"""
+        from .narrative_sector_mapping import get_market_config
+        config = get_market_config(market_index)
+        return config.get("name", market_index)
+
+    def get_market_resonance_summary(self) -> Dict[str, Any]:
+        """获取市场共振摘要
+
+        Returns:
+            {
+                "共振列表": [...],
+                "诊断": {...}
+            }
+        """
+        now = time.time()
+        recent = [
+            r for r in self._market_resonance_history
+            if now - r.timestamp < 3600
+        ]
+
+        resonance_list = []
+        if recent:
+            summary_dict = {}
+            for r in recent:
+                key = f"{r.market_index}_{r.narrative}"
+                if key not in summary_dict or r.resonance_score > summary_dict[key]["resonance_score"]:
+                    summary_dict[key] = {
+                        "market_index": r.market_index,
+                        "market_name": r.market_name,
+                        "narrative": r.narrative,
+                        "resonance_score": round(r.resonance_score, 3),
+                        "market_change": round(r.market_change, 2),
+                        "stage": r.narrative_stage,
+                        "last_seen": r.timestamp,
+                    }
+            resonance_list = sorted(summary_dict.values(), key=lambda x: x["resonance_score"], reverse=True)[:10]
+
+        market_buffer_info = len([m for m in self._market_buffer if now - m.timestamp < self._market_buffer_seconds])
+
+        diagnosis = {
+            "has_resonance": len(resonance_list) > 0,
+            "resonance_count": len(resonance_list),
+            "market_buffer_active": market_buffer_info,
+            "total_market_snapshots": len(self._market_buffer),
+            "reason": "",
+            "confidence": 0.0,
+        }
+
+        if not resonance_list:
+            if market_buffer_info == 0:
+                diagnosis["reason"] = "市场快照缓冲为空，注意力系统未跟踪大盘指数"
+                diagnosis["confidence"] = 0.0
+            else:
+                diagnosis["reason"] = f"市场快照缓冲有 {market_buffer_info} 条，但未匹配到宏观叙事共振"
+                diagnosis["confidence"] = 0.3
+
+        return {
+            "共振列表": resonance_list,
+            "诊断": diagnosis,
+        }
 
     def _count_recent_news(self, sector_id: str, seconds: float = 60) -> int:
         """计算最近N秒内关于某板块的新闻数量"""

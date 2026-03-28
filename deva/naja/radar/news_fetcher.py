@@ -9,6 +9,8 @@ Radar News Fetcher - 雷达内置新闻获取器
 """
 
 import hashlib
+import json
+import random
 import threading
 import time
 import logging
@@ -36,6 +38,61 @@ def _radar_news_log(msg: str):
     """雷达新闻日志"""
     if os.environ.get("NAJA_RADAR_DEBUG") == "true":
         log.info(f"[Radar-News] {msg}")
+
+
+def _extract_title_from_content(content: str, max_len: int = 60) -> str:
+    """
+    从金十数据content中提取有意义的标题
+
+    金十数据格式通常是：
+    【金十数据整理：XXX】实际内容<无关HTML>
+
+    这个函数会：
+    1. 去除HTML标签
+    2. 跳过固定前缀（如【金十数据整理：...】）
+    3. 提取实际有意义的内容作为标题
+    """
+    import re
+
+    clean = re.sub(r'<[^>]+>', '', content).strip()
+
+    patterns_to_skip = [
+        r'^【金十数据整理[：：][^】]*】',
+        r'^【今日要闻[：：][^】]*】',
+        r'^【市场快讯[：：][^】]*】',
+        r'^【财经日历[：：][^】]*】',
+        r'^【操盘必读[：：][^】]*】',
+        r'^【涨停复盘[：：][^】]*】',
+        r'^【要闻[：：][^】]*】',
+        r'^【金十数据整理】',
+        r'^【今日要闻】',
+        r'^【市场快讯】',
+        r'^【财经日历】',
+        r'^【操盘必读】',
+        r'^【涨停复盘】',
+        r'^【要闻】',
+    ]
+    for pattern in patterns_to_skip:
+        clean = re.sub(pattern, '', clean).strip()
+
+    prefixes_to_remove = ['国内新闻：', '国外新闻：', '市场新闻：', '快讯：', '最新：', '实时：']
+    for prefix in prefixes_to_remove:
+        if clean.startswith(prefix):
+            clean = clean[len(prefix):].strip()
+
+    if not clean:
+        return content[:max_len] + ("..." if len(content) > max_len else "")
+
+    sentences = re.split(r'[。！？\n]', clean)
+    if sentences and sentences[0].strip():
+        first = sentences[0].strip()
+        if len(first) > max_len:
+            return first[:max_len] + "..."
+        return first
+
+    if len(clean) > max_len:
+        return clean[:max_len] + "..."
+    return clean
 
 
 @dataclass
@@ -75,6 +132,7 @@ class NewsTopicCluster:
             "chatgpt": [2, "ChatGPT/大模型"],
             "gpt": [2, "ChatGPT/大模型"],
             "大模型": [2, "ChatGPT/大模型"],
+            "deepseek": [2, "ChatGPT/大模型"],
             "芯片": [3, "半导体/芯片"],
             "半导体": [3, "半导体/芯片"],
             "华为": [4, "华为产业链"],
@@ -84,6 +142,7 @@ class NewsTopicCluster:
             "储能": [7, "锂电池/储能"],
             "电动车": [8, "新能源汽车"],
             "汽车": [8, "新能源汽车"],
+            "特斯拉": [8, "新能源汽车"],
             "苹果": [9, "苹果产业链"],
             "iphone": [9, "苹果产业链"],
             "数据": [10, "大数据/云计算"],
@@ -99,6 +158,144 @@ class NewsTopicCluster:
             "通胀": [18, "宏观/通胀"],
             "战争": [19, "地缘政治"],
             "制裁": [19, "地缘政治"],
+            "地震": [20, "自然灾害"],
+            "灾难": [20, "自然灾害"],
+            "暴雨": [20, "自然灾害"],
+            "洪水": [20, "自然灾害"],
+            "干旱": [20, "自然灾害"],
+            "火山": [20, "自然灾害"],
+            "疫情": [21, "公共卫生"],
+            "病毒": [21, "公共卫生"],
+            "流感": [21, "公共卫生"],
+            "经济": [22, "宏观经济"],
+            "增长": [22, "宏观经济"],
+            "衰退": [22, "宏观经济"],
+            "贸易": [23, "国际贸易"],
+            "关税": [23, "国际贸易"],
+            "出口": [23, "国际贸易"],
+            "进口": [23, "国际贸易"],
+            "原油": [24, "大宗商品/原油"],
+            "黄金": [25, "大宗商品/黄金"],
+            "白银": [25, "大宗商品/黄金"],
+            "美元": [26, "外汇/美元"],
+            "人民币": [27, "外汇/人民币"],
+            "欧元": [28, "外汇/欧元"],
+            "英伟达": [3, "半导体/芯片"],
+            "英特": [3, "半导体/芯片"],
+            "AMD": [3, "半导体/芯片"],
+            "阿里": [29, "互联网/电商"],
+            "腾讯": [29, "互联网/电商"],
+            "京东": [29, "互联网/电商"],
+            "字节": [30, "互联网/短视频"],
+            "抖音": [30, "互联网/短视频"],
+            "快手": [30, "互联网/短视频"],
+            "百度": [31, "互联网/搜索"],
+            "微软": [32, "科技/软件"],
+            "谷歌": [32, "科技/软件"],
+            "亚马逊": [33, "电商/云服务"],
+            "Meta": [34, "社交媒体"],
+            "Facebook": [34, "社交媒体"],
+            "推特": [34, "社交媒体"],
+            "马斯克": [35, "人物/商业领袖"],
+            "贝索斯": [35, "人物/商业领袖"],
+            "普京": [36, "人物/政治"],
+            "拜登": [36, "人物/政治"],
+            "特朗普": [36, "人物/政治"],
+            "OPEC": [37, "原油/能源"],
+            "沙特": [37, "原油/能源"],
+            "俄罗斯": [38, "地缘政治"],
+            "乌克兰": [38, "地缘政治"],
+            "中东": [39, "地缘政治"],
+            "朝鲜": [39, "地缘政治"],
+            "韩国": [40, "地缘政治"],
+            "日本": [41, "宏观经济"],
+            "印度": [41, "宏观经济"],
+            "英国": [42, "宏观经济"],
+            "德国": [42, "宏观经济"],
+            "法国": [42, "宏观经济"],
+            "大选": [43, "政治事件"],
+            "选举": [43, "政治事件"],
+            "峰会": [44, "政治事件"],
+            "G20": [44, "政治事件"],
+            "WTO": [45, "国际贸易"],
+            "IMF": [46, "国际组织"],
+            "世界银行": [46, "国际组织"],
+            "财报": [47, "企业业绩"],
+            "业绩": [47, "企业业绩"],
+            "营收": [47, "企业业绩"],
+            "利润": [47, "企业业绩"],
+            "亏损": [47, "企业业绩"],
+            "裁员": [48, "企业动态"],
+            "收购": [49, "企业动态"],
+            "并购": [49, "企业动态"],
+            "上市": [50, "企业动态"],
+            "IPO": [50, "企业动态"],
+            "房地产": [51, "房地产"],
+            "房价": [51, "房地产"],
+            "地产": [51, "房地产"],
+            "建筑": [51, "房地产"],
+            "水泥": [51, "房地产"],
+            "钢铁": [52, "原材料"],
+            "铜": [52, "原材料"],
+            "铝": [52, "原材料"],
+            "煤炭": [53, "能源"],
+            "电力": [54, "公用事业"],
+            "电网": [54, "公用事业"],
+            "5G": [55, "通信技术"],
+            "6G": [55, "通信技术"],
+            "元宇宙": [56, "新技术"],
+            "区块链": [57, "新技术"],
+            "web3": [57, "新技术"],
+            "NFT": [57, "新技术"],
+            "量子": [58, "新技术"],
+            "生物": [59, "生物医药"],
+            "医药": [59, "生物医药"],
+            "疫苗": [59, "生物医药"],
+            "茅台": [60, "消费/白酒"],
+            "白酒": [60, "消费/白酒"],
+            "食品": [61, "消费/食品"],
+            "饮料": [61, "消费/食品"],
+            "纺织": [62, "制造业"],
+            "服装": [62, "制造业"],
+            "家电": [63, "制造业"],
+            "美的": [63, "制造业"],
+            "格力": [63, "制造业"],
+            "石化": [64, "化工"],
+            "化工": [64, "化工"],
+            "农药": [64, "化工"],
+            "化肥": [65, "农业"],
+            "农业": [65, "农业"],
+            "养殖": [65, "农业"],
+            "渔业": [65, "农业"],
+            "木材": [66, "原材料"],
+            "造纸": [66, "原材料"],
+            "印刷": [66, "原材料"],
+            "环保": [67, "环保"],
+            "碳中和": [67, "环保"],
+            " ESG ": [67, "环保"],
+            "绿色": [67, "环保"],
+            "可再生能源": [68, "新能源"],
+            "氢能": [68, "新能源"],
+            "风能": [68, "新能源"],
+            "核电": [69, "能源"],
+            "水利": [70, "基建"],
+            "铁路": [71, "交通基建"],
+            "公路": [71, "交通基建"],
+            "航空": [72, "交通运输"],
+            "机场": [72, "交通运输"],
+            "港口": [72, "交通运输"],
+            "物流": [73, "交通运输"],
+            "快递": [73, "交通运输"],
+            "教育": [74, "服务业"],
+            "旅游": [75, "服务业"],
+            "酒店": [75, "服务业"],
+            "餐饮": [75, "服务业"],
+            "电影": [76, "文娱"],
+            "游戏": [76, "文娱"],
+            "体育": [77, "文娱"],
+            "足球": [77, "文娱"],
+            "篮球": [77, "文娱"],
+            "奥运": [77, "文娱"],
         }
 
     def assign_topic(self, title: str, content: str = "") -> int:
@@ -123,124 +320,76 @@ class NewsTopicCluster:
         for keyword, (tid, name) in self._keyword_topics.items():
             if tid == topic_id:
                 return name
+        topic_titles = self._topics.get(topic_id, [])
+        if topic_titles:
+            first_title = topic_titles[0]
+            if len(first_title) > 15:
+                return first_title[:15] + "..."
+            return first_title
         return f"主题_{topic_id}"
 
 
 class RadarNewsProcessor:
     """
-    雷达新闻处理器
+    雷达新闻处理器（极简版）
 
-    内置处理能力：
-    1. 主题聚类
-    2. 短期记忆
-    3. 注意力评分
-    4. 信号生成
+    只负责：
+    1. 新闻存储（供雷达面板显示）
+    2. 将原始新闻发送给认知系统（NewsMind 处理）
+
+    所有深度处理（主题分类、注意力评分、叙事追踪等）由认知系统完成
     """
 
     def __init__(self, config: Optional[Dict[str, Any]] = None):
         cfg = config or {}
-
         self._short_memory_size = int(cfg.get("short_memory_size", 100))
-        self._mid_memory_size = int(cfg.get("mid_memory_size", 50))
-        self._attention_threshold = float(cfg.get("attention_threshold", 0.6))
-
-        self._topic_cluster = NewsTopicCluster()
-
         self._short_memory: Deque[NewsItem] = deque(maxlen=self._short_memory_size)
-        self._mid_memory: Deque[NewsItem] = deque(maxlen=self._mid_memory_size)
-        self._long_memory: List[NewsItem] = []
-
-        self._topic_counts: Dict[int, int] = {}
-        self._last_signal_time: float = 0
-        self._signal_cooldown = float(cfg.get("signal_cooldown", 60))
-
-        self._stats = {
-            "total_processed": 0,
-            "high_attention": 0,
-            "signals_generated": 0,
-            "topics_identified": 0,
-        }
 
     def process(self, news: NewsItem) -> List[Dict]:
         """
-        处理单条新闻
+        处理单条新闻（极简流程）
 
-        Returns:
-            信号列表
+        1. 存入短期记忆（供雷达面板显示）
+        2. 发送到认知系统进行深度处理
         """
-        signals = []
-
-        topic_id = self._topic_cluster.assign_topic(news.title, news.content)
-        news.meta["topic_id"] = topic_id
-        news.meta["topic_name"] = self._topic_cluster.get_topic_name(topic_id)
-
         self._short_memory.append(news)
-        self._topic_counts[topic_id] = self._topic_counts.get(topic_id, 0) + 1
+        self._send_to_cognition_simple(news)
+        return []
 
-        attention_score = self._calc_attention_score(news, topic_id)
-        news.meta["attention_score"] = attention_score
+    def _send_to_cognition_simple(self, news: NewsItem) -> None:
+        """发送原始新闻到认知系统进行深度处理"""
+        try:
+            from deva.naja.cognition import get_cognition_engine
+            cognition = get_cognition_engine()
+            record = {
+                "timestamp": news.timestamp.timestamp(),
+                "source": "radar_news",
+                "type": "news",
+                "title": news.title,
+                "content": news.content,
+            }
+            signals = cognition.process_record(record)
+            if signals:
+                self._send_signals_to_insight(signals)
+        except ImportError:
+            pass
+        except Exception as e:
+            _radar_news_log(f"发送认知引擎失败: {e}")
 
-        if attention_score >= self._attention_threshold:
-            self._mid_memory.append(news)
-            self._stats["high_attention"] += 1
+    def _send_signals_to_insight(self, signals: List[Dict]) -> None:
+        """发送认知信号到洞察池和CrossSignalAnalyzer"""
+        try:
+            from deva.naja.cognition.insight import emit_to_insight_pool
+            from deva.naja.cognition.cross_signal_analyzer import get_cross_signal_analyzer
+            analyzer = get_cross_signal_analyzer()
 
-            if time.time() - self._last_signal_time >= self._signal_cooldown:
-                signal = self._generate_signal(news, topic_id, attention_score)
-                if signal:
-                    signals.append(signal)
-                    self._last_signal_time = time.time()
-                    self._stats["signals_generated"] += 1
-
-        self._stats["total_processed"] += 1
-        self._stats["topics_identified"] = len(self._topic_counts)
-
-        return signals
-
-    def _calc_attention_score(self, news: NewsItem, topic_id: int) -> float:
-        """计算注意力评分"""
-        score = 0.5
-
-        title_len = len(news.title)
-        if title_len > 20:
-            score += 0.1
-        if title_len > 40:
-            score += 0.1
-
-        topic_count = self._topic_counts.get(topic_id, 0)
-        if topic_count >= 3:
-            score += 0.2
-        if topic_count >= 5:
-            score += 0.1
-
-        keywords = ["突发", "紧急", "重磅", "暴跌", "暴涨", "警告", "违约", "危机"]
-        for kw in keywords:
-            if kw in news.title:
-                score += 0.1
-                break
-
-        return min(1.0, score)
-
-    def _generate_signal(self, news: NewsItem, topic_id: int, attention_score: float) -> Optional[Dict]:
-        """生成信号"""
-        topic_name = self._topic_cluster.get_topic_name(topic_id)
-
-        return {
-            "source": "radar_news",
-            "signal_type": "news_topic",
-            "score": attention_score,
-            "content": f"[{topic_name}] {news.title}",
-            "raw_data": {
-                "news_id": news.id,
-                "topic_id": topic_id,
-                "topic_name": topic_name,
-                "source": news.source,
-            },
-            "timestamp": news.timestamp.timestamp(),
-            "metadata": {
-                "attention_score": attention_score,
-                "topic_count": self._topic_counts.get(topic_id, 0),
-            },
-        }
+            for signal in signals:
+                emit_to_insight_pool(signal)
+                analyzer.ingest_news_from_signal(signal)
+        except ImportError:
+            pass
+        except Exception as e:
+            _radar_news_log(f"发送洞察池失败: {e}")
 
     def get_report(self) -> Dict:
         """获取处理报告"""
@@ -251,22 +400,11 @@ class RadarNewsProcessor:
                 "title": item.title,
                 "source": item.source,
                 "timestamp": item.timestamp.isoformat(),
-                "attention_score": item.meta.get("attention_score", 0),
-                "topic_name": item.meta.get("topic_name", ""),
             })
 
         return {
-            "stats": self._stats.copy(),
             "short_memory_size": len(self._short_memory),
-            "mid_memory_size": len(self._mid_memory),
             "recent_news": recent_news,
-            "topics": {
-                tid: {
-                    "name": self._topic_cluster.get_topic_name(tid),
-                    "count": count,
-                }
-                for tid, count in self._topic_counts.items()
-            },
         }
 
 
@@ -463,11 +601,8 @@ class RadarNewsFetcher:
 
         while self._running and not self._stop_event.is_set():
             try:
-                if self._current_phase in ('trading', 'pre_market'):
-                    self._tick()
-                    time.sleep(self._fetch_interval)
-                else:
-                    time.sleep(self._fetch_interval)
+                self._tick()
+                time.sleep(self._fetch_interval)
             except Exception as e:
                 self._error_count += 1
                 log.error(f"[Radar-News] 获取异常: {e}")
@@ -571,23 +706,15 @@ class RadarNewsFetcher:
         """
         获取新闻
 
-        这里实现了两种模式：
-        1. 模拟模式：返回模拟新闻（用于测试）
-        2. 实盘模式：从真实来源获取新闻
-
-        可以扩展支持：
-        - 金十数据API
-        - 东方财富API
-        - RSS订阅
-        - 自定义新闻源
+        优先从真实来源获取，失败时返回模拟数据
         """
         try:
             news_list = self._fetch_from_source()
+            if news_list:
+                return news_list
 
-            if not news_list:
-                news_list = self._generate_simulated_news()
-
-            return news_list
+            _radar_news_log("真实数据获取失败，使用模拟数据")
+            return self._generate_simulated_news()
 
         except Exception as e:
             log.debug(f"[Radar-News] 获取新闻失败: {e}")
@@ -595,16 +722,70 @@ class RadarNewsFetcher:
 
     def _fetch_from_source(self) -> List[NewsItem]:
         """
-        从真实来源获取新闻
+        从真实来源获取新闻（金十数据API）
 
-        默认返回空列表，子类可覆盖实现真实获取
+        Returns:
+            新闻列表
         """
-        return []
+        try:
+            import requests
+        except ImportError:
+            log.debug("[Radar-News] requests库未安装，无法获取真实数据")
+            return []
+
+        try:
+            headers = {
+                "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
+            }
+
+            response = requests.get(
+                "https://www.jin10.com/flash_newest.js",
+                headers={
+                    "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
+                    "Referer": "https://www.jin10.com/",
+                },
+                timeout=5,
+            )
+            if response.status_code == 200:
+                text = response.text.strip()
+                prefix = "var newest ="
+                if text.startswith(prefix):
+                    text = text[len(prefix):].strip()
+                if text.endswith(";"):
+                    text = text[:-1].strip()
+                data = json.loads(text)
+                news_list = []
+                for item in data:
+                    inner = item.get("data", {})
+                    content = inner.get("content", "").strip()
+                    if not content:
+                        continue
+                    title = _extract_title_from_content(content)
+                    time_str = item.get("time", "")
+                    try:
+                        dt = datetime.strptime(time_str, "%Y-%m-%d %H:%M:%S")
+                        ts = dt.timestamp()
+                    except Exception:
+                        ts = time.time()
+                    news = NewsItem(
+                        id=str(item.get("id", "")),
+                        timestamp=datetime.fromtimestamp(ts),
+                        source="jin10",
+                        title=title,
+                        content=content,
+                    )
+                    news_list.append(news)
+                if news_list:
+                    _radar_news_log(f"从金十API获取到 {len(news_list)} 条新闻")
+                return news_list
+            return []
+
+        except Exception as e:
+            log.debug(f"[Radar-News] 获取金十数据失败: {e}")
+            return []
 
     def _generate_simulated_news(self) -> List[NewsItem]:
         """生成模拟新闻（用于测试）"""
-        import random
-
         topics = [
             ("AI", ["ChatGPT", "人工智能", "大模型", "AI应用", "AIGC"]),
             ("芯片", ["半导体", "芯片国产替代", "光刻机", "集成电路"]),
@@ -669,51 +850,3 @@ class RadarNewsFetcher:
             "error_count": self._error_count,
             "processor_stats": self.processor.get_report(),
         }
-
-
-class RadarNewsFetcherV2(RadarNewsFetcher):
-    """
-    雷达新闻获取器 V2
-
-    支持更丰富的新闻源
-    """
-
-    def _fetch_from_source(self) -> List[NewsItem]:
-        """从真实来源获取新闻"""
-        try:
-            import requests
-
-            headers = {
-                "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
-            }
-
-            news_list = []
-
-            try:
-                response = requests.get(
-                    "https://api.jin10.com/get_news_list",
-                    headers=headers,
-                    timeout=5,
-                )
-                if response.status_code == 200:
-                    data = response.json()
-                    for item in data.get("data", []):
-                        news = NewsItem(
-                            id=str(item.get("id", "")),
-                            timestamp=datetime.fromtimestamp(item.get("time", 0) / 1000),
-                            source="jin10",
-                            title=item.get("title", ""),
-                            content=item.get("content", ""),
-                        )
-                        news_list.append(news)
-            except Exception:
-                pass
-
-            return news_list
-
-        except ImportError:
-            log.debug("[Radar-News-V2] requests库未安装，使用模拟数据")
-            return []
-        except Exception as e:
-            log.debug(f"[Radar-News-V2] 获取新闻失败: {e}")
-            return []
