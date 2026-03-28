@@ -13,8 +13,6 @@ from .integration import (
     IntelligenceConfig,
     create_intelligence_system,
     create_system,
-    create_v2_system,
-    migrate_legacy,
 )
 from .extended import (
     NajaAttentionIntegration,
@@ -37,8 +35,6 @@ __all__ = [
     "IntelligenceConfig",
     "create_intelligence_system",
     "create_system",
-    "create_v2_system",
-    "migrate_legacy",
     "NajaAttentionIntegration",
     "get_attention_integration",
     "initialize_attention_system",

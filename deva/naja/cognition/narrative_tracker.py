@@ -55,6 +55,76 @@ DEFAULT_NARRATIVE_KEYWORDS: Dict[str, List[str]] = {
         "朝鲜", "朝鲜半岛", "韩朝", "台海",
         "巴以", "加沙", "耶路撒冷", "联合国安理会",
     ],
+    "贵金属": [
+        "黄金", "白银", "铂金", "钯金", "金价", "银价",
+        "COMEX", "伦敦金", "现货金", "国际金", "黄金期货",
+        "黄金ETF", "黄金股", "金币", "金条",
+        "央行购金", "黄金储备", "黄金突破", "黄金下跌",
+    ],
+    "外汇与美元": [
+        "美元", "美元指数", "DXY", "USD", "欧元", "EUR", "日元", "JPY",
+        "英镑", "GBP", "人民币", "CNY", "离岸人民币", "在岸人民币",
+        "美元兑", "美元走强", "美元走弱", "美元反弹", "美元回落",
+        "美联储", "Fed", "利率决策", "加息", "降息", "鲍威尔",
+        "非农", "就业数据", "CPI", "PCE", "通胀数据",
+    ],
+    "全球宏观": [
+        "全球市场", "全球流动性", "金融危机", "经济衰退", "硬着陆", "软着陆",
+        "OECD", "IMF", "世界银行", "G20", "G7",
+        "美股", "纳斯达克", "标普", "道琼斯", "日经", "恒生", "欧股",
+        "债券市场", "信用利差", "高收益债", "投资级债",
+    ],
+    "债券市场": [
+        "美债", "国债", "国债收益率", "十年期国债", "两年期国债", "三十年期国债",
+        "收益率曲线", "收益率倒挂", "收益率曲线陡峭", "收益率曲线平坦",
+        "债券价格", "债券上涨", "债券下跌", "债券牛市", "债券熊市",
+        "长期国债", "短期国债", "中期国债", "国开行", "政策性银行",
+        "企业债", "公司债", "城投债", "信用债", "利率债",
+        "配置资金", "交易资金", "机构买入", "机构卖出",
+        "债券回购", "逆回购", "公开市场操作", "OMO",
+        "TIPS", "通胀保值债券", "垃圾债", "投资级",
+        "美债收益率", "中债收益率", "德债收益率", "日债收益率",
+    ],
+    "股票市场": [
+        "美股", "纳斯达克", "标普500", "标普", "道琼斯", "道指", "罗素2000",
+        "日经225", "日经指数", "恒生指数", "恒生", "上证指数", "上证", "深证",
+        "欧股", "德国DAX", "法国CAC", "英国富时",
+        "科技股", "成长股", "价值股", "蓝筹股", "白马股",
+        "小盘股", "中盘股", "大盘股", "微盘股",
+        "A股", "港股", "美股三大指数", "美股市场",
+        "股市上涨", "股市下跌", "股市反弹", "股市回调", "股市崩盘",
+        "资金流入股市", "资金流出股市", "股市估值", "股市泡沫",
+    ],
+    "大宗商品": [
+        "原油", "布伦特原油", "WTI原油", "原油期货", "原油价格", "原油上涨", "原油下跌",
+        "天然气", "液化天然气", "LNG", "天然气价格",
+        "铜", "铝", "锌", "镍", "铅", "锡", "铁矿石", "螺纹钢", "钢材",
+        "煤炭", "焦煤", "动力煤", "焦炭",
+        "大豆", "玉米", "小麦", "稻米", "农产品", "大宗商品",
+        "商品指数", "CRB指数", "彭博商品指数", "高盛商品指数",
+        "商品上涨", "商品下跌", "商品牛市", "商品熊市",
+        "供需关系", "库存下降", "库存上升", "产能不足", "产能过剩",
+        "OPEC", "沙特", "俄罗斯石油", "伊朗石油", "石油出口",
+        "工业金属", "贵金属", "农产品", "能源商品",
+    ],
+    "现金与货币": [
+        "现金", "货币市场", "货币基金", "余额宝", "理财",
+        "银行理财", "短期理财", "定期存款", "大额存单",
+        "逆回购", "短期拆借", "隔夜利率", "超额准备金",
+        "M0", "M1", "M2", "广义货币", "狭义货币",
+        "央行资产负债表", "缩表", "扩表", "量化宽松", "QE",
+        "流动性投放", "流动性回收", "资金空转", "套利",
+        "美元流动性", "离岸美元", "欧洲美元", "美元荒",
+        "货币宽松", "货币紧缩", "银根收紧", "银根放松",
+        "降准", "升准", "存款准备金", "法定准备金",
+    ],
+    "流动性紧张": [
+        "流动性", "流动性紧张", "流动性危机", "资金面", "资金紧张",
+        "银行间隔夜拆借", "回购利率", "SHIBOR", "LIBOR", "SOFR",
+        "融资", "融资融券", "两融", "保证金", "强平", "平仓",
+        "爆仓", "追加保证金", "Margin Call", "Call 贷",
+        "量化踩踏", "流动性踩踏", "闪崩", "乌龙指",
+    ],
 }
 
 
@@ -260,6 +330,81 @@ class NarrativeTracker:
                 "linked_sectors": _get_linked_sectors(state.name),
             })
         return result
+
+    def get_liquidity_structure(self) -> Dict[str, Any]:
+        """获取美林时钟四象限流动性结构
+
+        Returns:
+            包含四象限状态的字典，以及流动性结论
+        """
+        liquidity_quadrants = {
+            "股票市场": {"icon": "📈", "color": "#4ade80", "desc": "资金风险偏好"},
+            "债券市场": {"icon": "📊", "color": "#60a5fa", "desc": "资金避险"},
+            "大宗商品": {"icon": "🛢️", "color": "#f97316", "desc": "通胀预期"},
+            "现金与货币": {"icon": "💵", "color": "#a855f7", "desc": "资金观望"},
+        }
+
+        related_narratives = {
+            "贵金属": {"quadrant": "大宗商品", "icon": "🥇"},
+            "全球宏观": {"quadrant": "股票市场", "icon": "🌍"},
+            "外汇与美元": {"quadrant": "现金与货币", "icon": "💱"},
+            "流动性紧张": {"quadrant": "现金与货币", "icon": "⚠️"},
+        }
+
+        quadrants = {}
+        for name, info in liquidity_quadrants.items():
+            state = self._states.get(name)
+            if state:
+                quadrants[name] = {
+                    "stage": state.stage,
+                    "attention_score": round(state.attention_score, 3),
+                    "recent_count": state.recent_count,
+                    "trend": round(state.trend, 3),
+                    "icon": info["icon"],
+                    "color": info["color"],
+                    "desc": info["desc"],
+                }
+            else:
+                quadrants[name] = {
+                    "stage": "无数据",
+                    "attention_score": 0,
+                    "recent_count": 0,
+                    "trend": 0,
+                    "icon": info["icon"],
+                    "color": info["color"],
+                    "desc": info["desc"],
+                }
+
+        related = {}
+        for nar_name, nar_info in related_narratives.items():
+            state = self._states.get(nar_name)
+            if state:
+                related[nar_name] = {
+                    "stage": state.stage,
+                    "attention_score": round(state.attention_score, 3),
+                    "quadrant": nar_info["quadrant"],
+                    "icon": nar_info["icon"],
+                }
+
+        active_quadrants = [name for name, data in quadrants.items() if data["stage"] in ("高潮", "扩散")]
+        active_related_quadrants = list(set([nar_info["quadrant"] for nar_info in related.values()]))
+
+        conclusion_parts = []
+        if active_quadrants:
+            conclusion_parts.append(f"资金偏好: {', '.join(active_quadrants)}")
+        if active_related_quadrants:
+            quadrant_short = {"大宗商品": "商品", "股票市场": "股市", "现金与货币": "货币"}
+            short_names = [quadrant_short.get(q, q) for q in active_related_quadrants]
+            conclusion_parts.append(f"宏观信号: {', '.join(short_names)}")
+
+        conclusion = " | ".join(conclusion_parts) if conclusion_parts else "象限数据收集中..."
+
+        return {
+            "quadrants": quadrants,
+            "related": related,
+            "conclusion": conclusion,
+            "timestamp": time.time(),
+        }
 
     def _collect_texts(self, event: Any) -> List[str]:
         texts: List[str] = []

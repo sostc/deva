@@ -116,6 +116,10 @@ class SignalTuner:
         self._callbacks: List[Callable[[Dict], None]] = []
         self._tuning_rules: Dict[str, Dict[str, Any]] = self._default_tuning_rules()
 
+        self._value_feedback_enabled = True
+        self._last_value_update_time = 0
+        self._value_update_interval = 300
+
         self._daily_stats: Dict[str, Any] = {
             'date': datetime.now().strftime('%Y-%m-%d'),
             'signals': 0,
@@ -322,6 +326,45 @@ class SignalTuner:
                     self._param_weights[strategy_id][param_name] -= reward * 0.05
 
                 self._param_weights[strategy_id][param_name] = max(-1.0, min(1.0, self._param_weights[strategy_id][param_name]))
+
+        self._update_value_system(trade)
+
+    def _update_value_system(self, trade: TradeRecord):
+        """将交易结果反馈给价值观系统"""
+        if not self._value_feedback_enabled:
+            return
+
+        now = time.time()
+        if now - self._last_value_update_time < self._value_update_interval:
+            return
+
+        try:
+            from deva.naja.attention.values import get_value_system
+            vs = get_value_system()
+
+            value_type = self._infer_value_type(trade)
+            vs.record_performance(value_type, trade.return_pct)
+
+            self._last_value_update_time = now
+            log.debug(f"[SignalTuner] 价值观反馈: {value_type} -> return={trade.return_pct:+.2f}%")
+        except Exception as e:
+            log.debug(f"[SignalTuner] 价值观反馈失败: {e}")
+
+    def _infer_value_type(self, trade: TradeRecord) -> str:
+        """根据交易特征推断价值观类型"""
+        holding_hours = trade.holding_seconds / 3600 if trade.holding_seconds else 0
+        return_pct = trade.return_pct
+
+        if holding_hours < 2 and abs(return_pct) > 3:
+            return "momentum"
+        elif holding_hours > 48 and return_pct > 5:
+            return "trend"
+        elif hasattr(trade, 'reason') and '基本面' in trade.reason:
+            return "value"
+        elif trade.max_adverse_move > 5:
+            return "contrarian"
+        else:
+            return "liquidity"
 
     def _should_adjust(self, strategy_id: str, param_name: str) -> bool:
         """检查是否可以调整参数"""
@@ -600,7 +643,7 @@ class SignalTuner:
             today_trades = [t for t in completed_trades
                           if datetime.fromtimestamp(t.exit_time).strftime('%Y-%m-%d') == today]
 
-            return {
+            stats = {
                 'running': self._running,
                 'daily_stats': self._daily_stats.copy(),
                 'today_buy_signals': len(today_buy_signals),
@@ -611,6 +654,27 @@ class SignalTuner:
                 'recent_adjustments': len(self._param_adjustments),
                 'current_params': {k: v.copy() for k, v in self._current_params.items()}
             }
+
+            if self._value_feedback_enabled:
+                try:
+                    from deva.naja.attention.values import get_value_system
+                    vs = get_value_system()
+                    stats['value_performances'] = vs.get_all_performances()
+                    stats['value_suggestions'] = vs.get_suggestions()
+                    stats['active_value_type'] = vs.get_active_value_type()
+                except:
+                    pass
+
+            return stats
+
+    def get_value_suggestions(self) -> List[str]:
+        """获取价值观调整建议"""
+        try:
+            from deva.naja.attention.values import get_value_system
+            vs = get_value_system()
+            return vs.get_suggestions()
+        except:
+            return []
 
     def get_suggested_params(self, strategy_id: str) -> Dict[str, float]:
         """获取建议的参数（用于应用）"""

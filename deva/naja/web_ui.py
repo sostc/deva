@@ -921,7 +921,7 @@ async def attentionadmin():
     ctx = _ctx()
     await ctx["init_naja_ui"]("注意力调度系统")
 
-    # 默认使用 ui.py，通过URL参数切换到 V2 版本
+    # 默认使用 ui.py
     from pywebio.session import eval_js
     url_params = None
     try:
@@ -946,8 +946,11 @@ async def qkv_page():
     except:
         pass
 
+    ctx = _ctx()
+    await ctx["init_naja_ui"]("QKV 可视化")
+
     from .attention.qkv import render_qkv_page
-    render_qkv_page(_ctx())
+    render_qkv_page(ctx)
 
 
 async def dictadmin():
@@ -967,6 +970,14 @@ async def tableadmin():
     await ctx["init_naja_ui"]("数据表管理")
     set_scope("tables_content")
     render_tables_page(ctx)
+
+
+async def runtimestateadmin():
+    """运行时状态管理"""
+    from .runtime_state.ui import render_runtime_state_page
+    ctx = _ctx()
+    await ctx["init_naja_ui"]("运行时状态管理")
+    render_runtime_state_page(ctx)
 
 
 async def configadmin():
@@ -1024,6 +1035,7 @@ def create_handlers(cdn: str = None):
         (r'/qkv', webio_handler(qkv_page, cdn=cdn_url)),
         (r'/dictadmin', webio_handler(dictadmin, cdn=cdn_url)),
         (r'/tableadmin', webio_handler(tableadmin, cdn=cdn_url)),
+        (r'/runtime_state', webio_handler(runtimestateadmin, cdn=cdn_url)),
         (r'/configadmin', webio_handler(configadmin, cdn=cdn_url)),
         (r'/logstream', webio_handler(lambda: _get_log_stream_page()(), cdn=cdn_url)),
     ]

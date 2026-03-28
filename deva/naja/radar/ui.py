@@ -1,5 +1,6 @@
 """Radar UI - 感知层"""
 
+import re
 from datetime import datetime
 
 from pywebio.output import put_html, put_button
@@ -82,7 +83,9 @@ class RadarUI:
         theme = get_current_theme()
         put_html('<div class="container">')
         self._render_header()
+        self._render_radar_thread()
         self._render_news_fetcher_panel()
+        self._render_process_flow()
         self._render_stats_overview()
         self._render_event_timeline()
         self._render_radar_logic()
@@ -175,6 +178,121 @@ class RadarUI:
         </div>
         """)
 
+    def _render_radar_thread(self):
+        """渲染雷达监控脉络图
+
+        显示两类内容：
+        1. 雷达监控对象（信号消费者）：新闻获取器、OpenRouter监控
+        2. 向雷达发送信号的策略
+        """
+        from .engine import _get_frequency_label
+
+        consumer_threads = self.engine.get_consumer_threads()
+        radar_strategies = self.engine.get_radar_feeding_strategies()
+
+        if not consumer_threads and not radar_strategies:
+            return
+
+        def render_consumer_card(t: dict) -> str:
+            alert_level = t.get('alert_level', 'normal')
+            alert_colors = {
+                'normal': ('#22c55e', 'rgba(34, 197, 94, 0.1)'),
+                'attention': ('#0ea5e9', 'rgba(14, 165, 233, 0.1)'),
+                'warning': ('#f59e0b', 'rgba(245, 158, 11, 0.1)'),
+                'critical': ('#ef4444', 'rgba(239, 68, 68, 0.1)'),
+            }
+            alert_color, alert_bg = alert_colors.get(alert_level, ('#94a3b8', 'rgba(148, 163, 184, 0.1)'))
+
+            freq_color = '#ef4444' if t.get('update_interval_seconds', 0) < 3600 else \
+                        '#f59e0b' if t.get('update_interval_seconds', 0) < 86400 else \
+                        '#0ea5e9' if t.get('update_interval_seconds', 0) < 604800 else '#94a3b8'
+
+            last_ts = t.get('last_update_ts', 0)
+            last_time = datetime.fromtimestamp(last_ts).strftime('%H:%M') if last_ts else '从未'
+
+            freq_label = _get_frequency_label(t.get('update_interval_seconds', 0))
+
+            return f'''
+            <div style="background: {alert_bg}; border: 1px solid {alert_color}40; border-radius: 8px; padding: 10px 12px; flex: 1; min-width: 160px;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                    <div style="display: flex; align-items: center; gap: 5px;">
+                        <span style="font-size: 14px;">{t.get('icon', '📡')}</span>
+                        <span style="font-size: 12px; font-weight: 600; color: #f1f5f9;">{t.get('name', '未知')}</span>
+                    </div>
+                    <span style="font-size: 9px; padding: 1px 4px; border-radius: 3px; background: {alert_color}20; color: {alert_color};">{alert_level}</span>
+                </div>
+                <div style="font-size: 10px; color: #64748b; margin-bottom: 4px;">{t.get('description', '')}</div>
+                <div style="display: flex; justify-content: space-between; font-size: 9px;">
+                    <span style="color: #94a3b8;">频率: <span style="color: {freq_color};">{freq_label}</span></span>
+                    <span style="color: #94a3b8;">{last_time}</span>
+                </div>
+            </div>
+            '''
+
+        def render_strategy_card(t: dict) -> str:
+            signal_types = t.get('signal_types', [])
+            signal_labels = {
+                'pattern': '📊',
+                'drift': '📉',
+                'anomaly': '⚡',
+                'sector': '🔥',
+                'openrouter_trend': '🤖',
+            }
+            icons = ''.join([signal_labels.get(st, '📌') for st in signal_types if st in signal_labels])
+
+            return f'''
+            <div style="background: rgba(59, 130, 246, 0.1); border: 1px solid rgba(59, 130, 246, 0.3); border-radius: 8px; padding: 8px 10px; flex: 1; min-width: 140px;">
+                <div style="display: flex; align-items: center; gap: 5px; margin-bottom: 4px;">
+                    <span style="font-size: 12px;">📡</span>
+                    <span style="font-size: 11px; font-weight: 600; color: #93c5fd;">{t.get('name', '未知策略')}</span>
+                </div>
+                <div style="font-size: 9px; color: #64748b;">{icons}</div>
+            </div>
+            '''
+
+        consumer_html = ''.join([render_consumer_card(t) for t in consumer_threads])
+        strategy_html = ''.join([render_strategy_card(t) for t in radar_strategies])
+
+        total_count = len(consumer_threads) + len(radar_strategies)
+
+        put_html(f'''
+        <div style="
+            margin-bottom: 12px;
+            background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+            border-radius: 14px;
+            padding: 16px 20px;
+            box-shadow: 0 4px 20px rgba(15, 23, 42, 0.25), inset 0 1px 0 rgba(255,255,255,0.05);
+            border: 1px solid #334155;
+        ">
+            <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 14px;">
+                <span style="font-size: 18px;">🕸️</span>
+                <span style="font-size: 14px; font-weight: 600; color: #f1f5f9;">雷达监控脉络</span>
+                <span style="font-size: 11px; color: #64748b; margin-left: 8px;">{total_count} 个监控项</span>
+            </div>
+
+            <div style="margin-bottom: 12px;">
+                <div style="font-size: 10px; color: #64748b; margin-bottom: 8px;">🔍 监控对象 ({len(consumer_threads)})</div>
+                <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+                    {consumer_html if consumer_html else '<span style="font-size: 10px; color: #475569;">无</span>'}
+                </div>
+            </div>
+
+            <div style="padding-top: 12px; border-top: 1px solid #334155;">
+                <div style="font-size: 10px; color: #64748b; margin-bottom: 8px;">📡 信号源 ({len(radar_strategies)})</div>
+                <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+                    {strategy_html if strategy_html else '<span style="font-size: 10px; color: #475569;">无</span>'}
+                </div>
+            </div>
+
+            <div style="display: flex; gap: 16px; margin-top: 14px; padding-top: 12px; border-top: 1px solid #334155; font-size: 10px; color: #64748b;">
+                <span style="color: #94a3b8;">📊 pattern</span>
+                <span style="color: #94a3b8;">📉 drift</span>
+                <span style="color: #94a3b8;">⚡ anomaly</span>
+                <span style="color: #94a3b8;">🔥 sector</span>
+            </div>
+        </div>
+        ''')
+
     def _render_news_fetcher_panel(self):
         """渲染新闻获取器面板"""
         if not self.engine:
@@ -264,7 +382,9 @@ class RadarUI:
 
         if recent_news:
             news_section = '<div style="margin-top: 12px; padding-top: 12px; border-top: 1px solid rgba(255,255,255,0.08);">'
-            news_section += '<div style="font-size: 11px; font-weight: 500; color: #64748b; margin-bottom: 8px;">📋 最近新闻</div>'
+            news_section += '<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">'
+            news_section += '<div style="font-size: 11px; font-weight: 500; color: #64748b;">📋 最近新闻（全量）</div>'
+            news_section += '<div style="font-size: 9px; color: #475569;">★全在这</div></div>'
             for item in recent_news[:5]:
                 score = item.get('attention_score', 0)
                 score_color = "#f87171" if score > 0.7 else ("#fb923c" if score > 0.5 else "#60a5fa")
@@ -293,6 +413,29 @@ class RadarUI:
         put_button("🔄 刷新", onclick=self._refresh, color="secondary", small=True)
         put_button("🧹 清空事件", onclick=self._clear_events, color="secondary", small=True)
         put_html('</div>')
+
+    def _render_process_flow(self):
+        """渲染处理流程说明"""
+        put_html('''
+        <div style="margin-bottom: 12px; background: rgba(255,255,255,0.02); border-radius: 10px; padding: 12px 14px; border: 1px solid rgba(255,255,255,0.06);">
+            <div style="font-size: 11px; font-weight: 500; color: #64748b; margin-bottom: 8px;">⚙️ 处理流程与评分机制</div>
+            <div style="display: flex; align-items: center; gap: 4px; font-size: 10px; color: #475569; margin-bottom: 6px;">
+                <span style="background: rgba(59,130,246,0.15); color: #60a5fa; padding: 2px 6px; border-radius: 3px;">📰 金十数据</span>
+                <span>→</span>
+                <span style="background: rgba(34,197,94,0.12); color: #22c55e; padding: 2px 6px; border-radius: 3px;">全部新闻</span>
+                <span>→</span>
+                <span style="background: rgba(168,85,247,0.12); color: #a855f7; padding: 2px 6px; border-radius: 3px;">主题分类</span>
+                <span>→</span>
+                <span style="background: rgba(249,115,22,0.12); color: #fb923c; padding: 2px 6px; border-radius: 3px;">注意力评分</span>
+                <span>→</span>
+                <span style="background: rgba(239,68,68,0.12); color: #f87171; padding: 2px 6px; border-radius: 3px;">★≥0.6事件</span>
+            </div>
+            <div style="font-size: 9px; color: #64748b; line-height: 1.5;">
+                <div style="margin-bottom: 3px; color: #94a3b8;"><span style="color: #fb923c;">注意力评分</span> = 基础0.5 + 标题长度(>20字+0.1, >40字+0.1) + 主题重复(≥3次+0.2, ≥5次+0.1) + 关键词(突发/重磅/暴涨等+0.1)</div>
+                <div style="color: #64748b;">低于0.6的新闻只保留在"最近新闻"列表，不产生事件信号</div>
+            </div>
+        </div>
+        ''')
 
     def _render_stats_overview(self):
         """渲染事件类型分布 - 淡色风格"""
@@ -343,7 +486,7 @@ class RadarUI:
         ''')
 
     def _render_event_timeline(self):
-        """渲染事件时间线 - 淡色风格"""
+        """渲染事件时间线 - 紧凑风格"""
         if not self.engine:
             return
 
@@ -360,7 +503,7 @@ class RadarUI:
                 border: 1px solid rgba(255,255,255,0.08);
                 text-align: center;
             ">
-                <div style="font-size: 12px; font-weight: 500; color: #64748b; margin-bottom: 6px;">🕐 最近事件（1小时）</div>
+                <div style="font-size: 12px; font-weight: 500; color: #64748b; margin-bottom: 6px;">📌 高关注度事件</div>
                 <div style="color: #475569; font-size: 11px;">暂无雷达事件</div>
             </div>
             """)
@@ -371,32 +514,58 @@ class RadarUI:
             event_type = event.get("event_type", "unknown")
             score = float(event.get("score", 0.5))
             message = event.get("message", "-")
-            strategy_name = event.get("strategy_name", "-")
             ts = float(event.get("timestamp", 0))
             ts_str = _fmt_time(ts)
 
-            badge_html = _render_event_badge(event_type, score)
             score_color = "#f87171" if score > 0.7 else ("#fb923c" if score > 0.5 else "#60a5fa")
 
-            event_items += f'''
-            <div style="
-                display: flex;
-                gap: 10px;
-                padding: 10px;
-                background: rgba(255,255,255,0.02);
-                border-radius: 6px;
-                margin-bottom: 6px;
-                border: 1px solid rgba(255,255,255,0.04);
-            ">
-                <div style="font-size: 10px; color: #475569; min-width: 45px; padding-top: 2px;">{ts_str}</div>
-                <div style="flex: 1;">
-                    <div style="margin-bottom: 4px;">{badge_html}</div>
-                    <div style="font-size: 11px; color: #94a3b8; line-height: 1.4;">{message[:80]}</div>
-                </div>
-                <div style="text-align: right; min-width: 40px;">
-                    <div style="font-size: 11px; font-weight: 600; color: {score_color};">{score:.2f}</div>
-                </div>
-            </div>'''
+            if event_type == "news_topic":
+                topic_match = re.search(r'\[([^\]]+)\]', message)
+                topic = topic_match.group(1) if topic_match else ""
+                content = message[message.find(']')+1:].strip() if ']' in message else message
+                event_items += f'''
+                <div style="
+                    display: flex;
+                    align-items: center;
+                    gap: 8px;
+                    padding: 6px 8px;
+                    background: rgba(255,255,255,0.02);
+                    border-radius: 4px;
+                    margin-bottom: 4px;
+                    font-size: 11px;
+                ">
+                    <span style="color: #64748b; min-width: 45px;">{ts_str}</span>
+                    <span style="
+                        background: rgba(59,130,246,0.15);
+                        color: #60a5fa;
+                        padding: 1px 6px;
+                        border-radius: 3px;
+                        font-size: 10px;
+                        font-weight: 500;
+                    ">{topic}</span>
+                    <span style="flex: 1; color: #94a3b8; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{content[:40]}</span>
+                    <span style="color: {score_color}; font-weight: 600; min-width: 35px; text-align: right;">★{score:.2f}</span>
+                </div>'''
+            else:
+                badge_html = _render_event_badge(event_type, score)
+                event_items += f'''
+                <div style="
+                    display: flex;
+                    gap: 10px;
+                    padding: 8px;
+                    background: rgba(255,255,255,0.02);
+                    border-radius: 4px;
+                    margin-bottom: 4px;
+                ">
+                    <div style="font-size: 10px; color: #475569; min-width: 45px; padding-top: 2px;">{ts_str}</div>
+                    <div style="flex: 1;">
+                        <div style="margin-bottom: 3px;">{badge_html}</div>
+                        <div style="font-size: 11px; color: #94a3b8; line-height: 1.3;">{message[:60]}</div>
+                    </div>
+                    <div style="text-align: right; min-width: 40px;">
+                        <div style="font-size: 11px; font-weight: 600; color: {score_color};">{score:.2f}</div>
+                    </div>
+                </div>'''
 
         put_html(f'''
         <div style="
@@ -406,41 +575,18 @@ class RadarUI:
             padding: 14px 18px;
             border: 1px solid rgba(255,255,255,0.08);
         ">
-            <div style="font-size: 12px; font-weight: 500; color: #64748b; margin-bottom: 12px;">
-                🕐 最近事件（1小时）
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                <div style="font-size: 12px; font-weight: 500; color: #64748b;">📌 高关注度事件（从新闻中筛选）</div>
+                <div style="font-size: 9px; color: #475569;">★≥0.6</div>
             </div>
             {event_items}
         </div>
         ''')
 
     def _render_radar_logic(self):
-        """渲染雷达感知逻辑说明 - 淡色风格"""
-        put_html("""
-        <div style="
-            margin-bottom: 12px;
-            background: rgba(255,255,255,0.03);
-            border-radius: 12px;
-            padding: 14px 18px;
-            border: 1px solid rgba(255,255,255,0.08);
-        ">
-            <div style="font-size: 12px; font-weight: 500; color: #64748b; margin-bottom: 10px;">
-                🧩 雷达感知逻辑
-            </div>
-            <div style="font-size: 11px; color: #475569; line-height: 1.7;">
-                <div style="margin-bottom: 8px;">
-                    <b style="color: #f59e0b;">📊 MarketScanner（市场扫描）</b><br>
-                    <span style="color: #64748b;">• Pattern模式：同一信号类型重复出现 → 检测信号强度</span><br>
-                    <span style="color: #64748b;">• Drift漂移：概念漂移检测（ADWIN算法）→ 检测市场风格变化</span><br>
-                    <span style="color: #64748b;">• Anomaly异常：统计异常检测（z-score）→ 检测极端行情</span><br>
-                    <span style="color: #64748b;">• SectorAnomaly板块联动：齐涨齐跌检测 → 发现板块异动</span>
-                </div>
-                <div style="padding: 8px; background: rgba(14, 165, 233, 0.08); border-radius: 6px; border-left: 2px solid #0ea5e9;">
-                    <b style="color: #0ea5e9;">📌 数据流</b><br>
-                    <span style="color: #64748b;">策略执行 → RadarEngine.ingest_result() → MarketScanner检测 → 事件存储 → 认知层</span>
-                </div>
-            </div>
-        </div>
-        """)
+        """渲染雷达感知逻辑说明 - 详细工作原理"""
+        from deva.naja.cognition.system_architecture import get_radar_architecture_doc
+        put_html(get_radar_architecture_doc())
 
     def _refresh(self):
         """刷新页面"""

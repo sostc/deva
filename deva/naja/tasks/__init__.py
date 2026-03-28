@@ -1,4 +1,4 @@
-"""Task V2 - 基于 RecoverableUnit 抽象"""
+"""Task - 基于 RecoverableUnit 抽象"""
 
 from __future__ import annotations
 
@@ -538,15 +538,23 @@ class TaskManager:
             with cls._lock:
                 if cls._instance is None:
                     cls._instance = super().__new__(cls)
+                    cls._instance._initialized = False
+                    cls._instance._init_lock = threading.Lock()
         return cls._instance
 
     def __init__(self):
-        if hasattr(self, "_initialized"):
+        pass
+
+    def _ensure_initialized(self):
+        if getattr(self, '_initialized', False):
             return
-        self._items: Dict[str, TaskEntry] = {}
-        self._items_lock = threading.Lock()
-        self._initialized = True
-        self.load_from_db()
+        with self._init_lock:
+            if getattr(self, '_initialized', False):
+                return
+            self._items: Dict[str, TaskEntry] = {}
+            self._items_lock = threading.Lock()
+            self.load_from_db()
+            self._initialized = True
 
     def create(
         self,
@@ -614,21 +622,26 @@ class TaskManager:
         return {"success": True, "id": entry_id, "entry": entry.to_dict()}
 
     def get(self, entry_id: str) -> Optional[TaskEntry]:
+        self._ensure_initialized()
         return self._items.get(entry_id)
 
     def get_by_name(self, name: str) -> Optional[TaskEntry]:
+        self._ensure_initialized()
         for entry in self._items.values():
             if entry.name == name:
                 return entry
         return None
 
     def list_all(self) -> List[TaskEntry]:
+        self._ensure_initialized()
         return list(self._items.values())
 
     def list_all_dict(self) -> List[dict]:
+        self._ensure_initialized()
         return [entry.to_dict() for entry in self._items.values()]
 
     def delete(self, entry_id: str) -> dict:
+        self._ensure_initialized()
         entry = self.get(entry_id)
         if not entry:
             return {"success": False, "error": "Entry not found"}
@@ -646,18 +659,21 @@ class TaskManager:
         return {"success": True}
 
     def start(self, entry_id: str) -> dict:
+        self._ensure_initialized()
         entry = self.get(entry_id)
         if not entry:
             return {"success": False, "error": "Entry not found"}
         return entry.start()
 
     def stop(self, entry_id: str) -> dict:
+        self._ensure_initialized()
         entry = self.get(entry_id)
         if not entry:
             return {"success": False, "error": "Entry not found"}
         return entry.stop()
 
     def run_once(self, entry_id: str) -> dict:
+        self._ensure_initialized()
         entry = self.get(entry_id)
         if not entry:
             return {"success": False, "error": "Entry not found"}
@@ -665,6 +681,7 @@ class TaskManager:
 
     def run_once_async(self, entry_id: str) -> dict:
         """异步执行一次（不阻塞UI）"""
+        self._ensure_initialized()
         entry = self.get(entry_id)
         if not entry:
             return {"success": False, "error": "Entry not found"}
@@ -686,6 +703,11 @@ class TaskManager:
     def load_from_db(self) -> int:
         db = NB(TASK_TABLE)
         count = 0
+
+        if not hasattr(self, '_items') or self._items is None:
+            self._items = {}
+        if not hasattr(self, '_items_lock') or self._items_lock is None:
+            self._items_lock = threading.Lock()
 
         with self._items_lock:
             self._items.clear()
@@ -726,6 +748,11 @@ class TaskManager:
 
         db = NB(TASK_TABLE)
         loaded_count = 0
+
+        if not hasattr(self, '_items') or self._items is None:
+            self._items = {}
+        if not hasattr(self, '_items_lock') or self._items_lock is None:
+            self._items_lock = threading.Lock()
 
         with self._items_lock:
             self._items.clear()
@@ -902,6 +929,7 @@ class TaskManager:
         }
 
     def get_all_recovery_info(self) -> List[dict]:
+        self._ensure_initialized()
         info = []
         for entry in self._items.values():
             prep = entry.prepare_for_recovery()
@@ -917,6 +945,7 @@ class TaskManager:
         return info
 
     def get_stats(self) -> dict:
+        self._ensure_initialized()
         entries = self.list_all()
         running = sum(1 for e in entries if e.is_running)
 

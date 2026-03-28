@@ -835,6 +835,9 @@ class NewsMindStrategy:
         self.narrative_tracker = NarrativeTracker(self.config)
         self.narrative_events: deque = deque(maxlen=200)
 
+        # 全球流动性传播引擎
+        self._init_propagation_engine()
+
         # 语义冷启动（种子词 -> 语义图谱）
         self.semantic_cold_start = SemanticColdStart(self.config)
         self.semantic_graph: Dict[str, Any] = dict(self.semantic_cold_start.graph)
@@ -843,7 +846,53 @@ class NewsMindStrategy:
         self._cached_market_activity: float = 0.5
         self._last_activity_update: float = 0.0
         self._activity_cache_ttl: float = 5.0  # 5秒缓存
-    
+
+    def _init_propagation_engine(self):
+        """初始化全球流动性传播引擎"""
+        try:
+            from .liquidity import PropagationEngine
+            self.propagation_engine = PropagationEngine()
+            self.propagation_engine.initialize()
+            _cognition_debug_log("[NewsMind] 全球流动性传播引擎初始化完成")
+        except Exception as e:
+            _cognition_debug_log(f"[NewsMind] 全球流动性传播引擎初始化失败: {e}")
+            self.propagation_engine = None
+
+    def update_liquidity_market(
+        self,
+        market_id: str,
+        price: float,
+        volume: float = 0,
+        narrative_score: float = 0.0,
+    ):
+        """更新市场状态到流动性传播引擎"""
+        if not self.propagation_engine:
+            return
+        self.propagation_engine.update_market(
+            market_id=market_id,
+            price=price,
+            volume=volume,
+            narrative_score=narrative_score,
+        )
+
+    def update_liquidity_narrative(self, narrative: str, attention_score: float):
+        """更新叙事状态到流动性传播引擎"""
+        if not self.propagation_engine:
+            return
+        self.propagation_engine.update_narrative_state(narrative, attention_score)
+
+    def get_liquidity_structure(self) -> Dict[str, Any]:
+        """获取全球流动性结构"""
+        if not self.propagation_engine:
+            return {"error": "传播引擎未初始化"}
+        return self.propagation_engine.get_liquidity_structure()
+
+    def decay_liquidity_attention(self):
+        """衰减流动性注意力（周期性调用）"""
+        if not self.propagation_engine:
+            return
+        self.propagation_engine.decay_all_attention()
+
     def _get_dynamic_mid_memory_threshold(self) -> float:
         """
         获取动态中期记忆阈值
@@ -1251,34 +1300,36 @@ class NewsMindStrategy:
 
     def _emit_narrative_events(self, events: List[Dict[str, Any]]) -> None:
         try:
-            from ..radar import get_radar_engine
+            from deva.naja.cognition.insight import emit_to_insight_pool
         except Exception:
             return
-        try:
-            radar = get_radar_engine()
-        except Exception:
-            return
+
         for event in events:
             event_type = str(event.get("event_type", "narrative_event"))
             narrative = str(event.get("narrative", "unknown"))
-            stage = str(event.get("stage", ""))
             score = float(event.get("attention_score", 0.0) or 0.0)
             message = (
-                f"叙事{narrative}进入{stage}"
+                f"叙事{narrative}进入{event.get('stage', '')}"
                 if event_type == "narrative_stage_change"
                 else f"叙事{narrative}注意力飙升"
             )
-            payload = dict(event)
-            payload["source_category"] = "narrative"
-            radar.ingest_attention_event(
-                event_type=event_type,
-                score=score,
-                message=message,
-                payload=payload,
-                signal_type=event_type,
-                strategy_id="narrative_tracker",
-                strategy_name="Narrative Tracker",
-            )
+
+            insight_data = {
+                "source": "narrative_tracker",
+                "signal_type": event_type,
+                "narrative": narrative,
+                "stage": event.get("stage", ""),
+                "attention_score": score,
+                "score": score,
+                "message": message,
+                "keywords": event.get("keywords", []),
+                "metrics": event.get("metrics", {}),
+                "timestamp": event.get("timestamp", time.time()),
+            }
+            emit_to_insight_pool(insight_data)
+
+            if self.propagation_engine:
+                self.propagation_engine.update_narrative_state(narrative, score)
 
     def build_semantic_cold_start_prompt(self, seeds: Optional[List[str]] = None) -> str:
         """构建语义冷启动 prompt（给 LLM 使用）"""

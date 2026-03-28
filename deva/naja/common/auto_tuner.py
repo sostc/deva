@@ -83,28 +83,34 @@ class AutoTuner:
                 if cls._instance is None:
                     cls._instance = super().__new__(cls)
                     cls._instance._initialized = False
+                    cls._instance._init_lock = threading.Lock()
         return cls._instance
 
     def __init__(self):
-        if self._initialized:
-            return
+        pass
 
-        self._conditions: Dict[str, TuneCondition] = {}
-        self._condition_states: Dict[str, ConditionState] = {}
-        self._events: deque = deque(maxlen=1000)
-        self._enabled = True
-        self._running = False
-        self._check_thread: Optional[threading.Thread] = None
-        self._llm_thread: Optional[threading.Thread] = None
-        self._llm_queue: deque = deque(maxlen=100)
-        self._last_llm_call_ts = 0
-        self._llm_cooldown = 300
-        self._startup_grace_period = 86400
-        self._startup_time = time.time()
-        # 待处理的 LLM 调优请求（合并用）
-        self._pending_llm_issues: List[Dict] = []
-        self._register_all_conditions()
-        self._initialized = True
+    def _ensure_initialized(self):
+        if getattr(self, '_initialized', False):
+            return
+        with self._init_lock:
+            if getattr(self, '_initialized', False):
+                return
+
+            self._conditions: Dict[str, TuneCondition] = {}
+            self._condition_states: Dict[str, ConditionState] = {}
+            self._events: deque = deque(maxlen=1000)
+            self._enabled = True
+            self._running = False
+            self._check_thread: Optional[threading.Thread] = None
+            self._llm_thread: Optional[threading.Thread] = None
+            self._llm_queue: deque = deque(maxlen=100)
+            self._last_llm_call_ts = 0
+            self._llm_cooldown = 300
+            self._startup_grace_period = 86400
+            self._startup_time = time.time()
+            self._pending_llm_issues: List[Dict] = []
+            self._register_all_conditions()
+            self._initialized = True
 
     def _register_all_conditions(self):
         self._conditions['thread_pool'] = TuneCondition(
@@ -1130,6 +1136,7 @@ def get_auto_tuner() -> AutoTuner:
 
 def start_auto_tuner():
     tuner = get_auto_tuner()
+    tuner._ensure_initialized()
     tuner.start()
 
 

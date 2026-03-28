@@ -1,4 +1,4 @@
-"""DataSource V2 - 基于 RecoverableUnit 抽象"""
+"""DataSource - 基于 RecoverableUnit 抽象"""
 
 from __future__ import annotations
 
@@ -1058,6 +1058,14 @@ class DataSourceEntry(RecoverableUnit):
         return entry
 
 
+def _require_initialized(method):
+    """装饰器：确保方法调用前已初始化"""
+    def wrapper(self, *args, **kwargs):
+        self._ensure_initialized()
+        return method(self, *args, **kwargs)
+    return wrapper
+
+
 class DataSourceManager:
     """数据源管理器
 
@@ -1077,6 +1085,9 @@ class DataSourceManager:
     5. Manager 类本身不是资源，而是通往资源的入口点。真正的系统资源
        （如 NB 数据库连接）是单例的，而 Manager 类保持单例是为了方便
        访问这些资源。
+
+    6. 初始化模式：使用延迟初始化模式，初始化时机由 bootstrap 控制，
+       避免模块导入顺序导致的数据未加载问题。
     ================================================================================
     """
 
@@ -1088,16 +1099,29 @@ class DataSourceManager:
             with cls._lock:
                 if cls._instance is None:
                     cls._instance = super().__new__(cls)
+                    cls._instance._initialized = False
+                    cls._instance._init_lock = threading.Lock()
         return cls._instance
 
     def __init__(self):
-        if hasattr(self, "_initialized"):
+        pass
+
+    def _ensure_initialized(self):
+        if getattr(self, '_initialized', False):
             return
+        with self._init_lock:
+            if getattr(self, '_initialized', False):
+                return
+            self._do_initialize()
+            self._initialized = True
+
+    def _do_initialize(self):
         self._items: Dict[str, DataSourceEntry] = {}
         self._items_lock = threading.Lock()
-        self._initialized = True
-        self.load_from_db()
+        self._loaded_prefer_files = False
+        self.load_prefer_files()
 
+    @_require_initialized
     def create(
         self,
         name: str,
@@ -1169,6 +1193,7 @@ class DataSourceManager:
         self._log("INFO", "DataSource created", id=entry_id, name=name, source_type=source_type)
         return {"success": True, "id": entry_id, "entry": entry.to_dict()}
 
+    @_require_initialized
     def get(self, entry_id: str) -> Optional[DataSourceEntry]:
         return self._items.get(entry_id)
 
@@ -1178,17 +1203,15 @@ class DataSourceManager:
                 return entry
         return None
 
+    @_require_initialized
     def list_all(self) -> List[DataSourceEntry]:
-        if not self._items:
-            if hasattr(self, 'load_prefer_files'):
-                self.load_prefer_files()
-            else:
-                self.load_from_db()
         return list(self._items.values())
 
+    @_require_initialized
     def list_all_dict(self) -> List[dict]:
         return [entry.to_dict() for entry in self._items.values()]
 
+    @_require_initialized
     def delete(self, entry_id: str) -> dict:
         entry = self.get(entry_id)
         if not entry:
@@ -1206,12 +1229,14 @@ class DataSourceManager:
         self._log("INFO", "DataSource deleted", id=entry_id, name=entry.name)
         return {"success": True}
 
+    @_require_initialized
     def start(self, entry_id: str) -> dict:
         entry = self.get(entry_id)
         if not entry:
             return {"success": False, "error": "Entry not found"}
         return entry.start()
 
+    @_require_initialized
     def stop(self, entry_id: str) -> dict:
         entry = self.get(entry_id)
         if not entry:
@@ -1246,7 +1271,7 @@ class DataSourceManager:
         """优先从文件加载数据源配置，NB 数据作为兜底
 
         加载策略：
-        1. 先扫描 config/datasources/ 目录下的文件配置
+        1. 如果已加载过，直接返回
         2. 如果文件存在，优先使用文件配置
         3. 如果文件不存在但 NB 中有，则使用 NB 数据
         4. 合并去重，以文件配置优先
@@ -1254,6 +1279,14 @@ class DataSourceManager:
         Returns:
             加载的数据源数量
         """
+        if getattr(self, '_loaded_prefer_files', False):
+            return len(getattr(self, '_items', {}))
+
+        if not hasattr(self, '_items') or self._items is None:
+            self._items = {}
+        if not hasattr(self, '_items_lock') or self._items_lock is None:
+            self._items_lock = threading.Lock()
+
         from deva.naja.config.file_config import get_file_config_manager
 
         file_mgr = get_file_config_manager('datasource')
@@ -1310,6 +1343,7 @@ class DataSourceManager:
                 except Exception as e:
                     self._log("ERROR", f"Load from file failed: {name}", error=str(e))
 
+        self._loaded_prefer_files = True
         return loaded_count
 
     def _create_entry_from_file_config(self, file_item) -> Optional['DataSourceEntry']:
@@ -1410,6 +1444,7 @@ class DataSourceManager:
         }
 
     def get_all_recovery_info(self) -> List[dict]:
+        self._ensure_initialized()
         info = []
         for entry in self._items.values():
             prep = entry.prepare_for_recovery()
@@ -1427,12 +1462,28 @@ class DataSourceManager:
         running = sum(1 for e in entries if e.is_running)
         error = sum(1 for e in entries if e._state.error_count > 0)
 
-        return {
+        stats = {
             "total": len(entries),
             "running": running,
             "stopped": len(entries) - running,
             "error": error,
         }
+
+        attention_stats = self.get_attention_stats()
+        if attention_stats:
+            stats["attention"] = attention_stats
+
+        return stats
+
+    def get_attention_stats(self) -> Optional[dict]:
+        try:
+            from deva.naja.attention.realtime_data_fetcher import get_data_fetcher
+            fetcher = get_data_fetcher()
+            if fetcher and hasattr(fetcher, 'get_stats'):
+                return fetcher.get_stats()
+        except ImportError:
+            pass
+        return None
 
     def start_all(self) -> dict:
         success = 0
@@ -1480,9 +1531,4 @@ _ds_manager_lock = threading.Lock()
 
 
 def get_datasource_manager() -> DataSourceManager:
-    global _ds_manager
-    if _ds_manager is None:
-        with _ds_manager_lock:
-            if _ds_manager is None:
-                _ds_manager = DataSourceManager()
-    return _ds_manager
+    return DataSourceManager()

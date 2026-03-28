@@ -222,15 +222,88 @@ def _render_experiment_status_html() -> str:
     """
 
 
+def _render_signal_flow_thread(ctx):
+    """渲染信号流脉络图"""
+    try:
+        from deva.naja.radar import get_radar_engine
+        from deva.naja.radar.engine import _get_frequency_label
+    except ImportError:
+        return
+
+    try:
+        radar = get_radar_engine()
+        producer_threads = radar.get_producer_threads()
+        consumer_threads = radar.get_consumer_threads()
+
+        if not producer_threads and not consumer_threads:
+            return
+
+        def render_producer_item(t: dict) -> str:
+            targets = t.get('targets', [])
+            targets_html = ''.join([
+                f'<span style="margin: 2px; padding: 2px 6px; border-radius: 4px; font-size: 10px; background: rgba(245, 158, 11, 0.2); color: #f59e0b;">{target}</span>'
+                for target in targets
+            ]) if targets else '<span style="color: #999;">-</span>'
+            return f'''
+            <div style="display: inline-block; background: rgba(245, 158, 11, 0.1); border: 1px solid rgba(245, 158, 11, 0.3); border-radius: 8px; padding: 6px 10px; margin: 4px;">
+                <div style="font-size: 12px; margin-bottom: 4px;">{t.get('icon', '📊')} {t.get('name', '未知')}</div>
+                <div style="font-size: 10px; color: #666;">→ {targets_html}</div>
+            </div>
+            '''
+
+        def render_consumer_item(t: dict) -> str:
+            freq = _get_frequency_label(t.get('update_interval_seconds', 0))
+            last_ts = t.get('last_update_ts', 0)
+            last_time = datetime.fromtimestamp(last_ts).strftime('%H:%M') if last_ts else '从未'
+            return f'''
+            <div style="display: inline-block; background: rgba(14, 165, 233, 0.1); border: 1px solid rgba(14, 165, 233, 0.3); border-radius: 8px; padding: 6px 10px; margin: 4px;">
+                <div style="font-size: 12px; margin-bottom: 4px;">{t.get('icon', '📡')} {t.get('name', '未知')}</div>
+                <div style="font-size: 10px; color: #666;">{freq} | {last_time}</div>
+            </div>
+            '''
+
+        producer_html = ''.join([render_producer_item(t) for t in producer_threads])
+        consumer_html = ''.join([render_consumer_item(t) for t in consumer_threads])
+
+        ctx["put_html"](f'''
+        <div style="margin: 12px 0; padding: 14px; background: linear-gradient(135deg, #fefce8 0%, #fef9c3 100%); border-radius: 12px; border: 1px solid #fbbf24;">
+            <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 12px;">
+                <span style="font-size: 16px;">🕸️</span>
+                <span style="font-size: 13px; font-weight: 600; color: #92400e;">信号流脉络</span>
+                <span style="font-size: 11px; color: #b45309; margin-left: 8px;">{len(producer_threads)} 生产者 | {len(consumer_threads)} 消费者</span>
+            </div>
+
+            <div style="margin-bottom: 10px;">
+                <div style="font-size: 11px; color: #b45309; margin-bottom: 6px;">📤 信号生产者</div>
+                <div style="display: flex; flex-wrap: wrap; gap: 4px;">
+                    {producer_html if producer_html else '<span style="color: #999;">暂无</span>'}
+                </div>
+            </div>
+
+            <div>
+                <div style="font-size: 11px; color: #b45309; margin-bottom: 6px;">📥 信号消费者</div>
+                <div style="display: flex; flex-wrap: wrap; gap: 4px;">
+                    {consumer_html if consumer_html else '<span style="color: #999;">暂无</span>'}
+                </div>
+            </div>
+        </div>
+        ''')
+
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+
+
 def _render_signal_stream_content(ctx, limit: int = 20):
     """渲染实时信号流内容"""
     from .stream import get_signal_stream
-    
+
     signal_stream = get_signal_stream()
     all_results = signal_stream.get_recent(limit=limit)
-    
-    # 按时间戳排序
+
     all_results.sort(key=lambda x: x.ts, reverse=True)
+
+    _render_signal_flow_thread(ctx)
 
     exp_status_html = _render_experiment_status_html()
     if exp_status_html:

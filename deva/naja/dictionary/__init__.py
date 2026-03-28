@@ -1,4 +1,4 @@
-"""Dictionary V2 - 基于 RecoverableUnit 抽象"""
+"""Dictionary - 基于 RecoverableUnit 抽象"""
 
 from __future__ import annotations
 
@@ -549,16 +549,24 @@ class DictionaryManager:
             with cls._lock:
                 if cls._instance is None:
                     cls._instance = super().__new__(cls)
+                    cls._instance._initialized = False
+                    cls._instance._init_lock = threading.Lock()
         return cls._instance
 
     def __init__(self):
-        if hasattr(self, "_initialized"):
+        pass
+
+    def _ensure_initialized(self):
+        if getattr(self, '_initialized', False):
             return
-        self._items: Dict[str, DictionaryEntry] = {}
-        self._items_lock = threading.Lock()
-        self._initialized = True
-        self._file_config_mgr = None
-        self.load_from_db()
+        with self._init_lock:
+            if getattr(self, '_initialized', False):
+                return
+            self._items: Dict[str, DictionaryEntry] = {}
+            self._items_lock = threading.Lock()
+            self._file_config_mgr = None
+            self.load_from_db()
+            self._initialized = True
 
     @property
     def file_config_manager(self):
@@ -866,21 +874,26 @@ class DictionaryManager:
         return entry.save()
 
     def get(self, entry_id: str) -> Optional[DictionaryEntry]:
+        self._ensure_initialized()
         return self._items.get(entry_id)
 
     def get_by_name(self, name: str) -> Optional[DictionaryEntry]:
+        self._ensure_initialized()
         for entry in self._items.values():
             if entry.name == name:
                 return entry
         return None
 
     def list_all(self) -> List[DictionaryEntry]:
+        self._ensure_initialized()
         return list(self._items.values())
 
     def list_all_dict(self) -> List[dict]:
+        self._ensure_initialized()
         return [entry.to_dict() for entry in self._items.values()]
 
     def delete(self, entry_id: str) -> dict:
+        self._ensure_initialized()
         entry = self.get(entry_id)
         if not entry:
             return {"success": False, "error": "Entry not found"}
@@ -900,18 +913,21 @@ class DictionaryManager:
         return {"success": True}
 
     def start(self, entry_id: str) -> dict:
+        self._ensure_initialized()
         entry = self.get(entry_id)
         if not entry:
             return {"success": False, "error": "Entry not found"}
         return entry.start()
 
     def stop(self, entry_id: str) -> dict:
+        self._ensure_initialized()
         entry = self.get(entry_id)
         if not entry:
             return {"success": False, "error": "Entry not found"}
         return entry.stop()
 
     def run_once(self, entry_id: str) -> dict:
+        self._ensure_initialized()
         entry = self.get(entry_id)
         if not entry:
             return {"success": False, "error": "Entry not found"}
@@ -919,6 +935,7 @@ class DictionaryManager:
 
     def run_once_async(self, entry_id: str) -> dict:
         """异步执行一次（不阻塞UI）"""
+        self._ensure_initialized()
         entry = self.get(entry_id)
         if not entry:
             return {"success": False, "error": "Entry not found"}
@@ -1206,6 +1223,7 @@ class DictionaryManager:
         }
 
     def get_all_recovery_info(self) -> List[dict]:
+        self._ensure_initialized()
         info = []
         for entry in self._items.values():
             prep = entry.prepare_for_recovery()
@@ -1221,6 +1239,7 @@ class DictionaryManager:
         return info
 
     def get_stats(self) -> dict:
+        self._ensure_initialized()
         entries = self.list_all()
         running = sum(1 for e in entries if e.is_running)
         success = sum(1 for e in entries if e._state.last_status == "success")

@@ -552,6 +552,47 @@ class AttentionStrategyManager:
         """是否处于实验模式"""
         return self._experiment_mode
 
+    def create_strategy_entry(self, strategy_id: str):
+        """
+        创建策略条目包装器（实现 StrategyEntry 接口）
+
+        Args:
+            strategy_id: 注意力策略ID
+
+        Returns:
+            AttentionStrategyWrapper 或 None（如果策略不存在）
+        """
+        if strategy_id not in self.strategies:
+            return None
+
+        try:
+            from .wrapper import wrap_attention_strategy
+            strategy = self.strategies[strategy_id]
+            wrapper = wrap_attention_strategy(strategy, self)
+
+            config = self.configs.get(strategy_id)
+            if config:
+                from ...common.recoverable import UnitStatus
+                wrapper._state.status = UnitStatus.RUNNING.value if config.enabled else UnitStatus.STOPPED.value
+
+            return wrapper
+        except Exception:
+            return None
+
+    def create_all_strategy_entries(self):
+        """
+        创建所有注意力策略的策略条目包装器列表
+
+        Returns:
+            List[AttentionStrategyWrapper]
+        """
+        wrappers = []
+        for strategy_id in self.strategies:
+            wrapper = self.create_strategy_entry(strategy_id)
+            if wrapper:
+                wrappers.append(wrapper)
+        return wrappers
+
 
 # 全局管理器实例
 _manager_instance: Optional[AttentionStrategyManager] = None
@@ -570,21 +611,48 @@ def get_strategy_manager() -> AttentionStrategyManager:
 def initialize_attention_strategies():
     """
     初始化注意力策略系统
-    
+
     在 naja 启动时调用
     """
     manager = get_strategy_manager()
-    
+
     # 初始化默认策略
     manager.initialize_default_strategies()
-    
+
     # 启动管理器
     manager.start()
-    
+
     # 注册到注意力系统
     try:
         from deva.naja.attention.integration import register_strategy_manager
         register_strategy_manager(manager)
+    except Exception:
+        pass
+
+    # 自动注册到策略管理系统（用于UI展示）
+    _auto_register_to_strategy_manager(manager)
+
+    return manager
+
+
+def _auto_register_to_strategy_manager(manager: AttentionStrategyManager):
+    """
+    自动将注意力策略注册到策略管理系统
+
+    这样在策略管理UI中可以统一看到所有策略
+    """
+    try:
+        from deva.naja.strategy import get_strategy_manager as get_sm
+        strategy_mgr = get_sm()
+
+        for strategy_id in manager.strategies:
+            existing = strategy_mgr.get(strategy_id)
+            if existing is not None:
+                continue
+
+            wrapper = manager.create_strategy_entry(strategy_id)
+            if wrapper:
+                strategy_mgr._items[strategy_id] = wrapper
     except Exception:
         pass
 

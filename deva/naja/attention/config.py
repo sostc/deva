@@ -172,7 +172,7 @@ def get_intelligence_config() -> dict:
         'enable_predictive': config.get('attention_intelligence.predictive', True),
         'enable_feedback': config.get('attention_intelligence.feedback', True),
         'enable_budget': config.get('attention_intelligence.budget', True),
-        'enable_propagation': config.get('attention_intelligence.propagation', False),
+        'enable_propagation': config.get('attention_intelligence.propagation', True),
         'enable_strategy_learning': config.get('attention_intelligence.strategy_learning', True),
     }
 

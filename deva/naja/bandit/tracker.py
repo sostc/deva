@@ -12,6 +12,7 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
 from deva import NB
+from deva.naja.common.market_time import get_market_time_service
 
 from .optimizer import get_bandit_optimizer, StrategyReward
 
@@ -74,9 +75,10 @@ class BanditPositionTracker:
         
         if entry_price <= 0 or exit_price <= 0:
             return {"success": False, "error": "价格无效"}
-        
-        current_time = time.time()
-        
+
+        mts = get_market_time_service()
+        current_time = mts.get_market_time()
+
         return_pct = (exit_price - entry_price) / entry_price * 100
         holding_seconds = current_time - open_timestamp
         

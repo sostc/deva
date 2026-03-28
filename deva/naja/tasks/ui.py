@@ -75,6 +75,33 @@ def _is_llm_or_bandit_auto_task(entry) -> bool:
     return name in ("llm_auto_adjust", "bandit_auto_run", "llm_auto_adjust_task")
 
 
+def _infer_task_service_target(entry) -> tuple:
+    """推断任务的服务对象
+
+    Returns:
+        tuple: (icon, target_name, description)
+    """
+    name = str(getattr(entry, "name", "") or "").strip().lower()
+    desc = str(getattr(entry._metadata, "description", "") or "").strip()
+
+    if name.startswith("dict_refresh_") or ("字典" in desc and "鲜活" in desc):
+        return "📖", "数据字典", "为数据字典提供鲜活数据"
+    elif name in ("llm_auto_adjust", "llm_auto_adjust_task"):
+        return "🤖", "LLM调节器", "为LLM参数自动调节服务"
+    elif name == "bandit_auto_run":
+        return "🎰", "Bandit交易", "为交易策略自动执行服务"
+    elif "radar" in name or "雷达" in desc:
+        return "📡", "Radar雷达", "为雷达系统提供感知数据"
+    elif "memory" in name or "记忆" in desc:
+        return "🧠", "Memory记忆", "为记忆系统提供语义数据"
+    elif "bandit" in name or "交易" in desc:
+        return "🎰", "Bandit交易", "为交易系统提供信号"
+    elif "news" in name or "新闻" in desc:
+        return "📰", "新闻系统", "为新闻数据采集服务"
+    else:
+        return "⚙️", "系统任务", "执行系统维护操作"
+
+
 def _split_entries_by_tab(entries: list):
     normal = []
     dict_tasks = []
@@ -599,6 +626,7 @@ async def _show_task_detail(ctx: dict, mgr, entry_id: str):
         return
 
     mode = _normalize_mode(entry)
+    service_icon, service_target, service_desc = _infer_task_service_target(entry)
 
     with ctx["popup"](f"任务详情: {entry.name}", size="large", closable=True):
         ctx["put_html"](render_detail_section("📊 基本信息"))
@@ -607,6 +635,7 @@ async def _show_task_detail(ctx: dict, mgr, entry_id: str):
             [
                 ["ID", entry.id],
                 ["名称", entry.name],
+                ["服务对象", f"{service_icon} {service_target}"],
                 ["描述", getattr(entry._metadata, "description", "") or "-"],
                 ["状态", "运行中" if entry.is_running else "已停止"],
                 ["执行方式", _mode_label(mode)],
@@ -615,6 +644,27 @@ async def _show_task_detail(ctx: dict, mgr, entry_id: str):
             ],
             header=["字段", "值"],
         )
+
+        ctx["put_html"](f'''
+        <div style="margin:12px 0;padding:10px 14px;background:#f8fafc;border-radius:8px;border:1px solid #e2e8f0;font-size:12px;">
+            <div style="color:#64748b;">{service_icon} <b>{service_desc}</b></div>
+        </div>
+        ''')
+
+        func_code_file = getattr(entry._metadata, "func_code_file", "") or ""
+        if not func_code_file:
+            try:
+                from deva.naja.config.file_config import get_file_config_manager
+                file_mgr = get_file_config_manager("task")
+                item = file_mgr.get(entry.name)
+                if item:
+                    func_code_file = item.func_code_file or ""
+            except Exception:
+                pass
+
+        if func_code_file:
+            ctx["put_html"](render_detail_section("📁 代码文件"))
+            ctx["put_text"](func_code_file)
 
         ctx["put_html"](render_detail_section("📈 执行统计"))
 

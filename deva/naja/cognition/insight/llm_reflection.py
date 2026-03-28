@@ -29,6 +29,7 @@ class Reflection:
     confidence: float = 0.5
     actionability: float = 0.5
     novelty: float = 0.5
+    liquidity_structure: str = ""
     source: str = "llm_reflection"
 
     def to_dict(self) -> Dict[str, Any]:
@@ -42,8 +43,9 @@ class Reflection:
             "symbols": self.symbols,
             "sectors": self.sectors,
             "confidence": self.confidence,
-            "actionability": self.actionability,
+            "actionability": self.confidence,
             "novelty": self.novelty,
+            "liquidity_structure": self.liquidity_structure,
             "source": self.source,
         }
 
@@ -130,6 +132,10 @@ class LLMReflectionEngine:
         self._last_run_ts = now
 
         signals = self._collect_signals()
+
+        self._emit_liquidity_signal(now)
+
+        signals = self._collect_signals()
         required = min_signals if min_signals is not None else self._min_signals
         if len(signals) < required:
             log.warning(f"[LLMReflection] 信号不足: 当前{len(signals)}条, 需要{required}条")
@@ -165,6 +171,7 @@ class LLMReflectionEngine:
             confidence=float(result.get("confidence", 0.5)),
             actionability=float(result.get("actionability", 0.5)),
             novelty=float(result.get("novelty", 0.5)),
+            liquidity_structure=result.get("liquidity_structure", ""),
             source="llm_reflection",
         )
 
@@ -175,6 +182,56 @@ class LLMReflectionEngine:
         self._emit_to_insight(reflection)
 
         return reflection
+
+    def _emit_liquidity_signal(self, now_ts: float) -> None:
+        """将流动性结构作为独立信号推送到 InsightPool"""
+        from ..engine import get_cognition_engine
+        try:
+            engine = get_cognition_engine()
+            tracker = engine._news_mind.narrative_tracker
+            if not tracker:
+                return
+            liquidity = tracker.get_liquidity_structure()
+
+            quadrants = liquidity.get("quadrants", {})
+            active_quadrants = [name for name, data in quadrants.items() if data.get("stage") in ("高潮", "扩散")]
+
+            if not active_quadrants:
+                return
+
+            themes_list = []
+            for name, data in quadrants.items():
+                if data.get("stage") != "无数据":
+                    themes_list.append(f"{data.get('icon', '')}{name}:{data.get('stage', '')}")
+
+            liquidity_summary = liquidity.get("conclusion", "")
+            summary_text = f"美林时钟四象限: {' | '.join(themes_list)}。{liquidity_summary}"
+
+            signal_data = {
+                "theme": f"流动性结构: {', '.join(active_quadrants[:2])}",
+                "summary": summary_text,
+                "symbols": [],
+                "sectors": ["macro", "liquidity"],
+                "confidence": 0.8,
+                "actionability": 0.7,
+                "system_attention": 0.9,
+                "novelty": 0.5,
+                "source": "liquidity_structure",
+                "signal_type": "liquidity_structure",
+                "payload": {
+                    "quadrants": quadrants,
+                    "conclusion": liquidity.get("conclusion", ""),
+                    "timestamp": liquidity.get("timestamp", now_ts),
+                },
+            }
+
+            from ..insight.engine import get_insight_pool
+            pool = get_insight_pool()
+            pool.ingest_attention_event(signal_data)
+        except Exception as e:
+            import logging
+            log = logging.getLogger(__name__)
+            log.warning(f"[LLMReflection] 推送流动性信号失败: {e}")
 
     def _collect_signals(self) -> List[Dict[str, Any]]:
         from ..insight.engine import get_insight_pool
@@ -238,6 +295,7 @@ class LLMReflectionEngine:
             "feedback": [],   # 实验反馈 (experiment_feedback_summary, bandit_learning_analysis)
             "effectiveness": [],  # 有效性分析 (effective_pattern, ineffective_pattern)
             "llm_reflection": [],  # 之前的反思
+            "liquidity_structure": [],  # 流动性结构信号
             "other": []       # 其他
         }
 
@@ -246,12 +304,15 @@ class LLMReflectionEngine:
                           'sector_hotspot', 'symbol_attention_change', 'market_state_shift'}
         feedback_types = {'experiment_feedback_summary', 'bandit_learning_analysis'}
         effectiveness_types = {'effective_pattern', 'ineffective_pattern'}
+        liquidity_types = {'liquidity_structure'}
 
         for sig in signals:
             source = sig.get('source', '')
             signal_type = sig.get('signal_type', '')
 
-            if source in ('market', 'radar', 'radar_news') or signal_type in radar_types:
+            if signal_type in liquidity_types or source == 'liquidity_structure':
+                categories['liquidity_structure'].append(sig)
+            elif source in ('market', 'radar', 'radar_news') or signal_type in radar_types:
                 categories['radar'].append(sig)
             elif source == 'cross_signal' or 'resonance' in signal_type:
                 categories['cross_signal'].append(sig)
@@ -327,10 +388,13 @@ class LLMReflectionEngine:
     ) -> Optional[Dict[str, Any]]:
         cfg = get_llm_config()
 
-        prompt = self._build_reflection_prompt(signals, narratives, themes)
+        recent_reflections = self.get_recent_reflections(limit=1)
+        last_reflection = recent_reflections[0] if recent_reflections else None
+
+        prompt = self._build_reflection_prompt(signals, narratives, themes, last_reflection)
         import logging
         log = logging.getLogger(__name__)
-        log.info(f"[LLMReflection] Prompt长度: {len(prompt)} 字符")
+        log.info(f"[LLMReflection] Prompt长度: {len(prompt)} 字符, 上次反思: {'有' if last_reflection else '无'}")
 
         try:
             from deva.llm import GPT
@@ -381,6 +445,7 @@ class LLMReflectionEngine:
         signals: List[Dict[str, Any]],
         narratives: List[Dict[str, Any]],
         themes: List[str],
+        last_reflection: Optional[Dict[str, Any]] = None,
     ) -> str:
         categorized = self._categorize_signals(signals)
 
@@ -402,7 +467,7 @@ class LLMReflectionEngine:
         cross_text = _format_time_line(categorized['cross_signal'], 4)
         feedback_text = _format_time_line(categorized['feedback'], 3)
         effectiveness_text = _format_time_line(categorized['effectiveness'], 3)
-        previous_reflections_text = _format_time_line(categorized['llm_reflection'], 3)
+        liquidity_signals = _format_time_line(categorized['liquidity_structure'], 3)
         other_text = _format_time_line(categorized['other'], 4)
 
         def _format_narrative(n: Dict[str, Any]) -> str:
@@ -428,11 +493,45 @@ class LLMReflectionEngine:
         latest_ts = max([s.get('ts', s.get('timestamp', 0)) for s in signals] or [0])
         time_range = f"{self._format_ts(earliest_ts)} ~ {self._format_ts(latest_ts)}" if earliest_ts and latest_ts else "时间范围未知"
 
+        last_reflection_section = ""
+        if last_reflection:
+            last_theme = last_reflection.get('theme', '未知')
+            last_summary = last_reflection.get('summary', '无')
+            last_liquidity = last_reflection.get('liquidity_structure', '未知')
+            last_confidence = last_reflection.get('confidence', 0)
+            last_ts = last_reflection.get('ts', 0)
+            last_time_str = self._format_ts(last_ts) if last_ts else "未知时间"
+            last_reflection_section = f"""## 📝 上次反思结论（{last_time_str}）
+**主题**: {last_theme}
+**流动性结构**: {last_liquidity}
+**反思内容**: {last_summary[:300]}...
+**置信度**: {last_confidence:.0%}
+
+请重点思考：
+1. 上述结论与当前新数据是否吻合？
+2. 如果有新变化，是偶然波动还是趋势转折？
+3. 如果没有新变化，当前叙事是否得到强化？
+4. 流动性结构判断是否需要调整？
+"""
+        else:
+            last_reflection_section = "## 📝 上次反思结论\n暂无历史反思，这是首次反思。"
+
         return f"""你是资深金融市场分析师。请基于多源异构数据进行深度市场反思。
 
 ## ⏱️ 数据时间范围
 数据覆盖: {time_range}
 总信号数: {total_signals}
+
+{last_reflection_section}
+
+## 💰 流动性结构分析（美林时钟四象限）
+{liquidity_signals if liquidity_signals and liquidity_signals != "暂无" else "暂无流动性信号"}
+
+请根据流动性信号判断当前流动性结构：
+- 股票市场活跃 → 资金风险偏好高，经济复苏期
+- 债券市场活跃 → 资金避险，经济可能衰退
+- 大宗商品活跃 → 通胀预期，经济过热
+- 现金与货币活跃 + 流动性紧张 → 资金观望，紧张情绪
 
 ## 📊 叙事变化趋势（按时间排序）
 {narratives_text}
@@ -455,30 +554,40 @@ class LLMReflectionEngine:
 ## ✅ 有效性分析（哪些模式有效/无效）
 {effectiveness_text}
 
-## 🤖 历史反思（之前的反思结论）
-{previous_reflections_text}
-
 ## 📋 其他信号
 {other_text}
 
 ## 核心主题
 {themes_text}
 
+## 反思要求
+
+**迭代分析思路**：
+1. 先回顾上次反思的结论，判断当前新数据是否验证/否定/补充了旧结论
+2. 如果上次结论被验证 → 分析强化因素，关注是否有新变化
+3. 如果上次结论被否定 → 找出转折点，理解变化原因
+4. 如果上次结论被补充 → 识别新维度，理解叙事演进
+
 请生成深度市场反思，要求：
-1. 重点分析叙事变化趋势，判断哪些叙事正在升温/消退
-2. 结合时间线，分析事件发生的先后顺序和因果关系
-3. 结合雷达异常和注意力事件，验证叙事变化的真实性
-4. 评估共振信号与叙事趋势的匹配度
-5. 结合实验反馈和有效性分析，判断当前策略的有效性
-6. 给出形势判断（2-3句话）和可执行建议
+1. **迭代性**：明确说明当前数据如何验证/否定/补充了上次的结论
+2. 重点分析叙事变化趋势，判断哪些叙事正在升温/消退
+3. 重点分析流动性结构（美林时钟四象限），判断资金流向
+4. 结合时间线，分析事件发生的先后顺序和因果关系
+5. 结合雷达异常和注意力事件，验证叙事变化的真实性
+6. 评估共振信号与叙事趋势的匹配度
+7. 结合实验反馈和有效性分析，判断当前策略的有效性
+8. 给出形势判断（2-3句话，包含流动性结构结论）和可执行建议
 
 仅返回 JSON 格式：
 {{
-    "theme": "反思主题（一句话，精炼）",
-    "summary": "深度反思内容（150-300字，包含叙事趋势判断、形势分析和可执行建议）",
+    "theme": "反思主题（一句话，精炼，包含流动性结构判断）",
+    "summary": "深度反思内容（150-300字，包含流动性结构分析、叙事趋势判断、与上次结论的迭代关系、形势分析和可执行建议）",
     "confidence": 0.0-1.0（判断置信度，基于信号数量和质量），
     "actionability": 0.0-1.0（可执行性，结论是否可直接指导行动），
-    "novelty": 0.0-1.0（新颖程度，相比历史反思是否有新发现）
+    "novelty": 0.0-1.0（新颖程度，相比历史反思是否有新发现），
+    "liquidity_structure": "当前流动性结构判断（如：股市>债券>商品，资金风险偏好回升）",
+    "iteration": "与上次结论的关系（验证/否定/补充/无新数据）",
+    "上次结论回顾": "简要回顾上次反思的核心结论，用于对比"
 }}
 
 只返回 JSON，不要其他内容。"""
@@ -517,6 +626,9 @@ class LLMReflectionEngine:
                 "confidence": float(data.get("confidence", 0.5)),
                 "actionability": float(data.get("actionability", 0.5)),
                 "novelty": float(data.get("novelty", 0.5)),
+                "liquidity_structure": str(data.get("liquidity_structure", "")),
+                "iteration": str(data.get("iteration", "")),
+                "上次结论回顾": str(data.get("上次结论回顾", "")),
             }
         except json.JSONDecodeError as e:
             print(f"[LLMReflection] JSON 解析失败: {e}, response: {response[:200]}")
@@ -542,6 +654,7 @@ class LLMReflectionEngine:
                 "actionability": reflection.actionability,
                 "system_attention": reflection.novelty,
                 "novelty": reflection.novelty,
+                "liquidity_structure": reflection.liquidity_structure,
                 "source": f"llm_reflection:{reflection.id}",
                 "signal_type": "llm_reflection",
                 "payload": reflection.to_dict(),
