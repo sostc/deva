@@ -25,6 +25,7 @@ from .performance_monitor import (
     start_performance_monitoring,
     stop_performance_monitoring,
     record_component_execution,
+    record_data_arrival,
     record_web_request,
     record_lock_wait,
 )
@@ -53,6 +54,7 @@ __all__ = [
     "start_performance_monitoring",
     "stop_performance_monitoring",
     "record_component_execution",
+    "record_data_arrival",
     "record_web_request",
     "record_lock_wait",
     "StorageMonitor",

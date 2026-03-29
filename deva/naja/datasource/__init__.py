@@ -39,6 +39,74 @@ DS_LATEST_DATA_TABLE = "naja_ds_latest_data"
 _scheduler_manager = SchedulerManager()
 
 
+class DataSourceDebouncer:
+    """数据源防抖器
+
+    用于减少数据到达时的抖动，合并短时间内的多次数据推送。
+    工作原理：收到数据后等待 debounce_ms，如果在这期间有新的数据到来，
+    则用新数据替代旧数据（只保留最新），等 debounce_ms 期间没有新数据后才处理。
+    """
+
+    def __init__(self, debounce_ms: int = 500):
+        self._debounce_ms = debounce_ms / 1000.0
+        self._pending_data = None
+        self._pending_is_batch = False
+        self._timer: Optional[threading.Timer] = None
+        self._lock = threading.Lock()
+        self._emit_callback: Optional[Callable] = None
+        self._total_emitted = 0
+        self._total_received = 0
+
+    def set_emit_callback(self, callback: Callable):
+        """设置实际发送数据的回调函数"""
+        self._emit_callback = callback
+
+    def receive(self, data: Any, is_batch: bool = False):
+        """接收数据，触发防抖逻辑"""
+        with self._lock:
+            self._total_received += 1
+            self._pending_data = data
+            self._pending_is_batch = is_batch
+
+            if self._timer:
+                self._timer.cancel()
+
+            self._timer = threading.Timer(self._debounce_ms, self._flush)
+            self._timer.start()
+
+    def _flush(self):
+        """实际发送数据（防抖合并后）"""
+        with self._lock:
+            if self._pending_data is None:
+                return
+
+            data = self._pending_data
+            is_batch = self._pending_is_batch
+            self._pending_data = None
+            self._pending_is_batch = False
+
+        if self._emit_callback:
+            self._emit_callback(data, is_batch)
+            self._total_emitted += 1
+
+    def get_stats(self) -> dict:
+        """获取防抖统计"""
+        with self._lock:
+            return {
+                "total_received": self._total_received,
+                "total_emitted": self._total_emitted,
+                "debounce_ratio": round(self._total_emitted / max(self._total_received, 1), 3),
+                "debounce_ms": int(self._debounce_ms * 1000),
+                "pending": self._pending_data is not None,
+            }
+
+    def reset_stats(self):
+        """重置统计"""
+        with self._lock:
+            self._total_emitted = 0
+            self._total_received = 0
+
+
 @dataclass
 class DataSourceMetadata(UnitMetadata):
     """数据源元数据"""
@@ -95,6 +163,8 @@ class DataSourceEntry(RecoverableUnit):
         self,
         metadata: DataSourceMetadata = None,
         state: DataSourceState = None,
+        enable_debounce: bool = True,
+        debounce_ms: int = 500,
     ):
         super().__init__(
             metadata=metadata or DataSourceMetadata(),
@@ -107,6 +177,13 @@ class DataSourceEntry(RecoverableUnit):
         self._timer_handle = None
         self._scheduler_job_name: Optional[str] = None
         self._event_sink = None
+
+        self._enable_debounce = enable_debounce
+        self._debounce_ms = debounce_ms
+        self._debouncer: Optional[DataSourceDebouncer] = None
+        if self._enable_debounce:
+            self._debouncer = DataSourceDebouncer(debounce_ms=debounce_ms)
+            self._debouncer.set_emit_callback(self._do_emit_data)
 
     def _get_func_name(self) -> str:
         return "fetch_data"
@@ -846,12 +923,20 @@ class DataSourceEntry(RecoverableUnit):
             self._event_loop.close()
 
     def _emit_data(self, data: Any, is_batch: bool = False):
-        """发送数据到流
-        
+        """发送数据到流（通过防抖器）
+
         Args:
             data: 要发送的数据
             is_batch: 是否是批量数据（列表）
         """
+        if self._debouncer:
+            self._debouncer.receive(data, is_batch)
+            return
+
+        self._do_emit_data(data, is_batch)
+
+    def _do_emit_data(self, data: Any, is_batch: bool = False):
+        """实际发送数据到流（防抖回调）"""
         try:
             if self._stream is None:
                 self._stream = NS(
@@ -861,24 +946,29 @@ class DataSourceEntry(RecoverableUnit):
                     description=f"DataSource {self.name} output",
                 )
 
-            # 发送数据到注意力调度中心（如果是 DataFrame 格式）
             try:
                 import pandas as pd
                 if isinstance(data, pd.DataFrame):
                     from ..attention.center import get_orchestrator
                     orchestrator = get_orchestrator()
                     orchestrator.process_datasource_data(self.name, data)
-            except Exception as e:
-                # 注意力系统处理失败不影响正常数据流
+            except Exception:
                 pass
 
-            # 发送数据
+            try:
+                from ..performance import record_data_arrival
+                expected_interval_ms = (getattr(self._metadata, 'interval', 5.0) or 5.0) * 1000
+                record_data_arrival(
+                    datasource_id=self.id,
+                    expected_interval_ms=expected_interval_ms,
+                )
+            except Exception:
+                pass
+
             if hasattr(self._stream, "emit"):
                 if is_batch and isinstance(data, list):
-                    # 批量发送：直接发送整个列表
                     self._stream.emit(data)
                 else:
-                    # 单条发送
                     self._stream.emit(data)
 
         except Exception as e:

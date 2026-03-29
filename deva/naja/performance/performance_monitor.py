@@ -29,6 +29,7 @@ class ComponentType(Enum):
     WEB_REQUEST = "web_request"  # Web 请求
     LOCK_WAIT = "lock_wait"     # 锁等待
     THREAD_POOL = "thread_pool"  # 线程池
+    DATASOURCE_ARRIVAL = "datasource_arrival"  # 数据源到达监控
 
 
 class SeverityLevel(Enum):
@@ -58,6 +59,57 @@ class PerformanceMetrics:
     
     # 性能指标
     slow_execution_count: int = 0
+    
+    # 抖动检测相关 (调用间隔监控)
+    call_intervals_ms: deque = field(default_factory=lambda: deque(maxlen=100))
+    expected_interval_ms: float = 0.0  # 期望的调用间隔
+    
+    @property
+    def avg_call_interval_ms(self) -> float:
+        """平均调用间隔"""
+        if len(self.call_intervals_ms) < 2:
+            return 0.0
+        return sum(self.call_intervals_ms) / len(self.call_intervals_ms)
+    
+    @property
+    def std_call_interval_ms(self) -> float:
+        """调用间隔标准差"""
+        if len(self.call_intervals_ms) < 2:
+            return 0.0
+        avg = self.avg_call_interval_ms
+        variance = sum((i - avg) ** 2 for i in self.call_intervals_ms) / len(self.call_intervals_ms)
+        return variance ** 0.5
+    
+    @property
+    def jitter_ratio(self) -> float:
+        """抖动率 = 标准差 / 平均值 (0.1 = 10%抖动)"""
+        avg = self.avg_call_interval_ms
+        if avg <= 0:
+            return 0.0
+        return self.std_call_interval_ms / avg
+    
+    @property
+    def jitter_status(self) -> str:
+        """抖动状态"""
+        ratio = self.jitter_ratio
+        if ratio < 0.15:
+            return "stable"
+        elif ratio < 0.30:
+            return "minor_jitter"
+        elif ratio < 0.50:
+            return "moderate_jitter"
+        else:
+            return "severe_jitter"
+    
+    @property
+    def calls_per_minute(self) -> float:
+        """每分钟调用次数"""
+        if not self.call_intervals_ms or len(self.call_intervals_ms) < 2:
+            return 0.0
+        total_ms = sum(self.call_intervals_ms)
+        if total_ms <= 0:
+            return 0.0
+        return 60000.0 / total_ms * len(self.call_intervals_ms)
     
     @property
     def avg_execution_time(self) -> float:
@@ -125,6 +177,14 @@ class PerformanceMetrics:
             "last_error": self.last_error,
             "last_error_time": datetime.fromtimestamp(self.last_error_time).isoformat() if self.last_error_time else None,
             "last_call_time": datetime.fromtimestamp(self.last_call_time).isoformat() if self.last_call_time else None,
+            "jitter_stats": {
+                "expected_interval_ms": self.expected_interval_ms,
+                "avg_interval_ms": round(self.avg_call_interval_ms, 1),
+                "std_interval_ms": round(self.std_call_interval_ms, 1),
+                "jitter_ratio": round(self.jitter_ratio, 3),
+                "jitter_status": self.jitter_status,
+                "calls_per_minute": round(self.calls_per_minute, 1),
+            } if self.expected_interval_ms > 0 else None,
         }
 
 
@@ -271,8 +331,13 @@ class NajaPerformanceMonitor:
         execution_time_ms: float,
         success: bool = True,
         error: str = "",
+        expected_interval_ms: float = 0.0,
     ):
-        """记录组件执行性能"""
+        """记录组件执行性能
+        
+        Args:
+            expected_interval_ms: 期望的调用间隔，用于抖动检测。如设为5000表示期望每5秒调用一次。
+        """
         key = (component_type, component_id)
         
         with self._metrics_lock:
@@ -286,6 +351,13 @@ class NajaPerformanceMonitor:
             metrics = self._metrics[key]
             metrics.execution_times.append(execution_time_ms)
             metrics.call_count += 1
+            
+            if expected_interval_ms > 0 and metrics.last_call_time is not None:
+                interval_ms = (time.time() - metrics.last_call_time) * 1000
+                if interval_ms > 0:
+                    metrics.call_intervals_ms.append(interval_ms)
+                metrics.expected_interval_ms = expected_interval_ms
+            
             metrics.last_call_time = time.time()
             
             if execution_time_ms > self._thresholds["warning"]:
@@ -295,6 +367,39 @@ class NajaPerformanceMonitor:
                 metrics.error_count += 1
                 metrics.last_error = error
                 metrics.last_error_time = time.time()
+    
+    def record_data_arrival(
+        self,
+        datasource_id: str,
+        expected_interval_ms: float = 5000.0,
+    ):
+        """记录数据源数据到达，用于检测数据到达抖动
+        
+        Args:
+            datasource_id: 数据源ID
+            expected_interval_ms: 期望的数据到达间隔，默认5秒
+        """
+        component_type = ComponentType.DATASOURCE_ARRIVAL
+        key = (component_type, datasource_id)
+        
+        with self._metrics_lock:
+            if key not in self._metrics:
+                self._metrics[key] = PerformanceMetrics(
+                    component_id=datasource_id,
+                    component_name=f"数据源到达监控({datasource_id})",
+                    component_type=component_type,
+                )
+            
+            metrics = self._metrics[key]
+            
+            if metrics.last_call_time is not None:
+                interval_ms = (time.time() - metrics.last_call_time) * 1000
+                if interval_ms > 0:
+                    metrics.call_intervals_ms.append(interval_ms)
+            
+            metrics.call_count += 1
+            metrics.last_call_time = time.time()
+            metrics.expected_interval_ms = expected_interval_ms
     
     def generate_performance_reports(self) -> List[PerformanceReport]:
         """生成所有组件的性能报告"""
@@ -322,6 +427,10 @@ class NajaPerformanceMonitor:
                         details=metrics.to_dict(),
                     ))
         
+        # 抖动检测报告
+        jitter_reports = self._generate_jitter_reports()
+        reports.extend(jitter_reports)
+        
         # 按严重程度排序
         severity_order = {
             SeverityLevel.SEVERE: 0,
@@ -330,6 +439,55 @@ class NajaPerformanceMonitor:
             SeverityLevel.NORMAL: 3,
         }
         reports.sort(key=lambda r: severity_order.get(r.severity, 4))
+        
+        return reports
+    
+    def _generate_jitter_reports(self) -> List[PerformanceReport]:
+        """生成抖动相关的报告"""
+        reports = []
+        
+        with self._metrics_lock:
+            for metrics in self._metrics.values():
+                # 需要有抖动检测配置且有足够的间隔数据
+                if metrics.expected_interval_ms <= 0:
+                    continue
+                if len(metrics.call_intervals_ms) < 5:
+                    continue
+                
+                jitter_status = metrics.jitter_status
+                if jitter_status in ("moderate_jitter", "severe_jitter"):
+                    severity = (SeverityLevel.CRITICAL 
+                               if jitter_status == "severe_jitter" 
+                               else SeverityLevel.WARNING)
+                    
+                    deviation = abs(metrics.avg_call_interval_ms - metrics.expected_interval_ms)
+                    deviation_pct = (deviation / metrics.expected_interval_ms * 100) if metrics.expected_interval_ms > 0 else 0
+                    
+                    recommendation = (
+                        f"调用间隔抖动严重(jitter_ratio={metrics.jitter_ratio:.2f})，"
+                        f"实际间隔波动 {metrics.std_call_interval_ms:.0f}ms，"
+                        f"建议检查数据推送频率或添加防抖控制"
+                    )
+                    
+                    reports.append(PerformanceReport(
+                        component_id=f"{metrics.component_id}_jitter",
+                        component_name=f"{metrics.component_name}[抖动检测]",
+                        component_type=metrics.component_type,
+                        severity=severity,
+                        avg_time_ms=metrics.avg_call_interval_ms,
+                        max_time_ms=max(metrics.call_intervals_ms) if metrics.call_intervals_ms else 0,
+                        recommendation=recommendation,
+                        details={
+                            "expected_interval_ms": metrics.expected_interval_ms,
+                            "avg_interval_ms": round(metrics.avg_call_interval_ms, 1),
+                            "std_interval_ms": round(metrics.std_call_interval_ms, 1),
+                            "jitter_ratio": round(metrics.jitter_ratio, 3),
+                            "jitter_status": jitter_status,
+                            "deviation_ms": round(deviation, 1),
+                            "deviation_percentage": round(deviation_pct, 1),
+                            "calls_per_minute": round(metrics.calls_per_minute, 1),
+                        },
+                    ))
         
         return reports
     
@@ -480,8 +638,13 @@ def record_component_execution(
     execution_time_ms: float,
     success: bool = True,
     error: str = "",
+    expected_interval_ms: float = 0.0,
 ):
-    """记录组件执行 (便捷函数)"""
+    """记录组件执行 (便捷函数)
+    
+    Args:
+        expected_interval_ms: 期望的调用间隔，用于抖动检测。如设为5000表示期望每5秒调用一次。
+    """
     monitor = get_performance_monitor()
     
     if isinstance(component_type, str):
@@ -494,7 +657,22 @@ def record_component_execution(
         execution_time_ms=execution_time_ms,
         success=success,
         error=error,
+        expected_interval_ms=expected_interval_ms,
     )
+
+
+def record_data_arrival(
+    datasource_id: str,
+    expected_interval_ms: float = 5000.0,
+):
+    """记录数据源数据到达，用于检测数据到达抖动
+    
+    Args:
+        datasource_id: 数据源ID
+        expected_interval_ms: 期望的数据到达间隔，默认5秒
+    """
+    monitor = get_performance_monitor()
+    monitor.record_data_arrival(datasource_id, expected_interval_ms)
 
 
 def record_web_request(
