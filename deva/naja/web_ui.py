@@ -771,6 +771,14 @@ async def banditadmin():
     await render_bandit_admin(ctx)
 
 
+async def bandit_attribution():
+    """Bandit 盈亏归因分析"""
+    from .bandit.attribution_ui import render_attribution_page
+    ctx = _ctx()
+    await ctx["init_naja_ui"]("盈亏归因分析")
+    await render_attribution_page(ctx)
+
+
 async def attentionadmin():
     """注意力调度系统"""
     from pywebio.session import eval_js
@@ -926,6 +934,7 @@ def create_handlers(cdn: str = None):
         (r'/radaradmin', webio_handler(radaradmin, cdn=cdn_url)),
         (r'/llmadmin', webio_handler(llmadmin, cdn=cdn_url)),
         (r'/banditadmin', webio_handler(banditadmin, cdn=cdn_url)),
+        (r'/bandit_attribution', webio_handler(bandit_attribution, cdn=cdn_url)),
         (r'/attentionadmin', webio_handler(attentionadmin, cdn=cdn_url)),
         (r'/qkv', webio_handler(qkv_page, cdn=cdn_url)),
         (r'/dictadmin', webio_handler(dictadmin, cdn=cdn_url)),

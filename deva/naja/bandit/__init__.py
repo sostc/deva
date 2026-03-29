@@ -44,6 +44,15 @@ from .adaptive_cycle import (
     AdaptiveCycle,
     get_adaptive_cycle,
 )
+from .attribution import (
+    StrategyAttribution,
+    TradeAttribution,
+    StrategyContribution,
+    SignalQualityAnalysis,
+    MarketConditionAttribution,
+    get_attribution,
+    record_trade_attribution,
+)
 
 
 def restore_bandit_state():
@@ -111,4 +120,11 @@ __all__ = [
     "AdaptiveCycle",
     "get_adaptive_cycle",
     "restore_bandit_state",
+    "StrategyAttribution",
+    "TradeAttribution",
+    "StrategyContribution",
+    "SignalQualityAnalysis",
+    "MarketConditionAttribution",
+    "get_attribution",
+    "record_trade_attribution",
 ]
