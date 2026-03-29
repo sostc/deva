@@ -818,7 +818,9 @@ class CognitionUI:
                     sector_tags = ''.join([f'<span style="display: inline-block; padding: 1px 4px; background: rgba(249,115,22,0.15); color: #fb923c; border-radius: 3px; font-size: 9px; margin-right: 2px;">{sec}</span>' for sec in linked_sectors]) if linked_sectors else ''
 
                     summary = f'<span style="color: {stage_color}; font-weight: 600;">叙事{narrative}进入</span><span style="padding: 1px 6px; background: {stage_color}; color: #0f172a; border-radius: 4px; font-size: 10px; font-weight: 600; margin: 0 4px;">{stage}</span>{trend_icon} 注意力{int(attention_score*100)}% {kw_tags} {sector_tags}'
+                    summary = summary.replace('{', '{{').replace('}', '}}')
                     score_color = stage_color
+                    is_html = True
                 elif signal_type.startswith('narrative_'):
                     narrative = payload.get('narrative')
                     if not narrative:
@@ -827,10 +829,14 @@ class CognitionUI:
                     keywords = payload.get('keywords', [])[:2]
                     kw_tags = ''.join([f'<span style="display: inline-block; padding: 1px 4px; background: rgba(255,255,255,0.08); color: #94a3b8; border-radius: 3px; font-size: 9px; margin-right: 2px;">{kw}</span>' for kw in keywords]) if keywords else ''
                     summary = f'🌊 {narrative} 注意力{int(attention_score*100)}% {kw_tags}'
+                    summary = summary.replace('{', '{{').replace('}', '}}')
                     score_color = '#60a5fa'
+                    is_html = True
                 elif isinstance(summary_raw, dict):
                     from .insight.engine import Insight
                     summary = Insight._format_dict_for_display(summary_raw, 60)
+                    summary = summary.replace('{', '{{').replace('}', '}}').replace('<', '&lt;').replace('>', '&gt;')
+                    is_html = False
                 elif isinstance(summary_raw, str) and summary_raw.startswith('{') and summary_raw.endswith('}'):
                     try:
                         import ast
@@ -838,13 +844,19 @@ class CognitionUI:
                         if isinstance(parsed, dict):
                             from .insight.engine import Insight
                             summary = Insight._format_dict_for_display(parsed, 60)
+                            summary = summary.replace('{', '{{').replace('}', '}}').replace('<', '&lt;').replace('>', '&gt;')
                         else:
                             summary = summary_raw[:60]
+                            summary = summary.replace('<', '&lt;').replace('>', '&gt;')
+                        is_html = False
                     except Exception:
                         summary = summary_raw[:60]
+                        summary = summary.replace('<', '&lt;').replace('>', '&gt;')
+                        is_html = False
                 else:
                     summary = summary_raw[:60] if summary_raw else '-'
-                summary = summary.replace('{', '{{').replace('}', '}}').replace('<', '&lt;').replace('>', '&gt;')
+                    summary = summary.replace('<', '&lt;').replace('>', '&gt;')
+                    is_html = False
                 score = float(item.get('user_score', 0))
                 ts = format_timestamp(float(item.get('ts', 0)))
 
@@ -1892,7 +1904,7 @@ class CognitionUI:
         put_html('</div>')
 
     def _render_cross_signal_section(self):
-        """渲染跨信号分析器 - 共振检测三层架构展示"""
+        """渲染跨信号分析器 - 三种共振检测展示"""
         try:
             from .cross_signal_analyzer import get_cross_signal_analyzer, ResonanceType, SignalSource
             analyzer = get_cross_signal_analyzer()
@@ -1904,11 +1916,15 @@ class CognitionUI:
         stats = analyzer.get_stats()
         recent_resonances = analyzer.get_recent_resonances(n=8)
         high_resonance_sectors = analyzer.get_high_resonance_sectors(threshold=0.7, n=5)
+        market_resonance_summary = analyzer.get_market_resonance_summary()
 
         news_buffer_size = stats.get('news_buffer_size', 0)
         attention_buffer_size = stats.get('attention_buffer_size', 0)
+        market_buffer_size = stats.get('market_buffer_size', 0)
         resonance_history_size = stats.get('resonance_history_size', 0)
+        market_resonance_history_size = stats.get('market_resonance_history_size', 0)
         recent_resonance_count = stats.get('recent_resonance_count', 0)
+        recent_market_resonance_count = stats.get('recent_market_resonance_count', 0)
         llm_cooldown_remaining = stats.get('llm_cooldown_remaining', 0)
 
         should_trigger_llm = analyzer.should_trigger_llm()
@@ -1919,6 +1935,12 @@ class CognitionUI:
             "intensity": "#f97316",
             "narrative": "#a855f7",
             "correlation": "#14b8a6",
+        }
+
+        market_resonance_type_colors = {
+            "intensity": "#f97316",
+            "macro": "#a855f7",
+            "cross_market": "#14b8a6",
         }
 
         put_html("""
@@ -1938,27 +1960,38 @@ class CognitionUI:
                 </div>
             </div>
             <div style="font-size: 11px; color: #475569; margin-bottom: 14px;">
-                新闻/雷达信号 × 注意力信号 → 三层共振分析
+                新闻 × 注意力 / 新闻 × 宏观叙事 / 市场 × 市场 → 三层共振
             </div>
         """.format(llm_ready=llm_ready))
 
         put_html(f"""
-        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 10px; margin-bottom: 14px;">
-            <div style="background: rgba(249,115,22,0.12); border: 1px solid rgba(249,115,22,0.25); padding: 10px 14px; border-radius: 8px; text-align: center;">
-                <div style="font-size: 10px; color: #64748b; margin-bottom: 2px;">📰 新闻缓冲</div>
-                <div style="font-size: 18px; font-weight: 700; color: #fb923c;">{news_buffer_size}</div>
+        <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 14px;">
+            <div style="background: rgba(249,115,22,0.1); border: 1px solid rgba(249,115,22,0.2); padding: 8px 12px; border-radius: 8px; text-align: center;">
+                <div style="font-size: 11px; color: #fb923c; font-weight: 600;">📰 新闻缓冲</div>
+                <div style="font-size: 9px; color: #94a3b8;">{news_buffer_size} 条</div>
             </div>
-            <div style="background: rgba(168,85,247,0.12); border: 1px solid rgba(168,85,247,0.25); padding: 10px 14px; border-radius: 8px; text-align: center;">
-                <div style="font-size: 10px; color: #64748b; margin-bottom: 2px;">👁️ 注意力缓冲</div>
-                <div style="font-size: 18px; font-weight: 700; color: #a855f7;">{attention_buffer_size}</div>
+            <div style="background: rgba(168,85,247,0.1); border: 1px solid rgba(168,85,247,0.2); padding: 8px 12px; border-radius: 8px; text-align: center;">
+                <div style="font-size: 11px; color: #a855f7; font-weight: 600;">👁️ 注意力缓冲</div>
+                <div style="font-size: 9px; color: #94a3b8;">{attention_buffer_size} 条</div>
             </div>
+            <div style="background: rgba(20,184,166,0.1); border: 1px solid rgba(20,184,166,0.2); padding: 8px 12px; border-radius: 8px; text-align: center;">
+                <div style="font-size: 11px; color: #14b8a6; font-weight: 600;">📊 市场缓冲</div>
+                <div style="font-size: 9px; color: #94a3b8;">{market_buffer_size} 条</div>
+            </div>
+        </div>
+        """)
+
+        put_html(f"""
+        <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; margin-bottom: 14px;">
             <div style="background: rgba(96,165,250,0.12); border: 1px solid rgba(96,165,250,0.25); padding: 10px 14px; border-radius: 8px; text-align: center;">
-                <div style="font-size: 10px; color: #64748b; margin-bottom: 2px;">⚡ 共振历史</div>
+                <div style="font-size: 10px; color: #64748b; margin-bottom: 2px;">⚡ 板块共振历史</div>
                 <div style="font-size: 18px; font-weight: 700; color: #60a5fa;">{resonance_history_size}</div>
+                <div style="font-size: 9px; color: #94a3b8;">近1分钟: {recent_resonance_count}</div>
             </div>
-            <div style="background: rgba(20,184,166,0.12); border: 1px solid rgba(20,184,166,0.25); padding: 10px 14px; border-radius: 8px; text-align: center;">
-                <div style="font-size: 10px; color: #64748b; margin-bottom: 2px;">🔥 近1分钟</div>
-                <div style="font-size: 18px; font-weight: 700; color: #14b8a6;">{recent_resonance_count}</div>
+            <div style="background: rgba(249,115,22,0.12); border: 1px solid rgba(249,115,22,0.25); padding: 10px 14px; border-radius: 8px; text-align: center;">
+                <div style="font-size: 10px; color: #64748b; margin-bottom: 2px;">🌐 市场共振历史</div>
+                <div style="font-size: 18px; font-weight: 700; color: #fb923c;">{market_resonance_history_size}</div>
+                <div style="font-size: 9px; color: #94a3b8;">近1分钟: {recent_market_resonance_count}</div>
             </div>
         </div>
         """)
@@ -1966,19 +1999,19 @@ class CognitionUI:
         put_html("""
         <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 14px;">
             <div style="background: rgba(96,165,250,0.1); border: 1px solid rgba(96,165,250,0.2); padding: 8px 12px; border-radius: 8px; text-align: center;">
-                <div style="font-size: 11px; color: #60a5fa; font-weight: 600;">Layer 1</div>
-                <div style="font-size: 10px; color: #94a3b8;">规则引擎</div>
-                <div style="font-size: 9px; color: #64748b; margin-top: 2px;">实时 | 零成本</div>
+                <div style="font-size: 11px; color: #60a5fa; font-weight: 600;">板块共振</div>
+                <div style="font-size: 10px; color: #94a3b8;">新闻 × 注意力</div>
+                <div style="font-size: 9px; color: #64748b; margin-top: 2px;">AI/芯片/新能源</div>
             </div>
             <div style="background: rgba(168,85,247,0.1); border: 1px solid rgba(168,85,247,0.2); padding: 8px 12px; border-radius: 8px; text-align: center;">
-                <div style="font-size: 11px; color: #a855f7; font-weight: 600;">Layer 2</div>
-                <div style="font-size: 10px; color: #94a3b8;">统计分析</div>
-                <div style="font-size: 9px; color: #64748b; margin-top: 2px;">快速 | 低成本</div>
+                <div style="font-size: 11px; color: #a855f7; font-weight: 600;">宏观共振</div>
+                <div style="font-size: 10px; color: #94a3b8;">新闻 × 宏观叙事</div>
+                <div style="font-size: 9px; color: #64748b; margin-top: 2px;">流动性/全球宏观</div>
             </div>
-            <div style="background: rgba(249,115,22,0.1); border: 1px solid rgba(249,115,22,0.2); padding: 8px 12px; border-radius: 8px; text-align: center;">
-                <div style="font-size: 11px; color: #fb923c; font-weight: 600;">Layer 3</div>
-                <div style="font-size: 10px; color: #94a3b8;">LLM分析</div>
-                <div style="font-size: 9px; color: #64748b; margin-top: 2px;">深度 | 高成本</div>
+            <div style="background: rgba(20,184,166,0.1); border: 1px solid rgba(20,184,166,0.2); padding: 8px 12px; border-radius: 8px; text-align: center;">
+                <div style="font-size: 11px; color: #14b8a6; font-weight: 600;">市场共振</div>
+                <div style="font-size: 10px; color: #94a3b8;">市场 × 市场</div>
+                <div style="font-size: 9px; color: #64748b; margin-top: 2px;">纳斯达克×标普</div>
             </div>
         </div>
         """)
@@ -2045,6 +2078,38 @@ class CognitionUI:
                     📋 最近共振信号
                 </div>
                 {resonance_items}
+            </div>
+            """)
+
+        resonance_list = market_resonance_summary.get('共振列表', [])
+        if resonance_list:
+            market_resonance_items = ""
+            for res in resonance_list[:6]:
+                res_type_color = market_resonance_type_colors.get('intensity', '#f97316')
+                change_str = f"{res['market_change']:+.1f}%" if isinstance(res['market_change'], (int, float)) else res.get('market_change', 'N/A')
+                market_resonance_items += f"""
+                <div style="display: flex; align-items: center; gap: 8px; padding: 6px 8px; background: rgba(255,255,255,0.02); border-radius: 6px; margin-bottom: 4px; border-left: 2px solid {res_type_color};">
+                    <div style="flex: 1; min-width: 0;">
+                        <div style="font-size: 11px; font-weight: 600; color: #cbd5e1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{res['market_name'] or res['market_index']}</div>
+                        <div style="font-size: 9px; color: #64748b;">{res['narrative']} {change_str}</div>
+                    </div>
+                    <div style="text-align: right; flex-shrink: 0;">
+                        <div style="font-size: 11px; font-weight: 600; color: {res_type_color};">{res['resonance_score']:.2f}</div>
+                        <div style="font-size: 9px; color: #475569;">{res.get('stage', 'N/A')}</div>
+                    </div>
+                </div>
+                """
+
+            put_html(f"""
+            <div style="
+                background: rgba(255,255,255,0.02);
+                border-radius: 8px;
+                padding: 12px;
+            ">
+                <div style="font-size: 11px; font-weight: 600; color: #f97316; margin-bottom: 8px;">
+                    🌐 市场共振信号
+                </div>
+                {market_resonance_items}
             </div>
             """)
 
