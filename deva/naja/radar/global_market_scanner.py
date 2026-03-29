@@ -7,6 +7,7 @@ GlobalMarketScanner - 全球市场感知器 (增强版)
 3. 检测异常波动并产生告警事件
 4. 发现市场异动时主动发送给认知系统
 5. 追踪市场状态变化
+6. 多市场流动性预测与验证（新增）
 
 扫描策略:
 - 24小时市场（期货）: 持续监控，标准间隔
@@ -18,17 +19,26 @@ GlobalMarketScanner - 全球市场感知器 (增强版)
 - 股指期货: 纳指(NQ)、标普500(ES)、道琼斯(YM)
 - 商品期货: 黄金(GC)、白银(SI)、原油(CL)、天然气(NG)
 - 美股个股: NVDA、AAPL、TSLA、MSFT、GOOG 等
+
+多市场流动性预测:
+- 基于全球市场信号，预测对各目标市场的流动性影响
+- 支持 A股、港股、美股等多个市场的预测
+- 验证预测是否正确，动态调整/解除限制
 """
 
 import asyncio
 import hashlib
 import logging
 import os
+import threading
 import time
 from collections import deque
 from dataclasses import dataclass, field
 from datetime import datetime
+from enum import Enum
 from typing import Any, Deque, Dict, List, Optional
+
+import numpy as np
 
 from deva.naja.attention.data.global_market_futures import (
     GlobalMarketAPI,
@@ -60,6 +70,72 @@ def _global_market_log(msg: str):
     """全球市场扫描日志"""
     if os.environ.get("NAJA_RADAR_DEBUG") == "true":
         log.info(f"[Radar-GlobalMarket] {msg}")
+
+
+class LiquiditySignalType(Enum):
+    """
+    流动性信号类型枚举
+
+    用于标识不同市场的流动性预测目标
+    注意：这里定义的是 Attention 系统内部使用的市场标识
+    与 MarketType（交易时间配置）不同
+    """
+    CHINA_A = "china_a"       # A股
+    HONG_KONG = "hk"          # 港股
+    US = "us"                 # 美股
+    FUTURES = "futures"       # 期货
+    CRYPTO = "crypto"         # 加密货币
+
+
+@dataclass
+class LiquidityPrediction:
+    """
+    流动性预测
+
+    表示基于某些信号，对某个目标市场的流动性预测
+
+    属性:
+        target_market: 预测目标市场
+        source_signals: 信号来源描述
+        signal: 预测值 0-1 (< 0.4 紧张, > 0.6 宽松)
+        confidence: 置信度 0-1
+        timestamp: 预测时间
+        valid_until: 预测有效期（秒）
+        adjustment: 调整指令
+    """
+    target_market: LiquiditySignalType
+    source_signals: List[str]
+    signal: float
+    confidence: float
+    timestamp: float
+    valid_until: float
+    is_priced: bool = False
+    priced_reason: str = ""
+    priced_at_open: bool = False
+    adjustment: Dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class LiquidityVerification:
+    """
+    流动性验证
+
+    用于验证预测是否正确
+
+    属性:
+        target_market: 目标市场
+        actual_signals: 实际信号列表
+        expected_signal: 预期信号
+        verification_count: 验证次数
+        verified: 是否已验证
+        should_relax: 是否应该解除限制
+    """
+    target_market: LiquiditySignalType
+    actual_signals: List[float] = field(default_factory=list)
+    expected_signal: float = 0.5
+    verification_count: int = 0
+    verified: bool = False
+    should_relax: bool = False
 
 
 @dataclass
@@ -390,11 +466,11 @@ class GlobalMarketScanner:
             change_pct = md.change_pct
             abs_change = abs(change_pct)
 
-            if abs_change < self.alert_threshold_single:
+            if abs_change < self.config.alert_threshold_single:
                 continue
 
             is_abnormal = self._volatility_tracker.is_abnormal(
-                md.market_id, change_pct, self.alert_threshold_volatility
+                md.market_id, change_pct, self.config.alert_threshold_volatility
             )
 
             severity = min(1.0, abs_change / 5.0)
@@ -470,8 +546,20 @@ class GlobalMarketScanner:
         """获取最近告警"""
         return list(self._alert_history)[-limit:]
 
-    def get_stats(self) -> Dict[str, Any]:
-        """获取统计信息"""
+    def get_stats(self, wait_for_running: bool = False, timeout: float = 5.0) -> Dict[str, Any]:
+        """获取统计信息
+
+        Args:
+            wait_for_running: 是否等待扫描器真正启动
+            timeout: 等待超时时间（秒）
+        """
+        import time
+
+        if wait_for_running and not self._running:
+            start_time = time.time()
+            while not self._running and (time.time() - start_time) < timeout:
+                time.sleep(0.1)
+
         total = self._stats["success_count"] + self._stats["error_count"]
         success_rate = self._stats["success_count"] / total if total > 0 else 0
         error_rate = self._stats["error_count"] / total if total > 0 else 0
@@ -479,6 +567,7 @@ class GlobalMarketScanner:
         return {
             **self._stats,
             "running": self._running,
+            "is_running": self._running,
             "alert_history_size": len(self._alert_history),
             "tracked_markets": list(self._last_market_data.keys()),
             "success_rate": success_rate,
@@ -502,15 +591,644 @@ class GlobalMarketScanner:
             "current_interval": self._stats["current_interval"],
         }
 
+    def _init_liquidity_system(self):
+        """初始化流动性预测系统"""
+        self._liquidity_predictions: Dict[LiquiditySignalType, LiquidityPrediction] = {}
+        self._latest_data: Dict[str, Any] = {}
+        self._liquidity_verifications: Dict[LiquiditySignalType, LiquidityVerification] = {}
+        self._liquidity_history: Dict[LiquiditySignalType, deque] = {
+            lt: deque(maxlen=20) for lt in LiquiditySignalType
+        }
+        self._market_influences = {
+            LiquiditySignalType.CHINA_A: [LiquiditySignalType.HONG_KONG, LiquiditySignalType.US],
+            LiquiditySignalType.HONG_KONG: [LiquiditySignalType.CHINA_A, LiquiditySignalType.US],
+            LiquiditySignalType.US: [LiquiditySignalType.CHINA_A, LiquiditySignalType.HONG_KONG],
+            LiquiditySignalType.FUTURES: [LiquiditySignalType.CHINA_A, LiquiditySignalType.US],
+        }
+        self._transmission_probabilities = {
+            (LiquiditySignalType.CHINA_A, LiquiditySignalType.HONG_KONG): 0.7,
+            (LiquiditySignalType.CHINA_A, LiquiditySignalType.US): 0.3,
+            (LiquiditySignalType.US, LiquiditySignalType.CHINA_A): 0.5,
+            (LiquiditySignalType.US, LiquiditySignalType.HONG_KONG): 0.8,
+            (LiquiditySignalType.HONG_KONG, LiquiditySignalType.CHINA_A): 0.6,
+            (LiquiditySignalType.HONG_KONG, LiquiditySignalType.US): 0.4,
+            (LiquiditySignalType.FUTURES, LiquiditySignalType.CHINA_A): 0.6,
+            (LiquiditySignalType.FUTURES, LiquiditySignalType.US): 0.5,
+        }
+        self._liquidity_initialized = True
+
+    def _get_dynamic_valid_until(self, target: LiquiditySignalType) -> float:
+        """
+        动态计算预测有效期
+        - 市场交易中：有效期 = 当前交易时段结束时间
+        - 市场未开盘：有效期 = 下一个交易时段结束时间
+        - 市场已收盘：有效期 = 明天交易时段结束时间
+        """
+        market_id_map = {
+            LiquiditySignalType.CHINA_A: "china_a",
+            LiquiditySignalType.HONG_KONG: "hk",
+            LiquiditySignalType.US: "us_equity",
+            LiquiditySignalType.FUTURES: "nasdaq100",
+            LiquiditySignalType.CRYPTO: None,
+        }
+        market_id = market_id_map.get(target)
+        if not market_id:
+            return time.time() + 3600
+
+        market_status = self.session_manager.get_market_status(market_id)
+
+        if market_status == MarketStatus.OPEN:
+            remaining = self.session_manager.get_session_remaining_seconds(market_id)
+            if remaining is not None and remaining > 0:
+                return time.time() + remaining
+        elif market_status in (MarketStatus.PRE_MARKET, MarketStatus.POST_MARKET, MarketStatus.BREAK):
+            remaining = self.session_manager.get_session_remaining_seconds(market_id)
+            if remaining is not None and remaining > 0:
+                duration = self.session_manager.get_market_trading_duration_seconds(market_id) or 0
+                return time.time() + remaining + duration
+
+        duration = self.session_manager.get_market_trading_duration_seconds(market_id) or 14400
+        return time.time() + duration
+
+    def _check_if_priced(self, target: LiquiditySignalType, source_signal: float, source_market: LiquiditySignalType) -> tuple:
+        """
+        检测目标市场是否已经对源市场信号完成"定价"
+
+        定价检测逻辑：
+        - 目标市场开盘变动方向与源市场信号方向一致 → 已定价（无效干预）
+        - 目标市场开盘变动方向与源市场信号方向相反 → 未定价（值得干预）
+        - 信号太弱或数据不足 → 无法判断（不干预）
+
+        Args:
+            target: 目标市场
+            source_signal: 源市场信号（原始，未经过传染率折扣）
+            source_market: 源市场
+
+        Returns:
+            (is_priced, reason, priced_at_open)
+        """
+        market_id_map = {
+            LiquiditySignalType.CHINA_A: "china_a",
+            LiquiditySignalType.HONG_KONG: "hk",
+            LiquiditySignalType.US: "us_equity",
+            LiquiditySignalType.FUTURES: "nasdaq100",
+            LiquiditySignalType.CRYPTO: None,
+        }
+        market_id = market_id_map.get(target)
+        if not market_id:
+            return (False, "", False)
+
+        if self.session_manager.get_market_status(market_id) == MarketStatus.CLOSED:
+            return (False, "市场已收盘，等待下一交易日", False)
+
+        recent_data = self._get_latest_market_data(market_id)
+        if not recent_data:
+            return (False, "无市场数据，无法判断定价状态", False)
+
+        open_change = recent_data.get('change_pct', 0)
+
+        if abs(open_change) < 0.1:
+            return (False, f"开盘变化微小({open_change:.2f}%),未定价", False)
+
+        signal_threshold = 0.15
+        if abs(source_signal - 0.5) <= signal_threshold:
+            return (False, "信号不够强，无法判断定价", False)
+
+        source_dir = 1 if source_signal > 0.5 else -1
+        open_dir = 1 if open_change > 0 else -1
+
+        if source_dir == open_dir:
+            return (True,
+                    f"已定价: 源信号方向={source_dir}, 开盘变动={open_change:.2f}%, 方向一致",
+                    True)
+        else:
+            return (False,
+                    f"未定价: 源信号方向={source_dir}, 开盘变动={open_change:.2f}%, 方向相反",
+                    False)
+
+    def _get_latest_market_data(self, market_id: str) -> Optional[Dict[str, Any]]:
+        """获取最近的市场数据"""
+        md = self._last_market_data.get(market_id)
+        if md:
+            return {'change_pct': md.change_pct, 'current': md.current}
+        return None
+
+    def predict_liquidity(self, source_market: LiquiditySignalType, signals: Dict[str, Any]) -> List[LiquidityPrediction]:
+        """
+        基于信号来源市场，预测对各目标市场的流动性影响
+
+        Args:
+            source_market: 信号来源市场
+            signals: 信号数据（涨跌、成交量、波动率等）
+
+        Returns:
+            List[LiquidityPrediction]: 对各目标市场的预测列表
+        """
+        if not getattr(self, '_liquidity_initialized', False):
+            self._init_liquidity_system()
+
+        predictions = []
+        source_signal = self._calc_liquidity_signal(signals)
+
+        target_markets = self._market_influences.get(source_market, [])
+        for target in target_markets:
+            transmission_prob = self._get_transmission_probability(source_market, target)
+            predicted_signal = source_signal * transmission_prob
+
+            is_priced, priced_reason, priced_at_open = self._check_if_priced(target, source_signal, source_market)
+
+            adjustment = self._generate_adjustment(target, predicted_signal, is_priced)
+
+            prediction = LiquidityPrediction(
+                target_market=target,
+                source_signals=[f"{source_market.value}: {source_signal:.2f}"],
+                signal=predicted_signal,
+                confidence=transmission_prob,
+                timestamp=time.time(),
+                valid_until=self._get_dynamic_valid_until(target),
+                is_priced=is_priced,
+                priced_reason=priced_reason,
+                priced_at_open=priced_at_open,
+                adjustment=adjustment
+            )
+
+            predictions.append(prediction)
+            self._liquidity_predictions[target] = prediction
+
+        return predictions
+
+    def _calc_liquidity_signal(self, signals: Dict[str, Any]) -> float:
+        """
+        计算流动性信号，范围 [0, 1]
+        - 暴涨(+5%↑) = 流动性宽松 = signal接近1.0
+        - 暴跌(-5%↓) = 流动性紧张 = signal接近0.0
+        - 不变(0%) = signal = 0.5
+        """
+        change = signals.get('change_pct', 0)
+        volume_ratio = signals.get('volume_ratio', 1.0)
+
+        change_score = 0.5 + (change / 10.0)
+        change_score = float(np.clip(change_score, 0.0, 1.0))
+
+        if volume_ratio < 0.7:
+            volume_score = 0.3
+        elif volume_ratio < 0.9:
+            volume_score = 0.4
+        elif volume_ratio > 1.5:
+            volume_score = 0.3
+        elif volume_ratio > 1.3:
+            volume_score = 0.4
+        else:
+            volume_score = 0.5
+
+        signal = change_score * 0.7 + volume_score * 0.3
+        return float(np.clip(signal, 0.0, 1.0))
+
+    def _get_transmission_probability(self, source: LiquiditySignalType, target: LiquiditySignalType) -> float:
+        """获取市场间传染概率"""
+        return self._transmission_probabilities.get((source, target), 0.3)
+
+    def _generate_adjustment(self, target: LiquiditySignalType, signal: float, is_priced: bool = False) -> Dict[str, Any]:
+        """生成调整指令"""
+        if is_priced:
+            return {
+                "sector_attention_factor": 1.0,
+                "strategy_budget": {},
+                "frequency_factor": 1.0,
+                "is_priced": True,
+            }
+        if signal < 0.4:
+            return {
+                "sector_attention_factor": 0.8,
+                "strategy_budget": {
+                    "AnomalySniper": 0.2,
+                    "MomentumTracker": -0.2,
+                },
+                "frequency_factor": 1.3,
+            }
+        elif signal > 0.7:
+            return {
+                "sector_attention_factor": 1.1,
+                "strategy_budget": {
+                    "AnomalySniper": -0.1,
+                    "MomentumTracker": 0.1,
+                },
+                "frequency_factor": 0.9,
+            }
+        else:
+            return {
+                "sector_attention_factor": 1.0,
+                "strategy_budget": {},
+                "frequency_factor": 1.0,
+            }
+
+    def verify_liquidity(self, target_market: LiquiditySignalType, actual_data: Dict[str, Any]):
+        """
+        验证对某个市场的预测是否正确
+
+        Args:
+            target_market: 目标市场
+            actual_data: 实际市场数据（涨跌幅、成交量等）
+        """
+        if not getattr(self, '_liquidity_initialized', False):
+            self._init_liquidity_system()
+
+        if target_market not in self._liquidity_verifications:
+            expected = 0.5
+            if target_market in self._liquidity_predictions:
+                expected = self._liquidity_predictions[target_market].signal
+            self._liquidity_verifications[target_market] = LiquidityVerification(
+                target_market=target_market,
+                expected_signal=expected
+            )
+
+        ver = self._liquidity_verifications[target_market]
+        actual_signal = self._calc_liquidity_signal(actual_data)
+        ver.actual_signals.append(actual_signal)
+        ver.verification_count += 1
+
+        if ver.verification_count < 5:
+            return
+
+        recent = ver.actual_signals[-10:]
+        avg_actual = sum(recent) / len(recent)
+
+        diff = abs(avg_actual - ver.expected_signal)
+        if diff > 0.25:
+            ver.verified = False
+            ver.should_relax = True
+            log.info(f"[Liquidity] {target_market.value} 预判错误: 预期={ver.expected_signal:.2f}, 实际={avg_actual:.2f}, 解除限制")
+        else:
+            ver.verified = True
+            ver.should_relax = False
+
+    def get_liquidity_adjustment(self, target_market: LiquiditySignalType, actual_data: Dict[str, Any] = None) -> Optional[Dict[str, Any]]:
+        """
+        获取对某个目标市场的调整指令
+
+        Args:
+            target_market: 目标市场
+            actual_data: 可选的实际数据，用于验证
+
+        Returns:
+            dict: 调整指令，如果没有预测则返回 None
+        """
+        if not getattr(self, '_liquidity_initialized', False):
+            return None
+
+        prediction = self._liquidity_predictions.get(target_market)
+        if not prediction:
+            return None
+
+        if actual_data:
+            self.verify_liquidity(target_market, actual_data)
+
+        if time.time() > prediction.valid_until:
+            log.info(f"[Liquidity] {target_market.value} 预测过期，解除限制")
+            return self._generate_relaxation_adjustment()
+
+        ver = self._liquidity_verifications.get(target_market)
+        if ver and ver.should_relax:
+            log.info(f"[Liquidity] {target_market.value} 验证失败，解除限制")
+            return self._generate_relaxation_adjustment()
+
+        return prediction.adjustment
+
+    def get_all_market_adjustments(self) -> Dict[LiquiditySignalType, Optional[Dict[str, Any]]]:
+        """
+        获取所有市场的调整指令（用于全局更新）
+
+        Returns:
+            Dict[market, adjustment]: 各市场的调整指令
+        """
+        if not getattr(self, '_liquidity_initialized', False):
+            return {}
+
+        adjustments = {}
+        for market in self._liquidity_predictions.keys():
+            adjustments[market] = self.get_liquidity_adjustment(market)
+        return adjustments
+
+    def auto_verify_all_predictions(self, market_data_map: Dict[LiquiditySignalType, Dict[str, Any]]):
+        """
+        自动验证所有有预测的市场
+
+        Args:
+            market_data_map: 各市场的实际数据 {
+                LiquiditySignalType.CHINA_A: {'change_pct': -1.5, 'volume_ratio': 0.8},
+                LiquiditySignalType.US: {'change_pct': 2.0, 'volume_ratio': 1.2},
+                ...
+            }
+        """
+        for market, data in market_data_map.items():
+            if market in self._liquidity_predictions:
+                self.verify_liquidity(market, data)
+
+    def predict_and_auto_verify(self, source_market: LiquiditySignalType, signals: Dict[str, Any], market_data_map: Dict[LiquiditySignalType, Dict[str, Any]] = None) -> List[LiquidityPrediction]:
+        """
+        预测并自动验证（形成闭环）
+
+        Args:
+            source_market: 信号来源市场
+            signals: 信号数据
+            market_data_map: 各目标市场的实际数据（用于验证）
+
+        Returns:
+            List[LiquidityPrediction]: 预测列表
+        """
+        predictions = self.predict_liquidity(source_market, signals)
+
+        if market_data_map:
+            self.auto_verify_all_predictions(market_data_map)
+
+        return predictions
+
+    def _generate_relaxation_adjustment(self) -> Dict[str, Any]:
+        """生成解除限制的调整"""
+        return {
+            "sector_attention_factor": 1.2,
+            "strategy_budget": {
+                "AnomalySniper": -0.2,
+                "MomentumTracker": 0.2,
+            },
+            "frequency_factor": 0.9,
+            "is_relaxation": True,
+        }
+
+    def get_liquidity_status(self) -> Dict[str, Any]:
+        """获取流动性系统状态"""
+        if not getattr(self, '_liquidity_initialized', False):
+            self._init_liquidity_system()
+
+        predictions = {}
+        for market, pred in self._liquidity_predictions.items():
+            predictions[market.value] = {
+                "signal": pred.signal,
+                "confidence": pred.confidence,
+                "source_signals": pred.source_signals,
+                "is_valid": time.time() <= pred.valid_until,
+            }
+
+        verifications = {}
+        for market, ver in self._liquidity_verifications.items():
+            verifications[market.value] = {
+                "expected": ver.expected_signal,
+                "verification_count": ver.verification_count,
+                "verified": ver.verified,
+                "should_relax": ver.should_relax,
+            }
+
+        resonance = getattr(self, '_last_resonance', None)
+        resonance_info = None
+        if resonance:
+            resonance_info = {
+                "level": resonance["resonance_level"],
+                "confidence": resonance["confidence"],
+                "alignment": resonance["alignment"],
+                "weight": resonance.get("weight", 0),
+                "market_signal": resonance["market_signal"],
+                "narrative_signal": resonance["narrative_signal"],
+            }
+
+        topic_predictions = getattr(self, '_topic_predictions', {})
+        topic_info = {}
+        for topic, pred in topic_predictions.items():
+            topic_info[topic] = {
+                "target_sectors": pred.get("target_sectors", []),
+                "spread_probability": pred.get("spread_probability", 0),
+                "expected_change": pred.get("expected_change", 0),
+                "heat_score": pred.get("heat_score", 0),
+            }
+
+        return {
+            "predictions": predictions,
+            "verifications": verifications,
+            "resonance": resonance_info,
+            "topic_predictions": topic_info,
+        }
+
+    def set_narrative_signal(self, signal: float):
+        """
+        设置舆论信号（供 NarrativeTracker 调用）
+
+        Args:
+            signal: 舆论信号 (-1 to 1, 负=利空，正=利多)
+        """
+        if not getattr(self, '_liquidity_initialized', False):
+            self._init_liquidity_system()
+
+        self._narrative_signal = float(np.clip(signal, -1.0, 1.0))
+
+    def detect_resonance(self, market_signal: float, narrative_signal: float = None) -> Dict[str, Any]:
+        """
+        检测信号共振
+
+        Args:
+            market_signal: 行情信号 (-1 to 1)
+            narrative_signal: 舆论信号 (-1 to 1)，如果为 None 则使用内部存储的舆论信号
+
+        Returns:
+            {
+                "resonance_level": "high"/"medium"/"low"/"divergent"/"none",
+                "confidence": 0.0-1.0,
+                "final_signal": float,
+                "alignment": float,
+                "weight": float,
+            }
+        """
+        if narrative_signal is None:
+            narrative_signal = getattr(self, '_narrative_signal', 0.0)
+
+        if abs(market_signal) < 0.1 and abs(narrative_signal) < 0.1:
+            resonance_level = "none"
+            confidence = 0.0
+        elif abs(market_signal) < 0.2 or abs(narrative_signal) < 0.2:
+            if market_signal * narrative_signal > 0:
+                resonance_level = "low"
+                confidence = 0.4
+            elif market_signal * narrative_signal < 0:
+                resonance_level = "divergent"
+                confidence = 0.3
+            else:
+                resonance_level = "low"
+                confidence = 0.3
+        elif market_signal * narrative_signal > 0:
+            alignment = 1 - abs(market_signal - narrative_signal) / 2
+            if alignment > 0.7:
+                resonance_level = "high"
+                confidence = 0.9
+            else:
+                resonance_level = "medium"
+                confidence = 0.7
+        elif market_signal * narrative_signal < 0:
+            resonance_level = "divergent"
+            confidence = 0.5
+        else:
+            resonance_level = "low"
+            confidence = 0.4
+
+        resonance_weights = {
+            "high": 1.0,
+            "medium": 0.7,
+            "low": 0.5,
+            "divergent": 0.3,
+            "none": 0.0,
+        }
+        weight = resonance_weights[resonance_level]
+        final_signal = market_signal * weight
+
+        self._last_resonance = {
+            "resonance_level": resonance_level,
+            "confidence": confidence,
+            "final_signal": final_signal,
+            "alignment": 1 - abs(market_signal - narrative_signal) / 2 if resonance_level != "none" else 0,
+            "weight": weight,
+            "market_signal": market_signal,
+            "narrative_signal": narrative_signal,
+        }
+
+        return self._last_resonance
+
+    TOPIC_SECTOR_MAPPING = {
+        "芯片": {"a_share_sectors": ["半导体", "集成电路"], "us_sector": "SOX"},
+        "AI": {"a_share_sectors": ["人工智能", "软件服务"], "us_sector": "AI"},
+        "新能源": {"a_share_sectors": ["锂电池", "光伏"], "us_sector": "XLE"},
+        "电动车": {"a_share_sectors": ["新能源汽车"], "us_sector": "TSLA"},
+        "云计算": {"a_share_sectors": ["云计算", "数据中心"], "us_sector": "CLOUD"},
+    }
+
+    CROSS_MARKET_PROB = {
+        "芯片": 0.7,
+        "AI": 0.6,
+        "新能源": 0.5,
+        "电动车": 0.4,
+        "云计算": 0.5,
+    }
+
+    def update_topic_heat(self, topic: str, change_pct: float, volume_ratio: float = 1.0):
+        """
+        更新主题热度
+
+        Args:
+            topic: 主题名称
+            change_pct: 涨跌幅
+            volume_ratio: 成交量比
+        """
+        if not hasattr(self, '_topic_heat'):
+            self._topic_heat = {}
+
+        if topic not in self._topic_heat:
+            self._topic_heat[topic] = deque(maxlen=10)
+
+        heat_score = abs(change_pct) * volume_ratio
+        self._topic_heat[topic].append(heat_score)
+
+    def predict_topic_spread(self, topic: str, us_sector_change: float) -> Dict[str, Any]:
+        """
+        预测主题扩散
+
+        Args:
+            topic: 主题名称
+            us_sector_change: 美股该板块的涨跌幅
+
+        Returns:
+            {
+                "target_sectors": List[str],
+                "spread_probability": float,
+                "expected_change": float,
+                "heat_score": float,
+                "confidence": float,
+            }
+        """
+        mapping = self.TOPIC_SECTOR_MAPPING.get(topic, {})
+        target_sectors = mapping.get("a_share_sectors", [])
+
+        heat_history = self._topic_heat.get(topic, [])
+        heat_score = float(np.mean(list(heat_history))) if heat_history else 0
+
+        base_prob = self.CROSS_MARKET_PROB.get(topic, 0.3)
+
+        heat_factor = min(heat_score / 5.0, 1.5)
+        spread_prob = base_prob * heat_factor
+
+        expected_change = us_sector_change * spread_prob
+
+        result = {
+            "target_sectors": target_sectors,
+            "spread_probability": min(spread_prob, 0.95),
+            "expected_change": expected_change,
+            "heat_score": heat_score,
+            "confidence": base_prob * 0.8,
+        }
+
+        if not hasattr(self, '_topic_predictions'):
+            self._topic_predictions = {}
+        self._topic_predictions[topic] = result
+
+        return result
+
+    def get_topic_adjustment_for_sector(self, sector: str) -> Optional[Dict[str, Any]]:
+        """
+        获取板块的主题调整指令
+
+        Args:
+            sector: 板块名称
+
+        Returns:
+            {
+                "attention_weight_factor": float,
+                "hot_topic_score": float,
+                "spread_confidence": float,
+                "topics": List[str],
+            }
+        """
+        relevant_topics = []
+        for topic, mapping in self.TOPIC_SECTOR_MAPPING.items():
+            if sector in mapping["a_share_sectors"]:
+                relevant_topics.append(topic)
+
+        if not relevant_topics:
+            return None
+
+        total_heat = 0
+        total_prob = 0
+        for topic in relevant_topics:
+            heat = float(np.mean(list(self._topic_heat.get(topic, [])))) if self._topic_heat.get(topic) else 0
+            prob = self.CROSS_MARKET_PROB.get(topic, 0.3)
+            total_heat += heat * prob
+            total_prob += prob
+
+        avg_heat = total_heat / len(relevant_topics) if relevant_topics else 0
+        avg_prob = total_prob / len(relevant_topics) if relevant_topics else 0
+
+        if avg_heat > 3:
+            attention_factor = 1.2 + (avg_heat - 3) * 0.05
+        else:
+            attention_factor = 1.0
+
+        return {
+            "attention_weight_factor": min(attention_factor, 1.5),
+            "hot_topic_score": avg_heat,
+            "spread_confidence": avg_prob,
+            "topics": relevant_topics,
+        }
+
+    def get_a_share_liquidity_prediction(self) -> Optional[LiquidityPrediction]:
+        """获取 A 股流动性预测（便捷方法）"""
+        return self._liquidity_predictions.get(LiquiditySignalType.CHINA_A)
+
 
 _scanner_instance: Optional[GlobalMarketScanner] = None
+_scanner_lock = threading.Lock()
 
 
 def get_global_market_scanner() -> GlobalMarketScanner:
-    """获取全局扫描器实例"""
+    """获取全局扫描器实例（线程安全单例）"""
     global _scanner_instance
     if _scanner_instance is None:
-        _scanner_instance = GlobalMarketScanner()
+        with _scanner_lock:
+            if _scanner_instance is None:
+                _scanner_instance = GlobalMarketScanner()
     return _scanner_instance
 
 
