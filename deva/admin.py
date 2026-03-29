@@ -575,6 +575,10 @@ async def monitor():
     return await admin_monitor_ui.render_monitor_home(_monitor_ui_ctx())
 
 
+async def tuningmonitor():
+    return await admin_monitor_ui.render_tuning_monitor_home(_monitor_ui_ctx())
+
+
 async def allstreams():
     return await admin_monitor_ui.render_all_streams(_monitor_ui_ctx())
 
@@ -659,6 +663,7 @@ if __name__ == '__main__':
         (r'/taskadmin', webio_handler(taskadmin, cdn=cdn)),
         (r'/document', webio_handler(document, cdn=cdn)),
         (r'/monitor', webio_handler(monitor, cdn=cdn)),
+        (r'/monitor/tuning', webio_handler(tuningmonitor, cdn=cdn)),
         (r'/allstreams', webio_handler(allstreams, cdn=cdn)),
         (r'/alltables', webio_handler(alltables, cdn=cdn)),
         *admin_monitor_routes.monitor_route_handlers(globals()),

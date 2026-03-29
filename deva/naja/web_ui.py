@@ -40,30 +40,14 @@ from .radar.ui import RadarUI
 
 _lab_mode_initialized = False
 _news_radar_initialized = False
-_original_news_interval = None
-_news_radar_datasource_id = None
 
 
 def _restore_news_radar_mode():
-    """恢复新闻雷达模式（恢复原始间隔）
+    """恢复新闻雷达模式（保留接口，旧逻辑已废弃）
 
-    在新闻雷达加速模式退出时调用，恢复数据源的原始间隔
+    注意：RadarEngine 内置新闻获取器已不需要恢复操作
     """
-    global _original_news_interval, _news_radar_datasource_id
-
-    if _news_radar_datasource_id is None or _original_news_interval is None:
-        return
-
-    from .datasource import get_datasource_manager
-    ds_mgr = get_datasource_manager()
-    news_ds = ds_mgr._items.get(_news_radar_datasource_id)
-
-    if news_ds:
-        news_ds.update_config(interval=_original_news_interval)
-        print(f"📡 已恢复新闻数据源间隔: {_original_news_interval}s")
-
-    _original_news_interval = None
-    _news_radar_datasource_id = None
+    pass
 
 
 def _init_lab_mode(lab_config: dict):
@@ -313,212 +297,91 @@ def get_stream():
 def _init_news_radar_mode():
     """初始化新闻雷达（默认模式）
 
-    使用真实新闻数据源，正常频率运行
+    雷达引擎(RadarEngine)已内置新闻获取器，无需数据源。
+    此函数仅确保 RadarEngine 的新闻获取器正常运行。
     """
-    import time
-    from .datasource import get_datasource_manager
-    from .strategy import get_strategy_manager
+    from .radar import get_radar_engine
 
-    ds_mgr = get_datasource_manager()
-    strategy_mgr = get_strategy_manager()
-
-    news_datasource_id = None
-    for ds_id, ds in ds_mgr._items.items():
-        ds_name = getattr(ds, 'name', '') or ''
-        if '新闻' in ds_name or 'news' in ds_name.lower() or '舆情' in ds_name:
-            news_datasource_id = ds_id
-            print(f"📡 自动找到新闻数据源: {ds_name} ({ds_id})")
-            break
-
-    if news_datasource_id:
-        print(f"📡 新闻雷达已启用，数据源ID: {news_datasource_id}")
+    radar = get_radar_engine()
+    if radar._news_fetcher is not None and radar._news_fetcher._running:
+        stats = radar.get_news_fetcher_stats()
+        interval = stats.get('fetch_interval', 60) if stats else 60
+        print(f"📡 新闻雷达已启用（RadarEngine 内置新闻获取器，运行中）")
     else:
-        print("📡 新闻雷达已启用（未找到专用数据源）")
-
-    time.sleep(0.3)
-
-    if strategy_mgr:
-        all_strategies = strategy_mgr.list_all()
-        started_count = 0
-        for entry in all_strategies:
-            strategy_name = entry.name
-            is_radar_strategy = "雷达" in strategy_name or "NewsRadar" in strategy_name or "龙虾" in strategy_name or "NewsMind" in strategy_name or "舆情" in strategy_name
-
-            if is_radar_strategy:
-                try:
-                    if news_datasource_id:
-                        entry.bind_datasource(news_datasource_id)
-
-                    if not entry.is_running:
-                        entry.start()
-                        print(f"📡 已启动新闻雷达策略: {strategy_name}")
-
-                    started_count += 1
-                except Exception as e:
-                    print(f"⚠️ 启动策略失败 {strategy_name}: {e}")
-
-        if started_count > 0:
-            print(f"📡 共启动了 {started_count} 个新闻雷达策略")
-        else:
-            print(f"⚠️ 未找到可启动的新闻雷达策略")
+        print(f"📡 新闻雷达已启用（RadarEngine 新闻获取器未运行）")
 
 
 def _init_news_radar_speed_mode(news_radar_config: dict):
     """初始化新闻雷达加速模式
 
-    使用真实新闻数据源，但加快获取频率
+    通过 RadarEngine 加快新闻获取频率
 
     Args:
         news_radar_config: 配置，包含:
             - speed: 加速倍数
     """
-    global _news_radar_initialized, _news_radar_datasource_id, _original_news_interval
+    global _news_radar_initialized
     if _news_radar_initialized:
         print("📡 新闻雷达加速模式已初始化，跳过")
         return
     _news_radar_initialized = True
 
-    import time
     import os
     os.environ["NAJA_NEWS_RADAR_DEBUG"] = "true"
 
-    from .datasource import get_datasource_manager, UnitStatus
-    from .strategy import get_strategy_manager
+    from .radar import get_radar_engine
 
     speed = news_radar_config.get("speed", 1.0)
-    ds_mgr = get_datasource_manager()
-    strategy_mgr = get_strategy_manager()
+    radar = get_radar_engine()
 
-    news_ds = None
-    for ds_id, ds in ds_mgr._items.items():
-        ds_name = getattr(ds, 'name', '') or ''
-        if '新闻' in ds_name or 'news' in ds_name.lower() or '舆情' in ds_name:
-            if ds.status == UnitStatus.RUNNING:
-                news_ds = ds
-                break
-            elif ds.status == UnitStatus.STOPPED:
-                news_ds = ds
-
-    if news_ds is None:
-        for ds_id, ds in ds_mgr._items.items():
-            if ds.status == UnitStatus.RUNNING or ds.status == UnitStatus.STOPPED:
-                if ds.source_type == "timer":
-                    news_ds = ds
-                    break
-
-    if news_ds is None:
-        print("⚠️ 未找到可用的新闻数据源，新闻雷达加速模式无法启用")
+    if radar._news_fetcher is None:
+        print("⚠️ RadarEngine 新闻获取器未启动，加速模式无法启用")
         return
 
-    _original_news_interval = getattr(news_ds._metadata, 'interval', 1.0)
-    _news_radar_datasource_id = news_ds.id
-    accelerated_interval = _original_news_interval / speed
+    base_interval = radar._news_fetcher._base_interval
+    accelerated_interval = base_interval / speed
 
-    news_ds.update_config(interval=accelerated_interval)
-    if news_ds.status != UnitStatus.RUNNING:
-        news_ds.start()
-    print(f"📡 新闻雷达加速模式: {news_ds.name}")
-    print(f"📡 原始间隔: {original_interval}s -> 加速间隔: {accelerated_interval}s (×{speed})")
+    radar.set_news_fetcher_interval(accelerated_interval)
 
-    time.sleep(0.3)
-
-    if strategy_mgr:
-        all_strategies = strategy_mgr.list_all()
-        started_count = 0
-        for entry in all_strategies:
-            strategy_name = entry.name
-            is_radar_strategy = "雷达" in strategy_name or "NewsRadar" in strategy_name or "龙虾" in strategy_name or "NewsMind" in strategy_name or "舆情" in strategy_name
-
-            if is_radar_strategy:
-                try:
-                    entry.bind_datasource(news_ds.id)
-                    if not entry.is_running:
-                        entry.start()
-                        print(f"📡 已启动新闻雷达策略: {strategy_name}")
-                    started_count += 1
-                except Exception as e:
-                    print(f"⚠️ 启动策略失败 {strategy_name}: {e}")
-
-        if started_count > 0:
-            print(f"📡 共启动了 {started_count} 个新闻雷达策略")
+    print(f"📡 新闻雷达加速模式已启用")
+    print(f"📡 原始间隔: {base_interval:.1f}s -> 加速间隔: {accelerated_interval:.1f}s (×{speed})")
 
 
 def _init_news_radar_sim_mode(news_radar_config: dict):
     """初始化新闻雷达模拟模式
 
-    使用模拟数据源进行测试
+    通过 RadarEngine 加快新闻获取频率（模拟模式）
+    雷达内置会在真实获取失败时 fallback 到模拟数据
 
     Args:
         news_radar_config: 配置，包含:
             - interval: 模拟数据间隔（秒）
             - speed: 模拟速度倍数
     """
-    global _news_radar_initialized, _news_radar_datasource_id
+    global _news_radar_initialized
     if _news_radar_initialized:
         print("📡 新闻雷达模拟模式已初始化，跳过")
         return
     _news_radar_initialized = True
 
-    import time
     import os
     os.environ["NAJA_NEWS_RADAR_DEBUG"] = "true"
 
-    from .datasource import get_datasource_manager, UnitStatus
-    from .strategy import get_strategy_manager
-
-    ds_mgr = get_datasource_manager()
-    strategy_mgr = get_strategy_manager()
+    from .radar import get_radar_engine
 
     sim_interval = news_radar_config.get("interval", 0.5)
     sim_speed = news_radar_config.get("speed", 1.0)
 
-    news_ds = None
-    for ds in ds_mgr.list_all():
-        if "金十财经" in ds.name or "新闻" in ds.name:
-            if ds.status == UnitStatus.RUNNING:
-                news_ds = ds
-                break
-            elif ds.status == UnitStatus.STOPPED:
-                news_ds = ds
+    radar = get_radar_engine()
 
-    if news_ds is None:
-        for ds in ds_mgr.list_all():
-            if ds.status == UnitStatus.RUNNING or ds.status == UnitStatus.STOPPED:
-                if ds.source_type == "timer":
-                    news_ds = ds
-                    break
-
-    if news_ds is None:
-        print("⚠️ 未找到可用的新闻数据源")
+    if radar._news_fetcher is None:
+        print("⚠️ RadarEngine 新闻获取器未启动，模拟模式无法启用")
         return
 
-    news_ds.update_config(interval=sim_interval)
-    if news_ds.status != UnitStatus.RUNNING:
-        news_ds.start()
-    print(f"📡 新闻雷达模拟模式: {news_ds.name}")
+    radar.set_news_fetcher_interval(sim_interval)
+
+    print(f"📡 新闻雷达模拟模式已启用")
     print(f"📡 模拟间隔: {sim_interval}s (×{sim_speed})")
-
-    time.sleep(0.3)
-
-    if strategy_mgr:
-        all_strategies = strategy_mgr.list_all()
-        started_count = 0
-        for entry in all_strategies:
-            strategy_name = entry.name
-            is_radar_strategy = "雷达" in strategy_name or "NewsRadar" in strategy_name or "龙虾" in strategy_name or "NewsMind" in strategy_name or "舆情" in strategy_name
-
-            if is_radar_strategy:
-                try:
-                    entry.bind_datasource(news_ds.id)
-                    if not entry.is_running:
-                        entry.start()
-                        print(f"📡 已启动新闻雷达策略: {strategy_name}")
-                    started_count += 1
-                except Exception as e:
-                    print(f"⚠️ 启动策略失败 {strategy_name}: {e}")
-
-        if started_count > 0:
-            print(f"📡 共启动了 {started_count} 个新闻雷达策略")
 
 
 def _init_cognition_debug_mode():
@@ -977,6 +840,7 @@ async def runtimestateadmin():
     from .runtime_state.ui import render_runtime_state_page
     ctx = _ctx()
     await ctx["init_naja_ui"]("运行时状态管理")
+    set_scope("runtime_state_content")
     render_runtime_state_page(ctx)
 
 
@@ -992,6 +856,37 @@ def memory_page():
     """叙事主题记忆 - 叙事与主题分析"""
     ui = NewsRadarUI()
     ui.render()
+
+
+async def tuningadmin():
+    """全局调优监控"""
+    from pywebio.session import eval_js
+    try:
+        theme = await eval_js("document.cookie.includes('naja-theme=') ? document.cookie.split('naja-theme=')[1].split(';')[0] : null")
+        if theme:
+            set_request_theme(theme)
+    except:
+        pass
+
+    ctx = _ctx()
+    await ctx["init_naja_ui"]("全局调优监控")
+
+    ctx["put_html"]('<div style="margin: 20px; color: #64748b;">加载中...</div>')
+
+    try:
+        from .attention.ui_components.auto_tuning_monitor import (
+            render_tuning_monitor_panel,
+            render_frequency_monitor_panel,
+            render_datasource_tuning_panel,
+        )
+        panel1 = render_tuning_monitor_panel()
+        panel2 = render_frequency_monitor_panel()
+        panel3 = render_datasource_tuning_panel()
+        ctx["put_html"](panel1)
+        ctx["put_html"](panel2)
+        ctx["put_html"](panel3)
+    except Exception as e:
+        ctx["put_html"](f'<div style="color: #f87171; padding: 20px;">渲染失败: {str(e)}</div>')
 
 
 async def system_page():
@@ -1038,6 +933,7 @@ def create_handlers(cdn: str = None):
         (r'/runtime_state', webio_handler(runtimestateadmin, cdn=cdn_url)),
         (r'/configadmin', webio_handler(configadmin, cdn=cdn_url)),
         (r'/logstream', webio_handler(lambda: _get_log_stream_page()(), cdn=cdn_url)),
+        (r'/tuningadmin', webio_handler(tuningadmin, cdn=cdn_url)),
     ]
 
 

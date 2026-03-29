@@ -184,6 +184,60 @@ async def view_stream(ctx, stream_id):
         )
 
 
+async def render_tuning_monitor_home(ctx):
+    await ctx["init_admin_ui"]("全局调优监控")
+    ctx["put_html"]('<div style="margin-bottom: 16px;">')
+    ctx["put_markdown"]("### 🎛️ 全局自动调优监控系统")
+    ctx["put_html"]("</div>")
+
+    from .monitor_ui import render_tuning_monitor
+    ctx["put_html"](render_tuning_monitor())
+
+    ctx["put_markdown"]("### 📊 调优历史查询")
+    ctx["put_input"]("tuning_limit", type="number", value="20", placeholder="查询条数")
+    ctx["put_button"]("查询", onclick=lambda: ctx["run_async"](query_tuning_history(ctx)))
+
+
+async def query_tuning_history(ctx):
+    from deva.naja.attention.ui_components.auto_tuning_monitor import get_recent_tuning_events
+    limit = await ctx["pin"].tuning_limit
+    try:
+        limit = int(limit) if limit else 20
+    except ValueError:
+        limit = 20
+
+    events = get_recent_tuning_events(limit=min(limit, 100))
+    ctx["set_scope"]("tuning_history_result")
+    with ctx["use_scope"]("tuning_history_result", clear=True):
+        if not events:
+            ctx["put_markdown"]("*暂无调优记录*")
+            return
+
+        rows = []
+        for evt in events:
+            from deva.naja.attention.ui_components.auto_tuning_monitor import _fmt_ts_full, _get_state_color, _get_state_icon
+            ts = _fmt_ts_full(evt.get('timestamp', 0))
+            state = evt.get('state', 'stable')
+            param = evt.get('param_name', evt.get('param', ''))
+            before = evt.get('before', '-')
+            after = evt.get('after', '-')
+            reason = evt.get('reason', '')[:50]
+            state_icon = _get_state_icon(state)
+
+            rows.append([
+                ts,
+                param,
+                f"{state_icon} {'升' if state == 'up' else '降' if state == 'down' else '稳'}",
+                f"{before} → {after}",
+                reason,
+            ])
+
+        ctx["put_table"](
+            [["时间", "参数", "状态", "变化", "原因"]] + rows,
+            dense=True,
+        )
+
+
 __all__ = [
     "render_monitor_home",
     "exec_command",
@@ -192,4 +246,5 @@ __all__ = [
     "view_table_keys",
     "view_table_value",
     "view_stream",
+    "render_tuning_monitor_home",
 ]
