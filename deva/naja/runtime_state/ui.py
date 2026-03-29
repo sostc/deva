@@ -8,13 +8,17 @@ from ..common.ui_style import apply_strategy_like_styles, render_stats_cards
 
 def render_runtime_state_page(ctx: dict):
     """渲染运行时状态管理面板"""
-    from deva.naja.runtime_state import get_runtime_state_manager
+    from deva.naja.runtime_state import get_runtime_state_manager, register_all_adapters
     from pywebio.output import clear
 
     clear("runtime_state_content")
 
     mgr = get_runtime_state_manager()
     states = mgr.list_all()
+
+    if not states:
+        register_all_adapters()
+        states = mgr.list_all()
 
     apply_strategy_like_styles(ctx=ctx, scope="runtime_state_content", include_compact_table=True)
 
@@ -68,7 +72,7 @@ def _render_state_table(ctx, mgr, states):
     table_data = []
 
     for s in states:
-        status_html = _get_status_html(s.status.value)
+        status_text = _get_status_text(s.status.value)
 
         priority_label = f"P{s.priority:02d}"
 
@@ -76,9 +80,9 @@ def _render_state_table(ctx, mgr, states):
 
         table_data.append([
             s.persistence_id,
-            f"<code style='font-size: 11px;'>{s.table_name}</code>",
+            s.table_name,
             priority_label,
-            status_html,
+            status_text,
             s.last_save_time[:19] if s.last_save_time else "从未",
             s.last_load_time[:19] if s.last_load_time else "从未",
             error_short,
@@ -91,19 +95,18 @@ def _render_state_table(ctx, mgr, states):
     )
 
 
-def _get_status_html(status: str) -> str:
-    """获取状态显示 HTML"""
+def _get_status_text(status: str) -> str:
+    """获取状态显示文本"""
     status_config = {
-        "saved": ("✅ 已保存", "#4caf50"),
-        "loaded": ("✅ 已加载", "#4caf50"),
-        "modified": ("⚠️ 已修改", "#ff9800"),
-        "error": ("❌ 错误", "#f44336"),
-        "unknown": ("❓ 未知", "#9e9e9e"),
-        "not_registered": ("🔓 未注册", "#2196f3"),
+        "saved": "✅ 已保存",
+        "loaded": "✅ 已加载",
+        "modified": "⚠️ 已修改",
+        "error": "❌ 错误",
+        "unknown": "❓ 未知",
+        "not_registered": "🔓 未注册",
     }
 
-    label, color = status_config.get(status, ("❓ " + status, "#9e9e9e"))
-    return f'<span style="color: {color}; font-weight: bold;">{label}</span>'
+    return status_config.get(status, "❓ " + status)
 
 
 def _get_toolbar_html() -> str:

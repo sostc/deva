@@ -117,7 +117,7 @@ def build_monitor_route_handlers(ctx, *, module_file: str):
                 "</form>"
                 "</div>"
             )
-            subnav_html = '<a href="/monitor">总览</a><a href="/allstreams">allstreams</a>'
+            subnav_html = '<a href="/monitor">总览</a><a href="/allstreams">allstreams</a><a href="/monitor/tuning">调优监控</a>'
             _render_page_shell(
                 self,
                 "Deva Admin Monitor",
@@ -199,9 +199,33 @@ def build_monitor_route_handlers(ctx, *, module_file: str):
                     subnav_html='<a href="/monitor">总览</a>',
                 )
 
+    class TuningMonitorHandler(RequestHandler):
+        def initialize(self, *, ctx):
+            self.ctx = ctx
+
+        def get(self):
+            from .monitor_ui import render_tuning_monitor_home
+            import asyncio
+
+            async def render():
+                fake_ctx = {
+                    "init_admin_ui": lambda title: self.set_header("Content-Type", "text/html; charset=utf-8"),
+                    "put_html": lambda x: None,
+                    "put_markdown": lambda x: None,
+                    "put_input": lambda *args, **kwargs: None,
+                    "put_button": lambda *args, **kwargs: None,
+                    "run_async": lambda x: None,
+                }
+                await render_tuning_monitor_home(fake_ctx)
+                self.write("Tuning Monitor - Use PyWebIO route instead")
+                self.finish()
+
+            asyncio.create_task(render())
+
     return [
         (r"/monitor", MonitorHomeHandler, {"ctx": route_ctx}),
         (r"/monitor/exec", MonitorExecHandler, {"ctx": route_ctx}),
+        (r"/monitor/tuning", TuningMonitorHandler, {"ctx": route_ctx}),
         (r"/allstreams", MonitorAllStreamsHandler, {"ctx": route_ctx}),
         (r"/(-?\d+)", MonitorLegacyStreamIdHandler, {"ctx": route_ctx}),
     ]
