@@ -12,105 +12,97 @@
       <stop offset="0%" style="stop-color:#533483"/>
       <stop offset="100%" style="stop-color:#2d1b69"/>
     </linearGradient>
-    <linearGradient id="arrowGrad" x1="0%" y1="0%" x2="0%" y2="100%">
-      <stop offset="0%" style="stop-color:#00d9ff"/>
-      <stop offset="100%" style="stop-color:#0099cc"/>
-    </linearGradient>
   </defs>
 
   <rect width="400" height="900" fill="url(#bg)" rx="20"/>
 
-  <text x="200" y="45" text-anchor="middle" fill="#ffffff" font-size="22" font-weight="bold">🧠 两层认知架构</text>
+  <text x="200" y="45" text-anchor="middle" fill="#ffffff" font-size="20" font-weight="bold" font-family="Arial, sans-serif">Two-Layer Cognition</text>
+  <text x="200" y="70" text-anchor="middle" fill="#94a3b8" font-size="11" font-family="Arial, sans-serif">Real-time -&gt; Accumulate -&gt; LLM</text>
 
-  <text x="200" y="75" text-anchor="middle" fill="#94a3b8" font-size="12">实时处理 → 积累 → LLM反思</text>
+  <!-- Fast Cognition Layer -->
+  <rect x="20" y="90" width="360" height="320" rx="12" fill="url(#fastGrad)" stroke="#0ea5e9" stroke-width="2"/>
+  <text x="200" y="120" text-anchor="middle" fill="#0ea5e9" font-size="15" font-weight="bold" font-family="Arial, sans-serif">[ Fast Cognition Layer ]</text>
+  <text x="200" y="140" text-anchor="middle" fill="#64748b" font-size="10" font-family="Arial, sans-serif">Real-time Processing | Event-Driven</text>
 
-  <!-- 快认知层 -->
-  <rect x="20" y="100" width="360" height="320" rx="12" fill="url(#fastGrad)" stroke="#0ea5e9" stroke-width="2"/>
-  <text x="200" y="130" text-anchor="middle" fill="#0ea5e9" font-size="16" font-weight="bold">⚡ 快速认知层</text>
-  <text x="200" y="150" text-anchor="middle" fill="#64748b" font-size="11">实时处理 · 事件驱动</text>
-
-  <!-- 快认知模块 -->
-  <g transform="translate(35, 165)">
-    <rect width="155" height="38" rx="6" fill="#1e3a5f" stroke="#3b82f6" stroke-width="1"/>
-    <text x="78" y="24" text-anchor="middle" fill="#93c5fd" font-size="12">📰 NewsMind</text>
+  <!-- Modules -->
+  <g transform="translate(35, 160)">
+    <rect width="155" height="35" rx="6" fill="#1e3a5f" stroke="#3b82f6" stroke-width="1"/>
+    <text x="78" y="22" text-anchor="middle" fill="#93c5fd" font-size="11" font-family="Arial, sans-serif">* NewsMind</text>
   </g>
-  <g transform="translate(210, 165)">
-    <rect width="155" height="38" rx="6" fill="#1e3a5f" stroke="#8b5cf6" stroke-width="1"/>
-    <text x="78" y="24" text-anchor="middle" fill="#c4b5fd" font-size="12">🌊 NarrativeTracker</text>
-  </g>
-
-  <g transform="translate(35, 215)">
-    <rect width="155" height="38" rx="6" fill="#1e3a5f" stroke="#f97316" stroke-width="1"/>
-    <text x="78" y="24" text-anchor="middle" fill="#fdba74" font-size="12">🔄 CrossSignal</text>
-  </g>
-  <g transform="translate(210, 215)">
-    <rect width="155" height="38" rx="6" fill="#1e3a5f" stroke="#22c55e" stroke-width="1"/>
-    <text x="78" y="24" text-anchor="middle" fill="#86efac" font-size="12">💰 PropagationEngine</text>
+  <g transform="translate(210, 160)">
+    <rect width="155" height="35" rx="6" fill="#1e3a5f" stroke="#8b5cf6" stroke-width="1"/>
+    <text x="78" y="22" text-anchor="middle" fill="#c4b5fd" font-size="11" font-family="Arial, sans-serif">* NarrativeTracker</text>
   </g>
 
-  <g transform="translate(35, 265)">
-    <rect width="155" height="38" rx="6" fill="#1e3a5f" stroke="#f59e0b" stroke-width="1"/>
-    <text x="78" y="24" text-anchor="middle" fill="#fcd34d" font-size="12">👁️ AttentionSystem</text>
+  <g transform="translate(35, 205)">
+    <rect width="155" height="35" rx="6" fill="#1e3a5f" stroke="#f97316" stroke-width="1"/>
+    <text x="78" y="22" text-anchor="middle" fill="#fdba74" font-size="11" font-family="Arial, sans-serif">* CrossSignal</text>
   </g>
-  <g transform="translate(210, 265)">
-    <rect width="155" height="38" rx="6" fill="#1e3a5f" stroke="#ec4899" stroke-width="1"/>
-    <text x="78" y="24" text-anchor="middle" fill="#f9a8d4" font-size="12">📊 HistoryTracker</text>
-  </g>
-
-  <g transform="translate(35, 315)">
-    <rect width="155" height="38" rx="6" fill="#1e3a5f" stroke="#ef4444" stroke-width="1"/>
-    <text x="78" y="24" text-anchor="middle" fill="#fca5a5" font-size="12">🤖 OpenRouter监控</text>
-  </g>
-  <g transform="translate(210, 315)">
-    <rect width="155" height="38" rx="6" fill="#1e3a5f" stroke="#14b8a6" stroke-width="1"/>
-    <text x="78" y="24" text-anchor="middle" fill="#5eead4" font-size="12">📡 Radar Events</text>
+  <g transform="translate(210, 205)">
+    <rect width="155" height="35" rx="6" fill="#1e3a5f" stroke="#22c55e" stroke-width="1"/>
+    <text x="78" y="22" text-anchor="middle" fill="#86efac" font-size="11" font-family="Arial, sans-serif">* PropagationEngine</text>
   </g>
 
-  <g transform="translate(35, 365)">
-    <rect width="330" height="38" rx="6" fill="#1e3a5f" stroke="#6366f1" stroke-width="1"/>
-    <text x="165" y="24" text-anchor="middle" fill="#a5b4fc" font-size="12">📊 FeedbackLoop</text>
+  <g transform="translate(35, 250)">
+    <rect width="155" height="35" rx="6" fill="#1e3a5f" stroke="#f59e0b" stroke-width="1"/>
+    <text x="78" y="22" text-anchor="middle" fill="#fcd34d" font-size="11" font-family="Arial, sans-serif">* AttentionSystem</text>
+  </g>
+  <g transform="translate(210, 250)">
+    <rect width="155" height="35" rx="6" fill="#1e3a5f" stroke="#ec4899" stroke-width="1"/>
+    <text x="78" y="22" text-anchor="middle" fill="#f9a8d4" font-size="11" font-family="Arial, sans-serif">* HistoryTracker</text>
   </g>
 
-  <!-- 箭头 -->
-  <line x1="200" y1="420" x2="200" y2="450" stroke="url(#arrowGrad)" stroke-width="3" marker-end="url(#arrowhead)"/>
-  <polygon points="200,455 190,440 210,440" fill="#00d9ff"/>
+  <g transform="translate(35, 295)">
+    <rect width="155" height="35" rx="6" fill="#1e3a5f" stroke="#ef4444" stroke-width="1"/>
+    <text x="78" y="22" text-anchor="middle" fill="#fca5a5" font-size="11" font-family="Arial, sans-serif">* OpenRouter Monitor</text>
+  </g>
+  <g transform="translate(210, 295)">
+    <rect width="155" height="35" rx="6" fill="#1e3a5f" stroke="#14b8a6" stroke-width="1"/>
+    <text x="78" y="22" text-anchor="middle" fill="#5eead4" font-size="11" font-family="Arial, sans-serif">* Radar Events</text>
+  </g>
 
-  <!-- 慢认知层 -->
-  <rect x="20" y="465" width="360" height="280" rx="12" fill="url(#slowGrad)" stroke="#8b5cf6" stroke-width="2"/>
-  <text x="200" y="495" text-anchor="middle" fill="#a78bfa" font-size="16" font-weight="bold">📦 慢速认知层</text>
-  <text x="200" y="515" text-anchor="middle" fill="#94a3b8" font-size="11">积累 · 聚合 · LLM反思</text>
+  <g transform="translate(35, 340)">
+    <rect width="330" height="35" rx="6" fill="#1e3a5f" stroke="#6366f1" stroke-width="1"/>
+    <text x="165" y="22" text-anchor="middle" fill="#a5b4fc" font-size="11" font-family="Arial, sans-serif">* FeedbackLoop</text>
+  </g>
+
+  <!-- Arrow -->
+  <line x1="200" y1="425" x2="200" y2="445" stroke="#00d9ff" stroke-width="3"/>
+  <polygon points="200,450 192,438 208,438" fill="#00d9ff"/>
+
+  <!-- Slow Cognition Layer -->
+  <rect x="20" y="460" width="360" height="280" rx="12" fill="url(#slowGrad)" stroke="#8b5cf6" stroke-width="2"/>
+  <text x="200" y="490" text-anchor="middle" fill="#a78bfa" font-size="15" font-weight="bold" font-family="Arial, sans-serif">[ Slow Cognition Layer ]</text>
+  <text x="200" y="510" text-anchor="middle" fill="#94a3b8" font-size="10" font-family="Arial, sans-serif">Accumulate | Aggregate | LLM Reflection</text>
 
   <!-- InsightPool -->
-  <rect x="40" y="530" width="320" height="120" rx="10" fill="#2d1b4e" stroke="#a78bfa" stroke-width="2"/>
-  <text x="200" y="555" text-anchor="middle" fill="#c4b5fd" font-size="14" font-weight="bold">InsightPool 洞察池</text>
+  <rect x="40" y="525" width="320" height="110" rx="10" fill="#2d1b4e" stroke="#a78bfa" stroke-width="2"/>
+  <text x="200" y="550" text-anchor="middle" fill="#c4b5fd" font-size="13" font-weight="bold" font-family="Arial, sans-serif">InsightPool</text>
 
-  <g transform="translate(55, 570)">
-    <text x="0" y="15" fill="#f97316" font-size="11">● narrative_stage_change</text>
-    <text x="0" y="32" fill="#3b82f6" font-size="11">● news_topic</text>
-    <text x="0" y="49" fill="#22c55e" font-size="11">● liquidity_propagation</text>
+  <g transform="translate(55, 565)">
+    <text x="0" y="14" fill="#f97316" font-size="10" font-family="Arial, sans-serif">- narrative_stage_change</text>
+    <text x="0" y="30" fill="#3b82f6" font-size="10" font-family="Arial, sans-serif">- news_topic</text>
+    <text x="0" y="46" fill="#22c55e" font-size="10" font-family="Arial, sans-serif">- liquidity_propagation</text>
   </g>
-  <g transform="translate(200, 570)">
-    <text x="0" y="15" fill="#f59e0b" font-size="11">● resonance_</text>
-    <text x="0" y="32" fill="#ec4899" font-size="11">● attention</text>
-    <text x="0" y="49" fill="#8b5cf6" font-size="11">● llm_reflection</text>
+  <g transform="translate(200, 565)">
+    <text x="0" y="14" fill="#f59e0b" font-size="10" font-family="Arial, sans-serif">- resonance_</text>
+    <text x="0" y="30" fill="#ec4899" font-size="10" font-family="Arial, sans-serif">- attention</text>
+    <text x="0" y="46" fill="#8b5cf6" font-size="10" font-family="Arial, sans-serif">- llm_reflection</text>
   </g>
 
-  <!-- LLM反思 -->
-  <rect x="40" y="665" width="320" height="60" rx="10" fill="#3b1f6e" stroke="#c4b5fd" stroke-width="2"/>
-  <text x="200" y="690" text-anchor="middle" fill="#e9d5ff" font-size="14" font-weight="bold">🤖 LLM 反思引擎</text>
-  <text x="200" y="710" text-anchor="middle" fill="#c4b5fd" font-size="10">迭代思考 · 参考历史结论</text>
+  <!-- LLM Reflection -->
+  <rect x="40" y="655" width="320" height="55" rx="10" fill="#3b1f6e" stroke="#c4b5fd" stroke-width="2"/>
+  <text x="200" y="680" text-anchor="middle" fill="#e9d5ff" font-size="13" font-weight="bold" font-family="Arial, sans-serif">LLM Reflection Engine</text>
+  <text x="200" y="698" text-anchor="middle" fill="#c4b5fd" font-size="10" font-family="Arial, sans-serif">Iterative Thinking | Reference History</text>
 
-  <!-- 输出 -->
-  <rect x="20" y="745" width="360" height="100" rx="12" fill="#1e3a5f" stroke="#22c55e" stroke-width="2"/>
-  <text x="200" y="775" text-anchor="middle" fill="#22c55e" font-size="14" font-weight="bold">✅ 输出成果</text>
-  <text x="200" y="800" text-anchor="middle" fill="#86efac" font-size="11">• theme · summary · confidence</text>
-  <text x="200" y="820" text-anchor="middle" fill="#86efac" font-size="11">• liquidity_structure · iteration</text>
+  <!-- Output -->
+  <rect x="20" y="725" width="360" height="95" rx="12" fill="#1e3a5f" stroke="#22c55e" stroke-width="2"/>
+  <text x="200" y="755" text-anchor="middle" fill="#22c55e" font-size="13" font-weight="bold" font-family="Arial, sans-serif">[ Output ]</text>
+  <text x="200" y="780" text-anchor="middle" fill="#86efac" font-size="10" font-family="Arial, sans-serif">theme | summary | confidence</text>
+  <text x="200" y="800" text-anchor="middle" fill="#86efac" font-size="10" font-family="Arial, sans-serif">liquidity_structure | iteration</text>
 
-  <!-- 特点 -->
-  <rect x="20" y="860" width="360" height="30" rx="8" fill="#0f3460" stroke="#475569" stroke-width="1"/>
-  <text x="200" y="880" text-anchor="middle" fill="#94a3b8" font-size="10">快速发现 · 慢速思考 · 迭代迭代</text>
-
-  <style>
-    text { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
-  </style>
+  <!-- Feature -->
+  <rect x="20" y="835" width="360" height="50" rx="8" fill="#0f3460" stroke="#475569" stroke-width="1"/>
+  <text x="200" y="860" text-anchor="middle" fill="#94a3b8" font-size="10" font-family="Arial, sans-serif">Fast Discovery | Slow Thinking</text>
+  <text x="200" y="875" text-anchor="middle" fill="#94a3b8" font-size="10" font-family="Arial, sans-serif">Iterative Refinement</text>
 </svg>

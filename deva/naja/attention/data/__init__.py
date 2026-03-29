@@ -24,6 +24,12 @@ from deva.naja.attention.data.liquidity_rescue_data_hub import (
     LiquidityRescueData,
     get_liquidity_rescue_data_hub,
 )
+from deva.naja.attention.data.global_market_futures import (
+    GlobalMarketAPI,
+    MarketData,
+    get_global_market_api,
+    fetch_global_market_data,
+)
 
 __all__ = [
     "MarketVolatilityCalculator",
@@ -37,4 +43,8 @@ __all__ = [
     "LiquidityRescueDataHub",
     "LiquidityRescueData",
     "get_liquidity_rescue_data_hub",
+    "GlobalMarketAPI",
+    "MarketData",
+    "get_global_market_api",
+    "fetch_global_market_data",
 ]

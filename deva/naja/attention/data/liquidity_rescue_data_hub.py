@@ -14,6 +14,7 @@ import logging
 
 from .volatility_calculator import MarketVolatilityCalculator
 from .market_breadth import MarketBreadthCalculator
+from .global_market_futures import GlobalMarketAPI, MarketData, MARKET_ID_TO_CODE
 
 log = logging.getLogger(__name__)
 
@@ -50,6 +51,8 @@ class LiquidityRescueDataHub:
         self._breadth_calc = MarketBreadthCalculator()
         self._custom_data_sources: Dict[str, Callable] = {}
         self._last_update = 0
+        self._global_futures_api: Optional[GlobalMarketAPI] = None
+        self._global_market_data: Dict[str, MarketData] = {}
 
     def update_price(self, price: float, timestamp: Optional[float] = None) -> None:
         """
@@ -104,6 +107,45 @@ class LiquidityRescueDataHub:
         """
         self._custom_data_sources[name] = data_func
         log.info(f"[LiquidityRescueDataHub] 注册数据源: {name}")
+
+    async def fetch_global_market_data(self) -> Dict[str, MarketData]:
+        """
+        获取全球市场数据（期货 + 美股）
+
+        Returns:
+            Dict[str, MarketData]: 市场数据字典
+        """
+        if self._global_futures_api is None:
+            self._global_futures_api = GlobalMarketAPI()
+        data = await self._global_futures_api.fetch_all()
+        self._global_market_data = data
+        self._last_update = time.time()
+        return data
+
+    def get_global_market_data(self) -> Dict[str, MarketData]:
+        """获取已缓存的全球市场数据"""
+        return self._global_market_data
+
+    def get_global_market_summary(self) -> Dict[str, Any]:
+        """
+        获取全球市场摘要（用于注意力事件）
+
+        Returns:
+            Dict: 包含主要市场的涨跌情况
+        """
+        if not self._global_market_data:
+            return {}
+
+        summary = {}
+        for code, md in self._global_market_data.items():
+            summary[md.market_id] = {
+                "name": md.name,
+                "current": md.current,
+                "change": md.change,
+                "change_pct": md.change_pct,
+            }
+
+        return summary
 
     def get_volatility_data(self) -> Dict[str, Any]:
         """获取波动率数据"""
