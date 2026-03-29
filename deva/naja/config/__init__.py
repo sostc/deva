@@ -122,6 +122,10 @@ DEFAULT_CONFIG = {
         "news_fetch_interval": 60,
         "news_attention_threshold": 0.6,
         "news_force_trading": False,
+        "auto_start_global_scanner": True,
+        "global_scanner_interval": 60,
+        "global_scanner_volatility_threshold": 2.0,
+        "global_scanner_single_threshold": 3.0,
     },
     "llm": {
         "model_type": "deepseek",
