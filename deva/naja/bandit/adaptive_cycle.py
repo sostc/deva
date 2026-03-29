@@ -209,7 +209,11 @@ class AdaptiveCycle:
             entry_price=position.entry_price,
             exit_price=position.current_price,
             open_timestamp=position.entry_time,
-            trigger_adjust=self._auto_adjust_enabled
+            trigger_adjust=self._auto_adjust_enabled,
+            stock_code=position.stock_code,
+            stock_name=position.stock_name,
+            close_reason=reason,
+            signal_confidence=0.5,
         )
         
         log.info(f"自适应循环: 平仓 {position.stock_name} 收益={position.return_pct:.2f}% "
