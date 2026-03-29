@@ -83,6 +83,7 @@ class RadarUI:
         theme = get_current_theme()
         put_html('<div class="container">')
         self._render_header()
+        self._render_openrouter_panel()
         self._render_radar_thread()
         self._render_news_fetcher_panel()
         self._render_process_flow()
@@ -91,6 +92,91 @@ class RadarUI:
         self._render_radar_logic()
         self._render_control_panel()
         put_html('</div>')
+
+    def _render_openrouter_panel(self):
+        """渲染 OpenRouter TOKEN 周消费柱状图"""
+        try:
+            from deva import NB
+
+            db = NB("openrouter_trend")
+            latest_data = db["latest"]
+            if not latest_data:
+                return
+
+            weekly_history = latest_data.get("weekly_history", [])
+            if not weekly_history:
+                return
+
+            rows = weekly_history[-8:] if len(weekly_history) > 8 else weekly_history
+            rows = list(reversed(rows))
+
+            dates = [r["date"].split('-')[1] + '-' + r["date"].split('-')[2] for r in rows]
+            totals = [r["total"] for r in rows]
+
+            max_total = max(totals) if totals else 1
+
+            bars_html = []
+            for i, (date, total) in enumerate(zip(dates, totals)):
+                height_pct = (total / max_total) * 100 if max_total > 0 else 0
+                is_latest = (i == len(rows) - 1)
+                bar_color = '#f59e0b' if is_latest else '#3b82f6'
+                bar_bg = 'rgba(245, 158, 11, 0.15)' if is_latest else 'rgba(59, 130, 246, 0.1)'
+
+                bars_html.append(f'''
+                <div style="flex: 1; display: flex; flex-direction: column; align-items: center; gap: 4px;">
+                    <div style="position: relative; width: 100%; height: 80px; display: flex; align-items: flex-end; justify-content: center;">
+                        <div style="
+                            width: 70%; max-width: 36px;
+                            height: {height_pct:.1f}%;
+                            background: {bar_bg};
+                            border: 1px solid {bar_color}60;
+                            border-radius: 4px 4px 0 0;
+                            {'border-bottom: 2px solid #f59e0b;' if is_latest else ''}
+                        "></div>
+                    </div>
+                    <div style="font-size: 9px; color: {'#f59e0b' if is_latest else '#64748b'}; font-weight: {'600' if is_latest else '400'};">{date}</div>
+                </div>
+                ''')
+
+            bars_container = ''.join(bars_html)
+
+            latest_total = totals[-1] if totals else 0
+            prev_total = totals[-2] if len(totals) > 1 else latest_total
+            change = ((latest_total - prev_total) / prev_total * 100) if prev_total > 0 else 0
+            change_color = '#22c55e' if change > 0 else ('#ef4444' if change < 0 else '#94a3b8')
+            change_icon = '↑' if change > 0 else ('↓' if change < 0 else '-')
+
+            put_html(f'''
+            <div style="
+                margin-bottom: 12px;
+                background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+                border-radius: 14px;
+                padding: 16px 20px;
+                box-shadow: 0 4px 20px rgba(15, 23, 42, 0.25), inset 0 1px 0 rgba(255,255,255,0.05);
+                border: 1px solid #334155;
+            ">
+                <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 14px;">
+                    <span style="font-size: 18px;">🤖</span>
+                    <span style="font-size: 14px; font-weight: 600; color: #f1f5f9;">OpenRouter TOKEN 周消费</span>
+                    <span style="font-size: 10px; color: #64748b; margin-left: auto;">最近 {len(rows)} 周</span>
+                </div>
+                <div style="display: flex; align-items: flex-end; gap: 4px; margin-bottom: 10px;">
+                    {bars_container}
+                </div>
+                <div style="display: flex; justify-content: space-between; align-items: center; padding-top: 8px; border-top: 1px solid #334155;">
+                    <div>
+                        <span style="font-size: 11px; color: #64748b;">本周总计</span>
+                        <span style="font-size: 14px; font-weight: 600; color: #f1f5f9; margin-left: 8px;">{latest_total:,}</span>
+                    </div>
+                    <div style="font-size: 11px; color: {change_color};">
+                        {change_icon} {abs(change):.1f}% vs上周
+                    </div>
+                </div>
+            </div>
+            ''')
+
+        except Exception:
+            pass
 
     def _render_header(self):
         """渲染页面标题 - 酷炫深色风格"""

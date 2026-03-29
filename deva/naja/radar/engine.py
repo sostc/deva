@@ -375,6 +375,7 @@ class RadarEngine:
 
         self._news_fetcher: Optional[RadarNewsFetcher] = None
         self._news_processor: Optional[RadarNewsProcessor] = None
+        self._global_scanner: Optional["GlobalMarketScanner"] = None
 
         self._threads: Dict[str, RadarThread] = {}
         self._thread_lock = threading.Lock()
@@ -383,6 +384,15 @@ class RadarEngine:
         if self._auto_start_news_fetcher:
             _radar_debug_log("自动启动新闻获取器...")
             self.start_news_fetcher(cfg)
+
+        self._auto_start_global_scanner = cfg.get("auto_start_global_scanner", True)
+        if self._auto_start_global_scanner:
+            _radar_debug_log("自动启动全球市场扫描器...")
+            self.start_global_market_scanner(
+                fetch_interval=cfg.get("global_scanner_interval", 60),
+                alert_threshold_volatility=cfg.get("global_scanner_volatility_threshold", 2.0),
+                alert_threshold_single=cfg.get("global_scanner_single_threshold", 3.0),
+            )
 
         if self._retention_days > 0 and self._cleanup_interval_seconds > 0:
             self._start_cleanup_thread()
@@ -584,6 +594,95 @@ class RadarEngine:
         if self._news_fetcher is None:
             return None
         return self._news_fetcher.get_stats()
+
+    def start_global_market_scanner(
+        self,
+        fetch_interval: float = 60,
+        alert_threshold_volatility: float = 2.0,
+        alert_threshold_single: float = 3.0,
+    ) -> bool:
+        """
+        启动全球市场扫描器
+
+        Args:
+            fetch_interval: 获取间隔（秒）
+            alert_threshold_volatility: 波动异常阈值
+            alert_threshold_single: 单次大幅波动阈值
+
+        Returns:
+            是否启动成功
+        """
+        try:
+            if self._global_scanner is not None and self._global_scanner._running:
+                _radar_debug_log("全球市场扫描器已在运行中")
+                return True
+
+            from .global_market_scanner import GlobalMarketScanner
+
+            self._global_scanner = GlobalMarketScanner(
+                fetch_interval=fetch_interval,
+                alert_threshold_volatility=alert_threshold_volatility,
+                alert_threshold_single=alert_threshold_single,
+            )
+
+            self._global_scanner.register_callback(self._on_global_market_alert)
+
+            import asyncio
+            asyncio.create_task(self._global_scanner.start())
+
+            _radar_debug_log(f"全球市场扫描器启动成功, 间隔: {fetch_interval}s")
+            return True
+
+        except Exception as e:
+            _radar_debug_log(f"全球市场扫描器启动失败: {e}")
+            return False
+
+    def stop_global_market_scanner(self):
+        """停止全球市场扫描器"""
+        if self._global_scanner:
+            import asyncio
+            asyncio.create_task(self._global_scanner.stop())
+            self._global_scanner = None
+            _radar_debug_log("全球市场扫描器已停止")
+
+    def _on_global_market_alert(self, alert: "MarketAlert"):
+        """处理全球市场告警"""
+        _radar_debug_log(f"收到全球市场告警: {alert.message}")
+
+        event = RadarEvent(
+            id=alert.id,
+            ts=alert.timestamp.timestamp(),
+            event_type=f"global_market_{alert.alert_type}",
+            score=alert.severity,
+            strategy_id="radar_global_market",
+            strategy_name="Radar Global Market Scanner",
+            signal_type=alert.alert_type,
+            message=alert.message,
+            payload={
+                "market_id": alert.market_id,
+                "name": alert.metadata.get("name", ""),
+                "current": alert.current,
+                "change_pct": alert.change_pct,
+                "open": alert.metadata.get("open", 0),
+                "high": alert.metadata.get("high", 0),
+                "low": alert.metadata.get("low", 0),
+                "prev_close": alert.metadata.get("prev_close", 0),
+                "volume": alert.metadata.get("volume", 0),
+                "is_abnormal": alert.metadata.get("is_abnormal", False),
+            },
+            source="radar_global_market",
+        )
+
+        self._store_event(event)
+        self._emit_to_insight_pool([event])
+
+        self._emit_to_liquidity_cognition(event)
+
+    def get_global_market_scanner_stats(self) -> Optional[Dict[str, Any]]:
+        """获取全球市场扫描器统计"""
+        if self._global_scanner is None:
+            return None
+        return self._global_scanner.get_stats()
 
     def _signal_to_event(self, signal: Dict[str, Any]) -> RadarEvent:
         """将扫描信号转换为雷达事件"""
@@ -809,6 +908,30 @@ class RadarEngine:
                     continue
         except Exception:
             pass
+
+    def _emit_to_liquidity_cognition(self, event: RadarEvent) -> None:
+        """将全球市场事件发送到 LiquidityCognition"""
+        try:
+            from ..cognition.liquidity import get_liquidity_cognition
+
+            cognition = get_liquidity_cognition()
+
+            event_dict = event.to_dict() if hasattr(event, 'to_dict') else {
+                "market_id": event.payload.get("market_id", ""),
+                "current": event.payload.get("current", 0),
+                "change_pct": event.payload.get("change_pct", 0),
+                "volume": event.payload.get("volume", 0),
+                "is_abnormal": event.payload.get("is_abnormal", False),
+                "name": event.payload.get("name", ""),
+            }
+
+            cognition.ingest_global_market_event(event_dict)
+            _radar_debug_log(f"事件已发送到 LiquidityCognition: {event_dict.get('market_id')}")
+
+        except ImportError:
+            _radar_debug_log("LiquidityCognition 未导入，跳过")
+        except Exception as e:
+            _radar_debug_log(f"发送事件到 LiquidityCognition 失败: {e}")
 
     def register_thread(self, thread: RadarThread) -> None:
         """注册雷达监控脉络项"""
