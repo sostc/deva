@@ -1,0 +1,220 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 2700" width="400" height="2700">
+  <style>
+    text { font-family: "PingFang SC", "Microsoft YaHei", "Hiragino Sans GB", "Heiti SC", "Helvetica Neue", sans-serif; }
+  </style>
+  <defs>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#0F172A"/>
+      <stop offset="100%" stop-color="#1E293B"/>
+    </linearGradient>
+    <linearGradient id="heroGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#4F46E5"/>
+      <stop offset="50%" stop-color="#7C3AED"/>
+      <stop offset="100%" stop-color="#2563EB"/>
+    </linearGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="2" stdDeviation="4" flood-color="#000000" flood-opacity="0.3"/>
+    </filter>
+  </defs>
+  <rect width="400" height="2700" fill="url(#bgGrad)"/>
+
+  <!-- HERO: y=0-240 -->
+  <rect x="15" y="10" width="370" height="220" rx="16" fill="url(#heroGrad)" filter="url(#shadow)"/>
+  <text x="200" y="45" text-anchor="middle" fill="#A5B4FC" font-size="10" letter-spacing="2">NAJA ATTENTION OS v3.0</text>
+  <text x="200" y="80" text-anchor="middle" fill="white" font-size="20" font-weight="bold">全球市场流动性预测系统</text>
+  <text x="200" y="105" text-anchor="middle" fill="#C7D2FE" font-size="11">大盘下跌 = 流动性不足（无条件降仓）</text>
+  <text x="200" y="123" text-anchor="middle" fill="#C7D2FE" font-size="11">个股下跌 = 定价问题（精细化操作）</text>
+  <text x="200" y="147" text-anchor="middle" fill="#E0E7FF" font-size="10">双维度框架 · 动态TTL · 自我纠错闭环</text>
+  <text x="200" y="168" text-anchor="middle" fill="#818CF8" font-size="10">Predict · Verify · Self-Correct · Intervene</text>
+  <rect x="130" y="185" width="140" height="28" rx="14" fill="white" opacity="0.15"/>
+  <text x="200" y="205" text-anchor="middle" fill="white" font-size="11" font-weight="bold">智能 · 自进化 · 全局视野</text>
+
+  <!-- SECTION 1: TWO DIMENSIONS: y=250-440 -->
+  <rect x="0" y="245" width="400" height="2" fill="#334155"/>
+  <text x="15" y="275" fill="#94A3B8" font-size="9" letter-spacing="1">01</text>
+  <text x="15" y="298" fill="white" font-size="15" font-weight="bold">双维度决策框架</text>
+  <text x="15" y="318" fill="#94A3B8" font-size="9">Two Dimensions: Macro Liquidity vs Pricing Detection</text>
+
+  <rect x="10" y="330" width="380" height="110" rx="12" fill="#1E293B" filter="url(#shadow)"/>
+  <rect x="18" y="342" width="5" height="86" rx="2" fill="#EF4444"/>
+  <text x="32" y="362" fill="white" font-size="12" font-weight="600">⚠️ 维度一：大盘宏观流动性</text>
+  <text x="32" y="380" fill="#FCA5A5" font-size="9">• 大盘下跌 = 买盘少卖盘多 = 流动性不足（持续状态）</text>
+  <text x="32" y="397" fill="#F87171" font-size="10" font-weight="bold">→ 无条件降仓，不管定价与否</text>
+
+  <rect x="10" y="450" width="380" height="110" rx="12" fill="#1E293B" filter="url(#shadow)"/>
+  <rect x="18" y="462" width="5" height="86" rx="2" fill="#F59E0B"/>
+  <text x="32" y="482" fill="white" font-size="12" font-weight="600">💡 维度二：定价检测</text>
+  <text x="32" y="500" fill="#FCD34D" font-size="9">• 个股/板块下跌 = 信息被一次性Incorporate到价格</text>
+  <text x="32" y="517" fill="#FBBF24" font-size="10" font-weight="bold">→ 已定价则不干预，未定价可操作</text>
+
+  <!-- SECTION 2: PRICING CASES: y=570-820 -->
+  <rect x="0" y="575" width="400" height="2" fill="#334155"/>
+  <text x="15" y="600" fill="#94A3B8" font-size="9" letter-spacing="1">02</text>
+  <text x="15" y="623" fill="white" font-size="15" font-weight="bold">定价检测：5种情况</text>
+  <text x="15" y="643" fill="#94A3B8" font-size="9">信息有没有被市场消化？</text>
+
+  <rect x="10" y="655" width="380" height="165" rx="12" fill="#1E293B" filter="url(#shadow)"/>
+
+  <rect x="20" y="668" width="28" height="28" rx="6" fill="#059669"/>
+  <text x="34" y="687" text-anchor="middle" fill="white" font-size="10" font-weight="bold">1</text>
+  <text x="55" y="680" fill="#6EE7B7" font-size="9">✅ 已定价（低价值）</text>
+  <text x="55" y="694" fill="#94A3B8" font-size="8">美股暴跌-3% → A股低开-1.5%</text>
+
+  <rect x="20" y="698" width="28" height="28" rx="6" fill="#DC2626"/>
+  <text x="34" y="717" text-anchor="middle" fill="white" font-size="10" font-weight="bold">2</text>
+  <text x="55" y="710" fill="#FCA5A5" font-size="9">❌ 未定价（高价值！）</text>
+  <text x="55" y="724" fill="#94A3B8" font-size="8">美股暴跌-3% → A股几乎平开+0.05%</text>
+
+  <rect x="20" y="728" width="28" height="28" rx="6" fill="#D97706"/>
+  <text x="34" y="747" text-anchor="middle" fill="white" font-size="10" font-weight="bold">3</text>
+  <text x="55" y="740" fill="#FCD34D" font-size="9">❌ 未定价（方向相反）</text>
+  <text x="55" y="754" fill="#94A3B8" font-size="8">美股暴跌-3% → A股高开+0.5%</text>
+
+  <rect x="210" y="668" width="28" height="28" rx="6" fill="#6B7280"/>
+  <text x="224" y="687" text-anchor="middle" fill="white" font-size="10" font-weight="bold">4</text>
+  <text x="245" y="680" fill="#9CA3AF" font-size="9">⚠️ 无法判断</text>
+  <text x="245" y="694" fill="#94A3B8" font-size="8">美股小跌-1%（信号太弱）</text>
+
+  <rect x="210" y="698" width="28" height="28" rx="6" fill="#059669"/>
+  <text x="224" y="717" text-anchor="middle" fill="white" font-size="10" font-weight="bold">5</text>
+  <text x="245" y="710" fill="#6EE7B7" font-size="9">✅ 已定价（一次性）</text>
+  <text x="245" y="724" fill="#94A3B8" font-size="8">特斯拉财报跌10%后直接定了</text>
+
+  <rect x="20" y="762" width="360" height="20" rx="5" fill="#312E81"/>
+  <text x="200" y="776" text-anchor="middle" fill="#A5B4FC" font-size="9">📌 大盘宏观流动性独立于定价检测。大盘跌了就要降仓。</text>
+
+  <!-- SECTION 3: RESONANCE: y=830-1000 -->
+  <rect x="0" y="835" width="400" height="2" fill="#334155"/>
+  <text x="15" y="860" fill="#94A3B8" font-size="9" letter-spacing="1">03</text>
+  <text x="15" y="883" fill="white" font-size="15" font-weight="bold">信号共振检测</text>
+  <text x="15" y="903" fill="#94A3B8" font-size="9">行情 × 舆论 — 共振强则权重高</text>
+
+  <rect x="10" y="915" width="380" height="85" rx="12" fill="#1E293B" filter="url(#shadow)"/>
+  <text x="95" y="933" text-anchor="middle" fill="#64748B" font-size="8">行情↑</text>
+  <text x="200" y="933" text-anchor="middle" fill="#64748B" font-size="8">行情↓</text>
+  <text x="305" y="933" text-anchor="middle" fill="#64748B" font-size="8">舆论平稳</text>
+  <text x="35" y="950" fill="#94A3B8" font-size="8">舆论↑</text>
+  <rect x="55" y="942" width="85" height="22" rx="5" fill="#065F46"/>
+  <text x="97" y="957" text-anchor="middle" fill="#6EE7B7" font-size="9" font-weight="bold">高共振 1.0</text>
+  <rect x="147" y="942" width="85" height="22" rx="5" fill="#78350F"/>
+  <text x="190" y="957" text-anchor="middle" fill="#FCD34D" font-size="9" font-weight="bold">中共振 0.5</text>
+  <rect x="239" y="942" width="85" height="22" rx="5" fill="#374151"/>
+  <text x="281" y="957" text-anchor="middle" fill="#9CA3AF" font-size="9" font-weight="bold">低共振 0.3</text>
+  <text x="35" y="975" fill="#94A3B8" font-size="8">舆论↓</text>
+  <rect x="55" y="967" width="85" height="22" rx="5" fill="#78350F"/>
+  <text x="97" y="982" text-anchor="middle" fill="#FCD34D" font-size="9" font-weight="bold">中共振 0.5</text>
+  <rect x="147" y="967" width="85" height="22" rx="5" fill="#065F46"/>
+  <text x="190" y="982" text-anchor="middle" fill="#6EE7B7" font-size="9" font-weight="bold">高共振 1.0</text>
+  <rect x="239" y="967" width="85" height="22" rx="5" fill="#374151"/>
+  <text x="281" y="982" text-anchor="middle" fill="#9CA3AF" font-size="9" font-weight="bold">低共振 0.3</text>
+
+  <!-- SECTION 4: DYNAMIC TTL: y=1010-1180 -->
+  <rect x="0" y="1015" width="400" height="2" fill="#334155"/>
+  <text x="15" y="1040" fill="#94A3B8" font-size="9" letter-spacing="1">04</text>
+  <text x="15" y="1063" fill="white" font-size="15" font-weight="bold">动态TTL：基于市场时段</text>
+  <text x="15" y="1083" fill="#94A3B8" font-size="9">信号有效期 = 一个完整交易时段</text>
+
+  <rect x="10" y="1095" width="380" height="75" rx="12" fill="#1E293B" filter="url(#shadow)"/>
+  <text x="25" y="1115" fill="white" font-size="11" font-weight="600">💡 为什么不用固定TTL？</text>
+  <text x="25" y="1133" fill="#94A3B8" font-size="9">• 5分钟太短：盘中4小时内信号持续有效</text>
+  <text x="25" y="1150" fill="#94A3B8" font-size="9">• 30分钟太长：收盘后信号就没意义了</text>
+  <text x="25" y="1167" fill="#6EE7B7" font-size="9">• 动态TTL：盘中=距收盘剩余，盘后=明天整个时段</text>
+
+  <!-- SECTION 5: TWO-LAYER: y=1190-1360 -->
+  <rect x="0" y="1195" width="400" height="2" fill="#334155"/>
+  <text x="15" y="1220" fill="#94A3B8" font-size="9" letter-spacing="1">05</text>
+  <text x="15" y="1243" fill="white" font-size="15" font-weight="bold">双层预测架构</text>
+
+  <rect x="10" y="1255" width="380" height="105" rx="12" fill="#1E293B" filter="url(#shadow)"/>
+  <rect x="18" y="1268" width="5" height="79" rx="2" fill="#4F46E5"/>
+  <text x="32" y="1288" fill="white" font-size="12" font-weight="600">第一层：宏观流动性</text>
+  <text x="32" y="1306" fill="#94A3B8" font-size="9">• 美股 → A股 50% | 美股 → 港股 80% | 期货 → 多市场 50-60%</text>
+  <text x="32" y="1324" fill="#6EE7B7" font-size="9">→ 主题扩散：芯片 70% · AI 60% · 新能源 50% · 电动车 40%</text>
+
+  <rect x="10" y="1370" width="380" height="65" rx="12" fill="#1E293B" filter="url(#shadow)"/>
+  <rect x="18" y="1382" width="5" height="41" rx="2" fill="#7C3AED"/>
+  <text x="32" y="1402" fill="white" font-size="12" font-weight="600">第二层：主题扩散</text>
+  <text x="32" y="1420" fill="#A5B4FC" font-size="9">美股热点板块 → A股同名板块联动</text>
+
+  <!-- SECTION 6: CLOSED LOOP: y=1450-1700 -->
+  <rect x="0" y="1455" width="400" height="2" fill="#334155"/>
+  <text x="15" y="1480" fill="#94A3B8" font-size="9" letter-spacing="1">06</text>
+  <text x="15" y="1503" fill="white" font-size="15" font-weight="bold">完整闭环：预测 → 验证 → 解除</text>
+  <text x="15" y="1523" fill="#94A3B8" font-size="9">Closed Loop — 自我纠错，永不死扛</text>
+
+  <rect x="10" y="1535" width="380" height="165" rx="12" fill="#1E293B" filter="url(#shadow)"/>
+
+  <rect x="30" y="1550" width="90" height="70" rx="10" fill="#4F46E5"/>
+  <text x="75" y="1573" text-anchor="middle" font-size="18">🔮</text>
+  <text x="75" y="1593" text-anchor="middle" fill="white" font-size="11" font-weight="bold">预测</text>
+  <text x="75" y="1608" text-anchor="middle" fill="#C7D2FE" font-size="8">预判市场走向</text>
+  <text x="135" y="1585" fill="#4F46E5" font-size="14">→</text>
+
+  <rect x="150" y="1550" width="90" height="70" rx="10" fill="#D97706"/>
+  <text x="195" y="1573" text-anchor="middle" font-size="18">🔍</text>
+  <text x="195" y="1593" text-anchor="middle" fill="white" font-size="11" font-weight="bold">验证</text>
+  <text x="195" y="1608" text-anchor="middle" fill="#FEF3C7" font-size="8">积累5个数据点</text>
+  <text x="255" y="1585" fill="#D97706" font-size="14">→</text>
+
+  <rect x="270" y="1550" width="90" height="70" rx="10" fill="#059669"/>
+  <text x="315" y="1573" text-anchor="middle" font-size="18">🔓</text>
+  <text x="315" y="1593" text-anchor="middle" fill="white" font-size="11" font-weight="bold">解除</text>
+  <text x="315" y="1608" text-anchor="middle" fill="#A7F3D0" font-size="8">错误时自动解除</text>
+
+  <rect x="30" y="1635" width="350" height="55" rx="8" fill="#0F172A"/>
+  <text x="200" y="1655" text-anchor="middle" fill="#FCD34D" font-size="10" font-weight="bold">🛡️ 自动解除条件</text>
+  <text x="45" y="1675" fill="#94A3B8" font-size="9">① 动态TTL到期（市场收盘/时段结束）</text>
+  <text x="230" y="1675" fill="#94A3B8" font-size="9">② 验证失败（实际偏差>0.25）</text>
+
+  <!-- SECTION 7: TRADING IMPACT: y=1720-2020 -->
+  <rect x="0" y="1725" width="400" height="2" fill="#334155"/>
+  <text x="15" y="1750" fill="#94A3B8" font-size="9" letter-spacing="1">07</text>
+  <text x="15" y="1773" fill="white" font-size="15" font-weight="bold">实时交易干预</text>
+
+  <rect x="10" y="1785" width="180" height="135" rx="12" fill="#7F1D1D" filter="url(#shadow)"/>
+  <text x="100" y="1808" text-anchor="middle" fill="#FCA5A5" font-size="11" font-weight="600">⚠️ 流动性紧张</text>
+  <text x="100" y="1830" text-anchor="middle" fill="#FCA5A5" font-size="9">signal &lt; 0.4</text>
+  <text x="25" y="1853" fill="#FCA5A5" font-size="9">• 降低仓位 20-30%</text>
+  <text x="25" y="1868" fill="#FCA5A5" font-size="9">• 减少高频交易</text>
+  <text x="25" y="1883" fill="#FCA5A5" font-size="9">• AnomalySniper +0.2</text>
+  <text x="25" y="1898" fill="#FCA5A5" font-size="9">• MomentumTracker -0.2</text>
+  <text x="25" y="1915" fill="#F87171" font-size="8">高频阈值 ×1.3</text>
+
+  <rect x="200" y="1785" width="190" height="135" rx="12" fill="#064E3B" filter="url(#shadow)"/>
+  <text x="295" y="1808" text-anchor="middle" fill="#6EE7B7" font-size="11" font-weight="600">✓ 流动性宽松</text>
+  <text x="295" y="1830" text-anchor="middle" fill="#6EE7B7" font-size="9">signal &gt; 0.7</text>
+  <text x="210" y="1853" fill="#6EE7B7" font-size="9">• 适度加仓</text>
+  <text x="210" y="1868" fill="#6EE7B7" font-size="9">• 关注趋势机会</text>
+  <text x="210" y="1883" fill="#6EE7B7" font-size="9">• MomentumTracker +0.1</text>
+  <text x="210" y="1898" fill="#6EE7B7" font-size="9">• 高频阈值 ×0.9</text>
+  <text x="210" y="1915" fill="#34D399" font-size="8">布局热点板块联动</text>
+
+  <!-- SECTION 8: CASE: y=2030-2300 -->
+  <rect x="0" y="2035" width="400" height="2" fill="#334155"/>
+  <text x="15" y="2060" fill="#94A3B8" font-size="9" letter-spacing="1">08</text>
+  <text x="15" y="2083" fill="white" font-size="15" font-weight="bold">实战案例</text>
+
+  <rect x="10" y="2095" width="380" height="200" rx="12" fill="#1E293B" filter="url(#shadow)"/>
+  <text x="200" y="2118" text-anchor="middle" fill="#FCD34D" font-size="12" font-weight="bold">📊 美股暴跌引发全球流动性紧张</text>
+  <text x="25" y="2143" fill="#94A3B8" font-size="9">22:30 美股SOX指数暴跌4%，新闻头条唱空</text>
+  <text x="25" y="2161" fill="#6EE7B7" font-size="9">→ 行情信号=-0.2, 舆论信号=-0.7, 高共振(权重1.0)</text>
+  <text x="25" y="2186" fill="#FCD34D" font-size="10" font-weight="600">🔮 预测 →</text>
+  <text x="25" y="2204" fill="#CBD5E1" font-size="9">A股 signal=0.20（极度紧张⚠️）港股 signal=0.25（极度紧张⚠️）</text>
+  <text x="25" y="2222" fill="#94A3B8" font-size="9">→ 动态TTL = 距A股/港股收盘的剩余时间</text>
+  <text x="25" y="2247" fill="#FCD34D" font-size="10" font-weight="600">⚡ 干预 →</text>
+  <text x="25" y="2265" fill="#FCA5A5" font-size="9">立即降低仓位25% · 减少高频 · AnomalySniper+0.2</text>
+  <text x="25" y="2283" fill="#6EE7B7" font-size="9">✅ 23:00港股开盘验证，prediction=0.25 vs 实际=0.22，偏差在阈值内</text>
+
+  <!-- FOOTER: y=2310-2580 -->
+  <rect x="0" y="2310" width="400" height="2" fill="#334155"/>
+  <rect x="10" y="2320" width="380" height="230" rx="14" fill="#0F172A"/>
+  <text x="200" y="2355" text-anchor="middle" fill="white" font-size="14" font-weight="bold">长按识别二维码 · 关注公众号</text>
+  <text x="200" y="2378" text-anchor="middle" fill="#94A3B8" font-size="10">公众号：决战2050</text>
+  <rect x="140" y="2395" width="120" height="120" rx="8" fill="white" filter="url(#shadow)"/>
+  <image x="145" y="2400" width="110" height="110" href="data:image/png;base64,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"/>
+  <text x="200" y="2545" text-anchor="middle" fill="#94A3B8" font-size="9">阅读原创文章 · 获取更多资讯</text>
+  <text x="200" y="2563" text-anchor="middle" fill="#64748B" font-size="8">底部菜单「联系我」· 留言必回</text>
+  <rect x="15" y="2573" width="370" height="2" fill="#334155" opacity="0.5"/>
+  <text x="200" y="2593" text-anchor="middle" fill="#475569" font-size="9">Naja Attention OS · 全球流动性预测系统 v3.0</text>
+  <text x="200" y="2608" text-anchor="middle" fill="#334155" font-size="8">Powered by AI · RecoverableUnit · Self-Evolution</text>
+</svg>
