@@ -185,6 +185,8 @@ class GlobalMarketScanner:
         }
 
         self._auto_tuner_registered = False
+        self._propagation_engine = None
+        self._sync_to_propagation = False
 
     @property
     def api(self) -> GlobalMarketAPI:
@@ -201,6 +203,34 @@ class GlobalMarketScanner:
     def register_callback(self, callback: callable):
         """注册回调函数，接收市场告警"""
         self._callbacks.append(callback)
+
+    def enable_propagation_engine_sync(self, propagation_engine):
+        """
+        启用 PropagationEngine 同步
+
+        每次扫描到新数据后，自动同步到 PropagationEngine
+        """
+        self._propagation_engine = propagation_engine
+        self._sync_to_propagation = True
+        _global_market_log("已启用 PropagationEngine 同步")
+
+    def disable_propagation_engine_sync(self):
+        """禁用 PropagationEngine 同步"""
+        self._sync_to_propagation = False
+        self._propagation_engine = None
+        _global_market_log("已禁用 PropagationEngine 同步")
+
+    def _sync_to_propagation_engine(self, data: Dict[str, MarketData]):
+        """同步数据到 PropagationEngine"""
+        if not self._sync_to_propagation or not self._propagation_engine:
+            return
+
+        try:
+            count = self._propagation_engine.sync_from_global_market_api(data)
+            if count > 0:
+                _global_market_log(f"同步 {count} 个市场数据到 PropagationEngine")
+        except Exception as e:
+            _global_market_log(f"同步到 PropagationEngine 失败: {e}")
 
     def _register_to_autotuner(self):
         """注册到自动调优器"""
@@ -330,6 +360,8 @@ class GlobalMarketScanner:
 
             self._stats["success_count"] += 1
             self._last_market_data = data
+
+            self._sync_to_propagation_engine(data)
         except Exception as e:
             log.error(f"[GlobalMarketScanner] 获取数据异常: {e}")
             self._stats["error_count"] += 1
@@ -427,6 +459,7 @@ class GlobalMarketScanner:
         """手动获取一次数据"""
         data = await self.api.fetch_all()
         self._last_market_data = data
+        self._sync_to_propagation_engine(data)
         return data
 
     def get_last_data(self) -> Dict[str, MarketData]:

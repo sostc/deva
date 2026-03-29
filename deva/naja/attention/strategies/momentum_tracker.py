@@ -156,7 +156,7 @@ class MomentumSurgeTracker(AttentionStrategyBase):
     
     def _analyze_symbol(self, symbol: str, row: Any, context: Dict[str, Any]) -> Optional[Signal]:
         """分析单个股票"""
-        current_time = time.time()
+        current_time = self._get_market_time()
         
         # 提取数据
         price = row.get('close', row.get('price', 0))
@@ -303,7 +303,7 @@ class MomentumSurgeTracker(AttentionStrategyBase):
                     confidence=confidence,
                     score=abs(p_change),
                     reason=f"动量信号 | p_change: {p_change:.2%}",
-                    timestamp=time.time(),
+                    timestamp=self._get_market_time(),
                     metadata={
                         'p_change': p_change,
                         'price': row.get('close', 0),

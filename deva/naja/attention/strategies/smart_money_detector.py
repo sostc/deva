@@ -137,7 +137,7 @@ class SmartMoneyFlowDetector(AttentionStrategyBase):
     
     def _update_flow_history(self, symbol: str, imbalance: float, flow_data: Dict[str, float]):
         """更新资金流向历史"""
-        current_time = time.time()
+        current_time = self._get_market_time()
         
         if symbol not in self.money_flow_history:
             self.money_flow_history[symbol] = deque(maxlen=30)
@@ -246,7 +246,7 @@ class SmartMoneyFlowDetector(AttentionStrategyBase):
     
     def _analyze_symbol(self, symbol: str, row: Any, context: Dict[str, Any]) -> Optional[Signal]:
         """分析单个股票的资金流向"""
-        current_time = time.time()
+        current_time = self._get_market_time()
         
         # 分析 tick 数据
         flow_data = self._analyze_tick_data(symbol, row)
