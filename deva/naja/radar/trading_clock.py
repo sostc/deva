@@ -16,6 +16,16 @@ TradingClock - 交易时间信号中心
     >>> from deva.naja.radar.trading_clock import get_trading_clock, TRADING_CLOCK_STREAM
     >>> tc = get_trading_clock()
     >>> TRADING_CLOCK_STREAM.sink(lambda x: print(f"交易信号: {x}"))
+
+---
+
+TODO (2026-03-29): 当开始做美股交易时，需要将 GlobalMarketConfig 集成进来
+参考: AGENTS.md 中的 "TradingClock 与 GlobalMarketConfig 集成"
+需要:
+1. 创建 GlobalTradingClock 支持多时区（NY、Shanghai、HK）
+2. 将 MarketSessionManager 的状态发布到 TRADING_CLOCK_STREAM
+3. GlobalMarketScanner 改为订阅 TradingClock 信号
+
 """
 
 import threading
