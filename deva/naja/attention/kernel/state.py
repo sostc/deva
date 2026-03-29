@@ -40,6 +40,19 @@ class QueryState:
         self._value_system = None
         self.active_value_type = "trend"
         self.last_decision_reason = ""
+        self.macro_liquidity_signal = 0.5
+
+    def set_macro_liquidity_signal(self, signal: float):
+        """
+        设置宏观流动性信号
+
+        Args:
+            signal: 流动性信号值 (0-1)
+                   < 0.4: 紧张
+                   0.4-0.6: 中性
+                   > 0.6: 宽松
+        """
+        self.macro_liquidity_signal = float(np.clip(signal, 0.1, 0.9))
 
     def _get_value_system(self):
         """获取价值观系统（延迟初始化）"""
@@ -217,6 +230,8 @@ class QueryState:
 
         self._detect_and_update_regime(returns, timestamp)
 
+        self._update_macro_liquidity_signal(returns, volumes, timestamp)
+
         self._calculate_and_update_risk_bias(returns, volumes, timestamp)
 
         self._derive_and_update_attention_focus(
@@ -267,6 +282,46 @@ class QueryState:
             "change_std": float(change_std),
         }
 
+    def _update_macro_liquidity_signal(self, returns, volumes, timestamp):
+        """
+        根据市场数据更新宏观流动性信号
+
+        流动性信号范围 0-1：
+        - < 0.4: 流动性紧张，需要谨慎
+        - 0.4-0.6: 中性
+        - > 0.6: 流动性宽松，可以更激进
+
+        流动性判断依据：
+        1. 市场整体涨跌（跌 → 紧张）
+        2. 成交量变化（缩量 → 紧张）
+        3. 波动率（高波动 → 紧张）
+        """
+        if len(returns) == 0 or len(volumes) == 0:
+            return
+
+        avg_change = np.mean(returns)
+        change_std = np.std(returns)
+
+        avg_volume = np.mean(volumes)
+        volume_std = np.std(volumes)
+
+        volume_trend = volume_std / max(avg_volume, 1) if avg_volume > 0 else 0
+
+        change_score = np.clip(-avg_change / 5.0, -1.0, 1.0)
+
+        volatility_penalty = np.clip(change_std / 3.0, 0, 1.0)
+
+        volume_score = np.clip(volume_trend / 0.5, -1.0, 1.0) if volume_trend > 0.2 else 0.3
+
+        raw_signal = (change_score * 0.4 + volume_score * 0.3 - volatility_penalty * 0.3)
+
+        raw_signal = (raw_signal + 1.0) / 2.0
+
+        smoothing = 0.9
+        self.macro_liquidity_signal = smoothing * self.macro_liquidity_signal + (1 - smoothing) * raw_signal
+
+        self.macro_liquidity_signal = float(np.clip(self.macro_liquidity_signal, 0.1, 0.9))
+
     def _calculate_and_update_risk_bias(self, returns, volumes, timestamp):
         """根据市场波动率和持仓状态计算并更新风险偏好"""
         if len(returns) == 0:
@@ -299,6 +354,11 @@ class QueryState:
 
             if self.portfolio_state.get("concentration", 0) > 0.5:
                 risk_bias *= 0.8
+
+        if self.macro_liquidity_signal < 0.4:
+            risk_bias *= 0.85
+        elif self.macro_liquidity_signal > 0.7:
+            risk_bias = min(risk_bias * 1.1, 0.95)
 
         self.risk_bias = float(np.clip(risk_bias, 0.1, 0.9))
 

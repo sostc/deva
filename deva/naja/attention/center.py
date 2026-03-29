@@ -229,14 +229,45 @@ class AttentionOrchestrator:
             multi_head = MultiHeadAttention(heads)
             memory = AttentionMemory(decay_rate=300)
 
-            self._attention_kernel = AttentionKernel(encoder, multi_head, memory)
+            self._attention_kernel = AttentionKernel(encoder, multi_head, memory, enable_four_dimensions=False)
             self._attention_query_state = QueryState()
 
-            _lab_debug_log("AttentionKernel 初始化完成")
+            self._init_four_dimensions_manager()
+
+            _lab_debug_log("AttentionKernel 初始化完成，四维决策框架管理器已就绪（条件触发）")
         except Exception as e:
             log.error(f"AttentionKernel 初始化失败: {e}")
             self._attention_kernel = None
             self._attention_query_state = None
+
+    def _init_four_dimensions_manager(self):
+        """初始化四维决策框架管理器"""
+        try:
+            from .kernel import (
+                setup_four_dimensions_manager,
+                TriggerConfig,
+            )
+
+            config = TriggerConfig(
+                auto_enable_low_cash=True,
+                auto_enable_extreme_market=True,
+                low_cash_threshold=0.2,
+                extreme_low_signal=0.3,
+                extreme_high_signal=0.8,
+            )
+
+            self._four_dimensions_manager = setup_four_dimensions_manager(
+                self._attention_kernel, config
+            )
+
+            _lab_debug_log("四维决策框架管理器初始化完成")
+        except Exception as e:
+            log.error(f"四维决策框架管理器初始化失败: {e}")
+            self._four_dimensions_manager = None
+
+    def get_four_dimensions_manager(self):
+        """获取四维决策框架管理器"""
+        return getattr(self, '_four_dimensions_manager', None)
 
     def get_attention_kernel(self):
         """获取 AttentionKernel 实例"""
@@ -245,6 +276,12 @@ class AttentionOrchestrator:
     def get_query_state(self):
         """获取 QueryState 实例"""
         return self._attention_query_state
+
+    def _update_four_dimensions(self):
+        """更新四维决策框架状态（条件触发）"""
+        manager = self.get_four_dimensions_manager()
+        if manager:
+            manager.update()
 
     def _process_with_kernel(self, data, symbols, returns, volumes, prices, timestamp):
         """使用 AttentionKernel 处理市场快照数据"""
@@ -443,6 +480,8 @@ class AttentionOrchestrator:
         self._dispatch_to_strategies(datasource_id, data)
         print(f"[DEBUG] _dispatch_to_strategies returned")
 
+        self._update_four_dimensions()
+
         if _PERFORMANCE_MONITORING_AVAILABLE:
             latency = (time.time() - start_time) * 1000
             record_component_execution(
@@ -602,6 +641,8 @@ class AttentionOrchestrator:
                 )
 
                 self._update_portfolio_state()
+
+                self._update_macro_liquidity_from_scanner()
 
                 self._update_signal_stream_query_state()
 
@@ -1192,6 +1233,160 @@ class AttentionOrchestrator:
             pass
         except Exception as e:
             _lab_debug_log(f"[Portfolio] 更新持仓状态失败: {e}")
+
+    def _update_macro_liquidity_from_scanner(self):
+        """
+        从 GlobalMarketScanner 更新宏观流动性信号，并影响各子系统
+
+        核心逻辑：
+        1. 大盘下跌（平均涨跌）= 流动性不足 → 降仓、减高频
+        2. 定价检测只用于板块/个股级别判断，不用于大盘宏观
+        3. 宏观流动性信号独立于定价检测
+        """
+        try:
+            from deva.naja.radar.global_market_scanner import get_global_market_scanner
+            from deva.naja.radar.global_market_scanner import LiquiditySignalType
+            scanner = get_global_market_scanner()
+
+            summary = scanner.get_market_summary()
+            market_data = scanner.get_last_data()
+            if not market_data:
+                return
+
+            total_change = 0.0
+            count = 0
+            for code, md in market_data.items():
+                if md.change_pct != 0:
+                    total_change += md.change_pct
+                    count += 1
+
+            avg_change = total_change / max(count, 1) if count > 0 else 0
+            phase = summary.get('us_trading_phase', 'closed')
+
+            if phase == 'trading':
+                phase_factor = 1.0
+            elif phase in ('pre_market', 'after_hours'):
+                phase_factor = 0.7
+            else:
+                phase_factor = 0.4
+
+            change_score = np.clip(-avg_change / 5.0, -1.0, 1.0)
+            raw_signal = (change_score * 0.6 + (phase_factor - 0.5) * 0.4 + 1.0) / 2.0
+
+            liquidity_status = "宽松" if raw_signal > 0.6 else ("紧张" if raw_signal < 0.4 else "中性")
+            _lab_debug_log(f"[MacroLiquidity] 大盘平均涨跌={avg_change:.2f}%({liquidity_status}), 美股时段={phase}, signal={raw_signal:.3f}")
+
+            self._attention_query_state.set_macro_liquidity_signal(raw_signal)
+            self._apply_liquidity_to_sector_attention(raw_signal)
+            self._apply_liquidity_to_strategy_budget(raw_signal)
+            self._apply_liquidity_to_frequency(raw_signal)
+
+        except ImportError:
+            pass
+        except Exception as e:
+            _lab_debug_log(f"[MacroLiquidity] 更新失败: {e}")
+
+    def _apply_liquidity_to_sector_attention(self, liquidity_signal: float):
+        """
+        根据宏观流动性信号调整板块注意力
+
+        流动性紧张时：
+        - 降低高波动板块的权重
+        - 提高防守板块（消费、医药）的权重
+        """
+        try:
+            if not hasattr(self, '_integration') or not self._integration.attention_system:
+                return
+
+            sector_attention = self._integration.attention_system.sector_attention
+            if not hasattr(sector_attention, '_attention_scores') or not hasattr(sector_attention, '_sector_id_to_idx'):
+                return
+
+            if liquidity_signal < 0.4:
+                adjustment_factor = 0.8
+            elif liquidity_signal > 0.7:
+                adjustment_factor = 1.1
+            else:
+                adjustment_factor = 1.0
+
+            if adjustment_factor != 1.0:
+                high_volatility_sectors = ["科技", "半导体", "新能源", "汽车", "有色", "煤炭", "钢铁"]
+                for sector_id, idx in list(sector_attention._sector_id_to_idx.items()):
+                    if not hasattr(sector_attention, '_sectors') or sector_id not in sector_attention._sectors:
+                        continue
+                    sector_name = sector_attention._sectors[sector_id].name if sector_attention._sectors.get(sector_id) else ""
+                    for hv_sector in high_volatility_sectors:
+                        if hv_sector in sector_name:
+                            old_score = float(sector_attention._attention_scores[idx])
+                            new_score = old_score * adjustment_factor
+                            sector_attention._attention_scores[idx] = np.clip(new_score, 0.0, 1.0)
+                            break
+
+        except Exception as e:
+            _lab_debug_log(f"[MacroLiquidity-Sector] 调整板块注意力失败: {e}")
+
+    def _apply_liquidity_to_strategy_budget(self, liquidity_signal: float):
+        """
+        根据宏观流动性信号调整策略预算
+
+        流动性紧张时：
+        - 增加 AnomalySniper 预算（关注异常）
+        - 减少 MomentumTracker 预算（减少趋势追涨）
+        """
+        try:
+            if not hasattr(self, '_integration') or not self._integration.attention_system:
+                return
+
+            if liquidity_signal < 0.4:
+                budget_adjustment = {
+                    "AnomalySniper": 0.2,
+                    "MomentumTracker": -0.2,
+                }
+            elif liquidity_signal > 0.7:
+                budget_adjustment = {
+                    "AnomalySniper": -0.1,
+                    "MomentumTracker": 0.1,
+                }
+            else:
+                return
+
+            if hasattr(self._integration.attention_system, '_strategy_budget'):
+                for strategy, delta in budget_adjustment.items():
+                    current = self._integration.attention_system._strategy_budget.get(strategy, 0.5)
+                    new_budget = max(0.1, min(0.9, current + delta))
+                    self._integration.attention_system._strategy_budget[strategy] = new_budget
+                    _lab_debug_log(f"[MacroLiquidity-Budget] {strategy}: {current:.2f} -> {new_budget:.2f}")
+
+        except Exception as e:
+            _lab_debug_log(f"[MacroLiquidity-Budget] 调整策略预算失败: {e}")
+
+    def _apply_liquidity_to_frequency(self, liquidity_signal: float):
+        """
+        根据宏观流动性信号调整决策频率
+
+        流动性紧张时：
+        - 提高 high_freq 阈值，减少高频交易
+        - 延长决策周期
+        """
+        try:
+            if not hasattr(self, '_integration') or not self._integration.attention_system:
+                return
+
+            if liquidity_signal < 0.4:
+                freq_adjustment = 1.3
+            elif liquidity_signal > 0.7:
+                freq_adjustment = 0.9
+            else:
+                freq_adjustment = 1.0
+
+            if freq_adjustment != 1.0 and hasattr(self._integration.attention_system, '_high_freq_threshold'):
+                old_threshold = self._integration.attention_system._high_freq_threshold
+                new_threshold = old_threshold * freq_adjustment
+                self._integration.attention_system._high_freq_threshold = new_threshold
+                _lab_debug_log(f"[MacroLiquidity-Freq] high_freq_threshold: {old_threshold:.3f} -> {new_threshold:.3f}")
+
+        except Exception as e:
+            _lab_debug_log(f"[MacroLiquidity-Freq] 调整频率失败: {e}")
 
     def _update_signal_stream_query_state(self):
         """将 QueryState 同步到 SignalStream 用于优先级计算"""
