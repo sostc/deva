@@ -32,6 +32,10 @@ async def render_attention_admin(ctx: dict):
         render_dual_engine_status, render_noise_filter_status, render_hot_sectors_and_stocks,
         render_market_state_panel,
     )
+    from .kernel import (
+        render_kernel_dashboard, render_kernel_live_view,
+        render_attention_flow_diagram, render_four_dimensions_status,
+    )
     from .timeline import (
         render_attention_timeline, render_sector_trends, render_attention_shift_report,
         render_multi_threshold_timeline, render_attention_changes, render_recent_signals,
@@ -242,6 +246,9 @@ async def render_attention_admin(ctx: dict):
             render_help_collapse("attention")
         except Exception:
             pass
+
+    with use_scope("attention_four_dimensions"):
+        put_html(render_four_dimensions_status())
 
     with use_scope("attention_market_state"):
         put_html(render_market_state_panel())

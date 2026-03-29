@@ -59,6 +59,7 @@ def render_query_state_panel(query_state: Dict[str, Any]) -> str:
     market_regime = query_state.get("market_regime", {})
     attention_focus = query_state.get("attention_focus", {})
     risk_bias = query_state.get("risk_bias", 0.5)
+    macro_liquidity_signal = query_state.get("macro_liquidity_signal", 0.5)
 
     regime_type = market_regime.get("type", "unknown") if isinstance(market_regime, dict) else "unknown"
     regime_colors = {
@@ -68,6 +69,16 @@ def render_query_state_panel(query_state: Dict[str, Any]) -> str:
         "neutral": "#94a3b8"
     }
     regime_color = regime_colors.get(regime_type, "#94a3b8")
+
+    if macro_liquidity_signal < 0.4:
+        liquidity_label = "紧张"
+        liquidity_color = "#f87171"
+    elif macro_liquidity_signal > 0.7:
+        liquidity_label = "宽松"
+        liquidity_color = "#4ade80"
+    else:
+        liquidity_label = "中性"
+        liquidity_color = "#fbbf24"
 
     focus_items = ""
     for key, value in attention_focus.items():
@@ -104,6 +115,14 @@ def render_query_state_panel(query_state: Dict[str, Any]) -> str:
                 <div style="background: #f87171; border-radius: 4px; height: 8px; width: {risk_bias * 100}%;"></div>
             </div>
             <span style="color: #f87171; margin-left: 5px;">{risk_bias:.2f}</span>
+        </div>
+
+        <div style="margin: 10px 0;">
+            <span style="color: #94a3b8;">宏观流动性:</span>
+            <div style="background: #334155; border-radius: 4px; height: 8px; width: 150px; display: inline-block; vertical-align: middle; margin-left: 10px;">
+                <div style="background: {liquidity_color}; border-radius: 4px; height: 8px; width: {macro_liquidity_signal * 100}%;"></div>
+            </div>
+            <span style="color: {liquidity_color}; margin-left: 5px;">{macro_liquidity_signal:.2f} ({liquidity_label})</span>
         </div>
 
         <div style="margin: 15px 0;">
@@ -496,4 +515,211 @@ __all__ = [
     "render_feedback_panel",
     "render_kernel_live_view",
     "render_attention_flow_diagram",
+    "render_four_dimensions_status",
 ]
+
+
+def render_four_dimensions_status() -> str:
+    """渲染四维决策框架状态"""
+
+    try:
+        from deva.naja.attention.kernel import (
+            get_four_dimensions_manager,
+            FourDimensions,
+        )
+    except ImportError:
+        return """
+        <div style="
+            background: #f1f5f9;
+            border-radius: 8px;
+            padding: 12px;
+            margin: 10px 0;
+            border: 1px solid #e2e8f0;
+        ">
+            <div style="font-size: 12px; color: #64748b;">
+                四维决策框架模块未安装
+            </div>
+        </div>
+        """
+
+    manager = get_four_dimensions_manager()
+
+    if manager is None:
+        return """
+        <div style="
+            background: linear-gradient(135deg, #fef3c7, #fde68a);
+            border-radius: 8px;
+            padding: 12px;
+            margin: 10px 0;
+            border: 1px solid #f59e0b;
+        ">
+            <div style="display: flex; align-items: center; gap: 8px;">
+                <span style="font-size: 16px;">🎯</span>
+                <div>
+                    <div style="font-size: 13px; font-weight: 600; color: #92400e;">
+                        四维决策框架
+                    </div>
+                    <div style="font-size: 11px; color: #b45309;">
+                        未启用管理器 · 建议使用 FourDimensionsManager
+                    </div>
+                </div>
+            </div>
+        </div>
+        """
+
+    kernel_fd_enabled = manager.kernel.is_four_dimensions_enabled()
+    trigger_status = manager.trigger.get_status()
+    auto_mode = manager.trigger.is_auto_mode()
+
+    fd = FourDimensions()
+    fd.update(
+        session_manager=manager.trigger._get_session_manager(),
+        portfolio=manager.trigger._get_portfolio(),
+        strategy_manager=manager.trigger._get_strategy_manager(),
+        scanner=manager.trigger._get_scanner(),
+        macro_signal=0.5
+    )
+
+    if kernel_fd_enabled:
+        status_label = "已启用"
+        status_color = "#16a34a"
+        bg_color = "#f0fdf4"
+        border_color = "#bbf7d0"
+    else:
+        status_label = "已关闭"
+        status_color = "#64748b"
+        bg_color = "#f8fafc"
+        border_color = "#e2e8f0"
+
+    time_icon = "🟢" if fd.time.is_trading_open else "🔴"
+    time_text = "交易中" if fd.time.is_trading_open else "非交易"
+    capital_bar = min(fd.capital.cash_ratio * 100, 100)
+    capital_color = "#16a34a" if fd.capital.cash_ratio > 0.2 else "#dc2626"
+    capital_text = "有子弹" if fd.capital.has_bullets else "⚠️子弹不足"
+    cap_icon = "💰"
+    cap_text = "就绪" if fd.capability.is_ready else "⚠️未就绪"
+    market_icon = "📊"
+    if fd.market.liquidity_signal < 0.3:
+        market_status_text = "极度恐慌"
+        market_color = "#dc2626"
+    elif fd.market.liquidity_signal > 0.7:
+        market_status_text = "极度贪婪"
+        market_color = "#16a34a"
+    else:
+        market_status_text = "中性"
+        market_color = "#ca8a04"
+
+    should_enable = trigger_status.get('should_enable', False)
+    trigger_reason = trigger_status.get('trigger_reason', None) or '-'
+
+    return f"""
+    <div style="
+        background: {bg_color};
+        border-radius: 10px;
+        padding: 14px;
+        margin: 10px 0;
+        border: 1px solid {border_color};
+    ">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+            <div style="display: flex; align-items: center; gap: 8px;">
+                <span style="font-size: 18px;">🎯</span>
+                <div>
+                    <div style="font-size: 14px; font-weight: 600; color: {status_color};">
+                        四维决策框架
+                    </div>
+                    <div style="font-size: 11px; color: #64748b;">
+                        {'自动模式' if auto_mode else '手动模式'}
+                    </div>
+                </div>
+            </div>
+            <div style="
+                background: {status_color};
+                color: white;
+                padding: 4px 10px;
+                border-radius: 12px;
+                font-size: 12px;
+                font-weight: 600;
+            ">
+                {status_label}
+            </div>
+        </div>
+
+        <div style="display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 10px; margin-bottom: 12px;">
+            <div style="background: white; border-radius: 6px; padding: 10px; text-align: center;">
+                <div style="font-size: 18px; margin-bottom: 4px;">⏰</div>
+                <div style="font-size: 12px; color: #0f172a;">{time_icon} {time_text}</div>
+                <div style="font-size: 10px; color: #64748b; margin-top: 2px;">压力: {fd.time.pressure:.0%}</div>
+            </div>
+
+            <div style="background: white; border-radius: 6px; padding: 10px; text-align: center;">
+                <div style="font-size: 18px; margin-bottom: 4px;">{cap_icon}</div>
+                <div style="font-size: 12px; color: {capital_color};">{capital_text}</div>
+                <div style="
+                    background: #e2e8f0;
+                    border-radius: 3px;
+                    height: 5px;
+                    width: 100%;
+                    margin-top: 4px;
+                ">
+                    <div style="
+                        background: {capital_color};
+                        border-radius: 3px;
+                        height: 5px;
+                        width: {capital_bar}%;
+                    "></div>
+                </div>
+                <div style="font-size: 10px; color: #64748b; margin-top: 2px;">{fd.capital.cash_ratio:.0%}</div>
+            </div>
+
+            <div style="background: white; border-radius: 6px; padding: 10px; text-align: center;">
+                <div style="font-size: 18px; margin-bottom: 4px;">🛠️</div>
+                <div style="font-size: 12px; color: #0f172a;">{cap_text}</div>
+                <div style="font-size: 10px; color: #64748b; margin-top: 2px;">{fd.capability.strategy_count} 策略</div>
+            </div>
+
+            <div style="background: white; border-radius: 6px; padding: 10px; text-align: center;">
+                <div style="font-size: 18px; margin-bottom: 4px;">{market_icon}</div>
+                <div style="font-size: 12px; color: {market_color};">{market_status_text}</div>
+                <div style="font-size: 10px; color: {market_color}; margin-top: 2px;">{fd.market.liquidity_signal:.2f}</div>
+            </div>
+        </div>
+
+        <div style="
+            background: rgba(0,0,0,0.03);
+            border-radius: 6px;
+            padding: 10px;
+            font-size: 11px;
+        ">
+            <div style="display: flex; justify-content: space-between; margin-bottom: 4px;">
+                <span style="color: #64748b;">自动触发条件:</span>
+                <span style="color: {'#16a34a' if should_enable else '#94a3b8'};">
+                    {'✅ 满足' if should_enable else '❌ 不满足'}
+                </span>
+            </div>
+            <div style="display: flex; justify-content: space-between;">
+                <span style="color: #64748b;">触发原因:</span>
+                <span style="color: #7c3aed;">{trigger_reason}</span>
+            </div>
+        </div>
+
+        <div style="
+            margin-top: 10px;
+            padding: 10px;
+            background: rgba(14, 165, 233, 0.08);
+            border-radius: 6px;
+            font-size: 10px;
+            color: #64748b;
+        ">
+            <div style="font-weight: 600; color: #0ea5e9; margin-bottom: 6px;">💡 四维决策框架说明</div>
+            <div style="margin-bottom: 4px;">
+                <strong>四维：</strong>天时(时间) · 资金(子弹) · 能力(策略) · 市场(机会)
+            </div>
+            <div style="margin-bottom: 4px;">
+                <strong>门控：</strong>时间非交易→alpha=0 | 资金不足→alpha=0 | 策略未就绪→alpha×0.3
+            </div>
+            <div>
+                <strong>自动启用条件：</strong>资金 &lt;20% 或 市场信号 &lt;0.3 或 &gt;0.8 时自动启用保守模式
+            </div>
+        </div>
+    </div>
+    """

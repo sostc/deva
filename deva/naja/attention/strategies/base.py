@@ -519,7 +519,8 @@ class AttentionStrategyBase(ABC):
                 component_name=f"策略分析: {self.name}",
                 component_type=ComponentType.STRATEGY,
                 execution_time_ms=analyze_elapsed,
-                success=True
+                success=True,
+                expected_interval_ms=self._get_dynamic_interval(global_attention) * 1000,
             )
 
         return signals

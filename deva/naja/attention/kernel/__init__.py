@@ -9,6 +9,8 @@ Attention Kernel - 事件级注意力计算核心
 - MultiHeadAttention：多头注意力融合
 - AttentionMemory：持久注意力记忆
 - AttentionKernel：核心注意力中枢
+- FourDimensions：四维决策框架
+- FourDimensionsTrigger：四维智能触发器
 """
 
 from .event import AttentionEvent
@@ -19,6 +21,8 @@ from .multi_head import MultiHeadAttention
 from .memory import AttentionMemory
 from .kernel import AttentionKernel
 from .heads import get_default_heads, get_regime_aware_heads
+from .four_dimensions import FourDimensions, TimeDimension, CapitalDimension, CapabilityDimension, MarketDimension
+from .four_dimensions_trigger import FourDimensionsTrigger, TriggerConfig, FourDimensionsManager, get_four_dimensions_manager, setup_four_dimensions_manager
 
 __all__ = [
     "AttentionEvent",
@@ -30,4 +34,14 @@ __all__ = [
     "AttentionKernel",
     "get_default_heads",
     "get_regime_aware_heads",
+    "FourDimensions",
+    "TimeDimension",
+    "CapitalDimension",
+    "CapabilityDimension",
+    "MarketDimension",
+    "FourDimensionsTrigger",
+    "TriggerConfig",
+    "FourDimensionsManager",
+    "get_four_dimensions_manager",
+    "setup_four_dimensions_manager",
 ]
