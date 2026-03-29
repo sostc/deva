@@ -249,23 +249,28 @@ async def render_bandit_admin(ctx: dict):
     
     with use_scope("bandit_header"):
         put_html("<h2>🎰 Bandit 自适应交易系统</h2>")
-        
+
+        put_row([
+            put_column([
+                put_button("启动循环", onclick=lambda: _do_start(cycle), small=True),
+                put_button("停止循环", onclick=lambda: _do_stop(cycle), small=True),
+            ]),
+            put_column([
+                put_link("📊 盈亏归因分析", url="/bandit_attribution", new_window=False),
+            ]),
+        ], size="auto 1fr")
+
+        put_text("")
+
         # 显示实验模式提示
         experiment_banner = _get_experiment_banner_html()
         if experiment_banner:
             put_html(experiment_banner)
-        
+
         try:
             render_help_collapse("bandit")
         except Exception:
             pass
-        
-        put_row([
-            put_button("启动循环", onclick=lambda: _do_start(cycle), small=True),
-            put_button("停止循环", onclick=lambda: _do_stop(cycle), small=True),
-        ], size="auto")
-        
-        put_text("")
     
     with use_scope("bandit_status"):
         put_row([

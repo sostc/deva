@@ -19,6 +19,30 @@ from .optimizer import get_bandit_optimizer, StrategyReward
 POSITION_REWARD_TABLE = "naja_bandit_position_rewards"
 
 
+def _get_liquidity_signal() -> float:
+    """获取当前市场流动性信号"""
+    try:
+        from deva.naja.radar.global_market_scanner import get_global_market_scanner
+        scanner = get_global_market_scanner()
+        if scanner:
+            adj = scanner.get_liquidity_adjustment("CHINA_A")
+            return adj.get("adjusted_signal", 0.5) if adj else 0.5
+    except Exception:
+        pass
+    return 0.5
+
+
+def _get_volatility_signal() -> float:
+    """获取当前市场波动率信号"""
+    try:
+        from deva.naja.attention.data.volatility_calculator import get_recent_volatility
+        vol = get_recent_volatility()
+        return min(vol / 30.0, 1.0) if vol else 0.5
+    except Exception:
+        pass
+    return 0.5
+
+
 @dataclass
 class PositionRewardRecord:
     """持仓收益记录"""
@@ -34,20 +58,22 @@ class PositionRewardRecord:
 
 class BanditPositionTracker:
     """持仓收益追踪器
-    
+
     集成到萧何的平仓流程，在持仓平仓时：
     1. 计算收益（收益率、持仓时间）
     2. 生成奖励值
     3. 调用 BanditOptimizer 更新策略统计
     4. 可选触发策略调节
+    5. 记录归因数据到 Attribution 系统
     """
-    
+
     def __init__(self):
         self._optimizer = get_bandit_optimizer()
         self._db = NB(POSITION_REWARD_TABLE)
         self._reward_type = "basic"
         self._enabled = True
-    
+        self._attribution_enabled = True
+
     def on_position_closed(
         self,
         strategy_id: str,
@@ -56,9 +82,13 @@ class BanditPositionTracker:
         exit_price: float,
         open_timestamp: float,
         trigger_adjust: bool = True,
+        stock_code: str = "",
+        stock_name: str = "",
+        close_reason: str = "",
+        signal_confidence: float = 0.5,
     ) -> dict:
         """持仓平仓时调用此方法
-        
+
         Args:
             strategy_id: 策略 ID
             position_id: 持仓 ID
@@ -66,13 +96,17 @@ class BanditPositionTracker:
             exit_price: 出场价格
             open_timestamp: 开仓时间戳
             trigger_adjust: 是否触发策略调节
-            
+            stock_code: 股票代码
+            stock_name: 股票名称
+            close_reason: 平仓原因
+            signal_confidence: 信号信心度
+
         Returns:
             dict: 完整的处理结果
         """
         if not self._enabled:
             return {"success": False, "error": "Tracker 已禁用"}
-        
+
         if entry_price <= 0 or exit_price <= 0:
             return {"success": False, "error": "价格无效"}
 
@@ -81,9 +115,9 @@ class BanditPositionTracker:
 
         return_pct = (exit_price - entry_price) / entry_price * 100
         holding_seconds = current_time - open_timestamp
-        
+
         reward = self._calculate_reward(return_pct, holding_seconds)
-        
+
         reward_record = PositionRewardRecord(
             position_id=position_id,
             strategy_id=strategy_id,
@@ -94,11 +128,27 @@ class BanditPositionTracker:
             reward=reward,
             timestamp=current_time
         )
-        
+
         bandit_result = self._optimizer.update_reward(strategy_id, reward)
-        
+
         self._save_reward_record(reward_record)
-        
+
+        attribution_result = None
+        if self._attribution_enabled and stock_code:
+            attribution_result = self._record_attribution(
+                position_id=position_id,
+                strategy_id=strategy_id,
+                stock_code=stock_code,
+                stock_name=stock_name,
+                entry_price=entry_price,
+                exit_price=exit_price,
+                entry_time=open_timestamp,
+                exit_time=current_time,
+                holding_seconds=holding_seconds,
+                close_reason=close_reason,
+                signal_confidence=signal_confidence,
+            )
+
         result = {
             "success": True,
             "position_id": position_id,
@@ -108,17 +158,59 @@ class BanditPositionTracker:
             "return_pct": return_pct,
             "holding_seconds": holding_seconds,
             "reward": reward,
-            "bandit_update": bandit_result
+            "bandit_update": bandit_result,
+            "attribution": attribution_result,
         }
-        
+
         if trigger_adjust and bandit_result.get("success"):
             adjust_result = self._optimizer.review_and_adjust(
                 strategy_ids=[strategy_id],
                 dry_run=False
             )
             result["adjust_result"] = adjust_result
-        
+
         return result
+
+    def _record_attribution(
+        self,
+        position_id: str,
+        strategy_id: str,
+        stock_code: str,
+        stock_name: str,
+        entry_price: float,
+        exit_price: float,
+        entry_time: float,
+        exit_time: float,
+        holding_seconds: float,
+        close_reason: str,
+        signal_confidence: float,
+    ) -> Optional[dict]:
+        """记录归因数据"""
+        try:
+            from .attribution import record_trade_attribution
+
+            liquidity = _get_liquidity_signal()
+            volatility = _get_volatility_signal()
+
+            attr = record_trade_attribution(
+                position_id=position_id,
+                strategy_id=strategy_id,
+                stock_code=stock_code,
+                stock_name=stock_name,
+                entry_price=entry_price,
+                exit_price=exit_price,
+                entry_time=entry_time,
+                exit_time=exit_time,
+                holding_seconds=holding_seconds,
+                close_reason=close_reason,
+                signal_confidence=signal_confidence,
+                market_liquidity=liquidity,
+                market_volatility=volatility,
+            )
+            return {"success": True, "attribution_id": attr.position_id}
+        except Exception as e:
+            log.warning(f"记录归因失败: {e}")
+            return {"success": False, "error": str(e)}
     
     def on_position_update(
         self,
