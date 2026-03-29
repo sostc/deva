@@ -182,7 +182,7 @@ class CapabilityDimension:
 
 
 class MarketDimension:
-    """市场维度 - 机会识别"""
+    """市场维度 - 机会识别与流动性管理"""
 
     def __init__(self):
         self.liquidity_signal = 0.5
@@ -191,6 +191,8 @@ class MarketDimension:
         self.opportunity_score = 0.5
         self.signal = 0.5
         self.opportunity_type = None
+        self._liquidity_adjustment: Dict[str, Any] = {}
+        self._has_liquidity_prediction = False
 
     def update(self, scanner=None, macro_signal: float = 0.5):
         """从 GlobalMarketScanner 和 QueryState 获取状态"""
@@ -205,8 +207,18 @@ class MarketDimension:
             if scanner is not None:
                 summary = scanner.get_market_summary()
                 self.liquidity_signal = summary.get("signal", macro_signal)
+
+                adjustment = scanner.get_liquidity_adjustment("CHINA_A")
+                if adjustment:
+                    self._liquidity_adjustment = adjustment
+                    self._has_liquidity_prediction = True
+                else:
+                    self._liquidity_adjustment = {}
+                    self._has_liquidity_prediction = False
             else:
                 self.liquidity_signal = macro_signal
+                self._liquidity_adjustment = {}
+                self._has_liquidity_prediction = False
 
             self.is_extreme = self.liquidity_signal < 0.3 or self.liquidity_signal > 0.8
             self.opportunity_score = self._calc_opportunity_score()
@@ -214,6 +226,61 @@ class MarketDimension:
             self._determine_opportunity_type()
         except Exception as e:
             log.debug(f"[MarketDimension] update failed: {e}")
+
+    def get_position_adjustment(self) -> float:
+        """获取仓位调整系数
+
+        Returns:
+            float: 0.0-1.5，流动性紧张时 < 1.0，充裕时 >= 1.0
+        """
+        if not self._has_liquidity_prediction:
+            return 1.0
+        adj = self._liquidity_adjustment.get("position_size_multiplier", 1.0)
+        return adj
+
+    def get_holding_time_adjustment(self) -> float:
+        """获取持仓时间调整系数
+
+        Returns:
+            float: 0.0-1.0，流动性紧张时缩短持仓时间
+        """
+        if not self._has_liquidity_prediction:
+            return 1.0
+        return self._liquidity_adjustment.get("holding_time_factor", 1.0)
+
+    def get_strategy_budget_adjustment(self, strategy_id: str) -> float:
+        """获取策略预算调整系数
+
+        Args:
+            strategy_id: 策略ID
+
+        Returns:
+            float: 策略预算调整系数
+        """
+        if not self._has_liquidity_prediction:
+            return 0.0
+        budget_adj = self._liquidity_adjustment.get("strategy_budget", {})
+        return budget_adj.get(strategy_id, 0.0)
+
+    def get_frequency_adjustment(self) -> float:
+        """获取交易频率调整系数"""
+        if not self._has_liquidity_prediction:
+            return 1.0
+        return self._liquidity_adjustment.get("frequency_factor", 1.0)
+
+    def should_reduce_position(self) -> bool:
+        """是否应该降低仓位"""
+        return self.get_position_adjustment() < 0.8
+
+    def should_shorten_holding(self) -> bool:
+        """是否应该缩短持仓时间"""
+        return self.get_holding_time_adjustment() < 0.7
+
+    def get_liquidity_warning(self) -> str:
+        """获取流动性警告信息"""
+        if not self._has_liquidity_prediction:
+            return ""
+        return self._liquidity_adjustment.get("warning", "")
 
     def _calc_opportunity_score(self) -> float:
         """计算机会评分"""
@@ -243,6 +310,10 @@ class MarketDimension:
             "is_extreme": self.is_extreme,
             "opportunity_score": self.opportunity_score,
             "opportunity_type": self.opportunity_type,
+            "has_liquidity_prediction": self._has_liquidity_prediction,
+            "position_adjustment": self.get_position_adjustment(),
+            "holding_time_adjustment": self.get_holding_time_adjustment(),
+            "liquidity_warning": self.get_liquidity_warning(),
         }
 
 
@@ -356,6 +427,15 @@ class FourDimensions:
         else:
             result["alpha"] *= self.capability.multiplier
 
+        position_adj = self.market.get_position_adjustment()
+        if position_adj < 1.0:
+            result["alpha"] *= position_adj
+            reason = self.market.get_liquidity_warning() or f"流动性紧张，仓位系数={position_adj:.2f}"
+            if gate_reason:
+                gate_reason += f" + {reason}"
+            else:
+                gate_reason = reason
+
         if self.market.is_extreme and self.capital.has_bullets:
             opportunity = "逆向布局机会"
             result["alpha"] = max(result["alpha"], original_alpha * 0.8)
@@ -363,6 +443,8 @@ class FourDimensions:
         result["_gate_reason"] = gate_reason
         result["_opportunity"] = opportunity
         result["_gated"] = gate_reason is not None
+        result["_position_adjustment"] = position_adj
+        result["_holding_time_adjustment"] = self.market.get_holding_time_adjustment()
 
         return result
 
