@@ -598,8 +598,30 @@ class CrossSignalAnalyzer:
         items = sorted(snapshot.sector_weights.items(), key=lambda x: x[1], reverse=True)
         return items[:n]
 
+    MACRO_THEME_TO_MARKET: Dict[str, List[str]] = {
+        "流动性紧张": ["sp500", "nasdaq", "vix", "bond"],
+        "全球宏观": ["sp500", "nasdaq", "dow_jones", "hang_seng", "nikkei"],
+        "贵金属": ["gold", "silver"],
+        "外汇与美元": ["usd_index", "dxy"],
+        "债券市场": ["bond", "us10y", "us02y"],
+        "大宗商品": ["crude_oil", "nat_gas", "copper"],
+        "地缘政治": ["sp500", "nasdaq", "oil", "gold", "vix"],
+        "避险情绪": ["gold", "usd_index", "vix"],
+        "恐慌": ["vix", "sp500", "nasdaq"],
+        "美股": ["sp500", "nasdaq", "dow_jones"],
+        "纳斯达克": ["nasdaq"],
+        "标普": ["sp500"],
+    }
+
     def _match_news_to_sector(self, news: NewsSignal, snapshot: AttentionSnapshot) -> Optional[str]:
-        """将新闻匹配到对应板块"""
+        """将新闻匹配到对应板块或宏观市场指数
+
+        匹配顺序:
+        1. 如果新闻有 sector_id，直接返回
+        2. 检查宏观叙事主题，映射到市场指数
+        3. 检查 sector_names 中的板块名称
+        4. 检查 active_sectors
+        """
         if news.sector_id:
             return news.sector_id
 
@@ -607,6 +629,12 @@ class CrossSignalAnalyzer:
             return None
 
         news_themes_lower = [t.lower() for t in news.themes]
+
+        for theme in news_themes_lower:
+            for macro_theme, markets in self.MACRO_THEME_TO_MARKET.items():
+                if macro_theme in theme or theme in macro_theme:
+                    if markets and len(markets) > 0:
+                        return markets[0]
 
         for sector_id, sector_name in snapshot.sector_names.items():
             sector_lower = sector_name.lower()
@@ -1140,12 +1168,16 @@ class CrossSignalAnalyzer:
         """获取分析器统计信息"""
         now = time.time()
         recent_resonances = [r for r in self._resonance_history if now - r.timestamp < 60]
+        recent_market_resonances = [r for r in self._market_resonance_history if now - r.timestamp < 60]
 
         return {
             "news_buffer_size": len(self._news_buffer),
             "attention_buffer_size": len(self._attention_buffer),
+            "market_buffer_size": len(self._market_buffer),
             "resonance_history_size": len(self._resonance_history),
+            "market_resonance_history_size": len(self._market_resonance_history),
             "recent_resonance_count": len(recent_resonances),
+            "recent_market_resonance_count": len(recent_market_resonances),
             "last_llm_call": self._last_llm_call,
             "llm_cooldown_remaining": max(0, self._llm_cooldown_seconds - (now - self._last_llm_call)),
             "high_resonance_sectors": self.get_high_resonance_sectors(),
