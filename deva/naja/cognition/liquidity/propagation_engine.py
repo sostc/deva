@@ -25,6 +25,23 @@ from .influence_edge import InfluenceEdge, PropagationEvent
 
 log = logging.getLogger(__name__)
 
+MARKET_ID_MAP = {
+    "nasdaq100": "nasdaq",
+    "sp500": "sp500",
+    "dowjones": "dow_jones",
+    "gold": "gold",
+    "silver": "silver",
+    "crude_oil": "crude_oil",
+    "natural_gas": "natural_gas",
+    "nvda": "us_equity",
+    "aapl": "us_equity",
+    "tsla": "us_equity",
+    "msft": "us_equity",
+    "googl": "us_equity",
+    "amzn": "us_equity",
+    "meta": "us_equity",
+}
+
 
 @dataclass
 class PropagationSignal:
@@ -350,3 +367,47 @@ class PropagationEngine:
             "history_size": len(self._propagation_history),
             "narrative_states": list(self._narrative_states.keys()),
         }
+
+    def sync_from_global_market_api(self, market_data: Dict[str, Any]) -> int:
+        """
+        从 GlobalMarketAPI 同步市场数据
+
+        Args:
+            market_data: GlobalMarketAPI.fetch_all() 返回的 Dict[str, MarketData]
+
+        Returns:
+            更新了多少个市场节点
+        """
+        count = 0
+        for code, md in market_data.items():
+            market_id = MARKET_ID_MAP.get(md.market_id, md.market_id)
+
+            if market_id in self._nodes:
+                price = md.current
+                volume = md.volume if hasattr(md, 'volume') else 0
+                self.update_market(market_id, price, volume)
+                count += 1
+            else:
+                log.debug(f"[PropagationEngine] 忽略未知市场: {market_id} (code: {code})")
+
+        if count > 0:
+            log.info(f"[PropagationEngine] 从 GlobalMarketAPI 同步了 {count} 个市场")
+
+        return count
+
+    async def fetch_and_sync_from_global_market_api(self) -> int:
+        """
+        直接从 GlobalMarketAPI 获取并同步数据
+
+        Returns:
+            更新了多少个市场节点
+        """
+        try:
+            from deva.naja.attention.data.global_market_futures import GlobalMarketAPI
+
+            api = GlobalMarketAPI()
+            data = await api.fetch_all()
+            return self.sync_from_global_market_api(data)
+        except Exception as e:
+            log.error(f"[PropagationEngine] 从 GlobalMarketAPI 获取数据失败: {e}")
+            return 0

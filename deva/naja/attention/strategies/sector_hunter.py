@@ -72,7 +72,7 @@ class SectorRotationHunter(AttentionStrategyBase):
     
     def _update_sector_history(self, sector_weights: Dict[str, float]):
         """更新板块历史数据"""
-        current_time = time.time()
+        current_time = self._get_market_time()
         
         for sector, weight in sector_weights.items():
             if sector not in self.sector_history:
@@ -105,7 +105,7 @@ class SectorRotationHunter(AttentionStrategyBase):
     def _detect_rotation(self, sector_weights: Dict[str, float]) -> List[Signal]:
         """检测板块轮动"""
         signals = []
-        current_time = time.time()
+        current_time = self._get_market_time()
         noise_detector = _get_noise_detector()
 
         for sector, weight in sector_weights.items():
@@ -203,7 +203,7 @@ class SectorRotationHunter(AttentionStrategyBase):
             context: 上下文，包含板块注意力权重
         """
         signals = []
-        current_time = time.time()
+        current_time = self._get_market_time()
         
         # 从上下文获取板块权重
         sector_weights = context.get('sector_weights', {})

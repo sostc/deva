@@ -78,7 +78,7 @@ class AnomalyPatternSniper(AttentionStrategyBase):
     
     def _update_river_stats(self, symbol: str, price: float, volume: float):
         """更新 River 统计（在线学习）"""
-        current_time = time.time()
+        current_time = self._get_market_time()
         
         # 初始化或更新价格统计
         if symbol not in self.price_stats:
@@ -285,7 +285,7 @@ class AnomalyPatternSniper(AttentionStrategyBase):
     
     def _analyze_symbol(self, symbol: str, row: Any, context: Dict[str, Any]) -> Optional[Signal]:
         """分析单个股票"""
-        current_time = time.time()
+        current_time = self._get_market_time()
         
         # 提取数据
         price = row.get('close', row.get('price', 0))

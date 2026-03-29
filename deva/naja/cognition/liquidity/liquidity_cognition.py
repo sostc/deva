@@ -22,6 +22,7 @@ from dataclasses import dataclass, field
 from deva.naja.cognition.liquidity.propagation_engine import (
     PropagationEngine,
     PropagationSignal,
+    MARKET_ID_MAP,
 )
 from deva.naja.cognition.liquidity.global_market_config import (
     MARKET_CONFIGS,
@@ -106,21 +107,23 @@ class LiquidityCognition:
         if not market_id or current == 0:
             return None
 
-        node = self._propagation_engine._nodes.get(market_id)
+        mapped_market_id = MARKET_ID_MAP.get(market_id, market_id)
+
+        node = self._propagation_engine._nodes.get(mapped_market_id)
         if not node:
-            config = get_market_config(market_id)
+            config = get_market_config(mapped_market_id)
             if config:
                 from deva.naja.cognition.liquidity.market_node import MarketNode
                 node = MarketNode(
-                    market_id=market_id,
+                    market_id=mapped_market_id,
                     name=config.name,
                     market_type=config.market_type,
                 )
-                self._propagation_engine._nodes[market_id] = node
+                self._propagation_engine._nodes[mapped_market_id] = node
             else:
-                log.debug(f"[LiquidityCognition] 市场 {market_id} 不在配置中，跳过传播")
+                log.debug(f"[LiquidityCognition] 市场 {mapped_market_id} 不在配置中，跳过传播")
 
-        self._market_states[market_id] = {
+        self._market_states[mapped_market_id] = {
             "current": current,
             "change_pct": change_pct,
             "volume": volume,
@@ -135,18 +138,18 @@ class LiquidityCognition:
 
         if node is not None:
             state = self._propagation_engine.update_market(
-                market_id=market_id,
+                market_id=mapped_market_id,
                 price=current,
                 volume=volume,
                 narrative_score=narrative_score,
             )
-            propagation_signals = self._get_pending_propagations(market_id)
+            propagation_signals = self._get_pending_propagations(mapped_market_id)
         else:
             propagation_signals = []
 
         insight = GlobalMarketInsight(
             insight_type="global_market_alert" if is_abnormal else "global_market_update",
-            source_market=market_id,
+            source_market=mapped_market_id,
             target_markets=[sig.to_market for sig in propagation_signals],
             severity=severity,
             propagation_probability=sum(s.propagation_probability for s in propagation_signals) / len(propagation_signals) if propagation_signals else 0,
