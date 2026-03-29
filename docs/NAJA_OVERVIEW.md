@@ -103,8 +103,15 @@ python -m deva.naja
 | `radar/engine.py` | 雷达引擎 |
 | `radar/news_fetcher.py` | 新闻获取器 |
 | `radar/ui.py` | 雷达 UI |
+| `radar/global_market_scanner.py` | 全球市场扫描器 + 流动性预测 |
 
-### 4.4 策略系统 (Strategy)
+### 4.4 流动性预测体系 (Liquidity Prediction)
+| 文件 | 功能 |
+|------|------|
+| `radar/global_market_scanner.py` | 全球市场信号采集、流动性预测、信号共振检测 |
+| 核心能力 | 预测 → 验证 → 解除 完整闭环 |
+
+### 4.5 策略系统 (Strategy)
 | 文件 | 功能 |
 |------|------|
 | `strategy/runtime.py` | 策略运行时 |
@@ -115,7 +122,7 @@ python -m deva.naja
 | `strategy/signal_processor.py` | 信号处理器 |
 | `strategy/result_store.py` | 结果存储 |
 
-### 4.5 Bandit 系统
+### 4.6 Bandit 系统
 | 文件 | 功能 |
 |------|------|
 | `bandit/runner.py` | Bandit 运行器 |
@@ -124,13 +131,13 @@ python -m deva.naja
 | `bandit/market_observer.py` | 市场观察 |
 | `bandit/adaptive_cycle.py` | 自适应周期 |
 
-### 4.6 LLM 调节
+### 4.7 LLM 调节
 | 文件 | 功能 |
 |------|------|
 | `llm_controller/controller.py` | LLM 控制器 |
 | `llm_controller/ui.py` | LLM UI |
 
-### 4.7 Web UI
+### 4.8 Web UI
 | 文件 | 功能 |
 |------|------|
 | `web_ui.py` | Web UI 入口与路由 |
@@ -193,7 +200,32 @@ from deva.naja.radar import RadarEngine, get_radar_engine
 radar = get_radar_engine()
 ```
 
-### 6.4 Bandit 自适应交易
+### 6.4 流动性预测体系 (Liquidity Prediction)
+
+流动性预测体系是全球市场监控的核心组件，实现预测 → 验证 → 解除完整闭环：
+
+```python
+from deva.naja.radar.global_market_scanner import get_global_market_scanner
+
+scanner = get_global_market_scanner()
+```
+
+核心功能：
+- **信号共振检测**：检测行情信号和舆论信号的一致性
+- **流动性预测**：基于全球市场信号预测各市场流动性
+- **主题扩散预测**：基于美股热门板块预测A股同名板块联动
+- **完整闭环**：预测、验证、解除全程自动执行
+
+```python
+# 便捷方法
+adjustment = scanner.get_liquidity_adjustment(LiquiditySignalType.CHINA_A, actual_data={'change_pct': -1.5})
+all_adjustments = scanner.get_all_market_adjustments()
+predictions = scanner.predict_and_auto_verify(source_market, signals, market_data_map)
+```
+
+详见：[cross_market_liquidity_prediction.md](docs/naja/cross_market_liquidity_prediction.md)
+
+### 6.5 Bandit 自适应交易
 
 Bandit 系统是基于多臂老虎机的自适应交易系统：
 
