@@ -795,6 +795,8 @@ class GlobalMarketScanner:
                 "sector_attention_factor": 1.0,
                 "strategy_budget": {},
                 "frequency_factor": 1.0,
+                "position_size_multiplier": 1.0,
+                "holding_time_factor": 1.0,
                 "is_priced": True,
             }
         if signal < 0.4:
@@ -805,6 +807,9 @@ class GlobalMarketScanner:
                     "MomentumTracker": -0.2,
                 },
                 "frequency_factor": 1.3,
+                "position_size_multiplier": 0.6,
+                "holding_time_factor": 0.7,
+                "warning": "流动性紧张信号",
             }
         elif signal > 0.7:
             return {
@@ -814,12 +819,16 @@ class GlobalMarketScanner:
                     "MomentumTracker": 0.1,
                 },
                 "frequency_factor": 0.9,
+                "position_size_multiplier": 1.1,
+                "holding_time_factor": 1.0,
             }
         else:
             return {
                 "sector_attention_factor": 1.0,
                 "strategy_budget": {},
                 "frequency_factor": 1.0,
+                "position_size_multiplier": 1.0,
+                "holding_time_factor": 1.0,
             }
 
     def verify_liquidity(self, target_market: LiquiditySignalType, actual_data: Dict[str, Any]):

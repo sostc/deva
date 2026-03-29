@@ -169,23 +169,30 @@ async def render_attribution_panel(strategy_id: Optional[str] = None):
         )
 
         if contributions:
-            table_data = []
-            for c in contributions:
-                row = [
-                    f"#{c['rank']}",
-                    c['strategy_id'],
-                    _format_return(c['total_return']),
-                    str(c['total_trades']),
-                    f"{c['win_rate']:.1f}%",
-                    _format_return(c['avg_return']),
-                    f"{c['profit_loss_ratio']:.2f}" if c['profit_loss_ratio'] != float('inf') else "∞",
-                ]
-                table_data.append(row)
+            headers = ["排名", "策略ID", "总收益", "交易数", "胜率", "平均收益", "盈亏比"]
+            table_html = """
+            <table style="width:100%; border-collapse: collapse; margin: 10px 0;">
+                <tr style="background: #f1f5f9;">
+            """
+            for h in headers:
+                table_html += f'<th style="padding: 10px; text-align: left; border: 1px solid #e2e8f0;">{h}</th>'
+            table_html += "</tr>"
 
-            put_table(
-                table_data,
-                header=["排名", "策略ID", "总收益", "交易数", "胜率", "平均收益", "盈亏比"]
-            )
+            for i, c in enumerate(contributions):
+                bg = "#ffffff" if i % 2 == 0 else "#f8fafc"
+                table_html += f'<tr style="background: {bg};">'
+                table_html += f'<td style="padding: 8px; border: 1px solid #e2e8f0;">#{c["rank"]}</td>'
+                table_html += f'<td style="padding: 8px; border: 1px solid #e2e8f0;">{c["strategy_id"]}</td>'
+                table_html += f'<td style="padding: 8px; border: 1px solid #e2e8f0;">{_format_return(c["total_return"])}</td>'
+                table_html += f'<td style="padding: 8px; border: 1px solid #e2e8f0;">{c["total_trades"]}</td>'
+                table_html += f'<td style="padding: 8px; border: 1px solid #e2e8f0;">{c["win_rate"]:.1f}%</td>'
+                table_html += f'<td style="padding: 8px; border: 1px solid #e2e8f0;">{_format_return(c["avg_return"])}</td>'
+                pl_ratio = f'{c["profit_loss_ratio"]:.2f}' if c["profit_loss_ratio"] != float('inf') else "∞"
+                table_html += f'<td style="padding: 8px; border: 1px solid #e2e8f0;">{pl_ratio}</td>'
+                table_html += "</tr>"
+
+            table_html += "</table>"
+            put_html(table_html)
         else:
             put_html("""
             <div style="
@@ -296,19 +303,41 @@ async def render_attribution_panel(strategy_id: Optional[str] = None):
             low_avg = sq.get("low_confidence_avg_return", 0)
             correlation = sq.get("confidence_return_correlation", 0)
 
-            table_data = [
-                ["🔵 高信心 (>0.7)", str(high_trades), _format_return(high_avg)],
-                ["🟡 中信心 (0.4-0.7)", str(mid_trades), _format_return(mid_avg)],
-                ["🔴 低信心 (<0.4)", str(low_trades), _format_return(low_avg)],
-            ]
-
-            put_table(
-                table_data,
-                header=["信心度", "交易数", "平均收益"]
-            )
-
             corr_color = "#16a34a" if correlation > 0.3 else "#f59e0b" if correlation > 0 else "#dc2626"
             corr_label = "强正相关 ✓" if correlation > 0.3 else "弱正相关" if correlation > 0 else "负相关 ✗"
+
+            signal_table_html = """
+            <table style="width:100%; border-collapse: collapse; margin: 10px 0;">
+                <tr style="background: #f1f5f9;">
+                    <th style="padding: 10px; text-align: left; border: 1px solid #e2e8f0;">信心度</th>
+                    <th style="padding: 10px; text-align: left; border: 1px solid #e2e8f0;">交易数</th>
+                    <th style="padding: 10px; text-align: left; border: 1px solid #e2e8f0;">平均收益</th>
+                </tr>
+                <tr style="background: #ffffff;">
+                    <td style="padding: 8px; border: 1px solid #e2e8f0;">🔵 高信心 (&gt;0.7)</td>
+                    <td style="padding: 8px; border: 1px solid #e2e8f0;">{high_trades}</td>
+                    <td style="padding: 8px; border: 1px solid #e2e8f0;">{high_avg}</td>
+                </tr>
+                <tr style="background: #f8fafc;">
+                    <td style="padding: 8px; border: 1px solid #e2e8f0;">🟡 中信心 (0.4-0.7)</td>
+                    <td style="padding: 8px; border: 1px solid #e2e8f0;">{mid_trades}</td>
+                    <td style="padding: 8px; border: 1px solid #e2e8f0;">{mid_avg}</td>
+                </tr>
+                <tr style="background: #ffffff;">
+                    <td style="padding: 8px; border: 1px solid #e2e8f0;">🔴 低信心 (&lt;0.4)</td>
+                    <td style="padding: 8px; border: 1px solid #e2e8f0;">{low_trades}</td>
+                    <td style="padding: 8px; border: 1px solid #e2e8f0;">{low_avg}</td>
+                </tr>
+            </table>
+            """.format(
+                high_trades=high_trades,
+                high_avg=_format_return(high_avg),
+                mid_trades=mid_trades,
+                mid_avg=_format_return(mid_avg),
+                low_trades=low_trades,
+                low_avg=_format_return(low_avg),
+            )
+            put_html(signal_table_html)
 
             put_html(f"""
             <div style="
@@ -365,17 +394,6 @@ async def render_attribution_panel(strategy_id: Optional[str] = None):
             liq_low_avg = mc.get("liquidity_low_avg", 0)
             liq_low_count = mc.get("liquidity_low_count", 0)
 
-            table_data = [
-                ["🟢 高流动性", str(liq_high_count), _format_return(liq_high_avg)],
-                ["🟡 中流动性", str(liq_mid_count), _format_return(liq_mid_avg)],
-                ["🔴 低流动性", str(liq_low_count), _format_return(liq_low_avg)],
-            ]
-
-            put_table(
-                table_data,
-                header=["市场环境", "交易数", "平均收益"]
-            )
-
             best_liq = "高流动性"
             best_avg = liq_high_avg
             if liq_mid_avg > best_avg:
@@ -384,6 +402,32 @@ async def render_attribution_panel(strategy_id: Optional[str] = None):
             if liq_low_avg > best_avg:
                 best_liq = "低流动性"
                 best_avg = liq_low_avg
+
+            market_table_html = f"""
+            <table style="width:100%; border-collapse: collapse; margin: 10px 0;">
+                <tr style="background: #f1f5f9;">
+                    <th style="padding: 10px; text-align: left; border: 1px solid #e2e8f0;">市场环境</th>
+                    <th style="padding: 10px; text-align: left; border: 1px solid #e2e8f0;">交易数</th>
+                    <th style="padding: 10px; text-align: left; border: 1px solid #e2e8f0;">平均收益</th>
+                </tr>
+                <tr style="background: #ffffff;">
+                    <td style="padding: 8px; border: 1px solid #e2e8f0;">🟢 高流动性</td>
+                    <td style="padding: 8px; border: 1px solid #e2e8f0;">{liq_high_count}</td>
+                    <td style="padding: 8px; border: 1px solid #e2e8f0;">{_format_return(liq_high_avg)}</td>
+                </tr>
+                <tr style="background: #f8fafc;">
+                    <td style="padding: 8px; border: 1px solid #e2e8f0;">🟡 中流动性</td>
+                    <td style="padding: 8px; border: 1px solid #e2e8f0;">{liq_mid_count}</td>
+                    <td style="padding: 8px; border: 1px solid #e2e8f0;">{_format_return(liq_mid_avg)}</td>
+                </tr>
+                <tr style="background: #ffffff;">
+                    <td style="padding: 8px; border: 1px solid #e2e8f0;">🔴 低流动性</td>
+                    <td style="padding: 8px; border: 1px solid #e2e8f0;">{liq_low_count}</td>
+                    <td style="padding: 8px; border: 1px solid #e2e8f0;">{_format_return(liq_low_avg)}</td>
+                </tr>
+            </table>
+            """
+            put_html(market_table_html)
 
             put_html(f"""
             <div style="
@@ -418,27 +462,38 @@ async def render_attribution_panel(strategy_id: Optional[str] = None):
         history = attr.get_trade_history(strategy_id=strategy_id, limit=10, sort_by="exit_time")
 
         if history:
-            table_data = []
-            for h in history:
+            history_table_html = """
+            <table style="width:100%; border-collapse: collapse; margin: 10px 0;">
+                <tr style="background: #f1f5f9;">
+                    <th style="padding: 10px; text-align: left; border: 1px solid #e2e8f0;">策略</th>
+                    <th style="padding: 10px; text-align: left; border: 1px solid #e2e8f0;">股票</th>
+                    <th style="padding: 10px; text-align: left; border: 1px solid #e2e8f0;">收益</th>
+                    <th style="padding: 10px; text-align: left; border: 1px solid #e2e8f0;">信号信心</th>
+                    <th style="padding: 10px; text-align: left; border: 1px solid #e2e8f0;">市场流动性</th>
+                    <th style="padding: 10px; text-align: left; border: 1px solid #e2e8f0;">持仓时间</th>
+                    <th style="padding: 10px; text-align: left; border: 1px solid #e2e8f0;">平仓时间</th>
+                </tr>
+            """
+
+            for i, h in enumerate(history):
+                bg = "#ffffff" if i % 2 == 0 else "#f8fafc"
                 entry_time = datetime.fromtimestamp(h.get("entry_time", 0)).strftime("%m-%d %H:%M")
                 exit_time = datetime.fromtimestamp(h.get("exit_time", 0)).strftime("%m-%d %H:%M")
                 return_val = h.get("total_return_pct", 0)
                 confidence = h.get("signal_confidence", 0.5)
 
-                table_data.append([
-                    h.get("strategy_id", ""),
-                    h.get("stock_code", ""),
-                    _format_return(return_val),
-                    _get_confidence_label(confidence),
-                    _get_liquidity_label(h.get("market_liquidity", 0.5)),
-                    f"{_format_duration(h.get('holding_seconds', 0))}",
-                    exit_time,
-                ])
+                history_table_html += f'<tr style="background: {bg};">'
+                history_table_html += f'<td style="padding: 8px; border: 1px solid #e2e8f0;">{h.get("strategy_id", "")}</td>'
+                history_table_html += f'<td style="padding: 8px; border: 1px solid #e2e8f0;">{h.get("stock_code", "")}</td>'
+                history_table_html += f'<td style="padding: 8px; border: 1px solid #e2e8f0;">{_format_return(return_val)}</td>'
+                history_table_html += f'<td style="padding: 8px; border: 1px solid #e2e8f0;">{_get_confidence_label(confidence)}</td>'
+                history_table_html += f'<td style="padding: 8px; border: 1px solid #e2e8f0;">{_get_liquidity_label(h.get("market_liquidity", 0.5))}</td>'
+                history_table_html += f'<td style="padding: 8px; border: 1px solid #e2e8f0;">{_format_duration(h.get("holding_seconds", 0))}</td>'
+                history_table_html += f'<td style="padding: 8px; border: 1px solid #e2e8f0;">{exit_time}</td>'
+                history_table_html += "</tr>"
 
-            put_table(
-                table_data,
-                header=["策略", "股票", "收益", "信号信心", "市场流动性", "持仓时间", "平仓时间"]
-            )
+            history_table_html += "</table>"
+            put_html(history_table_html)
         else:
             put_html("""
             <div style="
