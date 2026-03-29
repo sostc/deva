@@ -1,8 +1,11 @@
-"""Radar Engine - 感知层：MarketScanner
+"""Radar Engine - 感知层
 
-只负责发现行情异常信号，不做调度与结论
+只负责发现信号异常，不做调度与结论
+- SignalAnomalyDetector: 检测策略信号中的异常模式
+- RadarNewsFetcher: 内置新闻获取
+- GlobalMarketScanner: 全球市场监控
+
 叙事追踪已移至 cognition 层
-新闻获取已移至 news_fetcher.py
 """
 
 from __future__ import annotations
@@ -170,9 +173,9 @@ def _get_frequency_label(seconds: float) -> str:
         return f"{seconds/604800:.1f}周"
 
 
-class MarketScanner:
+class SignalAnomalyDetector:
     """
-    市场扫描器 - 感知行情数据中的异常
+    信号异常检测器 - 检测策略信号中的异常模式
 
     职责：
     - Pattern：同一信号模式重复出现
@@ -322,16 +325,17 @@ class RadarEngine:
     雷达引擎 - 感知层
 
     职责：
-    - NarrativeScanner：扫描新闻/文本叙事
-    - MarketScanner：扫描行情异常
-    - 统一信号输出到 InsightEngine
+    - SignalAnomalyDetector：检测策略信号中的异常模式
+    - RadarNewsFetcher：内置新闻获取
+    - GlobalMarketScanner：全球市场监控
+    - 统一信号输出到认知系统
 
     这是感知器，不是思考器
 
     ================================================================================
     单例模式说明：为什么使用单例
     ================================================================================
-    1. 全局感知引擎：RadarEngine 是全局感知引擎，负责扫描行情异常和新闻叙事。
+    1. 全局感知引擎：RadarEngine 是全局感知引擎，负责扫描信号异常和新闻叙事。
        如果存在多个实例，会导致事件重复或丢失。
 
     2. 状态一致性：雷达状态、事件历史等需要在全系统保持一致。
@@ -371,7 +375,7 @@ class RadarEngine:
         self._cleanup_thread = None
         self._stop_cleanup = threading.Event()
 
-        self.market_scanner = MarketScanner(cfg)
+        self.market_scanner = SignalAnomalyDetector(cfg)
 
         self._news_fetcher: Optional[RadarNewsFetcher] = None
         self._news_processor: Optional[RadarNewsProcessor] = None
@@ -569,6 +573,17 @@ class RadarEngine:
             self._news_fetcher = None
             _radar_debug_log("新闻获取器已停止")
 
+    def set_news_fetcher_interval(self, interval: float):
+        """设置新闻获取器间隔（供 speed_mode 等外部调用）
+
+        Args:
+            interval: 新的获取间隔（秒）
+        """
+        if self._news_fetcher is None:
+            _radar_debug_log(f"新闻获取器未启动，无法设置间隔")
+            return
+        self._news_fetcher.set_interval(interval)
+
     def _on_news_signal(self, signal: Dict[str, Any]):
         """处理新闻信号"""
         _radar_debug_log(f"收到新闻信号: {signal.get('content', '')[:50]}")
@@ -694,9 +709,61 @@ class RadarEngine:
 
     def get_global_market_scanner_stats(self) -> Optional[Dict[str, Any]]:
         """获取全球市场扫描器统计"""
+        if self._global_scanner is None or not self._global_scanner._running:
+            cfg = get_radar_config()
+            if cfg.get("auto_start_global_scanner", True):
+                self._do_start_global_scanner(
+                    fetch_interval=cfg.get("global_scanner_interval", 60),
+                    alert_threshold_volatility=cfg.get("global_scanner_volatility_threshold", 2.0),
+                    alert_threshold_single=cfg.get("global_scanner_single_threshold", 3.0),
+                )
+
         if self._global_scanner is None:
             return None
-        return self._global_scanner.get_stats()
+
+        stats = self._global_scanner.get_stats(wait_for_running=True, timeout=5.0)
+        return stats if stats and stats.get("is_running") else None
+
+    def _do_start_global_scanner(
+        self,
+        fetch_interval: float = 60,
+        alert_threshold_volatility: float = 2.0,
+        alert_threshold_single: float = 3.0,
+    ):
+        """启动全球市场扫描器（同步版本）"""
+        try:
+            if self._global_scanner is not None and self._global_scanner._running:
+                return
+
+            from .global_market_scanner import GlobalMarketScanner, ScanConfig
+
+            scan_config = ScanConfig(
+                interval_trading=fetch_interval,
+                interval_extended=fetch_interval,
+                interval_closed=max(300, fetch_interval * 2),
+                interval_24h=fetch_interval,
+                alert_threshold_volatility=alert_threshold_volatility,
+                alert_threshold_single=alert_threshold_single,
+            )
+
+            self._global_scanner = GlobalMarketScanner(config=scan_config)
+            self._global_scanner.register_callback(self._on_global_market_alert)
+
+            import asyncio
+            try:
+                loop = asyncio.get_event_loop()
+                if loop.is_running():
+                    asyncio.create_task(self._global_scanner.start())
+                else:
+                    loop.run_until_complete(self._global_scanner.start())
+            except RuntimeError:
+                asyncio.run(self._global_scanner.start())
+
+            _radar_debug_log(f"全球市场扫描器启动成功, 间隔: {fetch_interval}s")
+
+        except Exception as e:
+            print(f"[RADAR-DEBUG] Exception: {e}")
+            _radar_debug_log(f"全球市场扫描器启动失败: {e}")
 
     def _signal_to_event(self, signal: Dict[str, Any]) -> RadarEvent:
         """将扫描信号转换为雷达事件"""

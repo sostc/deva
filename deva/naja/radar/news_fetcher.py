@@ -547,6 +547,19 @@ class RadarNewsFetcher:
         if abs(old_interval - self._fetch_interval) > 0.5:
             _radar_news_log(f"获取间隔调整: {old_interval:.1f}s -> {self._fetch_interval:.1f}s ({reason})")
 
+    def set_interval(self, interval: float):
+        """
+        外部接口设置获取间隔（供 speed_mode 等外部调用）
+
+        Args:
+            interval: 新的获取间隔（秒），会在 1-300 秒之间 clamped
+        """
+        old_interval = self._fetch_interval
+        self._fetch_interval = max(1.0, min(interval, 300.0))
+        self._base_interval = self._fetch_interval
+        if abs(old_interval - self._fetch_interval) > 0.5:
+            log.info(f"[Radar-News] 外部设置获取间隔: {old_interval:.1f}s -> {self._fetch_interval:.1f}s")
+
     def set_interval_from_llm(self, interval: float, reason: str = ""):
         """
         LLM调用设置获取间隔

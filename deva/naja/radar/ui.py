@@ -83,9 +83,11 @@ class RadarUI:
         put_html('<div class="container">')
         self._render_header()
         self._render_news_fetcher_panel()
+        self._render_engine_status_panel()
         self._render_stats_overview()
         self._render_event_timeline()
         self._render_radar_logic()
+        self._render_liquidity_prediction_panel()
         self._render_control_panel()
         put_html('</div>')
 
@@ -285,14 +287,431 @@ class RadarUI:
 
         put_html('</div>')
 
-    def _render_control_panel(self):
-        """渲染控制面板 - 底部样式"""
-        put_html('''
-        <div style="margin-top: 16px; padding-top: 16px; border-top: 1px solid rgba(255,255,255,0.08); display: flex; gap: 8px;">
+    def _render_engine_status_panel(self):
+        """渲染工作引擎状态监控面板"""
+        if not self.engine:
+            return
+
+        engines = []
+
+        news_stats = self.engine.get_news_fetcher_stats()
+        if news_stats is not None:
+            running = news_stats.get('running', False)
+            fetch_interval = news_stats.get('fetch_interval', 0)
+            fetch_count = news_stats.get('fetch_count', 0)
+            trading_phase = news_stats.get('trading_phase', 'closed')
+            phase_display = {
+                "trading": ("交易中", "#22c55e"),
+                "pre_market": ("盘前", "#f59e0b"),
+                "lunch": ("午间休市", "#64748b"),
+                "post_market": ("盘后", "#64748b"),
+                "closed": ("休市", "#dc2626"),
+            }.get(trading_phase, ("未知", "#64748b"))
+
+            engines.append({
+                "name": "📰 新闻获取器",
+                "status": "🟢 运行中" if running else "🔴 已停止",
+                "status_color": "#22c55e" if running else "#dc2626",
+                "interval": f"{fetch_interval:.0f}秒",
+                "count": f"获取 {fetch_count} 次",
+                "phase": phase_display[0],
+                "phase_color": phase_display[1],
+                "icon": "📰",
+            })
+
+        global_stats = self.engine.get_global_market_scanner_stats()
+        scanner_running = global_stats is not None and global_stats.get('running', False)
+
+        if global_stats is not None:
+            running = global_stats.get('running', False)
+            current_interval = global_stats.get('current_interval', 0)
+            fetch_count = global_stats.get('fetch_count', 0)
+            alert_count = global_stats.get('alert_count', 0)
+            us_phase = global_stats.get('us_trading_phase', 'unknown')
+            success_rate = global_stats.get('success_rate', 0)
+
+            phase_display = {
+                "trading": ("交易中", "#22c55e"),
+                "pre_market": ("盘前", "#f59e0b"),
+                "post_market": ("盘后", "#64748b"),
+                "closed": ("休市", "#dc2626"),
+            }.get(us_phase, ("未知", "#64748b"))
+
+            engines.append({
+                "name": "🌐 全球市场扫描器",
+                "status": "🟢 运行中" if running else "🔴 已停止",
+                "status_color": "#22c55e" if running else "#dc2626",
+                "interval": f"{current_interval:.0f}秒",
+                "count": f"扫描 {fetch_count} 次 | 告警 {alert_count} 次",
+                "phase": phase_display[0],
+                "phase_color": phase_display[1],
+                "success_rate": f"{success_rate:.1%}",
+                "icon": "🌐",
+            })
+        else:
+            engines.append({
+                "name": "🌐 全球市场扫描器",
+                "status": "🔴 未启动",
+                "status_color": "#dc2626",
+                "interval": "需手动启动",
+                "count": "点击下方按钮启动",
+                "phase": "",
+                "phase_color": "#64748b",
+                "icon": "🌐",
+            })
+
+        try:
+            from ..radar.openrouter_monitor import get_openrouter_trend, TREND_TABLE
+            trend_data = get_openrouter_trend()
+            if trend_data:
+                direction = trend_data.get('direction', 'unknown')
+                direction_emoji = {
+                    "strong_up": "🚀",
+                    "up": "📈",
+                    "down": "📉",
+                    "strong_down": "⚠️",
+                    "unknown": "❓",
+                }.get(direction, "➡️")
+
+                alert_level = trend_data.get('alert_level', 'normal')
+                alert_color = {
+                    "normal": "#22c55e",
+                    "attention": "#f59e0b",
+                    "warning": "#f97316",
+                    "critical": "#dc2626",
+                }.get(alert_level, "#64748b")
+
+                engines.append({
+                    "name": "💰 OpenRouter TOKEN",
+                    "status": f"{direction_emoji} {alert_level.upper()}",
+                    "status_color": alert_color,
+                    "interval": "每周更新",
+                    "count": trend_data.get('latest_total_formatted', 'N/A'),
+                    "phase": f"周环比 {trend_data.get('latest_change', 0):+.1f}%",
+                    "phase_color": alert_color,
+                    "icon": "🤖",
+                })
+        except ImportError:
+            pass
+
+        if not engines:
+            return
+
+        engine_cards = ""
+        for eng in engines:
+            phase_html = f'''<span style="font-size: 10px; color: {eng.get('phase_color', '#64748b')};">● {eng.get('phase', '')}</span>''' if eng.get('phase') else ""
+            success_rate_html = f'''<span style="font-size: 10px; color: #22c55e;">成功率 {eng.get('success_rate', 'N/A')}</span>''' if eng.get('success_rate') else ""
+
+            engine_cards += f'''
+            <div style="flex: 1; min-width: 200px; background: rgba(255,255,255,0.03); border-radius: 8px; padding: 12px; border: 1px solid rgba(255,255,255,0.08);">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                    <div style="font-size: 13px; font-weight: 600; color: #e2e8f0;">{eng['icon']} {eng['name'].replace(eng['icon'], '').strip()}</div>
+                    <div style="font-size: 11px; color: {eng['status_color']};">{eng['status']}</div>
+                </div>
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 6px;">
+                    <div style="padding: 4px 6px; background: rgba(255,255,255,0.03); border-radius: 4px;">
+                        <div style="font-size: 9px; color: #64748b; margin-bottom: 2px;">扫描间隔</div>
+                        <div style="font-size: 12px; font-weight: 600; color: #60a5fa;">{eng['interval']}</div>
+                    </div>
+                    <div style="padding: 4px 6px; background: rgba(255,255,255,0.03); border-radius: 4px;">
+                        <div style="font-size: 9px; color: #64748b; margin-bottom: 2px;">运行时长</div>
+                        <div style="font-size: 12px; font-weight: 600; color: #e2e8f0;">{eng['count']}</div>
+                    </div>
+                </div>
+                <div style="display: flex; gap: 8px; margin-top: 8px; align-items: center;">
+                    {phase_html}
+                    {success_rate_html}
+                </div>
+            </div>'''
+
+        put_html(f'''
+        <div style="margin-bottom: 12px;">
+            <div style="font-size: 12px; font-weight: 500; color: #64748b; margin-bottom: 10px;">⚙️ 工作引擎状态</div>
+            <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+                {engine_cards}
+            </div>
+        </div>
         ''')
-        put_button("🔄 刷新", onclick=self._refresh, color="secondary", small=True)
-        put_button("🧹 清空事件", onclick=self._clear_events, color="secondary", small=True)
-        put_html('</div>')
+
+    def _render_control_panel(self):
+        """渲染控制面板"""
+        from pywebio.output import put_buttons, put_button
+
+        def toggle_scanning(value):
+            if self.engine:
+                if value == "pause":
+                    self.engine.pause()
+                else:
+                    self.engine.resume()
+
+        def force_refresh():
+            if self.engine:
+                self.engine.force_scan()
+
+        put_html("""
+        <div style="
+            background: rgba(107, 114, 128, 0.1);
+            border: 1px solid rgba(107, 114, 128, 0.3);
+            border-radius: 12px;
+            padding: 15px;
+            margin-top: 15px;
+        ">
+            <h4 style="margin: 0 0 15px 0; color: #94a3b8;">⚙️ 控制</h4>
+        """)
+
+        put_buttons([
+            dict(label="⏸️ 暂停", value="pause", onclick=lambda: toggle_scanning("pause")),
+            dict(label="▶️ 继续", value="resume", onclick=lambda: toggle_scanning("resume")),
+            dict(label="🔄 强制扫描", value="refresh", onclick=force_refresh),
+        ], small=True)
+
+        put_html("</div>")
+
+    def _render_liquidity_prediction_panel(self):
+        """渲染跨市场流动性预测面板"""
+        try:
+            from deva.naja.radar.global_market_scanner import get_global_market_scanner
+            scanner = get_global_market_scanner()
+            status = scanner.get_liquidity_status()
+        except Exception as e:
+            status = {"predictions": {}, "verifications": {}, "resonance": None, "topic_predictions": {}}
+
+        predictions = status.get("predictions", {})
+        verifications = status.get("verifications", {})
+        resonance = status.get("resonance", None)
+        topic_predictions = status.get("topic_predictions", {})
+
+        if not predictions and not verifications:
+            prediction_html = '<span style="color: #64748b; font-size: 12px;">暂无流动性预测</span>'
+        else:
+            prediction_html = ""
+            for market, pred in predictions.items():
+                signal = pred.get("signal", 0.5)
+                confidence = pred.get("confidence", 0)
+                sources = pred.get("source_signals", [])
+                is_valid = pred.get("is_valid", False)
+
+                if signal < 0.4:
+                    status_label = "🔴 紧张"
+                    bar_color = "#f87171"
+                elif signal > 0.7:
+                    status_label = "🟢 宽松"
+                    bar_color = "#4ade80"
+                else:
+                    status_label = "🟡 中性"
+                    bar_color = "#fbbf24"
+
+                market_display = {
+                    "china_a": "A股",
+                    "hk": "港股",
+                    "us": "美股",
+                    "futures": "期货"
+                }.get(market, market)
+
+                source_text = ", ".join(sources) if sources else "无"
+
+                validity_icon = "✅" if is_valid else "⏰"
+
+                prediction_html += f"""
+                <div style="
+                    background: rgba(255,255,255,0.05);
+                    border-radius: 8px;
+                    padding: 10px;
+                    margin-bottom: 8px;
+                ">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                        <span style="font-weight: 600; color: #e2e8f0;">{market_display}</span>
+                        <span style="font-size: 12px;">{status_label}</span>
+                    </div>
+                    <div style="display: flex; align-items: center; gap: 10px;">
+                        <div style="flex: 1; background: #334155; border-radius: 4px; height: 8px;">
+                            <div style="background: {bar_color}; border-radius: 4px; height: 8px; width: {signal * 100}%;"></div>
+                        </div>
+                        <span style="font-size: 11px; color: #94a3b8; min-width: 40px;">{signal:.2f}</span>
+                    </div>
+                    <div style="margin-top: 6px; font-size: 10px; color: #64748b;">
+                        信号源: {source_text} | 置信度: {confidence:.0%} | {validity_icon}
+                    </div>
+                </div>
+                """
+
+        if not verifications:
+            verification_html = '<span style="color: #64748b; font-size: 12px;">等待验证数据...</span>'
+        else:
+            verification_html = ""
+            for market, ver in verifications.items():
+                expected = ver.get("expected", 0.5)
+                count = ver.get("verification_count", 0)
+                verified = ver.get("verified", False)
+                should_relax = ver.get("should_relax", False)
+
+                status_icon = "✅" if verified else ("🔄" if count >= 5 else "⏳")
+                relax_text = "解除限制" if should_relax else "保持限制"
+
+                market_display = {
+                    "china_a": "A股",
+                    "hk": "港股",
+                    "us": "美股",
+                    "futures": "期货"
+                }.get(market, market)
+
+                verification_html += f"""
+                <div style="
+                    background: rgba(255,255,255,0.05);
+                    border-radius: 8px;
+                    padding: 10px;
+                    margin-bottom: 8px;
+                ">
+                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                        <span style="font-weight: 600; color: #e2e8f0;">{market_display} 验证</span>
+                        <span style="font-size: 12px;">{status_icon} {relax_text}</span>
+                    </div>
+                    <div style="margin-top: 6px; font-size: 11px; color: #64748b;">
+                        预期: {expected:.2f} | 验证次数: {count}/5
+                    </div>
+                </div>
+                """
+
+        if resonance:
+            level = resonance.get("level", "none")
+            m_signal = resonance.get("market_signal", 0)
+            n_signal = resonance.get("narrative_signal", 0)
+            alignment = resonance.get("alignment", 0)
+            weight = resonance.get("weight", 0)
+
+            level_icons = {
+                "high": ("🔴", "#f87171", "高共振"),
+                "medium": ("🟡", "#fbbf24", "中共振"),
+                "low": ("🔵", "#60a5fa", "低共振"),
+                "divergent": ("⚠️", "#9333ea", "背离"),
+                "none": ("⚪", "#94a3b8", "无信号"),
+            }
+            icon, color, label = level_icons.get(level, ("⚪", "#94a3b8", "未知"))
+
+            resonance_html = f"""
+            <div style="
+                background: rgba(255,255,255,0.05);
+                border-radius: 8px;
+                padding: 10px;
+                margin-bottom: 8px;
+            ">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                    <span style="font-weight: 600; color: #e2e8f0;">信号共振</span>
+                    <span style="font-size: 12px;">{icon} {label}</span>
+                </div>
+                <div style="display: flex; gap: 15px; font-size: 11px; color: #94a3b8;">
+                    <span>行情: <b style="color: #f87171;">{m_signal:+.2f}</b></span>
+                    <span>舆论: <b style="color: #60a5fa;">{n_signal:+.2f}</b></span>
+                    <span>对齐: <b style="color: {color};">{alignment:.0%}</b></span>
+                </div>
+                <div style="margin-top: 6px; font-size: 10px; color: #64748b;">
+                    权重: {weight:.1f} | 最终信号: {m_signal * weight:+.2f}
+                </div>
+            </div>
+            """
+        else:
+            resonance_html = '<span style="color: #64748b; font-size: 12px;">暂无共振数据</span>'
+
+        if topic_predictions:
+            topic_html = ""
+            for topic, pred in topic_predictions.items():
+                heat = pred.get("heat_score", 0)
+                prob = pred.get("spread_probability", 0)
+                sectors = pred.get("target_sectors", [])
+
+                heat_bar = min(heat / 10 * 100, 100)
+                heat_color = "#f87171" if heat > 5 else ("#fbbf24" if heat > 3 else "#4ade80")
+
+                topic_html += f"""
+                <div style="
+                    background: rgba(255,255,255,0.05);
+                    border-radius: 8px;
+                    padding: 10px;
+                    margin-bottom: 8px;
+                ">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                        <span style="font-weight: 600; color: #e2e8f0;">{topic}</span>
+                        <span style="font-size: 12px; color: {heat_color};">🔥 {heat:.1f}</span>
+                    </div>
+                    <div style="background: #334155; border-radius: 4px; height: 6px; margin-bottom: 6px;">
+                        <div style="background: {heat_color}; border-radius: 4px; height: 6px; width: {heat_bar}%;"></div>
+                    </div>
+                    <div style="font-size: 10px; color: #64748b;">
+                        传染概率: {prob:.0%} | 目标: {', '.join(sectors[:2]) if sectors else '无'}
+                    </div>
+                </div>
+                """
+        else:
+            topic_html = '<span style="color: #64748b; font-size: 12px;">暂无主题扩散</span>'
+
+        put_html(f"""
+        <div style="
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            border-radius: 12px;
+            padding: 15px;
+            margin-top: 15px;
+            border: 1px solid rgba(99, 102, 241, 0.3);
+        ">
+            <h4 style="margin: 0 0 15px 0; color: #818cf8;">
+                🌊 流动性预测体系
+            </h4>
+            <div style="font-size: 11px; color: #64748b; margin-bottom: 12px;">
+                基于行情+舆论共振检测，主题扩散预测，预判错误时自动解除限制
+            </div>
+
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px;">
+                <div>
+                    <div style="font-size: 12px; font-weight: 600; color: #94a3b8; margin-bottom: 8px;">
+                        📊 预测
+                    </div>
+                    {prediction_html}
+                </div>
+                <div>
+                    <div style="font-size: 12px; font-weight: 600; color: #94a3b8; margin-bottom: 8px;">
+                        🔍 验证
+                    </div>
+                    {verification_html}
+                </div>
+            </div>
+
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-top: 15px;">
+                <div>
+                    <div style="font-size: 12px; font-weight: 600; color: #94a3b8; margin-bottom: 8px;">
+                        ⚡ 共振检测
+                    </div>
+                    {resonance_html}
+                </div>
+                <div>
+                    <div style="font-size: 12px; font-weight: 600; color: #94a3b8; margin-bottom: 8px;">
+                        🔥 主题扩散
+                    </div>
+                    {topic_html}
+                </div>
+            </div>
+
+            <div style="margin-top: 12px; padding: 10px; background: rgba(0,0,0,0.2); border-radius: 8px;">
+                <div style="font-size: 11px; color: #94a3b8; margin-bottom: 4px;">规则说明:</div>
+                <div style="font-size: 10px; color: #64748b;">
+                    • 共振: 行情+舆论同向=高权重(1.0), 背离=低权重(0.3)<br/>
+                    • 主题扩散: 热度>3触发, 传染概率×热度因子<br/>
+                    • 信号 &lt; 0.4: 紧张调整 | &gt; 0.7: 宽松调整<br/>
+                    • 预判错误或预测过期: 自动解除限制
+                </div>
+            </div>
+        </div>
+        """)
+
+    def _start_global_scanner(self):
+        """启动全球市场扫描器"""
+        try:
+            self.engine.start_global_market_scanner(
+                fetch_interval=60,
+                alert_threshold_volatility=2.0,
+                alert_threshold_single=3.0,
+            )
+        except Exception as e:
+            pass
+        self._refresh()
 
     def _render_stats_overview(self):
         """渲染事件类型分布 - 淡色风格"""
