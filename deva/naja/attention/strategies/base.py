@@ -102,7 +102,15 @@ class AttentionStrategyBase(ABC):
         # 缓存注意力系统引用
         self._attention_integration = None
         self._orchestrator = None
-    
+
+    def _get_market_time(self) -> float:
+        """获取当前市场时间（回放模式返回市场时间，否则返回系统时间）"""
+        try:
+            from deva.naja.common.market_time import get_market_time_service
+            return get_market_time_service().get_market_time()
+        except Exception:
+            return time.time()
+
     def _get_attention_system(self):
         """获取注意力系统"""
         if self._attention_integration is None:

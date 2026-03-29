@@ -655,54 +655,70 @@ class CrossSignalAnalyzer:
     def _check_market_resonance(self, snapshot: MarketSnapshot) -> List[MarketResonanceSignal]:
         """检测市场快照与宏观叙事的共振
 
-        通过 NARRATIVE_TO_MARKET_LINK 映射检测：
-        - 宏观叙事 → 大盘指数
-        - 例如：流动性紧张 → 纳斯达克下跌
+        通过 MARKET_TO_NARRATIVE_LINK 映射检测：
+        - 大盘指数 → 宏观叙事
+        - 例如：纳斯达克下跌 → 流动性紧张 / 全球宏观
         """
         from .narrative_sector_mapping import (
-            get_linked_markets, get_market_config, is_macro_narrative,
-            get_narrative_category
+            get_linked_narratives_for_market, get_market_config
         )
 
         resonances = []
+
+        linked_narratives = get_linked_narratives_for_market(snapshot.market_index)
+        if not linked_narratives:
+            return resonances
 
         active_markets = set()
         for ms in self._market_buffer:
             if time.time() - ms.timestamp < self._market_buffer_seconds:
                 active_markets.add(ms.market_index)
 
-        for market_id in get_linked_markets(snapshot.market_index):
-            for market_ms in self._market_buffer:
-                if market_ms.market_index != market_id:
-                    continue
-                if time.time() - market_ms.timestamp > self._market_buffer_seconds:
+        for narrative in linked_narratives:
+            for market_id in active_markets:
+                if market_id == snapshot.market_index:
                     continue
 
-                resonance_score = self._compute_market_resonance_score(
-                    market_snapshot=market_ms,
-                    linked_market=snapshot
-                )
+                linked_markets_for_narrative = self._get_markets_for_narrative(narrative)
+                if market_id not in linked_markets_for_narrative:
+                    continue
 
-                if resonance_score >= self._resonance_threshold * 0.8:
-                    resonance = MarketResonanceSignal(
-                        market_index=market_ms.market_index,
-                        market_name=market_ms.market_name,
-                        narrative=snapshot.market_index,
-                        narrative_stage="扩散",
-                        narrative_attention=resonance_score,
-                        market_change=market_ms.price_change,
-                        market_volatility=market_ms.volatility,
-                        market_activity=market_ms.activity,
-                        resonance_score=resonance_score,
-                        resonance_type=ResonanceType.INTENSITY,
-                        source=SignalSource.RULE,
+                for market_ms in self._market_buffer:
+                    if market_ms.market_index != market_id:
+                        continue
+                    if time.time() - market_ms.timestamp > self._market_buffer_seconds:
+                        continue
+
+                    resonance_score = self._compute_market_resonance_score(
+                        market_snapshot=market_ms,
+                        linked_market=snapshot
                     )
-                    resonances.append(resonance)
-                    self._market_resonance_history.append(resonance)
 
-                    _cognition_debug_log(f"[市场共振] {market_ms.market_name} ↔ {snapshot.market_index}: score={resonance_score:.3f}")
+                    if resonance_score >= self._resonance_threshold * 0.8:
+                        resonance = MarketResonanceSignal(
+                            market_index=market_ms.market_index,
+                            market_name=market_ms.market_name,
+                            narrative=narrative,
+                            narrative_stage="扩散",
+                            narrative_attention=resonance_score,
+                            market_change=market_ms.price_change,
+                            market_volatility=market_ms.volatility,
+                            market_activity=market_ms.activity,
+                            resonance_score=resonance_score,
+                            resonance_type=ResonanceType.INTENSITY,
+                            source=SignalSource.RULE,
+                        )
+                        resonances.append(resonance)
+                        self._market_resonance_history.append(resonance)
+
+                        _cognition_debug_log(f"[市场共振] {market_ms.market_name} ↔ {narrative}: score={resonance_score:.3f}")
 
         return resonances
+
+    def _get_markets_for_narrative(self, narrative: str) -> set:
+        """获取叙事关联的所有市场指数"""
+        from .narrative_sector_mapping import get_linked_markets
+        return set(get_linked_markets(narrative))
 
     def _compute_market_resonance_score(self, market_snapshot: MarketSnapshot, linked_market: MarketSnapshot) -> float:
         """计算市场共振分数

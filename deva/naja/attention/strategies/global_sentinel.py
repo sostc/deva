@@ -121,7 +121,7 @@ class GlobalMarketSentinel(AttentionStrategyBase):
                     confidence=min(new_risk_level / 4.0, 1.0),
                     score=new_risk_level,
                     reason=f"Risk Level {new_risk_level}: {self.risk_levels[new_risk_level]}",
-                    timestamp=time.time(),
+                    timestamp=self._get_market_time(),
                     metadata={
                         'volatility': volatility,
                         'mean_change': mean_change,

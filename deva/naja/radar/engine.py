@@ -645,6 +645,20 @@ class RadarEngine:
             self._global_scanner = None
             _radar_debug_log("全球市场扫描器已停止")
 
+    def enable_propagation_engine_sync(self, propagation_engine):
+        """
+        启用 PropagationEngine 同步
+
+        将 GlobalMarketScanner 的数据同步到 Cognition 的 PropagationEngine
+        """
+        if not self._global_scanner:
+            _radar_debug_log("GlobalMarketScanner 未启动，无法启用 PropagationEngine 同步")
+            return False
+
+        self._global_scanner.enable_propagation_engine_sync(propagation_engine)
+        _radar_debug_log("已启用 PropagationEngine 同步")
+        return True
+
     def _on_global_market_alert(self, alert: "MarketAlert"):
         """处理全球市场告警"""
         _radar_debug_log(f"收到全球市场告警: {alert.message}")

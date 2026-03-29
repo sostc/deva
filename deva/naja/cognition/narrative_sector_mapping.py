@@ -36,12 +36,24 @@ NARRATIVE_TO_MARKET_LINK: Dict[str, List[str]] = {
     "贵金属": ["gold", "silver"],
     "外汇与美元": ["usd_index", "dxy"],
     "全球宏观": ["sp500", "nasdaq", "dow_jones", "hang_seng", "nikkei"],
-    "流动性紧张": ["sp500", "nasdaq", "bond", "fed Funds"],
+    "流动性紧张": ["sp500", "nasdaq", "bond", "fed_funds"],
     "债券市场": ["bond", "treasury", "us10y", "us02y"],
     "股票市场": ["sp500", "nasdaq", "dow_jones", "a_share", "hs300"],
     "大宗商品": ["crude_oil", "nat_gas", "copper", "commodity_index"],
     "现金与货币": ["fed_funds", "libor", "money_market"],
     "地缘政治": ["sp500", "nasdaq", "oil", "gold", "vix"],
+}
+
+MARKET_TO_NARRATIVE_LINK: Dict[str, List[str]] = {
+    "sp500": ["全球宏观", "流动性紧张", "股票市场", "地缘政治"],
+    "nasdaq": ["全球宏观", "流动性紧张", "股票市场", "地缘政治"],
+    "dow_jones": ["全球宏观", "股票市场"],
+    "gold": ["贵金属", "地缘政治"],
+    "silver": ["贵金属"],
+    "crude_oil": ["大宗商品", "地缘政治"],
+    "vix": ["流动性紧张", "地缘政治"],
+    "usd_index": ["外汇与美元"],
+    "bond": ["流动性紧张", "债券市场"],
 }
 
 MARKET_INDEX_CONFIG: Dict[str, Dict[str, str]] = {
@@ -140,6 +152,11 @@ def get_linked_narratives(sector: str) -> List[str]:
 def get_linked_markets(narrative: str) -> List[str]:
     """获取宏观叙事关联的大盘指数列表"""
     return NARRATIVE_TO_MARKET_LINK.get(narrative, [])
+
+
+def get_linked_narratives_for_market(market: str) -> List[str]:
+    """获取大盘指数关联的宏观叙事列表"""
+    return MARKET_TO_NARRATIVE_LINK.get(market, [])
 
 
 def get_market_config(market: str) -> Dict[str, str]:
