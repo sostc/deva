@@ -431,8 +431,16 @@ class TickNoiseFilter:
             if report.is_noise:
                 noise_symbols.add(symbol)
         
+        # 获取股票代码序列的正确方式（可能是列，也可能是索引名）
+        if symbol_col in df.columns:
+            symbols_series = df[symbol_col].astype(str)
+        elif symbol_col == df.index.name:
+            symbols_series = df.index.astype(str)
+        else:
+            symbols_series = pd.Series([''] * len(df), index=df.index)
+
         # 过滤
-        mask = ~df[symbol_col].astype(str).isin(noise_symbols)
+        mask = ~symbols_series.isin(noise_symbols)
         filtered_df = df[mask].copy()
         
         filtered_count = len(df) - len(filtered_df)

@@ -6,10 +6,12 @@ Strategy Allocation & Control Module - 策略分配与调节
 - 策略动态加载/卸载
 - 参数连续控制
 - 策略启停机制
+- DecisionAttention 决策型注意力集成
 
 架构:
 Attention = "势" (资源流向)
 Strategy = "术" (如何利用资源)
+DecisionAttention = "决" (何时押注，押多少)
 """
 
 import numpy as np
@@ -187,14 +189,15 @@ class StrategyRegistry:
 class StrategyAllocator:
     """
     策略分配器
-    
+
     核心功能:
     1. 根据注意力分配策略
     2. 动态加载/卸载策略
     3. 参数连续控制
     4. 策略启停管理
+    5. DecisionAttention 决策注意力调制
     """
-    
+
     def __init__(
         self,
         registry: Optional[StrategyRegistry] = None,
@@ -202,15 +205,12 @@ class StrategyAllocator:
     ):
         self.registry = registry or StrategyRegistry()
         self.max_strategies = max_strategies
-        
-        # 当前分配
+
         self._active_strategies: Set[str] = set()
         self._strategy_params: Dict[str, StrategyParams] = {}
-        
-        # 历史记录
+
         self._allocation_history: List[Dict] = []
-        
-        # 参数映射函数
+
         self._param_mappers: Dict[str, Callable[[float], Any]] = {
             'threshold': self._map_threshold,
             'window': self._map_window,
@@ -218,7 +218,39 @@ class StrategyAllocator:
             'holding_time': self._map_holding_time,
             'risk_limit': self._map_risk_limit
         }
-    
+
+        self._decision_attention = None
+
+    def set_decision_attention(self, decision_attention):
+        """
+        设置决策注意力实例
+
+        Args:
+            decision_attention: DecisionAttention 实例
+        """
+        self._decision_attention = decision_attention
+
+    def get_decision_attention(self):
+        """获取决策注意力实例"""
+        return self._decision_attention
+
+    def _get_alpha(self) -> float:
+        """获取策略准确性因子 α"""
+        if self._decision_attention is None:
+            return 1.0
+        return self._decision_attention.compute_alpha(strategy_performance=0.5)
+
+    def _get_temperature(self) -> float:
+        """获取温度参数 T"""
+        if self._decision_attention is None:
+            return 1.0
+        return self._decision_attention.compute_temperature()
+
+    def _get_courage(self) -> float:
+        """获取胆识因子（基于温度）"""
+        T = self._get_temperature()
+        return 2.0 - T
+
     def allocate(
         self,
         global_attention: float,
@@ -228,20 +260,35 @@ class StrategyAllocator:
     ) -> Dict[str, Any]:
         """
         执行策略分配
-        
+
+        DecisionAttention 调制:
+        - α (策略准确性) 影响 position_size
+        - T (温度/胆识) 影响 position_size 和 risk_limit
+        - courage 影响总体的激进程度
+
         Returns:
             {
                 'global': [strategy_ids...],
                 'sector': {sector_id: [strategy_ids...]},
                 'symbol': {symbol: [strategy_ids...]},
-                'params': {strategy_id: StrategyParams}
+                'params': {strategy_id: StrategyParams},
+                'decision': {alpha, temperature, courage}
             }
         """
+        α = self._get_alpha()
+        T = self._get_temperature()
+        courage = self._get_courage()
+
         allocation = {
             'global': [],
             'sector': {},
             'symbol': {},
-            'params': {}
+            'params': {},
+            'decision': {
+                'alpha': α,
+                'temperature': T,
+                'courage': courage,
+            }
         }
         
         # 1. 全局策略分配
@@ -409,41 +456,52 @@ class StrategyAllocator:
         symbol_weights: Dict[str, float]
     ) -> StrategyParams:
         """
-        根据注意力调整策略参数
-        
-        规则:
+        根据注意力和 DecisionAttention 调整策略参数
+
+        DecisionAttention 调制:
         - attention ↑ → threshold ↓ (更容易触发)
         - attention ↑ → position_size ↑
         - attention ↓ → holding_time ↓
         - attention ↑ → risk_limit ↑ (更宽松)
+        - α (策略准确性) ↑ → position_size ↑ (更自信)
+        - courage ↑ → position_size ↑, risk_limit ↑ (更激进)
         """
         base_params = strategy.config.params
-        
-        # 计算有效注意力
+
         if strategy.config.scope == StrategyScope.GLOBAL:
             effective_attention = global_attention
         elif strategy.config.scope == StrategyScope.SECTOR:
             if sector_attention:
-                # 过滤异常值
                 values = [v for v in sector_attention.values() if isinstance(v, (int, float)) and not np.isnan(v) and not np.isinf(v)]
                 effective_attention = np.mean(values) if values else global_attention
             else:
                 effective_attention = global_attention
         else:
             effective_attention = global_attention
-        
-        # 应用映射
+
+        α = self._get_alpha()
+        courage = self._get_courage()
+
+        attention_factor = effective_attention
+        confidence_factor = α
+        courage_factor = courage
+
+        position_size_base = self._map_position_size(attention_factor)
+        position_size = position_size_base * confidence_factor * (0.8 + 0.4 * courage_factor)
+
+        risk_limit_base = self._map_risk_limit(attention_factor)
+        risk_limit = risk_limit_base * (0.8 + 0.4 * courage_factor)
+
         new_params = StrategyParams(
             threshold=self._param_mappers['threshold'](effective_attention),
             window=int(self._param_mappers['window'](effective_attention)),
-            position_size=self._param_mappers['position_size'](effective_attention),
+            position_size=min(position_size, 0.3),
             holding_time=int(self._param_mappers['holding_time'](effective_attention)),
-            risk_limit=self._param_mappers['risk_limit'](effective_attention)
+            risk_limit=min(risk_limit, 0.15)
         )
-        
-        # 更新策略参数
+
         strategy.update_params(new_params)
-        
+
         return new_params
     
     def _map_threshold(self, attention: float) -> float:
@@ -515,15 +573,20 @@ class StrategyAllocator:
         return {
             'active_count': len(self._active_strategies),
             'active_strategies': list(self._active_strategies),
+            'decision': {
+                'alpha': self._get_alpha(),
+                'temperature': self._get_temperature(),
+                'courage': self._get_courage(),
+            },
             'by_scope': {
-                'global': len([s for s in self._active_strategies 
-                              if self.registry.get(s) and 
+                'global': len([s for s in self._active_strategies
+                              if self.registry.get(s) and
                               self.registry.get(s).config.scope == StrategyScope.GLOBAL]),
-                'sector': len([s for s in self._active_strategies 
-                              if self.registry.get(s) and 
+                'sector': len([s for s in self._active_strategies
+                              if self.registry.get(s) and
                               self.registry.get(s).config.scope == StrategyScope.SECTOR]),
-                'symbol': len([s for s in self._active_strategies 
-                              if self.registry.get(s) and 
+                'symbol': len([s for s in self._active_strategies
+                              if self.registry.get(s) and
                               self.registry.get(s).config.scope == StrategyScope.SYMBOL])
             }
         }

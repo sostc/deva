@@ -177,6 +177,9 @@ class FetchConfig:
     playback_speed: float = 10.0
 
 
+SNAPSHOT_CONFIG_KEY = "realtime_data_fetcher_snapshot"
+
+
 class RealtimeDataFetcher:
     """
     实盘数据获取器 - 注意力系统内置组件
@@ -185,6 +188,7 @@ class RealtimeDataFetcher:
     - 只在交易时间运行（非交易时间完全停止）
     - 订阅交易时钟信号，收到 phase_change 时启停
     - 频率由 FrequencyScheduler 控制（HIGH=1s, MEDIUM=10s, LOW=60s）
+    - 快照保存由 NB 配置控制开关
 
     强制模式（force_trading_mode=True）：
     - 不订阅交易时钟
@@ -220,6 +224,12 @@ class RealtimeDataFetcher:
 
         self._current_phase: str = 'closed'
         self._is_active: bool = False
+
+        self._save_snapshot_enabled: bool = True
+        self._last_snapshot_save_time: float = 0.0
+        self._snapshot_save_count: int = 0
+
+        self._load_snapshot_config()
 
     def start(self):
         """启动获取器"""
@@ -373,6 +383,10 @@ class RealtimeDataFetcher:
             if data is not None and len(data) > 0:
                 self.attention_system.process_data(data)
                 self._fetch_count += 1
+
+                if level == "LOW" and self._save_snapshot_enabled:
+                    self._save_market_snapshot(data)
+
                 log.info(f"[RealtimeDataFetcher] [{level}] 获取 {len(data)} 条数据，累计 {self._fetch_count} 批")
 
                 if self._fetch_count % 100 == 0:
@@ -419,6 +433,44 @@ class RealtimeDataFetcher:
             log.debug(f"[RealtimeDataFetcher] 获取数据失败: {e}")
             return None
 
+    def _save_market_snapshot(self, data: pd.DataFrame):
+        """保存市场快照到历史行情表（quant_snapshot_5min_window）"""
+        try:
+            from deva import NB
+
+            if data is None or data.empty:
+                return
+
+            snapshot_db = NB("quant_snapshot_5min_window", key_mode="time")
+
+            records = []
+            timestamp = time.time()
+
+            for idx, row in data.iterrows():
+                code = idx
+                record = {
+                    "timestamp": timestamp,
+                    "code": code,
+                    "name": row.get("name", ""),
+                    "open": row.get("open", 0),
+                    "close": row.get("close", 0),
+                    "now": row.get("now", 0),
+                    "high": row.get("high", 0),
+                    "low": row.get("low", 0),
+                    "volume": row.get("volume", 0),
+                    "p_change": row.get("p_change", 0),
+                }
+                records.append(record)
+
+            if records:
+                snapshot_db.append(records)
+                self._last_snapshot_save_time = timestamp
+                self._snapshot_save_count += 1
+                log.debug(f"[RealtimeDataFetcher] 保存快照 {len(records)} 条到 quant_snapshot_5min_window")
+
+        except Exception as e:
+            log.debug(f"[RealtimeDataFetcher] 保存快照失败: {e}")
+
     def get_stats(self) -> Dict[str, Any]:
         """获取统计信息"""
         is_trading = is_trading_time_clock()
@@ -434,7 +486,53 @@ class RealtimeDataFetcher:
             'high_count': len([s for s, l in self._symbol_levels.items() if l == 'HIGH']),
             'medium_count': len([s for s, l in self._symbol_levels.items() if l == 'MEDIUM']),
             'low_count': len([s for s, l in self._symbol_levels.items() if l == 'LOW']),
+            'save_snapshot_enabled': self._save_snapshot_enabled,
+            'snapshot_save_count': self._snapshot_save_count,
+            'last_snapshot_save_time': self._last_snapshot_save_time,
         }
+
+    def _load_snapshot_config(self):
+        """从 NB 加载快照保存配置"""
+        try:
+            from deva import NB
+            config_db = NB("system_config", key_mode="explicit")
+            config = config_db.get(SNAPSHOT_CONFIG_KEY)
+            if config is not None and isinstance(config, dict):
+                self._save_snapshot_enabled = config.get("enabled", True)
+                log.info(f"[RealtimeDataFetcher] 加载快照配置: enabled={self._save_snapshot_enabled}")
+            else:
+                self._save_snapshot_enabled = True
+        except Exception as e:
+            log.debug(f"[RealtimeDataFetcher] 加载快照配置失败: {e}")
+            self._save_snapshot_enabled = True
+
+    def _save_snapshot_config(self):
+        """保存快照保存配置到 NB"""
+        try:
+            from deva import NB
+            config_db = NB("system_config", key_mode="explicit")
+            config_db[SNAPSHOT_CONFIG_KEY] = {
+                "enabled": self._save_snapshot_enabled,
+                "updated_at": time.time(),
+            }
+        except Exception as e:
+            log.debug(f"[RealtimeDataFetcher] 保存快照配置失败: {e}")
+
+    def enable_snapshot_save(self):
+        """启用快照保存"""
+        self._save_snapshot_enabled = True
+        self._save_snapshot_config()
+        log.info("[RealtimeDataFetcher] 快照保存已启用")
+
+    def disable_snapshot_save(self):
+        """禁用快照保存"""
+        self._save_snapshot_enabled = False
+        self._save_snapshot_config()
+        log.info("[RealtimeDataFetcher] 快照保存已禁用")
+
+    def is_snapshot_save_enabled(self) -> bool:
+        """快照保存是否启用"""
+        return self._save_snapshot_enabled
 
 
 class AsyncRealtimeDataFetcher:
