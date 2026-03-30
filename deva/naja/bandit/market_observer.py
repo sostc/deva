@@ -638,6 +638,7 @@ class MarketDataObserver:
         log.info(f"[MarketObserver] Lab 模式：收到回放数据 {len(data) if isinstance(data, pd.DataFrame) else type(data)}")
         try:
             if isinstance(data, pd.DataFrame):
+                # 1. 更新追踪股票的价格
                 for stock_code in list(self._tracked_stocks):
                     matches = data[data['code'] == stock_code]
                     if not matches.empty:
@@ -645,6 +646,16 @@ class MarketDataObserver:
                         price = float(row.get('now', row.get('price', row.get('current', 0))))
                         if price > 0:
                             self._update_price(stock_code, price)
+
+                # 2. 将数据发送到 AttentionCenter 进行策略处理
+                try:
+                    from deva.naja.attention.center import get_orchestrator
+                    orch = get_orchestrator()
+                    orch.process_datasource_data('lab_replay', data)
+                    log.info(f"[MarketObserver] Lab 模式：已发送 {len(data)} 条数据到 AttentionCenter")
+                except Exception as e:
+                    log.warning(f"[MarketObserver] 发送数据到 AttentionCenter 失败: {e}")
+
                 self._last_data_time = time.time()
                 log.info(f"[MarketObserver] Lab 模式：处理了 {len(data)} 条数据")
         except Exception as e:
