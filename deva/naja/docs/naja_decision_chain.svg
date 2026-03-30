@@ -1,0 +1,178 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 800" font-family="PingFang SC, Microsoft YaHei, sans-serif">
+  <defs>
+    <linearGradient id="bgGrad2" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#0a0e27"/>
+      <stop offset="100%" style="stop-color:#1a1f3c"/>
+    </linearGradient>
+    <filter id="shadow2" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="2" dy="4" stdDeviation="4" flood-opacity="0.3"/>
+    </filter>
+    <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#4a90d9"/>
+    </marker>
+  </defs>
+
+  <rect width="1200" height="800" fill="url(#bgGrad2)"/>
+
+  <text x="600" y="45" text-anchor="middle" fill="#ffffff" font-size="32" font-weight="bold">决策链详解</text>
+  <text x="600" y="75" text-anchor="middle" fill="#8899bb" font-size="16">从前线侦察到决策执行的完整流程</text>
+
+  <!-- Radar -->
+  <g transform="translate(50, 110)">
+    <rect x="0" y="0" width="220" height="200" rx="12" fill="#1e2644" stroke="#4a90d9" stroke-width="2" filter="url(#shadow2)"/>
+    <rect x="0" y="0" width="220" height="40" rx="12" fill="url(#grad1)"/>
+    <rect x="0" y="20" width="220" height="20" fill="url(#grad1)"/>
+    <text x="110" y="27" text-anchor="middle" fill="#ffffff" font-size="18" font-weight="bold">📡 雷达 Radar</text>
+
+    <text x="15" y="65" fill="#4a90d9" font-size="14" font-weight="bold">侦察兵 — 监控外部世界</text>
+
+    <rect x="15" y="80" width="190" height="25" rx="4" fill="#253258"/>
+    <text x="25" y="97" fill="#aabbcc" font-size="12">NewsFetcher — 新闻舆情</text>
+
+    <rect x="15" y="112" width="190" height="25" rx="4" fill="#253258"/>
+    <text x="25" y="129" fill="#aabbcc" font-size="12">TradingClock — 交易时间</text>
+
+    <rect x="15" y="144" width="190" height="25" rx="4" fill="#253258"/>
+    <text x="25" y="161" fill="#aabbcc" font-size="12">GlobalMarket — 全球市场</text>
+
+    <rect x="15" y="176" width="190" height="18" rx="4" fill="#2a3a5a"/>
+    <text x="110" y="189" text-anchor="middle" fill="#7b8caa" font-size="10">输出：新闻、事件、情绪</text>
+  </g>
+
+  <!-- Arrow -->
+  <path d="M280 210 L340 210" stroke="#4a90d9" stroke-width="3" marker-end="url(#arrowhead)"/>
+
+  <!-- Attention -->
+  <g transform="translate(350, 110)">
+    <rect x="0" y="0" width="220" height="200" rx="12" fill="#1e2644" stroke="#5ba881" stroke-width="2" filter="url(#shadow2)"/>
+    <rect x="0" y="0" width="220" height="40" rx="12" fill="#5ba881"/>
+    <rect x="0" y="20" width="220" height="20" fill="#5ba881"/>
+    <text x="110" y="27" text-anchor="middle" fill="#ffffff" font-size="18" font-weight="bold">🧠 注意力 Attention</text>
+
+    <text x="15" y="65" fill="#5ba881" font-size="14" font-weight="bold">参谋部 — 分配注意力资源</text>
+
+    <rect x="15" y="80" width="190" height="25" rx="4" fill="#253258"/>
+    <text x="25" y="97" fill="#aabbcc" font-size="12">Kernel — 注意力核心</text>
+
+    <rect x="15" y="112" width="190" height="25" rx="4" fill="#253258"/>
+    <text x="25" y="129" fill="#aabbcc" font-size="12">SectorEngine — 板块引擎</text>
+
+    <rect x="15" y="144" width="190" height="25" rx="4" fill="#253258"/>
+    <text x="25" y="161" fill="#aabbcc" font-size="12">WeightPool — 权重池</text>
+
+    <rect x="15" y="176" width="190" height="18" rx="4" fill="#2a3a5a"/>
+    <text x="110" y="189" text-anchor="middle" fill="#7b8caa" font-size="10">输出：关注焦点、板块权重</text>
+  </g>
+
+  <!-- Arrow -->
+  <path d="M580 210 L640 210" stroke="#5ba881" stroke-width="3" marker-end="url(#arrowhead)"/>
+
+  <!-- Cognition -->
+  <g transform="translate(650, 110)">
+    <rect x="0" y="0" width="220" height="200" rx="12" fill="#1e2644" stroke="#d4a84b" stroke-width="2" filter="url(#shadow2)"/>
+    <rect x="0" y="0" width="220" height="40" rx="12" fill="#d4a84b"/>
+    <rect x="0" y="20" width="220" height="20" fill="#d4a84b"/>
+    <text x="110" y="27" text-anchor="middle" fill="#ffffff" font-size="18" font-weight="bold">📖 认知 Cognition</text>
+
+    <text x="15" y="65" fill="#d4a84b" font-size="14" font-weight="bold">军师 — 理解市场叙事</text>
+
+    <rect x="15" y="80" width="190" height="25" rx="4" fill="#253258"/>
+    <text x="25" y="97" fill="#aabbcc" font-size="12">NarrativeTracker — 叙事追踪</text>
+
+    <rect x="15" y="112" width="190" height="25" rx="4" fill="#253258"/>
+    <text x="25" y="129" fill="#aabbcc" font-size="12">InsightPool — 洞察存储</text>
+
+    <rect x="15" y="144" width="190" height="25" rx="4" fill="#253258"/>
+    <text x="25" y="161" fill="#aabbcc" font-size="12">FirstPrinciplesMind — 第一性原理</text>
+
+    <rect x="15" y="176" width="190" height="18" rx="4" fill="#2a3a5a"/>
+    <text x="110" y="189" text-anchor="middle" fill="#7b8caa" font-size="10">输出：叙事、洞察、知识</text>
+  </g>
+
+  <!-- Arrow -->
+  <path d="M880 210 L940 210" stroke="#d4a84b" stroke-width="3" marker-end="url(#arrowhead)"/>
+
+  <!-- Awakened -->
+  <g transform="translate(950, 110)">
+    <rect x="0" y="0" width="220" height="200" rx="12" fill="#1e2644" stroke="#c75b7a" stroke-width="2" filter="url(#shadow2)"/>
+    <rect x="0" y="0" width="220" height="40" rx="12" fill="#c75b7a"/>
+    <rect x="0" y="20" width="220" height="20" fill="#c75b7a"/>
+    <text x="110" y="27" text-anchor="middle" fill="#ffffff" font-size="18" font-weight="bold">⚡ 觉醒 Awakened</text>
+
+    <text x="15" y="65" fill="#c75b7a" font-size="14" font-weight="bold">将军 — 做出交易决策</text>
+
+    <rect x="15" y="80" width="190" height="25" rx="4" fill="#253258"/>
+    <text x="25" y="97" fill="#aabbcc" font-size="12">ProphetSense — 预感知</text>
+
+    <rect x="15" y="112" width="190" height="25" rx="4" fill="#253258"/>
+    <text x="25" y="129" fill="#aabbcc" font-size="12">PreTaste/VolatilitySurface</text>
+
+    <rect x="15" y="144" width="190" height="25" rx="4" fill="#253258"/>
+    <text x="25" y="161" fill="#aabbcc" font-size="12">MetaEvolution/AwakenedAlaya</text>
+
+    <rect x="15" y="176" width="190" height="18" rx="4" fill="#2a3a5a"/>
+    <text x="110" y="189" text-anchor="middle" fill="#7b8caa" font-size="10">输出：买入/卖出信号</text>
+  </g>
+
+  <!-- 觉醒层次图 -->
+  <g transform="translate(50, 340)">
+    <rect x="0" y="0" width="1100" height="200" rx="12" fill="#1e2644" stroke="#c75b7a" stroke-width="2" filter="url(#shadow2)"/>
+    <text x="30" y="35" fill="#c75b7a" font-size="20" font-weight="bold">🔮 觉醒层次 — 八识理论</text>
+    <text x="30" y="60" fill="#8899bb" font-size="14">意识的八个层次，从感知到顿悟</text>
+
+    <!-- 阿赖耶识 -->
+    <rect x="50" y="85" width="240" height="90" rx="10" fill="#2a3a5a" stroke="#c75b7a" stroke-width="2"/>
+    <text x="170" y="115" text-anchor="middle" fill="#c75b7a" font-size="18" font-weight="bold">阿赖耶识 80%</text>
+    <text x="170" y="140" text-anchor="middle" fill="#ffffff" font-size="13">跨市场记忆</text>
+    <text x="170" y="160" text-anchor="middle" fill="#aabbcc" font-size="11">模式归档 / 顿悟引擎</text>
+
+    <!-- 末那识 -->
+    <rect x="310" y="85" width="240" height="90" rx="10" fill="#2a3a5a" stroke="#7b68c9" stroke-width="2"/>
+    <text x="430" y="115" text-anchor="middle" fill="#7b68c9" font-size="18" font-weight="bold">末那识 75%</text>
+    <text x="430" y="140" text-anchor="middle" fill="#ffffff" font-size="13">顺应决策</text>
+    <text x="430" y="160" text-anchor="middle" fill="#aabbcc" font-size="11">策略进化 / 机会发现</text>
+
+    <!-- 意识层 -->
+    <rect x="570" y="85" width="240" height="90" rx="10" fill="#2a3a5a" stroke="#d4a84b" stroke-width="2"/>
+    <text x="690" y="115" text-anchor="middle" fill="#d4a84b" font-size="18" font-weight="bold">意识层 55%</text>
+    <text x="690" y="140" text-anchor="middle" fill="#ffffff" font-size="13">因果追踪</text>
+    <text x="690" y="160" text-anchor="middle" fill="#aabbcc" font-size="11">矛盾检测 / 第一性原理</text>
+
+    <!-- 五识层 -->
+    <rect x="830" y="85" width="240" height="90" rx="10" fill="#2a3a5a" stroke="#5ba881" stroke-width="2"/>
+    <text x="950" y="115" text-anchor="middle" fill="#5ba881" font-size="18" font-weight="bold">五识层 90%</text>
+    <text x="950" y="140" text-anchor="middle" fill="#ffffff" font-size="13">感知世界</text>
+    <text x="950" y="160" text-anchor="middle" fill="#aabbcc" font-size="11">预知/预尝/舌识/波动率</text>
+  </g>
+
+  <!-- 执行层 -->
+  <g transform="translate(50, 560)">
+    <rect x="0" y="0" width="1100" height="120" rx="12" fill="#1e2644" stroke="#7b68c9" stroke-width="2" filter="url(#shadow2)"/>
+    <text x="30" y="35" fill="#7b68c9" font-size="20" font-weight="bold">⚔️ 执行层 — 策略与风控</text>
+
+    <!-- Strategy -->
+    <rect x="50" y="55" width="300" height="50" rx="8" fill="#253258"/>
+    <text x="200" y="80" text-anchor="middle" fill="#ffffff" font-size="16" font-weight="bold">Strategy 策略系统</text>
+    <text x="200" y="97" text-anchor="middle" fill="#8899bb" font-size="11">武器库：River/Momentum/市场分类</text>
+
+    <!-- Bandit -->
+    <rect x="380" y="55" width="300" height="50" rx="8" fill="#253258"/>
+    <text x="530" y="80" text-anchor="middle" fill="#ffffff" font-size="16" font-weight="bold">Bandit 策略选择</text>
+    <text x="530" y="97" text-anchor="middle" fill="#8899bb" font-size="11">武器选择：在线学习/自适应周期</text>
+
+    <!-- Risk -->
+    <rect x="710" y="55" width="300" height="50" rx="8" fill="#253258"/>
+    <text x="860" y="80" text-anchor="middle" fill="#ffffff" font-size="16" font-weight="bold">Risk 风控系统</text>
+    <text x="860" y="97" text-anchor="middle" fill="#8899bb" font-size="11">纪律检查：仓位管理/风险控制</text>
+  </g>
+
+  <!-- 数据流向 -->
+  <g transform="translate(50, 700)">
+    <rect x="0" y="0" width="1100" height="80" rx="12" fill="#2a3158"/>
+    <text x="550" y="30" text-anchor="middle" fill="#ffffff" font-size="16" font-weight="bold">数据流向</text>
+    <text x="550" y="60" text-anchor="middle" fill="#8899bb" font-size="14">行情数据 → Pipeline → Kernel → SectorEngine → 注意力分配 → 策略执行 → 信号分发 → 风控 → 交易执行</text>
+  </g>
+
+  <text x="1150" y="785" text-anchor="end" fill="#556688" font-size="12">Naja Decision Chain — 2026-03-31</text>
+</svg>
