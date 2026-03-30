@@ -55,6 +55,8 @@ US_STOCK_CODES = {
     "gb_nke": "nke",
     "gb_dis": "dis",
     "gb_pypl": "pypl",
+    "gb_baba": "baba",
+    "gb_crwc": "crwv",
 }
 
 ALL_CODES = {**FUTURES_CODES, **US_STOCK_CODES}
