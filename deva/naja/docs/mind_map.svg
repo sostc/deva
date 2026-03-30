@@ -1,0 +1,164 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 900" width="400" height="900">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#1a1a2e"/>
+      <stop offset="100%" style="stop-color:#16213e"/>
+    </linearGradient>
+    <linearGradient id="mind" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#e94560"/>
+      <stop offset="100%" style="stop-color:#ff6b6b"/>
+    </linearGradient>
+    <linearGradient id="senses" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#4ecdc4"/>
+      <stop offset="100%" style="stop-color:#44a08d"/>
+    </linearGradient>
+    <linearGradient id="consciousness" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#667eea"/>
+      <stop offset="100%" style="stop-color:#764ba2"/>
+    </linearGradient>
+    <linearGradient id="manas" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#f093fb"/>
+      <stop offset="100%" style="stop-color:#f5576c"/>
+    </linearGradient>
+    <linearGradient id="alaya" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#ff9a56"/>
+      <stop offset="100%" style="stop-color:#ff6b6b"/>
+    </linearGradient>
+    <linearGradient id="karma" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#a8edea"/>
+      <stop offset="100%" style="stop-color:#fed6e3"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Background -->
+  <rect width="400" height="900" fill="url(#bg)"/>
+
+  <!-- Title -->
+  <text x="200" y="35" text-anchor="middle" fill="#fff" font-size="18" font-weight="bold">系统与佛学层次对照</text>
+
+  <!-- 心 Mind -->
+  <rect x="20" y="50" width="360" height="50" rx="10" fill="url(#mind)"/>
+  <text x="200" y="75" text-anchor="middle" fill="#fff" font-size="16" font-weight="bold">心 Mind</text>
+  <text x="200" y="92" text-anchor="middle" fill="#fff" font-size="10">整体系统 / 最高层觉知</text>
+
+  <!-- Arrow -->
+  <path d="M200 105 L200 125" stroke="#666" stroke-width="2" fill="none" marker-end="url(#arrow)"/>
+
+  <!-- 五识 Senses -->
+  <rect x="20" y="130" width="360" height="130" rx="10" fill="none" stroke="url(#senses)" stroke-width="2"/>
+  <text x="200" y="150" text-anchor="middle" fill="#4ecdc4" font-size="14" font-weight="bold">五识 Senses</text>
+
+  <!-- Five Senses -->
+  <circle cx="60" cy="185" r="22" fill="url(#senses)"/>
+  <text x="60" y="182" text-anchor="middle" fill="#fff" font-size="9">目</text>
+  <text x="60" y="194" text-anchor="middle" fill="#fff" font-size="7">行情</text>
+
+  <circle cx="130" cy="185" r="22" fill="url(#senses)"/>
+  <text x="130" y="182" text-anchor="middle" fill="#fff" font-size="9">耳</text>
+  <text x="130" y="194" text-anchor="middle" fill="#fff" font-size="7">新闻</text>
+
+  <circle cx="200" cy="185" r="22" fill="url(#senses)"/>
+  <text x="200" y="182" text-anchor="middle" fill="#fff" font-size="9">鼻</text>
+  <text x="200" y="194" text-anchor="middle" fill="#fff" font-size="7">流动性</text>
+
+  <circle cx="270" cy="185" r="22" fill="url(#senses)"/>
+  <text x="270" y="182" text-anchor="middle" fill="#fff" font-size="9">舌</text>
+  <text x="270" y="194" text-anchor="middle" fill="#fff" font-size="7">尝受</text>
+
+  <circle cx="340" cy="185" r="22" fill="url(#senses)"/>
+  <text x="340" y="182" text-anchor="middle" fill="#fff" font-size="9">身</text>
+  <text x="340" y="194" text-anchor="middle" fill="#fff" font-size="7">扫描</text>
+
+  <!-- Arrow -->
+  <path d="M200 265 L200 285" stroke="#666" stroke-width="2"/>
+
+  <!-- 意识 Consciousness -->
+  <rect x="20" y="290" width="360" height="100" rx="10" fill="none" stroke="url(#consciousness)" stroke-width="2"/>
+  <text x="200" y="310" text-anchor="middle" fill="#667eea" font-size="14" font-weight="bold">意识 Consciousness</text>
+
+  <rect x="40" y="320" width="100" height="55" rx="5" fill="url(#consciousness)" opacity="0.3"/>
+  <text x="90" y="340" text-anchor="middle" fill="#fff" font-size="11">AttentionKernel</text>
+  <text x="90" y="355" text-anchor="middle" fill="#aaa" font-size="9">识/了别</text>
+  <text x="90" y="368" text-anchor="middle" fill="#aaa" font-size="8">觉知焦点</text>
+
+  <rect x="150" y="320" width="100" height="55" rx="5" fill="url(#consciousness)" opacity="0.3"/>
+  <text x="200" y="340" text-anchor="middle" fill="#fff" font-size="11">NewsMind</text>
+  <text x="200" y="355" text-anchor="middle" fill="#aaa" font-size="9">想/取相</text>
+  <text x="200" y="368" text-anchor="middle" fill="#aaa" font-size="8">识别主题</text>
+
+  <rect x="260" y="320" width="100" height="55" rx="5" fill="url(#consciousness)" opacity="0.3"/>
+  <text x="310" y="340" text-anchor="middle" fill="#fff" font-size="11">Strategy</text>
+  <text x="310" y="355" text-anchor="middle" fill="#aaa" font-size="9">思/思辨</text>
+  <text x="310" y="368" text-anchor="middle" fill="#aaa" font-size="8">推演可能</text>
+
+  <!-- Arrow -->
+  <path d="M200 395 L200 415" stroke="#666" stroke-width="2"/>
+
+  <!-- 末那识 Manas -->
+  <rect x="20" y="420" width="360" height="180" rx="10" fill="none" stroke="url(#manas)" stroke-width="2"/>
+  <text x="200" y="440" text-anchor="middle" fill="#f093fb" font-size="14" font-weight="bold">末那识 Manas Engine</text>
+  <text x="200" y="455" text-anchor="middle" fill="#aaa" font-size="9">决策中枢 / 我执 / 是否行动</text>
+
+  <!-- Manas Components -->
+  <rect x="30" y="465" width="80" height="40" rx="5" fill="url(#manas)" opacity="0.3"/>
+  <text x="70" y="483" text-anchor="middle" fill="#fff" font-size="10">Timing</text>
+  <text x="70" y="497" text-anchor="middle" fill="#aaa" font-size="8">时机</text>
+
+  <rect x="115" y="465" width="80" height="40" rx="5" fill="url(#manas)" opacity="0.3"/>
+  <text x="155" y="483" text-anchor="middle" fill="#fff" font-size="10">Regime</text>
+  <text x="155" y="497" text-anchor="middle" fill="#aaa" font-size="8">环境</text>
+
+  <rect x="205" y="465" width="80" height="40" rx="5" fill="url(#manas)" opacity="0.3"/>
+  <text x="245" y="483" text-anchor="middle" fill="#fff" font-size="10">Confidence</text>
+  <text x="245" y="497" text-anchor="middle" fill="#aaa" font-size="8">自信</text>
+
+  <rect x="295" y="465" width="75" height="40" rx="5" fill="url(#manas)" opacity="0.3"/>
+  <text x="332" y="483" text-anchor="middle" fill="#fff" font-size="10">Risk</text>
+  <text x="332" y="497" text-anchor="middle" fill="#aaa" font-size="8">风险</text>
+
+  <!-- MetaManas -->
+  <rect x="100" y="515" width="200" height="35" rx="5" fill="url(#manas)"/>
+  <text x="200" y="530" text-anchor="middle" fill="#fff" font-size="11">MetaManas 观照层</text>
+  <text x="200" y="543" text-anchor="middle" fill="#fff" font-size="9">觉知偏差: 贪/惧检测与纠偏</text>
+
+  <!-- Manas Formula -->
+  <rect x="30" y="555" width="340" height="35" rx="5" fill="#333"/>
+  <text x="200" y="575" text-anchor="middle" fill="#fff" font-size="10">manas = 0.4×时机 + 0.3×环境 + 0.3×自信</text>
+
+  <!-- Arrow -->
+  <path d="M200 605 L200 625" stroke="#666" stroke-width="2"/>
+
+  <!-- 阿赖耶识 Alaya -->
+  <rect x="20" y="630" width="360" height="100" rx="10" fill="none" stroke="url(#alaya)" stroke-width="2"/>
+  <text x="200" y="650" text-anchor="middle" fill="#ff9a56" font-size="14" font-weight="bold">阿赖耶识 Alaya</text>
+  <text x="200" y="665" text-anchor="middle" fill="#aaa" font-size="9">藏识 / 种子 / 记忆存储</text>
+
+  <rect x="40" y="675" width="150" height="45" rx="5" fill="url(#alaya)" opacity="0.3"/>
+  <text x="115" y="695" text-anchor="middle" fill="#fff" font-size="11">AttentionMemory</text>
+  <text x="115" y="710" text-anchor="middle" fill="#aaa" font-size="9">藏识 | 事件记忆</text>
+
+  <rect x="210" y="675" width="150" height="45" rx="5" fill="url(#alaya)" opacity="0.3"/>
+  <text x="285" y="695" text-anchor="middle" fill="#fff" font-size="11">ValueSystem</text>
+  <text x="285" y="710" text-anchor="middle" fill="#aaa" font-size="9">种子 | 价值观</text>
+
+  <!-- Arrow -->
+  <path d="M200 735 L200 755" stroke="#666" stroke-width="2"/>
+
+  <!-- 舌识/业力 -->
+  <rect x="20" y="760" width="360" height="90" rx="10" fill="none" stroke="url(#karma)" stroke-width="2"/>
+  <text x="200" y="780" text-anchor="middle" fill="#a8edea" font-size="14" font-weight="bold">舌识 / 业力 Karma</text>
+  <text x="200" y="795" text-anchor="middle" fill="#aaa" font-size="9">尝受 / 因果 / 反馈学习</text>
+
+  <rect x="40" y="805" width="150" height="35" rx="5" fill="url(#karma)" opacity="0.3"/>
+  <text x="115" y="822" text-anchor="middle" fill="#fff" font-size="11">BanditTracker</text>
+  <text x="115" y="835" text-anchor="middle" fill="#aaa" font-size="9">舌识 | 尝受盈亏</text>
+
+  <rect x="210" y="805" width="150" height="35" rx="5" fill="url(#karma)" opacity="0.3"/>
+  <text x="285" y="822" text-anchor="middle" fill="#fff" font-size="11">FeedbackLoop</text>
+  <text x="285" y="835" text-anchor="middle" fill="#aaa" font-size="9">业力 | 因果记录</text>
+
+  <!-- Footer -->
+  <text x="200" y="870" text-anchor="middle" fill="#666" font-size="10">五识感市场，意识了分明</text>
+  <text x="200" y="885" text-anchor="middle" fill="#666" font-size="10">末那识决断，阿赖耶识收藏</text>
+
+</svg>
