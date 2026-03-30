@@ -37,6 +37,7 @@ except Exception:
 
 from .integration.extended import get_attention_integration
 from .processing import get_noise_filter, NoiseFilterConfig, get_tick_noise_filter, TickNoiseFilterConfig
+from deva.naja.strategy.result_store import StrategyResult
 
 try:
     from deva.naja.config import get_noise_filter_config
@@ -195,6 +196,8 @@ class AttentionOrchestrator:
             self._pytorch_thread = None
             self._start_pytorch_processor()
 
+            self._init_awakened_modules()
+
             self._initialized = True
             log.info("AttentionOrchestrator 初始化完成")
 
@@ -229,12 +232,11 @@ class AttentionOrchestrator:
             multi_head = MultiHeadAttention(heads)
             memory = AttentionMemory(decay_rate=300)
 
-            self._attention_kernel = AttentionKernel(encoder, multi_head, memory, enable_four_dimensions=False)
+            self._attention_kernel = AttentionKernel(encoder, multi_head, memory, enable_manas=False)
             self._attention_query_state = QueryState()
+            self._trade_feedback_history: List[Dict[str, Any]] = []
 
-            self._init_four_dimensions_manager()
-
-            _lab_debug_log("AttentionKernel 初始化完成，四维决策框架管理器已就绪（条件触发）")
+            _lab_debug_log("AttentionKernel 初始化完成")
         except Exception as e:
             log.error(f"AttentionKernel 初始化失败: {e}")
             self._attention_kernel = None
@@ -268,6 +270,73 @@ class AttentionOrchestrator:
     def get_four_dimensions_manager(self):
         """获取四维决策框架管理器"""
         return getattr(self, '_four_dimensions_manager', None)
+
+    def _init_awakened_modules(self):
+        """初始化觉醒模块"""
+        try:
+            from deva.naja.senses import ProphetSense, RealtimeTaste, PreTasteSense, VolatilitySurfaceSense
+            from deva.naja.alaya.awakened_alaya import AwakenedAlaya
+            from deva.naja.manas import AdaptiveManas
+            from deva.naja.evolution import get_meta_evolution, OpportunityEngine, ActionExecutor
+            from deva.naja.evolution.meta_evolution_enhanced import MetaEvolutionEnhanced
+            from deva.naja.cognition.first_principles_mind import FirstPrinciplesMind
+            from deva.naja.alaya.epiphany_engine import EpiphanyEngine
+            from deva.naja.risk import RiskManager, PositionSizer
+            from deva.naja.cognition.soft_info_confidence import SoftInfoConfidence
+
+            self._volatility_surface = VolatilitySurfaceSense()
+            self._awakened_alaya = AwakenedAlaya()
+            self._adaptive_manas = AdaptiveManas()
+            self._meta_evolution = get_meta_evolution()
+            self._meta_evolution_enhanced = MetaEvolutionEnhanced()
+            self._first_principles_mind = FirstPrinciplesMind()
+            self._pre_taste = PreTasteSense()
+            self._prophet_sense = ProphetSense()
+            self._realtime_taste = RealtimeTaste()
+            self._opportunity_engine = OpportunityEngine()
+            self._epiphany_engine = EpiphanyEngine()
+            self._action_executor = ActionExecutor()
+            self._risk_manager = RiskManager()
+            self._position_sizer = PositionSizer()
+            self._soft_info_confidence = SoftInfoConfidence()
+
+            self._awakened_state = {
+                "volatility_signals": 0,
+                "awakening_level": "dormant",
+                "illuminated_patterns": 0,
+                "first_principles_insights": 0,
+                "adaptive_decisions": 0,
+                "strategies_generated": 0,
+                "pre_taste_count": 0,
+                "prophet_signals": 0,
+                "taste_signals": 0,
+                "opportunities": 0,
+                "epiphany_count": 0,
+                "actions": 0,
+                "risk_alerts": 0,
+            }
+
+            _lab_debug_log("觉醒模块初始化完成: VolatilitySurfaceSense, AwakenedAlaya, AdaptiveManas, MetaEvolutionEnhanced, FirstPrinciplesMind, PreTasteSense, ProphetSense, RealtimeTaste, OpportunityEngine, EpiphanyEngine, ActionExecutor, RiskManager, PositionSizer")
+        except ImportError as e:
+            log.warning(f"觉醒模块导入失败: {e}")
+            self._volatility_surface = None
+            self._awakened_alaya = None
+            self._adaptive_manas = None
+            self._meta_evolution = None
+            self._meta_evolution_enhanced = None
+            self._first_principles_mind = None
+            self._pre_taste = None
+            self._prophet_sense = None
+            self._realtime_taste = None
+            self._opportunity_engine = None
+            self._epiphany_engine = None
+            self._action_executor = None
+            self._risk_manager = None
+            self._position_sizer = None
+
+    def get_awakened_state(self):
+        """获取觉醒状态"""
+        return getattr(self, '_awakened_state', None)
 
     def get_attention_kernel(self):
         """获取 AttentionKernel 实例"""
@@ -467,6 +536,14 @@ class AttentionOrchestrator:
             log.info(f"[Center] 已处理 {self._processed_frames} 帧数据, Pipeline: {pipeline_result.rows_in}→{pipeline_result.rows_out}")
 
         print(f"[DEBUG] About to call _dispatch_to_strategies, data rows={len(data)}")
+        print(f"[DEBUG] tuner check: trying import...")
+        try:
+            from deva.naja.bandit.tuner import get_bandit_tuner
+            _tuner = get_bandit_tuner()
+            print(f"[DEBUG] tuner._running={_tuner._running}")
+        except Exception as e:
+            print(f"[DEBUG] tuner import failed: {e}")
+        sys.stdout.flush()
         try:
             self._update_attention(data)
         except Exception as e:
@@ -496,7 +573,10 @@ class AttentionOrchestrator:
         """更新注意力系统"""
         print(f"[DEBUG] _update_attention ENTER")
         sys.stdout.flush()
-        if self._integration.attention_system is None or not self._integration.attention_system._initialized:
+
+        attention_sys = self._integration.attention_system
+        is_init = attention_sys is not None and getattr(attention_sys, '_initialized', False)
+        if not is_init:
             log.warning("注意力系统未初始化，尝试自动初始化...")
             try:
                 from .integration.extended import initialize_attention_system
@@ -686,6 +766,12 @@ class AttentionOrchestrator:
 
             self._apply_memory_hints(data)
 
+            vol_surface = self._apply_volatility_surface_check(data)
+            if vol_surface and self._processed_frames % 50 == 0:
+                _lab_debug_log(f"[VolatilitySurface] 状态: {vol_surface.get('regime', 'unknown')}, "
+                        f"IV等级: {vol_surface.get('iv_rank', 0):.2f}, "
+                        f"期限结构: {vol_surface.get('term_structure', 'unknown')}")
+
             attention_engine = self._integration.attention_system.global_attention
             history_size = len(attention_engine._history_buffer) if hasattr(attention_engine, '_history_buffer') else 0
 
@@ -803,6 +889,8 @@ class AttentionOrchestrator:
 
             self._notify_cognition()
 
+            self._process_awakened_modules(data, symbol_market_data)
+
             self._last_attention_update = current_time
 
         except Exception as e:
@@ -912,6 +1000,248 @@ class AttentionOrchestrator:
         except Exception as e:
             log.debug(f"应用认知反馈失败: {e}")
 
+    def _record_signal_outcome(self, symbol: str, signal_type: str, entry_price: float, outcome: Optional[float] = None, success: Optional[bool] = None):
+        """记录信号结果到 MetaEvolutionEnhanced 用于学习"""
+        if not hasattr(self, '_meta_evolution_enhanced') or self._meta_evolution_enhanced is None:
+            return
+
+        try:
+            self._meta_evolution_enhanced.strategy_generator.pattern_recognizer._patterns
+
+            decision_record = {
+                "symbol": symbol,
+                "signal_type": signal_type,
+                "entry_price": entry_price,
+                "outcome": outcome,
+                "success": success,
+                "timestamp": time.time()
+            }
+
+            decisions = [decision_record]
+
+            patterns = self._meta_evolution_enhanced.strategy_generator.pattern_recognizer.learn_from_decisions(decisions)
+
+            if hasattr(self, '_awakened_state') and self._awakened_state and patterns:
+                self._awakened_state['strategies_generated'] = self._awakened_state.get('strategies_generated', 0)
+
+        except Exception as e:
+            log.debug(f"[MetaEvolution] 记录信号结果失败: {e}")
+
+    def _check_and_evolve_strategies(self):
+        """检查策略表现并在需要时进化"""
+        if not hasattr(self, '_meta_evolution_enhanced') or self._meta_evolution_enhanced is None:
+            return
+
+        try:
+            strategies = self._meta_evolution_enhanced.get_generated_strategies(min_confidence=0.5)
+
+            if len(strategies) < 3 and self._processed_frames % 100 == 0:
+                new_strategy = self._meta_evolution_enhanced.generate_strategy()
+                if new_strategy:
+                    log.info(f"[MetaEvolution] 生成新策略: {new_strategy.name}, 置信度: {new_strategy.confidence:.2f}")
+
+            if strategies and self._processed_frames % 200 == 0:
+                best = self._meta_evolution_enhanced.get_best_strategy()
+                if best:
+                    log.info(f"[MetaEvolution] 当前最佳策略: {best.name}, 预期收益: {best.expected_return:.2%}, 置信度: {best.confidence:.2f}")
+
+        except Exception as e:
+            log.debug(f"[MetaEvolution] 策略进化检查失败: {e}")
+
+    def _process_awakened_modules(self, data: pd.DataFrame, symbol_market_data: Dict[str, Any]):
+        """处理觉醒模块（天眼通、舌识、光明藏、顺应型末那识、妙观察智、第一性原理）"""
+        if not hasattr(self, '_prophet_sense') or self._prophet_sense is None:
+            return
+
+        try:
+            market_state = self._build_awakened_market_state(data, symbol_market_data)
+
+            if self._awakened_alaya and symbol_market_data:
+                alaya_data = {s: d.get("change", 0) for s, d in symbol_market_data.items()}
+                alaya_result = self._awakened_alaya.illuminate(alaya_data)
+                if alaya_result and self._awakened_state:
+                    self._awakened_state["awakening_level"] = alaya_result.get("awakening_level", "dormant")
+                    if alaya_result.get("recalled_patterns"):
+                        self._awakened_state["illuminated_patterns"] += len(alaya_result["recalled_patterns"])
+
+            if self._first_principles_mind and market_state:
+                cognition_context = self._get_cognition_context()
+                narratives = cognition_context.get("narratives", [])
+                topic_signals = cognition_context.get("topic_signals", [])
+                market_sentiment = cognition_context.get("market_sentiment", "neutral")
+                ai_compute_trend = cognition_context.get("ai_compute_trend")
+                ai_positions = cognition_context.get("ai_positions", {})
+
+                fp_result = self._first_principles_mind.think(
+                    market_data={
+                        "price_change": market_state.get("trend_strength", 0) * 100,
+                        "volume_change": 20,
+                        "volatility": market_state.get("volatility", 1.0)
+                    },
+                    narratives=narratives if narratives else None,
+                    topic_signals=topic_signals if topic_signals else None,
+                    news_sentiment=market_sentiment if market_sentiment != "neutral" else None,
+                    ai_compute_trend=ai_compute_trend,
+                    ai_positions=ai_positions if ai_positions else None
+                )
+                if fp_result and self._awakened_state:
+                    self._awakened_state["first_principles_insights"] += len(fp_result.get("insights", []))
+
+            if self._volatility_surface:
+                vol_result = self._apply_volatility_surface_check(data)
+                if vol_result:
+                    self._awakened_state["volatility_signals"] += 1
+
+            if self._adaptive_manas and market_state:
+                portfolio_state = self._attention_query_state.portfolio_state
+                decision = self._adaptive_manas.compute_decision(
+                    market_state,
+                    portfolio=portfolio_state
+                )
+                if decision and self._awakened_state:
+                    self._awakened_state["adaptive_decisions"] += 1
+
+            if self._pre_taste and symbol_market_data:
+                self._awakened_state["pre_taste_count"] += 1
+
+            if self._prophet_sense:
+                cognition_context = self._get_cognition_context()
+                narratives = cognition_context.get("narratives", [])
+                sector_resonances = cognition_context.get("sector_resonances", {})
+                narrative_data = None
+                if narratives:
+                    sector = list(sector_resonances.keys())[0] if sector_resonances else ""
+                    trend = "growing" if len(narratives) > 3 else "emerging"
+                    narrative_data = {
+                        "narratives": narratives[:5],
+                        "sector": sector,
+                        "trend": trend,
+                        "intensity": min(0.5 + len(narratives) * 0.1, 1.0)
+                    }
+                prophet_signal = self._prophet_sense.sense(market_state, None, None, narrative_data)
+                if prophet_signal and self._awakened_state:
+                    self._awakened_state["prophet_signals"] += 1
+
+            if self._realtime_taste and symbol_market_data:
+                current_prices = {s: d["price"] for s, d in symbol_market_data.items() if d.get("price", 0) > 0}
+                if current_prices:
+                    taste_signals = self._realtime_taste.taste_all(current_prices)
+                    if taste_signals and self._awakened_state:
+                        self._awakened_state["taste_signals"] += 1
+
+            if self._opportunity_engine and market_state:
+                opportunities = self._opportunity_engine.discover(market_state, None)
+                if opportunities:
+                    self._awakened_state["opportunities"] += len(opportunities)
+
+            if self._epiphany_engine and market_state:
+                epiphany = self._epiphany_engine.check_epiphany()
+                if epiphany:
+                    self._awakened_state["epiphany_count"] += 1
+
+            if self._action_executor and market_state:
+                self._execute_awakened_actions(market_state, symbol_market_data)
+
+            self._check_and_evolve_strategies()
+
+            if self._processed_frames % 50 == 0 and self._awakened_state:
+                _lab_debug_log(f"[Awakened] 觉醒层={self._awakened_state['awakening_level']}, "
+                             f"照亮={self._awakened_state['illuminated_patterns']}, "
+                             f"第一原理={self._awakened_state['first_principles_insights']}, "
+                             f"波动率={self._awakened_state['volatility_signals']}, "
+                             f"顺应={self._awakened_state['adaptive_decisions']}, "
+                             f"预尝={self._awakened_state['pre_taste_count']}, "
+                             f"天眼={self._awakened_state['prophet_signals']}, "
+                             f"舌识={self._awakened_state['taste_signals']}, "
+                             f"机会={self._awakened_state['opportunities']}, "
+                             f"顿悟={self._awakened_state['epiphany_count']}, "
+                             f"行动={self._awakened_state['actions']}, "
+                             f"风控={self._awakened_state['risk_alerts']}, "
+                             f"策略={self._awakened_state['strategies_generated']}")
+
+        except Exception as e:
+            log.debug(f"处理觉醒模块失败: {e}")
+
+    def _build_awakened_market_state(self, data: pd.DataFrame, symbol_market_data: Dict[str, Any]) -> Dict[str, Any]:
+        """构建觉醒模块所需的市场状态"""
+        import time as time_module
+
+        state = {
+            "is_market_open": True,
+            "volatility": 1.0,
+            "trend_strength": 0.0,
+            "time_of_day": time_module.localtime().tm_hour + time_module.localtime().tm_min / 60.0,
+            "regime": "unknown",
+            "regime_stability": 0.5,
+            "market_breadth": 0.0,
+        }
+
+        changes = []
+        for symbol, mdata in symbol_market_data.items():
+            change = mdata.get("change", 0)
+            if change:
+                changes.append(change)
+
+        if changes:
+            state["trend_strength"] = sum(changes) / len(changes) / 100
+            advancing = sum(1 for c in changes if c > 0)
+            declining = sum(1 for c in changes if c < 0)
+            state["market_breadth"] = (advancing - declining) / len(changes) if changes else 0
+
+        return state
+
+    def _execute_awakened_actions(self, market_state: Dict[str, Any], symbol_market_data: Dict[str, Any]):
+        """执行觉醒行动"""
+        try:
+            from deva.naja.evolution.action_executor import WisdomInput
+            from deva.naja.risk.risk_manager import RiskMetrics
+
+            current_positions = self._get_current_positions(symbol_market_data)
+
+            risk_metrics = self._risk_manager.assess_risk(
+                positions=current_positions,
+                market_data=market_state,
+                market_state=market_state,
+                total_assets=1000000,
+                daily_pnl=0
+            )
+
+            if risk_metrics.risk_level.value in ["danger", "critical"]:
+                if self._awakened_state:
+                    self._awakened_state["risk_alert_count"] += 1
+
+            wisdom = WisdomInput(
+                prophet_signal=getattr(self, '_last_prophet_signal', None),
+                taste_signal=getattr(self, '_last_taste_signal', None),
+                illuminated_patterns=[],
+                adaptive_decision=getattr(self, '_last_adaptive_decision', None),
+                narrative_summary=None,
+                opportunities=self._opportunity_engine.get_active_opportunities() if self._opportunity_engine else [],
+                epiphany=None
+            )
+
+            actions = self._action_executor.execute(wisdom, market_state, current_positions)
+
+            if actions and self._awakened_state:
+                self._awakened_state["action_count"] += len(actions)
+
+                for action in actions[:3]:
+                    _lab_debug_log(f"[AwakenedAction] {action.action_type.value}: {action.symbol} ({action.confidence:.0%})")
+
+        except Exception as e:
+            log.debug(f"执行觉醒行动失败: {e}")
+
+    def _get_current_positions(self, symbol_market_data: Dict[str, Any]) -> Dict[str, Dict]:
+        """获取当前持仓（简化版）"""
+        positions = {}
+        for symbol, mdata in symbol_market_data.items():
+            positions[symbol] = {
+                "quantity": 1000,
+                "cost": mdata.get("price", 10.0),
+                "current_price": mdata.get("price", 10.0)
+            }
+        return positions
+
     def _dispatch_to_strategies(self, datasource_id: str, data: pd.DataFrame, market_time: Optional[float] = None):
         """分发数据到各策略"""
         print(f"[DEBUG] _dispatch_to_strategies ENTER: data_rows={len(data)}, cached={len(self._cached_high_attention_symbols)}")
@@ -954,10 +1284,47 @@ class AttentionOrchestrator:
         }
 
         print(f"[DEBUG] _dispatch: calling strategy_mgr.process_data with data rows={len(data)}, context keys={list(context.keys())}")
+        sys.stdout.flush()
         signals = strategy_mgr.process_data(data, context)
         print(f"[DEBUG] _dispatch: process_data returned {len(signals) if signals else 0} signals")
+        sys.stdout.flush()
+
+        # 更新所有股票价格到 BanditTuner（用于检查止盈止损）
+        print(f"[DEBUG] _dispatch: entering price update section")
+        sys.stdout.flush()
+        try:
+            from deva.naja.bandit.tuner import get_bandit_tuner
+            tuner = get_bandit_tuner()
+            print(f"[DEBUG] _dispatch: got tuner, _running={tuner._running}")
+            sys.stdout.flush()
+            if tuner._running:
+                update_count = 0
+                for _, row in data.iterrows():
+                    stock_code = str(row.get('code', ''))
+                    current_price = row.get('now', row.get('price', 0))
+                    if stock_code and current_price > 0:
+                        tuner.on_price_update(stock_code, float(current_price))
+                        update_count += 1
+                if update_count > 0:
+                    log.info(f"[Center] 更新 {update_count} 个股票价格到 BanditTuner")
+                print(f"[DEBUG] _dispatch: updated {update_count} prices")
+                sys.stdout.flush()
+            else:
+                log.warning(f"[Center] BanditTuner 未运行 (_running={tuner._running})")
+                print(f"[DEBUG] _dispatch: tuner not running")
+                sys.stdout.flush()
+        except Exception as e:
+            log.warning(f"[Center] 更新价格到 BanditTuner 失败: {e}")
+            print(f"[DEBUG] _dispatch: exception in price update: {e}")
+            import traceback
+            traceback.print_exc()
+            sys.stdout.flush()
+
         if signals:
             log.info(f"🎯 注意力策略生成 {len(signals)} 个信号")
+            signals = self._apply_awakening_adjustments(signals, data)
+            signals = self._apply_cognition_to_signals(signals, data)
+            signals = self._apply_pre_taste_filter(signals, data)
             self._execute_signals(signals)
         elif self._processed_frames % 10 == 0:
             active_count = sum(1 for c in strategy_mgr.configs.values() if c.enabled)
@@ -1004,6 +1371,589 @@ class AttentionOrchestrator:
             return data[data[sector_col].astype(str).isin(self._cached_active_sectors)]
         except Exception:
             return data
+
+    def _apply_pre_taste_filter(self, signals: List[Any], data: pd.DataFrame) -> List[Any]:
+        """使用 PreTasteSense 评估信号，过滤掉味道不佳的
+
+        整合软信息（新闻/叙事）和硬数据（量价）
+        """
+        if not signals or not hasattr(self, '_pre_taste') or self._pre_taste is None:
+            return signals
+
+        try:
+            pre_taste_count = 0
+            filtered_signals = []
+
+            cognition_context = self._get_cognition_context()
+            sector_resonances = cognition_context.get("sector_resonances", {})
+            narratives = cognition_context.get("narratives", [])
+            topic_signals = cognition_context.get("topic_signals", [])
+            market_sentiment = cognition_context.get("market_sentiment", "neutral")
+            market_sentiment_conf = cognition_context.get("market_sentiment_confidence", 0.3)
+
+            for signal in signals:
+                symbol = getattr(signal, 'symbol', None) or getattr(signal, 'stock_code', None)
+                if not symbol:
+                    filtered_signals.append(signal)
+                    continue
+
+                row = data[data['code'] == symbol] if 'code' in data.columns else None
+                if row is None or row.empty:
+                    filtered_signals.append(signal)
+                    continue
+
+                row_data = row.iloc[0]
+
+                price_changes = [float(row_data.get('p_change', 0))]
+                volume = float(row_data.get('volume', 0))
+                amount = float(row_data.get('amount', 0))
+                price = float(row_data.get('now', row_data.get('close', 10.0)))
+                avg_volume = float(row_data.get('avg_volume', volume))
+
+                market_data = {
+                    "price_changes": price_changes,
+                    "volume": volume,
+                    "amount": amount,
+                    "price": price,
+                    "avg_volume": avg_volume,
+                    "pe_ratio": float(row_data.get('pe', 15.0)),
+                    "pb_ratio": float(row_data.get('pb', 2.0)),
+                    "roe": float(row_data.get('roe', 0.1)),
+                    "growth": float(row_data.get('growth', row_data.get('q_profit_new', 0.1))),
+                    "volatility": float(row_data.get('vol', 0.2)),
+                    "beta": float(row_data.get('beta', 1.0)),
+                    "max_drawdown": float(row_data.get('max_down', 0.1))
+                }
+
+                sentiment_data = None
+                symbol_sector = getattr(signal, 'sector', None)
+
+                resonance_info = sector_resonances.get(symbol_sector, {}) if symbol_sector else {}
+                if resonance_info:
+                    resonance_score = resonance_info.get("score", 0)
+                    sentiment_value = 0.5 + resonance_score * 0.4
+                    sentiment_data = {
+                        "topic_sentiment": {symbol_sector: sentiment_value},
+                        "resonance_score": resonance_score,
+                        "narrative_intensity": 0.5 + (0.2 if any(symbol_sector.lower() in n.lower() for n in narratives) else 0),
+                        "news_count": len([n for n in narratives if symbol_sector.lower() in n.lower()]),
+                        "sector": symbol_sector,
+                        "market_sentiment": market_sentiment,
+                        "market_sentiment_confidence": market_sentiment_conf,
+                        "topic_signals": [ts for ts in topic_signals if symbol_sector.lower() in ts.get("topic_name", "").lower() or any(symbol_sector.lower() in kw.lower() for kw in ts.get("keywords", []))]
+                    }
+                elif narratives:
+                    sentiment_data = {
+                        "topic_sentiment": {},
+                        "narrative_intensity": 0.5 + 0.1 * min(len(narratives), 3),
+                        "news_count": len(narratives),
+                        "market_sentiment": market_sentiment,
+                        "market_sentiment_confidence": market_sentiment_conf,
+                        "topic_signals": topic_signals[:5]
+                    }
+                else:
+                    sentiment_data = {
+                        "topic_sentiment": {},
+                        "narrative_intensity": 0.3,
+                        "news_count": 0,
+                        "market_sentiment": market_sentiment,
+                        "market_sentiment_confidence": market_sentiment_conf,
+                        "topic_signals": topic_signals[:5]
+                    }
+
+                result = self._pre_taste.pre_taste(symbol, market_data, sentiment_data)
+                pre_taste_count += 1
+
+                if result.quality.value in ['excellent', 'good', 'medium']:
+                    filtered_signals.append(signal)
+                    log.debug(f"[PreTaste] {symbol} 味道 {result.quality.value}, 评分={result.score:.2f}")
+                else:
+                    log.info(f"[PreTaste] {symbol} 味道不佳 ({result.quality.value}), 评分={result.score:.2f}, 建议: {result.recommended_action}")
+
+            if pre_taste_count > 0 and hasattr(self, '_awakened_state') and self._awakened_state:
+                self._awakened_state['pre_taste_count'] = self._awakened_state.get('pre_taste_count', 0) + pre_taste_count
+
+            return filtered_signals
+
+        except Exception as e:
+            log.warning(f"[PreTaste] 过滤失败: {e}")
+            return signals
+
+    def _get_cognition_context(self) -> Dict[str, Any]:
+        """
+        获取认知系统上下文
+
+        统一规范：
+        - InsightPool → confidence, actionability, symbols, sectors (LLM反思深度洞察)
+        - NewsMind → topic_signals, news_sentiment (新闻分析，唯一情绪来源)
+        - CrossSignalAnalyzer → resonance_score, sector_name (共振检测，非情绪推断)
+        - LiquidityCognition → liquidity_predictions (流动性预测)
+
+        Returns:
+            包含认知系统输出的统一字典
+        """
+        context = {
+            "narratives": [],
+            "market_sentiment": "neutral",
+            "market_sentiment_confidence": 0.3,
+            "sector_resonances": {},
+            "topic_signals": [],
+            "liquidity_predictions": {},
+            "global_liquidity_summary": {},
+            "recent_reflections": [],
+            "latest_reflection": {},
+            "ai_compute_trend": None,
+            "ai_positions": {},
+            "attention_shift": {},
+        }
+
+        # ========== LLMReflection (慢思考) ==========
+        # 职责：定期深度反思，生成高置信度洞察，包含持仓分析
+        try:
+            from deva.naja.cognition.insight.llm_reflection import get_llm_reflection_engine
+            reflection_engine = get_llm_reflection_engine()
+            if reflection_engine:
+                recent_reflections = reflection_engine.get_recent_reflections(limit=3)
+                context["recent_reflections"] = recent_reflections
+                if recent_reflections:
+                    latest = recent_reflections[0]
+                    context["latest_reflection"] = {
+                        "theme": latest.get("theme", ""),
+                        "summary": latest.get("summary", ""),
+                        "confidence": latest.get("confidence", 0.5),
+                        "actionability": latest.get("actionability", 0.5),
+                        "liquidity_structure": latest.get("liquidity_structure", ""),
+                        "portfolio_advice": latest.get("portfolio_advice", ""),
+                    }
+        except Exception as e:
+            log.debug(f"[Cognition] 获取 LLMReflection 失败: {e}")
+
+        # ========== CrossSignalAnalyzer (共振检测) ==========
+        # 职责：跨市场/板块联动检测，不是情绪推断
+        try:
+            if self._cross_analyzer:
+                resonances = self._cross_analyzer.get_recent_resonances(n=5)
+                if resonances:
+                    sector_resonances = {}
+                    for r in resonances:
+                        sector_name = getattr(r, 'sector_name', '') or getattr(r, 'sector_id', '')
+                        resonance_score = getattr(r, 'resonance_score', 0)
+                        resonance_type = getattr(r, 'resonance_type', None)
+                        if resonance_type and hasattr(resonance_type, 'value'):
+                            resonance_type = resonance_type.value
+
+                        if resonance_score > 0.6 and sector_name:
+                            sector_resonances[sector_name] = {
+                                "score": resonance_score,
+                                "type": resonance_type,
+                                "is_strong": resonance_score > 0.8
+                            }
+                    context["sector_resonances"] = sector_resonances
+
+        except Exception as e:
+            log.debug(f"[Cognition] 获取 CrossSignalAnalyzer 共振信号失败: {e}")
+
+        # ========== LiquidityCognition (流动性预测) ==========
+        try:
+            from deva.naja.cognition.liquidity.liquidity_cognition import get_liquidity_cognition
+            lc = get_liquidity_cognition()
+            if lc:
+                context["liquidity_predictions"] = lc.query_for_signals(["a_share", "hk_equity", "tiger"])
+                context["global_liquidity_summary"] = lc.get_summary()
+        except Exception as e:
+            log.debug(f"[Cognition] 获取 LiquidityCognition 失败: {e}")
+
+        # ========== NewsMind (新闻分析 - 情绪唯一来源) ==========
+        # 职责：直接分析新闻内容判断情绪，是 market_sentiment 的唯一权威来源
+        try:
+            from deva.naja.cognition.engine import get_cognition_engine
+            engine = get_cognition_engine()
+            news_mind = getattr(engine, '_news_mind', None)
+            if news_mind and hasattr(news_mind, 'get_topic_signals'):
+                context["topic_signals"] = news_mind.get_topic_signals(lookback=50)
+                sentiment_str, sentiment_conf = news_mind.get_market_sentiment_from_news()
+                context["market_sentiment"] = sentiment_str
+                context["market_sentiment_confidence"] = sentiment_conf
+        except Exception as e:
+            log.debug(f"[Cognition] 获取 NewsMind 信号失败: {e}")
+
+        # ========== AI算力趋势 (OpenRouter TOKEN) ==========
+        # 职责：提供算力需求背景，用于识别"基本面强但价格弱"的背离机会
+        try:
+            from deva.naja.radar.openrouter_monitor import get_ai_compute_trend
+            ai_compute_trend = get_ai_compute_trend()
+            if ai_compute_trend:
+                context["ai_compute_trend"] = ai_compute_trend
+                context["ai_compute_direction"] = ai_compute_trend.get("trend_direction")
+                context["ai_compute_cumulative_growth"] = ai_compute_trend.get("cumulative_growth", 0)
+                context["ai_compute_base_strength"] = ai_compute_trend.get("base_strength", 0)
+        except Exception as e:
+            log.debug(f"[Cognition] 获取 AI算力趋势失败: {e}")
+
+        # ========== 持仓信息 ==========
+        # 职责：获取当前持仓中的 AI算力相关股票
+        try:
+            from deva.naja.bandit.portfolio_manager import get_portfolio_manager
+            pm = get_portfolio_manager()
+            if pm:
+                ai_symbols = ["NVDA", "AMD", "TSLA", "SMCI"]
+                ai_positions = {}
+                for symbol in ai_symbols:
+                    positions = pm.get_us_portfolio("default")
+                    if positions:
+                        open_pos = [p for p in positions.get_all_positions("OPEN") if p.stock_code == symbol]
+                        if open_pos:
+                            ai_positions[symbol] = {
+                                "quantity": open_pos[0].quantity,
+                                "entry_price": open_pos[0].entry_price,
+                                "current_price": open_pos[0].current_price,
+                                "profit_loss": open_pos[0].profit_loss,
+                                "return_pct": open_pos[0].return_pct
+                            }
+                context["ai_positions"] = ai_positions
+                context["has_ai_position"] = len(ai_positions) > 0
+        except Exception as e:
+            log.debug(f"[Cognition] 获取持仓信息失败: {e}")
+
+        # ========== AttentionHistoryTracker (注意力转移) ==========
+        # 职责：追踪板块/股票注意力变化，检测资金轮动
+        try:
+            from deva.naja.cognition.history_tracker import get_attention_history_tracker
+            tracker = get_attention_history_tracker()
+            if tracker:
+                attention_shift = tracker.get_attention_shift_report(emit_to_insight=False)
+                context["attention_shift"] = attention_shift
+                context["has_attention_shift"] = attention_shift.get("has_shift", False)
+                if attention_shift.get("has_shift"):
+                    context["attention_shift_sectors"] = attention_shift.get("added_sectors", []) + attention_shift.get("removed_sectors", [])
+        except Exception as e:
+            log.debug(f"[Cognition] 获取注意力转移报告失败: {e}")
+
+        # ========== SoftInfoConfidence 冲突检测 ==========
+        # 如果有高置信度反思且与 NewsMind 情绪不一致，用 SoftInfoConfidence 评估
+        latest_reflection = context.get("latest_reflection", {})
+        if latest_reflection.get("confidence", 0) > 0.7 and context["market_sentiment_confidence"] < 0.7:
+            try:
+                soft_info_conf = self._soft_info_confidence
+                if soft_info_conf and hasattr(soft_info_conf, 'evaluate_sentiment_confidence'):
+                    sentiment_signal = soft_info_conf.evaluate_sentiment_confidence(
+                        sentiment=context["market_sentiment"],
+                        sentiment_strength=0.5,
+                        source_reliability=soft_info_conf.get_source_confidence("market_sentiment")
+                    )
+                    if sentiment_signal.confidence > 0.6:
+                        context["market_sentiment_confidence"] = sentiment_signal.confidence
+            except Exception:
+                pass
+
+        return context
+
+    def _apply_cognition_to_signals(self, signals: List[Any], data: pd.DataFrame) -> List[Any]:
+        """
+        应用认知系统反馈到信号
+
+        认知系统 → 觉醒系统：
+        1. 高置信度洞察 → 提高信号置信度
+        2. 市场恐慌情绪 → 降低仓位
+        3. 热点板块叙事 → 增加该板块信号权重
+
+        使用 SoftInfoConfidence 进行置信度加权：
+        - 软信息来源可靠 → 调整力度大
+        - 软信息来源不可靠 → 调整力度小
+        """
+        if not signals:
+            return signals
+
+        try:
+            cognition_context = self._get_cognition_context()
+
+            sentiment = cognition_context.get("market_sentiment", "neutral")
+            sector_resonances = cognition_context.get("sector_resonances", {})
+            latest_reflection = cognition_context.get("latest_reflection", {})
+            has_high_conf_insight = latest_reflection.get("confidence", 0) > 0.7
+            narratives = cognition_context.get("narratives", [])
+            liquidity_predictions = cognition_context.get("liquidity_predictions", {})
+            global_liquidity_summary = cognition_context.get("global_liquidity_summary", {})
+
+            soft_info_conf = self._soft_info_confidence
+
+            sentiment_signal = soft_info_conf.evaluate_sentiment_confidence(
+                sentiment=sentiment,
+                sentiment_strength=0.7 if has_high_conf_insight else 0.5,
+                source_reliability=soft_info_conf.get_source_confidence("market_sentiment")
+            )
+
+            narrative_signal = soft_info_conf.evaluate_narrative_confidence(
+                narratives=narratives,
+                narrative_stability=0.6,
+                source_reliability=soft_info_conf.get_source_confidence("narrative_tracker")
+            )
+
+            cross_signal = soft_info_conf.evaluate_cross_signal_confidence(
+                resonance_count=len(sector_resonances),
+                sector_count=len(sector_resonances),
+                source_reliability=soft_info_conf.get_source_confidence("cross_signal")
+            )
+
+            adjusted_signals = []
+
+            for signal in signals:
+                symbol = getattr(signal, 'symbol', None) or getattr(signal, 'stock_code', None)
+
+                confidence_boost = 0.0
+                position_multiplier = 1.0
+
+                sentiment_effective = sentiment_signal.effective_weight(0.15)
+                narrative_effective = narrative_signal.effective_weight(0.10)
+                cross_effective = cross_signal.effective_weight(0.05)
+
+                if has_high_conf_insight:
+                    confidence_boost += 0.1 * sentiment_signal.confidence
+
+                if sentiment_signal.value < 0.4:
+                    position_multiplier *= (1.0 - sentiment_effective * 0.5)
+                    signal.metadata = signal.metadata or {}
+                    signal.metadata["sentiment"] = "fearful"
+                    signal.metadata["sentiment_confidence"] = sentiment_signal.confidence
+                elif sentiment_signal.value > 0.6:
+                    position_multiplier *= (1.0 + sentiment_effective * 0.3)
+                    confidence_boost += 0.05 * sentiment_signal.confidence
+                    signal.metadata = signal.metadata or {}
+                    signal.metadata["sentiment"] = "bullish"
+                    signal.metadata["sentiment_confidence"] = sentiment_signal.confidence
+
+                if narratives and any("政策利好" in n or "放水" in n for n in narratives):
+                    boost = narrative_effective * 0.5
+                    position_multiplier *= (1.0 + boost)
+                    confidence_boost += 0.1 * narrative_signal.confidence
+                    signal.metadata = signal.metadata or {}
+                    signal.metadata["policy_boost"] = True
+                    signal.metadata["narrative_confidence"] = narrative_signal.confidence
+
+                if liquidity_predictions:
+                    market_ids = ["a_share", "hk_equity", "tiger"]
+                    for market_id in market_ids:
+                        if market_id in liquidity_predictions:
+                            pred = liquidity_predictions[market_id]
+                            if pred.get("has_prediction"):
+                                direction = pred.get("direction", "")
+                                probability = pred.get("probability", 0.5)
+                                confidence_factor = probability * 0.3 * sentiment_signal.confidence
+                                if direction == "down":
+                                    position_multiplier *= (1.0 - confidence_factor)
+                                    signal.metadata = signal.metadata or {}
+                                    signal.metadata["liquidity_prediction"] = f"{market_id}下跌预测, prob={probability:.2f}"
+                                elif direction == "up":
+                                    position_multiplier *= (1.0 + confidence_factor * 0.5)
+                                    signal.metadata = signal.metadata or {}
+                                    signal.metadata["liquidity_prediction"] = f"{market_id}上涨预测, prob={probability:.2f}"
+
+                if global_liquidity_summary.get("abnormal_count", 0) > 0:
+                    position_multiplier *= 0.8
+                    signal.metadata = signal.metadata or {}
+                    signal.metadata["global_market_alert"] = True
+
+                signal.confidence = max(0.0, min(1.0, signal.confidence + confidence_boost))
+
+                if position_multiplier != 1.0:
+                    signal.metadata = signal.metadata or {}
+                    signal.metadata["cognition_position_multiplier"] = position_multiplier
+                    signal.metadata["soft_info_confidence"] = {
+                        "sentiment": sentiment_signal.confidence,
+                        "narrative": narrative_signal.confidence,
+                        "cross": cross_signal.confidence
+                    }
+
+                adjusted_signals.append(signal)
+
+            if cognition_context.get("insights") and self._processed_frames % 50 == 0:
+                _lab_debug_log(f"[Cognition→Awakening] 叙事置信:{narrative_signal.confidence:.2f}, 情绪置信:{sentiment_signal.confidence:.2f}")
+
+            return adjusted_signals
+
+        except Exception as e:
+            log.debug(f"[Cognition→Awakening] 应用认知反馈失败: {e}")
+            return signals
+
+    def _apply_awakening_adjustments(self, signals: List[Any], data: pd.DataFrame) -> List[Any]:
+        """
+        应用觉醒模块的调整到信号
+
+        整合：
+        1. VolatilitySurfaceSense - 高波动时降仓/暂停
+        2. AwakenedAlaya - 觉醒等级影响置信度
+        3. FirstPrinciplesMind - 矛盾检测时观望
+        """
+        if not signals:
+            return signals
+
+        try:
+            vol_surface = self._get_volatility_surface_state()
+            awakening_level = self._get_awakening_level()
+            contradiction = self._check_contradiction()
+            adaptive_factor = self._get_adaptive_factor()
+
+            adjusted_signals = []
+
+            for signal in signals:
+                symbol = getattr(signal, 'symbol', None) or getattr(signal, 'stock_code', None)
+
+                position_multiplier = 1.0
+                confidence_adjustment = 0.0
+                should_block = False
+                block_reason = ""
+
+                if vol_surface.get("regime") == "high_volatile":
+                    position_multiplier *= 0.5
+                    signal.metadata = signal.metadata or {}
+                    signal.metadata["volatility_regime"] = "high_volatile"
+                    signal.metadata["position_multiplier"] = position_multiplier
+
+                elif vol_surface.get("regime") == "spike":
+                    position_multiplier *= 0.2
+                    signal.metadata = signal.metadata or {}
+                    signal.metadata["volatility_regime"] = "spike"
+                    signal.metadata["position_multiplier"] = position_multiplier
+
+                if awakening_level == "enlightened":
+                    confidence_adjustment += 0.1
+                elif awakening_level == "awakening":
+                    confidence_adjustment += 0.05
+
+                if contradiction.get("has_contradiction"):
+                    confidence_adjustment -= 0.15
+                    should_block = True
+                    block_reason = f"矛盾检测: {contradiction.get('description', '多空信号冲突')}"
+
+                confidence_adjustment *= adaptive_factor
+
+                signal.confidence = max(0.0, min(1.0, signal.confidence + confidence_adjustment))
+
+                if should_block:
+                    signal.metadata = signal.metadata or {}
+                    signal.metadata["blocked"] = True
+                    signal.metadata["block_reason"] = block_reason
+                    log.info(f"[Awakening] 阻止信号 {symbol}: {block_reason}")
+                    continue
+
+                if position_multiplier != 1.0:
+                    signal.metadata = signal.metadata or {}
+                    signal.metadata["position_multiplier"] = position_multiplier
+
+                adjusted_signals.append(signal)
+
+            if adjusted_signals and vol_surface.get("regime") in ["high_volatile", "spike"]:
+                log.info(f"[Awakening] 波动率={vol_surface.get('regime')}, 原始信号{len(signals)}个, 调整后{len(adjusted_signals)}个, 仓位倍数={position_multiplier:.2f}")
+
+            if adjusted_signals and contradiction.get("has_contradiction"):
+                log.info(f"[Awakening] 矛盾检测触发, 阻止{len(signals) - len(adjusted_signals)}个信号")
+
+            return adjusted_signals
+
+        except Exception as e:
+            log.warning(f"[Awakening] 调整失败: {e}")
+            return signals
+
+    def _get_volatility_surface_state(self) -> Dict[str, Any]:
+        """获取波动率状态"""
+        if not hasattr(self, '_volatility_surface') or self._volatility_surface is None:
+            return {"regime": "unknown"}
+
+        try:
+            iv_data = {
+                "iv_1m": 0.20,
+                "iv_3m": 0.22,
+                "iv_6m": 0.25,
+                "iv_12m": 0.28,
+                "skew_1m": 0.05,
+                "skew_3m": 0.03,
+                "current_regime": "normal"
+            }
+
+            result = self._volatility_surface.analyze(iv_data)
+            return {
+                "regime": result.get("regime", "unknown"),
+                "iv_rank": result.get("iv_rank", 0.5),
+                "signals": result.get("signals", [])
+            }
+        except Exception:
+            return {"regime": "unknown"}
+
+    def _get_awakening_level(self) -> str:
+        """获取觉醒等级"""
+        if hasattr(self, '_awakened_state') and self._awakened_state:
+            return self._awakened_state.get('awakening_level', 'dormant')
+        return 'dormant'
+
+    def _check_contradiction(self) -> Dict[str, Any]:
+        """检查是否有矛盾信号（整合认知系统叙事）"""
+        if not hasattr(self, '_first_principles_mind') or self._first_principles_mind is None:
+            return {"has_contradiction": False}
+
+        try:
+            cognition_context = self._get_cognition_context()
+            narratives = cognition_context.get("narratives", [])
+
+            fp_result = self._first_principles_mind.think({
+                "price_change": 0,
+                "volume_change": 0,
+                "volatility": 1.0
+            }, narratives=narratives if narratives else None)
+
+            contradictions = [i for i in fp_result.get("insights", []) if i.insight_type == "contradiction"]
+
+            if contradictions:
+                return {
+                    "has_contradiction": True,
+                    "description": contradictions[0].content if contradictions else "多空信号冲突"
+                }
+        except Exception:
+            pass
+
+        return {"has_contradiction": False}
+
+    def _get_adaptive_factor(self) -> float:
+        """获取顺应因子"""
+        if not hasattr(self, '_adaptive_manas') or self._adaptive_manas is None:
+            return 1.0
+
+        try:
+            return 1.0
+        except Exception:
+            return 1.0
+
+    def _apply_volatility_surface_check(self, data: pd.DataFrame) -> Dict[str, Any]:
+        """使用 VolatilitySurfaceSense 检查市场波动率状态"""
+        if not hasattr(self, '_volatility_surface') or self._volatility_surface is None:
+            return {}
+
+        try:
+            iv_data = {
+                "iv_1m": 0.20,
+                "iv_3m": 0.22,
+                "iv_6m": 0.25,
+                "iv_12m": 0.28,
+                "skew_1m": 0.05,
+                "skew_3m": 0.03,
+                "current_regime": "normal"
+            }
+
+            surface_result = self._volatility_surface.analyze(iv_data)
+            regime = surface_result.get("regime", "unknown")
+
+            if hasattr(self, '_awakened_state') and self._awakened_state:
+                self._awakened_state['volatility_signal_count'] = self._awakened_state.get('volatility_signal_count', 0) + 1
+
+            return {
+                "regime": regime,
+                "iv_rank": surface_result.get("iv_rank", 0.5),
+                "term_structure": surface_result.get("term_structure", "normal"),
+                "signals": surface_result.get("signals", [])
+            }
+
+        except Exception as e:
+            log.warning(f"[VolatilitySurface] 分析失败: {e}")
+            return {}
 
     def _extract_sector_ids(self, data: pd.DataFrame) -> np.ndarray:
         """从数据中提取板块ID"""
@@ -1160,7 +2110,14 @@ class AttentionOrchestrator:
             from deva.naja.strategy.result_store import StrategyResult
             signal_stream = get_signal_stream()
 
+            if not signals:
+                log.debug(f"[Center] _execute_signals called with empty signals list")
+                return
+
+            log.info(f"[Center] 🎯 _execute_signals 收到 {len(signals)} 个信号")
+
             for signal in signals:
+                log.info(f"[Center] 🎯 信号: strategy={signal.strategy_name}, type={signal.signal_type}, symbol={signal.symbol}, confidence={signal.confidence:.3f}")
                 if signal.signal_type not in ('buy', 'sell'):
                     continue
 
@@ -1197,12 +2154,181 @@ class AttentionOrchestrator:
 
                 signal_stream.update(result, who='attention_center')
 
+                self._notify_tuner_about_signal(result)
+
+                self._feedback_to_awakened_systems(signal, result)
+
             log.info(f"[Center] 已将 {len(signals)} 个信号添加到信号流")
         except Exception as e:
             log.error(f"[Center] 添加信号到信号流失败: {e}")
 
+    def _notify_tuner_about_signal(self, result: StrategyResult):
+        """通知 BanditTuner 有新信号（调参模式用）"""
+        try:
+            from deva.naja.bandit.tuner import get_bandit_tuner
+            tuner = get_bandit_tuner()
+            tuner.on_signal(result)
+        except Exception:
+            pass
+
+    def _feedback_to_awakened_systems(self, signal, result):
+        """
+        觉醒 → 认知：反馈交易结果到觉醒系统和认知系统
+
+        实现双向协同：
+        1. AwakenedAlaya - 归档成功/失败模式
+        2. InsightPool - 记录交易结果到洞察
+        3. MetaEvolution - 进化策略
+        """
+        try:
+            symbol = signal.symbol
+            strategy_name = signal.strategy_name
+            signal_type = signal.signal_type
+            confidence = signal.confidence
+            metadata = signal.metadata or {}
+
+            cognition_context = self._get_cognition_context()
+            narratives = cognition_context.get("narratives", [])
+            latest_reflection = cognition_context.get("latest_reflection", {})
+            has_high_conf_insight = latest_reflection.get("confidence", 0) > 0.7
+
+            outcome = {
+                "symbol": symbol,
+                "strategy": strategy_name,
+                "signal_type": signal_type,
+                "confidence": confidence,
+                "success": result.success if hasattr(result, 'success') else True,
+                "narratives": narratives,
+                "has_cognition_insight": has_high_conf_insight,
+                "position_multiplier": metadata.get("position_multiplier", 1.0),
+                "blocked": metadata.get("blocked", False),
+                "sentiment": metadata.get("sentiment", "neutral"),
+                "timestamp": time.time()
+            }
+
+            if hasattr(self, '_awakened_alaya') and self._awakened_alaya:
+                self._feedback_to_alaya(symbol, signal_type, outcome)
+
+            self._feedback_to_insight_pool(symbol, signal_type, outcome)
+
+            if hasattr(self, '_meta_evolution_enhanced') and self._meta_evolution_enhanced:
+                self._feedback_to_meta_evolution(strategy_name, outcome)
+
+        except Exception as e:
+            log.debug(f"[Awakening→Cognition] 反馈失败: {e}")
+
+    def _feedback_to_alaya(self, symbol: str, signal_type: str, outcome: Dict[str, Any]):
+        """反馈到 AwakenedAlaya：归档模式"""
+        try:
+            pattern_type = "momentum" if signal_type == "buy" else "reversal"
+
+            self._awakened_alaya.archive_pattern(
+                pattern_id=f"{symbol}_{signal_type}_{int(outcome.get('timestamp', 0))}",
+                pattern_type=pattern_type,
+                market_context={
+                    "symbol": symbol,
+                    "source_market": "a_stock",
+                    "confidence": outcome.get("confidence", 0.5),
+                    "narratives": outcome.get("narratives", []),
+                    "sentiment": outcome.get("sentiment", "neutral")
+                },
+                outcome={
+                    "return": 0.01 if outcome.get("success") else -0.01,
+                    "success": outcome.get("success", True)
+                }
+            )
+
+            if outcome.get("success") and outcome.get("has_cognition_insight"):
+                self._awakened_alaya.cross_market_memory.store_success_pattern(
+                    source_market="a_stock",
+                    pattern={
+                        "pattern_id": outcome.get("symbol"),
+                        "conditions": {"confidence": outcome.get("confidence", 0)}
+                    }
+                )
+
+        except Exception as e:
+            log.debug(f"[Awakening→Alaya] 归档失败: {e}")
+
+    def _feedback_to_insight_pool(self, symbol: str, signal_type: str, outcome: Dict[str, Any]):
+        """反馈到 InsightPool：记录交易结果洞察"""
+        try:
+            from deva.naja.cognition.insight.engine import get_insight_pool
+
+            pool = get_insight_pool()
+            if not pool:
+                return
+
+            if outcome.get("success"):
+                theme = f"交易成功-{symbol}"
+                summary = f"{signal_type.upper()} {symbol} 执行成功"
+            else:
+                theme = f"交易失败-{symbol}"
+                summary = f"{signal_type.upper()} {symbol} 执行失败"
+
+            if outcome.get("blocked"):
+                summary += " (被阻止)"
+            elif outcome.get("has_cognition_insight"):
+                summary += " (高置信洞察)"
+
+            pool.emit({
+                "type": "trade_result",
+                "theme": theme,
+                "summary": summary,
+                "symbols": [symbol],
+                "confidence": outcome.get("confidence", 0.5),
+                "novelty": 0.3,
+                "source": "awakened_center",
+                "payload": {
+                    "signal_type": signal_type,
+                    "success": outcome.get("success"),
+                    "narratives": outcome.get("narratives", []),
+                    "position_multiplier": outcome.get("position_multiplier", 1.0)
+                }
+            })
+
+            self._trade_feedback_history.append({
+                "symbol": symbol,
+                "signal_type": signal_type,
+                "success": outcome.get("success"),
+                "summary": summary,
+                "confidence": outcome.get("confidence", 0.5),
+                "timestamp": time.time(),
+                "has_cognition_insight": outcome.get("has_cognition_insight", False),
+            })
+            if len(self._trade_feedback_history) > 100:
+                self._trade_feedback_history = self._trade_feedback_history[-100:]
+
+        except Exception as e:
+            log.debug(f"[Awakening→InsightPool] 记录失败: {e}")
+
+    def _get_recent_trade_feedback(self, limit: int = 10) -> List[Dict[str, Any]]:
+        """获取最近的交易反馈（供 LLMReflection 使用）"""
+        return self._trade_feedback_history[-limit:] if self._trade_feedback_history else []
+
+    def _feedback_to_meta_evolution(self, strategy_name: str, outcome: Dict[str, Any]):
+        """反馈到 MetaEvolutionEnhanced：进化策略"""
+        try:
+            performance_metrics = {
+                "success_rate": 1.0 if outcome.get("success") else 0.0,
+                "avg_return": 0.01 if outcome.get("success") else -0.01,
+                "max_drawdown": 0.02
+            }
+
+            strategies = self._meta_evolution_enhanced.get_generated_strategies(min_confidence=0.3)
+            for s in strategies:
+                if s.strategy_id == strategy_name or strategy_name in s.name:
+                    self._meta_evolution_enhanced.evolve_existing_strategy(
+                        s.strategy_id,
+                        performance_metrics
+                    )
+                    break
+
+        except Exception as e:
+            log.debug(f"[Awakening→MetaEvolution] 进化失败: {e}")
+
     def _update_portfolio_state(self):
-        """从 VirtualPortfolio 更新 QueryState 的持仓状态"""
+        """从 VirtualPortfolio 更新 QueryState 的持仓状态（增强版：包含仓位比例和盈亏）"""
         try:
             from deva.naja.bandit import get_virtual_portfolio
             portfolio = get_virtual_portfolio()
@@ -1211,13 +2337,38 @@ class AttentionOrchestrator:
             positions = portfolio.get_all_positions(status="OPEN")
 
             held_symbols = list(set(p.stock_code for p in positions))
+            total_value = summary.get('total_value', 0) or summary.get('capital', 100000)
 
             concentration = 0.0
-            if summary['total_value'] > 0 and positions:
+            if total_value > 0 and positions:
                 max_position = max((p.market_value for p in positions), default=0)
-                concentration = max_position / summary['total_value']
+                concentration = max_position / total_value
 
             exposed_sectors = list(set(p.strategy_id.split('_')[0] for p in positions if '_' in p.strategy_id))
+
+            position_details = []
+            sector_allocations = {}
+            for p in positions:
+                market_value = getattr(p, 'market_value', 0) or 0
+                weight = market_value / total_value if total_value > 0 else 0
+                return_pct = getattr(p, 'return_pct', 0) or 0
+                profit_loss = getattr(p, 'profit_loss', 0) or 0
+
+                position_details.append({
+                    "symbol": p.stock_code,
+                    "name": getattr(p, 'stock_name', ''),
+                    "weight": weight,
+                    "market_value": market_value,
+                    "return_pct": return_pct,
+                    "profit_loss": profit_loss,
+                    "quantity": getattr(p, 'quantity', 0),
+                    "entry_price": getattr(p, 'entry_price', 0),
+                })
+
+                sector = p.strategy_id.split('_')[0] if '_' in p.strategy_id else 'other'
+                sector_allocations[sector] = sector_allocations.get(sector, 0) + weight
+
+            cash_ratio = summary.get('available_capital', 0) / total_value if total_value > 0 else 1.0
 
             self._attention_query_state.update({
                 "portfolio_state": {
@@ -1227,13 +2378,17 @@ class AttentionOrchestrator:
                     "position_count": summary.get('position_count', 0),
                     "available_capital": summary.get('available_capital', 0),
                     "used_capital": summary.get('used_capital', 0),
+                    "total_value": total_value,
                     "concentration": concentration,
+                    "cash_ratio": cash_ratio,
                     "exposed_sectors": exposed_sectors,
+                    "position_details": position_details,
+                    "sector_allocations": sector_allocations,
                     "timestamp": time.time(),
                 }
             })
 
-            _lab_debug_log(f"[Portfolio] 持仓更新: {len(held_symbols)} 个, 收益率={summary.get('total_return', 0):.2f}%")
+            _lab_debug_log(f"[Portfolio] 持仓更新: {len(held_symbols)} 个, 收益率={summary.get('total_return', 0):.2f}%, 现金比例={cash_ratio:.1%}")
 
         except ImportError:
             pass
