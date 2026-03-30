@@ -7,6 +7,8 @@
     python -m deva.naja --news-radar-speed 10             # 新闻雷达10倍速
     python -m deva.naja --news-radar-sim                  # 新闻雷达模拟模式
     python -m deva.naja --cognition-debug                 # 完整认知调试模式
+    python -m deva.naja --tune --lab-table quant_snapshot_5min_window   # 调参模式
+    python -m deva.naja --tune --tune-method random --tune-samples 50   # 随机搜索调参
 """
 
 import argparse
@@ -60,13 +62,19 @@ def main():
                         help="启用认知系统调试日志，输出认知核心产出信息（自动启用新闻雷达+实验室模式）")
 
     # 调参模式参数
-    parser.add_argument("--tuning-mode", action="store_true",
-                        help="启用调参模式，过滤日志只显示关键调参信息")
+    parser.add_argument("--tune", action="store_true",
+                        help="启用调参模式，用历史数据搜索最优参数")
+    parser.add_argument("--tune-method", type=str, default="grid", choices=["grid", "random"],
+                        help="调参搜索方法: grid(网格搜索) 或 random(随机搜索)，默认 grid")
+    parser.add_argument("--tune-samples", type=int, default=100,
+                        help="随机搜索模式下的最大采样数，默认 100")
+    parser.add_argument("--tune-export", type=str, default=None,
+                        help="导出调参结果到指定文件路径")
 
     args = parser.parse_args()
 
     # 设置日志级别
-    if args.tuning_mode:
+    if args.tune:
         from .common.tuning_logger import setup_tuning_mode_logger, print_tuning_banner
         setup_tuning_mode_logger(level=logging.INFO)
         print_tuning_banner()
@@ -87,7 +95,7 @@ def main():
 
     # 处理实验室模式参数
     lab_config = None
-    if args.lab:
+    if args.lab or args.tune:
         os.environ['NAJA_LAB_MODE'] = '1'
         lab_config = {
             "enabled": True,
@@ -98,6 +106,17 @@ def main():
         }
         if not args.lab_table:
             print("警告: --lab 已启用但未指定 --lab-table，将仅启动注意力系统而不回放数据")
+
+    # 调参模式配置
+    tune_config = None
+    if args.tune:
+        tune_config = {
+            "enabled": True,
+            "search_method": args.tune_method,
+            "max_samples": args.tune_samples,
+            "export_path": args.tune_export,
+        }
+        print(f"🎯 调参模式已启用 (方法: {args.tune_method}, 最大采样: {args.tune_samples})")
 
     # 新闻雷达模式配置（默认启用，除非明确禁用）
     # --news-radar-sim: 使用模拟数据源
@@ -161,7 +180,8 @@ def main():
         host=args.host,
         lab_config=lab_config,
         news_radar_config=news_radar_config,
-        cognition_debug_config=cognition_debug_config
+        cognition_debug_config=cognition_debug_config,
+        tune_config=tune_config,
     )
 
 

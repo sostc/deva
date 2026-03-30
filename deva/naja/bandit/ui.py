@@ -297,7 +297,7 @@ async def render_bandit_admin(ctx: dict):
     put_text("")
     
     with use_scope("bandit_portfolio"):
-        put_html("<h3>💰 虚拟持仓</h3>")
+        put_html("<h3>💰 A股虚拟持仓</h3>")
         put_row([
             put_column([
                 put_html("<b>资金状况</b>"),
@@ -415,7 +415,85 @@ async def render_bandit_admin(ctx: dict):
 
         html += "</table>"
         put_html(html)
-    
+
+    try:
+        from deva.naja.bandit.portfolio_manager import get_portfolio_manager
+        pm = get_portfolio_manager()
+        put_text("")
+        put_html("<h3>🇺🇸 美股持仓</h3>")
+
+        us_account_names = ["Spark", "Cutie"]
+        for account_name in us_account_names:
+            portfolio = pm.get_us_portfolio(account_name)
+            if not portfolio:
+                continue
+
+            positions = portfolio.get_all_positions()
+            summary = portfolio.get_summary()
+
+            put_html(f"<h4>【{account_name}】</h4>")
+
+            equity = summary.get('equity', 0)
+            margin_debt = summary.get('margin_debt', 0)
+            today_pl = summary.get('today_profit_loss', 0)
+
+            put_row([
+                put_column([
+                    put_html("<b>账户资产</b>"),
+                    put_text(f"净资产: ${equity:,.2f}" if equity > 0 else "净资产: -"),
+                    put_text(f"融资负债: ${margin_debt:,.2f}" if margin_debt > 0 else "融资负债: -"),
+                ]),
+                put_column([
+                    put_html("<b>持仓市值</b>"),
+                    put_text(f"总市值: ${summary['total_value']:,.2f}"),
+                    put_text(f"持仓成本: ${summary['total_cost']:,.2f}" if summary['total_cost'] > 0 else "持仓成本: -"),
+                ]),
+            ], size="1fr 1fr")
+
+            put_row([
+                put_column([
+                    put_html("<b>持仓统计</b>"),
+                    put_text(f"持仓数: {summary['position_count']}"),
+                ]),
+                put_column([
+                    put_html("<b>盈亏情况</b>"),
+                    put_text(f"持仓盈亏: ${summary['total_profit_loss']:,.2f} ({summary['total_return_pct']:+.2f}%)"),
+                    put_text(f"今日盈亏: ${today_pl:,.2f}" if today_pl != 0 else "今日盈亏: -"),
+                ]),
+            ], size="1fr 1fr")
+
+            if positions:
+                html = """<table style='width:100%;border-collapse:collapse;font-size:14px;margin-top:8px;'>
+                <tr style='background:#e8f4fc;'>
+                    <th style='padding:8px;border:1px solid #ddd;'>股票名称</th>
+                    <th style='padding:8px;border:1px solid #ddd;'>代码</th>
+                    <th style='padding:8px;border:1px solid #ddd;'>持股数</th>
+                    <th style='padding:8px;border:1px solid #ddd;'>现价</th>
+                    <th style='padding:8px;border:1px solid #ddd;'>今日涨跌</th>
+                    <th style='padding:8px;border:1px solid #ddd;'>市值</th>
+                    <th style='padding:8px;border:1px solid #ddd;'>盈亏</th>
+                </tr>"""
+
+                for p in positions:
+                    today_color = "green" if p.today_return_pct > 0 else "red" if p.today_return_pct < 0 else "gray"
+                    today_sign = "+" if p.today_return_pct >= 0 else ""
+                    html += f"""<tr>
+                        <td style='padding:8px;border:1px solid #ddd;'>{p.stock_name}</td>
+                        <td style='padding:8px;border:1px solid #ddd;'>{p.stock_code.upper()}</td>
+                        <td style='padding:8px;border:1px solid #ddd;'>{p.quantity}</td>
+                        <td style='padding:8px;border:1px solid #ddd;'>${p.current_price:.2f}</td>
+                        <td style='padding:8px;border:1px solid #ddd;color:{today_color};font-weight:bold;'>{today_sign}{p.today_return_pct:.2f}%</td>
+                        <td style='padding:8px;border:1px solid #ddd;'>${p.market_value:.2f}</td>
+                        <td style='padding:8px;border:1px solid #ddd;color:{today_color};'>${p.today_profit_loss:+.2f}</td>
+                    </tr>"""
+
+                html += "</table>"
+                put_html(html)
+            else:
+                put_text("  暂无持仓")
+    except Exception as e:
+        put_html(f"<p style='color:red;'>加载美股账户失败: {str(e)}</p>")
+
     put_text("")
     
     with use_scope("bandit_stats"):

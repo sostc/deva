@@ -1056,6 +1056,7 @@ class AutoTuner:
         }
 
     def add_condition(self, name: str, condition: TuneCondition):
+        self._ensure_initialized()
         self._conditions[name] = condition
         self._condition_states[name] = ConditionState()
 
