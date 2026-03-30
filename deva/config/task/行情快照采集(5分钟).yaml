@@ -1,58 +1,77 @@
 config:
   cron_expr: ''
-  execution_mode: timer
+  execution_mode: manual
   run_at: ''
-  scheduler_trigger: interval
-  task_type: interval
-func_code: "import datetime\nimport time\nfrom deva import NB\n\ndef is_tradedate(dt=None):\n\
-  \    try:\n        if dt is None:\n            dt = datetime.datetime.now()\n  \
-  \      if dt.weekday() >= 5:\n            return False\n        holidays = [(1,\
-  \ 1), (5, 1), (10, 1)]\n        current_date = (dt.month, dt.day)\n        return\
-  \ current_date not in holidays\n    except Exception:\n        return True\n\ndef\
-  \ is_tradetime(dt=None):\n    try:\n        if dt is None:\n            dt = datetime.datetime.now()\n\
-  \        if not is_tradedate(dt):\n            return False\n        current_time\
-  \ = dt.time()\n        pre = datetime.time(9, 15) <= current_time <= datetime.time(9,\
-  \ 30)\n        morn = datetime.time(9, 30) <= current_time <= datetime.time(11,\
-  \ 30)\n        aft = datetime.time(13, 0) <= current_time <= datetime.time(15, 0)\n\
-  \        after = datetime.time(15, 0) <= current_time <= datetime.time(15, 30)\n\
-  \        return pre or morn or aft or after\n    except Exception:\n        return\
-  \ True\n\ndef execute():\n    from deva.naja.datasource import get_datasource_manager\n\
-  \    \n    if not is_tradetime():\n        return {\"success\": False, \"message\"\
-  : \"Not trading time\"}\n    \n    try:\n        mgr = get_datasource_manager()\n\
-  \        \n        ds = mgr.get(\"e626eecd0b86\")\n        \n        if ds is None:\n\
-  \            return {\"success\": False, \"message\": \"DataSource not found\"}\n\
-  \        \n        latest_data = ds.get_latest_data()\n        \n        if latest_data\
-  \ is None:\n            return {\"success\": False, \"message\": \"No latest data\"\
-  }\n        \n        snapshot_db = NB(\"quant_snapshot_5min_window\", key_mode=\"\
-  time\")\n        snapshot_db.append(latest_data)\n        \n        record_count\
-  \ = len(latest_data) if isinstance(latest_data, list) else 1\n        \n       \
-  \ return {\n            \"success\": True,\n            \"message\": f\"Appended\
-  \ {record_count} records\",\n            \"record_count\": record_count,\n     \
-  \   }\n    except Exception as e:\n        return {\"success\": False, \"message\"\
-  : str(e)}\n"
+  scheduler_trigger: manual
+  task_type: manual
+func_code: |
+  """
+  行情快照保存开关
+
+  功能：
+  - 查询当前快照保存状态
+  - 启用/禁用快照保存
+
+  注意：此任务无轮询，通过手动调用 enable/disable 来控制
+  """
+
+  def execute():
+      """查询当前快照保存状态"""
+      from deva.naja.attention.realtime_data_fetcher import get_data_fetcher
+
+      fetcher = get_data_fetcher()
+      if fetcher is None:
+          return {"success": False, "message": "RealtimeDataFetcher 未启动"}
+
+      stats = fetcher.get_stats()
+      return {
+          "success": True,
+          "save_snapshot_enabled": fetcher.is_snapshot_save_enabled(),
+          "snapshot_save_count": stats.get('snapshot_save_count'),
+          "last_snapshot_save_time": stats.get('last_snapshot_save_time'),
+          "running": stats.get('running'),
+          "is_trading": stats.get('is_trading'),
+      }
+
+  def enable():
+      """启用快照保存"""
+      from deva.naja.attention.realtime_data_fetcher import get_data_fetcher
+      fetcher = get_data_fetcher()
+      if fetcher is None:
+          return {"success": False, "message": "RealtimeDataFetcher 未启动"}
+      fetcher.enable_snapshot_save()
+      return {"success": True, "message": "快照保存已启用"}
+
+  def disable():
+      """禁用快照保存"""
+      from deva.naja.attention.realtime_data_fetcher import get_data_fetcher
+      fetcher = get_data_fetcher()
+      if fetcher is None:
+          return {"success": False, "message": "RealtimeDataFetcher 未启动"}
+      fetcher.disable_snapshot_save()
+      return {"success": True, "message": "快照保存已禁用"}
 metadata:
   category: ''
   created_at: 1773594832.344497
   cron_expr: ''
-  description: 每5分钟从实时Tick行情获取最新数据并保存到历史表（仅交易时间）
+  description: 行情快照保存开关 - 查询状态、启用/禁用快照保存
   enabled: true
   event_condition: ''
   event_condition_type: contains
   event_source: log
-  execution_mode: timer
+  execution_mode: manual
   func_code_file: ''
   id: 802b630647e7
-  interval_seconds: 60.0
+  interval_seconds: 0
   name: 行情快照采集(5分钟)
   run_at: ''
-  scheduler_trigger: interval
-  source: nb
+  scheduler_trigger: manual
+  source: file
   tags:
   - snapshot
-  - tick
-  - trading
-  task_type: interval
-  updated_at: 1774624152.56553
+  - switch
+  task_type: manual
+  updated_at: 1774624385.779159
 parameters:
   enabled: true
   retry_count: 3
