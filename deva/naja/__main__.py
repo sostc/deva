@@ -88,7 +88,6 @@ def main():
     # 处理实验室模式参数
     lab_config = None
     if args.lab:
-        import os
         os.environ['NAJA_LAB_MODE'] = '1'
         lab_config = {
             "enabled": True,

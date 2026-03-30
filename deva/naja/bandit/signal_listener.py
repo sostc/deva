@@ -337,7 +337,14 @@ class SignalListener:
             
             # 提取行情时间
             market_time = self._extract_market_time(signal_data, result.ts)
-            
+
+            # 优先从 metadata 获取 signal_confidence
+            metadata = getattr(result, 'metadata', {}) or {}
+            if isinstance(metadata, dict):
+                signal_confidence = metadata.get('signal_confidence', confidence)
+            else:
+                signal_confidence = confidence
+
             return DetectedSignal(
                 signal_id=result.id,
                 strategy_id=result.strategy_id,
@@ -346,7 +353,7 @@ class SignalListener:
                 stock_name=stock_name,
                 signal_type=signal_type,
                 price=price,
-                confidence=confidence,
+                confidence=signal_confidence,
                 timestamp=result.ts,
                 raw_data=signal_data,
                 market_time=market_time

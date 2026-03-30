@@ -175,7 +175,8 @@ class AdaptiveCycle:
             amount=10000,
             stop_loss_pct=-5.0,
             take_profit_pct=10.0,
-            market_time=signal.market_time
+            market_time=signal.market_time,
+            signal_confidence=signal.confidence,
         )
         
         if position:
@@ -213,7 +214,7 @@ class AdaptiveCycle:
             stock_code=position.stock_code,
             stock_name=position.stock_name,
             close_reason=reason,
-            signal_confidence=0.5,
+            signal_confidence=getattr(position, 'signal_confidence', 0.5),
         )
         
         log.info(f"自适应循环: 平仓 {position.stock_name} 收益={position.return_pct:.2f}% "
