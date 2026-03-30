@@ -124,7 +124,6 @@ class LLMReflectionEngine:
             self._stop_event.wait(min(30, self._interval_seconds))
 
     def _run_reflection(self, min_signals: int = None) -> Optional[Reflection]:
-        from ..narrative_tracker import DEFAULT_NARRATIVE_KEYWORDS
         import logging
         log = logging.getLogger(__name__)
 
@@ -132,10 +131,8 @@ class LLMReflectionEngine:
         self._last_run_ts = now
 
         signals = self._collect_signals()
+        portfolio = self._collect_portfolio()
 
-        self._emit_liquidity_signal(now)
-
-        signals = self._collect_signals()
         required = min_signals if min_signals is not None else self._min_signals
         if len(signals) < required:
             log.warning(f"[LLMReflection] 信号不足: 当前{len(signals)}条, 需要{required}条")
@@ -146,9 +143,9 @@ class LLMReflectionEngine:
         symbols = self._extract_symbols(signals)
         sectors = self._extract_sectors(signals)
 
-        log.info(f"[LLMReflection] 开始反思: {len(signals)}个信号, {len(narratives)}个叙事, {len(themes)}个主题")
+        log.info(f"[LLMReflection] 开始反思: {len(signals)}个信号, {len(narratives)}个叙事, {len(themes)}个主题, 持仓{portfolio.get('count', 0)}只")
         try:
-            result = self._call_llm(signals, narratives, themes)
+            result = self._call_llm(signals, narratives, themes, portfolio)
         except Exception as e:
             log.error(f"[LLMReflection] LLM 调用失败: {e}", exc_info=True)
             return None
@@ -234,11 +231,212 @@ class LLMReflectionEngine:
             log.warning(f"[LLMReflection] 推送流动性信号失败: {e}")
 
     def _collect_signals(self) -> List[Dict[str, Any]]:
-        from ..insight.engine import get_insight_pool
+        """直接收集各认知模块的信号，不再依赖 InsightPool"""
+        signals = []
 
-        pool = get_insight_pool()
-        recent = pool.get_recent_insights(limit=self._max_signals)
-        return recent
+        signals.extend(self._collect_narrative_signals())
+
+        signals.extend(self._collect_liquidity_signals())
+
+        signals.extend(self._collect_attention_signals())
+
+        signals.extend(self._collect_cross_signal_signals())
+
+        signals.extend(self._collect_ai_compute_signals())
+
+        signals.extend(self._collect_trade_feedback())
+
+        return signals
+
+    def _collect_narrative_signals(self) -> List[Dict[str, Any]]:
+        """从 NarrativeTracker 获取叙事信号"""
+        from ..core import get_cognition_engine
+        try:
+            engine = get_cognition_engine()
+            report = engine.get_memory_report()
+            narratives = report.get("narratives", {})
+            summary = narratives.get("summary", [])
+            signals = []
+            for n in summary:
+                narrative = n.get("narrative", "")
+                if narrative:
+                    signals.append({
+                        "source": "narrative_tracker",
+                        "signal_type": "narrative",
+                        "theme": f"叙事: {narrative}",
+                        "summary": f"阶段={n.get('stage', '')}, 趋势={n.get('trend', 0):+.1%}",
+                        "stage": n.get("stage", ""),
+                        "trend": n.get("trend", 0),
+                        "attention_score": n.get("attention_score", 0),
+                        "score": n.get("attention_score", 0),
+                    })
+            return signals
+        except Exception:
+            return []
+
+    def _collect_liquidity_signals(self) -> List[Dict[str, Any]]:
+        """从 LiquidityCognition 获取流动性洞察"""
+        from ..liquidity.liquidity_cognition import get_liquidity_cognition
+        try:
+            lc = get_liquidity_cognition()
+            if not lc:
+                return []
+            insights = lc.get_recent_insights(limit=5)
+            signals = []
+            for insight in insights:
+                if isinstance(insight, dict):
+                    signals.append({
+                        "source": "liquidity_cognition",
+                        "signal_type": insight.get("insight_type", "liquidity"),
+                        "theme": f"流动性: {insight.get('narrative', '')}",
+                        "summary": f"{insight.get('source_market', '')} → {insight.get('target_markets', [])}",
+                        "confidence": insight.get("propagation_probability", 0.5),
+                        "severity": insight.get("severity", 0.5),
+                        "score": insight.get("severity", 0.5),
+                    })
+            return signals
+        except Exception:
+            return []
+
+    def _collect_attention_signals(self) -> List[Dict[str, Any]]:
+        """从 AttentionHistoryTracker 获取注意力转移信号"""
+        from ..history_tracker import get_attention_history_tracker
+        try:
+            tracker = get_attention_history_tracker()
+            if not tracker:
+                return []
+            report = tracker.get_attention_shift_report(emit_to_insight=False)
+            if not report.get("has_shift"):
+                return []
+            signals = []
+            for sector, name in report.get("added_sectors", []):
+                signals.append({
+                    "source": "attention_history",
+                    "signal_type": "attention_rising",
+                    "theme": f"注意力上升: {name}",
+                    "summary": "板块进入热门",
+                    "sector": sector,
+                    "score": 0.7,
+                })
+            for sector, name in report.get("removed_sectors", []):
+                signals.append({
+                    "source": "attention_history",
+                    "signal_type": "attention_falling",
+                    "theme": f"注意力下降: {name}",
+                    "summary": "板块退出热门",
+                    "sector": sector,
+                    "score": 0.6,
+                })
+            return signals
+        except Exception:
+            return []
+
+    def _collect_cross_signal_signals(self) -> List[Dict[str, Any]]:
+        """从 CrossSignalAnalyzer 获取共振信号"""
+        from ..cross_signal_analyzer import get_cross_signal_analyzer
+        try:
+            analyzer = get_cross_signal_analyzer()
+            if not analyzer:
+                return []
+            resonances = analyzer.get_recent_resonances(n=5)
+            signals = []
+            for r in resonances:
+                if isinstance(r, dict):
+                    signals.append({
+                        "source": "cross_signal",
+                        "signal_type": r.get("resonance_type", "共振"),
+                        "theme": f"共振: {r.get('sector_name', '')}",
+                        "summary": f"共振强度={r.get('resonance_score', 0):.2f}",
+                        "resonance_score": r.get("resonance_score", 0),
+                        "score": r.get("resonance_score", 0) * 0.8,
+                    })
+            return signals
+        except Exception:
+            return []
+
+    def _collect_ai_compute_signals(self) -> List[Dict[str, Any]]:
+        """从 OpenRouterMonitor 获取 AI算力趋势"""
+        try:
+            from ...radar.openrouter_monitor import get_ai_compute_trend
+            trend = get_ai_compute_trend()
+            if not trend:
+                return []
+            return [{
+                "source": "ai_compute",
+                "signal_type": "ai_compute_trend",
+                "theme": f"AI算力: {trend.get('trend_direction', 'unknown')}",
+                "summary": f"累计增长={trend.get('cumulative_growth', 0):.1%}, 本周={trend.get('weekly_growth', 0):+.1%}",
+                "cumulative_growth": trend.get("cumulative_growth", 0),
+                "trend_direction": trend.get("trend_direction", "unknown"),
+                "score": trend.get("base_strength", 0.5),
+            }]
+        except Exception:
+            return []
+
+    def _collect_trade_feedback(self) -> List[Dict[str, Any]]:
+        """获取交易反馈信号"""
+        try:
+            from ...attention.center import get_orchestrator
+            orchestrator = get_orchestrator()
+            if not orchestrator or not hasattr(orchestrator, '_integration'):
+                return []
+            center = orchestrator._integration.attention_system
+            if not center:
+                return []
+            recent = center._get_recent_trade_feedback(limit=5)
+            signals = []
+            for fb in recent:
+                signals.append({
+                    "source": "trade_feedback",
+                    "signal_type": fb.get("signal_type", "trade"),
+                    "theme": f"交易{'成功' if fb.get('success') else '失败'}: {fb.get('symbol', '')}",
+                    "summary": fb.get("summary", ""),
+                    "success": fb.get("success", False),
+                    "score": 0.8 if fb.get("success") else 0.3,
+                })
+            return signals
+        except Exception:
+            return []
+
+    def _collect_portfolio(self) -> Dict[str, Any]:
+        """收集当前持仓信息"""
+        try:
+            from ...bandit.portfolio_manager import get_portfolio_manager
+            pm = get_portfolio_manager()
+            if not pm:
+                return {"positions": [], "summary": "无持仓系统"}
+
+            us_portfolio = pm.get_us_portfolio("default")
+            if not us_portfolio:
+                return {"positions": [], "summary": "无美股持仓"}
+
+            open_positions = us_portfolio.get_all_positions("OPEN")
+            if not open_positions:
+                return {"positions": [], "summary": "无持仓"}
+
+            positions = []
+            total_pnl = 0
+            for pos in open_positions:
+                pnl = pos.profit_loss or 0
+                total_pnl += pnl
+                positions.append({
+                    "symbol": pos.stock_code,
+                    "name": pos.stock_name,
+                    "quantity": pos.quantity,
+                    "entry_price": pos.entry_price,
+                    "current_price": pos.current_price,
+                    "profit_loss": pnl,
+                    "return_pct": pos.return_pct or 0,
+                })
+
+            return {
+                "positions": positions,
+                "count": len(positions),
+                "total_profit_loss": total_pnl,
+                "summary": f"持仓{len(positions)}只, 总盈亏={total_pnl:+.2f}"
+            }
+        except Exception:
+            return {"positions": [], "summary": "获取持仓失败"}
 
     def _collect_narratives(self) -> List[Dict[str, Any]]:
         """收集叙事数据，包含趋势和阶段信息"""
@@ -385,13 +583,14 @@ class LLMReflectionEngine:
         signals: List[Dict[str, Any]],
         narratives: List[Dict[str, Any]],
         themes: List[str],
+        portfolio: Dict[str, Any],
     ) -> Optional[Dict[str, Any]]:
         cfg = get_llm_config()
 
         recent_reflections = self.get_recent_reflections(limit=1)
         last_reflection = recent_reflections[0] if recent_reflections else None
 
-        prompt = self._build_reflection_prompt(signals, narratives, themes, last_reflection)
+        prompt = self._build_reflection_prompt(signals, narratives, themes, portfolio, last_reflection)
         import logging
         log = logging.getLogger(__name__)
         log.info(f"[LLMReflection] Prompt长度: {len(prompt)} 字符, 上次反思: {'有' if last_reflection else '无'}")
@@ -408,7 +607,7 @@ class LLMReflectionEngine:
 
         return self._parse_llm_response(response)
 
-    def _call_llm(self, signals, narratives, themes) -> Optional[Dict[str, Any]]:
+    def _call_llm(self, signals, narratives, themes, portfolio) -> Optional[Dict[str, Any]]:
         import logging
         log = logging.getLogger(__name__)
         try:
@@ -416,7 +615,7 @@ class LLMReflectionEngine:
             import concurrent.futures
 
             async def call_async():
-                return await self._call_llm_async(signals, narratives, themes)
+                return await self._call_llm_async(signals, narratives, themes, portfolio)
 
             with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
                 def run_in_new_loop():
@@ -445,6 +644,7 @@ class LLMReflectionEngine:
         signals: List[Dict[str, Any]],
         narratives: List[Dict[str, Any]],
         themes: List[str],
+        portfolio: Dict[str, Any],
         last_reflection: Optional[Dict[str, Any]] = None,
     ) -> str:
         categorized = self._categorize_signals(signals)
@@ -465,10 +665,10 @@ class LLMReflectionEngine:
         radar_text = _format_time_line(categorized['radar'], 6)
         attention_text = _format_time_line(categorized['attention'], 6)
         cross_text = _format_time_line(categorized['cross_signal'], 4)
-        feedback_text = _format_time_line(categorized['feedback'], 3)
-        effectiveness_text = _format_time_line(categorized['effectiveness'], 3)
-        liquidity_signals = _format_time_line(categorized['liquidity_structure'], 3)
-        other_text = _format_time_line(categorized['other'], 4)
+        feedback_text = _format_time_line(categorized.get('feedback', []), 3)
+        effectiveness_text = _format_time_line(categorized.get('effectiveness', []), 3)
+        liquidity_signals = _format_time_line(categorized.get('liquidity_structure', []), 3)
+        other_text = _format_time_line(categorized.get('other', []), 4)
 
         def _format_narrative(n: Dict[str, Any]) -> str:
             narrative = n.get('narrative', '-')
@@ -516,6 +716,29 @@ class LLMReflectionEngine:
         else:
             last_reflection_section = "## 📝 上次反思结论\n暂无历史反思，这是首次反思。"
 
+        def _format_portfolio(p: Dict[str, Any]) -> str:
+            positions = p.get('positions', [])
+            if not positions:
+                return "当前无持仓"
+            lines = []
+            for pos in positions:
+                symbol = pos.get('symbol', '')
+                name = pos.get('name', '')
+                ret_pct = pos.get('return_pct', 0)
+                pnl = pos.get('profit_loss', 0)
+                ret_icon = "📈" if ret_pct >= 0 else "📉"
+                lines.append(f"{ret_icon}{symbol}({name}): {ret_pct:+.1%} ({pnl:+.2f})")
+            return "\n".join(lines)
+
+        portfolio_section = f"""## 💼 当前持仓情况
+{_format_portfolio(portfolio)}
+
+请结合持仓情况思考：
+1. 当前市场信号对持仓有何影响？
+2. 是否需要调整持仓？
+3. 持仓盈亏是否影响决策心态？
+""" if portfolio.get('positions') else "## 💼 当前持仓情况\n暂无持仓信息"
+
         return f"""你是资深金融市场分析师。请基于多源异构数据进行深度市场反思。
 
 ## ⏱️ 数据时间范围
@@ -523,6 +746,8 @@ class LLMReflectionEngine:
 总信号数: {total_signals}
 
 {last_reflection_section}
+
+{portfolio_section}
 
 ## 💰 流动性结构分析（美林时钟四象限）
 {liquidity_signals if liquidity_signals and liquidity_signals != "暂无" else "暂无流动性信号"}
@@ -567,6 +792,7 @@ class LLMReflectionEngine:
 2. 如果上次结论被验证 → 分析强化因素，关注是否有新变化
 3. 如果上次结论被否定 → 找出转折点，理解变化原因
 4. 如果上次结论被补充 → 识别新维度，理解叙事演进
+5. 结合持仓情况，判断当前策略是否需要调整
 
 请生成深度市场反思，要求：
 1. **迭代性**：明确说明当前数据如何验证/否定/补充了上次的结论
@@ -576,18 +802,20 @@ class LLMReflectionEngine:
 5. 结合雷达异常和注意力事件，验证叙事变化的真实性
 6. 评估共振信号与叙事趋势的匹配度
 7. 结合实验反馈和有效性分析，判断当前策略的有效性
-8. 给出形势判断（2-3句话，包含流动性结构结论）和可执行建议
+8. **结合持仓情况**，给出持仓调整建议
+9. 给出形势判断（2-3句话，包含流动性结构结论）和可执行建议
 
 仅返回 JSON 格式：
 {{
     "theme": "反思主题（一句话，精炼，包含流动性结构判断）",
-    "summary": "深度反思内容（150-300字，包含流动性结构分析、叙事趋势判断、与上次结论的迭代关系、形势分析和可执行建议）",
+    "summary": "深度反思内容（150-300字，包含流动性结构分析、叙事趋势判断、与上次结论的迭代关系、持仓分析和可执行建议）",
     "confidence": 0.0-1.0（判断置信度，基于信号数量和质量），
     "actionability": 0.0-1.0（可执行性，结论是否可直接指导行动），
     "novelty": 0.0-1.0（新颖程度，相比历史反思是否有新发现），
     "liquidity_structure": "当前流动性结构判断（如：股市>债券>商品，资金风险偏好回升）",
     "iteration": "与上次结论的关系（验证/否定/补充/无新数据）",
-    "上次结论回顾": "简要回顾上次反思的核心结论，用于对比"
+    "上次结论回顾": "简要回顾上次反思的核心结论，用于对比",
+    "portfolio_advice": "持仓调整建议（如：持有/加仓/减仓/止损，具体到个股）"
 }}
 
 只返回 JSON，不要其他内容。"""

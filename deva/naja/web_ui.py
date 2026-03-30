@@ -18,6 +18,7 @@ from pywebio.session import set_env, run_js, run_async
 from pywebio.platform.tornado import webio_handler
 
 from deva import NW, Deva, NB
+from typing import Any, Optional, Callable
 from .config import get_auth_config, set_config, ensure_auth_secret
 
 _request_theme = None
@@ -191,6 +192,7 @@ def _init_realtime_simulation_mode(interval: float = 0.5):
 import time
 import random
 import pandas as pd
+from typing import Any, Optional, Callable
 from datetime import datetime
 
 SYMBOLS = [
@@ -382,6 +384,43 @@ def _init_news_radar_sim_mode(news_radar_config: dict):
 
     print(f"📡 新闻雷达模拟模式已启用")
     print(f"📡 模拟间隔: {sim_interval}s (×{sim_speed})")
+
+
+def _init_tune_mode(tune_config: dict):
+    """初始化调参模式"""
+    import os
+    os.environ['NAJA_LAB_MODE'] = '1'
+
+    print(f"🎯 调参模式已启用（持续循环优化版）")
+
+    from .bandit.tuner import get_bandit_tuner
+    tuner = get_bandit_tuner()
+    tuner.start()
+    tuner.register_callback(_on_tuner_event)
+
+    from .replay.replay_scheduler import get_replay_scheduler
+    scheduler = get_replay_scheduler()
+    if scheduler:
+        scheduler.register_finished_callback(_on_replay_finished)
+
+    print(f"🎯 调参器已启动，等待信号...")
+
+def _on_tuner_event(event: str, data: Any):
+    """处理调参器事件"""
+    if event == 'new_best':
+        log.info(f"🏆 新最优参数: {data.params}")
+    elif event == 'params_relaxed':
+        log.info(f"📊 参数放宽: {data}")
+    elif event == 'signal_collected':
+        count = data.get('count', 0)
+        if count % 10 == 0:
+            log.info(f"📥 已收集 {count} 个信号")
+
+def _on_replay_finished():
+    """数据回放结束时调用"""
+    from .bandit.tuner import get_bandit_tuner
+    tuner = get_bandit_tuner()
+    tuner.on_data_replay_finished()
 
 
 def _init_cognition_debug_mode():
@@ -946,7 +985,7 @@ def create_handlers(cdn: str = None):
     ]
 
 
-def run_server(port: int = 8080, host: str = '0.0.0.0', lab_config: dict = None, news_radar_config: dict = None, cognition_debug_config: dict = None):
+def run_server(port: int = 8080, host: str = '0.0.0.0', lab_config: dict = None, news_radar_config: dict = None, cognition_debug_config: dict = None, tune_config: dict = None):
     """启动服务器
 
     Args:
@@ -954,6 +993,7 @@ def run_server(port: int = 8080, host: str = '0.0.0.0', lab_config: dict = None,
         host: 绑定地址
         lab_config: 实验室模式配置，如 {'enabled': True, 'table_name': 'xxx', 'interval': 1.0}
         news_radar_config: 新闻雷达配置，如 {'enabled': True, 'mode': 'normal'|'speed'|'sim', 'speed': 1.0}
+        tune_config: 调参模式配置，如 {'enabled': True, 'search_method': 'grid', 'max_samples': 100}
     """
     print("=" * 60)
     print("🚀 Naja 管理平台启动中...")
@@ -1034,6 +1074,11 @@ def run_server(port: int = 8080, host: str = '0.0.0.0', lab_config: dict = None,
     if cognition_debug_config and cognition_debug_config.get("enabled"):
         print("🧠 认知系统调试模式已启用，准备启动...")
         _init_cognition_debug_mode()
+
+    # 调参模式初始化
+    if tune_config and tune_config.get("enabled"):
+        print("🎯 调参模式已启用，准备启动...")
+        _init_tune_mode(tune_config)
 
     handlers = create_handlers()
 

@@ -301,6 +301,9 @@ class VirtualPortfolio:
             position.exit_time = get_market_time_service().get_market_time()
             position.close_reason = reason
 
+            actual_pnl = (exit_price - position.entry_price) * position.quantity
+            position._profit_loss = actual_pnl
+
             self._used_capital -= position.entry_price * position.quantity
             
             for callback in self._close_callbacks:
