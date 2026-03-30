@@ -54,6 +54,7 @@ class StartupMode(Enum):
     NORMAL = "normal"           # 正常交易模式
     LAB = "lab"                # 实验室模式
     COGNITION_DEBUG = "cognition_debug"  # 认知调试模式
+    TUNE = "tune"             # 调参模式：用历史数据搜索最优参数
 
 
 class NewsRadarMode(Enum):
@@ -73,10 +74,14 @@ class StartupConfig:
     lab_interval: float = 1.0
     lab_speed: float = 1.0
     lab_debug: bool = False
+    tune_enabled: bool = False
+    tune_search_method: str = "grid"
+    tune_max_samples: int = 100
+    tune_export_path: Optional[str] = None
 
     @property
     def is_lab_mode(self) -> bool:
-        return self.mode in (StartupMode.LAB, StartupMode.COGNITION_DEBUG)
+        return self.mode in (StartupMode.LAB, StartupMode.COGNITION_DEBUG, StartupMode.TUNE)
 
     @property
     def is_trading_allowed(self) -> bool:
@@ -128,6 +133,14 @@ MODE_COMBINATIONS = {
         lab_interval=0.5,
         lab_debug=True,
     ),
+
+    # 调参模式
+    "tune": StartupConfig(
+        mode=StartupMode.TUNE,
+        news_radar_mode=NewsRadarMode.NORMAL,
+        tune_enabled=True,
+        tune_search_method="grid",
+    ),
 }
 
 
@@ -137,6 +150,7 @@ def get_mode_description(mode: StartupMode) -> str:
         StartupMode.NORMAL: "正常交易模式 - 启用实时数据获取和新闻雷达",
         StartupMode.LAB: "实验室模式 - 回放历史数据，与正常交易模式互斥",
         StartupMode.COGNITION_DEBUG: "认知调试模式 - 自动启用实验室+新闻雷达模拟",
+        StartupMode.TUNE: "调参模式 - 用历史数据搜索最优参数",
     }
     return descriptions.get(mode, "未知模式")
 

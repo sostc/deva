@@ -40,14 +40,18 @@ class DetectedSignal:
 
 class SignalListener:
     """信号监听器
-    
+
     监听信号流：
-    1. 实时获取信号流中的新信号
+    1. 实时获取信号流中的新信号（流式订阅模式）
     2. 识别信号中的股票信息
     3. 过滤和转换信号格式
     4. 触发虚拟持仓创建回调
+
+    架构演进：
+    - 旧版：轮询模式（每2秒轮询一次，实验模式下有60秒延迟问题）
+    - 新版：流式订阅模式（信号实时推送，无延迟）
     """
-    
+
     def __init__(self):
         self._running = False
         self._thread: Optional[threading.Thread] = None
@@ -70,6 +74,9 @@ class SignalListener:
         self._low_power_mode = False
         self._normal_poll_interval = 2.0
         self._low_power_poll_interval = 60.0
+
+        self._stream_mode = False
+        self._stream_sink_registered = False
 
         self._load_config()
     
@@ -112,7 +119,11 @@ class SignalListener:
             self._callbacks.remove(callback)
     
     def start(self):
-        """启动监听"""
+        """启动监听
+
+        优先使用流式订阅模式（实验模式自动启用），无实时延迟。
+        降级方案：轮询模式作为后备。
+        """
         if self._running and self._thread and self._thread.is_alive():
             log.warning("SignalListener 已在运行")
             return
@@ -123,12 +134,16 @@ class SignalListener:
         TRADING_CLOCK_STREAM.sink(self._on_trading_clock_signal)
         log.info("SignalListener 已订阅交易时钟信号")
 
-        self._thread = threading.Thread(target=self._run_loop, daemon=True)
-        self._thread.start()
+        if self._is_experiment_mode() or self._force_mode:
+            self._enable_stream_mode()
+        else:
+            self._thread = threading.Thread(target=self._run_loop, daemon=True)
+            self._thread.start()
 
         self._save_config()
 
-        log.debug(f"SignalListener 已启动 (轮询间隔: {self._poll_interval}s)")
+        mode = "流式订阅" if self._stream_mode else f"轮询({self._poll_interval}s)"
+        log.info(f"SignalListener 已启动 ({mode})")
 
     def _on_trading_clock_signal(self, signal: Dict[str, Any]):
         """处理交易时钟信号"""
@@ -143,6 +158,55 @@ class SignalListener:
                 log.debug(f"[SignalListener] 进入交易时段")
             else:
                 log.debug(f"[SignalListener] 退出交易时段")
+
+        if not self._stream_mode and (self._is_experiment_mode() or self._force_mode):
+            log.info("[SignalListener] 检测到实验模式，切换到流式订阅")
+            self._enable_stream_mode()
+
+    def _enable_stream_mode(self):
+        """启用流式订阅模式"""
+        if self._stream_sink_registered:
+            return
+
+        self._stream_mode = True
+        self._signal_stream.sink(self._on_signal_stream_update)
+        self._stream_sink_registered = True
+        log.info("[SignalListener] 已订阅信号流（流式模式）")
+
+    def _on_signal_stream_update(self, result: StrategyResult):
+        """处理信号流中的新信号（流式回调）
+
+        此方法在信号到来时被实时调用，无延迟。
+        """
+        if not self._running:
+            return
+
+        if self._is_processed(result.id):
+            return
+
+        if result.ts <= self._last_processed_ts:
+            return
+
+        signal = self._parse_signal(result)
+        if signal is None:
+            return
+
+        log.debug(f"[Bandit] [流式] 收到信号: {signal.stock_code} {signal.stock_name} 置信度={signal.confidence} 类型={signal.signal_type}")
+
+        if signal.confidence < self._min_confidence:
+            log.warning(f"[Bandit] [流式] 置信度低于阈值: {signal.confidence:.3f} < {self._min_confidence:.3f}")
+            return
+
+        self._mark_processed(result.id, result.ts)
+
+        if result.ts > self._last_processed_ts:
+            self._last_processed_ts = result.ts
+
+        for callback in self._callbacks:
+            try:
+                callback(signal)
+            except Exception as e:
+                log.error(f"信号回调执行失败: {e}")
 
     def _is_experiment_mode(self) -> bool:
         """检查是否处于实验模式"""
@@ -187,9 +251,12 @@ class SignalListener:
         log.info("SignalListener 已停止")
     
     def _run_loop(self):
-        """主循环"""
+        """主循环（轮询模式后备）"""
         log.info(f"[SignalListener] _run_loop started: force={self._force_mode}, phase={self._current_phase}")
         while self._running and not self._stop_event.is_set():
+            if self._stream_mode:
+                self._stop_event.wait(1)
+                continue
             try:
                 if self._is_allowed_to_run():
                     self._process_signals()
@@ -197,9 +264,9 @@ class SignalListener:
                 log.error(f"SignalListener 处理错误: {e}")
 
             self._stop_event.wait(self._poll_interval)
-    
+
     def _process_signals(self):
-        """处理信号流中的新信号
+        """处理信号流中的新信号（轮询模式）
 
         包含自动阈值调整：如果长时间没有信号通过阈值，自动降低阈值以产生交易。
         包含低功耗模式：当上游（策略）不活跃时，自动增大轮询间隔。
@@ -476,6 +543,7 @@ class SignalListener:
         """获取状态"""
         return {
             "running": self._running,
+            "stream_mode": self._stream_mode,
             "poll_interval": self._poll_interval,
             "min_confidence": self._min_confidence,
             "last_processed_ts": self._last_processed_ts,

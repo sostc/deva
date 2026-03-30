@@ -93,7 +93,8 @@ class ReplayScheduler:
 
         self._downstream_callback: Optional[Callable] = None
         self._completion_event = threading.Event()
-        self._latest_sent_data: Optional[Any] = None  # 存储最后发送的数据，供 MarketObserver 查询
+        self._latest_sent_data: Optional[Any] = None
+        self._finished_callbacks: List[Callable] = []
 
         self._db: Optional[Any] = None
         self._data_keys: List[Any] = []
@@ -109,14 +110,14 @@ class ReplayScheduler:
     def _register_auto_tuner_callback(self):
         """注册 AutoTuner 回调"""
         try:
-            from deva.naja.common.auto_tuner import get_auto_tuner, trigger_business_adjustment
+            from deva.naja.common.auto_tuner import get_auto_tuner, trigger_business_adjustment, TuneCondition
             tuner = get_auto_tuner()
 
-            tuner.add_condition('replay_processing', {
-                'cooldown': 30,
-                'threshold': 500,
-                'action': 'adjust_replay_interval'
-            })
+            tuner.add_condition('replay_processing', TuneCondition(
+                cooldown=30,
+                threshold=500,
+                action='adjust_replay_interval'
+            ))
 
             self._trigger_adjustment = trigger_business_adjustment
             log.info("[ReplayScheduler] 已注册 AutoTuner 回调")
@@ -127,6 +128,10 @@ class ReplayScheduler:
     def set_downstream_callback(self, callback: Callable):
         """设置下游处理完成回调"""
         self._downstream_callback = callback
+
+    def register_finished_callback(self, callback: Callable):
+        """注册回放完成回调"""
+        self._finished_callbacks.append(callback)
 
     def on_processing_complete(self, processing_time_ms: float):
         """下游处理完成回调 - 通知性能监控"""
@@ -264,6 +269,7 @@ class ReplayScheduler:
         """获取并发送数据"""
         if self._key_index >= len(self._data_keys):
             self._has_more_data = False
+            self._emit_finished()
             return
 
         key = self._data_keys[self._key_index]
@@ -353,6 +359,14 @@ class ReplayScheduler:
     def _adjust_interval(self):
         """根据 AutoTuner 反馈调整间隔"""
         pass
+
+    def _emit_finished(self):
+        """触发回放完成回调"""
+        for callback in self._finished_callbacks:
+            try:
+                callback()
+            except Exception as e:
+                log.error(f"[ReplayScheduler] 执行完成回调失败: {e}")
 
     def _wait_interval(self):
         """等待当前间隔"""
