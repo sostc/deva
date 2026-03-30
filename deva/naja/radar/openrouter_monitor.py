@@ -406,6 +406,89 @@ def get_openrouter_full_data() -> Optional[Dict]:
         return None
 
 
+def get_ai_compute_trend() -> Optional[Dict]:
+    """获取 AI算力趋势信号（供认知系统使用）
+
+    这个函数返回完整的趋势背景信息，不只是异常告警。
+    用于识别"基本面强但价格弱"的背离机会。
+
+    Returns:
+        {
+            "signal_type": "ai_compute_trend",
+            "cumulative_growth": 2.15,      # 累计增长率 (215%)
+            "weekly_growth": 0.08,          # 周环比增长率
+            "weekly_growth_rate": 0.15,      # 周环比变化率
+            "total_tokens": 1_500_000_000_000,
+            "trend_direction": "rising",     # rising / falling / stable
+            "alert_level": "normal",         # 异常检测
+            "is_abnormal": False,
+            "related_sectors": ["AI算力", "半导体"],
+            "related_symbols": ["NVDA", "AMD", "台积电"],
+            "timestamp": ...,
+            "message": "...",
+            "recommendation": "...",
+            "base_strength": 0.85,          # 基础算力需求强度 (0-1)
+            "is_incomplete_week": False
+        }
+    """
+    try:
+        from deva import NB
+
+        db = NB(TREND_TABLE)
+        data = db.get("latest")
+        trend = db.get("trend")
+
+        if not data or not trend:
+            return None
+
+        weekly_history = data.get("weekly_history", [])
+
+        cumulative_growth = 0.0
+        if len(weekly_history) >= 4:
+            oldest_total = weekly_history[0]["total"]
+            latest_total = weekly_history[-1]["total"]
+            if oldest_total > 0:
+                cumulative_growth = (latest_total - oldest_total) / oldest_total
+
+        weekly_growth = trend.get("latest_change", 0) / 100.0
+        weekly_growth_rate = trend.get("acceleration", 0) / 100.0
+
+        direction = trend.get("direction", "unknown")
+        trend_direction_map = {
+            "strong_up": "rising",
+            "up": "rising",
+            "down": "falling",
+            "strong_down": "falling",
+            "unknown": "stable"
+        }
+        trend_direction = trend_direction_map.get(direction, "stable")
+
+        base_strength = trend.get("strength", 0.5)
+
+        return {
+            "signal_type": "ai_compute_trend",
+            "cumulative_growth": round(cumulative_growth, 3),
+            "weekly_growth": round(weekly_growth, 4),
+            "weekly_growth_rate": round(weekly_growth_rate, 4),
+            "total_tokens": trend.get("latest_total", 0),
+            "trend_direction": trend_direction,
+            "alert_level": trend.get("alert_level", "normal"),
+            "is_abnormal": trend.get("is_anomaly", False),
+            "related_sectors": ["AI算力", "半导体", "芯片"],
+            "related_symbols": ["NVDA", "AMD", "TSLA", "台积电", "SMCI"],
+            "timestamp": data.get("timestamp"),
+            "message": trend.get("message", ""),
+            "recommendation": trend.get("recommendation", ""),
+            "base_strength": round(base_strength, 3),
+            "is_incomplete_week": trend.get("is_incomplete_week", False),
+            "data_weeks": trend.get("data_weeks", 0)
+        }
+
+    except Exception as e:
+        print(f"[OpenRouter] get_ai_compute_trend 失败: {e}")
+        return None
+
+
 def scheduled_openrouter_check():
     """调度任务：每周一执行"""
     try:
