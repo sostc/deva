@@ -103,64 +103,77 @@ class NoiseFilter:
             return df
         
         self._total_count += len(df)
-        
+
+        # 获取股票代码的正确方式（可能是列，也可能是索引名）
+        def get_symbols(df, col):
+            if col in df.columns:
+                return df[col].astype(str)
+            elif col == df.index.name:
+                return df.index.astype(str)
+            else:
+                return pd.Series([''] * len(df), index=df.index)
+
         # 构建mask
         mask = pd.Series([True] * len(df), index=df.index)
-        
+
         # 1. 黑名单过滤
         if self.config.blacklist:
-            blacklist_mask = ~df[symbol_col].astype(str).isin(self.config.blacklist)
+            symbols = get_symbols(df, symbol_col)
+            blacklist_mask = ~symbols.isin(self.config.blacklist)
             mask &= blacklist_mask
-        
+
         # 2. 白名单保护
         whitelist_symbols = set()
         if self.config.whitelist:
-            whitelist_mask = df[symbol_col].astype(str).isin(self.config.whitelist)
-            whitelist_symbols = set(df[whitelist_mask][symbol_col].astype(str).tolist())
+            symbols = get_symbols(df, symbol_col)
+            whitelist_mask = symbols.isin(self.config.whitelist)
+            whitelist_symbols = set(df.loc[whitelist_mask, symbol_col].astype(str).tolist() if symbol_col in df.columns else df.loc[whitelist_mask].index.astype(str).tolist())
         
         # 3. 成交金额过滤（只过滤大于0且低于阈值的）
         if amount_col and amount_col in df.columns:
-            # 金额为0是正常的（如停牌、集合竞价前），不过滤
             amount_threshold = self._get_amount_threshold(df[amount_col])
-            amount_mask = (df[amount_col] == 0) | (df[amount_col] >= amount_threshold) | df[symbol_col].astype(str).isin(whitelist_symbols)
+            symbols = get_symbols(df, symbol_col)
+            amount_mask = (df[amount_col] == 0) | (df[amount_col] >= amount_threshold) | symbols.isin(whitelist_symbols)
             mask &= amount_mask
-            
+
             # 记录被过滤的
-            filtered_by_amount = df[~amount_mask & ~df[symbol_col].astype(str).isin(whitelist_symbols)]
+            filtered_by_amount = df[~amount_mask & ~symbols.isin(whitelist_symbols)]
             for _, row in filtered_by_amount.iterrows():
-                symbol = str(row[symbol_col])
+                symbol = get_symbols(df, symbol_col).loc[row.name] if symbol_col not in df.columns else str(row[symbol_col])
                 self._filtered_symbols[symbol] = self._filtered_symbols.get(symbol, 0) + 1
-        
+
         # 4. 成交量过滤（只过滤大于0且低于阈值的）
         if volume_col and volume_col in df.columns:
-            # 成交量为0是正常的，不过滤
-            volume_mask = (df[volume_col] == 0) | (df[volume_col] >= self.config.min_volume) | df[symbol_col].astype(str).isin(whitelist_symbols)
+            symbols = get_symbols(df, symbol_col)
+            volume_mask = (df[volume_col] == 0) | (df[volume_col] >= self.config.min_volume) | symbols.isin(whitelist_symbols)
             mask &= volume_mask
-            
-            filtered_by_volume = df[~volume_mask & ~df[symbol_col].astype(str).isin(whitelist_symbols)]
+
+            filtered_by_volume = df[~volume_mask & ~symbols.isin(whitelist_symbols)]
             for _, row in filtered_by_volume.iterrows():
-                symbol = str(row[symbol_col])
+                symbol = get_symbols(df, symbol_col).loc[row.name] if symbol_col not in df.columns else str(row[symbol_col])
                 self._filtered_symbols[symbol] = self._filtered_symbols.get(symbol, 0) + 1
-        
+
         # 5. 价格过滤
         if price_col and price_col in df.columns:
-            price_mask = (df[price_col] >= self.config.min_price) | df[symbol_col].astype(str).isin(whitelist_symbols)
+            symbols = get_symbols(df, symbol_col)
+            price_mask = (df[price_col] >= self.config.min_price) | symbols.isin(whitelist_symbols)
             mask &= price_mask
-        
+
         # 6. B股过滤
         if self.config.filter_b_shares and name_col and name_col in df.columns:
+            symbols = get_symbols(df, symbol_col)
             b_share_mask = ~(
                 df[name_col].astype(str).str.endswith('B') |
                 df[name_col].astype(str).str.contains('B股', regex=False, na=False)
             )
             mask &= b_share_mask
 
-            filtered_b = df[~b_share_mask & ~df[symbol_col].astype(str).isin(whitelist_symbols)]
+            filtered_b = df[~b_share_mask & ~symbols.isin(whitelist_symbols)]
             for _, row in filtered_b.iterrows():
-                symbol = str(row[symbol_col])
+                symbol = get_symbols(df, symbol_col).loc[row.name] if symbol_col not in df.columns else str(row[symbol_col])
                 name = str(row.get(name_col, ''))
                 log.debug(f"过滤B股: {symbol} {name}")
-        
+
         # 7. ST股票过滤
         if self.config.filter_st and name_col and name_col in df.columns:
             st_mask = ~df[name_col].astype(str).str.contains(r'^ST|\\*ST', regex=True, na=False)

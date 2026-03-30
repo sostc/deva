@@ -171,6 +171,8 @@ class FourDimensionsManager:
     四维决策框架管理器
 
     包装 AttentionKernel，自动管理四维的启用/禁用
+    同时支持决策型注意力（DecisionAttention）
+    和末那识引擎（ManasEngine）
 
     使用方式：
         manager = FourDimensionsManager(kernel)
@@ -178,13 +180,116 @@ class FourDimensionsManager:
 
         # 在主循环中调用
         manager.update()  # 自动检查并更新四维状态
+
+        # 启用末那识引擎
+        manager.set_manas_engine_enabled(True)
+        manas_output = manager.compute_manas()
     """
 
     def __init__(self, kernel, trigger_config: Optional[TriggerConfig] = None):
         from .four_dimensions import FourDimensions
+        from .decision_attention import DecisionAttention
         self.kernel = kernel
         self.trigger = FourDimensionsTrigger(trigger_config)
         self._last_log_time = 0
+
+        self._enable_decision_attention = False
+        self._decision_attention = None
+
+        self._enable_manas = False
+        self._manas_engine = None
+
+    def set_decision_attention_enabled(self, enabled: bool):
+        """
+        设置是否启用决策型注意力
+
+        Args:
+            enabled: 是否启用
+        """
+        if enabled and not self._enable_decision_attention:
+            from .decision_attention import DecisionAttention
+            self._decision_attention = DecisionAttention()
+            self._enable_decision_attention = True
+
+            if hasattr(self.kernel, '_four_dimensions') and self.kernel._four_dimensions:
+                self._decision_attention.set_four_dimensions(self.kernel._four_dimensions)
+
+            log.info("[FourDimensionsManager] 决策型注意力已启用")
+        elif not enabled:
+            self._enable_decision_attention = False
+            self._decision_attention = None
+            log.info("[FourDimensionsManager] 决策型注意力已关闭")
+
+    def is_decision_attention_enabled(self) -> bool:
+        """返回是否启用了决策型注意力"""
+        return self._enable_decision_attention
+
+    def get_decision_attention(self):
+        """获取决策注意力实例"""
+        return self._decision_attention
+
+    def set_manas_engine_enabled(self, enabled: bool):
+        """
+        设置是否启用末那识引擎
+
+        Args:
+            enabled: 是否启用
+        """
+        if enabled and not self._enable_manas:
+            from .manas_engine import ManasEngine
+            self._manas_engine = ManasEngine()
+            self._enable_manas = True
+            log.info("[FourDimensionsManager] 末那识引擎已启用")
+        elif not enabled:
+            self._enable_manas = False
+            self._manas_engine = None
+            log.info("[FourDimensionsManager] 末那识引擎已关闭")
+
+    def is_manas_enabled(self) -> bool:
+        """返回是否启用了末那识引擎"""
+        return self._enable_manas
+
+    def get_manas_engine(self):
+        """获取末那识引擎实例"""
+        return self._manas_engine
+
+    def compute_manas(self) -> Optional[dict]:
+        """
+        计算末那识输出
+
+        Returns:
+            ManasOutput dict 或 None（如果未启用）
+        """
+        if not self._enable_manas or self._manas_engine is None:
+            return None
+
+        output = self._manas_engine.compute(
+            session_manager=self._get_session_manager(),
+            portfolio=self._get_portfolio(),
+            scanner=self._get_scanner(),
+            bandit_tracker=self._get_bandit_tracker(),
+            macro_signal=self._get_macro_signal(),
+        )
+
+        return output.to_dict()
+
+    def _get_bandit_tracker(self):
+        """获取 bandit tracker"""
+        try:
+            from deva.naja.bandit import get_bandit_tracker
+            return get_bandit_tracker()
+        except ImportError:
+            return None
+
+    def _get_macro_signal(self) -> float:
+        """获取宏观信号"""
+        try:
+            fd = self.kernel._four_dimensions
+            if fd and hasattr(fd, 'market'):
+                return fd.market.liquidity_signal
+        except:
+            pass
+        return 0.5
 
     def update(self):
         """更新四维状态"""
@@ -216,10 +321,17 @@ class FourDimensionsManager:
 
     def get_status(self) -> dict:
         """获取状态"""
-        return {
+        status = {
             "kernel_fd_enabled": self.kernel.is_four_dimensions_enabled(),
             "trigger": self.trigger.get_status(),
+            "decision_attention_enabled": self._enable_decision_attention,
+            "manas_enabled": self._enable_manas,
         }
+        if self._decision_attention:
+            status["decision_attention"] = self._decision_attention.get_state()
+        if self._manas_engine:
+            status["manas"] = self._manas_engine.get_state()
+        return status
 
 
 _global_manager: Optional[FourDimensionsManager] = None
