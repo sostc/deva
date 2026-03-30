@@ -2031,7 +2031,133 @@ class NewsMindStrategy:
         lines.append("=" * 50)
         
         return "\n".join(lines)
-    
+
+    def get_topic_signals(self, lookback: int = 50) -> List[Dict]:
+        """获取最近的话题信号（供外部系统使用）
+
+        Returns:
+            List[Dict]: 话题信号列表，每个包含:
+                - type: topic_emerge | topic_grow | topic_high_attention | topic_fade
+                - topic_id: 话题ID
+                - topic_name: 话题名称
+                - confidence: 信号置信度 (0-1)
+                - keywords: 话题关键词
+                - timestamp: 信号时间
+        """
+        signals = []
+        recent_events = list(self.short_memory)[-max(1, lookback):]
+
+        topic_stats: Dict[str, Dict] = {}
+        now_ts = datetime.now().timestamp()
+
+        for event in recent_events:
+            if not event.topic_id:
+                continue
+            if event.topic_id not in topic_stats:
+                topic = self.topics.get(event.topic_id)
+                topic_stats[event.topic_id] = {
+                    "name": topic.display_name if topic else event.topic_id,
+                    "keywords": topic.keywords if topic else [],
+                    "event_count": 0,
+                    "total_attention": 0.0,
+                    "last_ts": 0.0,
+                }
+            stats = topic_stats[event.topic_id]
+            stats["event_count"] += 1
+            stats["total_attention"] += event.attention_score
+            event_ts = event.timestamp.timestamp() if isinstance(event.timestamp, datetime) else now_ts
+            if event_ts > stats["last_ts"]:
+                stats["last_ts"] = event_ts
+
+        for topic_id, stats in topic_stats.items():
+            if stats["event_count"] < 2:
+                continue
+
+            avg_attention = stats["total_attention"] / stats["event_count"]
+            recent_count = stats["event_count"]
+
+            if recent_count <= 2 and avg_attention < 0.4:
+                signal_type = "topic_emerge"
+                confidence = 0.3
+            elif avg_attention >= 0.7 and recent_count >= 5:
+                signal_type = "topic_high_attention"
+                confidence = 0.8
+            elif recent_count >= 4 and avg_attention >= 0.5:
+                signal_type = "topic_grow"
+                confidence = 0.6
+            elif recent_count <= 2 and avg_attention < 0.3:
+                signal_type = "topic_fade"
+                confidence = 0.4
+            else:
+                continue
+
+            signals.append({
+                "type": signal_type,
+                "topic_id": topic_id,
+                "topic_name": stats["name"],
+                "confidence": confidence,
+                "keywords": stats["keywords"][:5],
+                "event_count": recent_count,
+                "avg_attention": round(avg_attention, 3),
+                "timestamp": datetime.fromtimestamp(stats["last_ts"]).isoformat() if stats["last_ts"] else None,
+            })
+
+        signals.sort(key=lambda x: x["confidence"], reverse=True)
+        return signals
+
+    def get_market_sentiment_from_news(self) -> Tuple[str, float]:
+        """从新闻中分析市场情绪（供外部系统使用）
+
+        Returns:
+            Tuple[str, float]: (情绪类型: bullish/neutral/fearful, 置信度 0-1)
+        """
+        recent_events = list(self.short_memory)[-100:]
+        if not recent_events:
+            return "neutral", 0.3
+
+        bullish_count = 0
+        fearful_count = 0
+        total_attention = 0.0
+        weighted_sentiment = 0.0
+
+        sentiment_keywords = {
+            "bullish": ["上涨", "利好", "突破", "看涨", "业绩增长", "订单", "中标", "超预期"],
+            "fearful": ["下跌", "利空", "风险", "看跌", "业绩下滑", "亏损", "调查", "处罚"],
+        }
+
+        for event in recent_events:
+            total_attention += event.attention_score
+            content = event.content.lower()
+
+            bullish_hits = sum(1 for kw in sentiment_keywords["bullish"] if kw.lower() in content)
+            fearful_hits = sum(1 for kw in sentiment_keywords["fearful"] if kw.lower() in content)
+
+            if bullish_hits > fearful_hits:
+                bullish_count += 1
+                weighted_sentiment += event.attention_score * 1
+            elif fearful_hits > bullish_hits:
+                fearful_count += 1
+                weighted_sentiment -= event.attention_score * 1
+
+        if total_attention == 0:
+            return "neutral", 0.3
+
+        net_sentiment = weighted_sentiment / total_attention
+        total_hits = bullish_count + fearful_count
+        hit_ratio = min(1.0, total_hits / max(1, len(recent_events) * 0.3))
+
+        if net_sentiment > 0.3 and bullish_count > fearful_count:
+            sentiment = "bullish"
+            confidence = min(0.9, 0.5 + hit_ratio * 0.3 + net_sentiment * 0.2)
+        elif net_sentiment < -0.3 or fearful_count > bullish_count:
+            sentiment = "fearful"
+            confidence = min(0.9, 0.5 + hit_ratio * 0.3 + abs(net_sentiment) * 0.2)
+        else:
+            sentiment = "neutral"
+            confidence = 0.4
+
+        return sentiment, round(confidence, 3)
+
     # ============================================================================
     # 持久化方法
     # ============================================================================
