@@ -53,6 +53,12 @@ from .attribution import (
     get_attribution,
     record_trade_attribution,
 )
+from .tuner import (
+    BanditTuner,
+    ParameterSpace,
+    TuningResult,
+    get_bandit_tuner,
+)
 
 
 def restore_bandit_state():
@@ -127,4 +133,8 @@ __all__ = [
     "MarketConditionAttribution",
     "get_attribution",
     "record_trade_attribution",
+    "BanditTuner",
+    "ParameterSpace",
+    "TuningResult",
+    "get_bandit_tuner",
 ]
