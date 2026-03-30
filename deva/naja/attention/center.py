@@ -1186,7 +1186,13 @@ class AttentionOrchestrator:
                     },
                     process_time_ms=0,
                     error="",
-                    metadata={'source': 'attention_center', 'attention_strategy': signal.strategy_name}
+                    metadata={
+                        'source': 'attention_center',
+                        'attention_strategy': signal.strategy_name,
+                        'signal_confidence': signal.confidence,
+                        'signal_score': signal.score,
+                        'signal_reason': signal.reason,
+                    }
                 )
 
                 signal_stream.update(result, who='attention_center')

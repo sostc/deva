@@ -39,7 +39,8 @@ class VirtualPosition:
     exit_time: float = 0.0
     close_reason: str = ""  # 平仓原因: STOP_LOSS, TAKE_PROFIT, MANUAL, FORCE
     market_time: float = 0.0  # 行情数据时间（买入时的行情时间）
-    
+    signal_confidence: float = 0.5  # 开仓时信号的信心度
+
     @property
     def return_pct(self) -> float:
         if self.entry_price <= 0:
@@ -153,6 +154,7 @@ class VirtualPortfolio:
         stop_loss_pct: float = -5.0,
         take_profit_pct: float = 10.0,
         market_time: float = 0.0,
+        signal_confidence: float = 0.5,
     ) -> Optional[VirtualPosition]:
         """开仓（虚拟买入）
         
@@ -213,7 +215,8 @@ class VirtualPortfolio:
                 status="OPEN",
                 stop_loss=price * (1 + stop_loss_pct / 100),
                 take_profit=price * (1 + take_profit_pct / 100),
-                market_time=market_time if market_time > 0 else current_market_time
+                market_time=market_time if market_time > 0 else current_market_time,
+                signal_confidence=signal_confidence,
             )
             
             self._positions[position_id] = position
