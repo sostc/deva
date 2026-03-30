@@ -4,7 +4,7 @@ AttentionKernel - 核心注意力中枢
 协调 Encoder、MultiHeadAttention 和 AttentionMemory
 价值观驱动注意力计算
 支持流动性救援漏斗式处理
-支持四维决策框架（可选）
+支持末那识引擎 ManasEngine（决策中枢）
 """
 
 
@@ -19,11 +19,11 @@ class AttentionKernel:
         liquidity_rescue_filter: 流动性救援快速预过滤层
         panic_analyzer: 恐慌指数分析器
         rescue_orchestrator: 流动性救援协调器
-        four_dimensions: 四维决策框架（可选）
-        _enable_four_dimensions: 是否启用四维
+        manas_engine: 末那识引擎（可选）
+        _enable_manas: 是否启用末那识
     """
 
-    def __init__(self, encoder, multi_head, memory, enable_four_dimensions=False):
+    def __init__(self, encoder, multi_head, memory, enable_manas=False):
         """
         初始化注意力中枢
 
@@ -31,7 +31,7 @@ class AttentionKernel:
             encoder: Encoder 实例
             multi_head: MultiHeadAttention 实例
             memory: AttentionMemory 实例
-            enable_four_dimensions: 是否启用四维决策框架（默认关闭）
+            enable_manas: 是否启用末那识引擎（默认关闭）
         """
         self.encoder = encoder
         self.multi_head = multi_head
@@ -40,32 +40,37 @@ class AttentionKernel:
         self._liquidity_rescue_filter = None
         self._panic_analyzer = None
         self._rescue_orchestrator = None
-        self._enable_four_dimensions = enable_four_dimensions
-        self._four_dimensions = None
-        if enable_four_dimensions:
-            self._init_four_dimensions()
+        self._enable_manas = enable_manas
+        self._manas_engine = None
+        if enable_manas:
+            self._init_manas_engine()
 
-    def _init_four_dimensions(self):
-        """初始化四维决策框架"""
-        from .four_dimensions import FourDimensions
-        self._four_dimensions = FourDimensions()
+    def _init_manas_engine(self):
+        """初始化末那识引擎"""
+        from .manas_engine import ManasEngine
+        self._manas_engine = ManasEngine()
 
-    def set_four_dimensions_enabled(self, enabled: bool):
+    def get_manas_engine(self):
+        """获取末那识引擎实例"""
+        return self._manas_engine
+
+    def set_manas_enabled(self, enabled: bool):
         """
-        设置是否启用四维决策框架
+        设置是否启用末那识引擎
 
         Args:
             enabled: 是否启用
         """
-        if enabled and not self._enable_four_dimensions:
-            self._enable_four_dimensions = True
-            self._init_four_dimensions()
+        if enabled and not self._enable_manas:
+            self._enable_manas = True
+            self._init_manas_engine()
         elif not enabled:
-            self._enable_four_dimensions = False
+            self._enable_manas = False
+            self._manas_engine = None
 
-    def is_four_dimensions_enabled(self) -> bool:
-        """返回是否启用了四维决策框架"""
-        return self._enable_four_dimensions
+    def is_manas_enabled(self) -> bool:
+        """返回是否启用了末那识引擎"""
+        return self._enable_manas
 
     def _get_value_system(self):
         """获取价值观系统（延迟加载）"""
@@ -95,6 +100,14 @@ class AttentionKernel:
         try:
             from deva.naja.attention.strategies import get_strategy_manager
             return get_strategy_manager()
+        except ImportError:
+            return None
+
+    def _get_bandit_tracker(self):
+        """获取 bandit tracker"""
+        try:
+            from deva.naja.bandit import get_bandit_tracker
+            return get_bandit_tracker()
         except ImportError:
             return None
 
@@ -141,14 +154,14 @@ class AttentionKernel:
         if not raw_events:
             return {"alpha": 0, "risk": 0, "confidence": 0}
 
-        if self._enable_four_dimensions and self._four_dimensions is not None:
-            return self._process_with_four_dimensions(Q, raw_events)
+        if self._enable_manas and self._manas_engine is not None:
+            return self._process_with_manas(Q, raw_events)
         else:
             return self._process_original(Q, raw_events)
 
     def _process_original(self, Q, raw_events):
         """
-        原有逻辑，不受四维影响
+        原有逻辑，不受末那识影响
 
         Args:
             Q: QueryState
@@ -180,32 +193,30 @@ class AttentionKernel:
 
         return result
 
-    def _process_with_four_dimensions(self, Q, raw_events):
+    def _process_with_manas(self, Q, raw_events):
         """
-        四维决策框架逻辑
+        末那识引擎决策逻辑
 
-        用四维塑造 Query，应用四维门控到最终结果。
+        用末那识塑造 Query，应用决策调制到最终结果。
 
         Args:
             Q: QueryState
             raw_events: AttentionEvent 列表
 
         Returns:
-            attention 结果 dict（含四维状态）
+            attention 结果 dict（含末那识状态）
         """
         macro_signal = 0.5
         if hasattr(Q, 'macro_liquidity_signal'):
             macro_signal = Q.macro_liquidity_signal
 
-        self._four_dimensions.update(
+        manas_output = self._manas_engine.compute(
             session_manager=self._get_session_manager(),
             portfolio=self._get_portfolio(),
-            strategy_manager=self._get_strategy_manager(),
             scanner=self._get_scanner(),
+            bandit_tracker=self._get_bandit_tracker(),
             macro_signal=macro_signal
         )
-
-        shaped_Q = self._four_dimensions.shape_query(Q)
 
         vs = self._get_value_system()
         events = []
@@ -217,9 +228,23 @@ class AttentionKernel:
             alignment = vs.calculate_alignment(e.features)
             e.features["_value_alignment"] = alignment
 
+        shaped_Q = Q
+        if hasattr(Q, 'features'):
+            shaped_Q.features = shaped_Q.features.copy() if shaped_Q.features else {}
+            shaped_Q.features['attention_focus'] = manas_output.attention_focus
+            shaped_Q.features['regime_score'] = manas_output.regime_score
+            shaped_Q.features['timing_score'] = manas_output.timing_score
+
         result = self.multi_head.compute(shaped_Q, events)
 
-        result = self._four_dimensions.apply_gates(result)
+        result["alpha"] = result.get("alpha", 0) * manas_output.alpha
+        result["_manas_score"] = manas_output.manas_score
+        result["_timing_score"] = manas_output.timing_score
+        result["_regime_score"] = manas_output.regime_score
+        result["_confidence_score"] = manas_output.confidence_score
+        result["_risk_temperature"] = manas_output.risk_temperature
+        result["_bias_state"] = manas_output.bias_state.value
+        result["_bias_correction"] = manas_output.bias_correction
 
         for e in events:
             symbol = getattr(e, 'symbol', None) or e.source if hasattr(e, 'source') else "unknown"
@@ -230,8 +255,8 @@ class AttentionKernel:
 
             self.memory.update(e, result["confidence"])
 
-        result["four_dimensions"] = self._four_dimensions.get_state()
-        result["should_act"] = self._four_dimensions.should_act()
+        result["manas"] = manas_output.to_dict()
+        result["should_act"] = manas_output.should_act
 
         return result
 
@@ -252,6 +277,9 @@ class AttentionKernel:
         if "reward" in feedback:
             for e in raw_events:
                 self.memory.reinforce(e, feedback["reward"])
+
+        if self._manas_engine is not None and "pnl_pct" in feedback:
+            self._manas_engine.record_pnl(feedback["pnl_pct"])
 
         Q.update(feedback)
 
