@@ -1,4 +1,7 @@
-"""Narrative tracker for thematic lifecycle, attention, and graph relationships."""
+"""NarrativeTracker - 认知系统/叙事追踪/故事追踪
+
+别名/关键词: 叙事、故事、市场叙事、narrative、story tracking
+"""
 
 from __future__ import annotations
 
@@ -25,6 +28,31 @@ DEFAULT_NARRATIVE_KEYWORDS: Dict[str, List[str]] = {
         "先进封装", "CoWoS", "HBM3", "HBM3e",
         "英伟达", "AMD", "英特尔", "高通", "联发科", "博通",
         "台积电", "三星", "中芯国际", "华虹半导体",
+    ],
+    "天道": [
+        "设备交付延迟", "AI改造", "限流", "训练成本下降", "降本增效", "良品率", "限速", "token不够", "渗透率", "API调用量增长",
+        "token消耗", "算力短缺", "GPU排队", "算力不足",
+        "API限流", "ChatGPT限流", "Claude限流", "Gemini限流",
+        "模型服务不可用", "服务器过载", "负载过高",
+        "卡脖子", "产能不足", "良品率", "HBM缺货",
+        "EUV产能", "先进封装产能", "CoWoS满载", "封装排队",
+        "晶圆厂产能满", "产能告急", "设备交付延迟",
+        "性能提升", "成本下降", "新一代", "突破", "效率提升",
+        "推理加速", "训练成本下降", "功耗降低", "算力翻倍",
+        "新架构", "技术创新", "技术路线突破",
+        "渗透率", "落地", "商业化", "盈利", "行业AI化",
+        "AI改造", "降本增效", "收入增长",
+        "付费转化", "用户增长", "API调用量增长",
+    ],
+    "民心": [
+        "上涨", "下跌", "大涨", "大跌", "暴涨", "暴跌",
+        "牛市", "熊市", "反弹", "回调", "震荡",
+        "资金流入", "资金流出", "净流入", "净流出",
+        "市场认为", "分析师称", "机构表示", "情绪乐观",
+        "情绪悲观", "恐慌", "贪婪", "风险偏好",
+        "避险", "风险情绪", "市场信心",
+        "热门", "热搜", "刷屏", "引爆", "疯狂",
+        "泡沫", "投机", "炒作", "概念股",
     ],
     "新能源": [
         "新能源", "光伏", "风电", "储能", "锂电", "电池", "充电桩", "氢能", "碳中和", "碳达峰",
@@ -127,6 +155,52 @@ DEFAULT_NARRATIVE_KEYWORDS: Dict[str, List[str]] = {
     ],
 }
 
+TIANDAO_KEYWORDS: Dict[str, List[str]] = {
+    "token供需": [
+        "限流", "限速", "token不够", "算力告急", "API排队",
+        "token消耗", "算力短缺", "GPU排队", "算力不足",
+        "API限流", "ChatGPT限流", "Claude限流", "Gemini限流",
+        "模型服务不可用", "服务器过载", "负载过高",
+    ],
+    "技术瓶颈": [
+        "卡脖子", "产能不足", "良品率", "光刻机", "HBM缺货",
+        "EUV产能", "先进封装产能", "CoWoS满载", "封装排队",
+        "晶圆厂产能满", "产能告急", "设备交付延迟",
+    ],
+    "效率突破": [
+        "性能提升", "成本下降", "新一代", "突破", "效率提升",
+        "推理加速", "训练成本下降", "功耗降低", "算力翻倍",
+        "新架构", "技术创新", "技术路线突破",
+    ],
+    "AI落地": [
+        "渗透率", "落地", "商业化", "盈利", "效率提升",
+        "行业AI化", "AI改造", "降本增效", "收入增长",
+        "付费转化", "用户增长", "API调用量增长",
+    ],
+}
+
+MINXIN_KEYWORDS: Dict[str, List[str]] = {
+    "行情涨跌": [
+        "上涨", "下跌", "大涨", "大跌", "暴涨", "暴跌",
+        "牛市", "熊市", "反弹", "回调", "震荡",
+        "资金流入", "资金流出", "净流入", "净流出",
+    ],
+    "市场情绪": [
+        "市场认为", "分析师称", "机构表示", "情绪乐观",
+        "情绪悲观", "恐慌", "贪婪", "风险偏好",
+        "避险", "风险情绪", "市场信心",
+    ],
+    "舆论热点": [
+        "热门", "热搜", "刷屏", "引爆", "疯狂",
+        "泡沫", "投机", "炒作", "概念股",
+    ],
+}
+
+
+NARRATIVE_PERSISTENCE_TABLE = "naja_narrative_tracker_state"
+MAX_PERSIST_STATES = 10
+MAX_PERSIST_HITS = 50
+
 
 @dataclass
 class NarrativeState:
@@ -141,6 +215,38 @@ class NarrativeState:
     hits: Deque[Tuple[float, float, List[str]]] = field(default_factory=deque)
     last_keywords: List[str] = field(default_factory=list)
     last_emit: Dict[str, float] = field(default_factory=dict)
+
+    def to_dict(self) -> Dict[str, Any]:
+        """序列化为字典"""
+        return {
+            "name": self.name,
+            "stage": self.stage,
+            "attention_score": self.attention_score,
+            "total_count": self.total_count,
+            "recent_count": self.recent_count,
+            "trend": self.trend,
+            "last_updated": self.last_updated,
+            "last_stage_change": self.last_stage_change,
+            "hits": list(self.hits),
+            "last_keywords": self.last_keywords,
+            "last_emit": self.last_emit,
+        }
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "NarrativeState":
+        """从字典反序列化"""
+        state = cls(name=data["name"])
+        state.stage = data.get("stage", "萌芽")
+        state.attention_score = data.get("attention_score", 0.0)
+        state.total_count = data.get("total_count", 0)
+        state.recent_count = data.get("recent_count", 0)
+        state.trend = data.get("trend", 0.0)
+        state.last_updated = data.get("last_updated", 0.0)
+        state.last_stage_change = data.get("last_stage_change", 0.0)
+        state.hits = Deque(data.get("hits", []))
+        state.last_keywords = data.get("last_keywords", [])
+        state.last_emit = data.get("last_emit", {})
+        return state
 
 
 class NarrativeTracker:
@@ -171,6 +277,62 @@ class NarrativeTracker:
         self._states: Dict[str, NarrativeState] = {}
         self._graph_edges: Dict[Tuple[str, str], float] = defaultdict(float)
         self._recent_hits: Deque[Tuple[float, List[str]]] = deque()
+
+        self._load_state()
+
+    def _load_state(self) -> bool:
+        """从数据库加载状态"""
+        try:
+            from deva import NB
+            nb = NB(NARRATIVE_PERSISTENCE_TABLE)
+            data = nb.get("narrative_states")
+            if not data or not isinstance(data, dict):
+                return False
+
+            now_ts = time.time()
+            loaded_count = 0
+
+            for name, state_data in data.items():
+                if loaded_count >= MAX_PERSIST_STATES:
+                    break
+                try:
+                    state = NarrativeState.from_dict(state_data)
+                    if now_ts - state.last_updated < 72 * 3600:
+                        self._states[name] = state
+                        loaded_count += 1
+                except Exception:
+                    continue
+
+            if loaded_count > 0:
+                print(f"[NarrativeTracker] 从持久化恢复 {loaded_count} 个叙事状态")
+            return loaded_count > 0
+        except Exception:
+            return False
+
+    def save_state(self) -> bool:
+        """保存状态到数据库"""
+        try:
+            from deva import NB
+            nb = NB(NARRATIVE_PERSISTENCE_TABLE)
+
+            sorted_states = sorted(
+                self._states.values(),
+                key=lambda s: s.attention_score,
+                reverse=True
+            )
+
+            persist_data = {}
+            for state in sorted_states[:MAX_PERSIST_STATES]:
+                state_dict = state.to_dict()
+                if len(state_dict.get("hits", [])) > MAX_PERSIST_HITS:
+                    state_dict["hits"] = state_dict["hits"][-MAX_PERSIST_HITS:]
+                persist_data[state.name] = state_dict
+
+            nb["narrative_states"] = persist_data
+            nb["saved_at"] = time.time()
+            return True
+        except Exception:
+            return False
 
     def detect_narratives(self, event: Any) -> Dict[str, List[str]]:
         if not self.enabled:
@@ -403,6 +565,933 @@ class NarrativeTracker:
             "quadrants": quadrants,
             "related": related,
             "conclusion": conclusion,
+            "timestamp": time.time(),
+        }
+
+    def detect_tiandao_signals(self, event: Any) -> Dict[str, List[str]]:
+        """检测天道信号 - 真正的供需失衡/效率提升信号
+
+        Returns:
+            Dict[str, List[str]] - 按天道类别分类的命中关键词
+        """
+        if not self.enabled:
+            return {}
+
+        texts = self._collect_texts(event)
+        if not texts:
+            return {}
+
+        combined = " ".join(t for t in texts if t)
+        combined_lower = combined.lower()
+        matches: Dict[str, List[str]] = {}
+
+        for signal_type, keywords in TIANDAO_KEYWORDS.items():
+            hit_keywords: List[str] = []
+            for keyword in keywords:
+                if self._keyword_in_text(keyword, combined, combined_lower):
+                    hit_keywords.append(keyword)
+            if hit_keywords:
+                matches[signal_type] = hit_keywords
+
+        return matches
+
+    def detect_minxin_signals(self, event: Any) -> Dict[str, List[str]]:
+        """检测民心信号 - 市场情绪/舆论信号（仅作参考）
+
+        Returns:
+            Dict[str, List[str]] - 按民心类别分类的命中关键词
+        """
+        if not self.enabled:
+            return {}
+
+        texts = self._collect_texts(event)
+        if not texts:
+            return {}
+
+        combined = " ".join(t for t in texts if t)
+        combined_lower = combined.lower()
+        matches: Dict[str, List[str]] = {}
+
+        for signal_type, keywords in MINXIN_KEYWORDS.items():
+            hit_keywords: List[str] = []
+            for keyword in keywords:
+                if self._keyword_in_text(keyword, combined, combined_lower):
+                    hit_keywords.append(keyword)
+            if hit_keywords:
+                matches[signal_type] = hit_keywords
+
+        return matches
+
+    def get_tiandao_minxin_summary(self) -> Dict[str, Any]:
+        """获取天道/民心评分摘要
+
+        这是'遵循天道，驾驭民心'的核心接口：
+        - 天道评分：基于TIANDAO_KEYWORDS命中情况
+        - 民心评分：基于MINXIN_KEYWORDS命中情况
+        - 推荐行动：基于天道而非民心
+
+        Returns:
+            包含天道评分、民心评分、投资建议的字典
+        """
+        if not self._states:
+            return {
+                "tiandao_score": 0.0,
+                "minxin_score": 0.0,
+                "recommendation": "WATCH",
+                "reason": "暂无数据",
+                "signals": {"tiandao": {}, "minxin": {}},
+                "principle": "天道大于民心 - 遵循天道，驾驭民心",
+            }
+
+        tiandao_signals = {k: [] for k in ["token供需", "技术瓶颈", "效率突破", "AI落地"]}
+        minxin_signals = {k: [] for k in ["行情涨跌", "市场情绪", "舆论热点"]}
+
+        for state in self._states.values():
+            for keyword in state.last_keywords:
+                for tiandao_type, tiandao_kws in TIANDAO_KEYWORDS.items():
+                    for kw in tiandao_kws:
+                        if kw in keyword or keyword in kw:
+                            if kw not in tiandao_signals[tiandao_type]:
+                                tiandao_signals[tiandao_type].append(kw)
+                for minxin_type, minxin_kws in MINXIN_KEYWORDS.items():
+                    for kw in minxin_kws:
+                        if kw in keyword or keyword in kw:
+                            if kw not in minxin_signals[minxin_type]:
+                                minxin_signals[minxin_type].append(kw)
+
+            for hit_ts, attention, keywords in state.hits:
+                for keyword in keywords:
+                    for tiandao_type, tiandao_kws in TIANDAO_KEYWORDS.items():
+                        for kw in tiandao_kws:
+                            if kw in keyword or keyword in kw:
+                                if kw not in tiandao_signals[tiandao_type]:
+                                    tiandao_signals[tiandao_type].append(kw)
+                    for minxin_type, minxin_kws in MINXIN_KEYWORDS.items():
+                        for kw in minxin_kws:
+                            if kw in keyword or keyword in kw:
+                                if kw not in minxin_signals[minxin_type]:
+                                    minxin_signals[minxin_type].append(kw)
+
+        tiandao_hits = sum(len(v) for v in tiandao_signals.values())
+        minxin_hits = sum(len(v) for v in minxin_signals.values())
+        tiandao_score = min(1.0, tiandao_hits / 10.0)
+        minxin_score = min(1.0, minxin_hits / 15.0)
+
+        if tiandao_hits >= 3 and minxin_hits <= 1:
+            recommendation = "STRONG_BUY"
+            reason = "天道强 + 市场错判（价格跌）= 最佳买入时机"
+        elif tiandao_score > 0.6:
+            recommendation = "ALL_IN"
+            reason = "天道信号强劲，继续持有/买入"
+        elif tiandao_score > 0.3:
+            recommendation = "HOLD"
+            reason = "天道信号存在，继续观察"
+        elif tiandao_hits > 0 and tiandao_score < 0.2:
+            recommendation = "REDUCE"
+            reason = "供给可能过剩，天道信号减弱"
+        else:
+            recommendation = "WATCH"
+            reason = "天道信号不明显，继续观察"
+
+        market_opportunity = None
+        if tiandao_hits >= 3 and minxin_hits <= 1:
+            market_opportunity = "天道强 + 价格跌 = 最佳买入时机（驾驭民心）"
+        elif tiandao_score > 0.5 and minxin_score > 0.5:
+            market_opportunity = "天道强 + 价格涨 = 顺势持有"
+
+        return {
+            "tiandao_score": round(tiandao_score, 3),
+            "minxin_score": round(minxin_score, 3),
+            "recommendation": recommendation,
+            "reason": reason,
+            "signals": {
+                "tiandao": {k: list(set(v)) for k, v in tiandao_signals.items() if v},
+                "minxin": {k: list(set(v)) for k, v in minxin_signals.items() if v},
+            },
+            "market_opportunity": market_opportunity,
+            "principle": "天道大于民心 - 遵循天道，驾驭民心",
+            "timestamp": time.time(),
+        }
+
+    def get_markdown_summary(self) -> str:
+        """获取Markdown格式的每日反思摘要 - 用于报告和展示
+
+        简洁格式，适合直接给用户查看
+        """
+        if not self._states:
+            return "## 📊 每日反思\n\n暂无数据"
+
+        tiandao_summary = self.get_tiandao_minxin_summary()
+        trading_signal = self.get_trading_signal()
+
+        tiandao_score = tiandao_summary.get("tiandao_score", 0)
+        minxin_score = tiandao_summary.get("minxin_score", 0)
+        recommendation = tiandao_summary.get("recommendation", "WATCH")
+
+        verdict_map = {
+            "STRONG_BUY": "✅ 重大机会",
+            "ALL_IN": "🟢 顺势持有",
+            "HOLD": "🟡 继续观察",
+            "REDUCE": "🟠 考虑减仓",
+            "WATCH": "⚪ 保持观望",
+        }
+        verdict = verdict_map.get(recommendation, "⚪ 观察中")
+
+        lines = [
+            "## 📊 每日反思",
+            "",
+            f"**日期**: {time.strftime('%Y-%m-%d')}",
+            "",
+            "---",
+            "",
+            "### 🎯 天道 vs 民心",
+            "",
+            f"| 维度 | 评分 | 说明 |",
+            f"|------|------|------|",
+            f"| 天道 | {tiandao_score:.0%} | {tiandao_summary.get('reason', '待观察')} |",
+            f"| 民心 | {minxin_score:.0%} | {tiandao_summary.get('market_opportunity', '无特殊')} |",
+            "",
+            f"**结论**: {verdict} - {recommendation}",
+            "",
+            "---",
+            "",
+            "### 📈 交易信号",
+            "",
+            f"- 信号: **{trading_signal.get('signal', 'WATCH')}**",
+            f"- 波动: {trading_signal.get('volatility', 'UNKNOWN')}",
+            f"- 操作: {trading_signal.get('action', '正常持有')}",
+            f"- 原因: {trading_signal.get('reason', '趋势不明显')}",
+            "",
+            "---",
+            "",
+            "### 💡 操作建议",
+            "",
+        ]
+
+        if recommendation == "STRONG_BUY":
+            lines.append("🎯 **重大机会**: 天道强 + 价格低，建议加仓")
+        elif recommendation == "ALL_IN":
+            lines.append("🟢 **顺势持有**: 天道支持，继续持有或加仓")
+        elif recommendation == "HOLD":
+            lines.append("🟡 **继续观察**: 等待更明确信号")
+        elif recommendation == "REDUCE":
+            lines.append("🟠 **考虑减仓**: 天道减弱，注意风险")
+
+        lines.append("")
+        lines.append("---")
+        lines.append("")
+        lines.append(f"*{tiandao_summary.get('principle', '天道大于民心')}*")
+
+        return "\n".join(lines)
+
+    def generate_daily_reflection(self) -> Dict[str, Any]:
+        """生成每日反思报告 - 将数据分析转化为自我校准
+
+        反思维度：
+        1. 天道判断：我的价值判断是否正确
+        2. 民心判断：我对市场的理解是否正确
+        3. 交易决策：我的决策是否有效
+        4. 进化方向：下一步如何改进
+        """
+        if not self._states:
+            return {
+                "date": time.strftime("%Y-%m-%d"),
+                "summary": "暂无数据，无法反思",
+                "reflections": [],
+                "recommendations": [],
+            }
+
+        tiandao_summary = self.get_tiandao_minxin_summary()
+        trading_signal = self.get_trading_signal()
+
+        reflections = []
+        recommendations = []
+
+        tiandao_score = tiandao_summary.get("tiandao_score", 0)
+        minxin_score = tiandao_summary.get("minxin_score", 0)
+        recommendation = tiandao_summary.get("recommendation", "WATCH")
+
+        reflections.append({
+            "aspect": "天道判断",
+            "observation": f"天道评分{tiandao_score:.1%}，{tiandao_summary.get('reason', '')}",
+            "verdict": "正确" if tiandao_score > 0.5 else "需观察",
+        })
+
+        reflections.append({
+            "aspect": "民心判断",
+            "observation": f"民心评分{minxin_score:.1%}，{tiandao_summary.get('market_opportunity', '无特殊机会')}",
+            "verdict": "市场错判" if minxin_score < 0.3 and tiandao_score > 0.5 else "正常",
+        })
+
+        signal = trading_signal.get("signal", "WATCH")
+        volatility = trading_signal.get("volatility", "UNKNOWN")
+
+        if signal == "OVERSOLD":
+            reflections.append({
+                "aspect": "波动判断",
+                "observation": f"检测到超卖信号：{trading_signal.get('reason', '')}",
+                "verdict": "可能是买入机会",
+            })
+            recommendations.append("可以考虑分批买入，等反弹后高抛")
+        elif signal == "OVERBOUGHT":
+            reflections.append({
+                "aspect": "波动判断",
+                "observation": f"检测到超买信号：{trading_signal.get('reason', '')}",
+                "verdict": "注意风险",
+            })
+            recommendations.append("可以适当减仓，等回调再买")
+        else:
+            reflections.append({
+                "aspect": "波动判断",
+                "observation": f"市场波动正常：{trading_signal.get('reason', '')}",
+                "verdict": "正常持有",
+            })
+
+        if recommendation == "STRONG_BUY":
+            recommendations.append("重大机会：天道强+价格低，建议加仓")
+        elif recommendation == "ALL_IN":
+            recommendations.append("天道支持：继续持有或加仓")
+        elif recommendation == "REDUCE":
+            recommendations.append("天道减弱：考虑减仓")
+
+        if recommendations:
+            recommendations.append("坚持天道大于民心，不被市场情绪左右")
+
+        ai_state = self._states.get("AI")
+        chip_state = self._states.get("芯片")
+        if ai_state and chip_state:
+            ai_trend = ai_state.trend
+            chip_trend = chip_state.trend
+            if ai_trend > 0.3 and chip_trend > 0.3:
+                reflections.append({
+                    "aspect": "趋势判断",
+                    "observation": f"AI叙事趋势{ai_trend:+.1f}，芯片叙事趋势{chip_trend:+.1f}",
+                    "verdict": "强势方向，继续持有",
+                })
+            elif ai_trend < -0.3 or chip_trend < -0.3:
+                reflections.append({
+                    "aspect": "趋势判断",
+                    "observation": f"AI叙事趋势{ai_trend:+.1f}，芯片叙事趋势{chip_trend:+.1f}",
+                    "verdict": "趋势减弱，谨慎观望",
+                })
+
+        verdict_map = {
+            "STRONG_BUY": "✅ 重大机会",
+            "ALL_IN": "🟢 顺势持有",
+            "HOLD": "🟡 继续观察",
+            "REDUCE": "🟠 考虑减仓",
+            "WATCH": "⚪ 保持观望",
+        }
+
+        return {
+            "date": time.strftime("%Y-%m-%d"),
+            "verdict": verdict_map.get(recommendation, "⚪ 观察中"),
+            "tiandao_score": tiandao_score,
+            "minxin_score": minxin_score,
+            "signal": signal,
+            "summary": f"天道{tiandao_score:.0%} vs 民心{minxin_score:.0%} → {recommendation}",
+            "reflections": reflections,
+            "recommendations": list(set(recommendations)),
+            "principle": "天道大于民心 - 遵循天道，驾驭民心",
+            "timestamp": time.time(),
+        }
+
+    _market_analysis_db = None
+
+    def analyze_market_full(self) -> Dict[str, Any]:
+        """全市场深度分析
+
+        步骤1：全量股票 → 板块映射 → River异常检测
+        步骤2：只关注行业+持仓 → River二次分析（重点）
+
+        Returns:
+            包含全市场分析、持仓分析、综合判断的字典
+        """
+        import logging
+        log = logging.getLogger(__name__)
+
+        log.info("[NarrativeTracker] 开始全市场深度分析...")
+
+        step1_result = self._analyze_full_market()
+
+        step2_result = self._analyze_focused_sectors(step1_result)
+
+        combined_result = {
+            "step1_full_market": step1_result,
+            "step2_focused": step2_result,
+            "summary": self._generate_market_summary(step1_result, step2_result),
+            "timestamp": time.time(),
+        }
+
+        db = self._get_market_analysis_db()
+        db["full_analysis"] = combined_result
+
+        log.info("[NarrativeTracker] 全市场深度分析完成")
+
+        return combined_result
+
+    def _analyze_full_market(self) -> Dict[str, Any]:
+        """第一步：全市场分析"""
+        import logging
+        log = logging.getLogger(__name__)
+
+        stock_data = self._fetch_all_stock_data()
+        if not stock_data:
+            return {"success": False, "message": "无法获取市场数据"}
+
+        sector_analysis = self._map_sectors(stock_data)
+
+        stocks_with_sector = self._merge_sector_to_stocks(stock_data, sector_analysis)
+
+        anomaly_result = self._run_river_anomaly_detection(stocks_with_sector)
+
+        return {
+            "success": True,
+            "stock_count": len(stock_data),
+            "sector_analysis": sector_analysis,
+            "anomaly_result": anomaly_result,
+            "top_movers": self._get_top_movers(stock_data, limit=5),
+        }
+
+    def _merge_sector_to_stocks(self, stock_data: Dict[str, Dict], sector_analysis: Dict[str, List[Dict]]) -> List[Dict]:
+        """把sector信息合并到股票数据中"""
+        symbol_to_sector = {}
+        for sector, stocks in sector_analysis.items():
+            for stock in stocks:
+                sym = stock.get("symbol", stock.get("code"))
+                if sym:
+                    symbol_to_sector[sym] = {
+                        "sector": sector,
+                        "narrative": stock.get("narrative", ""),
+                        "blocks": stock.get("blocks", []),
+                    }
+
+        result = []
+        for sym, data in stock_data.items():
+            merged = dict(data)
+            if sym in symbol_to_sector:
+                merged.update(symbol_to_sector[sym])
+            else:
+                merged["sector"] = "other"
+                merged["narrative"] = ""
+                merged["blocks"] = []
+            result.append(merged)
+
+        return result
+
+    def _analyze_focused_sectors(self, step1_result: Dict[str, Any]) -> Dict[str, Any]:
+        """第二步：持仓+关注行业二次分析（重点）"""
+        import logging
+        log = logging.getLogger(__name__)
+
+        if not step1_result.get("success"):
+            return {"success": False}
+
+        all_stocks = step1_result.get("stock_data", {})
+        if not all_stocks:
+            all_stocks = self._fetch_all_stock_data()
+
+        focus_symbols = self._get_focus_symbols()
+
+        focus_stocks = {
+            symbol: data for symbol, data in all_stocks.items()
+            if symbol.upper() in [s.upper() for s in focus_symbols]
+        }
+
+        if not focus_stocks:
+            log.warning("[NarrativeTracker] 持仓/关注股票无数据")
+            return {"success": False, "message": "无持仓/关注股票数据"}
+
+        sector_analysis = self._map_sectors(focus_stocks)
+
+        anomaly_result = self._run_river_anomaly_detection(list(focus_stocks.values()))
+
+        holding_analysis = self._analyze_holdings(focus_stocks)
+
+        return {
+            "success": True,
+            "focus_stock_count": len(focus_stocks),
+            "focus_symbols": list(focus_stocks.keys()),
+            "sector_analysis": sector_analysis,
+            "anomaly_result": anomaly_result,
+            "holding_analysis": holding_analysis,
+            "top_movers": self._get_top_movers(focus_stocks, limit=5),
+        }
+
+    def _fetch_all_stock_data(self) -> Dict[str, Dict]:
+        """获取全量股票数据（A股+美股）"""
+        result = {}
+
+        result.update(self._fetch_ashare_data())
+
+        result.update(self._fetch_us_stock_data())
+
+        return result
+
+    def _fetch_ashare_data(self) -> Dict[str, Dict]:
+        """获取A股数据 - 使用历史快照数据库（已过滤噪音股票）"""
+        try:
+            from deva import NB
+
+            snapshot_db = NB('quant_snapshot_5min_window', key_mode='time')
+            keys = list(snapshot_db.keys())
+            if not keys:
+                return {}
+
+            latest_key = keys[-1]
+            data_list = snapshot_db.get(latest_key)
+
+            if not data_list or not isinstance(data_list, list):
+                return {}
+
+            result = {}
+            for item in data_list:
+                code = str(item.get("code", ""))
+                if not code:
+                    continue
+
+                try:
+                    now = item.get("now", 0)
+                    close = item.get("close", 0)
+                    if close > 0:
+                        p_change = (now - close) / close
+                    else:
+                        p_change = 0
+                    result[code] = {
+                        "code": code,
+                        "name": item.get("name", code),
+                        "price": now,
+                        "change_pct": p_change,
+                        "volume": int(item.get("volume", 0)),
+                        "high": item.get("high", 0),
+                        "low": item.get("low", 0),
+                        "prev_close": close,
+                        "open": item.get("open", 0),
+                        "market": "A",
+                    }
+                except Exception:
+                    continue
+
+            return result
+        except Exception:
+            return {}
+
+    def _fetch_us_stock_data(self) -> Dict[str, Dict]:
+        """获取美股数据"""
+        try:
+            from deva.naja.attention.data.global_market_futures import GlobalMarketAPI
+            import asyncio
+            import nest_asyncio
+            nest_asyncio.apply()
+
+            async def fetch():
+                async with GlobalMarketAPI() as api:
+                    return await api.fetch_us_stocks()
+
+            loop = asyncio.get_event_loop()
+            data = loop.run_until_complete(fetch())
+
+            result = {}
+            for code, market_data in data.items():
+                if market_data and hasattr(market_data, 'code'):
+                    change_pct = market_data.change_pct
+                    if abs(change_pct) > 1:
+                        change_pct = change_pct / 100
+                    result[code.upper()] = {
+                        "code": market_data.code.upper(),
+                        "name": market_data.name,
+                        "price": market_data.current,
+                        "change_pct": change_pct,
+                        "p_change": change_pct,
+                        "volume": market_data.volume,
+                        "high": market_data.high,
+                        "low": market_data.low,
+                        "prev_close": market_data.prev_close,
+                        "market": "US",
+                    }
+
+            return result
+        except Exception:
+            return {}
+
+    def _get_focus_symbols(self) -> List[str]:
+        """获取关注的股票列表：持仓+行业关注"""
+        symbols = []
+
+        try:
+            from deva.naja.bandit.portfolio_manager import get_portfolio_manager
+            pm = get_portfolio_manager()
+            if pm:
+                for account_name in ["Spark", "Cutie"]:
+                    portfolio = pm.get_us_portfolio(account_name)
+                    if portfolio:
+                        positions = portfolio.get_open_positions()
+                        for pos in positions:
+                            if hasattr(pos, 'stock_code'):
+                                symbols.append(pos.stock_code)
+        except Exception:
+            pass
+
+        symbols.extend(["NVDA", "AMD", "META", "TSLA", "AAPL", "MSFT", "GOOG", "AMZN"])
+
+        return list(set(symbols))
+
+    def _map_sectors(self, stocks: Dict[str, Dict]) -> Dict[str, List[Dict]]:
+        """板块映射分析 - A股用通达信，美股用US_STOCK_SECTORS"""
+        from deva.naja.bandit.stock_sector_map import US_STOCK_SECTORS, SECTOR_INDUSTRY_MAP, NARRATIVE_SECTOR_MAP
+
+        try:
+            from deva.naja.dictionary.tongdaxin_blocks import get_stock_blocks, _parse_blocks_file
+            _parse_blocks_file()
+            has_tdx = True
+        except Exception:
+            has_tdx = False
+
+        sector_map: Dict[str, List[Dict]] = defaultdict(list)
+
+        for symbol, data in stocks.items():
+            market = data.get("market", "A")
+
+            if market == "US":
+                stock_info = US_STOCK_SECTORS.get(symbol.lower(), {})
+                if stock_info:
+                    sector = stock_info.get("sector", "other")
+                    blocks = stock_info.get("blocks", [])
+                    narrative = stock_info.get("narrative", "")
+                else:
+                    sector = "other"
+                    blocks = []
+                    narrative = ""
+            else:
+                sector = "other"
+                blocks = []
+                narrative = ""
+
+                if has_tdx:
+                    code = symbol.replace("sh", "").replace("sz", "")
+                    blocks = get_stock_blocks(code)
+                    if blocks:
+                        sector = blocks[0]
+
+            sector_map[sector].append({
+                "symbol": symbol,
+                "name": data.get("name", symbol),
+                "price": data.get("price", 0),
+                "change_pct": data.get("change_pct", 0),
+                "blocks": blocks,
+                "narrative": narrative,
+            })
+
+        return dict(sector_map)
+
+    def _run_river_anomaly_detection(self, stocks: List[Dict]) -> Dict[str, Any]:
+        """使用River风格进行单日横截面分析
+
+        1. RiverTickSingleDayAnalyzer - 单日全市场横截面分析
+        2. 板块表现分析
+        3. 异常波动检测
+        4. 市场情绪判断
+        """
+        try:
+            from deva.naja.strategy.river_single_day_analyzer import RiverTickSingleDayAnalyzer
+
+            analyzer = RiverTickSingleDayAnalyzer()
+
+            for stock in stocks:
+                analyzer.on_data(stock)
+
+            result = analyzer.get_signal()
+
+            if not result:
+                return {"error": "无数据"}
+
+            return {
+                "total_analyzed": result.stock_count,
+                "market_breadth": round(result.market_breadth, 3),
+                "market_sentiment": result.market_sentiment,
+                "fund_flow": result.fund_flow,
+                "market_feature": result.market_feature,
+                "avg_change": round(result.avg_change, 3),
+                "median_change": round(result.median_change, 3),
+                "advancing_count": result.advancing_count,
+                "declining_count": result.declining_count,
+                "sectors": {
+                    name: {
+                        "stock_count": s.stock_count,
+                        "avg_change": round(s.avg_change, 3),
+                        "gainer_count": s.gainer_count,
+                        "loser_count": s.loser_count,
+                    }
+                    for name, s in result.sectors.items()
+                    if s.stock_count >= 1
+                },
+                "anomalies": result.anomalies[:10],
+            }
+        except Exception as e:
+            return {"error": str(e)}
+
+    def _get_top_movers(self, stocks: Dict[str, Dict], limit: int = 5) -> Dict[str, List]:
+        """获取涨幅/跌幅最大的股票"""
+        sorted_stocks = sorted(stocks.values(), key=lambda x: x.get("change_pct", 0), reverse=True)
+        return {
+            "gainers": [{
+                "symbol": s.get("code", ""),
+                "name": s.get("name", ""),
+                "change_pct": s.get("change_pct", 0),
+            } for s in sorted_stocks[:limit]],
+            "losers": [{
+                "symbol": s.get("code", ""),
+                "name": s.get("name", ""),
+                "change_pct": s.get("change_pct", 0),
+            } for s in sorted_stocks[-limit:]],
+        }
+
+    def _analyze_holdings(self, stocks: Dict[str, Dict]) -> Dict[str, Any]:
+        """分析持仓股票"""
+        holdings = []
+
+        try:
+            from deva.naja.bandit.portfolio_manager import get_portfolio_manager
+            pm = get_portfolio_manager()
+            if pm:
+                for account_name in ["Spark", "Cutie"]:
+                    portfolio = pm.get_us_portfolio(account_name)
+                    if portfolio:
+                        positions = portfolio.get_open_positions()
+                        for pos in positions:
+                            symbol = pos.stock_code.upper()
+                            if symbol in stocks:
+                                stock_data = stocks[symbol]
+                                holdings.append({
+                                    "account": account_name,
+                                    "symbol": symbol,
+                                    "name": stock_data.get("name", symbol),
+                                    "quantity": pos.quantity,
+                                    "entry_price": pos.entry_price,
+                                    "current_price": stock_data.get("price", 0),
+                                    "profit_loss": pos.profit_loss,
+                                    "return_pct": pos.return_pct,
+                                    "current_change_pct": stock_data.get("change_pct", 0),
+                                })
+        except Exception:
+            pass
+
+        return {"holdings": holdings}
+
+    def _generate_market_summary(self, step1: Dict, step2: Dict) -> str:
+        """生成市场总结"""
+        parts = []
+
+        if step1.get("success"):
+            top_movers = step1.get("top_movers", {})
+            gainers = top_movers.get("gainers", [])
+            if gainers:
+                best = gainers[0]
+                parts.append(f"全市场涨幅最大: {best['name']}({best['symbol']}) {best['change_pct']:+.2f}%")
+
+        if step2.get("success"):
+            holding_analysis = step2.get("holding_analysis", {})
+            holdings = holding_analysis.get("holdings", [])
+            if holdings:
+                total_pnl = sum(h.get("profit_loss", 0) for h in holdings)
+                parts.append(f"持仓盈亏: ${total_pnl:+.2f}")
+
+        return " | ".join(parts) if parts else "暂无数据"
+
+    @classmethod
+    def _get_market_analysis_db(cls):
+        if cls._market_analysis_db is None:
+            from deva import NB
+            cls._market_analysis_db = NB("naja_market_analysis")
+        return cls._market_analysis_db
+
+    def analyze_market_data(self) -> Dict[str, Any]:
+        """盘后市场分析 - 由定时任务调用
+
+        获取主要指数行情，分析市场状态，存储分析结果
+        供LLM反思时收集
+        """
+        import logging
+        log = logging.getLogger(__name__)
+
+        try:
+            market_data = self._fetch_market_indices()
+            if not market_data:
+                return {"success": False, "message": "无法获取市场数据"}
+
+            analysis = self._analyze_market_indices(market_data)
+
+            market_analysis = {
+                "data": market_data,
+                "analysis": analysis,
+                "timestamp": time.time(),
+            }
+
+            db = self._get_market_analysis_db()
+            db["latest"] = market_analysis
+
+            log.info(f"[NarrativeTracker] 盘后市场分析完成: {analysis.get('summary', 'N/A')}")
+
+            return {
+                "success": True,
+                "market_data": market_data,
+                "analysis": analysis,
+            }
+        except Exception as e:
+            log.error(f"[NarrativeTracker] 盘后市场分析失败: {e}")
+            return {"success": False, "message": str(e)}
+
+    def _fetch_market_indices(self) -> Dict[str, Dict]:
+        """获取主要指数行情"""
+        try:
+            import urllib.request
+            import json
+
+            indices = ["^NDX", "^SPX", "^QQQ", "^DJI", "^VIX"]
+            result = {}
+
+            for symbol in indices:
+                url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}?interval=1d&range=5d"
+                req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+                try:
+                    with urllib.request.urlopen(req, timeout=10) as response:
+                        data = json.loads(response.read().decode())
+                        result_data = data.get("chart", {}).get("result", [{}])[0]
+                        meta = result_data.get("meta", {})
+                        price = meta.get("regularMarketPrice")
+                        prev_close = meta.get("previousClose")
+                        change_pct = (price - prev_close) / prev_close * 100 if price and prev_close else 0
+
+                        symbol_name = symbol.replace("^", "")
+                        result[symbol_name] = {
+                            "price": price,
+                            "change_pct": round(change_pct, 2),
+                            "prev_close": prev_close,
+                        }
+                except Exception:
+                    continue
+
+            return result
+        except Exception:
+            return {}
+
+    def _analyze_market_indices(self, data: Dict[str, Dict]) -> Dict[str, Any]:
+        """分析市场指数数据"""
+        if not data:
+            return {"summary": "无数据", "status": "unknown"}
+
+        ndx_change = data.get("NDX", {}).get("change_pct", 0)
+        spy_change = data.get("SPX", {}).get("change_pct", 0)
+        qqq_change = data.get("QQQ", {}).get("change_pct", 0)
+        vix = data.get("VIX", {}).get("price", 20)
+
+        avg_change = (ndx_change + spy_change + qqq_change) / 3
+
+        if avg_change > 2:
+            status = "强势上涨"
+            description = f"市场强势上涨，纳指{ndx_change:+.2f}%，标普{spy_change:+.2f}%"
+        elif avg_change > 0.5:
+            status = "小幅上涨"
+            description = f"市场温和上涨，纳指{ndx_change:+.2f}%"
+        elif avg_change > -0.5:
+            status = "震荡整理"
+            description = f"市场震荡，纳指{ndx_change:+.2f}%"
+        elif avg_change > -2:
+            status = "小幅下跌"
+            description = f"市场小幅回调，纳指{ndx_change:+.2f}%"
+        else:
+            status = "大幅下跌"
+            description = f"市场大幅下跌，纳指{ndx_change:+.2f}%，标普{spy_change:+.2f}%"
+
+        if vix > 30:
+            description += f"，VIX高企({vix:.1f})，市场恐慌"
+        elif vix > 20:
+            description += f"，VIX中性({vix:.1f})"
+
+        return {
+            "status": status,
+            "summary": description,
+            "ndx_change": ndx_change,
+            "spy_change": spy_change,
+            "qqq_change": qqq_change,
+            "vix": vix,
+            "avg_change": round(avg_change, 2),
+        }
+
+    def get_market_analysis(self) -> Dict[str, Any]:
+        """获取缓存的市场分析结果"""
+        try:
+            db = self._get_market_analysis_db()
+            return db.get("latest", {})
+        except Exception:
+            return {}
+
+    def get_trading_signal(self) -> Dict[str, Any]:
+        """获取交易信号 - 基于叙事状态判断超卖/超买
+
+        利用NarrativeState的trend和stage判断：
+        - 超卖：叙事衰退+价格跌 = 买入机会
+        - 超买：叙事高潮+价格涨 = 卖出机会
+        """
+        if not self._states:
+            return {
+                "signal": "WATCH",
+                "volatility": "UNKNOWN",
+                "action": "暂无数据，继续观察",
+                "reason": "",
+            }
+
+        ai_state = self._states.get("AI")
+        chip_state = self._states.get("芯片")
+        price_state = self._states.get("民心")
+
+        signal = "WATCH"
+        volatility = "NORMAL"
+        action = "正常持有"
+        reason_parts = []
+
+        if ai_state and chip_state:
+            ai_trend = ai_state.trend
+            chip_trend = chip_state.trend
+            ai_stage = ai_state.stage
+            chip_stage = chip_state.stage
+
+            if ai_trend < -0.5 and ai_stage in ("消退", "萌芽"):
+                signal = "OVERSOLD"
+                volatility = "LOW"
+                action = "可以考虑买入，等反弹后高抛"
+                reason_parts.append("AI叙事衰退，可能是买入机会")
+            elif ai_trend > 0.5 and ai_stage in ("高潮", "扩散"):
+                signal = "OVERBOUGHT"
+                volatility = "HIGH"
+                action = "可以考虑减仓，等回调再买"
+                reason_parts.append("AI叙事过热，注意风险")
+
+        if price_state:
+            price_trend = price_state.trend
+            if price_trend < -0.3:
+                reason_parts.append("价格下跌趋势")
+            elif price_trend > 0.3:
+                reason_parts.append("价格上涨趋势")
+
+        tiandao_summary = self.get_tiandao_minxin_summary()
+        tiandao_score = tiandao_summary.get("tiandao_score", 0)
+
+        if signal == "OVERSOLD" and tiandao_score > 0.3:
+            action = "最佳买入时机：天道好+价格低"
+            reason_parts.append("天道强+价格低")
+        elif signal == "OVERBOUGHT" and tiandao_score > 0.3:
+            action = "可以适当减仓：天道好+价格高"
+            reason_parts.append("天道强+价格高")
+
+        reason = "；".join(reason_parts) if reason_parts else "趋势不明显"
+
+        return {
+            "signal": signal,
+            "volatility": volatility,
+            "action": action,
+            "reason": reason,
+            "tiandao_score": tiandao_score,
             "timestamp": time.time(),
         }
 

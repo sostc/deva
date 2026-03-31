@@ -87,11 +87,12 @@ def _parse_sina_response(text: str) -> Dict:
     return result
 
 
-async def _fetch_sina_batch_async(codes: List[str]) -> Dict:
+async def _fetch_sina_batch_async(codes: List[str], session=None) -> Dict:
     """异步获取一批股票数据"""
     if not codes:
         return {}
-    session = _get_sina_session()
+    if session is None:
+        session = _get_sina_session()
     codes_str = ",".join(codes)
     url = f"https://hq.sinajs.cn/list={codes_str}"
     headers = {
@@ -99,22 +100,22 @@ async def _fetch_sina_batch_async(codes: List[str]) -> Dict:
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
     }
     try:
+        log.debug(f"[_fetch_sina_batch_async] 请求 Sina API: codes数量={len(codes)}")
         async with session.get(url, headers=headers) as resp:
+            log.debug(f"[_fetch_sina_batch_async] 响应状态: status={resp.status}")
             if resp.status != 200:
                 return {}
             text = await resp.text()
+            log.debug(f"[_fetch_sina_batch_async] 响应长度: {len(text)}")
             return _parse_sina_response(text)
-    except Exception:
+    except Exception as e:
+        log.error(f"[_fetch_sina_batch_async] 请求失败: {e}")
         return {}
 
 
 async def _fetch_all_stocks_async() -> Optional[pd.DataFrame]:
     """异步获取全量股票数据"""
-    from deva.naja.common.tradetime import is_tradedate, is_tradetime
-
-    now = datetime.now()
-    if not is_tradedate(now) or not is_tradetime(now):
-        return None
+    import aiohttp
 
     STOCK_CATEGORIES = {
         "沪市主板": [f"sh{i}" for i in range(600000, 610000)] +
@@ -134,34 +135,66 @@ async def _fetch_all_stocks_async() -> Optional[pd.DataFrame]:
     for cat_codes in STOCK_CATEGORIES.values():
         codes.extend(cat_codes)
     codes = list(set(codes))
+    log.debug(f"[_fetch_all_stocks_async] 股票代码总数: {len(codes)}")
 
     batch_size = 800
     all_data = {}
 
-    for i in range(0, len(codes), batch_size):
-        batch = codes[i:i + batch_size]
-        batch_data = await _fetch_sina_batch_async(batch)
-        all_data.update(batch_data)
-        await asyncio.sleep(0.05)
+    async with aiohttp.ClientSession(
+        connector=aiohttp.TCPConnector(limit=50, limit_per_host=20),
+        timeout=aiohttp.ClientTimeout(total=30),
+    ) as session:
+        for i in range(0, len(codes), batch_size):
+            batch = codes[i:i + batch_size]
+            batch_data = await _fetch_sina_batch_async(batch, session)
+            log.debug(f"[_fetch_all_stocks_async] 批次 {i//batch_size + 1}: 获取了 {len(batch_data)} 条数据")
+            all_data.update(batch_data)
+            await asyncio.sleep(0.05)
+
+    log.debug(f"[_fetch_all_stocks_async] 总共获取: {len(all_data)} 条数据")
 
     if not all_data:
+        log.debug("[_fetch_all_stocks_async] 无数据返回")
         return None
 
     df = pd.DataFrame(all_data).T
     return df
 
 
-def _fetch_sina_sync() -> Optional[pd.DataFrame]:
+def _fetch_sina_sync(force_trading: bool = False) -> Optional[pd.DataFrame]:
     """同步获取 Sina 全量数据（在子线程中调用）"""
+    from deva.naja.common.tradetime import is_tradedate, is_tradetime
+
+    now = datetime.now()
+    if not force_trading and (not is_tradedate(now) or not is_tradetime(now)):
+        log.debug(f"[_fetch_sina_sync] 非交易时间，跳过 (force={force_trading})")
+        return None
+
     try:
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
+        log.debug("[_fetch_sina_sync] 开始获取 Sina 数据")
         try:
-            return loop.run_until_complete(_fetch_all_stocks_async())
-        finally:
-            loop.close()
+            result = asyncio.run(_fetch_all_stocks_async())
+            if result is not None:
+                log.debug(f"[_fetch_sina_sync] 获取完成: result={type(result)}, len={len(result)}")
+            else:
+                log.debug("[_fetch_sina_sync] 获取完成: result is None")
+            return result
+        except RuntimeError as e:
+            if "Event loop is closed" in str(e) or "no running event loop" in str(e):
+                log.warning(f"[_fetch_sina_sync] 事件循环问题，重试: {e}")
+                import threading
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                try:
+                    result = loop.run_until_complete(_fetch_all_stocks_async())
+                    return result
+                finally:
+                    loop.close()
+            raise
     except Exception as e:
-        log.debug(f"[_fetch_sina_sync] 获取失败: {e}")
+        log.error(f"[_fetch_sina_sync] 异常: {e}")
+        import traceback
+        log.error(traceback.format_exc())
         return None
 
 
@@ -262,8 +295,11 @@ class RealtimeDataFetcher:
         signal_type = signal.get('type')
         phase = signal.get('phase')
 
+        log.debug(f"[RealtimeDataFetcher] 收到交易时钟信号: type={signal_type}, phase={phase}")
+
         if signal_type == 'current_state':
             self._current_phase = phase
+            log.debug(f"[RealtimeDataFetcher] current_state: phase={phase}, force_trading_mode={self.config.force_trading_mode}")
             if phase == 'trading' or phase == 'pre_market' or self.config.force_trading_mode:
                 self._activate()
             else:
@@ -273,6 +309,7 @@ class RealtimeDataFetcher:
             old_phase = signal.get('previous_phase', 'unknown')
             new_phase = phase
             self._current_phase = new_phase
+            log.debug(f"[RealtimeDataFetcher] phase_change: {old_phase} -> {new_phase}")
 
             if new_phase == 'trading' or new_phase == 'pre_market':
                 self._activate()
@@ -285,7 +322,9 @@ class RealtimeDataFetcher:
     def _activate(self):
         """激活获取（开盘时调用）"""
         if self._is_active:
+            log.debug("[RealtimeDataFetcher] _activate: 已经激活，跳过")
             return
+        log.debug("[RealtimeDataFetcher] _activate: 激活数据获取器")
         self._is_active = True
         self._last_high_fetch = time.time()
         self._last_medium_fetch = time.time()
@@ -311,12 +350,16 @@ class RealtimeDataFetcher:
     def _fetch_loop(self):
         """获取循环 - 只在交易时间运行"""
         log.info("[RealtimeDataFetcher] 获取循环开始")
+        log.warning(f"[RealtimeDataFetcher] DEBUG: _is_active={self._is_active}, _running={self._running}")
 
         while self._running and not self._stop_event.is_set():
             try:
                 if self._is_active:
                     current_time = time.time()
+                    log.debug(f"[RealtimeDataFetcher] _fetch_loop tick: _is_active=True, calling _tick()")
                     self._tick(current_time)
+                else:
+                    log.debug(f"[RealtimeDataFetcher] _fetch_loop: _is_active=False, skipping")
 
                 self._stop_event.wait(0.5)
 
@@ -330,15 +373,21 @@ class RealtimeDataFetcher:
 
     def _tick(self, current_time: float):
         """一次tick"""
+        log.debug(f"[RealtimeDataFetcher] _tick 调用: _is_active={self._is_active}, current_time={current_time}")
         self._update_symbol_levels()
 
         high_symbols = [s for s, level in self._symbol_levels.items() if level == "HIGH"]
         medium_symbols = [s for s, level in self._symbol_levels.items() if level == "MEDIUM"]
         low_symbols = [s for s, level in self._symbol_levels.items() if level == "LOW"]
 
+        log.debug(f"[RealtimeDataFetcher] _tick 档位统计: high={len(high_symbols)}, medium={len(medium_symbols)}, low={len(low_symbols)}, _symbol_levels总数={len(self._symbol_levels)}, force={self.config.force_trading_mode}")
+
         if not high_symbols and not medium_symbols and not low_symbols:
             if self._fetch_count == 0:
                 log.debug(f"[RealtimeDataFetcher] 等待档位数据... (high: {len(high_symbols)}, medium: {len(medium_symbols)}, low: {len(low_symbols)})")
+            if self.config.force_trading_mode:
+                log.warning(f"[RealtimeDataFetcher] ⚠️ force_trading_mode: 强制获取全量数据, config.force_trading={self.config.force_trading_mode}")
+                self._fetch_and_process([], "HIGH")
             return
 
         speed = self.config.playback_speed if self.config.playback_mode else 1.0
@@ -346,6 +395,8 @@ class RealtimeDataFetcher:
         high_interval = self.config.base_high_interval / speed
         medium_interval = self.config.base_medium_interval / speed
         low_interval = self.config.base_low_interval / speed
+
+        log.debug(f"[RealtimeDataFetcher] _tick 获取间隔: high={high_interval}s, medium={medium_interval}s, low={low_interval}s")
 
         if current_time - self._last_high_fetch >= high_interval and high_symbols:
             self._fetch_and_process(high_symbols, "HIGH")
@@ -364,13 +415,18 @@ class RealtimeDataFetcher:
         try:
             fs = self.attention_system.frequency_scheduler
             if fs is None:
+                log.debug("[RealtimeDataFetcher] _update_symbol_levels: frequency_scheduler 为 None")
                 return
 
             all_symbols = list(fs._symbol_to_idx.keys())
+            log.debug(f"[RealtimeDataFetcher] _update_symbol_levels: frequency_scheduler 有 {len(all_symbols)} 个符号")
+
             for symbol in all_symbols:
                 level = fs.get_symbol_level(symbol)
                 level_str = {0: "LOW", 1: "MEDIUM", 2: "HIGH"}.get(level.value, "LOW")
                 self._symbol_levels[symbol] = level_str
+
+            log.debug(f"[RealtimeDataFetcher] _update_symbol_levels 完成: 更新了 {len(all_symbols)} 个符号的档位")
 
         except Exception as e:
             log.debug(f"[RealtimeDataFetcher] 更新档位失败: {e}")
@@ -378,9 +434,12 @@ class RealtimeDataFetcher:
     def _fetch_and_process(self, symbols: List[str], level: str):
         """获取并处理数据"""
         try:
+            log.debug(f"[RealtimeDataFetcher] _fetch_and_process 调用: level={level}, symbols数量={len(symbols)}, symbols[:5]={symbols[:5] if symbols else 'empty'}")
             data = self._fetch_realtime_data(symbols)
+            log.debug(f"[RealtimeDataFetcher] _fetch_realtime_data 返回: data={type(data)}, len={len(data) if data is not None else 'None'}")
 
             if data is not None and len(data) > 0:
+                log.debug(f"[RealtimeDataFetcher] 调用 attention_system.process_data, data行数={len(data)}, columns={list(data.columns)}")
                 self.attention_system.process_data(data)
                 self._fetch_count += 1
 
@@ -391,6 +450,8 @@ class RealtimeDataFetcher:
 
                 if self._fetch_count % 100 == 0:
                     log.info(f"[RealtimeDataFetcher] 已获取 {self._fetch_count} 批")
+            else:
+                log.debug(f"[RealtimeDataFetcher] 无数据返回: data is None or empty")
 
         except Exception as e:
             self._error_count += 1
@@ -407,7 +468,7 @@ class RealtimeDataFetcher:
         - 低频档位：每 60s 获取一次（LOW symbols）
         """
         try:
-            df = _fetch_sina_sync()
+            df = _fetch_sina_sync(force_trading=self.config.force_trading_mode)
 
             if df is None or df.empty:
                 return None
@@ -473,7 +534,11 @@ class RealtimeDataFetcher:
 
     def get_stats(self) -> Dict[str, Any]:
         """获取统计信息"""
-        is_trading = is_trading_time_clock()
+        try:
+            is_trading = is_trading_time_clock()
+        except Exception:
+            is_trading = False
+        is_force_mode = self.config.force_trading_mode
 
         return {
             'running': self._running,
@@ -483,12 +548,50 @@ class RealtimeDataFetcher:
             'last_error': self._last_error,
             'current_phase': self._current_phase,
             'is_trading': is_trading,
+            'is_force_trading_mode': is_force_mode,
             'high_count': len([s for s, l in self._symbol_levels.items() if l == 'HIGH']),
             'medium_count': len([s for s, l in self._symbol_levels.items() if l == 'MEDIUM']),
             'low_count': len([s for s, l in self._symbol_levels.items() if l == 'LOW']),
             'save_snapshot_enabled': self._save_snapshot_enabled,
             'snapshot_save_count': self._snapshot_save_count,
             'last_snapshot_save_time': self._last_snapshot_save_time,
+            'data_fetcher_mode': self._current_phase,
+        }
+
+    def health_check(self) -> Dict[str, Any]:
+        """
+        健康检查，返回诊断信息
+
+        Returns:
+            dict: 包含健康状态的诊断信息
+        """
+        issues = []
+        warnings = []
+
+        if not self._running:
+            issues.append("获取器未运行")
+
+        if self._error_count > 10:
+            warnings.append(f"错误次数较多: {self._error_count}")
+
+        if self._running and self._fetch_count == 0 and not self.config.force_trading_mode:
+            warnings.append("运行中但获取次数为0，可能处于非交易时间")
+
+        if self._running and self._is_active and self._fetch_count > 0:
+            success_rate = (self._fetch_count - self._error_count) / max(1, self._fetch_count) * 100
+            if success_rate < 80:
+                warnings.append(f"成功率较低: {success_rate:.1f}%")
+
+        return {
+            'healthy': len(issues) == 0,
+            'running': self._running,
+            'active': self._is_active,
+            'fetch_count': self._fetch_count,
+            'error_count': self._error_count,
+            'issues': issues,
+            'warnings': warnings,
+            'last_error': self._last_error,
+            'mode': 'force_realtime' if self.config.force_trading_mode else 'normal',
         }
 
     def _load_snapshot_config(self):

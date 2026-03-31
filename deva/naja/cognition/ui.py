@@ -5,6 +5,8 @@
 
 from datetime import datetime, timedelta
 from typing import List, Dict
+import json
+import logging
 import math
 import time
 
@@ -17,6 +19,8 @@ from .engine import get_cognition_engine
 from .core import AttentionScorer
 from ..page_help import render_help_collapse
 from ..common.ui_style import format_timestamp
+
+log = logging.getLogger(__name__)
 
 
 def _get_stock_display_info(code: str) -> str:
@@ -130,6 +134,7 @@ class CognitionUI:
         put_html('<div class="container">')
 
         self._render_cognition_summary()
+        self._render_supply_chain_narrative()
 
         insight_pool = None
         try:
@@ -157,6 +162,86 @@ class CognitionUI:
         self._render_help()
 
         put_html('</div>')
+
+    def _render_supply_chain_narrative(self):
+        """渲染供应链叙事联动面板"""
+        try:
+            from deva.naja.cognition import get_supply_chain_linker
+            linker = get_supply_chain_linker()
+
+            hot_narratives = linker.get_hot_narratives(8)
+            recent_events = linker.get_recent_events(5)
+            summary = linker.get_supply_chain_summary()
+
+            if not hot_narratives and not recent_events:
+                return
+
+            hot_html = ""
+            for narrative, importance in hot_narratives:
+                intensity = min(1.0, importance / 3.0)
+                bg_alpha = 0.2 + intensity * 0.6
+                hot_html += f'''
+                <span style="background: rgba(239, 68, 68, {bg_alpha}); padding: 3px 10px; border-radius: 14px; font-size: 11px; color: white; margin: 2px; display: inline-block;">
+                    {narrative} ({importance:.1f})
+                </span>'''
+
+            events_html = ""
+            for event in recent_events[-5:]:
+                dt = datetime.fromtimestamp(event.timestamp)
+                time_str = dt.strftime("%m-%d %H:%M")
+                risk_color = "#ef4444" if event.risk_level.value in ["high", "critical"] else "#ca8a04"
+                events_html += f'''
+                <div style="background: rgba(255,255,255,0.03); border-radius: 6px; padding: 8px; margin-bottom: 6px; border-left: 3px solid {risk_color};">
+                    <div style="display: flex; justify-content: space-between;">
+                        <span style="color: #f1f5f9; font-size: 12px;">{event.description}</span>
+                        <span style="color: #64748b; font-size: 10px;">{time_str}</span>
+                    </div>
+                    <div style="font-size: 10px; color: #64748b; margin-top: 4px;">
+                        关联: {', '.join(event.narratives[:4])}
+                    </div>
+                </div>'''
+
+            put_html(f'''
+            <div style="
+                background: linear-gradient(135deg, rgba(59, 130, 246, 0.1) 0%, rgba(139, 92, 246, 0.1) 100%);
+                border-radius: 12px;
+                padding: 16px;
+                margin: 12px 0;
+                border: 1px solid rgba(59, 130, 246, 0.2);
+            ">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+                    <h3 style="margin: 0; color: #f1f5f9; font-size: 14px;">
+                        🔗 供应链-叙事联动
+                    </h3>
+                    <div style="font-size: 11px; color: #64748b;">
+                        {summary['total_narratives']} 叙事 | {summary['total_stocks_mapped']} 股票 | {summary['recent_events_count']} 事件
+                    </div>
+                </div>
+
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
+                    <div>
+                        <div style="font-size: 11px; color: #94a3b8; margin-bottom: 8px;">🔥 最热叙事</div>
+                        <div style="max-height: 120px; overflow-y: auto;">
+                            {hot_html or '<span style="color: #64748b; font-size: 12px;">暂无热度数据</span>'}
+                        </div>
+                    </div>
+                    <div>
+                        <div style="font-size: 11px; color: #94a3b8; margin-bottom: 8px;">⚠️ 最近风险事件</div>
+                        <div style="max-height: 120px; overflow-y: auto;">
+                            {events_html or '<span style="color: #64748b; font-size: 12px;">暂无风险事件</span>'}
+                        </div>
+                    </div>
+                </div>
+
+                <div style="margin-top: 12px; padding-top: 12px; border-top: 1px solid rgba(255,255,255,0.1);">
+                    <div style="font-size: 10px; color: #64748b;">
+                        💡 叙事热点自动关联供应链股票，高风险事件自动提升相关叙事重要性
+                    </div>
+                </div>
+            </div>
+            ''')
+        except Exception as e:
+            pass
 
     def _render_event_bus_flow(self, source_counts=None, recent_by_source=None, recent_insights=None):
         """渲染认知事件流 - 展示一切皆流的理念
@@ -1233,8 +1318,81 @@ class CognitionUI:
         put_button("🔄 刷新", onclick=self._refresh_data, color="secondary", small=True)
         put_button(f"🧠 立即反思 ({pending_signals}条)", onclick=self._trigger_reflection, color=reflect_btn_color, small=True)
         put_button("📊 完整报告", onclick=self._generate_report, color="secondary", small=True)
+        put_button("📈 市场复盘", onclick=self._trigger_market_replay, color="success", small=True)
         put_button("🧹 清空", onclick=self._clear_storage, color="secondary", small=True)
+        put_html('</div>')
+
+        self._render_market_replay_section()
+
         put_html('</div></div>')
+
+    def _render_market_replay_section(self):
+        """渲染市场复盘结果区域"""
+        from deva.naja.strategy.market_replay_analyzer import get_replay_history
+        from datetime import datetime
+
+        history = get_replay_history(limit=10)
+
+        if history:
+            latest = history[0]
+            put_html("""
+            <div style="margin-top: 12px; padding: 12px; background: rgba(34,197,94,0.08); border-radius: 8px; border: 1px solid rgba(34,197,94,0.2);">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                    <div style="font-size: 12px; font-weight: 600; color: #4ade80;">📊 市场复盘</div>
+                    <div style="font-size: 10px; color: #64748b;">""" + latest.get("time_str", "") + """</div>
+                </div>
+                <div style="display: flex; gap: 16px; font-size: 11px;">
+                    <div style="color: #94a3b8;">情绪: <span style="color: #e2e8f0;">""" + latest.get("market_sentiment", "未知") + """</span></div>
+                    <div style="color: #94a3b8;">均幅: <span style="color: #e2e8f0;">""" + f"{latest.get('avg_change', 0):+.2f}%" + """</span></div>
+                    <div style="color: #94a3b8;">广度: <span style="color: #e2e8f0;">""" + f"{latest.get('market_breadth', 0):.3f}" + """</span></div>
+                </div>
+            </div>
+            """)
+
+            if len(history) > 1:
+                put_html('<div style="margin-top: 8px; font-size: 11px; color: #94a3b8;">📋 历史复盘记录：</div>')
+                for i, h in enumerate(history[1:6], 1):
+                    ts = h.get('time_str', '')[:16]
+                    sentiment = h.get('market_sentiment', '未知')
+                    avg_change = h.get('avg_change', 0)
+                    top_narrative = h.get('top_narrative', '无')
+                    idx = i
+                    put_html(f"""
+                    <div style="margin-top: 6px; padding: 8px; background: rgba(255,255,255,0.03); border-radius: 6px; border: 1px solid rgba(255,255,255,0.06);">
+                        <div style="display: flex; justify-content: space-between; align-items: center;">
+                            <div style="font-size: 11px;">
+                                <span style="color: #64748b;">{ts}</span>
+                                <span style="color: #e2e8f0; margin-left: 8px;">{sentiment}</span>
+                                <span style="color: #94a3b8; margin-left: 8px;">{avg_change:+.1f}%</span>
+                                <span style="color: #64748b; margin-left: 8px;">{top_narrative}</span>
+                            </div>
+                            <button onclick="showReplayDetail({idx})" style="background: rgba(34,197,94,0.2); border: 1px solid rgba(34,197,94,0.3); color: #4ade80; padding: 2px 8px; border-radius: 4px; cursor: pointer; font-size: 10px;">查看</button>
+                        </div>
+                    </div>
+                    """)
+
+                put_html("""
+                <script>
+                function showReplayDetail(idx) {
+                    const history = """ + json.dumps(history[1:6]) + """;
+                    const item = history[idx - 1];
+                    if (item && item.markdown) {
+                        alert(item.markdown);
+                    }
+                }
+                </script>
+                """)
+        else:
+            self._render_market_replay_empty()
+
+    def _render_market_replay_empty(self):
+        """渲染空状态"""
+        put_html("""
+        <div style="margin-top: 12px; padding: 12px; background: rgba(255,255,255,0.03); border-radius: 8px; border: 1px solid rgba(255,255,255,0.08);">
+            <div style="font-size: 12px; color: #64748b;">📊 今日市场复盘</div>
+            <div style="font-size: 10px; color: #94a3b8; margin-top: 4px;">盘后自动执行，或点击"市场复盘"按钮手动生成</div>
+        </div>
+        """)
 
     def _trigger_reflection(self):
         """手动触发 LLM 反思"""
@@ -2203,6 +2361,41 @@ class CognitionUI:
             return
         report_text = self.engine.generate_thought_report()
         popup("认知报告", put_text(report_text))
+
+    def _trigger_market_replay(self):
+        """手动触发市场复盘（在后台线程执行）"""
+        import threading
+        from pywebio.output import toast
+        from pywebio.session import run_js
+
+        def run_replay():
+            try:
+                from deva.naja.strategy.market_replay_analyzer import MarketReplayAnalyzer, _save_replay_to_history, _is_trading_hours
+                analyzer = MarketReplayAnalyzer()
+                should_force_refresh = _is_trading_hours()
+                report = analyzer.run_full_analysis(force_refresh=should_force_refresh)
+
+                _save_replay_to_history(report)
+
+                try:
+                    from deva.endpoints import Dtalk
+                    markdown_content = report.to_markdown()
+                    dtalk_msg = f"@md@市场复盘报告|{markdown_content}"
+                    dtalk = Dtalk()
+                    dtalk.send(dtalk_msg)
+                    print("[MarketReplay] 复盘报告已推送到DTalk")
+                except Exception as dtalk_e:
+                    print(f"[MarketReplay] 推送钉钉失败: {dtalk_e}")
+
+            except Exception as e:
+                import traceback
+                print(f"[MarketReplay] 后台复盘失败: {e}\n{traceback.format_exc()}")
+
+        thread = threading.Thread(target=run_replay, daemon=True)
+        thread.start()
+
+        toast("正在生成市场复盘报告（后台运行）...", color="info")
+        run_js("setTimeout(function() { location.reload(); }, 3000)")
 
     def _clear_storage(self):
         """清空存储"""

@@ -47,7 +47,7 @@ def get_hot_sectors_and_stocks() -> Dict[str, Any]:
 
     try:
         sector_weights = integration.attention_system.sector_attention.get_all_weights(filter_noise=True) if integration.attention_system else {}
-        symbol_weights = integration.attention_system.weight_pool.get_all_weights() if integration.attention_system else {}
+        symbol_weights = integration.attention_system.weight_pool.get_all_weights(filter_noise=True) if integration.attention_system else {}
 
         _lab_debug_log(f"get_hot_sectors_and_stocks: sector_weights={len(sector_weights)} 个, symbol_weights={len(symbol_weights)} 个")
 
@@ -61,14 +61,26 @@ def get_hot_sectors_and_stocks() -> Dict[str, Any]:
             key=lambda x: x[1], reverse=True
         )[:20]
 
+        from deva.naja.common.stock_registry import get_stock_registry
+        registry = get_stock_registry()
+
+        hot_stocks_with_name = []
+        for symbol, weight in hot_stocks:
+            stock_name = registry.get_name(symbol)
+            hot_stocks_with_name.append({
+                "symbol": symbol,
+                "name": stock_name if stock_name else symbol,
+                "weight": weight
+            })
+
         if hot_sectors:
             top_sectors = [(s, f"{w:.4f}") for s, w in hot_sectors[:3]]
             _lab_debug_log(f"热门板块 Top3: {top_sectors}")
-        if hot_stocks:
-            top_stocks = [(s, f"{w:.4f}") for s, w in hot_stocks[:3]]
+        if hot_stocks_with_name:
+            top_stocks = [(s["symbol"], s["name"], f"{s['weight']:.4f}") for s in hot_stocks_with_name[:3]]
             _lab_debug_log(f"热门股票 Top3: {top_stocks}")
 
-        return {"sectors": hot_sectors, "stocks": hot_stocks}
+        return {"sectors": hot_sectors, "stocks": hot_stocks_with_name}
     except Exception as e:
         _lab_debug_log(f"get_hot_sectors_and_stocks 异常: {e}")
         return {"sectors": [], "stocks": []}

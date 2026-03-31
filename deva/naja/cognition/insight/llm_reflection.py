@@ -1,4 +1,18 @@
-"""LLM Reflection Engine - Generates deep insights from signals using LLM."""
+"""
+LLM Reflection Engine - 慢思考模块
+
+深度反思引擎，定期从各认知模块收集数据进行深度分析。
+与快思考模块（NewsMind、CrossSignalAnalyzer等）不同，慢思考：
+- 定期执行（不是实时）
+- 使用 LLM 进行深度分析
+- 包含迭代反思（对比上次结论）
+- 结合持仓情况进行战略思考
+
+Usage:
+    from deva.naja.cognition.insight.llm_reflection import get_llm_reflection_engine
+    engine = get_llm_reflection_engine()
+    engine.trigger_reflection()
+"""
 
 from __future__ import annotations
 
@@ -100,8 +114,42 @@ class LLMReflectionEngine:
 
         if self._enabled:
             self._start_timer_thread()
+            self._subscribe_trading_clock()
 
         self._initialized = True
+
+    def _subscribe_trading_clock(self) -> None:
+        """订阅交易时钟，收盘后延迟触发反思"""
+        from ...radar.trading_clock import TRADING_CLOCK_STREAM
+        try:
+            TRADING_CLOCK_STREAM.sink(self._on_trading_clock_event)
+            import logging
+            log = logging.getLogger(__name__)
+            log.info("[LLMReflection] 已订阅交易时钟信号")
+        except Exception:
+            pass
+
+    def _on_trading_clock_event(self, event: Dict[str, Any]) -> None:
+        """处理交易时钟事件，收盘后延迟触发"""
+        import logging
+        log = logging.getLogger(__name__)
+
+        if not isinstance(event, dict):
+            return
+
+        phase = event.get("phase")
+        if phase != "closed":
+            return
+
+        log.info("[LLMReflection] 检测到收盘信号，延迟5分钟后启动反思...")
+
+        def delayed_reflection():
+            import time
+            time.sleep(300)
+            log.info("[LLMReflection] 延迟结束，开始每日反思...")
+            self.run_daily_reflection()
+
+        threading.Thread(target=delayed_reflection, daemon=True, name="post_market_reflection").start()
 
     def _start_timer_thread(self) -> None:
         if self._thread is not None and self._thread.is_alive():
@@ -236,6 +284,10 @@ class LLMReflectionEngine:
 
         signals.extend(self._collect_narrative_signals())
 
+        signals.extend(self._collect_tiandao_minxin_signals())
+
+        signals.extend(self._collect_market_analysis_signals())
+
         signals.extend(self._collect_liquidity_signals())
 
         signals.extend(self._collect_attention_signals())
@@ -246,11 +298,129 @@ class LLMReflectionEngine:
 
         signals.extend(self._collect_trade_feedback())
 
+        signals.extend(self._collect_market_analysis_from_nt())
+
         return signals
+
+    def run_daily_reflection(self, force_refresh: bool = False) -> Optional[Reflection]:
+        """每日反思统一入口
+
+        Args:
+            force_refresh: 是否强制重新生成市场分析
+                          - False (默认): 有现有分析就用，不重新生成
+                          - True: 清空后重新生成
+
+        自动流程：盘后任务 → 市场分析 → 反思
+        手动流程：
+        - force_refresh=False: 有市场分析 → 直接反思
+        - force_refresh=True: 清空+重新生成分析，再反思
+        """
+        import logging
+        log = logging.getLogger(__name__)
+
+        log.info("[LLMReflection] 开始每日反思流程...")
+
+        if force_refresh:
+            log.info("[LLMReflection] 强制重新生成市场分析...")
+            self._clear_market_analysis()
+            market_analysis_result = self._generate_market_analysis()
+            if not market_analysis_result:
+                log.warning("[LLMReflection] 市场分析重新生成失败")
+        else:
+            market_analysis = self._collect_market_analysis_from_nt()
+            if not market_analysis:
+                log.info("[LLMReflection] 暂无市场分析，开始生成...")
+                market_analysis_result = self._generate_market_analysis()
+                if not market_analysis_result:
+                    log.warning("[LLMReflection] 市场分析生成失败，继续使用现有数据")
+
+        log.info("[LLMReflection] 触发LLM反思...")
+        return self.trigger_now(min_signals=1)
+
+    def _clear_market_analysis(self) -> None:
+        """清空市场分析缓存"""
+        try:
+            from deva.naja.cognition.narrative_tracker import NarrativeTracker
+            db = NarrativeTracker._get_market_analysis_db()
+            db.pop("latest", None)
+        except Exception:
+            pass
+
+    def _generate_market_analysis(self) -> bool:
+        """生成市场分析"""
+        try:
+            from deva.naja.cognition.engine import get_cognition_engine
+            engine = get_cognition_engine()
+            if not engine:
+                return False
+            tracker = engine._news_mind.narrative_tracker
+            if not tracker:
+                return False
+            result = tracker.analyze_market_full()
+            return result.get("step1_full_market", {}).get("success", False)
+        except Exception:
+            return False
+
+    def _collect_market_analysis_from_nt(self) -> List[Dict[str, Any]]:
+        """从 NarrativeTracker 获取全市场深度分析结果"""
+        from deva.naja.cognition.engine import get_cognition_engine
+        try:
+            engine = get_cognition_engine()
+            tracker = engine._news_mind.narrative_tracker
+            if not tracker:
+                return []
+
+            db = tracker._get_market_analysis_db()
+            full_analysis = db.get("full_analysis", {})
+
+            signals = []
+
+            step1 = full_analysis.get("step1_full_market", {})
+            if step1.get("success"):
+                top_movers = step1.get("top_movers", {})
+                gainers = top_movers.get("gainers", [])
+                if gainers:
+                    best = gainers[0]
+                    signals.append({
+                        "source": "market_analysis",
+                        "signal_type": "market_rally",
+                        "theme": f"市场领涨: {best['name']} {best['change_pct']:+.2f}%",
+                        "summary": f"全市场{step1.get('stock_count')}只股票，{best['name']}领涨",
+                        "score": min(1.0, abs(best['change_pct']) / 5.0),
+                    })
+
+                anomaly = step1.get("anomaly_result", {})
+                if anomaly.get("anomaly_stocks"):
+                    top_anomaly = anomaly["anomaly_stocks"][0]
+                    signals.append({
+                        "source": "market_analysis",
+                        "signal_type": "anomaly",
+                        "theme": f"异常波动: {top_anomaly['name']} (score={top_anomaly['score']:.3f})",
+                        "summary": f"River异常检测: {top_anomaly['name']}波动异常",
+                        "score": top_anomaly.get("score", 0.5),
+                    })
+
+            step2 = full_analysis.get("step2_focused", {})
+            if step2.get("success"):
+                holdings = step2.get("holding_analysis", {}).get("holdings", [])
+                for h in holdings:
+                    pnl_pct = h.get("return_pct", 0)
+                    score = min(1.0, abs(pnl_pct) / 20.0)
+                    signals.append({
+                        "source": "market_analysis",
+                        "signal_type": "holding",
+                        "theme": f"持仓: {h['symbol']} {pnl_pct:+.2f}%",
+                        "summary": f"{h['name']}盈亏${h.get('profit_loss', 0):+.2f}",
+                        "score": score,
+                    })
+
+            return signals
+        except Exception:
+            return []
 
     def _collect_narrative_signals(self) -> List[Dict[str, Any]]:
         """从 NarrativeTracker 获取叙事信号"""
-        from ..core import get_cognition_engine
+        from deva.naja.cognition.engine import get_cognition_engine
         try:
             engine = get_cognition_engine()
             report = engine.get_memory_report()
@@ -270,6 +440,175 @@ class LLMReflectionEngine:
                         "attention_score": n.get("attention_score", 0),
                         "score": n.get("attention_score", 0),
                     })
+            return signals
+        except Exception:
+            return []
+
+    def _collect_tiandao_minxin_signals(self) -> List[Dict[str, Any]]:
+        """从 NarrativeTracker 获取天道/民心信号 - '遵循天道，驾驭民心'"""
+        from deva.naja.cognition.engine import get_cognition_engine
+        try:
+            engine = get_cognition_engine()
+            tracker = engine._news_mind.narrative_tracker
+            if not tracker:
+                return []
+
+            summary = tracker.get_tiandao_minxin_summary()
+            trading_signal = tracker.get_trading_signal()
+
+            signals = []
+
+            tiandao_score = summary.get("tiandao_score", 0)
+            minxin_score = summary.get("minxin_score", 0)
+            recommendation = summary.get("recommendation", "WATCH")
+
+            if tiandao_score > 0:
+                signals.append({
+                    "source": "tiandao_minxin",
+                    "signal_type": "tiandao_score",
+                    "theme": f"天道评分: {tiandao_score:.0%}",
+                    "summary": summary.get("reason", ""),
+                    "score": tiandao_score,
+                    "recommendation": recommendation,
+                })
+
+            if minxin_score > 0:
+                signals.append({
+                    "source": "tiandao_minxin",
+                    "signal_type": "minxin_score",
+                    "theme": f"民心评分: {minxin_score:.0%}",
+                    "summary": summary.get("market_opportunity", ""),
+                    "score": minxin_score,
+                })
+
+            signal = trading_signal.get("signal", "WATCH")
+            if signal in ("OVERSOLD", "OVERBOUGHT"):
+                signals.append({
+                    "source": "tiandao_minxin",
+                    "signal_type": "trading_signal",
+                    "theme": f"交易信号: {signal}",
+                    "summary": trading_signal.get("action", ""),
+                    "score": 0.8,
+                })
+
+            return signals
+        except Exception:
+            return []
+
+    def _collect_market_analysis_signals(self) -> List[Dict[str, Any]]:
+        """收集市场分析模块的信号：波动率、风险、流动性预测等"""
+        signals = []
+
+        signals.extend(self._collect_volatility_signals())
+
+        signals.extend(self._collect_risk_signals())
+
+        signals.extend(self._collect_liquidity_prediction_signals())
+
+        signals.extend(self._collect_first_principles_signals())
+
+        return signals
+
+    def _collect_volatility_signals(self) -> List[Dict[str, Any]]:
+        """从 VolatilitySurfaceSense 获取波动率信号"""
+        try:
+            from ...senses.volatility_surface import get_volatility_surface_sense
+            vs = get_volatility_surface_sense()
+            if not vs:
+                return []
+            alerts = vs.get_recent_alerts(limit=5)
+            signals = []
+            for alert in alerts:
+                signals.append({
+                    "source": "volatility_surface",
+                    "signal_type": alert.signal.value,
+                    "theme": f"波动率: {alert.signal.value}",
+                    "summary": alert.description[:80] if alert.description else "",
+                    "opportunity": alert.opportunity,
+                    "intensity": alert.intensity,
+                    "confidence": alert.confidence,
+                    "score": alert.intensity * alert.confidence,
+                })
+            return signals
+        except Exception:
+            return []
+
+    def _collect_risk_signals(self) -> List[Dict[str, Any]]:
+        """从 RiskManager 获取风险信号"""
+        try:
+            from ...risk.risk_manager import get_risk_manager
+            rm = get_risk_manager()
+            if not rm:
+                return []
+            alert_summary = rm.get_alert_summary()
+            signals = []
+            for alert in alert_summary.get("alerts", [])[:5]:
+                signals.append({
+                    "source": "risk_manager",
+                    "signal_type": alert.get("type", "risk"),
+                    "theme": f"风险: {alert.get('type', 'unknown')}",
+                    "summary": alert.get("message", "")[:80],
+                    "severity": alert.get("severity", 0.5),
+                    "score": alert.get("severity", 0.5),
+                })
+            return signals
+        except Exception:
+            return []
+
+    def _collect_liquidity_prediction_signals(self) -> List[Dict[str, Any]]:
+        """从 LiquidityCognition 获取流动性预测信号"""
+        try:
+            from ..liquidity.liquidity_cognition import get_liquidity_cognition
+            lc = get_liquidity_cognition()
+            if not lc:
+                return []
+            predictions = lc.get_active_predictions()
+            signals = []
+            for pred in predictions[:5]:
+                signals.append({
+                    "source": "liquidity_prediction",
+                    "signal_type": "prediction",
+                    "theme": f"预测: {pred.from_market} → {pred.to_market}",
+                    "summary": f"{pred.direction} {pred.probability:.0%} ({pred.status.value})",
+                    "probability": pred.probability,
+                    "status": pred.status.value,
+                    "score": pred.probability * 0.8,
+                })
+            return signals
+        except Exception:
+            return []
+
+    def _collect_first_principles_signals(self) -> List[Dict[str, Any]]:
+        """从 FirstPrinciplesMind 获取第一性原理分析信号"""
+        try:
+            from ...cognition.first_principles_mind import get_first_principles_mind
+            fpm = get_first_principles_mind()
+            if not fpm:
+                return []
+            signals = []
+
+            causality = fpm.get_causality_summary()
+            for chain in causality.get("causal_chains", [])[:3]:
+                signals.append({
+                    "source": "first_principles",
+                    "signal_type": "causality",
+                    "theme": f"因果: {chain.get('cause', '')[:30]} → {chain.get('effect', '')[:30]}",
+                    "summary": chain.get("narrative", "")[:80],
+                    "confidence": chain.get("confidence", 0.5),
+                    "score": chain.get("confidence", 0.5),
+                })
+
+            contradiction = fpm.get_contradiction_summary()
+            for c in contradiction.get("contradictions", [])[:3]:
+                signals.append({
+                    "source": "first_principles",
+                    "signal_type": "contradiction",
+                    "theme": f"矛盾: {c.get('type', '')}",
+                    "summary": c.get("description", "")[:80],
+                    "severity": c.get("severity", 0.5),
+                    "score": c.get("severity", 0.5),
+                })
+
             return signals
         except Exception:
             return []
@@ -300,9 +639,9 @@ class LLMReflectionEngine:
 
     def _collect_attention_signals(self) -> List[Dict[str, Any]]:
         """从 AttentionHistoryTracker 获取注意力转移信号"""
-        from ..history_tracker import get_attention_history_tracker
+        from deva.naja.cognition.history_tracker import get_history_tracker
         try:
-            tracker = get_attention_history_tracker()
+            tracker = get_history_tracker()
             if not tracker:
                 return []
             report = tracker.get_attention_shift_report(emit_to_insight=False)

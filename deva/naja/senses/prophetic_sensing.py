@@ -1,5 +1,7 @@
 """
-ProphetSense - 天眼通预感知引擎
+ProphetSense - 觉醒系统/预判/先知
+
+别名/关键词: 预判、先知、预言、prophet、prophetic sensing、预知
 
 感知"正在酝酿"但尚未发生的机会
 

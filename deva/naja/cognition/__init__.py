@@ -42,6 +42,13 @@ from .cross_signal_analyzer import (
     CognitionFeedback,
     get_cross_signal_analyzer,
 )
+from .narrative_supply_chain_linker import (
+    NarrativeSupplyChainLinker,
+    SupplyChainImpact,
+    NarrativeSupplyChainEvent,
+    RiskLevel,
+    get_supply_chain_linker,
+)
 
 __all__ = [
     # 认知事件总线
@@ -87,6 +94,12 @@ __all__ = [
     "NewsSignal",
     "CognitionFeedback",
     "get_cross_signal_analyzer",
+    # 叙事-供应链联动器
+    "NarrativeSupplyChainLinker",
+    "SupplyChainImpact",
+    "NarrativeSupplyChainEvent",
+    "RiskLevel",
+    "get_supply_chain_linker",
 ]
 
 # 向后兼容别名
