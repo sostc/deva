@@ -1,5 +1,7 @@
 """
-AdaptiveManas - 顺应型末那识
+AdaptiveManas - 觉醒系统/魔纳斯/顺应
+
+别名/关键词: 决策、无为、顺应、adaptive、decision、末那识
 
 不是"要不要动"，而是"天要我动"
 
@@ -15,7 +17,7 @@ AdaptiveManas - 顺应型末那识
 
 使用方式：
     manas = AdaptiveManas()
-    decision = manas.compute_顺应(current_state)
+    decision = manas.compute_decision(current_state)
 """
 
 import time
