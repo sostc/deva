@@ -1,4 +1,8 @@
-"""Insight engine for user-facing attention."""
+"""InsightPool - 认知系统/洞察池/事件存储
+
+别名/关键词: 洞察池、事件存储、insight、insight pool
+
+Insight engine for user-facing attention."""
 
 from __future__ import annotations
 

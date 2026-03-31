@@ -1,5 +1,7 @@
 """
-SoftInfoConfidence - 软信息置信度评估器
+SoftInfoConfidence - 认知系统/软信息/置信度
+
+别名/关键词: 软信息、置信度、confidence、soft_info
 
 核心思想：给每个软信息打一个置信度，决定它对决策的影响程度
 
