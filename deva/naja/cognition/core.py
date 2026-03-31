@@ -1,5 +1,7 @@
 """
-新闻舆情雷达策略 - News Mind Radar Strategy
+NewsMind - 认知系统/新闻认知/话题跟踪
+
+别名/关键词: 新闻、话题、情绪、sentiment、topic、narrative、舆情
 
 核心思想: 流式学习 + 分层记忆 + 周期性自我反思
 作为naja策略系统的一个插件运行

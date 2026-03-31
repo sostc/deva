@@ -1,5 +1,7 @@
 """
-注意力历史追踪系统
+AttentionHistoryTracker - 认知系统/注意力追踪/热点追踪
+
+别名/关键词: 注意力、热点、板块热度、attention、hot、板块热点
 
 追踪注意力随时间的变化，包括：
 - 板块注意力的变化趋势
@@ -345,6 +347,10 @@ class AttentionHistoryTracker:
             symbol_market_data: 个股行情数据字典 {symbol: {'price': float, 'change': float, 'volume': float, 'sector': str}}
             activity: 市场活跃度
         """
+        from deva.naja.attention.integration.extended import get_mode_manager
+        mode_manager = get_mode_manager()
+        current_mode = mode_manager.get_mode() if mode_manager else 'unknown'
+
         import logging
         log = logging.getLogger(__name__)
 
@@ -375,9 +381,10 @@ class AttentionHistoryTracker:
                 _lab_debug_log(f"快照{len(self.snapshots)+1}: sector_weights样本={sample_named}")
 
             self._detect_changes(last_snapshot, snapshot, timestamp_str)
-        
+
         self.snapshots.append(snapshot)
-        
+        log.debug(f"[HistoryTracker] record_snapshot(mode={current_mode}): 快照 #{len(self.snapshots)}, global_attention={global_attention:.3f}")
+
         # 更新当前热门
         self.current_hot_sectors = dict(sorted(
             sector_weights.items(),

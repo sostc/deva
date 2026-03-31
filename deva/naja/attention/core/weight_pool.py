@@ -322,13 +322,34 @@ class WeightPool:
             for symbol in symbols
         }
     
-    def get_all_weights(self) -> Dict[str, float]:
-        """获取所有权重的字典"""
+    def get_all_weights(self, filter_noise: bool = False) -> Dict[str, float]:
+        """获取所有权重的字典
+
+        Args:
+            filter_noise: 是否过滤噪音股票。当为True时，会过滤掉B股、ST股等噪音股票。
+        """
+        from deva.naja.attention.integration.extended import get_mode_manager
+        mode_manager = get_mode_manager()
+        current_mode = mode_manager.get_mode() if mode_manager else 'unknown'
+
+        if filter_noise:
+            from ..processing.noise_filter import NoiseFilter
+            noise_filter = NoiseFilter()
+            result = {}
+            for symbol, idx in self._symbol_to_idx.items():
+                if not noise_filter.is_noise(symbol):
+                    raw_weight = float(self._weights[idx])
+                    clipped_weight = max(self.config.min_weight, min(raw_weight, self.config.max_weight))
+                    result[symbol] = clipped_weight
+            log.debug(f"[WeightPool] get_all_weights(mode={current_mode}, filter=True): 返回 {len(result)} 个已过滤权重")
+            return result
+
         result = {}
         for symbol, idx in self._symbol_to_idx.items():
             raw_weight = float(self._weights[idx])
             clipped_weight = max(self.config.min_weight, min(raw_weight, self.config.max_weight))
             result[symbol] = clipped_weight
+        log.debug(f"[WeightPool] get_all_weights(mode={current_mode}, filter=False): 返回 {len(result)} 个权重")
         return result
     
     def reset(self):

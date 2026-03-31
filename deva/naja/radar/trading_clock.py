@@ -1,5 +1,7 @@
 """
-TradingClock - 交易时间信号中心
+TradingClock - 感知系统/交易时钟/开盘收盘
+
+别名/关键词: 交易时钟、开盘、盘中、收盘、trading clock、market hours
 
 发布交易时段信号，供所有需要响应交易时间的组件订阅：
 - pre_market: 盘前 (09:00-09:30)
