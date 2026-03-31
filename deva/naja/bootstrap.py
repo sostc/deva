@@ -333,6 +333,16 @@ class SystemBootstrap:
             details["supervisor_error"] = str(e)
             logger.warning(f"  Supervisor 启动失败: {e}")
 
+        try:
+            from deva.naja.strategy.market_replay_scheduler import get_replay_scheduler
+            scheduler = get_replay_scheduler()
+            scheduler.start()
+            details["market_replay_scheduler"] = "started"
+            logger.info("  MarketReplayScheduler 已启动")
+        except Exception as e:
+            details["market_replay_scheduler_error"] = str(e)
+            logger.warning(f"  MarketReplayScheduler 启动失败: {e}")
+
         duration_ms = (time.time() - start) * 1000
 
         return BootResult(

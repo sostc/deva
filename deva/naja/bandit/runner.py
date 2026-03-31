@@ -1,4 +1,8 @@
-"""Bandit 自动运行器
+"""BanditAutoRunner - Bandit系统/自动运行/执行
+
+别名/关键词: 自动运行、执行、auto runner、bandit runner
+
+Bandit 自动运行器
 
 提供事件驱动的自动任务功能：
 1. 订阅交易时钟事件，而非定时轮询
