@@ -115,6 +115,9 @@ class BanditPositionTracker:
 
         return_pct = (exit_price - entry_price) / entry_price * 100
         holding_seconds = current_time - open_timestamp
+        if holding_seconds < 0:
+            log.warning(f"[Tracker] 持仓时间为负: holding_seconds={holding_seconds:.0f}，使用0")
+            holding_seconds = 0
 
         reward = self._calculate_reward(return_pct, holding_seconds)
 

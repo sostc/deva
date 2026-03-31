@@ -38,7 +38,7 @@ def main():
 
     # 实验室模式参数
     parser.add_argument("--lab", action="store_true",
-                        help="启用实验室模式，自动启动注意力系统测试")
+                        help="启用实验室模式（回放历史数据测试）")
     parser.add_argument("--lab-table", type=str, default=None,
                         help="实验室模式回放数据表名 (如: quant_snapshot_5min_window)")
     parser.add_argument("--lab-interval", type=float, default=1.0,
@@ -47,6 +47,10 @@ def main():
                         help="实验室模式回放速度倍数，默认 1.0")
     parser.add_argument("--lab-debug", action="store_true",
                         help="实验室模式调试日志，输出详细处理信息")
+
+    # 强制实盘调试模式参数
+    parser.add_argument("--force-realtime", action="store_true",
+                        help="强制实盘调试模式（忽略交易时间限制，用于非交易时间调试）")
 
     # 新闻雷达模式参数（统一命名）
     # --news-radar: 默认启用新闻雷达（使用真实数据源）
@@ -106,6 +110,11 @@ def main():
         }
         if not args.lab_table:
             print("警告: --lab 已启用但未指定 --lab-table，将仅启动注意力系统而不回放数据")
+
+    # 处理强制实盘调试模式参数
+    if args.force_realtime:
+        os.environ['NAJA_FORCE_REALTIME'] = '1'
+        print("⚠️ 强制实盘调试模式已启用 (--force-realtime)")
 
     # 调参模式配置
     tune_config = None

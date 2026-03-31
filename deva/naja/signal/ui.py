@@ -94,9 +94,12 @@ async def _auto_insert_new_signals(ctx: dict):
 def _insert_signal_item(ctx, result):
     """在信号流顶部插入单个信号"""
     import json
-    
+
     icon, color, signal_label, importance = get_signal_type(result)
     detail = get_signal_detail(result)
+    summary = detail.get('summary', '')
+    if '0 个信号' in summary:
+        return
     time_str = datetime.fromtimestamp(result.ts).strftime("%H:%M:%S")
     
     if importance == 'critical':
@@ -349,6 +352,9 @@ def _render_signal_stream_content(ctx, limit: int = 20):
             
         icon, color, signal_label, importance = get_signal_type(r)
         detail = get_signal_detail(r)
+        summary = detail.get('summary', '')
+        if '0 个信号' in summary:
+            continue
         time_str = datetime.fromtimestamp(r.ts).strftime("%H:%M:%S")
         
         if importance == 'critical':

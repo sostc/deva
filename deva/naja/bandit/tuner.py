@@ -1,4 +1,8 @@
-"""Bandit 参数调优器 - 持续循环优化版
+"""BanditTuner - Bandit系统/策略调优/超参
+
+别名/关键词: 策略调优、超参、bandit tuner、参数调优
+
+Bandit 参数调优器 - 持续循环优化版
 
 调参模式核心逻辑：
 1. 数据播放 → 信号来时用 VirtualPortfolio 开仓
@@ -135,6 +139,7 @@ class BanditTuner:
         self._stop_event = threading.Event()
 
         self._portfolio = None
+        self._tracker = None
         self._initialized = True
 
     def register_callback(self, callback: Callable[[str, Any], None]):
@@ -159,8 +164,26 @@ class BanditTuner:
         """初始化虚拟持仓组合"""
         try:
             from deva.naja.bandit.virtual_portfolio import get_virtual_portfolio
+            from deva.naja.bandit.tracker import get_bandit_tracker
             self._portfolio = get_virtual_portfolio()
-            log.info(f"[BanditTuner] VirtualPortfolio 初始化完成")
+            self._tracker = get_bandit_tracker()
+
+            def on_tuner_position_closed(position_id: str, position, reason: str):
+                if self._tracker and self._running:
+                    self._tracker.on_position_closed(
+                        strategy_id=position.strategy_id,
+                        position_id=position_id,
+                        entry_price=position.entry_price,
+                        exit_price=position.exit_price,
+                        open_timestamp=position.entry_time,
+                        stock_code=position.stock_code,
+                        stock_name=position.stock_name,
+                        close_reason=reason,
+                        signal_confidence=position.signal_confidence,
+                    )
+
+            self._portfolio.register_close_callback(on_tuner_position_closed)
+            log.info(f"[BanditTuner] VirtualPortfolio 初始化完成，close_callback 已注册")
         except Exception as e:
             log.error(f"[BanditTuner] VirtualPortfolio 初始化失败: {e}")
 

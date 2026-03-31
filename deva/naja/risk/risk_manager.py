@@ -1,5 +1,7 @@
 """
-RiskManager - 风险管理器
+RiskManager - 风险系统/风险管理/风控
+
+别名/关键词: 风险管理、风控、risk manager、仓位风险
 
 觉醒系统的风控层，保护资产安全
 

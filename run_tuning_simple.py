@@ -53,17 +53,14 @@ scheduler = get_replay_scheduler()
 # 清空旧持仓
 portfolio = tuner._get_portfolio()
 if portfolio:
-    old_positions = portfolio.get_all_positions(status="OPEN")
-    if old_positions:
-        print(f"    清空 {len(old_positions)} 个旧持仓...")
-        for pos in old_positions:
-            portfolio.close_position(pos.position_id, pos.current_price, "RESET")
-
-    old_closed = portfolio.get_all_positions(status="CLOSED")
-    if old_closed:
-        print(f"    清空 {len(old_closed)} 个旧平仓记录...")
-        for pos in old_closed:
-            portfolio._positions.pop(pos.position_id, None)
+    open_count = len(portfolio.get_all_positions(status="OPEN"))
+    closed_count = len(portfolio.get_all_positions(status="CLOSED"))
+    if open_count > 0:
+        print(f"    清空 {open_count} 个旧持仓...")
+        portfolio.clear_all_positions()
+    if closed_count > 0:
+        print(f"    清空 {closed_count} 个旧平仓记录...")
+        portfolio.clear_history()
 
 # 重置调参状态
 tuner._data_replay_finished = False

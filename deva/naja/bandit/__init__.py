@@ -53,6 +53,20 @@ from .attribution import (
     get_attribution,
     record_trade_attribution,
 )
+from .stock_sector_map import (
+    StockSectorMap,
+    StockMetadata,
+    get_stock_sector_map,
+)
+from .supply_chain_graph import (
+    SupplyChainKnowledgeGraph,
+    GraphNode,
+    GraphEdge,
+    NodeType,
+    RelationType,
+    SupplyChainAnalysis,
+    get_supply_chain_graph,
+)
 from .tuner import (
     BanditTuner,
     ParameterSpace,
@@ -133,6 +147,20 @@ __all__ = [
     "MarketConditionAttribution",
     "get_attribution",
     "record_trade_attribution",
+    "StockSectorMap",
+    "StockMetadata",
+    "get_stock_sector_map",
+    "SupplyChainKnowledgeGraph",
+    "GraphNode",
+    "GraphEdge",
+    "NodeType",
+    "RelationType",
+    "SupplyChainAnalysis",
+    "get_supply_chain_graph",
+    "SupplyChainValuationEngine",
+    "ValuationLevel",
+    "ValuationResult",
+    "get_supply_chain_valuation_engine",
     "BanditTuner",
     "ParameterSpace",
     "TuningResult",

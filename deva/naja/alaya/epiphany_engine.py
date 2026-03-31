@@ -45,12 +45,90 @@ class CrossMarketPattern:
 @dataclass
 class Epiphany:
     """顿悟"""
-    epiphany_type: str        # "cross_market", "pattern_discovery", "timing_insight"
+    epiphany_type: str        # "cross_market", "pattern_discovery", "timing_insight", "stop_loss", "take_profit"
     content: str
     confidence: float
     triggered_by: List[str]    # 触发信号
     timestamp: float
     usefulness: float         # 有用性评分
+
+
+class PortfolioEpiphany:
+    """
+    持仓顿悟
+
+    根据持仓盈亏 + 市场模式触发顿悟：
+    - 持仓亏损 + 市场恶化 = 止损顿悟
+    - 持仓盈利 + 市场转差 = 止盈顿悟
+    - 持仓亏损 + 市场好转 = 加仓顿悟
+    """
+
+    def __init__(self):
+        self._portfolio_signals: deque = deque(maxlen=20)
+
+    def check_portfolio_epiphany(
+        self,
+        portfolio_loss: float,
+        market_deterioration: bool,
+        market_improvement: bool,
+        regime: str
+    ) -> Optional[Epiphany]:
+        """
+        检查是否触发持仓顿悟
+
+        Args:
+            portfolio_loss: 持仓亏损百分比 (负数)
+            market_deterioration: 市场是否恶化
+            market_improvement: 市场是否好转
+            regime: 市场环境
+
+        Returns:
+            Epiphany 或 None
+        """
+        loss_threshold = -0.05
+        profit_threshold = 0.10
+
+        if portfolio_loss < loss_threshold and market_deterioration:
+            return Epiphany(
+                epiphany_type="stop_loss",
+                content=f"持仓亏损 {portfolio_loss:.1%} + 市场恶化 = 止损顿悟",
+                confidence=0.85,
+                triggered_by=["持仓亏损", "市场恶化"],
+                timestamp=time.time(),
+                usefulness=0.8
+            )
+
+        if portfolio_loss > profit_threshold and market_deterioration:
+            return Epiphany(
+                epiphany_type="take_profit",
+                content=f"持仓盈利 {portfolio_loss:.1%} + 市场转差 = 止盈时机",
+                confidence=0.80,
+                triggered_by=["持仓盈利", "市场转差"],
+                timestamp=time.time(),
+                usefulness=0.85
+            )
+
+        if portfolio_loss < loss_threshold and market_improvement:
+            return Epiphany(
+                epiphany_type="accumulate",
+                content=f"持仓亏损 {portfolio_loss:.1%} + 市场好转 = 加仓时机",
+                confidence=0.75,
+                triggered_by=["持仓亏损", "市场好转"],
+                timestamp=time.time(),
+                usefulness=0.7
+            )
+
+        if abs(portfolio_loss) < 0.02 and regime in ["bear", "crisis"]:
+            return Epiphany(
+                epiphany_type="preserve_capital",
+                content=f"市场 {regime} 环境中保持轻仓观望",
+                confidence=0.70,
+                triggered_by=["市场环境", "轻仓策略"],
+                timestamp=time.time(),
+                usefulness=0.75
+            )
+
+        return None
 
 
 class CrossMarketTransfer:
@@ -279,12 +357,13 @@ class EpiphanyEngine:
     """
     顿悟引擎（大圆镜智）
 
-    整合跨市场迁移、模式顿悟、全量召回
+    整合跨市场迁移、模式顿悟、全量召回、持仓顿悟
     """
 
     def __init__(self):
         self.cross_market = CrossMarketTransfer()
         self.pattern_epiphany = PatternEpiphany()
+        self.portfolio_epiphany = PortfolioEpiphany()
         self.full_recall = FullRecall()
 
     def receive_signal(self, signal: Dict[str, Any]):
@@ -292,8 +371,45 @@ class EpiphanyEngine:
         self.pattern_epiphany.receive_signal(signal)
 
     def check_epiphany(self) -> Optional[Epiphany]:
-        """检查顿悟"""
+        """检查模式顿悟"""
         return self.pattern_epiphany.check_for_epiphany()
+
+    def check_portfolio_epiphany(
+        self,
+        portfolio_loss: float,
+        market_deterioration: bool,
+        market_improvement: bool = False,
+        regime: str = "unknown"
+    ) -> Optional[Epiphany]:
+        """检查持仓顿悟"""
+        return self.portfolio_epiphany.check_portfolio_epiphany(
+            portfolio_loss=portfolio_loss,
+            market_deterioration=market_deterioration,
+            market_improvement=market_improvement,
+            regime=regime
+        )
+
+    def check_all_epiphany(
+        self,
+        portfolio_loss: float = 0.0,
+        market_deterioration: bool = False,
+        market_improvement: bool = False,
+        regime: str = "unknown"
+    ) -> List[Epiphany]:
+        """检查所有类型的顿悟"""
+        epiphanies = []
+
+        pattern_ep = self.check_epiphany()
+        if pattern_ep:
+            epiphanies.append(pattern_ep)
+
+        portfolio_ep = self.check_portfolio_epiphany(
+            portfolio_loss, market_deterioration, market_improvement, regime
+        )
+        if portfolio_ep:
+            epiphanies.append(portfolio_ep)
+
+        return epiphanies
 
     def archive_outcome(
         self,
