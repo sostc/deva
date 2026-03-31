@@ -158,6 +158,7 @@ def get_nav_menu_items() -> List[Dict[str, str]]:
     return [
         {"name": "🏠 首页", "path": "/"},
         {"name": "🧠 认知", "path": "/cognition"},
+        {"name": "🔗 供应链", "path": "/supplychain"},
         {"name": "📡 雷达", "path": "/radaradmin"},
         {"name": "👁️ 注意力", "path": "/attentionadmin"},
         {"name": "🔣 QKV", "path": "/qkv"},

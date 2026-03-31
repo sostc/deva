@@ -1,4 +1,6 @@
-"""虚拟持仓管理
+"""VirtualPortfolio - Bandit系统/虚拟持仓/持仓同步
+
+别名/关键词: 虚拟持仓、持仓同步、virtual portfolio
 
 管理虚拟股票的买入、卖出和持仓。
 """
@@ -90,11 +92,14 @@ class VirtualPortfolio:
     def _load_positions(self):
         """从数据库加载持仓"""
         try:
+            from dataclasses import fields as dc_fields
+            valid_fields = {f.name for f in dc_fields(VirtualPosition)}
             data = self._db.get("positions")
             if isinstance(data, dict):
                 for pos_id, pos_data in data.items():
                     if isinstance(pos_data, dict):
-                        self._positions[pos_id] = VirtualPosition(**pos_data)
+                        filtered_data = {k: v for k, v in pos_data.items() if k in valid_fields}
+                        self._positions[pos_id] = VirtualPosition(**filtered_data)
             
             self._used_capital = sum(
                 pos.entry_price * pos.quantity 
@@ -281,12 +286,12 @@ class VirtualPortfolio:
         reason: str = "MANUAL",
     ) -> Optional[VirtualPosition]:
         """平仓
-        
+
         Args:
             position_id: 持仓 ID
             exit_price: 平仓价格
             reason: 平仓原因
-            
+
         Returns:
             VirtualPosition: 平仓的持仓对象
         """
@@ -294,27 +299,32 @@ class VirtualPortfolio:
             position = self._positions.get(position_id)
             if not position or position.status != "OPEN":
                 return None
-            
+
             position.exit_price = exit_price
             position.current_price = exit_price
             position.status = "CLOSED"
-            position.exit_time = get_market_time_service().get_market_time()
+
+            exit_time = get_market_time_service().get_market_time()
+            if exit_time < position.entry_time:
+                log.warning(f"[VirtualPortfolio] 平仓时间倒置检测: exit_time({exit_time:.0f}) < entry_time({position.entry_time:.0f})，使用 entry_time + 1")
+                exit_time = position.entry_time + 1
+            position.exit_time = exit_time
+
             position.close_reason = reason
 
             actual_pnl = (exit_price - position.entry_price) * position.quantity
-            position._profit_loss = actual_pnl
 
             self._used_capital -= position.entry_price * position.quantity
-            
+
             for callback in self._close_callbacks:
                 try:
                     callback(position_id, position, reason)
                 except Exception as e:
                     log.error(f"平仓回调失败: {e}")
-            
+
             log.info(f"虚拟平仓: {position.stock_name}({position.stock_code}) "
                     f"收益率={position.return_pct:.2f}% 原因={reason}")
-            
+
             self._save_positions()
             return position
     
