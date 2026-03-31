@@ -1,7 +1,10 @@
-"""Bandit 策略优化器
+"""BanditOptimizer - Bandit系统/策略优化/UCB
+
+别名/关键词: Bandit优化、UCB、贪婪、bandit optimizer
+
+Bandit 策略优化器
 
 提供 Multi-armed Bandit 算法实现，支持策略的在线自适应选择。
-与 LLM Controller 架构一致，支持 update_params/start/stop/restart 等动作。
 """
 
 from __future__ import annotations

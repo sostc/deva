@@ -955,6 +955,23 @@ def _get_log_stream_page():
     return log_stream_page
 
 
+async def supplychain_page():
+    """供应链知识图谱页面"""
+    from pywebio.session import eval_js
+    try:
+        theme = await eval_js("document.cookie.includes('naja-theme=') ? document.cookie.split('naja-theme=')[1].split(';')[0] : null")
+        if theme:
+            set_request_theme(theme)
+    except:
+        pass
+
+    ctx = _ctx()
+    await ctx["init_naja_ui"]("供应链知识图谱")
+
+    from .attention.ui_components.supply_chain import render_supply_chain_knowledge_graph_page
+    render_supply_chain_knowledge_graph_page()
+
+
 def create_handlers(cdn: str = None):
     """创建路由处理器"""
     cdn_url = cdn or 'https://fastly.jsdelivr.net/gh/wang0618/PyWebIO-assets@v1.8.3/'
@@ -982,6 +999,7 @@ def create_handlers(cdn: str = None):
         (r'/configadmin', webio_handler(configadmin, cdn=cdn_url)),
         (r'/logstream', webio_handler(lambda: _get_log_stream_page()(), cdn=cdn_url)),
         (r'/tuningadmin', webio_handler(tuningadmin, cdn=cdn_url)),
+        (r'/supplychain', webio_handler(supplychain_page, cdn=cdn_url)),
     ]
 
 

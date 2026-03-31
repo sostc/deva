@@ -1,4 +1,8 @@
-"""多账户持仓管理器
+"""PortfolioManager - Bandit系统/持仓管理/仓位
+
+别名/关键词: 持仓管理、美股持仓、仓位、portfolio manager
+
+多账户持仓管理器
 
 支持多账户、多市场的持仓管理：
 - A股账户（虚拟测试）：使用 VirtualPortfolio
@@ -336,6 +340,36 @@ class PortfolioManager:
                 result[name] = count
         return result
 
+    async def smart_update_us_prices(self, force: bool = False) -> Dict[str, int]:
+        """智能更新所有美股账户的价格
+
+        使用 USStockPriceManager 根据市场状态智能获取价格
+
+        Args:
+            force: 是否强制获取（忽略市场状态）
+
+        Returns:
+            包含每个账户更新持仓数量的字典
+        """
+        from .us_stock_price_manager import get_us_stock_price_manager
+
+        manager = get_us_stock_price_manager()
+
+        all_codes = set()
+        for portfolio in self._us_portfolios.values():
+            for pos in portfolio.get_open_positions():
+                all_codes.add(pos.stock_code)
+
+        if not all_codes:
+            return {}
+
+        await manager.update_prices(list(all_codes), force=force)
+
+        price_map = manager.get_price_map()
+        prev_close_map = manager.get_prev_close_map()
+
+        return self.update_us_prices(price_map, prev_close_map)
+
 
 _portfolio_manager: Optional[PortfolioManager] = None
 _portfolio_manager_lock = threading.Lock()
@@ -421,12 +455,29 @@ def init_us_portfolios():
     """初始化美股账户持仓
 
     Spark: NVDA + CRWV (see config)
-    Cutie: BABA 100股
+    Cutie: BABA (see config)
+
+    使用 USStockPriceManager 智能获取价格（根据市场状态）
     """
     pm = get_portfolio_manager()
 
     spark = pm.get_us_portfolio("Spark")
     cutie = pm.get_us_portfolio("Cutie")
+
+    import asyncio
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+
+    price_map = {}
+    prev_close_map = {}
+
+    from .us_stock_price_manager import get_us_stock_price_manager
+    price_manager = get_us_stock_price_manager()
+
+    stock_codes = ["nvda", "crwv", "baba"]
+    loop.run_until_complete(price_manager.update_prices(stock_codes, force=True))
+    price_map = price_manager.get_price_map()
+    prev_close_map = price_manager.get_prev_close_map()
 
     if spark:
         if not spark.get_positions_by_stock("nvda"):
@@ -434,9 +485,11 @@ def init_us_portfolios():
         if not spark.get_positions_by_stock("crwv"):
             spark.add_position("crwv", "CoreWeave", 0.0, 0)
         spark.set_equity(0.0)
+        spark.update_prices_batch(price_map, prev_close_map)
         log.info(f"[Spark] 初始化完成: {len(spark.get_all_positions())} 个持仓, equity=${0.0:.2f}")
 
     if cutie:
         if not cutie.get_positions_by_stock("baba"):
             cutie.add_position("baba", "BABA", 0.0, 0)
+        cutie.update_prices_batch(price_map, prev_close_map)
         log.info(f"[Cutie] 初始化完成: {len(cutie.get_all_positions())} 个持仓")

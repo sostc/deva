@@ -353,23 +353,35 @@ class AwakenedAlaya:
     觉醒阿赖耶识
 
     整合光明藏、顿悟引擎、跨市场记忆
+    支持 UnifiedManas 持仓盈亏触发顿悟
     """
 
     def __init__(self):
         self.cross_market_memory = CrossMarketMemory()
         self.pattern_archive = PatternArchiveManager()
         self.awakening_engine = AwakeningEngine()
+        self._epiphany_engine = None
 
         self._integration_count = 0
         self._last_illumination_time = 0.0
 
+    def set_epiphany_engine(self, epiphany_engine):
+        """设置顿悟引擎（用于持仓顿悟）"""
+        self._epiphany_engine = epiphany_engine
+
     def illuminate(
         self,
         market_data: Dict[str, Any],
-        signals: Optional[List[Dict[str, Any]]] = None
+        signals: Optional[List[Dict[str, Any]]] = None,
+        unified_manas_output: Optional[Dict[str, Any]] = None
     ) -> Dict[str, Any]:
         """
         照亮模式
+
+        Args:
+            market_data: 市场数据
+            signals: 信号列表
+            unified_manas_output: UnifiedManas 输出（包含持仓信息）
 
         Returns:
             包含 illumination, awakenings, archived_patterns 的字典
@@ -378,9 +390,13 @@ class AwakenedAlaya:
 
         awakening_result = self._process_awakening(signals or [])
 
+        portfolio_awakening = self._process_portfolio_awakening(unified_manas_output)
+
         recalled_patterns = self._recall_relevant_patterns(market_data)
 
-        illumination = self._generate_illumination(market_data, recalled_patterns, awakening_result)
+        illumination = self._generate_illumination(
+            market_data, recalled_patterns, awakening_result, portfolio_awakening
+        )
 
         if illumination:
             self._last_illumination_time = time.time()
@@ -388,9 +404,53 @@ class AwakenedAlaya:
         return {
             "illumination": illumination,
             "awakening": awakening_result,
+            "portfolio_awakening": portfolio_awakening,
             "recalled_patterns": recalled_patterns,
             "awakening_level": self.awakening_engine.get_awakening_level()
         }
+
+    def _process_portfolio_awakening(
+        self,
+        unified_manas_output: Optional[Dict[str, Any]]
+    ) -> Optional[AwakeningSignal]:
+        """处理持仓驱动的顿悟"""
+        if not unified_manas_output:
+            return None
+
+        if self._epiphany_engine is None:
+            try:
+                from deva.naja.alaya.epiphany_engine import EpiphanyEngine
+                self._epiphany_engine = EpiphanyEngine()
+            except ImportError:
+                return None
+
+        portfolio_loss = unified_manas_output.get("portfolio_loss_pct", 0.0)
+        market_deterioration = unified_manas_output.get("market_deterioration", False)
+        regime = "unknown"
+
+        regime_score = unified_manas_output.get("regime_score", 0.0)
+        if regime_score < -0.3:
+            regime = "bear"
+        elif regime_score > 0.3:
+            regime = "bull"
+        else:
+            regime = "neutral"
+
+        epiphany = self._epiphany_engine.check_portfolio_epiphany(
+            portfolio_loss=portfolio_loss,
+            market_deterioration=market_deterioration,
+            regime=regime
+        )
+
+        if epiphany:
+            return AwakeningSignal(
+                signal_type=epiphany.epiphany_type,
+                trigger_conditions=epiphany.triggered_by,
+                confidence=epiphany.confidence,
+                illumination_content=epiphany.content
+            )
+
+        return None
 
     def _process_awakening(self, signals: List[Dict[str, Any]]) -> Optional[AwakeningSignal]:
         """处理顿悟"""
@@ -427,10 +487,11 @@ class AwakenedAlaya:
         self,
         market_data: Dict[str, Any],
         recalled_patterns: List[PatternArchive],
-        awakening: Optional[AwakeningSignal]
+        awakening: Optional[AwakeningSignal],
+        portfolio_awakening: Optional[AwakeningSignal] = None
     ) -> Optional[Dict[str, Any]]:
         """生成照亮结果"""
-        if not recalled_patterns and not awakening:
+        if not recalled_patterns and not awakening and not portfolio_awakening:
             return None
 
         content_parts = []
@@ -438,6 +499,10 @@ class AwakenedAlaya:
         if awakening:
             content_parts.append(f"顿悟: {awakening.illumination_content}")
             content_parts.append(f"置信度: {awakening.confidence:.2f}")
+
+        if portfolio_awakening:
+            content_parts.append(f"持仓顿悟: {portfolio_awakening.illumination_content}")
+            content_parts.append(f"持仓置信度: {portfolio_awakening.confidence:.2f}")
 
         if recalled_patterns:
             avg_success_rate = sum(1 for p in recalled_patterns if p.success) / len(recalled_patterns)
