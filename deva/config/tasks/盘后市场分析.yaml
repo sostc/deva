@@ -1,0 +1,61 @@
+config:
+  cron_expr: ''
+  execution_mode: timer
+  run_at: ''
+  scheduler_trigger: interval
+  task_type: interval
+func_code: |
+  """
+  盘后市场分析 + 每日反思任务
+
+  功能：
+  1. 获取主要指数行情（纳指、标普、QQQ、VIX等）
+  2. 分析市场状态，存储供LLM反思使用
+  3. 触发LLM反思，生成每日反思报告
+
+  建议执行时间：美股收盘后（凌晨4:30-5:00）
+  执行间隔：每天一次
+  """
+  def execute():
+      from deva.naja.cognition.insight.llm_reflection import get_llm_reflection_engine
+      engine = get_llm_reflection_engine()
+      if not engine:
+          return {"success": False, "message": "LLMReflectionEngine 未启动"}
+
+      result = engine.run_daily_reflection()
+      if result:
+          return {
+              "success": True,
+              "reflection_theme": result.theme,
+              "reflection_summary": result.summary[:200],
+          }
+      return {"success": False, "message": "反思生成失败"}
+metadata:
+  category: ''
+  created_at: 1774965800.0
+  cron_expr: ''
+  description: 盘后市场分析 + 每日反思 - 获取指数行情，分析市场，触发LLM反思
+  enabled: true
+  event_condition: ''
+  event_condition_type: contains
+  event_source: log
+  execution_mode: timer
+  func_code_file: ''
+  id: market_analysis_after_close
+  interval_seconds: 43200.0
+  name: 盘后市场分析+每日反思
+  run_at: ''
+  scheduler_trigger: interval
+  source: file
+  tags:
+  - market
+  - analysis
+  - reflection
+  - after_close
+  task_type: interval
+  updated_at: 1774966200.0
+parameters:
+  enabled: true
+  retry_count: 3
+  retry_delay: 5
+  timeout: 120
