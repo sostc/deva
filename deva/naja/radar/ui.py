@@ -459,11 +459,15 @@ class RadarUI:
             <h4 style="margin: 0 0 15px 0; color: #94a3b8;">⚙️ 控制</h4>
         """)
 
-        put_buttons([
-            dict(label="⏸️ 暂停", value="pause", onclick=lambda: toggle_scanning("pause")),
-            dict(label="▶️ 继续", value="resume", onclick=lambda: toggle_scanning("resume")),
-            dict(label="🔄 强制扫描", value="refresh", onclick=force_refresh),
-        ], small=True)
+        put_buttons(
+            ["⏸️ 暂停", "▶️ 继续", "🔄 强制扫描"],
+            onclick=[
+                lambda: toggle_scanning("pause"),
+                lambda: toggle_scanning("resume"),
+                force_refresh
+            ],
+            small=True
+        )
 
         put_html("</div>")
 

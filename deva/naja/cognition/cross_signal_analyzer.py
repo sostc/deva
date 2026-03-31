@@ -1,4 +1,6 @@
-"""Cross Signal Analyzer - 跨信号分析器
+"""CrossSignalAnalyzer - 认知系统/共振分析/板块联动
+
+别名/关键词: 共振、板块联动、cross_signal、resonance、板块共振
 
 合并新闻/雷达信号和行情/注意力信号，提供分层分析：
 - Layer 1: 规则引擎 (实时, 零成本)

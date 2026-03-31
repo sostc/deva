@@ -16,6 +16,7 @@ import time
 import asyncio
 import logging
 import threading
+from datetime import datetime
 
 log = logging.getLogger(__name__)
 
@@ -123,6 +124,9 @@ class AttentionSystem:
         self._last_sector_attention: Dict[str, float] = {}
         self._last_symbol_weights: Dict[str, float] = {}
 
+        # 股票名称缓存
+        self._symbol_name_cache: Dict[str, str] = {}
+
         # 上次有效结果（用于降级）
         self._last_valid_result: Optional[Dict[str, Any]] = None
 
@@ -213,24 +217,57 @@ class AttentionSystem:
         - 低注意力 symbol: 每60秒获取
 
         Args:
-            config: 获取配置，为None时使用默认配置
+            config: 获取配置，为None时使用保存的配置
         """
-        if not self._initialized:
-            log.error("[AttentionSystem] 系统未初始化，无法启动实盘获取器")
-            return
+        import sys
+        log.warning(f"[AttentionSystem] ⚠️ start_realtime_fetcher 被调用, config={config}, _initialized={self._initialized}")
+        sys.stdout.flush()
+        sys.stderr.flush()
 
-        if self._realtime_fetcher is not None and self._realtime_fetcher._running:
-            log.warning("[AttentionSystem] 实盘获取器已在运行中")
-            return
+        try:
+            if not self._initialized:
+                log.error("[AttentionSystem] 系统未初始化，无法启动实盘获取器")
+                return
 
-        config = config or FetchConfig()
-        self._realtime_fetcher = RealtimeDataFetcher(self, config)
-        self._realtime_fetcher.start()
+            if self._realtime_fetcher is not None and self._realtime_fetcher._running:
+                log.warning("[AttentionSystem] 实盘获取器已在运行中")
+                return
 
-        from deva.naja.attention.realtime_data_fetcher import set_data_fetcher
-        set_data_fetcher(self._realtime_fetcher)
+            if config is None:
+                from deva.naja.attention.integration.extended import get_mode_manager
+                from deva.naja.attention.realtime_data_fetcher import FetchConfig
+                mode_manager = get_mode_manager()
+                saved_config = mode_manager.get_fetcher_config()
+                log.warning(f"[AttentionSystem] saved_config={saved_config}")
+                sys.stdout.flush()
+                if saved_config:
+                    config = FetchConfig(**saved_config)
+                    log.info(f"[AttentionSystem] 使用保存的配置: force_trading_mode={config.force_trading_mode}")
+                else:
+                    config = FetchConfig()
+                    log.info("[AttentionSystem] 使用默认配置")
 
-        log.info("[AttentionSystem] 实盘获取器已启动")
+            log.warning(f"[AttentionSystem] 创建 RealtimeDataFetcher, config.force_trading_mode={config.force_trading_mode}")
+            sys.stdout.flush()
+
+            self._realtime_fetcher = RealtimeDataFetcher(self, config)
+            self._realtime_fetcher.start()
+            sys.stdout.flush()
+
+            log.warning("[AttentionSystem] 实盘获取器已启动，强制激活")
+            self._realtime_fetcher._activate()
+            sys.stdout.flush()
+
+            from deva.naja.attention.realtime_data_fetcher import set_data_fetcher
+            set_data_fetcher(self._realtime_fetcher)
+
+            log.info("[AttentionSystem] 实盘获取器启动完成")
+        except Exception as e:
+            log.error(f"[AttentionSystem] 启动实盘获取器失败: {e}")
+            import traceback
+            log.error(traceback.format_exc())
+            sys.stdout.flush()
+            sys.stderr.flush()
 
     def stop_realtime_fetcher(self):
         """停止实盘数据获取器"""
@@ -275,20 +312,68 @@ class AttentionSystem:
             data: DataFrame 或 dict，包含 code, now, change_pct, volume 等字段
         """
         import pandas as pd
+        from deva.naja.attention.integration.extended import get_mode_manager
+
+        mode_manager = get_mode_manager()
+        current_mode = mode_manager.get_mode() if mode_manager else 'unknown'
+
+        log.debug(f"[AttentionSystem] process_data 被调用, mode={current_mode}, type={type(data)}, len={len(data) if hasattr(data, '__len__') else 'N/A'}")
 
         if isinstance(data, pd.DataFrame):
             if data.empty:
+                log.debug("[AttentionSystem] 数据为空，跳过")
                 return
+
+            log.debug(f"[AttentionSystem] process_data 收到数据: {len(data)} 行, columns={list(data.columns)}, index[:5]={list(data.index[:5])}")
+
+            if 'code' not in data.columns and data.index is not None and len(data.index) > 0:
+                data = data.copy()
+                data['code'] = data.index
+                log.debug(f"[AttentionSystem] 从索引提取股票代码: {list(data['code'][:5])}")
+
+            if 'change_pct' not in data.columns and 'now' in data.columns and 'close' in data.columns:
+                data = data.copy()
+                close_values = data['close'].replace(0, np.nan)
+                data['change_pct'] = (data['now'] - data['close']) / close_values * 100
+                data['change_pct'] = data['change_pct'].fillna(0)
+                log.debug(f"[AttentionSystem] 计算 change_pct: {list(data['change_pct'][:5])}")
+
+            name_col = 'name' if 'name' in data.columns else ('stock_name' if 'stock_name' in data.columns else None)
+            symbol_col = 'code' if 'code' in data.columns else data.index.name or 'code'
+
+            from deva.naja.common.stock_registry import get_stock_registry
+            registry = get_stock_registry()
+
+            if 'code' in data.columns:
+                codes = data['code'].astype(str).values
+            else:
+                codes = data.index.astype(str).values if data.index is not None else []
+
+            if name_col and name_col in data.columns:
+                names = data[name_col].astype(str).values
+                for code, name in zip(codes, names):
+                    registry.register(code, name)
+                log.debug(f"[AttentionSystem] StockRegistry 注册: {len([c for c in codes if c])} 条")
+            else:
+                for code in codes:
+                    if code:
+                        registry.register(code, code)
+
+            self._register_symbol_names_from_dataframe(data, symbol_col, name_col)
+            log.debug(f"[AttentionSystem] 注册股票名称: cache大小={len(self._symbol_name_cache)}")
 
             data = self._apply_noise_filter(data)
 
-            symbols = data['code'].values if 'code' in data.columns else []
+            symbols = data['code'].values if 'code' in data.columns else data.index.values if data.index is not None else []
             returns = data['change_pct'].values if 'change_pct' in data.columns else np.zeros(len(data))
             volumes = data['volume'].values if 'volume' in data.columns else np.zeros(len(data))
             prices = data['now'].values if 'now' in data.columns else np.zeros(len(data))
             sector_ids = self._extract_sector_ids_from_data(data)
 
-            self.process_snapshot(
+            log.debug(f"[AttentionSystem] process_snapshot 调用: symbols={len(symbols)}, sector_ids={len(sector_ids)}")
+            log.debug(f"[AttentionSystem] symbols[:5]={list(symbols[:5])}, returns[:5]={list(returns[:5])}")
+
+            result = self.process_snapshot(
                 symbols=symbols,
                 returns=returns,
                 volumes=volumes,
@@ -296,6 +381,36 @@ class AttentionSystem:
                 sector_ids=sector_ids,
                 timestamp=time.time()
             )
+            log.info(f"[AttentionSystem] process_snapshot 完成: global_attention={result.get('global_attention', 'N/A'):.3f}, sector_count={len(result.get('sector_attention', {}))}")
+
+            try:
+                from deva.naja.cognition.history_tracker import get_history_tracker
+                tracker = get_history_tracker()
+                if tracker:
+                    symbol_weights = result.get('symbol_weights', {})
+                    sector_attention = result.get('sector_attention', {})
+                    global_attn = result.get('global_attention', 0.5)
+                    activity = result.get('activity', 0.5)
+
+                    market_time_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+                    tracker.record_snapshot(
+                        global_attention=global_attn,
+                        sector_weights=sector_attention,
+                        symbol_weights=symbol_weights,
+                        timestamp=time.time(),
+                        timestamp_str=market_time_str,
+                        activity=activity
+                    )
+                    log.debug(f"[AttentionSystem] HistoryTracker.record_snapshot 完成, snapshots数量={len(tracker.snapshots)}")
+                else:
+                    log.warning(f"[AttentionSystem] HistoryTracker 未初始化")
+            except Exception as e:
+                log.warning(f"[AttentionSystem] 记录到HistoryTracker失败: {e}")
+                import traceback
+                log.warning(traceback.format_exc())
+        else:
+            log.debug(f"[AttentionSystem] process_data 收到非DataFrame数据: {type(data)}")
 
     def _apply_noise_filter(self, data: 'pd.DataFrame') -> 'pd.DataFrame':
         """对数据进行噪音过滤（B股、ST股等）"""
@@ -306,22 +421,44 @@ class AttentionSystem:
             nf_config = self._get_noise_filter_config()
             noise_filter = NoiseFilter(config=nf_config)
 
-            name_col = 'name' if 'name' in data.columns else ('stock_name' if 'stock_name' in data.columns else None)
-            symbol_col = 'code' if 'code' in data.columns else data.index.name or 'code'
-
             filtered = noise_filter.filter_dataframe(
                 data,
-                symbol_col=symbol_col,
+                symbol_col='code' if 'code' in data.columns else data.index.name or 'code',
                 amount_col='amount' if 'amount' in data.columns else None,
                 volume_col='volume' if 'volume' in data.columns else None,
                 price_col='now' if 'now' in data.columns else ('close' if 'close' in data.columns else None),
-                name_col=name_col
+                name_col='name' if 'name' in data.columns else ('stock_name' if 'stock_name' in data.columns else None)
             )
 
             return filtered
         except Exception as e:
             log.debug(f"[AttentionSystem] 噪音过滤失败: {e}")
             return data
+
+    def _register_symbol_names_from_dataframe(self, data: 'pd.DataFrame', symbol_col: str, name_col: Optional[str]):
+        """从DataFrame注册股票名称"""
+        if name_col is None:
+            return
+        try:
+            if name_col in data.columns:
+                names = data[name_col].astype(str).values
+                if 'code' in data.columns:
+                    symbols = data['code'].astype(str).values
+                elif data.index is not None and len(data.index) > 0:
+                    symbols = data.index.astype(str).values
+                else:
+                    return
+
+                for symbol, name in zip(symbols, names):
+                    if symbol and name and name != symbol:
+                        self._symbol_name_cache[symbol] = name
+                log.debug(f"[AttentionSystem] 注册股票名称: {len([s for s,n in zip(symbols, names) if s and n and n != s])} 个")
+        except Exception as e:
+            log.debug(f"[AttentionSystem] 注册股票名称失败: {e}")
+
+    def get_symbol_name(self, symbol: str) -> str:
+        """获取股票名称"""
+        return self._symbol_name_cache.get(symbol, symbol)
 
     def _extract_sector_ids_from_data(self, data: 'pd.DataFrame') -> np.ndarray:
         """从数据中提取板块ID"""

@@ -288,7 +288,7 @@ def get_default_profiles() -> List[ValueProfile]:
             pending_strategies=["level2_order_book", "vix_index"]
         ),
         ValueProfile(
-            name="成长投资",
+            name="天道投资",
             value_type=ValueType.GROWTH,
             description="看未来增长潜力，不看当前估值。营收和市场份额是核心。",
             weights=ValueWeights(

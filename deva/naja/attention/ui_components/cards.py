@@ -436,7 +436,17 @@ def render_hot_sectors_and_stocks(hot_data: Dict[str, Any]) -> str:
 
     if stocks:
         html += """<div><div style="font-weight: 600; color: #2563eb; margin-bottom: 12px; font-size: 14px;">📈 热门股票 Top 20</div><div style="display: flex; flex-wrap: wrap; gap: 6px;">"""
-        for i, (symbol, weight) in enumerate(stocks[:20], 1):
+        for i, stock_item in enumerate(stocks[:20], 1):
+            if isinstance(stock_item, dict):
+                symbol = stock_item.get("symbol", "")
+                weight = stock_item.get("weight", 0)
+                symbol_name = stock_item.get("name", symbol)
+                if symbol_name == symbol and not symbol.startswith(('sh', 'sz', 'bj', 'SH', 'SZ', 'BJ')):
+                    pass
+            else:
+                symbol, weight = stock_item
+                symbol_name = tracker.get_symbol_name(symbol) if tracker else symbol
+
             if weight > 5:
                 color, bg_color, border_color = "#dc2626", "#fef2f2", "#fecaca"
             elif weight > 3:
@@ -446,12 +456,11 @@ def render_hot_sectors_and_stocks(hot_data: Dict[str, Any]) -> str:
             else:
                 color, bg_color, border_color = "#16a34a", "#f0fdf4", "#bbf7d0"
 
-            symbol_name = tracker.get_symbol_name(symbol) if tracker else symbol
             symbol_change = tracker.get_symbol_change(symbol) if tracker else None
             change_str = f"{symbol_change:+.2f}%" if symbol_change is not None else ""
             change_color = "#16a34a" if symbol_change and symbol_change > 0 else ("#dc2626" if symbol_change and symbol_change < 0 else "#64748b")
 
-            html += f"""<div style="background: {bg_color}; border: 1px solid {border_color}; border-radius: 6px; padding: 4px 8px; font-size: 11px; display: flex; align-items: center; gap: 4px; min-width: 0;"><span style="color: #64748b; font-weight: 600;">{i}.</span><span style="font-weight: 600; color: #1e293b; max-width: 60px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{symbol}</span><span style="color: #475569; max-width: 50px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{symbol_name}</span>{f'<span style="font-size: 10px; color: {change_color}; font-weight: 600;">{change_str}</span>' if change_str else ''}<span style="color: {color}; font-weight: 600;">{weight:.1f}</span></div>"""
+            html += f"""<div style="background: {bg_color}; border: 1px solid {border_color}; border-radius: 6px; padding: 4px 8px; font-size: 11px; display: flex; align-items: center; gap: 4px; min-width: 0;"><span style="color: #64748b; font-weight: 600;">{i}.</span><span style="font-weight: 600; color: #1e293b; max-width: 60px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{symbol}</span>{f'<span style="color: #475569; max-width: 50px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{symbol_name}</span>' if symbol_name and symbol_name != symbol else ''}{f'<span style="font-size: 10px; color: {change_color}; font-weight: 600;">{change_str}</span>' if change_str else ''}<span style="color: {color}; font-weight: 600;">{weight:.1f}</span></div>"""
         html += "</div></div>"
 
     html += "</div></div>"

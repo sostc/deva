@@ -1,4 +1,7 @@
-"""Radar Engine - 感知层
+"""
+Radar Engine - 感知系统/雷达/感知层
+
+别名/关键词: 雷达、感知引擎、事件分发、signal detector、anomaly
 
 只负责发现信号异常，不做调度与结论
 - SignalAnomalyDetector: 检测策略信号中的异常模式

@@ -1,5 +1,7 @@
 """
-Radar News Fetcher - 雷达内置新闻获取器
+Radar News Fetcher - 感知系统/新闻抓取/舆情
+
+别名/关键词: 新闻抓取、news_fetcher、舆情、sentiment
 
 功能:
 1. 自己获取新闻（不依赖数据源系统）

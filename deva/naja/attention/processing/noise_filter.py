@@ -268,16 +268,23 @@ class NoiseFilter:
     def is_noise(self, symbol: str, amount: float = 0, volume: float = 0, price: float = 0) -> bool:
         """
         判断单个股票是否为噪音
-        
+
         Args:
             symbol: 股票代码
             amount: 成交金额
             volume: 成交量
             price: 价格
-            
+
         Returns:
             是否为噪音
         """
+        from deva.naja.attention.integration.extended import get_mode_manager
+        mode_manager = get_mode_manager()
+        current_mode = mode_manager.get_mode() if mode_manager else 'unknown'
+
+        if current_mode not in ('realtime', 'force_realtime'):
+            log.debug(f"[NoiseFilter] is_noise(mode={current_mode}): {symbol} - 实验室模式，跳过过滤")
+            return False
         # 检查缓存
         current_time = time.time()
         if current_time - self._last_filter_time < self._cache_ttl:
