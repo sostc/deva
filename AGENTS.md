@@ -152,41 +152,6 @@ Don't wait for permission to improve. If you learned something, write it down no
 
 ---
 
-## Future TODOs
-
-### TradingClock 与 GlobalMarketConfig 集成
-**时间：** 2026-03-29
-**状态：** 暂不实施，待做美股交易时整合
-
-**背景：**
-- 已实现 `GlobalMarketScanner` 支持全球市场（期货+美股）监控
-- 已实现 `global_market_config.py` 支持多时区市场交易时间
-- 现有 `TradingClock` 只支持 A 股（北京时区）
-
-**问题：**
-- GlobalMarketScanner 目前是独立轮询，不通过 TradingClock 订阅体系
-- 无法在时段变化时主动通知其他系统
-
-**集成条件（满足任一即可实施）：**
-1. 开始做美股实盘交易
-2. 需要 GlobalMarketScanner 信号接入 Attention 系统
-3. 需要跨市场自动交易
-
-**集成方案：**
-1. 创建 `GlobalTradingClock` 继承或扩展 `TradingClock`
-2. 支持多时区（NY、Shanghai、HK）
-3. 在 `radar/trading_clock.py` 中添加 `GlobalTradingClock` 类
-4. 将 `MarketSessionManager` 的状态发布到 `TRADING_CLOCK_STREAM`
-5. `GlobalMarketScanner` 改为订阅 `TradingClock` 信号而非自己计算间隔
-
-**好处：**
-- 统一的时间信号源
-- 时段变化时主动通知所有订阅者
-- 便于未来扩展到港股、欧股等
-
-**坏处：**
-- 改动较大，需要测试确保不影响 A 股系统
-- 目前 GlobalMarketScanner 独立工作正常
 
 ---
 
