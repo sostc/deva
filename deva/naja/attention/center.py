@@ -1,5 +1,7 @@
 """
-Attention Orchestrator - 注意力编排器
+Center - 觉醒系统/觉醒中心/调度
+
+别名/关键词: 觉醒中心、调度、协调、orchestrator、attention center
 
 核心职责：
 1. 接收所有数据源的数据
@@ -9,7 +11,7 @@ Attention Orchestrator - 注意力编排器
 5. 提供统一的查询接口
 
 架构：
-Radar/DataSource → AttentionKernel → AttentionOrchestrator → CognitionEngine → Strategy/Bandit
+Radar/DataSource → AttentionKernel → Center → CognitionEngine → Strategy/Bandit
 """
 
 import time
@@ -233,6 +235,7 @@ class AttentionOrchestrator:
             memory = AttentionMemory(decay_rate=300)
 
             self._attention_kernel = AttentionKernel(encoder, multi_head, memory, enable_manas=False)
+            self._attention_kernel.set_unified_manas_enabled(True)
             self._attention_query_state = QueryState()
             self._trade_feedback_history: List[Dict[str, Any]] = []
 
@@ -1481,13 +1484,17 @@ class AttentionOrchestrator:
 
     def _get_cognition_context(self) -> Dict[str, Any]:
         """
-        获取认知系统上下文
+        获取认知系统上下文（快思考）
 
-        统一规范：
-        - InsightPool → confidence, actionability, symbols, sectors (LLM反思深度洞察)
-        - NewsMind → topic_signals, news_sentiment (新闻分析，唯一情绪来源)
-        - CrossSignalAnalyzer → resonance_score, sector_name (共振检测，非情绪推断)
+        快思考模块：
+        - NewsMind → topic_signals, news_sentiment (新闻分析)
+        - CrossSignalAnalyzer → sector_resonances (共振检测)
         - LiquidityCognition → liquidity_predictions (流动性预测)
+        - AttentionHistoryTracker → attention_shift (注意力转移)
+        - AI算力趋势 → ai_compute_trend (OpenRouter)
+
+        慢思考模块（通过 get_recent_reflections 获取）：
+        - LLMReflection → latest_reflection (深度反思)
 
         Returns:
             包含认知系统输出的统一字典

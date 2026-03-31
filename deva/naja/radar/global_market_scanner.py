@@ -1,5 +1,7 @@
 """
-GlobalMarketScanner - 全球市场感知器 (增强版)
+GlobalMarketScanner - 感知系统/全球市场/市场扫描
+
+别名/关键词: 全球市场、市场扫描、异常检测、global market scanner、market anomaly、market scanner
 
 功能:
 1. 定期获取全球市场数据（期货 + 美股）

@@ -238,6 +238,8 @@ COGNITION_DETAILED_DOC = """
                 <div style="color: #a855f7;">📰 新闻舆情</div>
                 <div style="color: #3b82f6;">📊 策略结果</div>
                 <div style="color: #fb923c;">💭 用户反馈</div>
+                <div style="color: #10b981;">🔗 供应链事件</div>
+                <div style="color: #ec4899;">⚡ 第一性原理</div>
             </div>
             <div style="margin-top: 8px; font-size: 10px;">
                 <code style="background: rgba(20,184,166,0.1); padding: 2px 6px; border-radius: 3px;">
@@ -246,9 +248,64 @@ COGNITION_DETAILED_DOC = """
             </div>
         </div>
 
-        <!-- 信号类型 -->
+        <!-- 核心处理模块 -->
         <div style="margin-bottom: 14px; padding: 12px; background: rgba(0,0,0,0.2); border-radius: 8px; border-left: 3px solid #a855f7;">
-            <div style="color: #a855f7; font-weight: 600; margin-bottom: 8px;">🏷️ 信号类型 (SignalType)</div>
+            <div style="color: #a855f7; font-weight: 600; margin-bottom: 8px;">⚙️ 核心处理模块</div>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; font-size: 10px;">
+                <div style="background: rgba(139,92,246,0.1); padding: 8px; border-radius: 6px;">
+                    <div style="color: #c084fc; font-weight: 500; margin-bottom: 4px;">🔄 CrossSignalAnalyzer</div>
+                    <div style="color: #64748b; line-height: 1.5;">
+                        跨信号共振检测<br/>
+                        新闻×注意力 / 宏观叙事<br/>
+                        市场×市场共振
+                    </div>
+                </div>
+                <div style="background: rgba(236,72,153,0.1); padding: 8px; border-radius: 6px;">
+                    <div style="color: #ec4899; font-weight: 500; margin-bottom: 4px;">📖 NarrativeTracker</div>
+                    <div style="color: #64748b; line-height: 1.5;">
+                        叙事生命周期追踪<br/>
+                        萌芽→扩散→高潮→消退<br/>
+                        供应链叙事联动 ⚡新
+                    </div>
+                </div>
+                <div style="background: rgba(96,165,250,0.1); padding: 8px; border-radius: 6px;">
+                    <div style="color: #60a5fa; font-weight: 500; margin-bottom: 4px;">❄️ SemanticColdStart</div>
+                    <div style="color: #64748b; line-height: 1.5;">
+                        种子词→语义扩展<br/>
+                        权重计算→图谱构建<br/>
+                        行业衰减配置
+                    </div>
+                </div>
+                <div style="background: rgba(249,115,22,0.1); padding: 8px; border-radius: 6px;">
+                    <div style="color: #fb923c; font-weight: 500; margin-bottom: 4px;">🔬 FirstPrinciplesMind ⚡新</div>
+                    <div style="color: #64748b; line-height: 1.5;">
+                        第一性原理分析<br/>
+                        因果链推导<br/>
+                        矛盾检测与归纳
+                    </div>
+                </div>
+                <div style="background: rgba(16,185,129,0.1); padding: 8px; border-radius: 6px;">
+                    <div style="color: #10b981; font-weight: 500; margin-bottom: 4px;">💰 LiquidityCognition ⚡新</div>
+                    <div style="color: #64748b; line-height: 1.5;">
+                        流动性结构分析<br/>
+                        美林时钟四象限<br/>
+                        资金流向追踪
+                    </div>
+                </div>
+                <div style="background: rgba(245,158,11,0.1); padding: 8px; border-radius: 6px;">
+                    <div style="color: #f59e0b; font-weight: 500; margin-bottom: 4px;">🌐 GlobalPropagation ⚡新</div>
+                    <div style="color: #64748b; line-height: 1.5;">
+                        全球市场传播网络<br/>
+                        节点变化→沿边传播<br/>
+                        动态调权验证
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 信号类型 -->
+        <div style="margin-bottom: 14px; padding: 12px; background: rgba(0,0,0,0.2); border-radius: 8px; border-left: 3px solid #60a5fa;">
+            <div style="color: #60a5fa; font-weight: 600; margin-bottom: 8px;">🏷️ 信号类型 (SignalType)</div>
             <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 6px; font-size: 10px;">
                 <div><span style="color: #10b981;">topic_emerge</span> - 新话题出现</div>
                 <div><span style="color: #10b981;">topic_grow</span> - 话题增长</div>
@@ -256,20 +313,8 @@ COGNITION_DETAILED_DOC = """
                 <div><span style="color: #f59e0b;">topic_high_attention</span> - 高关注度</div>
                 <div><span style="color: #3b82f6;">topic_trend_shift</span> - 趋势转变</div>
                 <div><span style="color: #8b5cf6;">narrative_drift</span> - 叙事漂移</div>
-            </div>
-        </div>
-
-        <!-- 数据源识别 -->
-        <div style="margin-bottom: 14px; padding: 12px; background: rgba(0,0,0,0.2); border-radius: 8px; border-left: 3px solid #60a5fa;">
-            <div style="color: #60a5fa; font-weight: 600; margin-bottom: 8px;">🔎 数据源类型识别</div>
-            <div style="font-size: 10px; line-height: 1.6;">
-                <div>根据 <code>_datasource_name</code> 或 <code>source</code> 字段识别数据类型：</div>
-                <div style="margin-top: 4px; padding-left: 8px; border-left: 2px solid rgba(96,165,250,0.3);">
-                    <span style="color: #f59e0b;">新闻类</span>：财经新闻、金十数据、jin10 等<br/>
-                    <span style="color: #3b82f6;">行情类</span>：tick、quant、realtime_quant 等<br/>
-                    <span style="color: #64748b;">日志类</span>：log、system 等<br/>
-                    <span style="color: #8b5cf6;">文件类</span>：file、download 等
-                </div>
+                <div><span style="color: #ec4899;">cross_signal_resonance</span> ⚡新</div>
+                <div><span style="color: #f59e0b;">narrative_stage_change</span> ⚡新</div>
             </div>
         </div>
 
@@ -280,7 +325,7 @@ COGNITION_DETAILED_DOC = """
                 <div style="text-align: center; padding: 8px; background: rgba(0,0,0,0.3); border-radius: 6px;">
                     <div style="color: #10b981; font-weight: 600;">Short Memory</div>
                     <div style="color: #64748b;">容量: 1000条</div>
-                    <div style="color: #64748b;">自动淘汰</div>
+                    <div style="color: #64748b;">实时事件流</div>
                 </div>
                 <div style="text-align: center; padding: 8px; background: rgba(0,0,0,0.3); border-radius: 6px;">
                     <div style="color: #f59e0b; font-weight: 600;">Mid Memory</div>
@@ -293,26 +338,53 @@ COGNITION_DETAILED_DOC = """
                     <div style="color: #64748b;">持久保存</div>
                 </div>
             </div>
+            <div style="margin-top: 8px; padding: 8px; background: rgba(16,185,129,0.1); border-radius: 6px;">
+                <div style="color: #10b981; font-weight: 500; margin-bottom: 4px;">🔄 动态阈值调整</div>
+                <div style="color: #64748b; font-size: 9px;">
+                    市场活跃(>0.6) → 提高阈值(0.85) 减少噪音 | 市场平淡(<0.3) → 降低阈值(0.5) 保留信号
+                </div>
+            </div>
         </div>
 
-        <!-- 叙事追踪 -->
+        <!-- 叙事生命周期 -->
         <div style="margin-bottom: 14px; padding: 12px; background: rgba(0,0,0,0.2); border-radius: 8px; border-left: 3px solid #ec4899;">
-            <div style="color: #ec4899; font-weight: 600; margin-bottom: 8px;">📖 叙事追踪 (NarrativeTracker)</div>
+            <div style="color: #ec4899; font-weight: 600; margin-bottom: 8px;">🌊 叙事生命周期 (NarrativeTracker)</div>
+            <div style="display: flex; align-items: center; gap: 4px; margin-bottom: 8px;">
+                <span style="padding: 2px 8px; background: #60a5fa; color: #0f172a; border-radius: 4px; font-size: 9px; font-weight: 600;">萌芽</span>
+                <span style="color: #475569;">→</span>
+                <span style="padding: 2px 8px; background: #818cf8; color: #0f172a; border-radius: 4px; font-size: 9px; font-weight: 600;">扩散</span>
+                <span style="color: #475569;">→</span>
+                <span style="padding: 2px 8px; background: #f87171; color: #0f172a; border-radius: 4px; font-size: 9px; font-weight: 600;">高潮</span>
+                <span style="color: #475569;">→</span>
+                <span style="padding: 2px 8px; background: #fb923c; color: #0f172a; border-radius: 4px; font-size: 9px; font-weight: 600;">消退</span>
+            </div>
             <div style="font-size: 10px; color: #64748b; line-height: 1.6;">
-                <div>• 从新闻事件中提取叙事主题</div>
-                <div>• 追踪叙事生命周期：emerging → growing → stable → declining</div>
-                <div>• 检测叙事间的关联和冲突</div>
-                <div>• 生成叙事摘要供LLM反思使用</div>
+                <div>• 关键词命中 → 叙事识别 → 阶段判定</div>
+                <div>• 注意力分数 = 0.6×计数得分 + 0.4×平均注意力</div>
+                <div>• 供应链叙事联动：叙事热点 ↔ 供应链股票双向映射 ⚡新</div>
             </div>
         </div>
 
         <!-- 输出 -->
         <div style="padding: 12px; background: rgba(0,0,0,0.2); border-radius: 8px; border-left: 3px solid #f59e0b;">
             <div style="color: #f59e0b; font-weight: 600; margin-bottom: 8px;">📤 输出：洞察与建议</div>
-            <div style="font-size: 10px; line-height: 1.6;">
-                <div>• <span style="color: #14b8a6;">注意力建议</span>：标的/板块权重 → 反馈给注意力调度</div>
-                <div>• <span style="color: #a855f7;">洞察摘要</span>：<code>summarize_for_llm()</code> → LLM反思</div>
-                <div>• <span style="color: #60a5fa;">记忆报告</span>：<code>get_memory_report()</code> → 记忆状态</div>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; font-size: 10px;">
+                <div style="background: rgba(20,184,166,0.1); padding: 8px; border-radius: 6px;">
+                    <div style="color: #14b8a6; font-weight: 500;">👁️ 注意力建议</div>
+                    <div style="color: #64748b; margin-top: 4px;">标的/板块权重 → Attention Kernel</div>
+                </div>
+                <div style="background: rgba(168,85,247,0.1); padding: 8px; border-radius: 6px;">
+                    <div style="color: #a855f7; font-weight: 500;">🤖 LLM反思</div>
+                    <div style="color: #64748b; margin-top: 4px;">深度总结 → InsightPool</div>
+                </div>
+                <div style="background: rgba(96,165,250,0.1); padding: 8px; border-radius: 6px;">
+                    <div style="color: #60a5fa; font-weight: 500;">🔬 第一性原理</div>
+                    <div style="color: #64748b; margin-top: 4px;">因果分析 → MetaEvolution ⚡新</div>
+                </div>
+                <div style="background: rgba(16,185,129,0.1); padding: 8px; border-radius: 6px;">
+                    <div style="color: #10b981; font-weight: 500;">💰 流动性信号</div>
+                    <div style="color: #64748b; margin-top: 4px;">结构分析 → 四维决策 ⚡新</div>
+                </div>
             </div>
         </div>
     </div>

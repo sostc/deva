@@ -395,10 +395,12 @@ class SectorAttentionEngine:
         noise_detector = _get_noise_detector() if filter_noise else None
 
         weights = {}
+        filtered_count = 0
         for sector_id, idx in self._sector_id_to_idx.items():
             if filter_noise and noise_detector:
                 sector_name = self._sectors[idx].name if idx in self._sectors else None
                 if noise_detector.is_noise(sector_id, sector_name):
+                    filtered_count += 1
                     continue
             raw_score = float(self._attention_scores[idx])
             clamped_score = max(0.0, min(1.0, raw_score))
@@ -408,7 +410,9 @@ class SectorAttentionEngine:
 
         if len(weights) < 5:
             weight_names = [self._sectors[idx].name if idx in self._sectors else k for k, idx in self._sector_id_to_idx.items() if k in weights]
-            log.info(f"[SectorAttention] get_all_weights: 返回 {len(weights)} 个有效板块: {weight_names}")
+            log.info(f"[SectorAttention] get_all_weights: 返回 {len(weights)} 个有效板块 (过滤了 {filtered_count} 个噪音)")
+        else:
+            log.debug(f"[SectorAttention] get_all_weights: 返回 {len(weights)} 个有效板块 (过滤了 {filtered_count} 个噪音)")
         return weights
 
     def reset(self):

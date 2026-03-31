@@ -1,4 +1,8 @@
 """
+BanditStrategySelector - Bandit系统/策略选择
+
+别名/关键词: 策略选择、学习、bandit selector、strategy selector
+
 Module 11: Strategy Learning - 策略选择学习
 
 核心能力:

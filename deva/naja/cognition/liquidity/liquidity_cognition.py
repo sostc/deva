@@ -1,5 +1,7 @@
 """
-LiquidityCognition - 流动性认知协调器
+LiquidityCognition - 认知系统/流动性认知/跨市场
+
+别名/关键词: 流动性、跨市场、全球流动性、propagation、liquidity、跨市场传导
 
 核心功能：
 1. 接收来自 Radar 的全球市场事件

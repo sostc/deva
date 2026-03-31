@@ -1,5 +1,7 @@
 """
-PreTasteSense - 预尝能力
+PreTaste - 觉醒系统/品味/筛选
+
+别名/关键词: 品味、筛选、过滤、taste、pre_taste
 
 在买入之前感知"味道"：这个股票好不好、值不值得买
 

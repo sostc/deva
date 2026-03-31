@@ -128,7 +128,10 @@ class NajaAttentionIntegration:
             return
 
         try:
-            from .integration import migrate_legacy, IntelligenceConfig
+            from .integration import (
+                _IntelligenceAugmentedSystemInternal,
+                IntelligenceConfig,
+            )
 
             if isinstance(self.intelligence_config, dict):
                 ic = IntelligenceConfig(
@@ -141,8 +144,8 @@ class NajaAttentionIntegration:
             else:
                 ic = self.intelligence_config
 
-            self.intelligence_system = migrate_legacy(
-                existing_system=self.attention_system,
+            self.intelligence_system = _IntelligenceAugmentedSystemInternal(
+                config=None,
                 intelligence_config=ic
             )
 
@@ -332,11 +335,16 @@ class NajaAttentionIntegration:
         """确保所有个股都有板块映射"""
         try:
             db = NB("quant_snapshot_5min_window")
-            if db.keys():
-                latest_key = sorted(db.keys())[-1]
+            keys = list(db.keys())
+            log.debug(f"[_ensure_symbol_mappings] 数据库键数量: {len(keys)}")
+
+            if keys:
+                latest_key = sorted(keys)[-1]
                 df = db[latest_key]
+                log.debug(f"[_ensure_symbol_mappings] 最新键: {latest_key}, 类型: {type(df)}")
 
                 if isinstance(df, pd.DataFrame) and 'code' in df.columns:
+                    log.debug(f"[_ensure_symbol_mappings] DataFrame 行数: {len(df)}, 列: {list(df.columns)}")
                     for _, row in df.iterrows():
                         symbol = str(row['code'])
                         if symbol not in self._symbol_sector_map:
@@ -347,8 +355,15 @@ class NajaAttentionIntegration:
                                 if sector.sector_id == sector_id:
                                     sector.symbols.add(symbol)
                                     break
+                    log.debug(f"[_ensure_symbol_mappings] 完成后个股映射数: {len(self._symbol_sector_map)}")
+                else:
+                    log.debug(f"[_ensure_symbol_mappings] 数据不是DataFrame或没有code列")
+            else:
+                log.debug(f"[_ensure_symbol_mappings] 数据库为空")
         except Exception as e:
             log.warning(f"确保个股映射失败: {e}")
+            import traceback
+            log.warning(traceback.format_exc())
 
     def _guess_sector(self, symbol: str) -> str:
         """根据股票代码猜测所属板块"""
@@ -465,18 +480,21 @@ class AttentionModeManager:
     """
     注意力系统模式管理器 - 确保交易模式和实验模式互斥
 
+    三种模式：
+    - MODE_REALTIME: 实盘交易模式，使用 RealtimeDataFetcher 从 Sina 获取实时数据
+    - MODE_LAB: 实验/回放模式，使用 ReplayScheduler 从数据库获取历史数据
+    - MODE_FORCE_REALTIME: 强制实盘调试模式，忽略交易时间限制
+
     核心原则：
-    1. 交易时间不允许启动实验模式
+    1. 实盘和实验模式互斥
     2. 实验模式启动时自动停止实盘获取器
     3. 实验模式退出时自动恢复实盘获取器
-
-    两种模式：
-    - MODE_NORMAL: 正常交易模式，使用 RealtimeDataFetcher 从 Sina 获取实时数据
-    - MODE_LAB: 实验/回放模式，使用 ReplayScheduler 从数据库获取历史数据
+    4. 强制实盘调试模式用于非交易时间调试
     """
 
-    MODE_NORMAL = "normal"
+    MODE_REALTIME = "realtime"
     MODE_LAB = "lab"
+    MODE_FORCE_REALTIME = "force_realtime"
 
     _instance = None
     _lock = threading.Lock()
@@ -499,17 +517,32 @@ class AttentionModeManager:
         with self._init_lock:
             if getattr(self, '_initialized', False):
                 return
-            self._mode = self.MODE_NORMAL
+            self._mode = self.MODE_REALTIME
             self._original_fetcher_config: Optional[Dict] = None
+            self._mode_history: List[Dict] = []
             self._initialized = True
-            log.info("[AttentionModeManager] 模式管理器初始化完成，当前模式: normal")
+            log.info("[AttentionModeManager] 模式管理器初始化完成，当前模式: realtime")
+
+    def get_diagnostic_info(self) -> Dict[str, Any]:
+        """获取诊断信息，用于调试和UI显示"""
+        self._ensure_initialized()
+        import os
+        return {
+            'current_mode': self._mode,
+            'is_realtime': self._mode in (self.MODE_REALTIME, self.MODE_FORCE_REALTIME),
+            'is_lab': self._mode == self.MODE_LAB,
+            'is_force_realtime': self._mode == self.MODE_FORCE_REALTIME,
+            'env_naaja_lab': os.environ.get('NAJA_LAB_MODE', 'not set'),
+            'env_naaja_force_realtime': os.environ.get('NAJA_FORCE_REALTIME', 'not set'),
+            'mode_history': self._mode_history[-5:] if self._mode_history else [],
+        }
 
     def set_mode(self, mode: str, fetcher_config: Optional[Dict] = None):
         """
         设置当前模式
 
         Args:
-            mode: MODE_NORMAL 或 MODE_LAB
+            mode: MODE_REALTIME, MODE_LAB, 或 MODE_FORCE_REALTIME
             fetcher_config: 实验模式退出时用于恢复实盘获取器的配置
         """
         self._ensure_initialized()
@@ -520,11 +553,16 @@ class AttentionModeManager:
 
             old_mode = self._mode
             self._mode = mode
+            self._mode_history.append({
+                'timestamp': time.time(),
+                'from': old_mode,
+                'to': mode
+            })
             log.info(f"[AttentionModeManager] 模式切换: {old_mode} -> {mode}")
 
             if mode == self.MODE_LAB:
                 self._stop_realtime_fetcher_if_running()
-            elif mode == self.MODE_NORMAL and fetcher_config:
+            elif mode in (self.MODE_REALTIME, self.MODE_FORCE_REALTIME) and fetcher_config:
                 self._restore_realtime_fetcher(fetcher_config)
 
     def get_mode(self) -> str:
@@ -537,10 +575,15 @@ class AttentionModeManager:
         self._ensure_initialized()
         return self._mode == self.MODE_LAB
 
-    def is_normal_mode(self) -> bool:
-        """是否正常交易模式"""
+    def is_realtime_mode(self) -> bool:
+        """是否实盘模式（普通或强制）"""
         self._ensure_initialized()
-        return self._mode == self.MODE_NORMAL
+        return self._mode in (self.MODE_REALTIME, self.MODE_FORCE_REALTIME)
+
+    def is_force_realtime_mode(self) -> bool:
+        """是否强制实盘调试模式"""
+        self._ensure_initialized()
+        return self._mode == self.MODE_FORCE_REALTIME
 
     def save_fetcher_config(self, config: Dict):
         """保存实盘获取器配置（用于后续恢复）"""
@@ -606,6 +649,11 @@ def initialize_attention_system(
 
     这是主要的初始化入口，在 naja 启动时调用
 
+    环境变量模式检测优先级：
+    1. NAJA_LAB_MODE=1 -> 实验模式
+    2. NAJA_FORCE_REALTIME=1 -> 强制实盘调试模式
+    3. 默认 -> 普通实盘模式
+
     Args:
         config: 注意力系统配置
         intelligence_config: 智能增强系统配置
@@ -615,7 +663,11 @@ def initialize_attention_system(
     log.info("[initialize_attention_system] 开始初始化...")
 
     mode_manager = get_mode_manager()
+
     is_lab_mode = os.environ.get('NAJA_LAB_MODE') == '1'
+    is_force_realtime = os.environ.get('NAJA_FORCE_REALTIME') == '1'
+
+    log.info(f"[initialize_attention_system] 模式检测: NAJA_LAB_MODE={'1' if is_lab_mode else 'not set'}, NAJA_FORCE_REALTIME={'1' if is_force_realtime else 'not set'}")
 
     integration = get_attention_integration()
     attention_system = integration.initialize(config, intelligence_config=intelligence_config)
@@ -626,8 +678,23 @@ def initialize_attention_system(
         log.info("[initialize_attention_system] 检测到实验模式 (NAJA_LAB_MODE=1)，设置模式管理器...")
         mode_manager.enter_lab_mode()
         log.info("[initialize_attention_system] 实验模式，跳过实盘获取器启动")
+    elif is_force_realtime:
+        log.info("[initialize_attention_system] ⚠️ 强制实盘调试模式 (NAJA_FORCE_REALTIME=1)，忽略交易时间限制")
+        mode_manager.set_mode(AttentionModeManager.MODE_FORCE_REALTIME)
+        fetcher_config = {
+            'base_high_interval': 1.0,
+            'base_medium_interval': 10.0,
+            'base_low_interval': 60.0,
+            'enable_market_data': True,
+            'force_trading_mode': True,
+            'playback_mode': False,
+            'playback_speed': 1.0,
+        }
+        mode_manager.save_fetcher_config(fetcher_config)
+        log.info("[initialize_attention_system] 启动实盘获取器 (强制模式)...")
+        attention_system.start_realtime_fetcher()
     else:
-        mode_manager.set_mode(AttentionModeManager.MODE_NORMAL)
+        mode_manager.set_mode(AttentionModeManager.MODE_REALTIME)
         fetcher_config = {
             'base_high_interval': 1.0,
             'base_medium_interval': 10.0,
@@ -638,7 +705,7 @@ def initialize_attention_system(
             'playback_speed': 1.0,
         }
         mode_manager.save_fetcher_config(fetcher_config)
-        log.info("[initialize_attention_system] 启动实盘获取器...")
+        log.info("[initialize_attention_system] 启动实盘获取器 (普通模式)...")
         attention_system.start_realtime_fetcher()
 
     log.info("[initialize_attention_system] 初始化完成")

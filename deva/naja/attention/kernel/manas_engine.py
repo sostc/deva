@@ -65,7 +65,7 @@ manas_score = 0.4 * timing + 0.3 * regime + 0.3 * confidence
 
 import time
 import logging
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, Optional, List, Tuple
 from dataclasses import dataclass, field
 from enum import Enum
 
@@ -97,6 +97,10 @@ class ManasOutput:
     alpha: float = 1.0
     attention_focus: float = 1.0
 
+    narrative_risk: float = 0.5
+    hot_narratives: List[Tuple[str, float]] = field(default_factory=list)
+    supply_chain_risk_level: str = "unknown"
+
     def to_dict(self) -> Dict[str, Any]:
         return {
             "manas_score": self.manas_score,
@@ -110,6 +114,9 @@ class ManasOutput:
             "bias_correction": self.bias_correction,
             "alpha": self.alpha,
             "attention_focus": self.attention_focus,
+            "narrative_risk": self.narrative_risk,
+            "hot_narratives": self.hot_narratives,
+            "supply_chain_risk_level": self.supply_chain_risk_level,
         }
 
 
@@ -565,7 +572,7 @@ class MetaManas:
 
     纠偏：
         • 贪时 → reduce α, increase T
-        • 惧时 → keep α, moderate T
+        • 恐时 → keep α, moderate T
     """
 
     def __init__(self):
@@ -638,6 +645,160 @@ class MetaManas:
         return BiasState.NEUTRAL, 1.0
 
 
+class NarrativeSupplyChainEngine:
+    """
+    叙事供应链引擎 - 觉知市场叙事的供应链风险
+
+    整合 NarrativeSupplyChainLinker 到末那识决策中
+
+    功能：
+        • 跟踪叙事重要性变化
+        • 检测供应链风险事件
+        • 计算叙事风险因子
+        • 联动叙事-供应链关注度
+    """
+
+    def __init__(self):
+        self._linker = None
+        self._narrative_importance_history: Dict[str, List[float]] = {}
+        self._risk_alert_threshold = 2.0
+        self._last_risk_check = 0.0
+        self._check_interval = 60.0
+
+    def _get_linker(self):
+        """懒加载联动器"""
+        if self._linker is None:
+            try:
+                from deva.naja.cognition import get_supply_chain_linker
+                self._linker = get_supply_chain_linker()
+            except ImportError:
+                log.warning("[NarrativeSupplyChainEngine] 无法导入 NarrativeSupplyChainLinker")
+                return None
+        return self._linker
+
+    def compute(self, narratives: List[str] = None) -> float:
+        """
+        计算叙事供应链风险因子
+
+        Args:
+            narratives: 当前关注的叙事主题列表
+
+        Returns:
+            risk_factor ∈ [0, 1], 1 = 高风险
+        """
+        linker = self._get_linker()
+        if linker is None:
+            return 0.5
+
+        if narratives is None:
+            narratives = []
+
+        risk_scores = []
+        high_risk_stocks = set()
+
+        for narrative in narratives:
+            summary = linker.get_supply_chain_for_narrative(narrative)
+
+            if summary.get('total_risk') == 'HIGH':
+                risk_scores.append(0.8)
+                high_risk_stocks.update(summary.get('high_risk_stocks', []))
+            elif summary.get('total_risk') == 'MEDIUM':
+                risk_scores.append(0.5)
+            else:
+                risk_scores.append(0.2)
+
+            importance = summary.get('importance', 1.0)
+            if importance > 2.0:
+                risk_scores.append(0.7)
+            elif importance > 1.5:
+                risk_scores.append(0.5)
+
+        if not risk_scores:
+            return 0.5
+
+        avg_risk = sum(risk_scores) / len(risk_scores)
+
+        recent_events = linker.get_recent_events(limit=5)
+        if recent_events:
+            latest_event = recent_events[-1]
+            if latest_event.risk_level.value in ['high', 'critical']:
+                avg_risk = min(1.0, avg_risk * 1.3)
+
+        return max(0.0, min(1.0, avg_risk))
+
+    def get_hot_narratives(self, top_n: int = 5) -> List[Tuple[str, float]]:
+        """
+        获取当前最热的叙事主题
+
+        Args:
+            top_n: 返回前 N 个
+
+        Returns:
+            [(narrative, importance), ...]
+        """
+        linker = self._get_linker()
+        if linker is None:
+            return []
+        return linker.get_hot_narratives(top_n)
+
+    def on_risk_event(self, stock_code: str, description: str):
+        """
+        记录供应链风险事件
+
+        Args:
+            stock_code: 出问题的股票代码
+            description: 事件描述
+        """
+        linker = self._get_linker()
+        if linker is None:
+            return
+
+        event = linker.on_stock_risk_event(stock_code, description)
+        log.info(f"[NarrativeSupplyChainEngine] 风险事件: {event.description} "
+                f"风险等级: {event.risk_level.value} 关联叙事: {event.narratives}")
+
+    def on_narrative_boost(self, narrative: str, boost_factor: float = 1.5):
+        """
+        提升叙事重要性
+
+        Args:
+            narrative: 叙事主题
+            boost_factor: 提升因子
+        """
+        linker = self._get_linker()
+        if linker is None:
+            return
+
+        linker.on_narrative_boost(narrative, boost_factor)
+
+    def get_risk_attention_focus(self, current_focus: Dict[str, float]) -> Dict[str, float]:
+        """
+        根据供应链风险调整注意力焦点
+
+        Args:
+            current_focus: 原始注意力焦点
+
+        Returns:
+            调整后的注意力焦点
+        """
+        linker = self._get_linker()
+        if linker is None:
+            return current_focus
+
+        adjusted = dict(current_focus)
+
+        for narrative in list(adjusted.keys()):
+            weighted_stocks = linker.get_related_stocks_with_weight(narrative)
+            if weighted_stocks:
+                for stock_code, weight in weighted_stocks:
+                    risk_report = linker.get_supply_chain_risk_report(stock_code)
+                    if risk_report and risk_report.overall_risk_level == 'HIGH':
+                        adjusted[narrative] = adjusted[narrative] * 0.8
+                        break
+
+        return adjusted
+
+
 class ManasEngine:
     """
     末那识引擎 - 核心决策中枢
@@ -670,12 +831,22 @@ class ManasEngine:
         self.confidence_engine = ConfidenceEngine()
         self.risk_engine = RiskEngine()
         self.meta_manas = MetaManas()
+        self.narrative_supply_chain_engine = NarrativeSupplyChainEngine()
 
         self._last_output: Optional[ManasOutput] = None
         self._last_update = 0.0
         self._update_interval = 1.0
-
+        self._current_narratives: List[str] = []
         self._recent_pnl: List[float] = []
+
+    def set_narratives(self, narratives: List[str]):
+        """
+        设置当前关注的叙事主题
+
+        Args:
+            narratives: 叙事主题列表
+        """
+        self._current_narratives = narratives
 
     def compute(
         self,
@@ -684,6 +855,7 @@ class ManasEngine:
         scanner=None,
         bandit_tracker=None,
         macro_signal: float = 0.5,
+        narratives: List[str] = None,
     ) -> ManasOutput:
         """
         计算末那识输出
@@ -694,6 +866,7 @@ class ManasEngine:
             scanner: GlobalMarketScanner
             bandit_tracker: BanditPositionTracker
             macro_signal: 宏观流动性信号
+            narratives: 当前叙事主题列表（从 NarrativeTracker 获取）
 
         Returns:
             ManasOutput: 末那识决策输出
@@ -702,16 +875,24 @@ class ManasEngine:
         if current_time - self._last_update < self._update_interval and self._last_output is not None:
             return self._last_output
 
+        if narratives is not None:
+            self._current_narratives = narratives
+
         timing_score = self.timing_engine.compute(session_manager, scanner)
         regime_score = self.regime_engine.compute(scanner, macro_signal)
         confidence_score = self.confidence_engine.compute(bandit_tracker)
         risk_temperature = self.risk_engine.compute(portfolio, scanner)
+
+        narrative_risk = self.narrative_supply_chain_engine.compute(self._current_narratives)
 
         raw_manas = (
             self.WEIGHT_TIMING * timing_score +
             self.WEIGHT_REGIME * (regime_score + 1) / 2 +
             self.WEIGHT_CONFIDENCE * confidence_score
         )
+
+        if narrative_risk > 0.6:
+            raw_manas *= (1.0 - (narrative_risk - 0.6) * 0.5)
 
         bias_state, bias_correction = self.meta_manas.detect_and_correct(
             raw_manas,
@@ -731,6 +912,13 @@ class ManasEngine:
 
         reason = self._get_gate_reason(manas_score, timing_score, regime_score, confidence_score, bias_state)
 
+        hot_narratives = self.narrative_supply_chain_engine.get_hot_narratives(5)
+        supply_chain_risk = "LOW"
+        if narrative_risk > 0.7:
+            supply_chain_risk = "HIGH"
+        elif narrative_risk > 0.5:
+            supply_chain_risk = "MEDIUM"
+
         output = ManasOutput(
             manas_score=manas_score,
             timing_score=timing_score,
@@ -743,6 +931,9 @@ class ManasEngine:
             bias_correction=bias_correction,
             alpha=alpha,
             attention_focus=attention_focus,
+            narrative_risk=narrative_risk,
+            hot_narratives=hot_narratives,
+            supply_chain_risk_level=supply_chain_risk,
         )
 
         self._last_output = output

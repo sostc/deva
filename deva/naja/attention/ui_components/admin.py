@@ -32,10 +32,7 @@ async def render_attention_admin(ctx: dict):
         render_dual_engine_status, render_noise_filter_status, render_hot_sectors_and_stocks,
         render_market_state_panel,
     )
-    from .kernel import (
-        render_kernel_dashboard, render_kernel_live_view,
-        render_attention_flow_diagram, render_four_dimensions_status,
-    )
+    from .awakening import render_awakening_status
     from .timeline import (
         render_attention_timeline, render_sector_trends, render_attention_shift_report,
         render_multi_threshold_timeline, render_attention_changes, render_recent_signals,
@@ -157,6 +154,7 @@ async def render_attention_admin(ctx: dict):
         if fetcher:
             fetcher_running = fetcher.get('running', False)
             is_trading = fetcher.get('is_trading', False)
+            is_force_mode = fetcher.get('is_force_trading_mode', False)
             fetcher_status_icon = "🟢" if fetcher_running else "🔴"
 
             current_time = fetcher.get('current_time', '')
@@ -164,7 +162,37 @@ async def render_attention_admin(ctx: dict):
             next_trading = fetcher.get('next_trading', '')
             reasons = fetcher.get('not_running_reasons', [])
 
-            if fetcher_running and is_trading:
+            if is_force_mode:
+                if fetcher_running:
+                    panel_html = f"""
+                    <div style="margin-bottom:14px;padding:12px 14px;border-radius:10px;background:linear-gradient(135deg,#f0fdf4,#dcfce7);border:1px solid #86efac;color:#166534;font-size:13px;">
+                        <strong>📡 实盘获取器 {fetcher_status_icon}</strong> 强制调试中<br>
+                        <span style="font-size:12px;">
+                        🕐 当前时间: {weekday} {current_time} |
+                        🔧 模式: <span style="color:#06b6d4;font-weight:bold;">强制实盘(忽略交易时间)</span>
+                        </span><br>
+                        <span style="font-size:11px;color:#64748b;">
+                        🔄 获取次数: {fetcher.get('fetch_count', 0)} |
+                        ❌ 错误: {fetcher.get('error_count', 0)} |
+                        📈 档位: HIGH={fetcher.get('high_count', 0)} | MEDIUM={fetcher.get('medium_count', 0)} | LOW={fetcher.get('low_count', 0)}
+                        </span>
+                    </div>
+                    """
+                else:
+                    panel_html = f"""
+                    <div style="margin-bottom:14px;padding:12px 14px;border-radius:10px;background:linear-gradient(135deg,#e0f2fe,#bae6fd);border:1px solid #38bdf8;color:#0369a1;font-size:13px;">
+                        <strong>📡 实盘获取器 {fetcher_status_icon}</strong> 强制调试待机<br>
+                        <span style="font-size:12px;">
+                        🕐 当前时间: {weekday} {current_time} |
+                        🔧 模式: <span style="color:#06b6d4;font-weight:bold;">强制实盘(忽略交易时间)</span>
+                        </span><br>
+                        <span style="font-size:11px;color:#64748b;">
+                        🔄 获取次数: {fetcher.get('fetch_count', 0)} |
+                        ❌ 错误: {fetcher.get('error_count', 0)}
+                        </span>
+                    </div>
+                    """
+            elif fetcher_running and is_trading:
                 panel_html = f"""
                 <div style="margin-bottom:14px;padding:12px 14px;border-radius:10px;background:linear-gradient(135deg,#f0fdf4,#dcfce7);border:1px solid #86efac;color:#166534;font-size:13px;">
                     <strong>📡 实盘获取器 {fetcher_status_icon}</strong> 运行中<br>
@@ -247,8 +275,8 @@ async def render_attention_admin(ctx: dict):
         except Exception:
             pass
 
-    with use_scope("attention_four_dimensions"):
-        put_html(render_four_dimensions_status())
+    with use_scope("attention_awakening"):
+        put_html(render_awakening_status())
 
     with use_scope("attention_market_state"):
         put_html(render_market_state_panel())

@@ -1,5 +1,7 @@
 """
-OpenRouter TOKEN 趋势监控
+OpenRouterMonitor - 感知系统/TOKEN监控/算力监控
+
+别名/关键词: TOKEN、算力、GPU、AI算力、openrouter、算力需求
 
 功能：
 1. 每周一获取 OpenRouter TOKEN 消耗数据

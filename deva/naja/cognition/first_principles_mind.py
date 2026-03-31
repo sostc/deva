@@ -1,5 +1,7 @@
 """
-FirstPrinciplesMind - 第一性原理思维引擎
+FirstPrinciplesMind - 认知系统/第一性原理/因果分析
+
+别名/关键词: 第一性原理、因果分析、first_principles、causality
 
 "妙观察智"的进阶实现 - 意识层核心
 

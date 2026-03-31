@@ -27,6 +27,11 @@ from .realtime_taste import (
     TasteSignal,
 )
 
+from .pre_taste import (
+    PreTasteSense,
+    PreTasteResult,
+)
+
 __all__ = [
     "ProphetSense",
     "ProphetSignal",
@@ -37,4 +42,6 @@ __all__ = [
     "VolatilitySurfaceSense",
     "RealtimeTaste",
     "TasteSignal",
+    "PreTasteSense",
+    "PreTasteResult",
 ]
