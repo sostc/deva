@@ -41,6 +41,7 @@ def render_attention_flow_ui() -> str:
     try:
         from deva.naja.attention.center import get_orchestrator
         from deva.naja.attention.integration import get_attention_integration
+        from deva.naja.radar.trading_clock import is_trading_time as is_cn_trading, is_us_trading_time
 
         orchestrator = get_orchestrator()
         integration = get_attention_integration()
@@ -48,10 +49,27 @@ def render_attention_flow_ui() -> str:
         stats = orchestrator.get_stats()
         context = orchestrator.get_attention_context()
 
-    except Exception:
+        is_cn = is_cn_trading()
+        is_us = is_us_trading_time()
+
+        us_data = None
+        if integration and integration.attention_system:
+            try:
+                us_data = integration.attention_system.get_us_attention_state()
+                print(f"[Flow-UI] us_data global_attention={us_data.get('global_attention', 0) if us_data else 'None'}")
+            except Exception as e:
+                print(f"[Flow-UI] get_us_attention_state failed: {e}")
+                us_data = None
+
+        print(f"[Flow-UI] stats processed_frames={stats.get('processed_frames', 0)}, is_cn={is_cn}, is_us={is_us}")
+
+    except Exception as e:
+        print(f"[Flow-UI] render_attention_flow_ui failed: {e}")
+        import traceback
+        traceback.print_exc()
         return _render_empty_state()
 
-    return _build_attention_flow_html(stats, context, integration)
+    return _build_attention_flow_html(stats, context, integration, is_cn, is_us, us_data)
 
 
 def _render_empty_state() -> str:
@@ -70,7 +88,7 @@ def _render_empty_state() -> str:
     """
 
 
-def _build_attention_flow_html(stats: Dict, context: Dict, integration) -> str:
+def _build_attention_flow_html(stats: Dict, context: Dict, integration, is_cn: bool, is_us: bool, us_data: Dict) -> str:
     """构建注意力流 HTML"""
 
     processed_frames = stats.get('processed_frames', 0)
@@ -94,6 +112,28 @@ def _build_attention_flow_html(stats: Dict, context: Dict, integration) -> str:
         high_attention_symbol_count = len(high_attention_symbols)
     else:
         high_attention_symbol_count = len(high_attention_symbols) if high_attention_symbols else 0
+
+    has_us_data = us_data and us_data.get('global_attention', 0) > 0
+
+    if is_us and not is_cn:
+        show_us_only = True
+        show_cn_only = False
+    elif is_cn and not is_us:
+        show_us_only = False
+        show_cn_only = True
+    else:
+        show_us_only = False
+        show_cn_only = False
+
+    if show_us_only and has_us_data:
+        global_attention = us_data.get('global_attention', 0)
+        us_sectors = us_data.get('sector_attention', {})
+        us_symbols = us_data.get('symbol_weights', {})
+        active_sector_count = len(us_sectors)
+        high_attention_symbol_count = len([s for s, w in us_symbols.items() if w > 3])
+        processed_frames = us_data.get('stock_count', 0)
+        filtered_frames = 0
+        filter_ratio = 0
 
     attention_color = "#4ade80" if global_attention > 0.6 else ("#fb923c" if global_attention > 0.3 else "#f87171")
     filter_pct = int(filter_ratio * 100) if filter_ratio else 0
@@ -191,6 +231,9 @@ def _build_attention_flow_html(stats: Dict, context: Dict, integration) -> str:
 
     flow_diagram_html = _render_flow_diagram(global_attention, active_sector_count, high_attention_symbol_count)
 
+    flow_title = "🇺🇸 美股数据流" if show_us_only else ("🇨🇳 A股数据流" if show_cn_only else "🌊 注意力数据流")
+    flow_subtitle = "一切皆流，无物永驻 — 美股行情 → 注意力计算 → 策略调度" if show_us_only else ("一切皆流，无物永驻 — A股数据 → 过滤 → 注意力 → 策略调度" if show_cn_only else "一切皆流，无物永驻 — 数据 → 过滤 → 注意力 → 策略调度")
+
     html = f"""
     <div style="
         margin-bottom: 12px;
@@ -201,14 +244,14 @@ def _build_attention_flow_html(stats: Dict, context: Dict, integration) -> str:
     ">
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
             <div style="font-size: 13px; font-weight: 600; color: #14b8a6;">
-                🌊 注意力数据流
+                {flow_title}
             </div>
             <div style="font-size: 10px; color: #475569;">
                 {processed_frames} 帧 | 过滤 {filter_pct}%
             </div>
         </div>
         <div style="font-size: 11px; color: #475569; margin-bottom: 12px;">
-            一切皆流，无物永驻 — 数据 → 过滤 → 注意力 → 策略调度
+            {flow_subtitle}
         </div>
 
         <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px;">
@@ -397,12 +440,22 @@ def render_data_frequency_panel() -> str:
         from deva.naja.attention.center import get_orchestrator
         from deva.naja.attention.realtime_data_fetcher import get_data_fetcher
         from deva.datetime import datetime
+        from .common import get_market_phase_summary, get_ui_mode_context
 
         orchestrator = get_orchestrator()
         fetcher = get_data_fetcher()
 
         if not fetcher:
             return _render_fetcher_empty_state()
+
+        phase_summary = get_market_phase_summary()
+        cn_info = phase_summary.get('cn', {})
+        us_info = phase_summary.get('us', {})
+
+        is_cn = cn_info.get('active', False)
+        is_us = us_info.get('active', False)
+        is_us_only = is_us and not is_cn
+        is_cn_only = is_cn and not is_us
 
         last_fetch = getattr(fetcher, '_last_fetch_time', 0)
         fetch_interval = getattr(fetcher, '_fetch_interval', 0)
@@ -416,11 +469,18 @@ def render_data_frequency_panel() -> str:
         records_count = fetcher_stats.get('records_processed', 0)
         errors_count = fetcher_stats.get('errors', 0)
         fetch_count = fetcher_stats.get('fetch_count', 0)
+        us_stock_count = fetcher_stats.get('us_stock_count', 0)
+        us_fetch_count = fetcher_stats.get('us_fetch_count', 0)
 
-        weekday = datetime.now().weekday()
-        weekday_names = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"]
-        current_weekday = weekday_names[weekday]
-        current_time_str = datetime.now().strftime("%H:%M:%S")
+        mode_ctx = get_ui_mode_context()
+        if mode_ctx.get('is_replay') and mode_ctx.get('market_time_str'):
+            current_weekday = "回放"
+            current_time_str = mode_ctx.get('market_time_str', '')
+        else:
+            weekday = datetime.now().weekday()
+            weekday_names = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"]
+            current_weekday = weekday_names[weekday]
+            current_time_str = datetime.now().strftime("%H:%M:%S")
 
         high_count = fetcher_stats.get('high_count', 0)
         medium_count = fetcher_stats.get('medium_count', 0)
@@ -428,7 +488,36 @@ def render_data_frequency_panel() -> str:
 
         status_color = "#4ade80" if is_running else "#f87171"
         status_text = "🟢 运行中" if is_running else "🔴 已停止"
-        trading_text = "✅ 交易中" if is_trading else "⏰ 待机"
+
+        def _format_market_line(label: str, info: Dict[str, Any]) -> str:
+            phase_name = info.get('phase_name', '未知')
+            next_phase = info.get('next_phase_name', '')
+            next_time = info.get('next_change_time', '')
+            if info.get('phase') == 'closed' and next_time:
+                return f"{label}{phase_name} →{next_phase} {next_time}"
+            return f"{label}{phase_name}"
+
+        cn_line = _format_market_line("🇨🇳 A股", cn_info)
+        us_line = _format_market_line("🇺🇸 美股", us_info)
+
+        if is_us_only:
+            trading_text = us_line
+            stock_count = us_stock_count
+            market_name = "美股"
+            stock_label = "美股"
+        elif is_cn_only:
+            trading_text = cn_line
+            stock_count = low_count
+            market_name = "A股"
+            stock_label = "A股"
+        else:
+            trading_text = f"{cn_line} | {us_line}"
+            stock_count = low_count + us_stock_count
+            market_name = "A股+美股" if (is_cn or is_us) else "休市"
+            stock_label = "A股/美股"
+
+        status_color = "#4ade80" if is_running else "#f87171"
+        status_text = "🟢 运行中" if is_running else "🔴 已停止"
 
     except Exception:
         return _render_fetcher_empty_state()
@@ -446,7 +535,7 @@ def render_data_frequency_panel() -> str:
                 📡 数据获取器
             </div>
             <div style="font-size: 9px; color: {status_color};">
-                {status_text} | {trading_text}
+                {status_text} | {trading_text} | {mode_ctx.get('mode_label', '实盘模式')}
             </div>
         </div>
 
@@ -487,8 +576,8 @@ def render_data_frequency_panel() -> str:
                 <div style="font-size: 8px; color: #64748b;">中频档位</div>
             </div>
             <div style="text-align: center; padding: 4px; background: rgba(34,197,94,0.1); border-radius: 4px;">
-                <div style="font-size: 11px; font-weight: 700; color: #22c55e;">{low_count}</div>
-                <div style="font-size: 8px; color: #64748b;">低频档位</div>
+                <div style="font-size: 11px; font-weight: 700; color: #22c55e;">{stock_count}</div>
+                <div style="font-size: 8px; color: #64748b;">{stock_label}</div>
             </div>
             <div style="text-align: center; padding: 4px; background: rgba(148,163,184,0.1); border-radius: 4px;">
                 <div style="font-size: 11px; font-weight: 700; color: #94a3b8;">{current_weekday}</div>
@@ -506,9 +595,31 @@ def render_data_frequency_panel() -> str:
 def _render_fetcher_empty_state() -> str:
     """渲染数据获取器空状态"""
     from datetime import datetime
-    current_time_str = datetime.now().strftime("%H:%M:%S")
-    weekday = datetime.now().weekday()
-    weekday_names = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"]
+    from .common import get_market_phase_summary, get_ui_mode_context
+    mode_ctx = get_ui_mode_context()
+    if mode_ctx.get('is_replay') and mode_ctx.get('market_time_str'):
+        current_time_str = mode_ctx.get('market_time_str', '')
+        current_weekday = "回放"
+    else:
+        current_time_str = datetime.now().strftime("%H:%M:%S")
+        weekday = datetime.now().weekday()
+        weekday_names = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"]
+        current_weekday = weekday_names[weekday]
+
+    phase_summary = get_market_phase_summary()
+    cn_info = phase_summary.get('cn', {})
+    us_info = phase_summary.get('us', {})
+
+    def _format_market_line(label: str, info: Dict[str, Any]) -> str:
+        phase_name = info.get('phase_name', '未知')
+        next_phase = info.get('next_phase_name', '')
+        next_time = info.get('next_change_time', '')
+        if info.get('phase') == 'closed' and next_time:
+            return f"{label}{phase_name} →{next_phase} {next_time}"
+        return f"{label}{phase_name}"
+
+    cn_line = _format_market_line("🇨🇳 A股", cn_info)
+    us_line = _format_market_line("🇺🇸 美股", us_info)
 
     return f"""
     <div style="
@@ -523,14 +634,14 @@ def _render_fetcher_empty_state() -> str:
                 📡 数据获取器
             </div>
             <div style="font-size: 9px; color: #64748b;">
-                🔴 未启用
+                🔴 未启用 | {mode_ctx.get('mode_label', '实盘模式')}
             </div>
         </div>
 
         <div style="text-align: center; padding: 20px; color: #64748b;">
             <div style="font-size: 11px; margin-bottom: 8px;">实时数据获取器未启动</div>
-            <div style="font-size: 10px;">{weekday_names[weekday]} {current_time_str}</div>
-            <div style="font-size: 9px; margin-top: 4px; color: #475569;">将在交易时间自动启用</div>
+            <div style="font-size: 10px;">{current_weekday} {current_time_str} | {cn_line} | {us_line}</div>
+            <div style="font-size: 9px; margin-top: 4px; color: #475569;">将在交易时段自动启用</div>
         </div>
     </div>
     """
@@ -702,22 +813,57 @@ def render_strategy_status_panel() -> str:
     """渲染策略状态面板"""
     try:
         from deva.naja.attention.strategies import get_strategy_manager
+        from .common import get_market_phase_summary, get_ui_mode_context
 
         manager = get_strategy_manager()
         if not manager:
             return ""
 
+        mode_ctx = get_ui_mode_context()
+        phase_summary = get_market_phase_summary()
+        cn_active = phase_summary.get('cn', {}).get('active', False)
+        us_active = phase_summary.get('us', {}).get('active', False)
+        if mode_ctx.get('is_replay'):
+            current_market = "REPLAY"
+        elif cn_active and us_active:
+            current_market = "ALL"
+        elif us_active:
+            current_market = "US"
+        elif cn_active:
+            current_market = "CN"
+        else:
+            current_market = "CN"
+
         all_stats = manager.get_all_stats() if hasattr(manager, 'get_all_stats') else {}
         strategies = manager.strategies if hasattr(manager, 'strategies') else {}
+        configs = manager.configs if hasattr(manager, 'configs') else {}
 
         total_strategies = len(strategies)
-        active_strategies = sum(1 for s in strategies.values() if getattr(s, 'enabled', False))
+        if configs:
+            active_strategies = sum(1 for c in configs.values() if getattr(c, 'enabled', False))
+        else:
+            active_strategies = sum(1 for s in strategies.values() if getattr(s, 'is_active', False))
+
+        if current_market == "ALL":
+            matched_strategies = total_strategies
+        elif current_market == "REPLAY":
+            matched_strategies = total_strategies
+        else:
+            matched_strategies = sum(
+                1 for s in strategies.values()
+                if getattr(s, 'market_scope', 'ALL') in ("ALL", current_market)
+            )
         total_signals = all_stats.get('total_signals_generated', 0)
         recent_signals = all_stats.get('recent_signals_count', 0)
+        is_running = getattr(manager, 'is_running', False)
 
         strategy_list = []
         for name, strategy in list(strategies.items())[:6]:
-            is_active = getattr(strategy, 'enabled', False)
+            config = configs.get(name)
+            if config is not None:
+                is_active = getattr(config, 'enabled', False)
+            else:
+                is_active = getattr(strategy, 'is_active', False)
             signal_count = getattr(strategy, 'signal_count', 0)
             last_signal = getattr(strategy, 'last_signal_time', 0)
             last_signal_str = _fmt_ts(last_signal) if last_signal else "-"
@@ -762,6 +908,8 @@ def render_strategy_status_panel() -> str:
             </div>
             <div style="font-size: 9px; color: #64748b;">
                 活跃: {active_strategies}/{total_strategies} | 总信号: {total_signals:,}
+                | 状态: <span style="color:{'#4ade80' if is_running else '#f87171'};">{'运行中' if is_running else '未运行'}</span>
+                | 匹配: {matched_strategies} | 市场: {current_market}
             </div>
         </div>
 

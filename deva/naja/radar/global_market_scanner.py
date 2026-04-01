@@ -67,6 +67,24 @@ except ImportError:
 
 log = logging.getLogger(__name__)
 
+_loop_audit_log_stage = None
+
+def _get_audit():
+    global _loop_audit_log_stage
+    if _loop_audit_log_stage is None:
+        try:
+            from ..common.loop_audit import LoopAudit
+            _loop_audit_log_stage = lambda **kw: LoopAudit(**kw)
+        except ImportError:
+            _loop_audit_log_stage = lambda **kw: _DummyAudit()
+    return _loop_audit_log_stage
+
+class _DummyAudit:
+    def __init__(self, **kwargs): pass
+    def __enter__(self): return self
+    def __exit__(self, *args): pass
+    def record_data_out(self, *args, **kwargs): pass
+
 
 def _global_market_log(msg: str):
     """全球市场扫描日志"""
@@ -400,8 +418,8 @@ class GlobalMarketScanner:
         if self._task:
             self._task.cancel()
             try:
-                await self._task
-            except asyncio.CancelledError:
+                await asyncio.wait_for(asyncio.shield(self._task), timeout=2.0)
+            except (asyncio.CancelledError, asyncio.TimeoutError):
                 pass
         log.info("[GlobalMarketScanner] 已停止")
 
@@ -426,38 +444,47 @@ class GlobalMarketScanner:
     async def _fetch_and_analyze(self):
         """获取并分析数据"""
         start_time = time.time()
-        try:
-            data = await self.api.fetch_all()
-            fetch_latency = (time.time() - start_time) * 1000
-            self._stats["fetch_latency_ms"] = fetch_latency
+        with _get_audit()(loop_type="global_market", stage="scan_fetch", metadata={"phase": self._stats.get("us_trading_phase", "unknown")}) as audit:
+            try:
+                data = await self.api.fetch_all()
+                fetch_latency = (time.time() - start_time) * 1000
+                self._stats["fetch_latency_ms"] = fetch_latency
 
-            if not data:
-                _global_market_log("未获取到市场数据")
+                if not data:
+                    _global_market_log("未获取到市场数据")
+                    self._stats["error_count"] += 1
+                    audit.record_data_out({"status": "no_data", "error_count": self._stats["error_count"]})
+                    return
+
+                self._stats["success_count"] += 1
+                self._last_market_data = data
+
+                self._sync_to_propagation_engine(data)
+            except Exception as e:
+                log.error(f"[GlobalMarketScanner] 获取数据异常: {e}")
                 self._stats["error_count"] += 1
+                audit.record_data_out({"status": "failed", "error": str(e)})
                 return
 
-            self._stats["success_count"] += 1
-            self._last_market_data = data
+            status_map = self._get_market_status_map()
 
-            self._sync_to_propagation_engine(data)
-        except Exception as e:
-            log.error(f"[GlobalMarketScanner] 获取数据异常: {e}")
-            self._stats["error_count"] += 1
-            return
+            alerts = self._detect_alerts(data, status_map)
 
-        status_map = self._get_market_status_map()
+            if alerts:
+                _global_market_log(f"检测到 {len(alerts)} 个告警")
+                for alert in alerts:
+                    self._alert_history.append(alert)
+                    self._stats["alert_count"] += 1
+                    self._stats["last_alert_time"] = time.time()
+                    await self._emit_alert(alert)
 
-        alerts = self._detect_alerts(data, status_map)
-
-        if alerts:
-            _global_market_log(f"检测到 {len(alerts)} 个告警")
-            for alert in alerts:
-                self._alert_history.append(alert)
-                self._stats["alert_count"] += 1
-                self._stats["last_alert_time"] = time.time()
-                await self._emit_alert(alert)
-
-        self._report_to_autotuner()
+            self._report_to_autotuner()
+            audit.record_data_out({
+                "status": "completed",
+                "data_count": len(data) if data else 0,
+                "alert_count": len(alerts) if alerts else 0,
+                "success_count": self._stats["success_count"]
+            })
 
     def _detect_alerts(self, data: Dict[str, MarketData], status_map: Dict[str, str]) -> List[MarketAlert]:
         """检测告警"""

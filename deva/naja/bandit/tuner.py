@@ -140,7 +140,21 @@ class BanditTuner:
 
         self._portfolio = None
         self._tracker = None
+
+        self._realtime_taste = None
+        self._init_realtime_taste()
+
         self._initialized = True
+
+    def _init_realtime_taste(self):
+        """初始化实时舌识"""
+        try:
+            from deva.naja.senses.realtime_taste import RealtimeTaste
+            self._realtime_taste = RealtimeTaste()
+            log.info(f"[BanditTuner] RealtimeTaste 初始化完成")
+        except Exception as e:
+            log.warning(f"[BanditTuner] RealtimeTaste 初始化失败: {e}")
+            self._realtime_taste = None
 
     def register_callback(self, callback: Callable[[str, Any], None]):
         self._callbacks.append(callback)
@@ -181,6 +195,7 @@ class BanditTuner:
                         close_reason=reason,
                         signal_confidence=position.signal_confidence,
                     )
+                self._sync_close_to_taste(position.stock_code)
 
             self._portfolio.register_close_callback(on_tuner_position_closed)
             log.info(f"[BanditTuner] VirtualPortfolio 初始化完成，close_callback 已注册")
@@ -249,7 +264,6 @@ class BanditTuner:
             log.warning(f"[BanditTuner] Portfolio 未初始化")
             return
 
-        # 检查是否已经持仓
         for pos in portfolio.get_all_positions():
             if pos.stock_code == stock_code and pos.status == "OPEN":
                 log.debug(f"[BanditTuner] 已有持仓，跳过: {stock_code}")
@@ -275,6 +289,7 @@ class BanditTuner:
 
         if position:
             log.info(f"[BanditTuner] 🎯 开仓: {stock_code} @ {price}, 数量={position.quantity:.2f}, 止损={stop_loss_pct}%, 止盈={take_profit_pct}%")
+            self._sync_position_to_taste(position)
         else:
             log.debug(f"[BanditTuner] 开仓失败或资金不足: {stock_code}")
 
@@ -298,6 +313,11 @@ class BanditTuner:
                 log.info(f"[BanditTuner] 📈 价格更新: {stock_code} {matching_positions[0][1].current_price} -> {current_price}, 止损={matching_positions[0][1].stop_loss:.2f}, 止盈={matching_positions[0][1].take_profit:.2f}")
 
         closed_positions = portfolio.update_price(stock_code, current_price)
+
+        if self._realtime_taste:
+            taste_signal = self._realtime_taste.taste_position(stock_code, current_price)
+            if taste_signal and taste_signal.should_adjust:
+                log.info(f"[BanditTuner] 🍈 舌识建议调整: {taste_signal.adjust_reason}, floating_pnl={taste_signal.floating_pnl:.2%}, freshness={taste_signal.freshness:.2%}")
 
         for closed in closed_positions:
             pnl = closed.profit_loss
@@ -341,9 +361,8 @@ class BanditTuner:
             self._decide_adjustment_direction(None)
             return
 
-        # 计算累计盈亏（从所有已平仓交易）
         total_pnl = sum(t.profit_loss for t in closed_trades)
-        total_return_pct = total_pnl / 1000000.0 * 100  # 基于100万初始资金
+        total_return_pct = total_pnl / 1000000.0 * 100
 
         winning_trades = [t for t in closed_trades if t.profit_loss > 0]
         losing_trades = [t for t in closed_trades if t.profit_loss <= 0]
@@ -396,6 +415,29 @@ class BanditTuner:
             'result': result.to_dict() if result else {}
         })
 
+    def _sync_position_to_taste(self, position):
+        """同步持仓到 RealtimeTaste"""
+        if self._realtime_taste and position:
+            try:
+                self._realtime_taste.register_position(
+                    symbol=position.stock_code,
+                    entry_price=position.entry_price,
+                    quantity=int(position.quantity),
+                    entry_time=position.entry_time
+                )
+                log.debug(f"[BanditTuner] 同步持仓到 RealtimeTaste: {position.stock_code}")
+            except Exception as e:
+                log.warning(f"[BanditTuner] 同步持仓到 RealtimeTaste 失败: {e}")
+
+    def _sync_close_to_taste(self, stock_code: str):
+        """同步平仓到 RealtimeTaste"""
+        if self._realtime_taste:
+            try:
+                self._realtime_taste.close_position(stock_code)
+                log.debug(f"[BanditTuner] 同步平仓到 RealtimeTaste: {stock_code}")
+            except Exception as e:
+                log.warning(f"[BanditTuner] 同步平仓到 RealtimeTaste 失败: {e}")
+
     def _tighten_params(self):
         """收紧参数"""
         self._tighten_count += 1
@@ -439,6 +481,7 @@ class BanditTuner:
             "tuning_history_size": len(self._tuning_history),
             "relax_count": self._relax_count,
             "tighten_count": self._tighten_count,
+            "realtime_taste_enabled": self._realtime_taste is not None,
         }
 
 

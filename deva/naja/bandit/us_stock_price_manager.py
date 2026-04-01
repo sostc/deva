@@ -11,7 +11,7 @@ import time
 import asyncio
 import logging
 import aiohttp
-from typing import Dict, List, Optional, Any
+from typing import Dict, List, Optional, Any, Set
 from dataclasses import dataclass
 
 from deva import NB
@@ -36,6 +36,7 @@ class USStockPriceManager:
     1. 开盘时间（trading phase）：从新浪获取实时价格
     2. 休市时间（pre_market/post_market/closed）：使用持久化的最后价格
     3. 自动持久化最新价格到 NB
+    4. 订阅美股交易时钟信号自动更新价格
     """
 
     PRICE_PREFIX = "us_stock_price_"

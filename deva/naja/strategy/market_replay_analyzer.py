@@ -128,6 +128,39 @@ class TiandaoMinxinAnalysis:
 
 
 @dataclass
+class WisdomPerspective:
+    """知识库观点"""
+    narrative: str
+    change: float
+    snippets: List[Dict[str, str]] = field(default_factory=list)
+    insight: str = ""
+
+    @staticmethod
+    def clean_html(text: str) -> str:
+        """清理HTML标签如<em>"""
+        import re
+        text = re.sub(r'</?em>', '', text)
+        return text.strip()
+
+    def to_markdown(self) -> str:
+        """转换为Markdown格式"""
+        if not self.snippets:
+            return f"**{self.narrative}**({self.change:+.1f}%): 暂无相关观点"
+
+        lines = [f"**{self.narrative}**({self.change:+.1f}%):"]
+
+        if self.insight:
+            lines.append(f"\n💭 {self.insight}\n")
+        else:
+            for s in self.snippets[:2]:
+                title = self.clean_html(s.get('title', ''))
+                highlight = self.clean_html(s.get('highlight', ''))
+                lines.append(f"  - **{title}**: {highlight[:80]}...")
+
+        return "\n".join(lines)
+
+
+@dataclass
 class ReplayReport:
     """复盘报告"""
     timestamp: float
@@ -137,6 +170,7 @@ class ReplayReport:
     tiandao_minxin: TiandaoMinxinAnalysis
     risks: List[str] = field(default_factory=list)
     suggestions: List[str] = field(default_factory=list)
+    wisdom_perspectives: List[WisdomPerspective] = field(default_factory=list)
     llm_reflection: Optional[Dict[str, Any]] = None
 
     def _get_llm_reflection(self) -> Optional[Dict[str, Any]]:
@@ -261,6 +295,17 @@ class ReplayReport:
             ])
             for suggestion in self.suggestions:
                 lines.append(f"- {suggestion}")
+            lines.append(f"")
+
+        # 知识库观点
+        if self.wisdom_perspectives:
+            lines.extend([
+                f"## 💭 你的投资哲学视角",
+                f"",
+            ])
+            for wp in self.wisdom_perspectives:
+                lines.append(wp.to_markdown())
+                lines.append(f"")
             lines.append(f"")
 
         # LLM 反思（可选，超时则跳过）
@@ -616,8 +661,120 @@ class MarketReplayAnalyzer:
 
         return self.tiandao_minxin
 
+    def step4_wisdom_perspective(self) -> List['WisdomPerspective']:
+        """
+        第四步：从知识库检索针对热门叙事的个人观点，并LLM生成洞察
+
+        根据今天表现最强的叙事主题，检索知识库中对这些主题的看法，
+        形成"用自己投资哲学审视今天市场"的复盘视角。
+        """
+        try:
+            from deva.naja.wisdom.wisdom_retriever import WisdomRetriever
+
+            retriever = WisdomRetriever()
+            perspectives = []
+
+            if not self.top_narratives:
+                return perspectives
+
+            for nar in self.top_narratives[:5]:
+                narrative = nar.narrative
+                change = nar.avg_change
+
+                snippets = retriever.search(narrative, limit=3)
+
+                if snippets:
+                    perspective = WisdomPerspective(
+                        narrative=narrative,
+                        change=change,
+                        snippets=[{"title": s.title, "highlight": s.highlight} for s in snippets]
+                    )
+                    self._generate_wisdom_insight(perspective)
+                    perspectives.append(perspective)
+
+            self._wisdom_perspectives = perspectives
+            return perspectives
+
+        except ImportError:
+            import logging
+            log = logging.getLogger(__name__)
+            log.warning("[MarketReplayAnalyzer] WisdomRetriever 不可用，跳过知识库观点检索")
+            return []
+        except Exception as e:
+            import logging
+            log = logging.getLogger(__name__)
+            log.error(f"[MarketReplayAnalyzer] 知识库观点检索失败: {e}")
+            return []
+
+    def _generate_wisdom_insight(self, perspective: 'WisdomPerspective') -> None:
+        """使用LLM根据知识库片段生成连贯洞察"""
+        import logging
+        log = logging.getLogger(__name__)
+
+        try:
+            import asyncio
+            import concurrent.futures
+
+            async def generate_async():
+                from deva.llm import GPT
+                from deva.naja.config import get_llm_config
+
+                cfg = get_llm_config()
+                gpt = GPT(model_type=cfg.get("model_type", "deepseek"))
+
+                snippets_text = "\n".join([
+                    f"- \"{WisdomPerspective.clean_html(s['title'])}\": {WisdomPerspective.clean_html(s['highlight'])}"
+                    for s in perspective.snippets[:3]
+                ])
+
+                prompt = f"""你是一个投资者的私人顾问，正在结合自己过去的思考来审视今天的市场。
+
+**主题**: {perspective.narrative}
+**今日涨跌**: {perspective.change:+.1f}%
+
+**你过去写过/收藏过相关文章的摘录**:
+{snippets_text}
+
+**任务**:
+请结合你过去的思考，对今天"{perspective.narrative}"的表现({perspective.change:+.1f}%)发表一段连贯的、有态度的个人见解。
+要求：
+1. 100字左右
+2. 语气像你自己在思考，有观点有态度
+3. 不要简单复述摘录，要有自己的观点
+4. 可以联系今天的涨跌谈看法
+
+请直接输出你的见解，不要有"以下是..."之类的引导语："""
+
+                response = await gpt.async_query(prompt)
+                return response.strip() if response else ""
+
+            def run_sync():
+                try:
+                    new_loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(new_loop)
+                    try:
+                        return new_loop.run_until_complete(generate_async())
+                    finally:
+                        new_loop.close()
+                except Exception as e:
+                    log.error(f"[MarketReplayAnalyzer] LLM生成洞察失败: {e}")
+                    return ""
+
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+                future = executor.submit(run_sync)
+                insight = future.result(timeout=30)
+
+            if insight:
+                perspective.insight = insight
+                log.info(f"[MarketReplayAnalyzer] 为'{perspective.narrative}'生成洞察: {insight[:50]}...")
+            else:
+                log.warning(f"[MarketReplayAnalyzer] LLM未返回洞察")
+
+        except Exception as e:
+            log.error(f"[MarketReplayAnalyzer] 生成洞察异常: {e}")
+
     def run_full_analysis(self, force_refresh: bool = False) -> ReplayReport:
-        """执行完整三步分析
+        """执行完整四步分析
 
         Args:
             force_refresh: 是否强制刷新（忽略缓存）
@@ -625,6 +782,7 @@ class MarketReplayAnalyzer:
         self.step1_full_market(force_refresh=force_refresh)
         self.step2_hot_narrative(force_refresh=force_refresh)
         self.step3_tiandao_minxin()
+        self.step4_wisdom_perspective()
 
         risks = self._extract_risks()
         suggestions = self._generate_suggestions()
@@ -637,6 +795,7 @@ class MarketReplayAnalyzer:
             tiandao_minxin=self.tiandao_minxin,
             risks=risks,
             suggestions=suggestions,
+            wisdom_perspectives=getattr(self, '_wisdom_perspectives', []),
         )
 
     def _extract_risks(self) -> List[str]:

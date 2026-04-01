@@ -104,9 +104,20 @@ def render_attention_details_card(details: Dict[str, Any]) -> str:
 
 
 def render_market_state_panel() -> str:
-    """渲染当前市场注意力状态面板"""
-    from .common import get_history_tracker
+    """渲染当前市场注意力状态面板（支持A股+美股混合展示）"""
+    from .common import get_history_tracker, get_market_phase_summary, get_ui_mode_context
+    from .us_market import get_us_attention_data, get_us_market_summary
+
     tracker = get_history_tracker()
+    phase_summary = get_market_phase_summary()
+    cn_info = phase_summary.get('cn', {})
+    us_info = phase_summary.get('us', {})
+
+    is_cn = cn_info.get('active', False)
+    is_us = us_info.get('active', False)
+
+    market_mode = "A" if is_cn else ("US" if is_us else "idle")
+    print(f"[Cards-UI] render_market_state_panel: is_cn={is_cn}, is_us={is_us}, mode={market_mode}")
 
     if not tracker:
         return """<div style="background: white; border: 1px solid #e2e8f0; border-radius: 12px; padding: 20px; margin-top: 16px;"><div style="font-weight: 600; margin-bottom: 16px; color: #1e293b;">👁️ 当前市场注意力状态</div><div style="color: #64748b; text-align: center; padding: 20px;">历史追踪器未初始化</div></div>"""
@@ -128,33 +139,137 @@ def render_market_state_panel() -> str:
 
     hot_sectors = list(tracker.current_hot_sectors.items())[:5]
     hot_symbols = list(tracker.current_hot_symbols.items())[:10]
-    time_display = f"📅 {market_time}" if market_time else "📅 等待行情数据..."
+    def _format_market_line(label, info):
+        phase_name = info.get('phase_name', '未知')
+        next_phase = info.get('next_phase_name', '')
+        next_time = info.get('next_change_time', '')
+        if info.get('phase') == 'closed' and next_time:
+            return f"{label}{phase_name} →{next_phase} {next_time}"
+        return f"{label}{phase_name}"
+
+    cn_line = _format_market_line("🇨🇳 A股", cn_info)
+    us_line = _format_market_line("🇺🇸 美股", us_info)
+
+    mode_ctx = get_ui_mode_context()
+    mode_label = mode_ctx.get('mode_label', '实盘模式')
+    if mode_ctx.get('is_replay') and mode_ctx.get('market_time_str'):
+        time_display = f"📅 {mode_ctx.get('market_time_str')} | {cn_line} | {us_line} | {mode_label}"
+    elif market_time:
+        time_display = f"📅 {market_time} | {cn_line} | {us_line} | {mode_label}"
+    else:
+        time_display = f"📅 等待行情数据... | {cn_line} | {us_line} | {mode_label}"
+
+    us_data = get_us_attention_data()
+    us_summary = get_us_market_summary() if us_data else {}
+    has_us_data = us_data and us_data.get('global_attention', 0) > 0
+
+    print(f"[Cards-UI] DEBUG render_market_state_panel: us_data={us_data}, has_us_data={has_us_data}, is_cn={is_cn}, is_us={is_us}")
+
+    # 根据市场时间决定显示模式
+    if is_us and not is_cn:
+        # 纯美股时间：只显示美股数据
+        show_us_only = True
+        show_cn_only = False
+    elif is_cn and not is_us:
+        # 纯A股时间：只显示A股数据
+        show_us_only = False
+        show_cn_only = True
+    elif is_us and is_cn:
+        # 同时交易：混合显示
+        show_us_only = False
+        show_cn_only = False
+    else:
+        # 非交易时间：根据数据判断
+        show_us_only = has_us_data and not tracker.current_hot_sectors
+        show_cn_only = bool(tracker.current_hot_sectors) and not has_us_data
+
+    if has_us_data and not show_us_only:
+        cn_attention = global_attn
+        us_attention = us_data.get('global_attention', 0)
+        combined_attention = (cn_attention + us_attention) / 2
+        time_display = f"📅 {market_time} | {cn_line} | {us_line} | {mode_label}"
+
+    panel_title = "🇺🇸 美股注意力状态" if show_us_only else ("🇨🇳 A股注意力状态" if show_cn_only else "👁️ 当前市场注意力状态")
 
     html = f"""
     <div style="background: white; border: 1px solid #e2e8f0; border-radius: 12px; padding: 20px; margin-top: 16px;">
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
-            <div style="font-weight: 600; color: #1e293b;">👁️ 当前市场注意力状态</div>
+            <div style="font-weight: 600; color: #1e293b;">{panel_title}</div>
             <div style="display: flex; align-items: center; gap: 12px;">
                 <div style="font-size: 12px; color: #64748b;">{time_display}</div>
                 <div style="background: {config['bg']}; color: {config['color']}; padding: 4px 12px; border-radius: 20px; font-size: 12px; font-weight: 600;">{config['emoji']} {config['label']}</div>
             </div>
         </div>
-        <div style="background: {config['bg']}; border-left: 4px solid {config['color']}; padding: 12px 16px; margin-bottom: 16px; border-radius: 0 8px 8px 0;">
-            <div style="font-size: 13px; color: #1e293b; line-height: 1.5;"><strong>📊 {description}</strong></div>
-            <div style="font-size: 12px; color: #64748b; margin-top: 6px;">全局注意力分数: <strong>{global_attn:.3f}</strong></div>
-        </div>
     """
 
-    if hot_sectors:
-        html += """<div style="margin-bottom: 16px;"><div style="font-size: 13px; font-weight: 600; color: #475569; margin-bottom: 8px;">📈 注意力集中板块 Top5</div><div style="display: flex; flex-wrap: wrap; gap: 8px;">"""
+    # 美股数据展示（美股时间 或 混合时间）
+    if has_us_data and not show_cn_only:
+        us_sectors = us_data.get('sector_attention', {})
+        us_symbols = us_data.get('symbol_weights', {})
+        us_global = us_data.get('global_attention', 0)
+        us_activity = us_data.get('activity', 0)
+
+        sorted_us_sectors = sorted(us_sectors.items(), key=lambda x: x[1], reverse=True)[:5]
+        sorted_us_symbols = sorted(us_symbols.items(), key=lambda x: x[1], reverse=True)[:10]
+
+        html += f"""
+        <div style="background: linear-gradient(135deg, #1e3a5f 0%, #0d1b2a 100%); border-radius: 8px; padding: 12px 16px; margin-bottom: 16px;">
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+                <div style="color: #f8fafc; font-size: 13px; font-weight: 600;">🇺🇸 美股市场</div>
+                <div style="display: flex; gap: 16px;">
+                    <div style="text-align: center;">
+                        <div style="color: #94a3b8; font-size: 9px;">注意力</div>
+                        <div style="color: #22c55e; font-size: 14px; font-weight: 700;">{us_global:.3f}</div>
+                    </div>
+                    <div style="text-align: center;">
+                        <div style="color: #94a3b8; font-size: 9px;">活跃度</div>
+                        <div style="color: #3b82f6; font-size: 14px; font-weight: 700;">{us_activity:.3f}</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        """
+
+        if sorted_us_sectors:
+            html += """<div style="margin-bottom: 16px;"><div style="font-size: 13px; font-weight: 600; color: #7c3aed; margin-bottom: 8px;">🇺🇸 美股热门板块</div><div style="display: flex; flex-wrap: wrap; gap: 8px;">"""
+            for sector, weight in sorted_us_sectors:
+                bar_width = min(weight * 20, 100)
+                color = "#dc2626" if weight > 0.5 else ("#ca8a04" if weight > 0.3 else "#16a34a")
+                html += f"""<div style="background: #f1f5f9; border-radius: 8px; padding: 10px 14px; min-width: 140px;"><div style="font-size: 14px; font-weight: 600; color: #1e293b;">{sector}</div><div style="display: flex; align-items: center; gap: 8px; margin-top: 6px;"><div style="background: {color}; height: 6px; border-radius: 3px; width: {bar_width}px; min-width: 6px;"></div><span style="font-size: 13px; font-weight: 600; color: #1e293b;">{weight:.2f}</span></div></div>"""
+            html += "</div></div>"
+
+        if sorted_us_symbols:
+            html += """<div style="margin-bottom: 16px;"><div style="font-size: 13px; font-weight: 600; color: #2563eb; margin-bottom: 8px;">🇺🇸 美股热门股票</div><div style="display: flex; flex-wrap: wrap; gap: 6px;">"""
+            for symbol, weight in sorted_us_symbols:
+                color = "#dc2626" if weight > 5 else ("#ea580c" if weight > 3 else ("#ca8a04" if weight > 2 else "#16a34a"))
+                bg_color = "#fef2f2" if weight > 5 else ("#fff7ed" if weight > 3 else ("#fef3c7" if weight > 2 else "#f0fdf4"))
+                html += f"""<div style="background: {bg_color}; border-radius: 6px; padding: 6px 10px; font-size: 11px; display: flex; align-items: center; gap: 4px;"><span style="color: #1e293b; font-weight: 600;">{symbol.upper()}</span><span style="color: {color}; font-weight: 600;">{weight:.1f}</span></div>"""
+            html += "</div></div>"
+
+    # A股数据展示（A股时间 或 混合时间 或 非交易时间有A股数据）
+    if not show_us_only:
+        cn_description = description if description != '等待数据...' else "等待A股行情数据..."
+        html += f"""<div style="background: {config['bg']}; border-left: 4px solid {config['color']}; padding: 12px 16px; margin-bottom: 16px; border-radius: 0 8px 8px 0;">
+            <div style="font-size: 13px; color: #1e293b; line-height: 1.5;"><strong>📊 {cn_description}</strong></div>
+            <div style="font-size: 12px; color: #64748b; margin-top: 6px;">A股全局注意力分数: <strong>{global_attn:.3f}</strong></div>
+        </div>"""
+    else:
+        # 纯美股时间，A股数据暂停
+        html += """<div style="background: #f8fafc; border-left: 4px solid #94a3b8; padding: 12px 16px; margin-bottom: 16px; border-radius: 0 8px 8px 0;">
+            <div style="font-size: 13px; color: #64748b; line-height: 1.5;"><strong>🇨🇳 A股已休市</strong></div>
+            <div style="font-size: 12px; color: #94a3b8; margin-top: 6px;">A股全局注意力分数: <strong>--</strong></div>
+        </div>"""
+
+    if not show_us_only and hot_sectors:
+        html += """<div style="margin-bottom: 16px;"><div style="font-size: 13px; font-weight: 600; color: #475569; margin-bottom: 8px;">📈 A股注意力集中板块 Top5</div><div style="display: flex; flex-wrap: wrap; gap: 8px;">"""
         for sector_id, weight in hot_sectors:
             sector_name = tracker.get_sector_name(sector_id)
             bar_width = min(weight * 20, 100)
             html += f"""<div style="background: #f1f5f9; border-radius: 8px; padding: 10px 14px; min-width: 140px;"><div style="font-size: 14px; font-weight: 600; color: #1e293b;">{sector_name}</div><div style="display: flex; align-items: center; gap: 8px; margin-top: 6px;"><div style="background: {config['color']}; height: 6px; border-radius: 3px; width: {bar_width}px; min-width: 6px;"></div><span style="font-size: 13px; font-weight: 600; color: #1e293b;">{weight:.2f}</span></div></div>"""
         html += "</div></div>"
 
-    if hot_symbols:
-        html += """<div><div style="font-size: 13px; font-weight: 600; color: #475569; margin-bottom: 8px;">🔥 注意力集中个股 Top10</div><div style="display: flex; flex-wrap: wrap; gap: 6px;">"""
+    if not show_us_only and hot_symbols:
+        html += """<div><div style="font-size: 13px; font-weight: 600; color: #475569; margin-bottom: 8px;">🔥 A股注意力集中个股 Top10</div><div style="display: flex; flex-wrap: wrap; gap: 6px;">"""
         for symbol, weight in hot_symbols:
             symbol_name = tracker.get_symbol_name(symbol) or symbol
             change = tracker.get_symbol_change(symbol)
@@ -163,7 +278,7 @@ def render_market_state_panel() -> str:
             html += f"""<div style="background: #fef3c7; border: 1px solid #fcd34d; border-radius: 6px; padding: 4px 8px; font-size: 11px; display: flex; align-items: center; gap: 4px; min-width: 0;"><span style="color: #92400e; font-weight: 600;">{symbol}</span><span style="color: #1e293b; max-width: 50px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{symbol_name}</span>{f'<span style="font-size: 10px; color: {change_color}; font-weight: 600;">{change_str}</span>' if change_str else ''}<span style="color: #92400e; font-weight: 600;">{weight:.1f}</span></div>"""
         html += "</div></div>"
 
-    if not hot_sectors and not hot_symbols:
+    if not hot_sectors and not hot_symbols and not has_us_data and not show_us_only:
         html += """<div style="background: #f8fafc; border-radius: 8px; padding: 24px; text-align: center; color: #64748b;"><div style="font-size: 24px; margin-bottom: 8px;">📊</div><div>暂无注意力数据</div><div style="font-size: 12px; margin-top: 4px;">等待市场数据输入...</div></div>"""
 
     html += "</div>"

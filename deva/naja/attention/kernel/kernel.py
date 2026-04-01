@@ -366,6 +366,11 @@ class AttentionKernel:
             e.features["_attention_focus"] = unified_output.attention_focus.value
             e.features["_portfolio_signal"] = unified_output.portfolio_signal.value
 
+        # 断点1修复：将召回事件转换为 AttentionEvent 并合并到事件池
+        recalled_attention_events = self._convert_recalled_to_attention_events(recalled_events, unified_output)
+        if recalled_attention_events:
+            events.extend(recalled_attention_events)
+
         shaped_Q = Q
         if hasattr(Q, 'features'):
             shaped_Q.features = shaped_Q.features.copy() if shaped_Q.features else {}
@@ -375,7 +380,10 @@ class AttentionKernel:
             shaped_Q.features['harmony_state'] = unified_output.harmony_state.value
             shaped_Q.features['portfolio_signal'] = unified_output.portfolio_signal.value
 
-        result = self.multi_head.compute(shaped_Q, events)
+        # 断点2修复：使用 Manas-aware heads，scorer 同时看 Q 和 K
+        import time
+        manas_aware_heads = self._build_manas_aware_heads(unified_output)
+        result = manas_aware_heads.compute(shaped_Q, events)
 
         result["alpha"] = result.get("alpha", 0) * unified_output.alpha
         result["_manas_score"] = unified_output.manas_score
@@ -447,6 +455,189 @@ class AttentionKernel:
             }
         except:
             return {}
+
+    def _convert_recalled_to_attention_events(self, recalled_events, unified_output):
+        """
+        将 RecalledEvent 转换为 AttentionEvent
+
+        召回事件来自 Manas 的事件池（dict 格式），需要转换成
+        AttentionEvent 对象才能被 multi_head.compute() 处理。
+        召回事件带有 priority 权重，会作为 _recall_priority 注入 features。
+        """
+        if not recalled_events:
+            return []
+
+        from ..kernel.event import AttentionEvent
+        import time as _time
+
+        attention_events = []
+        for re in recalled_events:
+            features = {
+                "_recalled": True,
+                "_recall_priority": re.priority,
+                "_recall_confidence": re.confidence,
+                **(re.conditions or {}),
+                "price_change": re.conditions.get("return_pct", 0) if re.conditions else 0,
+                "sentiment": re.priority,  # 用 priority 作为情感信号
+                "volume_spike": re.priority * 0.5,
+                "historical_alpha": re.priority * unified_output.manas_score,
+            }
+
+            event = AttentionEvent(
+                source=f"recalled_{re.event_type}",
+                data={"symbol": re.symbol, "content": re.content},
+                features=features,
+                timestamp=_time.time(),
+            )
+
+            attention_events.append(event)
+
+        return attention_events
+
+    def _build_manas_aware_heads(self, unified_output):
+        """
+        构建 Manas-aware 注意力头
+
+        scorer 同时看 Q（注入了 Manas 信息）和 K（事件特征），
+        实现真正的 Q·K 注意力驱动：
+        - attention_focus 决定哪个维度占主导
+        - portfolio_signal 调整风险敞口
+        - regime_score 调整市场/趋势信号权重
+        - timing_score 调整行动紧迫度
+        """
+        from .head import AttentionHead
+        from .multi_head import MultiHeadAttention
+
+        focus = unified_output.attention_focus.value
+        portfolio_sig = unified_output.portfolio_signal.value
+        regime = unified_output.regime_score
+        timing = unified_output.timing_score
+        harmony = unified_output.harmony_state.value
+        action = unified_output.action_type.value
+
+        # 基础 scorer：根据 attention_focus 调整各维度权重
+        def manas_market_scorer(Q, K):
+            """市场头 scorer - Q·K 联合打分"""
+            base = K.get("price_change", 0) if isinstance(K, dict) else getattr(K, "features", {}).get("price_change", 0)
+            recall_boost = K.get("_recall_priority", 0) if isinstance(K, dict) else getattr(K, "features", {}).get("_recall_priority", 0)
+
+            # 从 Q 获取 Manas 信息
+            q_features = {}
+            if isinstance(Q, dict):
+                q_features = Q
+            elif hasattr(Q, 'features') and Q.features:
+                q_features = Q.features
+
+            q_regime = q_features.get("regime_score", 0)
+            q_focus = q_features.get("attention_focus", "watch")
+
+            # 不同 focus 下市场信号权重不同
+            focus_weight = 1.0
+            if q_focus == "stop_loss":
+                focus_weight = 1.5  # 止损时更关注市场波动
+            elif q_focus == "accumulate":
+                focus_weight = 0.8
+            elif q_focus == "watch":
+                focus_weight = 1.0
+
+            # 召回事件获得额外加权
+            recall_weight = 1.0 + recall_boost * 2.0
+
+            return base * focus_weight * (1.0 + abs(q_regime) * 0.5) * recall_weight
+
+        def manas_news_scorer(Q, K):
+            """新闻/情绪头 scorer"""
+            base = K.get("sentiment", 0) if isinstance(K, dict) else getattr(K, "features", {}).get("sentiment", 0)
+            recall_boost = K.get("_recall_priority", 0) if isinstance(K, dict) else getattr(K, "features", {}).get("_recall_priority", 0)
+
+            q_features = {}
+            if isinstance(Q, dict):
+                q_features = Q
+            elif hasattr(Q, 'features') and Q.features:
+                q_features = Q.features
+
+            q_timing = q_features.get("timing_score", 0.5)
+            q_harmony = q_features.get("harmony_state", "neutral")
+
+            # 时机越好，新闻信号越重要
+            timing_weight = 0.5 + q_timing * 1.0
+
+            # 和谐状态为共振时，情绪信号更可信
+            harmony_weight = 1.0
+            if q_harmony == "resonance":
+                harmony_weight = 1.5
+            elif q_harmony == "resistance":
+                harmony_weight = 0.6
+
+            recall_weight = 1.0 + recall_boost * 2.0
+
+            return base * timing_weight * harmony_weight * recall_weight
+
+        def manas_flow_scorer(Q, K):
+            """资金流头 scorer"""
+            base = K.get("volume_spike", 0) if isinstance(K, dict) else getattr(K, "features", {}).get("volume_spike", 0)
+            recall_boost = K.get("_recall_priority", 0) if isinstance(K, dict) else getattr(K, "features", {}).get("_recall_priority", 0)
+
+            q_features = {}
+            if isinstance(Q, dict):
+                q_features = Q
+            elif hasattr(Q, 'features') and Q.features:
+                q_features = Q.features
+
+            q_portfolio_sig = q_features.get("portfolio_signal", "none")
+            q_regime = q_features.get("regime_score", 0)
+
+            # 止损/止盈时资金流信号更重要
+            sig_weight = 1.0
+            if q_portfolio_sig in ("stop_loss", "take_profit"):
+                sig_weight = 1.8
+            elif q_portfolio_sig == "rebalance":
+                sig_weight = 1.3
+
+            # 顺风环境资金流更可信
+            regime_weight = 1.0 + max(q_regime, 0) * 0.5
+
+            recall_weight = 1.0 + recall_boost * 2.0
+
+            return base * sig_weight * regime_weight * recall_weight
+
+        def manas_meta_scorer(Q, K):
+            """Meta/Alpha 头 scorer - 由 Manas 历史表现驱动"""
+            base = K.get("historical_alpha", 0) if isinstance(K, dict) else getattr(K, "features", {}).get("historical_alpha", 0)
+            recall_boost = K.get("_recall_priority", 0) if isinstance(K, dict) else getattr(K, "features", {}).get("_recall_priority", 0)
+
+            q_features = {}
+            if isinstance(Q, dict):
+                q_features = Q
+            elif hasattr(Q, 'features') and Q.features:
+                q_features = Q.features
+
+            q_confidence = q_features.get("confidence_score", 0.5)
+            q_action = q_features.get("action_type", "hold")
+
+            # Manas 自信度高时，meta 信号权重提升
+            confidence_weight = 0.5 + q_confidence * 1.0
+
+            # 行动类型影响 meta 评分
+            action_weight = 1.0
+            if q_action == "act_fully":
+                action_weight = 1.5
+            elif q_action == "hold":
+                action_weight = 0.7
+
+            recall_weight = 1.0 + recall_boost * 2.0
+
+            return base * confidence_weight * action_weight * recall_weight
+
+        # 根据 attention_focus 动态调整 head 权重（通过 output_mode="merge" 的简单加法实现）
+        heads = [
+            AttentionHead("market", scorer=manas_market_scorer),
+            AttentionHead("news", scorer=manas_news_scorer),
+            AttentionHead("flow", scorer=manas_flow_scorer),
+            AttentionHead("meta", scorer=manas_meta_scorer),
+        ]
+
+        return MultiHeadAttention(heads, output_mode="merge")
 
     def process_with_feedback(self, Q, raw_events, feedback):
         """

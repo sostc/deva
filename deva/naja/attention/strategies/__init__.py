@@ -8,6 +8,13 @@ from .sector_hunter import SectorRotationHunter
 from .momentum_tracker import MomentumSurgeTracker
 from .anomaly_sniper import AnomalyPatternSniper
 from .smart_money_detector import SmartMoneyFlowDetector
+from .us_strategies import (
+    USGlobalMarketSentinel,
+    USSectorRotationHunter,
+    USMomentumSurgeTracker,
+    USAnomalyPatternSniper,
+    USSmartMoneyFlowDetector,
+)
 from .strategy_manager import (
     AttentionStrategyManager,
     StrategyConfig,
@@ -43,6 +50,11 @@ __all__ = [
     "MomentumSurgeTracker",
     "AnomalyPatternSniper",
     "SmartMoneyFlowDetector",
+    "USGlobalMarketSentinel",
+    "USSectorRotationHunter",
+    "USMomentumSurgeTracker",
+    "USAnomalyPatternSniper",
+    "USSmartMoneyFlowDetector",
     "AttentionStrategyManager",
     "StrategyConfig",
     "get_strategy_manager",

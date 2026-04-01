@@ -2,6 +2,7 @@
 ManasAlayaConnector - UnifiedManas 与 AwakenedAlaya 连接器
 
 将 UnifiedManas 的决策输出传递给 AwakenedAlaya，触发持仓顿悟
+同时触发 WisdomRetriever，从爸爸的知识库中检索相关文章
 """
 
 import logging
@@ -10,8 +11,21 @@ from typing import Dict, Any, Optional
 from .manas.unified_manas import UnifiedManas
 from .alaya.awakened_alaya import AwakenedAlaya
 from .alaya.epiphany_engine import EpiphanyEngine
+from .wisdom.wisdom_retriever import WisdomRetriever, TriggerContext
 
 log = logging.getLogger(__name__)
+
+
+# 全局单例
+_connector: Optional["ManasAlayaConnector"] = None
+
+
+def get_connector() -> "ManasAlayaConnector":
+    """获取全局 ManasAlayaConnector 单例"""
+    global _connector
+    if _connector is None:
+        _connector = ManasAlayaConnector()
+    return _connector
 
 
 class ManasAlayaConnector:
@@ -29,6 +43,7 @@ class ManasAlayaConnector:
         self._manas = UnifiedManas()
         self._alaya = AwakenedAlaya()
         self._epiphany_engine = EpiphanyEngine()
+        self._wisdom_retriever = WisdomRetriever()
 
         self._alaya.set_epiphany_engine(self._epiphany_engine)
 
@@ -81,6 +96,15 @@ class ManasAlayaConnector:
                                 if alaya_output.get("portfolio_awakening") else "")
         }
 
+        # WisdomRetriever: 根据 Manas 状态检索爸爸的知识库
+        context = TriggerContext.from_manas_output(manas_output.to_dict())
+        wisdom_result = self._wisdom_retriever.retrieve(context)
+        combined["wisdom"] = wisdom_result
+
+        if wisdom_result.get("should_speak"):
+            combined["wisdom_to_speak"] = wisdom_result.get("best_snippet")
+            log.info(f"[ManasAlayaConnector] Wisdom triggered: {wisdom_result.get('query')}")
+
         self._last_combined_result = combined
 
         log.info(f"[ManasAlayaConnector] focus={manas_output.attention_focus.value}, "
@@ -108,3 +132,11 @@ class ManasAlayaConnector:
     def get_last_result(self) -> Optional[Dict[str, Any]]:
         """获取最近一次计算结果"""
         return self._last_combined_result
+
+    def get_wisdom_retriever(self) -> WisdomRetriever:
+        """获取 WisdomRetriever 实例"""
+        return self._wisdom_retriever
+
+    def get_wisdom_stats(self) -> Dict[str, Any]:
+        """获取 wisdom 统计信息"""
+        return self._wisdom_retriever.get_stats()
