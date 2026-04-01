@@ -63,6 +63,14 @@ from .kernel import (
     render_attention_flow_diagram,
 )
 
+from .us_market import (
+    get_us_attention_data,
+    render_us_market_panel,
+    render_us_hot_sectors_and_stocks,
+    get_us_market_summary,
+    render_us_market_summary,
+)
+
 __all__ = [
     "get_attention_integration",
     "get_strategy_manager",
@@ -103,4 +111,9 @@ __all__ = [
     "render_noise_filter_panel",
     "render_kernel_dashboard",
     "render_attention_flow_diagram",
+    "get_us_attention_data",
+    "render_us_market_panel",
+    "render_us_hot_sectors_and_stocks",
+    "get_us_market_summary",
+    "render_us_market_summary",
 ]

@@ -91,6 +91,8 @@ class NajaAttentionIntegration:
             config: v1 注意力系统配置
             intelligence_config: 智能增强系统配置
         """
+        log.info(f"[NajaAttentionIntegration] initialize 开始, config={config}")
+
         if config:
             self.config = config
 
@@ -98,8 +100,11 @@ class NajaAttentionIntegration:
 
         self._discover_sectors_and_symbols()
 
+        log.info(f"[NajaAttentionIntegration] 创建 AttentionSystem, config={self.config}")
         self.attention_system = AttentionSystem(self.config)
+        log.info(f"[NajaAttentionIntegration] 调用 attention_system.initialize()")
         self.attention_system.initialize(self._sectors, self._symbol_sector_map)
+        log.info(f"[NajaAttentionIntegration] attention_system.initialize 完成")
 
         self._register_names_to_tracker()
 
@@ -421,12 +426,48 @@ class NajaAttentionIntegration:
 
         avg_latency = self._total_latency / max(self._processed_snapshots, 1)
 
+        us_global = self.attention_system._us_last_global_attention
+        us_activity = self.attention_system._us_last_activity
+
+        cn_global = status.get('global_attention', 0)
+        cn_activity = status.get('activity', 0)
+
+        try:
+            from deva.naja.radar.trading_clock import is_trading_time as is_cn_trading, is_us_trading_time
+            is_cn = is_cn_trading()
+            is_us = is_us_trading_time()
+
+            if is_us and not is_cn:
+                global_attention = us_global
+                activity = us_activity
+            elif is_cn and not is_us:
+                global_attention = cn_global
+                activity = cn_activity
+            else:
+                global_attention = (cn_global + us_global) / 2
+                activity = (cn_activity + us_activity) / 2
+        except Exception:
+            global_attention = cn_global
+            activity = cn_activity
+
+        attention_details = {
+            'global_attention': global_attention,
+            'activity': activity,
+            'attention_level': '高' if global_attention >= 0.6 else ('中' if global_attention >= 0.3 else '低'),
+            'activity_level': '高' if activity >= 0.7 else ('中' if activity >= 0.15 else '低'),
+            'cn_global': cn_global,
+            'us_global': us_global,
+            'cn_activity': cn_activity,
+            'us_activity': us_activity,
+        }
+
         report = {
             'status': 'running' if self._running else 'stopped',
             'processed_snapshots': self._processed_snapshots,
             'avg_latency_ms': avg_latency,
-            'global_attention': status.get('global_attention', 0),
-            'activity': status.get('activity', 0),
+            'global_attention': global_attention,
+            'activity': activity,
+            'attention_details': attention_details,
             'frequency_summary': status.get('frequency_summary', {}),
             'strategy_summary': status.get('strategy_summary', {}),
             'dual_engine_summary': status.get('dual_engine_summary', {}),

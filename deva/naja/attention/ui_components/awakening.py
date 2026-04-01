@@ -154,7 +154,19 @@ def _render_four_dimensions_compact() -> str:
 
     kernel_fd_enabled = manager.kernel.is_four_dimensions_enabled() if hasattr(manager, 'kernel') else False
 
-    time_status = "🟢 交易中" if fd and fd.time.is_trading_open else "🔴 非交易" if fd else "⚪ 未知"
+    try:
+        from .common import get_market_phase_summary, get_ui_mode_context
+        phase_summary = get_market_phase_summary()
+        mode_ctx = get_ui_mode_context()
+        cn_info = phase_summary.get('cn', {})
+        us_info = phase_summary.get('us', {})
+        cn_phase = cn_info.get('phase_name', '未知')
+        us_phase = us_info.get('phase_name', '未知')
+        mode_label = mode_ctx.get('mode_label', '实盘模式')
+        time_hint = mode_ctx.get('market_time_str', '') if mode_ctx.get('is_replay') else ''
+        time_status = f"🇨🇳 {cn_phase} | 🇺🇸 {us_phase} | {mode_label} {time_hint}"
+    except Exception:
+        time_status = "🟢 交易中" if fd and fd.time.is_trading_open else "🔴 非交易" if fd else "⚪ 未知"
     time_pressure = f"{fd.time.pressure:.0%}" if fd else "-"
 
     capital_ratio = fd.capital.cash_ratio if fd else 0

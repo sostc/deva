@@ -173,6 +173,7 @@ def get_nav_menu_items() -> List[Dict[str, str]]:
         {"name": "💾 持久化", "path": "/runtime_state"},
         {"name": "🛠️ 系统", "path": "/system"},
         {"name": "🔧 配置", "path": "/configadmin"},
+        {"name": "🧿 灵魂", "path": "/souladmin"},
         {"name": "🎛️ 调优监控", "path": "/tuningadmin"},
     ]
 

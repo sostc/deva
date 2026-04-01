@@ -42,22 +42,167 @@ FUTURES_CODES = {
 }
 
 US_STOCK_CODES = {
-    "gb_nvda": "nvda",
+    # Mega Cap Tech
     "gb_aapl": "aapl",
-    "gb_tsla": "tsla",
     "gb_msft": "msft",
     "gb_goog": "goog",
     "gb_googl": "googl",
     "gb_amzn": "amzn",
     "gb_meta": "meta",
+    "gb_nvda": "nvda",
+    "gb_tsla": "tsla",
+
+    # Semiconductor
     "gb_amd": "amd",
     "gb_intc": "intc",
+    "gb_nxpi": "nxpi",
+    "gb_qcom": "qcom",
+    "gb_mu": "mu",
+    "gb_lam": "lam",
+    "gb_amat": "amat",
+    "gb_asml": "asml",
+    "gb_tsm": "tsm",
+
+    # Internet & E-commerce
+    "gb_pypl": "pypl",
+    "gb_shop": "shop",
+    "gb_snap": "snap",
+    "gb_pins": "pins",
+    "gb_twlo": "twlo",
+    "gb_roku": "roku",
+    "gb_dbx": "dbx",
+    "gb_spot": "spot",
+
+    # Finance
+    "gb_jpm": "jpm",
+    "gb_bac": "bac",
+    "gb_wfc": "wfc",
+    "gb_ms": "ms",
+    "gb_c": "c",
+    "gb_v": "v",
+    "gb_ma": "ma",
+
+    # China Stocks (ADRs)
+    "gb_baba": "baba",
+    "gb_bidu": "bidu",
+    "gb_nio": "nio",
+    "gb_xpev": "xpev",
+    "gb_li": "li",
+    "gb_jd": "jd",
+    "gb_pdd": "pdd",
+
+    # Others
     "gb_nke": "nke",
     "gb_dis": "dis",
-    "gb_pypl": "pypl",
-    "gb_baba": "baba",
+    "gb_mcd": "mcd",
+    "gb_hum": "hum",
+    "gb_unh": "unh",
+    "gb_pfe": "pfe",
+
+    # Crypto
+    "gb_mstr": "mstr",
+    "gb_coin": "coin",
+    "gb_mara": "mara",
+    "gb_riot": "riot",
+
+    # Cloud & Security
+    "gb_crwd": "crwd",
+    "gb_okta": "okta",
+    "gb_zs": "zs",
+    "gb_net": "net",
+    "gb_ddog": "ddog",
+    "gb_snow": "snow",
+
+    # Streaming & Gaming
+    "gb_nflx": "nflx",
+    "gb_ea": "ea",
+    "gb_atvi": "atvi",
+
+    # AI & Robotics
+    "gb_pltr": "pltr",
+
+    # EV & Energy
+    "gb_f": "f",
+    "gb_gm": "gm",
+    "gb_rivn": "rivn",
+    "gb_lucid": "lucid",
+    "gb_wrld": "wrld",
     "gb_crwc": "crwv",
 }
+
+US_STOCK_SECTORS = {
+    "aapl": "科技",
+    "msft": "科技",
+    "goog": "科技",
+    "googl": "科技",
+    "amzn": "电商",
+    "meta": "科技",
+    "nvda": "半导体",
+    "tsla": "新能源车",
+    "amd": "半导体",
+    "intc": "半导体",
+    "nxpi": "半导体",
+    "qcom": "半导体",
+    "mu": "半导体",
+    "lam": "半导体",
+    "amat": "半导体",
+    "asml": "半导体",
+    "tsm": "半导体",
+    "pypl": "金融科技",
+    "shop": "电商",
+    "snap": "社交",
+    "pins": "社交媒体",
+    "twlo": "通信",
+    "roku": "流媒体",
+    "dbx": "云计算",
+    "spot": "音乐",
+    "jpm": "金融",
+    "bac": "金融",
+    "wfc": "金融",
+    "ms": "金融",
+    "c": "金融",
+    "v": "支付",
+    "ma": "支付",
+    "baba": "电商",
+    "bidu": "科技",
+    "nio": "新能源车",
+    "xpev": "新能源车",
+    "li": "新能源车",
+    "jd": "电商",
+    "pdd": "电商",
+    "nke": "消费",
+    "dis": "娱乐",
+    "mcd": "消费",
+    "hum": "医疗",
+    "unh": "医疗",
+    "pfe": "医疗",
+    "mstr": "加密",
+    "coin": "加密",
+    "mara": "加密",
+    "riot": "加密",
+    "crwd": "安全",
+    "okta": "安全",
+    "zs": "安全",
+    "net": "安全",
+    "ddog": "云",
+    "snow": "云",
+    "nflx": "流媒体",
+    "ea": "游戏",
+    "atvi": "游戏",
+    "pltr": "AI",
+    "f": "新能源车",
+    "gm": "新能源车",
+    "rivn": "新能源车",
+    "lucid": "新能源车",
+    "wrld": "游戏",
+    "crwc": "游戏",
+}
+
+US_SECTOR_LIST = [
+    "科技", "半导体", "电商", "新能源车", "金融", "金融科技",
+    "支付", "社交", "社交媒体", "通信", "流媒体", "云计算",
+    "安全", "云", "游戏", "AI", "医疗", "消费", "娱乐", "加密"
+]
 
 ALL_CODES = {**FUTURES_CODES, **US_STOCK_CODES}
 MARKET_ID_TO_CODE = {v: k for k, v in ALL_CODES.items()}
@@ -234,6 +379,8 @@ class GlobalMarketAPI:
         except Exception as e:
             log.error(f"获取市场数据异常: {e}")
             return {}
+        finally:
+            await self.close()
 
     async def fetch_futures(self) -> Dict[str, MarketData]:
         """获取期货数据"""

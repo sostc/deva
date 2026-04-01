@@ -178,3 +178,189 @@ def initialize_attention_system():
     except Exception as e:
         from pywebio.output import toast
         toast(f"❌ 初始化失败: {e}", color="error")
+
+
+def _format_next_time(raw_time: str) -> str:
+    if not raw_time:
+        return ""
+    if "T" in raw_time:
+        return raw_time.split("T")[1][:5]
+    return raw_time
+
+
+def _get_market_time_context() -> Dict[str, Any]:
+    """获取市场时间上下文（支持回放模式）"""
+    try:
+        from deva.naja.common.market_time import get_market_time_service
+        mts = get_market_time_service()
+        market_time = mts.get_market_time()
+        is_replay = mts.is_replay_mode()
+    except Exception:
+        market_time = None
+        is_replay = False
+
+    if market_time:
+        try:
+            from datetime import datetime
+            market_dt = datetime.fromtimestamp(market_time)
+            market_time_str = market_dt.strftime("%Y-%m-%d %H:%M:%S")
+        except Exception:
+            market_dt = None
+            market_time_str = ""
+    else:
+        market_dt = None
+        market_time_str = ""
+
+    return {
+        'is_replay': is_replay,
+        'market_time': market_time,
+        'market_dt': market_dt,
+        'market_time_str': market_time_str,
+    }
+
+
+def get_ui_mode_context() -> Dict[str, Any]:
+    """获取当前 UI 模式上下文（实盘/回放/强制）"""
+    try:
+        from deva.naja.attention.integration import get_mode_manager
+        mode_manager = get_mode_manager()
+        mode_info = mode_manager.get_diagnostic_info()
+        mode = mode_info.get('current_mode', 'realtime')
+        is_force = mode_info.get('is_force_realtime', False)
+        is_lab = mode_info.get('is_lab', False)
+    except Exception:
+        mode = 'realtime'
+        is_force = False
+        is_lab = False
+
+    time_ctx = _get_market_time_context()
+    is_replay = time_ctx.get('is_replay', False)
+
+    if is_lab or is_replay:
+        mode_label = "回放/实验模式"
+    elif is_force:
+        mode_label = "强制实盘"
+    else:
+        mode_label = "实盘模式"
+
+    return {
+        'mode': mode,
+        'is_lab': is_lab,
+        'is_force': is_force,
+        'is_replay': is_replay,
+        'mode_label': mode_label,
+        'market_time': time_ctx.get('market_time'),
+        'market_time_str': time_ctx.get('market_time_str', ''),
+        'market_dt': time_ctx.get('market_dt'),
+    }
+
+
+def _cn_phase_at(dt) -> str:
+    """按 A 股规则计算指定时间的交易阶段"""
+    try:
+        if dt.weekday() >= 5:
+            return 'closed'
+        total_minutes = dt.hour * 60 + dt.minute
+        PRE_START = 9 * 60
+        PRE_END = 9 * 60 + 30
+        MORNING_END = 11 * 60 + 30
+        LUNCH_END = 13 * 60
+        AFTERNOON_END = 15 * 60
+        POST_END = 15 * 60 + 30
+
+        if total_minutes < PRE_START:
+            return 'closed'
+        if PRE_START <= total_minutes < PRE_END:
+            return 'pre_market'
+        if PRE_END <= total_minutes < MORNING_END:
+            return 'trading'
+        if MORNING_END <= total_minutes < LUNCH_END:
+            return 'lunch'
+        if LUNCH_END <= total_minutes < AFTERNOON_END:
+            return 'trading'
+        if AFTERNOON_END <= total_minutes < POST_END:
+            return 'post_market'
+        return 'closed'
+    except Exception:
+        return 'closed'
+
+
+def get_market_phase_summary() -> Dict[str, Any]:
+    """获取A股/美股交易时段摘要信息（用于UI文案）"""
+    from deva.naja.radar.trading_clock import get_trading_clock
+    from deva.naja.radar.global_market_config import get_market_session_manager
+
+    cn_phase_names = {
+        'trading': '交易中',
+        'pre_market': '盘前',
+        'post_market': '盘后',
+        'lunch': '午休',
+        'closed': '休市',
+    }
+    us_phase_names = {
+        'trading': '交易中',
+        'pre_market': '盘前',
+        'post_market': '盘后',
+        'closed': '休市',
+    }
+
+    time_ctx = _get_market_time_context()
+    market_dt = time_ctx.get('market_dt')
+    is_replay = time_ctx.get('is_replay', False)
+
+    if is_replay and market_dt:
+        try:
+            cn_phase = _cn_phase_at(market_dt)
+        except Exception:
+            cn_phase = 'closed'
+        cn_signal = {
+            'phase': cn_phase,
+            'next_phase': '',
+            'next_change_time': '',
+        }
+        try:
+            mgr = get_market_session_manager()
+            us_phase = mgr.get_us_trading_phase(market_dt)
+        except Exception:
+            us_phase = 'closed'
+        us_signal = {
+            'phase': us_phase,
+            'next_phase': '',
+            'next_change_time': '',
+        }
+    else:
+        try:
+            cn_signal = get_trading_clock().get_current_signal()
+        except Exception:
+            cn_signal = {}
+        try:
+            from deva.naja.radar.trading_clock import get_us_trading_clock
+            us_signal = get_us_trading_clock().get_current_signal()
+        except Exception:
+            us_signal = {}
+
+    def build(signal: Dict[str, Any], names: Dict[str, str]) -> Dict[str, Any]:
+        phase = signal.get('phase', 'closed')
+        next_phase = signal.get('next_phase', '')
+        next_change_time = _format_next_time(signal.get('next_change_time', '') or '')
+        phase_name = names.get(phase, phase)
+        next_phase_name = names.get(next_phase, next_phase) if next_phase else ''
+        active = phase in ('trading', 'pre_market')
+        return {
+            'phase': phase,
+            'phase_name': phase_name,
+            'next_phase': next_phase,
+            'next_phase_name': next_phase_name,
+            'next_change_time': next_change_time,
+            'active': active,
+        }
+
+    cn_info = build(cn_signal, cn_phase_names)
+    us_info = build(us_signal, us_phase_names)
+
+    return {
+        'cn': cn_info,
+        'us': us_info,
+        'is_replay': is_replay,
+        'market_time_str': time_ctx.get('market_time_str', ''),
+    }

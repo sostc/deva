@@ -23,6 +23,24 @@ from dataclasses import dataclass, field
 from enum import Enum
 from collections import deque
 
+_loop_audit_log_stage = None
+
+def _get_audit():
+    global _loop_audit_log_stage
+    if _loop_audit_log_stage is None:
+        try:
+            from ..common.loop_audit import LoopAudit
+            _loop_audit_log_stage = lambda **kw: LoopAudit(**kw)
+        except ImportError:
+            _loop_audit_log_stage = lambda **kw: _DummyAudit()
+    return _loop_audit_log_stage
+
+class _DummyAudit:
+    def __init__(self, **kwargs): pass
+    def __enter__(self): return self
+    def __exit__(self, *args): pass
+    def record_data_out(self, *args, **kwargs): pass
+
 log = logging.getLogger(__name__)
 
 
@@ -396,67 +414,77 @@ class ProphetSense:
                 - intensity: float 叙事强度 0-1
         """
         current_time = time.time()
-        if current_time - self._last_signal_time < self._min_interval:
-            return None
+        with _get_audit()(loop_type="senses", stage="sense", data_in={"has_market_data": bool(market_data), "has_flow_data": bool(flow_data), "has_options_data": bool(options_data), "has_narrative_data": bool(narrative_data)}) as audit:
+            if current_time - self._last_signal_time < self._min_interval:
+                audit.record_data_out({"status": "skipped", "reason": "too_frequent"})
+                return None
 
-        signals = []
+            signals = []
 
-        if market_data:
-            symbol = market_data.get('symbol', 'market')
+            if market_data:
+                symbol = market_data.get('symbol', 'market')
 
-            if 'price' in market_data and 'volume' in market_data:
-                sig = self.momentum.detect(
-                    symbol=symbol,
-                    price=market_data.get('price', 0),
-                    volume=market_data.get('volume', 0),
-                    price_change=market_data.get('price_change', 0)
+                if 'price' in market_data and 'volume' in market_data:
+                    sig = self.momentum.detect(
+                        symbol=symbol,
+                        price=market_data.get('price', 0),
+                        volume=market_data.get('volume', 0),
+                        price_change=market_data.get('price_change', 0)
+                    )
+                    if sig:
+                        signals.append(sig)
+
+                if 'advancing' in market_data and 'declining' in market_data:
+                    sig = self.sentiment.detect(
+                        advancing=market_data.get('advancing', 0),
+                        declining=market_data.get('declining', 0)
+                    )
+                    if sig:
+                        signals.append(sig)
+
+            if flow_data:
+                sig = self.flow_taste.detect(
+                    main_flow=flow_data.get('main_flow', 0),
+                    retail_flow=flow_data.get('retail_flow', 0),
+                    total_flow=flow_data.get('total_flow', 0)
                 )
                 if sig:
                     signals.append(sig)
 
-            if 'advancing' in market_data and 'declining' in market_data:
-                sig = self.sentiment.detect(
-                    advancing=market_data.get('advancing', 0),
-                    declining=market_data.get('declining', 0)
+            if options_data:
+                sig = self.volatility.detect(
+                    symbol=options_data.get('symbol', ''),
+                    implied_volatility=options_data.get('implied_volatility', 0),
+                    historical_volatility=options_data.get('historical_volatility', 0),
+                    skew=options_data.get('skew', 0)
                 )
                 if sig:
                     signals.append(sig)
 
-        if flow_data:
-            sig = self.flow_taste.detect(
-                main_flow=flow_data.get('main_flow', 0),
-                retail_flow=flow_data.get('retail_flow', 0),
-                total_flow=flow_data.get('total_flow', 0)
-            )
-            if sig:
-                signals.append(sig)
+            if narrative_data:
+                sig = self._detect_narrative_signal(narrative_data)
+                if sig:
+                    signals.append(sig)
 
-        if options_data:
-            sig = self.volatility.detect(
-                symbol=options_data.get('symbol', ''),
-                implied_volatility=options_data.get('implied_volatility', 0),
-                historical_volatility=options_data.get('historical_volatility', 0),
-                skew=options_data.get('skew', 0)
-            )
-            if sig:
-                signals.append(sig)
+            if not signals:
+                audit.record_data_out({"status": "completed", "signals": 0})
+                self._last_signal_time = current_time
+                return None
 
-        if narrative_data:
-            sig = self._detect_narrative_signal(narrative_data)
-            if sig:
-                signals.append(sig)
+            best_signal = max(signals, key=lambda s: s.intensity * s.confidence)
+            self._recent_signals.append(best_signal)
+            if len(self._recent_signals) > 10:
+                self._recent_signals.pop(0)
 
-        if not signals:
-            return None
+            self._last_signal_time = current_time
 
-        best_signal = max(signals, key=lambda s: s.intensity * s.confidence)
-        self._recent_signals.append(best_signal)
-        if len(self._recent_signals) > 10:
-            self._recent_signals.pop(0)
-
-        self._last_signal_time = current_time
-
-        return best_signal
+            audit.record_data_out({
+                "status": "completed",
+                "signals": len(signals),
+                "best_signal_type": best_signal.signal_type if best_signal else None,
+                "best_signal_intensity": best_signal.intensity if best_signal else 0
+            })
+            return best_signal
 
     def get_recent_signals(self) -> List[ProphetSignal]:
         """获取最近的预兆信号"""

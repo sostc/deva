@@ -592,7 +592,19 @@ def render_four_dimensions_status() -> str:
         border_color = "#e2e8f0"
 
     time_icon = "🟢" if fd.time.is_trading_open else "🔴"
-    time_text = "交易中" if fd.time.is_trading_open else "非交易"
+    try:
+        from .common import get_market_phase_summary, get_ui_mode_context
+        phase_summary = get_market_phase_summary()
+        mode_ctx = get_ui_mode_context()
+        cn_info = phase_summary.get('cn', {})
+        us_info = phase_summary.get('us', {})
+        cn_phase = cn_info.get('phase_name', '未知')
+        us_phase = us_info.get('phase_name', '未知')
+        mode_label = mode_ctx.get('mode_label', '实盘模式')
+        time_hint = mode_ctx.get('market_time_str', '') if mode_ctx.get('is_replay') else ''
+        time_text = f"A股{cn_phase} | 美股{us_phase} | {mode_label} {time_hint}"
+    except Exception:
+        time_text = "交易中" if fd.time.is_trading_open else "非交易"
     capital_bar = min(fd.capital.cash_ratio * 100, 100)
     capital_color = "#16a34a" if fd.capital.cash_ratio > 0.2 else "#dc2626"
     capital_text = "有子弹" if fd.capital.has_bullets else "⚠️子弹不足"

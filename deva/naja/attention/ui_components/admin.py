@@ -153,23 +153,61 @@ async def render_attention_admin(ctx: dict):
         fetcher = report.get('realtime_fetcher')
         if fetcher:
             fetcher_running = fetcher.get('running', False)
-            is_trading = fetcher.get('is_trading', False)
             is_force_mode = fetcher.get('is_force_trading_mode', False)
-            fetcher_status_icon = "🟢" if fetcher_running else "🔴"
 
-            current_time = fetcher.get('current_time', '')
-            weekday = fetcher.get('weekday', '')
-            next_trading = fetcher.get('next_trading', '')
-            reasons = fetcher.get('not_running_reasons', [])
+            cn_info = fetcher.get('cn_info', {})
+            us_info = fetcher.get('us_info', {})
+            cn_active = fetcher.get('cn_active', False)
+            us_active = fetcher.get('us_active', False)
+
+            cn_phase = cn_info.get('phase', 'closed')
+            us_phase = us_info.get('phase', 'closed')
+            cn_phase_name = cn_info.get('phase_name', '休市')
+            us_phase_name = us_info.get('phase_name', '休市')
+            cn_next = cn_info.get('next_change_time', '')
+            us_next = us_info.get('next_change_time', '')
+            cn_next_phase = cn_info.get('next_phase_name', '')
+            us_next_phase = us_info.get('next_phase_name', '')
+
+            cn_color = '#22c55e' if cn_phase in ('trading', 'pre_market') else '#f59e0b'
+            us_color = '#22c55e' if us_phase in ('trading', 'pre_market') else '#f59e0b'
 
             if is_force_mode:
-                if fetcher_running:
+                panel_html = f"""
+                <div style="margin-bottom:14px;padding:12px 14px;border-radius:10px;background:linear-gradient(135deg,#f0fdf4,#dcfce7);border:1px solid #86efac;color:#166534;font-size:13px;">
+                    <strong>📡 实盘获取器 🟢</strong> <span style="color:#06b6d4;font-weight:bold;">强制调试中</span><br>
+                    <span style="font-size:12px;">
+                    🔧 模式: <span style="color:#06b6d4;font-weight:bold;">强制实盘(忽略交易时间)</span>
+                    </span><br>
+                    <span style="font-size:11px;color:#64748b;">
+                    🔄 获取次数: {fetcher.get('fetch_count', 0)} |
+                    ❌ 错误: {fetcher.get('error_count', 0)} |
+                    📈 档位: HIGH={fetcher.get('high_count', 0)} | MEDIUM={fetcher.get('medium_count', 0)} | LOW={fetcher.get('low_count', 0)}
+                    </span>
+                </div>
+                """
+            else:
+                status_parts = []
+                if cn_active:
+                    status_parts.append(f'<span style="color:{cn_color};font-weight:bold;">A股<span style="font-size:11px;">({cn_phase_name})</span></span>')
+                else:
+                    next_info = f'→{cn_next_phase} {cn_next}' if cn_next else ''
+                    status_parts.append(f'<span style="color:{cn_color};font-weight:bold;">A股<span style="font-size:11px;">(休市 {next_info})</span></span>')
+
+                if us_active:
+                    status_parts.append(f'<span style="color:{us_color};font-weight:bold;">美股<span style="font-size:11px;">({us_phase_name})</span></span>')
+                else:
+                    next_info = f'→{us_next_phase} {us_next}' if us_next else ''
+                    status_parts.append(f'<span style="color:{us_color};font-weight:bold;">美股<span style="font-size:11px;">(休市 {next_info})</span></span>')
+
+                status_str = " | ".join(status_parts)
+
+                if cn_active or us_active:
                     panel_html = f"""
                     <div style="margin-bottom:14px;padding:12px 14px;border-radius:10px;background:linear-gradient(135deg,#f0fdf4,#dcfce7);border:1px solid #86efac;color:#166534;font-size:13px;">
-                        <strong>📡 实盘获取器 {fetcher_status_icon}</strong> 强制调试中<br>
+                        <strong>📡 实盘获取器 🟢</strong> <span style="color:#22c55e;font-weight:bold;">运行中</span><br>
                         <span style="font-size:12px;">
-                        🕐 当前时间: {weekday} {current_time} |
-                        🔧 模式: <span style="color:#06b6d4;font-weight:bold;">强制实盘(忽略交易时间)</span>
+                        📊 状态: {status_str}
                         </span><br>
                         <span style="font-size:11px;color:#64748b;">
                         🔄 获取次数: {fetcher.get('fetch_count', 0)} |
@@ -180,92 +218,54 @@ async def render_attention_admin(ctx: dict):
                     """
                 else:
                     panel_html = f"""
-                    <div style="margin-bottom:14px;padding:12px 14px;border-radius:10px;background:linear-gradient(135deg,#e0f2fe,#bae6fd);border:1px solid #38bdf8;color:#0369a1;font-size:13px;">
-                        <strong>📡 实盘获取器 {fetcher_status_icon}</strong> 强制调试待机<br>
+                    <div style="margin-bottom:14px;padding:12px 14px;border-radius:10px;background:linear-gradient(135deg,#fef3c7,#fde68a);border:1px solid #f59e0b;color:#92400e;font-size:13px;">
+                        <strong>📡 实盘获取器 🔴</strong> <span style="color:#f59e0b;font-weight:bold;">待机中</span><br>
                         <span style="font-size:12px;">
-                        🕐 当前时间: {weekday} {current_time} |
-                        🔧 模式: <span style="color:#06b6d4;font-weight:bold;">强制实盘(忽略交易时间)</span>
+                        📊 状态: {status_str}
                         </span><br>
-                        <span style="font-size:11px;color:#64748b;">
-                        🔄 获取次数: {fetcher.get('fetch_count', 0)} |
-                        ❌ 错误: {fetcher.get('error_count', 0)}
+                        <span style="font-size:11px;color:#92400e;">
+                        ⏰ A股下次开盘: {cn_next} | 美股下次开盘: {us_next}
                         </span>
                     </div>
                     """
-            elif fetcher_running and is_trading:
-                panel_html = f"""
-                <div style="margin-bottom:14px;padding:12px 14px;border-radius:10px;background:linear-gradient(135deg,#f0fdf4,#dcfce7);border:1px solid #86efac;color:#166534;font-size:13px;">
-                    <strong>📡 实盘获取器 {fetcher_status_icon}</strong> 运行中<br>
-                    <span style="font-size:12px;">
-                    🕐 当前时间: {weekday} {current_time} |
-                    📊 交易状态: <span style="color:#22c55e;font-weight:bold;">交易中</span> |
-                    🔄 获取次数: {fetcher.get('fetch_count', 0)} |
-                    ❌ 错误: {fetcher.get('error_count', 0)}
-                    </span><br>
-                    <span style="font-size:11px;color:#64748b;">
-                    📈 档位: HIGH={fetcher.get('high_count', 0)} | MEDIUM={fetcher.get('medium_count', 0)} | LOW={fetcher.get('low_count', 0)}
-                    </span>
-                </div>
-                """
-            elif fetcher_running and not is_trading:
-                reasons_str = " | ".join(reasons) if reasons else "非交易时间"
-                panel_html = f"""
-                <div style="margin-bottom:14px;padding:12px 14px;border-radius:10px;background:linear-gradient(135deg,#fef3c7,#fde68a);border:1px solid #f59e0b;color:#92400e;font-size:13px;">
-                    <strong>📡 实盘获取器 {fetcher_status_icon}</strong> 待机中<br>
-                    <span style="font-size:12px;">
-                    🕐 当前时间: {weekday} {current_time} |
-                    📊 交易状态: <span style="color:#f59e0b;font-weight:bold;">{reasons_str}</span>
-                    </span><br>
-                    <span style="font-size:11px;color:#92400e;">
-                    ⏰ 下次开市: {next_trading} |
-                    🔄 获取次数: {fetcher.get('fetch_count', 0)} |
-                    ❌ 错误: {fetcher.get('error_count', 0)}
-                    </span>
-                </div>
-                """
-            else:
-                reasons_str = " | ".join(reasons) if reasons else "未启动"
-                panel_html = f"""
-                <div style="margin-bottom:14px;padding:12px 14px;border-radius:10px;background:linear-gradient(135deg,#fef2f2,#fee2e2);border:1px solid #fca5a5;color:#991b1b;font-size:13px;">
-                    <strong>📡 实盘获取器 {fetcher_status_icon}</strong> 已停止<br>
-                    <span style="font-size:12px;">
-                    🕐 当前时间: {weekday} {current_time} |
-                    📊 状态: <span style="color:#dc2626;font-weight:bold;">{reasons_str}</span>
-                    </span><br>
-                    <span style="font-size:11px;color:#991b1b;">
-                    ⏰ 下次启动: {next_trading}
-                    </span>
-                </div>
-                """
             put_html(panel_html)
         else:
-            current_time_str = datetime.now().strftime("%H:%M")
-            weekday = datetime.now().weekday()
-            weekday_names = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"]
-            current_weekday = weekday_names[weekday]
-
-            if weekday >= 5:
-                next_start = "周一 09:30"
-                status_reason = "周末休市"
-            elif current_time_str < "09:30":
-                next_start = "今天 09:30"
-                status_reason = "盘前时间"
-            elif current_time_str >= "15:00":
-                next_start = "明天 09:30"
-                status_reason = "已收盘"
+            from .common import get_market_phase_summary, get_ui_mode_context
+            mode_ctx = get_ui_mode_context()
+            if mode_ctx.get('is_replay') and mode_ctx.get('market_time_str'):
+                current_time_str = mode_ctx.get('market_time_str', '')
+                current_weekday = "回放"
             else:
-                next_start = "立即"
-                status_reason = "未启用"
+                current_time_str = datetime.now().strftime("%H:%M")
+                weekday = datetime.now().weekday()
+                weekday_names = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"]
+                current_weekday = weekday_names[weekday]
+
+            phase_summary = get_market_phase_summary()
+            cn_info = phase_summary.get('cn', {})
+            us_info = phase_summary.get('us', {})
+
+            def _format_market_line(label, info):
+                phase_name = info.get('phase_name', '未知')
+                next_phase = info.get('next_phase_name', '')
+                next_time = info.get('next_change_time', '')
+                if info.get('phase') == 'closed' and next_time:
+                    return f"{label}{phase_name} →{next_phase} {next_time}"
+                return f"{label}{phase_name}"
+
+            cn_line = _format_market_line("A股", cn_info)
+            us_line = _format_market_line("美股", us_info)
 
             put_html(f"""
             <div style="margin-bottom:14px;padding:12px 14px;border-radius:10px;background:linear-gradient(135deg,#f1f5f9,#e2e8f0);border:1px solid #cbd5e1;color:#475569;font-size:13px;">
                 <strong>📡 实盘获取器</strong> 未启动<br>
                 <span style="font-size:12px;">
                 🕐 当前时间: {current_weekday} {current_time_str} |
-                📊 状态: <span style="color:#f59e0b;font-weight:bold;">{status_reason}</span>
+                📊 状态: <span style="color:#f59e0b;font-weight:bold;">{cn_line} | {us_line}</span> |
+                模式: <span style="color:#0ea5e9;font-weight:bold;">{mode_ctx.get('mode_label', '实盘模式')}</span>
                 </span><br>
                 <span style="font-size:11px;color:#64748b;">
-                ⏰ 下次启动: {next_start} | 调用 start_realtime_fetcher() 手动启动
+                调用 start_realtime_fetcher() 手动启动
                 </span>
             </div>
             """)

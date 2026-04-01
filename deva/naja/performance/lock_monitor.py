@@ -57,8 +57,8 @@ class LockMonitor:
         """保存锁监控设置到配置"""
         try:
             from ..config import get_config, set_config
-            set_config("performance", "lock_monitoring_enabled", cls._enabled)
-            set_config("performance", "lock_monitoring_threshold_ms", cls._threshold_ms)
+            set_config("performance.lock_monitoring_enabled", cls._enabled)
+            set_config("performance.lock_monitoring_threshold_ms", cls._threshold_ms)
             print(f"[LockMonitor] 已保存配置: enabled={cls._enabled}, threshold={cls._threshold_ms}ms")
         except Exception as e:
             print(f"[LockMonitor] 保存配置失败: {e}")

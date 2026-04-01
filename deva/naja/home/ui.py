@@ -52,8 +52,22 @@ async def render_home(ctx: dict):
         bandit_actions = 0
         cognition_signals = 0
 
+    # 获取 wisdom 统计
+    wisdom_trigger_count = 0
+    wisdom_last_snippet = ""
+    wisdom_last_focus = "-"
+    try:
+        from ..manas_alaya_connector import get_connector
+        connector = get_connector()
+        w_stats = connector.get_wisdom_stats()
+        wisdom_trigger_count = w_stats.get("trigger_count", 0)
+        wisdom_last_snippet = w_stats.get("last_best_snippet", "") or ""
+        wisdom_last_focus = w_stats.get("last_focus", "-") or "-"
+    except:
+        pass
+
     ctx["put_html"](f"""
-    <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 15px; margin: 20px 0;">
+    <div style="display: grid; grid-template-columns: repeat(5, 1fr); gap: 15px; margin: 20px 0;">
         <div style="background: linear-gradient(135deg, #1a3a5c 0%, #0d2137 100%); border-radius: 12px; padding: 20px; text-align: center; transition: transform 0.2s; cursor: pointer;" onmouseover="this.style.transform='scale(1.05)'" onmouseout="this.style.transform='scale(1)'">
             <div style="font-size: 32px; font-weight: 700; color: #00d4ff;">{attention_total}</div>
             <div style="font-size: 14px; color: #fff; margin-top: 8px;">🧠 注意力策略</div>
@@ -73,6 +87,13 @@ async def render_home(ctx: dict):
             <div style="font-size: 32px; font-weight: 700; color: #8b5cf6;">{cognition_signals}</div>
             <div style="font-size: 14px; color: #fff; margin-top: 8px;">🧩 认知信号</div>
             <div style="font-size: 11px; color: #94a3b8; margin-top: 5px;">跨信号共振，验证投资判断</div>
+        </div>
+        <!-- Wisdom 智慧系统卡片 -->
+        <div style="background: linear-gradient(135deg, #667eea 0%, #f093fb 100%); border-radius: 12px; padding: 20px; text-align: center; transition: transform 0.2s; cursor: pointer;" onmouseover="this.style.transform='scale(1.05)'" onmouseout="this.style.transform='scale(1)'">
+            <div style="font-size: 32px; font-weight: 700; color: #fff;">{wisdom_trigger_count}</div>
+            <div style="font-size: 14px; color: #fff; margin-top: 8px;">📚 智慧陪伴</div>
+            <div style="font-size: 11px; color: rgba(255,255,255,0.85); margin-top: 5px;">{'已触发' if wisdom_trigger_count > 0 else '静默中'}</div>
+            <div style="font-size: 10px; color: rgba(255,255,255,0.7); margin-top: 3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{wisdom_last_focus}</div>
         </div>
         <div style="background: linear-gradient(135deg, #1a3a3a 0%, #0d2727 100%); border-radius: 12px; padding: 20px; text-align: center; transition: transform 0.2s; cursor: pointer;" onmouseover="this.style.transform='scale(1.05)'" onmouseout="this.style.transform='scale(1)'">
             <div style="font-size: 32px; font-weight: 700; color: #667eea;">{ds_stats['total']}</div>

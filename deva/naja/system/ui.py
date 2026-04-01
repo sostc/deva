@@ -128,3 +128,6 @@ async def render_system_page(ctx: dict):
 
     from ..performance.ui import render_performance_page
     await render_performance_page(ctx)
+
+    from ..loop_audit.ui import render_loop_audit_page
+    await render_loop_audit_page(ctx)

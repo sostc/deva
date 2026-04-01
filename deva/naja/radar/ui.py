@@ -91,6 +91,39 @@ class RadarUI:
         self._render_control_panel()
         put_html('</div>')
 
+    def _get_cn_trading_status(self) -> tuple:
+        """获取A股交易时段状态"""
+        try:
+            from ..radar.trading_clock import get_trading_clock
+            tc = get_trading_clock()
+            phase = tc.current_phase
+            phase_map = {
+                "trading": ("A股交易中", "#22c55e"),
+                "pre_market": ("A股盘前", "#f59e0b"),
+                "lunch": ("A股午休", "#64748b"),
+                "post_market": ("A股盘后", "#64748b"),
+                "closed": ("A股休市", "#dc2626"),
+            }
+            return phase_map.get(phase, ("A股未知", "#64748b"))
+        except:
+            return ("A股状态未知", "#64748b")
+
+    def _get_us_trading_status(self) -> tuple:
+        """获取美股交易时段状态"""
+        try:
+            from ..radar.trading_clock import get_us_trading_clock
+            tc = get_us_trading_clock()
+            phase = tc.current_phase
+            phase_map = {
+                "trading": ("美股交易中", "#22c55e"),
+                "pre_market": ("美股盘前", "#f59e0b"),
+                "post_market": ("美股盘后", "#64748b"),
+                "closed": ("美股休市", "#dc2626"),
+            }
+            return phase_map.get(phase, ("美股未知", "#64748b"))
+        except:
+            return ("美股状态未知", "#64748b")
+
     def _render_header(self):
         """渲染页面标题 - 酷炫深色风格"""
         summary_10m = self.engine.summarize(window_seconds=600) if self.engine else {}
@@ -109,6 +142,9 @@ class RadarUI:
         drift_count = type_counts.get("radar_data_distribution_shift", 0) + type_counts.get("drift", 0)
         anomaly_count = type_counts.get("radar_anomaly", 0) + type_counts.get("anomaly", 0)
         sector_count = type_counts.get("radar_sector_anomaly", 0) + type_counts.get("sector_anomaly", 0) + type_counts.get("sector_hotspot", 0)
+
+        cn_phase, cn_phase_color = self._get_cn_trading_status()
+        us_phase, us_phase_color = self._get_us_trading_status()
 
         put_html(f"""
         <div style="
@@ -153,6 +189,11 @@ class RadarUI:
                         <div style="font-size: 11px; color: #64748b; margin-bottom: 4px;">引擎状态</div>
                         <div style="font-size: 14px; font-weight: 700; color: #22c55e;">{engine_status}</div>
                         <div style="font-size: 10px; color: #94a3b8;">{type_count} 种类型</div>
+                    </div>
+                    <div style="background: rgba(59, 130, 246, 0.15); border: 1px solid rgba(59, 130, 246, 0.3); border-radius: 10px; padding: 8px 14px; min-width: 110px;">
+                        <div style="font-size: 11px; color: #64748b; margin-bottom: 4px;">交易时段</div>
+                        <div style="font-size: 12px; font-weight: 700; color: {cn_phase_color};">{cn_phase}</div>
+                        <div style="font-size: 12px; font-weight: 700; color: {us_phase_color};">{us_phase}</div>
                     </div>
                 </div>
             </div>

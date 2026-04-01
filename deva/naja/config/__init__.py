@@ -1,60 +1,294 @@
-"""Naja 配置管理模块
+"""
+Naja 配置模块
 
-提供数据源、策略、任务、字典四个类别的配置管理。
-支持两种存储方式：
-1. 文件存储（配置 + func_code）- 方便版本控制和代码审查
-2. NB 存储（运行时数据）- 性能更好
-
-配置存储在 NB('naja_config') 命名空间中。
+包含：
+- SoulConfigLoader: 灵魂配置加载器
+- SoulGenerator: 灵魂生成器
+- SoulManager: 多灵魂管理器
+- 其他配置功能
 """
 
-from __future__ import annotations
+import os
+import json
+import logging
+import hashlib
+import getpass
+from typing import Dict, Any
 
-from typing import Any, Dict, Optional
+log = logging.getLogger(__name__)
 
-from deva import NB
+_AUTH_CONFIG_PATH = os.path.expanduser("~/.naja/auth.json")
 
-NAJA_CONFIG_TABLE = "naja_config"
 
-DEFAULT_CONFIG = {
-    "datasource": {
-        "default_interval": 5,
-        "max_retries": 3,
-        "retry_delay": 1.0,
-        "timeout": 30,
-        "enabled_types": ["timer", "file", "directory", "custom", "replay"],
-        "enabled_timer_execution_modes": ["timer", "scheduler", "event_trigger"],
-    },
-    "strategy": {
-        "single_history_count": 30,
-        "total_history_count": 500,
-        "default_window_size": 5,
-        "default_window_interval": "10s",
-        "persist_mode": "summary",
-    },
-    "attention": {
+def _hash_password(password: str) -> str:
+    """对密码进行哈希处理"""
+    return hashlib.sha256(password.encode()).hexdigest()
+
+
+def _load_auth_config_file() -> Dict[str, Any]:
+    """从文件加载认证配置"""
+    try:
+        if os.path.exists(_AUTH_CONFIG_PATH):
+            with open(_AUTH_CONFIG_PATH, "r", encoding="utf-8") as f:
+                return json.load(f)
+    except Exception as e:
+        log.warning(f"加载认证配置失败: {e}")
+    return {}
+
+
+def _save_auth_config_file(auth_config: Dict[str, Any]):
+    """保存认证配置到文件"""
+    try:
+        os.makedirs(os.path.dirname(_AUTH_CONFIG_PATH), exist_ok=True)
+        with open(_AUTH_CONFIG_PATH, "w", encoding="utf-8") as f:
+            json.dump(auth_config, f, ensure_ascii=False, indent=2)
+    except Exception as e:
+        log.error(f"保存认证配置失败: {e}")
+        raise
+
+
+class RadarConfig:
+    """雷达配置"""
+
+    _instance = None
+
+    def __new__(cls):
+        if cls._instance is None:
+            cls._instance = super().__new__(cls)
+            cls._instance._initialized = False
+        return cls._instance
+
+    def __init__(self):
+        if self._initialized:
+            return
+        self._initialized = True
+        self._config = {
+            "event_retention_days": 7,
+            "cleanup_interval_seconds": 600,
+            "macro_only": True,
+        }
+
+    def get(self, key: str, default: Any = None) -> Any:
+        return self._config.get(key, default)
+
+    def set(self, key: str, value: Any):
+        self._config[key] = value
+
+    def update(self, config: Dict[str, Any]):
+        self._config.update(config)
+
+
+_radar_config_instance = RadarConfig()
+
+
+def get_radar_config() -> RadarConfig:
+    """获取雷达配置单例"""
+    return _radar_config_instance
+
+
+class NajaConfig:
+    """Naja通用配置"""
+
+    _instance = None
+
+    def __new__(cls):
+        if cls._instance is None:
+            cls._instance = super().__new__(cls)
+            cls._instance._initialized = False
+        return cls._instance
+
+    def __init__(self):
+        if self._initialized:
+            return
+        self._initialized = True
+        self._config = {}
+        self._load_default_config()
+
+    def _load_default_config(self):
+        self._config = {
+            "auth_secret": os.environ.get("NAJA_AUTH_SECRET", ""),
+            "enabled_timer_execution_modes": ["timer", "scheduler", "event_trigger"],
+            "enabled_datasource_types": ["timer", "file", "directory", "replay", "custom"],
+            "strategy_debug": False,
+            "strategy_total_history_count": 1000,
+            "strategy_persist_mode": "json",
+            "memory_config": {},
+            "llm_config": {},
+        }
+
+    def get(self, key: str, default: Any = None) -> Any:
+        return self._config.get(key, default)
+
+    def set(self, key: str, value: Any):
+        self._config[key] = value
+
+    def update(self, config: Dict[str, Any]):
+        self._config.update(config)
+
+
+_naja_config_instance = NajaConfig()
+
+
+def get_config(key: str = None, default: Any = None) -> Any:
+    """通用配置获取"""
+    if key is None:
+        return _naja_config_instance
+    return _naja_config_instance.get(key, default)
+
+
+def set_config(key: str, value: Any):
+    """通用配置设置，支持嵌套key（如 "auth.username"）"""
+    if "." in key:
+        parts = key.split(".", 1)
+        parent_key, child_key = parts
+        parent = _naja_config_instance.get(parent_key, {})
+        if not isinstance(parent, dict):
+            parent = {}
+        parent[child_key] = value
+        _naja_config_instance.set(parent_key, parent)
+    else:
+        _naja_config_instance.set(key, value)
+
+
+def update_config(config: Dict[str, Any]):
+    """批量更新配置"""
+    _naja_config_instance.update(config)
+
+
+def get_auth_config() -> Dict[str, Any]:
+    """获取认证配置（从文件加载）"""
+    file_config = _load_auth_config_file()
+    return {
+        "secret": _naja_config_instance.get("auth_secret", ""),
+        "username": file_config.get("username", ""),
+        "password": file_config.get("password_hash", ""),
+        "dev_mode": file_config.get("dev_mode", False),
+    }
+
+
+def set_auth_config(username: str = None, password: str = None, dev_mode: bool = None):
+    """保存认证配置到文件
+
+    Args:
+        username: 用户名
+        password: 明文密码（会自动哈希存储）
+        dev_mode: 开发模式标志
+    """
+    file_config = _load_auth_config_file()
+
+    if username is not None:
+        file_config["username"] = username
+    if password is not None:
+        file_config["password_hash"] = _hash_password(password)
+    if dev_mode is not None:
+        file_config["dev_mode"] = dev_mode
+
+    _save_auth_config_file(file_config)
+
+
+def verify_auth(username: str, password: str) -> bool:
+    """验证用户名和密码
+
+    Args:
+        username: 用户名
+        password: 明文密码
+
+    Returns:
+        验证是否通过
+    """
+    file_config = _load_auth_config_file()
+
+    if not file_config.get("username") or not file_config.get("password_hash"):
+        return False
+
+    if username != file_config.get("username"):
+        return False
+
+    return _hash_password(password) == file_config.get("password_hash")
+
+
+def ensure_auth_secret() -> str:
+    """确保认证密钥存在"""
+    return _naja_config_instance.get("auth_secret", "")
+
+
+def get_datasource_config() -> Dict[str, Any]:
+    """获取数据源配置"""
+    return _naja_config_instance.get("datasource_config", {})
+
+
+def get_enabled_timer_execution_modes() -> list:
+    """获取启用的定时执行模式"""
+    return _naja_config_instance.get("enabled_timer_execution_modes", ["timer", "scheduler", "event_trigger"])
+
+
+def get_enabled_datasource_types() -> list:
+    """获取启用的数据源类型"""
+    return _naja_config_instance.get("enabled_datasource_types", ["timer", "file", "directory", "replay", "custom"])
+
+
+def get_strategy_debug() -> bool:
+    """获取策略调试模式"""
+    return _naja_config_instance.get("strategy_debug", False)
+
+
+def get_strategy_total_history_count() -> int:
+    """获取策略历史记录总数"""
+    return _naja_config_instance.get("strategy_total_history_count", 1000)
+
+
+def get_strategy_single_history_count() -> int:
+    """获取单条策略历史记录数"""
+    return _naja_config_instance.get("strategy_single_history_count", 100)
+
+
+def get_strategy_persist_mode() -> str:
+    """获取策略持久化模式"""
+    return _naja_config_instance.get("strategy_persist_mode", "json")
+
+
+def get_strategy_config() -> Dict[str, Any]:
+    """获取策略配置"""
+    return {
+        "debug": get_strategy_debug(),
+        "total_history_count": get_strategy_total_history_count(),
+        "persist_mode": get_strategy_persist_mode(),
+    }
+
+
+def get_task_config() -> Dict[str, Any]:
+    """获取任务配置"""
+    return _naja_config_instance.get("task_config", {})
+
+
+def get_dictionary_config() -> Dict[str, Any]:
+    """获取词典配置"""
+    return _naja_config_instance.get("dictionary_config", {})
+
+
+def get_memory_config() -> Dict[str, Any]:
+    """获取内存配置"""
+    return _naja_config_instance.get("memory_config", {})
+
+
+def get_llm_config() -> Dict[str, Any]:
+    """获取LLM配置"""
+    return _naja_config_instance.get("llm_config", {})
+
+
+def set_category_config(category: str, config: Dict[str, Any]):
+    """设置分类配置"""
+    _naja_config_instance.set(f"{category}_config", config)
+
+
+def get_noise_filter_config() -> Dict[str, Any]:
+    """获取噪音过滤配置"""
+    return _naja_config_instance.get("noise_filter_config", {
         "enabled": True,
-        "global_history_window": 20,
-        "max_sectors": 5000,
-        "sector_decay_half_life": 300.0,
-        "max_symbols": 5000,
-        "low_interval": 60.0,
-        "medium_interval": 10.0,
-        "high_interval": 1.0,
-        "river_history_window": 20,
-        "pytorch_max_concurrent": 10,
-        "pytorch_batch_size": 32,
-        "enable_monitoring": True,
-        "report_interval": 60.0,
-        "debug_mode": False,
-        "log_level": "INFO",
-    },
-    "noise_filter": {
-        "enabled": True,
-        "min_amount": 100000,
-        "min_volume": 10000,
-        "min_price": 0.1,
-        "max_price": 5000.0,
+        "min_amount": 1000000,
+        "min_volume": 100000,
+        "min_price": 1.0,
+        "max_price": 1000.0,
         "max_price_change_pct": 20.0,
         "normal_time_interval": 5.0,
         "max_time_gap": 300.0,
@@ -68,346 +302,98 @@ DEFAULT_CONFIG = {
         "filter_st": False,
         "blacklist": [],
         "whitelist": [],
-    },
-    "sector_noise": {
-        "enabled": True,
-        "auto_blacklist_enabled": True,
-        "min_attention_threshold": 0.01,
-        "blacklist_patterns": [
-            '通达信', '系统', 'ST', 'B股', '基金', '指数', '期权', '期货',
-            '上证', '深证', '沪深', '大盘', '权重', '综合', '行业', '地域',
-            '概念', '风格', '上证所', '深交所', '_sys', '_index', '884',
-            '物业管理', '含B股', '地方版', '预预', '昨日', '近日',
-        ],
-    },
-    "task": {
-        "default_interval": 60,
-        "max_concurrent": 10,
-        "retry_count": 3,
-        "retry_delay": 5,
-    },
-    "dictionary": {
-        "default_interval": 300,
-        "default_daily_time": "03:00",
-        "max_cache_size": 10000,
-    },
-    "memory": {
-        "auto_save_enabled": True,
-        "auto_save_interval": 300,
-        "auto_load_on_start": True,
-        "attention_filter_enabled": True,
-        "attention_gate_base": 0.35,
-        "target_rate_per_min": 30,
-        "rate_window_seconds": 300,
-        "max_batch_keep": 80,
-        "narrative_enabled": True,
-    },
-    "insight": {
-        "auto_save_enabled": True,
-        "auto_save_interval": 300,
-        "auto_load_on_start": True,
-        "llm_reflect_interval": 3600,
-        "llm_reflect_window": 7200,
-        "short_memory_size": 1000,
-        "mid_memory_size": 5000,
-        "long_memory_size": 30,
-        "signal_buffer_size": 1000,
-        "mid_memory_threshold": 0.6,
-    },
-    "radar": {
-        "event_retention_days": 7,
-        "cleanup_interval_seconds": 600,
-        "macro_only": True,
-        "auto_start_news_fetcher": True,
-        "news_fetch_interval": 60,
-        "news_attention_threshold": 0.6,
-        "news_force_trading": False,
-        "auto_start_global_scanner": True,
-        "global_scanner_interval": 60,
-        "global_scanner_volatility_threshold": 2.0,
-        "global_scanner_single_threshold": 3.0,
-    },
-    "llm": {
-        "model_type": "deepseek",
-        "min_interval_seconds": 300,
-        "auto_adjust_enabled": True,
-        "auto_adjust_interval_seconds": 900,
-        "auto_adjust_window_seconds": 600,
-        "auto_adjust_min_events": 3,
-        "auto_adjust_dry_run": False,
-        "allowed_actions": ["update_params", "reset", "start", "stop", "restart"],
-        "max_actions_per_run": 5,
-        "strategy_allowlist": [],
-        "strategy_denylist": [],
-        "min_results_count_for_adjust": 20,
-        "max_success_rate_to_adjust": 1.0,
-        "allowed_param_keys": [],
-        "blocked_param_keys": ["class_path", "code", "func_code", "strategy_code"],
-        "reflection_enabled": True,
-        "reflection_interval_seconds": 1800,
-        "reflection_min_signals": 3,
-        "reflection_max_signals": 50,
-    },
-    "auth": {
-        "username": "",
-        "password": "",
-        "secret": "",
-        "dev_mode": False,
-    },
-    "performance": {
-        "lock_monitoring_enabled": False,
-        "lock_monitoring_threshold_ms": 100,
-        "web_request_monitoring_enabled": True,
-        "storage_monitoring_enabled": False,
-        "monitored_modules": ["strategy", "datasource", "task", "storage"],
-    },
-}
-
-
-def get_config(category: str = None, key: str = None, default: Any = None) -> Any:
-    """获取配置值"""
-    db = NB(NAJA_CONFIG_TABLE)
-
-    if category is None:
-        return dict(db.items())
-
-    category_config = db.get(category, {})
-
-    if key is None:
-        return {**DEFAULT_CONFIG.get(category, {}), **category_config}
-
-    return category_config.get(key, DEFAULT_CONFIG.get(category, {}).get(key, default))
-
-
-def set_config(category: str, key: str, value: Any) -> bool:
-    """设置配置值"""
-    try:
-        db = NB(NAJA_CONFIG_TABLE)
-        category_config = db.get(category, {})
-        category_config[key] = value
-        db[category] = category_config
-        return True
-    except Exception as e:
-        print(f"设置配置失败: {e}")
-        return False
-
-
-def set_category_config(category: str, config: Dict[str, Any]) -> bool:
-    """设置整个类别的配置"""
-    try:
-        db = NB(NAJA_CONFIG_TABLE)
-        db[category] = config
-        return True
-    except Exception as e:
-        print(f"设置配置失败: {e}")
-        return False
-
-
-def get_datasource_config() -> Dict[str, Any]:
-    """获取数据源配置"""
-    return get_config("datasource")
-
-
-def get_enabled_datasource_types() -> list:
-    """获取启用的数据源类型列表"""
-    config = get_config("datasource")
-    return config.get("enabled_types", ["timer", "custom", "replay"])
-
-
-def get_enabled_timer_execution_modes() -> list:
-    """获取定时器数据源启用的调度方式列表"""
-    config = get_config("datasource")
-    return config.get("enabled_timer_execution_modes", ["timer", "scheduler", "event_trigger"])
-
-
-def get_strategy_config() -> Dict[str, Any]:
-    """获取策略配置"""
-    return get_config("strategy")
-
-
-def get_strategy_persist_mode() -> str:
-    """获取策略结果持久化模式。"""
-    mode = get_config("strategy", "persist_mode", "summary")
-    mode = str(mode or "summary").strip().lower()
-    if mode in {"summary", "errors_only", "none"}:
-        return mode
-    return "summary"
-
-
-def get_task_config() -> Dict[str, Any]:
-    """获取任务配置"""
-    return get_config("task")
-
-
-def get_dictionary_config() -> Dict[str, Any]:
-    """获取字典配置"""
-    return get_config("dictionary")
-
-
-def get_memory_config() -> Dict[str, Any]:
-    """获取记忆配置"""
-    return get_config("memory")
-
-
-def get_insight_config() -> Dict[str, Any]:
-    """获取洞察配置"""
-    return get_config("insight")
-
-
-def get_radar_config() -> Dict[str, Any]:
-    """获取雷达配置"""
-    return get_config("radar")
-
-
-def get_llm_config() -> Dict[str, Any]:
-    """获取 LLM 调节配置"""
-    return get_config("llm")
-
-
-def get_strategy_single_history_count() -> int:
-    """获取单条策略的历史保留条数"""
-    return get_config("strategy", "single_history_count", 30)
-
-
-def get_strategy_total_history_count() -> int:
-    """获取总历史数据保留条数"""
-    return get_config("strategy", "total_history_count", 500)
-
-
-def reset_to_default(category: str = None) -> bool:
-    """重置配置为默认值"""
-    try:
-        db = NB(NAJA_CONFIG_TABLE)
-        if category:
-            db[category] = DEFAULT_CONFIG.get(category, {})
-        else:
-            for cat, config in DEFAULT_CONFIG.items():
-                db[cat] = config
-        return True
-    except Exception as e:
-        print(f"重置配置失败: {e}")
-        return False
-
-
-def get_auth_config() -> Dict[str, Any]:
-    """获取认证配置"""
-    return get_config("auth")
-
-
-def get_performance_config() -> Dict[str, Any]:
-    """获取性能监控配置"""
-    return get_config("performance")
-
-
-def get_attention_config() -> Dict[str, Any]:
-    """获取注意力系统配置"""
-    return get_config("attention")
-
-
-def get_noise_filter_config() -> Dict[str, Any]:
-    """获取噪音过滤配置"""
-    return get_config("noise_filter")
+    })
 
 
 def get_sector_noise_config() -> Dict[str, Any]:
     """获取板块噪音配置"""
-    return get_config("sector_noise")
+    return _naja_config_instance.get("sector_noise_config", {
+        "enabled": True,
+        "auto_blacklist_enabled": True,
+        "min_attention_threshold": 0.01,
+        "blacklist_patterns": [],
+    })
 
 
-def ensure_auth_secret() -> str:
-    """确保认证密钥存在，不存在则生成"""
-    import secrets
-    secret = get_config("auth", "secret", "")
-    if not secret:
-        secret = secrets.token_hex(32)
-        set_config("auth", "secret", secret)
-    return secret
+def reset_to_default(category: str):
+    """恢复默认配置"""
+    defaults = {
+        "datasource": {"default_interval": 5, "max_retries": 3, "timeout": 30},
+        "noise_filter": {"enabled": True, "min_amount": 1000000},
+        "sector_noise": {"enabled": True, "auto_blacklist_enabled": True},
+    }
+    if category in defaults:
+        set_category_config(category, defaults[category])
 
 
-from .file_config import (
-    get_file_config_manager,
-    get_dict_file_config_manager,
-    get_task_file_config_manager,
-    get_strategy_file_config_manager,
-    get_datasource_file_config_manager,
-    ConfigFileItem,
-    BaseConfigMetadata,
-    TaskConfigMetadata,
-    StrategyConfigMetadata,
-    DatasourceConfigMetadata,
-    TASK_CONFIG_DIR,
-    STRATEGY_CONFIG_DIR,
-    DATASOURCE_CONFIG_DIR,
-)
+DEFAULT_CONFIG = {
+    "datasource": {
+        "default_interval": 5,
+        "max_retries": 3,
+        "retry_delay": 1.0,
+        "timeout": 30,
+        "enabled_types": ["timer", "custom", "replay"],
+        "enabled_timer_execution_modes": ["timer", "scheduler", "event_trigger"],
+    },
+    "noise_filter": get_noise_filter_config(),
+    "sector_noise": get_sector_noise_config(),
+}
 
-from .migration import (
-    migrate_tasks_to_file,
-    migrate_strategies_to_file,
-    migrate_datasources_to_file,
-    migrate_all_to_file,
-    get_migration_status,
-    create_example_files as create_migration_examples,
-)
 
-from .ui import (
-    ConfigSchema,
-    ConfigEditorField,
-    build_editor_form,
-    parse_editor_form,
-    render_config_editor,
-    render_config_list,
-)
+def load_config() -> NajaConfig:
+    """加载配置"""
+    return _naja_config_instance
 
+
+try:
+    from .soul_config_loader import SoulConfigLoader, get_config_loader
+    from .soul_generator import SoulGenerator, get_generator
+    from .soul_manager import SoulManager, get_soul_manager
+
+    SOUL_AVAILABLE = True
+except ImportError as e:
+    log.warning(f"灵魂配置模块加载失败: {e}")
+    SoulConfigLoader = None
+    SoulGenerator = None
+    SoulManager = None
+    get_config_loader = None
+    get_generator = None
+    get_soul_manager = None
+    SOUL_AVAILABLE = False
 
 __all__ = [
-    'NAJA_CONFIG_TABLE',
-    'DEFAULT_CONFIG',
-    'get_config',
-    'set_config',
-    'set_category_config',
-    'get_datasource_config',
-    'get_enabled_datasource_types',
-    'get_enabled_timer_execution_modes',
-    'get_strategy_config',
-    'get_strategy_persist_mode',
-    'get_task_config',
-    'get_dictionary_config',
-    'get_memory_config',
-    'get_insight_config',
-    'get_radar_config',
-    'get_llm_config',
-    'get_strategy_single_history_count',
-    'get_strategy_total_history_count',
-    'reset_to_default',
-    'get_auth_config',
-    'get_performance_config',
-    'get_attention_config',
-    'get_noise_filter_config',
-    'get_sector_noise_config',
-    'ensure_auth_secret',
-    'get_file_config_manager',
-    'get_dict_file_config_manager',
-    'get_task_file_config_manager',
-    'get_strategy_file_config_manager',
-    'get_datasource_file_config_manager',
-    'ConfigFileItem',
-    'BaseConfigMetadata',
-    'TaskConfigMetadata',
-    'StrategyConfigMetadata',
-    'DatasourceConfigMetadata',
-    'TASK_CONFIG_DIR',
-    'STRATEGY_CONFIG_DIR',
-    'DATASOURCE_CONFIG_DIR',
-    'migrate_tasks_to_file',
-    'migrate_strategies_to_file',
-    'migrate_datasources_to_file',
-    'migrate_all_to_file',
-    'get_migration_status',
-    'create_migration_examples',
-    'ConfigSchema',
-    'ConfigEditorField',
-    'build_editor_form',
-    'parse_editor_form',
-    'render_config_editor',
-    'render_config_list',
+    "get_radar_config",
+    "get_config",
+    "set_config",
+    "update_config",
+    "get_auth_config",
+    "set_auth_config",
+    "verify_auth",
+    "ensure_auth_secret",
+    "get_datasource_config",
+    "get_enabled_timer_execution_modes",
+    "get_enabled_datasource_types",
+    "get_strategy_debug",
+    "get_strategy_total_history_count",
+    "get_strategy_persist_mode",
+    "get_strategy_config",
+    "get_task_config",
+    "get_dictionary_config",
+    "get_memory_config",
+    "get_llm_config",
+    "set_category_config",
+    "get_noise_filter_config",
+    "get_sector_noise_config",
+    "reset_to_default",
+    "DEFAULT_CONFIG",
+    "load_config",
+    "RadarConfig",
+    "NajaConfig",
+    "SoulConfigLoader",
+    "SoulGenerator",
+    "SoulManager",
+    "get_config_loader",
+    "get_generator",
+    "get_soul_manager",
+    "SOUL_AVAILABLE",
 ]
