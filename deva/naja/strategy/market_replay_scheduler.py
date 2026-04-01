@@ -99,7 +99,7 @@ class MarketReplayScheduler:
         log.info(f"[MarketReplayScheduler] 收到交易时钟信号: phase={phase}, type={event_type}")
 
         if phase == 'post_market' or (event_type == 'current_state' and phase == 'post_market'):
-            self._schedule_replay(delay_seconds=REPLAY_DELAY_AFTER_OPEN)
+            self._schedule_replay(phase='post_market', delay_seconds=REPLAY_DELAY_AFTER_OPEN)
 
     def _run_loop(self):
         """主循环 - 检查是否需要触发复盘"""
@@ -107,13 +107,13 @@ class MarketReplayScheduler:
 
         while self._running and not self._stop_event.is_set():
             try:
-                if not self._check_already_replayed_today():
+                if not self._check_already_replayed_today(phase='post_market'):
                     tc = get_trading_clock()
                     current_phase = tc.current_phase
 
                     if current_phase == 'post_market' or current_phase == 'closed':
                         log.info("[MarketReplayScheduler] 今天尚未复盘，立即触发")
-                        self._trigger_replay()
+                        self._trigger_replay(phase='post_market')
                     else:
                         next_check = self._get_next_check_time()
                         sleep_time = min(60, (next_check - datetime.now()).total_seconds())
@@ -132,26 +132,49 @@ class MarketReplayScheduler:
 
         log.info("[MarketReplayScheduler] 检查线程结束")
 
-    def _check_already_replayed_today(self) -> bool:
-        """检查今天是否已复盘"""
+    def _check_already_replayed_today(self, phase: str = 'post_market') -> bool:
+        """
+        检查今天指定阶段是否已复盘
+
+        Args:
+            phase: 'post_market' 或 'pre_market'，默认为盘后复盘
+        """
         try:
             nb = NB(REPLAY_STATE_TABLE)
-            last_replay = nb.get('last_replay_date')
             today = datetime.now().strftime('%Y-%m-%d')
 
+            if phase == 'post_market':
+                key = 'last_post_market_replay_date'
+            else:
+                key = 'last_pre_market_replay_date'
+
+            last_replay = nb.get(key)
+
             if last_replay == today:
-                log.info(f"[MarketReplayScheduler] 今天({today})已完成复盘")
+                log.info(f"[MarketReplayScheduler] 今天({today}){phase}阶段已完成复盘")
                 return True
             return False
         except Exception:
             return False
 
-    def _mark_replayed_today(self):
-        """标记今天已复盘"""
+    def _mark_replayed_today(self, phase: str = 'post_market'):
+        """
+        标记指定阶段今天已复盘
+
+        Args:
+            phase: 'post_market' 或 'pre_market'
+        """
         try:
             nb = NB(REPLAY_STATE_TABLE)
-            nb['last_replay_date'] = datetime.now().strftime('%Y-%m-%d')
+            today = datetime.now().strftime('%Y-%m-%d')
+
+            if phase == 'post_market':
+                nb['last_post_market_replay_date'] = today
+            else:
+                nb['last_pre_market_replay_date'] = today
+
             nb['last_replay_timestamp'] = time.time()
+            log.info(f"[MarketReplayScheduler] 已标记{phase}复盘: {today}")
         except Exception as e:
             log.error(f"[MarketReplayScheduler] 标记复盘失败: {e}")
 
@@ -170,40 +193,40 @@ class MarketReplayScheduler:
 
         return next_check
 
-    def _schedule_replay(self, delay_seconds: int = 30):
+    def _schedule_replay(self, phase: str = 'post_market', delay_seconds: int = 30):
         """安排延迟复盘任务"""
         def delayed_replay():
             time.sleep(delay_seconds)
-            self._trigger_replay()
+            self._trigger_replay(phase=phase)
 
         thread = threading.Thread(target=delayed_replay, daemon=True, name='delayed-replay')
         thread.start()
-        log.info(f"[MarketReplayScheduler] 已安排{delay_seconds}秒后执行复盘")
+        log.info(f"[MarketReplayScheduler] 已安排{delay_seconds}秒后执行{phase}复盘")
 
-    def _trigger_replay(self):
+    def _trigger_replay(self, phase: str = 'post_market'):
         """触发复盘任务"""
-        if self._check_already_replayed_today():
-            log.info("[MarketReplayScheduler] 复盘任务跳过：今天已复盘")
+        if self._check_already_replayed_today(phase=phase):
+            log.info(f"[MarketReplayScheduler] 复盘任务跳过：今天{phase}阶段已复盘")
             return
 
         try:
-            log.info("[MarketReplayScheduler] 开始执行复盘任务")
+            log.info(f"[MarketReplayScheduler] 开始执行{phase}复盘任务")
 
             from deva.naja.strategy.market_replay_analyzer import run_replay_and_push
             report = run_replay_and_push()
 
-            self._mark_replayed_today()
+            self._mark_replayed_today(phase=phase)
 
-            log.info(f"[MarketReplayScheduler] 复盘任务完成")
+            log.info(f"[MarketReplayScheduler] {phase}复盘任务完成")
 
         except Exception as e:
             log.error(f"[MarketReplayScheduler] 复盘任务失败: {e}")
 
-    def trigger_manual_replay(self) -> bool:
+    def trigger_manual_replay(self, phase: str = 'post_market') -> bool:
         """手动触发复盘（用于认知页面按钮）"""
         try:
-            log.info("[MarketReplayScheduler] 手动触发复盘")
-            self._trigger_replay()
+            log.info(f"[MarketReplayScheduler] 手动触发{phase}复盘")
+            self._trigger_replay(phase=phase)
             return True
         except Exception as e:
             log.error(f"[MarketReplayScheduler] 手动复盘失败: {e}")

@@ -778,7 +778,30 @@ def render_frequency_monitor_panel() -> str:
 
 
 def _render_frequency_empty_state() -> str:
-    return """
+    try:
+        from .common import get_market_phase_summary, get_ui_mode_context
+        phase_summary = get_market_phase_summary()
+        mode_ctx = get_ui_mode_context()
+        cn_info = phase_summary.get('cn', {})
+        us_info = phase_summary.get('us', {})
+
+        def _format_market_line(label, info):
+            phase_name = info.get('phase_name', '未知')
+            next_phase = info.get('next_phase_name', '')
+            next_time = info.get('next_change_time', '')
+            if info.get('phase') == 'closed' and next_time:
+                return f"{label}{phase_name} →{next_phase} {next_time}"
+            return f"{label}{phase_name}"
+
+        cn_line = _format_market_line("A股", cn_info)
+        us_line = _format_market_line("美股", us_info)
+        mode_label = mode_ctx.get('mode_label', '实盘模式')
+        time_hint = mode_ctx.get('market_time_str', '') if mode_ctx.get('is_replay') else ''
+        hint_text = f"将在交易时段自动启用（{cn_line} | {us_line} | {mode_label} {time_hint}）"
+    except Exception:
+        hint_text = "将在交易时段自动启用"
+
+    return f"""
     <div style="
         margin-bottom: 12px;
         background: rgba(255,255,255,0.03);
@@ -791,7 +814,7 @@ def _render_frequency_empty_state() -> str:
         </div>
         <div style="text-align: center; padding: 30px; color: #64748b;">
             <div style="font-size: 11px;">频率调度系统未初始化</div>
-            <div style="font-size: 9px; margin-top: 4px;">将在交易时间自动启用</div>
+            <div style="font-size: 9px; margin-top: 4px;">{hint_text}</div>
         </div>
     </div>
     """

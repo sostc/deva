@@ -1,0 +1,872 @@
+{
+  "soul_id": "激进型_1775036366",
+  "soul_name": "激进型",
+  "version": "1.0",
+  "created_at": "2026-04-01 17:39:26",
+  "updated_at": "2026-04-01 17:39:26",
+  "direction": {
+    "type": "creative",
+    "label": "赛道投资",
+    "description": "投资真正推动世界进步的赛道",
+    "icon": "🚀",
+    "tiandao_weight": 0.9,
+    "minxin_weight": 0.2,
+    "fundamentals_weight": 0.9
+  },
+  "domains": {
+    "focused": [
+      "AI",
+      "芯片"
+    ],
+    "all_keywords": {
+      "AI": [
+        "AI",
+        "人工智能",
+        "AIGC",
+        "大模型",
+        "LLM",
+        "GPT",
+        "ChatGPT",
+        "Sora",
+        "算力",
+        "Agent",
+        "智能体",
+        "OpenAI",
+        "Anthropic",
+        "Claude",
+        "Gemini",
+        "文心一言",
+        "通义千问",
+        "Kimi",
+        "豆包",
+        "Moonshot",
+        "多模态",
+        "生成式AI",
+        "Copilot",
+        "RAG",
+        "向量数据库",
+        "Embedding",
+        "机器学习",
+        "深度学习",
+        "神经网络",
+        "Transformer",
+        "Diffusion",
+        "昇腾",
+        "昆仑",
+        "寒武纪",
+        "燧原",
+        "壁仞",
+        "摩尔线程",
+        "AI芯片",
+        "AI服务器",
+        "AI应用",
+        "AI落地",
+        "AI商业化",
+        "AI概念",
+        "AI板块",
+        "AI龙头",
+        "人工智能概念"
+      ],
+      "芯片": [
+        "芯片",
+        "半导体",
+        "集成电路",
+        "晶圆",
+        "光刻",
+        "GPU",
+        "CPU",
+        "HBM",
+        "DRAM",
+        "NAND",
+        "SoC",
+        "ASIC",
+        "FPGA",
+        "IGBT",
+        "MOSFET",
+        "英伟达",
+        "AMD",
+        "英特尔",
+        "高通",
+        "联发科",
+        "英飞凌",
+        "安森美",
+        "台积电",
+        "三星",
+        "中芯国际",
+        "华虹半导体",
+        "华润微",
+        "ASML",
+        "应用材料",
+        "科林研发",
+        "东京电子",
+        "光刻机",
+        "EUV",
+        "DUV",
+        "先进封装",
+        "CoWoS",
+        "SoIC",
+        "HBM封装",
+        "芯片设计",
+        "IC设计",
+        "半导体设备",
+        "半导体材料",
+        "碳化硅",
+        "氮化镓",
+        "第三代半导体",
+        "芯片概念",
+        "半导体板块",
+        "国产替代",
+        "自主可控"
+      ]
+    }
+  },
+  "risk_profile": {
+    "level": "aggressive",
+    "label": "进取型",
+    "risk_preference": 0.8,
+    "time_horizon": 0.8,
+    "max_position": 0.3,
+    "stop_loss": 0.1,
+    "take_profit": 0.5
+  },
+  "philosophy": {
+    "mission": "遵循天道，驾驭民心。投资真正推动世界进步的赛道",
+    "tiandao_definition": "TOKEN消耗、大模型限流卡脖子、AI效率提升",
+    "minxin_definition": "市场行情、股价涨跌、舆论情绪",
+    "custom_notes": ""
+  },
+  "supply_chain": {
+    "AI": {
+      "name": "人工智能",
+      "upstream": {
+        "name": "芯片/算力",
+        "description": "AI计算的基础设施",
+        "nodes": [
+          {
+            "name": "GPU",
+            "key_companies": [
+              "英伟达",
+              "AMD",
+              "英特尔",
+              "昇腾",
+              "昆仑"
+            ],
+            "signal": "算力告急",
+            "tiandao_keywords": [
+              "GPU缺货",
+              "算力告急",
+              "英伟达产能",
+              "H100",
+              "H200",
+              "A100"
+            ]
+          },
+          {
+            "name": "HBM内存",
+            "key_companies": [
+              "SK海力士",
+              "三星",
+              "美光"
+            ],
+            "signal": "HBM缺货",
+            "tiandao_keywords": [
+              "HBM缺货",
+              "HBM产能",
+              "内存短缺",
+              "HBM3",
+              "HBM3E"
+            ]
+          },
+          {
+            "name": "光刻机",
+            "key_companies": [
+              "ASML",
+              "佳能",
+              "尼康"
+            ],
+            "signal": "产能受限",
+            "tiandao_keywords": [
+              "光刻机交付",
+              "EUV产能",
+              "先进封装产能",
+              "CoWoS满载"
+            ]
+          },
+          {
+            "name": "先进封装",
+            "key_companies": [
+              "台积电",
+              "日月光",
+              "通富微电",
+              "长电科技"
+            ],
+            "signal": "封装排队",
+            "tiandao_keywords": [
+              "先进封装",
+              "CoWoS",
+              "SoIC",
+              "封装产能",
+              "封装排队"
+            ]
+          }
+        ],
+        "tiandao_keywords": [
+          "限流",
+          "算力告急",
+          "GPU排队",
+          "算力不足",
+          "HBM缺货",
+          "产能不足",
+          "良品率",
+          "卡脖子",
+          "API限流",
+          "服务器过载"
+        ]
+      },
+      "midstream": {
+        "name": "模型/算法",
+        "description": "大模型训练和推理",
+        "nodes": [
+          {
+            "name": "大模型训练",
+            "key_companies": [
+              "OpenAI",
+              "Anthropic",
+              "Google",
+              "Meta",
+              "百度",
+              "阿里",
+              "字节"
+            ],
+            "signal": "技术突破",
+            "tiandao_keywords": [
+              "GPT-5",
+              "Claude4",
+              "Gemini2",
+              "大模型突破",
+              "训练成本"
+            ]
+          },
+          {
+            "name": "推理服务",
+            "key_companies": [
+              "Azure",
+              "AWS",
+              "Google Cloud",
+              "阿里云",
+              "腾讯云",
+              "百度云"
+            ],
+            "signal": "token消耗",
+            "tiandao_keywords": [
+              "token消耗",
+              "API调用量",
+              "推理成本",
+              "ChatGPT限流",
+              "Claude限流"
+            ]
+          },
+          {
+            "name": "AI Infra",
+            "key_companies": [
+              "CoreWeave",
+              "Lambda Labs",
+              "AutoDL",
+              "矿潮消退"
+            ],
+            "signal": "算力租赁",
+            "tiandao_keywords": [
+              "算力租赁",
+              "GPU服务器",
+              "云计算需求",
+              "AI算力"
+            ]
+          }
+        ],
+        "tiandao_keywords": [
+          "性能提升",
+          "成本下降",
+          "效率提升",
+          "推理加速",
+          "训练成本下降",
+          "新一代",
+          "突破",
+          "新架构",
+          "技术创新",
+          "技术路线突破"
+        ]
+      },
+      "downstream": {
+        "name": "应用/服务",
+        "description": "AI技术的落地和应用",
+        "nodes": [
+          {
+            "name": "AI应用",
+            "key_companies": [
+              "各类AI应用公司"
+            ],
+            "signal": "商业化落地",
+            "tiandao_keywords": [
+              "AI应用",
+              "Agent",
+              "AIGC",
+              "Copilot",
+              "落地"
+            ]
+          },
+          {
+            "name": "行业AI化",
+            "key_companies": [
+              "各行业龙头"
+            ],
+            "signal": "渗透率提升",
+            "tiandao_keywords": [
+              "AI改造",
+              "降本增效",
+              "行业AI化",
+              "渗透率",
+              "商业化"
+            ]
+          },
+          {
+            "name": "用户增长",
+            "key_companies": [
+              "OpenAI",
+              "Anthropic",
+              "百度",
+              "阿里"
+            ],
+            "signal": "用户爆发",
+            "tiandao_keywords": [
+              "付费转化",
+              "用户增长",
+              "API调用量增长",
+              "收入增长"
+            ]
+          }
+        ],
+        "tiandao_keywords": [
+          "渗透率",
+          "落地",
+          "商业化",
+          "盈利",
+          "用户增长",
+          "付费转化",
+          "API调用量增长",
+          "降本增效",
+          "行业AI化"
+        ]
+      }
+    },
+    "芯片": {
+      "name": "半导体/芯片",
+      "upstream": {
+        "name": "材料/设备",
+        "description": "芯片制造的上游材料和设备",
+        "nodes": [
+          {
+            "name": "硅片",
+            "key_companies": [
+              "信越化学",
+              "SUMCO",
+              "沪硅产业",
+              "立昂微"
+            ],
+            "signal": "硅片涨价",
+            "tiandao_keywords": [
+              "硅片产能",
+              "硅片价格",
+              "晶圆材料"
+            ]
+          },
+          {
+            "name": "光刻胶",
+            "key_companies": [
+              "JSR",
+              "东京应化",
+              "晶瑞电材",
+              "华懋科技"
+            ],
+            "signal": "材料短缺",
+            "tiandao_keywords": [
+              "光刻胶",
+              "光刻材料",
+              "电子化学品"
+            ]
+          },
+          {
+            "name": "特气",
+            "key_companies": [
+              "空气化工",
+              "林德",
+              "杭氧股份",
+              "华特气体"
+            ],
+            "signal": "特气供应",
+            "tiandao_keywords": [
+              "电子特气",
+              "高纯气体",
+              "半导体材料"
+            ]
+          }
+        ],
+        "tiandao_keywords": [
+          "晶圆厂产能满",
+          "产能告急",
+          "设备交付延迟",
+          "材料短缺",
+          "硅片产能",
+          "光刻胶",
+          "电子特气",
+          "关键材料"
+        ]
+      },
+      "midstream": {
+        "name": "制造/封测",
+        "description": "芯片制造和封装测试",
+        "nodes": [
+          {
+            "name": "晶圆制造",
+            "key_companies": [
+              "台积电",
+              "三星",
+              "英特尔",
+              "中芯国际",
+              "华虹半导体"
+            ],
+            "signal": "制程突破",
+            "tiandao_keywords": [
+              "制程突破",
+              "良率提升",
+              "3nm",
+              "5nm",
+              "7nm",
+              "成熟制程",
+              "先进制程"
+            ]
+          },
+          {
+            "name": "封装测试",
+            "key_companies": [
+              "日月光",
+              "通富微电",
+              "长电科技",
+              "华天科技"
+            ],
+            "signal": "封装产能",
+            "tiandao_keywords": [
+              "封装产能",
+              "先进封装",
+              "CoWoS",
+              "HBM封装",
+              "封装技术突破"
+            ]
+          },
+          {
+            "name": "成熟制程",
+            "key_companies": [
+              "联电",
+              "格罗方德",
+              "中芯国际",
+              "华虹半导体"
+            ],
+            "signal": "成熟制程需求",
+            "tiandao_keywords": [
+              "成熟制程",
+              "28nm",
+              "55nm",
+              "车规芯片",
+              "功率半导体"
+            ]
+          }
+        ],
+        "tiandao_keywords": [
+          "晶圆厂产能满",
+          "制程突破",
+          "良率提升",
+          "封装排队",
+          "产能不足",
+          "成熟制程",
+          "先进封装",
+          "国产替代"
+        ]
+      },
+      "downstream": {
+        "name": "设计/应用",
+        "description": "芯片设计和产品应用",
+        "nodes": [
+          {
+            "name": "IC设计",
+            "key_companies": [
+              "英伟达",
+              "高通",
+              "AMD",
+              "联发科",
+              "华为海思",
+              "寒武纪"
+            ],
+            "signal": "芯片需求",
+            "tiandao_keywords": [
+              "芯片需求",
+              "AI芯片",
+              "手机芯片",
+              "汽车芯片",
+              "国产替代"
+            ]
+          },
+          {
+            "name": "存储芯片",
+            "key_companies": [
+              "三星",
+              "SK海力士",
+              "美光",
+              "长江存储",
+              "长鑫存储"
+            ],
+            "signal": "存储周期",
+            "tiandao_keywords": [
+              "存储芯片",
+              "NAND",
+              "DRAM",
+              "HBM",
+              "长江存储",
+              "存储周期"
+            ]
+          },
+          {
+            "name": "功率半导体",
+            "key_companies": [
+              "英飞凌",
+              "安森美",
+              "士兰微",
+              "斯达半导",
+              "比亚迪半导体"
+            ],
+            "signal": "功率需求",
+            "tiandao_keywords": [
+              "功率半导体",
+              "碳化硅",
+              "IGBT",
+              "MOSFET",
+              "新能源车"
+            ]
+          }
+        ],
+        "tiandao_keywords": [
+          "芯片需求爆发",
+          "国产替代",
+          "汽车芯片",
+          "AI芯片",
+          "需求增长",
+          "渗透率提升",
+          "行业复苏"
+        ]
+      }
+    }
+  },
+  "keywords": {
+    "tiandao": [
+      "API限流",
+      "晶圆厂产能满",
+      "先进封装",
+      "算力不足",
+      "汽车芯片",
+      "算力翻倍",
+      "新架构",
+      "新一代",
+      "降本增效",
+      "渗透率提升",
+      "电子特气",
+      "Claude限流",
+      "材料短缺",
+      "推理加速",
+      "收入增长",
+      "产能告急",
+      "ChatGPT限流",
+      "芯片需求爆发",
+      "设备交付延迟",
+      "token消耗",
+      "国产替代",
+      "效率提升",
+      "成本下降",
+      "硅片产能",
+      "算力告急",
+      "AI芯片",
+      "服务器过载",
+      "行业复苏",
+      "技术创新",
+      "AI改造",
+      "行业AI化",
+      "封装排队",
+      "良品率",
+      "付费转化",
+      "盈利",
+      "token不够",
+      "产能不足",
+      "限速",
+      "训练成本下降",
+      "制程突破",
+      "HBM缺货",
+      "成熟制程",
+      "用户增长",
+      "技术路线突破",
+      "良率提升",
+      "算力短缺",
+      "落地",
+      "渗透率",
+      "关键材料",
+      "光刻胶",
+      "性能提升",
+      "功耗降低",
+      "API排队",
+      "突破",
+      "限流",
+      "GPU排队",
+      "需求增长",
+      "Gemini限流",
+      "API调用量增长",
+      "商业化",
+      "卡脖子"
+    ],
+    "minxin": [
+      "概念股",
+      "情绪悲观",
+      "熊市",
+      "反弹",
+      "炒作",
+      "市场认为",
+      "机构表示",
+      "恐慌",
+      "资金流入",
+      "风险偏好",
+      "牛市",
+      "下跌",
+      "情绪乐观",
+      "大跌",
+      "资金流出",
+      "暴跌",
+      "净流入",
+      "刷屏",
+      "热搜",
+      "暴涨",
+      "贪婪",
+      "大涨",
+      "震荡",
+      "分析师称",
+      "回调",
+      "引爆",
+      "热门",
+      "投机",
+      "净流出",
+      "疯狂",
+      "泡沫",
+      "上涨"
+    ],
+    "domains": {
+      "AI": [
+        "AI",
+        "人工智能",
+        "AIGC",
+        "大模型",
+        "LLM",
+        "GPT",
+        "ChatGPT",
+        "Sora",
+        "算力",
+        "Agent",
+        "智能体",
+        "OpenAI",
+        "Anthropic",
+        "Claude",
+        "Gemini",
+        "文心一言",
+        "通义千问",
+        "Kimi",
+        "豆包",
+        "Moonshot",
+        "多模态",
+        "生成式AI",
+        "Copilot",
+        "RAG",
+        "向量数据库",
+        "Embedding",
+        "机器学习",
+        "深度学习",
+        "神经网络",
+        "Transformer",
+        "Diffusion",
+        "昇腾",
+        "昆仑",
+        "寒武纪",
+        "燧原",
+        "壁仞",
+        "摩尔线程",
+        "AI芯片",
+        "AI服务器",
+        "AI应用",
+        "AI落地",
+        "AI商业化",
+        "AI概念",
+        "AI板块",
+        "AI龙头",
+        "人工智能概念"
+      ],
+      "芯片": [
+        "芯片",
+        "半导体",
+        "集成电路",
+        "晶圆",
+        "光刻",
+        "GPU",
+        "CPU",
+        "HBM",
+        "DRAM",
+        "NAND",
+        "SoC",
+        "ASIC",
+        "FPGA",
+        "IGBT",
+        "MOSFET",
+        "英伟达",
+        "AMD",
+        "英特尔",
+        "高通",
+        "联发科",
+        "英飞凌",
+        "安森美",
+        "台积电",
+        "三星",
+        "中芯国际",
+        "华虹半导体",
+        "华润微",
+        "ASML",
+        "应用材料",
+        "科林研发",
+        "东京电子",
+        "光刻机",
+        "EUV",
+        "DUV",
+        "先进封装",
+        "CoWoS",
+        "SoIC",
+        "HBM封装",
+        "芯片设计",
+        "IC设计",
+        "半导体设备",
+        "半导体材料",
+        "碳化硅",
+        "氮化镓",
+        "第三代半导体",
+        "芯片概念",
+        "半导体板块",
+        "国产替代",
+        "自主可控"
+      ]
+    }
+  },
+  "values": {
+    "profiles": [
+      {
+        "name": "天道投资",
+        "type": "growth",
+        "description": "遵循天道，驾驭民心。投资真正推动AI发展的方向。",
+        "investment_direction": "creative",
+        "weights": {
+          "price_sensitivity": 0.3,
+          "volume_sensitivity": 0.3,
+          "sentiment_weight": 0.2,
+          "liquidity_weight": 0.3,
+          "fundamentals_weight": 0.9,
+          "tiandao_weight": 0.9
+        },
+        "preferences": {
+          "risk_preference": 0.8,
+          "time_horizon": 0.8,
+          "concentration": 0.6
+        },
+        "principles": [
+          "遵循天道，驾驭民心",
+          "投资真正推动AI发展的方向",
+          "天道支持则持有，天道不支持则退出"
+        ],
+        "implemented": true
+      },
+      {
+        "name": "价值投资",
+        "type": "value",
+        "description": "均值回归，价格终究合理。安全边际是第一原则。",
+        "investment_direction": "creative",
+        "weights": {
+          "price_sensitivity": 0.4,
+          "volume_sensitivity": 0.3,
+          "sentiment_weight": 0.3,
+          "liquidity_weight": 0.3,
+          "fundamentals_weight": 0.8,
+          "tiandao_weight": 0.6
+        },
+        "preferences": {
+          "risk_preference": 0.6000000000000001,
+          "time_horizon": 1.0,
+          "concentration": 0.4
+        },
+        "principles": [
+          "价格终将回归价值",
+          "不要追高",
+          "安全边际是第一原则"
+        ],
+        "implemented": true
+      }
+    ],
+    "active_default": "growth"
+  },
+  "decision_rules": {
+    "tiandao_threshold": 0.5,
+    "minxin_threshold": 0.3,
+    "minxin_as_reference": true,
+    "action_rules": {
+      "tiandao_strong_minxin_weak": "buy",
+      "tiandao_strong_minxin_strong": "hold",
+      "tiandao_weak_minxin_strong": "reduce",
+      "tiandao_weak_minxin_weak": "watch"
+    },
+    "regime_compatibility": {
+      "trend_up": [
+        "trend",
+        "momentum",
+        "liquidity",
+        "growth"
+      ],
+      "weak_trend_up": [
+        "trend",
+        "momentum"
+      ],
+      "neutral": [
+        "value",
+        "liquidity",
+        "balanced",
+        "growth"
+      ],
+      "mixed": [
+        "contrarian",
+        "liquidity",
+        "balanced",
+        "liquidity_rescue",
+        "growth"
+      ],
+      "weak_trend_down": [
+        "contrarian",
+        "momentum",
+        "liquidity_rescue"
+      ],
+      "trend_down": [
+        "contrarian",
+        "momentum",
+        "liquidity_rescue"
+      ]
+    }
+  },
+  "position_handling": {
+    "existing_positions": "keep_original",
+    "new_positions": "apply_new"
+  }
+}

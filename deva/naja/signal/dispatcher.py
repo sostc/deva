@@ -22,6 +22,24 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+_loop_audit_log_stage = None
+
+def _get_audit():
+    global _loop_audit_log_stage
+    if _loop_audit_log_stage is None:
+        try:
+            from ..common.loop_audit import LoopAudit
+            _loop_audit_log_stage = lambda **kw: LoopAudit(**kw)
+        except ImportError:
+            _loop_audit_log_stage = lambda **kw: _DummyAudit()
+    return _loop_audit_log_stage
+
+class _DummyAudit:
+    def __init__(self, **kwargs): pass
+    def __enter__(self): return self
+    def __exit__(self, *args): pass
+    def record_data_out(self, *args, **kwargs): pass
+
 
 class SignalDispatcher:
     """信号分发器
@@ -49,8 +67,10 @@ class SignalDispatcher:
         Args:
             result: 策略执行结果
         """
-        self._dispatch_to_signal_stream(result)
-        self._dispatch_to_downstream(result)
+        with _get_audit()(loop_type="dataflow", stage="dispatch_start", data_in={"strategy_id": result.strategy_id, "success": result.success}) as audit:
+            self._dispatch_to_signal_stream(result)
+            self._dispatch_to_downstream(result)
+            audit.record_data_out({"targets_attempted": ["signal_stream", "radar", "cognition", "bandit"]})
 
     def _dispatch_to_signal_stream(self, result: "StrategyResult") -> None:
         """发送到信号流（热路径）"""

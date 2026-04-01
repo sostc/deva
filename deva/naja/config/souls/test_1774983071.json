@@ -1,0 +1,544 @@
+{
+  "soul_id": "test_1774983071",
+  "soul_name": "test",
+  "version": "1.0",
+  "created_at": "2026-04-01 02:51:11",
+  "updated_at": "2026-04-01 02:51:11",
+  "direction": {
+    "type": "creative",
+    "label": "赛道投资",
+    "description": "投资真正推动世界进步的赛道",
+    "icon": "🚀",
+    "tiandao_weight": 0.9,
+    "minxin_weight": 0.2,
+    "fundamentals_weight": 0.9
+  },
+  "domains": {
+    "focused": [
+      "AI"
+    ],
+    "all_keywords": {
+      "AI": [
+        "AI",
+        "人工智能",
+        "AIGC",
+        "大模型",
+        "LLM",
+        "GPT",
+        "ChatGPT",
+        "Sora",
+        "算力",
+        "Agent",
+        "智能体",
+        "OpenAI",
+        "Anthropic",
+        "Claude",
+        "Gemini",
+        "文心一言",
+        "通义千问",
+        "Kimi",
+        "豆包",
+        "Moonshot",
+        "多模态",
+        "生成式AI",
+        "Copilot",
+        "RAG",
+        "向量数据库",
+        "Embedding",
+        "机器学习",
+        "深度学习",
+        "神经网络",
+        "Transformer",
+        "Diffusion",
+        "昇腾",
+        "昆仑",
+        "寒武纪",
+        "燧原",
+        "壁仞",
+        "摩尔线程",
+        "AI芯片",
+        "AI服务器",
+        "AI应用",
+        "AI落地",
+        "AI商业化",
+        "AI概念",
+        "AI板块",
+        "AI龙头",
+        "人工智能概念"
+      ]
+    }
+  },
+  "risk_profile": {
+    "level": "moderate",
+    "label": "均衡型",
+    "risk_preference": 0.5,
+    "time_horizon": 0.5,
+    "max_position": 0.2,
+    "stop_loss": 0.08,
+    "take_profit": 0.3
+  },
+  "philosophy": {
+    "mission": "遵循天道，驾驭民心。投资真正推动世界进步的赛道",
+    "tiandao_definition": "TOKEN消耗、大模型限流卡脖子、AI效率提升",
+    "minxin_definition": "市场行情、股价涨跌、舆论情绪",
+    "custom_notes": ""
+  },
+  "supply_chain": {
+    "AI": {
+      "name": "人工智能",
+      "upstream": {
+        "name": "芯片/算力",
+        "description": "AI计算的基础设施",
+        "nodes": [
+          {
+            "name": "GPU",
+            "key_companies": [
+              "英伟达",
+              "AMD",
+              "英特尔",
+              "昇腾",
+              "昆仑"
+            ],
+            "signal": "算力告急",
+            "tiandao_keywords": [
+              "GPU缺货",
+              "算力告急",
+              "英伟达产能",
+              "H100",
+              "H200",
+              "A100"
+            ]
+          },
+          {
+            "name": "HBM内存",
+            "key_companies": [
+              "SK海力士",
+              "三星",
+              "美光"
+            ],
+            "signal": "HBM缺货",
+            "tiandao_keywords": [
+              "HBM缺货",
+              "HBM产能",
+              "内存短缺",
+              "HBM3",
+              "HBM3E"
+            ]
+          },
+          {
+            "name": "光刻机",
+            "key_companies": [
+              "ASML",
+              "佳能",
+              "尼康"
+            ],
+            "signal": "产能受限",
+            "tiandao_keywords": [
+              "光刻机交付",
+              "EUV产能",
+              "先进封装产能",
+              "CoWoS满载"
+            ]
+          },
+          {
+            "name": "先进封装",
+            "key_companies": [
+              "台积电",
+              "日月光",
+              "通富微电",
+              "长电科技"
+            ],
+            "signal": "封装排队",
+            "tiandao_keywords": [
+              "先进封装",
+              "CoWoS",
+              "SoIC",
+              "封装产能",
+              "封装排队"
+            ]
+          }
+        ],
+        "tiandao_keywords": [
+          "限流",
+          "算力告急",
+          "GPU排队",
+          "算力不足",
+          "HBM缺货",
+          "产能不足",
+          "良品率",
+          "卡脖子",
+          "API限流",
+          "服务器过载"
+        ]
+      },
+      "midstream": {
+        "name": "模型/算法",
+        "description": "大模型训练和推理",
+        "nodes": [
+          {
+            "name": "大模型训练",
+            "key_companies": [
+              "OpenAI",
+              "Anthropic",
+              "Google",
+              "Meta",
+              "百度",
+              "阿里",
+              "字节"
+            ],
+            "signal": "技术突破",
+            "tiandao_keywords": [
+              "GPT-5",
+              "Claude4",
+              "Gemini2",
+              "大模型突破",
+              "训练成本"
+            ]
+          },
+          {
+            "name": "推理服务",
+            "key_companies": [
+              "Azure",
+              "AWS",
+              "Google Cloud",
+              "阿里云",
+              "腾讯云",
+              "百度云"
+            ],
+            "signal": "token消耗",
+            "tiandao_keywords": [
+              "token消耗",
+              "API调用量",
+              "推理成本",
+              "ChatGPT限流",
+              "Claude限流"
+            ]
+          },
+          {
+            "name": "AI Infra",
+            "key_companies": [
+              "CoreWeave",
+              "Lambda Labs",
+              "AutoDL",
+              "矿潮消退"
+            ],
+            "signal": "算力租赁",
+            "tiandao_keywords": [
+              "算力租赁",
+              "GPU服务器",
+              "云计算需求",
+              "AI算力"
+            ]
+          }
+        ],
+        "tiandao_keywords": [
+          "性能提升",
+          "成本下降",
+          "效率提升",
+          "推理加速",
+          "训练成本下降",
+          "新一代",
+          "突破",
+          "新架构",
+          "技术创新",
+          "技术路线突破"
+        ]
+      },
+      "downstream": {
+        "name": "应用/服务",
+        "description": "AI技术的落地和应用",
+        "nodes": [
+          {
+            "name": "AI应用",
+            "key_companies": [
+              "各类AI应用公司"
+            ],
+            "signal": "商业化落地",
+            "tiandao_keywords": [
+              "AI应用",
+              "Agent",
+              "AIGC",
+              "Copilot",
+              "落地"
+            ]
+          },
+          {
+            "name": "行业AI化",
+            "key_companies": [
+              "各行业龙头"
+            ],
+            "signal": "渗透率提升",
+            "tiandao_keywords": [
+              "AI改造",
+              "降本增效",
+              "行业AI化",
+              "渗透率",
+              "商业化"
+            ]
+          },
+          {
+            "name": "用户增长",
+            "key_companies": [
+              "OpenAI",
+              "Anthropic",
+              "百度",
+              "阿里"
+            ],
+            "signal": "用户爆发",
+            "tiandao_keywords": [
+              "付费转化",
+              "用户增长",
+              "API调用量增长",
+              "收入增长"
+            ]
+          }
+        ],
+        "tiandao_keywords": [
+          "渗透率",
+          "落地",
+          "商业化",
+          "盈利",
+          "用户增长",
+          "付费转化",
+          "API调用量增长",
+          "降本增效",
+          "行业AI化"
+        ]
+      }
+    }
+  },
+  "keywords": {
+    "tiandao": [
+      "GPU排队",
+      "服务器过载",
+      "算力不足",
+      "良品率",
+      "技术路线突破",
+      "新一代",
+      "算力告急",
+      "性能提升",
+      "HBM缺货",
+      "产能不足",
+      "算力翻倍",
+      "推理加速",
+      "盈利",
+      "行业AI化",
+      "功耗降低",
+      "付费转化",
+      "算力短缺",
+      "降本增效",
+      "AI改造",
+      "API调用量增长",
+      "新架构",
+      "token消耗",
+      "Gemini限流",
+      "技术创新",
+      "token不够",
+      "训练成本下降",
+      "突破",
+      "API限流",
+      "ChatGPT限流",
+      "限速",
+      "限流",
+      "API排队",
+      "效率提升",
+      "用户增长",
+      "Claude限流",
+      "收入增长",
+      "成本下降",
+      "卡脖子",
+      "渗透率",
+      "商业化",
+      "落地"
+    ],
+    "minxin": [
+      "恐慌",
+      "引爆",
+      "炒作",
+      "大跌",
+      "机构表示",
+      "暴跌",
+      "市场认为",
+      "投机",
+      "震荡",
+      "情绪乐观",
+      "净流入",
+      "刷屏",
+      "净流出",
+      "热搜",
+      "牛市",
+      "大涨",
+      "热门",
+      "暴涨",
+      "风险偏好",
+      "情绪悲观",
+      "反弹",
+      "资金流出",
+      "下跌",
+      "回调",
+      "资金流入",
+      "概念股",
+      "泡沫",
+      "上涨",
+      "分析师称",
+      "熊市",
+      "贪婪",
+      "疯狂"
+    ],
+    "domains": {
+      "AI": [
+        "AI",
+        "人工智能",
+        "AIGC",
+        "大模型",
+        "LLM",
+        "GPT",
+        "ChatGPT",
+        "Sora",
+        "算力",
+        "Agent",
+        "智能体",
+        "OpenAI",
+        "Anthropic",
+        "Claude",
+        "Gemini",
+        "文心一言",
+        "通义千问",
+        "Kimi",
+        "豆包",
+        "Moonshot",
+        "多模态",
+        "生成式AI",
+        "Copilot",
+        "RAG",
+        "向量数据库",
+        "Embedding",
+        "机器学习",
+        "深度学习",
+        "神经网络",
+        "Transformer",
+        "Diffusion",
+        "昇腾",
+        "昆仑",
+        "寒武纪",
+        "燧原",
+        "壁仞",
+        "摩尔线程",
+        "AI芯片",
+        "AI服务器",
+        "AI应用",
+        "AI落地",
+        "AI商业化",
+        "AI概念",
+        "AI板块",
+        "AI龙头",
+        "人工智能概念"
+      ]
+    }
+  },
+  "values": {
+    "profiles": [
+      {
+        "name": "天道投资",
+        "type": "growth",
+        "description": "遵循天道，驾驭民心。投资真正推动AI发展的方向。",
+        "investment_direction": "creative",
+        "weights": {
+          "price_sensitivity": 0.3,
+          "volume_sensitivity": 0.3,
+          "sentiment_weight": 0.2,
+          "liquidity_weight": 0.3,
+          "fundamentals_weight": 0.9,
+          "tiandao_weight": 0.9
+        },
+        "preferences": {
+          "risk_preference": 0.5,
+          "time_horizon": 0.5,
+          "concentration": 0.6
+        },
+        "principles": [
+          "遵循天道，驾驭民心",
+          "投资真正推动AI发展的方向",
+          "天道支持则持有，天道不支持则退出"
+        ],
+        "implemented": true
+      },
+      {
+        "name": "价值投资",
+        "type": "value",
+        "description": "均值回归，价格终究合理。安全边际是第一原则。",
+        "investment_direction": "creative",
+        "weights": {
+          "price_sensitivity": 0.4,
+          "volume_sensitivity": 0.3,
+          "sentiment_weight": 0.3,
+          "liquidity_weight": 0.3,
+          "fundamentals_weight": 0.8,
+          "tiandao_weight": 0.6
+        },
+        "preferences": {
+          "risk_preference": 0.3,
+          "time_horizon": 0.7,
+          "concentration": 0.4
+        },
+        "principles": [
+          "价格终将回归价值",
+          "不要追高",
+          "安全边际是第一原则"
+        ],
+        "implemented": true
+      }
+    ],
+    "active_default": "growth"
+  },
+  "decision_rules": {
+    "tiandao_threshold": 0.5,
+    "minxin_threshold": 0.3,
+    "minxin_as_reference": true,
+    "action_rules": {
+      "tiandao_strong_minxin_weak": "buy",
+      "tiandao_strong_minxin_strong": "hold",
+      "tiandao_weak_minxin_strong": "reduce",
+      "tiandao_weak_minxin_weak": "watch"
+    },
+    "regime_compatibility": {
+      "trend_up": [
+        "trend",
+        "momentum",
+        "liquidity",
+        "growth"
+      ],
+      "weak_trend_up": [
+        "trend",
+        "momentum"
+      ],
+      "neutral": [
+        "value",
+        "liquidity",
+        "balanced",
+        "growth"
+      ],
+      "mixed": [
+        "contrarian",
+        "liquidity",
+        "balanced",
+        "liquidity_rescue",
+        "growth"
+      ],
+      "weak_trend_down": [
+        "contrarian",
+        "momentum",
+        "liquidity_rescue"
+      ],
+      "trend_down": [
+        "contrarian",
+        "momentum",
+        "liquidity_rescue"
+      ]
+    }
+  },
+  "position_handling": {
+    "existing_positions": "keep_original",
+    "new_positions": "apply_new"
+  }
+}
