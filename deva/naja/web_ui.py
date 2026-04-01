@@ -19,7 +19,7 @@ from pywebio.platform.tornado import webio_handler
 
 from deva import NW, Deva, NB
 from typing import Any, Optional, Callable
-from .config import get_auth_config, set_config, ensure_auth_secret
+from .config import get_auth_config, set_config, ensure_auth_secret, verify_auth
 
 _request_theme = None
 
@@ -610,8 +610,8 @@ async def init_naja_ui(title: str):
         new_username = str(created["username"]).strip()
         new_password = str(created["password"])
         
-        set_config("auth", "username", new_username)
-        set_config("auth", "password", new_password)
+        set_config("auth.username", new_username)
+        set_config("auth.password", new_password)
         
         toast("管理员账户已创建，请使用新账号登录", color="success")
         # 重新获取认证配置
@@ -651,7 +651,7 @@ async def init_naja_ui(title: str):
             input('用户名', name='username'),
             input('密码', type=PASSWORD, name='password'),
         ])
-        if user['username'] == username and user['password'] == password:
+        if verify_auth(user['username'], user['password']):
             # 保存认证状态到内存存储
             auth_data = {"username": user['username']}
             with init_naja_ui.auth_lock:
@@ -891,6 +891,14 @@ async def runtimestateadmin():
     render_runtime_state_page(ctx)
 
 
+async def souladmin():
+    """灵魂管理"""
+    from .home.soul_admin import render_soul_admin
+    ctx = _ctx()
+    await ctx["init_naja_ui"]("灵魂管理")
+    render_soul_admin()
+
+
 async def configadmin():
     """配置管理"""
     from .config.ui import render_config_page
@@ -955,6 +963,11 @@ def _get_log_stream_page():
     return log_stream_page
 
 
+def _get_loop_audit_page():
+    from .loop_audit.ui import render_loop_audit_page
+    return render_loop_audit_page
+
+
 async def supplychain_page():
     """供应链知识图谱页面"""
     from pywebio.session import eval_js
@@ -997,9 +1010,11 @@ def create_handlers(cdn: str = None):
         (r'/tableadmin', webio_handler(tableadmin, cdn=cdn_url)),
         (r'/runtime_state', webio_handler(runtimestateadmin, cdn=cdn_url)),
         (r'/configadmin', webio_handler(configadmin, cdn=cdn_url)),
+        (r'/souladmin', webio_handler(souladmin, cdn=cdn_url)),
         (r'/logstream', webio_handler(lambda: _get_log_stream_page()(), cdn=cdn_url)),
         (r'/tuningadmin', webio_handler(tuningadmin, cdn=cdn_url)),
         (r'/supplychain', webio_handler(supplychain_page, cdn=cdn_url)),
+        (r'/loop_audit', webio_handler(lambda: _get_loop_audit_page()(), cdn=cdn_url)),
     ]
 
 

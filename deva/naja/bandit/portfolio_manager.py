@@ -370,6 +370,14 @@ class PortfolioManager:
 
         return self.update_us_prices(price_map, prev_close_map)
 
+    def start_price_auto_update(self):
+        """持仓价格自动更新已废弃
+
+        美股价格更新已统一由 RealtimeDataFetcher 在美股交易时段自动获取并同步。
+        无需单独调用此方法。
+        """
+        log.info("[PortfolioManager] 持仓价格更新已由 RealtimeDataFetcher 统一管理")
+
 
 _portfolio_manager: Optional[PortfolioManager] = None
 _portfolio_manager_lock = threading.Lock()

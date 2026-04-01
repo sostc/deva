@@ -19,6 +19,24 @@ import threading
 import time
 from typing import Any, Dict, List, Optional
 
+_loop_audit_log_stage = None
+
+def _get_audit():
+    global _loop_audit_log_stage
+    if _loop_audit_log_stage is None:
+        try:
+            from ..common.loop_audit import LoopAudit
+            _loop_audit_log_stage = lambda **kw: LoopAudit(**kw)
+        except ImportError:
+            _loop_audit_log_stage = lambda **kw: _DummyAudit()
+    return _loop_audit_log_stage
+
+class _DummyAudit:
+    def __init__(self, **kwargs): pass
+    def __enter__(self): return self
+    def __exit__(self, *args): pass
+    def record_data_out(self, *args, **kwargs): pass
+
 from deva import NB
 
 from .optimizer import get_bandit_optimizer
@@ -160,6 +178,9 @@ class BanditAutoRunner:
         if self._is_experiment_mode():
             return True
         if self._current_phase in ('trading', 'pre_market'):
+            return True
+        import os
+        if os.environ.get('NAJA_LAB_MODE'):
             return True
         return False
 
@@ -310,30 +331,36 @@ class BanditAutoRunner:
             log.debug("[Bandit] 非运行时段，跳过选择")
             return
 
-        from ..strategy import get_strategy_manager
+        with _get_audit()(loop_type="bandit", stage="select_start", metadata={"phase": self._current_phase}) as audit:
+            from ..strategy import get_strategy_manager
 
-        mgr = get_strategy_manager()
-        entries = mgr.list_all()
+            mgr = get_strategy_manager()
+            entries = mgr.list_all()
 
-        if not entries:
-            return
+            if not entries:
+                audit.record_data_out({"status": "skipped", "reason": "no_strategies"})
+                return
 
-        active_entries = [e for e in entries if e.is_processing_data()]
-        if not active_entries:
-            log.debug("[Bandit] 没有策略在处理数据，跳过选择")
-            return
+            active_entries = [e for e in entries if e.is_processing_data()]
+            if not active_entries:
+                log.debug("[Bandit] 没有策略在处理数据，跳过选择")
+                audit.record_data_out({"status": "skipped", "reason": "no_active_processing"})
+                return
 
-        available = [e.id for e in entries]
+            available = [e.id for e in entries]
 
-        optimizer = get_bandit_optimizer()
-        result = optimizer.select_strategy(available)
+            optimizer = get_bandit_optimizer()
+            result = optimizer.select_strategy(available)
 
-        if result.get("success"):
-            selected = result.get("selected")
-            log.info(f"Bandit 自动选择策略: {selected}")
-            log_strategy("INFO", "bandit", "auto_select", f"自动选择策略: {selected}")
-        else:
-            log_strategy("WARN", "bandit", "auto_select", f"选择失败: {result.get('error')}")
+            if result.get("success"):
+                selected = result.get("selected")
+                log.info(f"Bandit 自动选择策略: {selected}")
+                log_strategy("INFO", "bandit", "auto_select", f"自动选择策略: {selected}")
+                audit.record_data_out({"status": "completed", "selected": selected, "available": available})
+            else:
+                error = result.get('error')
+                log_strategy("WARN", "bandit", "auto_select", f"选择失败: {error}")
+                audit.record_data_out({"status": "failed", "error": error})
 
     def _do_adjust(self):
         """执行策略调节"""
@@ -344,17 +371,26 @@ class BanditAutoRunner:
             log.debug("[Bandit] 非运行时段，跳过调节")
             return
 
-        optimizer = get_bandit_optimizer()
-        result = optimizer.review_and_adjust()
+        with _get_audit()(loop_type="bandit", stage="adjust", metadata={"phase": self._current_phase}) as audit:
+            optimizer = get_bandit_optimizer()
+            result = optimizer.review_and_adjust()
 
-        if result.get("success") and result.get("actions"):
-            log.info(f"Bandit 自动调节: {result.get('summary')}")
-            log_strategy("INFO", "bandit", "auto_adjust",
-                        f"调节成功: {result.get('summary')}, 动作数: {len(result.get('actions', []))}")
-        elif result.get("success"):
-            log_strategy("INFO", "bandit", "auto_adjust", "无需调节")
-        else:
-            log_strategy("WARN", "bandit", "auto_adjust", f"调节失败: {result.get('error')}")
+            if result.get("success") and result.get("actions"):
+                log.info(f"Bandit 自动调节: {result.get('summary')}")
+                log_strategy("INFO", "bandit", "auto_adjust",
+                            f"调节成功: {result.get('summary')}, 动作数: {len(result.get('actions', []))}")
+                audit.record_data_out({
+                    "status": "completed",
+                    "actions": len(result.get('actions', [])),
+                    "summary": result.get('summary')
+                })
+            elif result.get("success"):
+                log_strategy("INFO", "bandit", "auto_adjust", "无需调节")
+                audit.record_data_out({"status": "completed", "actions": 0})
+            else:
+                error = result.get('error')
+                log_strategy("WARN", "bandit", "auto_adjust", f"调节失败: {error}")
+                audit.record_data_out({"status": "failed", "error": error})
 
     def run_once(self, dry_run: bool = False) -> dict:
         """手动运行一次
