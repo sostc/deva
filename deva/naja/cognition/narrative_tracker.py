@@ -1088,8 +1088,11 @@ class NarrativeTracker:
                 async with GlobalMarketAPI() as api:
                     return await api.fetch_us_stocks()
 
-            loop = asyncio.get_event_loop()
-            data = loop.run_until_complete(fetch())
+            try:
+                loop = asyncio.get_event_loop()
+                data = loop.run_until_complete(fetch())
+            except RuntimeError:
+                asyncio.run(fetch())
 
             result = {}
             for code, market_data in data.items():

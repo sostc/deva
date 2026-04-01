@@ -127,6 +127,23 @@ class AttentionSystem:
         # 股票名称缓存
         self._symbol_name_cache: Dict[str, str] = {}
 
+        # 美股注意力引擎（独立于A股）
+        self._us_global_attention = GlobalAttentionEngine(
+            history_window=self.config.global_history_window
+        )
+        self._us_sector_attention = SectorAttentionEngine(
+            max_sectors=self.config.max_sectors
+        )
+        self._us_weight_pool = WeightPool(
+            max_symbols=self.config.max_symbols
+        )
+
+        # 美股缓存状态
+        self._us_last_global_attention: float = 0.0
+        self._us_last_activity: float = 0.0
+        self._us_last_sector_attention: Dict[str, float] = {}
+        self._us_last_symbol_weights: Dict[str, float] = {}
+
         # 上次有效结果（用于降级）
         self._last_valid_result: Optional[Dict[str, Any]] = None
 
@@ -258,8 +275,14 @@ class AttentionSystem:
             self._realtime_fetcher._activate()
             sys.stdout.flush()
 
+            print(f"[AttentionSystem] 调用 set_data_fetcher, self._realtime_fetcher={self._realtime_fetcher}")
+            sys.stdout.flush()
             from deva.naja.attention.realtime_data_fetcher import set_data_fetcher
+            print(f"[AttentionSystem] set_data_fetcher imported, calling it...")
+            sys.stdout.flush()
             set_data_fetcher(self._realtime_fetcher)
+            print(f"[AttentionSystem] set_data_fetcher called successfully")
+            sys.stdout.flush()
 
             log.info("[AttentionSystem] 实盘获取器启动完成")
         except Exception as e:
@@ -333,9 +356,9 @@ class AttentionSystem:
 
             if 'change_pct' not in data.columns and 'now' in data.columns and 'close' in data.columns:
                 data = data.copy()
-                close_values = data['close'].replace(0, np.nan)
+                close_values = data['close'].replace(0, np.nan).infer_objects(copy=False)
                 data['change_pct'] = (data['now'] - data['close']) / close_values * 100
-                data['change_pct'] = data['change_pct'].fillna(0)
+                data['change_pct'] = data['change_pct'].fillna(0).infer_objects(copy=False)
                 log.debug(f"[AttentionSystem] 计算 change_pct: {list(data['change_pct'][:5])}")
 
             name_col = 'name' if 'name' in data.columns else ('stock_name' if 'stock_name' in data.columns else None)
@@ -461,7 +484,7 @@ class AttentionSystem:
         return self._symbol_name_cache.get(symbol, symbol)
 
     def _extract_sector_ids_from_data(self, data: 'pd.DataFrame') -> np.ndarray:
-        """从数据中提取板块ID"""
+        """从数据中提取板块ID（已过滤噪音板块）"""
         try:
             block_df = self._get_block_dataframe()
             if block_df is None or block_df.empty:
@@ -471,18 +494,28 @@ class AttentionSystem:
             if code_col is None:
                 return np.zeros(len(data))
 
+            from deva.naja.attention.processing.sector_noise_detector import SectorNoiseDetector
+            sector_noise_detector = SectorNoiseDetector()
+
             block_df = block_df.copy()
             block_df['code'] = block_df['code'].astype(str).str.zfill(6)
 
             code_to_blocks: Dict[str, List[str]] = {}
+            noise_block_count = 0
             for _, row in block_df.iterrows():
                 code = str(row['code'])
                 block = str(row['blocks']) if pd.notna(row['blocks']) else ''
                 if block and code:
+                    if sector_noise_detector.is_noise(block):
+                        noise_block_count += 1
+                        continue
                     if code not in code_to_blocks:
                         code_to_blocks[code] = []
                     if block not in code_to_blocks[code]:
                         code_to_blocks[code].append(block)
+
+            if noise_block_count > 0:
+                log.debug(f"[AttentionSystem] 提取板块时过滤噪音板块: {noise_block_count}个")
 
             sector_id_map: Dict[str, int] = {}
             next_sector_id = 1
@@ -503,6 +536,7 @@ class AttentionSystem:
                 else:
                     sector_ids.append(sector_id_map.get(blocks[0], 0))
 
+            log.debug(f"[AttentionSystem] 提取板块ID完成: {len(sector_id_map)}个有效板块, {len(data)}只股票")
             return np.array(sector_ids, dtype=int)
         except Exception as e:
             log.debug(f"[AttentionSystem] 提取sector_ids失败: {e}")
@@ -795,7 +829,137 @@ class AttentionSystem:
             )
 
         return final_result
-    
+
+    def process_us_snapshot(
+        self,
+        symbols: np.ndarray,
+        returns: np.ndarray,
+        volumes: np.ndarray,
+        prices: np.ndarray,
+        sector_ids: np.ndarray,
+        timestamp: float
+    ) -> Dict[str, Any]:
+        """
+        处理美股市场快照（独立于A股的注意力计算）
+
+        Args:
+            symbols: 股票代码数组
+            returns: 涨跌幅数组 (%)
+            volumes: 成交量数组
+            prices: 价格数组
+            sector_ids: 板块ID数组（板块名称）
+            timestamp: 时间戳
+
+        Returns:
+            调度决策结果（包含美股专属的注意力数据）
+        """
+        if not self._initialized:
+            log.warning("[US-Attention] 注意力系统未初始化，跳过美股处理")
+            return {
+                'timestamp': timestamp,
+                'global_attention': 0.5,
+                'sector_attention': {},
+                'symbol_weights': {},
+                'market': 'US',
+            }
+
+        start_time = time.time()
+
+        returns = np.nan_to_num(returns, nan=0.0, posinf=50.0, neginf=-50.0)
+        returns = np.clip(returns, -50.0, 50.0)
+        volumes = np.nan_to_num(volumes, nan=0.0, posinf=1e15, neginf=0.0)
+        volumes = np.clip(volumes, 0, 1e15)
+        prices = np.nan_to_num(prices, nan=0.0, posinf=1e6, neginf=0.0)
+        prices = np.clip(prices, 0.01, 1e6)
+
+        snapshot = MarketSnapshot(
+            symbols=symbols,
+            returns=returns,
+            volumes=volumes,
+            prices=prices,
+            sector_ids=sector_ids,
+            timestamp=timestamp
+        )
+
+        print(f"[US-Attention] process_us_snapshot: symbols={len(symbols)}, returns={returns[:5] if len(returns) > 5 else returns}")
+
+        try:
+            global_attention, activity = self._us_global_attention.get_attention_and_activity(snapshot)
+            self._us_global_attention.update(snapshot)
+            print(f"[US-Attention] global_attention={global_attention}, activity={activity}")
+
+            with self._cache_lock:
+                self._us_last_global_attention = global_attention
+                self._us_last_activity = activity
+
+        except Exception as e:
+            print(f"[US-Attention] GlobalAttention 失败: {e}")
+            import traceback
+            traceback.print_exc()
+            log.error(f"[US-GlobalAttention] 失败: {e}")
+            global_attention = 0.5
+            activity = 0.5
+
+        try:
+            sector_attention = self._us_sector_attention.update(symbols, returns, volumes, timestamp, sector_ids)
+            print(f"[US-Attention] sector_attention count={len(sector_attention)}")
+            with self._cache_lock:
+                self._us_last_sector_attention = sector_attention
+        except Exception as e:
+            print(f"[US-Attention] SectorAttention 失败: {e}")
+            log.error(f"[US-SectorAttention] 失败: {e}")
+            sector_attention = {}
+
+        # 自动注册新的美股symbol到_weight_pool（如果尚未注册）
+        for sym in symbols:
+            if sym not in self._us_weight_pool._symbol_to_idx:
+                sector_list = [sector_ids[i] for i, s in enumerate(symbols) if s == sym]
+                self._us_weight_pool.register_symbol(sym, sector_list if sector_list else ["其他"])
+                print(f"[US-Attention] 自动注册美股symbol: {sym} -> {sector_list[:3] if sector_list else ['其他']}")
+
+        try:
+            symbol_weights = self._us_weight_pool.update(symbols, returns, volumes, sector_attention, timestamp)
+            print(f"[US-Attention] symbol_weights count={len(symbol_weights)}")
+            with self._cache_lock:
+                self._us_last_symbol_weights = symbol_weights
+        except Exception as e:
+            print(f"[US-Attention] WeightPool 失败: {e}")
+            log.error(f"[US-WeightPool] 失败: {e}")
+            symbol_weights = {}
+
+        latency = (time.time() - start_time) * 1000
+
+        market_state = {}
+        try:
+            market_state = self._us_global_attention.get_market_state()
+        except Exception:
+            market_state = {'attention': global_attention, 'activity': activity, 'trend': 'unknown', 'description': '状态获取失败'}
+
+        log.debug(f"[US-Attention] 处理完成: global_attention={global_attention:.3f}, sector_count={len(sector_attention)}, symbol_count={len(symbol_weights)}, latency={latency:.1f}ms")
+
+        return {
+            'timestamp': timestamp,
+            'latency_ms': latency,
+            'global_attention': global_attention,
+            'activity': activity,
+            'sector_attention': sector_attention,
+            'symbol_weights': symbol_weights,
+            'market_state': market_state,
+            'market': 'US',
+            'stock_count': len(symbols),
+        }
+
+    def get_us_attention_state(self) -> Dict[str, Any]:
+        """获取美股注意力状态"""
+        with self._cache_lock:
+            return {
+                'global_attention': self._us_last_global_attention,
+                'activity': self._us_last_activity,
+                'sector_attention': self._us_last_sector_attention.copy(),
+                'symbol_weights': self._us_last_symbol_weights.copy(),
+                'stock_count': len(self._us_last_symbol_weights),
+            }
+
     async def process_pytorch_batch(self) -> List[Any]:
         """处理 PyTorch 批量推理"""
         return await self.dual_engine.process_pytorch_batch()

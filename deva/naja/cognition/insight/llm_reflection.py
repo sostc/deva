@@ -300,6 +300,8 @@ class LLMReflectionEngine:
 
         signals.extend(self._collect_market_analysis_from_nt())
 
+        signals.extend(self._collect_wisdom_signals())
+
         return signals
 
     def run_daily_reflection(self, force_refresh: bool = False) -> Optional[Reflection]:
@@ -737,6 +739,45 @@ class LLMReflectionEngine:
         except Exception:
             return []
 
+    def _collect_wisdom_signals(self) -> List[Dict[str, Any]]:
+        """收集 WisdomRetriever 的检索效果信号，用于优化知识库检索"""
+        try:
+            from ...wisdom.wisdom_retriever import WisdomRetriever
+
+            retriever = WisdomRetriever()
+            stats = retriever.get_stats()
+
+            signals = []
+
+            trigger_count = stats.get("trigger_count", 0)
+            if trigger_count > 0:
+                last_query = stats.get("last_query", "")
+                last_snippet = stats.get("last_best_snippet", "")
+                last_focus = stats.get("last_focus", "")
+                last_bias = stats.get("last_bias", "")
+                last_time = stats.get("last_trigger_time")
+
+                signals.append({
+                    "source": "wisdom_retriever",
+                    "signal_type": "wisdom_retrieval",
+                    "theme": f"知识检索: {last_focus}/{last_bias}",
+                    "summary": f"触发{trigger_count}次 | 查询:'{last_query}' | 片段:{last_snippet[:50]}..." if last_snippet else f"触发{trigger_count}次 | 查询:'{last_query}'",
+                    "trigger_count": trigger_count,
+                    "last_query": last_query,
+                    "last_focus": last_focus,
+                    "last_bias": last_bias,
+                    "last_time": last_time,
+                    "score": min(1.0, trigger_count / 10.0),
+                })
+
+                return signals
+            return []
+        except Exception as e:
+            import logging
+            log = logging.getLogger(__name__)
+            log.debug(f"[LLMReflection] 收集 wisdom 信号失败: {e}")
+            return []
+
     def _collect_portfolio(self) -> Dict[str, Any]:
         """收集当前持仓信息"""
         try:
@@ -833,6 +874,7 @@ class LLMReflectionEngine:
             "effectiveness": [],  # 有效性分析 (effective_pattern, ineffective_pattern)
             "llm_reflection": [],  # 之前的反思
             "liquidity_structure": [],  # 流动性结构信号
+            "wisdom": [],     # 知识库检索信号
             "other": []       # 其他
         }
 
@@ -842,6 +884,7 @@ class LLMReflectionEngine:
         feedback_types = {'experiment_feedback_summary', 'bandit_learning_analysis'}
         effectiveness_types = {'effective_pattern', 'ineffective_pattern'}
         liquidity_types = {'liquidity_structure'}
+        wisdom_types = {'wisdom_retrieval'}
 
         for sig in signals:
             source = sig.get('source', '')
@@ -849,6 +892,8 @@ class LLMReflectionEngine:
 
             if signal_type in liquidity_types or source == 'liquidity_structure':
                 categories['liquidity_structure'].append(sig)
+            elif source == 'wisdom_retriever' or signal_type in wisdom_types:
+                categories['wisdom'].append(sig)
             elif source in ('market', 'radar', 'radar_news') or signal_type in radar_types:
                 categories['radar'].append(sig)
             elif source == 'cross_signal' or 'resonance' in signal_type:

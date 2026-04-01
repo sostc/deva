@@ -154,6 +154,13 @@ class AttentionStrategyManager:
         from .momentum_tracker import MomentumSurgeTracker
         from .anomaly_sniper import AnomalyPatternSniper
         from .smart_money_detector import SmartMoneyFlowDetector
+        from .us_strategies import (
+            USGlobalMarketSentinel,
+            USSectorRotationHunter,
+            USMomentumSurgeTracker,
+            USAnomalyPatternSniper,
+            USSmartMoneyFlowDetector,
+        )
         
         # 全局市场状态监控（始终启用）
         global_sentinel = GlobalMarketSentinel()
@@ -194,6 +201,42 @@ class AttentionStrategyManager:
             enabled=True,
             priority=7
         ))
+
+        # === 美股策略集（默认启用） ===
+        us_global = USGlobalMarketSentinel()
+        self.register_strategy(us_global, StrategyConfig(
+            strategy_id=us_global.strategy_id,
+            enabled=True,
+            priority=6
+        ))
+
+        us_sector = USSectorRotationHunter()
+        self.register_strategy(us_sector, StrategyConfig(
+            strategy_id=us_sector.strategy_id,
+            enabled=True,
+            priority=5
+        ))
+
+        us_momentum = USMomentumSurgeTracker()
+        self.register_strategy(us_momentum, StrategyConfig(
+            strategy_id=us_momentum.strategy_id,
+            enabled=True,
+            priority=5
+        ))
+
+        us_anomaly = USAnomalyPatternSniper()
+        self.register_strategy(us_anomaly, StrategyConfig(
+            strategy_id=us_anomaly.strategy_id,
+            enabled=True,
+            priority=4
+        ))
+
+        us_smart_money = USSmartMoneyFlowDetector()
+        self.register_strategy(us_smart_money, StrategyConfig(
+            strategy_id=us_smart_money.strategy_id,
+            enabled=True,
+            priority=5
+        ))
     
     def process_data(
         self,
@@ -221,6 +264,20 @@ class AttentionStrategyManager:
         if context is None:
             context = self._build_attention_context()
 
+        # 识别当前市场（用于策略门控）
+        market = context.get('market')
+        if not market and hasattr(data, 'columns') and 'market' in data.columns:
+            try:
+                markets = set(str(m).upper() for m in data['market'].dropna().unique())
+                if len(markets) == 1:
+                    market = markets.pop()
+                elif len(markets) > 1:
+                    market = "ALL"
+            except Exception:
+                market = None
+        if not market:
+            market = "CN"
+
         # 按优先级排序策略
         sorted_strategies = sorted(
             self.strategies.items(),
@@ -236,6 +293,9 @@ class AttentionStrategyManager:
 
             strategy_start = time.time()
             try:
+                strategy_market = getattr(strategy, 'market_scope', 'ALL')
+                if market != "ALL" and strategy_market not in ("ALL", market):
+                    continue
                 signals = strategy.process(data, context)
                 all_signals.extend(signals)
 

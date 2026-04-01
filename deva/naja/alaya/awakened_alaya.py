@@ -16,6 +16,24 @@ from enum import Enum
 
 log = logging.getLogger(__name__)
 
+_loop_audit_log_stage = None
+
+def _get_audit():
+    global _loop_audit_log_stage
+    if _loop_audit_log_stage is None:
+        try:
+            from ..common.loop_audit import LoopAudit
+            _loop_audit_log_stage = lambda **kw: LoopAudit(**kw)
+        except ImportError:
+            _loop_audit_log_stage = lambda **kw: _DummyAudit()
+    return _loop_audit_log_stage
+
+class _DummyAudit:
+    def __init__(self, **kwargs): pass
+    def __enter__(self): return self
+    def __exit__(self, *args): pass
+    def record_data_out(self, *args, **kwargs): pass
+
 
 class AwakeningLevel(Enum):
     """觉醒层次"""
@@ -386,28 +404,35 @@ class AwakenedAlaya:
         Returns:
             包含 illumination, awakenings, archived_patterns 的字典
         """
-        self._integration_count += 1
+        with _get_audit()(loop_type="alaya", stage="illuminate", data_in={"market_data_keys": list(market_data.keys()) if market_data else []}) as audit:
+            self._integration_count += 1
 
-        awakening_result = self._process_awakening(signals or [])
+            awakening_result = self._process_awakening(signals or [])
 
-        portfolio_awakening = self._process_portfolio_awakening(unified_manas_output)
+            portfolio_awakening = self._process_portfolio_awakening(unified_manas_output)
 
-        recalled_patterns = self._recall_relevant_patterns(market_data)
+            recalled_patterns = self._recall_relevant_patterns(market_data)
 
-        illumination = self._generate_illumination(
-            market_data, recalled_patterns, awakening_result, portfolio_awakening
-        )
+            illumination = self._generate_illumination(
+                market_data, recalled_patterns, awakening_result, portfolio_awakening
+            )
 
-        if illumination:
-            self._last_illumination_time = time.time()
+            if illumination:
+                self._last_illumination_time = time.time()
 
-        return {
-            "illumination": illumination,
-            "awakening": awakening_result,
-            "portfolio_awakening": portfolio_awakening,
-            "recalled_patterns": recalled_patterns,
-            "awakening_level": self.awakening_engine.get_awakening_level()
-        }
+            result = {
+                "illumination": illumination,
+                "awakening": awakening_result,
+                "portfolio_awakening": portfolio_awakening,
+                "recalled_patterns": recalled_patterns,
+                "awakening_level": self.awakening_engine.get_awakening_level()
+            }
+            audit.record_data_out({
+                "illumination": bool(illumination),
+                "recalled_count": len(recalled_patterns) if recalled_patterns else 0,
+                "awakening_level": result["awakening_level"]
+            })
+            return result
 
     def _process_portfolio_awakening(
         self,

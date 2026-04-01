@@ -67,6 +67,7 @@ class AttentionStrategyBase(ABC):
         strategy_id: str,
         name: str,
         scope: str = 'symbol',  # 'global' | 'sector' | 'symbol'
+        market_scope: str = 'CN',  # 'CN' | 'US' | 'ALL'
         min_global_attention: float = 0.0,
         min_symbol_weight: float = 1.0,
         max_positions: int = 10,
@@ -75,6 +76,7 @@ class AttentionStrategyBase(ABC):
         self.strategy_id = strategy_id
         self.name = name
         self.scope = scope
+        self.market_scope = market_scope
         
         # 注意力阈值
         self.min_global_attention = min_global_attention

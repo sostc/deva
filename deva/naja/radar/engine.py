@@ -635,18 +635,29 @@ class RadarEngine:
                 _radar_debug_log("全球市场扫描器已在运行中")
                 return True
 
-            from .global_market_scanner import GlobalMarketScanner
+            from .global_market_scanner import GlobalMarketScanner, ScanConfig
 
-            self._global_scanner = GlobalMarketScanner(
-                fetch_interval=fetch_interval,
+            scan_config = ScanConfig(
+                interval_trading=fetch_interval,
+                interval_extended=fetch_interval,
+                interval_closed=max(300, fetch_interval * 2),
+                interval_24h=fetch_interval,
                 alert_threshold_volatility=alert_threshold_volatility,
                 alert_threshold_single=alert_threshold_single,
             )
+            self._global_scanner = GlobalMarketScanner(config=scan_config)
 
             self._global_scanner.register_callback(self._on_global_market_alert)
 
             import asyncio
-            asyncio.create_task(self._global_scanner.start())
+            try:
+                loop = asyncio.get_event_loop()
+                if loop.is_running():
+                    asyncio.create_task(self._global_scanner.start())
+                else:
+                    loop.run_until_complete(self._global_scanner.start())
+            except RuntimeError:
+                asyncio.run(self._global_scanner.start())
 
             _radar_debug_log(f"全球市场扫描器启动成功, 间隔: {fetch_interval}s")
             return True
@@ -659,8 +670,16 @@ class RadarEngine:
         """停止全球市场扫描器"""
         if self._global_scanner:
             import asyncio
-            asyncio.create_task(self._global_scanner.stop())
+            scanner = self._global_scanner
             self._global_scanner = None
+            try:
+                loop = asyncio.get_event_loop()
+                if loop.is_running():
+                    asyncio.create_task(scanner.stop())
+                else:
+                    loop.run_until_complete(scanner.stop())
+            except RuntimeError:
+                asyncio.run(scanner.stop())
             _radar_debug_log("全球市场扫描器已停止")
 
     def enable_propagation_engine_sync(self, propagation_engine):
