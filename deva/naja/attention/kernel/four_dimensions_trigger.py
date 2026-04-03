@@ -282,13 +282,31 @@ class FourDimensionsManager:
             return None
 
     def _get_macro_signal(self) -> float:
-        """获取宏观信号"""
+        """获取宏观信号（融合美林时钟 + 市场数据）"""
+        # 1. 优先从美林时钟获取宏观信号
+        try:
+            from deva.naja.cognition.merrill_clock_engine import get_merrill_clock_engine
+            from deva.naja.cognition.merrill_clock_to_manas import get_merrill_macro_signal
+            
+            clock = get_merrill_clock_engine()
+            signal = clock.get_current_signal()
+            if signal:
+                macro = get_merrill_macro_signal(
+                    phase=signal.phase,
+                    confidence=signal.confidence,
+                )
+                return macro
+        except Exception:
+            pass
+        
+        # 2. 兜底：从四维市场数据获取
         try:
             fd = self.kernel._four_dimensions
             if fd and hasattr(fd, 'market'):
                 return fd.market.liquidity_signal
         except:
             pass
+        
         return 0.5
 
     def update(self):

@@ -47,7 +47,7 @@ from .admin import render_attention_admin
 from .flow import (
     render_attention_flow_ui,
     render_attention_layers_detail,
-    render_data_frequency_panel,
+    # render_data_frequency_panel,  # 已删除
     render_noise_filter_panel,
     render_strategy_status_panel,
     render_dual_engine_panel,
@@ -107,7 +107,7 @@ __all__ = [
     "render_attention_admin",
     "render_attention_flow_ui",
     "render_attention_layers_detail",
-    "render_data_frequency_panel",
+    # "render_data_frequency_panel",  # 已删除
     "render_noise_filter_panel",
     "render_kernel_dashboard",
     "render_attention_flow_diagram",

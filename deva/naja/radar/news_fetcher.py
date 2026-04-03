@@ -429,6 +429,7 @@ class RadarNewsFetcher:
     PHASE_INTERVALS = {
         'trading': 60.0,
         'pre_market': 60.0,
+        'call_auction': 60.0,
         'lunch': 300.0,
         'post_market': 300.0,
         'closed': 300.0,

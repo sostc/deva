@@ -55,6 +55,7 @@ NAJA_TABLE_REGISTRY = {
 
     # ===== 注意力系统 =====
     "naja_attention_tracker": "注意力追踪器状态",
+    "naja_attention_snapshots": "注意力榜单快照(用于复盘)",
     "naja_price_monitor_config": "价格监控配置",
     "naja_realtime_quotes": "实时行情缓存",
     "naja_signal_tuner": "信号调优器状态",
@@ -64,18 +65,34 @@ NAJA_TABLE_REGISTRY = {
     "naja_bandit_market_config": "Bandit市场数据配置",
     "naja_bandit_signal_config": "Bandit信号配置",
     "naja_bandit_adaptive_config": "Bandit自适应配置",
-    "naja_bandit_virtual_portfolio": "Bandit虚拟组合",
+    "naja_bandit_portfolio_manager": "Bandit组合管理器",
+    "naja_bandit_positions": "Bandit统一持仓表(所有账户持仓)",
+    "naja_bandit_virtual_portfolio": "Bandit虚拟组合(已废弃,迁移到naja_bandit_positions)",
     "naja_bandit_stats": "Bandit统计",
     "naja_bandit_decisions": "Bandit决策记录",
     "naja_bandit_actions": "Bandit动作记录",
     "naja_bandit_position_rewards": "Bandit持仓收益",
+    "naja_bandit_attribution": "Bandit归因分析",
 
     # ===== 雷达/新闻 =====
     "naja_radar_events": "雷达事件",
     "naja_news_radar_state": "新闻雷达状态",
+    "naja_market_state_daily": "市场状态每日快照(用于复盘)",
+    "naja_bandit_decision_context": "Bandit决策上下文快照(用于复盘)",
 
     # ===== 洞察/认知 =====
     "naja_insight_pool": "洞察池",
+    "naja_insight_state": "洞察系统状态",
+    "naja_narrative_tracker_state": "叙事追踪器状态",
+    "naja_market_analysis": "市场分析结果",
+    "naja_market_replay_state": "市场回放状态",
+    "naja_market_replay_history": "市场回放历史",
+    "naja_lobster_radar_state": "LOBSTER雷达状态",
+    "naja_openrouter_trend": "OpenRouter趋势数据",
+    "naja_loop_audit": "循环审计记录",
+    "naja_test_state": "测试状态",
+    "naja_radar_thread": "雷达线程状态",
+    "naja_signals": "信号记录",
 
     # ===== 任务 =====
     "naja_task_history": "任务执行历史",
@@ -90,6 +107,7 @@ SYSTEM_TABLE_REGISTRY = {
     "__deleted_tables_meta": "已删除表审计记录",
     "deva_config": "Deva主配置",
     "deva_bus_clients": "Deva总线客户端注册",
+    "deva_tasks": "Deva任务配置",
     "naja": "Naja启动状态标记",
     "naja_result_index": "策略结果索引(已废弃)",
 
@@ -106,8 +124,27 @@ SYSTEM_TABLE_REGISTRY = {
     "dtalk_deva": "钉钉配置(Webhook/Secret)",
     "mail": "邮件配置(SMTP)",
 
+    # ===== 其他表 =====
+    "bookmarks": "书签",
+    "page_prompts": "页面提示词",
+    "people": "人物数据",
+    "topics": "主题数据",
+    "康熙字典": "康熙字典数据",
+    "生僻字": "生僻字数据",
+    "system_config": "系统配置",
+    "openrouter_trend": "OpenRouter趋势",
+
     # ===== 行情数据 =====
     "quant_snapshot_5min_window": "5分钟窗口行情快照",
+    "replay_tick_analysis": "回放Tick分析",
+    "us_stock_prices": "美股价格(统一存储)",
+    "test_price": "测试价格数据",
+    "test_price_123": "测试价格数据123",
+
+    # ===== 新闻数据 =====
+    "新华社热点": "新华社热点新闻",
+    "新华社蓝字新闻": "新华社蓝字新闻",
+    "财报日历": "财报发布日历",
 }
 
 ALL_TABLE_REGISTRIES = {**NAJA_TABLE_REGISTRY, **SYSTEM_TABLE_REGISTRY}

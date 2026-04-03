@@ -26,7 +26,7 @@ from __future__ import annotations
 import time
 from collections import defaultdict
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, time as dtime
 from typing import Any, Dict, List, Optional
 
 from deva.naja.cognition.narrative_tracker import (
@@ -57,6 +57,10 @@ def _is_cache_valid() -> bool:
 class MarketOverview:
     """市场概览"""
     ashare_count: int = 0
+    ashare_effective_count: int = 0
+    ashare_data_date: str = ""
+    ashare_last_snapshot_time: str = ""
+    ashare_data_stale: bool = False
     usstock_count: int = 0
     total_count: int = 0
 
@@ -78,6 +82,11 @@ class MarketOverview:
     combined_avg_change: float = 0.0
     combined_sentiment: str = "未知"
     fund_flow: str = "未知"
+
+    ashare_top_sectors: List[Dict[str, Any]] = field(default_factory=list)
+    ashare_flow_timeline: List[Dict[str, Any]] = field(default_factory=list)
+    ashare_breakouts: List[Dict[str, Any]] = field(default_factory=list)
+    ashare_anomalies: List[Dict[str, Any]] = field(default_factory=list)
 
 
 @dataclass
@@ -172,6 +181,12 @@ class ReplayReport:
     suggestions: List[str] = field(default_factory=list)
     wisdom_perspectives: List[WisdomPerspective] = field(default_factory=list)
     llm_reflection: Optional[Dict[str, Any]] = None
+    
+    # 美林时钟数据
+    merrill_clock_signal: Optional[Dict[str, Any]] = None
+    
+    # 跨市场流动性追踪数据
+    liquidity_insights: List[Dict[str, Any]] = field(default_factory=list)
 
     def _get_llm_reflection(self) -> Optional[Dict[str, Any]]:
         """获取最新的 LLM 反思结果（带超时保护）"""
@@ -193,6 +208,15 @@ class ReplayReport:
         """转换为Markdown格式"""
         ts = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(self.timestamp))
 
+        ashare_effective = max(self.market_overview.ashare_effective_count, 0)
+        if ashare_effective > 0:
+            adv_pct = self.market_overview.ashare_advancing / ashare_effective * 100
+            dec_pct = self.market_overview.ashare_declining / ashare_effective * 100
+            flat_pct = self.market_overview.ashare_unchanged / ashare_effective * 100
+            adv_dec_flat = f"{adv_pct:.1f}%/{dec_pct:.1f}%/{flat_pct:.1f}%"
+        else:
+            adv_dec_flat = "0.0%/0.0%/0.0%"
+
         lines = [
             f"# 📊 市场复盘报告",
             f"",
@@ -206,8 +230,10 @@ class ReplayReport:
             f"",
             f"| 指标 | 数值 |",
             f"|------|------|",
-            f"| 股票数 | {self.market_overview.ashare_count} 只 |",
-            f"| 上涨/下跌/平盘 | {self.market_overview.ashare_advancing}/{self.market_overview.ashare_declining}/{self.market_overview.ashare_unchanged} |",
+            f"| 数据日期 | {self.market_overview.ashare_data_date or '未知'} |",
+            f"| 最新快照 | {self.market_overview.ashare_last_snapshot_time or '未知'} |",
+            f"| 有效股票数 | {self.market_overview.ashare_effective_count} 只 |",
+            f"| 上涨/下跌/平盘 | {adv_dec_flat} |",
             f"| 平均涨跌 | {self.market_overview.ashare_avg_change:+.2f}% |",
             f"| 中位数涨跌 | {self.market_overview.ashare_median_change:+.2f}% |",
             f"| 市场广度 | {self.market_overview.ashare_breadth:.3f} |",
@@ -223,6 +249,44 @@ class ReplayReport:
             f"| 市场广度 | {self.market_overview.usstock_breadth:.3f} |",
             f"",
         ]
+
+        if self.market_overview.ashare_data_stale:
+            lines.extend([
+                f"**提示**: A股数据非今日最新交易日，请确认回放数据表是否更新",
+                f"",
+            ])
+
+        if self.market_overview.ashare_top_sectors:
+            lines.extend([
+                f"#### 🧭 A股板块重点（Top3）",
+                f"",
+            ])
+            for sec in self.market_overview.ashare_top_sectors[:3]:
+                leaders = sec.get("leaders", [])
+                leader_text = ", ".join([f"{s.get('name','')}{s.get('change',0):+.1f}%" for s in leaders]) if leaders else "无"
+                flow_text = sec.get("flow_hint", "")
+                breakout_text = sec.get("breakout_hint", "")
+                anomaly_text = sec.get("anomaly_hint", "")
+                lines.append(f"- **{sec.get('sector','')}**：平均涨跌 {sec.get('avg_change',0):+.2f}%，资金 {sec.get('flow', '未知')}")
+                lines.append(f"- 龙头: {leader_text}")
+                if flow_text:
+                    lines.append(f"- 资金流向: {flow_text}")
+                if breakout_text:
+                    lines.append(f"- 突破: {breakout_text}")
+                if anomaly_text:
+                    lines.append(f"- 异动: {anomaly_text}")
+                lines.append(f"")
+
+        if self.market_overview.ashare_flow_timeline:
+            lines.extend([
+                f"#### 💧 资金流向时间轴",
+                f"",
+            ])
+            for ev in self.market_overview.ashare_flow_timeline[:6]:
+                inflow = ", ".join([f"{s}↑" for s in ev.get("inflow_sectors", [])])
+                outflow = ", ".join([f"{s}↓" for s in ev.get("outflow_sectors", [])])
+                lines.append(f"- {ev.get('time', '')}: {inflow} | {outflow}")
+            lines.append(f"")
 
         # 热点叙事
         lines.extend([
@@ -277,6 +341,26 @@ class ReplayReport:
                 lines.append(f"- {change}")
             lines.append(f"")
 
+        if self.tiandao_minxin.tiandao_signals:
+            lines.extend([
+                f"**天道具体信号:**",
+                f"",
+            ])
+            for cat, kws in self.tiandao_minxin.tiandao_signals.items():
+                if kws:
+                    lines.append(f"- {cat}: {', '.join(kws[:5])}")
+            lines.append(f"")
+
+        if self.tiandao_minxin.minxin_signals:
+            lines.extend([
+                f"**民心具体信号:**",
+                f"",
+            ])
+            for cat, kws in self.tiandao_minxin.minxin_signals.items():
+                if kws:
+                    lines.append(f"- {cat}: {', '.join(kws[:5])}")
+            lines.append(f"")
+
         # 风险提示
         if self.risks:
             lines.extend([
@@ -297,42 +381,39 @@ class ReplayReport:
                 lines.append(f"- {suggestion}")
             lines.append(f"")
 
-        # 知识库观点
-        if self.wisdom_perspectives:
-            lines.extend([
-                f"## 💭 你的投资哲学视角",
-                f"",
-            ])
-            for wp in self.wisdom_perspectives:
-                lines.append(wp.to_markdown())
-                lines.append(f"")
-            lines.append(f"")
-
         # LLM 反思（可选，超时则跳过）
         llm_refl = self.llm_reflection
         if not llm_refl:
             llm_refl = self._get_llm_reflection()
         if llm_refl:
+            core_summary = llm_refl.get('summary', '暂无反思内容')
+            if isinstance(core_summary, list):
+                core_summary_text = "；".join([str(s) for s in core_summary if s])
+            else:
+                core_summary_text = str(core_summary)
             lines.extend([
                 f"## 🤖 LLM 深度反思",
                 f"",
                 f"**主题**: {llm_refl.get('theme', '市场反思')}",
                 f"",
-                f"{llm_refl.get('summary', '暂无反思内容')}",
-                f"",
+                f"1. 核心结论: {core_summary_text}",
             ])
             symbols = llm_refl.get('symbols', [])
             if symbols:
-                lines.append(f"| 涉及股票 |")
-                lines.append(f"|------|")
+                sym_list = []
                 for s in symbols[:10]:
                     if isinstance(s, str):
-                        lines.append(f"| {s} |")
+                        sym_list.append(s)
                     else:
-                        lines.append(f"| {s.get('code', '')} |")
+                        sym_list.append(s.get('code', ''))
+                sym_list = [s for s in sym_list if s]
+                if sym_list:
+                    lines.append(f"2. 涉及股票: {', '.join(sym_list)}")
 
             narratives = llm_refl.get('narratives', [])
             if narratives:
+                lines.append(f"3. 叙事变化: 见下表")
+                lines.append(f"")
                 lines.append(f"| 叙事 | 阶段 | 趋势 | 关注度 |")
                 lines.append(f"|------|------|------|------|")
                 for n in narratives[:5]:
@@ -340,6 +421,84 @@ class ReplayReport:
                         lines.append(f"| {n.get('narrative', '-')} | {n.get('stage', '-')} | {n.get('trend', 0):.0f} | {n.get('attention_score', 0):.3f} |")
                     else:
                         lines.append(f"| {n} | - | - | - |")
+
+        # 美林时钟数据
+        if self.merrill_clock_signal:
+            mc = self.merrill_clock_signal
+            phase_name = mc.get('phase_name', mc.get('phase', '未知'))
+            confidence = mc.get('confidence', 0)
+            growth_score = mc.get('growth_score', 0)
+            inflation_score = mc.get('inflation_score', 0)
+            asset_ranking = mc.get('asset_ranking', [])
+            
+            # 阶段 emoji
+            phase_emoji = {
+                "复苏": "🌱",
+                "过热": "🔥",
+                "滞胀": "⚠️",
+                "衰退": "🥶",
+            }.get(phase_name, "❓")
+            
+            asset_text = " > ".join(asset_ranking) if asset_ranking else "暂无"
+            
+            lines.extend([
+                f"## 🌡️ 美林时钟周期",
+                f"",
+                f"**{phase_emoji} 当前周期**: {phase_name}（置信度 {confidence*100:.0f}%）",
+                f"",
+                f"| 指标 | 数值 |",
+                f"|------|------|",
+                f"| 增长评分 | {growth_score:+.2f} |",
+                f"| 通胀评分 | {inflation_score:+.2f} |",
+                f"| 资产偏好 | {asset_text} |",
+                f"",
+            ])
+            
+            # 如果有数据摘要
+            data_summary = mc.get('data_summary', {})
+            if data_summary:
+                gdp = data_summary.get('gdp_growth')
+                pce = data_summary.get('pce_yoy')
+                unemployment = data_summary.get('unemployment_rate')
+                
+                summary_items = []
+                if gdp is not None:
+                    summary_items.append(f"GDP同比 {gdp:+.1f}%")
+                if pce is not None:
+                    summary_items.append(f"PCE同比 {pce:+.1f}%")
+                if unemployment is not None:
+                    summary_items.append(f"失业率 {unemployment:.1f}%")
+                
+                if summary_items:
+                    lines.append(f"**核心数据**: {', '.join(summary_items)}")
+                    lines.append(f"")
+
+        # 跨市场流动性追踪
+        if self.liquidity_insights:
+            lines.extend([
+                f"## 💧 跨市场流动性追踪",
+                f"",
+            ])
+            
+            # 按来源市场分组
+            by_source = {}
+            for insight in self.liquidity_insights:
+                source = insight.get('source_market', '未知')
+                by_source.setdefault(source, []).append(insight)
+            
+            for source, insights in by_source.items():
+                lines.append(f"**📍 {source}**")
+                for insight in insights[:3]:
+                    narrative = insight.get('narrative', '')
+                    target = insight.get('target_markets', [])
+                    prob = insight.get('propagation_probability', 0)
+                    severity = insight.get('severity', 0)
+                    
+                    target_text = ', '.join(target[:3]) if target else '无'
+                    severity_emoji = "🔴" if severity > 0.7 else "🟡" if severity > 0.4 else "🟢"
+                    
+                    lines.append(f"- {severity_emoji} {narrative} → {target_text} (概率{prob:.0%})")
+                lines.append(f"")
 
         lines.extend([
             f"---",
@@ -385,6 +544,9 @@ class MarketReplayAnalyzer:
         self.top_narratives: List[NarrativePerformance] = []
         self.positions: List[PositionAnalysis] = []
         self.tiandao_minxin: Optional[TiandaoMinxinAnalysis] = None
+        self._ashare_sector_cache: Dict[str, str] = {}
+        self._ashare_sector_ready: bool = False
+        self._ashare_sector_error: Optional[str] = None
 
         self._check_and_use_cache()
 
@@ -424,6 +586,288 @@ class MarketReplayAnalyzer:
         usstock = self.nt._fetch_us_stock_data()
         return {**ashare, **usstock}
 
+    def _normalize_change_pct(self, data: Dict[str, Dict]):
+        """统一涨跌幅为小数（1% = 0.01）"""
+        for _, item in data.items():
+            market = item.get("market", "A")
+            change_pct = item.get("change_pct", 0)
+            try:
+                change_pct = float(change_pct)
+            except Exception:
+                change_pct = 0.0
+
+            if market == "US":
+                # 美股数据默认是百分比，统一转为小数
+                change_pct = change_pct / 100.0
+
+            item["change_pct"] = change_pct
+            item["p_change"] = change_pct
+
+    def _filter_ashare_effective(self, stocks: List[Dict]) -> List[Dict]:
+        """A股噪音过滤，返回有效股票列表"""
+        if not stocks:
+            return []
+
+        try:
+            import pandas as pd
+            from deva.naja.attention.processing.noise_filter import NoiseFilter
+
+            df = pd.DataFrame(stocks)
+            if df.empty:
+                return []
+
+            df["name"] = df.get("name", "").astype(str)
+            if "price" in df.columns:
+                df["price"] = pd.to_numeric(df["price"], errors="coerce").fillna(0)
+            if "volume" in df.columns:
+                df["volume"] = pd.to_numeric(df["volume"], errors="coerce").fillna(0)
+
+            noise_filter = NoiseFilter()
+            filtered = noise_filter.filter_dataframe(
+                df,
+                symbol_col="code" if "code" in df.columns else None,
+                amount_col="amount" if "amount" in df.columns else None,
+                volume_col="volume" if "volume" in df.columns else None,
+                price_col="price" if "price" in df.columns else None,
+                name_col="name" if "name" in df.columns else None,
+            )
+
+            return filtered.to_dict("records")
+        except Exception:
+            return stocks
+
+    def _filter_ashare_snapshot(self, records: List[Dict]) -> List[Dict]:
+        """对单个快照进行噪音过滤"""
+        return self._filter_ashare_effective(records)
+
+    def _ensure_ashare_sector_ready(self):
+        if self._ashare_sector_ready or self._ashare_sector_error:
+            return
+        try:
+            from deva.naja.dictionary.tongdaxin_blocks import _parse_blocks_file
+            _parse_blocks_file()
+            self._ashare_sector_ready = True
+        except Exception as e:
+            self._ashare_sector_error = str(e)
+
+    def _get_ashare_sector(self, code: str) -> str:
+        """获取A股板块"""
+        if not code:
+            return "其他"
+        if code in self._ashare_sector_cache:
+            return self._ashare_sector_cache[code]
+
+        self._ensure_ashare_sector_ready()
+        if not self._ashare_sector_ready:
+            self._ashare_sector_cache[code] = "其他"
+            return "其他"
+
+        try:
+            from deva.naja.dictionary.tongdaxin_blocks import get_stock_blocks
+            norm = code.replace("sh", "").replace("sz", "").replace("SZ", "").replace("SH", "")
+            norm = norm.zfill(6) if norm.isdigit() else norm
+            blocks = get_stock_blocks(norm)
+            sector = blocks[0] if blocks else "其他"
+            self._ashare_sector_cache[code] = sector
+            return sector
+        except Exception:
+            self._ashare_sector_cache[code] = "其他"
+            return "其他"
+
+    def _attach_ashare_sector(self, records: List[Dict]) -> List[Dict]:
+        """为A股记录补充板块字段"""
+        for r in records:
+            if not r.get("sector"):
+                r["sector"] = self._get_ashare_sector(r.get("code", ""))
+        return records
+
+    def _normalize_ashare_records(self, data_list: List[Dict]) -> List[Dict]:
+        """标准化A股快照记录"""
+        records = []
+        for item in data_list:
+            code = str(item.get("code", "")).strip()
+            if not code:
+                continue
+            now = float(item.get("now", 0) or 0)
+            close = float(item.get("close", 0) or 0)
+            p_change = item.get("p_change")
+            if p_change is None:
+                p_change = (now - close) / close if close else 0.0
+            try:
+                p_change = float(p_change)
+            except Exception:
+                p_change = 0.0
+
+            volume = float(item.get("volume", 0) or 0)
+            amount = item.get("amount")
+            if amount is None or amount == 0:
+                # volume 是「手」（1手=100股），需要乘以100转换为股数，再乘以价格
+                amount = volume * 100 * now
+            try:
+                amount = float(amount)
+            except Exception:
+                amount = 0.0
+
+            records.append({
+                "code": code,
+                "name": item.get("name", code),
+                "price": now,
+                "change_pct": p_change,
+                "p_change": p_change,
+                "volume": volume,
+                "amount": amount,
+                "high": item.get("high", 0),
+                "low": item.get("low", 0),
+                "open": item.get("open", 0),
+                "prev_close": close,
+                "market": "A",
+            })
+        return records
+
+    def _load_ashare_snapshots_for_day(self) -> tuple[list, str, str, bool]:
+        """加载A股当日完整快照数据"""
+        try:
+            from deva import NB
+            snapshot_db = NB('quant_snapshot_5min_window', key_mode='time')
+            keys = list(snapshot_db.keys())
+            if not keys:
+                return [], "", "", True
+
+            key_pairs = []
+            for k in keys:
+                try:
+                    ts = float(k)
+                except Exception:
+                    continue
+                key_pairs.append((ts, k))
+
+            if not key_pairs:
+                return [], "", "", True
+
+            key_pairs.sort(key=lambda x: x[0])
+            today = datetime.now().strftime('%Y-%m-%d')
+
+            def _date_of(ts: float) -> str:
+                return datetime.fromtimestamp(ts).strftime('%Y-%m-%d')
+
+            today_pairs = [p for p in key_pairs if _date_of(p[0]) == today]
+            if today_pairs:
+                day_pairs = today_pairs
+                data_date = today
+                stale = False
+            else:
+                data_date = _date_of(key_pairs[-1][0])
+                day_pairs = [p for p in key_pairs if _date_of(p[0]) == data_date]
+                stale = True
+
+            if not day_pairs:
+                return [], data_date, "", True
+
+            snapshots = []
+            for ts, key in day_pairs:
+                data_list = snapshot_db.get(key)
+                if not data_list or not isinstance(data_list, list):
+                    continue
+                records = self._normalize_ashare_records(data_list)
+                records = self._filter_ashare_snapshot(records)
+                records = self._attach_ashare_sector(records)
+                snapshots.append({
+                    "ts": ts,
+                    "time_str": datetime.fromtimestamp(ts).strftime('%H:%M'),
+                    "records": records,
+                })
+
+            # 只保留盘前集合竞价到收盘区间（09:00-15:00）
+            def _in_session(ts_val: float) -> bool:
+                t = datetime.fromtimestamp(ts_val).time()
+                return dtime(9, 0) <= t <= dtime(15, 0)
+
+            session_snaps = [s for s in snapshots if _in_session(s["ts"])]
+
+            if session_snaps:
+                last_ts = session_snaps[-1]["ts"]
+                last_time_str = datetime.fromtimestamp(last_ts).strftime('%Y-%m-%d %H:%M:%S')
+                return session_snaps, data_date, last_time_str, stale
+
+            # 若没有盘中快照，退回为空并标记数据异常
+            return [], data_date, "", True
+        except Exception:
+            return [], "", "", True
+
+    def _analyze_ashare_intraday(
+        self,
+        snapshots: List[Dict],
+        top_sectors: List[str],
+    ) -> tuple[List[Dict], List[Dict], List[Dict], List[Dict]]:
+        """A股盘中动态分析：资金流向、突破、异动"""
+        flow_timeline = []
+        breakouts = []
+        anomalies = []
+
+        if not snapshots:
+            return flow_timeline, breakouts, anomalies, []
+
+        prev_sector_amount = None
+        breakout_seen = set()
+        rolling_max = {}
+
+        for snap in snapshots:
+            records = snap.get("records", [])
+            sector_amount = {}
+            for r in records:
+                sector = r.get("sector", "其他")
+                amount = r.get("amount", 0)
+                sector_amount[sector] = sector_amount.get(sector, 0) + amount
+
+                code = r.get("code", "")
+                price = r.get("price", 0)
+                if code and price > 0:
+                    prev_max = rolling_max.get(code, price)
+                    if code not in breakout_seen and price >= prev_max * 1.01:
+                        breakouts.append({
+                            "time": snap.get("time_str", ""),
+                            "sector": sector,
+                            "code": code,
+                            "name": r.get("name", code),
+                            "change": r.get("p_change", 0) * 100,
+                        })
+                        breakout_seen.add(code)
+                    if price > prev_max:
+                        rolling_max[code] = price
+
+                change = abs(r.get("p_change", 0) * 100)
+                if change >= 6:
+                    anomalies.append({
+                        "time": snap.get("time_str", ""),
+                        "sector": sector,
+                        "code": code,
+                        "name": r.get("name", code),
+                        "change": r.get("p_change", 0) * 100,
+                    })
+
+            if prev_sector_amount is not None:
+                deltas = {}
+                for sec in set(list(prev_sector_amount.keys()) + list(sector_amount.keys())):
+                    deltas[sec] = sector_amount.get(sec, 0) - prev_sector_amount.get(sec, 0)
+
+                inflow = sorted([(s, v) for s, v in deltas.items() if v > 0], key=lambda x: x[1], reverse=True)[:3]
+                outflow = sorted([(s, v) for s, v in deltas.items() if v < 0], key=lambda x: x[1])[:3]
+                if inflow or outflow:
+                    flow_timeline.append({
+                        "time": snap.get("time_str", ""),
+                        "inflow_sectors": [s for s, _ in inflow],
+                        "outflow_sectors": [s for s, _ in outflow],
+                    })
+
+            prev_sector_amount = sector_amount
+
+        # 只保留与Top3板块相关的突破/异动
+        if top_sectors:
+            breakouts = [b for b in breakouts if b.get("sector") in top_sectors]
+            anomalies = [a for a in anomalies if a.get("sector") in top_sectors]
+
+        return flow_timeline, breakouts, anomalies, snapshots
+
     def step1_full_market(self, force_refresh: bool = False) -> MarketOverview:
         """第一步：全市场横截面分析
 
@@ -436,17 +880,96 @@ class MarketReplayAnalyzer:
 
         self.all_stocks = self._fetch_market_data()
 
+        self._normalize_change_pct(self.all_stocks)
+
         ashare_data = [s for s in self.all_stocks.values() if s.get("market") == "A"]
         usstock_data = [s for s in self.all_stocks.values() if s.get("market") == "US"]
 
+        snapshots, data_date, last_time_str, data_stale = self._load_ashare_snapshots_for_day()
+        if snapshots:
+            ashare_effective = snapshots[-1].get("records", [])
+        else:
+            ashare_effective = self._filter_ashare_effective(ashare_data)
+            data_date = datetime.now().strftime('%Y-%m-%d')
+            last_time_str = ""
+            data_stale = True
+
         ashare_count = len(ashare_data)
+        ashare_effective_count = len(ashare_effective)
         usstock_count = len(usstock_data)
 
-        ashare_report = self.analyzer.analyze(ashare_data) if ashare_data else None
+        ashare_report = self.analyzer.analyze(ashare_effective) if ashare_effective else None
         usstock_report = self.analyzer.analyze(usstock_data) if usstock_data else None
+
+        # A股板块Top3与动态分析
+        top_sectors = []
+        sector_stats = {}
+        for r in ashare_effective:
+            sector = r.get("sector", "其他")
+            sector_stats.setdefault(sector, []).append(r)
+
+        sector_perf = []
+        for sec, items in sector_stats.items():
+            changes = [i.get("p_change", 0) * 100 for i in items]
+            avg_change = sum(changes) / len(changes) if changes else 0
+            total_amount = sum([i.get("amount", 0) for i in items])
+            sector_perf.append({
+                "sector": sec,
+                "avg_change": avg_change,
+                "total_amount": total_amount,
+                "items": items,
+            })
+
+        sector_perf.sort(key=lambda x: x["avg_change"], reverse=True)
+        top_sectors = [s["sector"] for s in sector_perf[:3]]
+
+        flow_timeline, breakouts, anomalies, _ = self._analyze_ashare_intraday(snapshots, top_sectors)
+
+        top_sector_details = []
+        for sec_info in sector_perf[:3]:
+            sec = sec_info["sector"]
+            items = sec_info["items"]
+            leaders = sorted(items, key=lambda x: x.get("p_change", 0), reverse=True)[:2]
+            leaders_fmt = [
+                {"code": l.get("code", ""), "name": l.get("name", l.get("code", "")), "change": l.get("p_change", 0) * 100}
+                for l in leaders
+            ]
+
+            last_flow = ""
+            for ev in reversed(flow_timeline):
+                if sec in ev.get("inflow_sectors", []):
+                    last_flow = f"{ev.get('time','')} 流入"
+                    break
+                if sec in ev.get("outflow_sectors", []):
+                    last_flow = f"{ev.get('time','')} 流出"
+                    break
+
+            sec_breakouts = [b for b in breakouts if b.get("sector") == sec][:2]
+            breakout_hint = ""
+            if sec_breakouts:
+                breakout_hint = ", ".join([f"{b.get('name','')}{b.get('change',0):+.1f}%@{b.get('time','')}" for b in sec_breakouts])
+
+            sec_anomalies = [a for a in anomalies if a.get("sector") == sec][:2]
+            anomaly_hint = ""
+            if sec_anomalies:
+                anomaly_hint = ", ".join([f"{a.get('name','')}{a.get('change',0):+.1f}%@{a.get('time','')}" for a in sec_anomalies])
+
+            top_sector_details.append({
+                "sector": sec,
+                "avg_change": sec_info["avg_change"],
+                "flow": last_flow or "均衡",
+                "leaders": leaders_fmt,
+                "flow_hint": last_flow,
+                "breakout_hint": breakout_hint,
+                "anomaly_hint": anomaly_hint,
+            })
 
         self.market_overview = MarketOverview(
             ashare_count=ashare_count,
+            ashare_effective_count=ashare_effective_count,
+            ashare_data_date=data_date,
+            ashare_last_snapshot_time=last_time_str,
+            ashare_data_stale=data_stale,
             usstock_count=usstock_count,
             total_count=len(self.all_stocks),
 
@@ -468,6 +991,10 @@ class MarketReplayAnalyzer:
             combined_avg_change=(ashare_report.cross_sectional.get("avg_change", 0) + usstock_report.cross_sectional.get("avg_change", 0)) / 2 if (ashare_report and usstock_report) else 0,
             combined_sentiment="偏暖" if (ashare_report and usstock_report and ashare_report.market_breadth > 0 and usstock_report.market_breadth > 0) else "偏冷",
             fund_flow="均衡",
+            ashare_top_sectors=top_sector_details,
+            ashare_flow_timeline=flow_timeline,
+            ashare_breakouts=breakouts,
+            ashare_anomalies=anomalies,
         )
 
         self._save_to_cache()
@@ -782,10 +1309,15 @@ class MarketReplayAnalyzer:
         self.step1_full_market(force_refresh=force_refresh)
         self.step2_hot_narrative(force_refresh=force_refresh)
         self.step3_tiandao_minxin()
-        self.step4_wisdom_perspective()
 
         risks = self._extract_risks()
         suggestions = self._generate_suggestions()
+
+        # 收集美林时钟数据
+        merrill_clock_signal = self._collect_merrill_clock_signal()
+
+        # 收集跨市场流动性追踪数据
+        liquidity_insights = self._collect_liquidity_insights()
 
         return ReplayReport(
             timestamp=time.time(),
@@ -796,7 +1328,91 @@ class MarketReplayAnalyzer:
             risks=risks,
             suggestions=suggestions,
             wisdom_perspectives=getattr(self, '_wisdom_perspectives', []),
+            merrill_clock_signal=merrill_clock_signal,
+            liquidity_insights=liquidity_insights,
         )
+
+    def _collect_merrill_clock_signal(self) -> Optional[Dict[str, Any]]:
+        """收集美林时钟信号"""
+        try:
+            from deva.naja.cognition.merrill_clock_engine import get_merrill_clock_engine, MerrillClockPhase
+            from deva.naja.cognition.merrill_clock_to_manas import get_merrill_phase_display
+
+            clock = get_merrill_clock_engine()
+            signal = clock.get_current_signal()
+
+            if not signal:
+                return None
+
+            phase_name = get_merrill_phase_display(signal.phase)
+
+            # 经济数据摘要
+            data_summary = {}
+            if hasattr(signal, 'data_summary') and signal.data_summary:
+                data_summary = signal.data_summary
+            elif hasattr(signal, '_economic_data') and signal._economic_data:
+                ed = signal._economic_data
+                data_summary = {
+                    'gdp_growth': ed.gdp_growth if hasattr(ed, 'gdp_growth') else None,
+                    'pce_yoy': ed.pce_yoy if hasattr(ed, 'pce_yoy') else None,
+                    'unemployment_rate': ed.unemployment_rate if hasattr(ed, 'unemployment_rate') else None,
+                }
+
+            return {
+                'phase': signal.phase.value,
+                'phase_name': phase_name,
+                'confidence': signal.confidence,
+                'growth_score': signal.growth_score,
+                'inflation_score': signal.inflation_score,
+                'asset_ranking': signal.asset_ranking,
+                'data_summary': data_summary,
+            }
+        except Exception as e:
+            import logging
+            log = logging.getLogger(__name__)
+            log.warning(f"[MarketReplayAnalyzer] 收集美林时钟信号失败: {e}")
+            return None
+
+    def _collect_liquidity_insights(self) -> List[Dict[str, Any]]:
+        """收集跨市场流动性追踪数据"""
+        try:
+            from deva.naja.cognition.liquidity.liquidity_cognition import get_liquidity_cognition
+
+            lc = get_liquidity_cognition()
+            if not lc:
+                return []
+
+            # 获取最近的流动性洞察
+            insights = lc.get_insights(limit=10)
+            
+            result = []
+            for insight in insights:
+                # GlobalMarketInsight 是 dataclass，需要转换属性
+                if hasattr(insight, '__dict__'):
+                    # dataclass 对象
+                    result.append({
+                        'source_market': getattr(insight, 'source_market', ''),
+                        'narrative': getattr(insight, 'narrative', ''),
+                        'target_markets': getattr(insight, 'target_markets', []),
+                        'propagation_probability': getattr(insight, 'propagation_probability', 0.5),
+                        'severity': getattr(insight, 'severity', 0.5),
+                        'insight_type': getattr(insight, 'insight_type', 'unknown'),
+                    })
+                elif isinstance(insight, dict):
+                    result.append({
+                        'source_market': insight.get('source_market', ''),
+                        'narrative': insight.get('narrative', ''),
+                        'target_markets': insight.get('target_markets', []),
+                        'propagation_probability': insight.get('propagation_probability', 0.5),
+                        'severity': insight.get('severity', 0.5),
+                        'insight_type': insight.get('insight_type', 'unknown'),
+                    })
+            return result
+        except Exception as e:
+            import logging
+            log = logging.getLogger(__name__)
+            log.warning(f"[MarketReplayAnalyzer] 收集流动性洞察失败: {e}")
+            return []
 
     def _extract_risks(self) -> List[str]:
         """提取风险"""
@@ -859,9 +1475,9 @@ def _save_replay_to_history(report: ReplayReport):
         record = {
             "timestamp": report.timestamp,
             "time_str": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(report.timestamp)),
-            "market_sentiment": report.market_overview.market_sentiment if report.market_overview else "未知",
-            "avg_change": report.market_overview.avg_change if report.market_overview else 0,
-            "market_breadth": report.market_overview.market_breadth if report.market_overview else 0,
+            "market_sentiment": report.market_overview.combined_sentiment if report.market_overview else "未知",
+            "avg_change": report.market_overview.ashare_avg_change if report.market_overview else 0,
+            "market_breadth": report.market_overview.ashare_breadth if report.market_overview else 0,
             "top_narrative": report.top_narratives[0].narrative if report.top_narratives else "无",
             "top_narrative_change": report.top_narratives[0].avg_change if report.top_narratives else 0,
             "positions_count": len(report.positions),
@@ -893,9 +1509,9 @@ def get_replay_history(limit: int = 5) -> list:
         return []
 
 
-def run_replay_and_push() -> ReplayReport:
+def run_replay_and_push() -> tuple[ReplayReport, bool]:
     """
-    运行复盘并推送结果到DTalk，同时保存历史记录
+    运行复盘并推送结果到DTalk + 微信，同时保存历史记录
 
     用于盘后定时任务
     """
@@ -904,17 +1520,103 @@ def run_replay_and_push() -> ReplayReport:
 
     _save_replay_to_history(report)
 
+    pushed_ok = False
+
+    # 推送到钉钉
     try:
         from deva.endpoints import Dtalk
         markdown_content = report.to_markdown()
         dtalk_msg = f"@md@市场复盘报告|{markdown_content}"
         dtalk = Dtalk()
         dtalk.send(dtalk_msg)
+        pushed_ok = True
         print(f"[MarketReplay] 复盘报告已推送到DTalk")
     except Exception as e:
-        print(f"[MarketReplay] 推送失败: {e}")
+        print(f"[MarketReplay] 推送DTalk失败: {e}")
 
-    return report
+    # 推送到微信
+    try:
+        from deva.naja.cognition.insight.weixin_notifier import get_weixin_notifier
+        notifier = get_weixin_notifier()
+        if notifier:
+            weixin_text = _build_weixin_replay_text(report)
+            ok = notifier.send(weixin_text)
+            if ok:
+                print(f"[MarketReplay] 复盘报告已推送到微信")
+            else:
+                print(f"[MarketReplay] 推送微信失败（命令返回非0）")
+    except Exception as e:
+        print(f"[MarketReplay] 推送微信失败: {e}")
+
+    return report, pushed_ok
+
+
+def _build_weixin_replay_text(report: "ReplayReport") -> str:
+    """将复盘报告转换为微信纯文字格式（无 Markdown）"""
+    from datetime import datetime as dt
+    lines = []
+
+    # 标题和时间
+    ts_str = dt.now().strftime("%Y-%m-%d %H:%M")
+    lines.append(f"📊 市场复盘报告 | {ts_str}")
+    lines.append("")
+
+    # 美林时钟
+    if hasattr(report, "merrill_clock_signal") and report.merrill_clock_signal:
+        mc = report.merrill_clock_signal
+        phase = mc.get("phase_name", mc.get("phase", "未知"))
+        confidence = mc.get("confidence", 0)
+        asset = " > ".join(mc.get("asset_ranking", [])) if mc.get("asset_ranking") else "无"
+        lines.append(f"🌡️ 美林时钟：{phase}（置信度 {confidence:.0%}）")
+        lines.append(f"   资产优先级：{asset}")
+        lines.append("")
+
+    # 市场概况
+    mo = report.market_overview
+    if mo:
+        lines.append(f"🌍 市场概况")
+        sentiment = getattr(mo, "combined_sentiment", getattr(mo, "market_sentiment", "未知"))
+        lines.append(f"   整体情绪：{sentiment}")
+        lines.append("")
+
+    # 叙事洞察（用 top_narratives，ReplayReport 没有 narrative_insights 字段）
+    if report.top_narratives:
+        lines.append(f"📖 主要叙事：")
+        for ni in report.top_narratives[:3]:
+            name = getattr(ni, "narrative", str(ni))
+            change = getattr(ni, "avg_change", 0)
+            change_str = f"{change:+.1f}%" if change else ""
+            lines.append(f"   · {name} {change_str}")
+        lines.append("")
+
+    # LLM 反思摘要
+    if report.llm_reflection:
+        theme = report.llm_reflection.get("theme", "")
+        summary = report.llm_reflection.get("summary", "")
+        if isinstance(summary, list):
+            summary = "；".join(str(s) for s in summary[:2])
+        if theme:
+            lines.append(f"🤖 AI 反思：{theme}")
+        if summary:
+            summary_short = str(summary)[:200]
+            lines.append(f"   {summary_short}{'...' if len(str(summary)) > 200 else ''}")
+        lines.append("")
+
+    # 跨市场流动性
+    if hasattr(report, "liquidity_insights") and report.liquidity_insights:
+        lines.append(f"💧 流动性信号：")
+        for li in report.liquidity_insights[:2]:
+            if isinstance(li, dict):
+                narrative = li.get("narrative", li.get("theme", ""))
+            else:
+                narrative = str(li)
+            lines.append(f"   · {narrative}")
+        lines.append("")
+
+    lines.append("─────────────────")
+    lines.append("来自 Naja 自动复盘系统")
+
+    return "\n".join(lines)
 
 
 def run_replay_no_push() -> ReplayReport:
