@@ -182,7 +182,20 @@ class AdaptiveCycle:
         if position:
             log.info(f"[AdaptiveCycle] 🎉 持仓创建成功! ID={position.position_id} {signal.stock_name}({signal.stock_code}) @ {signal.price}")
             self._market_observer.track_stock(signal.stock_code)
-            
+
+            try:
+                from deva.naja.snapshot_manager import record_bandit_decision
+                record_bandit_decision(
+                    action="BUY",
+                    symbol=signal.stock_code,
+                    price=signal.price,
+                    confidence=signal.confidence,
+                    quantity=10000,
+                    reason=f"信号触发: {signal.signal_type} from {signal.strategy_name}"
+                )
+            except Exception as e:
+                log.debug(f"记录Bandit决策快照失败: {e}")
+
             self._optimizer.select_strategy(
                 available_strategies=[signal.strategy_id],
                 context={"stock_code": signal.stock_code, "price": signal.price}
@@ -219,7 +232,20 @@ class AdaptiveCycle:
         
         log.info(f"自适应循环: 平仓 {position.stock_name} 收益={position.return_pct:.2f}% "
                 f"原因={reason} Bandit奖励={result.get('reward', 0):.2f}")
-        
+
+        try:
+            from deva.naja.snapshot_manager import record_bandit_decision
+            record_bandit_decision(
+                action="SELL",
+                symbol=position.stock_code,
+                price=position.current_price,
+                confidence=getattr(position, 'signal_confidence', 0.5),
+                quantity=position.quantity,
+                reason=f"平仓: {reason}, 收益率={position.return_pct:.2f}%"
+            )
+        except Exception as e:
+            log.debug(f"记录Bandit决策快照失败: {e}")
+
         self._optimizer.update_reward(position.strategy_id, result.get('reward', position.return_pct))
     
     def start(self):

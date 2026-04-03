@@ -211,25 +211,37 @@ class SystemBootstrap:
         start = time.time()
         logger.info("[2/6] 初始化核心组件...")
 
+        details = {}
+
         try:
             from deva.naja.attention import AttentionCenter, initialize_orchestrator
 
             orchestrator = initialize_orchestrator()
             logger.info("  AttentionCenter 初始化完成")
-
-            duration_ms = (time.time() - start) * 1000
-
-            return BootResult(
-                success=True,
-                stage=BootStage.INIT_CORE,
-                message="核心组件初始化完成",
-                duration_ms=duration_ms,
-            )
-
+            details["attention_center"] = "ok"
         except Exception as e:
-            duration_ms = (time.time() - start) * 1000
-            logger.error(f"  初始化核心组件失败: {e}")
-            raise
+            logger.warning(f"  AttentionCenter 初始化失败: {e}")
+
+        # 初始化美林时钟引擎
+        try:
+            from deva.naja.cognition.merrill_clock_engine import initialize_merrill_clock
+
+            clock_engine = initialize_merrill_clock()
+            logger.info("  MerrillClockEngine 初始化完成")
+            details["merrill_clock"] = "ok"
+        except Exception as e:
+            logger.warning(f"  MerrillClockEngine 初始化失败: {e}")
+            details["merrill_clock_error"] = str(e)
+
+        duration_ms = (time.time() - start) * 1000
+
+        return BootResult(
+            success=True,
+            stage=BootStage.INIT_CORE,
+            message="核心组件初始化完成",
+            duration_ms=duration_ms,
+            details=details,
+        )
 
     def _register_components(self) -> BootResult:
         """注册组件"""
@@ -342,6 +354,96 @@ class SystemBootstrap:
         except Exception as e:
             details["market_replay_scheduler_error"] = str(e)
             logger.warning(f"  MarketReplayScheduler 启动失败: {e}")
+
+        # 启动美林时钟经济数据定时更新
+        try:
+            from deva.naja.tasks import get_task_manager
+            task_mgr = get_task_manager()
+            
+            # 检查是否已有美林时钟任务
+            existing = task_mgr.get_by_name("merrill_clock_update")
+            if not existing:
+                # 创建日频经济数据更新任务（每天凌晨 4:30 执行，获取最新数据）
+                import hashlib
+                task_id = hashlib.md5("merrill_clock_update_2026".encode()).hexdigest()[:12]
+                
+                func_code = '''
+import logging
+import asyncio
+import nest_asyncio
+log = logging.getLogger(__name__)
+
+def execute() -> dict:
+    """获取经济数据并更新美林时钟"""
+    log.info("[MerrillClockTask] 开始获取经济数据...")
+    
+    try:
+        from deva.naja.cognition.economic_data_fetcher import EconomicDataFetcher
+        from deva.naja.cognition.merrill_clock_engine import get_merrill_clock_engine
+        
+        fred_api_key = "f48d2328888b60cb2d188c148da31f63"
+        fetcher = EconomicDataFetcher(fred_api_key=fred_api_key, use_mock=False)
+        
+        nest_asyncio.apply()
+        
+        async def _fetch():
+            data = await fetcher.fetch_latest_data()
+            await fetcher.close()
+            return data
+        
+        data = asyncio.run(_fetch())
+        log.info(f"[MerrillClockTask] 获取经济数据成功")
+        
+        clock_engine = get_merrill_clock_engine()
+        signal = clock_engine.on_economic_data(data)
+        
+        if signal:
+            log.info(f"[MerrillClockTask] 周期阶段：{signal.phase.value}, 置信度：{signal.confidence:.0%}")
+            return {
+                "success": True,
+                "phase": signal.phase.value,
+                "confidence": round(signal.confidence, 3),
+                "growth_score": round(signal.growth_score, 3),
+                "inflation_score": round(signal.inflation_score, 3),
+            }
+        else:
+            return {"success": False, "message": "数据不足"}
+            
+    except Exception as e:
+        log.error(f"[MerrillClockTask] 执行失败：{e}")
+        import traceback
+        traceback.print_exc()
+        return {"success": False, "message": str(e)}
+'''
+                
+                result = task_mgr.create(
+                    name="merrill_clock_update",
+                    description="美林时钟经济数据定时更新（每日凌晨执行）",
+                    func_code=func_code,
+                    task_type="scheduler",
+                    scheduler_trigger="cron",
+                    cron_expr="30 4 * * *",  # 每天凌晨 4:30
+                    tags=["merrill_clock", "economic", "daily"],
+                )
+                
+                if result.get("success"):
+                    entry_id = result.get("id")
+                    task_mgr.start(entry_id)
+                    details["merrill_clock_task"] = f"created_and_started({entry_id})"
+                    logger.info(f"  美林时钟定时任务已创建并启动: {entry_id}")
+                else:
+                    details["merrill_clock_task_error"] = result.get("error")
+                    logger.warning(f"  美林时钟定时任务创建失败: {result.get('error')}")
+            else:
+                # 已存在，直接启动
+                if not existing.is_running:
+                    task_mgr.start(existing.id)
+                details["merrill_clock_task"] = f"already_exists({existing.id}), started={existing.is_running}"
+                logger.info(f"  美林时钟定时任务已存在，直接启动")
+                
+        except Exception as e:
+            details["merrill_clock_task_error"] = str(e)
+            logger.warning(f"  美林时钟定时任务启动失败: {e}")
 
         duration_ms = (time.time() - start) * 1000
 

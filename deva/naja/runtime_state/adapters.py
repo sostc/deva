@@ -106,6 +106,20 @@ class TaskManagerAdapter(StatefulComponent):
 
     def save_state(self) -> bool:
         try:
+            from deva import NB
+            db = NB(self.persistence_table)
+
+            with self._manager._items_lock:
+                entries = list(self._manager._items.values())
+
+            saved_count = 0
+            for entry in entries:
+                if entry.is_running:
+                    entry._was_running = True
+                    entry.save()
+                    saved_count += 1
+
+            logger.info(f"[TaskManagerAdapter] 已保存 {saved_count} 个运行中的任务状态")
             return True
         except Exception as e:
             logger.error(f"[TaskManagerAdapter] 保存失败: {e}")
@@ -151,6 +165,20 @@ class StrategyManagerAdapter(StatefulComponent):
 
     def save_state(self) -> bool:
         try:
+            from deva import NB
+            db = NB(self.persistence_table)
+
+            with self._manager._items_lock:
+                entries = list(self._manager._items.values())
+
+            saved_count = 0
+            for entry in entries:
+                if entry.is_running:
+                    entry._was_running = True
+                    entry.save()
+                    saved_count += 1
+
+            logger.info(f"[StrategyManagerAdapter] 已保存 {saved_count} 个运行中的策略状态")
             return True
         except Exception as e:
             logger.error(f"[StrategyManagerAdapter] 保存失败: {e}")

@@ -143,6 +143,8 @@ class AttentionSystem:
         self._us_last_activity: float = 0.0
         self._us_last_sector_attention: Dict[str, float] = {}
         self._us_last_symbol_weights: Dict[str, float] = {}
+        self._us_last_symbol_snapshot: Dict[str, Dict[str, Any]] = {}
+        self._us_last_snapshot_time: float = 0.0
 
         # 上次有效结果（用于降级）
         self._last_valid_result: Optional[Dict[str, Any]] = None
@@ -937,6 +939,23 @@ class AttentionSystem:
 
         log.debug(f"[US-Attention] 处理完成: global_attention={global_attention:.3f}, sector_count={len(sector_attention)}, symbol_count={len(symbol_weights)}, latency={latency:.1f}ms")
 
+        try:
+            snapshot = {}
+            for i, sym in enumerate(symbols):
+                sym_str = str(sym)
+                snapshot[sym_str] = {
+                    "price": float(prices[i]) if i < len(prices) else 0.0,
+                    "change": float(returns[i]) if i < len(returns) else 0.0,
+                    "volume": float(volumes[i]) if i < len(volumes) else 0.0,
+                    "sector": str(sector_ids[i]) if i < len(sector_ids) else "",
+                    "market": "US",
+                }
+            with self._cache_lock:
+                self._us_last_symbol_snapshot = snapshot
+                self._us_last_snapshot_time = timestamp
+        except Exception as e:
+            log.debug(f"[US-Attention] 更新美股快照失败: {e}")
+
         return {
             'timestamp': timestamp,
             'latency_ms': latency,
@@ -959,6 +978,11 @@ class AttentionSystem:
                 'symbol_weights': self._us_last_symbol_weights.copy(),
                 'stock_count': len(self._us_last_symbol_weights),
             }
+
+    def get_us_symbol_snapshot(self) -> Dict[str, Dict[str, Any]]:
+        """获取美股最新symbol快照"""
+        with self._cache_lock:
+            return self._us_last_symbol_snapshot.copy()
 
     async def process_pytorch_batch(self) -> List[Any]:
         """处理 PyTorch 批量推理"""

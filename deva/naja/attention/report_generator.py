@@ -95,9 +95,9 @@ class AttentionReportGenerator:
         elif signal_type == 'phase_change':
             old_phase = self._current_phase
             self._current_phase = phase
-            if phase in ('trading', 'pre_market'):
+            if phase in ('trading', 'pre_market', 'call_auction'):
                 log.info(f"[AttentionReport] 进入交易时段，允许生成报告")
-            elif old_phase in ('trading', 'pre_market'):
+            elif old_phase in ('trading', 'pre_market', 'call_auction'):
                 log.info(f"[AttentionReport] 退出交易时段，暂停生成报告")
 
     def _is_experiment_mode(self) -> bool:
@@ -116,7 +116,7 @@ class AttentionReportGenerator:
             return True
         if self._is_experiment_mode():
             return True
-        if self._current_phase in ('trading', 'pre_market'):
+        if self._current_phase in ('trading', 'pre_market', 'call_auction'):
             return True
         return False
     

@@ -59,6 +59,8 @@ class SignalDispatcher:
         if getattr(self, "_initialized", False):
             return
         self._initialized = True
+        self._dispatch_errors = {"signal_stream": 0, "radar": 0, "cognition": 0, "bandit": 0, "output_controller": 0, "normalize": 0}
+        self._total_dispatches = 0
         logger.info("SignalDispatcher 初始化完成")
 
     def dispatch(self, result: "StrategyResult") -> None:
@@ -70,6 +72,7 @@ class SignalDispatcher:
         with _get_audit()(loop_type="dataflow", stage="dispatch_start", data_in={"strategy_id": result.strategy_id, "success": result.success}) as audit:
             self._dispatch_to_signal_stream(result)
             self._dispatch_to_downstream(result)
+            self._total_dispatches += 1
             audit.record_data_out({"targets_attempted": ["signal_stream", "radar", "cognition", "bandit"]})
 
     def _dispatch_to_signal_stream(self, result: "StrategyResult") -> None:
@@ -79,7 +82,8 @@ class SignalDispatcher:
             signal_stream = get_signal_stream()
             signal_stream.update(result)
         except Exception as e:
-            logger.debug(f"SignalStream 分发失败: {e}")
+            self._dispatch_errors["signal_stream"] += 1
+            logger.warning(f"[SignalDispatcher] SignalStream 分发失败 (累计{self._dispatch_errors['signal_stream']}次): {e}")
 
     def _dispatch_to_downstream(self, result: "StrategyResult") -> None:
         """发送到下游处理（Radar/Cognition/Bandit）"""
@@ -93,8 +97,9 @@ class SignalDispatcher:
             should_radar = controller.should_send_to(result.strategy_id, "radar")
             should_memory = controller.should_send_to(result.strategy_id, "memory")
             should_bandit = controller.should_send_to(result.strategy_id, "bandit")
-        except Exception:
-            pass
+        except Exception as e:
+            self._dispatch_errors["output_controller"] += 1
+            logger.warning(f"[SignalDispatcher] OutputController 获取失败 (累计{self._dispatch_errors['output_controller']}次): {e}")
 
         targets = set()
         if should_radar:
@@ -108,8 +113,9 @@ class SignalDispatcher:
         try:
             from .output_schema import normalize_output
             normalized = normalize_output(result, targets)
-        except Exception:
-            pass
+        except Exception as e:
+            self._dispatch_errors["normalize"] += 1
+            logger.warning(f"[SignalDispatcher] NormalizeOutput 失败 (累计{self._dispatch_errors['normalize']}次): {e}")
 
         if should_radar:
             self._send_to_radar(result)
@@ -127,7 +133,8 @@ class SignalDispatcher:
             radar = get_radar_engine()
             radar.ingest_result(result)
         except Exception as e:
-            logger.debug(f"Radar 分发失败: {e}")
+            self._dispatch_errors["radar"] += 1
+            logger.warning(f"[SignalDispatcher] Radar 分发失败 (累计{self._dispatch_errors['radar']}次): {e}")
 
     def _send_to_cognition(self, result: "StrategyResult") -> None:
         """发送到认知系统"""
@@ -149,7 +156,8 @@ class SignalDispatcher:
             }
             insight.ingest_signal(signal)
         except Exception as e:
-            logger.debug(f"Cognition 分发失败: {e}")
+            self._dispatch_errors["cognition"] += 1
+            logger.warning(f"[SignalDispatcher] Cognition 分发失败 (累计{self._dispatch_errors['cognition']}次): {e}")
 
     def _send_to_bandit(self, result: "StrategyResult", normalized: dict) -> None:
         """发送到 Bandit 优化器"""
@@ -160,7 +168,18 @@ class SignalDispatcher:
             if score != 0:
                 optimizer.update_reward(result.strategy_id, score)
         except Exception as e:
-            logger.debug(f"Bandit 分发失败: {e}")
+            self._dispatch_errors["bandit"] += 1
+            logger.warning(f"[SignalDispatcher] Bandit 分发失败 (累计{self._dispatch_errors['bandit']}次): {e}")
+
+    def get_dispatch_stats(self) -> dict:
+        """获取分发统计信息"""
+        total_errors = sum(self._dispatch_errors.values())
+        return {
+            "total_dispatches": self._total_dispatches,
+            "total_errors": total_errors,
+            "error_rate": total_errors / max(self._total_dispatches, 1),
+            "errors_by_target": dict(self._dispatch_errors),
+        }
 
 
 _dispatcher: SignalDispatcher | None = None

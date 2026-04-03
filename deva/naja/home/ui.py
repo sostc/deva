@@ -121,6 +121,13 @@ async def render_home(ctx: dict):
     values_html = _render_values_section()
     ctx["put_html"](values_html)
 
+    # 系统健康监控面板
+    try:
+        from ..system_monitor_ui import render_monitor_panel
+        ctx["put_html"](render_monitor_panel())
+    except Exception as e:
+        pass
+
     ctx["put_html"]('''
     <div style="margin-top: 30px; padding: 30px; background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%); border-radius: 16px; box-shadow: 0 10px 40px rgba(0,0,0,0.2);">
         <h3 style="color: #fff; margin-bottom: 25px; text-align: center; font-size: 22px;">🧠 Attention Kernel - 注意力中枢</h3>
