@@ -4,7 +4,8 @@ TradingClock - 感知系统/交易时钟/开盘收盘
 别名/关键词: 交易时钟、开盘、盘中、收盘、trading clock、market hours
 
 发布交易时段信号，供所有需要响应交易时间的组件订阅：
-- pre_market: 盘前 (09:00-09:30)
+- call_auction: 集合竞价 (09:15-09:25)
+- pre_market: 盘前 (09:25-09:30)
 - trading: 交易中 (09:30-11:30 / 13:00-15:00)
 - lunch: 午间休市 (11:30-13:00)
 - post_market: 盘后 (15:00-15:30)
@@ -20,13 +21,6 @@ TradingClock - 感知系统/交易时钟/开盘收盘
     >>> TRADING_CLOCK_STREAM.sink(lambda x: print(f"交易信号: {x}"))
 
 ---
-
-TODO (2026-03-29): 当开始做美股交易时，需要将 GlobalMarketConfig 集成进来
-参考: AGENTS.md 中的 "TradingClock 与 GlobalMarketConfig 集成"
-需要:
-1. 创建 GlobalTradingClock 支持多时区（NY、Shanghai、HK）
-2. 将 MarketSessionManager 的状态发布到 TRADING_CLOCK_STREAM
-3. GlobalMarketScanner 改为订阅 TradingClock 信号
 
 """
 
@@ -61,11 +55,12 @@ class TradingClock:
     _instance: Optional['TradingClock'] = None
     _lock = threading.Lock()
 
-    PHASES = ['closed', 'pre_market', 'trading', 'lunch', 'post_market']
+    PHASES = ['closed', 'call_auction', 'pre_market', 'trading', 'lunch', 'post_market']
 
     PHASE_TIMES = {
-        'closed': {'hour': 15, 'minute': 30, 'next_phase': None},
-        'pre_market': {'hour': 9, 'minute': 0, 'next_phase': 'trading'},
+        'closed': {'hour': 9, 'minute': 15, 'next_phase': None},
+        'call_auction': {'hour': 9, 'minute': 25, 'next_phase': 'pre_market'},
+        'pre_market': {'hour': 9, 'minute': 30, 'next_phase': 'trading'},
         'trading': {'hour': 11, 'minute': 30, 'next_phase': 'lunch'},
         'lunch': {'hour': 13, 'minute': 0, 'next_phase': 'trading'},
         'post_market': {'hour': 15, 'minute': 0, 'next_phase': 'closed'},
@@ -168,16 +163,20 @@ class TradingClock:
         h, m = t.hour, t.minute
         total_minutes = h * 60 + m
 
-        PRE_START = 9 * 60
+        CALL_AUCTION_START = 9 * 60 + 15
+        CALL_AUCTION_END = 9 * 60 + 25
+        PRE_START = 9 * 60 + 25
         PRE_END = 9 * 60 + 30
         MORNING_END = 11 * 60 + 30
         LUNCH_END = 13 * 60
         AFTERNOON_END = 15 * 60
         POST_END = 15 * 60 + 30
 
-        if total_minutes < PRE_START:
+        if total_minutes < CALL_AUCTION_START:
             return 'closed'
-        elif PRE_START <= total_minutes < PRE_END:
+        elif CALL_AUCTION_START <= total_minutes < CALL_AUCTION_END:
+            return 'call_auction'
+        elif CALL_AUCTION_END <= total_minutes < PRE_END:
             return 'pre_market'
         elif PRE_END <= total_minutes < MORNING_END:
             return 'trading'
@@ -200,7 +199,11 @@ class TradingClock:
             next_day = now + timedelta(days=1)
             while next_day.weekday() >= 5:
                 next_day += timedelta(days=1)
-            next_change_time = datetime.combine(next_day, datetime.min.time().replace(hour=9, minute=0))
+            next_change_time = datetime.combine(next_day, datetime.min.time().replace(hour=9, minute=15))
+            seconds_until_next = (next_change_time - now).total_seconds()
+
+        elif current_phase == 'call_auction':
+            next_change_time = datetime.combine(today, datetime.min.time().replace(hour=9, minute=25))
             seconds_until_next = (next_change_time - now).total_seconds()
 
         elif current_phase == 'pre_market':
@@ -276,6 +279,13 @@ class TradingClock:
             except Exception as e:
                 log.error(f"[TradingClock] 订阅回调异常: {e}")
 
+        if new_phase == 'post_market':
+            try:
+                from deva.naja.snapshot_manager import record_market_state_snapshot
+                record_market_state_snapshot(force=True)
+            except Exception as e:
+                log.debug(f"[TradingClock] 记录市场状态快照失败: {e}")
+
         log.info(f"[TradingClock] 时段变化: {old_phase} -> {new_phase}")
 
     def _emit_current_state(self):
@@ -298,8 +308,9 @@ class TradingClock:
     def _get_change_reason(self, old: str, new: str) -> str:
         """获取变化原因描述"""
         reasons = {
-            ('closed', 'pre_market'): '隔夜后开盘',
-            ('pre_market', 'trading'): '集合竞价结束，开始交易',
+            ('closed', 'call_auction'): '集合竞价开始',
+            ('call_auction', 'pre_market'): '集合竞价结束，等待交易',
+            ('pre_market', 'trading'): '开始交易',
             ('trading', 'lunch'): '午间休市',
             ('lunch', 'trading'): '午间休市结束，下午交易开始',
             ('trading', 'post_market'): '收盘',
@@ -461,10 +472,14 @@ class USTradingClock:
         seconds_until_next = None
 
         if current_phase == 'closed':
-            next_day = us_now + timedelta(days=1)
+            # 如果当前在美东时间 04:00 之前，下一次开盘仍是“当天 04:00”
+            if us_now.time() < datetime.min.time().replace(hour=4, minute=0):
+                next_day = us_now
+            else:
+                next_day = us_now + timedelta(days=1)
             while next_day.weekday() >= 5:
                 next_day += timedelta(days=1)
-            next_change_time = datetime.combine(next_day, datetime.min.time().replace(hour=4, minute=0), tzinfo=us_eastern)
+            next_change_time = datetime.combine(next_day.date(), datetime.min.time().replace(hour=4, minute=0), tzinfo=us_eastern)
             seconds_until_next = (next_change_time - us_now).total_seconds()
 
         elif current_phase == 'pre_market':
@@ -556,9 +571,9 @@ class USTradingClock:
     def _get_change_reason(self, old: str, new: str) -> str:
         """获取变化原因描述"""
         reasons = {
-            ('closed', 'pre_market'): '隔夜后开盘',
-            ('pre_market', 'trading'): '集合竞价结束，开始交易',
-            ('trading', 'post_market'): '收盘',
+            ('closed', 'pre_market'): '盘前交易开始',
+            ('pre_market', 'trading'): '美股开始交易',
+            ('trading', 'post_market'): '盘后交易开始',
             ('post_market', 'closed'): '盘后交易结束',
         }
         return reasons.get((old, new), f'{old} -> {new}')

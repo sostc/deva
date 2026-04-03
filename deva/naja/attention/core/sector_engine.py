@@ -20,6 +20,7 @@ from dataclasses import dataclass, field
 from collections import defaultdict
 import time
 import logging
+import os
 
 log = logging.getLogger(__name__)
 
@@ -147,7 +148,6 @@ class SectorAttentionEngine:
             if not sector_data:
                 log.warning(f"[SectorAttention] 警告: sector_data为空! symbols数量={len(symbols)}")
                 # 调试：检查 symbols 和 sector_ids 的内容
-                import os
                 if os.environ.get("NAJA_LAB_DEBUG") == "true":
                     log.info(f"[Lab-Debug] symbols[:5]={symbols[:5]}, returns[:5]={returns[:5]}")
             elif all(len(d.get('returns', [])) == 0 for d in sector_data.values()):
@@ -161,9 +161,12 @@ class SectorAttentionEngine:
                         log.info(f"[SectorAttention] 有数据的板块数: {len(sectors_with_data)}, 样本: {sample_names}")
                         self._last_summary_log_time = current_time
 
+            noise_detector = _get_noise_detector()
             active_sectors = set()
             use_external_sectors = sector_ids is not None and len(sector_ids) == len(symbols)
             for sector_id, data in sector_data.items():
+                if noise_detector and noise_detector.is_noise(sector_id, self._sectors.get(sector_id).name if sector_id in self._sectors else sector_id):
+                    continue
                 if sector_id not in self._sectors:
                     if use_external_sectors and sector_id and sector_id != '0':
                         config = SectorConfig(
@@ -270,6 +273,8 @@ class SectorAttentionEngine:
         })
 
         use_external_sectors = sector_ids is not None and len(sector_ids) == len(symbols)
+        noise_detector = _get_noise_detector()
+        filtered_noise = 0
 
         for i, symbol in enumerate(symbols):
             symbol_str = str(symbol)
@@ -277,13 +282,22 @@ class SectorAttentionEngine:
             if use_external_sectors:
                 sector_id = str(sector_ids[i])
                 if sector_id and sector_id != '0':
+                    if noise_detector and noise_detector.is_noise(sector_id, self._sectors.get(sector_id).name if sector_id in self._sectors else sector_id):
+                        filtered_noise += 1
+                        continue
                     sector_data[sector_id]['returns'].append(returns[i])
                     sector_data[sector_id]['volumes'].append(volumes[i])
             else:
                 sector_id_list = self._symbol_to_sectors.get(symbol_str, [])
                 for sector_id in sector_id_list:
+                    if noise_detector and noise_detector.is_noise(sector_id, self._sectors.get(sector_id).name if sector_id in self._sectors else sector_id):
+                        filtered_noise += 1
+                        continue
                     sector_data[sector_id]['returns'].append(returns[i])
                     sector_data[sector_id]['volumes'].append(volumes[i])
+
+        if filtered_noise > 0 and os.environ.get("NAJA_LAB_DEBUG") == "true":
+            log.info(f"[SectorAttention] 噪音板块聚合已过滤: {filtered_noise} 条")
 
         result = {}
         for sector_id, data in sector_data.items():

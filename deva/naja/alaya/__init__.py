@@ -57,4 +57,15 @@ __all__ = [
     "MarketType",
     "PatternEpiphany",
     "FullRecall",
+    "get_awakened_alaya",
 ]
+
+_awakened_alaya_instance = None
+
+
+def get_awakened_alaya() -> "AwakenedAlaya":
+    """获取觉醒阿赖耶识单例"""
+    global _awakened_alaya_instance
+    if _awakened_alaya_instance is None:
+        _awakened_alaya_instance = AwakenedAlaya()
+    return _awakened_alaya_instance

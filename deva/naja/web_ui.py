@@ -829,7 +829,7 @@ async def attentionadmin():
         pass
 
     ctx = _ctx()
-    await ctx["init_naja_ui"]("注意力调度系统")
+    await ctx["init_naja_ui"]("注意力调度系统 [已刷新]")
 
     # 默认使用 ui.py
     from pywebio.session import eval_js
@@ -968,6 +968,20 @@ def _get_loop_audit_page():
     return render_loop_audit_page
 
 
+async def merrill_clock_page():
+    """美林时钟经济周期页面"""
+    from pywebio.session import eval_js
+    try:
+        theme = await eval_js("document.cookie.includes('naja-theme=') ? document.cookie.split('naja-theme=')[1].split(';')[0] : null")
+        if theme:
+            set_request_theme(theme)
+    except:
+        pass
+    from .cognition.merrill_clock_ui import render_merrill_clock_page
+    ctx = {"put_html": put_html, "put_markdown": put_markdown}
+    await render_merrill_clock_page(ctx)
+
+
 async def supplychain_page():
     """供应链知识图谱页面"""
     from pywebio.session import eval_js
@@ -1014,6 +1028,7 @@ def create_handlers(cdn: str = None):
         (r'/logstream', webio_handler(lambda: _get_log_stream_page()(), cdn=cdn_url)),
         (r'/tuningadmin', webio_handler(tuningadmin, cdn=cdn_url)),
         (r'/supplychain', webio_handler(supplychain_page, cdn=cdn_url)),
+        (r'/merrill_clock', webio_handler(merrill_clock_page, cdn=cdn_url)),
         (r'/loop_audit', webio_handler(lambda: _get_loop_audit_page()(), cdn=cdn_url)),
     ]
 
