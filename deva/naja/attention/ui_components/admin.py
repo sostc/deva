@@ -41,7 +41,7 @@ async def render_attention_admin(ctx: dict):
     from .flow import (
         render_attention_flow_ui,
         render_attention_layers_detail,
-        render_data_frequency_panel,
+        # render_data_frequency_panel,  # 已删除
         render_noise_filter_panel,
         render_strategy_status_panel,
         render_dual_engine_panel,
@@ -169,7 +169,7 @@ async def render_attention_admin(ctx: dict):
             cn_next_phase = cn_info.get('next_phase_name', '')
             us_next_phase = us_info.get('next_phase_name', '')
 
-            cn_color = '#22c55e' if cn_phase in ('trading', 'pre_market') else '#f59e0b'
+            cn_color = '#22c55e' if cn_phase in ('trading', 'pre_market', 'call_auction') else '#f59e0b'
             us_color = '#22c55e' if us_phase in ('trading', 'pre_market') else '#f59e0b'
 
             if is_force_mode:
@@ -203,6 +203,19 @@ async def render_attention_admin(ctx: dict):
                 status_str = " | ".join(status_parts)
 
                 if cn_active or us_active:
+                    cn_level_str = f"A股档位: HIGH={fetcher.get('high_count', 0)} | MEDIUM={fetcher.get('medium_count', 0)} | LOW={fetcher.get('low_count', 0)}" if cn_active else ""
+                    us_level_str = f"美股档位: HIGH={fetcher.get('us_high_count', 0)} | MEDIUM={fetcher.get('us_medium_count', 0)} | LOW={fetcher.get('us_low_count', 0)}" if us_active else ""
+                    level_str = " | ".join(filter(None, [cn_level_str, us_level_str]))
+                    
+                    if cn_active and us_active:
+                        fetch_info = f"A股🔄{fetcher.get('fetch_count', 0)} | 美股🔄{fetcher.get('us_fetch_count', 0)}"
+                    elif cn_active:
+                        fetch_info = f"A股 🔄{fetcher.get('fetch_count', 0)} ❌{fetcher.get('error_count', 0)}"
+                    elif us_active:
+                        fetch_info = f"美股 🔄{fetcher.get('us_fetch_count', 0)} ❌{fetcher.get('us_error_count', 0)}"
+                    else:
+                        fetch_info = f"🔄{fetcher.get('fetch_count', 0)} ❌{fetcher.get('error_count', 0)}"
+                    
                     panel_html = f"""
                     <div style="margin-bottom:14px;padding:12px 14px;border-radius:10px;background:linear-gradient(135deg,#f0fdf4,#dcfce7);border:1px solid #86efac;color:#166534;font-size:13px;">
                         <strong>📡 实盘获取器 🟢</strong> <span style="color:#22c55e;font-weight:bold;">运行中</span><br>
@@ -210,9 +223,7 @@ async def render_attention_admin(ctx: dict):
                         📊 状态: {status_str}
                         </span><br>
                         <span style="font-size:11px;color:#64748b;">
-                        🔄 获取次数: {fetcher.get('fetch_count', 0)} |
-                        ❌ 错误: {fetcher.get('error_count', 0)} |
-                        📈 档位: HIGH={fetcher.get('high_count', 0)} | MEDIUM={fetcher.get('medium_count', 0)} | LOW={fetcher.get('low_count', 0)}
+                        {fetch_info} | {level_str}
                         </span>
                     </div>
                     """
@@ -284,8 +295,18 @@ async def render_attention_admin(ctx: dict):
     with use_scope("attention_flow"):
         put_html(render_attention_flow_ui())
 
-    with use_scope("attention_frequency_panel"):
-        put_html(render_data_frequency_panel())
+    # 已删除数据获取器面板（2026-04-03）
+    # with use_scope("attention_frequency_panel"):
+    #     try:
+    #         html = render_data_frequency_panel()
+    #         print(f"[Admin] render_data_frequency_panel returned: {len(html)} chars")
+    #         print(f"[Admin] HTML START: {html[:500]}")
+    #         print(f"[Admin] HTML END")
+    #         put_html(html)
+    #     except Exception as e:
+    #         print(f"[Admin] render_data_frequency_panel failed: {e}")
+    #         import traceback
+    #         traceback.print_exc()
 
     with use_scope("attention_noise"):
         put_html(render_noise_filter_panel())

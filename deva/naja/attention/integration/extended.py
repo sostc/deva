@@ -51,6 +51,8 @@ class NajaAttentionIntegration:
     """
 
     _instance = None
+    _initialized = False
+    _init_lock = threading.Lock()
     _lock = threading.Lock()
 
     def __new__(cls):
@@ -61,25 +63,42 @@ class NajaAttentionIntegration:
         return cls._instance
 
     def __init__(self):
-        if hasattr(self, '_initialized'):
+        # 使用锁保护 _initialized 检查，避免多线程竞态条件
+        if NajaAttentionIntegration._initialized:
             return
+        
+        with NajaAttentionIntegration._init_lock:
+            # 双重检查
+            if NajaAttentionIntegration._initialized:
+                return
+            
+            # 只在第一次创建时设置这些属性
+            if not hasattr(self, 'attention_system'):
+                self.attention_system: Optional[AttentionSystem] = None
+            if not hasattr(self, 'intelligence_system'):
+                self.intelligence_system = None
+            if not hasattr(self, 'intelligence_config'):
+                self.intelligence_config = None
+            if not hasattr(self, 'config'):
+                self.config: AttentionSystemConfig = AttentionSystemConfig()
+            if not hasattr(self, '_running'):
+                self._running = False
+            if not hasattr(self, '_monitor_thread'):
+                self._monitor_thread: Optional[threading.Thread] = None
+            if not hasattr(self, '_check_interval'):
+                self._check_interval = 5.0
+            if not hasattr(self, '_symbol_sector_map'):
+                self._symbol_sector_map: Dict[str, List[str]] = {}
+            if not hasattr(self, '_sectors'):
+                self._sectors: List[SectorConfig] = []
+            if not hasattr(self, '_last_datasource_control'):
+                self._last_datasource_control: Optional[Dict] = None
+            if not hasattr(self, '_processed_snapshots'):
+                self._processed_snapshots = 0
+            if not hasattr(self, '_total_latency'):
+                self._total_latency = 0.0
 
-        self.attention_system: Optional[AttentionSystem] = None
-        self.intelligence_system = None
-        self.intelligence_config = None
-        self.config: AttentionSystemConfig = AttentionSystemConfig()
-        self._running = False
-        self._monitor_thread: Optional[threading.Thread] = None
-        self._check_interval = 5.0
-
-        self._symbol_sector_map: Dict[str, List[str]] = {}
-        self._sectors: List[SectorConfig] = []
-        self._last_datasource_control: Optional[Dict] = None
-
-        self._processed_snapshots = 0
-        self._total_latency = 0.0
-
-        self._initialized = True
+            NajaAttentionIntegration._initialized = True
 
     def initialize(self, config: Optional[AttentionSystemConfig] = None, intelligence_config: Optional[Any] = None):
         """
@@ -91,7 +110,12 @@ class NajaAttentionIntegration:
             config: v1 注意力系统配置
             intelligence_config: 智能增强系统配置
         """
-        log.info(f"[NajaAttentionIntegration] initialize 开始, config={config}")
+        # 防止重复初始化
+        if hasattr(self, '_initialized_attention_system') and self._initialized_attention_system:
+            log.info(f"[NajaAttentionIntegration] 已初始化，跳过")
+            return self.attention_system
+        
+        log.info(f"[NajaAttentionIntegration] initialize 开始，config={config}")
 
         if config:
             self.config = config
@@ -123,8 +147,9 @@ class NajaAttentionIntegration:
                 modules.append('Propagation')
             if hasattr(self.intelligence_system, 'strategy_learning'):
                 modules.append('StrategyLearning')
-            log.info(f"🧠 智能增强: {', '.join(modules)}")
+            log.info(f"🧠 智能增强：{', '.join(modules)}")
 
+        self._initialized_attention_system = True
         return self.attention_system
 
     def _initialize_intelligence_system(self):
@@ -269,6 +294,14 @@ class NajaAttentionIntegration:
 
         log.info(f"[Dictionary] 解析板块数据: sector_col={sector_col}, symbol_col={symbol_col}, 行数={len(df)}")
 
+        def _should_skip_sector_name(name: str) -> bool:
+            name_str = str(name).strip()
+            if not name_str:
+                return True
+            return ("B股" in name_str) or ("含B股" in name_str)
+
+        skipped_sectors = 0
+
         if '|' in str(df[sector_col].iloc[0] if len(df) > 0 else ''):
             log.info(f"[Dictionary] 使用多值板块解析模式")
 
@@ -280,6 +313,9 @@ class NajaAttentionIntegration:
                 for block_name in blocks:
                     block_name = block_name.strip()
                     if not block_name:
+                        continue
+                    if _should_skip_sector_name(block_name):
+                        skipped_sectors += 1
                         continue
 
                     import hashlib
@@ -309,6 +345,9 @@ class NajaAttentionIntegration:
             sector_groups = df.groupby(sector_col)[symbol_col].apply(list).to_dict()
 
             for sector_name, symbols in sector_groups.items():
+                if _should_skip_sector_name(sector_name):
+                    skipped_sectors += 1
+                    continue
                 sector_id = f"sector_{len(self._sectors)}"
                 sector = SectorConfig(
                     sector_id=sector_id,
@@ -323,6 +362,9 @@ class NajaAttentionIntegration:
                     if symbol_str not in self._symbol_sector_map:
                         self._symbol_sector_map[symbol_str] = []
                     self._symbol_sector_map[symbol_str].append(sector_id)
+
+        if skipped_sectors > 0:
+            log.info(f"[Dictionary] 过滤板块完成: 跳过 {skipped_sectors} 个含B股相关板块")
 
     def _load_default_sectors(self):
         """加载默认板块配置"""
@@ -673,12 +715,7 @@ def get_mode_manager() -> AttentionModeManager:
 
 def get_attention_integration() -> NajaAttentionIntegration:
     """获取 Attention Integration 单例"""
-    global _naja_attention_integration
-    if _naja_attention_integration is None:
-        with _integration_lock:
-            if _naja_attention_integration is None:
-                _naja_attention_integration = NajaAttentionIntegration()
-    return _naja_attention_integration
+    return NajaAttentionIntegration()
 
 
 def initialize_attention_system(

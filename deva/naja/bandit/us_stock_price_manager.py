@@ -5,6 +5,7 @@ USStockPriceManager - 智能美股价格管理器
 - 开盘时间：从新浪/雪球获取实时价格
 - 休市时间：使用持久化的最后价格
 - 自动持久化
+- 统一表存储（所有股票存在一个表）
 """
 
 import time
@@ -12,7 +13,7 @@ import asyncio
 import logging
 import aiohttp
 from typing import Dict, List, Optional, Any, Set
-from dataclasses import dataclass
+from dataclasses import dataclass, asdict
 
 from deva import NB
 
@@ -35,11 +36,11 @@ class USStockPriceManager:
     规则：
     1. 开盘时间（trading phase）：从新浪获取实时价格
     2. 休市时间（pre_market/post_market/closed）：使用持久化的最后价格
-    3. 自动持久化最新价格到 NB
+    3. 自动持久化最新价格到 NB（统一表存储）
     4. 订阅美股交易时钟信号自动更新价格
     """
 
-    PRICE_PREFIX = "us_stock_price_"
+    PRICE_TABLE = "us_stock_prices"
     LAST_UPDATE_KEY = "us_stock_price_last_update"
 
     def __init__(self):
@@ -47,6 +48,13 @@ class USStockPriceManager:
         self._last_prev_closes: Dict[str, float] = {}
         self._last_update_time: float = 0.0
         self._initialized = False
+        self._price_db: Optional[NB] = None
+
+    def _get_price_db(self) -> NB:
+        """获取价格数据库（延迟初始化）"""
+        if self._price_db is None:
+            self._price_db = NB(self.PRICE_TABLE)
+        return self._price_db
 
     def is_market_open(self) -> bool:
         """检查美股是否开盘（只考虑 trading 阶段）"""
@@ -95,44 +103,74 @@ class USStockPriceManager:
             return float('inf')
         return time.time() - self._last_update_time
 
-    def _persist_price(self, code: str, current: float, prev_close: float):
-        """持久化单个股票价格"""
-        try:
-            nb = NB(f"{self.PRICE_PREFIX}{code}")
-            nb["current"] = current
-            nb["prev_close"] = prev_close
-            nb["update_time"] = time.time()
-            log.debug(f"[PriceManager] 持久化 {code}: ${current:.2f}")
-        except Exception as e:
-            log.warning(f"[PriceManager] 持久化 {code} 失败: {e}")
+    def ingest_prices(self, price_map: Dict[str, float], prev_close_map: Optional[Dict[str, float]] = None):
+        """从外部实时链路注入价格并持久化"""
+        if not price_map:
+            return
 
-    def _load_persisted_price(self, code: str) -> Optional[PriceSnapshot]:
-        """从持久化加载单个股票价格"""
+        prev_close_map = prev_close_map or {}
+        now_ts = time.time()
+
+        for code, current in price_map.items():
+            prev_close = prev_close_map.get(code, current)
+            self._last_prices[code] = float(current)
+            self._last_prev_closes[code] = float(prev_close) if prev_close is not None else float(current)
+            self._last_update_time = max(self._last_update_time, now_ts)
+
+        self._persist_all_prices()
+
+    def _persist_all_prices(self):
+        """持久化所有股票价格到统一表"""
         try:
-            nb = NB(f"{self.PRICE_PREFIX}{code}")
-            current = nb.get("current")
-            if current is not None:
-                prev_close = nb.get("prev_close")
-                update_time = nb.get("update_time")
-                if prev_close is None:
-                    prev_close = current
-                if update_time is None:
-                    update_time = 0.0
-                return PriceSnapshot(
-                    code=code,
-                    current=float(current),
-                    prev_close=float(prev_close),
-                    update_time=float(update_time)
-                )
+            db = self._get_price_db()
+            now_ts = time.time()
+
+            all_prices = {}
+            for code in self._last_prices:
+                all_prices[code] = {
+                    "current": self._last_prices[code],
+                    "prev_close": self._last_prev_closes.get(code, self._last_prices[code]),
+                    "update_time": now_ts
+                }
+
+            db["prices"] = all_prices
+            db[self.LAST_UPDATE_KEY] = now_ts
+
+            log.debug(f"[PriceManager] 持久化 {len(all_prices)} 个股票价格到统一表")
         except Exception as e:
-            log.debug(f"[PriceManager] 加载 {code} 持久化价格失败: {e}")
-        return None
+            log.warning(f"[PriceManager] 持久化价格失败: {e}")
+
+    def _load_persisted_prices(self) -> Dict[str, PriceSnapshot]:
+        """从统一表加载所有股票价格"""
+        results = {}
+        try:
+            db = self._get_price_db()
+            all_prices = db.get("prices", {})
+
+            if not all_prices:
+                return results
+
+            for code, data in all_prices.items():
+                if isinstance(data, dict):
+                    snapshot = PriceSnapshot(
+                        code=code,
+                        current=float(data.get("current", 0)),
+                        prev_close=float(data.get("prev_close", 0)),
+                        update_time=float(data.get("update_time", 0))
+                    )
+                    results[code] = snapshot
+
+        except Exception as e:
+            log.debug(f"[PriceManager] 加载持久化价格失败: {e}")
+        return results
 
     def load_persisted_prices(self, stock_codes: List[str]):
-        """从持久化加载所有股票价格"""
+        """从持久化加载指定股票价格"""
+        all_snapshots = self._load_persisted_prices()
+
         for code in stock_codes:
-            snapshot = self._load_persisted_price(code)
-            if snapshot:
+            if code in all_snapshots:
+                snapshot = all_snapshots[code]
                 self._last_prices[code] = snapshot.current
                 self._last_prev_closes[code] = snapshot.prev_close
                 self._last_update_time = max(self._last_update_time, snapshot.update_time)
@@ -151,7 +189,6 @@ class USStockPriceManager:
             api = GlobalMarketAPI()
             data = await api.fetch(sina_codes)
 
-            # 新浪返回的key是原始code (nvda, baba) 而不是 gb_nvda
             for code in stock_codes:
                 if code in data:
                     md = data[code]
@@ -259,7 +296,7 @@ class USStockPriceManager:
                 self._last_prices[code] = snapshot.current
                 self._last_prev_closes[code] = snapshot.prev_close
                 self._last_update_time = max(self._last_update_time, snapshot.update_time)
-                self._persist_price(code, snapshot.current, snapshot.prev_close)
+            self._persist_all_prices()
 
         stale_duration = self.get_stale_duration()
         if stale_duration > 300:

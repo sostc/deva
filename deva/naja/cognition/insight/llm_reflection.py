@@ -19,6 +19,7 @@ from __future__ import annotations
 import json
 import threading
 import time
+from datetime import datetime
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
@@ -226,7 +227,112 @@ class LLMReflectionEngine:
 
         self._emit_to_insight(reflection)
 
+        # 反思完成后推送到钉钉
+        self._push_reflection_to_dtalk(reflection, signals)
+
+        # 同步推送到微信
+        self._push_reflection_to_weixin(reflection)
+
         return reflection
+
+    def _push_reflection_to_dtalk(self, reflection, signals: List[Dict[str, Any]]) -> None:
+        """将 LLM 反思结果推送到钉钉"""
+        try:
+            from deva.endpoints import Dtalk
+
+            # 构建消息内容
+            theme = reflection.theme
+            summary = reflection.summary
+            
+            # 如果 summary 是列表，转为字符串
+            if isinstance(summary, list):
+                summary_text = "；".join([str(s) for s in summary if s])
+            else:
+                summary_text = str(summary) if summary else "暂无"
+
+            # 获取关键信号
+            signal_parts = []
+            for sig in signals[:5]:
+                sig_theme = sig.get('theme', '')
+                if sig_theme:
+                    signal_parts.append(sig_theme)
+            
+            signals_text = "\n".join([f"- {s}" for s in signal_parts]) if signal_parts else "无"
+
+            # 获取持仓信息
+            portfolio = self._collect_portfolio()
+            portfolio_text = portfolio.get('summary', '无持仓数据')
+
+            # 构建 Markdown 消息
+            markdown = f"""## 🤖 LLM 每日反思
+
+**主题**: {theme}
+
+**核心结论**:
+{summary_text}
+
+**持仓状态**: {portfolio_text}
+
+**关键信号**:
+{signals_text}
+
+---
+_反思生成时间: {datetime.fromtimestamp(reflection.ts).strftime('%Y-%m-%d %H:%M:%S')}_
+"""
+
+            dtalk_msg = f"@md@LLM每日反思|{markdown}"
+            dtalk = Dtalk()
+            dtalk.send(dtalk_msg)
+            log.info(f"[LLMReflection] 反思已推送到钉钉: {theme}")
+
+        except Exception as e:
+            log.warning(f"[LLMReflection] 推送反思到钉钉失败: {e}")
+
+    def _push_reflection_to_weixin(self, reflection) -> None:
+        """将 LLM 反思结果推送到微信"""
+        try:
+            from .weixin_notifier import get_weixin_notifier
+
+            notifier = get_weixin_notifier()
+            if not notifier:
+                return
+
+            theme = reflection.theme
+            summary = reflection.summary
+
+            # summary 可能是列表，转为字符串
+            if isinstance(summary, list):
+                summary_text = "；".join([str(s) for s in summary if s])
+            else:
+                summary_text = str(summary) if summary else "暂无"
+
+            # 持仓信息
+            portfolio = self._collect_portfolio()
+            portfolio_text = portfolio.get("summary", "无持仓数据")
+
+            # 流动性结构
+            liquidity = getattr(reflection, "liquidity_structure", "") or ""
+
+            # 时间
+            ts_str = datetime.fromtimestamp(reflection.ts).strftime("%Y-%m-%d %H:%M")
+
+            text = (
+                f"🤖 LLM 每日反思 | {ts_str}\n\n"
+                f"📌 主题：{theme}\n\n"
+                f"💡 结论：\n{summary_text}\n\n"
+                f"💼 持仓：{portfolio_text}\n\n"
+                f"💧 流动性：{liquidity if liquidity else '暂无判断'}"
+            )
+
+            notifier.send(text)
+            import logging
+            log = logging.getLogger(__name__)
+            log.info(f"[LLMReflection] 反思已推送到微信")
+
+        except Exception as e:
+            import logging
+            log = logging.getLogger(__name__)
+            log.warning(f"[LLMReflection] 推送反思到微信失败: {e}")
 
     def _emit_liquidity_signal(self, now_ts: float) -> None:
         """将流动性结构作为独立信号推送到 InsightPool"""
@@ -301,6 +407,8 @@ class LLMReflectionEngine:
         signals.extend(self._collect_market_analysis_from_nt())
 
         signals.extend(self._collect_wisdom_signals())
+
+        signals.extend(self._collect_merrill_clock_signals())
 
         return signals
 
@@ -776,6 +884,60 @@ class LLMReflectionEngine:
             import logging
             log = logging.getLogger(__name__)
             log.debug(f"[LLMReflection] 收集 wisdom 信号失败: {e}")
+            return []
+
+    def _collect_merrill_clock_signals(self) -> List[Dict[str, Any]]:
+        """收集美林时钟的真实周期数据"""
+        try:
+            from deva.naja.cognition.merrill_clock_to_manas import get_merrill_phase_display, get_merrill_macro_signal
+            from deva.naja.cognition.merrill_clock_engine import get_merrill_clock_engine, MerrillClockPhase
+
+            clock = get_merrill_clock_engine()
+            signal = clock.get_current_signal()
+
+            if not signal:
+                return []
+
+            phase_name = get_merrill_phase_display(signal.phase)
+            macro_signal = get_merrill_macro_signal(
+                phase=signal.phase,
+                confidence=signal.confidence,
+            )
+
+            # 阶段 emoji
+            phase_emoji = {
+                MerrillClockPhase.RECOVERY: "🌱",
+                MerrillClockPhase.OVERHEAT: "🔥",
+                MerrillClockPhase.STAGFLATION: "⚠️",
+                MerrillClockPhase.RECESSION: "🥶",
+            }.get(signal.phase, "❓")
+
+            # 资产配置排名
+            asset_ranking = " > ".join(signal.asset_ranking) if signal.asset_ranking else "无数据"
+
+            return [{
+                "source": "merrill_clock",
+                "signal_type": "merrill_clock_phase",
+                "theme": f"美林时钟: {phase_name}",
+                "summary": "{} 当前周期：{}（置信度{}%）\n增长评分: {:.2f} | 通胀评分: {:.2f}\nManas宏观信号: {:.2f} | 资产配置: {}".format(
+                    phase_emoji, phase_name, int(signal.confidence * 100),
+                    signal.growth_score, signal.inflation_score,
+                    macro_signal, asset_ranking
+                ),
+                "phase": signal.phase.value,
+                "phase_name": phase_name,
+                "confidence": signal.confidence,
+                "growth_score": signal.growth_score,
+                "inflation_score": signal.inflation_score,
+                "macro_signal": macro_signal,
+                "asset_ranking": signal.asset_ranking,
+                "score": signal.confidence,
+                "ts": time.time(),
+            }]
+        except Exception as e:
+            import logging
+            log = logging.getLogger(__name__)
+            log.warning(f"[LLMReflection] 收集美林时钟信号失败: {e}", exc_info=True)
             return []
 
     def _collect_portfolio(self) -> Dict[str, Any]:

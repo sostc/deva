@@ -98,6 +98,7 @@ def _parse_sina_response(text: str) -> Dict:
                 "high": float(fields[4]),
                 "low": float(fields[5]),
                 "volume": int(fields[8]),
+                "amount": float(fields[9]) if len(fields) > 9 and fields[9] else 0.0,
             }
         except Exception:
             continue
@@ -904,6 +905,11 @@ class RealtimeDataFetcher:
 
             for idx, row in data.iterrows():
                 code = idx
+                # 计算涨跌幅（如果 DataFrame 中没有的话）
+                p_change = row.get("p_change", 0)
+                if p_change == 0 and row.get("close", 0) > 0 and row.get("now", 0) > 0:
+                    p_change = (row.get("now", 0) - row.get("close", 0)) / row.get("close", 0)
+                
                 record = {
                     "timestamp": timestamp,
                     "code": code,
@@ -914,7 +920,8 @@ class RealtimeDataFetcher:
                     "high": row.get("high", 0),
                     "low": row.get("low", 0),
                     "volume": row.get("volume", 0),
-                    "p_change": row.get("p_change", 0),
+                    "amount": row.get("amount", 0),
+                    "p_change": p_change,
                 }
                 records.append(record)
 
@@ -944,13 +951,16 @@ class RealtimeDataFetcher:
             cn_next = cn_signal.get('next_change_time', '')
             us_next = us_signal.get('next_change_time', '')
 
+            # 使用统一的格式化函数处理时间（自动转换时区到北京时间）
+            from .ui_components.common import _format_next_time
+            
             if cn_next:
-                cn_next_str = cn_next.split('T')[1][:5] if 'T' in cn_next else cn_next
+                cn_next_str = _format_next_time(cn_next)
             else:
                 cn_next_str = ''
 
             if us_next:
-                us_next_str = us_next.split('T')[1][:5] if 'T' in us_next else us_next
+                us_next_str = _format_next_time(us_next)
             else:
                 us_next_str = ''
 
@@ -1122,21 +1132,42 @@ _fetcher_instance: Optional[RealtimeDataFetcher] = None
 def get_data_fetcher() -> Optional[RealtimeDataFetcher]:
     """获取全局 RealtimeDataFetcher 实例"""
     global _fetcher_instance
+    import time
 
     if _fetcher_instance is not None:
+        print(f"[get_data_fetcher] 直接返回缓存：{id(_fetcher_instance)}", flush=True)
         return _fetcher_instance
 
-    try:
-        from deva.naja.attention.integration.extended import get_attention_system
-        attention_system = get_attention_system()
-        if attention_system is not None:
-            fetcher = attention_system._realtime_fetcher
-            if fetcher is not None:
-                _fetcher_instance = fetcher
-                return _fetcher_instance
-    except Exception:
-        pass
+    # 等待 attention_system 初始化完成（最多等待 5 秒）
+    max_wait = 5.0
+    wait_step = 0.2
+    waited = 0.0
+    
+    while waited < max_wait:
+        try:
+            from deva.naja.attention.integration.extended import get_attention_integration
+            integration = get_attention_integration()
+            
+            # 检查是否已初始化完成
+            if hasattr(integration, '_initialized_attention_system') and integration._initialized_attention_system:
+                # 已初始化，获取 fetcher
+                if integration.attention_system:
+                    fetcher = integration.attention_system._realtime_fetcher
+                    if fetcher is not None:
+                        _fetcher_instance = fetcher
+                        print(f"[get_data_fetcher] 等待后获取到 fetcher: {id(fetcher)}", flush=True)
+                        return _fetcher_instance
+                # 已初始化但没有 fetcher，直接返回
+                print(f"[get_data_fetcher] 已初始化但 fetcher 为 None", flush=True)
+                break
+        except Exception as e:
+            print(f"[get_data_fetcher] 异常：{e}", flush=True)
+            pass
+        
+        time.sleep(wait_step)
+        waited += wait_step
 
+    print(f"[get_data_fetcher] 等待超时，返回 None", flush=True)
     return _fetcher_instance
 
 

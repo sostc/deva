@@ -66,6 +66,8 @@ class MarketDataObserver:
         self._low_power_fetch_interval = 60.0
         self._last_datasource_available = True
 
+        self._errors = {"config_load": 0, "config_save": 0, "datasource_acquire": 0, "process_data": 0}
+
         self._load_config()
 
     def _load_config(self):
@@ -73,18 +75,17 @@ class MarketDataObserver:
         try:
             config = self._db.get("observer_config")
             if config:
-                # 恢复跟踪的股票列表
                 tracked_stocks = config.get("tracked_stocks", [])
                 if tracked_stocks:
                     self._tracked_stocks = set(tracked_stocks)
                     log.debug(f"[MarketObserver] 已恢复 {len(tracked_stocks)} 个跟踪股票")
-                # 恢复运行状态
                 was_running = config.get("was_running", False)
                 if was_running:
                     self._running = True
                     log.debug("[MarketObserver] 上次运行中，将自动恢复")
-        except Exception:
-            pass
+        except Exception as e:
+            self._errors["config_load"] += 1
+            log.warning(f"[MarketObserver] 配置加载失败 (累计{self._errors['config_load']}次): {e}")
 
     def _save_config(self):
         """保存配置"""
@@ -93,8 +94,9 @@ class MarketDataObserver:
                 "tracked_stocks": list(self._tracked_stocks),
                 "was_running": self._running
             }
-        except Exception:
-            pass
+        except Exception as e:
+            self._errors["config_save"] += 1
+            log.warning(f"[MarketObserver] 配置保存失败 (累计{self._errors['config_save']}次): {e}")
 
     def _get_strategy_experiment_info(self) -> dict:
         """获取策略管理器的实验模式信息"""
@@ -140,7 +142,8 @@ class MarketDataObserver:
             mgr.load_from_db()
             return mgr.get(datasource_id)
         except Exception as e:
-            log.error(f"[MarketObserver] 获取数据源失败: {e}")
+            self._errors["datasource_acquire"] += 1
+            log.error(f"[MarketObserver] 获取数据源失败 (累计{self._errors['datasource_acquire']}次): {e}")
             return None
 
     def _is_datasource_running(self, ds) -> bool:
@@ -627,7 +630,7 @@ class MarketDataObserver:
             self._current_phase = phase
         elif signal_type == 'phase_change':
             self._current_phase = phase
-            if phase in ('trading', 'pre_market'):
+            if phase in ('trading', 'pre_market', 'call_auction'):
                 log.debug(f"[MarketObserver] 进入交易时段")
             else:
                 log.debug(f"[MarketObserver] 退出交易时段")
@@ -711,7 +714,12 @@ class MarketDataObserver:
             "data_source": "stream" if self._stream_subscription else "fetch",
             "tracked_stocks": list(self._tracked_stocks),
             "prices": self._last_prices,
+            "errors": dict(self._errors),
         }
+
+    def get_errors(self) -> dict:
+        """获取错误统计"""
+        return dict(self._errors)
 
 
 _observer: Optional[MarketDataObserver] = None

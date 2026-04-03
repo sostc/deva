@@ -14,7 +14,7 @@ MarketReplayScheduler - 市场复盘调度器
 import logging
 import threading
 import time
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, time as dtime
 from typing import Optional
 
 from deva import NB
@@ -110,10 +110,27 @@ class MarketReplayScheduler:
                 if not self._check_already_replayed_today(phase='post_market'):
                     tc = get_trading_clock()
                     current_phase = tc.current_phase
+                    now = datetime.now()
 
-                    if current_phase == 'post_market' or current_phase == 'closed':
+                    if now.weekday() >= 5:
+                        next_check = self._get_next_check_time()
+                        sleep_time = min(3600, (next_check - now).total_seconds())
+                        log.info(f"[MarketReplayScheduler] 周末不复盘，下次检查: {next_check}, 等待{sleep_time:.0f}秒")
+                        self._stop_event.wait(max(60, sleep_time))
+                        continue
+
+                    if current_phase == 'post_market':
                         log.info("[MarketReplayScheduler] 今天尚未复盘，立即触发")
                         self._trigger_replay(phase='post_market')
+                    elif current_phase == 'closed':
+                        if now.time() >= dtime(15, 30):
+                            log.info("[MarketReplayScheduler] 收盘后尚未复盘，立即触发")
+                            self._trigger_replay(phase='post_market')
+                        else:
+                            next_check = self._get_next_check_time()
+                            sleep_time = min(60, (next_check - now).total_seconds())
+                            log.info(f"[MarketReplayScheduler] 未到收盘后复盘时段，等待{sleep_time:.0f}秒")
+                            self._stop_event.wait(max(10, sleep_time))
                     else:
                         next_check = self._get_next_check_time()
                         sleep_time = min(60, (next_check - datetime.now()).total_seconds())
@@ -213,7 +230,11 @@ class MarketReplayScheduler:
             log.info(f"[MarketReplayScheduler] 开始执行{phase}复盘任务")
 
             from deva.naja.strategy.market_replay_analyzer import run_replay_and_push
-            report = run_replay_and_push()
+            _, pushed_ok = run_replay_and_push()
+
+            if not pushed_ok:
+                log.warning("[MarketReplayScheduler] 复盘生成完成但推送失败，未标记为已复盘")
+                return
 
             self._mark_replayed_today(phase=phase)
 

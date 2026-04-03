@@ -33,6 +33,7 @@ from deva import NB
 log = logging.getLogger(__name__)
 
 PORTFOLIO_MANAGER_TABLE = "naja_bandit_portfolio_manager"
+UNIFIED_POSITIONS_TABLE = "naja_bandit_positions"
 
 
 @dataclass
@@ -91,46 +92,62 @@ class USStockPortfolio:
     - 无策略关联（自主/手动交易）
     - 支持价格批量更新
     - 支持融资账户（总资产、融资负债）
+    - 使用统一持仓表 naja_bandit_positions
     """
 
     def __init__(self, account_name: str):
         self.account_name = account_name
         self._positions: Dict[str, USStockPosition] = {}
         self._lock = threading.RLock()
-        self._db = NB(f"naja_bandit_us_portfolio_{account_name}")
+        self._db = NB(UNIFIED_POSITIONS_TABLE)
         self._position_callbacks: List[Callable[[str, USStockPosition], None]] = []
         self._equity = 0.0
         self._load_positions()
-        self._load_account_info()
 
     def _load_positions(self):
         try:
-            data = self._db.get("positions")
-            if isinstance(data, dict):
-                for pos_id, pos_data in data.items():
-                    if isinstance(pos_data, dict):
-                        self._positions[pos_id] = USStockPosition(**pos_data)
-            log.info(f"[{self.account_name}] 加载 {len(self._positions)} 个持仓")
+            accounts_data = self._db.get("accounts", {})
+            account_data = accounts_data.get(self.account_name, {})
+            positions_data = account_data.get("positions", {})
+
+            for pos_id, pos_data in positions_data.items():
+                if isinstance(pos_data, dict):
+                    self._positions[pos_id] = USStockPosition(**pos_data)
+
+            self._equity = account_data.get("equity", 0.0)
+            log.info(f"[{self.account_name}] 加载 {len(self._positions)} 个持仓, 净资产=${self._equity:.2f}")
         except Exception as e:
             log.error(f"[{self.account_name}] 加载持仓失败: {e}")
 
     def _load_account_info(self):
         try:
-            self._equity = self._db.get("equity", 0.0)
+            accounts_data = self._db.get("accounts", {})
+            account_data = accounts_data.get(self.account_name, {})
+            self._equity = account_data.get("equity", 0.0)
             log.info(f"[{self.account_name}] 加载账户信息: 净资产=${self._equity:.2f}")
         except Exception as e:
             log.error(f"[{self.account_name}] 加载账户信息失败: {e}")
 
     def _save_account_info(self):
         try:
-            self._db["equity"] = self._equity
+            accounts_data = self._db.get("accounts", {})
+            if self.account_name not in accounts_data:
+                accounts_data[self.account_name] = {}
+            accounts_data[self.account_name]["equity"] = self._equity
+            accounts_data[self.account_name]["account_type"] = "us"
+            self._db["accounts"] = accounts_data
         except Exception as e:
             log.error(f"[{self.account_name}] 保存账户信息失败: {e}")
 
     def _save_positions(self):
         try:
-            data = {pos_id: vars(pos) for pos_id, pos in self._positions.items()}
-            self._db["positions"] = data
+            accounts_data = self._db.get("accounts", {})
+            if self.account_name not in accounts_data:
+                accounts_data[self.account_name] = {"account_type": "us", "equity": self._equity}
+
+            positions_data = {pos_id: vars(pos) for pos_id, pos in self._positions.items()}
+            accounts_data[self.account_name]["positions"] = positions_data
+            self._db["accounts"] = accounts_data
         except Exception as e:
             log.error(f"[{self.account_name}] 保存持仓失败: {e}")
 

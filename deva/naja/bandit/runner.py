@@ -177,7 +177,7 @@ class BanditAutoRunner:
             return True
         if self._is_experiment_mode():
             return True
-        if self._current_phase in ('trading', 'pre_market'):
+        if self._current_phase in ('trading', 'pre_market', 'call_auction'):
             return True
         import os
         if os.environ.get('NAJA_LAB_MODE'):

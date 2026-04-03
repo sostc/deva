@@ -521,6 +521,16 @@ class RadarUI:
         except Exception as e:
             status = {"predictions": {}, "verifications": {}, "resonance": None, "topic_predictions": {}}
 
+        # 获取通知历史
+        try:
+            from deva.naja.cognition.liquidity import get_notifier
+            notifier = get_notifier()
+            notifications = notifier.get_recent_notifications(limit=5)
+            notifier_stats = notifier.get_stats()
+        except Exception as e:
+            notifications = []
+            notifier_stats = {"total_sent": 0, "total_failed": 0, "history_count": 0}
+
         predictions = status.get("predictions", {})
         verifications = status.get("verifications", {})
         resonance = status.get("resonance", None)
@@ -734,17 +744,92 @@ class RadarUI:
                 </div>
             </div>
 
+            <div style="margin-top: 15px; padding: 12px; background: rgba(99, 102, 241, 0.1); border-radius: 8px; border: 1px solid rgba(99, 102, 241, 0.2);">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                    <div style="font-size: 12px; font-weight: 600; color: #818cf8;">🔔 通知历史</div>
+                    <div style="font-size: 10px; color: #64748b;">
+                        已发送：{notifier_stats.get('total_sent', 0)} | 失败：{notifier_stats.get('total_failed', 0)}
+                    </div>
+                </div>
+                {self._render_notifications(notifications)}
+            </div>
+
             <div style="margin-top: 12px; padding: 10px; background: rgba(0,0,0,0.2); border-radius: 8px;">
                 <div style="font-size: 11px; color: #94a3b8; margin-bottom: 4px;">规则说明:</div>
                 <div style="font-size: 10px; color: #64748b;">
-                    • 共振: 行情+舆论同向=高权重(1.0), 背离=低权重(0.3)<br/>
-                    • 主题扩散: 热度>3触发, 传染概率×热度因子<br/>
+                    • 共振：行情 + 舆论同向=高权重 (1.0), 背离=低权重 (0.3)<br/>
+                    • 主题扩散：热度>3 触发，传染概率×热度因子<br/>
                     • 信号 &lt; 0.4: 紧张调整 | &gt; 0.7: 宽松调整<br/>
-                    • 预判错误或预测过期: 自动解除限制
+                    • 预判错误或预测过期：自动解除限制
                 </div>
             </div>
         </div>
         """)
+
+    def _render_notifications(self, notifications):
+        """渲染通知历史"""
+        if not notifications:
+            return '<div style="font-size: 11px; color: #64748b; padding: 8px 0;">暂无通知记录</div>'
+        
+        html = '<div style="display: flex; flex-direction: column; gap: 6px;">'
+        
+        for n in notifications:
+            time_str = n.get('time_str', '')
+            n_type = n.get('type', '')
+            severity = n.get('severity', '')
+            title = n.get('title', '')
+            sent = n.get('sent', False)
+            
+            # 类型图标
+            type_icons = {
+                "prediction_created": ("🔔", "#f59e0b"),
+                "prediction_confirmed": ("✅", "#22c55e"),
+                "prediction_denied": ("❌", "#ef4444"),
+                "resonance_detected": ("⚡", "#8b5cf6"),
+                "signal_change": ("📊", "#3b82f6"),
+            }
+            icon, color = type_icons.get(n_type, ("📌", "#64748b"))
+            
+            # 严重程度标记
+            severity_color = {
+                "high": "#ef4444",
+                "medium": "#f59e0b",
+                "low": "#22c55e",
+            }.get(severity, "#64748b")
+            
+            sent_icon = "✓" if sent else "✗"
+            sent_color = "#22c55e" if sent else "#ef4444"
+            
+            # 截断标题
+            short_title = title[:50] + "..." if len(title) > 50 else title
+            
+            html += f'''
+            <div style="
+                display: flex;
+                align-items: center;
+                gap: 8px;
+                padding: 6px 8px;
+                background: rgba(255,255,255,0.03);
+                border-radius: 6px;
+                border-left: 3px solid {severity_color};
+            ">
+                <span style="font-size: 14px;">{icon}</span>
+                <div style="flex: 1; min-width: 0;">
+                    <div style="font-size: 10px; color: {color}; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+                        {short_title}
+                    </div>
+                    <div style="font-size: 9px; color: #64748b;">
+                        {time_str} | {severity}
+                    </div>
+                </div>
+                <div style="font-size: 10px; color: {sent_color}; min-width: 20px;">
+                    {sent_icon}
+                </div>
+            </div>
+            '''
+        
+        html += '</div>'
+        return html
 
     def _start_global_scanner(self):
         """启动全球市场扫描器"""

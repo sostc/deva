@@ -78,6 +78,8 @@ class SignalListener:
         self._stream_mode = False
         self._stream_sink_registered = False
 
+        self._errors = {"config_load": 0, "config_save": 0, "experiment_check": 0, "parse": 0}
+
         self._load_config()
     
     def _load_config(self):
@@ -88,14 +90,14 @@ class SignalListener:
             if config:
                 self._poll_interval = config.get("poll_interval", 2.0)
                 self._min_confidence = config.get("min_confidence", 0.6)
-                # 恢复运行状态
                 was_running = config.get("was_running", False)
                 if was_running:
                     self._running = True
                     log.debug("SignalListener 上次运行中，将自动恢复")
-        except Exception:
-            pass
-    
+        except Exception as e:
+            self._errors["config_load"] += 1
+            log.warning(f"[SignalListener] 配置加载失败 (累计{self._errors['config_load']}次): {e}")
+
     def _save_config(self):
         """保存配置"""
         try:
@@ -103,10 +105,11 @@ class SignalListener:
             db["listener_config"] = {
                 "poll_interval": self._poll_interval,
                 "min_confidence": self._min_confidence,
-                "was_running": self._running  # 保存运行状态
+                "was_running": self._running
             }
-        except Exception:
-            pass
+        except Exception as e:
+            self._errors["config_save"] += 1
+            log.warning(f"[SignalListener] 配置保存失败 (累计{self._errors['config_save']}次): {e}")
     
     def register_callback(self, callback: Callable[[DetectedSignal], None]):
         """注册信号处理回调"""
@@ -154,7 +157,7 @@ class SignalListener:
             self._current_phase = phase
         elif signal_type == 'phase_change':
             self._current_phase = phase
-            if phase in ('trading', 'pre_market'):
+            if phase in ('trading', 'pre_market', 'call_auction'):
                 log.debug(f"[SignalListener] 进入交易时段")
             else:
                 log.debug(f"[SignalListener] 退出交易时段")
@@ -215,7 +218,9 @@ class SignalListener:
             mgr = get_strategy_manager()
             experiment_info = mgr.get_experiment_info()
             return experiment_info.get("active", False)
-        except Exception:
+        except Exception as e:
+            self._errors["experiment_check"] += 1
+            log.debug(f"[SignalListener] 实验模式检查失败 (累计{self._errors['experiment_check']}次): {e}")
             return False
 
     def _is_allowed_to_run(self) -> bool:
@@ -228,7 +233,7 @@ class SignalListener:
         # Lab 模式下强制运行
         if os.environ.get('NAJA_LAB_MODE') or os.environ.get('LAB_MODE'):
             return True
-        if self._current_phase in ('trading', 'pre_market', 'closed'):
+        if self._current_phase in ('trading', 'pre_market', 'call_auction', 'closed'):
             return True
         if not hasattr(self, '_last_allowed_log') or time.time() - self._last_allowed_log > 5:
             log.info(f"[SignalListener] _is_allowed_to_run=False: force={self._force_mode}, experiment={self._is_experiment_mode()}, phase={self._current_phase}")
@@ -427,7 +432,8 @@ class SignalListener:
             )
             
         except Exception as e:
-            log.debug(f"解析信号失败: {e}")
+            self._errors["parse"] += 1
+            log.warning(f"[SignalListener] 解析信号失败 (累计{self._errors['parse']}次): {e}")
             return None
     
     def _extract_market_time(self, data: Dict[str, Any], default_ts: float) -> float:
@@ -548,8 +554,13 @@ class SignalListener:
             "min_confidence": self._min_confidence,
             "last_processed_ts": self._last_processed_ts,
             "processed_count": len(self._processed_signals),
-            "callbacks_count": len(self._callbacks)
+            "callbacks_count": len(self._callbacks),
+            "errors": dict(self._errors),
         }
+
+    def get_errors(self) -> dict:
+        """获取错误统计"""
+        return dict(self._errors)
 
 
 _listener: Optional[SignalListener] = None

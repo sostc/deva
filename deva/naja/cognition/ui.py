@@ -2370,23 +2370,11 @@ class CognitionUI:
 
         def run_replay():
             try:
-                from deva.naja.strategy.market_replay_analyzer import MarketReplayAnalyzer, _save_replay_to_history, _is_trading_hours
-                analyzer = MarketReplayAnalyzer()
-                should_force_refresh = _is_trading_hours()
-                report = analyzer.run_full_analysis(force_refresh=should_force_refresh)
-
-                _save_replay_to_history(report)
-
-                try:
-                    from deva.endpoints import Dtalk
-                    markdown_content = report.to_markdown()
-                    dtalk_msg = f"@md@市场复盘报告|{markdown_content}"
-                    dtalk = Dtalk()
-                    dtalk.send(dtalk_msg)
+                # 使用 run_replay_and_push 而不是 run_full_analysis，它会同时推送钉钉+微信
+                from deva.naja.strategy.market_replay_analyzer import run_replay_and_push
+                report, pushed_ok = run_replay_and_push()
+                if pushed_ok:
                     print("[MarketReplay] 复盘报告已推送到DTalk")
-                except Exception as dtalk_e:
-                    print(f"[MarketReplay] 推送钉钉失败: {dtalk_e}")
-
             except Exception as e:
                 import traceback
                 print(f"[MarketReplay] 后台复盘失败: {e}\n{traceback.format_exc()}")

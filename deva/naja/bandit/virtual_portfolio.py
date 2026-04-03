@@ -19,6 +19,7 @@ from deva.naja.common.market_time import get_market_time_service
 log = logging.getLogger(__name__)
 
 VIRTUAL_PORTFOLIO_TABLE = "naja_bandit_virtual_portfolio"
+UNIFIED_POSITIONS_TABLE = "naja_bandit_positions"
 
 
 @dataclass
@@ -65,56 +66,69 @@ class VirtualPosition:
 
 class VirtualPortfolio:
     """虚拟持仓组合
-    
+
     管理虚拟股票的买入和卖出：
     1. 创建虚拟买入持仓
     2. 更新持仓价格
     3. 检查止盈止损
     4. 平仓处理
+    - 使用统一持仓表 naja_bandit_positions
     """
-    
-    def __init__(self):
+
+    def __init__(self, account_name: str = "虚拟测试"):
+        self.account_name = account_name
         self._positions: Dict[str, VirtualPosition] = {}
         self._lock = threading.RLock()
-        
-        self._db = NB(VIRTUAL_PORTFOLIO_TABLE)
-        
+
+        self._db = NB(UNIFIED_POSITIONS_TABLE)
+
         self._total_capital = 1000000.0
         self._used_capital = 0.0
         self._max_position_pct = 0.2
         self._max_total_pct = 0.8
-        
+
         self._position_callbacks: List[Callable[[str, VirtualPosition], None]] = []
         self._close_callbacks: List[Callable[[str, VirtualPosition, str], None]] = []
-        
+
         self._load_positions()
-    
+
     def _load_positions(self):
-        """从数据库加载持仓"""
+        """从统一数据库加载持仓"""
         try:
             from dataclasses import fields as dc_fields
             valid_fields = {f.name for f in dc_fields(VirtualPosition)}
-            data = self._db.get("positions")
-            if isinstance(data, dict):
-                for pos_id, pos_data in data.items():
-                    if isinstance(pos_data, dict):
-                        filtered_data = {k: v for k, v in pos_data.items() if k in valid_fields}
-                        self._positions[pos_id] = VirtualPosition(**filtered_data)
-            
+
+            accounts_data = self._db.get("accounts", {})
+            account_data = accounts_data.get(self.account_name, {})
+            positions_data = account_data.get("positions", {})
+
+            for pos_id, pos_data in positions_data.items():
+                if isinstance(pos_data, dict):
+                    filtered_data = {k: v for k, v in pos_data.items() if k in valid_fields}
+                    self._positions[pos_id] = VirtualPosition(**filtered_data)
+
             self._used_capital = sum(
-                pos.entry_price * pos.quantity 
-                for pos in self._positions.values() 
+                pos.entry_price * pos.quantity
+                for pos in self._positions.values()
                 if pos.status == "OPEN"
             )
+            self._total_capital = account_data.get("total_capital", 1000000.0)
             log.info(f"已加载 {len(self._positions)} 个虚拟持仓，已用资金: {self._used_capital:.2f}")
         except Exception as e:
             log.error(f"加载持仓失败: {e}")
-    
+
     def _save_positions(self):
-        """保存持仓到数据库"""
+        """保存持仓到统一数据库"""
         try:
-            data = {pos_id: vars(pos) for pos_id, pos in self._positions.items()}
-            self._db["positions"] = data
+            accounts_data = self._db.get("accounts", {})
+            if self.account_name not in accounts_data:
+                accounts_data[self.account_name] = {"account_type": "virtual"}
+
+            positions_data = {pos_id: vars(pos) for pos_id, pos in self._positions.items()}
+            accounts_data[self.account_name]["positions"] = positions_data
+            accounts_data[self.account_name]["total_capital"] = self._total_capital
+            accounts_data[self.account_name]["used_capital"] = self._used_capital
+            self._db["accounts"] = accounts_data
         except Exception as e:
             log.error(f"保存持仓失败: {e}")
     

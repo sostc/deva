@@ -55,7 +55,8 @@ def render_config_page(ctx: dict):
         {"label": "📚 字典配置", "value": "dictionary", "color": "default"},
         {"label": "🧠 记忆配置", "value": "memory", "color": "primary"},
         {"label": "🧭 雷达配置", "value": "radar", "color": "info"},
-        {"label": "🤖 LLM调节", "value": "llm", "color": "warning"},
+        {"label": "🤖 LLM 调节", "value": "llm", "color": "warning"},
+        {"label": "📱 钉钉通知", "value": "dtalk", "color": "success"},
         {"label": "⚡ 性能监控", "value": "performance", "color": "danger"},
         {"label": "🔇 个股噪音", "value": "noise_filter", "color": "secondary"},
         {"label": "🏢 板块噪音", "value": "sector_noise", "color": "secondary"},
@@ -135,9 +136,17 @@ def _render_config_summary(ctx: dict):
 
     llm_config = get_llm_config()
     config_data.append([
-        "🤖 LLM调节",
-        f"自动调节: {'启用' if llm_config.get('auto_adjust_enabled', True) else '禁用'}",
-        f"调节间隔: {llm_config.get('auto_adjust_interval_seconds', 900)}s"
+        "🤖 LLM 调节",
+        f"自动调节：{'启用' if llm_config.get('auto_adjust_enabled', True) else '禁用'}",
+        f"调节间隔：{llm_config.get('auto_adjust_interval_seconds', 900)}s"
+    ])
+
+    # 钉钉通知配置
+    dtalk_webhook = get_config("dtalk.webhook", "")
+    config_data.append([
+        "📱 钉钉通知",
+        f"状态：{'✓ 已配置' if dtalk_webhook else '✗ 未配置'}",
+        f"Webhook: {dtalk_webhook[:30] + '...' if dtalk_webhook else '无'}"
     ])
 
     nf_config = get_noise_filter_config()
@@ -181,7 +190,8 @@ async def _show_config_dialog(ctx: dict, category: str):
         "dictionary": "字典",
         "memory": "记忆",
         "radar": "雷达",
-        "llm": "LLM调节",
+        "llm": "LLM 调节",
+        "dtalk": "钉钉通知",
         "performance": "性能监控",
         "noise_filter": "个股噪音",
         "sector_noise": "板块噪音",
@@ -224,6 +234,8 @@ async def _show_config_dialog(ctx: dict, category: str):
             await _render_radar_config(ctx, config, defaults)
         elif category == "llm":
             await _render_llm_config(ctx, config, defaults)
+        elif category == "dtalk":
+            await _render_dtalk_config(ctx, config, defaults)
         elif category == "noise_filter":
             await _render_noise_filter_config(ctx, config, defaults)
         elif category == "sector_noise":
@@ -595,9 +607,9 @@ async def _render_llm_config(ctx: dict, config: dict, defaults: dict):
         ctx["select"]("自动调节", name="auto_adjust_enabled",
                      options=[{"label": "是", "value": "1"}, {"label": "否", "value": "0"}],
                      value="1" if config.get("auto_adjust_enabled", defaults.get("auto_adjust_enabled", True)) else "0"),
-        ctx["input"]("最小调节间隔(秒)", name="min_interval_seconds", type="number",
+        ctx["input"]("最小调节间隔 (秒)", name="min_interval_seconds", type="number",
                     value=config.get("min_interval_seconds", defaults.get("min_interval_seconds", 300))),
-        ctx["input"]("自动调节间隔(秒)", name="auto_adjust_interval_seconds", type="number",
+        ctx["input"]("自动调节间隔 (秒)", name="auto_adjust_interval_seconds", type="number",
                     value=config.get("auto_adjust_interval_seconds", defaults.get("auto_adjust_interval_seconds", 900))),
         ctx["input"]("最小雷达事件数", name="auto_adjust_min_events", type="number",
                     value=config.get("auto_adjust_min_events", defaults.get("auto_adjust_min_events", 3))),
@@ -621,6 +633,74 @@ async def _render_llm_config(ctx: dict, config: dict, defaults: dict):
         reset_to_default("llm")
         ctx["toast"]("已恢复默认配置", color="success")
         ctx["close_popup"]()
+    elif form and form.get("action") == "cancel":
+        ctx["close_popup"]()
+
+
+async def _render_dtalk_config(ctx: dict, config: dict, defaults: dict):
+    """渲染钉钉通知配置"""
+    from pywebio.input import input
+    
+    ctx["put_markdown"]("### 📱 钉钉通知配置")
+    ctx["put_markdown"]("配置流动性预测系统的钉钉机器人通知。")
+    ctx["put_markdown"]("> **获取钉钉机器人 Webhook**: 在钉钉群中添加自定义机器人，复制 Webhook 地址")
+    
+    dtalk_webhook = config.get("dtalk.webhook", "")
+    dtalk_secret = config.get("dtalk.secret", "")
+    
+    form = await ctx["input_group"]("钉钉通知配置", [
+        ctx["input"]("钉钉机器人 Webhook", name="webhook", type="text",
+                    value=dtalk_webhook,
+                    placeholder="https://oapi.dingtalk.com/robot/send?access_token=xxx"),
+        ctx["input"]("签名密钥 (Secret)", name="secret", type=ctx["PASSWORD"],
+                    value="",  # 不显示已保存的密钥，避免泄露
+                    placeholder="SEC 开头的安全设置密钥（可选但推荐）"),
+        ctx["actions"]("操作", [
+            {"label": "保存配置", "value": "save", "color": "primary"},
+            {"label": "测试发送", "value": "test", "color": "success"},
+            {"label": "取消", "value": "cancel", "color": "default"},
+        ], name="action"),
+    ])
+    
+    if form and form.get("action") == "save":
+        webhook = form.get("webhook", "").strip()
+        secret = form.get("secret", "").strip()
+        
+        if not webhook:
+            ctx["toast"]("Webhook 地址不能为空", color="error")
+            return
+        
+        # 保存配置
+        set_config("dtalk.webhook", webhook)
+        if secret:  # 只有填写了新密钥才更新
+            set_config("dtalk.secret", secret)
+        
+        ctx["toast"]("钉钉通知配置已保存", color="success")
+        ctx["close_popup"]()
+        
+    elif form and form.get("action") == "test":
+        webhook = form.get("webhook", "").strip()
+        
+        if not webhook:
+            ctx["toast"]("Webhook 地址不能为空", color="error")
+            return
+        
+        # 临时保存配置用于测试
+        set_config("dtalk.webhook", webhook)
+        if form.get("secret", "").strip():
+            set_config("dtalk.secret", form.get("secret", "").strip())
+        
+        # 发送测试消息
+        try:
+            from deva.endpoints import Dtalk
+            
+            test_message = "@md@Naja 流动性预测系统测试|✅ 钉钉通知配置成功！\n\n系统已正确配置，可以正常发送通知。"
+            test_message >> Dtalk()
+            
+            ctx["toast"]("测试消息发送成功！", color="success")
+        except Exception as e:
+            ctx["toast"](f"发送失败：{str(e)}", color="error")
+            
     elif form and form.get("action") == "cancel":
         ctx["close_popup"]()
 

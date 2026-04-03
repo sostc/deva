@@ -128,6 +128,9 @@ class AttentionOrchestrator:
             self._last_noise_log_time = 0
             self._noise_log_interval = 60
 
+            self._attention_errors = {"kernel": 0, "update": 0, "pytorch": 0, "strategy_dispatch": 0}
+            self._total_updates = 0
+
             self._init_attention_kernel()
 
             from .pipeline import PipelineManager, PipelineConfig
@@ -397,7 +400,8 @@ class AttentionOrchestrator:
             return result
 
         except Exception as e:
-            log.debug(f"[Kernel] 处理失败: {e}")
+            self._attention_errors["kernel"] += 1
+            log.warning(f"[AttentionCenter] Kernel 处理失败 (累计{self._attention_errors['kernel']}次): {e}")
             return None
 
     @property
@@ -576,6 +580,7 @@ class AttentionOrchestrator:
         """更新注意力系统"""
         print(f"[DEBUG] _update_attention ENTER")
         sys.stdout.flush()
+        self._total_updates += 1
 
         attention_sys = self._integration.attention_system
         is_init = attention_sys is not None and getattr(attention_sys, '_initialized', False)
@@ -592,7 +597,8 @@ class AttentionOrchestrator:
                     log.warning("注意力系统未启用 (enabled=False)，跳过")
                     return
             except Exception as e:
-                log.error(f"注意力系统自动初始化失败: {e}")
+                self._attention_errors["update"] += 1
+                log.error(f"[AttentionCenter] 注意力系统自动初始化失败 (累计{self._attention_errors['update']}次): {e}")
                 import traceback
                 log.error(traceback.format_exc())
                 return
@@ -851,13 +857,26 @@ class AttentionOrchestrator:
                     change = float(row.get('p_change', 0)) if 'p_change' in row else 0.0
                     volume = float(row.get('volume', 0))
                     sector = str(row.get('sector', row.get('industry', ''))) if 'sector' in row or 'industry' in row else ''
+                    market = str(row.get('market', 'CN')) if 'market' in row else 'CN'
                     if symbol:
                         symbol_market_data[symbol] = {
                             'price': price,
                             'change': change,
                             'volume': volume,
-                            'sector': sector
+                            'sector': sector,
+                            'market': market
                         }
+
+                try:
+                    us_snapshot = None
+                    if self._integration and self._integration.attention_system:
+                        us_snapshot = self._integration.attention_system.get_us_symbol_snapshot()
+                    if us_snapshot:
+                        for sym, info in us_snapshot.items():
+                            if sym not in symbol_market_data:
+                                symbol_market_data[sym] = info
+                except Exception as e:
+                    log.debug(f"合并美股快照失败: {e}")
 
                 tracker.record_snapshot(
                     global_attention=self._cached_global_attention,
@@ -939,6 +958,12 @@ class AttentionOrchestrator:
 
         except Exception as e:
             log.debug(f"通知认知系统失败: {e}")
+
+        try:
+            from deva.naja.snapshot_manager import record_attention_snapshot
+            record_attention_snapshot()
+        except Exception as e:
+            log.debug(f"记录注意力快照失败: {e}")
 
     def _trigger_llm_analysis(self):
         """触发LLM分析（认知系统深度分析）"""
@@ -2647,6 +2672,7 @@ class AttentionOrchestrator:
     def get_stats(self) -> Dict[str, Any]:
         """获取统计信息"""
         noise_stats = self._noise_filter.get_stats() if self._noise_filter else {}
+        total_errors = sum(self._attention_errors.values()) if hasattr(self, '_attention_errors') else 0
 
         return {
             'registered_strategies': len(self._strategies),
@@ -2656,7 +2682,11 @@ class AttentionOrchestrator:
             'filter_ratio': self._filtered_frames / max(self._processed_frames, 1),
             'global_attention': self._cached_global_attention,
             'high_attention_count': len(self._cached_high_attention_symbols),
-            'noise_filter': noise_stats
+            'noise_filter': noise_stats,
+            'total_updates': getattr(self, '_total_updates', 0),
+            'total_errors': total_errors,
+            'error_rate': total_errors / max(getattr(self, '_total_updates', 1), 1),
+            'errors_by_stage': dict(self._attention_errors) if hasattr(self, '_attention_errors') else {},
         }
 
 

@@ -94,7 +94,28 @@ DEFAULT_NARRATIVE_KEYWORDS: Dict[str, List[str]] = {
         "英镑", "GBP", "人民币", "CNY", "离岸人民币", "在岸人民币",
         "美元兑", "美元走强", "美元走弱", "美元反弹", "美元回落",
         "美联储", "Fed", "利率决策", "加息", "降息", "鲍威尔",
-        "非农", "就业数据", "CPI", "PCE", "通胀数据",
+    ],
+    "经济增长": [
+        "GDP", "国内生产总值", "经济增速", "经济增长", "经济扩张", "经济放缓", "经济衰退",
+        "PMI", "制造业 PMI", "服务业 PMI", "非制造业 PMI", "采购经理指数",
+        "非农", "非农就业", "就业人数", "失业率", "初请失业金", "续请失业金",
+        "零售销售", "消费数据", "社会消费品", "零售额",
+        "工业产出", "工业增加值", "制造业产出",
+        "耐用品订单", "资本品订单",
+        "新屋开工", "成屋销售", "营建许可",
+        "消费者信心", "密歇根信心", "消费者预期",
+        "经济领先指标", "经济同步指标", "经济滞后指标",
+        "软着陆", "硬着陆", "经济复苏", "经济过热",
+    ],
+    "通胀数据": [
+        "CPI", "消费者物价指数", "通胀率", "通胀数据", "物价指数",
+        "核心 CPI", "核心通胀", "通胀预期",
+        "PCE", "个人消费支出", "核心 PCE", "美联储通胀目标",
+        "PPI", "生产者物价指数", "出厂价格", "投入价格",
+        "薪资增长", "工资增速", "平均时薪", "就业成本指数",
+        "通胀压力", "通胀飙升", "通胀降温", "通胀见顶",
+        "通胀目标", "通胀中枢", "通胀粘性",
+        "超级通胀", "恶性通胀", "通缩", "通货紧缩",
     ],
     "全球宏观": [
         "全球市场", "全球流动性", "金融危机", "经济衰退", "硬着陆", "软着陆",
@@ -561,10 +582,46 @@ class NarrativeTracker:
 
         conclusion = " | ".join(conclusion_parts) if conclusion_parts else "象限数据收集中..."
 
+        # ========== 整合美林时钟周期判断 ==========
+        try:
+            from deva.naja.cognition.merrill_clock_engine import get_merrill_clock_engine
+            clock_engine = get_merrill_clock_engine()
+            clock_signal = clock_engine.get_current_signal()
+            
+            if clock_signal:
+                clock_phase = clock_signal.phase.value
+                clock_confidence = clock_signal.confidence
+                asset_ranking = clock_signal.asset_ranking
+                clock_reason = clock_signal.reason
+                
+                phase_best_asset = {
+                    "复苏": "股票",
+                    "过热": "商品",
+                    "滞胀": "现金",
+                    "衰退": "债券",
+                }
+                best_asset = phase_best_asset.get(clock_phase, "")
+                
+                long_term = f"周期：{clock_phase}({clock_confidence:.0%})→{best_asset}最佳"
+            else:
+                long_term = "周期数据收集中..."
+                clock_phase = None
+                asset_ranking = []
+        except Exception as e:
+            long_term = "周期判断暂不可用"
+            clock_phase = None
+            asset_ranking = []
+
+        final_conclusion = f"{long_term} | {conclusion}"
+
         return {
             "quadrants": quadrants,
             "related": related,
-            "conclusion": conclusion,
+            "clock_phase": clock_phase,
+            "asset_ranking": asset_ranking,
+            "short_term": conclusion,
+            "long_term": long_term,
+            "conclusion": final_conclusion,
             "timestamp": time.time(),
         }
 
