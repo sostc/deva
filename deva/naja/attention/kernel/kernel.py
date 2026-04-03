@@ -329,7 +329,23 @@ class AttentionKernel:
         Returns:
             attention 结果 dict（含统一末那识状态）
         """
+        # 优先从美林时钟获取宏观信号
         macro_signal = 0.5
+        try:
+            from deva.naja.cognition.merrill_clock_engine import get_merrill_clock_engine
+            from deva.naja.cognition.merrill_clock_to_manas import get_merrill_macro_signal
+            
+            clock = get_merrill_clock_engine()
+            signal = clock.get_current_signal()
+            if signal:
+                macro_signal = get_merrill_macro_signal(
+                    phase=signal.phase,
+                    confidence=signal.confidence,
+                )
+        except Exception:
+            pass
+        
+        # 兜底：从 QueryState 获取
         if hasattr(Q, 'macro_liquidity_signal'):
             macro_signal = Q.macro_liquidity_signal
 

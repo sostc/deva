@@ -825,13 +825,41 @@ class StrategyEntry(RecoverableUnit):
     
     def _save_result(self, result: Any):
         try:
+            timestamp = time.time()
+
+            try:
+                from ..log_stream import log_strategy
+                result_preview = str(result)[:500] if result else ""
+                log_strategy(
+                    "INFO",
+                    self.id,
+                    self.name,
+                    f"策略执行完成: {result_preview}",
+                    result_type="strategy_output"
+                )
+            except ImportError:
+                pass
+
             db = NB(STRATEGY_RESULTS_TABLE)
-            result_key = f"{self.id}_{int(time.time() * 1000)}"
+            result_key = f"{self.id}_{int(timestamp * 1000)}"
+
+            summary = None
+            if isinstance(result, dict):
+                summary = {
+                    "keys": list(result.keys())[:20],
+                    "size_bytes": len(str(result)),
+                }
+                if "signals" in result:
+                    summary["signal_count"] = len(result.get("signals", []))
+                if "stats" in result:
+                    stats = result.get("stats", {})
+                    summary["stats_preview"] = {k: stats.get(k) for k in list(stats.keys())[:5]}
+
             db[result_key] = {
                 "strategy_id": self.id,
                 "strategy_name": self.name,
-                "result": result,
-                "timestamp": time.time(),
+                "timestamp": timestamp,
+                "summary": summary,
             }
         except Exception:
             pass

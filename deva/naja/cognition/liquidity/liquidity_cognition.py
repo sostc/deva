@@ -46,6 +46,7 @@ from deva.naja.cognition.liquidity.verification_scheduler import (
     LiquidityVerificationScheduler,
     VerificationSchedule,
 )
+from deva.naja.cognition.liquidity.notifier import get_notifier
 
 log = logging.getLogger(__name__)
 
@@ -262,7 +263,20 @@ class PredictionTracker:
 
         from datetime import datetime
         verify_time_str = datetime.fromtimestamp(verify_at).strftime("%H:%M:%S")
-        log.info(f"[PredictionTracker] 创建预测 {prediction_id}: {from_market} → {to_market} ({direction}), 验证时间: {verify_time_str} ({verify_reason})")
+        log.info(f"[PredictionTracker] 创建预测 {prediction_id}: {from_market} → {to_market} ({direction}), 验证时间：{verify_time_str} ({verify_reason})")
+
+        # 发送通知（高置信度预测）
+        if probability > 0.7:
+            notifier = get_notifier()
+            verify_minutes = (verify_at - time.time()) / 60
+            notifier.send_prediction_created(
+                from_market=from_market,
+                to_market=to_market,
+                direction=direction,
+                probability=probability,
+                source_change=source_change or 0,
+                verify_minutes=verify_minutes,
+            )
 
         return prediction_id
 
@@ -425,10 +439,21 @@ class PredictionTracker:
             self._predictions_by_status[PredictionStatus.CONFIRMED].append(prediction_id)
             self._stats["total_confirmed"] += 1
 
-            log.info(f"[PredictionTracker] 预测 {prediction_id} 验证通过: {prediction.direction} == {actual_direction}")
+            log.info(f"[PredictionTracker] 预测 {prediction_id} 验证通过：{prediction.direction} == {actual_direction}")
 
             # 增强边权重
             self._boost_edge(prediction.edge_key)
+
+            # 发送通知（高置信度预测验证成功）
+            if prediction.probability > 0.7:
+                notifier = get_notifier()
+                notifier.send_prediction_confirmed(
+                    from_market=prediction.from_market,
+                    to_market=prediction.to_market,
+                    direction=prediction.direction,
+                    probability=prediction.probability,
+                    actual_change=actual_change,
+                )
         else:
             prediction.status = PredictionStatus.DENIED
             prediction.denied_at = time.time()
@@ -436,10 +461,21 @@ class PredictionTracker:
             self._predictions_by_status[PredictionStatus.DENIED].append(prediction_id)
             self._stats["total_denied"] += 1
 
-            log.info(f"[PredictionTracker] 预测 {prediction_id} 验证失败: {prediction.direction} != {actual_direction}")
+            log.info(f"[PredictionTracker] 预测 {prediction_id} 验证失败：{prediction.direction} != {actual_direction}")
 
             # 衰减边权重
             self._decay_edge(prediction.edge_key)
+
+            # 发送通知（预测验证失败）
+            notifier = get_notifier()
+            notifier.send_prediction_denied(
+                from_market=prediction.from_market,
+                to_market=prediction.to_market,
+                direction=prediction.direction,
+                probability=prediction.probability,
+                actual_change=actual_change,
+                reason="direction_mismatch",
+            )
 
         # 记录到历史
         self._history.append(prediction.to_dict())
