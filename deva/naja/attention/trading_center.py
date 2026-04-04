@@ -42,6 +42,7 @@ class FusionResult:
     """决策融合结果（提案完整版）"""
     final_confidence: float = 0.5
     position_adjustment: float = 0.0
+    final_position: float = 0.0  # 当前仓位+调整后的最终仓位
     action_type: str = "hold"
     should_act: bool = False
     reasoning: List[str] = field(default_factory=list)
@@ -51,6 +52,7 @@ class FusionResult:
         return {
             "final_confidence": self.final_confidence,
             "position_adjustment": self.position_adjustment,
+            "final_position": self.final_position,
             "action_type": self.action_type,
             "should_act": self.should_act,
             "reasoning": self.reasoning,
@@ -256,6 +258,7 @@ class DecisionFusion:
         return FusionResult(
             final_confidence=round(final_confidence, 3),
             position_adjustment=round(position_adjustment, 3),
+            final_position=round(final_position, 3),
             action_type=action_type,
             should_act=should_act,
             reasoning=reasoning,
@@ -372,14 +375,7 @@ class TradingCenter:
                 log.warning(f"[TradingCenter] AwakenedAlaya.illuminate 失败: {e}")
 
         fusion = self._fuse_decisions(kernel_output, fp_insights, awakening_level)
-
         fusion.recalled_patterns = recalled_patterns
-        fusion.manas_score = kernel_output.manas_score
-        fusion.timing_score = kernel_output.timing_score
-        fusion.regime_score = kernel_output.regime_score
-        fusion.confidence_score = kernel_output.confidence_score
-        fusion.bias_state = kernel_output.bias_state
-        fusion.bias_correction = kernel_output.bias_correction
 
         return fusion
 
