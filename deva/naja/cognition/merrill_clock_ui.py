@@ -18,6 +18,25 @@ from deva.naja.cognition.merrill_clock_to_manas import (
     get_merrill_phase_display,
 )
 
+try:
+    from deva.naja.cognition.ui import get_running_cognition_engine
+except ImportError:
+    get_running_cognition_engine = None
+
+
+def _get_narrative_summary() -> List[Dict[str, Any]]:
+    """获取叙事总结数据"""
+    if not get_running_cognition_engine:
+        return []
+    try:
+        engine = get_running_cognition_engine()
+        if not engine:
+            return []
+        report = engine.get_memory_report()
+        return report.get('narratives', {}).get('summary', [])
+    except Exception:
+        return []
+
 
 # 四象限配置
 QUADRANT_CONFIG = {
@@ -233,6 +252,148 @@ def _build_asset_ranking_html(ranking: List[str]) -> str:
     return bars
 
 
+LIQUIDITY_QUADRANTS = {
+    "股票市场": {"icon": "📈", "color": "#4ade80", "desc": "资金风险偏好"},
+    "债券市场": {"icon": "📊", "color": "#60a5fa", "desc": "资金避险"},
+    "大宗商品": {"icon": "🛢️", "color": "#f97316", "desc": "通胀预期"},
+    "现金与货币": {"icon": "💵", "color": "#a855f7", "desc": "资金观望"},
+}
+
+STAGE_COLORS = {
+    '萌芽': '#60a5fa',
+    '扩散': '#818cf8',
+    '高潮': '#f87171',
+    '消退': '#fb923c',
+}
+
+
+def _build_liquidity_overlay_html(ctx: dict, narrative_summary: List[Dict], current_phase: MerrillClockPhase) -> None:
+    """构建可折叠的叙事热度叠加层 - 挂在美林时钟框架上"""
+    if not narrative_summary:
+        return
+
+    quadrants_data = []
+    for name, info in LIQUIDITY_QUADRANTS.items():
+        found = None
+        for nar in narrative_summary:
+            if nar.get('narrative') == name:
+                found = nar
+                break
+        quadrants_data.append({
+            "name": name,
+            "info": info,
+            "data": found,
+        })
+
+    quadrant_items_html = ""
+    for q in quadrants_data:
+        name = q["name"]
+        info = q["info"]
+        icon = info["icon"]
+        base_color = info["color"]
+
+        if q["data"]:
+            stage = q["data"].get('stage', '萌芽')
+            attention = float(q["data"].get('attention_score', 0))
+            recent_count = int(q["data"].get('recent_count', 0))
+            trend = float(q["data"].get('trend', 0))
+            stage_color = STAGE_COLORS.get(stage, '#60a5fa')
+            bar_width = min(100, int(attention * 100))
+            trend_icon = '↑' if trend > 0 else ('↓' if trend < 0 else '→')
+            trend_color = '#4ade80' if trend > 0 else ('#f87171' if trend < 0 else '#6b7280')
+        else:
+            stage = "无数据"
+            attention = 0
+            recent_count = 0
+            trend = 0
+            stage_color = '#475569'
+            bar_width = 0
+            trend_icon = '?'
+            trend_color = '#6b7280'
+
+        trend_str = f"{trend_icon} {abs(trend):.2f}" if isinstance(trend, float) else f"{trend_icon}"
+
+        quadrant_items_html += f"""
+        <div style="background: rgba(255,255,255,0.5); border-radius: 10px; padding: 10px 12px; margin-bottom: 8px; border-left: 3px solid {base_color};">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                <div style="display: flex; align-items: center; gap: 8px;">
+                    <span style="font-size: 14px;">{icon}</span>
+                    <span style="font-size: 12px; font-weight: 600; color: #374151;">{name}</span>
+                </div>
+                <div style="display: flex; align-items: center; gap: 8px;">
+                    <span style="padding: 2px 6px; background: {stage_color}; color: #0f172a; border-radius: 4px; font-size: 9px; font-weight: 600;">{stage}</span>
+                    <span style="font-size: 10px; color: {trend_color}; font-weight: 600;">{trend_str}</span>
+                    <span style="font-size: 9px; color: #6b7280;">{recent_count}次</span>
+                </div>
+            </div>
+            <div style="display: flex; height: 5px; border-radius: 3px; overflow: hidden; gap: 2px;">
+                <div style="flex: {bar_width}; background: linear-gradient(90deg, {base_color}, {base_color}cc); border-radius: 3px 0 0 3px;"></div>
+                <div style="flex: {100 - bar_width}; background: #e5e7eb; border-radius: 0 3px 3px 0;"></div>
+            </div>
+            <div style="display: flex; justify-content: space-between; margin-top: 4px;">
+                <span style="font-size: 9px; color: #6b7280;">关注度 <b style="color: {base_color};">{attention:.2f}</b></span>
+                <span style="font-size: 9px; color: #9ca3af;">{bar_width}%</span>
+            </div>
+        </div>
+        """
+
+    active_quadrants = [q["name"] for q in quadrants_data if q["data"] and q["data"].get("stage") in ("高潮", "扩散")]
+    liquidity_conclusion = ""
+    if active_quadrants:
+        if len(active_quadrants) >= 2:
+            liquidity_conclusion = f"资金同时偏好: {', '.join(active_quadrants[:2])}"
+        else:
+            liquidity_conclusion = f"资金集中于: {active_quadrants[0]}"
+    else:
+        no_data_quadrants = [q["name"] for q in quadrants_data if not q["data"]]
+        if len(no_data_quadrants) == 4:
+            liquidity_conclusion = "美林时钟象限暂无数据，关注叙事生命周期"
+        else:
+            all_fading = all(q["data"].get("stage") in ("消退", "萌芽") for q in quadrants_data if q["data"])
+            if all_fading:
+                liquidity_conclusion = "所有象限处于低活跃，资金观望"
+            else:
+                liquidity_conclusion = "象限数据收集中..."
+
+    ctx["put_html"](f"""
+    <div style="
+        background: linear-gradient(135deg, #faf5ff 0%, #fff 100%);
+        border: 1px solid #e9d5ff;
+        border-radius: 16px;
+        padding: 16px;
+        margin: 20px 0;
+    ">
+        <div style="display: flex; justify-content: space-between; align-items: center; cursor: pointer; margin-bottom: 0;"
+             onclick="this.nextElementSibling.style.display = this.nextElementSibling.style.display === 'none' ? 'block' : 'none'; this.querySelector('.arrow').textContent = this.nextElementSibling.style.display === 'none' ? '▶' : '▼';">
+            <div>
+                <div style="font-size: 14px; font-weight: 700; color: #7c3aed; margin-bottom: 2px;">
+                    📰 新闻热度叠加层
+                </div>
+                <div style="font-size: 11px; color: #6b7280;">
+                    热度: 萌芽 → 扩散 → 高潮 → 消退 | 资金流向实时反映新闻焦点
+                </div>
+            </div>
+            <div style="font-size: 12px; color: #7c3aed;">
+                <span class="arrow" style="font-size: 10px;">▼</span> 展开/收起
+            </div>
+        </div>
+        <div style="margin-top: 12px;">
+            {quadrant_items_html}
+            <div style="
+                margin-top: 12px;
+                padding: 10px 12px;
+                background: rgba(168,85,247,0.1);
+                border-radius: 8px;
+                border: 1px solid rgba(168,85,247,0.2);
+            ">
+                <div style="font-size: 10px; color: #7c3aed; font-weight: 600;">💡 流动性结论</div>
+                <div style="font-size: 12px; color: #4b5563; margin-top: 4px;">{liquidity_conclusion}</div>
+            </div>
+        </div>
+    </div>
+    """)
+
+
 async def render_merrill_clock_page(ctx: dict):
     """渲染美林时钟主页面"""
     try:
@@ -385,6 +546,11 @@ async def render_merrill_clock_page(ctx: dict):
         {_build_quadrant_map_html(signal.phase)}
     </div>
     """)
+
+    # 新闻热度叠加层 - 可折叠
+    narrative_summary = _get_narrative_summary()
+    if narrative_summary:
+        _build_liquidity_overlay_html(ctx, narrative_summary, signal.phase)
 
     # 资产配置
     if signal.asset_ranking:

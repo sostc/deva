@@ -237,8 +237,7 @@ class AttentionOrchestrator:
             multi_head = MultiHeadAttention(heads)
             memory = AttentionMemory(decay_rate=300)
 
-            self._attention_kernel = AttentionKernel(encoder, multi_head, memory, enable_manas=False)
-            self._attention_kernel.set_unified_manas_enabled(True)
+            self._attention_kernel = AttentionKernel(encoder, multi_head, memory, enable_manas=True)
             self._attention_query_state = QueryState()
             self._trade_feedback_history: List[Dict[str, Any]] = []
 
@@ -514,6 +513,12 @@ class AttentionOrchestrator:
         """处理数据源数据"""
         _lab_debug_log(f"[Center] process_datasource_data called: datasource={datasource_id}, data_type={type(data)}")
 
+        if isinstance(data, dict):
+            data = self._convert_dict_to_dataframe(data)
+            if data is None:
+                log.debug(f"[Center] 数据源 {datasource_id} 无法将 dict 转换为 DataFrame，跳过")
+                return
+
         if pd is None or not isinstance(data, pd.DataFrame):
             log.debug(f"[Center] 数据源 {datasource_id} 数据格式不正确，跳过")
             return
@@ -575,6 +580,55 @@ class AttentionOrchestrator:
                 execution_time_ms=latency,
                 success=True
             )
+
+    def _convert_dict_to_dataframe(self, data: dict) -> Optional[pd.DataFrame]:
+        """将 dict 格式的市场数据转换为 DataFrame
+
+        支持的 dict 格式（来自测试数据生成器）：
+        {
+            "timestamp": "2024-01-01T10:00:00",
+            "market": {...},
+            "symbols": {
+                "NVDA": {"price": 100.0, "change": 0.02},
+                "AAPL": {"price": 150.0, "change": -0.01},
+                ...
+            },
+            "indices": {...}
+        }
+        """
+        try:
+            if 'symbols' not in data:
+                return None
+
+            symbols = data.get('symbols', {})
+            if not symbols:
+                return None
+
+            rows = []
+            market_info = data.get('market', {})
+            timestamp = data.get('timestamp', '')
+
+            for code, info in symbols.items():
+                row = {
+                    'code': code,
+                    'now': info.get('price', 0),
+                    'change_pct': info.get('change', 0) * 100 if isinstance(info.get('change'), (int, float)) else 0,
+                    'volume': market_info.get('volume', 0),
+                    'date': timestamp[:10] if timestamp else '',
+                    'time': timestamp[11:19] if timestamp else '',
+                }
+                rows.append(row)
+
+            if not rows:
+                return None
+
+            df = pd.DataFrame(rows)
+            log.debug(f"[Center] 将 dict 转换为 DataFrame 成功: {len(df)} 行")
+            return df
+
+        except Exception as e:
+            log.warning(f"[Center] dict 转 DataFrame 失败: {e}")
+            return None
 
     def _update_attention(self, data: pd.DataFrame):
         """更新注意力系统"""
@@ -1084,21 +1138,17 @@ class AttentionOrchestrator:
         try:
             market_state = self._build_awakened_market_state(data, symbol_market_data)
 
-            if self._awakened_alaya and symbol_market_data:
-                alaya_data = {s: d.get("change", 0) for s, d in symbol_market_data.items()}
-                alaya_result = self._awakened_alaya.illuminate(alaya_data)
-                if alaya_result and self._awakened_state:
-                    self._awakened_state["awakening_level"] = alaya_result.get("awakening_level", "dormant")
-                    if alaya_result.get("recalled_patterns"):
-                        self._awakened_state["illuminated_patterns"] += len(alaya_result["recalled_patterns"])
+            cognition_context = self._get_cognition_context()
 
+            fp_result = None
+            fp_insights = []
             if self._first_principles_mind and market_state:
-                cognition_context = self._get_cognition_context()
                 narratives = cognition_context.get("narratives", [])
                 topic_signals = cognition_context.get("topic_signals", [])
                 market_sentiment = cognition_context.get("market_sentiment", "neutral")
                 ai_compute_trend = cognition_context.get("ai_compute_trend")
                 ai_positions = cognition_context.get("ai_positions", {})
+                problem_opportunity = self._get_problem_opportunity_context()
 
                 fp_result = self._first_principles_mind.think(
                     market_data={
@@ -1110,30 +1160,84 @@ class AttentionOrchestrator:
                     topic_signals=topic_signals if topic_signals else None,
                     news_sentiment=market_sentiment if market_sentiment != "neutral" else None,
                     ai_compute_trend=ai_compute_trend,
-                    ai_positions=ai_positions if ai_positions else None
+                    ai_positions=ai_positions if ai_positions else None,
+                    problem_opportunity=problem_opportunity
                 )
-                if fp_result and self._awakened_state:
-                    self._awakened_state["first_principles_insights"] += len(fp_result.get("insights", []))
+                fp_insights = fp_result.get("insights", []) if fp_result else []
+                if fp_insights and self._awakened_state:
+                    self._awakened_state["first_principles_insights"] += len(fp_insights)
+
+            manas_decision = None
+            unified_manas_output = None
+            manas_engine = self._attention_kernel.get_manas_engine() if self._attention_kernel else None
+            if manas_engine and market_state:
+                portfolio_state = getattr(self._attention_query_state, 'portfolio_state', None) or {}
+                manas_output = manas_engine.compute(
+                    session_manager=None,
+                    portfolio=portfolio_state if isinstance(portfolio_state, dict) else None,
+                    scanner=None,
+                    bandit_tracker=None,
+                    macro_signal=0.5,
+                    narratives=cognition_context.get("narratives", [])
+                )
+                if manas_output:
+                    should_act = manas_output.should_act
+                    harmony_strength = manas_output.harmony_strength
+                    timing_score = manas_output.timing_score
+                    regime_score = manas_output.regime_score
+                    confidence_score = manas_output.confidence_score
+
+                    if should_act and fp_insights:
+                        insight_confidence = sum(i.get('confidence', 0.5) for i in fp_insights) / len(fp_insights) if fp_insights else 0.5
+                        fused_confidence = harmony_strength * 0.7 + insight_confidence * 0.3
+                        if self._awakened_state:
+                            self._awakened_state["fused_confidence"] = fused_confidence
+                            self._awakened_state["fusion_note"] = f"FP insights={len(fp_insights)}, original={harmony_strength:.2f}, fused={fused_confidence:.2f}"
+                    else:
+                        if self._awakened_state:
+                            self._awakened_state["fused_confidence"] = harmony_strength
+                            self._awakened_state["fusion_note"] = f"HOLD (FP insights stored for next time)"
+
+                    unified_manas_output = {
+                        "confidence": harmony_strength,
+                        "harmony_state": manas_output.harmony_state.value if hasattr(manas_output.harmony_state, 'value') else str(manas_output.harmony_state),
+                        "harmony_strength": harmony_strength,
+                        "timing_score": timing_score,
+                        "regime_score": regime_score,
+                        "confidence_score": confidence_score,
+                        "action_type": manas_output.action_type.value if hasattr(manas_output.action_type, 'value') else str(manas_output.action_type),
+                        "reason": manas_output.action_gate_reason,
+                    }
+                    if self._awakened_state:
+                        self._awakened_state["adaptive_decisions"] += 1
+
+            alaya_result = None
+            if self._awakened_alaya and symbol_market_data:
+                alaya_data = {s: d.get("change", 0) for s, d in symbol_market_data.items()}
+
+                alaya_result = self._awakened_alaya.illuminate(
+                    alaya_data,
+                    signals=None,
+                    unified_manas_output=unified_manas_output,
+                    fp_insights=fp_insights
+                )
+
+                if alaya_result and self._awakened_state:
+                    self._awakened_state["awakening_level"] = alaya_result.get("awakening_level", "dormant")
+                    if alaya_result.get("recalled_patterns"):
+                        self._awakened_state["illuminated_patterns"] += len(alaya_result["recalled_patterns"])
+                        self._awakened_state["last_recalled_patterns"] = alaya_result["recalled_patterns"]
+                    self._awakened_state["alaya_result"] = alaya_result
 
             if self._volatility_surface:
                 vol_result = self._apply_volatility_surface_check(data)
                 if vol_result:
                     self._awakened_state["volatility_signals"] += 1
 
-            if self._adaptive_manas and market_state:
-                portfolio_state = self._attention_query_state.portfolio_state
-                decision = self._adaptive_manas.compute_decision(
-                    market_state,
-                    portfolio=portfolio_state
-                )
-                if decision and self._awakened_state:
-                    self._awakened_state["adaptive_decisions"] += 1
-
             if self._pre_taste and symbol_market_data:
                 self._awakened_state["pre_taste_count"] += 1
 
             if self._prophet_sense:
-                cognition_context = self._get_cognition_context()
                 narratives = cognition_context.get("narratives", [])
                 sector_resonances = cognition_context.get("sector_resonances", {})
                 narrative_data = None
@@ -1238,11 +1342,13 @@ class AttentionOrchestrator:
                 if self._awakened_state:
                     self._awakened_state["risk_alert_count"] += 1
 
+            alaya_result = self._awakened_state.get("alaya_result", {}) if self._awakened_state else {}
+
             wisdom = WisdomInput(
                 prophet_signal=getattr(self, '_last_prophet_signal', None),
                 taste_signal=getattr(self, '_last_taste_signal', None),
-                illuminated_patterns=[],
-                adaptive_decision=getattr(self, '_last_adaptive_decision', None),
+                illuminated_patterns=alaya_result.get("recalled_patterns", []) if alaya_result else [],
+                adaptive_decision=alaya_result.get("awakenings", []) if alaya_result else [],
                 narrative_summary=None,
                 opportunities=self._opportunity_engine.get_active_opportunities() if self._opportunity_engine else [],
                 epiphany=None
@@ -1353,6 +1459,11 @@ class AttentionOrchestrator:
             signals = self._apply_awakening_adjustments(signals, data)
             signals = self._apply_cognition_to_signals(signals, data)
             signals = self._apply_pre_taste_filter(signals, data)
+
+            if self._processed_frames % 50 == 0:
+                status = self.get_human_readable_status()
+                print(f"\n{status}\n")
+
             self._execute_signals(signals)
         elif self._processed_frames % 10 == 0:
             active_count = sum(1 for c in strategy_mgr.configs.values() if c.enabled)
@@ -1539,6 +1650,27 @@ class AttentionOrchestrator:
             "attention_shift": {},
         }
 
+        # ========== NarrativeTracker (叙事追踪) ==========
+        # 职责：获取当前活跃的市场叙事，用于 FirstPrinciplesMind 分析
+        try:
+            from deva.naja.cognition.narrative_tracker import NarrativeTracker
+            tracker = NarrativeTracker()
+            narrative_summary = tracker.get_summary(limit=10)
+            if narrative_summary:
+                context["narratives"] = [
+                    {
+                        "narrative": s.get("narrative", ""),
+                        "stage": s.get("stage", "unknown"),
+                        "attention_score": s.get("attention_score", 0.5),
+                        "trend": s.get("trend", 0),
+                        "keywords": s.get("keywords", []),
+                    }
+                    for s in narrative_summary
+                ]
+                log.debug(f"[Cognition] 获取 narratives: {len(context['narratives'])} 条")
+        except Exception as e:
+            log.debug(f"[Cognition] 获取 narratives 失败: {e}")
+
         # ========== LLMReflection (慢思考) ==========
         # 职责：定期深度反思，生成高置信度洞察，包含持仓分析
         try:
@@ -1680,6 +1812,24 @@ class AttentionOrchestrator:
 
         return context
 
+    def _get_problem_opportunity_context(self) -> Optional[Dict[str, Any]]:
+        """
+        获取问题-机会-解决者分析上下文
+
+        从 NarrativeTracker 获取当前的供需问题分析结果
+
+        Returns:
+            包含 detected_problems, opportunities, resolvers 的字典
+        """
+        try:
+            from deva.naja.cognition.narrative_tracker import NarrativeTracker
+            tracker = NarrativeTracker()
+            if tracker:
+                return tracker.get_problem_opportunity_summary()
+        except Exception:
+            pass
+        return None
+
     def _apply_cognition_to_signals(self, signals: List[Any], data: pd.DataFrame) -> List[Any]:
         """
         应用认知系统反馈到信号
@@ -1814,7 +1964,14 @@ class AttentionOrchestrator:
         整合：
         1. VolatilitySurfaceSense - 高波动时降仓/暂停
         2. AwakenedAlaya - 觉醒等级影响置信度
-        3. FirstPrinciplesMind - 矛盾检测时观望
+        3. FirstPrinciplesMind - 洞察影响置信度和仓位
+
+        洞察类型的影响：
+        - opportunity + first_principles: 置信度+0.15, 仓位+20%
+        - opportunity + causal: 置信度+0.10, 仓位+10%
+        - risk + first_principles: 置信度-0.15, 仓位-30%
+        - risk + causal: 置信度-0.10, 仓位-20%
+        - caution: 置信度-0.05, 仓位-10%
         """
         if not signals:
             return signals
@@ -1825,6 +1982,9 @@ class AttentionOrchestrator:
             contradiction = self._check_contradiction()
             adaptive_factor = self._get_adaptive_factor()
 
+            fp_insights = self._awakened_state.get("last_fp_result", {}).get("insights", []) if self._awakened_state else []
+            recalled_patterns = self._awakened_state.get("last_recalled_patterns", []) if self._awakened_state else []
+
             adjusted_signals = []
 
             for signal in signals:
@@ -1834,6 +1994,7 @@ class AttentionOrchestrator:
                 confidence_adjustment = 0.0
                 should_block = False
                 block_reason = ""
+                insight_reasons = []
 
                 if vol_surface.get("regime") == "high_volatile":
                     position_multiplier *= 0.5
@@ -1852,6 +2013,59 @@ class AttentionOrchestrator:
                 elif awakening_level == "awakening":
                     confidence_adjustment += 0.05
 
+                if fp_insights:
+                    for insight in fp_insights:
+                        insight_type = insight.insight_type if hasattr(insight, 'insight_type') else str(insight.get('insight_type', ''))
+                        insight_level = insight.level.value if hasattr(insight, 'level') else str(insight.get('level', ''))
+                        insight_confidence = insight.confidence if hasattr(insight, 'confidence') else float(insight.get('confidence', 0.5))
+
+                        if insight_type == "opportunity":
+                            if insight_level == "first_principles":
+                                confidence_adjustment += 0.15 * insight_confidence
+                                position_multiplier *= 1.20
+                                insight_reasons.append(f"机会(第一性)+{0.15 * insight_confidence:.2f}")
+                            elif insight_level == "causal":
+                                confidence_adjustment += 0.10 * insight_confidence
+                                position_multiplier *= 1.10
+                                insight_reasons.append(f"机会(因果)+{0.10 * insight_confidence:.2f}")
+                            elif insight_level == "pattern":
+                                confidence_adjustment += 0.05 * insight_confidence
+                                insight_reasons.append(f"机会(模式)+{0.05 * insight_confidence:.2f}")
+
+                        elif insight_type == "risk":
+                            if insight_level == "first_principles":
+                                confidence_adjustment -= 0.15 * insight_confidence
+                                position_multiplier *= 0.70
+                                insight_reasons.append(f"风险(第一性)-{0.15 * insight_confidence:.2f}")
+                            elif insight_level == "causal":
+                                confidence_adjustment -= 0.10 * insight_confidence
+                                position_multiplier *= 0.80
+                                insight_reasons.append(f"风险(因果)-{0.10 * insight_confidence:.2f}")
+                            else:
+                                confidence_adjustment -= 0.05 * insight_confidence
+                                insight_reasons.append(f"风险-{0.05 * insight_confidence:.2f}")
+
+                        elif insight_type == "caution":
+                            confidence_adjustment -= 0.05 * insight_confidence
+                            position_multiplier *= 0.90
+                            insight_reasons.append(f"谨慎-{0.05 * insight_confidence:.2f}")
+
+                if recalled_patterns:
+                    pattern_adjustment = 0.0
+                    pattern_count = 0
+                    for pattern in recalled_patterns:
+                        pattern_success = getattr(pattern, 'success', False) or pattern.get('success', False)
+                        pattern_confidence = getattr(pattern, 'outcome', {}).get('return', 0) if hasattr(pattern, 'outcome') else pattern.get('outcome', {}).get('return', 0)
+                        if pattern_success:
+                            pattern_adjustment += 0.05
+                            pattern_count += 1
+                        else:
+                            pattern_adjustment -= 0.03
+                            pattern_count += 1
+                    if pattern_count > 0:
+                        confidence_adjustment += pattern_adjustment
+                        insight_reasons.append(f"历史模式({pattern_count}个){'+' if pattern_adjustment > 0 else ''}{pattern_adjustment:.2f}")
+
                 if contradiction.get("has_contradiction"):
                     confidence_adjustment -= 0.15
                     should_block = True
@@ -1868,9 +2082,11 @@ class AttentionOrchestrator:
                     log.info(f"[Awakening] 阻止信号 {symbol}: {block_reason}")
                     continue
 
-                if position_multiplier != 1.0:
+                if position_multiplier != 1.0 or insight_reasons:
                     signal.metadata = signal.metadata or {}
                     signal.metadata["position_multiplier"] = position_multiplier
+                    if insight_reasons:
+                        signal.metadata["insight_adjustments"] = insight_reasons
 
                 adjusted_signals.append(signal)
 
@@ -1880,11 +2096,187 @@ class AttentionOrchestrator:
             if adjusted_signals and contradiction.get("has_contradiction"):
                 log.info(f"[Awakening] 矛盾检测触发, 阻止{len(signals) - len(adjusted_signals)}个信号")
 
+            if fp_insights and len(fp_insights) > 0:
+                opp_count = sum(1 for i in fp_insights if (hasattr(i, 'insight_type') and i.insight_type == "opportunity") or (isinstance(i, dict) and i.get("insight_type") == "opportunity"))
+                risk_count = sum(1 for i in fp_insights if (hasattr(i, 'insight_type') and i.insight_type == "risk") or (isinstance(i, dict) and i.get("insight_type") == "risk"))
+                if opp_count > 0 or risk_count > 0:
+                    log.info(f"[Awakening] 第一原理洞察: 机会{opp_count}个, 风险{risk_count}个, 调整信号{len(adjusted_signals)}个")
+
             return adjusted_signals
 
         except Exception as e:
             log.warning(f"[Awakening] 调整失败: {e}")
             return signals
+
+    def _get_decision_summary(self) -> Dict[str, Any]:
+        """
+        获取人类可读的决策摘要
+
+        整合 Manas（快决策）和 FirstPrinciples（慢思考）的当前状态
+
+        Returns:
+            包含快思考和慢思考状态的字典
+        """
+        summary = {
+            "快思考_Manas": {
+                "状态": "unknown",
+                "建议": "unknown",
+                "置信度": 0.0,
+                "时机": 0.0,
+                "环境": 0.0,
+            },
+            "慢思考_FirstPrinciples": {
+                "洞察数量": 0,
+                "机会洞察": [],
+                "风险洞察": [],
+                "关键洞察": "",
+                "思考深度": "",
+            },
+            "觉醒度": "dormant",
+            "阿那亚_stats": {},
+        }
+
+        try:
+            if not self._awakened_state:
+                return summary
+
+            summary["觉醒度"] = self._awakened_state.get("awakening_level", "dormant")
+            summary["阿那亚_stats"] = self._awakened_state.get("alaya_stats", {})
+
+            fp_result = self._awakened_state.get("last_fp_result", {})
+            fp_insights = fp_result.get("insights", []) if isinstance(fp_result, dict) else []
+
+            summary["慢思考_FirstPrinciples"]["洞察数量"] = len(fp_insights)
+
+            if fp_insights:
+                opportunities = []
+                risks = []
+
+                for insight in fp_insights:
+                    if hasattr(insight, 'insight_type'):
+                        insight_type = insight.insight_type
+                        insight_level = insight.level.value if hasattr(insight, 'level') else ""
+                        insight_content = insight.content if hasattr(insight, 'content') else str(insight)
+
+                        if insight_type == "opportunity":
+                            opportunities.append(f"[{insight_level}] {insight_content[:50]}")
+                        elif insight_type == "risk":
+                            risks.append(f"[{insight_level}] {insight_content[:50]}")
+
+                summary["慢思考_FirstPrinciples"]["机会洞察"] = opportunities[:3]
+                summary["慢思考_FirstPrinciples"]["风险洞察"] = risks[:3]
+
+                key_insight = fp_result.get("key_insight") if isinstance(fp_result, dict) else None
+                if key_insight:
+                    summary["慢思考_FirstPrinciples"]["关键洞察"] = str(key_insight)[:100]
+
+                depth = fp_result.get("depth", "unknown") if isinstance(fp_result, dict) else "unknown"
+                summary["慢思考_FirstPrinciples"]["思考深度"] = depth
+
+            from deva.naja.attention.kernel.manas_engine import ManasEngine
+            manas_engine = self._attention_kernel.get_manas_engine() if self._attention_kernel else None
+            if manas_engine:
+                last_output = manas_engine._last_output
+                if last_output:
+                    summary["快思考_Manas"]["置信度"] = round(last_output.manas_score, 3)
+                    summary["快思考_Manas"]["时机"] = round(last_output.timing_score, 3)
+                    summary["快思考_Manas"]["环境"] = round(last_output.regime_score, 3)
+                    summary["快思考_Manas"]["should_act"] = last_output.should_act
+                    summary["快思考_Manas"]["action_reason"] = last_output.action_gate_reason
+
+                    if last_output.should_act:
+                        summary["快思考_Manas"]["状态"] = "✅ 可以行动"
+                    else:
+                        summary["快思考_Manas"]["状态"] = "⏸️ 等待时机"
+
+                    if last_output.ai_compute_direction != "unknown":
+                        summary["快思考_Manas"]["AI算力趋势"] = last_output.ai_compute_direction
+
+                    if last_output.problem_opportunity_score > 0:
+                        summary["快思考_Manas"]["供需问题加分"] = round(last_output.problem_opportunity_score, 2)
+
+                    if last_output.narrative_risk > 0.6:
+                        summary["快思考_Manas"]["供应链风险"] = f"{last_output.narrative_risk:.2f}"
+
+        except Exception as e:
+            log.debug(f"获取决策摘要失败: {e}")
+
+        return summary
+
+    def get_human_readable_status(self) -> str:
+        """
+        获取人类可读的当前系统状态
+
+        用于感知快思考/慢思考的决策状态
+        """
+        summary = self._get_decision_summary()
+
+        lines = []
+        lines.append("=" * 60)
+        lines.append("🧠 系统决策状态报告")
+        lines.append("=" * 60)
+
+        manas = summary.get("快思考_Manas", {})
+        fp = summary.get("慢思考_FirstPrinciples", {})
+
+        lines.append(f"\n⚡ 快思考 (Manas 末那识):")
+        lines.append(f"   状态: {manas.get('状态', 'unknown')}")
+        lines.append(f"   置信度: {manas.get('置信度', 0):.3f}")
+        lines.append(f"   时机分: {manas.get('时机', 0):.3f}")
+        lines.append(f"   环境分: {manas.get('环境', 0):.3f}")
+        if manas.get("action_reason"):
+            lines.append(f"   原因: {manas.get('action_reason')}")
+        if manas.get("AI算力趋势"):
+            lines.append(f"   AI算力: {manas.get('AI算力趋势')}")
+        if manas.get("供需问题加分"):
+            lines.append(f"   供需加分: +{manas.get('供需问题加分'):.2f}")
+        if manas.get("供应链风险"):
+            lines.append(f"   ⚠️ 供应链风险: {manas.get('供应链风险')}")
+
+        lines.append(f"\n🔍 慢思考 (FirstPrinciples 妙观察智):")
+        lines.append(f"   觉醒度: {summary.get('觉醒度', 'unknown')}")
+        lines.append(f"   洞察数量: {fp.get('洞察数量', 0)}")
+
+        opportunities = fp.get('机会洞察', [])
+        if opportunities:
+            lines.append(f"   💡 机会洞察:")
+            for opp in opportunities[:2]:
+                lines.append(f"      - {opp}")
+
+        risks = fp.get('风险洞察', [])
+        if risks:
+            lines.append(f"   ⚠️ 风险洞察:")
+            for risk in risks[:2]:
+                lines.append(f"      - {risk}")
+
+        key = fp.get('关键洞察', '')
+        if key:
+            lines.append(f"   🎯 关键洞察: {key[:60]}...")
+
+        awakened_level = summary.get('觉醒度', 'dormant')
+        lines.append(f"\n🧘 阿那亚 (AwakenedAlaya):")
+        lines.append(f"   觉醒等级: {awakened_level}")
+        if awakened_level == "dormant":
+            lines.append(f"   📊 积累中... 继续观察积累洞察")
+        elif awakened_level == "awakening":
+            lines.append(f"   🌅 觉醒中... 发现模式，经验累积")
+        elif awakened_level == "illuminated":
+            lines.append(f"   ✨ 照亮状态... 顿悟即将发生")
+        elif awakened_level == "enlightened":
+            lines.append(f"   🚀 开悟状态... 高度警觉，决策强化")
+
+        alaya_stats = self._awakened_state.get("alaya_stats", {}) if self._awakened_state else {}
+        fp_processed = alaya_stats.get("fp_insights_processed", 0)
+        if fp_processed > 0:
+            lines.append(f"   📝 已处理洞察: {fp_processed}")
+
+        illuminated_patterns = self._awakened_state.get("illuminated_patterns", 0) if self._awakened_state else 0
+        if illuminated_patterns > 0:
+            lines.append(f"   🔮 照亮模式数: {illuminated_patterns}")
+
+        lines.append("\n" + "=" * 60)
+
+        return "\n".join(lines)
 
     def _get_volatility_surface_state(self) -> Dict[str, Any]:
         """获取波动率状态"""
@@ -2648,6 +3040,52 @@ class AttentionOrchestrator:
         """获取缓存的市场时间字符串"""
         return self._cached_market_time_str
 
+    def get_lab_status(self) -> Dict[str, Any]:
+        """获取 Lab 模式状态（用于 Web UI 显示）"""
+        try:
+            manas_engine = self._attention_kernel.get_manas_engine() if self._attention_kernel else None
+            manas_info = {}
+            if manas_engine and hasattr(manas_engine, '_last_output') and manas_engine._last_output:
+                output = manas_engine._last_output
+                manas_info = {
+                    'manas_score': round(output.manas_score, 3) if output.manas_score else 0,
+                    'timing_score': round(output.timing_score, 3) if output.timing_score else 0,
+                    'regime_score': round(output.regime_score, 3) if output.regime_score else 0,
+                    'should_act': output.should_act,
+                    'action_reason': output.action_gate_reason if hasattr(output, 'action_gate_reason') else '',
+                    'ai_compute_direction': output.ai_compute_direction if hasattr(output, 'ai_compute_direction') else 'unknown',
+                    'problem_opportunity_score': round(output.problem_opportunity_score, 2) if hasattr(output, 'problem_opportunity_score') and output.problem_opportunity_score else 0,
+                    'narrative_risk': round(output.narrative_risk, 2) if hasattr(output, 'narrative_risk') and output.narrative_risk else 0,
+                    'awakening_level': output.awakening_level if hasattr(output, 'awakening_level') else 'unknown',
+                    'signal_strength': round(output.signal_strength, 3) if hasattr(output, 'signal_strength') and output.signal_strength else 0,
+                }
+
+            awakened_state = self.get_awakened_state() if hasattr(self, 'get_awakened_state') else {}
+            fp_context = self._fp_context if hasattr(self, '_fp_context') and self._fp_context else {}
+            narrative_summary = fp_context.get('narrative_summary', {}) if fp_context else {}
+
+            return {
+                'lab_mode': True,
+                'processed_frames': self._processed_frames,
+                'global_attention': round(self._cached_global_attention, 3) if self._cached_global_attention else 0,
+                'high_attention_count': len(self._cached_high_attention_symbols) if self._cached_high_attention_symbols else 0,
+                'top_symbols': self._cached_high_attention_symbols[:5] if self._cached_high_attention_symbols else [],
+                'manas': manas_info,
+                'awakened': {
+                    'level': awakened_state.get('awakening_level', 'unknown') if isinstance(awakened_state, dict) else 'unknown',
+                    'total_insights': len(awakened_state.get('fp_insights', [])) if isinstance(awakened_state, dict) else 0,
+                    'recalled_patterns': len(awakened_state.get('recalled_patterns', [])) if isinstance(awakened_state, dict) else 0,
+                },
+                'narrative': {
+                    'event_count': narrative_summary.get('total_events', 0) if narrative_summary else 0,
+                    'latest_event': narrative_summary.get('latest_event', '') if narrative_summary else '',
+                    'supply_demand_signal': narrative_summary.get('supply_demand_signal', 'neutral') if narrative_summary else 'neutral',
+                },
+                'problem_opportunity': fp_context.get('problem_opportunity') if fp_context else None,
+            }
+        except Exception as e:
+            return {'lab_mode': True, 'error': str(e)}
+
     def get_attention_context(self) -> Dict[str, Any]:
         """获取注意力上下文"""
         return {
@@ -2695,21 +3133,18 @@ _orchestrator_lock = threading.Lock()
 
 
 def get_orchestrator() -> AttentionOrchestrator:
-    """获取编排器单例"""
-    global _orchestrator
-    if _orchestrator is None:
-        with _orchestrator_lock:
-            if _orchestrator is None:
-                _orchestrator = AttentionOrchestrator()
-    return _orchestrator
+    """获取编排器单例（兼容旧接口，建议使用 get_trading_center）"""
+    from .trading_center import get_trading_center
+    return get_trading_center()
 
 
 def initialize_orchestrator() -> AttentionOrchestrator:
-    """初始化编排器（强制初始化）"""
-    orchestrator = get_orchestrator()
-    orchestrator._ensure_initialized()
+    """初始化编排器（兼容旧接口，建议使用 get_trading_center）"""
+    from .trading_center import get_trading_center
+    tc = get_trading_center()
+    tc._initialized = True
     log.info("注意力编排器已初始化")
-    return orchestrator
+    return tc
 
 
 Orchestrator = AttentionOrchestrator

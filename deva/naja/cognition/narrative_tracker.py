@@ -182,21 +182,39 @@ TIANDAO_KEYWORDS: Dict[str, List[str]] = {
         "token消耗", "算力短缺", "GPU排队", "算力不足",
         "API限流", "ChatGPT限流", "Claude限流", "Gemini限流",
         "模型服务不可用", "服务器过载", "负载过高",
+        "Token价格", "token涨价", "API调用量", "调用量激增",
+        "推理负载", "训练需求", "部署需求", "推理需求",
+        "Token不够用", "算力告急", "算力吃紧", "算力紧张",
+    ],
+    "电力供需": [
+        "数据中心耗电", "数据中心用电", "AI耗电", "AI用电",
+        "电力短缺", "电力紧张", "电网超载", "电网负荷",
+        "用电量激增", "电力需求", "能源需求", "供电不足",
+        "数据中心扩建", "服务器耗电", "GPU集群耗电",
+        "绿色能源", "清洁能源", "核电", "太阳能发电",
+        "风电", "水电", "火电", "煤电",
+        "能耗优化", "能效提升", "功耗降低", "PUE",
+        "数据中心能效", "液冷", "风冷", "冷却系统",
+        "电力短缺", "限电", "停电", "供电中断",
     ],
     "技术瓶颈": [
         "卡脖子", "产能不足", "良品率", "光刻机", "HBM缺货",
         "EUV产能", "先进封装产能", "CoWoS满载", "封装排队",
         "晶圆厂产能满", "产能告急", "设备交付延迟",
+        "先进制程受限", "成熟制程", "国产替代", "自主可控",
     ],
     "效率突破": [
         "性能提升", "成本下降", "新一代", "突破", "效率提升",
         "推理加速", "训练成本下降", "功耗降低", "算力翻倍",
         "新架构", "技术创新", "技术路线突破",
+        "推理效率", "训练效率", "单位算力成本",
+        "成本优化", "降价", "提效",
     ],
     "AI落地": [
         "渗透率", "落地", "商业化", "盈利", "效率提升",
         "行业AI化", "AI改造", "降本增效", "收入增长",
         "付费转化", "用户增长", "API调用量增长",
+        "规模化", "量产", "商业落地", "应用场景",
     ],
 }
 
@@ -215,6 +233,136 @@ MINXIN_KEYWORDS: Dict[str, List[str]] = {
         "热门", "热搜", "刷屏", "引爆", "疯狂",
         "泡沫", "投机", "炒作", "概念股",
     ],
+}
+
+
+SUPPLY_DEMAND_KEYWORDS: Dict[str, List[str]] = {
+    "token供给不足": [
+        "限流", "限速", "token不够", "算力告急", "API排队",
+        "API限流", "ChatGPT限流", "Claude限流", "Gemini限流",
+        "模型服务不可用", "服务器过载", "负载过高",
+        "Token不够用", "算力吃紧", "算力紧张", "算力枯竭",
+        "GPU不足", "算力缺口", "资源不足",
+    ],
+    "token需求爆发": [
+        "Token价格", "token涨价", "API调用量", "调用量激增",
+        "推理负载", "训练需求", "部署需求", "推理需求",
+        "用户激增", "访问量暴涨", "订单爆满", "排单到明年",
+        "需求激增", "一货难求", "抢购", "哄抬",
+    ],
+    "电力供给不足": [
+        "电力短缺", "电力紧张", "电网超载", "电网负荷",
+        "供电不足", "数据中心扩建", "服务器耗电", "GPU集群耗电",
+        "限电", "停电", "供电中断", "电力缺口",
+        "煤电", "火电", "水电", "风电", "光伏",
+        "数据中心能效", "PUE", "能耗危机",
+    ],
+    "电力需求爆发": [
+        "用电量激增", "电力需求", "能源需求",
+        "AI用电", "AI耗电", "数据中心耗电", "数据中心用电",
+        "绿色能源", "清洁能源", "核电", "太阳能发电",
+        "能耗优化", "能效提升", "功耗降低",
+        "液冷", "风冷", "冷却系统", "散热",
+    ],
+    "芯片供给不足": [
+        "卡脖子", "产能不足", "良品率", "光刻机", "HBM缺货",
+        "EUV产能", "先进封装产能", "CoWoS满载", "封装排队",
+        "晶圆厂产能满", "产能告急", "设备交付延迟",
+        "先进制程受限", "国产芯片", "芯片短缺", "缺芯",
+        "半导体设备", "光刻机", "EUV光刻机",
+    ],
+    "芯片需求爆发": [
+        "芯片涨价", "订单爆满", "排单到明年", "产能满载",
+        "半导体需求", "GPU需求", "AI芯片需求", "算力芯片",
+        "订单增加", "需求激增", "供不应求",
+    ],
+    "技术瓶颈突破": [
+        "突破", "量产成功", "良率达标", "通过验证",
+        "国产替代", "自主可控", "技术路线突破",
+        "性能提升", "成本下降", "效率提升",
+        "新一代", "新架构", "技术创新",
+        "推理加速", "训练成本下降", "功耗降低", "算力翻倍",
+    ],
+}
+
+
+OPPORTUNITY_TYPES: Dict[str, Dict[str, Any]] = {
+    "token供给不足": {
+        "opportunity": "扩产机会",
+        "beneficiaries": ["台积电", "日月光", "长电科技", "中芯国际"],
+        "description": "算力供给不足 → 芯片封装扩产 → 设备商/材料商受益",
+        "signal": "产能扩张新闻 + 设备订单增加",
+    },
+    "token需求爆发": {
+        "opportunity": "全产业链机会",
+        "beneficiaries": ["英伟达", "AMD", "微软", "谷歌", "OpenAI"],
+        "description": "AI需求爆发 → 整个算力产业链受益",
+        "signal": "需求新闻 + 涨价 + 排单增加",
+    },
+    "电力供给不足": {
+        "opportunity": "能源基础设施机会",
+        "beneficiaries": ["核电运营商", "电网设备商", "电力设备"],
+        "description": "电力供给不足 → 能源基础设施扩建 → 电力设备商受益",
+        "signal": "电力短缺新闻 + 能源项目批准",
+    },
+    "电力需求爆发": {
+        "opportunity": "绿色能源机会",
+        "beneficiaries": ["太阳能", "风电", "核电", "储能"],
+        "description": "AI用电需求爆发 → 清洁能源建设 → 能源运营商受益",
+        "signal": "能源需求新闻 + 绿色能源项目",
+    },
+    "芯片供给不足": {
+        "opportunity": "国产替代机会",
+        "beneficiaries": ["华为昇腾", "寒武纪", "燧原科技", "中芯国际"],
+        "description": "芯片被卡脖子 → 国产替代加速 → 突破者受益",
+        "signal": "技术突破新闻 + 国产替代加速",
+    },
+    "芯片需求爆发": {
+        "opportunity": "芯片制造机会",
+        "beneficiaries": ["台积电", "三星", "中芯国际", "华虹半导体"],
+        "description": "芯片需求爆发 → 芯片制造商业绩爆发",
+        "signal": "芯片涨价 + 产能满载 + 订单翻倍",
+    },
+    "技术瓶颈突破": {
+        "opportunity": "效率提升机会",
+        "beneficiaries": ["效率提升技术商", "新架构开发者"],
+        "description": "技术突破 → 效率大幅提升 → 先用新技术的人受益",
+        "signal": "技术突破新闻 + 成本下降 + 效率提升",
+    },
+}
+
+
+RESOLVERS: Dict[str, Dict[str, Any]] = {
+    "AI算力国产化": {
+        "problem": "AI芯片被美国制裁",
+        "resolvers": ["华为昇腾", "寒武纪", "燧原科技", "海光信息"],
+        "progress": {"华为昇腾": "量产级", "寒武纪": "量产级", "燧原科技": "量产级"},
+        "opportunity": "国产AI芯片替代",
+    },
+    "先进封装": {
+        "problem": "CoWoS封装产能不足",
+        "resolvers": ["日月光", "长电科技", "通富微电", "华天科技"],
+        "progress": {"日月光": "扩产中", "长电科技": "扩产中"},
+        "opportunity": "封装产能扩张",
+    },
+    "先进制程": {
+        "problem": "先进制程被限制",
+        "resolvers": ["中芯国际", "华虹半导体"],
+        "progress": {"中芯国际": "14nm量产/扩产中", "华虹半导体": "成熟制程"},
+        "opportunity": "成熟制程扩产 + 国产替代",
+    },
+    "AI电力": {
+        "problem": "数据中心电力不足",
+        "resolvers": ["核电运营商", "电网设备商", "储能公司"],
+        "progress": {"核电": "项目审批加速", "电网": "升级改造中"},
+        "opportunity": "能源基础设施建设",
+    },
+    "算力效率": {
+        "problem": "算力成本太高",
+        "resolvers": ["效率芯片商", "推理优化公司", "模型压缩公司"],
+        "progress": {"各公司": "研发中"},
+        "opportunity": "推理效率提升",
+    },
 }
 
 
@@ -679,6 +827,199 @@ class NarrativeTracker:
 
         return matches
 
+    def detect_problem_opportunity(self, event: Any) -> Optional[Dict[str, Any]]:
+        """
+        检测供需问题 → 机会转化 → 解决者溯源
+
+        这是"问题即机会"框架的核心实现：
+        1. 从新闻中识别供需失衡（问题）
+        2. 判断问题类型（Token/电力/芯片）
+        3. 转化为投资机会
+        4. 溯源找到解决问题的人（公司）
+
+        Returns:
+            包含 detected_problems, opportunities, resolvers 的字典，
+            如果没有检测到问题则返回 None
+        """
+        if not self.enabled:
+            return None
+
+        texts = self._collect_texts(event)
+        if not texts:
+            return None
+
+        combined = " ".join(t for t in texts if t)
+        combined_lower = combined.lower()
+
+        detected_problems: List[Dict[str, Any]] = []
+        opportunity_types_found: Set[str] = set()
+
+        for category, keywords in SUPPLY_DEMAND_KEYWORDS.items():
+            hit_keywords: List[str] = []
+            for keyword in keywords:
+                if self._keyword_in_text(keyword, combined, combined_lower):
+                    hit_keywords.append(keyword)
+            if hit_keywords:
+                severity = self._assess_problem_severity(category, hit_keywords)
+                detected_problems.append({
+                    "type": category,
+                    "keywords": hit_keywords,
+                    "severity": severity,
+                })
+                opportunity_types_found.add(category)
+
+        if not detected_problems:
+            return None
+
+        opportunities: List[Dict[str, Any]] = []
+        all_resolvers: List[Dict[str, Any]] = []
+
+        for category in opportunity_types_found:
+            opp_info = OPPORTUNITY_TYPES.get(category, {})
+            if opp_info:
+                opportunities.append({
+                    "category": category,
+                    "opportunity": opp_info.get("opportunity", ""),
+                    "beneficiaries": opp_info.get("beneficiaries", []),
+                    "description": opp_info.get("description", ""),
+                    "signal": opp_info.get("signal", ""),
+                })
+
+            resolvers_info = self._find_resolvers_for_category(category)
+            if resolvers_info:
+                all_resolvers.extend(resolvers_info)
+
+        confidence = min(1.0, len(detected_problems) / 3.0)
+
+        return {
+            "detected_problems": detected_problems,
+            "opportunities": opportunities,
+            "resolvers": all_resolvers,
+            "confidence": confidence,
+            "timestamp": time.time(),
+        }
+
+    def _assess_problem_severity(self, category: str, hit_keywords: List[str]) -> str:
+        """评估问题严重程度"""
+        severity_indicators = {
+            "供给不足": ["严重", "极度", "危机", "崩溃", "枯竭"],
+            "需求爆发": ["暴涨", "激增", "抢购", "疯狂", "爆炸"],
+        }
+
+        for kw in hit_keywords:
+            for level, indicators in severity_indicators.items():
+                if any(ind in kw for ind in indicators):
+                    return level
+
+        if len(hit_keywords) >= 3:
+            return "严重"
+        elif len(hit_keywords) >= 1:
+            return "中等"
+        return "轻微"
+
+    def _find_resolvers_for_category(self, category: str) -> List[Dict[str, Any]]:
+        """根据问题类型找到解决者"""
+        category_to_resolver = {
+            "token供给不足": "先进封装",
+            "token需求爆发": "算力效率",
+            "电力供给不足": "AI电力",
+            "电力需求爆发": "AI电力",
+            "芯片供给不足": "先进制程",
+            "芯片需求爆发": "先进封装",
+            "技术瓶颈突破": "算力效率",
+        }
+
+        resolver_key = category_to_resolver.get(category)
+        if not resolver_key:
+            return []
+
+        resolver_info = RESOLVERS.get(resolver_key)
+        if not resolver_info:
+            return []
+
+        resolvers = resolver_info.get("resolvers", [])
+        progress = resolver_info.get("progress", {})
+
+        result = []
+        for resolver in resolvers:
+            result.append({
+                "name": resolver,
+                "problem": resolver_info.get("problem", ""),
+                "opportunity": resolver_info.get("opportunity", ""),
+                "progress": progress.get(resolver, "未知"),
+            })
+
+        return result
+
+    def get_problem_opportunity_summary(self) -> Dict[str, Any]:
+        """
+        获取当前问题-机会-解决者汇总
+
+        基于历史追踪的叙事状态，生成问题-机会分析报告
+
+        Returns:
+            包含问题列表、机会列表、解决者列表的字典
+        """
+        if not self._states:
+            return {
+                "status": "no_data",
+                "problems": [],
+                "opportunities": [],
+                "resolvers": [],
+                "recommendation": "WATCH",
+            }
+
+        all_keywords: List[str] = []
+        for state in self._states.values():
+            all_keywords.extend(state.last_keywords)
+
+        detected_categories: Set[str] = set()
+        for category, keywords in SUPPLY_DEMAND_KEYWORDS.items():
+            for kw in keywords:
+                if any(kw in ak or ak in kw for ak in all_keywords):
+                    detected_categories.add(category)
+
+        problems = []
+        opportunities = []
+        resolvers = []
+
+        for category in detected_categories:
+            problems.append({
+                "category": category,
+                "severity": "active",
+            })
+
+            opp_info = OPPORTUNITY_TYPES.get(category, {})
+            if opp_info:
+                opportunities.append({
+                    "category": category,
+                    "opportunity": opp_info.get("opportunity", ""),
+                    "beneficiaries": opp_info.get("beneficiaries", []),
+                })
+
+            resolver_info = self._find_resolvers_for_category(category)
+            resolvers.extend(resolver_info)
+
+        if not problems:
+            return {
+                "status": "no_problems_detected",
+                "problems": [],
+                "opportunities": [],
+                "resolvers": [],
+                "recommendation": "WATCH",
+            }
+
+        recommendation = "STRONG_BUY" if len(problems) >= 3 else "BUY" if len(problems) >= 1 else "WATCH"
+
+        return {
+            "status": "active",
+            "problems": problems,
+            "opportunities": opportunities,
+            "resolvers": resolvers,
+            "recommendation": recommendation,
+            "timestamp": time.time(),
+        }
+
     def get_tiandao_minxin_summary(self) -> Dict[str, Any]:
         """获取天道/民心评分摘要
 
@@ -700,7 +1041,7 @@ class NarrativeTracker:
                 "principle": "天道大于民心 - 遵循天道，驾驭民心",
             }
 
-        tiandao_signals = {k: [] for k in ["token供需", "技术瓶颈", "效率突破", "AI落地"]}
+        tiandao_signals = {k: [] for k in ["token供需", "电力供需", "技术瓶颈", "效率突破", "AI落地"]}
         minxin_signals = {k: [] for k in ["行情涨跌", "市场情绪", "舆论热点"]}
 
         for state in self._states.values():
