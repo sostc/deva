@@ -144,8 +144,11 @@ class SystemMonitor:
         instance = None
         try:
             if class_name == "Orchestrator":
-                from deva.naja.attention.center import get_orchestrator
-                instance = get_orchestrator()
+                from deva.naja.attention.trading_center import get_trading_center
+                instance = get_trading_center()
+            elif class_name == "TradingCenter":
+                from deva.naja.attention.trading_center import get_trading_center
+                instance = get_trading_center()
             elif class_name == "RadarEngine":
                 from deva.naja.radar import get_radar_engine
                 instance = get_radar_engine()
@@ -168,8 +171,9 @@ class SystemMonitor:
                 from deva.naja.tasks import get_task_manager
                 instance = get_task_manager()
             elif class_name == "ManasCore":
-                from deva.naja.manas import get_manas_core
-                instance = get_manas_core()
+                from deva.naja.attention.trading_center import get_trading_center
+                tc = get_trading_center()
+                instance = tc.get_attention_os().kernel.get_manas_engine()
             elif class_name == "AwakenedAlaya":
                 from deva.naja.alaya import get_awakened_alaya
                 instance = get_awakened_alaya()

@@ -291,12 +291,20 @@ class AwakeningEngine:
 
     def _update_awakening_level(self):
         """更新觉醒层次"""
-        if len(self._weak_signals) < 5:
+        signal_count = len(self._weak_signals)
+
+        if signal_count < 5:
             self._awakening_level = AwakeningLevel.DORMANT
-        elif len(self._weak_signals) < 15:
+        elif signal_count < 15:
             self._awakening_level = AwakeningLevel.AWAKENING
-        else:
+        elif signal_count < 25:
             self._awakening_level = AwakeningLevel.ILLUMINATED
+        else:
+            high_conf_signals = [s for s in self._weak_signals if s.get("confidence", 0) >= 0.7]
+            if len(high_conf_signals) >= 10:
+                self._awakening_level = AwakeningLevel.ENLIGHTENED
+            else:
+                self._awakening_level = AwakeningLevel.ILLUMINATED
 
     def check_for_awakening(self) -> Optional[AwakeningSignal]:
         """检查是否顿悟"""
@@ -382,6 +390,7 @@ class AwakenedAlaya:
 
         self._integration_count = 0
         self._last_illumination_time = 0.0
+        self._alaya_stats = {}
 
     def set_epiphany_engine(self, epiphany_engine):
         """设置顿悟引擎（用于持仓顿悟）"""
@@ -391,7 +400,8 @@ class AwakenedAlaya:
         self,
         market_data: Dict[str, Any],
         signals: Optional[List[Dict[str, Any]]] = None,
-        unified_manas_output: Optional[Dict[str, Any]] = None
+        unified_manas_output: Optional[Dict[str, Any]] = None,
+        fp_insights: Optional[List[Any]] = None
     ) -> Dict[str, Any]:
         """
         照亮模式
@@ -400,12 +410,16 @@ class AwakenedAlaya:
             market_data: 市场数据
             signals: 信号列表
             unified_manas_output: UnifiedManas 输出（包含持仓信息）
+            fp_insights: FirstPrinciples 洞察列表
 
         Returns:
             包含 illumination, awakenings, archived_patterns 的字典
         """
         with _get_audit()(loop_type="alaya", stage="illuminate", data_in={"market_data_keys": list(market_data.keys()) if market_data else []}) as audit:
             self._integration_count += 1
+
+            if fp_insights:
+                self._process_fp_insights(fp_insights)
 
             awakening_result = self._process_awakening(signals or [])
 
@@ -488,6 +502,58 @@ class AwakenedAlaya:
             )
 
         return self.awakening_engine.check_for_awakening()
+
+    def _process_fp_insights(self, insights: List[Any]) -> None:
+        """
+        处理 FirstPrinciples 洞察，将其转换为弱信号输入到觉醒引擎
+
+        这让慢思考的洞察能够累积觉醒等级
+        """
+        for insight in insights:
+            try:
+                insight_type = insight.insight_type if hasattr(insight, 'insight_type') else str(insight.get('insight_type', 'unknown'))
+                insight_level = insight.level.value if hasattr(insight, 'level') else str(insight.get('level', 'unknown'))
+                insight_confidence = insight.confidence if hasattr(insight, 'confidence') else float(insight.get('confidence', 0.5))
+                insight_content = insight.content if hasattr(insight, 'content') else str(insight.get('content', ''))
+
+                conditions = {
+                    "level": insight_level,
+                    "from_first_principles": True
+                }
+
+                if insight_type == "opportunity":
+                    self.awakening_engine.receive_signal(
+                        signal_type="fp_opportunity",
+                        content=f"[{insight_level}] {insight_content[:80]}",
+                        confidence=insight_confidence,
+                        conditions=conditions
+                    )
+                elif insight_type == "risk":
+                    self.awakening_engine.receive_signal(
+                        signal_type="fp_risk",
+                        content=f"[{insight_level}] {insight_content[:80]}",
+                        confidence=insight_confidence,
+                        conditions=conditions
+                    )
+                elif insight_type == "causal":
+                    self.awakening_engine.receive_signal(
+                        signal_type="fp_causal",
+                        content=f"[{insight_level}] {insight_content[:80]}",
+                        confidence=insight_confidence,
+                        conditions=conditions
+                    )
+                elif insight_type == "contradiction":
+                    self.awakening_engine.receive_signal(
+                        signal_type="fp_contradiction",
+                        content=f"矛盾: {insight_content[:80]}",
+                        confidence=insight_confidence,
+                        conditions=conditions
+                    )
+
+                self._alaya_stats["fp_insights_processed"] = self._alaya_stats.get("fp_insights_processed", 0) + 1
+
+            except Exception:
+                pass
 
     def _recall_relevant_patterns(self, market_data: Dict[str, Any]) -> List[PatternArchive]:
         """召回相关模式"""

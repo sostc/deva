@@ -21,9 +21,7 @@ class AttentionKernel:
         panic_analyzer: 恐慌指数分析器
         rescue_orchestrator: 流动性救援协调器
         manas_engine: 末那识引擎（可选）
-        unified_manas: 统一末那识（可选）
         _enable_manas: 是否启用末那识
-        _use_unified: 是否使用统一末那识
     """
 
     def __init__(self, encoder, multi_head, memory, enable_manas=False):
@@ -44,9 +42,7 @@ class AttentionKernel:
         self._panic_analyzer = None
         self._rescue_orchestrator = None
         self._enable_manas = enable_manas
-        self._use_unified = False
         self._manas_engine = None
-        self._unified_manas = None
         if enable_manas:
             self._init_manas_engine()
 
@@ -55,19 +51,9 @@ class AttentionKernel:
         from .manas_engine import ManasEngine
         self._manas_engine = ManasEngine()
 
-    def _init_unified_manas(self):
-        """初始化统一末那识"""
-        from deva.naja.manas import UnifiedManas
-        self._unified_manas = UnifiedManas()
-        self._use_unified = True
-
     def get_manas_engine(self):
         """获取末那识引擎实例"""
         return self._manas_engine
-
-    def get_unified_manas(self):
-        """获取统一末那识实例"""
-        return self._unified_manas
 
     def set_manas_enabled(self, enabled: bool):
         """
@@ -83,27 +69,9 @@ class AttentionKernel:
             self._enable_manas = False
             self._manas_engine = None
 
-    def set_unified_manas_enabled(self, enabled: bool):
-        """
-        设置是否启用统一末那识
-
-        Args:
-            enabled: 是否启用
-        """
-        if enabled and not self._use_unified:
-            self._use_unified = True
-            self._init_unified_manas()
-        elif not enabled:
-            self._use_unified = False
-            self._unified_manas = None
-
     def is_manas_enabled(self) -> bool:
         """返回是否启用了末那识引擎"""
         return self._enable_manas
-
-    def is_unified_manas_enabled(self) -> bool:
-        """返回是否启用了统一末那识"""
-        return self._use_unified
 
     def _get_value_system(self):
         """获取价值观系统（延迟加载）"""
@@ -195,9 +163,7 @@ class AttentionKernel:
         if not raw_events:
             return {"alpha": 0, "risk": 0, "confidence": 0}
 
-        if self._use_unified and self._unified_manas is not None:
-            return self._process_with_unified_manas(Q, raw_events)
-        elif self._enable_manas and self._manas_engine is not None:
+        if self._enable_manas and self._manas_engine is not None:
             return self._process_with_manas(Q, raw_events)
         else:
             return self._process_original(Q, raw_events)
@@ -313,121 +279,6 @@ class AttentionKernel:
 
         result["manas"] = manas_output.to_dict()
         result["should_act"] = manas_output.should_act
-
-        return result
-
-    def _process_with_unified_manas(self, Q, raw_events):
-        """
-        统一末那识决策逻辑
-
-        用 UnifiedManas 塑造 Query，应用持仓驱动的注意力召回和决策。
-
-        Args:
-            Q: QueryState
-            raw_events: AttentionEvent 列表
-
-        Returns:
-            attention 结果 dict（含统一末那识状态）
-        """
-        # 优先从美林时钟获取宏观信号
-        macro_signal = 0.5
-        try:
-            from deva.naja.cognition.merrill_clock_engine import get_merrill_clock_engine
-            from deva.naja.cognition.merrill_clock_to_manas import get_merrill_macro_signal
-            
-            clock = get_merrill_clock_engine()
-            signal = clock.get_current_signal()
-            if signal:
-                macro_signal = get_merrill_macro_signal(
-                    phase=signal.phase,
-                    confidence=signal.confidence,
-                )
-        except Exception:
-            pass
-        
-        # 兜底：从 QueryState 获取
-        if hasattr(Q, 'macro_liquidity_signal'):
-            macro_signal = Q.macro_liquidity_signal
-
-        market_state = {}
-        if hasattr(Q, 'features') and Q.features:
-            market_state = Q.features.copy()
-
-        portfolio_data = self._get_portfolio_data()
-
-        unified_output = self._unified_manas.compute(
-            session_manager=self._get_session_manager(),
-            portfolio_data=portfolio_data,
-            scanner=self._get_scanner(),
-            bandit_tracker=self._get_bandit_tracker(),
-            macro_signal=macro_signal,
-            market_state=market_state
-        )
-
-        recalled_events = self._unified_manas.recall_events(
-            portfolio_data=portfolio_data,
-            market_data=market_state
-        )
-
-        vs = self._get_value_system()
-        events = []
-        for e in raw_events:
-            e.key = self.encoder.encode_key(e)
-            e.value = self.encoder.encode_value(e)
-            events.append(e)
-
-            alignment = vs.calculate_alignment(e.features)
-            e.features["_value_alignment"] = alignment
-
-            e.features["_attention_focus"] = unified_output.attention_focus.value
-            e.features["_portfolio_signal"] = unified_output.portfolio_signal.value
-
-        # 断点1修复：将召回事件转换为 AttentionEvent 并合并到事件池
-        recalled_attention_events = self._convert_recalled_to_attention_events(recalled_events, unified_output)
-        if recalled_attention_events:
-            events.extend(recalled_attention_events)
-
-        shaped_Q = Q
-        if hasattr(Q, 'features'):
-            shaped_Q.features = shaped_Q.features.copy() if shaped_Q.features else {}
-            shaped_Q.features['attention_focus'] = unified_output.attention_focus.value
-            shaped_Q.features['regime_score'] = unified_output.regime_score
-            shaped_Q.features['timing_score'] = unified_output.timing_score
-            shaped_Q.features['harmony_state'] = unified_output.harmony_state.value
-            shaped_Q.features['portfolio_signal'] = unified_output.portfolio_signal.value
-
-        # 断点2修复：使用 Manas-aware heads，scorer 同时看 Q 和 K
-        import time
-        manas_aware_heads = self._build_manas_aware_heads(unified_output)
-        result = manas_aware_heads.compute(shaped_Q, events)
-
-        result["alpha"] = result.get("alpha", 0) * unified_output.alpha
-        result["_manas_score"] = unified_output.manas_score
-        result["_timing_score"] = unified_output.timing_score
-        result["_regime_score"] = unified_output.regime_score
-        result["_confidence_score"] = unified_output.confidence_score
-        result["_risk_temperature"] = unified_output.risk_temperature
-        result["_bias_state"] = unified_output.bias_state.value
-        result["_bias_correction"] = unified_output.bias_correction
-        result["_harmony_state"] = unified_output.harmony_state.value
-        result["_harmony_strength"] = unified_output.harmony_strength
-        result["_action_type"] = unified_output.action_type.value
-        result["_portfolio_signal"] = unified_output.portfolio_signal.value
-        result["_attention_focus"] = unified_output.attention_focus.value
-        result["_recalled_event_count"] = len(recalled_events)
-
-        for e in events:
-            symbol = getattr(e, 'symbol', None) or e.source if hasattr(e, 'source') else "unknown"
-            alignment = e.features.get("_value_alignment", 0.5)
-            reason = vs.generate_focus_reason(e.features)
-            vs.record_attention(symbol, alignment, reason)
-            vs.set_last_decision_reason(reason)
-
-            self.memory.update(e, result["confidence"])
-
-        result["unified_manas"] = unified_output.to_dict()
-        result["should_act"] = unified_output.should_act
-        result["attention_focus"] = unified_output.attention_focus.value
 
         return result
 

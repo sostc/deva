@@ -1,0 +1,219 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1400 1800">
+  <defs>
+    <linearGradient id="headerGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" style="stop-color:#1a1a2e"/>
+      <stop offset="100%" style="stop-color:#16213e"/>
+    </linearGradient>
+    <linearGradient id="manasGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#e94560"/>
+      <stop offset="100%" style="stop-color:#c23a51"/>
+    </linearGradient>
+    <linearGradient id="fpGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#0f3460"/>
+      <stop offset="100%" style="stop-color:#0a2540"/>
+    </linearGradient>
+    <linearGradient id="alayaGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#533483"/>
+      <stop offset="100%" style="stop-color:#3d2466"/>
+    </linearGradient>
+    <linearGradient id="signalGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#2d6a4f"/>
+      <stop offset="100%" style="stop-color:#1b4332"/>
+    </linearGradient>
+    <linearGradient id="tradeGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#b5651d"/>
+      <stop offset="100%" style="stop-color:#8b4513"/>
+    </linearGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="2" dy="2" stdDeviation="3" flood-opacity="0.3"/>
+    </filter>
+  </defs>
+
+  <!-- Background -->
+  <rect width="1400" height="1800" fill="#f8f9fa"/>
+
+  <!-- Title -->
+  <rect x="50" y="20" width="1300" height="60" rx="10" fill="url(#headerGrad)"/>
+  <text x="700" y="58" font-family="Arial, sans-serif" font-size="24" font-weight="bold" fill="white" text-anchor="middle">注意力系统完整架构图 · Attention System Architecture</text>
+
+  <!-- Data Sources -->
+  <rect x="50" y="100" width="400" height="80" rx="8" fill="#e8f4f8" stroke="#3498db" stroke-width="2"/>
+  <text x="250" y="125" font-family="Arial, sans-serif" font-size="14" font-weight="bold" fill="#2c3e50" text-anchor="middle">📰 新闻数据</text>
+  <text x="250" y="145" font-family="Arial, sans-serif" font-size="12" fill="#7f8c8d" text-anchor="middle">News / Social Media / Reports</text>
+
+  <rect x="475" y="100" width="400" height="80" rx="8" fill="#fef9e7" stroke="#f39c12" stroke-width="2"/>
+  <text x="675" y="125" font-family="Arial, sans-serif" font-size="14" font-weight="bold" fill="#2c3e50" text-anchor="middle">📊 行情数据</text>
+  <text x="675" y="145" font-family="Arial, sans-serif" font-size="12" fill="#7f8c8d" text-anchor="middle">Price / Volume / Volatility</text>
+
+  <rect x="900" y="100" width="400" height="80" rx="8" fill="#fdedec" stroke="#e74c3c" stroke-width="2"/>
+  <text x="1100" y="125" font-family="Arial, sans-serif" font-size="14" font-weight="bold" fill="#2c3e50" text-anchor="middle">🔌 OpenRouter TOKEN</text>
+  <text x="1100" y="145" font-family="Arial, sans-serif" font-size="12" fill="#7f8c8d" text-anchor="middle">AI Compute Trend Monitoring</text>
+
+  <!-- Arrows from sources -->
+  <line x1="250" y1="180" x2="250" y2="220" stroke="#95a5a6" stroke-width="2" marker-end="url(#arrowhead)"/>
+  <line x1="675" y1="180" x2="675" y2="220" stroke="#95a5a6" stroke-width="2"/>
+  <line x1="1100" y1="180" x2="1100" y2="220" stroke="#95a5a6" stroke-width="2"/>
+
+  <!-- NarrativeTracker -->
+  <rect x="150" y="230" width="350" height="100" rx="10" fill="#e8f8f5" stroke="#1abc9c" stroke-width="2" filter="url(#shadow)"/>
+  <text x="325" y="260" font-family="Arial, sans-serif" font-size="16" font-weight="bold" fill="#16a085" text-anchor="middle">NarrativeTracker</text>
+  <text x="325" y="285" font-family="Arial, sans-serif" font-size="13" fill="#2c3e50" text-anchor="middle">叙事追踪器</text>
+  <text x="325" y="310" font-family="Arial, sans-serif" font-size="11" fill="#7f8c8d" text-anchor="middle">narratives | detected_problems</text>
+  <text x="325" y="325" font-family="Arial, sans-serif" font-size="11" fill="#7f8c8d" text-anchor="middle">opportunities | resolvers</text>
+
+  <!-- OpenRouterMonitor -->
+  <rect x="850" y="230" width="300" height="100" rx="10" fill="#fdedec" stroke="#e74c3c" stroke-width="2" filter="url(#shadow)"/>
+  <text x="1000" y="260" font-family="Arial, sans-serif" font-size="16" font-weight="bold" fill="#c0392b" text-anchor="middle">OpenRouterMonitor</text>
+  <text x="1000" y="285" font-family="Arial, sans-serif" font-size="13" fill="#2c3e50" text-anchor="middle">AI算力趋势监控</text>
+  <text x="1000" y="310" font-family="Arial, sans-serif" font-size="11" fill="#7f8c8d" text-anchor="middle">ai_compute_trend</text>
+  <text x="1000" y="325" font-family="Arial, sans-serif" font-size="11" fill="#7f8c8d" text-anchor="middle">rising / falling / stable</text>
+
+  <!-- Manas Section -->
+  <rect x="50" y="360" width="1300" height="280" rx="15" fill="url(#manasGrad)" filter="url(#shadow)"/>
+  <text x="700" y="395" font-family="Arial, sans-serif" font-size="22" font-weight="bold" fill="white" text-anchor="middle">⚡ 快思考 · Manas 末那识</text>
+
+  <rect x="100" y="420" width="550" height="180" rx="10" fill="white"/>
+  <text x="375" y="450" font-family="Arial, sans-serif" font-size="16" font-weight="bold" fill="#e94560" text-anchor="middle">ManasEngine.compute()</text>
+  <text x="375" y="480" font-family="Arial, sans-serif" font-size="13" fill="#2c3e50" text-anchor="middle">raw_manas = 0.4×timing + 0.3×regime + 0.3×confidence</text>
+
+  <text x="120" y="510" font-family="Arial, sans-serif" font-size="12" fill="#7f8c8d" text-anchor="start">📈 影响因子:</text>
+  <text x="120" y="530" font-family="Arial, sans-serif" font-size="12" fill="#27ae60" text-anchor="start">• problem_opportunity (供需问题) → +20% 加成</text>
+  <text x="120" y="550" font-family="Arial, sans-serif" font-size="12" fill="#e74c3c" text-anchor="start">• narrative_risk (供应链风险) → -50% 惩罚</text>
+  <text x="120" y="570" font-family="Arial, sans-serif" font-size="12" fill="#3498db" text-anchor="start">• ai_compute_trend (AI算力) → +15% / -10%</text>
+
+  <rect x="700" y="420" width="300" height="180" rx="10" fill="white"/>
+  <text x="850" y="450" font-family="Arial, sans-serif" font-size="16" font-weight="bold" fill="#e94560" text-anchor="middle">输出</text>
+  <text x="850" y="480" font-family="Arial, sans-serif" font-size="13" fill="#2c3e50" text-anchor="middle">manas_score (0-1)</text>
+  <text x="850" y="505" font-family="Arial, sans-serif" font-size="13" fill="#2c3e50" text-anchor="middle">should_act</text>
+  <text x="850" y="530" font-family="Arial, sans-serif" font-size="13" fill="#2c3e50" text-anchor="middle">alpha</text>
+  <text x="850" y="555" font-family="Arial, sans-serif" font-size="13" fill="#2c3e50" text-anchor="middle">attention_focus</text>
+
+  <rect x="1050" y="420" width="250" height="180" rx="10" fill="#ffeaa7"/>
+  <text x="1175" y="450" font-family="Arial, sans-serif" font-size="14" font-weight="bold" fill="#d68910" text-anchor="middle">供需问题体系</text>
+  <text x="1175" y="480" font-family="Arial, sans-serif" font-size="11" fill="#2c3e50" text-anchor="middle">Token 供需</text>
+  <text x="1175" y="500" font-family="Arial, sans-serif" font-size="11" fill="#2c3e50" text-anchor="middle">电力 供需</text>
+  <text x="1175" y="520" font-family="Arial, sans-serif" font-size="11" fill="#2c3e50" text-anchor="middle">芯片 供需</text>
+  <text x="1175" y="540" font-family="Arial, sans-serif" font-size="11" fill="#2c3e50" text-anchor="middle">技术瓶颈</text>
+  <text x="1175" y="560" font-family="Arial, sans-serif" font-size="11" fill="#2c3e50" text-anchor="middle">效率突破</text>
+
+  <!-- FirstPrinciples Section -->
+  <rect x="50" y="660" width="1300" height="280" rx="15" fill="url(#fpGrad)" filter="url(#shadow)"/>
+  <text x="700" y="695" font-family="Arial, sans-serif" font-size="22" font-weight="bold" fill="white" text-anchor="middle">🔍 慢思考 · FirstPrinciples 妙观察智</text>
+
+  <rect x="100" y="720" width="500" height="180" rx="10" fill="white"/>
+  <text x="350" y="750" font-family="Arial, sans-serif" font-size="16" font-weight="bold" fill="#0f3460" text-anchor="middle">analyze_problem_opportunity()</text>
+  <text x="350" y="780" font-family="Arial, sans-serif" font-size="12" fill="#2c3e50" text-anchor="middle">问题识别 → 机会转化 → 解决者溯源</text>
+
+  <text x="120" y="810" font-family="Arial, sans-serif" font-size="12" fill="#7f8c8d" text-anchor="start">根因分析:</text>
+  <text x="120" y="830" font-family="Arial, sans-serif" font-size="11" fill="#2c3e50" text-anchor="start">• token供给不足 → GPU封装产能不足</text>
+  <text x="120" y="850" font-family="Arial, sans-serif" font-size="11" fill="#2c3e50" text-anchor="start">• 电力需求爆发 → 数据中心扩张</text>
+  <text x="120" y="870" font-family="Arial, sans-serif" font-size="11" fill="#2c3e50" text-anchor="start">• 芯片供给不足 → EUV禁运</text>
+
+  <rect x="620" y="720" width="350" height="180" rx="10" fill="white"/>
+  <text x="795" y="750" font-family="Arial, sans-serif" font-size="14" font-weight="bold" fill="#0f3460" text-anchor="middle">洞察类型 + 影响</text>
+  <text x="640" y="780" font-family="Arial, sans-serif" font-size="11" fill="#27ae60" text-anchor="start">opportunity + first_principles:</text>
+  <text x="640" y="798" font-family="Arial, sans-serif" font-size="11" fill="#27ae60" text-anchor="start">   +15% confidence, ×1.20 position</text>
+  <text x="640" y="820" font-family="Arial, sans-serif" font-size="11" fill="#e74c3c" text-anchor="start">risk + first_principles:</text>
+  <text x="640" y="838" font-family="Arial, sans-serif" font-size="11" fill="#e74c3c" text-anchor="start">   -15% confidence, ×0.70 position</text>
+  <text x="640" y="860" font-family="Arial, sans-serif" font-size="11" fill="#f39c12" text-anchor="start">contradiction:</text>
+  <text x="640" y="878" font-family="Arial, sans-serif" font-size="11" fill="#f39c12" text-anchor="start">   阻止信号 (BLOCK)</text>
+
+  <rect x="990" y="720" width="320" height="180" rx="10" fill="#d5f4e6"/>
+  <text x="1150" y="750" font-family="Arial, sans-serif" font-size="14" font-weight="bold" fill="#16a085" text-anchor="middle">解决者图谱</text>
+  <text x="1010" y="780" font-family="Arial, sans-serif" font-size="11" fill="#2c3e50" text-anchor="start">AI算力国产化: 华为昇腾、寒武纪</text>
+  <text x="1010" y="800" font-family="Arial, sans-serif" font-size="11" fill="#2c3e50" text-anchor="start">先进封装: 日月光、长电科技</text>
+  <text x="1010" y="820" font-family="Arial, sans-serif" font-size="11" fill="#2c3e50" text-anchor="start">先进制程: 中芯国际、华虹</text>
+  <text x="1010" y="840" font-family="Arial, sans-serif" font-size="11" fill="#2c3e50" text-anchor="start">AI电力: 核电、电网设备</text>
+  <text x="1010" y="860" font-family="Arial, sans-serif" font-size="11" fill="#2c3e50" text-anchor="start">算力效率: 推理优化公司</text>
+
+  <!-- Arrow to AwakenedAlaya -->
+  <line x1="700" y1="940" x2="700" y2="990" stroke="#9b59b6" stroke-width="3"/>
+  <text x="720" y="970" font-family="Arial, sans-serif" font-size="12" fill="#9b59b6">fp_insights</text>
+
+  <!-- AwakenedAlaya Section -->
+  <rect x="50" y="1000" width="1300" height="250" rx="15" fill="url(#alayaGrad)" filter="url(#shadow)"/>
+  <text x="700" y="1035" font-family="Arial, sans-serif" font-size="22" font-weight="bold" fill="white" text-anchor="middle">🧘 觉醒系统 · AwakenedAlaya 阿那亚</text>
+
+  <rect x="100" y="1060" width="400" height="160" rx="10" fill="white"/>
+  <text x="300" y="1090" font-family="Arial, sans-serif" font-size="16" font-weight="bold" fill="#533483" text-anchor="middle">AwakeningEngine 觉醒引擎</text>
+  <text x="300" y="1120" font-family="Arial, sans-serif" font-size="12" fill="#7f8c8d" text-anchor="middle">receive_signal() 接收弱信号</text>
+  <text x="120" y="1150" font-family="Arial, sans-serif" font-size="12" fill="#2c3e50" text-anchor="start">• fp_opportunity (第一原理机会)</text>
+  <text x="120" y="1175" font-family="Arial, sans-serif" font-size="12" fill="#2c3e50" text-anchor="start">• fp_risk (第一原理风险)</text>
+  <text x="120" y="1200" font-family="Arial, sans-serif" font-size="12" fill="#2c3e50" text-anchor="start">• fp_causal (因果分析)</text>
+
+  <rect x="520" y="1060" width="380" height="160" rx="10" fill="white"/>
+  <text x="710" y="1090" font-family="Arial, sans-serif" font-size="16" font-weight="bold" fill="#533483" text-anchor="middle">觉醒等级累积</text>
+
+  <rect x="540" y="1110" width="80" height="30" rx="5" fill="#bdc3c7"/>
+  <text x="580" y="1130" font-family="Arial, sans-serif" font-size="11" fill="white" text-anchor="middle">dormant</text>
+
+  <line x1="620" y1="1125" x2="640" y2="1125" stroke="#95a5a6" stroke-width="2"/>
+
+  <rect x="640" y="1110" width="80" height="30" rx="5" fill="#f39c12"/>
+  <text x="680" y="1130" font-family="Arial, sans-serif" font-size="11" fill="white" text-anchor="middle">awakening</text>
+
+  <line x1="720" y1="1125" x2="740" y2="1125" stroke="#95a5a6" stroke-width="2"/>
+
+  <rect x="740" y="1110" width="80" height="30" rx="5" fill="#9b59b6"/>
+  <text x="780" y="1130" font-family="Arial, sans-serif" font-size="11" fill="white" text-anchor="middle">illuminated</text>
+
+  <line x1="820" y1="1125" x2="840" y2="1125" stroke="#95a5a6" stroke-width="2"/>
+
+  <rect x="840" y="1110" width="80" height="30" rx="5" fill="#e94560"/>
+  <text x="880" y="1130" font-family="Arial, sans-serif" font-size="11" fill="white" text-anchor="middle">enlightened</text>
+
+  <text x="560" y="1170" font-family="Arial, sans-serif" font-size="11" fill="#7f8c8d" text-anchor="middle">&lt;5 signals</text>
+  <text x="680" y="1170" font-family="Arial, sans-serif" font-size="11" fill="#7f8c8d" text-anchor="middle">&lt;15 signals</text>
+  <text x="780" y="1170" font-family="Arial, sans-serif" font-size="11" fill="#7f8c8d" text-anchor="middle">持续积累</text>
+  <text x="880" y="1170" font-family="Arial, sans-serif" font-size="11" fill="#7f8c8d" text-anchor="middle">顿悟!</text>
+
+  <rect x="920" y="1060" width="390" height="160" rx="10" fill="white"/>
+  <text x="1115" y="1090" font-family="Arial, sans-serif" font-size="16" font-weight="bold" fill="#533483" text-anchor="middle">Pattern Archive 模式归档</text>
+  <text x="1115" y="1120" font-family="Arial, sans-serif" font-size="12" fill="#2c3e50" text-anchor="middle">archive_pattern() - 归档成功模式</text>
+  <text x="1115" y="1145" font-family="Arial, sans-serif" font-size="12" fill="#2c3e50" text-anchor="middle">recall() - 召回历史模式</text>
+  <text x="1115" y="1170" font-family="Arial, sans-serif" font-size="12" fill="#27ae60" text-anchor="middle">enlightened: +0.1 confidence</text>
+  <text x="1115" y="1195" font-family="Arial, sans-serif" font-size="12" fill="#7f8c8d" text-anchor="middle">历史经验影响当前决策</text>
+
+  <!-- Signal Adjustment Section -->
+  <rect x="50" y="1270" width="1300" height="180" rx="15" fill="url(#signalGrad)" filter="url(#shadow)"/>
+  <text x="700" y="1305" font-family="Arial, sans-serif" font-size="22" font-weight="bold" fill="white" text-anchor="middle">📡 信号调整层 · Signal Adjustment</text>
+
+  <rect x="100" y="1330" width="1200" height="100" rx="10" fill="white"/>
+  <text x="700" y="1355" font-family="Arial, sans-serif" font-size="14" font-weight="bold" fill="#1b4332" text-anchor="middle">_apply_awakening_adjustments() 信号调整</text>
+
+  <text x="130" y="1385" font-family="Arial, sans-serif" font-size="12" fill="#7f8c8d" text-anchor="start">1. volatility_regime → position_multiplier:</text>
+  <text x="130" y="1405" font-family="Arial, sans-serif" font-size="12" fill="#e74c3c" text-anchor="start">   high_volatile → ×0.5 | spike → ×0.2</text>
+
+  <text x="500" y="1385" font-family="Arial, sans-serif" font-size="12" fill="#7f8c8d" text-anchor="start">2. awakening_level:</text>
+  <text x="500" y="1405" font-family="Arial, sans-serif" font-size="12" fill="#9b59b6" text-anchor="start">   enlightened → +0.1 | awakening → +0.05</text>
+
+  <text x="850" y="1385" font-family="Arial, sans-serif" font-size="12" fill="#7f8c8d" text-anchor="start">3. fp_insights → confidence + position:</text>
+  <text x="850" y="1405" font-family="Arial, sans-serif" font-size="12" fill="#f39c12" text-anchor="start">   opportunity → ×1.20 | risk → ×0.70</text>
+
+  <!-- Trading Section -->
+  <rect x="50" y="1470" width="1300" height="120" rx="15" fill="url(#tradeGrad)" filter="url(#shadow)"/>
+  <text x="700" y="1505" font-family="Arial, sans-serif" font-size="22" font-weight="bold" fill="white" text-anchor="middle">📈 选股 + 交易执行 · Stock Selection &amp; Trading</text>
+
+  <rect x="100" y="1525" width="1200" height="50" rx="8" fill="white"/>
+  <text x="700" y="1550" font-family="Arial, sans-serif" font-size="14" fill="#2c3e50" text-anchor="middle">signal.metadata = { position_multiplier, insight_adjustments, blocked, volatility_regime, block_reason }</text>
+  <text x="700" y="1570" font-family="Arial, sans-serif" font-size="12" fill="#7f8c8d" text-anchor="middle">最终根据 adjusted_confidence 和 position_multiplier 执行交易</text>
+
+  <!-- Legend -->
+  <rect x="50" y="1610" width="1300" height="170" rx="10" fill="#ecf0f1"/>
+  <text x="700" y="1640" font-family="Arial, sans-serif" font-size="16" font-weight="bold" fill="#2c3e50" text-anchor="middle">系统职责总结 · System Responsibilities</text>
+
+  <rect x="100" y="1660" width="350" height="50" rx="8" fill="url(#manasGrad)"/>
+  <text x="275" y="1685" font-family="Arial, sans-serif" font-size="14" font-weight="bold" fill="white" text-anchor="middle">⚡ Manas 末那识</text>
+  <text x="275" y="1702" font-family="Arial, sans-serif" font-size="12" fill="white" text-anchor="middle">快思考 · 现在该不该买?</text>
+
+  <rect x="475" y="1660" width="350" height="50" rx="8" fill="url(#fpGrad)"/>
+  <text x="650" y="1685" font-family="Arial, sans-serif" font-size="14" font-weight="bold" fill="white" text-anchor="middle">🔍 FirstPrinciples 妙观察智</text>
+  <text x="650" y="1702" font-family="Arial, sans-serif" font-size="12" fill="white" text-anchor="middle">慢思考 · 为什么买/不买?</text>
+
+  <rect x="850" y="1660" width="350" height="50" rx="8" fill="url(#alayaGrad)"/>
+  <text x="1025" y="1685" font-family="Arial, sans-serif" font-size="14" font-weight="bold" fill="white" text-anchor="middle">🧘 AwakenedAlaya 阿那亚</text>
+  <text x="1025" y="1702" font-family="Arial, sans-serif" font-size="12" fill="white" text-anchor="middle">经验累积 · 记住并学习</text>
+
+  <text x="700" y="1750" font-family="Arial, sans-serif" font-size="14" fill="#7f8c8d" text-anchor="middle">Manas → "该买吗?" | FirstPrinciples → "为什么?" | AwakenedAlaya → "记住经验"</text>
+
+</svg>

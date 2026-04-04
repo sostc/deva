@@ -295,6 +295,9 @@ async def render_attention_admin(ctx: dict):
     with use_scope("attention_flow"):
         put_html(render_attention_flow_ui())
 
+    with use_scope("attention_lab_status"):
+        put_html(_render_lab_status_panel())
+
     # 已删除数据获取器面板（2026-04-03）
     # with use_scope("attention_frequency_panel"):
     #     try:
@@ -653,3 +656,162 @@ def _do_refresh():
     """手动刷新"""
     toast("正在刷新...", color="info")
     run_js("window.location.reload()")
+
+
+def _get_lab_activity_logs() -> list:
+    """获取 Lab 活动日志"""
+    logs = []
+
+    try:
+        from deva.naja.attention.trading_center import get_trading_center
+        orch = get_trading_center()
+        lab_status = orch.get_lab_status()
+        processed = lab_status.get('processed_frames', 0)
+        if processed > 0:
+            logs.append(f"已处理 {processed} 帧数据")
+    except:
+        pass
+
+    try:
+        from deva.naja.bandit.notifier import get_bandit_notifier
+        notifier = get_bandit_notifier()
+        recent = notifier.get_recent_notifications(limit=5)
+        for n in recent:
+            logs.append(f"{n.get('type', 'unknown')}: {n.get('title', '')[:40]}")
+    except:
+        pass
+
+    try:
+        from deva.naja.replay import get_replay_scheduler
+        scheduler = get_replay_scheduler()
+        if scheduler and hasattr(scheduler, '_fetch_count'):
+            logs.append(f"回放进度: {scheduler._fetch_count}")
+    except:
+        pass
+
+    try:
+        from deva.naja.bandit.market_observer import get_market_observer
+        observer = get_market_observer()
+        if observer and hasattr(observer, '_tracked_stocks'):
+            logs.append(f"跟踪 {len(observer._tracked_stocks)} 只股票")
+    except:
+        pass
+
+    return logs[-10:] if logs else []
+
+
+def _render_lab_status_panel() -> str:
+    """渲染 Lab 模式状态面板 - 显示注意力系统关键指标"""
+    try:
+        from deva.naja.attention.trading_center import get_trading_center
+        orch = get_trading_center()
+        lab_status = orch.get_lab_status()
+    except Exception as e:
+        return f"""<div style="margin-bottom:14px;padding:12px 14px;border-radius:10px;background:linear-gradient(135deg,#fef3c7,#fde68a);border:1px solid #f59e0b;color:#92400e;font-size:13px;">
+            <strong>🧪 Lab 状态面板</strong> <span style="color:#f59e0b;">(获取失败)</span><br>
+            <span style="font-size:11px;">{str(e)}</span>
+        </div>"""
+
+    manas = lab_status.get('manas', {})
+    awakened = lab_status.get('awakened', {})
+    narrative = lab_status.get('narrative', {})
+    problem_opp = lab_status.get('problem_opportunity')
+
+    manas_score = manas.get('manas_score', 0)
+    ai_compute = manas.get('ai_compute_direction', 'unknown')
+    problem_score = manas.get('problem_opportunity_score', 0)
+    signal_strength = manas.get('signal_strength', 0)
+    should_act = manas.get('should_act', False)
+    awakening_level = awakened.get('level', 'unknown')
+    insight_count = awakened.get('total_insights', 0)
+    narrative_count = narrative.get('event_count', 0)
+    latest_event = narrative.get('latest_event', 'N/A')
+    supply_demand = narrative.get('supply_demand_signal', 'neutral')
+
+    score_color = '#22c55e' if manas_score > 0.6 else '#f59e0b' if manas_score > 0.3 else '#64748b'
+    act_color = '#22c55e' if should_act else '#94a3b8'
+    ai_color = '#22c55e' if ai_compute == 'rising' else '#f59e0b' if ai_compute == 'falling' else '#64748b'
+    awakening_color = '#22c55e' if awakening_level == 'enlightened' else '#0ea5e9' if awakening_level == 'illuminated' else '#64748b'
+
+    problem_html = ""
+    if problem_opp:
+        problem_html = f"""<div style="margin-top:8px;padding:8px;background:linear-gradient(135deg,#dbeafe,#bfdbfe);border-radius:6px;font-size:11px;">
+            <strong>🎯 问题-机会:</strong> {problem_opp.get('problem', 'N/A')}<br>
+            <strong>💡 洞察:</strong> {problem_opp.get('opportunity', 'N/A')}
+        </div>"""
+
+    return f"""<div style="margin-bottom:14px;padding:14px 16px;border-radius:12px;background:linear-gradient(135deg,#1e1e2e,#2d2d44);border:1px solid #4ade80;color:#e2e8f0;font-size:13px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+            <strong style="font-size:15px;">🧪 Lab 注意力监控</strong>
+            <span style="font-size:11px;padding:3px 8px;background:#4ade80;color:#1e1e2e;border-radius:12px;font-weight:bold;">
+                {lab_status.get('processed_frames', 0)} 帧
+            </span>
+        </div>
+
+        <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:10px;">
+            <div style="padding:10px;background:rgba(255,255,255,0.05);border-radius:8px;">
+                <div style="font-size:11px;color:#94a3b8;margin-bottom:4px;">Manas Score</div>
+                <div style="font-size:24px;font-weight:bold;color:{score_color};">{manas_score:.3f}</div>
+            </div>
+
+            <div style="padding:10px;background:rgba(255,255,255,0.05);border-radius:8px;">
+                <div style="font-size:11px;color:#94a3b8;margin-bottom:4px;">AI算力趋势</div>
+                <div style="font-size:18px;font-weight:bold;color:{ai_color};">
+                    {'📈 上升' if ai_compute == 'rising' else '📉 下降' if ai_compute == 'falling' else '➡️ 稳定'}
+                </div>
+            </div>
+
+            <div style="padding:10px;background:rgba(255,255,255,0.05);border-radius:8px;">
+                <div style="font-size:11px;color:#94a3b8;margin-bottom:4px;">行动信号</div>
+                <div style="font-size:18px;font-weight:bold;color:{act_color};">
+                    {'✅ 买入' if should_act else '⏸️ 等待'}
+                </div>
+            </div>
+
+            <div style="padding:10px;background:rgba(255,255,255,0.05);border-radius:8px;">
+                <div style="font-size:11px;color:#94a3b8;margin-bottom:4px;">觉醒等级</div>
+                <div style="font-size:18px;font-weight:bold;color:{awakening_color};">
+                    {'🌟 开悟' if awakening_level == 'enlightened' else '💡 照明' if awakening_level == 'illuminated' else '🌱 觉醒' if awakening_level == 'awakening' else '💤 沉睡'}
+                </div>
+            </div>
+
+            <div style="padding:10px;background:rgba(255,255,255,0.05);border-radius:8px;">
+                <div style="font-size:11px;color:#94a3b8;margin-bottom:4px;">Signal Strength</div>
+                <div style="font-size:18px;font-weight:bold;">{signal_strength:.3f}</div>
+            </div>
+
+            <div style="padding:10px;background:rgba(255,255,255,0.05);border-radius:8px;">
+                <div style="font-size:11px;color:#94a3b8;margin-bottom:4px;">洞察数</div>
+                <div style="font-size:18px;font-weight:bold;">{insight_count} 个</div>
+            </div>
+        </div>
+
+        <div style="margin-top:12px;padding:10px;background:rgba(255,255,255,0.05);border-radius:8px;">
+            <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:6px;">
+                <span>全局注意力: <strong>{lab_status.get('global_attention', 0):.3f}</strong></span>
+                <span>高关注股票: <strong>{lab_status.get('high_attention_count', 0)}</strong></span>
+            </div>
+            <div style="font-size:11px;color:#94a3b8;">
+                热点: {', '.join(lab_status.get('top_symbols', [])[:3]) or '暂无'}
+            </div>
+        </div>
+
+        <div style="margin-top:12px;padding:10px;background:rgba(255,255,255,0.05);border-radius:8px;">
+            <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:6px;">
+                <span>📊 叙事事件: <strong>{narrative_count}</strong></span>
+                <span style="color:#4ade80;">供需信号: <strong>{supply_demand}</strong></span>
+            </div>
+            <div style="font-size:11px;color:#94a3b8;">
+                最新: {latest_event[:50] if latest_event else 'N/A'}...
+            </div>
+        </div>
+
+        {problem_html}
+
+        <div style="margin-top:12px;padding:10px;background:rgba(255,255,255,0.05);border-radius:8px;">
+            <div style="font-size:11px;color:#94a3b8;margin-bottom:6px;">📜 监控日志</div>
+            <div style="max-height:80px;overflow-y:auto;font-size:10px;color:#64748b;">
+                {''.join([f"<div style='margin-bottom:3px;'>• {log_item}</div>" for log_item in _get_lab_activity_logs()]) or '<div>暂无活动记录</div>'}
+            </div>
+        </div>
+    </div>"""

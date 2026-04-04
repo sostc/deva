@@ -296,8 +296,8 @@ def get_all_module_status() -> List[Dict]:
         pass
 
     try:
-        from deva.naja.attention.center import get_orchestrator
-        orchestrator = get_orchestrator()
+        from deva.naja.attention.trading_center import get_trading_center
+        orchestrator = get_trading_center()
         if orchestrator:
             stats = orchestrator.get_stats()
             modules.append({

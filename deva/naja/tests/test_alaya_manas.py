@@ -1,21 +1,20 @@
 """
 Alaya & Manas 单元测试
+
+测试 ManasEngine 和 AwakenedAlaya 的集成
 """
 
 import unittest
 import sys
 import os
-import time
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from deva.naja.alaya.seed_illuminator import (
     SeedIlluminator, IlluminatedPattern, PatternType, PatternTemplate
 )
-from deva.naja.manas.adaptive_manas import (
-    AdaptiveManas, WuWeiDecision, HarmonyState,
-    TianShiResponse, RegimeHarmony, RenShiResponse
-)
+from deva.naja.attention.trading_center import get_trading_center
+from deva.naja.manas import HarmonyState
 
 
 class TestSeedIlluminator(unittest.TestCase):
@@ -58,83 +57,98 @@ class TestSeedIlluminator(unittest.TestCase):
         self.assertEqual(stats['successes'], 1)
 
 
-class TestAdaptiveManas(unittest.TestCase):
-    """顺应型末那识测试"""
+class TestManasEngine(unittest.TestCase):
+    """ManasEngine 测试"""
 
-    def test_resonance_decision(self):
-        """测试共振决策"""
-        m = AdaptiveManas()
-        decision = m.compute_顺应({
-            'is_market_open': True,
-            'volatility': 1.0,
-            'trend_strength': 0.8,
-            'time_of_day': 10.0,
-            'regime': 'trend',
-            'regime_stability': 0.8,
-            'market_breadth': 0.5
-        }, confidence=0.8)
-        self.assertIsInstance(decision, WuWeiDecision)
-        self.assertIn(decision.harmony_state, HarmonyState)
+    def setUp(self):
+        """设置测试"""
+        self.tc = get_trading_center()
+        self.manas = self.tc.get_attention_os().kernel.get_manas_engine()
 
-    def test_resistance_decision(self):
-        """测试不利条件下不应行动"""
-        m = AdaptiveManas()
-        decision = m.compute_顺应({
-            'is_market_open': False,
-            'volatility': 3.0,
-            'trend_strength': 0.1,
-            'time_of_day': 3.0,
-            'regime': 'unknown',
-            'regime_stability': 0.2,
-            'market_breadth': 0.0
-        }, confidence=0.3)
-        self.assertIsInstance(decision, WuWeiDecision)
-        self.assertFalse(decision.should_act)
+    def test_basic_compute(self):
+        """测试基本计算"""
+        output = self.manas.compute(
+            portfolio={},
+            scanner=None,
+            bandit_tracker=None,
+            macro_signal=0.5,
+            narratives=[]
+        )
+        self.assertIsNotNone(output)
+        self.assertIsInstance(output.manas_score, float)
+        self.assertGreaterEqual(output.manas_score, 0.0)
+        self.assertLessEqual(output.manas_score, 1.0)
 
-    def test_traditional_compute(self):
-        """测试传统计算方式"""
-        m = AdaptiveManas()
-        decision = m.compute_traditional(manas_score=0.7)
-        self.assertIsInstance(decision, WuWeiDecision)
+    def test_harmony_state(self):
+        """测试和谐状态"""
+        output = self.manas.compute(
+            portfolio={},
+            scanner=None,
+            bandit_tracker=None,
+            macro_signal=0.5,
+            narratives=[]
+        )
+        self.assertIsInstance(output.harmony_state, HarmonyState)
+
+    def test_should_act(self):
+        """测试是否行动"""
+        output = self.manas.compute(
+            portfolio={},
+            scanner=None,
+            bandit_tracker=None,
+            macro_signal=0.5,
+            narratives=[]
+        )
+        self.assertIsInstance(output.should_act, bool)
+
+    def test_action_type(self):
+        """测试行动类型"""
+        output = self.manas.compute(
+            portfolio={},
+            scanner=None,
+            bandit_tracker=None,
+            macro_signal=0.5,
+            narratives=[]
+        )
+        self.assertIsNotNone(output.action_type)
+
+    def test_to_dict(self):
+        """测试转换为字典"""
+        output = self.manas.compute(
+            portfolio={},
+            scanner=None,
+            bandit_tracker=None,
+            macro_signal=0.5,
+            narratives=[]
+        )
+        d = output.to_dict()
+        self.assertIsInstance(d, dict)
+        self.assertIn('manas_score', d)
+        self.assertIn('harmony_state', d)
 
 
-class TestTianShiResponse(unittest.TestCase):
-    """天时响应测试"""
+class TestTradingCenterIntegration(unittest.TestCase):
+    """TradingCenter 集成测试"""
 
-    def test_evaluate(self):
-        """测试评估"""
-        t = TianShiResponse()
-        score = t.evaluate({
-            'is_market_open': True,
-            'volatility': 1.0,
-            'trend_strength': 0.5,
-            'time_of_day': 10.0
-        })
-        self.assertGreaterEqual(score, 0.0)
-        self.assertLessEqual(score, 1.0)
+    def test_trading_center_creation(self):
+        """测试 TradingCenter 创建"""
+        tc = get_trading_center()
+        self.assertIsNotNone(tc)
+        self.assertIsNotNone(tc.attention_os)
 
+    def test_make_decision(self):
+        """测试做决策"""
+        tc = get_trading_center()
+        decision = tc.make_decision({'macro_liquidity_signal': 0.5}, None)
+        self.assertIsNotNone(decision)
+        self.assertIsInstance(decision.should_act, bool)
 
-class TestRegimeHarmony(unittest.TestCase):
-    """环境和谐测试"""
-
-    def test_evaluate(self):
-        """测试评估"""
-        r = RegimeHarmony()
-        harmony, state = r.evaluate('trend', 0.7, 0.3)
-        self.assertGreaterEqual(harmony, 0.0)
-        self.assertLessEqual(harmony, 1.0)
-        self.assertIn(state, HarmonyState)
-
-
-class TestRenShiResponse(unittest.TestCase):
-    """人时响应测试"""
-
-    def test_evaluate(self):
-        """测试评估"""
-        r = RenShiResponse()
-        score = r.evaluate(confidence=0.7, risk_appetite=0.5, recent_success_rate=0.6)
-        self.assertGreaterEqual(score, 0.0)
-        self.assertLessEqual(score, 1.0)
+    def test_get_harmony(self):
+        """测试获取和谐状态"""
+        tc = get_trading_center()
+        harmony = tc.get_harmony()
+        self.assertIsInstance(harmony, dict)
+        self.assertIn('harmony_strength', harmony)
 
 
 if __name__ == '__main__':
