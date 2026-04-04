@@ -214,13 +214,13 @@ class SystemBootstrap:
         details = {}
 
         try:
-            from deva.naja.attention import AttentionCenter, initialize_orchestrator
+            from deva.naja.attention import get_trading_center
 
-            orchestrator = initialize_orchestrator()
-            logger.info("  AttentionCenter 初始化完成")
-            details["attention_center"] = "ok"
+            trading_center = get_trading_center()
+            logger.info("  TradingCenter 初始化完成")
+            details["trading_center"] = "ok"
         except Exception as e:
-            logger.warning(f"  AttentionCenter 初始化失败: {e}")
+            logger.warning(f"  TradingCenter 初始化失败: {e}")
 
         # 初始化美林时钟引擎
         try:

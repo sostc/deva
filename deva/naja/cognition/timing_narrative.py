@@ -1,12 +1,29 @@
 """
-MarketNarrativeSense - 市场叙事理解
+TimingNarrative - 认知系统/天（Timing/时机叙事感知）
+
+🌌 定位：天-地-人框架中的「天」
+    - 「天」= 时机、节奏、外部环境
+    - 回答：「现在是不是该动的时候？」
+
+📋 核心职责：
+    1. 感知市场整体叙事阶段（萌芽→构建→高潮→消退）
+    2. 判断时机成熟度（timing_score）
+    3. 追踪叙事转换信号（什么时候该切换主题？）
+    4. 识别叙事冲突（两个叙事打架了吗？）
+
+🔄 数据流：
+    文本信号 → TextSignalBus → TimingNarrative（订阅）
+         ↓ 处理
+    发布 TIMING_NARRATIVE_UPDATE → CognitiveSignalBus → ManasEngine
+
+💡 与 SectorNarrative 的区别：
+    - TimingNarrative（天）：关注「时间」—— 现在是不是时机
+    - SectorNarrative（地）：关注「空间」—— 炒什么板块/主题
+
+📊 叙事阶段：
+    EMERGING（萌芽）→ BUILDING（构建）→ PEAK（高潮）→ FADING（消退）→ DEAD（死亡）
 
 "妙观察智"的具体实现
-
-核心能力：
-1. NarrativeTracker: 追踪当前市场叙事
-2. NarrativeTransitionSense: 感知叙事转换
-3. StoryConflictDetector: 检测叙事冲突
 """
 
 import time
@@ -16,10 +33,13 @@ from dataclasses import dataclass
 from collections import deque
 from enum import Enum
 
+# 从统一关键词注册表导入
+from deva.naja.cognition.keyword_registry import MARKET_NARRATIVE_KEYWORDS
+
 log = logging.getLogger(__name__)
 
 
-class NarrativeType(Enum):
+class TimingType(Enum):
     """叙事类型"""
     POLICY = "policy"           # 政策驱动
     EARNINGS = "earnings"       # 业绩驱动
@@ -30,7 +50,7 @@ class NarrativeType(Enum):
     UNKNOWN = "unknown"          # 未知
 
 
-class NarrativeStage(Enum):
+class TimingStage(Enum):
     """叙事阶段"""
     EMERGING = "emerging"       # 萌芽期
     BUILDING = "building"       # 构建期
@@ -40,10 +60,10 @@ class NarrativeStage(Enum):
 
 
 @dataclass
-class MarketNarrative:
+class TimingNarrative:
     """市场叙事"""
-    narrative_type: NarrativeType
-    stage: NarrativeStage
+    narrative_type: TimingType
+    stage: TimingStage
     confidence: float           # 置信度 [0, 1]
     evidence: List[str]         # 支撑证据
     start_time: float           # 开始时间
@@ -55,8 +75,8 @@ class MarketNarrative:
 @dataclass
 class NarrativeTransition:
     """叙事转换信号"""
-    from_narrative: NarrativeType
-    to_narrative: NarrativeType
+    from_narrative: TimingType
+    to_narrative: TimingType
     confidence: float
     trigger_signals: List[str]
     expected_timing: str        # "immediate", "within_day", "within_week"
@@ -66,18 +86,19 @@ class NarrativeTransition:
 @dataclass
 class StoryConflict:
     """故事冲突"""
-    narrative_a: NarrativeType
-    narrative_b: NarrativeType
+    narrative_a: TimingType
+    narrative_b: TimingType
     conflict_type: str          # "contradictory", "competing", "unrelated"
     resolution_hint: str         # 解决线索
     recommended_action: str     # 建议行动
 
 
-class NarrativeTracker:
+class TimingNarrativeTracker:
     """
-    叙事追踪器
+    市场叙事追踪器
 
     追踪当前市场在讲什么故事
+    注意：与 cognition/narrative_tracker.py 的 NarrativeTracker 不同
     """
 
     def __init__(self):
@@ -85,12 +106,89 @@ class NarrativeTracker:
         self._narrative_history: deque = deque(maxlen=100)
         self._last_update: float = time.time()
 
+        # 🚀 新架构：订阅 TextSignalBus
+        self._subscribe_to_text_bus()
+
+    def _subscribe_to_text_bus(self):
+        """🚀 订阅 TextSignalBus，接收高注意力文本"""
+        try:
+            from deva.naja.cognition.text_processing_pipeline import subscribe_to_signals
+
+            subscribe_to_signals(
+                "TimingNarrativeTracker",
+                self._on_text_signal,
+                min_attention=0.6  # 中等阈值
+            )
+            log.debug("TimingNarrativeTracker 已订阅 TextSignalBus")
+        except ImportError:
+            pass
+
+    def _on_text_signal(self, item: "AttentionTextItem"):
+        """
+        🚀 处理来自 TextSignalBus 的文本信号
+
+        从高注意力新闻中提取叙事信息
+        """
+        try:
+            if not item.structured_signal:
+                return
+
+            # 从结构化信号中提取新闻文本
+            news_texts = []
+            if item.text:
+                news_texts.append(item.text)
+            if item.raw_keywords:
+                news_texts.extend(item.raw_keywords)
+
+            # 更新叙事追踪
+            # 注意：TimingNarrativeTracker 需要 market_data，这里只做轻量更新
+            if news_texts and item.attention_score >= 0.6:
+                log.debug(f"TimingNarrativeTracker 收到高注意力文本: score={item.attention_score:.2f}")
+
+                # 🚀 发布认知事件，通知下游
+                self._publish_cognitive_update(item)
+
+        except Exception as e:
+            log.warning(f"TimingNarrativeTracker 处理文本信号失败: {e}")
+
+    def _publish_cognitive_update(self, item: "AttentionTextItem"):
+        """
+        🚀 发布市场叙事更新事件到 CognitiveSignalBus
+        """
+        try:
+            from deva.naja.cognition.cognitive_signal_bus import (
+                get_cognitive_bus,
+                CognitiveEventType,
+            )
+
+            bus = get_cognitive_bus()
+
+            # 提取叙事标签
+            narratives = item.structured_signal.narrative_tags if item.structured_signal else []
+
+            bus.publish_cognitive_event(
+                source="TimingNarrativeTracker",
+                event_type=CognitiveEventType.TIMING_NARRATIVE_UPDATE,
+                narratives=narratives,
+                importance=item.attention_score,
+                confidence=item.structured_signal.confidence if item.structured_signal else 0.5,
+                stock_codes=[],
+                metadata={
+                    "keywords": item.raw_keywords or [],
+                    "topics": item.topic_candidates or [],
+                }
+            )
+        except ImportError:
+            pass
+        except Exception as e:
+            log.debug(f"TimingNarrativeTracker 发布认知事件失败: {e}")
+
     def track(
         self,
         market_data: Dict[str, Any],
         news_signals: Optional[List[str]] = None,
         flow_data: Optional[Dict[str, Any]] = None
-    ) -> List[MarketNarrative]:
+    ) -> List[TimingNarrative]:
         """
         追踪当前叙事
 
@@ -141,17 +239,18 @@ class NarrativeTracker:
         self,
         market_data: Dict[str, Any],
         news_signals: Optional[List[str]]
-    ) -> Optional[MarketNarrative]:
+    ) -> Optional[TimingNarrative]:
         """检测政策叙事"""
         if not news_signals:
             return None
 
-        policy_keywords = ["政策", "央行", "证监会", "降准", "降息", "刺激", "改革"]
+        # 使用统一的关键词注册表
+        policy_keywords = MARKET_NARRATIVE_KEYWORDS.get("policy", [])
         policy_signals = [n for n in news_signals if any(k in n for k in policy_keywords)]
 
         if len(policy_signals) >= 2:
-            return MarketNarrative(
-                narrative_type=NarrativeType.POLICY,
+            return TimingNarrative(
+                narrative_type=TimingType.POLICY,
                 stage=self._estimate_stage(len(policy_signals)),
                 confidence=min(1.0, len(policy_signals) / 5),
                 evidence=policy_signals[:5],
@@ -163,7 +262,7 @@ class NarrativeTracker:
 
         return None
 
-    def _detect_earnings_narrative(self, market_data: Dict[str, Any]) -> Optional[MarketNarrative]:
+    def _detect_earnings_narrative(self, market_data: Dict[str, Any]) -> Optional[TimingNarrative]:
         """检测业绩叙事"""
         changes = market_data.get("price_changes", [])
         if not changes:
@@ -175,9 +274,9 @@ class NarrativeTracker:
 
         # 高分化度可能意味着业绩筛选
         if std_change > 2.0 and avg_change > 0.5:
-            return MarketNarrative(
-                narrative_type=NarrativeType.EARNINGS,
-                stage=NarrativeStage.BUILDING,
+            return TimingNarrative(
+                narrative_type=TimingType.EARNINGS,
+                stage=TimingStage.BUILDING,
                 confidence=0.6,
                 evidence=[f"个股分化度: {std_change:.2f}%"],
                 start_time=time.time(),
@@ -192,7 +291,7 @@ class NarrativeTracker:
         self,
         market_data: Dict[str, Any],
         flow_data: Optional[Dict[str, Any]]
-    ) -> Optional[MarketNarrative]:
+    ) -> Optional[TimingNarrative]:
         """检测流动性叙事"""
         if not flow_data:
             return None
@@ -202,9 +301,9 @@ class NarrativeTracker:
 
         if abs(net_flow) > 1000000000 and big_deal_ratio > 0.5:
             direction = "流入" if net_flow > 0 else "流出"
-            return MarketNarrative(
-                narrative_type=NarrativeType.LIQUIDITY,
-                stage=NarrativeStage.PEAK if abs(net_flow) > 5000000000 else NarrativeStage.BUILDING,
+            return TimingNarrative(
+                narrative_type=TimingType.LIQUIDITY,
+                stage=TimingStage.PEAK if abs(net_flow) > 5000000000 else TimingStage.BUILDING,
                 confidence=0.7,
                 evidence=[f"主力净{direction}: {net_flow/1e8:.1f}亿", f"大单占比: {big_deal_ratio:.1%}"],
                 start_time=time.time(),
@@ -215,7 +314,7 @@ class NarrativeTracker:
 
         return None
 
-    def _detect_sentiment_narrative(self, market_data: Dict[str, Any]) -> Optional[MarketNarrative]:
+    def _detect_sentiment_narrative(self, market_data: Dict[str, Any]) -> Optional[TimingNarrative]:
         """检测情绪叙事"""
         changes = market_data.get("price_changes", [])
         if not changes:
@@ -227,9 +326,9 @@ class NarrativeTracker:
 
         if abs(breadth) > 0.3:
             sentiment = "乐观" if breadth > 0 else "悲观"
-            return MarketNarrative(
-                narrative_type=NarrativeType.SENTIMENT,
-                stage=NarrativeStage.PEAK if abs(breadth) > 0.5 else NarrativeStage.BUILDING,
+            return TimingNarrative(
+                narrative_type=TimingType.SENTIMENT,
+                stage=TimingStage.PEAK if abs(breadth) > 0.5 else TimingStage.BUILDING,
                 confidence=0.6,
                 evidence=[f"市场广度: {breadth:.1%}", f"上涨: {advancing}, 下跌: {declining}"],
                 start_time=time.time(),
@@ -240,7 +339,7 @@ class NarrativeTracker:
 
         return None
 
-    def _detect_sector_narrative(self, market_data: Dict[str, Any]) -> Optional[MarketNarrative]:
+    def _detect_sector_narrative(self, market_data: Dict[str, Any]) -> Optional[TimingNarrative]:
         """检测板块叙事"""
         sector_changes = market_data.get("sector_changes", {})
         if len(sector_changes) < 3:
@@ -250,9 +349,9 @@ class NarrativeTracker:
         bottom_sectors = sorted(sector_changes.items(), key=lambda x: x[1])[:3]
 
         if top_sectors[0][1] - bottom_sectors[0][1] > 3.0:
-            return MarketNarrative(
-                narrative_type=NarrativeType.SECTOR,
-                stage=NarrativeStage.BUILDING,
+            return TimingNarrative(
+                narrative_type=TimingType.SECTOR,
+                stage=TimingStage.BUILDING,
                 confidence=0.7,
                 evidence=[f"领涨: {top_sectors[0][0]}({top_sectors[0][1]:.1f}%)"],
                 start_time=time.time(),
@@ -263,16 +362,16 @@ class NarrativeTracker:
 
         return None
 
-    def _estimate_stage(self, signal_count: int) -> NarrativeStage:
+    def _estimate_stage(self, signal_count: int) -> TimingStage:
         """估算叙事阶段"""
         if signal_count <= 2:
-            return NarrativeStage.EMERGING
+            return TimingStage.EMERGING
         elif signal_count <= 5:
-            return NarrativeStage.BUILDING
+            return TimingStage.BUILDING
         elif signal_count <= 8:
-            return NarrativeStage.PEAK
+            return TimingStage.PEAK
         else:
-            return NarrativeStage.FADING
+            return TimingStage.FADING
 
     def _estimate_strength(self, signals: List[str]) -> float:
         """估算叙事强度"""
@@ -285,7 +384,7 @@ class NarrativeTracker:
         sector_changes = market_data.get("sector_changes", {})
         return [s[0] for s in sorted(sector_changes.items(), key=lambda x: x[1], reverse=True)[:3]]
 
-    def get_current_narratives(self) -> List[MarketNarrative]:
+    def get_current_narratives(self) -> List[TimingNarrative]:
         """获取当前叙事"""
         return list(self._current_narratives)
 
@@ -316,7 +415,7 @@ class NarrativeTransitionSense:
 
     def sense_transition(
         self,
-        current_narratives: List[MarketNarrative],
+        current_narratives: List[TimingNarrative],
         market_data: Dict[str, Any],
         flow_data: Optional[Dict[str, Any]] = None
     ) -> Optional[NarrativeTransition]:
@@ -332,7 +431,7 @@ class NarrativeTransitionSense:
         dominant = current_narratives[0]
 
         # 检测到高潮期，可能即将消退
-        if dominant.stage == NarrativeStage.PEAK:
+        if dominant.stage == TimingStage.PEAK:
             transition = self._predict_transition(dominant, market_data, flow_data)
             if transition:
                 self._transition_history.append(transition)
@@ -342,29 +441,29 @@ class NarrativeTransitionSense:
 
     def _predict_transition(
         self,
-        narrative: MarketNarrative,
+        narrative: TimingNarrative,
         market_data: Dict[str, Any],
         flow_data: Optional[Dict[str, Any]]
     ) -> Optional[NarrativeTransition]:
         """预测叙事转换"""
-        if narrative.narrative_type == NarrativeType.LIQUIDITY:
+        if narrative.narrative_type == TimingType.LIQUIDITY:
             if flow_data and abs(flow_data.get("net_flow", 0)) > 5000000000:
                 return NarrativeTransition(
                     from_narrative=narrative.narrative_type,
-                    to_narrative=NarrativeType.SENTIMENT,
+                    to_narrative=TimingType.SENTIMENT,
                     confidence=0.6,
                     trigger_signals=["流动性高潮预警", "大单开始撤退"],
                     expected_timing="within_day",
                     intensity=0.7
                 )
 
-        elif narrative.narrative_type == NarrativeType.SECTOR:
+        elif narrative.narrative_type == TimingType.SECTOR:
             sector_changes = market_data.get("sector_changes", {})
             top_strength = max(sector_changes.values()) if sector_changes else 0
             if top_strength > 5.0:
                 return NarrativeTransition(
                     from_narrative=narrative.narrative_type,
-                    to_narrative=NarrativeType.EARNINGS,
+                    to_narrative=TimingType.EARNINGS,
                     confidence=0.5,
                     trigger_signals=["板块轮动加速", "个股分化"],
                     expected_timing="within_week",
@@ -386,7 +485,7 @@ class StoryConflictDetector:
 
     def detect_conflict(
         self,
-        narratives: List[MarketNarrative]
+        narratives: List[TimingNarrative]
     ) -> List[StoryConflict]:
         """
         检测叙事冲突
@@ -407,12 +506,12 @@ class StoryConflictDetector:
 
     def _check_pair_conflict(
         self,
-        n1: MarketNarrative,
-        n2: MarketNarrative
+        n1: TimingNarrative,
+        n2: TimingNarrative
     ) -> Optional[StoryConflict]:
         """检查两个叙事是否有冲突"""
         # 政策利多 vs 业绩利空
-        if n1.narrative_type == NarrativeType.POLICY and n2.narrative_type == NarrativeType.EARNINGS:
+        if n1.narrative_type == TimingType.POLICY and n2.narrative_type == TimingType.EARNINGS:
             if n1.strength > 0.7 and n2.strength > 0.7:
                 return StoryConflict(
                     narrative_a=n1.narrative_type,
@@ -423,7 +522,7 @@ class StoryConflictDetector:
                 )
 
         # 流动性流入 vs 情绪悲观
-        if n1.narrative_type == NarrativeType.LIQUIDITY and n2.narrative_type == NarrativeType.SENTIMENT:
+        if n1.narrative_type == TimingType.LIQUIDITY and n2.narrative_type == TimingType.SENTIMENT:
             if (n1.strength > 0.6 and n2.strength > 0.6 and
                 ((n1.evidence and "流入" in str(n1.evidence)) or (n2.evidence and "流出" in str(n2.evidence)))):
                 return StoryConflict(
@@ -441,7 +540,7 @@ class StoryConflictDetector:
         return list(self._conflicts)
 
 
-class MarketNarrativeSense:
+class TimingNarrativeSense:
     """
     市场叙事感知（妙观察智核心）
 
@@ -449,7 +548,7 @@ class MarketNarrativeSense:
     """
 
     def __init__(self):
-        self.tracker = NarrativeTracker()
+        self.tracker = TimingNarrativeTracker()
         self.transition_sense = NarrativeTransitionSense()
         self.conflict_detector = StoryConflictDetector()
 
@@ -491,7 +590,7 @@ class MarketNarrativeSense:
 
     def _build_summary(
         self,
-        narratives: List[MarketNarrative],
+        narratives: List[TimingNarrative],
         transitions: List[NarrativeTransition],
         conflicts: List[StoryConflict]
     ) -> str:
@@ -514,7 +613,7 @@ class MarketNarrativeSense:
 
         return " | ".join(summary_parts)
 
-    def get_dominant_narrative(self) -> Optional[MarketNarrative]:
+    def get_dominant_narrative(self) -> Optional[TimingNarrative]:
         """获取主导叙事"""
         narratives = self.tracker.get_current_narratives()
         return narratives[0] if narratives else None

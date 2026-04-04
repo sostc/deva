@@ -1,17 +1,32 @@
 """CrossSignalAnalyzer - 认知系统/共振分析/板块联动
 
+🔥 定位：天-地-人框架中的「共振检测」
+    - 检测「天」（时机）和「地」（板块）是否共振
+    - 回答：「我的关注主题和时机配合得好吗？」
+
+📋 核心职责：
+    1. 合并新闻/雷达信号和行情/注意力信号
+    2. 检测时间共振（新闻和行情几乎同时）
+    3. 检测强度共振（双方都高活跃）
+    4. 检测叙事共振（主题高度相关）
+    5. 高价值共振触发深度分析和洞察
+
+📊 分层分析：
+    - Layer 1: 规则引擎 (实时, 零成本)
+    - Layer 2: 统计分析 (快速, 低成本)
+    - Layer 3: LLM分析 (深度, 高成本)
+
+🔄 数据流：
+    TextSignalBus → CrossSignalAnalyzer（订阅）
+         ↓ 处理
+    发布 RESONANCE_DETECTED → CognitiveSignalBus → ManasEngine
+
+💡 共振对 Manas 的意义：
+    - 「天」「地」共振 → 交易信号增强（大胆操作）
+    - 「天」「地」背离 → 保持谨慎（等等看）
+    - 无共振 → 观望
+
 别名/关键词: 共振、板块联动、cross_signal、resonance、板块共振
-
-合并新闻/雷达信号和行情/注意力信号，提供分层分析：
-- Layer 1: 规则引擎 (实时, 零成本)
-- Layer 2: 统计分析 (快速, 低成本)
-- Layer 3: LLM分析 (深度, 高成本)
-
-架构设计：
-- 新闻信号 (RadarEvent) 和注意力信号 (sector_weights) 分别缓冲
-- 通过规则引擎实时检测共振
-- 高价值共振触发统计分析和LLM深度分析
-- 分析结果生成洞察和反馈
 """
 
 from __future__ import annotations
@@ -371,6 +386,64 @@ class CrossSignalAnalyzer:
 
         self._lock = threading.Lock()
 
+        # 🚀 新架构：订阅 TextSignalBus，自动处理高注意力文本
+        self._subscribe_to_text_bus()
+
+    def _subscribe_to_text_bus(self):
+        """🚀 订阅 TextSignalBus，接收高注意力文本"""
+        try:
+            from deva.naja.cognition.text_processing_pipeline import subscribe_to_signals
+
+            subscribe_to_signals(
+                "CrossSignalAnalyzer",
+                self._on_text_signal,
+                min_attention=0.65  # 中等注意力阈值，共振分析需要一定量的事件
+            )
+            _cognition_debug_log("[CrossSignalAnalyzer] 已订阅 TextSignalBus")
+        except ImportError:
+            pass  # 新架构未安装，降级处理
+
+    def _on_text_signal(self, item: "AttentionTextItem"):
+        """
+        🚀 处理来自 TextSignalBus 的文本信号
+
+        将 AttentionTextItem 转换为 NewsSignal 并进行共振分析
+        """
+        try:
+            # 从 AttentionTextItem 构建信号字典
+            signal_dict = {
+                "source": f"text_signal:{item.source.value}",
+                "signal_type": "text_news",
+                "content": item.text or item.title,
+                "summary": item.title,
+                "score": item.attention_score,
+                "timestamp": item.timestamp,
+                "themes": item.narrative_tags or item.matched_focus_topics,
+                "sentiment": {"raw": item.sentiment, "label": "positive" if item.sentiment > 0.55 else "negative" if item.sentiment < 0.45 else "neutral"},
+                "sector": item.matched_focus_topics[0] if item.matched_focus_topics else "",
+                "sector_name": item.matched_focus_topics[0] if item.matched_focus_topics else "",
+                "stock_codes": item.stock_codes,
+                "payload": {
+                    "url": item.url,
+                    "raw_keywords": item.raw_keywords,
+                    "supply_chain_impacts": item.supply_chain_impacts,
+                }
+            }
+
+            # 转换为 NewsSignal 并处理
+            news_signal = NewsSignal.from_signal(signal_dict)
+            self.ingest_news(news_signal)
+
+            _cognition_debug_log(
+                f"[CrossSignalAnalyzer] 处理文本信号: attention={item.attention_score:.2f}, "
+                f"themes={item.narrative_tags[:2] if item.narrative_tags else 'N/A'}"
+            )
+        except Exception as e:
+            _cognition_debug_log(f"[CrossSignalAnalyzer] 处理文本信号失败: {e}")
+
+        # 🚀 新架构：订阅 TextSignalBus，自动处理高注意力文本
+        self._subscribe_to_text_bus()
+
     def register_callback(self, event: str, callback: Callable):
         """注册回调函数"""
         self._callbacks[event] = callback
@@ -590,6 +663,8 @@ class CrossSignalAnalyzer:
                         self._emit_to_insight_pool(resonance)
                     resonances.append(resonance)
                     _cognition_debug_log(f"检测到共振: sector={resonance.sector_name}, score={resonance.resonance_score:.3f}, type={resonance.resonance_type.value}")
+                    # 🚀 发布到 CognitiveSignalBus
+                    self._emit_to_cognitive_bus(resonance)
 
         if resonances:
             _cognition_debug_log(f"共振检测结果: {len(resonances)} 个共振信号")
@@ -1064,6 +1139,52 @@ class CrossSignalAnalyzer:
             action_required=resonance.resonance_score > 0.85,
             priority="high" if resonance.resonance_score > 0.85 else "normal"
         )
+
+    def _emit_to_cognitive_bus(self, resonance: ResonanceSignal) -> None:
+        """
+        🚀 将共振信号发布到 CognitiveSignalBus
+
+        发布 RESONANCE_DETECTED 事件，通知 ManasEngine：
+        - 天（时机）和地（板块）是否共振了
+        - 共振强度和类型
+        """
+        try:
+            from deva.naja.cognition.cognitive_signal_bus import (
+                get_cognitive_bus,
+                CognitiveEventType,
+            )
+
+            bus = get_cognitive_bus()
+
+            # 准备事件数据
+            event_data = {
+                "sector_id": resonance.sector_id,
+                "sector_name": resonance.sector_name,
+                "resonance_score": resonance.resonance_score,
+                "resonance_type": resonance.resonance_type.value,
+                "news_themes": resonance.news_themes,
+                "sentiment": resonance.news_sentiment,
+                "price_change": resonance.price_change,
+                "source": resonance.source.value,
+            }
+
+            # 发布到 CognitiveSignalBus
+            bus.publish_cognitive_event(
+                source="CrossSignalAnalyzer",
+                event_type=CognitiveEventType.RESONANCE_DETECTED,
+                narratives=resonance.news_themes,
+                importance=resonance.resonance_score,
+                confidence=resonance.resonance_score,
+                stock_codes=[],
+                metadata=event_data
+            )
+
+            _cognition_debug_log(f"[CognitiveSignalBus] 发布共振事件: sector={resonance.sector_name}, score={resonance.resonance_score:.3f}")
+
+        except ImportError:
+            pass  # CognitiveSignalBus 未安装
+        except Exception as e:
+            _cognition_debug_log(f"[CrossSignalAnalyzer] 发布到 CognitiveSignalBus 失败: {e}")
 
     def _emit_to_insight_pool(self, resonance: ResonanceSignal) -> None:
         """将共振信号推送到 InsightPool"""

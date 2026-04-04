@@ -85,6 +85,92 @@ class NarrativeSupplyChainLinker:
 
         self._init_narrative_stock_mapping()
 
+        # 🚀 新架构：订阅 TextSignalBus
+        self._subscribe_to_text_bus()
+
+    def _subscribe_to_text_bus(self):
+        """🚀 订阅 TextSignalBus，接收高注意力文本"""
+        try:
+            from deva.naja.cognition.text_processing_pipeline import subscribe_to_signals
+
+            subscribe_to_signals(
+                "SupplyChainLinker",
+                self._on_text_signal,
+                min_attention=0.4  # 供应链风险不怕错过，阈值较低
+            )
+            log.debug("SupplyChainLinker 已订阅 TextSignalBus")
+        except ImportError:
+            pass
+
+    def _on_text_signal(self, item: "AttentionTextItem"):
+        """
+        🚀 处理来自 TextSignalBus 的文本信号
+
+        从高注意力新闻中分析供应链影响
+        """
+        try:
+            if not item.structured_signal:
+                return
+
+            # 从结构化信号中提取叙事标签
+            narratives = getattr(item.structured_signal, 'narrative_tags', []) or []
+            narratives.extend(item.raw_keywords or [])
+
+            # 分析供应链影响
+            impacts = self.analyze_news_impact(item.text, narratives)
+
+            if impacts:
+                log.info(f"SupplyChainLinker 发现 {len(impacts)} 个供应链影响")
+                for impact in impacts[:3]:  # 只记录前3个
+                    log.debug(f"  - {impact.stock_name}: {impact.description}")
+
+                # 🚀 发布供应链影响事件
+                self._publish_supply_chain_event(item, impacts)
+
+        except Exception as e:
+            log.warning(f"SupplyChainLinker 处理文本信号失败: {e}")
+
+    def _publish_supply_chain_event(self, item: "AttentionTextItem", impacts: List):
+        """
+        🚀 发布供应链影响事件到 CognitiveSignalBus
+        """
+        try:
+            from deva.naja.cognition.cognitive_signal_bus import (
+                get_cognitive_bus,
+                CognitiveEventType,
+            )
+
+            bus = get_cognitive_bus()
+
+            # 提取相关股票
+            stock_codes = [impact.stock_code for impact in impacts if hasattr(impact, 'stock_code')]
+
+            # 评估风险等级
+            risk_level = "LOW"
+            high_risk_count = sum(1 for impact in impacts if hasattr(impact, 'risk_level') and impact.risk_level in ['high', 'medium'])
+            if high_risk_count >= 2:
+                risk_level = "HIGH"
+            elif high_risk_count >= 1:
+                risk_level = "MEDIUM"
+
+            bus.publish_cognitive_event(
+                source="SupplyChainLinker",
+                event_type=CognitiveEventType.NARRATIVE_SUPPLY_LINK,
+                narratives=item.structured_signal.narrative_tags if item.structured_signal else [],
+                importance=item.attention_score,
+                confidence=0.6,
+                stock_codes=stock_codes,
+                risk_level=risk_level,
+                metadata={
+                    "impact_count": len(impacts),
+                    "keywords": item.raw_keywords or [],
+                }
+            )
+        except ImportError:
+            pass
+        except Exception as e:
+            log.debug(f"SupplyChainLinker 发布认知事件失败: {e}")
+
     def _init_narrative_stock_mapping(self):
         """初始化叙事主题到供应链公司的映射"""
 

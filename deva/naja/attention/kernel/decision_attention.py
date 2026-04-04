@@ -56,25 +56,25 @@ class DecisionAttention:
     决策型注意力调制器
 
     用法:
-        decision_attn = DecisionAttention(four_dimensions)
+        decision_attn = DecisionAttention()
         scores, alpha, temperature = decision_attn.modulate(raw_scores, strategy_performance)
     """
 
-    def __init__(self, four_dimensions=None):
+    def __init__(self, manas_engine=None):
         """
         初始化决策注意力
 
         Args:
-            four_dimensions: FourDimensions 实例，用于获取四维状态
+            manas_engine: ManasEngine 实例，用于获取决策状态
         """
-        self._fd = four_dimensions
+        self._manas = manas_engine
         self._last_alpha = 1.0
         self._last_temperature = 1.0
         self._last_strategy_performance = 0.5
 
-    def set_four_dimensions(self, fd):
-        """设置四维框架"""
-        self._fd = fd
+    def set_manas_engine(self, manas):
+        """设置末那识引擎"""
+        self._manas = manas
 
     def compute_temperature(self) -> float:
         """

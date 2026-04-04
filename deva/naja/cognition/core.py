@@ -22,7 +22,7 @@ import hashlib
 import threading
 import os
 
-from .narrative_tracker import NarrativeTracker
+from .sector_narrative import SectorNarrative
 from .semantic_cold_start import SemanticColdStart
 
 
@@ -834,7 +834,7 @@ class NewsMindStrategy:
         self._rate_buckets: Dict[str, deque] = {}
 
         # 叙事追踪器
-        self.narrative_tracker = NarrativeTracker(self.config)
+        self.narrative_tracker = SectorNarrative(self.config)
         self.narrative_events: deque = deque(maxlen=200)
 
         # 全球流动性传播引擎

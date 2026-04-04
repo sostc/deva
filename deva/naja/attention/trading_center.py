@@ -293,10 +293,20 @@ class TradingCenter:
         self._first_principles_mind = None
         self._awakened_alaya = None
 
+        # 感知系统模块（从 AwakeningController 迁移）
+        self._volatility_surface = None
+        self._pre_taste = None
+        self._prophet_sense = None
+        self._realtime_taste = None
+
         self._awakened_state: Dict[str, Any] = {
             "fused_confidence": 0.5,
             "adaptive_decisions": 0,
             "fusion_note": "",
+            "pre_taste_count": 0,
+            "prophet_signals": 0,
+            "taste_signals": 0,
+            "volatility_signals": 0,
         }
 
         self._initialized = True
@@ -322,6 +332,161 @@ class TradingCenter:
                 log.warning(f"[TradingCenter] 无法导入 AwakenedAlaya: {e}")
         return self._awakened_alaya
 
+    def _get_volatility_surface(self):
+        """获取波动率曲面感知"""
+        if self._volatility_surface is None:
+            try:
+                from deva.naja.senses import VolatilitySurfaceSense
+                self._volatility_surface = VolatilitySurfaceSense()
+            except ImportError as e:
+                log.warning(f"[TradingCenter] 无法导入 VolatilitySurfaceSense: {e}")
+        return self._volatility_surface
+
+    def _get_pre_taste(self):
+        """获取预尝味感知"""
+        if self._pre_taste is None:
+            try:
+                from deva.naja.senses import PreTasteSense
+                self._pre_taste = PreTasteSense()
+            except ImportError as e:
+                log.warning(f"[TradingCenter] 无法导入 PreTasteSense: {e}")
+        return self._pre_taste
+
+    def _get_prophet_sense(self):
+        """获取先知感知"""
+        if self._prophet_sense is None:
+            try:
+                from deva.naja.senses import ProphetSense
+                self._prophet_sense = ProphetSense()
+            except ImportError as e:
+                log.warning(f"[TradingCenter] 无法导入 ProphetSense: {e}")
+        return self._prophet_sense
+
+    def _get_realtime_taste(self):
+        """获取实时尝味感知"""
+        if self._realtime_taste is None:
+            try:
+                from deva.naja.senses import RealtimeTaste
+                self._realtime_taste = RealtimeTaste()
+            except ImportError as e:
+                log.warning(f"[TradingCenter] 无法导入 RealtimeTaste: {e}")
+        return self._realtime_taste
+
+    def _get_current_narratives(self) -> List[str]:
+        """获取当前活跃的叙事列表"""
+        try:
+            from deva.naja.cognition.narrative_tracker import NarrativeTracker
+            tracker = NarrativeTracker()
+            summary = tracker.get_summary(limit=10)
+            return [item["narrative"] for item in summary]
+        except Exception:
+            pass
+        return []
+
+    def _build_awakened_market_state(self, market_state: Dict, snapshot: Dict) -> Dict[str, Any]:
+        """构建觉醒市场状态"""
+        import pandas as pd
+        positions = {}
+        if snapshot:
+            positions = snapshot.get("positions", {})
+
+        awakened_state = {
+            "timestamp": market_state.get("timestamp", 0),
+            "positions": positions,
+            "global_attention": market_state.get("global_attention", 0.5),
+        }
+
+        if snapshot and hasattr(snapshot, 'get') and snapshot.get('top_symbols'):
+            awakened_state["top_symbols"] = snapshot.get('top_symbols', [])
+
+        return awakened_state
+
+    def _process_sensation_modules(self, market_state: Dict, snapshot: Dict) -> Dict:
+        """
+        处理感知系统模块
+
+        从 AwakeningController 迁移，整合感知系统到决策流程
+        """
+        awakened_market_state = self._build_awakened_market_state(market_state, snapshot)
+
+        # 波动率曲面
+        vol_surface = self._get_volatility_surface()
+        if vol_surface:
+            try:
+                vol_surface.process(awakened_market_state)
+                self._awakened_state["volatility_signals"] += 1
+            except Exception as e:
+                log.debug(f"[TradingCenter] 处理波动率曲面失败: {e}")
+
+        # 先知感知
+        prophet = self._get_prophet_sense()
+        if prophet:
+            try:
+                prophet.process(awakened_market_state)
+                self._awakened_state["prophet_signals"] += 1
+            except Exception as e:
+                log.debug(f"[TradingCenter] 处理先知感知失败: {e}")
+
+        # 预尝味
+        pre_taste = self._get_pre_taste()
+        if pre_taste:
+            try:
+                pre_taste.process(awakened_market_state)
+                self._awakened_state["pre_taste_count"] += 1
+            except Exception as e:
+                log.debug(f"[TradingCenter] 处理预尝味失败: {e}")
+
+        # 实时尝味
+        realtime_taste = self._get_realtime_taste()
+        if realtime_taste:
+            try:
+                realtime_taste.process(awakened_market_state)
+                self._awakened_state["taste_signals"] += 1
+            except Exception as e:
+                log.debug(f"[TradingCenter] 处理实时尝味失败: {e}")
+
+        return market_state
+
+    def _get_volatility_surface_state(self) -> Dict[str, Any]:
+        """获取波动率曲面状态"""
+        vol_surface = self._get_volatility_surface()
+        if vol_surface:
+            try:
+                return {
+                    "regime": getattr(vol_surface, 'regime', 'normal'),
+                    "volatility": getattr(vol_surface, 'volatility', 0.5),
+                }
+            except Exception:
+                pass
+        return {"regime": "normal", "volatility": 0.5}
+
+    def _check_contradiction(self) -> Dict[str, Any]:
+        """检查矛盾信号"""
+        return {
+            "has_contradiction": False,
+            "description": "",
+            "severity": 0.0,
+        }
+
+    def apply_pre_taste_filter(self, signals: List, data) -> List:
+        """应用预尝味过滤到信号"""
+        if not signals:
+            return signals
+
+        pre_taste = self._get_pre_taste()
+        if pre_taste:
+            try:
+                for signal in signals:
+                    symbol = getattr(signal, 'symbol', None) or getattr(signal, 'stock_code', None)
+                    if symbol:
+                        taste_result = pre_taste.judge(symbol, data)
+                        if taste_result and hasattr(signal, 'metadata'):
+                            signal.metadata['pre_taste'] = taste_result
+            except Exception as e:
+                log.debug(f"[TradingCenter] 应用预尝味过滤失败: {e}")
+
+        return signals
+
     def process_market_data(
         self,
         data: Dict[str, Any],
@@ -339,6 +504,14 @@ class TradingCenter:
         """
         market_state = data.get("market_state", {})
         snapshot = data.get("snapshot", {})
+
+        narratives = self._get_current_narratives()
+        if narratives:
+            market_state["narratives"] = narratives
+
+        # ========== 感知系统处理 ==========
+        market_state = self._process_sensation_modules(market_state, snapshot)
+        # =================================
 
         kernel_output = self.attention_os.make_decision(market_state)
 

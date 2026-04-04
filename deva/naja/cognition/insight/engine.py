@@ -481,14 +481,15 @@ class InsightPool:
 
         try:
             if "strategy_id" in event or "strategy_name" in event:
-                return self.ingest_attention_event(event)
-
-            if event.get("type") in ("news", "content", "result"):
-                return self.ingest_result(event)
-
-            return self.ingest_attention_event(event)
+                result = self.ingest_attention_event(event)
+            elif event.get("type") in ("news", "content", "result"):
+                result = self.ingest_result(event)
+            else:
+                result = self.ingest_attention_event(event)
         except Exception:
-            return None
+            result = None
+
+        return result
 
     def _append_or_merge(self, candidate: Dict[str, Any]) -> Insight:
         now_ts = time.time()
@@ -651,19 +652,6 @@ def get_insight_pool() -> InsightPool:
             if _insight_pool is None:
                 _insight_pool = InsightPool()
     return _insight_pool
-
-
-def emit_to_insight_pool(event: Dict[str, Any]) -> Optional[Insight]:
-    """全局统一入口：发送事件到洞察池
-
-    用法：
-        from deva.naja.cognition.insight import emit_to_insight_pool
-        emit_to_insight_pool({"type": "news", "content": "...", ...})
-        emit_to_insight_pool({"strategy_id": "...", "signal_type": "...", ...})
-        emit_to_insight_pool({"event_type": "pattern", "message": "...", ...})
-    """
-    pool = get_insight_pool()
-    return pool.emit(event)
 
 
 class InsightEngine:
