@@ -28,6 +28,45 @@ from .event_recall import (
 )
 
 
+def get_adaptive_weights(scanner=None) -> Dict[str, Any]:
+    """
+    获取四维引擎的自适应权重（提案2.4.2）
+
+    对外暴露的接口，供外部模块查询当前权重配置
+
+    Returns:
+        {
+            "timing": {component: weight},
+            "regime": {component: weight},
+        }
+    """
+    try:
+        from deva.naja.attention.kernel.manas_engine import TimingEngine, RegimeEngine
+
+        te = TimingEngine()
+        re = RegimeEngine()
+
+        return {
+            "timing": te._get_adaptive_weights(scanner, 0.5),
+            "regime": re._get_adaptive_regime_weights(scanner),
+        }
+    except ImportError:
+        # 降级：返回固定权重
+        return {
+            "timing": {
+                "time_pressure": 0.4,
+                "volatility": 0.25,
+                "density": 0.2,
+                "structure": 0.15,
+            },
+            "regime": {
+                "trend": 0.4,
+                "liquidity": 0.35,
+                "diffusion": 0.25,
+            },
+        }
+
+
 class ManasCore:
     """末那识核心 - 兼容层 wrapper"""
 
@@ -73,4 +112,5 @@ __all__ = [
     "RecalledEvent",
     "ManasCore",
     "get_manas_core",
+    "get_adaptive_weights",
 ]
