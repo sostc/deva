@@ -1,0 +1,331 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1300 1150">
+  <defs>
+    <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#64748b"/>
+    </marker>
+    <marker id="arrowhead-green" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#22c55e"/>
+    </marker>
+    <marker id="arrowhead-blue" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#3b82f6"/>
+    </marker>
+    <marker id="arrowhead-purple" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#8b5cf6"/>
+    </marker>
+    <marker id="arrowhead-yellow" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#eab308"/>
+    </marker>
+    <marker id="arrowhead-red" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#ef4444"/>
+    </marker>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="2" dy="2" stdDeviation="3" flood-opacity="0.15"/>
+    </filter>
+  </defs>
+
+  <rect width="1300" height="1150" fill="#f8fafc"/>
+
+  <!-- Title -->
+  <text x="650" y="40" text-anchor="middle" font-family="Arial, sans-serif" font-size="24" font-weight="bold" fill="#1e293b">交易决策完整思考链：从感知到持仓管理</text>
+
+  <!-- ==================== 中心：最终交易决策 ==================== -->
+  <rect x="500" y="520" width="300" height="90" rx="12" fill="#fef3c7" stroke="#eab308" stroke-width="3" filter="url(#shadow)"/>
+  <text x="650" y="555" text-anchor="middle" font-family="Arial, sans-serif" font-size="18" font-weight="bold" fill="#92400e">最终交易决策</text>
+  <text x="650" y="580" text-anchor="middle" font-family="Arial, sans-serif" font-size="12" fill="#92400e">compute_decision()</text>
+  <text x="650" y="602" text-anchor="middle" font-family="Arial, sans-serif" font-size="11" fill="#64748b">买入/卖出/持有 | 置信度 | 仓位 | 执行</text>
+
+  <!-- ==================== 左上：市场感知层 ==================== -->
+  <rect x="30" y="60" width="380" height="160" rx="10" fill="#fff" stroke="#e2e8f0" stroke-width="2" filter="url(#shadow)"/>
+  <text x="220" y="85" text-anchor="middle" font-family="Arial, sans-serif" font-size="14" font-weight="bold" fill="#475569">市场感知</text>
+
+  <rect x="45" y="100" width="115" height="50" rx="6" fill="#dbeafe" stroke="#3b82f6" stroke-width="1.5"/>
+  <text x="102" y="122" text-anchor="middle" font-family="Arial, sans-serif" font-size="10" font-weight="bold" fill="#1e40af">价格数据</text>
+  <text x="102" y="140" text-anchor="middle" font-family="Arial, sans-serif" font-size="9" fill="#3b82f6">price_change</text>
+
+  <rect x="170" y="100" width="115" height="50" rx="6" fill="#ede9fe" stroke="#8b5cf6" stroke-width="1.5"/>
+  <text x="227" y="122" text-anchor="middle" font-family="Arial, sans-serif" font-size="10" font-weight="bold" fill="#6d28d9">波动率</text>
+  <text x="227" y="140" text-anchor="middle" font-family="Arial, sans-serif" font-size="9" fill="#8b5cf6">volatility</text>
+
+  <rect x="295" y="100" width="115" height="50" rx="6" fill="#dcfce7" stroke="#22c55e" stroke-width="1.5"/>
+  <text x="352" y="122" text-anchor="middle" font-family="Arial, sans-serif" font-size="10" font-weight="bold" fill="#166534">成交量</text>
+  <text x="352" y="140" text-anchor="middle" font-family="Arial, sans-serif" font-size="9" fill="#22c55e">volume_change</text>
+
+  <rect x="45" y="165" width="365" height="45" rx="6" fill="#fef3c7" stroke="#eab308" stroke-width="1.5"/>
+  <text x="227" y="188" text-anchor="middle" font-family="Arial, sans-serif" font-size="11" font-weight="bold" fill="#92400e">NewsMind 新闻情绪: bullish / neutral / fearful</text>
+
+  <line x1="220" y1="210" x2="220" y2="250" stroke="#64748b" stroke-width="1.5" stroke-dasharray="4,2" marker-end="url(#arrowhead)"/>
+
+  <!-- ==================== 右上：叙事与知识层 ==================== -->
+  <rect x="890" y="60" width="380" height="160" rx="10" fill="#fff" stroke="#e2e8f0" stroke-width="2" filter="url(#shadow)"/>
+  <text x="1080" y="85" text-anchor="middle" font-family="Arial, sans-serif" font-size="14" font-weight="bold" fill="#475569">叙事与知识</text>
+
+  <rect x="905" y="100" width="160" height="50" rx="6" fill="#f0fdf4" stroke="#22c55e" stroke-width="1.5"/>
+  <text x="985" y="122" text-anchor="middle" font-family="Arial, sans-serif" font-size="10" font-weight="bold" fill="#166534">narratives</text>
+  <text x="985" y="140" text-anchor="middle" font-family="Arial, sans-serif" font-size="9" fill="#22c55e">市场叙事/热点主题</text>
+
+  <rect x="1080" y="100" width="160" height="50" rx="6" fill="#ede9fe" stroke="#8b5cf6" stroke-width="1.5"/>
+  <text x="1160" y="122" text-anchor="middle" font-family="Arial, sans-serif" font-size="10" font-weight="bold" fill="#6d28d9">因果知识库</text>
+  <text x="1160" y="140" text-anchor="middle" font-family="Arial, sans-serif" font-size="9" fill="#8b5cf6">qualified 知识</text>
+
+  <rect x="905" y="165" width="335" height="45" rx="6" fill="#dbeafe" stroke="#3b82f6" stroke-width="1.5"/>
+  <text x="1072" y="188" text-anchor="middle" font-family="Arial, sans-serif" font-size="11" font-weight="bold" fill="#1e40af">topic_signals: 高置信度话题共振 | 话题扩散 | 高关注话题过热</text>
+
+  <line x1="1080" y1="210" x2="1080" y2="250" stroke="#64748b" stroke-width="1.5" stroke-dasharray="4,2" marker-end="url(#arrowhead)"/>
+
+  <!-- ==================== 左中：机会识别层 ==================== -->
+  <rect x="30" y="260" width="380" height="140" rx="10" fill="#fff" stroke="#e2e8f0" stroke-width="2" filter="url(#shadow)"/>
+  <text x="220" y="285" text-anchor="middle" font-family="Arial, sans-serif" font-size="14" font-weight="bold" fill="#475569">问题-机会-解决者分析</text>
+
+  <rect x="45" y="305" width="110" height="45" rx="6" fill="#fee2e2" stroke="#ef4444" stroke-width="1.5"/>
+  <text x="100" y="325" text-anchor="middle" font-family="Arial, sans-serif" font-size="10" font-weight="bold" fill="#dc2626">检测到的问题</text>
+  <text x="100" y="342" text-anchor="middle" font-family="Arial, sans-serif" font-size="9" fill="#ef4444">供给不足</text>
+
+  <rect x="165" y="305" width="110" height="45" rx="6" fill="#dcfce7" stroke="#22c55e" stroke-width="1.5"/>
+  <text x="220" y="325" text-anchor="middle" font-family="Arial, sans-serif" font-size="10" font-weight="bold" fill="#166534">解决者</text>
+  <text x="220" y="342" text-anchor="middle" font-family="Arial, sans-serif" font-size="9" fill="#22c55e">华为/台积电</text>
+
+  <rect x="285" y="305" width="110" height="45" rx="6" fill="#fef9c3" stroke="#eab308" stroke-width="1.5"/>
+  <text x="340" y="325" text-anchor="middle" font-family="Arial, sans-serif" font-size="10" font-weight="bold" fill="#854d0e">机会</text>
+  <text x="340" y="342" text-anchor="middle" font-family="Arial, sans-serif" font-size="9" fill="#eab308">国产替代</text>
+
+  <rect x="45" y="365" width="365" height="30" rx="6" fill="#f1f5f9" stroke="#cbd5e1" stroke-width="1"/>
+  <text x="227" y="385" text-anchor="middle" font-family="Arial, sans-serif" font-size="10" fill="#64748b">NarrativeTracker: get_problem_opportunity_summary()</text>
+
+  <line x1="220" y1="400" x2="220" y2="440" stroke="#64748b" stroke-width="1.5" stroke-dasharray="4,2" marker-end="url(#arrowhead)"/>
+
+  <!-- ==================== 右中：AI算力趋势 ==================== -->
+  <rect x="890" y="260" width="380" height="140" rx="10" fill="#fff" stroke="#e2e8f0" stroke-width="2" filter="url(#shadow)"/>
+  <text x="1080" y="285" text-anchor="middle" font-family="Arial, sans-serif" font-size="14" font-weight="bold" fill="#475569">AI算力趋势</text>
+
+  <rect x="905" y="305" width="160" height="45" rx="6" fill="#dbeafe" stroke="#3b82f6" stroke-width="1.5"/>
+  <text x="985" y="325" text-anchor="middle" font-family="Arial, sans-serif" font-size="10" font-weight="bold" fill="#1e40af">算力需求趋势</text>
+  <text x="985" y="342" text-anchor="middle" font-family="Arial, sans-serif" font-size="9" fill="#3b82f6">cumulative_growth</text>
+
+  <rect x="1080" y="305" width="160" height="45" rx="6" fill="#ede9fe" stroke="#8b5cf6" stroke-width="1.5"/>
+  <text x="1160" y="325" text-anchor="middle" font-family="Arial, sans-serif" font-size="10" font-weight="bold" fill="#6d28d9">AI持仓盈亏</text>
+  <text x="1160" y="342" text-anchor="middle" font-family="Arial, sans-serif" font-size="9" fill="#8b5cf6">NVDA/AMD/TSLA</text>
+
+  <rect x="905" y="365" width="335" height="30" rx="6" fill="#fef3c7" stroke="#eab308" stroke-width="1.5"/>
+  <text x="1072" y="385" text-anchor="middle" font-family="Arial, sans-serif" font-size="10" fill="#92400e">背离识别: 算力需求↑ 但股价↓ = 错杀机会</text>
+
+  <line x1="1080" y1="400" x2="1080" y2="440" stroke="#64748b" stroke-width="1.5" stroke-dasharray="4,2" marker-end="url(#arrowhead)"/>
+
+  <!-- ==================== 中心左侧：FirstPrinciplesMind ==================== -->
+  <rect x="30" y="450" width="400" height="160" rx="10" fill="#fff" stroke="#8b5cf6" stroke-width="2" filter="url(#shadow)"/>
+  <text x="230" y="475" text-anchor="middle" font-family="Arial, sans-serif" font-size="15" font-weight="bold" fill="#6d28d9">FirstPrinciplesMind 第一性原理分析</text>
+
+  <rect x="45" y="495" width="100" height="55" rx="6" fill="#ede9fe" stroke="#8b5cf6" stroke-width="1.5"/>
+  <text x="95" y="515" text-anchor="middle" font-family="Arial, sans-serif" font-size="10" font-weight="bold" fill="#6d28d9">因果推理</text>
+  <text x="95" y="532" text-anchor="middle" font-family="Arial, sans-serif" font-size="9" fill="#8b5cf6">根因分析</text>
+  <text x="95" y="545" text-anchor="middle" font-family="Arial, sans-serif" font-size="9" fill="#8b5cf6">因果链追溯</text>
+
+  <rect x="155" y="495" width="100" height="55" rx="6" fill="#fee2e2" stroke="#ef4444" stroke-width="1.5"/>
+  <text x="205" y="515" text-anchor="middle" font-family="Arial, sans-serif" font-size="10" font-weight="bold" fill="#dc2626">矛盾检测</text>
+  <text x="205" y="532" text-anchor="middle" font-family="Arial, sans-serif" font-size="9" fill="#ef4444">多空冲突</text>
+  <text x="205" y="545" text-anchor="middle" font-family="Arial, sans-serif" font-size="9" fill="#ef4444">价量背离</text>
+
+  <rect x="265" y="495" width="100" height="55" rx="6" fill="#fef9c3" stroke="#eab308" stroke-width="1.5"/>
+  <text x="315" y="515" text-anchor="middle" font-family="Arial, sans-serif" font-size="10" font-weight="bold" fill="#854d0e">模式识别</text>
+  <text x="315" y="532" text-anchor="middle" font-family="Arial, sans-serif" font-size="9" fill="#eab308">连续上涨</text>
+  <text x="315" y="545" text-anchor="middle" font-family="Arial, sans-serif" font-size="9" fill="#eab308">连续下跌</text>
+
+  <rect x="375" y="495" width="45" height="55" rx="6" fill="#f1f5f9" stroke="#cbd5e1" stroke-width="1"/>
+  <text x="397" y="520" text-anchor="middle" font-family="Arial, sans-serif" font-size="8" fill="#64748b">输出</text>
+  <text x="397" y="535" text-anchor="middle" font-family="Arial, sans-serif" font-size="8" fill="#64748b">洞察</text>
+
+  <rect x="45" y="565" width="375" height="35" rx="6" fill="#f0fdf4" stroke="#22c55e" stroke-width="1.5"/>
+  <text x="232" y="588" text-anchor="middle" font-family="Arial, sans-serif" font-size="10" fill="#166534">输出: opportunity/risk/pattern/causal + level + confidence</text>
+
+  <line x1="430" y1="530" x2="490" y2="555" stroke="#8b5cf6" stroke-width="2" marker-end="url(#arrowhead-purple)"/>
+
+  <!-- ==================== 中心右侧：Manas 四维引擎 ==================== -->
+  <rect x="870" y="450" width="400" height="160" rx="10" fill="#fff" stroke="#eab308" stroke-width="2" filter="url(#shadow)"/>
+  <text x="1070" y="475" text-anchor="middle" font-family="Arial, sans-serif" font-size="15" font-weight="bold" fill="#92400e">Manas 四维引擎</text>
+
+  <rect x="885" y="495" width="90" height="55" rx="6" fill="#dbeafe" stroke="#3b82f6" stroke-width="1.5"/>
+  <text x="930" y="515" text-anchor="middle" font-family="Arial, sans-serif" font-size="10" font-weight="bold" fill="#1e40af">时机</text>
+  <text x="930" y="532" text-anchor="middle" font-family="Arial, sans-serif" font-size="8" fill="#3b82f6">能否动？</text>
+  <text x="930" y="545" text-anchor="middle" font-family="Arial, sans-serif" font-size="8" fill="#64748b">时段/波动/密度</text>
+
+  <rect x="985" y="495" width="90" height="55" rx="6" fill="#dcfce7" stroke="#22c55e" stroke-width="1.5"/>
+  <text x="1030" y="515" text-anchor="middle" font-family="Arial, sans-serif" font-size="10" font-weight="bold" fill="#166534">环境</text>
+  <text x="1030" y="532" text-anchor="middle" font-family="Arial, sans-serif" font-size="8" fill="#22c55e">顺风逆风？</text>
+  <text x="1030" y="545" text-anchor="middle" font-family="Arial, sans-serif" font-size="8" fill="#64748b">趋势/流动/扩散</text>
+
+  <rect x="1085" y="495" width="90" height="55" rx="6" fill="#ede9fe" stroke="#8b5cf6" stroke-width="1.5"/>
+  <text x="1130" y="515" text-anchor="middle" font-family="Arial, sans-serif" font-size="10" font-weight="bold" fill="#6d28d9">自信</text>
+  <text x="1130" y="532" text-anchor="middle" font-family="Arial, sans-serif" font-size="8" fill="#8b5cf6">策略适配？</text>
+  <text x="1130" y="545" text-anchor="middle" font-family="Arial, sans-serif" font-size="8" fill="#64748b">胜率/盈亏/Bandit</text>
+
+  <rect x="1185" y="495" width="75" height="55" rx="6" fill="#fee2e2" stroke="#ef4444" stroke-width="1.5"/>
+  <text x="1222" y="515" text-anchor="middle" font-family="Arial, sans-serif" font-size="10" font-weight="bold" fill="#dc2626">风险</text>
+  <text x="1222" y="532" text-anchor="middle" font-family="Arial, sans-serif" font-size="8" fill="#ef4444">承受力？</text>
+  <text x="1222" y="545" text-anchor="middle" font-family="Arial, sans-serif" font-size="8" fill="#64748b">现金/回撤</text>
+
+  <rect x="885" y="565" width="375" height="35" rx="6" fill="#fef9c3" stroke="#eab308" stroke-width="1.5"/>
+  <text x="1072" y="588" text-anchor="middle" font-family="Arial, sans-serif" font-size="10" fill="#854d0e">MetaManas: 检测贪/惧bias → 纠偏 | 天时响应 | 环境和谐 | 人时响应</text>
+
+  <line x1="870" y1="530" x2="810" y2="555" stroke="#eab308" stroke-width="2" marker-end="url(#arrowhead-yellow)"/>
+
+  <!-- ==================== 持仓管理层（Bandit）==================== -->
+  <rect x="30" y="630" width="1240" height="160" rx="10" fill="#fff" stroke="#22c55e" stroke-width="2" filter="url(#shadow)"/>
+  <text x="650" y="655" text-anchor="middle" font-family="Arial, sans-serif" font-size="15" font-weight="bold" fill="#166534">Bandit 自适应循环 - 持仓管理层</text>
+
+  <!-- 信号监听 -->
+  <rect x="50" y="675" width="180" height="50" rx="6" fill="#dbeafe" stroke="#3b82f6" stroke-width="1.5"/>
+  <text x="140" y="697" text-anchor="middle" font-family="Arial, sans-serif" font-size="11" font-weight="bold" fill="#1e40af">SignalListener</text>
+  <text x="140" y="715" text-anchor="middle" font-family="Arial, sans-serif" font-size="9" fill="#3b82f6">监听交易信号</text>
+
+  <!-- 虚拟持仓 -->
+  <rect x="250" y="675" width="180" height="50" rx="6" fill="#dcfce7" stroke="#22c55e" stroke-width="1.5"/>
+  <text x="340" y="697" text-anchor="middle" font-family="Arial, sans-serif" font-size="11" font-weight="bold" fill="#166534">VirtualPortfolio</text>
+  <text x="340" y="715" text-anchor="middle" font-family="Arial, sans-serif" font-size="9" fill="#22c55e">追踪持仓盈亏</text>
+
+  <!-- 市场观察 -->
+  <rect x="450" y="675" width="180" height="50" rx="6" fill="#ede9fe" stroke="#8b5cf6" stroke-width="1.5"/>
+  <text x="540" y="697" text-anchor="middle" font-family="Arial, sans-serif" font-size="11" font-weight="bold" fill="#6d28d9">MarketDataObserver</text>
+  <text x="540" y="715" text-anchor="middle" font-family="Arial, sans-serif" font-size="9" fill="#8b5cf6">实时价格更新</text>
+
+  <!-- 止盈止损检查 -->
+  <rect x="650" y="675" width="180" height="50" rx="6" fill="#fef3c7" stroke="#eab308" stroke-width="1.5"/>
+  <text x="740" y="697" text-anchor="middle" font-family="Arial, sans-serif" font-size="11" font-weight="bold" fill="#92400e">止盈止损检查</text>
+  <text x="740" y="715" text-anchor="middle" font-family="Arial, sans-serif" font-size="9" fill="#eab308">触发平仓条件</text>
+
+  <!-- Bandit更新 -->
+  <rect x="850" y="675" width="180" height="50" rx="6" fill="#fee2e2" stroke="#ef4444" stroke-width="1.5"/>
+  <text x="940" y="697" text-anchor="middle" font-family="Arial, sans-serif" font-size="11" font-weight="bold" fill="#dc2626">Bandit 更新</text>
+  <text x="940" y="715" text-anchor="middle" font-family="Arial, sans-serif" font-size="9" fill="#ef4444">胜率/置信度更新</text>
+
+  <!-- 策略优化 -->
+  <rect x="1050" y="675" width="180" height="50" rx="6" fill="#f1f5f9" stroke="#64748b" stroke-width="1.5"/>
+  <text x="1140" y="697" text-anchor="middle" font-family="Arial, sans-serif" font-size="11" font-weight="bold" fill="#475569">BanditOptimizer</text>
+  <text x="1140" y="715" text-anchor="middle" font-family="Arial, sans-serif" font-size="9" fill="#64748b">调整策略参数</text>
+
+  <!-- 循环箭头 -->
+  <path d="M 140 740 L 140 760 L 1260 760 L 1260 725" stroke="#22c55e" stroke-width="2" fill="none" marker-end="url(#arrowhead-green)"/>
+  <text x="700" y="780" text-anchor="middle" font-family="Arial, sans-serif" font-size="10" fill="#22c55e">自适应循环: 信号→持仓→观察→止盈止损→平仓→Bandit更新→策略优化</text>
+
+  <!-- 持仓详情 -->
+  <rect x="50" y="740" width="180" height="40" rx="6" fill="#f0fdf4" stroke="#22c55e" stroke-width="1"/>
+  <text x="140" y="758" text-anchor="middle" font-family="Arial, sans-serif" font-size="9" fill="#166534">持仓: NVDA/AMD/TSLA</text>
+  <text x="140" y="773" text-anchor="middle" font-family="Arial, sans-serif" font-size="9" fill="#64748b">get_all_positions()</text>
+
+  <rect x="250" y="740" width="180" height="40" rx="6" fill="#fef9c3" stroke="#eab308" stroke-width="1"/>
+  <text x="340" y="758" text-anchor="middle" font-family="Arial, sans-serif" font-size="9" fill="#854d0e">置信度: 0.75 → 策略自适应</text>
+  <text x="340" y="773" text-anchor="middle" font-family="Arial, sans-serif" font-size="9" fill="#64748b">get_strategy_summary()</text>
+
+  <rect x="450" y="740" width="180" height="40" rx="6" fill="#fef3c7" stroke="#eab308" stroke-width="1"/>
+  <text x="540" y="758" text-anchor="middle" font-family="Arial, sans-serif" font-size="9" fill="#92400e">止盈: +15% | 止损: -8%</text>
+  <text x="540" y="773" text-anchor="middle" font-family="Arial, sans-serif" font-size="9" fill="#64748b">自适应调整</text>
+
+  <rect x="650" y="740" width="180" height="40" rx="6" fill="#fee2e2" stroke="#ef4444" stroke-width="1"/>
+  <text x="740" y="758" text-anchor="middle" font-family="Arial, sans-serif" font-size="9" fill="#dc2626">回撤监控: -5.2%</text>
+  <text x="740" y="773" text-anchor="middle" font-family="Arial, sans-serif" font-size="9" fill="#64748b">RiskEngine 评估</text>
+
+  <rect x="850" y="740" width="180" height="40" rx="6" fill="#ede9fe" stroke="#8b5cf6" stroke-width="1"/>
+  <text x="940" y="758" text-anchor="middle" font-family="Arial, sans-serif" font-size="9" fill="#6d28d9">胜率: 62% (20笔交易)</text>
+  <text x="940" y="773" text-anchor="middle" font-family="Arial, sans-serif" font-size="9" fill="#64748b">get_hit_rate()</text>
+
+  <rect x="1050" y="740" width="180" height="40" rx="6" fill="#dbeafe" stroke="#3b82f6" stroke-width="1"/>
+  <text x="1140" y="758" text-anchor="middle" font-family="Arial, sans-serif" font-size="9" fill="#1e40af">现金比例: 35%</text>
+  <text x="1140" y="773" text-anchor="middle" font-family="Arial, sans-serif" font-size="9" fill="#64748b">仓位管理</text>
+
+  <!-- ==================== 底部：决策思考清单 ==================== -->
+  <rect x="30" y="810" width="1240" height="320" rx="10" fill="#fff" stroke="#e2e8f0" stroke-width="2" filter="url(#shadow)"/>
+  <text x="650" y="838" text-anchor="middle" font-family="Arial, sans-serif" font-size="15" font-weight="bold" fill="#475569">决策思考清单：做一次交易决策需要关心什么？</text>
+
+  <!-- 第一行 -->
+  <rect x="50" y="860" width="175" height="65" rx="6" fill="#dbeafe" stroke="#3b82f6" stroke-width="1.5"/>
+  <text x="137" y="882" text-anchor="middle" font-family="Arial, sans-serif" font-size="11" font-weight="bold" fill="#1e40af">1. 价格与趋势</text>
+  <text x="137" y="900" text-anchor="middle" font-family="Arial, sans-serif" font-size="9" fill="#3b82f6">价格/成交量变化</text>
+  <text x="137" y="914" text-anchor="middle" font-family="Arial, sans-serif" font-size="9" fill="#3b82f6">波动率/趋势强度</text>
+
+  <rect x="240" y="860" width="175" height="65" rx="6" fill="#dbeafe" stroke="#3b82f6" stroke-width="1.5"/>
+  <text x="327" y="882" text-anchor="middle" font-family="Arial, sans-serif" font-size="11" font-weight="bold" fill="#1e40af">2. 新闻情绪</text>
+  <text x="327" y="900" text-anchor="middle" font-family="Arial, sans-serif" font-size="9" fill="#3b82f6">bullish/neutral/fearful</text>
+  <text x="327" y="914" text-anchor="middle" font-family="Arial, sans-serif" font-size="9" fill="#3b82f6">NewsMind</text>
+
+  <rect x="430" y="860" width="175" height="65" rx="6" fill="#f0fdf4" stroke="#22c55e" stroke-width="1.5"/>
+  <text x="517" y="882" text-anchor="middle" font-family="Arial, sans-serif" font-size="11" font-weight="bold" fill="#166534">3. 市场叙事</text>
+  <text x="517" y="900" text-anchor="middle" font-family="Arial, sans-serif" font-size="9" fill="#22c55e">热点主题/叙事阶段</text>
+  <text x="517" y="914" text-anchor="middle" font-family="Arial, sans-serif" font-size="9" fill="#64748b">narratives.json</text>
+
+  <rect x="620" y="860" width="175" height="65" rx="6" fill="#ede9fe" stroke="#8b5cf6" stroke-width="1.5"/>
+  <text x="707" y="882" text-anchor="middle" font-family="Arial, sans-serif" font-size="11" font-weight="bold" fill="#6d28d9">4. 因果知识</text>
+  <text x="707" y="900" text-anchor="middle" font-family="Arial, sans-serif" font-size="9" fill="#8b5cf6">qualified 知识</text>
+  <text x="707" y="914" text-anchor="middle" font-family="Arial, sans-serif" font-size="9" fill="#64748b">7天验证期</text>
+
+  <rect x="810" y="860" width="175" height="65" rx="6" fill="#fef3c7" stroke="#eab308" stroke-width="1.5"/>
+  <text x="897" y="882" text-anchor="middle" font-family="Arial, sans-serif" font-size="11" font-weight="bold" fill="#92400e">5. 问题-机会</text>
+  <text x="897" y="900" text-anchor="middle" font-family="Arial, sans-serif" font-size="9" fill="#eab308">供需失衡/解决者</text>
+  <text x="897" y="914" text-anchor="middle" font-family="Arial, sans-serif" font-size="9" fill="#64748b">NarrativeTracker</text>
+
+  <rect x="1000" y="860" width="150" height="65" rx="6" fill="#fee2e2" stroke="#ef4444" stroke-width="1.5"/>
+  <text x="1075" y="882" text-anchor="middle" font-family="Arial, sans-serif" font-size="11" font-weight="bold" fill="#dc2626">6. 矛盾信号</text>
+  <text x="1075" y="900" text-anchor="middle" font-family="Arial, sans-serif" font-size="9" fill="#ef4444">多空分歧</text>
+  <text x="1075" y="914" text-anchor="middle" font-family="Arial, sans-serif" font-size="9" fill="#64748b">价量背离</text>
+
+  <!-- 第二行 -->
+  <rect x="50" y="940" width="175" height="65" rx="6" fill="#dbeafe" stroke="#3b82f6" stroke-width="1.5"/>
+  <text x="137" y="962" text-anchor="middle" font-family="Arial, sans-serif" font-size="11" font-weight="bold" fill="#1e40af">7. AI算力趋势</text>
+  <text x="137" y="980" text-anchor="middle" font-family="Arial, sans-serif" font-size="9" fill="#3b82f6">算力需求/背离识别</text>
+  <text x="137" y="994" text-anchor="middle" font-family="Arial, sans-serif" font-size="9" fill="#64748b">持仓盈亏</text>
+
+  <rect x="240" y="940" width="175" height="65" rx="6" fill="#f1f5f9" stroke="#64748b" stroke-width="1.5"/>
+  <text x="327" y="962" text-anchor="middle" font-family="Arial, sans-serif" font-size="11" font-weight="bold" fill="#475569">8. 流动性</text>
+  <text x="327" y="980" text-anchor="middle" font-family="Arial, sans-serif" font-size="9" fill="#64748b">全球流动性</text>
+  <text x="327" y="994" text-anchor="middle" font-family="Arial, sans-serif" font-size="9" fill="#64748b">LiquidityCognition</text>
+
+  <rect x="430" y="940" width="175" height="65" rx="6" fill="#f1f5f9" stroke="#64748b" stroke-width="1.5"/>
+  <text x="517" y="962" text-anchor="middle" font-family="Arial, sans-serif" font-size="11" font-weight="bold" fill="#475569">9. Manas时机</text>
+  <text x="517" y="980" text-anchor="middle" font-family="Arial, sans-serif" font-size="9" fill="#64748b">时段/波动率/结构</text>
+  <text x="517" y="994" text-anchor="middle" font-family="Arial, sans-serif" font-size="9" fill="#3b82f6">TimingEngine</text>
+
+  <rect x="620" y="940" width="175" height="65" rx="6" fill="#f1f5f9" stroke="#64748b" stroke-width="1.5"/>
+  <text x="707" y="962" text-anchor="middle" font-family="Arial, sans-serif" font-size="11" font-weight="bold" fill="#475569">10. Manas环境</text>
+  <text x="707" y="980" text-anchor="middle" font-family="Arial, sans-serif" font-size="9" fill="#64748b">趋势/流动/板块扩散</text>
+  <text x="707" y="994" text-anchor="middle" font-family="Arial, sans-serif" font-size="9" fill="#22c55e">RegimeEngine</text>
+
+  <rect x="810" y="940" width="175" height="65" rx="6" fill="#f1f5f9" stroke="#64748b" stroke-width="1.5"/>
+  <text x="897" y="962" text-anchor="middle" font-family="Arial, sans-serif" font-size="11" font-weight="bold" fill="#475569">11. Manas自信</text>
+  <text x="897" y="980" text-anchor="middle" font-family="Arial, sans-serif" font-size="9" fill="#64748b">胜率/滚动盈亏</text>
+  <text x="897" y="994" text-anchor="middle" font-family="Arial, sans-serif" font-size="9" fill="#8b5cf6">ConfidenceEngine</text>
+
+  <rect x="1000" y="940" width="150" height="65" rx="6" fill="#f1f5f9" stroke="#64748b" stroke-width="1.5"/>
+  <text x="1075" y="962" text-anchor="middle" font-family="Arial, sans-serif" font-size="11" font-weight="bold" fill="#475569">12. Manas风险</text>
+  <text x="1075" y="980" text-anchor="middle" font-family="Arial, sans-serif" font-size="9" fill="#64748b">现金/回撤/波动</text>
+  <text x="1075" y="994" text-anchor="middle" font-family="Arial, sans-serif" font-size="9" fill="#ef4444">RiskEngine</text>
+
+  <!-- 第三行：Bandit持仓管理 -->
+  <rect x="50" y="1020" width="175" height="55" rx="6" fill="#dcfce7" stroke="#22c55e" stroke-width="1.5"/>
+  <text x="137" y="1042" text-anchor="middle" font-family="Arial, sans-serif" font-size="11" font-weight="bold" fill="#166534">13. Bandit持仓</text>
+  <text x="137" y="1060" text-anchor="middle" font-family="Arial, sans-serif" font-size="9" fill="#22c55e">当前持仓/盈亏</text>
+  <text x="137" y="1072" text-anchor="middle" font-family="Arial, sans-serif" font-size="9" fill="#64748b">VirtualPortfolio</text>
+
+  <rect x="240" y="1020" width="175" height="55" rx="6" fill="#fef9c3" stroke="#eab308" stroke-width="1.5"/>
+  <text x="327" y="1042" text-anchor="middle" font-family="Arial, sans-serif" font-size="11" font-weight="bold" fill="#854d0e">14. 止盈止损</text>
+  <text x="327" y="1060" text-anchor="middle" font-family="Arial, sans-serif" font-size="9" fill="#eab308">+15% / -8%</text>
+  <text x="327" y="1072" text-anchor="middle" font-family="Arial, sans-serif" font-size="9" fill="#64748b">自适应调整</text>
+
+  <rect x="430" y="1020" width="175" height="55" rx="6" fill="#dbeafe" stroke="#3b82f6" stroke-width="1.5"/>
+  <text x="517" y="1042" text-anchor="middle" font-family="Arial, sans-serif" font-size="11" font-weight="bold" fill="#1e40af">15. 策略胜率</text>
+  <text x="517" y="1060" text-anchor="middle" font-family="Arial, sans-serif" font-size="9" fill="#3b82f6">62% (20笔)</text>
+  <text x="517" y="1072" text-anchor="middle" font-family="Arial, sans-serif" font-size="9" fill="#64748b">BanditTracker</text>
+
+  <rect x="620" y="1020" width="175" height="55" rx="6" fill="#ede9fe" stroke="#8b5cf6" stroke-width="1.5"/>
+  <text x="707" y="1042" text-anchor="middle" font-family="Arial, sans-serif" font-size="11" font-weight="bold" fill="#6d28d9">16. MetaManas</text>
+  <text x="707" y="1060" text-anchor="middle" font-family="Arial, sans-serif" font-size="9" fill="#8b5cf6">贪/惧bias检测</text>
+  <text x="707" y="1072" text-anchor="middle" font-family="Arial, sans-serif" font-size="9" fill="#64748b">纠偏机制</text>
+
+  <rect x="810" y="1020" width="175" height="55" rx="6" fill="#fef3c7" stroke="#eab308" stroke-width="1.5"/>
+  <text x="897" y="1042" text-anchor="middle" font-family="Arial, sans-serif" font-size="11" font-weight="bold" fill="#92400e">17. 天时环境</text>
+  <text x="897" y="1060" text-anchor="middle" font-family="Arial, sans-serif" font-size="9" fill="#eab308">时段/市场状态</text>
+  <text x="897" y="1072" text-anchor="middle" font-family="Arial, sans-serif" font-size="9" fill="#64748b">顺势而为</text>
+
+  <rect x="1000" y="1020" width="150" height="55" rx="6" fill="#fee2e2" stroke="#ef4444" stroke-width="1.5"/>
+  <text x="1075" y="1042" text-anchor="middle" font-family="Arial, sans-serif" font-size="11" font-weight="bold" fill="#dc2626">18. 仓位上限</text>
+  <text x="1075" y="1060" text-anchor="middle" font-family="Arial, sans-serif" font-size="9" fill="#ef4444">现金35%/总仓位</text>
+  <text x="1075" y="1072" text-anchor="middle" font-family="Arial, sans-serif" font-size="9" fill="#64748b">风险控制</text>
+
+</svg>
