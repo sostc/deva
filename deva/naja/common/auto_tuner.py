@@ -392,9 +392,9 @@ class AutoTuner:
     def _check_pytorch_error_rate(self) -> Optional[Dict]:
         """检查 PyTorch 错误率，超过阈值时停止 PyTorch 处理"""
         try:
-            from deva.naja.attention.center import get_attention_orchestrator
-            orchestrator = get_attention_orchestrator()
-            stats = orchestrator.get_stats()
+            from deva.naja.attention import get_data_processor
+            processor = get_data_processor()
+            stats = processor.get_stats()
 
             pytorch_stats = stats.get('pytorch', {})
             total = pytorch_stats.get('total', 0)
@@ -918,9 +918,9 @@ class AutoTuner:
         elif action == 'stop_pytorch':
             reason = issue.get('reason', '')
             try:
-                from deva.naja.attention.center import get_attention_orchestrator
-                orchestrator = get_attention_orchestrator()
-                orchestrator.stop_pytorch_processor()
+                from deva.naja.attention import get_data_processor
+                processor = get_data_processor()
+                processor.stop_pytorch_processor()
                 log.info(f"[AutoTuner] 已停止 PyTorch 处理器: {reason}")
                 return
             except Exception as e:
@@ -974,9 +974,9 @@ class AutoTuner:
         if action == 'stop_pytorch':
             reason = issue.get('reason', '')
             try:
-                from deva.naja.attention.center import get_attention_orchestrator
-                orchestrator = get_attention_orchestrator()
-                orchestrator.stop_pytorch_processor()
+                from deva.naja.attention import get_data_processor
+                processor = get_data_processor()
+                processor.stop_pytorch_processor()
                 log.info(f"[AutoTuner] 已停止 PyTorch 处理器: {reason}")
                 self._record_event(issue, triggered_by_llm=False)
                 return

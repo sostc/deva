@@ -1,6 +1,24 @@
-"""NarrativeTracker - 认知系统/叙事追踪/故事追踪
+"""SectorNarrative - 认知系统/地（Sector/板块叙事追踪）
 
-别名/关键词: 叙事、故事、市场叙事、narrative、story tracking
+🌍 定位：天-地-人框架中的「地」
+    - 「地」= 我们关心的地方（持仓、关注的板块/主题）
+    - 回答：「我关心的主题现在怎么样了？」
+
+📋 核心职责：
+    1. 追踪我们关注的主题（从 ManasEngine 获取 focus_themes）
+    2. 分析供需关系（谁受益、谁受损）
+    3. 识别热点叙事（我关注的板块是主角还是配角？）
+
+🔄 数据流：
+    文本信号 → TextSignalBus → SectorNarrative（订阅）
+         ↓ 处理
+    发布 SECTOR_NARRATIVE_UPDATE → CognitiveSignalBus → ManasEngine
+
+💡 与 TimingNarrative 的区别：
+    - SectorNarrative（地）：关注「空间」—— 炒什么板块/主题
+    - TimingNarrative（天）：关注「时间」—— 现在是不是时机
+
+关键词已迁移到 keyword_registry.py，本文件从那里导入以保持向后兼容。
 """
 
 from __future__ import annotations
@@ -11,279 +29,13 @@ from collections import defaultdict, deque
 from dataclasses import dataclass, field
 from typing import Any, Deque, Dict, Iterable, List, Optional, Tuple
 
-
-DEFAULT_NARRATIVE_KEYWORDS: Dict[str, List[str]] = {
-    "AI": [
-        "AI", "AIGC", "人工智能", "大模型", "多模态", "生成式", "GPT", "ChatGPT", "Sora",
-        "算力", "智能体", "机器人", "自动驾驶", "NLP", "语音", "视觉",
-        "LLM", "Agent", "RAG", "向量数据库", "Embedding",
-        "OpenAI", "Anthropic", "Claude", "Gemini",
-        "文心一言", "通义千问", "Kimi", "豆包", "智谱清言", "百川", "零一",
-        "昇腾", "昆仑", "寒武纪", "燧原",
-        "AI手机", "AI PC", "端侧AI", "边缘AI", "AI应用",
-    ],
-    "芯片": [
-        "芯片", "半导体", "集成电路", "晶圆", "光刻", "EDA", "封测", "制程", "GPU", "CPU",
-        "HBM", "DRAM", "NAND", "SoC", "ASIC", "FPGA", "存储",
-        "先进封装", "CoWoS", "HBM3", "HBM3e",
-        "英伟达", "AMD", "英特尔", "高通", "联发科", "博通",
-        "台积电", "三星", "中芯国际", "华虹半导体",
-    ],
-    "天道": [
-        "设备交付延迟", "AI改造", "限流", "训练成本下降", "降本增效", "良品率", "限速", "token不够", "渗透率", "API调用量增长",
-        "token消耗", "算力短缺", "GPU排队", "算力不足",
-        "API限流", "ChatGPT限流", "Claude限流", "Gemini限流",
-        "模型服务不可用", "服务器过载", "负载过高",
-        "卡脖子", "产能不足", "良品率", "HBM缺货",
-        "EUV产能", "先进封装产能", "CoWoS满载", "封装排队",
-        "晶圆厂产能满", "产能告急", "设备交付延迟",
-        "性能提升", "成本下降", "新一代", "突破", "效率提升",
-        "推理加速", "训练成本下降", "功耗降低", "算力翻倍",
-        "新架构", "技术创新", "技术路线突破",
-        "渗透率", "落地", "商业化", "盈利", "行业AI化",
-        "AI改造", "降本增效", "收入增长",
-        "付费转化", "用户增长", "API调用量增长",
-    ],
-    "民心": [
-        "上涨", "下跌", "大涨", "大跌", "暴涨", "暴跌",
-        "牛市", "熊市", "反弹", "回调", "震荡",
-        "资金流入", "资金流出", "净流入", "净流出",
-        "市场认为", "分析师称", "机构表示", "情绪乐观",
-        "情绪悲观", "恐慌", "贪婪", "风险偏好",
-        "避险", "风险情绪", "市场信心",
-        "热门", "热搜", "刷屏", "引爆", "疯狂",
-        "泡沫", "投机", "炒作", "概念股",
-    ],
-    "新能源": [
-        "新能源", "光伏", "风电", "储能", "锂电", "电池", "充电桩", "氢能", "碳中和", "碳达峰",
-        "新能源车", "电动车", "逆变器", "光伏逆变器",
-        "宁德时代", "比亚迪", "亿纬锂能", "国轩高科",
-        "隆基绿能", "通威股份", "阳光电源", "晶澳科技",
-        "特斯拉", "理想汽车", "蔚来汽车", "小鹏汽车",
-    ],
-    "医药": [
-        "医药", "生物医药", "创新药", "疫苗", "医疗", "医疗器械", "临床", "试验", "基因",
-        "细胞治疗", "CXO", "医院", "药品", "药企",
-        "创新药", "仿制药", "中药", "生物药", "ADC", "双抗", "CAR-T",
-        "恒瑞医药", "百济神州", "君实生物", "信达生物",
-    ],
-    "华为": [
-        "华为", "昇腾", "鸿蒙", "HarmonyOS", "Harmony", "麒麟芯片",
-        "鲲鹏", "昇思", "华为云", "HiCar", "智能驾驶",
-        "Mate", "P系列", "问界", "智界",
-    ],
-    "中美关系": [
-        "关税", "制裁", "贸易战", "出口管制", "实体清单", "黑名单",
-        "美国商务部", "BIS", "EAR", "FDPR",
-        "中美关系", "中美贸易", "美中", "中美会谈", "战略对话",
-    ],
-    "地缘政治": [
-        "伊朗", "以色列", "中东", "霍尔木兹海峡", "红海",
-        "俄乌", "乌克兰", "俄罗斯", "北约",
-        "朝鲜", "朝鲜半岛", "韩朝", "台海",
-        "巴以", "加沙", "耶路撒冷", "联合国安理会",
-    ],
-    "贵金属": [
-        "黄金", "白银", "铂金", "钯金", "金价", "银价",
-        "COMEX", "伦敦金", "现货金", "国际金", "黄金期货",
-        "黄金ETF", "黄金股", "金币", "金条",
-        "央行购金", "黄金储备", "黄金突破", "黄金下跌",
-    ],
-    "外汇与美元": [
-        "美元", "美元指数", "DXY", "USD", "欧元", "EUR", "日元", "JPY",
-        "英镑", "GBP", "人民币", "CNY", "离岸人民币", "在岸人民币",
-        "美元兑", "美元走强", "美元走弱", "美元反弹", "美元回落",
-        "美联储", "Fed", "利率决策", "加息", "降息", "鲍威尔",
-    ],
-    "经济增长": [
-        "GDP", "国内生产总值", "经济增速", "经济增长", "经济扩张", "经济放缓", "经济衰退",
-        "PMI", "制造业 PMI", "服务业 PMI", "非制造业 PMI", "采购经理指数",
-        "非农", "非农就业", "就业人数", "失业率", "初请失业金", "续请失业金",
-        "零售销售", "消费数据", "社会消费品", "零售额",
-        "工业产出", "工业增加值", "制造业产出",
-        "耐用品订单", "资本品订单",
-        "新屋开工", "成屋销售", "营建许可",
-        "消费者信心", "密歇根信心", "消费者预期",
-        "经济领先指标", "经济同步指标", "经济滞后指标",
-        "软着陆", "硬着陆", "经济复苏", "经济过热",
-    ],
-    "通胀数据": [
-        "CPI", "消费者物价指数", "通胀率", "通胀数据", "物价指数",
-        "核心 CPI", "核心通胀", "通胀预期",
-        "PCE", "个人消费支出", "核心 PCE", "美联储通胀目标",
-        "PPI", "生产者物价指数", "出厂价格", "投入价格",
-        "薪资增长", "工资增速", "平均时薪", "就业成本指数",
-        "通胀压力", "通胀飙升", "通胀降温", "通胀见顶",
-        "通胀目标", "通胀中枢", "通胀粘性",
-        "超级通胀", "恶性通胀", "通缩", "通货紧缩",
-    ],
-    "全球宏观": [
-        "全球市场", "全球流动性", "金融危机", "经济衰退", "硬着陆", "软着陆",
-        "OECD", "IMF", "世界银行", "G20", "G7",
-        "美股", "纳斯达克", "标普", "道琼斯", "日经", "恒生", "欧股",
-        "债券市场", "信用利差", "高收益债", "投资级债",
-    ],
-    "债券市场": [
-        "美债", "国债", "国债收益率", "十年期国债", "两年期国债", "三十年期国债",
-        "收益率曲线", "收益率倒挂", "收益率曲线陡峭", "收益率曲线平坦",
-        "债券价格", "债券上涨", "债券下跌", "债券牛市", "债券熊市",
-        "长期国债", "短期国债", "中期国债", "国开行", "政策性银行",
-        "企业债", "公司债", "城投债", "信用债", "利率债",
-        "配置资金", "交易资金", "机构买入", "机构卖出",
-        "债券回购", "逆回购", "公开市场操作", "OMO",
-        "TIPS", "通胀保值债券", "垃圾债", "投资级",
-        "美债收益率", "中债收益率", "德债收益率", "日债收益率",
-    ],
-    "股票市场": [
-        "美股", "纳斯达克", "标普500", "标普", "道琼斯", "道指", "罗素2000",
-        "日经225", "日经指数", "恒生指数", "恒生", "上证指数", "上证", "深证",
-        "欧股", "德国DAX", "法国CAC", "英国富时",
-        "科技股", "成长股", "价值股", "蓝筹股", "白马股",
-        "小盘股", "中盘股", "大盘股", "微盘股",
-        "A股", "港股", "美股三大指数", "美股市场",
-        "股市上涨", "股市下跌", "股市反弹", "股市回调", "股市崩盘",
-        "资金流入股市", "资金流出股市", "股市估值", "股市泡沫",
-    ],
-    "大宗商品": [
-        "原油", "布伦特原油", "WTI原油", "原油期货", "原油价格", "原油上涨", "原油下跌",
-        "天然气", "液化天然气", "LNG", "天然气价格",
-        "铜", "铝", "锌", "镍", "铅", "锡", "铁矿石", "螺纹钢", "钢材",
-        "煤炭", "焦煤", "动力煤", "焦炭",
-        "大豆", "玉米", "小麦", "稻米", "农产品", "大宗商品",
-        "商品指数", "CRB指数", "彭博商品指数", "高盛商品指数",
-        "商品上涨", "商品下跌", "商品牛市", "商品熊市",
-        "供需关系", "库存下降", "库存上升", "产能不足", "产能过剩",
-        "OPEC", "沙特", "俄罗斯石油", "伊朗石油", "石油出口",
-        "工业金属", "贵金属", "农产品", "能源商品",
-    ],
-    "现金与货币": [
-        "现金", "货币市场", "货币基金", "余额宝", "理财",
-        "银行理财", "短期理财", "定期存款", "大额存单",
-        "逆回购", "短期拆借", "隔夜利率", "超额准备金",
-        "M0", "M1", "M2", "广义货币", "狭义货币",
-        "央行资产负债表", "缩表", "扩表", "量化宽松", "QE",
-        "流动性投放", "流动性回收", "资金空转", "套利",
-        "美元流动性", "离岸美元", "欧洲美元", "美元荒",
-        "货币宽松", "货币紧缩", "银根收紧", "银根放松",
-        "降准", "升准", "存款准备金", "法定准备金",
-    ],
-    "流动性紧张": [
-        "流动性", "流动性紧张", "流动性危机", "资金面", "资金紧张",
-        "银行间隔夜拆借", "回购利率", "SHIBOR", "LIBOR", "SOFR",
-        "融资", "融资融券", "两融", "保证金", "强平", "平仓",
-        "爆仓", "追加保证金", "Margin Call", "Call 贷",
-        "量化踩踏", "流动性踩踏", "闪崩", "乌龙指",
-    ],
-}
-
-TIANDAO_KEYWORDS: Dict[str, List[str]] = {
-    "token供需": [
-        "限流", "限速", "token不够", "算力告急", "API排队",
-        "token消耗", "算力短缺", "GPU排队", "算力不足",
-        "API限流", "ChatGPT限流", "Claude限流", "Gemini限流",
-        "模型服务不可用", "服务器过载", "负载过高",
-        "Token价格", "token涨价", "API调用量", "调用量激增",
-        "推理负载", "训练需求", "部署需求", "推理需求",
-        "Token不够用", "算力告急", "算力吃紧", "算力紧张",
-    ],
-    "电力供需": [
-        "数据中心耗电", "数据中心用电", "AI耗电", "AI用电",
-        "电力短缺", "电力紧张", "电网超载", "电网负荷",
-        "用电量激增", "电力需求", "能源需求", "供电不足",
-        "数据中心扩建", "服务器耗电", "GPU集群耗电",
-        "绿色能源", "清洁能源", "核电", "太阳能发电",
-        "风电", "水电", "火电", "煤电",
-        "能耗优化", "能效提升", "功耗降低", "PUE",
-        "数据中心能效", "液冷", "风冷", "冷却系统",
-        "电力短缺", "限电", "停电", "供电中断",
-    ],
-    "技术瓶颈": [
-        "卡脖子", "产能不足", "良品率", "光刻机", "HBM缺货",
-        "EUV产能", "先进封装产能", "CoWoS满载", "封装排队",
-        "晶圆厂产能满", "产能告急", "设备交付延迟",
-        "先进制程受限", "成熟制程", "国产替代", "自主可控",
-    ],
-    "效率突破": [
-        "性能提升", "成本下降", "新一代", "突破", "效率提升",
-        "推理加速", "训练成本下降", "功耗降低", "算力翻倍",
-        "新架构", "技术创新", "技术路线突破",
-        "推理效率", "训练效率", "单位算力成本",
-        "成本优化", "降价", "提效",
-    ],
-    "AI落地": [
-        "渗透率", "落地", "商业化", "盈利", "效率提升",
-        "行业AI化", "AI改造", "降本增效", "收入增长",
-        "付费转化", "用户增长", "API调用量增长",
-        "规模化", "量产", "商业落地", "应用场景",
-    ],
-}
-
-MINXIN_KEYWORDS: Dict[str, List[str]] = {
-    "行情涨跌": [
-        "上涨", "下跌", "大涨", "大跌", "暴涨", "暴跌",
-        "牛市", "熊市", "反弹", "回调", "震荡",
-        "资金流入", "资金流出", "净流入", "净流出",
-    ],
-    "市场情绪": [
-        "市场认为", "分析师称", "机构表示", "情绪乐观",
-        "情绪悲观", "恐慌", "贪婪", "风险偏好",
-        "避险", "风险情绪", "市场信心",
-    ],
-    "舆论热点": [
-        "热门", "热搜", "刷屏", "引爆", "疯狂",
-        "泡沫", "投机", "炒作", "概念股",
-    ],
-}
-
-
-SUPPLY_DEMAND_KEYWORDS: Dict[str, List[str]] = {
-    "token供给不足": [
-        "限流", "限速", "token不够", "算力告急", "API排队",
-        "API限流", "ChatGPT限流", "Claude限流", "Gemini限流",
-        "模型服务不可用", "服务器过载", "负载过高",
-        "Token不够用", "算力吃紧", "算力紧张", "算力枯竭",
-        "GPU不足", "算力缺口", "资源不足",
-    ],
-    "token需求爆发": [
-        "Token价格", "token涨价", "API调用量", "调用量激增",
-        "推理负载", "训练需求", "部署需求", "推理需求",
-        "用户激增", "访问量暴涨", "订单爆满", "排单到明年",
-        "需求激增", "一货难求", "抢购", "哄抬",
-    ],
-    "电力供给不足": [
-        "电力短缺", "电力紧张", "电网超载", "电网负荷",
-        "供电不足", "数据中心扩建", "服务器耗电", "GPU集群耗电",
-        "限电", "停电", "供电中断", "电力缺口",
-        "煤电", "火电", "水电", "风电", "光伏",
-        "数据中心能效", "PUE", "能耗危机",
-    ],
-    "电力需求爆发": [
-        "用电量激增", "电力需求", "能源需求",
-        "AI用电", "AI耗电", "数据中心耗电", "数据中心用电",
-        "绿色能源", "清洁能源", "核电", "太阳能发电",
-        "能耗优化", "能效提升", "功耗降低",
-        "液冷", "风冷", "冷却系统", "散热",
-    ],
-    "芯片供给不足": [
-        "卡脖子", "产能不足", "良品率", "光刻机", "HBM缺货",
-        "EUV产能", "先进封装产能", "CoWoS满载", "封装排队",
-        "晶圆厂产能满", "产能告急", "设备交付延迟",
-        "先进制程受限", "国产芯片", "芯片短缺", "缺芯",
-        "半导体设备", "光刻机", "EUV光刻机",
-    ],
-    "芯片需求爆发": [
-        "芯片涨价", "订单爆满", "排单到明年", "产能满载",
-        "半导体需求", "GPU需求", "AI芯片需求", "算力芯片",
-        "订单增加", "需求激增", "供不应求",
-    ],
-    "技术瓶颈突破": [
-        "突破", "量产成功", "良率达标", "通过验证",
-        "国产替代", "自主可控", "技术路线突破",
-        "性能提升", "成本下降", "效率提升",
-        "新一代", "新架构", "技术创新",
-        "推理加速", "训练成本下降", "功耗降低", "算力翻倍",
-    ],
-}
+# 从统一关键词注册表导入（保持向后兼容）
+from deva.naja.cognition.keyword_registry import (
+    DEFAULT_NARRATIVE_KEYWORDS,
+    TIANDAO_KEYWORDS,
+    MINXIN_KEYWORDS,
+    SUPPLY_DEMAND_KEYWORDS,
+)
 
 
 OPPORTUNITY_TYPES: Dict[str, Dict[str, Any]] = {
@@ -418,13 +170,22 @@ class NarrativeState:
         return state
 
 
-class NarrativeTracker:
-    """Track narrative lifecycle, attention, and relationship graph."""
+class SectorNarrative:
+    """Track narrative lifecycle, attention, and relationship graph.
+
+    🚀 架构定位：地（SectorNarrative）
+    - 只追踪 ManasEngine 关心的主题
+    - 不再追踪"市场所有主题"
+    """
 
     def __init__(self, config: Optional[Dict[str, Any]] = None):
         cfg = config or {}
         self.enabled = bool(cfg.get("narrative_enabled", True))
-        self._keywords = cfg.get("narrative_keywords") or DEFAULT_NARRATIVE_KEYWORDS
+
+        # 🚀 从 ManasEngine 获取关注的主题，而非预设关键词
+        self._focus_themes = self._get_focus_themes_from_manas()
+        self._keywords = self._themes_to_keywords(self._focus_themes)
+
         self._recent_window = float(cfg.get("narrative_recent_window_seconds", 6 * 3600))
         self._prev_window = float(cfg.get("narrative_prev_window_seconds", 6 * 3600))
         self._history_window = float(cfg.get("narrative_history_window_seconds", 72 * 3600))
@@ -448,6 +209,148 @@ class NarrativeTracker:
         self._recent_hits: Deque[Tuple[float, List[str]]] = deque()
 
         self._load_state()
+
+        # 🚀 新架构：订阅 TextSignalBus，自动处理高注意力文本
+        self._subscribe_to_text_bus()
+
+    def _get_focus_themes_from_manas(self) -> List[Dict[str, Any]]:
+        """
+        🚀 从 ManasEngine 获取关注的主题列表
+
+        这是"地"维度的核心：只追踪我们关心的主题
+        """
+        try:
+            from deva.naja.attention.kernel.manas_engine import get_manas_engine
+            manas = get_manas_engine()
+            themes = manas.get_focus_themes()
+            if themes:
+                import logging
+                logging.getLogger(__name__).info(
+                    f"[NarrativeTracker] 从 Manas 获取到 {len(themes)} 个关注主题"
+                )
+                return themes
+        except ImportError:
+            pass
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).warning(f"[NarrativeTracker] 从 Manas 获取主题失败: {e}")
+
+        # 降级：返回默认关键词
+        import logging
+        logging.getLogger(__name__).warning(
+            "[NarrativeTracker] 无法从 Manas 获取主题，使用默认关键词"
+        )
+        return [
+            {"id": theme_id, "name": theme_id, "keywords": keywords}
+            for theme_id, keywords in DEFAULT_NARRATIVE_KEYWORDS.items()
+        ]
+
+    def _themes_to_keywords(self, themes: List[Dict[str, Any]]) -> Dict[str, List[str]]:
+        """
+        🚀 把主题列表转换为关键词字典
+
+        兼容旧接口：把 [{"id": "AI", "keywords": [...]}] 转成 {"AI": [...], ...}
+        """
+        result = {}
+        for theme in themes:
+            theme_id = theme.get("id", theme.get("name", "unknown"))
+            keywords = theme.get("keywords", [])
+            if isinstance(keywords, list):
+                result[theme_id] = keywords
+        return result
+
+    def _subscribe_to_text_bus(self):
+        """🚀 订阅 TextSignalBus，接收高注意力文本"""
+        try:
+            from deva.naja.cognition.text_processing_pipeline import subscribe_to_signals
+
+            subscribe_to_signals(
+                "SectorNarrative",
+                self._on_text_signal,
+                min_attention=0.7  # 只关心高注意力内容
+            )
+            import logging
+            logging.getLogger(__name__).debug("SectorNarrative 已订阅 TextSignalBus")
+        except ImportError:
+            pass  # 新架构未安装，降级处理
+
+    def _on_text_signal(self, item: "AttentionTextItem"):
+        """
+        🚀 处理来自 TextSignalBus 的文本信号
+
+        当有高注意力新闻/文章时，自动进行叙事追踪分析
+        """
+        try:
+            # 从结构化信号中提取信息
+            if not item.structured_signal:
+                return
+
+            signal = item.structured_signal
+
+            # 构建兼容的事件对象
+            class _EventCompat:
+                def __init__(self, item, signal):
+                    self.text = item.text
+                    self.title = getattr(item, 'title', '')
+                    self.keywords = item.raw_keywords or []
+                    self.topics = item.topic_candidates or []
+                    self.timestamp = getattr(item, 'timestamp', time.time())
+                    self.source = getattr(item, 'source', 'text_signal_bus')
+                    self.meta = {
+                        'attention_score': item.attention_score,
+                        'narrative_tags': getattr(item, 'narrative_tags', []),
+                        'sentiment': getattr(signal, 'sentiment', 0.5),
+                        'entities': getattr(signal, 'entities', []),
+                    }
+
+            event = _EventCompat(item, signal)
+
+            # 调用原有的 ingest_event 进行叙事追踪
+            self.ingest_event(event)
+
+            # 🚀 发布认知事件，通知下游（ManasEngine）认知状态已更新
+            self._publish_cognitive_update(item, signal)
+
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).warning(f"NarrativeTracker 处理文本信号失败: {e}")
+
+    def _publish_cognitive_update(self, item: "AttentionTextItem", signal):
+        """
+        🚀 发布认知事件到 CognitiveSignalBus
+
+        通知下游系统叙事状态已更新，触发 ManasEngine 重新计算
+        """
+        try:
+            from deva.naja.cognition.cognitive_signal_bus import (
+                get_cognitive_bus,
+                CognitiveEventType,
+            )
+
+            bus = get_cognitive_bus()
+
+            # 提取叙事标签
+            narratives = item.structured_signal.narrative_tags if item.structured_signal else []
+
+            # 发布叙事更新事件
+            bus.publish_cognitive_event(
+                source="SectorNarrative",
+                event_type=CognitiveEventType.SECTOR_NARRATIVE_UPDATE,
+                narratives=narratives,
+                importance=item.attention_score,
+                confidence=item.structured_signal.confidence if item.structured_signal else 0.5,
+                stock_codes=[],
+                metadata={
+                    "keywords": item.raw_keywords or [],
+                    "topics": item.topic_candidates or [],
+                    "sentiment": signal.sentiment if hasattr(signal, 'sentiment') else 0.5,
+                }
+            )
+        except ImportError:
+            pass  # CognitiveSignalBus 未安装
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).debug(f"NarrativeTracker 发布认知事件失败: {e}")
 
     def _load_state(self) -> bool:
         """从数据库加载状态"""
@@ -587,6 +490,7 @@ class NarrativeTracker:
                 if self._should_emit(state, "spike", now_ts):
                     results.append(event_payload)
 
+        self.save_state()
         return results
 
     def get_summary(self, limit: int = 10) -> List[Dict[str, Any]]:

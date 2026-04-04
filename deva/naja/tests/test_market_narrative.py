@@ -5,7 +5,7 @@ MarketNarrativeSense 单元测试
 import unittest
 from deva.naja.cognition.market_narrative import (
     MarketNarrativeSense,
-    NarrativeTracker,
+    MarketNarrativeTracker,
     NarrativeTransitionSense,
     StoryConflictDetector,
     NarrativeType,
@@ -16,11 +16,11 @@ from deva.naja.cognition.market_narrative import (
 )
 
 
-class TestNarrativeTracker(unittest.TestCase):
-    """NarrativeTracker 测试"""
+class TestMarketNarrativeTracker(unittest.TestCase):
+    """MarketNarrativeTracker 测试"""
 
     def setUp(self):
-        self.tracker = NarrativeTracker()
+        self.tracker = MarketNarrativeTracker()
 
     def test_track_policy_narrative(self):
         """测试政策叙事追踪"""

@@ -40,21 +40,6 @@ from .manas_manager import (
 )
 from .decision_attention import DecisionAttention, TemperatureAwareHead
 
-from .four_dimensions import (
-    FourDimensions,
-    TimeDimension,
-    CapitalDimension,
-    CapabilityDimension,
-    MarketDimension,
-)
-from .four_dimensions_trigger import (
-    FourDimensionsTrigger,
-    TriggerConfig,
-    FourDimensionsManager,
-    get_four_dimensions_manager,
-    setup_four_dimensions_manager,
-)
-
 __all__ = [
     "AttentionEvent",
     "QueryState",
@@ -78,14 +63,4 @@ __all__ = [
     "setup_manas_manager",
     "DecisionAttention",
     "TemperatureAwareHead",
-    "FourDimensions",
-    "TimeDimension",
-    "CapitalDimension",
-    "CapabilityDimension",
-    "MarketDimension",
-    "FourDimensionsTrigger",
-    "TriggerConfig",
-    "FourDimensionsManager",
-    "get_four_dimensions_manager",
-    "setup_four_dimensions_manager",
 ]

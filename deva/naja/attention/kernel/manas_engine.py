@@ -1,6 +1,11 @@
 """
 ManasEngine - 末那识引擎
 
+🧠 定位：天-地-人框架中的「人」
+    - 「人」= 决策中枢
+    - 回答：「我该怎么做？」
+    - 感知天（时机）和地（板块）的变化后做出决策
+
 一个持续输出"是否行动"的内在决策中枢
 
 核心职责：
@@ -10,35 +15,51 @@ ManasEngine - 末那识引擎
     • 要不要停（风险）
 
 ================================================================================
-架构
+🌌 天-地-人 框架
+================================================================================
+
+ManasEngine（人）
+    │
+    ├── 感知「天」（TimingNarrative）
+    │       时机成熟度 → timing_score
+    │       现在是不是该动的时候？
+    │
+    ├── 感知「地」（SectorNarrative）
+    │       板块状态 → spatial_score
+    │       我关心的主题现在怎么样了？
+    │
+    └── 综合判断 → manas_score → 交易决策
+
+================================================================================
+内部架构（4引擎 + 1观照层）
 ================================================================================
 
 ManasEngine
-    ├── TimingEngine（时机节律）
+    ├── TimingEngine（时机节律）  ← 天时
     │   └── 判断市场"能不能动"
     │       - 波动率变化
     │       - 成交密度
     │       - 结构断裂
     │
-    ├── RegimeEngine（环境感）
+    ├── RegimeEngine（环境感）  ← 地利
     │   └── 判断当前是"顺风"还是"逆风"
     │       - 指数趋势
     │       - 流动性指标
     │       - 板块扩散
     │
-    ├── ConfidenceEngine（自信）
+    ├── ConfidenceEngine（自信）  ← 自知
     │   └── 判断"策略是否适配当前市场"
     │       - rolling pnl
     │       - recent hit rate
     │       - bandit 权重
     │
-    ├── RiskEngine（生存本能）
+    ├── RiskEngine（风险）  ← 生存本能
     │   └── 判断"还能承受多少波动"
     │       - 当前仓位
     │       - 回撤
     │       - 波动率
     │
-    ├── MetaManas（观照层）
+    ├── MetaManas（观照层）  ← 觉知偏差
     │   └── 觉知末那识正在"执"
     │       - 偏差检测（连赢=贪，连亏=惧）
     │       - 纠偏机制
@@ -61,6 +82,16 @@ manas_score = 0.4 * timing + 0.3 * regime + 0.3 * confidence
 偏差纠偏：
     • 连赢 → reduce α, increase T → 防贪
     • 连亏 → reduce T, keep α → 防惧
+
+================================================================================
+事件驱动（新架构）
+================================================================================
+
+ManasEngine 订阅 CognitiveSignalBus，感知认知层变化：
+    - SECTOR_NARRATIVE_UPDATE（地）：我们关注的板块更新了
+    - TIMING_NARRATIVE_UPDATE（天）：时机状态变化了
+
+收到事件后 → _invalidate_cache() → 下次 compute() 会重新计算
 """
 
 import time
@@ -108,16 +139,7 @@ class ManasOutput:
     hot_narratives: List[Tuple[str, float]] = field(default_factory=list)
     supply_chain_risk_level: str = "unknown"
 
-    problem_opportunity_score: float = 0.0
-    detected_problems: List[Dict[str, Any]] = field(default_factory=list)
-    opportunities: List[Dict[str, Any]] = field(default_factory=list)
-    resolvers: List[Dict[str, Any]] = field(default_factory=list)
-
     ai_compute_direction: str = "unknown"
-    ai_compute_trend: str = "unknown"
-    ai_compute_strength: float = 0.0
-    ai_compute_score: float = 0.0
-
     awakening_level: str = "dormant"
 
     harmony_state: HarmonyState = HarmonyState.NEUTRAL
@@ -143,14 +165,6 @@ class ManasOutput:
             "narrative_risk": self.narrative_risk,
             "hot_narratives": self.hot_narratives,
             "supply_chain_risk_level": self.supply_chain_risk_level,
-            "problem_opportunity_score": self.problem_opportunity_score,
-            "detected_problems": self.detected_problems,
-            "opportunities": self.opportunities,
-            "resolvers": self.resolvers,
-            "ai_compute_direction": self.ai_compute_direction,
-            "ai_compute_trend": self.ai_compute_trend,
-            "ai_compute_strength": self.ai_compute_strength,
-            "ai_compute_score": self.ai_compute_score,
             "awakening_level": self.awakening_level,
             "harmony_state": self.harmony_state.value,
             "harmony_strength": self.harmony_strength,
@@ -760,160 +774,6 @@ class MetaManas:
         return BiasState.NEUTRAL, 1.0
 
 
-class NarrativeSupplyChainEngine:
-    """
-    叙事供应链引擎 - 觉知市场叙事的供应链风险
-
-    整合 NarrativeSupplyChainLinker 到末那识决策中
-
-    功能：
-        • 跟踪叙事重要性变化
-        • 检测供应链风险事件
-        • 计算叙事风险因子
-        • 联动叙事-供应链关注度
-    """
-
-    def __init__(self):
-        self._linker = None
-        self._narrative_importance_history: Dict[str, List[float]] = {}
-        self._risk_alert_threshold = 2.0
-        self._last_risk_check = 0.0
-        self._check_interval = 60.0
-
-    def _get_linker(self):
-        """懒加载联动器"""
-        if self._linker is None:
-            try:
-                from deva.naja.cognition import get_supply_chain_linker
-                self._linker = get_supply_chain_linker()
-            except ImportError:
-                log.warning("[NarrativeSupplyChainEngine] 无法导入 NarrativeSupplyChainLinker")
-                return None
-        return self._linker
-
-    def compute(self, narratives: List[str] = None) -> float:
-        """
-        计算叙事供应链风险因子
-
-        Args:
-            narratives: 当前关注的叙事主题列表
-
-        Returns:
-            risk_factor ∈ [0, 1], 1 = 高风险
-        """
-        linker = self._get_linker()
-        if linker is None:
-            return 0.5
-
-        if narratives is None:
-            narratives = []
-
-        risk_scores = []
-        high_risk_stocks = set()
-
-        for narrative in narratives:
-            summary = linker.get_supply_chain_for_narrative(narrative)
-
-            if summary.get('total_risk') == 'HIGH':
-                risk_scores.append(0.8)
-                high_risk_stocks.update(summary.get('high_risk_stocks', []))
-            elif summary.get('total_risk') == 'MEDIUM':
-                risk_scores.append(0.5)
-            else:
-                risk_scores.append(0.2)
-
-            importance = summary.get('importance', 1.0)
-            if importance > 2.0:
-                risk_scores.append(0.7)
-            elif importance > 1.5:
-                risk_scores.append(0.5)
-
-        if not risk_scores:
-            return 0.5
-
-        avg_risk = sum(risk_scores) / len(risk_scores)
-
-        recent_events = linker.get_recent_events(limit=5)
-        if recent_events:
-            latest_event = recent_events[-1]
-            if latest_event.risk_level.value in ['high', 'critical']:
-                avg_risk = min(1.0, avg_risk * 1.3)
-
-        return max(0.0, min(1.0, avg_risk))
-
-    def get_hot_narratives(self, top_n: int = 5) -> List[Tuple[str, float]]:
-        """
-        获取当前最热的叙事主题
-
-        Args:
-            top_n: 返回前 N 个
-
-        Returns:
-            [(narrative, importance), ...]
-        """
-        linker = self._get_linker()
-        if linker is None:
-            return []
-        return linker.get_hot_narratives(top_n)
-
-    def on_risk_event(self, stock_code: str, description: str):
-        """
-        记录供应链风险事件
-
-        Args:
-            stock_code: 出问题的股票代码
-            description: 事件描述
-        """
-        linker = self._get_linker()
-        if linker is None:
-            return
-
-        event = linker.on_stock_risk_event(stock_code, description)
-        log.info(f"[NarrativeSupplyChainEngine] 风险事件: {event.description} "
-                f"风险等级: {event.risk_level.value} 关联叙事: {event.narratives}")
-
-    def on_narrative_boost(self, narrative: str, boost_factor: float = 1.5):
-        """
-        提升叙事重要性
-
-        Args:
-            narrative: 叙事主题
-            boost_factor: 提升因子
-        """
-        linker = self._get_linker()
-        if linker is None:
-            return
-
-        linker.on_narrative_boost(narrative, boost_factor)
-
-    def get_risk_attention_focus(self, current_focus: Dict[str, float]) -> Dict[str, float]:
-        """
-        根据供应链风险调整注意力焦点
-
-        Args:
-            current_focus: 原始注意力焦点
-
-        Returns:
-            调整后的注意力焦点
-        """
-        linker = self._get_linker()
-        if linker is None:
-            return current_focus
-
-        adjusted = dict(current_focus)
-
-        for narrative in list(adjusted.keys()):
-            weighted_stocks = linker.get_related_stocks_with_weight(narrative)
-            if weighted_stocks:
-                for stock_code, weight in weighted_stocks:
-                    risk_report = linker.get_supply_chain_risk_report(stock_code)
-                    if risk_report and risk_report.overall_risk_level == 'HIGH':
-                        adjusted[narrative] = adjusted[narrative] * 0.8
-                        break
-
-        return adjusted
-
-
 class ManasEngine:
     """
     末那识引擎 - 核心决策中枢
@@ -946,7 +806,6 @@ class ManasEngine:
         self.confidence_engine = ConfidenceEngine()
         self.risk_engine = RiskEngine()
         self.meta_manas = MetaManas()
-        self.narrative_supply_chain_engine = NarrativeSupplyChainEngine()
 
         self._last_output: Optional[ManasOutput] = None
         self._last_update = 0.0
@@ -954,15 +813,271 @@ class ManasEngine:
         self._current_narratives: List[str] = []
         self._recent_pnl: List[float] = []
 
-        self._problem_opportunity_cache: Optional[Dict[str, Any]] = None
-        self._problem_opportunity_timestamp: float = 0.0
-        self._problem_opportunity_interval: float = 60.0
-
-        self._ai_compute_trend_cache: Optional[Dict[str, Any]] = None
-        self._ai_compute_trend_timestamp: float = 0.0
-        self._ai_compute_trend_interval: float = 3600.0
+        # 🚀 供应链状态（事件驱动，收到事件后更新）
+        self._supply_chain_state: Dict[str, Any] = {
+            "narrative_risk": 0.5,
+            "hot_narratives": [],
+            "risk_level": "LOW",
+            "last_update": 0.0,
+            # 🚀 AI算力趋势（事件驱动）
+            "ai_compute_trend": "neutral",  # up / down / neutral
+            "ai_compute_strength": 0.5,       # 0-1
+            # 🚀 自选股注意力
+            "watchlist": [],                  # 自选股代码列表
+            "watchlist_bonus": 1.0,           # 自选股加成系数
+            # 🚀 关注主题（我们关心的叙事主题）
+            "focus_themes": self._get_default_focus_themes(),
+        }
 
         self._awakening_level: str = "dormant"
+
+        # 🚀 新架构：订阅 CognitiveSignalBus，感知认知层变化
+        self._subscribe_to_cognitive_bus()
+
+    def _get_default_focus_themes(self) -> List[Dict[str, Any]]:
+        """
+        🚀 获取默认的关注主题列表
+
+        这是我们"地"维度关心的话题，来自 keyword_registry 的预设关键词。
+        SectorNarrative（地）只追踪这些主题，而不是所有市场主题。
+
+        返回格式：[{"id": "AI", "name": "AI", "keywords": [...]}, ...]
+        """
+        from deva.naja.cognition.keyword_registry import DEFAULT_NARRATIVE_KEYWORDS
+
+        return [
+            {
+                "id": theme_id,
+                "name": theme_id,
+                "keywords": keywords,
+            }
+            for theme_id, keywords in DEFAULT_NARRATIVE_KEYWORDS.items()
+        ]
+
+    def get_focus_themes(self) -> List[Dict[str, Any]]:
+        """
+        🚀 获取当前关注的叙事主题列表
+
+        这是 Manas 关心的话题（地），SectorNarrative 应该只追踪这些主题。
+        """
+        return self._supply_chain_state.get("focus_themes", [])
+
+    def set_focus_themes(self, themes: List[Dict[str, Any]]):
+        """
+        🚀 设置关注的叙事主题列表
+
+        可以动态更新我们关心的话题。
+        """
+        self._supply_chain_state["focus_themes"] = themes
+        log.info(f"[ManasEngine] 关注主题已更新: {len(themes)} 个主题")
+
+    def _subscribe_to_cognitive_bus(self):
+        """
+        🚀 订阅 CognitiveSignalBus，感知认知层的重要更新
+
+        当 NarrativeTracker / MarketNarrative / SupplyChainLinker 有重要更新时，
+        ManasEngine 会收到通知并清缓存，确保决策反映最新认知状态
+        """
+        try:
+            from deva.naja.cognition.cognitive_signal_bus import (
+                get_cognitive_bus,
+                CognitiveEventType,
+            )
+
+            bus = get_cognitive_bus()
+            bus.subscribe(
+                "ManasEngine",
+                self._on_cognitive_event,
+                event_types=[
+                    CognitiveEventType.SECTOR_NARRATIVE_UPDATE,
+                    CognitiveEventType.NARRATIVE_BOOST,
+                    CognitiveEventType.TIMING_NARRATIVE_UPDATE,
+                    CognitiveEventType.NARRATIVE_SUPPLY_LINK,
+                    CognitiveEventType.SUPPLY_CHAIN_RISK,
+                ],
+                min_importance=0.5,  # 只关心重要事件
+            )
+            log.info("[ManasEngine] 已订阅 CognitiveSignalBus")
+        except ImportError:
+            log.debug("[ManasEngine] CognitiveSignalBus 未安装，跳过订阅")
+
+    def _on_cognitive_event(self, event):
+        """
+        🚀 处理认知事件，感知认知层状态变化
+
+        当收到认知事件时，更新供应链状态，清缓存
+        """
+        log.info(
+            f"[ManasEngine] 收到认知事件: {event.source} -> {event.event_type.value} "
+            f"(importance={event.importance:.2f}, narratives={event.narratives[:2]})"
+        )
+
+        # 🚀 更新供应链状态
+        self._update_supply_chain_state(event)
+
+        # 清缓存，触发重新计算
+        self._invalidate_cache()
+
+    def _update_supply_chain_state(self, event):
+        """
+        🚀 根据认知事件更新供应链状态
+
+        事件驱动更新：不再主动拉取，由事件携带状态
+
+        处理三个维度：
+        1. 叙事风险 + 热点叙事
+        2. AI算力趋势（从叙事中判断）
+        3. 自选股注意力加成
+        """
+        import time
+
+        # 根据风险等级更新风险分数
+        risk_level = event.risk_level if hasattr(event, 'risk_level') and event.risk_level else "LOW"
+        risk_scores = {
+            "HIGH": 0.8,
+            "MEDIUM": 0.5,
+            "LOW": 0.2,
+        }
+        new_risk = risk_scores.get(risk_level, 0.5)
+
+        # 结合事件重要性和原有风险
+        current_risk = self._supply_chain_state.get("narrative_risk", 0.5)
+        updated_risk = current_risk * 0.7 + new_risk * event.importance * 0.3
+
+        # 更新 hot_narratives
+        current_narratives = self._supply_chain_state.get("hot_narratives", [])
+        new_narratives = []
+        for narrative in event.narratives[:5]:
+            # 添加叙事及其重要性
+            new_narratives.append((narrative, event.importance))
+
+        # 合并去重
+        existing = {n[0]: n[1] for n in current_narratives}
+        for narrative, importance in new_narratives:
+            if narrative in existing:
+                existing[narrative] = max(existing[narrative], importance)
+            else:
+                existing[narrative] = importance
+
+        hot_narratives = sorted(existing.items(), key=lambda x: x[1], reverse=True)[:5]
+
+        # 🚀 AI算力趋势：从叙事中判断
+        ai_keywords = ["AI", "算力", "芯片", "GPU", "数据中心", "大模型", "模型训练",
+                       "H100", "B100", "GB200", "Blackwell", "算力需求", "AI服务器"]
+        ai_compute_trend = self._supply_chain_state.get("ai_compute_trend", "neutral")
+        ai_compute_strength = self._supply_chain_state.get("ai_compute_strength", 0.5)
+
+        narratives_lower = [n.lower() for n in event.narratives]
+        ai_hits = sum(1 for kw in ai_keywords if any(kw.lower() in n for n in narratives_lower))
+
+        if ai_hits >= 3:
+            # 多个AI关键词命中 → 趋势增强
+            ai_compute_trend = "up"
+            ai_compute_strength = min(1.0, ai_compute_strength * 0.8 + event.importance * 0.2)
+        elif ai_hits >= 1 and event.importance > 0.7:
+            # 有AI关键词且重要 → 轻微增强
+            ai_compute_strength = min(1.0, ai_compute_strength * 0.9 + event.importance * 0.1)
+        else:
+            # 自然衰减
+            ai_compute_strength = max(0.3, ai_compute_strength * 0.98)
+
+        # 🚀 自选股注意力加成
+        watchlist = self._supply_chain_state.get("watchlist", [])
+        watchlist_bonus = self._supply_chain_state.get("watchlist_bonus", 1.0)
+        event_stock_codes = getattr(event, 'stock_codes', []) or []
+
+        # 检查事件是否涉及自选股
+        watchlist_upper = [s.upper() for s in watchlist]
+        event_stocks_upper = [s.upper() for s in event_stock_codes]
+
+        if any(s in watchlist_upper for s in event_stocks_upper) and event_stocks_upper:
+            # 命中自选股 → 增加注意力
+            watchlist_bonus = min(1.5, watchlist_bonus * 1.2)
+        else:
+            # 自然衰减
+            watchlist_bonus = max(1.0, watchlist_bonus * 0.99)
+
+        # 更新状态
+        self._supply_chain_state = {
+            "narrative_risk": max(0.0, min(1.0, updated_risk)),
+            "hot_narratives": hot_narratives,
+            "risk_level": risk_level if event.importance > 0.7 else self._supply_chain_state.get("risk_level", "LOW"),
+            "last_update": time.time(),
+            # 🚀 AI算力趋势
+            "ai_compute_trend": ai_compute_trend,
+            "ai_compute_strength": ai_compute_strength,
+            # 🚀 自选股注意力
+            "watchlist": watchlist,
+            "watchlist_bonus": watchlist_bonus,
+        }
+
+        log.debug(
+            f"[ManasEngine] 供应链状态已更新: risk={self._supply_chain_state['narrative_risk']:.2f}, "
+            f"ai_trend={ai_compute_trend}({ai_compute_strength:.2f}), "
+            f"watchlist_bonus={watchlist_bonus:.2f}"
+        )
+
+    def _invalidate_cache(self):
+        """
+        🚀 清除缓存，强制下次计算时重新获取认知数据
+
+        这样可以确保决策反映最新的叙事/供应链状态
+        """
+        # 清除上次输出，下次 compute 会强制重新计算
+        self._last_output = None
+        self._last_update = 0.0
+
+        log.debug("[ManasEngine] 缓存已失效，下次计算将重新获取认知数据")
+
+    def refresh_watchlist(self, watchlist: List[str] = None):
+        """
+        🚀 刷新自选股列表
+
+        可以手动传入，也可以从持仓系统自动获取
+
+        Args:
+            watchlist: 自选股代码列表，如 ["NVDA", "AMD", "TSLA"]
+        """
+        if watchlist is None:
+            # 从持仓系统自动获取
+            watchlist = self._get_watchlist_from_portfolio()
+
+        self._supply_chain_state["watchlist"] = watchlist
+        log.info(f"[ManasEngine] 自选股列表已更新: {len(watchlist)} 只股票")
+
+    def _get_watchlist_from_portfolio(self) -> List[str]:
+        """
+        🚀 从 NB 数据表读取自选股
+
+        数据来源：naja_watchlist 表的 ai_stocks 字段
+        """
+        try:
+            from deva.naja.tables import get_table_data
+            import json
+
+            watchlist_data = get_table_data("naja_watchlist")
+            if watchlist_data is None:
+                return []
+
+            others = watchlist_data.get("others", [])
+            ai_stocks = next((item for item in others if item[0] == "ai_stocks"), None)
+            if ai_stocks is None or len(ai_stocks) < 2:
+                return []
+
+            stocks_dict = ai_stocks[1]
+            if isinstance(stocks_dict, str):
+                try:
+                    stocks_dict = json.loads(stocks_dict)
+                except:
+                    pass
+
+            stocks = stocks_dict.get("stocks", []) if isinstance(stocks_dict, dict) else []
+            watchlist_codes = [s["code"] for s in stocks if isinstance(s, dict) and "code" in s]
+
+            return watchlist_codes
+        except Exception as e:
+            log.debug(f"[ManasEngine] 获取自选股失败: {e}")
+            return []
 
     def _determine_harmony_state(self, risk_temperature: float, timing_score: float, regime_score: float) -> HarmonyState:
         """确定和谐状态"""
@@ -1007,10 +1122,10 @@ class ManasEngine:
     def _get_awakening_level(self) -> str:
         """获取觉醒等级"""
         try:
-            from deva.naja.attention.center import get_attention_center
-            center = get_attention_center()
-            if center and hasattr(center, '_awakened_state') and center._awakened_state:
-                return center._awakened_state.get("awakening_level", "dormant")
+            from deva.naja.attention import get_awakening_controller
+            controller = get_awakening_controller()
+            if controller and hasattr(controller, '_awakened_state') and controller._awakened_state:
+                return controller._awakened_state.get("awakening_level", "dormant")
         except Exception:
             pass
         return self._awakening_level
@@ -1018,49 +1133,6 @@ class ManasEngine:
     def set_awakening_level(self, level: str):
         """设置觉醒等级（由外部调用）"""
         self._awakening_level = level
-
-    def _get_narrative_tracker(self):
-        """获取 NarrativeTracker 实例"""
-        try:
-            from deva.naja.cognition import get_narrative_tracker
-            return get_narrative_tracker()
-        except ImportError:
-            return None
-
-    def get_problem_opportunity_analysis(self) -> Optional[Dict[str, Any]]:
-        """获取问题-机会分析结果（带缓存）"""
-        current_time = time.time()
-        if self._problem_opportunity_cache and (current_time - self._problem_opportunity_timestamp) < self._problem_opportunity_interval:
-            return self._problem_opportunity_cache
-
-        tracker = self._get_narrative_tracker()
-        if tracker is None:
-            return None
-
-        try:
-            summary = tracker.get_problem_opportunity_summary()
-            self._problem_opportunity_cache = summary
-            self._problem_opportunity_timestamp = current_time
-            return summary
-        except Exception:
-            return None
-
-    def _get_ai_compute_trend(self) -> Optional[Dict[str, Any]]:
-        """获取 AI 算力趋势（OpenRouter TOKEN 监控数据）"""
-        current_time = time.time()
-        if self._ai_compute_trend_cache and (current_time - self._ai_compute_trend_timestamp) < self._ai_compute_trend_interval:
-            return self._ai_compute_trend_cache
-
-        try:
-            from deva.naja.radar.openrouter_monitor import get_ai_compute_trend
-            trend = get_ai_compute_trend()
-            if trend:
-                self._ai_compute_trend_cache = trend
-                self._ai_compute_trend_timestamp = current_time
-                return trend
-        except Exception:
-            pass
-        return None
 
     def set_narratives(self, narratives: List[str]):
         """
@@ -1122,48 +1194,27 @@ class ManasEngine:
 
         regime_factor = (regime_score + 1) / 2
         harmony_strength *= (0.7 + regime_factor * 0.3)
+        harmony_strength = min(1.0, harmony_strength)
 
         harmony_state = self._determine_harmony_state(risk_temperature, timing_score, regime_score)
 
-        narrative_risk = self.narrative_supply_chain_engine.compute(self._current_narratives)
+        # 🚀 使用事件驱动更新的供应链状态
+        narrative_risk = self._supply_chain_state.get("narrative_risk", 0.5)
         if narrative_risk > 0.6:
             harmony_strength *= (1.0 - (narrative_risk - 0.6) * 0.5)
 
-        problem_opportunity_score = 0.0
-        po_analysis = self.get_problem_opportunity_analysis()
-        if po_analysis and po_analysis.get("status") == "active":
-            problem_opportunity_score = 0.5
-            detected_problems = po_analysis.get("problems", [])
-            opportunities = po_analysis.get("opportunities", [])
-            resolvers = po_analysis.get("resolvers", [])
-            if len(detected_problems) >= 3:
-                problem_opportunity_score = 0.8
-            elif len(detected_problems) >= 1:
-                problem_opportunity_score = 0.6
-            if problem_opportunity_score > 0.5:
-                harmony_strength *= (1.0 + problem_opportunity_score * 0.2)
-        else:
-            detected_problems = []
-            opportunities = []
-            resolvers = []
+        # 🚀 AI算力趋势加成（只有上升趋势才加成）
+        ai_compute_trend = self._supply_chain_state.get("ai_compute_trend", "neutral")
+        ai_compute_strength = self._supply_chain_state.get("ai_compute_strength", 0.5)
+        if ai_compute_trend == "up" and ai_compute_strength > 0.6:
+            ai_bonus = 1.0 + (ai_compute_strength - 0.6) * 0.3  # 最多+12%
+            harmony_strength *= ai_bonus
+            log.debug(f"[ManasEngine] AI算力加成: trend={ai_compute_trend}, strength={ai_compute_strength:.2f}, bonus={ai_bonus:.2f}")
 
-        ai_compute_direction = "unknown"
-        ai_compute_trend = "unknown"
-        ai_compute_strength = 0.0
-        ai_compute_score = 0.0
-
-        ai_trend = self._get_ai_compute_trend()
-        if ai_trend:
-            ai_compute_direction = ai_trend.get("trend_direction", "unknown")
-            ai_compute_trend = ai_trend.get("message", "unknown")
-            ai_compute_strength = ai_trend.get("base_strength", 0.0)
-
-            if ai_compute_direction == "rising":
-                ai_compute_score = ai_compute_strength * 0.15
-                harmony_strength *= (1.0 + ai_compute_score)
-            elif ai_compute_direction == "falling":
-                ai_compute_score = ai_compute_strength * 0.10
-                harmony_strength *= (1.0 - ai_compute_score)
+        detected_problems = []
+        opportunities = []
+        resolvers = []
+        hot_narratives = self._supply_chain_state.get("hot_narratives", [])
 
         awakening_level = self._get_awakening_level()
         if awakening_level == "enlightened":
@@ -1205,14 +1256,15 @@ class ManasEngine:
 
         attention_focus = self._determine_attention_focus(action_type, portfolio_loss)
 
+        # 🚀 自选股注意力加成
+        watchlist_bonus = self._supply_chain_state.get("watchlist_bonus", 1.0)
+        if watchlist_bonus > 1.0:
+            attention_focus *= watchlist_bonus
+            log.debug(f"[ManasEngine] 自选股注意力加成: bonus={watchlist_bonus:.2f}")
+
         reason = self._get_gate_reason(harmony_strength, timing_score, regime_score, confidence_score, bias_state, harmony_state, action_type)
 
-        hot_narratives = self.narrative_supply_chain_engine.get_hot_narratives(5)
-        supply_chain_risk = "LOW"
-        if narrative_risk > 0.7:
-            supply_chain_risk = "HIGH"
-        elif narrative_risk > 0.5:
-            supply_chain_risk = "MEDIUM"
+        supply_chain_risk = self._supply_chain_state.get("risk_level", "LOW")
 
         output = ManasOutput(
             manas_score=harmony_strength,
@@ -1229,14 +1281,6 @@ class ManasEngine:
             narrative_risk=narrative_risk,
             hot_narratives=hot_narratives,
             supply_chain_risk_level=supply_chain_risk,
-            problem_opportunity_score=problem_opportunity_score,
-            detected_problems=detected_problems,
-            opportunities=opportunities,
-            resolvers=resolvers,
-            ai_compute_direction=ai_compute_direction,
-            ai_compute_trend=ai_compute_trend,
-            ai_compute_strength=ai_compute_strength,
-            ai_compute_score=ai_compute_score,
             awakening_level=awakening_level,
             harmony_state=harmony_state,
             harmony_strength=harmony_strength,

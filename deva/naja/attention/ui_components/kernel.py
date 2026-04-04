@@ -515,18 +515,15 @@ __all__ = [
     "render_feedback_panel",
     "render_kernel_live_view",
     "render_attention_flow_diagram",
-    "render_four_dimensions_status",
+    "render_manas_engine_status",
 ]
 
 
-def render_four_dimensions_status() -> str:
-    """渲染四维决策框架状态"""
+def render_manas_engine_status() -> str:
+    """渲染末那识引擎状态（4引擎 + 1观照层）"""
 
     try:
-        from deva.naja.attention.kernel import (
-            get_four_dimensions_manager,
-            FourDimensions,
-        )
+        from deva.naja.attention.kernel import get_manas_manager
     except ImportError:
         return """
         <div style="
@@ -537,14 +534,14 @@ def render_four_dimensions_status() -> str:
             border: 1px solid #e2e8f0;
         ">
             <div style="font-size: 12px; color: #64748b;">
-                四维决策框架模块未安装
+                末那识引擎模块未安装
             </div>
         </div>
         """
 
-    manager = get_four_dimensions_manager()
+    manager = get_manas_manager()
 
-    if manager is None:
+    if manager is None or not manager.is_enabled():
         return """
         <div style="
             background: linear-gradient(135deg, #fef3c7, #fde68a);
@@ -554,75 +551,64 @@ def render_four_dimensions_status() -> str:
             border: 1px solid #f59e0b;
         ">
             <div style="display: flex; align-items: center; gap: 8px;">
-                <span style="font-size: 16px;">🎯</span>
+                <span style="font-size: 16px;">🧠</span>
                 <div>
                     <div style="font-size: 13px; font-weight: 600; color: #92400e;">
-                        四维决策框架
+                        末那识引擎
                     </div>
                     <div style="font-size: 11px; color: #b45309;">
-                        未启用管理器 · 建议使用 FourDimensionsManager
+                        未启用管理器
                     </div>
                 </div>
             </div>
         </div>
         """
 
-    kernel_fd_enabled = manager.kernel.is_four_dimensions_enabled()
-    trigger_status = manager.trigger.get_status()
-    auto_mode = manager.trigger.is_auto_mode()
+    output = manager.compute()
 
-    fd = FourDimensions()
-    fd.update(
-        session_manager=manager.trigger._get_session_manager(),
-        portfolio=manager.trigger._get_portfolio(),
-        strategy_manager=manager.trigger._get_strategy_manager(),
-        scanner=manager.trigger._get_scanner(),
-        macro_signal=0.5
-    )
+    if output:
+        manas_score = output.get("manas_score", 0.5)
+        timing = output.get("timing_score", 0.5)
+        regime = output.get("regime_score", 0.0)
+        confidence = output.get("confidence_score", 0.5)
+        risk_temp = output.get("risk_temperature", 1.0)
+        bias = output.get("bias_state", "neutral")
+        should_act = output.get("should_act", False)
 
-    if kernel_fd_enabled:
-        status_label = "已启用"
-        status_color = "#16a34a"
-        bg_color = "#f0fdf4"
-        border_color = "#bbf7d0"
+        status_label = "可行动" if should_act else "观望"
+        status_color = "#16a34a" if should_act else "#64748b"
+        bg_color = "#f0fdf4" if should_act else "#f8fafc"
+        border_color = "#bbf7d0" if should_act else "#e2e8f0"
+
+        regime_indicator = "顺风" if regime > 0 else "逆风" if regime < -0.1 else "中性"
+        regime_color = "#16a34a" if regime > 0 else "#dc2626" if regime < -0.1 else "#ca8a04"
+
+        timing_indicator = "时机好" if timing > 0.6 else "时机差" if timing < 0.4 else "中性"
+        timing_color = "#16a34a" if timing > 0.6 else "#dc2626" if timing < 0.4 else "#ca8a04"
+
+        risk_indicator = "风险低" if risk_temp < 1.0 else "风险高" if risk_temp > 1.3 else "风险中"
+        risk_color = "#16a34a" if risk_temp < 1.0 else "#dc2626" if risk_temp > 1.3 else "#ca8a04"
+
+        bias_indicator = bias.title() if bias else "中性"
     else:
-        status_label = "已关闭"
+        manas_score = 0.5
+        timing = 0.5
+        regime = 0.0
+        confidence = 0.5
+        risk_temp = 1.0
+        bias = "neutral"
+        should_act = False
+        status_label = "计算中"
         status_color = "#64748b"
         bg_color = "#f8fafc"
         border_color = "#e2e8f0"
-
-    time_icon = "🟢" if fd.time.is_trading_open else "🔴"
-    try:
-        from .common import get_market_phase_summary, get_ui_mode_context
-        phase_summary = get_market_phase_summary()
-        mode_ctx = get_ui_mode_context()
-        cn_info = phase_summary.get('cn', {})
-        us_info = phase_summary.get('us', {})
-        cn_phase = cn_info.get('phase_name', '未知')
-        us_phase = us_info.get('phase_name', '未知')
-        mode_label = mode_ctx.get('mode_label', '实盘模式')
-        time_hint = mode_ctx.get('market_time_str', '') if mode_ctx.get('is_replay') else ''
-        time_text = f"A股{cn_phase} | 美股{us_phase} | {mode_label} {time_hint}"
-    except Exception:
-        time_text = "交易中" if fd.time.is_trading_open else "非交易"
-    capital_bar = min(fd.capital.cash_ratio * 100, 100)
-    capital_color = "#16a34a" if fd.capital.cash_ratio > 0.2 else "#dc2626"
-    capital_text = "有子弹" if fd.capital.has_bullets else "⚠️子弹不足"
-    cap_icon = "💰"
-    cap_text = "就绪" if fd.capability.is_ready else "⚠️未就绪"
-    market_icon = "📊"
-    if fd.market.liquidity_signal < 0.3:
-        market_status_text = "极度恐慌"
-        market_color = "#dc2626"
-    elif fd.market.liquidity_signal > 0.7:
-        market_status_text = "极度贪婪"
-        market_color = "#16a34a"
-    else:
-        market_status_text = "中性"
-        market_color = "#ca8a04"
-
-    should_enable = trigger_status.get('should_enable', False)
-    trigger_reason = trigger_status.get('trigger_reason', None) or '-'
+        regime_indicator = "中性"
+        regime_color = "#ca8a04"
+        timing_indicator = "中性"
+        timing_color = "#ca8a04"
+        risk_indicator = "风险中"
+        risk_color = "#ca8a04"
+        bias_indicator = "中性"
 
     return f"""
     <div style="
@@ -634,13 +620,13 @@ def render_four_dimensions_status() -> str:
     ">
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
             <div style="display: flex; align-items: center; gap: 8px;">
-                <span style="font-size: 18px;">🎯</span>
+                <span style="font-size: 18px;">🧠</span>
                 <div>
                     <div style="font-size: 14px; font-weight: 600; color: {status_color};">
-                        四维决策框架
+                        末那识引擎
                     </div>
                     <div style="font-size: 11px; color: #64748b;">
-                        {'自动模式' if auto_mode else '手动模式'}
+                        4引擎 + 1观照层
                     </div>
                 </div>
             </div>
@@ -659,40 +645,26 @@ def render_four_dimensions_status() -> str:
         <div style="display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 10px; margin-bottom: 12px;">
             <div style="background: white; border-radius: 6px; padding: 10px; text-align: center;">
                 <div style="font-size: 18px; margin-bottom: 4px;">⏰</div>
-                <div style="font-size: 12px; color: #0f172a;">{time_icon} {time_text}</div>
-                <div style="font-size: 10px; color: #64748b; margin-top: 2px;">压力: {fd.time.pressure:.0%}</div>
+                <div style="font-size: 12px; color: {timing_color};">{timing_indicator}</div>
+                <div style="font-size: 10px; color: #64748b; margin-top: 2px;">时机 {timing:.2f}</div>
             </div>
 
             <div style="background: white; border-radius: 6px; padding: 10px; text-align: center;">
-                <div style="font-size: 18px; margin-bottom: 4px;">{cap_icon}</div>
-                <div style="font-size: 12px; color: {capital_color};">{capital_text}</div>
-                <div style="
-                    background: #e2e8f0;
-                    border-radius: 3px;
-                    height: 5px;
-                    width: 100%;
-                    margin-top: 4px;
-                ">
-                    <div style="
-                        background: {capital_color};
-                        border-radius: 3px;
-                        height: 5px;
-                        width: {capital_bar}%;
-                    "></div>
-                </div>
-                <div style="font-size: 10px; color: #64748b; margin-top: 2px;">{fd.capital.cash_ratio:.0%}</div>
+                <div style="font-size: 18px; margin-bottom: 4px;">🌍</div>
+                <div style="font-size: 12px; color: {regime_color};">{regime_indicator}</div>
+                <div style="font-size: 10px; color: #64748b; margin-top: 2px;">环境 {regime:+.2f}</div>
             </div>
 
             <div style="background: white; border-radius: 6px; padding: 10px; text-align: center;">
-                <div style="font-size: 18px; margin-bottom: 4px;">🛠️</div>
-                <div style="font-size: 12px; color: #0f172a;">{cap_text}</div>
-                <div style="font-size: 10px; color: #64748b; margin-top: 2px;">{fd.capability.strategy_count} 策略</div>
+                <div style="font-size: 18px; margin-bottom: 4px;">📈</div>
+                <div style="font-size: 12px; color: #0f172a;">{confidence:.0%}</div>
+                <div style="font-size: 10px; color: #64748b; margin-top: 2px;">自信度</div>
             </div>
 
             <div style="background: white; border-radius: 6px; padding: 10px; text-align: center;">
-                <div style="font-size: 18px; margin-bottom: 4px;">{market_icon}</div>
-                <div style="font-size: 12px; color: {market_color};">{market_status_text}</div>
-                <div style="font-size: 10px; color: {market_color}; margin-top: 2px;">{fd.market.liquidity_signal:.2f}</div>
+                <div style="font-size: 18px; margin-bottom: 4px;">🌡️</div>
+                <div style="font-size: 12px; color: {risk_color};">{risk_indicator}</div>
+                <div style="font-size: 10px; color: #64748b; margin-top: 2px;">风险 {risk_temp:.2f}</div>
             </div>
         </div>
 
@@ -703,14 +675,14 @@ def render_four_dimensions_status() -> str:
             font-size: 11px;
         ">
             <div style="display: flex; justify-content: space-between; margin-bottom: 4px;">
-                <span style="color: #64748b;">自动触发条件:</span>
-                <span style="color: {'#16a34a' if should_enable else '#94a3b8'};">
-                    {'✅ 满足' if should_enable else '❌ 不满足'}
+                <span style="color: #64748b;">综合评分:</span>
+                <span style="color: {'#16a34a' if manas_score > 0.5 else '#dc2626'};">
+                    {manas_score:.2f}
                 </span>
             </div>
             <div style="display: flex; justify-content: space-between;">
-                <span style="color: #64748b;">触发原因:</span>
-                <span style="color: #7c3aed;">{trigger_reason}</span>
+                <span style="color: #64748b;">偏差状态:</span>
+                <span style="color: #7c3aed;">{bias_indicator}</span>
             </div>
         </div>
 
@@ -722,15 +694,15 @@ def render_four_dimensions_status() -> str:
             font-size: 10px;
             color: #64748b;
         ">
-            <div style="font-weight: 600; color: #0ea5e9; margin-bottom: 6px;">💡 四维决策框架说明</div>
+            <div style="font-weight: 600; color: #0ea5e9; margin-bottom: 6px;">💡 末那识引擎说明</div>
             <div style="margin-bottom: 4px;">
-                <strong>四维：</strong>天时(时间) · 资金(子弹) · 能力(策略) · 市场(机会)
+                <strong>4引擎：</strong>时机(天时) · 环境(地利) · 自信(自知) · 风险(生存)
             </div>
             <div style="margin-bottom: 4px;">
-                <strong>门控：</strong>时间非交易→alpha=0 | 资金不足→alpha=0 | 策略未就绪→alpha×0.3
+                <strong>1观照：</strong>MetaManas 觉知偏差（贪/惧）
             </div>
             <div>
-                <strong>自动启用条件：</strong>资金 &lt;20% 或 市场信号 &lt;0.3 或 &gt;0.8 时自动启用保守模式
+                <strong>公式：</strong>manas_score = 0.4×timing + 0.3×regime + 0.3×confidence
             </div>
         </div>
     </div>

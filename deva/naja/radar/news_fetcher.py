@@ -28,6 +28,9 @@ from .trading_clock import (
     is_trading_time as is_trading_time_clock,
 )
 
+# 从统一关键词注册表导入
+from deva.naja.cognition.keyword_registry import NEWS_TOPIC_KEYWORDS
+
 try:
     import numpy as np
 except ImportError:
@@ -121,183 +124,16 @@ class NewsItem:
 
 
 class NewsTopicCluster:
-    """新闻主题聚类"""
+    """新闻主题聚类（使用统一的关键词注册表）"""
 
     def __init__(self):
         self._topics: Dict[int, List[str]] = {}
         self._topic_keywords: Dict[int, List[str]] = {}
         self._topic_counter = 0
 
+        # 从统一的关键词注册表导入（转换为 list 格式）
         self._keyword_topics = {
-            "ai": [1, "AI/人工智能"],
-            "人工智能": [1, "AI/人工智能"],
-            "chatgpt": [2, "ChatGPT/大模型"],
-            "gpt": [2, "ChatGPT/大模型"],
-            "大模型": [2, "ChatGPT/大模型"],
-            "deepseek": [2, "ChatGPT/大模型"],
-            "芯片": [3, "半导体/芯片"],
-            "半导体": [3, "半导体/芯片"],
-            "华为": [4, "华为产业链"],
-            "新能源": [5, "新能源"],
-            "光伏": [6, "光伏"],
-            "锂电池": [7, "锂电池/储能"],
-            "储能": [7, "锂电池/储能"],
-            "电动车": [8, "新能源汽车"],
-            "汽车": [8, "新能源汽车"],
-            "特斯拉": [8, "新能源汽车"],
-            "苹果": [9, "苹果产业链"],
-            "iphone": [9, "苹果产业链"],
-            "数据": [10, "大数据/云计算"],
-            "云计算": [10, "大数据/云计算"],
-            "银行": [11, "金融/银行"],
-            "保险": [12, "金融/保险"],
-            "券商": [13, "金融/券商"],
-            "美股": [14, "美股"],
-            "港股": [15, "港股"],
-            "A股": [16, "A股"],
-            "加息": [17, "宏观/美联储"],
-            "美联储": [17, "宏观/美联储"],
-            "通胀": [18, "宏观/通胀"],
-            "战争": [19, "地缘政治"],
-            "制裁": [19, "地缘政治"],
-            "地震": [20, "自然灾害"],
-            "灾难": [20, "自然灾害"],
-            "暴雨": [20, "自然灾害"],
-            "洪水": [20, "自然灾害"],
-            "干旱": [20, "自然灾害"],
-            "火山": [20, "自然灾害"],
-            "疫情": [21, "公共卫生"],
-            "病毒": [21, "公共卫生"],
-            "流感": [21, "公共卫生"],
-            "经济": [22, "宏观经济"],
-            "增长": [22, "宏观经济"],
-            "衰退": [22, "宏观经济"],
-            "贸易": [23, "国际贸易"],
-            "关税": [23, "国际贸易"],
-            "出口": [23, "国际贸易"],
-            "进口": [23, "国际贸易"],
-            "原油": [24, "大宗商品/原油"],
-            "黄金": [25, "大宗商品/黄金"],
-            "白银": [25, "大宗商品/黄金"],
-            "美元": [26, "外汇/美元"],
-            "人民币": [27, "外汇/人民币"],
-            "欧元": [28, "外汇/欧元"],
-            "英伟达": [3, "半导体/芯片"],
-            "英特": [3, "半导体/芯片"],
-            "AMD": [3, "半导体/芯片"],
-            "阿里": [29, "互联网/电商"],
-            "腾讯": [29, "互联网/电商"],
-            "京东": [29, "互联网/电商"],
-            "字节": [30, "互联网/短视频"],
-            "抖音": [30, "互联网/短视频"],
-            "快手": [30, "互联网/短视频"],
-            "百度": [31, "互联网/搜索"],
-            "微软": [32, "科技/软件"],
-            "谷歌": [32, "科技/软件"],
-            "亚马逊": [33, "电商/云服务"],
-            "Meta": [34, "社交媒体"],
-            "Facebook": [34, "社交媒体"],
-            "推特": [34, "社交媒体"],
-            "马斯克": [35, "人物/商业领袖"],
-            "贝索斯": [35, "人物/商业领袖"],
-            "普京": [36, "人物/政治"],
-            "拜登": [36, "人物/政治"],
-            "特朗普": [36, "人物/政治"],
-            "OPEC": [37, "原油/能源"],
-            "沙特": [37, "原油/能源"],
-            "俄罗斯": [38, "地缘政治"],
-            "乌克兰": [38, "地缘政治"],
-            "中东": [39, "地缘政治"],
-            "朝鲜": [39, "地缘政治"],
-            "韩国": [40, "地缘政治"],
-            "日本": [41, "宏观经济"],
-            "印度": [41, "宏观经济"],
-            "英国": [42, "宏观经济"],
-            "德国": [42, "宏观经济"],
-            "法国": [42, "宏观经济"],
-            "大选": [43, "政治事件"],
-            "选举": [43, "政治事件"],
-            "峰会": [44, "政治事件"],
-            "G20": [44, "政治事件"],
-            "WTO": [45, "国际贸易"],
-            "IMF": [46, "国际组织"],
-            "世界银行": [46, "国际组织"],
-            "财报": [47, "企业业绩"],
-            "业绩": [47, "企业业绩"],
-            "营收": [47, "企业业绩"],
-            "利润": [47, "企业业绩"],
-            "亏损": [47, "企业业绩"],
-            "裁员": [48, "企业动态"],
-            "收购": [49, "企业动态"],
-            "并购": [49, "企业动态"],
-            "上市": [50, "企业动态"],
-            "IPO": [50, "企业动态"],
-            "房地产": [51, "房地产"],
-            "房价": [51, "房地产"],
-            "地产": [51, "房地产"],
-            "建筑": [51, "房地产"],
-            "水泥": [51, "房地产"],
-            "钢铁": [52, "原材料"],
-            "铜": [52, "原材料"],
-            "铝": [52, "原材料"],
-            "煤炭": [53, "能源"],
-            "电力": [54, "公用事业"],
-            "电网": [54, "公用事业"],
-            "5G": [55, "通信技术"],
-            "6G": [55, "通信技术"],
-            "元宇宙": [56, "新技术"],
-            "区块链": [57, "新技术"],
-            "web3": [57, "新技术"],
-            "NFT": [57, "新技术"],
-            "量子": [58, "新技术"],
-            "生物": [59, "生物医药"],
-            "医药": [59, "生物医药"],
-            "疫苗": [59, "生物医药"],
-            "茅台": [60, "消费/白酒"],
-            "白酒": [60, "消费/白酒"],
-            "食品": [61, "消费/食品"],
-            "饮料": [61, "消费/食品"],
-            "纺织": [62, "制造业"],
-            "服装": [62, "制造业"],
-            "家电": [63, "制造业"],
-            "美的": [63, "制造业"],
-            "格力": [63, "制造业"],
-            "石化": [64, "化工"],
-            "化工": [64, "化工"],
-            "农药": [64, "化工"],
-            "化肥": [65, "农业"],
-            "农业": [65, "农业"],
-            "养殖": [65, "农业"],
-            "渔业": [65, "农业"],
-            "木材": [66, "原材料"],
-            "造纸": [66, "原材料"],
-            "印刷": [66, "原材料"],
-            "环保": [67, "环保"],
-            "碳中和": [67, "环保"],
-            " ESG ": [67, "环保"],
-            "绿色": [67, "环保"],
-            "可再生能源": [68, "新能源"],
-            "氢能": [68, "新能源"],
-            "风能": [68, "新能源"],
-            "核电": [69, "能源"],
-            "水利": [70, "基建"],
-            "铁路": [71, "交通基建"],
-            "公路": [71, "交通基建"],
-            "航空": [72, "交通运输"],
-            "机场": [72, "交通运输"],
-            "港口": [72, "交通运输"],
-            "物流": [73, "交通运输"],
-            "快递": [73, "交通运输"],
-            "教育": [74, "服务业"],
-            "旅游": [75, "服务业"],
-            "酒店": [75, "服务业"],
-            "餐饮": [75, "服务业"],
-            "电影": [76, "文娱"],
-            "游戏": [76, "文娱"],
-            "体育": [77, "文娱"],
-            "足球": [77, "文娱"],
-            "篮球": [77, "文娱"],
-            "奥运": [77, "文娱"],
+            kw: list(value) for kw, value in NEWS_TOPIC_KEYWORDS.items()
         }
 
     def assign_topic(self, title: str, content: str = "") -> int:
@@ -457,7 +293,9 @@ class RadarNewsFetcher:
         self._fetch_count = 0
         self._error_count = 0
 
-        self._on_signal_callback: Optional[callable] = None
+        # 🚀 新架构：使用 TextSignalBus，不再使用旧回调
+        self._text_pipeline = None
+        self._text_bus = None
 
         self._llm_interval_override: Optional[float] = None
         self._last_interval_adjustment = 0.0
@@ -509,6 +347,9 @@ class RadarNewsFetcher:
         self._running = True
         self._stop_event.clear()
 
+        # 🚀 初始化新架构组件
+        self._init_text_pipeline()
+
         if not self._force_trading:
             TRADING_CLOCK_STREAM.sink(self._on_trading_clock_signal)
         else:
@@ -518,6 +359,21 @@ class RadarNewsFetcher:
         self._fetch_thread.start()
 
         log.info(f"[Radar-News] 已启动, 获取间隔: {self._fetch_interval}s")
+
+    def _init_text_pipeline(self):
+        """🚀 初始化注意力文本处理架构"""
+        try:
+            from deva.naja.cognition.text_processing_pipeline import get_text_pipeline
+            from deva.naja.cognition.text_signal_bus import get_text_bus
+
+            self._text_pipeline = get_text_pipeline()
+            self._text_bus = get_text_bus()
+
+            _radar_news_log("注意力文本处理架构已初始化")
+        except ImportError as e:
+            _radar_news_log(f"注意力文本处理架构导入失败: {e}")
+            self._text_pipeline = None
+            self._text_bus = None
 
     def stop(self):
         """停止获取器"""
@@ -706,17 +562,59 @@ class RadarNewsFetcher:
         news_list = self._fetch_news()
 
         for news in news_list:
-            signals = self.processor.process(news)
+            self._fetch_count += 1
+            _radar_news_log(f"获取新闻: {news.title[:50]}")
 
-            for signal in signals:
-                self._fetch_count += 1
-                _radar_news_log(f"产生信号: {signal.get('content', '')[:50]}")
+            # 🚀 新架构：将新闻发布到注意力文本处理流水线
+            self._publish_news_to_text_pipeline(news)
 
-                if self._on_signal_callback:
-                    try:
-                        self._on_signal_callback(signal)
-                    except Exception as e:
-                        log.error(f"[Radar-News] 信号回调异常: {e}")
+            # 保留旧逻辑：存入短期记忆（供雷达面板显示）
+            self.processor.process(news)
+
+    def _publish_news_to_text_pipeline(self, news: NewsItem):
+        """
+        🚀 将新闻发布到注意力文本处理流水线
+
+        新闻只处理一次，然后通过总线广播给所有订阅者
+        """
+        if not self._text_pipeline or not self._text_bus:
+            _radar_news_log("TextPipeline 未初始化，跳过")
+            return
+
+        try:
+            from deva.naja.cognition.attention_text_router import (
+                AttentionTextItem,
+                TextSource,
+            )
+
+            # 转换为 AttentionTextItem
+            item = AttentionTextItem(
+                text=news.content,
+                title=news.title,
+                url=news.url,
+                source=TextSource.RADAR_NEWS,
+                metadata={
+                    "news_id": news.id,
+                    "original_source": news.source,
+                },
+            )
+
+            # 交由 TextProcessingPipeline 处理（计算注意力分数、分层处理）
+            item = self._text_pipeline.process(item)
+
+            _radar_news_log(
+                f"注意力分数: {item.attention_score:.2f}, "
+                f"路由层级: {item.routing_level()}, "
+                f"关键词: {item.raw_keywords[:3] if item.raw_keywords else []}"
+            )
+
+            # 发布到总线，触发所有订阅者
+            self._text_bus.publish(item)
+
+        except ImportError as e:
+            _radar_news_log(f"注意力文本处理架构导入失败: {e}")
+        except Exception as e:
+            log.error(f"[Radar-News] 发布到 TextPipeline 失败: {e}")
 
     def _fetch_news(self) -> List[NewsItem]:
         """
