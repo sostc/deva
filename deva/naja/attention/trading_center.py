@@ -38,6 +38,27 @@ log = logging.getLogger(__name__)
 
 
 @dataclass
+class FusionResult:
+    """决策融合结果（提案完整版）"""
+    final_confidence: float = 0.5
+    position_adjustment: float = 0.0
+    action_type: str = "hold"
+    should_act: bool = False
+    reasoning: List[str] = field(default_factory=list)
+    risk_warnings: List[str] = field(default_factory=list)
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "final_confidence": self.final_confidence,
+            "position_adjustment": self.position_adjustment,
+            "action_type": self.action_type,
+            "should_act": self.should_act,
+            "reasoning": self.reasoning,
+            "risk_warnings": self.risk_warnings,
+        }
+
+
+@dataclass
 class FusionOutput:
     """融合输出"""
     should_act: bool = False
@@ -78,6 +99,168 @@ class FusionOutput:
             "bias_correction": self.bias_correction,
             "final_decision": self.final_decision,
         }
+
+
+class DecisionFusion:
+    """
+    决策融合层（提案完整版）
+
+    融合 FirstPrinciplesMind 和 Manas 的输出，生成最终决策
+
+    融合逻辑（提案2.2.2）：
+    1. FP Mind 基础置信度 + level 加成
+    2. Manas 四维调整（timing / regime / risk_temperature / bias）
+    3. 最终置信度计算
+    4. 行动类型确定
+    5. 仓位调整
+    """
+
+    # FP Mind level 加成表
+    LEVEL_BONUS = {
+        "first_principles": 0.15,
+        "causal": 0.08,
+        "surface": 0.0,
+    }
+
+    def fuse(
+        self,
+        fp_insights: List[Dict],
+        kernel_output,
+        current_position: float = 0.0,
+    ) -> FusionResult:
+        """
+        融合 FP Mind 和 Manas 的输出
+
+        Args:
+            fp_insights: FirstPrinciplesMind 输出的洞察列表
+            kernel_output: AttentionOS Kernel 输出的 Manas 结果
+            current_position: 当前仓位 [0, 1]
+
+        Returns:
+            FusionResult: 融合后的决策
+        """
+        reasoning = []
+        risk_warnings = []
+
+        # ========== 第一步：计算 FP Mind 基础置信度 ==========
+        fp_confidence = 0.5  # 基础值
+
+        if fp_insights:
+            # 按 level 分组
+            by_level: Dict[str, list] = {}
+            for insight in fp_insights:
+                level = insight.get("level", "surface")
+                insight_type = insight.get("type", "unknown")
+                confidence = insight.get("confidence", 0.5)
+
+                if level not in by_level:
+                    by_level[level] = []
+                by_level[level].append({
+                    "type": insight_type,
+                    "confidence": confidence,
+                    "content": insight.get("content", ""),
+                })
+
+            # 应用 level 加成
+            for level, bonus in self.LEVEL_BONUS.items():
+                if level in by_level and by_level[level]:
+                    fp_confidence += bonus
+                    reasoning.append(f"FP洞察({level}): +{bonus}")
+
+            # 如果有 opportunity + first_principles 加成
+            if "first_principles" in by_level:
+                for insight in by_level["first_principles"]:
+                    if insight["type"] == "opportunity":
+                        fp_confidence += 0.05
+                        reasoning.append("opportunity + first_principles: +0.05")
+
+        # ========== 第二步：应用 Manas 四维调整 ==========
+
+        # timing 调整
+        timing = kernel_output.timing_score
+        if timing < 0.4:
+            fp_confidence *= 0.7
+            reasoning.append(f"Manas时机低({timing:.2f}): ×0.7")
+        elif timing > 0.7:
+            fp_confidence *= 1.1
+            reasoning.append(f"Manas时机高({timing:.2f}): ×1.1")
+
+        # regime 调整
+        regime = kernel_output.regime_score
+        if regime < -0.3:  # 逆风
+            fp_confidence *= 0.8
+            reasoning.append(f"Manas环境逆风({regime:.2f}): ×0.8")
+
+        # risk_temperature 调整
+        risk_t = getattr(kernel_output, 'risk_temperature', 1.0)
+        position_adjustment = 0.0
+        if risk_t > 1.3:
+            position_adjustment = -0.15
+            risk_warnings.append(f"风险温度高({risk_t:.2f}): 建议减仓")
+        elif risk_t > 1.5:
+            position_adjustment = -0.25
+            risk_warnings.append(f"风险温度很高({risk_t:.2f}): 强烈建议减仓")
+
+        # bias 纠偏
+        bias_state = getattr(kernel_output, 'bias_state', 'neutral')
+        bias_correction = getattr(kernel_output, 'bias_correction', 1.0)
+        if bias_state != "neutral":
+            fp_confidence *= bias_correction
+            reasoning.append(f"bias纠偏({bias_state}): ×{bias_correction:.2f}")
+
+        # ========== 第三步：计算最终置信度 ==========
+        final_confidence = max(0.0, min(1.0, fp_confidence))
+
+        # ========== 第四步：确定行动类型 ==========
+        if final_confidence < 0.3:
+            action_type = "hold"
+            should_act = False
+            reasoning.append("置信度<0.3: 观望")
+        elif final_confidence < 0.5:
+            action_type = "act_minimally"
+            should_act = True
+            reasoning.append("置信度0.3-0.5: 轻仓试探")
+        elif final_confidence < 0.7:
+            action_type = "act_carefully"
+            should_act = True
+            reasoning.append("置信度0.5-0.7: 谨慎行动")
+        else:
+            action_type = "act_fully"
+            should_act = True
+            reasoning.append("置信度>0.7: 全力行动")
+
+        # ========== 第五步：仓位调整 ==========
+        # 基于 FP Mind 的洞察类型调整仓位
+        if fp_insights:
+            for insight in fp_insights:
+                if insight.get("type") == "opportunity" and insight.get("level") == "first_principles":
+                    position_adjustment += 0.20
+                    reasoning.append("opportunity+first_principles: 仓位+20%")
+                elif insight.get("type") == "opportunity" and insight.get("level") == "causal":
+                    position_adjustment += 0.10
+                    reasoning.append("opportunity+causal: 仓位+10%")
+                elif insight.get("type") == "risk" and insight.get("level") == "first_principles":
+                    position_adjustment -= 0.30
+                    risk_warnings.append("risk+first_principles: 仓位-30%")
+
+        # Manas 的 action_type 也影响仓位
+        action_type_attr = getattr(kernel_output, 'action_type', 'hold')
+        if action_type_attr == "hold":
+            position_adjustment = min(position_adjustment, 0)
+        elif action_type_attr == "act_fully":
+            position_adjustment = max(position_adjustment, 0.10)
+
+        # 仓位不能为负
+        final_position = max(0.0, min(1.0, current_position + position_adjustment))
+
+        return FusionResult(
+            final_confidence=round(final_confidence, 3),
+            position_adjustment=round(position_adjustment, 3),
+            action_type=action_type,
+            should_act=should_act,
+            reasoning=reasoning,
+            risk_warnings=risk_warnings,
+        )
 
 
 class TradingCenter:
@@ -207,44 +390,48 @@ class TradingCenter:
         awakening_level: str
     ) -> FusionOutput:
         """
-        融合各模块输出
+        融合各模块输出（使用提案完整版 DecisionFusion）
 
-        融合公式：
-            fused_confidence = harmony_strength * 0.7 + insight_confidence * 0.3
+        融合流程：
+        1. FP Mind 基础置信度 + level 加成
+        2. Manas 四维调整（timing / regime / risk_temperature / bias）
+        3. 觉醒等级加成
+        4. 最终置信度 & 仓位调整
         """
-        harmony_strength = kernel_output.harmony_strength
-        should_act = kernel_output.should_act
-        action_type = kernel_output.action_type
+        fusion = DecisionFusion()
+        fusion_result = fusion.fuse(
+            fp_insights=fp_insights,
+            kernel_output=kernel_output,
+            current_position=0.0,  # TradingCenter 不直接持有仓位，仓位由外部传入
+        )
 
-        insight_confidence = 0.5
-        if fp_insights:
-            insight_confidence = sum(i.get('confidence', 0.5) for i in fp_insights) / len(fp_insights)
-
-        if should_act and fp_insights:
-            fused_confidence = harmony_strength * 0.7 + insight_confidence * 0.3
-            fusion_note = f"FP insights={len(fp_insights)}, harmony={harmony_strength:.2f}, fused={fused_confidence:.2f}"
-        else:
-            fused_confidence = harmony_strength
-            if fp_insights:
-                fusion_note = f"HOLD but FP stored (insights={len(fp_insights)})"
-            else:
-                fusion_note = "HOLD (no FP insights)"
-
+        # 觉醒等级加成
         if awakening_level == "enlightened":
-            fused_confidence *= 1.1
+            fusion_result.final_confidence *= 1.1
+            fusion_result.reasoning.append(f"觉醒加成(enlightened): ×1.1")
         elif awakening_level == "illuminated":
-            fused_confidence *= 1.05
+            fusion_result.final_confidence *= 1.05
+            fusion_result.reasoning.append(f"觉醒加成(illuminated): ×1.05")
 
-        fused_confidence = max(0.0, min(1.0, fused_confidence))
+        fusion_result.final_confidence = max(0.0, min(1.0, fusion_result.final_confidence))
+
+        log.info(f"[DecisionFusion] {fusion_result.reasoning[-3:] if fusion_result.reasoning else 'no reasoning'}")
 
         return FusionOutput(
-            should_act=should_act,
-            action_type=action_type,
-            harmony_strength=harmony_strength,
-            fused_confidence=fused_confidence,
-            insight_confidence=insight_confidence,
+            should_act=fusion_result.should_act,
+            action_type=fusion_result.action_type,
+            harmony_strength=kernel_output.harmony_strength,
+            fused_confidence=fusion_result.final_confidence,
+            insight_confidence=0.5,  # 简化，DecisionFusion 已合并到 final_confidence
             awakening_level=awakening_level,
             fp_insights=fp_insights,
+            manas_score=kernel_output.manas_score,
+            timing_score=kernel_output.timing_score,
+            regime_score=kernel_output.regime_score,
+            confidence_score=kernel_output.confidence_score,
+            bias_state=getattr(kernel_output, 'bias_state', 'neutral'),
+            bias_correction=getattr(kernel_output, 'bias_correction', 1.0),
+            final_decision=fusion_result.to_dict(),
         )
 
     def make_decision(
