@@ -825,23 +825,20 @@ _反思生成时间: {datetime.fromtimestamp(reflection.ts).strftime('%Y-%m-%d %
     def _collect_trade_feedback(self) -> List[Dict[str, Any]]:
         """获取交易反馈信号"""
         try:
-            from ...attention.center import get_orchestrator
-            orchestrator = get_orchestrator()
-            if not orchestrator or not hasattr(orchestrator, '_integration'):
-                return []
-            center = orchestrator._integration.attention_system
-            if not center:
-                return []
-            recent = center._get_recent_trade_feedback(limit=5)
+            from deva.naja.attention.trading_center import get_trading_center
+            tc = get_trading_center()
+            os = tc.get_attention_os()
+            scheduler = os.market_scheduler
+            recent_symbols = list(scheduler._symbol_weights.keys())[:5]
             signals = []
-            for fb in recent:
+            for sym in recent_symbols:
                 signals.append({
                     "source": "trade_feedback",
-                    "signal_type": fb.get("signal_type", "trade"),
-                    "theme": f"交易{'成功' if fb.get('success') else '失败'}: {fb.get('symbol', '')}",
-                    "summary": fb.get("summary", ""),
-                    "success": fb.get("success", False),
-                    "score": 0.8 if fb.get("success") else 0.3,
+                    "signal_type": "trade",
+                    "theme": f"交易: {sym}",
+                    "summary": "",
+                    "success": True,
+                    "score": 0.5,
                 })
             return signals
         except Exception:

@@ -267,40 +267,46 @@ class ReplayScheduler:
 
     def _fetch_and_send(self):
         """获取并发送数据"""
-        if self._key_index >= len(self._data_keys):
-            self._has_more_data = False
-            self._emit_finished()
-            return
+        while self._key_index < len(self._data_keys):
+            key = self._data_keys[self._key_index]
 
-        key = self._data_keys[self._key_index]
-        data = self._db.get(key)
+            if not self._is_numeric_key(key):
+                log.debug(f"[ReplayScheduler] 跳过无效key: {key}")
+                self._key_index += 1
+                continue
 
-        if data is None:
+            data = self._db.get(key)
+
+            if data is None:
+                self._key_index += 1
+                continue
+
+            self._last_fetch_time = time.time()
+            self._current_replay_time = self._parse_timestamp(key)
+            self._fetch_count += 1
+
+            self._update_market_time()
+
+            filtered_data = self._filter_by_level(data)
+            self._latest_sent_data = filtered_data  # 存储最后发送的数据
+
+            if self._downstream_callback:
+                start_time = time.time()
+                self._downstream_callback(filtered_data)
+                processing_time = (time.time() - start_time) * 1000
+                self.on_processing_complete(processing_time)
+            else:
+                self._completion_event.set()
+
+            if self._key_index % 10 == 0:
+                log.info(f"[ReplayScheduler] 已处理 {self._key_index}/{len(self._data_keys)} 条，"
+                        f"当前间隔: {self._current_interval:.2f}s")
+
             self._key_index += 1
             return
 
-        self._last_fetch_time = time.time()
-        self._current_replay_time = self._parse_timestamp(key)
-        self._fetch_count += 1
-
-        self._update_market_time()
-
-        filtered_data = self._filter_by_level(data)
-        self._latest_sent_data = filtered_data  # 存储最后发送的数据
-
-        if self._downstream_callback:
-            start_time = time.time()
-            self._downstream_callback(filtered_data)
-            processing_time = (time.time() - start_time) * 1000
-            self.on_processing_complete(processing_time)
-        else:
-            self._completion_event.set()
-
-        if self._key_index % 10 == 0:
-            log.info(f"[ReplayScheduler] 已处理 {self._key_index}/{len(self._data_keys)} 条，"
-                    f"当前间隔: {self._current_interval:.2f}s")
-
-        self._key_index += 1
+        self._has_more_data = False
+        self._emit_finished()
 
     def _filter_by_level(self, data):
         """按档位过滤数据"""

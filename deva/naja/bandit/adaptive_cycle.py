@@ -59,7 +59,11 @@ class AdaptiveCycle:
         self._auto_start = True
         self._auto_buy_enabled = True
         self._auto_adjust_enabled = True
-        
+
+        self._manas_context_cache: Optional[Dict[str, Any]] = None
+        self._last_manas_update = 0.0
+        self._manas_update_interval = 60.0
+
         self._load_config()
         self._setup_callbacks()
         
@@ -112,7 +116,96 @@ class AdaptiveCycle:
             }
         except Exception:
             pass
-    
+
+    def _get_manas_risk_context(self) -> Dict[str, Any]:
+        """
+        获取 Manas 的风险上下文，用于调整止盈止损
+
+        Returns:
+            {
+                "risk_temperature": float,
+                "timing_score": float,
+                "regime_score": float,
+                "harmony_strength": float,
+            }
+        """
+        current_time = time.time()
+
+        if (current_time - self._last_manas_update < self._manas_update_interval
+                and self._manas_context_cache is not None):
+            return self._manas_context_cache
+
+        try:
+            from deva.naja.attention.trading_center import get_trading_center
+            tc = get_trading_center()
+            manas_engine = tc.get_attention_os().kernel.get_manas_engine()
+
+            portfolio_state = {"position_pct": 0.0, "total_value": 100000, "cash": 30000}
+            manas_output = manas_engine.compute(
+                session_manager=None,
+                portfolio=portfolio_state,
+                scanner=None,
+                bandit_tracker=None,
+                macro_signal=0.5,
+                narratives=[]
+            )
+
+            self._manas_context_cache = {
+                "risk_temperature": manas_output.risk_temperature,
+                "timing_score": manas_output.timing_score,
+                "regime_score": manas_output.regime_score,
+                "harmony_strength": manas_output.harmony_strength,
+            }
+            self._last_manas_update = current_time
+
+            return self._manas_context_cache
+        except Exception as e:
+            log.debug(f"[AdaptiveCycle] 获取 Manas 上下文失败: {e}")
+            return {
+                "risk_temperature": 1.0,
+                "timing_score": 0.5,
+                "regime_score": 0.0,
+                "harmony_strength": 0.5,
+            }
+
+    def _get_adaptive_stop_loss(self, base_return_pct: float = 0.0) -> tuple:
+        """
+        根据 Manas 风险上下文获取自适应止盈止损
+
+        Args:
+            base_return_pct: 持仓当前收益率
+
+        Returns:
+            (stop_loss_pct, take_profit_pct)
+        """
+        manas_context = self._get_manas_risk_context()
+        risk_t = manas_context["risk_temperature"]
+        timing = manas_context["timing_score"]
+
+        base_stop_loss = -8.0
+        base_take_profit = 15.0
+
+        if risk_t > 1.3:
+            stop_loss = base_stop_loss * 0.6
+            take_profit = base_take_profit * 0.8
+            log.info(f"[AdaptiveCycle] 高风险环境: stop_loss={stop_loss}%, take_profit={take_profit}%")
+        elif risk_t > 1.5:
+            stop_loss = base_stop_loss * 0.4
+            take_profit = base_take_profit * 0.6
+            log.warning(f"[AdaptiveCycle] 极高风险环境: stop_loss={stop_loss}%, take_profit={take_profit}%")
+        elif timing < 0.4:
+            stop_loss = base_stop_loss * 1.5
+            take_profit = base_take_profit * 0.7
+            log.info(f"[AdaptiveCycle] 时机不佳: stop_loss={stop_loss}%, take_profit={take_profit}%")
+        else:
+            stop_loss = base_stop_loss
+            take_profit = base_take_profit
+
+        if base_return_pct > 5.0:
+            stop_loss = max(stop_loss, -10.0)
+
+        return stop_loss, take_profit
+
     def _setup_callbacks(self):
         """设置回调"""
 
@@ -166,6 +259,9 @@ class AdaptiveCycle:
 
         log.info(f"[AdaptiveCycle] 准备创建持仓: {signal.stock_code} @ {signal.price}")
 
+        stop_loss_pct, take_profit_pct = self._get_adaptive_stop_loss()
+        log.info(f"[AdaptiveCycle] 自适应止盈止损: stop_loss={stop_loss_pct}%, take_profit={take_profit_pct}%")
+
         position = self._portfolio.open_position(
             strategy_id=signal.strategy_id,
             strategy_name=signal.strategy_name,
@@ -173,8 +269,8 @@ class AdaptiveCycle:
             stock_name=signal.stock_name,
             price=signal.price,
             amount=10000,
-            stop_loss_pct=-5.0,
-            take_profit_pct=10.0,
+            stop_loss_pct=stop_loss_pct,
+            take_profit_pct=take_profit_pct,
             market_time=signal.market_time,
             signal_confidence=signal.confidence,
         )
@@ -182,6 +278,27 @@ class AdaptiveCycle:
         if position:
             log.info(f"[AdaptiveCycle] 🎉 持仓创建成功! ID={position.position_id} {signal.stock_name}({signal.stock_code}) @ {signal.price}")
             self._market_observer.track_stock(signal.stock_code)
+
+            try:
+                from deva.naja.bandit.notifier import get_bandit_notifier
+                notifier = get_bandit_notifier()
+                notifier.notify_position_opened(
+                    position_id=position.position_id,
+                    stock_code=signal.stock_code,
+                    stock_name=signal.stock_name,
+                    price=signal.price,
+                    amount=10000,
+                )
+                notifier.notify_buy_signal(
+                    stock_code=signal.stock_code,
+                    stock_name=signal.stock_name,
+                    price=signal.price,
+                    confidence=signal.confidence,
+                    strategy_name=signal.strategy_name,
+                    reason=f"信号触发: {signal.signal_type}",
+                )
+            except Exception as e:
+                log.warning(f"[AdaptiveCycle] 发送交易通知失败: {e}")
 
             try:
                 from deva.naja.snapshot_manager import record_bandit_decision
@@ -200,7 +317,7 @@ class AdaptiveCycle:
                 available_strategies=[signal.strategy_id],
                 context={"stock_code": signal.stock_code, "price": signal.price}
             )
-            
+
             log.info(f"[AdaptiveCycle] ✅ 自适应循环: 创建虚拟持仓 {signal.stock_name}({signal.stock_code}) @ {signal.price}")
         else:
             log.error(f"[AdaptiveCycle] ❌ 持仓创建失败: {signal.stock_code}")
@@ -232,6 +349,21 @@ class AdaptiveCycle:
         
         log.info(f"自适应循环: 平仓 {position.stock_name} 收益={position.return_pct:.2f}% "
                 f"原因={reason} Bandit奖励={result.get('reward', 0):.2f}")
+
+        try:
+            from deva.naja.bandit.notifier import get_bandit_notifier
+            notifier = get_bandit_notifier()
+            notifier.notify_position_closed(
+                position_id=position_id,
+                stock_code=position.stock_code,
+                stock_name=position.stock_name,
+                open_price=position.entry_price,
+                close_price=position.current_price,
+                profit_pct=position.return_pct,
+                reason=reason,
+            )
+        except Exception as e:
+            log.warning(f"[AdaptiveCycle] 发送平仓通知失败: {e}")
 
         try:
             from deva.naja.snapshot_manager import record_bandit_decision

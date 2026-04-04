@@ -36,6 +36,10 @@ class MarketReplayScheduler:
     2. 订阅交易时钟的 post_market 信号
     3. 盘后阶段触发复盘任务
     4. 复盘结果推送到DTalk
+
+    Lab 模式支持：
+    - 添加 _latest_sent_data 属性供 MarketObserver 轮询
+    - 添加 set_downstream_callback 方法支持回调推送
     """
 
     _instance: Optional['MarketReplayScheduler'] = None
@@ -57,8 +61,16 @@ class MarketReplayScheduler:
         self._thread: Optional[threading.Thread] = None
         self._stop_event = threading.Event()
 
+        self._latest_sent_data = None
+        self._downstream_callback = None
+
         self._initialized = True
         log.info("[MarketReplayScheduler] 调度器初始化完成")
+
+    def set_downstream_callback(self, callback):
+        """设置下游回调（支持 Lab 模式）"""
+        self._downstream_callback = callback
+        log.info("[MarketReplayScheduler] 已注册下游回调")
 
     def start(self):
         """启动调度器"""

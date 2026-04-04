@@ -124,11 +124,11 @@ class AttentionStrategyBase(ABC):
         return self._attention_integration
 
     def _get_orchestrator(self):
-        """获取调度中心"""
+        """获取调度中心（兼容旧接口）"""
         if self._orchestrator is None:
             try:
-                from deva.naja.attention.center import get_orchestrator
-                self._orchestrator = get_orchestrator()
+                from deva.naja.attention.trading_center import get_trading_center
+                self._orchestrator = get_trading_center()
             except Exception:
                 pass
         return self._orchestrator

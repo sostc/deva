@@ -112,18 +112,17 @@ class SnapshotManager:
             return None
 
         try:
-            from deva.naja.attention.center import get_orchestrator
-            from deva.naja.radar.global_market_scanner import get_global_market_scanner
+            from deva.naja.attention.trading_center import get_trading_center
 
-            orch = get_orchestrator()
-            scanner = get_global_market_scanner()
+            tc = get_trading_center()
+            os = tc.get_attention_os()
+            scheduler = os.market_scheduler
 
             top_symbols = []
             try:
-                weight_pool = orch._integration.attention_system.weight_pool if orch._integration and orch._integration.attention_system else None
-                if weight_pool:
-                    all_weights = weight_pool.get_all_weights()
-                    sorted_symbols = sorted(all_weights.items(), key=lambda x: x[1], reverse=True)[:20]
+                symbol_weights = scheduler._symbol_weights
+                if symbol_weights:
+                    sorted_symbols = sorted(symbol_weights.items(), key=lambda x: x[1], reverse=True)[:20]
                     top_symbols = [
                         {"symbol": sym, "weight": float(wgt)}
                         for sym, wgt in sorted_symbols
@@ -133,16 +132,17 @@ class SnapshotManager:
 
             sector_weights = {}
             try:
-                if orch._integration and orch._integration.attention_system:
-                    sector_weights = orch._integration.attention_system.sector_attention.get_all_weights()
-                    sector_weights = {k: float(v) for k, v in sector_weights.items()}
+                sector_weights = scheduler._sector_weights
+                sector_weights = {k: float(v) for k, v in sector_weights.items()}
             except Exception as e:
                 log.debug(f"获取sector_weights失败: {e}")
 
-            active_sectors = list(getattr(orch, '_cached_active_sectors', set()) or set())
+            active_sectors = list(getattr(tc, '_cached_active_sectors', set()) or set())
 
             market_context = {}
             try:
+                from deva.naja.radar.global_market_scanner import get_global_market_scanner
+                scanner = get_global_market_scanner()
                 scanner_data = scanner.get_last_data()
                 summary = scanner.get_market_summary()
                 if scanner_data:
@@ -351,23 +351,24 @@ class SnapshotManager:
         }
 
         try:
-            orch = get_orchestrator()
+            from deva.naja.attention.trading_center import get_trading_center
+            tc = get_trading_center()
+            os = tc.get_attention_os()
+            scheduler = os.market_scheduler
 
             try:
-                weight_pool = orch._integration.attention_system.weight_pool if orch._integration and orch._integration.attention_system else None
-                if weight_pool:
-                    all_weights = weight_pool.get_all_weights()
-                    sorted_symbols = sorted(all_weights.items(), key=lambda x: x[1], reverse=True)[:10]
+                symbol_weights = scheduler._symbol_weights
+                if symbol_weights:
+                    sorted_symbols = sorted(symbol_weights.items(), key=lambda x: x[1], reverse=True)[:10]
                     state["top_symbols"] = [sym for sym, _ in sorted_symbols]
             except Exception:
                 pass
 
-            state["active_sectors"] = list(orch._cached_active_sectors) if orch._cached_active_sectors else []
+            state["active_sectors"] = list(getattr(tc, '_cached_active_sectors', set()) or set())
 
             try:
-                if orch._integration and orch._integration.attention_system:
-                    sector_weights = orch._integration.attention_system.sector_attention.get_all_weights()
-                    state["sector_weights"] = {k: float(v) for k, v in sector_weights.items()}
+                sector_weights = scheduler._sector_weights
+                state["sector_weights"] = {k: float(v) for k, v in sector_weights.items()}
             except Exception:
                 pass
 
