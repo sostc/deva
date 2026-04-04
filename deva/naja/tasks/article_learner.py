@@ -666,6 +666,107 @@ def learn_article_url(url: str) -> LearningResult:
     return learner.learn(url)
 
 
+# ============== 与注意力文本处理架构集成 ==============
+
+def learn_with_attention_pipeline(url: str) -> tuple[LearningResult, dict]:
+    """
+    使用注意力文本处理流水线学习文章
+
+    这个函数整合了 ArticleLearner 的深度分析能力和新的 TextProcessingPipeline
+    实现：一次处理、多方复用的效果
+
+    Returns:
+        (LearningResult, attention_info): 学习结果和注意力处理信息
+
+    使用示例：
+        result, info = learn_with_attention_pipeline("https://...")
+        print(f"注意力分数: {info['attention_score']}")
+        print(f"处理层级: {info['routing_level']}")
+        print(f"信号已广播到: {info['subscribers']}")
+    """
+    # 尝试导入注意力处理模块
+    try:
+        from deva.naja.cognition.attention_text_router import (
+            AttentionTextItem,
+            TextSource,
+            ManasState,
+        )
+        from deva.naja.cognition.text_processing_pipeline import get_text_pipeline
+    except ImportError:
+        # 如果没有新架构，降级到传统方式
+        learner = ArticleLearner()
+        return learner.learn(url), {}
+
+    learner = ArticleLearner()
+
+    # 1. 获取文章内容
+    content, title, source = learner._fetch_content(url)
+
+    # 2. 创建注意力文本项
+    item = AttentionTextItem(
+        text=content,
+        title=title,
+        url=url,
+        source=TextSource.USER_ARTICLE,
+        metadata={"original_source": source},
+    )
+
+    # 3. 使用流水线处理
+    pipeline = get_text_pipeline()
+    item = pipeline.process(item)
+
+    # 4. 原有深度分析
+    result = learner._analyze_content(content, title, url, source)
+
+    # 5. 补充注意力处理信息
+    attention_info = {
+        "attention_score": item.attention_score,
+        "routing_level": item.routing_level(),
+        "raw_keywords": item.raw_keywords,
+        "topic_candidates": item.topic_candidates,
+        "matched_focus_topics": item.matched_focus_topics,
+        "sentiment": item.sentiment if hasattr(item, 'sentiment') else None,
+        "narrative_tags": item.narrative_tags if hasattr(item, 'narrative_tags') else [],
+        "processed": item.processed,
+        "bus_stats": pipeline.get_stats().get("bus_stats", {}),
+    }
+
+    # 6. 将分析结果同步回结构化信号
+    if item.structured_signal:
+        item.structured_signal.sentiment = result.narrative.narrative_strength
+        item.structured_signal.narrative_tags = result.narrative.current_narratives
+
+    # 7. 重新广播（带着深度分析结果）
+    pipeline._bus.publish(item)
+
+    return result, attention_info
+
+
+def subscribe_article_learning(module_name: str, min_attention: float = 0.6):
+    """
+    订阅文章学习信号
+
+    当有高注意力文章被处理时，会收到通知
+
+    Args:
+        module_name: 订阅模块名称
+        min_attention: 最小注意力阈值
+
+    使用示例：
+        def on_article(item):
+            print(f"收到高注意力文章: {item.title}")
+
+        subscribe_article_learning("MyModule", min_attention=0.7)
+    """
+    from deva.naja.cognition.text_processing_pipeline import subscribe_to_signals
+
+    def callback(item):
+        # 这里可以添加自定义处理逻辑
+        pass
+
+    subscribe_to_signals(module_name, callback, min_attention=min_attention)
+
+
 # ============== 测试 ==============
 if __name__ == "__main__":
     # 测试

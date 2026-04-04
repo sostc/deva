@@ -144,47 +144,8 @@ def setup_manas_manager(kernel) -> ManasManager:
     return _global_manager
 
 
-class FourDimensionsManager(ManasManager):
-    """
-    四维管理器（已废弃，请使用 ManasManager）
-
-    保留此类是为了向后兼容，建议迁移到 ManasManager
-    """
-
-    def __init__(self, kernel, config=None):
-        super().__init__(kernel)
-        log.warning("[FourDimensionsManager] 已废弃，请使用 ManasManager")
-
-
-class FourDimensionsTrigger:
-    """
-    四维触发器（已废弃）
-
-    保留此类是为了向后兼容
-    """
-
-    def __init__(self, config=None):
-        log.warning("[FourDimensionsTrigger] 已废弃，请使用 ManasManager")
-
-    def update(self) -> bool:
-        return False
-
-    def get_status(self) -> dict:
-        return {"deprecated": True}
-
-
-class TriggerConfig:
-    """触发器配置（已废弃）"""
-
-    def __init__(self, **kwargs):
-        pass
-
-
-def get_four_dimensions_manager() -> Optional[FourDimensionsManager]:
-    """获取全局四维管理器（已废弃，请使用 get_manas_manager）"""
-    return None
-
-
-def setup_four_dimensions_manager(kernel, config=None) -> ManasManager:
-    """设置全局四维管理器（已废弃，请使用 setup_manas_manager）"""
-    return setup_manas_manager(kernel)
+def setup_manas_manager(kernel) -> ManasManager:
+    """设置全局末那识管理器"""
+    global _global_manager
+    _global_manager = ManasManager(kernel)
+    return _global_manager

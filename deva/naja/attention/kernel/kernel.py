@@ -121,10 +121,10 @@ class AttentionKernel:
             return None
 
     def _get_narrative_tracker(self):
-        """获取叙事追踪器"""
+        """获取叙事追踪器（SectorNarrative / 地）"""
         try:
-            from deva.naja.cognition import NarrativeTracker
-            return NarrativeTracker.get_instance()
+            from deva.naja.cognition import SectorNarrative
+            return SectorNarrative()
         except ImportError:
             return None
 

@@ -22,9 +22,18 @@ from .cognition_bus import (
 )
 from .core import NewsMindStrategy, AttentionScorer
 from .engine import CognitionEngine, get_cognition_engine
-from .narrative_tracker import NarrativeTracker
+from .sector_narrative import SectorNarrative
+from .timing_narrative import (
+    TimingNarrative,
+    TimingNarrativeTracker,
+    TimingNarrativeSense,
+    TimingType,
+    TimingStage,
+    NarrativeTransition,
+    StoryConflict,
+)
 from .semantic_cold_start import SemanticColdStart
-from .insight import InsightEngine, InsightPool, get_insight_engine, get_insight_pool, emit_to_insight_pool
+from .insight import InsightEngine, InsightPool, get_insight_engine, get_insight_pool
 from .history_tracker import (
     AttentionHistoryTracker,
     AttentionSnapshot,
@@ -49,6 +58,36 @@ from .narrative_supply_chain_linker import (
     RiskLevel,
     get_supply_chain_linker,
 )
+from .attention_text_router import (
+    AttentionTextRouter,
+    AttentionTextItem,
+    StructuredSignal,
+    ManasState,
+    TextSource,
+    THRESHOLD_DEEP,
+    THRESHOLD_INDEX,
+    THRESHOLD_DROP,
+    get_attention_router,
+)
+from .text_signal_bus import (
+    TextSignalBus,
+    Subscriber,
+    BusStats,
+    get_text_bus,
+    reset_text_bus,
+)
+from .text_processing_pipeline import (
+    TextProcessingPipeline,
+    BaseProcessor,
+    KeywordExtractor,
+    TopicClassifier,
+    NewsMindProcessor,
+    SupplyChainProcessor,
+    ProcessingStage,
+    get_text_pipeline,
+    process_text,
+    subscribe_to_signals,
+)
 
 __all__ = [
     # 认知事件总线
@@ -71,15 +110,21 @@ __all__ = [
     # 向后兼容别名
     "MemoryEngine",
     "get_memory_engine",
-    # 叙事追踪
-    "NarrativeTracker",
+    # 天-地 叙事追踪
+    "SectorNarrative",         # 地：我们关心的主题
+    "TimingNarrative",         # 天：时机感知
+    "TimingNarrativeTracker",
+    "TimingNarrativeSense",
+    "TimingType",
+    "TimingStage",
+    "NarrativeTransition",
+    "StoryConflict",
     "SemanticColdStart",
     # 洞察引擎
     "InsightEngine",
     "InsightPool",
     "get_insight_engine",
     "get_insight_pool",
-    "emit_to_insight_pool",
     # 历史事件追踪器
     "AttentionHistoryTracker",
     "AttentionSnapshot",
@@ -100,6 +145,33 @@ __all__ = [
     "NarrativeSupplyChainEvent",
     "RiskLevel",
     "get_supply_chain_linker",
+    # 注意力文本处理架构
+    "AttentionTextRouter",
+    "AttentionTextItem",
+    "StructuredSignal",
+    "ManasState",
+    "TextSource",
+    "THRESHOLD_DEEP",
+    "THRESHOLD_INDEX",
+    "THRESHOLD_DROP",
+    "get_attention_router",
+    # 文本信号总线
+    "TextSignalBus",
+    "Subscriber",
+    "BusStats",
+    "get_text_bus",
+    "reset_text_bus",
+    # 分层处理流水线
+    "TextProcessingPipeline",
+    "BaseProcessor",
+    "KeywordExtractor",
+    "TopicClassifier",
+    "NewsMindProcessor",
+    "SupplyChainProcessor",
+    "ProcessingStage",
+    "get_text_pipeline",
+    "process_text",
+    "subscribe_to_signals",
 ]
 
 # 向后兼容别名

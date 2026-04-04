@@ -19,6 +19,7 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
 from deva import NB
+from deva.naja.attention.attention_os import get_attention_os
 
 log = logging.getLogger(__name__)
 
@@ -117,7 +118,85 @@ class BanditOptimizer:
         self._db_decisions = NB(BANDIT_DECISIONS_TABLE)
         self._db_actions = NB(BANDIT_ACTIONS_TABLE)
         
+        # AttentionOS 集成相关
+        self._attention_cache: Dict[str, float] = {}  # symbol -> attention_weight
+        self._attention_cache_ts: float = 0.0
+        self._attention_cache_ttl: float = 5.0  # 缓存有效期（秒）
+        
         self._initialized = True
+    
+    def _get_attention_context(self) -> Dict[str, Any]:
+        """获取 AttentionOS 上下文（带缓存）"""
+        now = time.time()
+        
+        # 缓存检查
+        if now - self._attention_cache_ts < self._attention_cache_ttl and self._attention_cache:
+            return {
+                "focus_symbols": list(self._attention_cache.keys()),
+                "symbol_weights": self._attention_cache.copy(),
+                "risk_temperature": self._attention_cache.get("_risk_temperature", 1.0),
+                "cached": True
+            }
+        
+        try:
+            aos = get_attention_os()
+            kernel = aos.get_kernel()
+            
+            # 获取 focus_symbols 和权重
+            focus_weights = kernel.get_focus_weights()
+            risk_temp = getattr(kernel.get_latest_output(), 'risk_temperature', 1.0)
+            
+            self._attention_cache = {symbol: weight for symbol, weight in focus_weights}
+            self._attention_cache["_risk_temperature"] = risk_temp
+            self._attention_cache_ts = now
+            
+            return {
+                "focus_symbols": list(focus_weights.keys()),
+                "symbol_weights": focus_weights,
+                "risk_temperature": risk_temp,
+                "cached": False
+            }
+        except Exception as e:
+            log.warning(f"[Bandit] 获取 AttentionOS 上下文失败: {e}")
+            return {
+                "focus_symbols": [],
+                "symbol_weights": {},
+                "risk_temperature": 1.0,
+                "cached": False
+            }
+    
+    def _get_adaptive_epsilon(self, risk_temperature: float) -> float:
+        """根据风险温度调整探索率
+        
+        - 高风险（risk_temp > 1.3）：降低探索，更保守
+        - 低风险（risk_temp < 0.8）：增加探索，更激进
+        """
+        base_epsilon = self._epsilon
+        
+        if risk_temperature > 1.3:
+            # 高风险：降低探索率 50%
+            return base_epsilon * 0.5
+        elif risk_temperature < 0.8:
+            # 低风险：增加探索率 30%
+            return min(base_epsilon * 1.3, 0.3)
+        return base_epsilon
+    
+    def _apply_attention_to_arms(self, context: Dict[str, Any]):
+        """根据 AttentionOS 上下文更新 arm 的注意力权重"""
+        symbol_weights = context.get("symbol_weights", {})
+        
+        for arm_id in self._arms:
+            # 从策略 ID 中提取品种（如果包含品种信息）
+            # 格式如: "river_tick_hs_300750" -> "hs_300750"
+            weight = 1.0
+            
+            # 尝试匹配 focus_symbols
+            for symbol, attn_weight in symbol_weights.items():
+                if symbol.lower() in arm_id.lower():
+                    weight = attn_weight
+                    break
+            
+            self._arms[arm_id]["attention_weight"] = weight
     
     def select_strategy(
         self,
@@ -125,7 +204,7 @@ class BanditOptimizer:
         context: Optional[Dict[str, Any]] = None,
         dry_run: bool = False,
     ) -> dict:
-        """选择策略
+        """选择策略（AttentionOS 感知）
         
         Args:
             available_strategies: 可用策略列表
@@ -143,31 +222,56 @@ class BanditOptimizer:
         if not available_strategies:
             return {"success": False, "error": "没有可用策略"}
         
+        # 获取 AttentionOS 上下文
+        attn_context = self._get_attention_context()
+        
         for s in available_strategies:
             if s not in self._arms:
                 self._init_arm(s)
         
+        # 应用注意力权重到 arms
+        self._apply_attention_to_arms(attn_context)
+        
+        # 根据风险温度调整探索率
+        adaptive_epsilon = self._get_adaptive_epsilon(attn_context["risk_temperature"])
+        original_epsilon = self._epsilon
+        self._epsilon = adaptive_epsilon
+        
         selected = self._choose_arm(available_strategies, context)
         all_scores = {arm: self._get_arm_score(arm) for arm in available_strategies}
         
+        # 恢复原始 epsilon
+        self._epsilon = original_epsilon
+        
         if dry_run:
-            log.info(f"[Bandit] DRY RUN 选择策略: {selected}, 分数: {all_scores}")
+            log.info(f"[Bandit] DRY RUN 选择策略: {selected}, 分数: {all_scores}, "
+                    f"attention_focus: {attn_context['focus_symbols'][:3]}...")
             return {
                 "success": True,
                 "selected": selected,
                 "reason": f"[DRY RUN] Bandit 选择策略: {selected}",
                 "all_scores": all_scores,
-                "dry_run": True
+                "dry_run": True,
+                "attention_context": {
+                    "focus_symbols": attn_context["focus_symbols"],
+                    "risk_temperature": attn_context["risk_temperature"],
+                }
             }
         
-        self._record_decision(selected, available_strategies, 0.0, "")
-        log.info(f"[Bandit] 选择策略: {selected}, 分数: {all_scores}")
+        self._record_decision(selected, available_strategies, 0.0, 
+                             f"risk_temp={attn_context['risk_temperature']:.2f}")
+        log.info(f"[Bandit] 选择策略: {selected}, 分数: {all_scores}, "
+                f"risk_temp={attn_context['risk_temperature']:.2f}")
         
         return {
             "success": True,
             "selected": selected,
             "reason": f"Bandit 选择策略: {selected}",
-            "all_scores": all_scores
+            "all_scores": all_scores,
+            "attention_context": {
+                "focus_symbols": attn_context["focus_symbols"],
+                "risk_temperature": attn_context["risk_temperature"],
+            }
         }
     
     def update_reward(
@@ -501,17 +605,25 @@ class BanditOptimizer:
     def _get_arm_score(self, strategy_id: str) -> float:
         arm = self._arms.get(strategy_id, {})
         
+        # 获取注意力权重（默认1.0）
+        attention_weight = arm.get("attention_weight", 1.0)
+        
         if self._algorithm == "epsilon_greedy":
-            return arm.get("avg_reward", 0.0)
+            base_score = arm.get("avg_reward", 0.0)
         elif self._algorithm == "ucb":
             total = sum(self._arms[a]["pull_count"] for a in self._arms)
             pulls = arm.get("pull_count", 0)
             if pulls == 0:
-                return float("inf")
-            return arm.get("avg_reward", 0.0) + self._c * math.sqrt(math.log(total) / pulls)
+                return float("inf") * attention_weight
+            base_score = arm.get("avg_reward", 0.0) + self._c * math.sqrt(math.log(total) / pulls)
         elif self._algorithm == "thompson":
-            return arm.get("alpha", 1.0) / (arm.get("alpha", 1.0) + arm.get("beta", 1.0))
-        return arm.get("avg_reward", 0.0)
+            base_score = arm.get("alpha", 1.0) / (arm.get("alpha", 1.0) + arm.get("beta", 1.0))
+        else:
+            base_score = arm.get("avg_reward", 0.0)
+        
+        # 应用注意力权重：focus 的品种加权更高
+        # attention_weight 范围通常是 0.5-2.0
+        return base_score * attention_weight
     
     def _record_decision(self, selected: str, available: List[str], reward: float, reason: str):
         """记录决策"""
