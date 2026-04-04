@@ -107,9 +107,9 @@ def _get_awakening_state() -> Dict[str, Any]:
         "overall_level": overall_level,
         "awakened_state": awakened_state,
         "orchestrator": orch,
-        "four_dimensions_html": _render_four_dimensions_compact(),
+        "four_dimensions_html": _render_manas_engine_status(),
         "five_senses_html": _render_five_senses(),
-        "manas_html": _render_manas_layer(),
+        "manas_html": _render_adaptive_manas_layer(),
         "alaya_html": _render_alaya_layer(),
     }
 
@@ -128,68 +128,34 @@ def _get_level_color(level: float) -> str:
         return "#64748b"
 
 
-def _render_four_dimensions_compact() -> str:
-    """渲染四维决策框架（精简版）"""
+def _render_manas_engine_status() -> str:
+    """渲染末那识层状态（ManasEngine 4引擎 + 1观照层）"""
 
     try:
-        from deva.naja.attention.kernel import get_four_dimensions_manager, FourDimensions
-    except ImportError:
-        return ""
+        from deva.naja.attention.kernel import get_manas_manager
+        manager = get_manas_manager()
+        if manager is None or not manager.is_enabled():
+            manas_status = "未启用"
+            manas_color = "#64748b"
+        else:
+            output = manager.compute()
+            if output:
+                manas_score = output.get("manas_score", 0.5)
+                timing = output.get("timing_score", 0.5)
+                regime = output.get("regime_score", 0.0)
+                confidence = output.get("confidence_score", 0.5)
+                risk_temp = output.get("risk_temperature", 1.0)
+                bias = output.get("bias_state", "neutral")
+                should_act = output.get("should_act", False)
 
-    manager = get_four_dimensions_manager()
-    if manager is None:
-        return ""
-
-    try:
-        fd = FourDimensions()
-        fd.update(
-            session_manager=manager.trigger._get_session_manager(),
-            portfolio=manager.trigger._get_portfolio(),
-            strategy_manager=manager.trigger._get_strategy_manager(),
-            scanner=manager.trigger._get_scanner(),
-            macro_signal=0.5
-        )
-    except Exception:
-        fd = None
-
-    kernel_fd_enabled = manager.kernel.is_four_dimensions_enabled() if hasattr(manager, 'kernel') else False
-
-    try:
-        from .common import get_market_phase_summary, get_ui_mode_context
-        phase_summary = get_market_phase_summary()
-        mode_ctx = get_ui_mode_context()
-        cn_info = phase_summary.get('cn', {})
-        us_info = phase_summary.get('us', {})
-        cn_phase = cn_info.get('phase_name', '未知')
-        us_phase = us_info.get('phase_name', '未知')
-        mode_label = mode_ctx.get('mode_label', '实盘模式')
-        time_hint = mode_ctx.get('market_time_str', '') if mode_ctx.get('is_replay') else ''
-        time_status = f"🇨🇳 {cn_phase} | 🇺🇸 {us_phase} | {mode_label} {time_hint}"
-    except Exception:
-        time_status = "🟢 交易中" if fd and fd.time.is_trading_open else "🔴 非交易" if fd else "⚪ 未知"
-    time_pressure = f"{fd.time.pressure:.0%}" if fd else "-"
-
-    capital_ratio = fd.capital.cash_ratio if fd else 0
-    capital_bar = min(capital_ratio * 100, 100)
-    capital_color = "#22c55e" if capital_ratio > 0.2 else "#dc2626"
-    capital_status = "💰 有子弹" if fd and fd.capital.has_bullets else "⚠️ 子弹不足"
-
-    capability_ready = "🟢 就绪" if fd and fd.capability.is_ready else "⚠️ 未就绪"
-    strategy_count = fd.capability.strategy_count if fd else 0
-
-    market_signal = fd.market.liquidity_signal if fd else 0.5
-    if market_signal < 0.3:
-        market_status = "🔴 极度恐慌"
-        market_color = "#dc2626"
-    elif market_signal > 0.7:
-        market_status = "🟢 极度贪婪"
-        market_color = "#22c55e"
-    else:
-        market_status = "🟡 中性"
-        market_color = "#f59e0b"
-
-    fd_status_color = "#22c55e" if kernel_fd_enabled else "#64748b"
-    fd_status_text = "已启用" if kernel_fd_enabled else "已关闭"
+                manas_status = f"score={manas_score:.2f} timing={timing:.2f} regime={regime:+.2f}"
+                manas_color = "#22c55e" if should_act else "#f59e0b"
+            else:
+                manas_status = "计算中..."
+                manas_color = "#64748b"
+    except Exception as e:
+        manas_status = f"错误: {str(e)[:30]}"
+        manas_color = "#dc2626"
 
     return f"""
     <div style="margin-bottom: 16px;">
@@ -202,70 +168,19 @@ def _render_four_dimensions_compact() -> str:
             border-bottom: 1px solid #334155;
         ">
             <div style="display: flex; align-items: center; gap: 8px;">
-                <span style="font-size: 16px;">🎯</span>
-                <span style="font-size: 13px; font-weight: 600; color: #f1f5f9;">四维决策框架</span>
+                <span style="font-size: 16px;">🧠</span>
+                <span style="font-size: 13px; font-weight: 600; color: #f1f5f9;">末那识引擎</span>
+                <span style="font-size: 10px; color: #64748b; background: #1e293b; padding: 2px 6px; border-radius: 4px;">4引擎+1观照</span>
             </div>
             <div style="
-                background: {fd_status_color}22;
-                border: 1px solid {fd_status_color};
+                background: {manas_color}22;
+                border: 1px solid {manas_color};
                 border-radius: 8px;
                 padding: 3px 10px;
                 font-size: 11px;
-                color: {fd_status_color};
+                color: {manas_color};
             ">
-                {fd_status_text}
-            </div>
-        </div>
-
-        <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px;">
-            <div style="
-                background: #0f172a;
-                border-radius: 8px;
-                padding: 10px;
-                text-align: center;
-            ">
-                <div style="font-size: 16px; margin-bottom: 4px;">⏰</div>
-                <div style="font-size: 11px; color: #f1f5f9;">{time_status}</div>
-                <div style="font-size: 10px; color: #64748b; margin-top: 2px;">压力: {time_pressure}</div>
-            </div>
-
-            <div style="
-                background: #0f172a;
-                border-radius: 8px;
-                padding: 10px;
-                text-align: center;
-            ">
-                <div style="font-size: 16px; margin-bottom: 4px;">{capital_status}</div>
-                <div style="
-                    background: #1e293b;
-                    border-radius: 4px;
-                    height: 4px;
-                    margin: 4px 0;
-                ">
-                    <div style="background: {capital_color}; height: 4px; width: {capital_bar}%; border-radius: 4px;"></div>
-                </div>
-                <div style="font-size: 10px; color: {capital_color};">{capital_ratio:.0%}</div>
-            </div>
-
-            <div style="
-                background: #0f172a;
-                border-radius: 8px;
-                padding: 10px;
-                text-align: center;
-            ">
-                <div style="font-size: 16px; margin-bottom: 4px;">{capability_ready}</div>
-                <div style="font-size: 10px; color: #64748b; margin-top: 2px;">{strategy_count} 策略</div>
-            </div>
-
-            <div style="
-                background: #0f172a;
-                border-radius: 8px;
-                padding: 10px;
-                text-align: center;
-            ">
-                <div style="font-size: 16px; margin-bottom: 4px;">📊</div>
-                <div style="font-size: 11px; color: {market_color};">{market_status}</div>
-                <div style="font-size: 10px; color: {market_color}; margin-top: 2px;">{market_signal:.2f}</div>
+                {manas_status}
             </div>
         </div>
     </div>
@@ -433,7 +348,7 @@ def _get_pre_taste_status() -> str:
     """
 
 
-def _render_manas_layer() -> str:
+def _render_adaptive_manas_layer() -> str:
     """渲染末那识层状态"""
 
     decision_status = _get_adaptive_manas_status()
