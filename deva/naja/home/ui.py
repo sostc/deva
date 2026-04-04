@@ -24,13 +24,18 @@ async def render_home(ctx: dict):
     ctx["put_markdown"]('''### 🚀 Naja 智慧系统''')
 
     try:
-        from deva.naja.attention.center import get_orchestrator
+        from deva.naja.attention.trading_center import get_trading_center
         from deva.naja.radar import get_radar_engine
         from deva.naja.bandit import get_bandit_runner
         from deva.naja.cognition.core import get_cognition_system
 
-        orch = get_orchestrator()
-        orch_stats = orch.get_stats() if hasattr(orch, 'get_stats') else {}
+        tc = get_trading_center()
+        os = tc.get_attention_os()
+        orch_stats = {"registered_strategies": 0}
+        try:
+            orch_stats["registered_strategies"] = len(os.market_scheduler._symbol_weights)
+        except:
+            pass
 
         radar = get_radar_engine()
         radar_events = radar.get_recent_events(limit=100) if hasattr(radar, 'get_recent_events') else []

@@ -69,6 +69,13 @@ from typing import Dict, Any, Optional, List, Tuple
 from dataclasses import dataclass, field
 from enum import Enum
 
+from deva.naja.manas.output import (
+    HarmonyState,
+    ActionType,
+    AttentionFocus,
+    PortfolioSignal,
+)
+
 log = logging.getLogger(__name__)
 
 
@@ -101,6 +108,25 @@ class ManasOutput:
     hot_narratives: List[Tuple[str, float]] = field(default_factory=list)
     supply_chain_risk_level: str = "unknown"
 
+    problem_opportunity_score: float = 0.0
+    detected_problems: List[Dict[str, Any]] = field(default_factory=list)
+    opportunities: List[Dict[str, Any]] = field(default_factory=list)
+    resolvers: List[Dict[str, Any]] = field(default_factory=list)
+
+    ai_compute_direction: str = "unknown"
+    ai_compute_trend: str = "unknown"
+    ai_compute_strength: float = 0.0
+    ai_compute_score: float = 0.0
+
+    awakening_level: str = "dormant"
+
+    harmony_state: HarmonyState = HarmonyState.NEUTRAL
+    harmony_strength: float = 0.5
+    action_type: ActionType = ActionType.HOLD
+
+    portfolio_loss_pct: float = 0.0
+    market_deterioration: bool = False
+
     def to_dict(self) -> Dict[str, Any]:
         return {
             "manas_score": self.manas_score,
@@ -117,6 +143,20 @@ class ManasOutput:
             "narrative_risk": self.narrative_risk,
             "hot_narratives": self.hot_narratives,
             "supply_chain_risk_level": self.supply_chain_risk_level,
+            "problem_opportunity_score": self.problem_opportunity_score,
+            "detected_problems": self.detected_problems,
+            "opportunities": self.opportunities,
+            "resolvers": self.resolvers,
+            "ai_compute_direction": self.ai_compute_direction,
+            "ai_compute_trend": self.ai_compute_trend,
+            "ai_compute_strength": self.ai_compute_strength,
+            "ai_compute_score": self.ai_compute_score,
+            "awakening_level": self.awakening_level,
+            "harmony_state": self.harmony_state.value,
+            "harmony_strength": self.harmony_strength,
+            "action_type": self.action_type.value,
+            "portfolio_loss_pct": self.portfolio_loss_pct,
+            "market_deterioration": self.market_deterioration,
         }
 
 
@@ -127,6 +167,8 @@ class TimingEngine:
     输出 timing_score ∈ [0, 1]
     0 = 不宜动
     1 = 可以出手
+
+    支持自适应权重：高波动环境自动调整各因子权重
     """
 
     def __init__(self):
@@ -150,14 +192,47 @@ class TimingEngine:
         density = self._get_trade_density(scanner)
         structure = self._get_structure_break(scanner)
 
+        weights = self._get_adaptive_weights(scanner, volatility)
+
         timing = (
-            time_pressure * 0.4 +
-            volatility * 0.25 +
-            density * 0.2 +
-            structure * 0.15
+            time_pressure * weights["time_pressure"] +
+            volatility * weights["volatility"] +
+            density * weights["density"] +
+            structure * weights["structure"]
         )
 
         return max(0.0, min(1.0, timing))
+
+    def _get_adaptive_weights(self, scanner, current_volatility: float) -> Dict[str, float]:
+        """
+        根据当前波动率环境自适应调整权重
+
+        高波动：降低波动率权重，提高时间压力和结构断裂权重
+        低波动：提高波动率权重，降低成交密度权重
+        """
+        if len(self._volatility_history) >= 5:
+            recent_avg = sum(self._volatility_history[-5:]) / 5
+            if current_volatility > recent_avg * 1.3:
+                return {
+                    "time_pressure": 0.35,
+                    "volatility": 0.35,
+                    "density": 0.15,
+                    "structure": 0.15,
+                }
+            elif current_volatility < recent_avg * 0.7:
+                return {
+                    "time_pressure": 0.3,
+                    "volatility": 0.15,
+                    "density": 0.35,
+                    "structure": 0.2,
+                }
+
+        return {
+            "time_pressure": 0.4,
+            "volatility": 0.25,
+            "density": 0.2,
+            "structure": 0.15,
+        }
 
     def _get_time_pressure(self, session_manager) -> float:
         """获取时间压力"""
@@ -821,8 +896,8 @@ class ManasEngine:
     """
 
     WEIGHT_TIMING = 0.4
-    WEIGHT_REGIME = 0.3
-    WEIGHT_CONFIDENCE = 0.3
+    WEIGHT_RISK = 0.35
+    WEIGHT_CONFIDENCE = 0.25
     ACTION_THRESHOLD = 0.5
 
     def __init__(self):
@@ -838,6 +913,114 @@ class ManasEngine:
         self._update_interval = 1.0
         self._current_narratives: List[str] = []
         self._recent_pnl: List[float] = []
+
+        self._problem_opportunity_cache: Optional[Dict[str, Any]] = None
+        self._problem_opportunity_timestamp: float = 0.0
+        self._problem_opportunity_interval: float = 60.0
+
+        self._ai_compute_trend_cache: Optional[Dict[str, Any]] = None
+        self._ai_compute_trend_timestamp: float = 0.0
+        self._ai_compute_trend_interval: float = 3600.0
+
+        self._awakening_level: str = "dormant"
+
+    def _determine_harmony_state(self, risk_temperature: float, timing_score: float, regime_score: float) -> HarmonyState:
+        """确定和谐状态"""
+        if risk_temperature > 1.4 or regime_score < -0.5:
+            return HarmonyState.RESISTANCE
+        elif risk_temperature < 0.8 and timing_score > 0.6 and regime_score > 0.2:
+            return HarmonyState.RESONANCE
+        return HarmonyState.NEUTRAL
+
+    def _determine_action_type(
+        self,
+        harmony_state: HarmonyState,
+        harmony_strength: float,
+        timing_score: float
+    ) -> ActionType:
+        """确定行动类型"""
+        should_act = harmony_strength > self.ACTION_THRESHOLD
+
+        if harmony_state == HarmonyState.RESISTANCE:
+            return ActionType.HOLD
+        elif harmony_state == HarmonyState.RESONANCE and timing_score > 0.7:
+            return ActionType.ACT_FULLY
+        elif should_act and harmony_strength > 0.6:
+            return ActionType.ACT_CAREFULLY
+        elif should_act and harmony_strength > 0.4:
+            return ActionType.ACT_MINIMALLY
+        return ActionType.HOLD
+
+    def _determine_attention_focus(self, action_type: ActionType, portfolio_loss: float) -> float:
+        """确定注意力聚焦因子"""
+        base = 1.0
+        if action_type == ActionType.HOLD:
+            if portfolio_loss < -0.05:
+                return 0.7
+            return 1.0
+        elif action_type == ActionType.ACT_FULLY:
+            return 1.3
+        elif action_type == ActionType.ACT_CAREFULLY:
+            return 1.1
+        return 1.0
+
+    def _get_awakening_level(self) -> str:
+        """获取觉醒等级"""
+        try:
+            from deva.naja.attention.center import get_attention_center
+            center = get_attention_center()
+            if center and hasattr(center, '_awakened_state') and center._awakened_state:
+                return center._awakened_state.get("awakening_level", "dormant")
+        except Exception:
+            pass
+        return self._awakening_level
+
+    def set_awakening_level(self, level: str):
+        """设置觉醒等级（由外部调用）"""
+        self._awakening_level = level
+
+    def _get_narrative_tracker(self):
+        """获取 NarrativeTracker 实例"""
+        try:
+            from deva.naja.cognition import get_narrative_tracker
+            return get_narrative_tracker()
+        except ImportError:
+            return None
+
+    def get_problem_opportunity_analysis(self) -> Optional[Dict[str, Any]]:
+        """获取问题-机会分析结果（带缓存）"""
+        current_time = time.time()
+        if self._problem_opportunity_cache and (current_time - self._problem_opportunity_timestamp) < self._problem_opportunity_interval:
+            return self._problem_opportunity_cache
+
+        tracker = self._get_narrative_tracker()
+        if tracker is None:
+            return None
+
+        try:
+            summary = tracker.get_problem_opportunity_summary()
+            self._problem_opportunity_cache = summary
+            self._problem_opportunity_timestamp = current_time
+            return summary
+        except Exception:
+            return None
+
+    def _get_ai_compute_trend(self) -> Optional[Dict[str, Any]]:
+        """获取 AI 算力趋势（OpenRouter TOKEN 监控数据）"""
+        current_time = time.time()
+        if self._ai_compute_trend_cache and (current_time - self._ai_compute_trend_timestamp) < self._ai_compute_trend_interval:
+            return self._ai_compute_trend_cache
+
+        try:
+            from deva.naja.radar.openrouter_monitor import get_ai_compute_trend
+            trend = get_ai_compute_trend()
+            if trend:
+                self._ai_compute_trend_cache = trend
+                self._ai_compute_trend_timestamp = current_time
+                return trend
+        except Exception:
+            pass
+        return None
 
     def set_narratives(self, narratives: List[str]):
         """
@@ -859,6 +1042,14 @@ class ManasEngine:
     ) -> ManasOutput:
         """
         计算末那识输出
+
+        使用三维融合逻辑：
+        1. 天时 (timing) + 地势 (risk) + 人和 (confidence)
+        2. 结合环境状态 (regime)
+        3. 叙事风险折扣
+        4. AI算力影响
+        5. 觉醒加成
+        6. 偏差纠偏
 
         Args:
             session_manager: TradingClock/MarketSessionManager
@@ -883,34 +1074,98 @@ class ManasEngine:
         confidence_score = self.confidence_engine.compute(bandit_tracker)
         risk_temperature = self.risk_engine.compute(portfolio, scanner)
 
-        narrative_risk = self.narrative_supply_chain_engine.compute(self._current_narratives)
-
-        raw_manas = (
-            self.WEIGHT_TIMING * timing_score +
-            self.WEIGHT_REGIME * (regime_score + 1) / 2 +
-            self.WEIGHT_CONFIDENCE * confidence_score
+        harmony_strength = (
+            timing_score * self.WEIGHT_TIMING +
+            (1.0 - min(risk_temperature, 1.5) / 1.5) * self.WEIGHT_RISK +
+            confidence_score * self.WEIGHT_CONFIDENCE
         )
 
+        regime_factor = (regime_score + 1) / 2
+        harmony_strength *= (0.7 + regime_factor * 0.3)
+
+        harmony_state = self._determine_harmony_state(risk_temperature, timing_score, regime_score)
+
+        narrative_risk = self.narrative_supply_chain_engine.compute(self._current_narratives)
         if narrative_risk > 0.6:
-            raw_manas *= (1.0 - (narrative_risk - 0.6) * 0.5)
+            harmony_strength *= (1.0 - (narrative_risk - 0.6) * 0.5)
+
+        problem_opportunity_score = 0.0
+        po_analysis = self.get_problem_opportunity_analysis()
+        if po_analysis and po_analysis.get("status") == "active":
+            problem_opportunity_score = 0.5
+            detected_problems = po_analysis.get("problems", [])
+            opportunities = po_analysis.get("opportunities", [])
+            resolvers = po_analysis.get("resolvers", [])
+            if len(detected_problems) >= 3:
+                problem_opportunity_score = 0.8
+            elif len(detected_problems) >= 1:
+                problem_opportunity_score = 0.6
+            if problem_opportunity_score > 0.5:
+                harmony_strength *= (1.0 + problem_opportunity_score * 0.2)
+        else:
+            detected_problems = []
+            opportunities = []
+            resolvers = []
+
+        ai_compute_direction = "unknown"
+        ai_compute_trend = "unknown"
+        ai_compute_strength = 0.0
+        ai_compute_score = 0.0
+
+        ai_trend = self._get_ai_compute_trend()
+        if ai_trend:
+            ai_compute_direction = ai_trend.get("trend_direction", "unknown")
+            ai_compute_trend = ai_trend.get("message", "unknown")
+            ai_compute_strength = ai_trend.get("base_strength", 0.0)
+
+            if ai_compute_direction == "rising":
+                ai_compute_score = ai_compute_strength * 0.15
+                harmony_strength *= (1.0 + ai_compute_score)
+            elif ai_compute_direction == "falling":
+                ai_compute_score = ai_compute_strength * 0.10
+                harmony_strength *= (1.0 - ai_compute_score)
+
+        awakening_level = self._get_awakening_level()
+        if awakening_level == "enlightened":
+            harmony_strength *= 1.15
+        elif awakening_level == "illuminated":
+            harmony_strength *= 1.10
+        elif awakening_level == "awakening":
+            harmony_strength *= 1.05
 
         bias_state, bias_correction = self.meta_manas.detect_and_correct(
-            raw_manas,
+            harmony_strength,
             self._recent_pnl,
-            raw_manas
+            harmony_strength
         )
 
-        manas_score = raw_manas * bias_correction
-        manas_score = max(0.0, min(1.0, manas_score))
+        harmony_strength *= bias_correction
+        harmony_strength = max(0.0, min(1.0, harmony_strength))
 
-        should_act = manas_score > self.ACTION_THRESHOLD
+        action_type = self._determine_action_type(harmony_state, harmony_strength, timing_score)
+        should_act = action_type != ActionType.HOLD
 
-        alpha = confidence_score * manas_score * bias_correction
+        raw_manas = harmony_strength
+
+        alpha = confidence_score * harmony_strength * bias_correction
         alpha = max(0.3, min(1.5, alpha))
 
-        attention_focus = manas_score * bias_correction
+        portfolio_loss = 0.0
+        if portfolio:
+            try:
+                if hasattr(portfolio, 'get_summary'):
+                    summary = portfolio.get_summary()
+                    portfolio_loss = summary.get('total_return', 0.0)
+                elif isinstance(portfolio, dict):
+                    portfolio_loss = portfolio.get('total_return', 0.0)
+            except:
+                pass
 
-        reason = self._get_gate_reason(manas_score, timing_score, regime_score, confidence_score, bias_state)
+        market_deterioration = risk_temperature > 1.3
+
+        attention_focus = self._determine_attention_focus(action_type, portfolio_loss)
+
+        reason = self._get_gate_reason(harmony_strength, timing_score, regime_score, confidence_score, bias_state, harmony_state, action_type)
 
         hot_narratives = self.narrative_supply_chain_engine.get_hot_narratives(5)
         supply_chain_risk = "LOW"
@@ -920,7 +1175,7 @@ class ManasEngine:
             supply_chain_risk = "MEDIUM"
 
         output = ManasOutput(
-            manas_score=manas_score,
+            manas_score=harmony_strength,
             timing_score=timing_score,
             regime_score=regime_score,
             confidence_score=confidence_score,
@@ -934,6 +1189,20 @@ class ManasEngine:
             narrative_risk=narrative_risk,
             hot_narratives=hot_narratives,
             supply_chain_risk_level=supply_chain_risk,
+            problem_opportunity_score=problem_opportunity_score,
+            detected_problems=detected_problems,
+            opportunities=opportunities,
+            resolvers=resolvers,
+            ai_compute_direction=ai_compute_direction,
+            ai_compute_trend=ai_compute_trend,
+            ai_compute_strength=ai_compute_strength,
+            ai_compute_score=ai_compute_score,
+            awakening_level=awakening_level,
+            harmony_state=harmony_state,
+            harmony_strength=harmony_strength,
+            action_type=action_type,
+            portfolio_loss_pct=max(-1.0, min(1.0, portfolio_loss)),
+            market_deterioration=market_deterioration,
         )
 
         self._last_output = output
@@ -947,10 +1216,17 @@ class ManasEngine:
         timing: float,
         regime: float,
         confidence: float,
-        bias: BiasState
+        bias: BiasState,
+        harmony_state: HarmonyState,
+        action_type: ActionType
     ) -> str:
         """生成行动门原因"""
         reasons = []
+
+        if harmony_state == HarmonyState.RESISTANCE:
+            reasons.append("环境阻力")
+        elif harmony_state == HarmonyState.RESONANCE:
+            reasons.append("和谐共振")
 
         if timing < 0.3:
             reasons.append("时机不佳")
@@ -971,6 +1247,8 @@ class ManasEngine:
             reasons.append("⚠️检测到贪")
         elif bias == BiasState.FEAR:
             reasons.append("⚠️检测到惧")
+
+        reasons.append(f"行动:{action_type.value}")
 
         if manas_score > self.ACTION_THRESHOLD:
             reasons.append("✓通过")

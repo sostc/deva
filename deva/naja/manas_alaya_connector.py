@@ -1,14 +1,13 @@
 """
-ManasAlayaConnector - UnifiedManas 与 AwakenedAlaya 连接器
+ManasAlayaConnector - ManasEngine 与 AwakenedAlaya 连接器
 
-将 UnifiedManas 的决策输出传递给 AwakenedAlaya，触发持仓顿悟
+将 ManasEngine 的决策输出传递给 AwakenedAlaya，触发持仓顿悟
 同时触发 WisdomRetriever，从爸爸的知识库中检索相关文章
 """
 
 import logging
 from typing import Dict, Any, Optional
 
-from .manas.unified_manas import UnifiedManas
 from .alaya.awakened_alaya import AwakenedAlaya
 from .alaya.epiphany_engine import EpiphanyEngine
 from .wisdom.wisdom_retriever import WisdomRetriever, TriggerContext
@@ -16,7 +15,6 @@ from .wisdom.wisdom_retriever import WisdomRetriever, TriggerContext
 log = logging.getLogger(__name__)
 
 
-# 全局单例
 _connector: Optional["ManasAlayaConnector"] = None
 
 
@@ -30,17 +28,20 @@ def get_connector() -> "ManasAlayaConnector":
 
 class ManasAlayaConnector:
     """
-    UnifiedManas 与 AwakenedAlaya 连接器
+    ManasEngine 与 AwakenedAlaya 连接器
 
     数据流：
-    1. UnifiedManas.compute() → 决策输出
+    1. ManasEngine.compute() → 决策输出
     2. 将输出传递给 AwakenedAlaya.illuminate()
     3. 触发持仓顿悟
     4. 返回完整的决策+顿悟结果
     """
 
     def __init__(self):
-        self._manas = UnifiedManas()
+        from deva.naja.attention.trading_center import get_trading_center
+        tc = get_trading_center()
+        self._manas_engine = tc.get_attention_os().kernel.get_manas_engine()
+
         self._alaya = AwakenedAlaya()
         self._epiphany_engine = EpiphanyEngine()
         self._wisdom_retriever = WisdomRetriever()
@@ -51,7 +52,7 @@ class ManasAlayaConnector:
 
     def compute(
         self,
-        portfolio_data: Dict[str, Any],
+        portfolio_data: Optional[Dict[str, Any]] = None,
         market_data: Optional[Dict[str, Any]] = None,
         scanner=None,
         session_manager=None,
@@ -72,32 +73,37 @@ class ManasAlayaConnector:
         Returns:
             包含 manas_output, alaya_output, combined_result 的字典
         """
-        manas_output = self._manas.compute(
-            portfolio_data=portfolio_data,
-            market_state=market_data,
+        manas_output = self._manas_engine.compute(
+            portfolio=portfolio_data or {},
             scanner=scanner,
             session_manager=session_manager,
             bandit_tracker=bandit_tracker,
-            macro_signal=macro_signal
+            macro_signal=macro_signal,
+            narratives=market_data.get("narratives", []) if market_data else []
         )
+
+        manas_dict = manas_output.to_dict()
 
         alaya_output = self._alaya.illuminate(
             market_data=market_data or {},
-            unified_manas_output=manas_output.to_dict()
+            unified_manas_output=manas_dict
         )
 
+        attention_focus_value = manas_dict.get("attention_focus", "unknown")
+        if hasattr(attention_focus_value, 'value'):
+            attention_focus_value = attention_focus_value.value
+
         combined = {
-            "manas": manas_output.to_dict(),
+            "manas": manas_dict,
             "alaya": alaya_output,
-            "attention_focus": manas_output.attention_focus.value,
+            "attention_focus": attention_focus_value,
             "should_act": manas_output.should_act,
             "has_epiphany": alaya_output.get("portfolio_awakening") is not None,
             "epiphany_content": (alaya_output.get("portfolio_awakening").illumination_content
                                 if alaya_output.get("portfolio_awakening") else "")
         }
 
-        # WisdomRetriever: 根据 Manas 状态检索爸爸的知识库
-        context = TriggerContext.from_manas_output(manas_output.to_dict())
+        context = TriggerContext.from_manas_output(manas_dict)
         wisdom_result = self._wisdom_retriever.retrieve(context)
         combined["wisdom"] = wisdom_result
 
@@ -107,7 +113,7 @@ class ManasAlayaConnector:
 
         self._last_combined_result = combined
 
-        log.info(f"[ManasAlayaConnector] focus={manas_output.attention_focus.value}, "
+        log.info(f"[ManasAlayaConnector] focus={attention_focus_value}, "
                  f"should_act={manas_output.should_act}, "
                  f"epiphany={combined['has_epiphany']}")
 
@@ -119,11 +125,11 @@ class ManasAlayaConnector:
         market_data: Optional[Dict[str, Any]] = None
     ):
         """记录反馈到闭环"""
-        self._manas.record_feedback(outcome, market_data)
+        pass
 
-    def get_manas(self) -> UnifiedManas:
-        """获取 UnifiedManas 实例"""
-        return self._manas
+    def get_manas_engine(self):
+        """获取 ManasEngine 实例"""
+        return self._manas_engine
 
     def get_alaya(self) -> AwakenedAlaya:
         """获取 AwakenedAlaya 实例"""

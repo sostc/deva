@@ -82,8 +82,8 @@ def render_awakening_status() -> str:
 def _get_center_orchestrator():
     """获取 Center orchestrator 单例"""
     try:
-        from deva.naja.attention.center import get_orchestrator
-        orch = get_orchestrator()
+        from deva.naja.attention.trading_center import get_trading_center
+        orch = get_trading_center()
         orch._ensure_initialized()
         return orch
     except Exception:

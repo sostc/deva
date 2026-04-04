@@ -949,9 +949,9 @@ class DataSourceEntry(RecoverableUnit):
             try:
                 import pandas as pd
                 if isinstance(data, pd.DataFrame):
-                    from ..attention.center import get_orchestrator
-                    orchestrator = get_orchestrator()
-                    orchestrator.process_datasource_data(self.name, data)
+                    from ..attention.trading_center import get_trading_center
+                    tc = get_trading_center()
+                    tc.process_datasource_data(self.name, data)
             except Exception:
                 pass
 

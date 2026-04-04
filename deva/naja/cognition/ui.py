@@ -152,7 +152,7 @@ class CognitionUI:
 
         self._render_event_bus_flow(source_counts, recent_by_source, recent_insights)
         self._render_narrative_lifecycle()
-        self._render_liquidity_structure()
+        self._render_merrill_clock_link()
         self._render_propagation_network()
         self._render_cross_signal_section()
         self._render_semantic_cold_start()
@@ -1725,190 +1725,64 @@ class CognitionUI:
         svg_parts.append('</svg>')
         return ''.join(svg_parts)
 
-    def _render_liquidity_structure(self):
-        """渲染流动性结构面板 - 美林时钟四象限"""
-        if not self.engine:
-            return
+    def _render_merrill_clock_link(self):
+        """渲染美林时钟入口链接卡片"""
+        try:
+            from deva.naja.cognition.merrill_clock_engine import get_merrill_clock_engine
+            clock = get_merrill_clock_engine()
+            summary = clock.get_summary()
+            has_data = summary.get("status") == "active"
+        except Exception:
+            has_data = False
+            summary = {}
 
-        report = self.engine.get_memory_report()
-        narratives_data = report.get('narratives', {})
-        narrative_summary = narratives_data.get('summary', [])
-
-        liquidity_quadrants = {
-            "股票市场": {"icon": "📈", "color": "#4ade80", "desc": "资金风险偏好"},
-            "债券市场": {"icon": "📊", "color": "#60a5fa", "desc": "资金避险"},
-            "大宗商品": {"icon": "🛢️", "color": "#f97316", "desc": "通胀预期"},
-            "现金与货币": {"icon": "💵", "color": "#a855f7", "desc": "资金观望"},
+        phase_emoji = {
+            "RECOVERY": "🌱",
+            "OVERHEAT": "🔥",
+            "STAGFLATION": "⚠️",
+            "RECESSION": "🥶",
         }
 
-        related_narratives = {
-            "贵金属": {"quadrant": "大宗商品", "icon": "🥇", "color": "#f97316"},
-            "全球宏观": {"quadrant": "股票市场", "icon": "🌍", "color": "#4ade80"},
-            "外汇与美元": {"quadrant": "现金与货币", "icon": "💱", "color": "#a855f7"},
-            "流动性紧张": {"quadrant": "现金与货币", "icon": "⚠️", "color": "#f87171"},
-        }
+        if has_data:
+            phase = summary.get("phase", "")
+            confidence = summary.get("confidence", 0)
+            emoji = phase_emoji.get(phase, "❓")
+            summary_text = f"{emoji} {phase} | 置信度 {confidence:.0%}"
+        else:
+            summary_text = "🌙 暂无经济数据"
 
-        quadrants_data = []
-        for name in liquidity_quadrants.keys():
-            found = None
-            for nar in narrative_summary:
-                if nar.get('narrative') == name:
-                    found = nar
-                    break
-            quadrants_data.append({
-                "name": name,
-                "data": found,
-            })
-
-        stage_colors = {
-            '萌芽': '#60a5fa',
-            '扩散': '#818cf8',
-            '高潮': '#f87171',
-            '消退': '#fb923c',
-        }
-
-        put_html("""
+        put_html(f"""
         <div style="
             margin-bottom: 12px;
-            background: rgba(255,255,255,0.03);
+            background: linear-gradient(135deg, #faf5ff 0%, rgba(255,255,255,0.05) 100%);
             border-radius: 12px;
             padding: 14px 18px;
-            border: 1px solid rgba(255,255,255,0.08);
+            border: 1px solid rgba(168,85,247,0.2);
         ">
-            <div style="font-size: 13px; font-weight: 600; color: #a855f7; margin-bottom: 4px;">
-                💰 流动性结构（美林时钟四象限）
-            </div>
-            <div style="font-size: 11px; color: #475569; margin-bottom: 14px;">
-                基于叙事活跃度判断资金流向 | 热度: 萌芽 → 扩散 → 高潮 → 消退
-            </div>
-        """)
-
-        for q in quadrants_data:
-            name = q["name"]
-            info = liquidity_quadrants.get(name, {})
-            icon = info.get("icon", "📊")
-            base_color = info.get("color", "#60a5fa")
-            desc = info.get("desc", "")
-
-            if q["data"]:
-                stage = q["data"].get('stage', '萌芽')
-                attention = float(q["data"].get('attention_score', 0))
-                recent_count = int(q["data"].get('recent_count', 0))
-                trend = float(q["data"].get('trend', 0))
-                stage_color = stage_colors.get(stage, '#60a5fa')
-                bar_width = min(100, int(attention * 100))
-                trend_icon = '↑' if trend > 0 else ('↓' if trend < 0 else '→')
-                trend_color = '#4ade80' if trend > 0 else ('#f87171' if trend < 0 else '#6b7280')
-            else:
-                stage = "无数据"
-                attention = 0
-                recent_count = 0
-                trend = 0
-                stage_color = '#475569'
-                bar_width = 0
-                trend_icon = '?'
-                trend_color = '#6b7280'
-
-            trend_str = f"{trend_icon} {abs(trend):.2f}" if isinstance(trend, float) else f"{trend_icon}"
-
-            put_html(f"""
-            <div style="background: rgba(255,255,255,0.02); border-radius: 10px; padding: 12px; margin-bottom: 10px; border-left: 3px solid {base_color};">
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
-                    <div style="display: flex; align-items: center; gap: 8px;">
-                        <span style="font-size: 16px;">{icon}</span>
-                        <div>
-                            <div style="font-size: 13px; font-weight: 600; color: #cbd5e1;">{name}</div>
-                            <div style="font-size: 10px; color: #64748b;">{desc}</div>
+            <a href="/merrill_clock" style="text-decoration: none;">
+                <div style="display: flex; align-items: center; justify-content: space-between;">
+                    <div>
+                        <div style="font-size: 13px; font-weight: 600; color: #a855f7; margin-bottom: 2px;">
+                            🕐 美林时钟 · 经济周期
+                        </div>
+                        <div style="font-size: 11px; color: #6b7280;">
+                            {summary_text}
                         </div>
                     </div>
-                    <div style="display: flex; align-items: center; gap: 8px;">
-                        <span style="padding: 2px 8px; background: {stage_color}; color: #0f172a; border-radius: 4px; font-size: 10px; font-weight: 600;">{stage}</span>
-                        <span style="font-size: 11px; color: {trend_color}; font-weight: 600;">{trend_str}</span>
-                        <span style="font-size: 10px; color: #475569;">{recent_count}次</span>
+                    <div style="
+                        background: rgba(168,85,247,0.15);
+                        padding: 6px 12px;
+                        border-radius: 8px;
+                        font-size: 12px;
+                        color: #a855f7;
+                        font-weight: 500;
+                    ">
+                        查看 →
                     </div>
                 </div>
-                <div style="display: flex; height: 6px; border-radius: 4px; overflow: hidden; gap: 2px;">
-                    <div style="flex: {bar_width}; background: linear-gradient(90deg, {base_color}, {base_color}dd); border-radius: 4px 0 0 4px;"></div>
-                    <div style="flex: {100 - bar_width}; background: rgba(255,255,255,0.1); border-radius: 0 4px 4px 0;"></div>
-                </div>
-                <div style="display: flex; justify-content: space-between; margin-top: 6px;">
-                    <span style="font-size: 10px; color: #475569;">关注度 <b style="color: {base_color};">{attention:.2f}</b></span>
-                    <span style="font-size: 10px; color: #64748b;">{bar_width}%</span>
-                </div>
-            </div>
-            """)
-
-        active_quadrants = [q["name"] for q in quadrants_data if q["data"] and q["data"].get("stage") in ("高潮", "扩散")]
-        active_related = []
-        for nar_name, nar_info in related_narratives.items():
-            for nar in narrative_summary:
-                if nar.get('narrative') == nar_name:
-                    active_related.append({
-                        "name": nar_name,
-                        "icon": nar_info.get("icon", "📊"),
-                        "stage": nar.get("stage", "萌芽"),
-                        "attention": nar.get("attention_score", 0),
-                        "quadrant": nar_info.get("quadrant", ""),
-                    })
-                    break
-
-        if active_related:
-            put_html("""
-            <div style="margin-top: 14px; padding-top: 14px; border-top: 1px solid rgba(255,255,255,0.08);">
-                <div style="font-size: 11px; color: #64748b; margin-bottom: 10px;">相关宏观叙事</div>
-                <div style="display: flex; flex-wrap: wrap; gap: 8px;">
-                """)
-            for rel in active_related:
-                stage_color = stage_colors.get(rel["stage"], "#60a5fa")
-                put_html(f"""
-                <div style="display: flex; align-items: center; gap: 6px; padding: 6px 10px; background: rgba(255,255,255,0.03); border-radius: 6px; border: 1px solid {stage_color}30;">
-                    <span>{rel["icon"]}</span>
-                    <span style="font-size: 11px; color: #cbd5e1;">{rel["name"]}</span>
-                    <span style="padding: 1px 6px; background: {stage_color}; color: #0f172a; border-radius: 3px; font-size: 9px; font-weight: 600;">{rel["stage"]}</span>
-                </div>
-                """)
-            put_html("</div></div>")
-
-        liquidity_conclusion = ""
-        if active_quadrants:
-            if len(active_quadrants) >= 2:
-                liquidity_conclusion = f"资金同时偏好: {', '.join(active_quadrants[:2])}"
-            else:
-                liquidity_conclusion = f"资金集中于: {active_quadrants[0]}"
-        elif active_related:
-            quadrant_map = {"大宗商品": "商品", "股票市场": "股市", "现金与货币": "货币"}
-            related_quadrants = list(set([r["quadrant"] for r in active_related]))
-            if len(related_quadrants) >= 2:
-                liquidity_conclusion = f"宏观信号显示: {', '.join([quadrant_map.get(q, q) for q in related_quadrants[:2]])}偏强"
-            else:
-                q = related_quadrants[0] if related_quadrants else "未知"
-                liquidity_conclusion = f"宏观信号显示: {quadrant_map.get(q, q)}偏强"
-        else:
-            no_data_quadrants = [q["name"] for q in quadrants_data if not q["data"]]
-            if len(no_data_quadrants) == 4:
-                liquidity_conclusion = "美林时钟象限暂无数据，关注叙事生命周期"
-            else:
-                all_fading = all(q["data"].get("stage") in ("消退", "萌芽") for q in quadrants_data if q["data"])
-                if all_fading:
-                    liquidity_conclusion = "所有象限处于低活跃，资金观望"
-                else:
-                    liquidity_conclusion = "象限数据收集中..."
-
-        if liquidity_conclusion:
-            put_html(f"""
-            <div style="
-                margin-top: 14px;
-                padding: 10px 14px;
-                background: rgba(168,85,247,0.1);
-                border-radius: 8px;
-                border: 1px solid rgba(168,85,247,0.3);
-            ">
-                <div style="font-size: 11px; color: #a855f7; font-weight: 600;">💡 流动性结论</div>
-                <div style="font-size: 12px; color: #cbd5e1; margin-top: 4px;">{liquidity_conclusion}</div>
-            </div>
-            """)
-
-        put_html('</div>')
+            </a>
+        </div>
+        """)
 
     def _render_propagation_network(self):
         """渲染全球流动性传播网络"""
@@ -1933,7 +1807,7 @@ class CognitionUI:
         markets = structure.get("markets", {})
         edges = structure.get("edges", {})
 
-        put_html("""
+        put_html(f"""
         <div style="
             margin-bottom: 12px;
             background: rgba(255,255,255,0.03);
@@ -1941,8 +1815,13 @@ class CognitionUI:
             padding: 14px 18px;
             border: 1px solid rgba(255,255,255,0.08);
         ">
-            <div style="font-size: 13px; font-weight: 600; color: #10b981; margin-bottom: 4px;">
-                🌐 全球流动性传播网络
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+                <div style="font-size: 13px; font-weight: 600; color: #10b981;">
+                    🌐 全球流动性传播网络
+                </div>
+                <div style="font-size: 10px; color: #64748b;">
+                    {len(active_markets)} 个活跃市场 | {len(edges)} 条传播路径
+                </div>
             </div>
             <div style="font-size: 11px; color: #475569; margin-bottom: 14px;">
                 节点变化 → 沿边传播 → 验证结果 → 动态调权

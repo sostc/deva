@@ -1,7 +1,7 @@
 """
 PortfolioDrivenEventRecall - 持仓驱动事件召回
 
-根据 UnifiedManasOutput 的 attention_focus 召回相关事件
+根据 ManasOutput 的 attention_focus 召回相关事件
 """
 
 import time

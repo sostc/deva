@@ -39,11 +39,11 @@ def render_attention_flow_ui() -> str:
     整合注意力系统的核心指标到一个清晰的流式界面
     """
     try:
-        from deva.naja.attention.center import get_orchestrator
+        from deva.naja.attention.trading_center import get_trading_center
         from deva.naja.attention.integration import get_attention_integration
         from deva.naja.radar.trading_clock import is_trading_time as is_cn_trading, is_us_trading_time
 
-        orchestrator = get_orchestrator()
+        orchestrator = get_trading_center()
         integration = get_attention_integration()
 
         stats = orchestrator.get_stats()
@@ -334,11 +334,11 @@ def _get_friendly_name(item_id: str, item_type: str, tracker) -> str:
 def render_attention_layers_detail() -> str:
     """渲染注意力层次详情 - 板块和个股分布"""
     try:
-        from deva.naja.attention.center import get_orchestrator
+        from deva.naja.attention.trading_center import get_trading_center
         from deva.naja.attention.integration import get_attention_integration
         from deva.naja.cognition.history_tracker import get_history_tracker
 
-        orchestrator = get_orchestrator()
+        orchestrator = get_trading_center()
         integration = get_attention_integration()
         tracker = get_history_tracker()
 
@@ -437,12 +437,12 @@ def render_attention_layers_detail() -> str:
 def render_data_frequency_panel() -> str:
     """渲染数据获取频率面板 - 实时数据获取状态"""
     try:
-        from deva.naja.attention.center import get_orchestrator
+        from deva.naja.attention.trading_center import get_trading_center
         from deva.naja.attention.realtime_data_fetcher import get_data_fetcher
         from deva.datetime import datetime
         from .common import get_market_phase_summary, get_ui_mode_context
 
-        orchestrator = get_orchestrator()
+        orchestrator = get_trading_center()
         fetcher = get_data_fetcher()
 
         if not fetcher:
@@ -650,11 +650,11 @@ def _render_fetcher_empty_state() -> str:
 def render_noise_filter_panel() -> str:
     """渲染噪音过滤面板"""
     try:
-        from deva.naja.attention.center import get_orchestrator
+        from deva.naja.attention.trading_center import get_trading_center
         from deva.naja.cognition.history_tracker import get_history_tracker
         from deva.naja.attention.processing import get_sector_noise_detector, get_noise_manager
 
-        orchestrator = get_orchestrator()
+        orchestrator = get_trading_center()
         tracker = get_history_tracker()
         stats = orchestrator.get_stats()
         noise_stats = stats.get('noise_filter', {})
@@ -941,10 +941,10 @@ def render_strategy_status_panel() -> str:
 def render_dual_engine_panel() -> str:
     """渲染双引擎状态面板"""
     try:
-        from deva.naja.attention.center import get_orchestrator
+        from deva.naja.attention.trading_center import get_trading_center
         from deva.naja.attention.integration import get_attention_integration
 
-        orchestrator = get_orchestrator()
+        orchestrator = get_trading_center()
         integration = get_attention_integration()
 
         if not integration or not integration.attention_system:

@@ -46,9 +46,9 @@ def render_predictive_attention_panel() -> str:
 
         market_time = ""
         try:
-            from deva.naja.attention.orchestrator import get_orchestrator
-            orchestrator = get_orchestrator()
-            market_time = orchestrator.get_cached_market_time()
+            from deva.naja.attention.trading_center import get_trading_center
+            tc = get_trading_center()
+            market_time = tc.get_cached_market_time()
         except Exception:
             pass
 
@@ -119,9 +119,9 @@ def render_sector_predictive_attention_panel() -> str:
     try:
         market_time = ""
         try:
-            from deva.naja.attention.orchestrator import get_orchestrator
-            orchestrator = get_orchestrator()
-            market_time = orchestrator.get_cached_market_time()
+            from deva.naja.attention.trading_center import get_trading_center
+            tc = get_trading_center()
+            market_time = tc.get_cached_market_time()
         except Exception:
             pass
 

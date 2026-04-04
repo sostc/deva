@@ -1,47 +1,19 @@
 """
 Manas Module - 末那识层
 
-提供顺应型末那识能力和统一末那识决策框架
+提供末那识决策能力
 
-类：
-- AdaptiveManas: 顺应型末那识（保留兼容）
-- UnifiedManas: 统一末那识（新）
-- UnifiedManasOutput: 统一输出
-- PortfolioDrivenEventRecall: 持仓驱动事件召回
-- ManasFeedbackLoop: 闭环反馈
+注意：核心实现已迁移到 AttentionKernel 中的 ManasEngine
+此处保留兼容接口供旧代码使用
 """
 
 from typing import Dict, Any
 
-from .adaptive_manas import (
-    AdaptiveManas,
-    WuWeiDecision,
-    TianShiResponse,
-    RegimeHarmony,
-    RenShiResponse,
-    HarmonyState,
-)
-
 from .output import (
-    UnifiedManasOutput,
-    AttentionFocus,
+    HarmonyState,
     ActionType,
+    AttentionFocus,
     PortfolioSignal,
-)
-
-from .unified_manas import (
-    UnifiedManas,
-    TimingEngine,
-    RegimeEngine,
-    ConfidenceEngine,
-    RiskEngine,
-    MetaManas,
-    PortfolioAnalyzer,
-)
-
-from .event_recall import (
-    PortfolioDrivenEventRecall,
-    RecalledEvent,
 )
 
 from .feedback_loop import (
@@ -50,22 +22,32 @@ from .feedback_loop import (
     OutcomeType,
 )
 
+from .event_recall import (
+    PortfolioDrivenEventRecall,
+    RecalledEvent,
+)
+
 
 class ManasCore:
-    """末那识核心 - 系统监控用wrapper"""
+    """末那识核心 - 兼容层 wrapper"""
 
     def __init__(self):
-        self._adaptive_manas = AdaptiveManas()
+        from deva.naja.attention.trading_center import get_trading_center
+        tc = get_trading_center()
+        self._manas_engine = tc.get_attention_os().kernel.get_manas_engine()
 
     def get_stats(self) -> Dict[str, Any]:
         """获取统计信息"""
-        state = self._adaptive_manas.get_state()
         return {
             "eyes_active": 0,
-            "decision_count": state.get("decision_count", 0),
-            "recent_success_rate": state.get("recent_success_rate", 0),
-            "last_decision": state.get("last_decision"),
+            "decision_count": 0,
+            "recent_success_rate": 0.5,
+            "last_decision": None,
         }
+
+    def compute(self, *args, **kwargs):
+        """转发到 ManasEngine"""
+        return self._manas_engine.compute(*args, **kwargs)
 
 
 _manas_core_instance = None
@@ -80,28 +62,15 @@ def get_manas_core() -> ManasCore:
 
 
 __all__ = [
-    "AdaptiveManas",
-    "WuWeiDecision",
-    "TianShiResponse",
-    "RegimeHarmony",
-    "RenShiResponse",
     "HarmonyState",
-    "UnifiedManas",
-    "UnifiedManasOutput",
-    "AttentionFocus",
     "ActionType",
+    "AttentionFocus",
     "PortfolioSignal",
-    "TimingEngine",
-    "RegimeEngine",
-    "ConfidenceEngine",
-    "RiskEngine",
-    "MetaManas",
-    "PortfolioAnalyzer",
-    "PortfolioDrivenEventRecall",
-    "RecalledEvent",
     "ManasFeedbackLoop",
     "FeedbackRecord",
     "OutcomeType",
+    "PortfolioDrivenEventRecall",
+    "RecalledEvent",
     "ManasCore",
     "get_manas_core",
 ]

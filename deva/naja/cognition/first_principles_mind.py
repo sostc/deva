@@ -748,6 +748,10 @@ class FirstPrinciplesAnalyzer:
     整合因果追踪、矛盾检测、推理引擎
     """
 
+    # 因果知识库文件路径
+    CAUSALITY_KB_FILE = "/Users/spark/.naja/ai_knowledge/causality_knowledge_v2.json"
+    NARRATIVES_FILE = "/Users/spark/.naja/ai_knowledge/narratives.json"
+
     def __init__(self):
         self.causality_tracker = CausalityTracker()
         self.contradiction_detector = ContradictionDetector()
@@ -755,7 +759,75 @@ class FirstPrinciplesAnalyzer:
         self.cognitive_integrator = CognitiveIntegrator()
         self._insights: deque = deque(maxlen=200)
         self._market_states: deque = deque(maxlen=50)
+        self._knowledge_loaded = False  # 防止重复加载
         self._initialize_base_knowledge()
+
+    def _load_knowledge_from_file(self):
+        """从文件加载因果知识和叙事（深思熟虑版）"""
+        import json
+        import os
+
+        if self._knowledge_loaded:
+            return
+
+        # 1. 加载因果知识库
+        if os.path.exists(self.CAUSALITY_KB_FILE):
+            try:
+                with open(self.CAUSALITY_KB_FILE, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+
+                knowledge_list = data.get("knowledge", [])
+                qualified_count = 0
+
+                for entry in knowledge_list:
+                    status = entry.get("status", "observing")
+                    # 只加载验证通过或验证中的知识
+                    if status in ("qualified", "validating"):
+                        cause = entry.get("cause", "")
+                        effect = entry.get("effect", "")
+                        # 验证中的知识降权50%
+                        confidence = entry.get("adjusted_confidence", 0.5)
+                        if status == "validating":
+                            confidence *= 0.5
+
+                        if cause and effect:
+                            # 检查是否已存在
+                            key = f"{cause}->{effect}"
+                            if key not in self.causality_tracker._knowledge_base:
+                                self.causality_tracker.add_knowledge(
+                                    cause, effect, confidence, 0
+                                )
+                                if status == "qualified":
+                                    qualified_count += 1
+
+                log.info(f"[FirstPrinciples] 从因果知识库加载了 {qualified_count} 条正式知识")
+            except Exception as e:
+                log.warning(f"[FirstPrinciples] 加载因果知识库失败: {e}")
+
+        # 2. 加载叙事库
+        if os.path.exists(self.NARRATIVES_FILE):
+            try:
+                with open(self.NARRATIVES_FILE, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+
+                narratives = data.get("narratives", [])
+                for narrative in narratives:
+                    name = narrative.get("name", "")
+                    strength = narrative.get("strength", 0.5)
+                    if name and name != "暂无明确叙事":
+                        # 将叙事添加到矛盾检测器
+                        self.contradiction_detector.add_narrative(
+                            topic=name,
+                            claim=f"叙事强度: {strength}",
+                            source="narratives.json",
+                            credibility=strength
+                        )
+
+                log.info(f"[FirstPrinciples] 从叙事库加载了 {len(narratives)} 条叙事")
+            except Exception as e:
+                log.warning(f"[FirstPrinciples] 加载叙事库失败: {e}")
+
+        self._knowledge_loaded = True
 
     def _initialize_base_knowledge(self):
         """初始化基础因果知识"""
@@ -785,6 +857,14 @@ class FirstPrinciplesAnalyzer:
         for cause, effect, confidence, offset in base_causalities:
             self.causality_tracker.add_knowledge(cause, effect, confidence, offset)
 
+        # 加载文件中的深思熟虑知识（异步，不阻塞初始化）
+        try:
+            import threading
+            t = threading.Thread(target=self._load_knowledge_from_file, daemon=True)
+            t.start()
+        except Exception:
+            pass
+
     def analyze(
         self,
         market_data: Dict[str, Any],
@@ -794,10 +874,15 @@ class FirstPrinciplesAnalyzer:
         topic_signals: Optional[List[Dict[str, Any]]] = None,
         news_sentiment: Optional[str] = None,
         ai_compute_trend: Optional[Dict] = None,
-        ai_positions: Optional[Dict] = None
+        ai_positions: Optional[Dict] = None,
+        problem_opportunity: Optional[Dict[str, Any]] = None
     ) -> List[FirstPrinciplesInsight]:
         """第一性原理分析"""
         insights = []
+
+        # 确保知识已加载（如果线程还没执行完，在这里同步等待）
+        if not self._knowledge_loaded:
+            self._load_knowledge_from_file()
 
         self._market_states.append(market_data)
 
@@ -826,6 +911,15 @@ class FirstPrinciplesAnalyzer:
         if ai_compute_trend:
             ai_insights = self._analyze_ai_compute(ai_compute_trend, ai_positions, market_data)
             insights.extend(ai_insights)
+
+        if problem_opportunity and problem_opportunity.get("status") == "active":
+            po_insights = self._analyze_problem_opportunity(
+                detected_problems=problem_opportunity.get("problems", []),
+                opportunities=problem_opportunity.get("opportunities", []),
+                resolvers=problem_opportunity.get("resolvers", []),
+                market_data=market_data
+            )
+            insights.extend(po_insights)
 
         contradiction_insights = self._detect_contradictions(market_data)
         insights.extend(contradiction_insights)
@@ -1099,6 +1193,199 @@ class FirstPrinciplesAnalyzer:
 
         return insights
 
+    def _analyze_problem_opportunity(
+        self,
+        detected_problems: List[Dict[str, Any]],
+        opportunities: List[Dict[str, Any]],
+        resolvers: List[Dict[str, Any]],
+        market_data: Dict[str, Any]
+    ) -> List[FirstPrinciplesInsight]:
+        """
+        分析供需问题-机会-解决者
+
+        核心分析：
+        1. 因果链：这个问题为什么会发生？（根因分析）
+        2. 解决者验证：这些解决者真的能解决问题吗？
+        3. 时间窗口：问题会持续多久？
+        4. 背离识别：问题存在但相关标的为什么不涨？
+        """
+        insights = []
+
+        if not detected_problems:
+            return insights
+
+        price_change = market_data.get("price_change", 0)
+        volatility = market_data.get("volatility", 1.0)
+
+        for problem in detected_problems:
+            problem_type = problem.get("type", "unknown")
+            severity = problem.get("severity", "unknown")
+
+            insight = self._analyze_problem_root_cause(problem_type, severity)
+            if insight:
+                insights.append(insight)
+
+        for opp in opportunities:
+            opp_type = opp.get("opportunity", "")
+            beneficiaries = opp.get("beneficiaries", [])
+
+            insight = self._analyze_opportunity_validity(opp_type, beneficiaries, resolvers)
+            if insight:
+                insights.append(insight)
+
+        for resolver in resolvers:
+            resolver_name = resolver.get("name", "unknown")
+            progress = resolver.get("progress", "unknown")
+            opportunity = resolver.get("opportunity", "")
+
+            insight = self._analyze_resolver_progress(resolver_name, progress, opportunity, price_change)
+            if insight:
+                insights.append(insight)
+
+        if len(detected_problems) >= 2 and price_change > 5:
+            insights.append(FirstPrinciplesInsight(
+                insight_type="opportunity",
+                content=f"多重供需问题共振 + 价格上涨，可能是强趋势信号",
+                level=ThoughtLevel.FIRST_PRINCIPLES,
+                confidence=0.75,
+                evidence=[
+                    f"问题数量: {len(detected_problems)}",
+                    f"价格变动: {price_change:.1f}%"
+                ]
+            ))
+
+        if len(detected_problems) >= 2 and price_change < -5:
+            insights.append(FirstPrinciplesInsight(
+                insight_type="opportunity",
+                content=f"多重供需问题存在但股价下跌，可能是错杀机会",
+                level=ThoughtLevel.FIRST_PRINCIPLES,
+                confidence=0.70,
+                evidence=[
+                    f"问题数量: {len(detected_problems)}",
+                    f"价格变动: {price_change:.1f}%"
+                ]
+            ))
+
+        return insights
+
+    def _analyze_problem_root_cause(self, problem_type: str, severity: str) -> Optional[FirstPrinciplesInsight]:
+        """分析问题的根本原因"""
+        causal_knowledge = {
+            "token供给不足": {
+                "root_cause": "GPU封装产能不足（CoWoS瓶颈）+ 英伟达H100/H200交付延迟",
+                "causal_chain": ["AI需求爆发", "GPU需求激增", "CoWoS封装产能满载", "交付延迟"],
+                "expected_duration": "至少持续到2025年中"
+            },
+            "token需求爆发": {
+                "root_cause": "ChatGPT/Claude等大模型用户快速增长 + API调用量指数级上升",
+                "causal_chain": ["大模型发布", "用户爆发", "API调用激增", "算力供不应求"],
+                "expected_duration": "需求持续增长"
+            },
+            "电力供给不足": {
+                "root_cause": "数据中心扩张速度超过电网建设速度 + 绿色能源转型阵痛",
+                "causal_chain": ["AI算力需求", "数据中心扩张", "电力需求激增", "电网超载"],
+                "expected_duration": "电网升级需要2-3年"
+            },
+            "电力需求爆发": {
+                "root_cause": "AI大模型训练和推理需要大量电力 + 比特币挖矿回潮",
+                "causal_chain": ["大模型训练", "推理算力消耗", "总用电量激增"],
+                "expected_duration": "长期趋势"
+            },
+            "芯片供给不足": {
+                "root_cause": "先进制程设备（EUV）被限制出口 + 成熟制程产能扩张慢",
+                "causal_chain": ["美国制裁", "EUV禁运", "先进制程受限", "国产替代缓慢"],
+                "expected_duration": "突破需要3-5年"
+            },
+            "芯片需求爆发": {
+                "root_cause": "AI芯片需求爆发 + 传统芯片需求复苏",
+                "causal_chain": ["AI算力需求", "芯片订单激增", "产能供不应求"],
+                "expected_duration": "至少持续到2025年"
+            },
+            "技术瓶颈突破": {
+                "root_cause": "新架构（Chiplet/CPO）带来效率提升 + 国产技术路线突破",
+                "causal_chain": ["技术研发", "量产验证", "良率提升", "规模量产"],
+                "expected_duration": "技术突破后持续受益"
+            },
+        }
+
+        if problem_type in causal_knowledge:
+            knowledge = causal_knowledge[problem_type]
+            return FirstPrinciplesInsight(
+                insight_type="causal",
+                content=f"【{problem_type}】根因: {knowledge['root_cause']}",
+                level=ThoughtLevel.FIRST_PRINCIPLES,
+                confidence=0.80,
+                evidence=[
+                    f"问题类型: {problem_type}",
+                    f"严重程度: {severity}",
+                    f"因果链: {' → '.join(knowledge['causal_chain'])}",
+                    f"预计持续: {knowledge['expected_duration']}"
+                ]
+            )
+
+        return None
+
+    def _analyze_opportunity_validity(
+        self,
+        opportunity_type: str,
+        beneficiaries: List[str],
+        resolvers: List[Dict[str, Any]]
+    ) -> Optional[FirstPrinciplesInsight]:
+        """分析机会的有效性"""
+        resolver_names = [r.get("name", "") for r in resolvers]
+        covered = [b for b in beneficiaries if any(b in r for r in resolver_names)]
+
+        if len(covered) / len(beneficiaries) < 0.5:
+            return FirstPrinciplesInsight(
+                insight_type="caution",
+                content=f"【{opportunity_type}】机会存在，但解决者覆盖不足",
+                level=ThoughtLevel.CAUSAL,
+                confidence=0.65,
+                evidence=[
+                    f"机会类型: {opportunity_type}",
+                    f"预期受益者: {beneficiaries}",
+                    f"已知解决者: {resolver_names}",
+                    f"覆盖度: {len(covered)}/{len(beneficiaries)}"
+                ]
+            )
+
+        return None
+
+    def _analyze_resolver_progress(
+        self,
+        resolver_name: str,
+        progress: str,
+        opportunity: str,
+        price_change: float
+    ) -> Optional[FirstPrinciplesInsight]:
+        """分析解决者的进度"""
+        progress_levels = {
+            "量产级": 0.9,
+            "扩产中": 0.7,
+            "测试级": 0.5,
+            "研发级": 0.3,
+            "未知": 0.2
+        }
+
+        level = progress_levels.get(progress, 0.3)
+
+        if "量产" in progress or "扩产" in progress:
+            if price_change < -5:
+                return FirstPrinciplesInsight(
+                    insight_type="opportunity",
+                    content=f"{resolver_name}已进入{progress}，但股价下跌，可能是错杀",
+                    level=ThoughtLevel.FIRST_PRINCIPLES,
+                    confidence=0.75,
+                    evidence=[
+                        f"解决者: {resolver_name}",
+                        f"进度: {progress}",
+                        f"机会: {opportunity}",
+                        f"股价变动: {price_change:.1f}%"
+                    ]
+                )
+
+        return None
+
     def _detect_contradictions(self, market_data: Dict[str, Any]) -> List[FirstPrinciplesInsight]:
         """检测矛盾"""
         insights = []
@@ -1239,6 +1526,32 @@ class FirstPrinciplesAnalyzer:
             "contradictions": self.contradiction_detector.get_contradiction_summary()
         }
 
+    def load_narratives_for_analysis(self) -> List[str]:
+        """
+        加载叙事库并返回叙事列表
+
+        用于外部（如 Center.py）调用时传入 analyze() 方法
+        """
+        import json
+        import os
+
+        narratives = []
+        if os.path.exists(self.NARRATIVES_FILE):
+            try:
+                with open(self.NARRATIVES_FILE, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                for n in data.get("narratives", []):
+                    narratives.append(n.get("name", ""))
+            except Exception as e:
+                log.warning(f"[FirstPrinciples] 加载叙事列表失败: {e}")
+
+        return [n for n in narratives if n and n != "暂无明确叙事"]
+
+    def force_reload_knowledge(self):
+        """强制重新加载知识库"""
+        self._knowledge_loaded = False
+        self._load_knowledge_from_file()
+
 
 class FirstPrinciplesMind:
     """
@@ -1257,6 +1570,10 @@ class FirstPrinciplesMind:
         self._thinking_depth: ThoughtLevel = ThoughtLevel.SURFACE
         self._awareness_level: float = 0.55  # 当前觉醒度
 
+    def get_narratives(self) -> List[str]:
+        """获取当前叙事列表（用于传入think方法）"""
+        return self.first_principles_analyzer.load_narratives_for_analysis()
+
     def think(
         self,
         market_data: Dict[str, Any],
@@ -1266,7 +1583,8 @@ class FirstPrinciplesMind:
         topic_signals: Optional[List[Dict[str, Any]]] = None,
         news_sentiment: Optional[str] = None,
         ai_compute_trend: Optional[Dict] = None,
-        ai_positions: Optional[Dict] = None
+        ai_positions: Optional[Dict] = None,
+        problem_opportunity: Optional[Dict[str, Any]] = None
     ) -> Dict[str, Any]:
         """
         深度思考
@@ -1280,6 +1598,7 @@ class FirstPrinciplesMind:
             news_sentiment: 新闻情绪 (bullish/neutral/fearful)
             ai_compute_trend: AI算力趋势信号
             ai_positions: AI相关持仓
+            problem_opportunity: 问题-机会-解决者分析结果
 
         Returns:
             思考结果
@@ -1292,7 +1611,8 @@ class FirstPrinciplesMind:
             topic_signals,
             news_sentiment,
             ai_compute_trend,
-            ai_positions
+            ai_positions,
+            problem_opportunity
         )
 
         self._update_thinking_depth(insights)
