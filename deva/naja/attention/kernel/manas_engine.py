@@ -369,13 +369,53 @@ class RegimeEngine:
         liquidity = self._get_liquidity_signal(scanner, macro_signal)
         diffusion = self._get_sector_diffusion(scanner)
 
+        weights = self._get_adaptive_regime_weights(scanner)
+
         regime = (
-            trend * 0.4 +
-            liquidity * 0.35 +
-            diffusion * 0.25
+            trend * weights["trend"] +
+            liquidity * weights["liquidity"] +
+            diffusion * weights["diffusion"]
         )
 
         return max(-1.0, min(1.0, regime))
+
+    def _get_adaptive_regime_weights(self, scanner) -> Dict[str, float]:
+        """
+        根据当前市场状态自适应调整 RegimeEngine 权重
+
+        提案 2.4.2：美股交易时段更注重趋势，盘前盘后更注重流动性
+        """
+        weights = {
+            "trend": 0.4,
+            "liquidity": 0.35,
+            "diffusion": 0.25,
+        }
+
+        if scanner is None:
+            return weights
+
+        try:
+            summary = scanner.get_market_summary()
+            phase = summary.get('us_trading_phase', 'closed')
+
+            # 美股交易时段：更注重趋势
+            if phase == 'trading':
+                weights = {
+                    "trend": 0.5,
+                    "liquidity": 0.3,
+                    "diffusion": 0.2,
+                }
+            # 美股盘前/盘后：更注重流动性
+            elif phase in ('pre_market', 'after_hours'):
+                weights = {
+                    "trend": 0.25,
+                    "liquidity": 0.5,
+                    "diffusion": 0.25,
+                }
+        except:
+            pass
+
+        return weights
 
     def _get_index_trend(self, scanner) -> float:
         """获取指数趋势"""
