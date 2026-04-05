@@ -1,27 +1,63 @@
 """
 ConvictionValidator - 价值验证层
 
-Layer 3: 验证我们的价值追求是否被外部世界认可
+═══════════════════════════════════════════════════════════════════════════
+                              架 构 定 位
+═══════════════════════════════════════════════════════════════════════════
 
-核心问题：
-1. 我们关注的叙事，和外部热点有多一致？（共鸣度）
-2. 外部热的新叙事，我们有没有关注盲区？（盲区检测）
-3. 我们关注的叙事，市场热度如何？（时机信号）
+【桥接层】ConvictionValidator 是"我们"与"外部世界"的差异检测器
 
-输入：
-- Portfolio: 我们持仓和自选的股票
-- WorldNarrative: 外部公共热点（新闻分析）
-- MarketAttention: 市场定价过程的热度（block_weights）
+    它回答三个核心问题：
+    1. 我们坚信的，外部认可吗？ → consensus_blocks（坚定持有）
+    2. 我们坚信的，外部不认可？ → divergence_blocks（需验证）
+    3. 外部热的，我们没关注？ → blind_spots（→ BlindSpotInvestigator探究）
 
-输出：
-- conviction_score: 信念度（0-1）
-- consensus_blocks: 我们关注且外部热
-- divergence_blocks: 我们关注但外部冷（价值未兑现）
-- blind_spots: 外部热但我们没关注（可能的机会）
-- new_hot_blocks: 市场新热但用户未关注
+═══════════════════════════════════════════════════════════════════════════
+                              核 心 逻 辑
+═══════════════════════════════════════════════════════════════════════════
 
-作者: AI
-日期: 2026-04-05
+外部层（市场/新闻）:
+    market_attention{}  ← BlockAttentionEngine（定价热度）
+    world_narrative{}   ← NarrativeTracker（新闻热度）
+
+我们的层:
+    portfolio_summary   ← Portfolio（持仓 + watchlist）
+
+差异检测:
+    consensus_blocks   = 外部热 ∩ 我们持有/关注（方向一致 → 坚定）
+    divergence_blocks  = 我们持有/关注 ∩ 外部冷（方向分歧 → 验证）
+    blind_spots       = 外部热 ∩ 我们没关注（→ BlindSpotInvestigator探究）
+    new_hot_blocks    = 新热点 ∩ 我们没关注（→ 跟踪）
+
+═══════════════════════════════════════════════════════════════════════════
+                              数 据 流
+═══════════════════════════════════════════════════════════════════════════
+
+    Portfolio + MarketAttention + WorldNarrative
+                    ↓
+         ConvictionValidator.validate()
+                    ↓
+    consensus/divergence/blind_spots/new_hot_blocks
+                    ↓
+         AttentionFusion.fuse()
+                    ↓
+         融合分数 + BlindSpotInvestigator
+                    ↓
+         最终注意力分配
+
+═══════════════════════════════════════════════════════════════════════════
+                              使 用 方 式
+═══════════════════════════════════════════════════════════════════════════
+
+    validator = ConvictionValidator()
+    result = validator.validate(
+        portfolio=portfolio_summary,
+        market_attention={"AI": 0.8, "芯片": 0.6},
+        world_narrative={"AI": 0.7, "新能源": 0.5},
+    )
+    print(f"信念度: {result.conviction_score}")
+    print(f"共识: {result.consensus_blocks}")
+    print(f"盲区: {result.blind_spots}")
 """
 
 from __future__ import annotations
@@ -37,24 +73,51 @@ if TYPE_CHECKING:
 
 @dataclass
 class ValidationResult:
-    """验证结果"""
-    conviction_score: float
-    consensus_blocks: List[Tuple[str, float]]
-    divergence_blocks: List[Tuple[str, float]]
-    blind_spots: List[Tuple[str, float]]
-    new_hot_blocks: List[Tuple[str, float]]
+    """
+    验证结果
 
-    watched_blocks: Set[str]
-    market_hot_blocks: Set[str]
+    【桥接层】的核心输出，描述"我们"与"外部世界"的差异
 
-    holding_blocks: Set[str]
-    watchlist_blocks: Set[str]
+    ════════════════════════════════════════════════════════════════════════════
+                                字 段 归 属
+    ════════════════════════════════════════════════════════════════════════════
 
-    market_narrative_heat: Dict[str, float]
-    watched_narrative_heat: Dict[str, float]
+    【差异检测结果】
+        consensus_blocks   = 外部热 ∩ 我们持有/关注（坚定持有）
+        divergence_blocks  = 我们持有/关注 ∩ 外部冷（需验证）
+        blind_spots      = 外部热 ∩ 我们没关注（→探究）
+        new_hot_blocks   = 新热点 ∩ 我们没关注（→跟踪）
+        conviction_score  = 整体信念强度
 
-    market_coverage: float
-    conviction_signal: str
+    【内部状态】
+        watched_blocks    = 我们关注的block（持仓+watchlist）
+        market_hot_blocks = 市场热的block（top block）
+        holding_blocks    = 持仓所在block
+        watchlist_blocks  = watchlist所在block
+
+    【参考数据】
+        market_narrative_heat    = 市场叙事热度
+        watched_narrative_heat  = 我们关注叙事的热度
+        market_coverage          = 我们对市场热点的覆盖度
+        conviction_signal        = 信念信号描述
+    """
+    conviction_score: float                              # 【差异检测】信念分数
+    consensus_blocks: List[Tuple[str, float]]            # 【差异检测】共识block
+    divergence_blocks: List[Tuple[str, float]]           # 【差异检测】分歧block
+    blind_spots: List[Tuple[str, float]]                 # 【差异检测】盲区block
+    new_hot_blocks: List[Tuple[str, float]]              # 【差异检测】新热点block
+
+    watched_blocks: Set[str]                            # 【我们】关注的block
+    market_hot_blocks: Set[str]                          # 【外部】市场热的block
+
+    holding_blocks: Set[str]                            # 【我们】持仓block
+    watchlist_blocks: Set[str]                          # 【我们】watchlist block
+
+    market_narrative_heat: Dict[str, float]             # 【外部】市场叙事热度
+    watched_narrative_heat: Dict[str, float]           # 【我们】关注叙事的热度
+
+    market_coverage: float                               # 【参考】市场覆盖度
+    conviction_signal: str                               # 【参考】信念信号
     timestamp: float = field(default_factory=time.time)
 
     def summary(self) -> Dict[str, Any]:
@@ -71,7 +134,20 @@ class ValidationResult:
 
 class ConvictionValidator:
     """
-    价值验证器
+    【桥接层】价值验证器
+
+    比较"我们"与"外部世界"的注意力差异
+
+    输入：
+        portfolio_summary   = Portfolio（持仓 + watchlist）
+        market_attention   = BlockAttentionEngine（定价热度）
+        world_narrative   = NarrativeTracker（新闻热度）
+
+    验证类型：
+        consensus   = 外部热 ∩ 我们持有/关注（坚定持有）
+        divergence  = 我们持有/关注 ∩ 外部冷（方向分歧）
+        blind_spots = 外部热 ∩ 我们没关注（→探究）
+        new_hot    = 新热点 ∩ 我们没关注（→跟踪）
 
     使用方式:
 

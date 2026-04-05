@@ -20,7 +20,7 @@ import logging
 from deva import NB
 
 from .attention_system import AttentionSystem, AttentionSystemConfig
-from ..core import SectorConfig
+from ..core import BlockConfig as SectorConfig
 
 log = logging.getLogger(__name__)
 

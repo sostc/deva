@@ -1,29 +1,74 @@
 """
-AttentionFusion - 注意力融合层（四层架构）
+AttentionFusion - 注意力融合层
 
-Layer 0: 外部世界（External World）
-  WorldNarrativeTracker → 新闻/舆论分析出的热点
-  BlockAttentionEngine → 市场定价过程的热度
+═══════════════════════════════════════════════════════════════════════════
+                              架 构 定 位
+═══════════════════════════════════════════════════════════════════════════
 
-Layer 1: 我们的价值追求（Our Value Pursuit）
-  Portfolio → 持仓 + 自选股
-  WatchedNarratives → 我们关注的叙事（从持仓/自选推导）
+【融合层】 AttentionFusion 是架构的核心融合中心
 
-Layer 2: 价值验证（Conviction Validation）
-  ConvictionValidator → 外部热点 vs 我们关注的一致性
+    - 来自 Layer 0（外部世界）的数据在这里汇合
+    - 来自 Layer 1（我们的持仓/关注）的数据在这里对比
+    - ConvictionValidator 找出的差异在这里被加权
+    - BlindSpotInvestigator 的发现在这里被放大
+    - 最终输出每个 block 的融合分数，供决策使用
 
-Layer 3: 时机选择（Timing）
-  热度低 = 可能是布局窗口
-  热度高 = 可能已反映价值
+═══════════════════════════════════════════════════════════════════════════
+                              融 合 公 式
+═══════════════════════════════════════════════════════════════════════════
 
-融合公式：
-  final_score[bid] =
-      α × conviction_weight[bid]     # 信念权重（价值验证层）
-    + β × market_attention[bid]       # 市场热度
-    + γ × timing_bonus[bid]           # 时机加成
+    final_score[bid] =
 
-作者: AI
-日期: 2026-04-05
+        α × conviction_weight[bid]     【桥接-共识/分歧】
+                                          外部热 ∩ 我们持有 → 高权重
+                                          外部热 ∩ 我们持有但分歧 → 低权重
+
+        + β × market_attention[bid]     【外部-市场】
+                                          BlockAttentionEngine 的定价热度
+                                          纯粹外部，无我们的立场
+
+        + γ × timing_bonus[bid]         【时机】
+                                          热度低 → 布局窗口加成
+                                          热度高 → 已反映惩罚
+
+        + δ × discovery_boost[bid]       【被动发现-盲区】
+                                          BlindSpotInvestigator 发现的新热点
+                                          外部热但我们没关注 → 放大
+
+        + ε × value_score               【主动发现-天道】
+                                          NarrativeTracker 检测到的价值信号
+                                          我们自己认定的核心变化
+                                          "替天行道"的天道
+
+═══════════════════════════════════════════════════════════════════════════
+                              数据来源标注
+═══════════════════════════════════════════════════════════════════════════
+
+外部层（市场/新闻）:
+    market_attention{}     ← BlockAttentionEngine（定价热度）
+    world_narrative{}      ← NarrativeTracker（新闻热度）
+
+我们的层:
+    portfolio_summary      ← Portfolio（持仓 + watchlist）
+    conviction_score       ← ConvictionValidator（信念验证）
+
+被动发现层:
+    blind_spot_investigations ← BlindSpotInvestigator（盲区探究）
+
+主动发现层:
+    value_score            ← NarrativeTracker.get_value_market_summary()
+    value_signals          ← NarrativeTracker（天道信号）
+
+═══════════════════════════════════════════════════════════════════════════
+                              核心输出
+═══════════════════════════════════════════════════════════════════════════
+
+    consensus_blocks      = 外部热 ∩ 我们持有（方向一致，坚定持有）
+    divergence_blocks     = 外部热 ∩ 我们持有（方向分歧，需验证）
+    blind_spots          = 外部热 ∩ 我们没关注（被动发现，需探究）
+    new_hot_blocks       = 新出现的热点（跟踪）
+
+    每个 block 的 fused_score = 加权融合后的最终注意力分数
 """
 
 from __future__ import annotations
@@ -40,47 +85,103 @@ if TYPE_CHECKING:
 
 @dataclass
 class FusionSignal:
-    """融合信号（供ManasEngine使用）"""
-    block_id: str
-    fused_score: float
-    market_attention: float
-    conviction_score: float
-    timing_signal: str
-    holding_status: str
-    action_recommendation: str
+    """
+    融合信号（供ManasEngine使用）
 
-    conviction_level: str
-    timing_level: str
+    每个 block 的融合结果，包含各通道贡献明细
+    """
+    block_id: str                          # block标识
+    fused_score: float                    # 最终融合分数
+    market_attention: float                # 【外部-市场】BlockAttentionEngine热度
+    conviction_score: float                # 【桥接】ConvictionValidator信念分数
+    timing_signal: str                     # 【时机】timing信号
+    holding_status: str                    # 【我们】持仓状态
+    action_recommendation: str             # 推荐行动
 
-    should_act: bool
-    action_reason: str
+    conviction_level: str                  # 信念等级
+    timing_level: str                      # 时机等级
+
+    should_act: bool                       # 是否应行动
+    action_reason: str                     # 行动理由
+
+    value_score: float = 0.0              # 【主动发现-天道】价值分数
+    value_signals: Dict[str, List[str]] = field(default_factory=dict)  # 【主动发现-天道】价值信号详情
 
 
 @dataclass
 class FullFusionResult:
-    """完整融合结果"""
-    signals: List[FusionSignal]
-    consensus_blocks: List[Tuple[str, float]]
-    divergence_blocks: List[Tuple[str, float]]
-    blind_spots: List[Tuple[str, float]]
-    new_hot_blocks: List[Tuple[str, float]]
+    """
+    完整融合结果
 
-    conviction_score: float
-    timing_signal: str
-    overall_should_act: bool
-    overall_action_reason: str
+    融合公式：
+        fused = α×conviction + β×market + γ×timing + δ×discovery + ε×value
 
-    portfolio_blocks: Set[str]
-    watchlist_blocks: Set[str]
-    holding_codes: Set[str]
-    watchlist_codes: Set[str]
+    ════════════════════════════════════════════════════════════════════════════
+                                字 段 归 属
+    ════════════════════════════════════════════════════════════════════════════
+
+    【桥接-差异检测】
+        consensus_blocks    = 外部热 ∩ 我们持有（方向一致，坚定持有）
+        divergence_blocks   = 外部热 ∩ 我们持有（方向分歧，需验证）
+        blind_spots        = 外部热 ∩ 我们没关注（被动发现，需探究）
+        new_hot_blocks     = 新出现的热点（跟踪）
+        conviction_score   = 整体信念强度
+
+    【外部-市场】
+        market_attention    = BlockAttentionEngine 定价热度
+
+    【我们-持仓】
+        portfolio_blocks    = 我们持仓所在的block
+        watchlist_blocks   = 我们watchlist所在的block
+        holding_codes       = 持仓股票代码
+        watchlist_codes     = watchlist股票代码
+
+    【被动发现-盲区】
+        blind_spot_investigations = BlindSpotInvestigator探究结果
+
+    【主动发现-天道】
+        value_score                    = 天道价值分数
+        market_narrative_score         = 民心市场叙事分数（参考）
+        value_signals                  = 天道信号详情
+        market_narrative_signals       = 民心信号详情（参考）
+    """
+    signals: List[FusionSignal]                    # 所有block的融合信号
+    consensus_blocks: List[Tuple[str, float]]       # 【桥接】共识block
+    divergence_blocks: List[Tuple[str, float]]      # 【桥接】分歧block
+    blind_spots: List[Tuple[str, float]]           # 【被动发现】盲区block
+    new_hot_blocks: List[Tuple[str, float]]        # 【外部】新热点block
+
+    conviction_score: float                         # 【桥接】整体信念分数
+    timing_signal: str                              # 【时机】时机信号
+    overall_should_act: bool                        # 是否整体应行动
+    overall_action_reason: str                      # 整体行动理由
+
+    portfolio_blocks: Set[str]                     # 【我们】持仓block
+    watchlist_blocks: Set[str]                      # 【我们】watchlist block
+    holding_codes: Set[str]                         # 【我们】持仓股票
+    watchlist_codes: Set[str]                      # 【我们】watchlist股票
+
+    value_score: float = 0.0                       # 【主动发现-天道】天道价值分数
+    market_narrative_score: float = 0.0            # 【主动发现-民心】市场叙事分数（参考）
+    value_signals: Dict[str, List[str]] = field(default_factory=dict)      # 【主动发现-天道】天道信号详情
+    market_narrative_signals: Dict[str, List[str]] = field(default_factory=dict)  # 【主动发现-民心】市场叙事详情（参考）
+
+    blind_spot_investigations: List[Dict[str, Any]] = field(default_factory=list)  # 【被动发现】盲区探究结果
 
     timestamp: float = field(default_factory=time.time)
 
 
 class AttentionFusion:
     """
-    四层注意力融合器
+    【融合层】四层注意力融合器
+
+    四个输入通道：
+
+        α × conviction   【桥接层】外部热点 ∩ 我们的持仓/关注 → 信念权重
+        β × market      【外部-市场】BlockAttentionEngine 定价热度
+        γ × timing      【时机】热度低→布局窗口，热度高→已反映
+        δ × discovery   【被动发现】BlindSpotInvestigator 盲区探究放大
+        ε × value       【主动发现】NarrativeTracker 天道价值信号
 
     使用方式:
 
@@ -124,9 +225,11 @@ class AttentionFusion:
         self._narrative_tracker = narrative_tracker
         self._focus_manager = focus_manager
 
-        self._alpha: float = 0.4
-        self._beta: float = 0.4
-        self._gamma: float = 0.2
+        self._alpha: float = 0.30
+        self._beta: float = 0.30
+        self._gamma: float = 0.15
+        self._delta: float = 0.15
+        self._epsilon: float = 0.10
 
         self._hot_threshold: float = 0.3
         self._cold_threshold: float = 0.1
@@ -155,6 +258,25 @@ class AttentionFusion:
         except Exception:
             return {}
 
+    def _get_value_market_summary(self) -> Dict[str, Any]:
+        """
+        从NarrativeTracker获取价值和市场叙事评分（天道/民心）
+
+        【天道-替天行道】主动价值发现
+        【民心-市场叙事】被动热点参考
+
+        Returns:
+            包含 value_score, market_narrative_score, value_signals, market_narrative_signals 的字典
+        """
+        if self._narrative_tracker is not None:
+            return self._narrative_tracker.get_value_market_summary()
+        try:
+            from deva.naja.cognition.narrative_tracker import get_narrative_tracker
+            tracker = get_narrative_tracker()
+            return tracker.get_value_market_summary()
+        except Exception:
+            return {"value_score": 0.0, "market_narrative_score": 0.0, "signals": {"value": {}, "market_narrative": {}}}
+
     def fuse(
         self,
         market_attention: Dict[str, float],
@@ -179,6 +301,12 @@ class AttentionFusion:
 
         if world_narrative is None:
             world_narrative = self._get_world_narrative()
+
+        value_market_summary = self._get_value_market_summary()
+        value_score = value_market_summary.get("value_score", 0.0)
+        market_narrative_score = value_market_summary.get("market_narrative_score", 0.0)
+        value_signals = value_market_summary.get("signals", {}).get("value", {})
+        market_narrative_signals = value_market_summary.get("signals", {}).get("market_narrative", {})
 
         validation = self.validator.validate(
             portfolio=portfolio_summary,
@@ -207,11 +335,16 @@ class AttentionFusion:
         for bid in list(holding_blocks) + list(watchlist_blocks):
             all_blocks.add(bid)
 
+        discovery_boost = self._compute_discovery_boost(
+            validation.blind_spots, validation.new_hot_blocks
+        )
+
         signals: List[FusionSignal] = []
 
         for block_id in all_blocks:
             m_attn = market_attention.get(block_id, 0.0)
             conv_w = conviction_by_block.get(block_id, 0.0)
+            disc_boost = discovery_boost.get(block_id, 0.0)
 
             timing_bonus = 0.0
             if timing_signal == "timing_good":
@@ -222,7 +355,9 @@ class AttentionFusion:
             fused_score = (
                 self._alpha * conv_w +
                 self._beta * m_attn +
-                self._gamma * timing_bonus
+                self._gamma * timing_bonus +
+                self._delta * disc_boost +
+                self._epsilon * value_score
             )
 
             if block_id in holding_blocks:
@@ -277,6 +412,8 @@ class AttentionFusion:
                 timing_level=timing_level,
                 should_act=should_act,
                 action_reason=f"{action}: conviction={conv_w:.2f}, timing={timing_signal}",
+                value_score=value_score,
+                value_signals=value_signals,
             ))
 
         signals.sort(key=lambda s: s.fused_score, reverse=True)
@@ -315,10 +452,93 @@ class AttentionFusion:
             watchlist_blocks=watchlist_blocks,
             holding_codes=holding_codes,
             watchlist_codes=watchlist_codes,
+            value_score=value_score,
+            market_narrative_score=market_narrative_score,
+            value_signals=value_signals,
+            market_narrative_signals=market_narrative_signals,
         )
 
         self._last_result = result
         return result
+
+    def _compute_discovery_boost(
+        self,
+        blind_spots: List[Tuple[str, float]],
+        new_hot_blocks: List[Tuple[str, float]],
+    ) -> Dict[str, float]:
+        """
+        计算发现放大权重
+
+        blind_spots: 外部热但我们没关注的 block
+        new_hot_blocks: 新热门的 block
+        """
+        boost: Dict[str, float] = {}
+
+        for block_id, attention_score in blind_spots:
+            boost[block_id] = attention_score * 0.5
+
+        for block_id, attention_score in new_hot_blocks:
+            if block_id not in boost:
+                boost[block_id] = attention_score * 0.3
+
+        return boost
+
+    def investigate_blind_spots(
+        self,
+        blind_spots: Optional[List[Tuple[str, float]]] = None,
+    ) -> "BatchInvestigationResult":
+        """
+        主动探究盲区热点
+
+        Args:
+            blind_spots: 可选，不传则从上次 validation 结果获取
+
+        Returns:
+            BatchInvestigationResult: 探究结果
+        """
+        if blind_spots is None:
+            if self._last_result:
+                blind_spots = self._last_result.blind_spots
+            else:
+                from deva.naja.attention.blind_spot_investigator import get_blind_spot_investigator
+                investigator = get_blind_spot_investigator()
+                return investigator.investigate_all([])
+
+        try:
+            from deva.naja.attention.blind_spot_investigator import get_blind_spot_investigator
+            investigator = get_blind_spot_investigator()
+            return investigator.investigate_all(blind_spots)
+        except Exception:
+            return None
+
+    def fuse_with_investigation(
+        self,
+        market_attention: Dict[str, float],
+        portfolio_summary: Optional["PortfolioSummary"] = None,
+        blind_spots: Optional[List[Tuple[str, float]]] = None,
+    ) -> FullFusionResult:
+        """
+        带主动探究的融合
+
+        自动探究 blind_spots，然后执行融合
+
+        Args:
+            market_attention: 市场热度
+            portfolio_summary: 持仓汇总
+            blind_spots: 盲区列表
+
+        Returns:
+            FullFusionResult: 融合结果
+        """
+        investigation_result = self.investigate_blind_spots(blind_spots)
+
+        if portfolio_summary is None:
+            portfolio_summary = self.portfolio.get_summary()
+
+        return self.fuse(
+            market_attention=market_attention,
+            portfolio_summary=portfolio_summary,
+        )
 
     def get_top_signals(self, top_k: int = 10) -> List[FusionSignal]:
         """获取排名最高的信号"""

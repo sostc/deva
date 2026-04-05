@@ -63,37 +63,83 @@ log = logging.getLogger(__name__)
 
 @dataclass
 class AttentionKernelOutput:
-    """注意力内核输出"""
+    """
+    【输出层】注意力内核完整输出
+
+    ════════════════════════════════════════════════════════════════════════════
+                                字 段 归 属
+    ════════════════════════════════════════════════════════════════════════════
+
+    【内核核心】（原有）
+        alpha, confidence, attention_weights, focus_symbols, manas_score,
+        timing_score, regime_score, confidence_score, risk_temperature
+
+    【行动决策】（原有）
+        should_act, action_type, harmony_state, harmony_strength,
+        bias_state, bias_correction
+
+    【认知层】
+        narrative_risk, ai_compute_direction, awakening_level
+
+    【融合层-新增】（来自 AttentionFusion.FullFusionResult）
+    ─────────────────────────────────────────────────────────────────────────────
+    【桥接层-差异检测】
+        consensus_blocks      = 外部热 ∩ 我们持有（坚定持有）
+        divergence_blocks     = 外部热 ∩ 我们持有（方向分歧→验证）
+        blind_spots         = 外部热 ∩ 我们没关注（→探究）
+        new_hot_blocks      = 新出现的热点（→跟踪）
+        conviction_score     = 信念验证整体分数
+        fusion_timing_signal = 时机信号
+
+    【被动发现-盲区】
+        blind_spot_investigations = BlindSpotInvestigator探究结果列表
+            每个元素: {block_id, root_cause, resolvers, recommendation, is_actionable}
+
+    【主动发现-天道】
+        value_score          = 天道价值分数（我们认定的重要变化）
+        market_narrative_score = 民心市场叙事分数（参考）
+
+    【主动发现-天道详情】
+        value_signals        = 天道信号详情（哪些关键词被命中）
+        market_narrative_signals = 民心信号详情（参考）
+    """
     alpha: float = 1.0
     confidence: float = 0.5
-    attention_weights: Dict[str, float] = field(default_factory=dict)
-    focus_symbols: List[str] = field(default_factory=list)
+    attention_weights: Dict[str, float] = field(default_factory=dict)  # 【内核】注意力权重
+    focus_symbols: List[str] = field(default_factory=list)              # 【内核】焦点符号
 
-    manas_score: float = 0.5
-    timing_score: float = 0.5
-    regime_score: float = 0.0
-    confidence_score: float = 0.5
-    risk_temperature: float = 1.0
+    manas_score: float = 0.5                                         # 【内核】Manas分数
+    timing_score: float = 0.5                                        # 【时机】timing分数
+    regime_score: float = 0.0                                         # 【时机】市场状态
+    confidence_score: float = 0.5                                    # 【内核】置信度
 
-    should_act: bool = False
-    action_type: str = "hold"
-    harmony_state: str = "neutral"
-    harmony_strength: float = 0.5
+    risk_temperature: float = 1.0                                    # 【风险】风险温度
 
-    bias_state: str = "neutral"
-    bias_correction: float = 1.0
+    should_act: bool = False                                         # 【决策】是否应行动
+    action_type: str = "hold"                                        # 【决策】行动类型
+    harmony_state: str = "neutral"                                    # 【决策】和谐状态
+    harmony_strength: float = 0.5                                     # 【决策】和谐强度
 
-    narrative_risk: float = 0.5
-    ai_compute_direction: str = "unknown"
-    awakening_level: str = "dormant"
+    bias_state: str = "neutral"                                      # 【偏差】偏差状态
+    bias_correction: float = 1.0                                      # 【偏差】偏差校正
 
-    conviction_score: float = 0.0
-    fusion_signals: List[Dict] = field(default_factory=list)
-    consensus_blocks: List[str] = field(default_factory=list)
-    divergence_blocks: List[str] = field(default_factory=list)
-    blind_spots: List[str] = field(default_factory=list)
-    new_hot_blocks: List[str] = field(default_factory=list)
-    fusion_timing_signal: str = "unknown"
+    narrative_risk: float = 0.5                                       # 【认知】叙事风险
+    ai_compute_direction: str = "unknown"                            # 【认知】AI算力方向
+    awakening_level: str = "dormant"                                  # 【认知】觉醒水平
+
+    conviction_score: float = 0.0                                     # 【桥接】信念分数
+    fusion_signals: List[Dict] = field(default_factory=list)          # 【融合】融合信号列表
+    consensus_blocks: List[str] = field(default_factory=list)          # 【桥接】共识block
+    divergence_blocks: List[str] = field(default_factory=list)       # 【桥接】分歧block
+    blind_spots: List[str] = field(default_factory=list)              # 【被动发现】盲区block
+    new_hot_blocks: List[str] = field(default_factory=list)           # 【外部】新热点block
+    fusion_timing_signal: str = "unknown"                              # 【时机】融合时机信号
+    blind_spot_investigations: List[Dict] = field(default_factory=list)  # 【被动发现】盲区探究结果
+
+    value_score: float = 0.0                                          # 【主动发现-天道】价值分数
+    market_narrative_score: float = 0.0                               # 【主动发现-民心】市场叙事分数
+    value_signals: Dict[str, List[str]] = field(default_factory=dict)  # 【主动发现-天道】价值信号
+    market_narrative_signals: Dict[str, List[str]] = field(default_factory=dict)  # 【主动发现-民心】市场叙事信号
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -209,6 +255,10 @@ class AttentionKernel:
         blind_spots = []
         new_hot_blocks = []
         fusion_timing_signal = "unknown"
+        value_score = 0.0
+        market_narrative_score = 0.0
+        value_signals: Dict[str, List[str]] = {}
+        market_narrative_signals: Dict[str, List[str]] = {}
 
         try:
             from deva.naja.attention.attention_fusion import get_attention_fusion
@@ -231,6 +281,36 @@ class AttentionKernel:
                     blind_spots = [b for b, _ in fusion_result.blind_spots[:5]]
                     new_hot_blocks = [b for b, _ in fusion_result.new_hot_blocks[:5]]
                     fusion_timing_signal = fusion_result.timing_signal
+
+                    value_score = fusion_result.value_score
+                    market_narrative_score = fusion_result.market_narrative_score
+                    value_signals = fusion_result.value_signals
+                    market_narrative_signals = fusion_result.market_narrative_signals
+
+                    blind_spot_investigations = []
+                    try:
+                        from deva.naja.attention.blind_spot_investigator import get_blind_spot_investigator
+                        investigator = get_blind_spot_investigator()
+                        blind_spot_with_scores = [
+                            (b, fusion_result.blind_spots[i][1])
+                            for i, b in enumerate(blind_spots)
+                        ]
+                        if blind_spot_with_scores:
+                            investigation_result = investigator.investigate_all(blind_spot_with_scores)
+                            if investigation_result:
+                                blind_spot_investigations = [
+                                    {
+                                        "block_id": r.block_id,
+                                        "root_cause": r.root_cause,
+                                        "resolvers": r.resolvers,
+                                        "auto_followed": r.auto_followed_stocks,
+                                        "confidence": r.investigation_confidence,
+                                    }
+                                    for r in investigation_result.investigations
+                                    if r.is_actionable
+                                ]
+                    except Exception:
+                        pass
         except Exception:
             pass
 
@@ -260,6 +340,11 @@ class AttentionKernel:
             blind_spots=blind_spots,
             new_hot_blocks=new_hot_blocks,
             fusion_timing_signal=fusion_timing_signal,
+            blind_spot_investigations=blind_spot_investigations,
+            value_score=value_score,
+            market_narrative_score=market_narrative_score,
+            value_signals=value_signals,
+            market_narrative_signals=market_narrative_signals,
         )
 
         for e in encoded_events:
