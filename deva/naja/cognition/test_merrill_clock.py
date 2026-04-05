@@ -79,15 +79,15 @@ def test_merrill_clock_integration():
     print(markdown_report)
     print("=" * 80)
     
-    # ========== 步骤 5: 测试天道民心评分 ==========
-    print("\n【步骤 5】测试天道民心评分...")
-    tiandao_minxin = tracker.get_tiandao_minxin_summary()
-    
-    print(f"✓ 天道民心评分:")
-    print(f"  天道评分：{tiandao_minxin.get('tiandao_score', 0):.0%}")
-    print(f"  民心评分：{tiandao_minxin.get('minxin_score', 0):.0%}")
-    print(f"  推荐行动：{tiandao_minxin.get('recommendation', 'N/A')}")
-    print(f"  理由：{tiandao_minxin.get('reason', 'N/A')}")
+    # ========== 步骤 5: 测试价值/市场评分 ==========
+    print("\n【步骤 5】测试价值/市场评分（天道/民心）...")
+    value_summary = tracker.get_value_market_summary()
+
+    print(f"✓ 价值/市场评分:")
+    print(f"  价值评分(天道)：{value_summary.get('value_score', 0):.0%}")
+    print(f"  市场叙事评分(民心)：{value_summary.get('market_narrative_score', 0):.0%}")
+    print(f"  推荐行动：{value_summary.get('recommendation', 'N/A')}")
+    print(f"  理由：{value_summary.get('reason', 'N/A')}")
     
     print("\n" + "=" * 80)
     print("测试完成！")
