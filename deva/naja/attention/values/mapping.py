@@ -10,7 +10,7 @@ from typing import Dict, List, Any
 VALUE_STRATEGY_MAPPING: Dict[str, Dict[str, Any]] = {
     "trend": {
         "primary": "momentum_tracker",
-        "secondary": ["sector_hunter"],
+        "secondary": ["block_rotation_hunter"],
         "principles": [
             "趋势一旦形成，不会轻易改变",
             "不要逆势而行",
@@ -39,7 +39,7 @@ VALUE_STRATEGY_MAPPING: Dict[str, Dict[str, Any]] = {
         "indicators": ["PE", "PB", "股息率", "EV/EBITDA"]
     },
     "momentum": {
-        "primary": "sector_hunter",
+        "primary": "block_rotation_hunter",
         "secondary": ["momentum_tracker"],
         "principles": [
             "强者恒强，弱者恒弱",
@@ -75,7 +75,7 @@ STRATEGY_TO_VALUE_MAPPING: Dict[str, str] = {
     "anomaly_sniper": "contrarian",
     "smart_money_detector": "liquidity",
     "global_sentinel": "value",
-    "sector_hunter": "momentum",
+    "block_rotation_hunter": "momentum",
 }
 
 

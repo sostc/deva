@@ -36,6 +36,7 @@ class TextSource(Enum):
     IMSG = "imsg"                     # iMessage
     WECHAT = "wechat"                 # 微信
     SYSTEM = "system"                 # 系统通知
+    RADAR_NEWS = "radar_news"        # 雷达新闻
 
 
 # 来源权威权重

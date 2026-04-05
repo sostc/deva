@@ -1,0 +1,89 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 500">
+  <defs>
+    <marker id="arrowhead2" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#666"/>
+    </marker>
+  </defs>
+
+  <rect width="800" height="500" fill="#f8fafc"/>
+
+  <!-- Title -->
+  <text x="400" y="30" text-anchor="middle" font-size="18" font-weight="bold" fill="#1e293b">ManasEngine 内部架构</text>
+  <text x="400" y="50" text-anchor="middle" font-size="11" fill="#64748b">天-地-人框架中的「人」- 四引擎 + 一观照层</text>
+
+  <!-- 天-地-人感知 -->
+  <rect x="50" y="75" width="200" height="120" rx="8" fill="#fce7f3" stroke="#ec4899" stroke-width="2"/>
+  <text x="150" y="95" text-anchor="middle" font-size="12" font-weight="bold" fill="#9d174d">☁️ 天</text>
+  <text x="150" y="115" text-anchor="middle" font-size="10" fill="#be185d">TimingNarrative</text>
+  <text x="150" y="130" text-anchor="middle" font-size="9" fill="#f472b6">时机成熟度</text>
+  <text x="150" y="145" text-anchor="middle" font-size="9" fill="#f472b6">→ timing_score</text>
+  <text x="150" y="165" text-anchor="middle" font-size="8" fill="#9d174d">现在是不是该动的时候？</text>
+
+  <rect x="50" y="210" width="200" height="120" rx="8" fill="#fef9c3" stroke="#eab308" stroke-width="2"/>
+  <text x="150" y="230" text-anchor="middle" font-size="12" font-weight="bold" fill="#854d0e">🌍 地</text>
+  <text x="150" y="250" text-anchor="middle" font-size="10" fill="#a16207">SectorNarrative</text>
+  <text x="150" y="265" text-anchor="middle" font-size="9" fill="#ca8a04">板块状态</text>
+  <text x="150" y="280" text-anchor="middle" font-size="9" fill="#ca8a04">→ spatial_score</text>
+  <text x="150" y="300" text-anchor="middle" font-size="8" fill="#854d0e">我关心的主题怎么样了？</text>
+
+  <!-- ManasEngine -->
+  <rect x="300" y="75" width="450" height="340" rx="10" fill="#fef3c7" stroke="#f59e0b" stroke-width="2"/>
+
+  <text x="525" y="100" text-anchor="middle" font-size="16" font-weight="bold" fill="#92400e">ManasEngine（人）</text>
+  <text x="525" y="118" text-anchor="middle" font-size="10" fill="#b45309">综合「天」+「地」+ 四引擎 + 观照层</text>
+
+  <!-- 四个引擎 -->
+  <text x="525" y="145" text-anchor="middle" font-size="11" font-weight="bold" fill="#78350f">四引擎 + 一观照层</text>
+
+  <!-- TimingEngine -->
+  <rect x="320" y="160" width="200" height="55" rx="6" fill="#bbf7d0" stroke="#16a34a" stroke-width="1.5"/>
+  <text x="420" y="178" text-anchor="middle" font-size="10" font-weight="bold" fill="#166534">TimingEngine（时机节律）</text>
+  <text x="420" y="193" text-anchor="middle" font-size="9" fill="#15803d">微观时机 · 现在能不能动</text>
+  <text x="420" y="207" text-anchor="middle" font-size="8" fill="#22c55e">→ timing_score ∈ [0,1]</text>
+
+  <!-- RegimeEngine -->
+  <rect x="320" y="225" width="200" height="55" rx="6" fill="#bbf7d0" stroke="#16a34a" stroke-width="1.5"/>
+  <text x="420" y="243" text-anchor="middle" font-size="10" font-weight="bold" fill="#166534">RegimeEngine（环境感）</text>
+  <text x="420" y="258" text-anchor="middle" font-size="9" fill="#15803d">宏观环境 · 顺风还是逆风</text>
+  <text x="420" y="272" text-anchor="middle" font-size="8" fill="#22c55e">→ regime_score ∈ [-1,1]</text>
+
+  <!-- ConfidenceEngine -->
+  <rect x="530" y="160" width="200" height="55" rx="6" fill="#bbf7d0" stroke="#16a34a" stroke-width="1.5"/>
+  <text x="630" y="178" text-anchor="middle" font-size="10" font-weight="bold" fill="#166534">ConfidenceEngine（自信）</text>
+  <text x="630" y="193" text-anchor="middle" font-size="9" fill="#15803d">策略适配度 · 策略还管用吗</text>
+  <text x="630" y="207" text-anchor="middle" font-size="8" fill="#22c55e">→ confidence ∈ [0,1.5]</text>
+
+  <!-- RiskEngine -->
+  <rect x="530" y="225" width="200" height="55" rx="6" fill="#bbf7d0" stroke="#16a34a" stroke-width="1.5"/>
+  <text x="630" y="243" text-anchor="middle" font-size="10" font-weight="bold" fill="#166534">RiskEngine（风险）</text>
+  <text x="630" y="258" text-anchor="middle" font-size="9" fill="#15803d">客观风险 · 市场能杀我多少</text>
+  <text x="630" y="272" text-anchor="middle" font-size="8" fill="#22c55e">→ temperature ∈ (0,2]</text>
+
+  <!-- MetaManas -->
+  <rect x="420" y="295" width="200" height="55" rx="6" fill="#fecaca" stroke="#dc2626" stroke-width="1.5"/>
+  <text x="520" y="313" text-anchor="middle" font-size="10" font-weight="bold" fill="#991b1b">MetaManas（观照层）</text>
+  <text x="520" y="328" text-anchor="middle" font-size="9" fill="#b91c1c">主观偏差 · 我自己会作死吗</text>
+  <text x="520" y="342" text-anchor="middle" font-size="8" fill="#ef4444">→ bias_correction, bias_state</text>
+
+  <!-- ManasScore -->
+  <rect x="420" y="365" width="200" height="40" rx="6" fill="#fed7aa" stroke="#ea580c" stroke-width="1.5"/>
+  <text x="520" y="385" text-anchor="middle" font-size="11" font-weight="bold" fill="#9a3412">ManasScore（统一输出）</text>
+  <text x="520" y="398" text-anchor="middle" font-size="9" fill="#ea580c">→ manas_score ∈ [0,1]</text>
+
+  <!-- Arrows from 天/地 -->
+  <line x1="250" y1="135" x2="320" y2="175" stroke="#666" stroke-width="1.5" marker-end="url(#arrowhead2)"/>
+  <line x1="250" y1="270" x2="320" y2="240" stroke="#666" stroke-width="1.5" marker-end="url(#arrowhead2)"/>
+
+  <!-- Legend box -->
+  <rect x="50" y="360" width="200" height="130" rx="6" fill="white" stroke="#cbd5e1" stroke-width="1"/>
+  <text x="65" y="380" font-size="10" font-weight="bold" fill="#475569">各引擎视角</text>
+  <text x="65" y="398" font-size="9" fill="#166534">● TimingEngine: 微观时机</text>
+  <text x="65" y="412" font-size="9" fill="#166534">● RegimeEngine: 宏观环境</text>
+  <text x="65" y="426" font-size="9" fill="#166534">● ConfidenceEngine: 策略适配</text>
+  <text x="65" y="440" font-size="9" fill="#166534">● RiskEngine: 客观风险</text>
+  <text x="65" y="454" font-size="9" fill="#991b1b">● MetaManas: 主观偏差</text>
+  <text x="65" y="470" font-size="9" fill="#9a3412">● ManasScore: 综合输出</text>
+
+  <!-- Formula -->
+  <rect x="50" y="430" width="200" height="60" rx="6" fill="#fef3c7" stroke="#f59e0b" stroke-width="1"/>
+</svg>

@@ -98,7 +98,7 @@ class AttentionAwareMixin:
         
         return global_attention
     
-    def get_sector_attention(self, sector_id: str) -> float:
+    def get_block_attention_weight(self, block_id: str) -> float:
         """获取板块注意力分数"""
         if not self._use_attention:
             return 0.5
@@ -107,7 +107,7 @@ class AttentionAwareMixin:
         if integration is None or integration.attention_system is None:
             return 0.5
         
-        return integration.attention_system.sector_attention.get_sector_attention(sector_id)
+        return integration.attention_system.block_attention.get_block_attention(block_id)
     
     def filter_by_attention(self, df: pd.DataFrame, 
                            min_weight: float = 1.0,
@@ -164,16 +164,16 @@ class AttentionAwareMixin:
         
         return adjusted_threshold, adjusted_position
     
-    def get_active_sectors(self, threshold: float = 0.3) -> List[str]:
+    def get_active_blocks(self, threshold: float = 0.3) -> List[str]:
         """获取活跃板块列表"""
         if not self._use_attention:
             return []
-        
+
         integration = self._get_attention_integration()
         if integration is None:
             return []
-        
-        return integration.get_active_sectors(threshold)
+
+        return integration.get_active_blocks(threshold)
     
     def enable_attention(self):
         """启用注意力过滤"""
@@ -299,9 +299,9 @@ class BlockStockSelectorWithAttention:
     def on_data(self, data: Any) -> None:
         """处理数据"""
         # 只处理活跃板块的股票
-        active_sectors = self.attention.get_active_sectors(threshold=0.4)
-        
-        if active_sectors and pd is not None and isinstance(data, pd.DataFrame):
+        active_blocks = self.attention.get_active_blocks(threshold=0.4)
+
+        if active_blocks and pd is not None and isinstance(data, pd.DataFrame):
             # 这里假设可以通过某种方式过滤板块
             # 实际实现需要根据具体数据结构
             pass

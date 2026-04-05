@@ -445,7 +445,7 @@ class RealtimeDataFetcher:
                             'timestamp': time.time(),
                             'global_attention': us_state.get('global_attention', 0.5),
                             'activity': us_state.get('activity', 0.5),
-                            'sector_weights': us_state.get('sector_attention', {}),
+                            'sector_weights': us_state.get('block_attention', {}),
                             'symbol_weights': us_state.get('symbol_weights', {}),
                         }
                         process_data_with_strategies(us_df, context)
@@ -607,6 +607,8 @@ class RealtimeDataFetcher:
                 self.attention_system.process_data(data)
                 self._fetch_count += 1
 
+                self._write_to_market_data_bus(data)
+
                 if level == "LOW" and self._save_snapshot_enabled:
                     self._save_market_snapshot(data)
 
@@ -677,10 +679,10 @@ class RealtimeDataFetcher:
 
         try:
             from deva.naja.attention.processing.noise_filter import NoiseFilter
-            from deva.naja.attention.processing.sector_noise_detector import SectorNoiseDetector
+            from deva.naja.attention.processing.block_noise_detector import BlockNoiseDetector
 
             noise_filter = NoiseFilter()
-            sector_noise_detector = SectorNoiseDetector()
+            block_noise_detector = BlockNoiseDetector()
 
             original_count = len(df)
             mask = pd.Series([True] * len(df), index=df.index)
@@ -764,7 +766,7 @@ class RealtimeDataFetcher:
             return None
 
     def _sync_us_prices_to_portfolio(self, us_data: Dict[str, Any]):
-        """同步美股数据到持仓"""
+        """同步美股数据到持仓和 MarketDataBus"""
         try:
             from deva.naja.bandit.portfolio_manager import get_portfolio_manager
 
@@ -778,9 +780,33 @@ class RealtimeDataFetcher:
 
             pm.update_us_prices(price_map, prev_close_map)
             log.debug(f"[RealtimeDataFetcher] 同步 {len(us_data)} 只美股到持仓")
-
         except Exception as e:
             log.debug(f"[RealtimeDataFetcher] 同步美股到持仓失败: {e}")
+
+        try:
+            from deva.naja.bandit.market_data_bus import get_market_data_bus, MarketQuote
+            bus = get_market_data_bus()
+            now = time.time()
+            for code, info in us_data.items():
+                quote = MarketQuote(
+                    code=code,
+                    name=info.get('name', code),
+                    current=info.get('price', 0),
+                    prev_close=info.get('prev_close', 0),
+                    change=info.get('change', 0),
+                    change_pct=info.get('change_pct', 0),
+                    volume=info.get('volume', 0),
+                    high=info.get('high', 0),
+                    low=info.get('low', 0),
+                    market='US',
+                    timestamp=now,
+                    fetch_time=now,
+                    is_stale=False,
+                )
+                if quote.current > 0:
+                    bus.write_quotes({code: quote})
+        except Exception as e:
+            log.debug(f"[RealtimeDataFetcher] 同步美股到 MarketDataBus 失败: {e}")
 
     def _convert_us_to_dataframe(self, us_data: Dict[str, Any]) -> Optional[pd.DataFrame]:
         """将美股数据转换为注意力系统可处理的DataFrame格式
@@ -794,18 +820,23 @@ class RealtimeDataFetcher:
         - volume: 成交量
         - high: 最高价
         - low: 最低价
-        - sector: 板块（从US_STOCK_SECTORS映射）
+        - sector: 主要板块 ID（从US_STOCK_SECTORS映射）
+        - blocks: 板块关键词列表（完整叙事标签）
+        - narrative: 核心叙事标签
         - market: 市场标识 'US'
         """
         if not us_data:
             return None
 
         try:
-            from deva.naja.attention.data.global_market_futures import US_STOCK_SECTORS
+            from deva.naja.bandit.stock_sector_map import US_STOCK_SECTORS
 
             records = []
             for symbol, info in us_data.items():
-                sector = US_STOCK_SECTORS.get(symbol, "其他")
+                stock_info = US_STOCK_SECTORS.get(symbol, {})
+                blocks = stock_info.get("blocks", [])
+                sector = stock_info.get("sector", "other")
+                narrative = stock_info.get("narrative", blocks[0] if blocks else sector)
                 records.append({
                     'code': symbol,
                     'name': info.get('name', symbol),
@@ -818,6 +849,8 @@ class RealtimeDataFetcher:
                     'volume': info.get('volume', 0),
                     'amount': info.get('volume', 0) * info.get('price', 0),
                     'sector': sector,
+                    'blocks': blocks,
+                    'narrative': narrative,
                     'market': 'US',
                 })
 
@@ -826,12 +859,59 @@ class RealtimeDataFetcher:
 
             df = pd.DataFrame(records)
             df.set_index('code', inplace=True)
-            log.debug(f"[RealtimeDataFetcher] 转换美股数据: {len(df)} 只, 板块分布: {df['sector'].value_counts().to_dict()}")
+            all_blocks = [b for blocks in df['blocks'] for b in blocks]
+            block_counts = {}
+            for b in all_blocks:
+                block_counts[b] = block_counts.get(b, 0) + 1
+            log.debug(f"[RealtimeDataFetcher] 转换美股数据: {len(df)} 只, blocks分布: {block_counts}")
             return df
 
         except Exception as e:
             log.debug(f"[RealtimeDataFetcher] 转换美股数据失败: {e}")
             return None
+
+    def _write_to_market_data_bus(self, df: pd.DataFrame):
+        """将行情数据写入 MarketDataBus（供其他模块共享）"""
+        if df is None or df.empty:
+            return
+        try:
+            from deva.naja.bandit.market_data_bus import get_market_data_bus, MarketQuote
+            bus = get_market_data_bus()
+            now = time.time()
+            for _, row in df.iterrows():
+                try:
+                    code = str(row.get('code', ''))
+                    if not code:
+                        continue
+                    if code.startswith('sh'):
+                        market = 'SH'
+                    elif code.startswith('sz'):
+                        market = 'SZ'
+                    else:
+                        market = str(row.get('market', 'US'))
+                    quote = MarketQuote(
+                        code=code,
+                        name=str(row.get('name', code)),
+                        current=float(row.get('now', 0)),
+                        prev_close=float(row.get('close', row.get('prev_close', 0))),
+                        change=float(row.get('price_change', 0)),
+                        change_pct=float(row.get('p_change', 0)),
+                        volume=int(row.get('volume', 0)),
+                        high=float(row.get('high', 0)),
+                        low=float(row.get('low', 0)),
+                        open_price=float(row.get('open', 0)),
+                        amount=float(row.get('amount', 0)),
+                        market=market,
+                        timestamp=row.get('timestamp', now),
+                        fetch_time=now,
+                        is_stale=False,
+                    )
+                    if quote.current > 0:
+                        bus.write_quotes({code: quote})
+                except Exception:
+                    continue
+        except Exception as e:
+            log.debug(f"[RealtimeDataFetcher] 写入 MarketDataBus 失败: {e}")
 
     def _process_us_attention(self, us_df: pd.DataFrame):
         """处理美股注意力数据
@@ -882,7 +962,7 @@ class RealtimeDataFetcher:
                     sector_ids=sector_ids,
                     timestamp=timestamp
                 )
-                print(f"[RealtimeDataFetcher] 美股注意力处理完成: global_attention={result.get('global_attention', 'N/A')}, sector_count={len(result.get('sector_attention', {}))}")
+                print(f"[RealtimeDataFetcher] 美股注意力处理完成: global_attention={result.get('global_attention', 'N/A')}, block_count={len(result.get('block_attention', {}))}")
             else:
                 print(f"[RealtimeDataFetcher] attention_system 不支持 process_us_snapshot 方法")
                 print(f"[RealtimeDataFetcher] attention_system 方法列表: {[m for m in dir(self.attention_system) if not m.startswith('_')]}")
@@ -1135,7 +1215,7 @@ def get_data_fetcher() -> Optional[RealtimeDataFetcher]:
     import time
 
     if _fetcher_instance is not None:
-        print(f"[get_data_fetcher] 直接返回缓存：{id(_fetcher_instance)}", flush=True)
+        log.debug(f"[get_data_fetcher] 直接返回缓存：{id(_fetcher_instance)}")
         return _fetcher_instance
 
     # 等待 attention_system 初始化完成（最多等待 5 秒）
@@ -1155,25 +1235,25 @@ def get_data_fetcher() -> Optional[RealtimeDataFetcher]:
                     fetcher = integration.attention_system._realtime_fetcher
                     if fetcher is not None:
                         _fetcher_instance = fetcher
-                        print(f"[get_data_fetcher] 等待后获取到 fetcher: {id(fetcher)}", flush=True)
+                        log.debug(f"[get_data_fetcher] 等待后获取到 fetcher: {id(fetcher)}")
                         return _fetcher_instance
                 # 已初始化但没有 fetcher，直接返回
-                print(f"[get_data_fetcher] 已初始化但 fetcher 为 None", flush=True)
+                log.debug(f"[get_data_fetcher] 已初始化但 fetcher 为 None")
                 break
         except Exception as e:
-            print(f"[get_data_fetcher] 异常：{e}", flush=True)
+            log.debug(f"[get_data_fetcher] 异常：{e}")
             pass
         
         time.sleep(wait_step)
         waited += wait_step
 
-    print(f"[get_data_fetcher] 等待超时，返回 None", flush=True)
+    log.debug(f"[get_data_fetcher] 等待超时，返回 None")
     return _fetcher_instance
 
 
 def set_data_fetcher(fetcher: RealtimeDataFetcher):
     """设置全局 RealtimeDataFetcher 实例"""
     global _fetcher_instance
-    print(f"[DataFetcher] set_data_fetcher called: fetcher={fetcher}")
+    log.debug(f"[DataFetcher] set_data_fetcher called: fetcher={fetcher}")
     _fetcher_instance = fetcher
-    print(f"[DataFetcher] _fetcher_instance now: {_fetcher_instance}")
+    log.debug(f"[DataFetcher] _fetcher_instance now: {_fetcher_instance}")

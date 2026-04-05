@@ -100,13 +100,13 @@ def _build_attention_flow_html(stats: Dict, context: Dict, integration, is_cn: b
     high_attention_count = stats.get('high_attention_count', 0)
     noise_stats = stats.get('noise_filter', {})
 
-    active_sectors = context.get('active_sectors', set())
+    active_blocks = context.get('active_blocks', set())
     high_attention_symbols = context.get('high_attention_symbols', set())
 
-    if isinstance(active_sectors, set):
-        active_sector_count = len(active_sectors)
+    if isinstance(active_blocks, set):
+        active_sector_count = len(active_blocks)
     else:
-        active_sector_count = len(active_sectors) if active_sectors else 0
+        active_sector_count = len(active_blocks) if active_blocks else 0
 
     if isinstance(high_attention_symbols, set):
         high_attention_symbol_count = len(high_attention_symbols)
@@ -127,7 +127,7 @@ def _build_attention_flow_html(stats: Dict, context: Dict, integration, is_cn: b
 
     if show_us_only and has_us_data:
         global_attention = us_data.get('global_attention', 0)
-        us_sectors = us_data.get('sector_attention', {})
+        us_sectors = us_data.get('block_attention', {})
         us_symbols = us_data.get('symbol_weights', {})
         active_sector_count = len(us_sectors)
         high_attention_symbol_count = len([s for s, w in us_symbols.items() if w > 3])
@@ -282,7 +282,7 @@ def _build_attention_flow_html(stats: Dict, context: Dict, integration, is_cn: b
     return html
 
 
-def _render_flow_diagram(global_attention: float, active_sectors: int, high_attention: int) -> str:
+def _render_flow_diagram(global_attention: float, active_blocks: int, high_attention: int) -> str:
     """渲染注意力流图"""
     items = [
         ("📥 数据输入", "#60a5fa", True),
@@ -290,7 +290,7 @@ def _render_flow_diagram(global_attention: float, active_sectors: int, high_atte
         ("👁️ 注意力计算", "#14b8a6", True),
         ("📡 策略调度", "#a855f7", high_attention > 0),
         ("🤖 策略执行", "#0ea5e9", global_attention > 0.5),
-        ("📤 信号输出", "#4ade80", active_sectors > 0),
+        ("📤 信号输出", "#4ade80", active_blocks > 0),
     ]
 
     items_html = ""
@@ -316,10 +316,10 @@ def _get_friendly_name(item_id: str, item_type: str, tracker) -> str:
 
     Args:
         item_id: 板块ID或股票代码
-        item_type: 'sector' 或 'symbol'
+        item_type: 'block' 或 'symbol'
         tracker: 历史追踪器实例
     """
-    if item_type == 'sector':
+    if item_type == 'block':
         name = tracker.get_sector_name(item_id) if tracker else item_id
         if name != item_id:
             return f"{name}"
@@ -345,13 +345,13 @@ def render_attention_layers_detail() -> str:
         if not integration or not integration.attention_system:
             return ""
 
-        sector_weights = integration.attention_system.sector_attention.get_all_weights(filter_noise=True) or {}
+        block_weights = integration.attention_system.block_attention.get_all_weights(filter_noise=True) or {}
         symbol_weights = integration.attention_system.weight_pool.get_all_weights() or {}
 
-        hot_sectors = sorted(sector_weights.items(), key=lambda x: x[1], reverse=True)[:10]
+        hot_blocks = sorted(block_weights.items(), key=lambda x: x[1], reverse=True)[:10]
         hot_symbols = sorted(symbol_weights.items(), key=lambda x: x[1], reverse=True)[:15]
 
-        total_sector_weight = sum(sector_weights.values()) if sector_weights else 0
+        total_block_weight = sum(block_weights.values()) if block_weights else 0
         total_symbol_weight = sum(symbol_weights.values()) if symbol_weights else 0
 
         attention_engine = getattr(integration.attention_system, 'global_attention', None)
@@ -366,14 +366,14 @@ def render_attention_layers_detail() -> str:
         return ""
 
     sector_bars = ""
-    for sector_id, weight in hot_sectors:
+    for block_id, weight in hot_blocks:
         bar_width = min(100, int(weight * 100))
-        pct = (weight / total_sector_weight * 100) if total_sector_weight > 0 else 0
-        name = _get_friendly_name(sector_id, 'sector', tracker)
+        pct = (weight / total_block_weight * 100) if total_block_weight > 0 else 0
+        name = _get_friendly_name(block_id, 'block', tracker)
         sector_bars += f"""
         <div style="margin-bottom: 3px;">
             <div style="display: flex; justify-content: space-between; font-size: 9px; color: #94a3b8;">
-                <span style="color: #fb923c;" title="{sector_id}">{name[:12]}</span>
+                <span style="color: #fb923c;" title="{block_id}">{name[:12]}</span>
                 <span>{weight:.4f} <span style="color: #64748b;">({pct:.1f}%)</span></span>
             </div>
             <div style="height: 3px; background: rgba(255,255,255,0.08); border-radius: 2px; overflow: hidden;">
@@ -412,7 +412,7 @@ def render_attention_layers_detail() -> str:
                 🎯 注意力分布
             </div>
             <div style="font-size: 9px; color: #64748b;">
-                板块: {len(sector_weights)} | 个股: {len(symbol_weights)} | 历史: {history_info}
+                板块: {len(block_weights)} | 个股: {len(symbol_weights)} | 历史: {history_info}
             </div>
         </div>
 
@@ -652,14 +652,14 @@ def render_noise_filter_panel() -> str:
     try:
         from deva.naja.attention.trading_center import get_trading_center
         from deva.naja.cognition.history_tracker import get_history_tracker
-        from deva.naja.attention.processing import get_sector_noise_detector, get_noise_manager
+        from deva.naja.attention.processing import get_block_noise_detector, get_noise_manager
 
         orchestrator = get_trading_center()
         tracker = get_history_tracker()
         stats = orchestrator.get_stats()
         noise_stats = stats.get('noise_filter', {})
 
-        noise_detector = get_sector_noise_detector()
+        noise_detector = get_block_noise_detector()
         noise_manager = get_noise_manager()
 
         blacklist_patterns = []
@@ -709,16 +709,16 @@ def render_noise_filter_panel() -> str:
         if len(blacklist_patterns) > 12:
             pattern_tags += f'<span style="font-size: 8px; color: #64748b;">+{len(blacklist_patterns) - 12}</span>'
 
-        noise_sectors = sorted(list(auto_blacklist | manual_blacklist))[:8]
-        noise_sector_tags = ""
-        for sector in noise_sectors:
-            sector_display = tracker.get_sector_name(sector) if tracker else sector
-            if sector_display != sector:
-                noise_sector_tags += f'<span style="display: inline-block; padding: 1px 4px; background: rgba(248,113,113,0.15); color: #f87171; border-radius: 3px; font-size: 8px; margin: 1px;" title="{sector}">{sector_display[:8]}</span>'
+        noise_blocks = sorted(list(auto_blacklist | manual_blacklist))[:8]
+        noise_block_tags = ""
+        for block_id in noise_blocks:
+            block_display = tracker.get_sector_name(block_id) if tracker else block_id
+            if block_display != block_id:
+                noise_block_tags += f'<span style="display: inline-block; padding: 1px 4px; background: rgba(248,113,113,0.15); color: #f87171; border-radius: 3px; font-size: 8px; margin: 1px;" title="{block_id}">{block_display[:8]}</span>'
             else:
-                noise_sector_tags += f'<span style="display: inline-block; padding: 1px 4px; background: rgba(248,113,113,0.15); color: #f87171; border-radius: 3px; font-size: 8px; margin: 1px;">{sector[:10]}</span>'
+                noise_block_tags += f'<span style="display: inline-block; padding: 1px 4px; background: rgba(248,113,113,0.15); color: #f87171; border-radius: 3px; font-size: 8px; margin: 1px;">{block_id[:10]}</span>'
         if len(auto_blacklist | manual_blacklist) > 8:
-            noise_sector_tags += f'<span style="font-size: 8px; color: #64748b;">+{len(auto_blacklist | manual_blacklist) - 8}</span>'
+            noise_block_tags += f'<span style="font-size: 8px; color: #64748b;">+{len(auto_blacklist | manual_blacklist) - 8}</span>'
 
     except Exception:
         return _render_noise_empty_state()
@@ -777,7 +777,7 @@ def render_noise_filter_panel() -> str:
 
         <div>
             <div style="font-size: 8px; color: #f87171; margin-bottom: 4px;">🚫 噪音板块 (自动/手动)</div>
-            <div style="padding: 4px; background: rgba(248,113,113,0.05); border-radius: 4px;">{noise_sector_tags or '<span style="color: #64748b; font-size: 8px;">暂无</span>'}</div>
+            <div style="padding: 4px; background: rgba(248,113,113,0.05); border-radius: 4px;">{noise_block_tags or '<span style="color: #64748b; font-size: 8px;">暂无</span>'}</div>
         </div>
 
         <div style="padding: 4px; background: rgba(255,255,255,0.02); border-radius: 4px; margin-top: 8px;">

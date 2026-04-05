@@ -259,6 +259,11 @@ class USStockPriceManager:
         """
         更新价格（智能策略）
 
+        策略：
+        1. 先尝试从 MarketDataBus 获取缓存数据
+        2. 缓存未命中或强制刷新：从 Sina 获取实时数据
+        3. 休市时间：使用持久化价格
+
         Args:
             stock_codes: 股票代码列表
             force: 是否强制刷新（忽略市场状态）
@@ -271,14 +276,37 @@ class USStockPriceManager:
         phase = self._get_market_phase()
         is_open = phase == "trading"
 
-        if is_open or force:
-            log.debug(f"[PriceManager] 开盘时间，从新浪获取价格 (阶段: {phase})")
-            results = await self.fetch_from_sina(stock_codes)
+        try:
+            from deva.naja.bandit.market_data_bus import get_market_data_bus
+            bus = get_market_data_bus()
+            for code in stock_codes:
+                quote = bus.get_quote(code, allow_stale=not is_open)
+                if quote and quote.current > 0:
+                    snapshot = PriceSnapshot(
+                        code=code,
+                        current=quote.current,
+                        prev_close=quote.prev_close,
+                        update_time=quote.fetch_time
+                    )
+                    results[code] = snapshot
+                    self._last_prices[code] = quote.current
+                    self._last_prev_closes[code] = quote.prev_close
+                    self._last_update_time = max(self._last_update_time, quote.fetch_time)
+        except Exception as e:
+            log.debug(f"[PriceManager] MarketDataBus 获取失败: {e}")
 
-            if not results:
-                log.debug(f"[PriceManager] 新浪获取失败，尝试雪球")
-                results = await self.fetch_from_xueqiu(stock_codes)
-        else:
+        sina_results = {}
+        if (is_open or force) and len(results) < len(stock_codes):
+            missing_codes = [c for c in stock_codes if c not in results]
+            if missing_codes:
+                log.debug(f"[PriceManager] MarketDataBus 缓存未命中，从 Sina 获取: {missing_codes}")
+                sina_results = await self.fetch_from_sina(missing_codes)
+                results.update(sina_results)
+
+            if not sina_results:
+                log.debug(f"[PriceManager] Sina 获取失败，尝试雪球")
+                results.update(await self.fetch_from_xueqiu(missing_codes))
+        elif not results:
             log.debug(f"[PriceManager] 休市时间 (阶段: {phase})，使用持久化价格")
             self.load_persisted_prices(stock_codes)
 

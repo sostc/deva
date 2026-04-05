@@ -63,7 +63,7 @@ def render_us_market_panel(us_data: Dict[str, Any] = None) -> str:
 
     global_attention = us_data.get('global_attention', 0.5)
     activity = us_data.get('activity', 0.5)
-    sector_attention = us_data.get('sector_attention', {})
+    sector_attention = us_data.get('block_attention', {})
     symbol_weights = us_data.get('symbol_weights', {})
 
     sorted_sectors = sorted(sector_attention.items(), key=lambda x: x[1], reverse=True)[:8]
@@ -138,7 +138,7 @@ def render_us_hot_sectors_and_stocks(us_data: Dict[str, Any] = None) -> str:
     if not us_data:
         return ""
 
-    sector_attention = us_data.get('sector_attention', {})
+    sector_attention = us_data.get('block_attention', {})
     symbol_weights = us_data.get('symbol_weights', {})
 
     sorted_sectors = sorted(sector_attention.items(), key=lambda x: x[1], reverse=True)[:10]
@@ -220,7 +220,7 @@ def get_us_market_summary() -> Dict[str, Any]:
             'activity': 0.5,
         }
 
-    sector_attention = us_data.get('sector_attention', {})
+    sector_attention = us_data.get('block_attention', {})
     symbol_weights = us_data.get('symbol_weights', {})
 
     total = len(symbol_weights)

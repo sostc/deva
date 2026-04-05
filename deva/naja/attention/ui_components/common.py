@@ -60,9 +60,9 @@ def _is_b_share_symbol(symbol: str, name: str = "", stock_type: str = "") -> boo
     return False
 
 
-def _is_b_share_sector(sector_id: str, sector_name: Optional[str]) -> bool:
+def _is_b_share_sector(block_id: str, sector_name: Optional[str]) -> bool:
     """判断板块名称是否包含 B 股标识"""
-    display = str(sector_name or sector_id)
+    display = str(sector_name or block_id)
     return ("B股" in display) or ("含B股" in display)
 
 
@@ -74,23 +74,23 @@ def get_hot_sectors_and_stocks() -> Dict[str, Any]:
         return {"sectors": [], "stocks": []}
 
     try:
-        sector_weights = integration.attention_system.sector_attention.get_all_weights(filter_noise=True) if integration.attention_system else {}
+        block_weights = integration.attention_system.block_attention.get_all_weights(filter_noise=True) if integration.attention_system else {}
         symbol_weights = integration.attention_system.weight_pool.get_all_weights(filter_noise=True) if integration.attention_system else {}
 
-        _lab_debug_log(f"get_hot_sectors_and_stocks: sector_weights={len(sector_weights)} 个, symbol_weights={len(symbol_weights)} 个")
+        _lab_debug_log(f"get_hot_sectors_and_stocks: block_weights={len(block_weights)} 个, symbol_weights={len(symbol_weights)} 个")
 
         sorted_sectors = sorted(
-            [(sector, weight) for sector, weight in sector_weights.items()],
+            [(sector, weight) for sector, weight in block_weights.items()],
             key=lambda x: x[1], reverse=True
         )
 
         tracker = get_history_tracker()
         hot_sectors: List[Tuple[str, float]] = []
-        for sector_id, weight in sorted_sectors:
-            sector_name = tracker.get_sector_name(sector_id) if tracker else None
-            if _is_b_share_sector(sector_id, sector_name):
+        for block_id, weight in sorted_sectors:
+            sector_name = tracker.get_sector_name(block_id) if tracker else None
+            if _is_b_share_sector(block_id, sector_name):
                 continue
-            hot_sectors.append((sector_id, weight))
+            hot_sectors.append((block_id, weight))
             if len(hot_sectors) >= 5:
                 break
 
@@ -123,8 +123,8 @@ def get_hot_sectors_and_stocks() -> Dict[str, Any]:
             _lab_debug_log(f"get_hot_sectors_and_stocks: 过滤 B 股股票 {filtered_b_stocks} 只")
 
         if hot_sectors:
-            top_sectors = [(s, f"{w:.4f}") for s, w in hot_sectors[:3]]
-            _lab_debug_log(f"热门板块 Top3: {top_sectors}")
+            top_blocks = [(s, f"{w:.4f}") for s, w in hot_sectors[:3]]
+            _lab_debug_log(f"热门板块 Top3: {top_blocks}")
         if hot_stocks_with_name:
             top_stocks = [(s["symbol"], s["name"], f"{s['weight']:.4f}") for s in hot_stocks_with_name[:3]]
             _lab_debug_log(f"热门股票 Top3: {top_stocks}")

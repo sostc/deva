@@ -1,0 +1,152 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1100 850">
+  <defs>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#0c0a1d;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#1a1a2e;stop-opacity:1" />
+    </linearGradient>
+
+    <linearGradient id="manasGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#4c1d95;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#2e1065;stop-opacity:1" />
+    </linearGradient>
+
+    <linearGradient id="radarGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#0369a1;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#0c4a6e;stop-opacity:1" />
+    </linearGradient>
+
+    <linearGradient id="newsGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#1e40af;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#1e3a8a;stop-opacity:1" />
+    </linearGradient>
+
+    <linearGradient id="attentionGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#0f766e;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#134e4a;stop-opacity:1" />
+    </linearGradient>
+
+    <filter id="glow">
+      <feGaussianBlur stdDeviation="5" result="coloredBlur"/>
+      <feMerge>
+        <feMergeNode in="coloredBlur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+
+    <filter id="shadow">
+      <feDropShadow dx="0" dy="4" stdDeviation="8" flood-opacity="0.4"/>
+    </filter>
+
+    <marker id="arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
+      <path d="M0,0 L8,4 L0,8 L2,4 Z" fill="#94a3b8"/>
+    </marker>
+
+    <marker id="arrowBlue" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
+      <path d="M0,0 L8,4 L0,8 L2,4 Z" fill="#60a5fa"/>
+    </marker>
+
+    <marker id="arrowGreen" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
+      <path d="M0,0 L8,4 L0,8 L2,4 Z" fill="#34d399"/>
+    </marker>
+  </defs>
+
+  <rect width="1100" height="850" fill="url(#bgGrad)"/>
+
+  <ellipse cx="550" cy="370" rx="450" ry="320" fill="#7c3aed" opacity="0.03"/>
+
+  <text x="550" y="45" text-anchor="middle" fill="#c4b5fd" font-family="system-ui, sans-serif" font-size="24" font-weight="bold" filter="url(#glow)">FirstPrinciplesMind</text>
+  <text x="550" y="72" text-anchor="middle" fill="#a78bfa" font-family="system-ui, sans-serif" font-size="12">第一性原理思维 · 从根本逻辑推理市场</text>
+  <text x="550" y="93" text-anchor="middle" fill="#78716c" font-family="system-ui, sans-serif" font-size="10">追问"为什么"而非"是什么" · 本质规律驱动决策</text>
+
+  <rect x="880" y="15" width="120" height="30" rx="15" fill="#4c1d95" stroke="#a855f7" stroke-width="1"/>
+  <text x="940" y="35" text-anchor="middle" fill="#c4b5fd" font-family="system-ui, sans-serif" font-size="11" font-weight="bold">主角视角</text>
+
+  <circle cx="550" cy="370" r="130" fill="url(#manasGrad)"/>
+  <circle cx="550" cy="370" r="130" fill="none" stroke="#a855f7" stroke-width="2" opacity="0.7"/>
+  <circle cx="550" cy="370" r="105" fill="none" stroke="#c4b5fd" stroke-width="1" opacity="0.4"/>
+  <circle cx="550" cy="370" r="80" fill="#2e1065"/>
+
+  <text x="550" y="345" text-anchor="middle" fill="#fff" font-family="system-ui, sans-serif" font-size="17" font-weight="bold">FirstPrinciplesMind</text>
+  <text x="550" y="370" text-anchor="middle" fill="#c4b5fd" font-family="system-ui, sans-serif" font-size="12">第一性原理</text>
+  <text x="550" y="392" text-anchor="middle" fill="#a78bfa" font-family="system-ui, sans-serif" font-size="10">think(market_state, snapshot)</text>
+  <text x="550" y="420" text-anchor="middle" fill="#e9d5ff" font-family="system-ui, sans-serif" font-size="10">→ insights[]</text>
+
+  <rect x="100" y="130" width="200" height="90" rx="10" fill="#1e1b4b" stroke="#6366f1" stroke-width="1" filter="url(#shadow)"/>
+  <rect x="100" y="130" width="200" height="28" rx="10" fill="#4338ca"/>
+  <text x="200" y="152" text-anchor="middle" fill="#fff" font-family="system-ui, sans-serif" font-size="12" font-weight="bold">还原本质</text>
+  <text x="200" y="185" text-anchor="middle" fill="#a5b4fc" font-family="system-ui, sans-serif" font-size="10">剥离表象，还原最底层因果</text>
+  <text x="200" y="205" text-anchor="middle" fill="#818cf8" font-family="system-ui, sans-serif" font-size="9">→ 核心矛盾是什么？</text>
+
+  <rect x="800" y="130" width="200" height="90" rx="10" fill="#1e1b4b" stroke="#8b5cf6" stroke-width="1" filter="url(#shadow)"/>
+  <rect x="800" y="130" width="200" height="28" rx="10" fill="#7c3aed"/>
+  <text x="900" y="152" text-anchor="middle" fill="#fff" font-family="system-ui, sans-serif" font-size="12" font-weight="bold">公理推导</text>
+  <text x="900" y="185" text-anchor="middle" fill="#c4b5fd" font-family="system-ui, sans-serif" font-size="10">基于不可违背的公理推导</text>
+  <text x="900" y="205" text-anchor="middle" fill="#a78bfa" font-family="system-ui, sans-serif" font-size="9">→ 这符合物理/数学规律吗？</text>
+
+  <rect x="100" y="540" width="200" height="90" rx="10" fill="#1e1b4b" stroke="#a855f7" stroke-width="1" filter="url(#shadow)"/>
+  <rect x="100" y="540" width="200" height="28" rx="10" fill="#8b5cf6"/>
+  <text x="200" y="562" text-anchor="middle" fill="#fff" font-family="system-ui, sans-serif" font-size="12" font-weight="bold">逻辑验证</text>
+  <text x="200" y="595" text-anchor="middle" fill="#d8b4fe" font-family="system-ui, sans-serif" font-size="10">自我检验逻辑一致性</text>
+  <text x="200" y="615" text-anchor="middle" fill="#c4b5fd" font-family="system-ui, sans-serif" font-size="9">→ 推理过程有没有漏洞？</text>
+
+  <rect x="800" y="540" width="200" height="90" rx="10" fill="#1e1b4b" stroke="#c4b5fd" stroke-width="1" filter="url(#shadow)"/>
+  <rect x="800" y="540" width="200" height="28" rx="10" fill="#6d28d9"/>
+  <text x="900" y="562" text-anchor="middle" fill="#fff" font-family="system-ui, sans-serif" font-size="12" font-weight="bold">洞察输出</text>
+  <text x="900" y="595" text-anchor="middle" fill="#e9d5ff" font-family="system-ui, sans-serif" font-size="10">输出可操作的本质洞察</text>
+  <text x="900" y="615" text-anchor="middle" fill="#d8b4fe" font-family="system-ui, sans-serif" font-size="9">→ 我现在该怎么做？</text>
+
+  <rect x="50" y="300" width="160" height="80" rx="10" fill="url(#radarGrad)" filter="url(#shadow)"/>
+  <rect x="50" y="300" width="160" height="28" rx="10" fill="#0369a1"/>
+  <text x="130" y="322" text-anchor="middle" fill="#fff" font-family="system-ui, sans-serif" font-size="12" font-weight="bold">Market Data</text>
+  <text x="130" y="355" text-anchor="middle" fill="#7dd3fc" font-family="system-ui, sans-serif" font-size="10">价格/量/趋势</text>
+  <text x="130" y="373" text-anchor="middle" fill="#0ea5e9" font-family="system-ui, sans-serif" font-size="9">snapshot</text>
+
+  <rect x="890" y="300" width="160" height="80" rx="10" fill="url(#newsGrad)" filter="url(#shadow)"/>
+  <rect x="890" y="300" width="160" height="28" rx="10" fill="#1e40af"/>
+  <text x="970" y="322" text-anchor="middle" fill="#fff" font-family="system-ui, sans-serif" font-size="12" font-weight="bold">News/Cognition</text>
+  <text x="970" y="355" text-anchor="middle" fill="#93c5fd" font-family="system-ui, sans-serif" font-size="10">新闻/舆情/叙事</text>
+  <text x="970" y="373" text-anchor="middle" fill="#3b82f6" font-family="system-ui, sans-serif" font-size="9">market_state</text>
+
+  <rect x="400" y="660" width="300" height="100" rx="12" fill="url(#attentionGrad)" filter="url(#shadow)"/>
+  <rect x="400" y="660" width="300" height="32" rx="12" fill="#0f766e"/>
+  <text x="550" y="682" text-anchor="middle" fill="#fff" font-family="system-ui, sans-serif" font-size="14" font-weight="bold">→ DecisionFusion</text>
+  <text x="420" y="718" fill="#5eead4" font-family="system-ui, sans-serif" font-size="10">insights[] → 置信度加成</text>
+  <text x="420" y="740" fill="#99f6e4" font-family="system-ui, sans-serif" font-size="10">× level 系数放大</text>
+  <text x="420" y="762" fill="#5eead4" font-family="system-ui, sans-serif" font-size="10">最终 confidence += insight_weight</text>
+
+  <rect x="380" y="750" width="340" height="70" rx="10" fill="#1c1917" stroke="#78716c" stroke-width="1"/>
+  <text x="550" y="773" text-anchor="middle" fill="#a8a29e" font-family="system-ui, sans-serif" font-size="11" font-weight="bold">与其他系统的关系</text>
+  <text x="550" y="793" text-anchor="middle" fill="#78716c" font-family="system-ui, sans-serif" font-size="9">FP Insights → DecisionFusion → 修正 Manas 的置信度</text>
+
+  <path d="M 210 320 L 420 350" stroke="#60a5fa" stroke-width="2" fill="none" marker-end="url(#arrowBlue)"/>
+  <path d="M 890 320 L 680 350" stroke="#93c5fd" stroke-width="2" fill="none" marker-end="url(#arrowBlue)"/>
+
+  <path d="M 300 190 L 450 290" stroke="#6366f1" stroke-width="1.5" fill="none" stroke-dasharray="4,3" marker-end="url(#arrow)"/>
+  <path d="M 800 190 L 650 290" stroke="#8b5cf6" stroke-width="1.5" fill="none" stroke-dasharray="4,3" marker-end="url(#arrow)"/>
+  <path d="M 300 595 L 450 470" stroke="#a855f7" stroke-width="1.5" fill="none" stroke-dasharray="4,3" marker-end="url(#arrow)"/>
+  <path d="M 800 595 L 650 470" stroke="#c4b5fd" stroke-width="1.5" fill="none" stroke-dasharray="4,3" marker-end="url(#arrow)"/>
+
+  <path d="M 550 500 L 550 660" stroke="#34d399" stroke-width="2" fill="none" marker-end="url(#arrowGreen)"/>
+
+  <rect x="50" y="700" width="280" height="130" rx="10" fill="#1c1917" stroke="#44403c" stroke-width="1"/>
+  <text x="70" y="725" fill="#a8a29e" font-family="system-ui, sans-serif" font-size="11" font-weight="bold">第一性原理四问</text>
+  <text x="70" y="752" fill="#818cf8" font-family="system-ui, sans-serif" font-size="9">1. 还原本质</text>
+  <text x="190" y="752" fill="#c4b5fd" font-family="system-ui, sans-serif" font-size="9">这件事的本质是什么？</text>
+  <text x="70" y="775" fill="#a855f7" font-family="system-ui, sans-serif" font-size="9">2. 公理推导</text>
+  <text x="190" y="775" fill="#d8b4fe" font-family="system-ui, sans-serif" font-size="9">符合物理/数学规律吗？</text>
+  <text x="70" y="798" fill="#c4b5fd" font-family="system-ui, sans-serif" font-size="9">3. 逻辑验证</text>
+  <text x="190" y="798" fill="#e9d5ff" font-family="system-ui, sans-serif" font-size="9">推理有没有漏洞？</text>
+  <text x="70" y="821" fill="#d8b4fe" font-family="system-ui, sans-serif" font-size="9">4. 洞察输出</text>
+  <text x="190" y="821" fill="#f3e8ff" font-family="system-ui, sans-serif" font-size="9">我现在该怎么做？</text>
+
+  <rect x="770" y="700" width="280" height="130" rx="10" fill="#1c1917" stroke="#44403c" stroke-width="1"/>
+  <text x="790" y="725" fill="#a8a29e" font-family="system-ui, sans-serif" font-size="11" font-weight="bold">与 Alaya 的区别</text>
+  <text x="790" y="752" fill="#6ee7b7" font-family="system-ui, sans-serif" font-size="9">AwakenedAlaya</text>
+  <text x="920" y="752" fill="#78716c" font-family="system-ui, sans-serif" font-size="9">→ 经验匹配 / 顿悟</text>
+  <text x="790" y="780" fill="#c4b5fd" font-family="system-ui, sans-serif" font-size="9">FirstPrinciplesMind</text>
+  <text x="950" y="780" fill="#78716c" font-family="system-ui, sans-serif" font-size="9">→ 逻辑推理</text>
+  <text x="790" y="812" fill="#fbbf24" font-family="system-ui, sans-serif" font-size="9">Alaya</text>
+  <text x="840" y="812" fill="#78716c" font-family="system-ui, sans-serif" font-size="9">问：以前见过吗？</text>
+  <text x="790" y="835" fill="#fbbf24" font-family="system-ui, sans-serif" font-size="9">FP Mind</text>
+  <text x="870" y="835" fill="#78716c" font-family="system-ui, sans-serif" font-size="9">问：为什么？</text>
+</svg>

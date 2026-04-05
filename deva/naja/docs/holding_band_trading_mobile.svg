@@ -1,0 +1,320 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 390 2800">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#0a0a14"/>
+      <stop offset="100%" stop-color="#1a1020"/>
+    </linearGradient>
+
+    <linearGradient id="glass" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#ffffff" stop-opacity="0.18"/>
+      <stop offset="100%" stop-color="#ffffff" stop-opacity="0.05"/>
+    </linearGradient>
+
+    <linearGradient id="monitor" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#007aff" stop-opacity="0.2"/>
+      <stop offset="100%" stop-color="#007aff" stop-opacity="0.05"/>
+    </linearGradient>
+
+    <linearGradient id="band" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#ff9500" stop-opacity="0.2"/>
+      <stop offset="100%" stop-color="#ff9500" stop-opacity="0.05"/>
+    </linearGradient>
+
+    <linearGradient id="sell" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#ff3b30" stop-opacity="0.2"/>
+      <stop offset="100%" stop-color="#ff3b30" stop-opacity="0.05"/>
+    </linearGradient>
+
+    <linearGradient id="rebalance" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#5856d6" stop-opacity="0.2"/>
+      <stop offset="100%" stop-color="#5856d6" stop-opacity="0.05"/>
+    </linearGradient>
+
+    <linearGradient id="profit" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#34c759" stop-opacity="0.2"/>
+      <stop offset="100%" stop-color="#34c759" stop-opacity="0.05"/>
+    </linearGradient>
+
+    <filter id="shadow">
+      <feDropShadow dx="0" dy="2" stdDeviation="4" flood-opacity="0.15"/>
+    </filter>
+
+    <filter id="glow">
+      <feGaussianBlur stdDeviation="2" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+
+    <marker id="arr" markerWidth="4" markerHeight="4" refX="3" refY="2" orient="auto">
+      <path d="M0,0 L4,2 L0,4 Z" fill="#5e5ce6"/>
+    </marker>
+
+    <marker id="arrGreen" markerWidth="4" markerHeight="4" refX="3" refY="2" orient="auto">
+      <path d="M0,0 L4,2 L0,4 Z" fill="#34c759"/>
+    </marker>
+
+    <marker id="arrRed" markerWidth="4" markerHeight="4" refX="3" refY="2" orient="auto">
+      <path d="M0,0 L4,2 L0,4 Z" fill="#ff3b30"/>
+    </marker>
+  </defs>
+
+  <rect width="390" height="2800" fill="url(#bg)"/>
+
+  <!-- Header -->
+  <text x="195" y="40" text-anchor="middle" fill="#ffffff" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="20" font-weight="bold" filter="url(#glow)">📈 持仓与波段操作</text>
+  <text x="195" y="62" text-anchor="middle" fill="#8e8e93" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="11">持有期间动态管理</text>
+
+  <!-- Current Position -->
+  <rect x="15" y="80" width="360" height="130" rx="16" fill="url(#glass)" stroke="#34c759" stroke-opacity="0.4" stroke-width="1" filter="url(#shadow)"/>
+  <text x="30" y="105" fill="#34c759" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="10" font-weight="600">📊 当前持仓</text>
+
+  <rect x="25" y="115" width="80" height="35" rx="8" fill="#34c759" fill-opacity="0.2" stroke="#34c759" stroke-width="0.5"/>
+  <text x="65" y="137" text-anchor="middle" fill="#34c759" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="10" font-weight="600">寒武纪</text>
+  <text x="65" y="147" text-anchor="middle" fill="#a1a1a6" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="8">12%</text>
+
+  <rect x="115" y="115" width="80" height="35" rx="8" fill="#34c759" fill-opacity="0.2" stroke="#34c759" stroke-width="0.5"/>
+  <text x="155" y="137" text-anchor="middle" fill="#34c759" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="10" font-weight="600">海光信息</text>
+  <text x="155" y="147" text-anchor="middle" fill="#a1a1a6" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="8">10%</text>
+
+  <rect x="205" y="115" width="80" height="35" rx="8" fill="#34c759" fill-opacity="0.2" stroke="#34c759" stroke-width="0.5"/>
+  <text x="245" y="137" text-anchor="middle" fill="#34c759" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="10" font-weight="600">通富微电</text>
+  <text x="245" y="147" text-anchor="middle" fill="#a1a1a6" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="8">8%</text>
+
+  <rect x="295" y="115" width="70" height="35" rx="8" fill="#34c759" fill-opacity="0.2" stroke="#34c759" stroke-width="0.5"/>
+  <text x="330" y="137" text-anchor="middle" fill="#34c759" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="10" font-weight="600">昇腾链</text>
+  <text x="330" y="147" text-anchor="middle" fill="#a1a1a6" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="8">15%</text>
+
+  <text x="30" y="195" fill="#8e8e93" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="9">总持仓: 45% | 浮盈: +12.3% | harmony: 0.72</text>
+
+  <!-- Section: Continuous Monitoring -->
+  <text x="20" y="240" fill="#ffffff" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="12" font-weight="600">🔍 持续监控</text>
+
+  <rect x="15" y="255" width="360" height="100" rx="16" fill="url(#monitor)" stroke="#007aff" stroke-opacity="0.3" stroke-width="1" filter="url(#shadow)"/>
+  <text x="30" y="278" fill="#64d2ff" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="10" font-weight="600">实时监控指标</text>
+
+  <rect x="25" y="290" width="100" height="28" rx="6" fill="#1c1c1e" stroke="#007aff" stroke-width="0.5"/>
+  <text x="75" y="308" text-anchor="middle" fill="#64d2ff" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="9">harmony_strength</text>
+
+  <rect x="135" y="290" width="100" height="28" rx="6" fill="#1c1c1e" stroke="#ff9500" stroke-width="0.5"/>
+  <text x="185" y="308" text-anchor="middle" fill="#ff9500" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="9">composite</text>
+
+  <rect x="245" y="290" width="120" height="28" rx="6" fill="#1c1c1e" stroke="#34c759" stroke-width="0.5"/>
+  <text x="305" y="308" text-anchor="middle" fill="#34c759" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="9">attention_weights</text>
+
+  <text x="30" y="340" fill="#a1a1a6" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="8">监控频率: 高 (composite > 0.6) | 当前: 0.68 ✓</text>
+
+  <!-- Decision Point 1: Band Opportunity -->
+  <circle cx="30" cy="390" r="14" fill="#ff9500"/>
+  <text x="30" y="395" text-anchor="middle" fill="#ffffff" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="12" font-weight="bold">1</text>
+
+  <rect x="50" y="375" width="320" height="90" rx="14" fill="url(#band)" stroke="#ff9500" stroke-opacity="0.4" stroke-width="1" filter="url(#shadow)"/>
+  <text x="65" y="398" fill="#ff9f0a" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="10" font-weight="600">🎯 波段机会识别</text>
+  <text x="65" y="418" fill="#ffffff" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="10">发生了什么？</text>
+  <text x="65" y="438" fill="#a1a1a6" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="9">寒武纪 3天涨 +15%，短线超买信号</text>
+  <text x="65" y="456" fill="#a1a1a6" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="9">RSI > 80，but 趋势依然完好</text>
+
+  <!-- Reflection -->
+  <rect x="65" y="465" width="290" height="30" rx="8" fill="#1c1c1e" stroke="#ff9500" stroke-opacity="0.3" stroke-width="0.5"/>
+  <text x="80" y="485" fill="#ff9f0a" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="8">💭 判断：趋势还在，但短期需要消化获利盘</text>
+
+  <path d="M 30 410 L 30 430 L 50 430" stroke="#5e5ce6" stroke-width="1" fill="none" stroke-dasharray="3,2" marker-end="url(#arr)"/>
+
+  <!-- Decision: Partial Sell -->
+  <circle cx="30" cy="500" r="14" fill="#ff3b30"/>
+  <text x="30" y="505" text-anchor="middle" fill="#ffffff" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="12" font-weight="bold">2</text>
+
+  <rect x="50" y="485" width="320" height="100" rx="14" fill="url(#sell)" stroke="#ff3b30" stroke-opacity="0.4" stroke-width="1" filter="url(#shadow)"/>
+  <text x="65" y="508" fill="#ff375f" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="10" font-weight="600">✂️ 部分止盈决策</text>
+  <text x="65" y="528" fill="#ffffff" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="10">我在思考：</text>
+  <text x="65" y="548" fill="#a1a1a6" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="9">Manas: harmony=0.72, 支持继续持有</text>
+  <text x="65" y="568" fill="#a1a1a6" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="9">但短期超买 → 减仓 1/3 锁定利润</text>
+
+  <!-- Decision Box -->
+  <rect x="25" y="580" width="340" height="40" rx="10" fill="#1c1c1e" stroke="#ff3b30" stroke-width="1"/>
+  <text x="195" y="600" text-anchor="middle" fill="#ff3b30" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="11" font-weight="600">卖出寒武纪持仓的 1/3 (4%)</text>
+  <text x="195" y="615" text-anchor="middle" fill="#34c759" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="9">锁定利润 ¥12,000</text>
+
+  <path d="M 30 530 L 30 550 L 50 550" stroke="#5e5ce6" stroke-width="1" fill="none" stroke-dasharray="3,2" marker-end="url(#arr)"/>
+
+  <!-- Execution Result -->
+  <rect x="15" y="640" width="360" height="50" rx="12" fill="url(#profit)" stroke="#34c759" stroke-opacity="0.4" stroke-width="1" filter="url(#shadow)"/>
+  <text x="30" y="665" fill="#34c759" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="10" font-weight="600">✅ 部分止盈执行</text>
+  <text x="250" y="665" fill="#a1a1a6" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="9">剩余: 8%</text>
+  <text x="250" y="682" fill="#a1a1a6" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="9">现金: +4%</text>
+
+  <!-- Timeline Divider -->
+  <text x="195" y="720" text-anchor="middle" fill="#8e8e93" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="10">— 2周后 —</text>
+
+  <!-- Section: Continue Holding -->
+  <text x="20" y="755" fill="#ffffff" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="12" font-weight="600">⏰ 持续持有阶段</text>
+
+  <rect x="15" y="770" width="360" height="90" rx="16" fill="url(#monitor)" stroke="#007aff" stroke-opacity="0.3" stroke-width="1" filter="url(#shadow)"/>
+  <text x="30" y="795" fill="#64d2ff" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="10" font-weight="600">持仓监控</text>
+  <text x="30" y="815" fill="#a1a1a6" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="9">harmony: 0.68 | composite: 0.65 | 浮盈: +18%</text>
+  <text x="30" y="835" fill="#a1a1a6" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="9">市场稳定，叙事主题未变，继续持有</text>
+
+  <!-- Decision Point 2: New Signal -->
+  <circle cx="30" cy="895" r="14" fill="#ff9500"/>
+  <text x="30" y="900" text-anchor="middle" fill="#ffffff" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="12" font-weight="bold">3</text>
+
+  <rect x="50" y="880" width="320" height="90" rx="14" fill="url(#band)" stroke="#ff9500" stroke-opacity="0.4" stroke-width="1" filter="url(#shadow)"/>
+  <text x="65" y="903" fill="#ff9f0a" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="10" font-weight="600">🔄 波段回补机会</text>
+  <text x="65" y="923" fill="#ffffff" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="10">新情况：</text>
+  <text x="65" y="943" fill="#a1a1a6" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="9">寒武纪回撤至 20日均线</text>
+  <text x="65" y="961" fill="#a1a1a6" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="9">RSI 回落至 45，超卖信号 → 买回时机</text>
+
+  <!-- Reflection 2 -->
+  <rect x="65" y="970" width="290" height="30" rx="8" fill="#1c1c1e" stroke="#ff9500" stroke-opacity="0.3" stroke-width="0.5"/>
+  <text x="80" y="990" fill="#ff9f0a" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="8">💭 判断：上次卖出的 1/3 可以接回</text>
+
+  <path d="M 30 920 L 30 940 L 50 940" stroke="#5e5ce6" stroke-width="1" fill="none" stroke-dasharray="3,2" marker-end="url(#arr)"/>
+
+  <!-- Decision: Band Buy Back -->
+  <circle cx="30" cy="1005" r="14" fill="#34c759"/>
+  <text x="30" y="1010" text-anchor="middle" fill="#ffffff" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="12" font-weight="bold">4</text>
+
+  <rect x="50" y="990" width="320" height="80" rx="14" fill="url(#profit)" stroke="#34c759" stroke-opacity="0.4" stroke-width="1" filter="url(#shadow)"/>
+  <text x="65" y="1013" fill="#34c759" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="10" font-weight="600">🔄 波段回补</text>
+  <text x="65" y="1033" fill="#a1a1a6" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="9">Manas harmony: 0.68, 支持买入</text>
+  <text x="65" y="1053" fill="#a1a1a6" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="9">时机: RSI=45, 价格在 20 日均线附近</text>
+
+  <!-- Decision Box 2 -->
+  <rect x="25" y="1070" width="340" height="35" rx="10" fill="#1c1c1e" stroke="#34c759" stroke-width="1"/>
+  <text x="195" y="1092" text-anchor="middle" fill="#34c759" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="11" font-weight="600">买回寒武纪 4%</text>
+
+  <!-- Timeline Divider 2 -->
+  <text x="195" y="1140" text-anchor="middle" fill="#8e8e93" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="10">— 1个月后 —</text>
+
+  <!-- Section: Risk Management -->
+  <text x="20" y="1175" fill="#ffffff" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="12" font-weight="600">⚠️ 风险管理</text>
+
+  <rect x="15" y="1190" width="360" height="90" rx="16" fill="url(#sell)" stroke="#ff3b30" stroke-opacity="0.4" stroke-width="1" filter="url(#shadow)"/>
+  <text x="30" y="1215" fill="#ff375f" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="10" font-weight="600">🚨 风险信号</text>
+  <text x="30" y="1235" fill="#a1a1a6" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="9">市场传来负面消息：</text>
+  <text x="30" y="1255" fill="#a1a1a6" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="9">• 美联储推迟降息预期 → 流动性收紧</text>
+  <text x="30" y="1275" fill="#a1a1a6" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="9">• harmony 下降至 0.52</text>
+
+  <!-- Decision Point 3: Cut Loss -->
+  <circle cx="30" cy="1315" r="14" fill="#ff3b30"/>
+  <text x="30" y="1320" text-anchor="middle" fill="#ffffff" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="12" font-weight="bold">5</text>
+
+  <rect x="50" y="1300" width="320" height="110" rx="14" fill="url(#sell)" stroke="#ff3b30" stroke-opacity="0.4" stroke-width="1" filter="url(#shadow)"/>
+  <text x="65" y="1323" fill="#ff375f" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="10" font-weight="600">🛡️ 风险止损决策</text>
+  <text x="65" y="1343" fill="#ffffff" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="10">我在分析：</text>
+  <text x="65" y="1363" fill="#a1a1a6" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="9">• harmony &lt; 0.6, 触发减仓条件</text>
+  <text x="65" y="1383" fill="#a1a1a6" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="9">• composite_score = 0.48, 低于 0.5 阈值</text>
+  <text x="65" y="1403" fill="#a1a1a6" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="9">• 但浮盈仍 +15%, 不可止损太多</text>
+
+  <!-- Decision Box 3 -->
+  <rect x="25" y="1410" width="340" height="50" rx="10" fill="#1c1c1e" stroke="#ff3b30" stroke-width="1"/>
+  <text x="195" y="1430" text-anchor="middle" fill="#ff9500" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="11" font-weight="600">减仓 50% (总持仓降至 22%)</text>
+  <text x="195" y="1452" text-anchor="middle" fill="#34c759" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="9">保留利润，观望等待</text>
+
+  <!-- Execution -->
+  <rect x="15" y="1475" width="360" height="50" rx="12" fill="url(#sell)" stroke="#ff3b30" stroke-opacity="0.4" stroke-width="1" filter="url(#shadow)"/>
+  <text x="30" y="1500" fill="#ff3b30" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="10" font-weight="600">⚠️ 减仓执行</text>
+  <text x="250" y="1500" fill="#a1a1a6" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="9">现金: +22%</text>
+  <text x="250" y="1517" fill="#a1a1a6" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="9">锁定利润: ¥35,000</text>
+
+  <!-- Timeline Divider 3 -->
+  <text x="195" y="1565" text-anchor="middle" fill="#8e8e93" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="10">— 2周后 —</text>
+
+  <!-- Section: Recovery -->
+  <text x="20" y="1600" fill="#ffffff" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="12" font-weight="600">📈 恢复与加仓</text>
+
+  <rect x="15" y="1615" width="360" height="90" rx="16" fill="url(#monitor)" stroke="#007aff" stroke-opacity="0.3" stroke-width="1" filter="url(#shadow)"/>
+  <text x="30" y="1640" fill="#64d2ff" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="10" font-weight="600">🔔 好消息</text>
+  <text x="30" y="1660" fill="#a1a1a6" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="9">• 美联储确认降息，流动性改善</text>
+  <text x="30" y="1680" fill="#a1a1a6" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="9">• harmony 回升至 0.75</text>
+  <text x="30" y="1700" fill="#a1a1a6" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="9">• composite_score 反弹至 0.72</text>
+
+  <!-- Decision Point 4: Add Position -->
+  <circle cx="30" cy="1740" r="14" fill="#34c759"/>
+  <text x="30" y="1745" text-anchor="middle" fill="#ffffff" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="12" font-weight="bold">6</text>
+
+  <rect x="50" y="1725" width="320" height="80" rx="14" fill="url(#profit)" stroke="#34c759" stroke-opacity="0.4" stroke-width="1" filter="url(#shadow)"/>
+  <text x="65" y="1748" fill="#34c759" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="10" font-weight="600">➕ 加仓决策</text>
+  <text x="65" y="1768" fill="#a1a1a6" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="9">harmony > 0.7, composite > 0.7</text>
+  <text x="65" y="1788" fill="#a1a1a6" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="9">Manas 四维评分均偏多</text>
+
+  <!-- Decision Box 4 -->
+  <rect x="25" y="1805" width="340" height="35" rx="10" fill="#1c1c1e" stroke="#34c759" stroke-width="1"/>
+  <text x="195" y="1827" text-anchor="middle" fill="#34c759" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="11" font-weight="600">加仓至 40%</text>
+
+  <!-- Final Position -->
+  <rect x="15" y="1860" width="360" height="130" rx="16" fill="url(#glass)" stroke="#34c759" stroke-opacity="0.4" stroke-width="1" filter="url(#shadow)"/>
+  <text x="30" y="1885" fill="#34c759" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="10" font-weight="600">📊 调整后持仓</text>
+
+  <rect x="25" y="1895" width="75" height="35" rx="8" fill="#34c759" fill-opacity="0.2" stroke="#34c759" stroke-width="0.5"/>
+  <text x="62" y="1917" text-anchor="middle" fill="#34c759" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="9" font-weight="600">寒武纪</text>
+  <text x="62" y="1927" text-anchor="middle" fill="#a1a1a6" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="8">12%</text>
+
+  <rect x="110" y="1895" width="75" height="35" rx="8" fill="#34c759" fill-opacity="0.2" stroke="#34c759" stroke-width="0.5"/>
+  <text x="147" y="1917" text-anchor="middle" fill="#34c759" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="9" font-weight="600">海光信息</text>
+  <text x="147" y="1927" text-anchor="middle" fill="#a1a1a6" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="8">10%</text>
+
+  <rect x="195" y="1895" width="75" height="35" rx="8" fill="#34c759" fill-opacity="0.2" stroke="#34c759" stroke-width="0.5"/>
+  <text x="232" y="1917" text-anchor="middle" fill="#34c759" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="9" font-weight="600">通富微电</text>
+  <text x="232" y="1927" text-anchor="middle" fill="#a1a1a6" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="8">8%</text>
+
+  <rect x="280" y="1895" width="85" height="35" rx="8" fill="#34c759" fill-opacity="0.2" stroke="#34c759" stroke-width="0.5"/>
+  <text x="322" y="1917" text-anchor="middle" fill="#34c759" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="9" font-weight="600">昇腾链</text>
+  <text x="322" y="1927" text-anchor="middle" fill="#a1a1a6" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="8">10%</text>
+
+  <text x="30" y="1975" fill="#8e8e93" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="9">总持仓: 40% | 浮盈: +22% | 现金: 60%</text>
+
+  <!-- Section: Summary -->
+  <text x="20" y="2030" fill="#ffffff" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="12" font-weight="600">📋 操作总结</text>
+
+  <rect x="15" y="2050" width="360" height="180" rx="16" fill="url(#glass)" stroke="#5856d6" stroke-opacity="0.4" stroke-width="1" filter="url(#shadow)"/>
+
+  <rect x="25" y="2065" width="8" height="8" rx="4" fill="#ff3b30"/>
+  <text x="40" y="2073" fill="#a1a1a6" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="9">第一周: 超买减仓 1/3 → 锁定 ¥12,000</text>
+
+  <rect x="25" y="2095" width="8" height="8" rx="4" fill="#34c759"/>
+  <text x="40" y="2103" fill="#a1a1a6" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="9">第2周: 回撤接回 → 成本摊薄</text>
+
+  <rect x="25" y="2125" width="8" height="8" rx="4" fill="#ff3b30"/>
+  <text x="40" y="2133" fill="#a1a1a6" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="9">第6周: harmony降至0.52 → 减仓50%</text>
+
+  <rect x="25" y="2155" width="8" height="8" rx="4" fill="#34c759"/>
+  <text x="40" y="2163" fill="#a1a1a6" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="9">第8周: harmony反弹 → 加仓至40%</text>
+
+  <rect x="25" y="2185" width="340" height="35" rx="8" fill="#34c759" fill-opacity="0.2" stroke="#34c759" stroke-width="0.5"/>
+  <text x="195" y="2207" text-anchor="middle" fill="#34c759" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="11" font-weight="600">累计锁定利润: ¥47,000 | 总收益率: +22%</text>
+
+  <!-- Core Decision Model -->
+  <rect x="15" y="2250" width="360" height="180" rx="16" fill="#0f0f14" stroke="#333344" stroke-width="0.5"/>
+  <text x="30" y="2275" fill="#8e8e93" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="10" font-weight="600">🎯 波段操作决策规则</text>
+
+  <text x="30" y="2300" fill="#ff3b30" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="9">减仓/卖出条件：</text>
+  <text x="40" y="2320" fill="#a1a1a6" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="8">• harmony &lt; 0.6</text>
+  <text x="40" y="2338" fill="#a1a1a6" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="8">• RSI &gt; 75 (超买)</text>
+  <text x="40" y="2356" fill="#a1a1a6" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="8">• composite &lt; 0.5</text>
+
+  <text x="30" y="2380" fill="#34c759" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="9">加仓/买回条件：</text>
+  <text x="40" y="2400" fill="#a1a1a6" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="8">• harmony &gt; 0.7</text>
+  <text x="40" y="2418" fill="#a1a1a6" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="8">• RSI &lt; 45 (超卖)</text>
+  <text x="40" y="2436" fill="#a1a1a6" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="8">• composite &gt; 0.7</text>
+
+  <text x="220" y="2300" fill="#ff9500" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="9">波段仓位控制：</text>
+  <text x="230" y="2320" fill="#a1a1a6" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="8">• 单次波段: 1/3-1/2 仓位</text>
+  <text x="230" y="2338" fill="#a1a1a6" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="8">• 止损: -8%</text>
+  <text x="230" y="2356" fill="#a1a1a6" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="8">• 止盈: +15%</text>
+
+  <text x="220" y="2380" fill="#64d2ff" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="9">核心原则：</text>
+  <text x="230" y="2400" fill="#a1a1a6" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="8">• 不丢失核心仓位</text>
+  <text x="230" y="2418" fill="#a1a1a6" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="8">• 用利润做波段</text>
+  <text x="230" y="2436" fill="#a1a1a6" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="8">• 顺势而为</text>
+
+  <text x="30" y="2465" fill="#5e5ce6" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="8">💭 MetaManas 偏差提醒: 不要因为恐惧而全部卖出，不要因为贪婪而不卖</text>
+
+  <text x="30" y="2495" fill="#8e8e93" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="8">🔄 AwakenedAlaya 模式记录: 超买信号 → 减仓 → 回撤接回 → 成功率 0.78</text>
+
+  <text x="30" y="2525" fill="#bf5af2" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="8">📈 BanditTracker 更新: 波段策略胜率 0.72 → 0.76</text>
+
+  <text x="30" y="2555" fill="#ff9f0a" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="8">⏰ 下一轮监控: 30分钟后重新评估 harmony 和 composite</text>
+
+</svg>

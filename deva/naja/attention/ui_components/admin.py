@@ -402,12 +402,12 @@ def _render_micro_change_indicator() -> str:
         prev_snapshot = recent_snapshots[-2]
         curr_snapshot = recent_snapshots[-1]
 
-        for sector_id, curr_weight in curr_snapshot.sector_weights.items():
-            prev_weight = prev_snapshot.sector_weights.get(sector_id, 0)
+        for block_id, curr_weight in curr_snapshot.block_weights.items():
+            prev_weight = prev_snapshot.block_weights.get(block_id, 0)
             if prev_weight > 0:
                 change_pct = ((curr_weight - prev_weight) / prev_weight) * 100
                 if abs(change_pct) >= 1:
-                    sector_name = tracker.get_sector_name(sector_id)
+                    sector_name = tracker.get_sector_name(block_id)
                     micro_sector_changes.append({
                         'name': sector_name,
                         'change': change_pct,

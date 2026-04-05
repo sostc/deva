@@ -450,7 +450,7 @@ _反思生成时间: {datetime.fromtimestamp(reflection.ts).strftime('%Y-%m-%d %
     def _clear_market_analysis(self) -> None:
         """清空市场分析缓存"""
         try:
-            from deva.naja.cognition.narrative_tracker import NarrativeTracker
+            from deva.naja.cognition.sector_narrative import SectorNarrative as NarrativeTracker
             db = NarrativeTracker._get_market_analysis_db()
             db.pop("latest", None)
         except Exception:

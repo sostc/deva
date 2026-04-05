@@ -186,10 +186,10 @@ class _IntelligenceAugmentedSystemInternal:
 
         if hasattr(self, 'propagation') and self.config.enable_propagation:
             propagated = self.propagation.propagate(
-                result['sector_attention'],
+                result['block_attention'],
                 timestamp
             )
-            result['propagated_sector_attention'] = propagated
+            result['propagated_block_attention'] = propagated
 
         if hasattr(self, 'budget_system') and self.config.enable_budget:
             budget_allocation = self.budget_system.allocate(final_attention)
@@ -215,7 +215,7 @@ class _IntelligenceAugmentedSystemInternal:
 
             selection = self.strategy_learning.select_strategies(
                 global_attention=result['global_attention'],
-                sector_attention=result['sector_attention'],
+                sector_attention=result['block_attention'],
                 available_strategies=available_strategies,
                 pattern_scores=pattern_scores
             )

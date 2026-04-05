@@ -1,0 +1,340 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 390 1800">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#1a1a2e"/>
+      <stop offset="100%" stop-color="#0f0f23"/>
+    </linearGradient>
+
+    <linearGradient id="blue" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#007aff"/>
+      <stop offset="100%" stop-color="#0055b3"/>
+    </linearGradient>
+
+    <linearGradient id="purple" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#af52de"/>
+      <stop offset="100%" stop-color="#6b2d9e"/>
+    </linearGradient>
+
+    <linearGradient id="green" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#34c759"/>
+      <stop offset="100%" stop-color="#248a3d"/>
+    </linearGradient>
+
+    <linearGradient id="orange" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#ff9500"/>
+      <stop offset="100%" stop-color="#cc7700"/>
+    </linearGradient>
+
+    <linearGradient id="red" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#ff3b30"/>
+      <stop offset="100%" stop-color="#cc2f26"/>
+    </linearGradient>
+
+    <linearGradient id="pink" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#ff2d55"/>
+      <stop offset="100%" stop-color="#cc2444"/>
+    </linearGradient>
+
+    <linearGradient id="teal" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#5ac8fa"/>
+      <stop offset="100%" stop-color="#007aff"/>
+    </linearGradient>
+
+    <linearGradient id="indigo" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#5856d6"/>
+      <stop offset="100%" stop-color="#3634a3"/>
+    </linearGradient>
+
+    <linearGradient id="glass" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#ffffff" stop-opacity="0.25"/>
+      <stop offset="100%" stop-color="#ffffff" stop-opacity="0.1"/>
+    </linearGradient>
+
+    <linearGradient id="glassBlue" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#64d2ff" stop-opacity="0.3"/>
+      <stop offset="100%" stop-color="#64d2ff" stop-opacity="0.1"/>
+    </linearGradient>
+
+    <filter id="glow">
+      <feGaussianBlur stdDeviation="3" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+
+    <marker id="arr" markerWidth="5" markerHeight="5" refX="4" refY="2.5" orient="auto">
+      <path d="M0,0 L5,2.5 L0,5 Z" fill="#8e8e93"/>
+    </marker>
+
+    <marker id="arrGreen" markerWidth="5" markerHeight="5" refX="4" refY="2.5" orient="auto">
+      <path d="M0,0 L5,2.5 L0,5 Z" fill="#34c759"/>
+    </marker>
+
+    <marker id="arrRed" markerWidth="5" markerHeight="5" refX="4" refY="2.5" orient="auto">
+      <path d="M0,0 L5,2.5 L0,5 Z" fill="#ff3b30"/>
+    </marker>
+  </defs>
+
+  <rect width="390" height="1800" fill="url(#bg)"/>
+
+  <!-- Title -->
+  <text x="195" y="45" text-anchor="middle" fill="#ffffff" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="22" font-weight="bold">智能投资决策系统</text>
+  <text x="195" y="70" text-anchor="middle" fill="#8e8e93" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="12">买 · 卖 · 长持流程</text>
+
+  <!-- Section 1: Input Layer -->
+  <text x="20" y="110" fill="#ffffff" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="11" font-weight="600">输入层</text>
+
+  <!-- Glass Cards Row 1 -->
+  <rect x="10" y="120" width="115" height="70" rx="12" fill="url(#glass)" stroke="#ffffff" stroke-opacity="0.2" stroke-width="0.5"/>
+  <circle cx="30" y="138" r="6" fill="#007aff"/>
+  <text x="45" y="142" fill="#ffffff" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="10" font-weight="600">市场数据</text>
+  <text x="20" y="158" fill="#a1a1a6" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="8">价格 · 成交量</text>
+  <text x="20" y="172" fill="#a1a1a6" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="8">板块轮动</text>
+
+  <rect x="137" y="120" width="115" height="70" rx="12" fill="url(#glass)" stroke="#ffffff" stroke-opacity="0.2" stroke-width="0.5"/>
+  <circle cx="157" y="138" r="6" fill="#af52de"/>
+  <text x="172" y="142" fill="#ffffff" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="10" font-weight="600">新闻/雷达</text>
+  <text x="147" y="158" fill="#a1a1a6" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="8">财经新闻</text>
+  <text x="147" y="172" fill="#a1a1a6" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="8">舆情监控</text>
+
+  <rect x="264" y="120" width="115" height="70" rx="12" fill="url(#glass)" stroke="#ffffff" stroke-opacity="0.2" stroke-width="0.5"/>
+  <circle cx="284" y="138" r="6" fill="#5ac8fa"/>
+  <text x="299" y="142" fill="#ffffff" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="10" font-weight="600">全球流动性</text>
+  <text x="274" y="158" fill="#a1a1a6" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="8">跨市场传导</text>
+  <text x="274" y="172" fill="#a1a1a6" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="8">北上资金</text>
+
+  <!-- Glass Cards Row 2 -->
+  <rect x="10" y="200" width="115" height="70" rx="12" fill="url(#glass)" stroke="#ffffff" stroke-opacity="0.2" stroke-width="0.5"/>
+  <circle cx="30" y="218" r="6" fill="#5856d6"/>
+  <text x="45" y="222" fill="#ffffff" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="10" font-weight="600">美林时钟</text>
+  <text x="20" y="238" fill="#a1a1a6" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="8">复苏/过热</text>
+  <text x="20" y="252" fill="#a1a1a6" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="8">滞胀/衰退</text>
+
+  <rect x="137" y="200" width="115" height="70" rx="12" fill="url(#glass)" stroke="#ffffff" stroke-opacity="0.2" stroke-width="0.5"/>
+  <circle cx="157" y="218" r="6" fill="#ff9500"/>
+  <text x="172" y="222" fill="#ffffff" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="10" font-weight="600">供应链关系</text>
+  <text x="147" y="238" fill="#a1a1a6" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="8">供需分析</text>
+  <text x="147" y="252" fill="#a1a1a6" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="8">产业链映射</text>
+
+  <rect x="264" y="200" width="115" height="70" rx="12" fill="url(#glass)" stroke="#ffffff" stroke-opacity="0.2" stroke-width="0.5"/>
+  <circle cx="284" y="218" r="6" fill="#34c759"/>
+  <text x="299" y="222" fill="#ffffff" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="10" font-weight="600">知识库</text>
+  <text x="274" y="238" fill="#a1a1a6" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="8">Token供需</text>
+  <text x="274" y="252" fill="#a1a1a6" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="8">电力/技术</text>
+
+  <!-- Value System Card -->
+  <rect x="10" y="280" width="369" height="55" rx="12" fill="url(#glass)" stroke="#ffffff" stroke-opacity="0.2" stroke-width="0.5"/>
+  <circle cx="30" y="298" r="6" fill="#ff2d55"/>
+  <text x="45" y="302" fill="#ffffff" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="10" font-weight="600">使命价值观约束</text>
+  <text x="30" y="320" fill="#a1a1a6" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="9">天道 · 民心 · 人和 → ValueSystem</text>
+
+  <!-- Arrows -->
+  <path d="M 67 355 L 67 375" stroke="#8e8e93" stroke-width="1.5" fill="none" marker-end="url(#arr)"/>
+  <path d="M 195 355 L 195 375" stroke="#8e8e93" stroke-width="1.5" fill="none" marker-end="url(#arr)"/>
+  <path d="M 322 355 L 322 375" stroke="#8e8e93" stroke-width="1.5" fill="none" marker-end="url(#arr)"/>
+
+  <!-- Section 2: Cognition Layer -->
+  <text x="20" y="400" fill="#ffffff" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="11" font-weight="600">认知层</text>
+
+  <rect x="10" y="410" width="369" height="120" rx="16" fill="url(#glass)" stroke="#ffffff" stroke-opacity="0.15" stroke-width="0.5"/>
+
+  <rect x="20" y="425" width="70" height="45" rx="8" fill="#007aff" fill-opacity="0.2" stroke="#007aff" stroke-width="0.5"/>
+  <text x="55" y="448" text-anchor="middle" fill="#007aff" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="9" font-weight="600">感知</text>
+  <text x="55" y="462" text-anchor="middle" fill="#8e8e93" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="7">Vol</text>
+
+  <rect x="100" y="425" width="70" height="45" rx="8" fill="#af52de" fill-opacity="0.2" stroke="#af52de" stroke-width="0.5"/>
+  <text x="135" y="448" text-anchor="middle" fill="#af52de" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="9" font-weight="600">叙事</text>
+  <text x="135" y="462" text-anchor="middle" fill="#8e8e93" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="7">Narr</text>
+
+  <rect x="180" y="425" width="70" height="45" rx="8" fill="#5ac8fa" fill-opacity="0.2" stroke="#5ac8fa" stroke-width="0.5"/>
+  <text x="215" y="448" text-anchor="middle" fill="#5ac8fa" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="9" font-weight="600">流动性</text>
+  <text x="215" y="462" text-anchor="middle" fill="#8e8e93" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="7">Liq</text>
+
+  <rect x="260" y="425" width="70" height="45" rx="8" fill="#5856d6" fill-opacity="0.2" stroke="#5856d6" stroke-width="0.5"/>
+  <text x="295" y="448" text-anchor="middle" fill="#5856d6" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="9" font-weight="600">时机</text>
+  <text x="295" y="462" text-anchor="middle" fill="#8e8e93" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="7">Time</text>
+
+  <rect x="20" y="480" width="70" height="45" rx="8" fill="#ff9500" fill-opacity="0.2" stroke="#ff9500" stroke-width="0.5"/>
+  <text x="55" y="503" text-anchor="middle" fill="#ff9500" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="9" font-weight="600">供应链</text>
+  <text x="55" y="517" text-anchor="middle" fill="#8e8e93" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="7">SC</text>
+
+  <rect x="100" y="480" width="70" height="45" rx="8" fill="#34c759" fill-opacity="0.2" stroke="#34c759" stroke-width="0.5"/>
+  <text x="135" y="503" text-anchor="middle" fill="#34c759" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="9" font-weight="600">Bandit</text>
+  <text x="135" y="517" text-anchor="middle" fill="#8e8e93" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="7">追踪</text>
+
+  <rect x="180" y="480" width="70" height="45" rx="8" fill="#ff2d55" fill-opacity="0.2" stroke="#ff2d55" stroke-width="0.5"/>
+  <text x="215" y="503" text-anchor="middle" fill="#ff2d55" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="9" font-weight="600">价值观</text>
+  <text x="215" y="517" text-anchor="middle" fill="#8e8e93" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="7">Value</text>
+
+  <rect x="260" y="480" width="110" height="45" rx="8" fill="#30d158" fill-opacity="0.2" stroke="#30d158" stroke-width="0.5"/>
+  <text x="315" y="503" text-anchor="middle" fill="#30d158" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="9" font-weight="600">美林时钟</text>
+  <text x="315" y="517" text-anchor="middle" fill="#8e8e93" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="7">周期</text>
+
+  <!-- Section 3: Attention Kernel -->
+  <text x="20" y="560" fill="#ffffff" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="11" font-weight="600">注意力内核</text>
+
+  <!-- compute_attention -->
+  <rect x="10" y="575" width="369" height="70" rx="16" fill="url(#glassBlue)" stroke="#64d2ff" stroke-opacity="0.3" stroke-width="1"/>
+  <text x="30" y="600" fill="#64d2ff" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="12" font-weight="600">compute_attention()</text>
+  <text x="30" y="620" fill="#8e8e93" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="9">QKV 注意力计算 → attention_weights</text>
+  <text x="30" y="637" fill="#8e8e93" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="9">决定: 关注什么 / 多少</text>
+
+  <!-- make_decision + Manas -->
+  <rect x="10" y="655" width="369" height="130" rx="16" fill="url(#glass)" stroke="#ffffff" stroke-opacity="0.15" stroke-width="1"/>
+  <text x="30" y="680" fill="#ffffff" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="12" font-weight="600">make_decision() → ManasEngine</text>
+
+  <!-- Three Dimensions -->
+  <rect x="25" y="695" width="95" height="35" rx="8" fill="#ff9500" fill-opacity="0.2" stroke="#ff9500" stroke-width="0.5"/>
+  <text x="72" y="710" text-anchor="middle" fill="#ff9500" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="10" font-weight="600">天时</text>
+  <text x="72" y="722" text-anchor="middle" fill="#8e8e93" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="7">宏观流动性</text>
+
+  <rect x="130" y="695" width="95" height="35" rx="8" fill="#5ac8fa" fill-opacity="0.2" stroke="#5ac8fa" stroke-width="0.5"/>
+  <text x="177" y="710" text-anchor="middle" fill="#5ac8fa" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="10" font-weight="600">地势</text>
+  <text x="177" y="722" text-anchor="middle" fill="#8e8e93" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="7">市场结构</text>
+
+  <rect x="235" y="695" width="95" height="35" rx="8" fill="#34c759" fill-opacity="0.2" stroke="#34c759" stroke-width="0.5"/>
+  <text x="282" y="710" text-anchor="middle" fill="#34c759" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="10" font-weight="600">人和</text>
+  <text x="282" y="722" text-anchor="middle" fill="#8e8e93" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="7">博弈反馈</text>
+
+  <!-- Output indicators -->
+  <text x="30" y="755" fill="#34c759" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="9">harmony_state</text>
+  <text x="140" y="755" fill="#5ac8fa" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="9">alpha</text>
+  <text x="220" y="755" fill="#ff9500" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="9">timing/regime</text>
+  <text x="320" y="755" fill="#ff3b30" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="9">risk</text>
+
+  <!-- Arrow -->
+  <path d="M 195 795 L 195 815" stroke="#8e8e93" stroke-width="1.5" fill="none" marker-end="url(#arr)"/>
+
+  <!-- FP Mind + Alaya -->
+  <rect x="10" y="825" width="180" height="80" rx="12" fill="url(#glass)" stroke="#af52de" stroke-opacity="0.3" stroke-width="1"/>
+  <text x="25" y="850" fill="#af52de" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="10" font-weight="600">FirstPrinciplesMind</text>
+  <text x="25" y="868" fill="#8e8e93" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="8">第一性原理</text>
+  <text x="25" y="882" fill="#8e8e93" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="8">→ insights[]</text>
+
+  <rect x="200" y="825" width="179" height="80" rx="12" fill="url(#glass)" stroke="#34c759" stroke-opacity="0.3" stroke-width="1"/>
+  <text x="215" y="850" fill="#34c759" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="10" font-weight="600">AwakenedAlaya</text>
+  <text x="215" y="868" fill="#8e8e93" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="8">模式匹配 · 顿悟</text>
+  <text x="215" y="882" fill="#8e8e93" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="8">→ awakening_level</text>
+
+  <!-- Awakening levels -->
+  <text x="30" y="920" fill="#34c759" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="8">DORMANT → AWAKENING → ILLUMINATED → ENLIGHTENED</text>
+  <text x="30" y="935" fill="#8e8e93" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="8">置信度加成: enlightened ×1.1 / illuminated ×1.05</text>
+
+  <!-- Arrow -->
+  <path d="M 195 950 L 195 970" stroke="#8e8e93" stroke-width="1.5" fill="none" marker-end="url(#arr)"/>
+
+  <!-- Decision Fusion -->
+  <rect x="10" y="980" width="369" height="70" rx="16" fill="url(#glass)" stroke="#ff2d55" stroke-opacity="0.3" stroke-width="1"/>
+  <text x="30" y="1005" fill="#ff2d55" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="12" font-weight="600">DecisionFusion</text>
+  <text x="30" y="1025" fill="#8e8e93" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="9">FP Insights × level + Manas四维 + Awakening加成</text>
+
+  <!-- Arrow -->
+  <path d="M 195 1060 L 195 1080" stroke="#34c759" stroke-width="2" fill="none" marker-end="url(#arrGreen)"/>
+
+  <!-- Section 4: Decision Output -->
+  <text x="20" y="1100" fill="#ffffff" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="11" font-weight="600">决策输出</text>
+
+  <rect x="10" y="1115" width="369" height="85" rx="16" fill="url(#glass)" stroke="#34c759" stroke-opacity="0.3" stroke-width="1"/>
+
+  <rect x="20" y="1130" width="80" height="35" rx="8" fill="#34c759" fill-opacity="0.2" stroke="#34c759" stroke-width="0.5"/>
+  <text x="60" y="1148" text-anchor="middle" fill="#34c759" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="10" font-weight="600">should_act</text>
+  <text x="60" y="1162" text-anchor="middle" fill="#8e8e93" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="7">是否行动</text>
+
+  <rect x="110" y="1130" width="80" height="35" rx="8" fill="#5ac8fa" fill-opacity="0.2" stroke="#5ac8fa" stroke-width="0.5"/>
+  <text x="150" y="1148" text-anchor="middle" fill="#5ac8fa" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="10" font-weight="600">action_type</text>
+  <text x="150" y="1162" text-anchor="middle" fill="#8e8e93" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="7">hold/buy/sell</text>
+
+  <rect x="200" y="1130" width="80" height="35" rx="8" fill="#ff9500" fill-opacity="0.2" stroke="#ff9500" stroke-width="0.5"/>
+  <text x="240" y="1148" text-anchor="middle" fill="#ff9500" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="10" font-weight="600">harmony</text>
+  <text x="240" y="1162" text-anchor="middle" fill="#8e8e93" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="7">和谐状态</text>
+
+  <rect x="290" y="1130" width="80" height="35" rx="8" fill="#ff2d55" fill-opacity="0.2" stroke="#ff2d55" stroke-width="0.5"/>
+  <text x="330" y="1148" text-anchor="middle" fill="#ff2d55" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="10" font-weight="600">confidence</text>
+  <text x="330" y="1162" text-anchor="middle" fill="#8e8e93" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="7">置信度</text>
+
+  <text x="30" y="1190" fill="#8e8e93" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="8">action_type: hold / buy / sell / act_carefully / act_minimally</text>
+
+  <!-- Section 5: Trading Actions -->
+  <text x="20" y="1230" fill="#ffffff" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="11" font-weight="600">交易执行</text>
+
+  <!-- BUY -->
+  <rect x="10" y="1245" width="115" height="200" rx="16" fill="url(#glass)" stroke="#34c759" stroke-opacity="0.4" stroke-width="1.5"/>
+  <rect x="10" y="1245" width="115" height="35" rx="16" fill="#34c759"/>
+  <rect x="10" y="1265" width="115" height="15" fill="#34c759"/>
+  <text x="67" y="1268" text-anchor="middle" fill="#ffffff" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="13" font-weight="bold">买入 BUY</text>
+
+  <text x="20" y="1300" fill="#34c759" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="9" font-weight="600">1. 美林时钟</text>
+  <text x="20" y="1315" fill="#a1a1a6" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="8">复苏/过热期</text>
+  <text x="20" y="1330" fill="#a1a1a6" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="8">股票最佳</text>
+
+  <text x="20" y="1355" fill="#34c759" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="9" font-weight="600">2. 供应链机会</text>
+  <text x="20" y="1370" fill="#a1a1a6" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="8">供需缺口发现</text>
+  <text x="20" y="1385" fill="#a1a1a6" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="8">叙事 → 传导</text>
+
+  <text x="20" y="1410" fill="#34c759" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="9" font-weight="600">3. 价值观约束</text>
+  <text x="20" y="1425" fill="#a1a1a6" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="8">天道/民心/人和</text>
+
+  <!-- HOLD -->
+  <rect x="137" y="1245" width="115" height="200" rx="16" fill="url(#glass)" stroke="#ff9500" stroke-opacity="0.4" stroke-width="1.5"/>
+  <rect x="137" y="1245" width="115" height="35" rx="16" fill="#ff9500"/>
+  <rect x="137" y="1265" width="115" height="15" fill="#ff9500"/>
+  <text x="194" y="1268" text-anchor="middle" fill="#ffffff" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="13" font-weight="bold">长持 HOLD</text>
+
+  <text x="147" y="1300" fill="#ff9500" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="9" font-weight="600">持续监控</text>
+  <text x="147" y="1315" fill="#a1a1a6" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="8">attention_weights</text>
+  <text x="147" y="1330" fill="#a1a1a6" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="8">harmony_strength</text>
+
+  <text x="147" y="1355" fill="#ff9500" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="9" font-weight="600">调仓触发</text>
+  <text x="147" y="1370" fill="#a1a1a6" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="8">composite ↓</text>
+  <text x="147" y="1385" fill="#a1a1a6" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="8">叙事主题切换</text>
+
+  <!-- SELL -->
+  <rect x="264" y="1245" width="115" height="200" rx="16" fill="url(#glass)" stroke="#ff3b30" stroke-opacity="0.4" stroke-width="1.5"/>
+  <rect x="264" y="1245" width="115" height="35" rx="16" fill="#ff3b30"/>
+  <rect x="264" y="1265" width="115" height="15" fill="#ff3b30"/>
+  <text x="321" y="1268" text-anchor="middle" fill="#ffffff" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="13" font-weight="bold">卖出 SELL</text>
+
+  <text x="274" y="1300" fill="#ff3b30" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="9" font-weight="600">卖出条件</text>
+  <text x="274" y="1315" fill="#a1a1a6" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="8">harmony &lt; 0.3</text>
+  <text x="274" y="1330" fill="#a1a1a6" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="8">timing &lt; 0.4</text>
+
+  <text x="274" y="1355" fill="#ff3b30" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="9" font-weight="600">风险触发</text>
+  <text x="274" y="1370" fill="#a1a1a6" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="8">供应链断裂</text>
+  <text x="274" y="1385" fill="#a1a1a6" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="8">进入衰退期</text>
+
+  <!-- Arrow to Feedback -->
+  <path d="M 195 1455 L 195 1475" stroke="#8e8e93" stroke-width="1.5" fill="none" marker-end="url(#arr)"/>
+
+  <!-- Feedback Loop -->
+  <rect x="10" y="1485" width="369" height="110" rx="16" fill="url(#glass)" stroke="#5856d6" stroke-opacity="0.3" stroke-width="1"/>
+  <text x="30" y="1510" fill="#5856d6" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="11" font-weight="600">反馈与学习闭环</text>
+
+  <text x="30" y="1535" fill="#8e8e93" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="8">SignalExecutor → 收益/损失 → Attribution</text>
+  <text x="30" y="1550" fill="#8e8e93" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="8">BanditTracker → 策略表现 → Alpha更新</text>
+  <text x="30" y="1565" fill="#34c759" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="8">AwakenedAlaya: 成功模式 → Pattern Archive</text>
+  <text x="30" y="1580" fill="#8e8e93" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="8">MetaManas: bias_correction → 下次决策</text>
+
+  <!-- Core Formulas -->
+  <text x="20" y="1620" fill="#ffffff" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="11" font-weight="600">核心公式</text>
+
+  <rect x="10" y="1635" width="369" height="150" rx="12" fill="#0f0f23" stroke="#333344" stroke-width="0.5"/>
+
+  <text x="25" y="1660" fill="#64d2ff" font-family="Menlo, Monaco, monospace" font-size="9">final_weight</text>
+  <text x="110" y="1660" fill="#8e8e93" font-family="Menlo, Monaco, monospace" font-size="8">= base × att × α × harmony × conf</text>
+
+  <text x="25" y="1680" fill="#ff9500" font-family="Menlo, Monaco, monospace" font-size="9">manas_score</text>
+  <text x="115" y="1680" fill="#8e8e93" font-family="Menlo, Monaco, monospace" font-size="8">= 0.4×timing + 0.3×regime + 0.3×conf</text>
+
+  <text x="25" y="1700" fill="#af52de" font-family="Menlo, Monaco, monospace" font-size="9">alpha</text>
+  <text x="80" y="1700" fill="#8e8e93" font-family="Menlo, Monaco, monospace" font-size="8">= conf × harmony × bias_correction</text>
+
+  <text x="25" y="1720" fill="#34c759" font-family="Menlo, Monaco, monospace" font-size="9">composite</text>
+  <text x="95" y="1720" fill="#8e8e93" font-family="Menlo, Monaco, monospace" font-size="8">= harmony×0.5 + timing×0.3 + reg×0.2</text>
+
+  <text x="25" y="1740" fill="#ff2d55" font-family="Menlo, Monaco, monospace" font-size="9">final_conf</text>
+  <text x="100" y="1740" fill="#8e8e93" font-family="Menlo, Monaco, monospace" font-size="8">= FP×level + Manas + Awakening×bonus</text>
+
+  <text x="25" y="1765" fill="#8e8e93" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="8">alpha clamped to [0.3, 1.5]</text>
+
+</svg>
