@@ -29,7 +29,7 @@ from .attention_system import (
     AttentionSystemConfig,
     MarketSnapshot
 )
-from ..core import SectorConfig
+from ..core import BlockConfig as SectorConfig
 from ..intelligence import (
     PredictiveAttentionEngine,
     AttentionFeedbackLoop,

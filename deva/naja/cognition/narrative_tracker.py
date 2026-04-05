@@ -1,18 +1,44 @@
-"""NarrativeTracker - 认知系统/地（Sector/板块叙事追踪）
+"""NarrativeTracker - 新闻叙事追踪器
 
-🌍 定位：天-地-人框架中的「地」
-    - 「地」= 我们关心的地方（持仓、关注的板块/主题）
-    - 回答：「我关心的主题现在怎么样了？」
+═══════════════════════════════════════════════════════════════════════════
+                              架 构 定 位
+═══════════════════════════════════════════════════════════════════════════
 
-📋 核心职责：
-    1. 追踪我们关注的主题（从 ManasEngine 获取 focus_themes）
-    2. 分析供需关系（谁受益、谁受损）
-    3. 识别热点叙事（我关注的板块是主角还是配角？）
+【外部-新闻】 NarrativeTracker 是外部世界的新闻代理
+    - 它追踪的是外部新闻/事件中的叙事信号
+    - 它本身没有立场，只是记录"外面发生了什么"
+    - get_world_narrative() = 外部叙事，给融合层做参考
+
+【我们-天道】 NarrativeTracker 同时承担主动价值发现职责
+    - 基于 TIANDAO_KEYWORDS 检测我们认定的核心价值信号
+    - 这是我们自己的价值判断体系，"替天行道"的天道
+    - get_value_market_summary() = 我们主动发现的价值信号
+
+═══════════════════════════════════════════════════════════════════════════
+                              两 层 数据
+═══════════════════════════════════════════════════════════════════════════
+
+外部层（新闻/事件）:
+    get_world_narrative() → world_narrative{} → AttentionFusion.beta通道
+    代表：纯粹外部世界正在讨论什么、发生什么
+
+我们层（天道-价值）:
+    get_value_market_summary() → value_score{} → AttentionFusion.epsilon通道
+    代表：我们自己认定什么是重要的、值得的
+
+═══════════════════════════════════════════════════════════════════════════
+                              核 心 职 责
+═══════════════════════════════════════════════════════════════════════════
+
+1. 【外部-新闻代理】追踪外部新闻/事件中的叙事信号
+2. 【我们-天道发现】基于价值关键词检测主动价值信号
+3. 【问题-机会-解决者】识别供需失衡并推导投资机会
+4. 【认知升级】通过 blind_spot 探究被动扩展认知边界
 
 🔄 数据流：
     文本信号 → TextSignalBus → NarrativeTracker（订阅）
          ↓ 处理
-    发布 SECTOR_NARRATIVE_UPDATE → CognitiveSignalBus → ManasEngine
+    发布 NARRATIVE_UPDATE → CognitiveSignalBus → ManasEngine
 
 💡 与 TimingNarrative 的区别：
     - NarrativeTracker（地）：关注「空间」—— 炒什么板块/主题
@@ -550,9 +576,12 @@ class NarrativeTracker:
 
     def get_world_narrative(self) -> Dict[str, float]:
         """
-        获取外部公共叙事热点（供AttentionFusion使用）
+        【外部-新闻】获取外部公共叙事热点（供AttentionFusion使用）
 
         Layer 0: 外部世界的数据出口
+        - 纯粹追踪外部新闻/事件中的叙事
+        - 无我们的立场，代表"外面发生了什么"
+        - 输入到 AttentionFusion.beta×market_attention 通道
 
         Returns:
             {narrative: heat_score} 外部热点的叙事及其热度
@@ -695,11 +724,15 @@ class NarrativeTracker:
             "timestamp": time.time(),
         }
 
-    def detect_tiandao_signals(self, event: Any) -> Dict[str, List[str]]:
-        """检测天道信号 - 真正的供需失衡/效率提升信号
+    def detect_value_signals(self, event: Any) -> Dict[str, List[str]]:
+        """检测价值信号（天道）- 真正的供需失衡/效率提升信号
+
+        【天道-替天行道】我们自己的价值判断体系
+        - 基于 TIANDAO_KEYWORDS 命中情况
+        - 代表我们认定的重要变化（供需失衡、技术突破等）
 
         Returns:
-            Dict[str, List[str]] - 按天道类别分类的命中关键词
+            Dict[str, List[str]] - 按价值类别分类的命中关键词
         """
         if not self.enabled:
             return {}
@@ -722,11 +755,16 @@ class NarrativeTracker:
 
         return matches
 
-    def detect_minxin_signals(self, event: Any) -> Dict[str, List[str]]:
-        """检测民心信号 - 市场情绪/舆论信号（仅作参考）
+    def detect_market_narrative_signals(self, event: Any) -> Dict[str, List[str]]:
+        """检测市场叙事信号（民心）- 市场情绪/舆论信号（仅作参考）
+
+        【民心-市场叙事】外部市场/舆论的热门程度
+        - 基于 MINXIN_KEYWORDS 命中情况
+        - 代表市场当前关注的话题/情绪
+        - 作为决策参考，不作为主要依据
 
         Returns:
-            Dict[str, List[str]] - 按民心类别分类的命中关键词
+            Dict[str, List[str]] - 按市场叙事类别分类的命中关键词
         """
         if not self.enabled:
             return {}
@@ -942,96 +980,120 @@ class NarrativeTracker:
             "timestamp": time.time(),
         }
 
-    def get_tiandao_minxin_summary(self) -> Dict[str, Any]:
-        """获取天道/民心评分摘要
+    def get_value_market_summary(self) -> Dict[str, Any]:
+        """
+        【我们-天道】获取价值/市场评分摘要
 
-        这是'遵循天道，驾驭民心'的核心接口：
-        - 天道评分：基于TIANDAO_KEYWORDS命中情况
-        - 民心评分：基于MINXIN_KEYWORDS命中情况
-        - 推荐行动：基于天道而非民心
+        遵循天道，驾驭民心的核心接口
+
+        【天道-主动价值发现】（epsilon通道）
+            - 基于 TIANDAO_KEYWORDS 命中检测
+            - 代表：我们自己认定什么是真正重要的变化（供需失衡、技术突破等）
+            - 这是"替天行道"的天道，我们主动发现的价值信号
+            - 输出：value_score, value_signals
+
+        【民心-市场参考】（不参与主动决策）
+            - 基于 MINXIN_KEYWORDS 命中检测
+            - 代表：市场当前正在关注什么、讨论什么
+            - 仅作参考，不作为主要决策依据
+            - 输出：market_narrative_score, market_narrative_signals
+
+        推荐行动基于价值（天道），而非市场叙事（民心）
 
         Returns:
-            包含天道评分、民心评分、投资建议的字典
+            包含价值评分、市场叙事评分、投资建议的字典
         """
         if not self._states:
             return {
-                "tiandao_score": 0.0,
-                "minxin_score": 0.0,
+                "value_score": 0.0,
+                "market_narrative_score": 0.0,
                 "recommendation": "WATCH",
                 "reason": "暂无数据",
-                "signals": {"tiandao": {}, "minxin": {}},
-                "principle": "天道大于民心 - 遵循天道，驾驭民心",
+                "signals": {"value": {}, "market_narrative": {}},
+                "principle": "遵循天道，驾驭民心",
             }
 
-        tiandao_signals = {k: [] for k in ["token供需", "电力供需", "技术瓶颈", "效率突破", "AI落地"]}
-        minxin_signals = {k: [] for k in ["行情涨跌", "市场情绪", "舆论热点"]}
+        value_signals = {k: [] for k in ["token供需", "电力供需", "技术瓶颈", "效率突破", "AI落地"]}
+        market_signals = {k: [] for k in ["行情涨跌", "市场情绪", "舆论热点"]}
 
         for state in self._states.values():
             for keyword in state.last_keywords:
                 for tiandao_type, tiandao_kws in TIANDAO_KEYWORDS.items():
                     for kw in tiandao_kws:
                         if kw in keyword or keyword in kw:
-                            if kw not in tiandao_signals[tiandao_type]:
-                                tiandao_signals[tiandao_type].append(kw)
+                            if kw not in value_signals[tiandao_type]:
+                                value_signals[tiandao_type].append(kw)
                 for minxin_type, minxin_kws in MINXIN_KEYWORDS.items():
                     for kw in minxin_kws:
                         if kw in keyword or keyword in kw:
-                            if kw not in minxin_signals[minxin_type]:
-                                minxin_signals[minxin_type].append(kw)
+                            if kw not in market_signals[minxin_type]:
+                                market_signals[minxin_type].append(kw)
 
             for hit_ts, attention, keywords in state.hits:
                 for keyword in keywords:
                     for tiandao_type, tiandao_kws in TIANDAO_KEYWORDS.items():
                         for kw in tiandao_kws:
                             if kw in keyword or keyword in kw:
-                                if kw not in tiandao_signals[tiandao_type]:
-                                    tiandao_signals[tiandao_type].append(kw)
+                                if kw not in value_signals[tiandao_type]:
+                                    value_signals[tiandao_type].append(kw)
                     for minxin_type, minxin_kws in MINXIN_KEYWORDS.items():
                         for kw in minxin_kws:
                             if kw in keyword or keyword in kw:
-                                if kw not in minxin_signals[minxin_type]:
-                                    minxin_signals[minxin_type].append(kw)
+                                if kw not in market_signals[minxin_type]:
+                                    market_signals[minxin_type].append(kw)
 
-        tiandao_hits = sum(len(v) for v in tiandao_signals.values())
-        minxin_hits = sum(len(v) for v in minxin_signals.values())
-        tiandao_score = min(1.0, tiandao_hits / 10.0)
-        minxin_score = min(1.0, minxin_hits / 15.0)
+        value_hits = sum(len(v) for v in value_signals.values())
+        market_hits = sum(len(v) for v in market_signals.values())
+        value_score = min(1.0, value_hits / 10.0)
+        market_narrative_score = min(1.0, market_hits / 15.0)
 
-        if tiandao_hits >= 3 and minxin_hits <= 1:
+        if value_hits >= 3 and market_hits <= 1:
             recommendation = "STRONG_BUY"
-            reason = "天道强 + 市场错判（价格跌）= 最佳买入时机"
-        elif tiandao_score > 0.6:
+            reason = "价值信号强 + 市场错判（价格跌）= 最佳买入时机"
+        elif value_score > 0.6:
             recommendation = "ALL_IN"
-            reason = "天道信号强劲，继续持有/买入"
-        elif tiandao_score > 0.3:
+            reason = "价值信号强劲，继续持有/买入"
+        elif value_score > 0.3:
             recommendation = "HOLD"
-            reason = "天道信号存在，继续观察"
-        elif tiandao_hits > 0 and tiandao_score < 0.2:
+            reason = "价值信号存在，继续观察"
+        elif value_hits > 0 and value_score < 0.2:
             recommendation = "REDUCE"
-            reason = "供给可能过剩，天道信号减弱"
+            reason = "供给可能过剩，价值信号减弱"
         else:
             recommendation = "WATCH"
-            reason = "天道信号不明显，继续观察"
+            reason = "价值信号不明显，继续观察"
 
         market_opportunity = None
-        if tiandao_hits >= 3 and minxin_hits <= 1:
-            market_opportunity = "天道强 + 价格跌 = 最佳买入时机（驾驭民心）"
-        elif tiandao_score > 0.5 and minxin_score > 0.5:
-            market_opportunity = "天道强 + 价格涨 = 顺势持有"
+        if value_hits >= 3 and market_hits <= 1:
+            market_opportunity = "价值强 + 价格跌 = 最佳买入时机（驾驭民心）"
+        elif value_score > 0.5 and market_narrative_score > 0.5:
+            market_opportunity = "价值强 + 价格涨 = 顺势持有"
 
         return {
-            "tiandao_score": round(tiandao_score, 3),
-            "minxin_score": round(minxin_score, 3),
+            "value_score": round(value_score, 3),
+            "market_narrative_score": round(market_narrative_score, 3),
             "recommendation": recommendation,
             "reason": reason,
             "signals": {
-                "tiandao": {k: list(set(v)) for k, v in tiandao_signals.items() if v},
-                "minxin": {k: list(set(v)) for k, v in minxin_signals.items() if v},
+                "value": {k: list(set(v)) for k, v in value_signals.items() if v},
+                "market_narrative": {k: list(set(v)) for k, v in market_signals.items() if v},
             },
             "market_opportunity": market_opportunity,
-            "principle": "天道大于民心 - 遵循天道，驾驭民心",
+            "principle": "遵循天道，驾驭民心",
             "timestamp": time.time(),
         }
+
+    def get_tiandao_minxin_summary(self) -> Dict[str, Any]:
+        """向后兼容别名 - 请使用 get_value_market_summary()"""
+        return self.get_value_market_summary()
+
+    def detect_tiandao_signals(self, event: Any) -> Dict[str, List[str]]:
+        """向后兼容别名 - 请使用 detect_value_signals()"""
+        return self.detect_value_signals(event)
+
+    def detect_minxin_signals(self, event: Any) -> Dict[str, List[str]]:
+        """向后兼容别名 - 请使用 detect_market_narrative_signals()"""
+        return self.detect_market_narrative_signals(event)
 
     def get_markdown_summary(self) -> str:
         """获取Markdown格式的每日反思摘要 - 用于报告和展示
@@ -1041,12 +1103,12 @@ class NarrativeTracker:
         if not self._states:
             return "## 📊 每日反思\n\n暂无数据"
 
-        tiandao_summary = self.get_tiandao_minxin_summary()
+        value_summary = self.get_value_market_summary()
         trading_signal = self.get_trading_signal()
 
-        tiandao_score = tiandao_summary.get("tiandao_score", 0)
-        minxin_score = tiandao_summary.get("minxin_score", 0)
-        recommendation = tiandao_summary.get("recommendation", "WATCH")
+        value_score = value_summary.get("value_score", 0)
+        market_narrative_score = value_summary.get("market_narrative_score", 0)
+        recommendation = value_summary.get("recommendation", "WATCH")
 
         verdict_map = {
             "STRONG_BUY": "✅ 重大机会",
@@ -1064,12 +1126,12 @@ class NarrativeTracker:
             "",
             "---",
             "",
-            "### 🎯 天道 vs 民心",
+            "### 🎯 价值 vs 市场叙事（天道 vs 民心）",
             "",
             f"| 维度 | 评分 | 说明 |",
             f"|------|------|------|",
-            f"| 天道 | {tiandao_score:.0%} | {tiandao_summary.get('reason', '待观察')} |",
-            f"| 民心 | {minxin_score:.0%} | {tiandao_summary.get('market_opportunity', '无特殊')} |",
+            f"| 价值(天道) | {value_score:.0%} | {value_summary.get('reason', '待观察')} |",
+            f"| 市场叙事(民心) | {market_narrative_score:.0%} | {value_summary.get('market_opportunity', '无特殊')} |",
             "",
             f"**结论**: {verdict} - {recommendation}",
             "",
@@ -1100,7 +1162,7 @@ class NarrativeTracker:
         lines.append("")
         lines.append("---")
         lines.append("")
-        lines.append(f"*{tiandao_summary.get('principle', '天道大于民心')}*")
+        lines.append(f"*{value_summary.get('principle', '遵循天道，驾驭民心')}*")
 
         return "\n".join(lines)
 
@@ -1121,26 +1183,26 @@ class NarrativeTracker:
                 "recommendations": [],
             }
 
-        tiandao_summary = self.get_tiandao_minxin_summary()
+        value_summary = self.get_value_market_summary()
         trading_signal = self.get_trading_signal()
 
         reflections = []
         recommendations = []
 
-        tiandao_score = tiandao_summary.get("tiandao_score", 0)
-        minxin_score = tiandao_summary.get("minxin_score", 0)
-        recommendation = tiandao_summary.get("recommendation", "WATCH")
+        value_score = value_summary.get("value_score", 0)
+        market_narrative_score = value_summary.get("market_narrative_score", 0)
+        recommendation = value_summary.get("recommendation", "WATCH")
 
         reflections.append({
-            "aspect": "天道判断",
-            "observation": f"天道评分{tiandao_score:.1%}，{tiandao_summary.get('reason', '')}",
-            "verdict": "正确" if tiandao_score > 0.5 else "需观察",
+            "aspect": "价值判断（天道）",
+            "observation": f"价值评分{value_score:.1%}，{value_summary.get('reason', '')}",
+            "verdict": "正确" if value_score > 0.5 else "需观察",
         })
 
         reflections.append({
-            "aspect": "民心判断",
-            "observation": f"民心评分{minxin_score:.1%}，{tiandao_summary.get('market_opportunity', '无特殊机会')}",
-            "verdict": "市场错判" if minxin_score < 0.3 and tiandao_score > 0.5 else "正常",
+            "aspect": "市场叙事判断（民心）",
+            "observation": f"市场叙事评分{market_narrative_score:.1%}，{value_summary.get('market_opportunity', '无特殊机会')}",
+            "verdict": "市场错判" if market_narrative_score < 0.3 and value_score > 0.5 else "正常",
         })
 
         signal = trading_signal.get("signal", "WATCH")
@@ -1168,14 +1230,14 @@ class NarrativeTracker:
             })
 
         if recommendation == "STRONG_BUY":
-            recommendations.append("重大机会：天道强+价格低，建议加仓")
+            recommendations.append("重大机会：价值信号强+价格低，建议加仓")
         elif recommendation == "ALL_IN":
-            recommendations.append("天道支持：继续持有或加仓")
+            recommendations.append("价值支持：继续持有或加仓")
         elif recommendation == "REDUCE":
-            recommendations.append("天道减弱：考虑减仓")
+            recommendations.append("价值减弱：考虑减仓")
 
         if recommendations:
-            recommendations.append("坚持天道大于民心，不被市场情绪左右")
+            recommendations.append("坚持遵循天道，驾驭民心，不被市场情绪左右")
 
         ai_state = self._states.get("AI")
         chip_state = self._states.get("芯片")
@@ -1206,13 +1268,13 @@ class NarrativeTracker:
         return {
             "date": time.strftime("%Y-%m-%d"),
             "verdict": verdict_map.get(recommendation, "⚪ 观察中"),
-            "tiandao_score": tiandao_score,
-            "minxin_score": minxin_score,
+            "value_score": value_score,
+            "market_narrative_score": market_narrative_score,
             "signal": signal,
-            "summary": f"天道{tiandao_score:.0%} vs 民心{minxin_score:.0%} → {recommendation}",
+            "summary": f"价值(天道){value_score:.0%} vs 市场叙事(民心){market_narrative_score:.0%} → {recommendation}",
             "reflections": reflections,
             "recommendations": list(set(recommendations)),
-            "principle": "天道大于民心 - 遵循天道，驾驭民心",
+            "principle": "遵循天道，驾驭民心",
             "timestamp": time.time(),
         }
 
@@ -1797,15 +1859,15 @@ class NarrativeTracker:
             elif price_trend > 0.3:
                 reason_parts.append("价格上涨趋势")
 
-        tiandao_summary = self.get_tiandao_minxin_summary()
-        tiandao_score = tiandao_summary.get("tiandao_score", 0)
+        value_summary = self.get_value_market_summary()
+        value_score = value_summary.get("value_score", 0)
 
-        if signal == "OVERSOLD" and tiandao_score > 0.3:
-            action = "最佳买入时机：天道好+价格低"
-            reason_parts.append("天道强+价格低")
-        elif signal == "OVERBOUGHT" and tiandao_score > 0.3:
-            action = "可以适当减仓：天道好+价格高"
-            reason_parts.append("天道强+价格高")
+        if signal == "OVERSOLD" and value_score > 0.3:
+            action = "最佳买入时机：价值信号好+价格低"
+            reason_parts.append("价值信号强+价格低")
+        elif signal == "OVERBOUGHT" and value_score > 0.3:
+            action = "可以适当减仓：价值信号好+价格高"
+            reason_parts.append("价值信号强+价格高")
 
         reason = "；".join(reason_parts) if reason_parts else "趋势不明显"
 
@@ -1814,7 +1876,7 @@ class NarrativeTracker:
             "volatility": volatility,
             "action": action,
             "reason": reason,
-            "tiandao_score": tiandao_score,
+            "value_score": value_score,
             "timestamp": time.time(),
         }
 
