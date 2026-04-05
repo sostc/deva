@@ -75,7 +75,7 @@ class DataProcessor:
         self._last_attention_update = 0
         self._attention_cache_ttl = 0.1
         self._cached_high_attention_symbols: Set[str] = set()
-        self._cached_active_sectors: Set[str] = set()
+        self._cached_active_blocks: Set[str] = set()
         self._cached_market_time_str: str = ""
 
         self._sector_id_map: Dict[str, int] = {}
@@ -461,12 +461,12 @@ class DataProcessor:
                 return data[data[code_col].isin(self._cached_high_attention_symbols)]
         return data
 
-    def _filter_by_sectors(self, data: pd.DataFrame) -> pd.DataFrame:
+    def _filter_by_blocks(self, data: pd.DataFrame) -> pd.DataFrame:
         """按活跃板块过滤"""
-        if not self._cached_active_sectors:
+        if not self._cached_active_blocks:
             return data
-        if 'sector' in data.columns:
-            return data[data['sector'].isin(self._cached_active_sectors)]
+        if 'block' in data.columns:
+            return data[data['block'].isin(self._cached_active_blocks)]
         return data
 
     def _dispatch_to_strategies(self, datasource_id: str, data: pd.DataFrame, market_time: Optional[float] = None):
@@ -550,7 +550,7 @@ class DataProcessor:
             "total_updates": getattr(self, '_total_updates', 0),
             "attention_errors": getattr(self, '_attention_errors', {}),
             "high_attention_symbols_count": len(getattr(self, '_cached_high_attention_symbols', set())),
-            "active_sectors_count": len(getattr(self, '_cached_active_sectors', set())),
+            "active_blocks_count": len(getattr(self, '_cached_active_blocks', set())),
         }
 
 

@@ -245,13 +245,13 @@ class AttentionStrategyBase(ABC):
         
         return integration.attention_system._last_global_attention
     
-    def get_active_sectors(self, threshold: float = 0.3) -> List[str]:
+    def get_active_blocks(self, threshold: float = 0.3) -> List[str]:
         """获取活跃板块"""
         integration = self._get_attention_system()
         if not integration:
             return []
-        
-        return integration.get_active_sectors(threshold)
+
+        return integration.get_active_blocks(threshold)
     
     def can_emit_signal(self, symbol: str) -> bool:
         """检查是否可以发送信号（冷却期检查）"""

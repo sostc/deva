@@ -15,8 +15,8 @@ strategies/    - 基于注意力的交易策略
 from .core import (
     GlobalAttentionEngine,
     MarketSnapshot,
-    SectorAttentionEngine,
-    SectorConfig,
+    BlockAttentionEngine,
+    BlockConfig,
     WeightPool,
     WeightPoolView,
     SymbolWeightConfig,
@@ -153,8 +153,8 @@ __all__ = [
     # Core
     "GlobalAttentionEngine",
     "MarketSnapshot",
-    "SectorAttentionEngine",
-    "SectorConfig",
+    "BlockAttentionEngine",
+    "BlockConfig",
     "WeightPool",
     "WeightPoolView",
     "SymbolWeightConfig",

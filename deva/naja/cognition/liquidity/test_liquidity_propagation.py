@@ -205,7 +205,7 @@ def test_narrative_tracker():
     """测试 5: NarrativeTracker 叙事追踪"""
     print_section("测试 5: NarrativeTracker 叙事追踪 (简化版)")
 
-    from deva.naja.cognition.narrative_tracker import NarrativeTracker
+    from deva.naja.cognition.sector_narrative import SectorNarrative as NarrativeTracker
 
     tracker = NarrativeTracker()
 

@@ -21,7 +21,7 @@ if integration.attention_system:
     # 3. Check _us_* attributes
     print(f'3. _us_last_global_attention: {integration.attention_system._us_last_global_attention}')
     print(f'   _us_last_activity: {integration.attention_system._us_last_activity}')
-    print(f'   _us_last_sector_attention: {integration.attention_system._us_last_sector_attention}')
+    print(f'   _us_last_block_attention: {integration.attention_system._us_last_block_attention}')
 
     # 4. Check _initialized
     print(f'4. _initialized: {integration.attention_system._initialized}')

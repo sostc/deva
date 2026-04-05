@@ -72,10 +72,10 @@ def render_attention_diagnostic():
         else:
             put_warning("⚠️ 没有计算任何个股权重")
 
-        top_sectors = scheduler.get_top_sectors(3)
-        if top_sectors:
+        top_blocks = scheduler.get_top_blocks(3)
+        if top_blocks:
             put_text("Top 3 板块:")
-            for item in top_sectors:
+            for item in top_blocks:
                 put_text(f"  {item['sector']}: {item['weight']:.4f}")
 
     except Exception as e:

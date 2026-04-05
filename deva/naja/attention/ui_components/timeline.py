@@ -13,7 +13,7 @@ def get_history_tracker():
         return None
 
 
-def render_sector_trends() -> str:
+def render_block_trends() -> str:
     """渲染板块注意力变化曲线"""
     tracker = get_history_tracker()
     if not tracker or len(tracker.snapshots) < 2:
@@ -31,41 +31,41 @@ def render_sector_trends() -> str:
 
     all_sectors_with_weight = []
     for snapshot in recent_snapshots:
-        for sector_id, weight in snapshot.sector_weights.items():
-            all_sectors_with_weight.append((sector_id, weight))
+        for block_id, weight in snapshot.block_weights.items():
+            all_sectors_with_weight.append((block_id, weight))
 
-    sector_weights_sum = {}
-    for sector_id, weight in all_sectors_with_weight:
-        sector_weights_sum[sector_id] = sector_weights_sum.get(sector_id, 0) + weight
+    block_weights_sum = {}
+    for block_id, weight in all_sectors_with_weight:
+        block_weights_sum[block_id] = block_weights_sum.get(block_id, 0) + weight
 
-    top5_sectors = sorted(sector_weights_sum.items(), key=lambda x: x[1], reverse=True)[:5]
-    top5_sector_ids = [s[0] for s in top5_sectors]
+    top5_blocks = sorted(block_weights_sum.items(), key=lambda x: x[1], reverse=True)[:5]
+    top5_block_ids = [s[0] for s in top5_blocks]
 
-    sector_colors = {
+    block_colors = {
         'tech': '#3b82f6', 'finance': '#10b981', 'healthcare': '#f59e0b',
         'energy': '#ef4444', 'consumer': '#8b5cf6',
     }
 
-    for sector_id in top5_sector_ids:
-        sector_name = tracker.get_sector_name(sector_id)
-        color = sector_colors.get(sector_id, '#64748b')
+    for block_id in top5_block_ids:
+        block_name = tracker.get_sector_name(block_id)
+        color = block_colors.get(block_id, '#64748b')
 
-        sector_data = []
+        block_data = []
         for snapshot in recent_snapshots:
-            weight = snapshot.sector_weights.get(sector_id, 0)
+            weight = snapshot.block_weights.get(block_id, 0)
             time_str = datetime.fromtimestamp(snapshot.timestamp).strftime("%H:%M")
-            sector_data.append((time_str, weight))
+            block_data.append((time_str, weight))
 
-        if not sector_data:
+        if not block_data:
             continue
 
-        current_weight = sector_data[-1][1]
-        prev_weight = sector_data[0][1] if len(sector_data) > 1 else current_weight
+        current_weight = block_data[-1][1]
+        prev_weight = block_data[0][1] if len(block_data) > 1 else current_weight
         change_pct = ((current_weight - prev_weight) / prev_weight * 100) if prev_weight > 0 else 0
 
-        max_weight = max([w for _, w in sector_data]) if sector_data else 1
+        max_weight = max([w for _, w in block_data]) if block_data else 1
         trend_bars = ""
-        for time_str, weight in sector_data:
+        for time_str, weight in block_data:
             height_pct = (weight / max_weight * 100) if max_weight > 0 else 0
             trend_bars += f"""
                 <div style="flex: 1; background: {color}; height: {height_pct}%; min-height: 2px; margin: 0 1px; border-radius: 1px; opacity: {0.4 + (height_pct / 200)};" title="{time_str}: {weight:.3f}"></div>
@@ -89,8 +89,8 @@ def render_sector_trends() -> str:
         <div style="margin-bottom: 16px; padding: 12px; background: linear-gradient(135deg, #f8fafc, #f1f5f9); border-radius: 10px; border-left: 4px solid {color};">
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
                 <div style="display: flex; align-items: center; gap: 8px;">
-                    <span style="font-weight: 600; color: #1e293b; font-size: 14px;">{sector_name}</span>
-                    <span style="font-size: 11px; color: #64748b;">({sector_id})</span>
+                    <span style="font-weight: 600; color: #1e293b; font-size: 14px;">{block_name}</span>
+                    <span style="font-size: 11px; color: #64748b;">({block_id})</span>
                 </div>
                 <div style="text-align: right;">
                     <span style="font-weight: 700; color: {color}; font-size: 16px;">{current_weight:.3f}</span>
@@ -101,9 +101,9 @@ def render_sector_trends() -> str:
                 {trend_bars}
             </div>
             <div style="display: flex; justify-content: space-between; font-size: 10px; color: #94a3b8; margin-top: 2px;">
-                <span>{sector_data[0][0]}</span>
-                <span>{sector_data[len(sector_data)//2][0]}</span>
-                <span>{sector_data[-1][0]}</span>
+                <span>{block_data[0][0]}</span>
+                <span>{block_data[len(block_data)//2][0]}</span>
+                <span>{block_data[-1][0]}</span>
             </div>
             <div style="margin-top: 8px; padding-top: 8px; border-top: 1px dashed #e2e8f0;">
                 <span style="font-size: 11px; color: #64748b;">热门个股: </span>
@@ -136,25 +136,25 @@ def render_attention_timeline(time_window: int = 50) -> str:
     """
 
     transfers = []
-    prev_top_sectors = []
+    prev_top_blocks = []
 
     for i, snapshot in enumerate(recent_snapshots):
-        if not snapshot.sector_weights:
+        if not snapshot.block_weights:
             continue
 
-        sorted_sectors = sorted(snapshot.sector_weights.items(), key=lambda x: x[1], reverse=True)
-        current_top3 = [s[0] for s in sorted_sectors[:3]]
+        sorted_blocks = sorted(snapshot.block_weights.items(), key=lambda x: x[1], reverse=True)
+        current_top3 = [s[0] for s in sorted_blocks[:3]]
 
-        if prev_top_sectors:
-            new_in_top3 = set(current_top3) - set(prev_top_sectors)
-            for sector_id in new_in_top3:
-                sector_weight = snapshot.sector_weights[sector_id]
-                sector_name = tracker.get_sector_name(sector_id) or sector_id
+        if prev_top_blocks:
+            new_in_top3 = set(current_top3) - set(prev_top_blocks)
+            for block_id in new_in_top3:
+                block_weight = snapshot.block_weights[block_id]
+                block_name = tracker.get_sector_name(block_id) or block_id
                 time_str = snapshot.market_time_str if hasattr(snapshot, 'market_time_str') and snapshot.market_time_str else datetime.fromtimestamp(snapshot.timestamp).strftime("%m-%d %H:%M:%S")
 
                 prev_rank = None
-                for j, (s, w) in enumerate(sorted(snapshot.sector_weights.items(), key=lambda x: x[1], reverse=True)):
-                    if s == sector_id:
+                for j, (s, w) in enumerate(sorted(snapshot.block_weights.items(), key=lambda x: x[1], reverse=True)):
+                    if s == block_id:
                         prev_rank = j + 1
                         break
 
@@ -165,34 +165,34 @@ def render_attention_timeline(time_window: int = 50) -> str:
                     rank_change = f"↑第{prev_rank}名"
 
                 transfers.append({
-                    'time': time_str, 'sector': sector_name, 'sector_id': sector_id,
-                    'weight': sector_weight, 'action': 'rise', 'change': rank_change,
+                    'time': time_str, 'block': block_name, 'block_id': block_id,
+                    'weight': block_weight, 'action': 'rise', 'change': rank_change,
                     'timestamp': snapshot.timestamp
                 })
 
-        prev_top_sectors = current_top3
+        prev_top_blocks = current_top3
 
     if recent_snapshots:
         latest = recent_snapshots[-1]
-        if latest.sector_weights:
-            ranked = sorted(latest.sector_weights.items(), key=lambda x: x[1], reverse=True)
+        if latest.block_weights:
+            ranked = sorted(latest.block_weights.items(), key=lambda x: x[1], reverse=True)
             medals = ["🥇", "🥈", "🥉"]
             html += """
             <div style="margin-bottom: 12px;">
                 <div style="font-size: 11px; color: #64748b; margin-bottom: 6px;">当前排行榜:</div>
             """
-            for rank, (sector_id, weight) in enumerate(ranked[:5], 1):
-                sector_name = tracker.get_sector_name(sector_id) or sector_id
+            for rank, (block_id, weight) in enumerate(ranked[:5], 1):
+                block_name = tracker.get_sector_name(block_id) or block_id
                 medal = medals[rank-1] if rank <= 3 else f"{rank}."
                 color = "#dc2626" if rank == 1 else ("#ea580c" if rank == 2 else ("#ca8a04" if rank == 3 else "#64748b"))
 
                 trend = ""
                 trend_color = "#64748b"
                 if len(recent_snapshots) >= 3:
-                    prev_weight = snapshot.sector_weights.get(sector_id, weight)
+                    prev_weight = snapshot.block_weights.get(block_id, weight)
                     for snp in recent_snapshots[-4:-1]:
-                        if snp.sector_weights and sector_id in snp.sector_weights:
-                            prev_weight = snp.sector_weights[sector_id]
+                        if snp.block_weights and block_id in snp.block_weights:
+                            prev_weight = snp.block_weights[block_id]
                             break
                     if weight > prev_weight * 1.1:
                         trend = "📈"
@@ -204,7 +204,7 @@ def render_attention_timeline(time_window: int = 50) -> str:
                 html += f"""
                 <div style="display: flex; align-items: center; gap: 8px; padding: 4px 0; border-bottom: 1px solid #fef9c3;">
                     <span style="font-size: 12px; color: {color}; min-width: 24px;">{medal}</span>
-                    <span style="font-weight: 500; color: #1e293b; flex: 1;">{sector_name}</span>
+                    <span style="font-weight: 500; color: #1e293b; flex: 1;">{block_name}</span>
                     <span style="font-size: 12px; color: {trend_color};">{trend}</span>
                     <span style="font-weight: 600; color: {color};">{weight:.1f}</span>
                 </div>
@@ -289,7 +289,7 @@ def render_sector_hotspot_timeline(threshold: str = "high") -> str:
 
     config = threshold_config.get(threshold, threshold_config['high'])
     all_events = config['events']
-    valid_events = [e for e in all_events if tracker.is_sector_valid(getattr(e, 'sector_id', ''))]
+    valid_events = [e for e in all_events if tracker.is_sector_valid(getattr(e, 'block_id', ''))]
     pct = config['pct']
     label = config['label']
     header_color = config['color']
@@ -419,7 +419,7 @@ def render_single_threshold_column(threshold: str) -> str:
 
     config = threshold_config.get(threshold, threshold_config.get('high'))
     all_events = config['events']
-    valid_events = [e for e in all_events if tracker.is_sector_valid(getattr(e, 'sector_id', ''))]
+    valid_events = [e for e in all_events if tracker.is_sector_valid(getattr(e, 'block_id', ''))]
     events = list(valid_events)[-20:]
     pct = config['pct']
     label = config['label']
@@ -604,8 +604,8 @@ def render_attention_shift_report(report: Dict[str, Any]) -> str:
     """
 
     if report.get('sector_shift'):
-        old_sectors = report.get('old_top_sectors', [])
-        new_sectors = report.get('new_top_sectors', [])
+        old_sectors = report.get('old_top_blocks', [])
+        new_sectors = report.get('new_top_blocks', [])
 
         removed_sectors = [s for s in old_sectors if s[0] not in [ns[0] for ns in new_sectors]]
         added_sectors = [s for s in new_sectors if s[0] not in [os[0] for os in old_sectors]]
@@ -615,22 +615,22 @@ def render_attention_shift_report(report: Dict[str, Any]) -> str:
         if removed_sectors:
             html += """<div style="font-weight: 500; color: #dc2626; margin-bottom: 6px;">📤 退出 Top3:</div>"""
             html += """<div style="display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px;">"""
-            for sector_id, sector_name, weight in removed_sectors:
+            for block_id, sector_name, weight in removed_sectors:
                 html += f"""<span style="background: #fee2e2; color: #dc2626; padding: 3px 10px; border-radius: 6px; font-size: 12px;">{sector_name} <span style="opacity: 0.7;">{weight:.2f}</span></span>"""
             html += """</div>"""
 
         if added_sectors:
             html += """<div style="font-weight: 500; color: #16a34a; margin-bottom: 6px;">📥 新进入 Top3:</div>"""
             html += """<div style="display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px;">"""
-            for sector_id, sector_name, weight in added_sectors:
+            for block_id, sector_name, weight in added_sectors:
                 html += f"""<span style="background: #dcfce7; color: #16a34a; padding: 3px 10px; border-radius: 6px; font-size: 12px;">{sector_name} <span style="opacity: 0.7;">{weight:.2f}</span></span>"""
             html += """</div>"""
 
         if kept_sectors:
             html += """<div style="font-weight: 500; color: #475569; margin-bottom: 6px;">🔸 保持:</div>"""
             html += """<div style="display: flex; flex-wrap: wrap; gap: 6px;">"""
-            for sector_id, sector_name, weight in kept_sectors:
-                old_weight = next((w for s, n, w in old_sectors if s == sector_id), 0)
+            for block_id, sector_name, weight in kept_sectors:
+                old_weight = next((w for s, n, w in old_sectors if s == block_id), 0)
                 change = weight - old_weight
                 change_str = f"+{change:.2f}" if change > 0 else f"{change:.2f}"
                 change_color = "#16a34a" if change > 0 else "#dc2626"
@@ -691,8 +691,8 @@ def _get_sample_events() -> list:
     class SampleEvent:
         timestamp: float
         market_time: str
-        sector_id: str
-        sector_name: str
+        block_id: str
+        block_name: str
         event_type: str
         weight_change: float
         change_percent: float
