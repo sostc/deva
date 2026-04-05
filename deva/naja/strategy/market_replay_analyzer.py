@@ -34,7 +34,7 @@ from deva.naja.cognition.narrative_tracker import (
 )
 from deva.naja.bandit.portfolio_manager import get_portfolio_manager
 from deva.naja.bandit.stock_sector_map import (
-    US_STOCK_SECTORS, SECTOR_INDUSTRY_MAP, NARRATIVE_SECTOR_MAP
+    US_STOCK_SECTORS, INDUSTRY_CODE_TO_NAME, NARRATIVE_INDUSTRY_MAP
 )
 from deva.naja.strategy.market_combo_analyzer import MarketComboAnalyzer
 
@@ -83,7 +83,7 @@ class MarketOverview:
     combined_sentiment: str = "未知"
     fund_flow: str = "未知"
 
-    ashare_top_sectors: List[Dict[str, Any]] = field(default_factory=list)
+    ashare_top_blocks: List[Dict[str, Any]] = field(default_factory=list)
     ashare_flow_timeline: List[Dict[str, Any]] = field(default_factory=list)
     ashare_breakouts: List[Dict[str, Any]] = field(default_factory=list)
     ashare_anomalies: List[Dict[str, Any]] = field(default_factory=list)
@@ -256,12 +256,12 @@ class ReplayReport:
                 f"",
             ])
 
-        if self.market_overview.ashare_top_sectors:
+        if self.market_overview.ashare_top_blocks:
             lines.extend([
                 f"#### 🧭 A股板块重点（Top3）",
                 f"",
             ])
-            for sec in self.market_overview.ashare_top_sectors[:3]:
+            for sec in self.market_overview.ashare_top_blocks[:3]:
                 leaders = sec.get("leaders", [])
                 leader_text = ", ".join([f"{s.get('name','')}{s.get('change',0):+.1f}%" for s in leaders]) if leaders else "无"
                 flow_text = sec.get("flow_hint", "")
@@ -544,9 +544,9 @@ class MarketReplayAnalyzer:
         self.top_narratives: List[NarrativePerformance] = []
         self.positions: List[PositionAnalysis] = []
         self.tiandao_minxin: Optional[TiandaoMinxinAnalysis] = None
-        self._ashare_sector_cache: Dict[str, str] = {}
-        self._ashare_sector_ready: bool = False
-        self._ashare_sector_error: Optional[str] = None
+        self._ashare_block_cache: Dict[str, str] = {}
+        self._ashare_block_ready: bool = False
+        self._ashare_block_error: Optional[str] = None
 
         self._check_and_use_cache()
 
@@ -640,26 +640,26 @@ class MarketReplayAnalyzer:
         """对单个快照进行噪音过滤"""
         return self._filter_ashare_effective(records)
 
-    def _ensure_ashare_sector_ready(self):
-        if self._ashare_sector_ready or self._ashare_sector_error:
+    def _ensure_ashare_block_ready(self):
+        if self._ashare_block_ready or self._ashare_block_error:
             return
         try:
             from deva.naja.dictionary.tongdaxin_blocks import _parse_blocks_file
             _parse_blocks_file()
-            self._ashare_sector_ready = True
+            self._ashare_block_ready = True
         except Exception as e:
-            self._ashare_sector_error = str(e)
+            self._ashare_block_error = str(e)
 
-    def _get_ashare_sector(self, code: str) -> str:
+    def _get_ashare_block(self, code: str) -> str:
         """获取A股板块"""
         if not code:
             return "其他"
-        if code in self._ashare_sector_cache:
-            return self._ashare_sector_cache[code]
+        if code in self._ashare_block_cache:
+            return self._ashare_block_cache[code]
 
-        self._ensure_ashare_sector_ready()
-        if not self._ashare_sector_ready:
-            self._ashare_sector_cache[code] = "其他"
+        self._ensure_ashare_block_ready()
+        if not self._ashare_block_ready:
+            self._ashare_block_cache[code] = "其他"
             return "其他"
 
         try:
@@ -667,18 +667,18 @@ class MarketReplayAnalyzer:
             norm = code.replace("sh", "").replace("sz", "").replace("SZ", "").replace("SH", "")
             norm = norm.zfill(6) if norm.isdigit() else norm
             blocks = get_stock_blocks(norm)
-            sector = blocks[0] if blocks else "其他"
-            self._ashare_sector_cache[code] = sector
-            return sector
+            block_id = blocks[0] if blocks else "其他"
+            self._ashare_block_cache[code] = block_id
+            return block_id
         except Exception:
-            self._ashare_sector_cache[code] = "其他"
+            self._ashare_block_cache[code] = "其他"
             return "其他"
 
-    def _attach_ashare_sector(self, records: List[Dict]) -> List[Dict]:
+    def _attach_ashare_block(self, records: List[Dict]) -> List[Dict]:
         """为A股记录补充板块字段"""
         for r in records:
             if not r.get("sector"):
-                r["sector"] = self._get_ashare_sector(r.get("code", ""))
+                r["block"] = self._get_ashare_block(r.get("code", ""))
         return records
 
     def _normalize_ashare_records(self, data_list: List[Dict]) -> List[Dict]:
@@ -770,7 +770,7 @@ class MarketReplayAnalyzer:
                     continue
                 records = self._normalize_ashare_records(data_list)
                 records = self._filter_ashare_snapshot(records)
-                records = self._attach_ashare_sector(records)
+                records = self._attach_ashare_block(records)
                 snapshots.append({
                     "ts": ts,
                     "time_str": datetime.fromtimestamp(ts).strftime('%H:%M'),
@@ -797,7 +797,7 @@ class MarketReplayAnalyzer:
     def _analyze_ashare_intraday(
         self,
         snapshots: List[Dict],
-        top_sectors: List[str],
+        top_blocks: List[str],
     ) -> tuple[List[Dict], List[Dict], List[Dict], List[Dict]]:
         """A股盘中动态分析：资金流向、突破、异动"""
         flow_timeline = []
@@ -862,9 +862,9 @@ class MarketReplayAnalyzer:
             prev_sector_amount = sector_amount
 
         # 只保留与Top3板块相关的突破/异动
-        if top_sectors:
-            breakouts = [b for b in breakouts if b.get("sector") in top_sectors]
-            anomalies = [a for a in anomalies if a.get("sector") in top_sectors]
+        if top_blocks:
+            breakouts = [b for b in breakouts if b.get("sector") in top_blocks]
+            anomalies = [a for a in anomalies if a.get("sector") in top_blocks]
 
         return flow_timeline, breakouts, anomalies, snapshots
 
@@ -902,7 +902,7 @@ class MarketReplayAnalyzer:
         usstock_report = self.analyzer.analyze(usstock_data) if usstock_data else None
 
         # A股板块Top3与动态分析
-        top_sectors = []
+        top_blocks = []
         sector_stats = {}
         for r in ashare_effective:
             sector = r.get("sector", "其他")
@@ -921,9 +921,9 @@ class MarketReplayAnalyzer:
             })
 
         sector_perf.sort(key=lambda x: x["avg_change"], reverse=True)
-        top_sectors = [s["sector"] for s in sector_perf[:3]]
+        top_blocks = [s["sector"] for s in sector_perf[:3]]
 
-        flow_timeline, breakouts, anomalies, _ = self._analyze_ashare_intraday(snapshots, top_sectors)
+        flow_timeline, breakouts, anomalies, _ = self._analyze_ashare_intraday(snapshots, top_blocks)
 
         top_sector_details = []
         for sec_info in sector_perf[:3]:
@@ -991,7 +991,7 @@ class MarketReplayAnalyzer:
             combined_avg_change=(ashare_report.cross_sectional.get("avg_change", 0) + usstock_report.cross_sectional.get("avg_change", 0)) / 2 if (ashare_report and usstock_report) else 0,
             combined_sentiment="偏暖" if (ashare_report and usstock_report and ashare_report.market_breadth > 0 and usstock_report.market_breadth > 0) else "偏冷",
             fund_flow="均衡",
-            ashare_top_sectors=top_sector_details,
+            ashare_top_blocks=top_sector_details,
             ashare_flow_timeline=flow_timeline,
             ashare_breakouts=breakouts,
             ashare_anomalies=anomalies,
@@ -1015,11 +1015,11 @@ class MarketReplayAnalyzer:
 
         self.narrative_performance = {}
 
-        for narrative, sectors in NARRATIVE_SECTOR_MAP.items():
-            sector_changes = []
-            for sector in sectors:
+        for narrative, industry_codes in NARRATIVE_INDUSTRY_MAP.items():
+            block_changes = []
+            for industry_code in industry_codes:
                 for code_lower, info in US_STOCK_SECTORS.items():
-                    if info.get("sector") == sector:
+                    if info.get("industry_code") == industry_code:
                         code = code_lower.upper()
                         stock_data = self.all_stocks.get(code)
                         if stock_data:
@@ -1030,20 +1030,20 @@ class MarketReplayAnalyzer:
                                 "change": change,
                             })
 
-            if sector_changes:
-                changes = [s["change"] for s in sector_changes]
+            if block_changes:
+                changes = [b["change"] for b in block_changes]
                 avg_change = sum(changes) / len(changes)
                 gainer_ratio = sum(1 for c in changes if c > 0) / len(changes)
 
-                sorted_stocks = sorted(sector_changes, key=lambda x: x["change"], reverse=True)
+                sorted_stocks = sorted(block_changes, key=lambda x: x["change"], reverse=True)
                 top_stock = sorted_stocks[0] if sorted_stocks else None
                 bottom_stock = sorted_stocks[-1] if len(sorted_stocks) > 1 else top_stock
 
                 self.narrative_performance[narrative] = {
                     "avg_change": avg_change,
                     "gainer_ratio": gainer_ratio,
-                    "stock_count": len(sector_changes),
-                    "stocks": sector_changes,
+                    "stock_count": len(block_changes),
+                    "stocks": block_changes,
                     "top_stock": top_stock,
                     "bottom_stock": bottom_stock,
                 }
@@ -1084,9 +1084,9 @@ class MarketReplayAnalyzer:
             for pos in portfolio.get_all_positions():
                 code = pos.stock_code.upper()
                 stock_data = self.all_stocks.get(code)
-                sector_info = US_STOCK_SECTORS.get(pos.stock_code.lower(), {})
-                narrative = sector_info.get("narrative", "")
-                sector = sector_info.get("sector", "other")
+                industry_info = US_STOCK_SECTORS.get(pos.stock_code.lower(), {})
+                narrative = industry_info.get("narrative", "")
+                industry_code = industry_info.get("industry_code", "other")
 
                 today_change = stock_data.get("change_pct", 0) * 100 if stock_data else 0
 

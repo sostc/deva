@@ -55,7 +55,7 @@ def test_merrill_clock_integration():
     
     # ========== 步骤 3: 查询流动性结构（整合周期判断） ==========
     print("\n【步骤 3】查询流动性结构（整合周期判断）...")
-    from deva.naja.cognition.narrative_tracker import NarrativeTracker
+    from deva.naja.cognition.sector_narrative import SectorNarrative as NarrativeTracker
     
     tracker = NarrativeTracker()
     liquidity_structure = tracker.get_liquidity_structure()

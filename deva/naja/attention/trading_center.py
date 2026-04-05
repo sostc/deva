@@ -375,13 +375,54 @@ class TradingCenter:
     def _get_current_narratives(self) -> List[str]:
         """获取当前活跃的叙事列表"""
         try:
-            from deva.naja.cognition.narrative_tracker import NarrativeTracker
+            from deva.naja.cognition.sector_narrative import SectorNarrative as NarrativeTracker
             tracker = NarrativeTracker()
             summary = tracker.get_summary(limit=10)
             return [item["narrative"] for item in summary]
         except Exception:
             pass
         return []
+
+    def _get_volatility_surface_state(self) -> Dict[str, Any]:
+        """获取波动率曲面状态"""
+        try:
+            from deva.naja.senses import VolatilitySurfaceSense
+            surface = VolatilitySurfaceSense()
+            if surface:
+                return {
+                    "regime": surface.get_regime(),
+                    "volatility": surface.get_volatility(),
+                }
+        except Exception as e:
+            log.debug(f"[TradingCenter] 获取波动率曲面状态失败: {e}")
+        return {"regime": "normal", "volatility": 0.5}
+
+    def _get_awakening_level(self) -> str:
+        """获取觉醒级别"""
+        return self._awakened_state.get("awakening_level", "dormant")
+
+    def _check_contradiction(self) -> Dict[str, Any]:
+        """检查矛盾"""
+        return {
+            "has_contradiction": False,
+            "description": "",
+            "severity": 0.0,
+        }
+
+    def get_stats(self) -> Dict[str, Any]:
+        """获取统计信息"""
+        return {
+            "awakening": self._awakened_state,
+            "volatility_surface": self._get_volatility_surface_state(),
+        }
+
+    def get_attention_context(self) -> Dict[str, Any]:
+        """获取注意力上下文"""
+        return {
+            "awakening_level": self._get_awakening_level(),
+            "volatility_surface": self._get_volatility_surface_state(),
+            "contradiction": self._check_contradiction(),
+        }
 
     def _build_awakened_market_state(self, market_state: Dict, snapshot: Dict) -> Dict[str, Any]:
         """构建觉醒市场状态"""

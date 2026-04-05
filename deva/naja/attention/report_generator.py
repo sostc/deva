@@ -157,7 +157,7 @@ class AttentionReportGenerator:
             return False
         
         # 检查是否有热门板块或个股
-        sector_attention = report.get('sector_attention', [])
+        sector_attention = report.get('block_attention', [])
         symbol_weights = report.get('symbol_weights', [])
         
         if not sector_attention and not symbol_weights:
@@ -215,7 +215,7 @@ class AttentionReportGenerator:
                 'datetime': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
                 'summary': self._collect_summary(integration),
                 'global_attention': self._collect_global_attention(integration),
-                'sector_attention': self._collect_sector_attention(integration),
+                'sector_attention': self._collect_block_attention(integration),
                 'symbol_weights': self._collect_symbol_weights(integration),
                 'dual_engine': self._collect_dual_engine_stats(integration),
                 'strategies': self._collect_strategy_stats(),
@@ -261,26 +261,26 @@ class AttentionReportGenerator:
         except:
             return {}
     
-    def _collect_sector_attention(self, integration) -> List[Dict[str, Any]]:
+    def _collect_block_attention(self, integration) -> List[Dict[str, Any]]:
         """收集板块注意力信息（Top 10）"""
         try:
             attention_system = integration.attention_system
             if not attention_system:
                 return []
-            
-            weights = attention_system._last_sector_attention
-            sorted_sectors = sorted(
+
+            weights = attention_system._last_block_attention
+            sorted_blocks = sorted(
                 weights.items(),
                 key=lambda x: x[1],
                 reverse=True
             )[:10]
-            
+
             return [
                 {
-                    'sector_id': sector_id,
+                    'sector_id': block_id,
                     'weight': float(weight)
                 }
-                for sector_id, weight in sorted_sectors
+                for block_id, weight in sorted_blocks
             ]
         except:
             return []
@@ -438,7 +438,7 @@ class AttentionReportGenerator:
         lines.append(f"")
         
         # 热门板块
-        sectors = report.get('sector_attention', [])
+        sectors = report.get('block_attention', [])
         if sectors:
             lines.append(f"## 🔥 热门板块 Top {len(sectors)}")
             lines.append(f"")

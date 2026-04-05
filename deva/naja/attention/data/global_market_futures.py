@@ -130,79 +130,14 @@ US_STOCK_CODES = {
     "gb_crwc": "crwv",
 }
 
+from deva.naja.bandit.stock_sector_map import US_STOCK_SECTORS as _FULL_US_STOCK_SECTORS
+
 US_STOCK_SECTORS = {
-    "aapl": "科技",
-    "msft": "科技",
-    "goog": "科技",
-    "googl": "科技",
-    "amzn": "电商",
-    "meta": "科技",
-    "nvda": "半导体",
-    "tsla": "新能源车",
-    "amd": "半导体",
-    "intc": "半导体",
-    "nxpi": "半导体",
-    "qcom": "半导体",
-    "mu": "半导体",
-    "lam": "半导体",
-    "amat": "半导体",
-    "asml": "半导体",
-    "tsm": "半导体",
-    "pypl": "金融科技",
-    "shop": "电商",
-    "snap": "社交",
-    "pins": "社交媒体",
-    "twlo": "通信",
-    "roku": "流媒体",
-    "dbx": "云计算",
-    "spot": "音乐",
-    "jpm": "金融",
-    "bac": "金融",
-    "wfc": "金融",
-    "ms": "金融",
-    "c": "金融",
-    "v": "支付",
-    "ma": "支付",
-    "baba": "电商",
-    "bidu": "科技",
-    "nio": "新能源车",
-    "xpev": "新能源车",
-    "li": "新能源车",
-    "jd": "电商",
-    "pdd": "电商",
-    "nke": "消费",
-    "dis": "娱乐",
-    "mcd": "消费",
-    "hum": "医疗",
-    "unh": "医疗",
-    "pfe": "医疗",
-    "mstr": "加密",
-    "coin": "加密",
-    "mara": "加密",
-    "riot": "加密",
-    "crwd": "安全",
-    "okta": "安全",
-    "zs": "安全",
-    "net": "安全",
-    "ddog": "云",
-    "snow": "云",
-    "nflx": "流媒体",
-    "ea": "游戏",
-    "atvi": "游戏",
-    "pltr": "AI",
-    "f": "新能源车",
-    "gm": "新能源车",
-    "rivn": "新能源车",
-    "lucid": "新能源车",
-    "wrld": "游戏",
-    "crwc": "游戏",
+    code: info.get("sector", "other")
+    for code, info in _FULL_US_STOCK_SECTORS.items()
 }
 
-US_SECTOR_LIST = [
-    "科技", "半导体", "电商", "新能源车", "金融", "金融科技",
-    "支付", "社交", "社交媒体", "通信", "流媒体", "云计算",
-    "安全", "云", "游戏", "AI", "医疗", "消费", "娱乐", "加密"
-]
+US_SECTOR_LIST = list(dict.fromkeys(info.get("sector", "other") for info in _FULL_US_STOCK_SECTORS.values()))
 
 ALL_CODES = {**FUTURES_CODES, **US_STOCK_CODES}
 MARKET_ID_TO_CODE = {v: k for k, v in ALL_CODES.items()}

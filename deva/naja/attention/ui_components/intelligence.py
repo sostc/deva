@@ -126,8 +126,8 @@ def render_sector_predictive_attention_panel() -> str:
             pass
 
         try:
-            from deva.naja.attention.processing.sector_noise_detector import get_sector_noise_detector
-            noise_detector = get_sector_noise_detector()
+            from deva.naja.attention.processing.block_noise_detector import get_block_noise_detector
+            noise_detector = get_block_noise_detector()
         except ImportError:
             noise_detector = None
 

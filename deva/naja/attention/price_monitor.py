@@ -339,9 +339,9 @@ class PriceMonitor:
     def _fetch_prices(self, symbols: List[str]) -> Dict[str, float]:
         """获取价格
 
-        从市场 tick 数据源获取价格:
-        1. 尝试从 NB("naja_realtime_quotes") 缓存获取
-        2. 从数据源主动获取
+        从 MarketDataBus 获取价格:
+        1. 优先从 MarketDataBus 缓存获取（共享行情数据）
+        2. 备用从 NB("naja_realtime_quotes") 缓存获取
 
         Returns:
             Dict[symbol, price]
@@ -351,10 +351,18 @@ class PriceMonitor:
         if not symbols:
             return prices
 
+        try:
+            from deva.naja.bandit.market_data_bus import get_market_data_bus
+            bus = get_market_data_bus()
+            prices = bus.get_prices(symbols)
+        except Exception:
+            pass
+
         for symbol in symbols:
-            price = self._fetch_from_realtime_cache(symbol)
-            if price > 0:
-                prices[symbol] = price
+            if symbol not in prices or prices.get(symbol, 0) <= 0:
+                price = self._fetch_from_realtime_cache(symbol)
+                if price > 0:
+                    prices[symbol] = price
 
         return prices
 
