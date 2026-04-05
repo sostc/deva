@@ -508,7 +508,7 @@ class PhilosophyConfigurator:
             results["error"] = str(e)
 
         try:
-            from deva.naja.cognition.narrative_tracker import NarrativeTracker
+            from deva.naja.cognition.sector_narrative import SectorNarrative as NarrativeTracker
             results["narrative_tracker"] = True
         except Exception as e:
             results["narrative_tracker"] = False

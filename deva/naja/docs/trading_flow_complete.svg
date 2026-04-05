@@ -1,0 +1,441 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 1400">
+  <defs>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#0c0a14;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#1a1025;stop-opacity:1" />
+    </linearGradient>
+
+    <linearGradient id="marketGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#1e3a5f;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#1e3a8a;stop-opacity:1" />
+    </linearGradient>
+
+    <linearGradient id="newsGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#4a1d6e;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#2d1b4e;stop-opacity:1" />
+    </linearGradient>
+
+    <linearGradient id="liquidityGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#0369a1;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#0c4a6e;stop-opacity:1" />
+    </linearGradient>
+
+    <linearGradient id="merrillGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#7c3aed;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#4c1d95;stop-opacity:1" />
+    </linearGradient>
+
+    <linearGradient id="supplyChainGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#b45309;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#78350f;stop-opacity:1" />
+    </linearGradient>
+
+    <linearGradient id="knowledgeGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#0f766e;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#134e4a;stop-opacity:1" />
+    </linearGradient>
+
+    <linearGradient id="valueGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#be185d;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#831843;stop-opacity:1" />
+    </linearGradient>
+
+    <linearGradient id="manasGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#15803d;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#166534;stop-opacity:1" />
+    </linearGradient>
+
+    <linearGradient id="decisionGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#dc2626;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#991b1b;stop-opacity:1" />
+    </linearGradient>
+
+    <linearGradient id="fpGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#6d28d9;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#4c1d95;stop-opacity:1" />
+    </linearGradient>
+
+    <linearGradient id="alayaGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#059669;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#047857;stop-opacity:1" />
+    </linearGradient>
+
+    <filter id="glow">
+      <feGaussianBlur stdDeviation="3" result="coloredBlur"/>
+      <feMerge>
+        <feMergeNode in="coloredBlur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+
+    <filter id="shadow">
+      <feDropShadow dx="0" dy="2" stdDeviation="4" flood-opacity="0.3"/>
+    </filter>
+
+    <marker id="arrow" markerWidth="6" markerHeight="6" refX="5" refY="3" orient="auto">
+      <path d="M0,0 L6,3 L0,6 L1,3 Z" fill="#64748b"/>
+    </marker>
+
+    <marker id="arrowGreen" markerWidth="6" markerHeight="6" refX="5" refY="3" orient="auto">
+      <path d="M0,0 L6,3 L0,6 L1,3 Z" fill="#34d399"/>
+    </marker>
+
+    <marker id="arrowRed" markerWidth="6" markerHeight="6" refX="5" refY="3" orient="auto">
+      <path d="M0,0 L6,3 L0,6 L1,3 Z" fill="#ef4444"/>
+    </marker>
+
+    <marker id="arrowGold" markerWidth="6" markerHeight="6" refX="5" refY="3" orient="auto">
+      <path d="M0,0 L6,3 L0,6 L1,3 Z" fill="#f59e0b"/>
+    </marker>
+  </defs>
+
+  <rect width="1600" height="1400" fill="url(#bgGrad)"/>
+
+  <text x="800" y="40" text-anchor="middle" fill="#f8fafc" font-family="system-ui, sans-serif" font-size="22" font-weight="bold" filter="url(#glow)">智能投资决策系统 · 买/卖/长持流程图</text>
+  <text x="800" y="65" text-anchor="middle" fill="#94a3b8" font-family="system-ui, sans-serif" font-size="12">基于市场数据 + 新闻认知 + 全球流动性 + 供应链 + 天人合一价值观 + 美林时钟</text>
+
+  <!-- ============================================================ -->
+  <!-- INPUT LAYER: 五大输入源 -->
+  <!-- ============================================================ -->
+  <text x="80" y="100" fill="#e2e8f0" font-family="system-ui, sans-serif" font-size="13" font-weight="bold">输入层</text>
+
+  <!-- 1. Market Data -->
+  <rect x="30" y="115" width="200" height="80" rx="8" fill="url(#marketGrad)" filter="url(#shadow)"/>
+  <rect x="30" y="115" width="200" height="25" rx="8" fill="#1e40af"/>
+  <text x="130" y="133" text-anchor="middle" fill="#fff" font-family="system-ui, sans-serif" font-size="12" font-weight="bold">市场数据</text>
+  <text x="50" y="160" fill="#93c5fd" font-family="system-ui, sans-serif" font-size="9">价格 · 成交量 · 趋势</text>
+  <text x="50" y="175" fill="#93c5fd" font-family="system-ui, sans-serif" font-size="9">板块轮动 · 市场情绪</text>
+  <text x="50" y="190" fill="#64748b" font-family="system-ui, sans-serif" font-size="8">snapshot / market_state</text>
+
+  <!-- 2. News / Radar -->
+  <rect x="250" y="115" width="200" height="80" rx="8" fill="url(#newsGrad)" filter="url(#shadow)"/>
+  <rect x="250" y="115" width="200" height="25" rx="8" fill="#7c3aed"/>
+  <text x="350" y="133" text-anchor="middle" fill="#fff" font-family="system-ui, sans-serif" font-size="12" font-weight="bold">新闻/雷达</text>
+  <text x="270" y="160" fill="#c4b5fd" font-family="system-ui, sans-serif" font-size="9">财经新闻 · 社交媒体</text>
+  <text x="270" y="175" fill="#c4b5fd" font-family="system-ui, sans-serif" font-size="9">舆情监控 · 叙事提取</text>
+  <text x="270" y="190" fill="#64748b" font-family="system-ui, sans-serif" font-size="8">AttentionTextRouter</text>
+
+  <!-- 3. Global Liquidity -->
+  <rect x="470" y="115" width="200" height="80" rx="8" fill="url(#liquidityGrad)" filter="url(#shadow)"/>
+  <rect x="470" y="115" width="200" height="25" rx="8" fill="#0369a1"/>
+  <text x="570" y="133" text-anchor="middle" fill="#fff" font-family="system-ui, sans-serif" font-size="12" font-weight="bold">全球流动性</text>
+  <text x="490" y="160" fill="#7dd3fc" font-family="system-ui, sans-serif" font-size="9">跨市场传导 · 汇率波动</text>
+  <text x="490" y="175" fill="#7dd3fc" font-family="system-ui, sans-serif" font-size="9">北上资金 · 美联储政策</text>
+  <text x="490" y="190" fill="#64748b" font-family="system-ui, sans-serif" font-size="8">LiquidityCognition</text>
+
+  <!-- 4. Merrill Clock -->
+  <rect x="690" y="115" width="200" height="80" rx="8" fill="url(#merrillGrad)" filter="url(#shadow)"/>
+  <rect x="690" y="115" width="200" height="25" rx="8" fill="#6d28d9"/>
+  <text x="790" y="133" text-anchor="middle" fill="#fff" font-family="system-ui, sans-serif" font-size="12" font-weight="bold">美林时钟</text>
+  <text x="710" y="160" fill="#c4b5fd" font-family="system-ui, sans-serif" font-size="9">经济周期判断</text>
+  <text x="710" y="175" fill="#c4b5fd" font-family="system-ui, sans-serif" font-size="9">复苏/过热/滞胀/衰退</text>
+  <text x="710" y="190" fill="#64748b" font-family="system-ui, sans-serif" font-size="8">MerrillClockEngine</text>
+
+  <!-- 5. Supply Chain -->
+  <rect x="910" y="115" width="200" height="80" rx="8" fill="url(#supplyChainGrad)" filter="url(#shadow)"/>
+  <rect x="910" y="115" width="200" height="25" rx="8" fill="#b45309"/>
+  <text x="1010" y="133" text-anchor="middle" fill="#fff" font-family="system-ui, sans-serif" font-size="12" font-weight="bold">供应链关系</text>
+  <text x="930" y="160" fill="#fcd34d" font-family="system-ui, sans-serif" font-size="9">供需分析 · 产业链映射</text>
+  <text x="930" y="175" fill="#fcd34d" font-family="system-ui, sans-serif" font-size="9">上游风险 · 下游机会</text>
+  <text x="930" y="190" fill="#64748b" font-family="system-ui, sans-serif" font-size="8">NarrativeSupplyChainLinker</text>
+
+  <!-- 6. Knowledge (从新闻学习) -->
+  <rect x="1130" y="115" width="200" height="80" rx="8" fill="url(#knowledgeGrad)" filter="url(#shadow)"/>
+  <rect x="1130" y="115" width="200" height="25" rx="8" fill="#0f766e"/>
+  <text x="1230" y="133" text-anchor="middle" fill="#fff" font-family="system-ui, sans-serif" font-size="12" font-weight="bold">知识库(新闻学习)</text>
+  <text x="1150" y="160" fill="#5eead4" font-family="system-ui, sans-serif" font-size="9">Token供需 · 电力供需</text>
+  <text x="1150" y="175" fill="#5eead4" font-family="system-ui, sans-serif" font-size="9">技术瓶颈 · 效率突破</text>
+  <text x="1150" y="190" fill="#64748b" font-family="system-ui, sans-serif" font-size="8">SectorNarrative + 关键词</text>
+
+  <!-- 7. Value System -->
+  <rect x="1350" y="115" width="200" height="80" rx="8" fill="url(#valueGrad)" filter="url(#shadow)"/>
+  <rect x="1350" y="115" width="200" height="25" rx="8" fill="#be185d"/>
+  <text x="1450" y="133" text-anchor="middle" fill="#fff" font-family="system-ui, sans-serif" font-size="12" font-weight="bold">使命/价值观</text>
+  <text x="1370" y="160" fill="#f9a8d4" font-family="system-ui, sans-serif" font-size="9">天道 · 民心 · 人和</text>
+  <text x="1370" y="175" fill="#f9a8d4" font-family="system-ui, sans-serif" font-size="9">价值观约束 · 偏好配置</text>
+  <text x="1370" y="190" fill="#64748b" font-family="system-ui, sans-serif" font-size="8">ValueSystem</text>
+
+  <!-- Arrows to Cognition Layer -->
+  <path d="M 130 195 L 130 230" stroke="#60a5fa" stroke-width="1.5" fill="none" marker-end="url(#arrow)"/>
+  <path d="M 350 195 L 350 230" stroke="#a855f7" stroke-width="1.5" fill="none" marker-end="url(#arrow)"/>
+  <path d="M 570 195 L 570 230" stroke="#0ea5e9" stroke-width="1.5" fill="none" marker-end="url(#arrow)"/>
+  <path d="M 790 195 L 790 230" stroke="#8b5cf6" stroke-width="1.5" fill="none" marker-end="url(#arrow)"/>
+  <path d="M 1010 195 L 1010 230" stroke="#f59e0b" stroke-width="1.5" fill="none" marker-end="url(#arrow)"/>
+  <path d="M 1230 195 L 1230 230" stroke="#34d399" stroke-width="1.5" fill="none" marker-end="url(#arrow)"/>
+  <path d="M 1450 195 L 1450 230" stroke="#f472b6" stroke-width="1.5" fill="none" marker-end="url(#arrow)"/>
+
+  <!-- ============================================================ -->
+  <!-- COGNITION LAYER: 认知处理 -->
+  <!-- ============================================================ -->
+  <text x="80" y="255" fill="#e2e8f0" font-family="system-ui, sans-serif" font-size="13" font-weight="bold">认知层</text>
+
+  <rect x="30" y="270" width="1520" height="130" rx="10" fill="#1e1b2e" stroke="#334155" stroke-width="1"/>
+
+  <!-- Cognition modules -->
+  <rect x="50" y="285" width="180" height="100" rx="8" fill="#1e293b" stroke="#3b82f6" stroke-width="1"/>
+  <text x="140" y="305" text-anchor="middle" fill="#60a5fa" font-family="system-ui, sans-serif" font-size="11" font-weight="bold">感知系统</text>
+  <text x="60" y="328" fill="#94a3b8" font-family="system-ui, sans-serif" font-size="9">VolatilitySurfaceSense</text>
+  <text x="60" y="345" fill="#94a3b8" font-family="system-ui, sans-serif" font-size="9">PreTaste / ProphetSense</text>
+  <text x="60" y="362" fill="#94a3b8" font-family="system-ui, sans-serif" font-size="9">RealtimeTaste</text>
+
+  <rect x="250" y="285" width="180" height="100" rx="8" fill="#1e293b" stroke="#7c3aed" stroke-width="1"/>
+  <text x="340" y="305" text-anchor="middle" fill="#a855f7" font-family="system-ui, sans-serif" font-size="11" font-weight="bold">叙事主题</text>
+  <text x="260" y="328" fill="#94a3b8" font-family="system-ui, sans-serif" font-size="9">SectorNarrative</text>
+  <text x="260" y="345" fill="#94a3b8" font-family="system-ui, sans-serif" font-size="9">NarrativeSupplyChainLinker</text>
+  <text x="260" y="362" fill="#94a3b8" font-family="system-ui, sans-serif" font-size="9">NarrativeSectorMapping</text>
+
+  <rect x="450" y="285" width="180" height="100" rx="8" fill="#1e293b" stroke="#0369a1" stroke-width="1"/>
+  <text x="540" y="305" text-anchor="middle" fill="#0ea5e9" font-family="system-ui, sans-serif" font-size="11" font-weight="bold">流动性传播</text>
+  <text x="460" y="328" fill="#94a3b8" font-family="system-ui, sans-serif" font-size="9">PropagationEngine</text>
+  <text x="460" y="345" fill="#94a3b8" font-family="system-ui, sans-serif" font-size="9">LiquidityCognition</text>
+  <text x="460" y="362" fill="#94a3b8" font-family="system-ui, sans-serif" font-size="9">PredictionTracker</text>
+
+  <rect x="650" y="285" width="180" height="100" rx="8" fill="#1e293b" stroke="#6d28d9" stroke-width="1"/>
+  <text x="740" y="305" text-anchor="middle" fill="#c4b5fd" font-family="system-ui, sans-serif" font-size="11" font-weight="bold">时机叙事</text>
+  <text x="660" y="328" fill="#94a3b8" font-family="system-ui, sans-serif" font-size="9">TimingNarrative</text>
+  <text x="660" y="345" fill="#94a3b8" font-family="system-ui, sans-serif" font-size="9">CrossSignalAnalyzer</text>
+  <text x="660" y="362" fill="#94a3b8" font-family="system-ui, sans-serif" font-size="9">HistoryTracker</text>
+
+  <rect x="850" y="285" width="180" height="100" rx="8" fill="#1e293b" stroke="#b45309" stroke-width="1"/>
+  <text x="940" y="305" text-anchor="middle" fill="#fbbf24" font-family="system-ui, sans-serif" font-size="11" font-weight="bold">供应链图谱</text>
+  <text x="860" y="328" fill="#94a3b8" font-family="system-ui, sans-serif" font-size="9">SupplyChainGraph</text>
+  <text x="860" y="345" fill="#94a3b8" font-family="system-ui, sans-serif" font-size="9">SupplyChainValuation</text>
+  <text x="860" y="362" fill="#94a3b8" font-family="system-ui, sans-serif" font-size="9">GraphNode / Risk</text>
+
+  <rect x="1050" y="285" width="180" height="100" rx="8" fill="#1e293b" stroke="#059669" stroke-width="1"/>
+  <text x="1140" y="305" text-anchor="middle" fill="#34d399" font-family="system-ui, sans-serif" font-size="11" font-weight="bold">Bandit追踪</text>
+  <text x="1060" y="328" fill="#94a3b8" font-family="system-ui, sans-serif" font-size="9">BanditTracker</text>
+  <text x="1060" y="345" fill="#94a3b8" font-family="system-ui, sans-serif" font-size="9">PortfolioManager</text>
+  <text x="1060" y="362" fill="#94a3b8" font-family="system-ui, sans-serif" font-size="9">Attribution</text>
+
+  <rect x="1250" y="285" width="180" height="100" rx="8" fill="#1e293b" stroke="#be185d" stroke-width="1"/>
+  <text x="1340" y="305" text-anchor="middle" fill="#f472b6" font-family="system-ui, sans-serif" font-size="11" font-weight="bold">价值观系统</text>
+  <text x="1260" y="328" fill="#94a3b8" font-family="system-ui, sans-serif" font-size="9">ValueSystem</text>
+  <text x="1260" y="345" fill="#94a3b8" font-family="system-ui, sans-serif" font-size="9">ValueProfileManager</text>
+  <text x="1260" y="362" fill="#94a3b8" font-family="system-ui, sans-serif" font-size="9">ValueAlignment</text>
+
+  <!-- Cognition Output -->
+  <path d="M 130 400 L 130 430" stroke="#60a5fa" stroke-width="1.5" fill="none" marker-end="url(#arrow)"/>
+  <path d="M 340 400 L 340 430" stroke="#a855f7" stroke-width="1.5" fill="none" marker-end="url(#arrow)"/>
+  <path d="M 540 400 L 540 430" stroke="#0ea5e9" stroke-width="1.5" fill="none" marker-end="url(#arrow)"/>
+  <path d="M 740 400 L 740 430" stroke="#c4b5fd" stroke-width="1.5" fill="none" marker-end="url(#arrow)"/>
+  <path d="M 940 400 L 940 430" stroke="#fbbf24" stroke-width="1.5" fill="none" marker-end="url(#arrow)"/>
+  <path d="M 1140 400 L 1140 430" stroke="#34d399" stroke-width="1.5" fill="none" marker-end="url(#arrow)"/>
+  <path d="M 1340 400 L 1340 430" stroke="#f472b6" stroke-width="1.5" fill="none" marker-end="url(#arrow)"/>
+
+  <!-- ============================================================ -->
+  <!-- ATTENTION + MANAS LAYER -->
+  <!-- ============================================================ -->
+  <text x="80" y="455" fill="#e2e8f0" font-family="system-ui, sans-serif" font-size="13" font-weight="bold">注意力内核</text>
+
+  <rect x="30" y="470" width="700" height="220" rx="10" fill="#1e293b" stroke="#3b82f6" stroke-width="2"/>
+
+  <!-- compute_attention -->
+  <rect x="50" y="485" width="300" height="70" rx="8" fill="#0f172a" stroke="#60a5fa" stroke-width="1"/>
+  <text x="200" y="508" text-anchor="middle" fill="#60a5fa" font-family="system-ui, sans-serif" font-size="12" font-weight="bold">compute_attention()</text>
+  <text x="200" y="528" text-anchor="middle" fill="#93c5fd" font-family="system-ui, sans-serif" font-size="10">QKV 注意力计算</text>
+  <text x="200" y="545" text-anchor="middle" fill="#64748b" font-family="system-ui, sans-serif" font-size="9">events → attention_weights</text>
+
+  <!-- make_decision -->
+  <rect x="370" y="485" width="340" height="70" rx="8" fill="#0f172a" stroke="#0ea5e9" stroke-width="1"/>
+  <text x="540" y="508" text-anchor="middle" fill="#0ea5e9" font-family="system-ui, sans-serif" font-size="12" font-weight="bold">make_decision()</text>
+  <text x="540" y="528" text-anchor="middle" fill="#7dd3fc" font-family="system-ui, sans-serif" font-size="10">ManasEngine 决策中枢</text>
+  <text x="540" y="545" text-anchor="middle" fill="#64748b" font-family="system-ui, sans-serif" font-size="9">→ harmony_state, action_type</text>
+
+  <!-- ManasEngine Detail -->
+  <rect x="50" y="570" width="660" height="105" rx="8" fill="#1c1917" stroke="#f59e0b" stroke-width="1"/>
+  <text x="380" y="592" text-anchor="middle" fill="#fbbf24" font-family="system-ui, sans-serif" font-size="12" font-weight="bold">ManasEngine: 天-地-人 三维融合</text>
+
+  <rect x="70" y="605" width="100" height="55" rx="6" fill="#292524" stroke="#f59e0b" stroke-width="1"/>
+  <text x="120" y="627" text-anchor="middle" fill="#f59e0b" font-family="system-ui, sans-serif" font-size="10" font-weight="bold">天时</text>
+  <text x="120" y="645" text-anchor="middle" fill="#94a3b8" font-family="system-ui, sans-serif" font-size="8">宏观流动性</text>
+
+  <rect x="185" y="605" width="100" height="55" rx="6" fill="#292524" stroke="#f59e0b" stroke-width="1"/>
+  <text x="235" y="627" text-anchor="middle" fill="#f59e0b" font-family="system-ui, sans-serif" font-size="10" font-weight="bold">地势</text>
+  <text x="235" y="645" text-anchor="middle" fill="#94a3b8" font-family="system-ui, sans-serif" font-size="8">市场结构</text>
+
+  <rect x="300" y="605" width="100" height="55" rx="6" fill="#292524" stroke="#f59e0b" stroke-width="1"/>
+  <text x="350" y="627" text-anchor="middle" fill="#f59e0b" font-family="system-ui, sans-serif" font-size="10" font-weight="bold">人和</text>
+  <text x="350" y="645" text-anchor="middle" fill="#94a3b8" font-family="system-ui, sans-serif" font-size="8">博弈反馈</text>
+
+  <rect x="415" y="605" width="280" height="55" rx="6" fill="#292524" stroke="#fbbf24" stroke-width="1"/>
+  <text x="555" y="625" text-anchor="middle" fill="#fbbf24" font-family="system-ui, sans-serif" font-size="10" font-weight="bold">输出</text>
+  <text x="480" y="642" text-anchor="middle" fill="#e2e8f0" font-family="system-ui, sans-serif" font-size="8">α = conf × harmony × bias</text>
+  <text x="620" y="642" text-anchor="middle" fill="#e2e8f0" font-family="system-ui, sans-serif" font-size="8">timing / regime / risk</text>
+
+  <!-- FP Mind & Alaya (right side) -->
+  <rect x="750" y="470" width="340" height="220" rx="10" fill="#1e293b" stroke="#6d28d9" stroke-width="2"/>
+
+  <text x="920" y="492" text-anchor="middle" fill="#c4b5fd" font-family="system-ui, sans-serif" font-size="12" font-weight="bold">FirstPrinciplesMind + AwakenedAlaya</text>
+
+  <rect x="770" y="505" width="145" height="85" rx="8" fill="#0f172a" stroke="#a855f7" stroke-width="1"/>
+  <text x="842" y="525" text-anchor="middle" fill="#c4b5fd" font-family="system-ui, sans-serif" font-size="10" font-weight="bold">FP Mind</text>
+  <text x="842" y="545" text-anchor="middle" fill="#94a3b8" font-family="system-ui, sans-serif" font-size="9">第一性原理</text>
+  <text x="842" y="562" text-anchor="middle" fill="#94a3b8" font-family="system-ui, sans-serif" font-size="9">还原本质 · 公理推导</text>
+  <text x="842" y="579" text-anchor="middle" fill="#64748b" font-family="system-ui, sans-serif" font-size="8">→ insights[]</text>
+
+  <rect x="930" y="505" width="145" height="85" rx="8" fill="#0f172a" stroke="#10b981" stroke-width="1"/>
+  <text x="1002" y="525" text-anchor="middle" fill="#34d399" font-family="system-ui, sans-serif" font-size="10" font-weight="bold">AwakenedAlaya</text>
+  <text x="1002" y="545" text-anchor="middle" fill="#94a3b8" font-family="system-ui, sans-serif" font-size="9">模式匹配 · 顿悟</text>
+  <text x="1002" y="562" text-anchor="middle" fill="#94a3b8" font-family="system-ui, sans-serif" font-size="9">跨市场经验迁移</text>
+  <text x="1002" y="579" text-anchor="middle" fill="#64748b" font-family="system-ui, sans-serif" font-size="8">→ awakening_level</text>
+
+  <!-- Awakening Levels -->
+  <rect x="770" y="605" width="305" height="70" rx="8" fill="#1c1917" stroke="#059669" stroke-width="1"/>
+  <text x="920" y="625" text-anchor="middle" fill="#34d399" font-family="system-ui, sans-serif" font-size="10" font-weight="bold">觉醒层次: DORMANT → AWAKENING → ILLUMINATED → ENLIGHTENED</text>
+  <text x="920" y="645" text-anchor="middle" fill="#6ee7b7" font-family="system-ui, sans-serif" font-size="9">置信度加成: enlightened ×1.1 / illuminated ×1.05</text>
+  <text x="920" y="665" text-anchor="middle" fill="#64748b" font-family="system-ui, sans-serif" font-size="8">recalled_patterns[] → 顿悟内容</text>
+
+  <!-- DecisionFusion -->
+  <rect x="1110" y="470" width="260" height="220" rx="10" fill="#1e293b" stroke="#ec4899" stroke-width="2"/>
+
+  <text x="1240" y="492" text-anchor="middle" fill="#f472b6" font-family="system-ui, sans-serif" font-size="12" font-weight="bold">DecisionFusion</text>
+  <text x="1240" y="510" text-anchor="middle" fill="#94a3b8" font-family="system-ui, sans-serif" font-size="9">三路信号融合</text>
+
+  <rect x="1130" y="525" width="220" height="150" rx="8" fill="#0f172a" stroke="#f472b6" stroke-width="1"/>
+  <text x="1240" y="550" text-anchor="middle" fill="#f9a8d4" font-family="system-ui, sans-serif" font-size="10">FP Insights × level加成</text>
+
+  <text x="1240" y="575" text-anchor="middle" fill="#f9a8d4" font-family="system-ui, sans-serif" font-size="10">Manas 四维</text>
+  <text x="1240" y="592" text-anchor="middle" fill="#64748b" font-family="system-ui, sans-serif" font-size="8">timing / regime / risk / bias</text>
+
+  <text x="1240" y="615" text-anchor="middle" fill="#f9a8d4" font-family="system-ui, sans-serif" font-size="10">Awakening 加成</text>
+  <text x="1240" y="632" text-anchor="middle" fill="#64748b" font-family="system-ui, sans-serif" font-size="8">×1.1 / ×1.05</text>
+
+  <text x="1240" y="658" text-anchor="middle" fill="#f472b6" font-family="system-ui, sans-serif" font-size="11" font-weight="bold">→ FusionOutput</text>
+
+  <!-- Arrows down -->
+  <path d="M 380 690 L 380 730" stroke="#3b82f6" stroke-width="2" fill="none" marker-end="url(#arrow)"/>
+  <path d="M 920 690 L 920 730" stroke="#a855f7" stroke-width="2" fill="none" marker-end="url(#arrow)"/>
+  <path d="M 1240 690 L 1240 730" stroke="#f472b6" stroke-width="2" fill="none" marker-end="url(#arrow)"/>
+
+  <!-- ============================================================ -->
+  <!-- OUTPUT LAYER: 决策输出 -->
+  <!-- ============================================================ -->
+  <text x="80" y="755" fill="#e2e8f0" font-family="system-ui, sans-serif" font-size="13" font-weight="bold">决策输出</text>
+
+  <rect x="30" y="770" width="1520" height="100" rx="10" fill="#1e293b" stroke="#22c55e" stroke-width="2"/>
+
+  <text x="180" y="798" text-anchor="middle" fill="#22c55e" font-family="system-ui, sans-serif" font-size="14" font-weight="bold">should_act</text>
+  <text x="180" y="820" text-anchor="middle" fill="#94a3b8" font-family="system-ui, sans-serif" font-size="11">是否行动</text>
+
+  <text x="420" y="798" text-anchor="middle" fill="#22c55e" font-family="system-ui, sans-serif" font-size="14" font-weight="bold">action_type</text>
+  <text x="420" y="820" text-anchor="middle" fill="#94a3b8" font-family="system-ui, sans-serif" font-size="11">hold / buy / sell / act_carefully</text>
+
+  <text x="700" y="798" text-anchor="middle" fill="#22c55e" font-family="system-ui, sans-serif" font-size="14" font-weight="bold">final_confidence</text>
+  <text x="700" y="820" text-anchor="middle" fill="#94a3b8" font-family="system-ui, sans-serif" font-size="11">融合后置信度</text>
+
+  <text x="980" y="798" text-anchor="middle" fill="#22c55e" font-family="system-ui, sans-serif" font-size="14" font-weight="bold">harmony_state</text>
+  <text x="980" y="820" text-anchor="middle" fill="#94a3b8" font-family="system-ui, sans-serif" font-size="11">bullish / bearish / neutral</text>
+
+  <text x="1280" y="798" text-anchor="middle" fill="#22c55e" font-family="system-ui, sans-serif" font-size="14" font-weight="bold">position_adjustment</text>
+  <text x="1280" y="820" text-anchor="middle" fill="#94a3b8" font-family="system-ui, sans-serif" font-size="11">仓位调整建议</text>
+
+  <!-- Arrow to Trading Actions -->
+  <path d="M 790 870 L 790 900" stroke="#22c55e" stroke-width="2" fill="none" marker-end="url(#arrowGreen)"/>
+
+  <!-- ============================================================ -->
+  <!-- TRADING ACTIONS: 交易执行 -->
+  <!-- ============================================================ -->
+  <text x="80" y="925" fill="#e2e8f0" font-family="system-ui, sans-serif" font-size="13" font-weight="bold">交易执行</text>
+
+  <rect x="30" y="940" width="490" height="180" rx="10" fill="#1e293b" stroke="#16a34a" stroke-width="2"/>
+  <rect x="30" y="940" width="490" height="35" rx="10" fill="#15803d"/>
+  <text x="275" y="965" text-anchor="middle" fill="#fff" font-family="system-ui, sans-serif" font-size="14" font-weight="bold">买入决策流程 (BUY)</text>
+
+  <text x="55" y="1000" fill="#4ade80" font-family="system-ui, sans-serif" font-size="10">1. 美林时钟判断周期</text>
+  <text x="55" y="1020" fill="#94a3b8" font-family="system-ui, sans-serif" font-size="9">   复苏期 → 股票最佳 · 过热期 → 商品/股票</text>
+
+  <text x="55" y="1045" fill="#4ade80" font-family="system-ui, sans-serif" font-size="10">2. 供应链机会发现</text>
+  <text x="55" y="1065" fill="#94a3b8" font-family="system-ui, sans-serif" font-size="9">   供需缺口 → 叙事主题 → 供应链传导</text>
+
+  <text x="55" y="1090" fill="#4ade80" font-family="system-ui, sans-serif" font-size="10">3. 价值观约束检查</text>
+  <text x="55" y="1110" fill="#94a3b8" font-family="system-ui, sans-serif" font-size="9">   天道/民心/人和 → 是否符合使命</text>
+
+  <!-- Buy conditions -->
+  <rect x="280" y="990" width="220" height="115" rx="8" fill="#0f172a" stroke="#22c55e" stroke-width="1"/>
+  <text x="390" y="1015" text-anchor="middle" fill="#4ade80" font-family="system-ui, sans-serif" font-size="10" font-weight="bold">买入条件</text>
+  <text x="295" y="1038" fill="#94a3b8" font-family="system-ui, sans-serif" font-size="9">• harmony > 0.6</text>
+  <text x="295" y="1055" fill="#94a3b8" font-family="system-ui, sans-serif" font-size="9">• timing_score > 0.6</text>
+  <text x="295" y="1072" fill="#94a3b8" font-family="system-ui, sans-serif" font-size="9">• confidence > 0.5</text>
+  <text x="295" y="1089" fill="#94a3b8" font-family="system-ui, sans-serif" font-size="9">• 价值观对齐 > 0.5</text>
+
+  <!-- Hold -->
+  <rect x="540" y="940" width="250" height="180" rx="10" fill="#1e293b" stroke="#eab308" stroke-width="2"/>
+  <rect x="540" y="940" width="250" height="35" rx="10" fill="#a16207"/>
+  <text x="665" y="965" text-anchor="middle" fill="#fff" font-family="system-ui, sans-serif" font-size="14" font-weight="bold">长线持有 (HOLD)</text>
+
+  <text x="560" y="1000" fill="#fcd34d" font-family="system-ui, sans-serif" font-size="10">持续监控</text>
+  <text x="560" y="1020" fill="#94a3b8" font-family="system-ui, sans-serif" font-size="9">• attention_weights 跟踪</text>
+  <text x="560" y="1040" fill="#94a3b8" font-family="system-ui, sans-serif" font-size="9">• harmony_strength 监测</text>
+  <text x="560" y="1060" fill="#94a3b8" font-family="system-ui, sans-serif" font-size="9">• regime_score 趋势</text>
+
+  <text x="560" y="1085" fill="#fcd34d" font-family="system-ui, sans-serif" font-size="10">调仓触发</text>
+  <text x="560" y="1105" fill="#94a3b8" font-family="system-ui, sans-serif" font-size="9">• composite_score 下降</text>
+  <text x="560" y="1125" fill="#94a3b8" font-family="system-ui, sans-serif" font-size="9">• 叙事主题切换</text>
+
+  <!-- Sell -->
+  <rect x="810" y="940" width="250" height="180" rx="10" fill="#1e293b" stroke="#dc2626" stroke-width="2"/>
+  <rect x="810" y="940" width="250" height="35" rx="10" fill="#b91c1c"/>
+  <text x="935" y="965" text-anchor="middle" fill="#fff" font-family="system-ui, sans-serif" font-size="14" font-weight="bold">卖出决策 (SELL)</text>
+
+  <text x="830" y="1000" fill="#f87171" font-family="system-ui, sans-serif" font-size="10">卖出条件</text>
+  <text x="830" y="1020" fill="#94a3b8" font-family="system-ui, sans-serif" font-size="9">• harmony < 0.3</text>
+  <text x="830" y="1040" fill="#94a3b8" font-family="system-ui, sans-serif" font-size="9">• timing_score < 0.4</text>
+  <text x="830" y="1060" fill="#94a3b8" font-family="system-ui, sans-serif" font-size="9">• risk_temperature > 1.5</text>
+
+  <text x="830" y="1085" fill="#f87171" font-family="system-ui, sans-serif" font-size="10">风险触发</text>
+  <text x="830" y="1105" fill="#94a3b8" font-family="system-ui, sans-serif" font-size="9">• 供应链断裂</text>
+  <text x="830" y="1125" fill="#94a3b8" font-family="system-ui, sans-serif" font-size="9">• 美林时钟进入衰退</text>
+
+  <!-- Feedback Loop -->
+  <rect x="1080" y="940" width="470" height="180" rx="10" fill="#1e293b" stroke="#6366f1" stroke-width="2"/>
+  <rect x="1080" y="940" width="470" height="35" rx="10" fill="#4f46e5"/>
+  <text x="1315" y="965" text-anchor="middle" fill="#fff" font-family="system-ui, sans-serif" font-size="14" font-weight="bold">反馈与学习闭环</text>
+
+  <text x="1100" y="1000" fill="#a5b4fc" font-family="system-ui, sans-serif" font-size="10">交易结果反馈</text>
+  <text x="1100" y="1020" fill="#94a3b8" font-family="system-ui, sans-serif" font-size="9">SignalExecutor → 收益/损失 → Attribution</text>
+  <text x="1100" y="1040" fill="#94a3b8" font-family="system-ui, sans-serif" font-size="9">BanditTracker → 策略表现 → Alpha更新</text>
+
+  <text x="1100" y="1065" fill="#a5b4fc" font-family="system-ui, sans-serif" font-size="10">AwakenedAlaya 顿悟</text>
+  <text x="1100" y="1085" fill="#94a3b8" font-family="system-ui, sans-serif" font-size="9">成功模式 → Pattern Archive</text>
+  <text x="1100" y="1105" fill="#94a3b8" font-family="system-ui, sans-serif" font-size="9">跨市场迁移 → Crypto/Futures/US → A股</text>
+
+  <text x="1100" y="1130" fill="#a5b4fc" font-family="system-ui, sans-serif" font-size="10">MetaManas 偏差校准</text>
+  <text x="1100" y="1150" fill="#94a3b8" font-family="system-ui, sans-serif" font-size="9">bias_correction → 下次决策更准</text>
+
+  <!-- Arrows showing cycle -->
+  <path d="M 275 1120 L 275 1200 L 790 1200 L 790 1140" stroke="#6366f1" stroke-width="1.5" fill="none" stroke-dasharray="5,3" marker-end="url(#arrow)"/>
+
+  <!-- ============================================================ -->
+  <!-- CORE FORMULAS -->
+  <!-- ============================================================ -->
+  <text x="80" y="1250" fill="#e2e8f0" font-family="system-ui, sans-serif" font-size="13" font-weight="bold">核心公式</text>
+
+  <rect x="30" y="1265" width="1520" height="120" rx="10" fill="#1e293b" stroke="#334155" stroke-width="1"/>
+
+  <rect x="50" y="1280" width="4" height="90" rx="2" fill="#60a5fa"/>
+  <text x="65" y="1300" fill="#60a5fa" font-family="monospace" font-size="10">final_weight</text>
+  <text x="65" y="1320" fill="#94a3b8" font-family="monospace" font-size="9">= base_weight × attention_weight × α × harmony × confidence</text>
+  <text x="65" y="1345" fill="#64748b" font-family="monospace" font-size="8">决定: 关注什么/多少</text>
+
+  <rect x="400" y="1280" width="4" height="90" rx="2" fill="#fbbf24"/>
+  <text x="415" y="1300" fill="#fbbf24" font-family="monospace" font-size="10">manas_score</text>
+  <text x="415" y="1320" fill="#94a3b8" font-family="monospace" font-size="9">= 0.4×timing + 0.3×regime + 0.3×confidence</text>
+  <text x="415" y="1345" fill="#64748b" font-family="monospace" font-size="8">决定: 该不该行动</text>
+
+  <rect x="730" y="1280" width="4" height="90" rx="2" fill="#c4b5fd"/>
+  <text x="745" y="1300" fill="#c4b5fd" font-family="monospace" font-size="10">α (alpha)</text>
+  <text x="745" y="1320" fill="#94a3b8" font-family="monospace" font-size="9">= confidence × harmony × bias_correction</text>
+  <text x="745" y="1345" fill="#64748b" font-family="monospace" font-size="8">clamped [0.3, 1.5]</text>
+
+  <rect x="1050" y="1280" width="4" height="90" rx="2" fill="#34d399"/>
+  <text x="1065" y="1300" fill="#34d399" font-family="monospace" font-size="10">composite_score</text>
+  <text x="1065" y="1320" fill="#94a3b8" font-family="monospace" font-size="9">= harmony×0.5 + timing×0.3 + (regime>0 ? 0.2 : 0.3)</text>
+  <text x="1065" y="1345" fill="#64748b" font-family="monospace" font-size="8">决定: 行动频率</text>
+
+  <rect x="1400" y="1280" width="4" height="90" rx="2" fill="#f472b6"/>
+  <text x="1415" y="1300" fill="#f472b6" font-family="monospace" font-size="10">final_confidence</text>
+  <text x="1415" y="1320" fill="#94a3b8" font-family="monospace" font-size="9">= FP×level + Manas四维 + Awakening×bonus</text>
+  <text x="1415" y="1345" fill="#64748b" font-family="monospace" font-size="8">决定: 仓位大小</text>
+
+</svg>

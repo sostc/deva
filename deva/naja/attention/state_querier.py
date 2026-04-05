@@ -137,7 +137,7 @@ class StateQuerier:
             "volatility_surface": self._get_volatility_surface_state(),
         }
 
-    def _get_sector_weights(self) -> Dict[str, float]:
+    def _get_block_weights(self) -> Dict[str, float]:
         """获取板块权重"""
         return {}
 

@@ -213,8 +213,8 @@ def example_usage():
     print(f"高注意力股票: {high_attention}")
     
     # 获取活跃板块
-    active_sectors = integration.get_active_sectors(threshold=0.5)
-    print(f"活跃板块: {active_sectors}")
+    active_blocks = integration.get_active_blocks(threshold=0.5)
+    print(f"活跃板块: {active_blocks}")
     
     # 获取数据源控制指令
     control = integration.get_datasource_control()

@@ -390,13 +390,13 @@ class RuleBasedStrategySelector:
     def __init__(self):
         self._rules = {
             'high_attention_high_volatility': ['momentum_tracker', 'anomaly_sniper'],
-            'high_attention_low_volatility': ['sector_hunter', 'smart_money_detector'],
+            'high_attention_low_volatility': ['block_rotation_hunter', 'smart_money_detector'],
             'moderate_attention_high_pattern': ['global_sentinel'],
-            'moderate_attention_low_pattern': ['sector_hunter'],
+            'moderate_attention_low_pattern': ['block_rotation_hunter'],
             'low_attention': ['global_sentinel']
         }
-        
-        self._default_strategies = ['global_sentinel', 'sector_hunter']
+
+        self._default_strategies = ['global_sentinel', 'block_rotation_hunter']
         
     def select(
         self,

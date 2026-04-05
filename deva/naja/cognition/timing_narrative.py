@@ -16,9 +16,9 @@ TimingNarrative - 认知系统/天（Timing/时机叙事感知）
          ↓ 处理
     发布 TIMING_NARRATIVE_UPDATE → CognitiveSignalBus → ManasEngine
 
-💡 与 SectorNarrative 的区别：
+💡 与 NarrativeTracker 的区别：
     - TimingNarrative（天）：关注「时间」—— 现在是不是时机
-    - SectorNarrative（地）：关注「空间」—— 炒什么板块/主题
+    - NarrativeTracker（地）：关注「空间」—— 炒什么板块/主题
 
 📊 叙事阶段：
     EMERGING（萌芽）→ BUILDING（构建）→ PEAK（高潮）→ FADING（消退）→ DEAD（死亡）
@@ -281,7 +281,7 @@ class TimingNarrativeTracker:
                 evidence=[f"个股分化度: {std_change:.2f}%"],
                 start_time=time.time(),
                 strength=min(1.0, std_change / 5),
-                related_sectors=self._get_top_sectors(market_data),
+                related_sectors=self._get_top_blocks(market_data),
                 key_stocks=[]
             )
 
@@ -345,18 +345,18 @@ class TimingNarrativeTracker:
         if len(sector_changes) < 3:
             return None
 
-        top_sectors = sorted(sector_changes.items(), key=lambda x: x[1], reverse=True)[:3]
+        top_blocks = sorted(sector_changes.items(), key=lambda x: x[1], reverse=True)[:3]
         bottom_sectors = sorted(sector_changes.items(), key=lambda x: x[1])[:3]
 
-        if top_sectors[0][1] - bottom_sectors[0][1] > 3.0:
+        if top_blocks[0][1] - bottom_sectors[0][1] > 3.0:
             return TimingNarrative(
                 narrative_type=TimingType.SECTOR,
                 stage=TimingStage.BUILDING,
                 confidence=0.7,
-                evidence=[f"领涨: {top_sectors[0][0]}({top_sectors[0][1]:.1f}%)"],
+                evidence=[f"领涨: {top_blocks[0][0]}({top_blocks[0][1]:.1f}%)"],
                 start_time=time.time(),
-                strength=min(1.0, (top_sectors[0][1] - bottom_sectors[0][1]) / 10),
-                related_sectors=[s[0] for s in top_sectors],
+                strength=min(1.0, (top_blocks[0][1] - bottom_sectors[0][1]) / 10),
+                related_sectors=[s[0] for s in top_blocks],
                 key_stocks=[]
             )
 
@@ -379,7 +379,7 @@ class TimingNarrativeTracker:
         quality_boost = sum(1 for s in signals if len(s) > 20) * 0.05
         return min(1.0, base + quality_boost)
 
-    def _get_top_sectors(self, market_data: Dict[str, Any]) -> List[str]:
+    def _get_top_blocks(self, market_data: Dict[str, Any]) -> List[str]:
         """获取领涨板块"""
         sector_changes = market_data.get("sector_changes", {})
         return [s[0] for s in sorted(sector_changes.items(), key=lambda x: x[1], reverse=True)[:3]]

@@ -4,13 +4,13 @@ Strategies - 基于注意力的交易策略
 
 from .base import AttentionStrategyBase, Signal
 from .global_sentinel import GlobalMarketSentinel
-from .sector_hunter import SectorRotationHunter
+from .block_hunter import BlockRotationHunter
 from .momentum_tracker import MomentumSurgeTracker
 from .anomaly_sniper import AnomalyPatternSniper
 from .smart_money_detector import SmartMoneyFlowDetector
 from .us_strategies import (
     USGlobalMarketSentinel,
-    USSectorRotationHunter,
+    USBlockRotationHunter,
     USMomentumSurgeTracker,
     USAnomalyPatternSniper,
     USSmartMoneyFlowDetector,
@@ -46,12 +46,12 @@ __all__ = [
     "AttentionStrategyBase",
     "Signal",
     "GlobalMarketSentinel",
-    "SectorRotationHunter",
+    "BlockRotationHunter",
     "MomentumSurgeTracker",
     "AnomalyPatternSniper",
     "SmartMoneyFlowDetector",
     "USGlobalMarketSentinel",
-    "USSectorRotationHunter",
+    "USBlockRotationHunter",
     "USMomentumSurgeTracker",
     "USAnomalyPatternSniper",
     "USSmartMoneyFlowDetector",

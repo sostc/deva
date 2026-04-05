@@ -1,4 +1,4 @@
-"""Narrative to Sector Mapping - 叙事主题到板块的映射配置
+"""Narrative to Block Mapping - 叙事主题到板块的映射配置
 
 职责:
 - 定义叙事主题到市场板块的映射关系
@@ -6,7 +6,7 @@
 - 提供配置开关来控制联动功能
 
 使用场景:
-- NarrativeTracker 识别叙事主题后，映射到实际的 sector_id
+- NarrativeTracker 识别叙事主题后，映射到实际的 block_id
 - CrossSignalAnalyzer 实现"舆情 → 板块轮动"的联动
 - 行业叙事 → 板块（AI→半导体）
 - 宏观叙事 → 大盘指数（流动性紧张→纳斯达克）
@@ -14,7 +14,7 @@
 
 from typing import Dict, List
 
-NARRATIVE_TO_SECTOR_LINK: Dict[str, List[str]] = {
+NARRATIVE_TO_BLOCK_LINK: Dict[str, List[str]] = {
     "AI": ["semiconductor", "software", "internet"],
     "芯片": ["semiconductor", "hardware"],
     "新能源": ["new_energy", "auto", "power_equipment"],
@@ -100,7 +100,7 @@ NARRATIVE_CATEGORY: Dict[str, str] = {
     "现金与货币": "macro",
 }
 
-SECTOR_TO_NARRATIVE_REVERSE: Dict[str, List[str]] = {
+BLOCK_TO_NARRATIVE_REVERSE: Dict[str, List[str]] = {
     "semiconductor": ["AI", "芯片", "华为"],
     "software": ["AI", "华为"],
     "internet": ["AI"],
@@ -132,21 +132,21 @@ SECTOR_TO_NARRATIVE_REVERSE: Dict[str, List[str]] = {
     "industrial_metal": ["大宗商品"],
 }
 
-NARRATIVE_SECTOR_LINKING_ENABLED: bool = True
+NARRATIVE_BLOCK_LINKING_ENABLED: bool = True
 
 
-def get_linked_sectors(narrative: str) -> List[str]:
+def get_linked_blocks(narrative: str) -> List[str]:
     """获取叙事主题关联的板块列表"""
-    if not NARRATIVE_SECTOR_LINKING_ENABLED:
+    if not NARRATIVE_BLOCK_LINKING_ENABLED:
         return []
-    return NARRATIVE_TO_SECTOR_LINK.get(narrative, [])
+    return NARRATIVE_TO_BLOCK_LINK.get(narrative, [])
 
 
-def get_linked_narratives(sector: str) -> List[str]:
+def get_linked_narratives(block: str) -> List[str]:
     """获取板块关联的叙事主题列表"""
-    if not NARRATIVE_SECTOR_LINKING_ENABLED:
+    if not NARRATIVE_BLOCK_LINKING_ENABLED:
         return []
-    return SECTOR_TO_NARRATIVE_REVERSE.get(sector, [])
+    return BLOCK_TO_NARRATIVE_REVERSE.get(block, [])
 
 
 def get_linked_markets(narrative: str) -> List[str]:
@@ -181,10 +181,10 @@ def is_industry_narrative(narrative: str) -> bool:
 
 def is_linking_enabled() -> bool:
     """检查联动功能是否启用"""
-    return NARRATIVE_SECTOR_LINKING_ENABLED
+    return NARRATIVE_BLOCK_LINKING_ENABLED
 
 
 def set_linking_enabled(enabled: bool):
     """设置联动功能开关"""
-    global NARRATIVE_SECTOR_LINKING_ENABLED
-    NARRATIVE_SECTOR_LINKING_ENABLED = enabled
+    global NARRATIVE_BLOCK_LINKING_ENABLED
+    NARRATIVE_BLOCK_LINKING_ENABLED = enabled

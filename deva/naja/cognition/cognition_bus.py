@@ -82,10 +82,10 @@ def emit_cognition_event(event: CognitionEvent) -> None:
 
 
 def emit_attention_snapshot(
-    sector_weights: Dict[str, float],
+    block_weights: Dict[str, float],
     symbol_weights: Dict[str, float],
     high_attention_symbols: set,
-    active_sectors: set,
+    active_blocks: set,
     global_attention: float,
     activity: float,
     sector_names: Dict[str, str],
@@ -95,10 +95,10 @@ def emit_attention_snapshot(
     event = CognitionEvent(
         event_type=CognitionEventType.ATTENTION_SNAPSHOT,
         data={
-            "sector_weights": sector_weights,
+            "block_weights": block_weights,
             "symbol_weights": symbol_weights,
             "high_attention_symbols": list(high_attention_symbols),
-            "active_sectors": list(active_sectors),
+            "active_blocks": list(active_blocks),
             "global_attention": global_attention,
             "activity": activity,
             "sector_names": sector_names,

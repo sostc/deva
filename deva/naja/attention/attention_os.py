@@ -56,6 +56,8 @@ from .kernel.manas_engine import ManasEngine
 from .kernel import get_default_heads
 from .values.system import ValueSystem, get_value_system
 
+from .attention_fusion import get_attention_fusion
+
 log = logging.getLogger(__name__)
 
 
@@ -84,6 +86,14 @@ class AttentionKernelOutput:
     narrative_risk: float = 0.5
     ai_compute_direction: str = "unknown"
     awakening_level: str = "dormant"
+
+    conviction_score: float = 0.0
+    fusion_signals: List[Dict] = field(default_factory=list)
+    consensus_blocks: List[str] = field(default_factory=list)
+    divergence_blocks: List[str] = field(default_factory=list)
+    blind_spots: List[str] = field(default_factory=list)
+    new_hot_blocks: List[str] = field(default_factory=list)
+    fusion_timing_signal: str = "unknown"
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -191,6 +201,39 @@ class AttentionKernel:
         alpha *= manas_output.alpha
         alpha = max(0.3, min(1.5, alpha))
 
+        fusion_result = None
+        fusion_signals = []
+        conviction_score = 0.0
+        consensus_blocks = []
+        divergence_blocks = []
+        blind_spots = []
+        new_hot_blocks = []
+        fusion_timing_signal = "unknown"
+
+        try:
+            from deva.naja.attention.attention_fusion import get_attention_fusion
+            fusion = get_attention_fusion()
+            if attention_weights:
+                fusion_result = fusion.fuse(
+                    market_attention=attention_weights,
+                    portfolio_summary=None,
+                    world_narrative=None,
+                )
+                if fusion_result:
+                    conviction_score = fusion_result.conviction_score
+                    fusion_signals = [
+                        {"block_id": s.block_id, "score": s.fused_score,
+                         "action": s.action_recommendation, "should_act": s.should_act}
+                        for s in fusion_result.signals[:10]
+                    ]
+                    consensus_blocks = [b for b, _ in fusion_result.consensus_blocks[:5]]
+                    divergence_blocks = [b for b, _ in fusion_result.divergence_blocks[:5]]
+                    blind_spots = [b for b, _ in fusion_result.blind_spots[:5]]
+                    new_hot_blocks = [b for b, _ in fusion_result.new_hot_blocks[:5]]
+                    fusion_timing_signal = fusion_result.timing_signal
+        except Exception:
+            pass
+
         output = AttentionKernelOutput(
             alpha=alpha,
             confidence=attention_result.get("confidence", 0.5),
@@ -210,6 +253,13 @@ class AttentionKernel:
             narrative_risk=manas_output.narrative_risk,
             ai_compute_direction=manas_output.ai_compute_direction,
             awakening_level=manas_output.awakening_level,
+            conviction_score=conviction_score,
+            fusion_signals=fusion_signals,
+            consensus_blocks=consensus_blocks,
+            divergence_blocks=divergence_blocks,
+            blind_spots=blind_spots,
+            new_hot_blocks=new_hot_blocks,
+            fusion_timing_signal=fusion_timing_signal,
         )
 
         for e in encoded_events:
@@ -335,7 +385,7 @@ class MarketScheduler:
     def __init__(self, kernel: AttentionKernel):
         self.kernel = kernel
 
-        self._sector_weights: Dict[str, float] = {}
+        self._block_weights: Dict[str, float] = {}
         self._symbol_weights: Dict[str, float] = {}
         self._frequency_level: str = "medium"
         self._strategy_allocations: Dict[str, float] = {}
@@ -374,7 +424,7 @@ class MarketScheduler:
         self._last_schedule_time = current_time
 
         return {
-            "sector_weights": self._sector_weights,
+            "block_weights": self._block_weights,
             "symbol_weights": self._symbol_weights,
             "strategy_allocations": self._strategy_allocations,
             "frequency_level": self._frequency_level,
@@ -425,18 +475,18 @@ class MarketScheduler:
         self._schedule_interval = max(1.0, min(600.0, self._schedule_interval))
 
     def _allocate_weights(self, market_data: Dict[str, Any], kernel_output: AttentionKernelOutput):
-        """分配个股权重"""
+        """分配个股权重和板块权重（支持多 blocks）"""
         base_weights = market_data.get("symbol_weights", {})
-        sector_map = market_data.get("sector_map", {})
+        block_map = market_data.get("block_map", {})
 
         alpha = kernel_output.alpha
         harmony = kernel_output.harmony_strength
         confidence = kernel_output.confidence_score
 
         self._symbol_weights = {}
-        self._sector_weights = {}
+        self._block_weights = {}
 
-        sector_totals: Dict[str, float] = {}
+        block_totals: Dict[str, float] = {}
 
         for symbol, base_weight in base_weights.items():
             attention_weight = kernel_output.attention_weights.get(symbol, 0.5)
@@ -445,13 +495,17 @@ class MarketScheduler:
 
             self._symbol_weights[symbol] = max(0.0, min(1.0, final_weight))
 
-            sector = sector_map.get(symbol, "unknown")
-            if sector not in sector_totals:
-                sector_totals[sector] = 0.0
-            sector_totals[sector] += final_weight
+            blocks = block_map.get(symbol, [])
+            if not blocks:
+                blocks = ["other"]
+            weight_per_block = final_weight / len(blocks)
+            for block in blocks:
+                if block not in block_totals:
+                    block_totals[block] = 0.0
+                block_totals[block] += weight_per_block
 
-        for sector, total in sector_totals.items():
-            self._sector_weights[sector] = min(1.0, total / max(1, len(sector_totals)))
+        for block, total in block_totals.items():
+            self._block_weights[block] = min(1.0, total / max(1, len(block_totals)))
 
     def _allocate_strategies(
         self,
@@ -552,16 +606,16 @@ class MarketScheduler:
             for sym, wgt in sorted_weights[:n]
         ]
 
-    def get_top_sectors(self, n: int = 5) -> List[Dict[str, Any]]:
-        """获取权重最高的 n 个板块"""
+    def get_top_blocks(self, n: int = 5) -> List[Dict[str, Any]]:
+        """获取权重最高的 n 个 block"""
         sorted_weights = sorted(
-            self._sector_weights.items(),
+            self._block_weights.items(),
             key=lambda x: x[1],
             reverse=True
         )
         return [
-            {"sector": sec, "weight": wgt}
-            for sec, wgt in sorted_weights[:n]
+            {"block": blk, "weight": wgt}
+            for blk, wgt in sorted_weights[:n]
         ]
 
 
@@ -602,7 +656,31 @@ class AttentionOS:
         market_state: Optional[Dict[str, Any]] = None,
         query_state: Optional[Any] = None
     ) -> AttentionKernelOutput:
-        """计算注意力"""
+        """
+        计算注意力
+
+        数据流与子系统影响：
+        ┌─────────────────────────────────────────────────────────────────────────────┐
+        │                         compute_attention()                               │
+        │                                                                             │
+        │  输出:                                                                       │
+        │    • attention_weights ──────────────→ _allocate_weights()                  │
+        │    • alpha ─────────────────────────→ final_weight 乘因子                  │
+        │    • harmony_strength ──────────────→ _adjust_frequency()                   │
+        │    • action_type ──────────────────→ _allocate_strategies()                │
+        │    • regime ────────────────────────→ regime_factor *= 策略权重              │
+        │    • memory.update() ───────────────→ AttentionMemory                      │
+        │    • vs.record_attention() ─────────→ ValueSystem                          │
+        └─────────────────────────────────────────────────────────────────────────────┘
+
+        影响的子系统：
+          1. MarketScheduler.symbol_weights / sector_weights
+             final_weight = base_weight * attention_weight * alpha * harmony * confidence
+          2. MarketScheduler.frequency_level
+             composite_score = harmony * 0.5 + timing * 0.3 + (1.0 if regime > 0 else 0.3) * 0.2
+          3. MarketScheduler.strategy_allocations
+             根据 action_type 分配 momentum/mean_reversion/breakout/grid/wait 权重
+        """
         return self.kernel.compute(events, market_state, query_state)
 
     def make_decision(

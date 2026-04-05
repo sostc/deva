@@ -31,8 +31,8 @@ class AttentionSnapshotRecord:
     """注意力榜单快照"""
     timestamp: float
     top_symbols: List[Dict[str, Any]]
-    sector_weights: Dict[str, float]
-    active_sectors: List[str]
+    block_weights: Dict[str, float]
+    active_blocks: List[str]
     market_context: Dict[str, Any]
     total_attention_count: int
 
@@ -130,14 +130,14 @@ class SnapshotManager:
             except Exception as e:
                 log.debug(f"获取top_symbols失败: {e}")
 
-            sector_weights = {}
+            block_weights = {}
             try:
-                sector_weights = scheduler._sector_weights
-                sector_weights = {k: float(v) for k, v in sector_weights.items()}
+                block_weights = scheduler._block_weights
+                block_weights = {k: float(v) for k, v in block_weights.items()}
             except Exception as e:
-                log.debug(f"获取sector_weights失败: {e}")
+                log.debug(f"获取block_weights失败: {e}")
 
-            active_sectors = list(getattr(tc, '_cached_active_sectors', set()) or set())
+            active_blocks = list(getattr(tc, '_cached_active_blocks', set()) or set())
 
             market_context = {}
             try:
@@ -157,8 +157,8 @@ class SnapshotManager:
             record = AttentionSnapshotRecord(
                 timestamp=now,
                 top_symbols=top_symbols,
-                sector_weights=sector_weights,
-                active_sectors=active_sectors,
+                block_weights=block_weights,
+                active_blocks=active_blocks,
                 market_context=market_context,
                 total_attention_count=len(top_symbols)
             )
@@ -223,7 +223,7 @@ class SnapshotManager:
 
             narratives = []
             try:
-                from deva.naja.cognition.narrative_tracker import get_narrative_tracker
+                from deva.naja.cognition.sector_narrative import get_narrative_tracker
                 tracker = get_narrative_tracker()
                 if tracker:
                     narratives = [n.get("name", n.get("narrative", "")) for n in tracker.get_active_narratives()[:5]]
@@ -346,8 +346,8 @@ class SnapshotManager:
         """获取当前注意力状态"""
         state = {
             "top_symbols": [],
-            "active_sectors": [],
-            "sector_weights": {},
+            "active_blocks": [],
+            "block_weights": {},
         }
 
         try:
@@ -364,11 +364,11 @@ class SnapshotManager:
             except Exception:
                 pass
 
-            state["active_sectors"] = list(getattr(tc, '_cached_active_sectors', set()) or set())
+            state["active_blocks"] = list(getattr(tc, '_cached_active_blocks', set()) or set())
 
             try:
-                sector_weights = scheduler._sector_weights
-                state["sector_weights"] = {k: float(v) for k, v in sector_weights.items()}
+                block_weights = scheduler._block_weights
+                state["block_weights"] = {k: float(v) for k, v in block_weights.items()}
             except Exception:
                 pass
 

@@ -20,7 +20,7 @@ log = logging.getLogger(__name__)
 
 
 @dataclass
-class SectorNoiseConfig:
+class BlockNoiseConfig:
     """板块噪音检测配置"""
 
     blacklist_patterns: List[str] = field(default_factory=lambda: [
@@ -39,7 +39,7 @@ class SectorNoiseConfig:
     min_sector_attention: float = 0.01
 
 
-class SectorNoiseDetector:
+class BlockNoiseDetector:
     """
     板块噪音检测器
 
@@ -51,10 +51,10 @@ class SectorNoiseDetector:
     噪音过滤是注意力系统的基础设施，确保注意力资源集中在真正值得关注的板块上。
     """
 
-    _DEFAULT_CONFIG = SectorNoiseConfig()
-    _instance: Optional['SectorNoiseDetector'] = None
+    _DEFAULT_CONFIG = BlockNoiseConfig()
+    _instance: Optional['BlockNoiseDetector'] = None
 
-    def __init__(self, config: Optional[SectorNoiseConfig] = None):
+    def __init__(self, config: Optional[BlockNoiseConfig] = None):
         self.config = config or self._DEFAULT_CONFIG
 
         self._blacklist: Set[str] = set()
@@ -64,7 +64,7 @@ class SectorNoiseDetector:
         self._auto_blacklist_cache: Set[str] = set()
 
     @classmethod
-    def get_instance(cls) -> 'SectorNoiseDetector':
+    def get_instance(cls) -> 'BlockNoiseDetector':
         """获取单例"""
         if cls._instance is None:
             cls._instance = cls()
@@ -204,18 +204,18 @@ class SectorNoiseDetector:
         }
 
 
-def get_sector_noise_detector() -> SectorNoiseDetector:
+def get_block_noise_detector() -> BlockNoiseDetector:
     """获取板块噪音检测器单例"""
-    return SectorNoiseDetector.get_instance()
+    return BlockNoiseDetector.get_instance()
 
 
-def is_sector_noise(sector_id: str, sector_name: str = None) -> bool:
+def is_block_noise(sector_id: str, sector_name: str = None) -> bool:
     """快捷函数：判断板块是否为噪音"""
-    detector = get_sector_noise_detector()
+    detector = get_block_noise_detector()
     return detector.is_noise(sector_id, sector_name)
 
 
 def filter_noise_sectors(sectors: List[Tuple[str, float]]) -> List[Tuple[str, float]]:
     """快捷函数：过滤噪音板块"""
-    detector = get_sector_noise_detector()
+    detector = get_block_noise_detector()
     return detector.filter_noise_sectors(sectors)

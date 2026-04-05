@@ -149,31 +149,28 @@ class AttentionStrategyManager:
     
     def initialize_default_strategies(self):
         """初始化默认策略集"""
-        from .global_sentinel import GlobalMarketSentinel
-        from .sector_hunter import SectorRotationHunter
+        from .block_hunter import BlockRotationHunter
         from .momentum_tracker import MomentumSurgeTracker
-        from .anomaly_sniper import AnomalyPatternSniper
+        from .anomaly_pattern_sniper import AnomalyPatternSniper
         from .smart_money_detector import SmartMoneyFlowDetector
         from .us_strategies import (
             USGlobalMarketSentinel,
-            USSectorRotationHunter,
+            USBlockRotationHunter,
             USMomentumSurgeTracker,
             USAnomalyPatternSniper,
             USSmartMoneyFlowDetector,
         )
-        
-        # 全局市场状态监控（始终启用）
+
         global_sentinel = GlobalMarketSentinel()
         self.register_strategy(global_sentinel, StrategyConfig(
             strategy_id=global_sentinel.strategy_id,
             enabled=True,
-            priority=10  # 最高优先级
+            priority=10
         ))
-        
-        # 板块轮动捕捉
-        sector_hunter = SectorRotationHunter()
-        self.register_strategy(sector_hunter, StrategyConfig(
-            strategy_id=sector_hunter.strategy_id,
+
+        block_hunter = BlockRotationHunter()
+        self.register_strategy(block_hunter, StrategyConfig(
+            strategy_id=block_hunter.strategy_id,
             enabled=True,
             priority=8
         ))
@@ -210,9 +207,9 @@ class AttentionStrategyManager:
             priority=6
         ))
 
-        us_sector = USSectorRotationHunter()
-        self.register_strategy(us_sector, StrategyConfig(
-            strategy_id=us_sector.strategy_id,
+        us_block = USBlockRotationHunter()
+        self.register_strategy(us_block, StrategyConfig(
+            strategy_id=us_block.strategy_id,
             enabled=True,
             priority=5
         ))
@@ -346,7 +343,7 @@ class AttentionStrategyManager:
         context = {
             'timestamp': time.time(),
             'global_attention': 0.5,
-            'sector_weights': {},
+            'block_weights': {},
             'symbol_weights': {}
         }
         
@@ -357,7 +354,7 @@ class AttentionStrategyManager:
             context['global_attention'] = attention_system._last_global_attention
             
             # 板块权重（过滤噪音板块）
-            context['sector_weights'] = attention_system.sector_attention.get_all_weights(filter_noise=True)
+            context['block_weights'] = attention_system.block_attention.get_all_weights(filter_noise=True)
             
             # 个股权重
             context['symbol_weights'] = attention_system.weight_pool.get_all_weights()

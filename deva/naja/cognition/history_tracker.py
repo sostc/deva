@@ -30,7 +30,7 @@ class AttentionSnapshot:
     """注意力快照"""
     timestamp: float
     global_attention: float
-    sector_weights: Dict[str, float]
+    block_weights: Dict[str, float]
     symbol_weights: Dict[str, float]
     symbol_market_data: Dict[str, Dict] = field(default_factory=dict)
     market_time_str: str = ""  # 行情时间字符串（如 "2024-01-15 10:30:00"）
@@ -42,7 +42,7 @@ class AttentionSnapshot:
             'datetime': datetime.fromtimestamp(self.timestamp).strftime('%Y-%m-%d %H:%M:%S'),
             'market_time_str': self.market_time_str,
             'global_attention': self.global_attention,
-            'sector_weights': self.sector_weights,
+            'block_weights': self.block_weights,
             'symbol_weights': self.symbol_weights,
             'symbol_market_data': self.symbol_market_data,
             'activity': self.activity,
@@ -75,7 +75,7 @@ class SectorHotspotEvent:
     timestamp: float
     market_time: str
     market_date: str
-    sector_id: str
+    block_id: str
     sector_name: str
     event_type: str  # 'rise', 'fall', 'new_hot', 'cooled'
     weight_change: float
@@ -144,16 +144,16 @@ class AttentionHistoryTracker:
         """注册股票名称"""
         self.symbol_names[symbol] = name
     
-    def register_sector_name(self, sector_id: str, name: str):
+    def register_sector_name(self, block_id: str, name: str):
         """注册板块名称"""
-        self.sector_names[sector_id] = name
+        self.sector_names[block_id] = name
 
     def register_sectors(self, sectors: List):
         """批量注册板块配置（用于初始化）"""
         for sector in sectors:
-            if hasattr(sector, 'sector_id') and hasattr(sector, 'name'):
-                self.sector_names[sector.sector_id] = sector.name
-                self._sector_configs[sector.sector_id] = sector
+            if hasattr(sector, 'block_id') and hasattr(sector, 'name'):
+                self.sector_names[sector.block_id] = sector.name
+                self._sector_configs[sector.block_id] = sector
     
     def get_symbol_name(self, symbol: str) -> str:
         """获取股票名称"""
@@ -172,15 +172,15 @@ class AttentionHistoryTracker:
 
     def get_symbol_sector_name(self, symbol: str) -> str:
         """获取股票所属板块名称（带板块名翻译）"""
-        sector_id = self.get_symbol_sector(symbol)
-        if not sector_id:
+        block_id = self.get_symbol_sector(symbol)
+        if not block_id:
             return ''
-        return self.get_sector_name(sector_id)
+        return self.get_sector_name(block_id)
 
-    def register_symbol_sector(self, symbol: str, sector_id: str):
+    def register_symbol_sector(self, symbol: str, block_id: str):
         """注册个股-板块映射"""
-        if sector_id:
-            self.symbol_to_sector[symbol] = sector_id
+        if block_id:
+            self.symbol_to_sector[symbol] = block_id
 
     def get_symbol_change(self, symbol: str) -> float:
         """获取股票涨跌幅"""
@@ -190,20 +190,20 @@ class AttentionHistoryTracker:
             return market_data.get('change')
         return None
 
-    def get_sector_name(self, sector_id: str) -> str:
+    def get_sector_name(self, block_id: str) -> str:
         """获取板块名称"""
-        if not sector_id:
+        if not block_id:
             return ""
 
-        if sector_id in self.sector_names:
-            return self.sector_names[sector_id]
-        if sector_id in self._sector_configs:
-            return self._sector_configs[sector_id].name
+        if block_id in self.sector_names:
+            return self.sector_names[block_id]
+        if block_id in self._sector_configs:
+            return self._sector_configs[block_id].name
 
-        if sector_id.startswith("block_") and len(sector_id) > 10:
+        if block_id.startswith("block_") and len(block_id) > 10:
             return ""
 
-        return sector_id
+        return block_id
 
     def _format_volume(self, volume: float) -> str:
         """格式化成交量显示"""
@@ -329,7 +329,7 @@ class AttentionHistoryTracker:
             return
 
     def record_snapshot(self, global_attention: float,
-                       sector_weights: Dict[str, float],
+                       block_weights: Dict[str, float],
                        symbol_weights: Dict[str, float],
                        timestamp: float = None,
                        timestamp_str: str = None,
@@ -340,7 +340,7 @@ class AttentionHistoryTracker:
 
         Args:
             global_attention: 全局注意力
-            sector_weights: 板块权重字典
+            block_weights: 板块权重字典
             symbol_weights: 个股权重字典
             timestamp: 时间戳（优先使用行情数据时间）
             timestamp_str: 时间字符串（用于日志显示）
@@ -363,7 +363,7 @@ class AttentionHistoryTracker:
         snapshot = AttentionSnapshot(
             timestamp=actual_timestamp,
             global_attention=global_attention,
-            sector_weights=sector_weights.copy(),
+            block_weights=block_weights.copy(),
             symbol_weights=symbol_weights.copy(),
             symbol_market_data=market_data.copy(),
             market_time_str=timestamp_str or "",
@@ -376,9 +376,9 @@ class AttentionHistoryTracker:
 
             # 调试日志
             if len(self.snapshots) <= 2:
-                sample_items = list(sector_weights.items())[:3]
+                sample_items = list(block_weights.items())[:3]
                 sample_named = {self.get_sector_name(k): v for k, v in sample_items}
-                _lab_debug_log(f"快照{len(self.snapshots)+1}: sector_weights样本={sample_named}")
+                _lab_debug_log(f"快照{len(self.snapshots)+1}: block_weights样本={sample_named}")
 
             self._detect_changes(last_snapshot, snapshot, timestamp_str)
 
@@ -387,7 +387,7 @@ class AttentionHistoryTracker:
 
         # 更新当前热门
         self.current_hot_sectors = dict(sorted(
-            sector_weights.items(),
+            block_weights.items(),
             key=lambda x: x[1],
             reverse=True
         )[:10])
@@ -399,7 +399,7 @@ class AttentionHistoryTracker:
         )[:20])
 
         # 更新市场注意力状态
-        self._update_market_state(global_attention, actual_activity, sector_weights, symbol_weights, actual_timestamp)
+        self._update_market_state(global_attention, actual_activity, block_weights, symbol_weights, actual_timestamp)
 
         # 更新行情时间
         self.current_market_time_str = timestamp_str or ""
@@ -450,17 +450,17 @@ class AttentionHistoryTracker:
                 )
 
         # 板块集中度突变事件
-        if self.snapshots and sector_weights:
+        if self.snapshots and block_weights:
             last_snapshot = self.snapshots[-1]
-            last_weights = last_snapshot.sector_weights or {}
+            last_weights = last_snapshot.block_weights or {}
             if last_weights:
                 last_top = max(last_weights.values()) if last_weights else 0
                 last_total = sum(last_weights.values()) if last_weights else 1
                 last_conc = last_top / last_total if last_total > 0 else 0
             else:
                 last_conc = 0
-            new_top = max(sector_weights.values()) if sector_weights else 0
-            new_total = sum(sector_weights.values()) if sector_weights else 1
+            new_top = max(block_weights.values()) if block_weights else 0
+            new_total = sum(block_weights.values()) if block_weights else 1
             new_conc = new_top / new_total if new_total > 0 else 0
             delta_conc = new_conc - last_conc
             if abs(delta_conc) >= self._concentration_shift_threshold:
@@ -502,7 +502,7 @@ class AttentionHistoryTracker:
             )
 
     def _update_market_state(self, global_attention: float, activity: float,
-                             sector_weights: Dict[str, float],
+                             block_weights: Dict[str, float],
                              symbol_weights: Dict[str, float], timestamp: float):
         """更新市场注意力状态（基于注意力和活跃度）"""
         # 注意力（焦点集中程度）
@@ -533,9 +533,9 @@ class AttentionHistoryTracker:
         desc = f"{attention_desc}，{activity_desc}"
 
         # 如果板块权重非常集中，添加说明
-        if sector_weights:
-            top_weight = max(sector_weights.values()) if sector_weights else 0
-            total_weight = sum(sector_weights.values()) if sector_weights else 0
+        if block_weights:
+            top_weight = max(block_weights.values()) if block_weights else 0
+            total_weight = sum(block_weights.values()) if block_weights else 0
             if total_weight > 0:
                 concentration = top_weight / total_weight
                 if concentration > 0.8:
@@ -558,12 +558,12 @@ class AttentionHistoryTracker:
         market_date = timestamp_str.split(" ")[0] if timestamp_str else datetime.fromtimestamp(current_time).strftime("%Y-%m-%d")
         
         # ========== 检测板块重大变化 ==========
-        all_sectors = set(old.sector_weights.keys()) | set(new.sector_weights.keys())
+        all_sectors = set(old.block_weights.keys()) | set(new.block_weights.keys())
         
-        for sector_id in all_sectors:
-            old_weight = old.sector_weights.get(sector_id, 0)
-            new_weight = new.sector_weights.get(sector_id, 0)
-            sector_name = self.get_sector_name(sector_id)
+        for block_id in all_sectors:
+            old_weight = old.block_weights.get(block_id, 0)
+            new_weight = new.block_weights.get(block_id, 0)
+            sector_name = self.get_sector_name(block_id)
             
             # 计算变化
             if old_weight > 0:
@@ -615,7 +615,7 @@ class AttentionHistoryTracker:
                 timestamp=current_time,
                 market_time=time_display,
                 market_date=market_date,
-                sector_id=sector_id,
+                block_id=block_id,
                 sector_name=sector_name,
                 event_type=event_type,
                 weight_change=new_weight - old_weight,
@@ -634,7 +634,7 @@ class AttentionHistoryTracker:
                 self.sector_hotspot_events_medium.append(event)
                 score = min(1.0, abs(change_pct) / 100.0) if change_pct != float('inf') else 1.0
                 payload = {
-                    "sector_id": sector_id,
+                    "block_id": block_id,
                     "sector_name": sector_name,
                     "old_weight": old_weight,
                     "new_weight": new_weight,
@@ -648,7 +648,7 @@ class AttentionHistoryTracker:
                     content=description,
                     score=score,
                     payload=payload,
-                    sector=sector_id,
+                    sector=block_id,
                     market_time=time_display,
                 )
 
@@ -770,11 +770,11 @@ class AttentionHistoryTracker:
         """获取最近的变化记录"""
         return list(self.changes)[-n:]
     
-    def get_sector_trend(self, sector_id: str, n: int = 10) -> List[Dict]:
+    def get_sector_trend(self, block_id: str, n: int = 10) -> List[Dict]:
         """获取板块趋势"""
         trend = []
         for snapshot in list(self.snapshots)[-n:]:
-            weight = snapshot.sector_weights.get(sector_id, 0)
+            weight = snapshot.block_weights.get(block_id, 0)
             trend.append({
                 'timestamp': snapshot.timestamp,
                 'datetime': datetime.fromtimestamp(snapshot.timestamp).strftime('%H:%M:%S'),
@@ -813,11 +813,11 @@ class AttentionHistoryTracker:
         old_snapshot = self.snapshots[0]
         new_snapshot = self.snapshots[-1]
 
-        old_top_sectors = sorted(old_snapshot.sector_weights.keys(),
-                                 key=lambda x: old_snapshot.sector_weights[x],
+        old_top_blocks = sorted(old_snapshot.block_weights.keys(),
+                                 key=lambda x: old_snapshot.block_weights[x],
                                  reverse=True)[:3]
-        new_top_sectors = sorted(new_snapshot.sector_weights.keys(),
-                                 key=lambda x: new_snapshot.sector_weights[x],
+        new_top_blocks = sorted(new_snapshot.block_weights.keys(),
+                                 key=lambda x: new_snapshot.block_weights[x],
                                  reverse=True)[:3]
 
         old_top_symbols = sorted(old_snapshot.symbol_weights.keys(),
@@ -827,16 +827,16 @@ class AttentionHistoryTracker:
                                  key=lambda x: new_snapshot.symbol_weights[x],
                                  reverse=True)[:5]
 
-        old_sector_set = set(old_top_sectors)
-        new_sector_set = set(new_top_sectors)
+        old_sector_set = set(old_top_blocks)
+        new_sector_set = set(new_top_blocks)
         sector_shift = old_sector_set != new_sector_set
 
         old_symbol_set = set(old_top_symbols)
         new_symbol_set = set(new_top_symbols)
         symbol_shift = old_symbol_set != new_symbol_set
 
-        removed_sectors = [s for s in old_top_sectors if s not in new_sector_set]
-        added_sectors = [s for s in new_top_sectors if s not in old_sector_set]
+        removed_sectors = [s for s in old_top_blocks if s not in new_sector_set]
+        added_sectors = [s for s in new_top_blocks if s not in old_sector_set]
         removed_symbols = [s for s in old_top_symbols if s not in new_symbol_set]
         added_symbols = [s for s in new_top_symbols if s not in old_symbol_set]
 
@@ -844,10 +844,10 @@ class AttentionHistoryTracker:
             'has_shift': sector_shift or symbol_shift,
             'sector_shift': sector_shift,
             'symbol_shift': symbol_shift,
-            'old_top_sectors': [(s, self.get_sector_name(s), old_snapshot.sector_weights.get(s, 0))
-                               for s in old_top_sectors],
-            'new_top_sectors': [(s, self.get_sector_name(s), new_snapshot.sector_weights.get(s, 0))
-                               for s in new_top_sectors],
+            'old_top_blocks': [(s, self.get_sector_name(s), old_snapshot.block_weights.get(s, 0))
+                               for s in old_top_blocks],
+            'new_top_blocks': [(s, self.get_sector_name(s), new_snapshot.block_weights.get(s, 0))
+                               for s in new_top_blocks],
             'old_top_symbols': [(s, self.get_symbol_name(s), old_snapshot.symbol_weights.get(s, 0))
                                for s in old_top_symbols],
             'new_top_symbols': [(s, self.get_symbol_name(s), new_snapshot.symbol_weights.get(s, 0))
@@ -917,8 +917,8 @@ class AttentionHistoryTracker:
             'added_sectors': report.get('added_sectors', []),
             'removed_symbols': report.get('removed_symbols', []),
             'added_symbols': report.get('added_symbols', []),
-            'old_top_sectors': report.get('old_top_sectors', []),
-            'new_top_sectors': report.get('new_top_sectors', []),
+            'old_top_blocks': report.get('old_top_blocks', []),
+            'new_top_blocks': report.get('new_top_blocks', []),
             'old_top_symbols': report.get('old_top_symbols', []),
             'new_top_symbols': report.get('new_top_symbols', []),
         }
@@ -962,10 +962,10 @@ class AttentionHistoryTracker:
     def get_hot_sectors_with_names(self) -> list:
         """获取热门板块列表（带名称）"""
         result = []
-        for sector_id, weight in self.current_hot_sectors.items():
-            sector_name = self.get_sector_name(sector_id)
+        for block_id, weight in self.current_hot_sectors.items():
+            sector_name = self.get_sector_name(block_id)
             result.append({
-                'id': sector_id,
+                'id': block_id,
                 'name': sector_name,
                 'weight': weight
             })

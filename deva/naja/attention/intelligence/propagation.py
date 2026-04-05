@@ -41,7 +41,7 @@ class RelationMatrix:
     - 手动定义关系
     - 从历史数据学习关系
     - 稀疏矩阵存储
-    - 集成统一的 SectorNoiseDetector 进行噪音板块过滤
+    - 集成统一的 BlockNoiseDetector 进行噪音板块过滤
     """
 
     _noise_detector = None
@@ -70,8 +70,8 @@ class RelationMatrix:
 
         if RelationMatrix._noise_detector is None:
             try:
-                from deva.naja.attention.processing.sector_noise_detector import get_sector_noise_detector
-                RelationMatrix._noise_detector = get_sector_noise_detector()
+                from deva.naja.attention.processing.block_noise_detector import get_block_noise_detector
+                RelationMatrix._noise_detector = get_block_noise_detector()
             except ImportError:
                 RelationMatrix._noise_detector = None
 

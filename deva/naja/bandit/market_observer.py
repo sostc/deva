@@ -448,13 +448,12 @@ class MarketDataObserver:
                             need_fetch = True
                             log.info(f"[MarketObserver] 数据源无推送(time={time_since_data:.1f}s > {self._data_timeout}s)，主动获取数据")
                     else:
-                        # Lab 模式：定期检查 ReplayScheduler 是否有新数据
                         if os.environ.get('NAJA_LAB_MODE'):
                             need_fetch = True
                             datasource_available = True
-                        else:
-                            log.info(f"[MarketObserver] _fetch_loop: _current_datasource is None, waiting...")
-                            datasource_available = False
+                        elif self._tracked_stocks:
+                            need_fetch = True
+                            datasource_available = True
 
                     if need_fetch:
                         log.info(f"[MarketObserver] 主动获取数据，跟踪股票: {len(self._tracked_stocks)} 个")
@@ -523,26 +522,38 @@ class MarketDataObserver:
             except Exception as e:
                 log.warning(f"[MarketObserver] Lab 模式获取数据失败: {e}")
 
-        if not self._tracked_stocks or not self._current_datasource:
+        if not self._tracked_stocks:
             return
 
-        try:
-            latest = self._current_datasource.get_latest_data()
-            if latest is None:
-                return
+        if self._current_datasource:
+            try:
+                latest = self._current_datasource.get_latest_data()
+                if latest is None:
+                    return
 
-            import pandas as pd
-            if isinstance(latest, pd.DataFrame):
-                for stock_code in list(self._tracked_stocks):
-                    matches = latest[latest['code'] == stock_code]
-                    if not matches.empty:
-                        row = matches.iloc[0]
-                        price = float(row.get('now', row.get('price', row.get('current', 0))))
-                        if price > 0:
-                            self._update_price(stock_code, price)
+                import pandas as pd
+                if isinstance(latest, pd.DataFrame):
+                    for stock_code in list(self._tracked_stocks):
+                        matches = latest[latest['code'] == stock_code]
+                        if not matches.empty:
+                            row = matches.iloc[0]
+                            price = float(row.get('now', row.get('price', row.get('current', 0))))
+                            if price > 0:
+                                self._update_price(stock_code, price)
 
-        except Exception as e:
-            log.debug(f"[MarketObserver] 主动获取价格失败: {e}")
+            except Exception as e:
+                log.debug(f"[MarketObserver] 主动获取价格失败: {e}")
+
+        else:
+            try:
+                from deva.naja.bandit.market_data_bus import get_market_data_bus
+                bus = get_market_data_bus()
+                prices = bus.fetch(list(self._tracked_stocks))
+                for stock_code, price in prices.items():
+                    if price > 0:
+                        self._update_price(stock_code, price)
+            except Exception as e:
+                log.debug(f"[MarketObserver] MarketDataBus 获取失败: {e}")
 
     def track_stocks_batch(self, stock_codes: List[str]):
         """批量跟踪股票

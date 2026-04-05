@@ -40,7 +40,7 @@ class WeightPool:
     symbol_weight = f(sector_attention, local_activity)
 
     其中:
-    - sector_attention: 来自 SectorAttentionEngine
+    - sector_attention: 来自 BlockAttentionEngine
     - local_activity: 个股波动、成交量变化、tick 异动
 
     修复内容:
@@ -307,16 +307,16 @@ class WeightPool:
         symbols.sort(key=lambda x: x[1], reverse=True)
         return symbols[:n]
     
-    def get_symbols_by_sector(self, sector_id: str) -> List[str]:
+    def get_symbols_by_sector(self, block_id: str) -> List[str]:
         """获取指定板块下的所有个股"""
         return [
             symbol for symbol, sectors in self._symbol_sectors.items()
-            if sector_id in sectors
+            if block_id in sectors
         ]
     
-    def get_sector_weights(self, sector_id: str) -> Dict[str, float]:
+    def get_block_weights(self, block_id: str) -> Dict[str, float]:
         """获取指定板块下所有个股的权重"""
-        symbols = self.get_symbols_by_sector(sector_id)
+        symbols = self.get_symbols_by_sector(block_id)
         return {
             symbol: self.get_symbol_weight(symbol)
             for symbol in symbols
@@ -375,9 +375,9 @@ class WeightPoolView:
         """获取高注意力个股"""
         return self._pool.get_top_symbols(n=100, min_weight=threshold)
     
-    def get_sector_leaders(self, sector_id: str, n: int = 10) -> List[Tuple[str, float]]:
+    def get_sector_leaders(self, block_id: str, n: int = 10) -> List[Tuple[str, float]]:
         """获取板块龙头股"""
-        weights = self._pool.get_sector_weights(sector_id)
+        weights = self._pool.get_block_weights(block_id)
         sorted_symbols = sorted(weights.items(), key=lambda x: x[1], reverse=True)
         return sorted_symbols[:n]
     

@@ -3,7 +3,7 @@
 
 用于分析单日全市场数据，识别：
 1. 市场广度（上涨/下跌比例）
-2. 板块表现
+2. 板块(block)表现
 3. 异常波动股票
 4. 资金流向
 5. 市场情绪
@@ -17,13 +17,13 @@ from typing import Dict, List, Optional, Any
 import pandas as pd
 import numpy as np
 
-from deva.naja.bandit.stock_sector_map import SECTOR_INDUSTRY_MAP
+from deva.naja.bandit.stock_sector_map import INDUSTRY_CODE_TO_NAME
 
 
 @dataclass
-class SectorAnalysis:
+class BlockAnalysis:
     """板块分析结果"""
-    sector: str
+    block_id: str
     stock_count: int
     avg_change: float
     total_volume: int
@@ -44,7 +44,7 @@ class SingleDayAnalysis:
     avg_change: float
     median_change: float
     total_volume: int
-    sectors: Dict[str, SectorAnalysis]
+    blocks: Dict[str, BlockAnalysis]
     anomalies: List[Dict]
     market_sentiment: str
     fund_flow: str
@@ -61,25 +61,26 @@ class RiverTickSingleDayAnalyzer:
         self,
         volume_threshold: float = 3.0,
         change_threshold: float = 9.0,
-        sector_names: Optional[Dict[str, str]] = None
+        block_names: Optional[Dict[str, str]] = None
     ):
         """
         Args:
             volume_threshold: 量比阈值（超过均值多少倍为异常）
             change_threshold: 涨跌幅阈值（超过9%为剧烈波动）
-            sector_names: 板块名称映射
+            block_names: 板块名称映射
         """
         self.volume_threshold = volume_threshold
         self.change_threshold = change_threshold
-        self.sector_names = sector_names or self._default_sector_map()
+        self.block_names = block_names or self._default_block_map()
 
         self.reset()
 
-    def _default_sector_map(self) -> Dict[str, str]:
+    def _default_block_map(self) -> Dict[str, str]:
         """默认板块映射 - 合并A股和美股板块"""
-        sector_map = dict(SECTOR_INDUSTRY_MAP)
+        block_map: Dict[str, str] = {}
+        block_map.update(INDUSTRY_CODE_TO_NAME)
 
-        sector_map.update({
+        block_map.update({
             "AI": "人工智能",
             "储能": "新能源",
             "电池": "新能源",
@@ -102,12 +103,12 @@ class RiverTickSingleDayAnalyzer:
             "互联网": "科技",
         })
 
-        return sector_map
+        return block_map
 
     def reset(self):
         """重置分析器"""
         self.data: List[Dict] = []
-        self.sectors: Dict[str, List[Dict]] = {}
+        self.blocks: Dict[str, List[Dict]] = {}
         self.volume_mean = 0
         self.volume_std = 0
 
@@ -127,36 +128,43 @@ class RiverTickSingleDayAnalyzer:
 
         self.data.append(data)
 
-        sector = self._classify_sector(data)
-        if sector not in self.sectors:
-            self.sectors[sector] = []
-        self.sectors[sector].append(data)
+        block_id = self._classify_block(data)
+        if block_id not in self.blocks:
+            self.blocks[block_id] = []
+        self.blocks[block_id].append(data)
 
-    def _classify_sector(self, data: Dict) -> str:
+    def _classify_block(self, data: Dict) -> str:
         """根据股票数据分类板块
 
         优先级：
-        1. 如果有narrative字段（从US_STOCK_SECTORS或通达信来的），使用sector
+        1. 如果有narrative字段（从US_STOCK_SECTORS或通达信来的），使用industry_code
         2. 如果是美股板块（下划线格式如ai_chip），直接使用
-        3. 如果A股已有sector字段且不是'other'，使用它
+        3. 如果A股已有block字段且不是'other'，使用它
         4. 否则根据名称关键词匹配
         5. 最后根据代码判断（主板/创业板等）
         """
         if "narrative" in data and data["narrative"]:
-            return data["sector"]
+            return data.get("industry_code", "other")
 
-        if "sector" in data and data["sector"]:
-            sector = data["sector"]
-            if sector != "other" and "_" not in sector:
-                return sector
-            if "_" in sector:
-                return sector
+        if "block_id" in data and data["block_id"]:
+            block_id = data["block_id"]
+            if block_id != "other" and "_" not in block_id:
+                return block_id
+            if "_" in block_id:
+                return block_id
+
+        if "block" in data and data["block"]:
+            block_id = data["block"]
+            if block_id != "other" and "_" not in block_id:
+                return block_id
+            if "_" in block_id:
+                return block_id
 
         name = data.get("name", "").lower()
 
-        for keyword, sector in self.sector_names.items():
+        for keyword, block_name in self.block_names.items():
             if keyword.lower() in name:
-                return sector
+                return block_name
 
         code = str(data.get("code", ""))
         if code.startswith("sh60") or code.startswith("sh68"):
@@ -197,23 +205,23 @@ class RiverTickSingleDayAnalyzer:
         avg_change = df["p_change"].mean() * 100
         median_change = df["p_change"].median() * 100
 
-        sector_analysis = {}
-        for sector, stocks in self.sectors.items():
+        block_analysis: Dict[str, BlockAnalysis] = {}
+        for block_id, stocks in self.blocks.items():
             if not stocks:
                 continue
-            sector_df = pd.DataFrame(stocks)
-            gainers = len(sector_df[sector_df["p_change"] > 0])
-            losers = len(sector_df[sector_df["p_change"] < 0])
+            block_df = pd.DataFrame(stocks)
+            gainers = len(block_df[block_df["p_change"] > 0])
+            losers = len(block_df[block_df["p_change"] < 0])
 
-            sector_analysis[sector] = SectorAnalysis(
-                sector=sector,
+            block_analysis[block_id] = BlockAnalysis(
+                block_id=block_id,
                 stock_count=len(stocks),
-                avg_change=sector_df["p_change"].mean() * 100,
-                total_volume=int(sector_df["volume"].sum()) if "volume" in sector_df.columns else 0,
+                avg_change=block_df["p_change"].mean() * 100,
+                total_volume=int(block_df["volume"].sum()) if "volume" in block_df.columns else 0,
                 gainer_count=gainers,
                 loser_count=losers,
-                top_gainer=self._get_top(sector_df, "p_change", True),
-                top_loser=self._get_top(sector_df, "p_change", False),
+                top_gainer=self._get_top(block_df, "p_change", True),
+                top_loser=self._get_top(block_df, "p_change", False),
             )
 
         anomalies = self._detect_anomalies(df)
@@ -231,7 +239,7 @@ class RiverTickSingleDayAnalyzer:
             avg_change=avg_change,
             median_change=median_change,
             total_volume=int(df["volume"].sum()) if "volume" in df.columns else 0,
-            sectors=sector_analysis,
+            blocks=block_analysis,
             anomalies=anomalies,
             market_sentiment=sentiment,
             fund_flow=fund_flow,
