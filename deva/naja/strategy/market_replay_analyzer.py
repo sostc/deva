@@ -121,19 +121,23 @@ class PositionAnalysis:
 
 @dataclass
 class TiandaoMinxinAnalysis:
-    """天道民心分析"""
-    tiandao_score: float = 0.0
-    minxin_score: float = 0.0
+    """价值/市场分析（天道/民心）
+
+    【天道】= 价值评分（value_score）：我们认定的核心价值信号
+    【民心】= 市场叙事评分（market_narrative_score）：市场当前关注的话题热度
+    """
+    value_score: float = 0.0
+    market_narrative_score: float = 0.0
     recommendation: str = "WATCH"
     reason: str = ""
-    tiandao_signals: Dict[str, List[str]] = field(default_factory=dict)
-    minxin_signals: Dict[str, List[str]] = field(default_factory=dict)
+    value_signals: Dict[str, List[str]] = field(default_factory=dict)
+    market_narrative_signals: Dict[str, List[str]] = field(default_factory=dict)
     pattern: str = "➡️ 观察"
 
-    tiandao_summary: str = ""
-    minxin_summary: str = ""
-    tiandao_changes: List[str] = field(default_factory=list)
-    minxin_changes: List[str] = field(default_factory=list)
+    value_summary: str = ""
+    market_narrative_summary: str = ""
+    value_changes: List[str] = field(default_factory=list)
+    market_narrative_changes: List[str] = field(default_factory=list)
 
 
 @dataclass
@@ -313,50 +317,50 @@ class ReplayReport:
 
         # 天道民心
         lines.extend([
-            f"## ☀️ 天道 + 💓 民心",
+            f"## ☀️ 天道(价值) + 💓 民心(市场叙事)",
             f"",
             f"| 信号 | 评分 | 说明 |",
             f"|------|------|------|",
-            f"| ☀️ 天道 | {self.tiandao_minxin.tiandao_score:.2f} | {self.tiandao_minxin.tiandao_summary} |",
-            f"| 💓 民心 | {self.tiandao_minxin.minxin_score:.2f} | {self.tiandao_minxin.minxin_summary} |",
+            f"| ☀️ 天道(价值) | {self.tiandao_minxin.value_score:.2f} | {self.tiandao_minxin.value_summary} |",
+            f"| 💓 民心(市场叙事) | {self.tiandao_minxin.market_narrative_score:.2f} | {self.tiandao_minxin.market_narrative_summary} |",
             f"| 推荐行动 | {self.tiandao_minxin.recommendation} | {self.tiandao_minxin.pattern} |",
             f"",
         ])
 
-        if self.tiandao_minxin.tiandao_changes:
+        if self.tiandao_minxin.value_changes:
             lines.extend([
-                f"**天道信号变化:**",
+                f"**天道(价值)信号变化:**",
                 f"",
             ])
-            for change in self.tiandao_minxin.tiandao_changes:
+            for change in self.tiandao_minxin.value_changes:
                 lines.append(f"- {change}")
             lines.append(f"")
 
-        if self.tiandao_minxin.minxin_changes:
+        if self.tiandao_minxin.market_narrative_changes:
             lines.extend([
-                f"**民心信号变化:**",
+                f"**民心(市场叙事)信号变化:**",
                 f"",
             ])
-            for change in self.tiandao_minxin.minxin_changes:
+            for change in self.tiandao_minxin.market_narrative_changes:
                 lines.append(f"- {change}")
             lines.append(f"")
 
-        if self.tiandao_minxin.tiandao_signals:
+        if self.tiandao_minxin.value_signals:
             lines.extend([
-                f"**天道具体信号:**",
+                f"**天道(价值)具体信号:**",
                 f"",
             ])
-            for cat, kws in self.tiandao_minxin.tiandao_signals.items():
+            for cat, kws in self.tiandao_minxin.value_signals.items():
                 if kws:
                     lines.append(f"- {cat}: {', '.join(kws[:5])}")
             lines.append(f"")
 
-        if self.tiandao_minxin.minxin_signals:
+        if self.tiandao_minxin.market_narrative_signals:
             lines.extend([
-                f"**民心具体信号:**",
+                f"**民心(市场叙事)具体信号:**",
                 f"",
             ])
-            for cat, kws in self.tiandao_minxin.minxin_signals.items():
+            for cat, kws in self.tiandao_minxin.market_narrative_signals.items():
                 if kws:
                     lines.append(f"- {cat}: {', '.join(kws[:5])}")
             lines.append(f"")
@@ -1124,66 +1128,66 @@ class MarketReplayAnalyzer:
         return self.positions
 
     def step3_tiandao_minxin(self) -> TiandaoMinxinAnalysis:
-        """第三步：天道 + 民心信号分析（每次实时计算）"""
-        print("[MarketReplayAnalyzer] 第三步：实时计算天道/民心信号")
-        summary = self.nt.get_tiandao_minxin_summary()
+        """第三步：天道(价值) + 民心(市场叙事)信号分析（每次实时计算）"""
+        print("[MarketReplayAnalyzer] 第三步：实时计算天道(价值)/民心(市场叙事)信号")
+        summary = self.nt.get_value_market_summary()
 
-        tiandao_score = summary.get("tiandao_score", 0.0)
-        minxin_score = summary.get("minxin_score", 0.0)
+        value_score = summary.get("value_score", 0.0)
+        market_narrative_score = summary.get("market_narrative_score", 0.0)
 
-        if tiandao_score > 0.5 and minxin_score < 0.3:
-            pattern = "🌟 最佳时机：天道强 + 民心弱"
-        elif tiandao_score > 0.5 and minxin_score > 0.5:
-            pattern = "📈 顺势持有：天道强 + 民心强"
-        elif tiandao_score < 0.2 and minxin_score > 0.5:
-            pattern = "⚠️ 警惕：天道弱 + 民心强"
-        elif tiandao_score < 0.2 and minxin_score < 0.3:
-            pattern = "❄️ 观望：天道弱 + 民心弱"
+        if value_score > 0.5 and market_narrative_score < 0.3:
+            pattern = "🌟 最佳时机：价值信号强 + 市场叙事弱"
+        elif value_score > 0.5 and market_narrative_score > 0.5:
+            pattern = "📈 顺势持有：价值信号强 + 市场叙事强"
+        elif value_score < 0.2 and market_narrative_score > 0.5:
+            pattern = "⚠️ 警惕：价值信号弱 + 市场叙事强"
+        elif value_score < 0.2 and market_narrative_score < 0.3:
+            pattern = "❄️ 观望：价值信号弱 + 市场叙事弱"
         else:
             pattern = "➡️ 观察：信号不明显"
 
-        tiandao_signals = summary.get("signals", {}).get("tiandao", {})
-        minxin_signals = summary.get("signals", {}).get("minxin", {})
+        value_signals = summary.get("signals", {}).get("value", {})
+        market_signals = summary.get("signals", {}).get("market_narrative", {})
 
-        tiandao_hits = sum(len(v) for v in tiandao_signals.values())
-        minxin_hits = sum(len(v) for v in minxin_signals.values())
+        value_hits = sum(len(v) for v in value_signals.values())
+        market_hits = sum(len(v) for v in market_signals.values())
 
-        tiandao_changes = []
-        for cat, kws in tiandao_signals.items():
+        value_changes = []
+        for cat, kws in value_signals.items():
             if kws:
-                tiandao_changes.append(f"{cat}: {', '.join(kws[:3])}")
+                value_changes.append(f"{cat}: {', '.join(kws[:3])}")
 
-        minxin_changes = []
-        for cat, kws in minxin_signals.items():
+        market_changes = []
+        for cat, kws in market_signals.items():
             if kws:
-                minxin_changes.append(f"{cat}: {', '.join(kws[:3])}")
+                market_changes.append(f"{cat}: {', '.join(kws[:3])}")
 
-        if tiandao_hits >= 3:
-            tiandao_summary = f"AI落地加速，{tiandao_hits}个天道信号"
-        elif tiandao_hits >= 1:
-            tiandao_summary = f"存在{tiandao_hits}个天道信号"
+        if value_hits >= 3:
+            value_summary_text = f"AI落地加速，{value_hits}个价值信号"
+        elif value_hits >= 1:
+            value_summary_text = f"存在{value_hits}个价值信号"
         else:
-            tiandao_summary = "无明显天道信号"
+            value_summary_text = "无明显价值信号"
 
-        if minxin_hits >= 3:
-            minxin_summary = f"市场情绪高涨，{minxin_hits}个民心信号"
-        elif minxin_hits >= 1:
-            minxin_summary = f"存在{minxin_hits}个民心信号"
+        if market_hits >= 3:
+            market_summary_text = f"市场情绪高涨，{market_hits}个市场叙事信号"
+        elif market_hits >= 1:
+            market_summary_text = f"存在{market_hits}个市场叙事信号"
         else:
-            minxin_summary = "市场情绪平稳"
+            market_summary_text = "市场情绪平稳"
 
         self.tiandao_minxin = TiandaoMinxinAnalysis(
-            tiandao_score=tiandao_score,
-            minxin_score=minxin_score,
+            value_score=value_score,
+            market_narrative_score=market_narrative_score,
             recommendation=summary.get("recommendation", "WATCH"),
             reason=summary.get("reason", ""),
-            tiandao_signals=tiandao_signals,
-            minxin_signals=minxin_signals,
+            value_signals=value_signals,
+            market_narrative_signals=market_signals,
             pattern=pattern,
-            tiandao_summary=tiandao_summary,
-            minxin_summary=minxin_summary,
-            tiandao_changes=tiandao_changes,
-            minxin_changes=minxin_changes,
+            value_summary=value_summary_text,
+            market_narrative_summary=market_summary_text,
+            value_changes=value_changes,
+            market_narrative_changes=market_changes,
         )
 
         return self.tiandao_minxin
@@ -1485,8 +1489,8 @@ def _save_replay_to_history(report: ReplayReport):
                 {"name": p.name, "change": p.today_change, "status": p.status}
                 for p in report.positions
             ],
-            "tiandao_score": report.tiandao_minxin.tiandao_score if report.tiandao_minxin else 0,
-            "minxin_score": report.tiandao_minxin.minxin_score if report.tiandao_minxin else 0,
+            "value_score": report.tiandao_minxin.value_score if report.tiandao_minxin else 0,
+            "market_narrative_score": report.tiandao_minxin.market_narrative_score if report.tiandao_minxin else 0,
             "markdown": report.to_markdown(),
         }
         history.insert(0, record)

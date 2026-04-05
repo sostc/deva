@@ -1,21 +1,61 @@
 """
 AttentionFocusManager - 主动关注统一管理器
 
-三层分离架构的"我们的价值追求"层统一入口
+═══════════════════════════════════════════════════════════════════════════
+                              架 构 定 位
+═══════════════════════════════════════════════════════════════════════════
+
+【执行层】AttentionFocusManager 是"注意力→行动"的执行入口
+
+    注意力在哪里，执行就跟到哪里
+    - NarrativeTracker 发现的叙事 → follow_narrative()
+    - BlindSpotInvestigator 的 resolver → follow_stock()
+    - ConvictionValidator 的共识 → 可以 follow()
+    - 用户主动意图 → follow_xxx()
+
+═══════════════════════════════════════════════════════════════════════════
+                              核 心 职 能
+═══════════════════════════════════════════════════════════════════════════
 
 提供统一的接口来主动关注：
-1. 叙事（narrative）："我想关注 AI/芯片"
-2. 板块（block）："我想关注 semiconductor 板块"
-3. 股票（stock）："我想关注 NVDA"
+    叙事（narrative）  : "我想关注 AI/芯片"
+    板块（block）      : "我想关注 semiconductor 板块"
+    股票（stock）      : "我想关注 NVDA"
 
 每种关注都会自动：
-- 更新 Portfolio 的持仓/自选
-- 更新 NarrativeBlockLinker 的叙事映射
-- 更新 BlockRegistry 的 block 元数据
-- 计算融合层的注意力权重
+    - 更新 Portfolio 的持仓/自选
+    - 更新 NarrativeBlockLinker 的叙事映射
+    - 更新 BlockRegistry 的 block 元数据
+    - 持久化到 naja_focus_config（NB）
 
-作者: AI
-日期: 2026-04-05
+═══════════════════════════════════════════════════════════════════════════
+                              与其他模块的关系
+═══════════════════════════════════════════════════════════════════════════
+
+BlindSpotInvestigator → 探究结果 → FocusManager.follow_stock()
+    外部热但没关注 → resolver → 自动 follow
+
+NarrativeTracker → 天道发现 → FocusManager.follow_narrative()
+    我们认定的价值 → 主动 follow
+
+用户意图 → FocusManager.follow_xxx()
+    人为决策 → 直接 follow
+
+═══════════════════════════════════════════════════════════════════════════
+                              持 久 化
+═══════════════════════════════════════════════════════════════════════════
+
+所有关注配置持久化到 NB("naja_focus_config"):
+    {
+        "narratives": [{"focus_id": "AI", "source": "user", ...}, ...],
+        "blocks": [...],
+        "stocks": [...],
+    }
+
+关注来源 source:
+    "user"          = 用户主动关注
+    "investigation" = BlindSpotInvestigator 自动关注
+    "value_signals" = NarrativeTracker 天道信号触发
 """
 
 from __future__ import annotations
@@ -36,52 +76,74 @@ FOCUS_CONFIG_TABLE = "naja_focus_config"
 
 @dataclass
 class FocusItem:
-    """关注的单项"""
-    focus_type: str
-    focus_id: str
-    display_name: str
-    source: str
-    priority: float
-    linked_blocks: List[str] = field(default_factory=list)
-    linked_stocks: List[str] = field(default_factory=list)
-    add_time: float = field(default_factory=time.time)
-    status: str = "active"
+    """
+    [Execution Layer] Single focus item
+
+    Fields:
+        focus_type: type = narrative / block / stock
+        focus_id: focus identifier
+        display_name: display name
+        source: source = user / investigation / value_signals
+        priority: priority (0-1)
+        linked_blocks: linked block list
+        linked_stocks: linked stock list
+        add_time: add timestamp
+        status: status = active / inactive
+    """
+    focus_type: str                           # 【标识】类型
+    focus_id: str                             # 【标识】ID
+    display_name: str                          # 【显示】名称
+    source: str                               # 【来源】user/investigation/value_signals
+    priority: float                           # 【权重】优先级
+    linked_blocks: List[str] = field(default_factory=list)   # 【关联】block
+    linked_stocks: List[str] = field(default_factory=list)  # 【关联】stock
+    add_time: float = field(default_factory=time.time)       # 【时间】添加时间
+    status: str = "active"                    # 【状态】active/inactive
 
 
 @dataclass
 class FocusSummary:
-    """关注汇总"""
-    narratives: List[FocusItem]
-    blocks: List[FocusItem]
-    stocks: List[FocusItem]
+    """
+    【执行层】关注汇总
 
-    all_narrative_ids: Set[str]
-    all_block_ids: Set[str]
-    all_stock_codes: Set[str]
+    汇总所有类型的关注，提供统一的视图
+    """
+    narratives: List[FocusItem]              # 【叙事】关注的叙事
+    blocks: List[FocusItem]                  # 【板块】关注的板块
+    stocks: List[FocusItem]                 # 【股票】关注的股票
+
+    all_narrative_ids: Set[str]              # 【汇总】所有叙事ID
+    all_block_ids: Set[str]                  # 【汇总】所有block ID
+    all_stock_codes: Set[str]                # 【汇总】所有股票代码
 
 
 class AttentionFocusManager:
     """
-    主动关注统一管理器
+    【执行层】主动关注统一管理器
+
+    注意力在哪里，执行就跟到哪里
 
     使用方式:
 
         fm = AttentionFocusManager()
 
-        # 方式1: 关注叙事
+        # 方式1: 关注叙事（天道发现 / 用户主动）
         fm.follow_narrative("AI", priority=0.9)
 
         # 方式2: 关注板块
         fm.follow_block("semiconductor", priority=0.8)
 
-        # 方式3: 关注股票（加入自选）
+        # 方式3: 关注股票（BlindSpotInvestigator resolver 自动调用）
         fm.follow_stock("NVDA", stock_name="英伟达")
 
         # 获取完整关注列表
         summary = fm.get_summary()
+        print(f"叙事: {summary.all_narrative_ids}")
+        print(f"股票: {summary.all_stock_codes}")
 
         # 获取供融合层使用的关注权重
         watched_weights = fm.get_watched_attention_weights()
+
     """
 
     _instance: Optional["AttentionFocusManager"] = None
@@ -114,7 +176,7 @@ class AttentionFocusManager:
     def _load_from_storage(self) -> None:
         """从持久化存储加载关注配置"""
         nb = NB(FOCUS_CONFIG_TABLE)
-        config = nb.all() or {}
+        config = dict(nb) if len(nb) > 0 else {}
 
         self._narrative_focus.clear()
         self._block_focus.clear()
@@ -151,10 +213,10 @@ class AttentionFocusManager:
         主动关注一个叙事主题
 
         Args:
-            narrative: 叙事名称，如 "AI", "芯片", "新能源"
-            priority: 关注优先级 0.0-1.0
-            source: 来源标识
-            blocks: 可选，手动指定关联的 block（不指定则自动从 NarrativeBlockLinker 获取）
+            narrative: narrative name, e.g. "AI", "chip", "new_energy"
+            priority: focus priority 0.0-1.0
+            source: source identifier
+            blocks: optional, manually specify linked blocks
         """
         linked_blocks = blocks or self._linker.get_linked_blocks(narrative)
 
@@ -171,7 +233,8 @@ class AttentionFocusManager:
         for block_id in linked_blocks:
             self._update_block_link_to_narrative(block_id, narrative, priority)
 
-        self._registry.link_narrative_to_block(narrative, linked_blocks[0] if linked_blocks else "")
+        self._registry.link_narrative_to_block(
+            narrative, linked_blocks[0] if linked_blocks else "")
         self._save_to_storage()
 
         return item
@@ -187,10 +250,10 @@ class AttentionFocusManager:
         主动关注一个板块
 
         Args:
-            block_id: 板块标识，如 "semiconductor", "AI", "新能源"
-            priority: 关注优先级 0.0-1.0
-            source: 来源标识
-            block_name: 可选，板块中文名
+            block_id: block identifier, e.g. "semiconductor", "AI"
+            priority: focus priority 0.0-1.0
+            source: source identifier
+            block_name: optional, block display name
         """
         desc = self._registry.get(block_id)
         display_name = block_name or (desc.name if desc else block_id)
@@ -228,14 +291,14 @@ class AttentionFocusManager:
         as_watchlist: bool = True,
     ) -> FocusItem:
         """
-        主动关注一只股票（加入自选或持仓）
+        Follow a stock (add to watchlist or mark as holding)
 
         Args:
-            stock_code: 股票代码，如 "NVDA", "nvda"
-            stock_name: 股票名称（可选）
-            priority: 关注优先级
-            source: 来源标识
-            as_watchlist: True=加入自选，False=标记为持仓
+            stock_code: stock code, e.g. "NVDA", "nvda"
+            stock_name: stock name (optional)
+            priority: focus priority
+            source: source identifier
+            as_watchlist: True=add to watchlist, False=mark as holding
         """
         stock_code = stock_code.lower()
 
@@ -271,7 +334,8 @@ class AttentionFocusManager:
             self._update_block_link_to_stock(block_id, stock_code, priority)
 
         for narrative in linked_narratives:
-            self._update_narrative_link_to_block(narrative, linked_blocks[0] if linked_blocks else "", priority)
+            self._update_narrative_link_to_block(
+                narrative, linked_blocks[0] if linked_blocks else "", priority)
 
         if as_watchlist:
             self._add_to_watchlist(stock_code, stock_name)
@@ -280,29 +344,30 @@ class AttentionFocusManager:
         return item
 
     def _update_block_link_to_narrative(self, block_id: str, narrative: str, priority: float) -> None:
-        """更新 block → narrative 的关联"""
+        """Update block -> narrative link"""
         desc = self._registry.get(block_id)
         if desc and narrative not in desc.narrative_tags:
             desc.add_narrative_tag(narrative)
 
     def _update_narrative_link_to_block(self, narrative: str, block_id: str, priority: float) -> None:
-        """更新 narrative → block 的关联"""
+        """Update narrative -> block link"""
         if block_id:
             self._registry.link_narrative_to_block(narrative, block_id)
 
     def _update_block_link_to_stock(self, block_id: str, stock_code: str, priority: float) -> None:
-        """更新 block → stock 的关联"""
+        """Update block -> stock link"""
         self._registry.link_symbol_to_block(stock_code, block_id)
 
     def _add_to_watchlist(self, stock_code: str, stock_name: str) -> None:
         """添加到自选股列表"""
         nb = NB("naja_watchlist")
-        data = nb.all() or {}
+        data = dict(nb) if len(nb) > 0 else {}
         if "stocks" not in data:
             data["stocks"] = []
         existing_codes = {s["code"] for s in data.get("stocks", []) if isinstance(s, dict)}
         if stock_code not in existing_codes:
-            data["stocks"].append({"code": stock_code, "name": stock_name, "add_time": time.time()})
+            data["stocks"].append(
+                {"code": stock_code, "name": stock_name, "add_time": time.time()})
         nb.update(data)
         self._portfolio.invalidate_cache()
 
@@ -329,9 +394,10 @@ class AttentionFocusManager:
     def _remove_from_watchlist(self, stock_code: str) -> None:
         """从自选股列表移除"""
         nb = NB("naja_watchlist")
-        data = nb.all() or {}
+        data = dict(nb) if len(nb) > 0 else {}
         if "stocks" in data:
-            data["stocks"] = [s for s in data["stocks"] if isinstance(s, dict) and s.get("code") != stock_code]
+            data["stocks"] = [s for s in data["stocks"] if isinstance(
+                s, dict) and s.get("code") != stock_code]
             nb.update(data)
         self._portfolio.invalidate_cache()
 
@@ -407,7 +473,7 @@ class AttentionFocusManager:
         return stock_code.lower() in self._stock_focus
 
     def clear_all(self) -> None:
-        """清除所有关注（谨慎使用）"""
+        """Clear all focus (use with caution)"""
         self._narrative_focus.clear()
         self._block_focus.clear()
         self._stock_focus.clear()
