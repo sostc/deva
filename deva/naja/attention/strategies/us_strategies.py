@@ -15,7 +15,7 @@ except Exception:
     pd = None
 
 from .global_sentinel import GlobalMarketSentinel
-from .sector_hunter import SectorRotationHunter
+from .block_hunter import BlockRotationHunter
 from .momentum_tracker import MomentumSurgeTracker
 from .anomaly_sniper import AnomalyPatternSniper
 from .smart_money_detector import SmartMoneyFlowDetector
@@ -35,7 +35,7 @@ class USAttentionMixin:
         return {
             'global_attention': 0.5,
             'activity': 0.5,
-            'sector_attention': {},
+            'block_attention': {},
             'symbol_weights': {},
         }
 
@@ -47,10 +47,10 @@ class USAttentionMixin:
         state = self._get_us_state()
         return state.get('symbol_weights', {}).get(symbol, 0.0)
 
-    def get_active_sectors(self, threshold: float = 0.3) -> List[str]:
+    def get_active_blocks(self, threshold: float = 0.3) -> List[str]:
         state = self._get_us_state()
-        sector_weights = state.get('sector_attention', {})
-        return [s for s, w in sector_weights.items() if w >= threshold]
+        block_weights = state.get('block_attention', {})
+        return [s for s, w in block_weights.items() if w >= threshold]
 
     def filter_by_attention(self, df: 'pd.DataFrame', min_weight: Optional[float] = None):
         if pd is None or df is None or df.empty:
@@ -125,7 +125,7 @@ class USAttentionMixin:
                 'timestamp': now_ts,
                 'global_attention': state.get('global_attention', 0.5),
                 'activity': state.get('activity', 0.5),
-                'sector_weights': state.get('sector_attention', {}),
+                'block_weights': state.get('block_attention', {}),
                 'symbol_weights': state.get('symbol_weights', {}),
                 'market': 'US',
             }
@@ -136,7 +136,7 @@ class USAttentionMixin:
                 state = self._get_us_state()
                 context.setdefault('global_attention', state.get('global_attention', 0.5))
                 context.setdefault('activity', state.get('activity', 0.5))
-                context.setdefault('sector_weights', state.get('sector_attention', {}))
+                context.setdefault('block_weights', state.get('block_attention', {}))
                 context.setdefault('symbol_weights', state.get('symbol_weights', {}))
             context.setdefault('timestamp', time.time())
 
@@ -157,13 +157,13 @@ class USGlobalMarketSentinel(USAttentionMixin, GlobalMarketSentinel):
         self.market_scope = "US"
 
 
-class USSectorRotationHunter(USAttentionMixin, SectorRotationHunter):
-    """美股板块轮动捕捉"""
+class USBlockRotationHunter(USAttentionMixin, BlockRotationHunter):
+    """US Block Rotation Hunter"""
 
     def __init__(self):
         super().__init__()
-        self.strategy_id = "us_sector_rotation_hunter"
-        self.name = "US Sector Rotation Hunter"
+        self.strategy_id = "us_block_rotation_hunter"
+        self.name = "US Block Rotation Hunter"
         self.min_global_attention = 0.25
         self.market_scope = "US"
 

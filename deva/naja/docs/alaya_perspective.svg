@@ -1,0 +1,259 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1100 850">
+  <defs>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#052e16;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#0a1f0a;stop-opacity:1" />
+    </linearGradient>
+
+    <linearGradient id="alayaCoreGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#065f46;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#022c22;stop-opacity:1" />
+    </linearGradient>
+
+    <linearGradient id="patternGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#15803d;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#166534;stop-opacity:1" />
+    </linearGradient>
+
+    <linearGradient id="memoryGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#0f766e;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#134e4a;stop-opacity:1" />
+    </linearGradient>
+
+    <linearGradient id="awakeningGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#047857;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#065f46;stop-opacity:1" />
+    </linearGradient>
+
+    <linearGradient id="crossMarketGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#059669;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#047857;stop-opacity:1" />
+    </linearGradient>
+
+    <linearGradient id="illuminateGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#34d399;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#10b981;stop-opacity:1" />
+    </linearGradient>
+
+    <linearGradient id="manasGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#78350f;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#451a03;stop-opacity:1" />
+    </linearGradient>
+
+    <linearGradient id="fpGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#4c1d95;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#2e1065;stop-opacity:1" />
+    </linearGradient>
+
+    <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="6" result="coloredBlur"/>
+      <feMerge>
+        <feMergeNode in="coloredBlur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+
+    <filter id="cardShadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="4" stdDeviation="8" flood-opacity="0.4"/>
+    </filter>
+
+    <filter id="coreGlow" x="-100%" y="-100%" width="300%" height="300%">
+      <feGaussianBlur stdDeviation="20" result="coloredBlur"/>
+      <feMerge>
+        <feMergeNode in="coloredBlur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+
+    <marker id="arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
+      <path d="M0,0 L8,4 L0,8 L2,4 Z" fill="#6ee7b7"/>
+    </marker>
+
+    <marker id="arrowGold" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
+      <path d="M0,0 L8,4 L0,8 L2,4 Z" fill="#34d399"/>
+    </marker>
+
+    <marker id="arrowAmber" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
+      <path d="M0,0 L8,4 L0,8 L2,4 Z" fill="#f59e0b"/>
+    </marker>
+
+    <marker id="arrowPurple" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
+      <path d="M0,0 L8,4 L0,8 L2,4 Z" fill="#c4b5fd"/>
+    </marker>
+  </defs>
+
+  <!-- Background -->
+  <rect width="1100" height="850" fill="url(#bgGrad)"/>
+
+  <!-- Radial glow for depth -->
+  <ellipse cx="550" cy="350" rx="450" ry="300" fill="#10b981" opacity="0.04"/>
+
+  <!-- ========== Title ========== -->
+  <text x="550" y="45" text-anchor="middle" fill="#34d399" font-family="system-ui, sans-serif" font-size="24" font-weight="bold" filter="url(#glow)">AwakenedAlaya</text>
+  <text x="550" y="72" text-anchor="middle" fill="#6ee7b7" font-family="system-ui, sans-serif" font-size="12">觉醒阿赖耶识 · 模式匹配与顿悟引擎</text>
+  <text x="550" y="93" text-anchor="middle" fill="#065f46" font-family="system-ui, sans-serif" font-size="10">跨市场经验迁移 · 持仓顿悟 · 历史模式召回</text>
+
+  <!-- ========== Perspective Label ========== -->
+  <rect x="880" y="15" width="120" height="30" rx="15" fill="#022c22" stroke="#10b981" stroke-width="1"/>
+  <text x="940" y="35" text-anchor="middle" fill="#34d399" font-family="system-ui, sans-serif" font-size="11" font-weight="bold">主角视角</text>
+
+  <!-- ========== Central Alaya Core ========== -->
+  <circle cx="550" cy="350" r="110" fill="url(#alayaCoreGrad)" filter="url(#coreGlow)"/>
+  <circle cx="550" cy="350" r="110" fill="none" stroke="#10b981" stroke-width="2" opacity="0.8"/>
+  <circle cx="550" cy="350" r="90" fill="none" stroke="#34d399" stroke-width="1" opacity="0.5"/>
+
+  <circle cx="550" cy="350" r="70" fill="#022c22" opacity="0.9"/>
+
+  <text x="550" y="325" text-anchor="middle" fill="#fff" font-family="system-ui, sans-serif" font-size="16" font-weight="bold">AwakenedAlaya</text>
+  <text x="550" y="350" text-anchor="middle" fill="#6ee7b7" font-family="system-ui, sans-serif" font-size="11">illuminate()</text>
+  <text x="550" y="375" text-anchor="middle" fill="#34d399" font-family="system-ui, sans-serif" font-size="10">模式匹配 + 顿悟</text>
+
+  <!-- Input indicators around core -->
+  <text x="550" y="455" text-anchor="middle" fill="#10b981" font-family="monospace" font-size="9">market_data + unified_manas_output + fp_insights</text>
+
+  <!-- ========== Awakening Levels (left side) ========== -->
+  <rect x="60" y="140" width="180" height="380" rx="12" fill="#022c22" stroke="#065f46" stroke-width="1" filter="url(#cardShadow)"/>
+  <rect x="60" y="140" width="180" height="32" rx="12" fill="#047857"/>
+  <rect x="60" y="164" width="180" height="8" fill="#047857"/>
+  <text x="150" y="162" text-anchor="middle" fill="#fff" font-family="system-ui, sans-serif" font-size="12" font-weight="bold">觉醒层次</text>
+
+  <!-- Level 1: DORMANT -->
+  <rect x="75" y="185" width="150" height="50" rx="8" fill="#064e3b" stroke="#065f46" stroke-width="1"/>
+  <text x="150" y="210" text-anchor="middle" fill="#6ee7b7" font-family="system-ui, sans-serif" font-size="11" font-weight="bold">DORMANT</text>
+  <text x="150" y="228" text-anchor="middle" fill="#065f46" font-family="system-ui, sans-serif" font-size="9">沉睡</text>
+
+  <!-- Arrow down -->
+  <path d="M 150 235 L 150 250" stroke="#047857" stroke-width="2" fill="none" marker-end="url(#arrow)"/>
+
+  <!-- Level 2: AWAKENING -->
+  <rect x="75" y="255" width="150" height="50" rx="8" fill="#065f46" stroke="#10b981" stroke-width="1"/>
+  <text x="150" y="280" text-anchor="middle" fill="#6ee7b7" font-family="system-ui, sans-serif" font-size="11" font-weight="bold">AWAKENING</text>
+  <text x="150" y="298" text-anchor="middle" fill="#34d399" font-family="system-ui, sans-serif" font-size="9">觉醒中 (信号≥5)</text>
+
+  <!-- Arrow down -->
+  <path d="M 150 305 L 150 320" stroke="#10b981" stroke-width="2" fill="none" marker-end="url(#arrow)"/>
+
+  <!-- Level 3: ILLUMINATED -->
+  <rect x="75" y="325" width="150" height="50" rx="8" fill="#047857" stroke="#34d399" stroke-width="1.5"/>
+  <text x="150" y="350" text-anchor="middle" fill="#a7f3d0" font-family="system-ui, sans-serif" font-size="11" font-weight="bold">ILLUMINATED</text>
+  <text x="150" y="368" text-anchor="middle" fill="#6ee7b7" font-family="system-ui, sans-serif" font-size="9">已照亮 (信号≥15)</text>
+
+  <!-- Arrow down -->
+  <path d="M 150 375 L 150 390" stroke="#34d399" stroke-width="2" fill="none" marker-end="url(#arrow)"/>
+
+  <!-- Level 4: ENLIGHTENED -->
+  <rect x="75" y="395" width="150" height="50" rx="8" fill="#059669" stroke="#6ee7b7" stroke-width="2" filter="url(#glow)"/>
+  <text x="150" y="420" text-anchor="middle" fill="#fff" font-family="system-ui, sans-serif" font-size="11" font-weight="bold">ENLIGHTENED</text>
+  <text x="150" y="438" text-anchor="middle" fill="#a7f3d0" font-family="system-ui, sans-serif" font-size="9">顿悟 (高信×10+)</text>
+
+  <!-- Confidence boost label -->
+  <text x="150" y="465" text-anchor="middle" fill="#fbbf24" font-family="system-ui, sans-serif" font-size="10">置信度加成</text>
+  <text x="150" y="482" text-anchor="middle" fill="#fbbf24" font-family="system-ui, sans-serif" font-size="9">×1.1 enlightened</text>
+  <text x="150" y="497" text-anchor="middle" fill="#a7f3d0" font-family="system-ui, sans-serif" font-size="9">×1.05 illuminated</text>
+
+  <!-- ========== Pattern Archive (right side) ========== -->
+  <rect x="860" y="140" width="180" height="380" rx="12" fill="#022c22" stroke="#065f46" stroke-width="1" filter="url(#cardShadow)"/>
+  <rect x="860" y="140" width="180" height="32" rx="12" fill="#047857"/>
+  <rect x="860" y="164" width="180" height="8" fill="#047857"/>
+  <text x="950" y="162" text-anchor="middle" fill="#fff" font-family="system-ui, sans-serif" font-size="12" font-weight="bold">Pattern Archive</text>
+
+  <!-- Pattern types -->
+  <rect x="875" y="185" width="150" height="40" rx="6" fill="#064e3b" stroke="#065f46" stroke-width="1"/>
+  <text x="950" y="205" text-anchor="middle" fill="#6ee7b7" font-family="system-ui, sans-serif" font-size="10">pattern_match</text>
+  <text x="950" y="220" text-anchor="middle" fill="#065f46" font-family="system-ui, sans-serif" font-size="8">模式匹配</text>
+
+  <rect x="875" y="235" width="150" height="40" rx="6" fill="#064e3b" stroke="#065f46" stroke-width="1"/>
+  <text x="950" y="255" text-anchor="middle" fill="#6ee7b7" font-family="system-ui, sans-serif" font-size="10">contradiction</text>
+  <text x="950" y="270" text-anchor="middle" fill="#065f46" font-family="system-ui, sans-serif" font-size="8">矛盾检测</text>
+
+  <rect x="875" y="285" width="150" height="40" rx="6" fill="#064e3b" stroke="#065f46" stroke-width="1"/>
+  <text x="950" y="305" text-anchor="middle" fill="#6ee7b7" font-family="system-ui, sans-serif" font-size="10">timing</text>
+  <text x="950" y="320" text-anchor="middle" fill="#065f46" font-family="system-ui, sans-serif" font-size="8">时机信号</text>
+
+  <!-- Cross Market Memory -->
+  <text x="950" y="355" text-anchor="middle" fill="#34d399" font-family="system-ui, sans-serif" font-size="11" font-weight="bold">CrossMarketMemory</text>
+
+  <rect x="875" y="370" width="70" height="35" rx="4" fill="#064e3b" stroke="#047857" stroke-width="1"/>
+  <text x="910" y="388" text-anchor="middle" fill="#6ee7b7" font-family="system-ui, sans-serif" font-size="9">futures</text>
+  <text x="910" y="400" text-anchor="middle" fill="#065f46" font-family="system-ui, sans-serif" font-size="7">期货</text>
+
+  <rect x="955" y="370" width="70" height="35" rx="4" fill="#064e3b" stroke="#047857" stroke-width="1"/>
+  <text x="990" y="388" text-anchor="middle" fill="#6ee7b7" font-family="system-ui, sans-serif" font-size="9">us_stock</text>
+  <text x="990" y="400" text-anchor="middle" fill="#065f46" font-family="system-ui, sans-serif" font-size="7">美股</text>
+
+  <rect x="875" y="415" width="70" height="35" rx="4" fill="#064e3b" stroke="#047857" stroke-width="1"/>
+  <text x="910" y="433" text-anchor="middle" fill="#6ee7b7" font-family="system-ui, sans-serif" font-size="9">hk_stock</text>
+  <text x="910" y="445" text-anchor="middle" fill="#065f46" font-family="system-ui, sans-serif" font-size="7">港股</text>
+
+  <rect x="955" y="415" width="70" height="35" rx="4" fill="#064e3b" stroke="#047857" stroke-width="1"/>
+  <text x="990" y="433" text-anchor="middle" fill="#6ee7b7" font-family="system-ui, sans-serif" font-size="9">crypto</text>
+  <text x="990" y="445" text-anchor="middle" fill="#065f46" font-family="system-ui, sans-serif" font-size="7">加密</text>
+
+  <!-- Recall indicator -->
+  <text x="950" y="475" text-anchor="middle" fill="#34d399" font-family="system-ui, sans-serif" font-size="10">recall_applicable_patterns()</text>
+  <text x="950" y="495" text-anchor="middle" fill="#6ee7b7" font-family="system-ui, sans-serif" font-size="9">→ recalled_patterns[]</text>
+
+  <!-- ========== Process Flow (below core) ========== -->
+  <!-- illuminate() outputs -->
+  <rect x="300" y="550" width="500" height="100" rx="12" fill="#022c22" stroke="#059669" stroke-width="1" filter="url(#cardShadow)"/>
+  <rect x="300" y="550" width="500" height="32" rx="12" fill="#047857"/>
+  <rect x="300" y="574" width="500" height="8" fill="#047857"/>
+  <text x="550" y="572" text-anchor="middle" fill="#fff" font-family="system-ui, sans-serif" font-size="13" font-weight="bold">illuminate() 输出</text>
+
+  <text x="360" y="605" fill="#6ee7b7" font-family="system-ui, sans-serif" font-size="10">illumination</text>
+  <text x="360" y="625" fill="#065f46" font-family="system-ui, sans-serif" font-size="8">照亮内容</text>
+
+  <text x="490" y="605" fill="#6ee7b7" font-family="system-ui, sans-serif" font-size="10">awakening</text>
+  <text x="490" y="625" fill="#065f46" font-family="system-ui, sans-serif" font-size="8">觉醒信号</text>
+
+  <text x="620" y="605" fill="#6ee7b7" font-family="system-ui, sans-serif" font-size="10">recalled_patterns</text>
+  <text x="620" y="625" fill="#065f46" font-family="system-ui, sans-serif" font-size="8">召回模式</text>
+
+  <text x="740" y="605" fill="#34d399" font-family="system-ui, sans-serif" font-size="10" font-weight="bold">awakening_level</text>
+  <text x="740" y="625" fill="#6ee7b7" font-family="system-ui, sans-serif" font-size="8">觉醒层次</text>
+
+  <!-- ========== External Connections ========== -->
+  <!-- From Manas -->
+  <rect x="50" y="620" width="200" height="70" rx="10" fill="url(#manasGrad)" filter="url(#cardShadow)"/>
+  <rect x="50" y="620" width="200" height="28" rx="10" fill="#78350f"/>
+  <rect x="50" y="642" width="200" height="6" fill="#78350f"/>
+  <text x="150" y="642" text-anchor="middle" fill="#fff" font-family="system-ui, sans-serif" font-size="12" font-weight="bold">ManasEngine</text>
+  <text x="150" y="668" text-anchor="middle" fill="#fcd34d" font-family="system-ui, sans-serif" font-size="9">unified_manas_output</text>
+  <text x="150" y="684" text-anchor="middle" fill="#a8a29e" font-family="system-ui, sans-serif" font-size="8">持仓/决策信息</text>
+
+  <!-- From FP Mind -->
+  <rect x="850" y="620" width="200" height="70" rx="10" fill="url(#fpGrad)" filter="url(#cardShadow)"/>
+  <rect x="850" y="620" width="200" height="28" rx="10" fill="#4c1d95"/>
+  <rect x="850" y="642" width="200" height="6" fill="#4c1d95"/>
+  <text x="950" y="642" text-anchor="middle" fill="#fff" font-family="system-ui, sans-serif" font-size="12" font-weight="bold">FirstPrinciplesMind</text>
+  <text x="950" y="668" text-anchor="middle" fill="#c4b5fd" font-family="system-ui, sans-serif" font-size="9">fp_insights[]</text>
+  <text x="950" y="684" text-anchor="middle" fill="#a8a29e" font-family="system-ui, sans-serif" font-size="8">逻辑洞察</text>
+
+  <!-- ========== Arrows ========== -->
+  <!-- Manas/FP to Alaya -->
+  <path d="M 250 655 L 420 500" stroke="#f59e0b" stroke-width="1.5" fill="none" stroke-dasharray="5,3" marker-end="url(#arrowAmber)"/>
+  <path d="M 850 655 L 680 500" stroke="#c4b5fd" stroke-width="1.5" fill="none" stroke-dasharray="5,3" marker-end="url(#arrowPurple)"/>
+
+  <!-- Core to Output -->
+  <path d="M 550 460 L 550 550" stroke="#34d399" stroke-width="2" fill="none" marker-end="url(#arrowGold)"/>
+
+  <!-- Alaya to DecisionFusion -->
+  <rect x="350" y="700" width="400" height="80" rx="10" fill="#1c1917" stroke="#10b981" stroke-width="1" filter="url(#cardShadow)"/>
+  <text x="550" y="725" text-anchor="middle" fill="#6ee7b7" font-family="system-ui, sans-serif" font-size="12" font-weight="bold">→ DecisionFusion</text>
+  <text x="420" y="752" fill="#34d399" font-family="system-ui, sans-serif" font-size="10">recalled_patterns</text>
+  <text x="420" y="770" fill="#a8a29e" font-family="system-ui, sans-serif" font-size="9">awakening_level → 置信度加成</text>
+  <text x="650" y="752" fill="#6ee7b7" font-family="system-ui, sans-serif" font-size="10">illumination</text>
+  <text x="650" y="770" fill="#a8a29e" font-family="system-ui, sans-serif" font-size="9">→ 顿悟内容输出</text>
+
+  <!-- ========== Panel: How it differs ========== -->
+  <rect x="50" y="750" width="260" height="80" rx="10" fill="#1c1917" stroke="#44403c" stroke-width="1" filter="url(#cardShadow)"/>
+  <text x="70" y="773" fill="#a8a29e" font-family="system-ui, sans-serif" font-size="10" font-weight="bold">与 FP Mind 的本质区别</text>
+  <text x="70" y="795" fill="#6ee7b7" font-family="system-ui, sans-serif" font-size="9">Alaya 问：以前见过吗？</text>
+  <text x="70" y="812" fill="#065f46" font-family="system-ui, sans-serif" font-size="8">经验 → 模式匹配 → 顿悟</text>
+
+  <rect x="790" y="750" width="260" height="80" rx="10" fill="#1c1917" stroke="#44403c" stroke-width="1" filter="url(#cardShadow)"/>
+  <text x="810" y="773" fill="#a8a29e" font-family="system-ui, sans-serif" font-size="10" font-weight="bold">Alaya 的核心能力</text>
+  <text x="810" y="795" fill="#6ee7b7" font-family="system-ui, sans-serif" font-size="9">跨市场经验迁移</text>
+  <text x="810" y="812" fill="#065f46" font-family="system-ui, sans-serif" font-size="8">期货/美股/港股/加密 → A股</text>
+
+</svg>

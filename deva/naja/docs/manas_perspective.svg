@@ -1,0 +1,232 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1100 850">
+  <defs>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#0c0a09;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#1c1917;stop-opacity:1" />
+    </linearGradient>
+
+    <linearGradient id="manasCoreGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#b45309;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#78350f;stop-opacity:1" />
+    </linearGradient>
+
+    <linearGradient id="timingGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#0369a1;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#0c4a6e;stop-opacity:1" />
+    </linearGradient>
+
+    <linearGradient id="regimeGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#7c3aed;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#4c1d95;stop-opacity:1" />
+    </linearGradient>
+
+    <linearGradient id="confidenceGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#0f766e;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#134e4a;stop-opacity:1" />
+    </linearGradient>
+
+    <linearGradient id="riskGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#be185d;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#831843;stop-opacity:1" />
+    </linearGradient>
+
+    <linearGradient id="metaGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#a16207;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#713f12;stop-opacity:1" />
+    </linearGradient>
+
+    <linearGradient id="outputGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#15803d;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#166534;stop-opacity:1" />
+    </linearGradient>
+
+    <linearGradient id="attentionGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#1e3a5f;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#172554;stop-opacity:1" />
+    </linearGradient>
+
+    <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="6" result="coloredBlur"/>
+      <feMerge>
+        <feMergeNode in="coloredBlur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+
+    <filter id="cardShadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="4" stdDeviation="10" flood-opacity="0.5"/>
+    </filter>
+
+    <filter id="coreGlow" x="-100%" y="-100%" width="300%" height="300%">
+      <feGaussianBlur stdDeviation="15" result="coloredBlur"/>
+      <feMerge>
+        <feMergeNode in="coloredBlur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+
+    <marker id="arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
+      <path d="M0,0 L8,4 L0,8 L2,4 Z" fill="#a8a29e"/>
+    </marker>
+
+    <marker id="arrowGold" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
+      <path d="M0,0 L8,4 L0,8 L2,4 Z" fill="#f59e0b"/>
+    </marker>
+  </defs>
+
+  <!-- Background -->
+  <rect width="1100" height="850" fill="url(#bgGrad)"/>
+
+  <!-- Subtle radial gradient overlay for depth -->
+  <ellipse cx="550" cy="380" rx="500" ry="350" fill="#f59e0b" opacity="0.02"/>
+
+  <!-- ========== Title ========== -->
+  <text x="550" y="50" text-anchor="middle" fill="#fbbf24" font-family="system-ui, sans-serif" font-size="24" font-weight="bold" filter="url(#glow)">ManasEngine</text>
+  <text x="550" y="75" text-anchor="middle" fill="#a8a29e" font-family="system-ui, sans-serif" font-size="12">末那识引擎 · 三维融合决策中枢</text>
+  <text x="550" y="95" text-anchor="middle" fill="#78716c" font-family="system-ui, sans-serif" font-size="10">天-地-人 框架中的「人」· 持续输出"是否行动"的内在决策中枢</text>
+
+  <!-- ========== Perspective Label ========== -->
+  <rect x="880" y="15" width="120" height="30" rx="15" fill="#78350f" stroke="#f59e0b" stroke-width="1"/>
+  <text x="940" y="35" text-anchor="middle" fill="#fbbf24" font-family="system-ui, sans-serif" font-size="11" font-weight="bold">主角视角</text>
+
+  <!-- ========== Central ManasCore ========== -->
+  <circle cx="550" cy="380" r="120" fill="url(#manasCoreGrad)" filter="url(#coreGlow)"/>
+  <circle cx="550" cy="380" r="120" fill="none" stroke="#f59e0b" stroke-width="2" opacity="0.8"/>
+  <circle cx="550" cy="380" r="100" fill="none" stroke="#fbbf24" stroke-width="1" opacity="0.4"/>
+
+  <!-- Inner glow rings -->
+  <circle cx="550" cy="380" r="85" fill="#78350f" opacity="0.5"/>
+  <circle cx="550" cy="380" r="60" fill="#451a03" opacity="0.8"/>
+
+  <text x="550" y="360" text-anchor="middle" fill="#fff" font-family="system-ui, sans-serif" font-size="16" font-weight="bold">ManasEngine</text>
+  <text x="550" y="380" text-anchor="middle" fill="#fbbf24" font-family="system-ui, sans-serif" font-size="11">三维融合</text>
+  <text x="550" y="400" text-anchor="middle" fill="#a8a29e" font-family="system-ui, sans-serif" font-size="10">决策中枢</text>
+
+  <!-- Core formula -->
+  <text x="550" y="425" text-anchor="middle" fill="#fcd34d" font-family="monospace" font-size="9">manas = 0.4t + 0.3r + 0.3c</text>
+
+  <!-- ========== Four Sub-Engines ========== -->
+  <!-- TimingEngine - Top -->
+  <rect x="420" y="120" width="260" height="100" rx="12" fill="url(#timingGrad)" filter="url(#cardShadow)"/>
+  <rect x="420" y="120" width="260" height="35" rx="12" fill="#0369a1"/>
+  <rect x="420" y="145" width="260" height="10" fill="#0369a1"/>
+  <text x="550" y="143" text-anchor="middle" fill="#fff" font-family="system-ui, sans-serif" font-size="14" font-weight="bold">TimingEngine</text>
+
+  <text x="550" y="178" text-anchor="middle" fill="#7dd3fc" font-family="system-ui, sans-serif" font-size="10">← 天时</text>
+  <text x="550" y="198" text-anchor="middle" fill="#e2e8f0" font-family="system-ui, sans-serif" font-size="11">时机节律</text>
+  <text x="550" y="215" text-anchor="middle" fill="#94a3b8" font-family="system-ui, sans-serif" font-size="9">判断"现在能不能动"</text>
+
+  <!-- RegimeEngine - Right -->
+  <rect x="750" y="280" width="250" height="100" rx="12" fill="url(#regimeGrad)" filter="url(#cardShadow)"/>
+  <rect x="750" y="280" width="250" height="35" rx="12" fill="#7c3aed"/>
+  <rect x="750" y="305" width="250" height="10" fill="#7c3aed"/>
+  <text x="875" y="303" text-anchor="middle" fill="#fff" font-family="system-ui, sans-serif" font-size="14" font-weight="bold">RegimeEngine</text>
+
+  <text x="875" y="338" text-anchor="middle" fill="#c4b5fd" font-family="system-ui, sans-serif" font-size="10">← 地理</text>
+  <text x="875" y="358" text-anchor="middle" fill="#e2e8f0" font-family="system-ui, sans-serif" font-size="11">环境感知</text>
+  <text x="875" y="375" text-anchor="middle" fill="#94a3b8" font-family="system-ui, sans-serif" font-size="9">判断"大方向顺不顺"</text>
+
+  <!-- ConfidenceEngine - Left -->
+  <rect x="100" y="280" width="250" height="100" rx="12" fill="url(#confidenceGrad)" filter="url(#cardShadow)"/>
+  <rect x="100" y="280" width="250" height="35" rx="12" fill="#0f766e"/>
+  <rect x="100" y="305" width="250" height="10" fill="#0f766e"/>
+  <text x="225" y="303" text-anchor="middle" fill="#fff" font-family="system-ui, sans-serif" font-size="14" font-weight="bold">ConfidenceEngine</text>
+
+  <text x="225" y="338" text-anchor="middle" fill="#5eead4" font-family="system-ui, sans-serif" font-size="10">← 自知</text>
+  <text x="225" y="358" text-anchor="middle" fill="#e2e8f0" font-family="system-ui, sans-serif" font-size="11">策略适配</text>
+  <text x="225" y="375" text-anchor="middle" fill="#94a3b8" font-family="system-ui, sans-serif" font-size="9">判断"策略还管用吗"</text>
+
+  <!-- RiskEngine - Bottom Right -->
+  <rect x="680" y="520" width="230" height="100" rx="12" fill="url(#riskGrad)" filter="url(#cardShadow)"/>
+  <rect x="680" y="520" width="230" height="35" rx="12" fill="#be185d"/>
+  <rect x="680" y="545" width="230" height="10" fill="#be185d"/>
+  <text x="795" y="543" text-anchor="middle" fill="#fff" font-family="system-ui, sans-serif" font-size="14" font-weight="bold">RiskEngine</text>
+
+  <text x="795" y="578" text-anchor="middle" fill="#f9a8d4" font-family="system-ui, sans-serif" font-size="10">← 生存本能</text>
+  <text x="795" y="598" text-anchor="middle" fill="#e2e8f0" font-family="system-ui, sans-serif" font-size="11">客观风险</text>
+  <text x="795" y="615" text-anchor="middle" fill="#94a3b8" font-family="system-ui, sans-serif" font-size="9">判断"市场能杀我多少"</text>
+
+  <!-- MetaManas - Bottom Left -->
+  <rect x="190" y="520" width="230" height="100" rx="12" fill="url(#metaGrad)" filter="url(#cardShadow)"/>
+  <rect x="190" y="520" width="230" height="35" rx="12" fill="#a16207"/>
+  <rect x="190" y="545" width="230" height="10" fill="#a16207"/>
+  <text x="305" y="543" text-anchor="middle" fill="#fff" font-family="system-ui, sans-serif" font-size="14" font-weight="bold">MetaManas</text>
+
+  <text x="305" y="578" text-anchor="middle" fill="#fcd34d" font-family="system-ui, sans-serif" font-size="10">← 觉知偏差</text>
+  <text x="305" y="598" text-anchor="middle" fill="#e2e8f0" font-family="system-ui, sans-serif" font-size="11">主观偏差</text>
+  <text x="305" y="615" text-anchor="middle" fill="#94a3b8" font-family="system-ui, sans-serif" font-size="9">判断"我自己会作死吗"</text>
+
+  <!-- ========== Output Section ========== -->
+  <rect x="420" y="660" width="260" height="120" rx="12" fill="url(#outputGrad)" filter="url(#cardShadow)"/>
+  <rect x="420" y="660" width="260" height="35" rx="12" fill="#15803d"/>
+  <rect x="420" y="685" width="260" height="10" fill="#15803d"/>
+  <text x="550" y="683" text-anchor="middle" fill="#fff" font-family="system-ui, sans-serif" font-size="14" font-weight="bold">输出</text>
+
+  <text x="460" y="720" fill="#86efac" font-family="system-ui, sans-serif" font-size="10">Q = market_state × manas_score</text>
+  <text x="460" y="742" fill="#86efac" font-family="system-ui, sans-serif" font-size="10">α = base × confidence × manas</text>
+  <text x="460" y="764" fill="#86efac" font-family="system-ui, sans-serif" font-size="10">T = base / (1 + manas_score)</text>
+
+  <!-- ========== Arrows from engines to core ========== -->
+  <!-- Timing to Core -->
+  <path d="M 550 220 L 550 260" stroke="#f59e0b" stroke-width="2" fill="none" marker-end="url(#arrowGold)"/>
+
+  <!-- Regime to Core -->
+  <path d="M 750 330 L 670 380" stroke="#f59e0b" stroke-width="2" fill="none" marker-end="url(#arrowGold)"/>
+
+  <!-- Confidence to Core -->
+  <path d="M 350 330 L 430 380" stroke="#f59e0b" stroke-width="2" fill="none" marker-end="url(#arrowGold)"/>
+
+  <!-- Risk to Core -->
+  <path d="M 720 520 L 620 450" stroke="#f59e0b" stroke-width="2" fill="none" marker-end="url(#arrowGold)"/>
+
+  <!-- Meta to Core -->
+  <path d="M 380 520 L 480 450" stroke="#f59e0b" stroke-width="2" fill="none" marker-end="url(#arrowGold)"/>
+
+  <!-- Core to Output -->
+  <path d="M 550 500 L 550 660" stroke="#22c55e" stroke-width="2" fill="none" marker-end="url(#arrow)"/>
+
+  <!-- ========== AttentionOS Connection ========== -->
+  <rect x="40" y="140" width="200" height="70" rx="10" fill="url(#attentionGrad)" filter="url(#cardShadow)"/>
+  <rect x="40" y="140" width="200" height="30" rx="10" fill="#1e3a5f"/>
+  <rect x="40" y="160" width="200" height="10" fill="#1e3a5f"/>
+  <text x="140" y="162" text-anchor="middle" fill="#fff" font-family="system-ui, sans-serif" font-size="12" font-weight="bold">AttentionOS</text>
+  <text x="140" y="190" text-anchor="middle" fill="#93c5fd" font-family="system-ui, sans-serif" font-size="9">提供市场状态</text>
+  <text x="140" y="205" text-anchor="middle" fill="#64748b" font-family="system-ui, sans-serif" font-size="8">session/scanner/bandit</text>
+
+  <path d="M 200 180 L 350 280" stroke="#3b82f6" stroke-width="1.5" fill="none" stroke-dasharray="5,3" marker-end="url(#arrow)"/>
+
+  <!-- ========== Formula Panel ========== -->
+  <rect x="40" y="720" width="300" height="110" rx="10" fill="#1c1917" stroke="#44403c" stroke-width="1" filter="url(#cardShadow)"/>
+  <text x="60" y="745" fill="#a8a29e" font-family="system-ui, sans-serif" font-size="11" font-weight="bold">核心职责</text>
+
+  <text x="70" y="770" fill="#e2e8f0" font-family="system-ui, sans-serif" font-size="10">• 要不要看（注意力方向 Q）</text>
+  <text x="70" y="790" fill="#e2e8f0" font-family="system-ui, sans-serif" font-size="10">• 要不要信（置信度 α）</text>
+  <text x="70" y="810" fill="#e2e8f0" font-family="system-ui, sans-serif" font-size="10">• 要不要上（仓位 T）</text>
+  <text x="70" y="830" fill="#e2e8f0" font-family="system-ui, sans-serif" font-size="10">• 要不要停（风险）</text>
+
+  <!-- Table -->
+  <rect x="380" y="720" width="340" height="110" rx="10" fill="#1c1917" stroke="#44403c" stroke-width="1" filter="url(#cardShadow)"/>
+  <text x="400" y="745" fill="#a8a29e" font-family="system-ui, sans-serif" font-size="11" font-weight="bold">四问模型</text>
+
+  <rect x="400" y="755" width="80" height="20" rx="4" fill="#0369a1" opacity="0.8"/>
+  <text x="440" y="769" text-anchor="middle" fill="#fff" font-family="system-ui, sans-serif" font-size="9">TimingEngine</text>
+
+  <rect x="490" y="755" width="80" height="20" rx="4" fill="#7c3aed" opacity="0.8"/>
+  <text x="530" y="769" text-anchor="middle" fill="#fff" font-family="system-ui, sans-serif" font-size="9">RegimeEngine</text>
+
+  <rect x="580" y="755" width="80" height="20" rx="4" fill="#0f766e" opacity="0.8"/>
+  <text x="620" y="769" text-anchor="middle" fill="#fff" font-family="system-ui, sans-serif" font-size="9">ConfEngine</text>
+
+  <rect x="670" y="755" width="40" height="20" rx="4" fill="#be185d" opacity="0.8"/>
+  <text x="690" y="769" text-anchor="middle" fill="#fff" font-family="system-ui, sans-serif" font-size="9">Risk</text>
+
+  <text x="400" y="800" fill="#7dd3fc" font-family="system-ui, sans-serif" font-size="9">现在能动手吗？</text>
+  <text x="490" y="800" fill="#c4b5fd" font-family="system-ui, sans-serif" font-size="9">大方向顺吗？</text>
+  <text x="580" y="800" fill="#5eead4" font-family="system-ui, sans-serif" font-size="9">策略还管用？</text>
+  <text x="670" y="800" fill="#f9a8d4" font-family="system-ui, sans-serif" font-size="9">风险？</text>
+
+  <text x="400" y="822" fill="#fbbf24" font-family="system-ui, sans-serif" font-size="9">×0.4</text>
+  <text x="490" y="822" fill="#fbbf24" font-family="system-ui, sans-serif" font-size="9">×0.3</text>
+  <text x="580" y="822" fill="#fbbf24" font-family="system-ui, sans-serif" font-size="9">×0.3</text>
+
+</svg>

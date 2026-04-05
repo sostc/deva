@@ -137,7 +137,7 @@ def render_market_state_panel() -> str:
     }
     config = state_config.get(state, state_config['unknown'])
 
-    hot_sectors = list(tracker.current_hot_sectors.items())[:5]
+    hot_blocks = list(tracker.current_hot_sectors.items())[:5]
     hot_symbols = list(tracker.current_hot_symbols.items())[:10]
     def _format_market_line(label, info):
         phase_name = info.get('phase_name', '未知')
@@ -182,6 +182,8 @@ def render_market_state_panel() -> str:
         # 非交易时间：根据数据判断
         show_us_only = has_us_data and not tracker.current_hot_sectors
         show_cn_only = bool(tracker.current_hot_sectors) and not has_us_data
+        us_blocks = us_data.get('block_attention', {})
+        sorted_us_blocks = sorted(us_blocks.items(), key=lambda x: x[1], reverse=True)[:5]
 
     if has_us_data and not show_us_only:
         cn_attention = global_attn
@@ -204,12 +206,12 @@ def render_market_state_panel() -> str:
 
     # 美股数据展示（美股时间 或 混合时间）
     if has_us_data and not show_cn_only:
-        us_sectors = us_data.get('sector_attention', {})
+        us_blocks = us_data.get('block_attention', {})
         us_symbols = us_data.get('symbol_weights', {})
         us_global = us_data.get('global_attention', 0)
         us_activity = us_data.get('activity', 0)
 
-        sorted_us_sectors = sorted(us_sectors.items(), key=lambda x: x[1], reverse=True)[:5]
+        sorted_us_blocks = sorted(us_blocks.items(), key=lambda x: x[1], reverse=True)[:5]
         sorted_us_symbols = sorted(us_symbols.items(), key=lambda x: x[1], reverse=True)[:10]
 
         html += f"""
@@ -230,12 +232,12 @@ def render_market_state_panel() -> str:
         </div>
         """
 
-        if sorted_us_sectors:
+        if sorted_us_blocks:
             html += """<div style="margin-bottom: 16px;"><div style="font-size: 13px; font-weight: 600; color: #7c3aed; margin-bottom: 8px;">🇺🇸 美股热门板块</div><div style="display: flex; flex-wrap: wrap; gap: 8px;">"""
-            for sector, weight in sorted_us_sectors:
+            for block_id, weight in sorted_us_blocks:
                 bar_width = min(weight * 20, 100)
                 color = "#dc2626" if weight > 0.5 else ("#ca8a04" if weight > 0.3 else "#16a34a")
-                html += f"""<div style="background: #f1f5f9; border-radius: 8px; padding: 10px 14px; min-width: 140px;"><div style="font-size: 14px; font-weight: 600; color: #1e293b;">{sector}</div><div style="display: flex; align-items: center; gap: 8px; margin-top: 6px;"><div style="background: {color}; height: 6px; border-radius: 3px; width: {bar_width}px; min-width: 6px;"></div><span style="font-size: 13px; font-weight: 600; color: #1e293b;">{weight:.2f}</span></div></div>"""
+                html += f"""<div style="background: #f1f5f9; border-radius: 8px; padding: 10px 14px; min-width: 140px;"><div style="font-size: 14px; font-weight: 600; color: #1e293b;">{block_id}</div><div style="display: flex; align-items: center; gap: 8px; margin-top: 6px;"><div style="background: {color}; height: 6px; border-radius: 3px; width: {bar_width}px; min-width: 6px;"></div><span style="font-size: 13px; font-weight: 600; color: #1e293b;">{weight:.2f}</span></div></div>"""
             html += "</div></div>"
 
         if sorted_us_symbols:
@@ -260,12 +262,12 @@ def render_market_state_panel() -> str:
             <div style="font-size: 12px; color: #94a3b8; margin-top: 6px;">A股全局注意力分数: <strong>--</strong></div>
         </div>"""
 
-    if not show_us_only and hot_sectors:
+    if not show_us_only and hot_blocks:
         html += """<div style="margin-bottom: 16px;"><div style="font-size: 13px; font-weight: 600; color: #475569; margin-bottom: 8px;">📈 A股注意力集中板块 Top5</div><div style="display: flex; flex-wrap: wrap; gap: 8px;">"""
-        for sector_id, weight in hot_sectors:
-            sector_name = tracker.get_sector_name(sector_id)
+        for block_id, weight in hot_blocks:
+            block_name = tracker.get_sector_name(block_id)
             bar_width = min(weight * 20, 100)
-            html += f"""<div style="background: #f1f5f9; border-radius: 8px; padding: 10px 14px; min-width: 140px;"><div style="font-size: 14px; font-weight: 600; color: #1e293b;">{sector_name}</div><div style="display: flex; align-items: center; gap: 8px; margin-top: 6px;"><div style="background: {config['color']}; height: 6px; border-radius: 3px; width: {bar_width}px; min-width: 6px;"></div><span style="font-size: 13px; font-weight: 600; color: #1e293b;">{weight:.2f}</span></div></div>"""
+            html += f"""<div style="background: #f1f5f9; border-radius: 8px; padding: 10px 14px; min-width: 140px;"><div style="font-size: 14px; font-weight: 600; color: #1e293b;">{block_name}</div><div style="display: flex; align-items: center; gap: 8px; margin-top: 6px;"><div style="background: {config['color']}; height: 6px; border-radius: 3px; width: {bar_width}px; min-width: 6px;"></div><span style="font-size: 13px; font-weight: 600; color: #1e293b;">{weight:.2f}</span></div></div>"""
         html += "</div></div>"
 
     if not show_us_only and hot_symbols:
@@ -278,7 +280,7 @@ def render_market_state_panel() -> str:
             html += f"""<div style="background: #fef3c7; border: 1px solid #fcd34d; border-radius: 6px; padding: 4px 8px; font-size: 11px; display: flex; align-items: center; gap: 4px; min-width: 0;"><span style="color: #92400e; font-weight: 600;">{symbol}</span><span style="color: #1e293b; max-width: 50px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{symbol_name}</span>{f'<span style="font-size: 10px; color: {change_color}; font-weight: 600;">{change_str}</span>' if change_str else ''}<span style="color: #92400e; font-weight: 600;">{weight:.1f}</span></div>"""
         html += "</div></div>"
 
-    if not hot_sectors and not hot_symbols and not has_us_data and not show_us_only:
+    if not hot_blocks and not hot_symbols and not has_us_data and not show_us_only:
         html += """<div style="background: #f8fafc; border-radius: 8px; padding: 24px; text-align: center; color: #64748b;"><div style="font-size: 24px; margin-bottom: 8px;">📊</div><div>暂无注意力数据</div><div style="font-size: 12px; margin-top: 4px;">等待市场数据输入...</div></div>"""
 
     html += "</div>"
@@ -515,9 +517,9 @@ def render_pytorch_patterns() -> str:
         return ""
 
 
-def render_hot_sectors_and_stocks(hot_data: Dict[str, Any]) -> str:
+def render_hot_blocks_and_stocks(hot_data: Dict[str, Any]) -> str:
     """渲染热门板块和股票"""
-    sectors = hot_data.get("sectors", [])
+    blocks = hot_data.get("sectors", [])
     stocks = hot_data.get("stocks", [])
 
     if not sectors and not stocks:
@@ -528,11 +530,11 @@ def render_hot_sectors_and_stocks(hot_data: Dict[str, Any]) -> str:
 
     html = """<div style="background: white; border: 1px solid #e2e8f0; border-radius: 12px; padding: 20px; margin-top: 16px;"><div style="font-weight: 600; margin-bottom: 16px; color: #1e293b; font-size: 16px;">🔥 热门板块与股票 <span style="font-size: 12px; color: #64748b; font-weight: normal; margin-left: 8px;">实时注意力排名</span></div><div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">"""
 
-    if sectors:
+    if blocks:
         html += """<div><div style="font-weight: 600; color: #7c3aed; margin-bottom: 12px; font-size: 14px;">📊 热门板块 Top 10</div>"""
-        max_sector_weight = max([w for _, w in sectors[:10]]) if sectors else 1
+        max_block_weight = max([w for _, w in blocks[:10]]) if blocks else 1
 
-        for i, (sector_id, weight) in enumerate(sectors[:10], 1):
+        for i, (block_id, weight) in enumerate(blocks[:10], 1):
             if weight > 0.7:
                 color, status, bg_gradient = "#dc2626", "🔥 极高", "linear-gradient(90deg, #fee2e2, #fecaca)"
             elif weight > 0.5:
@@ -542,9 +544,9 @@ def render_hot_sectors_and_stocks(hot_data: Dict[str, Any]) -> str:
             else:
                 color, status, bg_gradient = "#16a34a", "💤 低", "linear-gradient(90deg, #dcfce7, #bbf7d0)"
 
-            sector_name = tracker.get_sector_name(sector_id) if tracker else sector_id
-            display_name = sector_name if sector_name != sector_id else sector_id
-            progress_width = (weight / max_sector_weight * 100) if max_sector_weight > 0 else 0
+            block_name = tracker.get_sector_name(block_id) if tracker else block_id
+            display_name = block_name if block_name != block_id else block_id
+            progress_width = (weight / max_block_weight * 100) if max_block_weight > 0 else 0
 
             html += f"""<div style="padding: 10px 12px; margin-bottom: 8px; background: {bg_gradient}; border-radius: 8px; border-left: 3px solid {color};"><div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;"><div style="display: flex; align-items: center; gap: 8px;"><span style="color: #64748b; font-weight: 600; min-width: 20px;">{i}.</span><span style="font-weight: 500; color: #1e293b;">{display_name}</span></div><div style="text-align: right;"><span style="color: {color}; font-weight: 700; font-size: 14px;">{weight:.3f}</span><span style="font-size: 10px; color: {color}; margin-left: 4px;">{status}</span></div></div><div style="background: rgba(255,255,255,0.5); height: 4px; border-radius: 2px; overflow: hidden;"><div style="background: {color}; height: 100%; width: {progress_width}%; border-radius: 2px;"></div></div></div>"""
         html += "</div>"
@@ -645,10 +647,10 @@ def render_live_hotspots() -> str:
     if not tracker:
         return ""
 
-    hot_sectors = list(tracker.current_hot_sectors.items())[:5]
+    hot_blocks = list(tracker.current_hot_sectors.items())[:5]
     hot_symbols = list(tracker.current_hot_symbols.items())[:8]
 
-    if not hot_sectors and not hot_symbols:
+    if not hot_blocks and not hot_symbols:
         return ""
 
     html = """
@@ -657,14 +659,14 @@ def render_live_hotspots() -> str:
         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
     """
 
-    if hot_sectors:
+    if hot_blocks:
         html += '<div><div style="font-size: 12px; color: #64748b; margin-bottom: 8px;">热门板块</div>'
-        for i, (sector_id, weight) in enumerate(hot_sectors, 1):
-            sector_name = tracker.get_sector_name(sector_id) if tracker else sector_id
+        for i, (block_id, weight) in enumerate(hot_blocks, 1):
+            block_name = tracker.get_sector_name(block_id) if tracker else block_id
             color = "#dc2626" if weight > 0.7 else "#ea580c" if weight > 0.5 else "#ca8a04"
             html += f"""
             <div style="display: flex; justify-content: space-between; align-items: center; padding: 6px 10px; margin-bottom: 4px; background: #f8fafc; border-radius: 6px; font-size: 12px;">
-                <span><span style="color: #94a3b8; margin-right: 6px;">{i}.</span>{sector_name}</span>
+                <span><span style="color: #94a3b8; margin-right: 6px;">{i}.</span>{block_name}</span>
                 <span style="color: {color}; font-weight: 600;">{weight:.2f}</span>
             </div>
             """

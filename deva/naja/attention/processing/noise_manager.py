@@ -9,7 +9,7 @@
    - 基于特殊股票类型（B股、ST股）
    - 支持黑白名单
 
-2. 板块噪音过滤 (SectorNoiseFilter)
+2. 板块噪音过滤 (BlockNoiseFilter)
    - 基于名称模式的黑名单
    - 基于统计特性的自动过滤
 
@@ -42,7 +42,7 @@ class StockNoiseConfig:
 
 
 @dataclass
-class SectorNoiseConfig:
+class BlockNoiseConfig:
     """板块噪音配置"""
     enabled: bool = True
     blacklist_patterns: List[str] = field(default_factory=lambda: [
@@ -189,11 +189,11 @@ class StockNoiseFilter:
         }
 
 
-class SectorNoiseFilter:
+class BlockNoiseFilter:
     """板块噪音过滤器"""
 
-    def __init__(self, sector_config: SectorNoiseConfig = None):
-        self._config = sector_config or SectorNoiseConfig()
+    def __init__(self, block_config: BlockNoiseConfig = None):
+        self._config = block_config or BlockNoiseConfig()
         self._auto_blacklist: Set[str] = set()
 
     def is_noise(self, sector_id: str, sector_name: str = None) -> bool:
@@ -236,7 +236,7 @@ class SectorNoiseFilter:
             noise.add(f"_pattern:{pattern}")
         return noise | self._auto_blacklist
 
-    def get_config(self) -> SectorNoiseConfig:
+    def get_config(self) -> BlockNoiseConfig:
         return self._config
 
     def get_stats(self) -> Dict[str, Any]:
@@ -258,7 +258,7 @@ class NoiseManager:
 
     def __init__(self):
         self._stock_filter = StockNoiseFilter()
-        self._sector_filter = SectorNoiseFilter()
+        self._block_filter = BlockNoiseFilter()
 
     @classmethod
     def get_instance(cls) -> 'NoiseManager':
@@ -275,8 +275,8 @@ class NoiseManager:
         return self._stock_filter
 
     @property
-    def sector_filter(self) -> SectorNoiseFilter:
-        return self._sector_filter
+    def block_filter(self) -> BlockNoiseFilter:
+        return self._block_filter
 
     def is_stock_noise(
         self,
@@ -289,9 +289,9 @@ class NoiseManager:
         """判断个股是否为噪音"""
         return self._stock_filter.is_noise(symbol, name, amount, volume, price)
 
-    def is_sector_noise(self, sector_id: str, sector_name: str = None) -> bool:
+    def is_block_noise(self, sector_id: str, sector_name: str = None) -> bool:
         """判断板块是否为噪音"""
-        return self._sector_filter.is_noise(sector_id, sector_name)
+        return self._block_filter.is_noise(sector_id, sector_name)
 
     def is_noise(
         self,
@@ -315,7 +315,7 @@ class NoiseManager:
         if item_type == 'stock':
             return self.is_stock_noise(item_id, item_name, **kwargs)
         elif item_type == 'sector':
-            return self.is_sector_noise(item_id, item_name)
+            return self.is_block_noise(item_id, item_name)
         return False
 
     def reload_config(self):
@@ -326,7 +326,7 @@ class NoiseManager:
         """获取统计信息"""
         return {
             'stock': self._stock_filter.get_stats(),
-            'sector': self._sector_filter.get_stats(),
+            'sector': self._block_filter.get_stats(),
         }
 
     def get_full_report(self) -> Dict[str, Any]:
@@ -344,11 +344,11 @@ class NoiseManager:
                 }
             },
             'sector_noise': {
-                'patterns': self._sector_filter._config.blacklist_patterns,
-                'auto_blacklist': sorted(list(self._sector_filter.get_auto_blacklist())),
+                'patterns': self._block_filter._config.blacklist_patterns,
+                'auto_blacklist': sorted(list(self._block_filter.get_auto_blacklist())),
                 'config': {
-                    'enabled': self._sector_filter._config.enabled,
-                    'auto_blacklist': self._sector_filter._config.auto_blacklist_enabled,
+                    'enabled': self._block_filter._config.enabled,
+                    'auto_blacklist': self._block_filter._config.auto_blacklist_enabled,
                 }
             }
         }
@@ -364,9 +364,9 @@ def is_stock_noise(symbol: str, name: str = None, **kwargs) -> bool:
     return get_noise_manager().is_stock_noise(symbol, name, **kwargs)
 
 
-def is_sector_noise(sector_id: str, sector_name: str = None) -> bool:
+def is_block_noise(sector_id: str, sector_name: str = None) -> bool:
     """快捷函数：判断板块是否为噪音"""
-    return get_noise_manager().is_sector_noise(sector_id, sector_name)
+    return get_noise_manager().is_block_noise(sector_id, sector_name)
 
 
 def is_noise(item_type: str, item_id: str, item_name: str = None, **kwargs) -> bool:

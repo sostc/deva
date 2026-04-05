@@ -452,12 +452,12 @@ class NajaAttentionIntegration:
         symbols = self.attention_system.get_high_attention_symbols(threshold)
         return [s for s, _ in symbols]
 
-    def get_active_sectors(self, threshold: float = 0.3) -> List[str]:
+    def get_active_blocks(self, threshold: float = 0.3) -> List[str]:
         """获取活跃板块列表"""
         if self.attention_system is None:
             return []
 
-        return self.attention_system.get_active_sectors(threshold)
+        return self.attention_system.get_active_blocks(threshold)
 
     def get_attention_report(self) -> Dict[str, Any]:
         """获取注意力系统报告"""
