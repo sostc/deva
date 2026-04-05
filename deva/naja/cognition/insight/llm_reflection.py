@@ -563,32 +563,32 @@ _反思生成时间: {datetime.fromtimestamp(reflection.ts).strftime('%Y-%m-%d %
             if not tracker:
                 return []
 
-            summary = tracker.get_tiandao_minxin_summary()
+            summary = tracker.get_value_market_summary()
             trading_signal = tracker.get_trading_signal()
 
             signals = []
 
-            tiandao_score = summary.get("tiandao_score", 0)
-            minxin_score = summary.get("minxin_score", 0)
+            value_score = summary.get("value_score", 0)
+            market_narrative_score = summary.get("market_narrative_score", 0)
             recommendation = summary.get("recommendation", "WATCH")
 
-            if tiandao_score > 0:
+            if value_score > 0:
                 signals.append({
                     "source": "tiandao_minxin",
-                    "signal_type": "tiandao_score",
-                    "theme": f"天道评分: {tiandao_score:.0%}",
+                    "signal_type": "value_score",
+                    "theme": f"价值评分(天道): {value_score:.0%}",
                     "summary": summary.get("reason", ""),
-                    "score": tiandao_score,
+                    "score": value_score,
                     "recommendation": recommendation,
                 })
 
-            if minxin_score > 0:
+            if market_narrative_score > 0:
                 signals.append({
                     "source": "tiandao_minxin",
-                    "signal_type": "minxin_score",
-                    "theme": f"民心评分: {minxin_score:.0%}",
+                    "signal_type": "market_narrative_score",
+                    "theme": f"市场叙事评分(民心): {market_narrative_score:.0%}",
                     "summary": summary.get("market_opportunity", ""),
-                    "score": minxin_score,
+                    "score": market_narrative_score,
                 })
 
             signal = trading_signal.get("signal", "WATCH")
