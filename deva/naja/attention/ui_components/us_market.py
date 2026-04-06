@@ -14,24 +14,24 @@ def get_us_attention_data() -> Dict[str, Any]:
     try:
         from deva.naja.attention.integration import get_attention_integration
         integration = get_attention_integration()
-        print(f"[US-UI] DEBUG get_us_attention_data: integration={integration is not None}")
+        log.debug(f"[US-UI] get_us_attention_data: integration={integration is not None}")
 
         if integration is None:
-            print("[US-UI] integration 为 None")
+            log.warning("[US-UI] integration 为 None")
             return {}
 
-        print(f"[US-UI] DEBUG: integration._initialized={getattr(integration, '_initialized', 'N/A')}")
-        print(f"[US-UI] DEBUG: integration.attention_system={getattr(integration, 'attention_system', 'N/A')}")
+        log.debug(f"[US-UI] integration._initialized={getattr(integration, '_initialized', 'N/A')}")
+        log.debug(f"[US-UI] integration.attention_system={getattr(integration, 'attention_system', 'N/A')}")
 
         if integration.attention_system is None:
-            print("[US-UI] attention_system 为 None")
+            log.warning("[US-UI] attention_system 为 None")
             return {}
 
         result = integration.attention_system.get_us_attention_state()
-        print(f"[US-UI] DEBUG: get_us_attention_state() = {result}")
+        log.debug(f"[US-UI] get_us_attention_state() = {result}")
         return result
     except Exception as e:
-        print(f"[US-UI] 获取美股注意力数据失败: {e}")
+        log.error(f"[US-UI] 获取美股注意力数据失败: {e}")
         import traceback
         traceback.print_exc()
     return {}
@@ -89,7 +89,7 @@ def render_us_market_panel(us_data: Dict[str, Any] = None) -> str:
 <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">"""
 
     if sorted_sectors:
-        html += """<div><div style="color: #7c3aed; font-size: 12px; font-weight: 600; margin-bottom: 10px;">📊 热门板块</div>"""
+        html += """<div><div style="color: #7c3aed; font-size: 12px; font-weight: 600; margin-bottom: 10px;">📊 热门题材</div>"""
         max_sector_weight = sorted_sectors[0][1] if sorted_sectors else 1
         for sector, weight in sorted_sectors[:5]:
             pct = weight / max_sector_weight * 100 if max_sector_weight > 0 else 0
@@ -128,9 +128,9 @@ def render_us_market_panel(us_data: Dict[str, Any] = None) -> str:
 
 
 def render_us_hot_sectors_and_stocks(us_data: Dict[str, Any] = None) -> str:
-    """渲染美股热门板块和股票（复用手游组件样式）
+    """渲染美股热门题材和股票（复用手游组件样式）
 
-    直接复用 render_hot_sectors_and_stocks 的样式逻辑
+    直接复用 render_hot_blocks_and_stocks 的样式逻辑
     """
     if us_data is None:
         us_data = get_us_attention_data()
@@ -150,10 +150,10 @@ def render_us_hot_sectors_and_stocks(us_data: Dict[str, Any] = None) -> str:
     if not sectors and not stocks:
         return ""
 
-    html = """<div style="background: white; border: 1px solid #e2e8f0; border-radius: 12px; padding: 20px; margin-top: 16px;"><div style="font-weight: 600; margin-bottom: 16px; color: #1e293b; font-size: 16px;">🇺🇸 美股热门板块与股票 <span style="font-size: 12px; color: #64748b; font-weight: normal; margin-left: 8px;">实时注意力排名</span></div><div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">"""
+    html = """<div style="background: white; border: 1px solid #e2e8f0; border-radius: 12px; padding: 20px; margin-top: 16px;"><div style="font-weight: 600; margin-bottom: 16px; color: #1e293b; font-size: 16px;">🇺🇸 美股热门题材与股票 <span style="font-size: 12px; color: #64748b; font-weight: normal; margin-left: 8px;">市场热点排名</span></div><div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">"""
 
     if sectors:
-        html += """<div><div style="font-weight: 600; color: #7c3aed; margin-bottom: 12px; font-size: 14px;">📊 美股热门板块 Top 10</div>"""
+        html += """<div><div style="font-weight: 600; color: #7c3aed; margin-bottom: 12px; font-size: 14px;">📊 美股热门题材 Top 10</div>"""
         max_sector_weight = max([w for _, w in sectors[:10]]) if sectors else 1
 
         for i, (sector_id, weight) in enumerate(sectors[:10], 1):
@@ -207,7 +207,7 @@ def render_us_hot_sectors_and_stocks(us_data: Dict[str, Any] = None) -> str:
 def get_us_market_summary() -> Dict[str, Any]:
     """获取美股市场摘要（包含涨跌统计）"""
     us_data = get_us_attention_data()
-    print(f"[US-UI] DEBUG get_us_market_summary: us_data={us_data}")
+    log.debug(f"[US-UI] get_us_market_summary: us_data={us_data}")
 
     if not us_data:
         return {

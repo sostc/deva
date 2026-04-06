@@ -6,6 +6,8 @@ AI Knowledge Injector v2.0 - AI知识注入器（深思熟虑版）
 2. 累积验证后（多来源/多天/强信号）才考虑加入决策
 3. 重大变化时通知爸爸确认
 4. 所有知识都需要"实习期"，不能直接上岗
+
+注意：存储位置已迁移到 deva/naja/knowledge/
 """
 
 import json
@@ -16,10 +18,12 @@ from typing import List, Dict, Any, Optional
 from pathlib import Path
 from enum import Enum
 
+from deva.naja.knowledge import get_knowledge_store, get_state_manager, get_cognition_interface
+
 log = logging.getLogger(__name__)
 
-# 知识存储路径
-KNOWLEDGE_DIR = Path("/Users/spark/.naja/ai_knowledge")
+# 知识存储路径 - 现在使用项目目录，方便 AI Agent 读取
+KNOWLEDGE_DIR = Path(__file__).parent.parent / "knowledge"
 KNOWLEDGE_FILE = KNOWLEDGE_DIR / "causality_knowledge_v2.json"
 
 # 知识状态枚举
@@ -356,6 +360,10 @@ class AIKnowledgeInjector:
         """
         注入评估后的知识
 
+        同时写入：
+        1. 原有的 self._knowledge_entries (向后兼容)
+        2. 新的 knowledge_store (学习层)
+
         Returns:
             各状态注入数量
         """
@@ -363,12 +371,12 @@ class AIKnowledgeInjector:
 
         existing_causes = {e.get("cause", ""): e for e in self._knowledge_entries}
 
+        new_store_entries = []
+
         for entry in evaluation_result.get("new_knowledge", []):
             cause = entry.get("cause", "")
 
-            # 去重
             if cause in existing_causes:
-                # 更新已有条目
                 existing = existing_causes[cause]
                 existing["evidence_count"] = max(existing.get("evidence_count", 1), entry.get("evidence_count", 1))
                 existing["last_seen"] = entry["extracted_at"]
@@ -379,7 +387,6 @@ class AIKnowledgeInjector:
                 )
                 log.info(f"[AI_Knowledge_v2] 更新知识: {cause[:40]}...")
             else:
-                # 新增
                 self._knowledge_entries.append(entry)
                 existing_causes[cause] = entry
                 counts["new"] += 1
@@ -389,9 +396,44 @@ class AIKnowledgeInjector:
                 elif entry["status"] == KnowledgeStatus.QUALIFIED.value:
                     counts["qualified"] += 1
 
+                new_store_entries.append(entry)
+
         if counts["new"] > 0:
             self._save_knowledge()
             log.info(f"[AI_Knowledge_v2] 注入统计: {counts}")
+
+            try:
+                from deva.naja.knowledge import get_knowledge_store, KnowledgeEntry
+                import uuid
+
+                store = get_knowledge_store()
+
+                for entry in new_store_entries:
+                    existing = store.get_by_cause(entry.get("cause", ""))
+                    if existing:
+                        continue
+
+                    knowledge_entry = KnowledgeEntry(
+                        id=str(uuid.uuid4())[:8],
+                        cause=entry.get("cause", ""),
+                        effect=entry.get("effect", ""),
+                        base_confidence=entry.get("adjusted_confidence", 0.5),
+                        source=entry.get("source", "article_learner"),
+                        original_title=entry.get("original_title", ""),
+                        extracted_at=entry.get("extracted_at", ""),
+                        category=entry.get("category", "general"),
+                        status=entry.get("status", "observing"),
+                        adjusted_confidence=entry.get("adjusted_confidence", 0.5),
+                        evidence_count=entry.get("evidence_count", 1),
+                        quality_score=entry.get("quality_score", 0.5),
+                        mechanism=entry.get("mechanism", ""),
+                        timeframe=entry.get("timeframe", ""),
+                    )
+                    store.add(knowledge_entry)
+
+                log.info(f"[AI_Knowledge_v2] 已同步到 knowledge_store: {len(new_store_entries)} 条")
+            except Exception as e:
+                log.warning(f"[AI_Knowledge_v2] 同步到 knowledge_store 失败: {e}")
 
         return counts
 

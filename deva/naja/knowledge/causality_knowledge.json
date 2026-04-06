@@ -1,0 +1,27 @@
+{
+  "version": "2.0",
+  "last_updated": "2026-04-07T02:40:56.647060",
+  "knowledge_count": 1,
+  "knowledge": [
+    {
+      "id": "13514b82",
+      "cause": "AI公司融资: Converge Bio raises $25M, backed by Bessemer and e",
+      "effect": "AI赛道关注度提升",
+      "base_confidence": 0.5599999999999999,
+      "source": "TechCrunch",
+      "original_title": "Converge Bio raises $25M, backed by Bessemer and execs from Meta, OpenAI, Wiz",
+      "extracted_at": "2026-04-07T01:05:50.122174",
+      "category": "ai_tech",
+      "status": "expired",
+      "adjusted_confidence": 0.5599999999999999,
+      "evidence_count": 1,
+      "quality_score": 0.4,
+      "last_updated": "2026-04-07T02:40:56.646871",
+      "last_seen": "2026-04-07T01:05:50.122174",
+      "mechanism": "",
+      "timeframe": "",
+      "manual_override": false,
+      "manual_note": ""
+    }
+  ]
+}

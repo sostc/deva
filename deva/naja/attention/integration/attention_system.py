@@ -277,14 +277,11 @@ class AttentionSystem:
             self._realtime_fetcher._activate()
             sys.stdout.flush()
 
-            print(f"[AttentionSystem] 调用 set_data_fetcher, self._realtime_fetcher={self._realtime_fetcher}")
-            sys.stdout.flush()
+            log.debug(f"[AttentionSystem] 调用 set_data_fetcher, self._realtime_fetcher={self._realtime_fetcher}")
             from deva.naja.attention.realtime_data_fetcher import set_data_fetcher
-            print(f"[AttentionSystem] set_data_fetcher imported, calling it...")
-            sys.stdout.flush()
+            log.debug("[AttentionSystem] set_data_fetcher imported, calling it...")
             set_data_fetcher(self._realtime_fetcher)
-            print(f"[AttentionSystem] set_data_fetcher called successfully")
-            sys.stdout.flush()
+            log.debug("[AttentionSystem] set_data_fetcher called successfully")
 
             log.info("[AttentionSystem] 实盘获取器启动完成")
         except Exception as e:
@@ -440,13 +437,13 @@ class AttentionSystem:
     def _apply_noise_filter(self, data: 'pd.DataFrame') -> 'pd.DataFrame':
         """对数据进行噪音过滤（B股、ST股等）"""
         try:
-            from ..processing.noise_filter import NoiseFilter
-            from ..processing.tick_filter import TickNoiseFilter
+            from ..processing.noise_filter import NoiseFilter, NoiseFilterConfig
 
-            nf_config = self._get_noise_filter_config()
-            noise_filter = NoiseFilter(config=nf_config)
+            if not hasattr(self, '_noise_filter') or self._noise_filter is None:
+                nf_config = self._get_noise_filter_config()
+                self._noise_filter = NoiseFilter(config=nf_config)
 
-            filtered = noise_filter.filter_dataframe(
+            filtered = self._noise_filter.filter_dataframe(
                 data,
                 symbol_col='code' if 'code' in data.columns else data.index.name or 'code',
                 amount_col='amount' if 'amount' in data.columns else None,
@@ -883,50 +880,44 @@ class AttentionSystem:
             timestamp=timestamp
         )
 
-        print(f"[US-Attention] process_us_snapshot: symbols={len(symbols)}, returns={returns[:5] if len(returns) > 5 else returns}")
+        log.debug(f"[US-Attention] process_us_snapshot: symbols={len(symbols)}, returns={returns[:5] if len(returns) > 5 else returns}")
 
         try:
             global_attention, activity = self._us_global_attention.get_attention_and_activity(snapshot)
             self._us_global_attention.update(snapshot)
-            print(f"[US-Attention] global_attention={global_attention}, activity={activity}")
+            log.debug(f"[US-Attention] global_attention={global_attention}, activity={activity}")
 
             with self._cache_lock:
                 self._us_last_global_attention = global_attention
                 self._us_last_activity = activity
 
         except Exception as e:
-            print(f"[US-Attention] GlobalAttention 失败: {e}")
-            import traceback
-            traceback.print_exc()
-            log.error(f"[US-GlobalAttention] 失败: {e}")
+            log.warning(f"[US-Attention] GlobalAttention 失败: {e}")
             global_attention = 0.5
             activity = 0.5
 
         try:
             block_attention = self._us_block_attention.update(symbols, returns, volumes, timestamp, block_ids)
-            print(f"[US-Attention] block_attention count={len(block_attention)}")
+            log.debug(f"[US-Attention] block_attention count={len(block_attention)}")
             with self._cache_lock:
                 self._us_last_block_attention = block_attention
         except Exception as e:
-            print(f"[US-Attention] SectorAttention 失败: {e}")
-            log.error(f"[US-SectorAttention] 失败: {e}")
+            log.warning(f"[US-Attention] SectorAttention 失败: {e}")
             block_attention = {}
 
-        # 自动注册新的美股symbol到_weight_pool（如果尚未注册）
         for sym in symbols:
             if sym not in self._us_weight_pool._symbol_to_idx:
                 sector_list = [block_ids[i] for i, s in enumerate(symbols) if s == sym]
                 self._us_weight_pool.register_symbol(sym, sector_list if sector_list else ["其他"])
-                print(f"[US-Attention] 自动注册美股symbol: {sym} -> {sector_list[:3] if sector_list else ['其他']}")
+                log.debug(f"[US-Attention] 自动注册美股symbol: {sym} -> {sector_list[:3] if sector_list else ['其他']}")
 
         try:
             symbol_weights = self._us_weight_pool.update(symbols, returns, volumes, block_attention, timestamp)
-            print(f"[US-Attention] symbol_weights count={len(symbol_weights)}")
+            log.debug(f"[US-Attention] symbol_weights count={len(symbol_weights)}")
             with self._cache_lock:
                 self._us_last_symbol_weights = symbol_weights
         except Exception as e:
-            print(f"[US-Attention] WeightPool 失败: {e}")
-            log.error(f"[US-WeightPool] 失败: {e}")
+            log.warning(f"[US-Attention] WeightPool 失败: {e}")
             symbol_weights = {}
 
         latency = (time.time() - start_time) * 1000

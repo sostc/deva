@@ -381,14 +381,14 @@ class RealtimeDataFetcher:
     def _update_us_state(self, signal_type: str, phase: str):
         """更新 美股 状态"""
         old_active = self._us_active
-        print(f"[RealtimeDataFetcher] _update_us_state 被调用: signal_type={signal_type}, phase={phase}, old_us_active={old_active}")
+        log.debug(f"[RealtimeDataFetcher] _update_us_state 被调用: signal_type={signal_type}, phase={phase}, old_us_active={old_active}")
 
         if signal_type == 'current_state':
             self._us_active = phase in ('trading', 'pre_market')
-            print(f"[RealtimeDataFetcher] 美股 current_state: phase={phase}, active={self._us_active}")
+            log.debug(f"[RealtimeDataFetcher] 美股 current_state: phase={phase}, active={self._us_active}")
 
             if self._us_active:
-                print(f"[RealtimeDataFetcher] 调用 _run_async_in_thread(_fetch_and_sync_us)")
+                log.debug(f"[RealtimeDataFetcher] 调用 _run_async_in_thread(_fetch_and_sync_us)")
                 self._run_async_in_thread(self._fetch_and_sync_us())
 
         elif signal_type == 'phase_change':
@@ -422,18 +422,18 @@ class RealtimeDataFetcher:
 
     async def _fetch_and_sync_us(self):
         """获取美股数据并同步到持仓和注意力系统"""
-        print(f"[RealtimeDataFetcher] _fetch_and_sync_us 开始, attention_system={self.attention_system is not None}")
+        log.debug(f"[RealtimeDataFetcher] _fetch_and_sync_us 开始, attention_system={self.attention_system is not None}")
         try:
             us_data = await self._fetch_us_stocks()
-            print(f"[RealtimeDataFetcher] _fetch_us_stocks 返回: {len(us_data) if us_data else 0} 只")
+            log.debug(f"[RealtimeDataFetcher] _fetch_us_stocks 返回: {len(us_data) if us_data else 0} 只")
             if us_data:
                 self._sync_us_prices_to_portfolio(us_data)
                 us_df = self._convert_us_to_dataframe(us_data)
-                print(f"[RealtimeDataFetcher] _convert_us_to_dataframe 返回: {us_df}, 类型: {type(us_df)}, 长度: {len(us_df) if us_df is not None else 'N/A'}")
+                log.debug(f"[RealtimeDataFetcher] _convert_us_to_dataframe 返回: {us_df}, 类型: {type(us_df)}, 长度: {len(us_df) if us_df is not None else 'N/A'}")
                 if us_df is not None and len(us_df) > 0:
-                    print(f"[RealtimeDataFetcher] 调用 _process_us_attention")
+                    log.debug(f"[RealtimeDataFetcher] 调用 _process_us_attention")
                     self._process_us_attention(us_df)
-                    print(f"[RealtimeDataFetcher] _process_us_attention 完成")
+                    log.debug(f"[RealtimeDataFetcher] _process_us_attention 完成")
                     try:
                         from deva.naja.attention.integration import process_data_with_strategies
                         if self.attention_system is not None:
@@ -450,11 +450,11 @@ class RealtimeDataFetcher:
                         }
                         process_data_with_strategies(us_df, context)
                     except Exception as e:
-                        print(f"[RealtimeDataFetcher] US 策略处理失败: {e}")
+                        log.warning(f"[RealtimeDataFetcher] US 策略处理失败: {e}")
                 else:
-                    print(f"[RealtimeDataFetcher] us_df 为空，跳过 _process_us_attention")
+                    log.debug(f"[RealtimeDataFetcher] us_df 为空，跳过 _process_us_attention")
         except Exception as e:
-            print(f"[RealtimeDataFetcher] 获取美股数据异常: {e}")
+            log.error(f"[RealtimeDataFetcher] 获取美股数据异常: {e}")
             import traceback
             traceback.print_exc()
 
@@ -678,11 +678,16 @@ class RealtimeDataFetcher:
             return df
 
         try:
-            from deva.naja.attention.processing.noise_filter import NoiseFilter
+            from deva.naja.attention.processing.noise_filter import get_noise_filter
             from deva.naja.attention.processing.block_noise_detector import BlockNoiseDetector
 
-            noise_filter = NoiseFilter()
-            block_noise_detector = BlockNoiseDetector()
+            if not hasattr(self, '_noise_filter') or self._noise_filter is None:
+                self._noise_filter = get_noise_filter()
+            if not hasattr(self, '_block_noise_detector') or self._block_noise_detector is None:
+                self._block_noise_detector = BlockNoiseDetector.get_instance()
+
+            noise_filter = self._noise_filter
+            block_noise_detector = self._block_noise_detector
 
             original_count = len(df)
             mask = pd.Series([True] * len(df), index=df.index)
@@ -922,16 +927,16 @@ class RealtimeDataFetcher:
         3. 更新美股个股权重
         """
         if us_df is None or us_df.empty:
-            print(f"[RealtimeDataFetcher] _process_us_attention: us_df 为空或 None")
+            log.debug(f"[RealtimeDataFetcher] _process_us_attention: us_df 为空或 None")
             return
 
         try:
             if self.attention_system is None:
-                print(f"[RealtimeDataFetcher] attention_system 为 None，跳过美股注意力处理")
+                log.debug(f"[RealtimeDataFetcher] attention_system 为 None，跳过美股注意力处理")
                 return
 
             if not hasattr(self.attention_system, '_initialized') or not self.attention_system._initialized:
-                print(f"[RealtimeDataFetcher] attention_system 未初始化 (_initialized={getattr(self.attention_system, '_initialized', 'N/A')})，跳过美股注意力处理")
+                log.debug(f"[RealtimeDataFetcher] attention_system 未初始化 (_initialized={getattr(self.attention_system, '_initialized', 'N/A')})，跳过美股注意力处理")
                 return
 
             symbols = us_df.index.values
@@ -950,10 +955,10 @@ class RealtimeDataFetcher:
             timestamp = time.time()
 
             has_method = hasattr(self.attention_system, 'process_us_snapshot')
-            print(f"[RealtimeDataFetcher] has process_us_snapshot: {has_method}")
+            log.debug(f"[RealtimeDataFetcher] has process_us_snapshot: {has_method}")
 
             if has_method:
-                print(f"[RealtimeDataFetcher] 开始处理美股注意力: {len(symbols)} 只股票, symbols={list(symbols)[:5]}")
+                log.info(f"[RealtimeDataFetcher] 开始处理美股注意力: {len(symbols)} 只股票, symbols={list(symbols)[:5]}")
                 result = self.attention_system.process_us_snapshot(
                     symbols=symbols,
                     returns=returns,
@@ -962,10 +967,10 @@ class RealtimeDataFetcher:
                     sector_ids=sector_ids,
                     timestamp=timestamp
                 )
-                print(f"[RealtimeDataFetcher] 美股注意力处理完成: global_attention={result.get('global_attention', 'N/A')}, block_count={len(result.get('block_attention', {}))}")
+                log.info(f"[RealtimeDataFetcher] 美股注意力处理完成: global_attention={result.get('global_attention', 'N/A')}, block_count={len(result.get('block_attention', {}))}")
             else:
-                print(f"[RealtimeDataFetcher] attention_system 不支持 process_us_snapshot 方法")
-                print(f"[RealtimeDataFetcher] attention_system 方法列表: {[m for m in dir(self.attention_system) if not m.startswith('_')]}")
+                log.debug(f"[RealtimeDataFetcher] attention_system 不支持 process_us_snapshot 方法")
+                log.debug(f"[RealtimeDataFetcher] attention_system 方法列表: {[m for m in dir(self.attention_system) if not m.startswith('_')]}")
 
         except Exception as e:
             log.debug(f"[RealtimeDataFetcher] 处理美股注意力失败: {e}")

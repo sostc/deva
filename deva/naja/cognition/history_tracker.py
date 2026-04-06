@@ -70,13 +70,13 @@ class AttentionChange:
 
 
 @dataclass
-class SectorHotspotEvent:
+class BlockHotspotEvent:
     """板块热点切换事件"""
     timestamp: float
     market_time: str
     market_date: str
     block_id: str
-    sector_name: str
+    block_name: str
     event_type: str  # 'rise', 'fall', 'new_hot', 'cooled'
     weight_change: float
     change_percent: float
@@ -102,12 +102,10 @@ class AttentionHistoryTracker:
         
         # 板块热点切换事件记录 - 多阈值支持
         # 不同敏感度的事件分别存储
-        self.sector_hotspot_events_low: deque = deque(maxlen=50)      # 低阈值 (3%)
-        self.sector_hotspot_events_medium: deque = deque(maxlen=50)   # 中阈值 (5%)
-        self.sector_hotspot_events_high: deque = deque(maxlen=50)     # 高阈值 (10%)
-        # 保留旧接口兼容
-        self.sector_hotspot_events = self.sector_hotspot_events_medium
-        
+        self.block_hotspot_events_low: deque = deque(maxlen=50)      # 低阈值 (3%)
+        self.block_hotspot_events_medium: deque = deque(maxlen=50)   # 中阈值 (5%)
+        self.block_hotspot_events_high: deque = deque(maxlen=50)     # 高阈值 (10%)
+
         # 当前热门记录
         self.current_hot_sectors: Dict[str, float] = {}
         self.current_hot_symbols: Dict[str, float] = {}
@@ -119,9 +117,9 @@ class AttentionHistoryTracker:
         # 股票代码到名称的映射
         self.symbol_names: Dict[str, str] = {}
         # 板块ID到名称的映射
-        self.sector_names: Dict[str, str] = {}
+        self.block_names: Dict[str, str] = {}
         # 板块配置引用（用于查找名称）
-        self._sector_configs: Dict[str, Any] = {}
+        self._block_configs: Dict[str, Any] = {}
 
         # 个股到板块的映射（简化版）
         self.symbol_to_sector: Dict[str, str] = {}
@@ -144,16 +142,16 @@ class AttentionHistoryTracker:
         """注册股票名称"""
         self.symbol_names[symbol] = name
     
-    def register_sector_name(self, block_id: str, name: str):
+    def register_block_name(self, block_id: str, name: str):
         """注册板块名称"""
-        self.sector_names[block_id] = name
+        self.block_names[block_id] = name
 
     def register_sectors(self, sectors: List):
         """批量注册板块配置（用于初始化）"""
         for sector in sectors:
             if hasattr(sector, 'block_id') and hasattr(sector, 'name'):
-                self.sector_names[sector.block_id] = sector.name
-                self._sector_configs[sector.block_id] = sector
+                self.block_names[sector.block_id] = sector.name
+                self._block_configs[sector.block_id] = sector
     
     def get_symbol_name(self, symbol: str) -> str:
         """获取股票名称"""
@@ -170,12 +168,12 @@ class AttentionHistoryTracker:
 
         return self.symbol_to_sector.get(symbol, '')
 
-    def get_symbol_sector_name(self, symbol: str) -> str:
+    def get_symbol_block_name(self, symbol: str) -> str:
         """获取股票所属板块名称（带板块名翻译）"""
         block_id = self.get_symbol_sector(symbol)
         if not block_id:
             return ''
-        return self.get_sector_name(block_id)
+        return self.get_block_name(block_id)
 
     def register_symbol_sector(self, symbol: str, block_id: str):
         """注册个股-板块映射"""
@@ -190,15 +188,15 @@ class AttentionHistoryTracker:
             return market_data.get('change')
         return None
 
-    def get_sector_name(self, block_id: str) -> str:
+    def get_block_name(self, block_id: str) -> str:
         """获取板块名称"""
         if not block_id:
             return ""
 
-        if block_id in self.sector_names:
-            return self.sector_names[block_id]
-        if block_id in self._sector_configs:
-            return self._sector_configs[block_id].name
+        if block_id in self.block_names:
+            return self.block_names[block_id]
+        if block_id in self._block_configs:
+            return self._block_configs[block_id].name
 
         if block_id.startswith("block_") and len(block_id) > 10:
             return ""
@@ -377,7 +375,7 @@ class AttentionHistoryTracker:
             # 调试日志
             if len(self.snapshots) <= 2:
                 sample_items = list(block_weights.items())[:3]
-                sample_named = {self.get_sector_name(k): v for k, v in sample_items}
+                sample_named = {self.get_block_name(k): v for k, v in sample_items}
                 _lab_debug_log(f"快照{len(self.snapshots)+1}: block_weights样本={sample_named}")
 
             self._detect_changes(last_snapshot, snapshot, timestamp_str)
@@ -563,14 +561,14 @@ class AttentionHistoryTracker:
         for block_id in all_sectors:
             old_weight = old.block_weights.get(block_id, 0)
             new_weight = new.block_weights.get(block_id, 0)
-            sector_name = self.get_sector_name(block_id)
-            
+            block_name = self.get_block_name(block_id)
+
             # 计算变化
             if old_weight > 0:
                 change_pct = (new_weight - old_weight) / old_weight * 100
             else:
                 change_pct = float('inf') if new_weight > 0 else 0
-            
+
             # 只记录重大变化（变化超过5%）
             # 获取该板块下的个股变化
             all_symbol_changes = []
@@ -587,36 +585,36 @@ class AttentionHistoryTracker:
                             'new': s_new,
                             'change_pct': s_change_pct
                         })
-            
+
             # 按变化幅度排序，取前3个
             all_symbol_changes.sort(key=lambda x: abs(x['change_pct']), reverse=True)
             top_symbols = all_symbol_changes[:3]
-            
+
             # 定义事件类型
             if old_weight == 0 and new_weight > 0:
                 event_type = 'new_hot'
                 event_emoji = '🔥'
-                description = f"{sector_name} 成为新热点"
+                description = f"{block_name} 成为新热点"
             elif old_weight > 0 and new_weight == 0:
                 event_type = 'cooled'
                 event_emoji = '❄️'
-                description = f"{sector_name} 热点消退"
+                description = f"{block_name} 热点消退"
             elif change_pct > 10:
                 event_type = 'rise'
                 event_emoji = '📈'
-                description = f"{sector_name} 权重飙升 +{change_pct:.1f}%"
+                description = f"{block_name} 权重飙升 +{change_pct:.1f}%"
             else:
                 event_type = 'fall'
                 event_emoji = '📉'
-                description = f"{sector_name} 权重回调 {change_pct:.1f}%"
-            
+                description = f"{block_name} 权重回调 {change_pct:.1f}%"
+
             # 创建事件对象
-            event = SectorHotspotEvent(
+            event = BlockHotspotEvent(
                 timestamp=current_time,
                 market_time=time_display,
                 market_date=market_date,
                 block_id=block_id,
-                sector_name=sector_name,
+                block_name=block_name,
                 event_type=event_type,
                 weight_change=new_weight - old_weight,
                 change_percent=change_pct if change_pct != float('inf') else 999,
@@ -627,15 +625,15 @@ class AttentionHistoryTracker:
             # 根据变化幅度记录到不同阈值的事件队列
             # 低阈值: 3%
             if abs(change_pct) >= 3 or (old_weight == 0 and new_weight > 0) or (old_weight > 0 and new_weight == 0):
-                self.sector_hotspot_events_low.append(event)
+                self.block_hotspot_events_low.append(event)
 
             # 中阈值: 5%
             if abs(change_pct) >= 5 or (old_weight == 0 and new_weight > 0) or (old_weight > 0 and new_weight == 0):
-                self.sector_hotspot_events_medium.append(event)
+                self.block_hotspot_events_medium.append(event)
                 score = min(1.0, abs(change_pct) / 100.0) if change_pct != float('inf') else 1.0
                 payload = {
                     "block_id": block_id,
-                    "sector_name": sector_name,
+                    "block_name": block_name,
                     "old_weight": old_weight,
                     "new_weight": new_weight,
                     "change_percent": change_pct if change_pct != float('inf') else 999,
@@ -643,8 +641,8 @@ class AttentionHistoryTracker:
                     "top_symbols": top_symbols,
                 }
                 self._emit_attention_event(
-                    event_type="sector_hotspot",
-                    title=f"板块热点变化: {sector_name}",
+                    event_type="block_hotspot",
+                    title=f"板块热点变化: {block_name}",
                     content=description,
                     score=score,
                     payload=payload,
@@ -654,7 +652,7 @@ class AttentionHistoryTracker:
 
             # 高阈值: 10%
             if abs(change_pct) >= 10 or (old_weight == 0 and new_weight > 0) or (old_weight > 0 and new_weight == 0):
-                self.sector_hotspot_events_high.append(event)
+                self.block_hotspot_events_high.append(event)
 
             # 打印详细日志（只打印中阈值及以上的，使用DEBUG级别）
             if abs(change_pct) >= 5:
@@ -844,9 +842,9 @@ class AttentionHistoryTracker:
             'has_shift': sector_shift or symbol_shift,
             'sector_shift': sector_shift,
             'symbol_shift': symbol_shift,
-            'old_top_blocks': [(s, self.get_sector_name(s), old_snapshot.block_weights.get(s, 0))
+            'old_top_blocks': [(s, self.get_block_name(s), old_snapshot.block_weights.get(s, 0))
                                for s in old_top_blocks],
-            'new_top_blocks': [(s, self.get_sector_name(s), new_snapshot.block_weights.get(s, 0))
+            'new_top_blocks': [(s, self.get_block_name(s), new_snapshot.block_weights.get(s, 0))
                                for s in new_top_blocks],
             'old_top_symbols': [(s, self.get_symbol_name(s), old_snapshot.symbol_weights.get(s, 0))
                                for s in old_top_symbols],
@@ -855,8 +853,8 @@ class AttentionHistoryTracker:
             'time_span': new_snapshot.timestamp - old_snapshot.timestamp,
             'old_snapshot': old_snapshot.to_dict() if hasattr(old_snapshot, 'to_dict') else {'timestamp': old_snapshot.timestamp},
             'new_snapshot': new_snapshot.to_dict() if hasattr(new_snapshot, 'to_dict') else {'timestamp': new_snapshot.timestamp},
-            'removed_sectors': [(s, self.get_sector_name(s)) for s in removed_sectors],
-            'added_sectors': [(s, self.get_sector_name(s)) for s in added_sectors],
+            'removed_blocks': [(s, self.get_block_name(s)) for s in removed_sectors],
+            'added_blocks': [(s, self.get_block_name(s)) for s in added_sectors],
             'removed_symbols': [(s, self.get_symbol_name(s)) for s in removed_symbols],
             'added_symbols': [(s, self.get_symbol_name(s)) for s in added_symbols],
         }
@@ -937,7 +935,7 @@ class AttentionHistoryTracker:
         return {
             'snapshot_count': len(self.snapshots),
             'change_count': len(self.changes),
-            'current_hot_sectors': [(k, self.get_sector_name(k), v)
+            'current_hot_blocks': [(k, self.get_block_name(k), v)
                                    for k, v in self.current_hot_sectors.items()],
             'current_hot_symbols': [(k, self.get_symbol_name(k), v)
                                    for k, v in self.current_hot_symbols.items()],
@@ -959,14 +957,14 @@ class AttentionHistoryTracker:
             'global_attention': self.snapshots[-1].global_attention if self.snapshots else 0
         }
 
-    def get_hot_sectors_with_names(self) -> list:
+    def get_hot_blocks_with_names(self) -> list:
         """获取热门板块列表（带名称）"""
         result = []
         for block_id, weight in self.current_hot_sectors.items():
-            sector_name = self.get_sector_name(block_id)
+            block_name = self.get_block_name(block_id)
             result.append({
                 'id': block_id,
-                'name': sector_name,
+                'name': block_name,
                 'weight': weight
             })
         return result
@@ -976,11 +974,11 @@ class AttentionHistoryTracker:
         result = []
         for symbol, weight in list(self.current_hot_symbols.items())[:limit]:
             symbol_name = self.get_symbol_name(symbol)
-            sector = self.get_symbol_sector_name(symbol)
+            block_name = self.get_symbol_block_name(symbol)
             result.append({
                 'code': symbol,
                 'name': symbol_name,
-                'sector': sector,
+                'sector': block_name,
                 'weight': weight
             })
         return result

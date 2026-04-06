@@ -16,6 +16,7 @@ from pywebio.output import (
 from pywebio.input import input_group, input, textarea, select, actions, NUMBER, checkbox, PASSWORD
 from pywebio.session import set_env, run_js, run_async
 from pywebio.platform.tornado import webio_handler
+from tornado.web import RequestHandler
 
 from deva import NW, Deva, NB
 from typing import Any, Optional, Callable
@@ -36,7 +37,7 @@ def set_request_theme(theme_name: str):
     _request_theme = theme_name
 
 # 导入认知系统UI
-from .cognition.ui import CognitionUI
+from .cognition.ui import CognitionUI, cognition_glossary_page
 from .radar.ui import RadarUI
 
 _lab_mode_initialized = False
@@ -818,8 +819,8 @@ async def bandit_attribution():
     await render_attribution_page(ctx)
 
 
-async def attentionadmin():
-    """注意力调度系统"""
+async def market():
+    """市场热点监测"""
     from pywebio.session import eval_js
     try:
         theme = await eval_js("document.cookie.includes('naja-theme=') ? document.cookie.split('naja-theme=')[1].split(';')[0] : null")
@@ -829,9 +830,8 @@ async def attentionadmin():
         pass
 
     ctx = _ctx()
-    await ctx["init_naja_ui"]("注意力调度系统 [已刷新]")
+    await ctx["init_naja_ui"]("市场热点监测 [已刷新]")
 
-    # 默认使用 ui.py
     from pywebio.session import eval_js
     url_params = None
     try:
@@ -846,8 +846,8 @@ async def attentionadmin():
     await render_attention_admin(ctx)
 
 
-async def qkv_page():
-    """QKV 可视化页面"""
+async def awakening_page():
+    """觉醒系统页面"""
     from pywebio.session import eval_js
     try:
         theme = await eval_js("document.cookie.includes('naja-theme=') ? document.cookie.split('naja-theme=')[1].split(';')[0] : null")
@@ -857,10 +857,10 @@ async def qkv_page():
         pass
 
     ctx = _ctx()
-    await ctx["init_naja_ui"]("QKV 可视化")
+    await ctx["init_naja_ui"]("觉醒系统")
 
-    from .attention.qkv import render_qkv_page
-    render_qkv_page(ctx)
+    from .attention.attention_dashboard import render_attention_monitor_page
+    render_attention_monitor_page(ctx)
 
 
 async def dictadmin():
@@ -968,6 +968,36 @@ def _get_loop_audit_page():
     return render_loop_audit_page
 
 
+async def narrative_page():
+    """叙事追踪概览页面"""
+    from pywebio.session import eval_js
+    try:
+        theme = await eval_js("document.cookie.includes('naja-theme=') ? document.cookie.split('naja-theme=')[1].split(';')[0] : null")
+        if theme:
+            set_request_theme(theme)
+    except:
+        pass
+    ctx = _ctx()
+    await ctx["init_naja_ui"]("叙事追踪")
+    from deva.naja.cognition.narrative import render_narrative_page
+    await render_narrative_page(ctx)
+
+
+async def narrative_lifecycle_page():
+    """叙事生命周期详细页面"""
+    from pywebio.session import eval_js
+    try:
+        theme = await eval_js("document.cookie.includes('naja-theme=') ? document.cookie.split('naja-theme=')[1].split(';')[0] : null")
+        if theme:
+            set_request_theme(theme)
+    except:
+        pass
+    ctx = _ctx()
+    await ctx["init_naja_ui"]("叙事生命周期")
+    from deva.naja.cognition.narrative import render_narrative_lifecycle_page
+    await render_narrative_lifecycle_page(ctx)
+
+
 async def merrill_clock_page():
     """美林时钟经济周期页面"""
     from pywebio.session import eval_js
@@ -977,9 +1007,114 @@ async def merrill_clock_page():
             set_request_theme(theme)
     except:
         pass
-    from .cognition.merrill_clock_ui import render_merrill_clock_page
+    from .cognition.merrill_clock import render_merrill_clock_page
     ctx = {"put_html": put_html, "put_markdown": put_markdown}
     await render_merrill_clock_page(ctx)
+
+
+async def learningadmin():
+    """学习层管理页面"""
+    from pywebio.session import eval_js
+    try:
+        theme = await eval_js("document.cookie.includes('naja-theme=') ? document.cookie.split('naja-theme=')[1].split(';')[0] : null")
+        if theme:
+            set_request_theme(theme)
+    except:
+        pass
+
+    ctx = _ctx()
+    await ctx["init_naja_ui"]("学习层")
+
+    from .knowledge import render_learning_page
+    html = render_learning_page(ctx)
+    from pywebio.output import put_html
+    put_html(html)
+
+
+async def learning_list_page():
+    """知识列表页面"""
+    from pywebio.session import eval_js
+    try:
+        theme = await eval_js("document.cookie.includes('naja-theme=') ? document.cookie.split('naja-theme=')[1].split(';')[0] : null")
+        if theme:
+            set_request_theme(theme)
+    except:
+        pass
+
+    ctx = _ctx()
+    await ctx["init_naja_ui"]("知识列表")
+
+    from .knowledge import render_knowledge_list_page
+    html = render_knowledge_list_page(ctx)
+    from pywebio.output import put_html
+    put_html(html)
+
+
+async def learning_history_page():
+    """状态转换历史页面"""
+    from pywebio.session import eval_js
+    try:
+        theme = await eval_js("document.cookie.includes('naja-theme=') ? document.cookie.split('naja-theme=')[1].split(';')[0] : null")
+        if theme:
+            set_request_theme(theme)
+    except:
+        pass
+
+    ctx = _ctx()
+    await ctx["init_naja_ui"]("状态转换历史")
+
+    from .knowledge import render_knowledge_history_page
+    html = render_knowledge_history_page(ctx)
+    from pywebio.output import put_html
+    put_html(html)
+
+
+class KnowledgeActionHandler(RequestHandler):
+    """知识操作 API 处理器"""
+
+    def set_default_headers(self):
+        self.set_header("Access-Control-Allow-Origin", "*")
+        self.set_header("Access-Control-Allow-Methods", "POST, OPTIONS")
+        self.set_header("Access-Control-Allow-Headers", "Content-Type")
+
+    def options(self):
+        self.write({})
+
+    async def post(self):
+        """处理知识操作"""
+        import json
+        try:
+            data = json.loads(self.request.body.decode('utf-8'))
+            action = data.get('action', '')
+            entry_id = data.get('entry_id', '')
+            note = data.get('note', '')
+
+            from deva.naja.knowledge import get_learning_ui
+            learning_ui = get_learning_ui()
+            result = learning_ui.handle_action(action, entry_id, note)
+
+            self.write(json.dumps(result))
+        except Exception as e:
+            self.write(json.dumps({"success": False, "message": str(e)}))
+
+
+async def learning_detail_page(entry_id: str = None):
+    """知识详情页面"""
+    from pywebio.session import eval_js
+    try:
+        theme = await eval_js("document.cookie.includes('naja-theme=') ? document.cookie.split('naja-theme=')[1].split(';')[0] : null")
+        if theme:
+            set_request_theme(theme)
+    except:
+        pass
+
+    ctx = _ctx()
+    await ctx["init_naja_ui"]("知识详情")
+
+    from .knowledge import render_knowledge_detail_page
+    html = render_knowledge_detail_page(ctx, entry_id)
+    from pywebio.output import put_html
+    put_html(html)
 
 
 async def supplychain_page():
@@ -1006,6 +1141,7 @@ def create_handlers(cdn: str = None):
     return [
         (r'/', webio_handler(main, cdn=cdn_url)),
         (r'/cognition', webio_handler(cognition_page, cdn=cdn_url)),
+        (r'/cognition_glossary', webio_handler(cognition_glossary_page, cdn=cdn_url)),
         (r'/memory', webio_handler(memory_page, cdn=cdn_url)),
         (r'/insight', webio_handler(insightadmin, cdn=cdn_url)),
         (r'/system', webio_handler(system_page, cdn=cdn_url)),
@@ -1018,8 +1154,8 @@ def create_handlers(cdn: str = None):
         (r'/llmadmin', webio_handler(llmadmin, cdn=cdn_url)),
         (r'/banditadmin', webio_handler(banditadmin, cdn=cdn_url)),
         (r'/bandit_attribution', webio_handler(bandit_attribution, cdn=cdn_url)),
-        (r'/attentionadmin', webio_handler(attentionadmin, cdn=cdn_url)),
-        (r'/qkv', webio_handler(qkv_page, cdn=cdn_url)),
+        (r'/market', webio_handler(market, cdn=cdn_url)),
+        (r'/awakening', webio_handler(awakening_page, cdn=cdn_url)),
         (r'/dictadmin', webio_handler(dictadmin, cdn=cdn_url)),
         (r'/tableadmin', webio_handler(tableadmin, cdn=cdn_url)),
         (r'/runtime_state', webio_handler(runtimestateadmin, cdn=cdn_url)),
@@ -1028,8 +1164,15 @@ def create_handlers(cdn: str = None):
         (r'/logstream', webio_handler(lambda: _get_log_stream_page()(), cdn=cdn_url)),
         (r'/tuningadmin', webio_handler(tuningadmin, cdn=cdn_url)),
         (r'/supplychain', webio_handler(supplychain_page, cdn=cdn_url)),
+        (r'/narrative', webio_handler(narrative_page, cdn=cdn_url)),
+        (r'/narrative_lifecycle', webio_handler(narrative_lifecycle_page, cdn=cdn_url)),
         (r'/merrill_clock', webio_handler(merrill_clock_page, cdn=cdn_url)),
         (r'/loop_audit', webio_handler(lambda: _get_loop_audit_page()(), cdn=cdn_url)),
+        (r'/learning', webio_handler(learningadmin, cdn=cdn_url)),
+        (r'/learning/list', webio_handler(learning_list_page, cdn=cdn_url)),
+        (r'/learning/history', webio_handler(learning_history_page, cdn=cdn_url)),
+        (r'/learning/detail/(\w+)', webio_handler(learning_detail_page, cdn=cdn_url)),
+        (r'/api/knowledge/action', KnowledgeActionHandler),
     ]
 
 

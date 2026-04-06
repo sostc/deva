@@ -238,9 +238,7 @@ class DataProcessor:
 
     def _update_attention(self, data: pd.DataFrame):
         """更新注意力系统"""
-        print(f"[DEBUG] _update_attention ENTER")
-        import sys
-        sys.stdout.flush()
+        log.debug("[DEBUG] _update_attention ENTER")
         self._total_updates += 1
 
         attention_sys = self._integration.attention_system

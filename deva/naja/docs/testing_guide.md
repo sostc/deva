@@ -27,7 +27,7 @@ python -c "
 from deva.naja.attention.center import get_orchestrator
 from deva.naja.senses import ProphetSense, RealtimeTaste
 from deva.naja.alaya import SeedIlluminator
-from deva.naja.manas import AdaptiveManas
+from deva.naja.attention.kernel.manas_engine import ManasEngine
 from deva.naja.evolution import get_meta_evolution
 print('✓ 所有模块导入成功')
 "
@@ -286,9 +286,9 @@ if __name__ == "__main__":
 #### 测试代码
 
 ```python
-from deva.naja.manas import AdaptiveManas
+from deva.naja.attention.kernel.manas_engine import ManasEngine
 
-adaptive = AdaptiveManas()
+manas = ManasEngine()
 
 def test_tianshi_response():
     """
@@ -305,12 +305,12 @@ def test_tianshi_response():
         "market_breadth": 0.3,
     }
 
-    decision = adaptive.compute_顺应(market_state)
+    decision = manas.compute(market_state)
 
     print(f"天时决策: {decision}")
     print(f"  顺应状态: {decision.harmony_state}")
     print(f"  行动建议: {decision.should_act}")
-    print(f"  强度: {decision.intensity:.2f}")
+    print(f"  manas_score: {decision.manas_score}")
 
     assert decision is not None
 
@@ -585,7 +585,7 @@ python -c "
 from deva.naja.attention.center import get_orchestrator
 from deva.naja.senses import ProphetSense, RealtimeTaste
 from deva.naja.alaya import SeedIlluminator
-from deva.naja.manas import AdaptiveManas
+from deva.naja.attention.kernel.manas_engine import ManasEngine
 from deva.naja.evolution import get_meta_evolution
 print('✓ 所有模块导入成功')
 "

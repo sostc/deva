@@ -66,33 +66,46 @@ def _is_b_share_sector(block_id: str, sector_name: Optional[str]) -> bool:
     return ("B股" in display) or ("含B股" in display)
 
 
-def get_hot_sectors_and_stocks() -> Dict[str, Any]:
-    """获取热门板块和股票"""
+def get_hot_blocks_and_stocks() -> Dict[str, Any]:
+    """获取热门题材和股票"""
     integration = get_attention_integration()
     if not integration:
-        _lab_debug_log("get_hot_sectors_and_stocks: integration 为空")
-        return {"sectors": [], "stocks": []}
+        _lab_debug_log("get_hot_blocks_and_stocks: integration 为空")
+        return {"blocks": [], "stocks": []}
 
     try:
         block_weights = integration.attention_system.block_attention.get_all_weights(filter_noise=True) if integration.attention_system else {}
         symbol_weights = integration.attention_system.weight_pool.get_all_weights(filter_noise=True) if integration.attention_system else {}
 
-        _lab_debug_log(f"get_hot_sectors_and_stocks: block_weights={len(block_weights)} 个, symbol_weights={len(symbol_weights)} 个")
+        _lab_debug_log(f"get_hot_blocks_and_stocks: block_weights={len(block_weights)} 个, symbol_weights={len(symbol_weights)} 个")
 
-        sorted_sectors = sorted(
-            [(sector, weight) for sector, weight in block_weights.items()],
+        # 使用 BlockNoiseDetector 过滤噪声题材
+        from deva.naja.attention.processing.block_noise_detector import get_block_noise_detector
+        noise_detector = get_block_noise_detector()
+
+        sorted_blocks = sorted(
+            [(block_id, weight) for block_id, weight in block_weights.items()],
             key=lambda x: x[1], reverse=True
         )
 
         tracker = get_history_tracker()
-        hot_sectors: List[Tuple[str, float]] = []
-        for block_id, weight in sorted_sectors:
-            sector_name = tracker.get_sector_name(block_id) if tracker else None
-            if _is_b_share_sector(block_id, sector_name):
+        hot_blocks: List[Dict[str, Any]] = []
+        filtered_noise_blocks = 0
+        for block_id, weight in sorted_blocks:
+            block_name = tracker.get_block_name(block_id) if tracker else block_id
+            if noise_detector.is_noise(block_id, block_name):
+                filtered_noise_blocks += 1
                 continue
-            hot_sectors.append((block_id, weight))
-            if len(hot_sectors) >= 5:
+            hot_blocks.append({
+                "block_id": block_id,
+                "name": block_name,
+                "weight": weight
+            })
+            if len(hot_blocks) >= 5:
                 break
+
+        if filtered_noise_blocks > 0:
+            _lab_debug_log(f"get_hot_blocks_and_stocks: 过滤噪声题材 {filtered_noise_blocks} 个")
 
         sorted_stocks = sorted(
             [(symbol, weight) for symbol, weight in symbol_weights.items()],
@@ -120,19 +133,19 @@ def get_hot_sectors_and_stocks() -> Dict[str, Any]:
                 break
 
         if filtered_b_stocks > 0:
-            _lab_debug_log(f"get_hot_sectors_and_stocks: 过滤 B 股股票 {filtered_b_stocks} 只")
+            _lab_debug_log(f"get_hot_blocks_and_stocks: 过滤 B 股股票 {filtered_b_stocks} 只")
 
-        if hot_sectors:
-            top_blocks = [(s, f"{w:.4f}") for s, w in hot_sectors[:3]]
-            _lab_debug_log(f"热门板块 Top3: {top_blocks}")
+        if hot_blocks:
+            top_blocks = [(s["block_id"], s["name"], f"{s['weight']:.4f}") for s in hot_blocks[:3]]
+            _lab_debug_log(f"热门 Block Top3: {top_blocks}")
         if hot_stocks_with_name:
             top_stocks = [(s["symbol"], s["name"], f"{s['weight']:.4f}") for s in hot_stocks_with_name[:3]]
             _lab_debug_log(f"热门股票 Top3: {top_stocks}")
 
-        return {"sectors": hot_sectors, "stocks": hot_stocks_with_name}
+        return {"blocks": hot_blocks, "stocks": hot_stocks_with_name}
     except Exception as e:
-        _lab_debug_log(f"get_hot_sectors_and_stocks 异常: {e}")
-        return {"sectors": [], "stocks": []}
+        _lab_debug_log(f"get_hot_blocks_and_stocks 异常: {e}")
+        return {"blocks": [], "stocks": []}
 
 
 def get_attention_report() -> Dict[str, Any]:

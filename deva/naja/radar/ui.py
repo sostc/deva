@@ -26,14 +26,14 @@ def _render_event_badge(event_type: str, score: float = 0.5) -> str:
         "anomaly": ("⚡", "#dc2626", "rgba(220,38,38,0.1)"),
         "radar_sector_anomaly": ("🔥", "#ef4444", "rgba(239,68,68,0.1)"),
         "sector_anomaly": ("🔥", "#ef4444", "rgba(239,68,68,0.1)"),
-        "sector_hotspot": ("🔥", "#ef4444", "rgba(239,68,68,0.1)"),
+        "block_hotspot": ("🔥", "#ef4444", "rgba(239,68,68,0.1)"),
     }
 
     icon, color, bg = color_map.get(event_type, ("📌", "#6b7280", "rgba(107,114,128,0.1)"))
 
     if event_type == "sector_anomaly" or event_type == "radar_sector_anomaly":
         label = "板块联动"
-    elif event_type == "sector_hotspot":
+    elif event_type == "block_hotspot":
         label = "板块热点"
     elif event_type == "radar_data_distribution_shift":
         label = "数据漂移"
@@ -141,7 +141,7 @@ class RadarUI:
         pattern_count = type_counts.get("radar_pattern", 0) + type_counts.get("pattern", 0)
         drift_count = type_counts.get("radar_data_distribution_shift", 0) + type_counts.get("drift", 0)
         anomaly_count = type_counts.get("radar_anomaly", 0) + type_counts.get("anomaly", 0)
-        sector_count = type_counts.get("radar_sector_anomaly", 0) + type_counts.get("sector_anomaly", 0) + type_counts.get("sector_hotspot", 0)
+        sector_count = type_counts.get("radar_sector_anomaly", 0) + type_counts.get("sector_anomaly", 0) + type_counts.get("block_hotspot", 0)
 
         cn_phase, cn_phase_color = self._get_cn_trading_status()
         us_phase, us_phase_color = self._get_us_trading_status()

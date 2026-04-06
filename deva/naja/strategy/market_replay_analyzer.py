@@ -23,15 +23,17 @@ MarketReplayAnalyzer - 市场复盘分析器
 
 from __future__ import annotations
 
+import logging
 import time
 from collections import defaultdict
 from dataclasses import dataclass, field
 from datetime import datetime, time as dtime
 from typing import Any, Dict, List, Optional
 
-from deva.naja.cognition.narrative_tracker import (
-    NarrativeTracker, TIANDAO_KEYWORDS, MINXIN_KEYWORDS
-)
+log = logging.getLogger(__name__)
+
+from deva.naja.cognition.narrative import NarrativeTracker
+from deva.naja.cognition.keyword_registry import DYNAMICS_KEYWORDS, SENTIMENT_KEYWORDS
 from deva.naja.bandit.portfolio_manager import get_portfolio_manager
 from deva.naja.bandit.stock_sector_map import (
     US_STOCK_SECTORS, INDUSTRY_CODE_TO_NAME, NARRATIVE_INDUSTRY_MAP
@@ -559,11 +561,11 @@ class MarketReplayAnalyzer:
         global _MARKET_DATA_CACHE, _MARKET_DATA_CACHE_DATE
 
         if _is_trading_hours():
-            print("[MarketReplayAnalyzer] 当前交易时间内，不使用缓存")
+            log.debug("[MarketReplayAnalyzer] 当前交易时间内，不使用缓存")
             return
 
         if _is_cache_valid():
-            print(f"[MarketReplayAnalyzer] 使用缓存数据 (缓存时间: {_MARKET_DATA_CACHE.get('cache_time', 'unknown')})")
+            log.debug(f"[MarketReplayAnalyzer] 使用缓存数据 (缓存时间: {_MARKET_DATA_CACHE.get('cache_time', 'unknown')})")
             self.all_stocks = _MARKET_DATA_CACHE.get("all_stocks", {})
             self.market_overview = _MARKET_DATA_CACHE.get("market_overview")
             self.narrative_performance = _MARKET_DATA_CACHE.get("narrative_performance", {})
@@ -626,7 +628,8 @@ class MarketReplayAnalyzer:
             if "volume" in df.columns:
                 df["volume"] = pd.to_numeric(df["volume"], errors="coerce").fillna(0)
 
-            noise_filter = NoiseFilter()
+            from deva.naja.attention.processing.noise_filter import get_noise_filter
+            noise_filter = get_noise_filter()
             filtered = noise_filter.filter_dataframe(
                 df,
                 symbol_col="code" if "code" in df.columns else None,
@@ -681,7 +684,7 @@ class MarketReplayAnalyzer:
     def _attach_ashare_block(self, records: List[Dict]) -> List[Dict]:
         """为A股记录补充板块字段"""
         for r in records:
-            if not r.get("sector"):
+            if not r.get("block"):
                 r["block"] = self._get_ashare_block(r.get("code", ""))
         return records
 
@@ -811,17 +814,17 @@ class MarketReplayAnalyzer:
         if not snapshots:
             return flow_timeline, breakouts, anomalies, []
 
-        prev_sector_amount = None
+        prev_block_amount = None
         breakout_seen = set()
         rolling_max = {}
 
         for snap in snapshots:
             records = snap.get("records", [])
-            sector_amount = {}
+            block_amount = {}
             for r in records:
-                sector = r.get("sector", "其他")
+                block = r.get("block", "其他")
                 amount = r.get("amount", 0)
-                sector_amount[sector] = sector_amount.get(sector, 0) + amount
+                block_amount[block] = block_amount.get(block, 0) + amount
 
                 code = r.get("code", "")
                 price = r.get("price", 0)
@@ -830,7 +833,7 @@ class MarketReplayAnalyzer:
                     if code not in breakout_seen and price >= prev_max * 1.01:
                         breakouts.append({
                             "time": snap.get("time_str", ""),
-                            "sector": sector,
+                            "block": block,
                             "code": code,
                             "name": r.get("name", code),
                             "change": r.get("p_change", 0) * 100,
@@ -843,16 +846,16 @@ class MarketReplayAnalyzer:
                 if change >= 6:
                     anomalies.append({
                         "time": snap.get("time_str", ""),
-                        "sector": sector,
+                        "block": block,
                         "code": code,
                         "name": r.get("name", code),
                         "change": r.get("p_change", 0) * 100,
                     })
 
-            if prev_sector_amount is not None:
+            if prev_block_amount is not None:
                 deltas = {}
-                for sec in set(list(prev_sector_amount.keys()) + list(sector_amount.keys())):
-                    deltas[sec] = sector_amount.get(sec, 0) - prev_sector_amount.get(sec, 0)
+                for sec in set(list(prev_block_amount.keys()) + list(block_amount.keys())):
+                    deltas[sec] = block_amount.get(sec, 0) - prev_block_amount.get(sec, 0)
 
                 inflow = sorted([(s, v) for s, v in deltas.items() if v > 0], key=lambda x: x[1], reverse=True)[:3]
                 outflow = sorted([(s, v) for s, v in deltas.items() if v < 0], key=lambda x: x[1])[:3]
@@ -863,12 +866,12 @@ class MarketReplayAnalyzer:
                         "outflow_sectors": [s for s, _ in outflow],
                     })
 
-            prev_sector_amount = sector_amount
+            prev_block_amount = block_amount
 
         # 只保留与Top3板块相关的突破/异动
         if top_blocks:
-            breakouts = [b for b in breakouts if b.get("sector") in top_blocks]
-            anomalies = [a for a in anomalies if a.get("sector") in top_blocks]
+            breakouts = [b for b in breakouts if b.get("block") in top_blocks]
+            anomalies = [a for a in anomalies if a.get("block") in top_blocks]
 
         return flow_timeline, breakouts, anomalies, snapshots
 
@@ -879,7 +882,7 @@ class MarketReplayAnalyzer:
             force_refresh: 是否强制刷新（忽略缓存）
         """
         if not force_refresh and self.market_overview is not None:
-            print("[MarketReplayAnalyzer] 第一步已缓存，跳过")
+            log.debug("[MarketReplayAnalyzer] 第一步已缓存，跳过")
             return self.market_overview
 
         self.all_stocks = self._fetch_market_data()
@@ -907,31 +910,31 @@ class MarketReplayAnalyzer:
 
         # A股板块Top3与动态分析
         top_blocks = []
-        sector_stats = {}
+        block_stats = {}
         for r in ashare_effective:
-            sector = r.get("sector", "其他")
-            sector_stats.setdefault(sector, []).append(r)
+            block = r.get("block", "其他")
+            block_stats.setdefault(block, []).append(r)
 
-        sector_perf = []
-        for sec, items in sector_stats.items():
+        block_perf = []
+        for blk, items in block_stats.items():
             changes = [i.get("p_change", 0) * 100 for i in items]
             avg_change = sum(changes) / len(changes) if changes else 0
             total_amount = sum([i.get("amount", 0) for i in items])
-            sector_perf.append({
-                "sector": sec,
+            block_perf.append({
+                "block": blk,
                 "avg_change": avg_change,
                 "total_amount": total_amount,
                 "items": items,
             })
 
-        sector_perf.sort(key=lambda x: x["avg_change"], reverse=True)
-        top_blocks = [s["sector"] for s in sector_perf[:3]]
+        block_perf.sort(key=lambda x: x["avg_change"], reverse=True)
+        top_blocks = [s["block"] for s in block_perf[:3]]
 
         flow_timeline, breakouts, anomalies, _ = self._analyze_ashare_intraday(snapshots, top_blocks)
 
         top_sector_details = []
-        for sec_info in sector_perf[:3]:
-            sec = sec_info["sector"]
+        for sec_info in block_perf[:3]:
+            sec = sec_info["block"]
             items = sec_info["items"]
             leaders = sorted(items, key=lambda x: x.get("p_change", 0), reverse=True)[:2]
             leaders_fmt = [
@@ -948,12 +951,12 @@ class MarketReplayAnalyzer:
                     last_flow = f"{ev.get('time','')} 流出"
                     break
 
-            sec_breakouts = [b for b in breakouts if b.get("sector") == sec][:2]
+            sec_breakouts = [b for b in breakouts if b.get("block") == sec][:2]
             breakout_hint = ""
             if sec_breakouts:
                 breakout_hint = ", ".join([f"{b.get('name','')}{b.get('change',0):+.1f}%@{b.get('time','')}" for b in sec_breakouts])
 
-            sec_anomalies = [a for a in anomalies if a.get("sector") == sec][:2]
+            sec_anomalies = [a for a in anomalies if a.get("block") == sec][:2]
             anomaly_hint = ""
             if sec_anomalies:
                 anomaly_hint = ", ".join([f"{a.get('name','')}{a.get('change',0):+.1f}%@{a.get('time','')}" for a in sec_anomalies])
@@ -1011,7 +1014,7 @@ class MarketReplayAnalyzer:
             force_refresh: 是否强制刷新
         """
         if not force_refresh and self.top_narratives:
-            print("[MarketReplayAnalyzer] 第二步已缓存，跳过")
+            log.debug("[MarketReplayAnalyzer] 第二步已缓存，跳过")
             return self.top_narratives
 
         if not self.all_stocks:
@@ -1028,7 +1031,7 @@ class MarketReplayAnalyzer:
                         stock_data = self.all_stocks.get(code)
                         if stock_data:
                             change = stock_data.get("change_pct", 0) * 100
-                            sector_changes.append({
+                            block_changes.append({
                                 "code": code,
                                 "name": stock_data.get("name", code),
                                 "change": change,
@@ -1091,6 +1094,8 @@ class MarketReplayAnalyzer:
                 industry_info = US_STOCK_SECTORS.get(pos.stock_code.lower(), {})
                 narrative = industry_info.get("narrative", "")
                 industry_code = industry_info.get("industry_code", "other")
+                blocks = industry_info.get("blocks", [])
+                sector = ",".join(blocks) if blocks else "其他"
 
                 today_change = stock_data.get("change_pct", 0) * 100 if stock_data else 0
 
@@ -1129,7 +1134,7 @@ class MarketReplayAnalyzer:
 
     def step3_tiandao_minxin(self) -> TiandaoMinxinAnalysis:
         """第三步：天道(价值) + 民心(市场叙事)信号分析（每次实时计算）"""
-        print("[MarketReplayAnalyzer] 第三步：实时计算天道(价值)/民心(市场叙事)信号")
+        log.info("[MarketReplayAnalyzer] 第三步：实时计算天道(价值)/民心(市场叙事)信号")
         summary = self.nt.get_value_market_summary()
 
         value_score = summary.get("value_score", 0.0)
@@ -1340,7 +1345,7 @@ class MarketReplayAnalyzer:
         """收集美林时钟信号"""
         try:
             from deva.naja.cognition.merrill_clock_engine import get_merrill_clock_engine, MerrillClockPhase
-            from deva.naja.cognition.merrill_clock_to_manas import get_merrill_phase_display
+            from deva.naja.cognition.merrill_clock.adapter import get_merrill_phase_display
 
             clock = get_merrill_clock_engine()
             signal = clock.get_current_signal()
@@ -1498,7 +1503,7 @@ def _save_replay_to_history(report: ReplayReport):
         nb["records"] = history
         return True
     except Exception as e:
-        print(f"[MarketReplay] 保存历史失败: {e}")
+        log.error(f"[MarketReplay] 保存历史失败: {e}")
         return False
 
 
@@ -1534,9 +1539,9 @@ def run_replay_and_push() -> tuple[ReplayReport, bool]:
         dtalk = Dtalk()
         dtalk.send(dtalk_msg)
         pushed_ok = True
-        print(f"[MarketReplay] 复盘报告已推送到DTalk")
+        log.info("[MarketReplay] 复盘报告已推送到DTalk")
     except Exception as e:
-        print(f"[MarketReplay] 推送DTalk失败: {e}")
+        log.error(f"[MarketReplay] 推送DTalk失败: {e}")
 
     # 推送到微信
     try:
@@ -1546,11 +1551,11 @@ def run_replay_and_push() -> tuple[ReplayReport, bool]:
             weixin_text = _build_weixin_replay_text(report)
             ok = notifier.send(weixin_text)
             if ok:
-                print(f"[MarketReplay] 复盘报告已推送到微信")
+                log.info("[MarketReplay] 复盘报告已推送到微信")
             else:
-                print(f"[MarketReplay] 推送微信失败（命令返回非0）")
+                log.warning("[MarketReplay] 推送微信失败（命令返回非0）")
     except Exception as e:
-        print(f"[MarketReplay] 推送微信失败: {e}")
+        log.error(f"[MarketReplay] 推送微信失败: {e}")
 
     return report, pushed_ok
 
@@ -1636,4 +1641,4 @@ def run_replay_no_push() -> ReplayReport:
 if __name__ == "__main__":
     analyzer = MarketReplayAnalyzer()
     report = analyzer.run_full_analysis()
-    print(report.to_markdown())
+    log.info(report.to_markdown())

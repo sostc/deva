@@ -1,0 +1,15 @@
+{
+  "version": "1.0",
+  "last_updated": "2026-04-07T02:40:56.648087",
+  "logs": [
+    {
+      "entry_id": "13514b82",
+      "from_state": "validating",
+      "to_state": "expired",
+      "reason": "手动标记过期",
+      "transition_type": "auto",
+      "timestamp": "2026-04-07T02:40:56.647920",
+      "manual_note": ""
+    }
+  ]
+}

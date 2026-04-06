@@ -383,10 +383,10 @@ class BanditStrategySelector:
 class RuleBasedStrategySelector:
     """
     基于规则的策略选择器 (备用)
-    
+
     当 Bandit 没有足够数据时使用
     """
-    
+
     def __init__(self):
         self._rules = {
             'high_attention_high_volatility': ['momentum_tracker', 'anomaly_sniper'],
@@ -397,7 +397,11 @@ class RuleBasedStrategySelector:
         }
 
         self._default_strategies = ['global_sentinel', 'block_rotation_hunter']
-        
+
+    def reset(self):
+        """重置（规则选择器无需重置状态）"""
+        pass
+
     def select(
         self,
         state: MarketState,
@@ -432,10 +436,6 @@ class RuleBasedStrategySelector:
             alternative_strategies=alternatives[:top_k],
             timestamp=time.time()
         )
-    
-    def reset(self):
-        """重置"""
-        pass
 
 
 class StrategyLearning:

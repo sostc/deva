@@ -178,8 +178,7 @@ class AttentionStrategyBase(ABC):
 
         # 检查冷却期（使用市场时间计算）
         if current_time - self.last_execution_time < self._get_dynamic_interval(global_attention):
-            print(f"[{self.name}] skip: cooling down, last_exec={self.last_execution_time}, interval={self._get_dynamic_interval(global_attention)}, global_attention={global_attention}")
-            sys.stdout.flush()
+            log.debug(f"[{self.name}] skip: cooling down, last_exec={self.last_execution_time}, interval={self._get_dynamic_interval(global_attention)}, global_attention={global_attention}")
             return False
 
         return True
@@ -546,12 +545,12 @@ class AttentionStrategyBase(ABC):
     def activate(self):
         """激活策略"""
         self.is_active = True
-        print(f"✅ 策略 {self.name} 已激活")
-    
+        log.info(f"✅ 策略 {self.name} 已激活")
+
     def deactivate(self):
         """停用策略"""
         self.is_active = False
-        print(f"⏸️ 策略 {self.name} 已停用")
+        log.info(f"⏸️ 策略 {self.name} 已停用")
     
     def reset(self):
         """重置策略状态"""

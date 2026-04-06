@@ -59,9 +59,12 @@ NarrativeTracker → 天道发现 → FocusManager.follow_narrative()
 """
 
 from __future__ import annotations
+import logging
 import time
 from typing import Dict, List, Optional, Set, Any, TYPE_CHECKING
 from dataclasses import dataclass, field
+
+log = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from deva.naja.attention.portfolio import Portfolio
@@ -138,8 +141,8 @@ class AttentionFocusManager:
 
         # 获取完整关注列表
         summary = fm.get_summary()
-        print(f"叙事: {summary.all_narrative_ids}")
-        print(f"股票: {summary.all_stock_codes}")
+        log.info(f"叙事: {summary.all_narrative_ids}")
+        log.info(f"股票: {summary.all_stock_codes}")
 
         # 获取供融合层使用的关注权重
         watched_weights = fm.get_watched_attention_weights()

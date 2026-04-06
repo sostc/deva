@@ -223,7 +223,7 @@ class SnapshotManager:
 
             narratives = []
             try:
-                from deva.naja.cognition.sector_narrative import get_narrative_tracker
+                from deva.naja.cognition.narrative import get_narrative_tracker
                 tracker = get_narrative_tracker()
                 if tracker:
                     narratives = [n.get("name", n.get("narrative", "")) for n in tracker.get_active_narratives()[:5]]
