@@ -159,8 +159,8 @@ class SignalExecutor:
     def _get_cognition_context(self) -> Dict[str, Any]:
         """获取认知上下文"""
         try:
-            from deva.naja.cognition.sector_narrative import SectorNarrative
-            tracker = SectorNarrative()
+            from deva.naja.cognition.narrative import NarrativeTracker
+            tracker = NarrativeTracker()
             narrative_summary = tracker.get_summary(limit=10)
             return {"narratives": [s.get("narrative", "") for s in narrative_summary]}
         except Exception:

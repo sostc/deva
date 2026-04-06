@@ -375,7 +375,7 @@ class TradingCenter:
     def _get_current_narratives(self) -> List[str]:
         """获取当前活跃的叙事列表"""
         try:
-            from deva.naja.cognition.sector_narrative import SectorNarrative as NarrativeTracker
+            from deva.naja.cognition.narrative import NarrativeTracker
             tracker = NarrativeTracker()
             summary = tracker.get_summary(limit=10)
             return [item["narrative"] for item in summary]

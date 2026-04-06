@@ -4,7 +4,7 @@
 提供默认的四个注意力头
 """
 
-from .head import AttentionHead
+from .attention_scorer import AttentionHead
 
 
 def get_default_heads():

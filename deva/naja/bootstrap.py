@@ -1,5 +1,6 @@
 """SystemBootstrap - 系统启动引导器"""
 
+import atexit
 import logging
 import time
 from dataclasses import dataclass, field
@@ -10,9 +11,21 @@ from enum import Enum
 logger = logging.getLogger(__name__)
 
 
+def _record_system_sleep():
+    """系统退出时记录休眠时间"""
+    try:
+        from deva.naja.system_state import get_system_state_manager
+        state_mgr = get_system_state_manager()
+        state_mgr.record_sleep()
+        logger.info("[SystemBootstrap] 已记录系统休眠时间")
+    except Exception as e:
+        logger.warning(f"[SystemBootstrap] 记录休眠时间失败: {e}")
+
+
 class BootStage(Enum):
     """启动阶段"""
     INIT = "init"
+    REGISTER_SINGLETONS = "register_singletons"
     LOAD_PERSISTENT = "load_persistent"
     INIT_CORE = "init_core"
     REGISTER_COMPONENTS = "register_components"
@@ -61,6 +74,8 @@ class SystemBootstrap:
         self._initialized = False
         self._boot_details: Dict[str, Any] = {}
 
+        atexit.register(_record_system_sleep)
+
     def boot(self) -> BootResult:
         """
         执行启动流程
@@ -73,6 +88,9 @@ class SystemBootstrap:
         try:
             self._boot_stage = BootStage.INIT
             self._log("INFO", "开始系统启动...")
+
+            self._boot_stage = BootStage.REGISTER_SINGLETONS
+            self._merge_details(self._register_singletons())
 
             self._boot_stage = BootStage.LOAD_PERSISTENT
             self._merge_details(self._load_persistent_data())
@@ -123,10 +141,39 @@ class SystemBootstrap:
             _set_last_boot_report(result)
             return result
 
+    def _register_singletons(self) -> BootResult:
+        """注册所有单例"""
+        start = time.time()
+        logger.info("[1/8] 注册所有单例...")
+
+        try:
+            from deva.naja.register import register_all_singletons
+
+            register_all_singletons()
+
+            # 应用猴子补丁兼容模式 - 让旧代码无需修改即可使用新单例注册表
+            from deva.naja.common.singleton_registry import apply_compatibility_patches
+            apply_compatibility_patches()
+
+            duration_ms = (time.time() - start) * 1000
+            logger.info(f"  单例注册完成，耗时 {duration_ms:.1f}ms")
+
+            return BootResult(
+                success=True,
+                stage=BootStage.REGISTER_SINGLETONS,
+                message="单例注册完成",
+                duration_ms=duration_ms,
+            )
+
+        except Exception as e:
+            duration_ms = (time.time() - start) * 1000
+            logger.error(f"  单例注册失败: {e}")
+            raise
+
     def _load_persistent_data(self) -> BootResult:
         """加载持久化数据"""
         start = time.time()
-        logger.info("[1/6] 加载持久化数据...")
+        logger.info("[2/8] 加载持久化数据...")
 
         try:
             from deva.naja.dictionary import get_dictionary_manager
@@ -209,7 +256,7 @@ class SystemBootstrap:
     def _init_core_components(self) -> BootResult:
         """初始化核心组件"""
         start = time.time()
-        logger.info("[2/6] 初始化核心组件...")
+        logger.info("[3/8] 初始化核心组件...")
 
         details = {}
 
@@ -224,7 +271,7 @@ class SystemBootstrap:
 
         # 初始化美林时钟引擎
         try:
-            from deva.naja.cognition.merrill_clock_engine import initialize_merrill_clock
+            from deva.naja.cognition.merrill_clock import initialize_merrill_clock
 
             clock_engine = initialize_merrill_clock()
             logger.info("  MerrillClockEngine 初始化完成")
@@ -246,7 +293,7 @@ class SystemBootstrap:
     def _register_components(self) -> BootResult:
         """注册组件"""
         start = time.time()
-        logger.info("[3/6] 注册组件...")
+        logger.info("[4/8] 注册组件...")
 
         try:
             from deva.naja.signal.stream import get_signal_stream
@@ -267,7 +314,7 @@ class SystemBootstrap:
     def _restore_runtime_states(self) -> BootResult:
         """恢复运行时状态"""
         start = time.time()
-        logger.info("[4/6] 恢复运行状态...")
+        logger.info("[5/8] 恢复运行状态...")
 
         try:
             from deva.naja.runtime_state import register_all_adapters, load_all_state
@@ -302,7 +349,7 @@ class SystemBootstrap:
     def _validate_pipeline(self) -> BootResult:
         """验证数据流"""
         start = time.time()
-        logger.info("[5/6] 验证数据流...")
+        logger.info("[6/8] 验证数据流...")
 
         try:
             from deva.naja.attention.pipeline import PipelineManager, create_default_pipeline
@@ -333,7 +380,7 @@ class SystemBootstrap:
     def _start_schedulers(self) -> BootResult:
         """启动调度器"""
         start = time.time()
-        logger.info("[6/6] 启动调度器...")
+        logger.info("[7/8] 启动调度器...")
 
         details: Dict[str, Any] = {}
         try:
@@ -379,7 +426,7 @@ def execute() -> dict:
     
     try:
         from deva.naja.cognition.economic_data_fetcher import EconomicDataFetcher
-        from deva.naja.cognition.merrill_clock_engine import get_merrill_clock_engine
+        from deva.naja.cognition.merrill_clock import get_merrill_clock_engine
         
         fred_api_key = "f48d2328888b60cb2d188c148da31f63"
         fetcher = EconomicDataFetcher(fred_api_key=fred_api_key, use_mock=False)
@@ -444,6 +491,84 @@ def execute() -> dict:
         except Exception as e:
             details["merrill_clock_task_error"] = str(e)
             logger.warning(f"  美林时钟定时任务启动失败: {e}")
+
+        # 心跳机制：定期更新系统活跃时间
+        try:
+            from deva.naja.tasks import get_task_manager
+            task_mgr = get_task_manager()
+
+            heartbeat_code = '''
+import logging
+log = logging.getLogger(__name__)
+
+def execute() -> dict:
+    """心跳：更新系统活跃时间"""
+    try:
+        from deva.naja.system_state import get_system_state_manager
+        state_mgr = get_system_state_manager()
+        state_mgr.record_active()
+        log.info("[Heartbeat] 系统活跃时间已更新")
+        return {"success": True}
+    except Exception as e:
+        log.warning(f"[Heartbeat] 更新活跃时间失败: {e}")
+        return {"success": False, "error": str(e)}
+'''
+            existing_heartbeat = task_mgr.get_by_name("system_heartbeat")
+            if not existing_heartbeat:
+                import hashlib
+                task_id = hashlib.md5("system_heartbeat_2026".encode()).hexdigest()[:12]
+
+                result = task_mgr.create(
+                    name="system_heartbeat",
+                    description="系统心跳（定期更新活跃时间）",
+                    func_code=heartbeat_code,
+                    task_type="scheduler",
+                    scheduler_trigger="interval",
+                    interval_seconds=300,
+                    tags=["system", "heartbeat"],
+                )
+
+                if result.get("success"):
+                    entry_id = result.get("id")
+                    task_mgr.start(entry_id)
+                    details["heartbeat_task"] = f"created_and_started({entry_id})"
+                    logger.info(f"  系统心跳任务已创建并启动: {entry_id}")
+            else:
+                if not existing_heartbeat.is_running:
+                    task_mgr.start(existing_heartbeat.id)
+                details["heartbeat_task"] = f"already_exists({existing_heartbeat.id})"
+                logger.info(f"  系统心跳任务已存在")
+
+        except Exception as e:
+            details["heartbeat_task_error"] = str(e)
+            logger.warning(f"  系统心跳任务启动失败: {e}")
+
+        # 统一补执行检查
+        try:
+            from deva.naja.system_state import get_system_state_manager, get_backfill_manager
+
+            state_mgr = get_system_state_manager()
+            state_mgr.record_wake()
+
+            state_summary = state_mgr.get_state_summary()
+            logger.info(f"  [Backfill] 系统状态: 休眠 {state_summary['sleep_duration_hours']} 小时")
+
+            if state_summary['sleep_duration_hours'] < 1:
+                logger.info(f"  [Backfill] 休眠不足1小时，跳过补执行")
+            else:
+                backfill_mgr = get_backfill_manager()
+                registered = backfill_mgr.get_registered_components()
+                logger.info(f"  [Backfill] 已注册 {len(registered)} 个补执行组件: {registered}")
+
+                last_active = state_mgr.get_last_active_time()
+                if last_active:
+                    backfill_result = backfill_mgr.perform_backfill(last_active)
+                    details["backfill_summary"] = backfill_result
+                    logger.info(f"  [Backfill] 补执行结果: {backfill_result.get('message', '未知')}")
+
+        except Exception as e:
+            details["backfill_error"] = str(e)
+            logger.warning(f"  统一补执行检查失败: {e}")
 
         duration_ms = (time.time() - start) * 1000
 

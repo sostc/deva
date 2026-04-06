@@ -107,10 +107,9 @@ class BlockAttentionEngine:
         self._block_id_to_idx[block_id] = idx
         self._idx_to_block_id[idx] = block_id
         
-        # 建立 symbol -> blocks 映射（同步到 BlockRegistry）
+        # 建立 symbol -> blocks 映射
         for symbol in config.symbols:
             self._symbol_to_blocks[symbol].append(block_id)
-            registry.link_symbol_to_block(symbol, block_id)
 
         self._last_update_time[block_id] = time.time()
         return True
@@ -163,7 +162,7 @@ class BlockAttentionEngine:
                         self._last_summary_log_time = current_time
 
             noise_detector = _get_noise_detector()
-            active_sectors = set()
+            active_blocks = set()
             use_external_sectors = block_ids is not None and len(block_ids) == len(symbols)
             for block_id, data in sector_data.items():
                 if noise_detector and noise_detector.is_noise(block_id, self._blocks.get(block_id).name if block_id in self._blocks else block_id):

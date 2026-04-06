@@ -14,7 +14,7 @@ if TYPE_CHECKING:
     from .block_registry import BlockRegistry, BlockDescriptor
 
 
-from deva.naja.cognition.narrative_block_mapping import (
+from deva.naja.cognition.narrative.block_mapping import (
     NARRATIVE_TO_BLOCK_LINK,
     NARRATIVE_TO_MARKET_LINK,
     MARKET_TO_NARRATIVE_LINK,
@@ -39,7 +39,7 @@ def get_linked_markets(narrative: str) -> List[str]:
 
 def get_market_config(market_id: str) -> Optional[Dict[str, str]]:
     """获取市场指数配置"""
-    from deva.naja.cognition.narrative_block_mapping import MARKET_INDEX_CONFIG
+    from deva.naja.cognition.narrative.block_mapping import MARKET_INDEX_CONFIG
     return MARKET_INDEX_CONFIG.get(market_id)
 
 

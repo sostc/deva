@@ -129,7 +129,8 @@ class EarlyTrendDetector:
         self._window_size = window_size
         self._history: List[Dict] = []
         self._last_signal: Optional[Dict] = None
-        self._noise_filter = NoiseFilter()
+        from deva.naja.attention.processing.noise_filter import get_noise_filter
+        self._noise_filter = get_noise_filter()
         self._last_ts = 0
 
     def on_data(self, data: Any) -> None:
@@ -498,7 +499,8 @@ class StockSelector:
         self._price_weight = price_weight
         self._volume_weight = volume_weight
         self._change_weight = change_weight
-        self._noise_filter = NoiseFilter()
+        from deva.naja.attention.processing.noise_filter import get_noise_filter
+        self._noise_filter = get_noise_filter()
         self._stock_scores: Dict[str, float] = {}
         self._last_signal: Optional[Dict] = None
 

@@ -1,4 +1,13 @@
-"""Radar Engine."""
+"""Radar Engine - 市场感知层 (Perception Layer)
+
+职责：
+- 市场数据获取：新闻、行情、全球市场数据
+- 异常模式检测：Pattern/Drift/Anomaly/SectorAnomaly
+- 事件分发：将感知结果发送到认知系统
+
+感知层是系统的"眼睛"，负责从外部世界获取信息，
+检测其中值得关注的异常模式，并通知认知系统进行理解。
+"""
 
 from .engine import (
     RadarEngine,
