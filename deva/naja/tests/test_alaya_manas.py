@@ -14,7 +14,7 @@ from deva.naja.alaya.seed_illuminator import (
     SeedIlluminator, IlluminatedPattern, PatternType, PatternTemplate
 )
 from deva.naja.attention.trading_center import get_trading_center
-from deva.naja.manas import HarmonyState
+from deva.naja.attention.kernel.manas_engine import HarmonyState
 
 
 class TestSeedIlluminator(unittest.TestCase):

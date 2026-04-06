@@ -80,28 +80,25 @@ class StrategyConfig:
 
 class Strategy(ABC):
     """策略基类"""
-    
+
     def __init__(self, config: StrategyConfig):
         self.config = config
         self.is_active = False
         self.state: Dict[str, Any] = {}
         self.last_execution_time = 0.0
         self.execution_count = 0
-    
-    @abstractmethod
+
     async def on_activate(self):
-        """激活时调用"""
+        """激活时调用（子类可覆盖）"""
         pass
-    
-    @abstractmethod
+
     async def on_deactivate(self):
-        """停用时调用"""
+        """停用时调用（子类可覆盖）"""
         pass
-    
-    @abstractmethod
+
     async def execute(self, context: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-        """执行策略"""
-        pass
+        """执行策略（子类必须实现）"""
+        return None
     
     def update_params(self, params: StrategyParams):
         """更新参数"""

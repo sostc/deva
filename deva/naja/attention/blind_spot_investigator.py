@@ -80,10 +80,10 @@ NARRATIVE_ALIAS_MAP 处理中英文别名：
                               与天道发现的关系
 ═══════════════════════════════════════════════════════════════════════════
 
-【主动发现-天道】 NarrativeTracker.get_value_market_summary()
+【主动发现-Dynamics】 NarrativeTracker.get_value_market_summary()
     - 我们主动检测外部事件中的价值信号
-    - 基于 TIANDAO_KEYWORDS 命中
-    - "替天行道"的天道
+    - 基于 DYNAMICS_KEYWORDS 命中
+    - 供需动态
 
 【被动发现-盲区】 BlindSpotInvestigator
     - ConvictionValidator 触发，我们被动响应
@@ -94,13 +94,17 @@ NARRATIVE_ALIAS_MAP 处理中英文别名：
 """
 
 from __future__ import annotations
+import logging
 import time
 from typing import Dict, List, Optional, Set, Any, TYPE_CHECKING
 from dataclasses import dataclass, field
 
+log = logging.getLogger(__name__)
+
 if TYPE_CHECKING:
     from deva.naja.attention.focus_manager import AttentionFocusManager, FocusItem
-    from deva.naja.cognition.narrative_tracker import NarrativeTracker
+    from deva.naja.cognition.narrative import NarrativeTracker
+    from deva.naja.knowledge import KnowledgeExporter
 
 
 CAUSAL_KNOWLEDGE: Dict[str, Dict[str, Any]] = {
@@ -233,9 +237,9 @@ class BlindSpotInvestigator:
 
         result = investigator.investigate("固态电池")
 
-        print(f"根因: {result.root_cause}")
-        print(f"解决者: {result.resolvers}")
-        print(f"已自动关注: {result.auto_followed_stocks}")
+        log.info(f"根因: {result.root_cause}")
+        log.info(f"解决者: {result.resolvers}")
+        log.info(f"已自动关注: {result.auto_followed_stocks}")
     """
 
     _instance: Optional["BlindSpotInvestigator"] = None
@@ -255,12 +259,17 @@ class BlindSpotInvestigator:
             return
 
         from deva.naja.attention.focus_manager import get_attention_focus_manager
-        from deva.naja.cognition.narrative_tracker import get_narrative_tracker
+        from deva.naja.cognition.narrative import get_narrative_tracker
+        from deva.naja.knowledge import get_knowledge_exporter
 
         self._focus_manager = focus_manager or get_attention_focus_manager()
         self._narrative_tracker = narrative_tracker or get_narrative_tracker()
         self._investigation_cache: Dict[str, InvestigationResult] = {}
         self._cache_ttl: float = 3600.0
+
+        self._knowledge_exporter = get_knowledge_exporter()
+        self._knowledge_exporter.load_predefined(CAUSAL_KNOWLEDGE)
+
         self._initialized = True
 
     def investigate(
@@ -410,12 +419,33 @@ class BlindSpotInvestigator:
         return block_id
 
     def _get_causal_info(self, narrative: str) -> Dict[str, Any]:
-        """获取叙事的因果知识"""
-        # 首先检查是否直接匹配（已经是中文key）
+        """获取叙事的因果知识
+
+        优先从动态知识库（手动确认的知识）读取，
+        如果没有则回退到预定义的 CAUSAL_KNOWLEDGE。
+        """
+        try:
+            dynamic_knowledge = self._knowledge_exporter.get_causal_knowledge()
+
+            narrative_lower = narrative.lower()
+            if narrative in dynamic_knowledge:
+                return dynamic_knowledge[narrative]
+
+            if narrative_lower in self.NARRATIVE_ALIAS_MAP:
+                resolved = self.NARRATIVE_ALIAS_MAP[narrative_lower]
+                if resolved in dynamic_knowledge:
+                    return dynamic_knowledge[resolved]
+
+            for key, value in dynamic_knowledge.items():
+                if key in narrative or narrative in key:
+                    return value
+
+        except Exception as e:
+            log.warning(f"[BlindSpot] 动态知识库读取失败: {e}，使用预定义知识")
+
         if narrative in CAUSAL_KNOWLEDGE:
             return CAUSAL_KNOWLEDGE[narrative]
 
-        # 检查是否是英文别名，需要映射到中文key
         narrative_lower = narrative.lower()
         if narrative_lower in self.NARRATIVE_ALIAS_MAP:
             resolved = self.NARRATIVE_ALIAS_MAP[narrative_lower]

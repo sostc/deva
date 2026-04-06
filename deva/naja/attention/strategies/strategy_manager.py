@@ -250,7 +250,7 @@ class AttentionStrategyManager:
         Returns:
             所有策略生成的信号
         """
-        print(f"[StrategyManager] process_data called: data rows={len(data) if data is not None else 'None'}, context keys={list(context.keys()) if context else 'None'}")
+        log.debug(f"[StrategyManager] process_data called: data rows={len(data) if data is not None else 'None'}, context keys={list(context.keys()) if context else 'None'}")
         if not self.is_running:
             return []
 

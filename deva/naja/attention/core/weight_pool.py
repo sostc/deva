@@ -333,8 +333,8 @@ class WeightPool:
         current_mode = mode_manager.get_mode() if mode_manager else 'unknown'
 
         if filter_noise:
-            from ..processing.noise_filter import NoiseFilter
-            noise_filter = NoiseFilter()
+            from ..processing.noise_filter import get_noise_filter
+            noise_filter = get_noise_filter()
             result = {}
             for symbol, idx in self._symbol_to_idx.items():
                 if not noise_filter.is_noise(symbol):

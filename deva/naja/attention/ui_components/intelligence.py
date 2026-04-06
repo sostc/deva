@@ -4,10 +4,17 @@
 def get_intelligence_system():
     """获取智能增强系统"""
     try:
-        from deva.naja.attention.integration import get_attention_integration
-        integration = get_attention_integration()
-        if hasattr(integration, 'intelligence_system') and integration.intelligence_system:
-            return integration.intelligence_system
+        from deva.naja.supervisor import get_supervisor
+        supervisor = get_supervisor()
+        if supervisor and hasattr(supervisor, '_components'):
+            integration = supervisor._components.get('attention')
+            if integration:
+                if hasattr(integration, 'intelligence_system'):
+                    return integration.intelligence_system
+                from deva.naja.register import SR
+                attention_integration = SR('attention_integration')
+                if attention_integration and hasattr(attention_integration, 'intelligence_system'):
+                    return attention_integration.intelligence_system
         return None
     except Exception:
         return None
@@ -22,12 +29,12 @@ def get_history_tracker():
         return None
 
 
-def get_sector_name(sector_id: str) -> str:
+def get_block_name(block_id: str) -> str:
     """获取板块名称"""
     tracker = get_history_tracker()
-    if tracker and hasattr(tracker, 'get_sector_name'):
-        return tracker.get_sector_name(sector_id)
-    return sector_id
+    if tracker and hasattr(tracker, 'get_block_name'):
+        return tracker.get_block_name(block_id)
+    return block_id
 
 
 def render_predictive_attention_panel() -> str:
@@ -37,7 +44,7 @@ def render_predictive_attention_panel() -> str:
         return """
         <div style="background: #f0f9ff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 16px;">
             <div style="font-weight: 600; margin-bottom: 8px; color: #64748b;">🔮 预测个股 <span style="font-size: 11px; color: #94a3b8;">未启用</span></div>
-            <div style="color: #94a3b8; font-size: 12px;">预测注意力引擎未初始化</div>
+            <div style="color: #94a3b8; font-size: 12px;">预测热点引擎未初始化</div>
         </div>
         """
 
@@ -132,20 +139,20 @@ def render_sector_predictive_attention_panel() -> str:
             noise_detector = None
 
         if noise_detector:
-            def is_noise_sector(sector_id: str) -> bool:
-                sector_name = get_sector_name(sector_id)
-                return noise_detector.is_noise(sector_id, sector_name)
+            def is_noise_sector(block_id: str) -> bool:
+                block_name = get_block_name(block_id)
+                return noise_detector.is_noise(block_id, block_name)
         else:
             blacklist_patterns = [
                 '通达信', '系统', 'ST', 'B股', '基金', '指数', '期权', '期货',
                 '上证', '深证', '沪深', '大盘', '权重', '综合', '行业', '地域',
                 '概念', '风格', '上证所', '深交所', '_sys', '_index', '884',
             ]
-            def is_noise_sector(sector_id: str) -> bool:
-                name = get_sector_name(sector_id)
-                display = name if name else sector_id
+            def is_noise_sector(block_id: str) -> bool:
+                name = get_block_name(block_id)
+                display = name if name else block_id
                 for pattern in blacklist_patterns:
-                    if pattern in display or pattern in sector_id:
+                    if pattern in display or pattern in block_id:
                         return True
                 return False
 
@@ -170,9 +177,9 @@ def render_sector_predictive_attention_panel() -> str:
         items_html = ""
         for item in list(filtered_predictions)[:5]:
             if isinstance(item, tuple) and len(item) == 2:
-                sector_id, pred_score = item
-                sector_name = get_sector_name(sector_id)
-                display_name = sector_name if sector_name else sector_id
+                block_id, pred_score = item
+                block_name = get_block_name(block_id)
+                display_name = block_name if block_name else block_id
             else:
                 continue
             bar_width = pred_score * 100
@@ -232,13 +239,13 @@ def render_intelligence_panels() -> str:
 
 
 def render_propagation_panel() -> str:
-    """渲染注意力扩散面板"""
+    """渲染板块扩散面板"""
     intelligence_system = get_intelligence_system()
     if not intelligence_system or not hasattr(intelligence_system, 'propagation'):
         return """
         <div style="background: #fae8ff; border: 1px solid #f5d0fe; border-radius: 12px; padding: 16px; margin-top: 16px;">
-            <div style="font-weight: 600; margin-bottom: 8px; color: #64748b;">🌊 注意力扩散 <span style="font-size: 11px; color: #94a3b8;">未启用</span></div>
-            <div style="color: #94a3b8; font-size: 12px;">扩散系统未初始化</div>
+            <div style="font-weight: 600; margin-bottom: 8px; color: #64748b;">🌊 题材联动 <span style="font-size: 11px; color: #94a3b8;">未启用</span></div>
+            <div style="color: #94a3b8; font-size: 12px;">题材联动未初始化</div>
         </div>
         """
 
@@ -257,8 +264,8 @@ def render_propagation_panel() -> str:
 
         relations_html = ""
         for rel in filtered_relations:
-            source_name = get_sector_name(rel.source_sector)
-            target_name = get_sector_name(rel.target_sector)
+            source_name = get_block_name(rel.source_sector)
+            target_name = get_block_name(rel.target_sector)
             source_display = source_name if source_name != rel.source_sector else rel.source_sector
             target_display = target_name if target_name != rel.target_sector else rel.target_sector
             corr = rel.correlation
@@ -284,7 +291,7 @@ def render_propagation_panel() -> str:
 
         return f"""
         <div style="background: #fae8ff; border: 1px solid #f5d0fe; border-radius: 12px; padding: 16px; margin-top: 16px;">
-            <div style="font-weight: 600; margin-bottom: 8px;">🌊 注意力扩散</div>
+            <div style="font-weight: 600; margin-bottom: 8px;">🌊 题材联动</div>
             <div style="font-size: 12px;">
                 <div style="color: #64748b; margin-bottom: 4px;">有效板块关联 Top5:</div>
                 {status_html}
@@ -298,14 +305,14 @@ def render_propagation_panel() -> str:
         import traceback
         return f"""
         <div style="background: #fae8ff; border: 1px solid #f5d0fe; border-radius: 12px; padding: 16px; margin-top: 16px;">
-            <div style="font-weight: 600; margin-bottom: 8px;">🌊 注意力扩散</div>
+            <div style="font-weight: 600; margin-bottom: 8px;">🌊 题材联动</div>
             <div style="color: #ef4444; font-size: 12px;">Error: {str(e)}</div>
         </div>
         """
 
 
 def render_sector_propagation_panel() -> str:
-    """渲染板块注意力扩散详情面板"""
+    """渲染板块题材联动详情面板"""
     intelligence_system = get_intelligence_system()
     if not intelligence_system or not hasattr(intelligence_system, 'propagation'):
         return ""
@@ -360,8 +367,8 @@ def render_intelligence_summary_panel() -> str:
         enabled_modules = [k for k, v in enabled.items() if v]
         disabled_modules = [k for k, v in enabled.items() if not v]
 
-        module_icons = {'predictive': '🔮', 'feedback': '🔄', 'budget': '💰', 'propagation': '🌊', 'strategy_learning': '📚'}
-        module_labels = {'predictive': '预测注意力', 'feedback': '反馈循环', 'budget': '预算系统', 'propagation': '扩散关联', 'strategy_learning': '策略学习'}
+        module_icons = {'predictive': '🔮', 'feedback': '🔄', 'budget': '⚡', 'propagation': '🌊', 'strategy_learning': '🎯'}
+        module_labels = {'predictive': '预测热点', 'feedback': '反馈学习', 'budget': '算力分配', 'propagation': '题材联动', 'strategy_learning': '策略实践'}
 
         modules_html = ""
         for mod in enabled_modules:
@@ -392,7 +399,7 @@ def render_intelligence_summary_panel() -> str:
             <div style="display: flex; flex-wrap: wrap; margin-bottom: 16px; position: relative;">{modules_html}</div>
             <div style="display: flex; gap: 16px; padding-top: 12px; border-top: 1px solid #334155; position: relative;">
                 <div style="flex: 1;">
-                    <div style="font-size: 11px; color: #64748b; margin-bottom: 2px;">平均延迟</div>
+                    <div style="font-size: 11px; color: #64748b; margin-bottom: 2px;">计算延迟</div>
                     <div style="font-size: 16px; font-weight: 600; color: #0ea5e9;">{avg_latency:.1f}ms</div>
                 </div>
                 <div style="flex: 1;">
@@ -408,10 +415,10 @@ def render_intelligence_summary_panel() -> str:
 
 
 def render_feedback_loop_panel() -> str:
-    """渲染反馈循环面板"""
+    """渲染反馈学习面板"""
     intelligence_system = get_intelligence_system()
     if not intelligence_system or not hasattr(intelligence_system, 'feedback_loop'):
-        return """<div style="background: #fef3c7; border: 1px solid #fcd34d; border-radius: 12px; padding: 16px;"><div style="font-weight: 600; margin-bottom: 8px; color: #64748b;">🔄 反馈循环 <span style="font-size: 11px; color: #94a3b8;">未启用</span></div><div style="color: #94a3b8; font-size: 12px;">反馈系统未初始化</div></div>"""
+        return """<div style="background: #fef3c7; border: 1px solid #fcd34d; border-radius: 12px; padding: 16px;"><div style="font-weight: 600; margin-bottom: 8px; color: #64748b;">🔄 反馈学习 <span style="font-size: 11px; color: #94a3b8;">未启用</span></div><div style="color: #94a3b8; font-size: 12px;">反馈学习未初始化</div></div>"""
 
     try:
         import time
@@ -427,7 +434,7 @@ def render_feedback_loop_panel() -> str:
         <div style="background: #fef3c7; border: 1px solid #fcd34d44; border-radius: 12px; padding: 16px;">
             <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 12px;">
                 <span style="font-size: 18px;">🔄</span>
-                <span style="font-weight: 600;">反馈循环</span>
+                <span style="font-weight: 600;">反馈学习</span>
             </div>
             <div style="font-size: 12px; margin-bottom: 8px;">
                 <div style="color: #16a34a; margin-bottom: 4px;">✅ {effective_html}</div>
@@ -440,14 +447,14 @@ def render_feedback_loop_panel() -> str:
         </div>
         """
     except Exception as e:
-        return f"""<div style="background: #fef3c7; border: 1px solid #fcd34d; border-radius: 12px; padding: 16px;"><div style="font-weight: 600; margin-bottom: 8px;">🔄 反馈循环</div><div style="color: #ef4444; font-size: 12px;">Error: {str(e)}</div></div>"""
+        return f"""<div style="background: #fef3c7; border: 1px solid #fcd34d; border-radius: 12px; padding: 16px;"><div style="font-weight: 600; margin-bottom: 8px;">🔄 反馈学习</div><div style="color: #ef4444; font-size: 12px;">Error: {str(e)}</div></div>"""
 
 
 def render_budget_panel() -> str:
-    """渲染预算系统面板"""
+    """渲染算力分配面板"""
     intelligence_system = get_intelligence_system()
     if not intelligence_system or not hasattr(intelligence_system, 'budget_system'):
-        return """<div style="background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 12px; padding: 16px;"><div style="font-weight: 600; margin-bottom: 8px; color: #64748b;">💰 预算系统 <span style="font-size: 11px; color: #94a3b8;">未启用</span></div><div style="color: #94a3b8; font-size: 12px;">预算系统未初始化</div></div>"""
+        return """<div style="background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 12px; padding: 16px;"><div style="font-weight: 600; margin-bottom: 8px; color: #64748b;">⚡ 算力分配 <span style="font-size: 11px; color: #94a3b8;">未启用</span></div><div style="color: #94a3b8; font-size: 12px;">算力分配未初始化</div></div>"""
 
     try:
         summary = intelligence_system.get_summary()
@@ -463,7 +470,7 @@ def render_budget_panel() -> str:
         <div style="background: #f0fdf4; border: 1px solid #bbf7d044; border-radius: 12px; padding: 16px;">
             <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 12px;">
                 <span style="font-size: 18px;">💰</span>
-                <span style="font-weight: 600;">预算系统</span>
+                <span style="font-weight: 600;">算力分配</span>
             </div>
             <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; font-size: 12px;">
                 <div><div style="color: #64748b;">使用率</div><div style="font-weight: 600; color: #16a34a; font-size: 16px;">{utilization:.0%}</div></div>
@@ -474,14 +481,14 @@ def render_budget_panel() -> str:
         </div>
         """
     except Exception as e:
-        return f"""<div style="background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 12px; padding: 16px;"><div style="font-weight: 600; margin-bottom: 8px;">💰 预算系统</div><div style="color: #ef4444; font-size: 12px;">Error: {str(e)}</div></div>"""
+        return f"""<div style="background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 12px; padding: 16px;"><div style="font-weight: 600; margin-bottom: 8px;">⚡ 算力分配</div><div style="color: #ef4444; font-size: 12px;">Error: {str(e)}</div></div>"""
 
 
 def render_strategy_learning_panel() -> str:
-    """渲染策略学习面板"""
+    """渲染策略实践面板"""
     intelligence_system = get_intelligence_system()
     if not intelligence_system or not hasattr(intelligence_system, 'strategy_learning'):
-        return """<div style="background: #fdf4ff; border: 1px solid #e9d5ff; border-radius: 12px; padding: 16px;"><div style="font-weight: 600; margin-bottom: 8px; color: #64748b;">📚 策略学习 <span style="font-size: 11px; color: #94a3b8;">未启用</span></div><div style="color: #94a3b8; font-size: 12px;">策略学习未初始化</div></div>"""
+        return """<div style="background: #fdf4ff; border: 1px solid #e9d5ff; border-radius: 12px; padding: 16px;"><div style="font-weight: 600; margin-bottom: 8px; color: #64748b;">🎯 策略实践 <span style="font-size: 11px; color: #94a3b8;">未启用</span></div><div style="color: #94a3b8; font-size: 12px;">策略实践未初始化</div></div>"""
 
     try:
         summary = intelligence_system.strategy_learning.get_selection_summary()
@@ -494,7 +501,7 @@ def render_strategy_learning_panel() -> str:
         <div style="background: #fdf4ff; border: 1px solid #e9d5ff44; border-radius: 12px; padding: 16px;">
             <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 12px;">
                 <span style="font-size: 18px;">📚</span>
-                <span style="font-weight: 600;">策略学习</span>
+                <span style="font-weight: 600;">策略实践</span>
             </div>
             <div style="font-size: 12px;">
                 <div style="color: #64748b; margin-bottom: 4px;">状态: <span style="color: #7c3aed;">{market_state}</span></div>
@@ -504,20 +511,4 @@ def render_strategy_learning_panel() -> str:
         </div>
         """
     except Exception as e:
-        return f"""<div style="background: #fdf4ff; border: 1px solid #e9d5ff; border-radius: 12px; padding: 16px;"><div style="font-weight: 600; margin-bottom: 8px;">📚 策略学习</div><div style="color: #ef4444; font-size: 12px;">Error: {str(e)}</div></div>"""
-
-
-def render_intelligence_panels() -> str:
-    """渲染所有智能增强面板 - 一行两个模块"""
-    return f"""
-    <div style="display: flex; flex-direction: column; gap: 12px;">
-        {render_intelligence_summary_panel()}
-        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
-            <div>{render_predictive_attention_panel()}</div>
-            <div>{render_sector_predictive_attention_panel()}</div>
-            <div>{render_feedback_loop_panel()}</div>
-            <div>{render_budget_panel()}</div>
-            <div style="grid-column: span 2;">{render_strategy_learning_panel()}</div>
-        </div>
-    </div>
-    """
+        return f"""<div style="background: #fdf4ff; border: 1px solid #e9d5ff; border-radius: 12px; padding: 16px;"><div style="font-weight: 600; margin-bottom: 8px;">🎯 策略实践</div><div style="color: #ef4444; font-size: 12px;">Error: {str(e)}</div></div>"""

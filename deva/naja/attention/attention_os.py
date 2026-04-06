@@ -49,8 +49,8 @@ from typing import Dict, Any, Optional, List, Callable
 from dataclasses import dataclass, field
 import threading
 
-from .kernel.encoder import Encoder
-from .kernel.multi_head import MultiHeadAttention
+from .kernel.event_encoder import Encoder
+from .kernel.multi_scorer import MultiHeadAttention
 from .kernel.memory import AttentionMemory
 from .kernel.manas_engine import ManasEngine
 from .kernel import get_default_heads
@@ -62,34 +62,20 @@ log = logging.getLogger(__name__)
 
 
 @dataclass
-class AttentionKernelOutput:
+class AttentionFusionOutput:
     """
-    【输出层】注意力内核完整输出
+    【融合层输出】AttentionFusion 的完整输出
 
     ════════════════════════════════════════════════════════════════════════════
                                 字 段 归 属
     ════════════════════════════════════════════════════════════════════════════
 
-    【内核核心】（原有）
-        alpha, confidence, attention_weights, focus_symbols, manas_score,
-        timing_score, regime_score, confidence_score, risk_temperature
-
-    【行动决策】（原有）
-        should_act, action_type, harmony_state, harmony_strength,
-        bias_state, bias_correction
-
-    【认知层】
-        narrative_risk, ai_compute_direction, awakening_level
-
-    【融合层-新增】（来自 AttentionFusion.FullFusionResult）
-    ─────────────────────────────────────────────────────────────────────────────
     【桥接层-差异检测】
         consensus_blocks      = 外部热 ∩ 我们持有（坚定持有）
         divergence_blocks     = 外部热 ∩ 我们持有（方向分歧→验证）
-        blind_spots         = 外部热 ∩ 我们没关注（→探究）
-        new_hot_blocks      = 新出现的热点（→跟踪）
+        blind_spots          = 外部热 ∩ 我们没关注（→探究）
+        new_hot_blocks       = 新出现的热点（→跟踪）
         conviction_score     = 信念验证整体分数
-        fusion_timing_signal = 时机信号
 
     【被动发现-盲区】
         blind_spot_investigations = BlindSpotInvestigator探究结果列表
@@ -98,10 +84,104 @@ class AttentionKernelOutput:
     【主动发现-天道】
         value_score          = 天道价值分数（我们认定的重要变化）
         market_narrative_score = 民心市场叙事分数（参考）
-
-    【主动发现-天道详情】
         value_signals        = 天道信号详情（哪些关键词被命中）
         market_narrative_signals = 民心信号详情（参考）
+
+    【时机】
+        fusion_timing_signal = 时机信号
+
+    【融合信号】
+        fusion_signals       = 各 block 融合信号列表
+        fusion_warnings      = 融合过程中的警告信息
+    """
+    conviction_score: float = 0.0                                     # 【桥接】信念分数
+    fusion_signals: List[Dict] = field(default_factory=list)          # 【融合】融合信号列表
+    consensus_blocks: List[str] = field(default_factory=list)          # 【桥接】共识block
+    divergence_blocks: List[str] = field(default_factory=list)         # 【桥接】分歧block
+    blind_spots: List[str] = field(default_factory=list)               # 【被动发现】盲区block
+    new_hot_blocks: List[str] = field(default_factory=list)            # 【外部】新热点block
+    fusion_timing_signal: str = "unknown"                              # 【时机】融合时机信号
+
+    blind_spot_investigations: List[Dict] = field(default_factory=list)  # 【被动发现】盲区探究结果
+
+    value_score: float = 0.0                                          # 【主动发现-天道】价值分数
+    market_narrative_score: float = 0.0                                # 【主动发现-民心】市场叙事分数
+    value_signals: Dict[str, List[str]] = field(default_factory=dict)  # 【主动发现-天道】价值信号
+    market_narrative_signals: Dict[str, List[str]] = field(default_factory=dict)  # 【主动发现-民心】市场叙事信号
+
+    fusion_warnings: List[str] = field(default_factory=list)          # 【健康检查】警告信息
+    fusion_success: bool = True                                       # 【健康检查】融合是否成功
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "conviction_score": self.conviction_score,
+            "fusion_signals": self.fusion_signals,
+            "consensus_blocks": self.consensus_blocks,
+            "divergence_blocks": self.divergence_blocks,
+            "blind_spots": self.blind_spots,
+            "new_hot_blocks": self.new_hot_blocks,
+            "fusion_timing_signal": self.fusion_timing_signal,
+            "blind_spot_investigations": self.blind_spot_investigations,
+            "value_score": self.value_score,
+            "market_narrative_score": self.market_narrative_score,
+            "value_signals": self.value_signals,
+            "market_narrative_signals": self.market_narrative_signals,
+            "fusion_warnings": self.fusion_warnings,
+            "fusion_success": self.fusion_success,
+        }
+
+
+@dataclass
+class AttentionKernelOutput:
+    """
+    【内核输出层】注意力内核完整输出
+
+    ════════════════════════════════════════════════════════════════════════════
+                                字 段 归 属
+    ════════════════════════════════════════════════════════════════════════════
+
+    【内核核心】（QKV 注意力计算产生）
+        alpha              = 注意力系数（控制整体行动强度）
+        confidence         = 注意力置信度
+        attention_weights  = 各 symbol 的注意力权重
+        focus_symbols      = 焦点 symbol 列表（权重 top-k）
+
+    【时机/市场状态】（来自 ManasEngine）
+        timing_score       = 时机分数
+        regime_score       = 市场状态分数
+
+    【行动决策】（来自 ManasEngine）
+        should_act         = 是否应行动
+        action_type        = 行动类型（hold/buy/sell 等）
+        harmony_state      = 和谐状态
+        harmony_strength   = 和谐强度
+        confidence_score   = Manas 置信度
+
+    【风险/偏差】（来自 ManasEngine）
+        risk_temperature  = 风险温度
+        bias_state        = 偏差状态
+        bias_correction   = 偏差校正
+
+    【认知层】（来自 ManasEngine）
+        narrative_risk     = 叙事风险
+        ai_compute_direction = AI 算力方向
+        awakening_level    = 觉醒水平
+
+    【融合层-请使用 fusion_output 字段】（由 AttentionFusion 生成）
+        ⚠️ 以下字段已迁移到 fusion_output，请勿在此类中直接使用
+        conviction_score, fusion_signals, consensus_blocks, divergence_blocks,
+        blind_spots, new_hot_blocks, fusion_timing_signal,
+        blind_spot_investigations, value_score, market_narrative_score,
+        value_signals, market_narrative_signals
+
+    ════════════════════════════════════════════════════════════════════════════
+                                使 用 方 式
+    ════════════════════════════════════════════════════════════════════════════
+
+        kernel_output = attention_kernel.compute(events, market_state)
+        kernel_output.alpha                    # ← 内核核心
+        kernel_output.should_act               # ← 行动决策
+        kernel_output.fusion_output.to_dict()  # ← 融合层输出（如果需要）
     """
     alpha: float = 1.0
     confidence: float = 0.5
@@ -127,22 +207,10 @@ class AttentionKernelOutput:
     ai_compute_direction: str = "unknown"                            # 【认知】AI算力方向
     awakening_level: str = "dormant"                                  # 【认知】觉醒水平
 
-    conviction_score: float = 0.0                                     # 【桥接】信念分数
-    fusion_signals: List[Dict] = field(default_factory=list)          # 【融合】融合信号列表
-    consensus_blocks: List[str] = field(default_factory=list)          # 【桥接】共识block
-    divergence_blocks: List[str] = field(default_factory=list)       # 【桥接】分歧block
-    blind_spots: List[str] = field(default_factory=list)              # 【被动发现】盲区block
-    new_hot_blocks: List[str] = field(default_factory=list)           # 【外部】新热点block
-    fusion_timing_signal: str = "unknown"                              # 【时机】融合时机信号
-    blind_spot_investigations: List[Dict] = field(default_factory=list)  # 【被动发现】盲区探究结果
-
-    value_score: float = 0.0                                          # 【主动发现-天道】价值分数
-    market_narrative_score: float = 0.0                               # 【主动发现-民心】市场叙事分数
-    value_signals: Dict[str, List[str]] = field(default_factory=dict)  # 【主动发现-天道】价值信号
-    market_narrative_signals: Dict[str, List[str]] = field(default_factory=dict)  # 【主动发现-民心】市场叙事信号
+    fusion_output: Optional[AttentionFusionOutput] = None             # 【融合层】融合结果（单独存储）
 
     def to_dict(self) -> Dict[str, Any]:
-        return {
+        result = {
             "alpha": self.alpha,
             "confidence": self.confidence,
             "attention_weights": self.attention_weights,
@@ -162,6 +230,9 @@ class AttentionKernelOutput:
             "ai_compute_direction": self.ai_compute_direction,
             "awakening_level": self.awakening_level,
         }
+        if self.fusion_output is not None:
+            result["fusion_output"] = self.fusion_output.to_dict()
+        return result
 
 
 class AttentionKernel:
@@ -247,18 +318,8 @@ class AttentionKernel:
         alpha *= manas_output.alpha
         alpha = max(0.3, min(1.5, alpha))
 
-        fusion_result = None
-        fusion_signals = []
-        conviction_score = 0.0
-        consensus_blocks = []
-        divergence_blocks = []
-        blind_spots = []
-        new_hot_blocks = []
-        fusion_timing_signal = "unknown"
-        value_score = 0.0
-        market_narrative_score = 0.0
-        value_signals: Dict[str, List[str]] = {}
-        market_narrative_signals: Dict[str, List[str]] = {}
+        fusion_output: Optional[AttentionFusionOutput] = None
+        fusion_warnings: List[str] = []
 
         try:
             from deva.naja.attention.attention_fusion import get_attention_fusion
@@ -270,7 +331,6 @@ class AttentionKernel:
                     world_narrative=None,
                 )
                 if fusion_result:
-                    conviction_score = fusion_result.conviction_score
                     fusion_signals = [
                         {"block_id": s.block_id, "score": s.fused_score,
                          "action": s.action_recommendation, "should_act": s.should_act}
@@ -280,12 +340,6 @@ class AttentionKernel:
                     divergence_blocks = [b for b, _ in fusion_result.divergence_blocks[:5]]
                     blind_spots = [b for b, _ in fusion_result.blind_spots[:5]]
                     new_hot_blocks = [b for b, _ in fusion_result.new_hot_blocks[:5]]
-                    fusion_timing_signal = fusion_result.timing_signal
-
-                    value_score = fusion_result.value_score
-                    market_narrative_score = fusion_result.market_narrative_score
-                    value_signals = fusion_result.value_signals
-                    market_narrative_signals = fusion_result.market_narrative_signals
 
                     blind_spot_investigations = []
                     try:
@@ -309,10 +363,41 @@ class AttentionKernel:
                                     for r in investigation_result.investigations
                                     if r.is_actionable
                                 ]
-                    except Exception:
-                        pass
-        except Exception:
-            pass
+                    except Exception as e:
+                        fusion_warnings.append(f"blind_spot_investigation_failed: {e}")
+
+                    fusion_output = AttentionFusionOutput(
+                        conviction_score=fusion_result.conviction_score,
+                        fusion_signals=fusion_signals,
+                        consensus_blocks=consensus_blocks,
+                        divergence_blocks=divergence_blocks,
+                        blind_spots=blind_spots,
+                        new_hot_blocks=new_hot_blocks,
+                        fusion_timing_signal=fusion_result.timing_signal,
+                        blind_spot_investigations=blind_spot_investigations,
+                        value_score=fusion_result.value_score,
+                        market_narrative_score=fusion_result.market_narrative_score,
+                        value_signals=fusion_result.value_signals,
+                        market_narrative_signals=fusion_result.market_narrative_signals,
+                        fusion_warnings=fusion_warnings,
+                        fusion_success=True,
+                    )
+                else:
+                    fusion_output = AttentionFusionOutput(
+                        fusion_warnings=["fusion_returned_none"],
+                        fusion_success=False,
+                    )
+            else:
+                fusion_output = AttentionFusionOutput(
+                    fusion_warnings=["no_attention_weights"],
+                    fusion_success=True,
+                )
+        except Exception as e:
+            log.warning(f"[AttentionKernel] AttentionFusion 调用失败: {e}")
+            fusion_output = AttentionFusionOutput(
+                fusion_warnings=[f"fusion_exception: {e}"],
+                fusion_success=False,
+            )
 
         output = AttentionKernelOutput(
             alpha=alpha,
@@ -333,18 +418,7 @@ class AttentionKernel:
             narrative_risk=manas_output.narrative_risk,
             ai_compute_direction=manas_output.ai_compute_direction,
             awakening_level=manas_output.awakening_level,
-            conviction_score=conviction_score,
-            fusion_signals=fusion_signals,
-            consensus_blocks=consensus_blocks,
-            divergence_blocks=divergence_blocks,
-            blind_spots=blind_spots,
-            new_hot_blocks=new_hot_blocks,
-            fusion_timing_signal=fusion_timing_signal,
-            blind_spot_investigations=blind_spot_investigations,
-            value_score=value_score,
-            market_narrative_score=market_narrative_score,
-            value_signals=value_signals,
-            market_narrative_signals=market_narrative_signals,
+            fusion_output=fusion_output,
         )
 
         for e in encoded_events:
@@ -425,6 +499,16 @@ class AttentionKernel:
     def get_manas_engine(self) -> ManasEngine:
         """获取 ManasEngine 实例"""
         return self.manas_engine
+
+    def get_focus_weights(self) -> Dict[str, float]:
+        """获取焦点权重（兼容 BanditOptimizer）"""
+        if self._last_output is None:
+            return {}
+        return self._last_output.attention_weights
+
+    def get_latest_output(self) -> Optional["AttentionKernelOutput"]:
+        """获取最新的内核输出（兼容 BanditOptimizer）"""
+        return self._last_output
 
     def _get_session_manager(self):
         try:
@@ -783,6 +867,10 @@ class AttentionOS:
     def get_harmony(self) -> Dict[str, Any]:
         """获取和谐状态"""
         return self.kernel.get_harmony()
+
+    def get_kernel(self) -> AttentionKernel:
+        """获取 AttentionKernel 实例（兼容 BanditOptimizer）"""
+        return self.kernel
 
 
 _attention_os: Optional[AttentionOS] = None

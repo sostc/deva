@@ -48,9 +48,12 @@ Portfolio - 持仓与自选股统一入口
 """
 
 from __future__ import annotations
+import logging
 import time
 from typing import Dict, List, Optional, Set, Any, TYPE_CHECKING
 from dataclasses import dataclass, field
+
+log = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from deva.naja.bandit.portfolio_manager import Portfolio, PortfolioManager
@@ -119,16 +122,14 @@ class Portfolio:
 
         # 获取汇总
         summary = pf.get_summary()
-        print(f"持仓: {summary.holding_codes}")
-        print(f"自选: {summary.watchlist_codes}")
+        log.info(f"持仓: {summary.holding_codes}")
+        log.info(f"自选: {summary.watchlist_codes}")
 
-        # 获取持仓关联的block
         holding_blocks = pf.get_holding_blocks()
-        print(f"持仓关联的block: {holding_blocks}")
+        log.info(f"持仓关联的block: {holding_blocks}")
 
-        # 获取自选股关联的block
         watchlist_blocks = pf.get_watchlist_blocks()
-        print(f"自选关联的block: {watchlist_blocks}")
+        log.info(f"自选关联的block: {watchlist_blocks}")
     """
 
     _instance: Optional["Portfolio"] = None
