@@ -782,3 +782,9 @@ def stop_supervisor() -> None:
     """停止 Naja 监控器"""
     supervisor = get_naja_supervisor()
     supervisor.stop_monitoring()
+
+
+# 别名，保持向后兼容
+def get_supervisor() -> NajaSupervisor:
+    """获取 Naja 监控器单例（向后兼容别名）"""
+    return get_naja_supervisor()

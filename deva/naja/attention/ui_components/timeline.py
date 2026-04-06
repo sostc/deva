@@ -24,7 +24,7 @@ def render_block_trends() -> str:
     html = """
     <div style="background: white; border: 1px solid #e2e8f0; border-radius: 12px; padding: 20px; margin-top: 16px;">
         <div style="font-weight: 600; margin-bottom: 16px; color: #1e293b;">
-            📊 板块注意力变化曲线
+            📊 题材热度变化曲线
             <span style="font-size: 12px; color: #64748b; font-weight: normal; margin-left: 8px;">最近30个时间点</span>
         </div>
     """
@@ -47,7 +47,7 @@ def render_block_trends() -> str:
     }
 
     for block_id in top5_block_ids:
-        block_name = tracker.get_sector_name(block_id)
+        block_name = tracker.get_block_name(block_id)
         color = block_colors.get(block_id, '#64748b')
 
         block_data = []
@@ -132,7 +132,7 @@ def render_attention_timeline(time_window: int = 50) -> str:
 
     html = """
     <div style="background: linear-gradient(135deg, #fef3c7, #fef9c3); border: 1px solid #fcd34d; border-radius: 12px; padding: 16px; margin-top: 16px;">
-        <div style="font-weight: 600; margin-bottom: 12px; color: #92400e;">🕐 板块注意力转移</div>
+        <div style="font-weight: 600; margin-bottom: 12px; color: #92400e;">🕐 题材热度切换</div>
     """
 
     transfers = []
@@ -149,7 +149,7 @@ def render_attention_timeline(time_window: int = 50) -> str:
             new_in_top3 = set(current_top3) - set(prev_top_blocks)
             for block_id in new_in_top3:
                 block_weight = snapshot.block_weights[block_id]
-                block_name = tracker.get_sector_name(block_id) or block_id
+                block_name = tracker.get_block_name(block_id) or block_id
                 time_str = snapshot.market_time_str if hasattr(snapshot, 'market_time_str') and snapshot.market_time_str else datetime.fromtimestamp(snapshot.timestamp).strftime("%m-%d %H:%M:%S")
 
                 prev_rank = None
@@ -182,7 +182,7 @@ def render_attention_timeline(time_window: int = 50) -> str:
                 <div style="font-size: 11px; color: #64748b; margin-bottom: 6px;">当前排行榜:</div>
             """
             for rank, (block_id, weight) in enumerate(ranked[:5], 1):
-                block_name = tracker.get_sector_name(block_id) or block_id
+                block_name = tracker.get_block_name(block_id) or block_id
                 medal = medals[rank-1] if rank <= 3 else f"{rank}."
                 color = "#dc2626" if rank == 1 else ("#ea580c" if rank == 2 else ("#ca8a04" if rank == 3 else "#64748b"))
 
@@ -214,7 +214,7 @@ def render_attention_timeline(time_window: int = 50) -> str:
     if transfers:
         html += f"""
         <div style="border-top: 1px dashed #fcd34d; padding-top: 12px;">
-            <div style="font-size: 11px; color: #64748b; margin-bottom: 6px;">板块崛起记录 (共{len(transfers)}条):</div>
+            <div style="font-size: 11px; color: #64748b; margin-bottom: 6px;">题材崛起记录 (共{len(transfers)}条):</div>
         """
         for transfer in transfers[-20:]:
             time_str = transfer['time']
@@ -232,7 +232,7 @@ def render_attention_timeline(time_window: int = 50) -> str:
     else:
         html += f"""
         <div style="text-align: center; color: #64748b; padding: 10px; font-size: 12px;">
-            近{time_window}个时间点内板块排名无明显变化
+            近{time_window}个时间点内题材排名无明显变化
         </div>
         """
 
@@ -271,20 +271,20 @@ def render_recent_signals(signals: List[Any], limit: int = 10) -> str:
     return html
 
 
-def render_sector_hotspot_timeline(threshold: str = "high") -> str:
+def render_block_hotspot_timeline(threshold: str = "high") -> str:
     """渲染板块热点切换时间线"""
     tracker = get_history_tracker()
     if not tracker:
         return """
         <div style="background: white; border: 1px solid #e2e8f0; border-radius: 12px; padding: 20px; margin-top: 16px;">
-            <div style="font-weight: 600; margin-bottom: 16px; color: #1e293b;">🔥 板块热点切换时间线</div>
+            <div style="font-weight: 600; margin-bottom: 16px; color: #1e293b;">🔥 题材热点切换时间线</div>
             <div style="color: #64748b; text-align: center; padding: 40px 20px;">历史追踪器未初始化</div>
         </div>
         """
 
     threshold_config = {
-        'low': {'events': tracker.sector_hotspot_events_low, 'pct': 3, 'label': '低敏感度', 'color': '#16a34a'},
-        'high': {'events': tracker.sector_hotspot_events_high, 'pct': 10, 'label': '高敏感度', 'color': '#dc2626'},
+        'low': {'events': tracker.block_hotspot_events_low, 'pct': 3, 'label': '低敏感度', 'color': '#16a34a'},
+        'high': {'events': tracker.block_hotspot_events_high, 'pct': 10, 'label': '高敏感度', 'color': '#dc2626'},
     }
 
     config = threshold_config.get(threshold, threshold_config['high'])
@@ -298,7 +298,7 @@ def render_sector_hotspot_timeline(threshold: str = "high") -> str:
         return f"""
         <div style="background: white; border: 1px solid #e2e8f0; border-radius: 12px; padding: 20px; margin-top: 16px;">
             <div style="font-weight: 600; margin-bottom: 16px; color: {header_color};">🔥 {label} ({pct}%阈值)</div>
-            <div style="color: #64748b; text-align: center; padding: 40px 20px;">暂无有效板块变化事件（噪声板块已被过滤）</div>
+            <div style="color: #64748b; text-align: center; padding: 40px 20px;">暂无有效题材变化事件（噪声板块已被过滤）</div>
         </div>
         """
 
@@ -342,7 +342,7 @@ def render_sector_hotspot_timeline(threshold: str = "high") -> str:
                     <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 4px;">
                         <span style="font-size: 11px; color: #64748b; font-family: monospace; min-width: 50px;">{event.market_time}</span>
                         <span style="font-size: 18px;">{emoji}</span>
-                        <span style="font-weight: 600; color: #1e293b;">{event.sector_name}</span>
+                        <span style="font-weight: 600; color: #1e293b;">{event.block_name}</span>
                         <span style="font-size: 10px; color: {color}; background: rgba(255,255,255,0.6); padding: 2px 8px; border-radius: 4px;">{label_text}</span>
                     </div>
                     <div style="font-size: 12px; color: #64748b; margin-left: 58px; line-height: 1.5;">
@@ -355,7 +355,7 @@ def render_sector_hotspot_timeline(threshold: str = "high") -> str:
         if event.top_symbols:
             html += """
             <div style="margin-top: 8px; padding-top: 8px; border-top: 1px dashed #e2e8f0;">
-                <div style="font-size: 11px; color: #64748b; margin-bottom: 6px;">板块内个股:</div>
+                <div style="font-size: 11px; color: #64748b; margin-bottom: 6px;">题材内个股:</div>
                 <div style="display: flex; flex-direction: column; gap: 4px;">
             """
             for s in event.top_symbols[:3]:
@@ -381,7 +381,7 @@ def render_multi_threshold_timeline() -> str:
     html = """
     <div style="background: white; border: 1px solid #e2e8f0; border-radius: 12px; padding: 20px; margin-top: 16px;">
         <div style="font-weight: 600; margin-bottom: 20px; color: #1e293b; font-size: 16px;">
-            🔥 板块热点切换时间线
+            🔥 题材热点切换时间线
             <span style="font-size: 12px; color: #64748b; font-weight: normal; margin-left: 8px;">双阈值对比</span>
         </div>
 
@@ -413,8 +413,8 @@ def render_single_threshold_column(threshold: str) -> str:
         return "<div style='color: #64748b; text-align: center;'>未初始化</div>"
 
     threshold_config = {
-        'low': {'events': tracker.sector_hotspot_events_low, 'pct': 3, 'label': '低敏感度', 'color': '#16a34a', 'bg': '#f0fdf4'},
-        'high': {'events': tracker.sector_hotspot_events_high, 'pct': 10, 'label': '高敏感度', 'color': '#dc2626', 'bg': '#fef2f2'},
+        'low': {'events': tracker.block_hotspot_events_low, 'pct': 3, 'label': '低敏感度', 'color': '#16a34a', 'bg': '#f0fdf4'},
+        'high': {'events': tracker.block_hotspot_events_high, 'pct': 10, 'label': '高敏感度', 'color': '#dc2626', 'bg': '#fef2f2'},
     }
 
     config = threshold_config.get(threshold, threshold_config.get('high'))
@@ -466,7 +466,7 @@ def render_single_threshold_column(threshold: str) -> str:
                 <span style="color: #64748b; font-family: monospace; font-size: 10px;">{full_time}</span>
                 <span>{emoji}</span>
             </div>
-            <div style="font-weight: 500; color: #1e293b; margin-bottom: 2px;">{event.sector_name}</div>
+            <div style="font-weight: 500; color: #1e293b; margin-bottom: 2px;">{event.block_name}</div>
             <div style="color: {evt_color}; font-size: 10px;">{change_sign}{event.change_percent:.1f}%</div>
         </div>
         """
@@ -566,12 +566,12 @@ def render_attention_shift_report(report: Dict[str, Any]) -> str:
 
     html = """
     <div style="background: linear-gradient(135deg, #f0f9ff, #e0f2fe); border: 1px solid #7dd3fc; border-radius: 12px; padding: 20px; margin-top: 16px;">
-        <div style="font-weight: 600; margin-bottom: 16px; color: #0369a1;">🔄 注意力转移监测</div>
+        <div style="font-weight: 600; margin-bottom: 16px; color: #0369a1;">🔄 热点切换监测</div>
     """
 
     if not report.get('has_shift'):
         html += """
-        <div style="color: #64748b; text-align: center; padding: 10px;">暂无注意力转移<br><span style="font-size: 12px;">Top 3板块和Top 5股票未发生变化</span></div>
+        <div style="color: #64748b; text-align: center; padding: 10px;">暂无热点切换<br><span style="font-size: 12px;">Top 3 题材和 Top 5 个股未发生变化</span></div>
         """
         html += "</div>"
         return html
@@ -604,37 +604,37 @@ def render_attention_shift_report(report: Dict[str, Any]) -> str:
     """
 
     if report.get('sector_shift'):
-        old_sectors = report.get('old_top_blocks', [])
-        new_sectors = report.get('new_top_blocks', [])
+        old_blocks = report.get('old_top_blocks', [])
+        new_blocks = report.get('new_top_blocks', [])
 
-        removed_sectors = [s for s in old_sectors if s[0] not in [ns[0] for ns in new_sectors]]
-        added_sectors = [s for s in new_sectors if s[0] not in [os[0] for os in old_sectors]]
-        kept_sectors = [s for s in new_sectors if s[0] in [os[0] for os in old_sectors]]
+        removed_blocks = [s for s in old_blocks if s[0] not in [ns[0] for ns in new_blocks]]
+        added_blocks = [s for s in new_blocks if s[0] not in [os[0] for os in old_blocks]]
+        kept_blocks = [s for s in new_blocks if s[0] in [os[0] for os in old_blocks]]
 
         html += """<div style="margin-bottom: 14px;">"""
-        if removed_sectors:
+        if removed_blocks:
             html += """<div style="font-weight: 500; color: #dc2626; margin-bottom: 6px;">📤 退出 Top3:</div>"""
             html += """<div style="display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px;">"""
-            for block_id, sector_name, weight in removed_sectors:
-                html += f"""<span style="background: #fee2e2; color: #dc2626; padding: 3px 10px; border-radius: 6px; font-size: 12px;">{sector_name} <span style="opacity: 0.7;">{weight:.2f}</span></span>"""
+            for block_id, block_name, weight in removed_blocks:
+                html += f"""<span style="background: #fee2e2; color: #dc2626; padding: 3px 10px; border-radius: 6px; font-size: 12px;">{block_name} <span style="opacity: 0.7;">{weight:.2f}</span></span>"""
             html += """</div>"""
 
-        if added_sectors:
+        if added_blocks:
             html += """<div style="font-weight: 500; color: #16a34a; margin-bottom: 6px;">📥 新进入 Top3:</div>"""
             html += """<div style="display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px;">"""
-            for block_id, sector_name, weight in added_sectors:
-                html += f"""<span style="background: #dcfce7; color: #16a34a; padding: 3px 10px; border-radius: 6px; font-size: 12px;">{sector_name} <span style="opacity: 0.7;">{weight:.2f}</span></span>"""
+            for block_id, block_name, weight in added_blocks:
+                html += f"""<span style="background: #dcfce7; color: #16a34a; padding: 3px 10px; border-radius: 6px; font-size: 12px;">{block_name} <span style="opacity: 0.7;">{weight:.2f}</span></span>"""
             html += """</div>"""
 
-        if kept_sectors:
+        if kept_blocks:
             html += """<div style="font-weight: 500; color: #475569; margin-bottom: 6px;">🔸 保持:</div>"""
             html += """<div style="display: flex; flex-wrap: wrap; gap: 6px;">"""
-            for block_id, sector_name, weight in kept_sectors:
-                old_weight = next((w for s, n, w in old_sectors if s == block_id), 0)
+            for block_id, block_name, weight in kept_blocks:
+                old_weight = next((w for s, n, w in old_blocks if s == block_id), 0)
                 change = weight - old_weight
                 change_str = f"+{change:.2f}" if change > 0 else f"{change:.2f}"
                 change_color = "#16a34a" if change > 0 else "#dc2626"
-                html += f"""<span style="background: #f1f5f9; color: #1e293b; padding: 3px 10px; border-radius: 6px; font-size: 12px;">{sector_name} <span style="color: {change_color};">{change_str}</span></span>"""
+                html += f"""<span style="background: #f1f5f9; color: #1e293b; padding: 3px 10px; border-radius: 6px; font-size: 12px;">{block_name} <span style="color: {change_color};">{change_str}</span></span>"""
             html += """</div>"""
 
         html += """</div>"""
@@ -699,12 +699,12 @@ def _get_sample_events() -> list:
         top_symbols: List[Dict] = field(default_factory=list)
 
     samples = [
-        SampleEvent(0, "09:35", "tech", "科技板块", "new_hot", 0.15, 15.0, [
+        SampleEvent(0, "09:35", "tech", "科技题材", "new_hot", 0.15, 15.0, [
             {"symbol": "000063", "name": "中兴通讯", "change_pct": 9.8},
             {"symbol": "002415", "name": "海康威视", "change_pct": 7.2},
             {"symbol": "600570", "name": "恒生电子", "change_pct": 6.5},
         ]),
-        SampleEvent(0, "09:42", "finance", "金融板块", "rise", 0.08, 8.5, [
+        SampleEvent(0, "09:42", "finance", "金融题材", "rise", 0.08, 8.5, [
             {"symbol": "600036", "name": "招商银行", "change_pct": 5.8},
             {"symbol": "000001", "name": "平安银行", "change_pct": 4.2},
         ]),
@@ -712,52 +712,52 @@ def _get_sample_events() -> list:
             {"symbol": "300750", "name": "宁德时代", "change_pct": 5.5},
             {"symbol": "002594", "name": "比亚迪", "change_pct": 4.8},
         ]),
-        SampleEvent(0, "10:05", "tech", "科技板块", "rise", 0.12, 12.0, [
+        SampleEvent(0, "10:05", "tech", "科技题材", "rise", 0.12, 12.0, [
             {"symbol": "000938", "name": "中芯国际", "change_pct": 8.2},
         ]),
-        SampleEvent(0, "10:15", "healthcare", "医药板块", "new_hot", 0.10, 10.0, [
+        SampleEvent(0, "10:15", "healthcare", "医药题材", "new_hot", 0.10, 10.0, [
             {"symbol": "600276", "name": "恒瑞医药", "change_pct": 7.8},
         ]),
-        SampleEvent(0, "10:22", "consumer", "消费板块", "fall", -0.05, -5.5, [
+        SampleEvent(0, "10:22", "consumer", "消费题材", "fall", -0.05, -5.5, [
             {"symbol": "600519", "name": "贵州茅台", "change_pct": -4.2},
         ]),
-        SampleEvent(0, "10:35", "finance", "金融板块", "fall", -0.04, -4.2, [
+        SampleEvent(0, "10:35", "finance", "金融题材", "fall", -0.04, -4.2, [
             {"symbol": "601398", "name": "工商银行", "change_pct": -3.5},
         ]),
         SampleEvent(0, "10:48", "real_estate", "房地产", "cooled", -0.08, -8.0, [
             {"symbol": "000002", "name": "万科A", "change_pct": -6.5},
         ]),
-        SampleEvent(0, "11:05", "tech", "科技板块", "rise", 0.09, 9.5, [
+        SampleEvent(0, "11:05", "tech", "科技题材", "rise", 0.09, 9.5, [
             {"symbol": "603019", "name": "中科曙光", "change_pct": 7.2},
         ]),
         SampleEvent(0, "11:18", "materials", "材料板块", "new_hot", 0.07, 7.2, [
             {"symbol": "600585", "name": "海螺水泥", "change_pct": 6.5},
         ]),
-        SampleEvent(0, "13:05", "healthcare", "医药板块", "rise", 0.11, 11.5, [
+        SampleEvent(0, "13:05", "healthcare", "医药题材", "rise", 0.11, 11.5, [
             {"symbol": "300122", "name": "智飞生物", "change_pct": 8.5},
         ]),
         SampleEvent(0, "13:15", "energy", "能源板块", "fall", -0.06, -6.8, [
             {"symbol": "601857", "name": "中国石油", "change_pct": -5.5},
         ]),
-        SampleEvent(0, "13:35", "tech", "科技板块", "fall", -0.07, -7.5, [
+        SampleEvent(0, "13:35", "tech", "科技题材", "fall", -0.07, -7.5, [
             {"symbol": "002371", "name": "北方华创", "change_pct": -6.2},
         ]),
-        SampleEvent(0, "13:48", "finance", "金融板块", "rise", 0.13, 13.2, [
+        SampleEvent(0, "13:48", "finance", "金融题材", "rise", 0.13, 13.2, [
             {"symbol": "600030", "name": "中信证券", "change_pct": 9.5},
         ]),
         SampleEvent(0, "13:55", "new_energy", "新能源", "cooled", -0.09, -9.0, [
             {"symbol": "300750", "name": "宁德时代", "change_pct": -7.5},
         ]),
-        SampleEvent(0, "14:08", "consumer", "消费板块", "rise", 0.05, 5.8, [
+        SampleEvent(0, "14:08", "consumer", "消费题材", "rise", 0.05, 5.8, [
             {"symbol": "000333", "name": "美的集团", "change_pct": 4.8},
         ]),
-        SampleEvent(0, "14:18", "healthcare", "医药板块", "fall", -0.08, -8.5, [
+        SampleEvent(0, "14:18", "healthcare", "医药题材", "fall", -0.08, -8.5, [
             {"symbol": "600276", "name": "恒瑞医药", "change_pct": -6.8},
         ]),
-        SampleEvent(0, "14:35", "finance", "金融板块", "rise", 0.15, 15.5, [
+        SampleEvent(0, "14:35", "finance", "金融题材", "rise", 0.15, 15.5, [
             {"symbol": "601398", "name": "工商银行", "change_pct": 8.5},
         ]),
-        SampleEvent(0, "14:42", "tech", "科技板块", "cooled", -0.12, -12.0, [
+        SampleEvent(0, "14:42", "tech", "科技题材", "cooled", -0.12, -12.0, [
             {"symbol": "000063", "name": "中兴通讯", "change_pct": -8.5},
         ]),
         SampleEvent(0, "14:55", "materials", "材料板块", "rise", 0.08, 8.2, [
@@ -776,8 +776,8 @@ def render_sector_trading_timeline() -> str:
     today_events = []
     has_real_data = False
 
-    if tracker and tracker.sector_hotspot_events_medium:
-        all_events = list(tracker.sector_hotspot_events_medium)
+    if tracker and tracker.block_hotspot_events_medium:
+        all_events = list(tracker.block_hotspot_events_medium)
 
         for event in all_events:
             event_date = datetime.fromtimestamp(event.timestamp).strftime("%m-%d")
@@ -799,8 +799,8 @@ def render_sector_trading_timeline() -> str:
     <div style="background: white; border: 1px solid #e2e8f0; border-radius: 12px; padding: 16px; margin-bottom: 16px;">
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
             <div style="font-weight: 600; color: #1e293b; font-size: 14px;">
-                📈 板块炒作时间轴
-                <span style="font-size: 11px; color: #64748b; font-weight: normal; margin-left: 8px;">今日板块起落</span>
+                📈 题材炒作时间轴
+                <span style="font-size: 11px; color: #64748b; font-weight: normal; margin-left: 8px;">今日题材起落</span>
             </div>
             <div style="font-size: 11px; color: #94a3b8;">{len(today_events)}个事件</div>
         </div>
@@ -904,7 +904,7 @@ def render_sector_trading_timeline() -> str:
                     <div style="flex: 1;">
                         <div style="display: flex; align-items: center; gap: 6px; margin-bottom: 4px;">
                             <span style="font-size: 14px;">{emoji}</span>
-                            <span style="font-weight: 500; color: #1e293b;">{event.sector_name}</span>
+                            <span style="font-weight: 500; color: #1e293b;">{event.block_name}</span>
                             <span style="font-size: 10px; color: {evt_color};">{evt_label}</span>
                             <span style="color: {border_color}; font-weight: 600; font-size: 13px; margin-left: auto;">{change_sign}{event.change_percent:.1f}%</span>
                         </div>

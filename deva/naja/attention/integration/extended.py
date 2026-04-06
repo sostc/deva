@@ -87,8 +87,8 @@ class NajaAttentionIntegration:
                 self._monitor_thread: Optional[threading.Thread] = None
             if not hasattr(self, '_check_interval'):
                 self._check_interval = 5.0
-            if not hasattr(self, '_symbol_sector_map'):
-                self._symbol_sector_map: Dict[str, List[str]] = {}
+            if not hasattr(self, '_symbol_block_map'):
+                self._symbol_block_map: Dict[str, List[str]] = {}
             if not hasattr(self, '_sectors'):
                 self._sectors: List[SectorConfig] = []
             if not hasattr(self, '_last_datasource_control'):
@@ -127,14 +127,14 @@ class NajaAttentionIntegration:
         log.info(f"[NajaAttentionIntegration] 创建 AttentionSystem, config={self.config}")
         self.attention_system = AttentionSystem(self.config)
         log.info(f"[NajaAttentionIntegration] 调用 attention_system.initialize()")
-        self.attention_system.initialize(self._sectors, self._symbol_sector_map)
+        self.attention_system.initialize(self._sectors, self._symbol_block_map)
         log.info(f"[NajaAttentionIntegration] attention_system.initialize 完成")
 
         self._register_names_to_tracker()
 
         self._initialize_intelligence_system()
 
-        log.info(f"🧠 注意力系统: 板块({len(self._sectors)}) 个股({len(self._symbol_sector_map)})")
+        log.info(f"🧠 注意力系统: 板块({len(self._sectors)}) 个股({len(self._symbol_block_map)})")
         if self.intelligence_system:
             modules = []
             if hasattr(self.intelligence_system, 'predictive_engine'):
@@ -218,7 +218,7 @@ class NajaAttentionIntegration:
             except Exception as e:
                 log.debug(f"从行情数据注册个股名称失败: {e}")
 
-            log.debug(f"已注册 {len(tracker.sector_names)} 个板块名称, {len(tracker.symbol_names)} 个个股名称")
+            log.debug(f"已注册 {len(tracker.block_names)} 个板块名称, {len(tracker.symbol_names)} 个个股名称")
 
         except Exception as e:
             log.debug(f"注册名称到历史追踪器失败: {e}")
@@ -233,7 +233,7 @@ class NajaAttentionIntegration:
         3. 如果没有，使用默认配置
         """
         self._sectors = []
-        self._symbol_sector_map = {}
+        self._symbol_block_map = {}
 
         try:
             self._load_sectors_from_dictionary()
@@ -319,7 +319,7 @@ class NajaAttentionIntegration:
                         continue
 
                     import hashlib
-                    sector_id = f"block_{int(hashlib.md5(block_name.encode()).hexdigest()[:8], 16) % 100000}"
+                    block_id = f"block_{int(hashlib.md5(block_name.encode()).hexdigest()[:8], 16) % 100000}"
 
                     existing_sector = None
                     for s in self._sectors:
@@ -329,18 +329,18 @@ class NajaAttentionIntegration:
 
                     if existing_sector:
                         existing_sector.symbols.add(code)
-                        self._symbol_sector_map.setdefault(code, []).append(existing_sector.sector_id)
+                        self._symbol_block_map.setdefault(code, []).append(existing_sector.block_id)
                     else:
                         sector = SectorConfig(
-                            sector_id=sector_id,
+                            block_id=block_id,
                             name=block_name,
                             symbols={code},
                             decay_half_life=300.0
                         )
                         self._sectors.append(sector)
-                        self._symbol_sector_map.setdefault(code, []).append(sector_id)
+                        self._symbol_block_map.setdefault(code, []).append(block_id)
 
-            log.info(f"[Dictionary] 多值解析完成: 板块数={len(self._sectors)}, 个股数={len(self._symbol_sector_map)}")
+            log.info(f"[Dictionary] 多值解析完成: 板块数={len(self._sectors)}, 个股数={len(self._symbol_block_map)}")
         else:
             sector_groups = df.groupby(sector_col)[symbol_col].apply(list).to_dict()
 
@@ -348,9 +348,9 @@ class NajaAttentionIntegration:
                 if _should_skip_sector_name(sector_name):
                     skipped_sectors += 1
                     continue
-                sector_id = f"sector_{len(self._sectors)}"
+                block_id = f"sector_{len(self._sectors)}"
                 sector = SectorConfig(
-                    sector_id=sector_id,
+                    block_id=block_id,
                     name=str(sector_name),
                     symbols=set(str(s) for s in symbols),
                     decay_half_life=300.0
@@ -359,9 +359,9 @@ class NajaAttentionIntegration:
 
                 for symbol in symbols:
                     symbol_str = str(symbol)
-                    if symbol_str not in self._symbol_sector_map:
-                        self._symbol_sector_map[symbol_str] = []
-                    self._symbol_sector_map[symbol_str].append(sector_id)
+                    if symbol_str not in self._symbol_block_map:
+                        self._symbol_block_map[symbol_str] = []
+                    self._symbol_block_map[symbol_str].append(block_id)
 
         if skipped_sectors > 0:
             log.info(f"[Dictionary] 过滤板块完成: 跳过 {skipped_sectors} 个含B股相关板块")
@@ -369,11 +369,11 @@ class NajaAttentionIntegration:
     def _load_default_sectors(self):
         """加载默认板块配置"""
         default_sectors = [
-            SectorConfig(sector_id="tech", name="科技", symbols=set(), decay_half_life=300.0),
-            SectorConfig(sector_id="finance", name="金融", symbols=set(), decay_half_life=300.0),
-            SectorConfig(sector_id="healthcare", name="医疗", symbols=set(), decay_half_life=300.0),
-            SectorConfig(sector_id="energy", name="能源", symbols=set(), decay_half_life=300.0),
-            SectorConfig(sector_id="consumer", name="消费", symbols=set(), decay_half_life=300.0),
+            SectorConfig(block_id="tech", name="科技", symbols=set(), decay_half_life=300.0),
+            SectorConfig(block_id="finance", name="金融", symbols=set(), decay_half_life=300.0),
+            SectorConfig(block_id="healthcare", name="医疗", symbols=set(), decay_half_life=300.0),
+            SectorConfig(block_id="energy", name="能源", symbols=set(), decay_half_life=300.0),
+            SectorConfig(block_id="consumer", name="消费", symbols=set(), decay_half_life=300.0),
         ]
 
         self._sectors = default_sectors
@@ -394,15 +394,15 @@ class NajaAttentionIntegration:
                     log.debug(f"[_ensure_symbol_mappings] DataFrame 行数: {len(df)}, 列: {list(df.columns)}")
                     for _, row in df.iterrows():
                         symbol = str(row['code'])
-                        if symbol not in self._symbol_sector_map:
-                            sector_id = self._guess_sector(symbol)
-                            self._symbol_sector_map[symbol] = [sector_id]
+                        if symbol not in self._symbol_block_map:
+                            block_id = self._guess_sector(symbol)
+                            self._symbol_block_map[symbol] = [block_id]
 
                             for sector in self._sectors:
-                                if sector.sector_id == sector_id:
+                                if sector.block_id == block_id:
                                     sector.symbols.add(symbol)
                                     break
-                    log.debug(f"[_ensure_symbol_mappings] 完成后个股映射数: {len(self._symbol_sector_map)}")
+                    log.debug(f"[_ensure_symbol_mappings] 完成后个股映射数: {len(self._symbol_block_map)}")
                 else:
                     log.debug(f"[_ensure_symbol_mappings] 数据不是DataFrame或没有code列")
             else:
@@ -415,7 +415,7 @@ class NajaAttentionIntegration:
     def _guess_sector(self, symbol: str) -> str:
         """根据股票代码猜测所属板块"""
         hash_val = hash(symbol) % len(self._sectors)
-        return self._sectors[hash_val].sector_id if self._sectors else "default"
+        return self._sectors[hash_val].block_id if self._sectors else "default"
 
     def get_datasource_control(self) -> Dict[str, Any]:
         """获取数据源控制指令"""

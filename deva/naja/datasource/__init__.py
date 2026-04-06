@@ -1567,6 +1567,14 @@ class DataSourceManager:
 
     def get_attention_stats(self) -> Optional[dict]:
         try:
+            from deva.naja.attention.integration.extended import get_attention_integration
+            integration = get_attention_integration()
+            if not getattr(integration, '_initialized_attention_system', False):
+                return None
+        except Exception:
+            return None
+
+        try:
             from deva.naja.attention.realtime_data_fetcher import get_data_fetcher
             fetcher = get_data_fetcher()
             if fetcher and hasattr(fetcher, 'get_stats'):

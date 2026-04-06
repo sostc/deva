@@ -22,19 +22,18 @@ def _get_experiment_info():
 
 async def render_attention_admin(ctx: dict):
     """渲染注意力系统管理页面"""
-
     from .common import (
         get_attention_report, get_strategy_stats, is_attention_initialized,
         initialize_attention_system, get_strategy_manager,
     )
     from .cards import (
         render_frequency_distribution, render_strategy_status,
-        render_dual_engine_status, render_noise_filter_status, render_hot_sectors_and_stocks,
+        render_dual_engine_status, render_noise_filter_status, render_hot_blocks_and_stocks,
         render_market_state_panel,
     )
     from .awakening import render_awakening_status
     from .timeline import (
-        render_attention_timeline, render_sector_trends, render_attention_shift_report,
+        render_attention_timeline, render_block_trends, render_attention_shift_report,
         render_multi_threshold_timeline, render_attention_changes, render_recent_signals,
     )
     from .intelligence import render_intelligence_panels
@@ -96,35 +95,35 @@ async def render_attention_admin(ctx: dict):
             <div style="display: flex; justify-content: space-between; align-items: flex-start; position: relative;">
                 <div>
                     <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 6px;">
-                        <span style="font-size: 24px; filter: drop-shadow(0 2px 4px rgba(0,0,0,0.3));">👁️</span>
+                        <span style="font-size: 24px; filter: drop-shadow(0 2px 4px rgba(0,0,0,0.3));">📡</span>
                         <div>
-                            <div style="font-size: 16px; font-weight: 700; color: #f1f5f9;">注意力（调度层）</div>
-                            <div style="font-size: 11px; color: #0ea5e9; margin-top: 2px;">只负责分配注意力，不输出结论</div>
+                            <div style="font-size: 16px; font-weight: 700; color: #f1f5f9;">市场热点监测</div>
+                            <div style="font-size: 11px; color: #0ea5e9; margin-top: 2px;">实时追踪题材与个股热度</div>
                         </div>
                     </div>
-                    <div style="font-size: 12px; color: #64748b; margin-top: 6px;">输入：雷达事件/洞察提示 ｜ 输出：权重分配/调度决策</div>
+                    <div style="font-size: 12px; color: #64748b; margin-top: 6px;">输入：市场行情数据 ｜ 输出：热点排序与聚焦度</div>
                     {market_time_html}
                 </div>
                 <div style="display: flex; gap: 16px; text-align: center;">
                     <div style="background: rgba(14, 165, 233, 0.1); border: 1px solid rgba(14, 165, 233, 0.3); border-radius: 10px; padding: 8px 14px; min-width: 80px;">
-                        <div style="font-size: 11px; color: #64748b; margin-bottom: 4px;">注意力</div>
+                        <div style="font-size: 11px; color: #64748b; margin-bottom: 4px;">市场聚焦度</div>
                         <div style="font-size: 18px; font-weight: 700; color: {attention_color};">{attention_icon} {global_attention:.2f}</div>
                         <div style="font-size: 10px; color: {attention_color}; opacity: 0.8;">{attention_level}</div>
                     </div>
                     <div style="background: rgba(14, 165, 233, 0.1); border: 1px solid rgba(14, 165, 233, 0.3); border-radius: 10px; padding: 8px 14px; min-width: 80px;">
-                        <div style="font-size: 11px; color: #64748b; margin-bottom: 4px;">活跃度</div>
+                        <div style="font-size: 11px; color: #64748b; margin-bottom: 4px;">市场活跃度</div>
                         <div style="font-size: 18px; font-weight: 700; color: {activity_color};">{activity_icon} {activity:.2f}</div>
                         <div style="font-size: 10px; color: {activity_color}; opacity: 0.8;">{activity_level}</div>
                     </div>
                     <div style="background: rgba(34, 197, 94, 0.1); border: 1px solid rgba(34, 197, 94, 0.3); border-radius: 10px; padding: 8px 14px; min-width: 100px;">
-                        <div style="font-size: 11px; color: #64748b; margin-bottom: 4px;">系统状态</div>
-                        <div style="font-size: 14px; font-weight: 700; color: #22c55e;">{'🟢 运行中' if report.get('status') == 'running' else '🔴 已停止'}</div>
-                        <div style="font-size: 10px; color: #94a3b8;">{processed} 快照</div>
+                        <div style="font-size: 11px; color: #64748b; margin-bottom: 4px;">数据状态</div>
+                        <div style="font-size: 14px; font-weight: 700; color: #22c55e;">{'🟢 正常' if report.get('status') == 'running' else '🔴 异常'}</div>
+                        <div style="font-size: 10px; color: #94a3b8;">{processed} 条记录</div>
                     </div>
                     <div style="background: rgba(168, 85, 247, 0.1); border: 1px solid rgba(168, 85, 247, 0.3); border-radius: 10px; padding: 8px 14px; min-width: 100px;">
-                        <div style="font-size: 11px; color: #64748b; margin-bottom: 4px;">策略</div>
-                        <div style="font-size: 14px; font-weight: 700; color: #a855f7;">{strategy_stats.get('active_strategies', 0)}/{strategy_stats.get('total_strategies', 0)}</div>
-                        <div style="font-size: 10px; color: #94a3b8;">{strategy_stats.get('total_signals_generated', 0)} 信号</div>
+                        <div style="font-size: 11px; color: #64748b; margin-bottom: 4px;">热点题材</div>
+                        <div style="font-size: 14px; font-weight: 700; color: #a855f7;">{strategy_stats.get('active_strategies', 0)} 个</div>
+                        <div style="font-size: 10px; color: #94a3b8;">{strategy_stats.get('total_signals_generated', 0)} 股票</div>
                     </div>
                 </div>
             </div>
@@ -134,12 +133,10 @@ async def render_attention_admin(ctx: dict):
         if not attention_initialized:
             put_html("""
             <div style="margin-bottom:14px;padding:16px;border-radius:10px;background:linear-gradient(135deg,#fef3c7,#fde68a);border:1px solid #f59e0b;color:#92400e;font-size:14px;">
-                <strong>⚠️ 注意力系统未启动</strong><br>
-                当前 naja 启动时未启用注意力系统。点击下方按钮手动启动。
+                <strong>⚠️ 市场热点监测未启动</strong><br>
+                当前未接入市场数据，无法进行热点监测。
             </div>
             """)
-            put_button("🚀 启动注意力系统", onclick=lambda: initialize_attention_system(), color="warning")
-            put_text("")
 
         if experiment_info.get('active'):
             exp_ds = experiment_info.get('datasource_id', '未知')
@@ -286,17 +283,11 @@ async def render_attention_admin(ctx: dict):
         except Exception:
             pass
 
-    with use_scope("attention_awakening"):
-        put_html(render_awakening_status())
-
     with use_scope("attention_market_state"):
         put_html(render_market_state_panel())
 
     with use_scope("attention_flow"):
         put_html(render_attention_flow_ui())
-
-    with use_scope("attention_lab_status"):
-        put_html(_render_lab_status_panel())
 
     # 已删除数据获取器面板（2026-04-03）
     # with use_scope("attention_frequency_panel"):
@@ -407,9 +398,9 @@ def _render_micro_change_indicator() -> str:
             if prev_weight > 0:
                 change_pct = ((curr_weight - prev_weight) / prev_weight) * 100
                 if abs(change_pct) >= 1:
-                    sector_name = tracker.get_sector_name(block_id)
+                    block_name = tracker.get_block_name(block_id)
                     micro_sector_changes.append({
-                        'name': sector_name,
+                        'name': block_name,
                         'change': change_pct,
                         'old': prev_weight,
                         'new': curr_weight,
@@ -658,160 +649,4 @@ def _do_refresh():
     run_js("window.location.reload()")
 
 
-def _get_lab_activity_logs() -> list:
-    """获取 Lab 活动日志"""
-    logs = []
 
-    try:
-        from deva.naja.attention.trading_center import get_trading_center
-        orch = get_trading_center()
-        lab_status = orch.get_lab_status()
-        processed = lab_status.get('processed_frames', 0)
-        if processed > 0:
-            logs.append(f"已处理 {processed} 帧数据")
-    except:
-        pass
-
-    try:
-        from deva.naja.bandit.notifier import get_bandit_notifier
-        notifier = get_bandit_notifier()
-        recent = notifier.get_recent_notifications(limit=5)
-        for n in recent:
-            logs.append(f"{n.get('type', 'unknown')}: {n.get('title', '')[:40]}")
-    except:
-        pass
-
-    try:
-        from deva.naja.replay import get_replay_scheduler
-        scheduler = get_replay_scheduler()
-        if scheduler and hasattr(scheduler, '_fetch_count'):
-            logs.append(f"回放进度: {scheduler._fetch_count}")
-    except:
-        pass
-
-    try:
-        from deva.naja.bandit.market_observer import get_market_observer
-        observer = get_market_observer()
-        if observer and hasattr(observer, '_tracked_stocks'):
-            logs.append(f"跟踪 {len(observer._tracked_stocks)} 只股票")
-    except:
-        pass
-
-    return logs[-10:] if logs else []
-
-
-def _render_lab_status_panel() -> str:
-    """渲染 Lab 模式状态面板 - 显示注意力系统关键指标"""
-    try:
-        from deva.naja.attention.trading_center import get_trading_center
-        orch = get_trading_center()
-        lab_status = orch.get_lab_status()
-    except Exception as e:
-        return f"""<div style="margin-bottom:14px;padding:12px 14px;border-radius:10px;background:linear-gradient(135deg,#fef3c7,#fde68a);border:1px solid #f59e0b;color:#92400e;font-size:13px;">
-            <strong>🧪 Lab 状态面板</strong> <span style="color:#f59e0b;">(获取失败)</span><br>
-            <span style="font-size:11px;">{str(e)}</span>
-        </div>"""
-
-    manas = lab_status.get('manas', {})
-    awakened = lab_status.get('awakened', {})
-    narrative = lab_status.get('narrative', {})
-    problem_opp = lab_status.get('problem_opportunity')
-
-    manas_score = manas.get('manas_score', 0)
-    ai_compute = manas.get('ai_compute_direction', 'unknown')
-    problem_score = manas.get('problem_opportunity_score', 0)
-    signal_strength = manas.get('signal_strength', 0)
-    should_act = manas.get('should_act', False)
-    awakening_level = awakened.get('level', 'unknown')
-    insight_count = awakened.get('total_insights', 0)
-    narrative_count = narrative.get('event_count', 0)
-    latest_event = narrative.get('latest_event', 'N/A')
-    supply_demand = narrative.get('supply_demand_signal', 'neutral')
-
-    score_color = '#22c55e' if manas_score > 0.6 else '#f59e0b' if manas_score > 0.3 else '#64748b'
-    act_color = '#22c55e' if should_act else '#94a3b8'
-    ai_color = '#22c55e' if ai_compute == 'rising' else '#f59e0b' if ai_compute == 'falling' else '#64748b'
-    awakening_color = '#22c55e' if awakening_level == 'enlightened' else '#0ea5e9' if awakening_level == 'illuminated' else '#64748b'
-
-    problem_html = ""
-    if problem_opp:
-        problem_html = f"""<div style="margin-top:8px;padding:8px;background:linear-gradient(135deg,#dbeafe,#bfdbfe);border-radius:6px;font-size:11px;">
-            <strong>🎯 问题-机会:</strong> {problem_opp.get('problem', 'N/A')}<br>
-            <strong>💡 洞察:</strong> {problem_opp.get('opportunity', 'N/A')}
-        </div>"""
-
-    return f"""<div style="margin-bottom:14px;padding:14px 16px;border-radius:12px;background:linear-gradient(135deg,#1e1e2e,#2d2d44);border:1px solid #4ade80;color:#e2e8f0;font-size:13px;">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
-            <strong style="font-size:15px;">🧪 Lab 注意力监控</strong>
-            <span style="font-size:11px;padding:3px 8px;background:#4ade80;color:#1e1e2e;border-radius:12px;font-weight:bold;">
-                {lab_status.get('processed_frames', 0)} 帧
-            </span>
-        </div>
-
-        <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:10px;">
-            <div style="padding:10px;background:rgba(255,255,255,0.05);border-radius:8px;">
-                <div style="font-size:11px;color:#94a3b8;margin-bottom:4px;">Manas Score</div>
-                <div style="font-size:24px;font-weight:bold;color:{score_color};">{manas_score:.3f}</div>
-            </div>
-
-            <div style="padding:10px;background:rgba(255,255,255,0.05);border-radius:8px;">
-                <div style="font-size:11px;color:#94a3b8;margin-bottom:4px;">AI算力趋势</div>
-                <div style="font-size:18px;font-weight:bold;color:{ai_color};">
-                    {'📈 上升' if ai_compute == 'rising' else '📉 下降' if ai_compute == 'falling' else '➡️ 稳定'}
-                </div>
-            </div>
-
-            <div style="padding:10px;background:rgba(255,255,255,0.05);border-radius:8px;">
-                <div style="font-size:11px;color:#94a3b8;margin-bottom:4px;">行动信号</div>
-                <div style="font-size:18px;font-weight:bold;color:{act_color};">
-                    {'✅ 买入' if should_act else '⏸️ 等待'}
-                </div>
-            </div>
-
-            <div style="padding:10px;background:rgba(255,255,255,0.05);border-radius:8px;">
-                <div style="font-size:11px;color:#94a3b8;margin-bottom:4px;">觉醒等级</div>
-                <div style="font-size:18px;font-weight:bold;color:{awakening_color};">
-                    {'🌟 开悟' if awakening_level == 'enlightened' else '💡 照明' if awakening_level == 'illuminated' else '🌱 觉醒' if awakening_level == 'awakening' else '💤 沉睡'}
-                </div>
-            </div>
-
-            <div style="padding:10px;background:rgba(255,255,255,0.05);border-radius:8px;">
-                <div style="font-size:11px;color:#94a3b8;margin-bottom:4px;">Signal Strength</div>
-                <div style="font-size:18px;font-weight:bold;">{signal_strength:.3f}</div>
-            </div>
-
-            <div style="padding:10px;background:rgba(255,255,255,0.05);border-radius:8px;">
-                <div style="font-size:11px;color:#94a3b8;margin-bottom:4px;">洞察数</div>
-                <div style="font-size:18px;font-weight:bold;">{insight_count} 个</div>
-            </div>
-        </div>
-
-        <div style="margin-top:12px;padding:10px;background:rgba(255,255,255,0.05);border-radius:8px;">
-            <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:6px;">
-                <span>全局注意力: <strong>{lab_status.get('global_attention', 0):.3f}</strong></span>
-                <span>高关注股票: <strong>{lab_status.get('high_attention_count', 0)}</strong></span>
-            </div>
-            <div style="font-size:11px;color:#94a3b8;">
-                热点: {', '.join(lab_status.get('top_symbols', [])[:3]) or '暂无'}
-            </div>
-        </div>
-
-        <div style="margin-top:12px;padding:10px;background:rgba(255,255,255,0.05);border-radius:8px;">
-            <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:6px;">
-                <span>📊 叙事事件: <strong>{narrative_count}</strong></span>
-                <span style="color:#4ade80;">供需信号: <strong>{supply_demand}</strong></span>
-            </div>
-            <div style="font-size:11px;color:#94a3b8;">
-                最新: {latest_event[:50] if latest_event else 'N/A'}...
-            </div>
-        </div>
-
-        {problem_html}
-
-        <div style="margin-top:12px;padding:10px;background:rgba(255,255,255,0.05);border-radius:8px;">
-            <div style="font-size:11px;color:#94a3b8;margin-bottom:6px;">📜 监控日志</div>
-            <div style="max-height:80px;overflow-y:auto;font-size:10px;color:#64748b;">
-                {''.join([f"<div style='margin-bottom:3px;'>• {log_item}</div>" for log_item in _get_lab_activity_logs()]) or '<div>暂无活动记录</div>'}
-            </div>
-        </div>
-    </div>"""

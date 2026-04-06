@@ -27,7 +27,7 @@ try:
 except ImportError:
     HAS_AIOHTTP = False
 
-from deva.naja.cognition.merrill_clock_engine import EconomicData
+from deva.naja.cognition.merrill_clock import EconomicData
 
 log = logging.getLogger(__name__)
 
@@ -315,7 +315,7 @@ async def test_fetcher():
         print("美林时钟引擎测试")
         print("=" * 60)
         
-        from deva.naja.cognition.merrill_clock_engine import get_merrill_clock_engine
+        from deva.naja.cognition.merrill_clock import get_merrill_clock_engine
         
         clock_engine = get_merrill_clock_engine()
         signal = clock_engine.on_economic_data(data)

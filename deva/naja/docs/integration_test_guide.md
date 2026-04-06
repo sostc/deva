@@ -278,9 +278,9 @@ def test_seed_recall_real():
 
 def test_adaptive_tianshi_real():
     """测试真实天时响应"""
-    from deva.naja.manas import AdaptiveManas
+    from deva.naja.attention.kernel.manas_engine import ManasEngine
 
-    adaptive = AdaptiveManas()
+    manas = ManasEngine()
 
     # 场景1：开盘蜜月期（9:35）
     market_state_1 = {
@@ -454,7 +454,7 @@ echo "=== 1. 导入检查 ==="
 python -c "
 from deva.naja.senses import ProphetSense, RealtimeTaste
 from deva.naja.alaya import SeedIlluminator
-from deva.naja.manas import AdaptiveManas
+from deva.naja.attention.kernel.manas_engine import ManasEngine
 from deva.naja.evolution import get_meta_evolution
 from deva.naja.cognition.market_narrative import MarketNarrativeSense
 print('✓ 所有觉醒模块导入成功')
@@ -494,9 +494,8 @@ market_data = {
 signal = prophet.sense(market_data, None)
 print(f'【天眼通】信号: {signal.presage_type}, 强度: {signal.intensity:.2f}')
 
-# 2.4 顺应型末那识测试
-from deva.naja.manas import AdaptiveManas
-adaptive = AdaptiveManas()
+# 2.4 ManasEngine 测试
+manas = ManasEngine()
 market_state = {
     'is_market_open': True,
     'volatility': 1.2,
@@ -506,8 +505,8 @@ market_state = {
     'regime_stability': 0.4,
     'market_breadth': 0.2,
 }
-decision = adaptive.compute_顺应(market_state)
-print(f'【顺应型末那识】顺应: {decision.harmony_state.value}, 行动: {decision.should_act}')
+output = manas.compute(market_state)
+print(f'【ManasEngine】和谐: {output.harmony_state.value}, 行动: {output.should_act}')
 
 print('✓ 集成测试通过')
 "

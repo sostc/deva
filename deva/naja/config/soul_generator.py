@@ -81,7 +81,7 @@ class SoulGenerator:
         },
     }
 
-    DEFAULT_TIANDAO_KEYWORDS = [
+    DEFAULT_DYNAMICS_KEYWORDS = [
         "限流", "限速", "token不够", "算力告急", "API排队",
         "token消耗", "算力短缺", "GPU排队", "算力不足",
         "API限流", "ChatGPT限流", "Claude限流", "Gemini限流",
@@ -94,7 +94,7 @@ class SoulGenerator:
         "付费转化", "用户增长", "API调用量增长",
     ]
 
-    DEFAULT_MINXIN_KEYWORDS = [
+    DEFAULT_SENTIMENT_KEYWORDS = [
         "上涨", "下跌", "大涨", "大跌", "暴涨", "暴跌",
         "牛市", "熊市", "反弹", "回调", "震荡",
         "资金流入", "资金流出", "净流入", "净流出",
@@ -113,8 +113,8 @@ class SoulGenerator:
         direction: str = "creative",
         domains: List[str] = None,
         risk_level: str = "moderate",
-        tiandao_definition: str = None,
-        minxin_definition: str = None,
+        dynamics_definition: str = None,
+        sentiment_definition: str = None,
         custom_notes: str = "",
         custom_tiandao_keywords: List[str] = None,
         custom_minxin_keywords: List[str] = None,
@@ -127,8 +127,8 @@ class SoulGenerator:
             direction: 价值方向 (creative/speculative)
             domains: 关注的行业列表
             risk_level: 风险等级 (conservative/moderate/aggressive)
-            tiandao_definition: 自定义天道定义
-            minxin_definition: 自定义民心定义
+            dynamics_definition: 自定义供需动态定义
+            sentiment_definition: 自定义市场情绪定义
             custom_notes: 自定义理念
             custom_tiandao_keywords: 自定义天道关键词
             custom_minxin_keywords: 自定义民心关键词
@@ -145,10 +145,10 @@ class SoulGenerator:
         supply_chain = self._generate_supply_chain(domains)
         domain_keywords = expand_domain_keywords(domains)
 
-        tiandao_keywords = self._generate_tiandao_keywords(
+        dynamics_keywords = self._generate_dynamics_keywords(
             domains, custom_tiandao_keywords, supply_chain
         )
-        minxin_keywords = self._generate_minxin_keywords(custom_minxin_keywords)
+        sentiment_keywords = self._generate_sentiment_keywords(custom_minxin_keywords)
 
         soul_id = self._generate_soul_id(name)
 
@@ -166,17 +166,17 @@ class SoulGenerator:
             },
             "risk_profile": risk_config,
             "philosophy": {
-                "mission": f"遵循天道，驾驭民心。{direction_config['description']}",
-                "tiandao_definition": tiandao_definition or "TOKEN消耗、大模型限流卡脖子、AI效率提升",
-                "minxin_definition": minxin_definition or "市场行情、股价涨跌、舆论情绪",
+                "mission": f"遵循供需动态，驾驭市场情绪。{direction_config['description']}",
+                "dynamics_definition": dynamics_definition or "TOKEN消耗、大模型限流卡脖子、AI效率提升",
+                "sentiment_definition": sentiment_definition or "市场行情、股价涨跌、舆论情绪",
                 "custom_notes": custom_notes,
             },
 
             "supply_chain": supply_chain,
 
             "keywords": {
-                "tiandao": tiandao_keywords,
-                "minxin": minxin_keywords,
+                "dynamics": dynamics_keywords,
+                "sentiment": sentiment_keywords,
                 "domains": domain_keywords,
             },
 
@@ -208,14 +208,14 @@ class SoulGenerator:
 
         return supply_chain
 
-    def _generate_tiandao_keywords(
+    def _generate_dynamics_keywords(
         self,
         domains: List[str],
         custom_keywords: List[str] = None,
         supply_chain: Dict[str, Any] = None,
     ) -> List[str]:
-        """生成天道关键词"""
-        keywords = list(self.DEFAULT_TIANDAO_KEYWORDS)
+        """生成供需动态关键词"""
+        keywords = list(self.DEFAULT_DYNAMICS_KEYWORDS)
 
         if supply_chain:
             for domain, chain in supply_chain.items():
@@ -228,9 +228,9 @@ class SoulGenerator:
 
         return list(set(keywords))
 
-    def _generate_minxin_keywords(self, custom_keywords: List[str] = None) -> List[str]:
-        """生成民心关键词"""
-        keywords = list(self.DEFAULT_MINXIN_KEYWORDS)
+    def _generate_sentiment_keywords(self, custom_keywords: List[str] = None) -> List[str]:
+        """生成市场情绪关键词"""
+        keywords = list(self.DEFAULT_SENTIMENT_KEYWORDS)
 
         if custom_keywords:
             keywords.extend(custom_keywords)

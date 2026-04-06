@@ -13,19 +13,19 @@ SYSTEM_ARCHITECTURE_DOC = """
         <!-- 左侧：雷达层 -->
         <div style="background: rgba(0,0,0,0.3); border-radius: 10px; padding: 14px; border: 1px solid rgba(245,158,11,0.3);">
             <div style="font-size: 13px; font-weight: 600; color: #f59e0b; margin-bottom: 10px; display: flex; align-items: center; gap: 6px;">
-                📡 雷达感知层 (Radar)
+                📡 市场感知层 (Radar/Perception)
             </div>
 
             <div style="font-size: 11px; color: #94a3b8; line-height: 1.8;">
                 <div style="margin-bottom: 8px;">
-                    <div style="color: #f59e0b; font-weight: 500; margin-bottom: 4px;">📥 数据输入</div>
+                    <div style="color: #f59e0b; font-weight: 500; margin-bottom: 4px;">📥 数据获取</div>
                     <div style="padding-left: 8px; border-left: 2px solid rgba(245,158,11,0.3);">
-                        策略执行结果 → <code style="background: rgba(245,158,11,0.1); padding: 1px 4px; border-radius: 3px; font-size: 10px;">RadarEngine.ingest_result()</code>
+                        新闻/行情/全球市场 → <code style="background: rgba(245,158,11,0.1); padding: 1px 4px; border-radius: 3px; font-size: 10px;">RadarNewsFetcher / GlobalMarketScanner</code>
                     </div>
                 </div>
 
                 <div style="margin-bottom: 8px;">
-                    <div style="color: #f59e0b; font-weight: 500; margin-bottom: 4px;">🔍 四种检测器 (MarketScanner)</div>
+                    <div style="color: #f59e0b; font-weight: 500; margin-bottom: 4px;">🔍 异常检测 (MarketScanner)</div>
                     <div style="padding-left: 8px; border-left: 2px solid rgba(245,158,11,0.3);">
                         <div style="margin-bottom: 4px;">
                             <span style="color: #10b981;">● Pattern</span>：同一信号 × N次重复 → <code>score = min(1.0, count/10)</code>
@@ -43,7 +43,7 @@ SYSTEM_ARCHITECTURE_DOC = """
                 </div>
 
                 <div style="margin-bottom: 8px;">
-                    <div style="color: #f59e0b; font-weight: 500; margin-bottom: 4px;">📤 数据输出</div>
+                    <div style="color: #f59e0b; font-weight: 500; margin-bottom: 4px;">📤 事件分发</div>
                     <div style="padding-left: 8px; border-left: 2px solid rgba(245,158,11,0.3);">
                         <code style="background: rgba(0,0,0,0.3); padding: 2px 6px; border-radius: 4px; font-size: 10px;">RadarEvent</code> →
                         NB数据库(<code>naja_radar_events</code>) →
@@ -52,9 +52,9 @@ SYSTEM_ARCHITECTURE_DOC = """
                 </div>
 
                 <div>
-                    <div style="color: #f59e0b; font-weight: 500; margin-bottom: 4px;">⚙️ 核心参数</div>
+                    <div style="color: #f59e0b; font-weight: 500; margin-bottom: 4px;">⚙️ 核心组件</div>
                     <div style="padding-left: 8px; font-size: 10px; color: #64748b;">
-                        pattern_window=300s | cooldown=120s | z_threshold=3.0 | sector_ratio=0.7
+                        NewsFetcher(新闻) | GlobalMarketScanner(全球) | TradingClock(时钟)
                     </div>
                 </div>
             </div>
@@ -104,21 +104,21 @@ SYSTEM_ARCHITECTURE_DOC = """
     <div style="margin-top: 14px; padding: 12px; background: rgba(0,0,0,0.2); border-radius: 8px;">
         <div style="font-size: 11px; color: #64748b; margin-bottom: 8px; text-align: center;">📍 完整数据流</div>
         <div style="display: flex; align-items: center; justify-content: center; gap: 8px; font-size: 10px; flex-wrap: wrap;">
-            <span style="color: #94a3b8;">策略执行</span>
+            <span style="color: #94a3b8;">市场数据</span>
             <span style="color: #475569;">→</span>
-            <span style="color: #f59e0b; background: rgba(245,158,11,0.1); padding: 2px 8px; border-radius: 4px;">Radar.ingest_result()</span>
+            <span style="color: #f59e0b; background: rgba(245,158,11,0.1); padding: 2px 8px; border-radius: 4px;">📡 Radar感知层</span>
             <span style="color: #475569;">→</span>
-            <span style="color: #10b981;">MarketScanner</span>
+            <span style="color: #10b981;">NewsFetcher/Scanner</span>
             <span style="color: #475569;">→</span>
             <span style="color: #14b8a6;">RadarEvent</span>
             <span style="color: #475569;">→</span>
-            <span style="color: #a855f7;">CognitionEngine</span>
+            <span style="color: #a855f7;">🧠 Cognition认知层</span>
             <span style="color: #475569;">→</span>
             <span style="color: #fb923c;">NewsMindStrategy</span>
             <span style="color: #475569;">→</span>
             <span style="color: #60a5fa;">分层记忆</span>
             <span style="color: #475569;">→</span>
-            <span style="color: #f59e0b;">Attention调度</span>
+            <span style="color: #f59e0b;">🎯 Attention调度</span>
         </div>
     </div>
 </div>
@@ -128,86 +128,83 @@ SYSTEM_ARCHITECTURE_DOC = """
 RADAR_DETAILED_DOC = """
 <div style="margin-bottom: 16px; background: linear-gradient(135deg, #1e3a5f 0%, #0f172a 100%); border-radius: 12px; padding: 16px 20px; border: 1px solid rgba(245,158,11,0.2);">
     <div style="font-size: 14px; font-weight: 600; color: #f59e0b; margin-bottom: 14px; display: flex; align-items: center; gap: 8px;">
-        📡 雷达感知层 · 详细工作原理
+        📡 市场感知层 · 详细工作原理
     </div>
 
     <div style="font-size: 11px; color: #94a3b8; line-height: 1.8;">
-        <!-- 输入部分 -->
+        <!-- 定位说明 -->
         <div style="margin-bottom: 14px; padding: 12px; background: rgba(0,0,0,0.2); border-radius: 8px; border-left: 3px solid #f59e0b;">
-            <div style="color: #f59e0b; font-weight: 600; margin-bottom: 8px;">📥 输入：策略执行结果</div>
-            <div style="margin-bottom: 6px;">
-                <code style="background: rgba(245,158,11,0.1); padding: 2px 6px; border-radius: 3px; font-size: 10px;">
-                    RadarEngine.ingest_result(result)
-                </code>
-            </div>
-            <div style="color: #64748b; font-size: 10px;">
-                result 包含: strategy_id, signal_type, score, message, payload 等字段
+            <div style="color: #f59e0b; font-weight: 600; margin-bottom: 8px;">🎯 定位：市场感知层 (Perception Layer)</div>
+            <div style="color: #64748b; font-size: 10px; line-height: 1.6;">
+                感知层是系统的"眼睛"，负责从外部世界获取市场信息：<br/>
+                • 新闻获取：RadarNewsFetcher 实时监控新闻动态<br/>
+                • 全球市场：GlobalMarketScanner 追踪国际市场<br/>
+                • 异常检测：SignalAnomalyDetector 发现值得关注的模式<br/>
+                • 交易时钟：TradingClock 提供市场状态判断
             </div>
         </div>
 
-        <!-- 检测器1 -->
+        <!-- 输入部分 -->
         <div style="margin-bottom: 14px; padding: 12px; background: rgba(0,0,0,0.2); border-radius: 8px; border-left: 3px solid #10b981;">
-            <div style="color: #10b981; font-weight: 600; margin-bottom: 8px;">🔍 检测器1: Pattern（信号模式重复）</div>
-            <div style="margin-bottom: 6px;">
-                <code style="background: rgba(16,185,129,0.1); padding: 2px 6px; border-radius: 3px; font-size: 10px;">
-                    scan_pattern(strategy_id, signal_type, timestamp)
-                </code>
-            </div>
-            <div style="color: #64748b; font-size: 10px; line-height: 1.6;">
-                原理：记录同一策略+同类型信号的时间戳，300秒内出现≥3次则触发<br/>
-                冷却：触发后120秒内不再触发<br/>
-                分数：<code>score = min(1.0, count / 10)</code>
+            <div style="color: #10b981; font-weight: 600; margin-bottom: 8px;">📥 数据获取</div>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; font-size: 10px;">
+                <div style="background: rgba(16,185,129,0.1); padding: 8px; border-radius: 6px;">
+                    <div style="color: #10b981; font-weight: 500; margin-bottom: 4px;">📰 RadarNewsFetcher</div>
+                    <div style="color: #64748b;">定时获取新闻，发布到 TextSignalBus</div>
+                </div>
+                <div style="background: rgba(16,185,129,0.1); padding: 8px; border-radius: 6px;">
+                    <div style="color: #10b981; font-weight: 500; margin-bottom: 4px;">🌐 GlobalMarketScanner</div>
+                    <div style="color: #64748b;">全球主要市场行情监控</div>
+                </div>
             </div>
         </div>
 
-        <!-- 检测器2 -->
+        <!-- 核心检测器 -->
         <div style="margin-bottom: 14px; padding: 12px; background: rgba(0,0,0,0.2); border-radius: 8px; border-left: 3px solid #3b82f6;">
-            <div style="color: #3b82f6; font-weight: 600; margin-bottom: 8px;">🔍 检测器2: Drift（概念漂移）</div>
-            <div style="margin-bottom: 6px;">
-                <code style="background: rgba(59,130,246,0.1); padding: 2px 6px; border-radius: 3px; font-size: 10px;">
-                    scan_drift(strategy_id, score, timestamp)  # 使用 ADWIN 算法
-                </code>
-            </div>
-            <div style="color: #64748b; font-size: 10px; line-height: 1.6;">
-                原理：River库的ADWIN漂移检测器，持续监测数据分布变化<br/>
-                触发：<code>detector.drift_detected == True</code><br/>
-                分数：<code>score = abs(score)</code>
-            </div>
-        </div>
-
-        <!-- 检测器3 -->
-        <div style="margin-bottom: 14px; padding: 12px; background: rgba(0,0,0,0.2); border-radius: 8px; border-left: 3px solid #ef4444;">
-            <div style="color: #ef4444; font-weight: 600; margin-bottom: 8px;">🔍 检测器3: Anomaly（统计异常）</div>
-            <div style="margin-bottom: 6px;">
-                <code style="background: rgba(239,68,68,0.1); padding: 2px 6px; border-radius: 3px; font-size: 10px;">
-                    scan_anomaly(strategy_id, signal_type, score, timestamp)
-                </code>
-            </div>
-            <div style="color: #64748b; font-size: 10px; line-height: 1.6;">
-                原理：Welford在线算法计算均值和方差<br/>
-                触发：积累≥30个样本后，<code>|z-score| > 3.0</code><br/>
-                分数：<code>score = min(1.0, |z| / 5.0)</code>
-            </div>
-        </div>
-
-        <!-- 检测器4 -->
-        <div style="margin-bottom: 14px; padding: 12px; background: rgba(0,0,0,0.2); border-radius: 8px; border-left: 3px solid #8b5cf6;">
-            <div style="color: #8b5cf6; font-weight: 600; margin-bottom: 8px;">🔍 检测器4: SectorAnomaly（板块联动）</div>
-            <div style="margin-bottom: 6px;">
-                <code style="background: rgba(139,92,246,0.1); padding: 2px 6px; border-radius: 3px; font-size: 10px;">
-                    scan_sector_anomaly(sector_id, symbols, returns, timestamp)
-                </code>
-            </div>
-            <div style="color: #64748b; font-size: 10px; line-height: 1.6;">
-                原理：统计板块内个股涨跌情况<br/>
-                触发：<code>up_ratio > 0.7</code>（齐涨）或 <code>down_ratio > 0.7</code>（齐跌）<br/>
-                涨跌家数占比 = 涨跌幅>0.5%的股票数 / 总股票数
+            <div style="color: #3b82f6; font-weight: 600; margin-bottom: 8px;">🔍 核心检测器 (SignalAnomalyDetector)</div>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
+                <!-- Pattern -->
+                <div style="margin-bottom: 8px;">
+                    <div style="color: #10b981; font-weight: 500; margin-bottom: 4px;">● Pattern（信号模式重复）</div>
+                    <div style="color: #64748b; font-size: 10px;">
+                        原理：300秒内同一信号≥3次触发<br/>
+                        冷却：120秒内不再触发<br/>
+                        分数：<code>score = min(1.0, count/10)</code>
+                    </div>
+                </div>
+                <!-- Drift -->
+                <div style="margin-bottom: 8px;">
+                    <div style="color: #3b82f6; font-weight: 500; margin-bottom: 4px;">● Drift（概念漂移）</div>
+                    <div style="color: #64748b; font-size: 10px;">
+                        原理：ADWIN算法检测数据分布变化<br/>
+                        触发：<code>drift_detected == True</code><br/>
+                        分数：<code>score = abs(score)</code>
+                    </div>
+                </div>
+                <!-- Anomaly -->
+                <div style="margin-bottom: 8px;">
+                    <div style="color: #ef4444; font-weight: 500; margin-bottom: 4px;">● Anomaly（统计异常）</div>
+                    <div style="color: #64748b; font-size: 10px;">
+                        原理：Welford算法，Z-score检测<br/>
+                        触发：积累≥30样本后，<code>|z|>3.0</code><br/>
+                        分数：<code>score = min(1.0, |z|/5.0)</code>
+                    </div>
+                </div>
+                <!-- Sector -->
+                <div>
+                    <div style="color: #8b5cf6; font-weight: 500; margin-bottom: 4px;">● SectorAnomaly（板块联动）</div>
+                    <div style="color: #64748b; font-size: 10px;">
+                        原理：统计板块内齐涨齐跌比例<br/>
+                        触发：<code>up/down_ratio > 0.7</code><br/>
+                        涨跌家数占比 > 0.5%的股票
+                    </div>
+                </div>
             </div>
         </div>
 
         <!-- 输出部分 -->
         <div style="padding: 12px; background: rgba(0,0,0,0.2); border-radius: 8px; border-left: 3px solid #14b8a6;">
-            <div style="color: #14b8a6; font-weight: 600; margin-bottom: 8px;">📤 输出：RadarEvent</div>
+            <div style="color: #14b8a6; font-weight: 600; margin-bottom: 8px;">📤 事件分发</div>
             <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; font-size: 10px;">
                 <div><span style="color: #64748b;">event_type:</span> radar_pattern/drift/anomaly/sector_anomaly</div>
                 <div><span style="color: #64748b;">score:</span> 0.0 ~ 1.0</div>

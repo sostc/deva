@@ -3,10 +3,17 @@ Radar Engine - 感知系统/雷达/感知层
 
 别名/关键词: 雷达、感知引擎、事件分发、signal detector、anomaly
 
-只负责发现信号异常，不做调度与结论
+定位：市场感知层（Perception Layer）
+- 负责感知/获取市场数据，不做调度与结论
 - SignalAnomalyDetector: 检测策略信号中的异常模式
-- RadarNewsFetcher: 内置新闻获取
+- RadarNewsFetcher: 内置新闻获取（实时监控新闻动态）
 - GlobalMarketScanner: 全球市场监控
+- TradingClock: A股/美股交易时钟
+
+感知层职责：
+1. 市场数据获取：新闻、行情、全球市场数据
+2. 异常模式检测：Pattern/Drift/Anomaly/SectorAnomaly
+3. 事件分发：将感知结果发送到认知系统
 
 叙事追踪已移至 cognition 层
 """

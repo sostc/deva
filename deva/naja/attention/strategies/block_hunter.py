@@ -4,10 +4,13 @@ Block Rotation Hunter Strategy
 Tracks block attention weight momentum to detect capital rotation between blocks
 """
 
+import logging
 import time
 import numpy as np
 from typing import Dict, List, Optional, Any
 from collections import deque
+
+log = logging.getLogger(__name__)
 
 from .base import AttentionStrategyBase, Signal
 
@@ -62,7 +65,7 @@ class BlockRotationHunter(AttentionStrategyBase):
         self.last_rotation_time: float = 0.0
 
     def _on_signal(self, signal: Signal):
-        print(f"📊 [{signal.strategy_name}] {signal.signal_type.upper()} | "
+        log.info(f"📊 [{signal.strategy_name}] {signal.signal_type.upper()} | "
               f"Block: {signal.symbol} | Confidence: {signal.confidence:.2f} | "
               f"Reason: {signal.reason}")
 
