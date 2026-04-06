@@ -71,7 +71,7 @@ async def test_news_flow():
     print("  通道1: 新闻数据流测试")
     print("=" * 70)
 
-    from deva.naja.cognition.sector_narrative import SectorNarrative as NarrativeTracker
+    from deva.naja.cognition.narrative import NarrativeTracker
 
     tracker = NarrativeTracker()
 

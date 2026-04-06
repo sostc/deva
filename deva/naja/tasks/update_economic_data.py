@@ -50,7 +50,7 @@ def execute() -> Dict[str, Any]:
         log.info(f"[EconomicDataTask] 获取经济数据成功：{data.timestamp}")
         
         # 3. 更新美林时钟
-        from deva.naja.cognition.merrill_clock_engine import get_merrill_clock_engine
+        from deva.naja.cognition.merrill_clock import get_merrill_clock_engine
         
         clock_engine = get_merrill_clock_engine()
         signal = clock_engine.on_economic_data(data)

@@ -37,11 +37,11 @@ def render_soul_card(soul: Dict[str, Any]) -> str:
     keywords = soul.get("keywords", {})
 
     icon = direction.get("icon", "🧠")
-    tiandao_weight = direction.get("tiandao_weight", 0.5)
-    minxin_weight = direction.get("minxin_weight", 0.5)
+    dynamics_weight = direction.get("dynamics_weight", 0.5)
+    sentiment_weight = direction.get("sentiment_weight", 0.5)
     risk_label = risk.get("label", "")
-    tiandao_count = len(keywords.get("tiandao", []))
-    minxin_count = len(keywords.get("minxin", []))
+    dynamics_count = len(keywords.get("dynamics", []))
+    sentiment_count = len(keywords.get("sentiment", []))
 
     return f'''
     <div style="padding: 20px; background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%); border-radius: 16px;">
@@ -65,12 +65,12 @@ def render_soul_card(soul: Dict[str, Any]) -> str:
 
         <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 15px;">
             <div style="background: rgba(255,255,255,0.05); padding: 10px; border-radius: 8px; text-align: center;">
-                <div style="font-size: 12px; color: #94a3b8;">天道权重</div>
-                <div style="font-size: 18px; font-weight: 600; color: #f59e0b;">{tiandao_weight}</div>
+                <div style="font-size: 12px; color: #94a3b8;">供需动态权重</div>
+                <div style="font-size: 18px; font-weight: 600; color: #f59e0b;">{dynamics_weight}</div>
             </div>
             <div style="background: rgba(255,255,255,0.05); padding: 10px; border-radius: 8px; text-align: center;">
-                <div style="font-size: 12px; color: #94a3b8;">民心权重</div>
-                <div style="font-size: 18px; font-weight: 600; color: #60a5fa;">{minxin_weight}</div>
+                <div style="font-size: 12px; color: #94a3b8;">市场情绪权重</div>
+                <div style="font-size: 18px; font-weight: 600; color: #60a5fa;">{sentiment_weight}</div>
             </div>
             <div style="background: rgba(255,255,255,0.05); padding: 10px; border-radius: 8px; text-align: center;">
                 <div style="font-size: 12px; color: #94a3b8;">风险偏好</div>
@@ -87,10 +87,10 @@ def render_soul_card(soul: Dict[str, Any]) -> str:
                 关注行业: {", ".join(domains)}
             </div>
             <div style="font-size: 11px; color: #f59e0b;">
-                天道关键词: {tiandao_count}个
+                供需动态关键词: {dynamics_count}个
             </div>
             <div style="font-size: 11px; color: #60a5fa;">
-                民心关键词: {minxin_count}个
+                市场情绪关键词: {sentiment_count}个
             </div>
         </div>
     </div>
@@ -123,7 +123,7 @@ def render_soul_list(all_souls: list, active_soul: Dict[str, Any]) -> str:
         soul_name = soul.get("soul_name", "未命名")
         icon = soul.get("icon", "🧠")
         is_active = soul.get("is_active", False)
-        tiandao_weight = soul.get("tiandao_weight", 0)
+        dynamics_weight = soul.get("dynamics_weight", 0)
         domains = soul.get("domains", [])
         risk_level = soul.get("risk_level", "")
 
@@ -145,7 +145,7 @@ def render_soul_list(all_souls: list, active_soul: Dict[str, Any]) -> str:
                 </div>
             </div>
             <div style="display: flex; gap: 20px; font-size: 12px; color: #94a3b8;">
-                <span>天道权重: <span style="color: #f59e0b;">{tiandao_weight}</span></span>
+                <span>供需动态权重: <span style="color: #f59e0b;">{dynamics_weight}</span></span>
                 <span>行业: <span style="color: #a855f7;">{", ".join(domains[:3])}</span></span>
                 <span>风险: <span style="color: #f472b6;">{risk_level}</span></span>
             </div>
@@ -189,7 +189,7 @@ def render_soul_list_buttons(all_souls: list, active_soul: Dict[str, Any]) -> st
         soul_name = soul.get("soul_name", "未命名")
         icon = soul.get("icon", "🧠")
         is_active = soul.get("is_active", False)
-        tiandao_weight = soul.get("tiandao_weight", 0)
+        dynamics_weight = soul.get("dynamics_weight", 0)
         domains = soul.get("domains", [])
         risk_level = soul.get("risk_level", "")
 
@@ -207,7 +207,7 @@ def render_soul_list_buttons(all_souls: list, active_soul: Dict[str, Any]) -> st
                 </div>
             </div>
             <div style="display: flex; gap: 20px; font-size: 12px; color: #94a3b8; margin-bottom: 10px;">
-                <span>天道权重: <span style="color: #f59e0b;">{tiandao_weight}</span></span>
+                <span>供需动态权重: <span style="color: #f59e0b;">{dynamics_weight}</span></span>
                 <span>行业: <span style="color: #a855f7;">{", ".join(domains[:3]) if domains else "无"}</span></span>
                 <span>风险: <span style="color: #f472b6;">{risk_level}</span></span>
             </div>
@@ -273,8 +273,8 @@ def render_soul_detail(soul: Dict[str, Any]) -> str:
     decision_rules = soul.get("decision_rules", {})
 
     icon = direction.get("icon", "🧠")
-    tiandao_keywords = keywords.get("tiandao", [])
-    minxin_keywords = keywords.get("minxin", [])
+    dynamics_keywords = keywords.get("dynamics", [])
+    sentiment_keywords = keywords.get("sentiment", [])
 
     risk_stop_loss = risk.get("stop_loss", 0)
     risk_take_profit = risk.get("take_profit", 0)
@@ -295,7 +295,7 @@ def render_soul_detail(soul: Dict[str, Any]) -> str:
                     <span>基本面: <span style="color: #4ade80;">{weights.get("fundamentals_weight", 0)}</span></span>
                     <span>趋势: <span style="color: #60a5fa;">{weights.get("price_sensitivity", 0)}</span></span>
                     <span>情绪: <span style="color: #f472b6;">{weights.get("sentiment_weight", 0)}</span></span>
-                    <span>天道: <span style="color: #f59e0b;">{weights.get("tiandao_weight", 0)}</span></span>
+                    <span>供需动态: <span style="color: #f59e0b;">{weights.get("dynamics_weight", 0)}</span></span>
                 </div>
             </div>
             '''
@@ -310,20 +310,20 @@ def render_soul_detail(soul: Dict[str, Any]) -> str:
             if level in chain:
                 level_name = chain[level].get("name", level)
                 nodes = chain[level].get("nodes", [])
-                tiandao_kws = chain[level].get("tiandao_keywords", [])
+                dynamics_kws = chain[level].get("dynamics_keywords", [])
 
                 nodes_str = ", ".join([n.get("name", "") for n in nodes[:3]])
                 supply_chain_html += f'''
                 <div style="background: rgba(255,255,255,0.03); padding: 10px; border-radius: 6px; margin-bottom: 8px;">
                     <div style="font-size: 12px; color: #94a3b8;">{level.capitalize()}: {level_name}</div>
                     <div style="font-size: 11px; color: #fff; margin: 5px 0;">{nodes_str}</div>
-                    <div style="font-size: 10px; color: #f59e0b;">天道: {", ".join(tiandao_kws[:5])}</div>
+                    <div style="font-size: 10px; color: #f59e0b;">供需动态: {", ".join(dynamics_kws[:5])}</div>
                 </div>
                 '''
         supply_chain_html += "</div>"
 
-    tiandao_str = ", ".join(tiandao_keywords[:15]) + ("..." if len(tiandao_keywords) > 15 else "")
-    minxin_str = ", ".join(minxin_keywords[:15]) + ("..." if len(minxin_keywords) > 15 else "")
+    dynamics_str = ", ".join(dynamics_keywords[:15]) + ("..." if len(dynamics_keywords) > 15 else "")
+    sentiment_str = ", ".join(sentiment_keywords[:15]) + ("..." if len(sentiment_keywords) > 15 else "")
 
     return f'''
     <div style="padding: 20px;">
@@ -362,17 +362,17 @@ def render_soul_detail(soul: Dict[str, Any]) -> str:
         <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 20px; margin-bottom: 20px;">
             <div style="background: rgba(255,255,255,0.05); padding: 20px; border-radius: 12px;">
                 <div style="font-size: 14px; font-weight: 600; color: #fff; margin-bottom: 10px;">
-                    ☀️ 天道配置 <span style="color: #f59e0b; font-size: 12px;">(权重: {direction.get("tiandao_weight", 0)})</span>
+                    ⚡ 供需动态配置 <span style="color: #f59e0b; font-size: 12px;">(权重: {direction.get("dynamics_weight", 0)})</span>
                 </div>
-                <div style="font-size: 11px; color: #94a3b8; margin-bottom: 10px;">{philosophy.get("tiandao_definition", "")}</div>
-                <div style="font-size: 11px; color: #f59e0b;">{tiandao_str}</div>
+                <div style="font-size: 11px; color: #94a3b8; margin-bottom: 10px;">{philosophy.get("dynamics_definition", "")}</div>
+                <div style="font-size: 11px; color: #f59e0b;">{dynamics_str}</div>
             </div>
             <div style="background: rgba(255,255,255,0.05); padding: 20px; border-radius: 12px;">
                 <div style="font-size: 14px; font-weight: 600; color: #fff; margin-bottom: 10px;">
-                    💓 民心配置 <span style="color: #60a5fa; font-size: 12px;">(权重: {direction.get("minxin_weight", 0)})</span>
+                    💓 市场情绪配置 <span style="color: #60a5fa; font-size: 12px;">(权重: {direction.get("sentiment_weight", 0)})</span>
                 </div>
-                <div style="font-size: 11px; color: #94a3b8; margin-bottom: 10px;">{philosophy.get("minxin_definition", "")}</div>
-                <div style="font-size: 11px; color: #60a5fa;">{minxin_str}</div>
+                <div style="font-size: 11px; color: #94a3b8; margin-bottom: 10px;">{philosophy.get("sentiment_definition", "")}</div>
+                <div style="font-size: 11px; color: #60a5fa;">{sentiment_str}</div>
             </div>
         </div>
 
@@ -431,10 +431,10 @@ def render_soul_compare(comparison: Dict[str, Any]) -> str:
     rows += make_row("仓位上限", f"{soul1.get('max_position', 0)*100:.0f}%", f"{soul2.get('max_position', 0)*100:.0f}%")
     rows += make_row("止损幅度", f"-{soul1.get('stop_loss', 0)*100:.0f}%", f"-{soul2.get('stop_loss', 0)*100:.0f}%")
     rows += make_row("止盈幅度", f"+{soul1.get('take_profit', 0)*100:.0f}%", f"+{soul2.get('take_profit', 0)*100:.0f}%", "#4ade80", "#4ade80")
-    rows += make_row("天道权重", str(soul1.get("tiandao_weight", 0)), str(soul2.get("tiandao_weight", 0)), "#f59e0b", "#f59e0b")
-    rows += make_row("民心权重", str(soul1.get("minxin_weight", 0)), str(soul2.get("minxin_weight", 0)), "#60a5fa", "#60a5fa")
-    rows += make_row("天道关键词", f"{soul1.get('tiandao_count', 0)}个", f"{soul2.get('tiandao_count', 0)}个")
-    rows += make_row("民心关键词", f"{soul1.get('minxin_count', 0)}个", f"{soul2.get('minxin_count', 0)}个")
+    rows += make_row("天道权重", str(soul1.get("dynamics_weight", 0)), str(soul2.get("dynamics_weight", 0)), "#f59e0b", "#f59e0b")
+    rows += make_row("市场情绪权重", str(soul1.get("sentiment_weight", 0)), str(soul2.get("sentiment_weight", 0)), "#60a5fa", "#60a5fa")
+    rows += make_row("供需动态关键词", f"{soul1.get('dynamics_count', 0)}个", f"{soul2.get('dynamics_count', 0)}个")
+    rows += make_row("市场情绪关键词", f"{soul1.get('sentiment_count', 0)}个", f"{soul2.get('sentiment_count', 0)}个")
 
     diff_html = ""
     if diffs:

@@ -201,7 +201,7 @@ async def render_home(ctx: dict):
 
         <!-- 四大能力 -->
         <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 20px; margin-top: 20px;">
-            <a href="/attentionadmin" style="text-decoration: none;">
+            <a href="/market" style="text-decoration: none;">
                 <div style="padding: 25px; background: linear-gradient(135deg, rgba(0,212,255,0.2) 0%, rgba(0,153,204,0.2) 100%); border-radius: 12px; border: 1px solid rgba(0,212,255,0.3); color: white; text-align: center; transition: transform 0.3s;" onmouseover="this.style.transform='scale(1.02)'" onmouseout="this.style.transform='scale(1)'">
                     <div style="font-size: 32px; margin-bottom: 15px;">🎯</div>
                     <div style="font-size: 18px; font-weight: 600;">聚焦</div>
@@ -209,7 +209,7 @@ async def render_home(ctx: dict):
                     <div style="font-size: 11px; color: #00d4ff; margin-top: 10px;">同一事件，不同心→不同现实</div>
                 </div>
             </a>
-            <a href="/attentionadmin" style="text-decoration: none;">
+            <a href="/market" style="text-decoration: none;">
                 <div style="padding: 25px; background: linear-gradient(135deg, rgba(74,222,128,0.2) 0%, rgba(34,197,94,0.2) 100%); border-radius: 12px; border: 1px solid rgba(74,222,128,0.3); color: white; text-align: center; transition: transform 0.3s;" onmouseover="this.style.transform='scale(1.02)'" onmouseout="this.style.transform='scale(1)'">
                     <div style="font-size: 32px; margin-bottom: 15px;">🧩</div>
                     <div style="font-size: 18px; font-weight: 600;">清晰</div>
@@ -217,7 +217,7 @@ async def render_home(ctx: dict):
                     <div style="font-size: 11px; color: #4ade80; margin-top: 10px;">Market/News/Flow/Meta 四头并行</div>
                 </div>
             </a>
-            <a href="/attentionadmin" style="text-decoration: none;">
+            <a href="/market" style="text-decoration: none;">
                 <div style="padding: 25px; background: linear-gradient(135deg, rgba(168,85,247,0.2) 0%, rgba(147,51,234,0.2) 100%); border-radius: 12px; border: 1px solid rgba(168,85,247,0.3); color: white; text-align: center; transition: transform 0.3s;" onmouseover="this.style.transform='scale(1.02)'" onmouseout="this.style.transform='scale(1)'">
                     <div style="font-size: 32px; margin-bottom: 15px;">🎮</div>
                     <div style="font-size: 18px; font-weight: 600;">结果</div>
@@ -225,7 +225,7 @@ async def render_home(ctx: dict):
                     <div style="font-size: 11px; color: #a855f7; margin-top: 10px;">正业增执，负业减执</div>
                 </div>
             </a>
-            <a href="/attentionadmin" style="text-decoration: none;">
+            <a href="/market" style="text-decoration: none;">
                 <div style="padding: 25px; background: linear-gradient(135deg, rgba(251,191,36,0.2) 0%, rgba(234,179,8,0.2) 100%); border-radius: 12px; border: 1px solid rgba(251,191,36,0.3); color: white; text-align: center; transition: transform 0.3s;" onmouseover="this.style.transform='scale(1.02)'" onmouseout="this.style.transform='scale(1)'">
                     <div style="font-size: 32px; margin-bottom: 15px;">💾</div>
                     <div style="font-size: 18px; font-weight: 600;">错误</div>
@@ -596,8 +596,8 @@ def _render_values_section() -> str:
 
     link_html = '''
         <div style="margin-top: 20px; text-align: center;">
-            <a href="/attentionadmin" style="display: inline-block; padding: 10px 24px; background: linear-gradient(135deg, #00d4ff 0%, #0099cc 100%); border-radius: 20px; color: white; text-decoration: none; font-size: 13px; font-weight: 500;">
-                🧠 查看注意力系统详情 →
+            <a href="/market" style="display: inline-block; padding: 10px 24px; background: linear-gradient(135deg, #00d4ff 0%, #0099cc 100%); border-radius: 20px; color: white; text-decoration: none; font-size: 13px; font-weight: 500;">
+                📊 进入市场热点监测 →
             </a>
         </div>'''
 

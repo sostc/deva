@@ -79,8 +79,8 @@ class CognitionOrchestrator:
 
         # ========== SectorNarrative (地：叙事追踪) ==========
         try:
-            from deva.naja.cognition.sector_narrative import SectorNarrative
-            tracker = SectorNarrative()
+            from deva.naja.cognition.narrative import NarrativeTracker
+            tracker = NarrativeTracker()
             narrative_summary = tracker.get_summary(limit=10)
             if narrative_summary:
                 context["narratives"] = [
@@ -228,7 +228,7 @@ class CognitionOrchestrator:
     def _notify_cognition(self):
         """通知认知系统更新"""
         try:
-            from deva.naja.cognition.sector_narrative import SectorNarrative as NarrativeTracker
+            from deva.naja.cognition.narrative import NarrativeTracker
             tracker = NarrativeTracker()
             tracker.tick()
         except Exception as e:

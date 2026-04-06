@@ -62,7 +62,7 @@ class BaseProcessor:
 
     def process(self, item: AttentionTextItem) -> AttentionTextItem:
         """
-        处理文本项
+        处理文本项（默认透传，子类可覆盖）
 
         Args:
             item: 输入的注意力文本项
@@ -70,7 +70,7 @@ class BaseProcessor:
         Returns:
             处理后的文本项
         """
-        raise NotImplementedError
+        return item
 
     @property
     def name(self) -> str:

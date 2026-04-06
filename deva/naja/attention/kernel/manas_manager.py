@@ -15,6 +15,8 @@ import time
 import logging
 from typing import Optional
 
+from .manas_engine import ManasEngine
+
 log = logging.getLogger(__name__)
 
 
@@ -22,21 +24,33 @@ class ManasManager:
     """
     末那识引擎管理器
 
-    包装 AttentionKernel，管理 ManasEngine 的启用/禁用
+    管理 ManasEngine 的生命周期和状态
 
     使用方式：
+        # 方式1: 独立模式（推荐）
+        manager = ManasManager()
+        manager.set_enabled(True)
+
+        # 方式2: 包装 AttentionKernel 模式（已废弃）
         manager = ManasManager(kernel)
         manager.set_enabled(True)
 
-        # 获取末那识输出
-        output = manager.compute()
+        # 在主循环中调用
+        manas_output = manager.compute()
     """
 
-    def __init__(self, kernel):
+    def __init__(self, kernel=None):
         self.kernel = kernel
+        self._manas_engine = None
         self._enabled = False
         self._last_compute_time = 0.0
         self._last_output: Optional[dict] = None
+
+        if kernel is not None:
+            self._enabled = False
+        else:
+            self._manas_engine = None
+            self._enabled = False
 
     def set_enabled(self, enabled: bool):
         """
@@ -47,11 +61,15 @@ class ManasManager:
         """
         if enabled and not self._enabled:
             self._enabled = True
-            self.kernel.set_manas_enabled(True)
+            if self.kernel is not None:
+                self.kernel.set_manas_enabled(True)
+            else:
+                self._manas_engine = ManasEngine()
             log.info("[ManasManager] 末那识引擎已启用")
         elif not enabled:
             self._enabled = False
-            self.kernel.set_manas_enabled(False)
+            if self.kernel is not None:
+                self.kernel.set_manas_enabled(False)
             log.info("[ManasManager] 末那识引擎已关闭")
 
     def is_enabled(self) -> bool:
@@ -72,7 +90,11 @@ class ManasManager:
         if current_time - self._last_compute_time < 1.0 and self._last_output is not None:
             return self._last_output
 
-        manas_engine = self.kernel.get_manas_engine()
+        if self.kernel is not None:
+            manas_engine = self.kernel.get_manas_engine()
+        else:
+            manas_engine = self._manas_engine
+
         if manas_engine is None:
             return None
 
@@ -91,9 +113,12 @@ class ManasManager:
 
     def get_state(self) -> dict:
         """获取末那识引擎状态"""
+        kernel_manas_enabled = False
+        if self.kernel is not None:
+            kernel_manas_enabled = self.kernel.is_manas_enabled()
         return {
             "enabled": self._enabled,
-            "kernel_manas_enabled": self.kernel.is_manas_enabled(),
+            "kernel_manas_enabled": kernel_manas_enabled,
             "last_output": self._last_output,
         }
 
@@ -130,10 +155,21 @@ class ManasManager:
 
 
 _global_manager: Optional[ManasManager] = None
+_global_manager_initialized = False
 
 
 def get_manas_manager() -> Optional[ManasManager]:
-    """获取全局末那识管理器"""
+    """获取全局末那识管理器（自动启用）"""
+    global _global_manager, _global_manager_initialized
+    if _global_manager is None and not _global_manager_initialized:
+        _global_manager_initialized = True
+        try:
+            from deva.naja.common.singleton_registry import SR
+            _global_manager = SR('manas_manager')
+            if _global_manager is not None and not _global_manager.is_enabled():
+                _global_manager.set_enabled(True)
+        except Exception:
+            pass
     return _global_manager
 
 

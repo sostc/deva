@@ -22,8 +22,11 @@ from .cognition_bus import (
 )
 from .core import NewsMindStrategy, AttentionScorer
 from .engine import CognitionEngine, get_cognition_engine
-from .sector_narrative import SectorNarrative
-from .timing_narrative import (
+from .narrative import (
+    NarrativeTracker,
+    NarrativeState,
+    ValueSignal,
+    get_narrative_tracker,
     TimingNarrative,
     TimingNarrativeTracker,
     TimingNarrativeSense,
@@ -31,6 +34,18 @@ from .timing_narrative import (
     TimingStage,
     NarrativeTransition,
     StoryConflict,
+    NarrativeSupplyChainLinker,
+    SupplyChainImpact,
+    NarrativeSupplyChainEvent,
+    RiskLevel,
+    get_supply_chain_linker,
+    NARRATIVE_TO_BLOCK_LINK,
+    NARRATIVE_TO_MARKET_LINK,
+    MARKET_TO_NARRATIVE_LINK,
+    MARKET_INDEX_CONFIG,
+    get_linked_blocks,
+    get_linked_markets,
+    get_market_config,
 )
 from .semantic_cold_start import SemanticColdStart
 from .insight import InsightEngine, InsightPool, get_insight_engine, get_insight_pool
@@ -38,7 +53,7 @@ from .history_tracker import (
     AttentionHistoryTracker,
     AttentionSnapshot,
     AttentionChange,
-    SectorHotspotEvent,
+    BlockHotspotEvent,
     get_history_tracker,
 )
 from .cross_signal_analyzer import (
@@ -50,13 +65,6 @@ from .cross_signal_analyzer import (
     AttentionSnapshot as CrossAttentionSnapshot,
     CognitionFeedback,
     get_cross_signal_analyzer,
-)
-from .narrative_supply_chain_linker import (
-    NarrativeSupplyChainLinker,
-    SupplyChainImpact,
-    NarrativeSupplyChainEvent,
-    RiskLevel,
-    get_supply_chain_linker,
 )
 from .attention_text_router import (
     AttentionTextRouter,
@@ -110,9 +118,12 @@ __all__ = [
     # 向后兼容别名
     "MemoryEngine",
     "get_memory_engine",
-    # 天-地 叙事追踪
-    "SectorNarrative",         # 地：我们关心的主题
-    "TimingNarrative",         # 天：时机感知
+    # 天-地 叙事追踪 (narrative模块)
+    "NarrativeTracker",
+    "NarrativeState",
+    "ValueSignal",
+    "get_narrative_tracker",
+    "TimingNarrative",
     "TimingNarrativeTracker",
     "TimingNarrativeSense",
     "TimingType",
@@ -129,7 +140,7 @@ __all__ = [
     "AttentionHistoryTracker",
     "AttentionSnapshot",
     "AttentionChange",
-    "SectorHotspotEvent",
+    "BlockHotspotEvent",
     "get_history_tracker",
     # 跨信号分析器
     "CrossSignalAnalyzer",
@@ -145,6 +156,14 @@ __all__ = [
     "NarrativeSupplyChainEvent",
     "RiskLevel",
     "get_supply_chain_linker",
+    # 叙事-板块映射
+    "NARRATIVE_TO_BLOCK_LINK",
+    "NARRATIVE_TO_MARKET_LINK",
+    "MARKET_TO_NARRATIVE_LINK",
+    "MARKET_INDEX_CONFIG",
+    "get_linked_blocks",
+    "get_linked_markets",
+    "get_market_config",
     # 注意力文本处理架构
     "AttentionTextRouter",
     "AttentionTextItem",

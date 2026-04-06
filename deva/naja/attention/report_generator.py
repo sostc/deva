@@ -220,7 +220,7 @@ class AttentionReportGenerator:
                 'dual_engine': self._collect_dual_engine_stats(integration),
                 'strategies': self._collect_strategy_stats(),
                 'changes': self._collect_recent_changes(),
-                'hotspots': self._collect_sector_hotspots()
+                'hotspots': self._collect_block_hotspots()
             }
             
             # 更新缓存
@@ -370,21 +370,21 @@ class AttentionReportGenerator:
         except:
             return []
     
-    def _collect_sector_hotspots(self) -> List[Dict[str, Any]]:
+    def _collect_block_hotspots(self) -> List[Dict[str, Any]]:
         """收集板块热点事件"""
         try:
             from deva.naja.cognition.history_tracker import get_history_tracker
             tracker = get_history_tracker()
             if not tracker:
                 return []
-            
-            events = list(tracker.sector_hotspot_events)[-10:]
+
+            events = list(tracker.block_hotspot_events)[-10:]
             return [
                 {
                     'timestamp': e.timestamp,
                     'market_time': e.market_time,
-                    'sector_id': e.sector_id,
-                    'sector_name': e.sector_name,
+                    'block_id': e.block_id,
+                    'block_name': e.block_name,
                     'event_type': e.event_type,
                     'weight_change': e.weight_change,
                     'change_percent': e.change_percent,
@@ -394,7 +394,7 @@ class AttentionReportGenerator:
             ]
         except:
             return []
-    
+
     def _write_report_to_file(self, report: Dict[str, Any]):
         """将报告写入文件（Markdown格式）"""
         try:
@@ -472,7 +472,7 @@ class AttentionReportGenerator:
             lines.append(f"|------|------|------|------|")
             for event in reversed(hotspots[-5:]):  # 只显示最近5个
                 market_time = event.get('market_time', '--:--')
-                sector_name = event.get('sector_name', '未知')
+                block_name = event.get('block_name', '未知')
                 event_type = event.get('event_type', '')
                 change_pct = event.get('change_percent', 0)
                 
@@ -486,7 +486,7 @@ class AttentionReportGenerator:
                 event_desc = type_map.get(event_type, event_type)
                 change_str = f"{change_pct:+.1f}%"
                 
-                lines.append(f"| {market_time} | {sector_name} | {event_desc} | {change_str} |")
+                lines.append(f"| {market_time} | {block_name} | {event_desc} | {change_str} |")
             lines.append(f"")
         
         # 双引擎统计

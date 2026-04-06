@@ -450,7 +450,7 @@ _反思生成时间: {datetime.fromtimestamp(reflection.ts).strftime('%Y-%m-%d %
     def _clear_market_analysis(self) -> None:
         """清空市场分析缓存"""
         try:
-            from deva.naja.cognition.sector_narrative import SectorNarrative as NarrativeTracker
+            from deva.naja.cognition.narrative import NarrativeTracker
             db = NarrativeTracker._get_market_analysis_db()
             db.pop("latest", None)
         except Exception:
@@ -886,8 +886,12 @@ _反思生成时间: {datetime.fromtimestamp(reflection.ts).strftime('%Y-%m-%d %
     def _collect_merrill_clock_signals(self) -> List[Dict[str, Any]]:
         """收集美林时钟的真实周期数据"""
         try:
-            from deva.naja.cognition.merrill_clock_to_manas import get_merrill_phase_display, get_merrill_macro_signal
-            from deva.naja.cognition.merrill_clock_engine import get_merrill_clock_engine, MerrillClockPhase
+            from deva.naja.cognition.merrill_clock import (
+                get_merrill_phase_display,
+                get_merrill_macro_signal,
+                get_merrill_clock_engine,
+                MerrillClockPhase,
+            )
 
             clock = get_merrill_clock_engine()
             signal = clock.get_current_signal()
@@ -1027,7 +1031,7 @@ _反思生成时间: {datetime.fromtimestamp(reflection.ts).strftime('%Y-%m-%d %
         """按来源分类信号"""
         categories = {
             "radar": [],      # 雷达事件 (pattern, drift, anomaly, sector_anomaly, news_topic)
-            "attention": [],  # 注意力事件 (global_attention_shift, market_state_shift, sector_hotspot等)
+            "attention": [],  # 注意力事件 (global_attention_shift, market_state_shift, block_hotspot等)
             "cross_signal": [],  # 共振信号
             "feedback": [],   # 实验反馈 (experiment_feedback_summary, bandit_learning_analysis)
             "effectiveness": [],  # 有效性分析 (effective_pattern, ineffective_pattern)
@@ -1039,7 +1043,7 @@ _反思生成时间: {datetime.fromtimestamp(reflection.ts).strftime('%Y-%m-%d %
 
         radar_types = {'pattern', 'drift', 'anomaly', 'sector_anomaly', 'news_topic'}
         attention_types = {'global_attention_shift', 'market_activity_shift', 'sector_concentration_shift',
-                          'sector_hotspot', 'symbol_attention_change', 'market_state_shift'}
+                          'block_hotspot', 'symbol_attention_change', 'market_state_shift'}
         feedback_types = {'experiment_feedback_summary', 'bandit_learning_analysis'}
         effectiveness_types = {'effective_pattern', 'ineffective_pattern'}
         liquidity_types = {'liquidity_structure'}
@@ -1402,7 +1406,7 @@ _反思生成时间: {datetime.fromtimestamp(reflection.ts).strftime('%Y-%m-%d %
                 "上次结论回顾": str(data.get("上次结论回顾", "")),
             }
         except json.JSONDecodeError as e:
-            print(f"[LLMReflection] JSON 解析失败: {e}, response: {response[:200]}")
+            log.warning(f"[LLMReflection] JSON 解析失败: {e}, response: {response[:200]}")
             return None
 
     def _save_reflection(self, reflection: Reflection) -> None:
@@ -1432,7 +1436,7 @@ _反思生成时间: {datetime.fromtimestamp(reflection.ts).strftime('%Y-%m-%d %
             }
             pool.ingest_attention_event(insight_data)
         except Exception as e:
-            print(f"[LLMReflection] 推送到洞察池失败: {e}")
+            log.error(f"[LLMReflection] 推送到洞察池失败: {e}")
 
     def trigger_now(self, min_signals: int = 1) -> Optional[Reflection]:
         """手动触发一次反思

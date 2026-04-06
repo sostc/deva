@@ -121,10 +121,10 @@ class AttentionKernel:
             return None
 
     def _get_narrative_tracker(self):
-        """获取叙事追踪器（SectorNarrative / 地）"""
+        """获取叙事追踪器（NarrativeTracker / 地）"""
         try:
-            from deva.naja.cognition import SectorNarrative
-            return SectorNarrative()
+            from deva.naja.cognition import NarrativeTracker
+            return NarrativeTracker()
         except ImportError:
             return None
 
@@ -372,8 +372,8 @@ class AttentionKernel:
         - regime_score 调整市场/趋势信号权重
         - timing_score 调整行动紧迫度
         """
-        from .head import AttentionHead
-        from .multi_head import MultiHeadAttention
+        from .attention_scorer import AttentionHead
+        from .multi_scorer import MultiHeadAttention
 
         focus = unified_output.attention_focus.value
         portfolio_sig = unified_output.portfolio_signal.value

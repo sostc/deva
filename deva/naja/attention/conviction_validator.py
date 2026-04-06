@@ -61,9 +61,12 @@ ConvictionValidator - 价值验证层
 """
 
 from __future__ import annotations
+import logging
 import time
 from typing import Dict, List, Optional, Set, Tuple, Any, TYPE_CHECKING
 from dataclasses import dataclass, field
+
+log = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from deva.naja.attention.portfolio import Portfolio, PortfolioSummary
@@ -159,9 +162,9 @@ class ConvictionValidator:
             world_narrative={"AI": 0.8, "芯片": 0.6, "新能源": 0.4},
         )
 
-        print(f"信念度: {result.conviction_score}")
-        print(f"共识板块: {[b for b,_ in result.consensus_blocks]}")
-        print(f"盲区: {[b for b,_ in result.blind_spots]}")
+        log.info(f"信念度: {result.conviction_score}")
+        log.info(f"共识板块: {[b for b,_ in result.consensus_blocks]}")
+        log.info(f"盲区: {[b for b,_ in result.blind_spots]}")
     """
 
     def __init__(

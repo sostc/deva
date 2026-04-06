@@ -1,10 +1,13 @@
-"""注意力系统流式 UI - 展示注意力数据流和层次
+"""市场热点流式 UI - 展示市场热点数据流和层次
 
 一切皆流，无物永驻
 """
 
+import logging
 from typing import Dict, List, Any, Optional
 import time
+
+log = logging.getLogger(__name__)
 
 from ...common.ui_style import format_timestamp
 
@@ -36,7 +39,7 @@ def _safe_val(val, default="-"):
 def render_attention_flow_ui() -> str:
     """渲染注意力系统流式 UI - 返回 HTML 字符串
 
-    整合注意力系统的核心指标到一个清晰的流式界面
+    整合市场热点系统的核心指标到一个清晰的流式界面
     """
     try:
         from deva.naja.attention.trading_center import get_trading_center
@@ -56,15 +59,15 @@ def render_attention_flow_ui() -> str:
         if integration and integration.attention_system:
             try:
                 us_data = integration.attention_system.get_us_attention_state()
-                print(f"[Flow-UI] us_data global_attention={us_data.get('global_attention', 0) if us_data else 'None'}")
+                log.debug(f"[Flow-UI] us_data global_attention={us_data.get('global_attention', 0) if us_data else 'None'}")
             except Exception as e:
-                print(f"[Flow-UI] get_us_attention_state failed: {e}")
+                log.warning(f"[Flow-UI] get_us_attention_state failed: {e}")
                 us_data = None
 
-        print(f"[Flow-UI] stats processed_frames={stats.get('processed_frames', 0)}, is_cn={is_cn}, is_us={is_us}")
+        log.debug(f"[Flow-UI] stats processed_frames={stats.get('processed_frames', 0)}, is_cn={is_cn}, is_us={is_us}")
 
     except Exception as e:
-        print(f"[Flow-UI] render_attention_flow_ui failed: {e}")
+        log.error(f"[Flow-UI] render_attention_flow_ui failed: {e}")
         import traceback
         traceback.print_exc()
         return _render_empty_state()
@@ -82,14 +85,14 @@ def _render_empty_state() -> str:
         background: rgba(255,255,255,0.02);
         border-radius: 8px;
     ">
-        <div style="font-size: 14px; margin-bottom: 8px;">⚠️ 注意力系统未初始化</div>
-        <div style="font-size: 11px;">请先初始化注意力系统</div>
+        <div style="font-size: 14px; margin-bottom: 8px;">⚠️ 市场热点监测未初始化</div>
+        <div style="font-size: 11px;">请先启动市场数据接入</div>
     </div>
     """
 
 
 def _build_attention_flow_html(stats: Dict, context: Dict, integration, is_cn: bool, is_us: bool, us_data: Dict) -> str:
-    """构建注意力流 HTML"""
+    """构建市场热点流 HTML"""
 
     processed_frames = stats.get('processed_frames', 0)
     filtered_frames = stats.get('filtered_frames', 0)
@@ -189,7 +192,7 @@ def _build_attention_flow_html(stats: Dict, context: Dict, integration, is_cn: b
     <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; margin-bottom: 6px;">
         <div style="background: rgba(74,222,128,0.1); padding: 6px; border-radius: 4px; text-align: center;">
             <div style="font-size: 14px; font-weight: 700; color: #4ade80;">{global_attention:.3f}</div>
-            <div style="font-size: 8px; color: #64748b;">全局注意力</div>
+            <div style="font-size: 8px; color: #64748b;">热点强度</div>
         </div>
         <div style="background: rgba(251,146,60,0.1); padding: 6px; border-radius: 4px; text-align: center;">
             <div style="font-size: 14px; font-weight: 700; color: #fb923c;">{active_sector_count}</div>
@@ -231,8 +234,8 @@ def _build_attention_flow_html(stats: Dict, context: Dict, integration, is_cn: b
 
     flow_diagram_html = _render_flow_diagram(global_attention, active_sector_count, high_attention_symbol_count)
 
-    flow_title = "🇺🇸 美股数据流" if show_us_only else ("🇨🇳 A股数据流" if show_cn_only else "🌊 注意力数据流")
-    flow_subtitle = "一切皆流，无物永驻 — 美股行情 → 注意力计算 → 策略调度" if show_us_only else ("一切皆流，无物永驻 — A股数据 → 过滤 → 注意力 → 策略调度" if show_cn_only else "一切皆流，无物永驻 — 数据 → 过滤 → 注意力 → 策略调度")
+    flow_title = "🇺🇸 美股热点流" if show_us_only else ("🇨🇳 A股热点流" if show_cn_only else "🌊 市场热点流")
+    flow_subtitle = "一切皆流，无物永驻 — 美股行情 → 热点计算 → 策略调度" if show_us_only else ("一切皆流，无物永驻 — A股行情 → 过滤 → 热点 → 策略调度" if show_cn_only else "一切皆流，无物永驻 — 行情数据 → 过滤 → 热点 → 策略调度")
 
     html = f"""
     <div style="
@@ -247,7 +250,7 @@ def _build_attention_flow_html(stats: Dict, context: Dict, integration, is_cn: b
                 {flow_title}
             </div>
             <div style="font-size: 10px; color: #475569;">
-                {processed_frames} 帧 | 过滤 {filter_pct}%
+                {processed_frames} 条 | 过滤 {filter_pct}%
             </div>
         </div>
         <div style="font-size: 11px; color: #475569; margin-bottom: 12px;">
@@ -263,7 +266,7 @@ def _build_attention_flow_html(stats: Dict, context: Dict, integration, is_cn: b
             </div>
             <div>
                 <div style="font-size: 10px; font-weight: 600; color: #64748b; margin-bottom: 6px;">
-                    👁️ 注意力层次
+                    👁️ 热点层次
                 </div>
                 {attention_hierarchy_html}
             </div>
@@ -283,11 +286,11 @@ def _build_attention_flow_html(stats: Dict, context: Dict, integration, is_cn: b
 
 
 def _render_flow_diagram(global_attention: float, active_blocks: int, high_attention: int) -> str:
-    """渲染注意力流图"""
+    """渲染市场热点流图"""
     items = [
-        ("📥 数据输入", "#60a5fa", True),
+        ("📥 行情输入", "#60a5fa", True),
         ("🔊 噪音过滤", "#fb923c", True),
-        ("👁️ 注意力计算", "#14b8a6", True),
+        ("👁️ 热点计算", "#14b8a6", True),
         ("📡 策略调度", "#a855f7", high_attention > 0),
         ("🤖 策略执行", "#0ea5e9", global_attention > 0.5),
         ("📤 信号输出", "#4ade80", active_blocks > 0),
@@ -320,7 +323,7 @@ def _get_friendly_name(item_id: str, item_type: str, tracker) -> str:
         tracker: 历史追踪器实例
     """
     if item_type == 'block':
-        name = tracker.get_sector_name(item_id) if tracker else item_id
+        name = tracker.get_block_name(item_id) if tracker else item_id
         if name != item_id:
             return f"{name}"
         return f"{item_id}"
@@ -332,7 +335,7 @@ def _get_friendly_name(item_id: str, item_type: str, tracker) -> str:
 
 
 def render_attention_layers_detail() -> str:
-    """渲染注意力层次详情 - 板块和个股分布"""
+    """渲染热点层次详情 - 题材和个股分布"""
     try:
         from deva.naja.attention.trading_center import get_trading_center
         from deva.naja.attention.integration import get_attention_integration
@@ -409,23 +412,23 @@ def render_attention_layers_detail() -> str:
     ">
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
             <div style="font-size: 13px; font-weight: 600; color: #a855f7;">
-                🎯 注意力分布
+                🎯 热点分布
             </div>
             <div style="font-size: 9px; color: #64748b;">
-                板块: {len(block_weights)} | 个股: {len(symbol_weights)} | 历史: {history_info}
+                题材: {len(block_weights)} | 个股: {len(symbol_weights)} | 历史: {history_info}
             </div>
         </div>
 
         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
             <div>
                 <div style="font-size: 10px; font-weight: 600; color: #fb923c; margin-bottom: 6px;">
-                    板块注意力 (Top10)
+                    题材热度 (Top10)
                 </div>
                 {sector_bars or '<div style="color: #64748b; font-size: 10px;">暂无数据</div>'}
             </div>
             <div>
                 <div style="font-size: 10px; font-weight: 600; color: #f87171; margin-bottom: 6px;">
-                    个股注意力 (Top15)
+                    个股热度 (Top15)
                 </div>
                 {symbol_bars or '<div style="color: #64748b; font-size: 10px;">暂无数据</div>'}
             </div>
@@ -712,7 +715,7 @@ def render_noise_filter_panel() -> str:
         noise_blocks = sorted(list(auto_blacklist | manual_blacklist))[:8]
         noise_block_tags = ""
         for block_id in noise_blocks:
-            block_display = tracker.get_sector_name(block_id) if tracker else block_id
+            block_display = tracker.get_block_name(block_id) if tracker else block_id
             if block_display != block_id:
                 noise_block_tags += f'<span style="display: inline-block; padding: 1px 4px; background: rgba(248,113,113,0.15); color: #f87171; border-radius: 3px; font-size: 8px; margin: 1px;" title="{block_id}">{block_display[:8]}</span>'
             else:

@@ -10,8 +10,10 @@
 from __future__ import annotations
 
 import logging
+import os
 import threading
 import time
+from datetime import datetime
 from typing import Any, Dict, List, Optional, Set, Callable
 
 from deva import NB
@@ -452,8 +454,15 @@ class MarketDataObserver:
                             need_fetch = True
                             datasource_available = True
                         elif self._tracked_stocks:
-                            need_fetch = True
-                            datasource_available = True
+                            market_open = self._is_market_open_now()
+                            if market_open:
+                                need_fetch = True
+                                datasource_available = True
+                            else:
+                                need_fetch = False
+                                datasource_available = False
+                                if iteration == 1 or iteration % 20 == 0:
+                                    log.info(f"[MarketObserver] 市场休市中，跳过主动获取")
 
                     if need_fetch:
                         log.info(f"[MarketObserver] 主动获取数据，跟踪股票: {len(self._tracked_stocks)} 个")
@@ -767,7 +776,8 @@ class MarketDataObserver:
         """检查是否允许运行"""
         import os as os_module
         env_lab = os_module.environ.get('NAJA_LAB_MODE') or os_module.environ.get('LAB_MODE')
-        result = (self._force_mode or self._is_experiment_mode() or env_lab or self._current_phase in ('trading', 'pre_market', 'closed'))
+        result = (self._force_mode or self._is_experiment_mode() or env_lab or
+                  self._current_phase in ('trading', 'pre_market', 'call_auction'))
         if not result:
             log.info(f"[MarketObserver] _is_allowed_to_run=False: force={self._force_mode}, experiment={self._is_experiment_mode()}, env_lab={env_lab}, phase={self._current_phase}")
         return result

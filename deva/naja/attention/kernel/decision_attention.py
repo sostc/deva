@@ -72,6 +72,26 @@ class DecisionAttention:
         self._last_temperature = 1.0
         self._last_strategy_performance = 0.5
 
+    def _get_portfolio(self):
+        """获取虚拟持仓"""
+        try:
+            from deva.naja.bandit import get_virtual_portfolio
+            return get_virtual_portfolio()
+        except ImportError:
+            return None
+
+    def _get_cash_ratio(self, portfolio) -> float:
+        """获取现金比例"""
+        if portfolio is None:
+            return 0.5
+        try:
+            summary = portfolio.get_summary()
+            available = summary.get('available_capital', 0)
+            total = summary.get('total_capital', 1)
+            return available / max(total, 1) if total > 0 else 0.5
+        except:
+            return 0.5
+
     def set_manas_engine(self, manas):
         """设置末那识引擎"""
         self._manas = manas
@@ -87,11 +107,8 @@ class DecisionAttention:
         Returns:
             float: 温度参数 T，范围 [0.5, 2.0]
         """
-        if self._fd is None:
-            return 1.0
-
-        capital = self._fd.capital
-        cash_ratio = capital.cash_ratio if hasattr(capital, 'cash_ratio') else 0.5
+        portfolio = self._get_portfolio()
+        cash_ratio = self._get_cash_ratio(portfolio)
 
         T = 1.0 + (1.0 - cash_ratio) * 0.8
         T = max(0.5, min(2.0, T))
@@ -113,28 +130,10 @@ class DecisionAttention:
         Returns:
             float: α 因子，范围 [0.5, 1.5]
         """
-        if self._fd is None:
-            base_alpha = 0.5 + strategy_performance * 0.5
-            self._last_alpha = base_alpha
-            self._last_strategy_performance = strategy_performance
-            return base_alpha
-
-        capability = self._fd.capability
-        strategy_count = getattr(capability, 'strategy_count', 1)
-        is_ready = getattr(capability, 'is_ready', True)
-
-        readiness_factor = 1.0 if is_ready else 0.5
-        diversity_factor = min(1.0, strategy_count / 3)
-
         base_alpha = 0.5 + strategy_performance * 0.5
-        capability_bonus = capability.get('multiplier', 1.0) if isinstance(capability, dict) else 1.0
-
-        α = base_alpha * readiness_factor * diversity_factor * capability_bonus
-        α = max(0.3, min(1.5, α))
-
-        self._last_alpha = α
+        self._last_alpha = base_alpha
         self._last_strategy_performance = strategy_performance
-        return α
+        return base_alpha
 
     def modulate(self, raw_scores: list, strategy_performance: float = 0.5) -> tuple:
         """

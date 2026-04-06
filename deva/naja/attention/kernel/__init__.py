@@ -17,9 +17,9 @@ Attention Kernel - 事件级注意力计算核心
 
 from .event import AttentionEvent
 from .state import QueryState
-from .encoder import Encoder
-from .head import AttentionHead
-from .multi_head import MultiHeadAttention
+from .event_encoder import Encoder
+from .attention_scorer import AttentionHead
+from .multi_scorer import MultiHeadAttention
 from .memory import AttentionMemory
 from .kernel import AttentionKernel
 from .heads import get_default_heads, get_regime_aware_heads

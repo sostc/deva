@@ -99,14 +99,23 @@ from typing import Dict, Any, Optional, List, Tuple
 from dataclasses import dataclass, field
 from enum import Enum
 
-from deva.naja.manas.output import (
-    HarmonyState,
-    ActionType,
-    AttentionFocus,
-    PortfolioSignal,
-)
-
 log = logging.getLogger(__name__)
+
+
+class AttentionFocus(Enum):
+    """注意力聚焦类型"""
+    WATCH = "watch"
+    STOP_LOSS = "stop_loss"
+    TAKE_PROFIT = "take_profit"
+    REBALANCE = "rebalance"
+    ACCUMULATE = "accumulate"
+
+
+class HarmonyState(Enum):
+    """和谐状态"""
+    RESONANCE = "resonance"
+    NEUTRAL = "neutral"
+    RESISTANCE = "resistance"
 
 
 class BiasState(Enum):
@@ -114,6 +123,23 @@ class BiasState(Enum):
     NEUTRAL = "neutral"
     GREED = "greed"
     FEAR = "fear"
+
+
+class ActionType(Enum):
+    """行动类型"""
+    HOLD = "hold"
+    ACT_FULLY = "act_fully"
+    ACT_CAREFULLY = "act_carefully"
+    ACT_MINIMALLY = "act_minimally"
+
+
+class PortfolioSignal(Enum):
+    """持仓信号"""
+    NONE = "none"
+    STOP_LOSS = "stop_loss"
+    TAKE_PROFIT = "take_profit"
+    REBALANCE = "rebalance"
+    ACCUMULATE = "accumulate"
 
 
 @dataclass

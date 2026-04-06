@@ -189,7 +189,7 @@ class InsightBuilder:
             theme = self._extract_narrative_signal_info(event, signal_type, payload, raw_data)
         elif signal_type == "attention_shift":
             theme = self._extract_attention_shift_info(event, payload, raw_data)
-        elif signal_type in ("sector_hotspot", "sector_anomaly"):
+        elif signal_type in ("block_hotspot", "sector_anomaly"):
             theme = self._extract_sector_signal_info(event, signal_type, payload, raw_data)
 
         if len(summary) < 15 and theme:
@@ -239,7 +239,7 @@ class InsightBuilder:
             "topic_trend_shift": "话题趋势发生转变",
             "narrative_drift": "叙事漂移检测",
             "attention_shift": "注意力发生转移",
-            "sector_hotspot": "板块成为热点",
+            "block_hotspot": "板块成为热点",
             "sector_anomaly": "板块出现异常",
         }
         return signal_labels.get(signal_type, f"信号类型: {signal_type}")

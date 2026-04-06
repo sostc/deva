@@ -72,9 +72,12 @@ AttentionFusion - 注意力融合层
 """
 
 from __future__ import annotations
+import logging
 import time
 from typing import Dict, List, Optional, Set, Tuple, Any, TYPE_CHECKING
 from dataclasses import dataclass, field
+
+log = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from deva.naja.attention.portfolio import Portfolio, PortfolioSummary
@@ -197,11 +200,10 @@ class AttentionFusion:
         signals = result.signals
         for s in signals[:5]:
             if s.should_act:
-                print(f"Buy {s.block_id}: {s.action_reason}")
+                log.info(f"Buy {s.block_id}: {s.action_reason}")
 
-        # 获取信念验证结果
-        print(f"信念度: {result.conviction_score}")
-        print(f"时机信号: {result.timing_signal}")
+        log.info(f"信念度: {result.conviction_score}")
+        log.info(f"时机信号: {result.timing_signal}")
     """
 
     def __init__(
@@ -252,7 +254,7 @@ class AttentionFusion:
         if self._narrative_tracker is not None:
             return self._narrative_tracker.get_world_narrative()
         try:
-            from deva.naja.cognition.narrative_tracker import get_narrative_tracker
+            from deva.naja.cognition.narrative import get_narrative_tracker
             tracker = get_narrative_tracker()
             return tracker.get_world_narrative()
         except Exception:
@@ -271,7 +273,7 @@ class AttentionFusion:
         if self._narrative_tracker is not None:
             return self._narrative_tracker.get_value_market_summary()
         try:
-            from deva.naja.cognition.narrative_tracker import get_narrative_tracker
+            from deva.naja.cognition.narrative import get_narrative_tracker
             tracker = get_narrative_tracker()
             return tracker.get_value_market_summary()
         except Exception:

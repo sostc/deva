@@ -119,10 +119,10 @@ class _IntelligenceAugmentedSystemInternal:
     def initialize(
         self,
         sectors: List[SectorConfig],
-        symbol_sector_map: Dict[str, List[str]]
+        symbol_block_map: Dict[str, List[str]]
     ):
         """初始化系统"""
-        self.base_system.initialize(sectors, symbol_sector_map)
+        self.base_system.initialize(sectors, symbol_block_map)
         self._initialized = True
 
         if hasattr(self, 'propagation'):
@@ -255,14 +255,14 @@ class _IntelligenceAugmentedSystemInternal:
             for s in unique_sectors
         ]
 
-        symbol_sector_map = {}
+        symbol_block_map = {}
         for i, symbol in enumerate(symbols):
             symbol_str = str(symbol)
-            sector_list = symbol_sector_map.get(symbol_str, [])
+            sector_list = symbol_block_map.get(symbol_str, [])
             sector_list.append(str(sector_ids[i]))
-            symbol_sector_map[symbol_str] = sector_list
+            symbol_block_map[symbol_str] = sector_list
 
-        self.initialize(sector_configs, symbol_sector_map)
+        self.initialize(sector_configs, symbol_block_map)
 
     def _get_datasource_control_with_budget(self, budget_allocation) -> Dict[str, Any]:
         """获取数据源控制"""
