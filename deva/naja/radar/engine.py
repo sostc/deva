@@ -292,9 +292,9 @@ class SignalAnomalyDetector:
             "metadata": {"strategy_id": strategy_id, "signal_type": signal_type},
         }
 
-    def scan_sector_anomaly(
+    def scan_block_anomaly(
         self,
-        sector_id: str,
+        block_id: str,
         symbols: List[str],
         returns: List[float],
         timestamp: float
@@ -314,18 +314,18 @@ class SignalAnomalyDetector:
             direction = "上涨" if up_ratio > 0.7 else "下跌"
             return {
                 "source": "radar",
-                "signal_type": "radar_sector_anomaly",
+                "signal_type": "radar_block_anomaly",
                 "score": max(up_ratio, down_ratio),
-                "content": f"板块{sector_id}出现齐涨齐跌异常：{direction}家数占比{max(up_ratio, down_ratio):.1%}",
+                "content": f"板块{block_id}出现齐涨齐跌异常：{direction}家数占比{max(up_ratio, down_ratio):.1%}",
                 "raw_data": {
-                    "sector_id": sector_id,
+                    "block_id": block_id,
                     "symbols": symbols,
                     "returns": returns,
                     "up_ratio": up_ratio,
                     "down_ratio": down_ratio,
                 },
                 "timestamp": timestamp,
-                "metadata": {"sector_id": sector_id},
+                "metadata": {"block_id": block_id},
             }
         return None
 
@@ -473,9 +473,9 @@ class RadarEngine:
         self._emit_to_insight_pool(stored_events)
         return stored_events
 
-    def ingest_sector_data(
+    def ingest_block_data(
         self,
-        sector_id: str,
+        block_id: str,
         symbols: List[str],
         returns: List[float],
         timestamp: Optional[float] = None
@@ -484,7 +484,7 @@ class RadarEngine:
         处理板块数据，检测板块联动异常
 
         Args:
-            sector_id: 板块ID
+            block_id: 板块ID
             symbols: 股票代码列表
             returns: 涨跌幅列表
             timestamp: 时间戳
@@ -493,7 +493,7 @@ class RadarEngine:
             检测到的异常信号
         """
         ts = timestamp or time.time()
-        signal = self.market_scanner.scan_sector_anomaly(sector_id, symbols, returns, ts)
+        signal = self.market_scanner.scan_block_anomaly(block_id, symbols, returns, ts)
 
         if signal:
             event = self._signal_to_event(signal)
@@ -1116,7 +1116,7 @@ class RadarEngine:
         这些是策略脉络中 signal_types 包含 radar 相关类型的策略
         """
         with self._thread_lock:
-            radar_signal_types = {'pattern', 'drift', 'anomaly', 'sector', 'openrouter_trend'}
+            radar_signal_types = {'pattern', 'drift', 'anomaly', 'block', 'openrouter_trend'}
             threads = []
             for t in self._threads.values():
                 if t.thread_type == "producer" and t.signal_types:
@@ -1235,7 +1235,7 @@ class RadarEngine:
 
                         signal_types = []
                         if output_targets.get('radar'):
-                            signal_types.extend(['pattern', 'drift', 'anomaly', 'sector'])
+                            signal_types.extend(['pattern', 'drift', 'anomaly', 'block'])
                         if output_targets.get('memory'):
                             signal_types.extend(['signal', 'attention'])
 

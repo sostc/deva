@@ -418,6 +418,17 @@ class _IntelligenceAugmentedSystemInternal:
         if hasattr(self, 'strategy_learning') and self.config.enable_strategy_learning:
             self.strategy_learning.persist()
 
+        if hasattr(self, 'attention_system') and self.attention_system is not None:
+            try:
+                from deva import NB
+                state = self.attention_system.save_state()
+                db = NB('naja_attention_state')
+                db['attention_system_state'] = state
+                db.persist()
+                log.info(f"[NajaAttentionIntegration] 注意力系统状态已持久化")
+            except Exception as e:
+                log.warning(f"[NajaAttentionIntegration] 持久化注意力系统状态失败: {e}")
+
     def load_state(self):
         """加载状态"""
         if hasattr(self, 'feedback_loop') and self.config.enable_feedback:
@@ -425,6 +436,19 @@ class _IntelligenceAugmentedSystemInternal:
 
         if hasattr(self, 'strategy_learning') and self.config.enable_strategy_learning:
             self.strategy_learning.load()
+
+        if hasattr(self, 'attention_system') and self.attention_system is not None:
+            try:
+                from deva import NB
+                db = NB('naja_attention_state')
+                if 'attention_system_state' in db:
+                    state = db['attention_system_state']
+                    self.attention_system.load_state(state)
+                    log.info(f"[NajaAttentionIntegration] 注意力系统状态已恢复")
+                else:
+                    log.info(f"[NajaAttentionIntegration] 未找到保存的注意力系统状态")
+            except Exception as e:
+                log.warning(f"[NajaAttentionIntegration] 恢复注意力系统状态失败: {e}")
 
     def get_summary(self) -> Dict[str, Any]:
         """获取系统摘要"""

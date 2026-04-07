@@ -1,7 +1,7 @@
 """
-测试补执行链路 - 新闻获取和发布到雷达
+测试唤醒同步链路 - 新闻获取和发布到雷达
 
-运行方式: python -m deva.naja.system_state.test_backfill
+运行方式: python -m deva.naja.system_state.test_wake_sync
 """
 
 import asyncio
@@ -147,7 +147,7 @@ def test_publish_to_radar(news_item):
             metadata={
                 "news_id": news.id,
                 "original_source": news.source,
-                "backfill": True,
+                "wake_sync": True,
             },
         )
 
@@ -178,7 +178,7 @@ def test_publish_to_radar(news_item):
 
 def main():
     print("="*60)
-    print("补执行链路测试")
+    print("唤醒同步链路测试")
     print("="*60)
 
     items = test_jin10_api()

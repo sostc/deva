@@ -220,7 +220,7 @@ class SystemStateManager:
             "last_wake_time": self._state.get("last_wake_time"),
             "sleep_duration_hours": round(sleep_duration / 3600, 2),
             "sleep_duration_seconds": round(sleep_duration, 1),
-            "needs_backfill": sleep_duration > 3600,
+            "needs_wake_sync": sleep_duration > 3600,
             "task_count": len(self._state.get("task_execution_records", {})),
         }
 
