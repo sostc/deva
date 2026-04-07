@@ -41,7 +41,7 @@ def _safe_float(value: Any, default: float = 0.0) -> float:
 @dataclass
 class SectorClusterResult:
     """板块聚类结果"""
-    sector: str
+    block: str
     stock_count: int
     avg_change: float
     change_std: float
@@ -286,7 +286,7 @@ class MarketComboAnalyzer:
                     "code": row.get("code", ""),
                     "name": row.get("name", ""),
                     "change": change * 100,
-                    "sector": row.get("sector", "other"),
+                    "block": row.get("block", row.get("sector", "other")),
                 })
 
         anomalies.sort(key=lambda x: x["change"], reverse=True)
@@ -343,7 +343,7 @@ class MarketComboAnalyzer:
             ]
 
             results[sector_name] = SectorClusterResult(
-                sector=sector_name,
+                block=sector_name,
                 stock_count=len(sector_stocks),
                 avg_change=float(avg_change * 100),
                 change_std=float(std_change * 100),
@@ -359,8 +359,8 @@ class MarketComboAnalyzer:
         """自动按sector字段分组"""
         sectors = defaultdict(list)
         for stock in stocks:
-            sector = stock.get("sector", "other")
-            sectors[sector].append(stock)
+            block = stock.get("sector", "other")
+            blocks[block].append(stock)
         return dict(sectors)
 
     def _compute_sector_correlation(self, sector_stocks: List[Dict]) -> float:
@@ -474,7 +474,7 @@ class MarketComboAnalyzer:
             if s.avg_change > 2 and s.stock_count >= 3
         ]
         if strong_sectors:
-            sector_names = ", ".join([s.sector for s in strong_sectors[:3]])
+            sector_names = ", ".join([s.block for s in strong_sectors[:3]])
             insights.append(f"强势板块: {sector_names}")
 
         weak_sectors = [
@@ -482,7 +482,7 @@ class MarketComboAnalyzer:
             if s.avg_change < -3 and s.stock_count >= 3
         ]
         if weak_sectors:
-            sector_names = ", ".join([s.sector for s in weak_sectors[:3]])
+            sector_names = ", ".join([s.block for s in weak_sectors[:3]])
             insights.append(f"弱势板块: {sector_names}")
 
         if temporal.drift_detected:
@@ -508,7 +508,7 @@ class MarketComboAnalyzer:
             if s.avg_change < -5 and s.stock_count >= 5
         ]
         if large_cap_loss:
-            sector_names = ", ".join([s.sector for s in large_cap_loss[:2]])
+            sector_names = ", ".join([s.block for s in large_cap_loss[:2]])
             warnings.append(f"重点板块大幅下跌: {sector_names}")
 
         if temporal.anomaly_score > 0.8:
@@ -571,8 +571,8 @@ def run_combo_analysis(stocks: List[Dict]) -> MarketComboReport:
 
     sectors = defaultdict(list)
     for stock in stocks:
-        sector = stock.get("sector", "other")
-        sectors[sector].append(stock)
+        block = stock.get("sector", "other")
+        blocks[block].append(stock)
 
     return analyzer.analyze(stocks, dict(sectors))
 

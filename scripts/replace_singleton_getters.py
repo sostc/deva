@@ -59,7 +59,7 @@ REPLACEMENTS = {
     'get_manas_manager()': "SR('manas_manager')",
     'get_auto_tuner()': "SR('auto_tuner')",
     'get_liquidity_manager()': "SR('liquidity_manager')",
-    'get_replay_scheduler()': "SR('market_replay_scheduler')",
+    'get_replay_scheduler()': "SR('daily_review_scheduler')",
     'get_cognition_orchestrator()': "SR('cognition_orchestrator')",
 
     # 基础层

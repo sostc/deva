@@ -216,7 +216,7 @@ class AttentionTracker:
     def _from_dict(self, data: dict) -> TrackedAttention:
         return TrackedAttention(
             symbol=data.get('symbol', ''),
-            sector_id=data.get('sector_id', ''),
+            block_id=data.get('sector_id', ''),
             strategy_id=data.get('strategy_id', ''),
             strategy_name=data.get('strategy_name', ''),
             attention_score=data.get('attention_score', 0.0),
@@ -279,7 +279,7 @@ class AttentionTracker:
             
             tracked = TrackedAttention(
                 symbol=symbol,
-                sector_id=sector_id,
+                block_id=sector_id,
                 strategy_id=strategy_id,
                 strategy_name=strategy_name,
                 attention_score=attention_score,
@@ -346,7 +346,7 @@ class AttentionTracker:
             reporter = get_feedback_report_generator()
             reporter.record_signal(
                 symbol=symbol,
-                sector_id=sector_id,
+                block_id=sector_id,
                 strategy_id=strategy_id,
                 action=action,
                 attention_score=attention_score,
@@ -455,7 +455,7 @@ class AttentionTracker:
             
             result = ObservationResult(
                 symbol=tracked.symbol,
-                sector_id=tracked.sector_id,
+                block_id=tracked.sector_id,
                 strategy_id=tracked.strategy_id,
                 attention_score=tracked.attention_score,
                 prediction_score=tracked.prediction_score,

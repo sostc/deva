@@ -148,149 +148,9 @@ def get_default_profiles() -> List[ValueProfile]:
     """获取默认价值观配置"""
     return [
         ValueProfile(
-            name="趋势追踪",
-            value_type=ValueType.TREND,
-            description="顺势而为，追涨杀跌。趋势是你的朋友。",
-            weights=ValueWeights(
-                price_sensitivity=0.8,
-                volume_sensitivity=0.6,
-                sentiment_weight=0.4,
-                liquidity_weight=0.3,
-                fundamentals_weight=0.2,
-            ),
-            preferences=ValuePreferences(
-                risk_preference=0.6,
-                time_horizon=0.3,
-                concentration=0.5,
-            ),
-            applicable_regimes=["trend_up", "weak_trend_up"],
-            principles=[
-                "趋势一旦形成，不会轻易改变",
-                "不要逆势而行",
-                "让利润奔跑"
-            ]
-        ),
-        ValueProfile(
-            name="逆向投资",
-            value_type=ValueType.CONTRARIAN,
-            description="人弃我取，分歧买入。别人恐惧时贪婪。",
-            weights=ValueWeights(
-                price_sensitivity=0.6,
-                volume_sensitivity=0.4,
-                sentiment_weight=0.7,
-                liquidity_weight=0.5,
-                fundamentals_weight=0.5,
-            ),
-            preferences=ValuePreferences(
-                risk_preference=0.3,
-                time_horizon=0.8,
-                concentration=0.3,
-            ),
-            applicable_regimes=["trend_down", "weak_trend_down", "mixed"],
-            principles=[
-                "极端行情是逆向投资者的机会",
-                "均值终将回归",
-                "分歧产生机会"
-            ]
-        ),
-        ValueProfile(
-            name="价值投资",
-            value_type=ValueType.VALUE,
-            description="均值回归，价格终究合理。安全边际是第一原则。",
-            weights=ValueWeights(
-                price_sensitivity=0.4,
-                volume_sensitivity=0.3,
-                sentiment_weight=0.3,
-                liquidity_weight=0.3,
-                fundamentals_weight=0.8,
-            ),
-            preferences=ValuePreferences(
-                risk_preference=0.2,
-                time_horizon=0.9,
-                concentration=0.4,
-            ),
-            applicable_regimes=["neutral", "mixed"],
-            principles=[
-                "价格终将回归价值",
-                "不要追高",
-                "安全边际是第一原则"
-            ]
-        ),
-        ValueProfile(
-            name="动量策略",
-            value_type=ValueType.MOMENTUM,
-            description="强者恒强，弱者恒弱。趋势延续直到反转信号出现。",
-            weights=ValueWeights(
-                price_sensitivity=0.7,
-                volume_sensitivity=0.5,
-                sentiment_weight=0.5,
-                liquidity_weight=0.4,
-                fundamentals_weight=0.2,
-            ),
-            preferences=ValuePreferences(
-                risk_preference=0.5,
-                time_horizon=0.5,
-                concentration=0.6,
-            ),
-            applicable_regimes=["trend_up", "trend_down", "weak_trend_up", "weak_trend_down"],
-            principles=[
-                "强者恒强，弱者恒弱",
-                "趋势延续直到反转信号出现",
-                "不要猜顶底"
-            ]
-        ),
-        ValueProfile(
-            name="流动性猎人",
-            value_type=ValueType.LIQUIDITY,
-            description="资金流向决定价格方向。钱去哪里，价去哪里。",
-            weights=ValueWeights(
-                price_sensitivity=0.5,
-                volume_sensitivity=0.9,
-                sentiment_weight=0.3,
-                liquidity_weight=0.9,
-                fundamentals_weight=0.2,
-            ),
-            preferences=ValuePreferences(
-                risk_preference=0.5,
-                time_horizon=0.4,
-                concentration=0.5,
-            ),
-            applicable_regimes=["trend_up", "neutral", "mixed"],
-            principles=[
-                "资金流向决定价格方向",
-                "放量突破是真突破",
-                "缩量下跌可能见底"
-            ]
-        ),
-        ValueProfile(
-            name="流动性救援者",
-            value_type=ValueType.LIQUIDITY_RESCUE,
-            description="在市场恐慌、流动性枯竭时提供流动性支持，等待市场恢复后获利。",
-            weights=ValueWeights(
-                price_sensitivity=0.3,
-                volume_sensitivity=0.9,
-                sentiment_weight=0.6,
-                liquidity_weight=0.9,
-                fundamentals_weight=0.4,
-            ),
-            preferences=ValuePreferences(
-                risk_preference=0.7,
-                time_horizon=0.4,
-                concentration=0.5,
-            ),
-            applicable_regimes=["trend_down", "weak_trend_down", "mixed"],
-            principles=[
-                "只在流动性最紧张时介入",
-                "分批建仓，不猜底部",
-                "等待事件消退，恢复后退出"
-            ],
-            implemented=True,
-            pending_strategies=["level2_order_book", "vix_index"]
-        ),
-        ValueProfile(
-            name="天道投资",
+            name="先进生产力",
             value_type=ValueType.GROWTH,
-            description="看未来增长潜力，不看当前估值。营收和市场份额是核心。",
+            description="投资带领科技往前发展的公司，AI是核心，提高社会生产力。",
             weights=ValueWeights(
                 price_sensitivity=0.3,
                 volume_sensitivity=0.3,
@@ -303,89 +163,61 @@ def get_default_profiles() -> List[ValueProfile]:
                 time_horizon=0.8,
                 concentration=0.6,
             ),
-            applicable_regimes=["trend_up", "weak_trend_up"],
+            applicable_regimes=["trend_up", "weak_trend_up", "neutral", "mixed"],
             principles=[
-                "看未来增长潜力",
-                "营收和市场份额是核心",
-                "高风险高回报"
+                "投资真正推动世界进步的公司",
+                "AI是核心，代表先进生产力",
+                "科技提高社会效率"
             ],
-            implemented=False,
-            pending_strategies=["growth_stock_screener", "revenue_acceleration_tracker"]
+            implemented=True,
         ),
         ValueProfile(
-            name="事件驱动",
-            value_type=ValueType.EVENT_DRIVEN,
-            description="重大事件创造Alpha。财报、并购、政策都是机会。",
+            name="代表人民利益",
+            value_type=ValueType.GROWTH,
+            description="发现社会需要的、存在的问题，投资能解决供需关系的公司。",
             weights=ValueWeights(
-                price_sensitivity=0.5,
-                volume_sensitivity=0.6,
-                sentiment_weight=0.8,
-                liquidity_weight=0.4,
-                fundamentals_weight=0.4,
+                price_sensitivity=0.3,
+                volume_sensitivity=0.3,
+                sentiment_weight=0.4,
+                liquidity_weight=0.3,
+                fundamentals_weight=0.9,
             ),
             preferences=ValuePreferences(
                 risk_preference=0.6,
-                time_horizon=0.3,
+                time_horizon=0.7,
                 concentration=0.5,
             ),
-            applicable_regimes=["neutral", "mixed", "trend_up", "trend_down"],
+            applicable_regimes=["trend_up", "weak_trend_up", "neutral", "mixed"],
             principles=[
-                "重大事件创造Alpha",
-                "财报、并购、政策都是机会",
-                "事件兑现前入场"
+                "发现社会面临的供需问题",
+                "投资能解决人民需求的赛道",
+                "代表先进生产力的发展方向"
             ],
-            implemented=False,
-            pending_strategies=["earnings_surprise_detector", "ma_event_listener", "policy_impact_tracker"]
+            implemented=True,
         ),
         ValueProfile(
-            name="高频做市",
-            value_type=ValueType.MARKET_MAKING,
-            description="买卖价差收益，量化波动风险。订单簿深度是生命线。",
+            name="先进文化方向",
+            value_type=ValueType.GROWTH,
+            description="投资拥有先进组织文化和精神理念的创新开拓者。",
             weights=ValueWeights(
-                price_sensitivity=0.9,
-                volume_sensitivity=0.8,
-                sentiment_weight=0.1,
-                liquidity_weight=0.9,
-                fundamentals_weight=0.1,
-            ),
-            preferences=ValuePreferences(
-                risk_preference=0.3,
-                time_horizon=0.1,
-                concentration=0.2,
-            ),
-            applicable_regimes=["neutral", "mixed"],
-            principles=[
-                "买卖价差收益",
-                "量化波动风险",
-                "订单簿深度是生命线"
-            ],
-            implemented=False,
-            pending_strategies=["spread_hunter", "order_book_analyzer", "inventory_risk_manager"]
-        ),
-        ValueProfile(
-            name="情绪周期",
-            value_type=ValueType.SENTIMENT_CYCLE,
-            description="恐惧与贪婪的周期博弈。媒体情绪是反向指标。",
-            weights=ValueWeights(
-                price_sensitivity=0.4,
-                volume_sensitivity=0.5,
-                sentiment_weight=0.9,
+                price_sensitivity=0.3,
+                volume_sensitivity=0.3,
+                sentiment_weight=0.3,
                 liquidity_weight=0.3,
-                fundamentals_weight=0.2,
+                fundamentals_weight=0.8,
             ),
             preferences=ValuePreferences(
-                risk_preference=0.5,
-                time_horizon=0.5,
-                concentration=0.4,
+                risk_preference=0.7,
+                time_horizon=0.8,
+                concentration=0.6,
             ),
-            applicable_regimes=["mixed", "neutral", "trend_up", "trend_down"],
+            applicable_regimes=["trend_up", "weak_trend_up", "neutral", "mixed"],
             principles=[
-                "恐惧与贪婪的周期博弈",
-                "媒体情绪是反向指标",
-                "别人恐惧我贪婪"
+                "寻找创新的先进组织文化",
+                "投资有精神理念的开拓者",
+                "代表先进文化思想"
             ],
-            implemented=False,
-            pending_strategies=["fear_greed_tracker", "media_sentiment_listener", "social_media_heat_detector"]
+            implemented=True,
         ),
     ]
 

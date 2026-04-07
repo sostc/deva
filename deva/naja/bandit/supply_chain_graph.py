@@ -45,7 +45,7 @@ class GraphNode:
 
     # 公司特有的属性
     stock_code: Optional[str] = None      # 股票代码
-    sector: Optional[str] = None          # 行业板块
+    block: Optional[str] = None            # 行业板块
     market_cap: Optional[str] = None      # 市值规模
 
     def to_dict(self) -> Dict:
@@ -55,7 +55,7 @@ class GraphNode:
             "type": self.type.value,
             "metadata": self.metadata,
             "stock_code": self.stock_code,
-            "sector": self.sector,
+            "block": self.block,
             "market_cap": self.market_cap,
         }
 
@@ -370,7 +370,7 @@ class SupplyChainKnowledgeGraph:
             downstream_risks.append(downstream_risk)
 
         if node.metadata.get("market") == "A":
-            if node.sector in ["ai_chip", "semiconductor"]:
+            if node.block in ["ai_chip", "semiconductor"]:
                 recommendation = "A 股 AI 芯片公司依赖海外先进制程风险较高，建议关注国产替代进程"
                 recommendations.append(recommendation)
 
@@ -378,7 +378,7 @@ class SupplyChainKnowledgeGraph:
                 recommendation = "中芯国际/寒武纪 受美国出口管制影响，供应链不确定性较高"
                 recommendations.append(recommendation)
 
-        if node.sector == "semiconductor":
+        if node.block == "semiconductor":
             recommendation = "半导体行业周期性较强，建议关注库存周期和产能利用率"
             recommendations.append(recommendation)
 
@@ -462,12 +462,12 @@ class SupplyChainKnowledgeGraph:
 
         return result
 
-    def get_stocks_by_sector(self, sector: str, market: Optional[str] = None) -> List[GraphNode]:
+    def get_stocks_by_block(self, block: str, market: Optional[str] = None) -> List[GraphNode]:
         """
         获取特定行业的所有股票
 
         Args:
-            sector: 行业（如 "ai_chip", "semiconductor"）
+            block: 行业（如 "ai_chip", "semiconductor"）
             market: 市场筛选 ("US", "A")
 
         Returns:
@@ -475,7 +475,7 @@ class SupplyChainKnowledgeGraph:
         """
         result = []
         for node in self._nodes.values():
-            if node.type == NodeType.COMPANY and node.sector == sector:
+            if node.type == NodeType.COMPANY and node.block == block:
                 if market is None or node.metadata.get("market") == market:
                     result.append(node)
         return result
@@ -502,72 +502,72 @@ class SupplyChainKnowledgeGraph:
         us_companies = [
             GraphNode(
                 id="nvda", name="英伟达", type=NodeType.COMPANY,
-                stock_code="nvda", sector="semiconductor", market_cap="large_cap",
+                stock_code="nvda", block="semiconductor", market_cap="large_cap",
                 metadata={"description": "AI芯片设计领导者", "market": "US"}
             ),
             GraphNode(
                 id="amd", name="超威半导体", type=NodeType.COMPANY,
-                stock_code="amd", sector="semiconductor", market_cap="large_cap",
+                stock_code="amd", block="semiconductor", market_cap="large_cap",
                 metadata={"description": "CPU/GPU 设计", "market": "US"}
             ),
             GraphNode(
                 id="intc", name="英特尔", type=NodeType.COMPANY,
-                stock_code="intc", sector="semiconductor", market_cap="large_cap",
+                stock_code="intc", block="semiconductor", market_cap="large_cap",
                 metadata={"description": "CPU设计与制造", "market": "US"}
             ),
             GraphNode(
                 id="tsm", name="台积电", type=NodeType.COMPANY,
-                stock_code="tsm", sector="semiconductor", market_cap="large_cap",
+                stock_code="tsm", block="semiconductor", market_cap="large_cap",
                 metadata={"description": "晶圆代工", "market": "US"}
             ),
             GraphNode(
                 id="asml", name="ASML", type=NodeType.COMPANY,
-                stock_code="asml", sector="semiconductor", market_cap="large_cap",
+                stock_code="asml", block="semiconductor", market_cap="large_cap",
                 metadata={"description": "EUV光刻机", "market": "US"}
             ),
             GraphNode(
                 id="mu", name="美光科技", type=NodeType.COMPANY,
-                stock_code="mu", sector="semiconductor", market_cap="large_cap",
+                stock_code="mu", block="semiconductor", market_cap="large_cap",
                 metadata={"description": "HBM3e内存", "market": "US"}
             ),
             GraphNode(
                 id="smci", name="超微电脑", type=NodeType.COMPANY,
-                stock_code="smci", sector="ai_infrastructure", market_cap="large_cap",
+                stock_code="smci", block="ai_infrastructure", market_cap="large_cap",
                 metadata={"description": "AI服务器", "market": "US"}
             ),
             GraphNode(
                 id="msft", name="微软", type=NodeType.COMPANY,
-                stock_code="msft", sector="cloud_computing", market_cap="large_cap",
+                stock_code="msft", block="cloud_computing", market_cap="large_cap",
                 metadata={"description": "云服务/AI", "market": "US"}
             ),
             GraphNode(
                 id="googl", name="谷歌", type=NodeType.COMPANY,
-                stock_code="googl", sector="cloud_computing", market_cap="large_cap",
+                stock_code="googl", block="cloud_computing", market_cap="large_cap",
                 metadata={"description": "云服务/AI", "market": "US"}
             ),
             GraphNode(
                 id="amzn", name="亚马逊", type=NodeType.COMPANY,
-                stock_code="amzn", sector="cloud_computing", market_cap="large_cap",
+                stock_code="amzn", block="cloud_computing", market_cap="large_cap",
                 metadata={"description": "云服务/AWS", "market": "US"}
             ),
             GraphNode(
                 id="crwv", name="CoreWeave", type=NodeType.COMPANY,
-                stock_code="crwv", sector="cloud_computing", market_cap="mid_cap",
+                stock_code="crwv", block="cloud_computing", market_cap="mid_cap",
                 metadata={"description": "GPU云算力", "market": "US"}
             ),
             GraphNode(
                 id="lumentum", name="Lumentum", type=NodeType.COMPANY,
-                stock_code="lumentum", sector="semiconductor", market_cap="mid_cap",
+                stock_code="lumentum", block="semiconductor", market_cap="mid_cap",
                 metadata={"description": "光通信元器件", "market": "US"}
             ),
             GraphNode(
                 id="cgnx", name="Cognex", type=NodeType.COMPANY,
-                stock_code="cgnx", sector="semiconductor", market_cap="mid_cap",
+                stock_code="cgnx", block="semiconductor", market_cap="mid_cap",
                 metadata={"description": "机器视觉/AEC", "market": "US"}
             ),
             GraphNode(
                 id="skx", name="SK海力士", type=NodeType.COMPANY,
-                stock_code="skx", sector="semiconductor", market_cap="large_cap",
+                stock_code="skx", block="semiconductor", market_cap="large_cap",
                 metadata={"description": "HBM4内存", "market": "US"}
             ),
         ]
@@ -580,122 +580,122 @@ class SupplyChainKnowledgeGraph:
         a_share_companies = [
             GraphNode(
                 id="688041", name="寒武纪", type=NodeType.COMPANY,
-                stock_code="688041", sector="ai_chip", market_cap="mid_cap",
+                stock_code="688041", block="ai_chip", market_cap="mid_cap",
                 metadata={"description": "AI芯片设计（ASIC/GPU/NPU）", "market": "A"}
             ),
             GraphNode(
                 id="002371", name="北方华创", type=NodeType.COMPANY,
-                stock_code="002371", sector="semiconductor", market_cap="large_cap",
+                stock_code="002371", block="semiconductor", market_cap="large_cap",
                 metadata={"description": "半导体设备（刻蚀/沉积/清洗）", "market": "A"}
             ),
             GraphNode(
                 id="688012", name="中微公司", type=NodeType.COMPANY,
-                stock_code="688012", sector="semiconductor", market_cap="large_cap",
+                stock_code="688012", block="semiconductor", market_cap="large_cap",
                 metadata={"description": "刻蚀设备/MOCVD", "market": "A"}
             ),
             GraphNode(
                 id="688981", name="中芯国际", type=NodeType.COMPANY,
-                stock_code="688981", sector="semiconductor", market_cap="large_cap",
+                stock_code="688981", block="semiconductor", market_cap="large_cap",
                 metadata={"description": "晶圆代工", "market": "A"}
             ),
             GraphNode(
                 id="002185", name="华天科技", type=NodeType.COMPANY,
-                stock_code="002185", sector="semiconductor", market_cap="mid_cap",
+                stock_code="002185", block="semiconductor", market_cap="mid_cap",
                 metadata={"description": "封装测试", "market": "A"}
             ),
             GraphNode(
                 id="600584", name="长电科技", type=NodeType.COMPANY,
-                stock_code="600584", sector="semiconductor", market_cap="large_cap",
+                stock_code="600584", block="semiconductor", market_cap="large_cap",
                 metadata={"description": "封装测试", "market": "A"}
             ),
             GraphNode(
                 id="688396", name="华润微", type=NodeType.COMPANY,
-                stock_code="688396", sector="semiconductor", market_cap="mid_cap",
+                stock_code="688396", block="semiconductor", market_cap="mid_cap",
                 metadata={"description": "功率半导体", "market": "A"}
             ),
             GraphNode(
                 id="688256", name="寒武纪(关联)", type=NodeType.COMPANY,
-                stock_code="688256", sector="ai_chip", market_cap="mid_cap",
+                stock_code="688256", block="ai_chip", market_cap="mid_cap",
                 metadata={"description": "AI芯片", "market": "A"}
             ),
             GraphNode(
                 id="300782", name="卓胜微", type=NodeType.COMPANY,
-                stock_code="300782", sector="semiconductor", market_cap="mid_cap",
+                stock_code="300782", block="semiconductor", market_cap="mid_cap",
                 metadata={"description": "射频芯片", "market": "A"}
             ),
             GraphNode(
                 id="688008", name="澜起科技", type=NodeType.COMPANY,
-                stock_code="688008", sector="semiconductor", market_cap="large_cap",
+                stock_code="688008", block="semiconductor", market_cap="large_cap",
                 metadata={"description": "内存接口芯片/服务器芯片", "market": "A"}
             ),
             GraphNode(
                 id="688099", name="晶晨股份", type=NodeType.COMPANY,
-                stock_code="688099", sector="semiconductor", market_cap="mid_cap",
+                stock_code="688099", block="semiconductor", market_cap="mid_cap",
                 metadata={"description": "多媒体芯片", "market": "A"}
             ),
             GraphNode(
                 id="603986", name="兆易创新", type=NodeType.COMPANY,
-                stock_code="603986", sector="semiconductor", market_cap="large_cap",
+                stock_code="603986", block="semiconductor", market_cap="large_cap",
                 metadata={"description": "存储芯片/MCU", "market": "A"}
             ),
             GraphNode(
                 id="002049", name="紫光国微", type=NodeType.COMPANY,
-                stock_code="002049", sector="semiconductor", market_cap="large_cap",
+                stock_code="002049", block="semiconductor", market_cap="large_cap",
                 metadata={"description": "安全芯片/FPGA", "market": "A"}
             ),
             GraphNode(
                 id="300223", name="北京君正", type=NodeType.COMPANY,
-                stock_code="300223", sector="semiconductor", market_cap="mid_cap",
+                stock_code="300223", block="semiconductor", market_cap="mid_cap",
                 metadata={"description": "嵌入式处理器芯片", "market": "A"}
             ),
             GraphNode(
                 id="688220", name="翱捷科技", type=NodeType.COMPANY,
-                stock_code="688220", sector="semiconductor", market_cap="mid_cap",
+                stock_code="688220", block="semiconductor", market_cap="mid_cap",
                 metadata={"description": "基带芯片/手机芯片", "market": "A"}
             ),
             GraphNode(
                 id="301367", name="怡安比分", type=NodeType.COMPANY,
-                stock_code="301367", sector="ai_infrastructure", market_cap="small_cap",
+                stock_code="301367", block="ai_infrastructure", market_cap="small_cap",
                 metadata={"description": "AI服务器/算力", "market": "A"}
             ),
             GraphNode(
                 id="300474", name="景嘉微", type=NodeType.COMPANY,
-                stock_code="300474", sector="ai_chip", market_cap="mid_cap",
+                stock_code="300474", block="ai_chip", market_cap="mid_cap",
                 metadata={"description": "GPU/图形处理器", "market": "A"}
             ),
             GraphNode(
                 id="002156", name="通富微电", type=NodeType.COMPANY,
-                stock_code="002156", sector="semiconductor", market_cap="mid_cap",
+                stock_code="002156", block="semiconductor", market_cap="mid_cap",
                 metadata={"description": "封装测试", "market": "A"}
             ),
             GraphNode(
                 id="600745", name="闻泰科技", type=NodeType.COMPANY,
-                stock_code="600745", sector="semiconductor", market_cap="large_cap",
+                stock_code="600745", block="semiconductor", market_cap="large_cap",
                 metadata={"description": "半导体业务/安世半导体", "market": "A"}
             ),
             GraphNode(
                 id="002230", name="科大讯飞", type=NodeType.COMPANY,
-                stock_code="002230", sector="ai_software", market_cap="large_cap",
+                stock_code="002230", block="ai_software", market_cap="large_cap",
                 metadata={"description": "AI语音/大模型", "market": "A"}
             ),
             GraphNode(
                 id="300124", name="汇川技术", type=NodeType.COMPANY,
-                stock_code="300124", sector="ai_infrastructure", market_cap="large_cap",
+                stock_code="300124", block="ai_infrastructure", market_cap="large_cap",
                 metadata={"description": "工业自动化/伺服系统", "market": "A"}
             ),
             GraphNode(
                 id="688111", name="金山办公", type=NodeType.COMPANY,
-                stock_code="688111", sector="ai_software", market_cap="large_cap",
+                stock_code="688111", block="ai_software", market_cap="large_cap",
                 metadata={"description": "办公软件/AI", "market": "A"}
             ),
             GraphNode(
                 id="002405", name="四维图新", type=NodeType.COMPANY,
-                stock_code="002405", sector="ai_software", market_cap="mid_cap",
+                stock_code="002405", block="ai_software", market_cap="mid_cap",
                 metadata={"description": "自动驾驶/高精地图", "market": "A"}
             ),
             GraphNode(
                 id="300033", name="同花顺", type=NodeType.COMPANY,
-                stock_code="300033", sector="ai_software", market_cap="mid_cap",
+                stock_code="300033", block="ai_software", market_cap="mid_cap",
                 metadata={"description": "金融AI/智能投研", "market": "A"}
             ),
         ]

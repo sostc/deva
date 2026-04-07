@@ -56,6 +56,12 @@ class NajaSupervisor:
     def __init__(self):
         pass
 
+    def configure_attention(self, force_realtime: bool = False, lab_mode: bool = False):
+        """配置注意力系统启动参数（在调用 start_monitoring 之前设置）"""
+        self._force_realtime = force_realtime
+        self._lab_mode = lab_mode
+        log.info(f"[NajaSupervisor] 配置注意力系统: force_realtime={force_realtime}, lab_mode={lab_mode}")
+
     def _ensure_initialized(self):
         if getattr(self, '_initialized', False):
             return
@@ -165,7 +171,14 @@ class NajaSupervisor:
 
             if attention_config.enabled:
                 config = attention_config.to_attention_system_config()
-                attention_system = initialize_attention_system(config, intelligence_config=intelligence_config)
+                force_realtime = getattr(self, '_force_realtime', False)
+                lab_mode = getattr(self, '_lab_mode', False)
+                attention_system = initialize_attention_system(
+                    config,
+                    intelligence_config=intelligence_config,
+                    force_realtime=force_realtime,
+                    lab_mode=lab_mode
+                )
                 self._components['attention'] = attention_system
 
                 # 启动注意力策略系统
@@ -267,7 +280,7 @@ class NajaSupervisor:
                                 feedback_loop = integration.feedback_loop
                                 feedback_loop.record_observation(
                                     symbol=result.symbol,
-                                    sector_id=result.sector_id,
+                                    block_id=result.sector_id,
                                     strategy_id=result.strategy_id,
                                     attention_score=result.attention_score,
                                     prediction_score=result.prediction_score,
@@ -770,11 +783,32 @@ def get_naja_supervisor() -> NajaSupervisor:
     return _naja_supervisor
 
 
-def start_supervisor() -> NajaSupervisor:
-    """启动 Naja 监控器"""
+def start_supervisor(force_realtime: bool = False, lab_mode: bool = False) -> NajaSupervisor:
+    """启动 Naja 监控器
+
+    Args:
+        force_realtime: 强制实盘调试模式（忽略交易时间限制）
+        lab_mode: 实验模式（使用回放数据）
+    """
+    import atexit
+
     supervisor = get_naja_supervisor()
     supervisor._ensure_initialized()
+    if not hasattr(supervisor, '_force_realtime') or supervisor._force_realtime is None:
+        supervisor.configure_attention(force_realtime=force_realtime, lab_mode=lab_mode)
     supervisor.start_monitoring()
+
+    def _cleanup():
+        try:
+            attention = supervisor._get_component('attention')
+            if attention and hasattr(attention, 'persist_state'):
+                attention.persist_state()
+                log.info("[atexit] 注意力系统状态已持久化")
+        except Exception as e:
+            log.warning(f"[atexit] 持久化注意力系统状态失败: {e}")
+
+    atexit.register(_cleanup)
+
     return supervisor
 
 

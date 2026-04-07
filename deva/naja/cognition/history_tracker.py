@@ -53,8 +53,8 @@ class AttentionSnapshot:
 class AttentionChange:
     """注意力变化记录"""
     timestamp: float
-    change_type: str  # 'sector_shift', 'symbol_shift', 'strengthen', 'weaken', 'new_hot', 'cooled'
-    item_type: str  # 'sector' | 'symbol'
+    change_type: str  # 'block_shift', 'symbol_shift', 'strengthen', 'weaken', 'new_hot', 'cooled'
+    item_type: str  # 'block' | 'symbol'
     item_id: str
     item_name: str
     old_weight: float
@@ -66,7 +66,7 @@ class AttentionChange:
     price: float = 0.0
     price_change: float = 0.0
     volume: float = 0.0
-    sector: str = ""
+    block: str = ""
 
 
 @dataclass
@@ -162,9 +162,9 @@ class AttentionHistoryTracker:
         if self.snapshots:
             latest = self.snapshots[-1]
             market_data = latest.symbol_market_data.get(symbol, {})
-            sector = market_data.get('sector', '')
-            if sector:
-                return sector
+            block = market_data.get('block', '') or market_data.get('sector', '')
+            if block:
+                return block
 
         return self.symbol_to_sector.get(symbol, '')
 
@@ -228,11 +228,11 @@ class AttentionHistoryTracker:
         score: float,
         payload: Optional[Dict[str, Any]] = None,
         symbol: str = "",
-        sector: str = "",
+        block: str = "",
         market_time: str = "",
     ) -> None:
         now_ts = time.time()
-        key = f"{event_type}:{symbol or sector or 'global'}"
+        key = f"{event_type}:{symbol or block or 'global'}"
         if not self._should_emit(key, now_ts):
             return
         self._emit_to_insight_pool(
@@ -242,7 +242,7 @@ class AttentionHistoryTracker:
             score=score,
             payload=payload or {},
             symbol=symbol,
-            sector=sector,
+            block=block,
             market_time=market_time,
             timestamp=now_ts,
         )
@@ -252,7 +252,7 @@ class AttentionHistoryTracker:
             content=content,
             payload=payload or {},
             symbol=symbol,
-            sector=sector,
+            block=block,
             market_time=market_time,
         )
 
@@ -264,7 +264,7 @@ class AttentionHistoryTracker:
         content: str,
         payload: Dict[str, Any],
         symbol: str = "",
-        sector: str = "",
+        block: str = "",
         market_time: str = "",
     ) -> None:
         try:
@@ -279,7 +279,7 @@ class AttentionHistoryTracker:
                 "title": title,
                 "content": content,
                 "symbol": symbol,
-                "sector": sector,
+                "block": block,
                 "market_time": market_time,
                 "payload": payload,
                 "importance": "high",
@@ -297,7 +297,7 @@ class AttentionHistoryTracker:
         score: float,
         payload: Dict[str, Any],
         symbol: str = "",
-        sector: str = "",
+        block: str = "",
         market_time: str = "",
         timestamp: float = None,
     ) -> None:
@@ -313,7 +313,7 @@ class AttentionHistoryTracker:
                     "theme": title,
                     "summary": content,
                     "symbols": [symbol] if symbol else [],
-                    "sectors": [sector] if sector else [],
+                    "blocks": [block] if block else [],
                     "confidence": 0.7,
                     "actionability": 0.5,
                     "system_attention": score,
@@ -342,7 +342,7 @@ class AttentionHistoryTracker:
             symbol_weights: 个股权重字典
             timestamp: 时间戳（优先使用行情数据时间）
             timestamp_str: 时间字符串（用于日志显示）
-            symbol_market_data: 个股行情数据字典 {symbol: {'price': float, 'change': float, 'volume': float, 'sector': str}}
+            symbol_market_data: 个股行情数据字典 {symbol: {'price': float, 'change': float, 'volume': float, 'block': str}}
             activity: 市场活跃度
         """
         from deva.naja.attention.integration.extended import get_mode_manager
@@ -646,7 +646,7 @@ class AttentionHistoryTracker:
                     content=description,
                     score=score,
                     payload=payload,
-                    sector=block_id,
+                    block=block_id,
                     market_time=time_display,
                 )
 
@@ -694,7 +694,7 @@ class AttentionHistoryTracker:
                 price = market_info.get('price', 0)
                 change_val = market_info.get('change', 0)
                 volume = market_info.get('volume', 0)
-                sector = market_info.get('sector', '')
+                block = market_info.get('block', '') or market_info.get('sector', '')
 
                 if is_new_hot:
                     description = f"{symbol} {symbol_name} 成为新热门"
@@ -723,7 +723,7 @@ class AttentionHistoryTracker:
                     price=price,
                     price_change=change_val,
                     volume=volume,
-                    sector=sector
+                    block=block
                 )
                 self.changes.append(change)
                 score = min(1.0, abs(change.change_percent) / 100.0)
@@ -736,7 +736,7 @@ class AttentionHistoryTracker:
                     "price": price,
                     "price_change": change_val,
                     "volume": volume,
-                    "sector": sector,
+                    "block": block,
                     "change_type": change.change_type,
                 }
                 self._emit_attention_event(
@@ -746,7 +746,7 @@ class AttentionHistoryTracker:
                     score=score,
                     payload=payload,
                     symbol=symbol,
-                    sector=sector,
+                    block=block,
                     market_time=time_display,
                 )
 
@@ -755,8 +755,8 @@ class AttentionHistoryTracker:
                     change_str = f"{change_val:+.2f}%" if isinstance(change_val, float) else f"{change_val}"
                     volume_str = self._format_volume(volume) if volume else ""
                     volume_str = f" | 量: {volume_str}" if volume_str else ""
-                    sector_str = f" [{sector}]" if sector else ""
-                    log.debug(f"  权重: {old_weight:.2f} → {new_weight:.2f} ({change_pct:+.1f}%) | 价: ¥{price:.2f} ({change_str}){volume_str}{sector_str}")
+                    block_str = f" [{block}]" if block else ""
+                    log.debug(f"  权重: {old_weight:.2f} → {new_weight:.2f} ({change_pct:+.1f}%) | 价: ¥{price:.2f} ({change_str}){volume_str}{block_str}")
                 else:
                     log.debug(f"  权重: {old_weight:.2f} → {new_weight:.2f} ({change_pct:+.1f}%)")
         
@@ -978,7 +978,7 @@ class AttentionHistoryTracker:
             result.append({
                 'code': symbol,
                 'name': symbol_name,
-                'sector': block_name,
+                'block': block_name,
                 'weight': weight
             })
         return result

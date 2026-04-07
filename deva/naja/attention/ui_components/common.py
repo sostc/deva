@@ -60,9 +60,9 @@ def _is_b_share_symbol(symbol: str, name: str = "", stock_type: str = "") -> boo
     return False
 
 
-def _is_b_share_sector(block_id: str, sector_name: Optional[str]) -> bool:
+def _is_b_share_block(block_id: str, block_name: Optional[str]) -> bool:
     """判断板块名称是否包含 B 股标识"""
-    display = str(sector_name or block_id)
+    display = str(block_name or block_id)
     return ("B股" in display) or ("含B股" in display)
 
 

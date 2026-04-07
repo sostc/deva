@@ -4,7 +4,7 @@ Realtime Data Fetcher - 实盘数据获取器（注意力系统内置）
 功能:
 1. 直接从 Sina 行情源获取实盘数据，不依赖数据源系统
 2. 只在交易时间运行（订阅交易时钟信号）
-3. 根据注意力权重动态调整获取频率（由 FrequencyScheduler 控制）
+3. 根据注意力权重动态调整获取频率（由 FrequencyScheduler 控制：HIGH=5s, MEDIUM=10s, LOW=60s）
 
 事件驱动：
 - 订阅 TRADING_CLOCK_STREAM 信号（正常模式）
@@ -212,7 +212,7 @@ def _fetch_sina_sync(force_trading: bool = False) -> Optional[pd.DataFrame]:
 @dataclass
 class FetchConfig:
     """获取配置"""
-    base_high_interval: float = 1.0
+    base_high_interval: float = 5.0
     base_medium_interval: float = 10.0
     base_low_interval: float = 60.0
     enable_market_data: bool = True
@@ -231,7 +231,7 @@ class RealtimeDataFetcher:
     行为：
     - 只在交易时间运行（非交易时间完全停止）
     - 订阅交易时钟信号，收到 phase_change 时启停
-    - 频率由 FrequencyScheduler 控制（HIGH=1s, MEDIUM=10s, LOW=60s）
+    - 频率由 FrequencyScheduler 控制（HIGH=5s, MEDIUM=10s, LOW=60s）
     - 快照保存由 NB 配置控制开关
 
     强制模式（force_trading_mode=True）：
@@ -250,6 +250,8 @@ class RealtimeDataFetcher:
         config: Optional[FetchConfig] = None
     ):
         self.attention_system = attention_system
+        self._attention_system_inner = None
+        self._inner_resolved = False
         self.config = config or FetchConfig()
 
         self._running = False
@@ -260,12 +262,11 @@ class RealtimeDataFetcher:
         self._last_medium_fetch = 0.0
         self._last_low_fetch = 0.0
         self._us_last_fetch = 0.0
+        self._us_fetching = False
 
         self._fetch_count = 0
         self._error_count = 0
         self._last_error: Optional[str] = None
-
-        self._symbol_levels: Dict[str, str] = {}
 
         self._cn_active: bool = False
         self._us_active: bool = False
@@ -276,6 +277,22 @@ class RealtimeDataFetcher:
         self._snapshot_save_count: int = 0
 
         self._load_snapshot_config()
+
+    def _resolve_inner_system(self):
+        """解析内部注意力系统（延迟解析以处理初始化顺序问题）"""
+        if self._inner_resolved and self._attention_system_inner is not None:
+            return
+        try:
+            from deva.naja.attention.integration.extended import get_attention_integration
+            integration = get_attention_integration()
+            if integration is not None and hasattr(integration, 'attention_system') and integration.attention_system is not None:
+                self._attention_system_inner = integration.attention_system
+                self._inner_resolved = True
+                log.info(f"[RealtimeDataFetcher] _resolve_inner_system: resolved via get_attention_integration, has_frequency_scheduler={hasattr(self._attention_system_inner, 'frequency_scheduler')}")
+            else:
+                log.warning(f"[RealtimeDataFetcher] _resolve_inner_system: integration or attention_system is None")
+        except Exception as e:
+            log.warning(f"[RealtimeDataFetcher] _resolve_inner_system failed: {e}")
 
     def start(self):
         """启动获取器"""
@@ -317,9 +334,19 @@ class RealtimeDataFetcher:
                 self._on_cn_clock_signal(cn_initial)
                 self._on_us_clock_signal(us_initial)
             except Exception as e:
+                import traceback
                 log.warning(f"[RealtimeDataFetcher] 订阅交易时钟失败: {e}，改用 STREAM.sink")
                 TRADING_CLOCK_STREAM.sink(self._on_trading_clock_signal)
                 USTRADING_CLOCK_STREAM.sink(self._on_trading_clock_signal)
+                # 确保 initial 信号被触发
+                try:
+                    from deva.naja.radar.trading_clock import get_us_trading_clock
+                    us_tc = get_us_trading_clock()
+                    us_initial = us_tc.get_current_signal()
+                    log.info(f"[RealtimeDataFetcher] 通过 sink 触发初始信号: us_phase={us_initial.get('phase')}")
+                    self._on_us_clock_signal(us_initial)
+                except Exception as e2:
+                    log.warning(f"[RealtimeDataFetcher] 触发初始信号失败: {e2}")
             log.info("[RealtimeDataFetcher] 已启动，等待 A股/美股 交易信号...")
 
         self._fetch_thread = threading.Thread(target=self._fetch_loop, daemon=True)
@@ -342,12 +369,12 @@ class RealtimeDataFetcher:
         if market == 'CN':
             self._update_cn_state(signal_type, phase)
         elif market == 'US':
-            log.info(f"[RealtimeDataFetcher] 调用 _update_us_state: signal_type={signal_type}, phase={phase}")
+            log.debug(f"[RealtimeDataFetcher] 调用 _update_us_state: signal_type={signal_type}, phase={phase}")
             self._update_us_state(signal_type, phase)
 
     def _on_cn_clock_signal(self, signal: Dict[str, Any]):
         """处理A股交易时钟信号（通过 direct subscribe 使用）"""
-        log.info(f"[RealtimeDataFetcher] 收到A股信号: {signal}")
+        log.debug(f"[RealtimeDataFetcher] 收到A股信号: {signal}")
         self._update_cn_state(signal.get('type'), signal.get('phase'))
 
     def _on_us_clock_signal(self, signal: Dict[str, Any]):
@@ -356,8 +383,7 @@ class RealtimeDataFetcher:
         phase = signal.get('phase', 'unknown')
         market = signal.get('market', 'US')
         timestamp = signal.get('timestamp', time.time())
-        log.info(f"[RealtimeDataFetcher] 收到美股信号: type={signal_type}, market={market}, phase={phase}, timestamp={timestamp}")
-        log.debug(f"[RealtimeDataFetcher] 美股信号详情: {signal}")
+        log.info(f"[RealtimeDataFetcher] _on_us_clock_signal: type={signal_type}, phase={phase}, timestamp={timestamp}")
         self._update_us_state(signal_type, phase)
 
     def _update_cn_state(self, signal_type: str, phase: str):
@@ -381,14 +407,16 @@ class RealtimeDataFetcher:
     def _update_us_state(self, signal_type: str, phase: str):
         """更新 美股 状态"""
         old_active = self._us_active
-        log.debug(f"[RealtimeDataFetcher] _update_us_state 被调用: signal_type={signal_type}, phase={phase}, old_us_active={old_active}")
+        log.info(f"[RealtimeDataFetcher] _update_us_state: type={signal_type}, phase={phase}, old_active={old_active}")
 
         if signal_type == 'current_state':
             self._us_active = phase in ('trading', 'pre_market')
             log.debug(f"[RealtimeDataFetcher] 美股 current_state: phase={phase}, active={self._us_active}")
 
-            if self._us_active:
-                log.debug(f"[RealtimeDataFetcher] 调用 _run_async_in_thread(_fetch_and_sync_us)")
+            if self._us_active and not self._us_fetching:
+                self._us_fetching = True
+                self._us_last_fetch = 0
+                log.debug(f"[RealtimeDataFetcher] 触发美股数据获取: _us_active={self._us_active}")
                 self._run_async_in_thread(self._fetch_and_sync_us())
 
         elif signal_type == 'phase_change':
@@ -396,8 +424,10 @@ class RealtimeDataFetcher:
             self._us_active = phase in ('trading', 'pre_market')
             log.debug(f"[RealtimeDataFetcher] 美股 phase_change: {old_phase} -> {phase}")
 
-            if self._us_active and not old_active:
-                log.info(f"[RealtimeDataFetcher] 美股开盘，开始获取数据")
+            if self._us_active and not old_active and not self._us_fetching:
+                self._us_fetching = True
+                self._us_last_fetch = 0
+                log.debug(f"[RealtimeDataFetcher] 美股开盘，开始获取数据")
                 self._run_async_in_thread(self._fetch_and_sync_us())
 
         self._update_overall_active()
@@ -422,7 +452,7 @@ class RealtimeDataFetcher:
 
     async def _fetch_and_sync_us(self):
         """获取美股数据并同步到持仓和注意力系统"""
-        log.debug(f"[RealtimeDataFetcher] _fetch_and_sync_us 开始, attention_system={self.attention_system is not None}")
+        log.debug(f"[RealtimeDataFetcher] _fetch_and_sync_us 开始, _us_active={self._us_active}, attention_system={self.attention_system is not None}")
         try:
             us_data = await self._fetch_us_stocks()
             log.debug(f"[RealtimeDataFetcher] _fetch_us_stocks 返回: {len(us_data) if us_data else 0} 只")
@@ -436,8 +466,9 @@ class RealtimeDataFetcher:
                     log.debug(f"[RealtimeDataFetcher] _process_us_attention 完成")
                     try:
                         from deva.naja.attention.integration import process_data_with_strategies
-                        if self.attention_system is not None:
-                            us_state = self.attention_system.get_us_attention_state()
+                        self._resolve_inner_system()
+                        if self._attention_system_inner is not None:
+                            us_state = self._attention_system_inner.get_us_attention_state()
                         else:
                             us_state = {}
                         context = {
@@ -451,12 +482,17 @@ class RealtimeDataFetcher:
                         process_data_with_strategies(us_df, context)
                     except Exception as e:
                         log.warning(f"[RealtimeDataFetcher] US 策略处理失败: {e}")
-                else:
-                    log.debug(f"[RealtimeDataFetcher] us_df 为空，跳过 _process_us_attention")
+
+            indices_data = await self._fetch_indices()
+            if indices_data:
+                self._sync_indices_to_attention_system(indices_data)
+
         except Exception as e:
             log.error(f"[RealtimeDataFetcher] 获取美股数据异常: {e}")
             import traceback
             traceback.print_exc()
+        finally:
+            self._us_fetching = False
 
     def _update_overall_active(self):
         """更新整体活跃状态"""
@@ -526,14 +562,29 @@ class RealtimeDataFetcher:
 
     def _tick(self, current_time: float):
         """一次tick"""
-        log.debug(f"[RealtimeDataFetcher] _tick 调用: _is_active={self._is_active}, current_time={current_time}")
-        self._update_symbol_levels()
+        log.info(f"[RealtimeDataFetcher] _tick: _is_active={self._is_active}, _us_active={self._us_active}, _cn_active={self._cn_active}")
 
-        high_symbols = [s for s, level in self._symbol_levels.items() if level == "HIGH"]
-        medium_symbols = [s for s, level in self._symbol_levels.items() if level == "MEDIUM"]
-        low_symbols = [s for s, level in self._symbol_levels.items() if level == "LOW"]
+        self._inner_resolved = False  # 强制重新解析
+        self._resolve_inner_system()
+        if self._attention_system_inner is None:
+            log.error("[RealtimeDataFetcher] _tick: _attention_system_inner is None after resolve")
+            return
 
-        log.debug(f"[RealtimeDataFetcher] _tick 档位统计: high={len(high_symbols)}, medium={len(medium_symbols)}, low={len(low_symbols)}, _symbol_levels总数={len(self._symbol_levels)}, force={self.config.force_trading_mode}")
+        fs = self._attention_system_inner.frequency_scheduler
+        high_symbols = []
+        medium_symbols = []
+        low_symbols = []
+        if fs:
+            for symbol, idx in fs._symbol_to_idx.items():
+                level = fs.get_symbol_level(symbol)
+                if level.value == 2:  # HIGH
+                    high_symbols.append(symbol)
+                elif level.value == 1:  # MEDIUM
+                    medium_symbols.append(symbol)
+                else:  # LOW
+                    low_symbols.append(symbol)
+
+        log.debug(f"[RealtimeDataFetcher] _tick 档位统计: high={len(high_symbols)}, medium={len(medium_symbols)}, low={len(low_symbols)}, force={self.config.force_trading_mode}")
 
         if not high_symbols and not medium_symbols and not low_symbols:
             if self._fetch_count == 0:
@@ -545,12 +596,13 @@ class RealtimeDataFetcher:
 
         if self._us_active and not self._cn_active:
             log.debug(f"[RealtimeDataFetcher] _tick: 美股时段，跳过A股数据获取 (us_active={self._us_active}, cn_active={self._cn_active})")
-            return
 
-        if self._us_active and self._us_last_fetch == 0:
+        if self._us_active and self._us_last_fetch == 0 and not self._us_fetching:
+            self._us_fetching = True
             self._run_async_in_thread(self._fetch_and_sync_us())
 
-        if self._us_active and current_time - self._us_last_fetch >= self.config.base_high_interval:
+        if self._us_active and not self._us_fetching and current_time - self._us_last_fetch >= self.config.base_high_interval:
+            self._us_fetching = True
             self._run_async_in_thread(self._fetch_and_sync_us())
             self._us_last_fetch = current_time
 
@@ -574,27 +626,6 @@ class RealtimeDataFetcher:
             self._fetch_and_process(low_symbols, "LOW")
             self._last_low_fetch = current_time
 
-    def _update_symbol_levels(self):
-        """更新symbol档位"""
-        try:
-            fs = self.attention_system.frequency_scheduler
-            if fs is None:
-                log.debug("[RealtimeDataFetcher] _update_symbol_levels: frequency_scheduler 为 None")
-                return
-
-            all_symbols = list(fs._symbol_to_idx.keys())
-            log.debug(f"[RealtimeDataFetcher] _update_symbol_levels: frequency_scheduler 有 {len(all_symbols)} 个符号")
-
-            for symbol in all_symbols:
-                level = fs.get_symbol_level(symbol)
-                level_str = {0: "LOW", 1: "MEDIUM", 2: "HIGH"}.get(level.value, "LOW")
-                self._symbol_levels[symbol] = level_str
-
-            log.debug(f"[RealtimeDataFetcher] _update_symbol_levels 完成: 更新了 {len(all_symbols)} 个符号的档位")
-
-        except Exception as e:
-            log.debug(f"[RealtimeDataFetcher] 更新档位失败: {e}")
-
     def _fetch_and_process(self, symbols: List[str], level: str):
         """获取并处理数据"""
         try:
@@ -604,7 +635,7 @@ class RealtimeDataFetcher:
 
             if data is not None and len(data) > 0:
                 log.debug(f"[RealtimeDataFetcher] 调用 attention_system.process_data, data行数={len(data)}, columns={list(data.columns)}")
-                self.attention_system.process_data(data)
+                self._attention_system_inner.process_data(data)
                 self._fetch_count += 1
 
                 self._write_to_market_data_bus(data)
@@ -725,7 +756,7 @@ class RealtimeDataFetcher:
             filtered_df = df[mask].copy()
 
             if original_count - len(filtered_df) > 0:
-                log.info(f"[RealtimeDataFetcher] 源头噪音过滤: 原始{original_count}条 -> 过滤后{len(filtered_df)}条 (过滤{original_count - len(filtered_df)}条, 过滤率{(original_count - len(filtered_df))/original_count*100:.1f}%)")
+                log.debug(f"[RealtimeDataFetcher] 源头噪音过滤: 原始{original_count}条 -> 过滤后{len(filtered_df)}条 (过滤{original_count - len(filtered_df)}条, 过滤率{(original_count - len(filtered_df))/original_count*100:.1f}%)")
 
             return filtered_df
 
@@ -769,6 +800,118 @@ class RealtimeDataFetcher:
         except Exception as e:
             log.debug(f"[RealtimeDataFetcher] 获取美股数据失败: {e}")
             return None
+
+    async def _fetch_indices(self) -> Optional[Dict[str, Any]]:
+        """获取A股指数和美股期货指数
+
+        返回格式：
+        {
+            'CN': {'SH': {price, change_pct}, 'HS300': {...}, 'CHINEXT': {...}},
+            'US': {'NQ': {price, change_pct}, 'ES': {...}, 'YM': {...}}
+        }
+        """
+        try:
+            import urllib.request
+            import json
+
+            result = {'CN': {}, 'US': {}}
+
+            cn_url = "https://hq.sinajs.cn/list=sh000001,s_sh000300,sz399006"
+            us_url = "https://hq.sinajs.cn/list=hf_NQ,hf_ES,hf_YM"
+            headers = {
+                "Referer": "https://finance.sina.com.cn",
+                "User-Agent": "Mozilla/5.0"
+            }
+
+            for url, market in [(cn_url, 'CN'), (us_url, 'US')]:
+                req = urllib.request.Request(url, headers=headers)
+                with urllib.request.urlopen(req, timeout=5) as resp:
+                    data = resp.read().decode('gbk', errors='replace')
+
+                for line in data.split('\n'):
+                    if not line or '="' not in line:
+                        continue
+
+                    parts = line.split('"')
+                    if len(parts) < 2:
+                        continue
+
+                    raw_code = parts[0].split('_')[-1]
+                    fields = parts[1].split(',')
+
+                    if market == 'CN':
+                        if raw_code == 'sh000001' and len(fields) > 2:
+                            try:
+                                cur, prev = float(fields[1]), float(fields[2])
+                                pct = round((cur - prev) / prev * 100, 2) if prev else 0
+                                result['CN']['SH'] = {'price': cur, 'change_pct': pct}
+                            except: pass
+                        elif raw_code == 's_sh000300' and len(fields) > 3:
+                            try:
+                                result['CN']['HS300'] = {'price': float(fields[1]), 'change_pct': float(fields[3])}
+                            except: pass
+                        elif raw_code == 'sz399006' and len(fields) > 2:
+                            try:
+                                cur, prev = float(fields[1]), float(fields[2])
+                                pct = round((cur - prev) / prev * 100, 2) if prev else 0
+                                result['CN']['CHINEXT'] = {'price': cur, 'change_pct': pct}
+                            except: pass
+                    elif market == 'US':
+                        if raw_code == 'hf_NQ' and len(fields) > 9:
+                            try:
+                                cur, prev = float(fields[0]), float(fields[8])
+                                pct = round((cur - prev) / prev * 100, 2) if prev else 0
+                                result['US']['NQ'] = {'price': cur, 'change_pct': pct}
+                            except: pass
+                        elif raw_code == 'hf_ES' and len(fields) > 9:
+                            try:
+                                cur, prev = float(fields[0]), float(fields[8])
+                                pct = round((cur - prev) / prev * 100, 2) if prev else 0
+                                result['US']['ES'] = {'price': cur, 'change_pct': pct}
+                            except: pass
+                        elif raw_code == 'hf_YM' and len(fields) > 9:
+                            try:
+                                cur, prev = float(fields[0]), float(fields[8])
+                                pct = round((cur - prev) / prev * 100, 2) if prev else 0
+                                result['US']['YM'] = {'price': cur, 'change_pct': pct}
+                            except: pass
+
+            log.debug(f"[RealtimeDataFetcher] 获取指数数据: CN={result['CN']}, US={result['US']}")
+            return result
+
+        except Exception as e:
+            log.debug(f"[RealtimeDataFetcher] 获取指数数据失败: {e}")
+            return None
+
+    def _sync_indices_to_attention_system(self, indices_data: Dict[str, Any]):
+        """同步指数数据到 AttentionSystem 缓存"""
+        if not indices_data:
+            return
+
+        try:
+            if self.attention_system:
+                cn_data = indices_data.get('CN', {})
+                us_data = indices_data.get('US', {})
+
+                if cn_data:
+                    self.attention_system._cn_index_cache = {
+                        'SH': cn_data.get('SH', {}).get('change_pct'),
+                        'HS300': cn_data.get('HS300', {}).get('change_pct'),
+                        'CHINEXT': cn_data.get('CHINEXT', {}).get('change_pct'),
+                    }
+                    self.attention_system._cn_index_cache_time = time.time()
+
+                if us_data:
+                    self.attention_system._us_futures_cache = {
+                        'NQ': us_data.get('NQ', {}).get('change_pct'),
+                        'ES': us_data.get('ES', {}).get('change_pct'),
+                        'YM': us_data.get('YM', {}).get('change_pct'),
+                    }
+                    self.attention_system._us_futures_cache_time = time.time()
+
+                log.debug(f"[RealtimeDataFetcher] 同步指数到缓存: CN={self.attention_system._cn_index_cache}, US={self.attention_system._us_futures_cache}")
+        except Exception as e:
+            log.debug(f"[RealtimeDataFetcher] 同步指数到缓存失败: {e}")
 
     def _sync_us_prices_to_portfolio(self, us_data: Dict[str, Any]):
         """同步美股数据到持仓和 MarketDataBus"""
@@ -840,8 +983,8 @@ class RealtimeDataFetcher:
             for symbol, info in us_data.items():
                 stock_info = US_STOCK_SECTORS.get(symbol, {})
                 blocks = stock_info.get("blocks", [])
-                sector = stock_info.get("sector", "other")
-                narrative = stock_info.get("narrative", blocks[0] if blocks else sector)
+                block = stock_info.get("industry_code", "other")
+                narrative = stock_info.get("narrative", blocks[0] if blocks else block)
                 records.append({
                     'code': symbol,
                     'name': info.get('name', symbol),
@@ -853,7 +996,7 @@ class RealtimeDataFetcher:
                     'p_change': info.get('change_pct', 0),
                     'volume': info.get('volume', 0),
                     'amount': info.get('volume', 0) * info.get('price', 0),
-                    'sector': sector,
+                    'block': block,
                     'blocks': blocks,
                     'narrative': narrative,
                     'market': 'US',
@@ -950,7 +1093,7 @@ class RealtimeDataFetcher:
             volumes = np.nan_to_num(volumes, nan=0.0, posinf=1e15, neginf=0.0)
             prices = np.nan_to_num(prices, nan=0.0, posinf=1e6, neginf=0.0)
 
-            sector_ids = us_df['sector'].values if 'sector' in us_df.columns else np.array(['其他'] * len(us_df))
+            block_ids = us_df['block'].values if 'block' in us_df.columns else np.array(['其他'] * len(us_df))
 
             timestamp = time.time()
 
@@ -964,7 +1107,7 @@ class RealtimeDataFetcher:
                     returns=returns,
                     volumes=volumes,
                     prices=prices,
-                    sector_ids=sector_ids,
+                    block_ids=block_ids,
                     timestamp=timestamp
                 )
                 log.info(f"[RealtimeDataFetcher] 美股注意力处理完成: global_attention={result.get('global_attention', 'N/A')}, block_count={len(result.get('block_attention', {}))}")
@@ -1022,6 +1165,8 @@ class RealtimeDataFetcher:
     def get_stats(self) -> Dict[str, Any]:
         """获取统计信息"""
         try:
+            self._resolve_inner_system()
+
             from deva.naja.radar.trading_clock import get_trading_clock, get_us_trading_clock
 
             cn_tc = get_trading_clock()
@@ -1032,6 +1177,7 @@ class RealtimeDataFetcher:
 
             cn_phase = cn_signal.get('phase', 'closed')
             us_phase = us_signal.get('phase', 'closed')
+            log.info(f"[RealtimeDataFetcher] get_stats: cn_phase={cn_phase}, us_phase={us_phase}")
 
             cn_next = cn_signal.get('next_change_time', '')
             us_next = us_signal.get('next_change_time', '')
@@ -1069,6 +1215,50 @@ class RealtimeDataFetcher:
             cn_info = {'phase': 'unknown', 'phase_name': '未知', 'next_change_time': '', 'next_phase': '', 'next_phase_name': ''}
             us_info = {'phase': 'unknown', 'phase_name': '未知', 'next_change_time': '', 'next_phase': '', 'next_phase_name': ''}
 
+        # 计算A股档位统计
+        high_count = 0
+        medium_count = 0
+        low_count = 0
+        try:
+            fs = self._attention_system_inner.frequency_scheduler
+            if fs:
+                for symbol, idx in fs._symbol_to_idx.items():
+                    if symbol.startswith('CN_'):
+                        level = fs.get_symbol_level(symbol)
+                        if level.value == 2:
+                            high_count += 1
+                        elif level.value == 1:
+                            medium_count += 1
+                        else:
+                            low_count += 1
+                log.debug(f"[RealtimeDataFetcher] get_stats: fs._symbol_to_idx={len(fs._symbol_to_idx)}, CN[high={high_count}, med={medium_count}, low={low_count}]")
+        except Exception as e:
+            log.warning(f"[RealtimeDataFetcher] get_stats 计算A股档位失败: {e}")
+
+        # 计算美股档位统计（基于 symbol_weights 的权重）
+        us_high_count = 0
+        us_medium_count = 0
+        us_low_count = 0
+        us_fetch_count = 0
+        try:
+            us_state = self._attention_system_inner.get_us_attention_state()
+            symbol_weights = us_state.get('symbol_weights', {})
+            futures = us_state.get('futures_indices', {})
+            log.debug(f"[RealtimeDataFetcher] get_stats: symbol_weights={len(symbol_weights)}, futures={futures}")
+            for weight in symbol_weights.values():
+                if weight >= 2.5:
+                    us_high_count += 1
+                elif weight >= 1.0:
+                    us_medium_count += 1
+                else:
+                    us_low_count += 1
+            if symbol_weights:
+                us_fetch_count = 1
+            if futures:
+                us_high_count += len(futures)  # 纳指、标普、道指
+        except Exception as e:
+            log.warning(f"[RealtimeDataFetcher] get_stats 计算美股档位失败: {e}")
+
         return {
             'running': self._running,
             'active': self._is_active,
@@ -1080,11 +1270,14 @@ class RealtimeDataFetcher:
             'is_trading': self._cn_active,
             'is_us_trading': self._us_active,
             'is_force_trading_mode': self.config.force_trading_mode,
-            'high_count': len([s for s, l in self._symbol_levels.items() if l == 'HIGH']),
-            'medium_count': len([s for s, l in self._symbol_levels.items() if l == 'MEDIUM']),
-            'low_count': len([s for s, l in self._symbol_levels.items() if l == 'LOW']),
+            'high_count': high_count,
+            'medium_count': medium_count,
+            'low_count': low_count,
+            'us_high_count': us_high_count,
+            'us_medium_count': us_medium_count,
+            'us_low_count': us_low_count,
             'us_stock_count': len(self._us_last_symbols) if hasattr(self, '_us_last_symbols') else 0,
-            'us_fetch_count': getattr(self, '_us_fetch_count', 0),
+            'us_fetch_count': us_fetch_count,
             'cn_info': cn_info,
             'us_info': us_info,
         }
@@ -1217,48 +1410,26 @@ _fetcher_instance: Optional[RealtimeDataFetcher] = None
 def get_data_fetcher() -> Optional[RealtimeDataFetcher]:
     """获取全局 RealtimeDataFetcher 实例"""
     global _fetcher_instance
-    import time
 
     if _fetcher_instance is not None:
-        log.debug(f"[get_data_fetcher] 直接返回缓存：{id(_fetcher_instance)}")
         return _fetcher_instance
 
-    # 等待 attention_system 初始化完成（最多等待 5 秒）
-    max_wait = 5.0
-    wait_step = 0.2
-    waited = 0.0
-    
-    while waited < max_wait:
-        try:
-            from deva.naja.attention.integration.extended import get_attention_integration
-            integration = get_attention_integration()
-            
-            # 检查是否已初始化完成
-            if hasattr(integration, '_initialized_attention_system') and integration._initialized_attention_system:
-                # 已初始化，获取 fetcher
-                if integration.attention_system:
-                    fetcher = integration.attention_system._realtime_fetcher
-                    if fetcher is not None:
-                        _fetcher_instance = fetcher
-                        log.debug(f"[get_data_fetcher] 等待后获取到 fetcher: {id(fetcher)}")
-                        return _fetcher_instance
-                # 已初始化但没有 fetcher，直接返回
-                log.debug(f"[get_data_fetcher] 已初始化但 fetcher 为 None")
-                break
-        except Exception as e:
-            log.debug(f"[get_data_fetcher] 异常：{e}")
-            pass
-        
-        time.sleep(wait_step)
-        waited += wait_step
+    try:
+        from deva.naja.attention.integration.extended import get_attention_integration
+        integration = get_attention_integration()
 
-    log.debug(f"[get_data_fetcher] 等待超时，返回 None")
+        if integration and integration.attention_system:
+            rf = integration.attention_system._realtime_fetcher
+            if rf is not None:
+                _fetcher_instance = rf
+                return _fetcher_instance
+    except Exception:
+        pass
+
     return _fetcher_instance
 
 
 def set_data_fetcher(fetcher: RealtimeDataFetcher):
     """设置全局 RealtimeDataFetcher 实例"""
     global _fetcher_instance
-    log.debug(f"[DataFetcher] set_data_fetcher called: fetcher={fetcher}")
     _fetcher_instance = fetcher
-    log.debug(f"[DataFetcher] _fetcher_instance now: {_fetcher_instance}")

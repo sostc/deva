@@ -73,8 +73,16 @@ class SystemBootstrap:
         self._boot_results: List[BootResult] = []
         self._initialized = False
         self._boot_details: Dict[str, Any] = {}
+        self._force_realtime = False
+        self._lab_mode = False
 
         atexit.register(_record_system_sleep)
+
+    def set_attention_config(self, force_realtime: bool = False, lab_mode: bool = False):
+        """设置注意力系统配置"""
+        self._force_realtime = force_realtime
+        self._lab_mode = lab_mode
+        logger.info(f"[SystemBootstrap] 设置注意力配置: force_realtime={force_realtime}, lab_mode={lab_mode}")
 
     def boot(self) -> BootResult:
         """
@@ -385,7 +393,7 @@ class SystemBootstrap:
         details: Dict[str, Any] = {}
         try:
             from deva.naja.supervisor import start_supervisor
-            start_supervisor()
+            start_supervisor(force_realtime=self._force_realtime, lab_mode=self._lab_mode)
             details["supervisor"] = "started"
             logger.info("  Supervisor 已启动")
         except Exception as e:
@@ -393,14 +401,14 @@ class SystemBootstrap:
             logger.warning(f"  Supervisor 启动失败: {e}")
 
         try:
-            from deva.naja.strategy.market_replay_scheduler import get_replay_scheduler
-            scheduler = get_replay_scheduler()
+            from deva.naja.strategy.daily_review_scheduler import get_daily_review_scheduler
+            scheduler = get_daily_review_scheduler()
             scheduler.start()
-            details["market_replay_scheduler"] = "started"
-            logger.info("  MarketReplayScheduler 已启动")
+            details["daily_review_scheduler"] = "started"
+            logger.info("  DailyReviewScheduler 已启动")
         except Exception as e:
-            details["market_replay_scheduler_error"] = str(e)
-            logger.warning(f"  MarketReplayScheduler 启动失败: {e}")
+            details["daily_review_scheduler_error"] = str(e)
+            logger.warning(f"  DailyReviewScheduler 启动失败: {e}")
 
         # 启动美林时钟经济数据定时更新
         try:
@@ -543,32 +551,32 @@ def execute() -> dict:
             details["heartbeat_task_error"] = str(e)
             logger.warning(f"  系统心跳任务启动失败: {e}")
 
-        # 统一补执行检查
+        # 统一唤醒同步检查
         try:
-            from deva.naja.system_state import get_system_state_manager, get_backfill_manager
+            from deva.naja.system_state import get_system_state_manager, get_wake_sync_manager
 
             state_mgr = get_system_state_manager()
             state_mgr.record_wake()
 
             state_summary = state_mgr.get_state_summary()
-            logger.info(f"  [Backfill] 系统状态: 休眠 {state_summary['sleep_duration_hours']} 小时")
+            logger.info(f"  [WakeSync] 系统状态: 休眠 {state_summary['sleep_duration_hours']} 小时")
 
             if state_summary['sleep_duration_hours'] < 1:
-                logger.info(f"  [Backfill] 休眠不足1小时，跳过补执行")
+                logger.info(f"  [WakeSync] 休眠不足1小时，跳过同步")
             else:
-                backfill_mgr = get_backfill_manager()
-                registered = backfill_mgr.get_registered_components()
-                logger.info(f"  [Backfill] 已注册 {len(registered)} 个补执行组件: {registered}")
+                wake_sync_mgr = get_wake_sync_manager()
+                registered = wake_sync_mgr.get_registered_components()
+                logger.info(f"  [WakeSync] 已注册 {len(registered)} 个同步组件: {registered}")
 
                 last_active = state_mgr.get_last_active_time()
                 if last_active:
-                    backfill_result = backfill_mgr.perform_backfill(last_active)
-                    details["backfill_summary"] = backfill_result
-                    logger.info(f"  [Backfill] 补执行结果: {backfill_result.get('message', '未知')}")
+                    wake_sync_result = wake_sync_mgr.perform_wake_sync(last_active)
+                    details["wake_sync_summary"] = wake_sync_result
+                    logger.info(f"  [WakeSync] 同步结果: {wake_sync_result.get('message', '未知')}")
 
         except Exception as e:
-            details["backfill_error"] = str(e)
-            logger.warning(f"  统一补执行检查失败: {e}")
+            details["wake_sync_error"] = str(e)
+            logger.warning(f"  统一唤醒同步检查失败: {e}")
 
         duration_ms = (time.time() - start) * 1000
 

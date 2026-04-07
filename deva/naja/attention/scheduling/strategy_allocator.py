@@ -27,7 +27,7 @@ from abc import ABC, abstractmethod
 class StrategyScope(Enum):
     """策略作用域"""
     GLOBAL = "global"
-    SECTOR = "sector"
+    BLOCK = "block"
     SYMBOL = "symbol"
 
 
@@ -251,7 +251,7 @@ class StrategyAllocator:
     def allocate(
         self,
         global_attention: float,
-        sector_attention: Dict[str, float],
+        block_attention: Dict[str, float],
         symbol_weights: Dict[str, float],
         timestamp: float
     ) -> Dict[str, Any]:
@@ -266,7 +266,7 @@ class StrategyAllocator:
         Returns:
             {
                 'global': [strategy_ids...],
-                'sector': {sector_id: [strategy_ids...]},
+                'block': {block_id: [strategy_ids...]},
                 'symbol': {symbol: [strategy_ids...]},
                 'params': {strategy_id: StrategyParams},
                 'decision': {alpha, temperature, courage}
@@ -278,7 +278,7 @@ class StrategyAllocator:
 
         allocation = {
             'global': [],
-            'sector': {},
+            'block': {},
             'symbol': {},
             'params': {},
             'decision': {
@@ -293,12 +293,12 @@ class StrategyAllocator:
         allocation['global'] = [s.config.strategy_id for s in global_strategies]
         
         # 2. 板块策略分配
-        for sector_id, attention in sector_attention.items():
-            sector_strategies = self._allocate_sector_strategies(
-                sector_id, attention, global_attention
+        for block_id, attention in block_attention.items():
+            block_strategies = self._allocate_block_strategies(
+                block_id, attention, global_attention
             )
-            allocation['sector'][sector_id] = [
-                s.config.strategy_id for s in sector_strategies
+            allocation['block'][block_id] = [
+                s.config.strategy_id for s in block_strategies
             ]
         
         # 3. 个股策略分配
@@ -321,7 +321,7 @@ class StrategyAllocator:
             params = self._adjust_params(
                 strategy,
                 global_attention,
-                sector_attention,
+                block_attention,
                 symbol_weights
             )
             allocation['params'][strategy.config.strategy_id] = params
@@ -355,28 +355,28 @@ class StrategyAllocator:
         
         return allocated
     
-    def _allocate_sector_strategies(
+    def _allocate_block_strategies(
         self,
-        sector_id: str,
-        sector_attention: float,
+        block_id: str,
+        block_attention: float,
         global_attention: float
     ) -> List[Strategy]:
         """分配板块策略"""
-        strategies = self.registry.get_by_scope(StrategyScope.SECTOR)
+        strategies = self.registry.get_by_scope(StrategyScope.BLOCK)
         allocated = []
-        
+
         for strategy in strategies:
             # 板块策略需要同时满足全局和板块注意力
-            effective_attention = (global_attention + sector_attention) / 2
-            
-            if self._should_activate(strategy, effective_attention, {'sector': sector_id}):
+            effective_attention = (global_attention + block_attention) / 2
+
+            if self._should_activate(strategy, effective_attention, {'block': block_id}):
                 allocated.append(strategy)
                 if strategy.config.strategy_id not in self._active_strategies:
                     self._activate_strategy(strategy)
             else:
                 if strategy.config.strategy_id in self._active_strategies:
                     self._deactivate_strategy(strategy)
-        
+
         return allocated
     
     def _allocate_symbol_strategies(
@@ -449,7 +449,7 @@ class StrategyAllocator:
         self,
         strategy: Strategy,
         global_attention: float,
-        sector_attention: Dict[str, float],
+        block_attention: Dict[str, float],
         symbol_weights: Dict[str, float]
     ) -> StrategyParams:
         """
@@ -467,9 +467,9 @@ class StrategyAllocator:
 
         if strategy.config.scope == StrategyScope.GLOBAL:
             effective_attention = global_attention
-        elif strategy.config.scope == StrategyScope.SECTOR:
-            if sector_attention:
-                values = [v for v in sector_attention.values() if isinstance(v, (int, float)) and not np.isnan(v) and not np.isinf(v)]
+        elif strategy.config.scope == StrategyScope.BLOCK:
+            if block_attention:
+                values = [v for v in block_attention.values() if isinstance(v, (int, float)) and not np.isnan(v) and not np.isinf(v)]
                 effective_attention = np.mean(values) if values else global_attention
             else:
                 effective_attention = global_attention
@@ -579,9 +579,9 @@ class StrategyAllocator:
                 'global': len([s for s in self._active_strategies
                               if self.registry.get(s) and
                               self.registry.get(s).config.scope == StrategyScope.GLOBAL]),
-                'sector': len([s for s in self._active_strategies
+                'block': len([s for s in self._active_strategies
                               if self.registry.get(s) and
-                              self.registry.get(s).config.scope == StrategyScope.SECTOR]),
+                              self.registry.get(s).config.scope == StrategyScope.BLOCK]),
                 'symbol': len([s for s in self._active_strategies
                               if self.registry.get(s) and
                               self.registry.get(s).config.scope == StrategyScope.SYMBOL])

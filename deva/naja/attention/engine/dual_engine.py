@@ -601,7 +601,7 @@ class DualEngineCoordinator:
         price: float,
         volume: float,
         global_attention: float,
-        sector_attention: Dict[str, float],
+        block_attention: Dict[str, float],
         symbol_weight: float,
         timestamp: float
     ) -> Optional[PatternSignal]:
@@ -628,7 +628,7 @@ class DualEngineCoordinator:
         trigger_score = self._calc_trigger_score(
             anomaly_signal,
             global_attention,
-            sector_attention,
+            block_attention,
             symbol_weight
         )
         
@@ -646,23 +646,23 @@ class DualEngineCoordinator:
         self,
         anomaly_signal: AnomalySignal,
         global_attention: float,
-        sector_attention: Dict[str, float],
+        block_attention: Dict[str, float],
         symbol_weight: float
     ) -> float:
         """
         计算触发分数
 
-        trigger_score = f(anomaly_score, symbol_weight, sector_attention, global_attention)
+        trigger_score = f(anomaly_score, symbol_weight, block_attention, global_attention)
         """
         try:
             # 板块注意力取平均 - 添加数值检查
-            if sector_attention:
-                values = list(sector_attention.values())
+            if block_attention:
+                values = list(block_attention.values())
                 # 过滤掉异常值
                 valid_values = [v for v in values if isinstance(v, (int, float)) and not np.isnan(v) and not np.isinf(v)]
-                avg_sector_attention = np.mean(valid_values) if valid_values else 0.0
+                avg_block_attention = np.mean(valid_values) if valid_values else 0.0
             else:
-                avg_sector_attention = 0.0
+                avg_block_attention = 0.0
 
             # 确保 global_attention 是有效数值
             if not isinstance(global_attention, (int, float)) or np.isnan(global_attention) or np.isinf(global_attention):
@@ -678,14 +678,14 @@ class DualEngineCoordinator:
             # 归一化 symbol_weight (假设正常范围 0-5)
             normalized_symbol = min(max(symbol_weight, 0.0) / 5.0, 1.0)
 
-            # 限制 sector_attention 和 global_attention 范围
-            avg_sector_attention = max(0.0, min(1.0, avg_sector_attention))
+            # 限制 block_attention 和 global_attention 范围
+            avg_block_attention = max(0.0, min(1.0, avg_block_attention))
             global_attention = max(0.0, min(1.0, global_attention))
 
             score = (
                 normalized_anomaly * self._anomaly_weight +
                 normalized_symbol * self._symbol_weight +
-                avg_sector_attention * self._sector_weight +
+                avg_block_attention * self._sector_weight +
                 global_attention * self._global_weight
             )
 

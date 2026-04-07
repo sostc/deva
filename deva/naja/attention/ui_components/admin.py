@@ -1,11 +1,14 @@
 """注意力系统 UI 管理页面入口"""
 
+import logging
 from datetime import datetime
 from pywebio.output import put_html, put_row, put_column, put_text, put_button, use_scope
 from pywebio.session import run_js, run_async
 from pywebio.output import toast
 
 from deva.naja.page_help import render_help_collapse
+
+log = logging.getLogger(__name__)
 
 
 def _get_experiment_info():
@@ -45,9 +48,9 @@ async def render_attention_admin(ctx: dict):
         render_strategy_status_panel,
         render_dual_engine_panel,
     )
+    from .us_market import render_cross_market_predictions
 
     attention_initialized = is_attention_initialized()
-
     report = get_attention_report()
     strategy_stats = get_strategy_stats()
     experiment_info = _get_experiment_info()
@@ -147,15 +150,22 @@ async def render_attention_admin(ctx: dict):
             </div>
             """)
 
-        fetcher = report.get('realtime_fetcher')
-        if fetcher:
-            fetcher_running = fetcher.get('running', False)
-            is_force_mode = fetcher.get('is_force_trading_mode', False)
+        from deva.naja.attention.realtime_data_fetcher import get_data_fetcher
+        fetcher_instance = get_data_fetcher()
 
-            cn_info = fetcher.get('cn_info', {})
-            us_info = fetcher.get('us_info', {})
-            cn_active = fetcher.get('cn_active', False)
-            us_active = fetcher.get('us_active', False)
+        cn_freq = report.get('cn_frequency', {'high': 0, 'medium': 0, 'low': 0})
+        stats = fetcher_instance.get_stats() if fetcher_instance and hasattr(fetcher_instance, 'get_stats') else None
+
+        if stats:
+            us_high = stats.get('us_high_count', 0)
+            us_med = stats.get('us_medium_count', 0)
+            us_low = stats.get('us_low_count', 0)
+            is_force_mode = stats.get('is_force_trading_mode', False)
+
+            cn_info = stats.get('cn_info', {})
+            us_info = stats.get('us_info', {})
+            cn_active = stats.get('cn_active', False)
+            us_active = stats.get('us_active', False)
 
             cn_phase = cn_info.get('phase', 'closed')
             us_phase = us_info.get('phase', 'closed')
@@ -177,9 +187,9 @@ async def render_attention_admin(ctx: dict):
                     🔧 模式: <span style="color:#06b6d4;font-weight:bold;">强制实盘(忽略交易时间)</span>
                     </span><br>
                     <span style="font-size:11px;color:#64748b;">
-                    🔄 获取次数: {fetcher.get('fetch_count', 0)} |
-                    ❌ 错误: {fetcher.get('error_count', 0)} |
-                    📈 档位: HIGH={fetcher.get('high_count', 0)} | MEDIUM={fetcher.get('medium_count', 0)} | LOW={fetcher.get('low_count', 0)}
+                    🔄 获取次数: {stats.get('fetch_count', 0)} |
+                    ❌ 错误: {stats.get('error_count', 0)} |
+                    📈 档位: HIGH={cn_freq.get('high', 0)} | MEDIUM={cn_freq.get('medium', 0)} | LOW={cn_freq.get('low', 0)}
                     </span>
                 </div>
                 """
@@ -200,19 +210,19 @@ async def render_attention_admin(ctx: dict):
                 status_str = " | ".join(status_parts)
 
                 if cn_active or us_active:
-                    cn_level_str = f"A股档位: HIGH={fetcher.get('high_count', 0)} | MEDIUM={fetcher.get('medium_count', 0)} | LOW={fetcher.get('low_count', 0)}" if cn_active else ""
-                    us_level_str = f"美股档位: HIGH={fetcher.get('us_high_count', 0)} | MEDIUM={fetcher.get('us_medium_count', 0)} | LOW={fetcher.get('us_low_count', 0)}" if us_active else ""
+                    cn_level_str = f"A股档位: HIGH={cn_freq.get('high', 0)} | MEDIUM={cn_freq.get('medium', 0)} | LOW={cn_freq.get('low', 0)}" if cn_active else ""
+                    us_level_str = f"美股档位: HIGH={us_high} | MEDIUM={us_med} | LOW={us_low}"
                     level_str = " | ".join(filter(None, [cn_level_str, us_level_str]))
-                    
+
                     if cn_active and us_active:
-                        fetch_info = f"A股🔄{fetcher.get('fetch_count', 0)} | 美股🔄{fetcher.get('us_fetch_count', 0)}"
+                        fetch_info = f"A股🔄{stats.get('fetch_count', 0)} | 美股🔄{stats.get('us_fetch_count', 0)}"
                     elif cn_active:
-                        fetch_info = f"A股 🔄{fetcher.get('fetch_count', 0)} ❌{fetcher.get('error_count', 0)}"
+                        fetch_info = f"A股 🔄{stats.get('fetch_count', 0)} ❌{stats.get('error_count', 0)}"
                     elif us_active:
-                        fetch_info = f"美股 🔄{fetcher.get('us_fetch_count', 0)} ❌{fetcher.get('us_error_count', 0)}"
+                        fetch_info = f"美股 🔄{stats.get('us_fetch_count', 0)} ❌{stats.get('us_error_count', 0)}"
                     else:
-                        fetch_info = f"🔄{fetcher.get('fetch_count', 0)} ❌{fetcher.get('error_count', 0)}"
-                    
+                        fetch_info = f"🔄{stats.get('fetch_count', 0)} ❌{stats.get('error_count', 0)}"
+
                     panel_html = f"""
                     <div style="margin-bottom:14px;padding:12px 14px;border-radius:10px;background:linear-gradient(135deg,#f0fdf4,#dcfce7);border:1px solid #86efac;color:#166534;font-size:13px;">
                         <strong>📡 实盘获取器 🟢</strong> <span style="color:#22c55e;font-weight:bold;">运行中</span><br>
@@ -225,6 +235,9 @@ async def render_attention_admin(ctx: dict):
                     </div>
                     """
                 else:
+                    cn_level_str = f"A股档位: HIGH={cn_freq.get('high', 0)} | MEDIUM={cn_freq.get('medium', 0)} | LOW={cn_freq.get('low', 0)}"
+                    us_level_str = f"美股档位: HIGH={us_high} | MEDIUM={us_med} | LOW={us_low}"
+                    level_str = " | ".join(filter(None, [cn_level_str, us_level_str]))
                     panel_html = f"""
                     <div style="margin-bottom:14px;padding:12px 14px;border-radius:10px;background:linear-gradient(135deg,#fef3c7,#fde68a);border:1px solid #f59e0b;color:#92400e;font-size:13px;">
                         <strong>📡 实盘获取器 🔴</strong> <span style="color:#f59e0b;font-weight:bold;">待机中</span><br>
@@ -232,7 +245,7 @@ async def render_attention_admin(ctx: dict):
                         📊 状态: {status_str}
                         </span><br>
                         <span style="font-size:11px;color:#92400e;">
-                        ⏰ A股下次开盘: {cn_next} | 美股下次开盘: {us_next}
+                        {level_str}
                         </span>
                     </div>
                     """
@@ -257,26 +270,27 @@ async def render_attention_admin(ctx: dict):
                 phase_name = info.get('phase_name', '未知')
                 next_phase = info.get('next_phase_name', '')
                 next_time = info.get('next_change_time', '')
-                if info.get('phase') == 'closed' and next_time:
-                    return f"{label}{phase_name} →{next_phase} {next_time}"
-                return f"{label}{phase_name}"
+                next_info = f' → {next_phase} {next_time}' if next_phase else ''
+                color = '#22c55e' if phase_name in ('交易中', '集合竞价') else '#f59e0b'
+                return f'<span style="color:{color};font-weight:bold;">{label}:</span> <span style="font-size:11px;">{phase_name}{next_info}</span>'
 
-            cn_line = _format_market_line("A股", cn_info)
-            us_line = _format_market_line("美股", us_info)
+            market_line = ' | '.join([
+                _format_market_line('A股', cn_info),
+                _format_market_line('美股', us_info)
+            ])
 
-            put_html(f"""
-            <div style="margin-bottom:14px;padding:12px 14px;border-radius:10px;background:linear-gradient(135deg,#f1f5f9,#e2e8f0);border:1px solid #cbd5e1;color:#475569;font-size:13px;">
-                <strong>📡 实盘获取器</strong> 未启动<br>
+            panel_html = f"""
+            <div style="margin-bottom:14px;padding:12px 14px;border-radius:10px;background:linear-gradient(135deg,#f8fafc,#e2e8f0);border:1px solid #cbd5e1;color:#475569;font-size:13px;">
+                <strong>📡 数据获取器</strong> <span style="color:#94a3b8;">(未运行)</span><br>
                 <span style="font-size:12px;">
-                🕐 当前时间: {current_weekday} {current_time_str} |
-                📊 状态: <span style="color:#f59e0b;font-weight:bold;">{cn_line} | {us_line}</span> |
-                模式: <span style="color:#0ea5e9;font-weight:bold;">{mode_ctx.get('mode_label', '实盘模式')}</span>
+                🕐 {current_time_str} {current_weekday}
                 </span><br>
                 <span style="font-size:11px;color:#64748b;">
-                调用 start_realtime_fetcher() 手动启动
+                {market_line}
                 </span>
             </div>
-            """)
+            """
+            put_html(panel_html)
 
         try:
             render_help_collapse("attention")
@@ -285,6 +299,9 @@ async def render_attention_admin(ctx: dict):
 
     with use_scope("attention_market_state"):
         put_html(render_market_state_panel())
+
+    with use_scope("attention_cross_market"):
+        put_html(render_cross_market_predictions())
 
     with use_scope("attention_flow"):
         put_html(render_attention_flow_ui())
@@ -326,7 +343,7 @@ async def render_attention_admin(ctx: dict):
 
     put_text("")
 
-    with use_scope("attention_sector_micro"):
+    with use_scope("attention_block_micro"):
         put_html(_render_micro_change_indicator())
 
     put_text("")
@@ -386,7 +403,7 @@ def _render_micro_change_indicator() -> str:
 
     recent_snapshots = list(tracker.snapshots)[-10:]
 
-    micro_sector_changes = []
+    micro_block_changes = []
     micro_symbol_changes = []
 
     if len(recent_snapshots) >= 2:
@@ -399,7 +416,7 @@ def _render_micro_change_indicator() -> str:
                 change_pct = ((curr_weight - prev_weight) / prev_weight) * 100
                 if abs(change_pct) >= 1:
                     block_name = tracker.get_block_name(block_id)
-                    micro_sector_changes.append({
+                    micro_block_changes.append({
                         'name': block_name,
                         'change': change_pct,
                         'old': prev_weight,
@@ -420,13 +437,13 @@ def _render_micro_change_indicator() -> str:
                         'new': curr_weight,
                     })
 
-    micro_sector_changes.sort(key=lambda x: abs(x['change']), reverse=True)
+    micro_block_changes.sort(key=lambda x: abs(x['change']), reverse=True)
     micro_symbol_changes.sort(key=lambda x: abs(x['change']), reverse=True)
 
-    micro_sector_changes = micro_sector_changes[:6]
+    micro_block_changes = micro_block_changes[:6]
     micro_symbol_changes = micro_symbol_changes[:8]
 
-    if not micro_sector_changes and not micro_symbol_changes:
+    if not micro_block_changes and not micro_symbol_changes:
         return f"""
         <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px; margin-bottom: 12px;">
             <div style="font-size: 12px; color: #94a3b8; margin-bottom: 8px;">📊 细微变化监测 · 近{len(recent_snapshots)}个时间点</div>
@@ -439,9 +456,9 @@ def _render_micro_change_indicator() -> str:
         <div style="font-size: 12px; color: #64748b; margin-bottom: 10px;">📊 细微变化监测 · 近{len(recent_snapshots)}个时间点</div>
     """
 
-    if micro_sector_changes:
+    if micro_block_changes:
         html += """<div style="margin-bottom: 10px;"><div style="font-size: 11px; color: #94a3b8; margin-bottom: 6px;">板块微波动 (≥1%)</div>"""
-        for item in micro_sector_changes:
+        for item in micro_block_changes:
             emoji = "📈" if item['change'] > 0 else "📉"
             color = "#16a34a" if item['change'] > 0 else "#dc2626"
             sign = "+" if item['change'] > 0 else ""

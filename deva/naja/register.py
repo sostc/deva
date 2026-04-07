@@ -126,10 +126,9 @@ def _register_application_singletons():
     logger.info("  ✓ attention_fusion")
 
     def _create_portfolio():
-        from .attention.portfolio import PortfolioManager
-        return PortfolioManager()
-    register_singleton('portfolio', _create_portfolio,
-                      deps=['attention_integration'])
+        from .attention.portfolio import Portfolio
+        return Portfolio()
+    register_singleton('portfolio', _create_portfolio)
     logger.info("  ✓ portfolio")
 
     def _create_focus_manager():
@@ -247,6 +246,22 @@ def _register_cognition_singletons():
     logger.info("[NajaRegister] 认知模块单例注册完成")
 
 
+def _create_narrative_tracker():
+    from .cognition.narrative import get_narrative_tracker
+    return get_narrative_tracker()
+register_singleton('narrative_tracker', _create_narrative_tracker,
+                  deps=[])
+logger.info("  ✓ narrative_tracker")
+
+
+def _create_global_market_scanner():
+    from .radar import get_global_market_scanner
+    return get_global_market_scanner()
+register_singleton('global_market_scanner', _create_global_market_scanner,
+                  deps=[])
+logger.info("  ✓ global_market_scanner")
+
+
 def _register_processing_singletons():
     """注册处理模块单例"""
     logger.info("[NajaRegister] 注册处理模块单例...")
@@ -301,9 +316,12 @@ def _register_other_singletons():
     logger.info("[NajaRegister] 注册其他单例...")
 
     def _create_realtime_data_fetcher():
-        from .attention.realtime_data_fetcher import RealtimeDataFetcher
+        from .attention.realtime_data_fetcher import RealtimeDataFetcher, set_data_fetcher
         integration = SR('attention_integration')
-        return RealtimeDataFetcher(attention_system=integration)
+        fetcher = RealtimeDataFetcher(attention_system=integration)
+        set_data_fetcher(fetcher)
+        fetcher.start()  # 启动数据获取器
+        return fetcher
     register_singleton('realtime_data_fetcher', _create_realtime_data_fetcher,
                       deps=['mode_manager', 'attention_integration'])
     logger.info("  ✓ realtime_data_fetcher")
@@ -329,12 +347,12 @@ def _register_other_singletons():
                       deps=['attention_integration'])
     logger.info("  ✓ liquidity_manager")
 
-    def _create_market_replay_scheduler():
-        from .strategy.market_replay_scheduler import MarketReplayScheduler
-        return MarketReplayScheduler()
-    register_singleton('market_replay_scheduler', _create_market_replay_scheduler,
+    def _create_daily_review_scheduler():
+        from .strategy.daily_review_scheduler import DailyReviewScheduler
+        return DailyReviewScheduler()
+    register_singleton('daily_review_scheduler', _create_daily_review_scheduler,
                       deps=['datasource_manager'])
-    logger.info("  ✓ market_replay_scheduler")
+    logger.info("  ✓ daily_review_scheduler")
 
     def _create_cognition_orchestrator():
         from .attention.cognition_orchestrator import CognitionOrchestrator

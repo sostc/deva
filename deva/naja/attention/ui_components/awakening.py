@@ -130,19 +130,22 @@ def _get_qkv_state() -> Dict[str, Any]:
 
         event_encoder_state = _get_event_encoder_state(kernel)
         multi_scorer_state = _get_multi_scorer_state(kernel)
-        strategy_learning_state = _get_strategy_learning_state(os)
+        attention_memory_state = _get_attention_memory_state(kernel)
+        awakened_memory_state = _get_awakened_memory_state()
 
         return {
             "event_encoder": event_encoder_state,
             "multi_scorer": multi_scorer_state,
-            "strategy_learning": strategy_learning_state,
+            "attention_memory": attention_memory_state,
+            "awakened_memory": awakened_memory_state,
             "has_data": True
         }
     except Exception:
         return {
             "event_encoder": {"total_encoded": 0, "key_features": [], "value_features": []},
             "multi_scorer": {"heads_count": 0, "fusion_alpha": 0.0},
-            "strategy_learning": {"available": False, "market_state": {}, "selected_strategies": []},
+            "attention_memory": {"total": 0, "level_distribution": {"high": 0, "medium": 0, "low": 0}, "avg_score": 0.0},
+            "awakened_memory": {"total_patterns": 0, "market_stats": {}},
             "has_data": False
         }
 
@@ -163,6 +166,48 @@ def _get_event_encoder_state(kernel) -> Dict[str, Any]:
     return encoder_state
 
 
+def _get_attention_memory_state(kernel) -> Dict[str, Any]:
+    """获取注意力记忆系统状态"""
+    memory_state = {
+        "total": 0,
+        "level_distribution": {"high": 0, "medium": 0, "low": 0},
+        "avg_score": 0.0
+    }
+    try:
+        if hasattr(kernel, 'memory') and kernel.memory:
+            stats = kernel.memory.get_stats()
+            memory_state["total"] = stats.get("total", 0)
+            memory_state["level_distribution"] = stats.get("level_distribution", {"high": 0, "medium": 0, "low": 0})
+            memory_state["avg_score"] = stats.get("avg_score", 0.0)
+    except Exception:
+        pass
+    return memory_state
+
+
+def _get_awakened_memory_state() -> Dict[str, Any]:
+    """获取觉醒系统记忆状态"""
+    awakened_state = {
+        "total_patterns": 0,
+        "market_stats": {},
+        "archive_stats": {}
+    }
+    try:
+        from deva.naja.alaya.awakened_alaya import AwakenedAlaya
+        alaya = AwakenedAlaya()
+
+        if hasattr(alaya, 'cross_market_memory') and alaya.cross_market_memory:
+            cross_stats = alaya.cross_market_memory.get_stats()
+            awakened_state["total_patterns"] = cross_stats.get("total_patterns", 0)
+            awakened_state["market_stats"] = cross_stats.get("market_stats", {})
+
+        if hasattr(alaya, 'pattern_archive') and alaya.pattern_archive:
+            archive_stats = alaya.pattern_archive.get_archive_stats()
+            awakened_state["archive_stats"] = archive_stats
+    except Exception:
+        pass
+    return awakened_state
+
+
 def _get_multi_scorer_state(kernel) -> Dict[str, Any]:
     """获取多维评分器状态"""
     scorer_state = {
@@ -177,46 +222,6 @@ def _get_multi_scorer_state(kernel) -> Dict[str, Any]:
     except Exception:
         pass
     return scorer_state
-
-
-def _get_strategy_learning_state(os) -> Dict[str, Any]:
-    """获取策略学习状态"""
-    learning_state = {
-        "available": False,
-        "market_state": {},
-        "selected_strategies": []
-    }
-    try:
-        if hasattr(os, 'strategy_learning') and os.strategy_learning:
-            sl = os.strategy_learning
-            learning_state["available"] = True
-
-            if hasattr(sl, 'state_detector') and sl.state_detector:
-                current_state = sl.state_detector.get_current_state()
-                if current_state:
-                    learning_state["market_state"] = {
-                        "name": sl.state_detector.get_state_name(current_state),
-                        "volatility": current_state.volatility,
-                        "trend": current_state.trend,
-                        "liquidity": current_state.liquidity
-                    }
-
-            perf = sl.bandit.get_all_performance() if hasattr(sl, 'bandit') and sl.bandit else {}
-            strategies = list(perf.keys())[:3]
-
-            selected = sl.select_strategies(
-                global_attention=0.5,
-                sector_attention={},
-                available_strategies=strategies,
-                top_k=3
-            ) if hasattr(sl, 'select_strategies') else None
-            if selected:
-                learning_state["selected_strategies"] = selected.selected_strategies
-            else:
-                learning_state["selected_strategies"] = strategies
-    except Exception:
-        pass
-    return learning_state
 
 
 def _compute_awakening_from_manas(output: Dict[str, Any]) -> str:
@@ -402,16 +407,23 @@ def _render_qkv_module(qkv_state: Dict[str, Any]) -> str:
 
     event_encoder = qkv_state.get("event_encoder", {})
     multi_scorer = qkv_state.get("multi_scorer", {})
-    strategy_learning = qkv_state.get("strategy_learning", {})
+    attention_memory = qkv_state.get("attention_memory", {})
+    awakened_memory = qkv_state.get("awakened_memory", {})
 
     total_encoded = event_encoder.get("total_encoded", 0)
     key_features = event_encoder.get("key_features", [])
     fusion_alpha = multi_scorer.get("fusion_alpha", 0.0)
     heads_count = multi_scorer.get("heads_count", 0)
 
-    market_state = strategy_learning.get("market_state", {})
-    selected_strategies = strategy_learning.get("selected_strategies", [])
-    state_name = market_state.get("name", "unknown") if market_state else "unknown"
+    mem_total = attention_memory.get("total", 0)
+    level_dist = attention_memory.get("level_distribution", {"high": 0, "medium": 0, "low": 0})
+    avg_score = attention_memory.get("avg_score", 0.0)
+
+    patterns_total = awakened_memory.get("total_patterns", 0)
+    archive_stats = awakened_memory.get("archive_stats", {})
+
+    pattern_types = list(archive_stats.keys())[:3] if archive_stats else []
+    patterns_str = ", ".join(pattern_types) if pattern_types else "暂无归档"
 
     features_str = ", ".join(key_features[:4]) if key_features else ""
 
@@ -431,7 +443,7 @@ def _render_qkv_module(qkv_state: Dict[str, Any]) -> str:
             </div>
         </div>
 
-        <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 8px;">
+        <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-bottom: 8px;">
             <div style="background: #0f172a; border-radius: 8px; padding: 10px; text-align: center;">
                 <div style="font-size: 10px; color: #64748b; margin-bottom: 4px;">📊 事件编码</div>
                 <div style="font-size: 14px; font-weight: 600; color: #0ea5e9;">""" + str(total_encoded) + """ events</div>
@@ -443,9 +455,14 @@ def _render_qkv_module(qkv_state: Dict[str, Any]) -> str:
                 <div style="font-size: 9px; color: #64748b; margin-top: 2px;">Alpha: """ + f"{fusion_alpha:.3f}" + """</div>
             </div>
             <div style="background: #0f172a; border-radius: 8px; padding: 10px; text-align: center;">
-                <div style="font-size: 10px; color: #64748b; margin-bottom: 4px;">📈 策略学习</div>
-                <div style="font-size: 14px; font-weight: 600; color: #8b5cf6;">""" + state_name + """</div>
-                <div style="font-size: 9px; color: #64748b; margin-top: 2px;">""" + (", ".join(selected_strategies[:2]) if selected_strategies else "not initialized") + """</div>
+                <div style="font-size: 10px; color: #64748b; margin-bottom: 4px;">🧠 注意力记忆</div>
+                <div style="font-size: 14px; font-weight: 600; color: #f59e0b;">""" + str(mem_total) + """ items</div>
+                <div style="font-size: 9px; color: #64748b; margin-top: 2px;">H:""" + str(level_dist.get("high", 0)) + """ M:""" + str(level_dist.get("medium", 0)) + """ L:""" + str(level_dist.get("low", 0)) + """</div>
+            </div>
+            <div style="background: #0f172a; border-radius: 8px; padding: 10px; text-align: center;">
+                <div style="font-size: 10px; color: #64748b; margin-bottom: 4px;">🌟 跨市场记忆</div>
+                <div style="font-size: 14px; font-weight: 600; color: #a855f7;">""" + str(patterns_total) + """ patterns</div>
+                <div style="font-size: 9px; color: #64748b; margin-top: 2px;">""" + patterns_str + """</div>
             </div>
         </div>
     </div>

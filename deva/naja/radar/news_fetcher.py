@@ -176,12 +176,75 @@ class RadarNewsProcessor:
     2. 将原始新闻发送给认知系统（NewsMind 处理）
 
     所有深度处理（主题分类、注意力评分、叙事追踪等）由认知系统完成
+
+    持久化：
+    - 短期记忆保存在 NB 表中，重启后可恢复
     """
+
+    NEWS_TABLE = "naja_radar_news"
 
     def __init__(self, config: Optional[Dict[str, Any]] = None):
         cfg = config or {}
         self._short_memory_size = int(cfg.get("short_memory_size", 100))
         self._short_memory: Deque[NewsItem] = deque(maxlen=self._short_memory_size)
+        self._nb = None
+        self._load_from_persistence()
+
+    def _load_from_persistence(self):
+        """从持久化存储加载新闻摘要"""
+        try:
+            from deva import NB
+            self._nb = NB(self.NEWS_TABLE)
+
+            saved_summary = self._nb.get("daily_summary", {})
+            if saved_summary:
+                _radar_news_log(f"[RadarNewsProcessor] 从持久化恢复新闻摘要: {saved_summary.get('count', 0)} 条")
+        except Exception as e:
+            _radar_news_log(f"[RadarNewsProcessor] 加载持久化失败: {e}")
+            self._nb = None
+
+    def _save_to_persistence(self):
+        """保存新闻摘要到持久化存储（只保存状态，不保存实体）"""
+        if not self._nb:
+            return
+
+        try:
+            now = datetime.now()
+            today = now.strftime('%Y-%m-%d')
+
+            saved_summary = self._nb.get("daily_summary", {})
+            existing_today = saved_summary.get(today, {})
+
+            news_list = list(self._short_memory)
+            today_news = [
+                {"title": item.title, "source": item.source}
+                for item in news_list
+                if item.timestamp and item.timestamp.strftime('%Y-%m-%d') == today
+            ]
+
+            macro_keywords = ["地缘政治", "宏观经济", "美联储", "通胀", "加息", "降息", "战争", "制裁", "经济"]
+            industry_keywords = ["财报", "业绩", "营收", "利润", "超预期", "不及预期"]
+
+            macro_titles = [n["title"] for n in today_news if any(kw in n["title"] for kw in macro_keywords)]
+            industry_titles = [n["title"] for n in today_news if any(kw in n["title"] for kw in industry_keywords)]
+
+            summary = {
+                "count": len(today_news),
+                "macro_count": len(macro_titles),
+                "macro_titles": macro_titles[-5:],
+                "industry_count": len(industry_titles),
+                "industry_titles": industry_titles[-5:],
+                "last_updated": now.isoformat(),
+            }
+
+            saved_summary[today] = summary
+
+            recent_days = sorted(saved_summary.keys())[-7:]
+            trimmed_summary = {k: saved_summary[k] for k in recent_days}
+
+            self._nb["daily_summary"] = trimmed_summary
+        except Exception as e:
+            _radar_news_log(f"[RadarNewsProcessor] 保存持久化失败: {e}")
 
     def process(self, news: NewsItem) -> List[Dict]:
         """
@@ -189,9 +252,11 @@ class RadarNewsProcessor:
 
         1. 存入短期记忆（供雷达面板显示）
         2. 发送到认知系统进行深度处理
+        3. 持久化到 NB 存储
         """
         self._short_memory.append(news)
         self._send_to_cognition_simple(news)
+        self._save_to_persistence()
         return []
 
     def _send_to_cognition_simple(self, news: NewsItem) -> None:

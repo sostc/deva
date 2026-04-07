@@ -21,8 +21,8 @@ from .components import (
     render_insight,
     render_cognition_summary,
     render_control_panel,
-    render_market_replay,
-    render_market_replay_empty,
+    render_daily_review,
+    render_daily_review_empty,
     render_merrill_clock,
     render_propagation,
     render_cross_signal,
@@ -230,11 +230,11 @@ class CognitionUI:
     def _render_control_panel(self):
         render_control_panel(self)
 
-    def _render_market_replay_section(self):
-        render_market_replay(self)
+    def _render_daily_review_section(self):
+        render_daily_review(self)
 
-    def _render_market_replay_empty(self):
-        render_market_replay_empty(self)
+    def _render_daily_review_empty(self):
+        render_daily_review_empty(self)
 
     def _trigger_reflection(self):
         """手动触发 LLM 反思"""
@@ -318,7 +318,7 @@ class CognitionUI:
         from threading import Thread
         Thread(target=generate, daemon=True).start()
 
-    def _trigger_market_replay(self):
+    def _trigger_daily_review(self):
         from pywebio.output import put_toast
         put_toast("市场复盘功能开发中...", duration=2)
 

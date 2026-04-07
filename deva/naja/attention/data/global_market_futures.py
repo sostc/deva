@@ -133,11 +133,11 @@ US_STOCK_CODES = {
 from deva.naja.bandit.stock_sector_map import US_STOCK_SECTORS as _FULL_US_STOCK_SECTORS
 
 US_STOCK_SECTORS = {
-    code: info.get("sector", "other")
+    code: info.get("industry_code", "other")
     for code, info in _FULL_US_STOCK_SECTORS.items()
 }
 
-US_SECTOR_LIST = list(dict.fromkeys(info.get("sector", "other") for info in _FULL_US_STOCK_SECTORS.values()))
+US_SECTOR_LIST = list(dict.fromkeys(info.get("industry_code", "other") for info in _FULL_US_STOCK_SECTORS.values()))
 
 ALL_CODES = {**FUTURES_CODES, **US_STOCK_CODES}
 MARKET_ID_TO_CODE = {v: k for k, v in ALL_CODES.items()}

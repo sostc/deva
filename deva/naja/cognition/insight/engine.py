@@ -36,7 +36,7 @@ class Insight:
     theme: str
     summary: str
     symbols: List[str] = field(default_factory=list)
-    sectors: List[str] = field(default_factory=list)
+    blocks: List[str] = field(default_factory=list)
     system_attention: float = 0.5
     confidence: float = 0.5
     actionability: float = 0.5
@@ -54,7 +54,7 @@ class Insight:
             "theme": self.theme,
             "summary": self.summary,
             "symbols": self.symbols,
-            "sectors": self.sectors,
+            "blocks": self.blocks,
             "system_attention": self.system_attention,
             "confidence": self.confidence,
             "actionability": self.actionability,
@@ -137,7 +137,7 @@ class InsightBuilder:
 
         summary = self._extract_summary(output, strategy_name)
         symbols = self._extract_symbols_from_output(output)
-        sectors = self._extract_sectors(output)
+        blocks = self._extract_blocks(output)
         confidence = self._extract_confidence(output)
         actionability = self._extract_actionability(output)
         system_attention = self._extract_system_attention(output, metadata)
@@ -147,7 +147,7 @@ class InsightBuilder:
             "theme": theme,
             "summary": summary,
             "symbols": symbols,
-            "sectors": sectors,
+            "blocks": blocks,
             "confidence": confidence,
             "actionability": actionability,
             "system_attention": system_attention,
@@ -176,8 +176,8 @@ class InsightBuilder:
         summary = str(summary_raw) if not isinstance(summary_raw, str) else summary_raw
 
         symbols = self._extract_symbols(event, payload)
-        event_for_extract = {"sectors": event.get("sectors"), "sector": payload.get("sector"), "板块": payload.get("板块")}
-        sectors = self._extract_sectors(event_for_extract)
+        event_for_extract = {"blocks": event.get("blocks"), "block": payload.get("block"), "板块": payload.get("板块")}
+        blocks = self._extract_blocks(event_for_extract)
         system_attention = _clamp(_safe_float(event.get("score", event.get("system_attention", 0.6))))
         confidence = _clamp(_safe_float(event.get("confidence", 0.6)))
         actionability = _clamp(_safe_float(event.get("actionability", 0.4)))
@@ -189,8 +189,8 @@ class InsightBuilder:
             theme = self._extract_narrative_signal_info(event, signal_type, payload, raw_data)
         elif signal_type == "attention_shift":
             theme = self._extract_attention_shift_info(event, payload, raw_data)
-        elif signal_type in ("block_hotspot", "sector_anomaly"):
-            theme = self._extract_sector_signal_info(event, signal_type, payload, raw_data)
+        elif signal_type in ("block_hotspot", "block_anomaly"):
+            theme = self._extract_block_signal_info(event, signal_type, payload, raw_data)
 
         if len(summary) < 15 and theme:
             summary = theme
@@ -240,7 +240,7 @@ class InsightBuilder:
             "narrative_drift": "叙事漂移检测",
             "attention_shift": "注意力发生转移",
             "block_hotspot": "板块成为热点",
-            "sector_anomaly": "板块出现异常",
+            "block_anomaly": "板块出现异常",
         }
         return signal_labels.get(signal_type, f"信号类型: {signal_type}")
 
@@ -292,23 +292,23 @@ class InsightBuilder:
         if from_symbol and to_symbol:
             return f"🔄 {from_symbol} → {to_symbol}"
 
-        from_sector = payload.get("from_sector", "") or raw_data.get("from_sector", "")
-        to_sector = payload.get("to_sector", "") or raw_data.get("to_sector", "")
-        if from_sector and to_sector:
-            return f"🔄 板块: {from_sector} → {to_sector}"
+        from_block = payload.get("from_block", "") or raw_data.get("from_block", "")
+        to_block = payload.get("to_block", "") or raw_data.get("to_block", "")
+        if from_block and to_block:
+            return f"🔄 板块: {from_block} → {to_block}"
 
         return "🔄 注意力转移"
 
-    def _extract_sector_signal_info(self, event: Dict[str, Any], signal_type: str, payload: Dict, raw_data: Dict) -> str:
-        """从 sector_* 信号中提取有意义的 theme"""
-        sector = payload.get("sector", "") or payload.get("板块", "") or raw_data.get("sector", "") or raw_data.get("板块", "")
-        if sector and sector != "-":
-            return f"🔥 板块: {sector}"
+    def _extract_block_signal_info(self, event: Dict[str, Any], signal_type: str, payload: Dict, raw_data: Dict) -> str:
+        """从 block_* 信号中提取有意义的 theme"""
+        block = payload.get("block", "") or payload.get("板块", "") or raw_data.get("block", "") or raw_data.get("板块", "")
+        if block and block != "-":
+            return f"🔥 板块: {block}"
         return f"🔥 {signal_type}"
 
     def _extract_theme(self, output: Any, strategy_name: str) -> str:
         if isinstance(output, dict):
-            for key in ("topic", "theme", "sector", "industry", "signal_type"):
+            for key in ("topic", "theme", "block", "industry", "signal_type"):
                 value = output.get(key)
                 if value:
                     return str(value)
@@ -364,19 +364,19 @@ class InsightBuilder:
                 symbols.add(str(val))
         return list(symbols)
 
-    def _extract_sectors(self, output: Any) -> List[str]:
+    def _extract_blocks(self, output: Any) -> List[str]:
         if not isinstance(output, dict):
             return []
-        sectors: Set[str] = set()
-        for key in ("sectors", "industries"):
+        blocks: Set[str] = set()
+        for key in ("blocks", "industries"):
             val = output.get(key)
             if isinstance(val, list):
-                sectors.update(str(x) for x in val if x)
-        for key in ("sector", "industry"):
+                blocks.update(str(x) for x in val if x)
+        for key in ("block", "industry"):
             val = output.get(key)
             if val:
-                sectors.add(str(val))
-        return list(sectors)
+                blocks.add(str(val))
+        return list(blocks)
 
     def _extract_confidence(self, output: Any) -> float:
         if isinstance(output, dict):
@@ -554,7 +554,7 @@ class InsightPool:
             insight.ts = new_insight.ts
             insight.summary = new_insight.summary or insight.summary
             insight.symbols = list({*insight.symbols, *new_insight.symbols})
-            insight.sectors = list({*insight.sectors, *new_insight.sectors})
+            insight.blocks = list({*insight.blocks, *new_insight.blocks})
             insight.system_attention = max(insight.system_attention, new_insight.system_attention)
             insight.confidence = max(insight.confidence, new_insight.confidence)
             insight.actionability = max(insight.actionability, new_insight.actionability)

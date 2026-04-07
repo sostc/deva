@@ -37,12 +37,12 @@ except ImportError:
 class AttentionSystemConfig:
     """注意力系统配置"""
     global_history_window: int = 20
-    max_sectors: int = 5000
-    sector_decay_half_life: float = 300.0
+    max_blocks: int = 5000
+    block_decay_half_life: float = 300.0
     max_symbols: int = 5000
     low_interval: float = 60.0
     medium_interval: float = 10.0
-    high_interval: float = 1.0
+    high_interval: float = 5.0
     river_history_window: int = 20
     pytorch_max_concurrent: int = 10
 
@@ -90,7 +90,7 @@ class AttentionSystem:
         )
 
         self.block_attention = BlockAttentionEngine(
-            max_sectors=self.config.max_sectors
+            max_blocks=self.config.max_blocks
         )
 
         self.weight_pool = WeightPool(
@@ -132,7 +132,7 @@ class AttentionSystem:
             history_window=self.config.global_history_window
         )
         self._us_block_attention = BlockAttentionEngine(
-            max_sectors=self.config.max_sectors
+            max_blocks=self.config.max_blocks
         )
         self._us_weight_pool = WeightPool(
             max_symbols=self.config.max_symbols
@@ -145,6 +145,20 @@ class AttentionSystem:
         self._us_last_symbol_weights: Dict[str, float] = {}
         self._us_last_symbol_snapshot: Dict[str, Dict[str, Any]] = {}
         self._us_last_snapshot_time: float = 0.0
+
+        # 美股板块变化追踪（用于检测显著变化）
+        self._us_prev_block_attention: Dict[str, float] = {}
+        self._us_block_change_threshold: float = 0.1  # 调低阈值以捕获更多变化
+
+        # 美股期货指数缓存（用于UI展示）
+        self._us_futures_cache: Dict[str, float] = {}
+        self._us_futures_cache_time: float = 0.0
+        self._us_futures_cache_ttl: float = 60.0  # 缓存60秒
+
+        # A股指数缓存（用于UI展示）
+        self._cn_index_cache: Dict[str, float] = {}
+        self._cn_index_cache_time: float = 0.0
+        self._cn_index_cache_ttl: float = 60.0  # 缓存60秒
 
         # 上次有效结果（用于降级）
         self._last_valid_result: Optional[Dict[str, Any]] = None
@@ -161,6 +175,20 @@ class AttentionSystem:
             'pattern_signals': [],
             'market_state': {},
         }
+
+        # 注册指数符号到频率调度器（指数始终为高频）
+        self._register_index_symbols()
+
+    INDEX_SYMBOLS = ['CN_SH', 'CN_HS300', 'CN_CHINEXT', 'US_NQ', 'US_ES', 'US_YM']
+
+    def _register_index_symbols(self):
+        """注册指数符号到频率调度器，指数权重固定为最高"""
+        if self.frequency_scheduler is None:
+            log.warning("[AttentionSystem] _register_index_symbols: frequency_scheduler 为 None")
+            return
+        for symbol in self.INDEX_SYMBOLS:
+            self.frequency_scheduler.register_protected_symbol(symbol)
+        log.info(f"[AttentionSystem] 注册指数符号完成: {self.INDEX_SYMBOLS}")
 
     def _get_step_result(self, step_name: str, fallback_data: Any) -> Tuple[bool, Any]:
         """检查熔断器状态，返回是否应该执行或使用降级结果"""
@@ -197,20 +225,20 @@ class AttentionSystem:
     
     def initialize(
         self,
-        sectors: List[BlockConfig],
+        blocks: List[BlockConfig],
         symbol_block_map: Dict[str, List[str]]
     ):
         """
         初始化系统
 
         Args:
-            sectors: 板块配置列表
-            symbol_block_map: symbol -> sectors 映射
+            blocks: 板块配置列表
+            symbol_block_map: symbol -> blocks 映射
         """
-        log.info(f"[AttentionSystem] 初始化: 收到 {len(sectors)} 个板块, {len(symbol_block_map)} 个个股")
+        log.info(f"[AttentionSystem] 初始化: 收到 {len(blocks)} 个板块, {len(symbol_block_map)} 个个股")
 
         # 注册板块
-        for config in sectors:
+        for config in blocks:
             self.block_attention.register_block(config)
 
         log.info(f"[AttentionSystem] 已注册 {len(self.block_attention._blocks)} 个板块到 block_attention")
@@ -227,22 +255,7 @@ class AttentionSystem:
         self._initialized = True
 
     def start_realtime_fetcher(self, config: Optional[FetchConfig] = None):
-        """
-        启动实盘数据获取器
-
-        根据注意力权重动态获取实盘数据:
-        - 高注意力 symbol: 每秒获取
-        - 中注意力 symbol: 每10秒获取
-        - 低注意力 symbol: 每60秒获取
-
-        Args:
-            config: 获取配置，为None时使用保存的配置
-        """
-        import sys
-        log.warning(f"[AttentionSystem] ⚠️ start_realtime_fetcher 被调用, config={config}, _initialized={self._initialized}")
-        sys.stdout.flush()
-        sys.stderr.flush()
-
+        """启动实盘数据获取器（使用单例模式）"""
         try:
             if not self._initialized:
                 log.error("[AttentionSystem] 系统未初始化，无法启动实盘获取器")
@@ -252,44 +265,34 @@ class AttentionSystem:
                 log.warning("[AttentionSystem] 实盘获取器已在运行中")
                 return
 
-            if config is None:
-                from deva.naja.attention.integration.extended import get_mode_manager
-                from deva.naja.attention.realtime_data_fetcher import FetchConfig
-                mode_manager = get_mode_manager()
-                saved_config = mode_manager.get_fetcher_config()
-                log.warning(f"[AttentionSystem] saved_config={saved_config}")
-                sys.stdout.flush()
-                if saved_config:
-                    config = FetchConfig(**saved_config)
-                    log.info(f"[AttentionSystem] 使用保存的配置: force_trading_mode={config.force_trading_mode}")
-                else:
-                    config = FetchConfig()
-                    log.info("[AttentionSystem] 使用默认配置")
+            from deva.naja.attention.realtime_data_fetcher import get_data_fetcher
+            fetcher = get_data_fetcher()
 
-            log.warning(f"[AttentionSystem] 创建 RealtimeDataFetcher, config.force_trading_mode={config.force_trading_mode}")
-            sys.stdout.flush()
+            if fetcher is None:
+                from deva.naja.attention.realtime_data_fetcher import RealtimeDataFetcher
+                if config is None:
+                    from deva.naja.attention.integration.extended import get_mode_manager
+                    from deva.naja.attention.realtime_data_fetcher import FetchConfig
+                    mode_manager = get_mode_manager()
+                    saved_config = mode_manager.get_fetcher_config()
+                    if saved_config:
+                        config = FetchConfig(**saved_config)
+                    else:
+                        config = FetchConfig()
 
-            self._realtime_fetcher = RealtimeDataFetcher(self, config)
-            self._realtime_fetcher.start()
-            sys.stdout.flush()
+                fetcher = RealtimeDataFetcher(self, config)
+                fetcher.start()
+                fetcher._activate()
 
-            log.warning("[AttentionSystem] 实盘获取器已启动，强制激活")
-            self._realtime_fetcher._activate()
-            sys.stdout.flush()
+                from deva.naja.attention.realtime_data_fetcher import set_data_fetcher
+                set_data_fetcher(fetcher)
 
-            log.debug(f"[AttentionSystem] 调用 set_data_fetcher, self._realtime_fetcher={self._realtime_fetcher}")
-            from deva.naja.attention.realtime_data_fetcher import set_data_fetcher
-            log.debug("[AttentionSystem] set_data_fetcher imported, calling it...")
-            set_data_fetcher(self._realtime_fetcher)
-            log.debug("[AttentionSystem] set_data_fetcher called successfully")
-
+            self._realtime_fetcher = fetcher
             log.info("[AttentionSystem] 实盘获取器启动完成")
         except Exception as e:
             log.error(f"[AttentionSystem] 启动实盘获取器失败: {e}")
             import traceback
-            log.error(traceback.format_exc())
-            sys.stdout.flush()
-            sys.stderr.flush()
+            traceback.print_exc()
 
     def stop_realtime_fetcher(self):
         """停止实盘数据获取器"""
@@ -907,9 +910,9 @@ class AttentionSystem:
 
         for sym in symbols:
             if sym not in self._us_weight_pool._symbol_to_idx:
-                sector_list = [block_ids[i] for i, s in enumerate(symbols) if s == sym]
-                self._us_weight_pool.register_symbol(sym, sector_list if sector_list else ["其他"])
-                log.debug(f"[US-Attention] 自动注册美股symbol: {sym} -> {sector_list[:3] if sector_list else ['其他']}")
+                block_list = [block_ids[i] for i, s in enumerate(symbols) if s == sym]
+                self._us_weight_pool.register_symbol(sym, block_list if block_list else ["其他"])
+                log.debug(f"[US-Attention] 自动注册美股symbol: {sym} -> {block_list[:3] if block_list else ['其他']}")
 
         try:
             symbol_weights = self._us_weight_pool.update(symbols, returns, volumes, block_attention, timestamp)
@@ -929,6 +932,8 @@ class AttentionSystem:
             market_state = {'attention': global_attention, 'activity': activity, 'trend': 'unknown', 'description': '状态获取失败'}
 
         log.debug(f"[US-Attention] 处理完成: global_attention={global_attention:.3f}, block_count={len(block_attention)}, symbol_count={len(symbol_weights)}, latency={latency:.1f}ms")
+
+        self._push_cross_market_block_changes(block_attention)
 
         try:
             snapshot = {}
@@ -959,21 +964,150 @@ class AttentionSystem:
             'stock_count': len(symbols),
         }
 
+    def _push_cross_market_block_changes(self, current_block_attention: Dict[str, float]):
+        """检测美股板块显著变化并推送到跨市场记忆"""
+        if not current_block_attention:
+            return
+
+        block_changes = {}
+        for block, weight in current_block_attention.items():
+            prev_weight = self._us_prev_block_attention.get(block, 0.0)
+            change = weight - prev_weight
+
+            if change >= self._us_block_change_threshold:
+                block_changes[block] = change
+                log.info(f"[CrossMarket] 检测到美股板块显著变化: {block} {prev_weight:.3f} → {weight:.3f} (变化: {change:+.3f})")
+
+        if block_changes:
+            try:
+                from deva.naja.alaya.awakened_alaya import AwakenedAlaya
+                alaya = AwakenedAlaya()
+                if hasattr(alaya, 'cross_market_memory') and alaya.cross_market_memory:
+                    pushed = alaya.cross_market_memory.push_block_change(block_changes)
+                    if pushed:
+                        log.info(f"[CrossMarket] 成功推送 {len(pushed)} 个A股预测")
+            except Exception as e:
+                log.warning(f"[CrossMarket] 推送跨市场板块变化失败: {e}")
+
+        self._us_prev_block_attention = current_block_attention.copy()
+
     def get_us_attention_state(self) -> Dict[str, Any]:
         """获取美股注意力状态"""
         with self._cache_lock:
+            symbol_changes = {
+                sym: data.get("change", 0.0)
+                for sym, data in self._us_last_symbol_snapshot.items()
+            }
+            current_time = time.time()
+            if current_time - self._us_futures_cache_time > self._us_futures_cache_ttl:
+                self._update_us_futures_cache_no_lock()
+            futures = self._us_futures_cache.copy()
             return {
                 'global_attention': self._us_last_global_attention,
                 'activity': self._us_last_activity,
                 'block_attention': self._us_last_block_attention.copy(),
                 'symbol_weights': self._us_last_symbol_weights.copy(),
+                'symbol_changes': symbol_changes,
                 'stock_count': len(self._us_last_symbol_weights),
+                'futures_indices': futures,
             }
 
     def get_us_symbol_snapshot(self) -> Dict[str, Dict[str, Any]]:
         """获取美股最新symbol快照"""
         with self._cache_lock:
             return self._us_last_symbol_snapshot.copy()
+
+    def _update_us_futures_cache_no_lock(self):
+        """内部方法：更新美股期货指数缓存（不带锁，需在持有锁时调用）"""
+        try:
+            import urllib.request
+            url = "https://hq.sinajs.cn/list=hf_NQ,hf_ES,hf_YM"
+            headers = {
+                "Referer": "https://finance.sina.com.cn",
+                "User-Agent": "Mozilla/5.0"
+            }
+            req = urllib.request.Request(url, headers=headers)
+            with urllib.request.urlopen(req, timeout=5) as resp:
+                data = resp.read().decode('gbk', errors='replace')
+
+            for line in data.split('\n'):
+                if 'hq_str_hf_NQ' in line and '"' in line:
+                    fields = line.split('"')[1].split(',')
+                    if len(fields) > 9:
+                        try:
+                            cur, prev = float(fields[0]), float(fields[8])
+                            self._us_futures_cache['NQ'] = round((cur - prev) / prev * 100, 2) if prev else 0
+                        except: pass
+                elif 'hq_str_hf_ES' in line and '"' in line:
+                    fields = line.split('"')[1].split(',')
+                    if len(fields) > 9:
+                        try:
+                            cur, prev = float(fields[0]), float(fields[8])
+                            self._us_futures_cache['ES'] = round((cur - prev) / prev * 100, 2) if prev else 0
+                        except: pass
+                elif 'hq_str_hf_YM' in line and '"' in line:
+                    fields = line.split('"')[1].split(',')
+                    if len(fields) > 9:
+                        try:
+                            cur, prev = float(fields[0]), float(fields[8])
+                            self._us_futures_cache['YM'] = round((cur - prev) / prev * 100, 2) if prev else 0
+                        except: pass
+
+            self._us_futures_cache_time = time.time()
+        except Exception as e:
+            log.debug(f"[AttentionSystem] 更新期货缓存失败: {e}")
+
+    def get_us_futures_indices(self) -> Dict[str, float]:
+        """获取美股期货指数缓存"""
+        with self._cache_lock:
+            return self._us_futures_cache.copy()
+
+    def get_cn_indices(self) -> Dict[str, float]:
+        """获取A股指数缓存"""
+        with self._cache_lock:
+            current_time = time.time()
+            if current_time - self._cn_index_cache_time > self._cn_index_cache_ttl:
+                self._update_cn_index_cache_no_lock()
+            return self._cn_index_cache.copy()
+
+    def _update_cn_index_cache_no_lock(self):
+        """内部方法：更新A股指数缓存（不带锁，需在持有锁时调用）"""
+        try:
+            import urllib.request
+            url = "https://hq.sinajs.cn/list=sh000001,s_sh000300,sz399006"
+            headers = {
+                "Referer": "https://finance.sina.com.cn",
+                "User-Agent": "Mozilla/5.0"
+            }
+            req = urllib.request.Request(url, headers=headers)
+            with urllib.request.urlopen(req, timeout=5) as resp:
+                data = resp.read().decode('gbk', errors='replace')
+
+            for line in data.split('\n'):
+                if 'hq_str_sh000001' in line and '"' in line:
+                    fields = line.split('"')[1].split(',')
+                    if len(fields) > 2:
+                        try:
+                            cur, prev = float(fields[1]), float(fields[2])
+                            self._cn_index_cache['SH'] = round((cur - prev) / prev * 100, 2) if prev else 0
+                        except: pass
+                elif 'hq_str_s_sh000300' in line and '"' in line:
+                    fields = line.split('"')[1].split(',')
+                    if len(fields) > 3:
+                        try:
+                            self._cn_index_cache['HS300'] = float(fields[3])
+                        except: pass
+                elif 'hq_str_sz399006' in line and '"' in line:
+                    fields = line.split('"')[1].split(',')
+                    if len(fields) > 2:
+                        try:
+                            cur, prev = float(fields[1]), float(fields[2])
+                            self._cn_index_cache['CHINEXT'] = round((cur - prev) / prev * 100, 2) if prev else 0
+                        except: pass
+
+            self._cn_index_cache_time = time.time()
+        except Exception as e:
+            log.debug(f"[AttentionSystem] 更新A股指数缓存失败: {e}")
 
     async def process_pytorch_batch(self) -> List[Any]:
         """处理 PyTorch 批量推理"""
@@ -1001,6 +1135,19 @@ class AttentionSystem:
         fetcher_status = None
         if self._realtime_fetcher:
             fetcher_status = self._realtime_fetcher.get_stats()
+        else:
+            from deva.naja.attention.realtime_data_fetcher import get_data_fetcher
+            singleton_fetcher = get_data_fetcher()
+            if singleton_fetcher:
+                fetcher_status = singleton_fetcher.get_stats()
+
+        cn_high = cn_med = cn_low = 0
+        for symbol in self.frequency_scheduler._symbol_to_idx.keys():
+            if symbol.startswith('CN_'):
+                level = self.frequency_scheduler.get_symbol_level(symbol)
+                if level.value == 2: cn_high += 1
+                elif level.value == 1: cn_med += 1
+                else: cn_low += 1
 
         return {
             'initialized': self._initialized,
@@ -1012,7 +1159,8 @@ class AttentionSystem:
             'frequency_summary': self.frequency_scheduler.get_schedule_summary(),
             'strategy_summary': self.strategy_allocator.get_allocation_summary(),
             'dual_engine_summary': self.dual_engine.get_trigger_summary(),
-            'realtime_fetcher': fetcher_status
+            'realtime_fetcher': fetcher_status,
+            'cn_frequency': {'high': cn_high, 'medium': cn_med, 'low': cn_low},
         }
     
     def get_datasource_control(self) -> Dict[str, Any]:
@@ -1068,6 +1216,49 @@ class AttentionSystem:
 
         self._step_failures.clear()
         self._step_circuit_open.clear()
+
+    def save_state(self) -> Dict[str, Any]:
+        """保存注意力系统状态用于持久化（包含A股和美股）"""
+        return {
+            'global_attention': self.global_attention.save_state(),
+            'block_attention': self.block_attention.save_state(),
+            'weight_pool': self.weight_pool.save_state(),
+            'frequency_scheduler': self.frequency_scheduler.save_state(),
+            'us_global_attention': self._us_global_attention.save_state(),
+            'us_block_attention': self._us_block_attention.save_state(),
+            'us_weight_pool': self._us_weight_pool.save_state(),
+            'us_last_global_attention': self._us_last_global_attention,
+            'us_last_activity': self._us_last_activity,
+            'us_last_block_attention': self._us_last_block_attention,
+            'us_last_symbol_weights': self._us_last_symbol_weights,
+            'us_last_snapshot_time': self._us_last_snapshot_time,
+        }
+
+    def load_state(self, state: Dict[str, Any]) -> bool:
+        """从持久化状态恢复注意力系统"""
+        try:
+            if not state:
+                return False
+
+            self.global_attention.load_state(state.get('global_attention', {}))
+            self.block_attention.load_state(state.get('block_attention', {}))
+            self.weight_pool.load_state(state.get('weight_pool', {}))
+            self.frequency_scheduler.load_state(state.get('frequency_scheduler', {}))
+            self._us_global_attention.load_state(state.get('us_global_attention', {}))
+            self._us_block_attention.load_state(state.get('us_block_attention', {}))
+            self._us_weight_pool.load_state(state.get('us_weight_pool', {}))
+
+            self._us_last_global_attention = state.get('us_last_global_attention', 0.0)
+            self._us_last_activity = state.get('us_last_activity', 0.0)
+            self._us_last_block_attention = state.get('us_last_block_attention', {})
+            self._us_last_symbol_weights = state.get('us_last_symbol_weights', {})
+            self._us_last_snapshot_time = state.get('us_last_snapshot_time', 0.0)
+
+            log.info("[AttentionSystem] 状态恢复完成")
+            return True
+        except Exception as e:
+            log.warning(f"[AttentionSystem] load_state 失败: {e}")
+            return False
 
 
 class AttentionSystemIntegration:
@@ -1137,3 +1328,11 @@ class AttentionSystemIntegration:
         """判断是否应该处理指定策略"""
         active_strategies = self.attention_system.strategy_allocator.get_active_strategies()
         return strategy_id in active_strategies
+
+    def save_state(self) -> Dict[str, Any]:
+        """保存注意力系统状态用于持久化（包含A股和美股）"""
+        return self.attention_system.save_state()
+
+    def load_state(self, state: Dict[str, Any]) -> bool:
+        """从持久化状态恢复注意力系统"""
+        return self.attention_system.load_state(state)
