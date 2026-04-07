@@ -8,7 +8,7 @@ from .semantic import render_semantic
 from .insight import render_insight
 from .cognition_summary import render_cognition_summary
 from .control_panel import render_control_panel
-from .market_replay import render_market_replay, render_market_replay_empty
+from .daily_review import render_daily_review, render_daily_review_empty
 from ...narrative.ui import lifecycle as narrative_lifecycle
 from ...narrative.ui import svg as narrative_svg
 from .merrill_clock import render_merrill_clock
@@ -27,8 +27,8 @@ __all__ = [
     "render_insight",
     "render_cognition_summary",
     "render_control_panel",
-    "render_market_replay",
-    "render_market_replay_empty",
+    "render_daily_review",
+    "render_daily_review_empty",
     "render_narrative_lifecycle",
     "render_narrative_svg",
     "render_merrill_clock",

@@ -522,8 +522,8 @@ def render_attention_changes(changes: List[Any]) -> str:
             market_info_parts.append(f"¥{change.price:.2f}")
         if hasattr(change, 'price_change') and change.price_change != 0:
             market_info_parts.append(f"{change.price_change:+.2f}%")
-        if hasattr(change, 'sector') and change.sector:
-            market_info_parts.append(f"[{change.sector}]")
+        if hasattr(change, 'block') and change.block:
+            market_info_parts.append(f"[{change.block}]")
         market_info_str = " | ".join(market_info_parts) if market_info_parts else ""
 
         volume_str = ""

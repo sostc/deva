@@ -495,7 +495,7 @@ class AttentionStrategyBase(ABC):
         if self.scope == 'symbol':
             # 个股策略：只处理高注意力股票
             data = self.filter_by_attention(data)
-        elif self.scope == 'sector':
+        elif self.scope == 'block':
             # 板块策略：数据已经由调度中心过滤
             pass
         # global策略：处理全量数据

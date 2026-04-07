@@ -66,7 +66,8 @@ from .kernel import (
 from .us_market import (
     get_us_attention_data,
     render_us_market_panel,
-    render_us_hot_sectors_and_stocks,
+    render_market_index_panel,
+    render_cross_market_predictions,
     get_us_market_summary,
     render_us_market_summary,
 )
@@ -84,6 +85,8 @@ __all__ = [
     "is_attention_initialized",
     "initialize_attention_system",
     "render_market_state_panel",
+    "render_market_index_panel",
+    "render_cross_market_predictions",
     "render_frequency_distribution",
     "render_strategy_status",
     "render_dual_engine_status",
@@ -113,7 +116,6 @@ __all__ = [
     "render_attention_flow_diagram",
     "get_us_attention_data",
     "render_us_market_panel",
-    "render_us_hot_sectors_and_stocks",
     "get_us_market_summary",
     "render_us_market_summary",
 ]

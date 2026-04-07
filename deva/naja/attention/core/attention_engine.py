@@ -30,7 +30,7 @@ class MarketSnapshot:
     returns: np.ndarray      # 涨跌幅数组
     volumes: np.ndarray      # 成交量数组
     prices: np.ndarray      # 价格数组
-    sector_ids: np.ndarray  # 板块ID数组
+    block_ids: np.ndarray  # 板块ID数组
     symbols: Optional[np.ndarray] = None  # 股票代码数组
 
 
@@ -315,6 +315,61 @@ class GlobalAttentionEngine:
             'activity_formula': f"均值={mean_abs_return:.4f}, 波动率={volatility:.4f}",
             'total_stocks': total,
         }
+
+    def save_state(self) -> Dict:
+        """保存引擎状态用于持久化"""
+        return {
+            'history_buffer': [
+                {
+                    'returns': h['returns'].tolist() if isinstance(h['returns'], np.ndarray) else list(h['returns']),
+                    'volumes': h['volumes'].tolist() if isinstance(h['volumes'], np.ndarray) else list(h['volumes']),
+                    'attention': h['attention'],
+                    'activity': h['activity'],
+                    'timestamp': h['timestamp'],
+                }
+                for h in self._history_buffer
+            ],
+            'ema_attention': self._ema_attention,
+            'ema_activity': self._ema_activity,
+            'activity_history': list(self._activity_history),
+            'returns_abs_history': list(self._returns_abs_history),
+            'volatility_history': list(self._volatility_history),
+            'last_attention': self._last_attention,
+            'last_activity': self._last_activity,
+            'last_calc_time': self._last_calc_time,
+        }
+
+    def load_state(self, state: Dict) -> bool:
+        """从持久化状态恢复"""
+        try:
+            if not state:
+                return False
+
+            self._history_buffer = deque(maxlen=self.history_window)
+            for h in state.get('history_buffer', []):
+                self._history_buffer.append({
+                    'returns': np.array(h['returns']),
+                    'volumes': np.array(h['volumes']),
+                    'attention': h['attention'],
+                    'activity': h['activity'],
+                    'timestamp': h['timestamp'],
+                })
+
+            self._ema_attention = state.get('ema_attention', 0.3)
+            self._ema_activity = state.get('ema_activity', 0.3)
+
+            self._activity_history = deque(state.get('activity_history', []), maxlen=100)
+            self._returns_abs_history = deque(state.get('returns_abs_history', []), maxlen=100)
+            self._volatility_history = deque(state.get('volatility_history', []), maxlen=100)
+
+            self._last_attention = state.get('last_attention', 0.0)
+            self._last_activity = state.get('last_activity', 0.0)
+            self._last_calc_time = state.get('last_calc_time', 0.0)
+
+            return True
+        except Exception as e:
+            log.warning(f"[GlobalAttentionEngine] load_state 失败: {e}")
+            return False
 
     def reset(self):
         """重置引擎状态"""

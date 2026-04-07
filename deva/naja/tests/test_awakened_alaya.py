@@ -146,7 +146,7 @@ class TestAwakenedAlaya(unittest.TestCase):
         """测试基本照亮"""
         market_data = {
             "symbol": "AAPL",
-            "sector": "tech",
+            "block": "tech",
             "pattern_type": "momentum"
         }
 
@@ -158,7 +158,7 @@ class TestAwakenedAlaya(unittest.TestCase):
         """测试带信号的照亮"""
         market_data = {
             "symbol": "AAPL",
-            "sector": "tech"
+            "block": "tech"
         }
 
         signals = [

@@ -79,18 +79,18 @@ async def test_news_flow():
 
     news_events = [
         MockNewsEvent(
-            content="美股大幅下跌，纳斯达克暴跌3%，流动性紧张VIX飙升",
-            meta={"title": "美股暴跌引发市场恐慌", "sector": "全球宏观"},
+            content="美股暴跌引发市场恐慌",
+            meta={"title": "美股暴跌引发市场恐慌", "block": "全球宏观"},
             attention_score=0.9,
         ),
         MockNewsEvent(
             content="黄金价格突破2050美元，避险资金流入贵金属板块",
-            meta={"title": "黄金创历史新高", "sector": "贵金属"},
+            meta={"title": "黄金创历史新高", "block": "贵金属"},
             attention_score=0.7,
         ),
         MockNewsEvent(
             content="原油价格波动加剧，地缘政治影响大宗商品市场",
-            meta={"title": "原油市场分析", "sector": "大宗商品"},
+            meta={"title": "原油市场分析", "block": "大宗商品"},
             attention_score=0.6,
         ),
     ]
