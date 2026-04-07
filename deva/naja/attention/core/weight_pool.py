@@ -351,7 +351,62 @@ class WeightPool:
             result[symbol] = clipped_weight
         log.debug(f"[WeightPool] get_all_weights(mode={current_mode}, filter=False): 返回 {len(result)} 个权重")
         return result
-    
+
+    def save_state(self) -> Dict:
+        """保存权重池状态用于持久化"""
+        return {
+            'symbol_to_idx': self._symbol_to_idx,
+            'idx_to_symbol': {int(k): v for k, v in self._idx_to_symbol.items()},
+            'symbol_sectors': dict(self._symbol_sectors),
+            'weights': self._weights[:len(self._symbol_to_idx)].tolist(),
+            'base_weights': self._base_weights[:len(self._symbol_to_idx)].tolist(),
+            'local_activity': self._local_activity[:len(self._symbol_to_idx)].tolist(),
+            'price_history': self._price_history,
+            'volume_history': self._volume_history,
+            'symbol_last_seen': self._symbol_last_seen,
+            'sector_attention': self._sector_attention,
+            'last_update_time': self._last_update_time,
+        }
+
+    def load_state(self, state: Dict) -> bool:
+        """从持久化状态恢复"""
+        try:
+            if not state:
+                return False
+
+            self._symbol_to_idx = state.get('symbol_to_idx', {})
+            self._idx_to_symbol = {int(k): v for k, v in state.get('idx_to_symbol', {}).items()}
+
+            self._symbol_sectors.clear()
+            for symbol, sectors in state.get('symbol_sectors', {}).items():
+                self._symbol_sectors[symbol] = sectors
+
+            weights = state.get('weights', [])
+            for i, w in enumerate(weights):
+                if i < len(self._weights):
+                    self._weights[i] = w
+
+            base_weights = state.get('base_weights', [])
+            for i, w in enumerate(base_weights):
+                if i < len(self._base_weights):
+                    self._base_weights[i] = w
+
+            local_activity = state.get('local_activity', [])
+            for i, a in enumerate(local_activity):
+                if i < len(self._local_activity):
+                    self._local_activity[i] = a
+
+            self._price_history = state.get('price_history', {})
+            self._volume_history = state.get('volume_history', {})
+            self._symbol_last_seen = state.get('symbol_last_seen', {})
+            self._sector_attention = state.get('sector_attention', {})
+            self._last_update_time = state.get('last_update_time', 0.0)
+
+            return True
+        except Exception as e:
+            log.warning(f"[WeightPool] load_state 失败: {e}")
+            return False
+
     def reset(self):
         """重置权重池"""
         self._weights.fill(0.0)

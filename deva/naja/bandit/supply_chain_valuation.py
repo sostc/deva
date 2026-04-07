@@ -248,7 +248,7 @@ class SupplyChainValuationEngine:
         if node.metadata.get("market") == "A":
             score += 10.0
 
-        if node.sector in ["ai_chip", "semiconductor", "ai_infrastructure"]:
+        if node.block in ["ai_chip", "semiconductor", "ai_infrastructure"]:
             score += 15.0
 
         if node.metadata.get("description"):

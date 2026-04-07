@@ -12,6 +12,7 @@ NewsMind - 认知系统/新闻认知/话题跟踪
 
 import json
 import time
+import math
 import numpy as np
 from datetime import datetime, timedelta
 from collections import deque
@@ -800,11 +801,20 @@ class NewsMindStrategy:
         self.long_memory: List[Dict] = []                              # 长期记忆：周期性总结
         self.topics: Dict[int, Topic] = {}                            # 主题库
         self.topic_counter = 0
-        
+
+        # 记忆衰减参数
+        self.short_term_half_life = float(self.config.get("short_term_half_life", 300.0))
+        self.mid_term_half_life = float(self.config.get("mid_term_half_life", 3600.0))
+        self.topic_half_life = float(self.config.get("topic_half_life", 1800.0))
+        self._last_memory_decay_time: float = time.time()
+
         # 记忆归档阈值
         self.mid_memory_threshold = self.config.get("mid_memory_threshold", 0.7)   # 注意力评分超过此值进入中期记忆
         self.long_memory_interval = self.config.get("long_memory_interval", 24)    # 小时，生成长期记忆的时间间隔
         self.last_long_memory_time = datetime.now() - timedelta(hours=24)
+
+        # 强化学习参数
+        self.reinforcement_shield = float(self.config.get("reinforcement_shield", 60.0))  # 强化保护时间（秒）
         
         # River组件
         if RIVER_AVAILABLE:
@@ -921,17 +931,92 @@ class NewsMindStrategy:
             return max(0.5, base_threshold - 0.2)
         else:
             return base_threshold
-    
+
+    def _compute_freshness_weight(self, timestamp: float, half_life: float) -> float:
+        """
+        计算时间戳的新鲜度权重
+
+        使用指数衰减：weight = exp(-dt / half_life)
+        """
+        dt = time.time() - timestamp
+        if isinstance(timestamp, datetime):
+            dt = time.time() - timestamp.timestamp()
+        return math.exp(-dt / half_life) if half_life > 0 else 1.0
+
+    def _decay_memory(self):
+        """
+        惰性衰减记忆
+
+        对所有三层记忆执行增量衰减，使用与 AttentionMemory 类似的新鲜度机制
+        """
+        now = time.time()
+        dt = now - self._last_memory_decay_time
+        if dt < 10:
+            return
+
+        self._last_memory_decay_time = now
+
+        for event in self.short_memory:
+            if "timestamp" in event:
+                ts = event["timestamp"]
+                freshness = self._compute_freshness_weight(ts, self.short_term_half_life)
+                shield_multiplier = 1.0
+                if "last_reinforced" in event:
+                    time_since = now - event["last_reinforced"]
+                    if time_since < self.reinforcement_shield:
+                        shield_multiplier = 0.5
+                    elif time_since < self.reinforcement_shield * 3:
+                        shield_multiplier = 0.75
+                event["attention_score"] *= freshness * shield_multiplier
+
+        for event in self.mid_memory:
+            if "timestamp" in event:
+                ts = event["timestamp"]
+                freshness = self._compute_freshness_weight(ts, self.mid_term_half_life)
+                event["attention_score"] *= freshness
+
+        for topic in self.topics.values():
+            if hasattr(topic, "last_updated") and topic.last_updated:
+                freshness = self._compute_freshness_weight(topic.last_updated, self.topic_half_life)
+                topic.event_count *= freshness
+
+    def reinforce_event(self, event_id: str, reward: float):
+        """
+        强化记忆事件
+
+        Args:
+            event_id: 事件 ID
+            reward: 奖励值，正增强，负抑制
+        """
+        now = time.time()
+        for event in self.short_memory:
+            if event.get("id") == event_id:
+                event["attention_score"] *= (1 + reward)
+                event["attention_score"] = max(0, min(1, event["attention_score"]))
+                event["last_reinforced"] = now
+                event["reinforce_count"] = event.get("reinforce_count", 0) + 1
+                break
+
+        for event in self.mid_memory:
+            if event.get("id") == event_id:
+                event["attention_score"] *= (1 + reward)
+                event["attention_score"] = max(0, min(1, event["attention_score"]))
+                event["last_reinforced"] = now
+                break
+
     def process_record(self, record: Dict) -> List[Dict]:
         """
         处理单条记录（naja策略接口）
-        
+
 
             record: 数据源记录（单个dict或包含data字段的dict）
-            
+
 
             信号列表
         """
+        # 惰性衰减记忆
+        self._decay_memory()
+
         # 检测是否是 numpy 数组
         # Defensive: ensure stats has required keys
         import numpy as np
@@ -1034,13 +1119,16 @@ class NewsMindStrategy:
     def process_batch(self, records: List[Dict]) -> List[Dict]:
         """
         批量处理记录列表（支持一次性处理多条数据）
-        
+
         Args:
             records: 数据源记录列表
-            
+
         Returns:
             信号列表
         """
+        # 惰性衰减记忆
+        self._decay_memory()
+
         all_signals = []
         
         if not records:
@@ -1720,7 +1808,7 @@ class NewsMindStrategy:
 
             content = getattr(event, "content", "") or ""
             meta = getattr(event, "meta", {}) or {}
-            for key in ("title", "topic", "sector", "industry", "theme", "summary"):
+            for key in ("title", "topic", "block", "industry", "theme", "summary"):
                 val = meta.get(key)
                 if val:
                     content += " " + str(val)
@@ -1879,7 +1967,7 @@ class NewsMindStrategy:
                 + 0.2 * novelty
             )
 
-            theme = meta.get("topic") or meta.get("sector") or meta.get("industry") or event.event_type
+            theme = meta.get("topic") or meta.get("block") or meta.get("industry") or event.event_type
             summary = event.content[:80] + ("..." if len(event.content) > 80 else "")
 
             scored.append(
@@ -1922,13 +2010,13 @@ class NewsMindStrategy:
                         symbol_scores[symbol] = []
                     symbol_scores[symbol].append(attention)
 
-            for key in ("sector", "industry", "sector_id"):
+            for key in ("block", "industry", "sector_id"):
                 val = meta.get(key)
                 if val:
-                    sector = str(val)
-                    if sector not in sector_scores:
-                        sector_scores[sector] = []
-                    sector_scores[sector].append(attention)
+                    block = str(val)
+                    if block not in sector_scores:
+                        sector_scores[block] = []
+                    sector_scores[block].append(attention)
 
         def compute_weight(scores: List[float]) -> float:
             if not scores:
@@ -2304,6 +2392,10 @@ class NewsMindStrategy:
             "long_memory_interval": self.long_memory_interval,
             "last_long_memory_time": self.last_long_memory_time.isoformat(),
             "semantic_graph": self.semantic_graph,
+            "short_term_half_life": self.short_term_half_life,
+            "mid_term_half_life": self.mid_term_half_life,
+            "topic_half_life": self.topic_half_life,
+            "reinforcement_shield": self.reinforcement_shield,
         }
     
     def _deserialize_state(self, data: dict):
@@ -2329,6 +2421,11 @@ class NewsMindStrategy:
         self.mid_memory_threshold = data.get("mid_memory_threshold", 0.7)
         self.long_memory_interval = data.get("long_memory_interval", 24)
         self.semantic_graph = data.get("semantic_graph", self.semantic_graph or {})
+
+        self.short_term_half_life = data.get("short_term_half_life", 300.0)
+        self.mid_term_half_life = data.get("mid_term_half_life", 3600.0)
+        self.topic_half_life = data.get("topic_half_life", 1800.0)
+        self.reinforcement_shield = data.get("reinforcement_shield", 60.0)
         
         # 恢复长期记忆时间
         last_long_time_str = data.get("last_long_memory_time")

@@ -217,10 +217,10 @@ class CognitionOrchestrator:
     def _get_symbol_sector(self, symbol: str, data: pd.DataFrame) -> Optional[str]:
         """获取股票所属板块"""
         try:
-            if 'code' in data.columns and 'sector' in data.columns:
+            if 'code' in data.columns and 'block' in data.columns:
                 match = data[data['code'] == symbol]
                 if not match.empty:
-                    return str(match.iloc[0]['sector'])
+                    return str(match.iloc[0]['block'])
         except Exception:
             pass
         return None

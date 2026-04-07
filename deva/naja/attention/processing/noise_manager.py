@@ -314,7 +314,7 @@ class NoiseManager:
         """
         if item_type == 'stock':
             return self.is_stock_noise(item_id, item_name, **kwargs)
-        elif item_type == 'sector':
+        elif item_type == 'block':
             return self.is_block_noise(item_id, item_name)
         return False
 
@@ -326,7 +326,7 @@ class NoiseManager:
         """获取统计信息"""
         return {
             'stock': self._stock_filter.get_stats(),
-            'sector': self._block_filter.get_stats(),
+            'block': self._block_filter.get_stats(),
         }
 
     def get_full_report(self) -> Dict[str, Any]:

@@ -511,87 +511,105 @@ async def render_home(ctx: dict):
 
 
 def _render_values_section() -> str:
-    """渲染价值观展示区域 - 按主次展示三大功能"""
+    """渲染价值观展示区域 - 展示持仓、关注和供需问题"""
+    holdings_html = ""
+    watchlist_html = ""
+    dynamics_html = ""
+    liquidity_html = ""
+
     try:
-        from deva.naja.attention.values import get_value_system
-        vs = get_value_system()
-        profiles = vs.get_all_profiles() if vs else []
-        profile_list = [p.to_dict() for p in profiles] if profiles else []
-    except Exception:
-        profile_list = []
+        from deva.naja.attention.portfolio import Portfolio
+        pf = Portfolio()
+        holdings = pf.get_holdings()
+        watchlist = pf.get_watchlist()
 
-    implemented = [p for p in profile_list if p.get("implemented", True)]
-    pending = [p for p in profile_list if not p.get("implemented", True)]
+        if holdings:
+            for h in holdings[:5]:
+                return_color = "#4ade80" if h.return_pct >= 0 else "#f43f5e"
+                return_sign = "+" if h.return_pct >= 0 else ""
+                holdings_html += f'''<div style="padding:8px 12px;background:rgba(255,255,255,0.05);border-radius:8px;margin:4px 0;display:flex;justify-content:space-between;">
+                    <span style="color:#fff;font-weight:600;">{h.name}</span>
+                    <span style="color:{return_color};">{return_sign}{h.return_pct:.1f}%</span>
+                </div>'''
+        else:
+            holdings_html = '<div style="color:#64748b;font-size:12px;padding:10px;">暂无持仓</div>'
 
-    creative = [p for p in implemented if p.get("investment_direction") == "creative"]
-    speculative = [p for p in implemented if p.get("investment_direction") == "speculative"]
-    pending_creative = [p for p in pending if p.get("investment_direction") == "creative"]
-    pending_speculative = [p for p in pending if p.get("investment_direction") == "speculative"]
+        if watchlist:
+            for w in watchlist[:5]:
+                watchlist_html += f'''<div style="padding:6px 10px;background:rgba(96,165,250,0.1);border-radius:6px;margin:4px 0;color:#60a5fa;font-size:12px;">
+                    {w.name}
+                </div>'''
+        else:
+            watchlist_html = '<div style="color:#64748b;font-size:12px;padding:10px;">暂无自选</div>'
 
-    def make_value_chip(p: dict) -> str:
-        emoji = "🚀" if p.get("investment_direction") == "creative" else "🛠️"
-        name = p.get("name", p.get("value_type", ""))
-        desc = p.get("description", "")[:50]
-        return ('<div style="padding:8px 12px;background:rgba(255,255,255,0.05);border-radius:8px;margin:4px 0;">'
-                '<div style="font-weight:600;color:#fff;">' + emoji + ' ' + name + '</div>'
-                '<div style="font-size:11px;color:#94a3b8;margin-top:4px;">' + desc + '</div></div>')
+    except Exception as e:
+        holdings_html = f'<div style="color:#64748b;font-size:12px;padding:10px;">暂无持仓 ({str(e)[:30]})</div>'
+        watchlist_html = '<div style="color:#64748b;font-size:12px;padding:10px;">暂无自选</div>'
 
-    def make_pending_chip(p: dict) -> str:
-        name = p.get("name", p.get("value_type", ""))
-        return ('<div style="padding:6px 10px;opacity:0.5;border:1px dashed rgba(255,255,255,0.2);border-radius:6px;margin:4px 0;">'
-                '🔒 ' + name + '</div>')
+    dynamics_data = None
+    try:
+        from deva.naja.cognition.narrative import get_narrative_tracker
+        tracker = get_narrative_tracker()
+        if tracker:
+            dynamics_data = tracker.get_value_market_summary()
 
-    creative_chips = "".join(make_value_chip(p) for p in creative)
-    speculative_chips = "".join(make_value_chip(p) for p in speculative)
-    pending_creative_chips = "".join(make_pending_chip(p) for p in pending_creative)
-    pending_speculative_chips = "".join(make_pending_chip(p) for p in pending_speculative)
+        if dynamics_data and dynamics_data.get("value_signals"):
+            signals = list(dynamics_data.get("value_signals", {}).items())[:5]
+            for signal_type, signal_data in signals:
+                dynamics_html += f'''<div style="padding:6px 10px;background:rgba(251,191,36,0.1);border-radius:6px;margin:4px 0;color:#fbbf24;font-size:12px;">
+                    ⚡ {signal_type}
+                </div>'''
+        if not dynamics_html:
+            dynamics_html = '<div style="color:#64748b;font-size:12px;padding:10px;">暂无供需问题</div>'
+    except Exception as e:
+        dynamics_html = f'<div style="color:#64748b;font-size:12px;padding:10px;">暂无供需问题 ({str(e)[:50]})</div>'
 
-    none_span = '<div style="color:#64748b;font-size:12px;padding:10px;">暂无</div>'
+    try:
+        from deva.naja.radar import get_global_market_scanner
+        scanner = get_global_market_scanner()
+        alerts = scanner.get_alerts(limit=5)
 
-    sector_section = '''
+        if alerts:
+            for alert in alerts:
+                severity = getattr(alert, 'severity', 'unknown') if hasattr(alert, 'severity') else 'unknown'
+                alert_html = f'''<div style="padding:6px 10px;background:rgba(168,85,247,0.1);border-radius:6px;margin:4px 0;color:#a855f7;font-size:12px;">
+                    🌊 {severity}
+                </div>'''
+                liquidity_html += alert_html
+        if not liquidity_html:
+            liquidity_html = '<div style="color:#64748b;font-size:12px;padding:10px;">暂无流动性预警</div>'
+    except Exception as e:
+        liquidity_html = f'<div style="color:#64748b;font-size:12px;padding:10px;">暂无流动性预警 ({str(e)[:50]})</div>'
+
+    sector_section = f'''
         <div style="background: linear-gradient(135deg, rgba(34,197,94,0.2) 0%, rgba(34,197,94,0.05) 100%); border-radius: 12px; padding: 20px; border: 1px solid rgba(34,197,94,0.3);">
             <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 15px;">
                 <span style="font-size: 28px;">🚀</span>
                 <div>
                     <div style="font-size: 16px; font-weight: 600; color: #22c55e;">赛道投资（核心）</div>
-                    <div style="font-size: 11px; color: #94a3b8;">投资推动世界进步的赛道，长期持有，80%精力</div>
+                    <div style="font-size: 11px; color: #94a3b8;">投资先进生产力 · 代表人民利益 · 先进文化方向</div>
                 </div>
             </div>
-            <div style="font-size: 12px; color: #64748b; margin-bottom: 10px;">已实现 (''' + str(len(creative)) + ''')</div>
-            <div>''' + (creative_chips if creative_chips else none_span) + '''</div>
-            <div style="margin-top: 15px;">
-                <div style="font-size: 12px; color: #64748b; margin-bottom: 10px;">待实现 (''' + str(len(pending_creative)) + ''')</div>
-                <div>''' + (pending_creative_chips if pending_creative_chips else none_span) + '''</div>
-            </div>
+            <div style="font-size: 12px; color: #64748b; margin-bottom: 10px;">📊 已实现的投资</div>
+            <div>{holdings_html}</div>
         </div>'''
 
-    rhythm_section = '''
-        <div style="background: linear-gradient(135deg, rgba(249,115,22,0.2) 0%, rgba(249,115,22,0.05) 100%); border-radius: 12px; padding: 20px; border: 1px solid rgba(249,115,22,0.3);">
-            <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 15px;">
-                <span style="font-size: 28px;">🛠️</span>
-                <div>
-                    <div style="font-size: 16px; font-weight: 600; color: #f97316;">节奏调整（辅助）</div>
-                    <div style="font-size: 11px; color: #94a3b8;">利用市场波动降低成本，高抛低吸，15%精力</div>
-                </div>
-            </div>
-            <div style="font-size: 12px; color: #64748b; margin-bottom: 10px;">已实现 (''' + str(len(speculative)) + ''')</div>
-            <div>''' + (speculative_chips if speculative_chips else none_span) + '''</div>
-            <div style="margin-top: 15px;">
-                <div style="font-size: 12px; color: #64748b; margin-bottom: 10px;">待实现 (''' + str(len(pending_speculative)) + ''')</div>
-                <div>''' + (pending_speculative_chips if pending_speculative_chips else none_span) + '''</div>
-            </div>
+    watchlist_section = f'''
+        <div style="background: rgba(96,165,250,0.1); border-radius: 12px; padding: 16px; border: 1px solid rgba(96,165,250,0.2);">
+            <div style="font-size: 14px; font-weight: 600; color: #60a5fa; margin-bottom: 10px;">📈 正在关注</div>
+            <div>{watchlist_html}</div>
         </div>'''
 
-    rescue_section = '''
-        <div style="background: linear-gradient(135deg, rgba(168,85,247,0.15) 0%, rgba(168,85,247,0.05) 100%); border-radius: 12px; padding: 16px; border: 1px solid rgba(168,85,247,0.2);">
-            <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 10px;">
-                <span style="font-size: 20px;">🩹</span>
-                <div>
-                    <div style="font-size: 14px; font-weight: 600; color: #a855f7;">流动性救援（偶尔）</div>
-                    <div style="font-size: 10px; color: #94a3b8;">发现问题，闲暇时介入，5%精力</div>
-                </div>
-            </div>
-            <div style="font-size: 11px; color: #64748b;">发现问题：恐慌极点、流动性危机</div>
+    dynamics_section = f'''
+        <div style="background: rgba(251,191,36,0.1); border-radius: 12px; padding: 16px; border: 1px solid rgba(251,191,36,0.2); margin-top: 15px;">
+            <div style="font-size: 14px; font-weight: 600; color: #fbbf24; margin-bottom: 10px;">⚡ 供需问题挖掘</div>
+            <div>{dynamics_html}</div>
+        </div>'''
+
+    liquidity_section = f'''
+        <div style="background: rgba(168,85,247,0.1); border-radius: 12px; padding: 16px; border: 1px solid rgba(168,85,247,0.2); margin-top: 15px;">
+            <div style="font-size: 14px; font-weight: 600; color: #a855f7; margin-bottom: 10px;">🌊 流动性机会</div>
+            <div>{liquidity_html}</div>
         </div>'''
 
     link_html = '''
@@ -608,12 +626,9 @@ def _render_values_section() -> str:
             领先于市场观察，验证我们的判断，赚钱是为了让改变世界可持续
         </p>
 
-        <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 20px; margin-bottom: 15px;">
-            ''' + sector_section + '''
-            ''' + rhythm_section + '''
-        </div>
-        <div style="margin-bottom: 15px;">
-            ''' + rescue_section + '''
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+            <div>''' + sector_section + watchlist_section + '''</div>
+            <div>''' + dynamics_section + liquidity_section + '''</div>
         </div>
 
         ''' + link_html + '''

@@ -33,11 +33,10 @@ class FrequencyConfig:
     """频率配置"""
     low_threshold: float = 1.0    # 低于此值为低频
     high_threshold: float = 2.5   # 高于此值为高频
-    
-    # 频率间隔(秒)
+
     low_interval: float = 60.0
     medium_interval: float = 10.0
-    high_interval: float = 1.0
+    high_interval: float = 5.0
     
     # 滞后机制
     hysteresis: float = 0.2       # 滞后阈值
@@ -88,6 +87,9 @@ class FrequencyScheduler:
         # 统计
         self._switch_count = 0
         self._last_schedule_time = 0.0
+
+        # 受保护的符号集合（指数等，始终保持HIGH档位）
+        self._protected_symbols: set = set()
     
     def register_symbol(self, symbol: str) -> bool:
         """注册个股"""
@@ -102,7 +104,16 @@ class FrequencyScheduler:
         self._idx_to_symbol[idx] = symbol
         
         return True
-    
+
+    def register_protected_symbol(self, symbol: str):
+        """注册受保护的符号（始终保持HIGH档位）"""
+        if symbol not in self._symbol_to_idx:
+            self.register_symbol(symbol)
+        self._protected_symbols.add(symbol)
+        idx = self._symbol_to_idx.get(symbol)
+        if idx is not None:
+            self._current_levels[idx] = FrequencyLevel.HIGH.value
+
     def schedule(
         self,
         symbol_weights: Dict[str, float],
@@ -150,15 +161,19 @@ class FrequencyScheduler:
     ) -> Dict[str, FrequencyLevel]:
         """计算目标频率档位"""
         targets = {}
-        
+
         for symbol, weight in symbol_weights.items():
+            if symbol in self._protected_symbols:
+                targets[symbol] = FrequencyLevel.HIGH
+                continue
+
             if weight < self.config.low_threshold:
                 level = FrequencyLevel.LOW
             elif weight < self.config.high_threshold:
                 level = FrequencyLevel.MEDIUM
             else:
                 level = FrequencyLevel.HIGH
-            
+
             targets[symbol] = level
         
         return targets
@@ -328,6 +343,50 @@ class FrequencyScheduler:
         self._last_switch_time.fill(0.0)
         self._last_weights.fill(0.0)
         self._switch_count = 0
+
+    def save_state(self) -> Dict:
+        """保存调度器状态用于持久化"""
+        return {
+            'symbol_to_idx': self._symbol_to_idx,
+            'idx_to_symbol': {int(k): v for k, v in self._idx_to_symbol.items()},
+            'current_levels': self._current_levels[:len(self._symbol_to_idx)].tolist(),
+            'last_switch_time': self._last_switch_time[:len(self._symbol_to_idx)].tolist(),
+            'last_weights': self._last_weights[:len(self._symbol_to_idx)].tolist(),
+            'switch_count': self._switch_count,
+            'last_schedule_time': self._last_schedule_time,
+        }
+
+    def load_state(self, state: Dict) -> bool:
+        """从持久化状态恢复调度器"""
+        try:
+            if not state:
+                return False
+
+            self._symbol_to_idx = state.get('symbol_to_idx', {})
+            self._idx_to_symbol = {int(k): v for k, v in state.get('idx_to_symbol', {}).items()}
+
+            current_levels = state.get('current_levels', [])
+            for i, level in enumerate(current_levels):
+                if i < len(self._current_levels):
+                    self._current_levels[i] = level
+
+            last_switch_time = state.get('last_switch_time', [])
+            for i, t in enumerate(last_switch_time):
+                if i < len(self._last_switch_time):
+                    self._last_switch_time[i] = t
+
+            last_weights = state.get('last_weights', [])
+            for i, w in enumerate(last_weights):
+                if i < len(self._last_weights):
+                    self._last_weights[i] = w
+
+            self._switch_count = state.get('switch_count', 0)
+            self._last_schedule_time = state.get('last_schedule_time', 0.0)
+
+            return True
+        except Exception as e:
+            log.warning(f"[FrequencyScheduler] load_state 失败: {e}")
+            return False
 
 
 class AdaptiveFrequencyController:

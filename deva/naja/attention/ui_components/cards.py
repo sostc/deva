@@ -143,6 +143,45 @@ def render_market_state_panel() -> str:
     hot_blocks_data = get_hot_blocks_and_stocks()
     hot_blocks = [(item['block_id'], item['weight']) for item in hot_blocks_data.get("blocks", [])]
     hot_symbols = [(item['symbol'], item['weight']) for item in hot_blocks_data.get("stocks", [])][:10]
+
+    us_nq_pct = us_es_pct = us_ym_pct = None
+    cn_sh_pct = cn_hs300_pct = cn_chinext_pct = None
+    us_up_pct = us_down_pct = us_flat_pct = 0
+    us_total = us_up = us_down = us_flat = 0
+
+    try:
+        from deva.naja.attention.integration.extended import get_attention_system
+        asys = get_attention_system()
+        if asys:
+            futures = asys.get_us_futures_indices()
+            us_nq_pct = futures.get('NQ')
+            us_es_pct = futures.get('ES')
+            us_ym_pct = futures.get('YM')
+
+            cn_idx = asys.get_cn_indices()
+            cn_sh_pct = cn_idx.get('SH')
+            cn_hs300_pct = cn_idx.get('HS300')
+            cn_chinext_pct = cn_idx.get('CHINEXT')
+
+        from .us_market import get_us_market_summary
+        summary = get_us_market_summary()
+        us_total = summary.get('stock_count', 0)
+        us_up = summary.get('up_count', 0)
+        us_down = summary.get('down_count', 0)
+        us_flat = summary.get('flat_count', 0)
+        if us_total > 0:
+            us_up_pct = us_up / us_total * 100
+            us_down_pct = us_down / us_total * 100
+            us_flat_pct = us_flat / us_total * 100
+    except Exception:
+        pass
+
+    def _fmt_idx(pct):
+        if pct is None: return "--"
+        return f"{pct:+.2f}%"
+    def _idx_color(pct):
+        if pct is None: return "#64748b"
+        return "#16a34a" if pct >= 0 else "#dc2626"
     def _format_market_line(label, info):
         phase_name = info.get('phase_name', '未知')
         next_phase = info.get('next_phase_name', '')
@@ -184,8 +223,8 @@ def render_market_state_panel() -> str:
         show_cn_only = False
     else:
         # 非交易时间：根据数据判断
-        show_us_only = has_us_data and not tracker.current_hot_sectors
-        show_cn_only = bool(tracker.current_hot_sectors) and not has_us_data
+        show_us_only = has_us_data and not tracker.current_hot_blocks
+        show_cn_only = bool(tracker.current_hot_blocks) and not has_us_data
         us_blocks = us_data.get('block_attention', {})
         sorted_us_blocks = sorted(us_blocks.items(), key=lambda x: x[1], reverse=True)[:5]
 
@@ -212,6 +251,7 @@ def render_market_state_panel() -> str:
     if has_us_data and not show_cn_only:
         us_blocks = us_data.get('block_attention', {})
         us_symbols = us_data.get('symbol_weights', {})
+        us_changes = us_data.get('symbol_changes', {})
         us_global = us_data.get('global_attention', 0)
         us_activity = us_data.get('activity', 0)
 
@@ -222,14 +262,24 @@ def render_market_state_panel() -> str:
         <div style="background: linear-gradient(135deg, #1e3a5f 0%, #0d1b2a 100%); border-radius: 8px; padding: 12px 16px; margin-bottom: 16px;">
             <div style="display: flex; justify-content: space-between; align-items: center;">
                 <div style="color: #f8fafc; font-size: 13px; font-weight: 600;">🇺🇸 美股市场</div>
-                <div style="display: flex; gap: 16px;">
-                    <div style="text-align: center;">
-                        <div style="color: #94a3b8; font-size: 9px;">热点度</div>
-                        <div style="color: #22c55e; font-size: 14px; font-weight: 700;">{us_global:.3f}</div>
+                <div style="display: flex; gap: 16px; align-items: center;">
+                    <div style="display: flex; gap: 8px; align-items: center;">
+                        <span style="color: #94a3b8; font-size: 10px;">纳指</span>
+                        <span style="color: {_idx_color(us_nq_pct)}; font-size: 11px; font-weight: 600;">{_fmt_idx(us_nq_pct)}</span>
+                        <span style="color: #94a3b8; font-size: 10px;">标普</span>
+                        <span style="color: {_idx_color(us_es_pct)}; font-size: 11px; font-weight: 600;">{_fmt_idx(us_es_pct)}</span>
+                        <span style="color: #94a3b8; font-size: 10px;">道指</span>
+                        <span style="color: {_idx_color(us_ym_pct)}; font-size: 11px; font-weight: 600;">{_fmt_idx(us_ym_pct)}</span>
                     </div>
-                    <div style="text-align: center;">
-                        <div style="color: #94a3b8; font-size: 9px;">活跃度</div>
-                        <div style="color: #3b82f6; font-size: 14px; font-weight: 700;">{us_activity:.3f}</div>
+                    <div style="display: flex; gap: 12px; border-left: 1px solid #334155; padding-left: 12px;">
+                        <div style="text-align: center;">
+                            <div style="color: #94a3b8; font-size: 9px;">热点度</div>
+                            <div style="color: #22c55e; font-size: 14px; font-weight: 700;">{us_global:.3f}</div>
+                        </div>
+                        <div style="text-align: center;">
+                            <div style="color: #94a3b8; font-size: 9px;">活跃度</div>
+                            <div style="color: #3b82f6; font-size: 14px; font-weight: 700;">{us_activity:.3f}</div>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -249,18 +299,43 @@ def render_market_state_panel() -> str:
             for symbol, weight in sorted_us_symbols:
                 color = "#dc2626" if weight > 5 else ("#ea580c" if weight > 3 else ("#ca8a04" if weight > 2 else "#16a34a"))
                 bg_color = "#fef2f2" if weight > 5 else ("#fff7ed" if weight > 3 else ("#fef3c7" if weight > 2 else "#f0fdf4"))
-                html += f"""<div style="background: {bg_color}; border-radius: 6px; padding: 6px 10px; font-size: 11px; display: flex; align-items: center; gap: 4px;"><span style="color: #1e293b; font-weight: 600;">{symbol.upper()}</span><span style="color: {color}; font-weight: 600;">{weight:.1f}</span></div>"""
+                change = us_changes.get(symbol)
+                change_str = f"{change:+.2f}%" if change is not None else ""
+                change_color = "#16a34a" if change and change > 0 else ("#dc2626" if change and change < 0 else "#64748b")
+                html += f"""<div style="background: {bg_color}; border-radius: 6px; padding: 6px 10px; font-size: 11px; display: flex; align-items: center; gap: 4px;"><span style="color: #1e293b; font-weight: 600;">{symbol.upper()}</span>{f'<span style="font-size: 10px; color: {change_color}; font-weight: 600;">{change_str}</span>' if change_str else ''}<span style="color: {color}; font-weight: 600;">{weight:.1f}</span></div>"""
             html += "</div></div>"
+
+        if us_total > 0:
+            html += f"""<div style="background: #f1f5f9; border-radius: 6px; padding: 8px 12px;">
+<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+<span style="font-size: 11px; color: #64748b;">🇺🇸 美股涨跌分布 ({us_total}只)</span>
+<span style="font-size: 10px; color: #64748b;">🔼{us_up} 🔽{us_down} ➡️{us_flat}</span>
+</div>
+<div style="display: flex; gap: 2px; height: 18px; border-radius: 4px; overflow: hidden;">
+<div style="background: #22c55e; width: {us_up_pct:.0f}%; display: flex; align-items: center; justify-content: center; color: white; font-size: 9px; font-weight: 600;">{us_up_pct:.0f}%</div>
+<div style="background: #94a3b8; width: {us_flat_pct:.0f}%; display: flex; align-items: center; justify-content: center; color: white; font-size: 9px; font-weight: 600;">{us_flat_pct:.0f}%</div>
+<div style="background: #ef4444; width: {us_down_pct:.0f}%; display: flex; align-items: center; justify-content: center; color: white; font-size: 9px; font-weight: 600;">{us_down_pct:.0f}%</div>
+</div>
+</div>"""
 
     # A股数据展示（A股时间 或 混合时间 或 非交易时间有A股数据）
     if not show_us_only:
         cn_description = description if description != '等待数据...' else "等待A股行情数据..."
         html += f"""<div style="background: {config['bg']}; border-left: 4px solid {config['color']}; padding: 12px 16px; margin-bottom: 16px; border-radius: 0 8px 8px 0;">
-            <div style="font-size: 13px; color: #1e293b; line-height: 1.5;"><strong>📊 {cn_description}</strong></div>
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+                <div style="font-size: 13px; color: #1e293b; line-height: 1.5;"><strong>📊 {cn_description}</strong></div>
+                <div style="display: flex; gap: 10px; align-items: center;">
+                    <span style="color: #64748b; font-size: 10px;">上证</span>
+                    <span style="color: {_idx_color(cn_sh_pct)}; font-size: 11px; font-weight: 600;">{_fmt_idx(cn_sh_pct)}</span>
+                    <span style="color: #64748b; font-size: 10px;">沪深300</span>
+                    <span style="color: {_idx_color(cn_hs300_pct)}; font-size: 11px; font-weight: 600;">{_fmt_idx(cn_hs300_pct)}</span>
+                    <span style="color: #64748b; font-size: 10px;">创业板</span>
+                    <span style="color: {_idx_color(cn_chinext_pct)}; font-size: 11px; font-weight: 600;">{_fmt_idx(cn_chinext_pct)}</span>
+                </div>
+            </div>
             <div style="font-size: 12px; color: #64748b; margin-top: 6px;">A股市场热点指数: <strong>{global_attn:.3f}</strong></div>
         </div>"""
     else:
-        # 纯美股时间，A股数据暂停
         html += """<div style="background: #f8fafc; border-left: 4px solid #94a3b8; padding: 12px 16px; margin-bottom: 16px; border-radius: 0 8px 8px 0;">
             <div style="font-size: 13px; color: #64748b; line-height: 1.5;"><strong>🇨🇳 A股已休市</strong></div>
             <div style="font-size: 12px; color: #94a3b8; margin-top: 6px;">A股市场热点指数: <strong>--</strong></div>
@@ -658,7 +733,7 @@ def render_live_hotspots() -> str:
     if not tracker:
         return ""
 
-    hot_blocks = list(tracker.current_hot_sectors.items())[:5]
+    hot_blocks = list(tracker.current_hot_blocks.items())[:5]
     hot_symbols = list(tracker.current_hot_symbols.items())[:8]
 
     if not hot_blocks and not hot_symbols:
