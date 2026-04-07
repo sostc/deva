@@ -429,6 +429,70 @@ class BlockAttentionEngine:
             log.debug(f"[SectorAttention] get_all_weights: 返回 {len(weights)} 个有效板块 (过滤了 {filtered_count} 个噪音)")
         return weights
 
+    def save_state(self) -> Dict:
+        """保存引擎状态用于持久化"""
+        return {
+            'blocks': {
+                block_id: {
+                    'block_id': config.block_id,
+                    'name': config.name,
+                    'symbols': list(config.symbols),
+                    'decay_half_life': config.decay_half_life,
+                    'activation_threshold': config.activation_threshold,
+                }
+                for block_id, config in self._blocks.items()
+            },
+            'symbol_to_blocks': dict(self._symbol_to_blocks),
+            'attention_scores': self._attention_scores[:len(self._blocks)].tolist(),
+            'block_id_to_idx': self._block_id_to_idx,
+            'idx_to_block_id': {int(k): v for k, v in self._idx_to_block_id.items()},
+            'last_update_time': self._last_update_time,
+            'leader_counts': self._leader_counts,
+            'volume_concentration': self._volume_concentration,
+            'block_last_activity': self._block_last_activity,
+        }
+
+    def load_state(self, state: Dict) -> bool:
+        """从持久化状态恢复"""
+        try:
+            if not state:
+                return False
+
+            self._blocks.clear()
+            self._symbol_to_blocks.clear()
+            self._symbol_to_blocks = defaultdict(list)
+
+            for block_id, config_data in state.get('blocks', {}).items():
+                config = BlockConfig(
+                    block_id=config_data['block_id'],
+                    name=config_data['name'],
+                    symbols=set(config_data.get('symbols', [])),
+                    decay_half_life=config_data.get('decay_half_life', 300.0),
+                    activation_threshold=config_data.get('activation_threshold', 0.3),
+                )
+                self._blocks[block_id] = config
+
+                for symbol in config.symbols:
+                    self._symbol_to_blocks[symbol].append(block_id)
+
+            self._block_id_to_idx = state.get('block_id_to_idx', {})
+            self._idx_to_block_id = {int(k): v for k, v in state.get('idx_to_block_id', {}).items()}
+
+            attention_scores = state.get('attention_scores', [])
+            for i, score in enumerate(attention_scores):
+                if i < len(self._attention_scores):
+                    self._attention_scores[i] = score
+
+            self._last_update_time = state.get('last_update_time', {})
+            self._leader_counts = state.get('leader_counts', {})
+            self._volume_concentration = state.get('volume_concentration', {})
+            self._block_last_activity = state.get('block_last_activity', {})
+
+            return True
+        except Exception as e:
+            log.warning(f"[BlockAttentionEngine] load_state 失败: {e}")
+            return False
+
     def reset(self):
         """重置引擎状态"""
         self._attention_scores.fill(0.0)

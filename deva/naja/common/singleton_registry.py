@@ -310,7 +310,7 @@ def apply_compatibility_patches():
         ('deva.naja.attention.kernel.manas_manager', 'get_manas_manager', 'manas_manager'),
         ('deva.naja.common.auto_tuner', 'get_auto_tuner', 'auto_tuner'),
         ('deva.naja.attention.liquidity_manager', 'get_liquidity_manager', 'liquidity_manager'),
-        ('deva.naja.strategy.market_replay_scheduler', 'get_replay_scheduler', 'market_replay_scheduler'),
+        ('deva.naja.strategy.daily_review_scheduler', 'get_replay_scheduler', 'daily_review_scheduler'),
         ('deva.naja.attention.cognition_orchestrator', 'get_cognition_orchestrator', 'cognition_orchestrator'),
 
         # 基础层

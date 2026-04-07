@@ -40,7 +40,7 @@ class Reflection:
     signals_count: int
     narratives: List[str] = field(default_factory=list)
     symbols: List[str] = field(default_factory=list)
-    sectors: List[str] = field(default_factory=list)
+    blocks: List[str] = field(default_factory=list)
     confidence: float = 0.5
     actionability: float = 0.5
     novelty: float = 0.5
@@ -758,22 +758,22 @@ _反思生成时间: {datetime.fromtimestamp(reflection.ts).strftime('%Y-%m-%d %
             if not report.get("has_shift"):
                 return []
             signals = []
-            for sector, name in report.get("added_sectors", []):
+            for block, name in report.get("added_sectors", []):
                 signals.append({
                     "source": "attention_history",
                     "signal_type": "attention_rising",
                     "theme": f"注意力上升: {name}",
                     "summary": "板块进入热门",
-                    "sector": sector,
+                    "block": block,
                     "score": 0.7,
                 })
-            for sector, name in report.get("removed_sectors", []):
+            for block, name in report.get("removed_sectors", []):
                 signals.append({
                     "source": "attention_history",
                     "signal_type": "attention_falling",
                     "theme": f"注意力下降: {name}",
                     "summary": "板块退出热门",
-                    "sector": sector,
+                    "block": block,
                     "score": 0.6,
                 })
             return signals
@@ -1030,7 +1030,7 @@ _反思生成时间: {datetime.fromtimestamp(reflection.ts).strftime('%Y-%m-%d %
     def _categorize_signals(self, signals: List[Dict[str, Any]]) -> Dict[str, List[Dict]]:
         """按来源分类信号"""
         categories = {
-            "radar": [],      # 雷达事件 (pattern, drift, anomaly, sector_anomaly, news_topic)
+            "radar": [],      # 雷达事件 (pattern, drift, anomaly, block_anomaly, news_topic)
             "attention": [],  # 注意力事件 (global_attention_shift, market_state_shift, block_hotspot等)
             "cross_signal": [],  # 共振信号
             "feedback": [],   # 实验反馈 (experiment_feedback_summary, bandit_learning_analysis)
@@ -1041,7 +1041,7 @@ _反思生成时间: {datetime.fromtimestamp(reflection.ts).strftime('%Y-%m-%d %
             "other": []       # 其他
         }
 
-        radar_types = {'pattern', 'drift', 'anomaly', 'sector_anomaly', 'news_topic'}
+        radar_types = {'pattern', 'drift', 'anomaly', 'block_anomaly', 'news_topic'}
         attention_types = {'global_attention_shift', 'market_activity_shift', 'sector_concentration_shift',
                           'block_hotspot', 'symbol_attention_change', 'market_state_shift'}
         feedback_types = {'experiment_feedback_summary', 'bandit_learning_analysis'}

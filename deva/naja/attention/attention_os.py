@@ -206,6 +206,7 @@ class AttentionKernelOutput:
     narrative_risk: float = 0.5                                       # 【认知】叙事风险
     ai_compute_direction: str = "unknown"                            # 【认知】AI算力方向
     awakening_level: str = "dormant"                                  # 【认知】觉醒水平
+    memory_focus: List[Dict] = field(default_factory=list)          # 【记忆】来自 AttentionMemory 的高注意力事件
 
     fusion_output: Optional[AttentionFusionOutput] = None             # 【融合层】融合结果（单独存储）
 
@@ -232,6 +233,7 @@ class AttentionKernelOutput:
         }
         if self.fusion_output is not None:
             result["fusion_output"] = self.fusion_output.to_dict()
+        result["memory_focus"] = self.memory_focus
         return result
 
 
@@ -251,7 +253,7 @@ class AttentionKernel:
         self.encoder = Encoder()
         heads = get_default_heads()
         self.multi_head = MultiHeadAttention(heads)
-        self.memory = AttentionMemory(decay_rate=300)
+        self.memory = AttentionMemory(base_decay_rate=300)
         self.manas_engine = ManasEngine()
         self._value_system = None
 
@@ -399,6 +401,16 @@ class AttentionKernel:
                 fusion_success=False,
             )
 
+        for e in encoded_events:
+            symbol = getattr(e, 'symbol', None) or e.source if hasattr(e, 'source') else "unknown"
+            alignment = e.features.get("_value_alignment", 0.5)
+            reason = vs.generate_focus_reason(e.features)
+            vs.record_attention(symbol, alignment, reason)
+            vs.set_last_decision_reason(reason)
+            self.memory.update(symbol=symbol, alignment=alignment, reason=reason)
+
+        memory_focus = self.memory.get_focus(top_k=5)
+
         output = AttentionKernelOutput(
             alpha=alpha,
             confidence=attention_result.get("confidence", 0.5),
@@ -418,16 +430,9 @@ class AttentionKernel:
             narrative_risk=manas_output.narrative_risk,
             ai_compute_direction=manas_output.ai_compute_direction,
             awakening_level=manas_output.awakening_level,
+            memory_focus=memory_focus,
             fusion_output=fusion_output,
         )
-
-        for e in encoded_events:
-            symbol = getattr(e, 'symbol', None) or e.source if hasattr(e, 'source') else "unknown"
-            alignment = e.features.get("_value_alignment", 0.5)
-            reason = vs.generate_focus_reason(e.features)
-            vs.record_attention(symbol, alignment, reason)
-            vs.set_last_decision_reason(reason)
-            self.memory.update(symbol=symbol, alignment=alignment, reason=reason)
 
         self._last_output = output
         self._last_update = current_time

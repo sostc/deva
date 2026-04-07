@@ -127,81 +127,238 @@ def render_us_market_panel(us_data: Dict[str, Any] = None) -> str:
     return html
 
 
-def render_us_hot_sectors_and_stocks(us_data: Dict[str, Any] = None) -> str:
-    """渲染美股热门题材和股票（复用手游组件样式）
-
-    直接复用 render_hot_blocks_and_stocks 的样式逻辑
-    """
-    if us_data is None:
-        us_data = get_us_attention_data()
-
-    if not us_data:
+def _fetch_sina_data(codes: list) -> dict:
+    """使用新浪接口获取指数数据"""
+    import urllib.request
+    url = f"https://hq.sinajs.cn/list={','.join(codes)}"
+    headers = {
+        "Referer": "https://finance.sina.com.cn",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+    }
+    try:
+        req = urllib.request.Request(url, headers=headers)
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            return resp.read().decode('gbk', errors='replace')
+    except Exception:
         return ""
 
-    sector_attention = us_data.get('block_attention', {})
-    symbol_weights = us_data.get('symbol_weights', {})
+def render_market_index_panel() -> str:
+    """渲染大盘指数面板（A股指数 + 美股指数 + 涨跌分布）"""
+    Sina_CN = ["sh000001", "s_sh000300", "sz399006"]
+    Sina_US = ["hf_NQ", "hf_ES", "hf_YM"]
 
-    sorted_sectors = sorted(sector_attention.items(), key=lambda x: x[1], reverse=True)[:10]
-    sorted_stocks = sorted(symbol_weights.items(), key=lambda x: x[1], reverse=True)[:20]
+    cn_data = _fetch_sina_data(Sina_CN)
+    us_data = _fetch_sina_data(Sina_US)
 
-    sectors = sorted_sectors
-    stocks = [(sym, w) for sym, w in sorted_stocks]
+    cn_shanghai_pct = None
+    cn_hs300_pct = None
+    cn_chinext_pct = None
+    us_nasdaq_pct = None
+    us_sp500_pct = None
+    us_dow_pct = None
 
-    if not sectors and not stocks:
-        return ""
+    for line in cn_data.split('\n'):
+        if 'hq_str_sh000001' in line:
+            parts = line.split('"')
+            if len(parts) < 2:
+                continue
+            fields = parts[1].split(',')
+            if len(fields) > 2:
+                cur = float(fields[1]) if fields[1] else 0
+                prev = float(fields[2]) if fields[2] else 0
+                if prev:
+                    cn_shanghai_pct = round((cur - prev) / prev * 100, 2)
+        elif 'hq_str_s_sh000300' in line:
+            parts = line.split('"')
+            if len(parts) < 2:
+                continue
+            fields = parts[1].split(',')
+            if len(fields) > 3:
+                pct_str = fields[3] if len(fields) > 3 else fields[2]
+                try:
+                    cn_hs300_pct = float(pct_str)
+                except (ValueError, TypeError):
+                    cn_hs300_pct = None
+        elif 'hq_str_sz399006' in line:
+            parts = line.split('"')
+            if len(parts) < 2:
+                continue
+            fields = parts[1].split(',')
+            if len(fields) > 2:
+                cur = float(fields[1]) if fields[1] else 0
+                prev = float(fields[2]) if fields[2] else 0
+                if prev:
+                    cn_chinext_pct = round((cur - prev) / prev * 100, 2)
 
-    html = """<div style="background: white; border: 1px solid #e2e8f0; border-radius: 12px; padding: 20px; margin-top: 16px;"><div style="font-weight: 600; margin-bottom: 16px; color: #1e293b; font-size: 16px;">🇺🇸 美股热门题材与股票 <span style="font-size: 12px; color: #64748b; font-weight: normal; margin-left: 8px;">市场热点排名</span></div><div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">"""
+    for line in us_data.split('\n'):
+        if 'hq_str_hf_NQ' in line:
+            parts = line.split('"')
+            if len(parts) < 2:
+                continue
+            fields = parts[1].split(',')
+            if len(fields) > 9:
+                cur = float(fields[0]) if fields[0] else 0
+                prev = float(fields[8]) if fields[8] else 0
+                if prev:
+                    us_nasdaq_pct = round((cur - prev) / prev * 100, 2)
+        elif 'hq_str_hf_ES' in line:
+            parts = line.split('"')
+            if len(parts) < 2:
+                continue
+            fields = parts[1].split(',')
+            if len(fields) > 9:
+                cur = float(fields[0]) if fields[0] else 0
+                prev = float(fields[8]) if fields[8] else 0
+                if prev:
+                    us_sp500_pct = round((cur - prev) / prev * 100, 2)
+        elif 'hq_str_hf_YM' in line:
+            parts = line.split('"')
+            if len(parts) < 2:
+                continue
+            fields = parts[1].split(',')
+            if len(fields) > 9:
+                cur = float(fields[0]) if fields[0] else 0
+                prev = float(fields[8]) if fields[8] else 0
+                if prev:
+                    us_dow_pct = round((cur - prev) / prev * 100, 2)
 
-    if sectors:
-        html += """<div><div style="font-weight: 600; color: #7c3aed; margin-bottom: 12px; font-size: 14px;">📊 美股热门题材 Top 10</div>"""
-        max_sector_weight = max([w for _, w in sectors[:10]]) if sectors else 1
+    try:
+        from deva.naja.attention.ui_components.us_market import get_us_market_summary
+        summary = get_us_market_summary()
+        has_data = summary.get('stock_count', 0) > 0
+    except Exception:
+        summary = {}
+        has_data = False
 
-        for i, (sector_id, weight) in enumerate(sectors[:10], 1):
-            if weight > 0.7:
-                color, status, bg_gradient = "#dc2626", "🔥 极高", "linear-gradient(90deg, #fee2e2, #fecaca)"
-            elif weight > 0.5:
-                color, status, bg_gradient = "#ea580c", "⚡ 高", "linear-gradient(90deg, #ffedd5, #fed7aa)"
-            elif weight > 0.3:
-                color, status, bg_gradient = "#ca8a04", "👁️ 中", "linear-gradient(90deg, #fef3c7, #fde68a)"
-            else:
-                color, status, bg_gradient = "#16a34a", "💤 低", "linear-gradient(90deg, #dcfce7, #bbf7d0)"
+    def fmt_pct(pct):
+        if pct is None:
+            return "--"
+        return f"{pct:+.2f}%"
 
-            progress_width = (weight / max_sector_weight * 100) if max_sector_weight > 0 else 0
+    def pct_color(pct):
+        if pct is None:
+            return "#64748b"
+        return "#16a34a" if pct >= 0 else "#dc2626"
 
-            html += f"""<div style="padding: 10px 12px; margin-bottom: 8px; background: {bg_gradient}; border-radius: 8px; border-left: 3px solid {color};"><div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;"><div style="display: flex; align-items: center; gap: 8px;"><span style="color: #64748b; font-weight: 600; min-width: 20px;">{i}.</span><span style="font-weight: 500; color: #1e293b;">{sector_id}</span></div><div style="text-align: right;"><span style="color: {color}; font-weight: 700; font-size: 14px;">{weight:.3f}</span><span style="font-size: 10px; color: {color}; margin-left: 4px;">{status}</span></div></div><div style="background: rgba(255,255,255,0.5); height: 4px; border-radius: 2px; overflow: hidden;"><div style="background: {color}; height: 100%; width: {progress_width}%; border-radius: 2px;"></div></div></div>"""
-        html += "</div>"
+    html = """<div style="background: white; border: 1px solid #e2e8f0; border-radius: 12px; padding: 16px; margin-top: 16px;">
+<div style="font-weight: 600; color: #1e293b; margin-bottom: 12px; font-size: 14px;">📈 大盘指数</div>
+<div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 12px;">"""
 
-    if stocks:
-        html += """<div><div style="font-weight: 600; color: #2563eb; margin-bottom: 12px; font-size: 14px;">📈 美股热门股票 Top 20</div><div style="display: flex; flex-wrap: wrap; gap: 6px;">"""
-        for i, stock_item in enumerate(stocks[:20], 1):
-            if isinstance(stock_item, dict):
-                symbol = stock_item.get("symbol", "")
-                weight = stock_item.get("weight", 0)
-                symbol_name = stock_item.get("name", symbol)
-            else:
-                symbol, weight = stock_item
-                symbol_name = symbol
+    html += """<div style="background: linear-gradient(135deg, #fef2f2, #fee2e2); border-radius: 8px; padding: 12px;">
+<div style="font-size: 11px; color: #dc2626; font-weight: 600; margin-bottom: 6px;">🇨🇳 A股指数</div>
+<div style="display: flex; flex-direction: column; gap: 4px;">"""
 
-            if weight > 5:
-                color, bg_color, border_color = "#dc2626", "#fef2f2", "#fecaca"
-            elif weight > 3:
-                color, bg_color, border_color = "#ea580c", "#fff7ed", "#fed7aa"
-            elif weight > 2:
-                color, bg_color, border_color = "#ca8a04", "#fef3c7", "#fde68a"
-            elif weight > 1:
-                color, bg_color, border_color = "#16a34a", "#f0fdf4", "#bbf7d0"
-            else:
-                color, bg_color, border_color = "#64748b", "#f8fafc", "#e2e8f0"
+    sh_color = pct_color(cn_shanghai_pct)
+    hs_color = pct_color(cn_hs300_pct)
+    ne_color = pct_color(cn_chinext_pct)
 
-            html += f"""<div style="background: {bg_color}; border: 1px solid {border_color}; padding: 6px 10px; border-radius: 6px; display: inline-flex; flex-direction: column; align-items: center; min-width: 60px;">
-<div style="font-weight: 600; color: #1e293b; font-size: 11px;">{symbol_name.upper() if len(symbol_name) <= 6 else symbol_name[:6]}</div>
-<div style="color: {color}; font-size: 12px; font-weight: 700;">{weight:.2f}</div>
+    html += f"""<div style="display: flex; justify-content: space-between; font-size: 12px;"><span style="color: #64748b;">上证</span><span style="color: {sh_color}; font-weight: 600;">{fmt_pct(cn_shanghai_pct)}</span></div>
+<div style="display: flex; justify-content: space-between; font-size: 12px;"><span style="color: #64748b;">沪深300</span><span style="color: {hs_color}; font-weight: 600;">{fmt_pct(cn_hs300_pct)}</span></div>
+<div style="display: flex; justify-content: space-between; font-size: 12px;"><span style="color: #64748b;">创业板</span><span style="color: {ne_color}; font-weight: 600;">{fmt_pct(cn_chinext_pct)}</span></div>"""
+
+    html += """</div></div>"""
+
+    html += """<div style="background: linear-gradient(135deg, #eff6ff, #dbeafe); border-radius: 8px; padding: 12px;">
+<div style="font-size: 11px; color: #2563eb; font-weight: 600; margin-bottom: 6px;">🇺🇸 美股期货</div>
+<div style="display: flex; flex-direction: column; gap: 4px;">"""
+
+    nq_color = pct_color(us_nasdaq_pct)
+    es_color = pct_color(us_sp500_pct)
+    ym_color = pct_color(us_dow_pct)
+
+    html += f"""<div style="display: flex; justify-content: space-between; font-size: 12px;"><span style="color: #64748b;">纳指期货</span><span style="color: {nq_color}; font-weight: 600;">{fmt_pct(us_nasdaq_pct)}</span></div>
+<div style="display: flex; justify-content: space-between; font-size: 12px;"><span style="color: #64748b;">标普500</span><span style="color: {es_color}; font-weight: 600;">{fmt_pct(us_sp500_pct)}</span></div>
+<div style="display: flex; justify-content: space-between; font-size: 12px;"><span style="color: #64748b;">道琼斯</span><span style="color: {ym_color}; font-weight: 600;">{fmt_pct(us_dow_pct)}</span></div>"""
+
+    html += """</div></div></div>"""
+
+    if has_data:
+        total = summary.get('stock_count', 0)
+        up_count = summary.get('up_count', 0)
+        down_count = summary.get('down_count', 0)
+        flat_count = summary.get('flat_count', 0)
+        up_pct = up_count / total * 100 if total > 0 else 0
+        down_pct = down_count / total * 100 if total > 0 else 0
+        flat_pct = flat_count / total * 100 if total > 0 else 0
+        html += f"""<div style="background: #f8fafc; border-radius: 6px; padding: 10px;">
+<div style="font-size: 11px; color: #64748b; margin-bottom: 6px;">🇺🇸 美股涨跌分布 ({total}只)</div>
+<div style="display: flex; gap: 3px; height: 20px; border-radius: 4px; overflow: hidden;">
+<div style="background: #22c55e; width: {up_pct:.0f}%; display: flex; align-items: center; justify-content: center; color: white; font-size: 10px; font-weight: 600;">{up_pct:.0f}%</div>
+<div style="background: #94a3b8; width: {flat_pct:.0f}%; display: flex; align-items: center; justify-content: center; color: white; font-size: 10px; font-weight: 600;">{flat_pct:.0f}%</div>
+<div style="background: #ef4444; width: {down_pct:.0f}%; display: flex; align-items: center; justify-content: center; color: white; font-size: 10px; font-weight: 600;">{down_pct:.0f}%</div>
+</div>
+<div style="display: flex; justify-content: space-between; font-size: 9px; margin-top: 4px; color: #64748b;">
+<span>🔼上涨 {up_count}</span><span>➡️平 {flat_count}</span><span>🔽下跌 {down_count}</span>
+</div>
 </div>"""
-        html += "</div></div>"
 
-    html += "</div></div>"
-
+    html += "</div>"
     return html
+
+
+def render_cross_market_predictions() -> str:
+    """渲染跨市场预测面板 - 基于美股题材预测明日A股"""
+    try:
+        from deva.naja.alaya.awakened_alaya import AwakenedAlaya
+        alaya = AwakenedAlaya()
+        if not hasattr(alaya, 'cross_market_memory') or not alaya.cross_market_memory:
+            log.info("[CrossMarket] cross_market_memory 不存在")
+            return ""
+
+        us_data = get_us_attention_data()
+        if not us_data:
+            log.info("[CrossMarket] us_data 为空")
+            return ""
+
+        current_conditions = {}
+
+        patterns = alaya.cross_market_memory.recall_applicable_patterns(
+            target_market="a_stock",
+            current_conditions=current_conditions
+        )
+
+        log.info(f"[CrossMarket] 召回 patterns 数量: {len(patterns) if patterns else 0}")
+
+        if not patterns:
+            return ""
+
+        html = """<div style="background: linear-gradient(135deg, #fef3c7, #fde68a); border: 1px solid #f59e0b; border-radius: 12px; padding: 16px; margin-top: 16px;">
+<div style="font-weight: 600; color: #92400e; margin-bottom: 12px; font-size: 14px;">🔮 跨市场预测 <span style="font-size: 11px; font-weight: normal; color: #a16207;">基于美股题材 → 预测明日A股</span></div>
+<div style="display: flex; flex-direction: column; gap: 10px;">"""
+
+        for i, pattern in enumerate(patterns[:5], 1):
+            conditions = pattern.get("conditions", {})
+            us_sector = conditions.get("us_sector", "未知")
+            us_weight = conditions.get("us_weight", 0)
+            prediction = pattern.get("prediction", "")
+
+            a_sectors = []
+            try:
+                from deva.naja.alaya.awakened_alaya import CrossMarketSectorMapper
+                a_sectors = CrossMarketSectorMapper.get_a_stock_sectors(us_sector)
+            except Exception:
+                pass
+
+            if not a_sectors:
+                a_sectors = [conditions.get("a_sector", "A股相关板块")]
+
+            sector_tags = " ".join([f"<span style='background: #fef3c7; padding: 2px 6px; border-radius: 4px; font-size: 11px; color: #92400e;'>{s}</span>" for s in a_sectors[:3]])
+
+            html += f"""<div style="background: rgba(255,255,255,0.7); border-radius: 8px; padding: 10px;">
+<div style="display: flex; align-items: center; gap: 8px; margin-bottom: 6px;">
+<span style="background: #f59e0b; color: white; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 600;">TOP {i}</span>
+<span style="font-weight: 600; color: #78350f; font-size: 13px;">🇺🇸 {us_sector}</span>
+<span style="color: #a16207; font-size: 11px;">权重 {us_weight:.2f}</span>
+</div>
+<div style="margin-bottom: 6px;">{sector_tags}</div>
+<div style="font-size: 11px; color: #a16207;">{prediction}</div>
+</div>"""
+
+        html += """</div></div>"""
+        return html
+    except Exception as e:
+        log.debug(f"[CrossMarket] 渲染预测面板失败: {e}")
+        return ""
 
 
 def get_us_market_summary() -> Dict[str, Any]:
@@ -221,11 +378,11 @@ def get_us_market_summary() -> Dict[str, Any]:
         }
 
     sector_attention = us_data.get('block_attention', {})
-    symbol_weights = us_data.get('symbol_weights', {})
+    symbol_changes = us_data.get('symbol_changes', {})
 
-    total = len(symbol_weights)
-    up_count = sum(1 for w in symbol_weights.values() if w > 0.3)
-    down_count = sum(1 for w in symbol_weights.values() if w < -0.3)
+    total = len(symbol_changes)
+    up_count = sum(1 for c in symbol_changes.values() if c is not None and c > 0)
+    down_count = sum(1 for c in symbol_changes.values() if c is not None and c < 0)
     flat_count = total - up_count - down_count
     up_ratio = up_count / total if total > 0 else 0
 

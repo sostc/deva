@@ -1,28 +1,37 @@
 """
-Backfillers - 各组件的补执行实现
+WakeSyncHandlers - 各组件的唤醒同步实现
 
 包括：
-1. AIDailyReportBackfiller - AI日报补执行
-2. NewsFetcherBackfiller - 新闻获取补执行
-3. GlobalMarketScannerBackfiller - 全球市场扫描补执行
+1. AIDailyReportWakeSync - AI日报同步
+2. NewsFetcherWakeSync - 新闻获取同步
+3. GlobalMarketScannerWakeSync - 全球市场扫描同步
+4. DailyReviewWakeSync - 盘后复盘同步
+5. PortfolioPriceWakeSync - 持仓价格同步
+
+优先级设计（数字越小优先级越高）：
+1. PortfolioPriceWakeSync - 持仓价格（影响风控和决策）
+2. NewsFetcherWakeSync - 新闻（实时性要求高）
+3. GlobalMarketScannerWakeSync - 全球市场（持续监控）
+4. DailyReviewWakeSync - 盘后复盘（需要在正确时间执行）
+5. AIDailyReportWakeSync - AI日报（一天一次，不急）
 """
 
 import os
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, time as dtime
 from typing import Dict, Any, Tuple
 
 log = logging.getLogger(__name__)
 
 
-class AIDailyReportBackfiller:
+class AIDailyReportWakeSync:
     """
-    AI日报补执行器
+    AI日报同步器
 
     判断逻辑：
-    1. 凌晨 0-7点：前一天的新闻陆续出来 → 补昨天的
-    2. 白天 8-20点：检查昨天是否执行，没执行就补
-    3. 晚上 20点后：今天的任务可能刚错过 → 补今天的
+    1. 凌晨 0-7点：前一天的新闻陆续出来 → 同步昨天的
+    2. 白天 8-20点：检查昨天是否执行，没执行就同步
+    3. 晚上 20点后：今天的任务可能刚错过 → 同步今天的
     """
 
     @property
@@ -31,10 +40,14 @@ class AIDailyReportBackfiller:
 
     @property
     def description(self) -> str:
-        return "AI日报补执行（每天定时生成AI新闻摘要）"
+        return "AI日报同步（每天定时生成AI新闻摘要）"
 
-    def should_backfill(self, last_active: datetime) -> bool:
-        """判断是否需要补执行"""
+    @property
+    def priority(self) -> int:
+        return 5
+
+    def should_wake_sync(self, last_active: datetime) -> bool:
+        """判断是否需要同步"""
         now = datetime.now()
         current_hour = now.hour
 
@@ -52,8 +65,8 @@ class AIDailyReportBackfiller:
         else:
             return not os.path.exists(report_file_today)
 
-    def get_backfill_range(self, last_active: datetime, max_hours: int = 24) -> Tuple[datetime, datetime]:
-        """获取补执行时间范围"""
+    def get_wake_sync_range(self, last_active: datetime, max_hours: int = 24) -> Tuple[datetime, datetime]:
+        """获取同步时间范围"""
         now = datetime.now()
         current_hour = now.hour
 
@@ -72,44 +85,44 @@ class AIDailyReportBackfiller:
 
         return start, end
 
-    def execute_backfill(self, start: datetime, end: datetime) -> Dict[str, Any]:
-        """执行补执行"""
+    def execute_wake_sync(self, start: datetime, end: datetime) -> Dict[str, Any]:
+        """执行同步"""
         try:
             from deva.naja.tasks.ai_daily_report import execute as run_ai_daily_report
 
-            log.info(f"[Backfill] AI日报开始补执行: {start} ~ {end}")
+            log.info(f"[WakeSync] AI日报开始同步: {start} ~ {end}")
 
             result = run_ai_daily_report()
 
             if result and result.get("success"):
                 return {
                     "success": True,
-                    "message": "AI日报补执行成功",
+                    "message": "AI日报同步成功",
                     "details": result
                 }
             else:
                 return {
                     "success": False,
-                    "message": f"AI日报补执行失败: {result.get('error', '未知错误')}",
+                    "message": f"AI日报同步失败: {result.get('error', '未知错误')}",
                     "details": result
                 }
 
         except Exception as e:
-            log.error(f"[Backfill] AI日报补执行异常: {e}")
+            log.error(f"[WakeSync] AI日报同步异常: {e}")
             import traceback
             traceback.print_exc()
             return {
                 "success": False,
-                "message": f"AI日报补执行异常: {str(e)}",
+                "message": f"AI日报同步异常: {str(e)}",
                 "details": {}
             }
 
 
-class NewsFetcherBackfiller:
+class NewsFetcherWakeSync:
     """
-    新闻获取补执行器
+    新闻获取同步器
 
-    判断逻辑：检查新闻获取记录，如果超过一定时间没有获取则补执行
+    判断逻辑：检查新闻获取记录，如果超过一定时间没有获取则同步
     使用金十重要新闻 API 获取历史新闻
     """
 
@@ -121,16 +134,20 @@ class NewsFetcherBackfiller:
 
     @property
     def description(self) -> str:
-        return "新闻获取补执行（从金十重要新闻获取历史快讯）"
+        return "新闻获取同步（从金十重要新闻获取历史快讯）"
 
-    def should_backfill(self, last_active: datetime) -> bool:
-        """判断是否需要补执行"""
+    @property
+    def priority(self) -> int:
+        return 2
+
+    def should_wake_sync(self, last_active: datetime) -> bool:
+        """判断是否需要同步"""
         try:
             from deva.naja.radar.news_fetcher import RadarNewsFetcher
             fetcher = RadarNewsFetcher()
 
             if not hasattr(fetcher, '_last_fetch_time'):
-                log.info("[Backfill] NewsFetcher: 无法获取上次获取时间，跳过")
+                log.info("[WakeSync] NewsFetcher: 无法获取上次获取时间，跳过")
                 return False
 
             last_fetch = fetcher._last_fetch_time
@@ -142,16 +159,16 @@ class NewsFetcherBackfiller:
                 last_fetch = datetime.fromtimestamp(last_fetch)
 
             gap = (now - last_fetch).total_seconds()
-            log.info(f"[Backfill] NewsFetcher: 距上次获取 {gap/3600:.2f} 小时")
+            log.info(f"[WakeSync] NewsFetcher: 距上次获取 {gap/3600:.2f} 小时")
 
             return gap > 3600
 
         except Exception as e:
-            log.warning(f"[Backfill] NewsFetcher: 检查失败 - {e}")
+            log.warning(f"[WakeSync] NewsFetcher: 检查失败 - {e}")
             return False
 
-    def get_backfill_range(self, last_active: datetime, max_hours: int = 24) -> Tuple[datetime, datetime]:
-        """获取补执行时间范围"""
+    def get_wake_sync_range(self, last_active: datetime, max_hours: int = 24) -> Tuple[datetime, datetime]:
+        """获取同步时间范围"""
         now = datetime.now()
 
         try:
@@ -175,15 +192,15 @@ class NewsFetcherBackfiller:
 
         return start, end
 
-    def execute_backfill(self, start: datetime, end: datetime) -> Dict[str, Any]:
-        """执行补执行 - 使用金十重要新闻 API"""
+    def execute_wake_sync(self, start: datetime, end: datetime) -> Dict[str, Any]:
+        """执行同步 - 使用金十重要新闻 API"""
         try:
             import requests
             import asyncio
             from dataclasses import dataclass
             from typing import Optional, List
 
-            log.info(f"[Backfill] NewsFetcher开始补执行: {start} ~ {end}")
+            log.info(f"[WakeSync] NewsFetcher开始同步: {start} ~ {end}")
 
             @dataclass
             class Jin10NewsItem:
@@ -262,7 +279,7 @@ class NewsFetcherBackfiller:
                             break
 
                     except Exception as e:
-                        log.warning(f"[Backfill] NewsFetcher: 获取列表失败 - {e}")
+                        log.warning(f"[WakeSync] NewsFetcher: 获取列表失败 - {e}")
                         await asyncio.sleep(1)
 
                 return all_news
@@ -279,7 +296,7 @@ class NewsFetcherBackfiller:
                             news.content = article.get_text(strip=True)
                     return news
                 except Exception as e:
-                    log.warning(f"[Backfill] NewsFetcher: 获取详情失败 {news.url}: {e}")
+                    log.warning(f"[WakeSync] NewsFetcher: 获取详情失败 {news.url}: {e}")
                     return news
 
             async def publish_to_radar(news: Jin10NewsItem):
@@ -309,7 +326,7 @@ class NewsFetcherBackfiller:
                         metadata={
                             "news_id": news_item.id,
                             "original_source": news_item.source,
-                            "backfill": True,
+                            "wake_sync": True,
                         },
                     )
 
@@ -319,14 +336,14 @@ class NewsFetcherBackfiller:
                     if hasattr(fetcher, '_text_bus') and fetcher._text_bus:
                         fetcher._text_bus.publish(item)
 
-                    log.info(f"[Backfill] NewsFetcher: 已发布到雷达 {news.content[:50]}...")
+                    log.info(f"[WakeSync] NewsFetcher: 已发布到雷达 {news.content[:50]}...")
 
                 except Exception as e:
-                    log.warning(f"[Backfill] NewsFetcher: 发布到雷达失败: {e}")
+                    log.warning(f"[WakeSync] NewsFetcher: 发布到雷达失败: {e}")
 
             async def main_async():
                 news_list = await fetch_news_list_async()
-                log.info(f"[Backfill] NewsFetcher: 获取到 {len(news_list)} 条新闻")
+                log.info(f"[WakeSync] NewsFetcher: 获取到 {len(news_list)} 条新闻")
 
                 if not news_list:
                     return {"success": False, "message": "未获取到新闻", "details": {}}
@@ -346,7 +363,7 @@ class NewsFetcherBackfiller:
 
                 return {
                     "success": True,
-                    "message": f"补执行成功，获取并发布 {published_count} 条新闻",
+                    "message": f"同步成功，获取并发布 {published_count} 条新闻",
                     "details": {
                         "count": published_count,
                         "first_news": news_list[0].content[:100] if news_list else "",
@@ -357,21 +374,21 @@ class NewsFetcherBackfiller:
             return asyncio.run(main_async())
 
         except Exception as e:
-            log.error(f"[Backfill] NewsFetcher补执行异常: {e}")
+            log.error(f"[WakeSync] NewsFetcher同步异常: {e}")
             import traceback
             traceback.print_exc()
             return {
                 "success": False,
-                "message": f"新闻获取补执行异常: {str(e)}",
+                "message": f"新闻获取同步异常: {str(e)}",
                 "details": {}
             }
 
 
-class GlobalMarketScannerBackfiller:
+class GlobalMarketScannerWakeSync:
     """
-    全球市场扫描补执行器
+    全球市场扫描同步器
 
-    判断逻辑：检查市场扫描记录，如果超过一定时间没有扫描则补执行
+    判断逻辑：检查市场扫描记录，如果超过一定时间没有扫描则同步
     """
 
     @property
@@ -380,16 +397,20 @@ class GlobalMarketScannerBackfiller:
 
     @property
     def description(self) -> str:
-        return "全球市场扫描补执行（监控全球主要市场行情）"
+        return "全球市场扫描同步（监控全球主要市场行情）"
 
-    def should_backfill(self, last_active: datetime) -> bool:
-        """判断是否需要补执行"""
+    @property
+    def priority(self) -> int:
+        return 3
+
+    def should_wake_sync(self, last_active: datetime) -> bool:
+        """判断是否需要同步"""
         try:
             from deva.naja.radar.global_market_scanner import GlobalMarketScanner
             scanner = GlobalMarketScanner()
 
             if not hasattr(scanner, '_last_scan_time'):
-                log.info("[Backfill] GlobalMarketScanner: 无法获取上次扫描时间，跳过")
+                log.info("[WakeSync] GlobalMarketScanner: 无法获取上次扫描时间，跳过")
                 return False
 
             last_scan = scanner._last_scan_time
@@ -401,16 +422,16 @@ class GlobalMarketScannerBackfiller:
                 last_scan = datetime.fromtimestamp(last_scan)
 
             gap = (now - last_scan).total_seconds()
-            log.info(f"[Backfill] GlobalMarketScanner: 距上次扫描 {gap/3600:.2f} 小时")
+            log.info(f"[WakeSync] GlobalMarketScanner: 距上次扫描 {gap/3600:.2f} 小时")
 
             return gap > 3600
 
         except Exception as e:
-            log.warning(f"[Backfill] GlobalMarketScanner: 检查失败 - {e}")
+            log.warning(f"[WakeSync] GlobalMarketScanner: 检查失败 - {e}")
             return False
 
-    def get_backfill_range(self, last_active: datetime, max_hours: int = 24) -> Tuple[datetime, datetime]:
-        """获取补执行时间范围"""
+    def get_wake_sync_range(self, last_active: datetime, max_hours: int = 24) -> Tuple[datetime, datetime]:
+        """获取同步时间范围"""
         now = datetime.now()
 
         try:
@@ -434,12 +455,12 @@ class GlobalMarketScannerBackfiller:
 
         return start, end
 
-    def execute_backfill(self, start: datetime, end: datetime) -> Dict[str, Any]:
-        """执行补执行"""
+    def execute_wake_sync(self, start: datetime, end: datetime) -> Dict[str, Any]:
+        """执行同步"""
         try:
             from deva.naja.radar.global_market_scanner import GlobalMarketScanner
 
-            log.info(f"[Backfill] GlobalMarketScanner开始补执行: {start} ~ {end}")
+            log.info(f"[WakeSync] GlobalMarketScanner开始同步: {start} ~ {end}")
 
             scanner = GlobalMarketScanner()
 
@@ -457,130 +478,244 @@ class GlobalMarketScannerBackfiller:
             if result and result.get("success"):
                 return {
                     "success": True,
-                    "message": "全球市场扫描补执行成功",
+                    "message": "全球市场扫描同步成功",
                     "details": result
                 }
             else:
                 return {
                     "success": False,
-                    "message": f"全球市场扫描补执行失败: {result.get('error', '未知错误')}",
+                    "message": f"全球市场扫描同步失败: {result.get('error', '未知错误')}",
                     "details": result
                 }
 
         except Exception as e:
-            log.error(f"[Backfill] GlobalMarketScanner补执行异常: {e}")
+            log.error(f"[WakeSync] GlobalMarketScanner同步异常: {e}")
             import traceback
             traceback.print_exc()
             return {
                 "success": False,
-                "message": f"全球市场扫描补执行异常: {str(e)}",
+                "message": f"全球市场扫描同步异常: {str(e)}",
                 "details": {}
             }
 
 
-class MarketReplayBackfiller:
+class DailyReviewWakeSync:
     """
-    盘后复盘补执行器
+    盘后复盘同步器
+
+    支持 A股和美股复盘：
+    - A股盘后：15:30 后（北京时间）
+    - 美股盘后：04:00/05:00 后（北京时间）
 
     判断逻辑：
     1. 检查今天是否已复盘
-    2. 如果当前处于收盘后时段（15:30后），则触发复盘
-    3. 如果当前不是收盘后时段，记录状态，下次交易时钟触发时执行
-
-    注意事项：
-    - 复盘必须在收盘后才能执行
-    - 盘后可以获取最后一个交易日的快照数据
+    2. 如果当前处于收盘后时段，则触发复盘
+    3. 两个市场独立判断
     """
 
     @property
     def name(self) -> str:
-        return "Market_Replay"
+        return "Daily_Review"
 
     @property
     def description(self) -> str:
-        return "盘后复盘补执行（收盘后自动复盘当日行情）"
+        return "盘后复盘同步（A股+美股收盘后自动复盘）"
 
-    def should_backfill(self, last_active: datetime) -> bool:
-        """判断是否需要补执行"""
+    @property
+    def priority(self) -> int:
+        return 4
+
+    def should_wake_sync(self, last_active: datetime) -> bool:
+        """判断是否需要同步"""
         try:
-            from deva.naja.strategy.market_replay_scheduler import get_replay_scheduler
-            from deva.naja.radar.trading_clock import get_trading_clock
+            from deva.naja.strategy.daily_review_scheduler import get_daily_review_scheduler
+            from deva.naja.radar.trading_clock import get_trading_clock, get_us_trading_clock
 
-            scheduler = get_replay_scheduler()
+            scheduler = get_daily_review_scheduler()
             tc = get_trading_clock()
+            us_tc = get_us_trading_clock()
 
             now = datetime.now()
 
-            if now.weekday() >= 5:
-                log.info("[Backfill] MarketReplay: 周末，跳过")
-                return False
+            # 检查 A股
+            if now.weekday() < 5:  # 非周末
+                if not scheduler._check_already_replayed_today(market='a_share', phase='post_market'):
+                    current_phase = tc.current_phase
+                    if current_phase == 'post_market' or (current_phase == 'closed' and now.time() >= dtime(15, 30)):
+                        log.info("[WakeSync] DailyReview: A股满足复盘条件")
+                        return True
 
-            if scheduler._check_already_replayed_today(phase='post_market'):
-                log.info("[Backfill] MarketReplay: 今天已复盘，跳过")
-                return False
-
-            current_phase = tc.current_phase
-            log.info(f"[Backfill] MarketReplay: 当前阶段={current_phase}")
-
-            if current_phase == 'post_market':
-                return True
-            elif current_phase == 'closed':
-                if now.time().hour >= 15 and now.time().minute >= 30:
+            # 检查美股
+            if not scheduler._check_already_replayed_today(market='us_share', phase='post_market'):
+                us_phase = us_tc.current_phase
+                us_hour = now.hour
+                is_us_post_market_time = us_hour >= 4
+                if us_phase == 'post_market' or (us_phase == 'closed' and is_us_post_market_time):
+                    log.info("[WakeSync] DailyReview: 美股满足复盘条件")
                     return True
-                else:
-                    log.info("[Backfill] MarketReplay: 收盘后但未到15:30，跳过")
-                    return False
-            else:
-                log.info(f"[Backfill] MarketReplay: 当前阶段{current_phase}不适合复盘，跳过")
-                return False
 
-        except Exception as e:
-            log.warning(f"[Backfill] MarketReplay: 检查失败 - {e}")
+            log.info("[WakeSync] DailyReview: 两个市场都不满足复盘条件，跳过")
             return False
 
-    def get_backfill_range(self, last_active: datetime, max_hours: int = 24) -> Tuple[datetime, datetime]:
-        """获取补执行时间范围"""
+        except Exception as e:
+            log.warning(f"[WakeSync] DailyReview: 检查失败 - {e}")
+            return False
+
+    def get_wake_sync_range(self, last_active: datetime, max_hours: int = 24) -> Tuple[datetime, datetime]:
+        """获取同步时间范围"""
         now = datetime.now()
         start = now - timedelta(hours=24)
         end = now
         return start, end
 
-    def execute_backfill(self, start: datetime, end: datetime) -> Dict[str, Any]:
-        """执行补执行"""
+    def execute_wake_sync(self, start: datetime, end: datetime) -> Dict[str, Any]:
+        """执行同步"""
         try:
-            from deva.naja.strategy.market_replay_scheduler import get_replay_scheduler
+            from deva.naja.strategy.daily_review_scheduler import get_daily_review_scheduler
 
-            log.info(f"[Backfill] MarketReplay开始补执行")
+            log.info(f"[WakeSync] DailyReview开始同步")
 
-            scheduler = get_replay_scheduler()
+            scheduler = get_daily_review_scheduler()
+            results = []
 
-            if hasattr(scheduler, 'trigger_manual_replay'):
-                success = scheduler.trigger_manual_replay(phase='post_market')
-                if success:
-                    return {
-                        "success": True,
-                        "message": "盘后复盘补执行触发成功",
-                        "details": {}
-                    }
-                else:
-                    return {
-                        "success": False,
-                        "message": "盘后复盘补执行触发失败",
-                        "details": {}
-                    }
-            else:
-                return {
-                    "success": False,
-                    "message": "MarketReplayScheduler没有trigger_manual_replay方法",
-                    "details": {}
-                }
+            # A股复盘
+            try:
+                scheduler.trigger_manual_replay(market='a_share', phase='post_market')
+                results.append("A股复盘已触发")
+            except Exception as e:
+                results.append(f"A股复盘失败: {e}")
+
+            # 美股复盘
+            try:
+                scheduler.trigger_manual_replay(market='us_share', phase='post_market')
+                results.append("美股复盘已触发")
+            except Exception as e:
+                results.append(f"美股复盘失败: {e}")
+
+            return {
+                "success": True,
+                "message": " | ".join(results),
+                "details": {"replays": results}
+            }
 
         except Exception as e:
-            log.error(f"[Backfill] MarketReplay补执行异常: {e}")
+            log.error(f"[WakeSync] DailyReview同步异常: {e}")
             import traceback
             traceback.print_exc()
             return {
                 "success": False,
-                "message": f"盘后复盘补执行异常: {str(e)}",
+                "message": f"盘后复盘同步异常: {str(e)}",
+                "details": {}
+            }
+
+
+class PortfolioPriceWakeSync:
+    """
+    持仓价格同步器
+
+    功能：
+    - 通知 MarketObserver 更新持仓股票的价格
+    - 确保虚拟组合的持仓价格与市场同步
+
+    设计理念：
+    - 各组件自己拉取，WakeSync 只负责通知
+    - 渐进式执行，不影响系统整体性能
+    """
+
+    @property
+    def name(self) -> str:
+        return "Portfolio_Price"
+
+    @property
+    def description(self) -> str:
+        return "持仓价格同步（更新虚拟组合持仓的市场价格）"
+
+    @property
+    def priority(self) -> int:
+        return 1
+
+    def should_wake_sync(self, last_active: datetime) -> bool:
+        """判断是否需要同步"""
+        try:
+            from deva.naja.bandit.market_observer import MarketDataObserver
+
+            observer = MarketDataObserver()
+            now = datetime.now()
+
+            if not hasattr(observer, '_last_prices') or not observer._last_prices:
+                log.info("[WakeSync] PortfolioPrice: 无缓存价格，需要同步")
+                return True
+
+            last_prices = observer._last_prices
+            if not last_prices:
+                return True
+
+            gap = (now - last_active).total_seconds()
+            log.info(f"[WakeSync] PortfolioPrice: 距上次活跃 {gap/3600:.2f} 小时")
+
+            return gap > 300
+
+        except Exception as e:
+            log.warning(f"[WakeSync] PortfolioPrice: 检查失败 - {e}")
+            return False
+
+    def get_wake_sync_range(self, last_active: datetime, max_hours: int = 24) -> Tuple[datetime, datetime]:
+        """获取同步时间范围"""
+        now = datetime.now()
+        start = now - timedelta(hours=1)
+        end = now
+        return start, end
+
+    def execute_wake_sync(self, start: datetime, end: datetime) -> Dict[str, Any]:
+        """执行同步 - 通知各组件拉取"""
+        try:
+            from deva.naja.bandit.market_observer import MarketDataObserver
+            import threading
+
+            log.info(f"[WakeSync] PortfolioPrice开始同步")
+
+            observer = MarketDataObserver()
+
+            tracked_stocks = list(observer._tracked_stocks) if observer._tracked_stocks else []
+
+            if not tracked_stocks:
+                log.info("[WakeSync] PortfolioPrice: 无跟踪股票，跳过")
+                return {
+                    "success": True,
+                    "message": "无跟踪股票",
+                    "details": {"count": 0}
+                }
+
+            def async_fetch():
+                """后台异步拉取价格"""
+                try:
+                    if hasattr(observer, '_fetch_prices_from_datasource'):
+                        observer._fetch_prices_from_datasource()
+                        log.info(f"[WakeSync] PortfolioPrice: 后台完成 {len(tracked_stocks)} 只股票价格更新")
+                except Exception as e:
+                    log.warning(f"[WakeSync] PortfolioPrice: 后台拉取失败 - {e}")
+
+            thread = threading.Thread(target=async_fetch, daemon=True, name='portfolio-price-wake-sync')
+            thread.start()
+
+            log.info(f"[WakeSync] PortfolioPrice: 已触发后台同步，跟踪 {len(tracked_stocks)} 只股票")
+
+            return {
+                "success": True,
+                "message": f"持仓价格同步已触发，后台异步执行",
+                "details": {
+                    "count": len(tracked_stocks),
+                    "stocks": tracked_stocks[:10],
+                    "async": True
+                }
+            }
+
+        except Exception as e:
+            log.error(f"[WakeSync] PortfolioPrice同步异常: {e}")
+            import traceback
+            traceback.print_exc()
+            return {
+                "success": False,
+                "message": f"持仓价格同步异常: {str(e)}",
                 "details": {}
             }

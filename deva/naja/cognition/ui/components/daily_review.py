@@ -5,10 +5,10 @@ Market Replay 组件
 import json
 
 
-def render_market_replay(ui):
-    from deva.naja.strategy.market_replay_analyzer import get_replay_history
+def render_daily_review(ui):
+    from deva.naja.strategy.daily_review import get_review_history
 
-    history = get_replay_history(limit=10)
+    history = get_review_history(limit=10)
 
     from pywebio.output import put_html
 
@@ -62,10 +62,10 @@ def render_market_replay(ui):
             </script>
             """)
     else:
-        render_market_replay_empty()
+        render_daily_review_empty()
 
 
-def render_market_replay_empty(ui):
+def render_daily_review_empty(ui):
     from pywebio.output import put_html
     put_html("""
     <div style="text-align: center; padding: 24px; color: #64748b; font-size: 12px;">
