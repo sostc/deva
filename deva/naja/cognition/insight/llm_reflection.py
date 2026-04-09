@@ -748,7 +748,7 @@ _反思生成时间: {datetime.fromtimestamp(reflection.ts).strftime('%Y-%m-%d %
             tracker = get_history_tracker()
             if not tracker:
                 return []
-            report = tracker.get_attention_shift_report(emit_to_insight=False)
+            report = tracker.get_hotspot_shift_report(emit_to_insight=False)
             if not report.get("has_shift"):
                 return []
             signals = []
@@ -757,7 +757,7 @@ _反思生成时间: {datetime.fromtimestamp(reflection.ts).strftime('%Y-%m-%d %
                     "source": "attention_history",
                     "signal_type": "attention_rising",
                     "theme": f"注意力上升: {name}",
-                    "summary": "板块进入热门",
+                    "summary": "题材进入热门",
                     "block": block,
                     "score": 0.7,
                 })
@@ -766,7 +766,7 @@ _反思生成时间: {datetime.fromtimestamp(reflection.ts).strftime('%Y-%m-%d %
                     "source": "attention_history",
                     "signal_type": "attention_falling",
                     "theme": f"注意力下降: {name}",
-                    "summary": "板块退出热门",
+                    "summary": "题材退出热门",
                     "block": block,
                     "score": 0.6,
                 })
@@ -1016,7 +1016,7 @@ _反思生成时间: {datetime.fromtimestamp(reflection.ts).strftime('%Y-%m-%d %
     def _extract_blocks(self, signals: List[Dict[str, Any]]) -> List[str]:
         blocks = set()
         for sig in signals:
-            for b in sig.get("blocks", []) or sig.get("sectors", []):
+            for b in sig.get("blocks", []) or sig.get("blocks", []):
                 blocks.add(str(b))
         return list(blocks)[:10]
 

@@ -437,10 +437,10 @@ class DataProcessor:
         block_map: Dict[str, List[str]] = {}
 
         try:
-            if 'block' in data.columns or 'sector' in data.columns:
+            if 'block' in data.columns or 'block' in data.columns:
                 for _, row in data.iterrows():
                     code = str(row.get('code', ''))
-                    block = str(row.get('block', row.get('sector', 'unknown')))
+                    block = str(row.get('block', row.get('block', 'unknown')))
                     if code and block and block != 'nan':
                         if code not in block_map:
                             block_map[code] = []

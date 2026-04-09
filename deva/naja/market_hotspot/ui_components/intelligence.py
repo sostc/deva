@@ -1,4 +1,4 @@
-"""注意力系统 UI 智能增强面板"""
+"""热点系统 UI 智能增强面板"""
 
 
 def get_intelligence_system():
@@ -38,7 +38,7 @@ def get_block_name(block_id: str) -> str:
 
 
 def render_predictive_attention_panel() -> str:
-    """渲染预测个股注意力面板"""
+    """渲染预测个股热点面板"""
     intelligence_system = get_intelligence_system()
     if not intelligence_system or not hasattr(intelligence_system, 'predictive_engine'):
         return """
@@ -113,7 +113,7 @@ def render_predictive_attention_panel() -> str:
 
 
 def render_block_predictive_attention_panel() -> str:
-    """渲染预测题材注意力面板"""
+    """渲染预测题材热点面板"""
     intelligence_system = get_intelligence_system()
     if not intelligence_system or not hasattr(intelligence_system, 'predictive_engine'):
         return """
@@ -156,10 +156,10 @@ def render_block_predictive_attention_panel() -> str:
                         return True
                 return False
 
-        top_block_predictions = intelligence_system.predictive_engine.get_sector_predictions_top_k(k=20)
+        top_block_predictions = intelligence_system.predictive_engine.get_block_predictions_top_k(k=20)
         filtered_predictions = [
-            (sector_id, score) for sector_id, score in top_block_predictions
-            if not is_noise_block(sector_id)
+            (block_id, score) for block_id, score in top_block_predictions
+            if not is_noise_block(block_id)
         ][:5]
 
         noise_count = len(top_block_predictions) - len(filtered_predictions)
@@ -284,7 +284,7 @@ def render_propagation_panel() -> str:
         else:
             status_html = f"""
             <div style="font-size: 11px; color: #64748b; margin-bottom: 8px;">
-                共 {summary.get('total_sectors', 0)} 个题材，已过滤 {len(blacklist)} 个噪声题材
+                共 {summary.get('total_blocks', 0)} 个题材，已过滤 {len(blacklist)} 个噪声题材
             </div>
             <div style="color: #1e293b;">{relations_html}</div>
             """

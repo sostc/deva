@@ -412,7 +412,7 @@ class AdaptiveFrequencyController:
     
     def adapt(self, global_hotspot: float, timestamp: float) -> FrequencyConfig:
         """
-        根据全局注意力调整频率配置
+        根据全局热点调整频率配置
         
         逻辑:
         - attention 高: 提高所有档位的频率
@@ -421,16 +421,16 @@ class AdaptiveFrequencyController:
         config = FrequencyConfig()
         
         if global_hotspot > 0.7:
-            # 高注意力: 激进模式
+            # 高热点: 激进模式
             config.low_interval = self.base_config.low_interval * 0.5
             config.medium_interval = self.base_config.medium_interval * 0.5
             config.high_interval = self.base_config.high_interval * 0.5
             config.cooldown = self.base_config.cooldown * 0.5
         elif global_hotspot > 0.4:
-            # 中等注意力: 标准模式
+            # 中等热点: 标准模式
             config = self.base_config
         else:
-            # 低注意力: 保守模式
+            # 低热点: 保守模式
             config.low_interval = self.base_config.low_interval * 2.0
             config.medium_interval = self.base_config.medium_interval * 2.0
             config.high_interval = self.base_config.high_interval * 2.0

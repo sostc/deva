@@ -1,8 +1,8 @@
 """
-Block Attention Module - 题材注意力计算
+Block Hotspot Module - 题材热点计算
 
 功能:
-- 每个题材独立计算注意力
+- 每个题材独立计算热点
 - 反映题材内部"变化是否扩散"
 - 支持多题材并行
 - 支持半衰期衰减
@@ -53,7 +53,7 @@ class BlockConfig:
 
 class BlockHotspotEngine:
     """
-    题材注意力引擎
+    题材热点引擎
 
     计算逻辑:
     1. 题材内领涨股数量比例
@@ -80,7 +80,7 @@ class BlockHotspotEngine:
         self._blocks: Dict[str, BlockConfig] = {}
         self._symbol_to_blocks: Dict[str, List[str]] = defaultdict(list)
 
-        # 预分配注意力分数数组
+        # 预分配热点分数数组
         self._block_hotspot_scores = np.zeros(max_blocks)
         self._block_id_to_idx: Dict[str, int] = {}
         self._idx_to_block_id: Dict[int, str] = {}
@@ -130,7 +130,7 @@ class BlockHotspotEngine:
         block_ids: Optional[np.ndarray] = None
     ) -> Dict[str, float]:
         """
-        更新题材注意力分数
+        更新题材热点分数
 
         Args:
             symbols: 股票代码数组
@@ -232,7 +232,7 @@ class BlockHotspotEngine:
             self._cleanup_stale_blocks(timestamp)
         except Exception as e:
             import traceback
-            log.error(f"SectorAttention 计算失败: {e}")
+            log.error(f"BlockHotspot 计算失败: {e}")
             log.error(traceback.format_exc())
 
         # 构建返回字典（使用限制后的值）
@@ -252,7 +252,7 @@ class BlockHotspotEngine:
                 valid_items = all_items
             valid_items.sort(key=lambda x: x[1], reverse=True)
             if valid_items:
-                log.info(f"[Lab-Debug] 题材注意力 Top5: {[(f'{self._blocks[s].name}({w:.3f})') for s, w in valid_items[:5]]}")
+                log.info(f"[Lab-Debug] 题材热点 Top5: {[(f'{self._blocks[s].name}({w:.3f})') for s, w in valid_items[:5]]}")
 
         self._last_calc_time = time.time()
         return result
@@ -322,7 +322,7 @@ class BlockHotspotEngine:
         block: BlockConfig
     ) -> float:
         """
-        计算单个题材的注意力分数
+        计算单个题材的热点分数
         
         维度:
         1. 领涨股比例 (40%)
@@ -387,7 +387,7 @@ class BlockHotspotEngine:
         return active
     
     def get_block_hotspot(self, block_id: str) -> float:
-        """获取指定题材的注意力分数"""
+        """获取指定题材的热点分数"""
         idx = self._block_id_to_idx.get(block_id)
         if idx is None:
             return 0.0

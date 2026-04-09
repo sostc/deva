@@ -1,6 +1,6 @@
-"""通达信概念板块数据获取脚本
+"""通达信概念题材数据获取脚本
 
-从 infoharbor_block.dat 文件读取板块数据，返回展开格式的 DataFrame。
+从 infoharbor_block.dat 文件读取题材数据，返回展开格式的 DataFrame。
 """
 
 import pandas as pd
@@ -8,9 +8,9 @@ from pathlib import Path
 
 
 def fetch_data():
-    """获取通达信概念板块数据
+    """获取通达信概念题材数据
 
-    返回展开格式的 DataFrame，每行一个股票-板块组合：
+    返回展开格式的 DataFrame，每行一个股票-题材组合：
     [
         {'code': '000001', 'blocks': 'AI营销', 'block_count': 3},
         {'code': '000001', 'blocks': '一带一路', 'block_count': 3},
@@ -56,5 +56,5 @@ def fetch_data():
 
 if __name__ == "__main__":
     df = fetch_data()
-    print(f"Loaded {len(df)} stock-sector records from {df['code'].nunique()} stocks")
+    print(f"Loaded {len(df)} stock-block records from {df['code'].nunique()} stocks")
     print(df.head(10))

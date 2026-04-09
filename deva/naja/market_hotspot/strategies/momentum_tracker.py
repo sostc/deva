@@ -1,7 +1,7 @@
 """
 动量突破追踪策略
 
-追踪高注意力股票的动量突破，结合价格动量和成交量动量
+追踪高热点股票的动量突破，结合价格动量和成交量动量
 """
 
 import sys
@@ -18,13 +18,13 @@ class MomentumSurgeTracker(HotspotStrategyBase):
     动量突破追踪策略
     
     核心逻辑：
-    1. 只处理高注意力权重的股票（节省计算资源）
+    1. 只处理高热点权重的股票（节省计算资源）
     2. 计算价格动量（价格变化率）
     3. 计算成交量动量（成交量放大倍数）
     4. 当价格和成交量同时突破阈值时，生成买入信号
     5. 当动量衰竭时，生成卖出信号
     
-    只在市场注意力高时执行，避免无效计算
+    只在市场热点高时执行，避免无效计算
     """
     
     def __init__(
@@ -43,7 +43,7 @@ class MomentumSurgeTracker(HotspotStrategyBase):
             strategy_id="momentum_surge_tracker",
             name="Momentum Surge Tracker",
             scope='symbol',
-            min_global_hotspot=0.4,  # 需要较高全局注意力
+            min_global_hotspot=0.4,  # 需要较高全局热点
             min_symbol_weight=min_symbol_weight,
             max_positions=20,
             cooldown_period=cooldown_period

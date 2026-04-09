@@ -1176,7 +1176,7 @@ class FirstPrinciplesAnalyzer:
         if trend_direction == "rising" and base_strength > 0.7:
             insights.append(FirstPrinciplesInsight(
                 insight_type="opportunity",
-                content="AI算力需求强劲，市场可能低估算力板块基本面",
+                content="AI算力需求强劲，市场可能低估算力题材基本面",
                 level=ThoughtLevel.PATTERN,
                 confidence=0.65,
                 evidence=[f"算力需求强度: {base_strength:.2f}", f"趋势: {trend_direction}"]

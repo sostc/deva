@@ -445,7 +445,7 @@ class AttentionReportGenerator:
             lines.append(f"| 排名 | 题材 | 权重 |")
             lines.append(f"|------|------|------|")
             for i, block in enumerate(blocks, 1):
-                block_id = block.get('block_id', block.get('sector_id', '未知'))
+                block_id = block.get('block_id', block.get('block_id', '未知'))
                 weight = block.get('weight', 0)
                 lines.append(f"| {i} | {block_id} | {weight:.3f} |")
             lines.append(f"")

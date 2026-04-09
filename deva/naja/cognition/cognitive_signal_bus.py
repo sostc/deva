@@ -20,7 +20,7 @@ CognitiveSignalBus - 认知信号事件总线（人）
                               ManasEngine（人）→ 感知变化 → 清缓存 → 重新计算
 
 📡 事件类型：
-    - BLOCK_NARRATIVE_UPDATE：「地」叙事更新（我们关注的板块）
+    - BLOCK_NARRATIVE_UPDATE：「地」叙事更新（我们关注的题材）
     - TIMING_NARRATIVE_UPDATE：「天」时机更新（现在是不是时机）
     - SUPPLY_CHAIN_RISK：供应链风险
     - GLOBAL_MARKET_EVENT：全球市场事件
@@ -60,7 +60,7 @@ log = logging.getLogger(__name__)
 class CognitiveEventType(Enum):
     """认知事件类型"""
     # 地 - BlockNarrative 叙事更新
-    # 新事件名：板块叙事更新
+    # 新事件名：题材叙事更新
     BLOCK_NARRATIVE_UPDATE = "block_narrative_update"
     NARRATIVE_BOOST = "narrative_boost"                  # 叙事重要性提升
     NARRATIVE_DECAY = "narrative_decay"                  # 叙事衰退

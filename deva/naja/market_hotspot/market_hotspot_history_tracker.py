@@ -1,7 +1,7 @@
 """
-MarketHotspotHistoryTracker - 市场热点追踪/板块热度/题材变迁
+MarketHotspotHistoryTracker - 市场热点追踪/题材热度/题材变迁
 
-别名/关键词: 热点、板块热度、题材、block、hot、板块热点
+别名/关键词: 热点、题材热度、题材、block、hot、题材热点
 
 追踪市场热点随时间的变化，包括：
 - 热门题材的变化趋势
@@ -71,7 +71,7 @@ class HotspotChange:
 
 @dataclass
 class BlockHotspotEvent:
-    """板块热点切换事件"""
+    """题材热点切换事件"""
     timestamp: float
     market_time: str
     market_date: str
@@ -80,73 +80,74 @@ class BlockHotspotEvent:
     event_type: str  # 'rise', 'fall', 'new_hot', 'cooled'
     weight_change: float
     change_percent: float
-    top_symbols: List[Dict]  # 板块内涨跌最多的个股
+    top_symbols: List[Dict]  # 题材内涨跌最多的个股
     description: str
 
 
 class MarketHotspotHistoryTracker:
     """
     市场热点历史追踪器
-    
+
     功能：
-    1. 保存注意力历史快照
-    2. 检测注意力变化
-    3. 追踪热门板块/股票的变迁
+    1. 保存热点历史快照
+    2. 检测热点变化
+    3. 追踪热门题材/股票的变迁
     4. 生成变化报告
+    5. 持久化历史数据（重启后可恢复）
     """
-    
-    def __init__(self, max_history: int = 100):
+
+    def __init__(self, max_history: int = 100, max_persist_days: int = 7):
         self.max_history = max_history
+        self.max_persist_days = max_persist_days
         self.snapshots: deque = deque(maxlen=max_history)
         self.changes: deque = deque(maxlen=max_history * 2)
-        
-        # 板块热点切换事件记录 - 多阈值支持
-        # 不同敏感度的事件分别存储
-        self.block_hotspot_events_low: deque = deque(maxlen=50)      # 低阈值 (3%)
-        self.block_hotspot_events_medium: deque = deque(maxlen=50)   # 中阈值 (5%)
-        self.block_hotspot_events_high: deque = deque(maxlen=50)     # 高阈值 (10%)
 
-        # 当前热门记录
+        # 持久化路径
+        self._persist_base_path = os.path.join(
+            os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))),
+            'data', 'hotspot_history'
+        )
+
+        # 题材热点切换事件记录 - 多阈值支持
+        self.block_hotspot_events_low: deque = deque(maxlen=50)
+        self.block_hotspot_events_medium: deque = deque(maxlen=50)
+        self.block_hotspot_events_high: deque = deque(maxlen=50)
+
         self.current_hot_blocks: Dict[str, float] = {}
         self.current_hot_symbols: Dict[str, float] = {}
 
         self.block_history: Dict[str, List[Dict]] = {}
         self.symbol_history: Dict[str, List[Dict]] = {}
 
-        # 股票代码到名称的映射
         self.symbol_names: Dict[str, str] = {}
-        # 板块ID到名称的映射
         self.block_names: Dict[str, str] = {}
-        # 板块配置引用（用于查找名称）
         self._block_configs: Dict[str, Any] = {}
 
-        # 个股到板块的映射
         self.symbol_to_block: Dict[str, str] = {}
 
-        # 当前市场注意力状态（用于UI展示）
-        self.current_market_state: str = "unknown"  # 'active', 'moderate', 'quiet', 'very_quiet'
+        self.current_market_state: str = "unknown"
         self.current_market_state_description: str = "等待数据..."
         self.last_update_time: float = 0
-        self.current_market_time_str: str = ""  # 行情时间字符串（如 "2024-01-15 10:30:00"）
+        self.current_market_time_str: str = ""
 
-        # 事件桥接与节流
         self._emit_last: Dict[str, float] = {}
         self._emit_cooldown_seconds: float = 30.0
 
-        # 宏观变化阈值
         self._activity_shift_threshold: float = 0.2
         self._concentration_shift_threshold: float = 0.2
+
+        self._persist_loaded = False
     
     def register_symbol_name(self, symbol: str, name: str):
         """注册股票名称"""
         self.symbol_names[symbol] = name
     
     def register_block_name(self, block_id: str, name: str):
-        """注册板块名称"""
+        """注册题材名称"""
         self.block_names[block_id] = name
 
     def register_blocks(self, blocks: List):
-        """批量注册板块配置（用于初始化）"""
+        """批量注册题材配置（用于初始化）"""
         for block in blocks:
             if hasattr(block, 'block_id') and hasattr(block, 'name'):
                 self.block_names[block.block_id] = block.name
@@ -157,7 +158,7 @@ class MarketHotspotHistoryTracker:
         return self.symbol_names.get(symbol, symbol)
 
     def get_symbol_block(self, symbol: str) -> str:
-        """获取股票所属板块"""
+        """获取股票所属题材"""
         if self.snapshots:
             latest = self.snapshots[-1]
             market_data = latest.symbol_market_data.get(symbol, {})
@@ -168,14 +169,14 @@ class MarketHotspotHistoryTracker:
         return self.symbol_to_block.get(symbol, '')
 
     def get_symbol_block_name(self, symbol: str) -> str:
-        """获取股票所属板块名称（带板块名翻译）"""
+        """获取股票所属题材名称（带题材名翻译）"""
         block_id = self.get_symbol_block(symbol)
         if not block_id:
             return ''
         return self.get_block_name(block_id)
 
     def register_symbol_block(self, symbol: str, block_id: str):
-        """注册个股-板块映射"""
+        """注册个股-题材映射"""
         if block_id:
             self.symbol_to_block[symbol] = block_id
 
@@ -188,7 +189,7 @@ class MarketHotspotHistoryTracker:
         return None
 
     def get_block_name(self, block_id: str) -> str:
-        """获取板块名称"""
+        """获取题材名称"""
         if not block_id:
             return ""
 
@@ -305,11 +306,11 @@ class MarketHotspotHistoryTracker:
                        symbol_market_data: Dict[str, Dict] = None,
                        activity: float = None):
         """
-        记录注意力快照
+        记录热点快照
 
         Args:
             global_hotspot: 全局热点
-            block_weights: 板块权重字典
+            block_weights: 题材权重字典
             symbol_weights: 个股权重字典
             timestamp: 时间戳（优先使用行情数据时间）
             timestamp_str: 时间字符串（用于日志显示）
@@ -339,7 +340,7 @@ class MarketHotspotHistoryTracker:
             activity=actual_activity,
         )
 
-        # 检测注意力变化
+        # 检测热点变化
         if self.snapshots:
             last_snapshot = self.snapshots[-1]
 
@@ -367,7 +368,7 @@ class MarketHotspotHistoryTracker:
             reverse=True
         )[:20])
 
-        # 更新市场注意力状态
+        # 更新市场热点状态
         self._update_market_state(global_hotspot, actual_activity, block_weights, symbol_weights, actual_timestamp)
 
         # 更新行情时间
@@ -378,7 +379,7 @@ class MarketHotspotHistoryTracker:
             delta = global_hotspot - prev_hotspot
             if abs(delta) >= 0.2:
                 direction = "提升" if delta > 0 else "回落"
-                title = "注意力强度变化"
+                title = "热点强度变化"
                 content = f"全局热点{direction}: {prev_hotspot:.2f} → {global_hotspot:.2f}"
                 payload = {
                     "old_hotspot": prev_hotspot,
@@ -422,7 +423,7 @@ class MarketHotspotHistoryTracker:
                     new_value=actual_activity,
                 )
 
-        # 板块集中度突变事件
+        # 题材集中度突变事件
         if self.snapshots and block_weights:
             last_snapshot = self.snapshots[-1]
             last_weights = last_snapshot.block_weights or {}
@@ -438,7 +439,7 @@ class MarketHotspotHistoryTracker:
             delta_conc = new_conc - last_conc
             if abs(delta_conc) >= self._concentration_shift_threshold:
                 direction = "集中" if delta_conc > 0 else "分散"
-                title = "板块集中度突变"
+                title = "题材集中度突变"
                 content = f"资金{direction}: {last_conc:.2f} → {new_conc:.2f}"
                 payload = {
                     "old_concentration": last_conc,
@@ -482,13 +483,13 @@ class MarketHotspotHistoryTracker:
                              block_weights: Dict[str, float],
                              symbol_weights: Dict[str, float], timestamp: float):
         """更新市场热点状态（基于热点集中程度和活跃度）"""
-        # 注意力（hotspot集中程度）
+        # 热点（hotspot集中程度）
         if global_hotspot > 0.7:
             hotspot_state = "active"
-            hotspot_desc = "hotspot高度集中 - 资金聚焦少数板块"
+            hotspot_desc = "hotspot高度集中 - 资金聚焦少数题材"
         elif global_hotspot > 0.4:
             hotspot_state = "moderate"
-            hotspot_desc = "hotspot较集中 - 部分板块受到关注"
+            hotspot_desc = "hotspot较集中 - 部分题材受到关注"
         elif global_hotspot > 0.2:
             hotspot_state = "quiet"
             hotspot_desc = "hotspot分散 - 没有明显主线"
@@ -509,21 +510,21 @@ class MarketHotspotHistoryTracker:
         # 合并描述
         desc = f"{hotspot_desc}，{activity_desc}"
 
-        # 如果板块权重非常集中，添加说明
+        # 如果题材权重非常集中，添加说明
         if block_weights:
             top_weight = max(block_weights.values()) if block_weights else 0
             total_weight = sum(block_weights.values()) if block_weights else 0
             if total_weight > 0:
                 concentration = top_weight / total_weight
                 if concentration > 0.8:
-                    desc = f"资金高度集中 - 注意力聚焦于少数板块，{activity_desc}"
+                    desc = f"资金高度集中 - 热点聚焦于少数题材，{activity_desc}"
 
         self.current_market_state = hotspot_state
         self.current_market_state_description = desc
         self.last_update_time = timestamp
     
     def _detect_changes(self, old: HotspotSnapshot, new: HotspotSnapshot, timestamp_str: str = None):
-        """检测注意力变化 - 增强版：记录板块热点切换和个股关联"""
+        """检测热点变化 - 增强版：记录题材热点切换和个股关联"""
         import logging
         log = logging.getLogger(__name__)
 
@@ -534,7 +535,7 @@ class MarketHotspotHistoryTracker:
         # 提取行情日期（格式如 "2024-01-15 10:30:00" -> "2024-01-15"）
         market_date = timestamp_str.split(" ")[0] if timestamp_str else datetime.fromtimestamp(current_time).strftime("%Y-%m-%d")
         
-        # ========== 检测板块重大变化 ==========
+        # ========== 检测题材重大变化 ==========
         all_blocks = set(old.block_weights.keys()) | set(new.block_weights.keys())
 
         for block_id in all_blocks:
@@ -549,7 +550,7 @@ class MarketHotspotHistoryTracker:
                 change_pct = float('inf') if new_weight > 0 else 0
 
             # 只记录重大变化（变化超过5%）
-            # 获取该板块下的个股变化
+            # 获取该题材下的个股变化
             all_symbol_changes = []
             for symbol in set(old.symbol_weights.keys()) | set(new.symbol_weights.keys()):
                 s_old = old.symbol_weights.get(symbol, 0)
@@ -621,7 +622,7 @@ class MarketHotspotHistoryTracker:
                 }
                 self._emit_hotspot_event(
                     event_type="block_hotspot",
-                    title=f"板块热点变化: {block_name}",
+                    title=f"题材热点变化: {block_name}",
                     content=description,
                     score=score,
                     payload=payload,
@@ -752,7 +753,7 @@ class MarketHotspotHistoryTracker:
         return list(self.changes)[-n:]
     
     def get_block_trend(self, block_id: str, n: int = 10) -> List[Dict]:
-        """获取板块趋势"""
+        """获取题材趋势"""
         trend = []
         for snapshot in list(self.snapshots)[-n:]:
             weight = snapshot.block_weights.get(block_id, 0)
@@ -783,7 +784,7 @@ class MarketHotspotHistoryTracker:
             emit_to_insight: 是否推送洞察到认知系统，默认True
 
         Returns:
-            包含注意力转移信息的字典
+            包含热点转移信息的字典
         """
         if len(self.snapshots) < 2:
             return {
@@ -869,12 +870,12 @@ class MarketHotspotHistoryTracker:
 
         if report.get('block_shift') and report.get('removed_blocks'):
             removed = [n for s, n in report['removed_blocks']]
-            parts.append(f"板块退出: {', '.join(removed)}")
+            parts.append(f"题材退出: {', '.join(removed)}")
         if report.get('block_shift') and report.get('added_blocks'):
             added = [n for s, n in report['added_blocks']]
-            parts.append(f"板块新进: {', '.join(added)}")
+            parts.append(f"题材新进: {', '.join(added)}")
 
-        content = "; ".join(parts) if parts else "注意力集中度发生显著变化"
+        content = "; ".join(parts) if parts else "热点集中度发生显著变化"
 
         time_span = report.get('time_span', 0)
         if time_span >= 3600:
@@ -882,11 +883,11 @@ class MarketHotspotHistoryTracker:
         else:
             duration = f"{time_span/60:.1f}分钟"
 
-        title = f"🔄 注意力转移 detected ({duration})"
+        title = f"🔄 热点转移 detected ({duration})"
 
         shift_types = []
         if report.get('block_shift'):
-            shift_types.append('板块')
+            shift_types.append('题材')
         if report.get('symbol_shift'):
             shift_types.append('个股')
         shift_type_str = "+".join(shift_types) if shift_types else "综合"
@@ -938,7 +939,7 @@ class MarketHotspotHistoryTracker:
         }
 
     def get_market_state_info(self) -> Dict[str, Any]:
-        """获取当前市场注意力状态信息"""
+        """获取当前市场热点状态信息"""
         return {
             'state': self.current_market_state,
             'description': self.current_market_state_description,
@@ -950,7 +951,7 @@ class MarketHotspotHistoryTracker:
         }
 
     def get_hot_blocks_with_names(self) -> list:
-        """获取热门板块列表（带名称）"""
+        """获取热门题材列表（带名称）"""
         result = []
         for block_id, weight in self.current_hot_blocks.items():
             block_name = self.get_block_name(block_id)
@@ -976,7 +977,7 @@ class MarketHotspotHistoryTracker:
         return result
 
     def is_block_valid(self, block_id: str) -> bool:
-        """检查板块ID是否有效"""
+        """检查题材ID是否有效"""
         if not block_id:
             return False
         if block_id in self.block_names:
@@ -986,6 +987,277 @@ class MarketHotspotHistoryTracker:
         if block_id.startswith("block_") and len(block_id) > 10:
             return False
         return True
+
+    def _ensure_persist_dir(self):
+        """确保持久化目录存在"""
+        if not os.path.exists(self._persist_base_path):
+            os.makedirs(self._persist_base_path, exist_ok=True)
+
+    def _get_persist_file_path(self, market: str = None, date: str = None) -> str:
+        """获取持久化文件路径"""
+        self._ensure_persist_dir()
+        if date is None:
+            date = datetime.now().strftime('%Y-%m-%d')
+        if market:
+            return os.path.join(self._persist_base_path, f'{market}_snapshots_{date}.json')
+        return os.path.join(self._persist_base_path, f'snapshots_{date}.json')
+
+    def _cleanup_old_files(self):
+        """清理过期的持久化文件"""
+        import logging
+        log = logging.getLogger(__name__)
+
+        try:
+            if not os.path.exists(self._persist_base_path):
+                return
+
+            cutoff_time = time.time() - (self.max_persist_days * 86400)
+            removed_count = 0
+
+            for filename in os.listdir(self._persist_base_path):
+                if not filename.endswith('.json'):
+                    continue
+                file_path = os.path.join(self._persist_base_path, filename)
+                try:
+                    file_mtime = os.path.getmtime(file_path)
+                    if file_mtime < cutoff_time:
+                        os.remove(file_path)
+                        removed_count += 1
+                except Exception:
+                    pass
+
+            if removed_count > 0:
+                log.info(f"[HistoryTracker] 清理过期历史文件: {removed_count} 个")
+        except Exception as e:
+            log.warning(f"[HistoryTracker] 清理过期文件失败: {e}")
+
+    def save_state(self, market: str = None):
+        """
+        保存当前状态到持久化文件
+
+        Args:
+            market: 市场标识 ('CN' 或 'US')，None 表示保存到默认文件
+        """
+        import logging
+        log = logging.getLogger(__name__)
+
+        try:
+            self._ensure_persist_dir()
+            self._cleanup_old_files()
+
+            file_path = self._get_persist_file_path(market)
+
+            data = {
+                'saved_at': time.time(),
+                'saved_at_str': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                'market': market or 'ALL',
+                'snapshot_count': len(self.snapshots),
+                'change_count': len(self.changes),
+                'symbol_names': self.symbol_names,
+                'block_names': self.block_names,
+                'snapshots': [s.to_dict() for s in self.snapshots],
+                'changes': [
+                    {
+                        'timestamp': c.timestamp,
+                        'change_type': c.change_type,
+                        'item_type': c.item_type,
+                        'item_id': c.item_id,
+                        'item_name': c.item_name,
+                        'old_weight': c.old_weight,
+                        'new_weight': c.new_weight,
+                        'change_percent': c.change_percent,
+                        'description': c.description,
+                        'market_time': c.market_time,
+                        'price': c.price,
+                        'price_change': c.price_change,
+                        'volume': c.volume,
+                        'block': c.block,
+                    }
+                    for c in self.changes
+                ],
+                'block_hotspot_events': [
+                    {
+                        'timestamp': e.timestamp,
+                        'market_time': e.market_time,
+                        'market_date': e.market_date,
+                        'block_id': e.block_id,
+                        'block_name': e.block_name,
+                        'event_type': e.event_type,
+                        'weight_change': e.weight_change,
+                        'change_percent': e.change_percent,
+                        'description': e.description,
+                    }
+                    for e in self.block_hotspot_events_medium
+                ],
+            }
+
+            import json
+            with open(file_path, 'w', encoding='utf-8') as f:
+                json.dump(data, f, ensure_ascii=False, indent=2)
+
+            log.debug(f"[HistoryTracker] 状态已保存: {file_path}, snapshots={len(self.snapshots)}")
+        except Exception as e:
+            log.warning(f"[HistoryTracker] 保存状态失败: {e}")
+
+    def load_state(self, market: str = None, date: str = None) -> bool:
+        """
+        从持久化文件加载状态
+
+        Args:
+            market: 市场标识 ('CN' 或 'US')，None 表示加载默认文件
+            date: 日期字符串 (YYYY-MM-DD)，None 表示加载今天的文件
+
+        Returns:
+            是否加载成功
+        """
+        import logging
+        log = logging.getLogger(__name__)
+
+        try:
+            file_path = self._get_persist_file_path(market, date)
+
+            if not os.path.exists(file_path):
+                log.debug(f"[HistoryTracker] 持久化文件不存在: {file_path}")
+                return False
+
+            import json
+            with open(file_path, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+
+            self.symbol_names.update(data.get('symbol_names', {}))
+            self.block_names.update(data.get('block_names', {}))
+
+            snapshots_data = data.get('snapshots', [])
+            for s_data in snapshots_data[-self.max_history:]:
+                snapshot = HotspotSnapshot(
+                    timestamp=s_data['timestamp'],
+                    global_hotspot=s_data['global_hotspot'],
+                    block_weights=s_data['block_weights'],
+                    symbol_weights=s_data['symbol_weights'],
+                    symbol_market_data=s_data.get('symbol_market_data', {}),
+                    market_time_str=s_data.get('market_time_str', ''),
+                    activity=s_data.get('activity', 0.5),
+                )
+                self.snapshots.append(snapshot)
+
+            changes_data = data.get('changes', [])
+            for c_data in changes_data[-self.max_history * 2:]:
+                change = HotspotChange(
+                    timestamp=c_data['timestamp'],
+                    change_type=c_data['change_type'],
+                    item_type=c_data['item_type'],
+                    item_id=c_data['item_id'],
+                    item_name=c_data['item_name'],
+                    old_weight=c_data['old_weight'],
+                    new_weight=c_data['new_weight'],
+                    change_percent=c_data['change_percent'],
+                    description=c_data['description'],
+                    market_time=c_data.get('market_time', ''),
+                    price=c_data.get('price', 0),
+                    price_change=c_data.get('price_change', 0),
+                    volume=c_data.get('volume', 0),
+                    block=c_data.get('block', ''),
+                )
+                self.changes.append(change)
+
+            events_data = data.get('block_hotspot_events', [])
+            for e_data in events_data[-50:]:
+                event = BlockHotspotEvent(
+                    timestamp=e_data['timestamp'],
+                    market_time=e_data['market_time'],
+                    market_date=e_data['market_date'],
+                    block_id=e_data['block_id'],
+                    block_name=e_data['block_name'],
+                    event_type=e_data['event_type'],
+                    weight_change=e_data['weight_change'],
+                    change_percent=e_data['change_percent'],
+                    top_symbols=[],
+                    description=e_data['description'],
+                )
+                self.block_hotspot_events_medium.append(event)
+
+            self._persist_loaded = True
+            log.info(f"[HistoryTracker] 状态已加载: {file_path}, snapshots={len(self.snapshots)}, changes={len(self.changes)}")
+            return True
+        except Exception as e:
+            log.warning(f"[HistoryTracker] 加载状态失败: {e}")
+            return False
+
+    def load_latest_state(self) -> bool:
+        """
+        加载最近的历史数据（跨多天查找）
+
+        Returns:
+            是否加载成功
+        """
+        import logging
+        log = logging.getLogger(__name__)
+
+        if not os.path.exists(self._persist_base_path):
+            log.debug(f"[HistoryTracker] 持久化目录不存在: {self._persist_base_path}")
+            return False
+
+        try:
+            import json
+            today = datetime.now().strftime('%Y-%m-%d')
+
+            files = []
+            for filename in os.listdir(self._persist_base_path):
+                if not filename.endswith('.json'):
+                    continue
+                if '_snapshots_' not in filename:
+                    continue
+                file_path = os.path.join(self._persist_base_path, filename)
+                try:
+                    mtime = os.path.getmtime(file_path)
+                    files.append((mtime, file_path))
+                except Exception:
+                    pass
+
+            files.sort(reverse=True)
+
+            loaded = False
+            for mtime, file_path in files[:self.max_persist_days]:
+                date_str = os.path.basename(file_path).split('_')[-1].replace('.json', '')
+                if self.load_state(date=date_str):
+                    loaded = True
+                    log.info(f"[HistoryTracker] 成功从 {date_str} 加载历史数据")
+                    break
+
+            if not loaded:
+                log.debug(f"[HistoryTracker] 未找到可用的历史持久化文件")
+
+            return loaded
+        except Exception as e:
+            log.warning(f"[HistoryTracker] 加载最近状态失败: {e}")
+            return False
+
+    def get_persist_info(self) -> Dict[str, Any]:
+        """获取持久化状态信息"""
+        info = {
+            'persist_path': self._persist_base_path,
+            'persist_days': self.max_persist_days,
+            'loaded_from_persist': self._persist_loaded,
+            'snapshot_count': len(self.snapshots),
+            'change_count': len(self.changes),
+            'files': [],
+        }
+
+        try:
+            if os.path.exists(self._persist_base_path):
+                for filename in sorted(os.listdir(self._persist_base_path)):
+                    if filename.endswith('.json'):
+                        file_path = os.path.join(self._persist_base_path, filename)
+                        mtime = os.path.getmtime(file_path)
+                        info['files'].append({
+                            'name': filename,
+                            'modified': datetime.fromtimestamp(mtime).strftime('%Y-%m-%d %H:%M:%S'),
+                            'size_kb': os.path.getsize(file_path) / 1024,
+                        })
+        except Exception:
+            pass
+
+        return info
 
 
 # 全局追踪器实例

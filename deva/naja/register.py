@@ -320,7 +320,9 @@ def _register_cognition_singletons():
 
     def _create_history_tracker():
         from .market_hotspot.market_hotspot_history_tracker import MarketHotspotHistoryTracker
-        return MarketHotspotHistoryTracker()
+        tracker = MarketHotspotHistoryTracker()
+        tracker.load_latest_state()
+        return tracker
     register_singleton('history_tracker', _create_history_tracker,
                       deps=[])
     logger.info("  ✓ history_tracker")

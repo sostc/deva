@@ -1,5 +1,5 @@
 """
-Module 7: Predictive Attention Engine - 预测注意力引擎
+Module 7: Predictive Hotspot Engine - 预测热点引擎
 
 核心能力:
 - 提前判断当前变化是否会扩散成"市场机会"
@@ -24,7 +24,7 @@ import time
 @dataclass
 class PredictionResult:
     """预测结果"""
-    sector_id: str
+    block_id: str
     symbol: str
     prediction_score: float
     acceleration: float
@@ -311,9 +311,9 @@ class MomentumPredictor:
         return float(np.clip(score, 0, 1))
 
 
-class PredictiveAttentionEngine:
+class PredictiveHotspotEngine:
     """
-    预测注意力引擎主类
+    预测热点引擎主类
     
     整合多种轻量预测方法:
     - EMA 加速度
@@ -346,7 +346,7 @@ class PredictiveAttentionEngine:
         
         self._prediction_history: Dict[str, List[float]] = {}
         self._last_scores: Dict[str, float] = {}
-        self._last_sector_scores: Dict[str, float] = {}
+        self._last_block_scores: Dict[str, float] = {}
         
     def predict(
         self,
@@ -361,7 +361,7 @@ class PredictiveAttentionEngine:
 
         Args:
             symbol: 股票代码
-            current_attention: 当前注意力分数
+            current_attention: 当前热点分数
             returns: 涨跌幅 (可选)
             volume_ratio: 量比 (可选)
             timestamp: 时间戳
@@ -554,12 +554,12 @@ class PredictiveAttentionEngine:
         )
         return sorted_items[:k]
 
-    def predict_sector(
+    def predict_block(
         self,
-        sector_id: str,
-        sector_attention: float,
-        sector_returns: float,
-        sector_volume_ratio: float,
+        block_id: str,
+        block_attention: float,
+        block_returns: float,
+        block_volume_ratio: float,
         timestamp: Optional[float] = None
     ) -> float:
         """执行题材预测"""
@@ -568,19 +568,19 @@ class PredictiveAttentionEngine:
         scores = []
         weights = []
 
-        if self.ema and sector_returns is not None:
-            _, _, ema_score = self.ema.update(f"sector_{sector_id}", sector_returns, timestamp)
+        if self.ema and block_returns is not None:
+            _, _, ema_score = self.ema.update(f"block_{block_id}", block_returns, timestamp)
             scores.append(ema_score)
             weights.append(0.3)
 
-        if self.diff and sector_returns is not None:
-            diff_score = self.diff.update(f"sector_{sector_id}", sector_returns, timestamp)
+        if self.diff and block_returns is not None:
+            diff_score = self.diff.update(f"block_{block_id}", block_returns, timestamp)
             scores.append(diff_score)
             weights.append(0.3)
 
-        if self.momentum and sector_returns is not None and sector_volume_ratio is not None:
+        if self.momentum and block_returns is not None and block_volume_ratio is not None:
             momentum_score = self.momentum.update(
-                f"sector_{sector_id}", sector_returns, sector_volume_ratio, timestamp
+                f"block_{block_id}", block_returns, block_volume_ratio, timestamp
             )
             scores.append(momentum_score)
             weights.append(0.4)
@@ -592,40 +592,40 @@ class PredictiveAttentionEngine:
             weights = weights / weights.sum()
             prediction_score = float(np.clip(np.dot(np.array(scores), weights), 0, 1))
 
-        self._last_sector_scores[sector_id] = prediction_score
+        self._last_block_scores[block_id] = prediction_score
         return prediction_score
 
-    def batch_predict_sectors(
+    def batch_predict_blocks(
         self,
-        sector_attentions: Dict[str, float],
-        sector_returns: Dict[str, float],
-        sector_volume_ratios: Dict[str, float],
+        block_attentions: Dict[str, float],
+        block_returns: Dict[str, float],
+        block_volume_ratios: Dict[str, float],
         timestamp: Optional[float] = None
     ) -> Dict[str, float]:
         """批量预测题材"""
         timestamp = timestamp or time.time()
         results = {}
 
-        for sector_id in sector_attentions.keys():
-            attention = sector_attentions.get(sector_id, 0.0)
-            returns = sector_returns.get(sector_id, 0.0)
-            vol_ratio = sector_volume_ratios.get(sector_id, 1.0)
+        for block_id in block_attentions.keys():
+            attention = block_attentions.get(block_id, 0.0)
+            returns = block_returns.get(block_id, 0.0)
+            vol_ratio = block_volume_ratios.get(block_id, 1.0)
 
-            pred_score = self.predict_sector(
-                sector_id, attention, returns, vol_ratio, timestamp
+            pred_score = self.predict_block(
+                block_id, attention, returns, vol_ratio, timestamp
             )
-            results[sector_id] = pred_score
+            results[block_id] = pred_score
 
         return results
 
-    def get_sector_prediction(self, sector_id: str) -> float:
+    def get_block_prediction(self, block_id: str) -> float:
         """获取题材预测分数"""
-        return self._last_sector_scores.get(sector_id, 0.5)
+        return self._last_block_scores.get(block_id, 0.5)
 
-    def get_sector_predictions_top_k(self, k: int = 5) -> List[Tuple[str, float]]:
+    def get_block_predictions_top_k(self, k: int = 5) -> List[Tuple[str, float]]:
         """获取预测分数最高的 K 个题材"""
         sorted_items = sorted(
-            self._last_sector_scores.items(),
+            self._last_block_scores.items(),
             key=lambda x: x[1],
             reverse=True
         )

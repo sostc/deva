@@ -4,17 +4,17 @@ Market Hotspot System - 市场热点系统
 市场热点系统分析市场数据（价格/成交量/涨跌幅）来确定热点题材和个股，
 并决定数据获取频率和策略资源分配。
 
-这是注意力基础设施的市场应用层。
+这是热点基础设施的市场应用层。
 
 子模块:
-- core/              - 核心注意力引擎 (GlobalAttention, BlockAttention, WeightPool)
+- core/              - 核心热点引擎 (GlobalAttention, BlockAttention, WeightPool)
 - scheduling/        - 频率调度和策略分配
 - engine/           - River + PyTorch 双引擎
 - processing/       - 数据预处理（噪音过滤）
 - filters/         - 过滤器
 - data/            - 市场数据处理
 - integration/      - 系统集成
-- strategies/       - 基于注意力的交易策略
+- strategies/       - 基于热点的交易策略
 """
 
 from .core import (

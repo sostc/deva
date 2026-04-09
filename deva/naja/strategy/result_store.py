@@ -94,12 +94,12 @@ class StrategyResult:
             return self.metadata.get("symbol", "") or self.metadata.get("stock_code", "")
         return ""
 
-    def get_sector(self) -> str:
-        """从 output_full 或 metadata 中提取板块信息"""
+    def get_block(self) -> str:
+        """从 output_full 或 metadata 中提取题材信息"""
         if self.output_full and isinstance(self.output_full, dict):
-            return self.output_full.get("sector", "") or self.output_full.get("industry", "")
+            return self.output_full.get("block", "") or self.output_full.get("industry", "")
         if isinstance(self.metadata, dict):
-            return self.metadata.get("sector", "") or self.metadata.get("industry", "")
+            return self.metadata.get("block", "") or self.metadata.get("industry", "")
         return ""
 
     def get_score(self) -> float:
@@ -115,7 +115,7 @@ class StrategyResult:
 
         Args:
             query_state: QueryState 实例，包含:
-                - attention_focus: dict{sector/symbol: weight}
+                - attention_focus: dict{block/symbol: weight}
                 - portfolio_state: dict{held_symbols: [...]}
                 - market_regime: dict{type: str}
 
@@ -130,7 +130,7 @@ class StrategyResult:
             market_regime = getattr(query_state, 'market_regime', {}) or {}
 
             symbol = self.get_symbol()
-            sector = self.get_sector()
+            block = self.get_block()
 
             held_symbols = set(portfolio_state.get("held_symbols", []))
             if symbol and symbol in held_symbols:
@@ -141,7 +141,7 @@ class StrategyResult:
             if attention_focus:
                 max_focus_weight = 0.0
                 for focus_key, focus_weight in attention_focus.items():
-                    if focus_key == symbol or focus_key == sector:
+                    if focus_key == symbol or focus_key == block:
                         max_focus_weight = max(max_focus_weight, focus_weight)
 
                 if max_focus_weight > 0:

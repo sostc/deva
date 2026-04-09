@@ -217,8 +217,6 @@ class QueryState:
         timestamp=None,
         block_ids=None,
         block_map=None,
-        block_ids=None,
-        block_map=None,
     ):
         """
         从市场数据更新 QueryState
@@ -231,8 +229,6 @@ class QueryState:
             timestamp: 时间戳
             block_ids: 题材ID数组（可选）
             block_map: 题材映射 dict{symbol: block_name}（可选）
-            block_ids: 兼容旧字段（可选）
-            block_map: 兼容旧字段（可选）
         """
         if timestamp is None:
             timestamp = time.time()

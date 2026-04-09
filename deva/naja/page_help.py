@@ -228,7 +228,7 @@ def init_default_helps():
 </tr>
 <tr style="background:#eff6ff;">
 <td style="padding:6px 10px;border:1px solid #bfdbfe;color:#2563eb;"><strong>block_rotation</strong></td>
-<td style="padding:6px 10px;border:1px solid #bfdbfe;">板块轮动 - 资金在板块间流动</td>
+<td style="padding:6px 10px;border:1px solid #bfdbfe;">题材轮动 - 资金在题材间流动</td>
 </tr>
 <tr style="background:#f0fdf4;">
 <td style="padding:6px 10px;border:1px solid #bbf7d0;color:#16a34a;"><strong>trend_analysis</strong></td>

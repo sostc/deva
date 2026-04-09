@@ -1,10 +1,10 @@
 """
-Realtime Data Fetcher - 实盘数据获取器（注意力系统内置）
+Realtime Data Fetcher - 实盘数据获取器（热点系统内置）
 
 功能:
 1. 直接从 Sina 行情源获取实盘数据，不依赖数据源系统
 2. 只在交易时间运行（订阅交易时钟信号）
-3. 根据注意力权重动态调整获取频率（由 FrequencyScheduler 控制：HIGH=5s, MEDIUM=10s, LOW=60s）
+3. 根据热点权重动态调整获取频率（由 FrequencyScheduler 控制：HIGH=5s, MEDIUM=10s, LOW=60s）
 
 事件驱动：
 - 订阅 TRADING_CLOCK_STREAM 信号（正常模式）
@@ -238,7 +238,7 @@ SNAPSHOT_CONFIG_KEY = "realtime_data_fetcher_snapshot"
 
 class RealtimeDataFetcher:
     """
-    实盘数据获取器 - 注意力系统内置组件
+    实盘数据获取器 - 热点系统内置组件
 
     行为：
     - 只在交易时间运行（非交易时间完全停止）
@@ -508,7 +508,7 @@ class RealtimeDataFetcher:
         thread.start()
 
     async def _fetch_and_sync_cn(self):
-        """获取A股全量数据并同步到注意力系统"""
+        """获取A股全量数据并同步到热点系统"""
         log.debug(f"[RealtimeDataFetcher] _fetch_and_sync_cn 开始, _cn_active={self._cn_active}")
         try:
             # 使用 _fetch_sina_sync 获取全量A股数据
@@ -1220,7 +1220,7 @@ class RealtimeDataFetcher:
             log.debug(f"[RealtimeDataFetcher] 同步美股到 MarketDataBus 失败: {e}")
 
     def _convert_us_to_dataframe(self, us_data: Dict[str, Any]) -> Optional[pd.DataFrame]:
-        """将美股数据转换为注意力系统可处理的DataFrame格式
+        """将美股数据转换为热点系统可处理的DataFrame格式
 
         字段映射：
         - code: 股票代码（如 nvda, aapl）
