@@ -1,14 +1,14 @@
-"""Narrative to Block Mapping - 叙事主题到板块的映射配置
+"""Narrative to Block Mapping - 叙事主题到题材的映射配置
 
 职责:
-- 定义叙事主题到市场板块的映射关系
-- 支持多对多映射（一个叙事主题可以关联多个板块）
+- 定义叙事主题到市场题材的映射关系
+- 支持多对多映射（一个叙事主题可以关联多个题材）
 - 提供配置开关来控制联动功能
 
 使用场景:
 - NarrativeTracker 识别叙事主题后，映射到实际的 block_id
-- CrossSignalAnalyzer 实现"舆情 → 板块轮动"的联动
-- 行业叙事 → 板块（AI→半导体）
+- CrossSignalAnalyzer 实现"舆情 → 题材轮动"的联动
+- 行业叙事 → 题材（AI→半导体）
 - 宏观叙事 → 大盘指数（流动性紧张→纳斯达克）
 """
 
@@ -136,14 +136,14 @@ NARRATIVE_BLOCK_LINKING_ENABLED: bool = True
 
 
 def get_linked_blocks(narrative: str) -> List[str]:
-    """获取叙事主题关联的板块列表"""
+    """获取叙事主题关联的题材列表"""
     if not NARRATIVE_BLOCK_LINKING_ENABLED:
         return []
     return NARRATIVE_TO_BLOCK_LINK.get(narrative, [])
 
 
 def get_linked_narratives(block: str) -> List[str]:
-    """获取板块关联的叙事主题列表"""
+    """获取题材关联的叙事主题列表"""
     if not NARRATIVE_BLOCK_LINKING_ENABLED:
         return []
     return BLOCK_TO_NARRATIVE_REVERSE.get(block, [])

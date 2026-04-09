@@ -337,7 +337,7 @@ def build_ths_concept_mapping_dataframe(log_func=None):
 
     if concept_names is None or concept_names.empty:
         raise RuntimeError("no available board list api in current akshare")
-    block_col = pick_first_existing_column(concept_names, ["概念名称", "板块名称", "名称", "name"])
+    block_col = pick_first_existing_column(concept_names, ["概念名称", "题材名称", "名称", "name"])
     if block_col is None:
         raise RuntimeError(f"unsupported board list columns: {list(concept_names.columns)}")
     blocks = []
@@ -409,7 +409,7 @@ def build_em_industry_mapping_dataframe(log_func=None):
                 emit_stock_log(log_func, "WARNING", "industry board list api failed", api=fn_name, error=str(e))
 
         if board_names is not None and not board_names.empty:
-            board_col = pick_first_existing_column(board_names, ["板块名称", "行业名称", "名称", "name"])
+            board_col = pick_first_existing_column(board_names, ["题材名称", "行业名称", "名称", "name"])
             if board_col:
                 boards = []
                 for x in board_names[board_col].dropna().tolist():
@@ -493,7 +493,7 @@ def build_em_industry_mapping_dataframe(log_func=None):
 
     code_col = pick_first_existing_column(spot_df, ["代码", "证券代码", "code"])
     name_col = pick_first_existing_column(spot_df, ["名称", "name"])
-    block_col = pick_first_existing_column(spot_df, ["行业", "所属行业", "行业名称", "板块名称"])
+    block_col = pick_first_existing_column(spot_df, ["行业", "所属行业", "行业名称", "题材名称"])
     if code_col is None or block_col is None:
         raise RuntimeError(f"spot columns missing code/blockname: {list(spot_df.columns)}")
 

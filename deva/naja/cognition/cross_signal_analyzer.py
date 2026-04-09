@@ -1,7 +1,7 @@
-"""CrossSignalAnalyzer - 认知系统/共振分析/板块联动
+"""CrossSignalAnalyzer - 认知系统/共振分析/题材联动
 
 🔥 定位：天-地-人框架中的「共振检测」
-    - 检测「天」（时机）和「地」（板块）是否共振
+    - 检测「天」（时机）和「地」（题材）是否共振
     - 回答：「我的关注主题和时机配合得好吗？」
 
 📋 核心职责：
@@ -26,7 +26,7 @@
     - 「天」「地」背离 → 保持谨慎（等等看）
     - 无共振 → 观望
 
-别名/关键词: 共振、板块联动、cross_signal、resonance、板块共振
+别名/关键词: 共振、题材联动、cross_signal、resonance、题材共振
 """
 
 from __future__ import annotations
@@ -345,12 +345,12 @@ class CrossSignalAnalyzer:
     跨信号分析器
 
     合并新闻/雷达信号和行情/注意力信号，提供分层分析：
-    - Layer 1: 规则引擎 (实时, 零成本) - 板块级别共振
+    - Layer 1: 规则引擎 (实时, 零成本) - 题材级别共振
     - Layer 2: 统计分析 (快速, 低成本)
     - Layer 3: LLM分析 (深度, 高成本)
 
     市场级别分析：
-    - 行业叙事 → 板块 (AI→半导体)
+    - 行业叙事 → 题材 (AI→半导体)
     - 宏观叙事 → 大盘指数 (流动性紧张→纳斯达克)
     """
 
@@ -657,7 +657,7 @@ class CrossSignalAnalyzer:
         return resonances
 
     def _get_top_blocks(self, snapshot: AttentionSnapshot, n: int = 5) -> List[tuple]:
-        """获取注意力最高的N个板块"""
+        """获取注意力最高的N个题材"""
         items = sorted(snapshot.block_weights.items(), key=lambda x: x[1], reverse=True)
         return items[:n]
 
@@ -677,12 +677,12 @@ class CrossSignalAnalyzer:
     }
 
     def _match_news_to_block(self, news: NewsSignal, snapshot: AttentionSnapshot) -> Optional[str]:
-        """将新闻匹配到对应板块或宏观市场指数
+        """将新闻匹配到对应题材或宏观市场指数
 
         匹配顺序:
         1. 如果新闻有 block_id，直接返回
         2. 检查宏观叙事主题，映射到市场指数
-        3. 检查 block_names 中的板块名称
+        3. 检查 block_names 中的题材名称
         4. 检查 active_blocks
         """
         if news.block_id:
@@ -715,7 +715,7 @@ class CrossSignalAnalyzer:
         return None
 
     def _get_block_name(self, block_id: str, news: NewsSignal, snapshot: AttentionSnapshot) -> str:
-        """获取板块名称"""
+        """获取题材名称"""
         if news.block_name:
             return news.block_name
 
@@ -895,7 +895,7 @@ class CrossSignalAnalyzer:
         }
 
     def _count_recent_news(self, block_id: str, seconds: float = 60) -> int:
-        """计算最近N秒内关于某板块的新闻数量"""
+        """计算最近N秒内关于某题材的新闻数量"""
         now = time.time()
         count = 0
 
@@ -916,7 +916,7 @@ class CrossSignalAnalyzer:
         return count
 
     def _estimate_price_change(self, block_id: str, snapshot: AttentionSnapshot) -> float:
-        """估算板块价格变化"""
+        """估算题材价格变化"""
         if not snapshot.symbol_weights:
             return 0.0
 
@@ -986,7 +986,7 @@ class CrossSignalAnalyzer:
 
     def analyze_statistical_correlation(self, block_id: str) -> float:
         """
-        Layer 2: 统计分析 - 计算板块相关性
+        Layer 2: 统计分析 - 计算题材相关性
 
         使用滑动窗口计算新闻频率和注意力权重的相关性
         """
@@ -1057,7 +1057,7 @@ class CrossSignalAnalyzer:
 
 请分析上述共振信号，识别：
 
-1. **共振板块**: 哪些板块同时被新闻和行情关注？
+1. **共振题材**: 哪些题材同时被新闻和行情关注？
 2. **共振强度**: 共振是短期的还是持续的？
 3. **可能原因**: 什么因素驱动了这种共振？
 4. **风险提示**: 是否有需要注意的风险？
@@ -1082,7 +1082,7 @@ class CrossSignalAnalyzer:
         return list(self._resonance_history)[-n:]
 
     def get_block_resonances(self, lookback_seconds: float = 300.0) -> Dict[str, Dict[str, Any]]:
-        """获取板块共振摘要（供认知编排使用）"""
+        """获取题材共振摘要（供认知编排使用）"""
         now = time.time()
         scores: Dict[str, List[float]] = {}
         meta: Dict[str, Dict[str, Any]] = {}
@@ -1110,7 +1110,7 @@ class CrossSignalAnalyzer:
         return result
 
     def get_high_resonance_blocks(self, threshold: float = 0.7, n: int = 5) -> List[tuple]:
-        """获取高共振板块"""
+        """获取高共振题材"""
         block_scores: Dict[str, List[float]] = {}
 
         for resonance in self._resonance_history:
@@ -1159,7 +1159,7 @@ class CrossSignalAnalyzer:
         🚀 将共振信号发布到 CognitiveSignalBus
 
         发布 RESONANCE_DETECTED 事件，通知 ManasEngine：
-        - 天（时机）和地（板块）是否共振了
+        - 天（时机）和地（题材）是否共振了
         - 共振强度和类型
         """
         try:
@@ -1217,7 +1217,7 @@ class CrossSignalAnalyzer:
 
             theme = f"📈 {resonance.block_name or resonance.block_id} - {resonance_type_desc}"
             summary = (
-                f"板块「{resonance.block_name}」检测到{sentiment_desc}共振。"
+                f"题材「{resonance.block_name}」检测到{sentiment_desc}共振。"
                 f"新闻情绪 {resonance.news_sentiment:+.2f}，注意力权重 {resonance.attention_weight:.2f}，"
                 f"共振分数 {resonance.resonance_score:.2f}。"
                 f"主题: {', '.join(resonance.news_themes[:3]) if resonance.news_themes else '暂无'}"
@@ -1257,16 +1257,16 @@ class CrossSignalAnalyzer:
         return count
 
     def get_narrative_augmented_attention(self, base_attention: AttentionSnapshot) -> Dict[str, float]:
-        """返回融合了叙事信号的板块注意力
+        """返回融合了叙事信号的题材注意力
 
-        这是叙事-板块联动的核心接口：
-        根据最近接收到的叙事信号，增强对应板块的注意力权重。
+        这是叙事-题材联动的核心接口：
+        根据最近接收到的叙事信号，增强对应题材的注意力权重。
 
         Args:
             base_attention: 原始注意力快照
 
         Returns:
-            融合了叙事信号的板块注意力权重字典
+            融合了叙事信号的题材注意力权重字典
         """
         from .narrative_block_mapping import (
             get_linked_blocks as _get_linked_blocks,

@@ -1,5 +1,5 @@
 """
-Module 10: Attention Propagation - 注意力扩散传播
+Module 10: Hotspot Propagation - 热点扩散传播
 
 核心能力:
 - 模拟题材之间的联动
@@ -9,8 +9,8 @@ Module 10: Attention Propagation - 注意力扩散传播
 新能源 ↑ → 有色 ↑ → 电池 ↑
 
 输入:
-- sector_attention: 当前题材注意力
-- sector_relation_matrix: 题材关系矩阵
+- block_hotspot: 当前题材热点
+- block_relation_matrix: 题材关系矩阵
 
 输出:
 - 传播后的 attention
@@ -24,10 +24,10 @@ import time
 
 
 @dataclass
-class SectorRelation:
+class BlockRelation:
     """题材关系"""
-    source_sector: str
-    target_sector: str
+    source_block: str
+    target_block: str
     correlation: float
     delay_ticks: int
     strength: float
@@ -48,21 +48,21 @@ class RelationMatrix:
 
     def __init__(
         self,
-        max_sectors: int = 5000,
+        max_blocks: int = 5000,
         default_correlation: float = 0.3,
         learning_rate: float = 0.01
     ):
-        self.max_sectors = max_sectors
+        self.max_blocks = max_blocks
         self.default_correlation = default_correlation
         self.learning_rate = learning_rate
 
-        self._sector_to_idx: Dict[str, int] = {}
-        self._idx_to_sector: Dict[int, str] = {}
+        self._block_to_idx: Dict[str, int] = {}
+        self._idx_to_block: Dict[int, str] = {}
 
         self._relation_matrix: Dict[str, Dict[str, float]] = defaultdict(dict)
         self._delay_matrix: Dict[str, Dict[str, int]] = defaultdict(dict)
 
-        self._sector_history: Dict[str, List[float]] = {}
+        self._block_history: Dict[str, List[float]] = {}
         self._history_window = 50
 
         self._relation_quality_scores: Dict[str, float] = {}
@@ -79,11 +79,11 @@ class RelationMatrix:
         """获取噪音检测器"""
         return RelationMatrix._noise_detector
 
-    def _is_noise_by_pattern(self, sector_id: str, sector_name: str = None) -> bool:
+    def _is_noise_by_pattern(self, block_id: str, block_name: str = None) -> bool:
         """检查题材是否匹配噪音模式"""
         detector = self._get_noise_detector()
         if detector:
-            return detector.is_noise(sector_id, sector_name)
+            return detector.is_noise(block_id, block_name)
 
         blacklist_patterns = [
             '通达信', '系统', 'ST', 'B股', '基金', '指数', '期权', '期货',
@@ -91,23 +91,23 @@ class RelationMatrix:
             '概念', '风格', '上证所', '深交所', '_sys', '_index', '884',
             '物业管理', '含B股', '地方版', '预预', '昨日', '近日',
         ]
-        display = sector_name if sector_name else sector_id
+        display = block_name if block_name else block_id
         for pattern in blacklist_patterns:
-            if pattern in display or pattern in sector_id:
+            if pattern in display or pattern in block_id:
                 return True
         return False
         
-    def register_sector(self, sector_id: str) -> bool:
+    def register_block(self, block_id: str) -> bool:
         """注册题材"""
-        if sector_id in self._sector_to_idx:
+        if block_id in self._block_to_idx:
             return True
         
-        if len(self._sector_to_idx) >= self.max_sectors:
+        if len(self._block_to_idx) >= self.max_blocks:
             return False
         
-        idx = len(self._sector_to_idx)
-        self._sector_to_idx[sector_id] = idx
-        self._idx_to_sector[idx] = sector_id
+        idx = len(self._block_to_idx)
+        self._block_to_idx[block_id] = idx
+        self._idx_to_block[idx] = block_id
         
         return True
     
@@ -120,7 +120,7 @@ class RelationMatrix:
         strength: float = 1.0
     ):
         """设置题材关系"""
-        if source not in self._sector_to_idx or target not in self._sector_to_idx:
+        if source not in self._block_to_idx or target not in self._block_to_idx:
             return
         
         self._relation_matrix[source][target] = correlation * strength
@@ -141,58 +141,58 @@ class RelationMatrix:
         
         return correlation, delay
     
-    def get_upstream_sectors(self, sector_id: str) -> List[Tuple[str, float, int]]:
+    def get_upstream_blocks(self, block_id: str) -> List[Tuple[str, float, int]]:
         """
         获取上游题材 (会影响到自己的题材)
         
         Returns:
-            [(sector, correlation, delay), ...]
+            [(block, correlation, delay), ...]
         """
         result = []
         
         for source, targets in self._relation_matrix.items():
-            if sector_id in targets:
-                correlation = targets[sector_id]
-                delay = self._delay_matrix[source].get(sector_id, 1)
+            if block_id in targets:
+                correlation = targets[block_id]
+                delay = self._delay_matrix[source].get(block_id, 1)
                 result.append((source, correlation, delay))
         
         return result
     
-    def get_downstream_sectors(self, sector_id: str) -> List[Tuple[str, float, int]]:
+    def get_downstream_blocks(self, block_id: str) -> List[Tuple[str, float, int]]:
         """
         获取下游题材 (会被自己影响的题材)
         
         Returns:
-            [(sector, correlation, delay), ...]
+            [(block, correlation, delay), ...]
         """
         result = []
         
-        targets = self._relation_matrix.get(sector_id, {})
+        targets = self._relation_matrix.get(block_id, {})
         for target, correlation in targets.items():
-            delay = self._delay_matrix[sector_id].get(target, 1)
+            delay = self._delay_matrix[block_id].get(target, 1)
             result.append((target, correlation, delay))
         
         return result
     
-    def record_attention(self, sector_id: str, attention: float, timestamp: float):
-        """记录注意力历史，用于学习关系"""
-        if sector_id not in self._sector_history:
-            self._sector_history[sector_id] = []
+    def record_attention(self, block_id: str, attention: float, timestamp: float):
+        """记录热点历史，用于学习关系"""
+        if block_id not in self._block_history:
+            self._block_history[block_id] = []
         
-        self._sector_history[sector_id].append(attention)
+        self._block_history[block_id].append(attention)
         
-        if len(self._sector_history[sector_id]) > self._history_window:
-            self._sector_history[sector_id] = self._sector_history[sector_id][-self._history_window:]
+        if len(self._block_history[block_id]) > self._history_window:
+            self._block_history[block_id] = self._block_history[block_id][-self._history_window:]
 
-    def _should_blacklist(self, sector_name: str) -> bool:
+    def _should_blacklist(self, block_name: str) -> bool:
         """检查题材是否应该加入黑名单（兼容旧接口）"""
-        return self._is_noise_by_pattern(sector_name, sector_name)
+        return self._is_noise_by_pattern(block_name, block_name)
 
-    def is_sector_valid(self, sector_id: str) -> bool:
+    def is_block_valid(self, block_id: str) -> bool:
         """判断题材是否有效（非噪声）"""
         detector = self._get_noise_detector()
         if detector:
-            return not detector.is_noise(sector_id)
+            return not detector.is_noise(block_id)
         return True
 
     def _compute_relation_quality(self, source: str, target: str, correlation: float, delay: int) -> float:
@@ -206,8 +206,8 @@ class RelationMatrix:
             quality += 0.2
         elif delay > 8:
             quality -= 0.1
-        source_history = self._sector_history.get(source, [])
-        target_history = self._sector_history.get(target, [])
+        source_history = self._block_history.get(source, [])
+        target_history = self._block_history.get(target, [])
         if len(source_history) >= 10 and len(target_history) >= 10:
             variance_source = np.var(source_history) if source_history else 0
             variance_target = np.var(target_history) if target_history else 0
@@ -222,65 +222,65 @@ class RelationMatrix:
         detector = self._get_noise_detector()
         if not self._auto_blacklist_enabled:
             return
-        for sector_id in list(self._sector_history.keys()):
-            if detector and detector.is_noise(sector_id):
+        for block_id in list(self._block_history.keys()):
+            if detector and detector.is_noise(block_id):
                 continue
-            history = self._sector_history.get(sector_id, [])
+            history = self._block_history.get(block_id, [])
             if len(history) < 10:
                 continue
             variance = np.var(history)
             if variance < 0.0001:
                 if detector:
-                    detector.add_to_blacklist(sector_id, reason="低方差噪音")
+                    detector.add_to_blacklist(block_id, reason="低方差噪音")
                 continue
             quality_scores = []
-            for other_sector in self._sector_history.keys():
-                if other_sector == sector_id:
+            for other_block in self._block_history.keys():
+                if other_block == block_id:
                     continue
-                if detector and detector.is_noise(other_sector):
+                if detector and detector.is_noise(other_block):
                     continue
-                if sector_id not in self._relation_matrix.get(other_sector, {}):
+                if block_id not in self._relation_matrix.get(other_block, {}):
                     continue
-                corr = self._relation_matrix[other_sector].get(sector_id, 0)
-                delay = self._delay_matrix.get(other_sector, {}).get(sector_id, 1)
-                quality = self._compute_relation_quality(other_sector, sector_id, corr, delay)
+                corr = self._relation_matrix[other_block].get(block_id, 0)
+                delay = self._delay_matrix.get(other_block, {}).get(block_id, 1)
+                quality = self._compute_relation_quality(other_block, block_id, corr, delay)
                 quality_scores.append(quality)
             if quality_scores:
                 avg_quality = sum(quality_scores) / len(quality_scores)
-                self._relation_quality_scores[sector_id] = avg_quality
+                self._relation_quality_scores[block_id] = avg_quality
                 if avg_quality < 0.1:
                     if detector:
-                        detector.add_to_blacklist(sector_id, reason=f"低关系质量 {avg_quality:.3f}")
+                        detector.add_to_blacklist(block_id, reason=f"低关系质量 {avg_quality:.3f}")
 
-    def add_to_blacklist(self, sector_id: str):
+    def add_to_blacklist(self, block_id: str):
         """手动添加题材到黑名单"""
         detector = self._get_noise_detector()
         if detector:
-            detector.add_to_blacklist(sector_id, reason="手动添加")
+            detector.add_to_blacklist(block_id, reason="手动添加")
 
-    def remove_from_blacklist(self, sector_id: str):
+    def remove_from_blacklist(self, block_id: str):
         """从黑名单移除"""
         detector = self._get_noise_detector()
         if detector:
-            detector.remove_from_blacklist(sector_id)
+            detector.remove_from_blacklist(block_id)
 
     def get_blacklist(self) -> set:
         """获取当前黑名单"""
         detector = self._get_noise_detector()
         if detector:
-            return detector.get_all_noise_sectors()
+            return detector.get_all_noise_blocks()
         return set()
 
     def learn_relations(self, min_correlation: float = 0.3):
         """从历史数据学习题材关系"""
         self._auto_update_blacklist()
         detector = self._get_noise_detector()
-        sectors = [s for s in self._sector_history.keys()]
+        blocks = [s for s in self._block_history.keys()]
         if detector:
-            sectors = detector.get_valid_sectors(sectors)
+            blocks = detector.get_valid_blocks(blocks)
         
-        for i, source in enumerate(sectors):
-            for j, target in enumerate(sectors):
+        for i, source in enumerate(blocks):
+            for j, target in enumerate(blocks):
                 if i >= j:
                     continue
                 
@@ -298,8 +298,8 @@ class RelationMatrix:
         max_delay: int = 10
     ) -> float:
         """计算滞后相关性"""
-        source_history = self._sector_history.get(source, [])
-        target_history = self._sector_history.get(target, [])
+        source_history = self._block_history.get(source, [])
+        target_history = self._block_history.get(target, [])
         
         if len(source_history) < max_delay + 5 or len(target_history) < max_delay + 5:
             return 0.0
@@ -329,8 +329,8 @@ class RelationMatrix:
     
     def _estimate_delay(self, source: str, target: str) -> int:
         """估计传播延迟"""
-        source_history = self._sector_history.get(source, [])
-        target_history = self._sector_history.get(target, [])
+        source_history = self._block_history.get(source, [])
+        target_history = self._block_history.get(target, [])
         
         if len(source_history) < 10 or len(target_history) < 10:
             return 1
@@ -363,16 +363,16 @@ class RelationMatrix:
         
         return best_delay
     
-    def get_all_relations(self) -> List[SectorRelation]:
+    def get_all_relations(self) -> List[BlockRelation]:
         """获取所有关系"""
         relations = []
         
         for source, targets in self._relation_matrix.items():
             for target, correlation in targets.items():
                 delay = self._delay_matrix[source].get(target, 1)
-                relations.append(SectorRelation(
-                    source_sector=source,
-                    target_sector=target,
+                relations.append(BlockRelation(
+                    source_block=source,
+                    target_block=target,
                     correlation=correlation,
                     delay_ticks=delay,
                     strength=1.0
@@ -382,18 +382,18 @@ class RelationMatrix:
     
     def reset(self):
         """重置"""
-        self._sector_to_idx.clear()
-        self._idx_to_sector.clear()
+        self._block_to_idx.clear()
+        self._idx_to_block.clear()
         self._relation_matrix.clear()
         self._delay_matrix.clear()
-        self._sector_history.clear()
+        self._block_history.clear()
 
 
 class PropagationEngine:
     """
     传播引擎
     
-    使用关系矩阵计算注意力传播
+    使用关系矩阵计算热点传播
     """
     
     def __init__(
@@ -410,35 +410,35 @@ class PropagationEngine:
         
     def propagate(
         self,
-        sector_attention: Dict[str, float],
+        block_hotspot: Dict[str, float],
         timestamp: float
     ) -> Dict[str, float]:
         """
-        计算传播后的注意力
+        计算传播后的热点
         
         迭代传播直到收敛或达到最大迭代次数
         
         Args:
-            sector_attention: 原始题材注意力
+            block_hotspot: 原始题材热点
             timestamp: 时间戳
             
         Returns:
-            传播后的注意力
+            传播后的热点
         """
-        attention = sector_attention.copy()
+        attention = block_hotspot.copy()
         
-        sectors = list(attention.keys())
+        blocks = list(attention.keys())
         
-        for sector in sectors:
-            self.relations.record_attention(sector, attention[sector], timestamp)
+        for block in blocks:
+            self.relations.record_attention(block, attention[block], timestamp)
         
         for iteration in range(self.max_iterations):
             new_attention = attention.copy()
             
             changed = False
             
-            for sector in sectors:
-                upstream = self.relations.get_upstream_sectors(sector)
+            for block in blocks:
+                upstream = self.relations.get_upstream_blocks(block)
                 
                 if not upstream:
                     continue
@@ -461,7 +461,7 @@ class PropagationEngine:
                 
                 if upstream:
                     propagation = propagation / len(upstream)
-                    new_attention[sector] = attention[sector] + propagation
+                    new_attention[block] = attention[block] + propagation
                     changed = True
             
             attention = new_attention
@@ -469,28 +469,28 @@ class PropagationEngine:
             if not changed:
                 break
         
-        for sector in sectors:
-            self._propagation_history[sector].append(attention[sector])
-            if len(self._propagation_history[sector]) > 100:
-                self._propagation_history[sector] = self._propagation_history[sector][-100:]
+        for block in blocks:
+            self._propagation_history[block].append(attention[block])
+            if len(self._propagation_history[block]) > 100:
+                self._propagation_history[block] = self._propagation_history[block][-100:]
         
         return attention
     
     def propagate_single_step(
         self,
-        sector_attention: Dict[str, float],
+        block_hotspot: Dict[str, float],
         timestamp: float
     ) -> Dict[str, float]:
         """
         单步传播 (更轻量)
         """
-        attention = sector_attention.copy()
+        attention = block_hotspot.copy()
         
-        for sector in attention.keys():
-            self.relations.record_attention(sector, attention[sector], timestamp)
+        for block in attention.keys():
+            self.relations.record_attention(block, attention[block], timestamp)
         
-        for sector in attention.keys():
-            upstream = self.relations.get_upstream_sectors(sector)
+        for block in attention.keys():
+            upstream = self.relations.get_upstream_blocks(block)
             
             if not upstream:
                 continue
@@ -504,46 +504,46 @@ class PropagationEngine:
                 propagation += attention[source] * correlation * self.decay_factor
             
             propagation = propagation / len(upstream)
-            attention[sector] = attention[sector] + propagation
+            attention[block] = attention[block] + propagation
         
         return attention
     
     def get_propagation_chain(
         self,
-        source_sector: str,
+        source_block: str,
         depth: int = 3
     ) -> List[Tuple[str, float]]:
         """
         获取从源题材开始的传播链
         
         Returns:
-            [(sector, accumulated_attention), ...]
+            [(block, accumulated_attention), ...]
         """
         chain = []
         visited = set()
         
-        current_sector = source_sector
+        current_block = source_block
         accumulated = 1.0
         
         for _ in range(depth):
-            if current_sector in visited:
+            if current_block in visited:
                 break
             
-            visited.add(current_sector)
+            visited.add(current_block)
             
-            downstream = self.relations.get_downstream_sectors(current_sector)
+            downstream = self.relations.get_downstream_blocks(current_block)
             
             if not downstream:
                 break
             
             best_next = max(downstream, key=lambda x: x[1])
-            next_sector, correlation, _ = best_next
+            next_block, correlation, _ = best_next
             
             accumulated *= correlation
             
-            chain.append((next_sector, accumulated))
+            chain.append((next_block, accumulated))
             
-            current_sector = next_sector
+            current_block = next_block
         
         return chain
     
@@ -552,9 +552,9 @@ class PropagationEngine:
         self._propagation_history.clear()
 
 
-class AttentionPropagation:
+class HotspotPropagation:
     """
-    注意力传播主控制器
+    热点传播主控制器
     
     整合:
     - RelationMatrix: 关系矩阵
@@ -563,7 +563,7 @@ class AttentionPropagation:
     
     def __init__(
         self,
-        max_sectors: int = 5000,
+        max_blocks: int = 5000,
         enable_learning: bool = True,
         propagation_mode: str = "iterative"
     ):
@@ -572,16 +572,16 @@ class AttentionPropagation:
             enable_learning: 是否从历史学习关系
             propagation_mode: 'iterative' 或 'single_step'
         """
-        self.relation_matrix = RelationMatrix(max_sectors=max_sectors)
+        self.relation_matrix = RelationMatrix(max_blocks=max_blocks)
         self.engine = PropagationEngine(self.relation_matrix)
         self.enable_learning = enable_learning
         self.propagation_mode = propagation_mode
         
         self._propagated_history: Dict[str, List[float]] = defaultdict(list)
         
-    def register_sector(self, sector_id: str) -> bool:
+    def register_block(self, block_id: str) -> bool:
         """注册题材"""
-        return self.relation_matrix.register_sector(sector_id)
+        return self.relation_matrix.register_block(block_id)
     
     def set_relation(
         self,
@@ -611,21 +611,21 @@ class AttentionPropagation:
     
     def propagate(
         self,
-        sector_attention: Dict[str, float],
+        block_hotspot: Dict[str, float],
         timestamp: Optional[float] = None
     ) -> Dict[str, float]:
         """
-        执行注意力传播
+        执行热点传播
         """
         timestamp = timestamp or time.time()
         
         if self.propagation_mode == "single_step":
-            result = self.engine.propagate_single_step(sector_attention, timestamp)
+            result = self.engine.propagate_single_step(block_hotspot, timestamp)
         else:
-            result = self.engine.propagate(sector_attention, timestamp)
+            result = self.engine.propagate(block_hotspot, timestamp)
         
-        for sector, attention in result.items():
-            self._propagated_history[sector].append(attention)
+        for block, attention in result.items():
+            self._propagated_history[block].append(attention)
         
         return result
     
@@ -638,30 +638,30 @@ class AttentionPropagation:
         """获取黑名单"""
         return self.relation_matrix.get_blacklist()
 
-    def add_to_blacklist(self, sector_id: str):
+    def add_to_blacklist(self, block_id: str):
         """添加题材到黑名单"""
-        self.relation_matrix.add_to_blacklist(sector_id)
+        self.relation_matrix.add_to_blacklist(block_id)
 
-    def remove_from_blacklist(self, sector_id: str):
+    def remove_from_blacklist(self, block_id: str):
         """从黑名单移除"""
-        self.relation_matrix.remove_from_blacklist(sector_id)
+        self.relation_matrix.remove_from_blacklist(block_id)
 
-    def get_upstream_sectors(self, sector_id: str) -> List[Tuple[str, float, int]]:
+    def get_upstream_blocks(self, block_id: str) -> List[Tuple[str, float, int]]:
         """获取上游题材"""
-        return self.relation_matrix.get_upstream_sectors(sector_id)
+        return self.relation_matrix.get_upstream_blocks(block_id)
     
-    def get_downstream_sectors(self, sector_id: str) -> List[Tuple[str, float, int]]:
+    def get_downstream_blocks(self, block_id: str) -> List[Tuple[str, float, int]]:
         """获取下游题材"""
-        return self.relation_matrix.get_downstream_sectors(sector_id)
+        return self.relation_matrix.get_downstream_blocks(block_id)
     
-    def get_all_relations(self) -> List[SectorRelation]:
+    def get_all_relations(self) -> List[BlockRelation]:
         """获取所有关系"""
         return self.relation_matrix.get_all_relations()
     
     def get_propagation_summary(self) -> Dict[str, Any]:
         """获取传播摘要"""
         return {
-            'total_sectors': len(self.relation_matrix._sector_to_idx),
+            'total_blocks': len(self.relation_matrix._block_to_idx),
             'total_relations': len(self.get_all_relations()),
             'propagation_mode': self.propagation_mode,
             'enable_learning': self.enable_learning

@@ -122,6 +122,11 @@ class MarketOverview:
     us_top_attention_stocks: List[Dict[str, Any]] = field(default_factory=list)
     us_top_attention_blocks: List[Dict[str, Any]] = field(default_factory=list)
 
+    # 历史热点切换数据
+    hotspot_shift_timeline: List[Dict[str, Any]] = field(default_factory=list)
+    block_shift_events: List[Dict[str, Any]] = field(default_factory=list)
+    symbol_shift_events: List[Dict[str, Any]] = field(default_factory=list)
+
 
 @dataclass
 class NarrativePerformance:
@@ -300,7 +305,7 @@ class ReviewReport:
 
         if self.market_overview.ashare_top_blocks:
             lines.extend([
-                f"#### 🧭 A股板块重点（Top3）",
+                f"#### 🧭 A股题材重点（Top3）",
                 f"",
             ])
             for sec in self.market_overview.ashare_top_blocks[:3]:
@@ -321,7 +326,7 @@ class ReviewReport:
 
         if self.market_overview.ashare_top_attention_blocks:
             lines.extend([
-                f"#### 🎯 A股注意力板块（Top5）",
+                f"#### 🎯 A股热点题材（Top5）",
                 f"",
             ])
             for block_info in self.market_overview.ashare_top_attention_blocks:
@@ -354,7 +359,7 @@ class ReviewReport:
 
         if self.market_overview.us_top_attention_blocks:
             lines.extend([
-                f"#### 🎯 美股注意力板块（Top5）",
+                f"#### 🎯 美股热点题材（Top5）",
                 f"",
             ])
             for block_info in self.market_overview.us_top_attention_blocks:
@@ -390,7 +395,7 @@ class ReviewReport:
         lines.extend([
             f"## 💼 持仓分析",
             f"",
-            f"| 股票 | 持仓收益 | 今日涨跌 | vs板块 | 状态 |",
+            f"| 股票 | 持仓收益 | 今日涨跌 | vs题材 | 状态 |",
             f"|------|----------|----------|---------|------|",
         ])
         for pos in self.positions:
@@ -738,7 +743,7 @@ class DailyReviewAnalyzer:
             self._ashare_block_error = str(e)
 
     def _get_ashare_block(self, code: str) -> str:
-        """获取A股板块"""
+        """获取A股题材"""
         if not code:
             return "其他"
         if code in self._ashare_block_cache:
@@ -762,7 +767,7 @@ class DailyReviewAnalyzer:
             return "其他"
 
     def _attach_ashare_block(self, records: List[Dict]) -> List[Dict]:
-        """为A股记录补充板块字段"""
+        """为A股记录补充题材字段"""
         for r in records:
             if not r.get("block"):
                 r["block"] = self._get_ashare_block(r.get("code", ""))
@@ -948,7 +953,7 @@ class DailyReviewAnalyzer:
 
             prev_block_amount = block_amount
 
-        # 只保留与Top3板块相关的突破/异动
+        # 只保留与Top3题材相关的突破/异动
         if top_blocks:
             breakouts = [b for b in breakouts if b.get("block") in top_blocks]
             anomalies = [a for a in anomalies if a.get("block") in top_blocks]
@@ -988,7 +993,7 @@ class DailyReviewAnalyzer:
         ashare_report = self.analyzer.analyze(ashare_effective) if ashare_effective else None
         usstock_report = self.analyzer.analyze(usstock_data) if usstock_data else None
 
-        # A股板块Top3与动态分析
+        # A股题材Top3与动态分析
         top_blocks = []
         block_stats = {}
         for r in ashare_effective:
@@ -1144,6 +1149,103 @@ class DailyReviewAnalyzer:
         except Exception as e:
             log.warning(f"[DailyReviewAnalyzer] 加载注意力状态失败: {e}")
 
+    def step5_hotspot_shift_history(self, market: str = None, lookback_hours: int = 24) -> Dict[str, Any]:
+        """
+        第五步：获取历史热点切换数据（从持久化历史中查询）
+
+        Args:
+            market: 市场标识 ('CN' 或 'US')，None 表示所有市场
+            lookback_hours: 回溯小时数
+
+        Returns:
+            包含历史热点切换信息的字典
+        """
+        try:
+            from deva.naja.market_hotspot.market_hotspot_history_tracker import get_history_tracker
+
+            tracker = get_history_tracker()
+            if tracker is None:
+                return {'status': 'no_tracker'}
+
+            cutoff_time = time.time() - (lookback_hours * 3600)
+
+            block_events = []
+            symbol_events = []
+            snapshots_timeline = []
+
+            for snapshot in tracker.snapshots:
+                if snapshot.timestamp < cutoff_time:
+                    continue
+
+                market_str = snapshot.market_time_str.split()[0] if snapshot.market_time_str else ''
+                if market == 'CN' and 'sh' in market_str.lower():
+                    continue
+                if market == 'US' and 'US' not in market_str and not any(x in str(snapshot.symbol_weights.keys()) for x in ['AAPL', 'NVDA', 'MSFT']):
+                    continue
+
+                snapshots_timeline.append({
+                    'timestamp': snapshot.timestamp,
+                    'time': snapshot.market_time_str,
+                    'global_hotspot': snapshot.global_hotspot,
+                    'top_blocks': dict(sorted(snapshot.block_weights.items(), key=lambda x: x[1], reverse=True)[:5]),
+                    'top_symbols': dict(sorted(snapshot.symbol_weights.items(), key=lambda x: x[1], reverse=True)[:5]),
+                })
+
+            for event in tracker.block_hotspot_events_medium:
+                if event.timestamp < cutoff_time:
+                    continue
+                block_events.append({
+                    'timestamp': event.timestamp,
+                    'time': event.market_time,
+                    'date': event.market_date,
+                    'block_id': event.block_id,
+                    'block_name': event.block_name,
+                    'event_type': event.event_type,
+                    'weight_change': event.weight_change,
+                    'change_percent': event.change_percent,
+                    'description': event.description,
+                })
+
+            for change in tracker.changes:
+                if change.timestamp < cutoff_time:
+                    continue
+                if change.item_type != 'symbol':
+                    continue
+                symbol_events.append({
+                    'timestamp': change.timestamp,
+                    'time': change.market_time,
+                    'symbol': change.item_id,
+                    'name': change.item_name,
+                    'change_type': change.change_type,
+                    'old_weight': change.old_weight,
+                    'new_weight': change.new_weight,
+                    'change_percent': change.change_percent,
+                    'description': change.description,
+                })
+
+            block_events.sort(key=lambda x: x['timestamp'], reverse=True)
+            symbol_events.sort(key=lambda x: x['timestamp'], reverse=True)
+            snapshots_timeline.sort(key=lambda x: x['timestamp'])
+
+            self.market_overview.hotspot_shift_timeline = snapshots_timeline
+            self.market_overview.block_shift_events = block_events[:50]
+            self.market_overview.symbol_shift_events = symbol_events[:50]
+
+            return {
+                'status': 'ok',
+                'lookback_hours': lookback_hours,
+                'snapshot_count': len(snapshots_timeline),
+                'block_event_count': len(block_events),
+                'symbol_event_count': len(symbol_events),
+                'block_events': block_events[:20],
+                'symbol_events': symbol_events[:20],
+                'timeline': snapshots_timeline,
+            }
+
+        except Exception as e:
+            log.warning(f"[DailyReviewAnalyzer] 获取热点切换历史失败: {e}")
+            return {'status': 'error', 'error': str(e)}
+
     def step2_hot_narrative(self, force_refresh: bool = False) -> List[NarrativePerformance]:
         """第二步：热点叙事主题 + 持仓分析
 
@@ -1260,7 +1362,7 @@ class DailyReviewAnalyzer:
                     return_pct=pos.return_pct,
                     today_change=today_change,
                     market_value=pos.market_value,
-                    sector=block,
+                    block=block,
                     narrative=narrative,
                     narrative_avg_change=narrative_avg,
                     relative_change=relative,

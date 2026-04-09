@@ -1,5 +1,5 @@
 """
-Attention Data - 注意力系统数据计算模块
+Attention Data - 热点系统数据计算模块
 
 提供数据计算功能:
 - 市场波动率计算

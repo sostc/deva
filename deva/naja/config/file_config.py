@@ -606,9 +606,9 @@ def create_example_configs():
     tongdaxin_example = {
         'metadata': {
             'id': 'tongdaxin_blocks_example',
-            'name': '通达信概念板块',
-            'description': '通达信概念板块数据，从 infoharbor_block.dat 文件读取',
-            'tags': ['板块', '概念', '通达信'],
+            'name': '通达信概念题材',
+            'description': '通达信概念题材数据，从 infoharbor_block.dat 文件读取',
+            'tags': ['题材', '概念', '通达信'],
             'category': '股票数据',
             'enabled': True,
         },
@@ -629,9 +629,9 @@ from pathlib import Path
 from deva.naja.dictionary.tongdaxin_blocks import get_dataframe
 
 def fetch_data():
-    """获取通达信概念板块数据
+    """获取通达信概念题材数据
 
-    返回展开格式的 DataFrame，每行一个股票-板块组合
+    返回展开格式的 DataFrame，每行一个股票-题材组合
     """
     blocks_file = Path(__file__).parent.parent.parent / "dictionary" / "infoharbor_block.dat"
     return get_dataframe(filepath=str(blocks_file))

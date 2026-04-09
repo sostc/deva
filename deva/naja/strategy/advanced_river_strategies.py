@@ -4,13 +4,13 @@
 特点：
 1. 早发现趋势变化 (Early Trend Detection)
 2. 过滤低质量股票 (噪音过滤)
-3. 板块与个股联动分析
+3. 题材与个股联动分析
 4. 支持 LLM 参数调节
 5. 支持模型持久化
 6. HTML 可视化输出
 
 数据源: realtime_tick_5s
-字典: 通达信概念板块
+字典: 通达信概念题材
 """
 
 from __future__ import annotations
@@ -317,9 +317,9 @@ class EarlyTrendDetector:
 
 
 class BlockMomentumAnalyzer:
-    """板块动量分析器
+    """题材动量分析器
 
-    分析板块内个股的联动性和动量
+    分析题材内个股的联动性和动量
     """
 
     def __init__(
@@ -338,7 +338,7 @@ class BlockMomentumAnalyzer:
         self._stock_codes: List[str] = []
 
     def set_block_stocks(self, block_name: str, stock_codes: List[str]) -> None:
-        """设置板块股票列表"""
+        """设置题材股票列表"""
         self._block_name = block_name
         self._stock_codes = stock_codes
 
@@ -395,7 +395,7 @@ class BlockMomentumAnalyzer:
             self._block_history.pop(0)
 
     def _extract_block_features(self, df: pd.DataFrame) -> Dict[str, float]:
-        """提取板块特征"""
+        """提取题材特征"""
         features = {}
 
         if "p_change" in df.columns:
@@ -454,7 +454,7 @@ class BlockMomentumAnalyzer:
 
         html = f'''
 <div style="background:linear-gradient(135deg,#f093fb,#f5576c);border-radius:16px;padding:16px;color:#fff;margin-bottom:12px;">
-    <div style="font-weight:600;font-size:16px;margin-bottom:12px;">🔥 板块动量分析</div>
+    <div style="font-weight:600;font-size:16px;margin-bottom:12px;">🔥 题材动量分析</div>
     <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:12px;">
         <div style="background:rgba(255,255,255,0.2);border-radius:12px;padding:12px;text-align:center;">
             <div style="font-size:24px;font-weight:700;">{momentum:+.2f}%</div>
@@ -483,7 +483,7 @@ class BlockMomentumAnalyzer:
 class StockSelector:
     """个股精选器
 
-    从板块中精选个股，给 Bandit 提供交易信号
+    从题材中精选个股，给 Bandit 提供交易信号
     """
 
     def __init__(

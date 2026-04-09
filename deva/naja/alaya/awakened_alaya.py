@@ -50,13 +50,13 @@ class AwakeningLevel(Enum):
     ENLIGHTENED = "enlightened" # 顿悟
 
 
-class CrossMarketSectorMapper:
+class CrossMarketBlockMapper:
     """
-    美股板块 → A股板块 映射器
+    美股题材 → A股题材 映射器
 
-    用于将美股热门板块的变化传导到A股市场预测
+    用于将美股热门题材的变化传导到A股市场预测
     """
-    US_SECTOR_TO_A_STOCK: Dict[str, List[str]] = {
+    US_BLOCK_TO_A_STOCK: Dict[str, List[str]] = {
         "ai_chip": ["AI", "半导体", "芯片", "光刻机", "GPU", "CPU"],
         "ai_infra": ["AI", "云计算", "云服务", "数据中心", "服务器"],
         "cloud_ai": ["AI", "云计算", "云服务", "SaaS", "大数据"],
@@ -76,16 +76,16 @@ class CrossMarketSectorMapper:
     }
 
     @classmethod
-    def get_a_stock_sectors(cls, us_sector: str) -> List[str]:
-        """获取美股板块对应的A股板块列表"""
-        return cls.US_SECTOR_TO_A_STOCK.get(us_sector, [])
+    def get_a_stock_blocks(cls, us_block: str) -> List[str]:
+        """获取美股题材对应的A股题材列表"""
+        return cls.US_BLOCK_TO_A_STOCK.get(us_block, [])
 
     @classmethod
-    def get_all_a_stock_sectors(cls) -> Set[str]:
-        """获取所有映射的A股板块（去重）"""
+    def get_all_a_stock_blocks(cls) -> Set[str]:
+        """获取所有映射的A股题材（去重）"""
         result = set()
-        for a_sectors in cls.US_SECTOR_TO_A_STOCK.values():
-            result.update(a_sectors)
+        for a_blocks in cls.US_BLOCK_TO_A_STOCK.values():
+            result.update(a_blocks)
         return result
 
 
@@ -211,61 +211,61 @@ class CrossMarketMemory:
         score = success_rate * match_score * freshness
         return score
 
-    def push_sector_change(
+    def push_block_change(
         self,
-        us_sector_changes: Dict[str, float],
+        us_block_changes: Dict[str, float],
         significance_threshold: float = 0.3
     ) -> List[Dict[str, Any]]:
         """
-        推送美股板块变化到跨市场记忆
+        推送美股题材变化到跨市场记忆
 
         Args:
-            us_sector_changes: 美股板块注意力变化 dict，{板块ID: 注意力权重}
+            us_block_changes: 美股题材注意力变化 dict，{题材ID: 注意力权重}
             significance_threshold: 显著变化阈值，默认0.3
 
         Returns:
-            被推送的A股预测板块列表
+            被推送的A股预测题材列表
         """
-        if not us_sector_changes:
+        if not us_block_changes:
             return []
 
         significant_changes = {
-            sector: weight
-            for sector, weight in us_sector_changes.items()
+            block: weight
+            for block, weight in us_block_changes.items()
             if weight >= significance_threshold
         }
 
         if not significant_changes:
             return []
 
-        pushed_a_sectors = []
+        pushed_a_blocks = []
 
-        for us_sector, weight in significant_changes.items():
-            a_sectors = CrossMarketSectorMapper.get_a_stock_sectors(us_sector)
+        for us_block, weight in significant_changes.items():
+            a_blocks = CrossMarketBlockMapper.get_a_stock_blocks(us_block)
 
-            for a_sector in a_sectors:
+            for a_block in a_blocks:
                 pattern = {
-                    "pattern_id": f"us_{us_sector}_to_a_{a_sector}_{int(time.time())}",
+                    "pattern_id": f"us_{us_block}_to_a_{a_block}_{int(time.time())}",
                     "conditions": {
-                        "us_sector": us_sector,
+                        "us_block": us_block,
                         "us_weight": weight,
-                        "a_sector": a_sector,
+                        "a_block": a_block,
                         "significance": weight,
                     },
                     "source_market": "us_stock",
                     "target_market": "a_stock",
-                    "prediction": "明日A股相关板块可能受益",
+                    "prediction": "明日A股相关题材可能受益",
                 }
 
                 self.store_success_pattern("us_stock", pattern)
-                pushed_a_sectors.append({
-                    "us_sector": us_sector,
+                pushed_a_blocks.append({
+                    "us_block": us_block,
                     "us_weight": weight,
-                    "a_sector": a_sector,
+                    "a_block": a_block,
                 })
 
-        log.info(f"[CrossMarket] 推送美股板块变化: {len(pushed_a_sectors)} 个A股预测")
-        return pushed_a_sectors
+        log.info(f"[CrossMarket] 推送美股题材变化: {len(pushed_a_blocks)} 个A股预测")
+        return pushed_a_blocks
 
     def store_success_pattern(
         self,
@@ -473,11 +473,11 @@ class PatternArchiveManager:
             "breakout": [],
             "accumulation": [],
             "distribution": [],
-            "sector_rotation": []
+            "block_rotation": []
         }
         self._index: Dict[str, Set[str]] = {
             "by_symbol": {},
-            "by_sector": {},
+            "by_block": {},
             "by_time": {}
         }
         self._pattern_half_life = pattern_half_life
@@ -554,17 +554,17 @@ class PatternArchiveManager:
                 self._index["by_symbol"][symbol] = set()
             self._index["by_symbol"][symbol].add(archive.pattern_id)
 
-        sector = archive.market_context.get("sector")
-        if sector:
-            if sector not in self._index["by_sector"]:
-                self._index["by_sector"][sector] = set()
-            self._index["by_sector"][sector].add(archive.pattern_id)
+        block = archive.market_context.get("block")
+        if block:
+            if block not in self._index["by_block"]:
+                self._index["by_block"][block] = set()
+            self._index["by_block"][block].add(archive.pattern_id)
 
     def recall(
         self,
         pattern_type: Optional[str] = None,
         symbol: Optional[str] = None,
-        sector: Optional[str] = None,
+        block: Optional[str] = None,
         limit: int = 10
     ) -> List[PatternArchive]:
         """
@@ -582,8 +582,8 @@ class PatternArchiveManager:
             for pattern_list in self._archives.values():
                 candidates.extend([p for p in pattern_list if p.pattern_id in pattern_ids])
 
-        if sector and sector in self._index["by_sector"]:
-            pattern_ids = self._index["by_sector"][sector]
+        if block and block in self._index["by_block"]:
+            pattern_ids = self._index["by_block"][block]
             for pattern_list in self._archives.values():
                 candidates.extend([p for p in pattern_list if p.pattern_id in pattern_ids])
 
@@ -669,7 +669,7 @@ class PatternArchiveManager:
 
             archives_data = state_data.get("archives", {})
             self._archives = {}
-            self._index = {"by_symbol": {}, "by_sector": {}, "by_time": {}}
+            self._index = {"by_symbol": {}, "by_block": {}, "by_time": {}}
 
             for pattern_type, pattern_list in archives_data.items():
                 self._archives[pattern_type] = []
@@ -1168,13 +1168,13 @@ class AwakenedAlaya:
     def _recall_relevant_patterns(self, market_data: Dict[str, Any]) -> List[PatternArchive]:
         """召回相关模式"""
         symbol = market_data.get("symbol")
-        sector = market_data.get("sector")
+        block = market_data.get("block")
         pattern_type = market_data.get("pattern_type")
 
         patterns = self.pattern_archive.recall(
             pattern_type=pattern_type,
             symbol=symbol,
-            sector=sector
+            block=block
         )
 
         cross_patterns = self.cross_market_memory.recall_applicable_patterns(

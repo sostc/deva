@@ -167,7 +167,7 @@ class SoftInfoConfidence:
 
         Args:
             resonance_count: 共振信号数量
-            block_count: 涉及板块数量
+            block_count: 涉及题材数量
             source_reliability: 来源可靠性
 
         Returns:
@@ -191,7 +191,7 @@ class SoftInfoConfidence:
             source=SoftInfoSource.CROSS_SIGNAL.value,
             value=direction_score,
             confidence=confidence,
-            reason=f"共振:{resonance_count}信号, {block_count}板块",
+            reason=f"共振:{resonance_count}信号, {block_count}题材",
             metadata={"resonance_count": resonance_count, "block_count": block_count}
         )
 

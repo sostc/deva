@@ -87,7 +87,7 @@ def render_cross_signal(ui):
     put_html(f"""
     <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; margin-bottom: 14px;">
         <div style="background: rgba(96,165,250,0.12); border: 1px solid rgba(96,165,250,0.25); padding: 10px 14px; border-radius: 8px; text-align: center;">
-            <div style="font-size: 10px; color: #64748b; margin-bottom: 2px;">⚡ 板块共振历史</div>
+            <div style="font-size: 10px; color: #64748b; margin-bottom: 2px;">⚡ 题材共振历史</div>
             <div style="font-size: 18px; font-weight: 700; color: #60a5fa;">{resonance_history_size}</div>
             <div style="font-size: 9px; color: #94a3b8;">近1分钟: {recent_resonance_count}</div>
         </div>
@@ -102,7 +102,7 @@ def render_cross_signal(ui):
     put_html("""
     <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 14px;">
         <div style="background: rgba(96,165,250,0.1); border: 1px solid rgba(96,165,250,0.2); padding: 8px 12px; border-radius: 8px; text-align: center;">
-            <div style="font-size: 11px; color: #60a5fa; font-weight: 600;">板块共振</div>
+            <div style="font-size: 11px; color: #60a5fa; font-weight: 600;">题材共振</div>
             <div style="font-size: 10px; color: #94a3b8;">新闻 × 注意力</div>
             <div style="font-size: 9px; color: #64748b; margin-top: 2px;">AI/芯片/新能源</div>
         </div>
@@ -144,7 +144,7 @@ def render_cross_signal(ui):
             padding: 12px;
         ">
             <div style="font-size: 11px; font-weight: 600; color: #f97316; margin-bottom: 8px;">
-                🔥 高共振板块
+                🔥 高共振题材
             </div>
             {block_bars}
         </div>

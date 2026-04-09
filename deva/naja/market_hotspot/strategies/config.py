@@ -1,5 +1,5 @@
 """
-注意力策略配置系统
+热点策略配置系统
 
 提供策略配置加载、保存和管理功能
 """
@@ -28,7 +28,7 @@ class StrategySettings:
 
 @dataclass
 class HotspotStrategyConfig:
-    """注意力策略系统配置"""
+    """热点策略系统配置"""
     version: str = "1.0.0"
     
     # 全局设置
@@ -84,51 +84,51 @@ class ConfigManager:
         config.strategies['block_rotation_hunter'] = StrategySettings(
             enabled=True,
             priority=8,
-            min_global_hotspot=0.3,
-            cooldown_period=300.0,
+            min_global_hotspot=0.15,
+            cooldown_period=180.0,
             custom_params={
-                'momentum_threshold': 0.15,
-                'min_block_hotspot': 0.4
+                'momentum_threshold': 0.10,
+                'min_block_hotspot': 0.25
             }
         )
-        
+
         # 动量突破
         config.strategies['momentum_surge_tracker'] = StrategySettings(
             enabled=True,
             priority=7,
-            min_global_hotspot=0.4,
-            min_symbol_weight=2.0,
+            min_global_hotspot=0.20,
+            min_symbol_weight=1.0,
             max_positions=20,
-            cooldown_period=180.0,
+            cooldown_period=120.0,
             custom_params={
-                'price_threshold': 0.03,
-                'volume_threshold': 2.0
+                'price_threshold': 0.02,
+                'volume_threshold': 1.5
             }
         )
-        
+
         # 异常模式
         config.strategies['anomaly_pattern_sniper'] = StrategySettings(
             enabled=True,
             priority=6,
-            min_global_hotspot=0.3,
-            min_symbol_weight=3.0,
-            cooldown_period=300.0,
+            min_global_hotspot=0.15,
+            min_symbol_weight=1.5,
+            cooldown_period=180.0,
             custom_params={
-                'zscore_threshold': 2.5,
-                'pytorch_activation_threshold': 0.6
+                'zscore_threshold': 2.0,
+                'pytorch_activation_threshold': 0.4
             }
         )
-        
+
         # 聪明资金
         config.strategies['smart_money_flow_detector'] = StrategySettings(
             enabled=True,
             priority=7,
-            min_global_hotspot=0.35,
-            min_symbol_weight=2.5,
-            cooldown_period=240.0,
+            min_global_hotspot=0.20,
+            min_symbol_weight=1.5,
+            cooldown_period=180.0,
             custom_params={
-                'large_order_threshold': 1000000,
-                'accumulation_threshold': 0.7
+                'large_order_threshold': 500000,
+                'accumulation_threshold': 0.5
             }
         )
         

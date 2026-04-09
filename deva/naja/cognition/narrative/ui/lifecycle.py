@@ -110,7 +110,7 @@ def render_narrative_lifecycle(ui):
             evt_attention = float(evt.get('attention_score', 0))
             evt_trend = float(evt.get('trend', 0))
             evt_keywords = evt.get('keywords', [])[:2]
-            evt_blocks = (evt.get('linked_blocks') or evt.get('linked_sectors') or [])[:2]
+            evt_blocks = (evt.get('linked_blocks') or evt.get('linked_blocks') or [])[:2]
 
             if 'stage_change' in evt_type:
                 evt_color = '#4ade80' if evt_stage == '高潮' else ('#a855f7' if evt_stage == '扩散' else ('#fb923c' if evt_stage == '消退' else '#60a5fa'))

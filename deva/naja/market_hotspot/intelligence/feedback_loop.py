@@ -1,16 +1,16 @@
 """
-Module 8: Attention Feedback Loop - 注意力反馈学习系统
+Module 8: Hotspot Feedback Loop - 热点反馈学习系统
 
 核心能力:
-- 记录每次 attention → strategy → outcome
-- 统计哪些 attention 模式 → 高收益
+- 记录每次 热点 → 策略 → outcome
+- 统计哪些 热点模式 → 高收益
 - 识别噪音模式
 - 使用 Bandit 算法进行在线学习
 
 架构:
 - FeedbackCollector: 收集策略执行结果
-- Attention有效性分析器: 分析哪些 attention 是有效的
-- BanditUpdater: 使用 bandit 算法更新注意力权重
+- 热点有效性分析器: 分析哪些 attention 是有效的
+- BanditUpdater: 使用 bandit 算法更新热点权重
 """
 
 import numpy as np
@@ -30,8 +30,8 @@ class StrategyOutcome:
     strategy_id: str
     symbol: str
     block_id: str
-    attention_before: float
-    attention_after: float
+    hotspot_before: float
+    hotspot_after: float
     prediction_score: float
     action: str
     pnl: float
@@ -41,11 +41,11 @@ class StrategyOutcome:
 
 
 @dataclass
-class AttentionEffectiveness:
-    """注意力有效性评分"""
+class HotspotEffectiveness:
+    """热点有效性评分"""
     pattern_id: str
     pattern_type: str
-    attention_range: Tuple[float, float]
+    hotspot_range: Tuple[float, float]
     hit_count: int
     total_return: float
     win_rate: float
@@ -59,7 +59,7 @@ class FeedbackCollector:
     反馈收集器
     
     职责:
-    - 记录每次 attention → strategy → outcome
+    - 记录每次 热点 → 策略 → outcome
     - 维护历史记录
     """
     
@@ -79,8 +79,8 @@ class FeedbackCollector:
         strategy_id: str,
         symbol: str,
         block_id: str,
-        attention_before: float,
-        attention_after: float,
+        hotspot_before: float,
+        hotspot_after: float,
         prediction_score: float,
         action: str,
         pnl: float,
@@ -94,8 +94,8 @@ class FeedbackCollector:
             strategy_id=strategy_id,
             symbol=symbol,
             block_id=block_id,
-            attention_before=attention_before,
-            attention_after=attention_after,
+            hotspot_before=hotspot_before,
+            hotspot_after=hotspot_after,
             prediction_score=prediction_score,
             action=action,
             pnl=pnl,
@@ -107,7 +107,7 @@ class FeedbackCollector:
         self._outcomes.append(outcome)
         
         pattern_key = self._make_pattern_key(
-            attention_before, prediction_score, market_state
+            hotspot_before, prediction_score, market_state
         )
         self._pattern_outcomes[pattern_key].append(outcome)
         
@@ -115,7 +115,7 @@ class FeedbackCollector:
     
     def _make_pattern_key(
         self,
-        attention: float,
+        hotspot_val: float,
         prediction: float,
         market_state: str
     ) -> str:
@@ -178,12 +178,12 @@ class FeedbackCollector:
         self._pattern_outcomes.clear()
 
 
-class AttentionEffectivenessAnalyzer:
+class HotspotEffectivenessAnalyzer:
     """
-    注意力有效性分析器
+    热点有效性分析器
     
     职责:
-    - 分析哪些 attention 模式是有效的
+    - 分析哪些 热点模式是有效的
     - 计算有效性分数
     - 识别噪音模式
     """
@@ -196,11 +196,11 @@ class AttentionEffectivenessAnalyzer:
         self.min_samples = min_samples
         self.effectiveness_threshold = effectiveness_threshold
         
-        self._effectiveness: Dict[str, AttentionEffectiveness] = {}
+        self._effectiveness: Dict[str, HotspotEffectiveness] = {}
         
-    def analyze(self, collector: FeedbackCollector) -> Dict[str, AttentionEffectiveness]:
+    def analyze(self, collector: FeedbackCollector) -> Dict[str, HotspotEffectiveness]:
         """
-        分析注意力有效性
+        分析热点有效性
         """
         self._effectiveness.clear()
         
@@ -217,7 +217,7 @@ class AttentionEffectivenessAnalyzer:
         self,
         pattern_key: str,
         outcomes: List[StrategyOutcome]
-    ) -> AttentionEffectiveness:
+    ) -> HotspotEffectiveness:
         """计算单个模式的 effectiveness"""
         pnls = [o.pnl for o in outcomes]
         wins = [1 for o in outcomes if o.pnl > 0]
@@ -237,12 +237,12 @@ class AttentionEffectivenessAnalyzer:
         else:
             effectiveness_score = 0.0
         
-        attention_range = self._parse_attention_range(pattern_key)
+        hotspot_range = self._parse_hotspot_range(pattern_key)
         
-        return AttentionEffectiveness(
+        return HotspotEffectiveness(
             pattern_id=pattern_key,
             pattern_type=pattern_type,
-            attention_range=attention_range,
+            hotspot_range=hotspot_range,
             hit_count=hit_count,
             total_return=total_return,
             win_rate=win_rate,
@@ -263,12 +263,12 @@ class AttentionEffectivenessAnalyzer:
             elif attention > 0.7 and prediction <= 0.6:
                 return "high_hotspot_low_prediction"
             elif attention <= 0.3 and prediction > 0.6:
-                return "low_attention_high_prediction"
+                return "low_hotspot_high_prediction"
             else:
                 return "moderate"
         return "unknown"
     
-    def _parse_attention_range(self, pattern_key: str) -> Tuple[float, float]:
+    def _parse_hotspot_range(self, pattern_key: str) -> Tuple[float, float]:
         """解析 attention 范围"""
         parts = pattern_key.split('_')
         if parts:
@@ -293,19 +293,19 @@ class AttentionEffectivenessAnalyzer:
             if v.effectiveness_score < -self.effectiveness_threshold
         ]
     
-    def get_best_attention_adjustment(
+    def get_best_hotspot_adjustment(
         self,
-        current_attention: float,
+        current_hotspot: float,
         prediction_score: float,
         market_state: str
     ) -> float:
         """
-        获取最佳注意力调整建议
+        获取最佳热点调整建议
         
         Returns:
             adjustment factor (e.g., 1.2 means +20% attention)
         """
-        pattern_key = f"{current_attention:.1f}_{prediction_score:.1f}_{market_state}"
+        pattern_key = f"{current_hotspot:.1f}_{prediction_score:.1f}_{market_state}"
         
         effectiveness = self._effectiveness.get(pattern_key)
         
@@ -319,7 +319,7 @@ class AttentionEffectivenessAnalyzer:
         
         return 1.0
     
-    def get_all_effectiveness(self) -> Dict[str, AttentionEffectiveness]:
+    def get_all_effectiveness(self) -> Dict[str, HotspotEffectiveness]:
         """获取所有有效性评分"""
         return self._effectiveness.copy()
     
@@ -357,7 +357,7 @@ class BanditUpdater:
         
     def _get_context(
         self,
-        attention: float,
+        hotspot_val: float,
         prediction_score: float,
         volatility: float,
         volume_ratio: float,
@@ -396,7 +396,7 @@ class BanditUpdater:
     
     def select_action(
         self,
-        attention: float,
+        hotspot_val: float,
         prediction_score: float,
         volatility: float = 0.0,
         volume_ratio: float = 1.0,
@@ -409,13 +409,13 @@ class BanditUpdater:
             attention weight adjustment
         """
         context = self._get_context(
-            attention, prediction_score, volatility, volume_ratio, trend
+            hotspot_val, prediction_score, volatility, volume_ratio, trend
         )
         return self._get_action(context)
     
     def update(
         self,
-        attention: float,
+        hotspot_val: float,
         prediction_score: float,
         volatility: float,
         volume_ratio: float,
@@ -430,7 +430,7 @@ class BanditUpdater:
         symbol: 股票代码（用于报告）
         """
         context = self._get_context(
-            attention, prediction_score, volatility, volume_ratio, trend
+            hotspot_val, prediction_score, volatility, volume_ratio, trend
         )
 
         self._context_history.append((context, reward))
@@ -468,7 +468,7 @@ class BanditUpdater:
             reporter.record_bandit_update(
                 symbol=symbol,
                 context={
-                    'attention': float(context[0]),
+                    'hotspot': float(context[0]),
                     'prediction_score': float(context[1]),
                     'volatility': float(context[2]),
                     'volume_ratio': float(context[3]),
@@ -498,7 +498,7 @@ class BanditUpdater:
         
         self._theta[context_key] = theta
     
-    def get_theta(self, attention: float, prediction_score: float) -> np.ndarray:
+    def get_theta(self, hotspot_val: float, prediction_score: float) -> np.ndarray:
         """获取指定上下文的 theta"""
         context_key = f"{attention:.2f}_{prediction_score:.2f}"
         return self._theta.get(context_key, np.zeros(self._context_dim))
@@ -510,18 +510,18 @@ class BanditUpdater:
         self._reward_history.clear()
 
 
-class AttentionFeedbackLoop:
+class HotspotFeedbackLoop:
     """
-    注意力反馈循环主控制器
+    热点反馈循环主控制器
 
     整合:
     - FeedbackCollector: 收集反馈
-    - AttentionEffectivenessAnalyzer: 分析有效性
+    - HotspotEffectivenessAnalyzer: 分析有效性
     - BanditUpdater: 在线学习
 
     数据流:
     Strategy执行结果 → FeedbackCollector → EffectivenessAnalyzer →
-    BanditUpdater → Attention权重调整
+    BanditUpdater → Hotspot权重调整
 
     修复内容:
     - 添加异步批量更新机制，避免同步阻塞
@@ -537,7 +537,7 @@ class AttentionFeedbackLoop:
         batch_size: int = 100
     ):
         self.collector = FeedbackCollector(store_path=store_path)
-        self.analyzer = AttentionEffectivenessAnalyzer()
+        self.analyzer = HotspotEffectivenessAnalyzer()
         self.bandit = BanditUpdater() if enable_bandit else None
         self.enable_effectiveness = enable_effectiveness
 
@@ -586,7 +586,7 @@ class AttentionFeedbackLoop:
             if self.bandit:
                 for update in updates_to_process:
                     self.bandit.update(
-                        update['attention'],
+                        update['hotspot'],
                         update['prediction'],
                         update.get('volatility', 0.0),
                         update.get('volume_ratio', 1.0),
@@ -605,8 +605,8 @@ class AttentionFeedbackLoop:
         strategy_id: str,
         symbol: str,
         block_id: str,
-        attention_before: float,
-        attention_after: float,
+        hotspot_before: float,
+        hotspot_after: float,
         prediction_score: float,
         action: str,
         pnl: float,
@@ -625,8 +625,8 @@ class AttentionFeedbackLoop:
             strategy_id=strategy_id,
             symbol=symbol,
             block_id=block_id,
-            attention_before=attention_before,
-            attention_after=attention_after,
+            hotspot_before=hotspot_before,
+            hotspot_after=hotspot_after,
             prediction_score=prediction_score,
             action=action,
             pnl=pnl,
@@ -637,7 +637,7 @@ class AttentionFeedbackLoop:
         reward = self._calc_reward(pnl, holding_period)
 
         self._pending_updates.append({
-            'attention': attention_before,
+            'hotspot': hotspot_before,
             'prediction': prediction_score,
             'volatility': volatility,
             'volume_ratio': volume_ratio,
@@ -669,7 +669,7 @@ class AttentionFeedbackLoop:
         symbol: str,
         block_id: str,
         strategy_id: str,
-        attention_score: float,
+        hotspot_score: float,
         prediction_score: float,
         action: str,
         entry_price: float,
@@ -683,15 +683,15 @@ class AttentionFeedbackLoop:
         记录一次观察结果（不需要实际成交）
 
         这是用户新思路的核心:
-        - 只要注意力系统识别到内容，就开始跟踪
+        - 只要热点系统识别到内容，就开始跟踪
         - 不需要实际买入
         - 根据价格变化形成反馈
 
         Args:
             symbol: 股票代码
-            block_id: 板块ID
+            block_id: 题材ID
             strategy_id: 策略ID
-            attention_score: 注意力分数
+            attention_score: 热点分数
             prediction_score: 预测分数
             action: 动作
             entry_price: 入场价格
@@ -710,8 +710,8 @@ class AttentionFeedbackLoop:
             strategy_id=strategy_id,
             symbol=symbol,
             block_id=block_id,
-            attention_before=attention_score,
-            attention_after=attention_score,
+            hotspot_before=attention_score,
+            hotspot_after=attention_score,
             prediction_score=prediction_score,
             action=action,
             pnl=pnl,
@@ -744,7 +744,7 @@ class AttentionFeedbackLoop:
     def record_price_feedback(
         self,
         symbol: str,
-        attention_score: float,
+        hotspot_score: float,
         prediction_score: float,
         current_price: float,
         entry_price: float,
@@ -762,7 +762,7 @@ class AttentionFeedbackLoop:
 
         Args:
             symbol: 股票代码
-            attention_score: 注意力分数
+            attention_score: 热点分数
             prediction_score: 预测分数
             current_price: 当前价格
             entry_price: 入场价格
@@ -797,10 +797,10 @@ class AttentionFeedbackLoop:
 
         return reward
 
-    def get_attention_adjustment(
+    def get_hotspot_adjustment(
         self,
         symbol: str,
-        attention: float,
+        hotspot_val: float,
         prediction_score: float,
         market_state: str = "unknown",
         volatility: float = 0.0,
@@ -808,21 +808,21 @@ class AttentionFeedbackLoop:
         trend: float = 0.0
     ) -> float:
         """
-        获取注意力权重调整建议
+        获取热点权重调整建议
         
         Returns:
             adjustment factor (e.g., 1.2 means +20%)
         """
         if self.bandit:
             bandit_adj = self.bandit.select_action(
-                attention, prediction_score, volatility, volume_ratio, trend
+                hotspot_val, prediction_score, volatility, volume_ratio, trend
             )
         else:
             bandit_adj = 1.0
         
         if self.enable_effectiveness:
-            effective_adj = self.analyzer.get_best_attention_adjustment(
-                attention, prediction_score, market_state
+            effective_adj = self.analyzer.get_best_hotspot_adjustment(
+                hotspot_val, prediction_score, market_state
             )
         else:
             effective_adj = 1.0
@@ -847,23 +847,23 @@ class AttentionFeedbackLoop:
     
     def apply_adjustment(
         self,
-        attention: float,
+        hotspot_val: float,
         adjustment: float
     ) -> float:
         """
         应用调整
         
         Returns:
-            adjusted attention
+            调整后热点
         """
-        return attention * adjustment
+        return hotspot_val * adjustment
     
     def persist(self):
         """持久化"""
         self.collector.persist()
         
         if self.bandit and self._adjustment_history:
-            path = Path("attention_bandit_state.pkl")
+            path = Path("hotspot_bandit_state.pkl")
             with open(path, 'wb') as f:
                 pickle.dump({
                     'theta': self.bandit._theta,
@@ -874,7 +874,7 @@ class AttentionFeedbackLoop:
         """加载"""
         self.collector.load()
         
-        path = Path("attention_bandit_state.pkl")
+        path = Path("hotspot_bandit_state.pkl")
         if path.exists():
             with open(path, 'rb') as f:
                 data = pickle.load(f)
@@ -895,7 +895,7 @@ class AttentionFeedbackLoop:
         }
 
     def _emit_to_insight(self) -> int:
-        """将注意力有效性分析结果通过事件总线发送"""
+        """将热点有效性分析结果通过事件总线发送"""
         try:
             from deva.naja.events import get_event_bus, HotspotShiftEvent
             event_bus = get_event_bus()

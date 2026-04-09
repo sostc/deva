@@ -1,4 +1,4 @@
-"""通达信概念板块数据解析和查询工具"""
+"""通达信概念题材数据解析和查询工具"""
 
 import os
 import re
@@ -114,13 +114,13 @@ def _parse_blocks_file(filepath: str = None):
 
 
 def get_stock_blocks(code: str) -> List[str]:
-    """获取股票所属的所有板块
+    """获取股票所属的所有题材
     
     Args:
         code: 股票代码 (如 '000001', '600000')
     
     Returns:
-        板块名称列表
+        题材名称列表
     """
     _parse_blocks_file()
     normalized = normalize_stock_code(code)
@@ -128,23 +128,23 @@ def get_stock_blocks(code: str) -> List[str]:
 
 
 def get_block_info(block_name: str) -> Dict:
-    """获取板块的详细信息
+    """获取题材的详细信息
     
     Args:
-        block_name: 板块名称 (如 '人工智能', '新能源车')
+        block_name: 题材名称 (如 '人工智能', '新能源车')
     
     Returns:
-        板块信息字典，包含 name, stock_count, block_id, start_date, end_date
+        题材信息字典，包含 name, stock_count, block_id, start_date, end_date
     """
     _parse_blocks_file()
     return _block_info.get(block_name, {})
 
 
 def get_block_stocks(block_name: str) -> List[str]:
-    """获取板块包含的所有股票代码
+    """获取题材包含的所有股票代码
     
     Args:
-        block_name: 板块名称
+        block_name: 题材名称
     
     Returns:
         股票代码列表
@@ -157,23 +157,23 @@ def get_block_stocks(block_name: str) -> List[str]:
 
 
 def get_all_blocks() -> List[str]:
-    """获取所有板块名称
+    """获取所有题材名称
     
     Returns:
-        板块名称列表
+        题材名称列表
     """
     _parse_blocks_file()
     return sorted([b['name'] for b in _blocks_data])
 
 
 def get_blocks_by_keyword(keyword: str) -> List[str]:
-    """根据关键词搜索板块
+    """根据关键词搜索题材
     
     Args:
         keyword: 关键词
     
     Returns:
-        匹配的板块名称列表
+        匹配的题材名称列表
     """
     _parse_blocks_file()
     keyword = keyword.lower()
@@ -181,10 +181,10 @@ def get_blocks_by_keyword(keyword: str) -> List[str]:
 
 
 def reload_blocks(filepath: str = None):
-    """重新加载板块数据
+    """重新加载题材数据
     
     Args:
-        filepath: 可选的板块数据文件路径
+        filepath: 可选的题材数据文件路径
     """
     global _blocks_data, _stock_to_blocks, _block_info
     _blocks_data = None
@@ -194,7 +194,7 @@ def reload_blocks(filepath: str = None):
 
 
 def get_dataframe(filepath: str = None) -> "pd.DataFrame":
-    """获取板块数据的 DataFrame 格式
+    """获取题材数据的 DataFrame 格式
     
     Args:
         filepath: 可选的文件路径，不提供则使用默认路径
@@ -242,10 +242,10 @@ def get_dataframe(filepath: str = None) -> "pd.DataFrame":
 
 
 def get_stock_block_mapping() -> Dict[str, Set[str]]:
-    """获取股票代码到板块的映射字典
+    """获取股票代码到题材的映射字典
     
     Returns:
-        {股票代码: {板块名称集合}}
+        {股票代码: {题材名称集合}}
     """
     _parse_blocks_file()
     return _stock_to_blocks.copy()

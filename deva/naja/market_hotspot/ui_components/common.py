@@ -1,4 +1,4 @@
-"""注意力系统 UI 通用数据获取函数"""
+"""热点系统 UI 通用数据获取函数"""
 
 from typing import Dict, List, Any, Optional, Tuple
 import pandas as pd
@@ -13,7 +13,7 @@ def _lab_debug_log(msg: str):
 
 
 def get_market_hotspot_integration():
-    """获取注意力系统集成"""
+    """获取热点系统集成"""
     try:
         from deva.naja.market_hotspot.integration import get_market_hotspot_integration
         return get_market_hotspot_integration()
@@ -192,7 +192,7 @@ def get_hotspot_shift_report():
     tracker = get_history_tracker()
     if tracker:
         try:
-            return tracker.get_attention_shift_report()
+            return tracker.get_hotspot_shift_report()
         except Exception:
             pass
     return {'has_shift': False}

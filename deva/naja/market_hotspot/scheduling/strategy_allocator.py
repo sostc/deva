@@ -2,16 +2,16 @@
 Strategy Allocation & Control Module - 策略分配与调节
 
 功能:
-- 三层作用域策略: Global / Sector / Symbol
+- 三层作用域策略: Global / Block / Symbol
 - 策略动态加载/卸载
 - 参数连续控制
 - 策略启停机制
-- DecisionAttention 决策型注意力集成
+- DecisionHotspot 决策型热点集成
 
 架构:
-Attention = "势" (资源流向)
+Hotspot = "势" (资源流向)
 Strategy = "术" (如何利用资源)
-DecisionAttention = "决" (何时押注，押多少)
+DecisionHotspot = "决" (何时押注，押多少)
 """
 
 import numpy as np
@@ -68,8 +68,8 @@ class StrategyConfig:
     params: StrategyParams = field(default_factory=StrategyParams)
     
     # 激活条件
-    min_attention: float = 0.0      # 最小注意力要求
-    max_attention: float = 1.0      # 最大注意力限制
+    min_attention: float = 0.0      # 最小热点要求
+    max_attention: float = 1.0      # 最大热点限制
     
     # 依赖
     depends_on: List[str] = field(default_factory=list)
@@ -188,11 +188,11 @@ class StrategyAllocator:
     策略分配器
 
     核心功能:
-    1. 根据注意力分配策略
+    1. 根据热点分配策略
     2. 动态加载/卸载策略
     3. 参数连续控制
     4. 策略启停管理
-    5. DecisionAttention 决策注意力调制
+    5. DecisionHotspot 决策热点调制
     """
 
     def __init__(
@@ -220,15 +220,15 @@ class StrategyAllocator:
 
     def set_decision_attention(self, decision_attention):
         """
-        设置决策注意力实例
+        设置决策热点实例
 
         Args:
-            decision_attention: DecisionAttention 实例
+            decision_attention: DecisionHotspot 实例
         """
         self._decision_attention = decision_attention
 
     def get_decision_attention(self):
-        """获取决策注意力实例"""
+        """获取决策热点实例"""
         return self._decision_attention
 
     def _get_alpha(self) -> float:
@@ -258,7 +258,7 @@ class StrategyAllocator:
         """
         执行策略分配
 
-        DecisionAttention 调制:
+        DecisionHotspot 调制:
         - α (策略准确性) 影响 position_size
         - T (温度/胆识) 影响 position_size 和 risk_limit
         - courage 影响总体的激进程度
@@ -366,7 +366,7 @@ class StrategyAllocator:
         allocated = []
 
         for strategy in strategies:
-            # 题材策略需要同时满足全局和题材注意力
+            # 题材策略需要同时满足全局和题材热点
             effective_attention = (global_hotspot + block_hotspot) / 2
 
             if self._should_activate(strategy, effective_attention, {'block': block_id}):
@@ -390,7 +390,7 @@ class StrategyAllocator:
         allocated = []
         
         for strategy in strategies:
-            # 个股策略受全局注意力和个股权重共同影响
+            # 个股策略受全局热点和个股权重共同影响
             effective_attention = (global_hotspot + min(symbol_weight / 3, 1.0)) / 2
             
             if self._should_activate(strategy, effective_attention, {'symbol': symbol}):
@@ -412,7 +412,7 @@ class StrategyAllocator:
         """判断是否应该激活策略"""
         config = strategy.config
         
-        # 检查注意力范围
+        # 检查热点范围
         if attention < config.min_attention or attention > config.max_attention:
             return False
         
@@ -453,9 +453,9 @@ class StrategyAllocator:
         symbol_weights: Dict[str, float]
     ) -> StrategyParams:
         """
-        根据注意力和 DecisionAttention 调整策略参数
+        根据热点和 DecisionHotspot 调整策略参数
 
-        DecisionAttention 调制:
+        DecisionHotspot 调制:
         - attention ↑ → threshold ↓ (更容易触发)
         - attention ↑ → position_size ↑
         - attention ↓ → holding_time ↓
