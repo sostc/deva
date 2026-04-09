@@ -5,6 +5,7 @@ import logging
 from dataclasses import dataclass, field
 from typing import Dict, Any, List, Optional, Callable
 from enum import Enum
+from deva.naja.register import SR
 
 
 logger = logging.getLogger(__name__)
@@ -273,11 +274,11 @@ def get_health_check_manager() -> HealthCheckManager:
 
 def create_attention_health_checks() -> Dict[str, Callable[[], bool]]:
     """创建注意力系统健康检查项"""
-    from deva.naja.attention.integration import get_attention_integration
+    from deva.naja.market_hotspot.integration import get_market_hotspot_integration
 
     def check_attention_system():
-        integration = get_attention_integration()
-        return integration is not None and integration.attention_system is not None
+        integration = get_market_hotspot_integration()
+        return integration is not None and integration.hotspot_system is not None
 
     def check_datasource():
         from deva.naja.datasource import get_datasource_manager
@@ -286,8 +287,7 @@ def create_attention_health_checks() -> Dict[str, Callable[[], bool]]:
         return running > 0
 
     def check_dictionary():
-        from deva.naja.dictionary import get_dictionary_manager
-        mgr = get_dictionary_manager()
+        mgr = SR('dictionary_manager')
         entry = mgr.get_by_name("通达信概念板块")
         if entry is None:
             return False

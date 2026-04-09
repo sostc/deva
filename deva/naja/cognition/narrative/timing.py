@@ -45,7 +45,7 @@ class TimingType(Enum):
     EARNINGS = "earnings"       # 业绩驱动
     LIQUIDITY = "liquidity"     # 流动性驱动
     SENTIMENT = "sentiment"     # 情绪驱动
-    SECTOR = "sector"           # 板块轮动
+    BLOCK = "block"           # 板块轮动
     GLOBAL = "global"           # 全球联动
     UNKNOWN = "unknown"          # 未知
 
@@ -68,7 +68,7 @@ class TimingNarrative:
     evidence: List[str]         # 支撑证据
     start_time: float           # 开始时间
     strength: float             # 强度 [0, 1]
-    related_sectors: List[str]   # 相关板块
+    related_blocks: List[str]   # 相关板块
     key_stocks: List[str]       # 关键股票
 
 
@@ -106,55 +106,35 @@ class TimingNarrativeTracker:
         self._narrative_history: deque = deque(maxlen=100)
         self._last_update: float = time.time()
 
-        # 🚀 新架构：订阅 TextSignalBus
-        self._subscribe_to_text_bus()
+        self._subscribe_to_text_events()
 
-    def _subscribe_to_text_bus(self):
-        """🚀 订阅 TextSignalBus，接收高注意力文本"""
+    def _subscribe_to_text_events(self):
+        """订阅 TextFocusedEvent"""
         try:
-            from deva.naja.cognition.text_processing_pipeline import subscribe_to_signals
+            from deva.naja.events import get_event_bus
 
-            subscribe_to_signals(
-                "TimingNarrativeTracker",
-                self._on_text_signal,
-                min_attention=0.6  # 中等阈值
+            event_bus = get_event_bus()
+            event_bus.subscribe(
+                'TextFocusedEvent',
+                self._on_text_focused,
+                priority=6
             )
-            log.debug("TimingNarrativeTracker 已订阅 TextSignalBus")
+            log.debug("TimingNarrativeTracker 已订阅 TextFocusedEvent")
         except ImportError:
             pass
 
-    def _on_text_signal(self, item: "AttentionTextItem"):
-        """
-        🚀 处理来自 TextSignalBus 的文本信号
-
-        从高注意力新闻中提取叙事信息
-        """
+    def _on_text_focused(self, event):
+        """处理 TextFocusedEvent"""
         try:
-            if not item.structured_signal:
-                return
-
-            # 从结构化信号中提取新闻文本
-            news_texts = []
-            if item.text:
-                news_texts.append(item.text)
-            if item.raw_keywords:
-                news_texts.extend(item.raw_keywords)
-
-            # 更新叙事追踪
-            # 注意：TimingNarrativeTracker 需要 market_data，这里只做轻量更新
-            if news_texts and item.attention_score >= 0.6:
-                log.debug(f"TimingNarrativeTracker 收到高注意力文本: score={item.attention_score:.2f}")
-
-                # 🚀 发布认知事件，通知下游
-                self._publish_cognitive_update(item)
-
+            self._process_text_for_timing(
+                text=event.summary or event.title or event.text,
+                importance=event.importance_score,
+            )
         except Exception as e:
-            log.warning(f"TimingNarrativeTracker 处理文本信号失败: {e}")
+            log.debug(f"[TimingNarrativeTracker] 处理 TextFocusedEvent 失败: {e}")
 
-    def _publish_cognitive_update(self, item: "AttentionTextItem"):
-        """
-        🚀 发布市场叙事更新事件到 CognitiveSignalBus
-        """
+    def _publish_cognitive_update(self, event):
+        """发布市场叙事更新事件到 CognitiveSignalBus"""
         try:
             from deva.naja.cognition.cognitive_signal_bus import (
                 get_cognitive_bus,
@@ -163,20 +143,24 @@ class TimingNarrativeTracker:
 
             bus = get_cognitive_bus()
 
-            # 提取叙事标签
-            narratives = item.structured_signal.narrative_tags if item.structured_signal else []
+            narratives = list(event.topics or []) if hasattr(event, 'topics') else []
+            narratives.extend(list(event.keywords or []) if hasattr(event, 'keywords') else [])
+            if getattr(event, "narrative_tags", None):
+                narratives.extend(event.narrative_tags)
+            if getattr(event, "matched_focus_topics", None):
+                narratives.extend(event.matched_focus_topics)
+            narratives = list(dict.fromkeys(narratives))
+
+            importance = getattr(event, 'importance_score', 0.5)
 
             bus.publish_cognitive_event(
                 source="TimingNarrativeTracker",
                 event_type=CognitiveEventType.TIMING_NARRATIVE_UPDATE,
                 narratives=narratives,
-                importance=item.attention_score,
-                confidence=item.structured_signal.confidence if item.structured_signal else 0.5,
+                importance=importance,
+                confidence=0.5,
                 stock_codes=[],
-                metadata={
-                    "keywords": item.raw_keywords or [],
-                    "topics": item.topic_candidates or [],
-                }
+                metadata={}
             )
         except ImportError:
             pass
@@ -223,9 +207,9 @@ class TimingNarrativeTracker:
             narratives.append(sentiment_narrative)
 
         # 检测板块叙事
-        sector_narrative = self._detect_sector_narrative(market_data)
-        if sector_narrative:
-            narratives.append(sector_narrative)
+        block_narrative = self._detect_block_narrative(market_data)
+        if block_narrative:
+            narratives.append(block_narrative)
 
         self._current_narratives = deque(narratives, maxlen=5)
         self._last_update = time.time()
@@ -256,7 +240,7 @@ class TimingNarrativeTracker:
                 evidence=policy_signals[:5],
                 start_time=time.time(),
                 strength=self._estimate_strength(policy_signals),
-                related_sectors=["金融", "地产", "基建"],
+                related_blocks=["金融", "地产", "基建"],
                 key_stocks=[]
             )
 
@@ -281,7 +265,7 @@ class TimingNarrativeTracker:
                 evidence=[f"个股分化度: {std_change:.2f}%"],
                 start_time=time.time(),
                 strength=min(1.0, std_change / 5),
-                related_sectors=self._get_top_blocks(market_data),
+                related_blocks=self._get_top_blocks(market_data),
                 key_stocks=[]
             )
 
@@ -308,7 +292,7 @@ class TimingNarrativeTracker:
                 evidence=[f"主力净{direction}: {net_flow/1e8:.1f}亿", f"大单占比: {big_deal_ratio:.1%}"],
                 start_time=time.time(),
                 strength=min(1.0, abs(net_flow) / 1e10),
-                related_sectors=[],
+                related_blocks=[],
                 key_stocks=[]
             )
 
@@ -333,30 +317,30 @@ class TimingNarrativeTracker:
                 evidence=[f"市场广度: {breadth:.1%}", f"上涨: {advancing}, 下跌: {declining}"],
                 start_time=time.time(),
                 strength=abs(breadth),
-                related_sectors=[],
+                related_blocks=[],
                 key_stocks=[]
             )
 
         return None
 
-    def _detect_sector_narrative(self, market_data: Dict[str, Any]) -> Optional[TimingNarrative]:
+    def _detect_block_narrative(self, market_data: Dict[str, Any]) -> Optional[TimingNarrative]:
         """检测板块叙事"""
-        sector_changes = market_data.get("sector_changes", {})
-        if len(sector_changes) < 3:
+        block_changes = market_data.get("block_changes", market_data.get("block_changes", {}))
+        if len(block_changes) < 3:
             return None
 
-        top_blocks = sorted(sector_changes.items(), key=lambda x: x[1], reverse=True)[:3]
-        bottom_sectors = sorted(sector_changes.items(), key=lambda x: x[1])[:3]
+        top_blocks = sorted(block_changes.items(), key=lambda x: x[1], reverse=True)[:3]
+        bottom_blocks = sorted(block_changes.items(), key=lambda x: x[1])[:3]
 
-        if top_blocks[0][1] - bottom_sectors[0][1] > 3.0:
+        if top_blocks[0][1] - bottom_blocks[0][1] > 3.0:
             return TimingNarrative(
-                narrative_type=TimingType.SECTOR,
+                narrative_type=TimingType.BLOCK,
                 stage=TimingStage.BUILDING,
                 confidence=0.7,
                 evidence=[f"领涨: {top_blocks[0][0]}({top_blocks[0][1]:.1f}%)"],
                 start_time=time.time(),
-                strength=min(1.0, (top_blocks[0][1] - bottom_sectors[0][1]) / 10),
-                related_sectors=[s[0] for s in top_blocks],
+                strength=min(1.0, (top_blocks[0][1] - bottom_blocks[0][1]) / 10),
+                related_blocks=[s[0] for s in top_blocks],
                 key_stocks=[]
             )
 
@@ -381,8 +365,8 @@ class TimingNarrativeTracker:
 
     def _get_top_blocks(self, market_data: Dict[str, Any]) -> List[str]:
         """获取领涨板块"""
-        sector_changes = market_data.get("sector_changes", {})
-        return [s[0] for s in sorted(sector_changes.items(), key=lambda x: x[1], reverse=True)[:3]]
+        block_changes = market_data.get("block_changes", market_data.get("block_changes", {}))
+        return [s[0] for s in sorted(block_changes.items(), key=lambda x: x[1], reverse=True)[:3]]
 
     def get_current_narratives(self) -> List[TimingNarrative]:
         """获取当前叙事"""
@@ -457,9 +441,9 @@ class NarrativeTransitionSense:
                     intensity=0.7
                 )
 
-        elif narrative.narrative_type == TimingType.SECTOR:
-            sector_changes = market_data.get("sector_changes", {})
-            top_strength = max(sector_changes.values()) if sector_changes else 0
+        elif narrative.narrative_type == TimingType.BLOCK:
+            block_changes = market_data.get("block_changes", market_data.get("block_changes", {}))
+            top_strength = max(block_changes.values()) if block_changes else 0
             if top_strength > 5.0:
                 return NarrativeTransition(
                     from_narrative=narrative.narrative_type,

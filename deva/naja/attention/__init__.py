@@ -1,270 +1,105 @@
 """
-Naja Attention System - 统一注意力调度系统
+Naja Attention System - 注意力基础设施
 
-按功能模块组织的注意力系统架构：
+这是系统的通用注意力基础设施，被市场热点系统和新闻叙事系统复用。
 
-core/          - 核心注意力计算引擎
-processing/    - 数据预处理（噪音过滤）
-scheduling/    - 频率调度和策略分配
-intelligence/  - 智能增强（预测、反馈、预算、学习）
-engine/        - River + PyTorch 双引擎
-integration/   - 系统集成和主控制器
-strategies/    - 基于注意力的交易策略
+基础设施层:
+- os/           - AttentionOS 统一入口
+- kernel/       - AttentionKernel 核心 + ManasEngine
+- values/       - 价值观系统
+- portfolio.py  - 持仓管理
+- conviction_validator.py - 信念验证
+- focus_manager.py - 关注管理
+- block_registry.py - 题材注册表
+
+市场热点系统已移动到: market_hotspot/
 """
 
-from .core import (
-    GlobalAttentionEngine,
-    MarketSnapshot,
-    BlockAttentionEngine,
-    BlockConfig,
-    WeightPool,
-    WeightPoolView,
-    SymbolWeightConfig,
-)
-from .processing import (
-    NoiseFilter,
-    NoiseFilterConfig,
-    get_noise_filter,
-    get_tick_noise_filter,
-    TickNoiseFilterConfig,
-)
-from .scheduling import (
-    FrequencyScheduler,
-    FrequencyLevel,
-    FrequencyConfig,
-    AdaptiveFrequencyController,
-    StrategyAllocator,
-    StrategyRegistry,
-    Strategy,
-    StrategyConfig,
-    StrategyParams,
-    StrategyScope,
-    StrategyType,
-)
-from .engine import (
-    RiverEngine,
-    PyTorchEngine,
-    DualEngineCoordinator,
-    AnomalySignal,
-    PatternSignal,
-)
-from .intelligence import (
-    PredictiveAttentionEngine,
-    PredictionResult,
-    EMAAccelerator,
-    SecondOrderDifferentiator,
-    MomentumPredictor,
-    AttentionFeedbackLoop,
-    FeedbackCollector,
-    AttentionEffectivenessAnalyzer,
-    BanditUpdater,
-    StrategyOutcome,
-    AttentionEffectiveness,
-    AttentionBudgetSystem,
-    BudgetConfig,
-    BudgetLevel,
-    BudgetAllocation,
-    TopKBudgetAllocator,
-    AdaptiveBudgetController,
-    ResourceMonitor,
-    AttentionPropagation,
-    PropagationEngine,
-    RelationMatrix,
-    SectorRelation,
-    StrategyLearning,
-    MarketStateDetector,
-    BanditStrategySelector,
-    RuleBasedStrategySelector,
-    MarketState,
-    StrategyPerformance,
-    StrategySelection,
-)
-from .integration import (
-    AttentionSystem,
-    AttentionSystemConfig,
-    AttentionSystemIntegration,
-    IntelligenceAugmentedSystem,
-    IntelligenceConfig,
-    create_intelligence_system,
-    create_system,
-    NajaAttentionIntegration,
-    get_attention_integration,
-    initialize_attention_system,
-    get_attention_system,
-    register_strategy_manager,
-    get_strategy_manager,
-    process_data_with_strategies,
-    AttentionModeManager,
-    get_mode_manager,
-)
-from .config import (
-    NoiseFilterConfig,
-    NajaAttentionConfig,
-    load_config,
-    get_intelligence_config,
-    default_config,
-)
-from .trading_center import (
-    TradingCenter,
-    get_trading_center,
-    FusionOutput,
-    FusionResult,
-    DecisionFusion,
-)
-from .data_processor import (
-    DataProcessor,
-    get_data_processor,
-)
-from .cognition_orchestrator import (
-    CognitionOrchestrator,
-    get_cognition_orchestrator,
-)
-from .signal_executor import (
-    SignalExecutor,
-    get_signal_executor,
-)
-from .liquidity_manager import (
-    LiquidityManager,
-    get_liquidity_manager,
-)
-from .state_querier import (
-    StateQuerier,
-    get_state_querier,
-)
-
-from .realtime_data_fetcher import (
-    RealtimeDataFetcher,
-    AsyncRealtimeDataFetcher,
-    FetchConfig,
-)
 from .kernel import (
     AttentionEvent,
     QueryState,
     Encoder,
     AttentionHead,
     MultiHeadAttention,
-    AttentionMemory,
     AttentionKernel,
     get_default_heads,
     get_regime_aware_heads,
 )
+from .kernel.manas_engine import (
+    ManasEngine,
+)
+from .portfolio import (
+    Portfolio,
+    StockInfo,
+)
+from .conviction_validator import (
+    ConvictionValidator,
+    get_conviction_validator,
+)
+from .focus_manager import (
+    AttentionFocusManager,
+    get_attention_focus_manager,
+)
+from .block_registry import (
+    BlockRegistry,
+    get_block_registry,
+    BlockDescriptor,
+)
+from .attention_fusion import (
+    AttentionFusion,
+    get_attention_fusion,
+    FusionSignal,
+    FullFusionResult,
+)
+from .attention_os import (
+    AttentionOS,
+    get_attention_os,
+    AttentionKernelOutput,
+    AttentionFusionOutput,
+)
+from .trading_center import (
+    TradingCenter,
+    get_trading_center,
+)
 
 __all__ = [
-    # Core
-    "GlobalAttentionEngine",
-    "MarketSnapshot",
-    "BlockAttentionEngine",
-    "BlockConfig",
-    "WeightPool",
-    "WeightPoolView",
-    "SymbolWeightConfig",
-    # Processing
-    "NoiseFilter",
-    "NoiseFilterConfig",
-    "get_noise_filter",
-    "get_tick_noise_filter",
-    "TickNoiseFilterConfig",
-    # Scheduling
-    "FrequencyScheduler",
-    "FrequencyLevel",
-    "FrequencyConfig",
-    "AdaptiveFrequencyController",
-    "StrategyAllocator",
-    "StrategyRegistry",
-    "Strategy",
-    "StrategyConfig",
-    "StrategyParams",
-    "StrategyScope",
-    "StrategyType",
-    # Engine
-    "RiverEngine",
-    "PyTorchEngine",
-    "DualEngineCoordinator",
-    "AnomalySignal",
-    "PatternSignal",
-    # Intelligence
-    "PredictiveAttentionEngine",
-    "PredictionResult",
-    "EMAAccelerator",
-    "SecondOrderDifferentiator",
-    "MomentumPredictor",
-    "AttentionFeedbackLoop",
-    "FeedbackCollector",
-    "AttentionEffectivenessAnalyzer",
-    "BanditUpdater",
-    "StrategyOutcome",
-    "AttentionEffectiveness",
-    "AttentionBudgetSystem",
-    "BudgetConfig",
-    "BudgetLevel",
-    "BudgetAllocation",
-    "TopKBudgetAllocator",
-    "AdaptiveBudgetController",
-    "ResourceMonitor",
-    "AttentionPropagation",
-    "PropagationEngine",
-    "RelationMatrix",
-    "SectorRelation",
-    "StrategyLearning",
-    "MarketStateDetector",
-    "BanditStrategySelector",
-    "RuleBasedStrategySelector",
-    "MarketState",
-    "StrategyPerformance",
-    "StrategySelection",
-    # Integration
-    "AttentionSystem",
-    "AttentionSystemConfig",
-    "AttentionSystemIntegration",
-    "IntelligenceAugmentedSystem",
-    "IntelligenceConfig",
-    "create_intelligence_system",
-    "create_system",
-    "NajaAttentionIntegration",
-    "get_attention_integration",
-    "initialize_attention_system",
-    "get_attention_system",
-    "register_strategy_manager",
-    "get_strategy_manager",
-    "process_data_with_strategies",
-    "AttentionModeManager",
-    "get_mode_manager",
-    # Config
-    "NajaAttentionConfig",
-    "load_config",
-    "get_intelligence_config",
-    "default_config",
-    # TradingCenter (核心中枢)
-    "TradingCenter",
-    "get_trading_center",
-    "FusionOutput",
-    "FusionResult",
-    "DecisionFusion",
-    # Split Modules
-    "DataProcessor",
-    "get_data_processor",
-    "CognitionOrchestrator",
-    "get_cognition_orchestrator",
-    "SignalExecutor",
-    "get_signal_executor",
-    "LiquidityManager",
-    "get_liquidity_manager",
-    "StateQuerier",
-    "get_state_querier",
-    # Realtime Fetcher
-    "RealtimeDataFetcher",
-    "AsyncRealtimeDataFetcher",
-    "FetchConfig",
-    # Kernel
+    # Kernel (通用注意力计算)
     "AttentionEvent",
     "QueryState",
     "Encoder",
     "AttentionHead",
     "MultiHeadAttention",
-    "AttentionMemory",
     "AttentionKernel",
     "get_default_heads",
     "get_regime_aware_heads",
+    # ManasEngine (决策中枢)
+    "ManasEngine",
+    # Portfolio (持仓管理)
+    "Portfolio",
+    "StockInfo",
+    # ConvictionValidator (信念验证)
+    "ConvictionValidator",
+    "get_conviction_validator",
+    # FocusManager (关注管理)
+    "AttentionFocusManager",
+    "get_attention_focus_manager",
+    # BlockRegistry (题材注册表)
+    "BlockRegistry",
+    "get_block_registry",
+    "BlockDescriptor",
+    # AttentionFusion (融合层)
+    "AttentionFusion",
+    "get_attention_fusion",
+    "FusionSignal",
+    "FullFusionResult",
+    # AttentionOS (统一入口)
+    "AttentionOS",
+    "get_attention_os",
+    "AttentionKernelOutput",
+    "AttentionFusionOutput",
+    # TradingCenter (交易中枢)
+    "TradingCenter",
+    "get_trading_center",
 ]
 
 __version__ = "3.0.0"

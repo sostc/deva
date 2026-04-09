@@ -2,7 +2,7 @@
 
 别名/关键词: 洞察池、事件存储、insight、insight pool
 
-Insight engine for user-facing attention."""
+Insight engine for hotspot events."""
 
 from __future__ import annotations
 
@@ -13,6 +13,7 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Set
 
 from deva import NB
+from deva.naja.register import SR
 
 
 INSIGHT_POOL_TABLE = "naja_insight_pool"
@@ -156,11 +157,11 @@ class InsightBuilder:
             "payload": output if isinstance(output, dict) else {"output": output},
         }
 
-    def build_from_attention_event(self, event: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    def build_from_hotspot_event(self, event: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         if not event:
             return None
 
-        signal_type = str(event.get("signal_type") or event.get("type", "attention"))
+        signal_type = str(event.get("signal_type") or event.get("type", "hotspot"))
         payload = event.get("payload", {}) or {}
         raw_data = event.get("raw_data", {})
 
@@ -203,12 +204,12 @@ class InsightBuilder:
             "theme": theme,
             "summary": summary,
             "symbols": symbols,
-            "sectors": sectors,
+            "blocks": blocks,
             "confidence": confidence,
             "actionability": actionability,
             "system_attention": system_attention,
             "novelty": novelty,
-            "source": event.get("source", "attention"),
+            "source": event.get("source", "hotspot"),
             "signal_type": signal_type,
             "payload": merged_payload,
         }
@@ -462,11 +463,13 @@ class InsightPool:
             return None
         return self._append_or_merge(candidate)
 
-    def ingest_attention_event(self, event: Dict[str, Any]) -> Optional[Insight]:
-        candidate = self._builder.build_from_attention_event(event)
+    def ingest_hotspot_event(self, event: Dict[str, Any]) -> Optional[Insight]:
+        candidate = self._builder.build_from_hotspot_event(event)
         if not candidate:
             return None
         return self._append_or_merge(candidate)
+
+    ingest_attention_event = ingest_hotspot_event
 
     def emit(self, event: Dict[str, Any]) -> Optional[Insight]:
         """统一入口：发送任意事件到洞察池
@@ -474,7 +477,7 @@ class InsightPool:
         自动识别事件类型并路由到正确的处理方法：
         - 包含 strategy_id/strategy_name 的事件 → 视为 RadarEvent 转换的信号
         - 包含 type=news/content 的事件 → 视为新闻/内容事件
-        - 其他事件 → 视为注意力事件
+        - 其他事件 → 视为热点事件
         """
         if not event:
             return None
@@ -507,7 +510,7 @@ class InsightPool:
             theme=theme,
             summary=str(candidate.get("summary", theme)),
             symbols=list(candidate.get("symbols") or []),
-            sectors=list(candidate.get("sectors") or []),
+            blocks=list(candidate.get("blocks") or []),
             system_attention=_clamp(_safe_float(candidate.get("system_attention", 0.5))),
             confidence=_clamp(_safe_float(candidate.get("confidence", 0.5))),
             actionability=_clamp(_safe_float(candidate.get("actionability", 0.5))),
@@ -641,24 +644,11 @@ class InsightPool:
             self.persist()
 
 
-_insight_pool: Optional[InsightPool] = None
-_insight_pool_lock = threading.Lock()
-
-
-def get_insight_pool() -> InsightPool:
-    global _insight_pool
-    if _insight_pool is None:
-        with _insight_pool_lock:
-            if _insight_pool is None:
-                _insight_pool = InsightPool()
-    return _insight_pool
-
-
 class InsightEngine:
     """洞察引擎 - 管理认知产物"""
 
     def __init__(self):
-        self._pool = get_insight_pool()
+        self._pool = SR('insight_pool')
 
     def get_summary(self) -> Dict[str, Any]:
         stats = self._pool.get_stats()
@@ -671,24 +661,24 @@ class InsightEngine:
     def get_attention_hints(self, lookback: int = 200) -> Dict[str, Any]:
         recent = self._pool.get_recent_insights(limit=lookback)
         symbols: Dict[str, float] = {}
-        sectors: Dict[str, float] = {}
+        blocks: Dict[str, float] = {}
         narratives: List[str] = []
 
         for item in recent:
             syms = item.get("symbols", [])
-            secs = item.get("sectors", [])
+            blks = item.get("blocks", [])
             score = float(item.get("user_score", 0.5))
             for s in syms:
                 symbols[s] = symbols.get(s, 0) + score
-            for s in secs:
-                sectors[s] = sectors.get(s, 0) + score
+            for b in blks:
+                blocks[b] = blocks.get(b, 0) + score
             theme = item.get("theme", "")
             if theme and theme not in narratives:
                 narratives.append(theme)
 
         return {
             "symbols": symbols,
-            "sectors": sectors,
+            "blocks": blocks,
             "narratives": narratives[:10],
         }
 
@@ -700,17 +690,3 @@ class InsightEngine:
 
     def get_pool(self) -> InsightPool:
         return self._pool
-
-
-_insight_engine: Optional[InsightEngine] = None
-_insight_engine_lock = threading.Lock()
-
-
-def get_insight_engine() -> InsightEngine:
-    """获取洞察引擎单例"""
-    global _insight_engine
-    if _insight_engine is None:
-        with _insight_engine_lock:
-            if _insight_engine is None:
-                _insight_engine = InsightEngine()
-    return _insight_engine

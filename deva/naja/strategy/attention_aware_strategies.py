@@ -28,12 +28,12 @@ class AttentionAwareMixin:
         self._attention_cache_ttl = 5.0  # 5秒缓存
         self._cached_attention_state = {}
     
-    def _get_attention_integration(self):
+    def _get_market_hotspot_integration(self):
         """懒加载注意力集成"""
         if self._attention_integration is None:
             try:
-                from ..attention.integration import get_attention_integration
-                self._attention_integration = get_attention_integration()
+                from ..market_hotspot.integration.extended import get_market_hotspot_integration
+                self._attention_integration = get_market_hotspot_integration()
             except Exception:
                 self._use_attention = False
         return self._attention_integration
@@ -51,8 +51,8 @@ class AttentionAwareMixin:
         if not self._use_attention:
             return True
         
-        integration = self._get_attention_integration()
-        if integration is None or integration.attention_system is None:
+        integration = self._get_market_hotspot_integration()
+        if integration is None or integration.hotspot_system is None:
             return True
         
         return integration.should_fetch_symbol(symbol)
@@ -70,19 +70,19 @@ class AttentionAwareMixin:
         if not self._use_attention:
             return 1.0
         
-        integration = self._get_attention_integration()
-        if integration is None or integration.attention_system is None:
+        integration = self._get_market_hotspot_integration()
+        if integration is None or integration.hotspot_system is None:
             return 1.0
         
-        return integration.attention_system.weight_pool.get_symbol_weight(symbol)
+        return integration.hotspot_system.weight_pool.get_symbol_weight(symbol)
     
     def get_global_attention(self) -> float:
         """获取全局注意力分数"""
         if not self._use_attention:
             return 0.5
         
-        integration = self._get_attention_integration()
-        if integration is None or integration.attention_system is None:
+        integration = self._get_market_hotspot_integration()
+        if integration is None or integration.hotspot_system is None:
             return 0.5
         
         # 使用缓存
@@ -90,8 +90,8 @@ class AttentionAwareMixin:
         if current_time - self._last_attention_check < self._attention_cache_ttl:
             return self._cached_attention_state.get('global', 0.5)
         
-        report = integration.get_attention_report()
-        global_attention = report.get('global_attention', 0.5)
+        report = integration.get_hotspot_report()
+        global_hotspot = report.get('global_hotspot', 0.5)
         
         self._cached_attention_state['global'] = global_attention
         self._last_attention_check = current_time
@@ -103,11 +103,11 @@ class AttentionAwareMixin:
         if not self._use_attention:
             return 0.5
         
-        integration = self._get_attention_integration()
-        if integration is None or integration.attention_system is None:
+        integration = self._get_market_hotspot_integration()
+        if integration is None or integration.hotspot_system is None:
             return 0.5
         
-        return integration.attention_system.block_attention.get_block_attention(block_id)
+        return integration.hotspot_system.block_attention.get_block_attention(block_id)
     
     def filter_by_attention(self, df: pd.DataFrame, 
                            min_weight: float = 1.0,
@@ -126,8 +126,8 @@ class AttentionAwareMixin:
         if not self._use_attention or df is None or df.empty:
             return df
         
-        integration = self._get_attention_integration()
-        if integration is None or integration.attention_system is None:
+        integration = self._get_market_hotspot_integration()
+        if integration is None or integration.hotspot_system is None:
             return df
         
         # 获取高权重股票
@@ -169,7 +169,7 @@ class AttentionAwareMixin:
         if not self._use_attention:
             return []
 
-        integration = self._get_attention_integration()
+        integration = self._get_market_hotspot_integration()
         if integration is None:
             return []
 

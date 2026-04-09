@@ -39,12 +39,12 @@ class AttentionMixin(ABC):
         self._medium_symbols: Set[str] = set()
         self._low_symbols: Set[str] = set()
     
-    def _get_attention_integration(self):
+    def _get_market_hotspot_integration(self):
         """懒加载注意力集成"""
         if self._attention_integration is None:
             try:
-                from ..attention.integration import get_attention_integration
-                self._attention_integration = get_attention_integration()
+                from ..market_hotspot.integration.extended import get_market_hotspot_integration
+                self._attention_integration = get_market_hotspot_integration()
             except Exception:
                 self._attention_enabled = False
         return self._attention_integration
@@ -64,12 +64,12 @@ class AttentionMixin(ABC):
         Returns:
             应该获取的股票列表
         """
-        integration = self._get_attention_integration()
+        integration = self._get_market_hotspot_integration()
         
         if not self._attention_enabled or integration is None:
             return all_symbols
         
-        if integration.attention_system is None:
+        if integration.hotspot_system is None:
             return all_symbols
         
         # 更新分层
@@ -117,7 +117,7 @@ class AttentionMixin(ABC):
     
     def should_fetch_symbol(self, symbol: str) -> bool:
         """判断是否应该获取某只股票"""
-        integration = self._get_attention_integration()
+        integration = self._get_market_hotspot_integration()
         
         if not self._attention_enabled or integration is None:
             return True
@@ -126,16 +126,16 @@ class AttentionMixin(ABC):
     
     def get_attention_report(self) -> dict:
         """获取注意力系统报告"""
-        integration = self._get_attention_integration()
+        integration = self._get_market_hotspot_integration()
         
         if not self._attention_enabled or integration is None:
             return {'status': 'disabled'}
         
-        return integration.get_attention_report()
+        return integration.get_hotspot_report()
     
     def get_high_attention_symbols(self, threshold: float = 2.0) -> List[str]:
         """获取高注意力股票"""
-        integration = self._get_attention_integration()
+        integration = self._get_market_hotspot_integration()
         
         if not self._attention_enabled or integration is None:
             return []

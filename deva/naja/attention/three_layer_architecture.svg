@@ -206,7 +206,7 @@
     <text x="50" y="42" font-family="system-ui, sans-serif" font-size="10" fill="#475569">follow_narrative("AI", priority=0.9)  关注叙事 → 自动映射到 block</text>
 
     <rect x="420" y="32" width="12" height="12" rx="3" fill="#16a34a"/>
-    <text x="440" y="42" font-family="system-ui, sans-serif" font-size="10" fill="#475569">follow_block("semiconductor")  关注板块 → 加入关注列表</text>
+    <text x="440" y="42" font-family="system-ui, sans-serif" font-size="10" fill="#475569">follow_block("semiconductor")  关注题材 → 加入关注列表</text>
 
     <rect x="710" y="32" width="12" height="12" rx="3" fill="#16a34a"/>
     <text x="730" y="42" font-family="system-ui, sans-serif" font-size="10" fill="#475569">follow_stock("NVDA")  关注股票 → 加入自选</text>

@@ -14,6 +14,7 @@ log = logging.getLogger("backtest")
 from deva.naja.bandit import get_virtual_portfolio, get_attribution, get_signal_listener, get_adaptive_cycle
 from deva.naja.replay import get_replay_scheduler
 from deva.naja.attention.center import get_orchestrator
+from deva.naja.register import SR
 
 
 def clear_data():
@@ -22,7 +23,7 @@ def clear_data():
     print("清空现有数据")
     print("=" * 60)
 
-    vp = get_virtual_portfolio()
+    vp = SR('virtual_portfolio')
     try:
         count = vp.clear_history()
         print(f"✓ 清空持仓: {count} 条")
@@ -107,7 +108,7 @@ def main():
     print("监控 120 秒...")
     print("=" * 60)
 
-    vp = get_virtual_portfolio()
+    vp = SR('virtual_portfolio')
     listener = get_signal_listener()
 
     last_signal_check = 0

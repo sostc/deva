@@ -16,6 +16,7 @@ from deva import NB
 from ..signal.stream import get_signal_stream
 from ..strategy.result_store import StrategyResult
 from ..radar.trading_clock import TRADING_CLOCK_STREAM
+from deva.naja.register import SR
 
 log = logging.getLogger(__name__)
 
@@ -562,15 +563,3 @@ class SignalListener:
         """获取错误统计"""
         return dict(self._errors)
 
-
-_listener: Optional[SignalListener] = None
-_listener_lock = threading.Lock()
-
-
-def get_signal_listener() -> SignalListener:
-    global _listener
-    if _listener is None:
-        with _listener_lock:
-            if _listener is None:
-                _listener = SignalListener()
-    return _listener

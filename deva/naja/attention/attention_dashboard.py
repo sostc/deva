@@ -57,24 +57,6 @@ def _get_event_encoder_state(kernel) -> Dict[str, Any]:
             "value_features": ["alpha", "risk", "confidence"]
         }
     }
-
-    try:
-        if hasattr(kernel, 'memory') and kernel.memory:
-            events = kernel.memory.store[-10:]
-            encoder_state["encoded_events"] = [
-                {
-                    "source": _get_event_source(item.get("event")),
-                    "key": _safe_get_features(item.get("event"), "key"),
-                    "value": _safe_get_features(item.get("event"), "value"),
-                    "score": item.get("score", 0),
-                    "age": time.time() - item.get("time", 0) if item.get("time") else 0
-                }
-                for item in events if item.get("event")
-            ]
-            encoder_state["encoding_summary"]["total_encoded"] = len(encoder_state["encoded_events"])
-    except Exception:
-        pass
-
     return encoder_state
 
 
@@ -242,7 +224,7 @@ def _get_strategy_learning_state(os) -> Dict[str, Any]:
 
             selected = sl.select_strategies(
                 global_attention=0.5,
-                sector_attention={},
+                block_attention={},
                 available_strategies=list(learning_state["strategy_performance"].keys()),
                 top_k=3
             )
@@ -259,35 +241,15 @@ def _get_memory_state(kernel) -> Dict[str, Any]:
     """
     获取注意力记忆状态
 
-    展示: AttentionMemory 中的历史注意力事件
+    AttentionMemory 已删除，记忆功能由 Cognition 系统提供
     """
     memory_state = {
-        "enabled": hasattr(kernel, 'memory') and kernel.memory is not None,
+        "enabled": False,
         "total_events": 0,
         "recent_events": [],
-        "memory_stats": {}
+        "memory_stats": {},
+        "note": "Memory moved to Cognition system"
     }
-
-    try:
-        if hasattr(kernel, 'memory') and kernel.memory:
-            memory = kernel.memory
-            memory_state["total_events"] = len(memory.store)
-
-            memory_state["recent_events"] = [
-                {
-                    "source": _get_event_source(item.get("event")),
-                    "score": item.get("score", 0),
-                    "age": time.time() - item.get("time", 0) if item.get("time") else 0
-                }
-                for item in memory.store[-5:]
-            ]
-
-            if hasattr(memory, 'get_stats'):
-                memory_state["memory_stats"] = memory.get_stats()
-
-    except Exception:
-        pass
-
     return memory_state
 
 
@@ -523,7 +485,7 @@ def get_classic_moments(hours: int = 24, limit: int = 10) -> Dict[str, Any]:
         blocks = snap.get("active_blocks", [])
         if len(blocks) > 5:
             moment_type.append("regime_change")
-            reason.append(f"多板块活跃: {len(blocks)}个")
+            reason.append(f"多题材活跃: {len(blocks)}个")
 
         if snap.get("total_attention_count", 0) < 5:
             moment_type.append("low_activity")

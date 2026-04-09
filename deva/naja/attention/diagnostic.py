@@ -37,13 +37,13 @@ def render_attention_diagnostic():
 
         os = tc.get_attention_os()
         kernel = os.kernel
-        scheduler = os.market_scheduler
+        scheduler = os.strategy_decision_maker
         manas = kernel.get_manas_engine()
 
         put_text(f"AttentionOS: ✓")
         put_text(f"AttentionKernel: ✓")
         put_text(f"ManasEngine: ✓")
-        put_text(f"MarketScheduler: ✓")
+        put_text(f"StrategyDecisionMaker: ✓")
 
         harmony = tc.get_harmony()
         put_text(f"和谐强度: {harmony.get('harmony_strength', 0):.3f}")
@@ -54,11 +54,11 @@ def render_attention_diagnostic():
     except Exception as e:
         put_error(f"❌ TradingCenter 错误: {e}")
 
-    put_html("<h3>2. MarketScheduler (市场调度器) 状态</h3>")
+    put_html("<h3>2. StrategyDecisionMaker (市场调度器) 状态</h3>")
     try:
         from ..attention.trading_center import get_trading_center
         tc = get_trading_center()
-        scheduler = tc.attention_os.market_scheduler
+        scheduler = tc.attention_os.strategy_decision_maker
 
         freq_config = scheduler.get_frequency_config()
         put_text(f"频率等级: {freq_config.get('level', 'unknown')}")
@@ -74,12 +74,13 @@ def render_attention_diagnostic():
 
         top_blocks = scheduler.get_top_blocks(3)
         if top_blocks:
-            put_text("Top 3 板块:")
+            put_text("Top 3 题材:")
             for item in top_blocks:
-                put_text(f"  {item['sector']}: {item['weight']:.4f}")
+                block_name = item.get('block', item.get('sector', ''))
+                put_text(f"  {block_name}: {item['weight']:.4f}")
 
     except Exception as e:
-        put_error(f"❌ MarketScheduler 错误: {e}")
+        put_error(f"❌ StrategyDecisionMaker 错误: {e}")
 
     put_html("<h3>3. ManasEngine (末那识) 状态</h3>")
     try:
@@ -137,7 +138,7 @@ def render_attention_diagnostic():
 
     put_html("<h3>6. 策略管理器状态</h3>")
     try:
-        from deva.naja.attention.strategies import get_strategy_manager
+        from deva.naja.market_hotspot.strategies import get_strategy_manager
         manager = get_strategy_manager()
 
         stats = manager.get_all_stats()
@@ -159,7 +160,7 @@ def render_attention_diagnostic():
 
     put_html("<h3>7. 历史追踪器状态</h3>")
     try:
-        from deva.naja.cognition.history_tracker import get_history_tracker
+        from deva.naja.market_hotspot.market_hotspot_history_tracker import get_history_tracker
         tracker = get_history_tracker()
 
         if tracker is None:

@@ -17,10 +17,11 @@
 """
 
 import logging
-from typing import Dict, Optional, Set, Tuple
+from typing import Dict, List, Optional, Set, Tuple
 from dataclasses import dataclass, field
 import threading
 import json
+import re
 import os
 
 log = logging.getLogger(__name__)
@@ -157,10 +158,21 @@ class StockInfoRegistry:
             self._data_lock = threading.RLock()
 
             self._cache_file = self._get_cache_path()
+            self._load_from_static_file()
             self._load_cache()
 
             self._initialized = True
             log.info(f"[StockInfoRegistry] 初始化完成，已加载 {len(self._code_to_info)} 条股票信息")
+
+    def _get_static_file_path(self) -> str:
+        """获取静态数据文件路径"""
+        try:
+            from deva.naja.config.file_config import BASE_CONFIG_DIR
+            static_dir = BASE_CONFIG_DIR.parent / "data" / "registry"
+            os.makedirs(static_dir, exist_ok=True)
+            return str(static_dir / "stock_basics.json")
+        except Exception:
+            return os.path.expanduser("~/.deva/naja_stock_basics.json")
 
     def _get_cache_path(self) -> str:
         """获取缓存文件路径"""
@@ -171,6 +183,45 @@ class StockInfoRegistry:
             return str(cache_dir / "stock_registry.json")
         except Exception:
             return os.path.expanduser("~/.deva/naja_stock_registry.json")
+
+    def _load_from_static_file(self):
+        """从静态数据文件加载股票基础信息（启动时优先加载）"""
+        static_file = self._get_static_file_path()
+        if not os.path.exists(static_file):
+            log.debug(f"[StockInfoRegistry] 静态数据文件不存在: {static_file}")
+            return
+        
+        try:
+            with open(static_file, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            
+            count = 0
+            for sina_code, info_dict in data.items():
+                if sina_code in self._code_to_info:
+                    continue
+                
+                info = StockInfo(
+                    sina_code=info_dict.get('sina_code', sina_code),
+                    normalized_code=info_dict.get('normalized_code', sina_code[2:] if len(sina_code) > 2 else sina_code),
+                    standard_code=info_dict.get('standard_code', ''),
+                    display_code=info_dict.get('display_code', sina_code[2:] if len(sina_code) > 2 else sina_code),
+                    name=info_dict.get('name', ''),
+                    market=info_dict.get('market', sina_code[:2] if len(sina_code) > 2 else 'sh'),
+                    stock_type=info_dict.get('stock_type', 'A'),
+                    exchange=info_dict.get('exchange', 'SSE'),
+                )
+                self._code_to_info[sina_code] = info
+                self._normalized_to_sina[info.normalized_code] = sina_code
+                if info.name:
+                    if info.name not in self._name_index:
+                        self._name_index[info.name] = set()
+                    self._name_index[info.name].add(sina_code)
+                count += 1
+            
+            if count > 0:
+                log.info(f"[StockInfoRegistry] 从静态文件加载了 {count} 条股票信息")
+        except Exception as e:
+            log.warning(f"[StockInfoRegistry] 静态文件加载失败: {e}")
 
     def _load_cache(self):
         """从缓存文件加载"""
@@ -336,6 +387,36 @@ class StockInfoRegistry:
         with self._data_lock:
             return len(self._code_to_info)
 
+    def get_codes_by_name(self, name: str) -> List[str]:
+        """通过股票名称获取代码列表（返回归一化代码）"""
+        if not name:
+            return []
+        with self._data_lock:
+            codes = self._name_index.get(name, set())
+            results = []
+            for sina_code in codes:
+                info = self._code_to_info.get(sina_code)
+                if info:
+                    results.append(info.normalized_code)
+            return results
+
+    def find_codes_in_text(self, text: str, max_hits: int = 10) -> List[str]:
+        """从文本中匹配股票名称并返回代码列表（归一化代码）"""
+        if not text:
+            return []
+
+        hits: List[str] = []
+        seen: Set[str] = set()
+        # 匹配 2-8 位中文连续字符作为候选名称
+        for token in re.findall(r"[\u4e00-\u9fff]{2,8}", text):
+            for code in self.get_codes_by_name(token):
+                if code not in seen:
+                    seen.add(code)
+                    hits.append(code)
+                    if len(hits) >= max_hits:
+                        return hits
+        return hits
+
     def clear(self):
         """清空注册表"""
         with self._data_lock:
@@ -343,6 +424,163 @@ class StockInfoRegistry:
             self._normalized_to_sina.clear()
             self._name_index.clear()
             log.info("[StockInfoRegistry] 已清空")
+
+    def _save_to_static_file(self):
+        """保存当前数据到静态文件（用于生成/更新静态数据）"""
+        static_file = self._get_static_file_path()
+        try:
+            os.makedirs(os.path.dirname(static_file), exist_ok=True)
+            data = {}
+            with self._data_lock:
+                for sina_code, info in self._code_to_info.items():
+                    data[sina_code] = info.to_dict()
+            with open(static_file, 'w', encoding='utf-8') as f:
+                json.dump(data, f, ensure_ascii=False, indent=2)
+            log.info(f"[StockInfoRegistry] 静态文件已保存: {static_file}, 共 {len(data)} 条")
+        except Exception as e:
+            log.error(f"[StockInfoRegistry] 静态文件保存失败: {e}")
+
+    def refresh_static_file(self):
+        """从缓存刷新静态文件（保存当前内存数据到静态文件）"""
+        self._save_to_static_file()
+
+    def refresh_from_akshare(self):
+        """从 akshare 刷新股票数据并保存到静态文件"""
+        try:
+            from deva.naja.dictionary.stock.stock import build_market_universe_dataframe
+
+            log.info("[StockInfoRegistry] 从 akshare 刷新股票数据...")
+            df = build_market_universe_dataframe()
+
+            count = 0
+            for _, row in df.iterrows():
+                code = str(row.get('code', '')).zfill(6)
+                name = str(row.get('name', ''))
+
+                if not code or len(code) != 6:
+                    continue
+
+                if code.startswith('6'):
+                    sina_code = f'sh{code}'
+                    market = 'sh'
+                    exchange = 'SSE'
+                elif code.startswith(('0', '3')):
+                    sina_code = f'sz{code}'
+                    market = 'sz'
+                    exchange = 'SZSE'
+                elif code.startswith(('4', '8')):
+                    sina_code = f'bj{code}'
+                    market = 'bj'
+                    exchange = 'BJSE'
+                else:
+                    continue
+
+                if sina_code not in self._code_to_info:
+                    normalized_code = code.lstrip('0') or code
+                    standard_code = f"{normalized_code}.{exchange[:2]}"
+
+                    info = StockInfo(
+                        sina_code=sina_code,
+                        normalized_code=normalized_code,
+                        standard_code=standard_code,
+                        display_code=normalized_code,
+                        name=name,
+                        market=market,
+                        stock_type='A',
+                        exchange=exchange,
+                    )
+                    self._code_to_info[sina_code] = info
+                    self._normalized_to_sina[normalized_code] = sina_code
+                    if name:
+                        if name not in self._name_index:
+                            self._name_index[name] = set()
+                        self._name_index[name].add(sina_code)
+                    count += 1
+
+            log.info(f"[StockInfoRegistry] 从 akshare 刷新了 {count} 只股票")
+            self._save_to_static_file()
+            return count
+
+        except Exception as e:
+            log.error(f"[StockInfoRegistry] 从 akshare 刷新失败: {e}")
+            return 0
+
+    def refresh_from_tushare(self):
+        """从 tushare 刷新股票数据并保存到静态文件"""
+        try:
+            import tushare as ts
+            from deva.config import config
+            
+            token = config.get("tushare.token")
+            if token:
+                ts.set_token(token)
+            pro = ts.pro_api()
+            
+            log.info("[StockInfoRegistry] 从 tushare 刷新股票数据...")
+            stock_basic = pro.stock_basic(exchange='', list_status='L',
+                                          fields='ts_code,symbol,name,area,industry,list_date')
+            
+            count = 0
+            for _, row in stock_basic.iterrows():
+                ts_code = row['ts_code']
+                symbol = str(row['symbol']).zfill(6)
+                name = row['name']
+                
+                if ts_code.startswith('6'):
+                    sina_code = f'sh{symbol}'
+                    market = 'sh'
+                    exchange = 'SSE'
+                elif ts_code.startswith(('0', '3')):
+                    sina_code = f'sz{symbol}'
+                    market = 'sz'
+                    exchange = 'SZSE'
+                elif ts_code.startswith('4') or ts_code.startswith('8'):
+                    sina_code = f'bj{symbol}'
+                    market = 'bj'
+                    exchange = 'BJSE'
+                else:
+                    continue
+                
+                if sina_code not in self._code_to_info:
+                    normalized_code = symbol.lstrip('0') or symbol
+                    standard_code = f"{normalized_code}.{exchange[:2]}"
+                    
+                    info = StockInfo(
+                        sina_code=sina_code,
+                        normalized_code=normalized_code,
+                        standard_code=standard_code,
+                        display_code=normalized_code,
+                        name=name,
+                        market=market,
+                        stock_type='A',
+                        exchange=exchange,
+                    )
+                    self._code_to_info[sina_code] = info
+                    self._normalized_to_sina[normalized_code] = sina_code
+                    if name:
+                        if name not in self._name_index:
+                            self._name_index[name] = set()
+                        self._name_index[name].add(sina_code)
+                    count += 1
+            
+            log.info(f"[StockInfoRegistry] 从 tushare 刷新了 {count} 只股票")
+            self._save_to_static_file()
+            return count
+            
+        except Exception as e:
+            log.error(f"[StockInfoRegistry] 从 tushare 刷新失败: {e}")
+            return 0
+
+    def refresh_from_us_stocks(self):
+        """从内置美股核心列表刷新美股数据（暂不实现，数据已内置在静态文件）"""
+        log.info("[StockInfoRegistry] refresh_from_us_stocks 暂不实现，美股数据已内置在静态文件中")
+        return 0
+
+    def get_us_codes(self) -> Set[str]:
+        """获取所有美股 Sina 格式代码"""
+        with self._data_lock:
+            return {code for code in self._code_to_info.keys()
+                   if code.startswith('gb_')}
 
     def reset(self):
         """重置单例（用于测试）"""
@@ -352,6 +590,25 @@ class StockInfoRegistry:
             self._name_index.clear()
             StockInfoRegistry._instance = None
             self._initialized = False
+
+
+    def get_cn_codes(self) -> Set[str]:
+        """获取所有 A 股 Sina 格式代码 (sh, sz, bj)"""
+        with self._data_lock:
+            return {code for code in self._code_to_info.keys() 
+                   if code.startswith(('sh', 'sz', 'bj'))}
+
+    def get_cn_codes_with_market(self) -> Dict[str, str]:
+        """获取所有 A 股代码，格式: {sina_code: name}"""
+        with self._data_lock:
+            return {code: info.name for code, info in self._code_to_info.items()
+                   if code.startswith(('sh', 'sz', 'bj')) and info.name}
+
+    def get_us_codes_with_market(self) -> Dict[str, str]:
+        """获取所有美股代码，格式: {sina_code: name}"""
+        with self._data_lock:
+            return {code: info.name for code, info in self._code_to_info.items()
+                   if code.startswith('gb_') and info.name}
 
 
 def get_stock_registry() -> StockInfoRegistry:

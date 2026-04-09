@@ -297,7 +297,7 @@ def create_default_pipeline(
 
     if enable_enrich:
         enrich_stage = EnrichStage(
-            name="enrich_sector",
+            name="enrich_block",
             **kwargs
         )
         pipeline.add_stage(enrich_stage)

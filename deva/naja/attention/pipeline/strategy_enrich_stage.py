@@ -5,6 +5,7 @@ import logging
 from typing import Optional, Dict, Any, List
 
 from .base import Stage, StageResult, StageType
+from deva.naja.register import SR
 
 logger = logging.getLogger(__name__)
 
@@ -128,8 +129,7 @@ class StrategyEnrichStage(Stage):
             return self._dict_cache[profile_id]
 
         try:
-            from deva.naja.dictionary import get_dictionary_manager
-            mgr = get_dictionary_manager()
+            mgr = SR('dictionary_manager')
             entry = mgr.get(profile_id)
 
             if entry is None:

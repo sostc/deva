@@ -15,17 +15,6 @@ from .wisdom.wisdom_retriever import WisdomRetriever, TriggerContext
 log = logging.getLogger(__name__)
 
 
-_connector: Optional["ManasAlayaConnector"] = None
-
-
-def get_connector() -> "ManasAlayaConnector":
-    """获取全局 ManasAlayaConnector 单例"""
-    global _connector
-    if _connector is None:
-        _connector = ManasAlayaConnector()
-    return _connector
-
-
 class ManasAlayaConnector:
     """
     ManasEngine 与 AwakenedAlaya 连接器

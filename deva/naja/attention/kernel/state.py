@@ -8,6 +8,7 @@ QueryState - 全局查询状态
 import time
 import numpy as np
 from typing import Dict, List, Optional, Any
+from deva.naja.register import SR
 
 
 class QueryState:
@@ -58,8 +59,7 @@ class QueryState:
         """获取价值观系统（延迟初始化）"""
         if self._value_system is None:
             try:
-                from deva.naja.attention.values import get_value_system
-                self._value_system = get_value_system()
+                self._value_system = SR('value_system')
             except ImportError:
                 pass
         return self._value_system
@@ -208,7 +208,18 @@ class QueryState:
         if "portfolio_state" in feedback:
             self.portfolio_state = feedback["portfolio_state"]
 
-    def update_from_market(self, symbols, returns, volumes, prices, timestamp=None, sector_ids=None, sector_map=None):
+    def update_from_market(
+        self,
+        symbols,
+        returns,
+        volumes,
+        prices,
+        timestamp=None,
+        block_ids=None,
+        block_map=None,
+        block_ids=None,
+        block_map=None,
+    ):
         """
         从市场数据更新 QueryState
 
@@ -218,8 +229,10 @@ class QueryState:
             volumes: 成交量数组
             prices: 价格数组
             timestamp: 时间戳
-            sector_ids: 板块ID数组（可选）
-            sector_map: 板块映射 dict{symbol: sector_name}（可选）
+            block_ids: 题材ID数组（可选）
+            block_map: 题材映射 dict{symbol: block_name}（可选）
+            block_ids: 兼容旧字段（可选）
+            block_map: 兼容旧字段（可选）
         """
         if timestamp is None:
             timestamp = time.time()
@@ -234,8 +247,13 @@ class QueryState:
 
         self._calculate_and_update_risk_bias(returns, volumes, timestamp)
 
+        if block_ids is None:
+            block_ids = block_ids
+        if block_map is None:
+            block_map = block_map
+
         self._derive_and_update_attention_focus(
-            symbols, returns, volumes, sector_ids, sector_map, timestamp
+            symbols, returns, volumes, block_ids, block_map, timestamp
         )
 
         self._market_history["last_update"] = timestamp
@@ -362,8 +380,8 @@ class QueryState:
 
         self.risk_bias = float(np.clip(risk_bias, 0.1, 0.9))
 
-    def _derive_and_update_attention_focus(self, symbols, returns, volumes, sector_ids, sector_map, timestamp):
-        """从板块表现推导注意力焦点"""
+    def _derive_and_update_attention_focus(self, symbols, returns, volumes, block_ids, block_map, timestamp):
+        """从题材表现推导注意力焦点"""
         if len(symbols) == 0 or len(returns) == 0:
             return
 
@@ -375,40 +393,40 @@ class QueryState:
             if i < len(volumes):
                 symbol_volumes[str(sym)] = float(volumes[i])
 
-        if sector_map:
-            sector_perf = {}
-            sector_vol = {}
-            for sym, sectors in sector_map.items():
-                if isinstance(sectors, list):
-                    for sector in sectors:
-                        if sector not in sector_perf:
-                            sector_perf[sector] = []
-                            sector_vol[sector] = []
+        if block_map:
+            block_perf = {}
+            block_vol = {}
+            for sym, blocks in block_map.items():
+                if isinstance(blocks, list):
+                    for block in blocks:
+                        if block not in block_perf:
+                            block_perf[block] = []
+                            block_vol[block] = []
                         if sym in symbol_returns:
-                            sector_perf[sector].append(symbol_returns[sym])
+                            block_perf[block].append(symbol_returns[sym])
                         if sym in symbol_volumes:
-                            sector_vol[sector].append(symbol_volumes[sym])
+                            block_vol[block].append(symbol_volumes[sym])
                 else:
-                    sector = str(sectors)
-                    if sector not in sector_perf:
-                        sector_perf[sector] = []
-                        sector_vol[sector] = []
+                    block = str(blocks)
+                    if block not in block_perf:
+                        block_perf[block] = []
+                        block_vol[block] = []
                     if sym in symbol_returns:
-                        sector_perf[sector].append(symbol_returns[sym])
+                        block_perf[block].append(symbol_returns[sym])
                     if sym in symbol_volumes:
-                        sector_vol[sector].append(symbol_volumes[sym])
+                        block_vol[block].append(symbol_volumes[sym])
 
             focus = {}
-            for sector, perf_list in sector_perf.items():
+            for block, perf_list in block_perf.items():
                 if perf_list:
                     avg_perf = np.mean(perf_list)
-                    vol_list = sector_vol.get(sector, [])
+                    vol_list = block_vol.get(block, [])
                     avg_vol = np.mean(vol_list) if vol_list else 0
 
                     perf_score = np.clip(avg_perf / 3.0, -1.0, 1.0)
                     vol_score = np.clip(avg_vol / 1e8, 0, 1.0) if avg_vol > 0 else 0
 
-                    focus[sector] = (perf_score * 0.7 + vol_score * 0.3 + 1.0) / 2.0
+                    focus[block] = (perf_score * 0.7 + vol_score * 0.3 + 1.0) / 2.0
 
             if focus:
                 max_focus = max(focus.values()) if focus else 1.0

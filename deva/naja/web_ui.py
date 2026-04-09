@@ -21,6 +21,7 @@ from tornado.web import RequestHandler
 from deva import NW, Deva, NB
 from typing import Any, Optional, Callable
 from .config import get_auth_config, set_config, ensure_auth_secret, verify_auth
+from deva.naja.register import SR
 
 _request_theme = None
 
@@ -84,6 +85,13 @@ def _init_lab_mode(lab_config: dict):
         return
 
     print("🧪 非交易时间检查通过，启动实验室模式...")
+    # 设置调试模式环境变量
+    if lab_config.get("debug"):
+        os.environ["NAJA_LAB_DEBUG"] = "true"
+        print("🧪 实验室调试模式已启用")
+    else:
+        os.environ["NAJA_LAB_DEBUG"] = "false"
+
 
     from .datasource import get_datasource_manager, DataSourceEntry, UnitStatus
     from .strategy import get_strategy_manager
@@ -321,6 +329,9 @@ def _init_news_radar_speed_mode(news_radar_config: dict):
         print("📡 新闻雷达加速模式已初始化，跳过")
         return
     _news_radar_initialized = True
+    import os
+    os.environ["NAJA_NEWS_RADAR_DEBUG"] = "true"
+
 
     from .radar import get_radar_engine
 
@@ -356,6 +367,9 @@ def _init_news_radar_sim_mode(news_radar_config: dict):
         print("📡 新闻雷达模拟模式已初始化，跳过")
         return
     _news_radar_initialized = True
+    import os
+    os.environ["NAJA_NEWS_RADAR_DEBUG"] = "true"
+
 
     from .radar import get_radar_engine
 
@@ -375,6 +389,9 @@ def _init_news_radar_sim_mode(news_radar_config: dict):
 
 
 def _init_tune_mode(tune_config: dict):
+    import os
+    os.environ['NAJA_LAB_MODE'] = '1'
+
     """初始化调参模式"""
     print(f"🎯 调参模式已启用（持续循环优化版）")
 
@@ -383,8 +400,7 @@ def _init_tune_mode(tune_config: dict):
     tuner.start()
     tuner.register_callback(_on_tuner_event)
 
-    from .replay.replay_scheduler import get_replay_scheduler
-    scheduler = get_replay_scheduler()
+    scheduler = SR('replay_scheduler')
     if scheduler:
         scheduler.register_finished_callback(_on_replay_finished)
 
@@ -415,6 +431,9 @@ def _init_cognition_debug_mode():
     1. 实验室模式（历史行情回放）
     2. 新闻雷达模拟模式（模拟新闻高速流入）
     """
+    import os
+    os.environ["NAJA_COGNITION_DEBUG"] = "true"
+
     from .datasource import get_datasource_manager
     from .strategy import get_strategy_manager
 
@@ -823,8 +842,8 @@ async def market():
     if url_params == 'v2':
         toast("V2 UI 已合并到主版本", color="info")
 
-    from .attention.ui import render_attention_admin
-    await render_attention_admin(ctx)
+    from .market_hotspot.ui import render_market_hotspot_admin
+    await render_market_hotspot_admin(ctx)
 
 
 async def awakening_page():
@@ -1157,7 +1176,7 @@ def create_handlers(cdn: str = None):
     ]
 
 
-def run_server(port: int = 8080, host: str = '0.0.0.0', lab_config: dict = None, news_radar_config: dict = None, cognition_debug_config: dict = None, tune_config: dict = None, force_realtime: bool = False):
+def run_server(port: int = 8080, host: str = '0.0.0.0', lab_config: dict = None, news_radar_config: dict = None, cognition_debug_config: dict = None, tune_config: dict = None):
     """启动服务器
 
     Args:
@@ -1166,22 +1185,7 @@ def run_server(port: int = 8080, host: str = '0.0.0.0', lab_config: dict = None,
         lab_config: 实验室模式配置，如 {'enabled': True, 'table_name': 'xxx', 'interval': 1.0}
         news_radar_config: 新闻雷达配置，如 {'enabled': True, 'mode': 'normal'|'speed'|'sim', 'speed': 1.0}
         tune_config: 调参模式配置，如 {'enabled': True, 'search_method': 'grid', 'max_samples': 100}
-        force_realtime: 强制实盘调试模式（忽略交易时间限制）
     """
-    import atexit
-
-    _web_ui_env_vars_to_cleanup: list[str] = []
-
-    def _cleanup_web_ui_env_vars():
-        """退出时清理 web_ui 设置的环境变量"""
-        for var in _web_ui_env_vars_to_cleanup:
-            if var in os.environ:
-                del os.environ[var]
-        if _web_ui_env_vars_to_cleanup:
-            print(f"[WebUI] 已清理环境变量: {', '.join(_web_ui_env_vars_to_cleanup)}")
-
-    atexit.register(_cleanup_web_ui_env_vars)
-
     print("=" * 60)
     print("🚀 Naja 管理平台启动中...")
     print("=" * 60)
@@ -1193,7 +1197,6 @@ def run_server(port: int = 8080, host: str = '0.0.0.0', lab_config: dict = None,
 
     print("📂 启动系统引导流程...")
     bootstrap = SystemBootstrap()
-    bootstrap.set_attention_config(force_realtime=force_realtime, lab_mode=bool(lab_config and lab_config.get("enabled")))
     boot_result = bootstrap.boot()
 
     if not boot_result.success:
@@ -1242,10 +1245,6 @@ def run_server(port: int = 8080, host: str = '0.0.0.0', lab_config: dict = None,
 
     # 实验室模式初始化
     if lab_config and lab_config.get("enabled"):
-        if lab_config.get("debug"):
-            os.environ["NAJA_LAB_DEBUG"] = "true"
-            _web_ui_env_vars_to_cleanup.append("NAJA_LAB_DEBUG")
-            print("🧪 实验室调试模式已启用")
         print("🧪 实验室模式已启用，准备启动...")
         _init_lab_mode(lab_config)
 
@@ -1253,13 +1252,9 @@ def run_server(port: int = 8080, host: str = '0.0.0.0', lab_config: dict = None,
     if news_radar_config and news_radar_config.get("enabled"):
         mode = news_radar_config.get("mode", "normal")
         if mode == "sim":
-            os.environ["NAJA_NEWS_RADAR_DEBUG"] = "true"
-            _web_ui_env_vars_to_cleanup.append("NAJA_NEWS_RADAR_DEBUG")
             print("📡 新闻雷达模拟模式已启用，准备启动...")
             _init_news_radar_sim_mode(news_radar_config)
         elif mode == "speed":
-            os.environ["NAJA_NEWS_RADAR_DEBUG"] = "true"
-            _web_ui_env_vars_to_cleanup.append("NAJA_NEWS_RADAR_DEBUG")
             print("📡 新闻雷达加速模式已启用，准备启动...")
             _init_news_radar_speed_mode(news_radar_config)
         else:
@@ -1268,8 +1263,6 @@ def run_server(port: int = 8080, host: str = '0.0.0.0', lab_config: dict = None,
 
     # 认知系统调试模式初始化
     if cognition_debug_config and cognition_debug_config.get("enabled"):
-        os.environ["NAJA_COGNITION_DEBUG"] = "true"
-        _web_ui_env_vars_to_cleanup.append("NAJA_COGNITION_DEBUG")
         print("🧠 认知系统调试模式已启用，准备启动...")
         _init_cognition_debug_mode()
 
