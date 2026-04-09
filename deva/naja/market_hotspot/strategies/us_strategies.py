@@ -1,7 +1,7 @@
 """
 US Market Attention Strategies
 
-美股专用策略：复用 A 股策略逻辑，但使用美股注意力状态与数据过滤。
+美股专用策略：复用 A 股策略逻辑，但使用美股热点状态与数据过滤。
 """
 
 from __future__ import annotations
@@ -22,7 +22,7 @@ from .smart_money_detector import SmartMoneyFlowDetector
 
 
 class USHotspotMixin:
-    """为美股策略提供 US 注意力上下文与过滤能力。"""
+    """为美股策略提供 US 热点上下文与过滤能力。"""
 
     def _get_us_state(self) -> Dict[str, Any]:
         try:
@@ -164,7 +164,7 @@ class USBlockRotationHunter(USHotspotMixin, BlockRotationHunter):
         super().__init__()
         self.strategy_id = "us_block_rotation_hunter"
         self.name = "US Block Rotation Hunter"
-        self.min_global_hotspot = 0.25
+        self.min_global_hotspot = 0.15
         self.market_scope = "US"
 
 
@@ -173,15 +173,15 @@ class USMomentumSurgeTracker(USHotspotMixin, MomentumSurgeTracker):
 
     def __init__(self):
         super().__init__(
-            price_threshold=0.008,
-            volume_threshold=1.3,
-            combined_threshold=0.25,
-            min_symbol_weight=0.0002,
-            cooldown_period=45.0,
+            price_threshold=0.005,
+            volume_threshold=1.2,
+            combined_threshold=0.20,
+            min_symbol_weight=0.00015,
+            cooldown_period=30.0,
         )
         self.strategy_id = "us_momentum_surge_tracker"
         self.name = "US Momentum Surge Tracker"
-        self.min_global_hotspot = 0.3
+        self.min_global_hotspot = 0.20
         self.market_scope = "US"
 
 
@@ -190,12 +190,12 @@ class USAnomalyPatternSniper(USHotspotMixin, AnomalyPatternSniper):
 
     def __init__(self):
         super().__init__(
-            min_symbol_weight=0.00025,
-            cooldown_period=90.0,
+            min_symbol_weight=0.00020,
+            cooldown_period=60.0,
         )
         self.strategy_id = "us_anomaly_pattern_sniper"
         self.name = "US Anomaly Pattern Sniper"
-        self.min_global_hotspot = 0.45
+        self.min_global_hotspot = 0.25
         self.market_scope = "US"
 
 
@@ -204,14 +204,14 @@ class USSmartMoneyFlowDetector(USHotspotMixin, SmartMoneyFlowDetector):
 
     def __init__(self):
         super().__init__(
-            large_order_threshold=500000,
-            smart_money_imbalance_threshold=0.55,
-            accumulation_threshold=0.65,
-            distribution_threshold=-0.65,
-            min_symbol_weight=0.0003,
-            cooldown_period=180.0,
+            large_order_threshold=300000,
+            smart_money_imbalance_threshold=0.45,
+            accumulation_threshold=0.50,
+            distribution_threshold=-0.50,
+            min_symbol_weight=0.00020,
+            cooldown_period=120.0,
         )
         self.strategy_id = "us_smart_money_flow_detector"
         self.name = "US Smart Money Flow Detector"
-        self.min_global_hotspot = 0.28
+        self.min_global_hotspot = 0.20
         self.market_scope = "US"

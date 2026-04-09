@@ -25,7 +25,7 @@ class OpportunityType(Enum):
     REVERSAL = "reversal"           # 反转机会
     BREAKOUT = "breakout"           # 突破机会
     ACCUMULATION = "accumulation"   # 蓄势机会
-    SECTOR_ROTATION = "sector_rotation"  # 板块轮动
+    SECTOR_ROTATION = "block_rotation"  # 题材轮动
     EVENT_DRIVEN = "event_driven"   # 事件驱动
 
 
@@ -108,9 +108,9 @@ class OpportunityScanner:
         if breakout_opp:
             opportunities.append(breakout_opp)
 
-        sector_opp = self._scan_sector_rotation(market_data, narrative_result)
-        if sector_opp:
-            opportunities.append(sector_opp)
+        block_opp = self._scan_block_rotation(market_data, narrative_result)
+        if block_opp:
+            opportunities.append(block_opp)
 
         self._update_opportunities(opportunities)
         self._clean_expired()
@@ -119,28 +119,28 @@ class OpportunityScanner:
 
     def _scan_momentum(self, market_data: Dict[str, Any]) -> Optional[Opportunity]:
         """扫描动量机会"""
-        sector_changes = market_data.get("sector_changes", {})
-        if not sector_changes:
+        block_changes = market_data.get("block_changes", {})
+        if not block_changes:
             return None
 
-        top_sectors = sorted(sector_changes.items(), key=lambda x: x[1], reverse=True)[:2]
-        if len(top_sectors) < 2:
+        top_blocks = sorted(block_changes.items(), key=lambda x: x[1], reverse=True)[:2]
+        if len(top_blocks) < 2:
             return None
 
-        top_change = top_sectors[0][1]
-        second_change = top_sectors[1][1]
+        top_change = top_blocks[0][1]
+        second_change = top_blocks[1][1]
 
         if top_change > 2.0 and second_change > 1.5:
             return Opportunity(
                 opportunity_type=OpportunityType.MOMENTUM,
-                symbol=top_sectors[0][0],
+                symbol=top_blocks[0][0],
                 confidence=min(1.0, top_change / 5),
                 stage=OpportunityStage.READY if top_change > 3 else OpportunityStage.CONFIRMING,
                 expected_return=top_change * 0.5,
                 risk_level=0.3,
                 entry_timing="立即" if top_change > 3 else "等待确认",
                 entry_horizon=300 if top_change > 3 else 1800,
-                evidence=[f"领涨板块: {top_sectors[0][0]}(+{top_change:.1f}%)", f"跟随: {top_sectors[1][0]}(+{second_change:.1f}%)"],
+                evidence=[f"领涨题材: {top_blocks[0][0]}(+{top_change:.1f}%)", f"跟随: {top_blocks[1][0]}(+{second_change:.1f}%)"],
                 created_at=time.time(),
                 expires_at=time.time() + 3600
             )
@@ -149,27 +149,27 @@ class OpportunityScanner:
 
     def _scan_reversal(self, market_data: Dict[str, Any]) -> Optional[Opportunity]:
         """扫描反转机会"""
-        sector_changes = market_data.get("sector_changes", {})
-        if not sector_changes:
+        block_changes = market_data.get("block_changes", {})
+        if not block_changes:
             return None
 
-        bottom_sectors = sorted(sector_changes.items(), key=lambda x: x[1])[:2]
-        if len(bottom_sectors) < 2:
+        bottom_blocks = sorted(block_changes.items(), key=lambda x: x[1])[:2]
+        if len(bottom_blocks) < 2:
             return None
 
-        bottom_change = bottom_sectors[0][1]
+        bottom_change = bottom_blocks[0][1]
 
         if bottom_change < -2.5:
             return Opportunity(
                 opportunity_type=OpportunityType.REVERSAL,
-                symbol=bottom_sectors[0][0],
+                symbol=bottom_blocks[0][0],
                 confidence=min(1.0, abs(bottom_change) / 5),
                 stage=OpportunityStage.SCANNING,
                 expected_return=abs(bottom_change) * 0.6,
                 risk_level=0.6,
                 entry_timing="等待超卖确认",
                 entry_horizon=3600,
-                evidence=[f"超跌板块: {bottom_sectors[0][0]}({bottom_change:.1f}%)"],
+                evidence=[f"超跌题材: {bottom_blocks[0][0]}({bottom_change:.1f}%)"],
                 created_at=time.time(),
                 expires_at=time.time() + 7200
             )
@@ -202,26 +202,26 @@ class OpportunityScanner:
             expires_at=time.time() + 3600
         )
 
-    def _scan_sector_rotation(
+    def _scan_block_rotation(
         self,
         market_data: Dict[str, Any],
         narrative_result: Optional[Dict[str, Any]]
     ) -> Optional[Opportunity]:
-        """扫描板块轮动机会"""
-        sector_changes = market_data.get("sector_changes", {})
-        if not sector_changes or len(sector_changes) < 5:
+        """扫描题材轮动机会"""
+        block_changes = market_data.get("block_changes", {})
+        if not block_changes or len(block_changes) < 5:
             return None
 
-        sorted_sectors = sorted(sector_changes.items(), key=lambda x: x[1])
-        changes = [s[1] for s in sorted_sectors]
+        sorted_blocks = sorted(block_changes.items(), key=lambda x: x[1])
+        changes = [s[1] for s in sorted_blocks]
 
         if len(changes) >= 3:
             first_third_avg = sum(changes[:len(changes)//3]) / (len(changes)//3)
             last_third_avg = sum(changes[-len(changes)//3:]) / (len(changes)//3)
 
             if last_third_avg - first_third_avg > 1.5:
-                laggard = sorted_sectors[0][0]
-                leader = sorted_sectors[-1][0]
+                laggard = sorted_blocks[0][0]
+                leader = sorted_blocks[-1][0]
 
                 return Opportunity(
                     opportunity_type=OpportunityType.SECTOR_ROTATION,
@@ -232,10 +232,10 @@ class OpportunityScanner:
                     risk_level=0.4,
                     entry_timing="等待轮动确认",
                     entry_horizon=3600,
-                    evidence=[f"板块轮动: 从{laggard}到{leader}"],
+                    evidence=[f"题材轮动: 从{laggard}到{leader}"],
                     created_at=time.time(),
                     expires_at=time.time() + 7200,
-                    related_narrative="板块轮动叙事"
+                    related_narrative="题材轮动叙事"
                 )
 
         return None

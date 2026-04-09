@@ -128,7 +128,7 @@ class LiquidityRescueDataHub:
 
     def get_global_market_summary(self) -> Dict[str, Any]:
         """
-        获取全球市场摘要（用于注意力事件）
+        获取全球市场摘要（用于热点事件）
 
         Returns:
             Dict: 包含主要市场的涨跌情况

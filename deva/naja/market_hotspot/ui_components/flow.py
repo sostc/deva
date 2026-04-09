@@ -953,19 +953,37 @@ def render_dual_engine_panel() -> str:
         if not integration or not integration.hotspot_system:
             return ""
 
-        dual_engine = integration.hotspot_system.dual_engine
-        if not dual_engine:
-            return ""
+        hs = integration.hotspot_system
+        cn_dual_engine = getattr(hs, 'dual_engine', None)
+        us_context = getattr(hs, '_us_context', None)
 
-        river_stats = getattr(dual_engine, 'river_stats', {}) or {}
-        pytorch_stats = getattr(dual_engine, 'pytorch_stats', {}) or {}
+        cn_river_processed = 0
+        cn_river_anomalies = 0
+        cn_river_active = 0
+        cn_pytorch_inferences = 0
 
-        river_processed = river_stats.get('processed_count', 0)
-        river_anomalies = river_stats.get('anomaly_count', 0)
-        river_active = river_stats.get('active_symbols', 0)
+        us_river_processed = 0
+        us_river_anomalies = 0
+        us_river_active = 0
+        us_pytorch_inferences = 0
 
-        pytorch_inferences = pytorch_stats.get('inference_count', 0)
-        pytorch_patterns = pytorch_stats.get('pattern_count', 0)
+        if cn_dual_engine:
+            cn_summary = cn_dual_engine.get_trigger_summary()
+            cn_river_stats = cn_summary.get('river_stats', {})
+            cn_pytorch_stats = cn_summary.get('pytorch_stats', {})
+            cn_river_processed = cn_river_stats.get('processed_count', 0)
+            cn_river_anomalies = cn_river_stats.get('anomaly_count', 0)
+            cn_river_active = cn_river_stats.get('active_symbols', 0)
+            cn_pytorch_inferences = cn_pytorch_stats.get('inference_count', 0)
+
+        if us_context:
+            us_summary = us_context.dual_engine.get_trigger_summary()
+            us_river_stats = us_summary.get('river_stats', {})
+            us_pytorch_stats = us_summary.get('pytorch_stats', {})
+            us_river_processed = us_river_stats.get('processed_count', 0)
+            us_river_anomalies = us_river_stats.get('anomaly_count', 0)
+            us_river_active = us_river_stats.get('active_symbols', 0)
+            us_pytorch_inferences = us_pytorch_stats.get('inference_count', 0)
 
     except Exception:
         return ""
@@ -984,33 +1002,49 @@ def render_dual_engine_panel() -> str:
 
         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 10px;">
             <div style="padding: 10px; background: rgba(34,197,94,0.1); border-radius: 6px; border-left: 3px solid #22c55e;">
-                <div style="font-size: 10px; font-weight: 600; color: #22c55e; margin-bottom: 6px;">🌊 River 引擎</div>
+                <div style="font-size: 10px; font-weight: 600; color: #22c55e; margin-bottom: 6px;">🌊 A股 River <span style="font-size: 9px; color: #86efac;">(注册 {cn_river_active:,})</span></div>
                 <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 4px;">
                     <div>
-                        <div style="font-size: 12px; font-weight: 700; color: #4ade80;">{river_processed:,}</div>
+                        <div style="font-size: 12px; font-weight: 700; color: #4ade80;">{cn_river_processed:,}</div>
                         <div style="font-size: 8px; color: #64748b;">处理数</div>
                     </div>
                     <div>
-                        <div style="font-size: 12px; font-weight: 700; color: #fb923c;">{river_anomalies:,}</div>
-                        <div style="font-size: 8px; color: #64748b;">异常数</div>
+                        <div style="font-size: 12px; font-weight: 700; color: #fb923c;">{cn_river_anomalies:,}</div>
+                        <div style="font-size: 8px; color: #64748b;">异动数</div>
                     </div>
-                    <div style="grid-column: span 2;">
-                        <div style="font-size: 12px; font-weight: 700; color: #60a5fa;">{river_active:,}</div>
-                        <div style="font-size: 8px; color: #64748b;">活跃标的</div>
+                </div>
+            </div>
+
+            <div style="padding: 10px; background: rgba(59,130,246,0.1); border-radius: 6px; border-left: 3px solid #3b82f6;">
+                <div style="font-size: 10px; font-weight: 600; color: #3b82f6; margin-bottom: 6px;">🌊 美股 River <span style="font-size: 9px; color: #93c5fd;">(注册 {us_river_active:,})</span></div>
+                <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 4px;">
+                    <div>
+                        <div style="font-size: 12px; font-weight: 700; color: #60a5fa;">{us_river_processed:,}</div>
+                        <div style="font-size: 8px; color: #64748b;">处理数</div>
+                    </div>
+                    <div>
+                        <div style="font-size: 12px; font-weight: 700; color: #fb923c;">{us_river_anomalies:,}</div>
+                        <div style="font-size: 8px; color: #64748b;">异动数</div>
                     </div>
                 </div>
             </div>
 
             <div style="padding: 10px; background: rgba(168,85,247,0.1); border-radius: 6px; border-left: 3px solid #a855f7;">
-                <div style="font-size: 10px; font-weight: 600; color: #a855f7; margin-bottom: 6px;">🧠 PyTorch 引擎</div>
+                <div style="font-size: 10px; font-weight: 600; color: #a855f7; margin-bottom: 6px;">🧠 A股 PyTorch</div>
                 <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 4px;">
                     <div>
-                        <div style="font-size: 12px; font-weight: 700; color: #a855f7;">{pytorch_inferences:,}</div>
+                        <div style="font-size: 12px; font-weight: 700; color: #a855f7;">{cn_pytorch_inferences:,}</div>
                         <div style="font-size: 8px; color: #64748b;">推理数</div>
                     </div>
+                </div>
+            </div>
+
+            <div style="padding: 10px; background: rgba(168,85,247,0.1); border-radius: 6px; border-left: 3px solid #7c3aed;">
+                <div style="font-size: 10px; font-weight: 600; color: #7c3aed; margin-bottom: 6px;">🧠 美股 PyTorch</div>
+                <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 4px;">
                     <div>
-                        <div style="font-size: 12px; font-weight: 700; color: #c084fc;">{pytorch_patterns:,}</div>
-                        <div style="font-size: 8px; color: #64748b;">模式数</div>
+                        <div style="font-size: 12px; font-weight: 700; color: #8b5cf6;">{us_pytorch_inferences:,}</div>
+                        <div style="font-size: 8px; color: #64748b;">推理数</div>
                     </div>
                 </div>
             </div>

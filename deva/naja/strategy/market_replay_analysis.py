@@ -12,10 +12,10 @@ print("=" * 80)
 print("📊 历史数据深度分析 - 市场复盘")
 print("=" * 80)
 
-# 加载板块数据
-print("\n[1/6] 加载板块概念数据...")
+# 加载题材数据
+print("\n[1/6] 加载题材概念数据...")
 stock_to_blocks = get_stock_block_mapping()
-print(f"      ✓ 加载了 {len(stock_to_blocks)} 只股票的板块数据")
+print(f"      ✓ 加载了 {len(stock_to_blocks)} 只股票的题材数据")
 
 # 加载历史快照
 print("\n[2/6] 加载历史快照数据...")
@@ -113,8 +113,8 @@ for date in sorted(daily_stats.keys(), reverse=True):
     ad_str = f"+{s['advance_decline']:.3f}" if s['advance_decline'] > 0 else f"{s['advance_decline']:.3f}"
     print(f"{date:<12} {s['gainers']:<6} {s['losers']:<6} {s['flat']:<5} {s['avg_change']:>+7.2f}% {s['median_change']:>+7.2f}% {s['limit_up']:>3}/{s['limit_down']:<3} {ad_str}")
 
-# 板块分析
-print("\n[4/6] 分析板块表现...")
+# 题材分析
+print("\n[4/6] 分析题材表现...")
 
 block_performance = defaultdict(list)
 
@@ -135,27 +135,27 @@ for date in sorted(daily_stats.keys()):
                     'name': row.get('name', '')
                 })
 
-# 计算每个板块的平均表现
+# 计算每个题材的平均表现
 block_avg = {}
 for block, records in block_performance.items():
-    if len(records) >= 10:  # 只保留有足够数据的板块
+    if len(records) >= 10:  # 只保留有足够数据的题材
         avg = np.mean([r['p_change'] for r in records])
         block_avg[block] = avg
 
-print(f"      ✓ 分析了 {len(block_avg)} 个板块")
+print(f"      ✓ 分析了 {len(block_avg)} 个题材")
 
-# 输出板块表现TOP10
+# 输出题材表现TOP10
 print("\n" + "=" * 80)
-print("🏆 板块表现排行榜")
+print("🏆 题材表现排行榜")
 print("=" * 80)
 
 sorted_blocks = sorted(block_avg.items(), key=lambda x: x[1], reverse=True)
 
-print("\n📈 涨幅前10板块:")
+print("\n📈 涨幅前10题材:")
 for i, (block, avg) in enumerate(sorted_blocks[:10], 1):
     print(f"  {i:2}. {block:<20} 平均涨幅: {avg:>+6.2f}%")
 
-print("\n📉 跌幅前10板块:")
+print("\n📉 跌幅前10题材:")
 for i, (block, avg) in enumerate(sorted_blocks[-10:], 1):
     print(f"  {i:2}. {block:<20} 平均涨幅: {avg:>+6.2f}%")
 

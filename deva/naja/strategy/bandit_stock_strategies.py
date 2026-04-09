@@ -1,8 +1,8 @@
 """
-板块牛股精选策略 - 给 Bandit 提供交易信号
+题材牛股精选策略 - 给 Bandit 提供交易信号
 
 特点：
-1. 板块联动分析
+1. 题材联动分析
 2. 个股精选排序
 3. 噪音股票过滤
 4. 早期发现牛股
@@ -12,7 +12,7 @@
 8. Bandit 信号输出
 
 数据源: realtime_tick_5s
-字典: 通达信概念板块
+字典: 通达信概念题材
 """
 
 from __future__ import annotations
@@ -66,9 +66,9 @@ class NoiseConfig:
 
 
 class BlockStockSelector:
-    """板块牛股精选器
+    """题材牛股精选器
 
-    从板块中精选最强牛股，给 Bandit 提供买入信号
+    从题材中精选最强牛股，给 Bandit 提供买入信号
     """
 
     def __init__(
@@ -261,7 +261,7 @@ class BlockStockSelector:
         if not selected:
             return '''
 <div style="background:linear-gradient(135deg,#1e3a8a,#3b82f6);border-radius:16px;padding:16px;color:#fff;margin-bottom:12px;">
-    <div style="font-weight:600;font-size:16px;margin-bottom:8px;">🐂 板块牛股精选</div>
+    <div style="font-weight:600;font-size:16px;margin-bottom:8px;">🐂 题材牛股精选</div>
     <div style="padding:20px;text-align:center;color:rgba(255,255,255,0.7);">暂无符合条件的股票</div>
 </div>
 '''
@@ -270,7 +270,7 @@ class BlockStockSelector:
         for s in selected[:5]:
             change = s.get("change", 0)
             change_color = "#22c55e" if change > 0 else "#ef4444"
-            block_str = ",".join(s.get("blocks", [])[:2]) if s.get("blocks") else "板块未知"
+            block_str = ",".join(s.get("blocks", [])[:2]) if s.get("blocks") else "题材未知"
 
             rows.append(f'''
 <tr style="border-bottom:1px solid rgba(255,255,255,0.1);">
@@ -286,7 +286,7 @@ class BlockStockSelector:
 
         html = f'''
 <div style="background:linear-gradient(135deg,#1e3a8a,#3b82f6);border-radius:16px;padding:16px;color:#fff;margin-bottom:12px;">
-    <div style="font-weight:600;font-size:16px;margin-bottom:8px;">🐂 板块牛股精选 TOP{len(selected)}</div>
+    <div style="font-weight:600;font-size:16px;margin-bottom:8px;">🐂 题材牛股精选 TOP{len(selected)}</div>
 
     <div style="background:rgba(255,255,255,0.1);border-radius:12px;padding:12px;margin-bottom:12px;">
         <div style="font-size:12px;opacity:0.7;margin-bottom:4px;">最佳标的</div>
@@ -338,9 +338,9 @@ class BlockStockSelector:
 
 
 class BlockBanditSignalGenerator:
-    """板块 Bandit 信号生成器
+    """题材 Bandit 信号生成器
 
-    将板块牛股转换为 Bandit 交易信号
+    将题材牛股转换为 Bandit 交易信号
     """
 
     def __init__(

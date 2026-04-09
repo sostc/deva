@@ -4,7 +4,7 @@
 整合所有模块，提供统一的市场热点调度接口
 
 数据流:
-snapshot → Global Attention → Sector Attention → Weight Pool →
+snapshot → Global Attention → Block Attention → Weight Pool →
     Frequency Scheduler → Strategy Allocation → Dual Engine →
     DataSource Control
 """
@@ -130,7 +130,7 @@ class MarketHotspotSystem:
         # 股票名称缓存
         self._symbol_name_cache: Dict[str, str] = {}
 
-        # 美股注意力引擎（保持兼容旧字段）
+        # 美股热点引擎（保持兼容旧字段）
         self._us_global_hotspot = self._us_context.global_hotspot
         self._us_block_hotspot = self._us_context.block_engine
         self._us_weight_pool = self._us_context.weight_pool
@@ -968,7 +968,7 @@ class MarketHotspotSystem:
         timestamp: float
     ) -> Dict[str, Any]:
         """
-        处理美股市场快照（独立于A股的注意力计算）
+        处理美股市场快照（独立于A股的热点计算）
 
         Args:
             symbols: 股票代码数组
@@ -979,7 +979,7 @@ class MarketHotspotSystem:
             timestamp: 时间戳
 
         Returns:
-            调度决策结果（包含美股专属的注意力数据）
+            调度决策结果（包含美股专属的热点数据）
         """
         if not self._initialized:
             log.warning("[US-Attention] 市场热点系统未初始化，跳过美股处理")

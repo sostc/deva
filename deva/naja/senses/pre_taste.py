@@ -424,7 +424,7 @@ class PreTasteSense:
                 - topic_sentiment: Dict[str, float] 话题情绪
                 - narrative_intensity: float 叙事强度
                 - news_count: int 新闻数量
-                - sector: str 所属板块
+                - block: str 所属题材
 
         Returns:
             预尝结果

@@ -773,14 +773,24 @@ class NajaSupervisor:
     def shutdown(self) -> Dict[str, Any]:
         """关闭系统"""
         log.info("开始关闭系统...")
-        
+
         try:
+            # 保存 HistoryTracker 热点历史
+            try:
+                from deva.naja.market_hotspot.market_hotspot_history_tracker import get_history_tracker
+                tracker = get_history_tracker()
+                if tracker:
+                    tracker.save_state()
+                    log.info("[shutdown] 热点历史已保存")
+            except Exception as e:
+                log.warning(f"[shutdown] 保存热点历史失败: {e}")
+
             # 停止监控
             self.stop_monitoring()
-            
+
             # 停止所有组件
             self._stop_all_components()
-            
+
             log.info("系统已关闭")
             return {'success': True}
         except Exception as e:
@@ -809,6 +819,15 @@ def get_naja_supervisor() -> NajaSupervisor:
     supervisor.start_monitoring()
 
     def _cleanup():
+        try:
+            from deva.naja.market_hotspot.market_hotspot_history_tracker import get_history_tracker
+            tracker = get_history_tracker()
+            if tracker:
+                tracker.save_state()
+                log.info("[atexit] 热点历史已保存")
+        except Exception as e:
+            log.warning(f"[atexit] 保存热点历史失败: {e}")
+
         try:
             attention = supervisor._get_component('attention')
             if attention and hasattr(attention, 'persist_state'):

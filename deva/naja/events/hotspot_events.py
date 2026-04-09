@@ -83,7 +83,7 @@ class HotspotShiftEvent:
     """
     热点转移事件
 
-    当市场热点发生显著转移时发布（如全局热点转移、板块集中度变化、市场状态变化等）
+    当市场热点发生显著转移时发布（如全局热点转移、题材集中度变化、市场状态变化等）
     AttentionOS 接收此事件后决定是否发送到 InsightPool
     """
     event_type: str  # global_hotspot_shift, block_concentration_shift, market_state_shift, block_hotspot_change, symbol_hotspot_change

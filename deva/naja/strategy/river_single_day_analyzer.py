@@ -3,7 +3,7 @@
 
 用于分析单日全市场数据，识别：
 1. 市场广度（上涨/下跌比例）
-2. 板块(block)表现
+2. 题材(block)表现
 3. 异常波动股票
 4. 资金流向
 5. 市场情绪
@@ -22,7 +22,7 @@ from deva.naja.bandit.stock_block_map import INDUSTRY_CODE_TO_NAME
 
 @dataclass
 class BlockAnalysis:
-    """板块分析结果"""
+    """题材分析结果"""
     block_id: str
     stock_count: int
     avg_change: float
@@ -67,7 +67,7 @@ class RiverTickSingleDayAnalyzer:
         Args:
             volume_threshold: 量比阈值（超过均值多少倍为异常）
             change_threshold: 涨跌幅阈值（超过9%为剧烈波动）
-            block_names: 板块名称映射
+            block_names: 题材名称映射
         """
         self.volume_threshold = volume_threshold
         self.change_threshold = change_threshold
@@ -76,7 +76,7 @@ class RiverTickSingleDayAnalyzer:
         self.reset()
 
     def _default_block_map(self) -> Dict[str, str]:
-        """默认板块映射 - 合并A股和美股板块"""
+        """默认题材映射 - 合并A股和美股题材"""
         block_map: Dict[str, str] = {}
         block_map.update(INDUSTRY_CODE_TO_NAME)
 
@@ -134,11 +134,11 @@ class RiverTickSingleDayAnalyzer:
         self.blocks[block_id].append(data)
 
     def _classify_block(self, data: Dict) -> str:
-        """根据股票数据分类板块
+        """根据股票数据分类题材
 
         优先级：
         1. 如果有narrative字段（从US_STOCK_BLOCKS或通达信来的），使用industry_code
-        2. 如果是美股板块（下划线格式如ai_chip），直接使用
+        2. 如果是美股题材（下划线格式如ai_chip），直接使用
         3. 如果A股已有block字段且不是'other'，使用它
         4. 否则根据名称关键词匹配
         5. 最后根据代码判断（主板/创业板等）

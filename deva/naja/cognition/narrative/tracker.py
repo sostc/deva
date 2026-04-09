@@ -41,7 +41,7 @@
     发布 NARRATIVE_UPDATE → CognitiveSignalBus → ManasEngine
 
 💡 与 TimingNarrative 的区别：
-    - NarrativeTracker（地）：关注「空间」—— 炒什么板块/主题
+    - NarrativeTracker（地）：关注「空间」—— 炒什么题材/主题
     - TimingNarrative（天）：关注「时间」—— 现在是不是时机
 
 关键词已迁移到 keyword_registry.py，本文件从那里导入以保持向后兼容。
@@ -713,11 +713,11 @@ class NarrativeTracker:
         return {"nodes": nodes, "edges": edges}
 
     def get_linked_blocks(self, narrative: str) -> List[str]:
-        """获取叙事主题关联的板块列表
+        """获取叙事主题关联的题材列表
 
-        这是叙事-板块联动的关键接口：
+        这是叙事-题材联动的关键接口：
         NarrativeTracker 识别叙事主题后，通过此方法获取关联的 block_id，
-        从而实现"舆情 → 板块轮动"的联动。
+        从而实现"舆情 → 题材轮动"的联动。
 
         Args:
             narrative: 叙事主题名称，如 "AI"、"芯片"、"新能源"
@@ -750,7 +750,7 @@ class NarrativeTracker:
         return world_narrative
 
     def get_narrative_with_blocks(self) -> List[Dict[str, Any]]:
-        """获取所有叙事主题及其关联板块
+        """获取所有叙事主题及其关联题材
 
         Returns:
             包含 narrative 和 linked_blocks 的字典列表
@@ -1421,7 +1421,7 @@ class NarrativeTracker:
     def analyze_market_full(self) -> Dict[str, Any]:
         """全市场深度分析
 
-        步骤1：全量股票 → 板块映射 → River异常检测
+        步骤1：全量股票 → 题材映射 → River异常检测
         步骤2：只关注行业+持仓 → River二次分析（重点）
 
         Returns:
@@ -1500,7 +1500,7 @@ class NarrativeTracker:
         return result
 
     def _analyze_focused_blocks(self, step1_result: Dict[str, Any]) -> Dict[str, Any]:
-        """第二步：持仓+关注板块二次分析（重点）"""
+        """第二步：持仓+关注题材二次分析（重点）"""
         import logging
         log = logging.getLogger(__name__)
 
@@ -1660,7 +1660,7 @@ class NarrativeTracker:
         return list(set(symbols))
 
     def _map_blocks(self, stocks: Dict[str, Dict]) -> Dict[str, List[Dict]]:
-        """板块映射分析 - A股用通达信，美股用US_STOCK_BLOCKS"""
+        """题材映射分析 - A股用通达信，美股用US_STOCK_BLOCKS"""
         from deva.naja.bandit.stock_block_map import US_STOCK_BLOCKS, INDUSTRY_CODE_TO_NAME, NARRATIVE_INDUSTRY_MAP
 
         try:
@@ -1711,7 +1711,7 @@ class NarrativeTracker:
         """使用River风格进行单日横截面分析
 
         1. RiverTickSingleDayAnalyzer - 单日全市场横截面分析
-        2. 板块表现分析
+        2. 题材表现分析
         3. 异常波动检测
         4. 市场情绪判断
         """

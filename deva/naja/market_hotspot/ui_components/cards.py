@@ -1,4 +1,4 @@
-"""注意力系统 UI 卡片组件"""
+"""热点系统 UI 卡片组件"""
 
 import logging
 from typing import Dict, Any
@@ -43,7 +43,7 @@ def render_hotspot_details_card(details: Dict[str, Any]) -> str:
     html = f"""
     <div style="background: white; border: 1px solid #e2e8f0; border-radius: 12px; padding: 20px; margin-top: 16px;">
         <div style="font-weight: 600; margin-bottom: 16px; color: #1e293b; display: flex; align-items: center; gap: 8px;">
-            🧮 注意力计算详情
+            🧮 热点计算详情
             <span style="font-size: 11px; color: #64748b; font-weight: normal;">(算法解释)</span>
         </div>
 
@@ -108,7 +108,7 @@ def render_hotspot_details_card(details: Dict[str, Any]) -> str:
 
 
 def render_market_state_panel() -> str:
-    """渲染当前市场注意力状态面板（支持A股+美股混合展示）"""
+    """渲染当前市场热点状态面板（支持A股+美股混合展示）"""
     from .common import get_history_tracker, get_market_phase_summary, get_ui_mode_context, get_hot_blocks_and_stocks
     from .us_market import get_us_hotspot_data, get_us_market_summary
 
@@ -418,7 +418,7 @@ def render_strategy_status(strategy_stats: Dict[str, Any]) -> str:
             if priority < 5:
                 skip_reason = "(市场冷清)"
             elif priority < 8:
-                skip_reason = "(注意力不足)"
+                skip_reason = "(热点不足)"
             else:
                 skip_reason = "(冷却中)"
         else:
@@ -461,7 +461,7 @@ def render_dual_engine_status(dual_summary: Dict[str, Any]) -> str:
                 <div style="font-weight: 600; color: #1e40af; margin-bottom: 8px;">🌊 轻量检测 <span style="font-size: 10px; color: #64748b; font-weight: normal;">(River)</span></div>
                 <div style="font-size: 12px; color: #1e3a8a; line-height: 1.6;">
                     <div style="display: flex; justify-content: space-between;"><span>处理数据:</span><span style="font-weight: 600;">{processed:,}</span></div>
-                    <div style="display: flex; justify-content: space-between;"><span>异常检测:</span><span style="font-weight: 600;">{anomalies:,}</span></div>
+                    <div style="display: flex; justify-content: space-between;"><span>异动检测:</span><span style="font-weight: 600;">{anomalies:,}</span></div>
                     <div style="display: flex; justify-content: space-between;"><span>异常率:</span><span style="font-weight: 600;">{anomaly_ratio:.1f}%</span><span style="font-size: 10px; color: #64748b;">(正常10-20%)</span></div>
                     <div style="display: flex; justify-content: space-between;"><span>活跃股票:</span><span style="font-weight: 600;">{river_stats.get('active_symbols', 0)} 只</span></div>
                 </div>
@@ -570,7 +570,7 @@ def render_pytorch_patterns() -> str:
 
         patterns = sorted(pattern_cache.values(), key=lambda x: x.timestamp, reverse=True)[:10]
 
-        html = """<div style="background: white; border: 1px solid #e2e8f0; border-radius: 12px; padding: 20px; margin-top: 16px;"><div style="font-weight: 600; margin-bottom: 16px; color: #1e293b;">🔍 PyTorch 模式识别结果 <span style="font-size: 12px; color: #64748b; font-weight: normal; margin-left: 8px;">深度学习异常检测</span></div>"""
+        html = """<div style="background: white; border: 1px solid #e2e8f0; border-radius: 12px; padding: 20px; margin-top: 16px;"><div style="font-weight: 600; margin-bottom: 16px; color: #1e293b;">🔍 PyTorch 模式识别结果 <span style="font-size: 12px; color: #64748b; font-weight: normal; margin-left: 8px;">深度学习异动识别</span></div>"""
 
         pattern_styles = {
             'breakout': ('🚀', '#dc2626', '突破'),

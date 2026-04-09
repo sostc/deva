@@ -99,7 +99,7 @@ class AttentionAwareMixin:
         return global_attention
     
     def get_block_attention_weight(self, block_id: str) -> float:
-        """获取板块注意力分数"""
+        """获取题材注意力分数"""
         if not self._use_attention:
             return 0.5
         
@@ -165,7 +165,7 @@ class AttentionAwareMixin:
         return adjusted_threshold, adjusted_position
     
     def get_active_blocks(self, threshold: float = 0.3) -> List[str]:
-        """获取活跃板块列表"""
+        """获取活跃题材列表"""
         if not self._use_attention:
             return []
 
@@ -298,11 +298,11 @@ class BlockStockSelectorWithAttention:
     
     def on_data(self, data: Any) -> None:
         """处理数据"""
-        # 只处理活跃板块的股票
+        # 只处理活跃题材的股票
         active_blocks = self.attention.get_active_blocks(threshold=0.4)
 
         if active_blocks and pd is not None and isinstance(data, pd.DataFrame):
-            # 这里假设可以通过某种方式过滤板块
+            # 这里假设可以通过某种方式过滤题材
             # 实际实现需要根据具体数据结构
             pass
         

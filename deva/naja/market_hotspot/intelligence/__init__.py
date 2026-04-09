@@ -3,22 +3,22 @@ Intelligence - 智能增强模块
 """
 
 from .predictive_engine import (
-    PredictiveAttentionEngine,
+    PredictiveHotspotEngine,
     PredictionResult,
     EMAAccelerator,
     SecondOrderDifferentiator,
     MomentumPredictor
 )
 from .feedback_loop import (
-    AttentionFeedbackLoop,
+    HotspotFeedbackLoop,
     FeedbackCollector,
-    AttentionEffectivenessAnalyzer,
+    HotspotEffectivenessAnalyzer,
     BanditUpdater,
     StrategyOutcome,
-    AttentionEffectiveness
+    HotspotEffectiveness
 )
 from .budget_system import (
-    AttentionBudgetSystem,
+    HotspotBudgetSystem,
     BudgetConfig,
     BudgetLevel,
     BudgetAllocation,
@@ -27,10 +27,10 @@ from .budget_system import (
     ResourceMonitor
 )
 from .propagation import (
-    AttentionPropagation,
+    HotspotPropagation,
     PropagationEngine,
     RelationMatrix,
-    SectorRelation
+    BlockRelation
 )
 from .strategy_learner import (
     StrategyLearning,
@@ -52,28 +52,28 @@ from .signal_tuner import (
 )
 
 __all__ = [
-    "PredictiveAttentionEngine",
+    "PredictiveHotspotEngine",
     "PredictionResult",
     "EMAAccelerator",
     "SecondOrderDifferentiator",
     "MomentumPredictor",
-    "AttentionFeedbackLoop",
+    "HotspotFeedbackLoop",
     "FeedbackCollector",
-    "AttentionEffectivenessAnalyzer",
+    "HotspotEffectivenessAnalyzer",
     "BanditUpdater",
     "StrategyOutcome",
-    "AttentionEffectiveness",
-    "AttentionBudgetSystem",
+    "HotspotEffectiveness",
+    "HotspotBudgetSystem",
     "BudgetConfig",
     "BudgetLevel",
     "BudgetAllocation",
     "TopKBudgetAllocator",
     "AdaptiveBudgetController",
     "ResourceMonitor",
-    "AttentionPropagation",
+    "HotspotPropagation",
     "PropagationEngine",
     "RelationMatrix",
-    "SectorRelation",
+    "BlockRelation",
     "StrategyLearning",
     "MarketStateDetector",
     "BanditStrategySelector",

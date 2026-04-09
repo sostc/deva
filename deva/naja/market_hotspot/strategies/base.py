@@ -1,7 +1,7 @@
 """
-注意力策略基类
+热点策略基类
 
-所有基于注意力的策略都继承此类
+所有基于热点的策略都继承此类
 """
 
 import sys
@@ -58,8 +58,8 @@ class HotspotStrategyBase(ABC):
     热点策略基类
     
     核心特性：
-    1. 自动接入注意力系统
-    2. 根据注意力动态调整执行频率
+    1. 自动接入热点系统
+    2. 根据热点动态调整执行频率
     3. 只在值得计算的时候计算
     """
     
@@ -79,7 +79,7 @@ class HotspotStrategyBase(ABC):
         self.scope = scope
         self.market_scope = market_scope
         
-        # 注意力阈值
+        # 热点阈值
         self.min_global_hotspot = min_global_hotspot
         self.min_symbol_weight = min_symbol_weight
         
@@ -102,7 +102,7 @@ class HotspotStrategyBase(ABC):
         self.total_processing_time = 0.0
         self.total_stocks_processed = 0
         
-        # 缓存注意力系统引用
+        # 缓存热点系统引用
         self._hotspot_integration = None
         self._orchestrator = None
 
@@ -142,19 +142,19 @@ class HotspotStrategyBase(ABC):
         """
         判断是否应该执行策略
 
-        分离"注意力"和"活跃度"：
-        - 注意力: 用于展示市场焦点在哪
+        分离"热点"和"活跃度"：
+        - 热点: 用于展示市场焦点在哪
         - 活跃度: 用于决定是否交易（活跃度低就不交易）
 
         Args:
-            global_hotspot: 全局注意力分数（用于展示）
+            global_hotspot: 全局热点分数（用于展示）
             activity: 市场活跃度分数（用于交易门槛）
             market_timestamp: 市场时间戳（用于历史回放时正确计算冷却间隔）
         """
         # 使用市场时间（如果有），否则用真实时间
         current_time = market_timestamp if market_timestamp is not None else time.time()
 
-        # 获取注意力（始终从系统获取）
+        # 获取热点（始终从系统获取）
         if global_hotspot is None:
             integration = self._get_hotspot_integration()
             if integration and integration.hotspot_system:
@@ -170,7 +170,7 @@ class HotspotStrategyBase(ABC):
             else:
                 activity = 0.5
 
-        # 注意力展示总是进行（只是记录）
+        # 热点展示总是进行（只是记录）
         # 活跃度低于阈值 -> 不交易
         if activity < 0.15:
             self.skip_count += 1
@@ -185,15 +185,15 @@ class HotspotStrategyBase(ABC):
     
     def _get_dynamic_interval(self, global_hotspot: float) -> float:
         """
-        根据全局注意力动态调整执行间隔
+        根据全局热点动态调整执行间隔
         
-        注意力高 -> 间隔短（更频繁）
-        注意力低 -> 间隔长（更稀疏）
+        热点高 -> 间隔短（更频繁）
+        热点低 -> 间隔长（更稀疏）
         """
         # 基础间隔
         base_interval = 5.0  # 5秒
         
-        # 根据注意力调整
+        # 根据热点调整
         # global_hotspot 0.0 -> 5倍间隔（25秒）
         # global_hotspot 1.0 -> 0.2倍间隔（1秒）
         factor = 5.0 - global_hotspot * 4.8
@@ -202,9 +202,9 @@ class HotspotStrategyBase(ABC):
     
     def filter_by_hotspot(self, df: pd.DataFrame, min_weight: Optional[float] = None) -> pd.DataFrame:
         """
-        根据注意力权重筛选股票
+        根据热点权重筛选股票
         
-        这是核心方法，只保留高注意力的股票
+        这是核心方法，只保留高热点的股票
         """
         if pd is None or df is None or df.empty:
             return df
@@ -237,7 +237,7 @@ class HotspotStrategyBase(ABC):
         return integration.hotspot_system.weight_pool.get_symbol_weight(symbol)
     
     def get_global_hotspot(self) -> float:
-        """获取全局注意力"""
+        """获取全局热点"""
         integration = self._get_hotspot_integration()
         if not integration or not integration.hotspot_system:
             return 0.5
@@ -278,7 +278,7 @@ class HotspotStrategyBase(ABC):
         Bandit 会监听这些信号并创建虚拟持仓
         
         同时启动 AttentionTracker 跟踪:
-        - 只要注意力系统识别到内容，就开始跟踪价格变化
+        - 只要热点系统识别到内容，就开始跟踪价格变化
         - 不需要实际成交
         - 形成持续的学习反馈
         """
@@ -348,7 +348,7 @@ class HotspotStrategyBase(ABC):
                 log.debug(f"[SignalTuner] 信号记录失败: {te}")
 
             # 启动 AttentionTracker 跟踪
-            # 这是用户新思路的核心: 不需要成交，只要注意力选中就开始跟踪
+            # 这是用户新思路的核心: 不需要成交，只要热点选中就开始跟踪
             self._track_hotspot_signal(signal)
             
         except Exception as e:
@@ -357,10 +357,10 @@ class HotspotStrategyBase(ABC):
     
     def _track_hotspot_signal(self, signal: Signal):
         """
-        启动 AttentionTracker 跟踪注意力信号
+        启动 AttentionTracker 跟踪热点信号
 
         实现用户思路:
-        - 只要注意力系统识别到内容，就去关注它的价格变化
+        - 只要热点系统识别到内容，就去关注它的价格变化
         - 形成持续的反馈学习
         - 回放模式下也会创建跟踪，由 PriceMonitor 后续更新价格
         """
@@ -419,7 +419,7 @@ class HotspotStrategyBase(ABC):
             result = StrategyResult(
                 id=f"attn_{self.strategy_id}_{int(time.time()*1000)}",
                 strategy_id=self.strategy_id,
-                strategy_name=f"[注意力] {self.name}",
+                strategy_name=f"[热点] {self.name}",
                 ts=signal.timestamp,
                 success=True,
                 input_preview=f"股票: {signal.symbol}",
@@ -454,7 +454,7 @@ class HotspotStrategyBase(ABC):
         
         Args:
             data: 市场数据
-            context: 注意力上下文
+            context: 热点上下文
             
         Returns:
             信号列表
@@ -481,7 +481,7 @@ class HotspotStrategyBase(ABC):
         market_timestamp = context.get('timestamp', start_time)
 
         # 检查是否应该执行（使用市场时间计算冷却间隔）
-        # 活跃度低于阈值就不交易，但注意力始终展示
+        # 活跃度低于阈值就不交易，但热点始终展示
         if not self.should_execute(global_hotspot, activity, market_timestamp):
             return []
 
@@ -491,7 +491,7 @@ class HotspotStrategyBase(ABC):
 
         # 根据策略类型过滤数据
         if self.scope == 'symbol':
-            # 个股策略：只处理高注意力股票
+            # 个股策略：只处理高热点股票
             data = self.filter_by_hotspot(data)
         elif self.scope == 'block':
             # 题材策略：数据已经由调度中心过滤

@@ -78,7 +78,7 @@ def render_insight(ui):
             </div>
         </div>
         <div style="font-size: 11px; color: #475569; margin-bottom: 14px;">
-            输入雷达信号 + 注意力事件 → LLM反思 → 洞察结论与建议
+            输入雷达信号 + 热点事件 → LLM反思 → 洞察结论与建议
         </div>
     </div>
     """)
@@ -116,7 +116,7 @@ def render_insight(ui):
             border: 1px solid rgba(255,255,255,0.08);
         ">
             <div style="font-size: 12px; font-weight: 600; color: #64748b; margin-bottom: 10px;">
-                🎯 注意力建议（基于洞察计算）
+                🎯 热点建议（基于洞察计算）
             </div>
             <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px;">
         """)
@@ -133,7 +133,7 @@ def render_insight(ui):
                 f'<div style="margin-bottom: 8px;"><div style="display: flex; justify-content: space-between; font-size: 11px; color: #64748b; margin-bottom: 2px;"><span>{sec}</span><span style="color: #a855f7; font-weight: 600;">{score:.2f}</span></div><div style="height: 4px; background: rgba(255,255,255,0.08); border-radius: 2px;"><div style="width: {min(100, int(score * 100))}%; height: 100%; background: linear-gradient(90deg, #a855f7, #c084fc); border-radius: 2px;"></div></div></div>'
                 for sec, score in top_blocks.items()
             ])
-            put_html(f'<div style="background: rgba(255,255,255,0.02); padding: 10px; border-radius: 8px;"><div style="font-size: 11px; font-weight: 600; color: #a855f7; margin-bottom: 8px;">🏭 板块</div>{block_bars}</div>')
+            put_html(f'<div style="background: rgba(255,255,255,0.02); padding: 10px; border-radius: 8px;"><div style="font-size: 11px; font-weight: 600; color: #a855f7; margin-bottom: 8px;">🏭 题材</div>{block_bars}</div>')
 
         if narratives:
             narrative_tags = " ".join([f'<span style="display: inline-block; padding: 3px 8px; background: rgba(249,115,22,0.15); color: #fb923c; border-radius: 4px; font-size: 10px; margin: 2px;">{nar}</span>' for nar in narratives])
@@ -328,11 +328,11 @@ def render_insight(ui):
                 </div>
                 <div style="font-size: 12px; color: #94a3b8; margin-bottom: 6px; line-height: 1.4;">{summary}</div>
                 <div style="font-size: 10px; color: #475569; margin-bottom: 6px;">
-                    标的: {symbols} | 板块: {blocks}
+                    标的: {symbols} | 题材: {blocks}
                 </div>
                 <div style="display: flex; flex-wrap: wrap; gap: 4px;">
                     <span style="padding: 2px 6px; border-radius: 4px; background: rgba(20,184,166,0.15); color: #14b8a6; font-size: 10px;">用户分 <b>{score:.2f}</b></span>
-                    <span style="padding: 2px 6px; border-radius: 4px; background: rgba(96,165,250,0.15); color: #60a5fa; font-size: 10px;">系统注意力 <b>{system_attention:.2f}</b></span>
+                    <span style="padding: 2px 6px; border-radius: 4px; background: rgba(96,165,250,0.15); color: #60a5fa; font-size: 10px;">系统热度 <b>{system_attention:.2f}</b></span>
                     <span style="padding: 2px 6px; border-radius: 4px; background: rgba(168,85,247,0.15); color: #a855f7; font-size: 10px;">置信度 <b>{confidence:.2f}</b></span>
                     <span style="padding: 2px 6px; border-radius: 4px; background: rgba(249,115,22,0.15); color: #fb923c; font-size: 10px;">可行动 <b>{actionability:.2f}</b></span>
                     <span style="padding: 2px 6px; border-radius: 4px; background: rgba(34,197,94,0.15); color: #4ade80; font-size: 10px;">新颖度 <b>{novelty:.2f}</b></span>
@@ -443,7 +443,7 @@ def render_insight(ui):
             <div style="margin-bottom: 6px;"><b style="color: #14b8a6;">📝 新闻舆情策略 → 认知层：</b>处理新闻语义 + 叙事追踪</div>
             <div style="margin-bottom: 6px;"><b style="color: #a855f7;">💾 记忆分层：</b>短期(1000条) → 中期(5000条, score≥0.6) → 长期反思(LLM反思)</div>
             <div style="margin-bottom: 6px;"><b style="color: #60a5fa;">🤖 LLM反思：</b>每{int(llm_stats['interval_seconds'])}秒触发一次，对近期信号进行深度总结</div>
-            <div style="margin-bottom: 6px;"><b style="color: #fb923c;">👁️ 注意力建议：</b>基于信号计算标的/板块权重，反馈给注意力调度</div>
+            <div style="margin-bottom: 6px;"><b style="color: #fb923c;">👁️ 热点建议：</b>基于信号计算标的/题材权重，反馈给注意力调度</div>
             <div><b style="color: #4ade80;">📊 评分体系：</b>user_score + system_attention + confidence + actionability + novelty</div>
         </div>
     </div>

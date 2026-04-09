@@ -48,7 +48,80 @@ class ReviewDataCollector:
             "news_focus": self.collect_news_focus(),
             "external_changes": self.collect_external_changes(),
             "internal_changes": self.collect_internal_changes(),
+            "hotspot_shift": self.collect_hotspot_shift_history(),
         }
+
+    def collect_hotspot_shift_history(self, lookback_hours: int = 24) -> Dict[str, Any]:
+        """
+        收集历史热点切换数据
+
+        包含：
+        - 题材切换事件时间线
+        - 个股切换事件时间线
+        - 热点快照历史
+        """
+        try:
+            from deva.naja.market_hotspot.market_hotspot_history_tracker import get_history_tracker
+
+            tracker = get_history_tracker()
+            if tracker is None:
+                return {"status": "no_tracker"}
+
+            cutoff_time = time.time() - (lookback_hours * 3600)
+
+            block_events = []
+            symbol_events = []
+
+            for event in tracker.block_hotspot_events_medium:
+                if event.timestamp < cutoff_time:
+                    continue
+                block_events.append({
+                    'timestamp': event.timestamp,
+                    'time': event.market_time,
+                    'date': event.market_date,
+                    'block_id': event.block_id,
+                    'block_name': event.block_name,
+                    'event_type': event.event_type,
+                    'weight_change': event.weight_change,
+                    'change_percent': event.change_percent,
+                    'description': event.description,
+                })
+
+            for change in tracker.changes:
+                if change.timestamp < cutoff_time:
+                    continue
+                if change.item_type != 'symbol':
+                    continue
+                symbol_events.append({
+                    'timestamp': change.timestamp,
+                    'time': change.market_time,
+                    'symbol': change.item_id,
+                    'name': change.item_name,
+                    'change_type': change.change_type,
+                    'old_weight': change.old_weight,
+                    'new_weight': change.new_weight,
+                    'change_percent': change.change_percent,
+                    'price_change': change.price_change,
+                    'description': change.description,
+                })
+
+            block_events.sort(key=lambda x: x['timestamp'], reverse=True)
+            symbol_events.sort(key=lambda x: x['timestamp'], reverse=True)
+
+            return {
+                "status": "ok",
+                "lookback_hours": lookback_hours,
+                "block_event_count": len(block_events),
+                "symbol_event_count": len(symbol_events),
+                "block_events": block_events[:30],
+                "symbol_events": symbol_events[:30],
+                "recent_blocks": [e['block_name'] for e in block_events[:5]],
+                "recent_symbols": [e['symbol'] for e in symbol_events[:5]],
+            }
+
+        except Exception as e:
+            log.warning(f"[ReviewDataCollector] collect_hotspot_shift_history 失败: {e}")
+            return {"status": "error", "error": str(e)}
 
     def collect_market_focus(self) -> Dict[str, Any]:
         """

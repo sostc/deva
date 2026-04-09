@@ -18,7 +18,7 @@ TimingNarrative - 认知系统/天（Timing/时机叙事感知）
 
 💡 与 NarrativeTracker 的区别：
     - TimingNarrative（天）：关注「时间」—— 现在是不是时机
-    - NarrativeTracker（地）：关注「空间」—— 炒什么板块/主题
+    - NarrativeTracker（地）：关注「空间」—— 炒什么题材/主题
 
 📊 叙事阶段：
     EMERGING（萌芽）→ BUILDING（构建）→ PEAK（高潮）→ FADING（消退）→ DEAD（死亡）
@@ -45,7 +45,7 @@ class TimingType(Enum):
     EARNINGS = "earnings"       # 业绩驱动
     LIQUIDITY = "liquidity"     # 流动性驱动
     SENTIMENT = "sentiment"     # 情绪驱动
-    BLOCK = "block"           # 板块轮动
+    BLOCK = "block"           # 题材轮动
     GLOBAL = "global"           # 全球联动
     UNKNOWN = "unknown"          # 未知
 
@@ -68,7 +68,7 @@ class TimingNarrative:
     evidence: List[str]         # 支撑证据
     start_time: float           # 开始时间
     strength: float             # 强度 [0, 1]
-    related_blocks: List[str]   # 相关板块
+    related_blocks: List[str]   # 相关题材
     key_stocks: List[str]       # 关键股票
 
 
@@ -206,7 +206,7 @@ class TimingNarrativeTracker:
         if sentiment_narrative:
             narratives.append(sentiment_narrative)
 
-        # 检测板块叙事
+        # 检测题材叙事
         block_narrative = self._detect_block_narrative(market_data)
         if block_narrative:
             narratives.append(block_narrative)
@@ -324,7 +324,7 @@ class TimingNarrativeTracker:
         return None
 
     def _detect_block_narrative(self, market_data: Dict[str, Any]) -> Optional[TimingNarrative]:
-        """检测板块叙事"""
+        """检测题材叙事"""
         block_changes = market_data.get("block_changes", market_data.get("block_changes", {}))
         if len(block_changes) < 3:
             return None
@@ -364,7 +364,7 @@ class TimingNarrativeTracker:
         return min(1.0, base + quality_boost)
 
     def _get_top_blocks(self, market_data: Dict[str, Any]) -> List[str]:
-        """获取领涨板块"""
+        """获取领涨题材"""
         block_changes = market_data.get("block_changes", market_data.get("block_changes", {}))
         return [s[0] for s in sorted(block_changes.items(), key=lambda x: x[1], reverse=True)[:3]]
 
@@ -449,7 +449,7 @@ class NarrativeTransitionSense:
                     from_narrative=narrative.narrative_type,
                     to_narrative=TimingType.EARNINGS,
                     confidence=0.5,
-                    trigger_signals=["板块轮动加速", "个股分化"],
+                    trigger_signals=["题材轮动加速", "个股分化"],
                     expected_timing="within_week",
                     intensity=0.6
                 )

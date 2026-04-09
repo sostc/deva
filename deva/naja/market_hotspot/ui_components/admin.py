@@ -431,40 +431,55 @@ def _render_micro_change_indicator() -> str:
     if not micro_block_changes and not micro_symbol_changes:
         return f"""
         <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px; margin-bottom: 12px;">
-            <div style="font-size: 12px; color: #94a3b8; margin-bottom: 8px;">📊 细微变化监测 · 近{len(recent_snapshots)}个时间点</div>
+            <div style="font-size: 12px; font-weight: 600; color: #1e293b; margin-bottom: 4px;">📊 细微变化监测</div>
+            <div style="font-size: 10px; color: #64748b; margin-bottom: 8px;">监测近 {len(recent_snapshots)} 个时间点内权重发生突变的题材和个股</div>
             <div style="text-align: center; color: #94a3b8; font-size: 12px; padding: 12px;">暂无明显波动</div>
         </div>
         """
 
     html = f"""
     <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px; margin-bottom: 12px;">
-        <div style="font-size: 12px; color: #64748b; margin-bottom: 10px;">📊 细微变化监测 · 近{len(recent_snapshots)}个时间点</div>
+        <div style="font-size: 12px; font-weight: 600; color: #1e293b; margin-bottom: 4px;">📊 细微变化监测</div>
+        <div style="font-size: 10px; color: #64748b; margin-bottom: 10px;">监测近 {len(recent_snapshots)} 个时间点内权重发生突变的题材（≥1%）和个股（≥2%）</div>
     """
 
     if micro_block_changes:
-        html += """<div style="margin-bottom: 10px;"><div style="font-size: 11px; color: #94a3b8; margin-bottom: 6px;">题材微波动 (≥1%)</div>"""
+        html += """<div style="margin-bottom: 10px;"><div style="font-size: 11px; color: #1e40af; margin-bottom: 6px;">📱 题材微波动 (≥1%)</div>"""
         for item in micro_block_changes:
             emoji = "📈" if item['change'] > 0 else "📉"
             color = "#16a34a" if item['change'] > 0 else "#dc2626"
             sign = "+" if item['change'] > 0 else ""
             html += f"""
             <div style="display: flex; justify-content: space-between; align-items: center; padding: 4px 8px; margin-bottom: 4px; background: white; border-radius: 4px; font-size: 11px;">
-                <span>{emoji} {item['name']}</span>
-                <span style="color: {color}; font-weight: 600;">{sign}{item['change']:.1f}%</span>
+                <span style="display: flex; align-items: center; gap: 4px;">
+                    <span>{emoji}</span>
+                    <span style="font-weight: 500;">{item['name']}</span>
+                </span>
+                <span style="display: flex; flex-direction: column; align-items: flex-end;">
+                    <span style="color: {color}; font-weight: 600;">{sign}{item['change']:.1f}%</span>
+                    <span style="font-size: 9px; color: #94a3b8;">({item['old']:.3f} → {item['new']:.3f})</span>
+                </span>
             </div>
             """
         html += "</div>"
 
     if micro_symbol_changes:
-        html += """<div><div style="font-size: 11px; color: #94a3b8; margin-bottom: 6px;">个股微波动 (≥2%)</div>"""
+        html += """<div><div style="font-size: 11px; color: #7c3aed; margin-bottom: 6px;">📈 个股微波动 (≥2%)</div>"""
         for item in micro_symbol_changes:
             emoji = "📈" if item['change'] > 0 else "📉"
             color = "#16a34a" if item['change'] > 0 else "#dc2626"
             sign = "+" if item['change'] > 0 else ""
             html += f"""
             <div style="display: flex; justify-content: space-between; align-items: center; padding: 4px 8px; margin-bottom: 4px; background: white; border-radius: 4px; font-size: 11px;">
-                <span>{emoji} {item['symbol']} {item['name']}</span>
-                <span style="color: {color}; font-weight: 600;">{sign}{item['change']:.1f}%</span>
+                <span style="display: flex; align-items: center; gap: 4px;">
+                    <span>{emoji}</span>
+                    <span style="font-weight: 500;">{item['symbol']}</span>
+                    <span style="color: #64748b; font-size: 10px;">{item['name']}</span>
+                </span>
+                <span style="display: flex; flex-direction: column; align-items: flex-end;">
+                    <span style="color: {color}; font-weight: 600;">{sign}{item['change']:.1f}%</span>
+                    <span style="font-size: 9px; color: #94a3b8;">({item['old']:.4f} → {item['new']:.4f})</span>
+                </span>
             </div>
             """
         html += "</div>"
@@ -484,7 +499,7 @@ def _get_history_tracker():
 
 def _run_diagnostic():
     """运行诊断"""
-    from deva.naja.attention.diagnostic import render_attention_diagnostic
+    from deva.naja.market_hotspot.diagnostic import render_attention_diagnostic
     render_attention_diagnostic()
 
 

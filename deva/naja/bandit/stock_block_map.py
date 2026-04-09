@@ -9,7 +9,7 @@ StockBlockMap - 股票-行业映射数据
 注意：
 - industry_code: 传统行业分类码 "ai_chip", "cloud_ai" (对应原 block)
 - industry_name: 传统行业中文名 "AI芯片/GPU"
-- blocks: 注意力系统的板块标签 ["AI", "芯片", "半导体"] (来自注意力层)
+- blocks: 注意力系统的题材标签 ["AI", "芯片", "半导体"] (来自注意力层)
 """
 
 import time

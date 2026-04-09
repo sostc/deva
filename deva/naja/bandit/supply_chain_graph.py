@@ -45,7 +45,7 @@ class GraphNode:
 
     # 公司特有的属性
     stock_code: Optional[str] = None      # 股票代码
-    block: Optional[str] = None            # 行业板块
+    block: Optional[str] = None            # 行业题材
     market_cap: Optional[str] = None      # 市值规模
 
     def to_dict(self) -> Dict:

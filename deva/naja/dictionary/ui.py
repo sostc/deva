@@ -162,7 +162,7 @@ def _dict_type_options():
     return [
         {"label": "维表", "value": "dimension"},
         {"label": "映射", "value": "mapping"},
-        {"label": "股票板块", "value": "stock_basic_block"},
+        {"label": "股票题材", "value": "stock_basic_block"},
         {"label": "股票基础", "value": "stock_basic"},
         {"label": "行业", "value": "industry"},
         {"label": "自定义", "value": "custom"},
@@ -432,7 +432,7 @@ def _build_table_data(ctx: dict, entries: list, mgr) -> list:
             "dimension": "维表",
             "mapping": "映射",
             "custom": "自定义",
-            "stock_basic_block": "股票板块",
+            "stock_basic_block": "股票题材",
             "stock_basic": "股票基础",
             "industry": "行业",
         }
@@ -533,7 +533,7 @@ async def _show_dict_detail(ctx: dict, mgr, entry_id: str):
             "dimension": "维表",
             "mapping": "映射",
             "custom": "自定义",
-            "stock_basic_block": "股票板块",
+            "stock_basic_block": "股票题材",
             "stock_basic": "股票基础",
             "industry": "行业",
         }

@@ -1262,18 +1262,18 @@ class DictionaryManager:
 
 
 def create_tongdaxin_blocks_dict(
-    name: str = "通达信概念板块", 
+    name: str = "通达信概念题材", 
     interval_seconds: int = 86400,
     blocks_file: str = None
 ) -> dict:
-    """创建通达信概念板块字典
+    """创建通达信概念题材字典
     
     鲜活任务会定期读取 infoharbor_block.dat 文件来更新数据
     
     Args:
         name: 字典名称
         interval_seconds: 自动刷新间隔（秒），默认24小时
-        blocks_file: 板块数据文件路径，默认使用项目根目录的 infoharbor_block.dat
+        blocks_file: 题材数据文件路径，默认使用项目根目录的 infoharbor_block.dat
     
     Returns:
         创建结果
@@ -1295,7 +1295,7 @@ def fetch_data():
     mgr = SR('dictionary_manager')
     return mgr.create(
         name=name,
-        description=f"通达信概念板块数据，从 {Path(file_path).name} 文件读取，包含股票与所属板块的映射关系",
+        description=f"通达信概念题材数据，从 {Path(file_path).name} 文件读取，包含股票与所属题材的映射关系",
         dict_type="stock_basic_block",
         source_mode="task",
         func_code=func_code,
@@ -1305,14 +1305,14 @@ def fetch_data():
 
 
 def enrich_stock_with_blocks(df: pd.DataFrame, code_column: str = "code") -> pd.DataFrame:
-    """为股票DataFrame补充板块信息（展开格式，每行一个股票-板块组合）
+    """为股票DataFrame补充题材信息（展开格式，每行一个股票-题材组合）
 
     Args:
         df: 包含股票代码的DataFrame
         code_column: 股票代码列名
 
     Returns:
-        补充了blocks列的DataFrame，每行是一个股票-板块组合
+        补充了blocks列的DataFrame，每行是一个股票-题材组合
     """
     from .tongdaxin_blocks import get_stock_blocks
 

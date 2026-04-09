@@ -192,9 +192,9 @@ RADAR_DETAILED_DOC = """
                 </div>
                 <!-- Block -->
                 <div>
-                    <div style="color: #8b5cf6; font-weight: 500; margin-bottom: 4px;">● BlockAnomaly（板块联动）</div>
+                    <div style="color: #8b5cf6; font-weight: 500; margin-bottom: 4px;">● BlockAnomaly（题材联动）</div>
                     <div style="color: #64748b; font-size: 10px;">
-                        原理：统计板块内齐涨齐跌比例<br/>
+                        原理：统计题材内齐涨齐跌比例<br/>
                         触发：<code>up/down_ratio > 0.7</code><br/>
                         涨跌家数占比 > 0.5%的股票
                     </div>
@@ -368,7 +368,7 @@ COGNITION_DETAILED_DOC = """
             <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; font-size: 10px;">
                 <div style="background: rgba(20,184,166,0.1); padding: 8px; border-radius: 6px;">
                     <div style="color: #14b8a6; font-weight: 500;">👁️ 注意力建议</div>
-                    <div style="color: #64748b; margin-top: 4px;">标的/板块权重 → Attention Kernel</div>
+                    <div style="color: #64748b; margin-top: 4px;">标的/题材权重 → Attention Kernel</div>
                 </div>
                 <div style="background: rgba(168,85,247,0.1); padding: 8px; border-radius: 6px;">
                     <div style="color: #a855f7; font-weight: 500;">🤖 LLM反思</div>

@@ -217,7 +217,7 @@ class AttentionTracker:
     def _from_dict(self, data: dict) -> TrackedAttention:
         return TrackedAttention(
             symbol=data.get('symbol', ''),
-            block_id=data.get('block_id', data.get('sector_id', '')),
+            block_id=data.get('block_id', data.get('block_id', '')),
             strategy_id=data.get('strategy_id', ''),
             strategy_name=data.get('strategy_name', ''),
             attention_score=data.get('attention_score', 0.0),
