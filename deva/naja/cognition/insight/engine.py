@@ -177,7 +177,7 @@ class InsightBuilder:
         summary = str(summary_raw) if not isinstance(summary_raw, str) else summary_raw
 
         symbols = self._extract_symbols(event, payload)
-        event_for_extract = {"blocks": event.get("blocks"), "block": payload.get("block"), "板块": payload.get("板块")}
+        event_for_extract = {"blocks": event.get("blocks"), "block": payload.get("block"), "题材": payload.get("题材")}
         blocks = self._extract_blocks(event_for_extract)
         system_attention = _clamp(_safe_float(event.get("score", event.get("system_attention", 0.6))))
         confidence = _clamp(_safe_float(event.get("confidence", 0.6)))
@@ -240,8 +240,8 @@ class InsightBuilder:
             "topic_trend_shift": "话题趋势发生转变",
             "narrative_drift": "叙事漂移检测",
             "attention_shift": "注意力发生转移",
-            "block_hotspot": "板块成为热点",
-            "block_anomaly": "板块出现异常",
+            "block_hotspot": "题材成为热点",
+            "block_anomaly": "题材出现异常",
         }
         return signal_labels.get(signal_type, f"信号类型: {signal_type}")
 
@@ -296,15 +296,15 @@ class InsightBuilder:
         from_block = payload.get("from_block", "") or raw_data.get("from_block", "")
         to_block = payload.get("to_block", "") or raw_data.get("to_block", "")
         if from_block and to_block:
-            return f"🔄 板块: {from_block} → {to_block}"
+            return f"🔄 题材: {from_block} → {to_block}"
 
         return "🔄 注意力转移"
 
     def _extract_block_signal_info(self, event: Dict[str, Any], signal_type: str, payload: Dict, raw_data: Dict) -> str:
         """从 block_* 信号中提取有意义的 theme"""
-        block = payload.get("block", "") or payload.get("板块", "") or raw_data.get("block", "") or raw_data.get("板块", "")
+        block = payload.get("block", "") or payload.get("题材", "") or raw_data.get("block", "") or raw_data.get("题材", "")
         if block and block != "-":
-            return f"🔥 板块: {block}"
+            return f"🔥 题材: {block}"
         return f"🔥 {signal_type}"
 
     def _extract_theme(self, output: Any, strategy_name: str) -> str:

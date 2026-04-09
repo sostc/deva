@@ -156,8 +156,8 @@ def _categorize_datasource(entry) -> str:
         return "🤖 第4层-大模型平台"
     elif name.startswith("产业链_L5_"):
         return "🎯 第5层-AI应用"
-    elif name.startswith("板块_"):
-        return "📊 概念板块"
+    elif name.startswith("题材_"):
+        return "📊 概念题材"
     elif name.startswith("realtime_tick_"):
         return "📈 市场分类"
     elif "news" in name.lower() or "新闻" in name or "财经" in name:

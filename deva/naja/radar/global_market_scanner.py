@@ -820,7 +820,7 @@ class GlobalMarketScanner:
         """生成调整指令"""
         if is_priced:
             return {
-                "sector_attention_factor": 1.0,
+                "block_attention_factor": 1.0,
                 "strategy_budget": {},
                 "frequency_factor": 1.0,
                 "position_size_multiplier": 1.0,
@@ -829,7 +829,7 @@ class GlobalMarketScanner:
             }
         if signal < 0.4:
             return {
-                "sector_attention_factor": 0.8,
+                "block_attention_factor": 0.8,
                 "strategy_budget": {
                     "AnomalySniper": 0.2,
                     "MomentumTracker": -0.2,
@@ -841,7 +841,7 @@ class GlobalMarketScanner:
             }
         elif signal > 0.7:
             return {
-                "sector_attention_factor": 1.1,
+                "block_attention_factor": 1.1,
                 "strategy_budget": {
                     "AnomalySniper": -0.1,
                     "MomentumTracker": 0.1,
@@ -852,7 +852,7 @@ class GlobalMarketScanner:
             }
         else:
             return {
-                "sector_attention_factor": 1.0,
+                "block_attention_factor": 1.0,
                 "strategy_budget": {},
                 "frequency_factor": 1.0,
                 "position_size_multiplier": 1.0,
@@ -983,7 +983,7 @@ class GlobalMarketScanner:
     def _generate_relaxation_adjustment(self) -> Dict[str, Any]:
         """生成解除限制的调整"""
         return {
-            "sector_attention_factor": 1.2,
+            "block_attention_factor": 1.2,
             "strategy_budget": {
                 "AnomalySniper": -0.2,
                 "MomentumTracker": 0.2,
@@ -1031,7 +1031,7 @@ class GlobalMarketScanner:
         topic_info = {}
         for topic, pred in topic_predictions.items():
             topic_info[topic] = {
-                "target_sectors": pred.get("target_sectors", []),
+                "target_blocks": pred.get("target_blocks", []),
                 "spread_probability": pred.get("spread_probability", 0),
                 "expected_change": pred.get("expected_change", 0),
                 "heat_score": pred.get("heat_score", 0),
@@ -1127,11 +1127,11 @@ class GlobalMarketScanner:
         return self._last_resonance
 
     TOPIC_SECTOR_MAPPING = {
-        "芯片": {"a_share_sectors": ["半导体", "集成电路"], "us_sector": "SOX"},
-        "AI": {"a_share_sectors": ["人工智能", "软件服务"], "us_sector": "AI"},
-        "新能源": {"a_share_sectors": ["锂电池", "光伏"], "us_sector": "XLE"},
-        "电动车": {"a_share_sectors": ["新能源汽车"], "us_sector": "TSLA"},
-        "云计算": {"a_share_sectors": ["云计算", "数据中心"], "us_sector": "CLOUD"},
+        "芯片": {"a_share_blocks": ["半导体", "集成电路"], "us_block": "SOX"},
+        "AI": {"a_share_blocks": ["人工智能", "软件服务"], "us_block": "AI"},
+        "新能源": {"a_share_blocks": ["锂电池", "光伏"], "us_block": "XLE"},
+        "电动车": {"a_share_blocks": ["新能源汽车"], "us_block": "TSLA"},
+        "云计算": {"a_share_blocks": ["云计算", "数据中心"], "us_block": "CLOUD"},
     }
 
     CROSS_MARKET_PROB = {
@@ -1160,17 +1160,17 @@ class GlobalMarketScanner:
         heat_score = abs(change_pct) * volume_ratio
         self._topic_heat[topic].append(heat_score)
 
-    def predict_topic_spread(self, topic: str, us_sector_change: float) -> Dict[str, Any]:
+    def predict_topic_spread(self, topic: str, us_block_change: float) -> Dict[str, Any]:
         """
         预测主题扩散
 
         Args:
             topic: 主题名称
-            us_sector_change: 美股该板块的涨跌幅
+            us_block_change: 美股该题材的涨跌幅
 
         Returns:
             {
-                "target_sectors": List[str],
+                "target_blocks": List[str],
                 "spread_probability": float,
                 "expected_change": float,
                 "heat_score": float,
@@ -1178,7 +1178,7 @@ class GlobalMarketScanner:
             }
         """
         mapping = self.TOPIC_SECTOR_MAPPING.get(topic, {})
-        target_sectors = mapping.get("a_share_sectors", [])
+        target_blocks = mapping.get("a_share_blocks", [])
 
         heat_history = self._topic_heat.get(topic, [])
         heat_score = float(np.mean(list(heat_history))) if heat_history else 0
@@ -1188,10 +1188,10 @@ class GlobalMarketScanner:
         heat_factor = min(heat_score / 5.0, 1.5)
         spread_prob = base_prob * heat_factor
 
-        expected_change = us_sector_change * spread_prob
+        expected_change = us_block_change * spread_prob
 
         result = {
-            "target_sectors": target_sectors,
+            "target_blocks": target_blocks,
             "spread_probability": min(spread_prob, 0.95),
             "expected_change": expected_change,
             "heat_score": heat_score,
@@ -1204,12 +1204,12 @@ class GlobalMarketScanner:
 
         return result
 
-    def get_topic_adjustment_for_sector(self, sector: str) -> Optional[Dict[str, Any]]:
+    def get_topic_adjustment_for_block(self, block: str) -> Optional[Dict[str, Any]]:
         """
-        获取板块的主题调整指令
+        获取题材的主题调整指令
 
         Args:
-            sector: 板块名称
+            block: 题材名称
 
         Returns:
             {
@@ -1221,7 +1221,7 @@ class GlobalMarketScanner:
         """
         relevant_topics = []
         for topic, mapping in self.TOPIC_SECTOR_MAPPING.items():
-            if sector in mapping["a_share_sectors"]:
+            if block in mapping["a_share_blocks"]:
                 relevant_topics.append(topic)
 
         if not relevant_topics:

@@ -34,7 +34,7 @@ log = logging.getLogger(__name__)
 
 
 def _get_stock_display_info(code: str) -> str:
-    """获取股票的显示信息：名称和板块"""
+    """获取股票的显示信息：名称和题材"""
     try:
         from ...dictionary.stock.stock import Stock
         from ...dictionary.tongdaxin_blocks import get_stock_blocks

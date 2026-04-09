@@ -33,7 +33,7 @@ class PatternType(Enum):
     BREAKOUT = "breakout"
     ACCUMULATION = "accumulation"
     DISTRIBUTION = "distribution"
-    SECTOR_ROTATION = "sector_rotation"
+    BLOCK_ROTATION = "block_rotation"
     LIQUIDITY_TURN = "liquidity_turn"
     SENTIMENT_EXTREME = "sentiment_extreme"
 
@@ -120,10 +120,10 @@ class SeedIlluminator:
             "震荡中主力悄悄吸筹"
         ),
         PatternTemplate(
-            PatternType.SECTOR_ROTATION,
-            "板块轮动",
-            {"sector_breadth_change": 0.3, "rotation_speed": 0.5},
-            "资金从一板块流向另一板块"
+            PatternType.BLOCK_ROTATION,
+            "题材轮动",
+            {"block_breadth_change": 0.3, "rotation_speed": 0.5},
+            "资金从一个题材流向另一个题材"
         ),
         PatternTemplate(
             PatternType.LIQUIDITY_TURN,
@@ -237,11 +237,11 @@ class SeedIlluminator:
                 matched = False
             match_details["advancing_ratio"] = ar
 
-        if "sector_breadth_change" in conditions and matched:
-            sbc = state.get("sector_breadth_change", 0)
-            if abs(sbc) < conditions["sector_breadth_change"]:
+        if "block_breadth_change" in conditions and matched:
+            sbc = state.get("block_breadth_change", 0)
+            if abs(sbc) < conditions["block_breadth_change"]:
                 matched = False
-            match_details["sector_breadth_change"] = sbc
+            match_details["block_breadth_change"] = sbc
 
         illumination = self._calculate_illumination(template.pattern_type, match_details)
 

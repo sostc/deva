@@ -53,7 +53,7 @@ class PresageType(Enum):
     NARRATIVE_TURNING = "narrative_turning"
     NARRATIVE_DOMINANCE = "narrative_dominance"
     REGIME_SHIFT = "regime_shift"
-    SECTOR_ROTATION = "sector_rotation"
+    BLOCK_ROTATION = "block_rotation"
     NONE = "none"
 
 
@@ -158,22 +158,22 @@ class SentimentTransitionSense:
 
     检测情绪即将转换的预兆：
     - 涨跌家数比率变化
-    - 板块内部分化
+    - 题材内部分化
     - 连板股开板
     """
 
     def __init__(self):
         self._breadth_history: deque = deque(maxlen=20)
-        self._sector_coherence_history: Dict[str, deque] = {}
+        self._block_coherence_history: Dict[str, deque] = {}
 
-    def detect(self, advancing: int, declining: int, sector_symbols: List[str] = None) -> Optional[ProphetSignal]:
+    def detect(self, advancing: int, declining: int, block_symbols: List[str] = None) -> Optional[ProphetSignal]:
         """
         检测情绪转换预兆
 
         Args:
             advancing: 上涨家数
             declining: 下跌家数
-            sector_symbols: 板块内股票列表
+            block_symbols: 题材内股票列表
 
         Returns:
             ProphetSignal 或 None
@@ -221,7 +221,7 @@ class FlowTasteSense:
 
     感知资金流动的深层含义，不只是净流入/流出：
     - 主力意图（大单vs散户）
-    - 板块轮动味道
+    - 题材轮动味道
     - 情绪拐点味道
     """
 
@@ -409,7 +409,7 @@ class ProphetSense:
                 - skew: 波动率偏度
             narrative_data: 叙事数据（新增）
                 - narratives: List[str] 当前叙事列表
-                - sector: str 板块名称
+                - block: str 题材名称
                 - trend: str 叙事趋势 "emerging"|"growing"|"fading"
                 - intensity: float 叙事强度 0-1
         """
@@ -503,7 +503,7 @@ class ProphetSense:
         narratives = narrative_data.get("narratives", [])
         trend = narrative_data.get("trend", "growing")
         intensity = narrative_data.get("intensity", 0.5)
-        sector = narrative_data.get("sector", "")
+        block = narrative_data.get("block", "")
 
         if not narratives:
             return None
@@ -517,7 +517,7 @@ class ProphetSense:
                 intensity=intensity * 0.8,
                 horizon_seconds=600,
                 confidence=0.7,
-                reason=f"叙事衰退但强度仍高({sector})，警惕反转",
+                reason=f"叙事衰退但强度仍高({block})，警惕反转",
                 direction=-1
             )
 
@@ -527,7 +527,7 @@ class ProphetSense:
                 intensity=intensity * 0.9,
                 horizon_seconds=900,
                 confidence=0.75,
-                reason=f"新叙事兴起({sector})，动能强劲",
+                reason=f"新叙事兴起({block})，动能强劲",
                 direction=1
             )
 
@@ -537,7 +537,7 @@ class ProphetSense:
                 intensity=intensity * 0.6,
                 horizon_seconds=1200,
                 confidence=0.65,
-                reason=f"多叙事并行({sector})，市场分歧加大",
+                reason=f"多叙事并行({block})，市场分歧加大",
                 direction=0
             )
 

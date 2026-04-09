@@ -68,7 +68,7 @@ class DataQualityGate:
 
     REQUIRED_COLUMNS = ['code', 'p_change', 'volume']
 
-    SECTOR_COLUMNS = ['sector', 'sector_id', 'industry', 'block']
+    BLOCK_COLUMNS = ['block', 'block_id', 'industry', 'block']
 
     RECOMMENDED_COLUMNS = ['name', 'close', 'now', 'amount']
 
@@ -78,7 +78,7 @@ class DataQualityGate:
         strict_mode: bool = False
     ):
         self.required_columns = set(required_columns or self.REQUIRED_COLUMNS)
-        self.sector_columns = set(self.SECTOR_COLUMNS)
+        self.block_columns = set(self.SECTOR_COLUMNS)
         self.recommended_columns = set(self.RECOMMENDED_COLUMNS)
         self.strict_mode = strict_mode
 
@@ -127,7 +127,7 @@ class DataQualityGate:
         checks.extend([
             self._check_row_count(data, min_rows),
             self._check_required_columns(data),
-            self._check_sector_columns(data),
+            self._check_block_columns(data),
             self._check_data_types(data),
             self._check_null_values(data),
             self._check_duplicate_codes(data),
@@ -194,25 +194,25 @@ class DataQualityGate:
             details={'missing': list(missing), 'found': list(self.required_columns & data_cols)}
         )
 
-    def _check_sector_columns(self, data: pd.DataFrame) -> QualityCheck:
-        """检查板块相关列"""
+    def _check_block_columns(self, data: pd.DataFrame) -> QualityCheck:
+        """检查题材相关列"""
         data_cols = set(data.columns)
-        has_sector = bool(self.sector_columns & data_cols)
+        has_block = bool(self.block_columns & data_cols)
 
-        if not has_sector:
+        if not has_block:
             level = QualityLevel.WARNING
-            message = "数据中没有板块列 (sector/sector_id/industry/block)"
+            message = "数据中没有题材列 (block/block_id/industry/block)"
         else:
             level = QualityLevel.PASS
-            found = self.sector_columns & data_cols
-            message = f"找到板块列: {found}"
+            found = self.block_columns & data_cols
+            message = f"找到题材列: {found}"
 
         return QualityCheck(
-            name="sector_columns",
+            name="block_columns",
             passed=True,
             level=level,
             message=message,
-            details={'has_sector': has_sector}
+            details={'has_block': has_block}
         )
 
     def _check_data_types(self, data: pd.DataFrame) -> QualityCheck:

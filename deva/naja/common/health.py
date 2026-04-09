@@ -288,7 +288,7 @@ def create_attention_health_checks() -> Dict[str, Callable[[], bool]]:
 
     def check_dictionary():
         mgr = SR('dictionary_manager')
-        entry = mgr.get_by_name("通达信概念板块")
+        entry = mgr.get_by_name("通达信概念题材")
         if entry is None:
             return False
         payload = entry.get_payload()

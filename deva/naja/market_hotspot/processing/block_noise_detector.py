@@ -1,7 +1,7 @@
 """
-题材噪音检测器 - Sector Noise Detector
+题材噪音检测器 - Block Noise Detector
 
-注意力系统的噪音过滤基础设施，用于识别和过滤低价值的噪音题材。
+热点系统的噪音过滤基础设施，用于识别和过滤低价值的噪音题材。
 
 噪音题材类型:
 1. 系统分类题材 - 通达信分类系统产生的噪音（如"通达信88"、"行业题材"等）
@@ -51,7 +51,7 @@ class BlockNoiseDetector:
     2. 自动将低价值题材加入黑名单（基于统计特性）
     3. 提供统一的噪音检测接口
 
-    噪音过滤是注意力系统的基础设施，确保注意力资源集中在真正值得关注的题材上。
+    噪音过滤是热点系统的基础设施，确保热点资源集中在真正值得关注的题材上。
     """
 
     _DEFAULT_CONFIG = BlockNoiseConfig()
@@ -133,7 +133,7 @@ class BlockNoiseDetector:
 
         Args:
             block_id: 题材ID
-            hotspot_score: 注意力分数
+            hotspot_score: 热点分数
             correlation_variance: 相关性方差（越小表示越稳定=噪音）
             relation_quality: 关系质量分数（越小表示越孤立=噪音）
         """
@@ -170,7 +170,7 @@ class BlockNoiseDetector:
 
         if stats.get('hotspot_score', 0) < self.config.min_block_hotspot:
             self._auto_blacklist_cache.add(block_id)
-            log.debug(f"题材自动加入黑名单（低注意力）: {block_id}")
+            log.debug(f"题材自动加入黑名单（低热点）: {block_id}")
 
     def filter_noise_blocks(self, blocks: List[Tuple[str, float]]) -> List[Tuple[str, float]]:
         """

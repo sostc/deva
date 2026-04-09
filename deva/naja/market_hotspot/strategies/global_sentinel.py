@@ -228,7 +228,7 @@ class GlobalMarketSentinel(HotspotStrategyBase):
         print(f"上涨比例: {up_ratio:.1%}")
         print(f"下跌比例: {down_ratio:.1%}")
         print(f"极端下跌: {extreme_down:.1%}")
-        print(f"全局注意力: {global_hotspot:.2f}")
+        print(f"全局热点: {global_hotspot:.2f}")
         print(f"执行次数: {self.execution_count}")
         print(f"预警次数: {self.alert_count}")
         print(f"{'='*60}\n")

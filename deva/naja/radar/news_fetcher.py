@@ -756,18 +756,18 @@ class RadarNewsFetcher:
 
             if random.random() > 0.5:
                 titles = [
-                    f"重磅！{keyword}板块迎来重大利好",
+                    f"重磅！{keyword}题材迎来重大利好",
                     f"突发：{keyword}行业传来重磅消息",
                     f"【{topic_name}】{keyword}概念持续火爆",
                     f"{keyword}产业链个股集体涨停",
                     f"机构密集调研{keyword}相关标的",
                     f"政策加码！{keyword}迎发展机遇",
                     f"{keyword}龙头业绩超预期增长",
-                    f"资金大幅流入{keyword}板块",
+                    f"资金大幅流入{keyword}题材",
                 ]
             else:
                 titles = [
-                    f"{keyword}板块个股普跌",
+                    f"{keyword}题材个股普跌",
                     f"解析{keyword}行业最新动态",
                     f"{keyword}产业链追踪报告",
                     f"专家解读{keyword}发展趋势",

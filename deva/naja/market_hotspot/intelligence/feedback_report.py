@@ -2,7 +2,7 @@
 实验模式反馈报告生成器
 
 在历史行情回放等实验模式下，收集并报告：
-1. 收到的所有注意力信号
+1. 收到的所有热点信号
 2. 执行的反馈调节
 3. Bandit 学习更新结果
 4. 观察样本统计
@@ -148,7 +148,7 @@ class FeedbackReportGenerator:
         entry_price: float,
         market_state: str = "unknown"
     ):
-        """记录一个注意力信号"""
+        """记录一个热点信号"""
         if not self._is_collecting:
             return
 
@@ -452,7 +452,7 @@ class FeedbackReportGenerator:
                     "theme": summary_theme,
                     "summary": self._build_summary_summary(report),
                     "symbols": list(stats['symbols_tracked'])[:10],
-                    "sectors": [],
+                    "blocks": [],
                     "confidence": min(0.9, 0.5 + stats['total_signals'] * 0.01),
                     "actionability": 0.6,
                     "system_attention": 0.7,
@@ -471,7 +471,7 @@ class FeedbackReportGenerator:
                     "theme": bandit_theme,
                     "summary": self._build_bandit_summary(bandit_stats),
                     "symbols": [],
-                    "sectors": [],
+                    "blocks": [],
                     "confidence": 0.7,
                     "actionability": 0.8,
                     "system_attention": 0.6,

@@ -12,7 +12,7 @@ Radar Engine - 感知系统/雷达/感知层
 
 感知层职责：
 1. 市场数据获取：新闻、行情、全球市场数据
-2. 异常模式检测：Pattern/Drift/Anomaly/SectorAnomaly
+2. 异常模式检测：Pattern/Drift/Anomaly/BlockAnomaly
 3. 事件分发：将感知结果发送到认知系统
 
 叙事追踪已移至 cognition 层
@@ -192,7 +192,7 @@ class SignalAnomalyDetector:
     - Pattern：同一信号模式重复出现
     - Drift：概念漂移检测
     - Anomaly：统计异常检测
-    - SectorAnomaly：板块联动异常
+    - BlockAnomaly：题材联动异常
     """
 
     def __init__(self, config: Optional[Dict[str, Any]] = None):
@@ -300,7 +300,7 @@ class SignalAnomalyDetector:
         returns: List[float],
         timestamp: float
     ) -> Optional[Dict]:
-        """检测板块联动异常 - 齐涨齐跌"""
+        """检测题材联动异常 - 齐涨齐跌"""
         if len(symbols) < 3:
             return None
 
@@ -317,7 +317,7 @@ class SignalAnomalyDetector:
                 "source": "radar",
                 "signal_type": "radar_block_anomaly",
                 "score": max(up_ratio, down_ratio),
-                "content": f"板块{block_id}出现齐涨齐跌异常：{direction}家数占比{max(up_ratio, down_ratio):.1%}",
+                "content": f"题材{block_id}出现齐涨齐跌异常：{direction}家数占比{max(up_ratio, down_ratio):.1%}",
                 "raw_data": {
                     "block_id": block_id,
                     "symbols": symbols,
@@ -480,10 +480,10 @@ class RadarEngine:
         timestamp: Optional[float] = None
     ) -> Optional[Dict]:
         """
-        处理板块数据，检测板块联动异常
+        处理题材数据，检测题材联动异常
 
         Args:
-            block_id: 板块ID
+            block_id: 题材ID
             symbols: 股票代码列表
             returns: 涨跌幅列表
             timestamp: 时间戳
