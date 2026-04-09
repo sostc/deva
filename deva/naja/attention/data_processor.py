@@ -23,7 +23,7 @@ except ImportError:
         return {}
 
 from .processing import get_noise_filter, NoiseFilterConfig, get_tick_noise_filter, TickNoiseFilterConfig
-from .integration.extended import get_attention_integration
+from .integration.extended import get_market_hotspot_integration
 
 log = logging.getLogger(__name__)
 
@@ -68,7 +68,7 @@ class DataProcessor:
 
     def _ensure_initialized(self):
         """初始化"""
-        self._integration = get_attention_integration()
+        self._integration = get_market_hotspot_integration()
 
         self._state_lock = __import__('threading').RLock()
 
@@ -78,8 +78,8 @@ class DataProcessor:
         self._cached_active_blocks: Set[str] = set()
         self._cached_market_time_str: str = ""
 
-        self._sector_id_map: Dict[str, int] = {}
-        self._next_sector_id = 1
+        self._block_id_map: Dict[str, int] = {}
+        self._next_block_id = 1
 
         self._processed_frames = 0
         self._filtered_frames = 0
@@ -103,7 +103,7 @@ class DataProcessor:
         self._quality_gate = DataQualityGate()
 
         from .pipeline import EnrichStage
-        self._enrich_stage = EnrichStage(name="enrich_sector", use_direct_load=True)
+        self._enrich_stage = EnrichStage(name="enrich_block", use_direct_load=True)
         self._pipeline.add_stage(self._enrich_stage)
 
         from .pipeline import FilterStage
@@ -241,7 +241,7 @@ class DataProcessor:
         log.debug("[DEBUG] _update_attention ENTER")
         self._total_updates += 1
 
-        attention_sys = self._integration.attention_system
+        attention_sys = self._integration.hotspot_system
         is_init = attention_sys is not None and getattr(attention_sys, '_initialized', False)
         if not is_init:
             log.warning("注意力系统未初始化，尝试自动初始化...")
@@ -357,7 +357,7 @@ class DataProcessor:
             prices = np.nan_to_num(prices, nan=0.0, posinf=1e6, neginf=0.0)
             prices = np.clip(prices, 0.01, 1e6)
 
-            symbols, returns, volumes, prices, sector_ids = self._expand_for_multi_sector(
+            symbols, returns, volumes, prices, block_ids = self._expand_for_multi_block(
                 symbols, returns, volumes, prices, data, code_col
             )
 
@@ -384,7 +384,7 @@ class DataProcessor:
             import traceback
             log.error(traceback.format_exc())
 
-    def _expand_for_multi_sector(
+    def _expand_for_multi_block(
         self,
         symbols: np.ndarray,
         returns: np.ndarray,
@@ -393,63 +393,63 @@ class DataProcessor:
         data: pd.DataFrame,
         code_col: str
     ) -> tuple:
-        """多板块扩展"""
-        sector_map = self._get_sector_map(data)
+        """多题材扩展"""
+        block_map = self._get_block_map(data)
 
         expanded_symbols = []
         expanded_returns = []
         expanded_volumes = []
         expanded_prices = []
-        expanded_sector_ids = []
+        expanded_block_ids = []
 
         for i, code in enumerate(symbols):
             code_str = str(code)
-            symbol_sectors = sector_map.get(code_str, [])
+            symbol_blocks = block_map.get(code_str, [])
 
-            if not symbol_sectors:
+            if not symbol_blocks:
                 expanded_symbols.append(code_str)
                 expanded_returns.append(returns[i] if i < len(returns) else 0.0)
                 expanded_volumes.append(volumes[i] if i < len(volumes) else 0.0)
                 expanded_prices.append(prices[i] if i < len(prices) else 0.0)
-                expanded_sector_ids.append(0)
+                expanded_block_ids.append(0)
             else:
-                for sector in symbol_sectors:
-                    if sector not in self._sector_id_map:
-                        self._sector_id_map[sector] = self._next_sector_id
-                        self._next_sector_id += 1
+                for block in symbol_blocks:
+                    if block not in self._block_id_map:
+                        self._block_id_map[block] = self._next_block_id
+                        self._next_block_id += 1
 
                     expanded_symbols.append(code_str)
                     expanded_returns.append(returns[i] if i < len(returns) else 0.0)
                     expanded_volumes.append(volumes[i] if i < len(volumes) else 0.0)
                     expanded_prices.append(prices[i] if i < len(prices) else 0.0)
-                    expanded_sector_ids.append(self._sector_id_map[sector])
+                    expanded_block_ids.append(self._block_id_map[block])
 
         return (
             np.array(expanded_symbols),
             np.array(expanded_returns),
             np.array(expanded_volumes),
             np.array(expanded_prices),
-            np.array(expanded_sector_ids)
+            np.array(expanded_block_ids)
         )
 
-    def _get_sector_map(self, data: pd.DataFrame) -> Dict[str, List[str]]:
-        """获取板块映射"""
-        sector_map: Dict[str, List[str]] = {}
+    def _get_block_map(self, data: pd.DataFrame) -> Dict[str, List[str]]:
+        """获取题材映射"""
+        block_map: Dict[str, List[str]] = {}
 
         try:
-            if 'sector' in data.columns:
+            if 'block' in data.columns or 'sector' in data.columns:
                 for _, row in data.iterrows():
                     code = str(row.get('code', ''))
-                    sector = str(row.get('sector', 'unknown'))
-                    if code and sector and sector != 'nan':
-                        if code not in sector_map:
-                            sector_map[code] = []
-                        if sector not in sector_map[code]:
-                            sector_map[code].append(sector)
+                    block = str(row.get('block', row.get('sector', 'unknown')))
+                    if code and block and block != 'nan':
+                        if code not in block_map:
+                            block_map[code] = []
+                        if block not in block_map[code]:
+                            block_map[code].append(block)
         except Exception:
             pass
 
-        return sector_map
+        return block_map
 
     def _filter_by_attention(self, data: pd.DataFrame) -> pd.DataFrame:
         """按注意力过滤"""
@@ -460,7 +460,7 @@ class DataProcessor:
         return data
 
     def _filter_by_blocks(self, data: pd.DataFrame) -> pd.DataFrame:
-        """按活跃板块过滤"""
+        """按活跃题材过滤"""
         if not self._cached_active_blocks:
             return data
         if 'block' in data.columns:

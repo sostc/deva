@@ -13,6 +13,7 @@ from typing import Any, Dict, Optional
 
 from .core import NewsMindStrategy
 from ..config import get_memory_config
+from deva.naja.register import SR
 
 
 class CognitionEngine:
@@ -156,19 +157,7 @@ class CognitionEngine:
             print("[CognitionEngine] 自动保存已停止")
 
 
-_cognition_engine: Optional[CognitionEngine] = None
-_cognition_engine_lock = threading.Lock()
-
-
-def get_cognition_engine() -> CognitionEngine:
-    """获取认知引擎单例"""
-    global _cognition_engine
-    if _cognition_engine is None:
-        with _cognition_engine_lock:
-            if _cognition_engine is None:
-                _cognition_engine = CognitionEngine()
-    return _cognition_engine
-
-
 # 向后兼容别名
-get_memory_engine = get_cognition_engine
+def get_memory_engine():
+    from deva.naja.register import SR
+    return SR('cognition_engine')

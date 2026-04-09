@@ -179,8 +179,7 @@ class SignalExecutor:
     def _feedback_to_insight_pool(self, symbol: str, signal_type: str, outcome: Dict[str, Any]):
         """反馈到 InsightPool"""
         try:
-            from deva.naja.cognition.insight.insight_pool import get_insight_pool
-            pool = get_insight_pool()
+            pool = SR('insight_pool')
             if pool:
                 pool.record_trade_outcome(symbol, signal_type, outcome)
         except Exception as e:
@@ -213,6 +212,7 @@ _signal_executor: Optional['SignalExecutor'] = None
 
 def get_signal_executor() -> SignalExecutor:
     """获取 SignalExecutor 单例"""
+    from deva.naja.register import SR
     global _signal_executor
     if _signal_executor is None:
         _signal_executor = SignalExecutor()

@@ -39,8 +39,6 @@ REPLACEMENTS = {
     # 认知模块单例
     'get_cognition_bus()': "SR('cognition_bus')",
     'get_history_tracker()': "SR('history_tracker')",
-    'get_text_pipeline()': "SR('text_pipeline')",
-    'get_attention_router()': "SR('attention_router')",
     'get_cross_signal_analyzer()': "SR('cross_signal_analyzer')",
     'get_narrative_block_linker()': "SR('narrative_block_linker')",
     'get_llm_reflection_engine()': "SR('llm_reflection_engine')",

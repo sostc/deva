@@ -3,14 +3,15 @@ Control Panel 组件
 """
 
 from pywebio.output import put_html
+from deva.naja.register import SR
 
 
 def render_control_panel(ui):
-    from ....cognition.insight import get_llm_reflection_engine, get_insight_pool
-    from ....attention.intelligence.feedback_report import get_feedback_report_generator
+    from ....cognition.insight import get_llm_reflection_engine
+    from ....market_hotspot.intelligence.feedback_report import get_feedback_report_generator
 
     llm_engine = get_llm_reflection_engine()
-    pool = get_insight_pool()
+    pool = SR('insight_pool')
     feedback_reporter = get_feedback_report_generator()
 
     stats = llm_engine.get_stats()

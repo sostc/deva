@@ -37,7 +37,7 @@ SYSTEM_ARCHITECTURE_DOC = """
                             <span style="color: #ef4444;">● Anomaly</span>：Z-score统计异常 → <code>z = (x-mean)/std, |z|>3 触发</code>
                         </div>
                         <div>
-                            <span style="color: #8b5cf6;">● SectorAnomaly</span>：齐涨齐跌检测 → <code>up_ratio/down_ratio > 0.7</code>
+                            <span style="color: #8b5cf6;">● BlockAnomaly</span>：齐涨齐跌检测 → <code>up_ratio/down_ratio > 0.7</code>
                         </div>
                     </div>
                 </div>
@@ -190,9 +190,9 @@ RADAR_DETAILED_DOC = """
                         分数：<code>score = min(1.0, |z|/5.0)</code>
                     </div>
                 </div>
-                <!-- Sector -->
+                <!-- Block -->
                 <div>
-                    <div style="color: #8b5cf6; font-weight: 500; margin-bottom: 4px;">● SectorAnomaly（板块联动）</div>
+                    <div style="color: #8b5cf6; font-weight: 500; margin-bottom: 4px;">● BlockAnomaly（板块联动）</div>
                     <div style="color: #64748b; font-size: 10px;">
                         原理：统计板块内齐涨齐跌比例<br/>
                         触发：<code>up/down_ratio > 0.7</code><br/>

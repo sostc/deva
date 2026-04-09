@@ -133,13 +133,13 @@ class SimpleAttentionDataSource(DataSourceEntry):
     
     def fetch_data(self):
         """获取数据"""
-        from ..attention.integration import get_attention_integration
+        from ..market_hotspot.integration.extended import get_market_hotspot_integration
         
         while self._running:
             try:
-                integration = get_attention_integration()
+                integration = get_market_hotspot_integration()
                 
-                if self._use_attention and integration.attention_system is not None:
+                if self._use_attention and integration.hotspot_system is not None:
                     # 获取高注意力股票
                     symbols = integration.get_high_attention_symbols(threshold=1.5)
                     
@@ -155,7 +155,7 @@ class SimpleAttentionDataSource(DataSourceEntry):
                     self._emit_data(data)
                 
                 # 根据频率决定间隔
-                if integration.attention_system is not None:
+                if integration.hotspot_system is not None:
                     control = integration.get_datasource_control()
                     interval = control['intervals']['high']
                 else:
@@ -204,9 +204,9 @@ def example_usage():
     print("方式2：直接调用集成模块")
     print("=" * 60)
 
-    from ..attention.integration import get_attention_integration
+    from ..market_hotspot.integration.extended import get_market_hotspot_integration
     
-    integration = get_attention_integration()
+    integration = get_market_hotspot_integration()
     
     # 获取高注意力股票
     high_attention = integration.get_high_attention_symbols(threshold=2.0)

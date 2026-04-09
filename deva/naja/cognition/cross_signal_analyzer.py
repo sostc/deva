@@ -79,7 +79,7 @@ class NewsSignal:
     sentiment: float = 0.0
     relevance_score: float = 0.5
     block_id: str = ""
-    sector_name: str = ""
+    block_name: str = ""
     content: str = ""
     score: float = 0.5
     timestamp: float = field(default_factory=time.time)
@@ -96,7 +96,7 @@ class NewsSignal:
             sentiment=payload.get("sentiment", 0.0),
             relevance_score=event.score,
             block_id=payload.get("block_id", ""),
-            sector_name=payload.get("sector_name", ""),
+            block_name=payload.get("block_name") or payload.get("block_name", ""),
             content=event.message or "",
             score=event.score,
             timestamp=event.ts,
@@ -114,7 +114,7 @@ class NewsSignal:
             sentiment=payload.get("sentiment", 0.0),
             relevance_score=signal.get("score", 0.5),
             block_id=payload.get("block_id", signal.get("block", "")),
-            sector_name=payload.get("sector_name", ""),
+            block_name=payload.get("block_name") or payload.get("block_name", ""),
             content=signal.get("content", signal.get("summary", "")),
             score=signal.get("score", 0.5),
             timestamp=signal.get("timestamp", time.time()),
@@ -145,9 +145,9 @@ class AttentionSnapshot:
 
         try:
             if hasattr(orchestrator, '_integration') and hasattr(orchestrator._integration, 'attention_system'):
-                if orchestrator._integration.attention_system:
-                    block_weights = getattr(orchestrator._integration.attention_system.block_attention, 'get_all_weights', lambda: {})() or {}
-                    symbol_weights = getattr(orchestrator._integration.attention_system.weight_pool, 'get_all_weights', lambda: {})() or {}
+                if orchestrator._integration.hotspot_system:
+                    block_weights = getattr(orchestrator._integration.hotspot_system.block_attention, 'get_all_weights', lambda: {})() or {}
+                    symbol_weights = getattr(orchestrator._integration.hotspot_system.weight_pool, 'get_all_weights', lambda: {})() or {}
         except Exception as e:
             import logging
             logging.getLogger(__name__).warning(f"[CrossSignalAnalyzer] 获取注意力权重失败: {e}")
@@ -377,7 +377,7 @@ class CrossSignalAnalyzer:
         self._last_llm_call: float = 0
         self._llm_analyzed_cache: Set[str] = set()
 
-        self._sector_correlation_cache: Dict[str, float] = {}
+        self._block_correlation_cache: Dict[str, float] = {}
 
         self._resonance_history: deque = deque(maxlen=100)
         self._market_resonance_history: deque = deque(maxlen=100)
@@ -386,63 +386,49 @@ class CrossSignalAnalyzer:
 
         self._lock = threading.Lock()
 
-        # 🚀 新架构：订阅 TextSignalBus，自动处理高注意力文本
-        self._subscribe_to_text_bus()
+        self._subscribe_to_text_events()
 
-    def _subscribe_to_text_bus(self):
-        """🚀 订阅 TextSignalBus，接收高注意力文本"""
+    def _subscribe_to_text_events(self):
+        """订阅 TextFocusedEvent"""
         try:
-            from deva.naja.cognition.text_processing_pipeline import subscribe_to_signals
+            from deva.naja.events import get_event_bus
 
-            subscribe_to_signals(
-                "CrossSignalAnalyzer",
-                self._on_text_signal,
-                min_attention=0.65  # 中等注意力阈值，共振分析需要一定量的事件
+            event_bus = get_event_bus()
+            event_bus.subscribe(
+                'TextFocusedEvent',
+                self._on_text_focused,
+                priority=5
             )
-            _cognition_debug_log("[CrossSignalAnalyzer] 已订阅 TextSignalBus")
+            _cognition_debug_log("[CrossSignalAnalyzer] 已订阅 TextFocusedEvent")
         except ImportError:
-            pass  # 新架构未安装，降级处理
+            pass
 
-    def _on_text_signal(self, item: "AttentionTextItem"):
-        """
-        🚀 处理来自 TextSignalBus 的文本信号
-
-        将 AttentionTextItem 转换为 NewsSignal 并进行共振分析
-        """
+    def _on_text_focused(self, event):
+        """处理 TextFocusedEvent"""
         try:
-            # 从 AttentionTextItem 构建信号字典
+            topics = list(event.topics or [])
+            if getattr(event, "narrative_tags", None):
+                topics.extend(event.narrative_tags)
+            if getattr(event, "matched_focus_topics", None):
+                topics.extend(event.matched_focus_topics)
+            topics = list(dict.fromkeys(topics))
+
             signal_dict = {
-                "source": f"text_signal:{item.source.value}",
+                "source": f"text_focused:{event.source}",
                 "signal_type": "text_news",
-                "content": item.text or item.title,
-                "summary": item.title,
-                "score": item.attention_score,
-                "timestamp": item.timestamp,
-                "themes": item.narrative_tags or item.matched_focus_topics,
-                "sentiment": {"raw": item.sentiment, "label": "positive" if item.sentiment > 0.55 else "negative" if item.sentiment < 0.45 else "neutral"},
-                "block": item.matched_focus_topics[0] if item.matched_focus_topics else "",
-                "block_name": item.matched_focus_topics[0] if item.matched_focus_topics else "",
-                "stock_codes": item.stock_codes,
-                "payload": {
-                    "url": item.url,
-                    "raw_keywords": item.raw_keywords,
-                    "supply_chain_impacts": item.supply_chain_impacts,
-                }
+                "content": event.summary or event.title or event.text,
+                "score": event.importance_score,
+                "timestamp": event.timestamp,
+                "keywords": event.keywords,
+                "topics": topics,
+                "sentiment": event.sentiment,
+                "stock_codes": event.stock_codes,
+                "summary": getattr(event, "summary", ""),
+                "metadata": getattr(event, "metadata", {}),
             }
-
-            # 转换为 NewsSignal 并处理
-            news_signal = NewsSignal.from_signal(signal_dict)
-            self.ingest_news(news_signal)
-
-            _cognition_debug_log(
-                f"[CrossSignalAnalyzer] 处理文本信号: attention={item.attention_score:.2f}, "
-                f"themes={item.narrative_tags[:2] if item.narrative_tags else 'N/A'}"
-            )
+            self.ingest_news_from_signal(signal_dict)
         except Exception as e:
-            _cognition_debug_log(f"[CrossSignalAnalyzer] 处理文本信号失败: {e}")
-
-        # 🚀 新架构：订阅 TextSignalBus，自动处理高注意力文本
-        self._subscribe_to_text_bus()
+            log.debug(f"[CrossSignalAnalyzer] 处理 TextFocusedEvent 失败: {e}")
 
     def register_callback(self, event: str, callback: Callable):
         """注册回调函数"""
@@ -491,11 +477,11 @@ class CrossSignalAnalyzer:
         同时派生出市场快照，用于市场级别共振检测
         """
         snapshot = AttentionSnapshot.from_orchestrator(orchestrator)
-        sector_resonances = self.ingest_attention(snapshot)
+        block_resonances = self.ingest_attention(snapshot)
 
         market_resonances = self._derive_market_resonance_from_attention(snapshot)
 
-        return sector_resonances
+        return block_resonances
 
     def _derive_market_resonance_from_attention(self, snapshot: AttentionSnapshot) -> List[MarketResonanceSignal]:
         """从注意力快照派生市场快照并检测共振
@@ -917,14 +903,14 @@ class CrossSignalAnalyzer:
             if now - news.timestamp > seconds:
                 continue
 
-            news_sectors = set()
+            news_blocks = set()
             if news.block_id:
-                news_sectors.add(news.block_id)
+                news_blocks.add(news.block_id)
             if news.themes:
-                news_sectors.update(news.themes)
+                news_blocks.update(news.themes)
 
-            sector_lower = str(block_id).lower()
-            if any(sector_lower in str(s).lower() or str(s).lower() in sector_lower for s in news_sectors):
+            block_lower = str(block_id).lower()
+            if any(block_lower in str(s).lower() or str(s).lower() in block_lower for s in news_blocks):
                 count += 1
 
         return count
@@ -934,11 +920,11 @@ class CrossSignalAnalyzer:
         if not snapshot.symbol_weights:
             return 0.0
 
-        sector_symbols = []
+        block_symbols = []
         for sym in list(snapshot.symbol_weights.keys())[:100]:
-            sector_symbols.append(sym)
+            block_symbols.append(sym)
 
-        if len(sector_symbols) > 0:
+        if len(block_symbols) > 0:
             import random
             return random.uniform(-3, 3) * snapshot.activity
 
@@ -1057,7 +1043,7 @@ class CrossSignalAnalyzer:
             sentiment_emoji = "📈" if sig.news_sentiment > 0.2 else "📉" if sig.news_sentiment < -0.2 else "📊"
             attention_level = "🔥" if sig.attention_weight > 0.6 else "⚡" if sig.attention_weight > 0.3 else "💤"
 
-            prompt_parts.append(f"""### 信号 {i}: {sig.sector_name} {attention_level}
+            prompt_parts.append(f"""### 信号 {i}: {sig.block_name} {attention_level}
 - 新闻评分: {sig.news_score:.2f} | 情感: {sig.news_sentiment:+.2f} {sentiment_emoji}
 - 注意力权重: {sig.attention_weight:.2f} {attention_level}
 - 价格变化: {sig.price_change:+.2f}% | 量比: {sig.volume_ratio:.2f}
@@ -1095,19 +1081,47 @@ class CrossSignalAnalyzer:
         """获取最近的共振信号"""
         return list(self._resonance_history)[-n:]
 
-    def get_high_resonance_sectors(self, threshold: float = 0.7, n: int = 5) -> List[tuple]:
+    def get_block_resonances(self, lookback_seconds: float = 300.0) -> Dict[str, Dict[str, Any]]:
+        """获取板块共振摘要（供认知编排使用）"""
+        now = time.time()
+        scores: Dict[str, List[float]] = {}
+        meta: Dict[str, Dict[str, Any]] = {}
+
+        for resonance in self._resonance_history:
+            if now - resonance.timestamp > lookback_seconds:
+                continue
+            block_id = resonance.block_id
+            if not block_id:
+                continue
+            scores.setdefault(block_id, []).append(resonance.resonance_score)
+            meta[block_id] = {
+                "block_name": resonance.block_name,
+                "last_seen": resonance.timestamp,
+            }
+
+        result: Dict[str, Dict[str, Any]] = {}
+        for block_id, vals in scores.items():
+            avg_score = sum(vals) / max(1, len(vals))
+            result[block_id] = {
+                "resonance_strength": avg_score,
+                **meta.get(block_id, {}),
+            }
+
+        return result
+
+    def get_high_resonance_blocks(self, threshold: float = 0.7, n: int = 5) -> List[tuple]:
         """获取高共振板块"""
-        sector_scores: Dict[str, List[float]] = {}
+        block_scores: Dict[str, List[float]] = {}
 
         for resonance in self._resonance_history:
             if resonance.resonance_score >= threshold:
-                if resonance.block_id not in sector_scores:
-                    sector_scores[resonance.block_id] = []
-                sector_scores[resonance.block_id].append(resonance.resonance_score)
+                if resonance.block_id not in block_scores:
+                    block_scores[resonance.block_id] = []
+                block_scores[resonance.block_id].append(resonance.resonance_score)
 
         avg_scores = [
             (block_id, sum(scores) / len(scores))
-            for block_id, scores in sector_scores.items()
+            for block_id, scores in block_scores.items()
         ]
 
         return sorted(avg_scores, key=lambda x: x[1], reverse=True)[:n]
@@ -1159,7 +1173,7 @@ class CrossSignalAnalyzer:
             # 准备事件数据
             event_data = {
                 "block_id": resonance.block_id,
-                "sector_name": resonance.sector_name,
+                "block_name": resonance.block_name,
                 "resonance_score": resonance.resonance_score,
                 "resonance_type": resonance.resonance_type.value,
                 "news_themes": resonance.news_themes,
@@ -1192,13 +1206,7 @@ class CrossSignalAnalyzer:
         logger = logging.getLogger(__name__)
 
         try:
-            from ..insight.engine import get_insight_pool
-        except Exception as e:
-            logger.warning(f"[CrossSignalAnalyzer] 无法导入 InsightPool: {e}")
-            return
-
-        try:
-            pool = get_insight_pool()
+            pool = SR('insight_pool')
             sentiment_desc = "正面" if resonance.news_sentiment > 0.2 else "负面" if resonance.news_sentiment < -0.2 else "中性"
             resonance_type_desc = {
                 "temporal": "时间共振",
@@ -1207,22 +1215,22 @@ class CrossSignalAnalyzer:
                 "correlation": "相关性共振",
             }.get(resonance.resonance_type.value, "共振")
 
-            theme = f"📈 {resonance.sector_name or resonance.block_id} - {resonance_type_desc}"
+            theme = f"📈 {resonance.block_name or resonance.block_id} - {resonance_type_desc}"
             summary = (
-                f"板块「{resonance.sector_name}」检测到{sentiment_desc}共振。"
+                f"板块「{resonance.block_name}」检测到{sentiment_desc}共振。"
                 f"新闻情绪 {resonance.news_sentiment:+.2f}，注意力权重 {resonance.attention_weight:.2f}，"
                 f"共振分数 {resonance.resonance_score:.2f}。"
                 f"主题: {', '.join(resonance.news_themes[:3]) if resonance.news_themes else '暂无'}"
             )
 
-            pool.ingest_attention_event({
+            pool.ingest_hotspot_event({
                 "theme": theme,
                 "summary": summary,
                 "symbols": [],
-                "sectors": [resonance.block_id] if resonance.block_id else [],
+                "blocks": [resonance.block_id] if resonance.block_id else [],
                 "confidence": resonance.resonance_score,
                 "actionability": 0.7 if resonance.resonance_score > 0.8 else 0.5,
-                "system_attention": resonance.resonance_score,
+                "system_hotspot": resonance.resonance_score,
                 "source": "cross_signal",
                 "signal_type": f"resonance_{resonance.resonance_type.value}",
                 "payload": resonance.to_dict(),
@@ -1303,7 +1311,7 @@ class CrossSignalAnalyzer:
             "recent_market_resonance_count": len(recent_market_resonances),
             "last_llm_call": self._last_llm_call,
             "llm_cooldown_remaining": max(0, self._llm_cooldown_seconds - (now - self._last_llm_call)),
-            "high_resonance_sectors": self.get_high_resonance_sectors(),
+            "high_resonance_blocks": self.get_high_resonance_blocks(),
         }
 
 
@@ -1313,9 +1321,5 @@ _cross_analyzer_lock = threading.Lock()
 
 def get_cross_signal_analyzer() -> CrossSignalAnalyzer:
     """获取跨信号分析器单例"""
-    global _cross_signal_analyzer
-    if _cross_signal_analyzer is None:
-        with _cross_analyzer_lock:
-            if _cross_signal_analyzer is None:
-                _cross_signal_analyzer = CrossSignalAnalyzer()
-    return _cross_signal_analyzer
+    from deva.naja.register import SR
+    return SR('cross_signal_analyzer')

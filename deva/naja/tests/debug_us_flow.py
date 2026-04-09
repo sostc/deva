@@ -8,30 +8,30 @@ import time
 print('=== Debug: Full US Stock Data Flow ===')
 
 # 1. Check AttentionSystem
-from deva.naja.attention.integration import get_attention_integration
-integration = get_attention_integration()
+from deva.naja.market_hotspot.integration import get_market_hotspot_integration
+integration = get_market_hotspot_integration()
 print(f'1. integration: {integration}')
-print(f'   integration.attention_system: {integration.attention_system}')
+print(f'   integration.hotspot_system: {integration.hotspot_system}')
 
 # 2. Check US attention state
-if integration.attention_system:
-    us_state = integration.attention_system.get_us_attention_state()
+if integration.hotspot_system:
+    us_state = integration.hotspot_system.get_us_hotspot_state()
     print(f'2. US attention state: {us_state}')
 
     # 3. Check _us_* attributes
-    print(f'3. _us_last_global_attention: {integration.attention_system._us_last_global_attention}')
-    print(f'   _us_last_activity: {integration.attention_system._us_last_activity}')
-    print(f'   _us_last_block_attention: {integration.attention_system._us_last_block_attention}')
+    print(f'3. _us_last_global_attention: {integration.hotspot_system._us_last_global_attention}')
+    print(f'   _us_last_activity: {integration.hotspot_system._us_last_activity}')
+    print(f'   _us_last_block_attention: {integration.hotspot_system._us_last_block_attention}')
 
     # 4. Check _initialized
-    print(f'4. _initialized: {integration.attention_system._initialized}')
+    print(f'4. _initialized: {integration.hotspot_system._initialized}')
 
 # 5. Check RealtimeDataFetcher
-from deva.naja.attention.realtime_data_fetcher import get_data_fetcher
+from deva.naja.market_hotspot.realtime_data_fetcher import get_data_fetcher
 fetcher = get_data_fetcher()
 print(f'5. fetcher: {fetcher}')
 if fetcher:
-    print(f'   fetcher.attention_system: {fetcher.attention_system}')
+    print(f'   fetcher.hotspot_system: {fetcher.hotspot_system}')
     print(f'   fetcher._us_active: {fetcher._us_active}')
     print(f'   fetcher._is_active: {fetcher._is_active}')
     print(f'   fetcher._running: {fetcher._running}')
@@ -51,7 +51,7 @@ print(f'7. get_us_attention_data(): {us_data}')
 # 8. Manual test: call process_us_snapshot directly
 print('\n=== Manual Test: process_us_snapshot ===')
 import numpy as np
-from deva.naja.attention.integration.attention_system import AttentionSystem, AttentionSystemConfig
+from deva.naja.market_hotspot.integration.hotspot_system import AttentionSystem, AttentionSystemConfig
 
 config = AttentionSystemConfig()
 system = AttentionSystem(config)

@@ -10,6 +10,7 @@
 
 from typing import Dict, List, Any, Optional
 import time
+from deva.naja.register import SR
 
 _cached_module_status = None
 _cached_module_status_time = 0
@@ -158,12 +159,12 @@ def get_all_module_status() -> List[Dict]:
         pass
 
     try:
-        from deva.naja.attention.scheduling.frequency_scheduler import FrequencyScheduler, FrequencyLevel
-        from deva.naja.attention.integration import get_attention_integration
+        from deva.naja.market_hotspot.scheduling.frequency_scheduler import FrequencyScheduler, FrequencyLevel
+        from deva.naja.market_hotspot.integration import get_market_hotspot_integration
 
-        integration = get_attention_integration()
-        if integration and integration.attention_system:
-            fs = integration.attention_system.frequency_scheduler
+        integration = get_market_hotspot_integration()
+        if integration and integration.hotspot_system:
+            fs = integration.hotspot_system.frequency_scheduler
             if fs:
                 summary = fs.get_schedule_summary()
                 modules.append({
@@ -180,7 +181,7 @@ def get_all_module_status() -> List[Dict]:
                     'active': True,
                 })
 
-            afc = integration.attention_system.adaptive_freq_controller
+            afc = integration.hotspot_system.adaptive_freq_controller
             if afc:
                 config = afc.get_config()
                 modules.append({
@@ -262,10 +263,9 @@ def get_all_module_status() -> List[Dict]:
         pass
 
     try:
-        from deva.naja.bandit.signal_listener import get_signal_listener
         from deva.naja.bandit.market_observer import get_market_observer
 
-        listener = get_signal_listener()
+        listener = SR('signal_listener')
         if listener:
             modules.append({
                 'id': 'signal_listener',
@@ -676,14 +676,14 @@ def _render_events_list(events: List[Dict]) -> str:
 
 def render_frequency_monitor_panel() -> str:
     try:
-        from deva.naja.attention.scheduling.frequency_scheduler import FrequencyScheduler, FrequencyLevel
-        from deva.naja.attention.integration import get_attention_integration
+        from deva.naja.market_hotspot.scheduling.frequency_scheduler import FrequencyScheduler, FrequencyLevel
+        from deva.naja.market_hotspot.integration import get_market_hotspot_integration
 
-        integration = get_attention_integration()
-        if not integration or not integration.attention_system:
+        integration = get_market_hotspot_integration()
+        if not integration or not integration.hotspot_system:
             return _render_frequency_empty_state()
 
-        fs = integration.attention_system.frequency_scheduler
+        fs = integration.hotspot_system.frequency_scheduler
         if not fs:
             return _render_frequency_empty_state()
 
@@ -693,14 +693,14 @@ def render_frequency_monitor_panel() -> str:
         low_count = summary.get('low_frequency', 0)
         total = high_count + medium_count + low_count
 
-        afc = integration.attention_system.adaptive_freq_controller
+        afc = integration.hotspot_system.adaptive_freq_controller
         config = afc.get_config() if afc else None
 
         high_interval = config.high_interval if config else 1.0
         medium_interval = config.medium_interval if config else 10.0
         low_interval = config.low_interval if config else 60.0
 
-        attention_config = integration.attention_system.frequency_scheduler.config if integration.attention_system.frequency_scheduler else None
+        attention_config = integration.hotspot_system.frequency_scheduler.config if integration.hotspot_system.frequency_scheduler else None
         if attention_config:
             low_th = attention_config.low_threshold
             high_th = attention_config.high_threshold

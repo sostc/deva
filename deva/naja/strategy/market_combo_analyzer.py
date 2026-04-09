@@ -39,7 +39,7 @@ def _safe_float(value: Any, default: float = 0.0) -> float:
 
 
 @dataclass
-class SectorClusterResult:
+class BlockClusterResult:
     """板块聚类结果"""
     block: str
     stock_count: int
@@ -70,7 +70,7 @@ class MarketComboReport:
 
     cross_sectional: Dict[str, Any]
     temporal: TemporalAnalysisResult
-    sector_clusters: Dict[str, SectorClusterResult]
+    block_clusters: Dict[str, BlockClusterResult]
 
     market_sentiment: str
     market_breadth: float
@@ -104,7 +104,7 @@ class MarketComboAnalyzer:
         self._cluster_n = cluster_n
 
         self._temporal_history: List[Dict] = []
-        self._sector_history: Dict[str, List[Dict]] = defaultdict(list)
+        self._block_history: Dict[str, List[Dict]] = defaultdict(list)
         self._last_drift_ts = 0
         self._drift_direction = "none"
 
@@ -118,7 +118,7 @@ class MarketComboAnalyzer:
 
         Args:
             stocks: 股票数据列表
-            sectors: 板块分组 {sector_name: [stock, ...]}
+            sectors: 板块分组 {block_name: [stock, ...]}
         """
         if not stocks:
             return self._empty_report()
@@ -127,14 +127,14 @@ class MarketComboAnalyzer:
 
         cross_sectional = self._cross_sectional_analysis(df, stocks)
         temporal = self._temporal_analysis(df)
-        sector_clusters = self._sector_clustering(stocks, sectors)
+        block_clusters = self._block_clustering(stocks, sectors)
 
         sentiment = self._classify_sentiment(cross_sectional)
         breadth = cross_sectional.get("market_breadth", 0)
         fund_flow = self._classify_fund_flow(cross_sectional)
 
         summary = self._generate_summary(
-            cross_sectional, temporal, sector_clusters, sentiment, breadth
+            cross_sectional, temporal, block_clusters, sentiment, breadth
         )
 
         return MarketComboReport(
@@ -142,13 +142,13 @@ class MarketComboAnalyzer:
             stock_count=len(stocks),
             cross_sectional=cross_sectional,
             temporal=temporal,
-            sector_clusters=sector_clusters,
+            block_clusters=block_clusters,
             market_sentiment=sentiment,
             market_breadth=breadth,
             fund_flow=fund_flow,
             summary=summary,
-            key_insights=self._extract_insights(cross_sectional, sector_clusters, temporal),
-            risk_warnings=self._extract_warnings(cross_sectional, sector_clusters, temporal),
+            key_insights=self._extract_insights(cross_sectional, block_clusters, temporal),
+            risk_warnings=self._extract_warnings(cross_sectional, block_clusters, temporal),
         )
 
     def _prepare_dataframe(self, stocks: List[Dict]) -> pd.DataFrame:
@@ -292,28 +292,28 @@ class MarketComboAnalyzer:
         anomalies.sort(key=lambda x: x["change"], reverse=True)
         return anomalies[:10]
 
-    def _sector_clustering(
+    def _block_clustering(
         self, stocks: List[Dict], sectors: Optional[Dict[str, List[Dict]]]
-    ) -> Dict[str, SectorClusterResult]:
+    ) -> Dict[str, BlockClusterResult]:
         """板块聚类分析"""
         if sectors is None:
-            sectors = self._auto_group_sectors(stocks)
+            sectors = self._auto_group_blocks(stocks)
 
         results = {}
 
-        for sector_name, sector_stocks in sectors.items():
-            if len(sector_stocks) < 2:
+        for block_name, block_stocks in sectors.items():
+            if len(block_stocks) < 2:
                 continue
 
-            changes = [s.get("p_change", 0) or s.get("change_pct", 0) / 100 for s in sector_stocks]
+            changes = [s.get("p_change", 0) or s.get("change_pct", 0) / 100 for s in block_stocks]
             changes = [c if abs(c) < 1 else c / 100 for c in changes]
 
             avg_change = np.mean(changes) if changes else 0
             std_change = np.std(changes) if len(changes) > 1 else 0
 
-            correlation = self._compute_sector_correlation(sector_stocks)
+            correlation = self._compute_sector_correlation(block_stocks)
 
-            sorted_stocks = sorted(sector_stocks, key=lambda x: x.get("p_change", 0) or x.get("change_pct", 0), reverse=True)
+            sorted_stocks = sorted(block_stocks, key=lambda x: x.get("p_change", 0) or x.get("change_pct", 0), reverse=True)
 
             top_gainer = None
             top_loser = None
@@ -338,13 +338,13 @@ class MarketComboAnalyzer:
                     "name": s.get("name", ""),
                     "change": (s.get("p_change", 0) or s.get("change_pct", 0) / 100) * 100,
                 }
-                for s in sector_stocks
+                for s in block_stocks
                 if abs((s.get("p_change", 0) or s.get("change_pct", 0) / 100)) > 0.05
             ]
 
-            results[sector_name] = SectorClusterResult(
-                block=sector_name,
-                stock_count=len(sector_stocks),
+            results[block_name] = BlockClusterResult(
+                block=block_name,
+                stock_count=len(block_stocks),
                 avg_change=float(avg_change * 100),
                 change_std=float(std_change * 100),
                 correlation=float(correlation),
@@ -355,20 +355,20 @@ class MarketComboAnalyzer:
 
         return results
 
-    def _auto_group_sectors(self, stocks: List[Dict]) -> Dict[str, List[Dict]]:
-        """自动按sector字段分组"""
-        sectors = defaultdict(list)
+    def _auto_group_blocks(self, stocks: List[Dict]) -> Dict[str, List[Dict]]:
+        """自动按block字段分组"""
+        blocks = defaultdict(list)
         for stock in stocks:
             block = stock.get("sector", "other")
             blocks[block].append(stock)
-        return dict(sectors)
+        return dict(blocks)
 
-    def _compute_sector_correlation(self, sector_stocks: List[Dict]) -> float:
+    def _compute_sector_correlation(self, block_stocks: List[Dict]) -> float:
         """计算板块内股票相关性（简化版：涨跌一致性）"""
-        if len(sector_stocks) < 2:
+        if len(block_stocks) < 2:
             return 0.0
 
-        changes = [s.get("p_change", 0) or s.get("change_pct", 0) / 100 for s in sector_stocks]
+        changes = [s.get("p_change", 0) or s.get("change_pct", 0) / 100 for s in block_stocks]
         pos_count = sum(1 for c in changes if c > 0)
         neg_count = sum(1 for c in changes if c < 0)
 
@@ -414,7 +414,7 @@ class MarketComboAnalyzer:
         self,
         cross_sectional: Dict[str, Any],
         temporal: TemporalAnalysisResult,
-        sector_clusters: Dict[str, SectorClusterResult],
+        block_clusters: Dict[str, BlockClusterResult],
         sentiment: str,
         breadth: float,
     ) -> str:
@@ -423,8 +423,8 @@ class MarketComboAnalyzer:
         advancing = cross_sectional.get("advancing_count", 0)
         avg_change = cross_sectional.get("avg_change", 0)
 
-        best_sectors = sorted(
-            sector_clusters.items(),
+        best_blocks = sorted(
+            block_clusters.items(),
             key=lambda x: x[1].avg_change,
             reverse=True,
         )[:3]
@@ -435,8 +435,8 @@ class MarketComboAnalyzer:
             f"情绪{sentiment}",
         ]
 
-        if best_sectors:
-            sector_str = ", ".join([f"{s[0]}{s[1].avg_change:+.1f}%" for s in best_sectors])
+        if best_blocks:
+            sector_str = ", ".join([f"{s[0]}{s[1].avg_change:+.1f}%" for s in best_blocks])
             parts.append(f"强势板块: {sector_str}")
 
         if temporal.drift_detected:
@@ -450,7 +450,7 @@ class MarketComboAnalyzer:
     def _extract_insights(
         self,
         cross_sectional: Dict[str, Any],
-        sector_clusters: Dict[str, SectorClusterResult],
+        block_clusters: Dict[str, BlockClusterResult],
         temporal: TemporalAnalysisResult,
     ) -> List[str]:
         """提取关键洞察"""
@@ -469,21 +469,21 @@ class MarketComboAnalyzer:
         elif breadth < -0.3:
             insights.append("市场广度恶化，下跌股票范围广")
 
-        strong_sectors = [
-            s for s in sector_clusters.values()
+        strong_blocks = [
+            s for s in block_clusters.values()
             if s.avg_change > 2 and s.stock_count >= 3
         ]
-        if strong_sectors:
-            sector_names = ", ".join([s.block for s in strong_sectors[:3]])
-            insights.append(f"强势板块: {sector_names}")
+        if strong_blocks:
+            block_names = ", ".join([s.block for s in strong_blocks[:3]])
+            insights.append(f"强势板块: {block_names}")
 
-        weak_sectors = [
-            s for s in sector_clusters.values()
+        weak_blocks = [
+            s for s in block_clusters.values()
             if s.avg_change < -3 and s.stock_count >= 3
         ]
-        if weak_sectors:
-            sector_names = ", ".join([s.block for s in weak_sectors[:3]])
-            insights.append(f"弱势板块: {sector_names}")
+        if weak_blocks:
+            block_names = ", ".join([s.block for s in weak_blocks[:3]])
+            insights.append(f"弱势板块: {block_names}")
 
         if temporal.drift_detected:
             insights.append(f"时序漂移: 趋势向{temporal.drift_direction}变化")
@@ -493,7 +493,7 @@ class MarketComboAnalyzer:
     def _extract_warnings(
         self,
         cross_sectional: Dict[str, Any],
-        sector_clusters: Dict[str, SectorClusterResult],
+        block_clusters: Dict[str, BlockClusterResult],
         temporal: TemporalAnalysisResult,
     ) -> List[str]:
         """提取风险警告"""
@@ -504,12 +504,12 @@ class MarketComboAnalyzer:
             warnings.append(f"市场波动剧烈(标准差{std_change:.1f}%)")
 
         large_cap_loss = [
-            s for s in sector_clusters.values()
+            s for s in block_clusters.values()
             if s.avg_change < -5 and s.stock_count >= 5
         ]
         if large_cap_loss:
-            sector_names = ", ".join([s.block for s in large_cap_loss[:2]])
-            warnings.append(f"重点板块大幅下跌: {sector_names}")
+            block_names = ", ".join([s.block for s in large_cap_loss[:2]])
+            warnings.append(f"重点板块大幅下跌: {block_names}")
 
         if temporal.anomaly_score > 0.8:
             warnings.append("时序异常分数极高，市场可能面临拐点")
@@ -529,7 +529,7 @@ class MarketComboAnalyzer:
                 trend_strength=0.0,
                 volatility=0.0,
             ),
-            sector_clusters={},
+            block_clusters={},
             market_sentiment="未知",
             market_breadth=0.0,
             fund_flow="未知",
@@ -569,12 +569,12 @@ def run_combo_analysis(stocks: List[Dict]) -> MarketComboReport:
     """便捷函数：运行组合分析"""
     analyzer = MarketComboAnalyzer()
 
-    sectors = defaultdict(list)
+    blocks = defaultdict(list)
     for stock in stocks:
         block = stock.get("sector", "other")
         blocks[block].append(stock)
 
-    return analyzer.analyze(stocks, dict(sectors))
+    return analyzer.analyze(stocks, dict(blocks))
 
 
 def format_combo_report(report: MarketComboReport) -> str:
@@ -609,15 +609,15 @@ def format_combo_report(report: MarketComboReport) -> str:
     ]
 
     sorted_sectors = sorted(
-        report.sector_clusters.items(),
+        report.block_clusters.items(),
         key=lambda x: x[1].avg_change,
         reverse=True,
     )
 
-    for sector_name, cluster in sorted_sectors[:15]:
+    for block_name, cluster in sorted_sectors[:15]:
         gainer_pct = (cluster.top_gainer["change"] if cluster.top_gainer else 0)
         lines.append(
-            f"  {sector_name}: {cluster.avg_change:+.2f}% ({cluster.stock_count}只, "
+            f"  {block_name}: {cluster.avg_change:+.2f}% ({cluster.stock_count}只, "
             f"涨跌一致率{cluster.correlation:.0%})"
         )
 

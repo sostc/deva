@@ -7,7 +7,7 @@
            ↓
     stock_registry (StockRegistry)
            ↓
-    attention_integration (NajaAttentionIntegration)
+    attention_integration (MarketHotspotIntegration)
            ↓
     attention_os (AttentionOS)
 
@@ -27,12 +27,12 @@
 import logging
 from typing import Optional
 
-from .integration.extended import (
-    NajaAttentionIntegration,
+from ..market_hotspot.integration.extended import (
+    MarketHotspotIntegration,
     AttentionModeManager,
-    get_attention_integration as _get_attention_integration,
+    get_market_hotspot_integration as _get_market_hotspot_integration,
     get_mode_manager as _get_mode_manager,
-    initialize_attention_system as _initialize_attention_system,
+    initialize_hotspot_system as _initialize_attention_system,
 )
 from ..common.stock_registry import get_stock_registry, StockInfoRegistry
 from ..common.singleton_registry import register_singleton, SR, get_registry_status
@@ -50,10 +50,10 @@ def _get_mode_manager():
     return _get_mode_manager_orig()
 
 
-def _get_attention_integration_factory():
-    """获取 NajaAttentionIntegration 单例工厂"""
+def _get_market_hotspot_integration_factory():
+    """获取 MarketHotspotIntegration 单例工厂"""
     def factory():
-        integration = _get_attention_integration()
+        integration = _get_market_hotspot_integration()
         # 确保已初始化
         if not integration._initialized_attention_system:
             _initialize_attention_system()
@@ -80,8 +80,8 @@ def _create_mode_manager():
 
 
 def _create_attention_integration():
-    """创建 NajaAttentionIntegration（带初始化）"""
-    integration = _get_attention_integration()
+    """创建 MarketHotspotIntegration（带初始化）"""
+    integration = _get_market_hotspot_integration()
     if not getattr(integration, '_initialized_attention_system', False):
         log.info("[AttentionRegister] 初始化 attention_integration")
         _initialize_attention_system()

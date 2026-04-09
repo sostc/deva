@@ -29,7 +29,7 @@ def cognition_glossary_page():
         {
             "category": "📥 输入层",
             "items": [
-                {"term": "新闻事件", "desc": "从金十数据等来源获取的外部新闻，经过 TextProcessingPipeline 处理后进入认知系统"},
+                {"term": "新闻事件", "desc": "从金十数据等来源获取的外部新闻，经过 TextImportanceScorer 处理后进入认知系统"},
                 {"term": "市场注意力", "desc": "GlobalAttentionEngine 计算的市场整体关注度，反映市场活跃程度"},
                 {"term": "行情数据", "desc": "实时价格、成交量、板块涨跌等市场数据"},
             ]

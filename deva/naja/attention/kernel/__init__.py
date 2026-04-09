@@ -7,7 +7,6 @@ Attention Kernel - 事件级注意力计算核心
 - Encoder：Key/Value 编码器
 - AttentionHead：单头注意力
 - MultiHeadAttention：多头注意力融合
-- AttentionMemory：持久注意力记忆
 - AttentionKernel：核心注意力中枢
 - ManasEngine：末那识引擎（完整决策中枢）
 - ManasManager：末那识引擎管理器
@@ -20,7 +19,6 @@ from .state import QueryState
 from .event_encoder import Encoder
 from .attention_scorer import AttentionHead
 from .multi_scorer import MultiHeadAttention
-from .memory import AttentionMemory
 from .kernel import AttentionKernel
 from .heads import get_default_heads, get_regime_aware_heads
 from .manas_engine import (
@@ -46,7 +44,6 @@ __all__ = [
     "Encoder",
     "AttentionHead",
     "MultiHeadAttention",
-    "AttentionMemory",
     "AttentionKernel",
     "get_default_heads",
     "get_regime_aware_heads",

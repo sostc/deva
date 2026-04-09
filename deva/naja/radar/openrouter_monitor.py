@@ -295,15 +295,15 @@ def send_to_radar(trend_data: Dict):
             "normal": 0.3
         }
 
-        radar.ingest_attention_event(
-            event_type="openrouter_trend",
-            score=score_map.get(trend_data.get("alert_level", "normal"), 0.5),
-            message=f"{trend_data.get('message', '')}\n{trend_data.get('recommendation', '')}",
-            payload=trend_data,
-            signal_type="openrouter_trend",
-            strategy_id="openrouter_monitor",
-            strategy_name="OpenRouter TOKEN 监控"
-        )
+        radar.ingest_result({
+            "event_type": "openrouter_trend",
+            "score": score_map.get(trend_data.get("alert_level", "normal"), 0.5),
+            "message": f"{trend_data.get('message', '')}\n{trend_data.get('recommendation', '')}",
+            "payload": trend_data,
+            "signal_type": "openrouter_trend",
+            "strategy_id": "openrouter_monitor",
+            "strategy_name": "OpenRouter TOKEN 监控"
+        })
 
         print(f"[OpenRouter] 雷达事件已发送")
 
@@ -424,7 +424,7 @@ def get_ai_compute_trend() -> Optional[Dict]:
             "trend_direction": "rising",     # rising / falling / stable
             "alert_level": "normal",         # 异常检测
             "is_abnormal": False,
-            "related_sectors": ["AI算力", "半导体"],
+            "related_blocks": ["AI算力", "半导体"],
             "related_symbols": ["NVDA", "AMD", "台积电"],
             "timestamp": ...,
             "message": "...",
@@ -476,7 +476,7 @@ def get_ai_compute_trend() -> Optional[Dict]:
             "trend_direction": trend_direction,
             "alert_level": trend.get("alert_level", "normal"),
             "is_abnormal": trend.get("is_anomaly", False),
-            "related_sectors": ["AI算力", "半导体", "芯片"],
+            "related_blocks": ["AI算力", "半导体", "芯片"],
             "related_symbols": ["NVDA", "AMD", "TSLA", "台积电", "SMCI"],
             "timestamp": data.get("timestamp"),
             "message": trend.get("message", ""),

@@ -17,7 +17,7 @@ from typing import Dict, List, Optional, Any
 import pandas as pd
 import numpy as np
 
-from deva.naja.bandit.stock_sector_map import INDUSTRY_CODE_TO_NAME
+from deva.naja.bandit.stock_block_map import INDUSTRY_CODE_TO_NAME
 
 
 @dataclass
@@ -137,7 +137,7 @@ class RiverTickSingleDayAnalyzer:
         """根据股票数据分类板块
 
         优先级：
-        1. 如果有narrative字段（从US_STOCK_SECTORS或通达信来的），使用industry_code
+        1. 如果有narrative字段（从US_STOCK_BLOCKS或通达信来的），使用industry_code
         2. 如果是美股板块（下划线格式如ai_chip），直接使用
         3. 如果A股已有block字段且不是'other'，使用它
         4. 否则根据名称关键词匹配

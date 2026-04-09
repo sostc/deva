@@ -18,8 +18,10 @@ WakeSyncHandlers - 各组件的唤醒同步实现
 
 import os
 import logging
+import time
 from datetime import datetime, timedelta, time as dtime
 from typing import Dict, Any, Tuple
+from deva.naja.register import SR
 
 log = logging.getLogger(__name__)
 
@@ -302,39 +304,21 @@ class NewsFetcherWakeSync:
             async def publish_to_radar(news: Jin10NewsItem):
                 """发布新闻到雷达系统"""
                 try:
-                    from deva.naja.radar.news_fetcher import RadarNewsFetcher, NewsItem
-                    from deva.naja.cognition.attention_text_router import (
-                        AttentionTextItem,
-                        TextSource,
-                    )
+                    from deva.naja.events import get_event_bus
+                    from deva.naja.events.text_events import TextFetchedEvent
 
-                    fetcher = RadarNewsFetcher()
-
-                    news_item = NewsItem(
-                        id=news.id,
-                        content=news.content,
+                    event = TextFetchedEvent(
+                        text=news.content,
                         title="",
+                        source="radar_news",
                         url=news.url,
-                        source=news.source,
+                        timestamp=time.time(),
+                        keywords=[],
+                        topics=[],
+                        sentiment=0.5,
+                        stock_codes=[],
                     )
-
-                    item = AttentionTextItem(
-                        text=news_item.content,
-                        title=news_item.title,
-                        url=news_item.url,
-                        source=TextSource.RADAR_NEWS,
-                        metadata={
-                            "news_id": news_item.id,
-                            "original_source": news_item.source,
-                            "wake_sync": True,
-                        },
-                    )
-
-                    if hasattr(fetcher, '_text_pipeline') and fetcher._text_pipeline:
-                        item = fetcher._text_pipeline.process(item)
-
-                    if hasattr(fetcher, '_text_bus') and fetcher._text_bus:
-                        fetcher._text_bus.publish(item)
+                    get_event_bus().publish(event)
 
                     log.info(f"[WakeSync] NewsFetcher: 已发布到雷达 {news.content[:50]}...")
 
@@ -529,11 +513,10 @@ class DailyReviewWakeSync:
         """判断是否需要同步"""
         try:
             from deva.naja.strategy.daily_review_scheduler import get_daily_review_scheduler
-            from deva.naja.radar.trading_clock import get_trading_clock, get_us_trading_clock
 
             scheduler = get_daily_review_scheduler()
-            tc = get_trading_clock()
-            us_tc = get_us_trading_clock()
+            tc = SR('trading_clock')
+            us_tc = SR('us_trading_clock')
 
             now = datetime.now()
 

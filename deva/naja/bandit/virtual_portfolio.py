@@ -14,7 +14,7 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
 from deva import NB
-from deva.naja.common.market_time import get_market_time_service
+from deva.naja.register import SR
 
 log = logging.getLogger(__name__)
 
@@ -60,7 +60,7 @@ class VirtualPosition:
     
     @property
     def holding_seconds(self) -> float:
-        market_time = get_market_time_service().get_market_time()
+        market_time = SR('market_time_service').get_market_time()
         return market_time - self.entry_time
 
 
@@ -216,7 +216,7 @@ class VirtualPortfolio:
             
             position_id = f"VP_{stock_code}_{int(time.time() * 1000)}"
 
-            mts = get_market_time_service()
+            mts = SR('market_time_service')
             entry_time = mts.get_market_time()
             current_market_time = mts.get_market_time()
 
@@ -269,7 +269,7 @@ class VirtualPortfolio:
             for pos_id, position in matching_positions:
                 old_price = position.current_price
                 position.current_price = current_price
-                position.last_update_time = get_market_time_service().get_market_time()
+                position.last_update_time = SR('market_time_service').get_market_time()
 
                 log.debug(f"[VirtualPortfolio] 💰 更新持仓 {pos_id}: {stock_code} {old_price} -> {current_price}")
                 
@@ -318,7 +318,7 @@ class VirtualPortfolio:
             position.current_price = exit_price
             position.status = "CLOSED"
 
-            exit_time = get_market_time_service().get_market_time()
+            exit_time = SR('market_time_service').get_market_time()
             if exit_time < position.entry_time:
                 log.warning(f"[VirtualPortfolio] 平仓时间倒置检测: exit_time({exit_time:.0f}) < entry_time({position.entry_time:.0f})，使用 entry_time + 1")
                 exit_time = position.entry_time + 1
@@ -413,14 +413,4 @@ class VirtualPortfolio:
         self._max_total_pct = max(0.01, min(1.0, pct))
 
 
-_portfolio: Optional[VirtualPortfolio] = None
-_portfolio_lock = threading.Lock()
 
-
-def get_virtual_portfolio() -> VirtualPortfolio:
-    global _portfolio
-    if _portfolio is None:
-        with _portfolio_lock:
-            if _portfolio is None:
-                _portfolio = VirtualPortfolio()
-    return _portfolio

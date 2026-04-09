@@ -18,7 +18,7 @@ def render_cross_signal(ui):
 
     stats = analyzer.get_stats()
     recent_resonances = analyzer.get_recent_resonances(n=8)
-    high_resonance_sectors = analyzer.get_high_resonance_sectors(threshold=0.7, n=5)
+    high_resonance_blocks = analyzer.get_high_resonance_blocks(threshold=0.7, n=5)
     market_resonance_summary = analyzer.get_market_resonance_summary()
 
     news_buffer_size = stats.get('news_buffer_size', 0)
@@ -119,15 +119,15 @@ def render_cross_signal(ui):
     </div>
     """)
 
-    if high_resonance_sectors:
-        sector_bars = ""
-        for sector_id, avg_score in high_resonance_sectors[:5]:
+    if high_resonance_blocks:
+        block_bars = ""
+        for block_id, avg_score in high_resonance_blocks[:5]:
             bar_width = min(100, int(avg_score * 100))
             score_color = '#f87171' if avg_score >= 0.85 else ('#fb923c' if avg_score >= 0.7 else '#60a5fa')
-            sector_bars += f'''
+            block_bars += f'''
             <div style="margin-bottom: 6px;">
                 <div style="display: flex; justify-content: space-between; font-size: 11px; color: #94a3b8; margin-bottom: 2px;">
-                    <span style="color: #cbd5e1;">{sector_id}</span>
+                    <span style="color: #cbd5e1;">{block_id}</span>
                     <span style="color: {score_color}; font-weight: 600;">{avg_score:.2f}</span>
                 </div>
                 <div style="height: 4px; background: rgba(255,255,255,0.08); border-radius: 2px; overflow: hidden;">
@@ -146,7 +146,7 @@ def render_cross_signal(ui):
             <div style="font-size: 11px; font-weight: 600; color: #f97316; margin-bottom: 8px;">
                 🔥 高共振板块
             </div>
-            {sector_bars}
+            {block_bars}
         </div>
         """)
 
@@ -161,7 +161,7 @@ def render_cross_signal(ui):
             resonance_items += f"""
             <div style="display: flex; align-items: center; gap: 8px; padding: 6px 8px; background: rgba(255,255,255,0.02); border-radius: 6px; margin-bottom: 4px; border-left: 2px solid {res_type_color};">
                 <div style="flex: 1; min-width: 0;">
-                    <div style="font-size: 11px; font-weight: 600; color: #cbd5e1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{res.sector_name or res.sector_id}</div>
+                    <div style="font-size: 11px; font-weight: 600; color: #cbd5e1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{res.block_name or res.block_id}</div>
                     <div style="font-size: 9px; color: #64748b;">{sentiment_icon} {res.news_sentiment:+.2f} {attention_icon} {res.attention_weight:.2f}</div>
                 </div>
                 <div style="text-align: right; flex-shrink: 0;">

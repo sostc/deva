@@ -55,8 +55,8 @@ def send_imessage(phone: str, text: str) -> bool:
 from deva.naja.cognition.narrative import NarrativeTracker
 from deva.naja.cognition.keyword_registry import DYNAMICS_KEYWORDS, SENTIMENT_KEYWORDS
 from deva.naja.bandit.portfolio_manager import get_portfolio_manager
-from deva.naja.bandit.stock_sector_map import (
-    US_STOCK_SECTORS, INDUSTRY_CODE_TO_NAME, NARRATIVE_INDUSTRY_MAP
+from deva.naja.bandit.stock_block_map import (
+    US_STOCK_BLOCKS, INDUSTRY_CODE_TO_NAME, NARRATIVE_INDUSTRY_MAP
 )
 from deva.naja.strategy.market_combo_analyzer import MarketComboAnalyzer
 
@@ -146,7 +146,7 @@ class PositionAnalysis:
     return_pct: float = 0.0
     today_change: float = 0.0
     market_value: float = 0.0
-    sector: str = "other"
+    block: str = "other"
     narrative: str = ""
     narrative_avg_change: float = 0.0
     relative_change: float = 0.0
@@ -347,8 +347,8 @@ class ReviewReport:
                 f"",
             ])
             for ev in self.market_overview.ashare_flow_timeline[:6]:
-                inflow = ", ".join([f"{s}↑" for s in ev.get("inflow_sectors", [])])
-                outflow = ", ".join([f"{s}↓" for s in ev.get("outflow_sectors", [])])
+                inflow = ", ".join([f"{s}↑" for s in ev.get("inflow_blocks", [])])
+                outflow = ", ".join([f"{s}↓" for s in ev.get("outflow_blocks", [])])
                 lines.append(f"- {ev.get('time', '')}: {inflow} | {outflow}")
             lines.append(f"")
 
@@ -696,7 +696,7 @@ class DailyReviewAnalyzer:
 
         try:
             import pandas as pd
-            from deva.naja.attention.processing.noise_filter import NoiseFilter
+            from deva.naja.market_hotspot.processing.noise_filter import NoiseFilter
 
             df = pd.DataFrame(stocks)
             if df.empty:
@@ -708,7 +708,7 @@ class DailyReviewAnalyzer:
             if "volume" in df.columns:
                 df["volume"] = pd.to_numeric(df["volume"], errors="coerce").fillna(0)
 
-            from deva.naja.attention.processing.noise_filter import get_noise_filter
+            from deva.naja.market_hotspot.processing.noise_filter import get_noise_filter
             noise_filter = get_noise_filter()
             filtered = noise_filter.filter_dataframe(
                 df,
@@ -942,8 +942,8 @@ class DailyReviewAnalyzer:
                 if inflow or outflow:
                     flow_timeline.append({
                         "time": snap.get("time_str", ""),
-                        "inflow_sectors": [s for s, _ in inflow],
-                        "outflow_sectors": [s for s, _ in outflow],
+                        "inflow_blocks": [s for s, _ in inflow],
+                        "outflow_blocks": [s for s, _ in outflow],
                     })
 
             prev_block_amount = block_amount
@@ -1012,7 +1012,7 @@ class DailyReviewAnalyzer:
 
         flow_timeline, breakouts, anomalies, _ = self._analyze_ashare_intraday(snapshots, top_blocks)
 
-        top_sector_details = []
+        top_block_details = []
         for sec_info in block_perf[:3]:
             sec = sec_info["block"]
             items = sec_info["items"]
@@ -1024,10 +1024,10 @@ class DailyReviewAnalyzer:
 
             last_flow = ""
             for ev in reversed(flow_timeline):
-                if sec in ev.get("inflow_sectors", []):
+                if sec in ev.get("inflow_blocks", []):
                     last_flow = f"{ev.get('time','')} 流入"
                     break
-                if sec in ev.get("outflow_sectors", []):
+                if sec in ev.get("outflow_blocks", []):
                     last_flow = f"{ev.get('time','')} 流出"
                     break
 
@@ -1041,7 +1041,7 @@ class DailyReviewAnalyzer:
             if sec_anomalies:
                 anomaly_hint = ", ".join([f"{a.get('name','')}{a.get('change',0):+.1f}%@{a.get('time','')}" for a in sec_anomalies])
 
-            top_sector_details.append({
+            top_block_details.append({
                 "block": sec,
                 "avg_change": sec_info["avg_change"],
                 "flow": last_flow or "均衡",
@@ -1078,7 +1078,7 @@ class DailyReviewAnalyzer:
             combined_avg_change=(ashare_report.cross_sectional.get("avg_change", 0) + usstock_report.cross_sectional.get("avg_change", 0)) / 2 if (ashare_report and usstock_report) else 0,
             combined_sentiment="偏暖" if (ashare_report and usstock_report and ashare_report.market_breadth > 0 and usstock_report.market_breadth > 0) else "偏冷",
             fund_flow="均衡",
-            ashare_top_blocks=top_sector_details,
+            ashare_top_blocks=top_block_details,
             ashare_flow_timeline=flow_timeline,
             ashare_breakouts=breakouts,
             ashare_anomalies=anomalies,
@@ -1091,16 +1091,16 @@ class DailyReviewAnalyzer:
     def _load_attention_state(self):
         """从注意力系统加载注意力状态数据"""
         try:
-            from deva.naja.attention.integration import get_attention_integration
+            from deva.naja.market_hotspot.integration import get_market_hotspot_integration
 
-            integration = get_attention_integration()
-            if integration is None or integration.attention_system is None:
+            integration = get_market_hotspot_integration()
+            if integration is None or integration.hotspot_system is None:
                 return
 
-            attention_system = integration.attention_system
+            attention_system = integration.hotspot_system
 
-            ashare_state = attention_system.get_attention_state()
-            us_state = attention_system.get_us_attention_state()
+            ashare_state = attention_system.get_cn_hotspot_state()
+            us_state = attention_system.get_us_hotspot_state()
 
             self.market_overview.ashare_attention = ashare_state.get('attention', 0.0)
             self.market_overview.ashare_activity = ashare_state.get('activity', 0.0)
@@ -1162,7 +1162,7 @@ class DailyReviewAnalyzer:
         for narrative, industry_codes in NARRATIVE_INDUSTRY_MAP.items():
             block_changes = []
             for industry_code in industry_codes:
-                for code_lower, info in US_STOCK_SECTORS.items():
+                for code_lower, info in US_STOCK_BLOCKS.items():
                     if info.get("industry_code") == industry_code:
                         code = code_lower.upper()
                         stock_data = self.all_stocks.get(code)
@@ -1228,7 +1228,7 @@ class DailyReviewAnalyzer:
             for pos in portfolio.get_all_positions():
                 code = pos.stock_code.upper()
                 stock_data = self.all_stocks.get(code)
-                industry_info = US_STOCK_SECTORS.get(pos.stock_code.lower(), {})
+                industry_info = US_STOCK_BLOCKS.get(pos.stock_code.lower(), {})
                 narrative = industry_info.get("narrative", "")
                 industry_code = industry_info.get("industry_code", "other")
                 blocks = industry_info.get("blocks", [])
