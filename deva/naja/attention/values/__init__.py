@@ -46,7 +46,6 @@ from .mapping import (
 
 from .system import (
     ValueSystem,
-    get_value_system,
     initialize_value_system,
 )
 
@@ -72,6 +71,5 @@ __all__ = [
     "infer_value_type",
     "get_all_strategies_for_value",
     "ValueSystem",
-    "get_value_system",
     "initialize_value_system",
 ]

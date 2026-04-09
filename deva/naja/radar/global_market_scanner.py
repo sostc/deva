@@ -42,18 +42,18 @@ from typing import Any, Deque, Dict, List, Optional
 
 import numpy as np
 
-from deva.naja.attention.data.global_market_futures import (
+from deva.naja.market_hotspot.data.global_market_futures import (
     GlobalMarketAPI,
     MarketData,
     MARKET_ID_TO_CODE,
 )
+from deva.naja.register import SR
 
 try:
     from .global_market_config import (
         MarketSessionManager,
         MarketStatus,
         MarketType,
-        get_market_session_manager,
         get_all_market_ids,
     )
 except ImportError:
@@ -61,7 +61,6 @@ except ImportError:
         MarketSessionManager,
         MarketStatus,
         MarketType,
-        get_market_session_manager,
         get_all_market_ids,
     )
 
@@ -293,7 +292,7 @@ class GlobalMarketScanner:
     @property
     def session_manager(self) -> MarketSessionManager:
         if self._session_manager is None:
-            self._session_manager = get_market_session_manager()
+            self._session_manager = SR('market_session_manager')
         return self._session_manager
 
     def register_callback(self, callback: callable):

@@ -12,9 +12,9 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
 from deva import NB
-from deva.naja.common.market_time import get_market_time_service
 
 from .optimizer import get_bandit_optimizer, StrategyReward
+from deva.naja.register import SR
 
 POSITION_REWARD_TABLE = "naja_bandit_position_rewards"
 
@@ -35,7 +35,7 @@ def _get_liquidity_signal() -> float:
 def _get_volatility_signal() -> float:
     """获取当前市场波动率信号"""
     try:
-        from deva.naja.attention.data.volatility_calculator import get_recent_volatility
+        from deva.naja.market_hotspot.data.volatility_calculator import get_recent_volatility
         vol = get_recent_volatility()
         return min(vol / 30.0, 1.0) if vol else 0.5
     except Exception:
@@ -110,7 +110,7 @@ class BanditPositionTracker:
         if entry_price <= 0 or exit_price <= 0:
             return {"success": False, "error": "价格无效"}
 
-        mts = get_market_time_service()
+        mts = SR('market_time_service')
         current_time = mts.get_market_time()
 
         return_pct = (exit_price - entry_price) / entry_price * 100
@@ -368,15 +368,3 @@ class BanditPositionTracker:
         """禁用追踪器"""
         self._enabled = False
 
-
-_tracker: Optional[BanditPositionTracker] = None
-_tracker_lock = threading.Lock()
-
-
-def get_bandit_tracker() -> BanditPositionTracker:
-    global _tracker
-    if _tracker is None:
-        with _tracker_lock:
-            if _tracker is None:
-                _tracker = BanditPositionTracker()
-    return _tracker

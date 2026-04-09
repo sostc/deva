@@ -21,6 +21,7 @@ from ..common.recoverable import (
 
 from ..common.thread_pool import get_thread_pool
 from .output_controller import get_output_controller
+from deva.naja.register import SR
 
 
 STRATEGY_TABLE = "naja_strategies"
@@ -746,8 +747,7 @@ class StrategyEntry(RecoverableUnit):
     def _enrich_dataframe(self, df: Any, profile_id: str) -> Any:
         """使用字典数据补齐 DataFrame"""
         try:
-            from ..dictionary import get_dictionary_manager
-            dict_mgr = get_dictionary_manager()
+            dict_mgr = SR('dictionary_manager')
             entry = dict_mgr.get(profile_id)
             
             if entry is None:
@@ -1737,7 +1737,7 @@ class StrategyManager:
             attention_started = False
             if include_attention:
                 try:
-                    from deva.naja.attention.strategies import get_strategy_manager
+                    from deva.naja.market_hotspot.strategies import get_strategy_manager
                     attention_manager = get_strategy_manager()
                     attention_result = attention_manager.start_experiment(datasource_id)
                     if attention_result.get("success"):
@@ -1915,7 +1915,7 @@ class StrategyManager:
             include_attention = session.get("include_attention", True)
             if include_attention:
                 try:
-                    from deva.naja.attention.strategies import get_strategy_manager
+                    from deva.naja.market_hotspot.strategies import get_strategy_manager
                     attention_manager = get_strategy_manager()
                     attention_result = attention_manager.stop_experiment()
                     if attention_result.get("success"):
@@ -1926,7 +1926,7 @@ class StrategyManager:
                     print(f"⚠️ 停止注意力策略实验模式失败: {e}")
 
                 try:
-                    from deva.naja.attention.integration import get_mode_manager
+                    from deva.naja.market_hotspot.integration import get_mode_manager
                     mode_manager = get_mode_manager()
                     if mode_manager.is_lab_mode():
                         mode_manager.exit_lab_mode()

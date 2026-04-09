@@ -177,10 +177,8 @@ class BanditTuner:
     def _init_portfolio(self):
         """初始化虚拟持仓组合"""
         try:
-            from deva.naja.bandit.virtual_portfolio import get_virtual_portfolio
-            from deva.naja.bandit.tracker import get_bandit_tracker
-            self._portfolio = get_virtual_portfolio()
-            self._tracker = get_bandit_tracker()
+            self._portfolio = SR('virtual_portfolio')
+            self._tracker = SR('bandit_tracker')
 
             def on_tuner_position_closed(position_id: str, position, reason: str):
                 if self._tracker and self._running:
@@ -231,8 +229,7 @@ class BanditTuner:
     def _apply_confidence_threshold(self, threshold: float):
         """应用置信度阈值到信号监听器"""
         try:
-            from deva.naja.bandit.signal_listener import get_signal_listener
-            listener = get_signal_listener()
+            listener = SR('signal_listener')
             if listener:
                 listener._min_confidence = threshold
                 log.info(f"[BanditTuner] 调整 min_confidence -> {threshold}")
@@ -490,9 +487,5 @@ _tuner_lock = threading.Lock()
 
 
 def get_bandit_tuner() -> BanditTuner:
-    global _tuner
-    if _tuner is None:
-        with _tuner_lock:
-            if _tuner is None:
-                _tuner = BanditTuner()
-    return _tuner
+    from deva.naja.register import SR
+    return SR('bandit_tuner')

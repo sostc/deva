@@ -225,11 +225,3 @@ class SystemStateManager:
         }
 
 
-_system_state_manager: Optional[SystemStateManager] = None
-
-
-def get_system_state_manager() -> SystemStateManager:
-    global _system_state_manager
-    if _system_state_manager is None:
-        _system_state_manager = SystemStateManager()
-    return _system_state_manager

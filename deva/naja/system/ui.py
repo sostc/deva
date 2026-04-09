@@ -40,7 +40,7 @@ def _get_write_level(seconds_since_write: float | None) -> str:
 async def render_system_page(ctx: dict):
     """渲染系统页面"""
     from ..strategy.result_store import get_result_store
-    from ..attention.integration import get_attention_integration
+    from ..market_hotspot.integration import get_market_hotspot_integration
     from ..bootstrap import get_last_boot_report
 
     await ctx["init_naja_ui"]("系统")
@@ -55,7 +55,7 @@ async def render_system_page(ctx: dict):
 
     attention_report = {"status": "not_initialized"}
     try:
-        attention_report = get_attention_integration().get_attention_report()
+        attention_report = get_market_hotspot_integration().get_hotspot_report()
     except Exception:
         pass
 

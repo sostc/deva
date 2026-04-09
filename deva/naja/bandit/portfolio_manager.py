@@ -29,6 +29,7 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Callable
 
 from deva import NB
+from deva.naja.register import SR
 
 log = logging.getLogger(__name__)
 
@@ -321,8 +322,7 @@ class PortfolioManager:
 
             for name in account_names:
                 if name == "虚拟测试":
-                    from .virtual_portfolio import get_virtual_portfolio
-                    self._accounts[name] = get_virtual_portfolio()
+                    self._accounts[name] = SR('virtual_portfolio')
                 else:
                     self._us_portfolios[name] = USStockPortfolio(name)
                     self._accounts[name] = self._us_portfolios[name]
@@ -336,6 +336,24 @@ class PortfolioManager:
 
     def get_us_portfolio(self, account_name: str) -> Optional[USStockPortfolio]:
         return self._us_portfolios.get(account_name)
+
+    def register_futu_account(self, account_name: str) -> USStockPortfolio:
+        """注册一个富途账户到 PortfolioManager
+
+        Args:
+            account_name: 账户名称（如 FutuReal）
+
+        Returns:
+            USStockPortfolio 实例
+        """
+        if account_name in self._us_portfolios:
+            return self._us_portfolios[account_name]
+
+        portfolio = USStockPortfolio(account_name)
+        self._us_portfolios[account_name] = portfolio
+        self._accounts[account_name] = portfolio
+        log.info(f"[PortfolioManager] 注册富途账户: {account_name}")
+        return portfolio
 
     def get_all_account_names(self) -> List[str]:
         return list(self._accounts.keys())
@@ -401,13 +419,13 @@ _portfolio_manager_lock = threading.Lock()
 
 
 def get_portfolio_manager() -> PortfolioManager:
+    from deva.naja.register import SR
     global _portfolio_manager
     if _portfolio_manager is None:
         with _portfolio_manager_lock:
             if _portfolio_manager is None:
                 _portfolio_manager = PortfolioManager()
     return _portfolio_manager
-
 
 async def fetch_us_stock_price_xueqiu(stock_code: str) -> Optional[tuple]:
     """从雪球获取美股价格和昨收价"""
@@ -444,7 +462,7 @@ async def fetch_us_stock_price_xueqiu(stock_code: str) -> Optional[tuple]:
 async def fetch_us_stock_price_sina(stock_code: str) -> Optional[tuple]:
     """从新浪获取美股价格和昨收价"""
     try:
-        from deva.naja.attention.data.global_market_futures import GlobalMarketAPI
+        from deva.naja.market_hotspot.data.global_market_futures import GlobalMarketAPI
         api = GlobalMarketAPI()
         code_map = {
             "nvda": "gb_nvda",

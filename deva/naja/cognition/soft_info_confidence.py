@@ -159,7 +159,7 @@ class SoftInfoConfidence:
     def evaluate_cross_signal_confidence(
         self,
         resonance_count: int,
-        sector_count: int,
+        block_count: int,
         source_reliability: float = 0.65
     ) -> SoftInfoSignal:
         """
@@ -167,7 +167,7 @@ class SoftInfoConfidence:
 
         Args:
             resonance_count: 共振信号数量
-            sector_count: 涉及板块数量
+            block_count: 涉及板块数量
             source_reliability: 来源可靠性
 
         Returns:
@@ -191,8 +191,8 @@ class SoftInfoConfidence:
             source=SoftInfoSource.CROSS_SIGNAL.value,
             value=direction_score,
             confidence=confidence,
-            reason=f"共振:{resonance_count}信号, {sector_count}板块",
-            metadata={"resonance_count": resonance_count, "sector_count": sector_count}
+            reason=f"共振:{resonance_count}信号, {block_count}板块",
+            metadata={"resonance_count": resonance_count, "block_count": block_count}
         )
 
     def combine_with_hard_data(

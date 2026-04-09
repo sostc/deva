@@ -157,30 +157,20 @@ def _get_event_encoder_state(kernel) -> Dict[str, Any]:
         "key_features": ["price", "sentiment", "volume", "alpha"],
         "value_features": ["alpha", "risk", "confidence"]
     }
-    try:
-        if hasattr(kernel, 'memory') and kernel.memory:
-            events = kernel.memory.store[-10:]
-            encoder_state["total_encoded"] = len(events)
-    except Exception:
-        pass
     return encoder_state
 
 
 def _get_attention_memory_state(kernel) -> Dict[str, Any]:
-    """获取注意力记忆系统状态"""
+    """获取注意力记忆系统状态
+
+    AttentionMemory 已删除，记忆功能由 Cognition 系统提供
+    """
     memory_state = {
         "total": 0,
         "level_distribution": {"high": 0, "medium": 0, "low": 0},
-        "avg_score": 0.0
+        "avg_score": 0.0,
+        "note": "Memory moved to Cognition system"
     }
-    try:
-        if hasattr(kernel, 'memory') and kernel.memory:
-            stats = kernel.memory.get_stats()
-            memory_state["total"] = stats.get("total", 0)
-            memory_state["level_distribution"] = stats.get("level_distribution", {"high": 0, "medium": 0, "low": 0})
-            memory_state["avg_score"] = stats.get("avg_score", 0.0)
-    except Exception:
-        pass
     return memory_state
 
 

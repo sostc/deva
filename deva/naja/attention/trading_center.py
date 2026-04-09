@@ -702,8 +702,7 @@ class TradingCenter:
     def get_cached_market_time(self) -> str:
         """获取缓存的市场时间（兼容旧接口）"""
         try:
-            from deva.naja.radar.trading_clock import get_trading_clock
-            clock = get_trading_clock()
+            clock = SR('trading_clock')
             if clock:
                 return clock.get_formatted_time()
         except Exception:
@@ -716,6 +715,7 @@ _trading_center: Optional[TradingCenter] = None
 
 def get_trading_center() -> TradingCenter:
     """获取 TradingCenter 单例"""
+    from deva.naja.register import SR
     global _trading_center
     if _trading_center is None:
         _trading_center = TradingCenter()

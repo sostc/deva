@@ -94,7 +94,7 @@ class TestNarrativeTransitionSense(unittest.TestCase):
             evidence=["主力流入10亿"],
             start_time=0,
             strength=0.9,
-            related_sectors=[],
+            related_blocks=[],
             key_stocks=[]
         )
 
@@ -116,7 +116,7 @@ class TestNarrativeTransitionSense(unittest.TestCase):
             evidence=["政策信号"],
             start_time=0,
             strength=0.5,
-            related_sectors=[],
+            related_blocks=[],
             key_stocks=[]
         )
 
@@ -140,7 +140,7 @@ class TestStoryConflictDetector(unittest.TestCase):
                 evidence=["央行放水"],
                 start_time=0,
                 strength=0.8,
-                related_sectors=[],
+                related_blocks=[],
                 key_stocks=[]
             ),
             MarketNarrative(
@@ -150,7 +150,7 @@ class TestStoryConflictDetector(unittest.TestCase):
                 evidence=["企业业绩下滑"],
                 start_time=0,
                 strength=0.8,
-                related_sectors=[],
+                related_blocks=[],
                 key_stocks=[]
             )
         ]
@@ -170,7 +170,7 @@ class TestStoryConflictDetector(unittest.TestCase):
                 evidence=["主力流入5亿"],
                 start_time=0,
                 strength=0.7,
-                related_sectors=[],
+                related_blocks=[],
                 key_stocks=[]
             ),
             MarketNarrative(
@@ -180,7 +180,7 @@ class TestStoryConflictDetector(unittest.TestCase):
                 evidence=["市场情绪悲观", "资金流出"],
                 start_time=0,
                 strength=0.8,
-                related_sectors=[],
+                related_blocks=[],
                 key_stocks=[]
             )
         ]

@@ -85,52 +85,40 @@ class NarrativeSupplyChainLinker:
 
         self._init_narrative_stock_mapping()
 
-        # 🚀 新架构：订阅 TextSignalBus
-        self._subscribe_to_text_bus()
+        self._subscribe_to_text_events()
 
-    def _subscribe_to_text_bus(self):
-        """🚀 订阅 TextSignalBus，接收高注意力文本"""
+    def _subscribe_to_text_events(self):
+        """订阅 TextFocusedEvent"""
         try:
-            from deva.naja.cognition.text_processing_pipeline import subscribe_to_signals
+            from deva.naja.events import get_event_bus
 
-            subscribe_to_signals(
-                "SupplyChainLinker",
-                self._on_text_signal,
-                min_attention=0.4  # 供应链风险不怕错过，阈值较低
+            event_bus = get_event_bus()
+            event_bus.subscribe(
+                'TextFocusedEvent',
+                self._on_text_focused,
+                priority=5
             )
-            log.debug("SupplyChainLinker 已订阅 TextSignalBus")
+            log.debug("SupplyChainLinker 已订阅 TextFocusedEvent")
         except ImportError:
             pass
 
-    def _on_text_signal(self, item: "AttentionTextItem"):
-        """
-        🚀 处理来自 TextSignalBus 的文本信号
-
-        从高注意力新闻中分析供应链影响
-        """
+    def _on_text_focused(self, event):
+        """处理 TextFocusedEvent"""
         try:
-            if not item.structured_signal:
-                return
+            narratives = list(event.keywords or [])
+            narratives.extend(event.topics or [])
+            if getattr(event, "narrative_tags", None):
+                narratives.extend(event.narrative_tags)
 
-            # 从结构化信号中提取叙事标签
-            narratives = getattr(item.structured_signal, 'narrative_tags', []) or []
-            narratives.extend(item.raw_keywords or [])
-
-            # 分析供应链影响
-            impacts = self.analyze_news_impact(item.text, narratives)
-
-            if impacts:
-                log.info(f"SupplyChainLinker 发现 {len(impacts)} 个供应链影响")
-                for impact in impacts[:3]:  # 只记录前3个
-                    log.debug(f"  - {impact.stock_name}: {impact.description}")
-
-                # 🚀 发布供应链影响事件
-                self._publish_supply_chain_event(item, impacts)
-
+            self._analyze_supply_chain_impact(
+                text=event.summary or event.title or event.text,
+                narratives=narratives,
+                importance=event.importance_score,
+            )
         except Exception as e:
-            log.warning(f"SupplyChainLinker 处理文本信号失败: {e}")
+            log.debug(f"[SupplyChainLinker] 处理 TextFocusedEvent 失败: {e}")
 
-    def _publish_supply_chain_event(self, item: "AttentionTextItem", impacts: List):
+    def _publish_supply_chain_event(self, event, impacts: List):
         """
         🚀 发布供应链影响事件到 CognitiveSignalBus
         """
@@ -157,7 +145,7 @@ class NarrativeSupplyChainLinker:
                 source="SupplyChainLinker",
                 event_type=CognitiveEventType.NARRATIVE_SUPPLY_LINK,
                 narratives=item.structured_signal.narrative_tags if item.structured_signal else [],
-                importance=item.attention_score,
+                importance=item.importance_score,
                 confidence=0.6,
                 stock_codes=stock_codes,
                 risk_level=risk_level,

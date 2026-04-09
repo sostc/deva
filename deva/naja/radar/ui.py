@@ -7,6 +7,7 @@ from pywebio.session import run_js
 
 from ..common.ui_style import render_empty_state
 from .engine import get_radar_engine
+from deva.naja.register import SR
 
 
 def _fmt_time(ts: float) -> str:
@@ -94,8 +95,9 @@ class RadarUI:
     def _get_cn_trading_status(self) -> tuple:
         """获取A股交易时段状态"""
         try:
-            from ..radar.trading_clock import get_trading_clock
-            tc = get_trading_clock()
+            from ..register import ensure_trading_clocks
+            ensure_trading_clocks()
+            tc = SR('trading_clock')
             phase = tc.current_phase
             phase_map = {
                 "trading": ("A股交易中", "#22c55e"),
@@ -111,8 +113,9 @@ class RadarUI:
     def _get_us_trading_status(self) -> tuple:
         """获取美股交易时段状态"""
         try:
-            from ..radar.trading_clock import get_us_trading_clock
-            tc = get_us_trading_clock()
+            from ..register import ensure_trading_clocks
+            ensure_trading_clocks()
+            tc = SR('us_trading_clock')
             phase = tc.current_phase
             phase_map = {
                 "trading": ("美股交易中", "#22c55e"),
@@ -141,7 +144,7 @@ class RadarUI:
         pattern_count = type_counts.get("radar_pattern", 0) + type_counts.get("pattern", 0)
         drift_count = type_counts.get("radar_data_distribution_shift", 0) + type_counts.get("drift", 0)
         anomaly_count = type_counts.get("radar_anomaly", 0) + type_counts.get("anomaly", 0)
-        sector_count = type_counts.get("radar_block_anomaly", 0) + type_counts.get("block_anomaly", 0) + type_counts.get("block_hotspot", 0)
+        block_count = type_counts.get("radar_block_anomaly", 0) + type_counts.get("block_anomaly", 0) + type_counts.get("block_hotspot", 0)
 
         cn_phase, cn_phase_color = self._get_cn_trading_status()
         us_phase, us_phase_color = self._get_us_trading_status()
@@ -212,7 +215,7 @@ class RadarUI:
                 </div>
                 <div style="flex: 1; padding: 6px 10px; background: rgba(239, 68, 68, 0.15); border-radius: 6px; text-align: center;">
                     <span style="font-size: 11px; color: #fca5a5;">🔥 板块</span>
-                    <span style="font-size: 12px; font-weight: 600; color: #ef4444; margin-left: 4px;">{sector_count}</span>
+                    <span style="font-size: 12px; font-weight: 600; color: #ef4444; margin-left: 4px;">{block_count}</span>
                 </div>
             </div>
         </div>
@@ -672,7 +675,7 @@ class RadarUI:
             for topic, pred in topic_predictions.items():
                 heat = pred.get("heat_score", 0)
                 prob = pred.get("spread_probability", 0)
-                sectors = pred.get("target_sectors", [])
+                sectors = pred.get("target_blocks", [])
 
                 heat_bar = min(heat / 10 * 100, 100)
                 heat_color = "#f87171" if heat > 5 else ("#fbbf24" if heat > 3 else "#4ade80")

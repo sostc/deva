@@ -17,7 +17,6 @@ from deva.naja.attention.kernel import (
     QueryState,
     Encoder,
     MultiHeadAttention,
-    AttentionMemory,
     AttentionKernel,
     get_default_heads,
 )
@@ -31,8 +30,7 @@ def create_kernel():
     encoder = Encoder()
     heads = get_default_heads()
     multi_head = MultiHeadAttention(heads)
-    memory = AttentionMemory(decay_rate=300)
-    return AttentionKernel(encoder, multi_head, memory)
+    return AttentionKernel(encoder, multi_head)
 
 
 kernel = create_kernel()
@@ -93,7 +91,7 @@ def generate_html():
             "risk_bias": Q.risk_bias
         },
         "heads_output": heads_output,
-        "memory_items": kernel.memory.store[-5:],
+        "memory_items": [],
         "feedback_info": {
             "reward": result["confidence"] * 0.1,
             "action": "buy_momentum",
@@ -197,29 +195,8 @@ def generate_html():
         </h2>
 
         <div style="background: rgba(168,85,247,0.1); border-radius: 12px; padding: 20px;">
-            <table style="width: 100%; color: #fff;">
-                <tr style="color: #a855f7;">
-                    <th>来源</th>
-                    <th>分数</th>
-                    <th>时间</th>
-                </tr>
-    """
-
-    for item in kernel.memory.store[-5:]:
-        e = item["event"]
-        age = time.time() - item["time"]
-        html += f"""
-                <tr>
-                    <td>{e.source}</td>
-                    <td style="color: {'#4ade80' if item['score'] > 0.5 else '#fbbf24'};">{item['score']:.4f}</td>
-                    <td>{age:.1f}s 前</td>
-                </tr>
-        """
-
-    html += """
-            </table>
-            <div style="margin-top: 15px; color: #64748b; font-size: 12px;">
-                半衰期: 300秒 | 存储条数: """ + str(len(kernel.memory.store)) + """
+            <div style="color: #64748b; font-size: 14px;">
+                记忆功能已移动到 Cognition 系统
             </div>
         </div>
 

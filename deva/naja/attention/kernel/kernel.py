@@ -1,7 +1,7 @@
 """
 AttentionKernel - 核心注意力中枢
 
-协调 Encoder、MultiHeadAttention 和 AttentionMemory
+协调 Encoder、MultiHeadAttention 进行注意力计算
 价值观驱动注意力计算
 支持流动性救援漏斗式处理
 支持末那识引擎 ManasEngine（决策中枢）
@@ -16,7 +16,6 @@ class AttentionKernel:
     属性:
         encoder: Encoder 实例
         multi_head: MultiHeadAttention 实例
-        memory: AttentionMemory 实例
         liquidity_rescue_filter: 流动性救援快速预过滤层
         panic_analyzer: 恐慌指数分析器
         rescue_orchestrator: 流动性救援协调器
@@ -24,19 +23,17 @@ class AttentionKernel:
         _enable_manas: 是否启用末那识
     """
 
-    def __init__(self, encoder, multi_head, memory, enable_manas=False):
+    def __init__(self, encoder, multi_head, enable_manas=False):
         """
         初始化注意力中枢
 
         Args:
             encoder: Encoder 实例
             multi_head: MultiHeadAttention 实例
-            memory: AttentionMemory 实例
             enable_manas: 是否启用末那识引擎（默认关闭）
         """
         self.encoder = encoder
         self.multi_head = multi_head
-        self.memory = memory
         self._value_system = None
         self._liquidity_rescue_filter = None
         self._panic_analyzer = None
@@ -76,30 +73,28 @@ class AttentionKernel:
     def _get_value_system(self):
         """获取价值观系统（延迟加载）"""
         if self._value_system is None:
-            from deva.naja.attention.values import get_value_system
-            self._value_system = get_value_system()
+            self._value_system = SR('value_system')
         return self._value_system
 
     def _get_session_manager(self):
         """获取交易时段管理器"""
         try:
-            from deva.naja.radar.trading_clock import get_trading_clock
-            return get_trading_clock()
+            return SR('trading_clock')
         except ImportError:
             return None
 
     def _get_portfolio(self):
         """获取虚拟持仓"""
+        from deva.naja.register import SR
         try:
-            from deva.naja.bandit import get_virtual_portfolio
-            return get_virtual_portfolio()
-        except ImportError:
+            return SR('virtual_portfolio')
+        except KeyError:
             return None
 
     def _get_strategy_manager(self):
         """获取策略管理器"""
         try:
-            from deva.naja.attention.strategies import get_strategy_manager
+            from deva.naja.market_hotspot.strategies import get_strategy_manager
             return get_strategy_manager()
         except ImportError:
             return None
@@ -107,8 +102,7 @@ class AttentionKernel:
     def _get_bandit_tracker(self):
         """获取 bandit tracker"""
         try:
-            from deva.naja.bandit import get_bandit_tracker
-            return get_bandit_tracker()
+            return SR('bandit_tracker')
         except ImportError:
             return None
 
@@ -131,21 +125,21 @@ class AttentionKernel:
     def _get_liquidity_rescue_filter(self):
         """获取流动性救援快速预过滤层（延迟加载）"""
         if self._liquidity_rescue_filter is None:
-            from deva.naja.attention.filters import LiquidityRescueFilter
+            from deva.naja.market_hotspot.filters import LiquidityRescueFilter
             self._liquidity_rescue_filter = LiquidityRescueFilter()
         return self._liquidity_rescue_filter
 
     def _get_panic_analyzer(self):
         """获取恐慌指数分析器（延迟加载）"""
         if self._panic_analyzer is None:
-            from deva.naja.attention.filters import PanicAnalyzer
+            from deva.naja.market_hotspot.filters import PanicAnalyzer
             self._panic_analyzer = PanicAnalyzer()
         return self._panic_analyzer
 
     def _get_rescue_orchestrator(self):
         """获取流动性救援协调器（延迟加载）"""
         if self._rescue_orchestrator is None:
-            from deva.naja.attention.strategies import LiquidityRescueOrchestrator
+            from deva.naja.market_hotspot.strategies import LiquidityRescueOrchestrator
             self._rescue_orchestrator = LiquidityRescueOrchestrator()
         return self._rescue_orchestrator
 
@@ -197,8 +191,6 @@ class AttentionKernel:
             reason = vs.generate_focus_reason(e.features)
             vs.record_attention(symbol, alignment, reason)
             vs.set_last_decision_reason(reason)
-
-            self.memory.update(e, result["confidence"])
 
         return result
 
@@ -275,8 +267,6 @@ class AttentionKernel:
             vs.record_attention(symbol, alignment, reason)
             vs.set_last_decision_reason(reason)
 
-            self.memory.update(e, result["confidence"])
-
         result["manas"] = manas_output.to_dict()
         result["should_act"] = manas_output.should_act
 
@@ -294,7 +284,7 @@ class AttentionKernel:
 
             held_symbols = [p.stock_code for p in positions if hasattr(p, 'stock_code')]
             position_details = []
-            sector_allocations = {}
+            block_allocations = {}
 
             for pos in positions:
                 if hasattr(pos, 'to_dict'):
@@ -315,7 +305,7 @@ class AttentionKernel:
             return {
                 "held_symbols": held_symbols,
                 "position_details": position_details,
-                "sector_allocations": sector_allocations,
+                "block_allocations": block_allocations,
                 "total_return": total_return,
                 "cash_ratio": cash_ratio,
                 "concentration": concentration,
@@ -521,8 +511,7 @@ class AttentionKernel:
         result = self.process(Q, raw_events)
 
         if "reward" in feedback:
-            for e in raw_events:
-                self.memory.reinforce(e, feedback["reward"])
+            pass
 
         if self._unified_manas is not None and "pnl_pct" in feedback:
             self._unified_manas.record_pnl(feedback["pnl_pct"])
@@ -624,7 +613,6 @@ class AttentionKernel:
             reason = vs.generate_focus_reason(e.features)
             vs.record_attention(symbol, alignment, reason)
             vs.set_last_decision_reason(reason)
-            self.memory.update(e, result["confidence"])
 
         return {
             "alpha": result.get("alpha", 0),
@@ -647,3 +635,62 @@ class AttentionKernel:
             return orch.get_state()
         except:
             return {"error": "orchestrator not initialized"}
+
+    def personalize_event(self, event: dict) -> dict:
+        """根据用户关注对事件进行个性化打分
+
+        这是 Attention Kernel 的核心职责之一：
+        根据用户画像（Monas、Ananya 等系统）结合用户关注，
+        对事件进行个性化的 relevance 评分。
+
+        Args:
+            event: 事件字典，需包含 score、signal_type 等字段
+
+        Returns:
+            更新后的事件字典，增加了 user_score、scope 等字段
+        """
+        from typing import Any
+
+        def _clamp(v: float) -> float:
+            return max(0.0, min(1.0, v))
+
+        def _safe_float(v: Any, default: float = 0.5) -> float:
+            try:
+                return float(v)
+            except (TypeError, ValueError):
+                return default
+
+        score = _safe_float(event.get("score"), 0.5)
+        system_attention = _clamp(score)
+        confidence = _safe_float(event.get("confidence"), 0.5)
+        actionability = _safe_float(event.get("actionability"), 0.4)
+        novelty = _safe_float(event.get("novelty"), 0.5)
+
+        payload = event.get("payload") or {}
+        signal_type = str(payload.get("signal_type", event.get("signal_type", ""))).upper()
+        if signal_type in {"BUY", "SELL"}:
+            actionability = 0.9
+            confidence = max(confidence, 0.7)
+
+        user_score = (
+            0.4 * system_attention
+            + 0.2 * confidence
+            + 0.2 * actionability
+            + 0.2 * novelty
+        )
+
+        event["user_score"] = round(_clamp(user_score), 3)
+        event["system_attention"] = round(system_attention, 3)
+        event["scope"] = self._infer_event_scope(event)
+        return event
+
+    def _infer_event_scope(self, event: dict) -> str:
+        """推断事件作用域（macro / symbol）"""
+        payload = event.get("payload") or {}
+        for key in ("stock_code", "symbol", "code", "ticker", "stock_name"):
+            if payload.get(key):
+                return "symbol"
+        symbols = payload.get("symbols")
+        if isinstance(symbols, list) and len(symbols) == 1:
+            return "symbol"
+        return "macro"

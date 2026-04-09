@@ -22,9 +22,10 @@ from datetime import datetime, timedelta, time as dtime
 from typing import Optional
 
 from deva import NB
+from deva.naja.common.singleton_registry import SR
 
-from deva.naja.radar.trading_clock import get_trading_clock, TRADING_CLOCK_STREAM
-from deva.naja.radar.trading_clock import get_us_trading_clock, USTRADING_CLOCK_STREAM
+from deva.naja.radar.trading_clock import TRADING_CLOCK_STREAM
+from deva.naja.radar.trading_clock import USTRADING_CLOCK_STREAM
 
 log = logging.getLogger(__name__)
 
@@ -169,7 +170,7 @@ class DailyReviewScheduler:
             return
 
         if market == 'a_share':
-            tc = get_trading_clock()
+            tc = SR('trading_clock')
             current_phase = tc.current_phase
 
             # A股：周末不休市检查，但按交易时段判断
@@ -185,8 +186,7 @@ class DailyReviewScheduler:
                     self._trigger_replay(market=market, phase='post_market')
 
         elif market == 'us_share':
-            from deva.naja.radar.trading_clock import get_us_trading_clock
-            us_tc = get_us_trading_clock()
+            us_tc = SR('us_trading_clock')
             current_phase = us_tc.current_phase
 
             # 美股：每天 04:00/05:00 后检查
@@ -300,4 +300,5 @@ class DailyReviewScheduler:
 
 def get_daily_review_scheduler() -> DailyReviewScheduler:
     """获取复盘调度器单例"""
+    from deva.naja.register import SR
     return DailyReviewScheduler()

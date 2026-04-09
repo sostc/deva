@@ -10,7 +10,6 @@ import logging
 from pywebio.output import put_html, put_row, put_column, put_scope
 from pywebio.session import run_js, set_env
 
-from ..engine import get_cognition_engine
 from ..core import AttentionScorer
 from ...page_help import render_help_collapse
 from ...common.ui_style import format_timestamp
@@ -29,6 +28,7 @@ from .components import (
     render_storage,
     render_help,
 )
+from deva.naja.register import SR
 
 log = logging.getLogger(__name__)
 
@@ -129,7 +129,7 @@ class CognitionUI:
     """认知系统 UI"""
 
     def __init__(self):
-        self.engine = get_cognition_engine()
+        self.engine = SR('cognition_engine')
 
     def _put_html(self, html: str):
         put_html(html)
@@ -147,8 +147,7 @@ class CognitionUI:
 
         insight_pool = None
         try:
-            from ..insight import get_insight_pool
-            insight_pool = get_insight_pool()
+            insight_pool = SR('insight_pool')
         except Exception:
             pass
 
@@ -290,8 +289,8 @@ class CognitionUI:
         render_help(self)
 
     def _refresh_data(self):
-        from ..insight import get_insight_pool, get_llm_reflection_engine
-        pool = get_insight_pool()
+        from ..insight import get_llm_reflection_engine
+        pool = SR('insight_pool')
         llm = get_llm_reflection_engine()
 
         stats = {
@@ -308,8 +307,7 @@ class CognitionUI:
         put_toast("报告生成中...", duration=2)
 
         def generate():
-            from ..insight import get_insight_pool
-            pool = get_insight_pool()
+            pool = SR('insight_pool')
             if pool:
                 report = pool.generate_insight_report()
                 from pywebio.output import put_toast

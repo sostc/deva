@@ -32,7 +32,7 @@ async def test_global_market_api():
     """测试 1: GlobalMarketAPI 获取市场数据"""
     print_section("测试 1: GlobalMarketAPI 获取市场数据")
 
-    from deva.naja.attention.data.global_market_futures import GlobalMarketAPI, MARKET_ID_TO_CODE
+    from deva.naja.market_hotspot.data.global_market_futures import GlobalMarketAPI, MARKET_ID_TO_CODE
 
     api = GlobalMarketAPI()
 

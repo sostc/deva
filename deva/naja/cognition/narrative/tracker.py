@@ -288,8 +288,7 @@ class NarrativeTracker:
 
         self._load_state()
 
-        # 🚀 新架构：订阅 TextSignalBus，自动处理高注意力文本
-        self._subscribe_to_text_bus()
+        self._subscribe_to_text_events()
 
     def _get_focus_themes_from_manas(self) -> List[Dict[str, Any]]:
         """
@@ -339,68 +338,52 @@ class NarrativeTracker:
                 result[theme_id] = keywords
         return result
 
-    def _subscribe_to_text_bus(self):
-        """🚀 订阅 TextSignalBus，接收高注意力文本"""
+    def _subscribe_to_text_events(self):
+        """订阅 TextFocusedEvent"""
         try:
-            from deva.naja.cognition.text_processing_pipeline import subscribe_to_signals
+            from deva.naja.events import get_event_bus
 
-            subscribe_to_signals(
-                "NarrativeTracker",
-                self._on_text_signal,
-                min_attention=0.7  # 只关心高注意力内容
+            event_bus = get_event_bus()
+            event_bus.subscribe(
+                'TextFocusedEvent',
+                self._on_text_focused,
+                priority=7
             )
             import logging
-            logging.getLogger(__name__).debug("NarrativeTracker 已订阅 TextSignalBus")
+            logging.getLogger(__name__).debug("NarrativeTracker 已订阅 TextFocusedEvent")
         except ImportError:
-            pass  # 新架构未安装，降级处理
+            pass
 
-    def _on_text_signal(self, item: "AttentionTextItem"):
-        """
-        🚀 处理来自 TextSignalBus 的文本信号
-
-        当有高注意力新闻/文章时，自动进行叙事追踪分析
-        """
+    def _on_text_focused(self, event):
+        """处理 TextFocusedEvent，进行叙事追踪"""
         try:
-            # 从结构化信号中提取信息
-            if not item.structured_signal:
+            if event.routing_level != "deep":
                 return
 
-            signal = item.structured_signal
+            keywords = list(event.keywords or [])
+            topics = list(event.topics or [])
+            if getattr(event, "narrative_tags", None):
+                topics.extend(event.narrative_tags)
+            if getattr(event, "matched_focus_topics", None):
+                topics.extend(event.matched_focus_topics)
+            topics = list(dict.fromkeys(topics))
 
-            # 构建兼容的事件对象
-            class _EventCompat:
-                def __init__(self, item, signal):
-                    self.text = item.text
-                    self.title = getattr(item, 'title', '')
-                    self.keywords = item.raw_keywords or []
-                    self.topics = item.topic_candidates or []
-                    self.timestamp = getattr(item, 'timestamp', time.time())
-                    self.source = getattr(item, 'source', 'text_signal_bus')
-                    self.meta = {
-                        'attention_score': item.attention_score,
-                        'narrative_tags': getattr(item, 'narrative_tags', []),
-                        'sentiment': getattr(signal, 'sentiment', 0.5),
-                        'entities': getattr(signal, 'entities', []),
-                    }
-
-            event = _EventCompat(item, signal)
-
-            # 调用原有的 ingest_event 进行叙事追踪
-            self.ingest_event(event)
-
-            # 🚀 发布认知事件，通知下游（ManasEngine）认知状态已更新
-            self._publish_cognitive_update(item, signal)
-
+            signal = {
+                "source": f"text_focused:{event.source}",
+                "content": event.summary or event.title or event.text,
+                "title": event.title,
+                "importance_score": event.importance_score,
+                "keywords": keywords,
+                "topics": topics,
+                "sentiment": event.sentiment,
+                "stock_codes": event.stock_codes,
+            }
+            self.ingest_news_signal(signal)
         except Exception as e:
-            import logging
-            logging.getLogger(__name__).warning(f"NarrativeTracker 处理文本信号失败: {e}")
+            log.debug(f"[NarrativeTracker] 处理 TextFocusedEvent 失败: {e}")
 
-    def _publish_cognitive_update(self, item: "AttentionTextItem", signal):
-        """
-        🚀 发布认知事件到 CognitiveSignalBus
-
-        通知下游系统叙事状态已更新，触发 ManasEngine 重新计算
-        """
+    def _publish_cognitive_update(self, event, signal):
+        """发布认知事件到 CognitiveSignalBus"""
         try:
             from deva.naja.cognition.cognitive_signal_bus import (
                 get_cognitive_bus,
@@ -409,25 +392,22 @@ class NarrativeTracker:
 
             bus = get_cognitive_bus()
 
-            # 提取叙事标签
-            narratives = item.structured_signal.narrative_tags if item.structured_signal else []
+            narratives = list(signal.get('topics', []) if isinstance(signal, dict) else [])
+            narratives.extend(list(signal.get('keywords', []) if isinstance(signal, dict) else []))
 
-            # 发布叙事更新事件
+            importance = signal.get('importance_score', 0.5) if isinstance(signal, dict) else 0.5
+
             bus.publish_cognitive_event(
                 source="NarrativeTracker",
-                event_type=CognitiveEventType.SECTOR_NARRATIVE_UPDATE,
+                event_type=CognitiveEventType.BLOCK_NARRATIVE_UPDATE,
                 narratives=narratives,
-                importance=item.attention_score,
-                confidence=item.structured_signal.confidence if item.structured_signal else 0.5,
-                stock_codes=[],
-                metadata={
-                    "keywords": item.raw_keywords or [],
-                    "topics": item.topic_candidates or [],
-                    "sentiment": signal.sentiment if hasattr(signal, 'sentiment') else 0.5,
-                }
+                importance=importance,
+                confidence=0.5,
+                stock_codes=signal.get('stock_codes', []) if isinstance(signal, dict) else [],
+                metadata={}
             )
         except ImportError:
-            pass  # CognitiveSignalBus 未安装
+            pass
         except Exception as e:
             import logging
             logging.getLogger(__name__).debug(f"NarrativeTracker 发布认知事件失败: {e}")
@@ -1619,7 +1599,7 @@ class NarrativeTracker:
     def _fetch_us_stock_data(self) -> Dict[str, Dict]:
         """获取美股数据"""
         try:
-            from deva.naja.attention.data.global_market_futures import GlobalMarketAPI
+            from deva.naja.market_hotspot.data.global_market_futures import GlobalMarketAPI
             import asyncio
             import nest_asyncio
             nest_asyncio.apply()
@@ -1680,8 +1660,8 @@ class NarrativeTracker:
         return list(set(symbols))
 
     def _map_blocks(self, stocks: Dict[str, Dict]) -> Dict[str, List[Dict]]:
-        """板块映射分析 - A股用通达信，美股用US_STOCK_SECTORS"""
-        from deva.naja.bandit.stock_sector_map import US_STOCK_SECTORS, INDUSTRY_CODE_TO_NAME, NARRATIVE_INDUSTRY_MAP
+        """板块映射分析 - A股用通达信，美股用US_STOCK_BLOCKS"""
+        from deva.naja.bandit.stock_block_map import US_STOCK_BLOCKS, INDUSTRY_CODE_TO_NAME, NARRATIVE_INDUSTRY_MAP
 
         try:
             from deva.naja.dictionary.tongdaxin_blocks import get_stock_blocks, _parse_blocks_file
@@ -1696,7 +1676,7 @@ class NarrativeTracker:
             market = data.get("market", "A")
 
             if market == "US":
-                stock_info = US_STOCK_SECTORS.get(symbol.lower(), {})
+                stock_info = US_STOCK_BLOCKS.get(symbol.lower(), {})
                 if stock_info:
                     block = stock_info.get("industry_code", "other")
                     blocks = stock_info.get("blocks", [])
@@ -2047,7 +2027,7 @@ class NarrativeTracker:
             texts.append(str(content))
         meta = getattr(event, "meta", {}) or {}
 
-        for key in ("title", "topic", "block", "sector", "industry", "theme", "summary"):
+        for key in ("title", "topic", "block", "block", "industry", "theme", "summary"):
             val = meta.get(key)
             if val:
                 texts.append(str(val))

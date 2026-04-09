@@ -6,11 +6,11 @@
 ## 待迁移文件
 ```
 blind_spot_investigator.py  # 盲区调查
-narrative_block_linker.py   # 叙事板块链接
+narrative_block_linker.py   # 叙事题材链接
 conviction_validator.py     # 信念验证
 ```
 
 ## 核心能力
 - 外部热点 vs 我们持仓的差异分析
-- 叙事驱动的板块发现
+- 叙事驱动的题材发现
 - 信念强度验证

@@ -11,8 +11,6 @@ from typing import Any, Dict, List, Optional
 from deva import NB
 
 from ..radar import get_radar_engine
-from ..cognition.insight import get_insight_engine
-from ..cognition.engine import get_cognition_engine
 from ..strategy import get_strategy_manager
 from ..strategy.result_store import get_result_store
 from ..config import get_llm_config
@@ -107,7 +105,7 @@ class LLMController:
         strategy_list = [{"id": s.id, "name": s.name} for s in all_strategies]
 
         radar_summary = get_radar_engine().summarize(window_seconds=window_seconds)
-        memory_summary = get_cognition_engine().summarize_for_llm()
+        memory_summary = SR('cognition_engine').summarize_for_llm()
         metrics = self._collect_strategy_metrics(strategy_ids)
         metrics_index = {m.get("strategy_id"): m for m in metrics if isinstance(m, dict)}
 
@@ -332,14 +330,14 @@ _llm_controller_lock = threading.Lock()
 
 
 def get_llm_controller() -> LLMController:
+    from deva.naja.register import SR
+    return SR('llm_controller')
     global _llm_controller
     if _llm_controller is None:
         with _llm_controller_lock:
             if _llm_controller is None:
                 _llm_controller = LLMController()
     return _llm_controller
-
-
 def _build_auto_adjust_task_code() -> str:
     return (
         "from deva.naja.config import get_llm_config\n"
@@ -363,7 +361,6 @@ def _build_auto_adjust_task_code() -> str:
 
 
 def ensure_llm_auto_adjust_task() -> dict:
-    from ..tasks import get_task_manager
 
     cfg = get_llm_config()
     if not cfg.get("auto_adjust_enabled", True):
@@ -371,7 +368,7 @@ def ensure_llm_auto_adjust_task() -> dict:
 
     interval_seconds = float(cfg.get("auto_adjust_interval_seconds", 900))
     task_name = "llm_auto_adjust"
-    task_mgr = get_task_manager()
+    task_mgr = SR('task_manager')
     task = task_mgr.get_by_name(task_name)
     func_code = _build_auto_adjust_task_code()
 

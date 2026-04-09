@@ -24,6 +24,7 @@ import threading
 from datetime import datetime, timedelta
 from typing import Dict, Any, Optional, List, Protocol, Tuple
 from dataclasses import dataclass
+from deva.naja.register import SR
 
 log = logging.getLogger(__name__)
 
@@ -272,17 +273,6 @@ class WakeSyncManager:
         }
 
         log.info(f"[WakeSync] {summary['message']}")
-
-
-_wake_sync_manager: Optional[WakeSyncManager] = None
-
-
-def get_wake_sync_manager() -> WakeSyncManager:
-    global _wake_sync_manager
-    if _wake_sync_manager is None:
-        _wake_sync_manager = WakeSyncManager()
-        _register_default_components()
-    return _wake_sync_manager
 
 
 def _register_default_components():

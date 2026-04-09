@@ -358,10 +358,10 @@ class Topic:
                         all_keywords.append(company)
 
                 # 提取行业关键词
-                sectors = ["新能源", "半导体", "医药", "消费", "金融", "地产", "传媒", "军工", "AI", "芯片"]
-                for sector in sectors:
-                    if sector in content:
-                        all_keywords.append(sector)
+                blocks = ["新能源", "半导体", "医药", "消费", "金融", "地产", "传媒", "军工", "AI", "芯片"]
+                for block in blocks:
+                    if block in content:
+                        all_keywords.append(block)
 
                 # 提取日志级别和类型（针对日志数据源）
                 if '日志' in source or 'log' in source.lower():
@@ -1991,11 +1991,11 @@ class NewsMindStrategy:
         返回:
             {
                 "symbols": {"SYMBOL": weight, ...},  # 权重 = 平均注意力 * 频率归一化
-                "sectors": {"SECTOR": weight, ...},
+                "blocks": {"BLOCK": weight, ...},
             }
         """
         symbol_scores: Dict[str, List[float]] = {}
-        sector_scores: Dict[str, List[float]] = {}
+        block_scores: Dict[str, List[float]] = {}
 
         recent_events = list(self.short_memory)[-max(1, int(lookback)):]
         for event in recent_events:
@@ -2010,13 +2010,13 @@ class NewsMindStrategy:
                         symbol_scores[symbol] = []
                     symbol_scores[symbol].append(attention)
 
-            for key in ("block", "industry", "sector_id"):
+            for key in ("block", "industry", "block_id"):
                 val = meta.get(key)
                 if val:
                     block = str(val)
-                    if block not in sector_scores:
-                        sector_scores[block] = []
-                    sector_scores[block].append(attention)
+                    if block not in block_scores:
+                        block_scores[block] = []
+                    block_scores[block].append(attention)
 
         def compute_weight(scores: List[float]) -> float:
             if not scores:
@@ -2029,14 +2029,14 @@ class NewsMindStrategy:
             sym: compute_weight(scores)
             for sym, scores in symbol_scores.items()
         }
-        sectors_weighted = {
+        blocks_weighted = {
             sec: compute_weight(scores)
-            for sec, scores in sector_scores.items()
+            for sec, scores in block_scores.items()
         }
 
         return {
             "symbols": symbols_weighted,
-            "sectors": sectors_weighted,
+            "blocks": blocks_weighted,
         }
     
     def _get_short_term_memory_data(self) -> List[Dict]:

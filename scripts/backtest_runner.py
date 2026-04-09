@@ -21,6 +21,7 @@ log = logging.getLogger("backtest")
 from deva.naja.bandit import get_virtual_portfolio, get_attribution
 from deva.naja.replay import get_replay_scheduler
 from deva.naja.strategy import get_strategy_manager
+from deva.naja.register import SR
 
 
 def clear_data():
@@ -30,7 +31,7 @@ def clear_data():
     print("=" * 60)
 
     # 清空持仓
-    vp = get_virtual_portfolio()
+    vp = SR('virtual_portfolio')
     try:
         count = vp.clear_history()
         print(f"✓ 清空持仓: {count} 条")
@@ -78,7 +79,7 @@ def check_signal_flow():
         print(f"✗ SignalListener: {e}")
 
     # 检查 VirtualPortfolio
-    vp = get_virtual_portfolio()
+    vp = SR('virtual_portfolio')
     positions = vp.get_all_positions()
     print(f"✓ VirtualPortfolio: {len(positions)} 个持仓")
 
@@ -155,7 +156,7 @@ def monitor_and_report():
     print("监控状态")
     print("=" * 60)
 
-    vp = get_virtual_portfolio()
+    vp = SR('virtual_portfolio')
     attr = get_attribution()
 
     for i in range(5):
@@ -205,7 +206,7 @@ def main():
         return
 
     # 获取全局实例用于监控
-    vp = get_virtual_portfolio()
+    vp = SR('virtual_portfolio')
     attr = get_attribution()
 
     print("\n监控 60 秒...")

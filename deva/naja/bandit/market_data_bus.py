@@ -456,7 +456,7 @@ class MarketDataBus:
 
         if 美股_codes:
             try:
-                from deva.naja.attention.data.global_market_futures import GlobalMarketAPI, MARKET_ID_TO_CODE
+                from deva.naja.market_hotspot.data.global_market_futures import GlobalMarketAPI, MARKET_ID_TO_CODE
                 api = GlobalMarketAPI()
                 sina_codes = []
                 for code in 美股_codes:

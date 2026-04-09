@@ -4,7 +4,7 @@ ManasEngine - 末那识引擎
 🧠 定位：天-地-人框架中的「人」
     - 「人」= 决策中枢
     - 回答：「我该怎么做？」
-    - 感知天（时机）和地（板块）的变化后做出决策
+    - 感知天（时机）和地（题材）的变化后做出决策
 
 一个持续输出"是否行动"的内在决策中枢
 
@@ -24,8 +24,8 @@ ManasEngine（人）
     │       时机成熟度 → timing_score
     │       现在是不是该动的时候？
     │
-    ├── 感知「地」（SectorNarrative）
-    │       板块状态 → spatial_score
+    ├── 感知「地」（BlockNarrative）
+    │       题材状态 → spatial_score
     │       我关心的主题现在怎么样了？
     │
     └── 综合判断 → manas_score → 交易决策
@@ -87,7 +87,8 @@ manas_score = 0.4 * timing + 0.3 * regime + 0.3 * confidence
 ================================================================================
 
 ManasEngine 订阅 CognitiveSignalBus，感知认知层变化：
-    - SECTOR_NARRATIVE_UPDATE（地）：我们关注的板块更新了
+    - BLOCK_NARRATIVE_UPDATE（地）：我们关注的题材更新了
+    - RESONANCE_DETECTED（共振）：天-地共振事件
     - TIMING_NARRATIVE_UPDATE（天）：时机状态变化了
 
 收到事件后 → _invalidate_cache() → 下次 compute() 会重新计算
@@ -98,6 +99,7 @@ import logging
 from typing import Dict, Any, Optional, List, Tuple
 from dataclasses import dataclass, field
 from enum import Enum
+from deva.naja.register import SR
 
 log = logging.getLogger(__name__)
 
@@ -293,8 +295,7 @@ class TimingEngine:
         """获取时间压力"""
         if session_manager is None:
             try:
-                from deva.naja.radar.trading_clock import get_trading_clock
-                session_manager = get_trading_clock()
+                session_manager = SR('trading_clock')
             except ImportError:
                 return 0.5
 
@@ -406,7 +407,7 @@ class RegimeEngine:
     分析三个维度：
         • 指数趋势 (index_trend) - 大盘是在上涨还是下跌？
         • 流动性信号 (liquidity) - 资金是在流入还是流出？
-        • 板块扩散 (sector_diffusion) - 是普涨还是分化？
+        • 题材扩散 (block_diffusion) - 是普涨还是分化？
 
     注意：与 TimingEngine 的区别
         - RegimeEngine 看「最近宏观方向」→ 大方向顺不顺
@@ -438,7 +439,7 @@ class RegimeEngine:
         """
         trend = self._get_index_trend(scanner)
         liquidity = self._get_liquidity_signal(scanner, macro_signal)
-        diffusion = self._get_sector_diffusion(scanner)
+        diffusion = self._get_block_diffusion(scanner)
 
         weights = self._get_adaptive_regime_weights(scanner)
 
@@ -534,8 +535,8 @@ class RegimeEngine:
 
         return macro_signal * 2 - 1
 
-    def _get_sector_diffusion(self, scanner) -> float:
-        """获取板块扩散程度"""
+    def _get_block_diffusion(self, scanner) -> float:
+        """获取题材扩散程度"""
         if scanner is None:
             return 0.0
 
@@ -619,8 +620,7 @@ class ConfidenceEngine:
         """获取近期命中率"""
         if tracker is None:
             try:
-                from deva.naja.bandit import get_bandit_tracker
-                tracker = get_bandit_tracker()
+                tracker = SR('bandit_tracker')
             except ImportError:
                 return 0.5
 
@@ -735,8 +735,7 @@ class RiskEngine:
         """获取现金比例"""
         if portfolio is None:
             try:
-                from deva.naja.bandit import get_virtual_portfolio
-                portfolio = get_virtual_portfolio()
+                portfolio = SR('virtual_portfolio')
             except ImportError:
                 return 0.5
 
@@ -924,6 +923,11 @@ class ManasEngine:
             "watchlist_bonus": 1.0,           # 自选股加成系数
             # 🚀 关注主题（我们关心的叙事主题）
             "focus_themes": self._get_default_focus_themes(),
+            # 🚀 共振状态（来自 CrossSignalAnalyzer）
+            "resonance_score": 0.0,
+            "resonance_sentiment": 0.0,
+            "resonance_blocks": [],
+            "resonance_updated": 0.0,
         }
 
         self._awakening_level: str = "dormant"
@@ -936,7 +940,7 @@ class ManasEngine:
         🚀 获取默认的关注主题列表
 
         这是我们"地"维度关心的话题，来自 keyword_registry 的预设关键词。
-        SectorNarrative（地）只追踪这些主题，而不是所有市场主题。
+        BlockNarrative（地）只追踪这些主题，而不是所有市场主题。
 
         返回格式：[{"id": "AI", "name": "AI", "keywords": [...]}, ...]
         """
@@ -955,7 +959,7 @@ class ManasEngine:
         """
         🚀 获取当前关注的叙事主题列表
 
-        这是 Manas 关心的话题（地），SectorNarrative 应该只追踪这些主题。
+        这是 Manas 关心的话题（地），BlockNarrative 应该只追踪这些主题。
         """
         return self._supply_chain_state.get("focus_themes", [])
 
@@ -986,11 +990,12 @@ class ManasEngine:
                 "ManasEngine",
                 self._on_cognitive_event,
                 event_types=[
-                    CognitiveEventType.SECTOR_NARRATIVE_UPDATE,
+                    CognitiveEventType.BLOCK_NARRATIVE_UPDATE,
                     CognitiveEventType.NARRATIVE_BOOST,
                     CognitiveEventType.TIMING_NARRATIVE_UPDATE,
                     CognitiveEventType.NARRATIVE_SUPPLY_LINK,
                     CognitiveEventType.SUPPLY_CHAIN_RISK,
+                    CognitiveEventType.RESONANCE_DETECTED,
                 ],
                 min_importance=0.5,  # 只关心重要事件
             )
@@ -1025,8 +1030,14 @@ class ManasEngine:
         1. 叙事风险 + 热点叙事
         2. AI算力趋势（从叙事中判断）
         3. 自选股注意力加成
+        4. 天-地共振（CrossSignalAnalyzer）
         """
         import time
+        try:
+            from deva.naja.cognition.cognitive_signal_bus import CognitiveEventType
+            event_type = event.event_type
+        except Exception:
+            event_type = getattr(event, "event_type", None)
 
         # 根据风险等级更新风险分数
         risk_level = event.risk_level if hasattr(event, 'risk_level') and event.risk_level else "LOW"
@@ -1094,6 +1105,28 @@ class ManasEngine:
             # 自然衰减
             watchlist_bonus = max(1.0, watchlist_bonus * 0.99)
 
+        # 🚀 共振事件：记录共振强度与情绪
+        resonance_score = self._supply_chain_state.get("resonance_score", 0.0)
+        resonance_sentiment = self._supply_chain_state.get("resonance_sentiment", 0.0)
+        resonance_blocks = self._supply_chain_state.get("resonance_blocks", [])
+        resonance_updated = self._supply_chain_state.get("resonance_updated", 0.0)
+
+        if event_type == getattr(CognitiveEventType, "RESONANCE_DETECTED", None) or str(getattr(event_type, "value", event_type)) == "resonance_detected":
+            meta = getattr(event, "metadata", {}) or {}
+            resonance_score = max(resonance_score, float(getattr(event, "importance", 0.0) or 0.0))
+            resonance_sentiment = float(meta.get("sentiment", resonance_sentiment) or 0.0)
+            block_id = meta.get("block_id") or meta.get("block_name") or ""
+            if block_id:
+                if block_id not in resonance_blocks:
+                    resonance_blocks = (resonance_blocks + [block_id])[-5:]
+            resonance_updated = time.time()
+
+            # 共振情绪为负时，轻微增加风险；为正时，轻微降低风险
+            if resonance_sentiment < -0.2 and resonance_score > 0.7:
+                updated_risk = min(1.0, updated_risk + 0.05)
+            elif resonance_sentiment > 0.2 and resonance_score > 0.7:
+                updated_risk = max(0.0, updated_risk - 0.03)
+
         # 更新状态
         self._supply_chain_state = {
             "narrative_risk": max(0.0, min(1.0, updated_risk)),
@@ -1106,6 +1139,11 @@ class ManasEngine:
             # 🚀 自选股注意力
             "watchlist": watchlist,
             "watchlist_bonus": watchlist_bonus,
+            # 🚀 共振状态
+            "resonance_score": resonance_score,
+            "resonance_sentiment": resonance_sentiment,
+            "resonance_blocks": resonance_blocks,
+            "resonance_updated": resonance_updated,
         }
 
         log.debug(
@@ -1307,6 +1345,19 @@ class ManasEngine:
             ai_bonus = 1.0 + (ai_compute_strength - 0.6) * 0.3  # 最多+12%
             harmony_strength *= ai_bonus
             log.debug(f"[ManasEngine] AI算力加成: trend={ai_compute_trend}, strength={ai_compute_strength:.2f}, bonus={ai_bonus:.2f}")
+
+        # 🚀 共振加成/惩罚（来自 CrossSignalAnalyzer）
+        resonance_score = self._supply_chain_state.get("resonance_score", 0.0)
+        resonance_sentiment = self._supply_chain_state.get("resonance_sentiment", 0.0)
+        if resonance_score >= 0.7:
+            if resonance_sentiment >= 0.2:
+                resonance_bonus = 1.0 + min(0.10, (resonance_score - 0.7) * 0.2)
+                harmony_strength *= resonance_bonus
+                log.debug(f"[ManasEngine] 共振正向加成: score={resonance_score:.2f}, bonus={resonance_bonus:.2f}")
+            elif resonance_sentiment <= -0.2:
+                resonance_penalty = 1.0 - min(0.08, (resonance_score - 0.7) * 0.2)
+                harmony_strength *= resonance_penalty
+                log.debug(f"[ManasEngine] 共振负向惩罚: score={resonance_score:.2f}, penalty={resonance_penalty:.2f}")
 
         detected_problems = []
         opportunities = []

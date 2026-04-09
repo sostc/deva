@@ -100,8 +100,8 @@ class LiquidityManager:
         except Exception as e:
             log.debug(f"[Liquidity] 更新宏观流动性失败: {e}")
 
-    def apply_liquidity_to_sector_attention(self, liquidity_signal: float):
-        """应用流动性到板块注意力"""
+    def apply_liquidity_to_block_attention(self, liquidity_signal: float):
+        """应用流动性到题材注意力"""
         try:
             if abs(liquidity_signal) < 0.3:
                 return
@@ -110,13 +110,13 @@ class LiquidityManager:
             registry = KeywordRegistry()
 
             if liquidity_signal > 0:
-                registry.apply_liquidity_bonus("bullish_sectors", liquidity_signal * 0.2)
+                registry.apply_liquidity_bonus("bullish_blocks", liquidity_signal * 0.2)
             else:
-                registry.apply_liquidity_penalty("bearish_sectors", abs(liquidity_signal) * 0.2)
+                registry.apply_liquidity_penalty("bearish_blocks", abs(liquidity_signal) * 0.2)
 
-            log.debug(f"[Liquidity] 应用流动性到板块注意力: {liquidity_signal}")
+            log.debug(f"[Liquidity] 应用流动性到题材注意力: {liquidity_signal}")
         except Exception as e:
-            log.debug(f"[Liquidity] 应用流动性到板块注意力失败: {e}")
+            log.debug(f"[Liquidity] 应用流动性到题材注意力失败: {e}")
 
     def apply_liquidity_to_strategy_budget(self, liquidity_signal: float):
         """应用流动性到策略预算"""
@@ -124,7 +124,7 @@ class LiquidityManager:
             if abs(liquidity_signal) < 0.3:
                 return
 
-            from deva.naja.attention.strategies import get_strategy_manager
+            from deva.naja.market_hotspot.strategies import get_strategy_manager
             mgr = get_strategy_manager()
             if mgr:
                 if liquidity_signal > 0:
