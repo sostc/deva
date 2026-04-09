@@ -161,27 +161,10 @@ class MarketHotspotHistoryTracker:
         self._save_stop_event = threading.Event()
         self._save_thread = threading.Thread(target=self._auto_save_loop, daemon=True)
         self._save_thread.start()
-        self._register_signal_handlers()
 
     def _register_signal_handlers(self):
         """注册信号处理器用于优雅退出时保存"""
-        import signal
-
-        def signal_handler(signum, frame):
-            import logging
-            log = logging.getLogger(__name__)
-            log.info(f"[HistoryTracker] 收到信号 {signum}，正在保存数据...")
-            try:
-                self.save_state()
-                log.info(f"[HistoryTracker] 信号处理保存完成")
-            except Exception as e:
-                log.warning(f"[HistoryTracker] 信号处理保存失败: {e}")
-
-        try:
-            signal.signal(signal.SIGTERM, signal_handler)
-            signal.signal(signal.SIGINT, signal_handler)
-        except (ValueError, OSError):
-            pass
+        pass
 
     def stop_auto_save(self):
         """停止定时保存线程"""
