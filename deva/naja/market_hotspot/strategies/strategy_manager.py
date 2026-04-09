@@ -235,7 +235,32 @@ class HotspotStrategyManager:
             enabled=True,
             priority=5
         ))
-    
+
+        self._enable_bandit_output()
+
+    def _enable_bandit_output(self):
+        """启用策略的 Bandit 输出，使信号能够创建虚拟持仓"""
+        try:
+            from deva.naja.strategy.output_controller import get_output_controller
+            controller = get_output_controller()
+
+            hotspot_strategies = [
+                'block_rotation_hunter',
+                'momentum_surge_tracker',
+                'anomaly_pattern_sniper',
+                'smart_money_flow_detector',
+                'us_block_rotation_hunter',
+                'us_momentum_surge_tracker',
+                'us_anomaly_pattern_sniper',
+                'us_smart_money_flow_detector',
+            ]
+
+            for strategy_id in hotspot_strategies:
+                controller.update_targets(strategy_id, bandit=True, signal=True, radar=True, memory=True)
+                log.info(f"[StrategyManager] 已启用 {strategy_id} 的 Bandit 输出")
+        except Exception as e:
+            log.warning(f"[StrategyManager] 启用 Bandit 输出失败: {e}")
+
     def process_data(
         self,
         data: Any,

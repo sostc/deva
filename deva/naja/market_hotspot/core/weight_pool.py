@@ -147,7 +147,7 @@ class WeightPool:
                 weight = self._calc_symbol_weight(symbol, idx)
                 self._weights[idx] = weight
                 registered_count += 1
-            log.info(f"[WeightPool] update: symbols参数={len(symbols)}, 已注册={registered_count}, _symbol_to_idx={len(self._symbol_to_idx)}")
+            log.debug(f"[WeightPool] update: symbols参数={len(symbols)}, 已注册={registered_count}, _symbol_to_idx={len(self._symbol_to_idx)}")
         except Exception as e:
             import traceback
             log.error(f"WeightPool 计算失败: {e}")

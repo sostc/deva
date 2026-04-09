@@ -347,7 +347,7 @@ class MarketHotspotSystem:
             if market is None:
                 market = self._detect_market_from_data(data)
 
-            log.info(f"[MarketHotspotSystem] 检测到市场: {market}, 数据行数: {len(data)}")
+            log.debug(f"[MarketHotspotSystem] 检测到市场: {market}, 数据行数: {len(data)}")
 
             log.debug(f"[MarketHotspotSystem] process_data 收到数据: {len(data)} 行, columns={list(data.columns)}, index[:5]={list(data.index[:5])}")
 
@@ -403,7 +403,7 @@ class MarketHotspotSystem:
                 blocks_list = data['blocks'].values if 'blocks' in data.columns else block_ids
 
                 us_weight_pool = self._get_context('US').weight_pool
-                log.info(f"[MarketHotspotSystem] 美股注册: symbols={list(symbols_list[:5])}, weight_pool={id(us_weight_pool)}")
+                log.debug(f"[MarketHotspotSystem] 美股注册: symbols={list(symbols_list[:5])}, weight_pool={id(us_weight_pool)}")
 
                 for sym, blk_list in zip(symbols_list, blocks_list):
                     if isinstance(blk_list, str):
@@ -431,7 +431,7 @@ class MarketHotspotSystem:
                 timestamp=time.time(),
                 market=market
             )
-            log.info(f"[MarketHotspotSystem] process_snapshot 完成: global_hotspot={result.get('global_hotspot', 'N/A'):.3f}, block_count={len(result.get('block_hotspot', {}))}, symbol_weights_count={len(result.get('symbol_weights', {}))}")
+            log.debug(f"[MarketHotspotSystem] process_snapshot 完成: global_hotspot={result.get('global_hotspot', 'N/A'):.3f}, block_count={len(result.get('block_hotspot', {}))}, symbol_weights_count={len(result.get('symbol_weights', {}))}")
 
             try:
                 from deva.naja.market_hotspot.market_hotspot_history_tracker import get_history_tracker
@@ -1064,7 +1064,7 @@ class MarketHotspotSystem:
                 self._update_us_futures_cache_no_lock()
             futures = self._us_futures_cache.copy()
             sw = self._us_last_symbol_weights.copy()
-            print(f"[MHS-get_us] _us_last_symbol_weights count={len(sw)}, sample={list(sw.items())[:3] if sw else 'empty'}")
+            log.debug(f"[MHS-get_us] _us_last_symbol_weights count={len(sw)}, sample={list(sw.items())[:3] if sw else 'empty'}")
             return {
                 'global_hotspot': self._us_last_global_hotspot,
                 'activity': self._us_last_activity,
