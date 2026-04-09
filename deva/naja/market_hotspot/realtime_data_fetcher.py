@@ -518,7 +518,7 @@ class RealtimeDataFetcher:
             if cn_df is not None and len(cn_df) > 0:
                 # 过滤噪音
                 cn_df = self._apply_noise_filter_at_source(cn_df)
-                log.info(f"[RealtimeDataFetcher] A股全量数据: 原始{len(_fetch_sina_sync(None)) if _fetch_sina_sync(None) is not None else 0} -> 过滤后{len(cn_df)}")
+                log.debug(f"[RealtimeDataFetcher] A股全量数据: 原始{len(_fetch_sina_sync(None)) if _fetch_sina_sync(None) is not None else 0} -> 过滤后{len(cn_df)}")
 
                 # 同步到热点系统
                 self._process_cn_hotspot(cn_df)
@@ -863,7 +863,7 @@ class RealtimeDataFetcher:
                                 self._us_fetch_count += 1
                                 if level == "LOW" and self._save_snapshot_enabled:
                                     self._save_market_snapshot(us_df)
-                                log.info(f"[RealtimeDataFetcher] [{market}] 获取 {len(us_df)} 条数据，累计 {self._fetch_count} 批")
+                                log.debug(f"[RealtimeDataFetcher] [{market}] 获取 {len(us_df)} 条数据，累计 {self._fetch_count} 批")
                     return
                 finally:
                     loop.close()
@@ -1033,7 +1033,7 @@ class RealtimeDataFetcher:
                 else:
                     stock_codes = {code: name for code, name in stock_codes.items() if code in requested}
 
-            log.info(f"[RealtimeDataFetcher] 当前市场: {market}, 股票池: {len(stock_codes)} 只")
+            log.debug(f"[RealtimeDataFetcher] 当前市场: {market}, 股票池: {len(stock_codes)} 只")
 
             if not stock_codes:
                 log.debug(f"[RealtimeDataFetcher] 当前市场无股票池，返回空")
@@ -1440,7 +1440,7 @@ class RealtimeDataFetcher:
 
             cn_phase = cn_signal.get('phase', 'closed')
             us_phase = us_signal.get('phase', 'closed')
-            log.info(f"[RealtimeDataFetcher] get_stats: cn_phase={cn_phase}, us_phase={us_phase}")
+            log.debug(f"[RealtimeDataFetcher] get_stats: cn_phase={cn_phase}, us_phase={us_phase}")
 
             cn_next = cn_signal.get('next_change_time', '')
             us_next = us_signal.get('next_change_time', '')

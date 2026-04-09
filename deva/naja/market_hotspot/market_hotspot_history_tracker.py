@@ -12,6 +12,7 @@ MarketHotspotHistoryTracker - 市场热点追踪/题材热度/题材变迁
 
 import time
 import os
+import threading
 from typing import Dict, List, Optional, Any
 from collections import deque
 from dataclasses import dataclass, field
@@ -102,10 +103,10 @@ class MarketHotspotHistoryTracker:
         self.snapshots: deque = deque(maxlen=max_history)
         self.changes: deque = deque(maxlen=max_history * 2)
 
-        # 持久化路径
+        # 持久化路径 - 使用 ~/.naja/ 目录
         self._persist_base_path = os.path.join(
-            os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))),
-            'data', 'hotspot_history'
+            os.path.expanduser('~/.naja'),
+            'hotspot_history'
         )
 
         # 题材热点切换事件记录 - 多阈值支持
@@ -137,7 +138,71 @@ class MarketHotspotHistoryTracker:
         self._concentration_shift_threshold: float = 0.2
 
         self._persist_loaded = False
-    
+
+        # 基准快照 - 用于当 snapshots 不足时作为对比基准
+        self._baseline_snapshot: Optional['HotspotSnapshot'] = None
+
+        # 定时保存机制
+        self._auto_save_interval: int = 300  # 默认5分钟保存一次
+        self._last_save_time: float = 0
+        self._save_thread: Optional[threading.Thread] = None
+        self._save_stop_event: Optional[threading.Event] = None
+
+    def start_auto_save(self, interval_seconds: int = 300):
+        """启动定时保存线程
+
+        Args:
+            interval_seconds: 保存间隔（秒），默认300秒（5分钟）
+        """
+        if self._save_thread is not None and self._save_thread.is_alive():
+            return
+
+        self._auto_save_interval = interval_seconds
+        self._save_stop_event = threading.Event()
+        self._save_thread = threading.Thread(target=self._auto_save_loop, daemon=True)
+        self._save_thread.start()
+        self._register_signal_handlers()
+
+    def _register_signal_handlers(self):
+        """注册信号处理器用于优雅退出时保存"""
+        import signal
+
+        def signal_handler(signum, frame):
+            import logging
+            log = logging.getLogger(__name__)
+            log.info(f"[HistoryTracker] 收到信号 {signum}，正在保存数据...")
+            try:
+                self.save_state()
+                log.info(f"[HistoryTracker] 信号处理保存完成")
+            except Exception as e:
+                log.warning(f"[HistoryTracker] 信号处理保存失败: {e}")
+
+        try:
+            signal.signal(signal.SIGTERM, signal_handler)
+            signal.signal(signal.SIGINT, signal_handler)
+        except (ValueError, OSError):
+            pass
+
+    def stop_auto_save(self):
+        """停止定时保存线程"""
+        if self._save_stop_event is not None:
+            self._save_stop_event.set()
+        if self._save_thread is not None:
+            self._save_thread.join(timeout=5)
+
+    def _auto_save_loop(self):
+        """定时保存循环"""
+        import logging
+        log = logging.getLogger(__name__)
+
+        while not self._save_stop_event.wait(self._auto_save_interval):
+            try:
+                self.save_state()
+                self._last_save_time = time.time()
+                log.debug(f"[HistoryTracker] 定时保存完成，下次保存于 {self._auto_save_interval} 秒后")
+            except Exception as e:
+                log.warning(f"[HistoryTracker] 定时保存失败: {e}")
+
     def register_symbol_name(self, symbol: str, name: str):
         """注册股票名称"""
         self.symbol_names[symbol] = name
@@ -354,6 +419,11 @@ class MarketHotspotHistoryTracker:
 
         self.snapshots.append(snapshot)
         log.debug(f"[HistoryTracker] record_snapshot(mode={current_mode}): 快照 #{len(self.snapshots)}, global_hotspot={global_hotspot:.3f}")
+
+        # 设置基准快照（如果还没有的话）
+        if self._baseline_snapshot is None and len(self.snapshots) >= 1:
+            self._baseline_snapshot = snapshot
+            log.debug(f"[HistoryTracker] 基准快照已设置: timestamp={snapshot.timestamp}")
 
         # 更新当前热门
         self.current_hot_blocks = dict(sorted(
@@ -786,14 +856,26 @@ class MarketHotspotHistoryTracker:
         Returns:
             包含热点转移信息的字典
         """
+        # 当 snapshots 不足2条时，使用基准快照作为对比基准
         if len(self.snapshots) < 2:
-            return {
-                'has_shift': False,
-                'message': '数据不足，无法检测转移'
-            }
-
-        old_snapshot = self.snapshots[0]
-        new_snapshot = self.snapshots[-1]
+            if self._baseline_snapshot is not None and len(self.snapshots) >= 1:
+                # 有基准快照和当前快照，对比基准和当前
+                old_snapshot = self._baseline_snapshot
+                new_snapshot = self.snapshots[-1]
+            elif self._baseline_snapshot is not None and len(self.snapshots) == 0:
+                # 只有基准快照，没有新快照，使用基准和最新的基准（无变化）
+                return {
+                    'has_shift': False,
+                    'message': '暂无新数据'
+                }
+            else:
+                return {
+                    'has_shift': False,
+                    'message': '数据不足，无法检测转移'
+                }
+        else:
+            old_snapshot = self.snapshots[0]
+            new_snapshot = self.snapshots[-1]
 
         old_top_blocks = sorted(old_snapshot.block_weights.keys(),
                                  key=lambda x: old_snapshot.block_weights[x],
@@ -1055,7 +1137,7 @@ class MarketHotspotHistoryTracker:
                 'change_count': len(self.changes),
                 'symbol_names': self.symbol_names,
                 'block_names': self.block_names,
-                'snapshots': [s.to_dict() for s in self.snapshots],
+                'baseline_snapshot': self._baseline_snapshot.to_dict() if self._baseline_snapshot else None,
                 'changes': [
                     {
                         'timestamp': c.timestamp,
@@ -1127,19 +1209,6 @@ class MarketHotspotHistoryTracker:
             self.symbol_names.update(data.get('symbol_names', {}))
             self.block_names.update(data.get('block_names', {}))
 
-            snapshots_data = data.get('snapshots', [])
-            for s_data in snapshots_data[-self.max_history:]:
-                snapshot = HotspotSnapshot(
-                    timestamp=s_data['timestamp'],
-                    global_hotspot=s_data['global_hotspot'],
-                    block_weights=s_data['block_weights'],
-                    symbol_weights=s_data['symbol_weights'],
-                    symbol_market_data=s_data.get('symbol_market_data', {}),
-                    market_time_str=s_data.get('market_time_str', ''),
-                    activity=s_data.get('activity', 0.5),
-                )
-                self.snapshots.append(snapshot)
-
             changes_data = data.get('changes', [])
             for c_data in changes_data[-self.max_history * 2:]:
                 change = HotspotChange(
@@ -1176,8 +1245,21 @@ class MarketHotspotHistoryTracker:
                 )
                 self.block_hotspot_events_medium.append(event)
 
+            # 恢复基准快照
+            baseline_data = data.get('baseline_snapshot')
+            if baseline_data:
+                self._baseline_snapshot = HotspotSnapshot(
+                    timestamp=baseline_data['timestamp'],
+                    global_hotspot=baseline_data['global_hotspot'],
+                    block_weights=baseline_data['block_weights'],
+                    symbol_weights=baseline_data['symbol_weights'],
+                    symbol_market_data=baseline_data.get('symbol_market_data', {}),
+                    market_time_str=baseline_data.get('market_time_str', ''),
+                    activity=baseline_data.get('activity', 0.5),
+                )
+
             self._persist_loaded = True
-            log.info(f"[HistoryTracker] 状态已加载: {file_path}, snapshots={len(self.snapshots)}, changes={len(self.changes)}")
+            log.info(f"[HistoryTracker] 状态已加载: {file_path}, snapshots={len(self.snapshots)}, changes={len(self.changes)}, has_baseline={self._baseline_snapshot is not None}")
             return True
         except Exception as e:
             log.warning(f"[HistoryTracker] 加载状态失败: {e}")

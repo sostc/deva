@@ -809,14 +809,15 @@ def get_naja_supervisor() -> NajaSupervisor:
         with _supervisor_lock:
             if _naja_supervisor is None:
                 _naja_supervisor = NajaSupervisor()
+                _register_atexit_cleanup()
     return _naja_supervisor
+
+
+def _register_atexit_cleanup():
+    """注册退出时的清理函数"""
     import atexit
 
     supervisor = get_naja_supervisor()
-    supervisor._ensure_initialized()
-    if not hasattr(supervisor, '_force_realtime') or supervisor._force_realtime is None:
-        supervisor.configure_attention(force_realtime=force_realtime, lab_mode=lab_mode)
-    supervisor.start_monitoring()
 
     def _cleanup():
         try:
@@ -837,8 +838,6 @@ def get_naja_supervisor() -> NajaSupervisor:
             log.warning(f"[atexit] 持久化注意力系统状态失败: {e}")
 
     atexit.register(_cleanup)
-
-    return supervisor
 
 
 def stop_supervisor() -> None:
