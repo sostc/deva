@@ -1317,3 +1317,7 @@ def run_server(port: int = 8080, host: str = '0.0.0.0', lab_config: dict = None,
             shutdown_event.wait()
         except KeyboardInterrupt:
             shutdown_handler(None, None)
+
+        logger.info("程序退出")
+        import sys
+        sys.exit(0)
