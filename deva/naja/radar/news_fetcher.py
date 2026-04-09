@@ -23,13 +23,13 @@ from datetime import datetime
 from typing import Any, Deque, Dict, List, Optional
 
 from .trading_clock import (
-    get_trading_clock,
     TRADING_CLOCK_STREAM,
     is_trading_time as is_trading_time_clock,
 )
 
 # 从统一关键词注册表导入
 from deva.naja.cognition.keyword_registry import NEWS_TOPIC_KEYWORDS
+from deva.naja.register import SR
 
 try:
     import numpy as np
@@ -262,8 +262,7 @@ class RadarNewsProcessor:
     def _send_to_cognition_simple(self, news: NewsItem) -> None:
         """发送原始新闻到认知系统进行深度处理"""
         try:
-            from deva.naja.cognition import get_cognition_engine
-            cognition = get_cognition_engine()
+            cognition = SR('cognition_engine')
             record = {
                 "timestamp": news.timestamp.timestamp(),
                 "source": "radar_news",
@@ -358,10 +357,6 @@ class RadarNewsFetcher:
         self._fetch_count = 0
         self._error_count = 0
 
-        # 🚀 新架构：使用 TextSignalBus，不再使用旧回调
-        self._text_pipeline = None
-        self._text_bus = None
-
         self._llm_interval_override: Optional[float] = None
         self._last_interval_adjustment = 0.0
 
@@ -412,9 +407,6 @@ class RadarNewsFetcher:
         self._running = True
         self._stop_event.clear()
 
-        # 🚀 初始化新架构组件
-        self._init_text_pipeline()
-
         if not self._force_trading:
             TRADING_CLOCK_STREAM.sink(self._on_trading_clock_signal)
         else:
@@ -424,21 +416,6 @@ class RadarNewsFetcher:
         self._fetch_thread.start()
 
         log.info(f"[Radar-News] 已启动, 获取间隔: {self._fetch_interval}s")
-
-    def _init_text_pipeline(self):
-        """🚀 初始化注意力文本处理架构"""
-        try:
-            from deva.naja.cognition.text_processing_pipeline import get_text_pipeline
-            from deva.naja.cognition.text_signal_bus import get_text_bus
-
-            self._text_pipeline = get_text_pipeline()
-            self._text_bus = get_text_bus()
-
-            _radar_news_log("注意力文本处理架构已初始化")
-        except ImportError as e:
-            _radar_news_log(f"注意力文本处理架构导入失败: {e}")
-            self._text_pipeline = None
-            self._text_bus = None
 
     def stop(self):
         """停止获取器"""
@@ -630,56 +607,50 @@ class RadarNewsFetcher:
             self._fetch_count += 1
             _radar_news_log(f"获取新闻: {news.title[:50]}")
 
-            # 🚀 新架构：将新闻发布到注意力文本处理流水线
-            self._publish_news_to_text_pipeline(news)
+            self._publish_text_fetched(news)
 
-            # 保留旧逻辑：存入短期记忆（供雷达面板显示）
             self.processor.process(news)
 
-    def _publish_news_to_text_pipeline(self, news: NewsItem):
+    def _publish_text_fetched(self, news: NewsItem):
         """
-        🚀 将新闻发布到注意力文本处理流水线
+        将新闻发布到事件总线
 
-        新闻只处理一次，然后通过总线广播给所有订阅者
+        发布 TextFetchedEvent 供 Attention 系统进行重要性评分
         """
-        if not self._text_pipeline or not self._text_bus:
-            _radar_news_log("TextPipeline 未初始化，跳过")
-            return
-
         try:
-            from deva.naja.cognition.attention_text_router import (
-                AttentionTextItem,
-                TextSource,
-            )
+            from deva.naja.events.text_events import TextFetchedEvent
+            from deva.naja.events import get_event_bus
 
-            # 转换为 AttentionTextItem
-            item = AttentionTextItem(
+            keywords = []
+            topics = []
+            sentiment = 0.5
+
+            if hasattr(self.processor, 'extract_keywords'):
+                try:
+                    keywords = self.processor.extract_keywords(news.content)
+                except Exception:
+                    pass
+
+            event = TextFetchedEvent(
                 text=news.content,
                 title=news.title,
+                source="radar_news",
                 url=news.url,
-                source=TextSource.RADAR_NEWS,
-                metadata={
-                    "news_id": news.id,
-                    "original_source": news.source,
-                },
+                timestamp=news.timestamp or time.time(),
+                keywords=keywords,
+                topics=topics,
+                sentiment=sentiment,
             )
 
-            # 交由 TextProcessingPipeline 处理（计算注意力分数、分层处理）
-            item = self._text_pipeline.process(item)
+            event_bus = get_event_bus()
+            event_bus.publish(event)
 
-            _radar_news_log(
-                f"注意力分数: {item.attention_score:.2f}, "
-                f"路由层级: {item.routing_level()}, "
-                f"关键词: {item.raw_keywords[:3] if item.raw_keywords else []}"
-            )
-
-            # 发布到总线，触发所有订阅者
-            self._text_bus.publish(item)
+            _radar_news_log(f"发布 TextFetchedEvent: {news.title[:50]}")
 
         except ImportError as e:
-            _radar_news_log(f"注意力文本处理架构导入失败: {e}")
+            _radar_news_log(f"事件架构导入失败: {e}")
         except Exception as e:
-            log.error(f"[Radar-News] 发布到 TextPipeline 失败: {e}")
+            log.error(f"[Radar-News] 发布 TextFetchedEvent 失败: {e}")
 
     def _fetch_news(self) -> List[NewsItem]:
         """

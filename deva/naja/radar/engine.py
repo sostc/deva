@@ -32,6 +32,7 @@ from typing import Any, Deque, Dict, List, Optional
 from deva import NB
 
 from ..config import get_radar_config
+from ..register import SR
 
 try:
     from river import drift
@@ -372,8 +373,7 @@ class RadarEngine:
             return
 
         # 确保交易时钟启动
-        from .trading_clock import get_trading_clock
-        get_trading_clock()
+        SR('trading_clock')
 
         self._db = NB(RADAR_EVENTS_TABLE)
         self._state_lock = threading.RLock()
@@ -459,7 +459,6 @@ class RadarEngine:
 
         stored_events: List[RadarEvent] = []
         for event in events:
-            self._apply_user_attention(event)
             if self._macro_only and not self._is_macro_event(event):
                 _radar_debug_log(f"  事件被过滤(macro_only): {event.event_type}")
                 continue
@@ -502,36 +501,6 @@ class RadarEngine:
             return signal
 
         return None
-
-    def ingest_attention_event(
-        self,
-        *,
-        event_type: str,
-        score: float,
-        message: str,
-        payload: Optional[Dict[str, Any]] = None,
-        signal_type: str = "attention",
-        strategy_id: str = "attention_system",
-        strategy_name: str = "Attention System",
-        ts: Optional[float] = None,
-    ) -> RadarEvent:
-        """接收注意力系统的直接注入"""
-        event = self._build_event_from_fields(
-            event_type=event_type,
-            score=score,
-            signal_type=signal_type,
-            message=message,
-            payload=payload or {},
-            strategy_id=strategy_id,
-            strategy_name=strategy_name,
-            ts=ts,
-        )
-        self._apply_user_attention(event)
-        if self._macro_only and not self._is_macro_event(event):
-            return event
-        self._store_event(event)
-        self._emit_to_insight_pool([event])
-        return event
 
     def start_news_fetcher(self, config: Optional[Dict[str, Any]] = None) -> bool:
         """
@@ -790,49 +759,6 @@ class RadarEngine:
             source=signal.get("source", "market"),
         )
 
-    def _apply_user_attention(self, event: RadarEvent) -> None:
-        """为雷达事件打用户注意力分"""
-        system_attention = _clamp_event_score(event.score)
-        confidence = 0.5
-        actionability = 0.4
-        novelty = 0.5
-
-        payload = event.payload or {}
-        signal_type = str(payload.get("signal_type", event.signal_type)).upper()
-        if signal_type in {"BUY", "SELL"}:
-            actionability = 0.9
-            confidence = max(confidence, 0.7)
-        elif signal_type:
-            actionability = 0.5
-
-        if "confidence" in payload:
-            try:
-                confidence = max(confidence, float(payload.get("confidence")))
-            except Exception:
-                pass
-
-        user_score = (
-            0.4 * system_attention
-            + 0.2 * confidence
-            + 0.2 * actionability
-            + 0.2 * novelty
-        )
-
-        payload["user_score"] = round(user_score, 3)
-        payload["system_attention"] = round(system_attention, 3)
-        payload["scope"] = self._infer_scope(payload)
-        event.payload = payload
-
-    def _infer_scope(self, payload: Dict[str, Any]) -> str:
-        """判断事件作用域（macro / symbol）"""
-        for key in ("stock_code", "symbol", "code", "ticker", "stock_name"):
-            if payload.get(key):
-                return "symbol"
-        symbols = payload.get("symbols")
-        if isinstance(symbols, list) and len(symbols) == 1:
-            return "symbol"
-        return "macro"
-
     def _is_macro_event(self, event: RadarEvent) -> bool:
         """宏观事件过滤"""
         if event.event_type == "symbol_attention_change":
@@ -840,6 +766,12 @@ class RadarEngine:
         payload = event.payload or {}
         scope = payload.get("scope")
         if scope == "symbol":
+            return False
+        for key in ("stock_code", "symbol", "code", "ticker", "stock_name"):
+            if payload.get(key):
+                return False
+        symbols = payload.get("symbols")
+        if isinstance(symbols, list) and len(symbols) == 1:
             return False
         return True
 
@@ -971,20 +903,15 @@ class RadarEngine:
 
         # 发送到 InsightPool（保持原有方式，因为它是不同的订阅模式）
         try:
-            from ..cognition.insight import get_insight_pool
+            pool = SR('insight_pool')
+            for event in events:
+                signal = event.to_insight_signal()
+                try:
+                    pool.ingest_hotspot_event(signal)
+                except Exception:
+                    continue
         except Exception:
             pass
-        else:
-            try:
-                pool = get_insight_pool()
-                for event in events:
-                    signal = event.to_insight_signal()
-                    try:
-                        pool.ingest_attention_event(signal)
-                    except Exception:
-                        continue
-            except Exception:
-                pass
 
         # 🚀 CrossSignalAnalyzer 现在通过 TextSignalBus 订阅，不需要 RadarEngine 直接调用
         # 注释掉直接调用，让它通过文本处理流程自动处理
@@ -1386,9 +1313,5 @@ _radar_engine_lock = threading.Lock()
 
 
 def get_radar_engine() -> RadarEngine:
-    global _radar_engine
-    if _radar_engine is None:
-        with _radar_engine_lock:
-            if _radar_engine is None:
-                _radar_engine = RadarEngine()
-    return _radar_engine
+    from deva.naja.register import SR
+    return SR('radar_engine')

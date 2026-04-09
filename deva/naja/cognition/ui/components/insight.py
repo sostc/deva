@@ -4,6 +4,7 @@ Insight 组件
 
 import time
 from ....common.ui_style import format_timestamp
+from deva.naja.register import SR
 
 
 def _get_stock_display_info(code: str) -> str:
@@ -39,10 +40,10 @@ def render_insight(ui):
     from pywebio.output import put_html
     put_html(get_cognition_architecture_doc())
 
-    from ....cognition.insight import get_insight_engine, get_insight_pool, get_llm_reflection_engine
+    from ....cognition.insight import get_llm_reflection_engine
 
-    insight_engine = get_insight_engine()
-    insight_pool = get_insight_pool()
+    insight_engine = SR('insight_engine')
+    insight_pool = SR('insight_pool')
     llm_reflection = get_llm_reflection_engine()
     llm_stats = llm_reflection.get_stats()
     recent_reflections = llm_reflection.get_recent_reflections(limit=5)
@@ -102,10 +103,10 @@ def render_insight(ui):
     """)
 
     top_symbols = dict(sorted(attention_hints.get('symbols', {}).items(), key=lambda x: x[1], reverse=True)[:5])
-    top_sectors = dict(sorted(attention_hints.get('sectors', {}).items(), key=lambda x: x[1], reverse=True)[:5])
+    top_blocks = dict(sorted(attention_hints.get('blocks', {}).items(), key=lambda x: x[1], reverse=True)[:5])
     narratives = attention_hints.get('narratives', [])[:5]
 
-    if top_symbols or top_sectors or narratives:
+    if top_symbols or top_blocks or narratives:
         put_html("""
         <div style="
             margin-bottom: 12px;
@@ -127,12 +128,12 @@ def render_insight(ui):
             ])
             put_html(f'<div style="background: rgba(255,255,255,0.02); padding: 10px; border-radius: 8px;"><div style="font-size: 11px; font-weight: 600; color: #14b8a6; margin-bottom: 8px;">📈 标的</div>{symbol_bars}</div>')
 
-        if top_sectors:
-            sector_bars = "".join([
+        if top_blocks:
+            block_bars = "".join([
                 f'<div style="margin-bottom: 8px;"><div style="display: flex; justify-content: space-between; font-size: 11px; color: #64748b; margin-bottom: 2px;"><span>{sec}</span><span style="color: #a855f7; font-weight: 600;">{score:.2f}</span></div><div style="height: 4px; background: rgba(255,255,255,0.08); border-radius: 2px;"><div style="width: {min(100, int(score * 100))}%; height: 100%; background: linear-gradient(90deg, #a855f7, #c084fc); border-radius: 2px;"></div></div></div>'
-                for sec, score in top_sectors.items()
+                for sec, score in top_blocks.items()
             ])
-            put_html(f'<div style="background: rgba(255,255,255,0.02); padding: 10px; border-radius: 8px;"><div style="font-size: 11px; font-weight: 600; color: #a855f7; margin-bottom: 8px;">🏭 板块</div>{sector_bars}</div>')
+            put_html(f'<div style="background: rgba(255,255,255,0.02); padding: 10px; border-radius: 8px;"><div style="font-size: 11px; font-weight: 600; color: #a855f7; margin-bottom: 8px;">🏭 板块</div>{block_bars}</div>')
 
         if narratives:
             narrative_tags = " ".join([f'<span style="display: inline-block; padding: 3px 8px; background: rgba(249,115,22,0.15); color: #fb923c; border-radius: 4px; font-size: 10px; margin: 2px;">{nar}</span>' for nar in narratives])
@@ -304,7 +305,7 @@ def render_insight(ui):
             actionability = float(item.get('actionability', 0))
             novelty = float(item.get('novelty', 0))
             symbols = ', '.join(str(s) for s in item.get('symbols', [])[:4]) or '-'
-            sectors = ', '.join(str(s) for s in item.get('sectors', [])[:4]) or '-'
+            blocks = ', '.join(str(s) for s in (item.get('blocks') or item.get('blocks') or [])[:4]) or '-'
             ts = format_timestamp(float(item.get('ts', 0)))
             source = item.get('source', '')
             signal_type = item.get('signal_type', '')
@@ -327,7 +328,7 @@ def render_insight(ui):
                 </div>
                 <div style="font-size: 12px; color: #94a3b8; margin-bottom: 6px; line-height: 1.4;">{summary}</div>
                 <div style="font-size: 10px; color: #475569; margin-bottom: 6px;">
-                    标的: {symbols} | 板块: {sectors}
+                    标的: {symbols} | 板块: {blocks}
                 </div>
                 <div style="display: flex; flex-wrap: wrap; gap: 4px;">
                     <span style="padding: 2px 6px; border-radius: 4px; background: rgba(20,184,166,0.15); color: #14b8a6; font-size: 10px;">用户分 <b>{score:.2f}</b></span>
@@ -367,15 +368,15 @@ def render_insight(ui):
                 attention_score = float(payload.get('attention_score', 0))
                 trend = float(payload.get('trend', 0))
                 keywords = payload.get('keywords', [])[:3]
-                linked_sectors = payload.get('linked_sectors', [])[:2]
+                linked_blocks = (payload.get('linked_blocks') or payload.get('linked_blocks') or [])[:2]
 
                 trend_icon = '📈' if trend > 0 else '📉' if trend < 0 else '➡️'
                 stage_color = '#4ade80' if stage == '高潮' else ('#a855f7' if stage == '扩散' else ('#fb923c' if stage == '消退' else '#60a5fa'))
 
                 kw_tags = ''.join([f'<span style="display: inline-block; padding: 1px 4px; background: rgba(255,255,255,0.08); color: #94a3b8; border-radius: 3px; font-size: 9px; margin-right: 2px;">{kw}</span>' for kw in keywords]) if keywords else ''
-                sector_tags = ''.join([f'<span style="display: inline-block; padding: 1px 4px; background: rgba(249,115,22,0.15); color: #fb923c; border-radius: 3px; font-size: 9px; margin-right: 2px;">{sec}</span>' for sec in linked_sectors]) if linked_sectors else ''
+                block_tags = ''.join([f'<span style="display: inline-block; padding: 1px 4px; background: rgba(249,115,22,0.15); color: #fb923c; border-radius: 3px; font-size: 9px; margin-right: 2px;">{blk}</span>' for blk in linked_blocks]) if linked_blocks else ''
 
-                summary = f'<span style="color: {stage_color}; font-weight: 600;">叙事{narrative}进入</span><span style="padding: 1px 6px; background: {stage_color}; color: #0f172a; border-radius: 4px; font-size: 10px; font-weight: 600; margin: 0 4px;">{stage}</span>{trend_icon} 注意力{int(attention_score*100)}% {kw_tags} {sector_tags}'
+                summary = f'<span style="color: {stage_color}; font-weight: 600;">叙事{narrative}进入</span><span style="padding: 1px 6px; background: {stage_color}; color: #0f172a; border-radius: 4px; font-size: 10px; font-weight: 600; margin: 0 4px;">{stage}</span>{trend_icon} 注意力{int(attention_score*100)}% {kw_tags} {block_tags}'
                 summary = summary.replace('{', '{{').replace('}', '}}')
                 score_color = stage_color
             elif signal_type.startswith('narrative_'):

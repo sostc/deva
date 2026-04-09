@@ -19,7 +19,7 @@ AttentionFocusManager - 主动关注统一管理器
 
 提供统一的接口来主动关注：
     叙事（narrative）  : "我想关注 AI/芯片"
-    板块（block）      : "我想关注 semiconductor 板块"
+    题材（block）      : "我想关注 semiconductor 题材"
     股票（stock）      : "我想关注 NVDA"
 
 每种关注都会自动：
@@ -112,7 +112,7 @@ class FocusSummary:
     汇总所有类型的关注，提供统一的视图
     """
     narratives: List[FocusItem]              # 【叙事】关注的叙事
-    blocks: List[FocusItem]                  # 【板块】关注的板块
+    blocks: List[FocusItem]                  # 【题材】关注的题材
     stocks: List[FocusItem]                 # 【股票】关注的股票
 
     all_narrative_ids: Set[str]              # 【汇总】所有叙事ID
@@ -133,7 +133,7 @@ class AttentionFocusManager:
         # 方式1: 关注叙事（天道发现 / 用户主动）
         fm.follow_narrative("AI", priority=0.9)
 
-        # 方式2: 关注板块
+        # 方式2: 关注题材
         fm.follow_block("semiconductor", priority=0.8)
 
         # 方式3: 关注股票（BlindSpotInvestigator resolver 自动调用）
@@ -250,7 +250,7 @@ class AttentionFocusManager:
         block_name: Optional[str] = None,
     ) -> FocusItem:
         """
-        主动关注一个板块
+        主动关注一个题材
 
         Args:
             block_id: block identifier, e.g. "semiconductor", "AI"
@@ -310,8 +310,8 @@ class AttentionFocusManager:
         linked_blocks = []
         linked_narratives = []
 
-        from deva.naja.bandit.stock_sector_map import get_stock_sector_map
-        sm = get_stock_sector_map()
+        from deva.naja.bandit.stock_block_map import get_stock_block_map
+        sm = get_stock_block_map()
 
         metadata = sm.get_metadata(stock_code)
         if metadata:
@@ -381,7 +381,7 @@ class AttentionFocusManager:
             self._save_to_storage()
 
     def unfollow_block(self, block_id: str) -> None:
-        """取消关注板块"""
+        """取消关注题材"""
         if block_id in self._block_focus:
             del self._block_focus[block_id]
             self._save_to_storage()
@@ -449,7 +449,7 @@ class AttentionFocusManager:
         return list(self._narrative_focus.keys())
 
     def get_watched_blocks(self) -> List[str]:
-        """获取所有关注的板块列表"""
+        """获取所有关注的题材列表"""
         return list(self._block_focus.keys())
 
     def get_watched_stocks(self) -> List[str]:
@@ -462,7 +462,7 @@ class AttentionFocusManager:
         return item.priority if item else 0.0
 
     def get_block_priority(self, block_id: str) -> float:
-        """获取板块的关注优先级"""
+        """获取题材的关注优先级"""
         item = self._block_focus.get(block_id)
         return item.priority if item else 0.0
 

@@ -1,5 +1,5 @@
 """
-NarrativeBlockLinker - 叙事-板块联动器
+NarrativeBlockLinker - 叙事-题材联动器
 
 替代 narrative_block_mapping.py，提供：
 1. 配置驱动的精确映射（NARRATIVE_TO_BLOCK_LINK）
@@ -24,7 +24,7 @@ from deva.naja.cognition.narrative.block_mapping import (
 
 def get_linked_blocks(narrative: str) -> List[str]:
     """
-    获取叙事关联的板块列表（配置优先）
+    获取叙事关联的题材列表（配置优先）
 
     这是 narrative_block_mapping.py 的原有接口，
     现在委托给 NarrativeBlockLinker.get_linked_blocks()
@@ -45,9 +45,9 @@ def get_market_config(market_id: str) -> Optional[Dict[str, str]]:
 
 class NarrativeBlockLinker:
     """
-    叙事-板块联动器
+    叙事-题材联动器
 
-    获取叙事关联板块的优先级：
+    获取叙事关联题材的优先级：
     1. NARRATIVE_TO_BLOCK_LINK 配置映射（精确，人工维护）
     2. BlockRegistry 的 narrative_tags 匹配
     3. BlockRegistry 的语义相似度（需要 embedding）
@@ -72,7 +72,7 @@ class NarrativeBlockLinker:
 
     def get_linked_blocks(self, narrative: str) -> List[str]:
         """
-        获取叙事关联的板块列表
+        获取叙事关联的题材列表
 
         优先级：
         1. NARRATIVE_TO_BLOCK_LINK 配置
@@ -94,7 +94,7 @@ class NarrativeBlockLinker:
         self, narrative: str
     ) -> List[Tuple[str, float]]:
         """
-        获取叙事关联的板块（带置信度）
+        获取叙事关联的题材（带置信度）
 
         Returns:
             [(block_id, confidence), ...]
@@ -117,7 +117,7 @@ class NarrativeBlockLinker:
         return NARRATIVE_TO_MARKET_LINK.get(narrative, [])
 
     def get_markets_for_block(self, block_id: str) -> List[str]:
-        """获取板块关联的市场指数（通过叙事反向查找）"""
+        """获取题材关联的市场指数（通过叙事反向查找）"""
         narratives = self.registry.get_narratives_for_block(block_id)
         markets = set()
         for narrative in narratives:
@@ -128,7 +128,7 @@ class NarrativeBlockLinker:
         self, narrative: str, block_id: str, weight: float = 1.0
     ) -> None:
         """
-        根据实际市场表现，强化叙事→板块的关联
+        根据实际市场表现，强化叙事→题材的关联
 
         中期接口：可用于存储反馈，用于后续学习
         目前只是更新 BlockRegistry
@@ -140,7 +140,7 @@ class NarrativeBlockLinker:
         self, block_ids: Optional[List[str]] = None
     ) -> Dict[str, Dict[str, float]]:
         """
-        获取板块-叙事关联矩阵
+        获取题材-叙事关联矩阵
 
         Returns:
             {block_id: {narrative: confidence, ...}, ...}
@@ -167,7 +167,7 @@ class NarrativeBlockLinker:
 
     def suggest_narratives_for_block(self, block_id: str, top_k: int = 3) -> List[Tuple[str, float]]:
         """
-        为板块推荐关联叙事
+        为题材推荐关联叙事
 
         基于：
         1. NARRATIVE_TO_BLOCK_LINK 逆查

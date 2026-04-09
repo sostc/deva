@@ -113,7 +113,7 @@
   <text x="350" y="133" text-anchor="middle" fill="#fff" font-family="system-ui, sans-serif" font-size="12" font-weight="bold">新闻/雷达</text>
   <text x="270" y="160" fill="#c4b5fd" font-family="system-ui, sans-serif" font-size="9">财经新闻 · 社交媒体</text>
   <text x="270" y="175" fill="#c4b5fd" font-family="system-ui, sans-serif" font-size="9">舆情监控 · 叙事提取</text>
-  <text x="270" y="190" fill="#64748b" font-family="system-ui, sans-serif" font-size="8">AttentionTextRouter</text>
+  <text x="270" y="190" fill="#64748b" font-family="system-ui, sans-serif" font-size="8">TextImportanceScorer</text>
 
   <!-- 3. Global Liquidity -->
   <rect x="470" y="115" width="200" height="80" rx="8" fill="url(#liquidityGrad)" filter="url(#shadow)"/>

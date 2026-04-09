@@ -7,6 +7,8 @@ from dataclasses import dataclass, field
 from typing import Dict, Any, List, Callable, Optional
 from enum import Enum
 
+from deva.naja.register import SR
+
 
 logger = logging.getLogger(__name__)
 
@@ -14,8 +16,8 @@ logger = logging.getLogger(__name__)
 def _record_system_sleep():
     """系统退出时记录休眠时间"""
     try:
-        from deva.naja.system_state import get_system_state_manager
-        state_mgr = get_system_state_manager()
+        from deva.naja.register import SR
+        state_mgr = SR('system_state_manager')
         state_mgr.record_sleep()
         logger.info("[SystemBootstrap] 已记录系统休眠时间")
     except Exception as e:
@@ -159,11 +161,11 @@ class SystemBootstrap:
 
             register_all_singletons()
 
+            duration_ms = (time.time() - start) * 1000
             # 应用猴子补丁兼容模式 - 让旧代码无需修改即可使用新单例注册表
             from deva.naja.common.singleton_registry import apply_compatibility_patches
             apply_compatibility_patches()
 
-            duration_ms = (time.time() - start) * 1000
             logger.info(f"  单例注册完成，耗时 {duration_ms:.1f}ms")
 
             return BootResult(
@@ -184,16 +186,15 @@ class SystemBootstrap:
         logger.info("[2/8] 加载持久化数据...")
 
         try:
-            from deva.naja.dictionary import get_dictionary_manager
             from deva.naja.datasource import get_datasource_manager
-            from deva.naja.tasks import get_task_manager
             from deva.naja.strategy import get_strategy_manager
+            from deva.naja.register import SR
 
-            dict_mgr = get_dictionary_manager()
+            dict_mgr = SR('dictionary_manager')
             dict_mgr._ensure_initialized()
             ds_mgr = get_datasource_manager()
             ds_mgr._ensure_initialized()
-            task_mgr = get_task_manager()
+            task_mgr = SR('task_manager')
             task_mgr._ensure_initialized()
             strategy_mgr = get_strategy_manager()
             strategy_mgr._ensure_initialized()
@@ -412,8 +413,7 @@ class SystemBootstrap:
 
         # 启动美林时钟经济数据定时更新
         try:
-            from deva.naja.tasks import get_task_manager
-            task_mgr = get_task_manager()
+            task_mgr = SR('task_manager')
             
             # 检查是否已有美林时钟任务
             existing = task_mgr.get_by_name("merrill_clock_update")
@@ -502,18 +502,17 @@ def execute() -> dict:
 
         # 心跳机制：定期更新系统活跃时间
         try:
-            from deva.naja.tasks import get_task_manager
-            task_mgr = get_task_manager()
+            task_mgr = SR('task_manager')
 
             heartbeat_code = '''
 import logging
+from deva.naja.register import SR
 log = logging.getLogger(__name__)
 
 def execute() -> dict:
     """心跳：更新系统活跃时间"""
     try:
-        from deva.naja.system_state import get_system_state_manager
-        state_mgr = get_system_state_manager()
+        state_mgr = SR('system_state_manager')
         state_mgr.record_active()
         log.info("[Heartbeat] 系统活跃时间已更新")
         return {"success": True}
@@ -553,9 +552,8 @@ def execute() -> dict:
 
         # 统一唤醒同步检查
         try:
-            from deva.naja.system_state import get_system_state_manager, get_wake_sync_manager
 
-            state_mgr = get_system_state_manager()
+            state_mgr = SR('system_state_manager')
             state_mgr.record_wake()
 
             state_summary = state_mgr.get_state_summary()
@@ -564,7 +562,7 @@ def execute() -> dict:
             if state_summary['sleep_duration_hours'] < 1:
                 logger.info(f"  [WakeSync] 休眠不足1小时，跳过同步")
             else:
-                wake_sync_mgr = get_wake_sync_manager()
+                wake_sync_mgr = SR('wake_sync_manager')
                 registered = wake_sync_mgr.get_registered_components()
                 logger.info(f"  [WakeSync] 已注册 {len(registered)} 个同步组件: {registered}")
 

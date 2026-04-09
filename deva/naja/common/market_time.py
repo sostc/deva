@@ -7,7 +7,7 @@ MarketTimeService - 市场时间服务
 
 使用方式：
     >>> from deva.naja.common.market_time import get_market_time_service
-    >>> mts = get_market_time_service()
+    >>> mts = SR('market_time_service')
     >>> market_time = mts.get_market_time()
     >>> market_dt = mts.get_market_datetime()
 """
@@ -16,6 +16,7 @@ import threading
 import time
 from datetime import datetime
 from typing import Optional
+from deva.naja.register import SR
 
 log = __import__('logging').getLogger(__name__)
 
@@ -106,30 +107,16 @@ class MarketTimeService:
         }
 
 
-_market_time_service: Optional[MarketTimeService] = None
-_market_time_service_lock = threading.Lock()
-
-
-def get_market_time_service() -> MarketTimeService:
-    """获取市场时间服务单例"""
-    global _market_time_service
-    if _market_time_service is None:
-        with _market_time_service_lock:
-            if _market_time_service is None:
-                _market_time_service = MarketTimeService()
-    return _market_time_service
-
-
 def get_market_time() -> float:
     """快捷函数：获取当前市场时间"""
-    return get_market_time_service().get_market_time()
+    return SR('market_time_service').get_market_time()
 
 
 def get_market_datetime() -> datetime:
     """快捷函数：获取当前市场时间（datetime）"""
-    return get_market_time_service().get_market_datetime()
+    return SR('market_time_service').get_market_datetime()
 
 
 def set_replay_mode(enabled: bool):
     """快捷函数：设置回放模式"""
-    get_market_time_service().set_replay_mode(enabled)
+    SR('market_time_service').set_replay_mode(enabled)

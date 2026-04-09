@@ -46,7 +46,7 @@ VALUE_STRATEGY_MAPPING: Dict[str, Dict[str, Any]] = {
             "趋势延续直到反转信号出现",
             "不要猜顶底"
         ],
-        "indicators": ["板块轮动速度", "资金接力强度", "动量得分"]
+        "indicators": ["题材轮动速度", "资金接力强度", "动量得分"]
     },
     "liquidity": {
         "primary": "smart_money_detector",

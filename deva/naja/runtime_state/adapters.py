@@ -10,6 +10,7 @@ import time
 from typing import Any, Dict, List
 
 from deva.naja.runtime_state import StatefulComponent
+from deva.naja.register import SR
 
 logger = logging.getLogger(__name__)
 
@@ -217,7 +218,7 @@ class AttentionCenterAdapter(StatefulComponent):
     def load_state(self) -> bool:
         try:
             if hasattr(self._center, 'load_state'):
-                self._center.load_state()
+                self._center.load_state(self._center.get_state() if hasattr(self._center, 'get_state') else {})
             return True
         except Exception as e:
             logger.error(f"[AttentionCenterAdapter] 加载失败: {e}")
@@ -396,8 +397,7 @@ def register_all_adapters():
 
     # 任务管理器
     try:
-        from deva.naja.tasks import get_task_manager
-        task_mgr = get_task_manager()
+        task_mgr = SR('task_manager')
         mgr.register(TaskManagerAdapter(task_mgr))
         logger.info("[RuntimeStateManager] 已注册 TaskManager")
     except Exception as e:
@@ -414,8 +414,7 @@ def register_all_adapters():
 
     # 注意力中心
     try:
-        from deva.naja.attention.integration import get_attention_system
-        attention = get_attention_system()
+        attention = SR('hotspot_system')
         if attention:
             mgr.register(AttentionCenterAdapter(attention))
             logger.info("[RuntimeStateManager] 已注册 AttentionCenter")
@@ -424,8 +423,7 @@ def register_all_adapters():
 
     # Bandit Runner
     try:
-        from deva.naja.bandit import get_bandit_runner
-        bandit = get_bandit_runner()
+        bandit = SR('bandit_runner')
         mgr.register(BanditRunnerAdapter(bandit))
         logger.info("[RuntimeStateManager] 已注册 BanditRunner")
     except Exception as e:
@@ -442,8 +440,7 @@ def register_all_adapters():
 
     # SignalTuner 信号调谐器
     try:
-        from deva.naja.attention.intelligence import get_signal_tuner
-        tuner = get_signal_tuner()
+        tuner = SR('signal_tuner')
         if tuner:
             mgr.register(SignalTunerAdapter(tuner))
             logger.info("[RuntimeStateManager] 已注册 SignalTuner")

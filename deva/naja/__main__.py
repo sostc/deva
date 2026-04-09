@@ -12,7 +12,6 @@
 """
 
 import argparse
-import atexit
 import logging
 import os
 
@@ -98,23 +97,10 @@ def main():
     if args.attention_enabled is not None:
         os.environ["NAJA_ATTENTION_ENABLED"] = "true" if args.attention_enabled else "false"
 
-    _env_vars_to_cleanup: list[str] = []
-
-    def _cleanup_env_vars():
-        """退出时清理环境变量"""
-        for var in _env_vars_to_cleanup:
-            if var in os.environ:
-                del os.environ[var]
-        if _env_vars_to_cleanup:
-            print(f"已清理环境变量: {', '.join(_env_vars_to_cleanup)}")
-
-    atexit.register(_cleanup_env_vars)
-
     # 处理实验室模式参数
     lab_config = None
     if args.lab or args.tune:
         os.environ['NAJA_LAB_MODE'] = '1'
-        _env_vars_to_cleanup.append('NAJA_LAB_MODE')
         lab_config = {
             "enabled": True,
             "table_name": args.lab_table,
@@ -126,8 +112,8 @@ def main():
             print("警告: --lab 已启用但未指定 --lab-table，将仅启动注意力系统而不回放数据")
 
     # 处理强制实盘调试模式参数
-    force_realtime = args.force_realtime
-    if force_realtime:
+    if args.force_realtime:
+        os.environ['NAJA_FORCE_REALTIME'] = '1'
         print("⚠️ 强制实盘调试模式已启用 (--force-realtime)")
 
     # 调参模式配置
@@ -179,11 +165,6 @@ def main():
         os.environ["NAJA_COGNITION_DEBUG"] = "true"
         os.environ["NAJA_LAB_DEBUG"] = "true"
         os.environ["NAJA_NEWS_RADAR_DEBUG"] = "true"
-        _env_vars_to_cleanup.extend([
-            "NAJA_COGNITION_DEBUG",
-            "NAJA_LAB_DEBUG",
-            "NAJA_NEWS_RADAR_DEBUG",
-        ])
         if not lab_config:
             lab_config = {
                 "enabled": True,
@@ -210,17 +191,16 @@ def main():
         news_radar_config=news_radar_config,
         cognition_debug_config=cognition_debug_config,
         tune_config=tune_config,
-        force_realtime=force_realtime,
     )
 
 
 def show_attention_report():
     """显示注意力系统状态报告"""
     try:
-        from .attention.integration import get_attention_integration
+        from .market_hotspot.integration.extended import get_market_hotspot_integration
         
-        integration = get_attention_integration()
-        report = integration.get_attention_report()
+        integration = get_market_hotspot_integration()
+        report = integration.get_hotspot_report()
         
         print("\n" + "=" * 60)
         print("Naja Attention Scheduling System 状态报告")

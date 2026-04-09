@@ -29,6 +29,7 @@ from .tongdaxin_blocks import (
     get_stock_block_mapping,
     get_dataframe,
 )
+from deva.naja.register import SR
 
 
 DICT_ENTRY_TABLE = "naja_dictionary_entries"
@@ -102,9 +103,8 @@ def _resolve_awaitable(value):
     return box["value"]
 
 def execute(event=None):
-    from deva.naja.dictionary import get_dictionary_manager
 
-    mgr = get_dictionary_manager()
+    mgr = SR('dictionary_manager')
     entry = mgr.get("{entry_id}")
     if entry is None:
         return "dictionary_not_found"
@@ -228,14 +228,13 @@ class DictionaryEntry(RecoverableUnit):
 
     def start(self) -> dict:
         if self._has_refresh_task():
-            from ..tasks import get_task_manager
 
             with self._execution_lock:
                 if self.is_running:
                     return {"success": True, "message": "Already running"}
 
                 task_id = str(self._metadata.refresh_task_id or "")
-                result = get_task_manager().start(task_id)
+                result = SR('task_manager').start(task_id)
                 if not result.get("success"):
                     self._state.status = UnitStatus.ERROR.value
                     self._state.record_error(result.get("error", "refresh task start failed"))
@@ -251,14 +250,13 @@ class DictionaryEntry(RecoverableUnit):
 
     def stop(self) -> dict:
         if self._has_refresh_task():
-            from ..tasks import get_task_manager
 
             with self._execution_lock:
                 if not self.is_running:
                     return {"success": True, "message": "Not running"}
 
                 task_id = str(self._metadata.refresh_task_id or "")
-                get_task_manager().stop(task_id)
+                SR('task_manager').stop(task_id)
                 self._state.status = UnitStatus.STOPPED.value
                 self._was_running = False
                 self.save()
@@ -368,10 +366,9 @@ class DictionaryEntry(RecoverableUnit):
     def run_once(self) -> dict:
         """手动执行一次"""
         if self._has_refresh_task():
-            from ..tasks import get_task_manager
 
             task_id = str(self._metadata.refresh_task_id or "")
-            return get_task_manager().run_once(task_id)
+            return SR('task_manager').run_once(task_id)
 
         if not self._compiled_func:
             result = self.ensure_compiled()
@@ -600,9 +597,8 @@ class DictionaryManager:
         event_condition: str,
         event_condition_type: str,
     ) -> dict:
-        from ..tasks import get_task_manager
 
-        task_mgr = get_task_manager()
+        task_mgr = SR('task_manager')
         wrapper_code = _build_refresh_task_code(entry.id, func_code)
         task_type = _task_type_from_refresh_config(execution_mode, scheduler_trigger)
         task_name = f"dict_refresh_{entry.name}_{entry.id}"
@@ -648,9 +644,8 @@ class DictionaryManager:
         task_id = str(getattr(entry._metadata, "refresh_task_id", "") or "")
         if not task_id:
             return
-        from ..tasks import get_task_manager
 
-        task_mgr = get_task_manager()
+        task_mgr = SR('task_manager')
         try:
             task_mgr.stop(task_id)
         except Exception:
@@ -1266,19 +1261,6 @@ class DictionaryManager:
         print(f"[DictionaryManager][{level}] {message} | {extra_str}")
 
 
-_dict_manager: Optional[DictionaryManager] = None
-_dict_manager_lock = threading.Lock()
-
-
-def get_dictionary_manager() -> DictionaryManager:
-    global _dict_manager
-    if _dict_manager is None:
-        with _dict_manager_lock:
-            if _dict_manager is None:
-                _dict_manager = DictionaryManager()
-    return _dict_manager
-
-
 def create_tongdaxin_blocks_dict(
     name: str = "通达信概念板块", 
     interval_seconds: int = 86400,
@@ -1310,7 +1292,7 @@ def fetch_data():
     return get_dataframe(filepath=blocks_file)
 '''
     
-    mgr = get_dictionary_manager()
+    mgr = SR('dictionary_manager')
     return mgr.create(
         name=name,
         description=f"通达信概念板块数据，从 {Path(file_path).name} 文件读取，包含股票与所属板块的映射关系",

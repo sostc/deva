@@ -157,7 +157,7 @@
 | **CrossSignalAnalyzer** | `cognition/cross_signal_analyzer.py` | 跨信号共振 |
 | **InsightPool** | `cognition/insight/engine.py` | 洞察存储 |
 | **LLMReflection** | `cognition/insight/llm_reflection.py` | LLM反思 |
-| **HistoryTracker** | `cognition/history_tracker.py` | 历史追踪 |
+| **MarketHotspotHistoryTracker** | `market_hotspot/market_hotspot_history_tracker.py` | 市场热点历史追踪 |
 | **SemanticColdStart** | `cognition/semantic_cold_start.py` | 冷启动语义 |
 | **CognitionEngine** | `cognition/engine.py` | 认知引擎 |
 | **CognitionBus** | `cognition/cognition_bus.py` | 认知总线 |

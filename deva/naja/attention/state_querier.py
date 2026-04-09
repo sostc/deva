@@ -96,8 +96,7 @@ class StateQuerier:
     def get_cached_market_time(self) -> str:
         """获取缓存的市场时间"""
         try:
-            from deva.naja.radar.trading_clock import get_trading_clock
-            clock = get_trading_clock()
+            clock = SR('trading_clock')
             if clock:
                 return clock.get_formatted_time()
         except Exception:
@@ -138,7 +137,7 @@ class StateQuerier:
         }
 
     def _get_block_weights(self) -> Dict[str, float]:
-        """获取板块权重"""
+        """获取题材权重"""
         return {}
 
     def _get_symbol_weights(self) -> Dict[str, float]:
@@ -163,6 +162,7 @@ _state_querier: Optional['StateQuerier'] = None
 
 def get_state_querier() -> StateQuerier:
     """获取 StateQuerier 单例"""
+    from deva.naja.register import SR
     global _state_querier
     if _state_querier is None:
         _state_querier = StateQuerier()

@@ -403,7 +403,7 @@ class PropagationEngine:
             更新了多少个市场节点
         """
         try:
-            from deva.naja.attention.data.global_market_futures import GlobalMarketAPI
+            from deva.naja.market_hotspot.data.global_market_futures import GlobalMarketAPI
 
             api = GlobalMarketAPI()
             data = await api.fetch_all()

@@ -5,6 +5,7 @@ Philosophy Configurator - 理念配置生成器
 
 使用方式：
     from scripts.generate_philosophy_config import PhilosophyConfigurator
+from deva.naja.register import SR
 
     configurator = PhilosophyConfigurator()
 
@@ -499,8 +500,7 @@ class PhilosophyConfigurator:
         results["soul"] = os.path.exists(soul_path)
 
         try:
-            from deva.naja.attention.values.system import get_value_system
-            vs = get_value_system()
+            vs = SR('value_system')
             results["value_system"] = vs is not None
             results["active_type"] = vs.get_active_value_type()
         except Exception as e:

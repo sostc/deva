@@ -21,7 +21,7 @@ from .cognition_bus import (
     subscribe_to_all,
 )
 from .core import NewsMindStrategy, AttentionScorer
-from .engine import CognitionEngine, get_cognition_engine
+from .engine import CognitionEngine
 from .narrative import (
     NarrativeTracker,
     NarrativeState,
@@ -48,14 +48,7 @@ from .narrative import (
     get_market_config,
 )
 from .semantic_cold_start import SemanticColdStart
-from .insight import InsightEngine, InsightPool, get_insight_engine, get_insight_pool
-from .history_tracker import (
-    AttentionHistoryTracker,
-    AttentionSnapshot,
-    AttentionChange,
-    BlockHotspotEvent,
-    get_history_tracker,
-)
+from .insight import InsightEngine, InsightPool
 from .cross_signal_analyzer import (
     CrossSignalAnalyzer,
     ResonanceSignal,
@@ -65,36 +58,6 @@ from .cross_signal_analyzer import (
     AttentionSnapshot as CrossAttentionSnapshot,
     CognitionFeedback,
     get_cross_signal_analyzer,
-)
-from .attention_text_router import (
-    AttentionTextRouter,
-    AttentionTextItem,
-    StructuredSignal,
-    ManasState,
-    TextSource,
-    THRESHOLD_DEEP,
-    THRESHOLD_INDEX,
-    THRESHOLD_DROP,
-    get_attention_router,
-)
-from .text_signal_bus import (
-    TextSignalBus,
-    Subscriber,
-    BusStats,
-    get_text_bus,
-    reset_text_bus,
-)
-from .text_processing_pipeline import (
-    TextProcessingPipeline,
-    BaseProcessor,
-    KeywordExtractor,
-    TopicClassifier,
-    NewsMindProcessor,
-    SupplyChainProcessor,
-    ProcessingStage,
-    get_text_pipeline,
-    process_text,
-    subscribe_to_signals,
 )
 
 __all__ = [
@@ -114,10 +77,6 @@ __all__ = [
     "AttentionScorer",
     # 认知引擎
     "CognitionEngine",
-    "get_cognition_engine",
-    # 向后兼容别名
-    "MemoryEngine",
-    "get_memory_engine",
     # 天-地 叙事追踪 (narrative模块)
     "NarrativeTracker",
     "NarrativeState",
@@ -134,14 +93,6 @@ __all__ = [
     # 洞察引擎
     "InsightEngine",
     "InsightPool",
-    "get_insight_engine",
-    "get_insight_pool",
-    # 历史事件追踪器
-    "AttentionHistoryTracker",
-    "AttentionSnapshot",
-    "AttentionChange",
-    "BlockHotspotEvent",
-    "get_history_tracker",
     # 跨信号分析器
     "CrossSignalAnalyzer",
     "ResonanceSignal",
@@ -164,35 +115,7 @@ __all__ = [
     "get_linked_blocks",
     "get_linked_markets",
     "get_market_config",
-    # 注意力文本处理架构
-    "AttentionTextRouter",
-    "AttentionTextItem",
-    "StructuredSignal",
-    "ManasState",
-    "TextSource",
-    "THRESHOLD_DEEP",
-    "THRESHOLD_INDEX",
-    "THRESHOLD_DROP",
-    "get_attention_router",
-    # 文本信号总线
-    "TextSignalBus",
-    "Subscriber",
-    "BusStats",
-    "get_text_bus",
-    "reset_text_bus",
-    # 分层处理流水线
-    "TextProcessingPipeline",
-    "BaseProcessor",
-    "KeywordExtractor",
-    "TopicClassifier",
-    "NewsMindProcessor",
-    "SupplyChainProcessor",
-    "ProcessingStage",
-    "get_text_pipeline",
-    "process_text",
-    "subscribe_to_signals",
 ]
 
 # 向后兼容别名
 MemoryEngine = CognitionEngine
-get_memory_engine = get_cognition_engine

@@ -56,7 +56,7 @@ class Reflection:
             "signals_count": self.signals_count,
             "narratives": self.narratives,
             "symbols": self.symbols,
-            "sectors": self.sectors,
+            "blocks": self.blocks,
             "confidence": self.confidence,
             "actionability": self.confidence,
             "novelty": self.novelty,
@@ -190,7 +190,7 @@ class LLMReflectionEngine:
         narratives = self._collect_narratives()
         themes = self._extract_themes(signals)
         symbols = self._extract_symbols(signals)
-        sectors = self._extract_sectors(signals)
+        blocks = self._extract_blocks(signals)
 
         log.info(f"[LLMReflection] 开始反思: {len(signals)}个信号, {len(narratives)}个叙事, {len(themes)}个主题, 持仓{portfolio.get('count', 0)}只")
         try:
@@ -213,7 +213,7 @@ class LLMReflectionEngine:
             signals_count=len(signals),
             narratives=narratives[:5],
             symbols=symbols[:10],
-            sectors=sectors[:5],
+            blocks=blocks[:5],
             confidence=float(result.get("confidence", 0.5)),
             actionability=float(result.get("actionability", 0.5)),
             novelty=float(result.get("novelty", 0.5)),
@@ -336,9 +336,8 @@ _反思生成时间: {datetime.fromtimestamp(reflection.ts).strftime('%Y-%m-%d %
 
     def _emit_liquidity_signal(self, now_ts: float) -> None:
         """将流动性结构作为独立信号推送到 InsightPool"""
-        from ..engine import get_cognition_engine
         try:
-            engine = get_cognition_engine()
+            engine = SR('cognition_engine')
             tracker = engine._news_mind.narrative_tracker
             if not tracker:
                 return
@@ -362,10 +361,10 @@ _反思生成时间: {datetime.fromtimestamp(reflection.ts).strftime('%Y-%m-%d %
                 "theme": f"流动性结构: {', '.join(active_quadrants[:2])}",
                 "summary": summary_text,
                 "symbols": [],
-                "sectors": ["macro", "liquidity"],
+                "blocks": ["macro", "liquidity"],
                 "confidence": 0.8,
                 "actionability": 0.7,
-                "system_attention": 0.9,
+                "system_hotspot": 0.9,
                 "novelty": 0.5,
                 "source": "liquidity_structure",
                 "signal_type": "liquidity_structure",
@@ -376,9 +375,8 @@ _反思生成时间: {datetime.fromtimestamp(reflection.ts).strftime('%Y-%m-%d %
                 },
             }
 
-            from ..insight.engine import get_insight_pool
-            pool = get_insight_pool()
-            pool.ingest_attention_event(signal_data)
+            pool = SR('insight_pool')
+            pool.ingest_hotspot_event(signal_data)
         except Exception as e:
             import logging
             log = logging.getLogger(__name__)
@@ -459,8 +457,7 @@ _反思生成时间: {datetime.fromtimestamp(reflection.ts).strftime('%Y-%m-%d %
     def _generate_market_analysis(self) -> bool:
         """生成市场分析"""
         try:
-            from deva.naja.cognition.engine import get_cognition_engine
-            engine = get_cognition_engine()
+            engine = SR('cognition_engine')
             if not engine:
                 return False
             tracker = engine._news_mind.narrative_tracker
@@ -473,9 +470,8 @@ _反思生成时间: {datetime.fromtimestamp(reflection.ts).strftime('%Y-%m-%d %
 
     def _collect_market_analysis_from_nt(self) -> List[Dict[str, Any]]:
         """从 NarrativeTracker 获取全市场深度分析结果"""
-        from deva.naja.cognition.engine import get_cognition_engine
         try:
-            engine = get_cognition_engine()
+            engine = SR('cognition_engine')
             tracker = engine._news_mind.narrative_tracker
             if not tracker:
                 return []
@@ -530,9 +526,8 @@ _反思生成时间: {datetime.fromtimestamp(reflection.ts).strftime('%Y-%m-%d %
 
     def _collect_narrative_signals(self) -> List[Dict[str, Any]]:
         """从 NarrativeTracker 获取叙事信号"""
-        from deva.naja.cognition.engine import get_cognition_engine
         try:
-            engine = get_cognition_engine()
+            engine = SR('cognition_engine')
             report = engine.get_memory_report()
             narratives = report.get("narratives", {})
             summary = narratives.get("summary", [])
@@ -556,9 +551,8 @@ _反思生成时间: {datetime.fromtimestamp(reflection.ts).strftime('%Y-%m-%d %
 
     def _collect_tiandao_minxin_signals(self) -> List[Dict[str, Any]]:
         """从 NarrativeTracker 获取天道/民心信号 - '遵循天道，驾驭民心'"""
-        from deva.naja.cognition.engine import get_cognition_engine
         try:
-            engine = get_cognition_engine()
+            engine = SR('cognition_engine')
             tracker = engine._news_mind.narrative_tracker
             if not tracker:
                 return []
@@ -748,8 +742,8 @@ _反思生成时间: {datetime.fromtimestamp(reflection.ts).strftime('%Y-%m-%d %
             return []
 
     def _collect_attention_signals(self) -> List[Dict[str, Any]]:
-        """从 AttentionHistoryTracker 获取注意力转移信号"""
-        from deva.naja.cognition.history_tracker import get_history_tracker
+        """从 MarketHotspotHistoryTracker 获取注意力转移信号"""
+        from deva.naja.market_hotspot.market_hotspot_history_tracker import get_history_tracker
         try:
             tracker = get_history_tracker()
             if not tracker:
@@ -758,7 +752,7 @@ _反思生成时间: {datetime.fromtimestamp(reflection.ts).strftime('%Y-%m-%d %
             if not report.get("has_shift"):
                 return []
             signals = []
-            for block, name in report.get("added_sectors", []):
+            for block, name in report.get("added_blocks", report.get("added_blocks", [])):
                 signals.append({
                     "source": "attention_history",
                     "signal_type": "attention_rising",
@@ -767,7 +761,7 @@ _反思生成时间: {datetime.fromtimestamp(reflection.ts).strftime('%Y-%m-%d %
                     "block": block,
                     "score": 0.7,
                 })
-            for block, name in report.get("removed_sectors", []):
+            for block, name in report.get("removed_blocks", report.get("removed_blocks", [])):
                 signals.append({
                     "source": "attention_history",
                     "signal_type": "attention_falling",
@@ -794,7 +788,7 @@ _反思生成时间: {datetime.fromtimestamp(reflection.ts).strftime('%Y-%m-%d %
                     signals.append({
                         "source": "cross_signal",
                         "signal_type": r.get("resonance_type", "共振"),
-                        "theme": f"共振: {r.get('sector_name', '')}",
+                        "theme": f"共振: {r.get('block_name', '')}",
                         "summary": f"共振强度={r.get('resonance_score', 0):.2f}",
                         "resonance_score": r.get("resonance_score", 0),
                         "score": r.get("resonance_score", 0) * 0.8,
@@ -983,10 +977,9 @@ _反思生成时间: {datetime.fromtimestamp(reflection.ts).strftime('%Y-%m-%d %
 
     def _collect_narratives(self) -> List[Dict[str, Any]]:
         """收集叙事数据，包含趋势和阶段信息"""
-        from ..engine import get_cognition_engine
 
         try:
-            engine = get_cognition_engine()
+            engine = SR('cognition_engine')
             report = engine.get_memory_report()
             narratives = report.get("narratives", {})
             summary = narratives.get("summary", [])
@@ -1020,12 +1013,12 @@ _反思生成时间: {datetime.fromtimestamp(reflection.ts).strftime('%Y-%m-%d %
                 symbols.add(str(s))
         return list(symbols)[:20]
 
-    def _extract_sectors(self, signals: List[Dict[str, Any]]) -> List[str]:
-        sectors = set()
+    def _extract_blocks(self, signals: List[Dict[str, Any]]) -> List[str]:
+        blocks = set()
         for sig in signals:
-            for s in sig.get("sectors", []):
-                sectors.add(str(s))
-        return list(sectors)[:10]
+            for b in sig.get("blocks", []) or sig.get("sectors", []):
+                blocks.add(str(b))
+        return list(blocks)[:10]
 
     def _categorize_signals(self, signals: List[Dict[str, Any]]) -> Dict[str, List[Dict]]:
         """按来源分类信号"""
@@ -1042,7 +1035,7 @@ _反思生成时间: {datetime.fromtimestamp(reflection.ts).strftime('%Y-%m-%d %
         }
 
         radar_types = {'pattern', 'drift', 'anomaly', 'block_anomaly', 'news_topic'}
-        attention_types = {'global_attention_shift', 'market_activity_shift', 'sector_concentration_shift',
+        attention_types = {'global_attention_shift', 'market_activity_shift', 'block_concentration_shift', 'block_concentration_shift',
                           'block_hotspot', 'symbol_attention_change', 'market_state_shift'}
         feedback_types = {'experiment_feedback_summary', 'bandit_learning_analysis'}
         effectiveness_types = {'effective_pattern', 'ineffective_pattern'}
@@ -1416,15 +1409,14 @@ _反思生成时间: {datetime.fromtimestamp(reflection.ts).strftime('%Y-%m-%d %
             pass
 
     def _emit_to_insight(self, reflection: Reflection) -> None:
-        from ..insight.engine import get_insight_pool
 
         try:
-            pool = get_insight_pool()
+            pool = SR('insight_pool')
             insight_data = {
                 "theme": reflection.theme,
                 "summary": reflection.summary,
                 "symbols": reflection.symbols,
-                "sectors": reflection.sectors,
+                "blocks": reflection.blocks,
                 "confidence": reflection.confidence,
                 "actionability": reflection.actionability,
                 "system_attention": reflection.novelty,
@@ -1434,7 +1426,7 @@ _反思生成时间: {datetime.fromtimestamp(reflection.ts).strftime('%Y-%m-%d %
                 "signal_type": "llm_reflection",
                 "payload": reflection.to_dict(),
             }
-            pool.ingest_attention_event(insight_data)
+            pool.ingest_hotspot_event(insight_data)
         except Exception as e:
             log.error(f"[LLMReflection] 推送到洞察池失败: {e}")
 
@@ -1475,9 +1467,5 @@ _llm_reflection_lock = threading.Lock()
 
 
 def get_llm_reflection_engine() -> LLMReflectionEngine:
-    global _llm_reflection_engine
-    if _llm_reflection_engine is None:
-        with _llm_reflection_lock:
-            if _llm_reflection_engine is None:
-                _llm_reflection_engine = LLMReflectionEngine()
-    return _llm_reflection_engine
+    from deva.naja.register import SR
+    return SR('llm_reflection_engine')

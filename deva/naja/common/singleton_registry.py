@@ -12,7 +12,7 @@
 
     # 注册单例（带依赖声明）
     register_singleton('attention_integration',
-        factory=lambda: NajaAttentionIntegration(),
+        factory=lambda: MarketHotspotIntegration(),
         deps=['mode_manager', 'stock_registry']
     )
 
@@ -86,7 +86,7 @@ class SingletonRegistry:
     def __init__(self):
         self._singletons: Dict[str, SingletonInfo] = {}
         self._lock = threading.RLock()
-        self._initializing_stack: List[str] = []  # 用于检测循环依赖
+        self._local = threading.local()  # 每个线程独立的初始化栈，避免多线程循环依赖误判
 
     def register(self, name: str, factory: Callable, deps: List[str] = None) -> None:
         """注册单例工厂
@@ -124,14 +124,20 @@ class SingletonRegistry:
             if info.is_ready():
                 return info.instance
 
+            # 获取当前线程的初始化栈（线程本地，避免多线程误判循环依赖）
+            stack: List[str] = getattr(self._local, 'initializing_stack', None)
+            if stack is None:
+                stack = []
+                self._local.initializing_stack = stack
+
             # 防止循环依赖
-            if name in self._initializing_stack:
-                cycle = ' -> '.join(self._initializing_stack + [name])
+            if name in stack:
+                cycle = ' -> '.join(stack + [name])
                 raise RuntimeError(f"[SingletonRegistry] 检测到循环依赖: {cycle}")
 
             # 标记开始初始化
             info.mark_initializing()
-            self._initializing_stack.append(name)
+            stack.append(name)
 
             try:
                 # 先初始化依赖
@@ -162,7 +168,7 @@ class SingletonRegistry:
                 raise
 
             finally:
-                self._initializing_stack.remove(name)
+                stack.remove(name)
 
     def exists(self, name: str) -> bool:
         """检查单例是否已注册"""
@@ -198,7 +204,9 @@ class SingletonRegistry:
         """清空所有单例（主要用于测试）"""
         with self._lock:
             self._singletons.clear()
-            self._initializing_stack.clear()
+            # 清空当前线程的初始化栈
+            if hasattr(self._local, 'initializing_stack'):
+                self._local.initializing_stack.clear()
 
 
 # 全局注册表实例
@@ -230,14 +238,6 @@ def register_singleton(name: str, factory: Callable, deps: List[str] = None) -> 
 
 def get_registry_status() -> Dict[str, dict]:
     """获取注册表状态（调试用）"""
-    return _global_registry.list_status()
-
-
-def is_singleton_ready(name: str) -> bool:
-    """检查单例是否就绪"""
-    return _global_registry.is_ready(name)
-
-
 # ============================================================================
 # 猴子补丁兼容模式 - 让旧代码无需修改即可使用新单例注册表
 # ============================================================================
@@ -268,7 +268,7 @@ def apply_compatibility_patches():
     # 需要被替换的函数映射表：(模块名, 原始函数名, SR名称)
     PATCHES = [
         # attention 系统核心
-        ('deva.naja.attention.integration.extended', 'get_attention_integration', 'attention_integration'),
+        ('deva.naja.attention.integration.extended', 'get_market_hotspot_integration', 'attention_integration'),
         ('deva.naja.attention.attention_os', 'get_attention_os', 'attention_os'),
         ('deva.naja.attention.trading_center', 'get_trading_center', 'trading_center'),
         ('deva.naja.attention.integration.extended', 'get_mode_manager', 'mode_manager'),
@@ -286,12 +286,10 @@ def apply_compatibility_patches():
         # bandit 模块
         ('deva.naja.bandit.market_data_bus', 'get_market_data_bus', 'market_data_bus'),
         ('deva.naja.bandit.market_observer', 'get_market_observer', 'market_observer'),
-        ('deva.naja.bandit.stock_sector_map', 'get_stock_sector_map', 'stock_sector_map'),
+        ('deva.naja.bandit.stock_block_map', 'get_stock_block_map', 'stock_block_map'),
 
         # 认知模块（cognition_bus 已有内部单例机制，不需要猴子补丁）
-        ('deva.naja.cognition.history_tracker', 'get_history_tracker', 'history_tracker'),
-        ('deva.naja.cognition.text_processing_pipeline', 'get_text_pipeline', 'text_pipeline'),
-        ('deva.naja.cognition.attention_text_router', 'get_attention_router', 'attention_router'),
+        ('deva.naja.market_hotspot.market_hotspot_history_tracker', 'get_history_tracker', 'history_tracker'),
         ('deva.naja.cognition.cross_signal_analyzer', 'get_cross_signal_analyzer', 'cross_signal_analyzer'),
         ('deva.naja.attention.narrative_block_linker', 'get_narrative_block_linker', 'narrative_block_linker'),
         ('deva.naja.cognition.insight.llm_reflection', 'get_llm_reflection_engine', 'llm_reflection_engine'),
@@ -352,3 +350,11 @@ def get_original_function(module_name: str, func_name: str):
     """
     key = f"{module_name}.{func_name}"
     return _original_functions.get(key)
+__all__ = [
+    'SR',
+    'register_singleton',
+    'get_registry_status',
+    'is_singleton_ready',
+    'clear_for_test',
+    'register_fake_singleton',
+]

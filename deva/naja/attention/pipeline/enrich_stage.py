@@ -1,10 +1,11 @@
-"""EnrichStage - 板块数据合并阶段"""
+"""EnrichStage - 题材数据合并阶段"""
 
 import pandas as pd
 import logging
 from typing import Optional, Dict, Any, TYPE_CHECKING
 
 from .base import Stage, StageResult, StageType
+from deva.naja.register import SR
 
 if TYPE_CHECKING:
     from deva.naja.dictionary import DictionaryManager
@@ -15,21 +16,21 @@ logger = logging.getLogger(__name__)
 
 class EnrichStage(Stage):
     """
-    数据增强阶段 - 合并板块信息
+    数据增强阶段 - 合并题材信息
 
-    从板块字典获取股票所属板块信息，合并到行情数据中
+    从题材字典获取股票所属题材信息，合并到行情数据中
 
     设计:
     - 优先使用注入的字典管理器
-    - 其次使用 get_dictionary_manager() 单例
+    - 其次使用 SR('dictionary_manager') 单例
     - 降级方案：从 tongdaxin_blocks 直接加载
     """
 
     def __init__(
         self,
-        name: str = "enrich_sector",
+        name: str = "enrich_block",
         dictionary_manager: Optional["DictionaryManager"] = None,
-        block_dict_name: str = "通达信概念板块",
+        block_dict_name: str = "通达信概念题材",
         use_direct_load: bool = True,
     ):
         super().__init__(name=name, stage_type=StageType.ENRICH)
@@ -41,7 +42,7 @@ class EnrichStage(Stage):
         self._load_attempted = False
 
     def _load_block_data(self) -> Optional[pd.DataFrame]:
-        """加载板块数据"""
+        """加载题材数据"""
         if self._block_df is not None:
             return self._block_df
 
@@ -55,7 +56,7 @@ class EnrichStage(Stage):
             if entry is not None:
                 payload = entry.get_payload()
                 if payload is not None and isinstance(payload, pd.DataFrame):
-                    logger.info(f"[{self.name}] 从字典加载板块数据: {payload.shape}")
+                    logger.info(f"[{self.name}] 从字典加载题材数据: {payload.shape}")
                     self._block_df = payload
                     return self._block_df
 
@@ -64,22 +65,22 @@ class EnrichStage(Stage):
                 from deva.naja.dictionary.tongdaxin_blocks import get_dataframe
                 self._block_df = get_dataframe()
                 if self._block_df is not None:
-                    logger.info(f"[{self.name}] 从文件加载板块数据: {self._block_df.shape}")
+                    logger.info(f"[{self.name}] 从文件加载题材数据: {self._block_df.shape}")
                     return self._block_df
             except Exception as e:
-                logger.warning(f"[{self.name}] 从文件加载板块数据失败: {e}")
+                logger.warning(f"[{self.name}] 从文件加载题材数据失败: {e}")
 
         return self._block_df
 
     def _process(self, data: pd.DataFrame, context: Optional[Dict[str, Any]] = None) -> StageResult:
-        """合并板块数据"""
+        """合并题材数据"""
         block_df = self._load_block_data()
 
         if block_df is None or block_df.empty:
             return StageResult(
                 success=True,
                 data=data,
-                warning="板块数据为空，跳过合并",
+                warning="题材数据为空，跳过合并",
                 rows_in=len(data),
                 rows_out=len(data),
                 metadata={'enriched': False, 'reason': 'no_block_data'}
@@ -108,7 +109,7 @@ class EnrichStage(Stage):
                 return StageResult(
                     success=True,
                     data=data,
-                    warning="板块数据中没有 blocks 列",
+                    warning="题材数据中没有 blocks 列",
                     rows_in=len(data),
                     rows_out=len(data),
                     metadata={'enriched': False, 'reason': 'no_blocks_column'}
@@ -129,15 +130,19 @@ class EnrichStage(Stage):
             )
 
             if 'blocks' in data.columns:
-                data = data.rename(columns={'blocks': 'sector'})
-                data['sector'] = data['sector'].fillna('')
+                if 'blocks' in data.columns and 'block' not in data.columns:
+                    data = data.rename(columns={'blocks': 'block'})
+                if 'sector' in data.columns and 'block' not in data.columns:
+                    data = data.rename(columns={'sector': 'block'})
+                if 'block' in data.columns:
+                    data['block'] = data['block'].fillna('')
 
             if original_index_name and original_index_name != 'code' and original_index_name in data.columns:
                 data = data.set_index(original_index_name)
 
             enriched_count = 0
-            if 'sector' in data.columns:
-                enriched_count = (data['sector'] != '').sum()
+            if 'block' in data.columns:
+                enriched_count = (data['block'] != '').sum()
 
             new_columns = set(data.columns) - original_columns
             removed_columns = original_columns - set(data.columns)
@@ -157,7 +162,7 @@ class EnrichStage(Stage):
             )
 
         except Exception as e:
-            logger.exception(f"[{self.name}] 合并板块数据失败: {e}")
+            logger.exception(f"[{self.name}] 合并题材数据失败: {e}")
 
             try:
                 data = data.set_index(original_index_name or data.columns[0])
@@ -174,7 +179,7 @@ class EnrichStage(Stage):
             )
 
     def refresh(self):
-        """刷新板块数据（供外部调用）"""
+        """刷新题材数据（供外部调用）"""
         self._block_df = None
         self._load_attempted = False
         return self._load_block_data()

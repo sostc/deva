@@ -9,14 +9,14 @@ Wisdom UI - 知识库检索触发状态展示
 
 from typing import Dict, Any
 import time
+from deva.naja.register import SR
 
 
 async def render_wisdom_status(ctx: dict):
     """渲染智慧系统状态"""
     
     try:
-        from ..manas_alaya_connector import get_connector
-        connector = get_connector()
+        connector = SR('connector')
         wisdom_stats = connector.get_wisdom_stats()
     except Exception as e:
         wisdom_stats = {}

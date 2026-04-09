@@ -3,24 +3,24 @@ Cognition Summary 组件
 """
 
 from typing import Dict
+from deva.naja.register import SR
 
 
 def render_cognition_summary(ui):
     from ....radar.engine import get_radar_engine
-    from ....attention.ui_components.common import get_attention_report
-    from ....cognition.insight import get_insight_engine, get_insight_pool
+    from ....market_hotspot.ui_components.common import get_hotspot_report
     from pywebio.output import put_html
 
     radar = get_radar_engine()
     radar_summary = radar.summarize(window_seconds=600) if radar else {}
     radar_events = radar_summary.get("event_count", 0)
 
-    attention_report = get_attention_report() or {}
-    global_attention = float(attention_report.get("global_attention", 0))
+    attention_report = get_hotspot_report() or {}
+    global_attention = float(attention_report.get("global_hotspot", 0))
     activity = float(attention_report.get("activity", 0))
 
-    insight_engine = get_insight_engine()
-    insight_pool = get_insight_pool()
+    insight_engine = SR('insight_engine')
+    insight_pool = SR('insight_pool')
     insight_summary = insight_engine.get_summary() if insight_engine else {}
     insight_stats = insight_pool.get_stats() if insight_pool else {"total_insights": 0}
 

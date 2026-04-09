@@ -136,7 +136,7 @@ async def test_market_flow():
     print("  通道2: 市场数据流测试")
     print("=" * 70)
 
-    from deva.naja.attention.data.global_market_futures import GlobalMarketAPI
+    from deva.naja.market_hotspot.data.global_market_futures import GlobalMarketAPI
     from deva.naja.cognition.liquidity.liquidity_cognition import LiquidityCognition
     from deva.naja.cognition.liquidity.propagation_engine import MARKET_ID_MAP
 
@@ -194,7 +194,7 @@ async def test_resonance_flow():
         "vix": 0.7, "^VIX": 0.7, "gold": 0.5, "GC": 0.5,
         "us_equity": 0.7
     }
-    sector_names_mock = {
+    block_names_mock = {
         "sp500": "标普500", "nasdaq": "纳斯达克", "vix": "恐慌指数",
         "gold": "黄金", "us_equity": "美股"
     }
@@ -202,11 +202,11 @@ async def test_resonance_flow():
     class MockAttentionSnapshot:
         def __init__(self):
             self.timestamp = time.time()
-            self.sector_weights = attention_mock
+            self.block_weights = attention_mock
             self.symbol_weights = symbol_weights_mock
-            self.sector_names = sector_names_mock
+            self.block_names = block_names_mock
             self.high_attention_symbols = {"sp500", "nasdaq", "vix"}
-            self.active_sectors = {"sp500", "nasdaq", "vix"}
+            self.active_blocks = {"sp500", "nasdaq", "vix"}
             self.global_attention = 0.7
             self.activity = 0.6
 

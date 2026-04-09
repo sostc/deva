@@ -15,7 +15,7 @@ print("\n1️⃣ 检查历史追踪器")
 print("-"*60)
 
 try:
-    from deva.naja.attention.history_tracker import get_history_tracker
+    from deva.naja.market_hotspot.market_hotspot_history_tracker import get_history_tracker
     tracker = get_history_tracker()
     
     print(f"   ✅ 历史追踪器已创建: {tracker}")
@@ -47,7 +47,7 @@ print("\n2️⃣ 检查 UI 函数")
 print("-"*60)
 
 try:
-    from deva.naja.attention.ui import _get_attention_changes, _get_attention_shift_report, _render_attention_changes, _render_attention_shift_report
+    from deva.naja.market_hotspot.ui_components.admin import _get_attention_changes_impl as _get_attention_changes, _get_attention_shift_report_impl as _get_attention_shift_report, _get_attention_changes_html as _render_attention_changes, _get_attention_shift_report_impl as _get_attention_shift_report
     
     # 测试获取变化
     changes = _get_attention_changes()

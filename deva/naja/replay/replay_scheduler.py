@@ -25,6 +25,7 @@ from datetime import datetime, timedelta
 from typing import Any, Callable, Dict, List, Optional
 
 from deva import NB, log
+from deva.naja.register import SR
 
 log = logging.getLogger(__name__)
 
@@ -314,7 +315,7 @@ class ReplayScheduler:
             return data
 
         try:
-            from deva.naja.attention.intelligence.frequency_scheduler import get_frequency_scheduler
+            from deva.naja.market_hotspot.intelligence.frequency_scheduler import get_frequency_scheduler
             fs = get_frequency_scheduler()
 
             if fs is None:
@@ -413,8 +414,7 @@ class ReplayScheduler:
     def _enable_market_time_service(self):
         """启用市场时间服务（回放模式）"""
         try:
-            from deva.naja.common.market_time import get_market_time_service
-            mts = get_market_time_service()
+            mts = SR('market_time_service')
             mts.set_replay_mode(True)
             log.info("[ReplayScheduler] 已启用市场时间服务（回放模式）")
         except Exception as e:
@@ -425,8 +425,7 @@ class ReplayScheduler:
         if self._current_replay_time is None:
             return
         try:
-            from deva.naja.common.market_time import get_market_time_service
-            mts = get_market_time_service()
+            mts = SR('market_time_service')
             replay_ts = self._current_replay_time.timestamp()
             mts.set_market_time(replay_ts)
             log.debug(f"[ReplayScheduler] 更新市场时间: {self._current_replay_time}")
@@ -436,8 +435,7 @@ class ReplayScheduler:
     def _disable_market_time_service(self):
         """关闭市场时间服务（回放结束时）"""
         try:
-            from deva.naja.common.market_time import get_market_time_service
-            mts = get_market_time_service()
+            mts = SR('market_time_service')
             mts.set_replay_mode(False)
             log.info("[ReplayScheduler] 已关闭市场时间服务（退出回放模式）")
         except Exception as e:
@@ -449,20 +447,6 @@ class ReplayScheduler:
             self.config.min_interval,
             min(interval, self.config.max_interval)
         )
-
-
-_replay_scheduler: Optional[ReplayScheduler] = None
-_replay_scheduler_lock = threading.Lock()
-
-
-def get_replay_scheduler() -> ReplayScheduler:
-    """获取回放调度器单例"""
-    global _replay_scheduler
-    if _replay_scheduler is None:
-        with _replay_scheduler_lock:
-            if _replay_scheduler is None:
-                _replay_scheduler = ReplayScheduler()
-    return _replay_scheduler
 
 
 def create_replay_scheduler(config: ReplayConfig) -> ReplayScheduler:

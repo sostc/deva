@@ -1,19 +1,18 @@
 """Naja 首页 UI 模块"""
 
 from pywebio.output import put_markdown, put_html
+from deva.naja.register import SR
 
 
 async def render_home(ctx: dict):
     """渲染首页"""
     from ..datasource import get_datasource_manager
-    from ..tasks import get_task_manager
     from ..strategy import get_strategy_manager
-    from ..dictionary import get_dictionary_manager
 
     ds_mgr = get_datasource_manager()
-    task_mgr = get_task_manager()
+    task_mgr = SR('task_manager')
     strategy_mgr = get_strategy_manager()
-    dict_mgr = get_dictionary_manager()
+    dict_mgr = SR('dictionary_manager')
 
     ds_stats = ds_mgr.get_stats()
     task_stats = task_mgr.get_stats()
@@ -26,7 +25,6 @@ async def render_home(ctx: dict):
     try:
         from deva.naja.attention.trading_center import get_trading_center
         from deva.naja.radar import get_radar_engine
-        from deva.naja.bandit import get_bandit_runner
         from deva.naja.cognition.core import get_cognition_system
 
         tc = get_trading_center()
@@ -40,7 +38,7 @@ async def render_home(ctx: dict):
         radar = get_radar_engine()
         radar_events = radar.get_recent_events(limit=100) if hasattr(radar, 'get_recent_events') else []
 
-        bandit = get_bandit_runner()
+        bandit = SR('bandit_runner')
         bandit_stats = bandit.get_stats() if hasattr(bandit, 'get_stats') else {}
 
         cognition = get_cognition_system()
@@ -62,8 +60,7 @@ async def render_home(ctx: dict):
     wisdom_last_snippet = ""
     wisdom_last_focus = "-"
     try:
-        from ..manas_alaya_connector import get_connector
-        connector = get_connector()
+        connector = SR('connector')
         w_stats = connector.get_wisdom_stats()
         wisdom_trigger_count = w_stats.get("trigger_count", 0)
         wisdom_last_snippet = w_stats.get("last_best_snippet", "") or ""

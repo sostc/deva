@@ -10,9 +10,10 @@ print("诊断：Manas-Alaya 连接器完整性")
 print("=" * 70)
 
 from deva.naja.manas_alaya_connector import get_connector, ManasAlayaConnector
+from deva.naja.register import SR
 
 print("\n[1] 获取 ManasAlayaConnector 实例...")
-connector = get_connector()
+connector = SR('connector')
 print(f"    connector: {connector}")
 print(f"    type: {type(connector).__name__}")
 
@@ -47,7 +48,7 @@ w_stats = connector.get_wisdom_stats()
 print(f"    wisdom_stats: {w_stats}")
 
 print("\n[5] 检查单例模式...")
-connector2 = get_connector()
+connector2 = SR('connector')
 print(f"    两次获取是同一实例: {connector is connector2}")
 
 print("\n" + "=" * 70)

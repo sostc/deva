@@ -78,7 +78,6 @@ class StartupConfig:
     tune_search_method: str = "grid"
     tune_max_samples: int = 100
     tune_export_path: Optional[str] = None
-    force_realtime: bool = False
 
     @property
     def is_lab_mode(self) -> bool:
@@ -96,8 +95,6 @@ class StartupConfig:
         mode_str += f", news_radar={self.news_radar_mode.value}"
         if self.news_radar_mode == NewsRadarMode.SPEED:
             mode_str += f"({self.news_radar_speed}x)"
-        if self.force_realtime:
-            mode_str += ", force_realtime=True"
         return f"StartupConfig({mode_str})"
 
 

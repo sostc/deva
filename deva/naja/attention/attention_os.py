@@ -8,7 +8,7 @@ AttentionOS - 注意力操作系统
 │  ┌─────────────────────────────────────────────────────────────────────┐   │
 │  │                    OS 应用层 (Applications)                            │   │
 │  │                                                                      │   │
-│  │  • MarketScheduler - 市场调度（板块/个股权重 + 频率控制）               │   │
+│  │  • StrategyDecisionMaker - 市场调度（题材/个股权重 + 频率控制）               │   │
 │  │  • StrategyAllocator - 策略分配                                      │   │
 │  │  • FrequencyController - 频率控制器                                  │   │
 │  │  • ...其他模块                                                       │   │
@@ -21,7 +21,6 @@ AttentionOS - 注意力操作系统
 │  │  • ManasEngine - 三维融合决策中枢（天时+地势+人和）                    │   │
 │  │  • Encoder - 事件编码器                                              │   │
 │  │  • MultiHeadAttention - 多头注意力                                    │   │
-│  │  • AttentionMemory - 注意力记忆                                       │   │
 │  │  • ValueSystem - 价值观驱动                                          │   │
 │  └─────────────────────────────────────────────────────────────────────┘   │
 └─────────────────────────────────────────────────────────────────────────────┘
@@ -30,7 +29,6 @@ AttentionOS - 注意力操作系统
     • compute_attention() - QKV 注意力计算
     • make_decision() - ManasEngine 决策
     • get_harmony() - 获取和谐状态
-    • get_memory() - 注意力记忆
 
 使用方式：
     attention_os = AttentionOS()
@@ -51,10 +49,10 @@ import threading
 
 from .kernel.event_encoder import Encoder
 from .kernel.multi_scorer import MultiHeadAttention
-from .kernel.memory import AttentionMemory
 from .kernel.manas_engine import ManasEngine
 from .kernel import get_default_heads
-from .values.system import ValueSystem, get_value_system
+from .values.system import ValueSystem
+from .text_importance_scorer import TextImportanceScorer
 
 from .attention_fusion import get_attention_fusion
 
@@ -206,7 +204,6 @@ class AttentionKernelOutput:
     narrative_risk: float = 0.5                                       # 【认知】叙事风险
     ai_compute_direction: str = "unknown"                            # 【认知】AI算力方向
     awakening_level: str = "dormant"                                  # 【认知】觉醒水平
-    memory_focus: List[Dict] = field(default_factory=list)          # 【记忆】来自 AttentionMemory 的高注意力事件
 
     fusion_output: Optional[AttentionFusionOutput] = None             # 【融合层】融合结果（单独存储）
 
@@ -233,7 +230,6 @@ class AttentionKernelOutput:
         }
         if self.fusion_output is not None:
             result["fusion_output"] = self.fusion_output.to_dict()
-        result["memory_focus"] = self.memory_focus
         return result
 
 
@@ -244,7 +240,6 @@ class AttentionKernel:
     核心组件：
     - Encoder: 事件编码
     - MultiHeadAttention: QKV 注意力计算
-    - AttentionMemory: 记忆存储
     - ManasEngine: 决策中枢
     - ValueSystem: 价值观驱动
     """
@@ -253,7 +248,6 @@ class AttentionKernel:
         self.encoder = Encoder()
         heads = get_default_heads()
         self.multi_head = MultiHeadAttention(heads)
-        self.memory = AttentionMemory(base_decay_rate=300)
         self.manas_engine = ManasEngine()
         self._value_system = None
 
@@ -263,7 +257,7 @@ class AttentionKernel:
 
     def _get_value_system(self) -> ValueSystem:
         if self._value_system is None:
-            self._value_system = get_value_system()
+            self._value_system = SR('value_system')
         return self._value_system
 
     def compute(
@@ -407,9 +401,6 @@ class AttentionKernel:
             reason = vs.generate_focus_reason(e.features)
             vs.record_attention(symbol, alignment, reason)
             vs.set_last_decision_reason(reason)
-            self.memory.update(symbol=symbol, alignment=alignment, reason=reason)
-
-        memory_focus = self.memory.get_focus(top_k=5)
 
         output = AttentionKernelOutput(
             alpha=alpha,
@@ -430,7 +421,6 @@ class AttentionKernel:
             narrative_risk=manas_output.narrative_risk,
             ai_compute_direction=manas_output.ai_compute_direction,
             awakening_level=manas_output.awakening_level,
-            memory_focus=memory_focus,
             fusion_output=fusion_output,
         )
 
@@ -497,10 +487,6 @@ class AttentionKernel:
             "action_type": self._last_output.action_type,
         }
 
-    def get_memory(self) -> AttentionMemory:
-        """获取注意力记忆"""
-        return self.memory
-
     def get_manas_engine(self) -> ManasEngine:
         """获取 ManasEngine 实例"""
         return self.manas_engine
@@ -517,15 +503,13 @@ class AttentionKernel:
 
     def _get_session_manager(self):
         try:
-            from deva.naja.radar.trading_clock import get_trading_clock
-            return get_trading_clock()
+            return SR('trading_clock')
         except ImportError:
             return None
 
     def _get_portfolio(self):
         try:
-            from deva.naja.bandit import get_virtual_portfolio
-            return get_virtual_portfolio()
+            return SR('virtual_portfolio')
         except ImportError:
             return None
 
@@ -538,22 +522,21 @@ class AttentionKernel:
 
     def _get_bandit_tracker(self):
         try:
-            from deva.naja.bandit import get_bandit_tracker
-            return get_bandit_tracker()
+            return SR('bandit_tracker')
         except ImportError:
             return None
 
 
-class MarketScheduler:
+class StrategyDecisionMaker:
     """
-    市场调度器 - Attention OS 应用层
+    策略决策器 - Attention OS 应用层
 
     职责：
-    - 板块/个股权重分配
-    - 刷新频率控制
-    - 策略分配
+    - 基于 AttentionKernel 的决策进行策略执行判断
+    - 决定是否应该执行交易策略
+    - 时机选择和置信度评估
 
-    依托 Attention Kernel 获取注意力权重和决策调制
+    依托 AttentionKernel 获取和谐度、时机评分和置信度
     """
 
     def __init__(self, kernel: AttentionKernel):
@@ -649,9 +632,13 @@ class MarketScheduler:
         self._schedule_interval = max(1.0, min(600.0, self._schedule_interval))
 
     def _allocate_weights(self, market_data: Dict[str, Any], kernel_output: AttentionKernelOutput):
-        """分配个股权重和板块权重（支持多 blocks）"""
+        """分配个股权重和题材权重（支持多 blocks）"""
         base_weights = market_data.get("symbol_weights", {})
-        block_map = market_data.get("block_map", {})
+        block_hotspot = market_data.get("block_hotspot", {})
+
+        if not base_weights:
+            log.debug(f"[StrategyDecisionMaker] 警告: market_data 中没有 symbol_weights")
+            return
 
         alpha = kernel_output.alpha
         harmony = kernel_output.harmony_strength
@@ -669,7 +656,7 @@ class MarketScheduler:
 
             self._symbol_weights[symbol] = max(0.0, min(1.0, final_weight))
 
-            blocks = block_map.get(symbol, [])
+            blocks = self._get_symbol_blocks(symbol, block_hotspot)
             if not blocks:
                 blocks = ["other"]
             weight_per_block = final_weight / len(blocks)
@@ -680,6 +667,15 @@ class MarketScheduler:
 
         for block, total in block_totals.items():
             self._block_weights[block] = min(1.0, total / max(1, len(block_totals)))
+
+    def _get_symbol_blocks(self, symbol: str, block_hotspot: Dict[str, float]) -> List[str]:
+        """根据个股代码和题材热点确定该个股属于哪些题材"""
+        blocks = []
+        symbol_upper = symbol.upper()
+        for block_name in block_hotspot.keys():
+            if block_name.upper() in symbol_upper or any(c in symbol_upper for c in ['AI', 'TECH', 'FIN', 'MED', 'ENE', 'CON']):
+                blocks.append(block_name)
+        return blocks if blocks else list(block_hotspot.keys())[:3]
 
     def _allocate_strategies(
         self,
@@ -816,9 +812,199 @@ class AttentionOS:
             return
 
         self.kernel = AttentionKernel()
-        self.market_scheduler = MarketScheduler(self.kernel)
+        self.strategy_decision_maker = StrategyDecisionMaker(self.kernel)
+        self._text_scorer = TextImportanceScorer(self)
+
+        self._strategy_manager = None
+        self._subscribe_to_hotspot_events()
+        self._subscribe_to_text_events()
 
         self._initialized = True
+
+    def initialize_strategies(self):
+        """初始化所有交易策略"""
+        if self._strategy_manager is not None:
+            return
+
+        from deva.naja.attention.strategies import (
+            GlobalMarketSentinel,
+            BlockRotationHunter,
+            MomentumSurgeTracker,
+            AnomalyPatternSniper,
+            SmartMoneyFlowDetector,
+            LiquidityCrisisTracker,
+            PanicPeakDetector,
+            RecoveryConfirmationMonitor,
+        )
+        from deva.naja.attention.strategies.us_strategies import (
+            USGlobalMarketSentinel,
+            USBlockRotationHunter,
+            USMomentumSurgeTracker,
+            USAnomalyPatternSniper,
+            USSmartMoneyFlowDetector,
+        )
+
+        self._strategy_manager = {
+            'cn_global_sentinel': GlobalMarketSentinel(market='CN'),
+            'cn_block_rotation': BlockRotationHunter(market='CN'),
+            'cn_momentum_tracker': MomentumSurgeTracker(market='CN'),
+            'cn_anomaly_sniper': AnomalyPatternSniper(market='CN'),
+            'cn_smart_money': SmartMoneyFlowDetector(market='CN'),
+            'cn_liquidity_crisis': LiquidityCrisisTracker(market='CN'),
+            'cn_panic_peak': PanicPeakDetector(market='CN'),
+            'cn_recovery_monitor': RecoveryConfirmationMonitor(market='CN'),
+            'us_global_sentinel': USGlobalMarketSentinel(),
+            'us_block_rotation': USBlockRotationHunter(),
+            'us_momentum_tracker': USMomentumSurgeTracker(),
+            'us_anomaly_sniper': USAnomalyPatternSniper(),
+            'us_smart_money': USSmartMoneyFlowDetector(),
+        }
+
+        for strategy in self._strategy_manager.values():
+            strategy.subscribe_to_events()
+
+        log.info(f"[AttentionOS] 已初始化 {len(self._strategy_manager)} 个策略 (A股 {8}, 美股 {5})")
+
+    def get_strategy_signals(self, strategy_id: Optional[str] = None, n: int = 20) -> List[Dict]:
+        """获取策略信号"""
+        if self._strategy_manager is None:
+            return []
+
+        if strategy_id:
+            strategy = self._strategy_manager.get(strategy_id)
+            return strategy.get_recent_signals(n) if strategy else []
+
+        all_signals = []
+        for strategy in self._strategy_manager.values():
+            all_signals.extend(strategy.get_recent_signals(n))
+
+        return sorted(all_signals, key=lambda x: x['timestamp'], reverse=True)[:n]
+
+    def _subscribe_to_hotspot_events(self):
+        """订阅市场热点事件"""
+        try:
+            from deva.naja.events import get_event_bus
+            event_bus = get_event_bus()
+            event_bus.subscribe(
+                'HotspotComputedEvent',
+                self._on_hotspot_computed,
+                markets={'US', 'CN'},
+                priority=10
+            )
+            event_bus.subscribe(
+                'HotspotShiftEvent',
+                self._on_hotspot_shift,
+                priority=5
+            )
+            log.info("[AttentionOS] 已订阅市场热点事件和热点转移事件")
+        except Exception as e:
+            log.warning(f"[AttentionOS] 订阅市场热点事件失败: {e}")
+
+    def _subscribe_to_text_events(self):
+        """订阅文本获取事件"""
+        try:
+            from deva.naja.events import get_event_bus
+            event_bus = get_event_bus()
+            event_bus.subscribe(
+                'TextFetchedEvent',
+                self._on_text_fetched,
+                priority=10
+            )
+            log.info("[AttentionOS] 已订阅文本获取事件")
+        except Exception as e:
+            log.warning(f"[AttentionOS] 订阅文本获取事件失败: {e}")
+
+    def _on_text_fetched(self, event):
+        """处理文本获取事件 - TextImportanceScorer 进行重要性评分"""
+        try:
+            self._text_scorer.on_text_fetched(event)
+        except Exception as e:
+            log.debug(f"[AttentionOS] 处理文本获取事件失败: {e}")
+
+    def _on_hotspot_computed(self, event):
+        """处理热点计算完成事件"""
+        try:
+            market_data = {
+                'market': event.market,
+                'global_hotspot': event.global_hotspot,
+                'activity': event.activity,
+                'block_hotspot': event.block_hotspot,
+                'symbol_weights': event.symbol_weights,
+                'symbols': event.symbols,
+            }
+
+            self.strategy_decision_maker.schedule(market_data)
+
+            log.debug(f"[AttentionOS] 处理热点事件: market={event.market}, global_hotspot={event.global_hotspot:.3f}")
+        except Exception as e:
+            log.debug(f"[AttentionOS] 处理热点事件失败: {e}")
+
+    def _on_hotspot_shift(self, event):
+        """处理热点转移事件 - 内核决定是否发送到 InsightPool"""
+        try:
+            should_emit = self._should_emit_to_insight(event)
+            if should_emit:
+                self._emit_shift_to_insight(event)
+            log.debug(f"[AttentionOS] 处理热点转移事件: type={event.event_type}, emitted={should_emit}")
+        except Exception as e:
+            log.debug(f"[AttentionOS] 处理热点转移事件失败: {e}")
+
+    def _should_emit_to_insight(self, event) -> bool:
+        """根据事件类型和分数决定是否发送到 InsightPool"""
+        score = getattr(event, 'score', 0.0)
+        event_type = getattr(event, 'event_type', '')
+        old_value = getattr(event, 'old_value', None)
+        new_value = getattr(event, 'new_value', None)
+
+        if score < 0.1:
+            return False
+
+        if event_type in ("global_hotspot_shift", "market_state_shift"):
+            return True
+
+        if event_type in ("block_concentration_shift", "market_activity_shift"):
+            if old_value is not None and new_value is not None:
+                change = abs(new_value - old_value) if old_value else 0
+                return change >= 0.15
+            return score >= 0.3
+
+        if event_type in ("block_hotspot", "symbol_hotspot_change"):
+            return score >= 0.3
+
+        if event_type in ("effective_pattern", "ineffective_pattern"):
+            return True
+
+        if event_type == "hotspot_shift":
+            return True
+
+        return score >= 0.2
+
+    def _emit_shift_to_insight(self, event):
+        """发送热点转移事件到 InsightPool（带用户个性化打分）"""
+        try:
+            from deva.naja.cognition.singletons import SR
+            pool = SR('insight_pool')
+            if not pool:
+                return
+
+            insight_data = {
+                "theme": getattr(event, 'title', ''),
+                "summary": getattr(event, 'content', ''),
+                "symbols": [getattr(event, 'symbol', '')] if getattr(event, 'symbol', '') else [],
+                "blocks": [getattr(event, 'block', '')] if getattr(event, 'block', '') else [],
+                "confidence": min(0.9, max(0.3, getattr(event, 'score', 0.5))),
+                "actionability": 0.5,
+                "system_hotspot": getattr(event, 'score', 0.5),
+                "source": "hotspot_shift",
+                "signal_type": getattr(event, 'event_type', 'hotspot_shift'),
+                "ts": getattr(event, 'timestamp', time.time()),
+                "payload": getattr(event, 'payload', {}),
+            }
+
+            personalized = self.kernel.personalize_event(insight_data)
+            pool.ingest_hotspot_event(personalized)
+        except Exception as e:
+            log.debug(f"[AttentionOS] 发送热点转移事件到 InsightPool 失败: {e}")
 
     def initialize(self):
         """初始化"""
@@ -843,16 +1029,15 @@ class AttentionOS:
         │    • harmony_strength ──────────────→ _adjust_frequency()                   │
         │    • action_type ──────────────────→ _allocate_strategies()                │
         │    • regime ────────────────────────→ regime_factor *= 策略权重              │
-        │    • memory.update() ───────────────→ AttentionMemory                      │
         │    • vs.record_attention() ─────────→ ValueSystem                          │
         └─────────────────────────────────────────────────────────────────────────────┘
 
         影响的子系统：
-          1. MarketScheduler.symbol_weights / sector_weights
+          1. StrategyDecisionMaker.symbol_weights / block_weights
              final_weight = base_weight * attention_weight * alpha * harmony * confidence
-          2. MarketScheduler.frequency_level
+          2. StrategyDecisionMaker.frequency_level
              composite_score = harmony * 0.5 + timing * 0.3 + (1.0 if regime > 0 else 0.3) * 0.2
-          3. MarketScheduler.strategy_allocations
+          3. StrategyDecisionMaker.strategy_allocations
              根据 action_type 分配 momentum/mean_reversion/breakout/grid/wait 权重
         """
         return self.kernel.compute(events, market_state, query_state)
@@ -867,7 +1052,7 @@ class AttentionOS:
 
     def schedule_market(self, market_data: Dict[str, Any]) -> Dict[str, Any]:
         """市场调度"""
-        return self.market_scheduler.schedule(market_data)
+        return self.strategy_decision_maker.schedule(market_data)
 
     def get_harmony(self) -> Dict[str, Any]:
         """获取和谐状态"""
@@ -883,12 +1068,10 @@ _attention_os: Optional[AttentionOS] = None
 
 def get_attention_os() -> AttentionOS:
     """获取 AttentionOS 单例"""
+    from deva.naja.register import SR
+    return SR('attention_os')
+
     global _attention_os
     if _attention_os is None:
         _attention_os = AttentionOS()
     return _attention_os
-
-
-def get_attention_kernel() -> AttentionKernel:
-    """获取 AttentionKernel（兼容旧接口）"""
-    return get_attention_os().kernel

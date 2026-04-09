@@ -216,49 +216,11 @@ def render_multi_head_panel(heads_output: Dict[str, Any]) -> str:
 
 
 def render_memory_panel(memory_items: List[Dict[str, Any]]) -> str:
-    """渲染 AttentionMemory 面板"""
-    items_html = ""
-    for i, item in enumerate(memory_items[:5]):
-        event = item.get("event", {})
-        score = item.get("score", 0)
-        event_time = item.get("time", 0)
-        age = time.time() - event_time if event_time else 0
+    """渲染 AttentionMemory 面板
 
-        source = event.source if hasattr(event, 'source') else str(event)[:20]
-        features = event.features if hasattr(event, 'features') else {}
-
-        bar_width = min(score * 100, 100)
-        score_color = "#4ade80" if score > 0.5 else "#fbbf24" if score > 0.2 else "#64748b"
-
-        items_html += f"""
-        <div style="
-            background: rgba(255,255,255,0.05);
-            border-radius: 6px;
-            padding: 8px;
-            margin: 6px 0;
-        ">
-            <div style="display: flex; justify-content: space-between;">
-                <span style="color: #94a3b8;">{source}</span>
-                <span style="color: #64748b; font-size: 11px;">{age:.1f}s 前</span>
-            </div>
-            <div style="background: #334155; border-radius: 4px; height: 6px; width: 100%; margin: 5px 0;">
-                <div style="background: {score_color}; border-radius: 4px; height: 6px; width: {bar_width}%;"></div>
-            </div>
-            <div style="font-size: 11px; color: #64748b;">
-                Score: <span style="color: {score_color};">{score:.3f}</span>
-                | Features: {len(features)}
-            </div>
-        </div>
-        """
-
-    decay_rate = 300
-    decay_info = f"""
-    <div style="font-size: 11px; color: #64748b; margin-top: 10px;">
-        半衰期: {decay_rate}s | 存储: {len(memory_items)} 条
-    </div>
+    AttentionMemory 已删除，记忆功能由 Cognition 系统提供
     """
-
-    return f"""
+    return """
     <div style="
         background: rgba(74,222,128,0.1);
         border: 1px solid rgba(74,222,128,0.3);
@@ -266,12 +228,9 @@ def render_memory_panel(memory_items: List[Dict[str, Any]]) -> str:
         padding: 15px;
     ">
         <h4 style="margin: 0 0 15px 0; color: #4ade80;">
-            💾 AttentionMemory - 持久记忆
+            💾 AttentionMemory - 已移除
         </h4>
-
-        {items_html if items_html else '<span style="color: #64748b;">暂无记忆...</span>'}
-
-        {decay_info}
+        <span style="color: #64748b;">记忆功能已移动到 Cognition 系统</span>
     </div>
     """
 
@@ -360,8 +319,6 @@ def render_kernel_live_view(kernel) -> str:
             heads_output[head.name] = {"alpha": 0.5, "confidence": 0.7}
 
     memory_items = []
-    if hasattr(kernel, 'memory') and kernel.memory:
-        memory_items = kernel.memory.store[-5:]
 
     feedback_info = {
         "reward": 0.1,

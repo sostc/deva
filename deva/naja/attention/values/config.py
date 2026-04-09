@@ -79,19 +79,19 @@ VALUE_CONFIG: Dict[str, Dict[str, Any]] = {
         "applicable_regimes": ["trend_up", "trend_down", "weak_trend_up", "weak_trend_down"],
         "avoid_regimes": ["neutral"],
         "signals": {
-            "buy": "板块轮动 + 资金接力",
-            "sell": "动量衰竭 + 板块轮动减速",
-            "watch": "板块轮动混乱时观望"
+            "buy": "题材轮动 + 资金接力",
+            "sell": "动量衰竭 + 题材轮动减速",
+            "watch": "题材轮动混乱时观望"
         },
         "indicators": {
-            "sector_rotation_speed": 0.8,
+            "block_rotation_speed": 0.8,
             "fund_flow_consistency": 0.7,
             "momentum_score_min": 0.6
         },
         "risk_rules": {
             "max_loss_per_trade": 4.0,
             "stop_loss_style": "momentum_based",
-            "position_sizing": "sector_weighted"
+            "position_sizing": "block_weighted"
         }
     },
     "liquidity": {

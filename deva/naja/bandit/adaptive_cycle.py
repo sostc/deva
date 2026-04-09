@@ -12,12 +12,11 @@ from typing import Any, Dict, List, Optional
 
 from deva import NB
 
-from .signal_listener import SignalListener, DetectedSignal, get_signal_listener
-from .virtual_portfolio import VirtualPortfolio, VirtualPosition, get_virtual_portfolio
+from .signal_listener import SignalListener, DetectedSignal
+from .virtual_portfolio import VirtualPortfolio, VirtualPosition
 from .market_observer import MarketDataObserver, get_market_observer
 from .optimizer import get_bandit_optimizer
-from .tracker import get_bandit_tracker
-from .runner import get_bandit_runner
+from deva.naja.register import SR
 
 log = logging.getLogger(__name__)
 
@@ -49,12 +48,12 @@ class AdaptiveCycle:
         
         self._db = NB(ADAPTIVE_CONFIG_TABLE)
         
-        self._signal_listener = get_signal_listener()
-        self._portfolio = get_virtual_portfolio()
+        self._signal_listener = SR('signal_listener')
+        self._portfolio = SR('virtual_portfolio')
         self._market_observer = get_market_observer()
         self._optimizer = get_bandit_optimizer()
-        self._tracker = get_bandit_tracker()
-        self._runner = get_bandit_runner()
+        self._tracker = SR('bandit_tracker')
+        self._runner = SR('bandit_runner')
         
         self._auto_start = True
         self._auto_buy_enabled = True
@@ -506,15 +505,3 @@ class AdaptiveCycle:
         
         return self._portfolio.close_position(position_id, position.current_price, reason) is not None
 
-
-_cycle: Optional[AdaptiveCycle] = None
-_cycle_lock = threading.Lock()
-
-
-def get_adaptive_cycle() -> AdaptiveCycle:
-    global _cycle
-    if _cycle is None:
-        with _cycle_lock:
-            if _cycle is None:
-                _cycle = AdaptiveCycle()
-    return _cycle

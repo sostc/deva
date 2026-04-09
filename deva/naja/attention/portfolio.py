@@ -237,8 +237,8 @@ class Portfolio:
         watchlist_codes = {s.code for s in watchlist}
         all_codes = holding_codes | watchlist_codes
 
-        from deva.naja.bandit.stock_sector_map import get_stock_sector_map
-        sm = get_stock_sector_map()
+        from deva.naja.bandit.stock_block_map import get_stock_block_map
+        sm = get_stock_block_map()
 
         industry_alloc: Dict[str, float] = {}
         block_alloc: Dict[str, float] = {}
@@ -278,8 +278,8 @@ class Portfolio:
 
     def get_watchlist_blocks(self) -> Set[str]:
         """获取自选股关联的block"""
-        from deva.naja.bandit.stock_sector_map import get_stock_sector_map
-        sm = get_stock_sector_map()
+        from deva.naja.bandit.stock_block_map import get_stock_block_map
+        sm = get_stock_block_map()
         blocks: Set[str] = set()
         for code in self.get_watchlist_codes():
             blocks_list = sm.get_stock_blocks(code)
@@ -292,8 +292,8 @@ class Portfolio:
 
     def get_holding_narratives(self) -> Dict[str, float]:
         """获取持仓关联的叙事（按叙事→权重）"""
-        from deva.naja.bandit.stock_sector_map import get_stock_sector_map
-        sm = get_stock_sector_map()
+        from deva.naja.bandit.stock_block_map import get_stock_block_map
+        sm = get_stock_block_map()
         narrative_weights: Dict[str, float] = {}
         for code in self.get_holding_codes():
             narrative = sm.get_stock_narrative(code)
@@ -306,8 +306,8 @@ class Portfolio:
 
     def get_watchlist_narratives(self) -> Dict[str, float]:
         """获取自选股关联的叙事"""
-        from deva.naja.bandit.stock_sector_map import get_stock_sector_map
-        sm = get_stock_sector_map()
+        from deva.naja.bandit.stock_block_map import get_stock_block_map
+        sm = get_stock_block_map()
         narrative_weights: Dict[str, float] = {}
         for code in self.get_watchlist_codes():
             narrative = sm.get_stock_narrative(code)

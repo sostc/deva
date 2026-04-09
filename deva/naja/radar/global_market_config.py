@@ -13,6 +13,7 @@ from enum import Enum
 from typing import Dict, List, Optional, Tuple
 import pytz
 import threading
+from deva.naja.register import SR
 
 
 class MarketType(Enum):
@@ -420,20 +421,6 @@ class MarketSessionManager:
             return "post_market"
         else:
             return "closed"
-
-
-_market_session_manager: Optional[MarketSessionManager] = None
-_market_session_manager_lock = threading.Lock()
-
-
-def get_market_session_manager() -> MarketSessionManager:
-    """获取市场会话管理器（线程安全单例）"""
-    global _market_session_manager
-    if _market_session_manager is None:
-        with _market_session_manager_lock:
-            if _market_session_manager is None:
-                _market_session_manager = MarketSessionManager()
-    return _market_session_manager
 
 
 def get_market_config(market_id: str) -> Optional[MarketInfo]:

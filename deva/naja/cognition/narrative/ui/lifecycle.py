@@ -110,17 +110,17 @@ def render_narrative_lifecycle(ui):
             evt_attention = float(evt.get('attention_score', 0))
             evt_trend = float(evt.get('trend', 0))
             evt_keywords = evt.get('keywords', [])[:2]
-            evt_sectors = evt.get('linked_sectors', [])[:2]
+            evt_blocks = (evt.get('linked_blocks') or evt.get('linked_sectors') or [])[:2]
 
             if 'stage_change' in evt_type:
                 evt_color = '#4ade80' if evt_stage == '高潮' else ('#a855f7' if evt_stage == '扩散' else ('#fb923c' if evt_stage == '消退' else '#60a5fa'))
                 evt_icon = '🔄'
                 trend_icon = '📈' if evt_trend > 0 else '📉' if evt_trend < 0 else '➡️'
                 kw_str = ' '.join([f'<span style="padding: 1px 4px; background: rgba(255,255,255,0.08); color: #94a3b8; border-radius: 3px; font-size: 9px; margin-right: 2px;">{kw}</span>' for kw in evt_keywords]) if evt_keywords else ''
-                sector_str = ' '.join([f'<span style="padding: 1px 4px; background: rgba(249,115,22,0.15); color: #fb923c; border-radius: 3px; font-size: 9px; margin-right: 2px;">{s}</span>' for s in evt_sectors]) if evt_sectors else ''
+                block_str = ' '.join([f'<span style="padding: 1px 4px; background: rgba(249,115,22,0.15); color: #fb923c; border-radius: 3px; font-size: 9px; margin-right: 2px;">{s}</span>' for s in evt_blocks]) if evt_blocks else ''
                 evt_desc = f'<span style="color: {evt_color}; font-weight: 600;">{evt_nar}</span> → <span style="padding: 1px 6px; background: {evt_color}; color: #0f172a; border-radius: 4px; font-size: 10px; font-weight: 600;">{evt_stage}</span> {trend_icon} {int(evt_attention*100)}%'
-                if kw_str or sector_str:
-                    evt_desc += f'<br><span style="margin-top: 4px; display: inline-block;">{kw_str} {sector_str}</span>'
+                if kw_str or block_str:
+                    evt_desc += f'<br><span style="margin-top: 4px; display: inline-block;">{kw_str} {block_str}</span>'
             else:
                 evt_color = '#60a5fa'
                 evt_icon = '🔥'

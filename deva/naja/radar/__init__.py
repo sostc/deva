@@ -26,13 +26,11 @@ from .news_fetcher import (
 )
 from .trading_clock import (
     TradingClock,
-    get_trading_clock,
     trading_clock_signal,
     is_trading_time,
     is_market_closed,
     TRADING_CLOCK_STREAM,
     USTradingClock,
-    get_us_trading_clock,
     us_trading_clock_signal,
     is_us_trading_time,
     is_us_market_closed,
@@ -59,10 +57,11 @@ from .global_market_config import (
     MarketInfo,
     MarketSession,
     GLOBAL_MARKET_CONFIGS,
-    get_market_session_manager,
     get_market_config,
     get_all_market_ids,
 )
+
+from deva.naja.register import SR
 
 __all__ = [
     "RadarEngine",
@@ -73,13 +72,13 @@ __all__ = [
     "NewsItem",
     "NewsTopicCluster",
     "TradingClock",
-    "get_trading_clock",
+
     "trading_clock_signal",
     "is_trading_time",
     "is_market_closed",
     "TRADING_CLOCK_STREAM",
     "USTradingClock",
-    "get_us_trading_clock",
+
     "us_trading_clock_signal",
     "is_us_trading_time",
     "is_us_market_closed",
@@ -100,7 +99,7 @@ __all__ = [
     "MarketInfo",
     "MarketSession",
     "GLOBAL_MARKET_CONFIGS",
-    "get_market_session_manager",
+
     "get_market_config",
     "get_all_market_ids",
 ]

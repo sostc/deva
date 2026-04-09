@@ -10,6 +10,7 @@ from typing import Dict, List, Optional, Any
 
 from .types import ValueType, ValueWeights, ValuePreferences, ValueProfile
 from .profile import ValueProfileManager
+from deva.naja.register import SR
 
 
 log = logging.getLogger(__name__)
@@ -228,23 +229,9 @@ class ValueSystem:
         }
 
 
-_value_system: Optional[ValueSystem] = None
-_value_system_lock = threading.Lock()
-
-
-def get_value_system() -> ValueSystem:
-    """获取价值观系统单例"""
-    global _value_system
-    if _value_system is None:
-        with _value_system_lock:
-            if _value_system is None:
-                _value_system = ValueSystem()
-    return _value_system
-
-
 def initialize_value_system() -> ValueSystem:
     """初始化价值观系统"""
-    vs = get_value_system()
+    vs = SR('value_system')
     if vs.get_active_value_type() == "trend":
         vs.set_active_value_type("trend")
     return vs

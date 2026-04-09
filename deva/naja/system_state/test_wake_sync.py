@@ -6,6 +6,7 @@
 
 import asyncio
 import requests
+import time
 from datetime import datetime, timedelta
 from bs4 import BeautifulSoup
 
@@ -120,53 +121,36 @@ def test_publish_to_radar(news_item):
     print("="*60)
 
     try:
-        from deva.naja.radar.news_fetcher import RadarNewsFetcher, NewsItem
-        from deva.naja.cognition.attention_text_router import (
-            AttentionTextItem,
-            TextSource,
-        )
+        from deva.naja.attention.attention_os import AttentionOS
+        from deva.naja.events import get_event_bus
+        from deva.naja.events.text_events import TextFetchedEvent
 
-        fetcher = RadarNewsFetcher()
-        print(f"RadarNewsFetcher 实例: {fetcher}")
-        print(f"TextPipeline: {fetcher._text_pipeline if hasattr(fetcher, '_text_pipeline') else 'N/A'}")
-        print(f"TextBus: {fetcher._text_bus if hasattr(fetcher, '_text_bus') else 'N/A'}")
+        AttentionOS()
+        bus = get_event_bus()
+        focused_events = []
 
-        news = NewsItem(
-            id="test_001",
-            content=news_item.get('content', '测试内容'),
-            title="测试标题",
+        def _on_focused(event):
+            focused_events.append(event)
+
+        bus.subscribe('TextFocusedEvent', _on_focused, priority=99)
+
+        event = TextFetchedEvent(
+            text=news_item.get('content', '测试内容'),
+            title=news_item.get('title', '测试标题'),
+            source="radar_news",
             url=news_item.get('url', 'https://www.jin10.com/'),
-            source="jin10_test",
+            timestamp=time.time(),
         )
 
-        item = AttentionTextItem(
-            text=news.content,
-            title=news.title,
-            url=news.url,
-            source=TextSource.RADAR_NEWS,
-            metadata={
-                "news_id": news.id,
-                "original_source": news.source,
-                "wake_sync": True,
-            },
-        )
+        bus.publish(event)
+        print("✓ 已发布 TextFetchedEvent 到 NajaEventBus")
 
-        print(f"\nAttentionTextItem 创建成功")
-        print(f"  text: {item.text[:50]}...")
-        print(f"  url: {item.url}")
-        print(f"  source: {item.source}")
-        print(f"  metadata: {item.metadata}")
-
-        if fetcher._text_pipeline:
-            item = fetcher._text_pipeline.process(item)
-            print(f"\n经过 TextPipeline 处理后: {item.text[:50]}...")
-
-        if fetcher._text_bus:
-            fetcher._text_bus.publish(item)
-            print("✓ 已发布到 TextBus")
+        if focused_events:
+            print(f"✓ Attention 已处理并发布 TextFocusedEvent: {focused_events[0].routing_level}")
         else:
-            print("✗ TextBus 不存在")
+            print("✗ 未收到 TextFocusedEvent（Attention 未处理）")
 
+        bus.unsubscribe('TextFocusedEvent', _on_focused)
         return True
 
     except Exception as e:
@@ -191,6 +175,12 @@ def main():
             test_fetch_news_detail(url)
 
         test_publish_to_radar(first_item)
+    else:
+        print("\n[Fallback] 使用模拟新闻验证事件总线链路")
+        test_publish_to_radar({
+            "content": "模拟新闻：AI算力需求上升，算力板块活跃",
+            "url": "https://example.com/mock-news",
+        })
 
     print("\n" + "="*60)
     print("测试完成")

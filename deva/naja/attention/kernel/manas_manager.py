@@ -16,6 +16,7 @@ import logging
 from typing import Optional
 
 from .manas_engine import ManasEngine
+from deva.naja.register import SR
 
 log = logging.getLogger(__name__)
 
@@ -124,22 +125,19 @@ class ManasManager:
 
     def _get_session_manager(self):
         try:
-            from deva.naja.radar.trading_clock import get_trading_clock
-            return get_trading_clock()
+            return SR('trading_clock')
         except ImportError:
             return None
 
     def _get_portfolio(self):
         try:
-            from deva.naja.bandit import get_virtual_portfolio
-            return get_virtual_portfolio()
+            return SR('virtual_portfolio')
         except ImportError:
             return None
 
     def _get_bandit_tracker(self):
         try:
-            from deva.naja.bandit import get_bandit_tracker
-            return get_bandit_tracker()
+            return SR('bandit_tracker')
         except ImportError:
             return None
 

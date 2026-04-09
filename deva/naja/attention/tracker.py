@@ -19,6 +19,7 @@ from typing import Any, Dict, List, Optional, Callable
 from collections import deque
 
 from deva import NB
+from deva.naja.register import SR
 
 log = logging.getLogger(__name__)
 
@@ -29,7 +30,7 @@ ATTENTION_TRACKER_TABLE = "naja_attention_tracker"
 class TrackedAttention:
     """跟踪中的注意力标的"""
     symbol: str
-    sector_id: str
+    block_id: str
     strategy_id: str
     strategy_name: str
     attention_score: float
@@ -80,7 +81,7 @@ class TrackedAttention:
 class ObservationResult:
     """观察结果"""
     symbol: str
-    sector_id: str
+    block_id: str
     strategy_id: str
     attention_score: float
     prediction_score: float
@@ -99,7 +100,7 @@ class ObservationResult:
     def to_dict(self) -> dict:
         return {
             'symbol': self.symbol,
-            'sector_id': self.sector_id,
+            'block_id': self.block_id,
             'strategy_id': self.strategy_id,
             'attention_score': self.attention_score,
             'prediction_score': self.prediction_score,
@@ -194,7 +195,7 @@ class AttentionTracker:
     def _to_dict(self, tracked: TrackedAttention) -> dict:
         return {
             'symbol': tracked.symbol,
-            'sector_id': tracked.sector_id,
+            'block_id': tracked.block_id,
             'strategy_id': tracked.strategy_id,
             'strategy_name': tracked.strategy_name,
             'attention_score': tracked.attention_score,
@@ -216,7 +217,7 @@ class AttentionTracker:
     def _from_dict(self, data: dict) -> TrackedAttention:
         return TrackedAttention(
             symbol=data.get('symbol', ''),
-            block_id=data.get('sector_id', ''),
+            block_id=data.get('block_id', data.get('sector_id', '')),
             strategy_id=data.get('strategy_id', ''),
             strategy_name=data.get('strategy_name', ''),
             attention_score=data.get('attention_score', 0.0),
@@ -238,7 +239,7 @@ class AttentionTracker:
     def track_attention(
         self,
         symbol: str,
-        sector_id: str,
+        block_id: str,
         strategy_id: str,
         strategy_name: str,
         attention_score: float,
@@ -252,7 +253,7 @@ class AttentionTracker:
         
         Args:
             symbol: 股票代码
-            sector_id: 板块ID
+            block_id: 题材ID
             strategy_id: 策略ID
             strategy_name: 策略名称
             attention_score: 注意力分数
@@ -279,7 +280,7 @@ class AttentionTracker:
             
             tracked = TrackedAttention(
                 symbol=symbol,
-                block_id=sector_id,
+                block_id=block_id,
                 strategy_id=strategy_id,
                 strategy_name=strategy_name,
                 attention_score=attention_score,
@@ -303,7 +304,7 @@ class AttentionTracker:
             self._add_to_price_monitor(symbol, entry_price, now)
 
             self._record_signal_to_reporter(
-                symbol, sector_id, strategy_id, strategy_name,
+                symbol, block_id, strategy_id, strategy_name,
                 action, attention_score, prediction_score, entry_price, market_state
             )
 
@@ -321,8 +322,7 @@ class AttentionTracker:
     def _add_to_price_monitor(self, symbol: str, entry_price: float, entry_time: float):
         """将 symbol 添加到 PriceMonitor"""
         try:
-            from .price_monitor import get_price_monitor
-            pm = get_price_monitor()
+            pm = SR('price_monitor')
             if pm is not None:
                 pm.add_tracked(symbol, entry_price, entry_time)
         except Exception:
@@ -331,7 +331,7 @@ class AttentionTracker:
     def _record_signal_to_reporter(
         self,
         symbol: str,
-        sector_id: str,
+        block_id: str,
         strategy_id: str,
         strategy_name: str,
         action: str,
@@ -342,11 +342,11 @@ class AttentionTracker:
     ):
         """记录信号到报告生成器"""
         try:
-            from deva.naja.attention.intelligence.feedback_report import get_feedback_report_generator
+            from deva.naja.market_hotspot.intelligence.feedback_report import get_feedback_report_generator
             reporter = get_feedback_report_generator()
             reporter.record_signal(
                 symbol=symbol,
-                block_id=sector_id,
+                block_id=block_id,
                 strategy_id=strategy_id,
                 action=action,
                 attention_score=attention_score,
@@ -455,7 +455,7 @@ class AttentionTracker:
             
             result = ObservationResult(
                 symbol=tracked.symbol,
-                block_id=tracked.sector_id,
+                block_id=tracked.block_id,
                 strategy_id=tracked.strategy_id,
                 attention_score=tracked.attention_score,
                 prediction_score=tracked.prediction_score,

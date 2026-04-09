@@ -85,7 +85,7 @@ try:
             sector_weights = integration.attention_system.sector_attention.get_all_weights(filter_noise=True)
             if sector_weights:
                 top5 = sorted(sector_weights.items(), key=lambda x: x[1], reverse=True)[:5]
-                from deva.naja.cognition.history_tracker import get_history_tracker
+                from deva.naja.market_hotspot.market_hotspot_history_tracker import get_history_tracker
                 tracker = get_history_tracker()
                 named_top5 = [(tracker.get_block_name(s), w) for s, w in top5]
                 print(f"    Top 5 Sectors:")

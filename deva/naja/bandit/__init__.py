@@ -19,22 +19,18 @@ from .optimizer import (
 )
 from .tracker import (
     BanditPositionTracker,
-    get_bandit_tracker,
 )
 from .runner import (
     BanditAutoRunner,
-    get_bandit_runner,
     ensure_bandit_auto_runner,
 )
 from .signal_listener import (
     SignalListener,
     DetectedSignal,
-    get_signal_listener,
 )
 from .virtual_portfolio import (
     VirtualPortfolio,
     VirtualPosition,
-    get_virtual_portfolio,
 )
 from .market_observer import (
     MarketDataObserver,
@@ -42,7 +38,6 @@ from .market_observer import (
 )
 from .adaptive_cycle import (
     AdaptiveCycle,
-    get_adaptive_cycle,
 )
 from .attribution import (
     StrategyAttribution,
@@ -53,10 +48,10 @@ from .attribution import (
     get_attribution,
     record_trade_attribution,
 )
-from .stock_sector_map import (
-    StockSectorMap,
+from .stock_block_map import (
+    StockBlockMap,
     StockMetadata,
-    get_stock_sector_map,
+    get_stock_block_map,
 )
 from .supply_chain_graph import (
     SupplyChainKnowledgeGraph,
@@ -78,6 +73,7 @@ from .market_data_bus import (
     MarketQuote,
     get_market_data_bus,
 )
+from deva.naja.register import SR
 
 
 def restore_bandit_state():
@@ -94,11 +90,11 @@ def restore_bandit_state():
     log = logging.getLogger(__name__)
     
     # 获取各组件
-    cycle = get_adaptive_cycle()
-    runner = get_bandit_runner()
-    listener = get_signal_listener()
+    cycle = SR('adaptive_cycle')
+    runner = SR('bandit_runner')
+    listener = SR('signal_listener')
     observer = get_market_observer()
-    portfolio = get_virtual_portfolio()
+    portfolio = SR('virtual_portfolio')
 
     # 统计需要恢复的组件
     running_components = []
@@ -138,20 +134,16 @@ __all__ = [
     "BanditAction",
     "get_bandit_optimizer",
     "BanditPositionTracker",
-    "get_bandit_tracker",
     "BanditAutoRunner",
-    "get_bandit_runner",
     "ensure_bandit_auto_runner",
     "SignalListener",
     "DetectedSignal",
-    "get_signal_listener",
     "VirtualPortfolio",
     "VirtualPosition",
-    "get_virtual_portfolio",
+
     "MarketDataObserver",
     "get_market_observer",
     "AdaptiveCycle",
-    "get_adaptive_cycle",
     "restore_bandit_state",
     "StrategyAttribution",
     "TradeAttribution",
@@ -160,9 +152,9 @@ __all__ = [
     "MarketConditionAttribution",
     "get_attribution",
     "record_trade_attribution",
-    "StockSectorMap",
+    "StockBlockMap",
     "StockMetadata",
-    "get_stock_sector_map",
+    "get_stock_block_map",
     "SupplyChainKnowledgeGraph",
     "GraphNode",
     "GraphEdge",

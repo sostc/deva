@@ -4,6 +4,7 @@ import time
 import logging
 from typing import Dict, Any, Optional, Callable, List
 from dataclasses import dataclass, field
+from deva.naja.register import SR
 
 logger = logging.getLogger(__name__)
 
@@ -142,11 +143,9 @@ def create_manager_health_check(name: str) -> Callable:
                 from deva.naja.strategy import get_strategy_manager
                 mgr = get_strategy_manager()
             elif name == "Task":
-                from deva.naja.tasks import get_task_manager
-                mgr = get_task_manager()
+                mgr = SR('task_manager')
             elif name == "Dictionary":
-                from deva.naja.dictionary import get_dictionary_manager
-                mgr = get_dictionary_manager()
+                mgr = SR('dictionary_manager')
 
             if mgr is None:
                 return ManagerHealthReport(
