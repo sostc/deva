@@ -1127,12 +1127,8 @@ def get_auto_tuner() -> AutoTuner:
     return SR('auto_tuner')
 
 
-    global _auto_tuner
-    if _auto_tuner is None:
-        with _auto_tuner_lock:
-            if _auto_tuner is None:
-                _auto_tuner = AutoTuner()
-    return _auto_tuner
+def start_auto_tuner():
+    tuner = get_auto_tuner()
     tuner._ensure_initialized()
     tuner.start()
 

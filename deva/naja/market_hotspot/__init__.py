@@ -141,14 +141,14 @@ __all__ = [
     "FetchConfig",
 ]
 
-from .events import (
+from deva.naja.events.hotspot_events import (
     HotspotComputedEvent,
     MarketSnapshotEvent,
     SymbolUpdateEvent,
 )
 
-from .event_bus import (
-    HotspotEventBus,
+from deva.naja.events import (
+    NajaEventBus as HotspotEventBus,
     get_event_bus,
 )
 

@@ -199,7 +199,7 @@ class NoiseFilter:
         filtered_count = len(df) - len(filtered_df)
         self._filtered_count += filtered_count
 
-        log.info(f"[NoiseFilter] 过滤统计: 原始{stats['total']}条 → 过滤后{len(filtered_df)}条 (过滤{filtered_count}条)")
+        log.debug(f"[NoiseFilter] 过滤统计: 原始{stats['total']}条 → 过滤后{len(filtered_df)}条 (过滤{filtered_count}条)")
         if filtered_count > 0:
             log.debug(f"[NoiseFilter] 过滤原因: amount={stats['amount']}, volume={stats['volume']}, price={stats['price']}, b_share={stats['b_share']}, st={stats['st']}")
 
