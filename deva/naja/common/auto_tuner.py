@@ -476,8 +476,7 @@ class AutoTuner:
     def _check_signal_listener_upstream(self) -> Optional[Dict]:
         """检测 SignalListener 的上游（策略）是否活跃"""
         try:
-            from deva.naja.bandit.signal_listener import get_signal_listener
-            listener = get_signal_listener()
+            listener = SR('signal_listener')
 
             if not listener._running:
                 return None
@@ -536,8 +535,7 @@ class AutoTuner:
                 reason = consumer['reason']
 
                 if consumer_name == 'signal_listener':
-                    from deva.naja.bandit.signal_listener import get_signal_listener
-                    listener = get_signal_listener()
+                    listener = SR('signal_listener')
                     listener.set_poll_interval(target_interval)
                     log.info(f"[AutoTuner] SignalListener 间隔调整: {current_interval}s → {target_interval}s ({reason})")
 
@@ -906,8 +904,7 @@ class AutoTuner:
             new_interval = issue.get('suggested', 1.0)
             reason = issue.get('reason', '')
             try:
-                from deva.naja.replay import get_replay_scheduler
-                scheduler = get_replay_scheduler()
+                scheduler = SR('replay_scheduler')
                 if scheduler:
                     scheduler.adjust_interval(new_interval, reason)
                     log.info(f"[AutoTuner] 调整回放间隔: {reason}")
@@ -962,8 +959,7 @@ class AutoTuner:
             new_interval = issue.get('suggested', 1.0)
             reason = issue.get('reason', '')
             try:
-                from deva.naja.replay import get_replay_scheduler
-                scheduler = get_replay_scheduler()
+                scheduler = SR('replay_scheduler')
                 if scheduler:
                     scheduler.adjust_interval(new_interval, reason)
                     self._record_event(issue, triggered_by_llm=False)
@@ -1127,16 +1123,16 @@ def _init_help_to_db():
 
 
 def get_auto_tuner() -> AutoTuner:
+    from deva.naja.register import SR
+    return SR('auto_tuner')
+
+
     global _auto_tuner
     if _auto_tuner is None:
         with _auto_tuner_lock:
             if _auto_tuner is None:
                 _auto_tuner = AutoTuner()
     return _auto_tuner
-
-
-def start_auto_tuner():
-    tuner = get_auto_tuner()
     tuner._ensure_initialized()
     tuner.start()
 

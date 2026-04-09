@@ -139,8 +139,7 @@ class SignalDispatcher:
     def _send_to_cognition(self, result: "StrategyResult") -> None:
         """发送到认知系统"""
         try:
-            from ..cognition.insight import get_insight_engine
-            insight = get_insight_engine()
+            insight = SR('insight_engine')
             signal = {
                 "source": "strategy",
                 "signal_type": result.strategy_id,
@@ -187,11 +186,11 @@ _dispatcher: SignalDispatcher | None = None
 
 def get_dispatcher() -> SignalDispatcher:
     """获取分发器单例"""
+    from deva.naja.register import SR
     global _dispatcher
     if _dispatcher is None:
         _dispatcher = SignalDispatcher()
     return _dispatcher
-
 
 def dispatch_result(result: "StrategyResult") -> None:
     """便捷函数：分发策略结果"""

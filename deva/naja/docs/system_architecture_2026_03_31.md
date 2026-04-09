@@ -78,7 +78,7 @@ Naja 是一个**自主进化的交易决策系统**，融合了注意力机制�
 │   │  ├── 洞察存储 (LLM生成、雷达事件)                              │  │
 │   │  ├── 叙事追踪 (NarrativeTracker)                                │  │
 │   │  ├── 跨信号共振 (CrossSignalAnalyzer)                           │  │
-│   │  └── 注意力历史 (AttentionHistoryTracker)                       │  │
+│   │  └── 市场热点历史 (MarketHotspotHistoryTracker)                   │  │
 │   └─────────────────────────────────────────────────────────────────┘  │
 │                                                                          │
 │   📌 理解"市场发生了什么，为什么"                                        │
@@ -193,7 +193,7 @@ Naja 是一个**自主进化的交易决策系统**，融合了注意力机制�
 | **InsightPool** | `cognition/insight/engine.py` | 洞察存储与查询 |
 | **NarrativeTracker** | `cognition/narrative_tracker.py` | 新闻/舆情叙事追踪 |
 | **CrossSignalAnalyzer** | `cognition/cross_signal_analyzer.py` | 跨信号共振分析 |
-| **AttentionHistoryTracker** | `cognition/history_tracker.py` | 注意力历史快照 |
+| **MarketHotspotHistoryTracker** | `market_hotspot/market_hotspot_history_tracker.py` | 市场热点历史快照 |
 | **SemanticColdStart** | `cognition/semantic_cold_start.py` | 冷启动语义 |
 | **CognitionEngine** | `cognition/engine.py` | 认知引擎入口 |
 

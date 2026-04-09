@@ -66,7 +66,7 @@ class CognitionOrchestrator:
             "narratives": [],
             "market_sentiment": "neutral",
             "market_sentiment_confidence": 0.3,
-            "sector_resonances": {},
+            "block_resonances": {},
             "topic_signals": [],
             "liquidity_predictions": {},
             "global_liquidity_summary": {},
@@ -77,7 +77,7 @@ class CognitionOrchestrator:
             "attention_shift": {},
         }
 
-        # ========== SectorNarrative (地：叙事追踪) ==========
+        # ========== BlockNarrative (地：叙事追踪) ==========
         try:
             from deva.naja.cognition.narrative import NarrativeTracker
             tracker = NarrativeTracker()
@@ -115,12 +115,12 @@ class CognitionOrchestrator:
             from deva.naja.cognition.cross_signal_analyzer import get_cross_signal_analyzer
             analyzer = get_cross_signal_analyzer()
             if analyzer:
-                sector_resonances = analyzer.get_sector_resonances()
-                if sector_resonances:
-                    context["sector_resonances"] = sector_resonances
-                    log.debug(f"[Cognition] 获取 sector_resonances: {len(sector_resonances)} 条")
+                block_resonances = analyzer.get_block_resonances()
+                if block_resonances:
+                    context["block_resonances"] = block_resonances
+                    log.debug(f"[Cognition] 获取 block_resonances: {len(block_resonances)} 条")
         except Exception as e:
-            log.debug(f"[Cognition] 获取 sector_resonances 失败: {e}")
+            log.debug(f"[Cognition] 获取 block_resonances 失败: {e}")
 
         # ========== AI算力趋势 ==========
         try:
@@ -149,7 +149,7 @@ class CognitionOrchestrator:
 
         快思考：
         1. NewsMind - 新闻情绪 → 调整置信度
-        2. CrossSignalAnalyzer - 板块共振 → 调整仓位
+        2. CrossSignalAnalyzer - 题材共振 → 调整仓位
         3. LiquidityCognition - 流动性预测 → 调整频率
         4. AI算力趋势 → 调整AI相关仓位
 
@@ -169,7 +169,7 @@ class CognitionOrchestrator:
             sentiment = cognition_context.get("market_sentiment", "neutral")
             sentiment_conf = cognition_context.get("market_sentiment_confidence", 0.3)
 
-            sector_resonances = cognition_context.get("sector_resonances", {})
+            block_resonances = cognition_context.get("block_resonances", {})
             ai_compute_trend = cognition_context.get("ai_compute_trend")
 
             for signal in signals:
@@ -185,13 +185,13 @@ class CognitionOrchestrator:
                     elif sentiment == "fearful":
                         signal.confidence = max(0.0, signal.confidence - 0.08 * sentiment_conf)
 
-                if sector_resonances:
-                    symbol_sector = self._get_symbol_sector(symbol, data)
-                    if symbol_sector and symbol_sector in sector_resonances:
-                        resonance = sector_resonances[symbol_sector]
+                if block_resonances:
+                    symbol_block = self._get_symbol_block(symbol, data)
+                    if symbol_block and symbol_block in block_resonances:
+                        resonance = block_resonances[symbol_block]
                         resonance_strength = resonance.get("resonance_strength", 0)
                         if resonance_strength > 0.7:
-                            signal.metadata["sector_resonance"] = resonance_strength
+                            signal.metadata["block_resonance"] = resonance_strength
                             signal.confidence = min(1.0, signal.confidence + 0.05)
 
                 if ai_compute_trend and symbol in ["NVDA", "AMD", "INTC", "TSLA", "AAPL"]:
@@ -214,8 +214,8 @@ class CognitionOrchestrator:
             log.warning(f"[Cognition] 应用认知到信号失败: {e}")
             return signals
 
-    def _get_symbol_sector(self, symbol: str, data: pd.DataFrame) -> Optional[str]:
-        """获取股票所属板块"""
+    def _get_symbol_block(self, symbol: str, data: pd.DataFrame) -> Optional[str]:
+        """获取股票所属题材"""
         try:
             if 'code' in data.columns and 'block' in data.columns:
                 match = data[data['code'] == symbol]
@@ -251,8 +251,7 @@ class CognitionOrchestrator:
     def _record_signal_outcome(self, symbol: str, signal_type: str, entry_price: float, outcome: Optional[float] = None, success: Optional[bool] = None):
         """记录信号结果"""
         try:
-            from deva.naja.cognition.insight.insight_pool import get_insight_pool
-            pool = get_insight_pool()
+            pool = SR('insight_pool')
             if pool:
                 pool.record_signal_outcome(symbol, signal_type, entry_price, outcome, success)
         except Exception as e:
@@ -275,6 +274,7 @@ _cognition_orchestrator: Optional['CognitionOrchestrator'] = None
 
 def get_cognition_orchestrator() -> CognitionOrchestrator:
     """获取 CognitionOrchestrator 单例"""
+    from deva.naja.register import SR
     global _cognition_orchestrator
     if _cognition_orchestrator is None:
         _cognition_orchestrator = CognitionOrchestrator()

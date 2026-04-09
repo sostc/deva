@@ -18,6 +18,7 @@ from ..scheduler.ui import (
     humanize_cron,
 )
 from ..scheduler import normalize_execution_mode
+from deva.naja.register import SR
 
 
 DEFAULT_TASK_CODE = '''# 任务执行函数
@@ -377,9 +378,8 @@ def _render_task_content(ctx: dict):
     """渲染任务内容（支持局部刷新）"""
     from pywebio.output import clear
 
-    from . import get_task_manager
 
-    mgr = get_task_manager()
+    mgr = SR('task_manager')
 
     entries = mgr.list_all()
     normal_entries, dict_entries, llm_bandit_entries = _split_entries_by_tab(entries)

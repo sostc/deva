@@ -18,10 +18,10 @@ from threading import Thread, Event
 import threading
 
 from deva.naja.radar.trading_clock import (
-    get_trading_clock,
     TRADING_CLOCK_STREAM,
     is_trading_time as is_trading_time_clock,
 )
+from deva.naja.register import SR
 
 log = logging.getLogger(__name__)
 
@@ -156,11 +156,11 @@ class AttentionReportGenerator:
         if not report.get('hotspots'):
             return False
         
-        # 检查是否有热门板块或个股
-        sector_attention = report.get('block_attention', [])
+        # 检查是否有热门题材或个股
+        block_attention = report.get('block_attention', [])
         symbol_weights = report.get('symbol_weights', [])
         
-        if not sector_attention and not symbol_weights:
+        if not block_attention and not symbol_weights:
             return False
         
         return True
@@ -200,12 +200,12 @@ class AttentionReportGenerator:
     def _generate_report(self) -> Optional[Dict[str, Any]]:
         """生成注意力系统报告"""
         try:
-            from ..attention.integration import get_attention_integration
-            from deva.naja.attention.strategies import get_strategy_manager
-            from deva.naja.cognition.history_tracker import get_history_tracker
+            from ..market_hotspot.integration.extended import get_market_hotspot_integration
+            from deva.naja.market_hotspot.strategies import get_strategy_manager
+            from deva.naja.market_hotspot.market_hotspot_history_tracker import get_history_tracker
             
-            integration = get_attention_integration()
-            if not integration or not integration.attention_system:
+            integration = get_market_hotspot_integration()
+            if not integration or not integration.hotspot_system:
                 log.debug("注意力系统未初始化，跳过报告生成")
                 return None
             
@@ -215,7 +215,7 @@ class AttentionReportGenerator:
                 'datetime': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
                 'summary': self._collect_summary(integration),
                 'global_attention': self._collect_global_attention(integration),
-                'sector_attention': self._collect_block_attention(integration),
+                'block_attention': self._collect_block_attention(integration),
                 'symbol_weights': self._collect_symbol_weights(integration),
                 'dual_engine': self._collect_dual_engine_stats(integration),
                 'strategies': self._collect_strategy_stats(),
@@ -239,7 +239,7 @@ class AttentionReportGenerator:
             status = integration.get_system_status()
             return {
                 'global_attention': status.get('global_attention', 0),
-                'active_sectors': len(status.get('active_sectors', [])),
+                'active_blocks': len(status.get('active_blocks', status.get('active_blocks', []))),
                 'high_attention_symbols': len(status.get('high_attention_symbols', [])),
                 'total_snapshots': status.get('total_snapshots', 0),
                 'avg_latency_ms': status.get('avg_latency_ms', 0)
@@ -250,7 +250,7 @@ class AttentionReportGenerator:
     def _collect_global_attention(self, integration) -> Dict[str, Any]:
         """收集全局注意力信息"""
         try:
-            attention_system = integration.attention_system
+            attention_system = integration.hotspot_system
             if not attention_system:
                 return {}
             
@@ -262,9 +262,9 @@ class AttentionReportGenerator:
             return {}
     
     def _collect_block_attention(self, integration) -> List[Dict[str, Any]]:
-        """收集板块注意力信息（Top 10）"""
+        """收集题材注意力信息（Top 10）"""
         try:
-            attention_system = integration.attention_system
+            attention_system = integration.hotspot_system
             if not attention_system:
                 return []
 
@@ -277,7 +277,7 @@ class AttentionReportGenerator:
 
             return [
                 {
-                    'sector_id': block_id,
+                    'block_id': block_id,
                     'weight': float(weight)
                 }
                 for block_id, weight in sorted_blocks
@@ -288,7 +288,7 @@ class AttentionReportGenerator:
     def _collect_symbol_weights(self, integration) -> List[Dict[str, Any]]:
         """收集个股权重信息（Top 20）"""
         try:
-            attention_system = integration.attention_system
+            attention_system = integration.hotspot_system
             if not attention_system:
                 return []
             
@@ -312,7 +312,7 @@ class AttentionReportGenerator:
     def _collect_dual_engine_stats(self, integration) -> Dict[str, Any]:
         """收集双引擎统计信息"""
         try:
-            attention_system = integration.attention_system
+            attention_system = integration.hotspot_system
             if not attention_system:
                 return {}
             
@@ -330,7 +330,7 @@ class AttentionReportGenerator:
     def _collect_strategy_stats(self) -> Dict[str, Any]:
         """收集策略统计信息"""
         try:
-            from deva.naja.attention.strategies import get_strategy_manager
+            from deva.naja.market_hotspot.strategies import get_strategy_manager
             manager = get_strategy_manager()
             if not manager:
                 return {}
@@ -348,7 +348,7 @@ class AttentionReportGenerator:
     def _collect_recent_changes(self) -> List[Dict[str, Any]]:
         """收集最近的注意力变化"""
         try:
-            from deva.naja.cognition.history_tracker import get_history_tracker
+            from deva.naja.market_hotspot.market_hotspot_history_tracker import get_history_tracker
             tracker = get_history_tracker()
             if not tracker:
                 return []
@@ -371,9 +371,9 @@ class AttentionReportGenerator:
             return []
     
     def _collect_block_hotspots(self) -> List[Dict[str, Any]]:
-        """收集板块热点事件"""
+        """收集题材热点事件"""
         try:
-            from deva.naja.cognition.history_tracker import get_history_tracker
+            from deva.naja.market_hotspot.market_hotspot_history_tracker import get_history_tracker
             tracker = get_history_tracker()
             if not tracker:
                 return []
@@ -431,23 +431,23 @@ class AttentionReportGenerator:
         lines.append(f"| 指标 | 数值 |")
         lines.append(f"|------|------|")
         lines.append(f"| 全局注意力 | {summary.get('global_attention', 0):.3f} |")
-        lines.append(f"| 活跃板块数 | {summary.get('active_sectors', 0)} |")
+        lines.append(f"| 活跃题材数 | {summary.get('active_blocks', 0)} |")
         lines.append(f"| 高关注个股数 | {summary.get('high_attention_symbols', 0)} |")
         lines.append(f"| 总快照数 | {summary.get('total_snapshots', 0):,} |")
         lines.append(f"| 平均延迟 | {summary.get('avg_latency_ms', 0):.2f} ms |")
         lines.append(f"")
         
-        # 热门板块
-        sectors = report.get('block_attention', [])
-        if sectors:
-            lines.append(f"## 🔥 热门板块 Top {len(sectors)}")
+        # 热门题材
+        blocks = report.get('block_attention', [])
+        if blocks:
+            lines.append(f"## 🔥 热门题材 Top {len(blocks)}")
             lines.append(f"")
-            lines.append(f"| 排名 | 板块 | 权重 |")
+            lines.append(f"| 排名 | 题材 | 权重 |")
             lines.append(f"|------|------|------|")
-            for i, sector in enumerate(sectors, 1):
-                sector_id = sector.get('sector_id', '未知')
-                weight = sector.get('weight', 0)
-                lines.append(f"| {i} | {sector_id} | {weight:.3f} |")
+            for i, block in enumerate(blocks, 1):
+                block_id = block.get('block_id', block.get('sector_id', '未知'))
+                weight = block.get('weight', 0)
+                lines.append(f"| {i} | {block_id} | {weight:.3f} |")
             lines.append(f"")
         
         # 热门个股
@@ -463,12 +463,12 @@ class AttentionReportGenerator:
                 lines.append(f"| {i} | {symbol_code} | {weight:.2f} |")
             lines.append(f"")
         
-        # 板块热点事件
+        # 题材热点事件
         hotspots = report.get('hotspots', [])
         if hotspots:
-            lines.append(f"## ⚡ 板块热点事件")
+            lines.append(f"## ⚡ 题材热点事件")
             lines.append(f"")
-            lines.append(f"| 时间 | 板块 | 事件 | 变化 |")
+            lines.append(f"| 时间 | 题材 | 事件 | 变化 |")
             lines.append(f"|------|------|------|------|")
             for event in reversed(hotspots[-5:]):  # 只显示最近5个
                 market_time = event.get('market_time', '--:--')
@@ -591,7 +591,7 @@ def get_report_generator(
 
 def start_report_generator():
     """启动报告生成器"""
-    generator = get_report_generator()
+    generator = SR('report_generator')
     generator.start()
     return generator
 

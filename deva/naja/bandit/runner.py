@@ -18,6 +18,7 @@ import logging
 import threading
 import time
 from typing import Any, Dict, List, Optional
+from deva.naja.register import SR
 
 _loop_audit_log_stage = None
 
@@ -464,19 +465,6 @@ class BanditAutoRunner:
         }
 
 
-_runner: Optional[BanditAutoRunner] = None
-_runner_lock = threading.Lock()
-
-
-def get_bandit_runner() -> BanditAutoRunner:
-    global _runner
-    if _runner is None:
-        with _runner_lock:
-            if _runner is None:
-                _runner = BanditAutoRunner()
-    return _runner
-
-
 def ensure_bandit_auto_runner(
     select_interval: int = 60,
     adjust_interval: int = 300,
@@ -496,7 +484,7 @@ def ensure_bandit_auto_runner(
     Returns:
         BanditAutoRunner: 运行器实例
     """
-    runner = get_bandit_runner()
+    runner = SR('bandit_runner')
 
     runner.set_select_interval(select_interval)
     runner.set_adjust_interval(adjust_interval)

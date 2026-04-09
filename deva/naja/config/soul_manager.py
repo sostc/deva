@@ -9,6 +9,7 @@ SoulManager - 多灵魂管理系统
 
 使用方式：
     from deva.naja.config.soul_manager import SoulManager
+from deva.naja.register import SR
 
     manager = SoulManager()
     souls = manager.list_souls()
@@ -277,8 +278,7 @@ class SoulManager:
     def _check_positions(self) -> bool:
         """检查是否有持仓"""
         try:
-            from deva.naja.bandit import get_bandit_runner
-            runner = get_bandit_runner()
+            runner = SR('bandit_runner')
             if runner and hasattr(runner, "get_positions"):
                 positions = runner.get_positions()
                 return len(positions) > 0

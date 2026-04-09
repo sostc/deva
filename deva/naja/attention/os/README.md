@@ -14,7 +14,7 @@ qkv.py              # QKV 计算
 ```
 ┌─────────────────────────────────┐
 │          OS 应用层               │
-│  (MarketScheduler, Allocator)   │
+│  (StrategyDecisionMaker, Allocator)   │
 └─────────────────────────────────┘
                   ↓
 ┌─────────────────────────────────┐

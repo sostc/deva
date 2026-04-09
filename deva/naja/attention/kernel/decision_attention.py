@@ -49,6 +49,7 @@ kernel = AttentionKernel(
 
 import math
 from typing import Dict, Any, Optional
+from deva.naja.register import SR
 
 
 class DecisionAttention:
@@ -75,8 +76,7 @@ class DecisionAttention:
     def _get_portfolio(self):
         """获取虚拟持仓"""
         try:
-            from deva.naja.bandit import get_virtual_portfolio
-            return get_virtual_portfolio()
+            return SR('virtual_portfolio')
         except ImportError:
             return None
 

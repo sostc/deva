@@ -10,6 +10,7 @@ import threading
 from typing import Dict, List, Optional, Any
 
 from deva import NB, log as deva_log
+from deva.naja.register import SR
 import logging
 
 # 使用标准日志
@@ -54,7 +55,28 @@ class NajaSupervisor:
         return cls._instance
 
     def __init__(self):
-        pass
+        self._force_realtime = False
+        self._lab_mode = False
+        self._running = False
+        self._components: Dict[str, Any] = {
+            'datasource': None,
+            'strategy': None,
+            'task': None,
+            'dictionary': None,
+            'signal': None,
+            'radar': None,
+            'llm_controller': None,
+            'attention': None,
+            'attention_strategy_manager': None,
+            'attention_report_generator': None,
+            'bandit_runner': None,
+            'attention_tracker': None,
+            'price_monitor': None,
+            'cognition': None,
+        }
+        self._status_history: list = []
+        self._monitor_thread: Optional[threading.Thread] = None
+        self._check_interval = 5
 
     def configure_attention(self, force_realtime: bool = False, lab_mode: bool = False):
         """配置注意力系统启动参数（在调用 start_monitoring 之前设置）"""
@@ -111,11 +133,9 @@ class NajaSupervisor:
                 from .strategy import get_strategy_manager
                 self._components[name] = get_strategy_manager()
             elif name == 'task':
-                from .tasks import get_task_manager
-                self._components[name] = get_task_manager()
+                self._components[name] = SR('task_manager')
             elif name == 'dictionary':
-                from .dictionary import get_dictionary_manager
-                self._components[name] = get_dictionary_manager()
+                self._components[name] = SR('dictionary_manager')
             elif name == 'signal':
                 from .signal.stream import get_signal_stream
                 self._components[name] = get_signal_stream()
@@ -164,7 +184,7 @@ class NajaSupervisor:
         # 启动注意力系统
         try:
             from .attention.config import load_config, get_intelligence_config
-            from .attention.integration import initialize_attention_system
+            from .market_hotspot.integration.extended import initialize_hotspot_system as initialize_attention_system
 
             attention_config = load_config()
             intelligence_config = get_intelligence_config()
@@ -183,7 +203,7 @@ class NajaSupervisor:
 
                 # 启动注意力策略系统
                 try:
-                    from deva.naja.attention.strategies import setup_attention_strategies
+                    from deva.naja.market_hotspot.strategies import setup_attention_strategies
                     strategy_manager = setup_attention_strategies()
                     self._components['attention_strategy_manager'] = strategy_manager
                 except Exception as se:
@@ -245,8 +265,8 @@ class NajaSupervisor:
                     def _on_price_update(metrics_list):
                         nonlocal _price_feedback_count
                         try:
-                            from deva.naja.attention.integration import get_attention_integration
-                            integration = get_attention_integration()
+                            from deva.naja.market_hotspot.integration import get_market_hotspot_integration
+                            integration = get_market_hotspot_integration()
                             if hasattr(integration, 'feedback_loop') and integration.feedback_loop:
                                 feedback_loop = integration.feedback_loop
                                 for metrics in metrics_list:
@@ -274,13 +294,13 @@ class NajaSupervisor:
                     # 注册观察结果回调
                     def _on_observation_result(result):
                         try:
-                            from deva.naja.attention.integration import get_attention_integration
-                            integration = get_attention_integration()
+                            from deva.naja.market_hotspot.integration import get_market_hotspot_integration
+                            integration = get_market_hotspot_integration()
                             if hasattr(integration, 'feedback_loop') and integration.feedback_loop:
                                 feedback_loop = integration.feedback_loop
                                 feedback_loop.record_observation(
                                     symbol=result.symbol,
-                                    block_id=result.sector_id,
+                                    block_id=result.block_id,
                                     strategy_id=result.strategy_id,
                                     attention_score=result.attention_score,
                                     prediction_score=result.prediction_score,
@@ -616,7 +636,6 @@ class NajaSupervisor:
         """停止所有组件"""
         from .signal.stream import get_signal_stream
         from .strategy.result_store import get_result_store
-        from .cognition.insight.engine import get_insight_pool
 
         try:
             signal_stream = get_signal_stream()
@@ -633,7 +652,7 @@ class NajaSupervisor:
             log.error(f"停止结果存储失败: {e}")
 
         try:
-            insight_pool = get_insight_pool()
+            insight_pool = SR('insight_pool')
             if hasattr(insight_pool, 'persist'):
                 insight_pool.persist()
         except Exception as e:
@@ -781,15 +800,6 @@ def get_naja_supervisor() -> NajaSupervisor:
             if _naja_supervisor is None:
                 _naja_supervisor = NajaSupervisor()
     return _naja_supervisor
-
-
-def start_supervisor(force_realtime: bool = False, lab_mode: bool = False) -> NajaSupervisor:
-    """启动 Naja 监控器
-
-    Args:
-        force_realtime: 强制实盘调试模式（忽略交易时间限制）
-        lab_mode: 实验模式（使用回放数据）
-    """
     import atexit
 
     supervisor = get_naja_supervisor()
@@ -816,6 +826,18 @@ def stop_supervisor() -> None:
     """停止 Naja 监控器"""
     supervisor = get_naja_supervisor()
     supervisor.stop_monitoring()
+
+
+def start_supervisor(force_realtime: bool = False, lab_mode: bool = False) -> None:
+    """启动 Naja 监控器
+
+    Args:
+        force_realtime: 是否强制实时模式（暂未使用）
+        lab_mode: 是否为实验模式（暂未使用）
+    """
+    supervisor = get_naja_supervisor()
+    if hasattr(supervisor, 'start_monitoring'):
+        supervisor.start_monitoring()
 
 
 # 别名，保持向后兼容

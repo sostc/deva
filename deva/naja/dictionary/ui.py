@@ -14,6 +14,7 @@ from ..scheduler.ui import (
     humanize_cron,
 )
 from ..scheduler import preview_next_runs
+from deva.naja.register import SR
 
 
 DEFAULT_DICT_CODE = '''# 字典数据获取函数
@@ -385,9 +386,8 @@ def _render_dict_content(ctx: dict):
     """渲染字典内容（支持局部刷新）"""
     from pywebio.output import clear
 
-    from . import get_dictionary_manager
 
-    mgr = get_dictionary_manager()
+    mgr = SR('dictionary_manager')
 
     entries = mgr.list_all()
     stats = mgr.get_stats()

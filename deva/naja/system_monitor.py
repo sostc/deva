@@ -8,6 +8,7 @@ import logging
 from typing import Dict, Any, List, Optional
 from dataclasses import dataclass, asdict
 from enum import Enum
+from deva.naja.register import SR
 
 log = logging.getLogger(__name__)
 
@@ -153,14 +154,11 @@ class SystemMonitor:
                 from deva.naja.radar import get_radar_engine
                 instance = get_radar_engine()
             elif class_name == "BanditRunner":
-                from deva.naja.bandit import get_bandit_runner
-                instance = get_bandit_runner()
+                instance = SR('bandit_runner')
             elif class_name == "CognitionEngine":
-                from deva.naja.cognition import get_cognition_engine
-                instance = get_cognition_engine()
+                instance = SR('cognition_engine')
             elif class_name == "ManasAlayaConnector":
-                from deva.naja.manas_alaya_connector import get_connector
-                instance = get_connector()
+                instance = SR('connector')
             elif class_name == "DataSourceManager":
                 from deva.naja.datasource import get_datasource_manager
                 instance = get_datasource_manager()
@@ -168,15 +166,13 @@ class SystemMonitor:
                 from deva.naja.strategy import get_strategy_manager
                 instance = get_strategy_manager()
             elif class_name == "TaskManager":
-                from deva.naja.tasks import get_task_manager
-                instance = get_task_manager()
+                instance = SR('task_manager')
             elif class_name == "ManasCore":
                 from deva.naja.attention.trading_center import get_trading_center
                 tc = get_trading_center()
                 instance = tc.get_attention_os().kernel.get_manas_engine()
             elif class_name == "AwakenedAlaya":
-                from deva.naja.alaya import get_awakened_alaya
-                instance = get_awakened_alaya()
+                instance = SR('awakened_alaya')
         except ImportError as e:
             log.debug(f"无法导入 {class_name}: {e}")
             return None
@@ -274,14 +270,3 @@ class SystemMonitor:
             "timestamp": time.time(),
         }
 
-
-# 全局单例
-_monitor: Optional[SystemMonitor] = None
-
-
-def get_system_monitor() -> SystemMonitor:
-    """获取系统监控器单例"""
-    global _monitor
-    if _monitor is None:
-        _monitor = SystemMonitor()
-    return _monitor

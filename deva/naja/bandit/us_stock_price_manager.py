@@ -16,6 +16,7 @@ from typing import Dict, List, Optional, Any, Set
 from dataclasses import dataclass, asdict
 
 from deva import NB
+from deva.naja.register import SR
 
 log = logging.getLogger(__name__)
 
@@ -59,8 +60,7 @@ class USStockPriceManager:
     def is_market_open(self) -> bool:
         """检查美股是否开盘（只考虑 trading 阶段）"""
         try:
-            from deva.naja.radar.global_market_config import get_market_session_manager
-            mgr = get_market_session_manager()
+            mgr = SR('market_session_manager')
             phase = mgr.get_us_trading_phase()
             is_open = phase == "trading"
             log.debug(f"[PriceManager] 美股阶段: {phase}, 开盘: {is_open}")
@@ -72,8 +72,7 @@ class USStockPriceManager:
     def _get_market_phase(self) -> str:
         """获取美股市场阶段"""
         try:
-            from deva.naja.radar.global_market_config import get_market_session_manager
-            mgr = get_market_session_manager()
+            mgr = SR('market_session_manager')
             return mgr.get_us_trading_phase()
         except:
             return "unknown"
@@ -180,7 +179,7 @@ class USStockPriceManager:
 
     async def fetch_from_sina(self, stock_codes: List[str]) -> Dict[str, PriceSnapshot]:
         """从新浪获取价格"""
-        from deva.naja.attention.data.global_market_futures import GlobalMarketAPI
+        from deva.naja.market_hotspot.data.global_market_futures import GlobalMarketAPI
 
         results = {}
         sina_codes = [f"gb_{code}" for code in stock_codes]

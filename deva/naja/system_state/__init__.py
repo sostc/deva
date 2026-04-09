@@ -11,13 +11,11 @@ WakeSync System - 系统唤醒同步系统
 存储位置：deva/naja/system_state/
 """
 
-from .system_state import SystemStateManager, get_system_state_manager
-from .wake_sync_manager import WakeSyncManager, WakeSyncable, get_wake_sync_manager
+from .system_state import SystemStateManager
+from .wake_sync_manager import WakeSyncManager, WakeSyncable
 
 __all__ = [
     "SystemStateManager",
-    "get_system_state_manager",
     "WakeSyncManager",
     "WakeSyncable",
-    "get_wake_sync_manager",
 ]

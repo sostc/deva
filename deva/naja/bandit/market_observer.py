@@ -87,8 +87,8 @@ class MarketDataObserver:
                 if was_running:
                     self._running = True
                     log.debug("[MarketObserver] 上次运行中，将自动恢复")
-            if os.environ.get('NAJA_LAB_MODE'):
-                self._load_watchlist_stocks()
+            # 始终加载自选股（无论是否 LAB 模式）
+            self._load_watchlist_stocks()
         except Exception as e:
             self._errors["config_load"] += 1
             log.warning(f"[MarketObserver] 配置加载失败 (累计{self._errors['config_load']}次): {e}")
@@ -97,7 +97,7 @@ class MarketDataObserver:
         """从 NB 数据库加载自选股"""
         import json
         import os
-        log.info(f"[MarketObserver] _load_watchlist_stocks 被调用, NAJA_LAB_MODE={os.environ.get('NAJA_LAB_MODE')}")
+        log.info(f"[MarketObserver] _load_watchlist_stocks 被调用")
         try:
             from deva.naja.tables import get_table_data
             watchlist_data = get_table_data("naja_watchlist")
@@ -105,26 +105,44 @@ class MarketDataObserver:
             if watchlist_data is None:
                 log.info("[MarketObserver] 自选股为空，使用默认股票池")
                 return
+            
+            all_codes = []
+            
+            # others 的结构是 [('ai_stocks', {...}), ('stocks', [...])]
             others = watchlist_data.get("others", [])
-            ai_stocks = next((item for item in others if item[0] == "ai_stocks"), None)
-            if ai_stocks is None or len(ai_stocks) < 2:
-                log.info("[MarketObserver] 没有找到 ai_stocks 数据")
-                return
-            stocks_dict = ai_stocks[1]
-            if isinstance(stocks_dict, str):
-                try:
-                    stocks_dict = json.loads(stocks_dict)
-                except:
-                    pass
-            stocks = stocks_dict.get("stocks", []) if isinstance(stocks_dict, dict) else []
-            if stocks:
-                watchlist_codes = [s["code"] for s in stocks if isinstance(s, dict) and "code" in s]
-                self._tracked_stocks = set(watchlist_codes)
-                log.info(f"[MarketObserver] 从自选股加载了 {len(watchlist_codes)} 只股票: {watchlist_codes[:5]}...")
+            if others:
+                for item in others:
+                    if not isinstance(item, tuple) or len(item) < 2:
+                        continue
+                    key, value = item[0], item[1]
+                    
+                    if key == "ai_stocks":
+                        # ai_stocks 格式: {'stocks': [...], 'updated_at': ...}
+                        if isinstance(value, dict):
+                            stocks = value.get("stocks", [])
+                            codes = [s["code"] for s in stocks if isinstance(s, dict) and "code" in s]
+                            all_codes.extend(codes)
+                            log.info(f"[MarketObserver] 从 ai_stocks 加载了 {len(codes)} 只股票")
+                    
+                    elif key == "stocks":
+                        # stocks 格式: [{'code': '...', ...}, ...]
+                        if isinstance(value, list):
+                            codes = [s["code"] for s in value if isinstance(s, dict) and "code" in s]
+                            all_codes.extend(codes)
+                            log.info(f"[MarketObserver] 从 stocks 加载了 {len(codes)} 只股票")
+            
+            # 去重
+            all_codes = list(set(all_codes))
+            
+            if all_codes:
+                self._tracked_stocks = set(all_codes)
+                log.info(f"[MarketObserver] 从自选股共加载了 {len(all_codes)} 只股票: {all_codes}")
             else:
                 log.info("[MarketObserver] 自选股为空，使用默认股票池")
         except Exception as e:
             log.warning(f"[MarketObserver] 加载自选股失败: {e}")
+            import traceback
+            log.warning(f"[MarketObserver] 详细错误: {traceback.format_exc()}")
 
     def _save_config(self):
         """保存配置"""
@@ -246,8 +264,7 @@ class MarketDataObserver:
         # Lab 模式：使用 ReplayScheduler
         if os.environ.get('NAJA_LAB_MODE'):
             try:
-                from deva.naja.replay import get_replay_scheduler
-                scheduler = get_replay_scheduler()
+                scheduler = SR('replay_scheduler')
                 if scheduler is None:
                     log.info("[MarketObserver] Lab 模式：scheduler is None")
                     return False
@@ -500,8 +517,7 @@ class MarketDataObserver:
                 self._load_watchlist_stocks()
 
             try:
-                from deva.naja.replay import get_replay_scheduler
-                scheduler = get_replay_scheduler()
+                scheduler = SR('replay_scheduler')
                 log.info(f"[MarketObserver] Lab 模式：scheduler={type(scheduler)}, has_latest_data={hasattr(scheduler, '_latest_sent_data')}")
                 if scheduler and hasattr(scheduler, '_latest_sent_data') and scheduler._latest_sent_data is not None:
                     latest = scheduler._latest_sent_data
@@ -590,8 +606,7 @@ class MarketDataObserver:
             self._last_data_time = time.time()
             self._load_watchlist_stocks()
             try:
-                from deva.naja.replay import get_replay_scheduler
-                scheduler = get_replay_scheduler()
+                scheduler = SR('replay_scheduler')
                 if scheduler:
                     scheduler.set_downstream_callback(self._on_replay_data)
                     log.info("[MarketObserver] Lab 模式：已注册 ReplayScheduler 回调")
@@ -619,8 +634,7 @@ class MarketDataObserver:
             self._running = True
             self._last_data_time = time.time()
             try:
-                from deva.naja.replay import get_replay_scheduler
-                scheduler = get_replay_scheduler()
+                scheduler = SR('replay_scheduler')
                 if scheduler:
                     scheduler.set_downstream_callback(self._on_replay_data)
                     log.info("[MarketObserver] Lab 模式：已注册 ReplayScheduler 回调")
@@ -686,8 +700,7 @@ class MarketDataObserver:
             self._running = True
             self._last_data_time = time.time()
             try:
-                from deva.naja.replay import get_replay_scheduler
-                scheduler = get_replay_scheduler()
+                scheduler = SR('replay_scheduler')
                 if scheduler:
                     scheduler.set_downstream_callback(self._on_replay_data)
                     log.info("[MarketObserver] Lab 模式：已注册 ReplayScheduler 回调")
@@ -836,9 +849,5 @@ _observer_lock = threading.Lock()
 
 
 def get_market_observer() -> MarketDataObserver:
-    global _observer
-    if _observer is None:
-        with _observer_lock:
-            if _observer is None:
-                _observer = MarketDataObserver()
-    return _observer
+    from deva.naja.register import SR
+    return SR('market_observer')

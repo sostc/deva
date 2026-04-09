@@ -16,8 +16,9 @@ TradingClock - 感知系统/交易时钟/开盘收盘
 - phase_change: 时段变化时发布，包含变化前后信息
 
 使用方式:
-    >>> from deva.naja.radar.trading_clock import get_trading_clock, TRADING_CLOCK_STREAM
-    >>> tc = get_trading_clock()
+    >>> from deva.naja.radar.trading_clock import TRADING_CLOCK_STREAM
+    >>> from deva.naja.register import SR
+    >>> tc = SR('trading_clock')
     >>> TRADING_CLOCK_STREAM.sink(lambda x: print(f"交易信号: {x}"))
 
 ---
@@ -31,6 +32,7 @@ from datetime import datetime, timedelta
 from typing import Callable, Dict, List, Optional, Any
 
 from deva import NS
+from deva.naja.register import SR
 
 log = logging.getLogger(__name__)
 
@@ -319,20 +321,6 @@ class TradingClock:
         return reasons.get((old, new), f'{old} -> {new}')
 
 
-_trading_clock: Optional[TradingClock] = None
-_trading_clock_lock = threading.Lock()
-
-
-def get_trading_clock() -> TradingClock:
-    """获取交易时钟单例"""
-    global _trading_clock
-    if _trading_clock is None:
-        with _trading_clock_lock:
-            if _trading_clock is None:
-                _trading_clock = TradingClock()
-                _trading_clock.start()
-    return _trading_clock
-
 
 def trading_clock_signal(phase: str) -> bool:
     """
@@ -344,7 +332,7 @@ def trading_clock_signal(phase: str) -> bool:
     Returns:
         是否处于该时段
     """
-    tc = get_trading_clock()
+    tc = SR('trading_clock')
     return tc.current_phase == phase
 
 
@@ -395,8 +383,7 @@ class USTradingClock:
         self._last_emit_time: float = 0
         self._subscribers: List[Callable] = []
 
-        from .global_market_config import get_market_session_manager
-        self._market_mgr = get_market_session_manager()
+        self._market_mgr = SR('market_session_manager')
 
         log.info("[USTradingClock] 美股交易时钟初始化完成")
 
@@ -579,24 +566,9 @@ class USTradingClock:
         return reasons.get((old, new), f'{old} -> {new}')
 
 
-_us_trading_clock: Optional[USTradingClock] = None
-_us_trading_clock_lock = threading.Lock()
-
-
-def get_us_trading_clock() -> USTradingClock:
-    """获取美股交易时钟单例"""
-    global _us_trading_clock
-    if _us_trading_clock is None:
-        with _us_trading_clock_lock:
-            if _us_trading_clock is None:
-                _us_trading_clock = USTradingClock()
-                _us_trading_clock.start()
-    return _us_trading_clock
-
-
 def us_trading_clock_signal(phase: str) -> bool:
     """判断美股当前是否处于指定时段"""
-    tc = get_us_trading_clock()
+    tc = SR('us_trading_clock')
     return tc.current_phase == phase
 
 

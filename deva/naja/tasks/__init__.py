@@ -24,6 +24,7 @@ from ..scheduler import (
     parse_cron_expr,
     build_event_condition_checker,
 )
+from deva.naja.register import SR
 
 
 TASK_TABLE = "naja_tasks"
@@ -964,15 +965,3 @@ class TaskManager:
         extra_str = " ".join([f"{k}={v}" for k, v in extra.items()])
         print(f"[TaskManager][{level}] {message} | {extra_str}")
 
-
-_task_manager: Optional[TaskManager] = None
-_task_manager_lock = threading.Lock()
-
-
-def get_task_manager() -> TaskManager:
-    global _task_manager
-    if _task_manager is None:
-        with _task_manager_lock:
-            if _task_manager is None:
-                _task_manager = TaskManager()
-    return _task_manager

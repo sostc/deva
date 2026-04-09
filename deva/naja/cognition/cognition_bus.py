@@ -88,7 +88,7 @@ def emit_attention_snapshot(
     active_blocks: set,
     global_attention: float,
     activity: float,
-    sector_names: Dict[str, str],
+    block_names: Dict[str, str],
     source: str = "attention_system",
 ) -> None:
     """发射注意力快照事件"""
@@ -101,7 +101,7 @@ def emit_attention_snapshot(
             "active_blocks": list(active_blocks),
             "global_attention": global_attention,
             "activity": activity,
-            "sector_names": sector_names,
+            "block_names": block_names,
         },
         source=source,
     )

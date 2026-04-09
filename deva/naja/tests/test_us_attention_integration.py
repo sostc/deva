@@ -18,27 +18,27 @@ import numpy as np
 class TestUSStockSectors(unittest.TestCase):
     """测试美股板块映射"""
 
-    def test_us_stock_sectors_exists(self):
-        """测试 US_STOCK_SECTORS 映射存在"""
-        from deva.naja.attention.data.global_market_futures import US_STOCK_SECTORS, US_STOCK_CODES
-        self.assertIsInstance(US_STOCK_SECTORS, dict)
+    def test_us_stock_blocks_exists(self):
+        """测试 US_STOCK_BLOCKS 映射存在"""
+        from deva.naja.market_hotspot.data.global_market_futures import US_STOCK_BLOCKS, US_STOCK_CODES
+        self.assertIsInstance(US_STOCK_BLOCKS, dict)
         self.assertIsInstance(US_STOCK_CODES, dict)
         print(f"✅ US_STOCK_CODES: {len(US_STOCK_CODES)} 只股票")
-        print(f"✅ US_STOCK_SECTORS: {len(US_STOCK_SECTORS)} 只股票")
+        print(f"✅ US_STOCK_BLOCKS: {len(US_STOCK_BLOCKS)} 只股票")
 
-    def test_us_stock_sectors_coverage(self):
+    def test_us_stock_blocks_coverage(self):
         """测试美股板块覆盖"""
-        from deva.naja.attention.data.global_market_futures import US_STOCK_SECTORS, US_SECTOR_LIST
+        from deva.naja.market_hotspot.data.global_market_futures import US_STOCK_BLOCKS, US_BLOCK_LIST
         for symbol in ['aapl', 'nvda', 'tsla', 'baba', 'amd']:
-            self.assertIn(symbol, US_STOCK_SECTORS, f"{symbol} 应该在板块映射中")
-        print(f"✅ 关键股票板块映射: aapl={US_STOCK_SECTORS['aapl']}, nvda={US_STOCK_SECTORS['nvda']}, tsla={US_STOCK_SECTORS['tsla']}")
+            self.assertIn(symbol, US_STOCK_BLOCKS, f"{symbol} 应该在板块映射中")
+        print(f"✅ 关键股票板块映射: aapl={US_STOCK_BLOCKS['aapl']}, nvda={US_STOCK_BLOCKS['nvda']}, tsla={US_STOCK_BLOCKS['tsla']}")
 
-    def test_us_sector_list(self):
+    def test_us_block_list(self):
         """测试板块列表"""
-        from deva.naja.attention.data.global_market_futures import US_SECTOR_LIST
-        self.assertIsInstance(US_SECTOR_LIST, list)
-        self.assertGreater(len(US_SECTOR_LIST), 10)
-        print(f"✅ 板块列表 ({len(US_SECTOR_LIST)}): {US_SECTOR_LIST[:5]}...")
+        from deva.naja.market_hotspot.data.global_market_futures import US_BLOCK_LIST
+        self.assertIsInstance(US_BLOCK_LIST, list)
+        self.assertGreater(len(US_BLOCK_LIST), 10)
+        print(f"✅ 板块列表 ({len(US_BLOCK_LIST)}): {US_BLOCK_LIST[:5]}...")
 
 
 class TestDataConversion(unittest.TestCase):
@@ -53,7 +53,7 @@ class TestDataConversion(unittest.TestCase):
 
     def test_convert_us_to_dataframe(self):
         """测试美股数据转换为 DataFrame"""
-        from deva.naja.attention.realtime_data_fetcher import RealtimeDataFetcher
+        from deva.naja.market_hotspot.realtime_data_fetcher import RealtimeDataFetcher
 
         class MockFetcher:
             pass
@@ -65,7 +65,7 @@ class TestDataConversion(unittest.TestCase):
 
         self.assertIsNotNone(df)
         self.assertEqual(len(df), 3)
-        self.assertIn('sector', df.columns)
+        self.assertIn('block', df.columns)
         self.assertIn('market', df.columns)
         self.assertIn('p_change', df.columns)
         self.assertIn('volume', df.columns)
@@ -74,11 +74,11 @@ class TestDataConversion(unittest.TestCase):
 
         print(f"✅ DataFrame 列: {list(df.columns)}")
         print(f"✅ DataFrame 索引: {list(df.index)}")
-        print(f"✅ 板块分布:\n{df['sector'].value_counts()}")
+        print(f"✅ 板块分布:\n{df['block'].value_counts()}")
 
     def test_convert_empty_data(self):
         """测试空数据处理"""
-        from deva.naja.attention.realtime_data_fetcher import RealtimeDataFetcher
+        from deva.naja.market_hotspot.realtime_data_fetcher import RealtimeDataFetcher
 
         class MockFetcher:
             pass
@@ -100,7 +100,7 @@ class TestAttentionSystem(unittest.TestCase):
 
     def test_process_us_snapshot_basic(self):
         """测试基本的 process_us_snapshot 调用"""
-        from deva.naja.attention.integration.attention_system import AttentionSystem, AttentionSystemConfig
+        from deva.naja.market_hotspot.integration.attention_system import AttentionSystem, AttentionSystemConfig
 
         config = AttentionSystemConfig()
         system = AttentionSystem(config)
@@ -110,7 +110,7 @@ class TestAttentionSystem(unittest.TestCase):
         returns = np.array([2.5, 0.5, -2.0, 1.5, 3.0])
         volumes = np.array([5e7, 3e7, 8e7, 2e7, 4e7])
         prices = np.array([800, 175, 245, 150, 85])
-        sector_ids = np.array(['半导体', '科技', '新能源车', '半导体', '电商'])
+        block_ids = np.array(['半导体', '科技', '新能源车', '半导体', '电商'])
         timestamp = time.time()
 
         result = system.process_us_snapshot(
@@ -118,26 +118,26 @@ class TestAttentionSystem(unittest.TestCase):
             returns=returns,
             volumes=volumes,
             prices=prices,
-            sector_ids=sector_ids,
+            block_ids=block_ids,
             timestamp=timestamp
         )
 
         self.assertEqual(result['market'], 'US')
         self.assertIn('global_attention', result)
         self.assertIn('activity', result)
-        self.assertIn('sector_attention', result)
+        self.assertIn('block_attention', result)
         self.assertIn('symbol_weights', result)
         self.assertGreater(result['stock_count'], 0)
 
         print(f"✅ global_attention: {result['global_attention']:.4f}")
         print(f"✅ activity: {result['activity']:.4f}")
-        print(f"✅ sector_count: {len(result['sector_attention'])}")
+        print(f"✅ block_count: {len(result['block_attention'])}")
         print(f"✅ symbol_count: {len(result['symbol_weights'])}")
-        print(f"✅ sector_attention: {result['sector_attention']}")
+        print(f"✅ block_attention: {result['block_attention']}")
 
     def test_process_us_snapshot_uninitialized(self):
         """测试未初始化时的处理"""
-        from deva.naja.attention.integration.attention_system import AttentionSystem
+        from deva.naja.market_hotspot.integration.attention_system import AttentionSystem
 
         system = AttentionSystem()
 
@@ -145,7 +145,7 @@ class TestAttentionSystem(unittest.TestCase):
         returns = np.array([2.5])
         volumes = np.array([5e7])
         prices = np.array([800])
-        sector_ids = np.array(['半导体'])
+        block_ids = np.array(['半导体'])
         timestamp = time.time()
 
         result = system.process_us_snapshot(
@@ -153,7 +153,7 @@ class TestAttentionSystem(unittest.TestCase):
             returns=returns,
             volumes=volumes,
             prices=prices,
-            sector_ids=sector_ids,
+            block_ids=block_ids,
             timestamp=timestamp
         )
 
@@ -162,26 +162,26 @@ class TestAttentionSystem(unittest.TestCase):
 
         print("✅ 未初始化时返回降级结果")
 
-    def test_get_us_attention_state(self):
+    def test_get_us_hotspot_state(self):
         """测试获取美股注意力状态"""
-        from deva.naja.attention.integration.attention_system import AttentionSystem, AttentionSystemConfig
+        from deva.naja.market_hotspot.integration.attention_system import AttentionSystem, AttentionSystemConfig
 
         config = AttentionSystemConfig()
         system = AttentionSystem(config)
         system._initialized = True
 
-        state = system.get_us_attention_state()
+        state = system.get_us_hotspot_state()
 
         self.assertIn('global_attention', state)
         self.assertIn('activity', state)
-        self.assertIn('sector_attention', state)
+        self.assertIn('block_attention', state)
         self.assertIn('symbol_weights', state)
 
-        print("✅ get_us_attention_state 返回正确结构")
+        print("✅ get_us_hotspot_state 返回正确结构")
 
     def test_extreme_values(self):
         """测试极端值处理"""
-        from deva.naja.attention.integration.attention_system import AttentionSystem, AttentionSystemConfig
+        from deva.naja.market_hotspot.integration.attention_system import AttentionSystem, AttentionSystemConfig
 
         config = AttentionSystemConfig()
         system = AttentionSystem(config)
@@ -191,7 +191,7 @@ class TestAttentionSystem(unittest.TestCase):
         returns = np.array([100.0])
         volumes = np.array([1e20])
         prices = np.array([0.001])
-        sector_ids = np.array(['测试'])
+        block_ids = np.array(['测试'])
         timestamp = time.time()
 
         result = system.process_us_snapshot(
@@ -199,7 +199,7 @@ class TestAttentionSystem(unittest.TestCase):
             returns=returns,
             volumes=volumes,
             prices=prices,
-            sector_ids=sector_ids,
+            block_ids=block_ids,
             timestamp=timestamp
         )
 
@@ -214,21 +214,21 @@ class TestUSMarketUI(unittest.TestCase):
 
     def test_get_us_attention_data(self):
         """测试获取美股注意力数据"""
-        from deva.naja.attention.ui_components.us_market import get_us_attention_data
+        from deva.naja.market_hotspot.ui_components.us_market import get_us_hotspot_data
 
-        data = get_us_attention_data()
+        data = get_us_hotspot_data()
 
         self.assertIsInstance(data, dict)
         print(f"✅ get_us_attention_data 返回: {list(data.keys())}")
 
     def test_render_us_market_panel(self):
         """测试渲染美股市场面板"""
-        from deva.naja.attention.ui_components.us_market import render_us_market_panel
+        from deva.naja.market_hotspot.ui_components.us_market import render_us_market_panel
 
         mock_data = {
             'global_attention': 0.65,
             'activity': 0.72,
-            'sector_attention': {
+            'block_attention': {
                 '半导体': 0.8,
                 '科技': 0.6,
                 '新能源车': 0.45,
@@ -251,12 +251,12 @@ class TestUSMarketUI(unittest.TestCase):
 
         print("✅ render_us_market_panel 生成正确 HTML")
 
-    def test_render_us_hot_sectors_and_stocks(self):
+    def test_render_us_hot_blocks_and_stocks(self):
         """测试渲染美股热门板块和股票"""
-        from deva.naja.attention.ui_components.us_market import render_us_hot_sectors_and_stocks
+        from deva.naja.attention.ui_components.us_market import render_us_hot_blocks_and_stocks
 
         mock_data = {
-            'sector_attention': {
+            'block_attention': {
                 '半导体': 0.85,
                 '科技': 0.65,
                 '电商': 0.45,
@@ -269,7 +269,7 @@ class TestUSMarketUI(unittest.TestCase):
             }
         }
 
-        html = render_us_hot_sectors_and_stocks(mock_data)
+        html = render_us_hot_blocks_and_stocks(mock_data)
 
         self.assertIsInstance(html, str)
         self.assertIn('美股热门板块', html)
@@ -277,11 +277,11 @@ class TestUSMarketUI(unittest.TestCase):
         self.assertIn('半导体', html)
         self.assertIn('NVDA', html)
 
-        print("✅ render_us_hot_sectors_and_stocks 生成正确 HTML")
+        print("✅ render_us_hot_blocks_and_stocks 生成正确 HTML")
 
     def test_render_us_market_summary(self):
         """测试渲染美股市场摘要"""
-        from deva.naja.attention.ui_components.us_market import render_us_market_summary
+        from deva.naja.market_hotspot.ui_components.us_market import render_us_market_summary
 
         html = render_us_market_summary()
 
@@ -312,7 +312,7 @@ class TestIntegration(unittest.TestCase):
         }
 
         print("\n📊 Step 1: 数据转换")
-        from deva.naja.attention.realtime_data_fetcher import RealtimeDataFetcher
+        from deva.naja.market_hotspot.realtime_data_fetcher import RealtimeDataFetcher
 
         class MockFetcher:
             pass
@@ -323,10 +323,10 @@ class TestIntegration(unittest.TestCase):
         df = fetcher._convert_us_to_dataframe(None, mock_us_data)
         self.assertIsNotNone(df)
         print(f"✅ 转换成功: {len(df)} 只股票")
-        print(f"   板块分布: {df['sector'].value_counts().to_dict()}")
+        print(f"   板块分布: {df['block'].value_counts().to_dict()}")
 
         print("\n📊 Step 2: 注意力计算")
-        from deva.naja.attention.integration.attention_system import AttentionSystem, AttentionSystemConfig
+        from deva.naja.market_hotspot.integration.attention_system import AttentionSystem, AttentionSystemConfig
 
         config = AttentionSystemConfig()
         system = AttentionSystem(config)
@@ -336,39 +336,39 @@ class TestIntegration(unittest.TestCase):
         returns = df['p_change'].values
         volumes = df['volume'].values
         prices = df['now'].values
-        sector_ids = df['sector'].values
+        block_ids = df['block'].values
 
         result = system.process_us_snapshot(
             symbols=symbols,
             returns=returns,
             volumes=volumes,
             prices=prices,
-            sector_ids=sector_ids,
+            block_ids=block_ids,
             timestamp=time.time()
         )
 
         print(f"✅ 注意力计算成功")
         print(f"   global_attention: {result['global_attention']:.4f}")
         print(f"   activity: {result['activity']:.4f}")
-        print(f"   板块注意力: {result['sector_attention']}")
+        print(f"   板块注意力: {result['block_attention']}")
         print(f"   个股权重 Top5: {sorted(result['symbol_weights'].items(), key=lambda x: x[1], reverse=True)[:5]}")
 
         print("\n📊 Step 3: UI渲染")
         from deva.naja.attention.ui_components.us_market import (
             render_us_market_panel,
-            render_us_hot_sectors_and_stocks,
+            render_us_hot_blocks_and_stocks,
             render_us_market_summary,
         )
 
         ui_data = {
             'global_attention': result['global_attention'],
             'activity': result['activity'],
-            'sector_attention': result['sector_attention'],
+            'block_attention': result['block_attention'],
             'symbol_weights': result['symbol_weights'],
         }
 
         panel_html = render_us_market_panel(ui_data)
-        hot_html = render_us_hot_sectors_and_stocks(ui_data)
+        hot_html = render_us_hot_blocks_and_stocks(ui_data)
         summary_html = render_us_market_summary()
 
         print(f"✅ UI渲染成功")

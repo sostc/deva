@@ -163,7 +163,7 @@ class ConvictionValidator:
         )
 
         log.info(f"信念度: {result.conviction_score}")
-        log.info(f"共识板块: {[b for b,_ in result.consensus_blocks]}")
+        log.info(f"共识题材: {[b for b,_ in result.consensus_blocks]}")
         log.info(f"盲区: {[b for b,_ in result.blind_spots]}")
     """
 

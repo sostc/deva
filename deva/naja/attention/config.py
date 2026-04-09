@@ -4,7 +4,7 @@ Naja Attention System Configuration - 注意力系统配置模块
 支持通过配置文件或环境变量配置注意力系统
 
 职责:
-- NajaAttentionConfig: Naja注意力系统主配置
+- MarketHotspotConfig: Naja注意力系统主配置
 - NoiseFilterConfig: 噪音过滤配置
 - load_config(): 配置加载入口
 - get_intelligence_config(): 智能增强系统配置
@@ -36,7 +36,7 @@ class NoiseFilterConfig:
 
 
 @dataclass
-class NajaAttentionConfig:
+class MarketHotspotConfig:
     """
     Naja 注意力系统配置
 
@@ -48,8 +48,8 @@ class NajaAttentionConfig:
 
     enabled: bool = True
     global_history_window: int = 20
-    max_sectors: int = 5000
-    sector_decay_half_life: float = 300.0
+    max_blocks: int = 5000
+    block_decay_half_life: float = 300.0
     max_symbols: int = 5000
     low_interval: float = 60.0
     medium_interval: float = 10.0
@@ -64,14 +64,17 @@ class NajaAttentionConfig:
     log_level: str = "INFO"
 
     @classmethod
-    def from_env(cls) -> "NajaAttentionConfig":
+    def from_env(cls) -> "MarketHotspotConfig":
         """从环境变量加载配置"""
         config = cls()
 
         config.enabled = os.getenv("NAJA_ATTENTION_ENABLED", "true").lower() == "true"
         config.global_history_window = int(os.getenv("NAJA_ATTENTION_GLOBAL_WINDOW", "20"))
-        config.max_sectors = int(os.getenv("NAJA_ATTENTION_MAX_SECTORS", "5000"))
+        config.max_blocks = int(os.getenv("NAJA_ATTENTION_MAX_BLOCKS", "5000"))
         config.max_symbols = int(os.getenv("NAJA_ATTENTION_MAX_SYMBOLS", "5000"))
+        config.block_decay_half_life = float(
+            os.getenv("NAJA_ATTENTION_BLOCK_DECAY_HALF_LIFE", "300.0")
+        )
 
         config.low_interval = float(os.getenv("NAJA_ATTENTION_LOW_INTERVAL", "60.0"))
         config.medium_interval = float(os.getenv("NAJA_ATTENTION_MEDIUM_INTERVAL", "10.0"))
@@ -97,11 +100,11 @@ class NajaAttentionConfig:
 
     def to_attention_system_config(self):
         """转换为 AttentionSystemConfig"""
-        from .integration import AttentionSystemConfig
+        from deva.naja.market_hotspot.integration.market_hotspot_system import MarketHotspotSystemConfig as AttentionSystemConfig
         return AttentionSystemConfig(
             global_history_window=self.global_history_window,
-            max_sectors=self.max_sectors,
-            sector_decay_half_life=self.sector_decay_half_life,
+            max_blocks=self.max_blocks,
+            block_decay_half_life=self.block_decay_half_life,
             max_symbols=self.max_symbols,
             low_interval=self.low_interval,
             medium_interval=self.medium_interval,
@@ -111,25 +114,25 @@ class NajaAttentionConfig:
         )
 
     def __str__(self) -> str:
-        return f"""NajaAttentionConfig(
+        return f"""MarketHotspotConfig(
     enabled={self.enabled},
-    max_sectors={self.max_sectors},
+    max_blocks={self.max_blocks},
     max_symbols={self.max_symbols},
     intervals=[{self.high_interval}s/{self.medium_interval}s/{self.low_interval}s],
     monitoring={self.enable_monitoring}
 )"""
 
 
-default_config = NajaAttentionConfig()
+default_config = MarketHotspotConfig()
 
 
-def load_config() -> NajaAttentionConfig:
+def load_config() -> MarketHotspotConfig:
     """
     加载配置
 
     优先级：环境变量 > 配置文件 > 默认值
     """
-    config = NajaAttentionConfig.from_env()
+    config = MarketHotspotConfig.from_env()
 
     try:
         config_file = os.path.expanduser("~/.naja/attention_config.yaml")

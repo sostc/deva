@@ -1,84 +1,51 @@
 """
-Strategies - 基于注意力的交易策略
+Attention Strategies - 基于注意力的交易策略
+
+这些策略订阅 HotspotComputedEvent，基于热点数据做交易决策
+
+市场适配:
+- A股策略: GlobalMarketSentinel, BlockRotationHunter, MomentumSurgeTracker, etc.
+- 美股策略: USGlobalMarketSentinel, USBlockRotationHunter, USMomentumSurgeTracker, etc.
 """
 
-from .base import AttentionStrategyBase, Signal
+from .base import (
+    AttentionStrategyBase,
+    HotspotSignal,
+)
+from .block_rotation import BlockRotationHunter
 from .global_sentinel import GlobalMarketSentinel
-from .block_hunter import BlockRotationHunter
 from .momentum_tracker import MomentumSurgeTracker
 from .anomaly_sniper import AnomalyPatternSniper
-from .smart_money_detector import SmartMoneyFlowDetector
+from .smart_money import SmartMoneyFlowDetector
+from .liquidity_rescue import (
+    LiquidityCrisisTracker,
+    PanicPeakDetector,
+    RecoveryConfirmationMonitor,
+)
 from .us_strategies import (
+    USMarketAdapter,
     USGlobalMarketSentinel,
     USBlockRotationHunter,
     USMomentumSurgeTracker,
     USAnomalyPatternSniper,
     USSmartMoneyFlowDetector,
 )
-from .strategy_manager import (
-    AttentionStrategyManager,
-    StrategyConfig,
-    get_strategy_manager,
-    initialize_attention_strategies
-)
-from .config import (
-    StrategySettings,
-    AttentionStrategyConfig,
-    ConfigManager,
-    get_config_manager
-)
-from .wrapper import (
-    AttentionStrategyWrapper,
-    wrap_attention_strategy,
-    register_attention_strategies_to_manager,
-)
-from .liquidity_rescue_strategies import (
-    PanicPeakDetector,
-    LiquidityCrisisTracker,
-    RecoveryConfirmationMonitor,
-    LiquidityRescueOrchestrator,
-    RescueSignal,
-    RescueSignalType,
-    LiquidityCrisisState,
-)
 
 __all__ = [
     "AttentionStrategyBase",
-    "Signal",
+    "HotspotSignal",
     "GlobalMarketSentinel",
     "BlockRotationHunter",
     "MomentumSurgeTracker",
     "AnomalyPatternSniper",
     "SmartMoneyFlowDetector",
+    "LiquidityCrisisTracker",
+    "PanicPeakDetector",
+    "RecoveryConfirmationMonitor",
+    "USMarketAdapter",
     "USGlobalMarketSentinel",
     "USBlockRotationHunter",
     "USMomentumSurgeTracker",
     "USAnomalyPatternSniper",
     "USSmartMoneyFlowDetector",
-    "AttentionStrategyManager",
-    "StrategyConfig",
-    "get_strategy_manager",
-    "initialize_attention_strategies",
-    "StrategySettings",
-    "AttentionStrategyConfig",
-    "ConfigManager",
-    "get_config_manager",
-    "setup_attention_strategies",
-    "AttentionStrategyWrapper",
-    "wrap_attention_strategy",
-    "register_attention_strategies_to_manager",
-    "PanicPeakDetector",
-    "LiquidityCrisisTracker",
-    "RecoveryConfirmationMonitor",
-    "LiquidityRescueOrchestrator",
-    "RescueSignal",
-    "RescueSignalType",
-    "LiquidityCrisisState",
 ]
-
-
-def setup_attention_strategies():
-    """快速设置注意力策略系统"""
-    config_manager = get_config_manager()
-    manager = initialize_attention_strategies()
-    return manager

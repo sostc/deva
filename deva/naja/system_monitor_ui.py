@@ -2,6 +2,7 @@
 
 from typing import Dict, Any
 import time
+from deva.naja.register import SR
 
 
 def render_status_badge(status: str) -> str:
@@ -126,7 +127,7 @@ def render_monitor_panel() -> str:
         
         # 尝试导入系统监控
         try:
-            from deva.naja.system_monitor import get_system_monitor, SystemMonitor
+            from deva.naja.system_monitor import SystemMonitor
         except ImportError:
             # deva 模块未初始化，返回空状态
             status = {
@@ -159,7 +160,7 @@ def render_monitor_panel() -> str:
                 </div>
             </div>"""
         
-        monitor = get_system_monitor()
+        monitor = SR('system_monitor')
         status = monitor.get_overall_status()
         
         return f"""

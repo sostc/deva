@@ -3,6 +3,7 @@
 import json
 
 from pywebio.output import put_text, put_markdown, put_table, put_buttons, put_html, toast, popup, close_popup, put_code, put_collapse, put_row, use_scope, set_scope, clear
+from deva.naja.register import SR
 
 
 STRATEGY_NAME_TO_DIAGRAM = {
@@ -2161,7 +2162,7 @@ async def _show_strategy_detail(ctx: dict, mgr, entry_id: str):
 
             priority = "-"
             try:
-                from deva.naja.attention.strategies import get_strategy_manager as get_attn_mgr
+                from deva.naja.market_hotspot.strategies import get_strategy_manager as get_attn_mgr
                 attn_mgr = get_attn_mgr()
                 config = attn_mgr.configs.get(entry.id)
                 if config:
@@ -2324,10 +2325,9 @@ async def _edit_strategy_dialog(ctx: dict, mgr, entry_id: str):
         return
 
     from ..datasource import get_datasource_manager
-    from ..dictionary import get_dictionary_manager
 
     ds_mgr = get_datasource_manager()
-    dict_mgr = get_dictionary_manager()
+    dict_mgr = SR('dictionary_manager')
 
     # 构建数据源选项（用于checkbox）
     source_options = []
@@ -2589,10 +2589,9 @@ def _create_strategy_dialog(mgr, ctx: dict):
 async def _create_strategy_dialog_async(mgr, ctx: dict):
     """创建策略对话框（异步）"""
     from ..datasource import get_datasource_manager
-    from ..dictionary import get_dictionary_manager
 
     ds_mgr = get_datasource_manager()
-    dict_mgr = get_dictionary_manager()
+    dict_mgr = SR('dictionary_manager')
 
     # 构建数据源选项（用于checkbox）
     source_options = []

@@ -6,6 +6,8 @@ from pywebio import session
 import threading
 
 from deva.naja.page_help import render_help_collapse
+from deva.naja.register import SR
+from deva import NB
 
 _auto_refresh_enabled = True
 
@@ -228,17 +230,14 @@ async def render_bandit_admin(ctx: dict):
     """渲染 Bandit 管理页面"""
     
     from deva.naja.bandit import (
-        get_adaptive_cycle,
         get_bandit_optimizer,
-        get_virtual_portfolio,
-        get_signal_listener,
         get_market_observer,
     )
     
-    cycle = get_adaptive_cycle()
+    cycle = SR('adaptive_cycle')
     optimizer = get_bandit_optimizer()
-    portfolio = get_virtual_portfolio()
-    listener = get_signal_listener()
+    portfolio = SR('virtual_portfolio')
+    listener = SR('signal_listener')
     observer = get_market_observer()
     
     status = cycle.get_status()
@@ -417,21 +416,63 @@ async def render_bandit_admin(ctx: dict):
         put_html(html)
 
     try:
-        from deva.naja.bandit.portfolio_manager import get_portfolio_manager
-        pm = get_portfolio_manager()
         put_text("")
-        put_html("<h3>🇺🇸 美股持仓</h3>")
+        put_html("<h3>🇺🇸 美股/港股持仓</h3>")
 
-        us_account_names = ["Spark", "Cutie"]
-        for account_name in us_account_names:
-            portfolio = pm.get_us_portfolio(account_name)
-            if not portfolio:
+        us_account_names = []
+        pm = None
+        try:
+            from deva.naja.bandit.portfolio_manager import get_portfolio_manager
+            pm = get_portfolio_manager()
+            if pm:
+                us_account_names = pm.get_all_account_names()
+                put_text(f"PM账户: {us_account_names}")
+        except Exception as e:
+            put_text(f"PM初始化失败: {e}")
+
+        futu_nb_accounts = []
+        try:
+            nb = NB("naja_bandit_positions")
+            accounts_data = nb.get("accounts", {})
+            for acc_name, acc_data in accounts_data.items():
+                if acc_data.get("account_type") == "futu":
+                    futu_nb_accounts.append(acc_name)
+            put_text(f"富途账户: {futu_nb_accounts}")
+        except Exception as e:
+            put_text(f"NB读取失败: {e}")
+
+        all_account_names = us_account_names + futu_nb_accounts
+
+        for account_name in all_account_names:
+            portfolio = None
+            futu_positions = None
+            if pm and account_name in us_account_names:
+                portfolio = pm.get_us_portfolio(account_name)
+                if portfolio:
+                    positions = portfolio.get_all_positions()
+                    summary = portfolio.get_summary()
+                else:
+                    continue
+            elif account_name in futu_nb_accounts:
+                nb = NB("naja_bandit_positions")
+                accounts_data = nb.get("accounts", {})
+                acc_data = accounts_data.get(account_name, {})
+                futu_positions = acc_data.get("positions", {})
+                summary = {
+                    "equity": acc_data.get("equity", 0),
+                    "total_value": sum(p.get("current_price", 0) * p.get("quantity", 0) for p in futu_positions.values()),
+                    "total_cost": sum(p.get("entry_price", 0) * p.get("quantity", 0) for p in futu_positions.values()),
+                    "position_count": len(futu_positions),
+                    "total_profit_loss": 0,
+                    "total_return_pct": 0,
+                    "today_profit_loss": 0,
+                }
+                positions = None
+            else:
                 continue
 
-            positions = portfolio.get_all_positions()
-            summary = portfolio.get_summary()
-
-            put_html(f"<h4>【{account_name}】</h4>")
+            account_label = f"【{account_name}】" + (" (Futu)" if account_name in futu_nb_accounts else "")
+            put_html(f"<h4>{account_label}</h4>")
 
             equity = summary.get('equity', 0)
             margin_debt = summary.get('margin_debt', 0)
@@ -462,7 +503,30 @@ async def render_bandit_admin(ctx: dict):
                 ]),
             ], size="1fr 1fr")
 
-            if positions:
+            if futu_positions:
+                html = """<table style='width:100%;border-collapse:collapse;font-size:14px;margin-top:8px;'>
+                <tr style='background:#e8f4fc;'>
+                    <th style='padding:8px;border:1px solid #ddd;'>股票名称</th>
+                    <th style='padding:8px;border:1px solid #ddd;'>代码</th>
+                    <th style='padding:8px;border:1px solid #ddd;'>持股数</th>
+                    <th style='padding:8px;border:1px solid #ddd;'>入场价</th>
+                    <th style='padding:8px;border:1px solid #ddd;'>现价</th>
+                    <th style='padding:8px;border:1px solid #ddd;'>市值</th>
+                </tr>"""
+
+                for pos_id, pos in futu_positions.items():
+                    html += f"""<tr>
+                        <td style='padding:8px;border:1px solid #ddd;'>{pos.get('stock_name', '')}</td>
+                        <td style='padding:8px;border:1px solid #ddd;'>{pos.get('stock_code', '').upper()}</td>
+                        <td style='padding:8px;border:1px solid #ddd;'>{pos.get('quantity', 0)}</td>
+                        <td style='padding:8px;border:1px solid #ddd;'>${pos.get('entry_price', 0):.2f}</td>
+                        <td style='padding:8px;border:1px solid #ddd;'>${pos.get('current_price', 0):.2f}</td>
+                        <td style='padding:8px;border:1px solid #ddd;'>${pos.get('current_price', 0) * pos.get('quantity', 0):.2f}</td>
+                    </tr>"""
+
+                html += "</table>"
+                put_html(html)
+            elif positions:
                 html = """<table style='width:100%;border-collapse:collapse;font-size:14px;margin-top:8px;'>
                 <tr style='background:#e8f4fc;'>
                     <th style='padding:8px;border:1px solid #ddd;'>股票名称</th>
@@ -529,7 +593,11 @@ async def render_bandit_admin(ctx: dict):
                 put_button("清空持仓", onclick=lambda: _do_clear(portfolio), small=True),
                 put_button("重置 Bandit", onclick=lambda: _do_reset(optimizer), small=True),
             ]),
-        ], size="1fr 1fr")
+            put_column([
+                put_button("🔄 同步富途持仓", onclick=_do_sync_futu, small=True),
+                put_button("📊 富途账户", onclick=lambda: _do_show_futu_accounts(), small=True),
+            ]),
+        ], size="1fr 1fr 1fr")
 
 
 def _do_start(cycle):
@@ -594,3 +662,30 @@ def _do_reset(optimizer):
         put_text("✅ Bandit 已重置")
     except Exception as e:
         put_text(f"❌ 重置失败: {e}")
+
+
+def _do_sync_futu():
+    try:
+        from deva.naja.bandit.futu_portfolio_syncer import get_futu_syncer
+        syncer = get_futu_syncer()
+        if syncer.sync():
+            put_text("✅ 富途持仓同步成功")
+        else:
+            put_text("⚠️ 富途持仓同步失败，请检查 OpenD 是否运行")
+    except Exception as e:
+        put_text(f"❌ 同步失败: {e}")
+
+
+def _do_show_futu_accounts():
+    try:
+        from deva.naja.bandit.futu_portfolio_syncer import get_futu_syncer
+        syncer = get_futu_syncer()
+        accounts = syncer.get_accounts()
+        if accounts:
+            put_text("📊 富途账户列表:")
+            for acc in accounts:
+                put_text(f"  • {acc['security_firm']} - ID: {acc['acc_id']} ({acc['trd_env']})")
+        else:
+            put_text("⚠️ 未发现富途账户，请确认 OpenD 已登录")
+    except Exception as e:
+        put_text(f"❌ 获取账户失败: {e}")

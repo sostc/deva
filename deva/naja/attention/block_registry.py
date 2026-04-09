@@ -1,15 +1,15 @@
 """
-BlockRegistry - 板块的统一语义注册中心
+BlockRegistry - 题材的统一语义注册中心
 
 职责：
 - 所有 block 的唯一语义注册表
-- 叙事(narrative) → 板块(block) 的双向映射
-- 股票(symbol) → 板块(block) 的映射查询
-- 板块描述的 embedding 向量存储（中期）
+- 叙事(narrative) → 题材(block) 的双向映射
+- 股票(symbol) → 题材(block) 的映射查询
+- 题材描述的 embedding 向量存储（中期）
 
 三层概念分离：
-- block_id:    板块标识符 "semiconductor", "AI", "新能源"
-- industry:    传统行业分类 "ai_chip", "cloud_ai" (来自 stock_sector_map)
+- block_id:    题材标识符 "semiconductor", "AI", "新能源"
+- industry:    传统行业分类 "ai_chip", "cloud_ai" (来自 stock_block_map)
 - narrative:   叙事主题 "AI", "芯片国产替代", "新能源"
 """
 
@@ -23,7 +23,7 @@ import numpy as np
 
 @dataclass
 class BlockDescriptor:
-    """板块语义描述符 - Block 的统一身份层"""
+    """题材语义描述符 - Block 的统一身份层"""
     block_id: str
     name: str
     industry_code: str = ""
@@ -51,12 +51,12 @@ class BlockDescriptor:
 
 class BlockRegistry:
     """
-    板块的统一语义注册中心
+    题材的统一语义注册中心
 
     单一数据源原则：
     - 所有 block 元信息只在这里定义/查询
-    - 叙事→板块的映射通过 NarrativeBlockLinker 处理
-    - 股票→板块的映射通过 register_symbol_block 注入
+    - 叙事→题材的映射通过 NarrativeBlockLinker 处理
+    - 股票→题材的映射通过 register_symbol_block 注入
     """
 
     _instance: Optional["BlockRegistry"] = None
@@ -81,7 +81,7 @@ class BlockRegistry:
         self._initialized = True
 
     def register(self, descriptor: BlockDescriptor) -> None:
-        """注册板块"""
+        """注册题材"""
         block_id = descriptor.block_id
         is_new = block_id not in self._blocks
 
@@ -108,7 +108,7 @@ class BlockRegistry:
         source: str = "manual",
         symbols: Optional[Set[str]] = None,
     ) -> BlockDescriptor:
-        """注册板块（便捷方法）"""
+        """注册题材（便捷方法）"""
         descriptor = BlockDescriptor(
             block_id=block_id,
             name=name,
@@ -123,7 +123,7 @@ class BlockRegistry:
         return descriptor
 
     def get(self, block_id: str) -> Optional[BlockDescriptor]:
-        """获取板块描述符"""
+        """获取题材描述符"""
         return self._blocks.get(block_id)
 
     def exists(self, block_id: str) -> bool:
@@ -136,27 +136,27 @@ class BlockRegistry:
         return list(self._blocks.keys())
 
     def get_blocks_for_symbol(self, symbol: str) -> List[BlockDescriptor]:
-        """获取股票所属的板块列表"""
+        """获取股票所属的题材列表"""
         block_ids = self._symbol_to_blocks.get(symbol, set())
         return [self._blocks[bid] for bid in block_ids if bid in self._blocks]
 
     def get_block_ids_for_symbol(self, symbol: str) -> List[str]:
-        """获取股票所属的板块ID列表"""
+        """获取股票所属的题材ID列表"""
         return list(self._symbol_to_blocks.get(symbol, set()))
 
     def get_blocks_for_industry(self, industry_code: str) -> List[BlockDescriptor]:
-        """获取某传统行业分类下的所有板块"""
+        """获取某传统行业分类下的所有题材"""
         block_ids = self._industry_to_blocks.get(industry_code, set())
         return [self._blocks[bid] for bid in block_ids if bid in self._blocks]
 
     def link_symbol_to_block(self, symbol: str, block_id: str) -> None:
-        """建立股票→板块的映射关系"""
+        """建立股票→题材的映射关系"""
         self._symbol_to_blocks[symbol].add(block_id)
         if block_id in self._blocks:
             self._blocks[block_id].add_symbol(symbol)
 
     def link_narrative_to_block(self, narrative: str, block_id: str) -> None:
-        """建立叙事→板块的映射关系（支持多对多）"""
+        """建立叙事→题材的映射关系（支持多对多）"""
         if block_id not in self._blocks:
             self.register_block(block_id, block_id, narrative_tags=[narrative])
         else:
@@ -165,19 +165,19 @@ class BlockRegistry:
         self._block_to_narratives[block_id].add(narrative)
 
     def get_blocks_for_narrative(self, narrative: str) -> List[BlockDescriptor]:
-        """获取叙事关联的板块（精确匹配）"""
+        """获取叙事关联的题材（精确匹配）"""
         block_ids = self._narrative_to_blocks.get(narrative, set())
         return [self._blocks[bid] for bid in block_ids if bid in self._blocks]
 
     def get_narratives_for_block(self, block_id: str) -> List[str]:
-        """获取板块关联的叙事"""
+        """获取题材关联的叙事"""
         return list(self._block_to_narratives.get(block_id, set()))
 
     def get_similar_blocks_by_narrative(
         self, narrative: str, top_k: int = 5
     ) -> List[Tuple[BlockDescriptor, float]]:
         """
-        基于叙事标签相似度获取板块（不依赖 embedding）
+        基于叙事标签相似度获取题材（不依赖 embedding）
 
         匹配策略：
         1. 精确匹配 narrative_tags
@@ -210,7 +210,7 @@ class BlockRegistry:
         self, narrative_to_blocks: Dict[str, List[str]]
     ) -> None:
         """
-        批量导入叙事→板块的配置映射
+        批量导入叙事→题材的配置映射
 
         用于从原有的 narrative_block_mapping.py 迁移
         """
@@ -241,7 +241,7 @@ class BlockRegistry:
         self, narrative_embedding: np.ndarray, top_k: int = 5
     ) -> List[Tuple[str, float]]:
         """
-        基于 embedding 余弦相似度找到相似板块
+        基于 embedding 余弦相似度找到相似题材
 
         需要先调用 build_embedding_index()
         """
