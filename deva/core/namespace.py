@@ -247,7 +247,7 @@ def NB(name='default', *args, **kwargs):
 
 
 
-def NW(name='', host='127.0.0.1', port=9999, start=True, **kwargs):
+def NW(name='', host='127.0.0.1', port=9999, start=True, debug=False, **kwargs):
     """创建命名web服务器.
 
     创建一个命名的Web服务器对象,用于通过HTTP协议提供数据访问服务。
@@ -258,6 +258,7 @@ def NW(name='', host='127.0.0.1', port=9999, start=True, **kwargs):
         host (str): 服务器监听地址,默认为'127.0.0.1'
         port (int): 服务器监听端口,默认为9999
         start (bool): 是否立即启动服务器,默认为True
+        debug (bool): 是否启用调试模式(代码热重载),默认为False
         **kwargs: 其他传递给服务器的参数
 
     Returns:
@@ -283,4 +284,4 @@ def NW(name='', host='127.0.0.1', port=9999, start=True, **kwargs):
         server.start()  # 手动启动
 
     """
-    return global_namespace.create(typ='webserver', name=name, host=host, port=port, start=start, debug=True, **kwargs)
+    return global_namespace.create(typ='webserver', name=name, host=host, port=port, start=start, debug=debug, **kwargs)

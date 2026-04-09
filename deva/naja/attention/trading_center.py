@@ -375,8 +375,10 @@ class TradingCenter:
     def _get_current_narratives(self) -> List[str]:
         """获取当前活跃的叙事列表"""
         try:
+            import importlib
+            from deva.naja.register import SR as sr_getter
             from deva.naja.cognition.narrative import NarrativeTracker
-            tracker = NarrativeTracker()
+            tracker = sr_getter('narrative_tracker') or NarrativeTracker()
             summary = tracker.get_summary(limit=10)
             return [item["narrative"] for item in summary]
         except Exception:
@@ -691,6 +693,145 @@ class TradingCenter:
         except Exception as e:
             log.warning(f"[TradingCenter] process_datasource_data 失败: {e}")
 
+    def process_strategy_signal(self, signal: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """
+        处理策略信号，经过 TradingCenter 决策后再执行
+
+        流程：
+        1. 接收策略信号（如热点策略产生的买入信号）
+        2. 转换为市场状态
+        3. 经过 AttentionOS.kernel.make_decision() 快速决策
+        4. 经过 FirstPrinciplesMind 因果推理
+        5. 经过 AwakenedAlaya 模式匹配
+        6. DecisionFusion 融合决策
+        7. 返回决策结果供 Bandit 执行
+
+        Args:
+            signal: 策略信号，包含：
+                - strategy_id: 策略ID
+                - stock_code: 股票代码
+                - stock_name: 股票名称
+                - signal_type: 信号类型 (buy/sell)
+                - price: 当前价格
+                - confidence: 置信度
+                - timestamp: 时间戳
+
+        Returns:
+            决策结果，包含：
+                - approved: 是否批准交易
+                - action_type: 行动类型
+                - final_confidence: 最终置信度
+                - reasoning: 决策理由
+            如果不批准交易，返回 None
+        """
+        try:
+            strategy_id = signal.get('strategy_id', 'unknown')
+            stock_code = signal.get('stock_code', '')
+            stock_name = signal.get('stock_name', stock_code)
+            signal_type = signal.get('signal_type', 'buy').upper()
+            price = signal.get('price', 0)
+            confidence = signal.get('confidence', 0.5)
+
+            log.info(f"[TradingCenter] 收到策略信号: {strategy_id} {stock_code} {signal_type} @ {price}")
+
+            market_state = {
+                'market_phase': 'trading',
+                'hotspot_signal': signal,
+                'focus_stock': stock_code,
+                'focus_stock_name': stock_name,
+                'signal_confidence': confidence,
+                'signal_strategy': strategy_id,
+            }
+
+            narratives = self._get_current_narratives()
+            if narratives:
+                market_state['narratives'] = narratives
+
+            log.debug(f"[TradingCenter] 开始处理 sensation modules...")
+            market_state = self._process_sensation_modules(market_state, None)
+            log.debug(f"[TradingCenter] sensation modules 处理完成")
+
+            if self.attention_os is None:
+                log.warning("[TradingCenter] attention_os 不可用，使用简化决策")
+                return {
+                    'approved': True,
+                    'action_type': 'buy',
+                    'final_confidence': confidence,
+                    'reasoning': ['简化决策：attention_os 不可用'],
+                }
+
+            log.debug(f"[TradingCenter] 调用 attention_os.make_decision...")
+            kernel_output = self.attention_os.make_decision(market_state)
+            log.debug(f"[TradingCenter] make_decision 完成")
+
+            fp_mind = self._get_first_principles_mind()
+            fp_insights = []
+            if fp_mind and market_state:
+                try:
+                    fp_result = fp_mind.think(market_state, {'symbol': stock_code, 'price': price})
+                    fp_insights = fp_result.get('insights', []) if fp_result else []
+                except Exception as e:
+                    log.warning(f"[TradingCenter] FirstPrinciplesMind.think 失败: {e}")
+
+            alaya = self._get_awakened_alaya()
+            awakening_level = 'dormant'
+            recalled_patterns = []
+            if alaya and market_state:
+                try:
+                    manas_output_dict = kernel_output.to_dict() if hasattr(kernel_output, 'to_dict') else {
+                        'timing_score': kernel_output.timing_score,
+                        'regime_score': kernel_output.regime_score,
+                        'confidence_score': kernel_output.confidence_score,
+                        'risk_temperature': kernel_output.risk_temperature,
+                        'portfolio_loss_pct': getattr(kernel_output, 'portfolio_loss_pct', 0.0),
+                        'market_deterioration': getattr(kernel_output, 'market_deterioration', False),
+                    }
+                    alaya_result = alaya.illuminate(
+                        market_data={'symbol': stock_code, 'price': price},
+                        unified_manas_output=manas_output_dict,
+                        fp_insights=fp_insights
+                    )
+                    awakening_level = alaya_result.get('awakening_level', 'dormant')
+                    recalled_patterns = alaya_result.get('recalled_patterns', [])
+                except Exception as e:
+                    log.warning(f"[TradingCenter] AwakenedAlaya.illuminate 失败: {e}")
+
+            fusion = self._fuse_decisions(kernel_output, fp_insights, awakening_level)
+            fusion.recalled_patterns = recalled_patterns
+
+            approved = fusion.should_act and fusion.final_confidence >= 0.4
+
+            if approved:
+                log.info(f"[TradingCenter] ✅ 信号批准: {stock_code} {fusion.action_type} "
+                        f"(confidence={fusion.final_confidence:.3f}, manas={fusion.manas_score:.3f})")
+                return {
+                    'approved': True,
+                    'action_type': fusion.action_type,
+                    'final_confidence': fusion.final_confidence,
+                    'harmony_strength': fusion.harmony_strength,
+                    'manas_score': fusion.manas_score,
+                    'timing_score': fusion.timing_score,
+                    'regime_score': fusion.regime_score,
+                    'awakening_level': awakening_level,
+                    'reasoning': fusion.reasoning,
+                    'recalled_patterns': recalled_patterns,
+                    'signal': signal,
+                }
+            else:
+                log.info(f"[TradingCenter] ❌ 信号否决: {stock_code} "
+                        f"(confidence={fusion.final_confidence:.3f} < 0.4)")
+                return {
+                    'approved': False,
+                    'action_type': fusion.action_type,
+                    'final_confidence': fusion.final_confidence,
+                    'reasoning': fusion.reasoning,
+                    'signal': signal,
+                }
+
+        except Exception as e:
+            log.error(f"[TradingCenter] process_strategy_signal 失败: {e}")
+            return None
+
     def register_datasource(self, datasource_id: str) -> None:
         """注册数据源（兼容旧接口）"""
         pass
@@ -702,6 +843,7 @@ class TradingCenter:
     def get_cached_market_time(self) -> str:
         """获取缓存的市场时间（兼容旧接口）"""
         try:
+            from deva.naja.register import SR
             clock = SR('trading_clock')
             if clock:
                 return clock.get_formatted_time()

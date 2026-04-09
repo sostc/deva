@@ -205,6 +205,35 @@ class AdaptiveCycle:
 
         return stop_loss, take_profit
 
+    def _request_trading_center_approval(self, signal: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """
+        请求 TradingCenter 对信号进行决策
+
+        Args:
+            signal: 信号字典
+
+        Returns:
+            决策结果，包含 approved, final_confidence, reasoning 等
+            如果请求失败返回 None
+        """
+        try:
+            from deva.naja.attention.trading_center import get_trading_center
+            tc = get_trading_center()
+            if tc is None:
+                log.warning("[AdaptiveCycle] TradingCenter 不可用")
+                return None
+
+            if not hasattr(tc, 'process_strategy_signal'):
+                log.warning("[AdaptiveCycle] TradingCenter 不支持 process_strategy_signal 方法")
+                return None
+
+            decision = tc.process_strategy_signal(signal)
+            return decision
+
+        except Exception as e:
+            log.warning(f"[AdaptiveCycle] 请求 TradingCenter 决策失败: {e}")
+            return None
+
     def _setup_callbacks(self):
         """设置回调"""
 
@@ -255,6 +284,40 @@ class AdaptiveCycle:
         if positions:
             log.debug(f"[AdaptiveCycle] 股票已有持仓，跳过: {signal.stock_code}")
             return
+
+        signal_dict = {
+            'strategy_id': signal.strategy_id,
+            'strategy_name': signal.strategy_name,
+            'stock_code': signal.stock_code,
+            'stock_name': signal.stock_name,
+            'signal_type': signal.signal_type,
+            'price': signal.price,
+            'confidence': signal.confidence,
+            'timestamp': signal.timestamp,
+            'raw_data': signal.raw_data,
+        }
+
+        decision = self._request_trading_center_approval(signal_dict)
+        if not decision:
+            log.debug(f"[AdaptiveCycle] TradingCenter 决策请求失败，使用原始信号")
+            decision = {'approved': True, 'final_confidence': signal.confidence}
+
+        if not decision.get('approved'):
+            approved_confidence = decision.get('final_confidence', 0)
+            reasoning = decision.get('reasoning', [])
+            log.info(f"[AdaptiveCycle] ❌ TradingCenter 否决信号: {signal.stock_code} "
+                    f"(confidence={approved_confidence:.3f})")
+            for r in reasoning[-3:]:
+                log.info(f"[AdaptiveCycle]   决策理由: {r}")
+            return
+
+        approved_confidence = decision.get('final_confidence', 0)
+        harmony = decision.get('harmony_strength', 0.5)
+        manas_score = decision.get('manas_score', 0.5)
+        awakening = decision.get('awakening_level', 'dormant')
+        log.info(f"[AdaptiveCycle] ✅ TradingCenter 批准信号: {signal.stock_code} "
+                f"(confidence={approved_confidence:.3f}, harmony={harmony:.3f}, "
+                f"manas={manas_score:.3f}, awakening={awakening})")
 
         log.info(f"[AdaptiveCycle] 准备创建持仓: {signal.stock_code} @ {signal.price}")
 

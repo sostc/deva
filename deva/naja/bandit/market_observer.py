@@ -792,7 +792,7 @@ class MarketDataObserver:
         result = (self._force_mode or self._is_experiment_mode() or env_lab or
                   self._current_phase in ('trading', 'pre_market', 'call_auction'))
         if not result:
-            log.info(f"[MarketObserver] _is_allowed_to_run=False: force={self._force_mode}, experiment={self._is_experiment_mode()}, env_lab={env_lab}, phase={self._current_phase}")
+            log.debug(f"[MarketObserver] _is_allowed_to_run=False: force={self._force_mode}, experiment={self._is_experiment_mode()}, env_lab={env_lab}, phase={self._current_phase}")
         return result
 
     def stop(self):

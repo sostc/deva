@@ -268,10 +268,8 @@ def apply_compatibility_patches():
     # 需要被替换的函数映射表：(模块名, 原始函数名, SR名称)
     PATCHES = [
         # attention 系统核心
-        ('deva.naja.attention.integration.extended', 'get_market_hotspot_integration', 'attention_integration'),
         ('deva.naja.attention.attention_os', 'get_attention_os', 'attention_os'),
         ('deva.naja.attention.trading_center', 'get_trading_center', 'trading_center'),
-        ('deva.naja.attention.integration.extended', 'get_mode_manager', 'mode_manager'),
         ('deva.naja.attention.signal_executor', 'get_signal_executor', 'signal_executor'),
         ('deva.naja.attention.data_processor', 'get_data_processor', 'data_processor'),
 
@@ -295,16 +293,10 @@ def apply_compatibility_patches():
         ('deva.naja.cognition.insight.llm_reflection', 'get_llm_reflection_engine', 'llm_reflection_engine'),
 
         # 处理模块
-        ('deva.naja.attention.processing.noise_manager', 'get_noise_manager', 'noise_manager'),
-        ('deva.naja.attention.processing.block_noise_detector', 'get_block_noise_detector', 'block_noise_detector'),
         ('deva.naja.attention.state_querier', 'get_state_querier', 'state_querier'),
         ('deva.naja.attention.block_registry', 'get_block_registry', 'block_registry'),
 
-        # 策略模块
-        ('deva.naja.attention.strategies.strategy_manager', 'get_strategy_manager', 'strategy_manager'),
-
         # 其他
-        ('deva.naja.attention.realtime_data_fetcher', 'get_data_fetcher', 'realtime_data_fetcher'),
         ('deva.naja.attention.kernel.manas_manager', 'get_manas_manager', 'manas_manager'),
         ('deva.naja.common.auto_tuner', 'get_auto_tuner', 'auto_tuner'),
         ('deva.naja.attention.liquidity_manager', 'get_liquidity_manager', 'liquidity_manager'),
