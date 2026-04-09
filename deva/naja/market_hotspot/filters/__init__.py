@@ -1,5 +1,5 @@
 """
-Attention Filters - 注意力过滤层
+Attention Filters - 热点过滤层
 
 提供多层次的事件过滤功能
 """

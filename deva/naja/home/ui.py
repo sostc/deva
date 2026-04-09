@@ -132,10 +132,10 @@ async def render_home(ctx: dict):
 
     ctx["put_html"]('''
     <div style="margin-top: 30px; padding: 30px; background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%); border-radius: 16px; box-shadow: 0 10px 40px rgba(0,0,0,0.2);">
-        <h3 style="color: #fff; margin-bottom: 25px; text-align: center; font-size: 22px;">🧠 Attention Kernel - 注意力中枢</h3>
+        <h3 style="color: #fff; margin-bottom: 25px; text-align: center; font-size: 22px;">🧠 Attention Kernel - 热点中枢</h3>
         <p style="color: #94a3b8; text-align: center; margin-bottom: 30px;">境随心转，执处成真 — 注意力不是发现世界，而是创造世界</p>
 
-        <!-- 注意力流转图 -->
+        <!-- 热点流转图 -->
         <div style="display: flex; justify-content: center; align-items: center; flex-wrap: wrap; gap: 20px; margin-bottom: 30px;">
             <div style="text-align: center;">
                 <div style="width: 90px; height: 90px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 50%; display: flex; align-items: center; justify-content: center;">
@@ -286,7 +286,7 @@ async def render_home(ctx: dict):
                             <div style="color: #fff; font-size: 12px; font-weight: 600; margin-top: 5px;">Attention</div>
                         </div>
                     </div>
-                    <div style="color: #00d4ff; font-size: 11px; margin-top: 8px;">注意力中枢</div>
+                    <div style="color: #00d4ff; font-size: 11px; margin-top: 8px;">热点中枢</div>
                 </div>
 
                 <div style="color: #4facfe; font-size: 26px;">→</div>
@@ -422,7 +422,7 @@ async def render_home(ctx: dict):
             <div style="color: #fff; font-size: 14px; line-height: 2;">
                 <strong style="color: #00d4ff;">🔄 核心流程：</strong><br>
                 <span style="color: #ccc;">
-                <strong style="color: #667eea;">数据源</strong> → <strong style="color: #00d4ff;">注意力中枢</strong> → <strong style="color: #4facfe;">策略</strong> → <strong style="color: #f5576c;">信号流</strong> → <strong style="color: #f43f5e;">Bandit</strong>
+                <strong style="color: #667eea;">数据源</strong> → <strong style="color: #00d4ff;">热点中枢</strong> → <strong style="color: #4facfe;">策略</strong> → <strong style="color: #f5576c;">信号流</strong> → <strong style="color: #f43f5e;">Bandit</strong>
                 </span>
             </div>
             <div style="color: #aaa; font-size: 12px; margin-top: 10px; padding: 10px; background: rgba(0,212,255,0.1); border-radius: 8px;">
@@ -578,7 +578,7 @@ def _render_values_section() -> str:
     except Exception as e:
         liquidity_html = f'<div style="color:#64748b;font-size:12px;padding:10px;">暂无流动性预警 ({str(e)[:50]})</div>'
 
-    sector_section = f'''
+    block_section = f'''
         <div style="background: linear-gradient(135deg, rgba(34,197,94,0.2) 0%, rgba(34,197,94,0.05) 100%); border-radius: 12px; padding: 20px; border: 1px solid rgba(34,197,94,0.3);">
             <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 15px;">
                 <span style="font-size: 28px;">🚀</span>
@@ -624,7 +624,7 @@ def _render_values_section() -> str:
         </p>
 
         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
-            <div>''' + sector_section + watchlist_section + '''</div>
+            <div>''' + block_section + watchlist_section + '''</div>
             <div>''' + dynamics_section + liquidity_section + '''</div>
         </div>
 

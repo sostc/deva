@@ -20,7 +20,7 @@ Portfolio - 持仓与自选股统一入口
 ═══════════════════════════════════════════════════════════════════════════
 
     1. 提供持仓和自选股的统一查询接口
-    2. 从持仓/自选 → 关联的 block（通过 StockSectorMap）
+    2. 从持仓/自选 → 关联的 block（通过 StockBlockMap）
     3. 从持仓/自选 → 关联的 narrative（通过 NarrativeBlockLinker）
     4. 计算持仓/自选的行业配置和 block 配置
 

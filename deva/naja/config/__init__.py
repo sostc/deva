@@ -305,9 +305,9 @@ def get_noise_filter_config() -> Dict[str, Any]:
     })
 
 
-def get_sector_noise_config() -> Dict[str, Any]:
-    """获取板块噪音配置"""
-    return _naja_config_instance.get("sector_noise_config", {
+def get_block_noise_config() -> Dict[str, Any]:
+    """获取题材噪音配置"""
+    return _naja_config_instance.get("block_noise_config", {
         "enabled": True,
         "auto_blacklist_enabled": True,
         "min_attention_threshold": 0.01,
@@ -320,7 +320,7 @@ def reset_to_default(category: str):
     defaults = {
         "datasource": {"default_interval": 5, "max_retries": 3, "timeout": 30},
         "noise_filter": {"enabled": True, "min_amount": 1000000},
-        "sector_noise": {"enabled": True, "auto_blacklist_enabled": True},
+        "block_noise": {"enabled": True, "auto_blacklist_enabled": True},
     }
     if category in defaults:
         set_category_config(category, defaults[category])
@@ -336,7 +336,7 @@ DEFAULT_CONFIG = {
         "enabled_timer_execution_modes": ["timer", "scheduler", "event_trigger"],
     },
     "noise_filter": get_noise_filter_config(),
-    "sector_noise": get_sector_noise_config(),
+    "block_noise": get_block_noise_config(),
 }
 
 
@@ -383,7 +383,7 @@ __all__ = [
     "get_llm_config",
     "set_category_config",
     "get_noise_filter_config",
-    "get_sector_noise_config",
+    "get_block_noise_config",
     "reset_to_default",
     "DEFAULT_CONFIG",
     "load_config",

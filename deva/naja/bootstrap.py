@@ -229,20 +229,20 @@ class SystemBootstrap:
                     errors[name] = str(e)
                     logger.warning(f"  {name} 加载失败: {e}")
 
-            # 可选健康检查：字典板块
+            # 可选健康检查：字典题材
             if "dictionary" in counts and counts["dictionary"] > 0:
                 try:
-                    entry = dict_mgr.get_by_name("通达信概念板块")
+                    entry = dict_mgr.get_by_name("通达信概念题材")
                     if entry:
                         payload = entry.get_payload()
                         if payload is not None:
-                            logger.info(f"  板块字典数据: {payload.shape}")
+                            logger.info(f"  题材字典数据: {payload.shape}")
                         else:
-                            logger.warning("  板块字典数据为空")
+                            logger.warning("  题材字典数据为空")
                     else:
-                        logger.warning("  未找到通达信概念板块字典")
+                        logger.warning("  未找到通达信概念题材字典")
                 except Exception as e:
-                    logger.warning(f"  板块字典健康检查失败: {e}")
+                    logger.warning(f"  题材字典健康检查失败: {e}")
 
             duration_ms = (time.time() - start) * 1000
 

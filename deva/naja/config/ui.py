@@ -23,7 +23,7 @@ from . import (
     get_dictionary_config,
     get_auth_config,
     get_noise_filter_config,
-    get_sector_noise_config,
+    get_block_noise_config,
     get_memory_config,
     get_llm_config,
     get_radar_config,
@@ -59,7 +59,7 @@ def render_config_page(ctx: dict):
         {"label": "📱 钉钉通知", "value": "dtalk", "color": "success"},
         {"label": "⚡ 性能监控", "value": "performance", "color": "danger"},
         {"label": "🔇 个股噪音", "value": "noise_filter", "color": "secondary"},
-        {"label": "🏢 板块噪音", "value": "sector_noise", "color": "secondary"},
+        {"label": "🏢 题材噪音", "value": "block_noise", "color": "secondary"},
         {"label": "📁 文件配置", "value": "file_config", "color": "info"},
     ], onclick=lambda v: run_async(_show_config_dialog(ctx, v)), group=True, scope="config_content")
     ctx["put_html"]('</div>', scope="config_content")
@@ -156,11 +156,11 @@ def _render_config_summary(ctx: dict):
         f"B股过滤: {'启用' if nf_config.get('filter_b_shares', True) else '禁用'}"
     ])
 
-    sector_nf_config = get_sector_noise_config()
+    block_nf_config = get_block_noise_config()
     config_data.append([
-        "🏢 板块噪音",
-        f"状态: {'启用' if sector_nf_config.get('enabled', True) else '禁用'}",
-        f"噪音模式: {len(sector_nf_config.get('blacklist_patterns', []))} 个"
+        "🏢 题材噪音",
+        f"状态: {'启用' if block_nf_config.get('enabled', True) else '禁用'}",
+        f"噪音模式: {len(block_nf_config.get('blacklist_patterns', []))} 个"
     ])
 
     ctx["put_html"](render_stats_cards([
@@ -194,7 +194,7 @@ async def _show_config_dialog(ctx: dict, category: str):
         "dtalk": "钉钉通知",
         "performance": "性能监控",
         "noise_filter": "个股噪音",
-        "sector_noise": "板块噪音",
+        "block_noise": "题材噪音",
     }
 
     config_getters = {
@@ -208,7 +208,7 @@ async def _show_config_dialog(ctx: dict, category: str):
         "llm": get_llm_config,
         "performance": lambda: get_config("performance") or {},
         "noise_filter": get_noise_filter_config,
-        "sector_noise": get_sector_noise_config,
+        "block_noise": get_block_noise_config,
     }
 
     config = config_getters.get(category, lambda: {})()
@@ -238,8 +238,8 @@ async def _show_config_dialog(ctx: dict, category: str):
             await _render_dtalk_config(ctx, config, defaults)
         elif category == "noise_filter":
             await _render_noise_filter_config(ctx, config, defaults)
-        elif category == "sector_noise":
-            await _render_sector_noise_config(ctx, config, defaults)
+        elif category == "block_noise":
+            await _render_block_noise_config(ctx, config, defaults)
 
 
 def _split_list(value: str) -> list:
@@ -343,23 +343,23 @@ async def _render_noise_filter_config(ctx: dict, config: dict, defaults: dict):
         ctx["close_popup"]()
 
 
-async def _render_sector_noise_config(ctx: dict, config: dict, defaults: dict):
-    """渲染板块噪音配置"""
+async def _render_block_noise_config(ctx: dict, config: dict, defaults: dict):
+    """渲染题材噪音配置"""
     patterns_text = "\n".join(config.get("blacklist_patterns", defaults.get("blacklist_patterns", [])))
 
-    form = await ctx["input_group"]("板块噪音配置", [
-        ctx["select"]("启用板块噪音过滤", name="enabled",
+    form = await ctx["input_group"]("题材噪音配置", [
+        ctx["select"]("启用题材噪音过滤", name="enabled",
                      options=[{"label": "是", "value": "1"}, {"label": "否", "value": "0"}],
                      value="1" if config.get("enabled", defaults.get("enabled", True)) else "0"),
         ctx["select"]("启用自动黑名单", name="auto_blacklist_enabled",
                      options=[{"label": "是", "value": "1"}, {"label": "否", "value": "0"}],
                      value="1" if config.get("auto_blacklist_enabled", defaults.get("auto_blacklist_enabled", True)) else "0"),
-        ctx["input"]("最低注意力阈值", name="min_attention_threshold", type="number",
+        ctx["input"]("最低热点阈值", name="min_attention_threshold", type="number",
                     value=config.get("min_attention_threshold", defaults.get("min_attention_threshold", 0.01)),
-                    help_text="低于此注意力阈值的板块将被过滤"),
+                    help_text="低于此热点阈值的题材将被过滤"),
         ctx["textarea"]("噪音模式(每行一个)", name="blacklist_patterns",
                        value=patterns_text,
-                       help_text="板块名称中包含这些关键词的将被过滤"),
+                       help_text="题材名称中包含这些关键词的将被过滤"),
         ctx["actions"]("操作", [
             {"label": "保存", "value": "save", "color": "primary"},
             {"label": "恢复默认", "value": "reset", "color": "warning"},
@@ -368,16 +368,16 @@ async def _render_sector_noise_config(ctx: dict, config: dict, defaults: dict):
     ])
 
     if form and form.get("action") == "save":
-        set_category_config("sector_noise", {
+        set_category_config("block_noise", {
             "enabled": form.get("enabled") == "1",
             "auto_blacklist_enabled": form.get("auto_blacklist_enabled") == "1",
             "min_attention_threshold": float(form.get("min_attention_threshold", 0.01)),
             "blacklist_patterns": _split_list(form.get("blacklist_patterns", "")),
         })
-        ctx["toast"]("板块噪音配置已保存", color="success")
+        ctx["toast"]("题材噪音配置已保存", color="success")
         ctx["close_popup"]()
     elif form and form.get("action") == "reset":
-        reset_to_default("sector_noise")
+        reset_to_default("block_noise")
         ctx["toast"]("已恢复默认配置", color="success")
         ctx["close_popup"]()
     elif form and form.get("action") == "cancel":

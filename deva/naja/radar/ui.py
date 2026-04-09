@@ -33,9 +33,9 @@ def _render_event_badge(event_type: str, score: float = 0.5) -> str:
     icon, color, bg = color_map.get(event_type, ("📌", "#6b7280", "rgba(107,114,128,0.1)"))
 
     if event_type in ("block_anomaly", "radar_block_anomaly"):
-        label = "板块联动"
+        label = "题材联动"
     elif event_type == "block_hotspot":
-        label = "板块热点"
+        label = "题材热点"
     elif event_type == "radar_data_distribution_shift":
         label = "数据漂移"
     elif event_type == "radar_pattern":
@@ -170,7 +170,7 @@ class RadarUI:
                             <div style="font-size: 11px; color: #f59e0b; margin-top: 2px;">只负责发现行情异常信号，不做调度与结论</div>
                         </div>
                     </div>
-                    <div style="font-size: 12px; color: #64748b; margin-top: 6px;">输入：策略执行结果（信号、评分、板块异动）｜ 输出：异常事件 → 认知层</div>
+                    <div style="font-size: 12px; color: #64748b; margin-top: 6px;">输入：策略执行结果（信号、评分、题材异动）｜ 输出：异常事件 → 认知层</div>
                 </div>
                 <div style="display: flex; gap: 12px; text-align: center;">
                     <div style="background: rgba(245, 158, 11, 0.1); border: 1px solid rgba(245, 158, 11, 0.3); border-radius: 10px; padding: 8px 14px; min-width: 80px;">
@@ -214,7 +214,7 @@ class RadarUI:
                     <span style="font-size: 12px; font-weight: 600; color: #ef4444; margin-left: 4px;">{anomaly_count}</span>
                 </div>
                 <div style="flex: 1; padding: 6px 10px; background: rgba(239, 68, 68, 0.15); border-radius: 6px; text-align: center;">
-                    <span style="font-size: 11px; color: #fca5a5;">🔥 板块</span>
+                    <span style="font-size: 11px; color: #fca5a5;">🔥 题材</span>
                     <span style="font-size: 12px; font-weight: 600; color: #ef4444; margin-left: 4px;">{block_count}</span>
                 </div>
             </div>
@@ -303,7 +303,7 @@ class RadarUI:
             '<div style="font-size: 10px; color: #64748b;">LLM覆盖</div>'
             '<div style="font-size: 12px; font-weight: 600; color: #e2e8f0;">' + ('{:.1f}s'.format(llm_override) if llm_override else '无') + '</div></div></div>'
             '<div style="margin-top: 10px; padding-top: 10px; border-top: 1px solid rgba(255,255,255,0.08); display: flex; justify-content: space-between; font-size: 10px; color: #64748b;">'
-            '<span>📊 高注意力: ' + str(high_attention) + '</span>'
+            '<span>📊 高热度: ' + str(high_attention) + '</span>'
             '<span>🆕 新闻事件: ' + str(news_event_count) + '</span></div>'
         )
         put_html(panel_html)
@@ -675,7 +675,7 @@ class RadarUI:
             for topic, pred in topic_predictions.items():
                 heat = pred.get("heat_score", 0)
                 prob = pred.get("spread_probability", 0)
-                sectors = pred.get("target_blocks", [])
+                block_list = pred.get("target_blocks", [])
 
                 heat_bar = min(heat / 10 * 100, 100)
                 heat_color = "#f87171" if heat > 5 else ("#fbbf24" if heat > 3 else "#4ade80")
@@ -695,7 +695,7 @@ class RadarUI:
                         <div style="background: {heat_color}; border-radius: 4px; height: 6px; width: {heat_bar}%;"></div>
                     </div>
                     <div style="font-size: 10px; color: #64748b;">
-                        传染概率: {prob:.0%} | 目标: {', '.join(sectors[:2]) if sectors else '无'}
+                        传染概率: {prob:.0%} | 目标: {', '.join(block_list[:2]) if block_list else '无'}
                     </div>
                 </div>
                 """

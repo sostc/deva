@@ -31,11 +31,11 @@ from .market_hotspot_system import (
 )
 from ..core import BlockConfig as BlockConfig
 from deva.naja.market_hotspot.intelligence import (
-    PredictiveAttentionEngine as PredictiveHotspotEngine,
-    AttentionFeedbackLoop as HotspotFeedbackLoop,
-    AttentionBudgetSystem as HotspotBudgetSystem,
+    PredictiveHotspotEngine,
+    HotspotFeedbackLoop,
+    HotspotBudgetSystem,
     BudgetConfig,
-    AttentionPropagation as HotspotPropagation,
+    HotspotPropagation,
     StrategyLearning
 )
 
@@ -69,7 +69,7 @@ class _IntelligenceAugmentedSystemInternal:
     增强型市场热点系统
 
     集成所有功能模块:
-    1. Core (Global/Sector/Weight)
+    1. Core (Global/Block/Weight)
     2. Processing (Noise Filter)
     3. Scheduling (Frequency/Strategy)
     4. Intelligence (Prediction/Propagation/Budget/Feedback/Learning)
@@ -144,7 +144,7 @@ class _IntelligenceAugmentedSystemInternal:
         处理市场快照
 
         流程:
-        1. Base 处理 (Global/Sector/Weight/Frequency)
+        1. Base 处理 (Global/Block/Weight/Frequency)
         2. Prediction (如果启用)
         3. Propagation (如果启用)
         4. Budget (如果启用)
@@ -157,7 +157,7 @@ class _IntelligenceAugmentedSystemInternal:
             symbols, returns, volumes, prices, block_ids, timestamp
         )
 
-        final_attention = result['symbol_weights']
+        final_hotspot = result['symbol_weights']
 
         if hasattr(self, 'predictive_engine') and self.config.enable_predictive:
             returns_arr = returns_history if returns_history is not None else returns
@@ -167,22 +167,22 @@ class _IntelligenceAugmentedSystemInternal:
 
             prediction_results = self.predictive_engine.batch_predict(
                 symbols=symbols,
-                current_attention=final_attention,
+                current_hotspot=final_hotspot,
                 returns=returns_arr,
                 volumes=volume_ratios,
                 timestamps=np.full(len(symbols), timestamp)
             )
 
-            adjusted_attention = {}
+            adjusted_hotspot = {}
             for symbol, (pred_score, final_att) in prediction_results.items():
-                adjusted_attention[symbol] = final_att
+                adjusted_hotspot[symbol] = final_att
 
             result['prediction_scores'] = {
                 symbol: pred_score
                 for symbol, (pred_score, _) in prediction_results.items()
             }
-            result['adjusted_attention'] = adjusted_attention
-            final_attention = adjusted_attention
+            result['adjusted_hotspot'] = adjusted_hotspot
+            final_hotspot = adjusted_hotspot
 
         if hasattr(self, 'propagation') and self.config.enable_propagation:
             propagated = self.propagation.propagate(
@@ -192,7 +192,7 @@ class _IntelligenceAugmentedSystemInternal:
             result['propagated_block_hotspot'] = propagated
 
         if hasattr(self, 'budget_system') and self.config.enable_budget:
-            budget_allocation = self.budget_system.allocate(final_attention)
+            budget_allocation = self.budget_system.allocate(final_hotspot)
             result['budget_allocation'] = {
                 'tier1': budget_allocation.tier1_symbols,
                 'tier2': budget_allocation.tier2_symbols,
@@ -284,8 +284,8 @@ class _IntelligenceAugmentedSystemInternal:
         strategy_id: str,
         symbol: str,
         block_id: str,
-        attention_before: float,
-        attention_after: float,
+        hotspot_before: float,
+        hotspot_after: float,
         prediction_score: float,
         action: str,
         pnl: float,
@@ -301,8 +301,8 @@ class _IntelligenceAugmentedSystemInternal:
                 strategy_id=strategy_id,
                 symbol=symbol,
                 block_id=block_id,
-                attention_before=attention_before,
-                attention_after=attention_after,
+                hotspot_before=hotspot_before,
+                hotspot_after=hotspot_after,
                 prediction_score=prediction_score,
                 action=action,
                 pnl=pnl,
@@ -320,16 +320,16 @@ class _IntelligenceAugmentedSystemInternal:
                 holding_time=holding_period
             )
 
-    def get_attention_adjustment(self, symbol: str) -> float:
-        """获取注意力调整"""
+    def get_hotspot_adjustment(self, symbol: str) -> float:
+        """获取热点调整"""
         if hasattr(self, 'feedback_loop') and self.config.enable_feedback:
             if self._last_result:
-                attention = self._last_result['symbol_weights'].get(symbol, 0.0)
+                hotspot = self._last_result['symbol_weights'].get(symbol, 0.0)
                 prediction = self._last_result.get('prediction_scores', {}).get(symbol, 0.5)
 
-                return self.feedback_loop.get_attention_adjustment(
+                return self.feedback_loop.get_hotspot_adjustment(
                     symbol=symbol,
-                    attention=attention,
+                    hotspot_val=hotspot,
                     prediction_score=prediction
                 )
         return 1.0
@@ -337,11 +337,11 @@ class _IntelligenceAugmentedSystemInternal:
     def apply_adjustment(
         self,
         symbol: str,
-        attention: float
+        hotspot_val: float
     ) -> float:
-        """应用注意力调整"""
-        adjustment = self.get_attention_adjustment(symbol)
-        return attention * adjustment
+        """应用热点调整"""
+        adjustment = self.get_hotspot_adjustment(symbol)
+        return hotspot_val * adjustment
 
     def get_budget_symbols(self) -> Dict[str, List[str]]:
         """获取各预算等级的symbols"""
@@ -418,12 +418,12 @@ class _IntelligenceAugmentedSystemInternal:
         if hasattr(self, 'strategy_learning') and self.config.enable_strategy_learning:
             self.strategy_learning.persist()
 
-        if hasattr(self, 'attention_system') and self.hotspot_system is not None:
+        if hasattr(self, 'hotspot_system') and self.hotspot_system is not None:
             try:
                 from deva import NB
                 state = self.hotspot_system.save_state()
-                db = NB('naja_attention_state')
-                db['attention_system_state'] = state
+                db = NB('naja_hotspot_state')
+                db['hotspot_system_state'] = state
                 db.persist()
                 log.info(f"[MarketHotspotIntegration] 市场热点系统状态已持久化")
             except Exception as e:
@@ -437,12 +437,12 @@ class _IntelligenceAugmentedSystemInternal:
         if hasattr(self, 'strategy_learning') and self.config.enable_strategy_learning:
             self.strategy_learning.load()
 
-        if hasattr(self, 'attention_system') and self.hotspot_system is not None:
+        if hasattr(self, 'hotspot_system') and self.hotspot_system is not None:
             try:
                 from deva import NB
-                db = NB('naja_attention_state')
-                if 'attention_system_state' in db:
-                    state = db['attention_system_state']
+                db = NB('naja_hotspot_state')
+                if 'hotspot_system_state' in db:
+                    state = db['hotspot_system_state']
                     self.hotspot_system.load_state(state)
                     log.info(f"[MarketHotspotIntegration] 市场热点系统状态已恢复")
                 else:

@@ -212,9 +212,9 @@ def example_usage():
     high_attention = integration.get_high_attention_symbols(threshold=2.0)
     print(f"高注意力股票: {high_attention}")
     
-    # 获取活跃板块
+    # 获取活跃题材
     active_blocks = integration.get_active_blocks(threshold=0.5)
-    print(f"活跃板块: {active_blocks}")
+    print(f"活跃题材: {active_blocks}")
     
     # 获取数据源控制指令
     control = integration.get_datasource_control()

@@ -1,5 +1,5 @@
 """
-Module 9: Attention Budget System - 注意力预算系统
+Module 9: Hotspot Budget System - 热点预算系统
 
 核心能力:
 - 限制系统资源使用 (CPU/GPU/数据流量)
@@ -389,9 +389,9 @@ class AdaptiveBudgetController:
         self._config_history.clear()
 
 
-class AttentionBudgetSystem:
+class HotspotBudgetSystem:
     """
-    注意力预算系统主控制器
+    热点预算系统主控制器
     
     整合:
     - ResourceMonitor: 资源监控

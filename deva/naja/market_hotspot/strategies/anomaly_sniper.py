@@ -2,7 +2,7 @@
 异常模式狙击策略
 
 结合 River 的在线异常检测和 PyTorch 的模式识别
-只在高注意力时段激活 PyTorch 引擎进行深度分析
+只在高热点时段激活 PyTorch 引擎进行深度分析
 """
 
 import time
@@ -24,13 +24,13 @@ class AnomalyPatternSniper(HotspotStrategyBase):
        - 计算基础特征（波动率、换手率等）
     
     2. PyTorch Engine（重量级，按需激活）：
-       - 当全局注意力 > 0.6 时激活
+       - 当全局热点 > 0.6 时激活
        - 使用深度学习模型识别复杂模式
        - 识别"假突破"、"洗盘"等复杂形态
     
     3. 信号生成：
        - River 检测到异常 + PyTorch 确认模式 = 高置信度信号
-       - 只在高注意力时段全力运行
+       - 只在高热点时段全力运行
     """
     
     def __init__(
@@ -46,7 +46,7 @@ class AnomalyPatternSniper(HotspotStrategyBase):
             strategy_id="anomaly_pattern_sniper",
             name="Anomaly Pattern Sniper",
             scope='symbol',
-            min_global_hotspot=0.3,  # 需要一定全局注意力
+            min_global_hotspot=0.3,  # 需要一定全局热点
             min_symbol_weight=min_symbol_weight,
             max_positions=10,
             cooldown_period=cooldown_period
@@ -186,7 +186,7 @@ class AnomalyPatternSniper(HotspotStrategyBase):
         """
         PyTorch Engine: 深度模式识别
         
-        只在全局注意力高时激活
+        只在全局热点高时激活
         """
         global_hotspot = context.get('global_hotspot', 0.5)
         
@@ -301,7 +301,7 @@ class AnomalyPatternSniper(HotspotStrategyBase):
         if not river_result['is_anomaly']:
             return None
         
-        # Step 2: PyTorch Engine 模式识别（高注意力时）
+        # Step 2: PyTorch Engine 模式识别（高热点时）
         pytorch_result = self._pytorch_pattern_recognition(symbol, context)
         
         # 记录异常

@@ -107,7 +107,7 @@ __all__ = [
     "NarrativeSupplyChainEvent",
     "RiskLevel",
     "get_supply_chain_linker",
-    # 叙事-板块映射
+    # 叙事-题材映射
     "NARRATIVE_TO_BLOCK_LINK",
     "NARRATIVE_TO_MARKET_LINK",
     "MARKET_TO_NARRATIVE_LINK",

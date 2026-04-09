@@ -132,8 +132,8 @@ class EnrichStage(Stage):
             if 'blocks' in data.columns:
                 if 'blocks' in data.columns and 'block' not in data.columns:
                     data = data.rename(columns={'blocks': 'block'})
-                if 'sector' in data.columns and 'block' not in data.columns:
-                    data = data.rename(columns={'sector': 'block'})
+                if 'block' in data.columns and 'block' not in data.columns:
+                    data = data.rename(columns={'block': 'block'})
                 if 'block' in data.columns:
                     data['block'] = data['block'].fillna('')
 

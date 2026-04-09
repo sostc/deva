@@ -1,4 +1,4 @@
-"""注意力系统 UI 时间线组件"""
+"""热点系统 UI 时间线组件"""
 
 from datetime import datetime
 from typing import List, Dict, Any
@@ -14,7 +14,7 @@ def get_history_tracker():
 
 
 def render_block_trends() -> str:
-    """渲染题材注意力变化曲线"""
+    """渲染题材热点变化曲线"""
     tracker = get_history_tracker()
     if not tracker or len(tracker.snapshots) < 2:
         return "<div style='color: #64748b; text-align: center; padding: 20px;'>数据不足，无法显示趋势</div>"
@@ -224,7 +224,7 @@ def render_hotspot_timeline(time_window: int = 50) -> str:
             <div style="display: flex; align-items: center; gap: 8px; padding: 4px 6px; background: white; border-radius: 4px; margin-bottom: 4px;">
                 <span style="font-size: 10px; color: #64748b; min-width: 90px; font-family: monospace;">{time_str}</span>
                 <span style="font-size: 12px; color: #16a34a; font-weight: 600;">↑</span>
-                <span style="font-size: 12px; color: #1e293b;">{transfer['sector']}</span>
+                <span style="font-size: 12px; color: #1e293b;">{transfer['block']}</span>
                 <span style="font-size: 10px; color: #16a34a;">{transfer['change']}</span>
             </div>
             """
@@ -598,7 +598,7 @@ def render_hotspot_shift_report(report: Dict[str, Any]) -> str:
     <div style="background: linear-gradient(135deg, #fef3c7, #fde68a); border: 1px solid #f59e0b; border-radius: 12px; padding: 20px; margin-top: 16px;">
         <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 12px;">
             <span style="font-size: 18px;">🚨</span>
-            <span style="font-weight: 700; color: #92400e; font-size: 15px;">注意力转移 detected</span>
+            <span style="font-weight: 700; color: #92400e; font-size: 15px;">热点转移 detected</span>
         </div>
         {time_display}
     """

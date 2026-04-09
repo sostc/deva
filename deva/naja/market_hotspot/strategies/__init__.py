@@ -19,6 +19,7 @@ from .strategy_manager import (
     HotspotStrategyManager,
     StrategyConfig,
     get_hotspot_manager,
+    get_strategy_manager,
     initialize_hotspot_strategies
 )
 from .config import (
@@ -58,6 +59,7 @@ __all__ = [
     "HotspotStrategyManager",
     "StrategyConfig",
     "get_hotspot_manager",
+    "get_strategy_manager",
     "initialize_hotspot_strategies",
     "StrategySettings",
     "HotspotStrategyConfig",

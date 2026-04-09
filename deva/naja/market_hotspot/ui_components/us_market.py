@@ -58,7 +58,7 @@ def render_us_market_panel(us_data: Dict[str, Any] = None) -> str:
         mode_label = mode_ctx.get('mode_label', '实盘模式')
         time_hint = mode_ctx.get('market_time_str', '') if mode_ctx.get('is_replay') else ""
         return f"""<div style="background: linear-gradient(135deg, #1e3a5f 0%, #0d1b2a 100%); border-radius: 12px; padding: 20px; margin-top: 16px;">
-<div style="color: #94a3b8; font-size: 14px;">📊 美股市场注意力</div>
+<div style="color: #94a3b8; font-size: 14px;">📊 美股市场热点</div>
 <div style="color: #64748b; font-size: 12px; margin-top: 8px;">当前状态: {phase_name}{next_hint} | {mode_label} {time_hint}</div>
 </div>"""
 
@@ -334,13 +334,13 @@ def render_cross_market_predictions() -> str:
 
             a_blocks = []
             try:
-                from deva.naja.alaya.awakened_alaya import CrossMarketSectorMapper
-                a_blocks = CrossMarketSectorMapper.get_a_stock_sectors(us_block)
+                from deva.naja.alaya.awakened_alaya import CrossMarketBlockMapper
+                a_blocks = CrossMarketBlockMapper.get_a_stock_blocks(us_block)
             except Exception:
                 pass
 
             if not a_blocks:
-                a_blocks = [conditions.get("a_sector", "A股相关题材")]
+                a_blocks = [conditions.get("a_block", "A股相关题材")]
 
             block_tags = " ".join([f"<span style='background: #fef3c7; padding: 2px 6px; border-radius: 4px; font-size: 11px; color: #92400e;'>{s}</span>" for s in a_blocks[:3]])
 

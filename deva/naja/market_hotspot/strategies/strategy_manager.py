@@ -1,8 +1,8 @@
 """
-注意力策略管理器
+热点策略管理器
 
-统一管理所有基于注意力的策略
-协调策略与注意力系统的交互
+统一管理所有基于热点的策略
+协调策略与热点系统的交互
 """
 
 import logging
@@ -34,14 +34,14 @@ class StrategyConfig:
 
 class HotspotStrategyManager:
     """
-    注意力策略管理器
+    热点策略管理器
     
     职责：
-    1. 管理所有注意力策略的生命周期
-    2. 协调策略与注意力系统的交互
+    1. 管理所有热点策略的生命周期
+    2. 协调策略与热点系统的交互
     3. 收集和汇总所有策略的信号
     4. 提供统一的策略状态监控
-    5. 根据注意力水平动态调整策略执行
+    5. 根据热点水平动态调整策略执行
     """
     
     def __init__(self):
@@ -54,7 +54,7 @@ class HotspotStrategyManager:
         self.total_signals_generated: int = 0
         self.start_time: Optional[float] = None
         
-        # 注意力系统引用
+        # 热点系统引用
         self._attention_integration = None
         self._orchestrator = None
 
@@ -64,7 +64,7 @@ class HotspotStrategyManager:
         self._experiment_snapshot: Dict[str, Any] = {}
 
     def _get_market_hotspot_integration(self):
-        """获取注意力系统集成"""
+        """获取热点系统集成"""
         if self._attention_integration is None:
             try:
                 from deva.naja.market_hotspot.integration import get_market_hotspot_integration
@@ -246,7 +246,7 @@ class HotspotStrategyManager:
 
         Args:
             data: 市场数据
-            context: 注意力上下文
+            context: 热点上下文
 
         Returns:
             所有策略生成的信号
@@ -258,7 +258,7 @@ class HotspotStrategyManager:
         start_time = time.time()
         all_signals = []
 
-        # 获取注意力上下文
+        # 获取热点上下文
         if context is None:
             context = self._build_attention_context()
 
@@ -302,7 +302,7 @@ class HotspotStrategyManager:
                     strategy_latency = (time.time() - strategy_start) * 1000
                     record_component_execution(
                         component_id=f"attention_strategy_{strategy_id}",
-                        component_name=f"注意力策略: {strategy.name}",
+                        component_name=f"热点策略: {strategy.name}",
                         component_type=ComponentType.STRATEGY,
                         execution_time_ms=strategy_latency,
                         success=True
@@ -313,7 +313,7 @@ class HotspotStrategyManager:
                     strategy_latency = (time.time() - strategy_start) * 1000
                     record_component_execution(
                         component_id=f"attention_strategy_{strategy_id}",
-                        component_name=f"注意力策略: {strategy.name}",
+                        component_name=f"热点策略: {strategy.name}",
                         component_type=ComponentType.STRATEGY,
                         execution_time_ms=strategy_latency,
                         success=False,
@@ -329,7 +329,7 @@ class HotspotStrategyManager:
             total_latency = (time.time() - start_time) * 1000
             record_component_execution(
                 component_id="attention_strategy_manager",
-                component_name="注意力策略管理器",
+                component_name="热点策略管理器",
                 component_type=ComponentType.STRATEGY,
                 execution_time_ms=total_latency,
                 success=True
@@ -338,7 +338,7 @@ class HotspotStrategyManager:
         return all_signals
     
     def _build_attention_context(self) -> Dict[str, Any]:
-        """构建注意力上下文"""
+        """构建热点上下文"""
         integration = self._get_market_hotspot_integration()
         
         context = {
@@ -351,7 +351,7 @@ class HotspotStrategyManager:
         if integration and integration.hotspot_system:
             attention_system = integration.hotspot_system
             
-            # 全局注意力
+            # 全局热点
             context['global_hotspot'] = attention_system._last_global_hotspot
             
             # 题材权重（过滤噪音题材）
@@ -440,7 +440,7 @@ class HotspotStrategyManager:
         """
         启动实验模式
         
-        将注意力策略切换到指定的实验数据源（如历史行情回放）
+        将热点策略切换到指定的实验数据源（如历史行情回放）
         
         Args:
             datasource_id: 实验数据源ID
@@ -499,7 +499,7 @@ class HotspotStrategyManager:
         except Exception as e:
             log.warning(f"启动反馈报告收集失败: {e}")
 
-        # 确保注意力系统的调度中心也切换到实验数据源
+        # 确保热点系统的调度中心也切换到实验数据源
         try:
             orchestrator = self._get_orchestrator()
             if orchestrator:
@@ -518,7 +518,7 @@ class HotspotStrategyManager:
         """
         停止实验模式
         
-        恢复注意力策略到实验前的状态
+        恢复热点策略到实验前的状态
         
         Returns:
             停止结果
@@ -615,7 +615,7 @@ class HotspotStrategyManager:
         创建策略条目包装器（实现 StrategyEntry 接口）
 
         Args:
-            strategy_id: 注意力策略ID
+            strategy_id: 热点策略ID
 
         Returns:
             HotspotStrategyWrapper 或 None（如果策略不存在）
@@ -639,7 +639,7 @@ class HotspotStrategyManager:
 
     def create_all_strategy_entries(self):
         """
-        创建所有注意力策略的策略条目包装器列表
+        创建所有热点策略的策略条目包装器列表
 
         Returns:
             List[HotspotStrategyWrapper]
@@ -659,16 +659,23 @@ _manager_instance: Optional[HotspotStrategyManager] = None
 def get_hotspot_manager() -> HotspotStrategyManager:
     """获取全局策略管理器实例"""
     global _manager_instance
-    
+
     if _manager_instance is None:
         _manager_instance = HotspotStrategyManager()
-    
+        _manager_instance.initialize_default_strategies()
+        _manager_instance.start()
+
     return _manager_instance
+
+
+def get_strategy_manager() -> HotspotStrategyManager:
+    """获取全局策略管理器实例（别名，自动初始化）"""
+    return get_hotspot_manager()
 
 
 def initialize_hotspot_strategies():
     """
-    初始化注意力策略系统
+    初始化热点策略系统
 
     在 naja 启动时调用
     """
@@ -680,7 +687,7 @@ def initialize_hotspot_strategies():
     # 启动管理器
     manager.start()
 
-    # 注册到注意力系统
+    # 注册到热点系统
     try:
         from deva.naja.market_hotspot.integration import register_strategy_manager
         register_strategy_manager(manager)
@@ -695,7 +702,7 @@ def initialize_hotspot_strategies():
 
 def _auto_register_to_strategy_manager(manager: HotspotStrategyManager):
     """
-    自动将注意力策略注册到策略管理系统
+    自动将热点策略注册到策略管理系统
 
     这样在策略管理UI中可以统一看到所有策略
     """

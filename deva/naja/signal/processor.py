@@ -153,7 +153,7 @@ SIGNAL_REGISTRY: Dict[str, Dict[str, Any]] = {
         'importance': 'high'
     },
     'river_block_rotation_map': {
-        'icon': '🔄', 'color': '#fd7e14', 'label': '板块轮动',
+        'icon': '🔄', 'color': '#fd7e14', 'label': '题材轮动',
         'importance': 'medium'
     },
     
@@ -179,7 +179,7 @@ SIGNAL_REGISTRY: Dict[str, Dict[str, Any]] = {
         'importance': 'high'
     },
     'block_contrarian': {
-        'icon': '🔴', 'color': '#dc3545', 'label': '板块逆势',
+        'icon': '🔴', 'color': '#dc3545', 'label': '题材逆势',
         'importance': 'high'
     },
     
@@ -217,7 +217,7 @@ SIGNAL_REGISTRY: Dict[str, Dict[str, Any]] = {
         'importance': 'high', 'pattern': '*anomaly*'
     },
     'block_anomaly': {
-        'icon': '⚡', 'color': '#ff6600', 'label': '板块异动',
+        'icon': '⚡', 'color': '#ff6600', 'label': '题材异动',
         'importance': 'high'
     },
     'industry_anomaly': {
@@ -225,7 +225,7 @@ SIGNAL_REGISTRY: Dict[str, Dict[str, Any]] = {
         'importance': 'high'
     },
     'block_extreme': {
-        'icon': '⚡', 'color': '#ff6600', 'label': '板块极端',
+        'icon': '⚡', 'color': '#ff6600', 'label': '题材极端',
         'importance': 'high'
     },
     
@@ -235,29 +235,29 @@ SIGNAL_REGISTRY: Dict[str, Dict[str, Any]] = {
         'importance': 'medium'
     },
     
-    # === 板块/行业 ===
+    # === 题材/行业 ===
     'block': {
-        'icon': '📊', 'color': '#fd7e14', 'label': '板块信号',
+        'icon': '📊', 'color': '#fd7e14', 'label': '题材信号',
         'importance': 'medium', 'pattern': '*block*'
     },
     'block_leader': {
-        'icon': '👑', 'color': '#fd7e14', 'label': '板块龙头',
+        'icon': '👑', 'color': '#fd7e14', 'label': '题材龙头',
         'importance': 'high'
     },
     'block_rank': {
-        'icon': '📈', 'color': '#fd7e14', 'label': '板块排行',
+        'icon': '📈', 'color': '#fd7e14', 'label': '题材排行',
         'importance': 'medium'
     },
     'block_capital_flow': {
-        'icon': '💰', 'color': '#fd7e14', 'label': '板块资金流',
+        'icon': '💰', 'color': '#fd7e14', 'label': '题材资金流',
         'importance': 'medium'
     },
     'block_rotation': {
-        'icon': '🔄', 'color': '#fd7e14', 'label': '板块轮动',
+        'icon': '🔄', 'color': '#fd7e14', 'label': '题材轮动',
         'importance': 'medium'
     },
     'hot_block_track': {
-        'icon': '🔥', 'color': '#fd7e14', 'label': '热门板块追踪',
+        'icon': '🔥', 'color': '#fd7e14', 'label': '热门题材追踪',
         'importance': 'medium'
     },
     
@@ -585,13 +585,13 @@ def _handle_limit_signal(raw: dict) -> str:
 
 
 def _handle_block_signal(raw: dict, signal_count: int, signals: list) -> str:
-    """处理板块/行业信号"""
+    """处理题材/行业信号"""
     if signals and isinstance(signals[0], dict):
         block = signals[0].get('blockname', signals[0].get('industry', ''))
         if block:
             return f"📊 {block}: {signal_count} 个信号"
     
-    return f"📊 板块信号: {signal_count} 个"
+    return f"📊 题材信号: {signal_count} 个"
 
 
 def generate_expanded_content(result, detail: dict) -> str:

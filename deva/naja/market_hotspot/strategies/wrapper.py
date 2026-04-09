@@ -1,7 +1,7 @@
-"""注意力策略包装器 - 将注意力策略接入策略管理系统
+"""热点策略包装器 - 将热点策略接入策略管理系统
 
 实现 StrategyEntry 接口，代理到 HotspotStrategyManager
-保持注意力策略的核心竞争力（注意力感知、动态调度）
+保持热点策略的核心竞争力（热点感知、动态调度）
 """
 
 import time
@@ -17,21 +17,21 @@ ATTENTION_STRATEGY_DIAGRAM_INFO = {
     "global_sentinel": {
         "icon": "🌐",
         "color": "#3b82f6",
-        "description": "全局市场状态监控，实时感知整体市场注意力水平",
+        "description": "全局市场状态监控，实时感知整体市场热点水平",
         "formula": "global_hotspot = Σ(symbol_weights) / n",
         "logic": [
             "接收全市场行情数据流",
-            "计算全市场注意力加权总和",
+            "计算全市场热点加权总和",
             "判断市场整体活跃度等级",
             "输出市场状态信号（冷/暖/热）"
         ],
         "output": "global_hotspot: 0.0-1.0, activity_level: cold/warm/hot, market_state",
         "principle": {
-            "core_mechanism": "通过加权求和计算全市场注意力水平，将市场状态分为冷/暖/热三个等级。",
+            "core_mechanism": "通过加权求和计算全市场热点水平，将市场状态分为冷/暖/热三个等级。",
             "key_insights": [
-                "市场注意力是稀缺资源，集中于少数股票时往往意味着结构性机会",
+                "市场热点是稀缺资源，集中于少数股票时往往意味着结构性机会",
                 "冷市状态适合布局，热门市场需要注意回调风险",
-                "注意力转移往往先于价格变动"
+                "热点转移往往先于价格变动"
             ],
             "when_to_use": "需要判断整体市场情绪和状态时使用，如仓位管理、入场时机选择等。"
         }
@@ -39,17 +39,17 @@ ATTENTION_STRATEGY_DIAGRAM_INFO = {
     "block_rotation_hunter": {
         "icon": "🎯",
         "color": "#8b5cf6",
-        "description": "题材轮动捕捉，追踪注意力在题材间的转移",
+        "description": "题材轮动捕捉，追踪热点在题材间的转移",
         "formula": "block_momentum = Δ(attention_weight) / Δt",
         "logic": [
-            "监测各题材注意力权重变化",
+            "监测各题材热点权重变化",
             "计算题材间轮动速度",
             "识别正在崛起/衰退的题材",
             "输出题材轮动信号"
         ],
         "output": "rising_blocks: [...], falling_blocks: [...], rotation_speed",
         "principle": {
-            "core_mechanism": "追踪注意力在题材间的流动方向和速度，识别正在崛起或衰退的题材。",
+            "core_mechanism": "追踪热点在题材间的流动方向和速度，识别正在崛起或衰退的题材。",
             "key_insights": [
                 "资金总是从老热点流向新热点，轮动是市场的主题",
                 "强势题材的回调往往是二次入场机会",
@@ -64,14 +64,14 @@ ATTENTION_STRATEGY_DIAGRAM_INFO = {
         "description": "动量突破追踪，捕捉强势股票的加速信号",
         "formula": "momentum_score = price_change * volume_ratio * attention_weight",
         "logic": [
-            "筛选高注意力股票池",
+            "筛选高热点股票池",
             "计算价格动量与成交量爆发",
             "多维度打分排序",
             "输出动量突破信号"
         ],
         "output": "momentum_stocks: [{symbol, score, change}], breakout_signals",
         "principle": {
-            "core_mechanism": "结合价格动量、成交量爆发和注意力权重，捕捉趋势加速的股票。",
+            "core_mechanism": "结合价格动量、成交量爆发和热点权重，捕捉趋势加速的股票。",
             "key_insights": [
                 "趋势一旦形成会持续，动量指标帮助确认趋势强度",
                 "高成交量配合价格突破是最强的买入信号",
@@ -88,7 +88,7 @@ ATTENTION_STRATEGY_DIAGRAM_INFO = {
         "logic": [
             "建立正常价格/成交量基线",
             "检测偏离基线的异常模式",
-            "结合注意力权重综合评分",
+            "结合热点权重综合评分",
             "输出异常狙击信号"
         ],
         "output": "anomaly_stocks: [{symbol, anomaly_score, pattern_type}]",
@@ -110,7 +110,7 @@ ATTENTION_STRATEGY_DIAGRAM_INFO = {
         "logic": [
             "分解订单流为大单/小单",
             "计算净买入方向与强度",
-            "结合个股注意力权重",
+            "结合个股热点权重",
             "输出聪明资金信号"
         ],
         "output": "smart_flow_signals: [{symbol, direction, strength, confidence}]",
@@ -129,7 +129,7 @@ ATTENTION_STRATEGY_DIAGRAM_INFO = {
 
 class HotspotStrategyWrapper(StrategyEntry):
     """
-    注意力策略包装器
+    热点策略包装器
 
     将 HotspotStrategyBase 包装成 StrategyEntry 接口，
     使其可以接入策略管理系统进行统一管理。
@@ -148,10 +148,10 @@ class HotspotStrategyWrapper(StrategyEntry):
         metadata = StrategyMetadata(
             id=strategy.strategy_id,
             name=strategy.name,
-            description=f"注意力策略: {strategy.name} (scope={strategy.scope})",
+            description=f"热点策略: {strategy.name} (scope={strategy.scope})",
             strategy_type="attention",
             handler_type="attention",
-            category="注意力策略",
+            category="热点策略",
             diagram_info=diagram_info,
         )
         metadata.tags = ["attention", strategy.scope, "auto-managed"]
@@ -180,7 +180,7 @@ class HotspotStrategyWrapper(StrategyEntry):
         return noop_process
 
     def save(self) -> dict:
-        return {"success": True, "message": "注意力策略由 HotspotStrategyManager 管理"}
+        return {"success": True, "message": "热点策略由 HotspotStrategyManager 管理"}
 
     def to_dict(self) -> dict:
         data = super().to_dict()
@@ -197,7 +197,7 @@ class HotspotStrategyWrapper(StrategyEntry):
         raise NotImplementedError("HotspotStrategyWrapper 不能从 dict 重建")
 
     def get_attention_stats(self) -> Dict[str, Any]:
-        """获取注意力策略特有统计"""
+        """获取热点策略特有统计"""
         return self._attention_strategy.get_stats()
 
     def get_recent_signals(self, n: int = 50) -> List[Signal]:
@@ -218,7 +218,7 @@ class HotspotStrategyWrapper(StrategyEntry):
             self._attention_strategy.activate()
             self._state.status = UnitStatus.RUNNING.value
             self._state.start_time = time.time()
-            return {"success": True, "message": f"注意力策略 {self.name} 已启动"}
+            return {"success": True, "message": f"热点策略 {self.name} 已启动"}
         except Exception as e:
             return {"success": False, "error": str(e)}
 
@@ -226,7 +226,7 @@ class HotspotStrategyWrapper(StrategyEntry):
         try:
             self._attention_strategy.deactivate()
             self._state.status = UnitStatus.STOPPED.value
-            return {"success": True, "message": f"注意力策略 {self.name} 已停止"}
+            return {"success": True, "message": f"热点策略 {self.name} 已停止"}
         except Exception as e:
             return {"success": False, "error": str(e)}
 
@@ -242,11 +242,11 @@ def wrap_hotspot_strategy(
     manager: Optional[HotspotStrategyManager] = None
 ) -> HotspotStrategyWrapper:
     """
-    将注意力策略包装成 StrategyEntry 接口
+    将热点策略包装成 StrategyEntry 接口
 
     Args:
-        strategy: 注意力策略实例
-        manager: 注意力策略管理器（可选）
+        strategy: 热点策略实例
+        manager: 热点策略管理器（可选）
 
     Returns:
         HotspotStrategyWrapper 包装实例
@@ -259,11 +259,11 @@ def register_hotspot_strategies_to_manager(
     attention_mgr: Optional[HotspotStrategyManager] = None
 ) -> List[HotspotStrategyWrapper]:
     """
-    将所有注意力策略注册到策略管理系统
+    将所有热点策略注册到策略管理系统
 
     Args:
         strategy_mgr: 策略管理系统管理器
-        attention_mgr: 注意力策略管理器（可选，默认获取全局实例）
+        attention_mgr: 热点策略管理器（可选，默认获取全局实例）
 
     Returns:
         注册成功的包装器列表

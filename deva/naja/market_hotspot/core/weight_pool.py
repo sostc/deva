@@ -2,7 +2,7 @@
 Weight Pool Module - 多对多权重池
 
 功能:
-- 解决个股 ↔ 多板块的映射关系
+- 解决个股 ↔ 多题材的映射关系
 - 一个 symbol 可属于多个 block
 - 最终权重由多个 block 决定
 - 支持快速查找 O(1)
@@ -67,7 +67,7 @@ class WeightPool:
         self._base_weights = np.ones(max_symbols)
         self._local_activity = np.zeros(max_symbols)
 
-        # 缓存 block 注意力
+        # 缓存 block 热点
         self._block_hotspot: Dict[str, float] = {}
 
         # 局部活动历史 (用于计算 local_activity)
@@ -87,14 +87,14 @@ class WeightPool:
         
         Args:
             symbol: 股票代码
-            blocks: 所属板块列表
+            blocks: 所属题材列表
             base_weight: 基础权重
         """
         if len(self._symbol_to_idx) >= self.max_symbols:
             return False
         
         if symbol in self._symbol_to_idx:
-            # 已存在，更新板块映射
+            # 已存在，更新题材映射
             self._symbol_blocks[symbol] = blocks
             idx = self._symbol_to_idx[symbol]
             self._base_weights[idx] = base_weight
@@ -123,7 +123,7 @@ class WeightPool:
             symbols: 股票代码数组
             returns: 涨跌幅数组
             volumes: 成交量数组
-            block_hotspot: 板块热点字典
+            block_hotspot: 题材热点字典
             timestamp: 当前时间戳
 
         Returns:
@@ -263,12 +263,12 @@ class WeightPool:
         公式:
         weight = base_weight * (1 + block_influence) * (1 + local_activity)
         
-        其中 block_influence 是所属板块注意力的加权平均
+        其中 block_influence 是所属题材热点的加权平均
         """
         base_weight = self._base_weights[idx]
         local_activity = self._local_activity[idx]
         
-        # 计算板块影响
+        # 计算题材影响
         blocks = self._symbol_blocks.get(symbol, [])
         if not blocks:
             block_influence = 0.0
@@ -310,14 +310,14 @@ class WeightPool:
         return symbols[:n]
     
     def get_symbols_by_block(self, block_id: str) -> List[str]:
-        """获取指定板块下的所有个股"""
+        """获取指定题材下的所有个股"""
         return [
             symbol for symbol, blocks in self._symbol_blocks.items()
             if block_id in blocks
         ]
     
     def get_block_weights(self, block_id: str) -> Dict[str, float]:
-        """获取指定板块下所有个股的权重"""
+        """获取指定题材下所有个股的权重"""
         symbols = self.get_symbols_by_block(block_id)
         return {
             symbol: self.get_symbol_weight(symbol)
@@ -433,7 +433,7 @@ class WeightPoolView:
         return self._pool.get_top_symbols(n=100, min_weight=threshold)
 
     def get_block_leaders(self, block_id: str, n: int = 10) -> List[Tuple[str, float]]:
-        """获取板块龙头股"""
+        """获取题材龙头股"""
         weights = self._pool.get_block_weights(block_id)
         sorted_symbols = sorted(weights.items(), key=lambda x: x[1], reverse=True)
         return sorted_symbols[:n]
