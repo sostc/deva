@@ -247,6 +247,17 @@ class MarketHotspotHistoryTracker:
             return self._block_configs[block_id].name
 
         if block_id.startswith("block_") and len(block_id) > 10:
+            block_info = None
+            try:
+                from deva.naja.dictionary.blocks import get_block_dictionary
+                bd = get_block_dictionary()
+                block_info = bd.get_block_info(block_id, 'CN')
+                if not block_info:
+                    block_info = bd.get_block_info(block_id, 'US')
+            except Exception:
+                pass
+            if block_info:
+                return block_info.name
             return ""
 
         return block_id
