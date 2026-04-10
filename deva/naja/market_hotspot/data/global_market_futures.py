@@ -42,20 +42,43 @@ FUTURES_CODES = {
 }
 
 
-def _get_us_stock_codes() -> Dict[str, str]:
-    """从 StockRegistry 获取美股代码"""
+def _get_china_codes() -> set:
+    """获取A股代码集合"""
     try:
-        from deva.naja.common.stock_registry import get_stock_registry
-        registry = get_stock_registry()
-        us_codes = registry.get_us_codes()
-        return {code: registry.get(code).name for code in us_codes if registry.get(code)}
+        from deva.naja.dictionary.blocks import get_block_dictionary
+        bd = get_block_dictionary()
+        return set(bd.get_all_stocks('CN'))
+    except Exception:
+        return set()
+
+
+def _get_us_stock_codes() -> Dict[str, str]:
+    """从 BlockDictionary 获取美股代码（Sina格式：gb_nvda）"""
+    try:
+        from deva.naja.dictionary.blocks import get_block_dictionary
+        bd = get_block_dictionary()
+        us_codes = bd.get_all_stocks('US')
+        result = {}
+        for code in us_codes:
+            info = bd.get_stock_info(code)
+            if info:
+                result[f"gb_{code}"] = info.name
+        return result
     except Exception as e:
         log.warning(f"[_get_us_stock_codes] 获取失败: {e}, 返回空字典")
         return {}
 
 
+_DEBUG_MARKET_MODE = None  # 正常模式，可设置为 "a_share", "us", "closed" 模拟不同市场
+import os
+_DEBUG_MARKET_MODE = os.environ.get('NAJA_DEBUG_MARKET') or None
+
+
 def _get_current_market() -> str:
     """获取当前市场状态"""
+    if _DEBUG_MARKET_MODE:
+        return _DEBUG_MARKET_MODE
+
     try:
         from deva.naja.register import ensure_trading_clocks
         ensure_trading_clocks()
@@ -74,19 +97,21 @@ def get_current_stock_codes() -> Dict[str, str]:
     """获取当前市场的股票代码列表
 
     根据市场状态返回：
-    - 美股交易时间: 返回美股代码
-    - A股交易时间: 返回A股代码
+    - 美股交易时间: 返回美股代码 (Sina格式: gb_nvda)
+    - A股交易时间: 返回A股代码 (Sina格式: sh600519)
     - 其他时间: 返回空字典
     """
-    from deva.naja.common.stock_registry import get_stock_registry
+    from deva.naja.dictionary.blocks import get_block_dictionary
 
     market = _get_current_market()
-    registry = get_stock_registry()
+    bd = get_block_dictionary()
 
     if market == "us":
-        return registry.get_us_codes_with_market()
+        us_codes = bd.get_all_stocks('US')
+        return {f"gb_{code}": bd.get_stock_info(code).name for code in us_codes if bd.get_stock_info(code)}
     elif market == "a_share":
-        return registry.get_cn_codes_with_market()
+        cn_codes = bd.get_all_stocks('CN')
+        return {code: bd.get_stock_info(code).name for code in cn_codes if bd.get_stock_info(code)}
     else:
         return {}
 
@@ -291,6 +316,7 @@ class GlobalMarketAPI:
         result = {}
         futures_codes = set(FUTURES_CODES.keys())
         us_codes = set(_get_us_stock_codes().keys())
+        china_codes = _get_china_codes()
 
         for line in text.strip().split("\n"):
             if not line or '="' not in line:

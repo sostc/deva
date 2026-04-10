@@ -342,17 +342,26 @@ def render_market_state_panel() -> str:
         </div>"""
 
     if not show_us_only and hot_blocks:
+        from deva.naja.dictionary.blocks import get_block_dictionary
         html += """<div style="margin-bottom: 16px;"><div style="font-size: 13px; font-weight: 600; color: #475569; margin-bottom: 8px;">📈 A股交易热点题材 Top5</div><div style="display: flex; flex-wrap: wrap; gap: 8px;">"""
+        bd = get_block_dictionary()
         for block_id, weight in hot_blocks:
             block_name = tracker.get_block_name(block_id)
+            if not block_name or block_name == "默认" or block_name == "0.0":
+                info = bd.get_block_info(block_id, 'CN')
+                if info:
+                    block_name = info.name
+                else:
+                    continue  # 跳过无效的题材
             bar_width = min(weight * 20, 100)
-            html += f"""<div style="background: #f1f5f9; border-radius: 8px; padding: 10px 14px; min-width: 140px;"><div style="font-size: 14px; font-weight: 600; color: #1e293b;">{block_name}</div><div style="display: flex; align-items: center; gap: 8px; margin-top: 6px;"><div style="background: {config['color']}; height: 6px; border-radius: 3px; width: {bar_width}px; min-width: 6px;"></div><span style="font-size: 13px; font-weight: 600; color: #1e293b;">{weight:.2f}</span></div></div>"""
+            html += f"""<div style="background: #f1f5f9; border-radius: 8px; padding: 10px 14px; min-width: 140px;"><div style="font-size: 14px; font-weight: 600; color: #1e293b;">{block_name}</div><div style="display: flex; align-items: center; gap: 8px; margin-top: 6px;"><div style="background: {config['color']}; height: 6px; border-radius: 3px; width: {bar_width}px; min-width: 6px;"></div><span style="font-size: 13px; font-weight: 600; color: #1e293b;">{weight:.4f}</span></div></div>"""
         html += "</div></div>"
 
     if not show_us_only and hot_symbols:
+        from deva.naja.dictionary.blocks import get_stock_name
         html += """<div><div style="font-size: 13px; font-weight: 600; color: #475569; margin-bottom: 8px;">🔥 A股交易热点个股 Top10</div><div style="display: flex; flex-wrap: wrap; gap: 6px;">"""
         for symbol, weight in hot_symbols:
-            symbol_name = tracker.get_symbol_name(symbol) or symbol
+            symbol_name = get_stock_name(symbol) or tracker.get_symbol_name(symbol) or symbol
             change = tracker.get_symbol_change(symbol)
             change_str = f"{change:+.2f}%" if change is not None else ""
             change_color = "#16a34a" if change and change > 0 else ("#dc2626" if change and change < 0 else "#64748b")
