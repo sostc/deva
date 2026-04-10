@@ -34,15 +34,15 @@ from ..market_hotspot.integration.extended import (
     get_mode_manager as _get_mode_manager,
     initialize_hotspot_system as _initialize_attention_system,
 )
-from ..common.stock_registry import get_stock_registry, StockInfoRegistry
+from ..dictionary.blocks import get_block_dictionary
 from ..common.singleton_registry import register_singleton, SR, get_registry_status
 
 log = logging.getLogger(__name__)
 
 
 def _get_stock_registry():
-    """获取 StockInfoRegistry 单例"""
-    return get_stock_registry()
+    """获取 BlockDictionary 单例"""
+    return get_block_dictionary()
 
 
 def _get_mode_manager():

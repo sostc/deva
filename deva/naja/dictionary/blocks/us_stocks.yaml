@@ -1,0 +1,4 @@
+version: '1.0'
+market: US
+description: 美股股票基础信息
+stocks: {}
