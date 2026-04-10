@@ -53,8 +53,8 @@ def _register_base_singletons():
     logger.info("  ✓ mode_manager")
 
     def _create_stock_registry():
-        from .common.stock_registry import StockInfoRegistry
-        return StockInfoRegistry()
+        from .dictionary.blocks import get_block_dictionary
+        return get_block_dictionary()
     register_singleton('stock_registry', _create_stock_registry, deps=[])
     logger.info("  ✓ stock_registry")
 

@@ -367,24 +367,6 @@ class MarketHotspotSystem:
                 'stock_name' if 'stock_name' in data.columns else None)
             symbol_col = 'code' if 'code' in data.columns else data.index.name or 'code'
 
-            from deva.naja.common.stock_registry import get_stock_registry
-            registry = get_stock_registry()
-
-            if 'code' in data.columns:
-                codes = data['code'].astype(str).values
-            else:
-                codes = data.index.astype(str).values if data.index is not None else []
-
-            if name_col and name_col in data.columns:
-                names = data[name_col].astype(str).values
-                for code, name in zip(codes, names):
-                    registry.register(code, name)
-                log.debug(f"[MarketHotspotSystem] StockRegistry 注册: {len([c for c in codes if c])} 条")
-            else:
-                for code in codes:
-                    if code:
-                        registry.register(code, code)
-
             self._register_symbol_names_from_dataframe(data, symbol_col, name_col)
             log.debug(f"[MarketHotspotSystem] 注册股票名称: cache大小={len(self._symbol_name_cache)}")
 

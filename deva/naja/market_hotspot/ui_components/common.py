@@ -51,10 +51,12 @@ def _is_b_share_symbol(symbol: str, name: str = "", stock_type: str = "") -> boo
             return True
 
     try:
-        from deva.naja.common.stock_registry import StockCodeNormalizer
-        sina = StockCodeNormalizer.to_sina_code(symbol)
-        if sina.startswith("sh900") or sina.startswith("sz200"):
-            return True
+        from deva.naja.dictionary.blocks import get_block_dictionary
+        bd = get_block_dictionary()
+        for code in bd.get_all_stocks('CN'):
+            info = bd.get_stock_info(code)
+            if info and (code.startswith("sh900") or code.startswith("sz200")):
+                return True
     except Exception:
         pass
 
@@ -113,14 +115,14 @@ def get_hot_blocks_and_stocks() -> Dict[str, Any]:
             key=lambda x: x[1], reverse=True
         )
 
-        from deva.naja.common.stock_registry import get_stock_registry
-        registry = get_stock_registry()
+        from deva.naja.dictionary.blocks import get_block_dictionary
+        bd = get_block_dictionary()
 
         hot_stocks_with_name = []
         filtered_b_stocks = 0
         for symbol, weight in sorted_stocks:
-            info = registry.get(symbol)
-            stock_name = info.name if info else registry.get_name(symbol)
+            info = bd.get_stock_info(symbol)
+            stock_name = info.name if info else symbol
             stock_type = info.stock_type if info else ""
             if _is_b_share_symbol(symbol, stock_name, stock_type):
                 filtered_b_stocks += 1
@@ -433,14 +435,19 @@ def get_market_phase_summary() -> Dict[str, Any]:
             'next_change_time': '',
         }
     else:
-        try:
-            cn_signal = SR('trading_clock').get_current_signal()
-        except Exception:
-            cn_signal = {}
-        try:
-            us_signal = SR('us_trading_clock').get_current_signal()
-        except Exception:
-            us_signal = {}
+        from deva.naja.market_hotspot.data.global_market_futures import _DEBUG_MARKET_MODE
+        if _DEBUG_MARKET_MODE == 'a_share':
+            cn_signal = {'type': 'current_state', 'phase': 'trading', 'market': 'CN', 'next_phase': 'closed', 'next_change_time': ''}
+            us_signal = {'type': 'current_state', 'phase': 'closed', 'market': 'US', 'next_change_time': ''}
+        else:
+            try:
+                cn_signal = SR('trading_clock').get_current_signal()
+            except Exception:
+                cn_signal = {}
+            try:
+                us_signal = SR('us_trading_clock').get_current_signal()
+            except Exception:
+                us_signal = {}
 
     def build(signal: Dict[str, Any], names: Dict[str, str]) -> Dict[str, Any]:
         phase = signal.get('phase', 'closed')
