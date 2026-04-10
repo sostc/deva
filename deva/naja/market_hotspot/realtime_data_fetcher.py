@@ -134,13 +134,13 @@ async def _fetch_sina_batch_async(codes: List[str], session=None) -> Dict:
 
 
 def _get_cn_codes_from_registry():
-    """从 StockRegistry 获取 A 股代码列表"""
+    """从 BlockDictionary 获取 A 股代码列表"""
     try:
-        from deva.naja.common.stock_registry import get_stock_registry
-        registry = get_stock_registry()
-        codes = list(registry.get_cn_codes())
+        from deva.naja.dictionary.blocks import get_block_dictionary
+        bd = get_block_dictionary()
+        codes = list(bd.get_all_stocks('CN'))
         if codes:
-            log.info(f"[_get_cn_codes_from_registry] 从 StockRegistry 获取到 {len(codes)} 只 A 股")
+            log.info(f"[_get_cn_codes_from_registry] 从 BlockDictionary 获取到 {len(codes)} 只 A 股")
             return codes
     except Exception as e:
         log.warning(f"[_get_cn_codes_from_registry] 获取失败: {e}")
@@ -421,11 +421,17 @@ class RealtimeDataFetcher:
 
     def _on_cn_clock_signal(self, signal: Dict[str, Any]):
         """处理A股交易时钟信号（通过 direct subscribe 使用）"""
+        from deva.naja.market_hotspot.data.global_market_futures import _DEBUG_MARKET_MODE
+        if _DEBUG_MARKET_MODE == 'a_share':
+            signal = {'type': 'current_state', 'phase': 'trading', 'market': 'CN'}
         log.debug(f"[RealtimeDataFetcher] 收到A股信号: {signal}")
         self._update_cn_state(signal.get('type'), signal.get('phase'))
 
     def _on_us_clock_signal(self, signal: Dict[str, Any]):
         """处理美股交易时钟信号（通过 direct subscribe 使用）"""
+        from deva.naja.market_hotspot.data.global_market_futures import _DEBUG_MARKET_MODE
+        if _DEBUG_MARKET_MODE == 'a_share':
+            signal = {'type': 'current_state', 'phase': 'closed', 'market': 'US'}
         signal_type = signal.get('type', 'unknown')
         phase = signal.get('phase', 'unknown')
         market = signal.get('market', 'US')
@@ -1435,8 +1441,16 @@ class RealtimeDataFetcher:
         try:
             self._resolve_inner_system()
 
+            from deva.naja.market_hotspot.data.global_market_futures import _DEBUG_MARKET_MODE
+            log.warning(f"[RealtimeDataFetcher] get_stats _DEBUG_MARKET_MODE={_DEBUG_MARKET_MODE}")
+
             cn_signal = self.cn_tc.get_current_signal()
             us_signal = self.us_tc.get_current_signal()
+
+            if _DEBUG_MARKET_MODE == 'a_share':
+                cn_signal = {'type': 'current_state', 'phase': 'trading', 'market': 'CN', 'next_phase': 'closed'}
+                us_signal = {'type': 'current_state', 'phase': 'closed', 'market': 'US'}
+                log.warning("[RealtimeDataFetcher] DEBUG MODE: A股强制交易中")
 
             cn_phase = cn_signal.get('phase', 'closed')
             us_phase = us_signal.get('phase', 'closed')

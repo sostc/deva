@@ -274,15 +274,17 @@ class MarketHotspotIntegration:
 
     def _discover_blocks_and_symbols(self):
         """
-        从 StockRegistry 和 DictionaryManager 获取题材和个股
+        从 BlockDictionary 获取题材和个股
         """
         self._blocks = []
         self._symbol_block_map = {}
 
         try:
-            self._load_blocks_from_dictionary()
+            self._load_blocks_from_block_dictionary()
         except Exception as e:
-            log.warning(f"从字典加载题材失败: {e}")
+            log.warning(f"从 BlockDictionary 加载题材失败: {e}")
+            import traceback
+            log.warning(traceback.format_exc())
 
         try:
             self._load_symbols_from_stock_registry()
@@ -291,31 +293,72 @@ class MarketHotspotIntegration:
 
         log.info(f"🧠 市场热点数据: 题材({len(self._blocks)}) 个股({len(self._symbol_block_map)})")
 
-    def _load_symbols_from_stock_registry(self):
-        """从 StockRegistry 获取所有股票"""
+    def _load_blocks_from_block_dictionary(self):
+        """从 BlockDictionary 加载题材"""
         try:
-            from deva.naja.common.stock_registry import get_stock_registry, StockInfoRegistry
+            from deva.naja.dictionary.blocks import get_block_dictionary
 
-            registry = get_stock_registry()
-            if not registry:
-                log.warning("[StockRegistry] 未找到 stock_registry 单例")
+            bd = get_block_dictionary()
+            if not bd:
+                log.warning("[BlockDictionary] 未找到 BlockDictionary 单例")
                 return
 
-            all_codes = registry.get_all_codes()
+            for block_id in bd._cn_blocks.keys():
+                info = bd.get_block_info(block_id, 'CN')
+                if not info:
+                    continue
+
+                block = BlockConfig(
+                    block_id=block_id,
+                    name=info.name,
+                    symbols=set(info.stocks),
+                    decay_half_life=300.0
+                )
+                self._blocks.append(block)
+
+                for symbol in info.stocks:
+                    if symbol not in self._symbol_block_map:
+                        self._symbol_block_map[symbol] = []
+                    self._symbol_block_map[symbol].append(block_id)
+
+            log.info(f"[BlockDictionary] 加载完成: 题材数={len(self._blocks)}, 个股数={len(self._symbol_block_map)}")
+            if len(self._blocks) > 0:
+                log.info(f"[BlockDictionary] 前5个题材: {[s.name for s in self._blocks[:5]]}")
+
+        except Exception as e:
+            log.warning(f"加载 BlockDictionary 失败: {e}")
+            import traceback
+            log.warning(traceback.format_exc())
+
+    def _load_symbols_from_stock_registry(self):
+        """从 BlockDictionary 加载所有股票"""
+        try:
+            from deva.naja.dictionary.blocks import get_block_dictionary
+
+            bd = get_block_dictionary()
+            if not bd:
+                log.warning("[BlockDictionary] 未找到 BlockDictionary 单例")
+                return
+
+            cn_codes = list(bd.get_all_stocks('CN'))
+            us_codes = list(bd.get_all_stocks('US'))
+            all_codes = cn_codes + us_codes
+
             if not all_codes:
-                log.warning("[StockRegistry] 股票列表为空")
+                log.warning("[BlockDictionary] 股票列表为空")
                 return
 
-            log.info(f"[StockRegistry] 加载到 {len(all_codes)} 只股票")
+            log.info(f"[BlockDictionary] 加载到 {len(all_codes)} 只股票")
 
             for code in all_codes:
-                self._symbol_block_map[code] = []
+                if code not in self._symbol_block_map:
+                    self._symbol_block_map[code] = []
 
             if not self._blocks:
                 self._blocks.append(BlockConfig(block_id="默认", name="默认"))
 
         except Exception as e:
-            log.warning(f"从 StockRegistry 加载股票失败: {e}")
+            log.warning(f"从 BlockDictionary 加载股票失败: {e}")
             import traceback
             log.warning(traceback.format_exc())
 

@@ -262,31 +262,29 @@ class TextImportanceScorer:
     def _extract_stock_codes(self, text: str) -> List[str]:
         """简单提取股票代码"""
         codes: Set[str] = set()
-        registry = None
+        bd = None
         try:
-            from deva.naja.common.stock_registry import get_stock_registry
-            registry = get_stock_registry()
+            from deva.naja.dictionary.blocks import get_block_dictionary
+            bd = get_block_dictionary()
         except Exception:
-            registry = None
+            bd = None
 
         # A股 6位数字代码
         for match in re.findall(r"\b\d{6}\b", text):
-            if registry:
-                info = registry.get(match)
-                codes.add(info.normalized_code if info else match)
+            if bd:
+                info = bd.get_stock_info(f"sh{match}") or bd.get_stock_info(f"sz{match}")
+                codes.add(match if not info else f"sh{match}" if info.market == 'SH' else f"sz{match}" if info.market == 'SZ' else match)
             else:
                 codes.add(match)
         # 美股 ticker (1-5 大写字母)
         for match in re.findall(r"\b[A-Z]{1,5}\b", text):
             if match not in {"AI", "GDP", "CPI", "PMI", "FOMC", "M2"}:
-                if registry:
-                    info = registry.get_by_normalized(match)
+                if bd:
+                    info = bd.get_stock_info(match.lower())
                     if info:
-                        codes.add(info.display_code)
+                        codes.add(match.lower())
                         continue
                 codes.add(match)
-        if registry:
-            codes.update(registry.find_codes_in_text(text))
         return list(codes)
 
     def _generate_summary(self, title: str, text: str) -> str:
