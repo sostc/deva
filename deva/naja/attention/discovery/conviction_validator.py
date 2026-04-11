@@ -70,7 +70,7 @@ log = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from deva.naja.attention.portfolio import Portfolio, PortfolioSummary
-    from deva.naja.attention.narrative_block_linker import NarrativeBlockLinker
+    from deva.naja.attention.discovery import NarrativeBlockLinker
     from deva.naja.attention.block_registry import BlockRegistry
 
 
@@ -174,7 +174,7 @@ class ConvictionValidator:
         registry: Optional["BlockRegistry"] = None,
     ):
         from deva.naja.attention.portfolio import get_portfolio
-        from deva.naja.attention.narrative_block_linker import get_narrative_block_linker
+        from deva.naja.attention.discovery import get_narrative_block_linker
         from deva.naja.attention.block_registry import get_block_registry
 
         self.portfolio = portfolio or get_portfolio()

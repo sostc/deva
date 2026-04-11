@@ -1,24 +1,21 @@
-"""Price Monitor - 价格监控服务
+"""Position Monitor - 持仓监控系统
 
-持续监控跟踪标的价格变化，与 AttentionTracker 配合形成反馈。
+被动接收市场 tick 推送 + 定时主动获取，确保持仓价格必更新。
 
 核心功能:
-- 从市场 tick 数据源获取价格
-- 计算收益/变化率
-- 触发价格更新回调
-- 自动管理跟踪列表
-- 与注意力系统 FrequencyScheduler 对接实现动态频率调度
+- 被动接收市场 tick 推送，实时更新持仓价格
+- 定时主动获取持仓价格（fallback，确保不断联）
+- 计算收益/变化率指标
+- 触发价格更新回调给 AttentionTracker
 
 数据源:
-- 优先使用市场 tick 数据源 (MarketDataObserver 机制)
-- 备用从 NB("naja_realtime_quotes") 缓存获取
+- 被动: 市场 tick 数据源 (MarketDataObserver 机制)
+- 主动: NB("naja_realtime_quotes") 缓存获取
 
-频率调度:
-- 通过 FrequencyScheduler 实现个股级别的动态更新频率
-- HIGH: 高注意力标的，每1秒更新
-- MEDIUM: 中注意力标的，每10秒更新
-- LOW: 低注意力标的，每60秒更新
-- AdaptiveFrequencyController 根据 global_attention 动态调整
+更新策略:
+- 被动优先: 收到 tick 则立即更新
+- 主动保底: 定时主动获取，确保所有持仓不断联
+- 统一频率: 所有持仓同等对待
 """
 
 from __future__ import annotations
@@ -27,15 +24,12 @@ import logging
 import threading
 import time
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Callable, TYPE_CHECKING
+from typing import Any, Dict, List, Optional, Callable
 from collections import deque
-
-if TYPE_CHECKING:
-    from .tracker import AttentionTracker, TrackedAttention, PriceUpdateSignal
 
 log = logging.getLogger(__name__)
 
-PRICE_MONITOR_CONFIG_TABLE = "naja_price_monitor_config"
+POSITION_MONITOR_CONFIG_TABLE = "naja_position_monitor_config"
 
 
 @dataclass
@@ -77,41 +71,31 @@ class PerformanceMetrics:
         }
 
 
-class PriceMonitor:
+class PositionMonitor:
     """
-    价格监控服务
+    持仓监控系统
 
     职责:
-    - 从市场 tick 数据源获取跟踪标的价格
+    - 被动接收市场 tick 推送，实时更新持仓价格
+    - 定时主动获取持仓价格（fallback）
     - 计算实时性能指标
     - 触发价格更新回调
-    - 与 AttentionTracker 集成
-    - 与 FrequencyScheduler 集成实现动态频率调度
 
-    数据源优先级:
-    1. 市场 tick 数据源 (运行时订阅流)
-    2. NB("naja_realtime_quotes") 缓存 (备用)
+    数据源:
+    - 被动: 市场 tick 数据源 (运行时订阅流)
+    - 主动: NB("naja_realtime_quotes") 缓存 (备用)
 
-    频率调度:
-    - 通过 FrequencyScheduler 实现个股级别的动态更新频率
-    - HIGH: 高注意力标的，每1秒更新
-    - MEDIUM: 中注意力标的，每10秒更新
-    - LOW: 低注意力标的，每60秒更新
+    更新策略:
+    - 被动优先: 收到 tick 则立即更新
+    - 主动保底: 定时主动获取，确保不断联
+    - 统一频率: 所有持仓同等对待
     """
-
-    DEFAULT_TRADING_DATASOURCE = '189e3042171a'
 
     def __init__(
         self,
-        update_interval: float = 60.0,
-        price_fetch_timeout: float = 10.0,
-        frequency_scheduler=None,
-        adaptive_frequency_controller=None,
+        update_interval: float = 10.0,
     ):
         self._update_interval = update_interval
-        self._price_fetch_timeout = price_fetch_timeout
-        self._frequency_scheduler = frequency_scheduler
-        self._adaptive_freq_controller = adaptive_frequency_controller
 
         self._running = False
         self._thread: Optional[threading.Thread] = None
@@ -136,10 +120,10 @@ class PriceMonitor:
         """加载配置"""
         try:
             from deva import NB
-            db = NB(PRICE_MONITOR_CONFIG_TABLE)
+            db = NB(POSITION_MONITOR_CONFIG_TABLE)
             config = db.get("monitor_config")
             if config:
-                self._update_interval = config.get("update_interval", 60.0)
+                self._update_interval = config.get("update_interval", 10.0)
                 self._max_fetch_errors = config.get("max_fetch_errors", 5)
         except Exception:
             pass
@@ -148,7 +132,7 @@ class PriceMonitor:
         """保存配置"""
         try:
             from deva import NB
-            db = NB(PRICE_MONITOR_CONFIG_TABLE)
+            db = NB(POSITION_MONITOR_CONFIG_TABLE)
             db["monitor_config"] = {
                 "update_interval": self._update_interval,
                 "max_fetch_errors": self._max_fetch_errors,
@@ -156,13 +140,13 @@ class PriceMonitor:
         except Exception:
             pass
 
-    def add_tracked(
+    def track_position(
         self,
         symbol: str,
         entry_price: float,
         entry_time: Optional[float] = None,
     ):
-        """添加监控标的"""
+        """开始跟踪一个持仓"""
         if entry_time is None:
             entry_time = time.time()
 
@@ -179,63 +163,39 @@ class PriceMonitor:
                 highest_price=entry_price,
                 lowest_price=entry_price,
             )
-            log.debug(f"添加监控: {symbol} 入场价={entry_price}")
+            log.debug(f"[PositionMonitor] 添加持仓: {symbol} 入场价={entry_price}")
 
-    def remove_tracked(self, symbol: str):
-        """移除监控标的"""
+    def untrack_position(self, symbol: str):
+        """停止跟踪一个持仓"""
         if symbol in self._tracked:
             del self._tracked[symbol]
-            log.debug(f"移除监控: {symbol}")
+            log.debug(f"[PositionMonitor] 移除持仓: {symbol}")
 
-    def _get_active_datasource_id(self) -> str:
-        """获取当前活跃的数据源ID"""
-        try:
-            from deva.naja.strategy import get_strategy_manager
-            mgr = get_strategy_manager()
-            experiment_info = mgr.get_experiment_info()
-            if experiment_info.get("active", False):
-                datasource_id = experiment_info.get("datasource_id")
-                if datasource_id:
-                    return datasource_id
-        except Exception:
-            pass
-        return self.DEFAULT_TRADING_DATASOURCE
+    def on_tick(self, symbol: str, price: float, timestamp: float):
+        """被动接收 tick 数据，立即更新"""
+        if symbol not in self._tracked:
+            return
 
-    def _get_datasource(self, datasource_id: str = None):
-        """获取数据源对象"""
-        if datasource_id is None:
-            datasource_id = self._get_active_datasource_id()
+        item = self._tracked[symbol]
+        item.current_price = price
+        item.last_update_time = timestamp
 
-        try:
-            from deva.naja.datasource import get_datasource_manager
-            mgr = get_datasource_manager()
-            mgr.load_from_db()
-            return mgr.get(datasource_id)
-        except Exception as e:
-            log.debug(f"[PriceMonitor] 获取数据源失败: {e}")
-            return None
+        is_new_high = price > item.highest_price
+        is_new_low = price < item.lowest_price
 
-    def _is_datasource_running(self, ds) -> bool:
-        """检查数据源是否正在运行"""
-        if ds is None:
-            return False
-        if hasattr(ds, 'is_running'):
-            return ds.is_running
-        if hasattr(ds, '_running'):
-            return ds._running
-        return False
+        if is_new_high:
+            item.highest_price = price
+        if is_new_low:
+            item.lowest_price = price
 
-    def _subscribe_stream(self, ds) -> bool:
-        """订阅数据源流"""
-        try:
-            stream = ds.get_stream()
-            if stream:
-                self._stream_subscription = stream.sink(self._on_data_received)
-                log.debug(f"[PriceMonitor] 已订阅数据源流: {ds.name}")
-                return True
-        except Exception as e:
-            log.debug(f"[PriceMonitor] 订阅流失败: {e}")
-        return False
+        self._price_history[symbol].append({
+            'price': price,
+            'timestamp': timestamp,
+        })
+
+        metrics = self._calculate_metrics(symbol, price)
+        if metrics:
+            self._notify_callbacks([metrics])
 
     def _on_data_received(self, data: Any):
         """收到数据源数据时的回调"""
@@ -250,7 +210,7 @@ class PriceMonitor:
             elif isinstance(data, dict):
                 self._process_single_item(data)
         except Exception as e:
-            log.debug(f"[PriceMonitor] 处理数据失败: {e}")
+            log.debug(f"[PositionMonitor] 处理数据失败: {e}")
 
     def _process_dataframe(self, df):
         """处理 DataFrame 格式的数据"""
@@ -272,7 +232,7 @@ class PriceMonitor:
                         if signal:
                             signals.append(signal)
             except Exception as e:
-                log.debug(f"[PriceMonitor] 处理 {stock_code} 失败: {e}")
+                log.debug(f"[PositionMonitor] 处理 {stock_code} 失败: {e}")
 
         if signals:
             self._notify_callbacks(signals)
@@ -291,7 +251,7 @@ class PriceMonitor:
                     if signal:
                         self._notify_callbacks([signal])
         except Exception as e:
-            log.debug(f"[PriceMonitor] 处理单条数据失败: {e}")
+            log.debug(f"[PositionMonitor] 处理单条数据失败: {e}")
 
     def _update_price(self, stock_code: str, price: float) -> Optional[PerformanceMetrics]:
         """更新价格并返回性能指标
@@ -304,7 +264,6 @@ class PriceMonitor:
 
         item = self._tracked[stock_code]
 
-        # 如果入场价未设置，用首次价格作为入场价
         if item.entry_price <= 0:
             item.entry_price = price
             item.highest_price = price
@@ -334,10 +293,10 @@ class PriceMonitor:
             try:
                 callback(signals)
             except Exception as e:
-                log.error(f"[PriceMonitor] 回调失败: {e}")
+                log.error(f"[PositionMonitor] 回调失败: {e}")
 
     def _fetch_prices(self, symbols: List[str]) -> Dict[str, float]:
-        """获取价格
+        """主动获取价格（fallback）
 
         从 MarketDataBus 获取价格:
         1. 优先从 MarketDataBus 缓存获取（共享行情数据）
@@ -351,18 +310,27 @@ class PriceMonitor:
         if not symbols:
             return prices
 
+        market_data_bus_available = False
         try:
             from deva.naja.bandit.market_data_bus import get_market_data_bus
             bus = get_market_data_bus()
             prices = bus.get_prices(symbols)
-        except Exception:
-            pass
+            if prices:
+                market_data_bus_available = True
+                log.debug(f"[PositionMonitor] MarketDataBus 获取价格: {len(prices)} 个")
+        except Exception as e:
+            log.debug(f"[PositionMonitor] MarketDataBus 不可用: {e}")
+
+        if not market_data_bus_available:
+            log.debug("[PositionMonitor] 使用备用价格获取: NB(naja_realtime_quotes)")
 
         for symbol in symbols:
             if symbol not in prices or prices.get(symbol, 0) <= 0:
                 price = self._fetch_from_realtime_cache(symbol)
                 if price > 0:
                     prices[symbol] = price
+                else:
+                    log.debug(f"[PositionMonitor] 无法获取 {symbol} 价格")
 
         return prices
 
@@ -385,7 +353,7 @@ class PriceMonitor:
                         if price:
                             return float(price)
         except Exception as e:
-            log.debug(f"[PriceMonitor] 从缓存获取 {symbol} 失败: {e}")
+            log.debug(f"[PositionMonitor] 从缓存获取 {symbol} 失败: {e}")
         return 0.0
 
     def _calculate_metrics(self, symbol: str, current_price: float) -> Optional[PerformanceMetrics]:
@@ -425,49 +393,62 @@ class PriceMonitor:
         )
 
     def _process_update(self) -> List[PerformanceMetrics]:
-        """处理价格更新（使用频率调度）"""
+        """主动获取所有持仓价格（fallback）"""
         if not self._tracked:
             return []
 
-        current_time = time.time()
+        symbols = list(self._tracked.keys())
+        prices = self._fetch_prices(symbols)
+
         signals = []
+        for symbol, current_price in prices.items():
+            if symbol not in self._tracked:
+                continue
 
-        if self._frequency_scheduler is not None:
-            symbols_to_update = []
-            for symbol in self._tracked.keys():
-                if self._should_update_symbol(symbol, current_time):
-                    symbols_to_update.append(symbol)
-
-            if symbols_to_update:
-                prices = self._fetch_prices(symbols_to_update)
-                for symbol, current_price in prices.items():
-                    if symbol in self._tracked:
-                        metrics = self._update_price(symbol, current_price)
-                        if metrics:
-                            signals.append(metrics)
-        else:
-            symbols = list(self._tracked.keys())
-            prices = self._fetch_prices(symbols)
-
-            for symbol, current_price in prices.items():
-                if symbol not in self._tracked:
-                    continue
-
-                metrics = self._update_price(symbol, current_price)
-                if metrics:
-                    signals.append(metrics)
+            metrics = self._update_price(symbol, current_price)
+            if metrics:
+                signals.append(metrics)
 
         return signals
 
-    def _should_update_symbol(self, symbol: str, current_time: float) -> bool:
-        """判断是否应该更新该标的（基于频率调度）"""
-        if self._frequency_scheduler is None:
-            return True
+    def _connect_to_datasource(self):
+        """连接到数据源"""
+        try:
+            from deva.naja.strategy import get_strategy_manager
+            mgr = get_strategy_manager()
+            experiment_info = mgr.get_experiment_info()
+            datasource_id = experiment_info.get("datasource_id") if experiment_info.get("active", False) else None
+        except Exception:
+            datasource_id = None
+
+        if datasource_id is None:
+            datasource_id = '189e3042171a'
 
         try:
-            return self._frequency_scheduler.should_fetch(symbol, current_time)
-        except Exception:
-            return True
+            from deva.naja.datasource import get_datasource_manager
+            mgr = get_datasource_manager()
+            mgr.load_from_db()
+            ds = mgr.get(datasource_id)
+        except Exception as e:
+            log.debug(f"[PositionMonitor] 获取数据源失败: {e}")
+            return
+
+        if ds is None:
+            return
+
+        self._current_datasource = ds
+
+        if hasattr(ds, 'is_running') and ds.is_running:
+            try:
+                stream = ds.get_stream()
+                if stream:
+                    self._stream_subscription = stream.sink(self._on_data_received)
+                    log.debug(f"[PositionMonitor] 已订阅数据源流: {ds.name}")
+                    return
+            except Exception as e:
+                log.debug(f"[PositionMonitor] 订阅流失败: {e}")
+
+        log.debug(f"[PositionMonitor] 数据源未运行，使用主动获取模式: {ds.name}")
 
     def start(self):
         """启动监控"""
@@ -483,23 +464,7 @@ class PriceMonitor:
         self._thread.start()
 
         self._save_config()
-        log.info(f"PriceMonitor 已启动 (更新间隔: {self._update_interval}s)")
-
-    def _connect_to_datasource(self):
-        """连接到数据源"""
-        ds = self._get_datasource()
-        if not ds:
-            log.debug(f"[PriceMonitor] 未找到数据源")
-            return
-
-        self._current_datasource = ds
-
-        if self._is_datasource_running(ds):
-            if self._subscribe_stream(ds):
-                log.debug(f"[PriceMonitor] 已订阅数据源流: {ds.name}")
-                return
-
-        log.debug(f"[PriceMonitor] 数据源未运行，使用主动获取模式: {ds.name}")
+        log.info(f"[PositionMonitor] 已启动 (更新间隔: {self._update_interval}s)")
 
     def stop(self):
         """停止监控"""
@@ -519,15 +484,10 @@ class PriceMonitor:
         if self._thread:
             self._thread.join(timeout=5)
 
-        log.info("PriceMonitor 已停止")
+        log.info("[PositionMonitor] 已停止")
 
     def _run_loop(self):
-        """主循环
-
-        当启用频率调度时，使用1秒基准间隔，让 FrequencyScheduler 决定每只股票是否更新
-        """
-        base_interval = 1.0 if self._frequency_scheduler is not None else self._update_interval
-
+        """主循环: 定时主动获取所有持仓价格（fallback）"""
         while self._running and not self._stop_event.is_set():
             try:
                 signals = self._process_update()
@@ -535,22 +495,22 @@ class PriceMonitor:
                 if signals:
                     self._notify_callbacks(signals)
             except Exception as e:
-                log.error(f"PriceMonitor 处理错误: {e}")
+                log.error(f"[PositionMonitor] 处理错误: {e}")
 
-            self._stop_event.wait(base_interval)
+            self._stop_event.wait(self._update_interval)
 
     def register_callback(self, callback: Callable[[List[PerformanceMetrics]], None]):
         """注册更新回调"""
         self._callbacks.append(callback)
 
     def get_metrics(self, symbol: str) -> Optional[PerformanceMetrics]:
-        """获取标的性能指标"""
+        """获取指定持仓的收益指标"""
         if symbol in self._tracked:
             return self._calculate_metrics(symbol, self._tracked[symbol].current_price)
         return None
 
     def get_all_metrics(self) -> List[PerformanceMetrics]:
-        """获取所有性能指标"""
+        """获取所有持仓的收益指标"""
         results = []
         for symbol in self._tracked:
             metrics = self._calculate_metrics(symbol, self._tracked[symbol].current_price)
@@ -560,60 +520,37 @@ class PriceMonitor:
 
     def get_status(self) -> dict:
         """获取状态"""
-        status = {
+        return {
             "running": self._running,
             "tracked_count": len(self._tracked),
             "update_interval": self._update_interval,
             "last_fetch_time": self._last_fetch_time,
             "fetch_errors": self._fetch_errors,
             "subscribed": self._stream_subscription is not None,
-            "frequency_scheduling_enabled": self._frequency_scheduler is not None,
         }
 
-        if self._frequency_scheduler is not None:
-            freq_summary = self._frequency_scheduler.get_schedule_summary()
-            status["frequency_summary"] = freq_summary
 
-        return status
-
-
-_price_monitor: Optional[PriceMonitor] = None
+_position_monitor: Optional[PositionMonitor] = None
 _monitor_lock = threading.Lock()
 
 
-def get_price_monitor(
-    update_interval: float = 60.0,
-    frequency_scheduler=None,
-    adaptive_frequency_controller=None,
-) -> PriceMonitor:
-    """获取 PriceMonitor 单例"""
-    global _price_monitor
-    if _price_monitor is None:
+def get_position_monitor(update_interval: float = 10.0) -> PositionMonitor:
+    """获取 PositionMonitor 单例"""
+    global _position_monitor
+    if _position_monitor is None:
         with _monitor_lock:
-            if _price_monitor is None:
-                _price_monitor = PriceMonitor(
-                    update_interval=update_interval,
-                    frequency_scheduler=frequency_scheduler,
-                    adaptive_frequency_controller=adaptive_frequency_controller,
-                )
-    return _price_monitor
+            if _position_monitor is None:
+                _position_monitor = PositionMonitor(update_interval=update_interval)
+    return _position_monitor
 
 
-def ensure_price_monitor(
-    update_interval: float = 60.0,
-    frequency_scheduler=None,
-    adaptive_frequency_controller=None,
-) -> PriceMonitor:
-    """确保 PriceMonitor 已初始化"""
-    global _price_monitor
-    if _price_monitor is None:
+def ensure_position_monitor(update_interval: float = 10.0) -> PositionMonitor:
+    """确保 PositionMonitor 已初始化"""
+    global _position_monitor
+    if _position_monitor is None:
         with _monitor_lock:
-            if _price_monitor is None:
-                _price_monitor = PriceMonitor(
-                    update_interval=update_interval,
-                    frequency_scheduler=frequency_scheduler,
-                    adaptive_frequency_controller=adaptive_frequency_controller,
-                )
-    if not _price_monitor._running:
-        _price_monitor.start()
-    return _price_monitor
+            if _position_monitor is None:
+                _position_monitor = PositionMonitor(update_interval=update_interval)
+    if not _position_monitor._running:
+        _position_monitor.start()
+    return _position_monitor

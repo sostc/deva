@@ -110,35 +110,6 @@ class StrategyEntry(RecoverableUnit):
 
         self._ensure_runtime_stub_code()
 
-        self._pipeline = None
-
-    def _get_pipeline(self):
-        """获取或创建 Pipeline"""
-        if self._pipeline is not None:
-            return self._pipeline
-
-        from ..attention.pipeline import PipelineManager, PipelineConfig, StrategyEnrichStage, StrategyProcessStage
-
-        config = PipelineConfig(
-            name=f"strategy_{self.name}",
-            stop_on_error=False,
-        )
-        self._pipeline = PipelineManager(config)
-
-        profile_ids = getattr(self._metadata, "dictionary_profile_ids", [])
-        if profile_ids:
-            enrich_stage = StrategyEnrichStage(name=f"enrich_{self.name}", profile_ids=profile_ids)
-            self._pipeline.add_stage(enrich_stage)
-
-        process_stage = StrategyProcessStage(
-            name=f"process_{self.name}",
-            compute_mode=getattr(self._metadata, "compute_mode", "record"),
-            window_type=getattr(self._metadata, "window_type", "sliding"),
-        )
-        self._pipeline.add_stage(process_stage)
-
-        return self._pipeline
-
     def _get_func_name(self) -> str:
         return "process"
 

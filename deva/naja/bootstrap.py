@@ -32,7 +32,6 @@ class BootStage(Enum):
     INIT_CORE = "init_core"
     REGISTER_COMPONENTS = "register_components"
     RESTORE_RUNTIME = "restore_runtime"
-    VALIDATE = "validate"
     START_SCHEDULERS = "start_schedulers"
     READY = "ready"
 
@@ -113,9 +112,6 @@ class SystemBootstrap:
 
             self._boot_stage = BootStage.RESTORE_RUNTIME
             self._merge_details(self._restore_runtime_states())
-
-            self._boot_stage = BootStage.VALIDATE
-            self._merge_details(self._validate_pipeline())
 
             self._boot_stage = BootStage.START_SCHEDULERS
             self._merge_details(self._start_schedulers())
@@ -353,37 +349,6 @@ class SystemBootstrap:
                 message=f"运行状态恢复失败: {e}",
                 duration_ms=duration_ms,
                 details={"warning": True},
-            )
-
-    def _validate_pipeline(self) -> BootResult:
-        """验证数据流"""
-        start = time.time()
-        logger.info("[6/8] 验证数据流...")
-
-        try:
-            from deva.naja.attention.pipeline import PipelineManager, create_default_pipeline
-
-            pipeline = create_default_pipeline()
-            logger.info(f"  Pipeline 创建完成: {len(pipeline._stages)} 个 Stage")
-
-            duration_ms = (time.time() - start) * 1000
-
-            return BootResult(
-                success=True,
-                stage=BootStage.VALIDATE,
-                message="数据流验证完成",
-                duration_ms=duration_ms,
-            )
-
-        except Exception as e:
-            duration_ms = (time.time() - start) * 1000
-            logger.warning(f"  数据流验证失败（非致命）: {e}")
-            return BootResult(
-                success=True,
-                stage=BootStage.VALIDATE,
-                message=f"数据流验证失败: {e}",
-                duration_ms=duration_ms,
-                details={'warning': True},
             )
 
     def _start_schedulers(self) -> BootResult:

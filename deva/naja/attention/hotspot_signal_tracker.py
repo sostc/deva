@@ -1,12 +1,14 @@
-"""Attention Tracker - 注意力跟踪器
+"""Hotspot Signal Tracker - 热点信号跟踪器
 
-跟踪注意力选中的标的，不需要实际成交即可形成反馈。
+通过 EventBus 接收市场热点事件，跟踪热点选中的标的，
+不需要实际成交即可形成反馈给注意力系统。
 
 核心功能:
-- 记录注意力选中的标的 (track_attention)
+- 接收 HotspotComputedEvent 事件 (通过 AttentionOS)
+- 记录热点选中的标的 (track_hotspot)
 - 持续跟踪价格变化 (update_price)
-- 生成观察反馈 (get_observation_result)
-- 与 Bandit 和 FeedbackLoop 集成
+- 生成观察反馈 (ObservationResult) → AttentionOS
+- 与 PositionMonitor 协作更新价格
 """
 
 from __future__ import annotations
@@ -23,12 +25,12 @@ from deva.naja.register import SR
 
 log = logging.getLogger(__name__)
 
-ATTENTION_TRACKER_TABLE = "naja_attention_tracker"
+POSITION_TRACKER_TABLE = "naja_hotspot_signal_tracker"
 
 
 @dataclass
 class TrackedAttention:
-    """跟踪中的注意力标的"""
+    """跟踪中的持仓（注意力选中的标的）"""
     symbol: str
     block_id: str
     strategy_id: str
@@ -130,19 +132,19 @@ class PriceUpdateSignal:
     is_new_low: bool
 
 
-class AttentionTracker:
+class HotspotSignalTracker:
     """
-    注意力跟踪器
-    
+    热点信号跟踪器
+
+    通过 EventBus 接收市场热点事件，跟踪热点选中的标的，
+    不需要实际成交即可形成反馈。
+
     职责:
-    - 记录注意力选中的标的 (不需要实际成交)
+    - 接收 HotspotComputedEvent 事件 (通过 AttentionOS)
+    - 记录热点选中的标的 (track_hotspot)
     - 跟踪价格变化
-    - 生成观察结果反馈
-    
-    与 BanditVirtualPortfolio 的区别:
-    - BanditVirtualPortfolio 需要实际成交
-    - AttentionTracker 只需要注意力选中即可
-    - 更早开始学习,样本量更大
+    - 生成观察结果反馈 → AttentionOS
+    - 与 PositionMonitor 协作更新价格
     """
     
     def __init__(
@@ -151,16 +153,18 @@ class AttentionTracker:
         min_confidence: float = 0.5,
         auto_close_on_expire: bool = True,
         frequency_scheduler=None,
+        min_hotspot_weight: float = 0.01,
     ):
         self._tracked: Dict[str, TrackedAttention] = {}
         self._lock = threading.RLock()
 
-        self._db = NB(ATTENTION_TRACKER_TABLE)
+        self._db = NB(POSITION_TRACKER_TABLE)
 
         self._observation_duration = observation_duration
         self._min_confidence = min_confidence
         self._auto_close_on_expire = auto_close_on_expire
         self._frequency_scheduler = frequency_scheduler
+        self._min_hotspot_weight = min_hotspot_weight
 
         self._callbacks: List[Callable[[PriceUpdateSignal], None]] = []
         self._observation_callbacks: List[Callable[[ObservationResult], None]] = []
@@ -169,7 +173,7 @@ class AttentionTracker:
         self._max_history_len = 100
 
         self._load_from_db()
-    
+
     def _load_from_db(self):
         """从数据库加载未完成跟踪"""
         try:
@@ -183,7 +187,7 @@ class AttentionTracker:
                         log.info(f"恢复跟踪: {symbol}")
         except Exception as e:
             log.debug(f"从数据库加载跟踪失败: {e}")
-    
+
     def _save_to_db(self, tracked: TrackedAttention):
         """保存到数据库"""
         try:
@@ -236,7 +240,7 @@ class AttentionTracker:
             close_reason=data.get('close_reason', ''),
         )
     
-    def track_attention(
+    def track_hotspot(
         self,
         symbol: str,
         block_id: str,
@@ -249,8 +253,8 @@ class AttentionTracker:
         market_state: str = "unknown",
     ) -> Optional[TrackedAttention]:
         """
-        开始跟踪一个注意力标的
-        
+        开始跟踪一个热点
+
         Args:
             symbol: 股票代码
             block_id: 题材ID
@@ -261,7 +265,7 @@ class AttentionTracker:
             action: 动作 (BUY/HOLD/SELL等)
             entry_price: 入场价格
             market_state: 市场状态
-            
+
         Returns:
             TrackedAttention 或 None (如果置信度不足)
         """
@@ -301,7 +305,7 @@ class AttentionTracker:
             self._save_to_db(tracked)
 
             self._register_to_frequency_scheduler(symbol, attention_score)
-            self._add_to_price_monitor(symbol, entry_price, now)
+            self._add_to_position_monitor(symbol, entry_price, now)
 
             self._record_signal_to_reporter(
                 symbol, block_id, strategy_id, strategy_name,
@@ -319,12 +323,12 @@ class AttentionTracker:
             except Exception:
                 pass
 
-    def _add_to_price_monitor(self, symbol: str, entry_price: float, entry_time: float):
-        """将 symbol 添加到 PriceMonitor"""
+    def _add_to_position_monitor(self, symbol: str, entry_price: float, entry_time: float):
+        """将 symbol 添加到 PositionMonitor"""
         try:
-            pm = SR('price_monitor')
+            pm = SR('position_monitor')
             if pm is not None:
-                pm.add_tracked(symbol, entry_price, entry_time)
+                pm.track_position(symbol, entry_price, entry_time)
         except Exception:
             pass
 
@@ -551,32 +555,35 @@ class AttentionTracker:
             }
 
 
-_attention_tracker: Optional[AttentionTracker] = None
+_hotspot_signal_tracker: Optional[HotspotSignalTracker] = None
 _tracker_lock = threading.Lock()
 
 
-def get_attention_tracker(
+def get_hotspot_signal_tracker(
     observation_duration: float = 3600.0,
     min_confidence: float = 0.5,
     frequency_scheduler=None,
-) -> AttentionTracker:
-    """获取 AttentionTracker 单例"""
-    global _attention_tracker
-    if _attention_tracker is None:
+    min_hotspot_weight: float = 0.01,
+) -> HotspotSignalTracker:
+    """获取 HotspotSignalTracker 单例"""
+    global _hotspot_signal_tracker
+    if _hotspot_signal_tracker is None:
         with _tracker_lock:
-            if _attention_tracker is None:
-                _attention_tracker = AttentionTracker(
+            if _hotspot_signal_tracker is None:
+                _hotspot_signal_tracker = HotspotSignalTracker(
                     observation_duration=observation_duration,
                     min_confidence=min_confidence,
                     frequency_scheduler=frequency_scheduler,
+                    min_hotspot_weight=min_hotspot_weight,
                 )
-    return _attention_tracker
+    return _hotspot_signal_tracker
 
 
-def ensure_attention_tracker(
+def ensure_hotspot_signal_tracker(
     observation_duration: float = 3600.0,
     min_confidence: float = 0.5,
     frequency_scheduler=None,
-) -> AttentionTracker:
-    """确保 AttentionTracker 已初始化"""
-    return get_attention_tracker(observation_duration, min_confidence, frequency_scheduler)
+    min_hotspot_weight: float = 0.01,
+) -> HotspotSignalTracker:
+    """确保 HotspotSignalTracker 已初始化"""
+    return get_hotspot_signal_tracker(observation_duration, min_confidence, frequency_scheduler, min_hotspot_weight)
