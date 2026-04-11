@@ -73,6 +73,10 @@ from .market_data_bus import (
     MarketQuote,
     get_market_data_bus,
 )
+from .fundamental_data_fetcher import (
+    FundamentalDataFetcher,
+    get_fundamental_data_fetcher,
+)
 from deva.naja.register import SR
 
 
@@ -173,4 +177,6 @@ __all__ = [
     "MarketDataBus",
     "MarketQuote",
     "get_market_data_bus",
+    "FundamentalDataFetcher",
+    "get_fundamental_data_fetcher",
 ]

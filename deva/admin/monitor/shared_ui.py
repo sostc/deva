@@ -199,7 +199,7 @@ async def render_tuning_monitor_home(ctx):
 
 
 async def query_tuning_history(ctx):
-    from deva.naja.attention.ui_components.auto_tuning_monitor import get_recent_tuning_events
+    from deva.naja.attention.ui.auto_tuning_monitor import get_recent_tuning_events
     limit = await ctx["pin"].tuning_limit
     try:
         limit = int(limit) if limit else 20
@@ -215,7 +215,7 @@ async def query_tuning_history(ctx):
 
         rows = []
         for evt in events:
-            from deva.naja.attention.ui_components.auto_tuning_monitor import _fmt_ts_full, _get_state_color, _get_state_icon
+            from deva.naja.attention.ui.auto_tuning_monitor import _fmt_ts_full, _get_state_color, _get_state_icon
             ts = _fmt_ts_full(evt.get('timestamp', 0))
             state = evt.get('state', 'stable')
             param = evt.get('param_name', evt.get('param', ''))

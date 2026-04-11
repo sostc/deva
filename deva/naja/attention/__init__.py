@@ -7,8 +7,8 @@ Naja Attention System - 注意力基础设施
 - os/           - AttentionOS 统一入口
 - kernel/       - AttentionKernel 核心 + ManasEngine
 - values/       - 价值观系统
+- discovery/    - 主动发现模块（盲区、叙事、信念验证）
 - portfolio.py  - 持仓管理
-- conviction_validator.py - 信念验证
 - focus_manager.py - 关注管理
 - block_registry.py - 题材注册表
 
@@ -32,9 +32,13 @@ from .portfolio import (
     Portfolio,
     StockInfo,
 )
-from .conviction_validator import (
+from .discovery import (
     ConvictionValidator,
     get_conviction_validator,
+    BlindSpotInvestigator,
+    get_blind_spot_investigator,
+    NarrativeBlockLinker,
+    get_narrative_block_linker,
 )
 from .focus_manager import (
     AttentionFocusManager,
@@ -77,9 +81,13 @@ __all__ = [
     # Portfolio (持仓管理)
     "Portfolio",
     "StockInfo",
-    # ConvictionValidator (信念验证)
+    # Discovery (主动发现)
     "ConvictionValidator",
     "get_conviction_validator",
+    "BlindSpotInvestigator",
+    "get_blind_spot_investigator",
+    "NarrativeBlockLinker",
+    "get_narrative_block_linker",
     # FocusManager (关注管理)
     "AttentionFocusManager",
     "get_attention_focus_manager",

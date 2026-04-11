@@ -9,13 +9,13 @@ from .market_hotspot_system import (
     MarketSnapshot,
     StepResult,
 )
-from .integration import (
-    IntelligenceAugmentedSystem,
+from .hotspot_intelligence_system import (
+    _HotspotIntelligenceSystemInternal,
     IntelligenceConfig,
     create_intelligence_system,
     create_system,
 )
-from .extended import (
+from .market_hotspot_integration import (
     MarketHotspotIntegration,
     get_market_hotspot_integration,
     initialize_hotspot_system,
@@ -26,13 +26,16 @@ from .extended import (
     get_mode_manager,
 )
 
+HotspotIntelligenceSystem = _HotspotIntelligenceSystemInternal
+
 __all__ = [
     "MarketHotspotSystem",
     "MarketHotspotSystemConfig",
     "FallbackConfig",
     "MarketSnapshot",
     "StepResult",
-    "IntelligenceAugmentedSystem",
+    "HotspotIntelligenceSystem",
+    "_HotspotIntelligenceSystemInternal",
     "IntelligenceConfig",
     "create_intelligence_system",
     "create_system",

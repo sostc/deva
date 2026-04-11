@@ -1,72 +1,21 @@
 """
 Market Hotspot System - 市场热点系统
 
-市场热点系统分析市场数据（价格/成交量/涨跌幅）来确定热点题材和个股，
-并决定数据获取频率和策略资源分配。
-
-这是热点基础设施的市场应用层。
-
-子模块:
-- core/              - 核心热点引擎 (GlobalAttention, BlockAttention, WeightPool)
-- scheduling/        - 频率调度和策略分配
-- engine/           - River + PyTorch 双引擎
-- processing/       - 数据预处理（噪音过滤）
-- filters/         - 过滤器
-- data/            - 市场数据处理
-- integration/      - 系统集成
-- strategies/       - 基于热点的交易策略
+提供市场热点计算、题材跟踪、热点预测等功能。
 """
 
-from .core import (
-    GlobalHotspotEngine,
-    MarketSnapshot,
-    BlockHotspotEngine,
-    BlockConfig,
-    WeightPool,
-    WeightPoolView,
-    SymbolWeightConfig,
-)
-from .scheduling import (
-    FrequencyScheduler,
-    FrequencyLevel,
-    FrequencyConfig,
-    AdaptiveFrequencyController,
-    StrategyAllocator,
-    StrategyRegistry,
-    Strategy,
-    StrategyConfig,
-    StrategyParams,
-    StrategyScope,
-    StrategyType,
-)
-from .engine import (
-    RiverEngine,
-    PyTorchEngine,
-    DualEngineCoordinator,
-    AnomalySignal,
-    PatternSignal,
-)
-from .processing import (
-    NoiseFilter,
-    NoiseFilterConfig,
-    get_noise_filter,
-    get_tick_noise_filter,
-    TickNoiseFilterConfig,
-)
-from .filters import (
-    LiquidityRescueFilter,
-    PanicAnalyzer,
-)
-from .integration import (
+from .integration.market_hotspot_system import (
     MarketHotspotSystem,
     MarketHotspotSystemConfig,
-    FallbackConfig,
     MarketSnapshot,
     StepResult,
-    IntelligenceAugmentedSystem,
+)
+from .integration.hotspot_intelligence_system import (
     IntelligenceConfig,
     create_intelligence_system,
     create_system,
+)
+from .integration.market_hotspot_integration import (
     MarketHotspotIntegration,
     get_market_hotspot_integration,
     initialize_hotspot_system,
@@ -81,49 +30,16 @@ from .realtime_data_fetcher import (
     AsyncRealtimeDataFetcher,
     FetchConfig,
 )
+from .market_hotspot_history_tracker import (
+    MarketHotspotHistoryTracker,
+    get_history_tracker,
+)
 
 __all__ = [
-    # Core
-    "GlobalHotspotEngine",
-    "MarketSnapshot",
-    "BlockHotspotEngine",
-    "BlockConfig",
-    "WeightPool",
-    "WeightPoolView",
-    "SymbolWeightConfig",
-    # Scheduling
-    "FrequencyScheduler",
-    "FrequencyLevel",
-    "FrequencyConfig",
-    "AdaptiveFrequencyController",
-    "StrategyAllocator",
-    "StrategyRegistry",
-    "Strategy",
-    "StrategyConfig",
-    "StrategyParams",
-    "StrategyScope",
-    "StrategyType",
-    # Engine
-    "RiverEngine",
-    "PyTorchEngine",
-    "DualEngineCoordinator",
-    "AnomalySignal",
-    "PatternSignal",
-    # Processing
-    "NoiseFilter",
-    "NoiseFilterConfig",
-    "get_noise_filter",
-    "get_tick_noise_filter",
-    "TickNoiseFilterConfig",
-    # Filters
-    "LiquidityRescueFilter",
-    "PanicAnalyzer",
-    # Integration
     "MarketHotspotSystem",
     "MarketHotspotSystemConfig",
-    "FallbackConfig",
+    "MarketSnapshot",
     "StepResult",
-    "IntelligenceAugmentedSystem",
     "IntelligenceConfig",
     "create_intelligence_system",
     "create_system",
@@ -135,29 +51,9 @@ __all__ = [
     "process_data_with_hotspots",
     "AttentionModeManager",
     "get_mode_manager",
-    # Realtime Fetcher
     "RealtimeDataFetcher",
     "AsyncRealtimeDataFetcher",
     "FetchConfig",
+    "MarketHotspotHistoryTracker",
+    "get_history_tracker",
 ]
-
-from deva.naja.events.hotspot_events import (
-    HotspotComputedEvent,
-    MarketSnapshotEvent,
-    SymbolUpdateEvent,
-)
-
-from deva.naja.events import (
-    NajaEventBus as HotspotEventBus,
-    get_event_bus,
-)
-
-__all__ = __all__ + [
-    "HotspotComputedEvent",
-    "MarketSnapshotEvent",
-    "SymbolUpdateEvent",
-    "HotspotEventBus",
-    "get_event_bus",
-]
-
-__version__ = "3.0.0"

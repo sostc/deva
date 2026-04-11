@@ -197,7 +197,7 @@ def main():
 def show_attention_report():
     """显示注意力系统状态报告"""
     try:
-        from .market_hotspot.integration.extended import get_market_hotspot_integration
+        from .market_hotspot.integration.market_hotspot_integration import get_market_hotspot_integration
         
         integration = get_market_hotspot_integration()
         report = integration.get_hotspot_report()

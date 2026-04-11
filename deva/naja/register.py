@@ -47,7 +47,7 @@ def _register_base_singletons():
     logger.info("[NajaRegister] 注册基础层单例...")
 
     def _create_mode_manager():
-        from .market_hotspot.integration.extended import AttentionModeManager
+        from .market_hotspot.integration.market_hotspot_integration import AttentionModeManager
         return AttentionModeManager()
     register_singleton('mode_manager', _create_mode_manager, deps=[])
     logger.info("  ✓ mode_manager")
@@ -74,8 +74,8 @@ def _register_attention_singletons():
     logger.info("[NajaRegister] 注册注意力系统单例...")
 
     def _create_attention_integration():
-        from .market_hotspot.integration.extended import MarketHotspotIntegration
-        from .attention.config import load_config, get_intelligence_config
+        from .market_hotspot.integration.market_hotspot_integration import MarketHotspotIntegration
+        from .market_hotspot.integration.market_hotspot_config import load_config, get_intelligence_config
         
         integration = MarketHotspotIntegration()
         # 立即初始化注意力系统
@@ -120,19 +120,19 @@ def _register_attention_singletons():
                       deps=['attention_os', 'attention_integration'])
     logger.info("  ✓ trading_center")
 
-    def _create_attention_tracker():
-        from .attention.tracker import AttentionTracker
-        return AttentionTracker()
-    register_singleton('attention_tracker', _create_attention_tracker,
+    def _create_hotspot_signal_tracker():
+        from .attention.hotspot_signal_tracker import HotspotSignalTracker
+        return HotspotSignalTracker()
+    register_singleton('hotspot_signal_tracker', _create_hotspot_signal_tracker,
                       deps=['attention_integration'])
-    logger.info("  ✓ attention_tracker")
+    logger.info("  ✓ hotspot_signal_tracker")
 
-    def _create_price_monitor():
-        from .attention.price_monitor import PriceMonitor
-        return PriceMonitor()
-    register_singleton('price_monitor', _create_price_monitor,
+    def _create_position_monitor():
+        from .attention.position_monitor import PositionMonitor
+        return PositionMonitor()
+    register_singleton('position_monitor', _create_position_monitor,
                       deps=['attention_integration'])
-    logger.info("  ✓ price_monitor")
+    logger.info("  ✓ position_monitor")
 
     def _create_report_generator():
         from .attention.report_generator import AttentionReportGenerator
@@ -228,14 +228,14 @@ def _register_application_singletons():
     logger.info("  ✓ focus_manager")
 
     def _create_conviction_validator():
-        from .attention.conviction_validator import ConvictionValidator
+        from .attention.discovery import ConvictionValidator
         return ConvictionValidator()
     register_singleton('conviction_validator', _create_conviction_validator,
                       deps=['attention_integration'])
     logger.info("  ✓ conviction_validator")
 
     def _create_blind_spot_investigator():
-        from .attention.blind_spot_investigator import BlindSpotInvestigator
+        from .attention.discovery import BlindSpotInvestigator
         return BlindSpotInvestigator()
     register_singleton('blind_spot_investigator', _create_blind_spot_investigator,
                       deps=['attention_integration'])
@@ -336,7 +336,7 @@ def _register_cognition_singletons():
     logger.info("  ✓ cross_signal_analyzer")
 
     def _create_narrative_block_linker():
-        from .attention.narrative_block_linker import NarrativeBlockLinker
+        from .attention.discovery import NarrativeBlockLinker
         return NarrativeBlockLinker()
     register_singleton('narrative_block_linker', _create_narrative_block_linker,
                       deps=['attention_integration'])
@@ -470,12 +470,7 @@ def _register_cognition_singletons():
                       deps=[])
     logger.info("  ✓ scheduler_manager")
 
-    def _create_noise_filter():
-        from .attention.processing.noise_filter import NoiseFilter
-        return NoiseFilter()
-    register_singleton('noise_filter', _create_noise_filter,
-                      deps=[])
-    logger.info("  ✓ noise_filter")
+
 
     def _create_trading_clock():
         from .radar.trading_clock import TradingClock
@@ -640,7 +635,7 @@ def _register_other_singletons():
     logger.info("  ✓ cognition_orchestrator")
 
     def _create_connector():
-        from .manas_alaya_connector import ManasAlayaConnector
+        from .attention.manas_alaya_connector import ManasAlayaConnector
         return ManasAlayaConnector()
     register_singleton('connector', _create_connector,
                       deps=[])
