@@ -70,8 +70,8 @@ class NajaSupervisor:
             'attention_strategy_manager': None,
             'attention_report_generator': None,
             'bandit_runner': None,
-            'attention_tracker': None,
-            'price_monitor': None,
+            'hotspot_signal_tracker': None,
+            'position_monitor': None,
             'cognition': None,
         }
         self._status_history: list = []
@@ -103,8 +103,8 @@ class NajaSupervisor:
                 'attention_strategy_manager': None,
                 'attention_report_generator': None,
                 'bandit_runner': None,
-                'attention_tracker': None,
-                'price_monitor': None,
+                'hotspot_signal_tracker': None,
+                'position_monitor': None,
                 'cognition': None,
             }
             self._status_history: List[Dict[str, Any]] = []
@@ -183,8 +183,8 @@ class NajaSupervisor:
         
         # 启动注意力系统
         try:
-            from .attention.config import load_config, get_intelligence_config
-            from .market_hotspot.integration.extended import initialize_hotspot_system as initialize_attention_system
+            from .market_hotspot.integration.market_hotspot_config import load_config, get_intelligence_config
+            from .market_hotspot.integration.market_hotspot_integration import initialize_hotspot_system
 
             attention_config = load_config()
             intelligence_config = get_intelligence_config()
@@ -193,13 +193,19 @@ class NajaSupervisor:
                 config = attention_config.to_attention_system_config()
                 force_realtime = getattr(self, '_force_realtime', False)
                 lab_mode = getattr(self, '_lab_mode', False)
-                attention_system = initialize_attention_system(
+                attention_system = initialize_hotspot_system(
                     config,
                     intelligence_config=intelligence_config,
                     force_realtime=force_realtime,
                     lab_mode=lab_mode
                 )
                 self._components['attention'] = attention_system
+                self._components['hotspot_integration'] = attention_system
+
+                try:
+                    attention_system.load_state()
+                except Exception as e:
+                    log.debug(f"加载市场热点系统状态失败: {e}")
 
                 # 启动注意力策略系统
                 try:
@@ -227,36 +233,24 @@ class NajaSupervisor:
                 except Exception as be:
                     log.warning(f"BanditAutoRunner 启动失败: {be}")
 
-            # 启动 AttentionTracker (注意力跟踪器)
+            # 启动 PositionMonitor (持仓监控)
             if intelligence_config.get('enable_feedback'):
                 try:
-                    from .attention.tracker import ensure_attention_tracker
-                    from .attention.price_monitor import ensure_price_monitor
+                    from .attention.hotspot_signal_tracker import ensure_hotspot_signal_tracker
+                    from .attention.position_monitor import ensure_position_monitor
 
-                    freq_scheduler = None
-                    freq_controller = None
-                    if attention_system and hasattr(attention_system, 'frequency_scheduler'):
-                        freq_scheduler = attention_system.frequency_scheduler
-                        freq_controller = attention_system.frequency_controller
-
-                    attention_tracker = ensure_attention_tracker(
+                    hotspot_signal_tracker = ensure_hotspot_signal_tracker(
                         observation_duration=3600.0,
                         min_confidence=0.5,
-                        frequency_scheduler=freq_scheduler,
                     )
-                    self._components['attention_tracker'] = attention_tracker
+                    self._components['hotspot_signal_tracker'] = hotspot_signal_tracker
 
-                    price_monitor = ensure_price_monitor(
-                        update_interval=60.0,
-                        frequency_scheduler=freq_scheduler,
-                        adaptive_frequency_controller=freq_controller,
+                    position_monitor = ensure_position_monitor(
+                        update_interval=10.0,
                     )
-                    self._components['price_monitor'] = price_monitor
+                    self._components['position_monitor'] = position_monitor
 
-                    if freq_scheduler:
-                        log.info(f"频率调度已启用: HIGH=1s, MEDIUM=10s, LOW=60s")
-                    else:
-                        log.warning("频率调度未启用，PriceMonitor 使用固定间隔")
+                    log.info("HotspotSignalTracker 和 PositionMonitor 已启动")
 
                     # 注册价格更新回调：将价格更新传递给 FeedbackLoop
                     _price_feedback_count = 0
@@ -270,7 +264,7 @@ class NajaSupervisor:
                             if hasattr(integration, 'feedback_loop') and integration.feedback_loop:
                                 feedback_loop = integration.feedback_loop
                                 for metrics in metrics_list:
-                                    tracked = attention_tracker.get_tracked(metrics.symbol)
+                                    tracked = hotspot_signal_tracker.get_tracked(metrics.symbol)
                                     if tracked:
                                         feedback_loop.record_price_feedback(
                                             symbol=metrics.symbol,
@@ -285,11 +279,11 @@ class NajaSupervisor:
                                         )
                                         _price_feedback_count += 1
                                         if _price_feedback_count % 10 == 0:
-                                            log.info(f"[AttentionTracker] 价格反馈计数: {_price_feedback_count}, 跟踪中: {len(attention_tracker.get_all_tracked())}")
+                                            log.info(f"[HotspotSignalTracker] 价格反馈计数: {_price_feedback_count}, 跟踪中: {len(hotspot_signal_tracker.get_all_tracked())}")
                         except Exception as e:
                             log.warning(f"价格更新反馈处理失败: {e}")
 
-                    price_monitor.register_callback(_on_price_update)
+                    position_monitor.register_callback(_on_price_update)
 
                     # 注册观察结果回调
                     def _on_observation_result(result):
@@ -312,26 +306,26 @@ class NajaSupervisor:
                                     max_favorable_move=result.max_favorable_move,
                                     max_adverse_move=result.max_adverse_move,
                                 )
-                                log.info(f"[AttentionTracker] 观察完成: {result.symbol} 收益={result.return_pct:+.2f}% 时长={result.holding_seconds:.0f}s")
+                                log.info(f"[PositionTracker] 观察完成: {result.symbol} 收益={result.return_pct:+.2f}% 时长={result.holding_seconds:.0f}s")
                         except Exception as e:
                             log.warning(f"观察结果反馈处理失败: {e}")
 
-                    attention_tracker.register_observation_callback(_on_observation_result)
+                    hotspot_signal_tracker.register_observation_callback(_on_observation_result)
 
-                    # 将 price_monitor 的价格更新同步到 attention_tracker
+                    # 将 position_monitor 的价格更新同步到 hotspot_signal_tracker
                     def _sync_price_to_tracker(metrics_list):
                         for metrics in metrics_list:
-                            attention_tracker.update_price(metrics.symbol, metrics.current_price)
+                            hotspot_signal_tracker.update_price(metrics.symbol, metrics.current_price)
 
-                    price_monitor.register_callback(_sync_price_to_tracker)
+                    position_monitor.register_callback(_sync_price_to_tracker)
 
-                    log.info("AttentionTracker 和 PriceMonitor 已启动")
+                    log.info("HotspotSignalTracker 和 PositionMonitor 已启动")
 
                     # SignalTuner 已禁用 (自动调参导致策略过于激进)
                     log.info("SignalTuner 已禁用 (NAJA_DISABLE_SIGNAL_TUNER)")
 
                 except Exception as te:
-                    log.warning(f"AttentionTracker 启动失败: {te}")
+                    log.warning(f"HotspotSignalTracker 启动失败: {te}")
 
         except Exception as e:
             log.warning(f"注意力调度系统启动失败: {e}")
@@ -699,6 +693,13 @@ class NajaSupervisor:
                 attention.persist_state()
         except Exception as e:
             log.error(f"持久化注意力系统状态失败: {e}")
+
+        try:
+            hotspot_integration = self._get_component('hotspot_integration')
+            if hotspot_integration and hasattr(hotspot_integration, 'persist_state'):
+                hotspot_integration.persist_state()
+        except Exception as e:
+            log.error(f"持久化市场热点系统状态失败: {e}")
 
         try:
             strategy_mgr = self._get_component('strategy')

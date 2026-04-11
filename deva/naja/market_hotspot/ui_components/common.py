@@ -228,7 +228,7 @@ def is_hotspot_system_initialized():
 def initialize_hotspot_system():
     """初始化市场热点系统"""
     try:
-        from deva.naja.attention.config import load_config
+        from deva.naja.market_hotspot.integration.market_hotspot_config import load_config
         from deva.naja.market_hotspot.integration import initialize_hotspot_system as _init
         from pywebio.session import run_js
         from pywebio.output import toast

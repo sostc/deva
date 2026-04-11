@@ -503,8 +503,8 @@ def render_dual_engine_status(dual_summary: Dict[str, Any]) -> str:
 def render_noise_filter_status() -> str:
     """渲染噪音过滤状态"""
     try:
-        from deva.naja.attention import get_noise_filter
-        noise_filter = get_noise_filter()
+        hotspot_system = SR('hotspot_system')
+        noise_filter = hotspot_system.noise_filter
         stats = noise_filter.get_stats()
 
         total = stats.get('total_processed', 0)
@@ -866,8 +866,8 @@ def render_compact_signals(limit: int = 5) -> str:
 def render_compact_noise_filter() -> str:
     """简化的噪音过滤状态"""
     try:
-        from deva.naja.attention import get_noise_filter
-        noise_filter = get_noise_filter()
+        hotspot_system = SR('hotspot_system')
+        noise_filter = hotspot_system.noise_filter
         stats = noise_filter.get_stats()
 
         total = stats.get('total_processed', 0)

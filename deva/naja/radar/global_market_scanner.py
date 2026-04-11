@@ -223,6 +223,168 @@ class MarketVolatilityTracker:
         return abs(change_pct) > stats["mean"] + 3 * stats["std"]
 
 
+class MarketBreadthTracker:
+    """
+    市场广度追踪器
+
+    追踪上涨/下跌家数比例、涨停/跌停家数，计算市场广度指标和恐惧指标
+    """
+
+    def __init__(
+        self,
+        extreme_fear_threshold: float = 0.1,
+        high_fear_threshold: float = 0.2,
+        extreme_greed_threshold: float = 5.0,
+        high_greed_threshold: float = 3.0,
+    ):
+        self.extreme_fear_threshold = extreme_fear_threshold
+        self.high_fear_threshold = high_fear_threshold
+        self.extreme_greed_threshold = extreme_greed_threshold
+        self.high_greed_threshold = high_greed_threshold
+        self._history: Deque[Dict[str, Any]] = deque(maxlen=20)
+
+    def update(self, market_data_list: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """
+        更新市场广度数据
+
+        Args:
+            market_data_list: 市场数据列表，每项包含:
+                - change_pct: 涨跌幅
+                - is_limit_up: 是否涨停（可选）
+                - is_limit_down: 是否跌停（可选）
+
+        Returns:
+            Dict: 包含广度指标和恐惧评分
+        """
+        limit_up = 0
+        limit_down = 0
+        advancing = 0
+        declining = 0
+
+        for stock in market_data_list:
+            change_pct = stock.get("change_pct", 0)
+            is_limit_up = stock.get("is_limit_up", False)
+            is_limit_down = stock.get("is_limit_down", False)
+
+            if is_limit_up or change_pct >= 9.5:
+                limit_up += 1
+            elif is_limit_down or change_pct <= -9.5:
+                limit_down += 1
+
+            if change_pct > 0:
+                advancing += 1
+            elif change_pct < 0:
+                declining += 1
+
+        total = len(market_data_list) if market_data_list else 1
+        breadth_ratio = (advancing - declining) / total if total > 0 else 0
+        fear_indicator = self._calculate_fear_indicator(limit_up, limit_down, advancing, declining)
+        fear_level = self._classify_fear_level(fear_indicator)
+        fear_score = self._calculate_fear_score(fear_indicator)
+
+        result = {
+            "limit_up_count": limit_up,
+            "limit_down_count": limit_down,
+            "advancing_count": advancing,
+            "declining_count": declining,
+            "total_count": total,
+            "breadth_ratio": breadth_ratio,
+            "fear_indicator": fear_indicator,
+            "fear_level": fear_level,
+            "fear_score": fear_score,
+            "timestamp": time.time(),
+        }
+
+        self._history.append(result)
+        return result
+
+    def update_from_market_data(self, market_data: Dict[str, MarketData]) -> Dict[str, Any]:
+        """
+        从 GlobalMarketScanner 的市场数据更新广度
+
+        由于 GlobalMarketScanner 主要追踪的是指数/期货而非个股，
+        这里通过涨跌幅分布来估算市场广度
+        """
+        if not market_data:
+            return {}
+
+        changes = [md.change_pct for md in market_data.values() if md.change_pct != 0]
+
+        if not changes:
+            return {}
+
+        market_data_list = [{"change_pct": c} for c in changes]
+        return self.update(market_data_list)
+
+    def _calculate_fear_indicator(self, limit_up: int, limit_down: int, advancing: int, declining: int) -> float:
+        """
+        计算恐惧指标
+
+        公式: fear = (limit_down / max(limit_up, 1)) * (declining / max(advancing, 1)) * 10
+        """
+        if limit_up == 0 and advancing == 0:
+            return 10.0
+
+        limit_ratio = limit_down / max(limit_up, 1)
+        decline_ratio = declining / max(advancing, 1)
+        fear = limit_ratio * decline_ratio * 10
+
+        return min(10.0, max(0.0, fear))
+
+    def _classify_fear_level(self, fear_indicator: float) -> str:
+        """分类恐惧等级"""
+        if fear_indicator >= self.extreme_fear_threshold * 5:
+            return "extreme_fear"
+        elif fear_indicator >= self.extreme_fear_threshold:
+            return "high_fear"
+        elif fear_indicator >= self.high_fear_threshold:
+            return "moderate_fear"
+        elif fear_indicator >= 1.0:
+            return "neutral"
+        elif fear_indicator <= self.extreme_greed_threshold / 10:
+            return "extreme_greed"
+        elif fear_indicator <= self.high_greed_threshold / 10:
+            return "high_greed"
+        return "neutral"
+
+    def _calculate_fear_score(self, fear_indicator: float) -> float:
+        """
+        获取恐惧评分（0-100）
+
+        0 = 极度贪婪, 100 = 极度恐慌
+        """
+        if fear_indicator >= 5:
+            return 90.0
+        elif fear_indicator >= 2:
+            return 70.0 + (fear_indicator - 2) * 6.7
+        elif fear_indicator >= 1:
+            return 50.0 + (fear_indicator - 1) * 20
+        elif fear_indicator >= 0.5:
+            return 30.0 + (fear_indicator - 0.5) * 40
+        else:
+            return fear_indicator * 60
+
+    def get_latest_breadth(self) -> Dict[str, Any]:
+        """获取最新的广度数据"""
+        return self._history[-1] if self._history else {}
+
+    def get_breadth_summary(self) -> Dict[str, Any]:
+        """获取广度摘要"""
+        if not self._history:
+            return {"status": "no_data"}
+
+        latest = self._history[-1]
+        avg_breadth = sum(h["breadth_ratio"] for h in self._history) / len(self._history)
+        avg_fear = sum(h["fear_score"] for h in self._history) / len(self._history)
+
+        return {
+            "latest": latest,
+            "avg_breadth_ratio": avg_breadth,
+            "avg_fear_score": avg_fear,
+            "history_size": len(self._history),
+        }
+
+
 @dataclass
 class ScanConfig:
     """扫描配置"""
@@ -262,6 +424,7 @@ class GlobalMarketScanner:
         self._task: Optional[asyncio.Task] = None
 
         self._volatility_tracker = MarketVolatilityTracker(window_size=10)
+        self._breadth_tracker = MarketBreadthTracker()
         self._last_market_data: Dict[str, MarketData] = {}
         self._alert_history: Deque[MarketAlert] = deque(maxlen=100)
 
@@ -459,6 +622,11 @@ class GlobalMarketScanner:
                 self._last_market_data = data
 
                 self._sync_to_propagation_engine(data)
+
+                breadth_result = self._breadth_tracker.update_from_market_data(data)
+                if breadth_result:
+                    _global_market_log(f"市场广度: 涨跌比={breadth_result.get('breadth_ratio', 0):+.2f}, 恐惧={breadth_result.get('fear_score', 0):.0f}")
+
             except Exception as e:
                 log.error(f"[GlobalMarketScanner] 获取数据异常: {e}")
                 self._stats["error_count"] += 1
@@ -466,8 +634,7 @@ class GlobalMarketScanner:
                 return
 
             status_map = self._get_market_status_map()
-
-            alerts = self._detect_alerts(data, status_map)
+            alerts = self._detect_alerts(data, status_map, breadth_result)
 
             if alerts:
                 _global_market_log(f"检测到 {len(alerts)} 个告警")
@@ -485,9 +652,12 @@ class GlobalMarketScanner:
                 "success_count": self._stats["success_count"]
             })
 
-    def _detect_alerts(self, data: Dict[str, MarketData], status_map: Dict[str, str]) -> List[MarketAlert]:
+    def _detect_alerts(self, data: Dict[str, MarketData], status_map: Dict[str, str], breadth: Dict[str, Any] = None) -> List[MarketAlert]:
         """检测告警"""
         alerts = []
+        breadth_fear = 0.0
+        if breadth and "latest" in breadth:
+            breadth_fear = breadth["latest"].get("fear_score", 0.0)
 
         for code, md in data.items():
             market_status = status_map.get(md.market_id, "unknown")
@@ -501,7 +671,13 @@ class GlobalMarketScanner:
                 md.market_id, change_pct, self.config.alert_threshold_volatility
             )
 
-            severity = min(1.0, abs_change / 5.0)
+            base_severity = min(1.0, abs_change / 5.0)
+            if breadth_fear >= 70:
+                severity = min(1.0, base_severity * 1.5)
+            elif breadth_fear >= 50:
+                severity = min(1.0, base_severity * 1.2)
+            else:
+                severity = base_severity
 
             if is_abnormal:
                 alert_type = "abnormal_volatility"
@@ -536,6 +712,7 @@ class GlobalMarketScanner:
                     "volume": md.volume,
                     "is_abnormal": is_abnormal,
                     "update_time": md.update_time,
+                    "breadth_fear": breadth_fear,
                 },
             )
             alerts.append(alert)
@@ -609,6 +786,7 @@ class GlobalMarketScanner:
         open_markets = [k for k, v in status_map.items() if v == MarketStatus.OPEN.value]
         closed_markets = [k for k, v in status_map.items() if v == MarketStatus.CLOSED.value]
 
+        breadth = self._breadth_tracker.get_breadth_summary()
         return {
             "us_trading_phase": self.session_manager.get_us_trading_phase(),
             "total_markets": len(status_map),
@@ -617,7 +795,12 @@ class GlobalMarketScanner:
             "open_markets": open_markets,
             "status_map": status_map,
             "current_interval": self._stats["current_interval"],
+            "breadth": breadth,
         }
+
+    def get_breadth_status(self) -> Dict[str, Any]:
+        """获取市场广度状态"""
+        return self._breadth_tracker.get_breadth_summary()
 
     def _init_liquidity_system(self):
         """初始化流动性预测系统"""
@@ -741,13 +924,14 @@ class GlobalMarketScanner:
             return {'change_pct': md.change_pct, 'current': md.current}
         return None
 
-    def predict_liquidity(self, source_market: LiquiditySignalType, signals: Dict[str, Any]) -> List[LiquidityPrediction]:
+    def predict_liquidity(self, source_market: LiquiditySignalType, signals: Dict[str, Any], breadth_fear: float = None) -> List[LiquidityPrediction]:
         """
         基于信号来源市场，预测对各目标市场的流动性影响
 
         Args:
             source_market: 信号来源市场
             signals: 信号数据（涨跌、成交量、波动率等）
+            breadth_fear: 市场广度恐惧分数 (0-100)，可选
 
         Returns:
             List[LiquidityPrediction]: 对各目标市场的预测列表
@@ -757,6 +941,10 @@ class GlobalMarketScanner:
 
         predictions = []
         source_signal = self._calc_liquidity_signal(signals)
+
+        if breadth_fear is not None:
+            breadth_factor = self._get_breadth_fear_factor(breadth_fear)
+            source_signal = source_signal * breadth_factor
 
         target_markets = self._market_influences.get(source_market, [])
         for target in target_markets:
@@ -811,6 +999,31 @@ class GlobalMarketScanner:
 
         signal = change_score * 0.7 + volume_score * 0.3
         return float(np.clip(signal, 0.0, 1.0))
+
+    def _get_breadth_fear_factor(self, breadth_fear: float) -> float:
+        """
+        根据广度恐惧分数计算流动性信号调节因子
+
+        breadth_fear 高(>50) → 恐慌加剧 → 信号向极端偏移
+        breadth_fear 低(<30) → 市场平稳 → 因子接近1.0
+
+        Returns:
+            float: 调节因子 (0.5 ~ 1.5)
+        """
+        if breadth_fear >= 80:
+            return 0.5
+        elif breadth_fear >= 70:
+            return 0.6
+        elif breadth_fear >= 60:
+            return 0.7
+        elif breadth_fear >= 50:
+            return 0.8
+        elif breadth_fear <= 20:
+            return 1.2
+        elif breadth_fear <= 30:
+            return 1.1
+        else:
+            return 1.0
 
     def _get_transmission_probability(self, source: LiquiditySignalType, target: LiquiditySignalType) -> float:
         """获取市场间传染概率"""
@@ -961,7 +1174,7 @@ class GlobalMarketScanner:
             if market in self._liquidity_predictions:
                 self.verify_liquidity(market, data)
 
-    def predict_and_auto_verify(self, source_market: LiquiditySignalType, signals: Dict[str, Any], market_data_map: Dict[LiquiditySignalType, Dict[str, Any]] = None) -> List[LiquidityPrediction]:
+    def predict_and_auto_verify(self, source_market: LiquiditySignalType, signals: Dict[str, Any], market_data_map: Dict[LiquiditySignalType, Dict[str, Any]] = None, breadth_fear: float = None) -> List[LiquidityPrediction]:
         """
         预测并自动验证（形成闭环）
 
@@ -969,11 +1182,12 @@ class GlobalMarketScanner:
             source_market: 信号来源市场
             signals: 信号数据
             market_data_map: 各目标市场的实际数据（用于验证）
+            breadth_fear: 市场广度恐惧分数 (0-100)
 
         Returns:
             List[LiquidityPrediction]: 预测列表
         """
-        predictions = self.predict_liquidity(source_market, signals)
+        predictions = self.predict_liquidity(source_market, signals, breadth_fear)
 
         if market_data_map:
             self.auto_verify_all_predictions(market_data_map)
@@ -1056,13 +1270,14 @@ class GlobalMarketScanner:
 
         self._narrative_signal = float(np.clip(signal, -1.0, 1.0))
 
-    def detect_resonance(self, market_signal: float, narrative_signal: float = None) -> Dict[str, Any]:
+    def detect_resonance(self, market_signal: float, narrative_signal: float = None, breadth_fear: float = None) -> Dict[str, Any]:
         """
         检测信号共振
 
         Args:
             market_signal: 行情信号 (-1 to 1)
             narrative_signal: 舆论信号 (-1 to 1)，如果为 None 则使用内部存储的舆论信号
+            breadth_fear: 市场广度恐惧分数 (0-100)，高恐惧时作为主导信号
 
         Returns:
             {
@@ -1075,6 +1290,31 @@ class GlobalMarketScanner:
         """
         if narrative_signal is None:
             narrative_signal = getattr(self, '_narrative_signal', 0.0)
+
+        if breadth_fear is not None and breadth_fear >= 70:
+            breadth_norm = (breadth_fear - 50) / 50
+            breadth_norm = float(np.clip(breadth_norm, 0.0, 1.0))
+            narrative_signal = -breadth_norm
+            if market_signal * narrative_signal < 0:
+                resonance_level = "high_fear_divergent"
+                confidence = 0.85
+            else:
+                resonance_level = "high_fear"
+                confidence = 0.8
+            resonance_weights = {"high_fear": 0.9, "high_fear_divergent": 0.6, "none": 0.0}
+            weight = resonance_weights.get(resonance_level, 0.5)
+            final_signal = market_signal * weight
+            self._last_resonance = {
+                "resonance_level": resonance_level,
+                "confidence": confidence,
+                "final_signal": final_signal,
+                "alignment": 0.0,
+                "weight": weight,
+                "market_signal": market_signal,
+                "narrative_signal": narrative_signal,
+                "breadth_fear": breadth_fear,
+            }
+            return self._last_resonance
 
         if abs(market_signal) < 0.1 and abs(narrative_signal) < 0.1:
             resonance_level = "none"

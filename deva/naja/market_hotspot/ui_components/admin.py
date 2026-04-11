@@ -7,6 +7,7 @@ from pywebio.session import run_js, run_async
 from pywebio.output import toast
 
 from deva.naja.page_help import render_help_collapse
+from deva.naja.register import SR
 
 log = logging.getLogger(__name__)
 
@@ -507,9 +508,9 @@ def _manage_noise_filter():
     """管理噪音过滤黑白名单"""
     from pywebio.output import popup, put_html, put_buttons, put_row
     from pywebio.input import input_group, input
-    from deva.naja.attention import get_noise_filter
 
-    noise_filter = get_noise_filter()
+    hotspot_system = SR('hotspot_system')
+    noise_filter = hotspot_system.noise_filter
 
     def refresh_popup():
         """刷新弹窗内容"""

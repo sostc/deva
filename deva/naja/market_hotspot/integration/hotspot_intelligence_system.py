@@ -7,13 +7,13 @@ MarketHotspotIntelligence - 市场热点智能增强系统
 snapshot → Core (GlobalHotspot/Block/Weight) →
     Processing (Noise Filter) →
     Scheduling (Frequency/Strategy) →
-    Intelligence Augmentation (Prediction/Propagation/Budget/Feedback/Learning) →
+    Intelligence Augmentation (Prediction/Propagation/Budget/Learning) →
     Engine (River/PyTorch) →
     输出调度决策
 
 智能增强模块:
 1. PredictiveHotspotEngine - 预测热点
-2. HotspotFeedbackLoop - 热点反馈
+2. HotspotLearningSystem - 热点学习
 3. HotspotBudgetSystem - 热点预算
 4. HotspotPropagation - 热点扩散
 5. StrategyLearning - 策略学习
@@ -32,7 +32,7 @@ from .market_hotspot_system import (
 from ..core import BlockConfig as BlockConfig
 from deva.naja.market_hotspot.intelligence import (
     PredictiveHotspotEngine,
-    HotspotFeedbackLoop,
+    HotspotLearningSystem,
     HotspotBudgetSystem,
     BudgetConfig,
     HotspotPropagation,
@@ -61,18 +61,15 @@ class IntelligenceConfig:
     feedback_store_path: Optional[str] = None
 
 
-IntelligenceAugmentedSystem = None
-
-
-class _IntelligenceAugmentedSystemInternal:
+class _HotspotIntelligenceSystemInternal:
     """
-    增强型市场热点系统
+    热点智能系统
 
     集成所有功能模块:
     1. Core (Global/Block/Weight)
     2. Processing (Noise Filter)
     3. Scheduling (Frequency/Strategy)
-    4. Intelligence (Prediction/Propagation/Budget/Feedback/Learning)
+    4. Intelligence (Prediction/Propagation/Budget/Learning)
     5. Engine (River/PyTorch)
     """
 
@@ -106,7 +103,7 @@ class _IntelligenceAugmentedSystemInternal:
             self.budget_system = HotspotBudgetSystem(budget_config)
 
         if self.config.enable_feedback:
-            self.feedback_loop = HotspotFeedbackLoop(
+            self.hotspot_learning = HotspotLearningSystem(
                 store_path=self.config.feedback_store_path
             )
 
@@ -190,6 +187,17 @@ class _IntelligenceAugmentedSystemInternal:
                 timestamp
             )
             result['propagated_block_hotspot'] = propagated
+
+        if hasattr(self, 'hotspot_learning') and self.config.enable_feedback:
+            for symbol in list(final_hotspot.keys()):
+                adj = self.hotspot_learning.get_hotspot_adjustment(
+                    symbol=symbol,
+                    hotspot_val=final_hotspot.get(symbol, 0.0),
+                    prediction_score=result.get('prediction_scores', {}).get(symbol, 0.5),
+                )
+                if adj != 1.0:
+                    final_hotspot[symbol] = final_hotspot[symbol] * adj
+            result['feedback_adjusted'] = True
 
         if hasattr(self, 'budget_system') and self.config.enable_budget:
             budget_allocation = self.budget_system.allocate(final_hotspot)
@@ -296,8 +304,8 @@ class _IntelligenceAugmentedSystemInternal:
         trend: float = 0.0
     ):
         """记录策略执行结果"""
-        if hasattr(self, 'feedback_loop') and self.config.enable_feedback:
-            self.feedback_loop.record_outcome(
+        if hasattr(self, 'hotspot_learning') and self.config.enable_feedback:
+            self.hotspot_learning.record_outcome(
                 strategy_id=strategy_id,
                 symbol=symbol,
                 block_id=block_id,
@@ -322,12 +330,12 @@ class _IntelligenceAugmentedSystemInternal:
 
     def get_hotspot_adjustment(self, symbol: str) -> float:
         """获取热点调整"""
-        if hasattr(self, 'feedback_loop') and self.config.enable_feedback:
+        if hasattr(self, 'hotspot_learning') and self.config.enable_feedback:
             if self._last_result:
                 hotspot = self._last_result['symbol_weights'].get(symbol, 0.0)
                 prediction = self._last_result.get('prediction_scores', {}).get(symbol, 0.5)
 
-                return self.feedback_loop.get_hotspot_adjustment(
+                return self.hotspot_learning.get_hotspot_adjustment(
                     symbol=symbol,
                     hotspot_val=hotspot,
                     prediction_score=prediction
@@ -361,14 +369,14 @@ class _IntelligenceAugmentedSystemInternal:
 
     def get_effective_patterns(self) -> List[str]:
         """获取有效模式"""
-        if hasattr(self, 'feedback_loop') and self.config.enable_feedback:
-            return self.feedback_loop.get_effective_patterns()
+        if hasattr(self, 'hotspot_learning') and self.config.enable_feedback:
+            return self.hotspot_learning.get_effective_patterns()
         return []
 
     def get_ineffective_patterns(self) -> List[str]:
         """获取无效模式"""
-        if hasattr(self, 'feedback_loop') and self.config.enable_feedback:
-            return self.feedback_loop.get_ineffective_patterns()
+        if hasattr(self, 'hotspot_learning') and self.config.enable_feedback:
+            return self.hotspot_learning.get_ineffective_patterns()
         return []
 
     def get_strategy_selection(self) -> Optional[Dict[str, Any]]:
@@ -412,8 +420,8 @@ class _IntelligenceAugmentedSystemInternal:
 
     def persist_state(self):
         """持久化状态"""
-        if hasattr(self, 'feedback_loop') and self.config.enable_feedback:
-            self.feedback_loop.persist()
+        if hasattr(self, 'hotspot_learning') and self.config.enable_feedback:
+            self.hotspot_learning.persist()
 
         if hasattr(self, 'strategy_learning') and self.config.enable_strategy_learning:
             self.strategy_learning.persist()
@@ -431,8 +439,8 @@ class _IntelligenceAugmentedSystemInternal:
 
     def load_state(self):
         """加载状态"""
-        if hasattr(self, 'feedback_loop') and self.config.enable_feedback:
-            self.feedback_loop.load()
+        if hasattr(self, 'hotspot_learning') and self.config.enable_feedback:
+            self.hotspot_learning.load()
 
         if hasattr(self, 'strategy_learning') and self.config.enable_strategy_learning:
             self.strategy_learning.load()
@@ -469,8 +477,8 @@ class _IntelligenceAugmentedSystemInternal:
         if hasattr(self, 'budget_system') and self.config.enable_budget:
             summary['budget_summary'] = self.budget_system.get_summary()
 
-        if hasattr(self, 'feedback_loop') and self.config.enable_feedback:
-            summary['feedback_summary'] = self.feedback_loop.get_summary()
+        if hasattr(self, 'hotspot_learning') and self.config.enable_feedback:
+            summary['learning_summary'] = self.hotspot_learning.get_summary()
 
         if hasattr(self, 'strategy_learning') and self.config.enable_strategy_learning:
             summary['strategy_summary'] = self.strategy_learning.get_selection_summary()
@@ -490,8 +498,8 @@ class _IntelligenceAugmentedSystemInternal:
             self.propagation.reset()
         if hasattr(self, 'budget_system'):
             self.budget_system.reset()
-        if hasattr(self, 'feedback_loop'):
-            self.feedback_loop.reset()
+        if hasattr(self, 'hotspot_learning'):
+            self.hotspot_learning.reset()
         if hasattr(self, 'strategy_learning'):
             self.strategy_learning.reset()
 
@@ -503,9 +511,9 @@ def create_intelligence_system(
     enable_budget: bool = True,
     enable_propagation: bool = False,
     enable_strategy_learning: bool = False
-) -> _IntelligenceAugmentedSystemInternal:
+) -> _HotspotIntelligenceSystemInternal:
     """
-    工厂函数: 创建智能增强市场热点系统
+    工厂函数: 创建热点智能系统
     """
     intelligence_config = IntelligenceConfig(
         enable_predictive=enable_predictive,
@@ -515,24 +523,24 @@ def create_intelligence_system(
         enable_strategy_learning=enable_strategy_learning
     )
 
-    return _IntelligenceAugmentedSystemInternal(config, intelligence_config)
+    return _HotspotIntelligenceSystemInternal(config, intelligence_config)
 
 
 create_system = create_intelligence_system
 
 
-def _get_intelligence_augmented_system(
+def _get_hotspot_intelligence_system(
     intelligence_config: Optional[IntelligenceConfig] = None,
     enable_propagation: bool = True,
     enable_strategy_learning: bool = True
-) -> _IntelligenceAugmentedSystemInternal:
+) -> _HotspotIntelligenceSystemInternal:
     """
-    内部工厂函数：创建增强智能系统
+    内部工厂函数：创建热点智能系统
     """
     config = MarketHotspotSystemConfig()
     intelligence_config = intelligence_config or IntelligenceConfig()
 
-    return _IntelligenceAugmentedSystemInternal(
+    return _HotspotIntelligenceSystemInternal(
         config=config,
         intelligence_config=intelligence_config,
         enable_propagation=enable_propagation,
@@ -540,4 +548,4 @@ def _get_intelligence_augmented_system(
     )
 
 
-IntelligenceAugmentedSystem = _IntelligenceAugmentedSystemInternal
+HotspotIntelligenceSystem = _HotspotIntelligenceSystemInternal

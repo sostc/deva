@@ -81,8 +81,7 @@ log = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from deva.naja.attention.portfolio import Portfolio, PortfolioSummary
-    from deva.naja.attention.conviction_validator import ConvictionValidator, ValidationResult
-    from deva.naja.attention.narrative_block_linker import NarrativeBlockLinker
+    from deva.naja.attention.discovery import ConvictionValidator, ValidationResult, NarrativeBlockLinker
     from deva.naja.attention.block_registry import BlockRegistry
 
 
@@ -216,8 +215,7 @@ class AttentionFusion:
         focus_manager: Optional[Any] = None,
     ):
         from deva.naja.attention.portfolio import get_portfolio
-        from deva.naja.attention.conviction_validator import get_conviction_validator
-        from deva.naja.attention.narrative_block_linker import get_narrative_block_linker
+        from deva.naja.attention.discovery import get_conviction_validator, get_narrative_block_linker
         from deva.naja.attention.block_registry import get_block_registry
 
         self.portfolio = portfolio or get_portfolio()
@@ -502,12 +500,12 @@ class AttentionFusion:
             if self._last_result:
                 blind_spots = self._last_result.blind_spots
             else:
-                from deva.naja.attention.blind_spot_investigator import get_blind_spot_investigator
+                from deva.naja.attention.discovery import get_blind_spot_investigator
                 investigator = get_blind_spot_investigator()
                 return investigator.investigate_all([])
 
         try:
-            from deva.naja.attention.blind_spot_investigator import get_blind_spot_investigator
+            from deva.naja.attention.discovery import get_blind_spot_investigator
             investigator = get_blind_spot_investigator()
             return investigator.investigate_all(blind_spots)
         except Exception:

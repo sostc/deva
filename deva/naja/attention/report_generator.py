@@ -200,7 +200,7 @@ class AttentionReportGenerator:
     def _generate_report(self) -> Optional[Dict[str, Any]]:
         """生成注意力系统报告"""
         try:
-            from ..market_hotspot.integration.extended import get_market_hotspot_integration
+            from ..market_hotspot.integration.market_hotspot_integration import get_market_hotspot_integration
             from deva.naja.market_hotspot.strategies import get_strategy_manager
             from deva.naja.market_hotspot.market_hotspot_history_tracker import get_history_tracker
             
