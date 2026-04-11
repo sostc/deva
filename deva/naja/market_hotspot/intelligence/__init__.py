@@ -9,8 +9,8 @@ from .predictive_engine import (
     SecondOrderDifferentiator,
     MomentumPredictor
 )
-from .feedback_loop import (
-    HotspotFeedbackLoop,
+from .hotspot_learning import (
+    HotspotLearningSystem,
     FeedbackCollector,
     HotspotEffectivenessAnalyzer,
     BanditUpdater,
@@ -57,7 +57,7 @@ __all__ = [
     "EMAAccelerator",
     "SecondOrderDifferentiator",
     "MomentumPredictor",
-    "HotspotFeedbackLoop",
+    "HotspotLearningSystem",
     "FeedbackCollector",
     "HotspotEffectivenessAnalyzer",
     "BanditUpdater",

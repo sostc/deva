@@ -339,7 +339,7 @@ class AttentionKernel:
 
                     blind_spot_investigations = []
                     try:
-                        from deva.naja.attention.blind_spot_investigator import get_blind_spot_investigator
+                        from deva.naja.attention.discovery import get_blind_spot_investigator
                         investigator = get_blind_spot_investigator()
                         blind_spot_with_scores = [
                             (b, fusion_result.blind_spots[i][1])

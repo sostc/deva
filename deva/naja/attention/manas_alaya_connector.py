@@ -8,9 +8,9 @@ ManasAlayaConnector - ManasEngine 与 AwakenedAlaya 连接器
 import logging
 from typing import Dict, Any, Optional
 
-from .alaya.awakened_alaya import AwakenedAlaya
-from .alaya.epiphany_engine import EpiphanyEngine
-from .wisdom.wisdom_retriever import WisdomRetriever, TriggerContext
+from deva.naja.alaya.awakened_alaya import AwakenedAlaya
+from deva.naja.alaya.epiphany_engine import EpiphanyEngine
+from deva.naja.wisdom.wisdom_retriever import WisdomRetriever, TriggerContext
 
 log = logging.getLogger(__name__)
 

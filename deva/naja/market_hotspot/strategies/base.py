@@ -362,11 +362,11 @@ class HotspotStrategyBase(ABC):
         实现用户思路:
         - 只要热点系统识别到内容，就去关注它的价格变化
         - 形成持续的反馈学习
-        - 回放模式下也会创建跟踪，由 PriceMonitor 后续更新价格
+        - 回放模式下也会创建跟踪，由 PositionMonitor 后续更新价格
         """
         try:
 
-            tracker = SR('attention_tracker')
+            tracker = SR('hotspot_signal_tracker')
 
             price = 0.0
             if signal.metadata:
@@ -385,8 +385,8 @@ class HotspotStrategyBase(ABC):
                 except Exception:
                     pass
 
-            # 即使价格为空也创建跟踪，让 PriceMonitor 后续更新
-            # 回放模式下 PriceMonitor 会收到 tick 数据并更新价格
+            # 即使价格为空也创建跟踪，让 PositionMonitor 后续更新
+            # 回放模式下 PositionMonitor 会收到 tick 数据并更新价格
             tracker.track_hotspot(
                 symbol=signal.symbol,
                 block_id=block_id,

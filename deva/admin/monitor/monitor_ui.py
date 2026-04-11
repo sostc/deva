@@ -16,7 +16,7 @@ from .shared_ui import (
 
 def render_tuning_monitor():
     try:
-        from deva.naja.attention.ui_components.auto_tuning_monitor import (
+        from deva.naja.attention.ui.auto_tuning_monitor import (
             render_tuning_monitor_panel,
             render_frequency_monitor_panel,
             render_datasource_tuning_panel,

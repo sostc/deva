@@ -20,7 +20,7 @@ from deva.naja.attention.kernel import (
     AttentionKernel,
     get_default_heads,
 )
-from deva.naja.attention.ui_components.kernel import (
+from deva.naja.attention.ui.components import (
     render_kernel_dashboard,
     render_attention_flow_diagram,
 )

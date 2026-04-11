@@ -6,7 +6,7 @@
 - QKV 注意力能力：事件编码、多维评分、策略学习
 
 使用方式：
-    from deva.naja.attention.ui_components.awakening import render_awakening_status
+    from deva.naja.attention.ui import render_awakening_status
     html = render_awakening_status()
 """
 

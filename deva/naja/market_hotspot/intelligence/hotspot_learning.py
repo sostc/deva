@@ -510,9 +510,9 @@ class BanditUpdater:
         self._reward_history.clear()
 
 
-class HotspotFeedbackLoop:
+class HotspotLearningSystem:
     """
-    热点反馈循环主控制器
+    热点学习系统主控制器
 
     整合:
     - FeedbackCollector: 收集反馈
@@ -545,6 +545,7 @@ class HotspotFeedbackLoop:
         self._adjustment_history: List[Dict] = []
 
         self._pending_updates: deque = deque(maxlen=10000)
+        self._pending_snapshots: deque = deque(maxlen=10000)
         self._update_interval = update_interval
         self._batch_size = batch_size
         self._tick_counter = 0
@@ -852,28 +853,156 @@ class HotspotFeedbackLoop:
     ) -> float:
         """
         应用调整
-        
+
         Returns:
             调整后热点
         """
         return hotspot_val * adjustment
-    
+
+    def record_hotspot_snapshot(
+        self,
+        symbol: str,
+        hotspot_weight: float,
+        timestamp: float,
+        market_state: str = "unknown",
+        block_id: str = "",
+        price: float = 0.0,
+    ):
+        """
+        记录热点快照（用于后续跟踪学习）
+
+        当 MarketHotspotSystem 计算出一批热点时，调用此方法记录快照。
+        后续根据价格变化计算 outcome 并学习。
+
+        Args:
+            symbol: 股票代码
+            hotspot_weight: 热点权重
+            timestamp: 快照时间戳
+            market_state: 市场状态
+            block_id: 题材ID
+            price: 当前价格
+        """
+        snapshot = {
+            'symbol': symbol,
+            'hotspot_weight': hotspot_weight,
+            'timestamp': timestamp,
+            'market_state': market_state,
+            'block_id': block_id,
+            'entry_price': price,
+            'status': 'PENDING',
+        }
+        self._pending_snapshots.append(snapshot)
+
+    def check_pending_snapshots(self, current_time: float, check_interval: float = 3600.0) -> List[Dict]:
+        """
+        检查待处理的快照，计算 outcome 并学习
+
+        Args:
+            current_time: 当前时间戳
+            check_interval: 检查间隔（秒），超过这个时间的快照会被处理
+
+        Returns:
+            处理结果列表
+        """
+        processed = []
+
+        for snapshot in list(self._pending_snapshots):
+            if snapshot['status'] != 'PENDING':
+                continue
+
+            age = current_time - snapshot['timestamp']
+            if age < check_interval:
+                continue
+
+            snapshot['status'] = 'PROCESSED'
+            processed.append(snapshot)
+
+        if processed:
+            self._process_snapshots(processed, current_time)
+
+        return processed
+
+    def _process_snapshots(self, snapshots: List[Dict], current_time: float):
+        """
+        处理一批快照，计算 outcome 并学习
+
+        这里简化处理：对于没有真实持仓的快照，
+        我们使用市场整体表现作为基准来估计 outcome
+        """
+        for snapshot in snapshots:
+            try:
+                entry_price = snapshot.get('entry_price', 0.0)
+                if entry_price <= 0:
+                    continue
+
+                current_price = self._get_current_price(snapshot['symbol'])
+                if current_price <= 0:
+                    continue
+
+                pnl = (current_price - entry_price) / entry_price * 100
+                holding_seconds = current_time - snapshot['timestamp']
+
+                reward = self._calc_reward(pnl, int(holding_seconds))
+
+                self.bandit.update(
+                    snapshot['hotspot_weight'],
+                    snapshot['hotspot_weight'],
+                    volatility=0.0,
+                    volume_ratio=1.0,
+                    trend=pnl / 100.0,
+                    reward=reward,
+                    symbol=snapshot['symbol']
+                )
+
+                self.collector.record(
+                    strategy_id='hotspot_auto',
+                    symbol=snapshot['symbol'],
+                    block_id=snapshot.get('block_id', ''),
+                    hotspot_before=snapshot['hotspot_weight'],
+                    hotspot_after=snapshot['hotspot_weight'],
+                    prediction_score=snapshot['hotspot_weight'],
+                    action='HOLD',
+                    pnl=pnl,
+                    holding_period=int(holding_seconds),
+                    market_state=snapshot.get('market_state', 'unknown')
+                )
+
+            except Exception:
+                pass
+
+    def _get_current_price(self, symbol: str) -> float:
+        """获取当前价格（从 NB 实时行情获取）"""
+        try:
+            from deva import NB
+            db = NB("naja_realtime_quotes")
+            quote = db.get(symbol)
+            if isinstance(quote, dict):
+                return float(quote.get('price', quote.get('now', 0)))
+        except Exception:
+            pass
+        return 0.0
+
+    def get_pending_snapshot_count(self) -> int:
+        """获取待处理快照数量"""
+        return sum(1 for s in self._pending_snapshots if s['status'] == 'PENDING')
+
     def persist(self):
         """持久化"""
         self.collector.persist()
-        
+
         if self.bandit and self._adjustment_history:
             path = Path("hotspot_bandit_state.pkl")
             with open(path, 'wb') as f:
                 pickle.dump({
                     'theta': self.bandit._theta,
-                    'history': self._adjustment_history[-1000:]
+                    'history': self._adjustment_history[-1000:],
+                    'pending_snapshots': list(self._pending_snapshots)
                 }, f)
-    
+
     def load(self):
         """加载"""
         self.collector.load()
-        
+
         path = Path("hotspot_bandit_state.pkl")
         if path.exists():
             with open(path, 'rb') as f:
@@ -881,6 +1010,10 @@ class HotspotFeedbackLoop:
                 if self.bandit:
                     self.bandit._theta = data.get('theta', {})
                 self._adjustment_history = data.get('history', [])
+                pending = data.get('pending_snapshots', [])
+                for snap in pending:
+                    if snap.get('status') == 'PENDING':
+                        self._pending_snapshots.append(snap)
     
     def get_summary(self) -> Dict[str, Any]:
         """获取反馈循环摘要"""

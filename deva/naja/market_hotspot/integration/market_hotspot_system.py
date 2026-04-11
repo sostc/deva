@@ -68,18 +68,16 @@ class FallbackConfig:
 
 class MarketHotspotSystem:
     """
-    市场热点系统主控制器
+    市场热点系统核心
 
     职责:
-    1. 协调所有子模块
+    1. 协调所有子模块计算热点
     2. 处理市场数据快照
     3. 输出调度决策
     4. 监控性能指标
 
-    修复内容:
-    - 添加线程安全锁
-    - 添加优雅降级机制（熔断器模式）
-    - 各步骤独立错误处理
+    注意: 本类是核心计算单元，不涉及系统集成。
+    集成逻辑由 MarketHotspotIntegration (market_hotspot_integration.py) 处理。
     """
 
     def __init__(self, config: Optional[MarketHotspotSystemConfig] = None, fallback_config: Optional[FallbackConfig] = None):
@@ -266,7 +264,7 @@ class MarketHotspotSystem:
                 return
 
             if config is None:
-                from deva.naja.market_hotspot.integration.extended import get_mode_manager
+                from deva.naja.market_hotspot.integration.market_hotspot_integration import get_mode_manager
                 from deva.naja.market_hotspot.realtime_data_fetcher import FetchConfig
                 mode_manager = get_mode_manager()
                 saved_config = mode_manager.get_fetcher_config()
@@ -331,7 +329,7 @@ class MarketHotspotSystem:
             market: 市场标识 ('CN' 或 'US')，如果为 None 则自动检测
         """
         import pandas as pd
-        from deva.naja.market_hotspot.integration.extended import get_mode_manager
+        from deva.naja.market_hotspot.integration.market_hotspot_integration import get_mode_manager
 
         mode_manager = get_mode_manager()
         current_mode = mode_manager.get_mode() if mode_manager else 'unknown'
@@ -468,6 +466,14 @@ class MarketHotspotSystem:
         except Exception as e:
             log.debug(f"[MarketHotspotSystem] 噪音过滤失败: {e}")
             return data
+
+    @property
+    def noise_filter(self):
+        """获取噪音过滤器实例（供 UI 层使用）"""
+        if not hasattr(self, '_noise_filter') or self._noise_filter is None:
+            nf_config = self._get_noise_filter_config()
+            self._noise_filter = NoiseFilter(config=nf_config)
+        return self._noise_filter
 
     def _register_symbol_names_from_dataframe(self, data: 'pd.DataFrame', symbol_col: str, name_col: Optional[str]):
         """从DataFrame注册股票名称"""

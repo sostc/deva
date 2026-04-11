@@ -14,7 +14,7 @@ from deva.naja.knowledge import (
     get_knowledge_exporter,
     KnowledgeState,
 )
-from deva.naja.attention.blind_spot_investigator import CAUSAL_KNOWLEDGE
+from deva.naja.attention.discovery import CAUSAL_KNOWLEDGE
 
 
 def render_learning_page(ctx: dict = None) -> str:

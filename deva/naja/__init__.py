@@ -45,7 +45,7 @@ from .supervisor import (
     stop_supervisor,
 )
 
-from .manas_alaya_connector import ManasAlayaConnector
+from .attention.manas_alaya_connector import ManasAlayaConnector
 
 __version__ = "2.0.0"
 

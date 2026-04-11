@@ -1,13 +1,30 @@
 """
-Naja 市场热点系统 Extended Integration - Naja市场热点系统扩展集成
+MarketHotspotIntegration - 市场热点系统集成层
 
 将市场热点系统集成到 Naja 中：
 
 职责:
 1. 自动从 naja 数据源获取题材和个股信息
-2. 初始化市场热点系统
-3. 提供统一的单例访问接口
-4. 管理字典数据加载
+2. 初始化市场热点系统 (MarketHotspotSystem)
+3. 初始化热点智能系统 (HotspotIntelligenceSystem)
+4. 提供统一的单例访问接口
+5. 管理模式切换 (lab/realtime)
+6. 持久化状态
+
+架构:
+    MarketHotspotIntegration (本文件 - 集成层)
+        │
+        ├── MarketHotspotSystem (核心计算)
+        │       ├── GlobalHotspotEngine
+        │       ├── BlockHotspotEngine
+        │       ├── WeightPool
+        │       └── ...
+        │
+        └── HotspotIntelligenceSystem (智能增强)
+                ├── HotspotLearningSystem (热点学习)
+                ├── PredictiveHotspotEngine (预测)
+                ├── HotspotBudgetSystem (预算)
+                └── ...
 """
 
 import numpy as np
@@ -114,7 +131,7 @@ class MarketHotspotIntegration:
             intelligence_config: 智能增强系统配置
         """
         # 防止重复初始化
-        if hasattr(self, '_initialized_attention_system') and self._initialized_attention_system:
+        if hasattr(self, '_initialized_hotspot_system') and self._initialized_hotspot_system:
             log.info(f"[MarketHotspotIntegration] 已初始化，跳过")
             return self.hotspot_system
         
@@ -142,7 +159,7 @@ class MarketHotspotIntegration:
             modules = []
             if hasattr(self.intelligence_system, 'predictive_engine'):
                 modules.append('Predictive')
-            if hasattr(self.intelligence_system, 'feedback_loop'):
+            if hasattr(self.intelligence_system, 'hotspot_learning'):
                 modules.append('Feedback')
             if hasattr(self.intelligence_system, 'budget_system'):
                 modules.append('Budget')
@@ -152,7 +169,7 @@ class MarketHotspotIntegration:
                 modules.append('StrategyLearning')
             log.info(f"🧠 智能增强：{', '.join(modules)}")
 
-        self._initialized_attention_system = True
+        self._initialized_hotspot_system = True
         return self.hotspot_system
 
     def _initialize_intelligence_system(self):
@@ -161,8 +178,8 @@ class MarketHotspotIntegration:
             return
 
         try:
-            from .integration import (
-                _IntelligenceAugmentedSystemInternal,
+            from .hotspot_intelligence_system import (
+                _HotspotIntelligenceSystemInternal,
                 IntelligenceConfig,
             )
 
@@ -177,12 +194,12 @@ class MarketHotspotIntegration:
             else:
                 ic = self.intelligence_config
 
-            self.intelligence_system = _IntelligenceAugmentedSystemInternal(
+            self.intelligence_system = _HotspotIntelligenceSystemInternal(
                 config=None,
                 intelligence_config=ic
             )
 
-            log.info("🧠 智能增强系统初始化完成")
+            log.info("🧠 热点智能系统初始化完成")
         except Exception as e:
             import traceback
             log.error(f"智能增强系统初始化失败: {e}")
@@ -596,8 +613,11 @@ class MarketHotspotIntegration:
             return
 
         try:
+            if hasattr(self, 'intelligence_system') and self.intelligence_system:
+                self.intelligence_system.persist_state()
+
             state = self.hotspot_system.save_state()
-            db = NB('naja_attention_state')
+            db = NB('naja_hotspot_state')
             db['attention_system_state'] = state
             db.persist()
             log.info(f"[MarketHotspotIntegration] 市场热点系统状态已持久化")
@@ -610,7 +630,10 @@ class MarketHotspotIntegration:
             return
 
         try:
-            db = NB('naja_attention_state')
+            if hasattr(self, 'intelligence_system') and self.intelligence_system:
+                self.intelligence_system.load_state()
+
+            db = NB('naja_hotspot_state')
             if 'attention_system_state' in db:
                 state = db['attention_system_state']
                 self.hotspot_system.load_state(state)
@@ -640,7 +663,7 @@ class MarketHotspotIntegration:
         while self._running:
             try:
                 if self._processed_snapshots % 1000 == 0 and self._processed_snapshots > 0:
-                    report = self.get_attention_report()
+                    report = self.get_hotspot_report()
                     log.debug(f"市场热点系统 状态: processed={report.get('processed_snapshots', 0)}, global={report.get('global_hotspot', 0):.3f}")
 
                 time.sleep(self._check_interval)
@@ -837,27 +860,27 @@ def initialize_hotspot_system(
         force_realtime: 强制实盘调试模式（忽略交易时间限制）
         lab_mode: 实验模式（使用回放数据）
     """
-    log.info("[initialize_attention_system] 开始初始化...")
+    log.info("[initialize_hotspot_system] 开始初始化...")
 
     mode_manager = get_mode_manager()
 
-    log.info(f"[initialize_attention_system] 模式参数: force_realtime={force_realtime}, lab_mode={lab_mode}")
+    log.info(f"[initialize_hotspot_system] 模式参数: force_realtime={force_realtime}, lab_mode={lab_mode}")
 
     integration = get_market_hotspot_integration()
-    attention_system = integration.initialize(config, intelligence_config=intelligence_config)
-    log.info(f"[initialize_attention_system] integration.initialize 完成, _initialized={attention_system._initialized}")
+    hotspot_system = integration.initialize(config, intelligence_config=intelligence_config)
+    log.info(f"[initialize_hotspot_system] integration.initialize 完成, _initialized={hotspot_system._initialized}")
 
-    log.info("[initialize_attention_system] 尝试加载保存的状态...")
+    log.info("[initialize_hotspot_system] 尝试加载保存的状态...")
     integration.load_state()
 
     integration.start_monitoring()
 
     if lab_mode:
-        log.info("[initialize_attention_system] 实验模式 (lab_mode=True)，设置模式管理器...")
+        log.info("[initialize_hotspot_system] 实验模式 (lab_mode=True)，设置模式管理器...")
         mode_manager.enter_lab_mode()
-        log.info("[initialize_attention_system] 实验模式，跳过实盘获取器启动")
+        log.info("[initialize_hotspot_system] 实验模式，跳过实盘获取器启动")
     elif force_realtime:
-        log.info("[initialize_attention_system] 强制实盘调试模式 (force_realtime=True)，忽略交易时间限制")
+        log.info("[initialize_hotspot_system] 强制实盘调试模式 (force_realtime=True)，忽略交易时间限制")
         mode_manager.set_mode(AttentionModeManager.MODE_FORCE_REALTIME)
         fetcher_config = {
             'base_high_interval': 5.0,
@@ -869,8 +892,8 @@ def initialize_hotspot_system(
             'playback_speed': 1.0,
         }
         mode_manager.save_fetcher_config(fetcher_config)
-        log.info("[initialize_attention_system] 启动实盘获取器 (强制模式)...")
-        attention_system.start_realtime_fetcher()
+        log.info("[initialize_hotspot_system] 启动实盘获取器 (强制模式)...")
+        hotspot_system.start_realtime_fetcher()
     else:
         mode_manager.set_mode(AttentionModeManager.MODE_REALTIME)
         fetcher_config = {
@@ -883,11 +906,11 @@ def initialize_hotspot_system(
             'playback_speed': 1.0,
         }
         mode_manager.save_fetcher_config(fetcher_config)
-        log.info("[initialize_attention_system] 启动实盘获取器 (普通模式)...")
-        attention_system.start_realtime_fetcher()
+        log.info("[initialize_hotspot_system] 启动实盘获取器 (普通模式)...")
+        hotspot_system.start_realtime_fetcher()
 
-    log.info("[initialize_attention_system] 初始化完成")
-    return attention_system
+    log.info("[initialize_hotspot_system] 初始化完成")
+    return hotspot_system
 
 
 _hotspot_manager = None

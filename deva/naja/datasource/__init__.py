@@ -1567,7 +1567,7 @@ class DataSourceManager:
 
     def get_attention_stats(self) -> Optional[dict]:
         try:
-            from deva.naja.market_hotspot.integration.extended import get_market_hotspot_integration
+            from deva.naja.market_hotspot.integration.market_hotspot_integration import get_market_hotspot_integration
             integration = get_market_hotspot_integration()
             if not getattr(integration, '_initialized_attention_system', False):
                 return None

@@ -17,6 +17,7 @@
 from typing import Dict, List, Optional, Tuple
 from dataclasses import dataclass, field
 from datetime import datetime
+from enum import Enum
 import logging
 
 logger = logging.getLogger(__name__)
