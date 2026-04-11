@@ -376,7 +376,7 @@ class MarketHotspotHistoryTracker:
             symbol_market_data: 个股行情数据字典 {symbol: {'price': float, 'change': float, 'volume': float, 'block': str}}
             activity: 市场活跃度
         """
-        from deva.naja.market_hotspot.integration.extended import get_mode_manager
+        from deva.naja.market_hotspot.integration.market_hotspot_integration import get_mode_manager
         mode_manager = get_mode_manager()
         current_mode = mode_manager.get_mode() if mode_manager else 'unknown'
 

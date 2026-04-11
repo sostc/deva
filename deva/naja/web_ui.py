@@ -859,7 +859,7 @@ async def awakening_page():
     ctx = _ctx()
     await ctx["init_naja_ui"]("觉醒系统")
 
-    from .attention.attention_dashboard import render_attention_monitor_page
+    from .attention.ui.dashboard import render_attention_monitor_page
     render_attention_monitor_page(ctx)
 
 
@@ -929,7 +929,7 @@ async def tuningadmin():
     ctx["put_html"]('<div style="margin: 20px; color: #64748b;">加载中...</div>')
 
     try:
-        from .attention.ui_components.auto_tuning_monitor import (
+        from .attention.ui.auto_tuning_monitor import (
             render_tuning_monitor_panel,
             render_frequency_monitor_panel,
             render_datasource_tuning_panel,
@@ -1130,7 +1130,7 @@ async def supplychain_page():
     ctx = _ctx()
     await ctx["init_naja_ui"]("供应链知识图谱")
 
-    from .attention.ui_components.supply_chain import render_supply_chain_knowledge_graph_page
+    from .attention.ui.supply_chain import render_supply_chain_knowledge_graph_page
     render_supply_chain_knowledge_graph_page()
 
 
@@ -1191,7 +1191,7 @@ def run_server(port: int = 8080, host: str = '0.0.0.0', lab_config: dict = None,
     print("=" * 60)
 
     from .bootstrap import SystemBootstrap
-    from .attention.config import load_config
+    from .market_hotspot.integration.market_hotspot_config import load_config
     from tornado.ioloop import IOLoop
     import threading
 

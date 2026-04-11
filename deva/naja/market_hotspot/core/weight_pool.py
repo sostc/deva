@@ -330,7 +330,7 @@ class WeightPool:
         Args:
             filter_noise: 是否过滤噪音股票。当为True时，会过滤掉B股、ST股等噪音股票。
         """
-        from deva.naja.market_hotspot.integration.extended import get_mode_manager
+        from deva.naja.market_hotspot.integration.market_hotspot_integration import get_mode_manager
         mode_manager = get_mode_manager()
         current_mode = mode_manager.get_mode() if mode_manager else 'unknown'
 

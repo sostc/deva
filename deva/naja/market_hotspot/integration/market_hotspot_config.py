@@ -1,10 +1,10 @@
 """
-Naja Attention System Configuration - 注意力系统配置模块
+Naja Market Hotspot Configuration - 市场热点系统配置模块
 
-支持通过配置文件或环境变量配置注意力系统
+支持通过配置文件或环境变量配置市场热点系统
 
 职责:
-- MarketHotspotConfig: Naja注意力系统主配置
+- MarketHotspotConfig: 市场热点系统主配置
 - NoiseFilterConfig: 噪音过滤配置
 - load_config(): 配置加载入口
 - get_intelligence_config(): 智能增强系统配置
@@ -38,7 +38,7 @@ class NoiseFilterConfig:
 @dataclass
 class MarketHotspotConfig:
     """
-    Naja 注意力系统配置
+    Naja 市场热点系统配置
 
     可以通过以下方式配置：
     1. 环境变量 (前缀: NAJA_ATTENTION_)
@@ -99,9 +99,9 @@ class MarketHotspotConfig:
         return config
 
     def to_attention_system_config(self):
-        """转换为 AttentionSystemConfig"""
-        from deva.naja.market_hotspot.integration.market_hotspot_system import MarketHotspotSystemConfig as AttentionSystemConfig
-        return AttentionSystemConfig(
+        """转换为 MarketHotspotSystemConfig"""
+        from .market_hotspot_system import MarketHotspotSystemConfig
+        return MarketHotspotSystemConfig(
             global_history_window=self.global_history_window,
             max_blocks=self.max_blocks,
             block_decay_half_life=self.block_decay_half_life,
