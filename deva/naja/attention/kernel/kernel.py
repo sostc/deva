@@ -8,6 +8,8 @@ AttentionKernel - 核心注意力中枢
 支持 UnifiedManas 统一末那识
 """
 
+from deva.naja.register import SR
+
 
 class AttentionKernel:
     """
@@ -38,6 +40,7 @@ class AttentionKernel:
         self._liquidity_rescue_filter = None
         self._panic_analyzer = None
         self._rescue_orchestrator = None
+        self._narrative_tracker = None
         self._enable_manas = enable_manas
         self._manas_engine = None
         if enable_manas:
@@ -85,7 +88,6 @@ class AttentionKernel:
 
     def _get_portfolio(self):
         """获取虚拟持仓"""
-        from deva.naja.register import SR
         try:
             return SR('virtual_portfolio')
         except KeyError:
@@ -115,12 +117,14 @@ class AttentionKernel:
             return None
 
     def _get_narrative_tracker(self):
-        """获取叙事追踪器（NarrativeTracker / 地）"""
-        try:
-            from deva.naja.cognition import NarrativeTracker
-            return NarrativeTracker()
-        except ImportError:
-            return None
+        """获取叙事追踪器（NarrativeTracker / 地）（延迟加载 + 缓存）"""
+        if self._narrative_tracker is None:
+            try:
+                from deva.naja.cognition import NarrativeTracker
+                self._narrative_tracker = NarrativeTracker()
+            except ImportError:
+                return None
+        return self._narrative_tracker
 
     def _get_liquidity_rescue_filter(self):
         """获取流动性救援快速预过滤层（延迟加载）"""

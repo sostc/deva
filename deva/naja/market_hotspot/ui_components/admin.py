@@ -8,6 +8,13 @@ from pywebio.output import toast
 
 from deva.naja.page_help import render_help_collapse
 from deva.naja.register import SR
+from deva.naja.market_hotspot.ui_components.styles import (
+    GRADIENT_DARK_REVERSE, GRADIENT_WARNING, GRADIENT_INFO, GRADIENT_SUCCESS,
+    GRADIENT_NEUTRAL, GRADIENT_NEUTRAL_DARK,
+    info_panel_style,
+    COLOR_BORDER_WARNING, COLOR_BORDER_INFO, COLOR_BORDER_SUCCESS,
+    COLOR_WARNING_TEXT, COLOR_INFO_DEEPER, COLOR_SUCCESS_DEEPER,
+)
 
 log = logging.getLogger(__name__)
 
@@ -85,7 +92,7 @@ async def render_market_hotspot_admin(ctx: dict):
         put_html(f"""
         <div style="
             margin-bottom: 12px;
-            background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+            background: {GRADIENT_DARK_REVERSE};
             border-radius: 14px;
             padding: 16px 20px;
             box-shadow: 0 4px 20px rgba(15, 23, 42, 0.25), inset 0 1px 0 rgba(255,255,255,0.05);
@@ -133,8 +140,8 @@ async def render_market_hotspot_admin(ctx: dict):
         """)
 
         if not hotspot_initialized:
-            put_html("""
-            <div style="margin-bottom:14px;padding:16px;border-radius:10px;background:linear-gradient(135deg,#fef3c7,#fde68a);border:1px solid #f59e0b;color:#92400e;font-size:14px;">
+            put_html(f"""
+            <div style="{info_panel_style(GRADIENT_WARNING, COLOR_BORDER_WARNING, COLOR_WARNING_TEXT, padding='16px', font_size='14px')}">
                 <strong>⚠️ 市场热点监测未启动</strong><br>
                 当前未接入市场数据，无法进行热点监测。
             </div>
@@ -143,7 +150,7 @@ async def render_market_hotspot_admin(ctx: dict):
         if experiment_info.get('active'):
             exp_ds = experiment_info.get('datasource_id', '未知')
             put_html(f"""
-            <div style="margin-bottom:14px;padding:12px 14px;border-radius:10px;background:linear-gradient(135deg,#dbeafe,#bfdbfe);border:1px solid #93c5fd;color:#1e40af;font-size:13px;">
+            <div style="{info_panel_style(GRADIENT_INFO, COLOR_BORDER_INFO, COLOR_INFO_DEEPER)}">
                 <strong>🧪 实验模式运行中</strong><br>
                 数据源: {exp_ds} | 策略数: {experiment_info.get('strategy_count', 0)}
             </div>
@@ -180,7 +187,7 @@ async def render_market_hotspot_admin(ctx: dict):
 
             if is_force_mode:
                 panel_html = f"""
-                <div style="margin-bottom:14px;padding:12px 14px;border-radius:10px;background:linear-gradient(135deg,#f0fdf4,#dcfce7);border:1px solid #86efac;color:#166534;font-size:13px;">
+                <div style="{info_panel_style(GRADIENT_SUCCESS, COLOR_BORDER_SUCCESS, COLOR_SUCCESS_DEEPER)}">
                     <strong>📡 实盘获取器 🟢</strong> <span style="color:#06b6d4;font-weight:bold;">强制调试中</span><br>
                     <span style="font-size:12px;">
                     🔧 模式: <span style="color:#06b6d4;font-weight:bold;">强制实盘(忽略交易时间)</span>
@@ -223,7 +230,7 @@ async def render_market_hotspot_admin(ctx: dict):
                         fetch_info = f"🔄{stats.get('fetch_count', 0)} ❌{stats.get('error_count', 0)}"
 
                     panel_html = f"""
-                    <div style="margin-bottom:14px;padding:12px 14px;border-radius:10px;background:linear-gradient(135deg,#f0fdf4,#dcfce7);border:1px solid #86efac;color:#166534;font-size:13px;">
+                    <div style="{info_panel_style(GRADIENT_SUCCESS, COLOR_BORDER_SUCCESS, COLOR_SUCCESS_DEEPER)}">
                         <strong>📡 实盘获取器 🟢</strong> <span style="color:#22c55e;font-weight:bold;">运行中</span><br>
                         <span style="font-size:12px;">
                         📊 状态: {status_str}
@@ -238,7 +245,7 @@ async def render_market_hotspot_admin(ctx: dict):
                     us_level_str = f"美股档位: HIGH={us_high} | MEDIUM={us_med} | LOW={us_low}"
                     level_str = " | ".join(filter(None, [cn_level_str, us_level_str]))
                     panel_html = f"""
-                    <div style="margin-bottom:14px;padding:12px 14px;border-radius:10px;background:linear-gradient(135deg,#fef3c7,#fde68a);border:1px solid #f59e0b;color:#92400e;font-size:13px;">
+                    <div style="{info_panel_style(GRADIENT_WARNING, COLOR_BORDER_WARNING, COLOR_WARNING_TEXT)}">
                         <strong>📡 实盘获取器 🔴</strong> <span style="color:#f59e0b;font-weight:bold;">待机中</span><br>
                         <span style="font-size:12px;">
                         📊 状态: {status_str}
@@ -265,21 +272,15 @@ async def render_market_hotspot_admin(ctx: dict):
             cn_info = phase_summary.get('cn', {})
             us_info = phase_summary.get('us', {})
 
-            def _format_market_line(label, info):
-                phase_name = info.get('phase_name', '未知')
-                next_phase = info.get('next_phase_name', '')
-                next_time = info.get('next_change_time', '')
-                next_info = f' → {next_phase} {next_time}' if next_phase else ''
-                color = '#22c55e' if phase_name in ('交易中', '集合竞价') else '#f59e0b'
-                return f'<span style="color:{color};font-weight:bold;">{label}:</span> <span style="font-size:11px;">{phase_name}{next_info}</span>'
+            from deva.naja.market_hotspot.ui_components.styles import format_market_line
 
             market_line = ' | '.join([
-                _format_market_line('A股', cn_info),
-                _format_market_line('美股', us_info)
+                format_market_line('A股', cn_info, html=True),
+                format_market_line('美股', us_info, html=True)
             ])
 
             panel_html = f"""
-            <div style="margin-bottom:14px;padding:12px 14px;border-radius:10px;background:linear-gradient(135deg,#f8fafc,#e2e8f0);border:1px solid #cbd5e1;color:#475569;font-size:13px;">
+            <div style="{info_panel_style(GRADIENT_NEUTRAL, '#cbd5e1', '#475569')}">
                 <strong>📡 数据获取器</strong> <span style="color:#94a3b8;">(未运行)</span><br>
                 <span style="font-size:12px;">
                 🕐 {current_time_str} {current_weekday}

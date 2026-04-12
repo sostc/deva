@@ -122,13 +122,7 @@ def restore_bandit_state():
         listener.start() if listener._running else None
         observer.start() if observer._running else None
 
-    # 启动持仓价格自动更新（每次启动都运行，不依赖于之前的运行状态）
-    try:
-        from .portfolio_manager import get_portfolio_manager
-        pm = get_portfolio_manager()
-        pm.start_price_auto_update()
-    except Exception as e:
-        log.warning(f"启动持仓价格自动更新失败: {e}")
+
 
 
 __all__ = [

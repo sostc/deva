@@ -15,15 +15,16 @@ def render_event_bus(ui, source_counts=None, recent_by_source=None, recent_insig
         recent_insights: 最近的洞察列表
     """
     try:
-        from ....cognition.cognition_bus import get_cognition_bus
-        bus = get_cognition_bus()
-        bus_len = len(bus) if hasattr(bus, '__len__') else 0
-        cache_max = getattr(bus, 'cache_max_len', 1000)
-        cache_age = getattr(bus, 'cache_max_age_seconds', 3600)
+        from ....cognition.cognitive_signal_bus import get_cognitive_bus
+        bus = get_cognitive_bus()
+        bus_len = len(getattr(bus, '_recent_events', []))
+        # 新总线使用订阅者计数和去重窗口
+        subscriber_count = sum(len(subs) for subs in getattr(bus, '_subscribers', {}).values())
+        dedup_window = int(getattr(bus, '_dedup_window', 30))
     except Exception:
         bus_len = 0
-        cache_max = 1000
-        cache_age = 3600
+        subscriber_count = 0
+        dedup_window = 30
 
     if source_counts is None:
         source_counts = {}
@@ -116,7 +117,7 @@ def render_event_bus(ui, source_counts=None, recent_by_source=None, recent_insig
                 🌊 认知事件流
             </div>
             <div style="font-size: 10px; color: #475569;">
-                缓冲: {bus_len}/{cache_max} | 生命周期: {cache_age}s
+                事件: {bus_len} | 订阅者: {subscriber_count} | 去重: {dedup_window}s
             </div>
         </div>
         <div style="font-size: 11px; color: #475569; margin-bottom: 12px;">

@@ -623,7 +623,7 @@ function handleAction(action, entryId, note = '') {
         return html
 
     def handle_action(self, action: str, entry_id: str, note: str = "") -> Dict[str, Any]:
-        """处理用户操作"""
+        """处理用户操作（全部为手动操作）"""
         entry = self.store.get(entry_id)
         if not entry:
             return {"success": False, "message": f"知识 {entry_id} 不存在"}
@@ -633,7 +633,8 @@ function handleAction(action, entryId, note = '') {
                 entry_id,
                 KnowledgeState.QUALIFIED,
                 reason="手动强制通过",
-                manual_note=note
+                manual_note=note,
+                is_manual=True
             )
             if success:
                 self.cognition_interface.inject_causality(entry_id)
@@ -647,7 +648,8 @@ function handleAction(action, entryId, note = '') {
                 entry_id,
                 KnowledgeState.EXPIRED,
                 reason="手动标记过期",
-                manual_note=note
+                manual_note=note,
+                is_manual=True
             )
             return {
                 "success": success,

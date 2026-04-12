@@ -1,7 +1,11 @@
 """
-OpenRouterMonitor - 感知系统/TOKEN监控/算力监控
+OpenRouterMonitor - 认知系统/TOKEN监控/算力监控
 
 别名/关键词: TOKEN、算力、GPU、AI算力、openrouter、算力需求
+
+注意: 本模块从 radar/openrouter_monitor.py 迁移到 cognition 层。
+AI 算力趋势分析本质上是认知/分析任务，不是市场感知。
+radar/openrouter_monitor.py 保留为向后兼容的转发层。
 
 功能：
 1. 每周一获取 OpenRouter TOKEN 消耗数据

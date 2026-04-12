@@ -1,13 +1,13 @@
-# Naja 注意力策略系统
+# Naja 热点策略系统
 
-基于注意力调度系统的智能交易策略集，只在市场活跃时执行，只关注高注意力股票。
+基于市场热点调度系统的智能交易策略集，只在市场活跃时执行，只关注高热度股票。
 
 ## 核心特性
 
-1. **注意力感知**: 策略根据全局注意力水平动态调整执行频率
-2. **分层处理**: 全局 → 题材 → 个股，三层注意力架构
+1. **热点感知**: 策略根据全局热点水平动态调整执行频率
+2. **分层处理**: 全局 → 题材 → 个股，三层热点架构
 3. **双引擎架构**: River（轻量级始终运行）+ PyTorch（重量级按需激活）
-4. **性能优化**: 只处理高注意力股票，节省 60%+ 计算资源
+4. **性能优化**: 只处理高热度股票，节省 60%+ 计算资源
 
 ## 策略列表
 
@@ -18,22 +18,22 @@
 
 ### 2. SectorRotationHunter (题材轮动捕捉)
 - **作用**: 捕捉资金在题材间的轮动
-- **触发条件**: 全局注意力 > 0.3
+- **触发条件**: 全局热点 > 0.3
 - **输出**: 题材资金流入/流出信号
 
 ### 3. MomentumSurgeTracker (动量突破追踪)
-- **作用**: 追踪高注意力股票的动量突破
-- **触发条件**: 全局注意力 > 0.4，个股权重 > 2.0
+- **作用**: 追踪高热度股票的动量突破
+- **触发条件**: 全局热点 > 0.4，个股权重 > 2.0
 - **输出**: 买入/卖出信号，带止盈止损
 
 ### 4. AnomalyPatternSniper (异常模式狙击)
 - **作用**: 检测统计异常 + 深度学习模式识别
-- **触发条件**: River始终运行，PyTorch在注意力>0.6时激活
+- **触发条件**: River始终运行，PyTorch在热点>0.6时激活
 - **输出**: 突破确认/假突破/洗盘结束信号
 
 ### 5. SmartMoneyFlowDetector (聪明资金流向)
 - **作用**: 检测机构资金的建仓/出货行为
-- **触发条件**: 全局注意力 > 0.35
+- **触发条件**: 全局热点 > 0.35
 - **输出**: 聪明钱建仓/出货信号
 
 ## 快速开始
@@ -41,10 +41,10 @@
 ### 1. 启动策略系统
 
 ```python
-from deva.naja.attention.strategies import setup_attention_strategies
+from deva.naja.market_hotspot.strategies import setup_hotspot_strategies
 
 # 一键启动所有策略
-manager = setup_attention_strategies()
+manager = setup_hotspot_strategies()
 ```
 
 ### 2. 处理数据
@@ -86,7 +86,7 @@ manager.reset_all_strategies()
 
 ## 配置系统
 
-配置文件位置: `~/.naja/attention_strategies.json`
+配置文件位置: `~/.naja/hotspot_strategies.json`
 
 ```json
 {
@@ -110,7 +110,7 @@ manager.reset_all_strategies()
 ### 程序化配置
 
 ```python
-from deva.naja.attention.strategies import get_config_manager, StrategySettings
+from deva.naja.market_hotspot.strategies import get_config_manager, StrategySettings
 
 config = get_config_manager()
 
@@ -125,12 +125,12 @@ config.update_strategy_settings('momentum_surge_tracker', settings)
 
 ## 自定义策略
 
-继承 `AttentionStrategyBase` 创建自己的策略:
+继承 `HotspotStrategyBase` 创建自己的策略:
 
 ```python
-from naja_attention_strategies import AttentionStrategyBase, Signal
+from deva.naja.market_hotspot.strategies import HotspotStrategyBase, Signal
 
-class MyStrategy(AttentionStrategyBase):
+class MyStrategy(HotspotStrategyBase):
     def __init__(self):
         super().__init__(
             strategy_id="my_strategy",
@@ -148,7 +148,7 @@ class MyStrategy(AttentionStrategyBase):
         return signals
 
 # 注册到管理器
-from naja_attention_strategies import get_strategy_manager
+from deva.naja.market_hotspot.strategies import get_strategy_manager
 
 manager = get_strategy_manager()
 my_strategy = MyStrategy()
@@ -159,35 +159,35 @@ manager.register_strategy(my_strategy)
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                    注意力策略系统                            │
+│                    热点策略系统                               │
 ├─────────────────────────────────────────────────────────────┤
 │  GlobalMarketSentinel                                       │
 │  ├── 始终运行，监控整体市场风险                              │
 │  └── 输出: 风险等级 (Normal/Caution/Warning/Danger/Panic)   │
 ├─────────────────────────────────────────────────────────────┤
 │  SectorRotationHunter                                       │
-│  ├── 全局注意力 > 0.3 时执行                                 │
+│  ├── 全局热点 > 0.3 时执行                                   │
 │  └── 监控题材权重变化，捕捉轮动                              │
 ├─────────────────────────────────────────────────────────────┤
 │  MomentumSurgeTracker                                       │
-│  ├── 全局注意力 > 0.4 时执行                                 │
+│  ├── 全局热点 > 0.4 时执行                                   │
 │  ├── 只处理权重 > 2.0 的股票                                 │
 │  └── 价格动量 + 成交量动量双重确认                           │
 ├─────────────────────────────────────────────────────────────┤
 │  AnomalyPatternSniper                                       │
 │  ├── River Engine: 始终运行，统计异常检测                    │
-│  ├── PyTorch Engine: 注意力 > 0.6 时激活                     │
+│  ├── PyTorch Engine: 热点 > 0.6 时激活                       │
 │  └── 识别: 突破确认 / 假突破 / 洗盘                          │
 ├─────────────────────────────────────────────────────────────┤
 │  SmartMoneyFlowDetector                                     │
-│  ├── 全局注意力 > 0.35 时执行                                │
+│  ├── 全局热点 > 0.35 时执行                                  │
 │  └── 分析大单/小单流向差异                                   │
 └─────────────────────────────────────────────────────────────┘
 ```
 
 ## 性能对比
 
-| 指标 | 传统策略 | 注意力策略 | 节省 |
+| 指标 | 传统策略 | 热点策略 | 节省 |
 |------|---------|-----------|------|
 | 处理股票数 | 5000 | 50-200 | 96%+ |
 | CPU占用 | 100% | 30-40% | 60%+ |
@@ -199,7 +199,7 @@ manager.register_strategy(my_strategy)
 - Python 3.8+
 - pandas
 - numpy
-- deva.naja.attention (注意力系统)
+- deva.naja.market_hotspot (热点系统)
 
 ## 版本历史
 
