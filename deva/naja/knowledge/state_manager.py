@@ -119,43 +119,54 @@ class KnowledgeStateManager:
         """
         current_state = KnowledgeState(entry.status)
 
-        if current_state == KnowledgeState.EXPIRED:
-            return False, "已过期知识不能再转换"
-
         if current_state == target_state:
             return False, "已经是目标状态"
 
+        # 重置到观察期：任何非 OBSERVING 状态都可以（包括 EXPIRED）
         if target_state == KnowledgeState.OBSERVING:
-            return False, "不能回退到观察期"
+            if current_state != KnowledgeState.OBSERVING:
+                return True, "重置到观察期"
+            return False, "已经处于观察期"
+
+        # EXPIRED 状态只能重置到 OBSERVING（上面已处理），不能转到其他状态
+        if current_state == KnowledgeState.EXPIRED:
+            return False, "已过期知识只能重置到观察期"
+
+        # 标记为过期：任何活跃状态都可以
+        if target_state == KnowledgeState.EXPIRED:
+            return True, "可以标记为过期"
 
         if target_state == KnowledgeState.VALIDATING:
             if current_state != KnowledgeState.OBSERVING:
                 return False, "只能从观察期转入验证期"
-            if entry.evidence_count < self.MIN_EVIDENCE_FOR_VALIDATING:
-                return False, f"需要至少 {self.MIN_EVIDENCE_FOR_VALIDATING} 个证据"
             days_since_start = (datetime.now() - datetime.fromisoformat(entry.extracted_at)).days
             if days_since_start < self.OBSERVING_DAYS:
-                return False, f"观察期需要 {self.OBSERVING_DAYS} 天"
+                return False, f"观察期需要 {self.OBSERVING_DAYS} 天（已 {days_since_start} 天）"
             return True, "满足验证期条件"
 
         if target_state == KnowledgeState.QUALIFIED:
             if current_state not in [KnowledgeState.OBSERVING, KnowledgeState.VALIDATING]:
                 return False, "需要经过验证期"
             if entry.evidence_count < self.MIN_EVIDENCE_FOR_QUALIFIED:
-                return False, f"需要至少 {self.MIN_EVIDENCE_FOR_QUALIFIED} 个证据"
+                return False, f"需要至少 {self.MIN_EVIDENCE_FOR_QUALIFIED} 个证据（当前 {entry.evidence_count}）"
             if entry.adjusted_confidence < self.MIN_CONFIDENCE_THRESHOLD:
-                return False, f"置信度需要 >= {self.MIN_CONFIDENCE_THRESHOLD}"
+                return False, f"置信度需要 >= {self.MIN_CONFIDENCE_THRESHOLD}（当前 {entry.adjusted_confidence:.2f}）"
             return True, "满足正式期条件"
-
-        if target_state == KnowledgeState.EXPIRED:
-            return True, "可以标记为过期"
 
         return False, "未知状态"
 
     def transition(self, entry_id: str, target_state: KnowledgeState,
-                   reason: str = "", manual_note: str = "") -> bool:
+                   reason: str = "", manual_note: str = "",
+                   is_manual: bool = False) -> bool:
         """
         执行状态转换
+
+        Args:
+            entry_id: 知识 ID
+            target_state: 目标状态
+            reason: 转换原因
+            manual_note: 手动干预备注
+            is_manual: 是否为手动操作（显式指定，不再依赖 manual_note 推断）
         """
         entry = self.store.get(entry_id)
         if not entry:
@@ -165,21 +176,26 @@ class KnowledgeStateManager:
         can_transition, check_reason = self.can_transition_to(entry, target_state)
 
         if not can_transition:
-            print(f"[StateManager] 状态转换失败: {check_reason}")
+            import logging
+            logging.getLogger(__name__).warning(
+                f"[StateManager] 状态转换失败 {entry_id}: {old_state.value}→{target_state.value}, 原因: {check_reason}"
+            )
             return False
 
-        is_manual = bool(manual_note)
+        # 有 manual_note 也视为手动操作
+        is_manual = is_manual or bool(manual_note)
         transition_type = StateTransition.MANUAL.value if is_manual else StateTransition.AUTO.value
 
         entry.status = target_state.value
         entry.last_updated = datetime.now().isoformat()
         if is_manual:
             entry.manual_override = True
-            entry.manual_note = manual_note
+            if manual_note:
+                entry.manual_note = manual_note
 
         self.store.update(entry_id, entry)
 
-        log = StateTransitionLog(
+        transition_log = StateTransitionLog(
             entry_id=entry_id,
             from_state=old_state.value,
             to_state=target_state.value,
@@ -188,12 +204,15 @@ class KnowledgeStateManager:
             timestamp=datetime.now().isoformat(),
             manual_note=manual_note
         )
-        self._transition_logs.append(log)
+        self._transition_logs.append(transition_log)
         self._save_transition_logs()
 
         self._notify_listeners(entry_id, old_state, target_state)
 
-        print(f"[StateManager] 知识 {entry_id} 从 {old_state.value} 转换到 {target_state.value}")
+        import logging
+        logging.getLogger(__name__).info(
+            f"[StateManager] 知识 {entry_id}: {old_state.value} → {target_state.value} ({transition_type})"
+        )
         return True
 
     def process_auto_transitions(self) -> Dict[str, Any]:
@@ -292,10 +311,11 @@ class KnowledgeStateManager:
 
         reasons = []
         can_force = False
+        remaining = 0
 
         if current_state == KnowledgeState.OBSERVING:
             days_since_start = (now - datetime.fromisoformat(entry.extracted_at)).days
-            remaining = self.OBSERVING_DAYS - days_since_start
+            remaining = max(0, self.OBSERVING_DAYS - days_since_start)
             reasons.append(f"观察期剩余 {remaining} 天")
             if entry.evidence_count >= self.MIN_EVIDENCE_FOR_VALIDATING:
                 reasons.append("✓ 证据数量已满足")
@@ -303,7 +323,7 @@ class KnowledgeStateManager:
 
         elif current_state == KnowledgeState.VALIDATING:
             days_since_last_update = (now - datetime.fromisoformat(entry.last_updated)).days
-            remaining = self.VALIDATING_DAYS - days_since_last_update
+            remaining = max(0, self.VALIDATING_DAYS - days_since_last_update)
             reasons.append(f"验证期剩余 {remaining} 天")
             if entry.evidence_count >= self.MIN_EVIDENCE_FOR_QUALIFIED and \
                entry.adjusted_confidence >= self.MIN_CONFIDENCE_THRESHOLD:
@@ -312,16 +332,14 @@ class KnowledgeStateManager:
 
         elif current_state == KnowledgeState.QUALIFIED:
             reasons.append("已正式参与决策")
-            can_force = False
 
         elif current_state == KnowledgeState.EXPIRED:
             reasons.append("已过期，需要重新学习")
-            can_force = False
 
         return {
             "entry_id": entry_id,
             "current_state": current_state.value,
-            "remaining_days": max(0, remaining) if 'remaining' in dir() else 0,
+            "remaining_days": remaining,
             "can_force_qualify": can_force,
             "reasons": reasons
         }
@@ -334,7 +352,10 @@ class KnowledgeStateManager:
 
     def reset_to_observation(self, entry_id: str, note: str = "") -> bool:
         """重置知识到观察期（手动干预）"""
-        return self.transition(entry_id, KnowledgeState.OBSERVING, reason="手动重置", manual_note=note)
+        return self.transition(
+            entry_id, KnowledgeState.OBSERVING,
+            reason="手动重置到观察期", manual_note=note, is_manual=True
+        )
 
 
 _state_manager: Optional[KnowledgeStateManager] = None

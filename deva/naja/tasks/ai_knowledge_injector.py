@@ -10,28 +10,20 @@ AI Knowledge Injector v2.0 - AI知识注入器（深思熟虑版）
 注意：存储位置已迁移到 deva/naja/knowledge/
 """
 
-import json
 import re
 import logging
 from datetime import datetime
 from typing import List, Dict, Any, Optional
-from pathlib import Path
-from enum import Enum
 
-from deva.naja.knowledge import get_knowledge_store, get_state_manager, get_cognition_interface
+from deva.naja.knowledge import (
+    get_knowledge_store, get_state_manager, get_cognition_interface,
+    KnowledgeStore, KnowledgeEntry, KnowledgeState,
+)
 
 log = logging.getLogger(__name__)
 
-# 知识存储路径 - 现在使用项目目录，方便 AI Agent 读取
-KNOWLEDGE_DIR = Path(__file__).parent.parent / "knowledge"
-KNOWLEDGE_FILE = KNOWLEDGE_DIR / "causality_knowledge_v2.json"
-
-# 知识状态枚举
-class KnowledgeStatus(Enum):
-    OBSERVING = "observing"      # 观察期：新知识
-    VALIDATING = "validating"    # 验证中：证据积累中
-    QUALIFIED = "qualified"      # 合格：可参与决策
-    EXPIRED = "expired"          # 过期：长时间无新证据
+# 复用 KnowledgeState，不再重复定义
+KnowledgeStatus = KnowledgeState
 
 # 来源可信度权重
 SOURCE_WEIGHTS = {
@@ -73,49 +65,18 @@ class AIKnowledgeInjector:
     - 新知识先观察，不直接参与交易
     - 累积足够证据后才考虑加入决策
     - 重大变化必须通知用户确认
+
+    存储：统一委托给 KnowledgeStore，不再自行维护 JSON 文件
     """
 
     def __init__(self):
-        self._knowledge_entries: List[Dict] = []
-        self._load_existing()
+        self._store = get_knowledge_store()
+        log.info(f"[AI_Knowledge_v2] 通过 KnowledgeStore 加载了 {len(self._store.get_all())} 条知识")
 
-    def _load_existing(self):
-        """加载已有知识"""
-        if KNOWLEDGE_FILE.exists():
-            try:
-                with open(KNOWLEDGE_FILE, 'r', encoding='utf-8') as f:
-                    data = json.load(f)
-                    self._knowledge_entries = data.get("knowledge", [])
-                log.info(f"[AI_Knowledge_v2] 加载了 {len(self._knowledge_entries)} 条已有知识")
-
-                # 统计各状态数量
-                status_counts = {}
-                for e in self._knowledge_entries:
-                    status = e.get("status", "observing")
-                    status_counts[status] = status_counts.get(status, 0) + 1
-                log.info(f"[AI_Knowledge_v2] 状态分布: {status_counts}")
-            except Exception as e:
-                log.warning(f"[AI_Knowledge_v2] 加载知识失败: {e}")
-                self._knowledge_entries = []
-
-    def _save_knowledge(self):
-        """保存知识到文件"""
-        try:
-            KNOWLEDGE_DIR.mkdir(parents=True, exist_ok=True)
-
-            data = {
-                "version": "2.0",
-                "last_updated": datetime.now().isoformat(),
-                "knowledge_count": len(self._knowledge_entries),
-                "knowledge": self._knowledge_entries
-            }
-
-            with open(KNOWLEDGE_FILE, 'w', encoding='utf-8') as f:
-                json.dump(data, f, ensure_ascii=False, indent=2)
-
-            log.info(f"[AI_Knowledge_v2] 已保存 {len(self._knowledge_entries)} 条知识")
-        except Exception as e:
-            log.error(f"[AI_Knowledge_v2] 保存知识失败: {e}")
+    @property
+    def _knowledge_entries(self) -> List[Dict]:
+        """向后兼容：返回 dict 列表"""
+        return [e.to_dict() for e in self._store.get_all()]
 
     def _extract_funding_amount(self, text: str) -> Optional[float]:
         """从文本中提取融资金额（美元）"""
@@ -260,10 +221,10 @@ class AIKnowledgeInjector:
                 continue
 
             for entry in entries:
-                # 检查是否重复
+                # 检查同类知识（精确匹配 cause 字段）
                 existing_same_type = [
                     e for e in self._knowledge_entries
-                    if e.get("cause", "").lower() in entry["cause"].lower()
+                    if e.get("cause", "").lower() == entry["cause"].lower()
                 ]
 
                 # 评估质量
@@ -292,188 +253,157 @@ class AIKnowledgeInjector:
 
         return result
 
+    # 因果提取规则（按优先级排序，高 confidence 优先）
+    CAUSALITY_RULES = [
+        {
+            "keywords": ["Nvidia", "GPU", "芯片", "H100", "H200", "B200", "算力", "hardware", "AMD"],
+            "cause_prefix": "AI硬件突破",
+            "effect": "算力/芯片概念股受益",
+            "base_confidence": 0.85
+        },
+        {
+            "keywords": ["融资", "funding", "raises", "Series", "invested", "acquires"],
+            "cause_prefix": "AI公司融资",
+            "effect": "AI赛道关注度提升",
+            "base_confidence": 0.8
+        },
+        {
+            "keywords": ["收购", "acquired", "acquisition", "并购"],
+            "cause_prefix": "AI公司收购",
+            "effect": "AI整合趋势加速",
+            "base_confidence": 0.8
+        },
+        {
+            "keywords": ["GPT", "Claude", "Gemini", "Llama", "Mistral", "新模型", "开源模型", "o1", "o3", "o4"],
+            "cause_prefix": "大模型发布",
+            "effect": "AI概念股/科技股可能受益",
+            "base_confidence": 0.75
+        },
+        {
+            "keywords": ["开源", "open source", "open-source"],
+            "cause_prefix": "AI技术开源",
+            "effect": "AI应用层机会增加",
+            "base_confidence": 0.7
+        },
+        {
+            "keywords": ["监管", "regulation", "ban", "policy"],
+            "cause_prefix": "AI监管消息",
+            "effect": "AI行业短期承压",
+            "base_confidence": 0.65
+        }
+    ]
+
+    # 标题最低有效长度
+    MIN_TITLE_LENGTH = 8
+
     def _extract_causality(self, title: str, source: str) -> List[Dict]:
-        """从标题中提取因果关系"""
-        entries = []
+        """
+        从标题中提取因果关系
 
-        # 因果规则
-        rules = [
-            {
-                "keywords": ["GPT", "Claude", "Gemini", "Llama", "Mistral", "新模型", "开源模型", "o1", "o3"],
-                "cause_prefix": "大模型发布",
-                "effect": "AI概念股/科技股可能受益",
-                "base_confidence": 0.75
-            },
-            {
-                "keywords": ["融资", "funding", "raises", "Series", "invested", "accquires"],
-                "cause_prefix": "AI公司融资",
-                "effect": "AI赛道关注度提升",
-                "base_confidence": 0.8
-            },
-            {
-                "keywords": ["Nvidia", "GPU", "芯片", "H100", "算力", "hardware", "AMD"],
-                "cause_prefix": "AI硬件突破",
-                "effect": "算力/芯片概念股受益",
-                "base_confidence": 0.85
-            },
-            {
-                "keywords": ["开源", "open source", "released", "available"],
-                "cause_prefix": "AI技术开源",
-                "effect": "AI应用层机会增加",
-                "base_confidence": 0.7
-            },
-            {
-                "keywords": ["监管", "regulation", "ban", "policy", "政府", "安全"],
-                "cause_prefix": "AI监管消息",
-                "effect": "AI行业短期承压",
-                "base_confidence": 0.65
-            },
-            {
-                "keywords": ["收购", "acquired", "acquisition", "并购"],
-                "cause_prefix": "AI公司收购",
-                "effect": "AI整合趋势加速",
-                "base_confidence": 0.8
-            }
-        ]
+        设计原则：
+        - 每条新闻只匹配一条最佳规则（按优先级），避免一条新闻产生多条垃圾知识
+        - cause 字段使用规则前缀，不拼接截断的标题碎片（标题保存在 original_title）
+        - 过短/无效标题直接跳过
+        """
+        if not title or len(title.strip()) < self.MIN_TITLE_LENGTH:
+            return []
 
-        for rule in rules:
-            if any(kw.lower() in title.lower() for kw in rule["keywords"]):
+        title_lower = title.lower().strip()
+
+        # 只取第一个匹配的规则（规则已按优先级排序）
+        for rule in self.CAUSALITY_RULES:
+            matched_keywords = [
+                kw for kw in rule["keywords"]
+                if kw.lower() in title_lower
+            ]
+            if matched_keywords:
+                import hashlib
+                # 用标题 hash 生成稳定 ID，同一标题不会重复
+                title_hash = hashlib.md5(title.encode()).hexdigest()[:8]
                 entry = {
-                    "id": f"ai_{datetime.now().strftime('%Y%m%d%H%M%S')}_{len(entries)}",
-                    "cause": f"{rule['cause_prefix']}: {title[:50]}",
+                    "id": f"ai_{title_hash}",
+                    "cause": rule["cause_prefix"],
                     "effect": rule["effect"],
                     "base_confidence": rule["base_confidence"],
                     "source": source,
-                    "original_title": title,
+                    "original_title": title.strip(),
                     "extracted_at": datetime.now().isoformat(),
                     "category": "ai_tech",
-                    "status": KnowledgeStatus.OBSERVING.value,  # 默认观察期
+                    "status": KnowledgeStatus.OBSERVING.value,
                     "adjusted_confidence": rule["base_confidence"] * 0.5,
                     "evidence_count": 1,
                     "quality_score": 0
                 }
-                entries.append(entry)
+                return [entry]
 
-        return entries
+        return []
 
     def inject_knowledge(self, evaluation_result: Dict[str, Any]) -> Dict[str, int]:
         """
-        注入评估后的知识
+        注入评估后的知识，统一写入 KnowledgeStore
 
-        同时写入：
-        1. 原有的 self._knowledge_entries (向后兼容)
-        2. 新的 knowledge_store (学习层)
+        去重策略：
+        - 同 cause（如"AI公司融资"）的知识会合并：证据数累加、置信度取最大值
+        - 不同 cause 的知识各自独立
 
         Returns:
             各状态注入数量
         """
-        counts = {"new": 0, "validating": 0, "qualified": 0}
-
-        existing_causes = {e.get("cause", ""): e for e in self._knowledge_entries}
-
-        new_store_entries = []
+        counts = {"new": 0, "updated": 0, "validating": 0, "qualified": 0}
 
         for entry in evaluation_result.get("new_knowledge", []):
             cause = entry.get("cause", "")
+            if not cause:
+                continue
 
-            if cause in existing_causes:
-                existing = existing_causes[cause]
-                existing["evidence_count"] = max(existing.get("evidence_count", 1), entry.get("evidence_count", 1))
-                existing["last_seen"] = entry["extracted_at"]
-                existing["status"] = entry["status"]
-                existing["adjusted_confidence"] = max(
-                    existing.get("adjusted_confidence", 0),
-                    entry.get("adjusted_confidence", 0)
+            # 检查是否已存在同类知识
+            existing = self._store.get_by_cause(cause)
+            if existing:
+                # 合并：证据数累加，置信度取最大值，更新 last_seen
+                existing.evidence_count += 1
+                existing.last_seen = entry.get("extracted_at", existing.last_seen)
+                existing.adjusted_confidence = min(
+                    max(existing.adjusted_confidence, entry.get("adjusted_confidence", 0)),
+                    0.9  # 上限
                 )
-                log.info(f"[AI_Knowledge_v2] 更新知识: {cause[:40]}...")
+                self._store.update(existing.id, existing)
+                counts["updated"] += 1
+                log.info(f"[AI_Knowledge_v2] 合并知识: {cause} (证据+1={existing.evidence_count})")
             else:
-                self._knowledge_entries.append(entry)
-                existing_causes[cause] = entry
+                # 创建新知识，使用提取阶段生成的稳定 ID
+                knowledge_entry = KnowledgeEntry(
+                    id=entry.get("id", str(__import__('uuid').uuid4())[:8]),
+                    cause=cause,
+                    effect=entry.get("effect", ""),
+                    base_confidence=entry.get("base_confidence", 0.5),
+                    source=entry.get("source", "article_learner"),
+                    original_title=entry.get("original_title", ""),
+                    extracted_at=entry.get("extracted_at", datetime.now().isoformat()),
+                    category=entry.get("category", "general"),
+                    status=entry.get("status", "observing"),
+                    adjusted_confidence=entry.get("adjusted_confidence", 0.5),
+                    evidence_count=entry.get("evidence_count", 1),
+                    quality_score=entry.get("quality_score", 0),
+                    mechanism=entry.get("mechanism", ""),
+                    timeframe=entry.get("timeframe", ""),
+                )
+                self._store.add(knowledge_entry)
                 counts["new"] += 1
 
-                if entry["status"] == KnowledgeStatus.VALIDATING.value:
+                if entry.get("status") == KnowledgeStatus.VALIDATING.value:
                     counts["validating"] += 1
-                elif entry["status"] == KnowledgeStatus.QUALIFIED.value:
+                elif entry.get("status") == KnowledgeStatus.QUALIFIED.value:
                     counts["qualified"] += 1
 
-                new_store_entries.append(entry)
-
-        if counts["new"] > 0:
-            self._save_knowledge()
+        total = counts["new"] + counts["updated"]
+        if total > 0:
             log.info(f"[AI_Knowledge_v2] 注入统计: {counts}")
-
-            try:
-                from deva.naja.knowledge import get_knowledge_store, KnowledgeEntry
-                import uuid
-
-                store = get_knowledge_store()
-
-                for entry in new_store_entries:
-                    existing = store.get_by_cause(entry.get("cause", ""))
-                    if existing:
-                        continue
-
-                    knowledge_entry = KnowledgeEntry(
-                        id=str(uuid.uuid4())[:8],
-                        cause=entry.get("cause", ""),
-                        effect=entry.get("effect", ""),
-                        base_confidence=entry.get("adjusted_confidence", 0.5),
-                        source=entry.get("source", "article_learner"),
-                        original_title=entry.get("original_title", ""),
-                        extracted_at=entry.get("extracted_at", ""),
-                        category=entry.get("category", "general"),
-                        status=entry.get("status", "observing"),
-                        adjusted_confidence=entry.get("adjusted_confidence", 0.5),
-                        evidence_count=entry.get("evidence_count", 1),
-                        quality_score=entry.get("quality_score", 0.5),
-                        mechanism=entry.get("mechanism", ""),
-                        timeframe=entry.get("timeframe", ""),
-                    )
-                    store.add(knowledge_entry)
-
-                log.info(f"[AI_Knowledge_v2] 已同步到 knowledge_store: {len(new_store_entries)} 条")
-            except Exception as e:
-                log.warning(f"[AI_Knowledge_v2] 同步到 knowledge_store 失败: {e}")
 
         return counts
 
     def get_knowledge_for_trading(self) -> Dict[str, Any]:
-        """
-        获取可用于交易决策的知识
-        """
-        # 只返回验证通过的知识
-        qualified = [
-            {
-                "cause": e["cause"],
-                "effect": e["effect"],
-                "confidence": e["adjusted_confidence"],
-                "evidence_count": e.get("evidence_count", 1),
-                "days_tracked": (datetime.now() - datetime.fromisoformat(e["extracted_at"])).days
-            }
-            for e in self._knowledge_entries
-            if e.get("status") == KnowledgeStatus.QUALIFIED.value
-        ]
-
-        # 验证中的知识（低权重）
-        validating = [
-            {
-                "cause": e["cause"],
-                "effect": e["effect"],
-                "confidence": e["adjusted_confidence"] * 0.3,  # 低权重
-                "evidence_count": e.get("evidence_count", 1),
-                "days_tracked": (datetime.now() - datetime.fromisoformat(e["extracted_at"])).days
-            }
-            for e in self._knowledge_entries
-            if e.get("status") == KnowledgeStatus.VALIDATING.value
-        ]
-
-        return {
-            "qualified_knowledge": qualified,
-            "validating_knowledge": validating,
-            "qualified_count": len(qualified),
-            "validating_count": len(validating),
-            "observing_count": len([e for e in self._knowledge_entries if e.get("status") == KnowledgeStatus.OBSERVING.value])
-        }
+        """获取可用于交易决策的知识，委托给 KnowledgeStore"""
+        return self._store.get_for_trading()
 
     def generate_notification_text(self, evaluation_result: Dict[str, Any]) -> Optional[str]:
         """生成通知文本"""

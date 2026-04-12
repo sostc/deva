@@ -800,7 +800,7 @@ _反思生成时间: {datetime.fromtimestamp(reflection.ts).strftime('%Y-%m-%d %
     def _collect_ai_compute_signals(self) -> List[Dict[str, Any]]:
         """从 OpenRouterMonitor 获取 AI算力趋势"""
         try:
-            from ...radar.openrouter_monitor import get_ai_compute_trend
+            from ...cognition.openrouter_monitor import get_ai_compute_trend
             trend = get_ai_compute_trend()
             if not trend:
                 return []

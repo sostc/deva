@@ -7,7 +7,7 @@
       "from_state": "validating",
       "to_state": "expired",
       "reason": "手动标记过期",
-      "transition_type": "auto",
+      "transition_type": "manual",
       "timestamp": "2026-04-07T02:40:56.647920",
       "manual_note": ""
     }

@@ -2,13 +2,16 @@
 Integration - 市场热点系统集成
 """
 
+from .system_config import (
+    MarketHotspotSystemConfig,
+    StepResult,
+    FallbackConfig,
+)
 from .market_hotspot_system import (
     MarketHotspotSystem,
-    MarketHotspotSystemConfig,
-    FallbackConfig,
     MarketSnapshot,
-    StepResult,
 )
+from .system_integration import MarketHotspotSystemIntegration
 from .hotspot_intelligence_system import (
     _HotspotIntelligenceSystemInternal,
     IntelligenceConfig,
@@ -31,6 +34,7 @@ HotspotIntelligenceSystem = _HotspotIntelligenceSystemInternal
 __all__ = [
     "MarketHotspotSystem",
     "MarketHotspotSystemConfig",
+    "MarketHotspotSystemIntegration",
     "FallbackConfig",
     "MarketSnapshot",
     "StepResult",
@@ -42,6 +46,7 @@ __all__ = [
     "MarketHotspotIntegration",
     "get_market_hotspot_integration",
     "initialize_hotspot_system",
+    "register_hotspot_manager",
     "get_hotspot_manager",
     "process_data_with_hotspots",
     "AttentionModeManager",

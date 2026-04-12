@@ -378,8 +378,37 @@ class ArticleLearner:
     def _fetch_content(self, url: str) -> tuple:
         """获取文章内容"""
         import subprocess
+        import re
 
-        # 优先使用wechat-article-for-ai
+        def clean_html(html: str) -> str:
+            """清洗HTML，提取纯文本"""
+            # 移除 script、style、nav、footer 等非内容标签
+            html = re.sub(r'<script[^>]*>.*?</script>', '', html, flags=re.DOTALL | re.IGNORECASE)
+            html = re.sub(r'<style[^>]*>.*?</style>', '', html, flags=re.DOTALL | re.IGNORECASE)
+            html = re.sub(r'<nav[^>]*>.*?</nav>', '', html, flags=re.DOTALL | re.IGNORECASE)
+            html = re.sub(r'<footer[^>]*>.*?</footer>', '', html, flags=re.DOTALL | re.IGNORECASE)
+            html = re.sub(r'<header[^>]*>.*?</header>', '', html, flags=re.DOTALL | re.IGNORECASE)
+            html = re.sub(r'<aside[^>]*>.*?</aside>', '', html, flags=re.DOTALL | re.IGNORECASE)
+            # 把所有标签替换为空格
+            html = re.sub(r'<[^>]+>', ' ', html)
+            # 清理多余空白
+            html = re.sub(r'[ \t]+', ' ', html)
+            html = re.sub(r'\n\s*\n+', '\n\n', html)
+            return html.strip()
+
+        def extract_title(html: str, default: str) -> str:
+            """从HTML中提取标题"""
+            # 尝试从 <title> 标签
+            match = re.search(r'<title[^>]*>([^<]+)</title>', html, re.IGNORECASE)
+            if match:
+                title = match.group(1).strip()
+                # 去掉网站后缀（如 " - AIbase"）
+                title = re.sub(r'\s*[-|–]\s*[^-|–]+$', '', title)
+                if title and len(title) > 5:
+                    return title
+            return default
+
+        # 1. 优先使用 wechat-to-md（仅限微信公众号）
         if "mp.weixin.qq.com" in url:
             try:
                 result = subprocess.run(
@@ -395,7 +424,30 @@ class ArticleLearner:
             except:
                 pass
 
-        # 备选：使用WebFetch
+        # 2. 使用 curl 获取网页（通用方案）
+        try:
+            result = subprocess.run(
+                [
+                    "curl", "-s", url,
+                    "-A", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                    "-L",  # follow redirects
+                    "--connect-timeout", "15",
+                    "-m", "30"
+                ],
+                capture_output=True,
+                text=True,
+                timeout=35
+            )
+            if result.returncode == 0 and result.stdout:
+                raw_html = result.stdout
+                title = extract_title(raw_html, "未知标题")
+                content = clean_html(raw_html)
+                if len(content) > 200:  # 确保有足够内容
+                    return content, title, "网页"
+        except Exception as e:
+            print(f"[学习器] curl 失败: {e}")
+
+        # 3. 备选：WebFetch
         try:
             from deva.naja.tools.web_fetch import fetch_url
             content = fetch_url(url)
