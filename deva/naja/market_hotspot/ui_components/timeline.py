@@ -3,14 +3,7 @@
 from datetime import datetime
 from typing import List, Dict, Any
 
-
-def get_history_tracker():
-    """获取历史追踪器"""
-    try:
-        from deva.naja.market_hotspot.market_hotspot_history_tracker import get_history_tracker as _get
-        return _get()
-    except Exception:
-        return None
+from deva.naja.market_hotspot.ui_components.common import get_history_tracker
 
 
 def render_block_trends() -> str:

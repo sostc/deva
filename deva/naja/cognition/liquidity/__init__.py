@@ -21,6 +21,13 @@ from .market_node import MarketNode, MarketState
 from .influence_edge import InfluenceEdge, PropagationEvent
 from .propagation_engine import PropagationEngine, PropagationSignal
 from .liquidity_cognition import LiquidityCognition, GlobalMarketInsight, get_liquidity_cognition
+from .liquidity_predictor import (
+    LiquidityPredictor,
+    LiquiditySignalType,
+    LiquidityPrediction as RadarLiquidityPrediction,
+    LiquidityVerification,
+    get_liquidity_predictor,
+)
 from .notifier import LiquidityNotifier, get_notifier
 
 __all__ = [
@@ -42,4 +49,9 @@ __all__ = [
     "get_liquidity_cognition",
     "LiquidityNotifier",
     "get_notifier",
+    "LiquidityPredictor",
+    "LiquiditySignalType",
+    "RadarLiquidityPrediction",
+    "LiquidityVerification",
+    "get_liquidity_predictor",
 ]

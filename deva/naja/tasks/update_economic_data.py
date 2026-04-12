@@ -12,6 +12,7 @@
 """
 
 import logging
+import os
 import time
 from typing import Any, Dict, Optional
 
@@ -31,9 +32,11 @@ def execute() -> Dict[str, Any]:
         # 1. 初始化数据获取器
         from deva.naja.cognition.economic_data_fetcher import EconomicDataFetcher
         
-        # FRED API Key（https://fred.stlouisfed.org）
-        fred_api_key = "f48d2328888b60cb2d188c148da31f63"
-        fetcher = EconomicDataFetcher(fred_api_key=fred_api_key, use_mock=False)
+        # FRED API Key 从环境变量读取（https://fred.stlouisfed.org）
+        fred_api_key = os.environ.get("FRED_API_KEY", "")
+        if not fred_api_key:
+            log.warning("[EconomicDataTask] FRED_API_KEY 环境变量未设置，使用 mock 模式")
+        fetcher = EconomicDataFetcher(fred_api_key=fred_api_key, use_mock=not bool(fred_api_key))
         
         # 2. 获取经济数据
         import asyncio

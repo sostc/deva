@@ -1,5 +1,7 @@
 """热点系统 UI 智能增强面板"""
 
+from deva.naja.market_hotspot.ui_components.common import get_history_tracker
+
 
 def get_intelligence_system():
     """获取智能增强系统"""
@@ -16,15 +18,6 @@ def get_intelligence_system():
                 if attention_integration and hasattr(attention_integration, 'intelligence_system'):
                     return attention_integration.intelligence_system
         return None
-    except Exception:
-        return None
-
-
-def get_history_tracker():
-    """获取历史追踪器"""
-    try:
-        from deva.naja.market_hotspot.market_hotspot_history_tracker import get_history_tracker
-        return get_history_tracker()
     except Exception:
         return None
 
