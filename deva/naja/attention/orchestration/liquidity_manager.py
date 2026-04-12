@@ -62,8 +62,8 @@ class LiquidityManager:
     def update_portfolio_state(self):
         """更新组合状态"""
         try:
-            from deva.naja.radar.market_scanner import get_market_scanner
-            scanner = get_market_scanner()
+            from deva.naja.radar.global_market_scanner import get_global_market_scanner
+            scanner = get_global_market_scanner()
             if scanner:
                 market_data = scanner.get_snapshot()
                 if market_data:
@@ -78,8 +78,8 @@ class LiquidityManager:
     def update_macro_liquidity_from_scanner(self):
         """从 Scanner 更新宏观流动性"""
         try:
-            from deva.naja.radar.market_scanner import get_market_scanner
-            scanner = get_market_scanner()
+            from deva.naja.radar.global_market_scanner import get_global_market_scanner
+            scanner = get_global_market_scanner()
             if scanner:
                 snapshot = scanner.get_snapshot()
                 if snapshot:

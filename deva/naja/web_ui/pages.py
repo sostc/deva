@@ -10,7 +10,6 @@ from tornado.web import RequestHandler
 
 from deva import NB
 from deva.naja.register import SR
-from .theme import get_request_theme, set_request_theme
 from .ui_base import _ctx
 
 
@@ -60,13 +59,6 @@ async def strategyadmin():
 
 async def radaradmin():
     """雷达感知层"""
-    from pywebio.session import eval_js
-    try:
-        theme = await eval_js("document.cookie.includes('naja-theme=') ? document.cookie.split('naja-theme=')[1].split(';')[0] : null")
-        if theme:
-            set_request_theme(theme)
-    except:
-        pass
     from deva.naja.radar.ui import RadarUI
     ctx = _ctx()
     await ctx["init_naja_ui"]("雷达")
@@ -85,20 +77,17 @@ async def insightadmin():
 
 async def cognition_page():
     """认知中枢页面"""
-    from pywebio.session import eval_js
-    try:
-        theme = await eval_js("document.cookie.includes('naja-theme=') ? document.cookie.split('naja-theme=')[1].split(';')[0] : null")
-        if theme:
-            set_request_theme(theme)
-    except:
-        pass
+    ctx = _ctx()
+    await ctx["init_naja_ui"]("认知")
     from deva.naja.cognition.ui import CognitionUI
     ui = CognitionUI()
     ui.render()
 
 
-def memory_page():
+async def memory_page():
     """兼容旧入口：重定向到认知页面"""
+    ctx = _ctx()
+    await ctx["init_naja_ui"]("认知")
     from deva.naja.cognition.ui import CognitionUI
     ui = CognitionUI()
     ui.render()
@@ -130,14 +119,6 @@ async def bandit_attribution():
 
 async def market():
     """市场热点监测"""
-    from pywebio.session import eval_js
-    try:
-        theme = await eval_js("document.cookie.includes('naja-theme=') ? document.cookie.split('naja-theme=')[1].split(';')[0] : null")
-        if theme:
-            set_request_theme(theme)
-    except:
-        pass
-
     ctx = _ctx()
     await ctx["init_naja_ui"]("市场热点监测 [已刷新]")
 
@@ -157,14 +138,6 @@ async def market():
 
 async def awakening_page():
     """觉醒系统页面"""
-    from pywebio.session import eval_js
-    try:
-        theme = await eval_js("document.cookie.includes('naja-theme=') ? document.cookie.split('naja-theme=')[1].split(';')[0] : null")
-        if theme:
-            set_request_theme(theme)
-    except:
-        pass
-
     ctx = _ctx()
     await ctx["init_naja_ui"]("觉醒系统")
 
@@ -193,7 +166,7 @@ async def tableadmin():
 
 async def runtimestateadmin():
     """运行时状态管理"""
-    from deva.naja.runtime_state.ui import render_runtime_state_page
+    from deva.naja.state.runtime.ui import render_runtime_state_page
     ctx = _ctx()
     await ctx["init_naja_ui"]("运行时状态管理")
     set_scope("runtime_state_content")
@@ -218,14 +191,6 @@ async def configadmin():
 
 async def tuningadmin():
     """全局调优监控"""
-    from pywebio.session import eval_js
-    try:
-        theme = await eval_js("document.cookie.includes('naja-theme=') ? document.cookie.split('naja-theme=')[1].split(';')[0] : null")
-        if theme:
-            set_request_theme(theme)
-    except:
-        pass
-
     ctx = _ctx()
     await ctx["init_naja_ui"]("全局调优监控")
 
@@ -249,13 +214,6 @@ async def tuningadmin():
 
 async def system_page():
     """系统页面（原 system/ui.py 已内联）"""
-    from pywebio.session import eval_js
-    try:
-        theme = await eval_js("document.cookie.includes('naja-theme=') ? document.cookie.split('naja-theme=')[1].split(';')[0] : null")
-        if theme:
-            set_request_theme(theme)
-    except:
-        pass
     ctx = _ctx()
     await _render_system_page(ctx)
 
@@ -266,7 +224,7 @@ async def _render_system_page(ctx: dict):
 
     from ..strategy.result_store import get_result_store
     from ..market_hotspot.integration import get_market_hotspot_integration
-    from ..bootstrap import get_last_boot_report
+    from ..infra.lifecycle.bootstrap import get_last_boot_report
 
     def _format_ts(ts: float) -> str:
         if not ts:
@@ -321,7 +279,7 @@ async def _render_system_page(ctx: dict):
         except Exception:
             pass
         try:
-            from ..log_stream import log_strategy
+            from ..infra.log.log_stream import log_strategy
             log_strategy("WARN", "system", "System", msg)
         except Exception:
             pass
@@ -379,10 +337,10 @@ async def _render_system_page(ctx: dict):
             ctx["put_markdown"]("#### 详细信息")
             ctx["put_code"](str(details))
 
-    from ..performance.ui import render_performance_page
+    from ..infra.observability.performance_ui import render_performance_page
     await render_performance_page(ctx)
 
-    from .loop_audit_ui import render_loop_audit_page
+    from ..infra.observability.loop_audit_ui import render_loop_audit_page
     await render_loop_audit_page(ctx)
 
 
@@ -392,19 +350,12 @@ def _get_log_stream_page():
 
 
 def _get_loop_audit_page():
-    from .loop_audit_ui import render_loop_audit_page
+    from ..infra.observability.loop_audit_ui import render_loop_audit_page
     return render_loop_audit_page
 
 
 async def narrative_page():
     """叙事追踪概览页面"""
-    from pywebio.session import eval_js
-    try:
-        theme = await eval_js("document.cookie.includes('naja-theme=') ? document.cookie.split('naja-theme=')[1].split(';')[0] : null")
-        if theme:
-            set_request_theme(theme)
-    except:
-        pass
     ctx = _ctx()
     await ctx["init_naja_ui"]("叙事追踪")
     from deva.naja.cognition.narrative import render_narrative_page
@@ -413,13 +364,6 @@ async def narrative_page():
 
 async def narrative_lifecycle_page():
     """叙事生命周期详细页面"""
-    from pywebio.session import eval_js
-    try:
-        theme = await eval_js("document.cookie.includes('naja-theme=') ? document.cookie.split('naja-theme=')[1].split(';')[0] : null")
-        if theme:
-            set_request_theme(theme)
-    except:
-        pass
     ctx = _ctx()
     await ctx["init_naja_ui"]("叙事生命周期")
     from deva.naja.cognition.narrative import render_narrative_lifecycle_page
@@ -428,28 +372,14 @@ async def narrative_lifecycle_page():
 
 async def merrill_clock_page():
     """美林时钟经济周期页面"""
-    from pywebio.session import eval_js
-    try:
-        theme = await eval_js("document.cookie.includes('naja-theme=') ? document.cookie.split('naja-theme=')[1].split(';')[0] : null")
-        if theme:
-            set_request_theme(theme)
-    except:
-        pass
     from deva.naja.cognition.merrill_clock.ui.web_ui import render_merrill_clock_page
-    ctx = {"put_html": put_html, "put_markdown": put_markdown}
+    ctx = _ctx()
+    await ctx["init_naja_ui"]("美林时钟")
     await render_merrill_clock_page(ctx)
 
 
 async def learningadmin():
     """学习层管理页面"""
-    from pywebio.session import eval_js
-    try:
-        theme = await eval_js("document.cookie.includes('naja-theme=') ? document.cookie.split('naja-theme=')[1].split(';')[0] : null")
-        if theme:
-            set_request_theme(theme)
-    except:
-        pass
-
     ctx = _ctx()
     await ctx["init_naja_ui"]("学习层")
 
@@ -461,14 +391,6 @@ async def learningadmin():
 
 async def learning_list_page():
     """知识列表页面"""
-    from pywebio.session import eval_js
-    try:
-        theme = await eval_js("document.cookie.includes('naja-theme=') ? document.cookie.split('naja-theme=')[1].split(';')[0] : null")
-        if theme:
-            set_request_theme(theme)
-    except:
-        pass
-
     ctx = _ctx()
     await ctx["init_naja_ui"]("知识列表")
 
@@ -480,14 +402,6 @@ async def learning_list_page():
 
 async def learning_history_page():
     """状态转换历史页面"""
-    from pywebio.session import eval_js
-    try:
-        theme = await eval_js("document.cookie.includes('naja-theme=') ? document.cookie.split('naja-theme=')[1].split(';')[0] : null")
-        if theme:
-            set_request_theme(theme)
-    except:
-        pass
-
     ctx = _ctx()
     await ctx["init_naja_ui"]("状态转换历史")
 
@@ -529,13 +443,6 @@ class KnowledgeActionHandler(RequestHandler):
 async def learning_detail_page():
     """知识详情页面"""
     from pywebio.session import eval_js
-    try:
-        theme = await eval_js("document.cookie.includes('naja-theme=') ? document.cookie.split('naja-theme=')[1].split(';')[0] : null")
-        if theme:
-            set_request_theme(theme)
-    except:
-        pass
-
     entry_id = None
     try:
         entry_id = await eval_js("new URLSearchParams(window.location.search).get('entry_id')")
@@ -553,14 +460,6 @@ async def learning_detail_page():
 
 async def supplychain_page():
     """供应链知识图谱页面"""
-    from pywebio.session import eval_js
-    try:
-        theme = await eval_js("document.cookie.includes('naja-theme=') ? document.cookie.split('naja-theme=')[1].split(';')[0] : null")
-        if theme:
-            set_request_theme(theme)
-    except:
-        pass
-
     ctx = _ctx()
     await ctx["init_naja_ui"]("供应链知识图谱")
 

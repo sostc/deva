@@ -14,7 +14,7 @@ from dataclasses import dataclass, field
 
 from deva import NS
 from deva.naja.strategy import StrategyEntry, StrategyMetadata, StrategyState
-from deva.naja.common.recoverable import UnitStatus
+from deva.naja.infra.runtime.recoverable import UnitStatus
 
 
 @dataclass

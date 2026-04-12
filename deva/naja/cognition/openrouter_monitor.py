@@ -344,7 +344,7 @@ async def refresh_openrouter_data() -> Optional[Dict]:
 def _update_radar_thread(trend_data: Dict) -> None:
     """更新雷达监控脉络"""
     try:
-        from .engine import RadarThread, get_radar_engine
+        from deva.naja.radar.engine import RadarThread, get_radar_engine
 
         radar = get_radar_engine()
 

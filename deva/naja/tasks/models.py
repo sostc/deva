@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from ..common.recoverable import UnitMetadata, UnitState, UnitStatus
+from ..infra.runtime.recoverable import UnitMetadata, UnitState, UnitStatus
 
 
 TASK_TABLE = "naja_tasks"

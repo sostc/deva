@@ -7,8 +7,8 @@ from pywebio.input import textarea
 from pywebio.session import run_async
 
 from deva import NB
-from ..common.ui_style import apply_strategy_like_styles, render_empty_state, format_timestamp
-from ..page_help import render_help_collapse
+from ..infra.ui.ui_style import apply_strategy_like_styles, render_empty_state, format_timestamp
+from ..infra.ui.page_help import render_help_collapse
 
 
 def _fmt_ts_short(ts: float) -> str:
@@ -38,7 +38,7 @@ async def render_llm_admin(ctx: dict):
         pass
 
     try:
-        from deva.naja.common.auto_tuner import get_auto_tuner
+        from deva.naja.infra.observability.auto_tuner import get_auto_tuner
         tuner = get_auto_tuner()
         tune_status = tuner.get_status()
         tune_events = tuner.get_recent_events(limit=20)
@@ -225,7 +225,7 @@ async def render_llm_admin(ctx: dict):
 
     async def handle_manual_tune():
         try:
-            from deva.naja.common.auto_tuner import manual_llm_tune
+            from deva.naja.infra.observability.auto_tuner import manual_llm_tune
             result = manual_llm_tune(requirement)
             ctx["toast"](result.get('status', '调优已提交'), color="success")
         except Exception as e:
@@ -233,7 +233,7 @@ async def render_llm_admin(ctx: dict):
 
     async def do_manual_tune(requirement: str):
         try:
-            from deva.naja.common.auto_tuner import manual_llm_tune
+            from deva.naja.infra.observability.auto_tuner import manual_llm_tune
             result = manual_llm_tune(requirement)
             ctx["toast"](result.get('status', '调优已提交'), color="success")
         except Exception as e:

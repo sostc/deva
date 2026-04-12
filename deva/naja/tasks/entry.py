@@ -9,7 +9,7 @@ from typing import Any, Callable, Optional
 
 from deva import NB, EventTrigger, bus, log
 
-from ..common.recoverable import RecoverableUnit, UnitStatus
+from ..infra.runtime.recoverable import RecoverableUnit, UnitStatus
 from ..scheduler import (
     SchedulerManager,
     normalize_execution_mode,
@@ -245,7 +245,7 @@ class TaskEntry(RecoverableUnit):
         
         # 记录性能指标
         try:
-            from ..performance import record_component_execution, ComponentType
+            from deva.naja.infra.observability.performance_monitor import record_component_execution, ComponentType
             record_component_execution(
                 component_id=self.id,
                 component_name=self.name,

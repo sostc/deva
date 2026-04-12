@@ -70,7 +70,7 @@ class CognitionIngestion:
             event: RadarEvent（需要有 payload 属性）
         """
         try:
-            from .cognitive_signal_bus import get_cognitive_bus, CognitiveEventType
+            from deva.naja.events import get_cognitive_bus, CognitiveEventType
 
             bus = get_cognitive_bus()
             payload = event.payload if hasattr(event, "payload") else event
@@ -118,7 +118,7 @@ class CognitionIngestion:
         """懒加载 InsightPool"""
         if self._insight_pool is None:
             try:
-                from deva.naja.common.singleton_registry import SR
+                from deva.naja.infra.registry.singleton_registry import SR
                 self._insight_pool = SR("insight_pool")
             except Exception:
                 pass

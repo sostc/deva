@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Dict, List
 
-from ..common.recoverable import UnitMetadata, UnitState
+from ..infra.runtime.recoverable import UnitMetadata, UnitState
 
 
 STRATEGY_TABLE = "naja_strategies"

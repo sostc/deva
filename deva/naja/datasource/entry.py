@@ -13,11 +13,11 @@ from typing import Any, Callable, Dict, List, Optional
 from deva import NB, EventTrigger, bus, log
 from deva.core.namespace import NS
 
-from ..common.recoverable import (
+from ..infra.runtime.recoverable import (
     RecoverableUnit,
     UnitStatus,
 )
-from ..common.thread_pool import get_thread_pool
+from ..infra.runtime.thread_pool import get_thread_pool
 from ..scheduler import (
     parse_cron_expr,
     build_event_condition_checker,
@@ -733,7 +733,7 @@ class DataSourceEntry(RecoverableUnit):
         finally:
             # 记录性能指标（只包含 fetch_data 的执行时间）
             try:
-                from ..performance import record_component_execution, ComponentType
+                from deva.naja.infra.observability.performance_monitor import record_component_execution, ComponentType
                 record_component_execution(
                     component_id=self.id,
                     component_name=self.name,
@@ -832,7 +832,7 @@ class DataSourceEntry(RecoverableUnit):
                 pass
 
             try:
-                from ..performance import record_data_arrival
+                from deva.naja.infra.observability.performance_monitor import record_data_arrival
                 expected_interval_ms = (getattr(self._metadata, 'interval', 5.0) or 5.0) * 1000
                 record_data_arrival(
                     datasource_id=self.id,

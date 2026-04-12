@@ -30,7 +30,7 @@ log = logging.getLogger(__name__)
 
 # 性能监控支持
 try:
-    from deva.naja.performance import record_component_execution, ComponentType
+    from deva.naja.infra.observability.performance_monitor import record_component_execution, ComponentType
     _PERFORMANCE_MONITORING_AVAILABLE = True
 except ImportError:
     _PERFORMANCE_MONITORING_AVAILABLE = False
@@ -989,7 +989,7 @@ class MarketHotspotSystem:
 
         if block_changes:
             try:
-                from deva.naja.alaya.awakened_alaya import AwakenedAlaya
+                from deva.naja.knowledge.alaya.awakened_alaya import AwakenedAlaya
                 alaya = AwakenedAlaya()
                 if hasattr(alaya, 'cross_market_memory') and alaya.cross_market_memory:
                     pushed = alaya.cross_market_memory.push_block_change(block_changes)

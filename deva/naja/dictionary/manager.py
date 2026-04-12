@@ -8,7 +8,7 @@ from typing import Any, Callable, Dict, List, Optional
 
 from deva import NB
 
-from ..common.recoverable import (
+from ..infra.runtime.recoverable import (
     RecoverableUnit,
     UnitStatus,
 )
@@ -453,7 +453,7 @@ class DictionaryManager:
                 self._log("ERROR", "Async run failed", id=entry_id, error=str(e))
 
         # 使用全局线程池而不是直接创建线程
-        from ..common.thread_pool import get_thread_pool
+        from ..infra.runtime.thread_pool import get_thread_pool
         pool = get_thread_pool()
         future = pool.submit(_run_in_thread)
         if future is None:
