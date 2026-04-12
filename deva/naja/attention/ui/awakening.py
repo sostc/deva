@@ -182,7 +182,7 @@ def _get_awakened_memory_state() -> Dict[str, Any]:
         "archive_stats": {}
     }
     try:
-        from deva.naja.alaya.awakened_alaya import AwakenedAlaya
+        from deva.naja.knowledge.alaya.awakened_alaya import AwakenedAlaya
         alaya = AwakenedAlaya()
 
         if hasattr(alaya, 'cross_market_memory') and alaya.cross_market_memory:

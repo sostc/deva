@@ -18,15 +18,21 @@ from .styles import apply_global_styles
 
 def create_nav_menu():
     """创建导航菜单 - 使用统一模块"""
-    from ..common.ui_theme import get_nav_menu_js
+    from ..infra.ui.ui_theme import get_nav_menu_js
     js_code = get_nav_menu_js()
     
     run_js(js_code)
 
 
 async def init_naja_ui(title: str):
-    """初始化 UI"""
+    """初始化 UI（自动读取并设置主题）"""
     set_env(title=f"Naja - {title}", output_animation=False)
+
+    # 自动从浏览器 Cookie 读取主题并同步到服务端全局变量
+    theme = await get_current_theme()
+    if theme:
+        set_request_theme(theme)
+
     apply_global_styles()
     
     # 认证逻辑
@@ -121,6 +127,23 @@ async def init_naja_ui(title: str):
     create_nav_menu()
     put_html(f"<h1 style='margin-bottom: 20px;'>{title}</h1>")
     put_text(f"Hello, {user['username']}. 欢迎光临 Naja 管理平台")
+
+
+async def get_current_theme() -> str:
+    """从浏览器 Cookie 读取当前主题，返回主题名称字符串。
+
+    如果读取失败或未设置，返回 None（不做 fallback，由调用方决定默认值）。
+    """
+    from pywebio.session import eval_js
+    try:
+        theme = await eval_js(
+            "document.cookie.includes('naja-theme=') "
+            "? document.cookie.split('naja-theme=')[1].split(';')[0] "
+            ": null"
+        )
+        return theme or None
+    except Exception:
+        return None
 
 
 def _ctx(globals_dict: dict = None):

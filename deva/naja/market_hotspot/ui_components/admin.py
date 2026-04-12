@@ -6,7 +6,7 @@ from pywebio.output import put_html, put_row, put_column, put_text, put_button, 
 from pywebio.session import run_js, run_async
 from pywebio.output import toast
 
-from deva.naja.page_help import render_help_collapse
+from deva.naja.infra.ui.page_help import render_help_collapse
 from deva.naja.register import SR
 from deva.naja.market_hotspot.ui_components.styles import (
     GRADIENT_DARK_REVERSE, GRADIENT_WARNING, GRADIENT_INFO, GRADIENT_SUCCESS,
@@ -501,7 +501,7 @@ def _get_history_tracker():
 
 def _run_diagnostic():
     """运行诊断"""
-    from deva.naja.market_hotspot.diagnostic import render_hotspot_diagnostic
+    from deva.naja.market_hotspot.ui_components.diagnostic import render_hotspot_diagnostic
     render_hotspot_diagnostic()
 
 

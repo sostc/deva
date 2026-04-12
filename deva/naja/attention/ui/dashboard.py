@@ -254,14 +254,14 @@ def render_attention_monitor_page(ctx):
         put_html(render_awakening_status())
 
 
-def get_attention_snapshots(hours: int = 24, limit: int = 50) -> Dict[str, Any]:
-    """获取注意力系统历史快照"""
+def get_hotspot_snapshots(hours: int = 24, limit: int = 50) -> Dict[str, Any]:
+    """获取热点系统历史快照"""
     result = {"snapshots": [], "stats": {"total": 0, "time_range": {"start": None, "end": None}, "symbol_appearance": {}}, "has_data": False}
 
     try:
-        from deva.naja.snapshot_manager import get_snapshot_manager
+        from deva.naja.state.snapshot import get_snapshot_manager
         sm = get_snapshot_manager()
-        records = sm.get_attention_snapshots(hours=hours, limit=limit)
+        records = sm.get_hotspot_snapshots(hours=hours, limit=limit)
 
         if not records:
             return result
@@ -285,7 +285,7 @@ def get_attention_snapshots(hours: int = 24, limit: int = 50) -> Dict[str, Any]:
                     "block_weights": record.get("block_weights", {}),
                     "active_blocks": record.get("active_blocks", []),
                     "market_context": record.get("market_context", {}),
-                    "total_attention_count": record.get("total_attention_count", 0)
+                    "total_hotspot_count": record.get("total_hotspot_count", 0)
                 })
 
         if result["snapshots"]:
@@ -303,11 +303,11 @@ def get_classic_moments(hours: int = 24, limit: int = 10) -> Dict[str, Any]:
     """获取经典时刻"""
     result = {
         "moments": [],
-        "classification": {"high_attention": [], "market_alert": [], "regime_change": [], "low_activity": []},
+        "classification": {"high_hotspot": [], "market_alert": [], "regime_change": [], "low_activity": []},
         "has_data": False
     }
 
-    snapshots = get_attention_snapshots(hours=hours, limit=limit * 3)
+    snapshots = get_hotspot_snapshots(hours=hours, limit=limit * 3)
     if not snapshots.get("has_data"):
         return result
 
@@ -317,9 +317,9 @@ def get_classic_moments(hours: int = 24, limit: int = 10) -> Dict[str, Any]:
         moment_type = []
         reason = []
 
-        if snap.get("total_attention_count", 0) > 100:
-            moment_type.append("high_attention")
-            reason.append(f"高注意力事件: {snap['total_attention_count']}次")
+        if snap.get("total_hotspot_count", 0) > 100:
+            moment_type.append("high_hotspot")
+            reason.append(f"高热度事件: {snap['total_hotspot_count']}次")
 
         context = snap.get("market_context", {})
         if context.get("us_phase") in ["pre_market", "after_hours"]:
@@ -331,7 +331,7 @@ def get_classic_moments(hours: int = 24, limit: int = 10) -> Dict[str, Any]:
             moment_type.append("regime_change")
             reason.append(f"多题材活跃: {len(blocks)}个")
 
-        if snap.get("total_attention_count", 0) < 5:
+        if snap.get("total_hotspot_count", 0) < 5:
             moment_type.append("low_activity")
             reason.append("低活跃期")
 
@@ -347,4 +347,4 @@ def get_classic_moments(hours: int = 24, limit: int = 10) -> Dict[str, Any]:
     return result
 
 
-__all__ = ["get_attention_monitor_data", "render_attention_monitor_page", "get_attention_snapshots", "get_classic_moments"]
+__all__ = ["get_attention_monitor_data", "render_attention_monitor_page", "get_hotspot_snapshots", "get_classic_moments"]

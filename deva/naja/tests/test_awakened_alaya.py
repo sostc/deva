@@ -3,7 +3,7 @@ AwakenedAlaya 单元测试
 """
 
 import unittest
-from deva.naja.alaya.awakened_alaya import (
+from deva.naja.knowledge.alaya.awakened_alaya import (
     AwakenedAlaya,
     CrossMarketMemory,
     PatternArchiveManager,

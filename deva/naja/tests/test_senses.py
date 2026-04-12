@@ -9,12 +9,12 @@ import time
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from deva.naja.senses.prophetic_sensing import (
+from deva.naja.radar.senses.prophetic_sensing import (
     ProphetSense, ProphetSignal, PresageType,
     MomentumPrecipice, SentimentTransitionSense, FlowTasteSense,
     VolatilitySurfaceSense
 )
-from deva.naja.senses.realtime_taste import (
+from deva.naja.radar.senses.realtime_taste import (
     RealtimeTaste, TasteSignal, PositionState, FreshnessLevel
 )
 

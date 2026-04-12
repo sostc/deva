@@ -158,19 +158,12 @@ def get_manas_manager() -> Optional[ManasManager]:
     if _global_manager is None and not _global_manager_initialized:
         _global_manager_initialized = True
         try:
-            from deva.naja.common.singleton_registry import SR
+            from deva.naja.infra.registry.singleton_registry import SR
             _global_manager = SR('manas_manager')
             if _global_manager is not None and not _global_manager.is_enabled():
                 _global_manager.set_enabled(True)
         except Exception:
             pass
-    return _global_manager
-
-
-def setup_manas_manager(kernel) -> ManasManager:
-    """设置全局末那识管理器"""
-    global _global_manager
-    _global_manager = ManasManager(kernel)
     return _global_manager
 
 

@@ -12,8 +12,8 @@ from typing import Any, Callable, Dict, List, Optional
 from deva import NB
 from deva.core.namespace import NS
 
-from ..common.recoverable import RecoverableUnit, UnitStatus
-from ..common.thread_pool import get_thread_pool
+from ..infra.runtime.recoverable import RecoverableUnit, UnitStatus
+from ..infra.runtime.thread_pool import get_thread_pool
 from .output_controller import get_output_controller
 from deva.naja.register import SR
 from .models import (
@@ -355,7 +355,7 @@ class StrategyEntry(RecoverableUnit):
             
             # 记录性能指标
             try:
-                from ..performance import record_component_execution, ComponentType
+                from deva.naja.infra.observability.performance_monitor import record_component_execution, ComponentType
                 record_component_execution(
                     component_id=self.id,
                     component_name=self.name,
@@ -739,7 +739,7 @@ class StrategyEntry(RecoverableUnit):
             timestamp = time.time()
 
             try:
-                from ..log_stream import log_strategy
+                from ..infra.log.log_stream import log_strategy
                 result_preview = str(result)[:500] if result else ""
                 log_strategy(
                     "INFO",

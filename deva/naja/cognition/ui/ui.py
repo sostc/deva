@@ -8,11 +8,11 @@ from typing import Optional, Dict, Any, List
 import logging
 
 from pywebio.output import put_html, put_row, put_column, put_scope
-from pywebio.session import run_js, set_env
+from pywebio.session import set_env
 
 from ..core import AttentionScorer
-from ...page_help import render_help_collapse
-from ...common.ui_style import format_timestamp
+from deva.naja.infra.ui.page_help import render_help_collapse
+from deva.naja.infra.ui.ui_style import format_timestamp
 from .components import (
     render_supply_chain,
     render_event_bus,
@@ -29,6 +29,8 @@ from .components import (
     render_help,
 )
 from deva.naja.register import SR
+from deva.naja.web_ui.ui_base import create_nav_menu
+from deva.naja.web_ui.styles import apply_global_styles
 
 log = logging.getLogger(__name__)
 
@@ -44,20 +46,6 @@ def _get_stock_display_info(code: str) -> str:
         return f"{name}({block_str})" if block_str else name
     except Exception:
         return code
-
-
-def _create_nav_menu():
-    """创建导航菜单"""
-    from ...common.ui_theme import get_nav_menu_js
-    js_code = get_nav_menu_js()
-    run_js(js_code)
-
-
-def _apply_global_styles():
-    """应用全局样式"""
-    from ...common.ui_theme import get_global_styles
-    from pywebio.output import put_html
-    put_html(get_global_styles())
 
 
 def _get_data_sources():
@@ -135,10 +123,11 @@ class CognitionUI:
         put_html(html)
 
     def render(self):
-        """渲染认知页面完整视图"""
-        set_env(title="Naja - 认知", output_animation=False)
-        _apply_global_styles()
-        _create_nav_menu()
+        """渲染认知页面完整视图
+
+        注意：页面初始化（set_env / apply_global_styles / create_nav_menu / 主题读取）
+        已由 pages.py 通过 init_naja_ui() 统一处理，此处不再重复。
+        """
 
         self._put_html('<div class="container">')
 

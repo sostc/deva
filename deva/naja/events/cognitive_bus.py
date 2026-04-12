@@ -70,7 +70,7 @@ class CognitiveEventType(Enum):
     COGNITION_RESET = "cognition_reset"
 
     # ── 原 CognitionEventType ──
-    ATTENTION_SNAPSHOT = "attention_snapshot"
+    HOTSPOT_SNAPSHOT = "hotspot_snapshot"
     NEWS_SIGNAL = "news_signal"
     INSIGHT_GENERATED = "insight_generated"
     COGNITION_FEEDBACK = "cognition_feedback"

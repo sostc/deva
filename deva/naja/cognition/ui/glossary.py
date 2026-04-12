@@ -5,7 +5,7 @@
 from pywebio.output import put_html
 from pywebio.session import set_env, run_js
 
-from ...common.ui_theme import get_nav_menu_js
+from deva.naja.infra.ui.ui_theme import get_nav_menu_js
 
 
 def cognition_glossary_page():

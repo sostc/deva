@@ -62,6 +62,20 @@ from .global_market_config import (
     get_all_market_ids,
 )
 
+from .senses import (
+    ProphetSense,
+    ProphetSignal,
+    PresageType,
+    MomentumPrecipice,
+    SentimentTransitionSense,
+    FlowTasteSense,
+    VolatilitySurfaceSense,
+    RealtimeTaste,
+    TasteSignal,
+    PreTasteSense,
+    PreTasteResult,
+)
+
 from deva.naja.register import SR
 
 __all__ = [
@@ -103,4 +117,16 @@ __all__ = [
 
     "get_market_config",
     "get_all_market_ids",
+    # senses 子模块
+    "ProphetSense",
+    "ProphetSignal",
+    "PresageType",
+    "MomentumPrecipice",
+    "SentimentTransitionSense",
+    "FlowTasteSense",
+    "VolatilitySurfaceSense",
+    "RealtimeTaste",
+    "TasteSignal",
+    "PreTasteSense",
+    "PreTasteResult",
 ]

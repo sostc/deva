@@ -5,7 +5,7 @@ from datetime import datetime
 from pywebio.output import use_scope
 from pywebio.session import run_async
 
-from deva.naja.common.ui_style import apply_strategy_like_styles
+from deva.naja.infra.ui.ui_style import apply_strategy_like_styles
 
 
 # 存储已显示的策略结果 ID
