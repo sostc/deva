@@ -405,7 +405,7 @@ class RadarUI:
             })
 
         try:
-            from ..radar.openrouter_monitor import get_openrouter_trend, TREND_TABLE
+            from ..cognition.openrouter_monitor import get_openrouter_trend, TREND_TABLE
             trend_data = get_openrouter_trend()
             if trend_data:
                 direction = trend_data.get('direction', 'unknown')

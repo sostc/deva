@@ -8,18 +8,6 @@
 - HistoryTracker: 历史事件追踪器，追踪注意力变化
 """
 
-from .cognition_bus import (
-    cognition_bus,
-    CognitionEventType,
-    CognitionEvent,
-    emit_attention_snapshot,
-    emit_news_signal,
-    emit_resonance,
-    emit_insight,
-    emit_cognition_feedback,
-    subscribe_to_event,
-    subscribe_to_all,
-)
 from .core import NewsMindStrategy, AttentionScorer
 from .engine import CognitionEngine
 from .narrative import (
@@ -59,19 +47,21 @@ from .cross_signal_analyzer import (
     CognitionFeedback,
     get_cross_signal_analyzer,
 )
+# 统一认知事件总线
+from .cognitive_signal_bus import (
+    CognitiveSignalBus,
+    CognitiveEventType,
+    get_cognitive_bus,
+)
+# 拆分出的子模块
+from .news_event import NewsEvent, SignalType, DATASOURCE_TYPE_MAP, get_datasource_type
+from .topic_manager import Topic
+from .attention_scorer import AttentionScorer as AttentionScorerModule
+from .memory_manager import MemoryManager
+# 统一数据流入口
+from .ingestion import CognitionIngestion, get_cognition_ingestion
 
 __all__ = [
-    # 认知事件总线
-    "cognition_bus",
-    "CognitionEventType",
-    "CognitionEvent",
-    "emit_attention_snapshot",
-    "emit_news_signal",
-    "emit_resonance",
-    "emit_insight",
-    "emit_cognition_feedback",
-    "subscribe_to_event",
-    "subscribe_to_all",
     # 核心策略
     "NewsMindStrategy",
     "AttentionScorer",
@@ -115,7 +105,20 @@ __all__ = [
     "get_linked_blocks",
     "get_linked_markets",
     "get_market_config",
+    # 统一认知事件总线
+    "CognitiveSignalBus",
+    "CognitiveEventType",
+    "get_cognitive_bus",
+    # 拆分子模块
+    "NewsEvent",
+    "SignalType",
+    "DATASOURCE_TYPE_MAP",
+    "get_datasource_type",
+    "Topic",
+    "AttentionScorerModule",
+    "MemoryManager",
+    # 统一数据流入口
+    "CognitionIngestion",
+    "get_cognition_ingestion",
 ]
 
-# 向后兼容别名
-MemoryEngine = CognitionEngine

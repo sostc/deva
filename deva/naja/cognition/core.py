@@ -8,6 +8,9 @@ NewsMind - 认知系统/新闻认知/话题跟踪
 
 输入: 绑定的数据源（tick、新闻、文本）
 输出: 信号流（主题信号、注意力信号、趋势变化信号）
+
+注意：NewsEvent、AttentionScorer、Topic 等已拆分到独立模块，
+此处保留向后兼容的导入。
 """
 
 import json
@@ -17,14 +20,30 @@ import numpy as np
 from datetime import datetime, timedelta
 from collections import deque
 from typing import Dict, List, Optional, Any, Tuple
-from dataclasses import dataclass, field
-from enum import Enum
 import hashlib
 import threading
 import os
 
 from .narrative import NarrativeTracker
 from .semantic_cold_start import SemanticColdStart
+
+# ── 从拆分后的子模块导入（向后兼容） ──────────────────────
+from .news_event import (                          # noqa: F401
+    NewsEvent,
+    SignalType,
+    DATASOURCE_TYPE_MAP,
+    get_datasource_type,
+)
+from .attention_scorer import AttentionScorer       # noqa: F401
+from .memory_manager import MemoryManager
+from .topic_manager import (                        # noqa: F401
+    Topic,
+    STOCK_RELEVANT_PREFIXES,
+    STOCK_RELEVANT_SOURCES,
+    _get_market_activity,
+    _is_stock_relevant_topic,
+)
+# ── 向后兼容结束 ─────────────────────────────────────────
 
 
 def _radar_debug_log(msg: str):
@@ -58,713 +77,16 @@ except ImportError:
     print("[NewsMind] Warning: NB not available, persistence disabled")
 
 
-class SignalType(Enum):
-    """Cognition 信号类型
-
-    命名规范：
-    - topic_: 话题相关信号
-    - narrative_: 叙事相关信号
-    """
-    TOPIC_EMERGE = "topic_emerge"
-    TOPIC_GROW = "topic_grow"
-    TOPIC_FADE = "topic_fade"
-    TOPIC_HIGH_ATTENTION = "topic_high_attention"
-    TOPIC_TREND_SHIFT = "topic_trend_shift"
-    NARRATIVE_DRIFT = "narrative_drift"
-
-    @classmethod
-    def get_all_signal_types(cls) -> List[str]:
-        """获取所有信号类型"""
-        return [s.value for s in cls]
-
-    @classmethod
-    def is_topic_signal(cls, signal_type: str) -> bool:
-        """判断是否为话题信号"""
-        return signal_type.startswith("topic_")
-
-    @classmethod
-    def is_narrative_signal(cls, signal_type: str) -> bool:
-        """判断是否为叙事信号"""
-        return signal_type.startswith("narrative_")
 
 
-# 数据源类型映射表 - 根据数据源名称识别数据类型
-DATASOURCE_TYPE_MAP = {
-    # 新闻数据源
-    "财经新闻模拟源": "news",
-    "新闻": "news",
-    "news": "news",
-    "金十数据快讯": "news",
-    "金十": "news",
-    "jin10": "news",
-    # 行情数据源
-    "行情回放": "tick",
-    "tick": "tick",
-    "quant": "tick",
-    "realtime_quant_5s": "tick",
-    # 日志数据源
-    "系统日志监控": "log",
-    "日志": "log",
-    "log": "log",
-    # 文件/目录数据源
-    "下载目录监控": "file",
-    "文件": "file",
-    "file": "file",
-    "目录": "file",
-}
 
 
-def get_datasource_type(source_name: str) -> str:
-    """
-    根据数据源名称获取数据类型
-    
-    Args:
-        source_name: 数据源名称
-        
-    Returns:
-        数据类型: news/tick/log/file/text
-    """
-    if not source_name:
-        return "text"
-    
-    # 精确匹配
-    if source_name in DATASOURCE_TYPE_MAP:
-        return DATASOURCE_TYPE_MAP[source_name]
-    
-    # 模糊匹配 - 检查数据源名称是否包含关键字
-    source_lower = source_name.lower()
-    for key, dtype in DATASOURCE_TYPE_MAP.items():
-        if key.lower() in source_lower:
-            return dtype
-    
-    # 默认类型
-    return "text"
-
-
-@dataclass
-class NewsEvent:
-    """龙虾事件结构"""
-    id: str
-    timestamp: datetime
-    source: str                          # 数据源标识
-    event_type: str                      # tick/news/text/thought
-    content: str                         # 文本内容
-    vector: Optional[List[float]] = None # 语义向量
-    meta: Dict[str, Any] = field(default_factory=dict)
-    attention_score: float = 0.0
-    topic_id: Optional[int] = None
-    
-    @classmethod
-    def from_datasource_record(cls, record) -> "NewsEvent":
-        """从naja数据源记录创建事件"""
-        import numpy as np
-        
-        # 处理 numpy 数组类型的数据
-        if isinstance(record, np.ndarray):
-            return cls(
-                id=hashlib.md5(f"array_{time.time()}".encode()).hexdigest()[:16],
-                timestamp=datetime.now(),
-                source="numpy_array",
-                event_type="array",
-                content=f"数组数据 shape={record.shape}",
-                meta={"array_data": record.tolist(), "shape": record.shape}
-            )
-        
-        # 处理非字典类型
-        if not isinstance(record, dict):
-            return cls(
-                id=hashlib.md5(f"raw_{time.time()}".encode()).hexdigest()[:16],
-                timestamp=datetime.now(),
-                source="unknown",
-                event_type="text",
-                content=str(record),
-                meta={"raw_data": str(record)}
-            )
-        
-        # 生成唯一ID
-        # 优先使用 _datasource_name（多数据源模式），其次使用 source（单数据源模式）
-        source = record.get('_datasource_name') or record.get('source', 'unknown')
-        content = f"{record.get('timestamp')}|{source}|{str(record.get('data', ''))[:100]}"
-        event_id = hashlib.md5(content.encode()).hexdigest()[:16]
-        
-        # 获取数据源类型
-        ds_type = get_datasource_type(source)
-        
-        # 解析数据
-        # 首先尝试从 record 中获取 data 字段
-        raw_data = record.get('data', {})
-        
-        # 如果 record 本身包含 title（新闻数据格式），直接使用 record
-        if isinstance(record, dict) and 'title' in record:
-            raw_data = record
-        
-        # 处理不同类型的数据（numpy数组、字典、其他类型）
-        import numpy as np
-        if isinstance(raw_data, np.ndarray):
-            # numpy数组转换为字典
-            data = {"array_data": raw_data.tolist(), "shape": raw_data.shape}
-            content = f"数组数据 shape={raw_data.shape}"
-            event_type = 'array'
-        elif isinstance(raw_data, dict):
-            data = raw_data
-            
-            # 使用数据源类型映射来识别数据类型
-            if ds_type == 'tick' or 'price' in str(data):
-                event_type = 'tick'
-                symbol = data.get('symbol', '')
-                if symbol and symbol != 'UNKNOWN':
-                    content = f"{symbol} 价格:{data.get('price', 0)} 成交量:{data.get('volume', 0)}"
-                else:
-                    content = f"行情 价格:{data.get('price', 0)} 成交量:{data.get('volume', 0)}"
-            elif ds_type == 'news' or 'title' in data:
-                # 新闻数据
-                event_type = 'news'
-                title = data.get('title', '')
-                content_text = data.get('content', '')
-                content = f"{title}\n{content_text}" if title else content_text
-            elif ds_type == 'log':
-                # 日志数据
-                event_type = 'log'
-                log_content = data.get('content', '')
-                content = log_content if log_content else str(data)
-            elif ds_type == 'file':
-                # 文件/目录数据
-                event_type = 'file'
-                file_path = data.get('file_path', '') or data.get('path', '')
-                event = data.get('event_type', '') or data.get('event', '')
-                content = f"{event}: {file_path}" if event else (file_path if file_path else str(data))
-            else:
-                # 默认文本类型
-                event_type = 'text'
-                content = str(data)
-        else:
-            # 其他类型转为字符串
-            data = {"raw_data": str(raw_data)}
-            content = str(raw_data)
-            event_type = ds_type if ds_type != 'text' else 'text'
-        
-        # 处理 timestamp 可能是 float 或 datetime 的情况
-        ts = record.get('timestamp', datetime.now())
-        if isinstance(ts, (int, float)):
-            ts = datetime.fromtimestamp(ts)
-        elif not isinstance(ts, datetime):
-            ts = datetime.now()
-        
-        return cls(
-            id=event_id,
-            timestamp=ts,
-            source=source,
-            event_type=event_type,
-            content=content,
-            meta=data
-        )
-
-
-STOCK_RELEVANT_PREFIXES = ["[新闻]", "[行情]", "[财经]"]
-STOCK_RELEVANT_SOURCES = ["news", "tick", "jin10", "财经", "新闻", "金十", "行情"]
-
-
-def _get_market_activity() -> float:
-    """
-    获取当前市场活跃度 (0.0 ~ 1.0)
-
-    从 AttentionOS 获取 harmony 值作为活跃度
-    如果获取失败，返回 0.5（默认值）
-    """
-    try:
-        from deva.naja.attention.trading_center import get_trading_center
-        tc = get_trading_center()
-        harmony = tc.get_harmony()
-        return harmony.get("harmony_strength", 0.5)
-    except Exception:
-        pass
-    return 0.5  # 默认值
-
-def _is_stock_relevant_topic(topic: "Topic") -> bool:
-    """判断主题是否与股票相关"""
-    name = topic.name if topic.name else ""
-
-    for prefix in STOCK_RELEVANT_PREFIXES:
-        if prefix in name:
-            return True
-
-    for source_keyword in STOCK_RELEVANT_SOURCES:
-        if source_keyword in name:
-            return True
-
-    keywords = topic.keywords if topic.keywords else []
-    stock_keywords = ["新能源", "半导体", "医药", "消费", "金融", "地产", "传媒", "军工", "AI", "芯片", "茅台", "宁德", "比亚迪"]
-    for kw in keywords:
-        if kw in stock_keywords:
-            return True
-
-    return False
-
-
-@dataclass
-class Topic:
-    """主题结构"""
-    id: int
-    center: List[float]                    # 主题中心向量
-    events: deque                           # 属于该主题的事件
-    created_at: datetime
-    last_updated: datetime
-    attention_sum: float = 0.0             # 累计注意力
-    event_count: int = 0
-    name: str = ""                         # 主题名称（自动提取）
-    keywords: List[str] = field(default_factory=list)  # 主题关键词
-    
-    def __post_init__(self):
-        """初始化后自动命名"""
-        if not self.name and self.events:
-            self._auto_name()
-    
-    def _auto_name(self):
-        """根据事件内容自动提取主题名称"""
-        if not self.events:
-            self.name = f"主题{self.id}"
-            return
-
-        # 获取数据源标识（强制在主题名称前加上数据源）
-        first_event = self.events[0]
-        source = getattr(first_event, 'source', 'unknown')
-
-        # 使用数据源类型映射获取类型前缀
-        ds_type = get_datasource_type(source)
-        type_prefix_map = {
-            'news': '[新闻]',
-            'tick': '[行情]',
-            'log': '[日志]',
-            'file': '[文件]',
-            'array': '[数组]',
-            'text': '[文本]',
-        }
-        source_prefix = type_prefix_map.get(ds_type, f"[{source[:4]}]")
-
-        # 收集所有事件的关键词
-        all_keywords = []
-        all_content = []
-
-        for event in self.events:
-            content = getattr(event, 'content', '')
-            if content:
-                all_content.append(content)
-                content_lower = content.lower()
-
-                # 提取公司名称
-                companies = ["腾讯", "阿里", "字节", "华为", "比亚迪", "宁德时代", "茅台", "美团", "小米", "百度", "京东", "拼多多"]
-                for company in companies:
-                    if company in content:
-                        all_keywords.append(company)
-
-                # 提取行业关键词
-                blocks = ["新能源", "半导体", "医药", "消费", "金融", "地产", "传媒", "军工", "AI", "芯片"]
-                for block in blocks:
-                    if block in content:
-                        all_keywords.append(block)
-
-                # 提取日志级别和类型（针对日志数据源）
-                if '日志' in source or 'log' in source.lower():
-                    log_levels = ["ERROR", "WARN", "INFO", "DEBUG", "CRITICAL", "FATAL"]
-                    for level in log_levels:
-                        if level in content or level.lower() in content_lower:
-                            all_keywords.append(level)
-
-                    log_actions = ["启动", "停止", "失败", "成功", "超时", "重试", "连接", "断开", "创建", "删除"]
-                    for action in log_actions:
-                        if action in content:
-                            all_keywords.append(action)
-
-                # 提取文件操作
-                if '文件' in source or 'file' in source.lower() or '目录' in source:
-                    file_ops = ["创建", "修改", "删除", "下载", "上传", "移动", "复制"]
-                    for op in file_ops:
-                        if op in content:
-                            all_keywords.append(op)
-
-                    import re
-                    file_exts = re.findall(r'\.([a-zA-Z0-9]+)', content)
-                    for ext in file_exts[:3]:
-                        all_keywords.append(f".{ext}")
-
-        # 统计词频并生成主题名称
-        from collections import Counter
-
-        # 获取第一条内容用于提取主题
-        first_content = all_content[0] if all_content else ''
-
-        # 使用数据源类型映射来判断数据源类型
-        ds_type = get_datasource_type(source)
-
-        # 无意义名称模式
-        meaningless_patterns = [
-            "主题", "未命名", "未知", "无内容", "无标题",
-            "array", "dict", "object", "none", "null"
-        ]
-
-        def is_meaningful_name(name: str) -> bool:
-            """判断名称是否有意义"""
-            if not name or len(name.strip()) < 2:
-                return False
-            name_lower = name.lower()
-            for pattern in meaningless_patterns:
-                if pattern.lower() in name_lower:
-                    return False
-            return True
-
-        # 优先使用关键词生成名称
-        if all_keywords:
-            keyword_counts = Counter(all_keywords)
-            top_keywords = [k for k, _ in keyword_counts.most_common(3)]
-            keyword_name = "·".join(top_keywords)
-            if is_meaningful_name(keyword_name):
-                self.name = f"{source_prefix} {keyword_name}"
-                self.keywords = top_keywords
-                return
-
-        # 针对不同数据源类型使用不同的主题提取策略
-        extracted_name = ""
-        if ds_type == 'news' and first_content:
-            extracted_name = self._extract_news_topic(first_content)
-        elif ds_type == 'tick' and first_content:
-            extracted_name = self._extract_tick_topic(first_content)
-        elif ds_type == 'log' and first_content:
-            extracted_name = self._extract_log_topic(first_content)
-        elif first_content:
-            extracted_name = first_content[:20].strip()
-
-        # 如果提取的名称无意义，尝试使用关键词
-        if not is_meaningful_name(extracted_name):
-            if all_keywords:
-                keyword_counts = Counter(all_keywords)
-                top_keywords = [k for k, _ in keyword_counts.most_common(3)]
-                extracted_name = "·".join(top_keywords)
-
-        # 最终检查
-        if is_meaningful_name(extracted_name):
-            self.name = f"{source_prefix} {extracted_name}"
-        else:
-            self.name = f"{source_prefix} 热点关注"
-        self.keywords = [k for k, _ in Counter(all_keywords).most_common(5)] if all_keywords else []
-    
-    def _extract_news_topic(self, content: str) -> str:
-        """从新闻内容中提取热点主题名称"""
-        # 调试：打印接收到的内容
-        print(f"[_extract_news_topic] 接收到的内容类型: {type(content)}, 内容: {content[:100] if content else 'None'}")
-        
-        if not content or not content.strip():
-            return "未命名主题"
-        
-        # 清理内容
-        content = content.strip()
-        
-        # 如果内容是字典的字符串表示，尝试提取其中的 title
-        if content.startswith('{') and content.endswith('}'):
-            try:
-                import json
-                import ast
-                # 尝试解析为字典
-                data = ast.literal_eval(content)
-                if isinstance(data, dict):
-                    title = data.get('title', '')
-                    if title:
-                        print(f"[_extract_news_topic] 从字典中提取到title: {title}")
-                        return title[:25]
-            except:
-                pass
-        
-        # 尝试提取核心主题
-        import re
-        
-        # 1. 提取引号内的内容
-        quoted = re.findall(r'["""]([^"""]+)["""]', content)
-        if quoted and quoted[0].strip():
-            return quoted[0].strip()[:25]
-        
-        # 2. 提取书名号内的内容
-        book_title = re.findall(r'《([^》]+)》', content)
-        if book_title and book_title[0].strip():
-            return book_title[0].strip()[:25]
-        
-        # 3. 提取冒号前的内容（通常是主体）
-        if '：' in content or ':' in content:
-            parts = re.split(r'[：:]', content)
-            if parts and parts[0].strip():
-                return parts[0].strip()[:25]
-        
-        # 4. 提取第一句话（以句号、感叹号、问号分隔）
-        first_sentence = re.split(r'[。！？\n]', content)
-        if first_sentence and first_sentence[0].strip():
-            return first_sentence[0].strip()[:25]
-        
-        # 5. 提取前25个字符作为主题
-        return content[:25].strip() if content else "未命名主题"
-    
-    def _extract_log_topic(self, content: str) -> str:
-        """从日志内容中提取主题名称"""
-        if not content or not content.strip():
-            return "未命名日志"
-
-        content = content.strip()
-
-        # 如果内容是字典的字符串表示，尝试提取其中的 content
-        if content.startswith('{') and content.endswith('}'):
-            try:
-                import ast
-                data = ast.literal_eval(content)
-                if isinstance(data, dict):
-                    log_content = data.get('content', '')
-                    if log_content:
-                        return log_content[:20].strip()
-            except:
-                pass
-
-        return content[:20].strip() if content else "未命名日志"
-
-    def _extract_tick_topic(self, content: str) -> str:
-        """从行情内容中提取主题名称"""
-        if not content or not content.strip():
-            return ""
-
-        content = content.strip()
-
-        # 尝试解析为字典提取 symbol 或 code
-        if content.startswith('{') and content.endswith('}'):
-            try:
-                import ast
-                data = ast.literal_eval(content)
-                if isinstance(data, dict):
-                    symbol = data.get('symbol', '') or data.get('code', '')
-                    if symbol:
-                        return f"行情 {symbol}"
-            except:
-                pass
-
-        # 直接返回内容前15字符
-        return content[:15].strip() if content else ""
-
-    def update_name(self):
-        """更新主题名称（当有新事件加入时）"""
-        self._auto_name()
-    
-    @property
-    def display_name(self) -> str:
-        """显示名称"""
-        return self.name if self.name else f"主题{self.id}"
-    
-    @property
-    def avg_attention(self) -> float:
-        """平均注意力"""
-        if self.event_count == 0:
-            return 0.0
-        return self.attention_sum / self.event_count
-    
-    @property
-    def growth_rate(self) -> float:
-        """增长率（最近1小时 vs 之前）"""
-        if self.event_count < 2:
-            return 0.0
-        
-        one_hour_ago = datetime.now() - timedelta(hours=1)
-        
-        # 处理 timestamp 可能是 float 或 datetime 的情况
-        recent = 0
-        for e in self.events:
-            if isinstance(e.timestamp, datetime):
-                if e.timestamp > one_hour_ago:
-                    recent += 1
-            elif isinstance(e.timestamp, (int, float)):
-                # float 时间戳与 datetime 比较需要转换
-                from datetime import datetime as dt
-                ts_datetime = dt.fromtimestamp(e.timestamp)
-                if ts_datetime > one_hour_ago:
-                    recent += 1
-        
-        older = self.event_count - recent
-        
-        if older == 0:
-            return 1.0
-        return (recent - older) / older
-
-
-class AttentionScorer:
-    """注意力评分器"""
-    
-    KEYWORDS = {
-        "high": ["突破", "暴涨", "暴跌", "涨停", "跌停", "重大", "紧急", "突发",
-                "AI", "人工智能", "算力", "芯片", "GPU", "英伟达", "OpenAI",
-                "政策", "监管", "改革", "创新", "革命"],
-        "medium": ["上涨", "下跌", "增长", "下降", "利好", "利空",
-                   "技术", "产品", "发布", "合作", "收购", "并购"],
-    }
-    
-    def __init__(self, history_size: int = 1000):
-        self.history = deque(maxlen=history_size)
-        self.recent_events = deque(maxlen=100)
-    
-    def score(self, event: NewsEvent) -> float:
-        """计算注意力评分"""
-        scores = {
-            "novelty": self._novelty_score(event),
-            "sentiment": self._sentiment_score(event),
-            "market": self._market_score(event),
-            "keywords": self._keyword_score(event),
-            "velocity": self._velocity_score(event),
-            "importance": self._importance_score(event),  # 新增：数据源标记的重要性
-        }
-        
-        weights = {
-            "novelty": 0.20,
-            "sentiment": 0.12,
-            "market": 0.20,
-            "keywords": 0.15,
-            "velocity": 0.13,
-            "importance": 0.20,  # 数据源标记的重要性权重
-        }
-        
-        total = sum(scores[k] * weights[k] for k in scores)
-        
-        self.history.append(event)
-        self.recent_events.append({
-            "time": event.timestamp,
-            "type": event.event_type,
-        })
-        
-        return min(1.0, max(0.0, total))
-
-    def peek_score(self, event: NewsEvent) -> float:
-        """计算注意力评分（不写入历史，用于预筛选）"""
-        scores = {
-            "novelty": self._novelty_score(event),
-            "sentiment": self._sentiment_score(event),
-            "market": self._market_score(event),
-            "keywords": self._keyword_score(event),
-            "velocity": self._velocity_score(event),
-            "importance": self._importance_score(event),
-        }
-        weights = {
-            "novelty": 0.20,
-            "sentiment": 0.12,
-            "market": 0.20,
-            "keywords": 0.15,
-            "velocity": 0.13,
-            "importance": 0.20,
-        }
-        total = sum(scores[k] * weights[k] for k in scores)
-        return min(1.0, max(0.0, total))
-    
-    def _importance_score(self, event: NewsEvent) -> float:
-        """数据源标记的重要性评分
-        
-        如果数据源标记了 importance="high"，则直接给高分
-        """
-        # 从 meta 中获取 importance
-        importance = event.meta.get('importance', '')
-        
-        if isinstance(importance, str):
-            importance = importance.lower()
-            if importance == 'high':
-                return 1.0
-            elif importance == 'medium':
-                return 0.6
-            elif importance == 'normal':
-                return 0.3
-        
-        # 也检查 meta 中的其他可能字段
-        if event.meta.get('important'):
-            return 0.9
-        
-        return 0.0
-    
-    def _novelty_score(self, event: NewsEvent) -> float:
-        """新颖度评分"""
-        if not self.history or event.vector is None:
-            return 0.5
-        
-        similarities = []
-        for hist in self.history:
-            if hist.vector is not None:
-                sim = self._cosine_similarity(event.vector, hist.vector)
-                similarities.append(sim)
-        
-        if not similarities:
-            return 0.5
-        
-        return 1.0 - np.mean(similarities)
-    
-    def _sentiment_score(self, event: NewsEvent) -> float:
-        """情绪强度评分"""
-        text = event.content.lower()
-        score = 0.0
-        
-        strong_words = ["暴涨", "涨停", "突破", "重大利好", "暴跌", "跌停", "崩盘", "危机"]
-        for word in strong_words:
-            if word in text:
-                score += 0.3
-        
-        score += min(0.2, text.count("!") * 0.05)
-        return min(1.0, score)
-    
-    def _market_score(self, event: NewsEvent) -> float:
-        """市场波动评分"""
-        if event.event_type != "tick":
-            return 0.0
-        
-        meta = event.meta
-        score = 0.0
-        
-        change_pct = meta.get("change_pct", 0)
-        if abs(change_pct) > 10:
-            score += 0.5
-        elif abs(change_pct) > 5:
-            score += 0.3
-        elif abs(change_pct) > 2:
-            score += 0.1
-        
-        return min(1.0, score)
-    
-    def _keyword_score(self, event: NewsEvent) -> float:
-        """关键词评分"""
-        text = event.content.lower()
-        score = 0.0
-        
-        for keyword in self.KEYWORDS["high"]:
-            if keyword.lower() in text:
-                score += 0.25
-        
-        for keyword in self.KEYWORDS["medium"]:
-            if keyword.lower() in text:
-                score += 0.1
-        
-        return min(1.0, score)
-    
-    def _velocity_score(self, event: NewsEvent) -> float:
-        """传播速度评分"""
-        if not self.recent_events:
-            return 0.0
-        
-        one_hour_ago = datetime.now() - timedelta(hours=1)
-        recent_count = sum(
-            1 for e in self.recent_events
-            if e["time"] > one_hour_ago and e["type"] == event.event_type
-        )
-        
-        if recent_count > 20:
-            return 1.0
-        elif recent_count > 10:
-            return 0.7
-        elif recent_count > 5:
-            return 0.4
-        return 0.1
-    
-    @staticmethod
-    def _cosine_similarity(v1: List[float], v2: List[float]) -> float:
-        """余弦相似度"""
-        v1, v2 = np.array(v1), np.array(v2)
-        norm = np.linalg.norm(v1) * np.linalg.norm(v2)
-        if norm == 0:
-            return 0.0
-        return float(np.dot(v1, v2) / norm)
+# ── 以下类已迁移到独立模块，此处通过头部导入保持向后兼容 ──
+# NewsEvent      → cognition/news_event.py
+# AttentionScorer → cognition/attention_scorer.py
+# Topic          → cognition/topic_manager.py
+# DATASOURCE_TYPE_MAP / get_datasource_type → cognition/news_event.py
+# STOCK_RELEVANT_* / _get_market_activity / _is_stock_relevant_topic → cognition/topic_manager.py
 
 
 class NewsMindStrategy:
@@ -795,26 +117,26 @@ class NewsMindStrategy:
         # 核心组件
         self.attention_scorer = AttentionScorer(history_size=self.short_term_size)
         
-        # 记忆系统 - 三层记忆架构
-        self.short_memory: deque = deque(maxlen=self.short_term_size)  # 短期记忆：最近事件
-        self.mid_memory: deque = deque(maxlen=5000)                    # 中期记忆：重要事件归档
-        self.long_memory: List[Dict] = []                              # 长期记忆：周期性总结
+        # 记忆系统 - 委托给 MemoryManager
+        self.memory = MemoryManager(self.config)
+        self.memory.set_market_activity_fn(_get_market_activity)
+
+        # 向后兼容属性代理（外部代码可能直接访问 self.short_memory 等）
+        self.short_memory = self.memory.short_memory
+        self.mid_memory = self.memory.mid_memory
+        self.long_memory = self.memory.long_memory
+
         self.topics: Dict[int, Topic] = {}                            # 主题库
         self.topic_counter = 0
 
-        # 记忆衰减参数
-        self.short_term_half_life = float(self.config.get("short_term_half_life", 300.0))
-        self.mid_term_half_life = float(self.config.get("mid_term_half_life", 3600.0))
-        self.topic_half_life = float(self.config.get("topic_half_life", 1800.0))
-        self._last_memory_decay_time: float = time.time()
-
-        # 记忆归档阈值
-        self.mid_memory_threshold = self.config.get("mid_memory_threshold", 0.7)   # 注意力评分超过此值进入中期记忆
-        self.long_memory_interval = self.config.get("long_memory_interval", 24)    # 小时，生成长期记忆的时间间隔
-        self.last_long_memory_time = datetime.now() - timedelta(hours=24)
-
-        # 强化学习参数
-        self.reinforcement_shield = float(self.config.get("reinforcement_shield", 60.0))  # 强化保护时间（秒）
+        # 向后兼容：保留这些属性的引用（实际值由 MemoryManager 管理）
+        self.short_term_half_life = self.memory.short_term_half_life
+        self.mid_term_half_life = self.memory.mid_term_half_life
+        self.topic_half_life = self.memory.topic_half_life
+        self.mid_memory_threshold = self.memory.mid_memory_threshold
+        self.long_memory_interval = self.memory.long_memory_interval
+        self.last_long_memory_time = self.memory.last_long_memory_time
+        self.reinforcement_shield = self.memory.reinforcement_shield  # 强化保护时间（秒）
         
         # River组件
         if RIVER_AVAILABLE:
@@ -854,10 +176,7 @@ class NewsMindStrategy:
         self.semantic_cold_start = SemanticColdStart(self.config)
         self.semantic_graph: Dict[str, Any] = dict(self.semantic_cold_start.graph)
         
-        # 缓存的市场活跃度（避免频繁查询）
-        self._cached_market_activity: float = 0.5
-        self._last_activity_update: float = 0.0
-        self._activity_cache_ttl: float = 5.0  # 5秒缓存
+
 
     def _init_propagation_engine(self):
         """初始化全球流动性传播引擎"""
@@ -906,103 +225,20 @@ class NewsMindStrategy:
         self.propagation_engine.decay_all_attention()
 
     def _get_dynamic_mid_memory_threshold(self) -> float:
-        """
-        获取动态中期记忆阈值
-        
-        根据市场活跃度动态调整阈值：
-        - 市场活跃时（activity > 0.6）：提高阈值，减少噪音
-        - 市场平淡时（activity < 0.3）：降低阈值，保留更多信号
-        - 市场温和时：使用默认值
-        """
-        now = time.time()
-        
-        # 每5秒更新一次缓存的市场活跃度
-        if now - self._last_activity_update > self._activity_cache_ttl:
-            self._cached_market_activity = _get_market_activity()
-            self._last_activity_update = now
-        
-        activity = self._cached_market_activity
-        
-        base_threshold = self.mid_memory_threshold
-        
-        if activity > 0.6:
-            return min(0.85, base_threshold + 0.15)
-        elif activity < 0.3:
-            return max(0.5, base_threshold - 0.2)
-        else:
-            return base_threshold
+        """获取动态中期记忆阈值（委托给 MemoryManager）"""
+        return self.memory.get_dynamic_mid_threshold()
 
     def _compute_freshness_weight(self, timestamp: float, half_life: float) -> float:
-        """
-        计算时间戳的新鲜度权重
-
-        使用指数衰减：weight = exp(-dt / half_life)
-        """
-        dt = time.time() - timestamp
-        if isinstance(timestamp, datetime):
-            dt = time.time() - timestamp.timestamp()
-        return math.exp(-dt / half_life) if half_life > 0 else 1.0
+        """计算时间戳的新鲜度权重（委托给 MemoryManager）"""
+        return MemoryManager.compute_freshness(timestamp, half_life)
 
     def _decay_memory(self):
-        """
-        惰性衰减记忆
-
-        对所有三层记忆执行增量衰减，使用与 AttentionMemory 类似的新鲜度机制
-        """
-        now = time.time()
-        dt = now - self._last_memory_decay_time
-        if dt < 10:
-            return
-
-        self._last_memory_decay_time = now
-
-        for event in self.short_memory:
-            if "timestamp" in event:
-                ts = event["timestamp"]
-                freshness = self._compute_freshness_weight(ts, self.short_term_half_life)
-                shield_multiplier = 1.0
-                if "last_reinforced" in event:
-                    time_since = now - event["last_reinforced"]
-                    if time_since < self.reinforcement_shield:
-                        shield_multiplier = 0.5
-                    elif time_since < self.reinforcement_shield * 3:
-                        shield_multiplier = 0.75
-                event["attention_score"] *= freshness * shield_multiplier
-
-        for event in self.mid_memory:
-            if "timestamp" in event:
-                ts = event["timestamp"]
-                freshness = self._compute_freshness_weight(ts, self.mid_term_half_life)
-                event["attention_score"] *= freshness
-
-        for topic in self.topics.values():
-            if hasattr(topic, "last_updated") and topic.last_updated:
-                freshness = self._compute_freshness_weight(topic.last_updated, self.topic_half_life)
-                topic.event_count *= freshness
+        """惰性衰减记忆（委托给 MemoryManager）"""
+        self.memory.decay(topics=self.topics)
 
     def reinforce_event(self, event_id: str, reward: float):
-        """
-        强化记忆事件
-
-        Args:
-            event_id: 事件 ID
-            reward: 奖励值，正增强，负抑制
-        """
-        now = time.time()
-        for event in self.short_memory:
-            if event.get("id") == event_id:
-                event["attention_score"] *= (1 + reward)
-                event["attention_score"] = max(0, min(1, event["attention_score"]))
-                event["last_reinforced"] = now
-                event["reinforce_count"] = event.get("reinforce_count", 0) + 1
-                break
-
-        for event in self.mid_memory:
-            if event.get("id") == event_id:
-                event["attention_score"] *= (1 + reward)
-                event["attention_score"] = max(0, min(1, event["attention_score"]))
-                event["last_reinforced"] = now
-                break
+        """强化记忆事件（委托给 MemoryManager）"""
+        self.memory.reinforce(event_id, reward)
 
     def process_record(self, record: Dict) -> List[Dict]:
         """
@@ -1617,72 +853,9 @@ class NewsMindStrategy:
         return signals
     
     def _update_long_memory(self):
-        """更新长期记忆 - 周期性总结"""
-        now = datetime.now()
-        if (now - self.last_long_memory_time).total_seconds() >= self.long_memory_interval * 3600:
-            # 生成周期性总结
-            summary = self._generate_memory_summary()
-            self.long_memory.append({
-                "timestamp": now.isoformat(),
-                "summary": summary,
-                "period_start": self.last_long_memory_time.isoformat(),
-                "period_end": now.isoformat(),
-            })
-            # 只保留最近30天的长期记忆
-            if len(self.long_memory) > 30:
-                self.long_memory = self.long_memory[-30:]
-            self.last_long_memory_time = now
+        """更新长期记忆（委托给 MemoryManager）"""
+        self.memory.update_long_memory(topics=self.topics)
     
-    def _generate_memory_summary(self) -> Dict:
-        """生成记忆总结"""
-        # 统计周期内的数据
-        period_start = self.last_long_memory_time
-        period_events = [e for e in self.mid_memory if e["timestamp"] >= period_start]
-        
-        # 按主题统计
-        topic_stats = {}
-        for event in period_events:
-            tid = event.get("topic_id")
-            if tid:
-                if tid not in topic_stats:
-                    topic_stats[tid] = {
-                        "count": 0,
-                        "total_attention": 0,
-                        "topic_name": self.topics.get(tid, Topic(id=tid, center=[], events=deque(), created_at=datetime.now(), last_updated=datetime.now())).display_name
-                    }
-                topic_stats[tid]["count"] += 1
-                topic_stats[tid]["total_attention"] += event["attention_score"]
-        
-        # 排序获取热门主题
-        sorted_topics = sorted(
-            topic_stats.items(),
-            key=lambda x: x[1]["count"],
-            reverse=True
-        )[:5]
-        
-        return {
-            "total_events": len(period_events),
-            "avg_attention": sum(e["attention_score"] for e in period_events) / len(period_events) if period_events else 0,
-            "top_topics": [
-                {
-                    "id": tid,
-                    "name": stats["topic_name"],
-                    "event_count": stats["count"],
-                    "avg_attention": round(stats["total_attention"] / stats["count"], 3) if stats["count"] > 0 else 0,
-                }
-                for tid, stats in sorted_topics
-            ],
-            "event_types": self._count_by_key(period_events, "event_type"),
-            "sources": self._count_by_key(period_events, "source"),
-        }
-    
-    def _count_by_key(self, events: List[Dict], key: str) -> Dict:
-        """按key统计事件数量"""
-        counts = {}
-        for e in events:
-            val = e.get(key, "unknown")
-            counts[val] = counts.get(val, 0) + 1
-        return counts
     
     def _create_signal(self, signal_type: SignalType, event: Optional[NewsEvent],
                        message: str, data: Dict) -> Dict:
@@ -2040,49 +1213,16 @@ class NewsMindStrategy:
         }
     
     def _get_short_term_memory_data(self) -> List[Dict]:
-        """获取短期记忆数据（最近10条）"""
-        recent_events = list(self.short_memory)[-10:]
-        return [
-            {
-                "id": e.id,
-                "timestamp": e.timestamp.isoformat() if isinstance(e.timestamp, datetime) else str(e.timestamp),
-                "source": e.source,
-                "event_type": e.event_type,
-                "content": e.content[:50] + "..." if len(e.content) > 50 else e.content,
-                "attention_score": round(e.attention_score, 3),
-                "topic_id": e.topic_id,
-            }
-            for e in reversed(recent_events)
-        ]
-    
+        """获取短期记忆数据（委托给 MemoryManager）"""
+        return self.memory.get_short_term_data(limit=10)
+
     def _get_mid_term_memory_data(self) -> List[Dict]:
-        """获取中期记忆数据（最近10条）"""
-        recent_events = list(self.mid_memory)[-10:]
-        return [
-            {
-                "id": e["id"],
-                "timestamp": e["timestamp"].isoformat() if isinstance(e["timestamp"], datetime) else str(e["timestamp"]),
-                "source": e["source"],
-                "event_type": e["event_type"],
-                "content": e["content"][:50] + "..." if len(e["content"]) > 50 else e["content"],
-                "attention_score": round(e["attention_score"], 3),
-                "topic_id": e.get("topic_id"),
-            }
-            for e in reversed(recent_events)
-        ]
-    
+        """获取中期记忆数据（委托给 MemoryManager）"""
+        return self.memory.get_mid_term_data(limit=10)
+
     def _get_long_term_memory_data(self) -> List[Dict]:
-        """获取长期记忆数据（最近5个周期）"""
-        recent_summaries = self.long_memory[-5:]
-        return [
-            {
-                "timestamp": s["timestamp"],
-                "period_start": s["period_start"],
-                "period_end": s["period_end"],
-                "summary": s["summary"],
-            }
-            for s in reversed(recent_summaries)
-        ]
+        """获取长期记忆数据（委托给 MemoryManager）"""
+        return self.memory.get_long_term_data(limit=5)
     
     def generate_thought_report(self) -> str:
         """生成思想报告"""
@@ -2332,44 +1472,16 @@ class NewsMindStrategy:
     
     def _serialize_state(self) -> dict:
         """序列化状态为字典"""
-        # 序列化短期记忆（只保存最近500条，避免数据过大）
-        short_memory_data = []
-        for e in list(self.short_memory)[-500:]:
-            short_memory_data.append({
-                "id": e.id,
-                "timestamp": e.timestamp.isoformat() if isinstance(e.timestamp, datetime) else str(e.timestamp),
-                "source": e.source,
-                "event_type": e.event_type,
-                "content": e.content,
-                "vector": e.vector,
-                "attention_score": e.attention_score,
-                "topic_id": e.topic_id,
-                "meta": e.meta,
-            })
-        
-        # 序列化中期记忆
-        mid_memory_data = []
-        for e in list(self.mid_memory)[-1000:]:  # 最多保存1000条
-            mid_memory_data.append({
-                "id": e["id"],
-                "timestamp": e["timestamp"].isoformat() if isinstance(e["timestamp"], datetime) else str(e["timestamp"]),
-                "source": e["source"],
-                "event_type": e["event_type"],
-                "content": e["content"],
-                "attention_score": e["attention_score"],
-                "topic_id": e.get("topic_id"),
-            })
-        
-        # 序列化长期记忆
-        long_memory_data = self.long_memory[-30:]  # 最多保存30个周期
-        
+        # 记忆部分委托给 MemoryManager
+        memory_state = self.memory.serialize_state()
+
         # 序列化主题
         topics_data = {}
         for topic_id, topic in self.topics.items():
             topics_data[str(topic_id)] = {
                 "id": topic.id,
                 "center": topic.center,
-                "events": list(topic.events)[-100:],  # 每个主题最多保存100个事件
+                "events": list(topic.events)[-100:],
                 "created_at": topic.created_at.isoformat(),
                 "last_updated": topic.last_updated.isoformat(),
                 "attention_sum": topic.attention_sum,
@@ -2377,26 +1489,18 @@ class NewsMindStrategy:
                 "name": topic.name,
                 "keywords": topic.keywords,
             }
-        
-        return {
+
+        result = {
             "version": 1,
             "saved_at": datetime.now().isoformat(),
             "config": self.config,
             "stats": self.stats,
             "topic_counter": self.topic_counter,
-            "short_memory": short_memory_data,
-            "mid_memory": mid_memory_data,
-            "long_memory": long_memory_data,
             "topics": topics_data,
-            "mid_memory_threshold": self.mid_memory_threshold,
-            "long_memory_interval": self.long_memory_interval,
-            "last_long_memory_time": self.last_long_memory_time.isoformat(),
             "semantic_graph": self.semantic_graph,
-            "short_term_half_life": self.short_term_half_life,
-            "mid_term_half_life": self.mid_term_half_life,
-            "topic_half_life": self.topic_half_life,
-            "reinforcement_shield": self.reinforcement_shield,
         }
+        result.update(memory_state)
+        return result
     
     def _deserialize_state(self, data: dict):
         """从字典反序列化状态"""
@@ -2406,7 +1510,7 @@ class NewsMindStrategy:
         self.topic_threshold = self.config.get("topic_threshold", 0.5)
         self.attention_threshold = self.config.get("attention_threshold", 0.6)
         self.max_topics = self.config.get("max_topics", 50)
-        
+
         # 恢复统计信息
         default_stats = {
             "total_events": 0,
@@ -2418,64 +1522,37 @@ class NewsMindStrategy:
         saved_stats = data.get("stats", {})
         self.stats = {**default_stats, **saved_stats}
         self.topic_counter = data.get("topic_counter", 0)
-        self.mid_memory_threshold = data.get("mid_memory_threshold", 0.7)
-        self.long_memory_interval = data.get("long_memory_interval", 24)
         self.semantic_graph = data.get("semantic_graph", self.semantic_graph or {})
 
-        self.short_term_half_life = data.get("short_term_half_life", 300.0)
-        self.mid_term_half_life = data.get("mid_term_half_life", 3600.0)
-        self.topic_half_life = data.get("topic_half_life", 1800.0)
-        self.reinforcement_shield = data.get("reinforcement_shield", 60.0)
-        
-        # 恢复长期记忆时间
-        last_long_time_str = data.get("last_long_memory_time")
-        if last_long_time_str:
-            try:
-                self.last_long_memory_time = datetime.fromisoformat(last_long_time_str)
-            except:
-                self.last_long_memory_time = datetime.now() - timedelta(hours=24)
-        
-        # 恢复短期记忆
-        self.short_memory.clear()
-        for e_data in data.get("short_memory", []):
-            try:
-                event = NewsEvent(
-                    id=e_data["id"],
-                    timestamp=datetime.fromisoformat(e_data["timestamp"]),
-                    source=e_data["source"],
-                    event_type=e_data["event_type"],
-                    content=e_data["content"],
-                    vector=e_data.get("vector"),
-                    meta=e_data.get("meta", {}),
-                )
-                event.attention_score = e_data.get("attention_score", 0)
-                event.topic_id = e_data.get("topic_id")
-                self.short_memory.append(event)
-            except Exception as e:
-                print(f"[NewsMind] 恢复短期记忆事件失败: {e}")
-        
-        # 恢复中期记忆
-        self.mid_memory.clear()
-        for e_data in data.get("mid_memory", []):
-            try:
-                ts = e_data["timestamp"]
-                if isinstance(ts, str):
-                    ts = datetime.fromisoformat(ts)
-                self.mid_memory.append({
-                    "id": e_data["id"],
-                    "timestamp": ts,
-                    "source": e_data["source"],
-                    "event_type": e_data["event_type"],
-                    "content": e_data["content"],
-                    "attention_score": e_data["attention_score"],
-                    "topic_id": e_data.get("topic_id"),
-                })
-            except Exception as e:
-                print(f"[NewsMind] 恢复中期记忆事件失败: {e}")
-        
-        # 恢复长期记忆
-        self.long_memory = data.get("long_memory", [])
-        
+        # 记忆部分委托给 MemoryManager
+        def _news_event_factory(e_data):
+            event = NewsEvent(
+                id=e_data["id"],
+                timestamp=datetime.fromisoformat(e_data["timestamp"]),
+                source=e_data["source"],
+                event_type=e_data["event_type"],
+                content=e_data["content"],
+                vector=e_data.get("vector"),
+                meta=e_data.get("meta", {}),
+            )
+            event.attention_score = e_data.get("attention_score", 0)
+            event.topic_id = e_data.get("topic_id")
+            return event
+
+        self.memory.deserialize_state(data, event_factory=_news_event_factory)
+
+        # 同步向后兼容属性
+        self.short_memory = self.memory.short_memory
+        self.mid_memory = self.memory.mid_memory
+        self.long_memory = self.memory.long_memory
+        self.short_term_half_life = self.memory.short_term_half_life
+        self.mid_term_half_life = self.memory.mid_term_half_life
+        self.topic_half_life = self.memory.topic_half_life
+        self.reinforcement_shield = self.memory.reinforcement_shield
+        self.mid_memory_threshold = self.memory.mid_memory_threshold
+        self.long_memory_interval = self.memory.long_memory_interval
+        self.last_long_memory_time = self.memory.last_long_memory_time
+
         # 恢复主题
         self.topics.clear()
         for topic_id_str, t_data in data.get("topics", {}).items():

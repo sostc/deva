@@ -54,7 +54,7 @@ class SystemMonitor:
         "radar": {"name": "📡 雷达引擎", "class": "RadarEngine", "method": "get_recent_events"},
         "bandit": {"name": "🎰 Bandit决策", "class": "BanditRunner", "method": "get_stats"},
         "cognition": {"name": "🧩 认知系统", "class": "CognitionEngine", "method": "get_memory_report"},
-        "wisdom": {"name": "📚 智慧陪伴", "class": "ManasAlayaConnector", "method": "get_wisdom_stats"},
+        "wisdom": {"name": "📚 智慧陪伴", "class": "TradingCenter", "method": "get_wisdom_stats"},
         "manas": {"name": "👁️ 末那识", "class": "ManasCore", "method": "get_stats"},
         "alaya": {"name": "✨ 阿那亚", "class": "AwakenedAlaya", "method": "get_stats"},
         "data_source": {"name": "📡 数据源", "class": "DataSourceManager", "method": "get_stats"},
@@ -157,8 +157,9 @@ class SystemMonitor:
                 instance = SR('bandit_runner')
             elif class_name == "CognitionEngine":
                 instance = SR('cognition_engine')
-            elif class_name == "ManasAlayaConnector":
-                instance = SR('connector')
+            elif class_name == "TradingCenter":
+                from deva.naja.attention.trading_center import get_trading_center
+                instance = get_trading_center()
             elif class_name == "DataSourceManager":
                 from deva.naja.datasource import get_datasource_manager
                 instance = get_datasource_manager()

@@ -390,6 +390,7 @@ class SystemBootstrap:
                 func_code = '''
 import logging
 import asyncio
+import os
 import nest_asyncio
 log = logging.getLogger(__name__)
 
@@ -401,8 +402,10 @@ def execute() -> dict:
         from deva.naja.cognition.economic_data_fetcher import EconomicDataFetcher
         from deva.naja.cognition.merrill_clock import get_merrill_clock_engine
         
-        fred_api_key = "f48d2328888b60cb2d188c148da31f63"
-        fetcher = EconomicDataFetcher(fred_api_key=fred_api_key, use_mock=False)
+        fred_api_key = os.environ.get("FRED_API_KEY", "")
+        if not fred_api_key:
+            log.warning("[MerrillClockTask] FRED_API_KEY 环境变量未设置，使用 mock 模式")
+        fetcher = EconomicDataFetcher(fred_api_key=fred_api_key, use_mock=not bool(fred_api_key))
         
         nest_asyncio.apply()
         
@@ -560,31 +563,6 @@ def execute() -> dict:
         if result and result.details:
             self._boot_details.update(result.details)
 
-
-_last_boot_report: Optional[BootResult] = None
-_last_boot_report_ts: float = 0.0
-
-
-def _set_last_boot_report(result: BootResult):
-    global _last_boot_report, _last_boot_report_ts
-    _last_boot_report = result
-    _last_boot_report_ts = time.time()
-
-
-def get_last_boot_report() -> Dict[str, Any]:
-    """获取最近一次启动报告"""
-    if _last_boot_report is None:
-        return {}
-    return {
-        "success": _last_boot_report.success,
-        "stage": _last_boot_report.stage.value,
-        "message": _last_boot_report.message,
-        "duration_ms": _last_boot_report.duration_ms,
-        "error": _last_boot_report.error,
-        "details": _last_boot_report.details,
-        "ts": _last_boot_report_ts,
-    }
-
     @property
     def is_initialized(self) -> bool:
         """是否已初始化"""
@@ -609,6 +587,31 @@ def get_last_boot_report() -> Dict[str, Any]:
                 for r in self._boot_results
             ],
         }
+
+
+_last_boot_report: Optional[BootResult] = None
+_last_boot_report_ts: float = 0.0
+
+
+def _set_last_boot_report(result: BootResult):
+    global _last_boot_report, _last_boot_report_ts
+    _last_boot_report = result
+    _last_boot_report_ts = time.time()
+
+
+def get_last_boot_report() -> Dict[str, Any]:
+    """获取最近一次启动报告"""
+    if _last_boot_report is None:
+        return {}
+    return {
+        "success": _last_boot_report.success,
+        "stage": _last_boot_report.stage.value,
+        "message": _last_boot_report.message,
+        "duration_ms": _last_boot_report.duration_ms,
+        "error": _last_boot_report.error,
+        "details": _last_boot_report.details,
+        "ts": _last_boot_report_ts,
+    }
 
 
 _system_bootstrap: Optional[SystemBootstrap] = None

@@ -187,8 +187,3 @@ def create_cognition_debug_config() -> StartupConfig:
     return MODE_COMBINATIONS["cognition_debug"]
 
 
-# 向后兼容：旧的环境变量名映射
-LEGACY_ENV_VARS = {
-    "NAJA_RADAR_DEBUG": "NAJA_NEWS_RADAR_DEBUG",  # 已废弃
-    "NAJA_LAB": "NAJA_LAB_MODE",  # 已废弃
-}
