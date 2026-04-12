@@ -53,7 +53,7 @@ class GlobalMarketSentinel(HotspotStrategyBase):
         
         # 历史状态
         self.volatility_history = deque(maxlen=history_window)
-        self.attention_history = deque(maxlen=history_window)
+        self.hotspot_history = deque(maxlen=history_window)
         
         # 风险等级
         self.current_risk_level = 0  # 0-4
@@ -97,16 +97,16 @@ class GlobalMarketSentinel(HotspotStrategyBase):
         
         # 更新历史
         self.volatility_history.append(volatility)
-        self.attention_history.append(context.get('global_hotspot', 0.5))
+        self.hotspot_history.append(context.get('global_hotspot', 0.5))
         
         # 计算趋势
         volatility_trend = self._calculate_trend(self.volatility_history)
-        attention_trend = self._calculate_trend(self.attention_history)
+        hotspot_trend = self._calculate_trend(self.hotspot_history)
         
         # 计算风险等级
         new_risk_level = self._calculate_risk_level(
             volatility, mean_change, up_ratio, down_ratio, 
-            extreme_down, volatility_trend, attention_trend
+            extreme_down, volatility_trend, hotspot_trend
         )
         
         # 风险等级变化时发出信号
@@ -179,7 +179,7 @@ class GlobalMarketSentinel(HotspotStrategyBase):
         down_ratio: float,
         extreme_down: float,
         volatility_trend: float,
-        attention_trend: float
+        hotspot_trend: float
     ) -> int:
         """计算风险等级 0-4"""
         risk_score = 0

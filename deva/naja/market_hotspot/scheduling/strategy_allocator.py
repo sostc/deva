@@ -68,8 +68,8 @@ class StrategyConfig:
     params: StrategyParams = field(default_factory=StrategyParams)
     
     # 激活条件
-    min_attention: float = 0.0      # 最小热点要求
-    max_attention: float = 1.0      # 最大热点限制
+    min_hotspot: float = 0.0      # 最小热点要求
+    max_hotspot: float = 1.0      # 最大热点限制
     
     # 依赖
     depends_on: List[str] = field(default_factory=list)
@@ -216,32 +216,32 @@ class StrategyAllocator:
             'risk_limit': self._map_risk_limit
         }
 
-        self._decision_attention = None
+        self._decision_hotspot = None
 
-    def set_decision_attention(self, decision_attention):
+    def set_decision_hotspot(self, decision_hotspot):
         """
         设置决策热点实例
 
         Args:
-            decision_attention: DecisionHotspot 实例
+            decision_hotspot: DecisionHotspot 实例
         """
-        self._decision_attention = decision_attention
+        self._decision_hotspot = decision_hotspot
 
-    def get_decision_attention(self):
+    def get_decision_hotspot(self):
         """获取决策热点实例"""
-        return self._decision_attention
+        return self._decision_hotspot
 
     def _get_alpha(self) -> float:
         """获取策略准确性因子 α"""
-        if self._decision_attention is None:
+        if self._decision_hotspot is None:
             return 1.0
-        return self._decision_attention.compute_alpha(strategy_performance=0.5)
+        return self._decision_hotspot.compute_alpha(strategy_performance=0.5)
 
     def _get_temperature(self) -> float:
         """获取温度参数 T"""
-        if self._decision_attention is None:
+        if self._decision_hotspot is None:
             return 1.0
-        return self._decision_attention.compute_temperature()
+        return self._decision_hotspot.compute_temperature()
 
     def _get_courage(self) -> float:
         """获取胆识因子（基于温度）"""
@@ -293,9 +293,9 @@ class StrategyAllocator:
         allocation['global'] = [s.config.strategy_id for s in global_strategies]
         
         # 2. 题材策略分配
-        for block_id, attention in block_hotspot.items():
+        for block_id, hotspot in block_hotspot.items():
             block_strategies = self._allocate_block_strategies(
-                block_id, attention, global_hotspot
+                block_id, hotspot, global_hotspot
             )
             allocation['block'][block_id] = [
                 s.config.strategy_id for s in block_strategies
@@ -367,9 +367,9 @@ class StrategyAllocator:
 
         for strategy in strategies:
             # 题材策略需要同时满足全局和题材热点
-            effective_attention = (global_hotspot + block_hotspot) / 2
+            effective_hotspot = (global_hotspot + block_hotspot) / 2
 
-            if self._should_activate(strategy, effective_attention, {'block': block_id}):
+            if self._should_activate(strategy, effective_hotspot, {'block': block_id}):
                 allocated.append(strategy)
                 if strategy.config.strategy_id not in self._active_strategies:
                     self._activate_strategy(strategy)
@@ -391,9 +391,9 @@ class StrategyAllocator:
         
         for strategy in strategies:
             # 个股策略受全局热点和个股权重共同影响
-            effective_attention = (global_hotspot + min(symbol_weight / 3, 1.0)) / 2
+            effective_hotspot = (global_hotspot + min(symbol_weight / 3, 1.0)) / 2
             
-            if self._should_activate(strategy, effective_attention, {'symbol': symbol}):
+            if self._should_activate(strategy, effective_hotspot, {'symbol': symbol}):
                 allocated.append(strategy)
                 if strategy.config.strategy_id not in self._active_strategies:
                     self._activate_strategy(strategy)
@@ -406,14 +406,14 @@ class StrategyAllocator:
     def _should_activate(
         self,
         strategy: Strategy,
-        attention: float,
+        hotspot: float,
         context: Dict[str, Any]
     ) -> bool:
         """判断是否应该激活策略"""
         config = strategy.config
         
         # 检查热点范围
-        if attention < config.min_attention or attention > config.max_attention:
+        if hotspot < config.min_hotspot or hotspot > config.max_hotspot:
             return False
         
         # 检查依赖
@@ -456,44 +456,44 @@ class StrategyAllocator:
         根据热点和 DecisionHotspot 调整策略参数
 
         DecisionHotspot 调制:
-        - attention ↑ → threshold ↓ (更容易触发)
-        - attention ↑ → position_size ↑
-        - attention ↓ → holding_time ↓
-        - attention ↑ → risk_limit ↑ (更宽松)
+        - hotspot ↑ → threshold ↓ (更容易触发)
+        - hotspot ↑ → position_size ↑
+        - hotspot ↓ → holding_time ↓
+        - hotspot ↑ → risk_limit ↑ (更宽松)
         - α (策略准确性) ↑ → position_size ↑ (更自信)
         - courage ↑ → position_size ↑, risk_limit ↑ (更激进)
         """
         base_params = strategy.config.params
 
         if strategy.config.scope == StrategyScope.GLOBAL:
-            effective_attention = global_hotspot
+            effective_hotspot = global_hotspot
         elif strategy.config.scope == StrategyScope.BLOCK:
             if block_hotspot:
                 values = [v for v in block_hotspot.values() if isinstance(v, (int, float)) and not np.isnan(v) and not np.isinf(v)]
-                effective_attention = np.mean(values) if values else global_hotspot
+                effective_hotspot = np.mean(values) if values else global_hotspot
             else:
-                effective_attention = global_hotspot
+                effective_hotspot = global_hotspot
         else:
-            effective_attention = global_hotspot
+            effective_hotspot = global_hotspot
 
         α = self._get_alpha()
         courage = self._get_courage()
 
-        attention_factor = effective_attention
+        hotspot_factor = effective_hotspot
         confidence_factor = α
         courage_factor = courage
 
-        position_size_base = self._map_position_size(attention_factor)
+        position_size_base = self._map_position_size(hotspot_factor)
         position_size = position_size_base * confidence_factor * (0.8 + 0.4 * courage_factor)
 
-        risk_limit_base = self._map_risk_limit(attention_factor)
+        risk_limit_base = self._map_risk_limit(hotspot_factor)
         risk_limit = risk_limit_base * (0.8 + 0.4 * courage_factor)
 
         new_params = StrategyParams(
-            threshold=self._param_mappers['threshold'](effective_attention),
-            window=int(self._param_mappers['window'](effective_attention)),
+            threshold=self._param_mappers['threshold'](effective_hotspot),
+            window=int(self._param_mappers['window'](effective_hotspot)),
             position_size=min(position_size, 0.3),
-            holding_time=int(self._param_mappers['holding_time'](effective_attention)),
+            holding_time=int(self._param_mappers['holding_time'](effective_hotspot)),
             risk_limit=min(risk_limit, 0.15)
         )
 
@@ -501,35 +501,35 @@ class StrategyAllocator:
 
         return new_params
     
-    def _map_threshold(self, attention: float) -> float:
-        """阈值映射: attention ↑ → threshold ↓"""
-        # attention 0 -> threshold 0.7
-        # attention 1 -> threshold 0.3
-        return 0.7 - attention * 0.4
+    def _map_threshold(self, hotspot: float) -> float:
+        """阈值映射: hotspot ↑ → threshold ↓"""
+        # hotspot 0 -> threshold 0.7
+        # hotspot 1 -> threshold 0.3
+        return 0.7 - hotspot * 0.4
     
-    def _map_window(self, attention: float) -> int:
-        """窗口映射: attention ↑ → window ↓ (更敏感)"""
-        # attention 0 -> window 20
-        # attention 1 -> window 5
-        return int(20 - attention * 15)
+    def _map_window(self, hotspot: float) -> int:
+        """窗口映射: hotspot ↑ → window ↓ (更敏感)"""
+        # hotspot 0 -> window 20
+        # hotspot 1 -> window 5
+        return int(20 - hotspot * 15)
     
-    def _map_position_size(self, attention: float) -> float:
-        """仓位映射: attention ↑ → position_size ↑"""
-        # attention 0 -> position_size 0.05
-        # attention 1 -> position_size 0.2
-        return 0.05 + attention * 0.15
+    def _map_position_size(self, hotspot: float) -> float:
+        """仓位映射: hotspot ↑ → position_size ↑"""
+        # hotspot 0 -> position_size 0.05
+        # hotspot 1 -> position_size 0.2
+        return 0.05 + hotspot * 0.15
     
-    def _map_holding_time(self, attention: float) -> int:
-        """持仓周期映射: attention ↓ → holding_time ↓"""
-        # attention 0 -> holding_time 3
-        # attention 1 -> holding_time 10
-        return int(3 + attention * 7)
+    def _map_holding_time(self, hotspot: float) -> int:
+        """持仓周期映射: hotspot ↓ → holding_time ↓"""
+        # hotspot 0 -> holding_time 3
+        # hotspot 1 -> holding_time 10
+        return int(3 + hotspot * 7)
     
-    def _map_risk_limit(self, attention: float) -> float:
-        """风险限制映射: attention ↑ → risk_limit ↑"""
-        # attention 0 -> risk_limit 0.03 (严格)
-        # attention 1 -> risk_limit 0.08 (宽松)
-        return 0.03 + attention * 0.05
+    def _map_risk_limit(self, hotspot: float) -> float:
+        """风险限制映射: hotspot ↑ → risk_limit ↑"""
+        # hotspot 0 -> risk_limit 0.03 (严格)
+        # hotspot 1 -> risk_limit 0.08 (宽松)
+        return 0.03 + hotspot * 0.05
     
     def get_active_strategies(self) -> List[str]:
         """获取当前激活的策略列表"""

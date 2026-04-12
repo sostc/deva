@@ -32,11 +32,11 @@ def render_hotspot_details_card(details: Dict[str, Any]) -> str:
     flat_ratio = details.get('flat_ratio', 0)
     mean_abs_return = details.get('mean_abs_return', 0)
     volatility = details.get('volatility', 0)
-    hotspot = details.get('hotspot', details.get('attention', 0))
+    hotspot = details.get('hotspot', 0)
     activity = details.get('activity', 0)
     hotspot_level = details.get('hotspot_level', details.get('hotspot_level', '未知'))
     activity_level = details.get('activity_level', '未知')
-    hotspot_formula = details.get('hotspot_formula', details.get('attention_formula', ''))
+    hotspot_formula = details.get('hotspot_formula', '')
     activity_formula = details.get('activity_formula', '')
 
     hotspot_color = "#dc2626" if hotspot >= 0.6 else ("#ca8a04" if hotspot >= 0.3 else "#16a34a")
@@ -229,9 +229,9 @@ def render_market_state_panel() -> str:
         sorted_us_blocks = sorted(us_blocks.items(), key=lambda x: x[1], reverse=True)[:5]
 
     if has_us_data and not show_us_only:
-        cn_attention = global_attn
-        us_attention = us_data.get('global_hotspot', 0)
-        combined_attention = (cn_attention + us_attention) / 2
+        cn_hotspot = global_attn
+        us_hotspot = us_data.get('global_hotspot', 0)
+        combined_hotspot = (cn_hotspot + us_hotspot) / 2
         time_display = f"📅 {market_time} | {cn_line} | {us_line} | {mode_label}"
 
     panel_title = "🇺🇸 美股市场热点" if show_us_only else ("🇨🇳 A股市场热点" if show_cn_only else "👁️ 市场热点")

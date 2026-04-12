@@ -64,7 +64,7 @@ class StateQuerier:
     def _get_volatility_surface_state(self) -> Dict[str, Any]:
         """获取波动率曲面状态（委托给 TradingCenter）"""
         try:
-            from deva.naja.attention.trading_center import get_trading_center
+            from deva.naja.attention.orchestration.trading_center import get_trading_center
             tc = get_trading_center()
             if tc:
                 return tc._get_volatility_surface_state()
@@ -79,7 +79,7 @@ class StateQuerier:
     def _check_contradiction(self) -> Dict[str, Any]:
         """检查矛盾（委托给 TradingCenter）"""
         try:
-            from deva.naja.attention.trading_center import get_trading_center
+            from deva.naja.attention.orchestration.trading_center import get_trading_center
             tc = get_trading_center()
             if tc:
                 return tc._check_contradiction()

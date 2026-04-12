@@ -33,7 +33,7 @@ def get_strategy_manager():
 def get_history_tracker():
     """获取历史追踪器"""
     try:
-        from deva.naja.market_hotspot.market_hotspot_history_tracker import get_history_tracker
+        from deva.naja.market_hotspot.tracking.history_tracker import get_history_tracker
         return get_history_tracker()
     except Exception:
         return None

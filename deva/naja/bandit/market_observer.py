@@ -753,7 +753,7 @@ class MarketDataObserver:
                             self._update_price(stock_code, price)
 
                 try:
-                    from deva.naja.attention.trading_center import get_trading_center
+                    from deva.naja.attention.orchestration.trading_center import get_trading_center
                     tc = get_trading_center()
                     tc.attention_os.market_scheduler.schedule(data)
                     log.info(f"[MarketObserver] Lab 模式：已发送 {len(data)} 条数据到 TradingCenter")
@@ -773,7 +773,7 @@ class MarketDataObserver:
                             self._update_price(stock_code, price)
 
                 try:
-                    from deva.naja.attention.trading_center import get_trading_center
+                    from deva.naja.attention.orchestration.trading_center import get_trading_center
                     tc = get_trading_center()
                     tc.attention_os.market_scheduler.schedule(data)
                     log.info(f"[MarketObserver] Lab 模式：已发送 {len(symbols)} 只股票数据到 TradingCenter")

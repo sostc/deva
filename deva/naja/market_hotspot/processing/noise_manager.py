@@ -52,7 +52,7 @@ class BlockNoiseConfig:
         '物业管理', '含B股', '地方版', '预预', '昨日', '近日',
     ])
     auto_blacklist_enabled: bool = True
-    min_attention_threshold: float = 0.01
+    min_hotspot_threshold: float = 0.01
     min_correlation_variance: float = 0.0001
     min_relation_quality: float = 0.1
 

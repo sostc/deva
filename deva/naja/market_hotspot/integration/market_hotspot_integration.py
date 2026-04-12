@@ -146,9 +146,9 @@ class MarketHotspotIntegration:
 
         log.info(f"[MarketHotspotIntegration] 创建 MarketHotspotSystem, config={self.config}")
         self.hotspot_system = MarketHotspotSystem(self.config)
-        log.info(f"[MarketHotspotIntegration] 调用 attention_system.initialize()")
+        log.info(f"[MarketHotspotIntegration] 调用 hotspot_system.initialize()")
         self.hotspot_system.initialize(self._blocks, self._symbol_block_map)
-        log.info(f"[MarketHotspotIntegration] attention_system.initialize 完成")
+        log.info(f"[MarketHotspotIntegration] hotspot_system.initialize 完成")
 
         self._register_names_to_tracker()
 
@@ -216,7 +216,7 @@ class MarketHotspotIntegration:
         Returns:
             MarketContext 对象
         """
-        if not hasattr(self, 'attention_system') or self.hotspot_system is None:
+        if not hasattr(self, 'hotspot_system') or self.hotspot_system is None:
             return None
         return self.hotspot_system._get_context(market)
 
@@ -255,7 +255,7 @@ class MarketHotspotIntegration:
     def _register_names_to_tracker(self):
         """注册题材和个股名称到历史追踪器"""
         try:
-            from deva.naja.market_hotspot.market_hotspot_history_tracker import get_history_tracker
+            from deva.naja.market_hotspot.tracking.history_tracker import get_history_tracker
             tracker = get_history_tracker()
             if tracker is None:
                 return
@@ -618,7 +618,7 @@ class MarketHotspotIntegration:
 
             state = self.hotspot_system.save_state()
             db = NB('naja_hotspot_state')
-            db['attention_system_state'] = state
+            db['hotspot_system_state'] = state
             db.persist()
             log.info(f"[MarketHotspotIntegration] 市场热点系统状态已持久化")
         except Exception as e:
@@ -634,8 +634,9 @@ class MarketHotspotIntegration:
                 self.intelligence_system.load_state()
 
             db = NB('naja_hotspot_state')
-            if 'attention_system_state' in db:
-                state = db['attention_system_state']
+            state_key = 'hotspot_system_state' if 'hotspot_system_state' in db else 'attention_system_state'
+            if state_key in db:
+                state = db[state_key]
                 self.hotspot_system.load_state(state)
                 log.info(f"[MarketHotspotIntegration] 市场热点系统状态已恢复")
             else:
@@ -684,7 +685,7 @@ _market_hotspot_integration: Optional[MarketHotspotIntegration] = None
 _integration_lock = threading.Lock()
 
 
-class AttentionModeManager:
+class HotspotModeManager:
     """
     市场热点系统模式管理器 - 确保交易模式和实验模式互斥
 
@@ -729,7 +730,7 @@ class AttentionModeManager:
             self._original_fetcher_config: Optional[Dict] = None
             self._mode_history: List[Dict] = []
             self._initialized = True
-            log.info("[AttentionModeManager] 模式管理器初始化完成，当前模式: realtime")
+            log.info("[HotspotModeManager] 模式管理器初始化完成，当前模式: realtime")
 
     def get_diagnostic_info(self) -> Dict[str, Any]:
         """获取诊断信息，用于调试和UI显示"""
@@ -756,7 +757,7 @@ class AttentionModeManager:
         self._ensure_initialized()
         with self._lock:
             if self._mode == mode:
-                log.debug(f"[AttentionModeManager] 模式未变化，仍为: {mode}")
+                log.debug(f"[HotspotModeManager] 模式未变化，仍为: {mode}")
                 return
 
             old_mode = self._mode
@@ -766,7 +767,7 @@ class AttentionModeManager:
                 'from': old_mode,
                 'to': mode
             })
-            log.info(f"[AttentionModeManager] 模式切换: {old_mode} -> {mode}")
+            log.info(f"[HotspotModeManager] 模式切换: {old_mode} -> {mode}")
 
             if mode == self.MODE_LAB:
                 self._stop_realtime_fetcher_if_running()
@@ -804,24 +805,24 @@ class AttentionModeManager:
     def _stop_realtime_fetcher_if_running(self):
         """停止实盘获取器"""
         try:
-            attention_system = SR('hotspot_system')
-            if attention_system and attention_system._realtime_fetcher:
-                attention_system._realtime_fetcher.stop()
-                log.info("[AttentionModeManager] 已停止实盘获取器")
+            hotspot_sys = SR('hotspot_system')
+            if hotspot_sys and hotspot_sys._realtime_fetcher:
+                hotspot_sys._realtime_fetcher.stop()
+                log.info("[HotspotModeManager] 已停止实盘获取器")
         except Exception as e:
-            log.warning(f"[AttentionModeManager] 停止实盘获取器失败: {e}")
+            log.warning(f"[HotspotModeManager] 停止实盘获取器失败: {e}")
 
     def _restore_realtime_fetcher(self, config: Optional[Dict]):
         """恢复实盘获取器"""
         try:
-            attention_system = SR('hotspot_system')
-            if attention_system and config:
-                from deva.naja.market_hotspot.realtime_data_fetcher import FetchConfig
+            hotspot_sys = SR('hotspot_system')
+            if hotspot_sys and config:
+                from deva.naja.market_hotspot.data.fetch_config import FetchConfig
                 fc = FetchConfig(**config) if config else None
-                attention_system.start_realtime_fetcher(fc)
-                log.info("[AttentionModeManager] 已恢复实盘获取器")
+                hotspot_sys.start_realtime_fetcher(fc)
+                log.info("[HotspotModeManager] 已恢复实盘获取器")
         except Exception as e:
-            log.warning(f"[AttentionModeManager] 恢复实盘获取器失败: {e}")
+            log.warning(f"[HotspotModeManager] 恢复实盘获取器失败: {e}")
 
     def enter_lab_mode(self):
         """进入实验模式"""
@@ -833,13 +834,13 @@ class AttentionModeManager:
         self.set_mode(self.MODE_NORMAL, config)
 
 
-def get_mode_manager() -> AttentionModeManager:
+def get_mode_manager() -> HotspotModeManager:
     """获取模式管理器单例"""
     from deva.naja.register import SR
-    return AttentionModeManager()
+    return HotspotModeManager()
 
 def get_market_hotspot_integration() -> MarketHotspotIntegration:
-    """获取 Attention Integration 单例"""
+    """获取 MarketHotspotIntegration 单例"""
     from deva.naja.register import SR
     return MarketHotspotIntegration()
 
@@ -881,7 +882,7 @@ def initialize_hotspot_system(
         log.info("[initialize_hotspot_system] 实验模式，跳过实盘获取器启动")
     elif force_realtime:
         log.info("[initialize_hotspot_system] 强制实盘调试模式 (force_realtime=True)，忽略交易时间限制")
-        mode_manager.set_mode(AttentionModeManager.MODE_FORCE_REALTIME)
+        mode_manager.set_mode(HotspotModeManager.MODE_FORCE_REALTIME)
         fetcher_config = {
             'base_high_interval': 5.0,
             'base_medium_interval': 10.0,
@@ -895,7 +896,7 @@ def initialize_hotspot_system(
         log.info("[initialize_hotspot_system] 启动实盘获取器 (强制模式)...")
         hotspot_system.start_realtime_fetcher()
     else:
-        mode_manager.set_mode(AttentionModeManager.MODE_REALTIME)
+        mode_manager.set_mode(HotspotModeManager.MODE_REALTIME)
         fetcher_config = {
             'base_high_interval': 5.0,
             'base_medium_interval': 10.0,

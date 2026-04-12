@@ -135,7 +135,7 @@ class AdaptiveCycle:
             return self._manas_context_cache
 
         try:
-            from deva.naja.attention.trading_center import get_trading_center
+            from deva.naja.attention.orchestration.trading_center import get_trading_center
             tc = get_trading_center()
             manas_engine = tc.get_attention_os().kernel.get_manas_engine()
 
@@ -217,7 +217,7 @@ class AdaptiveCycle:
             如果请求失败返回 None
         """
         try:
-            from deva.naja.attention.trading_center import get_trading_center
+            from deva.naja.attention.orchestration.trading_center import get_trading_center
             tc = get_trading_center()
             if tc is None:
                 log.warning("[AdaptiveCycle] TradingCenter 不可用")
