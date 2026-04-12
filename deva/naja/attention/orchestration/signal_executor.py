@@ -171,7 +171,7 @@ class SignalExecutor:
     def _feedback_to_alaya(self, symbol: str, signal_type: str, outcome: Dict[str, Any]):
         """反馈到 Alaya"""
         try:
-            from deva.naja.alaya.awakened_alaya import AwakenedAlaya
+            from deva.naja.knowledge.alaya.awakened_alaya import AwakenedAlaya
             alaya = AwakenedAlaya()
             if alaya:
                 alaya.on_trade_feedback(symbol, signal_type, outcome)

@@ -326,7 +326,7 @@ class TradingCenter:
         """获取 AwakenedAlaya"""
         if self._awakened_alaya is None:
             try:
-                from deva.naja.alaya.awakened_alaya import AwakenedAlaya
+                from deva.naja.knowledge.alaya.awakened_alaya import AwakenedAlaya
                 self._awakened_alaya = AwakenedAlaya()
             except ImportError as e:
                 log.warning(f"[TradingCenter] 无法导入 AwakenedAlaya: {e}")
@@ -336,7 +336,7 @@ class TradingCenter:
         """获取波动率曲面感知"""
         if self._volatility_surface is None:
             try:
-                from deva.naja.senses import VolatilitySurfaceSense
+                from deva.naja.radar.senses import VolatilitySurfaceSense
                 self._volatility_surface = VolatilitySurfaceSense()
             except ImportError as e:
                 log.warning(f"[TradingCenter] 无法导入 VolatilitySurfaceSense: {e}")
@@ -346,7 +346,7 @@ class TradingCenter:
         """获取预尝味感知"""
         if self._pre_taste is None:
             try:
-                from deva.naja.senses import PreTasteSense
+                from deva.naja.radar.senses import PreTasteSense
                 self._pre_taste = PreTasteSense()
             except ImportError as e:
                 log.warning(f"[TradingCenter] 无法导入 PreTasteSense: {e}")
@@ -356,7 +356,7 @@ class TradingCenter:
         """获取先知感知"""
         if self._prophet_sense is None:
             try:
-                from deva.naja.senses import ProphetSense
+                from deva.naja.radar.senses import ProphetSense
                 self._prophet_sense = ProphetSense()
             except ImportError as e:
                 log.warning(f"[TradingCenter] 无法导入 ProphetSense: {e}")
@@ -366,7 +366,7 @@ class TradingCenter:
         """获取实时尝味感知"""
         if self._realtime_taste is None:
             try:
-                from deva.naja.senses import RealtimeTaste
+                from deva.naja.radar.senses import RealtimeTaste
                 self._realtime_taste = RealtimeTaste()
             except ImportError as e:
                 log.warning(f"[TradingCenter] 无法导入 RealtimeTaste: {e}")

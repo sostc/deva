@@ -30,7 +30,7 @@ def execute() -> Dict[str, Any]:
     
     try:
         # 1. 初始化数据获取器
-        from deva.naja.cognition.economic_data_fetcher import EconomicDataFetcher
+        from deva.naja.cognition.merrill_clock.economic_data_fetcher import EconomicDataFetcher
         
         # FRED API Key 从环境变量读取（https://fred.stlouisfed.org）
         fred_api_key = os.environ.get("FRED_API_KEY", "")

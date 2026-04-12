@@ -363,7 +363,7 @@ class AdaptiveCycle:
                 log.warning(f"[AdaptiveCycle] 发送交易通知失败: {e}")
 
             try:
-                from deva.naja.snapshot_manager import record_bandit_decision
+                from deva.naja.state.snapshot import record_bandit_decision
                 record_bandit_decision(
                     action="BUY",
                     symbol=signal.stock_code,
@@ -428,7 +428,7 @@ class AdaptiveCycle:
             log.warning(f"[AdaptiveCycle] 发送平仓通知失败: {e}")
 
         try:
-            from deva.naja.snapshot_manager import record_bandit_decision
+            from deva.naja.state.snapshot import record_bandit_decision
             record_bandit_decision(
                 action="SELL",
                 symbol=position.stock_code,

@@ -28,7 +28,7 @@ import logging
 import importlib
 from typing import List, Tuple
 
-from .common.singleton_registry import (
+from .infra.registry.singleton_registry import (
     register_singleton, SR, get_registry_status,
 )
 
@@ -66,7 +66,7 @@ SIMPLE_SINGLETONS: List[Tuple[str, str, str, List[str]]] = [
     ("focus_manager",            ".attention.focus_manager",          "AttentionFocusManager",    ["attention_integration"]),
     ("conviction_validator",     ".attention.discovery",              "ConvictionValidator",      ["attention_integration"]),
     ("blind_spot_investigator",  ".attention.discovery",              "BlindSpotInvestigator",    ["attention_integration"]),
-    ("snapshot_manager",         ".snapshot_manager",                 "SnapshotManager",          []),
+    ("snapshot_manager",         ".state.snapshot",                   "SnapshotManager",          []),
 
     # ── Bandit ──
     ("market_data_bus",    ".bandit.market_data_bus",       "MarketDataBus",           ["mode_manager"]),
@@ -84,7 +84,7 @@ SIMPLE_SINGLETONS: List[Tuple[str, str, str, List[str]]] = [
     ("cognition_engine",       ".cognition.engine",                 "CognitionEngine",     []),
     ("insight_pool",           ".cognition.insight.engine",         "InsightPool",         []),
     ("insight_engine",         ".cognition.insight.engine",         "InsightEngine",       ["insight_pool"]),
-    ("awakened_alaya",         ".alaya",                            "AwakenedAlaya",       []),
+    ("awakened_alaya",         ".knowledge.alaya",                  "AwakenedAlaya",       []),
     ("strategy_result_store",  ".strategy.result_store",            "ResultStore",         []),
     ("signal_dispatcher",      ".signal.dispatcher",                "SignalDispatcher",    []),
     ("llm_controller",         ".llm_controller.controller",        "LLMController",      []),
@@ -94,21 +94,21 @@ SIMPLE_SINGLETONS: List[Tuple[str, str, str, List[str]]] = [
     ("virtual_portfolio",      ".bandit.virtual_portfolio",         "VirtualPortfolio",    []),
 
     # ── 基础设施 ──
-    ("thread_pool",            ".common.thread_pool",               "ThreadPoolManager",        []),
-    ("log_stream",             ".log_stream",                       "NajaLogStream",            []),
+    ("thread_pool",            ".infra.runtime.thread_pool",        "ThreadPoolManager",        []),
+    ("log_stream",             ".infra.log.log_stream",             "NajaLogStream",            []),
     ("output_controller",      ".strategy.output_controller",       "OutputController",         []),
-    ("recoverable",            ".common.recoverable",               "Recoverable",              []),
-    ("performance_monitor",    ".performance.performance_monitor",  "NajaPerformanceMonitor",   []),
+    ("recoverable",            ".infra.runtime.recoverable",        "Recoverable",              []),
+    ("performance_monitor",    ".infra.observability.performance_monitor", "NajaPerformanceMonitor", []),
     ("scheduler_manager",      ".scheduler.common",                 "SchedulerManager",         []),
     ("radar_engine",           ".radar.engine",                     "RadarEngine",              ["trading_clock"]),
-    ("system_state_manager",   ".system_state.system_state",        "SystemStateManager",       []),
-    ("market_time_service",    ".common.market_time",               "MarketTimeService",        []),
+    ("system_state_manager",   ".state.system.system_state",        "SystemStateManager",       []),
+    ("market_time_service",    ".infra.runtime.market_time",        "MarketTimeService",        []),
     ("market_session_manager", ".radar.global_market_config",       "MarketSessionManager",     []),
     ("replay_scheduler",       ".replay.replay_scheduler",          "ReplayScheduler",          []),
-    ("system_monitor",         ".system_monitor",                   "SystemMonitor",            []),
+    ("system_monitor",         ".infra.observability.system_monitor", "SystemMonitor",          []),
     ("portfolio_manager",      ".bandit.portfolio_manager",         "PortfolioManager",         []),
     ("manas_manager",          ".attention.kernel.manas_manager",   "ManasManager",             []),
-    ("auto_tuner",             ".common.auto_tuner",                "AutoTuner",                []),
+    ("auto_tuner",             ".infra.observability.auto_tuner",   "AutoTuner",                []),
     ("liquidity_manager",      ".attention.orchestration.liquidity_manager", "LiquidityManager", ["attention_integration"]),
     ("daily_review_scheduler", ".strategy.daily_review_scheduler",  "DailyReviewScheduler",     ["datasource_manager"]),
     ("cognition_orchestrator", ".attention.orchestration.cognition_orchestrator", "CognitionOrchestrator", ["attention_os"]),
@@ -235,8 +235,8 @@ def _register_custom_singletons():
 
     # --- wake_sync_manager: 需要注册多个组件 ---
     def _create_wake_sync_manager():
-        from .system_state.wake_sync_manager import WakeSyncManager
-        from .system_state.wake_sync_handlers import (
+        from .state.system.wake_sync_manager import WakeSyncManager
+        from .state.system.wake_sync_handlers import (
             AIDailyReportWakeSync,
             NewsFetcherWakeSync,
             GlobalMarketScannerWakeSync,

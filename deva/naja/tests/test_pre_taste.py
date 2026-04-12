@@ -3,7 +3,7 @@ PreTasteSense 单元测试
 """
 
 import unittest
-from deva.naja.senses.pre_taste import (
+from deva.naja.radar.senses.pre_taste import (
     PreTasteSense,
     MomentumTaster,
     LiquidityTaster,

@@ -7,7 +7,7 @@ from pywebio.output import use_scope
 from pywebio.session import run_async
 
 from deva.naja.register import SR
-from deva.naja.common.ui_style import render_detail_section, format_timestamp
+from deva.naja.infra.ui.ui_style import render_detail_section, format_timestamp
 from .diagrams import _render_strategy_diagram_section
 
 

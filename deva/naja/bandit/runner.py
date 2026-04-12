@@ -26,7 +26,7 @@ def _get_audit():
     global _loop_audit_log_stage
     if _loop_audit_log_stage is None:
         try:
-            from ..common.loop_audit import LoopAudit
+            from ..infra.observability.loop_audit import LoopAudit
             _loop_audit_log_stage = lambda **kw: LoopAudit(**kw)
         except ImportError:
             _loop_audit_log_stage = lambda **kw: _DummyAudit()
@@ -41,7 +41,7 @@ class _DummyAudit:
 from deva import NB
 
 from .optimizer import get_bandit_optimizer
-from ..log_stream import get_log_stream, log_strategy
+from ..infra.log.log_stream import get_log_stream, log_strategy
 from ..radar.trading_clock import TRADING_CLOCK_STREAM
 
 log = logging.getLogger(__name__)

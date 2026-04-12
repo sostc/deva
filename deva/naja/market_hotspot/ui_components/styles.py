@@ -1,7 +1,14 @@
-"""热点系统 UI 公共样式常量与工具函数
+"""热点系统 UI 公共样式常量与工具函数 — Layer 2（业务层样式）
 
 将散布在 cards / flow / timeline / admin / intelligence / us_market 中
 高频重复的内联 CSS 值抽取到此处，便于统一维护和后续主题切换。
+
+颜色值统一采用 Tailwind 色系，与 Layer 0 (web_ui/styles.py) 的 CSS 变量保持一致。
+
+层级关系：
+  Layer 0: web_ui/styles.py        — CSS 变量定义源
+  Layer 1: common/ui_style.py      — Python 端公共组件样式 + 工具函数
+  Layer 2: market_hotspot/ui_components/styles.py — 业务层样式常量（本文件）
 """
 
 from typing import Dict, Any

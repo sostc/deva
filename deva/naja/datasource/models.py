@@ -6,7 +6,7 @@ import threading
 from dataclasses import dataclass, field
 from typing import Any, Dict
 
-from ..common.recoverable import (
+from ..infra.runtime.recoverable import (
     UnitMetadata,
     UnitState,
     UnitStatus,

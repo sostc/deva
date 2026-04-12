@@ -11,7 +11,7 @@ from typing import Any, Dict, List, Optional
 from deva import NB, bus, log
 from deva.core.namespace import NS
 
-from ..common.recoverable import (
+from ..infra.runtime.recoverable import (
     RecoverableUnit,
     UnitStatus,
     RecoveryManager,

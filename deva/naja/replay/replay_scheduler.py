@@ -111,7 +111,7 @@ class ReplayScheduler:
     def _register_auto_tuner_callback(self):
         """注册 AutoTuner 回调"""
         try:
-            from deva.naja.common.auto_tuner import get_auto_tuner, trigger_business_adjustment, TuneCondition
+            from deva.naja.infra.observability.auto_tuner import get_auto_tuner, trigger_business_adjustment, TuneCondition
             tuner = get_auto_tuner()
 
             tuner.add_condition('replay_processing', TuneCondition(
@@ -139,7 +139,7 @@ class ReplayScheduler:
         self._last_processing_time = processing_time_ms
 
         try:
-            from deva.naja.performance import record_component_execution, ComponentType
+            from deva.naja.infra.observability.performance_monitor import record_component_execution, ComponentType
             record_component_execution(
                 component_id="replay_scheduler",
                 component_name="ReplayScheduler",

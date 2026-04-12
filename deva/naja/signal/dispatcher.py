@@ -28,7 +28,7 @@ def _get_audit():
     global _loop_audit_log_stage
     if _loop_audit_log_stage is None:
         try:
-            from ..common.loop_audit import LoopAudit
+            from ..infra.observability.loop_audit import LoopAudit
             _loop_audit_log_stage = lambda **kw: LoopAudit(**kw)
         except ImportError:
             _loop_audit_log_stage = lambda **kw: _DummyAudit()

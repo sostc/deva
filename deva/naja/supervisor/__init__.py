@@ -8,6 +8,8 @@
 - status.py: 状态查询 Mixin
 - recovery.py: 恢复与生命周期 Mixin
 - bootstrap.py: 模块级启动/停止函数
+
+注：system_monitor / system_monitor_ui 已迁移至 infra/observability/
 """
 
 from .core import NajaSupervisor

@@ -1,11 +1,20 @@
 """Cognition module - 认知中枢
 
-包含：
-- NewsMindStrategy: 新闻心智策略，驱动认知流水线
-- CognitionEngine: 认知引擎，平台级认知输入输出入口
-- InsightEngine/InsightPool: 洞察引擎，管理认知产物
-- CrossSignalAnalyzer: 跨信号分析器，合并新闻和注意力信号
-- HistoryTracker: 历史事件追踪器，追踪注意力变化
+包含子域：
+- semantic/: 语义层（NewsEvent、Topic、AttentionScorer、KeywordRegistry、SemanticColdStart）
+- analysis/: 分析推理层（CrossSignalAnalyzer、FirstPrinciplesMind、SoftInfoConfidence）
+- narrative/: 叙事追踪（NarrativeTracker、TimingNarrative、SupplyChainLinker）
+- insight/: 洞察引擎（InsightEngine、InsightPool）
+- merrill_clock/: 美林时钟（经济周期判断）
+- liquidity/: 流动性分析
+- ui/: 认知系统 UI
+
+核心文件（保留根目录）：
+- core.py: NewsMindStrategy 认知流水线主驱动
+- engine.py: CognitionEngine 平台级认知入口
+- memory_manager.py: 三层记忆管理
+- ingestion.py: Radar→Cognition 数据流桥梁
+- openrouter_monitor.py: OpenRouter TOKEN 监控
 """
 
 from .core import NewsMindStrategy, AttentionScorer
@@ -35,9 +44,18 @@ from .narrative import (
     get_linked_markets,
     get_market_config,
 )
-from .semantic_cold_start import SemanticColdStart
-from .insight import InsightEngine, InsightPool
-from .cross_signal_analyzer import (
+# ── semantic 子域 ──────────────────────────────────────
+from .semantic import SemanticColdStart
+from .semantic import (
+    NewsEvent,
+    SignalType,
+    DATASOURCE_TYPE_MAP,
+    get_datasource_type,
+    Topic,
+    AttentionScorer as AttentionScorerModule,
+)
+# ── analysis 子域 ──────────────────────────────────────
+from .analysis import (
     CrossSignalAnalyzer,
     ResonanceSignal,
     ResonanceType,
@@ -47,18 +65,16 @@ from .cross_signal_analyzer import (
     CognitionFeedback,
     get_cross_signal_analyzer,
 )
-# 统一认知事件总线
-from .cognitive_signal_bus import (
+# ── insight 子域 ───────────────────────────────────────
+from .insight import InsightEngine, InsightPool
+# ── 统一认知事件总线（已迁移到 events 模块） ──────────────
+from deva.naja.events import (
     CognitiveSignalBus,
     CognitiveEventType,
     get_cognitive_bus,
 )
-# 拆分出的子模块
-from .news_event import NewsEvent, SignalType, DATASOURCE_TYPE_MAP, get_datasource_type
-from .topic_manager import Topic
-from .attention_scorer import AttentionScorer as AttentionScorerModule
+# ── 保留根目录的模块 ──────────────────────────────────
 from .memory_manager import MemoryManager
-# 统一数据流入口
 from .ingestion import CognitionIngestion, get_cognition_ingestion
 
 __all__ = [
@@ -83,7 +99,7 @@ __all__ = [
     # 洞察引擎
     "InsightEngine",
     "InsightPool",
-    # 跨信号分析器
+    # 跨信号分析器 (analysis子域)
     "CrossSignalAnalyzer",
     "ResonanceSignal",
     "ResonanceType",
@@ -105,11 +121,11 @@ __all__ = [
     "get_linked_blocks",
     "get_linked_markets",
     "get_market_config",
-    # 统一认知事件总线
+    # 统一认知事件总线 (已迁移到 events/)
     "CognitiveSignalBus",
     "CognitiveEventType",
     "get_cognitive_bus",
-    # 拆分子模块
+    # 语义子模块 (semantic子域)
     "NewsEvent",
     "SignalType",
     "DATASOURCE_TYPE_MAP",
@@ -121,4 +137,3 @@ __all__ = [
     "CognitionIngestion",
     "get_cognition_ingestion",
 ]
-

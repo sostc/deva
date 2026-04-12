@@ -8,7 +8,7 @@ from typing import Any, Callable, Dict, List, Optional
 
 from deva import NB
 
-from ..common.recoverable import (
+from ..infra.runtime.recoverable import (
     RecoverableUnit,
     UnitStatus,
 )

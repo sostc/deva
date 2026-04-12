@@ -299,7 +299,7 @@ def render_market_index_panel() -> str:
 def render_cross_market_predictions() -> str:
     """渲染跨市场预测面板 - 基于美股题材预测明日A股"""
     try:
-        from deva.naja.alaya.awakened_alaya import AwakenedAlaya
+        from deva.naja.knowledge.alaya.awakened_alaya import AwakenedAlaya
         alaya = AwakenedAlaya()
         if not hasattr(alaya, 'cross_market_memory') or not alaya.cross_market_memory:
             log.info("[CrossMarket] cross_market_memory 不存在")
@@ -334,7 +334,7 @@ def render_cross_market_predictions() -> str:
 
             a_blocks = []
             try:
-                from deva.naja.alaya.awakened_alaya import CrossMarketBlockMapper
+                from deva.naja.knowledge.alaya.awakened_alaya import CrossMarketBlockMapper
                 a_blocks = CrossMarketBlockMapper.get_a_stock_blocks(us_block)
             except Exception:
                 pass

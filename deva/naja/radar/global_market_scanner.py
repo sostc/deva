@@ -72,7 +72,7 @@ def _get_audit():
     global _loop_audit_log_stage
     if _loop_audit_log_stage is None:
         try:
-            from ..common.loop_audit import LoopAudit
+            from ..infra.observability.loop_audit import LoopAudit
             _loop_audit_log_stage = lambda **kw: LoopAudit(**kw)
         except ImportError:
             _loop_audit_log_stage = lambda **kw: _DummyAudit()
@@ -441,7 +441,7 @@ class GlobalMarketScanner:
             return
 
         try:
-            from deva.naja.common.auto_tuner import get_auto_tuner, TuneCondition
+            from deva.naja.infra.observability.auto_tuner import get_auto_tuner, TuneCondition
 
             tuner = get_auto_tuner()
 
@@ -462,7 +462,7 @@ class GlobalMarketScanner:
             return
 
         try:
-            from deva.naja.common.auto_tuner import get_auto_tuner, trigger_business_adjustment
+            from deva.naja.infra.observability.auto_tuner import get_auto_tuner, trigger_business_adjustment
 
             total = self._stats["success_count"] + self._stats["error_count"]
             if total == 0:

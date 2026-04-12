@@ -8,7 +8,7 @@ from pywebio.input import input_group, input, textarea, select, actions, file_up
 from pywebio.session import run_async
 from pywebio import pin
 
-from ..common.ui_style import apply_strategy_like_styles, render_empty_state, render_stats_cards
+from ..infra.ui.ui_style import apply_strategy_like_styles, render_empty_state, render_stats_cards
 from . import (
     get_table_list,
     get_table_info,

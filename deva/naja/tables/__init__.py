@@ -53,9 +53,9 @@ NAJA_TABLE_REGISTRY = {
     "naja_dictionary_entries": "字典条目表",
     "naja_dictionary_payloads": "字典载荷表",
 
-    # ===== 注意力系统 =====
-    "naja_attention_tracker": "注意力追踪器状态",
-    "naja_attention_snapshots": "注意力榜单快照(用于复盘)",
+    # ===== 市场热点系统 =====
+    "naja_attention_tracker": "热点追踪器状态",
+    "naja_hotspot_snapshots": "热点榜单快照(用于复盘)",
     "naja_price_monitor_config": "价格监控配置",
     "naja_realtime_quotes": "实时行情缓存",
     "naja_signal_tuner": "信号调优器状态",
