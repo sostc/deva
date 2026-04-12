@@ -52,7 +52,7 @@
 
 def test_momentum_precipice_real():
     """测试真实动量衰竭场景"""
-    from deva.naja.senses import ProphetSense
+    from deva.naja.radar.senses import ProphetSense
 
     prophet = ProphetSense()
 
@@ -110,7 +110,7 @@ def test_momentum_precipice_real():
 
 def test_sentiment_transition_real():
     """测试真实情绪转换"""
-    from deva.naja.senses import ProphetSense
+    from deva.naja.radar.senses import ProphetSense
 
     prophet = ProphetSense()
 
@@ -153,7 +153,7 @@ def test_sentiment_transition_real():
 
 def test_taste_freshness_real():
     """测试真实持仓鲜度"""
-    from deva.naja.senses import RealtimeTaste
+    from deva.naja.radar.senses import RealtimeTaste
 
     taste = RealtimeTaste()
 
@@ -212,7 +212,7 @@ def test_taste_freshness_real():
 
 def test_seed_recall_real():
     """测试真实模式召回"""
-    from deva.naja.alaya import SeedIlluminator, PatternType
+    from deva.naja.knowledge.alaya import SeedIlluminator, PatternType
 
     illuminator = SeedIlluminator()
 
@@ -452,8 +452,8 @@ cd /Users/spark/pycharmproject/deva
 
 echo "=== 1. 导入检查 ==="
 python -c "
-from deva.naja.senses import ProphetSense, RealtimeTaste
-from deva.naja.alaya import SeedIlluminator
+from deva.naja.radar.senses import ProphetSense, RealtimeTaste
+from deva.naja.knowledge.alaya import SeedIlluminator
 from deva.naja.attention.kernel.manas_engine import ManasEngine
 from deva.naja.evolution import get_meta_evolution
 from deva.naja.cognition.market_narrative import MarketNarrativeSense
@@ -482,7 +482,7 @@ import sys
 sys.path.insert(0, 'deva/naja')
 
 # 2.1 天眼通测试
-from deva.naja.senses import ProphetSense
+from deva.naja.radar.senses import ProphetSense
 prophet = ProphetSense()
 market_data = {
     'price_change': 0.5,

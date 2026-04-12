@@ -1444,7 +1444,7 @@ class DailyReviewAnalyzer:
         形成"用自己投资哲学审视今天市场"的复盘视角。
         """
         try:
-            from deva.naja.wisdom.wisdom_retriever import WisdomRetriever
+            from deva.naja.knowledge.wisdom.wisdom_retriever import WisdomRetriever
 
             retriever = WisdomRetriever()
             perspectives = []

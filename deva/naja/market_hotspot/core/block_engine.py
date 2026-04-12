@@ -28,7 +28,7 @@ log = logging.getLogger(__name__)
 def _get_noise_detector():
     """延迟导入避免循环依赖"""
     try:
-        from deva.naja.common.singleton_registry import SR
+        from deva.naja.infra.registry.singleton_registry import SR
         detector = SR('block_noise_detector')
         return detector
     except Exception:

@@ -5,8 +5,6 @@ Soul Admin - 灵魂管理页面
 from pywebio import config
 from pywebio.output import put_html, put_buttons, put_markdown, put_table, put_button, popup, close_popup, toast
 from pywebio.input import select, input_group, input, textarea, checkbox
-from pywebio.platform.flask import webio_view
-from pywebio import STATIC_PATH
 
 import logging
 

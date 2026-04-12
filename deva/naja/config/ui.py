@@ -12,7 +12,7 @@ from pywebio.output import put_text, put_markdown, put_table, put_buttons, put_h
 from pywebio.input import input_group, input, select, NUMBER, PASSWORD, textarea, checkbox, actions
 from pywebio.session import run_async
 
-from ..common.ui_style import apply_strategy_like_styles, render_stats_cards
+from ..infra.ui.ui_style import apply_strategy_like_styles, render_stats_cards
 from . import (
     get_config,
     set_config,

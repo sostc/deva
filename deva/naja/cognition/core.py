@@ -25,25 +25,23 @@ import threading
 import os
 
 from .narrative import NarrativeTracker
-from .semantic_cold_start import SemanticColdStart
 
-# ── 从拆分后的子模块导入（向后兼容） ──────────────────────
-from .news_event import (                          # noqa: F401
+# ── 从 semantic 子域导入 ──────────────────────────────────
+from .semantic import (                             # noqa: F401
+    SemanticColdStart,
     NewsEvent,
     SignalType,
     DATASOURCE_TYPE_MAP,
     get_datasource_type,
-)
-from .attention_scorer import AttentionScorer       # noqa: F401
-from .memory_manager import MemoryManager
-from .topic_manager import (                        # noqa: F401
+    AttentionScorer,
     Topic,
     STOCK_RELEVANT_PREFIXES,
     STOCK_RELEVANT_SOURCES,
     _get_market_activity,
     _is_stock_relevant_topic,
 )
-# ── 向后兼容结束 ─────────────────────────────────────────
+from .memory_manager import MemoryManager
+# ── semantic 导入结束 ─────────────────────────────────────
 
 
 def _radar_debug_log(msg: str):

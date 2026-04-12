@@ -2,7 +2,7 @@
 Cross Signal 组件
 """
 
-from ....common.ui_style import format_timestamp
+from deva.naja.infra.ui.ui_style import format_timestamp
 
 
 def render_cross_signal(ui):

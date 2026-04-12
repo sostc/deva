@@ -39,7 +39,7 @@ from deva import NB
 from .market_hotspot_system import MarketHotspotSystem, MarketHotspotSystemConfig
 from ..core import BlockConfig
 
-from deva.naja.common.singleton_registry import SR
+from deva.naja.infra.registry.singleton_registry import SR
 from deva.naja.attention.portfolio import Portfolio, StockInfo
 
 log = logging.getLogger(__name__)

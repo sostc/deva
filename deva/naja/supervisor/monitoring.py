@@ -26,21 +26,21 @@ class MonitoringMixin:
         
         # 启动统一性能监控
         try:
-            from deva.naja.performance import start_performance_monitoring
+            from deva.naja.infra.observability.performance_monitor import start_performance_monitoring
             start_performance_monitoring()
         except Exception as e:
             log.warning(f"统一性能监控启动失败: {e}")
 
         # 启用存储性能监控
         try:
-            from deva.naja.performance.storage_monitor import enable_storage_monitoring
+            from deva.naja.infra.observability.storage_monitor import enable_storage_monitoring
             enable_storage_monitoring()
         except Exception as e:
             log.warning(f"存储性能监控启用失败: {e}")
 
         # 启动自动调优
         try:
-            from deva.naja.common.auto_tuner import _init_help_to_db, start_auto_tuner
+            from deva.naja.infra.observability.auto_tuner import _init_help_to_db, start_auto_tuner
             _init_help_to_db()
             start_auto_tuner()
         except Exception as e:

@@ -3,7 +3,7 @@ Insight 组件
 """
 
 import time
-from ....common.ui_style import format_timestamp
+from deva.naja.infra.ui.ui_style import format_timestamp
 from deva.naja.register import SR
 
 
@@ -36,7 +36,7 @@ def _calc_source_counts(insights):
 
 
 def render_insight(ui):
-    from deva.naja.cognition.system_architecture import get_cognition_architecture_doc
+    from deva.naja.cognition.ui.system_architecture import get_cognition_architecture_doc
     from pywebio.output import put_html
     put_html(get_cognition_architecture_doc())
 

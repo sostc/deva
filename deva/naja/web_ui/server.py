@@ -29,7 +29,7 @@ def run_server(port: int = 8080, host: str = '0.0.0.0', lab_config: dict = None,
     print("🚀 Naja 管理平台启动中...")
     print("=" * 60)
 
-    from ..bootstrap import SystemBootstrap
+    from ..infra.lifecycle.bootstrap import SystemBootstrap
     from ..market_hotspot.integration.market_hotspot_config import load_config
     from tornado.ioloop import IOLoop
     import threading
@@ -136,7 +136,7 @@ def run_server(port: int = 8080, host: str = '0.0.0.0', lab_config: dict = None,
 
 
             try:
-                from .supervisor import get_naja_supervisor
+                from deva.naja.supervisor import get_naja_supervisor
                 supervisor = get_naja_supervisor()
                 supervisor.shutdown()
 

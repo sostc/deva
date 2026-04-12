@@ -149,7 +149,7 @@ class BanditTuner:
     def _init_realtime_taste(self):
         """初始化实时舌识"""
         try:
-            from deva.naja.senses.realtime_taste import RealtimeTaste
+            from deva.naja.radar.senses.realtime_taste import RealtimeTaste
             self._realtime_taste = RealtimeTaste()
             log.info(f"[BanditTuner] RealtimeTaste 初始化完成")
         except Exception as e:

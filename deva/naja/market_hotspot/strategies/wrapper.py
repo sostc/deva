@@ -8,7 +8,7 @@ import time
 from typing import Any, Callable, Dict, List, Optional
 
 from deva.naja.strategy import StrategyEntry, StrategyMetadata, StrategyState
-from deva.naja.common.recoverable import UnitStatus
+from deva.naja.infra.runtime.recoverable import UnitStatus
 from .base import HotspotStrategyBase, Signal
 from .strategy_manager import get_hotspot_manager, HotspotStrategyManager
 
