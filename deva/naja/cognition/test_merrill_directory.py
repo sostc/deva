@@ -85,7 +85,7 @@ def test_integration():
     
     try:
         # 测试是否能导入认知信号总线并访问相关功能
-        from deva.naja.cognition.cognitive_signal_bus import CognitiveSignalBus, get_cognitive_bus
+        from deva.naja.events import CognitiveSignalBus, get_cognitive_bus
         
         print("✅ 可以访问认知信号总线")
         
