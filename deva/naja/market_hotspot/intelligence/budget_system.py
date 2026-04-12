@@ -8,9 +8,9 @@ Module 9: Hotspot Budget System - 热点预算系统
 - 当市场全面活跃时，防止计算爆炸
 
 核心概念:
-- Attention Budget: 总预算池
+- Hotspot Budget: 总预算池
 - Budget Allocation: 预算分配
-- Top-K Selection: 按 attention_score 排序截断
+- Top-K Selection: 按 hotspot_score 排序截断
 """
 
 import numpy as np
@@ -156,7 +156,7 @@ class TopKBudgetAllocator:
     Top-K 预算分配器
     
     核心逻辑:
-    1. 按 attention_score 排序
+    1. 按 hotspot_score 排序
     2. 从高到低分配预算
     3. 直到预算耗尽
     4. 剩余的 symbol 被拒绝
@@ -177,7 +177,7 @@ class TopKBudgetAllocator:
         执行预算分配
         
         Args:
-            symbol_scores: {symbol: attention_score}
+            symbol_scores: {symbol: hotspot_score}
             symbol_metadata: {symbol: {'gpu_needed': bool, 'estimated_cost': float}}
             
         Returns:

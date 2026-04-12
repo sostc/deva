@@ -291,10 +291,10 @@ def apply_compatibility_patches():
     # 需要被替换的函数映射表：(模块名, 原始函数名, SR名称)
     PATCHES = [
         # attention 系统核心
-        ('deva.naja.attention.attention_os', 'get_attention_os', 'attention_os'),
-        ('deva.naja.attention.trading_center', 'get_trading_center', 'trading_center'),
-        ('deva.naja.attention.signal_executor', 'get_signal_executor', 'signal_executor'),
-        ('deva.naja.attention.data_processor', 'get_data_processor', 'data_processor'),
+        ('deva.naja.attention.os.attention_os', 'get_attention_os', 'attention_os'),
+        ('deva.naja.attention.orchestration.trading_center', 'get_trading_center', 'trading_center'),
+        ('deva.naja.attention.orchestration.signal_executor', 'get_signal_executor', 'signal_executor'),
+        # data_processor 模块已移除
 
         # 应用层
         ('deva.naja.attention.attention_fusion', 'get_attention_fusion', 'attention_fusion'),
@@ -310,21 +310,21 @@ def apply_compatibility_patches():
         ('deva.naja.bandit.stock_block_map', 'get_stock_block_map', 'stock_block_map'),
 
         # 认知模块
-        ('deva.naja.market_hotspot.market_hotspot_history_tracker', 'get_history_tracker', 'history_tracker'),
+        ('deva.naja.market_hotspot.tracking.history_tracker', 'get_history_tracker', 'history_tracker'),
         ('deva.naja.cognition.cross_signal_analyzer', 'get_cross_signal_analyzer', 'cross_signal_analyzer'),
         ('deva.naja.attention.narrative_block_linker', 'get_narrative_block_linker', 'narrative_block_linker'),
         ('deva.naja.cognition.insight.llm_reflection', 'get_llm_reflection_engine', 'llm_reflection_engine'),
 
         # 处理模块
-        ('deva.naja.attention.state_querier', 'get_state_querier', 'state_querier'),
+        ('deva.naja.attention.orchestration.state_querier', 'get_state_querier', 'state_querier'),
         ('deva.naja.attention.block_registry', 'get_block_registry', 'block_registry'),
 
         # 其他
         ('deva.naja.attention.kernel.manas_manager', 'get_manas_manager', 'manas_manager'),
         ('deva.naja.common.auto_tuner', 'get_auto_tuner', 'auto_tuner'),
-        ('deva.naja.attention.liquidity_manager', 'get_liquidity_manager', 'liquidity_manager'),
+        ('deva.naja.attention.orchestration.liquidity_manager', 'get_liquidity_manager', 'liquidity_manager'),
         ('deva.naja.strategy.daily_review_scheduler', 'get_replay_scheduler', 'daily_review_scheduler'),
-        ('deva.naja.attention.cognition_orchestrator', 'get_cognition_orchestrator', 'cognition_orchestrator'),
+        ('deva.naja.attention.orchestration.cognition_orchestrator', 'get_cognition_orchestrator', 'cognition_orchestrator'),
 
         # 基础层
         ('deva.naja.common.stock_registry', 'get_stock_registry', 'stock_registry'),

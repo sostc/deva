@@ -156,7 +156,7 @@ async def render_market_hotspot_admin(ctx: dict):
             </div>
             """)
 
-        from deva.naja.market_hotspot.realtime_data_fetcher import get_data_fetcher
+        from deva.naja.market_hotspot.data.async_fetcher import get_data_fetcher
         fetcher_instance = get_data_fetcher()
 
         cn_freq = report.get('cn_frequency', {'high': 0, 'medium': 0, 'low': 0})
@@ -493,7 +493,7 @@ def _render_micro_change_indicator() -> str:
 def _get_history_tracker():
     """获取历史追踪器"""
     try:
-        from deva.naja.market_hotspot.market_hotspot_history_tracker import get_history_tracker
+        from deva.naja.market_hotspot.tracking.history_tracker import get_history_tracker
         return get_history_tracker()
     except Exception:
         return None
@@ -501,8 +501,8 @@ def _get_history_tracker():
 
 def _run_diagnostic():
     """运行诊断"""
-    from deva.naja.market_hotspot.diagnostic import render_attention_diagnostic
-    render_attention_diagnostic()
+    from deva.naja.market_hotspot.diagnostic import render_hotspot_diagnostic
+    render_hotspot_diagnostic()
 
 
 def _manage_noise_filter():

@@ -1,7 +1,7 @@
 """
 异步实盘数据获取器 + 全局实例工厂
 
-AsyncRealtimeDataFetcher: 供 AttentionSystem 使用的异步版本
+AsyncRealtimeDataFetcher: 供 HotspotSystem 使用的异步版本
 get_data_fetcher(): 获取全局 RealtimeDataFetcher 实例
 """
 
@@ -16,7 +16,7 @@ log = logging.getLogger(__name__)
 
 class AsyncRealtimeDataFetcher:
     """
-    异步实盘数据获取器 - 供 AttentionSystem 使用
+    异步实盘数据获取器 - 供 HotspotSystem 使用
 
     使用 asyncio 实现，支持异步启动和停止
     """

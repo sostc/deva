@@ -46,7 +46,7 @@ class HotspotStrategyConfig:
 class ConfigManager:
     """配置管理器"""
     
-    DEFAULT_CONFIG_PATH = Path.home() / ".naja" / "attention_strategies.json"
+    DEFAULT_CONFIG_PATH = Path.home() / ".naja" / "hotspot_strategies.json"
     
     def __init__(self, config_path: Optional[str] = None):
         self.config_path = Path(config_path) if config_path else self.DEFAULT_CONFIG_PATH

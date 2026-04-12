@@ -54,7 +54,7 @@ def create_handlers(cdn: str = None):
         (r'/learning', webio_handler(learningadmin, cdn=cdn_url)),
         (r'/learning/list', webio_handler(learning_list_page, cdn=cdn_url)),
         (r'/learning/history', webio_handler(learning_history_page, cdn=cdn_url)),
-        (r'/learning/detail/(\w+)', webio_handler(learning_detail_page, cdn=cdn_url)),
+        (r'/learning/detail', webio_handler(learning_detail_page, cdn=cdn_url)),
         (r'/api/knowledge/action', KnowledgeActionHandler),
     ]
 

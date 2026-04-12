@@ -16,7 +16,7 @@ from typing import Dict, Any, List
 def get_attention_monitor_data() -> Dict[str, Any]:
     """获取注意力系统完整状态数据"""
     try:
-        from deva.naja.attention.trading_center import get_trading_center
+        from deva.naja.attention.orchestration.trading_center import get_trading_center
         tc = get_trading_center()
         os = tc.get_attention_os()
         kernel = os.kernel

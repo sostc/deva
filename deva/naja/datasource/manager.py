@@ -454,7 +454,7 @@ class DataSourceManager:
             return None
 
         try:
-            from deva.naja.market_hotspot.realtime_data_fetcher import get_data_fetcher
+            from deva.naja.market_hotspot.data.async_fetcher import get_data_fetcher
             fetcher = get_data_fetcher()
             if fetcher and hasattr(fetcher, 'get_stats'):
                 return fetcher.get_stats()

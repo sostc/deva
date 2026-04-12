@@ -743,7 +743,7 @@ _反思生成时间: {datetime.fromtimestamp(reflection.ts).strftime('%Y-%m-%d %
 
     def _collect_attention_signals(self) -> List[Dict[str, Any]]:
         """从 MarketHotspotHistoryTracker 获取注意力转移信号"""
-        from deva.naja.market_hotspot.market_hotspot_history_tracker import get_history_tracker
+        from deva.naja.market_hotspot.tracking.history_tracker import get_history_tracker
         try:
             tracker = get_history_tracker()
             if not tracker:
@@ -819,7 +819,7 @@ _反思生成时间: {datetime.fromtimestamp(reflection.ts).strftime('%Y-%m-%d %
     def _collect_trade_feedback(self) -> List[Dict[str, Any]]:
         """获取交易反馈信号"""
         try:
-            from deva.naja.attention.trading_center import get_trading_center
+            from deva.naja.attention.orchestration.trading_center import get_trading_center
             tc = get_trading_center()
             os = tc.get_attention_os()
             scheduler = os.market_scheduler

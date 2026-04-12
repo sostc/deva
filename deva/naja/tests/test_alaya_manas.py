@@ -13,7 +13,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from deva.naja.alaya.seed_illuminator import (
     SeedIlluminator, IlluminatedPattern, PatternType, PatternTemplate
 )
-from deva.naja.attention.trading_center import get_trading_center
+from deva.naja.attention.orchestration.trading_center import get_trading_center
 from deva.naja.attention.kernel.manas_engine import HarmonyState
 
 

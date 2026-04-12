@@ -23,7 +23,7 @@ async def render_home(ctx: dict):
     ctx["put_markdown"]('''### 🚀 Naja 智慧系统''')
 
     try:
-        from deva.naja.attention.trading_center import get_trading_center
+        from deva.naja.attention.orchestration.trading_center import get_trading_center
         from deva.naja.radar import get_radar_engine
         from deva.naja.cognition.core import get_cognition_system
 

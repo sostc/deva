@@ -127,7 +127,7 @@ class HotspotStrategyBase(ABC):
         """获取调度中心（兼容旧接口）"""
         if self._orchestrator is None:
             try:
-                from deva.naja.attention.trading_center import get_trading_center
+                from deva.naja.attention.orchestration.trading_center import get_trading_center
                 self._orchestrator = get_trading_center()
             except Exception:
                 pass
@@ -277,7 +277,7 @@ class HotspotStrategyBase(ABC):
         
         Bandit 会监听这些信号并创建虚拟持仓
         
-        同时启动 AttentionTracker 跟踪:
+        同时启动 HotspotTracker 跟踪:
         - 只要热点系统识别到内容，就开始跟踪价格变化
         - 不需要实际成交
         - 形成持续的学习反馈
@@ -347,7 +347,7 @@ class HotspotStrategyBase(ABC):
             except Exception as te:
                 log.debug(f"[SignalTuner] 信号记录失败: {te}")
 
-            # 启动 AttentionTracker 跟踪
+            # 启动 HotspotTracker 跟踪
             # 这是用户新思路的核心: 不需要成交，只要热点选中就开始跟踪
             self._track_hotspot_signal(signal)
             
@@ -357,7 +357,7 @@ class HotspotStrategyBase(ABC):
     
     def _track_hotspot_signal(self, signal: Signal):
         """
-        启动 AttentionTracker 跟踪热点信号
+        启动 HotspotTracker 跟踪热点信号
 
         实现用户思路:
         - 只要热点系统识别到内容，就去关注它的价格变化
@@ -417,7 +417,7 @@ class HotspotStrategyBase(ABC):
             
             # 创建 StrategyResult
             result = StrategyResult(
-                id=f"attn_{self.strategy_id}_{int(time.time()*1000)}",
+                id=f"hotspot_{self.strategy_id}_{int(time.time()*1000)}",
                 strategy_id=self.strategy_id,
                 strategy_name=f"[热点] {self.name}",
                 ts=signal.timestamp,

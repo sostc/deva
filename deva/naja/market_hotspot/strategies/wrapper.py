@@ -13,7 +13,7 @@ from .base import HotspotStrategyBase, Signal
 from .strategy_manager import get_hotspot_manager, HotspotStrategyManager
 
 
-ATTENTION_STRATEGY_DIAGRAM_INFO = {
+HOTSPOT_STRATEGY_DIAGRAM_INFO = {
     "global_sentinel": {
         "icon": "🌐",
         "color": "#3b82f6",
@@ -40,7 +40,7 @@ ATTENTION_STRATEGY_DIAGRAM_INFO = {
         "icon": "🎯",
         "color": "#8b5cf6",
         "description": "题材轮动捕捉，追踪热点在题材间的转移",
-        "formula": "block_momentum = Δ(attention_weight) / Δt",
+        "formula": "block_momentum = Δ(hotspot_weight) / Δt",
         "logic": [
             "监测各题材热点权重变化",
             "计算题材间轮动速度",
@@ -62,7 +62,7 @@ ATTENTION_STRATEGY_DIAGRAM_INFO = {
         "icon": "⚡",
         "color": "#f59e0b",
         "description": "动量突破追踪，捕捉强势股票的加速信号",
-        "formula": "momentum_score = price_change * volume_ratio * attention_weight",
+        "formula": "momentum_score = price_change * volume_ratio * hotspot_weight",
         "logic": [
             "筛选高热点股票池",
             "计算价格动量与成交量爆发",
@@ -106,7 +106,7 @@ ATTENTION_STRATEGY_DIAGRAM_INFO = {
         "icon": "💰",
         "color": "#10b981",
         "description": "聪明资金流向检测，追踪大单动向",
-        "formula": "smart_flow = net_buy_volume * order_size_weight * attention",
+        "formula": "smart_flow = net_buy_volume * order_size_weight * hotspot",
         "logic": [
             "分解订单流为大单/小单",
             "计算净买入方向与强度",
@@ -140,22 +140,22 @@ class HotspotStrategyWrapper(StrategyEntry):
         strategy: HotspotStrategyBase,
         manager: Optional[HotspotStrategyManager] = None
     ):
-        self._attention_strategy = strategy
+        self._hotspot_strategy = strategy
         self._hotspot_manager = manager
 
-        diagram_info = ATTENTION_STRATEGY_DIAGRAM_INFO.get(strategy.strategy_id, {})
+        diagram_info = HOTSPOT_STRATEGY_DIAGRAM_INFO.get(strategy.strategy_id, {})
 
         metadata = StrategyMetadata(
             id=strategy.strategy_id,
             name=strategy.name,
             description=f"热点策略: {strategy.name} (scope={strategy.scope})",
-            strategy_type="attention",
-            handler_type="attention",
+            strategy_type="hotspot",
+            handler_type="hotspot",
             category="热点策略",
             diagram_info=diagram_info,
         )
-        metadata.tags = ["attention", strategy.scope, "auto-managed"]
-        metadata.source = "attention"
+        metadata.tags = ["hotspot", strategy.scope, "auto-managed"]
+        metadata.source = "hotspot"
 
         state = StrategyState()
         if strategy.is_active:
@@ -184,38 +184,38 @@ class HotspotStrategyWrapper(StrategyEntry):
 
     def to_dict(self) -> dict:
         data = super().to_dict()
-        data["attention_scope"] = self._attention_strategy.scope
-        data["attention_strategy_id"] = self._attention_strategy.strategy_id
-        data["is_active"] = self._attention_strategy.is_active
-        data["execution_count"] = self._attention_strategy.execution_count
-        data["skip_count"] = self._attention_strategy.skip_count
-        data["signal_count"] = len(self._attention_strategy.signals)
+        data["hotspot_scope"] = self._hotspot_strategy.scope
+        data["hotspot_strategy_id"] = self._hotspot_strategy.strategy_id
+        data["is_active"] = self._hotspot_strategy.is_active
+        data["execution_count"] = self._hotspot_strategy.execution_count
+        data["skip_count"] = self._hotspot_strategy.skip_count
+        data["signal_count"] = len(self._hotspot_strategy.signals)
         return data
 
     @classmethod
     def from_dict(cls, data: dict) -> "HotspotStrategyWrapper":
         raise NotImplementedError("HotspotStrategyWrapper 不能从 dict 重建")
 
-    def get_attention_stats(self) -> Dict[str, Any]:
+    def get_hotspot_stats(self) -> Dict[str, Any]:
         """获取热点策略特有统计"""
-        return self._attention_strategy.get_stats()
+        return self._hotspot_strategy.get_stats()
 
     def get_recent_signals(self, n: int = 50) -> List[Signal]:
         """获取最近的信号"""
-        signals = list(self._attention_strategy.signals)
+        signals = list(self._hotspot_strategy.signals)
         return signals[-n:] if len(signals) > n else signals
 
     @property
-    def is_attention_active(self) -> bool:
-        return self._attention_strategy.is_active
+    def is_hotspot_active(self) -> bool:
+        return self._hotspot_strategy.is_active
 
     @property
     def scope(self) -> str:
-        return self._attention_strategy.scope
+        return self._hotspot_strategy.scope
 
     def start(self) -> dict:
         try:
-            self._attention_strategy.activate()
+            self._hotspot_strategy.activate()
             self._state.status = UnitStatus.RUNNING.value
             self._state.start_time = time.time()
             return {"success": True, "message": f"热点策略 {self.name} 已启动"}
@@ -224,7 +224,7 @@ class HotspotStrategyWrapper(StrategyEntry):
 
     def stop(self) -> dict:
         try:
-            self._attention_strategy.deactivate()
+            self._hotspot_strategy.deactivate()
             self._state.status = UnitStatus.STOPPED.value
             return {"success": True, "message": f"热点策略 {self.name} 已停止"}
         except Exception as e:
@@ -256,27 +256,27 @@ def wrap_hotspot_strategy(
 
 def register_hotspot_strategies_to_manager(
     strategy_mgr: "StrategyManager",
-    attention_mgr: Optional[HotspotStrategyManager] = None
+    hotspot_mgr: Optional[HotspotStrategyManager] = None
 ) -> List[HotspotStrategyWrapper]:
     """
     将所有热点策略注册到策略管理系统
 
     Args:
         strategy_mgr: 策略管理系统管理器
-        attention_mgr: 热点策略管理器（可选，默认获取全局实例）
+        hotspot_mgr: 热点策略管理器（可选，默认获取全局实例）
 
     Returns:
         注册成功的包装器列表
     """
-    if attention_mgr is None:
-        attention_mgr = get_hotspot_manager()
+    if hotspot_mgr is None:
+        hotspot_mgr = get_hotspot_manager()
 
     wrapped_strategies = []
 
-    for strategy_id, strategy in attention_mgr.strategies.items():
-        wrapper = wrap_hotspot_strategy(strategy, attention_mgr)
+    for strategy_id, strategy in hotspot_mgr.strategies.items():
+        wrapper = wrap_hotspot_strategy(strategy, hotspot_mgr)
 
-        config = attention_mgr.configs.get(strategy_id)
+        config = hotspot_mgr.configs.get(strategy_id)
         if config:
             wrapper._state.status = UnitStatus.RUNNING.value if config.enabled else UnitStatus.STOPPED.value
 

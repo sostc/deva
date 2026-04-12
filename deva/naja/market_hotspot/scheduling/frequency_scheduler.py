@@ -415,8 +415,8 @@ class AdaptiveFrequencyController:
         根据全局热点调整频率配置
         
         逻辑:
-        - attention 高: 提高所有档位的频率
-        - attention 低: 降低所有档位的频率
+        - hotspot 高: 提高所有档位的频率
+        - hotspot 低: 降低所有档位的频率
         """
         config = FrequencyConfig()
         

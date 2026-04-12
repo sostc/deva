@@ -297,7 +297,7 @@ class NarrativeTracker:
         这是"地"维度的核心：只追踪我们关心的主题
         """
         try:
-            from deva.naja.attention.attention_os import get_attention_os
+            from deva.naja.attention.os.attention_os import get_attention_os
             manas = get_attention_os().kernel.get_manas_engine()
             if manas is None:
                 raise RuntimeError("ManasEngine 未初始化")

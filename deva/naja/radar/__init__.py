@@ -36,7 +36,8 @@ from .trading_clock import (
     is_us_market_closed,
     USTRADING_CLOCK_STREAM,
 )
-from .openrouter_monitor import (
+# openrouter_monitor 已迁移到 cognition 层，保留向后兼容转发
+from deva.naja.cognition.openrouter_monitor import (
     get_openrouter_trend,
     get_openrouter_full_data,
     refresh_openrouter_data,

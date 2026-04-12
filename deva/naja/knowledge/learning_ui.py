@@ -278,7 +278,7 @@ function handleAction(action, entryId, note = '') {
                     </div>
                 </div>
                 <div style="text-align: right; font-size: 11px; color: {t['text_muted']};">
-                    <a href="/learning/detail/{entry.id}" style="background: {t['accent_bg']}; border: 1px solid {t['accent']}; padding: 6px 12px; border-radius: 6px; color: {t['accent']}; text-decoration: none; font-size: 11px; display: inline-block; margin-bottom: 8px;">🔍 详情</a>
+                    <a href="/learning/detail?entry_id={entry.id}" style="background: {t['accent_bg']}; border: 1px solid {t['accent']}; padding: 6px 12px; border-radius: 6px; color: {t['accent']}; text-decoration: none; font-size: 11px; display: inline-block; margin-bottom: 8px;">🔍 详情</a>
 """
 
                 if entry.status == "qualified":

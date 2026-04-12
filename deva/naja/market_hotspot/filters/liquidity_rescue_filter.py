@@ -60,7 +60,7 @@ class LiquidityRescueFilter:
         过滤单个事件
 
         Args:
-            event: AttentionEvent 或类似对象
+            event: HotspotEvent 或类似对象
 
         Returns:
             FilterResult: 包含 passed, reason, score, details

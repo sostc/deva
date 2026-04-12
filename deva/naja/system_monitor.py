@@ -145,10 +145,10 @@ class SystemMonitor:
         instance = None
         try:
             if class_name == "Orchestrator":
-                from deva.naja.attention.trading_center import get_trading_center
+                from deva.naja.attention.orchestration.trading_center import get_trading_center
                 instance = get_trading_center()
             elif class_name == "TradingCenter":
-                from deva.naja.attention.trading_center import get_trading_center
+                from deva.naja.attention.orchestration.trading_center import get_trading_center
                 instance = get_trading_center()
             elif class_name == "RadarEngine":
                 from deva.naja.radar import get_radar_engine
@@ -158,7 +158,7 @@ class SystemMonitor:
             elif class_name == "CognitionEngine":
                 instance = SR('cognition_engine')
             elif class_name == "TradingCenter":
-                from deva.naja.attention.trading_center import get_trading_center
+                from deva.naja.attention.orchestration.trading_center import get_trading_center
                 instance = get_trading_center()
             elif class_name == "DataSourceManager":
                 from deva.naja.datasource import get_datasource_manager
@@ -169,7 +169,7 @@ class SystemMonitor:
             elif class_name == "TaskManager":
                 instance = SR('task_manager')
             elif class_name == "ManasCore":
-                from deva.naja.attention.trading_center import get_trading_center
+                from deva.naja.attention.orchestration.trading_center import get_trading_center
                 tc = get_trading_center()
                 instance = tc.get_attention_os().kernel.get_manas_engine()
             elif class_name == "AwakenedAlaya":

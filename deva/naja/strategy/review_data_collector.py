@@ -61,7 +61,7 @@ class ReviewDataCollector:
         - 热点快照历史
         """
         try:
-            from deva.naja.market_hotspot.market_hotspot_history_tracker import get_history_tracker
+            from deva.naja.market_hotspot.tracking.history_tracker import get_history_tracker
 
             tracker = get_history_tracker()
             if tracker is None:

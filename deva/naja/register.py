@@ -3,10 +3,11 @@
 借鉴 deva namespace 思想，为 naja 所有核心单例提供统一的注册和访问机制。
 
 设计原则：
-1. 显式声明依赖 - 每个单例声明其依赖项
-2. 自动初始化顺序 - 根据依赖关系自动排序初始化
-3. 调试友好 - 可查看所有单例状态
-4. 向后兼容 - 不影响现有的 get_xxx() 函数
+1. 声明式配置 - 用数据表描述单例，自动生成工厂函数
+2. 显式声明依赖 - 每个单例声明其依赖项
+3. 自动初始化顺序 - 根据依赖关系自动排序初始化
+4. 调试友好 - 可查看所有单例状态
+5. 向后兼容 - 不影响现有的 get_xxx() 函数
 
 使用方式：
 
@@ -24,7 +25,8 @@
 """
 
 import logging
-from typing import List, Callable
+import importlib
+from typing import List, Callable, Optional, Tuple
 
 from .common.singleton_registry import (
     register_singleton, SR, get_registry_status,
@@ -42,22 +44,117 @@ def _orig(module_name: str, func_name: str):
     return orig
 
 
-def _register_base_singletons():
-    """注册基础层单例（无依赖或只有简单依赖）"""
-    logger.info("[NajaRegister] 注册基础层单例...")
+# ============================================================
+#  声明式单例配置表
+#
+#  格式: (sr_name, module_path, class_name, deps)
+#    - sr_name: SR() 访问名
+#    - module_path: 相对于 deva.naja 的模块路径（用 . 分隔）
+#    - class_name: 要实例化的类名
+#    - deps: 依赖的其他单例名列表
+#
+#  所有列在这里的单例都是「简单实例化」：import + Class()
+# ============================================================
 
-    def _create_mode_manager():
-        from .market_hotspot.integration.market_hotspot_integration import AttentionModeManager
-        return AttentionModeManager()
-    register_singleton('mode_manager', _create_mode_manager, deps=[])
-    logger.info("  ✓ mode_manager")
+SIMPLE_SINGLETONS: List[Tuple[str, str, str, List[str]]] = [
+    # ── 基础层 ──
+    ("mode_manager",      ".market_hotspot.integration.market_hotspot_integration", "HotspotModeManager", []),
 
+    # ── 注意力系统 ──
+    ("signal_executor",          ".attention.orchestration.signal_executor",    "SignalExecutor",           ["attention_integration"]),
+    ("trading_center",           ".attention.orchestration.trading_center",     "TradingCenter",            ["attention_os", "attention_integration"]),
+    ("hotspot_signal_tracker",   ".attention.tracking.hotspot_signal_tracker",  "HotspotSignalTracker",     ["attention_integration"]),
+    ("position_monitor",         ".attention.tracking.position_monitor",        "PositionMonitor",          ["attention_integration"]),
+    ("report_generator",         ".attention.tracking.report_generator",        "AttentionReportGenerator", ["attention_integration"]),
+    ("signal_tuner",             ".market_hotspot.intelligence.signal_tuner",   "SignalTuner",              ["attention_integration"]),
+    ("value_system",             ".attention.values.system",                    "ValueSystem",              []),
+
+    # ── 应用层 ──
+    ("attention_fusion",         ".attention.attention_fusion",       "AttentionFusion",          ["attention_os"]),
+    ("portfolio",                ".attention.portfolio",              "Portfolio",                []),
+    ("focus_manager",            ".attention.focus_manager",          "AttentionFocusManager",    ["attention_integration"]),
+    ("conviction_validator",     ".attention.discovery",              "ConvictionValidator",      ["attention_integration"]),
+    ("blind_spot_investigator",  ".attention.discovery",              "BlindSpotInvestigator",    ["attention_integration"]),
+    ("snapshot_manager",         ".snapshot_manager",                 "SnapshotManager",          []),
+
+    # ── Bandit ──
+    ("market_data_bus",    ".bandit.market_data_bus",       "MarketDataBus",           ["mode_manager"]),
+    ("market_observer",    ".bandit.market_observer",       "MarketDataObserver",      []),
+    ("stock_block_map",    ".bandit.stock_block_map",       "StockBlockMap",           ["stock_registry"]),
+    ("adaptive_cycle",     ".bandit.adaptive_cycle",        "AdaptiveCycle",           ["market_data_bus"]),
+    ("bandit_runner",      ".bandit.runner",                "BanditAutoRunner",        ["market_data_bus"]),
+    ("signal_listener",    ".bandit.signal_listener",       "SignalListener",          []),
+    ("bandit_tracker",     ".bandit.tracker",               "BanditPositionTracker",   []),
+
+    # ── 认知 ──
+    ("cross_signal_analyzer",  ".cognition.cross_signal_analyzer",  "CrossSignalAnalyzer",  ["attention_integration"]),
+    ("narrative_block_linker", ".attention.discovery",              "NarrativeBlockLinker", ["attention_integration"]),
+    ("llm_reflection_engine",  ".cognition.insight.llm_reflection", "LLMReflectionEngine", ["attention_integration"]),
+    ("cognition_engine",       ".cognition.engine",                 "CognitionEngine",     []),
+    ("insight_pool",           ".cognition.insight.engine",         "InsightPool",         []),
+    ("insight_engine",         ".cognition.insight.engine",         "InsightEngine",       ["insight_pool"]),
+    ("awakened_alaya",         ".alaya",                            "AwakenedAlaya",       []),
+    ("strategy_result_store",  ".strategy.result_store",            "ResultStore",         []),
+    ("signal_dispatcher",      ".signal.dispatcher",                "SignalDispatcher",    ["signal_stream"]),
+    ("llm_controller",         ".llm_controller.controller",        "LLMController",      []),
+    ("bandit_optimizer",       ".bandit.optimizer",                 "BanditOptimizer",     ["market_data_bus"]),
+    ("bandit_tuner",           ".bandit.tuner",                     "BanditTuner",         ["market_data_bus"]),
+    ("bandit_attribution",     ".bandit.attribution",               "BanditAttribution",   ["strategy_result_store"]),
+    ("virtual_portfolio",      ".bandit.virtual_portfolio",         "VirtualPortfolio",    []),
+
+    # ── 基础设施 ──
+    ("thread_pool",            ".common.thread_pool",               "ThreadPoolManager",        []),
+    ("log_stream",             ".log_stream",                       "NajaLogStream",            []),
+    ("output_controller",      ".strategy.output_controller",       "OutputController",         []),
+    ("recoverable",            ".common.recoverable",               "Recoverable",              []),
+    ("performance_monitor",    ".performance.performance_monitor",  "NajaPerformanceMonitor",   []),
+    ("scheduler_manager",      ".scheduler.common",                 "SchedulerManager",         []),
+    ("radar_engine",           ".radar.engine",                     "RadarEngine",              ["trading_clock"]),
+    ("system_state_manager",   ".system_state.system_state",        "SystemStateManager",       []),
+    ("market_time_service",    ".common.market_time",               "MarketTimeService",        []),
+    ("market_session_manager", ".radar.global_market_config",       "MarketSessionManager",     []),
+    ("replay_scheduler",       ".replay.replay_scheduler",          "ReplayScheduler",          []),
+    ("system_monitor",         ".system_monitor",                   "SystemMonitor",            []),
+    ("portfolio_manager",      ".bandit.portfolio_manager",         "PortfolioManager",         []),
+    ("manas_manager",          ".attention.kernel.manas_manager",   "ManasManager",             []),
+    ("auto_tuner",             ".common.auto_tuner",                "AutoTuner",                []),
+    ("liquidity_manager",      ".attention.orchestration.liquidity_manager", "LiquidityManager", ["attention_integration"]),
+    ("daily_review_scheduler", ".strategy.daily_review_scheduler",  "DailyReviewScheduler",     ["datasource_manager"]),
+    ("cognition_orchestrator", ".attention.orchestration.cognition_orchestrator", "CognitionOrchestrator", ["attention_os"]),
+    ("task_manager",           ".tasks",                            "TaskManager",              []),
+    ("dictionary_manager",     ".dictionary",                       "DictionaryManager",        []),
+]
+
+
+def _auto_register(entries: List[Tuple[str, str, str, List[str]]]):
+    """根据声明式配置表自动注册简单单例"""
+    for sr_name, module_path, class_name, deps in entries:
+        def _make_factory(mod_path: str, cls_name: str):
+            def factory():
+                mod = importlib.import_module(mod_path, package="deva.naja")
+                cls = getattr(mod, cls_name)
+                return cls()
+            return factory
+
+        register_singleton(sr_name, _make_factory(module_path, class_name), deps=deps)
+        logger.info(f"  ✓ {sr_name}")
+
+
+# ============================================================
+#  需要特殊初始化逻辑的单例（保留显式工厂函数）
+# ============================================================
+
+def _register_custom_singletons():
+    """注册需要特殊初始化逻辑的单例"""
+
+    # --- stock_registry: 调用工厂函数而非类构造器 ---
     def _create_stock_registry():
         from .dictionary.blocks import get_block_dictionary
         return get_block_dictionary()
     register_singleton('stock_registry', _create_stock_registry, deps=[])
     logger.info("  ✓ stock_registry")
 
+    # --- datasource_manager: 需要 _ensure_initialized() ---
     def _create_datasource_manager():
         from .datasource import DataSourceManager
         mgr = DataSourceManager()
@@ -66,88 +163,33 @@ def _register_base_singletons():
     register_singleton('datasource_manager', _create_datasource_manager, deps=[])
     logger.info("  ✓ datasource_manager")
 
-    logger.info("[NajaRegister] 基础层单例注册完成")
-
-
-def _register_attention_singletons():
-    """注册注意力系统相关单例"""
-    logger.info("[NajaRegister] 注册注意力系统单例...")
-
+    # --- attention_integration: 需要 load_config + initialize ---
     def _create_attention_integration():
         from .market_hotspot.integration.market_hotspot_integration import MarketHotspotIntegration
         from .market_hotspot.integration.market_hotspot_config import load_config, get_intelligence_config
-        
         integration = MarketHotspotIntegration()
-        # 立即初始化注意力系统
         config = load_config()
         intelligence_config = get_intelligence_config()
         if config.enabled:
-            system_config = config.to_attention_system_config()
+            system_config = config.to_hotspot_system_config()
             integration.initialize(system_config, intelligence_config=intelligence_config)
         return integration
     register_singleton('attention_integration', _create_attention_integration,
                       deps=['mode_manager', 'stock_registry'])
     logger.info("  ✓ attention_integration")
 
+    # --- attention_os: 需要 initialize() ---
     def _create_attention_os():
-        from .attention.attention_os import AttentionOS
-        os = AttentionOS()
-        if not getattr(os, '_initialized', False):
-            os.initialize()
-        return os
+        from .attention.os.attention_os import AttentionOS
+        os_inst = AttentionOS()
+        if not getattr(os_inst, '_initialized', False):
+            os_inst.initialize()
+        return os_inst
     register_singleton('attention_os', _create_attention_os,
                       deps=['attention_integration'])
     logger.info("  ✓ attention_os")
 
-    def _create_signal_executor():
-        from .attention.signal_executor import SignalExecutor
-        return SignalExecutor()
-    register_singleton('signal_executor', _create_signal_executor,
-                      deps=['attention_integration'])
-    logger.info("  ✓ signal_executor")
-
-    def _create_data_processor():
-        from .attention.data_processor import DataProcessor
-        return DataProcessor()
-    register_singleton('data_processor', _create_data_processor,
-                      deps=['attention_integration'])
-    logger.info("  ✓ data_processor")
-
-    def _create_trading_center():
-        from .attention.trading_center import TradingCenter
-        return TradingCenter()
-    register_singleton('trading_center', _create_trading_center,
-                      deps=['attention_os', 'attention_integration'])
-    logger.info("  ✓ trading_center")
-
-    def _create_hotspot_signal_tracker():
-        from .attention.hotspot_signal_tracker import HotspotSignalTracker
-        return HotspotSignalTracker()
-    register_singleton('hotspot_signal_tracker', _create_hotspot_signal_tracker,
-                      deps=['attention_integration'])
-    logger.info("  ✓ hotspot_signal_tracker")
-
-    def _create_position_monitor():
-        from .attention.position_monitor import PositionMonitor
-        return PositionMonitor()
-    register_singleton('position_monitor', _create_position_monitor,
-                      deps=['attention_integration'])
-    logger.info("  ✓ position_monitor")
-
-    def _create_report_generator():
-        from .attention.report_generator import AttentionReportGenerator
-        return AttentionReportGenerator()
-    register_singleton('report_generator', _create_report_generator,
-                      deps=['attention_integration'])
-    logger.info("  ✓ report_generator")
-
-    def _create_signal_tuner():
-        from .market_hotspot.intelligence.signal_tuner import SignalTuner
-        return SignalTuner()
-    register_singleton('signal_tuner', _create_signal_tuner,
-                      deps=['attention_integration'])
-    logger.info("  ✓ signal_tuner")
-
+    # --- hotspot_system: 从 attention_integration 取属性 ---
     def _create_hotspot_system():
         integration = SR('attention_integration')
         return integration.hotspot_system
@@ -155,14 +197,72 @@ def _register_attention_singletons():
                       deps=['attention_integration'])
     logger.info("  ✓ hotspot_system")
 
-    def _create_value_system():
-        from .attention.values.system import ValueSystem
-        return ValueSystem()
-    register_singleton('value_system', _create_value_system,
-                      deps=[])
-    logger.info("  ✓ value_system")
+    # --- cognition_bus: 调用 get_cognitive_bus() 单例获取器 ---
+    def _create_cognitive_signal_bus():
+        from .cognition.cognitive_signal_bus import get_cognitive_bus
+        return get_cognitive_bus()
+    register_singleton('cognition_bus', _create_cognitive_signal_bus, deps=[])
+    logger.info("  ✓ cognition_bus (→ CognitiveSignalBus)")
 
-    logger.info("[NajaRegister] 注意力系统单例注册完成")
+    # --- history_tracker: 需要 load_latest_state + start_auto_save ---
+    def _create_history_tracker():
+        from .market_hotspot.tracking.history_tracker import MarketHotspotHistoryTracker
+        tracker = MarketHotspotHistoryTracker()
+        tracker.load_latest_state()
+        tracker.start_auto_save(interval_seconds=300)
+        return tracker
+    register_singleton('history_tracker', _create_history_tracker, deps=[])
+    logger.info("  ✓ history_tracker")
+
+    # --- trading_clock / us_trading_clock: 需要 start() ---
+    def _create_trading_clock():
+        from .radar.trading_clock import TradingClock
+        tc = TradingClock()
+        tc.start()
+        return tc
+    register_singleton('trading_clock', _create_trading_clock, deps=[])
+    logger.info("  ✓ trading_clock")
+
+    def _create_us_trading_clock():
+        from .radar.trading_clock import USTradingClock
+        utc = USTradingClock()
+        utc.start()
+        return utc
+    register_singleton('us_trading_clock', _create_us_trading_clock, deps=[])
+    logger.info("  ✓ us_trading_clock")
+
+    # --- realtime_data_fetcher: 需要 SR() + start() ---
+    def _create_realtime_data_fetcher():
+        from .market_hotspot.data.realtime_fetcher import RealtimeDataFetcher
+        integration = SR('attention_integration')
+        fetcher = RealtimeDataFetcher(hotspot_system=integration)
+        fetcher.start()
+        return fetcher
+    register_singleton('realtime_data_fetcher', _create_realtime_data_fetcher,
+                      deps=['mode_manager', 'attention_integration'])
+    logger.info("  ✓ realtime_data_fetcher")
+
+    # --- wake_sync_manager: 需要注册多个组件 ---
+    def _create_wake_sync_manager():
+        from .system_state.wake_sync_manager import WakeSyncManager
+        from .system_state.wake_sync_handlers import (
+            AIDailyReportWakeSync,
+            NewsFetcherWakeSync,
+            GlobalMarketScannerWakeSync,
+            DailyReviewWakeSync,
+            PortfolioPriceWakeSync,
+        )
+        mgr = WakeSyncManager()
+        mgr.register(PortfolioPriceWakeSync())
+        mgr.register(NewsFetcherWakeSync())
+        mgr.register(GlobalMarketScannerWakeSync())
+        mgr.register(DailyReviewWakeSync())
+        mgr.register(AIDailyReportWakeSync())
+        return mgr
+    register_singleton('wake_sync_manager', _create_wake_sync_manager, deps=[])
+    logger.info("  ✓ wake_sync_manager")
+
+    logger.info("  ✓ signal_stream")
 
 
 def ensure_trading_clocks():
@@ -203,437 +303,6 @@ def ensure_trading_clocks():
         logger.warning(f"[NajaRegister] 交易时钟初始化失败: {e}")
 
 
-def _register_application_singletons():
-    """注册应用层单例"""
-    logger.info("[NajaRegister] 注册应用层单例...")
-
-    def _create_attention_fusion():
-        from .attention.attention_fusion import AttentionFusion
-        return AttentionFusion()
-    register_singleton('attention_fusion', _create_attention_fusion,
-                      deps=['attention_os'])
-    logger.info("  ✓ attention_fusion")
-
-    def _create_portfolio():
-        from .attention.portfolio import Portfolio
-        return Portfolio()
-    register_singleton('portfolio', _create_portfolio)
-    logger.info("  ✓ portfolio")
-
-    def _create_focus_manager():
-        from .attention.focus_manager import AttentionFocusManager
-        return AttentionFocusManager()
-    register_singleton('focus_manager', _create_focus_manager,
-                      deps=['attention_integration'])
-    logger.info("  ✓ focus_manager")
-
-    def _create_conviction_validator():
-        from .attention.discovery import ConvictionValidator
-        return ConvictionValidator()
-    register_singleton('conviction_validator', _create_conviction_validator,
-                      deps=['attention_integration'])
-    logger.info("  ✓ conviction_validator")
-
-    def _create_blind_spot_investigator():
-        from .attention.discovery import BlindSpotInvestigator
-        return BlindSpotInvestigator()
-    register_singleton('blind_spot_investigator', _create_blind_spot_investigator,
-                      deps=['attention_integration'])
-    logger.info("  ✓ blind_spot_investigator")
-
-    def _create_snapshot_manager():
-        from .snapshot_manager import SnapshotManager
-        return SnapshotManager()
-    register_singleton('snapshot_manager', _create_snapshot_manager,
-                      deps=[])
-    logger.info("  ✓ snapshot_manager")
-
-    logger.info("[NajaRegister] 应用层单例注册完成")
-
-
-def _register_bandit_singletons():
-    """注册 bandit 模块单例"""
-    logger.info("[NajaRegister] 注册 bandit 单例...")
-
-    def _create_market_data_bus():
-        from .bandit.market_data_bus import MarketDataBus
-        return MarketDataBus()
-    register_singleton('market_data_bus', _create_market_data_bus,
-                      deps=['mode_manager'])
-    logger.info("  ✓ market_data_bus")
-
-    def _create_market_observer():
-        from .bandit.market_observer import MarketDataObserver
-        return MarketDataObserver()
-    register_singleton('market_observer', _create_market_observer,
-                      deps=[])
-    logger.info("  ✓ market_observer")
-
-    def _create_stock_block_map():
-        from .bandit.stock_block_map import StockBlockMap
-        return StockBlockMap()
-    register_singleton('stock_block_map', _create_stock_block_map,
-                      deps=['stock_registry'])
-    logger.info("  ✓ stock_block_map")
-
-    def _create_adaptive_cycle():
-        from .bandit.adaptive_cycle import AdaptiveCycle
-        return AdaptiveCycle()
-    register_singleton('adaptive_cycle', _create_adaptive_cycle,
-                      deps=['market_data_bus'])
-    logger.info("  ✓ adaptive_cycle")
-
-    def _create_bandit_runner():
-        from .bandit.runner import BanditAutoRunner
-        return BanditAutoRunner()
-    register_singleton('bandit_runner', _create_bandit_runner,
-                      deps=['market_data_bus'])
-    logger.info("  ✓ bandit_runner")
-
-    def _create_signal_listener():
-        from .bandit.signal_listener import SignalListener
-        return SignalListener()
-    register_singleton('signal_listener', _create_signal_listener,
-                      deps=[])
-    logger.info("  ✓ signal_listener")
-
-    def _create_bandit_tracker():
-        from .bandit.tracker import BanditPositionTracker
-        return BanditPositionTracker()
-    register_singleton('bandit_tracker', _create_bandit_tracker,
-                      deps=[])
-    logger.info("  ✓ bandit_tracker")
-
-    logger.info("[NajaRegister] bandit 单例注册完成")
-
-
-def _register_cognition_singletons():
-    """注册认知模块单例"""
-    logger.info("[NajaRegister] 注册认知模块单例...")
-
-    def _create_cognitive_signal_bus():
-        from .cognition.cognitive_signal_bus import get_cognitive_bus
-        return get_cognitive_bus()
-    register_singleton('cognition_bus', _create_cognitive_signal_bus,
-                      deps=[])
-    logger.info("  ✓ cognition_bus (→ CognitiveSignalBus)")
-
-    def _create_history_tracker():
-        from .market_hotspot.market_hotspot_history_tracker import MarketHotspotHistoryTracker
-        tracker = MarketHotspotHistoryTracker()
-        tracker.load_latest_state()
-        tracker.start_auto_save(interval_seconds=300)
-        return tracker
-    register_singleton('history_tracker', _create_history_tracker,
-                      deps=[])
-    logger.info("  ✓ history_tracker")
-
-    def _create_cross_signal_analyzer():
-        from .cognition.cross_signal_analyzer import CrossSignalAnalyzer
-        return CrossSignalAnalyzer()
-    register_singleton('cross_signal_analyzer', _create_cross_signal_analyzer,
-                      deps=['attention_integration'])
-    logger.info("  ✓ cross_signal_analyzer")
-
-    def _create_narrative_block_linker():
-        from .attention.discovery import NarrativeBlockLinker
-        return NarrativeBlockLinker()
-    register_singleton('narrative_block_linker', _create_narrative_block_linker,
-                      deps=['attention_integration'])
-    logger.info("  ✓ narrative_block_linker")
-
-    def _create_llm_reflection_engine():
-        from .cognition.insight.llm_reflection import LLMReflectionEngine
-        return LLMReflectionEngine()
-    register_singleton('llm_reflection_engine', _create_llm_reflection_engine,
-                      deps=['attention_integration'])
-    logger.info("  ✓ llm_reflection_engine")
-
-    def _create_cognition_engine():
-        from .cognition.engine import CognitionEngine
-        return CognitionEngine()
-    register_singleton('cognition_engine', _create_cognition_engine,
-                      deps=[])
-    logger.info("  ✓ cognition_engine")
-
-    def _create_insight_pool():
-        from .cognition.insight.engine import InsightPool
-        return InsightPool()
-    register_singleton('insight_pool', _create_insight_pool,
-                      deps=[])
-    logger.info("  ✓ insight_pool")
-
-    def _create_insight_engine():
-        from .cognition.insight.engine import InsightEngine
-        return InsightEngine()
-    register_singleton('insight_engine', _create_insight_engine,
-                      deps=['insight_pool'])
-    logger.info("  ✓ insight_engine")
-
-    def _create_awakened_alaya():
-        from .alaya import AwakenedAlaya
-        return AwakenedAlaya()
-    register_singleton('awakened_alaya', _create_awakened_alaya,
-                      deps=[])
-    logger.info("  ✓ awakened_alaya")
-
-    logger.info("  ✓ signal_stream")
-
-    def _create_strategy_result_store():
-        from .strategy.result_store import ResultStore
-        return ResultStore()
-    register_singleton('strategy_result_store', _create_strategy_result_store,
-                      deps=[])
-    logger.info("  ✓ strategy_result_store")
-
-    def _create_signal_dispatcher():
-        from .signal.dispatcher import SignalDispatcher
-        return SignalDispatcher()
-    register_singleton('signal_dispatcher', _create_signal_dispatcher,
-                      deps=['signal_stream'])
-    logger.info("  ✓ signal_dispatcher")
-
-    def _create_llm_controller():
-        from .llm_controller.controller import LLMController
-        return LLMController()
-    register_singleton('llm_controller', _create_llm_controller,
-                      deps=[])
-    logger.info("  ✓ llm_controller")
-
-    def _create_bandit_optimizer():
-        from .bandit.optimizer import BanditOptimizer
-        return BanditOptimizer()
-    register_singleton('bandit_optimizer', _create_bandit_optimizer,
-                      deps=['market_data_bus'])
-    logger.info("  ✓ bandit_optimizer")
-
-    def _create_bandit_tuner():
-        from .bandit.tuner import BanditTuner
-        return BanditTuner()
-    register_singleton('bandit_tuner', _create_bandit_tuner,
-                      deps=['market_data_bus'])
-    logger.info("  ✓ bandit_tuner")
-
-    def _create_bandit_attribution():
-        from .bandit.attribution import BanditAttribution
-        return BanditAttribution()
-    register_singleton('bandit_attribution', _create_bandit_attribution,
-                      deps=['strategy_result_store'])
-    logger.info("  ✓ bandit_attribution")
-
-    def _create_virtual_portfolio():
-        from .bandit.virtual_portfolio import VirtualPortfolio
-        return VirtualPortfolio()
-    register_singleton('virtual_portfolio', _create_virtual_portfolio,
-                      deps=[])
-    logger.info("  ✓ virtual_portfolio")
-
-    def _create_thread_pool():
-        from .common.thread_pool import ThreadPoolManager
-        return ThreadPoolManager()
-    register_singleton('thread_pool', _create_thread_pool,
-                      deps=[])
-    logger.info("  ✓ thread_pool")
-
-    def _create_log_stream():
-        from .log_stream import NajaLogStream
-        return NajaLogStream()
-    register_singleton('log_stream', _create_log_stream,
-                      deps=[])
-    logger.info("  ✓ log_stream")
-
-    def _create_output_controller():
-        from .strategy.output_controller import OutputController
-        return OutputController()
-    register_singleton('output_controller', _create_output_controller,
-                      deps=[])
-    logger.info("  ✓ output_controller")
-
-    def _create_recoverable():
-        from .common.recoverable import Recoverable
-        return Recoverable()
-    register_singleton('recoverable', _create_recoverable,
-                      deps=[])
-    logger.info("  ✓ recoverable")
-
-    def _create_performance_monitor():
-        from .performance.performance_monitor import NajaPerformanceMonitor
-        return NajaPerformanceMonitor()
-    register_singleton('performance_monitor', _create_performance_monitor,
-                      deps=[])
-    logger.info("  ✓ performance_monitor")
-
-    def _create_scheduler_manager():
-        from .scheduler.common import SchedulerManager
-        return SchedulerManager()
-    register_singleton('scheduler_manager', _create_scheduler_manager,
-                      deps=[])
-    logger.info("  ✓ scheduler_manager")
-
-
-
-    def _create_trading_clock():
-        from .radar.trading_clock import TradingClock
-        tc = TradingClock()
-        tc.start()
-        return tc
-    register_singleton('trading_clock', _create_trading_clock,
-                      deps=[])
-    logger.info("  ✓ trading_clock")
-
-    def _create_us_trading_clock():
-        from .radar.trading_clock import USTradingClock
-        utc = USTradingClock()
-        utc.start()
-        return utc
-    register_singleton('us_trading_clock', _create_us_trading_clock,
-                      deps=[])
-    logger.info("  ✓ us_trading_clock")
-
-    def _create_radar_engine():
-        from .radar.engine import RadarEngine
-        return RadarEngine()
-    register_singleton('radar_engine', _create_radar_engine,
-                      deps=['trading_clock'])
-    logger.info("  ✓ radar_engine")
-
-    def _create_system_state_manager():
-        from .system_state.system_state import SystemStateManager
-        return SystemStateManager()
-    register_singleton('system_state_manager', _create_system_state_manager,
-                      deps=[])
-    logger.info("  ✓ system_state_manager")
-
-    def _create_market_time_service():
-        from .common.market_time import MarketTimeService
-        return MarketTimeService()
-    register_singleton('market_time_service', _create_market_time_service,
-                      deps=[])
-    logger.info("  ✓ market_time_service")
-
-    def _create_market_session_manager():
-        from .radar.global_market_config import MarketSessionManager
-        return MarketSessionManager()
-    register_singleton('market_session_manager', _create_market_session_manager,
-                      deps=[])
-    logger.info("  ✓ market_session_manager")
-
-    def _create_replay_scheduler():
-        from .replay.replay_scheduler import ReplayScheduler
-        return ReplayScheduler()
-    register_singleton('replay_scheduler', _create_replay_scheduler,
-                      deps=[])
-    logger.info("  ✓ replay_scheduler")
-
-    def _create_wake_sync_manager():
-        from .system_state.wake_sync_manager import WakeSyncManager, _register_default_components
-        mgr = WakeSyncManager()
-        _register_default_components_for_sr(mgr)
-        return mgr
-    def _register_default_components_for_sr(manager):
-        from .system_state.wake_sync_handlers import (
-            AIDailyReportWakeSync,
-            NewsFetcherWakeSync,
-            GlobalMarketScannerWakeSync,
-            DailyReviewWakeSync,
-            PortfolioPriceWakeSync,
-        )
-        manager.register(PortfolioPriceWakeSync())
-        manager.register(NewsFetcherWakeSync())
-        manager.register(GlobalMarketScannerWakeSync())
-        manager.register(DailyReviewWakeSync())
-        manager.register(AIDailyReportWakeSync())
-    register_singleton('wake_sync_manager', _create_wake_sync_manager,
-                      deps=[])
-    logger.info("  ✓ wake_sync_manager")
-
-    def _create_system_monitor():
-        from .system_monitor import SystemMonitor
-        return SystemMonitor()
-    register_singleton('system_monitor', _create_system_monitor,
-                      deps=[])
-    logger.info("  ✓ system_monitor")
-
-    logger.info("[NajaRegister] 系统级单例注册完成")
-
-
-
-
-
-def _register_other_singletons():
-    """注册其他单例"""
-    logger.info("[NajaRegister] 注册其他单例...")
-
-    def _create_realtime_data_fetcher():
-        from .market_hotspot.realtime_data_fetcher import RealtimeDataFetcher
-        integration = SR('attention_integration')
-        fetcher = RealtimeDataFetcher(hotspot_system=integration)
-        fetcher.start()  # 启动数据获取器
-        return fetcher
-    register_singleton('realtime_data_fetcher', _create_realtime_data_fetcher,
-                      deps=['mode_manager', 'attention_integration'])
-    logger.info("  ✓ realtime_data_fetcher")
-
-    def _create_portfolio_manager():
-        from .bandit.portfolio_manager import PortfolioManager
-        return PortfolioManager()
-    register_singleton('portfolio_manager', _create_portfolio_manager,
-                      deps=[])
-    logger.info("  ✓ portfolio_manager")
-
-    def _create_manas_manager():
-        from .attention.kernel.manas_manager import ManasManager
-        return ManasManager()
-    register_singleton('manas_manager', _create_manas_manager,
-                      deps=[])
-    logger.info("  ✓ manas_manager")
-
-    def _create_auto_tuner():
-        from .common.auto_tuner import AutoTuner
-        return AutoTuner()
-    register_singleton('auto_tuner', _create_auto_tuner,
-                      deps=[])
-    logger.info("  ✓ auto_tuner")
-
-    def _create_liquidity_manager():
-        from .attention.liquidity_manager import LiquidityManager
-        return LiquidityManager()
-    register_singleton('liquidity_manager', _create_liquidity_manager,
-                      deps=['attention_integration'])
-    logger.info("  ✓ liquidity_manager")
-
-    def _create_daily_review_scheduler():
-        from .strategy.daily_review_scheduler import DailyReviewScheduler
-        return DailyReviewScheduler()
-    register_singleton('daily_review_scheduler', _create_daily_review_scheduler,
-                      deps=['datasource_manager'])
-    logger.info("  ✓ daily_review_scheduler")
-
-    def _create_cognition_orchestrator():
-        from .attention.cognition_orchestrator import CognitionOrchestrator
-        return CognitionOrchestrator()
-    register_singleton('cognition_orchestrator', _create_cognition_orchestrator,
-                      deps=['attention_os'])
-    logger.info("  ✓ cognition_orchestrator")
-
-
-    def _create_task_manager():
-        from .tasks import TaskManager
-        return TaskManager()
-    register_singleton('task_manager', _create_task_manager,
-                      deps=[])
-    logger.info("  ✓ task_manager")
-
-    def _create_dictionary_manager():
-        from .dictionary import DictionaryManager
-        return DictionaryManager()
-    register_singleton('dictionary_manager', _create_dictionary_manager,
-                      deps=[])
-    logger.info("  ✓ dictionary_manager")
-
-    logger.info("[NajaRegister] 其他单例注册完成")
-
-
 def register_all_singletons():
     """注册所有 naja 单例
 
@@ -643,12 +312,11 @@ def register_all_singletons():
     logger.info("[NajaRegister] 开始注册所有单例...")
     logger.info("=" * 60)
 
-    _register_base_singletons()
-    _register_attention_singletons()
-    _register_application_singletons()
-    _register_bandit_singletons()
-    _register_cognition_singletons()
-    _register_other_singletons()
+    # 1. 特殊初始化逻辑的单例（顺序敏感）
+    _register_custom_singletons()
+
+    # 2. 简单实例化的单例（声明式批量注册）
+    _auto_register(SIMPLE_SINGLETONS)
 
     logger.info("=" * 60)
     logger.info("[NajaRegister] 所有单例注册完成!")
