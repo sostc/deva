@@ -136,7 +136,7 @@ class TimingNarrativeTracker:
     def _publish_cognitive_update(self, event):
         """发布市场叙事更新事件到 CognitiveSignalBus"""
         try:
-            from deva.naja.cognition.cognitive_signal_bus import (
+            from deva.naja.events import (
                 get_cognitive_bus,
                 CognitiveEventType,
             )

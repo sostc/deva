@@ -1,100 +1,97 @@
 """
-CognitiveSignalBus - 认知信号事件总线
+NajaEventBus - Naja 统一事件总线
 
-统一事件系统的一部分，处理认知层的高级信号事件。
-与 NajaEventBus（处理 dataclass 事件）共同构成 Naja 统一事件系统。
+合并了原 NajaEventBus（dataclass 事件分发）和 CognitiveSignalBus（认知信号事件）。
+系统中所有事件通信统一经由此总线。
 
-🧠 定位：天-地-人框架中的「人」
-    - ManasEngine 订阅此总线，感知认知层变化
-
-📡 事件类型：见 CognitiveEventType 枚举
+📡 两种事件通道：
+  1. Dataclass 事件（按类名字符串路由）：TextFetchedEvent / HotspotComputedEvent 等
+     - 支持 market 字段过滤、priority 优先级、事件缓存
+  2. 认知信号事件（按 CognitiveEventType 枚举路由）：叙事/共振/风险等
+     - 支持去重窗口、重要性阈值、模块启用/禁用
 
 使用方式：
-    from deva.naja.events import get_cognitive_bus, CognitiveEventType
+    from deva.naja.events import get_event_bus, get_cognitive_bus
 
-    bus = get_cognitive_bus()
-    bus.publish_cognitive_event(
-        source="BlockNarrative",
-        event_type=CognitiveEventType.BLOCK_NARRATIVE_UPDATE,
-        narratives=[...],
-        importance=0.8
-    )
+    # dataclass 事件
+    bus = get_event_bus()
+    bus.publish(TextFetchedEvent(...))
+    bus.subscribe('TextFetchedEvent', callback, markets={'US'}, priority=10)
+
+    # 认知信号事件
+    bus = get_cognitive_bus()   # 返回同一个实例
+    bus.publish_cognitive_event(source="...", event_type=CognitiveEventType.XXX, ...)
+    bus.subscribe_cognitive("ManasEngine", callback, event_types=[...])
 """
 
 from __future__ import annotations
 
 import logging
+import threading
 import time
-from collections import defaultdict
+from collections import defaultdict, deque
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Callable, Dict, List, Optional, Set
+from typing import Any, Callable, Deque, Dict, List, Optional, Set
 
 log = logging.getLogger(__name__)
 
 
-# ============== 事件类型 ==============
+# ============== 认知事件类型枚举 ==============
 
 class CognitiveEventType(Enum):
     """认知事件类型"""
     # 地 - BlockNarrative 叙事更新
-    # 新事件名：题材叙事更新
     BLOCK_NARRATIVE_UPDATE = "block_narrative_update"
-    NARRATIVE_BOOST = "narrative_boost"                  # 叙事重要性提升
-    NARRATIVE_DECAY = "narrative_decay"                  # 叙事衰退
+    NARRATIVE_BOOST = "narrative_boost"
+    NARRATIVE_DECAY = "narrative_decay"
 
     # 天 - TimingNarrative 时机更新
-    TIMING_NARRATIVE_UPDATE = "timing_narrative_update"  # 时机叙事更新
-    TIMING_NARRATIVE_SHIFT = "timing_narrative_shift"    # 时机叙事切换
+    TIMING_NARRATIVE_UPDATE = "timing_narrative_update"
+    TIMING_NARRATIVE_SHIFT = "timing_narrative_shift"
 
     # 🔥 共振分析（CrossSignalAnalyzer）
-    RESONANCE_DETECTED = "resonance_detected"           # 检测到共振
-    RESONANCE_DECAY = "resonance_decay"                 # 共振减弱/消失
+    RESONANCE_DETECTED = "resonance_detected"
+    RESONANCE_DECAY = "resonance_decay"
 
     # 供应链风险
-    SUPPLY_CHAIN_RISK = "supply_chain_risk"         # 供应链风险事件
-    SUPPLY_CHAIN_IMPACT = "supply_chain_impact"     # 供应链影响分析
-    NARRATIVE_SUPPLY_LINK = "narrative_supply_link"  # 叙事-供应链关联
+    SUPPLY_CHAIN_RISK = "supply_chain_risk"
+    SUPPLY_CHAIN_IMPACT = "supply_chain_impact"
+    NARRATIVE_SUPPLY_LINK = "narrative_supply_link"
 
     # 🚀 全球市场事件（给 LiquidityCognition）
-    GLOBAL_MARKET_EVENT = "global_market_event"     # 全球市场行情变化
+    GLOBAL_MARKET_EVENT = "global_market_event"
 
     # 组合级信号
-    PORTFOLIO_SIGNAL = "portfolio_signal"            # 组合级信号
-    RISK_ALERT = "risk_alert"                        # 风险警报
+    PORTFOLIO_SIGNAL = "portfolio_signal"
+    RISK_ALERT = "risk_alert"
 
     # 通用
-    COGNITION_RESET = "cognition_reset"              # 认知系统重置
+    COGNITION_RESET = "cognition_reset"
 
-    # ── 以下从 cognition_bus.py 合并（原 CognitionEventType） ──
-    ATTENTION_SNAPSHOT = "attention_snapshot"         # 注意力快照
-    NEWS_SIGNAL = "news_signal"                      # 新闻信号
-    INSIGHT_GENERATED = "insight_generated"           # 洞察生成
-    COGNITION_FEEDBACK = "cognition_feedback"         # 认知反馈
-    NARRATIVE_UPDATE = "narrative_update"             # 叙事更新（通用）
-    SEMANTIC_GRAPH_UPDATE = "semantic_graph_update"   # 语义图谱更新
+    # ── 原 CognitionEventType ──
+    ATTENTION_SNAPSHOT = "attention_snapshot"
+    NEWS_SIGNAL = "news_signal"
+    INSIGHT_GENERATED = "insight_generated"
+    COGNITION_FEEDBACK = "cognition_feedback"
+    NARRATIVE_UPDATE = "narrative_update"
+    SEMANTIC_GRAPH_UPDATE = "semantic_graph_update"
 
+
+# ============== 数据类 ==============
 
 @dataclass
 class CognitiveSignalEvent:
-    """
-    认知信号事件
-
-    代表认知层内部模块的重要状态变化
-    """
-    source: str                                      # 事件来源模块
-    event_type: CognitiveEventType                   # 事件类型
-    timestamp: float = field(default_factory=time.time)  # 事件时间戳
-
-    # 事件数据
-    narratives: List[str] = field(default_factory=list)   # 相关叙事
-    importance: float = 0.5                               # 重要性 [0, 1]
-    confidence: float = 0.5                               # 置信度 [0, 1]
-
-    # 可选附加数据
-    stock_codes: List[str] = field(default_factory=list)  # 相关股票
-    risk_level: str = "unknown"                           # 风险等级
-    metadata: Dict[str, Any] = field(default_factory=dict)  # 其他元数据
+    """认知信号事件 — 代表认知层内部模块的重要状态变化"""
+    source: str
+    event_type: CognitiveEventType
+    timestamp: float = field(default_factory=time.time)
+    narratives: List[str] = field(default_factory=list)
+    importance: float = 0.5
+    confidence: float = 0.5
+    stock_codes: List[str] = field(default_factory=list)
+    risk_level: str = "unknown"
+    metadata: Dict[str, Any] = field(default_factory=dict)
 
     def __str__(self) -> str:
         return (
@@ -108,11 +105,20 @@ class CognitiveSignalEvent:
 @dataclass
 class CognitiveSubscriber:
     """认知事件订阅者"""
-    module_name: str                                          # 模块名称
-    callback: Callable[[CognitiveSignalEvent], None]           # 回调函数
-    event_types: List[CognitiveEventType] = field(default_factory=list)  # 感兴趣的事件类型
-    min_importance: float = 0.3                               # 最小重要性阈值
+    module_name: str
+    callback: Callable[[CognitiveSignalEvent], None]
+    event_types: List[CognitiveEventType] = field(default_factory=list)
+    min_importance: float = 0.3
     enabled: bool = True
+
+
+@dataclass
+class EventSubscription:
+    """Dataclass 事件订阅记录（原 NajaEventBus 接口）"""
+    callback: Callable
+    event_type: str
+    markets: Set[str] = field(default_factory=set)
+    priority: int = 0
 
 
 @dataclass
@@ -125,70 +131,206 @@ class CognitiveBusStats:
     dropped: int = 0
 
 
-# ============== 认知信号事件总线 ==============
+# ============== 统一事件总线 ==============
 
 class CognitiveSignalBus:
     """
-    认知信号事件总线
+    Naja 统一事件总线
 
-    核心机制：
-    1. 认知层模块发布重要事件
-    2. 其他模块订阅并响应
-    3. 支持事件类型过滤和重要性阈值
-
-    使用示例：
-        # NarrativeTracker 发布叙事更新
-        bus = get_cognitive_bus()
-        bus.publish_cognitive_event(
-            source="NarrativeTracker",
-            event_type=CognitiveEventType.NARRATIVE_UPDATE,
-            narratives=["AI芯片需求爆发"],
-            importance=0.85
-        )
-
-        # ManasEngine 订阅
-        bus.subscribe(
-            "ManasEngine",
-            on_cognitive_event,
-            event_types=[CognitiveEventType.NARRATIVE_UPDATE, ...]
-        )
+    同时支持：
+    - dataclass 事件 publish/subscribe（按类名字符串路由，兼容原 NajaEventBus 接口）
+    - 认知信号事件 publish_cognitive_event/subscribe_cognitive（按枚举路由）
     """
 
     def __init__(self):
-        self._subscribers: Dict[str, List[CognitiveSubscriber]] = defaultdict(list)
-        self._event_type_modules: Dict[CognitiveEventType, Set[str]] = defaultdict(set)
+        self._lock = threading.Lock()
 
-        # 统计
+        # ── 认知信号通道 ──
+        self._cognitive_subscribers: Dict[str, List[CognitiveSubscriber]] = defaultdict(list)
+        self._event_type_modules: Dict[CognitiveEventType, Set[str]] = defaultdict(set)
+        self._module_names: Set[str] = set()
+        self._recent_events: List[CognitiveSignalEvent] = []
+        self._dedup_window = 30.0
+
+        # ── Dataclass 事件通道（原 NajaEventBus） ──
+        self._dc_subscriptions: Dict[str, List[EventSubscription]] = defaultdict(list)
+        self._dc_cache_max = 100
+        self._dc_event_cache: Dict[str, Any] = {}
+        self._dc_event_history: Dict[str, Deque[Any]] = defaultdict(
+            lambda: deque(maxlen=self._dc_cache_max)
+        )
+
+        # ── 统计 ──
         self._stats = CognitiveBusStats()
 
-        # 订阅者注册表
-        self._module_names: Set[str] = set()
+        log.info("[NajaEventBus] 统一事件总线初始化完成")
 
-        # 最近事件缓存（用于去重）
-        self._recent_events: List[CognitiveSignalEvent] = []
-        self._dedup_window = 30.0  # 30秒内相同事件去重
-
-        log.info("[CognitiveSignalBus] 认知信号事件总线初始化完成")
+    # ================================================================
+    #  Dataclass 事件接口（兼容原 NajaEventBus）
+    # ================================================================
 
     def subscribe(
+        self,
+        event_type_or_module: str,
+        callback: Callable,
+        event_types: Optional[List[CognitiveEventType]] = None,
+        min_importance: float = 0.3,
+        markets: Optional[Set[str]] = None,
+        priority: int = 0,
+    ):
+        """
+        统一订阅入口 — 自动识别调用方式
+
+        用法 A（dataclass 事件，原 NajaEventBus 接口）：
+            bus.subscribe('HotspotComputedEvent', callback, markets={'US','CN'}, priority=10)
+
+        用法 B（认知信号事件，原 CognitiveSignalBus 接口）：
+            bus.subscribe("ManasEngine", callback, event_types=[...], min_importance=0.3)
+        """
+        if event_types is not None:
+            # 用法 B：认知信号订阅
+            return self.subscribe_cognitive(
+                module_name=event_type_or_module,
+                callback=callback,
+                event_types=event_types,
+                min_importance=min_importance,
+            )
+        else:
+            # 用法 A：dataclass 事件订阅
+            return self._subscribe_dataclass(
+                event_type=event_type_or_module,
+                callback=callback,
+                markets=markets,
+                priority=priority,
+            )
+
+    def _subscribe_dataclass(
+        self,
+        event_type: str,
+        callback: Callable,
+        markets: Optional[Set[str]] = None,
+        priority: int = 0,
+    ) -> None:
+        """订阅 dataclass 事件"""
+        sub = EventSubscription(
+            callback=callback,
+            event_type=event_type,
+            markets=markets or set(),
+            priority=priority,
+        )
+        with self._lock:
+            self._dc_subscriptions[event_type].append(sub)
+            self._dc_subscriptions[event_type].sort(key=lambda x: x.priority, reverse=True)
+
+        log.debug(
+            f"[NajaEventBus] 订阅成功: type={event_type}, "
+            f"priority={priority}, markets={markets or 'all'}"
+        )
+
+    def publish(self, event) -> int:
+        """
+        发布事件 — 自动识别事件类型
+
+        - CognitiveSignalEvent → 走认知信号通道
+        - 其他 dataclass → 走 dataclass 通道（按类名字符串路由）
+
+        Returns:
+            成功分发给多少个订阅者（dataclass 通道返回 int，认知通道返回 dict）
+        """
+        if isinstance(event, CognitiveSignalEvent):
+            result = self._publish_cognitive(event)
+            return sum(1 for v in result.values() if v)
+
+        # ── dataclass 事件 ──
+        event_type = type(event).__name__
+        delivered = 0
+
+        with self._lock:
+            self._dc_event_cache[event_type] = event
+            self._dc_event_history[event_type].append(event)
+            subscriptions = list(self._dc_subscriptions.get(event_type, []))
+
+        if not subscriptions:
+            return 0
+
+        event_market = getattr(event, 'market', None)
+
+        for sub in subscriptions:
+            if sub.markets and event_market not in sub.markets:
+                continue
+            try:
+                sub.callback(event)
+                delivered += 1
+            except Exception as e:
+                log.error(
+                    f"[NajaEventBus] 事件处理失败: type={event_type}, error={e}"
+                )
+
+        self._stats.total_published += 1
+        self._stats.total_delivered += delivered
+        self._stats.by_event_type[event_type] = \
+            self._stats.by_event_type.get(event_type, 0) + 1
+
+        return delivered
+
+    def unsubscribe(self, event_type_or_module: str, callback: Callable = None) -> bool:
+        """
+        取消订阅 — 自动识别
+
+        - 如果提供 callback：按 dataclass 事件取消
+        - 如果不提供 callback：按认知模块名取消
+        """
+        if callback is not None:
+            with self._lock:
+                subs = self._dc_subscriptions.get(event_type_or_module, [])
+                for i, sub in enumerate(subs):
+                    if sub.callback == callback:
+                        subs.pop(i)
+                        return True
+            return False
+        else:
+            return self._unsubscribe_cognitive(event_type_or_module)
+
+    def get_latest_event(self, event_type: str) -> Optional[Any]:
+        """获取最近一次 dataclass 事件"""
+        with self._lock:
+            return self._dc_event_cache.get(event_type)
+
+    def get_event_history(self, event_type: str, max_count: int = 10) -> List[Any]:
+        """获取 dataclass 事件历史"""
+        if max_count <= 0:
+            return []
+        with self._lock:
+            history = self._dc_event_history.get(event_type)
+            if not history:
+                return []
+            return list(history)[-max_count:]
+
+    def clear(self, event_type: Optional[str] = None) -> None:
+        """清空 dataclass 通道订阅和缓存"""
+        with self._lock:
+            if event_type:
+                self._dc_subscriptions[event_type].clear()
+                self._dc_event_cache.pop(event_type, None)
+                if event_type in self._dc_event_history:
+                    self._dc_event_history[event_type].clear()
+            else:
+                self._dc_subscriptions.clear()
+                self._dc_event_history.clear()
+                self._dc_event_cache.clear()
+
+    # ================================================================
+    #  认知信号事件接口（原 CognitiveSignalBus）
+    # ================================================================
+
+    def subscribe_cognitive(
         self,
         module_name: str,
         callback: Callable[[CognitiveSignalEvent], None],
         event_types: Optional[List[CognitiveEventType]] = None,
         min_importance: float = 0.3,
     ) -> CognitiveSubscriber:
-        """
-        订阅认知事件
-
-        Args:
-            module_name: 模块名称（唯一标识）
-            callback: 回调函数，接收 CognitiveSignalEvent
-            event_types: 感兴趣的事件类型列表（空=全部）
-            min_importance: 最小重要性阈值
-
-        Returns:
-            CognitiveSubscriber 实例
-        """
+        """订阅认知事件"""
         subscriber = CognitiveSubscriber(
             module_name=module_name,
             callback=callback,
@@ -196,34 +338,29 @@ class CognitiveSignalBus:
             min_importance=min_importance,
         )
 
-        self._subscribers[module_name].append(subscriber)
-        self._module_names.add(module_name)
-
-        # 更新事件类型映射
-        for event_type in subscriber.event_types:
-            self._event_type_modules[event_type].add(module_name)
+        with self._lock:
+            self._cognitive_subscribers[module_name].append(subscriber)
+            self._module_names.add(module_name)
+            for et in subscriber.event_types:
+                self._event_type_modules[et].add(module_name)
 
         event_type_str = [et.value for et in (event_types or [])]
         log.info(
-            f"[CognitiveSignalBus] 模块 '{module_name}' 订阅成功 "
+            f"[NajaEventBus] 模块 '{module_name}' 订阅认知事件 "
             f"(event_types={event_type_str or '全部'}, min_importance={min_importance})"
         )
-
         return subscriber
 
-    def unsubscribe(self, module_name: str) -> bool:
-        """取消订阅"""
-        if module_name not in self._subscribers:
-            return False
-
-        # 清理事件类型映射
-        for event_type, modules in self._event_type_modules.items():
-            modules.discard(module_name)
-
-        del self._subscribers[module_name]
-        self._module_names.discard(module_name)
-
-        log.info(f"[CognitiveSignalBus] 模块 '{module_name}' 已取消订阅")
+    def _unsubscribe_cognitive(self, module_name: str) -> bool:
+        """取消认知事件订阅"""
+        with self._lock:
+            if module_name not in self._cognitive_subscribers:
+                return False
+            for et, modules in self._event_type_modules.items():
+                modules.discard(module_name)
+            del self._cognitive_subscribers[module_name]
+            self._module_names.discard(module_name)
+        log.info(f"[NajaEventBus] 模块 '{module_name}' 已取消认知订阅")
         return True
 
     def publish_cognitive_event(
@@ -237,22 +374,7 @@ class CognitiveSignalBus:
         risk_level: str = "unknown",
         metadata: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, bool]:
-        """
-        发布认知事件
-
-        Args:
-            source: 事件来源模块
-            event_type: 事件类型
-            narratives: 相关叙事列表
-            importance: 重要性 [0, 1]
-            confidence: 置信度 [0, 1]
-            stock_codes: 相关股票代码
-            risk_level: 风险等级
-            metadata: 其他元数据
-
-        Returns:
-            各模块的接收结果
-        """
+        """发布认知事件（构造 CognitiveSignalEvent 后分发）"""
         event = CognitiveSignalEvent(
             source=source,
             event_type=event_type,
@@ -263,66 +385,66 @@ class CognitiveSignalBus:
             risk_level=risk_level,
             metadata=metadata or {},
         )
+        return self._publish_cognitive(event)
 
-        # 去重检查
+    def _publish_cognitive(self, event: CognitiveSignalEvent) -> Dict[str, bool]:
+        """内部：分发认知信号事件"""
+        # 去重
         if self._is_duplicate(event):
-            log.debug(f"[CognitiveSignalBus] 事件去重: {event}")
+            log.debug(f"[NajaEventBus] 认知事件去重: {event}")
             return {}
 
-        self._recent_events.append(event)
-        # 清理旧事件
-        self._recent_events = [
-            e for e in self._recent_events
-            if time.time() - e.timestamp < self._dedup_window
-        ]
+        with self._lock:
+            self._recent_events.append(event)
+            now = time.time()
+            self._recent_events = [
+                e for e in self._recent_events
+                if now - e.timestamp < self._dedup_window
+            ]
 
         self._stats.total_published += 1
-        self._stats.by_event_type[event_type.value] = \
-            self._stats.by_event_type.get(event_type.value, 0) + 1
+        self._stats.by_event_type[event.event_type.value] = \
+            self._stats.by_event_type.get(event.event_type.value, 0) + 1
 
         results = {}
         delivered_count = 0
 
-        for module_name, subs in self._subscribers.items():
+        with self._lock:
+            subscribers_snapshot = {
+                k: list(v) for k, v in self._cognitive_subscribers.items()
+            }
+
+        for module_name, subs in subscribers_snapshot.items():
             for sub in subs:
                 if not sub.enabled:
                     continue
-
-                # 检查重要性阈值
                 if event.importance < sub.min_importance:
                     continue
-
-                # 检查事件类型过滤
                 if sub.event_types and event.event_type not in sub.event_types:
                     continue
-
-                # 发送事件
                 try:
                     sub.callback(event)
                     results[module_name] = True
                     delivered_count += 1
-
                     self._stats.total_delivered += 1
                     self._stats.by_module[module_name] = \
                         self._stats.by_module.get(module_name, 0) + 1
-
                 except Exception as e:
-                    log.error(f"[CognitiveSignalBus] 模块 '{module_name}' 回调失败: {e}")
+                    log.error(f"[NajaEventBus] 模块 '{module_name}' 认知回调失败: {e}")
                     results[module_name] = False
 
         if delivered_count == 0 and event.importance >= 0.7:
             self._stats.dropped += 1
-            log.debug(f"[CognitiveSignalBus] 高重要性事件无人接收: {event}")
+            log.debug(f"[NajaEventBus] 高重要性认知事件无人接收: {event}")
 
         return results
 
     def _is_duplicate(self, event: CognitiveSignalEvent) -> bool:
-        """检查是否为重复事件"""
-        current_time = time.time()
+        """检查认知事件是否重复"""
+        now = time.time()
         for recent in self._recent_events:
-            if current_time - recent.timestamp > self._dedup_window:
+            if now - recent.timestamp > self._dedup_window:
                 continue
-            # 相同来源、相同类型、相同叙事 = 重复
             if (
                 recent.source == event.source and
                 recent.event_type == event.event_type and
@@ -331,43 +453,25 @@ class CognitiveSignalBus:
                 return True
         return False
 
-    def publish(self, event: CognitiveSignalEvent) -> Dict[str, bool]:
-        """
-        直接发布事件对象
-
-        Args:
-            event: CognitiveSignalEvent 实例
-
-        Returns:
-            各模块的接收结果
-        """
-        return self.publish_cognitive_event(
-            source=event.source,
-            event_type=event.event_type,
-            narratives=event.narratives,
-            importance=event.importance,
-            confidence=event.confidence,
-            stock_codes=event.stock_codes,
-            risk_level=event.risk_level,
-            metadata=event.metadata,
-        )
+    # ================================================================
+    #  通用工具方法
+    # ================================================================
 
     def enable_module(self, module_name: str, enabled: bool = True):
-        """启用/禁用模块的订阅"""
-        if module_name not in self._subscribers:
-            return
-
-        for sub in self._subscribers[module_name]:
-            sub.enabled = enabled
-
-        status = "启用" if enabled else "禁用"
-        log.debug(f"[CognitiveSignalBus] 模块 '{module_name}' 已{status}")
+        """启用/禁用认知模块的订阅"""
+        with self._lock:
+            if module_name not in self._cognitive_subscribers:
+                return
+            for sub in self._cognitive_subscribers[module_name]:
+                sub.enabled = enabled
+        log.debug(f"[NajaEventBus] 模块 '{module_name}' 已{'启用' if enabled else '禁用'}")
 
     def get_subscribers(self, module_name: Optional[str] = None) -> List[CognitiveSubscriber]:
-        """获取订阅者列表"""
-        if module_name:
-            return self._subscribers.get(module_name, [])
-        return [s for subs in self._subscribers.values() for s in subs]
+        """获取认知订阅者列表"""
+        with self._lock:
+            if module_name:
+                return list(self._cognitive_subscribers.get(module_name, []))
+            return [s for subs in self._cognitive_subscribers.values() for s in subs]
 
     def get_stats(self) -> Dict[str, Any]:
         """获取总线统计"""
@@ -384,7 +488,7 @@ class CognitiveSignalBus:
         }
 
     def list_modules(self) -> List[str]:
-        """列出所有订阅的模块"""
+        """列出所有认知订阅模块"""
         return sorted(list(self._module_names))
 
     def reset_stats(self):
@@ -392,20 +496,39 @@ class CognitiveSignalBus:
         self._stats = CognitiveBusStats()
 
 
+# ============== 兼容别名 ==============
+
+# 保留旧类名供类型检查和 isinstance 使用
+NajaEventBus = CognitiveSignalBus
+
+
 # ============== 单例访问 ==============
 
-_cognitive_bus: Optional[CognitiveSignalBus] = None
+_bus: Optional[CognitiveSignalBus] = None
+_bus_lock = threading.Lock()
 
 
 def get_cognitive_bus() -> CognitiveSignalBus:
-    """获取认知信号事件总线单例"""
-    global _cognitive_bus
-    if _cognitive_bus is None:
-        _cognitive_bus = CognitiveSignalBus()
-    return _cognitive_bus
+    """获取统一事件总线单例"""
+    global _bus
+    if _bus is None:
+        with _bus_lock:
+            if _bus is None:
+                _bus = CognitiveSignalBus()
+    return _bus
+
+
+# 兼容别名 — get_event_bus() 返回同一个实例
+get_event_bus = get_cognitive_bus
 
 
 def reset_cognitive_bus():
     """重置总线（用于测试）"""
-    global _cognitive_bus
-    _cognitive_bus = None
+    global _bus
+    if _bus is not None:
+        _bus.clear()
+    _bus = None
+
+
+# 兼容别名
+reset_event_bus = reset_cognitive_bus
