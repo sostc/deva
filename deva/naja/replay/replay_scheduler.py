@@ -450,8 +450,10 @@ class ReplayScheduler:
 
 
 def create_replay_scheduler(config: ReplayConfig) -> ReplayScheduler:
-    """创建回放调度器"""
-    global _replay_scheduler
-    with _replay_scheduler_lock:
-        _replay_scheduler = ReplayScheduler(config)
-    return _replay_scheduler
+    """创建回放调度器（单例模式，直接委托给 ReplayScheduler.__new__）"""
+    return ReplayScheduler(config)
+
+
+def get_replay_scheduler() -> Optional[ReplayScheduler]:
+    """获取当前回放调度器实例（如果已创建）"""
+    return ReplayScheduler._instance

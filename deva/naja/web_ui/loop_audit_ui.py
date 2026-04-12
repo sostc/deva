@@ -1,6 +1,7 @@
 """Naja 闭环状态审计 UI
 
 提供闭环执行状态的实时监控界面。
+（从 loop_audit/ui.py 迁移至 web_ui/）
 """
 
 from datetime import datetime, timedelta

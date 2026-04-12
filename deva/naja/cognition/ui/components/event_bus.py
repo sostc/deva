@@ -15,7 +15,7 @@ def render_event_bus(ui, source_counts=None, recent_by_source=None, recent_insig
         recent_insights: 最近的洞察列表
     """
     try:
-        from ....cognition.cognitive_signal_bus import get_cognitive_bus
+        from deva.naja.events import get_cognitive_bus
         bus = get_cognitive_bus()
         bus_len = len(getattr(bus, '_recent_events', []))
         # 新总线使用订阅者计数和去重窗口

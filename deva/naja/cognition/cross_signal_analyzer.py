@@ -1163,7 +1163,7 @@ class CrossSignalAnalyzer:
         - 共振强度和类型
         """
         try:
-            from deva.naja.cognition.cognitive_signal_bus import (
+            from deva.naja.events import (
                 get_cognitive_bus,
                 CognitiveEventType,
             )

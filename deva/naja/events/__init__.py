@@ -1,11 +1,11 @@
 """
 Naja Events - 统一事件系统
 
-Naja 的所有事件总线和事件定义都在此模块下：
+所有事件总线和事件定义都在此模块下：
 
-总线：
-- NajaEventBus: dataclass 事件分发（Text/Hotspot 等结构化事件）
-- CognitiveSignalBus: 认知层信号事件（叙事/共振/风险等高级信号）
+总线（已合并为一个 CognitiveSignalBus / NajaEventBus）：
+- get_event_bus() / get_cognitive_bus() → 同一个实例
+- 支持 dataclass 事件（Text/Hotspot 等）和认知信号事件
 
 事件定义：
 - text_events: 文本处理相关事件
@@ -13,11 +13,21 @@ Naja 的所有事件总线和事件定义都在此模块下：
 - cognitive_bus: 认知信号事件类型
 """
 
-from .event_bus import (
-    NajaEventBus,
+from .cognitive_bus import (
+    # 统一总线类
+    CognitiveSignalBus,
+    NajaEventBus,          # CognitiveSignalBus 的别名
     EventSubscription,
+    # 认知事件
+    CognitiveEventType,
+    CognitiveSignalEvent,
+    CognitiveSubscriber,
+    CognitiveBusStats,
+    # 单例访问
     get_event_bus,
+    get_cognitive_bus,
     reset_event_bus,
+    reset_cognitive_bus,
 )
 from .text_events import (
     TextFetchedEvent,
@@ -29,30 +39,21 @@ from .hotspot_events import (
     MarketSnapshotEvent,
     SymbolUpdateEvent,
 )
-from .cognitive_bus import (
-    CognitiveEventType,
-    CognitiveSignalEvent,
-    CognitiveSubscriber,
-    CognitiveBusStats,
-    CognitiveSignalBus,
-    get_cognitive_bus,
-    reset_cognitive_bus,
-)
 
 __all__ = [
-    # NajaEventBus
+    # 统一总线
+    "CognitiveSignalBus",
     "NajaEventBus",
     "EventSubscription",
     "get_event_bus",
+    "get_cognitive_bus",
     "reset_event_bus",
-    # CognitiveSignalBus
+    "reset_cognitive_bus",
+    # 认知事件
     "CognitiveEventType",
     "CognitiveSignalEvent",
     "CognitiveSubscriber",
     "CognitiveBusStats",
-    "CognitiveSignalBus",
-    "get_cognitive_bus",
-    "reset_cognitive_bus",
     # Text events
     "TextFetchedEvent",
     "TextFocusedEvent",

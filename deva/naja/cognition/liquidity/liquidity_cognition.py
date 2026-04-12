@@ -629,7 +629,7 @@ class LiquidityCognition:
     def _subscribe_to_cognitive_bus(self):
         """🚀 订阅 CognitiveSignalBus，接收全球市场事件"""
         try:
-            from deva.naja.cognition.cognitive_signal_bus import get_cognitive_bus, CognitiveEventType
+            from deva.naja.events import get_cognitive_bus, CognitiveEventType
 
             bus = get_cognitive_bus()
 
