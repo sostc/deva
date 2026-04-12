@@ -41,8 +41,8 @@ class MarketHotspotConfig:
     Naja 市场热点系统配置
 
     可以通过以下方式配置：
-    1. 环境变量 (前缀: NAJA_ATTENTION_)
-    2. 配置文件 (naja_attention.yaml)
+    1. 环境变量 (前缀: NAJA_HOTSPOT_)
+    2. 配置文件 (naja_hotspot.yaml)
     3. 代码中直接设置
     """
 
@@ -68,24 +68,28 @@ class MarketHotspotConfig:
         """从环境变量加载配置"""
         config = cls()
 
-        config.enabled = os.getenv("NAJA_ATTENTION_ENABLED", "true").lower() == "true"
-        config.global_history_window = int(os.getenv("NAJA_ATTENTION_GLOBAL_WINDOW", "20"))
-        config.max_blocks = int(os.getenv("NAJA_ATTENTION_MAX_BLOCKS", "5000"))
-        config.max_symbols = int(os.getenv("NAJA_ATTENTION_MAX_SYMBOLS", "5000"))
+        def _env(new_key, old_key, default):
+            """读取环境变量，优先新名，fallback 旧名"""
+            return os.getenv(new_key) or os.getenv(old_key, default)
+
+        config.enabled = _env("NAJA_HOTSPOT_ENABLED", "NAJA_ATTENTION_ENABLED", "true").lower() == "true"
+        config.global_history_window = int(_env("NAJA_HOTSPOT_GLOBAL_WINDOW", "NAJA_ATTENTION_GLOBAL_WINDOW", "20"))
+        config.max_blocks = int(_env("NAJA_HOTSPOT_MAX_BLOCKS", "NAJA_ATTENTION_MAX_BLOCKS", "5000"))
+        config.max_symbols = int(_env("NAJA_HOTSPOT_MAX_SYMBOLS", "NAJA_ATTENTION_MAX_SYMBOLS", "5000"))
         config.block_decay_half_life = float(
-            os.getenv("NAJA_ATTENTION_BLOCK_DECAY_HALF_LIFE", "300.0")
+            _env("NAJA_HOTSPOT_BLOCK_DECAY_HALF_LIFE", "NAJA_ATTENTION_BLOCK_DECAY_HALF_LIFE", "300.0")
         )
 
-        config.low_interval = float(os.getenv("NAJA_ATTENTION_LOW_INTERVAL", "60.0"))
-        config.medium_interval = float(os.getenv("NAJA_ATTENTION_MEDIUM_INTERVAL", "10.0"))
-        config.high_interval = float(os.getenv("NAJA_ATTENTION_HIGH_INTERVAL", "1.0"))
+        config.low_interval = float(_env("NAJA_HOTSPOT_LOW_INTERVAL", "NAJA_ATTENTION_LOW_INTERVAL", "60.0"))
+        config.medium_interval = float(_env("NAJA_HOTSPOT_MEDIUM_INTERVAL", "NAJA_ATTENTION_MEDIUM_INTERVAL", "10.0"))
+        config.high_interval = float(_env("NAJA_HOTSPOT_HIGH_INTERVAL", "NAJA_ATTENTION_HIGH_INTERVAL", "1.0"))
 
-        config.pytorch_max_concurrent = int(os.getenv("NAJA_ATTENTION_PYTORCH_CONCURRENT", "10"))
-        config.report_interval = float(os.getenv("NAJA_ATTENTION_REPORT_INTERVAL", "60.0"))
+        config.pytorch_max_concurrent = int(_env("NAJA_HOTSPOT_PYTORCH_CONCURRENT", "NAJA_ATTENTION_PYTORCH_CONCURRENT", "10"))
+        config.report_interval = float(_env("NAJA_HOTSPOT_REPORT_INTERVAL", "NAJA_ATTENTION_REPORT_INTERVAL", "60.0"))
 
-        config.enable_monitoring = os.getenv("NAJA_ATTENTION_ENABLE_MONITORING", "true").lower() == "true"
-        config.debug_mode = os.getenv("NAJA_ATTENTION_DEBUG", "false").lower() == "true"
-        config.log_level = os.getenv("NAJA_ATTENTION_LOG_LEVEL", "INFO")
+        config.enable_monitoring = _env("NAJA_HOTSPOT_ENABLE_MONITORING", "NAJA_ATTENTION_ENABLE_MONITORING", "true").lower() == "true"
+        config.debug_mode = _env("NAJA_HOTSPOT_DEBUG", "NAJA_ATTENTION_DEBUG", "false").lower() == "true"
+        config.log_level = _env("NAJA_HOTSPOT_LOG_LEVEL", "NAJA_ATTENTION_LOG_LEVEL", "INFO")
 
         nf = config.noise_filter
         nf.enabled = os.getenv("NAJA_NOISE_FILTER_ENABLED", "true").lower() == "true"
@@ -98,7 +102,7 @@ class MarketHotspotConfig:
 
         return config
 
-    def to_attention_system_config(self):
+    def to_hotspot_system_config(self):
         """转换为 MarketHotspotSystemConfig"""
         from .market_hotspot_system import MarketHotspotSystemConfig
         return MarketHotspotSystemConfig(
@@ -135,7 +139,10 @@ def load_config() -> MarketHotspotConfig:
     config = MarketHotspotConfig.from_env()
 
     try:
-        config_file = os.path.expanduser("~/.naja/attention_config.yaml")
+        # 优先读新路径，fallback 旧路径
+        config_file = os.path.expanduser("~/.naja/hotspot_config.yaml")
+        if not os.path.exists(config_file):
+            config_file = os.path.expanduser("~/.naja/attention_config.yaml")
         if os.path.exists(config_file):
             import yaml
             with open(config_file, 'r') as f:
@@ -162,21 +169,27 @@ def get_intelligence_config() -> dict:
     使用统一的 config 系统: deva.config
 
     默认启用:
-    - enable_predictive: True (预测注意力)
-    - enable_feedback: True (注意力反馈学习)
+    - enable_predictive: True (预测热点)
+    - enable_feedback: True (热点反馈学习)
     - enable_budget: True (预算系统)
     - enable_strategy_learning: True (策略学习)
     """
     from deva import config
 
-    intelligence_enabled = config.get('attention_intelligence.enabled', True)
+    intelligence_enabled = config.get('hotspot_intelligence.enabled',
+                                      config.get('attention_intelligence.enabled', True))
 
     intelligence_config = {
-        'enable_predictive': config.get('attention_intelligence.predictive', True),
-        'enable_feedback': config.get('attention_intelligence.feedback', True),
-        'enable_budget': config.get('attention_intelligence.budget', True),
-        'enable_propagation': config.get('attention_intelligence.propagation', True),
-        'enable_strategy_learning': config.get('attention_intelligence.strategy_learning', True),
+        'enable_predictive': config.get('hotspot_intelligence.predictive',
+                                        config.get('attention_intelligence.predictive', True)),
+        'enable_feedback': config.get('hotspot_intelligence.feedback',
+                                      config.get('attention_intelligence.feedback', True)),
+        'enable_budget': config.get('hotspot_intelligence.budget',
+                                    config.get('attention_intelligence.budget', True)),
+        'enable_propagation': config.get('hotspot_intelligence.propagation',
+                                         config.get('attention_intelligence.propagation', True)),
+        'enable_strategy_learning': config.get('hotspot_intelligence.strategy_learning',
+                                               config.get('attention_intelligence.strategy_learning', True)),
     }
 
     if not intelligence_enabled:

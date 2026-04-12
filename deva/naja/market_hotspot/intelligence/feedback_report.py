@@ -30,7 +30,7 @@ class SignalRecord:
     block_id: str
     strategy_id: str
     action: str
-    attention_score: float
+    hotspot_score: float
     prediction_score: float
     entry_price: float
     market_state: str
@@ -41,8 +41,8 @@ class FeedbackRecord:
     """反馈调节记录"""
     timestamp: float
     symbol: str
-    attention_before: float
-    attention_after: float
+    hotspot_before: float
+    hotspot_after: float
     price_at_record: float
     current_price: float
     pnl_pct: float
@@ -143,7 +143,7 @@ class FeedbackReportGenerator:
         block_id: str,
         strategy_id: str,
         action: str,
-        attention_score: float,
+        hotspot_score: float,
         prediction_score: float,
         entry_price: float,
         market_state: str = "unknown"
@@ -158,7 +158,7 @@ class FeedbackReportGenerator:
             block_id=block_id,
             strategy_id=strategy_id,
             action=action,
-            attention_score=attention_score,
+            hotspot_score=hotspot_score,
             prediction_score=prediction_score,
             entry_price=entry_price,
             market_state=market_state,
@@ -175,8 +175,8 @@ class FeedbackReportGenerator:
     def record_feedback(
         self,
         symbol: str,
-        attention_before: float,
-        attention_after: float,
+        hotspot_before: float,
+        hotspot_after: float,
         price_at_record: float,
         current_price: float,
         pnl_pct: float,
@@ -190,8 +190,8 @@ class FeedbackReportGenerator:
         record = FeedbackRecord(
             timestamp=time.time(),
             symbol=symbol,
-            attention_before=attention_before,
-            attention_after=attention_after,
+            hotspot_before=hotspot_before,
+            hotspot_after=hotspot_after,
             price_at_record=price_at_record,
             current_price=current_price,
             pnl_pct=pnl_pct,
@@ -367,7 +367,7 @@ class FeedbackReportGenerator:
             lines.append(f"| 探索次数 | {exploration_count} ({100*exploration_count/len(rewards):.1f}%) |")
             lines.append(f"")
 
-            context_keys = ['attention', 'prediction_score', 'volatility']
+            context_keys = ['hotspot', 'prediction_score', 'volatility']
             lines.append(f"### 上下文分布")
             for key in context_keys:
                 values = [b['context'].get(key, 0) for b in report['bandit_updates'] if key in b['context']]

@@ -17,8 +17,8 @@ class MarketHotspotSystemIntegration:
     提供与现有 DataSource 和 Strategy 的集成接口
     """
 
-    def __init__(self, attention_system):
-        self.hotspot_system = attention_system
+    def __init__(self, hotspot_system):
+        self.hotspot_system = hotspot_system
         self._datasource_callbacks: List[Callable] = []
         self._strategy_callbacks: List[Callable] = []
 

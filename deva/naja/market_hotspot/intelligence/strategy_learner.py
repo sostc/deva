@@ -12,7 +12,7 @@ Module 11: Strategy Learning - 策略选择学习
 
 输入:
 - global_hotspot
-- block_attention
+- block_hotspot
 - pattern_score (PyTorch)
 - 历史策略表现
 
@@ -33,8 +33,8 @@ from abc import ABC, abstractmethod
 class MarketState:
     """市场状态"""
     global_hotspot: float
-    avg_block_attention: float
-    max_block_attention: float
+    avg_block_hotspot: float
+    max_block_hotspot: float
     pattern_score_avg: float
     volatility: float
     timestamp: float
@@ -43,8 +43,8 @@ class MarketState:
         """转换为上下文向量"""
         return np.array([
             self.global_hotspot,
-            self.avg_block_attention,
-            self.max_block_attention,
+            self.avg_block_hotspot,
+            self.max_block_hotspot,
             self.pattern_score_avg,
             self.volatility
         ], dtype=np.float64)
@@ -58,11 +58,11 @@ class MarketState:
                 return "high_hotspot_low_volatility"
         elif self.global_hotspot > 0.4:
             if self.pattern_score_avg > 0.5:
-                return "moderate_attention_high_pattern"
+                return "moderate_hotspot_high_pattern"
             else:
-                return "moderate_attention_low_pattern"
+                return "moderate_hotspot_low_pattern"
         else:
-            return "low_attention"
+            return "low_hotspot"
 
 
 @dataclass
@@ -97,12 +97,12 @@ class MarketStateDetector:
     
     def __init__(
         self,
-        attention_threshold_high: float = 0.7,
-        attention_threshold_low: float = 0.3,
+        hotspot_threshold_high: float = 0.7,
+        hotspot_threshold_low: float = 0.3,
         volatility_threshold: float = 0.5
     ):
-        self.attention_high = attention_threshold_high
-        self.attention_low = attention_threshold_low
+        self.hotspot_high = hotspot_threshold_high
+        self.hotspot_low = hotspot_threshold_low
         self.volatility_threshold = volatility_threshold
         
         self._state_history: deque = deque(maxlen=100)
@@ -110,15 +110,15 @@ class MarketStateDetector:
     def detect(
         self,
         global_hotspot: float,
-        block_attention: Dict[str, float],
+        block_hotspot: Dict[str, float],
         pattern_scores: Optional[Dict[str, float]] = None
     ) -> MarketState:
         """
         检测当前市场状态
         """
-        if block_attention:
-            avg_block = np.mean(list(block_attention.values()))
-            max_block = max(block_attention.values())
+        if block_hotspot:
+            avg_block = np.mean(list(block_hotspot.values()))
+            max_block = max(block_hotspot.values())
         else:
             avg_block = 0.0
             max_block = 0.0
@@ -131,8 +131,8 @@ class MarketStateDetector:
         
         state = MarketState(
             global_hotspot=global_hotspot,
-            avg_block_attention=avg_block,
-            max_block_attention=max_block,
+            avg_block_hotspot=avg_block,
+            max_block_hotspot=max_block,
             pattern_score_avg=pattern_avg,
             volatility=volatility,
             timestamp=time.time()
@@ -391,9 +391,9 @@ class RuleBasedStrategySelector:
         self._rules = {
             'high_hotspot_high_volatility': ['momentum_tracker', 'anomaly_sniper'],
             'high_hotspot_low_volatility': ['block_rotation_hunter', 'smart_money_detector'],
-            'moderate_attention_high_pattern': ['global_sentinel'],
-            'moderate_attention_low_pattern': ['block_rotation_hunter'],
-            'low_attention': ['global_sentinel']
+            'moderate_hotspot_high_pattern': ['global_sentinel'],
+            'moderate_hotspot_low_pattern': ['block_rotation_hunter'],
+            'low_hotspot': ['global_sentinel']
         }
 
         self._default_strategies = ['global_sentinel', 'block_rotation_hunter']
@@ -470,7 +470,7 @@ class StrategyLearning:
     def select_strategies(
         self,
         global_hotspot: float,
-        block_attention: Dict[str, float],
+        block_hotspot: Dict[str, float],
         available_strategies: List[str],
         pattern_scores: Optional[Dict[str, float]] = None,
         top_k: int = 3
@@ -480,7 +480,7 @@ class StrategyLearning:
         """
         state = self.state_detector.detect(
             global_hotspot,
-            block_attention,
+            block_hotspot,
             pattern_scores
         )
         

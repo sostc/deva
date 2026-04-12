@@ -25,7 +25,7 @@ from .market_hotspot_integration import (
     register_hotspot_manager,
     get_hotspot_manager,
     process_data_with_hotspots,
-    AttentionModeManager,
+    HotspotModeManager,
     get_mode_manager,
 )
 
@@ -49,6 +49,6 @@ __all__ = [
     "register_hotspot_manager",
     "get_hotspot_manager",
     "process_data_with_hotspots",
-    "AttentionModeManager",
+    "HotspotModeManager",
     "get_mode_manager",
 ]

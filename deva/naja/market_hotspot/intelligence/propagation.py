@@ -3,7 +3,7 @@ Module 10: Hotspot Propagation - 热点扩散传播
 
 核心能力:
 - 模拟题材之间的联动
-- 当一个题材 attention 上升时，传播到相关题材
+- 当一个题材 hotspot 上升时，传播到相关题材
 
 示例:
 新能源 ↑ → 有色 ↑ → 电池 ↑
@@ -13,7 +13,7 @@ Module 10: Hotspot Propagation - 热点扩散传播
 - block_relation_matrix: 题材关系矩阵
 
 输出:
-- 传播后的 attention
+- 传播后的 hotspot
 """
 
 import numpy as np
@@ -174,12 +174,12 @@ class RelationMatrix:
         
         return result
     
-    def record_attention(self, block_id: str, attention: float, timestamp: float):
+    def record_hotspot(self, block_id: str, hotspot: float, timestamp: float):
         """记录热点历史，用于学习关系"""
         if block_id not in self._block_history:
             self._block_history[block_id] = []
         
-        self._block_history[block_id].append(attention)
+        self._block_history[block_id].append(hotspot)
         
         if len(self._block_history[block_id]) > self._history_window:
             self._block_history[block_id] = self._block_history[block_id][-self._history_window:]
@@ -425,15 +425,15 @@ class PropagationEngine:
         Returns:
             传播后的热点
         """
-        attention = block_hotspot.copy()
+        hotspot = block_hotspot.copy()
         
-        blocks = list(attention.keys())
+        blocks = list(hotspot.keys())
         
         for block in blocks:
-            self.relations.record_attention(block, attention[block], timestamp)
+            self.relations.record_hotspot(block, hotspot[block], timestamp)
         
         for iteration in range(self.max_iterations):
-            new_attention = attention.copy()
+            new_hotspot = hotspot.copy()
             
             changed = False
             
@@ -446,35 +446,35 @@ class PropagationEngine:
                 propagation = 0.0
                 
                 for source, correlation, delay in upstream:
-                    if source not in attention:
+                    if source not in hotspot:
                         continue
                     
-                    source_attention = attention[source]
+                    source_hotspot = hotspot[source]
                     
                     source_history = self._propagation_history.get(source, [])
                     if len(source_history) >= delay:
-                        delayed_attention = source_history[-delay]
+                        delayed_hotspot = source_history[-delay]
                     else:
-                        delayed_attention = source_attention
+                        delayed_hotspot = source_hotspot
                     
-                    propagation += delayed_attention * correlation * self.decay_factor
+                    propagation += delayed_hotspot * correlation * self.decay_factor
                 
                 if upstream:
                     propagation = propagation / len(upstream)
-                    new_attention[block] = attention[block] + propagation
+                    new_hotspot[block] = hotspot[block] + propagation
                     changed = True
             
-            attention = new_attention
+            hotspot = new_hotspot
             
             if not changed:
                 break
         
         for block in blocks:
-            self._propagation_history[block].append(attention[block])
+            self._propagation_history[block].append(hotspot[block])
             if len(self._propagation_history[block]) > 100:
                 self._propagation_history[block] = self._propagation_history[block][-100:]
         
-        return attention
+        return hotspot
     
     def propagate_single_step(
         self,
@@ -484,12 +484,12 @@ class PropagationEngine:
         """
         单步传播 (更轻量)
         """
-        attention = block_hotspot.copy()
+        hotspot = block_hotspot.copy()
         
-        for block in attention.keys():
-            self.relations.record_attention(block, attention[block], timestamp)
+        for block in hotspot.keys():
+            self.relations.record_hotspot(block, hotspot[block], timestamp)
         
-        for block in attention.keys():
+        for block in hotspot.keys():
             upstream = self.relations.get_upstream_blocks(block)
             
             if not upstream:
@@ -498,15 +498,15 @@ class PropagationEngine:
             propagation = 0.0
             
             for source, correlation, delay in upstream:
-                if source not in attention:
+                if source not in hotspot:
                     continue
                 
-                propagation += attention[source] * correlation * self.decay_factor
+                propagation += hotspot[source] * correlation * self.decay_factor
             
             propagation = propagation / len(upstream)
-            attention[block] = attention[block] + propagation
+            hotspot[block] = hotspot[block] + propagation
         
-        return attention
+        return hotspot
     
     def get_propagation_chain(
         self,
@@ -517,7 +517,7 @@ class PropagationEngine:
         获取从源题材开始的传播链
         
         Returns:
-            [(block, accumulated_attention), ...]
+            [(block, accumulated_hotspot), ...]
         """
         chain = []
         visited = set()
@@ -624,8 +624,8 @@ class HotspotPropagation:
         else:
             result = self.engine.propagate(block_hotspot, timestamp)
         
-        for block, attention in result.items():
-            self._propagated_history[block].append(attention)
+        for block, hotspot in result.items():
+            self._propagated_history[block].append(hotspot)
         
         return result
     

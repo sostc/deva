@@ -321,7 +321,7 @@ class PredictiveHotspotEngine:
     - 动量预测
     
     输出:
-    final_attention = α * 当前attention + β * prediction_score
+    final_hotspot = α * 当前hotspot + β * prediction_score
     
     其中:
     - α + β = 1
@@ -351,7 +351,7 @@ class PredictiveHotspotEngine:
     def predict(
         self,
         symbol: str,
-        current_attention: float,
+        current_hotspot: float,
         returns: Optional[float] = None,
         volume_ratio: Optional[float] = None,
         timestamp: Optional[float] = None
@@ -361,13 +361,13 @@ class PredictiveHotspotEngine:
 
         Args:
             symbol: 股票代码
-            current_attention: 当前热点分数
+            current_hotspot: 当前热点分数
             returns: 涨跌幅 (可选)
             volume_ratio: 量比 (可选)
             timestamp: 时间戳
 
         Returns:
-            (prediction_score, final_attention)
+            (prediction_score, final_hotspot)
         """
         timestamp = timestamp or time.time()
 
@@ -375,14 +375,14 @@ class PredictiveHotspotEngine:
             symbol, returns, volume_ratio, timestamp
         )
 
-        final_attention = (
-            self.alpha * current_attention +
+        final_hotspot = (
+            self.alpha * current_hotspot +
             self.beta * prediction_score
         )
 
         self._last_scores[symbol] = prediction_score
 
-        return prediction_score, final_attention
+        return prediction_score, final_hotspot
 
     def apply_updates(
         self,
@@ -410,7 +410,7 @@ class PredictiveHotspotEngine:
     def batch_predict(
         self,
         symbols: np.ndarray,
-        current_attention: Dict[str, float],
+        current_hotspot: Dict[str, float],
         returns: np.ndarray,
         volumes: np.ndarray,
         timestamps: np.ndarray
@@ -421,7 +421,7 @@ class PredictiveHotspotEngine:
         预测完成后需要调用 apply_batch_updates() 来更新状态
 
         Returns:
-            {symbol: (prediction_score, final_attention)}
+            {symbol: (prediction_score, final_hotspot)}
         """
         results = {}
 
@@ -435,7 +435,7 @@ class PredictiveHotspotEngine:
             vol_ratio = float(volumes[i] / base_volumes) if i < len(volumes) else 1.0
             ts = float(timestamps[i]) if i < len(timestamps) else time.time()
 
-            current = current_attention.get(symbol_str, 0.0)
+            current = current_hotspot.get(symbol_str, 0.0)
 
             pred_score, final_att = self.predict(
                 symbol_str, current, ret, vol_ratio, ts
@@ -508,7 +508,7 @@ class PredictiveHotspotEngine:
     def batch_predict(
         self,
         symbols: np.ndarray,
-        current_attention: Dict[str, float],
+        current_hotspot: Dict[str, float],
         returns: np.ndarray,
         volumes: np.ndarray,
         timestamps: np.ndarray
@@ -517,7 +517,7 @@ class PredictiveHotspotEngine:
         批量预测
         
         Returns:
-            {symbol: (prediction_score, final_attention)}
+            {symbol: (prediction_score, final_hotspot)}
         """
         results = {}
         
@@ -531,7 +531,7 @@ class PredictiveHotspotEngine:
             vol_ratio = float(volumes[i] / base_volumes) if i < len(volumes) else 1.0
             ts = float(timestamps[i]) if i < len(timestamps) else time.time()
             
-            current = current_attention.get(symbol_str, 0.0)
+            current = current_hotspot.get(symbol_str, 0.0)
             
             pred_score, final_att = self.predict(
                 symbol_str, current, ret, vol_ratio, ts
@@ -557,7 +557,7 @@ class PredictiveHotspotEngine:
     def predict_block(
         self,
         block_id: str,
-        block_attention: float,
+        block_hotspot: float,
         block_returns: float,
         block_volume_ratio: float,
         timestamp: Optional[float] = None
@@ -597,7 +597,7 @@ class PredictiveHotspotEngine:
 
     def batch_predict_blocks(
         self,
-        block_attentions: Dict[str, float],
+        block_hotspots: Dict[str, float],
         block_returns: Dict[str, float],
         block_volume_ratios: Dict[str, float],
         timestamp: Optional[float] = None
@@ -606,13 +606,13 @@ class PredictiveHotspotEngine:
         timestamp = timestamp or time.time()
         results = {}
 
-        for block_id in block_attentions.keys():
-            attention = block_attentions.get(block_id, 0.0)
+        for block_id in block_hotspots.keys():
+            hotspot = block_hotspots.get(block_id, 0.0)
             returns = block_returns.get(block_id, 0.0)
             vol_ratio = block_volume_ratios.get(block_id, 1.0)
 
             pred_score = self.predict_block(
-                block_id, attention, returns, vol_ratio, timestamp
+                block_id, hotspot, returns, vol_ratio, timestamp
             )
             results[block_id] = pred_score
 

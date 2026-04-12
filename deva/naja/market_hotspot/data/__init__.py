@@ -1,5 +1,5 @@
 """
-Attention Data - 热点系统数据模块
+Hotspot Data - 热点系统数据模块
 
 提供数据获取与计算功能:
 - 全球市场数据获取 (GlobalMarketAPI)

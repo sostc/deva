@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from pywebio.output import put_html, put_markdown, put_text
+from pywebio.output import put_html, put_markdown, put_text, set_scope
 from pywebio.session import set_env, run_js
 from tornado.web import RequestHandler
 
@@ -92,12 +92,14 @@ async def cognition_page():
             set_request_theme(theme)
     except:
         pass
+    from deva.naja.cognition.ui import CognitionUI
     ui = CognitionUI()
     ui.render()
 
 
 def memory_page():
     """兼容旧入口：重定向到认知页面"""
+    from deva.naja.cognition.ui import CognitionUI
     ui = CognitionUI()
     ui.render()
 
@@ -399,13 +401,19 @@ class KnowledgeActionHandler(RequestHandler):
             self.write(json.dumps({"success": False, "message": str(e)}))
 
 
-async def learning_detail_page(entry_id: str = None):
+async def learning_detail_page():
     """知识详情页面"""
     from pywebio.session import eval_js
     try:
         theme = await eval_js("document.cookie.includes('naja-theme=') ? document.cookie.split('naja-theme=')[1].split(';')[0] : null")
         if theme:
             set_request_theme(theme)
+    except:
+        pass
+
+    entry_id = None
+    try:
+        entry_id = await eval_js("new URLSearchParams(window.location.search).get('entry_id')")
     except:
         pass
 

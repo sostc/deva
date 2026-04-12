@@ -42,7 +42,7 @@ def render_hotspot_flow_ui() -> str:
     整合市场热点系统的核心指标到一个清晰的流式界面
     """
     try:
-        from deva.naja.attention.trading_center import get_trading_center
+        from deva.naja.attention.orchestration.trading_center import get_trading_center
         from deva.naja.market_hotspot.integration import get_market_hotspot_integration
         from deva.naja.radar.trading_clock import is_trading_time as is_cn_trading, is_us_trading_time
 
@@ -337,9 +337,9 @@ def _get_friendly_name(item_id: str, item_type: str, tracker) -> str:
 def render_hotspot_layers_detail() -> str:
     """渲染热点层次详情 - 题材和个股分布"""
     try:
-        from deva.naja.attention.trading_center import get_trading_center
+        from deva.naja.attention.orchestration.trading_center import get_trading_center
         from deva.naja.market_hotspot.integration import get_market_hotspot_integration
-        from deva.naja.market_hotspot.market_hotspot_history_tracker import get_history_tracker
+        from deva.naja.market_hotspot.tracking.history_tracker import get_history_tracker
 
         orchestrator = get_trading_center()
         integration = get_market_hotspot_integration()
@@ -357,10 +357,10 @@ def render_hotspot_layers_detail() -> str:
         total_block_weight = sum(block_weights.values()) if block_weights else 0
         total_symbol_weight = sum(symbol_weights.values()) if symbol_weights else 0
 
-        attention_engine = getattr(integration.hotspot_system, 'global_hotspot', None)
-        if attention_engine:
-            history_window = getattr(attention_engine, 'history_window', 0)
-            history_len = len(getattr(attention_engine, '_history_buffer', []))
+        hotspot_engine = getattr(integration.hotspot_system, 'global_hotspot', None)
+        if hotspot_engine:
+            history_window = getattr(hotspot_engine, 'history_window', 0)
+            history_len = len(getattr(hotspot_engine, '_history_buffer', []))
             history_info = f"{history_len}/{history_window}"
         else:
             history_info = "-"
@@ -440,8 +440,8 @@ def render_hotspot_layers_detail() -> str:
 def render_data_frequency_panel() -> str:
     """渲染数据获取频率面板 - 实时数据获取状态"""
     try:
-        from deva.naja.attention.trading_center import get_trading_center
-        from deva.naja.market_hotspot.realtime_data_fetcher import get_data_fetcher
+        from deva.naja.attention.orchestration.trading_center import get_trading_center
+        from deva.naja.market_hotspot.data.async_fetcher import get_data_fetcher
         from deva.datetime import datetime
         from .common import get_market_phase_summary, get_ui_mode_context
 
@@ -641,8 +641,8 @@ def _render_fetcher_empty_state() -> str:
 def render_noise_filter_panel() -> str:
     """渲染噪音过滤面板"""
     try:
-        from deva.naja.attention.trading_center import get_trading_center
-        from deva.naja.market_hotspot.market_hotspot_history_tracker import get_history_tracker
+        from deva.naja.attention.orchestration.trading_center import get_trading_center
+        from deva.naja.market_hotspot.tracking.history_tracker import get_history_tracker
         from deva.naja.market_hotspot.processing import get_block_noise_detector, get_noise_manager
 
         orchestrator = get_trading_center()
@@ -932,7 +932,7 @@ def render_strategy_status_panel() -> str:
 def render_dual_engine_panel() -> str:
     """渲染双引擎状态面板"""
     try:
-        from deva.naja.attention.trading_center import get_trading_center
+        from deva.naja.attention.orchestration.trading_center import get_trading_center
         from deva.naja.market_hotspot.integration import get_market_hotspot_integration
 
         orchestrator = get_trading_center()

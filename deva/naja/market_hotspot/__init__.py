@@ -22,15 +22,13 @@ from .integration.market_hotspot_integration import (
     register_hotspot_manager,
     get_hotspot_manager,
     process_data_with_hotspots,
-    AttentionModeManager,
+    HotspotModeManager,
     get_mode_manager,
 )
-from .realtime_data_fetcher import (
-    RealtimeDataFetcher,
-    AsyncRealtimeDataFetcher,
-    FetchConfig,
-)
-from .market_hotspot_history_tracker import (
+from .data.realtime_fetcher import RealtimeDataFetcher
+from .data.async_fetcher import AsyncRealtimeDataFetcher
+from .data.fetch_config import FetchConfig
+from .tracking.history_tracker import (
     MarketHotspotHistoryTracker,
     get_history_tracker,
 )
@@ -49,7 +47,7 @@ __all__ = [
     "register_hotspot_manager",
     "get_hotspot_manager",
     "process_data_with_hotspots",
-    "AttentionModeManager",
+    "HotspotModeManager",
     "get_mode_manager",
     "RealtimeDataFetcher",
     "AsyncRealtimeDataFetcher",

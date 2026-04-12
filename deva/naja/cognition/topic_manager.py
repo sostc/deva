@@ -29,7 +29,7 @@ def _get_market_activity() -> float:
     如果获取失败，返回 0.5（默认值）
     """
     try:
-        from deva.naja.attention.trading_center import get_trading_center
+        from deva.naja.attention.orchestration.trading_center import get_trading_center
         tc = get_trading_center()
         harmony = tc.get_harmony()
         return harmony.get("harmony_strength", 0.5)

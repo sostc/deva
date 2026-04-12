@@ -112,7 +112,7 @@ class SnapshotManager:
             return None
 
         try:
-            from deva.naja.attention.trading_center import get_trading_center
+            from deva.naja.attention.orchestration.trading_center import get_trading_center
 
             tc = get_trading_center()
             os = tc.get_attention_os()
@@ -351,7 +351,7 @@ class SnapshotManager:
         }
 
         try:
-            from deva.naja.attention.trading_center import get_trading_center
+            from deva.naja.attention.orchestration.trading_center import get_trading_center
             tc = get_trading_center()
             os = tc.get_attention_os()
             scheduler = os.market_scheduler

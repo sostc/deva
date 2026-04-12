@@ -25,7 +25,7 @@ def _initialize_from_diagnostic():
         put_text(traceback.format_exc())
 
 
-def render_attention_diagnostic():
+def render_hotspot_diagnostic():
     """渲染市场热点系统诊断页面"""
 
     put_html("<h2>🔍 市场热点系统诊断</h2>")
@@ -79,7 +79,7 @@ def render_attention_diagnostic():
 
     put_html("<h3>3. 历史追踪器状态</h3>")
     try:
-        from deva.naja.market_hotspot.market_hotspot_history_tracker import get_history_tracker
+        from deva.naja.market_hotspot.tracking.history_tracker import get_history_tracker
         tracker = get_history_tracker()
 
         if tracker is None:
@@ -103,7 +103,7 @@ def render_attention_diagnostic():
 
     put_html("<h3>4. 数据获取器状态</h3>")
     try:
-        from deva.naja.market_hotspot.realtime_data_fetcher import get_data_fetcher
+        from deva.naja.market_hotspot.data.async_fetcher import get_data_fetcher
         fetcher = get_data_fetcher()
 
         if fetcher:

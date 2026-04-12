@@ -55,7 +55,7 @@ class HotspotStrategyManager:
         self.start_time: Optional[float] = None
         
         # 热点系统引用
-        self._attention_integration = None
+        self._hotspot_integration = None
         self._orchestrator = None
 
         # 实验模式状态
@@ -65,19 +65,19 @@ class HotspotStrategyManager:
 
     def _get_market_hotspot_integration(self):
         """获取热点系统集成"""
-        if self._attention_integration is None:
+        if self._hotspot_integration is None:
             try:
                 from deva.naja.market_hotspot.integration import get_market_hotspot_integration
-                self._attention_integration = get_market_hotspot_integration()
+                self._hotspot_integration = get_market_hotspot_integration()
             except Exception:
                 pass
-        return self._attention_integration
+        return self._hotspot_integration
 
     def _get_orchestrator(self):
         """获取调度中心（兼容旧接口）"""
         if self._orchestrator is None:
             try:
-                from deva.naja.attention.trading_center import get_trading_center
+                from deva.naja.attention.orchestration.trading_center import get_trading_center
                 self._orchestrator = get_trading_center()
             except Exception:
                 pass
@@ -285,7 +285,7 @@ class HotspotStrategyManager:
 
         # 获取热点上下文
         if context is None:
-            context = self._build_attention_context()
+            context = self._build_hotspot_context()
 
         # 识别当前市场（用于策略门控）
         market = context.get('market')
@@ -326,7 +326,7 @@ class HotspotStrategyManager:
                 if _PERFORMANCE_MONITORING_AVAILABLE:
                     strategy_latency = (time.time() - strategy_start) * 1000
                     record_component_execution(
-                        component_id=f"attention_strategy_{strategy_id}",
+                        component_id=f"hotspot_strategy_{strategy_id}",
                         component_name=f"热点策略: {strategy.name}",
                         component_type=ComponentType.STRATEGY,
                         execution_time_ms=strategy_latency,
@@ -337,7 +337,7 @@ class HotspotStrategyManager:
                 if _PERFORMANCE_MONITORING_AVAILABLE:
                     strategy_latency = (time.time() - strategy_start) * 1000
                     record_component_execution(
-                        component_id=f"attention_strategy_{strategy_id}",
+                        component_id=f"hotspot_strategy_{strategy_id}",
                         component_name=f"热点策略: {strategy.name}",
                         component_type=ComponentType.STRATEGY,
                         execution_time_ms=strategy_latency,
@@ -353,7 +353,7 @@ class HotspotStrategyManager:
         if _PERFORMANCE_MONITORING_AVAILABLE:
             total_latency = (time.time() - start_time) * 1000
             record_component_execution(
-                component_id="attention_strategy_manager",
+                component_id="hotspot_strategy_manager",
                 component_name="热点策略管理器",
                 component_type=ComponentType.STRATEGY,
                 execution_time_ms=total_latency,
@@ -362,7 +362,7 @@ class HotspotStrategyManager:
 
         return all_signals
     
-    def _build_attention_context(self) -> Dict[str, Any]:
+    def _build_hotspot_context(self) -> Dict[str, Any]:
         """构建热点上下文"""
         integration = self._get_market_hotspot_integration()
         
@@ -374,16 +374,16 @@ class HotspotStrategyManager:
         }
         
         if integration and integration.hotspot_system:
-            attention_system = integration.hotspot_system
+            hotspot_sys = integration.hotspot_system
             
             # 全局热点
-            context['global_hotspot'] = attention_system._last_global_hotspot
+            context['global_hotspot'] = hotspot_sys._last_global_hotspot
             
             # 题材权重（过滤噪音题材）
-            context['block_weights'] = attention_system.block_hotspot.get_all_weights(filter_noise=True)
+            context['block_weights'] = hotspot_sys.block_hotspot.get_all_weights(filter_noise=True)
             
             # 个股权重
-            context['symbol_weights'] = attention_system.weight_pool.get_all_weights()
+            context['symbol_weights'] = hotspot_sys.weight_pool.get_all_weights()
         
         return context
     
