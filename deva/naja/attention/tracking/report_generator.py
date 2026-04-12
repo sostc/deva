@@ -202,7 +202,7 @@ class AttentionReportGenerator:
         try:
             from deva.naja.market_hotspot.integration.market_hotspot_integration import get_market_hotspot_integration
             from deva.naja.market_hotspot.strategies import get_strategy_manager
-            from deva.naja.market_hotspot.market_hotspot_history_tracker import get_history_tracker
+            from deva.naja.market_hotspot.tracking.history_tracker import get_history_tracker
             
             integration = get_market_hotspot_integration()
             if not integration or not integration.hotspot_system:
@@ -348,7 +348,7 @@ class AttentionReportGenerator:
     def _collect_recent_changes(self) -> List[Dict[str, Any]]:
         """收集最近的注意力变化"""
         try:
-            from deva.naja.market_hotspot.market_hotspot_history_tracker import get_history_tracker
+            from deva.naja.market_hotspot.tracking.history_tracker import get_history_tracker
             tracker = get_history_tracker()
             if not tracker:
                 return []
@@ -373,7 +373,7 @@ class AttentionReportGenerator:
     def _collect_block_hotspots(self) -> List[Dict[str, Any]]:
         """收集题材热点事件"""
         try:
-            from deva.naja.market_hotspot.market_hotspot_history_tracker import get_history_tracker
+            from deva.naja.market_hotspot.tracking.history_tracker import get_history_tracker
             tracker = get_history_tracker()
             if not tracker:
                 return []

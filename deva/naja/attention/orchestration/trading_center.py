@@ -32,7 +32,7 @@ from typing import Dict, Any, Optional, List
 from dataclasses import dataclass, field
 import threading
 
-from ..attention_os import AttentionOS, get_attention_os
+from ..os.attention_os import AttentionOS, get_attention_os
 
 log = logging.getLogger(__name__)
 

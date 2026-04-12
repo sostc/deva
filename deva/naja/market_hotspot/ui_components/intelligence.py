@@ -9,14 +9,14 @@ def get_intelligence_system():
         from deva.naja.supervisor import get_supervisor
         supervisor = get_supervisor()
         if supervisor and hasattr(supervisor, '_components'):
-            integration = supervisor._components.get('attention')
+            integration = supervisor._components.get('hotspot')
             if integration:
                 if hasattr(integration, 'intelligence_system'):
                     return integration.intelligence_system
                 from deva.naja.register import SR
-                attention_integration = SR('attention_integration')
-                if attention_integration and hasattr(attention_integration, 'intelligence_system'):
-                    return attention_integration.intelligence_system
+                hotspot_integration = SR('hotspot_integration')
+                if hotspot_integration and hasattr(hotspot_integration, 'intelligence_system'):
+                    return hotspot_integration.intelligence_system
         return None
     except Exception:
         return None
@@ -30,7 +30,7 @@ def get_block_name(block_id: str) -> str:
     return block_id
 
 
-def render_predictive_attention_panel() -> str:
+def render_predictive_hotspot_panel() -> str:
     """渲染预测个股热点面板"""
     intelligence_system = get_intelligence_system()
     if not intelligence_system or not hasattr(intelligence_system, 'predictive_engine'):
@@ -46,7 +46,7 @@ def render_predictive_attention_panel() -> str:
 
         market_time = ""
         try:
-            from deva.naja.attention.trading_center import get_trading_center
+            from deva.naja.attention.orchestration.trading_center import get_trading_center
             tc = get_trading_center()
             market_time = tc.get_cached_market_time()
         except Exception:
@@ -105,7 +105,7 @@ def render_predictive_attention_panel() -> str:
         """
 
 
-def render_block_predictive_attention_panel() -> str:
+def render_block_predictive_hotspot_panel() -> str:
     """渲染预测题材热点面板"""
     intelligence_system = get_intelligence_system()
     if not intelligence_system or not hasattr(intelligence_system, 'predictive_engine'):
@@ -119,7 +119,7 @@ def render_block_predictive_attention_panel() -> str:
     try:
         market_time = ""
         try:
-            from deva.naja.attention.trading_center import get_trading_center
+            from deva.naja.attention.orchestration.trading_center import get_trading_center
             tc = get_trading_center()
             market_time = tc.get_cached_market_time()
         except Exception:
@@ -221,8 +221,8 @@ def render_intelligence_panels() -> str:
     <div style="display: flex; flex-direction: column; gap: 12px;">
         {render_intelligence_summary_panel()}
         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
-            <div>{render_predictive_attention_panel()}</div>
-            <div>{render_block_predictive_attention_panel()}</div>
+            <div>{render_predictive_hotspot_panel()}</div>
+            <div>{render_block_predictive_hotspot_panel()}</div>
             <div>{render_feedback_loop_panel()}</div>
             <div>{render_budget_panel()}</div>
             <div style="grid-column: span 2;">{render_strategy_learning_panel()}</div>

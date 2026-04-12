@@ -9,7 +9,7 @@ Module 8: Hotspot Feedback Loop - 热点反馈学习系统
 
 架构:
 - FeedbackCollector: 收集策略执行结果
-- 热点有效性分析器: 分析哪些 attention 是有效的
+- 热点有效性分析器: 分析哪些 hotspot 是有效的
 - BanditUpdater: 使用 bandit 算法更新热点权重
 """
 
@@ -120,7 +120,7 @@ class FeedbackCollector:
         market_state: str
     ) -> str:
         """生成模式键"""
-        att_bucket = int(attention * 10) / 10
+        att_bucket = int(hotspot_val * 10) / 10
         pred_bucket = int(prediction * 10) / 10
         return f"{att_bucket:.1f}_{pred_bucket:.1f}_{market_state}"
     
@@ -255,26 +255,26 @@ class HotspotEffectivenessAnalyzer:
         """推断模式类型"""
         parts = pattern_key.split('_')
         if len(parts) >= 3:
-            attention = float(parts[0])
+            hotspot = float(parts[0])
             prediction = float(parts[1])
             
-            if attention > 0.7 and prediction > 0.6:
+            if hotspot > 0.7 and prediction > 0.6:
                 return "high_hotspot_high_prediction"
-            elif attention > 0.7 and prediction <= 0.6:
+            elif hotspot > 0.7 and prediction <= 0.6:
                 return "high_hotspot_low_prediction"
-            elif attention <= 0.3 and prediction > 0.6:
+            elif hotspot <= 0.3 and prediction > 0.6:
                 return "low_hotspot_high_prediction"
             else:
                 return "moderate"
         return "unknown"
     
     def _parse_hotspot_range(self, pattern_key: str) -> Tuple[float, float]:
-        """解析 attention 范围"""
+        """解析 hotspot 范围"""
         parts = pattern_key.split('_')
         if parts:
             try:
-                attention = float(parts[0])
-                return (attention, attention + 0.1)
+                hotspot = float(parts[0])
+                return (hotspot, hotspot + 0.1)
             except:
                 pass
         return (0.0, 1.0)
@@ -303,7 +303,7 @@ class HotspotEffectivenessAnalyzer:
         获取最佳热点调整建议
         
         Returns:
-            adjustment factor (e.g., 1.2 means +20% attention)
+            adjustment factor (e.g., 1.2 means +20% hotspot)
         """
         pattern_key = f"{current_hotspot:.1f}_{prediction_score:.1f}_{market_state}"
         
@@ -333,8 +333,8 @@ class BanditUpdater:
     Bandit 更新器
     
     使用 Contextual Bandit 进行在线学习:
-    - 输入: attention pattern context
-    - 输出: attention weight adjustment
+    - 输入: hotspot pattern context
+    - 输出: hotspot weight adjustment
     
     算法: 简化版 LinUCB 或 Thompson Sampling
     """
@@ -365,7 +365,7 @@ class BanditUpdater:
     ) -> np.ndarray:
         """构建上下文向量"""
         return np.array([
-            attention,
+            hotspot_val,
             prediction_score,
             volatility,
             volume_ratio,
@@ -373,7 +373,7 @@ class BanditUpdater:
         ], dtype=np.float64)
     
     def _get_action(self, context: np.ndarray) -> float:
-        """根据上下文选择动作（attention weight adjustment）"""
+        """根据上下文选择动作（hotspot weight adjustment）"""
         context_key = self._make_context_key(context)
         
         if context_key not in self._theta:
@@ -406,7 +406,7 @@ class BanditUpdater:
         选择动作
         
         Returns:
-            attention weight adjustment
+            hotspot weight adjustment
         """
         context = self._get_context(
             hotspot_val, prediction_score, volatility, volume_ratio, trend
@@ -500,7 +500,7 @@ class BanditUpdater:
     
     def get_theta(self, hotspot_val: float, prediction_score: float) -> np.ndarray:
         """获取指定上下文的 theta"""
-        context_key = f"{attention:.2f}_{prediction_score:.2f}"
+        context_key = f"{hotspot_val:.2f}_{prediction_score:.2f}"
         return self._theta.get(context_key, np.zeros(self._context_dim))
     
     def reset(self):
@@ -692,7 +692,7 @@ class HotspotLearningSystem:
             symbol: 股票代码
             block_id: 题材ID
             strategy_id: 策略ID
-            attention_score: 热点分数
+            hotspot_score: 热点分数
             prediction_score: 预测分数
             action: 动作
             entry_price: 入场价格
@@ -711,8 +711,8 @@ class HotspotLearningSystem:
             strategy_id=strategy_id,
             symbol=symbol,
             block_id=block_id,
-            hotspot_before=attention_score,
-            hotspot_after=attention_score,
+            hotspot_before=hotspot_score,
+            hotspot_after=hotspot_score,
             prediction_score=prediction_score,
             action=action,
             pnl=pnl,
@@ -731,7 +731,7 @@ class HotspotLearningSystem:
             reward = self._calc_reward(pnl, int(holding_seconds))
 
             self.bandit.update(
-                attention_score,
+                hotspot_score,
                 prediction_score,
                 volatility,
                 volume_ratio,
@@ -763,7 +763,7 @@ class HotspotLearningSystem:
 
         Args:
             symbol: 股票代码
-            attention_score: 热点分数
+            hotspot_score: 热点分数
             prediction_score: 预测分数
             current_price: 当前价格
             entry_price: 入场价格
@@ -787,7 +787,7 @@ class HotspotLearningSystem:
         reward = self._calc_reward(pnl, int(holding_seconds))
 
         self.bandit.update(
-            attention_score,
+            hotspot_score,
             prediction_score,
             volatility,
             volume_ratio,

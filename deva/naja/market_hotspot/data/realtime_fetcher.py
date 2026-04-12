@@ -1200,7 +1200,7 @@ class RealtimeDataFetcher:
                 log.info(f"[RealtimeDataFetcher] 美股热点处理完成: global_hotspot={result.get('global_hotspot', 'N/A')}, block_count={len(result.get('block_hotspot', {}))}")
 
                 # 事件已通过 MarketHotspotSystem._publish_hotspot_event() 自动发布
-                # AttentionOS 会通过事件总线订阅并处理
+                # HotspotOS 会通过事件总线订阅并处理
             else:
                 log.debug(f"[RealtimeDataFetcher] hotspot_system 不支持 process_us_snapshot 方法")
                 log.debug(f"[RealtimeDataFetcher] hotspot_system 方法列表: {[m for m in dir(self.hotspot_system) if not m.startswith('_')]}")

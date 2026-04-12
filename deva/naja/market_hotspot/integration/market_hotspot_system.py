@@ -4,12 +4,14 @@
 整合所有模块，提供统一的市场热点调度接口
 
 数据流:
-snapshot → Global Attention → Block Attention → Weight Pool →
+snapshot → Global Hotspot → Block Hotspot → Weight Pool →
     Frequency Scheduler → Strategy Allocation → Dual Engine →
     DataSource Control
 """
 
-from ..realtime_data_fetcher import RealtimeDataFetcher, AsyncRealtimeDataFetcher, FetchConfig
+from ..data.realtime_fetcher import RealtimeDataFetcher
+from ..data.async_fetcher import AsyncRealtimeDataFetcher
+from ..data.fetch_config import FetchConfig
 from ..engine import DualEngineCoordinator
 from ..scheduling import FrequencyScheduler, FrequencyLevel, AdaptiveFrequencyController, StrategyAllocator, StrategyRegistry
 from ..core import GlobalHotspotEngine, MarketSnapshot, BlockHotspotEngine, BlockConfig, WeightPool, WeightPoolView, MarketContext
@@ -233,7 +235,7 @@ class MarketHotspotSystem:
 
             if config is None:
                 from deva.naja.market_hotspot.integration.market_hotspot_integration import get_mode_manager
-                from deva.naja.market_hotspot.realtime_data_fetcher import FetchConfig
+                from deva.naja.market_hotspot.data.fetch_config import FetchConfig
                 mode_manager = get_mode_manager()
                 saved_config = mode_manager.get_fetcher_config()
                 if saved_config:
@@ -241,7 +243,7 @@ class MarketHotspotSystem:
                 else:
                     config = FetchConfig()
 
-            from deva.naja.market_hotspot.realtime_data_fetcher import RealtimeDataFetcher
+            from deva.naja.market_hotspot.data.realtime_fetcher import RealtimeDataFetcher
             fetcher = RealtimeDataFetcher(self, config)
             fetcher.start()
             fetcher._activate()
@@ -382,7 +384,7 @@ class MarketHotspotSystem:
             log.debug(f"[MarketHotspotSystem] process_snapshot 完成: global_hotspot={result.get('global_hotspot', 'N/A'):.3f}, block_count={len(result.get('block_hotspot', {}))}, symbol_weights_count={len(result.get('symbol_weights', {}))}")
 
             try:
-                from deva.naja.market_hotspot.market_hotspot_history_tracker import get_history_tracker
+                from deva.naja.market_hotspot.tracking.history_tracker import get_history_tracker
                 tracker = get_history_tracker()
                 if tracker:
                     symbol_weights = result.get('symbol_weights', {})
@@ -702,7 +704,7 @@ class MarketHotspotSystem:
                 global_hotspot_engine.update(snapshot)
                 self._record_step_success('global_hotspot')
             except Exception as e:
-                log.error(f"[Step 1 GlobalAttention] 失败: {e}")
+                log.error(f"[Step 1 GlobalHotspot] 失败: {e}")
                 self._record_step_failure('global_hotspot')
                 fallback_attn, fallback_act = fallback if fallback else (0.5, 0.5)
                 global_hotspot = fallback_attn
@@ -710,7 +712,7 @@ class MarketHotspotSystem:
                 result['degraded'] = True
                 result['degraded_steps'].append('global_hotspot')
         else:
-            log.warning(f"[Step 1 GlobalAttention] 熔断器开启，使用降级值")
+            log.warning(f"[Step 1 GlobalHotspot] 熔断器开启，使用降级值")
             fallback_attn, fallback_act = fallback if fallback else (0.5, 0.5)
             global_hotspot = fallback_attn
             activity = fallback_act
@@ -894,7 +896,7 @@ class MarketHotspotSystem:
                     self._us_last_symbol_snapshot = snapshot
                     self._us_last_snapshot_time = timestamp
             except Exception as e:
-                log.debug(f"[US-Attention] 更新美股快照失败: {e}")
+                log.debug(f"[US-Hotspot] 更新美股快照失败: {e}")
 
         if not result['degraded']:
             with self._cache_lock:
@@ -902,7 +904,7 @@ class MarketHotspotSystem:
 
         if _PERFORMANCE_MONITORING_AVAILABLE:
             record_component_execution(
-                component_id="attention_system",
+                component_id="hotspot_system",
                 component_name="市场热点系统",
                 component_type=ComponentType.STRATEGY,
                 execution_time_ms=latency,
@@ -938,7 +940,7 @@ class MarketHotspotSystem:
             调度决策结果（包含美股专属的热点数据）
         """
         if not self._initialized:
-            log.warning("[US-Attention] 市场热点系统未初始化，跳过美股处理")
+            log.warning("[US-Hotspot] 市场热点系统未初始化，跳过美股处理")
             return {
                 'timestamp': timestamp,
                 'global_hotspot': 0.5,
@@ -953,7 +955,7 @@ class MarketHotspotSystem:
         volumes = np.clip(volumes, 0, 1e15)
         prices = np.nan_to_num(prices, nan=0.0, posinf=1e6, neginf=0.0)
         prices = np.clip(prices, 0.01, 1e6)
-        log.debug(f"[US-Attention] process_us_snapshot: symbols={len(symbols)}, returns={returns[:5] if len(returns) > 5 else returns}")
+        log.debug(f"[US-Hotspot] process_us_snapshot: symbols={len(symbols)}, returns={returns[:5] if len(returns) > 5 else returns}")
 
         result = self.process_snapshot(
             symbols=symbols,
@@ -1166,7 +1168,7 @@ class MarketHotspotSystem:
         if self._realtime_fetcher:
             fetcher_status = self._realtime_fetcher.get_stats()
         else:
-            from deva.naja.market_hotspot.realtime_data_fetcher import get_data_fetcher
+            from deva.naja.market_hotspot.data.async_fetcher import get_data_fetcher
             singleton_fetcher = get_data_fetcher()
             if singleton_fetcher:
                 fetcher_status = singleton_fetcher.get_stats()
