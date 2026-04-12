@@ -123,7 +123,7 @@ class NarrativeSupplyChainLinker:
         🚀 发布供应链影响事件到 CognitiveSignalBus
         """
         try:
-            from deva.naja.cognition.cognitive_signal_bus import (
+            from deva.naja.events import (
                 get_cognitive_bus,
                 CognitiveEventType,
             )

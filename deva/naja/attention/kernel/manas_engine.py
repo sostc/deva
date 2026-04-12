@@ -980,7 +980,7 @@ class ManasEngine:
         ManasEngine 会收到通知并清缓存，确保决策反映最新认知状态
         """
         try:
-            from deva.naja.cognition.cognitive_signal_bus import (
+            from deva.naja.events import (
                 get_cognitive_bus,
                 CognitiveEventType,
             )
@@ -1034,7 +1034,7 @@ class ManasEngine:
         """
         import time
         try:
-            from deva.naja.cognition.cognitive_signal_bus import CognitiveEventType
+            from deva.naja.events import CognitiveEventType
             event_type = event.event_type
         except Exception:
             event_type = getattr(event, "event_type", None)

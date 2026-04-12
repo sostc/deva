@@ -26,22 +26,13 @@
 
 import logging
 import importlib
-from typing import List, Callable, Optional, Tuple
+from typing import List, Tuple
 
 from .common.singleton_registry import (
     register_singleton, SR, get_registry_status,
-    get_original_function
 )
 
 logger = logging.getLogger(__name__)
-
-
-def _orig(module_name: str, func_name: str):
-    """获取原始函数（未补丁版本）"""
-    orig = get_original_function(module_name, func_name)
-    if orig is None:
-        raise RuntimeError(f"原始函数 {module_name}.{func_name} 未找到")
-    return orig
 
 
 # ============================================================
@@ -95,7 +86,7 @@ SIMPLE_SINGLETONS: List[Tuple[str, str, str, List[str]]] = [
     ("insight_engine",         ".cognition.insight.engine",         "InsightEngine",       ["insight_pool"]),
     ("awakened_alaya",         ".alaya",                            "AwakenedAlaya",       []),
     ("strategy_result_store",  ".strategy.result_store",            "ResultStore",         []),
-    ("signal_dispatcher",      ".signal.dispatcher",                "SignalDispatcher",    ["signal_stream"]),
+    ("signal_dispatcher",      ".signal.dispatcher",                "SignalDispatcher",    []),
     ("llm_controller",         ".llm_controller.controller",        "LLMController",      []),
     ("bandit_optimizer",       ".bandit.optimizer",                 "BanditOptimizer",     ["market_data_bus"]),
     ("bandit_tuner",           ".bandit.tuner",                     "BanditTuner",         ["market_data_bus"]),
@@ -199,7 +190,7 @@ def _register_custom_singletons():
 
     # --- cognition_bus: 调用 get_cognitive_bus() 单例获取器 ---
     def _create_cognitive_signal_bus():
-        from .cognition.cognitive_signal_bus import get_cognitive_bus
+        from .events import get_cognitive_bus
         return get_cognitive_bus()
     register_singleton('cognition_bus', _create_cognitive_signal_bus, deps=[])
     logger.info("  ✓ cognition_bus (→ CognitiveSignalBus)")
@@ -262,38 +253,33 @@ def _register_custom_singletons():
     register_singleton('wake_sync_manager', _create_wake_sync_manager, deps=[])
     logger.info("  ✓ wake_sync_manager")
 
-    logger.info("  ✓ signal_stream")
-
 
 def ensure_trading_clocks():
-    """确保交易时钟相关单例已注册并初始化"""
-    try:
-        SR('market_session_manager')
-    except KeyError:
-        def _create_market_session_manager():
-            from .radar.global_market_config import MarketSessionManager
-            return MarketSessionManager()
-        register_singleton('market_session_manager', _create_market_session_manager, deps=[])
+    """确保交易时钟相关单例已注册并初始化
 
-    try:
-        SR('trading_clock')
-    except KeyError:
-        def _create_trading_clock():
-            from .radar.trading_clock import TradingClock
-            tc = TradingClock()
-            tc.start()
-            return tc
-        register_singleton('trading_clock', _create_trading_clock, deps=[])
+    防御性函数：正常流程下 register_all_singletons() 已完成注册，
+    此函数仅处理 bootstrap 之前被调用的边缘情况。
+    """
+    for sr_name, factory_info in [
+        ('trading_clock', ('.radar.trading_clock', 'TradingClock', True)),
+        ('us_trading_clock', ('.radar.trading_clock', 'USTradingClock', True)),
+        ('market_session_manager', ('.radar.global_market_config', 'MarketSessionManager', False)),
+    ]:
+        try:
+            SR(sr_name)
+        except KeyError:
+            mod_path, cls_name, needs_start = factory_info
 
-    try:
-        SR('us_trading_clock')
-    except KeyError:
-        def _create_us_trading_clock():
-            from .radar.trading_clock import USTradingClock
-            utc = USTradingClock()
-            utc.start()
-            return utc
-        register_singleton('us_trading_clock', _create_us_trading_clock, deps=[])
+            def _make_factory(mp, cn, ns):
+                def factory():
+                    mod = importlib.import_module(mp, package="deva.naja")
+                    inst = getattr(mod, cn)()
+                    if ns:
+                        inst.start()
+                    return inst
+                return factory
+
+            register_singleton(sr_name, _make_factory(mod_path, cls_name, needs_start), deps=[])
 
     # 触发实例化，确保线程启动
     try:
