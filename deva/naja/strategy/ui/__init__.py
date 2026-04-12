@@ -14,8 +14,8 @@ from pywebio.output import set_scope, clear
 from pywebio.session import run_async
 
 from deva.naja.register import SR
-from deva.naja.common.ui_style import apply_strategy_like_styles, render_empty_state
-from deva.naja.page_help import render_help_collapse
+from deva.naja.infra.ui.ui_style import apply_strategy_like_styles, render_empty_state
+from deva.naja.infra.ui.page_help import render_help_collapse
 
 # 子模块导入
 from .stats import _render_strategy_stats_html, _render_result_stats_html
@@ -161,7 +161,7 @@ def _render_strategy_content(ctx: dict):
 
     # 记录 Web 请求性能
     try:
-        from deva.naja.performance import record_web_request
+        from deva.naja.infra.observability.performance_monitor import record_web_request
         record_web_request(
             request_path="/naja/strategy",
             execution_time_ms=total_time_ms,

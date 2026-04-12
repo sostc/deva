@@ -3,7 +3,7 @@ VolatilitySurfaceSense 单元测试
 """
 
 import unittest
-from deva.naja.senses.volatility_surface import (
+from deva.naja.radar.senses.volatility_surface import (
     VolatilitySurfaceSense,
     IVSkewAnalyzer,
     TermStructureAnalyzer,

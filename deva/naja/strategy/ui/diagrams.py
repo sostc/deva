@@ -1,6 +1,6 @@
 """策略图表常量与原理渲染函数"""
 
-from deva.naja.common.ui_style import render_detail_section
+from deva.naja.infra.ui.ui_style import render_detail_section
 
 STRATEGY_NAME_TO_DIAGRAM = {
     "river_短期方向概率_top": {
@@ -369,8 +369,8 @@ def _get_fallback_diagram_info(entry) -> dict:
 from pywebio.input import input_group, input, textarea, select, actions
 from pywebio.session import run_async
 
-from deva.naja.common.ui_style import apply_strategy_like_styles, render_empty_state, format_timestamp, render_status_badge, render_detail_section
-from deva.naja.page_help import render_help_collapse
+from deva.naja.infra.ui.ui_style import apply_strategy_like_styles, render_empty_state, format_timestamp, render_status_badge, render_detail_section
+from deva.naja.infra.ui.page_help import render_help_collapse
 
 try:
     from deva.naja.strategy.handler_type import get_strategy_handler_type, StrategyHandlerType

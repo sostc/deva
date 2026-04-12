@@ -5,7 +5,7 @@ from datetime import datetime
 from pywebio.output import put_html
 
 from deva.naja.register import SR
-from deva.naja.common.ui_style import render_status_badge
+from deva.naja.infra.ui.ui_style import render_status_badge
 
 
 def _get_render_strategy_content():

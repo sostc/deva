@@ -79,7 +79,7 @@ def main():
 
     # 设置日志级别
     if args.tune:
-        from .common.tuning_logger import setup_tuning_mode_logger, print_tuning_banner
+        from .infra.observability.tuning_logger import setup_tuning_mode_logger, print_tuning_banner
         setup_tuning_mode_logger(level=logging.INFO)
         print_tuning_banner()
     else:

@@ -2,7 +2,7 @@
 Event Bus 组件
 """
 
-from ....common.ui_style import format_timestamp
+from deva.naja.infra.ui.ui_style import format_timestamp
 
 
 def render_event_bus(ui, source_counts=None, recent_by_source=None, recent_insights=None):

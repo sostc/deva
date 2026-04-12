@@ -25,8 +25,8 @@ cd /Users/spark/pycharmproject/deva
 # 检查核心模块导入
 python -c "
 from deva.naja.attention.center import get_orchestrator
-from deva.naja.senses import ProphetSense, RealtimeTaste
-from deva.naja.alaya import SeedIlluminator
+from deva.naja.radar.senses import ProphetSense, RealtimeTaste
+from deva.naja.knowledge.alaya import SeedIlluminator
 from deva.naja.attention.kernel.manas_engine import ManasEngine
 from deva.naja.evolution import get_meta_evolution
 print('✓ 所有模块导入成功')
@@ -72,7 +72,7 @@ print(f'觉醒状态: {state}')
 
 ```python
 import numpy as np
-from deva.naja.senses import ProphetSense
+from deva.naja.radar.senses import ProphetSense
 
 prophet = ProphetSense()
 
@@ -144,7 +144,7 @@ if __name__ == "__main__":
 #### 测试代码
 
 ```python
-from deva.naja.senses import RealtimeTaste
+from deva.naja.radar.senses import RealtimeTaste
 
 taste = RealtimeTaste()
 
@@ -214,7 +214,7 @@ if __name__ == "__main__":
 #### 测试代码
 
 ```python
-from deva.naja.alaya import SeedIlluminator, PatternType
+from deva.naja.knowledge.alaya import SeedIlluminator, PatternType
 
 illuminator = SeedIlluminator()
 
@@ -583,8 +583,8 @@ cd /Users/spark/pycharmproject/deva
 echo "=== 1. 模块导入检查 ==="
 python -c "
 from deva.naja.attention.center import get_orchestrator
-from deva.naja.senses import ProphetSense, RealtimeTaste
-from deva.naja.alaya import SeedIlluminator
+from deva.naja.radar.senses import ProphetSense, RealtimeTaste
+from deva.naja.knowledge.alaya import SeedIlluminator
 from deva.naja.attention.kernel.manas_engine import ManasEngine
 from deva.naja.evolution import get_meta_evolution
 print('✓ 所有模块导入成功')

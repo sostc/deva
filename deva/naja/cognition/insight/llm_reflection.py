@@ -841,7 +841,7 @@ _反思生成时间: {datetime.fromtimestamp(reflection.ts).strftime('%Y-%m-%d %
     def _collect_wisdom_signals(self) -> List[Dict[str, Any]]:
         """收集 WisdomRetriever 的检索效果信号，用于优化知识库检索"""
         try:
-            from ...wisdom.wisdom_retriever import WisdomRetriever
+            from ...knowledge.wisdom.wisdom_retriever import WisdomRetriever
 
             retriever = WisdomRetriever()
             stats = retriever.get_stats()

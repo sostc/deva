@@ -9,7 +9,7 @@ from typing import Any, Dict, List, Optional
 
 from deva import NB
 
-from ..common.thread_pool import get_thread_pool
+from ..infra.runtime.thread_pool import get_thread_pool
 from .output_controller import get_output_controller
 from .models import (
     STRATEGY_TABLE,
@@ -74,7 +74,7 @@ class StrategyManager:
     def health_check(self):
         """健康检查"""
         self._ensure_initialized()
-        from ..common.manager_health import ManagerHealthReport
+        from ..infra.observability.manager_health import ManagerHealthReport
 
         items = list(self._items.values())
         running = sum(1 for i in items if i.is_running)
@@ -909,7 +909,7 @@ class StrategyManager:
                 "results": [],
             }
 
-        from ..common.thread_pool import get_thread_pool
+        from ..infra.runtime.thread_pool import get_thread_pool
         pool = get_thread_pool()
         futures = {}
 
@@ -1022,7 +1022,7 @@ class StrategyManager:
     def get_performance_stats(self) -> dict:
         """获取策略性能统计"""
         try:
-            from .performance_monitor import get_performance_monitor
+            from deva.naja.infra.observability.performance_monitor import get_performance_monitor
             monitor = get_performance_monitor()
             return monitor.get_slow_strategies_summary()
         except Exception as e:
@@ -1031,7 +1031,7 @@ class StrategyManager:
     def get_performance_report(self) -> str:
         """获取策略性能报告"""
         try:
-            from .performance_monitor import get_performance_monitor
+            from deva.naja.infra.observability.performance_monitor import get_performance_monitor
             monitor = get_performance_monitor()
             return monitor.get_performance_report()
         except Exception as e:

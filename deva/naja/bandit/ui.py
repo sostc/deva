@@ -5,7 +5,7 @@ from pywebio.output import *
 from pywebio import session
 import threading
 
-from deva.naja.page_help import render_help_collapse
+from deva.naja.infra.ui.page_help import render_help_collapse
 from deva.naja.register import SR
 from deva import NB
 

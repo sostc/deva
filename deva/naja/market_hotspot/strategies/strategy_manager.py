@@ -17,7 +17,7 @@ log = logging.getLogger(__name__)
 
 # 性能监控支持
 try:
-    from deva.naja.performance import record_component_execution, ComponentType
+    from deva.naja.infra.observability.performance_monitor import record_component_execution, ComponentType
     _PERFORMANCE_MONITORING_AVAILABLE = True
 except ImportError:
     _PERFORMANCE_MONITORING_AVAILABLE = False
@@ -655,7 +655,7 @@ class HotspotStrategyManager:
 
             config = self.configs.get(strategy_id)
             if config:
-                from ...common.recoverable import UnitStatus
+                from deva.naja.infra.runtime.recoverable import UnitStatus
                 wrapper._state.status = UnitStatus.RUNNING.value if config.enabled else UnitStatus.STOPPED.value
 
             return wrapper

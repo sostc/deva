@@ -10,7 +10,7 @@ import logging
 from pywebio.output import put_html, put_row, put_column, put_scope
 from pywebio.session import set_env
 
-from ...common.ui_theme import get_nav_menu_js
+from deva.naja.infra.ui.ui_theme import get_nav_menu_js
 
 log = logging.getLogger(__name__)
 

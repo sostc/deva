@@ -397,3 +397,14 @@ __all__ = [
     "get_soul_manager",
     "SOUL_AVAILABLE",
 ]
+
+# 启动模式配置（从顶级 startup_modes.py 迁入）
+try:
+    from .startup_modes import (
+        StartupMode, NewsRadarMode, StartupConfig,
+        MODE_COMBINATIONS,
+        get_mode_description, get_news_radar_description,
+        create_normal_config, create_lab_config, create_cognition_debug_config,
+    )
+except ImportError:
+    pass

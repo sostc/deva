@@ -317,8 +317,8 @@ class OSAttentionKernel:
 
     def _get_scanner(self):
         try:
-            from deva.naja.radar import get_market_scanner
-            return get_market_scanner()
+            from deva.naja.radar import get_global_market_scanner
+            return get_global_market_scanner()
         except ImportError:
             return None
 

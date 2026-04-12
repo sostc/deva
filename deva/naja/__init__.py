@@ -3,7 +3,7 @@
 基于 RecoverableUnit 抽象的统一管理平台。
 """
 
-from .common.recoverable import (
+from .infra.runtime.recoverable import (
     RecoverableUnit,
     UnitMetadata,
     UnitState,

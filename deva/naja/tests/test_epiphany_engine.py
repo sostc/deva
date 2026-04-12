@@ -4,7 +4,7 @@ EpiphanyEngine 单元测试
 
 import unittest
 import time
-from deva.naja.alaya.epiphany_engine import (
+from deva.naja.knowledge.alaya.epiphany_engine import (
     EpiphanyEngine,
     CrossMarketTransfer,
     PatternEpiphany,

@@ -20,7 +20,7 @@ except Exception:
     pd = None
 
 try:
-    from deva.naja.performance import record_component_execution, ComponentType
+    from deva.naja.infra.observability.performance_monitor import record_component_execution, ComponentType
     _PERFORMANCE_MONITORING_AVAILABLE = True
 except ImportError:
     _PERFORMANCE_MONITORING_AVAILABLE = False

@@ -43,3 +43,9 @@ __all__ = [
     "handle_knowledge_action",
     "render_knowledge_stats",
 ]
+
+# ── 子模块：阿赖耶识层（从顶级 alaya/ 合入）──
+from . import alaya  # noqa: F401
+
+# ── 子模块：智慧检索（从顶级 wisdom/ 合入）──
+from . import wisdom  # noqa: F401

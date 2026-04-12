@@ -283,7 +283,7 @@ class TradingClock:
 
         if new_phase == 'post_market':
             try:
-                from deva.naja.snapshot_manager import record_market_state_snapshot
+                from deva.naja.state.snapshot import record_market_state_snapshot
                 record_market_state_snapshot(force=True)
             except Exception as e:
                 log.debug(f"[TradingClock] 记录市场状态快照失败: {e}")

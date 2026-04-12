@@ -259,6 +259,18 @@ class MetaEvolution:
             return
         self._observer.record_outcome(decision_type, success, latency_ms)
 
+    def on_signal_outcome(self, strategy_name: str, outcome: Dict[str, Any]):
+        """信号执行结果回调（由 SignalExecutor 调用）
+
+        将交易结果转换为 record_outcome 格式，打通反馈链路。
+        """
+        if not self._enabled:
+            return
+        success = outcome.get("success", outcome.get("profit", 0) > 0)
+        latency_ms = outcome.get("latency_ms", 0)
+        self._observer.record_outcome(strategy_name, bool(success), float(latency_ms))
+        log.debug(f"[MetaEvolution] 收到信号结果: {strategy_name} success={success}")
+
     def think(self) -> List[EvolutionInsight]:
         """
         元认知思考

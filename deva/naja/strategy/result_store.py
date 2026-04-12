@@ -27,7 +27,7 @@ from deva import NB
 logger = logging.getLogger(__name__)
 
 try:
-    from ..log_stream import get_log_stream, log_strategy
+    from ..infra.log.log_stream import get_log_stream, log_strategy
     LOG_STREAM_AVAILABLE = True
 except ImportError:
     LOG_STREAM_AVAILABLE = False
@@ -347,7 +347,7 @@ class StreamResultStore:
 
         if LOG_STREAM_AVAILABLE:
             try:
-                from ..log_stream import log_strategy
+                from ..infra.log.log_stream import log_strategy
                 signal_type = ""
                 if isinstance(output_data, dict):
                     signal_type = output_data.get("signal_type", "")

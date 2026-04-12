@@ -126,7 +126,7 @@ def get_all_module_status() -> List[Dict]:
     _cached_events = None
 
     try:
-        from deva.naja.common.auto_tuner import get_auto_tuner
+        from deva.naja.infra.observability.auto_tuner import get_auto_tuner
         tuner = get_auto_tuner()
         tuner._ensure_initialized()
         conditions = tuner.get_conditions_status()
@@ -322,7 +322,7 @@ def get_all_module_status() -> List[Dict]:
 
 def get_recent_tuning_events(limit: int = 20) -> List[Dict]:
     try:
-        from deva.naja.common.auto_tuner import get_auto_tuner
+        from deva.naja.infra.observability.auto_tuner import get_auto_tuner
         tuner = get_auto_tuner()
         tuner._ensure_initialized()
         events = tuner.get_recent_events(limit=limit)
@@ -435,7 +435,7 @@ def render_tuning_monitor_panel() -> str:
 
 def _render_tuner_status() -> str:
     try:
-        from deva.naja.common.auto_tuner import get_auto_tuner
+        from deva.naja.infra.observability.auto_tuner import get_auto_tuner
         tuner = get_auto_tuner()
         tuner._ensure_initialized()
         status = tuner.get_status()
@@ -823,7 +823,7 @@ def _render_frequency_empty_state() -> str:
 def render_datasource_tuning_panel() -> str:
     try:
         from deva.naja.datasource import get_datasource_manager
-        from deva.naja.common.recoverable import UnitStatus
+        from deva.naja.infra.runtime.recoverable import UnitStatus
 
         mgr = get_datasource_manager()
         if not mgr:
