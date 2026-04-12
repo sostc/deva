@@ -420,7 +420,7 @@ class RiskManager:
             return self._attention_cache
         
         try:
-            from deva.naja.attention.attention_os import get_attention_os
+            from deva.naja.attention.os.attention_os import get_attention_os
             aos = get_attention_os()
             kernel = aos.get_kernel()
             

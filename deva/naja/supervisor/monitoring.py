@@ -55,7 +55,7 @@ class MonitoringMixin:
             intelligence_config = get_intelligence_config()
 
             if attention_config.enabled:
-                config = attention_config.to_attention_system_config()
+                config = attention_config.to_hotspot_system_config()
                 force_realtime = getattr(self, '_force_realtime', False)
                 lab_mode = getattr(self, '_lab_mode', False)
                 attention_system = initialize_hotspot_system(
@@ -82,7 +82,7 @@ class MonitoringMixin:
 
                 # 启动报告生成器
                 try:
-                    from deva.naja.attention.report_generator import start_report_generator
+                    from deva.naja.attention.tracking.report_generator import start_report_generator
                     report_generator = start_report_generator()
                     self._components['attention_report_generator'] = report_generator
                 except Exception as re:
@@ -101,8 +101,8 @@ class MonitoringMixin:
             # 启动 PositionMonitor (持仓监控)
             if intelligence_config.get('enable_feedback'):
                 try:
-                    from deva.naja.attention.hotspot_signal_tracker import ensure_hotspot_signal_tracker
-                    from deva.naja.attention.position_monitor import ensure_position_monitor
+                    from deva.naja.attention.tracking.hotspot_signal_tracker import ensure_hotspot_signal_tracker
+                    from deva.naja.attention.tracking.position_monitor import ensure_position_monitor
 
                     hotspot_signal_tracker = ensure_hotspot_signal_tracker(
                         observation_duration=3600.0,
@@ -203,7 +203,7 @@ class MonitoringMixin:
         
         # 停止报告生成器
         try:
-            from deva.naja.attention.report_generator import stop_report_generator
+            from deva.naja.attention.tracking.report_generator import stop_report_generator
             stop_report_generator()
             log.info("注意力报告生成器已停止")
         except:

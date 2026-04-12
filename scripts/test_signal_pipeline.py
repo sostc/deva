@@ -26,7 +26,7 @@ def init_system():
 
     from deva.naja.register import SR
 
-    from deva.naja.attention.trading_center import TradingCenter
+    from deva.naja.attention.orchestration.trading_center import TradingCenter
     _ = TradingCenter()
     print("✅ TradingCenter 初始化完成")
 
@@ -63,7 +63,7 @@ def test_signal_to_trading_center():
     print("测试 1: 信号直接到 TradingCenter")
     print("="*60)
 
-    from deva.naja.attention.trading_center import get_trading_center
+    from deva.naja.attention.orchestration.trading_center import get_trading_center
 
     tc = get_trading_center()
     if tc is None:

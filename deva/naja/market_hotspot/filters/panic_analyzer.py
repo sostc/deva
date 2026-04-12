@@ -77,7 +77,7 @@ class PanicAnalyzer:
         分析事件的恐慌程度
 
         Args:
-            event: AttentionEvent 或类似对象
+            event: HotspotEvent 或类似对象
 
         Returns:
             PanicAnalysisResult: 包含恐慌指数、流动性得分、是否通过等

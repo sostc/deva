@@ -19,7 +19,7 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
 from deva import NB
-from deva.naja.attention.attention_os import get_attention_os
+from deva.naja.attention.os.attention_os import get_attention_os
 
 log = logging.getLogger(__name__)
 

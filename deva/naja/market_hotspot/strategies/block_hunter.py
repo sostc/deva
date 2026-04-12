@@ -1,7 +1,7 @@
 """
 Block Rotation Hunter Strategy
 
-Tracks block attention weight momentum to detect capital rotation between blocks
+Tracks block hotspot weight momentum to detect capital rotation between blocks
 """
 
 import logging
@@ -28,12 +28,12 @@ class BlockRotationHunter(HotspotStrategyBase):
     Block Rotation Hunter Strategy
 
     Core Logic:
-    1. Monitor block attention weight changes
+    1. Monitor block hotspot weight changes
     2. Flag "capital inflow" when block weight rises rapidly
     3. Flag "capital outflow" when block weight declines
     4. Capture rotation inflection points
 
-    Only executes during active block attention periods
+    Only executes during active block hotspot periods
     """
 
     def __init__(
@@ -193,7 +193,7 @@ class BlockRotationHunter(HotspotStrategyBase):
         block_weights = context.get('block_weights', {})
 
         if not block_weights:
-            integration = self._get_attention_system()
+            integration = self._get_hotspot_integration()
             if integration and integration.hotspot_system:
                 block_weights = integration.hotspot_system.block_hotspot.get_all_weights()
 

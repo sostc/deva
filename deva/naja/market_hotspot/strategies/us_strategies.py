@@ -1,5 +1,5 @@
 """
-US Market Attention Strategies
+US Market Hotspot Strategies
 
 美股专用策略：复用 A 股策略逻辑，但使用美股热点状态与数据过滤。
 """

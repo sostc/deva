@@ -123,7 +123,7 @@ def _get_manas_state() -> Dict[str, Any]:
 def _get_qkv_state() -> Dict[str, Any]:
     """获取 QKV 系统完整状态"""
     try:
-        from deva.naja.attention.trading_center import get_trading_center
+        from deva.naja.attention.orchestration.trading_center import get_trading_center
         tc = get_trading_center()
         os = tc.get_attention_os()
         kernel = os.kernel

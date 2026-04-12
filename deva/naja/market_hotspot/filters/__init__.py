@@ -1,5 +1,5 @@
 """
-Attention Filters - 热点过滤层
+Hotspot Filters - 热点过滤层
 
 提供多层次的事件过滤功能
 """
