@@ -385,7 +385,7 @@ class NarrativeTracker:
     def _publish_cognitive_update(self, event, signal):
         """发布认知事件到 CognitiveSignalBus"""
         try:
-            from deva.naja.cognition.cognitive_signal_bus import (
+            from deva.naja.events import (
                 get_cognitive_bus,
                 CognitiveEventType,
             )
