@@ -5,12 +5,14 @@ Knowledge Store - 知识存储模块
 """
 
 import json
-import os
+import logging
 from pathlib import Path
 from datetime import datetime
 from typing import List, Dict, Any, Optional
 from dataclasses import dataclass, field, asdict
 from enum import Enum
+
+log = logging.getLogger(__name__)
 
 
 class KnowledgeState(Enum):
@@ -83,10 +85,16 @@ class KnowledgeStore:
             try:
                 with open(self.KNOWLEDGE_FILE, 'r', encoding='utf-8') as f:
                     data = json.load(f)
-                    self._entries = [KnowledgeEntry.from_dict(e) for e in data.get("knowledge", [])]
-                print(f"[KnowledgeStore] 加载了 {len(self._entries)} 条知识")
-            except Exception as e:
-                print(f"[KnowledgeStore] 加载失败: {e}")
+                    raw_entries = data.get("knowledge", [])
+                    self._entries = []
+                    for e in raw_entries:
+                        try:
+                            self._entries.append(KnowledgeEntry.from_dict(e))
+                        except (TypeError, KeyError) as err:
+                            log.warning(f"[KnowledgeStore] 跳过损坏条目: {err}")
+                log.info(f"[KnowledgeStore] 加载了 {len(self._entries)} 条知识")
+            except (json.JSONDecodeError, IOError) as e:
+                log.error(f"[KnowledgeStore] 加载失败: {e}")
                 self._entries = []
         else:
             self._entries = []
@@ -195,15 +203,29 @@ class KnowledgeStore:
         """获取可用于交易决策的知识"""
         qualified = []
         validating = []
+        observing_count = 0
+        now = datetime.now()
 
         for e in self._entries:
+            if e.status == KnowledgeState.OBSERVING.value:
+                observing_count += 1
+                continue
+
+            if e.status == KnowledgeState.EXPIRED.value:
+                continue
+
+            try:
+                days_tracked = (now - datetime.fromisoformat(e.extracted_at)).days
+            except (ValueError, TypeError):
+                days_tracked = 0
+
             item = {
                 "id": e.id,
                 "cause": e.cause,
                 "effect": e.effect,
                 "confidence": e.adjusted_confidence,
                 "evidence_count": e.evidence_count,
-                "days_tracked": (datetime.now() - datetime.fromisoformat(e.extracted_at)).days,
+                "days_tracked": days_tracked,
                 "source": e.source
             }
             if e.status == KnowledgeState.QUALIFIED.value:
@@ -216,7 +238,7 @@ class KnowledgeStore:
             "validating": validating,
             "qualified_count": len(qualified),
             "validating_count": len(validating),
-            "observing_count": states.get(KnowledgeState.OBSERVING.value, 0)
+            "observing_count": observing_count
         }
 
     def save_narratives(self, narratives: Dict[str, Any]):
@@ -237,8 +259,12 @@ class KnowledgeStore:
         self._ensure_dir()
         articles = []
         if self.ARTICLES_FILE.exists():
-            with open(self.ARTICLES_FILE, 'r', encoding='utf-8') as f:
-                articles = json.load(f)
+            try:
+                with open(self.ARTICLES_FILE, 'r', encoding='utf-8') as f:
+                    articles = json.load(f)
+            except (json.JSONDecodeError, IOError):
+                log.warning("[KnowledgeStore] 文章文件损坏，重建")
+                articles = []
         articles.append(article_data)
         articles = articles[-100:]
         with open(self.ARTICLES_FILE, 'w', encoding='utf-8') as f:
@@ -249,8 +275,12 @@ class KnowledgeStore:
         self._ensure_dir()
         reports = []
         if self.DAILY_REPORTS_FILE.exists():
-            with open(self.DAILY_REPORTS_FILE, 'r', encoding='utf-8') as f:
-                reports = json.load(f)
+            try:
+                with open(self.DAILY_REPORTS_FILE, 'r', encoding='utf-8') as f:
+                    reports = json.load(f)
+            except (json.JSONDecodeError, IOError):
+                log.warning("[KnowledgeStore] 日报文件损坏，重建")
+                reports = []
         reports.append(report_data)
         reports = reports[-30:]
         with open(self.DAILY_REPORTS_FILE, 'w', encoding='utf-8') as f:

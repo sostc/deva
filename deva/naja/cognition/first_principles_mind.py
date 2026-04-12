@@ -15,6 +15,7 @@ FirstPrinciplesMind - 认知系统/第一性原理/因果分析
 
 import time
 import logging
+from pathlib import Path
 from typing import Dict, Any, Optional, List, Set, Tuple
 from dataclasses import dataclass, field
 from collections import deque, defaultdict
@@ -748,9 +749,9 @@ class FirstPrinciplesAnalyzer:
     整合因果追踪、矛盾检测、推理引擎
     """
 
-    # 因果知识库文件路径
-    CAUSALITY_KB_FILE = "/Users/spark/.naja/ai_knowledge/causality_knowledge_v2.json"
-    NARRATIVES_FILE = "/Users/spark/.naja/ai_knowledge/narratives.json"
+    # 因果知识库文件路径 — 统一使用 knowledge 目录
+    CAUSALITY_KB_FILE = str(Path(__file__).parent.parent / "knowledge" / "causality_knowledge.json")
+    NARRATIVES_FILE = str(Path(__file__).parent.parent / "knowledge" / "narratives.json")
 
     def __init__(self):
         self.causality_tracker = CausalityTracker()

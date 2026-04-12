@@ -88,6 +88,14 @@ class CognitiveEventType(Enum):
     # 通用
     COGNITION_RESET = "cognition_reset"              # 认知系统重置
 
+    # ── 以下从 cognition_bus.py 合并（原 CognitionEventType） ──
+    ATTENTION_SNAPSHOT = "attention_snapshot"         # 注意力快照
+    NEWS_SIGNAL = "news_signal"                      # 新闻信号
+    INSIGHT_GENERATED = "insight_generated"           # 洞察生成
+    COGNITION_FEEDBACK = "cognition_feedback"         # 认知反馈
+    NARRATIVE_UPDATE = "narrative_update"             # 叙事更新（通用）
+    SEMANTIC_GRAPH_UPDATE = "semantic_graph_update"   # 语义图谱更新
+
 
 @dataclass
 class CognitiveSignalEvent:

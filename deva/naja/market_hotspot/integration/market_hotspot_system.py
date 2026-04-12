@@ -13,9 +13,9 @@ from ..realtime_data_fetcher import RealtimeDataFetcher, AsyncRealtimeDataFetche
 from ..engine import DualEngineCoordinator
 from ..scheduling import FrequencyScheduler, FrequencyLevel, AdaptiveFrequencyController, StrategyAllocator, StrategyRegistry
 from ..core import GlobalHotspotEngine, MarketSnapshot, BlockHotspotEngine, BlockConfig, WeightPool, WeightPoolView, MarketContext
+from .system_config import MarketHotspotSystemConfig, StepResult, FallbackConfig
 import numpy as np
 from typing import Dict, List, Optional, Any, Tuple, Callable
-from dataclasses import dataclass, field
 import time
 import asyncio
 import logging
@@ -32,38 +32,6 @@ try:
     _PERFORMANCE_MONITORING_AVAILABLE = True
 except ImportError:
     _PERFORMANCE_MONITORING_AVAILABLE = False
-
-
-@dataclass
-class MarketHotspotSystemConfig:
-    """市场热点系统配置"""
-    global_history_window: int = 20
-    max_blocks: int = 5000
-    block_decay_half_life: float = 300.0
-    max_symbols: int = 5000
-    low_interval: float = 60.0
-    medium_interval: float = 10.0
-    high_interval: float = 5.0
-    river_history_window: int = 20
-    pytorch_max_concurrent: int = 10
-
-
-@dataclass
-class StepResult:
-    """Pipeline步骤结果（用于优雅降级）"""
-    success: bool
-    data: Any = None
-    error: str = ""
-    using_fallback: bool = False
-
-
-@dataclass
-class FallbackConfig:
-    """降级配置"""
-    enable_graceful_degradation: bool = True
-    max_consecutive_failures: int = 3
-    circuit_breaker_timeout: float = 5.0
-    return_last_valid_result: bool = True
 
 
 class MarketHotspotSystem:
@@ -1388,78 +1356,5 @@ class MarketHotspotSystem:
             return False
 
 
-class MarketHotspotSystemIntegration:
-    """
-    与 Naja 系统的集成层
 
-    提供与现有 DataSource 和 Strategy 的集成接口
-    """
-
-    def __init__(self, attention_system: MarketHotspotSystem):
-        self.hotspot_system = attention_system
-        self._datasource_callbacks: List[Callable] = []
-        self._strategy_callbacks: List[Callable] = []
-
-    def on_datasource_data(self, data: Dict[str, Any]):
-        """
-        处理数据源数据
-
-        将数据源数据转换为快照格式并处理
-        """
-        # 解析数据源数据
-        # 假设 data 包含: symbols, returns, volumes, prices, block_ids, timestamp
-
-        snapshot_data = self._parse_datasource_data(data)
-
-        if snapshot_data:
-            result = self.hotspot_system.process_snapshot(**snapshot_data)
-
-            # 通知注册的回调
-            for callback in self._datasource_callbacks:
-                try:
-                    callback(result)
-                except Exception as e:
-                    pass
-
-    def _parse_datasource_data(self, data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-        """解析数据源数据为快照格式"""
-        try:
-            return {
-                'symbols': np.array(data['symbols']),
-                'returns': np.array(data['returns']),
-                'volumes': np.array(data['volumes']),
-                'prices': np.array(data['prices']),
-                'block_ids': np.array(data.get('block_ids', [])),
-                'timestamp': data.get('timestamp', time.time())
-            }
-        except Exception as e:
-            return None
-
-    def register_datasource_callback(self, callback: Callable):
-        """注册数据源回调"""
-        self._datasource_callbacks.append(callback)
-
-    def register_strategy_callback(self, callback: Callable):
-        """注册策略回调"""
-        self._strategy_callbacks.append(callback)
-
-    def get_datasource_config(self) -> Dict[str, Any]:
-        """
-        获取数据源配置
-
-        用于动态调整数据源订阅
-        """
-        return self.hotspot_system.get_datasource_control()
-
-    def should_process_strategy(self, strategy_id: str) -> bool:
-        """判断是否应该处理指定策略"""
-        active_strategies = self.hotspot_system.strategy_allocator.get_active_strategies()
-        return strategy_id in active_strategies
-
-    def save_state(self) -> Dict[str, Any]:
-        """保存市场热点系统状态用于持久化（包含A股和美股）"""
-        return self.hotspot_system.save_state()
-
-    def load_state(self, state: Dict[str, Any]) -> bool:
-        """从持久化状态恢复市场热点系统"""
-        return self.hotspot_system.load_state(state)
+# MarketHotspotSystemIntegration 已移至 system_integration.py

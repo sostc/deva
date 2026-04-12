@@ -3,6 +3,12 @@
 import logging
 from typing import Dict, Any
 from deva.naja.register import SR
+from deva.naja.market_hotspot.ui_components.styles import (
+    heat_level,
+    GRADIENT_US_MARKET, GRADIENT_INFO, GRADIENT_PINK, GRADIENT_SUCCESS,
+    GRADIENT_NEUTRAL_DARK, GRADIENT_NEUTRAL, GRADIENT_WARNING,
+    GRADIENT_PURPLE, GRADIENT_DANGER,
+)
 
 log = logging.getLogger(__name__)
 
@@ -182,16 +188,10 @@ def render_market_state_panel() -> str:
     def _idx_color(pct):
         if pct is None: return "#64748b"
         return "#16a34a" if pct >= 0 else "#dc2626"
-    def _format_market_line(label, info):
-        phase_name = info.get('phase_name', '未知')
-        next_phase = info.get('next_phase_name', '')
-        next_time = info.get('next_change_time', '')
-        if info.get('phase') == 'closed' and next_time:
-            return f"{label}{phase_name} →{next_phase} {next_time}"
-        return f"{label}{phase_name}"
+    from deva.naja.market_hotspot.ui_components.styles import format_market_line
 
-    cn_line = _format_market_line("🇨🇳 A股", cn_info)
-    us_line = _format_market_line("🇺🇸 美股", us_info)
+    cn_line = format_market_line("🇨🇳 A股", cn_info)
+    us_line = format_market_line("🇺🇸 美股", us_info)
 
     mode_ctx = get_ui_mode_context()
     mode_label = mode_ctx.get('mode_label', '实盘模式')
@@ -259,7 +259,7 @@ def render_market_state_panel() -> str:
         sorted_us_symbols = sorted(us_symbols.items(), key=lambda x: x[1], reverse=True)[:10]
 
         html += f"""
-        <div style="background: linear-gradient(135deg, #1e3a5f 0%, #0d1b2a 100%); border-radius: 8px; padding: 12px 16px; margin-bottom: 16px;">
+        <div style="background: {GRADIENT_US_MARKET}; border-radius: 8px; padding: 12px 16px; margin-bottom: 16px;">
             <div style="display: flex; justify-content: space-between; align-items: center;">
                 <div style="color: #f8fafc; font-size: 13px; font-weight: 600;">🇺🇸 美股市场</div>
                 <div style="display: flex; gap: 16px; align-items: center;">
@@ -466,7 +466,7 @@ def render_dual_engine_status(dual_summary: Dict[str, Any]) -> str:
     <div style="background: white; border: 1px solid #e2e8f0; border-radius: 12px; padding: 20px; margin-top: 16px;">
         <div style="font-weight: 600; margin-bottom: 16px; color: #1e293b;">⚙️ 双引擎状态 <span style="font-size: 12px; color: #64748b; font-weight: normal; margin-left: 8px;">轻量筛选 → 深度分析</span></div>
         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
-            <div style="background: linear-gradient(135deg, #dbeafe, #bfdbfe); padding: 16px; border-radius: 8px;">
+            <div style="background: {GRADIENT_INFO}; padding: 16px; border-radius: 8px;">
                 <div style="font-weight: 600; color: #1e40af; margin-bottom: 8px;">🌊 轻量检测 <span style="font-size: 10px; color: #64748b; font-weight: normal;">(River)</span></div>
                 <div style="font-size: 12px; color: #1e3a8a; line-height: 1.6;">
                     <div style="display: flex; justify-content: space-between;"><span>处理数据:</span><span style="font-weight: 600;">{processed:,}</span></div>
@@ -476,7 +476,7 @@ def render_dual_engine_status(dual_summary: Dict[str, Any]) -> str:
                 </div>
                 <div style="margin-top: 8px; padding-top: 8px; border-top: 1px dashed #93c5fd; font-size: 11px; color: #3b82f6;">💡 快速检测价格/成交量异常波动</div>
             </div>
-            <div style="background: linear-gradient(135deg, #fce7f3, #fbcfe8); padding: 16px; border-radius: 8px;">
+            <div style="background: {GRADIENT_PINK}; padding: 16px; border-radius: 8px;">
                 <div style="font-weight: 600; color: #9d174d; margin-bottom: 8px;">🔥 深度分析 <span style="font-size: 10px; color: #64748b; font-weight: normal;">(PyTorch)</span></div>
                 <div style="font-size: 12px; color: #831843; line-height: 1.6;">
                     <div style="display: flex; justify-content: space-between;"><span>深度推理:</span><span style="font-weight: 600;">{inference_count:,}</span></div>
@@ -487,7 +487,7 @@ def render_dual_engine_status(dual_summary: Dict[str, Any]) -> str:
                 <div style="margin-top: 8px; padding-top: 8px; border-top: 1px dashed #f9a8d4; font-size: 11px; color: #db2777;">💡 深度学习模型分析严重异常</div>
             </div>
         </div>
-        <div style="margin-top: 16px; padding: 12px; background: linear-gradient(135deg, #f0fdf4, #dcfce7); border-radius: 8px; border: 1px solid #86efac;">
+        <div style="margin-top: 16px; padding: 12px; background: {GRADIENT_SUCCESS}; border-radius: 8px; border: 1px solid #86efac;">
             <div style="display: flex; justify-content: space-between; align-items: center;">
                 <div><span style="font-weight: 600; color: #166534;">🔗 双引擎触发次数:</span><span style="font-size: 18px; font-weight: 700; color: #15803d; margin-left: 8px;">{trigger_count}</span></div>
                 <div style="font-size: 11px; color: #22c55e; text-align: right;">River检测到严重异常 → 触发PyTorch深度分析</div>
@@ -523,7 +523,7 @@ def render_noise_filter_status() -> str:
     <div style="background: white; border: 1px solid #e2e8f0; border-radius: 12px; padding: 20px; margin-top: 16px;">
         <div style="font-weight: 600; margin-bottom: 16px; color: #1e293b;">🔇 噪音过滤状态 <span style="font-size: 12px; color: #64748b; font-weight: normal; margin-left: 8px;">低流动性股票过滤</span></div>
         <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; margin-bottom: 16px;">
-            <div style="background: linear-gradient(135deg, #f1f5f9, #e2e8f0); padding: 12px; border-radius: 8px; text-align: center;">
+            <div style="background: {GRADIENT_NEUTRAL_DARK}; padding: 12px; border-radius: 8px; text-align: center;">
                 <div style="font-size: 11px; color: #64748b; margin-bottom: 4px;">总处理</div>
                 <div style="font-size: 20px; font-weight: 700; color: #1e293b;">{total:,}</div>
                 <div style="font-size: 10px; color: #94a3b8;">条记录</div>
@@ -533,7 +533,7 @@ def render_noise_filter_status() -> str:
                 <div style="font-size: 20px; font-weight: 700; color: {rate_color};">{filtered:,}</div>
                 <div style="font-size: 10px; color: {rate_color};">{filter_rate}</div>
             </div>
-            <div style="background: linear-gradient(135deg, #f1f5f9, #e2e8f0); padding: 12px; border-radius: 8px; text-align: center;">
+            <div style="background: {GRADIENT_NEUTRAL_DARK}; padding: 12px; border-radius: 8px; text-align: center;">
                 <div style="font-size: 11px; color: #64748b; margin-bottom: 4px;">黑白名单</div>
                 <div style="font-size: 16px; font-weight: 600; color: #1e293b;"><span style="color: #dc2626;">⚫ {blacklist_size}</span><span style="color: #94a3b8; margin: 0 4px;">|</span><span style="color: #16a34a;">⚪ {whitelist_size}</span></div>
                 <div style="font-size: 10px; color: #94a3b8;">黑名单 | 白名单</div>
@@ -631,14 +631,7 @@ def render_hot_blocks_and_stocks(hot_data: Dict[str, Any]) -> str:
                 block_id, weight = block_item
                 block_name = tracker.get_block_name(block_id) if tracker else block_id
 
-            if weight > 0.7:
-                color, status, bg_gradient = "#dc2626", "🔥 极高", "linear-gradient(90deg, #fee2e2, #fecaca)"
-            elif weight > 0.5:
-                color, status, bg_gradient = "#ea580c", "⚡ 高", "linear-gradient(90deg, #ffedd5, #fed7aa)"
-            elif weight > 0.3:
-                color, status, bg_gradient = "#ca8a04", "👁️ 中", "linear-gradient(90deg, #fef3c7, #fde68a)"
-            else:
-                color, status, bg_gradient = "#16a34a", "💤 低", "linear-gradient(90deg, #dcfce7, #bbf7d0)"
+            color, status, bg_gradient = heat_level(weight)
 
             display_name = block_name if block_name and block_name != block_id else block_id
             progress_width = (weight / max_block_weight * 100) if max_block_weight > 0 else 0
@@ -715,17 +708,17 @@ def render_key_metrics_summary(report: Dict, strategy_stats: Dict) -> str:
             <div style="font-size: 32px; font-weight: bold; color: {ga_color};">{global_hotspot:.2f}</div>
             <div style="font-size: 11px; color: #64748b;">末那识活跃度 · {ga_text}</div>
         </div>
-        <div style="background: linear-gradient(135deg, #fef3c7, #fde68a); border: 2px solid #f59e0b; border-radius: 12px; padding: 16px; text-align: center;">
+        <div style="background: {GRADIENT_WARNING}; border: 2px solid #f59e0b; border-radius: 12px; padding: 16px; text-align: center;">
             <div style="font-size: 28px; margin-bottom: 4px;">🔥</div>
             <div style="font-size: 32px; font-weight: bold; color: #b45309;">{hotspot_count}</div>
             <div style="font-size: 11px; color: #64748b;">热点事件</div>
         </div>
-        <div style="background: linear-gradient(135deg, #dbeafe, #bfdbfe); border: 2px solid #3b82f6; border-radius: 12px; padding: 16px; text-align: center;">
+        <div style="background: {GRADIENT_INFO}; border: 2px solid #3b82f6; border-radius: 12px; padding: 16px; text-align: center;">
             <div style="font-size: 28px; margin-bottom: 4px;">📡</div>
             <div style="font-size: 32px; font-weight: bold; color: #1d4ed8;">{signal_count}</div>
             <div style="font-size: 11px; color: #64748b;">交易信号</div>
         </div>
-        <div style="background: linear-gradient(135deg, #f3e8ff, #e9d5ff); border: 2px solid #8b5cf6; border-radius: 12px; padding: 16px; text-align: center;">
+        <div style="background: {GRADIENT_PURPLE}; border: 2px solid #8b5cf6; border-radius: 12px; padding: 16px; text-align: center;">
             <div style="font-size: 28px; margin-bottom: 4px;">📊</div>
             <div style="font-size: 32px; font-weight: bold; color: #6d28d9;">{processed//1000}k</div>
             <div style="font-size: 11px; color: #64748b;">处理数据</div>
@@ -799,7 +792,7 @@ def render_collapsible_system_status(report: Dict, strategy_stats: Dict) -> str:
 
     return f"""
     <details style="margin-bottom: 16px;">
-        <summary style="cursor: pointer; padding: 12px 16px; background: linear-gradient(135deg, #f8fafc, #f1f5f9); border: 1px solid #e2e8f0; border-radius: 8px; font-weight: 500; color: #1e293b; font-size: 13px; user-select: none;">
+        <summary style="cursor: pointer; padding: 12px 16px; background: {GRADIENT_NEUTRAL}; border: 1px solid #e2e8f0; border-radius: 8px; font-weight: 500; color: #1e293b; font-size: 13px; user-select: none;">
             ⚙️ 系统状态详情 (点击展开)
         </summary>
         <div style="padding: 16px; background: white; border: 1px solid #e2e8f0; border-top: none; border-radius: 0 0 8px 8px;">

@@ -238,6 +238,29 @@ def register_singleton(name: str, factory: Callable, deps: List[str] = None) -> 
 
 def get_registry_status() -> Dict[str, dict]:
     """获取注册表状态（调试用）"""
+    return _global_registry.list_status()
+
+
+def is_singleton_ready(name: str) -> bool:
+    """检查单例是否已就绪"""
+    return _global_registry.is_ready(name)
+
+
+def clear_for_test() -> None:
+    """清空所有单例（仅用于测试）"""
+    _global_registry.clear()
+
+
+def register_fake_singleton(name: str, instance: Any) -> None:
+    """注册一个假的单例实例（仅用于测试）
+
+    直接设置实例而不通过工厂函数，方便测试时注入 mock 对象。
+    """
+    _global_registry.register(name, factory=lambda: instance)
+    # 立即初始化，使其处于 ready 状态
+    _global_registry.get(name)
+
+
 # ============================================================================
 # 猴子补丁兼容模式 - 让旧代码无需修改即可使用新单例注册表
 # ============================================================================
@@ -286,7 +309,7 @@ def apply_compatibility_patches():
         ('deva.naja.bandit.market_observer', 'get_market_observer', 'market_observer'),
         ('deva.naja.bandit.stock_block_map', 'get_stock_block_map', 'stock_block_map'),
 
-        # 认知模块（cognition_bus 已有内部单例机制，不需要猴子补丁）
+        # 认知模块
         ('deva.naja.market_hotspot.market_hotspot_history_tracker', 'get_history_tracker', 'history_tracker'),
         ('deva.naja.cognition.cross_signal_analyzer', 'get_cross_signal_analyzer', 'cross_signal_analyzer'),
         ('deva.naja.attention.narrative_block_linker', 'get_narrative_block_linker', 'narrative_block_linker'),
@@ -342,6 +365,8 @@ def get_original_function(module_name: str, func_name: str):
     """
     key = f"{module_name}.{func_name}"
     return _original_functions.get(key)
+
+
 __all__ = [
     'SR',
     'register_singleton',
@@ -349,4 +374,6 @@ __all__ = [
     'is_singleton_ready',
     'clear_for_test',
     'register_fake_singleton',
+    'apply_compatibility_patches',
+    'get_original_function',
 ]

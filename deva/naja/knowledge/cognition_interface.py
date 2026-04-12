@@ -11,12 +11,15 @@ Cognition Interface - 学习层与认知层的接口
 """
 
 import json
+import logging
 from datetime import datetime
 from typing import List, Dict, Any, Optional
 from pathlib import Path
 
 from .knowledge_store import KnowledgeStore, KnowledgeEntry, KnowledgeState, get_knowledge_store
 from .state_manager import KnowledgeStateManager, get_state_manager
+
+log = logging.getLogger(__name__)
 
 
 class CognitionInterface:
@@ -106,7 +109,7 @@ class CognitionInterface:
             try:
                 listener("knowledge_qualified", knowledge)
             except Exception as e:
-                print(f"[CognitionInterface] 通知注意力系统失败: {e}")
+                log.warning(f"[CognitionInterface] 通知注意力系统失败: {e}")
 
     def _notify_radar(self, knowledge: Dict[str, Any]):
         """通知雷达系统"""
@@ -114,7 +117,7 @@ class CognitionInterface:
             try:
                 listener("knowledge_updated", knowledge)
             except Exception as e:
-                print(f"[CognitionInterface] 通知雷达系统失败: {e}")
+                log.warning(f"[CognitionInterface] 通知雷达系统失败: {e}")
 
     def _save_injected_knowledge(self, knowledge: Dict[str, Any]):
         """保存已注入的知识记录"""
@@ -143,7 +146,12 @@ class CognitionInterface:
         qualified = []
         validating = []
 
+        now = datetime.now()
         for entry in self.store.get_by_state(KnowledgeState.QUALIFIED):
+            try:
+                days_active = (now - datetime.fromisoformat(entry.extracted_at)).days
+            except (ValueError, TypeError):
+                days_active = 0
             qualified.append({
                 "id": entry.id,
                 "cause": entry.cause,
@@ -151,7 +159,7 @@ class CognitionInterface:
                 "confidence": entry.adjusted_confidence,
                 "evidence_count": entry.evidence_count,
                 "category": entry.category,
-                "days_active": (datetime.now() - datetime.fromisoformat(entry.extracted_at)).days,
+                "days_active": days_active,
                 "source": entry.source
             })
 

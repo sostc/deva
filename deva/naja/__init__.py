@@ -45,7 +45,6 @@ from .supervisor import (
     stop_supervisor,
 )
 
-from .attention.manas_alaya_connector import ManasAlayaConnector
 
 __version__ = "2.0.0"
 
@@ -78,6 +77,4 @@ __all__ = [
     "NajaSupervisor",
     "get_naja_supervisor",
     "stop_supervisor",
-    # Manas-Alaya Connector
-    "ManasAlayaConnector",
 ]

@@ -492,16 +492,10 @@ def render_data_frequency_panel() -> str:
         status_color = "#4ade80" if is_running else "#f87171"
         status_text = "🟢 运行中" if is_running else "🔴 已停止"
 
-        def _format_market_line(label: str, info: Dict[str, Any]) -> str:
-            phase_name = info.get('phase_name', '未知')
-            next_phase = info.get('next_phase_name', '')
-            next_time = info.get('next_change_time', '')
-            if info.get('phase') == 'closed' and next_time:
-                return f"{label}{phase_name} →{next_phase} {next_time}"
-            return f"{label}{phase_name}"
+        from deva.naja.market_hotspot.ui_components.styles import format_market_line
 
-        cn_line = _format_market_line("🇨🇳 A股", cn_info)
-        us_line = _format_market_line("🇺🇸 美股", us_info)
+        cn_line = format_market_line("🇨🇳 A股", cn_info)
+        us_line = format_market_line("🇺🇸 美股", us_info)
 
         if is_us_only:
             trading_text = us_line
@@ -613,16 +607,10 @@ def _render_fetcher_empty_state() -> str:
     cn_info = phase_summary.get('cn', {})
     us_info = phase_summary.get('us', {})
 
-    def _format_market_line(label: str, info: Dict[str, Any]) -> str:
-        phase_name = info.get('phase_name', '未知')
-        next_phase = info.get('next_phase_name', '')
-        next_time = info.get('next_change_time', '')
-        if info.get('phase') == 'closed' and next_time:
-            return f"{label}{phase_name} →{next_phase} {next_time}"
-        return f"{label}{phase_name}"
+    from deva.naja.market_hotspot.ui_components.styles import format_market_line
 
-    cn_line = _format_market_line("🇨🇳 A股", cn_info)
-    us_line = _format_market_line("🇺🇸 美股", us_info)
+    cn_line = format_market_line("🇨🇳 A股", cn_info)
+    us_line = format_market_line("🇺🇸 美股", us_info)
 
     return f"""
     <div style="

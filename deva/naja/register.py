@@ -311,12 +311,12 @@ def _register_cognition_singletons():
     """注册认知模块单例"""
     logger.info("[NajaRegister] 注册认知模块单例...")
 
-    def _create_cognition_bus():
-        from .cognition.cognition_bus import get_cognition_bus
-        return get_cognition_bus()
-    register_singleton('cognition_bus', _create_cognition_bus,
+    def _create_cognitive_signal_bus():
+        from .cognition.cognitive_signal_bus import get_cognitive_bus
+        return get_cognitive_bus()
+    register_singleton('cognition_bus', _create_cognitive_signal_bus,
                       deps=[])
-    logger.info("  ✓ cognition_bus")
+    logger.info("  ✓ cognition_bus (→ CognitiveSignalBus)")
 
     def _create_history_tracker():
         from .market_hotspot.market_hotspot_history_tracker import MarketHotspotHistoryTracker
@@ -557,25 +557,7 @@ def _register_cognition_singletons():
     logger.info("[NajaRegister] 系统级单例注册完成")
 
 
-def _register_processing_singletons():
-    """注册处理层单例"""
-    logger.info("[NajaRegister] 注册处理层单例...")
-    # 处理层单例已合并到其他模块，无需额外注册
-    logger.info("[NajaRegister] 处理层单例注册完成")
 
-
-def _register_strategy_singletons():
-    """注册策略层单例"""
-    logger.info("[NajaRegister] 注册策略层单例...")
-    # 策略层单例已合并到其他模块，无需额外注册
-    logger.info("[NajaRegister] 策略层单例注册完成")
-
-
-def _register_system_singletons():
-    """注册系统层单例"""
-    logger.info("[NajaRegister] 注册系统层单例...")
-    # 系统层单例已合并到其他模块，无需额外注册
-    logger.info("[NajaRegister] 系统层单例注册完成")
 
 
 def _register_other_singletons():
@@ -634,12 +616,6 @@ def _register_other_singletons():
                       deps=['attention_os'])
     logger.info("  ✓ cognition_orchestrator")
 
-    def _create_connector():
-        from .attention.manas_alaya_connector import ManasAlayaConnector
-        return ManasAlayaConnector()
-    register_singleton('connector', _create_connector,
-                      deps=[])
-    logger.info("  ✓ connector")
 
     def _create_task_manager():
         from .tasks import TaskManager
@@ -672,9 +648,6 @@ def register_all_singletons():
     _register_application_singletons()
     _register_bandit_singletons()
     _register_cognition_singletons()
-    _register_processing_singletons()
-    _register_strategy_singletons()
-    _register_system_singletons()
     _register_other_singletons()
 
     logger.info("=" * 60)

@@ -3,14 +3,22 @@ Naja Attention System - 注意力基础设施
 
 这是系统的通用注意力基础设施，被市场热点系统和新闻叙事系统复用。
 
-基础设施层:
-- os/           - AttentionOS 统一入口
-- kernel/       - AttentionKernel 核心 + ManasEngine
-- values/       - 价值观系统
-- discovery/    - 主动发现模块（盲区、叙事、信念验证）
-- portfolio.py  - 持仓管理
+目录结构:
+- os/              - AttentionOS 核心层（入口 + OS内核 + 策略决策）
+- orchestration/   - 协调层（交易中枢 + 认知协调 + 信号执行 + 状态查询 + 流动性管理）
+- tracking/        - 监控跟踪层（持仓监控 + 热点信号跟踪 + 报告生成）
+- kernel/          - AttentionKernel 核心 + ManasEngine
+- values/          - 价值观系统
+- models/          - 数据结构
+- discovery/       - 主动发现模块（盲区、叙事、信念验证）
+- ui/              - UI 相关
+
+根目录保留:
+- portfolio.py     - 持仓管理
 - focus_manager.py - 关注管理
 - block_registry.py - 题材注册表
+- attention_fusion.py - 融合层
+- text_importance_scorer.py - 文本重要性评分
 
 市场热点系统已移动到: market_hotspot/
 """
@@ -55,13 +63,19 @@ from .attention_fusion import (
     FusionSignal,
     FullFusionResult,
 )
-from .attention_os import (
-    AttentionOS,
-    get_attention_os,
+from .models.output import (
     AttentionKernelOutput,
     AttentionFusionOutput,
 )
-from .trading_center import (
+# OS 核心层 (从新路径导入)
+from .os import (
+    OSAttentionKernel,
+    StrategyDecisionMaker,
+    AttentionOS,
+    get_attention_os,
+)
+# 协调层 (从新路径导入)
+from .orchestration import (
     TradingCenter,
     get_trading_center,
 )
@@ -100,12 +114,15 @@ __all__ = [
     "get_attention_fusion",
     "FusionSignal",
     "FullFusionResult",
-    # AttentionOS (统一入口)
-    "AttentionOS",
-    "get_attention_os",
+    # Models (数据结构)
     "AttentionKernelOutput",
     "AttentionFusionOutput",
-    # TradingCenter (交易中枢)
+    # OS 核心层
+    "OSAttentionKernel",
+    "StrategyDecisionMaker",
+    "AttentionOS",
+    "get_attention_os",
+    # 协调层
     "TradingCenter",
     "get_trading_center",
 ]

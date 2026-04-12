@@ -32,10 +32,6 @@ class ManasManager:
         manager = ManasManager()
         manager.set_enabled(True)
 
-        # 方式2: 包装 AttentionKernel 模式（已废弃）
-        manager = ManasManager(kernel)
-        manager.set_enabled(True)
-
         # 在主循环中调用
         manas_output = manager.compute()
     """

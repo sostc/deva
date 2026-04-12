@@ -67,7 +67,7 @@ NAJA_TABLE_REGISTRY = {
     "naja_bandit_adaptive_config": "Bandit自适应配置",
     "naja_bandit_portfolio_manager": "Bandit组合管理器",
     "naja_bandit_positions": "Bandit统一持仓表(所有账户持仓)",
-    "naja_bandit_virtual_portfolio": "Bandit虚拟组合(已废弃,迁移到naja_bandit_positions)",
+
     "naja_bandit_stats": "Bandit统计",
     "naja_bandit_decisions": "Bandit决策记录",
     "naja_bandit_actions": "Bandit动作记录",
@@ -109,13 +109,13 @@ SYSTEM_TABLE_REGISTRY = {
     "deva_bus_clients": "Deva总线客户端注册",
     "deva_tasks": "Deva任务配置",
     "naja": "Naja启动状态标记",
-    "naja_result_index": "策略结果索引(已废弃)",
+
 
     # ===== 临时/演示表 =====
     "tmp": "临时数据(测试用)",
     "sample": "示例数据",
     "numbers": "数字序列数据",
-    "tasks": "旧任务表(废弃,仅迁移用)",
+
     "temp": "临时数据存储",
     "users": "用户数据(示例)",
 

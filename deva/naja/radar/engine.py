@@ -897,90 +897,32 @@ class RadarEngine:
             return
 
     def _emit_to_insight_pool(self, events: List[RadarEvent]) -> None:
-        """🚀 将雷达事件发布到认知事件总线"""
+        """将雷达事件发布到认知层（通过统一入口）"""
         if not events:
             return
-
-        # 发送到 InsightPool（保持原有方式，因为它是不同的订阅模式）
         try:
-            pool = SR('insight_pool')
-            for event in events:
-                signal = event.to_insight_signal()
-                try:
-                    pool.ingest_hotspot_event(signal)
-                except Exception:
-                    continue
+            from deva.naja.cognition.ingestion import get_cognition_ingestion
+            get_cognition_ingestion().ingest_radar_events(events)
         except Exception:
-            pass
-
-        # 🚀 CrossSignalAnalyzer 现在通过 TextSignalBus 订阅，不需要 RadarEngine 直接调用
-        # 注释掉直接调用，让它通过文本处理流程自动处理
-        # 如果需要发布雷达事件到认知总线，可以在这里添加：
-        # try:
-        #     from deva.naja.cognition.cognitive_signal_bus import get_cognitive_bus, CognitiveEventType
-        #     bus = get_cognitive_bus()
-        #     for event in events:
-        #         bus.publish_cognitive_event(...)
-        # except Exception:
-        #     pass
+            # 降级：直接调用 InsightPool
+            try:
+                pool = SR('insight_pool')
+                for event in events:
+                    try:
+                        pool.ingest_hotspot_event(event.to_insight_signal())
+                    except Exception:
+                        continue
+            except Exception:
+                pass
 
     def _emit_to_liquidity_cognition(self, event: RadarEvent) -> None:
-        """🚀 将全球市场事件发布到 CognitiveSignalBus"""
+        """将全球市场事件发布到认知层（通过统一入口）"""
         try:
-            from deva.naja.cognition.cognitive_signal_bus import get_cognitive_bus, CognitiveEventType
-
-            bus = get_cognitive_bus()
-
-            # 构建市场事件元数据
-            metadata = {
-                "market_id": event.payload.get("market_id", ""),
-                "current": event.payload.get("current", 0),
-                "change_pct": event.payload.get("change_pct", 0),
-                "volume": event.payload.get("volume", 0),
-                "is_abnormal": event.payload.get("is_abnormal", False),
-                "name": event.payload.get("name", ""),
-            }
-
-            # 发布到认知事件总线
-            bus.publish_cognitive_event(
-                source="RadarEngine",
-                event_type=CognitiveEventType.GLOBAL_MARKET_EVENT,
-                narratives=[f"全球市场:{metadata.get('market_id', '')}"],
-                importance=0.7 if metadata.get("is_abnormal") else 0.5,
-                metadata=metadata
-            )
-            _radar_debug_log(f"全球市场事件已发布到总线: {metadata.get('market_id')}")
-
-        except ImportError:
-            _radar_debug_log("CognitiveSignalBus 未导入，降级为直接调用")
-            # 降级：直接调用
-            self._emit_to_liquidity_cognition_legacy(event)
+            from deva.naja.cognition.ingestion import get_cognition_ingestion
+            get_cognition_ingestion().ingest_market_alert(event)
+            _radar_debug_log(f"全球市场事件已通过统一入口发布: {event.payload.get('market_id', '')}")
         except Exception as e:
             _radar_debug_log(f"发布全球市场事件失败: {e}")
-
-    def _emit_to_liquidity_cognition_legacy(self, event: RadarEvent) -> None:
-        """传统方式：将事件直接发送到 LiquidityCognition（仅用于降级）"""
-        try:
-            from ..cognition.liquidity import get_liquidity_cognition
-
-            cognition = get_liquidity_cognition()
-
-            event_dict = event.to_dict() if hasattr(event, 'to_dict') else {
-                "market_id": event.payload.get("market_id", ""),
-                "current": event.payload.get("current", 0),
-                "change_pct": event.payload.get("change_pct", 0),
-                "volume": event.payload.get("volume", 0),
-                "is_abnormal": event.payload.get("is_abnormal", False),
-                "name": event.payload.get("name", ""),
-            }
-
-            cognition.ingest_global_market_event(event_dict)
-            _radar_debug_log(f"[Legacy] 事件已发送到 LiquidityCognition: {event_dict.get('market_id')}")
-
-        except ImportError:
-            _radar_debug_log("[Legacy] LiquidityCognition 未导入，跳过")
-        except Exception as e:
-            _radar_debug_log(f"[Legacy] 发送事件到 LiquidityCognition 失败: {e}")
 
     def register_thread(self, thread: RadarThread) -> None:
         """注册雷达监控脉络项"""
