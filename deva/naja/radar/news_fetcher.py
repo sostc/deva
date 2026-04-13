@@ -28,7 +28,7 @@ from .trading_clock import (
 )
 
 # 从统一关键词注册表导入
-from deva.naja.cognition.keyword_registry import NEWS_TOPIC_KEYWORDS
+from deva.naja.cognition.semantic.keyword_registry import NEWS_TOPIC_KEYWORDS
 from deva.naja.register import SR
 
 try:
@@ -282,7 +282,7 @@ class RadarNewsProcessor:
         """发送认知信号到洞察池和CrossSignalAnalyzer"""
         try:
             from deva.naja.cognition.insight import emit_to_insight_pool
-            from deva.naja.cognition.cross_signal_analyzer import get_cross_signal_analyzer
+            from deva.naja.cognition.analysis.cross_signal_analyzer import get_cross_signal_analyzer
             analyzer = get_cross_signal_analyzer()
 
             for signal in signals:

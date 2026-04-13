@@ -944,7 +944,7 @@ class ManasEngine:
 
         返回格式：[{"id": "AI", "name": "AI", "keywords": [...]}, ...]
         """
-        from deva.naja.cognition.keyword_registry import DEFAULT_NARRATIVE_KEYWORDS
+        from deva.naja.cognition.semantic.keyword_registry import DEFAULT_NARRATIVE_KEYWORDS
 
         return [
             {
@@ -971,6 +971,36 @@ class ManasEngine:
         """
         self._supply_chain_state["focus_themes"] = themes
         log.info(f"[ManasEngine] 关注主题已更新: {len(themes)} 个主题")
+        self._publish_manas_state_change({"focus_themes": themes})
+
+    def _publish_manas_state_change(self, partial_state: Dict[str, Any] = None):
+        """
+        🚀 发布 Manas 状态变化事件
+
+        通知订阅者（如 Cognition 层）Manas 状态已更新。
+        Cognition 层应订阅 CognitiveEventType.MANAS_STATE_CHANGED 事件。
+        """
+        try:
+            from deva.naja.events import get_event_bus, CognitiveEventType
+
+            bus = get_event_bus()
+            state_data = {
+                "focus_themes": self._supply_chain_state.get("focus_themes", []),
+                "harmony_strength": self._harmony_strength,
+                "harmony_state": self._harmony_state.value if hasattr(self._harmony_state, 'value') else str(self._harmony_state),
+            }
+            if partial_state:
+                state_data.update(partial_state)
+
+            bus.publish_cognitive_event(
+                source="ManasEngine",
+                event_type=CognitiveEventType.MANAS_STATE_CHANGED,
+                data=state_data,
+                importance=0.6,
+            )
+            log.debug(f"[ManasEngine] 发布 MANAS_STATE_CHANGED 事件")
+        except Exception as e:
+            log.debug(f"[ManasEngine] 发布状态变化事件失败: {e}")
 
     def _subscribe_to_event_bus(self):
         """

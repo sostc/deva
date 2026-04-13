@@ -34,7 +34,7 @@ from collections import deque
 from enum import Enum
 
 # 从统一关键词注册表导入
-from deva.naja.cognition.keyword_registry import MARKET_NARRATIVE_KEYWORDS
+from deva.naja.cognition.semantic.keyword_registry import MARKET_NARRATIVE_KEYWORDS
 
 log = logging.getLogger(__name__)
 

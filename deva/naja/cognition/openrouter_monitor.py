@@ -20,7 +20,9 @@ radar/openrouter_monitor.py 保留为向后兼容的转发层。
 """
 
 import asyncio
-from typing import Optional, Dict, List
+import re
+import httpx
+from typing import Optional, Dict, List, TypedDict
 from datetime import datetime
 from enum import Enum
 
@@ -32,6 +34,69 @@ class AlertLevel(Enum):
     ATTENTION = "attention"
     WARNING = "warning"
     CRITICAL = "critical"
+
+
+class WeeklyDataPoint(TypedDict):
+    """单周数据点"""
+    date: str  # ISO 日期格式 "YYYY-MM-DD"
+    models: dict[str, int]  # model_id -> token_count
+
+
+class AppRanking(TypedDict):
+    """应用排行榜条目"""
+    app_id: int
+    title: str
+    total_tokens: int
+    total_requests: int
+    rank: int
+    description: str | None
+    origin_url: str | None
+
+
+class OpenRouterRankings:
+    """OpenRouter 排行榜异步获取器"""
+
+    BASE_URL = "https://openrouter.ai"
+    RANKINGS_URL = f"{BASE_URL}/rankings"
+
+    async def get_weekly_token_usage(self) -> list[WeeklyDataPoint]:
+        """
+        获取每周 Token 使用量时间序列数据
+
+        Returns:
+            list[WeeklyDataPoint]: 每周数据列表，按日期升序排列
+        """
+        async with httpx.AsyncClient(
+            timeout=30.0,
+            headers={
+                "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"
+            }
+        ) as client:
+            response = await client.get(self.RANKINGS_URL)
+            response.raise_for_status()
+
+            return self._parse_weekly_data(response.text)
+
+    def _parse_weekly_data(self, html_content: str) -> list[WeeklyDataPoint]:
+        """
+        解析 HTML 中的 RSC payload，提取每周 token 使用量数据
+        """
+        result = []
+        pattern = r'\\\"x\\\":\\\"(\d{4}-\d{2}-\d{2})\\\",\\\"ys\\\":\{([^}]+)\}'
+        matches = re.findall(pattern, html_content)
+
+        for date_str, models_data in matches:
+            models: dict[str, int] = {}
+            model_pattern = r'\\\"([^\\\"]+)\\\":\s*(\d+)'
+            model_matches = re.findall(model_pattern, models_data)
+
+            for model_id, token_count in model_matches:
+                models[model_id] = int(token_count)
+
+            if models:
+                result.append(WeeklyDataPoint(date=date_str, models=models))
+
+        return result
 
 
 def format_tokens(tokens: int) -> str:
@@ -49,10 +114,6 @@ def format_tokens(tokens: int) -> str:
 async def fetch_weekly_data() -> Optional[List[Dict]]:
     """获取 OpenRouter 每周 TOKEN 数据"""
     try:
-        import sys
-        sys.path.insert(0, '/Users/spark/WorkBuddy/20260328160421')
-        from openrouter_weekly_tokens import OpenRouterRankings
-
         client = OpenRouterRankings()
         weekly_data = await client.get_weekly_token_usage()
 
