@@ -1,0 +1,14 @@
+{
+  "name": "naja-api",
+  "version": "1.0.0",
+  "description": "提供 naja 系统 API 端点的调用能力，方便用户通过 curl 或其他工具获取系统数据和状态。",
+  "author": "Naja Team",
+  "tags": ["naja", "api", "system", "monitoring"],
+  "dependencies": [],
+  "requires": {
+    "naja": ">=1.0.0"
+  },
+  "config": {
+    "base_url": "http://localhost:8080"
+  }
+}
