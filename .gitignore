@@ -56,12 +56,13 @@ deva/naja/state/**/cognition*
 deva/naja/state/**/attention*
 deva/naja/state/**/focus*
 
-# 配置文件（含 API Key、Token）
+# 配置文件（含 API Key、Token、持仓数据）
 deva/naja/config/*.json
 deva/naja/config/*.yaml
 deva/naja/config/*.yml
 *.env
 .env.*
+.deva/
 
 # 数据库文件
 *.db
