@@ -21,5 +21,58 @@ dist-ssr
 *.ntvs*
 *.njsproj
 *.sln
-*.sw?__pycache__/
+*.sw?
+
+# Python
+__pycache__/
 *.pyc
+*.pyo
+*.egg-info/
+
+# === 个人信息 / 敏感数据（不同步到 GitHub）===
+
+# 持仓、自选股、交易记录
+deva/naja/state/system/state.json
+deva/naja/state/**/portfolio*
+deva/naja/state/**/position*
+deva/naja/state/**/holding*
+deva/naja/state/**/watchlist*
+deva/naja/state/**/bandit_state*
+
+# Bandit 决策历史（含持仓信息）
+deva/naja/state/**/bandit*
+deva/naja/state/**/decision*
+deva/naja/state/**/trade*
+
+# 知识库（个人学习记录）
+deva/naja/knowledge/causality_knowledge.json
+deva/naja/knowledge/narratives.json
+deva/naja/knowledge/learned_articles.json
+deva/naja/knowledge/daily_reports.json
+deva/naja/knowledge/injected_knowledge.json
+
+# 认知系统状态（含个人关注焦点）
+deva/naja/state/**/cognition*
+deva/naja/state/**/attention*
+deva/naja/state/**/focus*
+
+# 配置文件（含 API Key、Token）
+deva/naja/config/*.json
+deva/naja/config/*.yaml
+deva/naja/config/*.yml
+*.env
+.env.*
+
+# 数据库文件
+*.db
+*.sqlite
+*.sqlite3
+deva/naja/state/**/*.db
+
+# NotebookDB 数据
+deva/naja/state/notebook/
+deva/naja/state/runtime/
+
+# 报告和导出文件
+deva/naja/reports/
+deva/naja/exports/
