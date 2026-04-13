@@ -27,6 +27,15 @@ from .api_extensions import (
     AlayaStatusHandler
 )
 from deva.naja.cognition.ui import cognition_glossary_page
+from .attention_api import (
+    ManasStateHandler, HarmonyHandler, DecisionHandler,
+    ConvictionHandler, ConvictionTimingHandler, ConvictionShouldAddHandler,
+    PortfolioSummaryHandler, PositionMetricsHandler,
+    TrackingHotspotHandler, TrackingStatsHandler,
+    BlindSpotsHandler, FusionHandler, FocusHandler, NarrativeBlockMatrixHandler,
+    AttentionReportHandler, LabStatusHandler, LiquidityHandler,
+    StrategyTopSymbolsHandler, StrategyTopBlocksHandler, AttentionContextHandler,
+)
 
 
 class MarketHotspotAPIHandler(RequestHandler):
@@ -168,5 +177,29 @@ def create_handlers(cdn: str = None):
             (r'/api/strategy/list', StrategyListHandler),
             # 智慧系统 API
             (r'/api/alaya/status', AlayaStatusHandler),
+            # Attention 系统 API - P0 核心决策
+            (r'/api/attention/manas/state', ManasStateHandler),
+            (r'/api/attention/harmony', HarmonyHandler),
+            (r'/api/attention/decision', DecisionHandler),
+            (r'/api/attention/conviction', ConvictionHandler),
+            (r'/api/attention/conviction/timing', ConvictionTimingHandler),
+            (r'/api/attention/conviction/should-add', ConvictionShouldAddHandler),
+            # Attention 系统 API - P1 持仓与跟踪
+            (r'/api/attention/portfolio/summary', PortfolioSummaryHandler),
+            (r'/api/attention/position/metrics', PositionMetricsHandler),
+            (r'/api/attention/tracking/hotspot', TrackingHotspotHandler),
+            (r'/api/attention/tracking/stats', TrackingStatsHandler),
+            # Attention 系统 API - P2 发现与融合
+            (r'/api/attention/blind-spots', BlindSpotsHandler),
+            (r'/api/attention/fusion', FusionHandler),
+            (r'/api/attention/focus', FocusHandler),
+            (r'/api/attention/narrative-block-matrix', NarrativeBlockMatrixHandler),
+            # Attention 系统 API - P3 状态与报告
+            (r'/api/attention/report', AttentionReportHandler),
+            (r'/api/attention/lab/status', LabStatusHandler),
+            (r'/api/attention/liquidity', LiquidityHandler),
+            (r'/api/attention/strategy/top-symbols', StrategyTopSymbolsHandler),
+            (r'/api/attention/strategy/top-blocks', StrategyTopBlocksHandler),
+            (r'/api/attention/context', AttentionContextHandler),
     ]
 
