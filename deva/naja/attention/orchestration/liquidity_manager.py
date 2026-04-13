@@ -109,7 +109,7 @@ class LiquidityManager:
             if abs(liquidity_signal) < 0.3:
                 return
 
-            from deva.naja.cognition.keyword_registry import KeywordRegistry
+            from deva.naja.cognition.semantic.keyword_registry import KeywordRegistry
             registry = KeywordRegistry()
 
             if liquidity_signal > 0:
