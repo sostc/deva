@@ -1,58 +1,24 @@
-*.DS_Store
-*.session
-*.pyc
-*.ipynb
-*.pkl
-*.rdb
-*.swp
-*.data
-*.db
-*.txt
-*.sqlite
-/.idea/
-*/__pycache__/*
-*/build/*
-*/dist/*
-*.sublime-workspace
-*.egg-info/
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
 
-# Build outputs
-build/
-dist/
-*.egg-info/
-eggs/
+node_modules
+dist
+dist-ssr
+*.local
 
-# Python cache
-__pycache__/
-*.py[cod]
-*$py.class
-*.so
-
-# Testing
-.pytest_cache/
-.tox/
-nosetests.xml
-coverage.xml
-
-# IDE
-.idea/
-*.swp
-*.swo
-*~
-
-# OS
-Thumbs.db
-
-# Archive
-archive/
-
-# Documentation build
-docs/api/_build/
-
-# Hidden files and directories (starting with .) - except special cases
-.*/
-# Keep these
-!.gitignore
-
-# Memory files
-MEMORY.md
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
