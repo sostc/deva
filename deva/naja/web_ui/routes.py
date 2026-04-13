@@ -1,6 +1,8 @@
 """路由注册"""
 
+import json
 from pywebio.platform.tornado import webio_handler
+from tornado.web import RequestHandler
 
 from .pages import (
     main, dsadmin, signaladmin, taskadmin, strategyadmin,
@@ -25,6 +27,83 @@ from .api_extensions import (
     AlayaStatusHandler
 )
 from deva.naja.cognition.ui import cognition_glossary_page
+
+
+class MarketHotspotAPIHandler(RequestHandler):
+    """市场热点 JSON API — A股+美股双市场"""
+
+    def set_default_headers(self):
+        self.set_header("Content-Type", "application/json; charset=utf-8")
+
+    def get(self):
+        try:
+            from deva.naja.market_hotspot.integration.market_hotspot_integration import get_market_hotspot_integration
+            integration = get_market_hotspot_integration()
+            if not integration or not hasattr(integration, 'hotspot_system'):
+                self.write(json.dumps({"error": "hotspot_system not initialized"}, ensure_ascii=False))
+                return
+
+            hotspot = integration.hotspot_system
+
+            # === A股热点题材 ===
+            cn_blocks = []
+            try:
+                bw = hotspot.block_hotspot.get_all_weights(filter_noise=True)
+                for bid, w in sorted(bw.items(), key=lambda x: x[1], reverse=True)[:10]:
+                    name = bid
+                    try:
+                        from deva.naja.market_hotspot.integration.history_tracker import get_history_tracker
+                        ht = get_history_tracker()
+                        if ht: name = ht.get_block_name(bid) or bid
+                    except Exception: pass
+                    cn_blocks.append({"block_id": bid, "name": name, "weight": round(w, 4)})
+            except Exception: pass
+
+            # === A股热门股票 ===
+            cn_stocks = []
+            try:
+                sw = hotspot.weight_pool.get_all_weights(filter_noise=True)
+                for sym, w in sorted(sw.items(), key=lambda x: x[1], reverse=True)[:20]:
+                    name = sym
+                    try:
+                        from deva.naja.dictionary.blocks import BlockDictionary
+                        info = BlockDictionary().get_stock_info(sym)
+                        if info: name = info.get("name", sym)
+                    except Exception: pass
+                    cn_stocks.append({"symbol": sym, "name": name, "weight": round(w, 4)})
+            except Exception: pass
+
+            # === 美股热点 ===
+            us_blocks, us_stocks, us_hotspot, us_activity = [], [], 0.0, 0.0
+            try:
+                us_state = hotspot.get_us_hotspot_state()
+                us_hotspot = round(us_state.get("global_hotspot", 0), 4)
+                us_activity = round(us_state.get("activity", 0), 4)
+                for bid, w in sorted(us_state.get("block_hotspot", {}).items(), key=lambda x: x[1], reverse=True)[:10]:
+                    us_blocks.append({"block_id": bid, "name": bid, "weight": round(w, 4)})
+                changes = us_state.get("symbol_changes", {})
+                for sym, w in sorted(us_state.get("symbol_weights", {}).items(), key=lambda x: x[1], reverse=True)[:20]:
+                    us_stocks.append({"symbol": sym, "name": sym, "weight": round(w, 4), "change_pct": round(changes.get(sym, 0), 2)})
+            except Exception: pass
+
+            # === 系统报告 ===
+            report = {}
+            try: report = integration.get_hotspot_report() or {}
+            except Exception: pass
+
+            self.write(json.dumps({
+                "cn": {"hot_blocks": cn_blocks, "hot_stocks": cn_stocks,
+                       "market_hotspot": round(report.get("global_hotspot", 0), 4),
+                       "market_activity": round(report.get("activity", 0), 4)},
+                "us": {"hot_blocks": us_blocks, "hot_stocks": us_stocks,
+                       "market_hotspot": us_hotspot, "market_activity": us_activity},
+                "system_status": report.get("status", "unknown"),
+                "processed_snapshots": report.get("processed_snapshots", 0),
+            }, ensure_ascii=False, indent=2))
+        except Exception as e:
+            self.set_status(500)
+            import traceback; traceback.print_exc()
+            self.write(json.dumps({"error": str(e)}, ensure_ascii=False))
 
 
 def create_handlers(cdn: str = None):
@@ -76,6 +155,7 @@ def create_handlers(cdn: str = None):
             # 市场热点 API
             (r'/api/market/state', MarketStateHandler),
             (r'/api/market/hotspot/details', MarketHotspotDetailsHandler),
+            (r'/api/market/hotspot', MarketHotspotAPIHandler),
             # 系统监控 API
             (r'/api/system/status', SystemStatusHandler),
             (r'/api/system/modules', SystemModulesHandler),

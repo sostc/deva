@@ -164,7 +164,7 @@ class GlobalMarketAPI:
         if self._session is None or self._session.closed:
             self._session = aiohttp.ClientSession(
                 connector=aiohttp.TCPConnector(limit=20, limit_per_host=10),
-                timeout=aiohttp.ClientTimeout(total=15),
+                timeout=aiohttp.ClientTimeout(total=30),
             )
         return self._session
 
@@ -348,28 +348,61 @@ class GlobalMarketAPI:
                 continue
         return result
 
-    async def fetch(self, codes: Optional[List[str]] = None) -> Dict[str, MarketData]:
-        """获取市场数据"""
+    async def fetch(self, codes: Optional[List[str]] = None, max_retries: int = 3) -> Dict[str, MarketData]:
+        """获取市场数据（含指数退避重试 + requests fallback）"""
         codes_to_fetch = codes or self.codes
         if not codes_to_fetch:
+            log.debug("获取市场数据跳过: 代码列表为空")
             return {}
 
+        import asyncio
+        last_err = None
+        for attempt in range(1, max_retries + 1):
+            try:
+                session = await self._get_session()
+                codes_str = ",".join(codes_to_fetch)
+                url = SINA_BASE_URL.format(codes=codes_str)
+
+                async with session.get(url, headers=SINA_HEADERS) as resp:
+                    if resp.status != 200:
+                        log.warning(f"获取市场数据失败: HTTP {resp.status}, attempt={attempt}/{max_retries}")
+                        if attempt < max_retries:
+                            await asyncio.sleep(1 * attempt)
+                            continue
+                        break
+                    text = await resp.text()
+                    if not text or not text.strip():
+                        log.warning(f"获取市场数据返回空内容, attempt={attempt}/{max_retries}")
+                        if attempt < max_retries:
+                            await asyncio.sleep(1 * attempt)
+                            continue
+                        break
+                    return self._parse_response(text, codes_to_fetch)
+            except asyncio.TimeoutError:
+                log.warning(f"获取市场数据超时, attempt={attempt}/{max_retries}")
+                last_err = "timeout"
+            except Exception as e:
+                log.error(f"获取市场数据异常: {type(e).__name__}: {e}, attempt={attempt}/{max_retries}, codes_count={len(codes_to_fetch)}")
+                last_err = str(e)
+
+            if attempt < max_retries:
+                await asyncio.sleep(1 * attempt)
+
+        # aiohttp 全部失败，fallback 到 requests（同步）
+        log.info(f"[GlobalMarketAPI] aiohttp 失败({last_err})，fallback 到 requests")
         try:
-            session = await self._get_session()
+            import requests as req
             codes_str = ",".join(codes_to_fetch)
             url = SINA_BASE_URL.format(codes=codes_str)
-
-            async with session.get(url, headers=SINA_HEADERS) as resp:
-                if resp.status != 200:
-                    log.warning(f"获取市场数据失败: HTTP {resp.status}")
-                    return {}
-                text = await resp.text()
-                return self._parse_response(text, codes_to_fetch)
+            resp = req.get(url, headers=SINA_HEADERS, timeout=15)
+            if resp.status_code == 200 and resp.text and resp.text.strip():
+                return self._parse_response(resp.text, codes_to_fetch)
+            else:
+                log.warning(f"[GlobalMarketAPI] requests fallback 也失败: HTTP {resp.status_code}")
         except Exception as e:
-            log.error(f"获取市场数据异常: {e}")
-            return {}
-        finally:
-            await self.close()
+            log.error(f"[GlobalMarketAPI] requests fallback 异常: {e}")
+
+        return {}
 
     async def fetch_futures(self) -> Dict[str, MarketData]:
         """获取期货数据"""
