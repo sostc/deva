@@ -12,10 +12,98 @@ from typing import Dict, List, Optional, Tuple, Any
 from collections import deque, defaultdict
 import time
 
-from river import stats
-from river import anomaly
+try:
+    from river import stats
+    from river import anomaly
+    RIVER_AVAILABLE = True
+except ImportError:
+    RIVER_AVAILABLE = False
+    print("[NewsMind] Warning: river not installed, using fallback implementations")
 
 from .models import AnomalyLevel, AnomalySignal
+
+
+class _FallbackStats:
+    """备用统计量实现"""
+    
+    class Mean:
+        def __init__(self):
+            self._count = 0
+            self._mean = 0.0
+        
+        def update(self, x):
+            self._count += 1
+            self._mean += (x - self._mean) / self._count
+        
+        def get(self):
+            return self._mean if self._count > 0 else None
+    
+    class Var:
+        def __init__(self):
+            self._count = 0
+            self._mean = 0.0
+            self._m2 = 0.0
+        
+        def update(self, x):
+            self._count += 1
+            delta = x - self._mean
+            self._mean += delta / self._count
+            delta2 = x - self._mean
+            self._m2 += delta * delta2
+        
+        def get(self):
+            if self._count < 2:
+                return None
+            return self._m2 / (self._count - 1)
+    
+    class RollingMean:
+        def __init__(self, window_size=20):
+            self._window = deque(maxlen=window_size)
+        
+        def update(self, x):
+            self._window.append(x)
+        
+        def get(self):
+            if len(self._window) == 0:
+                return None
+            return np.mean(self._window)
+    
+    class RollingVar:
+        def __init__(self, window_size=20):
+            self._window = deque(maxlen=window_size)
+        
+        def update(self, x):
+            self._window.append(x)
+        
+        def get(self):
+            if len(self._window) < 2:
+                return None
+            return np.var(self._window, ddof=1)
+
+
+class _FallbackAnomaly:
+    """备用异常检测实现"""
+    
+    class GaussianScorer:
+        def __init__(self):
+            self._mean = 0.0
+            self._var = 0.0
+            self._count = 0
+        
+        def update(self, x):
+            self._count += 1
+            delta = x - self._mean
+            self._mean += delta / self._count
+            delta2 = x - self._mean
+            self._var += delta * delta2
+        
+        def score_one(self, x):
+            if self._count < 2:
+                return 0.0
+            std = np.sqrt(self._var / (self._count - 1))
+            if std == 0:
+                return 0.0
+            return abs(x - self._mean) / std
 
 
 class RiverEngine:
@@ -44,10 +132,24 @@ class RiverEngine:
         # Symbol 映射
         self._symbol_to_idx: Dict[str, int] = {}
         
-        # River 统计量 (每个symbol独立)
-        self._mean_estimators: Dict[str, stats.RollingMean] = {}
-        self._var_estimators: Dict[str, stats.RollingVar] = {}
-        self._anomaly_detectors: Dict[str, anomaly.GaussianScorer] = {}
+        # 选择使用的统计量类
+        if RIVER_AVAILABLE:
+            self._MeanClass = stats.Mean
+            self._VarClass = stats.Var
+            self._RollingMeanClass = stats.RollingMean
+            self._RollingVarClass = stats.RollingVar
+            self._GaussianScorerClass = anomaly.GaussianScorer
+        else:
+            self._MeanClass = _FallbackStats.Mean
+            self._VarClass = _FallbackStats.Var
+            self._RollingMeanClass = _FallbackStats.RollingMean
+            self._RollingVarClass = _FallbackStats.RollingVar
+            self._GaussianScorerClass = _FallbackAnomaly.GaussianScorer
+        
+        # 统计量 (每个symbol独立)
+        self._mean_estimators: Dict = {}
+        self._var_estimators: Dict = {}
+        self._anomaly_detectors: Dict = {}
         
         # 历史数据缓存
         self._price_history: Dict[str, deque] = defaultdict(lambda: deque(maxlen=history_window))
@@ -72,10 +174,10 @@ class RiverEngine:
         idx = len(self._symbol_to_idx)
         self._symbol_to_idx[symbol] = idx
         
-        # 初始化 River 统计量
-        self._mean_estimators[symbol] = stats.Mean()
-        self._var_estimators[symbol] = stats.Var()
-        self._anomaly_detectors[symbol] = anomaly.GaussianScorer()
+        # 初始化统计量
+        self._mean_estimators[symbol] = self._MeanClass()
+        self._var_estimators[symbol] = self._VarClass()
+        self._anomaly_detectors[symbol] = self._GaussianScorerClass()
         
         return True
     
