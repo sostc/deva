@@ -579,6 +579,174 @@ class BanditStatsHandler(RequestHandler):
             self.write(json.dumps(error_result, ensure_ascii=False))
 
 
+class KnowledgeListHandler(RequestHandler):
+    """知识库列表 API — 最近学到的因果知识"""
+
+    def set_default_headers(self):
+        self.set_header("Content-Type", "application/json; charset=utf-8")
+        self.set_header("Access-Control-Allow-Origin", "*")
+
+    def get(self):
+        try:
+            from deva.naja.knowledge import get_knowledge_store
+            store = get_knowledge_store()
+
+            # 参数
+            status = self.get_argument("status", None)
+            category = self.get_argument("category", None)
+            limit = int(self.get_argument("limit", "20"))
+            offset = int(self.get_argument("offset", "0"))
+
+            entries = store.get_all()
+
+            # 按状态筛选
+            if status:
+                entries = [e for e in entries if e.status == status]
+
+            # 按分类筛选
+            if category:
+                entries = [e for e in entries if e.category == category]
+
+            # 按时间降序
+            entries.sort(key=lambda e: e.extracted_at, reverse=True)
+
+            total = len(entries)
+            entries = entries[offset:offset + limit]
+
+            result = {
+                "timestamp": time.time(),
+                "datetime": time.strftime("%Y-%m-%d %H:%M:%S"),
+                "success": True,
+                "data": {
+                    "total": total,
+                    "limit": limit,
+                    "offset": offset,
+                    "entries": [
+                        {
+                            "id": e.id,
+                            "cause": e.cause,
+                            "effect": e.effect,
+                            "confidence": e.adjusted_confidence,
+                            "source": e.source,
+                            "original_title": e.original_title,
+                            "extracted_at": e.extracted_at,
+                            "category": e.category,
+                            "status": e.status,
+                            "evidence_count": e.evidence_count,
+                            "quality_score": e.quality_score,
+                            "mechanism": e.mechanism,
+                            "timeframe": e.timeframe,
+                            "last_updated": e.last_updated,
+                        }
+                        for e in entries
+                    ],
+                },
+            }
+            self.write(json.dumps(result, ensure_ascii=False))
+        except Exception as e:
+            self.write(json.dumps({"success": False, "error": str(e)}, ensure_ascii=False))
+
+
+class KnowledgeStatsHandler(RequestHandler):
+    """知识库统计 API"""
+
+    def set_default_headers(self):
+        self.set_header("Content-Type", "application/json; charset=utf-8")
+        self.set_header("Access-Control-Allow-Origin", "*")
+
+    def get(self):
+        try:
+            from deva.naja.knowledge import get_knowledge_store
+            store = get_knowledge_store()
+            stats = store.get_stats()
+
+            result = {
+                "timestamp": time.time(),
+                "datetime": time.strftime("%Y-%m-%d %H:%M:%S"),
+                "success": True,
+                "data": stats,
+            }
+            self.write(json.dumps(result, ensure_ascii=False))
+        except Exception as e:
+            self.write(json.dumps({"success": False, "error": str(e)}, ensure_ascii=False))
+
+
+class KnowledgeDetailHandler(RequestHandler):
+    """知识条目详情 API"""
+
+    def set_default_headers(self):
+        self.set_header("Content-Type", "application/json; charset=utf-8")
+        self.set_header("Access-Control-Allow-Origin", "*")
+
+    def get(self):
+        try:
+            entry_id = self.get_argument("id", "")
+            if not entry_id:
+                self.write(json.dumps({"success": False, "error": "缺少 id 参数"}, ensure_ascii=False))
+                return
+
+            from deva.naja.knowledge import get_knowledge_store
+            store = get_knowledge_store()
+            entry = store.get(entry_id)
+
+            if not entry:
+                self.write(json.dumps({"success": False, "error": f"未找到知识条目: {entry_id}"}, ensure_ascii=False))
+                return
+
+            result = {
+                "timestamp": time.time(),
+                "datetime": time.strftime("%Y-%m-%d %H:%M:%S"),
+                "success": True,
+                "data": {
+                    "id": entry.id,
+                    "cause": entry.cause,
+                    "effect": entry.effect,
+                    "confidence": entry.adjusted_confidence,
+                    "base_confidence": entry.base_confidence,
+                    "source": entry.source,
+                    "original_title": entry.original_title,
+                    "extracted_at": entry.extracted_at,
+                    "category": entry.category,
+                    "status": entry.status,
+                    "evidence_count": entry.evidence_count,
+                    "quality_score": entry.quality_score,
+                    "mechanism": entry.mechanism,
+                    "timeframe": entry.timeframe,
+                    "last_updated": entry.last_updated,
+                    "last_seen": entry.last_seen,
+                    "manual_override": entry.manual_override,
+                    "manual_note": entry.manual_note,
+                },
+            }
+            self.write(json.dumps(result, ensure_ascii=False))
+        except Exception as e:
+            self.write(json.dumps({"success": False, "error": str(e)}, ensure_ascii=False))
+
+
+class KnowledgeTradingHandler(RequestHandler):
+    """可用于交易决策的知识 API"""
+
+    def set_default_headers(self):
+        self.set_header("Content-Type", "application/json; charset=utf-8")
+        self.set_header("Access-Control-Allow-Origin", "*")
+
+    def get(self):
+        try:
+            from deva.naja.knowledge import get_knowledge_store
+            store = get_knowledge_store()
+            data = store.get_for_trading()
+
+            result = {
+                "timestamp": time.time(),
+                "datetime": time.strftime("%Y-%m-%d %H:%M:%S"),
+                "success": True,
+                "data": data,
+            }
+            self.write(json.dumps(result, ensure_ascii=False))
+        except Exception as e:
+            self.write(json.dumps({"success": False, "error": str(e)}, ensure_ascii=False))
+
+
 class DataSourceListHandler(RequestHandler):
     """数据源列表 API 端点"""
 
