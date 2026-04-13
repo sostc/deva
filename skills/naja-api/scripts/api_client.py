@@ -104,6 +104,8 @@ def get_alaya_status():
 
 def main():
     """主函数"""
+    global BASE_URL
+    
     parser = argparse.ArgumentParser(description="Naja API 客户端")
     parser.add_argument("command", choices=[
         "cognition-memory", "cognition-topics", "cognition-attention", "cognition-thought",
@@ -120,7 +122,6 @@ def main():
     
     args = parser.parse_args()
     
-    global BASE_URL
     BASE_URL = args.base_url
     
     result = None
