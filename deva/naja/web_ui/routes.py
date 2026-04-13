@@ -14,6 +14,7 @@ from .pages import (
     KnowledgeActionHandler,
     _get_log_stream_page, _get_loop_audit_page,
 )
+from .api import HotspotHandler, HealthHandler
 from deva.naja.cognition.ui import cognition_glossary_page
 
 
@@ -56,5 +57,7 @@ def create_handlers(cdn: str = None):
         (r'/learning/history', webio_handler(learning_history_page, cdn=cdn_url)),
         (r'/learning/detail', webio_handler(learning_detail_page, cdn=cdn_url)),
         (r'/api/knowledge/action', KnowledgeActionHandler),
+        (r'/api/hotspot', HotspotHandler),
+        (r'/api/health', HealthHandler),
     ]
 
