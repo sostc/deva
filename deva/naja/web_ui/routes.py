@@ -15,6 +15,15 @@ from .pages import (
     _get_log_stream_page, _get_loop_audit_page,
 )
 from .api import HotspotHandler, HealthHandler
+from .api_extensions import (
+    CognitionMemoryHandler, CognitionTopicsHandler, CognitionAttentionHandler, CognitionThoughtHandler,
+    MarketStateHandler, MarketHotspotDetailsHandler,
+    SystemStatusHandler, SystemModulesHandler,
+    RadarEventsHandler,
+    BanditStatsHandler,
+    DataSourceListHandler, StrategyListHandler,
+    AlayaStatusHandler
+)
 from deva.naja.cognition.ui import cognition_glossary_page
 
 
@@ -57,7 +66,27 @@ def create_handlers(cdn: str = None):
         (r'/learning/history', webio_handler(learning_history_page, cdn=cdn_url)),
         (r'/learning/detail', webio_handler(learning_detail_page, cdn=cdn_url)),
         (r'/api/knowledge/action', KnowledgeActionHandler),
-        (r'/api/hotspot', HotspotHandler),
-        (r'/api/health', HealthHandler),
+            (r'/api/hotspot', HotspotHandler),
+            (r'/api/health', HealthHandler),
+            # 认知系统 API
+            (r'/api/cognition/memory', CognitionMemoryHandler),
+            (r'/api/cognition/topics', CognitionTopicsHandler),
+            (r'/api/cognition/attention', CognitionAttentionHandler),
+            (r'/api/cognition/thought', CognitionThoughtHandler),
+            # 市场热点 API
+            (r'/api/market/state', MarketStateHandler),
+            (r'/api/market/hotspot/details', MarketHotspotDetailsHandler),
+            # 系统监控 API
+            (r'/api/system/status', SystemStatusHandler),
+            (r'/api/system/modules', SystemModulesHandler),
+            # 雷达系统 API
+            (r'/api/radar/events', RadarEventsHandler),
+            # Bandit 系统 API
+            (r'/api/bandit/stats', BanditStatsHandler),
+            # 数据源和策略 API
+            (r'/api/datasource/list', DataSourceListHandler),
+            (r'/api/strategy/list', StrategyListHandler),
+            # 智慧系统 API
+            (r'/api/alaya/status', AlayaStatusHandler),
     ]
 
