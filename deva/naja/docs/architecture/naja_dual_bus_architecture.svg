@@ -1,0 +1,387 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="700" viewBox="0 0 1000 700">
+  <defs>
+    <!-- 颜色定义 -->
+    <linearGradient id="grad-cognitive" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#6A5ACD" />
+      <stop offset="100%" stop-color="#4169E1" />
+    </linearGradient>
+    <linearGradient id="grad-trading" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#FF6347" />
+      <stop offset="100%" stop-color="#FF4500" />
+    </linearGradient>
+    <linearGradient id="grad-bridge" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#32CD32" />
+      <stop offset="100%" stop-color="#228B22" />
+    </linearGradient>
+    <linearGradient id="grad-module" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#F0F8FF" />
+      <stop offset="100%" stop-color="#E6E6FA" />
+    </linearGradient>
+    
+    <!-- 箭头 -->
+    <marker id="arrowhead" markerWidth="10" markerHeight="7" 
+            refX="0" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#333" />
+    </marker>
+  </defs>
+  
+  <!-- 背景 -->
+  <rect width="100%" height="100%" fill="#f8f9fa" />
+  
+  <!-- 标题 -->
+  <text x="500" y="40" text-anchor="middle" font-family="Arial, sans-serif" 
+        font-size="28" font-weight="bold" fill="#2c3e50">
+    Naja 系统双总线架构
+  </text>
+  <text x="500" y="70" text-anchor="middle" font-family="Arial, sans-serif" 
+        font-size="14" fill="#7f8c8d">
+    认知总线 + 交易总线 + 桥梁连接
+  </text>
+  
+  <!-- ===================== 第1层: 数据来源 ===================== -->
+  <text x="500" y="110" text-anchor="middle" font-family="Arial, sans-serif" 
+        font-size="16" font-weight="bold" fill="#34495e">
+    📡 数据来源层
+  </text>
+  
+  <!-- 数据源模块 -->
+  <g transform="translate(0, 130)">
+    <rect x="100" y="0" width="150" height="60" rx="8" ry="8" 
+          fill="#e8f4f8" stroke="#3498db" stroke-width="2" />
+    <text x="175" y="25" text-anchor="middle" font-family="Arial, sans-serif" 
+          font-size="14" font-weight="bold" fill="#2980b9">
+      📰 新闻抓取
+    </text>
+    <text x="175" y="40" text-anchor="middle" font-family="Arial, sans-serif" 
+          font-size="11" fill="#7f8c8d">
+      TextSignalBus
+    </text>
+  </g>
+  
+  <g transform="translate(250, 130)">
+    <rect x="100" y="0" width="150" height="60" rx="8" ry="8" 
+          fill="#e8f4f8" stroke="#3498db" stroke-width="2" />
+    <text x="175" y="25" text-anchor="middle" font-family="Arial, sans-serif" 
+          font-size="14" font-weight="bold" fill="#2980b9">
+      📊 市场数据
+    </text>
+    <text x="175" y="40" text-anchor="middle" font-family="Arial, sans-serif" 
+          font-size="11" fill="#7f8c8d">
+      行情/资金流
+    </text>
+  </g>
+  
+  <g transform="translate(500, 130)">
+    <rect x="100" y="0" width="150" height="60" rx="8" ry="8" 
+          fill="#e8f4f8" stroke="#3498db" stroke-width="2" />
+    <text x="175" y="25" text-anchor="middle" font-family="Arial, sans-serif" 
+          font-size="14" font-weight="bold" fill="#2980b9">
+      🤖 AI 分析
+    </text>
+    <text x="175" y="40" text-anchor="middle" font-family="Arial, sans-serif" 
+          font-size="11" fill="#7f8c8d">
+      ManasEngine + FP Mind
+    </text>
+  </g>
+  
+  <!-- ===================== 第2层: 总线核心 ===================== -->
+  <text x="500" y="250" text-anchor="middle" font-family="Arial, sans-serif" 
+        font-size="16" font-weight="bold" fill="#34495e">
+    🚌 总线核心层
+  </text>
+  
+  <!-- 认知总线 -->
+  <g transform="translate(100, 270)">
+    <rect x="0" y="0" width="350" height="120" rx="10" ry="10" 
+          fill="url(#grad-cognitive)" stroke="#4A4AFF" stroke-width="3" />
+    <text x="175" y="40" text-anchor="middle" font-family="Arial, sans-serif" 
+          font-size="18" font-weight="bold" fill="white">
+      🧠 认知总线
+    </text>
+    <text x="175" y="60" text-anchor="middle" font-family="Arial, sans-serif" 
+          font-size="12" fill="#d0d0ff">
+      CognitiveEventBus
+    </text>
+    
+    <!-- 特性列表 -->
+    <g transform="translate(20, 80)">
+      <circle cx="0" cy="0" r="4" fill="#FFD700" />
+      <text x="10" y="5" font-family="Arial, sans-serif" font-size="10" fill="white">
+        去重窗口 (30s)
+      </text>
+      
+      <circle cx="120" cy="0" r="4" fill="#FFD700" />
+      <text x="130" y="5" font-family="Arial, sans-serif" font-size="10" fill="white">
+        重要性阈值
+      </text>
+      
+      <circle cx="240" cy="0" r="4" fill="#FFD700" />
+      <text x="250" y="5" font-family="Arial, sans-serif" font-size="10" fill="white">
+        模块级统计
+      </text>
+    </g>
+  </g>
+  
+  <!-- 桥梁 -->
+  <g transform="translate(470, 320)">
+    <rect x="-30" y="-25" width="60" height="50" rx="8" ry="8" 
+          fill="url(#grad-bridge)" stroke="#2E8B57" stroke-width="2" />
+    <text x="0" y="8" text-anchor="middle" font-family="Arial, sans-serif" 
+          font-size="14" font-weight="bold" fill="white">
+      🌉
+    </text>
+    <text x="0" y="-10" text-anchor="middle" font-family="Arial, sans-serif" 
+          font-size="9" fill="#c8e6c9">
+      桥梁
+    </text>
+  </g>
+  
+  <!-- 交易总线 -->
+  <g transform="translate(550, 270)">
+    <rect x="0" y="0" width="350" height="120" rx="10" ry="10" 
+          fill="url(#grad-trading)" stroke="#FF6347" stroke-width="3" />
+    <text x="175" y="40" text-anchor="middle" font-family="Arial, sans-serif" 
+          font-size="18" font-weight="bold" fill="white">
+      💰 交易总线
+    </text>
+    <text x="175" y="60" text-anchor="middle" font-family="Arial, sans-serif" 
+          font-size="12" fill="#ffd0d0">
+      TradingEventBus
+    </text>
+    
+    <!-- 特性列表 -->
+    <g transform="translate(20, 80)">
+      <circle cx="0" cy="0" r="4" fill="#FFD700" />
+      <text x="10" y="5" font-family="Arial, sans-serif" font-size="10" fill="white">
+        Stream/NB 持久化
+      </text>
+      
+      <circle cx="120" cy="0" r="4" fill="#FFD700" />
+      <text x="130" y="5" font-family="Arial, sans-serif" font-size="10" fill="white">
+        市场过滤
+      </text>
+      
+      <circle cx="240" cy="0" r="4" fill="#FFD700" />
+      <text x="250" y="5" font-family="Arial, sans-serif" font-size="10" fill="white">
+        链式操作
+      </text>
+    </g>
+  </g>
+  
+  <!-- ===================== 第3层: 事件处理模块 ===================== -->
+  <text x="500" y="430" text-anchor="middle" font-family="Arial, sans-serif" 
+        font-size="16" font-weight="bold" fill="#34495e">
+    ⚙️ 事件处理层
+  </text>
+  
+  <!-- 认知模块 -->
+  <g transform="translate(50, 450)">
+    <rect x="0" y="0" width="180" height="40" rx="6" ry="6" 
+          fill="white" stroke="#6A5ACD" stroke-width="1.5" />
+    <text x="90" y="15" text-anchor="middle" font-family="Arial, sans-serif" 
+          font-size="11" fill="#4169E1">
+      NarrativeTracker
+    </text>
+    <text x="90" y="28" text-anchor="middle" font-family="Arial, sans-serif" 
+          font-size="9" fill="#888">
+      叙事追踪
+    </text>
+  </g>
+  
+  <g transform="translate(250, 450)">
+    <rect x="0" y="0" width="180" height="40" rx="6" ry="6" 
+          fill="white" stroke="#6A5ACD" stroke-width="1.5" />
+    <text x="90" y="15" text-anchor="middle" font-family="Arial, sans-serif" 
+          font-size="11" fill="#4169E1">
+      MarketNarrative
+    </text>
+    <text x="90" y="28" text-anchor="middle" font-family="Arial, sans-serif" 
+          font-size="9" fill="#888">
+      市场叙事
+    </text>
+  </g>
+  
+  <g transform="translate(450, 450)">
+    <rect x="0" y="0" width="180" height="40" rx="6" ry="6" 
+          fill="white" stroke="#6A5ACD" stroke-width="1.5" />
+    <text x="90" y="15" text-anchor="middle" font-family="Arial, sans-serif" 
+          font-size="11" fill="#4169E1">
+      TimingNarrative
+    </text>
+    <text x="90" y="28" text-anchor="middle" font-family="Arial, sans-serif" 
+          font-size="9" fill="#888">
+      时机分析
+    </text>
+  </g>
+  
+  <g transform="translate(650, 450)">
+    <rect x="0" y="0" width="180" height="40" rx="6" ry="6" 
+          fill="white" stroke="#6A5ACD" stroke-width="1.5" />
+    <text x="90" y="15" text-anchor="middle" font-family="Arial, sans-serif" 
+          font-size="11" fill="#4169E1">
+      SupplyChainLinker
+    </text>
+    <text x="90" y="28" text-anchor="middle" font-family="Arial, sans-serif" 
+          font-size="9" fill="#888">
+      供应链风险
+    </text>
+  </g>
+  
+  <!-- 交易模块 -->
+  <g transform="translate(50, 510)">
+    <rect x="0" y="0" width="180" height="40" rx="6" ry="6" 
+          fill="white" stroke="#FF4500" stroke-width="1.5" />
+    <text x="90" y="15" text-anchor="middle" font-family="Arial, sans-serif" 
+          font-size="11" fill="#FF4500">
+      HotspotStrategies
+    </text>
+    <text x="90" y="28" text-anchor="middle" font-family="Arial, sans-serif" 
+          font-size="9" fill="#888">
+      热点策略
+    </text>
+  </g>
+  
+  <g transform="translate(250, 510)">
+    <rect x="0" y="0" width="180" height="40" rx="6" ry="6" 
+          fill="white" stroke="#FF4500" stroke-width="1.5" />
+    <text x="90" y="15" text-anchor="middle" font-family="Arial, sans-serif" 
+          font-size="11" fill="#FF4500">
+      TradingCenter
+    </text>
+    <text x="90" y="28" text-anchor="middle" font-family="Arial, sans-serif" 
+          font-size="9" fill="#888">
+      交易中心
+    </text>
+  </g>
+  
+  <g transform="translate(450, 510)">
+    <rect x="0" y="0" width="180" height="40" rx="6" ry="6" 
+          fill="white" stroke="#FF4500" stroke-width="1.5" />
+    <text x="90" y="15" text-anchor="middle" font-family="Arial, sans-serif" 
+          font-size="11" fill="#FF4500">
+      Bandit
+    </text>
+    <text x="90" y="28" text-anchor="middle" font-family="Arial, sans-serif" 
+          font-size="9" fill="#888">
+      智能下单
+    </text>
+  </g>
+  
+  <g transform="translate(650, 510)">
+    <rect x="0" y="0" width="180" height="40" rx="6" ry="6" 
+          fill="white" stroke="#FF4500" stroke-width="1.5" />
+    <text x="90" y="15" text-anchor="middle" font-family="Arial, sans-serif" 
+          font-size="11" fill="#FF4500">
+      OrderExecutor
+    </text>
+    <text x="90" y="28" text-anchor="middle" font-family="Arial, sans-serif" 
+          font-size="9" fill="#888">
+      订单执行
+    </text>
+  </g>
+  
+  <!-- ===================== 箭头连接线 ===================== -->
+  <!-- 数据源 → 总线 -->
+  <line x1="175" y1="190" x2="175" y2="270" stroke="#3498db" stroke-width="2" 
+        stroke-dasharray="5,3" marker-end="url(#arrowhead)" />
+  <line x1="425" y1="190" x2="275" y2="270" stroke="#3498db" stroke-width="2" 
+        stroke-dasharray="5,3" marker-end="url(#arrowhead)" />
+  <line x1="675" y1="190" x2="535" y2="270" stroke="#3498db" stroke-width="2" 
+        stroke-dasharray="5,3" marker-end="url(#arrowhead)" />
+  
+  <!-- 总线 → 处理模块 -->
+  <!-- 认知总线 → 认知模块 -->
+  <line x1="110" y1="390" x2="110" y2="450" stroke="#6A5ACD" stroke-width="1.5" 
+        marker-end="url(#arrowhead)" />
+  <line x1="240" y1="390" x2="240" y2="450" stroke="#6A5ACD" stroke-width="1.5" 
+        marker-end="url(#arrowhead)" />
+  <line x1="370" y1="390" x2="370" y2="450" stroke="#6A5ACD" stroke-width="1.5" 
+        marker-end="url(#arrowhead)" />
+  <line x1="300" y1="390" x2="570" y2="450" stroke="#6A5ACD" stroke-width="1.5" 
+        stroke-dasharray="3,2" marker-end="url(#arrowhead)" />
+  
+  <!-- 交易总线 → 交易模块 -->
+  <line x1="660" y1="390" x2="660" y2="510" stroke="#FF4500" stroke-width="1.5" 
+        marker-end="url(#arrowhead)" />
+  <line x1="785" y1="390" x2="785" y2="510" stroke="#FF4500" stroke-width="1.5" 
+        marker-end="url(#arrowhead)" />
+  <line x1="725" y1="390" x2="500" y2="510" stroke="#FF4500" stroke-width="1.5" 
+        stroke-dasharray="3,2" marker-end="url(#arrowhead)" />
+  
+  <!-- 桥梁双向箭头 -->
+  <line x1="440" y1="345" x2="470" y2="345" stroke="#228B22" stroke-width="2" 
+        stroke-dasharray="2,2" marker-end="url(#arrowhead)" />
+  <line x1="500" y1="345" x2="530" y2="345" stroke="#228B22" stroke-width="2" 
+        stroke-dasharray="2,2" marker-end="url(#arrowhead)" />
+  
+  <!-- ===================== 图例 ===================== -->
+  <g transform="translate(780, 100)">
+    <rect x="0" y="0" width="200" height="180" rx="8" ry="8" 
+          fill="white" stroke="#ddd" stroke-width="1" />
+    <text x="100" y="25" text-anchor="middle" font-family="Arial, sans-serif" 
+          font-size="14" font-weight="bold" fill="#2c3e50">
+      图例
+    </text>
+    
+    <!-- 颜色说明 -->
+    <rect x="20" y="40" width="15" height="15" fill="#4169E1" stroke="#333" />
+    <text x="45" y="52" font-family="Arial, sans-serif" font-size="11" fill="#333">
+      认知事件
+    </text>
+    
+    <rect x="20" y="65" width="15" height="15" fill="#FF4500" stroke="#333" />
+    <text x="45" y="77" font-family="Arial, sans-serif" font-size="11" fill="#333">
+      交易事件
+    </text>
+    
+    <rect x="20" y="90" width="15" height="15" fill="#228B22" stroke="#333" />
+    <text x="45" y="102" font-family="Arial, sans-serif" font-size="11" fill="#333">
+      桥梁连接
+    </text>
+    
+    <!-- 线型说明 -->
+    <line x1="20" y1="125" x2="50" y2="125" stroke="#3498db" stroke-width="2" 
+          stroke-dasharray="5,3" />
+    <text x="65" y="130" font-family="Arial, sans-serif" font-size="11" fill="#333">
+      数据流
+    </text>
+    
+    <line x1="20" y1="145" x2="50" y2="145" stroke="#6A5ACD" stroke-width="1.5" />
+    <text x="65" y="150" font-family="Arial, sans-serif" font-size="11" fill="#333">
+      认知流
+    </text>
+    
+    <line x1="20" y1="165" x2="50" y2="165" stroke="#FF4500" stroke-width="1.5" />
+    <text x="65" y="170" font-family="Arial, sans-serif" font-size="11" fill="#333">
+      交易流
+    </text>
+  </g>
+  
+  <!-- 说明文字 -->
+  <g transform="translate(30, 580)">
+    <text x="0" y="0" font-family="Arial, sans-serif" font-size="10" fill="#666">
+      🔄 数据流向:
+    </text>
+    <text x="0" y="15" font-family="Arial, sans-serif" font-size="9" fill="#666">
+      1. 📰新闻 → TextSignalBus → 认知总线 → 认知模块
+    </text>
+    <text x="0" y="30" font-family="Arial, sans-serif" font-size="9" fill="#666">
+      2. 💰热点策略 → 交易总线 → TradingCenter → 决策事件
+    </text>
+    <text x="0" y="45" font-family="Arial, sans-serif" font-size="9" fill="#666">
+      3. 🌉桥梁连接 → 重要认知事件转换为交易信号
+    </text>
+  </g>
+  
+  <!-- 版本信息 -->
+  <text x="970" y="690" text-anchor="end" font-family="Arial, sans-serif" 
+        font-size="9" fill="#999">
+    双总线架构 v1.0 | Naja系统
+  </text>
+  
+  <!-- 装饰元素 -->
+  <circle cx="50" cy="50" r="10" fill="#6A5ACD" fill-opacity="0.2" />
+  <circle cx="950" cy="100" r="15" fill="#FF6347" fill-opacity="0.2" />
+  <circle cx="200" cy="650" r="12" fill="#32CD32" fill-opacity="0.2" />
+  
+</svg>

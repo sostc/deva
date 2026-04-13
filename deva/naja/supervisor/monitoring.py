@@ -70,13 +70,13 @@ class MonitoringMixin:
                 except Exception as e:
                     log.debug(f"加载市场热点系统状态失败: {e}")
 
-                # 启动注意力策略系统
+                # 启动热点策略系统
                 try:
-                    from deva.naja.market_hotspot.strategies import setup_attention_strategies
-                    strategy_manager = setup_attention_strategies()
+                    from deva.naja.market_hotspot.strategies import setup_hotspot_strategies
+                    strategy_manager = setup_hotspot_strategies()
                     self._components['attention_strategy_manager'] = strategy_manager
                 except Exception as se:
-                    log.warning(f"注意力策略系统启动失败: {se}")
+                    log.warning(f"热点策略系统启动失败: {se}")
 
                 # 启动报告生成器
                 try:

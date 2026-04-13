@@ -70,8 +70,13 @@ def _get_us_stock_codes() -> Dict[str, str]:
 
 
 _DEBUG_MARKET_MODE = None  # 正常模式，可设置为 "a_share", "us", "closed" 模拟不同市场
-import os
-_DEBUG_MARKET_MODE = os.environ.get('NAJA_DEBUG_MARKET') or None
+
+
+def set_debug_market_mode(mode: str):
+    """设置调试市场模式（仅通过命令行参数显式指定时调用）"""
+    global _DEBUG_MARKET_MODE
+    _DEBUG_MARKET_MODE = mode
+    log.warning(f"[_DEBUG_MARKET_MODE] 已通过命令行参数设置为: {mode}")
 
 
 def _get_current_market() -> str:

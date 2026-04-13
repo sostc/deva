@@ -3,7 +3,7 @@
 from datetime import datetime
 from typing import List, Dict, Any
 
-from deva.naja.market_hotspot.ui_components.common import get_history_tracker
+from deva.naja.market_hotspot.tracking.history_tracker import get_history_tracker
 
 def render_hotspot_timeline(time_window: int = 50) -> str:
     """渲染热点变迁时间线
