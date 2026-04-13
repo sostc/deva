@@ -231,7 +231,7 @@ def test_cross_signal_analyzer():
     """测试 6: CrossSignalAnalyzer 跨信号分析"""
     print_section("测试 6: CrossSignalAnalyzer 跨信号分析")
 
-    from deva.naja.cognition.cross_signal_analyzer import CrossSignalAnalyzer, MarketSnapshot
+    from deva.naja.cognition.analysis.cross_signal_analyzer import CrossSignalAnalyzer, MarketSnapshot
 
     analyzer = CrossSignalAnalyzer()
 

@@ -55,8 +55,8 @@ from collections import defaultdict, deque
 from dataclasses import dataclass, field
 from typing import Any, Deque, Dict, Iterable, List, Optional, Tuple
 
-# 从统一关键词注册表导入（保持向后兼容）
-from deva.naja.cognition.keyword_registry import (
+# 从统一关键词注册表导入
+from deva.naja.cognition.semantic.keyword_registry import (
     DEFAULT_NARRATIVE_KEYWORDS,
     DYNAMICS_KEYWORDS,
     SENTIMENT_KEYWORDS,
@@ -257,7 +257,7 @@ class NarrativeTracker:
         self.enabled = bool(cfg.get("narrative_enabled", True))
 
         # 🚀 从 ManasEngine 获取关注的主题，而非预设关键词
-        self._focus_themes = self._get_focus_themes_from_manas()
+        self._focus_themes = self._get_initial_focus_themes()
         self._keywords = self._themes_to_keywords(self._focus_themes)
 
         self._recent_window = float(cfg.get("narrative_recent_window_seconds", 6 * 3600))
@@ -289,12 +289,13 @@ class NarrativeTracker:
         self._load_state()
 
         self._subscribe_to_text_events()
+        self._subscribe_to_manas_state()
 
-    def _get_focus_themes_from_manas(self) -> List[Dict[str, Any]]:
+    def _get_initial_focus_themes(self) -> List[Dict[str, Any]]:
         """
-        🚀 从 ManasEngine 获取关注的主题列表
+        🚀 初始化时获取关注的主题列表
 
-        这是"地"维度的核心：只追踪我们关心的主题
+        仅在 __init__ 时调用一次。后续通过订阅 MANAS_STATE_CHANGED 事件更新。
         """
         try:
             from deva.naja.attention.os.attention_os import get_attention_os
@@ -305,7 +306,7 @@ class NarrativeTracker:
             if themes:
                 import logging
                 logging.getLogger(__name__).info(
-                    f"[NarrativeTracker] 从 Manas 获取到 {len(themes)} 个关注主题"
+                    f"[NarrativeTracker] 初始化时从 Manas 获取到 {len(themes)} 个关注主题"
                 )
                 return themes
         except ImportError:
@@ -314,7 +315,6 @@ class NarrativeTracker:
             import logging
             logging.getLogger(__name__).warning(f"[NarrativeTracker] 从 Manas 获取主题失败: {e}")
 
-        # 降级：返回默认关键词
         import logging
         logging.getLogger(__name__).warning(
             "[NarrativeTracker] 无法从 Manas 获取主题，使用默认关键词"
@@ -323,6 +323,50 @@ class NarrativeTracker:
             {"id": theme_id, "name": theme_id, "keywords": keywords}
             for theme_id, keywords in DEFAULT_NARRATIVE_KEYWORDS.items()
         ]
+
+    def _subscribe_to_manas_state(self):
+        """
+        🚀 订阅 MANAS_STATE_CHANGED 事件，解耦对 Attention 的直接依赖
+
+        ManasEngine 状态变化时会发布 MANAS_STATE_CHANGED 事件，
+        我们收到后更新 _focus_themes，实现单向数据流。
+        """
+        try:
+            from deva.naja.events import get_event_bus, CognitiveEventType
+
+            bus = get_event_bus()
+            bus.subscribe(
+                "NarrativeTracker",
+                self._on_manas_state_changed,
+                event_types=[CognitiveEventType.MANAS_STATE_CHANGED],
+            )
+            import logging
+            logging.getLogger(__name__).debug("[NarrativeTracker] 已订阅 MANAS_STATE_CHANGED")
+        except ImportError:
+            pass
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).warning(f"[NarrativeTracker] 订阅 MANAS_STATE_CHANGED 失败: {e}")
+
+    def _on_manas_state_changed(self, event):
+        """
+        🚀 处理 MANAS_STATE_CHANGED 事件，更新关注主题
+
+        这是事件驱动的核心：Manas 状态变化 → 发布事件 → Cognition 更新
+        """
+        try:
+            data = getattr(event, 'data', {}) or {}
+            new_themes = data.get("focus_themes", [])
+            if new_themes and new_themes != self._focus_themes:
+                import logging
+                logging.getLogger(__name__).info(
+                    f"[NarrativeTracker] 收到 Manas 状态更新: {len(new_themes)} 个主题"
+                )
+                self._focus_themes = new_themes
+                self._keywords = self._themes_to_keywords(self._focus_themes)
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).warning(f"[NarrativeTracker] 处理 MANAS_STATE_CHANGED 失败: {e}")
 
     def _themes_to_keywords(self, themes: List[Dict[str, Any]]) -> Dict[str, List[str]]:
         """

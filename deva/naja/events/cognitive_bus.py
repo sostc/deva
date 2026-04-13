@@ -67,6 +67,7 @@ class CognitiveEventType(Enum):
 
     # 通用
     COGNITION_RESET = "cognition_reset"
+    MANAS_STATE_CHANGED = "manas_state_changed"
 
     # ── 原 CognitionEventType ──
     HOTSPOT_SNAPSHOT = "hotspot_snapshot"

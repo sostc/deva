@@ -53,7 +53,7 @@ def send_imessage(phone: str, text: str) -> bool:
 
 
 from deva.naja.cognition.narrative import NarrativeTracker
-from deva.naja.cognition.keyword_registry import DYNAMICS_KEYWORDS, SENTIMENT_KEYWORDS
+from deva.naja.cognition.semantic.keyword_registry import DYNAMICS_KEYWORDS, SENTIMENT_KEYWORDS
 from deva.naja.bandit.portfolio_manager import get_portfolio_manager
 from deva.naja.bandit.stock_block_map import (
     US_STOCK_BLOCKS, INDUSTRY_CODE_TO_NAME, NARRATIVE_INDUSTRY_MAP

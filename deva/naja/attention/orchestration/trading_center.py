@@ -386,7 +386,7 @@ class TradingCenter:
         """获取 FirstPrinciplesMind"""
         if self._first_principles_mind is None:
             try:
-                from deva.naja.cognition.first_principles_mind import FirstPrinciplesMind
+                from deva.naja.cognition.analysis.first_principles_mind import FirstPrinciplesMind
                 self._first_principles_mind = FirstPrinciplesMind()
             except ImportError as e:
                 log.warning(f"[TradingCenter] 无法导入 FirstPrinciplesMind: {e}")

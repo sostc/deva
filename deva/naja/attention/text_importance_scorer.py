@@ -14,7 +14,7 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 import re
 
 from deva.naja.events.text_events import TextFetchedEvent, TextFocusedEvent
-from deva.naja.cognition.keyword_registry import (
+from deva.naja.cognition.semantic.keyword_registry import (
     DEFAULT_NARRATIVE_KEYWORDS,
     MARKET_NARRATIVE_KEYWORDS,
     NEWS_TOPIC_KEYWORDS,
