@@ -62,7 +62,7 @@ def render_daily_review(ui):
             </script>
             """)
     else:
-        render_daily_review_empty()
+        render_daily_review_empty(ui)
 
 
 def render_daily_review_empty(ui):

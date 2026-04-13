@@ -48,11 +48,10 @@ class MonitoringMixin:
         
         # 启动注意力系统
         try:
-            from deva.naja.market_hotspot.integration.market_hotspot_config import load_config, get_intelligence_config
+            from deva.naja.market_hotspot.integration.market_hotspot_config import load_config
             from deva.naja.market_hotspot.integration.market_hotspot_integration import initialize_hotspot_system
 
             attention_config = load_config()
-            intelligence_config = get_intelligence_config()
 
             if attention_config.enabled:
                 config = attention_config.to_hotspot_system_config()
@@ -60,7 +59,6 @@ class MonitoringMixin:
                 lab_mode = getattr(self, '_lab_mode', False)
                 attention_system = initialize_hotspot_system(
                     config,
-                    intelligence_config=intelligence_config,
                     force_realtime=force_realtime,
                     lab_mode=lab_mode
                 )
@@ -89,108 +87,106 @@ class MonitoringMixin:
                     log.warning(f"注意力报告生成器启动失败: {re}")
 
             # 启动 Bandit 自动运行器
-            if intelligence_config.get('enable_feedback') or intelligence_config.get('enable_strategy_learning'):
-                try:
-                    from deva.naja.bandit.runner import ensure_bandit_auto_runner
-                    bandit_runner = ensure_bandit_auto_runner(auto_start=True)
-                    self._components['bandit_runner'] = bandit_runner
-                    log.info("BanditAutoRunner 已启动")
-                except Exception as be:
-                    log.warning(f"BanditAutoRunner 启动失败: {be}")
+            try:
+                from deva.naja.bandit.runner import ensure_bandit_auto_runner
+                bandit_runner = ensure_bandit_auto_runner(auto_start=True)
+                self._components['bandit_runner'] = bandit_runner
+                log.info("BanditAutoRunner 已启动")
+            except Exception as be:
+                log.warning(f"BanditAutoRunner 启动失败: {be}")
 
             # 启动 PositionMonitor (持仓监控)
-            if intelligence_config.get('enable_feedback'):
-                try:
-                    from deva.naja.attention.tracking.hotspot_signal_tracker import ensure_hotspot_signal_tracker
-                    from deva.naja.attention.tracking.position_monitor import ensure_position_monitor
+            try:
+                from deva.naja.attention.tracking.hotspot_signal_tracker import ensure_hotspot_signal_tracker
+                from deva.naja.attention.tracking.position_monitor import ensure_position_monitor
 
-                    hotspot_signal_tracker = ensure_hotspot_signal_tracker(
-                        observation_duration=3600.0,
-                        min_confidence=0.5,
-                    )
-                    self._components['hotspot_signal_tracker'] = hotspot_signal_tracker
+                hotspot_signal_tracker = ensure_hotspot_signal_tracker(
+                    observation_duration=3600.0,
+                    min_confidence=0.5,
+                )
+                self._components['hotspot_signal_tracker'] = hotspot_signal_tracker
 
-                    position_monitor = ensure_position_monitor(
-                        update_interval=10.0,
-                    )
-                    self._components['position_monitor'] = position_monitor
+                position_monitor = ensure_position_monitor(
+                    update_interval=10.0,
+                )
+                self._components['position_monitor'] = position_monitor
 
-                    log.info("HotspotSignalTracker 和 PositionMonitor 已启动")
+                log.info("HotspotSignalTracker 和 PositionMonitor 已启动")
 
-                    # 注册价格更新回调：将价格更新传递给 FeedbackLoop
-                    _price_feedback_count = 0
-                    _last_insight_emit_time = time.time()
+                # 注册价格更新回调：将价格更新传递给 FeedbackLoop
+                _price_feedback_count = 0
+                _last_insight_emit_time = time.time()
 
-                    def _on_price_update(metrics_list):
-                        nonlocal _price_feedback_count
-                        try:
-                            from deva.naja.market_hotspot.integration import get_market_hotspot_integration
-                            integration = get_market_hotspot_integration()
-                            if hasattr(integration, 'feedback_loop') and integration.feedback_loop:
-                                feedback_loop = integration.feedback_loop
-                                for metrics in metrics_list:
-                                    tracked = hotspot_signal_tracker.get_tracked(metrics.symbol)
-                                    if tracked:
-                                        feedback_loop.record_price_feedback(
-                                            symbol=metrics.symbol,
-                                            attention_score=tracked.attention_score,
-                                            prediction_score=tracked.prediction_score,
-                                            current_price=metrics.current_price,
-                                            entry_price=tracked.entry_price,
-                                            holding_seconds=metrics.holding_seconds,
-                                            market_state=tracked.market_state,
-                                            is_new_high=metrics.max_favorable_move > tracked.max_favorable_move if tracked.max_favorable_move > 0 else False,
-                                            is_new_low=metrics.max_adverse_move < tracked.max_adverse_move if tracked.max_adverse_move < 0 else False,
-                                        )
-                                        _price_feedback_count += 1
-                                        if _price_feedback_count % 10 == 0:
-                                            log.info(f"[HotspotSignalTracker] 价格反馈计数: {_price_feedback_count}, 跟踪中: {len(hotspot_signal_tracker.get_all_tracked())}")
-                        except Exception as e:
-                            log.warning(f"价格更新反馈处理失败: {e}")
+                def _on_price_update(metrics_list):
+                    nonlocal _price_feedback_count
+                    try:
+                        from deva.naja.market_hotspot.integration import get_market_hotspot_integration
+                        integration = get_market_hotspot_integration()
+                        if hasattr(integration, 'feedback_loop') and integration.feedback_loop:
+                            feedback_loop = integration.feedback_loop
+                            for metrics in metrics_list:
+                                tracked = hotspot_signal_tracker.get_tracked(metrics.symbol)
+                                if tracked:
+                                    feedback_loop.record_price_feedback(
+                                        symbol=metrics.symbol,
+                                        attention_score=tracked.attention_score,
+                                        prediction_score=tracked.prediction_score,
+                                        current_price=metrics.current_price,
+                                        entry_price=tracked.entry_price,
+                                        holding_seconds=metrics.holding_seconds,
+                                        market_state=tracked.market_state,
+                                        is_new_high=metrics.max_favorable_move > tracked.max_favorable_move if tracked.max_favorable_move > 0 else False,
+                                        is_new_low=metrics.max_adverse_move < tracked.max_adverse_move if tracked.max_adverse_move < 0 else False,
+                                    )
+                                    _price_feedback_count += 1
+                                    if _price_feedback_count % 10 == 0:
+                                        log.info(f"[HotspotSignalTracker] 价格反馈计数: {_price_feedback_count}, 跟踪中: {len(hotspot_signal_tracker.get_all_tracked())}")
+                    except Exception as e:
+                        log.warning(f"价格更新反馈处理失败: {e}")
 
-                    position_monitor.register_callback(_on_price_update)
+                position_monitor.register_callback(_on_price_update)
 
-                    # 注册观察结果回调
-                    def _on_observation_result(result):
-                        try:
-                            from deva.naja.market_hotspot.integration import get_market_hotspot_integration
-                            integration = get_market_hotspot_integration()
-                            if hasattr(integration, 'feedback_loop') and integration.feedback_loop:
-                                feedback_loop = integration.feedback_loop
-                                feedback_loop.record_observation(
-                                    symbol=result.symbol,
-                                    block_id=result.block_id,
-                                    strategy_id=result.strategy_id,
-                                    attention_score=result.attention_score,
-                                    prediction_score=result.prediction_score,
-                                    action=result.action,
-                                    entry_price=result.entry_price,
-                                    exit_price=result.exit_price,
-                                    holding_seconds=result.holding_seconds,
-                                    market_state=result.market_state,
-                                    max_favorable_move=result.max_favorable_move,
-                                    max_adverse_move=result.max_adverse_move,
-                                )
-                                log.info(f"[PositionTracker] 观察完成: {result.symbol} 收益={result.return_pct:+.2f}% 时长={result.holding_seconds:.0f}s")
-                        except Exception as e:
-                            log.warning(f"观察结果反馈处理失败: {e}")
+                # 注册观察结果回调
+                def _on_observation_result(result):
+                    try:
+                        from deva.naja.market_hotspot.integration import get_market_hotspot_integration
+                        integration = get_market_hotspot_integration()
+                        if hasattr(integration, 'feedback_loop') and integration.feedback_loop:
+                            feedback_loop = integration.feedback_loop
+                            feedback_loop.record_observation(
+                                symbol=result.symbol,
+                                block_id=result.block_id,
+                                strategy_id=result.strategy_id,
+                                attention_score=result.attention_score,
+                                prediction_score=result.prediction_score,
+                                action=result.action,
+                                entry_price=result.entry_price,
+                                exit_price=result.exit_price,
+                                holding_seconds=result.holding_seconds,
+                                market_state=result.market_state,
+                                max_favorable_move=result.max_favorable_move,
+                                max_adverse_move=result.max_adverse_move,
+                            )
+                            log.info(f"[PositionTracker] 观察完成: {result.symbol} 收益={result.return_pct:+.2f}% 时长={result.holding_seconds:.0f}s")
+                    except Exception as e:
+                        log.warning(f"观察结果反馈处理失败: {e}")
 
-                    hotspot_signal_tracker.register_observation_callback(_on_observation_result)
+                hotspot_signal_tracker.register_observation_callback(_on_observation_result)
 
-                    # 将 position_monitor 的价格更新同步到 hotspot_signal_tracker
-                    def _sync_price_to_tracker(metrics_list):
-                        for metrics in metrics_list:
-                            hotspot_signal_tracker.update_price(metrics.symbol, metrics.current_price)
+                # 将 position_monitor 的价格更新同步到 hotspot_signal_tracker
+                def _sync_price_to_tracker(metrics_list):
+                    for metrics in metrics_list:
+                        hotspot_signal_tracker.update_price(metrics.symbol, metrics.current_price)
 
-                    position_monitor.register_callback(_sync_price_to_tracker)
+                position_monitor.register_callback(_sync_price_to_tracker)
 
-                    log.info("HotspotSignalTracker 和 PositionMonitor 已启动")
+                log.info("HotspotSignalTracker 和 PositionMonitor 回调注册完成")
 
-                    # SignalTuner 已禁用 (自动调参导致策略过于激进)
-                    log.info("SignalTuner 已禁用 (NAJA_DISABLE_SIGNAL_TUNER)")
+                # SignalTuner 已禁用 (自动调参导致策略过于激进)
+                log.info("SignalTuner 已禁用 (NAJA_DISABLE_SIGNAL_TUNER)")
 
-                except Exception as te:
-                    log.warning(f"HotspotSignalTracker 启动失败: {te}")
+            except Exception as te:
+                log.warning(f"HotspotSignalTracker 启动失败: {te}")
 
         except Exception as e:
             log.warning(f"注意力调度系统启动失败: {e}")

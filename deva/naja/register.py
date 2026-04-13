@@ -157,13 +157,12 @@ def _register_custom_singletons():
     # --- attention_integration: 需要 load_config + initialize ---
     def _create_attention_integration():
         from .market_hotspot.integration.market_hotspot_integration import MarketHotspotIntegration
-        from .market_hotspot.integration.market_hotspot_config import load_config, get_intelligence_config
+        from .market_hotspot.integration.market_hotspot_config import load_config
         integration = MarketHotspotIntegration()
         config = load_config()
-        intelligence_config = get_intelligence_config()
         if config.enabled:
             system_config = config.to_hotspot_system_config()
-            integration.initialize(system_config, intelligence_config=intelligence_config)
+            integration.initialize(system_config)
         return integration
     register_singleton('attention_integration', _create_attention_integration,
                       deps=['mode_manager', 'stock_registry'])
@@ -188,12 +187,12 @@ def _register_custom_singletons():
                       deps=['attention_integration'])
     logger.info("  ✓ hotspot_system")
 
-    # --- cognition_bus: 调用 get_cognitive_bus() 单例获取器 ---
+    # --- cognition_bus: 调用 get_event_bus() 单例获取器 ---
     def _create_cognitive_signal_bus():
-        from .events import get_cognitive_bus
-        return get_cognitive_bus()
+        from .events import get_event_bus
+        return get_event_bus()
     register_singleton('cognition_bus', _create_cognitive_signal_bus, deps=[])
-    logger.info("  ✓ cognition_bus (→ CognitiveSignalBus)")
+    logger.info("  ✓ cognition_bus (→ NajaEventBus)")
 
     # --- history_tracker: 需要 load_latest_state + start_auto_save ---
     def _create_history_tracker():

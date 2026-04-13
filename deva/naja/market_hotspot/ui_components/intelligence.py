@@ -6,17 +6,10 @@ from deva.naja.market_hotspot.ui_components.common import get_history_tracker
 def get_intelligence_system():
     """获取智能增强系统"""
     try:
-        from deva.naja.supervisor import get_supervisor
-        supervisor = get_supervisor()
-        if supervisor and hasattr(supervisor, '_components'):
-            integration = supervisor._components.get('hotspot')
-            if integration:
-                if hasattr(integration, 'intelligence_system'):
-                    return integration.intelligence_system
-                from deva.naja.register import SR
-                hotspot_integration = SR('hotspot_integration')
-                if hotspot_integration and hasattr(hotspot_integration, 'intelligence_system'):
-                    return hotspot_integration.intelligence_system
+        from deva.naja.market_hotspot.integration.market_hotspot_integration import MarketHotspotIntegration
+        integration = MarketHotspotIntegration()  # 单例，不会重复创建
+        if hasattr(integration, 'intelligence_system') and integration.intelligence_system is not None:
+            return integration.intelligence_system
         return None
     except Exception:
         return None

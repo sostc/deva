@@ -225,20 +225,18 @@ class SystemBootstrap:
                     errors[name] = str(e)
                     logger.warning(f"  {name} 加载失败: {e}")
 
-            # 可选健康检查：字典题材
-            if "dictionary" in counts and counts["dictionary"] > 0:
-                try:
-                    entry = dict_mgr.get_by_name("通达信概念题材")
-                    if entry:
-                        payload = entry.get_payload()
-                        if payload is not None:
-                            logger.info(f"  题材字典数据: {payload.shape}")
-                        else:
-                            logger.warning("  题材字典数据为空")
-                    else:
-                        logger.warning("  未找到通达信概念题材字典")
-                except Exception as e:
-                    logger.warning(f"  题材字典健康检查失败: {e}")
+            # 可选健康检查：题材数据
+            try:
+                from deva.naja.dictionary.blocks import get_block_dictionary
+                bd = get_block_dictionary()
+                cn_count = len(bd._cn_blocks)
+                us_count = len(bd._us_blocks)
+                if cn_count > 0 or us_count > 0:
+                    logger.info(f"  题材数据: A股 {cn_count} 个, 美股 {us_count} 个")
+                else:
+                    logger.warning("  题材数据为空")
+            except Exception as e:
+                logger.warning(f"  题材数据检查失败: {e}")
 
             duration_ms = (time.time() - start) * 1000
 

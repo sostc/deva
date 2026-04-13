@@ -38,7 +38,7 @@
 🔄 数据流：
     文本信号 → TextSignalBus → NarrativeTracker（订阅）
          ↓ 处理
-    发布 NARRATIVE_UPDATE → CognitiveSignalBus → ManasEngine
+    发布 NARRATIVE_UPDATE → NajaEventBus → ManasEngine
 
 💡 与 TimingNarrative 的区别：
     - NarrativeTracker（地）：关注「空间」—— 炒什么题材/主题
@@ -383,29 +383,57 @@ class NarrativeTracker:
             log.debug(f"[NarrativeTracker] 处理 TextFocusedEvent 失败: {e}")
 
     def _publish_cognitive_update(self, event, signal):
-        """发布认知事件到 CognitiveSignalBus"""
+        """发布认知事件到 NajaEventBus"""
         try:
             from deva.naja.events import (
-                get_cognitive_bus,
+                get_event_bus,
                 CognitiveEventType,
             )
 
-            bus = get_cognitive_bus()
+            bus = get_event_bus()
 
             narratives = list(signal.get('topics', []) if isinstance(signal, dict) else [])
             narratives.extend(list(signal.get('keywords', []) if isinstance(signal, dict) else []))
 
             importance = signal.get('importance_score', 0.5) if isinstance(signal, dict) else 0.5
 
-            bus.publish_cognitive_event(
+            from deva.naja.events import create_narrative_update
+
+
+            event = create_narrative_update(
+
+
+                narrative_id="narratives...",
+
+
+                narrative_type="block",
+
+
+                summary="外部叙事更新",
+
+
                 source="NarrativeTracker",
-                event_type=CognitiveEventType.BLOCK_NARRATIVE_UPDATE,
-                narratives=narratives,
-                importance=importance,
+
+
                 confidence=0.5,
-                stock_codes=signal.get('stock_codes', []) if isinstance(signal, dict) else [],
-                metadata={}
+
+
+                symbols=signal.get("stock_codes", []) if isinstance(signal, dict) else [],
+
+
+                strength_change=0.0,
+
+
+                market="CN",
+
+
+                importance=importance
+
+
             )
+
+
+            bus.publish(event)
         except ImportError:
             pass
         except Exception as e:
