@@ -9,7 +9,7 @@
 只需发送以下命令给对方，对方在 agent 中执行即可完成安装：
 
 ```
-install skill https://github.com/yourusername/naja-api-skill
+install skill https://github.com/sostc/naja-api-skill
 ```
 
 ### 方法 2：使用简短链接（可选）
@@ -63,7 +63,7 @@ install skill https://bit.ly/naja-api-skill
 
 ## 示例对话
 
-**你**：请安装 naja-api 技能，使用这个命令：install skill https://github.com/yourusername/naja-api-skill
+**你**：请安装 naja-api 技能，使用这个命令：install skill https://github.com/sostc/naja-api-skill
 
 **对方**：已执行命令，正在安装...
 
