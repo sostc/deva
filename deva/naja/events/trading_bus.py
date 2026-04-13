@@ -408,6 +408,9 @@ def get_trading_bus() -> TradingEventBus:
     with _trading_bus_lock:
         if _trading_bus_instance is None:
             _trading_bus_instance = TradingEventBus()
+            _trading_bus_instance.configure_persistence('StrategySignalEvent', persistent=True)
+            _trading_bus_instance.configure_persistence('TradeDecisionEvent', persistent=True)
+            log.info("[TradingEventBus] 📦 交易事件持久化已启用")
     
     return _trading_bus_instance
 

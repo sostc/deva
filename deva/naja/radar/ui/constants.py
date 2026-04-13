@@ -73,7 +73,7 @@ def get_cn_trading_status() -> tuple:
         from deva.naja.register import ensure_trading_clocks
         ensure_trading_clocks()
         tc = SR('trading_clock')
-        phase = tc.current_phase
+        phase = tc.cn_phase
         return _PHASE_MAP_CN.get(phase, ("A股未知", "#64748b"))
     except Exception:
         return ("A股状态未知", "#64748b")
@@ -84,8 +84,8 @@ def get_us_trading_status() -> tuple:
     try:
         from deva.naja.register import ensure_trading_clocks
         ensure_trading_clocks()
-        tc = SR('us_trading_clock')
-        phase = tc.current_phase
+        tc = SR('trading_clock')
+        phase = tc.us_phase
         return _PHASE_MAP_US.get(phase, ("美股未知", "#64748b"))
     except Exception:
         return ("美股状态未知", "#64748b")

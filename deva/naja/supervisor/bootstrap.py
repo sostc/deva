@@ -53,6 +53,14 @@ def _register_atexit_cleanup():
         except Exception as e:
             log.warning(f"[atexit] 持久化注意力系统状态失败: {e}")
 
+        try:
+            hotspot_integration = supervisor._get_component('hotspot_integration')
+            if hotspot_integration and hasattr(hotspot_integration, 'persist_state'):
+                hotspot_integration.persist_state()
+                log.info("[atexit] 市场热点系统状态已持久化")
+        except Exception as e:
+            log.warning(f"[atexit] 持久化市场热点系统状态失败: {e}")
+
     atexit.register(_cleanup)
 
 

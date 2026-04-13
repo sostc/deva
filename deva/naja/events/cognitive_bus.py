@@ -505,29 +505,12 @@ _bus_lock = threading.Lock()
 
 
 def get_event_bus() -> NajaEventBus:
-    """获取统一事件总线单例（返回持久化的 StreamBackedEventBus）"""
+    """获取统一事件总线单例"""
     global _bus
     if _bus is None:
         with _bus_lock:
             if _bus is None:
-                # 尝试使用新的持久化流总线
-                try:
-                    from .stream_bus import StreamBackedEventBus
-                    _bus = StreamBackedEventBus()
-                    log.info("[cognitive_bus] ✅ 已加载 StreamBackedEventBus（带持久化）")
-                    
-                    # 配置关键交易事件持久化
-                    try:
-                        from .persistence_config import configure_event_bus_persistence
-                        configure_event_bus_persistence(_bus)
-                        log.info("[cognitive_bus] 📦 关键交易事件持久化已配置")
-                    except ImportError as e:
-                        log.warning(f"[cognitive_bus] 无法加载持久化配置: {e}")
-                        
-                except ImportError as e:
-                    # 回退到原总线
-                    log.warning(f"[cognitive_bus] StreamBackedEventBus 不可用，回退到 NajaEventBus: {e}")
-                    _bus = NajaEventBus()
+                _bus = NajaEventBus()
     return _bus
 
 

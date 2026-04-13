@@ -150,14 +150,13 @@ class RealtimeDataFetcher:
             try:
 
                 tc = SR('trading_clock')
-                us_tc = SR('us_trading_clock')
 
                 tc.subscribe(self._on_cn_clock_signal)
-                us_tc.subscribe(self._on_us_clock_signal)
+                tc.subscribe(self._on_us_clock_signal)
                 log.info("[RealtimeDataFetcher] 已订阅 A股/美股 交易时钟 (使用 subscribe)")
 
-                cn_initial = tc.get_current_signal()
-                us_initial = us_tc.get_current_signal()
+                cn_initial = tc.get_cn_signal()
+                us_initial = tc.get_us_signal()
                 log.info(f"[RealtimeDataFetcher] 手动触发初始信号: cn_phase={cn_initial.get('phase')}, us_phase={us_initial.get('phase')}")
                 self._on_cn_clock_signal(cn_initial)
                 self._on_us_clock_signal(us_initial)
@@ -166,10 +165,9 @@ class RealtimeDataFetcher:
                 log.warning(f"[RealtimeDataFetcher] 订阅交易时钟失败: {e}，改用 STREAM.sink")
                 TRADING_CLOCK_STREAM.sink(self._on_trading_clock_signal)
                 USTRADING_CLOCK_STREAM.sink(self._on_trading_clock_signal)
-                # 确保 initial 信号被触发
                 try:
-                    us_tc = SR('us_trading_clock')
-                    us_initial = us_tc.get_current_signal()
+                    tc = SR('trading_clock')
+                    us_initial = tc.get_us_signal()
                     log.info(f"[RealtimeDataFetcher] 通过 sink 触发初始信号: us_phase={us_initial.get('phase')}")
                     self._on_us_clock_signal(us_initial)
                 except Exception as e2:
@@ -203,10 +201,10 @@ class RealtimeDataFetcher:
             else:
                 self.focus_tracker = None
             
-            # 获取交易时钟
+            # 获取交易时钟（统一交易时钟，同时支持 A股 和 美股）
             try:
                 self.cn_tc = SR('trading_clock')
-                self.us_tc = SR('us_trading_clock')
+                self.us_tc = self.cn_tc
             except:
                 self.cn_tc = None
                 self.us_tc = None
@@ -1257,10 +1255,17 @@ class RealtimeDataFetcher:
             self._resolve_inner_system()
 
             from deva.naja.market_hotspot.data.global_market_futures import _DEBUG_MARKET_MODE
-            log.warning(f"[RealtimeDataFetcher] get_stats _DEBUG_MARKET_MODE={_DEBUG_MARKET_MODE}")
 
-            cn_signal = self.cn_tc.get_current_signal()
-            us_signal = self.us_tc.get_current_signal()
+            if not getattr(self, 'cn_tc', None) or not getattr(self, 'us_tc', None):
+                from deva.naja.register import SR
+                try:
+                    self.cn_tc = SR('trading_clock')
+                    self.us_tc = self.cn_tc
+                except Exception as e:
+                    log.warning(f"[RealtimeDataFetcher] 获取交易时钟失败: {e}")
+
+            cn_signal = self.cn_tc.get_cn_signal() if self.cn_tc else {}
+            us_signal = self.us_tc.get_us_signal() if self.us_tc else {}
 
             if _DEBUG_MARKET_MODE == 'a_share':
                 cn_signal = {'type': 'current_state', 'phase': 'trading', 'market': 'CN', 'next_phase': 'closed'}
@@ -1274,16 +1279,15 @@ class RealtimeDataFetcher:
             cn_next = cn_signal.get('next_change_time', '')
             us_next = us_signal.get('next_change_time', '')
 
-            # 使用统一的格式化函数处理时间（自动转换时区到北京时间）
-            from .ui_components.common import _format_next_time
-            
+            from deva.naja.market_hotspot.utils.time_utils import format_next_time
+
             if cn_next:
-                cn_next_str = _format_next_time(cn_next)
+                cn_next_str = format_next_time(cn_next)
             else:
                 cn_next_str = ''
 
             if us_next:
-                us_next_str = _format_next_time(us_next)
+                us_next_str = format_next_time(us_next)
             else:
                 us_next_str = ''
 
@@ -1304,6 +1308,9 @@ class RealtimeDataFetcher:
             }
 
         except Exception as e:
+            import traceback
+            log.error(f"[RealtimeDataFetcher] get_stats 异常: {e}")
+            traceback.print_exc()
             cn_info = {'phase': 'unknown', 'phase_name': '未知', 'next_change_time': '', 'next_phase': '', 'next_phase_name': ''}
             us_info = {'phase': 'unknown', 'phase_name': '未知', 'next_change_time': '', 'next_phase': '', 'next_phase_name': ''}
 

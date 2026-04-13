@@ -246,9 +246,9 @@ def format_market_line(label: str, info: Dict[str, Any], *, html: bool = False) 
         True 时输出带 <span> 标签和颜色的 HTML（admin 面板用）；
         False 时输出纯文本（cards / flow 用）。
     """
-    phase_name = info.get('phase_name', '未知')
-    next_phase = info.get('next_phase_name', '')
-    next_time = info.get('next_change_time', '')
+    phase_name = info.get('phase_name') if info.get('phase_name') not in (None, '未知') else '未知'
+    next_phase = info.get('next_phase_name') or ''
+    next_time = info.get('next_change_time') or ''
 
     if html:
         next_info = f' → {next_phase} {next_time}' if next_phase else ''

@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import threading
 import time
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 from .core import NewsMindStrategy
 from ..config import get_memory_config
@@ -155,6 +155,40 @@ class CognitionEngine:
             self._stop_auto_save.set()
             self._auto_save_thread.join(timeout=5)
             print("[CognitionEngine] 自动保存已停止")
+
+    def get_liquidity_stats(self) -> Dict[str, Any]:
+        """获取流动性预测统计（公共API，供UI层使用）"""
+        try:
+            from .liquidity import get_liquidity_cognition
+            lc = get_liquidity_cognition()
+            if not lc:
+                return {}
+            tracker = lc.get_prediction_tracker()
+            if not tracker:
+                return {}
+            return {
+                "total_created": tracker._stats.get("total_created", 0),
+                "total_confirmed": tracker._stats.get("total_confirmed", 0),
+                "total_denied": tracker._stats.get("total_denied", 0),
+                "total_cancelled": tracker._stats.get("total_cancelled", 0),
+                "active_count": len(tracker._predictions_by_status.get("pending", [])),
+                "total_predictions": len(tracker._predictions),
+                "prediction_rate": tracker.get_prediction_rate(),
+            }
+        except Exception:
+            return {}
+
+    def get_liquidity_predictions(self) -> List[Dict[str, Any]]:
+        """获取活跃的流动性预测列表（公共API，供UI层使用）"""
+        try:
+            from .liquidity import get_liquidity_cognition
+            lc = get_liquidity_cognition()
+            if not lc:
+                return []
+            predictions = lc.get_active_predictions()
+            return [pred.to_dict() for pred in predictions]
+        except Exception:
+            return []
 
 
 # 向后兼容别名
