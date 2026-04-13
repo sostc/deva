@@ -3,7 +3,7 @@ FirstPrinciplesMind 单元测试
 """
 
 import unittest
-from deva.naja.cognition.first_principles_mind import (
+from deva.naja.cognition.analysis.first_principles_mind import (
     FirstPrinciplesMind,
     FirstPrinciplesAnalyzer,
     CausalityTracker,

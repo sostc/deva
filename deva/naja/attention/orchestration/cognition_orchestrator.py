@@ -77,7 +77,7 @@ class CognitionOrchestrator:
         """获取 KeywordRegistry（延迟加载 + 缓存）"""
         if self._keyword_registry is None:
             try:
-                from deva.naja.cognition.keyword_registry import KeywordRegistry
+                from deva.naja.cognition.semantic.keyword_registry import KeywordRegistry
                 self._keyword_registry = KeywordRegistry()
             except Exception as e:
                 log.debug(f"[CognitionOrchestrator] 创建 KeywordRegistry 失败: {e}")
@@ -136,7 +136,7 @@ class CognitionOrchestrator:
 
         # ========== CrossSignalAnalyzer (共振检测) ==========
         try:
-            from deva.naja.cognition.cross_signal_analyzer import get_cross_signal_analyzer
+            from deva.naja.cognition.analysis.cross_signal_analyzer import get_cross_signal_analyzer
             analyzer = get_cross_signal_analyzer()
             if analyzer:
                 block_resonances = analyzer.get_block_resonances()
