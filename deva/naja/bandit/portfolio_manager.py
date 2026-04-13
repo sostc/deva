@@ -23,6 +23,8 @@
 from __future__ import annotations
 
 import logging
+import os
+import json
 import threading
 import time
 from dataclasses import dataclass, field
@@ -491,12 +493,26 @@ async def fetch_us_stock_price(stock_code: str) -> Optional[tuple]:
 def init_us_portfolios():
     """初始化美股账户持仓
 
-    Spark: NVDA + CRWV (see config)
-    Cutie: BABA (see config)
+    持仓数据从配置文件 ~/.deva/portfolio_config.json 读取（不提交到 git）。
+    配置文件格式:
+    {
+        "Spark": {
+            "positions": [
+                {"symbol": "xxx", "name": "股票名称", "cost": 0.0, "quantity": 0}
+            ],
+            "equity": 0.0
+        },
+        "Cutie": {
+            "positions": [
+                {"symbol": "xxx", "name": "股票名称", "cost": 0.0, "quantity": 0}
+            ]
+        }
+    }
 
     使用 USStockPriceManager 智能获取价格（根据市场状态）
     """
     pm = get_portfolio_manager()
+    config = _load_portfolio_config()
 
     spark = pm.get_us_portfolio("Spark")
     cutie = pm.get_us_portfolio("Cutie")
@@ -508,25 +524,58 @@ def init_us_portfolios():
     price_map = {}
     prev_close_map = {}
 
-    from .us_stock_price_manager import get_us_stock_price_manager
-    price_manager = get_us_stock_price_manager()
+    # 收集所有需要更新价格的股票代码
+    all_symbols = set()
+    for account_name, portfolio in [("Spark", spark), ("Cutie", cutie)]:
+        if not portfolio or not config:
+            continue
+        account_cfg = config.get(account_name, {})
+        for pos_cfg in account_cfg.get("positions", []):
+            all_symbols.add(pos_cfg["symbol"])
 
-    stock_codes = ["nvda", "crwv", "baba"]
-    loop.run_until_complete(price_manager.update_prices(stock_codes, force=True))
-    price_map = price_manager.get_price_map()
-    prev_close_map = price_manager.get_prev_close_map()
+    # 批量更新价格
+    if all_symbols:
+        from .us_stock_price_manager import get_us_stock_price_manager
+        price_manager = get_us_stock_price_manager()
+        loop.run_until_complete(price_manager.update_prices(list(all_symbols), force=True))
+        price_map = price_manager.get_price_map()
+        prev_close_map = price_manager.get_prev_close_map()
 
-    if spark:
-        if not spark.get_positions_by_stock("nvda"):
-            spark.add_position("nvda", "NVDA", 0.0, 0)
-        if not spark.get_positions_by_stock("crwv"):
-            spark.add_position("crwv", "CoreWeave", 0.0, 0)
-        spark.set_equity(0.0)
-        spark.update_prices_batch(price_map, prev_close_map)
-        log.info(f"[Spark] 初始化完成: {len(spark.get_all_positions())} 个持仓, equity=${0.0:.2f}")
+    # 从配置文件加载持仓
+    for account_name, portfolio in [("Spark", spark), ("Cutie", cutie)]:
+        if not portfolio or not config:
+            continue
+        account_cfg = config.get(account_name, {})
+        for pos_cfg in account_cfg.get("positions", []):
+            symbol = pos_cfg["symbol"]
+            if not portfolio.get_positions_by_stock(symbol):
+                portfolio.add_position(
+                    symbol,
+                    pos_cfg.get("name", symbol),
+                    pos_cfg["cost"],
+                    pos_cfg["quantity"],
+                )
+        equity = account_cfg.get("equity")
+        if equity:
+            portfolio.set_equity(equity)
+        portfolio.update_prices_batch(price_map, prev_close_map)
+        positions = portfolio.get_all_positions()
+        eq = portfolio.get_equity()
+        log.info(f"[{account_name}] 初始化完成: {len(positions)} 个持仓, 净资产=${eq:,.2f}")
 
-    if cutie:
-        if not cutie.get_positions_by_stock("baba"):
-            cutie.add_position("baba", "BABA", 0.0, 0)
-        cutie.update_prices_batch(price_map, prev_close_map)
-        log.info(f"[Cutie] 初始化完成: {len(cutie.get_all_positions())} 个持仓")
+
+def _load_portfolio_config():
+    """加载持仓配置文件（仅本地，不提交到 git）
+
+    配置文件路径: ~/.deva/portfolio_config.json
+    如果文件不存在，返回 None
+    """
+    config_path = os.path.expanduser("~/.deva/portfolio_config.json")
+    if not os.path.exists(config_path):
+        return None
+    try:
+        with open(config_path, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception as e:
+        log.error(f"加载持仓配置文件失败: {e}")
+        return None
