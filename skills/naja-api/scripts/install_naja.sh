@@ -29,7 +29,7 @@ pip3 install requests
 
 # 安装 deva naja
 echo "安装 deva naja..."
-git clone https://github.com/deva-ai/deva.git || echo "deva 目录已存在"
+git clone https://github.com/sostc/deva.git || echo "deva 目录已存在"
 cd deva
 pip3 install -e .
 
