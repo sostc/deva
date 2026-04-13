@@ -7,6 +7,7 @@ AI 技术简报任务 v2.0
 import requests
 import json
 import logging
+import os
 from datetime import datetime
 from typing import List, Dict, Any
 from bs4 import BeautifulSoup
@@ -379,9 +380,8 @@ def execute() -> dict:
 
         # 3. 保存到文件
         today = datetime.now().strftime("%Y%m%d_%H%M")
-        report_path = f"/Users/spark/.naja/ai_reports/{today}_v2.txt"
+        report_path = os.path.expanduser(f"~/.naja/ai_reports/{today}_v2.txt")
         try:
-            import os
             os.makedirs(os.path.dirname(report_path), exist_ok=True)
             with open(report_path, 'w', encoding='utf-8') as f:
                 f.write(report)
