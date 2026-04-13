@@ -23,6 +23,7 @@ from .api_extensions import (
     SystemStatusHandler, SystemModulesHandler,
     RadarEventsHandler,
     BanditStatsHandler,
+    KnowledgeListHandler, KnowledgeStatsHandler, KnowledgeDetailHandler, KnowledgeTradingHandler,
     DataSourceListHandler, StrategyListHandler,
     AlayaStatusHandler
 )
@@ -171,7 +172,12 @@ def create_handlers(cdn: str = None):
             # 雷达系统 API
             (r'/api/radar/events', RadarEventsHandler),
             # Bandit 系统 API
-            (r'/api/bandit/stats', BanditStatsHandler),
+        (r'/api/bandit/stats', BanditStatsHandler),
+        # 知识库 API
+        (r'/api/knowledge/list', KnowledgeListHandler),
+        (r'/api/knowledge/stats', KnowledgeStatsHandler),
+        (r'/api/knowledge/detail', KnowledgeDetailHandler),
+        (r'/api/knowledge/trading', KnowledgeTradingHandler),
             # 数据源和策略 API
             (r'/api/datasource/list', DataSourceListHandler),
             (r'/api/strategy/list', StrategyListHandler),
