@@ -7,7 +7,6 @@ Naja Market Hotspot Configuration - 市场热点系统配置模块
 - MarketHotspotConfig: 市场热点系统主配置
 - NoiseFilterConfig: 噪音过滤配置
 - load_config(): 配置加载入口
-- get_intelligence_config(): 智能增强系统配置
 """
 
 import os
@@ -162,41 +161,3 @@ def load_config() -> MarketHotspotConfig:
     return config
 
 
-def get_intelligence_config() -> dict:
-    """
-    获取智能增强系统配置
-
-    使用统一的 config 系统: deva.config
-
-    默认启用:
-    - enable_predictive: True (预测热点)
-    - enable_feedback: True (热点反馈学习)
-    - enable_budget: True (预算系统)
-    - enable_strategy_learning: True (策略学习)
-    """
-    from deva import config
-
-    intelligence_enabled = config.get('hotspot_intelligence.enabled',
-                                      config.get('attention_intelligence.enabled', True))
-
-    intelligence_config = {
-        'enable_predictive': config.get('hotspot_intelligence.predictive',
-                                        config.get('attention_intelligence.predictive', True)),
-        'enable_feedback': config.get('hotspot_intelligence.feedback',
-                                      config.get('attention_intelligence.feedback', True)),
-        'enable_budget': config.get('hotspot_intelligence.budget',
-                                    config.get('attention_intelligence.budget', True)),
-        'enable_propagation': config.get('hotspot_intelligence.propagation',
-                                         config.get('attention_intelligence.propagation', True)),
-        'enable_strategy_learning': config.get('hotspot_intelligence.strategy_learning',
-                                               config.get('attention_intelligence.strategy_learning', True)),
-    }
-
-    if not intelligence_enabled:
-        return {}
-
-    has_any = any(intelligence_config.values())
-    if not has_any:
-        return {}
-
-    return intelligence_config

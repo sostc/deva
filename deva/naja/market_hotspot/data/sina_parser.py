@@ -208,3 +208,29 @@ def _fetch_sina_sync(force_trading: bool = False) -> Optional[pd.DataFrame]:
         import traceback
         log.error(traceback.format_exc())
         return None
+
+
+def _fetch_sina_by_symbols_sync(symbols: List[str]) -> Optional[pd.DataFrame]:
+    """同步获取指定 symbols 的 Sina 数据（在子线程中调用）"""
+    if not symbols:
+        return None
+    print(f"[SINA_SYNC_SYMBOLS] 开始 PID={os.getpid()}, symbols数量={len(symbols)}", flush=True)
+    try:
+        log.debug(f"[_fetch_sina_by_symbols_sync] 开始获取 {len(symbols)} 只股票")
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            result = loop.run_until_complete(_fetch_sina_batch_async(symbols))
+            print(f"[SINA_SYNC_SYMBOLS] 完成, result={len(result) if result else 0} 条", flush=True)
+            if result:
+                df = pd.DataFrame(result).T
+                return df
+            return None
+        finally:
+            loop.close()
+    except Exception as e:
+        print(f"[SINA_SYNC_SYMBOLS] 异常: {e}", flush=True)
+        log.error(f"[_fetch_sina_by_symbols_sync] 异常: {e}")
+        import traceback
+        log.error(traceback.format_exc())
+        return None

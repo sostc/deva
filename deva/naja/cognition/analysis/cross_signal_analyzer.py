@@ -19,7 +19,7 @@
 🔄 数据流：
     TextSignalBus → CrossSignalAnalyzer（订阅）
          ↓ 处理
-    发布 RESONANCE_DETECTED → CognitiveSignalBus → ManasEngine
+    发布 RESONANCE_DETECTED → NajaEventBus → ManasEngine
 
 💡 共振对 Manas 的意义：
     - 「天」「地」共振 → 交易信号增强（大胆操作）
@@ -649,7 +649,7 @@ class CrossSignalAnalyzer:
                         self._emit_to_insight_pool(resonance)
                     resonances.append(resonance)
                     _cognition_debug_log(f"检测到共振: block={resonance.block_name}, score={resonance.resonance_score:.3f}, type={resonance.resonance_type.value}")
-                    # 🚀 发布到 CognitiveSignalBus
+                    # 🚀 发布到 NajaEventBus
                     self._emit_to_cognitive_bus(resonance)
 
         if resonances:
@@ -1156,7 +1156,7 @@ class CrossSignalAnalyzer:
 
     def _emit_to_cognitive_bus(self, resonance: ResonanceSignal) -> None:
         """
-        🚀 将共振信号发布到 CognitiveSignalBus
+        🚀 将共振信号发布到 NajaEventBus
 
         发布 RESONANCE_DETECTED 事件，通知 ManasEngine：
         - 天（时机）和地（题材）是否共振了
@@ -1164,11 +1164,11 @@ class CrossSignalAnalyzer:
         """
         try:
             from deva.naja.events import (
-                get_cognitive_bus,
+                get_event_bus,
                 CognitiveEventType,
             )
 
-            bus = get_cognitive_bus()
+            bus = get_event_bus()
 
             # 准备事件数据
             event_data = {
@@ -1182,23 +1182,37 @@ class CrossSignalAnalyzer:
                 "source": resonance.source.value,
             }
 
-            # 发布到 CognitiveSignalBus
-            bus.publish_cognitive_event(
+            # 发布到 NajaEventBus
+            from deva.naja.events import ResonanceDetectedEvent
+
+            event = ResonanceDetectedEvent(
+
                 source="CrossSignalAnalyzer",
-                event_type=CognitiveEventType.RESONANCE_DETECTED,
-                narratives=resonance.news_themes,
-                importance=resonance.resonance_score,
-                confidence=resonance.resonance_score,
-                stock_codes=[],
-                metadata=event_data
+
+                event_type="resonance_detected",
+
+                narrative_id=f"cross_signal_1776069304",
+
+                signal_id="resonance_detected",
+
+                resonance_score=resonance_score,
+
+                symbol=signal_data.get("symbol") if isinstance(signal_data, dict) else None,
+
+                sector=None,
+
+                importance=importance,
+
             )
 
-            _cognition_debug_log(f"[CognitiveSignalBus] 发布共振事件: block={resonance.block_name}, score={resonance.resonance_score:.3f}")
+            bus.publish(event)
+
+            _cognition_debug_log(f"[NajaEventBus] 发布共振事件: block={resonance.block_name}, score={resonance.resonance_score:.3f}")
 
         except ImportError:
-            pass  # CognitiveSignalBus 未安装
+            pass  # NajaEventBus 未安装
         except Exception as e:
-            _cognition_debug_log(f"[CrossSignalAnalyzer] 发布到 CognitiveSignalBus 失败: {e}")
+            _cognition_debug_log(f"[CrossSignalAnalyzer] 发布到 NajaEventBus 失败: {e}")
 
     def _emit_to_insight_pool(self, resonance: ResonanceSignal) -> None:
         """将共振信号推送到 InsightPool"""

@@ -14,7 +14,7 @@ TimingNarrative - 认知系统/天（Timing/时机叙事感知）
 🔄 数据流：
     文本信号 → TextSignalBus → TimingNarrative（订阅）
          ↓ 处理
-    发布 TIMING_NARRATIVE_UPDATE → CognitiveSignalBus → ManasEngine
+    发布 TIMING_NARRATIVE_UPDATE → NajaEventBus → ManasEngine
 
 💡 与 NarrativeTracker 的区别：
     - TimingNarrative（天）：关注「时间」—— 现在是不是时机
@@ -134,14 +134,14 @@ class TimingNarrativeTracker:
             log.debug(f"[TimingNarrativeTracker] 处理 TextFocusedEvent 失败: {e}")
 
     def _publish_cognitive_update(self, event):
-        """发布市场叙事更新事件到 CognitiveSignalBus"""
+        """发布市场叙事更新事件到 NajaEventBus"""
         try:
             from deva.naja.events import (
-                get_cognitive_bus,
+                get_event_bus,
                 CognitiveEventType,
             )
 
-            bus = get_cognitive_bus()
+            bus = get_event_bus()
 
             narratives = list(event.topics or []) if hasattr(event, 'topics') else []
             narratives.extend(list(event.keywords or []) if hasattr(event, 'keywords') else [])
@@ -153,15 +153,12 @@ class TimingNarrativeTracker:
 
             importance = getattr(event, 'importance_score', 0.5)
 
-            bus.publish_cognitive_event(
-                source="TimingNarrativeTracker",
-                event_type=CognitiveEventType.TIMING_NARRATIVE_UPDATE,
-                narratives=narratives,
-                importance=importance,
-                confidence=0.5,
-                stock_codes=[],
-                metadata={}
+            from deva.naja.events import TimingNarrativeShiftEvent
+            event = TimingNarrativeShiftEvent(
+                source="TimingNarrative",
+                event_type="timing_narrative_update",
             )
+            bus.publish(event)
         except ImportError:
             pass
         except Exception as e:

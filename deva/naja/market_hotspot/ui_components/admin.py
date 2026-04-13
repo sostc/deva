@@ -2,15 +2,14 @@
 
 import logging
 from datetime import datetime
-from pywebio.output import put_html, put_row, put_column, put_text, put_button, use_scope
-from pywebio.session import run_js, run_async
-from pywebio.output import toast
+from pywebio.output import put_html, put_row, put_button, use_scope
+from pywebio.session import run_async
 
 from deva.naja.infra.ui.page_help import render_help_collapse
 from deva.naja.register import SR
 from deva.naja.market_hotspot.ui_components.styles import (
     GRADIENT_DARK_REVERSE, GRADIENT_WARNING, GRADIENT_INFO, GRADIENT_SUCCESS,
-    GRADIENT_NEUTRAL, GRADIENT_NEUTRAL_DARK,
+    GRADIENT_NEUTRAL,
     info_panel_style,
     COLOR_BORDER_WARNING, COLOR_BORDER_INFO, COLOR_BORDER_SUCCESS,
     COLOR_WARNING_TEXT, COLOR_INFO_DEEPER, COLOR_SUCCESS_DEEPER,
@@ -31,6 +30,9 @@ def _get_experiment_info():
     return {"active": False}
 
 
+
+
+
 async def render_market_hotspot_admin(ctx: dict):
     """渲染市场热点监测管理页面"""
     from .common import (
@@ -38,15 +40,19 @@ async def render_market_hotspot_admin(ctx: dict):
         initialize_hotspot_system, get_strategy_manager,
     )
     from .cards import (
-        render_frequency_distribution, render_strategy_status,
-        render_dual_engine_status, render_noise_filter_status, render_hot_blocks_and_stocks,
+        render_frequency_distribution, render_pytorch_patterns,
         render_market_state_panel,
     )
+    from .cards.signal_tuner_panel import render_signal_tuner_panel
+    from .cards.strategy_allocator_panel import render_strategy_allocator_panel
+    from .cards.liquidity_rescue_panel import render_liquidity_rescue_panel
+    from .cards.feedback_report_panel import render_feedback_report_panel
     from .timeline import (
         render_hotspot_timeline, render_block_trends, render_hotspot_shift_report,
         render_multi_threshold_timeline, render_hotspot_changes, render_recent_signals,
+        render_block_hotspot_timeline, render_block_trading_timeline,
     )
-    from .intelligence import render_intelligence_panels
+    from .intelligence import render_intelligence_panels, render_propagation_panel
     from .flow import (
         render_hotspot_flow_ui,
         render_hotspot_layers_detail,
@@ -292,49 +298,63 @@ async def render_market_hotspot_admin(ctx: dict):
             """
             put_html(panel_html)
 
-        try:
-            render_help_collapse("hotspot")
-        except Exception:
-            pass
+    # ========== 平铺布局：各板块依次渲染 ==========
 
-    with use_scope("hotspot_market_state"):
-        put_html(render_market_state_panel())
+    def _section_header(icon: str, title: str, subtitle: str = "") -> str:
+        sub_html = f'<span style="font-size:11px;color:#64748b;margin-left:8px;">{subtitle}</span>' if subtitle else ''
+        return f"""
+        <div style="margin: 20px 0 10px 0; padding: 10px 16px;
+                    background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
+                    border-radius: 10px; border-left: 4px solid #0ea5e9;
+                    display: flex; align-items: center;">
+            <span style="font-size:18px; margin-right:8px;">{icon}</span>
+            <span style="font-size:14px; font-weight:700; color:#f1f5f9;">{title}</span>
+            {sub_html}
+        </div>"""
 
-    with use_scope("hotspot_cross_market"):
-        put_html(render_cross_market_predictions())
+    # --- 📊 市场概览 ---
+    put_html(_section_header("📊", "市场概览", "实时行情与跨市场分析"))
+    put_html(render_market_state_panel())
+    put_html(render_cross_market_predictions())
 
-    with use_scope("hotspot_flow"):
-        put_html(render_hotspot_flow_ui())
+    # --- 🔥 热点追踪 ---
+    put_html(_section_header("🔥", "热点追踪", "题材轮动与热点变化"))
+    put_html(render_hotspot_flow_ui())
+    shift_report = _get_hotspot_shift_report_impl()
+    put_html(render_hotspot_shift_report(shift_report))
+    changes = _get_hotspot_changes_impl()
+    put_html(render_hotspot_changes(changes))
+    put_html(render_block_hotspot_timeline())
+    put_html(render_block_trading_timeline())
 
-    with use_scope("hotspot_noise"):
-        put_html(render_noise_filter_panel())
+    # --- 🧠 智能系统 ---
+    put_html(_section_header("🧠", "智能系统", "策略引擎与信号分析"))
+    put_html(render_strategy_status_panel())
+    put_html(render_dual_engine_panel())
+    put_html(render_pytorch_patterns())
+    put_html(render_frequency_distribution(freq_summary))
+    put_html(render_signal_tuner_panel())
+    put_html(render_strategy_allocator_panel())
+    put_html(render_intelligence_panels())
+    put_html(render_propagation_panel())
+    manager = get_strategy_manager()
+    if manager:
+        signals = manager.get_recent_signals(n=20)
+        put_html(render_recent_signals(signals))
 
-    with use_scope("hotspot_strategy"):
-        put_html(render_strategy_status_panel())
+    # --- 🛡️ 风险监控 ---
+    put_html(_section_header("🛡️", "风险监控", "噪声过滤与流动性预警"))
+    put_html(render_noise_filter_panel())
+    put_html(render_liquidity_rescue_panel())
+    put_html(_render_micro_change_indicator())
+    put_html(render_feedback_report_panel())
 
-    with use_scope("hotspot_dual_engine"):
-        put_html(render_dual_engine_panel())
-
-    with use_scope("hotspot_shift"):
-        shift_report = _get_hotspot_shift_report_impl()
-        put_html(render_hotspot_shift_report(shift_report))
-
-    with use_scope("hotspot_signals"):
-        manager = get_strategy_manager()
-        if manager:
-            signals = manager.get_recent_signals(n=20)
-            put_html(render_recent_signals(signals))
-
-    with use_scope("hotspot_intelligence"):
-        put_html(render_intelligence_panels())
-
-    put_text("")
-
-    with use_scope("hotspot_block_micro"):
-        put_html(_render_micro_change_indicator())
-
-    put_text("")
-
+    # --- ⚙️ 系统运维 ---
+    put_html(_section_header("⚙️", "系统运维", "诊断与管理工具"))
+    try:
+        render_help_collapse("hotspot")
+    except Exception:
+        pass
     put_row([
         put_button("🔍 运行诊断", onclick=lambda: _run_diagnostic(), small=True),
         put_button("🔇 噪音过滤管理", onclick=lambda: _manage_noise_filter(), small=True, color="info"),
@@ -363,23 +383,7 @@ def _get_hotspot_changes_impl():
     return []
 
 
-def _get_pytorch_patterns_html() -> str:
-    """获取 PyTorch 模式识别的 HTML"""
-    try:
-        from .cards import render_pytorch_patterns
-        return render_pytorch_patterns()
-    except Exception:
-        return "<div style='color: #64748b;'>加载失败</div>"
 
-
-def _get_hotspot_changes_html() -> str:
-    """获取热点变化的 HTML"""
-    changes = _get_hotspot_changes_impl()
-    try:
-        from .timeline import render_hotspot_changes
-        return render_hotspot_changes(changes)
-    except Exception:
-        return "<div style='color: #64748b;'>加载失败</div>"
 
 
 def _render_micro_change_indicator() -> str:
@@ -648,21 +652,4 @@ def _manage_noise_filter():
         ], onclick=lambda v: run_async(reset_stats()) if v == 'reset' else popup_ctx.close())
 
 
-def _render_technical_debug_section(title: str, content: str) -> str:
-    """渲染弱化的技术调试折叠区块"""
-    return f"""
-    <details style="margin-bottom: 8px;">
-        <summary style="cursor: pointer; padding: 6px 12px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; font-weight: 500; color: #94a3b8; font-size: 12px; user-select: none;">
-            {title}
-        </summary>
-        <div style="padding: 10px; background: white; border: 1px solid #e2e8f0; border-top: none; border-radius: 0 0 6px 6px;">
-            {content}
-        </div>
-    </details>
-    """
 
-
-def _do_refresh():
-    """手动刷新"""
-    toast("正在刷新...", color="info")
-    run_js("window.location.reload()")

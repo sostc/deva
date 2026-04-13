@@ -23,7 +23,7 @@ def _get_data_sources():
     return [
         {"name": "金十数据", "type": "news", "icon": "📡"},
         {"name": "BlockAttention", "type": "market", "icon": "📊"},
-        {"name": "CognitiveSignalBus", "type": "internal", "icon": "🧠"},
+        {"name": "NajaEventBus", "type": "internal", "icon": "🧠"},
     ]
 
 

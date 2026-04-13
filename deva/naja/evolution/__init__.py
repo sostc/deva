@@ -6,7 +6,6 @@ Evolution Module - 进化层
 类：
 - MetaEvolution: 元进化引擎
 - SelfObserver: 自我观察器
-- OpportunityEngine: 主动机会创造引擎
 - ActionExecutor: 行动执行器
 """
 
@@ -20,16 +19,6 @@ from .meta_evolution import (
     PerformanceTrend,
     get_meta_evolution,
     initialize_meta_evolution,
-)
-
-from .opportunity_engine import (
-    OpportunityEngine,
-    OpportunityScanner,
-    TimingOptimizer,
-    OpportunityType,
-    OpportunityStage,
-    Opportunity,
-    TimingSignal,
 )
 
 from .action_executor import (
@@ -53,13 +42,6 @@ __all__ = [
     "PerformanceTrend",
     "get_meta_evolution",
     "initialize_meta_evolution",
-    "OpportunityEngine",
-    "OpportunityScanner",
-    "TimingOptimizer",
-    "OpportunityType",
-    "OpportunityStage",
-    "Opportunity",
-    "TimingSignal",
     "ActionExecutor",
     "WisdomSynthesizer",
     "ActionGenerator",
