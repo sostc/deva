@@ -67,7 +67,7 @@ def render_hot_blocks_and_stocks(hot_data: Dict[str, Any]) -> str:
     if not blocks and not stocks:
         return ""
 
-    from ..common import get_history_tracker
+    from deva.naja.market_hotspot.tracking.history_tracker import get_history_tracker
     tracker = get_history_tracker()
 
     html = """<div style="background: white; border: 1px solid #e2e8f0; border-radius: 12px; padding: 20px; margin-top: 16px;"><div style="font-weight: 600; margin-bottom: 16px; color: #1e293b; font-size: 16px;">🔥 热门题材与股票 <span style="font-size: 12px; color: #64748b; font-weight: normal; margin-left: 8px;">市场热点排名</span></div><div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">"""

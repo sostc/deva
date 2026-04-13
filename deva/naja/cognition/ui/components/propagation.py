@@ -158,23 +158,21 @@ def render_propagation(ui):
             """)
         put_html("</div></div>")
 
-    # === 预测闭环区域 ===
+    # === 预测闭环区域（通过CognitionEngine公共API获取数据）===
     try:
-        from deva.naja.cognition.liquidity.liquidity_cognition import (
-            get_liquidity_cognition, PredictionStatus
-        )
         import time as _time
 
-        lc = get_liquidity_cognition()
-        pred_tracker = lc._prediction_tracker
-        pred_stats = pred_tracker.get_stats()
-        active_preds = pred_tracker.get_active_predictions()
-        pred_rate = pred_tracker.get_prediction_rate()
+        if not ui.engine:
+            raise ValueError("ui.engine is None")
+
+        pred_stats = ui.engine.get_liquidity_stats()
+        active_preds = ui.engine.get_liquidity_predictions()
 
         active_cnt = pred_stats.get("active_count", 0)
         confirmed_cnt = pred_stats.get("total_confirmed", 0)
         denied_cnt = pred_stats.get("total_denied", 0)
         cancelled_cnt = pred_stats.get("total_cancelled", 0)
+        pred_rate = pred_stats.get("prediction_rate", 0.5)
 
         rate_pct = int(pred_rate * 100)
         rate_color = "#22c55e" if pred_rate >= 0.7 else ("#f59e0b" if pred_rate >= 0.5 else "#ef4444")
@@ -206,8 +204,7 @@ def render_propagation(ui):
 
         if active_preds:
             now = _time.time()
-            for pred in active_preds[:5]:
-                pd = pred.to_dict()
+            for pd in active_preds[:5]:
                 from_m = pd.get("from_market", "?")
                 to_m = pd.get("to_market", "?")
                 direction = pd.get("direction", "?")

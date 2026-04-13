@@ -516,21 +516,20 @@ class DailyReviewWakeSync:
 
             scheduler = get_daily_review_scheduler()
             tc = SR('trading_clock')
-            us_tc = SR('us_trading_clock')
 
             now = datetime.now()
 
             # 检查 A股
             if now.weekday() < 5:  # 非周末
                 if not scheduler._check_already_replayed_today(market='a_share', phase='post_market'):
-                    current_phase = tc.current_phase
+                    current_phase = tc.cn_phase
                     if current_phase == 'post_market' or (current_phase == 'closed' and now.time() >= dtime(15, 30)):
                         log.info("[WakeSync] DailyReview: A股满足复盘条件")
                         return True
 
             # 检查美股
             if not scheduler._check_already_replayed_today(market='us_share', phase='post_market'):
-                us_phase = us_tc.current_phase
+                us_phase = tc.us_phase
                 us_hour = now.hour
                 is_us_post_market_time = us_hour >= 4
                 if us_phase == 'post_market' or (us_phase == 'closed' and is_us_post_market_time):

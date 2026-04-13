@@ -52,6 +52,11 @@ def main():
     parser.add_argument("--force-realtime", action="store_true",
                         help="强制实盘调试模式（忽略交易时间限制，用于非交易时间调试）")
 
+    # 调试市场模式参数（仅用于开发调试，生产环境不应使用）
+    parser.add_argument("--debug-market", type=str, default=None,
+                        choices=["a_share", "us", "closed"],
+                        help="调试模式：强制指定市场状态 (a_share=A股交易中, us=美股交易中, closed=休市)")
+
     # 新闻雷达模式参数（统一命名）
     # --news-radar: 默认启用新闻雷达（使用真实数据源）
     # --news-radar-speed: 新闻雷达加速倍数（可与 --news-radar-sim 互斥）
@@ -115,6 +120,12 @@ def main():
     if args.force_realtime:
         os.environ['NAJA_FORCE_REALTIME'] = '1'
         print("⚠️ 强制实盘调试模式已启用 (--force-realtime)")
+
+    # 处理调试市场模式参数
+    if args.debug_market:
+        from .market_hotspot.data.global_market_futures import set_debug_market_mode
+        set_debug_market_mode(args.debug_market)
+        print(f"⚠️ 调试市场模式已启用 (--debug-market={args.debug_market})")
 
     # 调参模式配置
     tune_config = None

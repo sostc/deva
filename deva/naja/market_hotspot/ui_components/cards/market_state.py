@@ -115,7 +115,8 @@ def render_hotspot_details_card(details: Dict[str, Any]) -> str:
 
 def render_market_state_panel() -> str:
     """渲染当前市场热点状态面板（支持A股+美股混合展示）"""
-    from ..common import get_history_tracker, get_market_phase_summary, get_ui_mode_context, get_hot_blocks_and_stocks
+    from deva.naja.market_hotspot.tracking.history_tracker import get_history_tracker
+    from ..common import get_market_phase_summary, get_ui_mode_context, get_hot_blocks_and_stocks
     from ..us_market import get_us_hotspot_data, get_us_market_summary
 
     tracker = get_history_tracker()

@@ -3,7 +3,7 @@
 from datetime import datetime
 from typing import List, Dict, Any
 
-from deva.naja.market_hotspot.ui_components.common import get_history_tracker
+from deva.naja.market_hotspot.tracking.history_tracker import get_history_tracker
 
 def render_block_trading_timeline() -> str:
     """题材炒作时间轴 - 展示每天各题材随时间的涨跌变化"""

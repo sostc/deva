@@ -10,22 +10,16 @@ import time
 
 def render_liquidity_prediction(ui):
     try:
-        from deva.naja.cognition.liquidity.liquidity_cognition import (
-            get_liquidity_cognition, PredictionStatus
-        )
-        lc = get_liquidity_cognition()
-        tracker = lc._prediction_tracker
+        if not ui.engine:
+            return
+        stats = ui.engine.get_liquidity_stats()
+        active_predictions = ui.engine.get_liquidity_predictions()
     except Exception:
         return
 
     from pywebio.output import put_html
 
-    # --- 获取数据 ---
-    try:
-        stats = tracker.get_stats()
-        active_predictions = tracker.get_active_predictions()
-        accuracy = tracker.get_prediction_rate()
-    except Exception:
+    if not stats:
         return
 
     total_created = stats.get("total_created", 0)
@@ -34,6 +28,7 @@ def render_liquidity_prediction(ui):
     total_cancelled = stats.get("total_cancelled", 0)
     active_count = stats.get("active_count", 0)
     total_predictions = stats.get("total_predictions", 0)
+    accuracy = stats.get("prediction_rate", 0.5)
 
     # --- 准确率颜色 ---
     accuracy_pct = int(accuracy * 100)
@@ -118,8 +113,7 @@ def render_liquidity_prediction(ui):
     if active_predictions:
         now = time.time()
         rows_html = ""
-        for pred in active_predictions[:8]:
-            pd = pred.to_dict()
+        for pd in active_predictions[:8]:
             from_m = pd.get("from_market", "?")
             to_m = pd.get("to_market", "?")
             direction = pd.get("direction", "?")

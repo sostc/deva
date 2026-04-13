@@ -30,11 +30,11 @@ from .trading_clock import (
     is_trading_time,
     is_market_closed,
     TRADING_CLOCK_STREAM,
-    USTradingClock,
     us_trading_clock_signal,
     is_us_trading_time,
     is_us_market_closed,
     USTRADING_CLOCK_STREAM,
+    get_global_trading_status,
 )
 # openrouter_monitor 已迁移到 cognition 层，保留向后兼容转发
 from deva.naja.cognition.openrouter_monitor import (
@@ -92,12 +92,12 @@ __all__ = [
     "is_trading_time",
     "is_market_closed",
     "TRADING_CLOCK_STREAM",
-    "USTradingClock",
 
     "us_trading_clock_signal",
     "is_us_trading_time",
     "is_us_market_closed",
     "USTRADING_CLOCK_STREAM",
+    "get_global_trading_status",
     "get_openrouter_trend",
     "get_openrouter_full_data",
     "refresh_openrouter_data",
