@@ -39,10 +39,11 @@ def send_imessage(phone: str, text: str) -> bool:
     """发送iMessage"""
     try:
         import subprocess
+        escaped_text = text.replace('"', '\\"')
         cmd = [
             'osascript', '-e',
             f'''tell application "Messages"
-                send "{text.replace('"', '\\"')}" to buddy "{phone}"
+                send "{escaped_text}" to buddy "{phone}"
             end tell'''
         ]
         subprocess.run(cmd, capture_output=True, timeout=10)
