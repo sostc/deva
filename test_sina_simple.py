@@ -7,14 +7,21 @@ try:
     ip = socket.gethostbyname('hq.sinajs.cn')
     print(f'DNS resolution successful: {ip}')
     
-    # Test 2: HTTP request
-    print('\nTest 2: HTTP request')
+    # Test 2: HTTP request with proper headers
+    print('\nTest 2: HTTP request with proper headers')
     url = 'https://hq.sinajs.cn/list=sh600000'
-    response = urllib.request.urlopen(url, timeout=10)
+    
+    headers = {
+        "Referer": "https://finance.sina.com.cn",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    }
+    
+    req = urllib.request.Request(url, headers=headers)
+    response = urllib.request.urlopen(req, timeout=10)
     print(f'HTTP Status: {response.getcode()}')
     content = response.read()
     print(f'Response Length: {len(content)}')
-    print(f'First 200 chars: {content[:200]}')
+    print(f'Response: {content}')
     
 except Exception as e:
     print(f'Error: {e}')
