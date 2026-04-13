@@ -17,7 +17,7 @@
 - openrouter_monitor.py: OpenRouter TOKEN 监控
 """
 
-from .core import NewsMindStrategy, AttentionScorer
+from .core import NewsMindStrategy
 from .engine import CognitionEngine
 from .narrative import (
     NarrativeTracker,
@@ -80,7 +80,6 @@ from .ingestion import CognitionIngestion, get_cognition_ingestion
 __all__ = [
     # 核心策略
     "NewsMindStrategy",
-    "AttentionScorer",
     # 认知引擎
     "CognitionEngine",
     # 天-地 叙事追踪 (narrative模块)

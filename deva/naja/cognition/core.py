@@ -8,26 +8,19 @@ NewsMind - 认知系统/新闻认知/话题跟踪
 
 输入: 绑定的数据源（tick、新闻、文本）
 输出: 信号流（主题信号、注意力信号、趋势变化信号）
-
-注意：NewsEvent、AttentionScorer、Topic 等已拆分到独立模块，
-此处保留向后兼容的导入。
 """
 
-import json
 import time
 import math
 import numpy as np
 from datetime import datetime, timedelta
 from collections import deque
 from typing import Dict, List, Optional, Any, Tuple
-import hashlib
 import threading
 import os
 
 from .narrative import NarrativeTracker
-
-# ── 从 semantic 子域导入 ──────────────────────────────────
-from .semantic import (                             # noqa: F401
+from .semantic import (
     SemanticColdStart,
     NewsEvent,
     SignalType,
@@ -41,7 +34,6 @@ from .semantic import (                             # noqa: F401
     _is_stock_relevant_topic,
 )
 from .memory_manager import MemoryManager
-# ── semantic 导入结束 ─────────────────────────────────────
 
 
 def _radar_debug_log(msg: str):
@@ -78,15 +70,6 @@ except ImportError:
 
 
 
-
-# ── 以下类已迁移到独立模块，此处通过头部导入保持向后兼容 ──
-# NewsEvent      → cognition/news_event.py
-# AttentionScorer → cognition/attention_scorer.py
-# Topic          → cognition/topic_manager.py
-# DATASOURCE_TYPE_MAP / get_datasource_type → cognition/news_event.py
-# STOCK_RELEVANT_* / _get_market_activity / _is_stock_relevant_topic → cognition/topic_manager.py
-
-
 class NewsMindStrategy:
     """
     新闻心智策略 - News Mind Strategy
@@ -115,26 +98,26 @@ class NewsMindStrategy:
         # 核心组件
         self.attention_scorer = AttentionScorer(history_size=self.short_term_size)
         
-        # 记忆系统 - 委托给 MemoryManager
+        # 记忆系统
         self.memory = MemoryManager(self.config)
         self.memory.set_market_activity_fn(_get_market_activity)
 
-        # 向后兼容属性代理（外部代码可能直接访问 self.short_memory 等）
+        # 记忆属性快捷访问
         self.short_memory = self.memory.short_memory
         self.mid_memory = self.memory.mid_memory
         self.long_memory = self.memory.long_memory
 
-        self.topics: Dict[int, Topic] = {}                            # 主题库
+        self.topics: Dict[int, Topic] = {}
         self.topic_counter = 0
 
-        # 向后兼容：保留这些属性的引用（实际值由 MemoryManager 管理）
+        # 记忆配置快捷访问
         self.short_term_half_life = self.memory.short_term_half_life
         self.mid_term_half_life = self.memory.mid_term_half_life
         self.topic_half_life = self.memory.topic_half_life
         self.mid_memory_threshold = self.memory.mid_memory_threshold
         self.long_memory_interval = self.memory.long_memory_interval
         self.last_long_memory_time = self.memory.last_long_memory_time
-        self.reinforcement_shield = self.memory.reinforcement_shield  # 强化保护时间（秒）
+        self.reinforcement_shield = self.memory.reinforcement_shield
         
         # River组件
         if RIVER_AVAILABLE:
@@ -1539,7 +1522,7 @@ class NewsMindStrategy:
 
         self.memory.deserialize_state(data, event_factory=_news_event_factory)
 
-        # 同步向后兼容属性
+        # 同步记忆属性
         self.short_memory = self.memory.short_memory
         self.mid_memory = self.memory.mid_memory
         self.long_memory = self.memory.long_memory

@@ -10,7 +10,7 @@ print("=" * 70)
 print("诊断：语义冷启动系统")
 print("=" * 70)
 
-from deva.naja.cognition.semantic_cold_start import SemanticColdStart, DEFAULT_PROMPT_TEMPLATE
+from deva.naja.cognition.semantic.semantic_cold_start import SemanticColdStart, DEFAULT_PROMPT_TEMPLATE
 
 print("\n[1] 创建 SemanticColdStart 实例...")
 config = {
