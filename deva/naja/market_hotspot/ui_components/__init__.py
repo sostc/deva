@@ -3,7 +3,6 @@
 from .common import (
     get_market_hotspot_integration,
     get_strategy_manager,
-    get_history_tracker,
     get_hot_blocks_and_stocks,
     get_hotspot_report,
     get_strategy_stats,
@@ -12,6 +11,8 @@ from .common import (
     is_hotspot_system_initialized,
     initialize_hotspot_system,
 )
+
+from deva.naja.market_hotspot.tracking.history_tracker import get_history_tracker
 
 from .cards import (
     render_market_state_panel,

@@ -60,7 +60,7 @@ def run_server(port: int = 8080, host: str = '0.0.0.0', lab_config: dict = None,
 
     print("🎯 恢复 Bandit 自适应循环...")
     try:
-        from .bandit import restore_bandit_state
+        from deva.naja.bandit import restore_bandit_state
         restore_bandit_state()
         print("✓ Bandit 自适应循环状态已恢复")
     except Exception as e:

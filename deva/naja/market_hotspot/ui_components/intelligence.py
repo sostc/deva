@@ -1,6 +1,6 @@
 """热点系统 UI 智能增强面板"""
 
-from deva.naja.market_hotspot.ui_components.common import get_history_tracker
+from deva.naja.market_hotspot.tracking.history_tracker import get_history_tracker
 
 
 def get_intelligence_system():

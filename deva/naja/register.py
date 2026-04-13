@@ -204,22 +204,14 @@ def _register_custom_singletons():
     register_singleton('history_tracker', _create_history_tracker, deps=[])
     logger.info("  ✓ history_tracker")
 
-    # --- trading_clock / us_trading_clock: 需要 start() ---
+    # --- trading_clock: 统一交易时钟（支持 A股 + 美股），需要 start() ---
     def _create_trading_clock():
         from .radar.trading_clock import TradingClock
         tc = TradingClock()
         tc.start()
         return tc
     register_singleton('trading_clock', _create_trading_clock, deps=[])
-    logger.info("  ✓ trading_clock")
-
-    def _create_us_trading_clock():
-        from .radar.trading_clock import USTradingClock
-        utc = USTradingClock()
-        utc.start()
-        return utc
-    register_singleton('us_trading_clock', _create_us_trading_clock, deps=[])
-    logger.info("  ✓ us_trading_clock")
+    logger.info("  ✓ trading_clock (统一，支持 A股 + 美股)")
 
     # --- realtime_data_fetcher: 需要 SR() + start() ---
     def _create_realtime_data_fetcher():
@@ -261,7 +253,6 @@ def ensure_trading_clocks():
     """
     for sr_name, factory_info in [
         ('trading_clock', ('.radar.trading_clock', 'TradingClock', True)),
-        ('us_trading_clock', ('.radar.trading_clock', 'USTradingClock', True)),
         ('market_session_manager', ('.radar.global_market_config', 'MarketSessionManager', False)),
     ]:
         try:
@@ -280,10 +271,8 @@ def ensure_trading_clocks():
 
             register_singleton(sr_name, _make_factory(mod_path, cls_name, needs_start), deps=[])
 
-    # 触发实例化，确保线程启动
     try:
         SR('trading_clock')
-        SR('us_trading_clock')
     except Exception as e:
         logger.warning(f"[NajaRegister] 交易时钟初始化失败: {e}")
 
