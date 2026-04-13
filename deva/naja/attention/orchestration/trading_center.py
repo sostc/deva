@@ -34,6 +34,19 @@ import threading
 
 from ..os.attention_os import AttentionOS, get_attention_os
 
+# 事件总线导入
+try:
+    from deva.naja.events import (
+        get_event_bus, 
+        StrategySignalEvent, 
+        TradeDecisionEvent,
+        SignalDirection,
+        DecisionResult,
+    )
+    EVENT_BUS_AVAILABLE = True
+except ImportError:
+    EVENT_BUS_AVAILABLE = False
+
 log = logging.getLogger(__name__)
 
 
@@ -310,7 +323,64 @@ class TradingCenter:
         }
 
         self._initialized = True
-        log.info("[TradingCenter] 初始化完成")
+        
+        # 🚀 新架构：订阅 StrategySignalEvent，处理策略信号
+        self._subscribe_to_strategy_signals()
+        
+        log.info("[TradingCenter] 初始化完成（已订阅策略信号事件）")
+
+    def _subscribe_to_strategy_signals(self):
+        """🚀 订阅 StrategySignalEvent，处理策略信号"""
+        if not EVENT_BUS_AVAILABLE:
+            log.debug("[TradingCenter] 事件总线不可用，跳过订阅")
+            return
+            
+        try:
+            bus = get_event_bus()
+            
+            def on_strategy_signal(event):
+                """处理策略信号事件"""
+                try:
+                    import time as t
+                    start_time = t.time_ns()
+                    
+                    # 调用新的事件处理方法
+                    decision = self.process_strategy_signal_event(event)
+                    
+                    processing_time_ms = (t.time_ns() - start_time) / 1_000_000
+                    
+                    # 构建决策事件
+                    decision_event = TradeDecisionEvent(
+                        signal_event=event,
+                        decision=decision["decision"],
+                        approval_score=decision.get("approval_score", 0.5),
+                        approved_symbol=decision.get("approved_symbol"),
+                        approved_direction=decision.get("approved_direction"),
+                        position_size=decision.get("position_size"),
+                        entry_price=decision.get("entry_price"),
+                        stop_loss_price=decision.get("stop_loss_price"),
+                        take_profit_price=decision.get("take_profit_price"),
+                        reason=decision.get("reason", ""),
+                        subsystems_opinions=decision.get("subsystems_opinions", {}),
+                        processing_time_ms=processing_time_ms,
+                        metadata={
+                            "processing_time_ms": processing_time_ms,
+                            "original_signal": event.to_dict(),
+                        }
+                    )
+                    
+                    # 发布决策事件
+                    bus.publish(decision_event)
+                    log.debug(f"[TradingCenter] 发布 TradeDecisionEvent: {decision_event.decision.value}")
+                    
+                except Exception as e:
+                    log.warning(f"[TradingCenter] 处理策略信号事件失败: {e}")
+            
+            bus.subscribe("StrategySignalEvent", on_strategy_signal)
+            log.info("[TradingCenter] 已订阅 StrategySignalEvent")
+            
+        except Exception as e:
+            log.warning(f"[TradingCenter] 订阅策略信号事件失败: {e}")
 
     def _get_first_principles_mind(self):
         """获取 FirstPrinciplesMind"""
@@ -692,6 +762,125 @@ class TradingCenter:
                 self.attention_os.market_scheduler.schedule(data)
         except Exception as e:
             log.warning(f"[TradingCenter] process_datasource_data 失败: {e}")
+
+    def process_strategy_signal_event(self, event: StrategySignalEvent) -> Dict[str, Any]:
+        """
+        处理 StrategySignalEvent 事件（新架构）
+        
+        将事件转换为旧格式，调用原有的 process_strategy_signal 方法，
+        然后将结果转换为新格式的决策字典。
+        """
+        try:
+            start_time = time.time()
+            
+            # 转换事件为旧格式（兼容现有逻辑）
+            signal_dict = {
+                'strategy_id': event.strategy_name,
+                'stock_code': event.symbol,
+                'stock_name': event.symbol.split('.')[0] if '.' in event.symbol else event.symbol,
+                'signal_type': 'buy' if event.is_buy else ('sell' if event.is_sell else 'neutral'),
+                'price': event.current_price,
+                'confidence': event.confidence,
+                'position_size': event.position_size,
+                'stop_loss_pct': event.stop_loss_pct,
+                'take_profit_pct': event.take_profit_pct,
+                'narrative_tags': event.narrative_tags,
+                'block_name': event.block_name,
+                'timeframe': event.timeframe,
+                'timestamp': event.timestamp,
+                'metadata': event.metadata,
+                'event_type': 'strategy_signal',
+                'direction': event.direction.value,
+            }
+            
+            log.info(f"[TradingCenter] 收到策略信号事件: {event.strategy_name} {event.symbol} {event.direction.value} @ {event.current_price}")
+            
+            # 调用原来的处理方法
+            result = self.process_strategy_signal(signal_dict)
+            
+            # 构建结果字典
+            if result is None:
+                # 处理失败
+                return {
+                    'decision': DecisionResult.REJECTED,
+                    'approval_score': 0.0,
+                    'approved_symbol': event.symbol,
+                    'approved_direction': event.direction,
+                    'position_size': 0.0,
+                    'entry_price': event.current_price,
+                    'reason': "处理过程失败",
+                    'subsystems_opinions': {},
+                }
+            
+            # 转换结果
+            processing_time = time.time() - start_time
+            approved = result.get('approved', False)
+            
+            if approved:
+                decision = DecisionResult.APPROVED
+                approval_score = result.get('final_confidence', event.confidence)
+                action_type = result.get('action_type', 'buy')
+                
+                # 构建子系统意见字典
+                subsystems_opinions = {
+                    "manas_engine": {
+                        "score": result.get('manas_score', 0.5),
+                        "reason": f"Manas评分: {result.get('manas_score', 0.5):.3f}"
+                    },
+                    "attention_os": {
+                        "score": result.get('final_confidence', 0.5),
+                        "reason": f"最终置信度: {result.get('final_confidence', 0.5):.3f}"
+                    }
+                }
+                
+                return {
+                    'decision': decision,
+                    'approval_score': approval_score,
+                    'approved_symbol': event.symbol,
+                    'approved_direction': (event.direction if action_type in ['buy', 'sell'] 
+                                          else SignalDirection.NEUTRAL),
+                    'position_size': event.position_size,
+                    'entry_price': event.current_price,
+                    'stop_loss_price': (event.current_price * (1 - event.stop_loss_pct/100) 
+                                      if event.stop_loss_pct else None),
+                    'take_profit_price': (event.current_price * (1 + event.take_profit_pct/100) 
+                                        if event.take_profit_pct else None),
+                    'reason': f"批准执行: {', '.join(result.get('reasoning', []))}"[:200],
+                    'subsystems_opinions': subsystems_opinions,
+                    'processing_time_ms': processing_time * 1000,
+                }
+            else:
+                decision = DecisionResult.REJECTED
+                return {
+                    'decision': decision,
+                    'approval_score': result.get('final_confidence', 0.3),
+                    'approved_symbol': event.symbol,
+                    'approved_direction': SignalDirection.NEUTRAL,
+                    'position_size': 0.0,
+                    'entry_price': event.current_price,
+                    'reason': f"否决执行: {', '.join(result.get('reasoning', ['置信度不足']))}"[:200],
+                    'subsystems_opinions': {
+                        "attention_os": {
+                            "score": result.get('final_confidence', 0.3),
+                            "reason": f"置信度不足: {result.get('final_confidence', 0.3):.3f} < 0.4"
+                        }
+                    },
+                    'processing_time_ms': processing_time * 1000,
+                }
+                
+        except Exception as e:
+            log.error(f"[TradingCenter] process_strategy_signal_event 失败: {e}")
+            return {
+                'decision': DecisionResult.REJECTED,
+                'approval_score': 0.0,
+                'approved_symbol': event.symbol if hasattr(event, 'symbol') else '',
+                'approved_direction': SignalDirection.NEUTRAL,
+                'position_size': 0.0,
+                'entry_price': 0.0,
+                'reason': f"处理异常: {str(e)}",
+                'subsystems_opinions': {},
+                'processing_time_ms': 0.0,
+            }
 
     def process_strategy_signal(self, signal: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         """

@@ -19,6 +19,18 @@ try:
 except Exception:
     pd = None
 
+# 新架构：热点策略使用交易总线
+try:
+    from deva.naja.events import get_trading_bus, StrategySignalEvent, publish_event
+    _EVENT_BUS_AVAILABLE = True
+    _TRADING_BUS_AVAILABLE = True
+    _USE_TRADING_BUS = True
+except ImportError:
+    # 如果交易总线不可用，系统可能未正确配置
+    _EVENT_BUS_AVAILABLE = False
+    _TRADING_BUS_AVAILABLE = False
+    _USE_TRADING_BUS = False
+
 try:
     from deva.naja.infra.observability.performance_monitor import record_component_execution, ComponentType
     _PERFORMANCE_MONITORING_AVAILABLE = True
@@ -267,93 +279,122 @@ class HotspotStrategyBase(ABC):
         # 输出信号
         self._on_signal(signal)
         
-        # 对接到 Bandit 系统和信号流
-        self._forward_signal_to_bandit(signal)
-        self._forward_signal_to_stream(signal)
+        # 发布到统一事件总线（同时做 UI 展示 + SignalTuner 记录 + HotspotTracker 跟踪）
+        self._publish_strategy_event(signal)
     
-    def _forward_signal_to_bandit(self, signal: Signal):
+    def _publish_strategy_event(self, signal: Signal):
         """
-        将信号转发到 Bandit 系统
-        
-        Bandit 会监听这些信号并创建虚拟持仓
-        
-        同时启动 HotspotTracker 跟踪:
-        - 只要热点系统识别到内容，就开始跟踪价格变化
-        - 不需要实际成交
-        - 形成持续的学习反馈
+        发布策略信号事件到统一事件总线 NajaEventBus。
+
+        职责：
+        1. 写入 SignalStream（仅用于 WebUI 展示，不再作为交易数据源）
+        2. 记录到 SignalTuner（参数调优反馈）
+        3. 启动 HotspotTracker 跟踪价格变化
+        4. 发布 StrategySignalEvent 到 NajaEventBus（TradingCenter 订阅处理）
         """
+        if signal.signal_type not in ('buy', 'sell'):
+            return
+
         try:
-            # 只转发 buy/sell 信号
-            if signal.signal_type not in ('buy', 'sell'):
-                return
-            
-            # 获取信号流
             from deva.naja.signal.stream import get_signal_stream
             from deva.naja.strategy.result_store import StrategyResult
-            
+
             stream = get_signal_stream()
-            
-            # 创建 StrategyResult 对象
+
+            # --- 1. 写入 SignalStream（仅用于 WebUI 展示）---
             result = StrategyResult(
-                id=f"{self.strategy_id}_{signal.symbol}_{int(signal.timestamp*1000)}",
+                id=f"{self.strategy_id}_{signal.symbol}_{int(signal.timestamp * 1000)}",
                 strategy_id=self.strategy_id,
-                strategy_name=self.name,
+                strategy_name=f"[热点] {self.name}",
                 ts=signal.timestamp,
                 success=True,
-                input_preview=f"{signal.symbol}: {signal.signal_type}",
-                output_preview=f"置信度: {signal.confidence:.2f}, 得分: {signal.score:.3f}",
-                output_full={
-                    'symbol': signal.symbol,
-                    'signal_type': signal.signal_type,
-                    'confidence': signal.confidence,
-                    'score': signal.score,
-                    'reason': signal.reason,
-                    'metadata': signal.metadata
-                },
+                input_preview=f"股票: {signal.symbol}",
+                output_preview=f"{signal.signal_type.upper()} | 置信度: {signal.confidence:.2f}",
+                output_full=signal.to_dict(),
                 process_time_ms=0,
                 error="",
                 metadata={
-                    'source': 'hotspot_strategy',
+                    'hotspot_signal': True,
                     'scope': self.scope,
-                    'signal_type': signal.signal_type,
-                    'confidence': signal.confidence
+                    'symbol': signal.symbol,
+                    'signal_type': signal.signal_type
                 }
             )
-            
-            # 发送到信号流
-            stream.update(result)
+            stream.update(result)  # 仅用于 WebUI 展示
 
-            # 记录信号到 SignalTuner
-            try:
-                tuner = SR('signal_tuner')
-                if tuner:
-                    price = 0.0
-                    if signal.metadata:
-                        price = float(signal.metadata.get('price', signal.metadata.get('current', 0)))
-                    tuner.record_signal(
-                        symbol=signal.symbol,
-                        strategy_id=self.strategy_id,
-                        signal_type=signal.signal_type,
-                        confidence=signal.confidence,
-                        score=signal.score,
-                        price=price,
-                        params_snapshot={self.strategy_id: {
-                            'price_threshold': getattr(self, 'price_threshold', 0.03),
-                            'volume_threshold': getattr(self, 'volume_threshold', 2.0),
-                            'combined_threshold': getattr(self, 'combined_threshold', 0.5),
-                        }}
-                    )
-                    log.info(f"[SignalTuner] 📡 记录信号: {signal.signal_type} {signal.symbol} @{price:.2f} 置信度={signal.confidence:.2f}")
-            except Exception as te:
-                log.debug(f"[SignalTuner] 信号记录失败: {te}")
-
-            # 启动 HotspotTracker 跟踪
-            # 这是用户新思路的核心: 不需要成交，只要热点选中就开始跟踪
-            self._track_hotspot_signal(signal)
-            
         except Exception as e:
-            # 转发失败不影响策略执行
-            pass
+            log.debug(f"[base] SignalStream 写入失败（不影响主流程）: {e}")
+
+        # --- 2. 记录到 SignalTuner ---
+        try:
+            tuner = SR('signal_tuner')
+            if tuner:
+                price = 0.0
+                if signal.metadata:
+                    price = float(signal.metadata.get('price', signal.metadata.get('current', 0)))
+                tuner.record_signal(
+                    symbol=signal.symbol,
+                    strategy_id=self.strategy_id,
+                    signal_type=signal.signal_type,
+                    confidence=signal.confidence,
+                    score=signal.score,
+                    price=price,
+                    params_snapshot={self.strategy_id: {
+                        'price_threshold': getattr(self, 'price_threshold', 0.03),
+                        'volume_threshold': getattr(self, 'volume_threshold', 2.0),
+                        'combined_threshold': getattr(self, 'combined_threshold', 0.5),
+                    }}
+                )
+                log.info(f"[SignalTuner] 📡 记录信号: {signal.signal_type} {signal.symbol} @{price:.2f} 置信度={signal.confidence:.2f}")
+        except Exception as te:
+            log.debug(f"[SignalTuner] 信号记录失败: {te}")
+
+        # --- 3. 启动 HotspotTracker 跟踪 ---
+        self._track_hotspot_signal(signal)
+
+        # --- 4. 发布 StrategySignalEvent 到 NajaEventBus ---
+        if _EVENT_BUS_AVAILABLE:
+            try:
+                from deva.naja.events.trading_events import SignalDirection
+                price = 0.0
+                price_change_pct = 0.0
+                volume_ratio = 1.0
+                if signal.metadata:
+                    price = float(signal.metadata.get('price', signal.metadata.get('current', 0)))
+                    price_change_pct = float(signal.metadata.get('change_pct', signal.metadata.get('pct_chg', 0)))
+                    volume_ratio = float(signal.metadata.get('volume_ratio', signal.metadata.get('vol_ratio', 1.0)))
+
+                direction = SignalDirection.from_str(signal.signal_type)
+
+                event = StrategySignalEvent(
+                    symbol=signal.symbol,
+                    direction=direction,
+                    confidence=signal.confidence,
+                    strategy_name=self.name,
+                    signal_type=signal.signal_type,
+                    current_price=price,
+                    price_change_pct=price_change_pct,
+                    volume_ratio=volume_ratio,
+                    block_name=signal.metadata.get('block_id', '') if signal.metadata else '',
+                    timestamp=signal.timestamp,
+                    metadata={
+                        'strategy_id': self.strategy_id,
+                        'score': signal.score,
+                        'reason': signal.reason,
+                        'scope': self.scope,
+                        'source': 'hotspot',
+                        **(signal.metadata or {})
+                    }
+                )
+                # 统一使用交易总线发布策略信号
+                from deva.naja.events import get_trading_bus
+                bus = get_trading_bus()
+                delivered = bus.publish(event)
+                log.info(f"[TradeBus] 📤 发布 StrategySignalEvent: {signal.signal_type} {signal.symbol} 置信度={signal.confidence:.2f} (分发到 {delivered} 订阅者)")
+            except ImportError:
+                log.warning("[base] 交易总线不可用，跳过事件发布")
+            except Exception as be:
+                log.warning(f"[TradeBus] StrategySignalEvent 发布失败: {be}")
     
     def _track_hotspot_signal(self, signal: Signal):
         """
@@ -401,45 +442,6 @@ class HotspotStrategyBase(ABC):
 
         except Exception as e:
             # 跟踪失败不影响策略执行
-            pass
-    
-    def _forward_signal_to_stream(self, signal: Signal):
-        """
-        将信号转发到信号流系统
-        
-        这样可以在 Web UI 的信号流页面查看
-        """
-        try:
-            from deva.naja.signal.stream import get_signal_stream
-            from deva.naja.strategy.result_store import StrategyResult
-            
-            stream = get_signal_stream()
-            
-            # 创建 StrategyResult
-            result = StrategyResult(
-                id=f"hotspot_{self.strategy_id}_{int(time.time()*1000)}",
-                strategy_id=self.strategy_id,
-                strategy_name=f"[热点] {self.name}",
-                ts=signal.timestamp,
-                success=True,
-                input_preview=f"股票: {signal.symbol}",
-                output_preview=f"{signal.signal_type.upper()} | 置信度: {signal.confidence:.2f}",
-                output_full=signal.to_dict(),
-                process_time_ms=0,
-                error="",
-                metadata={
-                    'hotspot_signal': True,
-                    'scope': self.scope,
-                    'symbol': signal.symbol,
-                    'signal_type': signal.signal_type
-                }
-            )
-            
-            # 更新信号流
-            stream.update(result)
-            
-        except Exception as e:
-            # 转发失败不影响策略执行
             pass
     
     @abstractmethod

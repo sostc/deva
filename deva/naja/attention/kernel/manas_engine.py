@@ -86,7 +86,7 @@ manas_score = 0.4 * timing + 0.3 * regime + 0.3 * confidence
 事件驱动（新架构）
 ================================================================================
 
-ManasEngine 订阅 CognitiveSignalBus，感知认知层变化：
+ManasEngine 订阅 NajaEventBus，感知认知层变化：
     - BLOCK_NARRATIVE_UPDATE（地）：我们关注的题材更新了
     - RESONANCE_DETECTED（共振）：天-地共振事件
     - TIMING_NARRATIVE_UPDATE（天）：时机状态变化了
@@ -932,8 +932,8 @@ class ManasEngine:
 
         self._awakening_level: str = "dormant"
 
-        # 🚀 新架构：订阅 CognitiveSignalBus，感知认知层变化
-        self._subscribe_to_cognitive_bus()
+        # 🚀 新架构：订阅 NajaEventBus，感知认知层变化
+        self._subscribe_to_event_bus()
 
     def _get_default_focus_themes(self) -> List[Dict[str, Any]]:
         """
@@ -972,20 +972,20 @@ class ManasEngine:
         self._supply_chain_state["focus_themes"] = themes
         log.info(f"[ManasEngine] 关注主题已更新: {len(themes)} 个主题")
 
-    def _subscribe_to_cognitive_bus(self):
+    def _subscribe_to_event_bus(self):
         """
-        🚀 订阅 CognitiveSignalBus，感知认知层的重要更新
+        🚀 订阅 NajaEventBus，感知认知层的重要更新
 
         当 NarrativeTracker / MarketNarrative / SupplyChainLinker 有重要更新时，
         ManasEngine 会收到通知并清缓存，确保决策反映最新认知状态
         """
         try:
             from deva.naja.events import (
-                get_cognitive_bus,
+                get_event_bus,
                 CognitiveEventType,
             )
 
-            bus = get_cognitive_bus()
+            bus = get_event_bus()
             bus.subscribe(
                 "ManasEngine",
                 self._on_cognitive_event,
@@ -999,9 +999,9 @@ class ManasEngine:
                 ],
                 min_importance=0.5,  # 只关心重要事件
             )
-            log.info("[ManasEngine] 已订阅 CognitiveSignalBus")
+            log.info("[ManasEngine] 已订阅 NajaEventBus")
         except ImportError:
-            log.debug("[ManasEngine] CognitiveSignalBus 未安装，跳过订阅")
+            log.debug("[ManasEngine] NajaEventBus 未安装，跳过订阅")
 
     def _on_cognitive_event(self, event):
         """

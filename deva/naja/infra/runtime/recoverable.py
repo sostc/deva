@@ -219,6 +219,7 @@ class RecoverableUnit(ABC):
             pass
     
     def _build_execution_env(self) -> Dict[str, Any]:
+        import sys
         import pandas as pd
         import numpy as np
         import json
@@ -245,6 +246,7 @@ class RecoverableUnit(ABC):
             "math": math,
             "re": re,
             "defaultdict": defaultdict,
+            "sys": sys,
             "__builtins__": __builtins__,
         }
     

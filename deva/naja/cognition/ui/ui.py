@@ -4,15 +4,10 @@
  使用 components/ 中的拆分组件
 """
 
-from typing import Optional, Dict, Any, List
 import logging
 
-from pywebio.output import put_html, put_row, put_column, put_scope
-from pywebio.session import set_env
+from pywebio.output import put_html
 
-from ..core import AttentionScorer
-from deva.naja.infra.ui.page_help import render_help_collapse
-from deva.naja.infra.ui.ui_style import format_timestamp
 from .components import (
     render_supply_chain,
     render_event_bus,
@@ -20,97 +15,20 @@ from .components import (
     render_insight,
     render_cognition_summary,
     render_control_panel,
-    render_daily_review,
-    render_daily_review_empty,
     render_merrill_clock,
     render_propagation,
     render_cross_signal,
     render_storage,
     render_help,
+    render_first_principles,
+    render_soft_info,
+    render_liquidity_prediction,
+    render_token_monitor,
+    render_narrative_value,
 )
 from deva.naja.register import SR
-from deva.naja.web_ui.ui_base import create_nav_menu
-from deva.naja.web_ui.styles import apply_global_styles
 
 log = logging.getLogger(__name__)
-
-
-def _get_stock_display_info(code: str) -> str:
-    """获取股票的显示信息：名称和题材"""
-    try:
-        from ...dictionary.stock.stock import Stock
-        from ...dictionary.tongdaxin_blocks import get_stock_blocks
-        name = Stock.get_name(code)
-        blocks = get_stock_blocks(code)
-        block_str = ",".join(blocks[:2]) if blocks else ""
-        return f"{name}({block_str})" if block_str else name
-    except Exception:
-        return code
-
-
-def _get_data_sources():
-    return [
-        {"name": "金十数据", "type": "news", "icon": "📡"},
-        {"name": "BlockAttention", "type": "market", "icon": "📊"},
-        {"name": "CognitiveSignalBus", "type": "internal", "icon": "🧠"},
-    ]
-
-
-def _get_theme_config():
-    return {
-        "bg_primary": "rgba(15, 23, 42, 0.95)",
-        "bg_secondary": "rgba(30, 41, 59, 0.9)",
-        "border": "rgba(148, 163, 184, 0.2)",
-        "text_primary": "#f1f5f9",
-        "text_secondary": "#94a3b8",
-        "accent_blue": "#0ea5e9",
-        "accent_purple": "#8b5cf6",
-        "accent_green": "#22c55e",
-        "accent_orange": "#f59e0b",
-    }
-
-
-def _get_module_status(engine) -> Dict[str, bool]:
-    """获取各模块状态"""
-    status = {
-        "narrative_tracker": False,
-        "timing_tracker": False,
-        "cross_signal": False,
-        "supply_chain": False,
-        "insight_pool": False,
-        "llm_reflection": False,
-        "semantic_cold_start": False,
-        "cognitive_bus": False,
-    }
-
-    if not engine:
-        return status
-
-    try:
-        if hasattr(engine, '_narrative_tracker') and engine._narrative_tracker:
-            status["narrative_tracker"] = True
-    except:
-        pass
-
-    try:
-        if hasattr(engine, '_cross_signal_analyzer') and engine._cross_signal_analyzer:
-            status["cross_signal"] = True
-    except:
-        pass
-
-    try:
-        if hasattr(engine, '_insight_pool') and engine._insight_pool:
-            status["insight_pool"] = True
-    except:
-        pass
-
-    try:
-        if hasattr(engine, '_cognitive_bus') and engine._cognitive_bus:
-            status["cognitive_bus"] = True
-    except:
-        pass
-
-    return status
 
 
 class CognitionUI:
@@ -133,33 +51,7 @@ class CognitionUI:
 
         render_cognition_summary(self)
         render_supply_chain(self)
-
-        insight_pool = None
-        try:
-            insight_pool = SR('insight_pool')
-        except Exception:
-            pass
-
-        source_counts = {}
-        recent_by_source = {}
-        recent_insights = []
-        if insight_pool:
-            try:
-                insights = insight_pool.get_recent_insights(limit=100)
-                recent_insights = insights[:20]
-
-                for insight in insights:
-                    src = insight.get('source', 'unknown')
-                    source_counts[src] = source_counts.get(src, 0) + 1
-
-                    if src not in recent_by_source:
-                        recent_by_source[src] = []
-                    if len(recent_by_source[src]) < 2:
-                        recent_by_source[src].append(insight)
-            except Exception:
-                pass
-
-        render_event_bus(self, source_counts, recent_by_source, recent_insights)
+        render_event_bus(self)
 
         self._put_html("""
         <div style="
@@ -189,143 +81,26 @@ class CognitionUI:
         </div>
         """)
 
+        render_narrative_value(self)
         render_merrill_clock(self)
         render_propagation(self)
+        render_liquidity_prediction(self)
         render_cross_signal(self)
+        render_first_principles(self)
         render_semantic(self)
         render_insight(self)
+        render_soft_info(self)
         render_storage(self)
+        render_token_monitor(self)
         render_control_panel(self)
         render_help(self)
 
         self._put_html('</div>')
 
-    def _render_supply_chain_narrative(self):
-        render_supply_chain(self)
-
-    def _render_event_bus_flow(self, source_counts=None, recent_by_source=None, recent_insights=None):
-        render_event_bus(self, source_counts, recent_by_source, recent_insights)
-
-    def _render_semantic_cold_start(self):
-        render_semantic(self)
-
-    def _render_insight_section(self):
-        render_insight(self)
-
-    def _render_cognition_summary(self):
-        render_cognition_summary(self)
-
-    def _render_control_panel(self):
-        render_control_panel(self)
-
-    def _render_daily_review_section(self):
-        render_daily_review(self)
-
-    def _render_daily_review_empty(self):
-        render_daily_review_empty(self)
-
-    def _trigger_reflection(self):
-        """手动触发 LLM 反思"""
-        from ..insight import get_llm_reflection_engine
-
-        try:
-            engine = get_llm_reflection_engine()
-            stats = engine.get_stats()
-            reflection_count = stats.get('reflections_count', 0)
-            pending_signals = stats.get('pending_signals', 0)
-
-            if pending_signals < 1:
-                return
-
-            from pywebio.output import put_toast
-            put_toast(f"触发反思: {pending_signals} 条待处理信号", duration=3)
-
-            def do_reflection():
-                try:
-                    result = engine.trigger_reflection_now()
-                    put_toast(f"反思完成! 生成 {len(result.get('reflections', []))} 条洞察", duration=5)
-                except Exception as e:
-                    from pywebio.output import put_toast
-                    put_toast(f"反思失败: {str(e)}", duration=5)
-
-            from threading import Thread
-            Thread(target=do_reflection, daemon=True).start()
-
-        except Exception as e:
-            from pywebio.output import put_toast
-            put_toast(f"反思功能不可用: {str(e)}", duration=3)
-
-    def _render_narrative_lifecycle(self):
-        render_narrative_lifecycle(self)
-
-    def _render_narrative_svg(self, nodes: List[Dict], edges: List[Dict]) -> str:
+    # --- narrative lifecycle 需要这个方法（被 lifecycle.py L139 调用）---
+    def _render_narrative_svg(self, nodes, edges):
         from ..narrative.ui.svg import render_narrative_svg
         return render_narrative_svg(nodes, edges)
-
-    def _render_merrill_clock_link(self):
-        render_merrill_clock(self)
-
-    def _render_propagation_network(self):
-        render_propagation(self)
-
-    def _render_cross_signal_section(self):
-        render_cross_signal(self)
-
-    def _render_storage(self):
-        render_storage(self)
-
-    def _render_help(self):
-        render_help(self)
-
-    def _refresh_data(self):
-        from ..insight import get_llm_reflection_engine
-        pool = SR('insight_pool')
-        llm = get_llm_reflection_engine()
-
-        stats = {
-            "insight_count": len(pool.get_recent_insights(limit=1000)) if pool else 0,
-            "reflection_count": llm.get_stats().get('reflections_count', 0) if llm else 0,
-            "memory_usage": 0,
-        }
-
-        from pywebio.output import put_toast
-        put_toast(f"数据已刷新! 洞察: {stats['insight_count']}", duration=2)
-
-    def _generate_report(self):
-        from pywebio.output import put_toast
-        put_toast("报告生成中...", duration=2)
-
-        def generate():
-            pool = SR('insight_pool')
-            if pool:
-                report = pool.generate_insight_report()
-                from pywebio.output import put_toast
-                put_toast(f"报告已生成! 包含 {len(report.get('insights', []))} 条洞察", duration=5)
-
-        from threading import Thread
-        Thread(target=generate, daemon=True).start()
-
-    def _trigger_daily_review(self):
-        from pywebio.output import put_toast
-        put_toast("市场复盘功能开发中...", duration=2)
-
-    def _clear_storage(self):
-        from pywebio.output import put_confirm, put_toast
-
-        async def confirm_clear():
-            from pywebio import async_io
-            confirmed = await async_io.put_confirm("确定要清空短期记忆吗?")
-            if confirmed:
-                try:
-                    from ...narrative import NarrativeTracker
-                    tracker = NarrativeTracker()
-                    tracker.clear_short_term_memory()
-                    put_toast("短期记忆已清空", duration=3)
-                except Exception as e:
-                    put_toast(f"清空失败: {str(e)}", duration=3)
-
-        from threading import Thread
-        Thread(target=lambda: confirm_clear(), daemon=True).start()
 
 
 def cognition_page():

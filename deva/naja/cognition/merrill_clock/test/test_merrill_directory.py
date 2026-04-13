@@ -85,9 +85,9 @@ def test_integration():
     
     try:
         # 测试是否能导入认知信号总线并访问相关功能
-        from deva.naja.events import CognitiveSignalBus, get_cognitive_bus
+        from deva.naja.events import NajaEventBus, get_event_bus
         
-        print("✅ 可以访问认知信号总线")
+        print("✅ 可以访问Naja事件总线")
         
         # 测试经济数据获取器是否能工作
         from deva.naja.cognition.merrill_clock.economic_data_fetcher import EconomicDataFetcher

@@ -18,6 +18,16 @@ from ..strategy.result_store import StrategyResult
 from ..radar.trading_clock import TRADING_CLOCK_STREAM
 from deva.naja.register import SR
 
+# 新架构：Bandit 订阅交易总线
+try:
+    from deva.naja.events import get_trading_bus, TradeDecisionEvent
+    _EVENT_BUS_AVAILABLE = True
+    _USE_TRADING_BUS = True
+except ImportError:
+    log.warning("[SignalListener] 交易总线不可用，Bandit 将无法接收交易决策事件")
+    _EVENT_BUS_AVAILABLE = False
+    _USE_TRADING_BUS = False
+
 log = logging.getLogger(__name__)
 
 SIGNAL_CONFIG_TABLE = "naja_bandit_signal_config"
@@ -82,6 +92,22 @@ class SignalListener:
         self._errors = {"config_load": 0, "config_save": 0, "experiment_check": 0, "parse": 0}
 
         self._load_config()
+        self._subscribe_to_trade_decisions()
+
+    def _subscribe_to_trade_decisions(self):
+        """订阅 TradeDecisionEvent 事件（唯一交易信号入口）"""
+        if not _EVENT_BUS_AVAILABLE:
+            log.warning("[SignalListener] 交易总线不可用，Bandit 无法接收交易决策事件")
+            return
+        
+        try:
+            # 使用交易总线订阅
+            from deva.naja.events import get_trading_bus
+            bus = get_trading_bus()
+            bus.subscribe('TradeDecisionEvent', self._on_trade_decision_event)
+            log.info(f"[SignalListener] ✅ 已订阅 TradeBus 的 TradeDecisionEvent（事件驱动模式）")
+        except Exception as e:
+            log.warning(f"[SignalListener] 订阅 TradeDecisionEvent 失败: {e}")
     
     def _load_config(self):
         """加载配置"""
@@ -125,8 +151,11 @@ class SignalListener:
     def start(self):
         """启动监听
 
-        优先使用流式订阅模式（实验模式自动启用），无实时延迟。
-        降级方案：轮询模式作为后备。
+        架构演进：
+        - 旧版：流式订阅 SignalStream（stream.sink 直连）
+        - 新版：订阅 NajaEventBus 的 TradeDecisionEvent（事件驱动，无直连）
+
+        轮询模式保留作为后备（当实验模式开启时）。
         """
         if self._running and self._thread and self._thread.is_alive():
             log.warning("SignalListener 已在运行")
@@ -138,15 +167,15 @@ class SignalListener:
         TRADING_CLOCK_STREAM.sink(self._on_trading_clock_signal)
         log.info("SignalListener 已订阅交易时钟信号")
 
-        if self._is_experiment_mode() or self._force_mode:
-            self._enable_stream_mode()
-        else:
+        # 事件总线订阅在 __init__ 中已完成，无需重复
+        # 保留轮询线程作为后备（实验模式轮询信号流）
+        if not (self._is_experiment_mode() or self._force_mode):
             self._thread = threading.Thread(target=self._run_loop, daemon=True)
             self._thread.start()
 
         self._save_config()
 
-        mode = "流式订阅" if self._stream_mode else f"轮询({self._poll_interval}s)"
+        mode = "NajaEventBus 事件驱动" if _EVENT_BUS_AVAILABLE else f"轮询后备({self._poll_interval}s)"
         log.info(f"SignalListener 已启动 ({mode})")
 
     def _on_trading_clock_signal(self, signal: Dict[str, Any]):
@@ -163,54 +192,108 @@ class SignalListener:
             else:
                 log.debug(f"[SignalListener] 退出交易时段")
 
-        if not self._stream_mode and (self._is_experiment_mode() or self._force_mode):
-            log.info("[SignalListener] 检测到实验模式，切换到流式订阅")
-            self._enable_stream_mode()
-
     def _enable_stream_mode(self):
-        """启用流式订阅模式"""
-        if self._stream_sink_registered:
-            return
+        """[已废弃] 旧版流式订阅 SignalStream 直连模式
 
-        self._stream_mode = True
-        self._signal_stream.sink(self._on_signal_stream_update)
-        self._stream_sink_registered = True
-        log.info("[SignalListener] 已订阅信号流（流式模式）")
+        新架构通过 NajaEventBus 订阅 TradeDecisionEvent，此方法不再使用。
+        保留仅作兼容，避免外部调用报错。
+        """
+        log.warning("[SignalListener] _enable_stream_mode 已废弃，请使用 NajaEventBus 事件驱动模式")
 
     def _on_signal_stream_update(self, result: StrategyResult):
-        """处理信号流中的新信号（流式回调）
+        """[已废弃] 处理信号流中的新信号（旧版流式回调）
 
-        此方法在信号到来时被实时调用，无延迟。
+        新架构使用 _on_trade_decision_event。此方法保留仅作兼容。
+        """
+        log.debug("[SignalListener] _on_signal_stream_update 已废弃，新架构使用 TradeDecisionEvent")
+
+    def _on_trade_decision_event(self, event):
+        """处理 TradeDecisionEvent（新架构唯一交易信号入口）
+
+        TradingCenter 审批通过后发布此事件，Bandit 负责执行。
+        event 字段说明（TradeDecisionEvent dataclass）：
+          - event.is_approved: 是否批准
+          - event.decision: DecisionResult 枚举
+          - event.signal_event: 原始 StrategySignalEvent
+          - event.approved_symbol: 批准的股票代码（可能与原始不同）
+          - event.approved_direction: 批准的方向（SignalDirection 枚举）
+          - event.approval_score: 综合审批分数
+          - event.position_size: 批准持仓比例
+          - event.reason: 决策理由
         """
         if not self._running:
             return
 
-        if self._is_processed(result.id):
-            return
+        try:
+            # 只处理审批通过的决策
+            if not getattr(event, 'is_approved', False):
+                decision_val = getattr(event, 'decision', None)
+                log.debug(f"[Bandit] TradeDecisionEvent 未通过审批: decision={decision_val}")
+                return
 
-        if result.ts <= self._last_processed_ts:
-            return
+            # 提取核心字段
+            signal_event = getattr(event, 'signal_event', None)
+            symbol = getattr(event, 'approved_symbol', None)
+            if not symbol and signal_event:
+                symbol = getattr(signal_event, 'symbol', '')
+            if not symbol:
+                log.debug("[Bandit] TradeDecisionEvent 缺少 symbol，跳过")
+                return
 
-        signal = self._parse_signal(result)
-        if signal is None:
-            return
+            approved_direction = getattr(event, 'approved_direction', None)
+            if approved_direction is None and signal_event:
+                approved_direction = getattr(signal_event, 'direction', None)
 
-        log.debug(f"[Bandit] [流式] 收到信号: {signal.stock_code} {signal.stock_name} 置信度={signal.confidence} 类型={signal.signal_type}")
+            action_type = 'hold'
+            if approved_direction is not None:
+                direction_val = getattr(approved_direction, 'value', str(approved_direction))
+                action_type = direction_val  # 'buy' / 'sell' / 'neutral'
 
-        if signal.confidence < self._min_confidence:
-            log.warning(f"[Bandit] [流式] 置信度低于阈值: {signal.confidence:.3f} < {self._min_confidence:.3f}")
-            return
+            if action_type in ('hold', 'neutral'):
+                return
 
-        self._mark_processed(result.id, result.ts)
+            approval_score = getattr(event, 'approval_score', 0.7)
+            entry_price = getattr(event, 'entry_price', 0.0) or 0.0
 
-        if result.ts > self._last_processed_ts:
-            self._last_processed_ts = result.ts
+            # 从原始信号补充价格
+            if entry_price == 0.0 and signal_event:
+                entry_price = getattr(signal_event, 'current_price', 0.0) or 0.0
 
-        for callback in self._callbacks:
-            try:
-                callback(signal)
-            except Exception as e:
-                log.error(f"信号回调执行失败: {e}")
+            strategy_name = 'TradingCenter'
+            strategy_id = 'trading_center'
+            if signal_event:
+                strategy_name = getattr(signal_event, 'strategy_name', strategy_name)
+                strategy_id = signal_event.metadata.get('strategy_id', strategy_id) if signal_event.metadata else strategy_id
+
+            # 构建 DetectedSignal（保持与回调接口兼容）
+            signal = DetectedSignal(
+                signal_id=f"tde_{symbol}_{int(getattr(event, 'timestamp', time.time()) * 1000)}",
+                strategy_id=strategy_id,
+                strategy_name=strategy_name,
+                stock_code=symbol,
+                stock_name=getattr(signal_event, 'symbol', symbol) if signal_event else symbol,
+                signal_type=action_type.upper(),
+                price=entry_price,
+                confidence=approval_score,
+                timestamp=getattr(event, 'timestamp', time.time()),
+                raw_data=event.to_dict() if hasattr(event, 'to_dict') else {}
+            )
+
+            # 置信度过滤
+            if signal.confidence < self._min_confidence:
+                log.debug(f"[Bandit] TradeDecisionEvent 置信度不足: {signal.confidence:.3f} < {self._min_confidence:.3f}")
+                return
+
+            log.info(f"[Bandit] 📥 收到 TradeDecisionEvent: {signal.signal_type} {symbol} approval_score={approval_score:.2f}")
+
+            for callback in self._callbacks:
+                try:
+                    callback(signal)
+                except Exception as e:
+                    log.error(f"[Bandit] 信号回调执行失败: {e}")
+
+        except Exception as e:
+            log.error(f"[Bandit] _on_trade_decision_event 处理失败: {e}")
 
     def _is_experiment_mode(self) -> bool:
         """检查是否处于实验模式"""

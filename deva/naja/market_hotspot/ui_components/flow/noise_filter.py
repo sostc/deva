@@ -138,6 +138,24 @@ def render_noise_filter_panel() -> str:
             <div style="padding: 4px; background: rgba(248,113,113,0.05); border-radius: 4px;">{noise_block_tags or '<span style="color: #64748b; font-size: 8px;">暂无</span>'}</div>
         </div>
 
+        <div style="margin-top: 8px;">
+            <div style="font-size: 8px; color: #64748b; margin-bottom: 4px;">📋 过滤阈值配置</div>
+            <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px;">
+                <div style="text-align: center; padding: 4px; background: rgba(255,255,255,0.03); border-radius: 4px;">
+                    <div style="font-size: 10px; font-weight: 600; color: #94a3b8;">{_get_filter_config('min_amount')}</div>
+                    <div style="font-size: 7px; color: #64748b;">最小金额</div>
+                </div>
+                <div style="text-align: center; padding: 4px; background: rgba(255,255,255,0.03); border-radius: 4px;">
+                    <div style="font-size: 10px; font-weight: 600; color: #94a3b8;">{_get_filter_config('min_volume')}</div>
+                    <div style="font-size: 7px; color: #64748b;">最小成交量</div>
+                </div>
+                <div style="text-align: center; padding: 4px; background: rgba(255,255,255,0.03); border-radius: 4px;">
+                    <div style="font-size: 10px; font-weight: 600; color: #94a3b8;">{_get_filter_config('dynamic_threshold')}</div>
+                    <div style="font-size: 7px; color: #64748b;">动态阈值</div>
+                </div>
+            </div>
+        </div>
+
         <div style="padding: 4px; background: rgba(255,255,255,0.02); border-radius: 4px; margin-top: 8px;">
             <div style="height: 4px; background: rgba(255,255,255,0.1); border-radius: 2px; overflow: hidden;">
                 <div style="width: {min(100, filter_rate)}%; height: 100%; background: linear-gradient(90deg, #fb923c, #f97316);"></div>
@@ -145,6 +163,25 @@ def render_noise_filter_panel() -> str:
         </div>
     </div>
     """
+
+
+def _get_filter_config(key: str) -> str:
+    """获取噪声过滤配置值"""
+    try:
+        from deva.naja.attention.orchestration.trading_center import get_trading_center
+        orchestrator = get_trading_center()
+        noise_filter = getattr(orchestrator, 'noise_filter', None) if orchestrator else None
+        if noise_filter and hasattr(noise_filter, 'config'):
+            config = noise_filter.config
+            if key == 'min_amount':
+                return f"{getattr(config, 'min_amount', 1000000):,.0f}"
+            elif key == 'min_volume':
+                return f"{getattr(config, 'min_volume', 100000):,.0f}"
+            elif key == 'dynamic_threshold':
+                return "✅ 启用" if getattr(config, 'dynamic_threshold', False) else "❌ 禁用"
+    except Exception:
+        pass
+    return "-"
 
 
 def _render_noise_empty_state() -> str:

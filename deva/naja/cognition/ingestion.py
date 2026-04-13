@@ -10,7 +10,7 @@ CognitionIngestion - Radar → Cognition 统一数据流入口
         ↓ ingest_radar_events()
     CognitionIngestion
         ├→ InsightPool.ingest_hotspot_event()      (雷达信号 → 洞察池)
-        ├→ CognitiveSignalBus.publish()            (全球市场事件 → 总线)
+        ├→ NajaEventBus.publish()            (全球市场事件 → 总线)
         └→ LiquidityCognition.ingest()             (降级路径)
 
 使用方式：
@@ -64,15 +64,15 @@ class CognitionIngestion:
 
     def ingest_market_alert(self, event: Any) -> None:
         """
-        接收全球市场事件，发布到 CognitiveSignalBus
+        接收全球市场事件，发布到 NajaEventBus
 
         Args:
             event: RadarEvent（需要有 payload 属性）
         """
         try:
-            from deva.naja.events import get_cognitive_bus, CognitiveEventType
+            from deva.naja.events import get_event_bus, CognitiveEventType
 
-            bus = get_cognitive_bus()
+            bus = get_event_bus()
             payload = event.payload if hasattr(event, "payload") else event
 
             metadata = {
@@ -84,17 +84,41 @@ class CognitionIngestion:
                 "name": payload.get("name", ""),
             }
 
-            bus.publish_cognitive_event(
+            from deva.naja.events import GlobalMarketEvent
+
+
+            event = GlobalMarketEvent(
+
+
                 source="RadarEngine",
-                event_type=CognitiveEventType.GLOBAL_MARKET_EVENT,
-                narratives=[f"全球市场:{metadata.get('market_id', '')}"],
+
+
+                event_type="global_market_event",
+
+
+                region=metadata.get("market_id", "US").split("_")[0] if "market_id" in metadata else "US",
+
+
+                event="market_snapshot",
+
+
+                market_impact=0.7 if metadata.get("is_abnormal") else 0.5,
+
+
+                timezone="UTC",
+
+
                 importance=0.7 if metadata.get("is_abnormal") else 0.5,
-                metadata=metadata,
+
+
             )
+
+
+            bus.publish(event)
             log.debug(f"[Ingestion] 全球市场事件已发布: {metadata.get('market_id')}")
 
         except ImportError:
-            log.debug("[Ingestion] CognitiveSignalBus 未导入，降级为直接调用")
+            log.debug("[Ingestion] NajaEventBus 未导入，降级为直接调用")
             self._ingest_market_alert_legacy(event)
         except Exception as e:
             log.debug(f"[Ingestion] 发布全球市场事件失败: {e}")
