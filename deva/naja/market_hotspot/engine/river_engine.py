@@ -136,14 +136,10 @@ class RiverEngine:
         if RIVER_AVAILABLE:
             self._MeanClass = stats.Mean
             self._VarClass = stats.Var
-            self._RollingMeanClass = stats.RollingMean
-            self._RollingVarClass = stats.RollingVar
             self._GaussianScorerClass = anomaly.GaussianScorer
         else:
             self._MeanClass = _FallbackStats.Mean
             self._VarClass = _FallbackStats.Var
-            self._RollingMeanClass = _FallbackStats.RollingMean
-            self._RollingVarClass = _FallbackStats.RollingVar
             self._GaussianScorerClass = _FallbackAnomaly.GaussianScorer
         
         # 统计量 (每个symbol独立)
