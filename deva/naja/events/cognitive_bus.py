@@ -1,7 +1,7 @@
 """
 NajaEventBus - Naja 统一事件总线
 
-合并了原 NajaEventBus（dataclass 事件分发）和 CognitiveSignalBus（认知信号事件）。
+合并了原事件分发和认知信号事件功能。系统中所有事件通信统一经由此总线。
 系统中所有事件通信统一经由此总线。
 
 📡 两种事件通道：
@@ -11,7 +11,7 @@ NajaEventBus - Naja 统一事件总线
      - 支持去重窗口、重要性阈值、模块启用/禁用
 
 使用方式：
-    from deva.naja.events import get_event_bus, get_cognitive_bus
+    from deva.naja.events import get_event_bus
 
     # dataclass 事件
     bus = get_event_bus()
@@ -19,7 +19,6 @@ NajaEventBus - Naja 统一事件总线
     bus.subscribe('TextFetchedEvent', callback, markets={'US'}, priority=10)
 
     # 认知信号事件
-    bus = get_cognitive_bus()   # 返回同一个实例
     bus.publish_cognitive_event(source="...", event_type=CognitiveEventType.XXX, ...)
     bus.subscribe_cognitive("ManasEngine", callback, event_types=[...])
 """
@@ -133,12 +132,12 @@ class CognitiveBusStats:
 
 # ============== 统一事件总线 ==============
 
-class CognitiveSignalBus:
+class NajaEventBus:
     """
     Naja 统一事件总线
 
     同时支持：
-    - dataclass 事件 publish/subscribe（按类名字符串路由，兼容原 NajaEventBus 接口）
+    - dataclass 事件 publish/subscribe（按类名字符串路由）
     - 认知信号事件 publish_cognitive_event/subscribe_cognitive（按枚举路由）
     """
 
@@ -184,7 +183,7 @@ class CognitiveSignalBus:
         用法 A（dataclass 事件，原 NajaEventBus 接口）：
             bus.subscribe('HotspotComputedEvent', callback, markets={'US','CN'}, priority=10)
 
-        用法 B（认知信号事件，原 CognitiveSignalBus 接口）：
+        用法 B（认知信号事件）：
             bus.subscribe("ManasEngine", callback, event_types=[...], min_importance=0.3)
         """
         if event_types is not None:
@@ -320,7 +319,7 @@ class CognitiveSignalBus:
                 self._dc_event_cache.clear()
 
     # ================================================================
-    #  认知信号事件接口（原 CognitiveSignalBus）
+    #  认知信号事件接口
     # ================================================================
 
     def subscribe_cognitive(
@@ -496,39 +495,45 @@ class CognitiveSignalBus:
         self._stats = CognitiveBusStats()
 
 
-# ============== 兼容别名 ==============
 
-# 保留旧类名供类型检查和 isinstance 使用
-NajaEventBus = CognitiveSignalBus
 
 
 # ============== 单例访问 ==============
 
-_bus: Optional[CognitiveSignalBus] = None
+_bus: Optional[NajaEventBus] = None
 _bus_lock = threading.Lock()
 
 
-def get_cognitive_bus() -> CognitiveSignalBus:
-    """获取统一事件总线单例"""
+def get_event_bus() -> NajaEventBus:
+    """获取统一事件总线单例（返回持久化的 StreamBackedEventBus）"""
     global _bus
     if _bus is None:
         with _bus_lock:
             if _bus is None:
-                _bus = CognitiveSignalBus()
+                # 尝试使用新的持久化流总线
+                try:
+                    from .stream_bus import StreamBackedEventBus
+                    _bus = StreamBackedEventBus()
+                    log.info("[cognitive_bus] ✅ 已加载 StreamBackedEventBus（带持久化）")
+                    
+                    # 配置关键交易事件持久化
+                    try:
+                        from .persistence_config import configure_event_bus_persistence
+                        configure_event_bus_persistence(_bus)
+                        log.info("[cognitive_bus] 📦 关键交易事件持久化已配置")
+                    except ImportError as e:
+                        log.warning(f"[cognitive_bus] 无法加载持久化配置: {e}")
+                        
+                except ImportError as e:
+                    # 回退到原总线
+                    log.warning(f"[cognitive_bus] StreamBackedEventBus 不可用，回退到 NajaEventBus: {e}")
+                    _bus = NajaEventBus()
     return _bus
 
 
-# 兼容别名 — get_event_bus() 返回同一个实例
-get_event_bus = get_cognitive_bus
-
-
-def reset_cognitive_bus():
+def reset_event_bus():
     """重置总线（用于测试）"""
     global _bus
     if _bus is not None:
         _bus.clear()
     _bus = None
-
-
-# 兼容别名
-reset_event_bus = reset_cognitive_bus

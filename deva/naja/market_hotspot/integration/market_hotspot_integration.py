@@ -97,8 +97,7 @@ class MarketHotspotIntegration:
                 self.hotspot_system: Optional[MarketHotspotSystem] = None
             if not hasattr(self, 'intelligence_system'):
                 self.intelligence_system = None
-            if not hasattr(self, 'intelligence_config'):
-                self.intelligence_config = None
+
             if not hasattr(self, 'config'):
                 self.config: MarketHotspotSystemConfig = MarketHotspotSystemConfig()
             if not hasattr(self, '_running'):
@@ -128,7 +127,7 @@ class MarketHotspotIntegration:
 
         Args:
             config: v1 市场热点系统配置
-            intelligence_config: 智能增强系统配置
+            intelligence_config: 已废弃，忽略。智能增强系统默认全部启用。
         """
         # 防止重复初始化
         if hasattr(self, '_initialized_hotspot_system') and self._initialized_hotspot_system:
@@ -139,8 +138,6 @@ class MarketHotspotIntegration:
 
         if config:
             self.config = config
-
-        self.intelligence_config = intelligence_config
 
         self._discover_blocks_and_symbols()
 
@@ -173,30 +170,16 @@ class MarketHotspotIntegration:
         return self.hotspot_system
 
     def _initialize_intelligence_system(self):
-        """初始化智能增强系统"""
-        if self.intelligence_config is None:
-            return
-
+        """初始化智能增强系统（默认全部启用，无需配置）"""
         try:
             from .hotspot_intelligence_system import (
                 _HotspotIntelligenceSystemInternal,
                 IntelligenceConfig,
             )
 
-            if isinstance(self.intelligence_config, dict):
-                ic = IntelligenceConfig(
-                    enable_predictive=self.intelligence_config.get('enable_predictive', True),
-                    enable_feedback=self.intelligence_config.get('enable_feedback', True),
-                    enable_budget=self.intelligence_config.get('enable_budget', True),
-                    enable_propagation=self.intelligence_config.get('enable_propagation', True),
-                    enable_strategy_learning=self.intelligence_config.get('enable_strategy_learning', True)
-                )
-            else:
-                ic = self.intelligence_config
-
             self.intelligence_system = _HotspotIntelligenceSystemInternal(
                 config=None,
-                intelligence_config=ic
+                intelligence_config=IntelligenceConfig()
             )
 
             log.info("🧠 热点智能系统初始化完成")
@@ -378,126 +361,6 @@ class MarketHotspotIntegration:
             log.warning(f"从 BlockDictionary 加载股票失败: {e}")
             import traceback
             log.warning(traceback.format_exc())
-
-    def _load_blocks_from_dictionary(self):
-        """从字典数据源加载题材信息"""
-        try:
-            mgr = SR('dictionary_manager')
-
-            entry = mgr.get_by_name("通达信概念题材")
-            if entry:
-                data = entry.get_payload()
-                if isinstance(data, pd.DataFrame):
-                    log.info(f"[Dictionary] ✅ 找到通达信题材数据, columns={list(data.columns)}, rows={len(data)}")
-                    self._parse_block_data(data)
-                else:
-                    log.warning(f"[Dictionary] 通达信题材数据不是DataFrame: {type(data)}")
-            else:
-                log.warning(f"[Dictionary] 未找到'通达信概念题材'字典")
-
-            log.info(f"[Dictionary] 加载完成: 题材数={len(self._blocks)}")
-            if len(self._blocks) > 0:
-                log.info(f"[Dictionary] 前5个题材: {[s.name for s in self._blocks[:5]]}")
-        except Exception as e:
-            log.warning(f"加载字典数据失败: {e}")
-            import traceback
-            log.warning(traceback.format_exc())
-
-    def _parse_block_data(self, df: pd.DataFrame):
-        """解析题材数据"""
-        block_col = None
-        for col in ['blocks', 'block', 'block', 'industry', 'concept', '题材', '行业']:
-            if col in df.columns:
-                block_col = col
-                break
-
-        if not block_col:
-            log.warning(f"[Dictionary] 未找到题材列，可用列: {list(df.columns)}")
-            return
-
-        symbol_col = None
-        for col in ['code', 'symbol', 'ts_code', 'stock_code', '股票代码']:
-            if col in df.columns:
-                symbol_col = col
-                break
-
-        if not symbol_col:
-            log.warning(f"[Dictionary] 未找到股票代码列，可用列: {list(df.columns)}")
-            return
-
-        log.info(f"[Dictionary] 解析题材数据: block_col={block_col}, symbol_col={symbol_col}, 行数={len(df)}")
-
-        def _should_skip_block_name(name: str) -> bool:
-            name_str = str(name).strip()
-            if not name_str:
-                return True
-            return ("B股" in name_str) or ("含B股" in name_str)
-
-        skipped_blocks = 0
-
-        if '|' in str(df[block_col].iloc[0] if len(df) > 0 else ''):
-            log.info(f"[Dictionary] 使用多值题材解析模式")
-
-            for _, row in df.iterrows():
-                code = str(row[symbol_col])
-                blocks_str = str(row[block_col])
-                blocks = blocks_str.split('|') if '|' in blocks_str else [blocks_str]
-
-                for block_name in blocks:
-                    block_name = block_name.strip()
-                    if not block_name:
-                        continue
-                    if _should_skip_block_name(block_name):
-                        skipped_blocks += 1
-                        continue
-
-                    import hashlib
-                    block_id = f"block_{int(hashlib.md5(block_name.encode()).hexdigest()[:8], 16) % 100000}"
-
-                    existing_block = None
-                    for s in self._blocks:
-                        if s.name == block_name:
-                            existing_block = s
-                            break
-
-                    if existing_block:
-                        existing_block.symbols.add(code)
-                        self._symbol_block_map.setdefault(code, []).append(existing_block.block_id)
-                    else:
-                        block = BlockConfig(
-                            block_id=block_id,
-                            name=block_name,
-                            symbols={code},
-                            decay_half_life=300.0
-                        )
-                        self._blocks.append(block)
-                        self._symbol_block_map.setdefault(code, []).append(block_id)
-
-            log.info(f"[Dictionary] 多值解析完成: 题材数={len(self._blocks)}, 个股数={len(self._symbol_block_map)}")
-        else:
-            block_groups = df.groupby(block_col)[symbol_col].apply(list).to_dict()
-
-            for block_name, symbols in block_groups.items():
-                if _should_skip_block_name(block_name):
-                    skipped_blocks += 1
-                    continue
-                block_id = f"block_{len(self._blocks)}"
-                block = BlockConfig(
-                    block_id=block_id,
-                    name=str(block_name),
-                    symbols=set(str(s) for s in symbols),
-                    decay_half_life=300.0
-                )
-                self._blocks.append(block)
-
-                for symbol in symbols:
-                    symbol_str = str(symbol)
-                    if symbol_str not in self._symbol_block_map:
-                        self._symbol_block_map[symbol_str] = []
-                    self._symbol_block_map[symbol_str].append(block_id)
-
-        if skipped_blocks > 0:
-            log.info(f"[Dictionary] 过滤题材完成: 跳过 {skipped_blocks} 个含B股相关题材")
 
     def _guess_block(self, symbol: str) -> str:
         """根据股票代码猜测所属题材"""
@@ -857,7 +720,7 @@ def initialize_hotspot_system(
 
     Args:
         config: 市场热点系统配置
-        intelligence_config: 智能增强系统配置
+        intelligence_config: 已废弃，忽略。智能增强系统默认全部启用。
         force_realtime: 强制实盘调试模式（忽略交易时间限制）
         lab_mode: 实验模式（使用回放数据）
     """
@@ -868,7 +731,7 @@ def initialize_hotspot_system(
     log.info(f"[initialize_hotspot_system] 模式参数: force_realtime={force_realtime}, lab_mode={lab_mode}")
 
     integration = get_market_hotspot_integration()
-    hotspot_system = integration.initialize(config, intelligence_config=intelligence_config)
+    hotspot_system = integration.initialize(config)
     log.info(f"[initialize_hotspot_system] integration.initialize 完成, _initialized={hotspot_system._initialized}")
 
     log.info("[initialize_hotspot_system] 尝试加载保存的状态...")

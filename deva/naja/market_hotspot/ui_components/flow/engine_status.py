@@ -55,6 +55,10 @@ def render_strategy_status_panel() -> str:
         recent_signals = all_stats.get('recent_signals_count', 0)
         is_running = getattr(manager, 'is_running', False)
 
+        # 汇总执行/跳过计数
+        total_exec_count = 0
+        total_skip_count = 0
+
         strategy_list = []
         for name, strategy in list(strategies.items())[:6]:
             config = configs.get(name)
@@ -63,14 +67,23 @@ def render_strategy_status_panel() -> str:
             else:
                 is_active = getattr(strategy, 'is_active', False)
             signal_count = getattr(strategy, 'signal_count', 0)
+            exec_count = getattr(strategy, 'execution_count', 0)
+            skip_count = getattr(strategy, 'skip_count', 0)
+            priority = getattr(config, 'priority', 5) if config else getattr(strategy, 'priority', 5)
             last_signal = getattr(strategy, 'last_signal_time', 0)
             last_signal_str = _fmt_ts(last_signal) if last_signal else "-"
+
+            total_exec_count += exec_count
+            total_skip_count += skip_count
 
             status_color = "#4ade80" if is_active else "#64748b"
             strategy_list.append({
                 'name': name[:12],
                 'status': status_color,
                 'signals': signal_count,
+                'exec': exec_count,
+                'skip': skip_count,
+                'priority': priority,
                 'last': last_signal_str,
                 'active': is_active
             })
@@ -80,11 +93,16 @@ def render_strategy_status_panel() -> str:
 
     strategy_items = ""
     for s in strategy_list:
+        p = s['priority']
+        p_color = "#dc2626" if p <= 3 else ("#ca8a04" if p <= 6 else "#64748b")
         strategy_items += f"""
         <div style="display: flex; align-items: center; gap: 6px; padding: 4px 0; border-bottom: 1px solid rgba(255,255,255,0.05);">
             <div style="width: 6px; height: 6px; border-radius: 50%; background: {s['status']};"></div>
             <span style="font-size: 9px; color: #94a3b8; flex: 1;">{s['name']}</span>
-            <span style="font-size: 8px; color: #64748b;">{s['signals']} 信号</span>
+            <span style="font-size: 7px; color: {p_color}; background: rgba(255,255,255,0.05); padding: 1px 3px; border-radius: 2px;">P{p}</span>
+            <span style="font-size: 8px; color: #64748b;">{s['signals']}信号</span>
+            <span style="font-size: 8px; color: #3b82f6;">{s['exec']}执行</span>
+            <span style="font-size: 8px; color: #fb923c;">{s['skip']}跳过</span>
             <span style="font-size: 8px; color: #64748b;">{s['last']}</span>
         </div>
         """
@@ -111,7 +129,7 @@ def render_strategy_status_panel() -> str:
             </div>
         </div>
 
-        <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-bottom: 10px;">
+        <div style="display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; margin-bottom: 10px;">
             <div style="text-align: center; padding: 6px; background: rgba(168,85,247,0.1); border-radius: 4px;">
                 <div style="font-size: 14px; font-weight: 700; color: #a855f7;">{total_strategies}</div>
                 <div style="font-size: 8px; color: #64748b;">总策略</div>
@@ -123,6 +141,14 @@ def render_strategy_status_panel() -> str:
             <div style="text-align: center; padding: 6px; background: rgba(14,165,233,0.1); border-radius: 4px;">
                 <div style="font-size: 14px; font-weight: 700; color: #0ea5e9;">{recent_signals}</div>
                 <div style="font-size: 8px; color: #64748b;">最近信号</div>
+            </div>
+            <div style="text-align: center; padding: 6px; background: rgba(59,130,246,0.1); border-radius: 4px;">
+                <div style="font-size: 14px; font-weight: 700; color: #3b82f6;">{total_exec_count:,}</div>
+                <div style="font-size: 8px; color: #64748b;">执行次数</div>
+            </div>
+            <div style="text-align: center; padding: 6px; background: rgba(251,146,60,0.1); border-radius: 4px;">
+                <div style="font-size: 14px; font-weight: 700; color: #fb923c;">{total_skip_count:,}</div>
+                <div style="font-size: 8px; color: #64748b;">跳过次数</div>
             </div>
         </div>
 

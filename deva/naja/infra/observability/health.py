@@ -287,12 +287,12 @@ def create_attention_health_checks() -> Dict[str, Callable[[], bool]]:
         return running > 0
 
     def check_dictionary():
-        mgr = SR('dictionary_manager')
-        entry = mgr.get_by_name("通达信概念题材")
-        if entry is None:
+        try:
+            from deva.naja.dictionary.blocks import get_block_dictionary
+            bd = get_block_dictionary()
+            return len(bd._cn_blocks) > 0 or len(bd._us_blocks) > 0
+        except Exception:
             return False
-        payload = entry.get_payload()
-        return payload is not None and not payload.empty
 
     return {
         "attention_system": check_attention_system,
