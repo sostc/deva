@@ -25,7 +25,6 @@ from deva import NB
 from deva.naja.infra.registry.singleton_registry import SR
 
 from deva.naja.radar.trading_clock import TRADING_CLOCK_STREAM
-from deva.naja.radar.trading_clock import USTRADING_CLOCK_STREAM
 
 log = logging.getLogger(__name__)
 
@@ -92,7 +91,6 @@ class DailyReviewScheduler:
         self._thread.start()
 
         TRADING_CLOCK_STREAM.sink(self._on_trading_clock_event)
-        USTRADING_CLOCK_STREAM.sink(self._on_us_trading_clock_event)
 
         log.info("[DailyReviewScheduler] 调度器已启动，订阅 A股和美股交易时钟")
 
@@ -110,7 +108,7 @@ class DailyReviewScheduler:
         log.info("[DailyReviewScheduler] 调度器已停止")
 
     def _on_trading_clock_event(self, event: dict):
-        """处理 A股交易时钟事件"""
+        """处理交易时钟事件（统一时钟同时处理 A股 和 美股）"""
         if not self._running:
             return
 
@@ -118,24 +116,14 @@ class DailyReviewScheduler:
         market = event.get('market', 'CN')
         event_type = event.get('type')
 
-        log.info(f"[DailyReviewScheduler] 收到A股交易时钟信号: phase={phase}, type={event_type}")
-
-        if phase == 'post_market' or (event_type == 'current_state' and phase == 'post_market'):
-            self._schedule_replay(market='a_share', phase='post_market', delay_seconds=REPLAY_DELAY_AFTER_OPEN)
-
-    def _on_us_trading_clock_event(self, event: dict):
-        """处理美股交易时钟事件"""
-        if not self._running:
-            return
-
-        phase = event.get('phase')
-        market = event.get('market', 'US')
-        event_type = event.get('type')
-
-        log.info(f"[DailyReviewScheduler] 收到美股交易时钟信号: phase={phase}, type={event_type}, market={market}")
-
-        if phase == 'post_market' or (event_type == 'current_state' and phase == 'post_market'):
-            self._schedule_replay(market='us_share', phase='post_market', delay_seconds=REPLAY_DELAY_AFTER_OPEN)
+        if market == 'CN':
+            log.info(f"[DailyReviewScheduler] 收到A股交易时钟信号: phase={phase}, type={event_type}")
+            if phase == 'post_market' or (event_type == 'current_state' and phase == 'post_market'):
+                self._schedule_replay(market='a_share', phase='post_market', delay_seconds=REPLAY_DELAY_AFTER_OPEN)
+        elif market == 'US':
+            log.info(f"[DailyReviewScheduler] 收到美股交易时钟信号: phase={phase}, type={event_type}, market={market}")
+            if phase == 'post_market' or (event_type == 'current_state' and phase == 'post_market'):
+                self._schedule_replay(market='us_share', phase='post_market', delay_seconds=REPLAY_DELAY_AFTER_OPEN)
 
     def _run_loop(self):
         """主循环 - 检查是否需要触发 A股和美股复盘"""
@@ -186,8 +174,8 @@ class DailyReviewScheduler:
                     self._trigger_replay(market=market, phase='post_market')
 
         elif market == 'us_share':
-            us_tc = SR('us_trading_clock')
-            current_phase = us_tc.current_phase
+            tc = SR('trading_clock')
+            current_phase = tc.us_phase
 
             # 美股：每天 04:00/05:00 后检查
             # 北京时间 = 美东时间 + 12/13小时

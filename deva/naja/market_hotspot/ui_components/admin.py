@@ -181,12 +181,12 @@ async def render_market_hotspot_admin(ctx: dict):
 
             cn_phase = cn_info.get('phase', 'closed')
             us_phase = us_info.get('phase', 'closed')
-            cn_phase_name = cn_info.get('phase_name', '休市')
-            us_phase_name = us_info.get('phase_name', '休市')
-            cn_next = cn_info.get('next_change_time', '')
-            us_next = us_info.get('next_change_time', '')
-            cn_next_phase = cn_info.get('next_phase_name', '')
-            us_next_phase = us_info.get('next_phase_name', '')
+            cn_phase_name = cn_info.get('phase_name') if cn_info.get('phase_name') not in (None, '未知') else '休市'
+            us_phase_name = us_info.get('phase_name') if us_info.get('phase_name') not in (None, '未知') else '休市'
+            cn_next = cn_info.get('next_change_time') or ''
+            us_next = us_info.get('next_change_time') or ''
+            cn_next_phase = cn_info.get('next_phase_name') or ''
+            us_next_phase = us_info.get('next_phase_name') or ''
 
             cn_color = '#22c55e' if cn_phase in ('trading', 'pre_market', 'call_auction') else '#f59e0b'
             us_color = '#22c55e' if us_phase in ('trading', 'pre_market') else '#f59e0b'

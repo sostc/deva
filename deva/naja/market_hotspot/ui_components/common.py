@@ -30,15 +30,6 @@ def get_strategy_manager():
         return None
 
 
-def get_history_tracker():
-    """获取历史追踪器"""
-    try:
-        from deva.naja.market_hotspot.tracking.history_tracker import get_history_tracker
-        return get_history_tracker()
-    except Exception:
-        return None
-
-
 def _is_b_share_symbol(symbol: str, name: str = "", stock_type: str = "") -> bool:
     """判断是否为 B 股（用于对外服务接口兜底过滤）"""
     if name:
@@ -435,24 +426,24 @@ def get_market_phase_summary() -> Dict[str, Any]:
             'next_change_time': '',
         }
     else:
-        from deva.naja.market_hotspot.data.global_market_futures import _DEBUG_MARKET_MODE
-        if _DEBUG_MARKET_MODE == 'a_share':
-            cn_signal = {'type': 'current_state', 'phase': 'trading', 'market': 'CN', 'next_phase': 'closed', 'next_change_time': ''}
-            us_signal = {'type': 'current_state', 'phase': 'closed', 'market': 'US', 'next_change_time': ''}
-        else:
-            try:
-                cn_signal = SR('trading_clock').get_current_signal()
-            except Exception:
-                cn_signal = {}
-            try:
-                us_signal = SR('us_trading_clock').get_current_signal()
-            except Exception:
-                us_signal = {}
+            from deva.naja.market_hotspot.data.global_market_futures import _DEBUG_MARKET_MODE
+            if _DEBUG_MARKET_MODE == 'a_share':
+                cn_signal = {'type': 'current_state', 'phase': 'trading', 'market': 'CN', 'next_phase': 'closed', 'next_change_time': ''}
+                us_signal = {'type': 'current_state', 'phase': 'closed', 'market': 'US', 'next_change_time': ''}
+            else:
+                try:
+                    tc = SR('trading_clock')
+                    cn_signal = tc.get_cn_signal()
+                    us_signal = tc.get_us_signal()
+                except Exception:
+                    cn_signal = {}
+                    us_signal = {}
 
     def build(signal: Dict[str, Any], names: Dict[str, str]) -> Dict[str, Any]:
+        from deva.naja.market_hotspot.utils.time_utils import format_next_time
         phase = signal.get('phase', 'closed')
         next_phase = signal.get('next_phase', '')
-        next_change_time = _format_next_time(signal.get('next_change_time', '') or '')
+        next_change_time = format_next_time(signal.get('next_change_time', '') or '')
         phase_name = names.get(phase, phase)
         next_phase_name = names.get(next_phase, next_phase) if next_phase else ''
         active = phase in ('trading', 'pre_market', 'call_auction')
