@@ -260,7 +260,7 @@ class CognitionThoughtHandler(RequestHandler):
                 self.write(json.dumps(result, ensure_ascii=False))
                 return
 
-            report = engine.generate_thought_report()
+            report = engine._news_mind.generate_thought_report()
             result = {
                 "timestamp": time.time(),
                 "datetime": time.strftime("%Y-%m-%d %H:%M:%S"),
@@ -552,7 +552,15 @@ class BanditStatsHandler(RequestHandler):
                 self.write(json.dumps(result, ensure_ascii=False))
                 return
 
-            stats = bandit.get_stats()
+            stats = {
+                "running": bandit._running,
+                "enabled": bandit._enabled,
+                "force_mode": bandit._force_mode,
+                "current_phase": bandit._current_phase,
+                "previous_phase": bandit._previous_phase,
+                "select_interval": bandit._select_interval,
+                "adjust_interval": bandit._adjust_interval,
+            }
             result = {
                 "timestamp": time.time(),
                 "datetime": time.strftime("%Y-%m-%d %H:%M:%S"),

@@ -10,11 +10,15 @@ def _safe_get(singleton_name, attr=None):
         from deva.naja.register import SR
         obj = SR(singleton_name)
         if obj is None:
+            import logging
+            logging.getLogger(__name__).warning(f"SR('{singleton_name}') returned None")
             return None
         if attr:
             return getattr(obj, attr, None)
         return obj
-    except Exception:
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).warning(f"SR('{singleton_name}') failed: {e}")
         return None
 
 
@@ -57,20 +61,17 @@ class ManasStateHandler(RequestHandler):
 
     def get(self):
         try:
-            manager = _safe_get('manas_manager')
+            # 使用 get_manas_manager() 确保自动启用
+            from deva.naja.attention.kernel.manas_manager import get_manas_manager
+            manager = get_manas_manager()
             if manager is None:
                 self.write(json.dumps(_error("manas_manager 未初始化"), ensure_ascii=False))
                 return
-            # ManasManager 内部持有 manas_engine
-            engine = getattr(manager, '_manas_engine', None) or getattr(manager, 'engine', None)
-            if engine and hasattr(engine, 'get_state'):
-                state = engine.get_state()
-                self.write(json.dumps(_success(_to_dict(state)), ensure_ascii=False))
-            elif hasattr(manager, 'get_state'):
-                state = manager.get_state()
-                self.write(json.dumps(_success(_to_dict(state)), ensure_ascii=False))
-            else:
-                self.write(json.dumps(_error("无法获取 manas 状态"), ensure_ascii=False))
+            # 确保启用
+            if not manager.is_enabled():
+                manager.set_enabled(True)
+            state = manager.get_state()
+            self.write(json.dumps(_success(_to_dict(state)), ensure_ascii=False))
         except Exception as e:
             self.write(json.dumps(_error(str(e)), ensure_ascii=False))
 
