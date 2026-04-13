@@ -471,76 +471,55 @@ class MarketHotspotSystem:
         return self._symbol_name_cache.get(symbol, symbol)
 
     def _extract_block_ids_from_data(self, data: 'pd.DataFrame') -> np.ndarray:
-        """从数据中提取题材ID（已过滤噪音题材）"""
+        """从数据中提取题材ID（使用 BlockDictionary）"""
         try:
-            block_df = self._get_block_dataframe()
-            if block_df is None or block_df.empty:
-                return np.zeros(len(data))
+            from deva.naja.dictionary.blocks import get_block_dictionary
+            from deva.naja.market_hotspot.processing.block_noise_detector import BlockNoiseDetector
+
+            bd = get_block_dictionary()
+            block_noise_detector = BlockNoiseDetector()
 
             code_col = 'code' if 'code' in data.columns else data.index.name
             if code_col is None:
                 return np.zeros(len(data))
 
-            from deva.naja.market_hotspot.processing.block_noise_detector import BlockNoiseDetector
-            block_noise_detector = BlockNoiseDetector()
-
-            block_df = block_df.copy()
-            block_df['code'] = block_df['code'].astype(str).str.zfill(6)
-
-            code_to_blocks: Dict[str, List[str]] = {}
-            noise_block_count = 0
-            for _, row in block_df.iterrows():
-                code = str(row['code'])
-                block = str(row['blocks']) if pd.notna(row['blocks']) else ''
-                if block and code:
-                    if block_noise_detector.is_block_noise(block):
-                        noise_block_count += 1
-                        continue
-                    if code not in code_to_blocks:
-                        code_to_blocks[code] = []
-                    if block not in code_to_blocks[code]:
-                        code_to_blocks[code].append(block)
-
-            if noise_block_count > 0:
-                log.debug(f"[MarketHotspotSystem] 提取题材时过滤噪音题材: {noise_block_count}个")
+            raw_codes = data[code_col].astype(str).values
+            stock_to_blocks = bd._cn_stock_to_blocks
 
             block_id_map: Dict[str, int] = {}
             next_block_id = 1
-            for blocks in code_to_blocks.values():
+
+            for code in raw_codes:
+                code_str = str(code).replace('sh', '').replace('sz', '').replace('bj', '').zfill(6)
+                blocks = stock_to_blocks.get(code_str, set())
+
+                filtered_blocks = []
                 for block in blocks:
+                    if block_noise_detector.is_block_noise(block):
+                        continue
+                    filtered_blocks.append(block)
                     if block not in block_id_map:
                         block_id_map[block] = next_block_id
                         next_block_id += 1
 
             block_ids = []
-            raw_codes = data[code_col].astype(str).values
             for code in raw_codes:
-                code_str = str(code)
-                code_str = code_str.replace('sh', '').replace('sz', '').replace('bj', '').zfill(6)
-                blocks = code_to_blocks.get(code_str, [])
-                if not blocks:
-                    block_ids.append(0)
-                else:
-                    block_ids.append(block_id_map.get(blocks[0], 0))
+                code_str = str(code).replace('sh', '').replace('sz', '').replace('bj', '').zfill(6)
+                blocks = stock_to_blocks.get(code_str, set())
+                block_id = 0
+                for block in blocks:
+                    if not block_noise_detector.is_block_noise(block):
+                        block_id = block_id_map.get(block, 0)
+                        break
+                block_ids.append(block_id)
 
             log.debug(f"[MarketHotspotSystem] 提取题材ID完成: {len(block_id_map)}个有效题材, {len(data)}只股票")
             return np.array(block_ids, dtype=int)
         except Exception as e:
             log.debug(f"[MarketHotspotSystem] 提取block_ids失败: {e}")
+            import traceback
+            log.debug(traceback.format_exc())
             return np.zeros(len(data))
-
-    def _get_block_dataframe(self):
-        """获取题材数据（统一从字典获取）"""
-        try:
-            mgr = SR('dictionary_manager')
-            entry = mgr.get_by_name("通达信概念题材")
-            if entry:
-                payload = entry.get_payload()
-                if isinstance(payload, pd.DataFrame):
-                    return payload
-            return None
-        except Exception:
-            return None
 
     def _get_noise_filter_config(self) -> 'NoiseFilterConfig':
         """获取噪音过滤器配置"""

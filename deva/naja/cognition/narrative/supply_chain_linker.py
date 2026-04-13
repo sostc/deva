@@ -120,15 +120,15 @@ class NarrativeSupplyChainLinker:
 
     def _publish_supply_chain_event(self, event, impacts: List):
         """
-        🚀 发布供应链影响事件到 CognitiveSignalBus
+        🚀 发布供应链影响事件到 NajaEventBus
         """
         try:
             from deva.naja.events import (
-                get_cognitive_bus,
+                get_event_bus,
                 CognitiveEventType,
             )
 
-            bus = get_cognitive_bus()
+            bus = get_event_bus()
 
             # 提取相关股票
             stock_codes = [impact.stock_code for impact in impacts if hasattr(impact, 'stock_code')]
@@ -141,19 +141,12 @@ class NarrativeSupplyChainLinker:
             elif high_risk_count >= 1:
                 risk_level = "MEDIUM"
 
-            bus.publish_cognitive_event(
+            from deva.naja.events import SupplyChainRiskEvent
+            event = SupplyChainRiskEvent(
                 source="SupplyChainLinker",
-                event_type=CognitiveEventType.NARRATIVE_SUPPLY_LINK,
-                narratives=item.structured_signal.narrative_tags if item.structured_signal else [],
-                importance=item.importance_score,
-                confidence=0.6,
-                stock_codes=stock_codes,
-                risk_level=risk_level,
-                metadata={
-                    "impact_count": len(impacts),
-                    "keywords": item.raw_keywords or [],
-                }
+                event_type="narrative_supply_link",
             )
+            bus.publish(event)
         except ImportError:
             pass
         except Exception as e:

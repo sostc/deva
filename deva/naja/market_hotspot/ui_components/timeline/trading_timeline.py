@@ -29,8 +29,6 @@ def render_block_trading_timeline() -> str:
         today_events.sort(key=lambda x: x.timestamp)
 
     using_sample_data = not has_real_data and not today_events
-    if using_sample_data:
-        today_events = _get_sample_events()
 
     html = f"""
     <div style="background: white; border: 1px solid #e2e8f0; border-radius: 12px; padding: 16px; margin-bottom: 16px;">

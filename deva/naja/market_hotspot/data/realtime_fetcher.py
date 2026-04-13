@@ -46,6 +46,7 @@ from .sina_parser import (
     _get_cn_codes_from_registry,
     _fetch_all_stocks_async,
     _fetch_sina_sync,
+    _fetch_sina_by_symbols_sync,
 )
 from .fetch_config import FetchConfig, SNAPSHOT_CONFIG_KEY
 
@@ -333,14 +334,12 @@ class RealtimeDataFetcher:
         """获取A股全量数据并同步到热点系统"""
         log.debug(f"[RealtimeDataFetcher] _fetch_and_sync_cn 开始, _cn_active={self._cn_active}")
         try:
-            # 使用 _fetch_sina_sync 获取全量A股数据
-            cn_df = _fetch_sina_sync(force_trading=False)
-            log.debug(f"[RealtimeDataFetcher] _fetch_sina_sync 返回: df={type(cn_df)}, len={len(cn_df) if cn_df is not None else 'N/A'}")
+            cn_df = await _fetch_all_stocks_async()
+            log.debug(f"[RealtimeDataFetcher] _fetch_all_stocks_async 返回: df={type(cn_df)}, len={len(cn_df) if cn_df is not None else 'N/A'}")
 
             if cn_df is not None and len(cn_df) > 0:
-                # 过滤噪音
                 cn_df = self._apply_noise_filter_at_source(cn_df)
-                log.debug(f"[RealtimeDataFetcher] A股全量数据: 原始{len(_fetch_sina_sync(None)) if _fetch_sina_sync(None) is not None else 0} -> 过滤后{len(cn_df)}")
+                log.debug(f"[RealtimeDataFetcher] A股全量数据: 过滤后{len(cn_df)}")
 
                 # 同步到热点系统
                 self._process_cn_hotspot(cn_df)
@@ -717,40 +716,40 @@ class RealtimeDataFetcher:
         """
         从 Sina 行情源获取实时数据
 
-        策略：全量获取后按 symbols 过滤
-        - 高频档位：每 1s 获取一次（HIGH symbols）
-        - 中频档位：每 10s 获取一次（MEDIUM symbols）
-        - 低频档位：每 60s 获取一次（LOW symbols）
+        策略：
+        - 如果 symbols 为空，获取全量A股
+        - 如果 symbols 有值，只获取对应的股票
 
-        注意：在源头过滤噪音股票（B股、ST股、低流动性）
+        档位控制（在 _tick_market 中实现）：
+        - HIGH symbols：每 1s 获取一次
+        - MEDIUM symbols：每 10s 获取一次
+        - LOW symbols：每 60s 获取一次
         """
         try:
             import os as _os
-            print(f"[RT_FETCHER] _fetch_realtime_data PID={_os.getpid()}, symbols={symbols[:5] if symbols else 'empty'}", flush=True)
-            df = _fetch_sina_sync(force_trading=self.config.force_trading_mode)
-            print(f"[RT_FETCHER] _fetch_sina_sync 返回: df={type(df)}, empty={df.empty if df is not None else 'N/A'}", flush=True)
+            print(f"[RT_FETCHER] _fetch_realtime_data PID={_os.getpid()}, symbols={len(symbols) if symbols else 'empty'}", flush=True)
+
+            if symbols:
+                df = _fetch_sina_by_symbols_sync(symbols)
+                print(f"[RT_FETCHER] _fetch_sina_by_symbols_sync 返回: df={type(df)}, len={len(df) if df is not None else 'N/A'}", flush=True)
+            else:
+                df = _fetch_sina_sync(force_trading=self.config.force_trading_mode)
+                print(f"[RT_FETCHER] _fetch_sina_sync 返回: df={type(df)}, len={len(df) if df is not None else 'N/A'}", flush=True)
 
             if df is None or df.empty:
                 return None
 
-            df = self._apply_noise_filter_at_source(df)
-
             if not symbols:
+                df = self._apply_noise_filter_at_source(df)
                 return df
 
-            code_list = [s for s in symbols]
-            filtered = df[df.index.isin(code_list)]
+            df = df.copy()
+            df['code'] = df.index
+            if 'now' in df.columns and 'close' in df.columns:
+                df['p_change'] = (df['now'] - df['close']) / df['close']
+                df['change_pct'] = df['p_change']
 
-            if filtered.empty:
-                return df
-
-            filtered = filtered.copy()
-            filtered['code'] = filtered.index
-            if 'now' in filtered.columns and 'close' in filtered.columns:
-                filtered['p_change'] = (filtered['now'] - filtered['close']) / filtered['close']
-                filtered['change_pct'] = filtered['p_change']
-
-            return filtered
+            return df
 
         except Exception as e:
             log.debug(f"[RealtimeDataFetcher] 获取数据失败: {e}")

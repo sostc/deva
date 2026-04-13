@@ -69,9 +69,9 @@ from .analysis import (
 from .insight import InsightEngine, InsightPool
 # ── 统一认知事件总线（已迁移到 events 模块） ──────────────
 from deva.naja.events import (
-    CognitiveSignalBus,
+    NajaEventBus,
     CognitiveEventType,
-    get_cognitive_bus,
+    get_event_bus,
 )
 # ── 保留根目录的模块 ──────────────────────────────────
 from .memory_manager import MemoryManager
@@ -122,9 +122,9 @@ __all__ = [
     "get_linked_markets",
     "get_market_config",
     # 统一认知事件总线 (已迁移到 events/)
-    "CognitiveSignalBus",
+    "NajaEventBus",
     "CognitiveEventType",
-    "get_cognitive_bus",
+    "get_event_bus",
     # 语义子模块 (semantic子域)
     "NewsEvent",
     "SignalType",

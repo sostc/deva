@@ -623,15 +623,15 @@ class LiquidityCognition:
         self._verification_interval = 60  # 每60秒验证一次
         self._last_verification_time = 0.0
 
-        # 🚀 新架构：订阅 CognitiveSignalBus，接收全球市场事件
-        self._subscribe_to_cognitive_bus()
+        # 🚀 新架构：订阅 NajaEventBus，接收全球市场事件
+        self._subscribe_to_event_bus()
 
-    def _subscribe_to_cognitive_bus(self):
-        """🚀 订阅 CognitiveSignalBus，接收全球市场事件"""
+    def _subscribe_to_event_bus(self):
+        """🚀 订阅 NajaEventBus，接收全球市场事件"""
         try:
-            from deva.naja.events import get_cognitive_bus, CognitiveEventType
+            from deva.naja.events import get_event_bus, CognitiveEventType
 
-            bus = get_cognitive_bus()
+            bus = get_event_bus()
 
             def on_market_event(event):
                 """处理全球市场事件"""
@@ -656,9 +656,9 @@ class LiquidityCognition:
                 event_types=[CognitiveEventType.GLOBAL_MARKET_EVENT],
                 min_importance=0.3
             )
-            log.info("[LiquidityCognition] 已订阅 CognitiveSignalBus")
+            log.info("[LiquidityCognition] 已订阅 NajaEventBus")
         except ImportError:
-            log.debug("[LiquidityCognition] CognitiveSignalBus 未安装，降级处理")
+            log.debug("[LiquidityCognition] NajaEventBus 未安装，降级处理")
 
     def register_callback(self, callback: callable):
         """注册回调，接收认知洞察"""

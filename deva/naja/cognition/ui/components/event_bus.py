@@ -3,6 +3,31 @@ Event Bus 组件
 """
 
 from deva.naja.infra.ui.ui_style import format_timestamp
+from deva.naja.register import SR
+
+
+def _fetch_insight_data():
+    """统一获取 insight 数据，供 event_bus 自行计算 source_counts"""
+    try:
+        insight_pool = SR('insight_pool')
+        if not insight_pool:
+            return {}, {}, []
+        insights = insight_pool.get_recent_insights(limit=100)
+        recent_insights = insights[:20]
+
+        source_counts = {}
+        recent_by_source = {}
+        for insight in insights:
+            src = insight.get('source', 'unknown')
+            source_counts[src] = source_counts.get(src, 0) + 1
+            if src not in recent_by_source:
+                recent_by_source[src] = []
+            if len(recent_by_source[src]) < 2:
+                recent_by_source[src].append(insight)
+
+        return source_counts, recent_by_source, recent_insights
+    except Exception:
+        return {}, {}, []
 
 
 def render_event_bus(ui, source_counts=None, recent_by_source=None, recent_insights=None):
@@ -10,13 +35,13 @@ def render_event_bus(ui, source_counts=None, recent_by_source=None, recent_insig
 
     Args:
         ui: CognitionUI 实例
-        source_counts: 各数据源的计数
-        recent_by_source: 按数据源分组的最近洞察
-        recent_insights: 最近的洞察列表
+        source_counts: 各数据源的计数（可选，不传则自行获取）
+        recent_by_source: 按数据源分组的最近洞察（可选）
+        recent_insights: 最近的洞察列表（可选）
     """
     try:
-        from deva.naja.events import get_cognitive_bus
-        bus = get_cognitive_bus()
+        from deva.naja.events import get_event_bus
+        bus = get_event_bus()
         bus_len = len(getattr(bus, '_recent_events', []))
         # 新总线使用订阅者计数和去重窗口
         subscriber_count = sum(len(subs) for subs in getattr(bus, '_subscribers', {}).values())
@@ -26,10 +51,11 @@ def render_event_bus(ui, source_counts=None, recent_by_source=None, recent_insig
         subscriber_count = 0
         dedup_window = 30
 
-    if source_counts is None:
-        source_counts = {}
-    if recent_by_source is None:
-        recent_by_source = {}
+    # 如果调用方没传数据，自行获取
+    if source_counts is None or recent_by_source is None:
+        source_counts, recent_by_source, recent_insights = _fetch_insight_data()
+    if recent_insights is None:
+        recent_insights = []
 
     DATA_SOURCES = [
         {"type": "news", "name": "新闻事件", "icon": "📡", "color": "#f97316"},
