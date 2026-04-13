@@ -29,6 +29,42 @@ if python3 -c "import deva" 2>/dev/null; then
         echo "  ⚠️ deva 已安装但 naja 模块不可用，将重新安装"
         DEVA_INSTALLED=false
     fi
+
+    # deva 已安装，检查是否有更新
+    if [ "$DEVA_INSTALLED" = true ]; then
+        echo "  🔄 检查 deva 更新..."
+        DEVADIR=""
+        for d in deva ../deva /workspace/deva; do
+            if [ -d "$d/.git" ]; then
+                DEVADIR="$d"
+                break
+            fi
+        done
+        if [ -n "$DEVADIR" ]; then
+            cd "$DEVADIR"
+            # 获取当前 commit hash
+            OLD_HASH=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")
+            # 异步拉取更新（超时10秒）
+            UPDATE_OUTPUT=$(timeout 10 git pull --ff-only 2>&1) || true
+            NEW_HASH=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")
+            cd - > /dev/null
+            if [ "$OLD_HASH" != "$NEW_HASH" ]; then
+                echo "  ✅ deva 已更新 ($OLD_HASH → $NEW_HASH)"
+                echo "  📝 更新内容:"
+                echo "$UPDATE_OUTPUT" | grep -E "^ [a-z]" | head -5 | sed 's/^/    /'
+                # 重新安装以应用更新
+                echo "  🔄 重新安装 deva..."
+                cd "$DEVADIR"
+                pip3 install --break-system-packages -e . 2>&1 | tail -1
+                cd - > /dev/null
+                echo "  ✅ 重新安装完成"
+            else
+                echo "  ✅ deva 已是最新 ($OLD_HASH)"
+            fi
+        else
+            echo "  ⚠️ 未找到 deva git 目录，跳过更新检查"
+        fi
+    fi
 fi
 
 if [ "$DEVA_INSTALLED" = false ]; then
