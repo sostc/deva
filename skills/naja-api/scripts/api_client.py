@@ -14,15 +14,7 @@ BASE_URL = "http://localhost:8080"
 
 
 def call_api(endpoint, params=None):
-    """调用 API 端点
-    
-    Args:
-        endpoint: API 端点路径
-        params: 请求参数
-        
-    Returns:
-        响应数据
-    """
+    """调用 API 端点"""
     url = f"{BASE_URL}{endpoint}"
     try:
         response = requests.get(url, params=params, timeout=30)
@@ -37,140 +29,238 @@ def call_api(endpoint, params=None):
         }
 
 
+# ── 认知系统 ──
+
 def get_cognition_memory():
-    """获取认知系统记忆报告"""
     return call_api("/api/cognition/memory")
 
-
 def get_cognition_topics(lookback=50):
-    """获取认知系统主题信号"""
     return call_api("/api/cognition/topics", params={"lookback": lookback})
 
-
 def get_cognition_attention(lookback=200):
-    """获取认知系统注意力提示"""
     return call_api("/api/cognition/attention", params={"lookback": lookback})
 
-
 def get_cognition_thought():
-    """获取认知系统思想报告"""
     return call_api("/api/cognition/thought")
 
+# ── 注意力系统 ──
+
+def get_manas_state():
+    return call_api("/api/attention/manas/state")
+
+def get_harmony():
+    return call_api("/api/attention/harmony")
+
+def get_attention_context():
+    return call_api("/api/attention/context")
+
+def get_decision():
+    return call_api("/api/attention/decision")
+
+def get_conviction():
+    return call_api("/api/attention/conviction")
+
+def get_conviction_timing():
+    return call_api("/api/attention/conviction/timing")
+
+def get_portfolio_summary():
+    return call_api("/api/attention/portfolio/summary")
+
+def get_position_metrics():
+    return call_api("/api/attention/position/metrics")
+
+def get_tracking_stats():
+    return call_api("/api/attention/tracking/stats")
+
+def get_focus():
+    return call_api("/api/attention/focus")
+
+def get_fusion():
+    return call_api("/api/attention/fusion")
+
+def get_blind_spots():
+    return call_api("/api/attention/blind-spots")
+
+def get_liquidity():
+    return call_api("/api/attention/liquidity")
+
+def get_strategy_top_symbols():
+    return call_api("/api/attention/strategy/top-symbols")
+
+def get_strategy_top_blocks():
+    return call_api("/api/attention/strategy/top-blocks")
+
+# ── 知识库 ──
+
+def get_knowledge_list(status=None, category=None, limit=20, offset=0):
+    params = {"limit": limit, "offset": offset}
+    if status:
+        params["status"] = status
+    if category:
+        params["category"] = category
+    return call_api("/api/knowledge/list", params=params)
+
+def get_knowledge_stats():
+    return call_api("/api/knowledge/stats")
+
+def get_knowledge_detail(entry_id):
+    return call_api("/api/knowledge/detail", params={"id": entry_id})
+
+def get_knowledge_trading():
+    return call_api("/api/knowledge/trading")
+
+# ── 市场 ──
 
 def get_market_state():
-    """获取市场状态"""
     return call_api("/api/market/state")
 
+def get_market_hotspot():
+    return call_api("/api/market/hotspot")
 
 def get_market_hotspot_details():
-    """获取市场热点详情"""
     return call_api("/api/market/hotspot/details")
 
+# ── 系统 ──
 
 def get_system_status():
-    """获取系统状态"""
     return call_api("/api/system/status")
 
-
 def get_system_modules():
-    """获取系统模块状态"""
     return call_api("/api/system/modules")
 
+# ── 其他 ──
 
 def get_radar_events():
-    """获取雷达事件"""
     return call_api("/api/radar/events")
 
-
 def get_bandit_stats():
-    """获取 Bandit 决策统计"""
     return call_api("/api/bandit/stats")
 
-
 def get_datasource_list():
-    """获取数据源列表"""
     return call_api("/api/datasource/list")
 
-
 def get_strategy_list():
-    """获取策略列表"""
     return call_api("/api/strategy/list")
 
-
 def get_alaya_status():
-    """获取阿那亚觉醒状态"""
     return call_api("/api/alaya/status")
 
 
+# ── 命令映射 ──
+
+COMMANDS = {
+    # 认知
+    "cognition-memory": (get_cognition_memory, "认知记忆报告"),
+    "cognition-topics": (lambda: get_cognition_topics(50), "认知主题信号"),
+    "cognition-attention": (lambda: get_cognition_attention(200), "认知注意力"),
+    "cognition-thought": (get_cognition_thought, "思想雷达报告"),
+    # 注意力
+    "manas-state": (get_manas_state, "Manas 末那识状态"),
+    "harmony": (get_harmony, "和谐度"),
+    "attention-context": (get_attention_context, "注意力上下文"),
+    "decision": (get_decision, "决策信号"),
+    "conviction": (get_conviction, "信念验证"),
+    "conviction-timing": (get_conviction_timing, "时机信号"),
+    "portfolio-summary": (get_portfolio_summary, "持仓汇总"),
+    "position-metrics": (get_position_metrics, "持仓指标"),
+    "tracking-stats": (get_tracking_stats, "跟踪统计"),
+    "focus": (get_focus, "关注焦点"),
+    "fusion": (get_fusion, "融合信号"),
+    "blind-spots": (get_blind_spots, "盲区发现"),
+    "liquidity": (get_liquidity, "流动性"),
+    "strategy-top-symbols": (get_strategy_top_symbols, "策略Top股票"),
+    "strategy-top-blocks": (get_strategy_top_blocks, "策略Top题材"),
+    # 知识库
+    "knowledge-list": (get_knowledge_list, "知识列表"),
+    "knowledge-stats": (get_knowledge_stats, "知识统计"),
+    "knowledge-detail": (get_knowledge_detail, "知识详情"),
+    "knowledge-trading": (get_knowledge_trading, "交易决策知识"),
+    # 市场
+    "market-state": (get_market_state, "市场状态"),
+    "market-hotspot": (get_market_hotspot, "市场热点"),
+    "market-hotspot-details": (get_market_hotspot_details, "热点详情"),
+    # 系统
+    "system-status": (get_system_status, "系统状态"),
+    "system-modules": (get_system_modules, "模块状态"),
+    # 其他
+    "radar-events": (get_radar_events, "雷达事件"),
+    "bandit-stats": (get_bandit_stats, "Bandit 统计"),
+    "datasource-list": (get_datasource_list, "数据源列表"),
+    "strategy-list": (get_strategy_list, "策略列表"),
+    "alaya-status": (get_alaya_status, "阿那亚状态"),
+}
+
+
 def main():
-    """主函数"""
     global BASE_URL
-    
-    parser = argparse.ArgumentParser(description="Naja API 客户端")
-    parser.add_argument("command", choices=[
-        "cognition-memory", "cognition-topics", "cognition-attention", "cognition-thought",
-        "market-state", "market-hotspot",
-        "system-status", "system-modules",
-        "radar-events",
-        "bandit-stats",
-        "datasource-list", "strategy-list",
-        "alaya-status"
-    ], help="API 命令")
+
+    parser = argparse.ArgumentParser(
+        description="Naja API 客户端",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+示例:
+  python3 api_client.py system-status
+  python3 api_client.py knowledge-list --status qualified --limit 10
+  python3 api_client.py knowledge-detail --id abc12345
+  python3 api_client.py manas-state
+  python3 api_client.py harmony
+  python3 api_client.py cognition-memory
+        """
+    )
+    parser.add_argument("command", choices=list(COMMANDS.keys()), help="API 命令")
+    parser.add_argument("--status", help="知识状态筛选 (observing/validating/qualified/expired)")
+    parser.add_argument("--category", help="知识分类筛选")
+    parser.add_argument("--id", help="知识条目 ID")
+    parser.add_argument("--limit", type=int, default=20, help="返回数量")
+    parser.add_argument("--offset", type=int, default=0, help="偏移量")
     parser.add_argument("--lookback", type=int, help="回溯数量")
     parser.add_argument("--base-url", default=BASE_URL, help="API 基础 URL")
     parser.add_argument("--output", choices=["json", "text"], default="json", help="输出格式")
-    
+
     args = parser.parse_args()
-    
     BASE_URL = args.base_url
-    
-    result = None
-    
-    if args.command == "cognition-memory":
-        result = get_cognition_memory()
-    elif args.command == "cognition-topics":
-        lookback = args.lookback or 50
-        result = get_cognition_topics(lookback)
-    elif args.command == "cognition-attention":
-        lookback = args.lookback or 200
-        result = get_cognition_attention(lookback)
-    elif args.command == "cognition-thought":
-        result = get_cognition_thought()
-    elif args.command == "market-state":
-        result = get_market_state()
-    elif args.command == "market-hotspot":
-        result = get_market_hotspot_details()
-    elif args.command == "system-status":
-        result = get_system_status()
-    elif args.command == "system-modules":
-        result = get_system_modules()
-    elif args.command == "radar-events":
-        result = get_radar_events()
-    elif args.command == "bandit-stats":
-        result = get_bandit_stats()
-    elif args.command == "datasource-list":
-        result = get_datasource_list()
-    elif args.command == "strategy-list":
-        result = get_strategy_list()
-    elif args.command == "alaya-status":
-        result = get_alaya_status()
-    
+
+    # 获取命令对应的函数
+    func, desc = COMMANDS[args.command]
+
+    # 特殊参数处理
+    if args.command == "knowledge-list":
+        result = get_knowledge_list(status=args.status, category=args.category, limit=args.limit, offset=args.offset)
+    elif args.command == "knowledge-detail":
+        if not args.id:
+            print("错误: knowledge-detail 需要 --id 参数")
+            return
+        result = get_knowledge_detail(args.id)
+    elif args.command == "cognition-topics" and args.lookback:
+        result = get_cognition_topics(args.lookback)
+    elif args.command == "cognition-attention" and args.lookback:
+        result = get_cognition_attention(args.lookback)
+    else:
+        result = func()
+
     if args.output == "json":
         print(json.dumps(result, ensure_ascii=False, indent=2))
     else:
         if result.get("success"):
-            print(f"✓ 调用成功")
+            print(f"✓ {desc} - 调用成功")
             print(f"时间: {result.get('datetime')}")
             if "data" in result:
                 data = result["data"]
                 if isinstance(data, dict):
                     for key, value in data.items():
                         if isinstance(value, (dict, list)):
-                            print(f"{key}: {json.dumps(value, ensure_ascii=False)[:100]}...")
+                            print(f"{key}: {json.dumps(value, ensure_ascii=False)[:150]}")
                         else:
                             print(f"{key}: {value}")
+                elif isinstance(data, list):
+                    print(f"共 {len(data)} 条")
+                    for item in data[:5]:
+                        if isinstance(item, dict):
+                            print(f"  - {item.get('cause', item.get('name', item.get('symbol', str(item)))[:60]}")
+                        else:
+                            print(f"  - {str(item)[:60]}")
         else:
-            print(f"✗ 调用失败: {result.get('error')}")
+            print(f"✗ {desc} - 调用失败: {result.get('error')}")
 
 
 if __name__ == "__main__":
