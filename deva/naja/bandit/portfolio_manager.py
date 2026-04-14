@@ -314,6 +314,7 @@ class PortfolioManager:
         self._us_portfolios: Dict[str, USStockPortfolio] = {}
 
         self._init_accounts()
+        self._load_config_positions()
 
     def _init_accounts(self):
         try:
@@ -324,7 +325,11 @@ class PortfolioManager:
 
             for name in account_names:
                 if name == "虚拟测试":
-                    self._accounts[name] = SR('virtual_portfolio')
+                    try:
+                        self._accounts[name] = SR('virtual_portfolio')
+                    except KeyError:
+                        log.warning("virtual_portfolio 尚未注册，跳过虚拟测试账户")
+                        continue
                 else:
                     self._us_portfolios[name] = USStockPortfolio(name)
                     self._accounts[name] = self._us_portfolios[name]
@@ -332,6 +337,29 @@ class PortfolioManager:
             log.info(f"已初始化 {len(self._accounts)} 个账户: {list(self._accounts.keys())}")
         except Exception as e:
             log.error(f"初始化账户失败: {e}")
+
+    def _load_config_positions(self):
+        """从配置文件加载持仓（同步，不依赖网络）"""
+        config = _load_portfolio_config()
+        if not config:
+            return
+
+        for account_name in ["Spark", "Cutie"]:
+            portfolio = self._us_portfolios.get(account_name)
+            if not portfolio:
+                continue
+            account_cfg = config.get(account_name, {})
+            for pos_cfg in account_cfg.get("positions", []):
+                symbol = pos_cfg["symbol"]
+                if not portfolio.get_positions_by_stock(symbol):
+                    portfolio.add_position(
+                        symbol,
+                        pos_cfg.get("name", symbol),
+                        pos_cfg["cost"],
+                        pos_cfg["quantity"],
+                    )
+            positions = portfolio.get_open_positions()
+            log.info(f"[{account_name}] 从配置文件加载 {len(positions)} 个持仓")
 
     def get_account(self, account_name: str) -> Optional[Any]:
         return self._accounts.get(account_name)
@@ -511,11 +539,17 @@ def init_us_portfolios():
 
     使用 USStockPriceManager 智能获取价格（根据市场状态）
     """
-    pm = get_portfolio_manager()
+    from deva.naja.register import SR
+    try:
+        pm = SR('portfolio_manager')
+    except KeyError:
+        pm = get_portfolio_manager()
     config = _load_portfolio_config()
+    log.info(f"[init_us_portfolios] pm={type(pm).__name__} config={'有' if config else '无'}")
 
     spark = pm.get_us_portfolio("Spark")
     cutie = pm.get_us_portfolio("Cutie")
+    log.info(f"[init_us_portfolios] spark={spark} cutie={cutie}")
 
     import asyncio
     loop = asyncio.new_event_loop()
