@@ -107,7 +107,6 @@ SIMPLE_SINGLETONS: List[Tuple[str, str, str, List[str]]] = [
     ("replay_scheduler",       ".replay.replay_scheduler",          "ReplayScheduler",          []),
     ("system_monitor",         ".infra.observability.system_monitor", "SystemMonitor",          []),
     ("portfolio_manager",      ".bandit.portfolio_manager",         "PortfolioManager",         []),
-    ("manas_manager",          ".attention.kernel.manas_manager",   "ManasManager",             []),
     ("auto_tuner",             ".infra.observability.auto_tuner",   "AutoTuner",                []),
     ("liquidity_manager",      ".attention.orchestration.liquidity_manager", "LiquidityManager", ["attention_integration"]),
     ("daily_review_scheduler", ".strategy.daily_review_scheduler",  "DailyReviewScheduler",     ["datasource_manager"]),
@@ -178,6 +177,21 @@ def _register_custom_singletons():
     register_singleton('attention_os', _create_attention_os,
                       deps=['attention_integration'])
     logger.info("  ✓ attention_os")
+
+    # --- manas_manager: 注入 attention_os 的 kernel ---
+    def _create_manas_manager():
+        from .attention.kernel.manas_manager import ManasManager
+        try:
+            attention_os = SR('attention_os')
+            kernel = attention_os.get_kernel()
+        except Exception:
+            kernel = None
+        manager = ManasManager(kernel=kernel)
+        manager.set_enabled(True)
+        return manager
+    register_singleton('manas_manager', _create_manas_manager,
+                      deps=['attention_os'])
+    logger.info("  ✓ manas_manager")
 
     # --- hotspot_system: 从 attention_integration 取属性 ---
     def _create_hotspot_system():
