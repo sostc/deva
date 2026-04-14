@@ -59,13 +59,18 @@ class ManasManager:
         if enabled and not self._enabled:
             self._enabled = True
             if self.kernel is not None:
-                self.kernel.set_manas_enabled(True)
+                # 兼容 OSAttentionKernel（无 set_manas_enabled）和标准 AttentionKernel
+                if hasattr(self.kernel, 'set_manas_enabled'):
+                    self.kernel.set_manas_enabled(True)
+                # OSAttentionKernel 内部已持有 ManasEngine，通过 get_manas_engine 获取
+                if hasattr(self.kernel, 'get_manas_engine'):
+                    self._manas_engine = self.kernel.get_manas_engine()
             else:
                 self._manas_engine = ManasEngine()
             log.info("[ManasManager] 末那识引擎已启用")
         elif not enabled:
             self._enabled = False
-            if self.kernel is not None:
+            if self.kernel is not None and hasattr(self.kernel, 'set_manas_enabled'):
                 self.kernel.set_manas_enabled(False)
             log.info("[ManasManager] 末那识引擎已关闭")
 
@@ -112,7 +117,10 @@ class ManasManager:
         """获取末那识引擎状态"""
         kernel_manas_enabled = False
         if self.kernel is not None:
-            kernel_manas_enabled = self.kernel.is_manas_enabled()
+            if hasattr(self.kernel, 'is_manas_enabled'):
+                kernel_manas_enabled = self.kernel.is_manas_enabled()
+            elif hasattr(self.kernel, 'get_manas_engine'):
+                kernel_manas_enabled = self.kernel.get_manas_engine() is not None
         return {
             "enabled": self._enabled,
             "kernel_manas_enabled": kernel_manas_enabled,
