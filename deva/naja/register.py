@@ -106,7 +106,6 @@ SIMPLE_SINGLETONS: List[Tuple[str, str, str, List[str]]] = [
     ("market_session_manager", ".radar.global_market_config",       "MarketSessionManager",     []),
     ("replay_scheduler",       ".replay.replay_scheduler",          "ReplayScheduler",          []),
     ("system_monitor",         ".infra.observability.system_monitor", "SystemMonitor",          []),
-    ("portfolio_manager",      ".bandit.portfolio_manager",         "PortfolioManager",         []),
     ("auto_tuner",             ".infra.observability.auto_tuner",   "AutoTuner",                []),
     ("liquidity_manager",      ".attention.orchestration.liquidity_manager", "LiquidityManager", ["attention_integration"]),
     ("daily_review_scheduler", ".strategy.daily_review_scheduler",  "DailyReviewScheduler",     ["datasource_manager"]),
@@ -152,6 +151,14 @@ def _register_custom_singletons():
         return mgr
     register_singleton('datasource_manager', _create_datasource_manager, deps=[])
     logger.info("  ✓ datasource_manager")
+
+    # --- portfolio_manager: 创建后自动加载持仓配置 ---
+    def _create_portfolio_manager():
+        from .bandit.portfolio_manager import PortfolioManager
+        pm = PortfolioManager()
+        return pm
+    register_singleton('portfolio_manager', _create_portfolio_manager, deps=['virtual_portfolio'])
+    logger.info("  ✓ portfolio_manager")
 
     # --- attention_integration: 需要 load_config + initialize ---
     def _create_attention_integration():
