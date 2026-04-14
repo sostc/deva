@@ -858,8 +858,8 @@ class RealtimeDataFetcher:
                 log.debug(f"[RealtimeDataFetcher] 当前市场无股票池，返回空")
                 return {}
 
-            api = GlobalMarketAPI()
-            data = await api.fetch(list(stock_codes.keys()))
+            async with GlobalMarketAPI() as api:
+                data = await api.fetch(list(stock_codes.keys()))
 
             result = {}
             for sina_code, market_data in data.items():

@@ -457,7 +457,6 @@ class MarketDataBus:
         if 美股_codes:
             try:
                 from deva.naja.market_hotspot.data.global_market_futures import GlobalMarketAPI, MARKET_ID_TO_CODE
-                api = GlobalMarketAPI()
                 sina_codes = []
                 for code in 美股_codes:
                     if code.startswith("gb_"):
@@ -465,30 +464,31 @@ class MarketDataBus:
                     else:
                         sina_codes.append(f"gb_{code}")
 
-                data = await api.fetch(sina_codes)
-                for sina_code, md in data.items():
-                    if hasattr(md, "current"):
-                        normalized = md.code
-                        quotes[normalized] = MarketQuote.from_market_data(md, market="US")
-                    elif isinstance(md, dict):
-                        normalized = MARKET_ID_TO_CODE.get(sina_code, sina_code.replace("gb_", ""))
-                        quotes[normalized] = MarketQuote(
-                            code=normalized,
-                            name=md.get("name", normalized),
-                            current=md.get("current", 0),
-                            prev_close=md.get("prev_close", 0),
-                            change=md.get("change", 0),
-                            change_pct=md.get("change_pct", 0),
-                            volume=md.get("volume", 0),
-                            high=md.get("high", 0),
-                            low=md.get("low", 0),
-                            open_price=md.get("open_price", md.get("open", 0.0)),
-                            amount=md.get("amount", 0.0),
-                            market="US",
-                            timestamp=md.get("timestamp", time.time()),
-                            fetch_time=time.time(),
-                            is_stale=False,
-                        )
+                async with GlobalMarketAPI() as api:
+                    data = await api.fetch(sina_codes)
+                    for sina_code, md in data.items():
+                        if hasattr(md, "current"):
+                            normalized = md.code
+                            quotes[normalized] = MarketQuote.from_market_data(md, market="US")
+                        elif isinstance(md, dict):
+                            normalized = MARKET_ID_TO_CODE.get(sina_code, sina_code.replace("gb_", ""))
+                            quotes[normalized] = MarketQuote(
+                                code=normalized,
+                                name=md.get("name", normalized),
+                                current=md.get("current", 0),
+                                prev_close=md.get("prev_close", 0),
+                                change=md.get("change", 0),
+                                change_pct=md.get("change_pct", 0),
+                                volume=md.get("volume", 0),
+                                high=md.get("high", 0),
+                                low=md.get("low", 0),
+                                open_price=md.get("open_price", md.get("open", 0.0)),
+                                amount=md.get("amount", 0.0),
+                                market="US",
+                                timestamp=md.get("timestamp", time.time()),
+                                fetch_time=time.time(),
+                                is_stale=False,
+                            )
             except Exception as e:
                 log.debug(f"[MarketDataBus] 美股获取失败: {e}")
 
