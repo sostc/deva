@@ -1285,6 +1285,13 @@ class MarketHotspotSystem:
         return {
             'cn_context': self._cn_context.save_state(),
             'us_context': self._us_context.save_state(),
+            # A股缓存
+            'cn_last_global_hotspot': self._last_global_hotspot,
+            'cn_last_activity': self._last_activity,
+            'cn_last_block_hotspot': self._last_block_hotspot,
+            'cn_last_symbol_weights': self._last_symbol_weights,
+            'cn_last_snapshot_time': self._last_snapshot_time,
+            # 美股缓存
             'us_last_global_hotspot': self._us_last_global_hotspot,
             'us_last_activity': self._us_last_activity,
             'us_last_block_hotspot': self._us_last_block_hotspot,
@@ -1329,6 +1336,13 @@ class MarketHotspotSystem:
             self._us_last_block_hotspot = state.get('us_last_block_hotspot', {})
             self._us_last_symbol_weights = state.get('us_last_symbol_weights', {})
             self._us_last_snapshot_time = state.get('us_last_snapshot_time', 0.0)
+
+            # 恢复A股缓存
+            self._last_global_hotspot = state.get('cn_last_global_hotspot', 0.0)
+            self._last_activity = state.get('cn_last_activity', 0.0)
+            self._last_block_hotspot = state.get('cn_last_block_hotspot', {})
+            self._last_symbol_weights = state.get('cn_last_symbol_weights', {})
+            self._last_snapshot_time = state.get('cn_last_snapshot_time', 0.0)
 
             log.info("[MarketHotspotSystem] 状态恢复完成")
             return True
