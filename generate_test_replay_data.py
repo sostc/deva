@@ -15,28 +15,28 @@ from datetime import datetime, timedelta
 from typing import Any, Dict
 
 AI_STOCK_POOL = {
-    "NVDA": {"name": "英伟达", "base_price": 800.0, "sector": "AI芯片"},
-    "AMD": {"name": "超微半导体", "base_price": 150.0, "sector": "AI芯片"},
-    "INTC": {"name": "英特尔", "base_price": 45.0, "sector": "AI芯片"},
-    "QCOM": {"name": "高通", "base_price": 180.0, "sector": "AI芯片"},
-    "AVGO": {"name": "博通", "base_price": 1200.0, "sector": "AI芯片"},
-    "TSLA": {"name": "特斯拉", "base_price": 250.0, "sector": "AI应用"},
-    "MSFT": {"name": "微软", "base_price": 400.0, "sector": "AI应用"},
-    "GOOGL": {"name": "谷歌", "base_price": 170.0, "sector": "AI应用"},
-    "META": {"name": "Meta", "base_price": 500.0, "sector": "AI应用"},
-    "AMZN": {"name": "亚马逊", "base_price": 180.0, "sector": "AI应用"},
-    "688041": {"name": "海光信息", "base_price": 80.0, "sector": "AI芯片"},
-    "688256": {"name": "寒武纪", "base_price": 200.0, "sector": "AI芯片"},
-    "002371": {"name": "北方华创", "base_price": 350.0, "sector": "半导体设备"},
-    "600745": {"name": "闻泰科技", "base_price": 60.0, "sector": "半导体"},
-    "002185": {"name": "华天科技", "base_price": 15.0, "sector": "封装测试"},
-    "600584": {"name": "长电科技", "base_price": 30.0, "sector": "封装测试"},
-    "688012": {"name": "中微公司", "base_price": 150.0, "sector": "半导体设备"},
-    "688008": {"name": "澜起科技", "base_price": 70.0, "sector": "芯片设计"},
-    "603501": {"name": "韦尔股份", "base_price": 100.0, "sector": "芯片设计"},
-    "002230": {"name": "科大讯飞", "base_price": 50.0, "sector": "AI应用"},
-    "603019": {"name": "中科曙光", "base_price": 45.0, "sector": "HPC算力"},
-    "000977": {"name": "浪潮信息", "base_price": 35.0, "sector": "服务器"},
+    "NVDA": {"name": "英伟达", "base_price": 800.0, "block": "AI芯片"},
+    "AMD": {"name": "超微半导体", "base_price": 150.0, "block": "AI芯片"},
+    "INTC": {"name": "英特尔", "base_price": 45.0, "block": "AI芯片"},
+    "QCOM": {"name": "高通", "base_price": 180.0, "block": "AI芯片"},
+    "AVGO": {"name": "博通", "base_price": 1200.0, "block": "AI芯片"},
+    "TSLA": {"name": "特斯拉", "base_price": 250.0, "block": "AI应用"},
+    "MSFT": {"name": "微软", "base_price": 400.0, "block": "AI应用"},
+    "GOOGL": {"name": "谷歌", "base_price": 170.0, "block": "AI应用"},
+    "META": {"name": "Meta", "base_price": 500.0, "block": "AI应用"},
+    "AMZN": {"name": "亚马逊", "base_price": 180.0, "block": "AI应用"},
+    "688041": {"name": "海光信息", "base_price": 80.0, "block": "AI芯片"},
+    "688256": {"name": "寒武纪", "base_price": 200.0, "block": "AI芯片"},
+    "002371": {"name": "北方华创", "base_price": 350.0, "block": "半导体设备"},
+    "600745": {"name": "闻泰科技", "base_price": 60.0, "block": "半导体"},
+    "002185": {"name": "华天科技", "base_price": 15.0, "block": "封装测试"},
+    "600584": {"name": "长电科技", "base_price": 30.0, "block": "封装测试"},
+    "688012": {"name": "中微公司", "base_price": 150.0, "block": "半导体设备"},
+    "688008": {"name": "澜起科技", "base_price": 70.0, "block": "芯片设计"},
+    "603501": {"name": "韦尔股份", "base_price": 100.0, "block": "芯片设计"},
+    "002230": {"name": "科大讯飞", "base_price": 50.0, "block": "AI应用"},
+    "603019": {"name": "中科曙光", "base_price": 45.0, "block": "HPC算力"},
+    "000977": {"name": "浪潮信息", "base_price": 35.0, "block": "服务器"},
 }
 
 
@@ -50,8 +50,8 @@ def generate_market_snapshot(timestamp: datetime, price_bases: Dict = None) -> D
 
     symbols = {}
     for code, base_price in price_bases.items():
-        sector = AI_STOCK_POOL[code]["sector"]
-        sector_bias = {
+        block = AI_STOCK_POOL[code]["block"]
+        block_bias = {
             "AI芯片": random.uniform(-0.02, 0.04),
             "AI应用": random.uniform(-0.015, 0.035),
             "半导体设备": random.uniform(-0.025, 0.03),
@@ -59,14 +59,14 @@ def generate_market_snapshot(timestamp: datetime, price_bases: Dict = None) -> D
             "芯片设计": random.uniform(-0.018, 0.032),
             "HPC算力": random.uniform(-0.02, 0.04),
             "服务器": random.uniform(-0.015, 0.03),
-        }.get(sector, 0)
+        }.get(block, 0)
 
-        change_pct = market_change + sector_bias
+        change_pct = market_change + block_bias
         price = base_price * (1 + change_pct)
         symbols[code] = {
             "price": round(price, 2),
             "change": round(change_pct, 4),
-            "sector": sector,
+            "block": block,
         }
 
     return {
@@ -96,42 +96,42 @@ def generate_narrative_event(timestamp: datetime, event_type: str) -> Dict[str, 
             "content": "英伟达H100交付延迟，AI算力供给不足",
             "keywords": ["GPU", "算力", "交付延迟", "产能不足"],
             "severity": "high",
-            "affected_sectors": ["AI芯片", "半导体设备", "封装测试"],
+            "affected_blocks": ["AI芯片", "半导体设备", "封装测试"],
         },
         "power_shortage": {
             "type": "电力供需",
             "content": "数据中心用电激增，多地电网超载",
             "keywords": ["电力", "数据中心", "用电激增", "电网"],
             "severity": "medium",
-            "affected_sectors": ["电力设备", "绿色能源", "储能"],
+            "affected_blocks": ["电力设备", "绿色能源", "储能"],
         },
         "chip_ban": {
             "type": "芯片供给不足",
             "content": "美国扩大芯片出口限制，EUV设备禁运",
             "keywords": ["芯片", "制裁", "EUV", "出口限制"],
             "severity": "high",
-            "affected_sectors": ["半导体设备", "国产替代", "成熟制程"],
+            "affected_blocks": ["半导体设备", "国产替代", "成熟制程"],
         },
         "ai_demand_surge": {
             "type": "token需求爆发",
             "content": "ChatGPT用户激增，API调用量暴涨300%",
             "keywords": ["ChatGPT", "API", "用户激增", "算力需求"],
             "severity": "high",
-            "affected_sectors": ["AI应用", "云服务", "算力基础设施"],
+            "affected_blocks": ["AI应用", "云服务", "算力基础设施"],
         },
         "breakthrough": {
             "type": "技术瓶颈突破",
             "content": "国产7nm芯片量产成功，良率达标",
             "keywords": ["国产", "7nm", "量产", "良率"],
             "severity": "medium",
-            "affected_sectors": ["半导体制造", "芯片设计", "设备材料"],
+            "affected_blocks": ["半导体制造", "芯片设计", "设备材料"],
         },
         "fed_rate": {
             "type": "美联储",
             "content": "美联储维持利率不变，鲍威尔暗示降息延后",
             "keywords": ["美联储", "利率", "降息", "鲍威尔"],
             "severity": "high",
-            "affected_sectors": ["全局"],
+            "affected_blocks": ["全局"],
         },
     }
 
@@ -257,7 +257,7 @@ def generate_test_data(
     from deva.naja.tables import set_table_data
     watchlist_data = {
         "stocks": [
-            {"code": code, "name": info["name"], "sector": info["sector"], "base_price": info["base_price"]}
+            {"code": code, "name": info["name"], "block": info["block"], "base_price": info["base_price"]}
             for code, info in AI_STOCK_POOL.items()
         ],
         "updated_at": datetime.now().isoformat(),

@@ -19,6 +19,8 @@ from dataclasses import dataclass
 from collections import deque
 import time
 import logging
+from deva.naja.attention.kernel.embedding import MarketFeatureEncoder
+from deva.naja.market_hotspot.intelligence.transformer_enhancer import TransformerEnhancer
 
 log = logging.getLogger(__name__)
 
@@ -69,6 +71,13 @@ class GlobalHotspotEngine:
         self._ema_hotspot: float = 0.3
         self._ema_activity: float = 0.3
         self._ema_alpha: float = 0.3
+        
+        # 嵌入技术增强
+        self.feature_encoder = MarketFeatureEncoder(embedding_dim=128)
+        self.state_embeddings = []  # 存储历史市场状态嵌入
+        
+        # Transformer 增强器
+        self.transformer_enhancer = TransformerEnhancer(d_model=128, num_heads=4, d_ff=512)
 
     def update(self, snapshot: MarketSnapshot) -> float:
         """
@@ -167,6 +176,74 @@ class GlobalHotspotEngine:
             max_dir = max(up_ratio, down_ratio)
             hotspot = 0.5 + max_dir * 0.3
 
+        # ===== 3. 嵌入技术增强 =====
+        # 编码市场状态特征
+        market_features = {
+            "price_change": mean_abs_return,
+            "volume_spike": np.mean(volumes) if len(volumes) > 0 else 0,
+            "volatility": volatility
+        }
+        state_embedding = self.feature_encoder.encode(market_features, time_position=len(self.state_embeddings))
+        self.state_embeddings.append(state_embedding)
+        
+        # 保持历史嵌入长度
+        if len(self.state_embeddings) > 10:
+            self.state_embeddings = self.state_embeddings[-10:]
+        
+        # 利用嵌入向量增强热点计算
+        if len(self.state_embeddings) > 1:
+            # 计算与历史状态的相似度
+            recent_embeddings = self.state_embeddings[-5:]
+            similarities = []
+            for hist_emb in recent_embeddings[:-1]:
+                sim = np.dot(state_embedding, hist_emb) / (
+                    np.linalg.norm(state_embedding) * np.linalg.norm(hist_emb) + 1e-10
+                )
+                similarities.append(sim)
+            if similarities:
+                state_stability = np.mean(similarities)
+                # 根据状态稳定性调整热点分数
+                # 状态变化大时，热点可能正在形成，适当提高热点分数
+                hotspot = hotspot * (1 + (1 - state_stability) * 0.1)
+
+        # ===== 4. Transformer 增强 =====
+        # 提取题材数据用于Transformer增强
+        if hasattr(snapshot, 'block_ids') and snapshot.block_ids is not None:
+            # 按题材聚合数据
+            block_data = {}
+            for i, block_id in enumerate(snapshot.block_ids):
+                if block_id not in block_data:
+                    block_data[block_id] = {
+                        'returns': [],
+                        'volumes': []
+                    }
+                block_data[block_id]['returns'].append(returns[i])
+                block_data[block_id]['volumes'].append(volumes[i])
+            
+            # 准备Transformer输入数据
+            blocks = []
+            for block_id, data in block_data.items():
+                blocks.append({
+                    'block_id': block_id,
+                    'name': block_id,  # 假设block_id就是名称，实际应用中可能需要映射
+                    'returns': np.array(data['returns']),
+                    'volumes': np.array(data['volumes'])
+                })
+            
+            # 调用Transformer增强器
+            market_data = {
+                'blocks': blocks,
+                'timestamp': snapshot.timestamp
+            }
+            enhancer_result = self.transformer_enhancer.enhance_market_analysis(market_data)
+            
+            # 利用Transformer增强结果调整热点分数
+            if enhancer_result['predictions']:
+                # 计算预测分数的平均值
+                avg_prediction_score = np.mean([p['prediction_score'] for p in enhancer_result['predictions']])
+                # 根据预测调整热点分数
+                hotspot = hotspot * (1 + avg_prediction_score * 0.05)
+
         hotspot = max(0.1, min(0.9, hotspot))
 
         if len(self._activity_history) > 1:
@@ -185,7 +262,8 @@ class GlobalHotspotEngine:
                 'hotspot': 0.0,
                 'activity': 0.0,
                 'trend': 'unknown',
-                'description': '等待数据...'
+                'description': '等待数据...',
+                'enhanced_analysis': {}
             }
 
         recent = list(self._history_buffer)[-5:]
@@ -211,13 +289,26 @@ class GlobalHotspotEngine:
             trend = 'quiet'
             description = '市场平淡，观望为主'
 
+        # 获取Transformer增强历史
+        enhancer_history = self.transformer_enhancer.get_history()
+        enhanced_analysis = {}
+        if enhancer_history:
+            recent_enhancements = enhancer_history[-3:]
+            if recent_enhancements:
+                last_enhancement = recent_enhancements[-1]
+                enhanced_analysis = {
+                    'prediction_count': len(last_enhancement.get('blocks', [])),
+                    'history_length': len(enhancer_history)
+                }
+
         return {
             'hotspot': self._last_hotspot,
             'activity': self._last_activity,
             'avg_hotspot': avg_hotspot,
             'avg_activity': avg_activity,
             'trend': trend,
-            'description': description
+            'description': description,
+            'enhanced_analysis': enhanced_analysis
         }
 
     def get_hotspot_details(self, snapshot: 'MarketSnapshot') -> Dict:
@@ -377,3 +468,5 @@ class GlobalHotspotEngine:
         self._last_hotspot = 0.0
         self._last_activity = 0.0
         self._last_calc_time = 0.0
+        self.state_embeddings.clear()
+        self.transformer_enhancer.reset()

@@ -21,6 +21,9 @@ from collections import defaultdict
 import time
 import logging
 import os
+from deva.naja.attention.kernel.embedding import MarketFeatureEncoder, EventEmbedding
+from deva.naja.attention.kernel.self_attention import EventSelfAttention
+from deva.naja.market_hotspot.intelligence.transformer_enhancer import TransformerEnhancer
 
 log = logging.getLogger(__name__)
 
@@ -94,6 +97,15 @@ class BlockHotspotEngine:
         # 日志节流
         self._last_summary_log_time: float = 0.0
         self._summary_log_interval: float = 60.0
+
+        # 嵌入技术增强
+        self.feature_encoder = MarketFeatureEncoder(embedding_dim=128)
+        self.self_attention = EventSelfAttention(d_model=128, num_heads=4)
+        self.block_embeddings = {}  # 存储题材嵌入向量
+        self.embedding_history = defaultdict(list)  # 存储历史嵌入
+        
+        # Transformer 增强器
+        self.transformer_enhancer = TransformerEnhancer(d_model=128, num_heads=4, d_ff=512)
 
         # 初始化题材
         if blocks:
@@ -171,6 +183,11 @@ class BlockHotspotEngine:
             noise_detector = _get_noise_detector()
             active_blocks = set()
             use_external_blocks = block_ids is not None and len(block_ids) == len(symbols)
+            
+            # 存储题材嵌入向量
+            block_embeddings = []
+            active_block_ids = []
+            
             for block_id, data in block_data.items():
                 if noise_detector and noise_detector.is_noise(block_id, self._blocks.get(block_id).name if block_id in self._blocks else block_id):
                     continue
@@ -195,6 +212,33 @@ class BlockHotspotEngine:
                     continue
                 block = self._blocks[block_id]
                 idx = self._block_id_to_idx[block_id]
+
+                # 编码题材特征
+                if len(data['returns']) > 0:
+                    features = {
+                        "price_change": np.mean(data['returns']),
+                        "volume_spike": np.mean(data['volumes']) if len(data['volumes']) > 0 else 0,
+                        "volatility": np.std(data['returns']) if len(data['returns']) > 1 else 0,
+                        "block": block_id
+                    }
+                else:
+                    features = {
+                        "price_change": 0,
+                        "volume_spike": 0,
+                        "volatility": 0,
+                        "block": block_id
+                    }
+                
+                embedding = self.feature_encoder.encode(features, time_position=int(timestamp % 100))
+                self.block_embeddings[block_id] = embedding
+                self.embedding_history[block_id].append((timestamp, embedding))
+                
+                # 保持历史嵌入长度
+                if len(self.embedding_history[block_id]) > 10:
+                    self.embedding_history[block_id] = self.embedding_history[block_id][-10:]
+                
+                block_embeddings.append(embedding)
+                active_block_ids.append(block_id)
 
                 new_score = self._calc_block_hotspot(
                     data['returns'],
@@ -228,6 +272,67 @@ class BlockHotspotEngine:
                     self._last_update_time[block_id] = timestamp
 
                 self._block_last_activity[block_id] = timestamp
+
+            # 应用自注意力机制分析题材间关系
+            if len(block_embeddings) > 1:
+                # 将numpy数组转换为EventEmbedding对象列表
+                event_embeddings = []
+                for i, embedding in enumerate(block_embeddings):
+                    event_emb = EventEmbedding(
+                        vector=embedding,
+                        features={"block_id": active_block_ids[i]},
+                        timestamp=timestamp
+                    )
+                    event_embeddings.append(event_emb)
+                
+                # 调用自注意力前向传播
+                updated_embeddings, attn_weights = self.self_attention.forward(event_embeddings)
+                
+                # 利用注意力输出增强热点计算
+                for i, block_id in enumerate(active_block_ids):
+                    if block_id in self._blocks:
+                        idx = self._block_id_to_idx[block_id]
+                        # 计算注意力分数（取平均注意力权重）
+                        if attn_weights.size > 0:
+                            attention_score = np.mean(attn_weights[0, :, i, :])  # 取所有头的平均
+                            current_score = float(self._block_hotspot_scores[idx])
+                            enhanced_score = current_score * (1 + attention_score * 0.1)
+                            self._block_hotspot_scores[idx] = min(1.0, enhanced_score)
+            
+            # 应用Transformer增强器
+            if active_block_ids:
+                # 准备Transformer输入数据
+                blocks_data = []
+                for block_id in active_block_ids:
+                    if block_id in block_data:
+                        data = block_data[block_id]
+                        blocks_data.append({
+                            'block_id': block_id,
+                            'name': self._blocks.get(block_id).name if block_id in self._blocks else block_id,
+                            'returns': data['returns'],
+                            'volumes': data['volumes']
+                        })
+                
+                if blocks_data:
+                    market_data = {
+                        'blocks': blocks_data,
+                        'timestamp': timestamp
+                    }
+                    enhancer_result = self.transformer_enhancer.enhance_market_analysis(market_data)
+                    
+                    # 利用Transformer预测结果调整题材热点分数
+                    if enhancer_result['predictions']:
+                        for prediction in enhancer_result['predictions']:
+                            block_id = prediction['block_id']
+                            if block_id in self._blocks:
+                                idx = self._block_id_to_idx[block_id]
+                                current_score = float(self._block_hotspot_scores[idx])
+                                # 根据预测趋势调整分数
+                                if prediction['trend'] == 'up':
+                                    enhanced_score = current_score * (1 + prediction['confidence'] * 0.1)
+                                else:
+                                    enhanced_score = current_score * (1 - prediction['confidence'] * 0.05)
+                                self._block_hotspot_scores[idx] = min(1.0, max(0.0, enhanced_score))
 
             self._cleanup_stale_blocks(timestamp)
         except Exception as e:
@@ -325,9 +430,10 @@ class BlockHotspotEngine:
         计算单个题材的热点分数
         
         维度:
-        1. 领涨股比例 (40%)
-        2. 成交量集中度 (30%)
-        3. 内部相关性 (30%)
+        1. 领涨股比例 (30%)
+        2. 成交量集中度 (25%)
+        3. 内部相关性 (25%)
+        4. 嵌入向量相似度 (20%) - 新增
         """
         if len(returns) == 0:
             return 0.0
@@ -363,11 +469,32 @@ class BlockHotspotEngine:
         else:
             correlation_score = 0.0
         
+        # 4. 嵌入向量相似度 - 新增
+        embedding_score = 0.0
+        if block.block_id in self.block_embeddings:
+            current_embedding = self.block_embeddings[block.block_id]
+            # 计算与历史嵌入的相似度
+            if block.block_id in self.embedding_history and len(self.embedding_history[block.block_id]) > 1:
+                # 获取最近的历史嵌入
+                recent_embeddings = [emb for _, emb in self.embedding_history[block.block_id][-5:]]
+                if recent_embeddings:
+                    # 计算平均相似度
+                    similarities = []
+                    for hist_emb in recent_embeddings:
+                        # 余弦相似度
+                        sim = np.dot(current_embedding, hist_emb) / (
+                            np.linalg.norm(current_embedding) * np.linalg.norm(hist_emb) + 1e-10
+                        )
+                        similarities.append(sim)
+                    embedding_score = np.mean(similarities)
+                    embedding_score = max(0.0, min(1.0, embedding_score))
+        
         # 加权求和
         score = (
-            leader_score * 0.4 +
-            volume_score * 0.3 +
-            correlation_score * 0.3
+            leader_score * 0.3 +
+            volume_score * 0.25 +
+            correlation_score * 0.25 +
+            embedding_score * 0.2  # 新增嵌入分数权重
         )
         
         return score
@@ -507,6 +634,9 @@ class BlockHotspotEngine:
         self._leader_counts.clear()
         self._volume_concentration.clear()
         self._block_last_activity.clear()
+        self.block_embeddings.clear()
+        self.embedding_history.clear()
+        self.transformer_enhancer.reset()
 
     def _cleanup_stale_blocks(self, current_time: float):
         """清理长期不活跃的题材数据，防止内存泄漏"""
