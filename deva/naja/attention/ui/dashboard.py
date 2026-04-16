@@ -28,6 +28,8 @@ def get_attention_monitor_data() -> Dict[str, Any]:
             "strategy_learning": _get_strategy_learning_state(os),
             "attention_memory": _get_memory_state(kernel),
             "symbol_weights": _get_symbol_weights_state(kernel),
+            "transformer_attention": _get_transformer_attention_state(kernel),
+            "in_context_learning": _get_in_context_learning_state(kernel),
             "timestamp": time.time(),
             "has_data": True
         }
@@ -227,6 +229,38 @@ def _get_scorer_type(head_name: str) -> str:
     return scorer_map.get(head_name, "未知评分")
 
 
+def _get_transformer_attention_state(kernel) -> Dict[str, Any]:
+    """获取Transformer自注意力状态"""
+    transformer_state = {
+        "enabled": hasattr(kernel, '_enable_transformer') and kernel._enable_transformer,
+        "available": hasattr(kernel, '_transformer_layer') and kernel._transformer_layer is not None,
+        "feature_encoder": hasattr(kernel, '_feature_encoder') and kernel._feature_encoder is not None,
+        "config": {
+            "d_model": getattr(kernel, '_transformer_layer', {}).d_model if hasattr(kernel, '_transformer_layer') and hasattr(kernel._transformer_layer, 'd_model') else 0,
+            "num_heads": getattr(kernel, '_transformer_layer', {}).num_heads if hasattr(kernel, '_transformer_layer') and hasattr(kernel._transformer_layer, 'num_heads') else 0,
+            "d_ff": getattr(kernel, '_transformer_layer', {}).ffn.d_ff if hasattr(kernel, '_transformer_layer') and hasattr(kernel._transformer_layer, 'ffn') and hasattr(kernel._transformer_layer.ffn, 'd_ff') else 0
+        }
+    }
+    return transformer_state
+
+
+def _get_in_context_learning_state(kernel) -> Dict[str, Any]:
+    """获取上下文学习状态"""
+    learning_state = {
+        "enabled": hasattr(kernel, '_enable_in_context') and kernel._enable_in_context,
+        "available": hasattr(kernel, '_in_context_learner') and kernel._in_context_learner is not None,
+        "demo_statistics": {}
+    }
+    
+    try:
+        if hasattr(kernel, '_in_context_learner') and kernel._in_context_learner:
+            learning_state["demo_statistics"] = kernel._in_context_learner.get_demo_statistics()
+    except Exception:
+        pass
+    
+    return learning_state
+
+
 def _get_empty_monitor_data() -> Dict[str, Any]:
     """返回空的监控数据"""
     return {
@@ -236,6 +270,8 @@ def _get_empty_monitor_data() -> Dict[str, Any]:
         "strategy_learning": {"available": False, "market_state": {}, "selected_strategies": []},
         "attention_memory": {"enabled": False, "total_events": 0, "recent_events": []},
         "symbol_weights": {"top_symbols": [], "top_blocks": []},
+        "transformer_attention": {"enabled": False, "available": False, "config": {}},
+        "in_context_learning": {"enabled": False, "available": False, "demo_statistics": {}},
         "timestamp": time.time(),
         "has_data": False
     }

@@ -61,9 +61,16 @@ class StrategyDecisionMaker:
 
         self._adjust_frequency(harmony_strength, timing_score, regime_score, current_time)
 
-        self._allocate_weights(market_data, kernel_output)
+        # 获取上下文学习信息并添加到market_data中
+        kernel_output_dict = kernel_output.to_dict()
+        in_context_info = kernel_output_dict.get("_in_context", {})
+        market_data_with_context = market_data.copy()
+        if in_context_info:
+            market_data_with_context["_in_context"] = in_context_info
 
-        self._allocate_strategies(kernel_output, market_data)
+        self._allocate_weights(market_data_with_context, kernel_output)
+
+        self._allocate_strategies(kernel_output, market_data_with_context)
 
         self._last_schedule_time = current_time
 
@@ -79,7 +86,8 @@ class StrategyDecisionMaker:
             "timing_score": timing_score,
             "regime_score": regime_score,
             "confidence_score": confidence_score,
-            "kernel_output": kernel_output.to_dict(),
+            "in_context_info": in_context_info,
+            "kernel_output": kernel_output_dict,
         }
 
     def _adjust_frequency(
@@ -131,6 +139,9 @@ class StrategyDecisionMaker:
         harmony = kernel_output.harmony_strength
         confidence = kernel_output.confidence_score
 
+        # 从kernel_output中获取上下文学习信息
+        in_context_info = market_data.get("_in_context", {})
+        
         self._symbol_weights = {}
         self._block_weights = {}
 
@@ -138,8 +149,20 @@ class StrategyDecisionMaker:
 
         for symbol, base_weight in base_weights.items():
             attention_weight = kernel_output.attention_weights.get(symbol, 0.5)
-
+            
+            # 计算最终权重，考虑上下文学习的调整
             final_weight = base_weight * attention_weight * alpha * harmony * confidence
+            
+            # 如果有上下文学习的调整信息，应用到权重中
+            if in_context_info:
+                # 基于历史成功经验调整权重
+                historical_success = in_context_info.get("historical_success", 1.0)
+                final_weight *= (1.0 + historical_success * 0.2)
+                
+                # 基于相关示范数量调整权重
+                num_demos = in_context_info.get("num_demos", 0)
+                if num_demos > 0:
+                    final_weight *= (1.0 + num_demos * 0.1)
 
             self._symbol_weights[symbol] = max(0.0, min(1.0, final_weight))
 
@@ -178,6 +201,9 @@ class StrategyDecisionMaker:
         harmony = kernel_output.harmony_strength
         timing = kernel_output.timing_score
         regime = kernel_output.regime_score
+
+        # 获取上下文学习信息
+        in_context_info = market_data.get("_in_context", {})
 
         self._strategy_allocations = {}
 
@@ -240,9 +266,35 @@ class StrategyDecisionMaker:
             }
 
         regime_factor = 1.0 + regime * 0.2
+        
+        # 根据上下文学习信息调整策略分配
+        if in_context_info:
+            # 基于历史成功经验调整策略权重
+            historical_success = in_context_info.get("historical_success", 0.0)
+            if historical_success > 0.1:
+                # 历史成功时，增加动量策略的权重
+                if "momentum" in self._strategy_allocations:
+                    self._strategy_allocations["momentum"] *= (1.0 + historical_success * 0.3)
+                if "breakout" in self._strategy_allocations:
+                    self._strategy_allocations["breakout"] *= (1.0 + historical_success * 0.2)
+            
+            # 基于相关示范数量调整策略权重
+            num_demos = in_context_info.get("num_demos", 0)
+            if num_demos > 1:
+                # 有多个相关示范时，增加策略的确定性
+                if "wait" in self._strategy_allocations:
+                    self._strategy_allocations["wait"] *= 0.8  # 减少等待策略的权重
+        
+        # 应用市场状态因子
         for k in self._strategy_allocations:
             self._strategy_allocations[k] *= regime_factor
             self._strategy_allocations[k] = min(1.0, self._strategy_allocations[k])
+        
+        # 归一化策略权重
+        total_weight = sum(self._strategy_allocations.values())
+        if total_weight > 0:
+            for k in self._strategy_allocations:
+                self._strategy_allocations[k] /= total_weight
 
     def get_frequency_config(self) -> Dict[str, Any]:
         """获取频率配置"""

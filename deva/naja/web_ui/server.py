@@ -125,12 +125,12 @@ def run_server(port: int = 8080, host: str = '0.0.0.0', lab_config: dict = None,
     else:
         import signal
         import threading
+        import logging
+        logger = logging.getLogger("deva.naja")
 
         shutdown_event = threading.Event()
 
         def shutdown_handler(signum, frame):
-            import logging
-            logger = logging.getLogger("deva.naja")
             logger.info("收到退出信号，正在优雅关闭...")
 
 

@@ -618,14 +618,6 @@ class MarketDataBus:
         }
 
 
-_market_data_bus: Optional[MarketDataBus] = None
-_market_data_bus_lock = threading.Lock()
-
-
 def get_market_data_bus() -> MarketDataBus:
-    global _market_data_bus
-    if _market_data_bus is None:
-        with _market_data_bus_lock:
-            if _market_data_bus is None:
-                _market_data_bus = MarketDataBus()
-    return _market_data_bus
+    from deva.naja.register import SR
+    return SR('market_data_bus')

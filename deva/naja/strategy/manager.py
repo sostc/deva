@@ -1042,15 +1042,7 @@ class StrategyManager:
         print(f"[StrategyManager][{level}] {message} | {extra_str}")
 
 
-_strategy_manager: Optional[StrategyManager] = None
-_strategy_manager_lock = threading.Lock()
-
-
 def get_strategy_manager() -> StrategyManager:
-    global _strategy_manager
-    if _strategy_manager is None:
-        with _strategy_manager_lock:
-            if _strategy_manager is None:
-                _strategy_manager = StrategyManager()
-    return _strategy_manager
+    from deva.naja.register import SR
+    return SR('strategy_manager')
 

@@ -6,9 +6,17 @@ AttentionKernel - 核心注意力中枢
 支持流动性救援漏斗式处理
 支持末那识引擎 ManasEngine（决策中枢）
 支持 UnifiedManas 统一末那识
+
+新增（借鉴 Transformer）：
+- 支持类 Transformer 的自注意力层
+- 事件嵌入表示
+- 事件间自注意力建模
 """
 
+import logging
 from deva.naja.register import SR
+
+log = logging.getLogger(__name__)
 
 
 class AttentionKernel:
@@ -23,9 +31,10 @@ class AttentionKernel:
         rescue_orchestrator: 流动性救援协调器
         manas_engine: 末那识引擎（可选）
         _enable_manas: 是否启用末那识
+        _enable_transformer: 是否启用类 Transformer 自注意力层
     """
 
-    def __init__(self, encoder, multi_head, enable_manas=False):
+    def __init__(self, encoder, multi_head, enable_manas=False, enable_transformer=False, enable_in_context=False):
         """
         初始化注意力中枢
 
@@ -33,6 +42,8 @@ class AttentionKernel:
             encoder: Encoder 实例
             multi_head: MultiHeadAttention 实例
             enable_manas: 是否启用末那识引擎（默认关闭）
+            enable_transformer: 是否启用类 Transformer 自注意力层（默认关闭）
+            enable_in_context: 是否启用上下文学习（默认关闭）
         """
         self.encoder = encoder
         self.multi_head = multi_head
@@ -43,9 +54,82 @@ class AttentionKernel:
         self._narrative_tracker = None
         self._enable_manas = enable_manas
         self._manas_engine = None
+        
+        # 新增：类 Transformer 相关组件
+        self._enable_transformer = enable_transformer
+        self._feature_encoder = None
+        self._transformer_layer = None
+        
+        # 新增：上下文学习相关组件
+        self._enable_in_context = enable_in_context
+        self._in_context_learner = None
+        
         if enable_manas:
             self._init_manas_engine()
+        if enable_transformer:
+            self._init_transformer_components()
+        if enable_in_context:
+            self._init_in_context_learner()
+    
+    def _init_transformer_components(self):
+        """初始化类 Transformer 组件"""
+        from .embedding import MarketFeatureEncoder
+        from .self_attention import TransformerLikeAttentionLayer
+        
+        self._feature_encoder = MarketFeatureEncoder(embedding_dim=128)
+        self._transformer_layer = TransformerLikeAttentionLayer(
+            d_model=128,
+            num_heads=4,
+            d_ff=512
+        )
+        log.info("[AttentionKernel] 已启用类 Transformer 自注意力层")
+    
+    def set_transformer_enabled(self, enabled: bool):
+        """
+        设置是否启用类 Transformer 自注意力层
 
+        Args:
+            enabled: 是否启用
+        """
+        if enabled and not self._enable_transformer:
+            self._enable_transformer = True
+            self._init_transformer_components()
+        elif not enabled:
+            self._enable_transformer = False
+            self._feature_encoder = None
+            self._transformer_layer = None
+    
+    def is_transformer_enabled(self) -> bool:
+        """返回是否启用了类 Transformer 自注意力层"""
+        return self._enable_transformer
+    
+    def _init_in_context_learner(self):
+        """初始化上下文学习器"""
+        from .in_context_learner import get_in_context_learner
+        self._in_context_learner = get_in_context_learner()
+    
+    def set_in_context_enabled(self, enabled: bool):
+        """
+        设置是否启用上下文学习
+
+        Args:
+            enabled: 是否启用
+        """
+        if enabled and not self._enable_in_context:
+            self._enable_in_context = True
+            self._init_in_context_learner()
+        elif not enabled:
+            self._enable_in_context = False
+            self._in_context_learner = None
+    
+    def is_in_context_enabled(self) -> bool:
+        """返回是否启用了上下文学习"""
+        return self._enable_in_context
+    
+    def get_in_context_learner(self):
+        """获取上下文学习器实例"""
+        return self._in_context_learner
+    
     def _init_manas_engine(self):
         """初始化末那识引擎"""
         from .manas_engine import ManasEngine
@@ -146,6 +230,54 @@ class AttentionKernel:
             from deva.naja.market_hotspot.strategies import LiquidityRescueOrchestrator
             self._rescue_orchestrator = LiquidityRescueOrchestrator()
         return self._rescue_orchestrator
+    
+    def _process_with_transformer(self, Q, events):
+        """
+        使用类 Transformer 的增强处理流程
+        
+        1. 事件向量化
+        2. 事件间自注意力（让事件互相影响）
+        3. 将增强信息回注到事件特征
+        """
+        import numpy as np
+        import time
+        from .embedding import EventEmbedding
+        
+        if not self._enable_transformer or len(events) <= 1:
+            return events
+        
+        try:
+            # 将事件转换为嵌入
+            event_embeddings = []
+            for i, e in enumerate(events):
+                vec = self._feature_encoder.encode(e.features, time_position=i)
+                event_embeddings.append(EventEmbedding(
+                    vector=vec,
+                    features=e.features,
+                    timestamp=e.timestamp or time.time()
+                ))
+            
+            # 通过自注意力层
+            enhanced_embeddings, attn_matrix = self._transformer_layer.forward(event_embeddings)
+            
+            # 将增强后的信息回注到事件特征中
+            for i, (e, emb) in enumerate(zip(events, enhanced_embeddings)):
+                # 计算事件重要性分数
+                event_importance = float(np.linalg.norm(emb.vector))
+                e.features["_transformer_importance"] = event_importance
+                
+                # 根据注意力矩阵调整事件权重
+                if len(attn_matrix.shape) >= 3 and i < attn_matrix.shape[2]:
+                    # 这个事件被其他事件关注的程度
+                    self_attn_score = float(attn_matrix[0, :, i, :].mean())
+                    e.features["_cross_attention"] = self_attn_score
+            
+            log.debug(f"[AttentionKernel] Transformer 自注意力处理完成: {len(events)} 个事件")
+            
+        except Exception as e:
+            log.warning(f"[AttentionKernel] Transformer 处理失败，回退到原始模式: {e}")
+        
+        return events
 
     def process(self, Q, raw_events):
         """
@@ -169,6 +301,10 @@ class AttentionKernel:
     def _process_original(self, Q, raw_events):
         """
         原有逻辑，不受末那识影响
+        
+        新增：
+        - 支持类 Transformer 的自注意力增强
+        - 支持上下文学习调整 Query
 
         Args:
             Q: QueryState
@@ -186,8 +322,24 @@ class AttentionKernel:
 
             alignment = vs.calculate_alignment(e.features)
             e.features["_value_alignment"] = alignment
+        
+        # 新增：类 Transformer 自注意力增强
+        events = self._process_with_transformer(Q, events)
+        
+        # 新增：上下文学习调整 Query
+        adjustment_info = {}
+        if self._enable_in_context and self._in_context_learner is not None:
+            # 提取事件特征用于上下文检索
+            event_features_list = [e.features for e in events]
+            Q, adjustment_info = self._in_context_learner.adjust_query_with_demos(
+                Q, event_features_list
+            )
 
         result = self.multi_head.compute(Q, events)
+        
+        # 添加上下文学习信息到结果
+        if adjustment_info:
+            result["_in_context"] = adjustment_info
 
         for e in events:
             symbol = getattr(e, 'symbol', None) or e.source if hasattr(e, 'source') else "unknown"
@@ -242,6 +394,18 @@ class AttentionKernel:
 
             alignment = vs.calculate_alignment(e.features)
             e.features["_value_alignment"] = alignment
+        
+        # 新增：类 Transformer 自注意力增强
+        events = self._process_with_transformer(Q, events)
+        
+        # 新增：上下文学习调整 Query
+        adjustment_info = {}
+        if self._enable_in_context and self._in_context_learner is not None:
+            # 提取事件特征用于上下文检索
+            event_features_list = [e.features for e in events]
+            Q, adjustment_info = self._in_context_learner.adjust_query_with_demos(
+                Q, event_features_list
+            )
 
         shaped_Q = Q
         if hasattr(Q, 'features'):
@@ -251,6 +415,10 @@ class AttentionKernel:
             shaped_Q.features['timing_score'] = manas_output.timing_score
 
         result = self.multi_head.compute(shaped_Q, events)
+        
+        # 添加上下文学习信息到结果
+        if adjustment_info:
+            result["_in_context"] = adjustment_info
 
         result["alpha"] = result.get("alpha", 0) * manas_output.alpha
         result["_manas_score"] = manas_output.manas_score
