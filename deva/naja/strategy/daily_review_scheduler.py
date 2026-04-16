@@ -159,7 +159,7 @@ class DailyReviewScheduler:
 
         if market == 'a_share':
             tc = SR('trading_clock')
-            current_phase = tc.current_phase
+            current_phase = tc.cn_phase
 
             # A股：周末不休市检查，但按交易时段判断
             if now.weekday() >= 5:
