@@ -26,6 +26,7 @@ from typing import Any, Dict, List, Optional
 from deva import NB
 
 from ...config import get_llm_config
+from ...infra.registry.singleton_registry import SR
 
 
 LLM_REFLECTION_TABLE = "naja_llm_reflections"
@@ -776,7 +777,7 @@ _反思生成时间: {datetime.fromtimestamp(reflection.ts).strftime('%Y-%m-%d %
 
     def _collect_cross_signal_signals(self) -> List[Dict[str, Any]]:
         """从 CrossSignalAnalyzer 获取共振信号"""
-        from ..cross_signal_analyzer import get_cross_signal_analyzer
+        from ..analysis.cross_signal_analyzer import get_cross_signal_analyzer
         try:
             analyzer = get_cross_signal_analyzer()
             if not analyzer:
@@ -1409,6 +1410,8 @@ _反思生成时间: {datetime.fromtimestamp(reflection.ts).strftime('%Y-%m-%d %
             pass
 
     def _emit_to_insight(self, reflection: Reflection) -> None:
+        import logging
+        log = logging.getLogger(__name__)
 
         try:
             pool = SR('insight_pool')
