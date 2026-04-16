@@ -210,6 +210,8 @@ def render_block_predictive_hotspot_panel() -> str:
 
 def render_intelligence_panels() -> str:
     """渲染所有智能增强面板 - 一行两个模块"""
+    from deva.naja.market_hotspot.ui_components.cards import render_transformer_enhancement_card
+    
     return f"""
     <div style="display: flex; flex-direction: column; gap: 12px;">
         {render_intelligence_summary_panel()}
@@ -218,6 +220,7 @@ def render_intelligence_panels() -> str:
             <div>{render_block_predictive_hotspot_panel()}</div>
             <div>{render_feedback_loop_panel()}</div>
             <div>{render_budget_panel()}</div>
+            <div style="grid-column: span 2;">{render_transformer_enhancement_card()}</div>
             <div style="grid-column: span 2;">{render_strategy_learning_panel()}</div>
         </div>
     </div>

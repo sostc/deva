@@ -29,7 +29,14 @@ class QueryState:
     def __init__(self):
         self.strategy_state = {}
         self.portfolio_state = {}
-        self.market_regime = {}
+        self.market_regime = {
+            "type": "neutral",
+            "timestamp": time.time(),
+            "up_ratio": 0.5,
+            "down_ratio": 0.5,
+            "avg_change": 0.0,
+            "change_std": 0.0,
+        }
         self.attention_focus = {}
         self.risk_bias = 0.5
         self._market_history = {
@@ -42,6 +49,31 @@ class QueryState:
         self.active_value_type = "trend"
         self.last_decision_reason = ""
         self.macro_liquidity_signal = 0.5
+        
+        # 认知系统相关字段
+        self.narrative_state = {
+            "current_narratives": [],
+            "narrative_strength": 0.0,
+            "narrative_risk": 0.0,
+            "sentiment_score": 0.5
+        }
+        
+        self.cognitive_insights = {
+            "insights": [],
+            "confidence": 0.5,
+            "timeliness": 0.0
+        }
+        
+        self.liquidity_state = {
+            "prediction": 0.5,
+            "risk": 0.0,
+            "signal": 0.5
+        }
+        
+        self.economic_cycle = {
+            "phase": "unknown",
+            "asset_allocation": {}
+        }
 
     def set_macro_liquidity_signal(self, signal: float):
         """
@@ -473,4 +505,8 @@ class QueryState:
             "portfolio_count": len(self.portfolio_state),
             "active_value_type": self.active_value_type,
             "value_weights": self.get_value_weights(),
+            "narrative_state": self.narrative_state,
+            "cognitive_insights": self.cognitive_insights,
+            "liquidity_state": self.liquidity_state,
+            "economic_cycle": self.economic_cycle,
         }

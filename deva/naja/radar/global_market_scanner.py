@@ -571,7 +571,6 @@ class GlobalMarketScanner:
                 # 更新QueryState
                 try:
                     from deva.naja.register import SR
-                    from deva.naja.attention.kernel.state import QueryState
                     
                     # 提取市场数据
                     symbols = []
@@ -585,32 +584,25 @@ class GlobalMarketScanner:
                         volumes.append(md.volume)
                         prices.append(md.current)
                     
-                    # 尝试从注册中心获取QueryState
+                    # 发布全局市场数据事件
                     try:
-                        qs = SR('query_state')
-                    except KeyError:
-                        # 如果未注册，创建一个新的实例
-                        qs = QueryState()
-                        log.info("[GlobalMarketScanner] QueryState未注册，创建新实例")
-                        # 尝试将实例赋值给UI的全局缓存
-                        try:
-                            from deva.naja.attention.ui.awakening import _query_state_instance
-                            import deva.naja.attention.ui.awakening
-                            deva.naja.attention.ui.awakening._query_state_instance = qs
-                            log.info("[GlobalMarketScanner] 已更新UI的QueryState实例")
-                        except Exception as e:
-                            log.debug(f"[GlobalMarketScanner] 更新UI QueryState实例失败: {e}")
-                    
-                    if qs:
-                        qs.update_from_market(
+                        from deva.naja.events import get_event_bus, GlobalMarketDataEvent
+                        event_bus = get_event_bus()
+                        event = GlobalMarketDataEvent(
                             symbols=symbols,
                             returns=returns,
                             volumes=volumes,
-                            prices=prices
+                            prices=prices,
+                            timestamp=time.time(),
+                            market='US',
+                            source='global_market_scanner'
                         )
-                        log.info(f"[GlobalMarketScanner] QueryState更新成功: 市场状态={qs.get_summary()['market_regime']}, 关注焦点={len(qs.get_summary()['top_attention'])}个")
+                        event_bus.publish(event)
+                        log.info(f"[GlobalMarketScanner] 已发布GlobalMarketDataEvent: {len(symbols)}个股票")
+                    except Exception as e:
+                        log.error(f"[GlobalMarketScanner] 发布事件失败: {e}")
                 except Exception as e:
-                    log.error(f"[GlobalMarketScanner] 更新QueryState失败: {e}")
+                    log.error(f"[GlobalMarketScanner] 更新QueryState失败: {e}", exc_info=True)
 
                 breadth_result = self._breadth_tracker.update_from_market_data(data)
                 if breadth_result:
@@ -736,7 +728,7 @@ class GlobalMarketScanner:
         # 更新QueryState
         try:
             log.info(f"[GlobalMarketScanner] 开始更新QueryState...")
-            from deva.naja.attention.kernel.state import QueryState
+            from deva.naja.register import SR
             
             # 提取市场数据
             symbols = []
@@ -752,9 +744,9 @@ class GlobalMarketScanner:
             
             log.info(f"[GlobalMarketScanner] 提取到 {len(symbols)} 个符号")
             
-            # 创建或获取QueryState实例
-            qs = QueryState()
-            log.info(f"[GlobalMarketScanner] 创建QueryState实例成功")
+            # 从注册中心获取QueryState实例
+            qs = SR('query_state')
+            log.info(f"[GlobalMarketScanner] 从注册中心获取QueryState实例成功")
             
             qs.update_from_market(
                 symbols=symbols,

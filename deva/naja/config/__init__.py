@@ -66,6 +66,11 @@ class RadarConfig:
             "event_retention_days": 7,
             "cleanup_interval_seconds": 600,
             "macro_only": True,
+            "auto_start_news_fetcher": True,
+            "auto_start_global_scanner": True,
+            "global_scanner_interval": 60,
+            "global_scanner_volatility_threshold": 2.0,
+            "global_scanner_single_threshold": 3.0,
         }
 
     def get(self, key: str, default: Any = None) -> Any:
