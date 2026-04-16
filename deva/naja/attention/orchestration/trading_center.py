@@ -305,6 +305,7 @@ class TradingCenter:
 
         self._first_principles_mind = None
         self._awakened_alaya = None
+        self._in_context_learner = None
 
         # 感知系统模块（从 AwakeningController 迁移）
         self._volatility_surface = None
@@ -441,6 +442,16 @@ class TradingCenter:
             except ImportError as e:
                 log.warning(f"[TradingCenter] 无法导入 RealtimeTaste: {e}")
         return self._realtime_taste
+    
+    def _get_in_context_learner(self):
+        """获取上下文学习器"""
+        if self._in_context_learner is None:
+            try:
+                from deva.naja.attention.kernel.in_context_learner import get_in_context_learner
+                self._in_context_learner = get_in_context_learner()
+            except ImportError as e:
+                log.warning(f"[TradingCenter] 无法导入 InContextLearner: {e}")
+        return self._in_context_learner
 
     def _get_current_narratives(self) -> List[str]:
         """获取当前活跃的叙事列表"""
@@ -694,6 +705,40 @@ class TradingCenter:
         elif awakening_level == "illuminated":
             fusion_result.final_confidence *= 1.05
             fusion_result.reasoning.append(f"觉醒加成(illuminated): ×1.05")
+
+        # 上下文学习加成
+        try:
+            learner = self._get_in_context_learner()
+            if learner:
+                # 提取市场状态特征用于上下文检索
+                market_features = []
+                if hasattr(kernel_output, 'attention_weights'):
+                    for symbol, weight in kernel_output.attention_weights.items():
+                        market_features.append({
+                            "symbol": symbol,
+                            "weight": weight
+                        })
+                
+                # 模拟QueryState
+                class MockQueryState:
+                    def __init__(self):
+                        self.features = {}
+                
+                Q = MockQueryState()
+                _, adjustment_info = learner.adjust_query_with_demos(Q, market_features)
+                
+                if adjustment_info:
+                    historical_success = adjustment_info.get("historical_success", 0)
+                    if historical_success > 0.1:
+                        fusion_result.final_confidence *= (1.0 + historical_success * 0.1)
+                        fusion_result.reasoning.append(f"上下文学习加成(历史成功): ×{1.0 + historical_success * 0.1:.2f}")
+                    
+                    num_demos = adjustment_info.get("num_demos", 0)
+                    if num_demos > 1:
+                        fusion_result.final_confidence *= 1.05
+                        fusion_result.reasoning.append(f"上下文学习加成(多示范): ×1.05")
+        except Exception as e:
+            log.debug(f"[TradingCenter] 应用上下文学习失败: {e}")
 
         fusion_result.final_confidence = max(0.0, min(1.0, fusion_result.final_confidence))
 
@@ -982,13 +1027,7 @@ class TradingCenter:
         return ""
 
 
-_trading_center: Optional[TradingCenter] = None
-
-
 def get_trading_center() -> TradingCenter:
     """获取 TradingCenter 单例"""
     from deva.naja.register import SR
-    global _trading_center
-    if _trading_center is None:
-        _trading_center = TradingCenter()
-    return _trading_center
+    return SR('trading_center')

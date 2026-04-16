@@ -158,10 +158,6 @@ class SystemBootstrap:
             register_all_singletons()
 
             duration_ms = (time.time() - start) * 1000
-            # 应用猴子补丁兼容模式 - 让旧代码无需修改即可使用新单例注册表
-            from deva.naja.infra.registry.singleton_registry import apply_compatibility_patches
-            apply_compatibility_patches()
-
             logger.info(f"  单例注册完成，耗时 {duration_ms:.1f}ms")
 
             return BootResult(

@@ -132,12 +132,16 @@ def _get_qkv_state() -> Dict[str, Any]:
         multi_scorer_state = _get_multi_scorer_state(kernel)
         attention_memory_state = _get_attention_memory_state(kernel)
         awakened_memory_state = _get_awakened_memory_state()
+        transformer_state = _get_transformer_state(kernel)
+        in_context_state = _get_in_context_learning_state(kernel)
 
         return {
             "event_encoder": event_encoder_state,
             "multi_scorer": multi_scorer_state,
             "attention_memory": attention_memory_state,
             "awakened_memory": awakened_memory_state,
+            "transformer": transformer_state,
+            "in_context_learning": in_context_state,
             "has_data": True
         }
     except Exception:
@@ -146,8 +150,42 @@ def _get_qkv_state() -> Dict[str, Any]:
             "multi_scorer": {"heads_count": 0, "fusion_alpha": 0.0},
             "attention_memory": {"total": 0, "level_distribution": {"high": 0, "medium": 0, "low": 0}, "avg_score": 0.0},
             "awakened_memory": {"total_patterns": 0, "market_stats": {}},
+            "transformer": {"enabled": False, "available": False, "config": {}},
+            "in_context_learning": {"enabled": False, "available": False, "demo_statistics": {}},
             "has_data": False
         }
+
+
+def _get_transformer_state(kernel) -> Dict[str, Any]:
+    """获取 Transformer 自注意力状态"""
+    transformer_state = {
+        "enabled": hasattr(kernel, '_enable_transformer') and kernel._enable_transformer,
+        "available": hasattr(kernel, '_transformer_layer') and kernel._transformer_layer is not None,
+        "feature_encoder": hasattr(kernel, '_feature_encoder') and kernel._feature_encoder is not None,
+        "config": {
+            "d_model": getattr(kernel._transformer_layer, 'd_model', 0) if hasattr(kernel, '_transformer_layer') else 0,
+            "num_heads": getattr(kernel._transformer_layer, 'num_heads', 0) if hasattr(kernel, '_transformer_layer') else 0,
+            "d_ff": getattr(kernel._transformer_layer.ffn, 'd_ff', 0) if hasattr(kernel, '_transformer_layer') and hasattr(kernel._transformer_layer, 'ffn') else 0
+        }
+    }
+    return transformer_state
+
+
+def _get_in_context_learning_state(kernel) -> Dict[str, Any]:
+    """获取上下文学习状态"""
+    learning_state = {
+        "enabled": hasattr(kernel, '_enable_in_context') and kernel._enable_in_context,
+        "available": hasattr(kernel, '_in_context_learner') and kernel._in_context_learner is not None,
+        "demo_statistics": {}
+    }
+    
+    try:
+        if hasattr(kernel, '_in_context_learner') and kernel._in_context_learner:
+            learning_state["demo_statistics"] = kernel._in_context_learner.get_demo_statistics() if hasattr(kernel._in_context_learner, 'get_demo_statistics') else {}
+    except Exception:
+        pass
+    
+    return learning_state
 
 
 def _get_event_encoder_state(kernel) -> Dict[str, Any]:
@@ -399,6 +437,8 @@ def _render_qkv_module(qkv_state: Dict[str, Any]) -> str:
     multi_scorer = qkv_state.get("multi_scorer", {})
     attention_memory = qkv_state.get("attention_memory", {})
     awakened_memory = qkv_state.get("awakened_memory", {})
+    transformer = qkv_state.get("transformer", {})
+    in_context_learning = qkv_state.get("in_context_learning", {})
 
     total_encoded = event_encoder.get("total_encoded", 0)
     key_features = event_encoder.get("key_features", [])
@@ -417,6 +457,23 @@ def _render_qkv_module(qkv_state: Dict[str, Any]) -> str:
 
     features_str = ", ".join(key_features[:4]) if key_features else ""
 
+    transformer_enabled = transformer.get("enabled", False)
+    transformer_available = transformer.get("available", False)
+    transformer_config = transformer.get("config", {})
+    d_model = transformer_config.get("d_model", 0)
+    num_heads = transformer_config.get("num_heads", 0)
+
+    in_context_enabled = in_context_learning.get("enabled", False)
+    in_context_available = in_context_learning.get("available", False)
+    demo_stats = in_context_learning.get("demo_statistics", {})
+    total_demos = demo_stats.get("total_demos", 0)
+
+    transformer_status_color = "#22c55e" if transformer_enabled and transformer_available else "#64748b"
+    transformer_status_text = "已启用" if transformer_enabled and transformer_available else "未启用"
+    
+    in_context_status_color = "#22c55e" if in_context_enabled and in_context_available else "#64748b"
+    in_context_status_text = "已启用" if in_context_enabled and in_context_available else "未启用"
+
     return """<div style="margin-top: 12px;">
         <div style="
             display: flex;
@@ -429,11 +486,11 @@ def _render_qkv_module(qkv_state: Dict[str, Any]) -> str:
             <div style="display: flex; align-items: center; gap: 8px;">
                 <span style="font-size: 16px;">⚡</span>
                 <span style="font-size: 13px; font-weight: 600; color: #f1f5f9;">注意力能力</span>
-                <span style="font-size: 10px; color: #64748b; background: #1e293b; padding: 2px 6px; border-radius: 4px;">QKV</span>
+                <span style="font-size: 10px; color: #64748b; background: #1e293b; padding: 2px 6px; border-radius: 4px;">QKV + Transformer</span>
             </div>
         </div>
 
-        <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-bottom: 8px;">
+        <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-bottom: 12px;">
             <div style="background: #0f172a; border-radius: 8px; padding: 10px; text-align: center;">
                 <div style="font-size: 10px; color: #64748b; margin-bottom: 4px;">📊 事件编码</div>
                 <div style="font-size: 14px; font-weight: 600; color: #0ea5e9;">""" + str(total_encoded) + """ events</div>
@@ -453,6 +510,42 @@ def _render_qkv_module(qkv_state: Dict[str, Any]) -> str:
                 <div style="font-size: 10px; color: #64748b; margin-bottom: 4px;">🌟 跨市场记忆</div>
                 <div style="font-size: 14px; font-weight: 600; color: #a855f7;">""" + str(patterns_total) + """ patterns</div>
                 <div style="font-size: 9px; color: #64748b; margin-top: 2px;">""" + patterns_str + """</div>
+            </div>
+        </div>
+
+        <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px;">
+            <div style="background: #0f172a; border-radius: 8px; padding: 12px;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                    <div style="display: flex; align-items: center; gap: 6px;">
+                        <span style="font-size: 14px;">🔄</span>
+                        <span style="font-size: 12px; font-weight: 600; color: #f1f5f9;">Transformer 自注意力</span>
+                    </div>
+                    <span style="font-size: 10px; padding: 2px 8px; border-radius: 4px; background: """ + transformer_status_color + """22; color: """ + transformer_status_color + """; border: 1px solid """ + transformer_status_color + """;">""" + transformer_status_text + """</span>
+                </div>
+                <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 6px;">
+                    <div style="background: #1e293b; border-radius: 6px; padding: 8px; text-align: center;">
+                        <div style="font-size: 9px; color: #64748b;">维度</div>
+                        <div style="font-size: 13px; font-weight: 600; color: #0ea5e9;">""" + str(d_model) + """</div>
+                    </div>
+                    <div style="background: #1e293b; border-radius: 6px; padding: 8px; text-align: center;">
+                        <div style="font-size: 9px; color: #64748b;">注意力头</div>
+                        <div style="font-size: 13px; font-weight: 600; color: #22c55e;">""" + str(num_heads) + """</div>
+                    </div>
+                </div>
+            </div>
+            
+            <div style="background: #0f172a; border-radius: 8px; padding: 12px;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                    <div style="display: flex; align-items: center; gap: 6px;">
+                        <span style="font-size: 14px;">🧩</span>
+                        <span style="font-size: 12px; font-weight: 600; color: #f1f5f9;">上下文学习</span>
+                    </div>
+                    <span style="font-size: 10px; padding: 2px 8px; border-radius: 4px; background: """ + in_context_status_color + """22; color: """ + in_context_status_color + """; border: 1px solid """ + in_context_status_color + """;">""" + in_context_status_text + """</span>
+                </div>
+                <div style="background: #1e293b; border-radius: 6px; padding: 8px; text-align: center;">
+                    <div style="font-size: 9px; color: #64748b;">历史示例</div>
+                    <div style="font-size: 13px; font-weight: 600; color: #a855f7;">""" + str(total_demos) + """ demos</div>
+                </div>
             </div>
         </div>
     </div>

@@ -503,9 +503,6 @@ class DataSourceManager:
         print(f"[DataSourceManager][{level}] {message} | {extra_str}")
 
 
-_ds_manager: Optional[DataSourceManager] = None
-_ds_manager_lock = threading.Lock()
-
-
 def get_datasource_manager() -> DataSourceManager:
-    return DataSourceManager()
+    from deva.naja.register import SR
+    return SR('datasource_manager')
