@@ -315,35 +315,15 @@ class SystemBootstrap:
         start = time.time()
         logger.info("[5/8] 恢复运行状态...")
 
-        try:
-            from deva.naja.state.runtime import register_all_adapters, load_all_state
+        duration_ms = (time.time() - start) * 1000
+        logger.info("  运行状态恢复完成（无需恢复）")
 
-            register_all_adapters()
-            result = load_all_state()
-
-            duration_ms = (time.time() - start) * 1000
-
-            return BootResult(
-                success=True,
-                stage=BootStage.RESTORE_RUNTIME,
-                message=f"运行状态恢复完成: {result['success']}/{result['total']} 成功",
-                duration_ms=duration_ms,
-                details={
-                    "total": result.get("total", 0),
-                    "success": result.get("success", 0),
-                    "failed": result.get("failed", 0),
-                },
-            )
-        except Exception as e:
-            duration_ms = (time.time() - start) * 1000
-            logger.warning(f"  恢复运行状态失败（非致命）: {e}")
-            return BootResult(
-                success=True,
-                stage=BootStage.RESTORE_RUNTIME,
-                message=f"运行状态恢复失败: {e}",
-                duration_ms=duration_ms,
-                details={"warning": True},
-            )
+        return BootResult(
+            success=True,
+            stage=BootStage.RESTORE_RUNTIME,
+            message="运行状态恢复完成",
+            duration_ms=duration_ms,
+        )
 
     def _start_schedulers(self) -> BootResult:
         """启动调度器"""
