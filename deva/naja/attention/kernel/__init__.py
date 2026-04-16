@@ -12,6 +12,17 @@ Attention Kernel - 事件级注意力计算核心
 - ManasManager：末那识引擎管理器
 - DecisionAttention：决策型注意力调制器
 - TemperatureAwareHead：支持温度调制的 AttentionHead
+
+新增（借鉴 Transformer）：
+- EventEmbedding：事件嵌入表示
+- MarketFeatureEncoder：市场特征编码器
+- EventSelfAttention：事件自注意力层
+- FeedForwardNetwork：前馈网络层
+- TransformerLikeAttentionLayer：类 Transformer 完整注意力层
+
+新增（借鉴大模型上下文学习）：
+- Demonstration：示范样本
+- InContextAttentionLearner：上下文学习器
 """
 
 from .event import AttentionEvent
@@ -38,6 +49,22 @@ from .manas_manager import (
 )
 from .decision_attention import DecisionAttention, TemperatureAwareHead
 
+# 新增：借鉴 Transformer 的组件
+from .embedding import EventEmbedding, MarketFeatureEncoder
+from .self_attention import (
+    EventSelfAttention,
+    FeedForwardNetwork,
+    TransformerLikeAttentionLayer,
+)
+
+# 新增：借鉴大模型上下文学习的组件
+from .in_context_learner import (
+    Demonstration,
+    InContextAttentionLearner,
+    get_in_context_learner,
+    setup_in_context_learner,
+)
+
 __all__ = [
     "AttentionEvent",
     "QueryState",
@@ -60,4 +87,15 @@ __all__ = [
     "setup_manas_manager",
     "DecisionAttention",
     "TemperatureAwareHead",
+    # 新增：借鉴 Transformer 的组件
+    "EventEmbedding",
+    "MarketFeatureEncoder",
+    "EventSelfAttention",
+    "FeedForwardNetwork",
+    "TransformerLikeAttentionLayer",
+    # 新增：借鉴大模型上下文学习的组件
+    "Demonstration",
+    "InContextAttentionLearner",
+    "get_in_context_learner",
+    "setup_in_context_learner",
 ]
