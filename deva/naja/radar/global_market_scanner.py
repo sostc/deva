@@ -568,6 +568,50 @@ class GlobalMarketScanner:
 
                 self._sync_to_propagation_engine(data)
 
+                # 更新QueryState
+                try:
+                    from deva.naja.register import SR
+                    from deva.naja.attention.kernel.state import QueryState
+                    
+                    # 提取市场数据
+                    symbols = []
+                    returns = []
+                    volumes = []
+                    prices = []
+                    
+                    for code, md in data.items():
+                        symbols.append(code)
+                        returns.append(md.change_pct)
+                        volumes.append(md.volume)
+                        prices.append(md.current)
+                    
+                    # 尝试从注册中心获取QueryState
+                    try:
+                        qs = SR('query_state')
+                    except KeyError:
+                        # 如果未注册，创建一个新的实例
+                        qs = QueryState()
+                        log.info("[GlobalMarketScanner] QueryState未注册，创建新实例")
+                        # 尝试将实例赋值给UI的全局缓存
+                        try:
+                            from deva.naja.attention.ui.awakening import _query_state_instance
+                            import deva.naja.attention.ui.awakening
+                            deva.naja.attention.ui.awakening._query_state_instance = qs
+                            log.info("[GlobalMarketScanner] 已更新UI的QueryState实例")
+                        except Exception as e:
+                            log.debug(f"[GlobalMarketScanner] 更新UI QueryState实例失败: {e}")
+                    
+                    if qs:
+                        qs.update_from_market(
+                            symbols=symbols,
+                            returns=returns,
+                            volumes=volumes,
+                            prices=prices
+                        )
+                        log.info(f"[GlobalMarketScanner] QueryState更新成功: 市场状态={qs.get_summary()['market_regime']}, 关注焦点={len(qs.get_summary()['top_attention'])}个")
+                except Exception as e:
+                    log.error(f"[GlobalMarketScanner] 更新QueryState失败: {e}")
+
                 breadth_result = self._breadth_tracker.update_from_market_data(data)
                 if breadth_result:
                     _global_market_log(f"市场广度: 涨跌比={breadth_result.get('breadth_ratio', 0):+.2f}, 恐惧={breadth_result.get('fear_score', 0):.0f}")
@@ -683,9 +727,57 @@ class GlobalMarketScanner:
 
     async def fetch_once(self) -> Dict[str, MarketData]:
         """手动获取一次数据"""
+        log.info(f"[GlobalMarketScanner] 开始获取市场数据...")
         data = await self.api.fetch_all()
+        log.info(f"[GlobalMarketScanner] 成功获取 {len(data)} 个市场数据")
         self._last_market_data = data
         self._sync_to_propagation_engine(data)
+        
+        # 更新QueryState
+        try:
+            log.info(f"[GlobalMarketScanner] 开始更新QueryState...")
+            from deva.naja.attention.kernel.state import QueryState
+            
+            # 提取市场数据
+            symbols = []
+            returns = []
+            volumes = []
+            prices = []
+            
+            for code, md in data.items():
+                symbols.append(code)
+                returns.append(md.change_pct)
+                volumes.append(md.volume)
+                prices.append(md.current)
+            
+            log.info(f"[GlobalMarketScanner] 提取到 {len(symbols)} 个符号")
+            
+            # 创建或获取QueryState实例
+            qs = QueryState()
+            log.info(f"[GlobalMarketScanner] 创建QueryState实例成功")
+            
+            qs.update_from_market(
+                symbols=symbols,
+                returns=returns,
+                volumes=volumes,
+                prices=prices
+            )
+            
+            summary = qs.get_summary()
+            log.info(f"[GlobalMarketScanner] QueryState更新成功: 市场状态={summary['market_regime']}, 关注焦点={summary['top_attention']}")
+            
+            # 更新UI的全局缓存
+            try:
+                log.info(f"[GlobalMarketScanner] 尝试更新UI的全局缓存...")
+                import deva.naja.attention.ui.awakening
+                deva.naja.attention.ui.awakening._query_state_instance = qs
+                log.info(f"[GlobalMarketScanner] 成功更新UI的QueryState实例")
+            except Exception as e:
+                log.error(f"[GlobalMarketScanner] 更新UI QueryState实例失败: {e}", exc_info=True)
+                
+        except Exception as e:
+            log.error(f"[GlobalMarketScanner] 更新QueryState失败: {e}", exc_info=True)
+        
         return data
 
     def get_last_data(self) -> Dict[str, MarketData]:
