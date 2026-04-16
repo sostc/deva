@@ -1199,7 +1199,7 @@ class CrossSignalAnalyzer:
 
                 symbol=signal_data.get("symbol") if isinstance(signal_data, dict) else None,
 
-                sector=None,
+                block=None,
 
                 importance=importance,
 

@@ -59,7 +59,7 @@ class BaseCognitiveEvent:
 class NarrativeUpdateEvent(BaseCognitiveEvent):
     """叙事更新事件 - 原 CognitiveEventType.NARRATIVE_UPDATE"""
     narrative_id: str = ""               # 叙事ID
-    narrative_type: str = "block"        # block/global/sector
+    narrative_type: str = "block"        # block/global
     summary: str = ""                    # 更新摘要
     symbols: List[str] = field(default_factory=list)  # 相关股票
     strength_change: float = 0.0         # 强度变化（-1到1）

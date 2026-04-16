@@ -14,7 +14,7 @@ class PropagationEngine:
         """初始化传播引擎"""
         self._markets = {}
         self._narratives = {}
-        self._sectors = {}
+        self._blocks = {}
         self._initialized = False
     
     def initialize(self):
@@ -22,8 +22,8 @@ class PropagationEngine:
         try:
             # 初始化市场数据
             self._initialize_markets()
-            # 初始化行业数据
-            self._initialize_sectors()
+            # 初始化板块数据
+            self._initialize_blocks()
             self._initialized = True
             log.info("[PropagationEngine] 初始化完成")
         except Exception as e:
@@ -43,11 +43,11 @@ class PropagationEngine:
         for market in default_markets:
             self._markets[market["id"]] = market
     
-    def _initialize_sectors(self):
-        """初始化行业数据"""
-        # 这里可以从数据源加载行业数据
+    def _initialize_blocks(self):
+        """初始化板块数据"""
+        # 这里可以从数据源加载板块数据
         # 现在使用默认数据
-        default_sectors = [
+        default_blocks = [
             {"id": "tech", "name": "科技", "liquidity_score": 0.8},
             {"id": "finance", "name": "金融", "liquidity_score": 0.7},
             {"id": "healthcare", "name": "医疗", "liquidity_score": 0.6},
@@ -55,8 +55,8 @@ class PropagationEngine:
             {"id": "consumer", "name": "消费", "liquidity_score": 0.7},
         ]
         
-        for sector in default_sectors:
-            self._sectors[sector["id"]] = sector
+        for block in default_blocks:
+            self._blocks[block["id"]] = block
     
     def update_market(self, market_id: str, price: float, volume: float = 0, narrative_score: float = 0.0):
         """更新市场状态
@@ -143,7 +143,7 @@ class PropagationEngine:
         try:
             return {
                 "markets": list(self._markets.values()),
-                "sectors": list(self._sectors.values()),
+                "blocks": list(self._blocks.values()),
                 "narratives": list(self._narratives.values()),
                 "timestamp": time.time()
             }
@@ -151,7 +151,7 @@ class PropagationEngine:
             log.warning(f"[PropagationEngine] 获取流动性结构失败: {e}")
             return {
                 "markets": [],
-                "sectors": [],
+                "blocks": [],
                 "narratives": [],
                 "timestamp": time.time()
             }

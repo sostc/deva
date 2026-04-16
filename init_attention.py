@@ -28,12 +28,12 @@ if integration.attention_system:
     print("Processed snapshots:", report.get("processed_snapshots", 0))
     print("Global attention: {:.4f}".format(report.get("global_attention", 0)))
 
-    sector_weights = integration.attention_system.sector_attention.get_all_weights(filter_noise=True)
-    print("\nSector weights count:", len(sector_weights))
-    if sector_weights:
-        top5 = sorted(sector_weights.items(), key=lambda x: x[1], reverse=True)[:5]
-        print("Top 5 sectors:")
-        for sector_id, weight in top5:
-            print("  {}: {:.4f}".format(sector_id, weight))
+    block_weights = integration.attention_system.block_attention.get_all_weights(filter_noise=True)
+    print("\nBlock weights count:", len(block_weights))
+    if block_weights:
+        top5 = sorted(block_weights.items(), key=lambda x: x[1], reverse=True)[:5]
+        print("Top 5 blocks:")
+        for block_id, weight in top5:
+            print("  {}: {:.4f}".format(block_id, weight))
 else:
     print("Attention system not available")

@@ -32,6 +32,17 @@ from .kernel import (
     AttentionKernel,
     get_default_heads,
     get_regime_aware_heads,
+    # 新增：借鉴 Transformer 的组件
+    EventEmbedding,
+    MarketFeatureEncoder,
+    EventSelfAttention,
+    FeedForwardNetwork,
+    TransformerLikeAttentionLayer,
+    # 新增：借鉴大模型上下文学习的组件
+    Demonstration,
+    InContextAttentionLearner,
+    get_in_context_learner,
+    setup_in_context_learner,
 )
 from .kernel.manas_engine import (
     ManasEngine,
@@ -90,6 +101,17 @@ __all__ = [
     "AttentionKernel",
     "get_default_heads",
     "get_regime_aware_heads",
+    # 新增：借鉴 Transformer 的组件
+    "EventEmbedding",
+    "MarketFeatureEncoder",
+    "EventSelfAttention",
+    "FeedForwardNetwork",
+    "TransformerLikeAttentionLayer",
+    # 新增：借鉴大模型上下文学习的组件
+    "Demonstration",
+    "InContextAttentionLearner",
+    "get_in_context_learner",
+    "setup_in_context_learner",
     # ManasEngine (决策中枢)
     "ManasEngine",
     # Portfolio (持仓管理)
