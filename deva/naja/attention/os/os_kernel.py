@@ -43,6 +43,19 @@ class OSAttentionKernel:
         self.manas_engine = ManasEngine()
         self._value_system = None
 
+        # 新增：类 Transformer 相关组件
+        self._enable_transformer = True  # 默认启用
+        self._feature_encoder = None
+        self._transformer_layer = None
+        
+        # 新增：上下文学习相关组件
+        self._enable_in_context = True  # 默认启用
+        self._in_context_learner = None
+        
+        # 初始化 Transformer 和上下文学习组件
+        self._init_transformer_components()
+        self._init_in_context_learner()
+
         self._last_output: Optional[AttentionKernelOutput] = None
         self._update_interval = 1.0
         self._last_update = 0.0
@@ -51,6 +64,72 @@ class OSAttentionKernel:
         if self._value_system is None:
             self._value_system = SR('value_system')
         return self._value_system
+    
+    def _init_transformer_components(self):
+        """初始化类 Transformer 组件"""
+        from ..kernel.embedding import MarketFeatureEncoder
+        from ..kernel.self_attention import TransformerLikeAttentionLayer
+        
+        self._feature_encoder = MarketFeatureEncoder(embedding_dim=128)
+        self._transformer_layer = TransformerLikeAttentionLayer(
+            d_model=128,
+            num_heads=4,
+            d_ff=512
+        )
+        log.info("[OSAttentionKernel] 已启用类 Transformer 自注意力层")
+    
+    def _init_in_context_learner(self):
+        """初始化上下文学习器"""
+        from ..kernel.in_context_learner import get_in_context_learner
+        self._in_context_learner = get_in_context_learner()
+    
+    def _process_with_transformer(self, events):
+        """
+        使用类 Transformer 的增强处理流程
+        
+        1. 事件向量化
+        2. 事件间自注意力（让事件互相影响）
+        3. 将增强信息回注到事件特征
+        """
+        import numpy as np
+        import time
+        from ..kernel.embedding import EventEmbedding
+        
+        if not self._enable_transformer or len(events) <= 1:
+            return events
+        
+        try:
+            # 将事件转换为嵌入
+            event_embeddings = []
+            for i, e in enumerate(events):
+                vec = self._feature_encoder.encode(e.features, time_position=i)
+                event_embeddings.append(EventEmbedding(
+                    vector=vec,
+                    features=e.features,
+                    timestamp=getattr(e, 'timestamp', None) or time.time()
+                ))
+            
+            # 通过自注意力层
+            enhanced_embeddings, attn_matrix = self._transformer_layer.forward(event_embeddings)
+            
+            # 将增强后的信息回注到事件特征中
+            for i, (e, emb) in enumerate(zip(events, enhanced_embeddings)):
+                # 计算事件重要性分数
+                event_importance = float(np.linalg.norm(emb.vector))
+                e.features["_transformer_importance"] = event_importance
+                
+                # 根据注意力矩阵调整事件权重
+                if len(attn_matrix.shape) >= 3 and i < attn_matrix.shape[2]:
+                    # 这个事件被其他事件关注的程度
+                    self_attn_score = float(attn_matrix[0, :, i, :].mean())
+                    e.features["_cross_attention"] = self_attn_score
+            
+            log.debug(f"[OSAttentionKernel] Transformer 自注意力处理完成: {len(events)} 个事件")
+            
+        except Exception as e:
+            log.warning(f"[OSAttentionKernel] Transformer 处理失败，回退到原始模式: {e}")
+        
+        return events
 
     def compute(
         self,
@@ -84,7 +163,23 @@ class OSAttentionKernel:
             alignment = vs.calculate_alignment(e.features)
             e.features["_value_alignment"] = alignment
 
+        # 新增：类 Transformer 自注意力增强
+        encoded_events = self._process_with_transformer(encoded_events)
+        
+        # 新增：上下文学习调整 Query
+        adjustment_info = {}
+        if self._enable_in_context and self._in_context_learner is not None:
+            # 提取事件特征用于上下文检索
+            event_features_list = [e.features for e in encoded_events]
+            query_state, adjustment_info = self._in_context_learner.adjust_query_with_demos(
+                query_state, event_features_list
+            )
+
         attention_result = self.multi_head.compute(query_state, encoded_events)
+        
+        # 添加上下文学习信息到结果
+        if adjustment_info:
+            attention_result["_in_context"] = adjustment_info
 
         alpha = attention_result.get("alpha", 1.0)
         attention_weights = attention_result.get("attention_weights", {})

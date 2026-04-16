@@ -60,6 +60,7 @@ class CognitionOrchestrator:
         # 缓存认知模块实例，避免每次调用都重新创建
         self._narrative_tracker = None
         self._keyword_registry = None
+        self._in_context_learner = None
         self._initialized = True
         log.info("CognitionOrchestrator 初始化完成")
 
@@ -82,6 +83,16 @@ class CognitionOrchestrator:
             except Exception as e:
                 log.debug(f"[CognitionOrchestrator] 创建 KeywordRegistry 失败: {e}")
         return self._keyword_registry
+    
+    def _get_in_context_learner(self):
+        """获取上下文学习器（延迟加载 + 缓存）"""
+        if self._in_context_learner is None:
+            try:
+                from deva.naja.attention.kernel.in_context_learner import get_in_context_learner
+                self._in_context_learner = get_in_context_learner()
+            except Exception as e:
+                log.debug(f"[CognitionOrchestrator] 获取 InContextLearner 失败: {e}")
+        return self._in_context_learner
 
     def _get_cognition_context(self) -> Dict[str, Any]:
         """
@@ -154,6 +165,17 @@ class CognitionOrchestrator:
                 context["ai_compute_trend"] = ai_compute_trend
         except Exception:
             pass
+
+        # ========== 上下文学习信息 ==========
+        try:
+            learner = self._get_in_context_learner()
+            if learner:
+                context["in_context_learning"] = {
+                    "demo_statistics": learner.get_demo_statistics(),
+                    "enabled": True
+                }
+        except Exception as e:
+            log.debug(f"[Cognition] 获取上下文学习信息失败: {e}")
 
         return context
 
@@ -229,6 +251,36 @@ class CognitionOrchestrator:
 
                 if has_high_conf_insight:
                     signal.metadata["high_conf_cognition"] = True
+
+                # 应用上下文学习调整
+                try:
+                    learner = self._get_in_context_learner()
+                    if learner:
+                        # 提取信号特征
+                        signal_features = {
+                            "price_change": getattr(signal, 'price_change', 0),
+                            "volume_spike": getattr(signal, 'volume_spike', 0),
+                            "sentiment": getattr(signal, 'sentiment', 0),
+                            "block": getattr(signal, 'block', "unknown"),
+                            "symbol": symbol
+                        }
+                        
+                        # 模拟QueryState
+                        class MockQueryState:
+                            def __init__(self):
+                                self.features = {}
+                        
+                        Q = MockQueryState()
+                        _, adjustment_info = learner.adjust_query_with_demos(Q, [signal_features])
+                        
+                        if adjustment_info:
+                            signal.metadata["in_context_adjustment"] = adjustment_info
+                            # 根据上下文学习调整置信度
+                            historical_success = adjustment_info.get("historical_success", 0)
+                            if historical_success > 0.1:
+                                signal.confidence = min(1.0, signal.confidence + historical_success * 0.1)
+                except Exception as e:
+                    log.debug(f"[Cognition] 应用上下文学习失败: {e}")
 
             return signals
 

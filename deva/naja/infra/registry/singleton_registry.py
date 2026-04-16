@@ -261,112 +261,6 @@ def register_fake_singleton(name: str, instance: Any) -> None:
     _global_registry.get(name)
 
 
-# ============================================================================
-# 猴子补丁兼容模式 - 让旧代码无需修改即可使用新单例注册表
-# ============================================================================
-
-_compat_patches_applied = False
-_original_functions = {}  # 保存原始函数
-
-
-def apply_compatibility_patches():
-    """应用猴子补丁，让所有旧的 get_xxx() 函数自动使用 SR()
-
-    在 bootstrap 启动时调用一次，即可让所有旧代码透明地使用新的单例注册表。
-
-    原理：
-    1. 保存所有原始的 get_xxx() 函数
-    2. 将模块中的 get_xxx() 替换为指向 SR() 的补丁函数
-    3. 这样旧代码调用 get_xxx() 时，实际会调用 SR('xxx')
-    4. 但工厂函数中可以直接调用类名（如 AttentionOS()）创建实例，
-       因为这些调用没有被补丁
-    """
-    global _compat_patches_applied
-    if _compat_patches_applied:
-        logger.warning("[SingletonRegistry] 猴子补丁已应用，跳过")
-        return
-
-    logger.info("[SingletonRegistry] 应用猴子补丁兼容模式...")
-
-    # 需要被替换的函数映射表：(模块名, 原始函数名, SR名称)
-    PATCHES = [
-        # attention 系统核心
-        ('deva.naja.attention.os.attention_os', 'get_attention_os', 'attention_os'),
-        ('deva.naja.attention.orchestration.trading_center', 'get_trading_center', 'trading_center'),
-        ('deva.naja.attention.orchestration.signal_executor', 'get_signal_executor', 'signal_executor'),
-        # data_processor 模块已移除
-
-        # 应用层
-        ('deva.naja.attention.attention_fusion', 'get_attention_fusion', 'attention_fusion'),
-        ('deva.naja.attention.portfolio', 'get_portfolio', 'portfolio'),
-        ('deva.naja.attention.focus_manager', 'get_attention_focus_manager', 'focus_manager'),
-        ('deva.naja.attention.conviction_validator', 'get_conviction_validator', 'conviction_validator'),
-        ('deva.naja.attention.blind_spot_investigator', 'get_blind_spot_investigator', 'blind_spot_investigator'),
-        ('deva.naja.state.snapshot', 'get_snapshot_manager', 'snapshot_manager'),
-
-        # bandit 模块
-        ('deva.naja.bandit.market_data_bus', 'get_market_data_bus', 'market_data_bus'),
-        ('deva.naja.bandit.market_observer', 'get_market_observer', 'market_observer'),
-        ('deva.naja.bandit.stock_block_map', 'get_stock_block_map', 'stock_block_map'),
-
-        # 认知模块
-        ('deva.naja.market_hotspot.tracking.history_tracker', 'get_history_tracker', 'history_tracker'),
-        ('deva.naja.cognition.cross_signal_analyzer', 'get_cross_signal_analyzer', 'cross_signal_analyzer'),
-        ('deva.naja.attention.narrative_block_linker', 'get_narrative_block_linker', 'narrative_block_linker'),
-        ('deva.naja.cognition.insight.llm_reflection', 'get_llm_reflection_engine', 'llm_reflection_engine'),
-
-        # 处理模块
-        ('deva.naja.attention.orchestration.state_querier', 'get_state_querier', 'state_querier'),
-        ('deva.naja.attention.block_registry', 'get_block_registry', 'block_registry'),
-
-        # 其他
-        ('deva.naja.attention.kernel.manas_manager', 'get_manas_manager', 'manas_manager'),
-        ('deva.naja.common.auto_tuner', 'get_auto_tuner', 'auto_tuner'),
-        ('deva.naja.attention.orchestration.liquidity_manager', 'get_liquidity_manager', 'liquidity_manager'),
-        ('deva.naja.strategy.daily_review_scheduler', 'get_replay_scheduler', 'daily_review_scheduler'),
-        ('deva.naja.attention.orchestration.cognition_orchestrator', 'get_cognition_orchestrator', 'cognition_orchestrator'),
-
-        # 基础层
-        ('deva.naja.common.stock_registry', 'get_stock_registry', 'stock_registry'),
-        ('deva.naja.datasource', 'get_datasource_manager', 'datasource_manager'),
-    ]
-
-    for module_name, original_func, sr_name in PATCHES:
-        try:
-            import importlib
-            module = importlib.import_module(module_name)
-
-            if hasattr(module, original_func):
-                # 保存原始函数，以便工厂函数可以使用
-                key = f"{module_name}.{original_func}"
-                _original_functions[key] = getattr(module, original_func)
-
-                def make_patch_func(name: str):
-                    def patched(*args, **kwargs):
-                        logger.debug(f"[SingletonRegistry] 猴子补丁: {name} → SR('{name}')")
-                        return SR(name)
-                    return patched
-
-                patched_func = make_patch_func(sr_name)
-                setattr(module, original_func, patched_func)
-                logger.debug(f"  ✓ 补丁: {module_name}.{original_func} → SR('{sr_name}')")
-        except Exception as e:
-            logger.warning(f"  ✗ 补丁失败: {module_name}.{original_func} - {e}")
-
-    _compat_patches_applied = True
-    logger.info(f"[SingletonRegistry] 猴子补丁应用完成！")
-
-
-def get_original_function(module_name: str, func_name: str):
-    """获取原始函数（未补丁的版本）
-
-    工厂函数内部可以使用此函数获取原始的 get_xxx() 函数，
-    避免被猴子补丁拦截。
-    """
-    key = f"{module_name}.{func_name}"
-    return _original_functions.get(key)
-
-
 __all__ = [
     'SR',
     'register_singleton',
@@ -374,6 +268,4 @@ __all__ = [
     'is_singleton_ready',
     'clear_for_test',
     'register_fake_singleton',
-    'apply_compatibility_patches',
-    'get_original_function',
 ]
