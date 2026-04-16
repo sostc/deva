@@ -80,6 +80,14 @@ from .hotspot_events import (
     SymbolUpdateEvent,
 )
 
+# 认知事件
+from .cognitive_events import (
+    CognitiveInsightEvent,
+    NarrativeStateEvent,
+    LiquiditySignalEvent,
+    MerrillClockEvent,
+)
+
 # 交易事件
 from .trading_events import (
     StrategySignalEvent,
@@ -230,6 +238,12 @@ __all__ = [
     "HotspotShiftEvent",
     "MarketSnapshotEvent",
     "SymbolUpdateEvent",
+    
+    # 认知事件
+    "CognitiveInsightEvent",
+    "NarrativeStateEvent",
+    "LiquiditySignalEvent",
+    "MerrillClockEvent",
     
     # 交易事件
     "StrategySignalEvent",

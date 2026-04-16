@@ -372,13 +372,17 @@ class RadarEngine:
         if getattr(self, "_initialized", False):
             return
 
+        print("[RADAR-INIT] 开始初始化 RadarEngine...")
+
         # 确保交易时钟启动
         SR('trading_clock')
+        print("[RADAR-INIT] 交易时钟已启动")
 
         self._db = NB(RADAR_EVENTS_TABLE)
         self._state_lock = threading.RLock()
 
         cfg = get_radar_config()
+        print(f"[RADAR-INIT] 配置加载完成: auto_start_global_scanner={cfg.get('auto_start_global_scanner')}")
         self._retention_days = float(cfg.get("event_retention_days", 7))
         self._cleanup_interval_seconds = float(cfg.get("cleanup_interval_seconds", 600))
         self._macro_only = bool(cfg.get("macro_only", True))
@@ -396,17 +400,21 @@ class RadarEngine:
 
         self._auto_start_news_fetcher = cfg.get("auto_start_news_fetcher", True)
         if self._auto_start_news_fetcher:
+            print("[RADAR-INIT] 自动启动新闻获取器...")
             _radar_debug_log("自动启动新闻获取器...")
             self.start_news_fetcher(cfg)
 
         self._auto_start_global_scanner = cfg.get("auto_start_global_scanner", True)
+        print(f"[RADAR-INIT] auto_start_global_scanner={self._auto_start_global_scanner}")
         if self._auto_start_global_scanner:
+            print("[RADAR-INIT] 自动启动全球市场扫描器...")
             _radar_debug_log("自动启动全球市场扫描器...")
-            self.start_global_market_scanner(
+            success = self.start_global_market_scanner(
                 fetch_interval=cfg.get("global_scanner_interval", 60),
                 alert_threshold_volatility=cfg.get("global_scanner_volatility_threshold", 2.0),
                 alert_threshold_single=cfg.get("global_scanner_single_threshold", 3.0),
             )
+            print(f"[RADAR-INIT] 全球市场扫描器启动结果: {success}")
 
         if self._retention_days > 0 and self._cleanup_interval_seconds > 0:
             self._start_cleanup_thread()
@@ -417,6 +425,7 @@ class RadarEngine:
 
         self._initialized = True
 
+        print("[RADAR-INIT] RadarEngine 初始化完成!")
         _radar_debug_log("RadarEngine 初始化完成")
 
     def ingest_result(self, result: Any) -> List[RadarEvent]:
@@ -588,12 +597,16 @@ class RadarEngine:
             是否启动成功
         """
         try:
+            print("[RADAR-SCANNER] 开始启动全球市场扫描器...")
             if self._global_scanner is not None and self._global_scanner._running:
+                print("[RADAR-SCANNER] 全球市场扫描器已在运行中")
                 _radar_debug_log("全球市场扫描器已在运行中")
                 return True
 
+            print("[RADAR-SCANNER] 导入 GlobalMarketScanner 模块...")
             from .global_market_scanner import GlobalMarketScanner, ScanConfig
 
+            print("[RADAR-SCANNER] 创建 ScanConfig...")
             scan_config = ScanConfig(
                 interval_trading=fetch_interval,
                 interval_extended=fetch_interval,
@@ -602,24 +615,79 @@ class RadarEngine:
                 alert_threshold_volatility=alert_threshold_volatility,
                 alert_threshold_single=alert_threshold_single,
             )
+            
+            print("[RADAR-SCANNER] 创建 GlobalMarketScanner 实例...")
             self._global_scanner = GlobalMarketScanner(config=scan_config)
 
+            print("[RADAR-SCANNER] 注册回调函数...")
             self._global_scanner.register_callback(self._on_global_market_alert)
 
             import asyncio
+            print("[RADAR-SCANNER] 尝试启动异步扫描器...")
             try:
-                loop = asyncio.get_event_loop()
-                if loop.is_running():
+                # 尝试获取当前事件循环
+                try:
+                    loop = asyncio.get_running_loop()
+                    print(f"[RADAR-SCANNER] 检测到运行中的事件循环")
                     asyncio.create_task(self._global_scanner.start())
-                else:
-                    loop.run_until_complete(self._global_scanner.start())
-            except RuntimeError:
-                asyncio.run(self._global_scanner.start())
+                    print("[RADAR-SCANNER] 已在运行的事件循环中创建任务")
+                except RuntimeError:
+                    # 没有运行中的事件循环，创建新的
+                    print("[RADAR-SCANNER] 没有运行中的事件循环，使用 asyncio.run()")
+                    asyncio.run(self._global_scanner.start())
+            except Exception as e:
+                print(f"[RADAR-SCANNER] 启动异步扫描器异常: {e}")
+                import traceback
+                print(f"[RADAR-SCANNER] 异常堆栈: {traceback.format_exc()}")
 
+            print(f"[RADAR-SCANNER] 全球市场扫描器启动成功, 间隔: {fetch_interval}s")
             _radar_debug_log(f"全球市场扫描器启动成功, 间隔: {fetch_interval}s")
+            
+            # 立即触发一次数据获取，避免等待间隔
+            print("[RADAR-SCANNER] 立即触发第一次数据获取...")
+            import asyncio
+            import threading
+            
+            def fetch_in_thread():
+                try:
+                    print("[RADAR-SCANNER] 开始执行 fetch_once...")
+                    result = asyncio.run(self._global_scanner.fetch_once())
+                    print(f"[RADAR-SCANNER] 第一次数据获取完成，结果: {result}")
+                    # 触发市场热点事件
+                    if result:
+                        print("[RADAR-SCANNER] 触发市场热点事件...")
+                        try:
+                            from deva.naja.events import publish_event, HotspotComputedEvent
+                            # 创建热点计算事件
+                            import time
+                            event = HotspotComputedEvent(
+                                market='US',
+                                timestamp=time.time(),
+                                global_hotspot=0.5,  # 默认值，后续会更新
+                                activity=0.5,  # 默认值
+                                block_hotspot={},
+                                symbol_weights={},
+                                symbols=[]
+                            )
+                            publish_event(event)
+                            print("[RADAR-SCANNER] 市场热点事件已发布")
+                        except Exception as e:
+                            print(f"[RADAR-SCANNER] 发布市场热点事件失败: {e}")
+                except Exception as e:
+                    print(f"[RADAR-SCANNER] 第一次数据获取失败: {e}")
+                    import traceback
+                    print(f"[RADAR-SCANNER] 异常堆栈: {traceback.format_exc()}")
+            
+            # 在新线程中运行，避免阻塞
+            thread = threading.Thread(target=fetch_in_thread, daemon=True)
+            thread.start()
+            
             return True
 
         except Exception as e:
+            print(f"[RADAR-SCANNER] 全球市场扫描器启动失败: {e}")
+            import traceback
+            print(f"[RADAR-SCANNER] 异常堆栈: {traceback.format_exc()}")
             _radar_debug_log(f"全球市场扫描器启动失败: {e}")
             return False
 

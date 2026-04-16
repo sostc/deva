@@ -215,6 +215,13 @@ def _register_custom_singletons():
         return QueryState()
     register_singleton('query_state', _create_query_state, deps=[])
     logger.info("  ✓ query_state")
+    
+    # --- query_state_updater: 事件驱动的QueryState更新器 ---
+    def _create_query_state_updater():
+        from .attention.kernel.state_updater import QueryStateUpdater
+        return QueryStateUpdater()
+    register_singleton('query_state_updater', _create_query_state_updater, deps=['query_state'])
+    logger.info("  ✓ query_state_updater")
 
     # --- hotspot_system: 从 attention_integration 取属性 ---
     def _create_hotspot_system():
