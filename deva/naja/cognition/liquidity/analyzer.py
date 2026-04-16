@@ -17,7 +17,7 @@ class LiquidityAnalyzer:
         self._liquidity_state = {
             "liquidity_risk": 0.5,
             "market_liquidity": 0.5,
-            "sector_liquidity": {},
+            "block_liquidity": {},
             "timestamp": time.time()
         }
         self._propagation_engine = None
@@ -49,14 +49,14 @@ class LiquidityAnalyzer:
             market_liquidity = self._calculate_market_liquidity(liquidity_structure)
             liquidity_risk = 1.0 - market_liquidity
             
-            # 计算行业流动性
-            sector_liquidity = self._calculate_sector_liquidity(liquidity_structure)
+            # 计算板块流动性
+            block_liquidity = self._calculate_block_liquidity(liquidity_structure)
             
             # 更新状态
             self._liquidity_state = {
                 "liquidity_risk": liquidity_risk,
                 "market_liquidity": market_liquidity,
-                "sector_liquidity": sector_liquidity,
+                "block_liquidity": block_liquidity,
                 "timestamp": time.time()
             }
             
@@ -93,26 +93,26 @@ class LiquidityAnalyzer:
             log.warning(f"[LiquidityAnalyzer] 计算市场流动性失败: {e}")
             return 0.5
     
-    def _calculate_sector_liquidity(self, liquidity_structure: Dict[str, Any]) -> Dict[str, float]:
-        """计算行业流动性
+    def _calculate_block_liquidity(self, liquidity_structure: Dict[str, Any]) -> Dict[str, float]:
+        """计算板块流动性
         
         Args:
             liquidity_structure: 流动性结构
             
         Returns:
-            Dict[str, float]: 行业流动性评分
+            Dict[str, float]: 板块流动性评分
         """
         try:
-            sector_liquidity = {}
+            block_liquidity = {}
             
-            if "sectors" in liquidity_structure:
-                for sector in liquidity_structure["sectors"]:
-                    if "name" in sector and "liquidity_score" in sector:
-                        sector_liquidity[sector["name"]] = sector["liquidity_score"]
+            if "blocks" in liquidity_structure:
+                for block in liquidity_structure["blocks"]:
+                    if "name" in block and "liquidity_score" in block:
+                        block_liquidity[block["name"]] = block["liquidity_score"]
             
-            return sector_liquidity
+            return block_liquidity
         except Exception as e:
-            log.warning(f"[LiquidityAnalyzer] 计算行业流动性失败: {e}")
+            log.warning(f"[LiquidityAnalyzer] 计算板块流动性失败: {e}")
             return {}
     
     def update_market(self, market_id: str, price: float, volume: float = 0, narrative_score: float = 0.0):

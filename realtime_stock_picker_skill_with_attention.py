@@ -178,16 +178,16 @@ class RealtimeStockPickerSkillWithAttention(StreamSkill, AttentionAwareMixin):
         # 增加注意力特征
         if self._use_attention:
             weight = self.get_symbol_attention_weight(stock_code)
-            sector_attention = self._get_sector_attention_for_stock(stock_code)
+            block_attention = self._get_block_attention_for_stock(stock_code)
             global_attention = self.get_global_attention()
             
             features['attention_weight'] = weight
-            features['sector_attention'] = sector_attention
+            features['block_attention'] = block_attention
             features['global_attention'] = global_attention
         
         return features
     
-    def _get_sector_attention_for_stock(self, stock_code: str) -> float:
+    def _get_block_attention_for_stock(self, stock_code: str) -> float:
         """获取股票所属板块的平均注意力"""
         if not self._use_attention:
             return 0.5

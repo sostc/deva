@@ -298,7 +298,7 @@ async def render_market_hotspot_admin(ctx: dict):
             """
             put_html(panel_html)
 
-    # ========== 平铺布局：各板块依次渲染 ==========
+    # ========== 平铺布局：各题材依次渲染 ==========
 
     def _section_header(icon: str, title: str, subtitle: str = "") -> str:
         sub_html = f'<span style="font-size:11px;color:#64748b;margin-left:8px;">{subtitle}</span>' if subtitle else ''
