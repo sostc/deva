@@ -78,7 +78,7 @@ SIMPLE_SINGLETONS: List[Tuple[str, str, str, List[str]]] = [
     ("bandit_tracker",     ".bandit.tracker",               "BanditPositionTracker",   []),
 
     # ── 认知 ──
-    ("cross_signal_analyzer",  ".cognition.cross_signal_analyzer",  "CrossSignalAnalyzer",  ["attention_integration"]),
+    ("cross_signal_analyzer",  ".cognition.analysis.cross_signal_analyzer",  "CrossSignalAnalyzer",  ["attention_integration"]),
     ("narrative_block_linker", ".attention.discovery",              "NarrativeBlockLinker", ["attention_integration"]),
     ("llm_reflection_engine",  ".cognition.insight.llm_reflection", "LLMReflectionEngine", ["attention_integration"]),
     ("cognition_engine",       ".cognition.engine",                 "CognitionEngine",     []),

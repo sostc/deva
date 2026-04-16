@@ -7,7 +7,7 @@ from deva.naja.infra.ui.ui_style import format_timestamp
 
 def render_cross_signal(ui):
     try:
-        from .cross_signal_analyzer import get_cross_signal_analyzer, ResonanceType, SignalSource
+        from ...analysis.cross_signal_analyzer import get_cross_signal_analyzer, ResonanceType, SignalSource
         analyzer = get_cross_signal_analyzer()
         if not analyzer:
             return
