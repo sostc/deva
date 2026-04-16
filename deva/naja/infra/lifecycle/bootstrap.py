@@ -268,6 +268,29 @@ class SystemBootstrap:
         except Exception as e:
             logger.warning(f"  TradingCenter 初始化失败: {e}")
 
+        # 初始化 RadarEngine（雷达引擎）
+        try:
+            from deva.naja.radar.engine import get_radar_engine
+            
+            print("[BOOTSTRAP] 正在初始化 RadarEngine...")
+            radar_engine = get_radar_engine()
+            logger.info("  RadarEngine 初始化完成")
+            details["radar_engine"] = "ok"
+            
+            # 检查 GlobalMarketScanner 状态
+            try:
+                stats = radar_engine.get_global_market_scanner_stats()
+                if stats:
+                    logger.info(f"  GlobalMarketScanner 状态: running={stats.get('running', False)}, fetch_count={stats.get('fetch_count', 0)}")
+                    details["global_market_scanner"] = stats
+            except Exception as e:
+                logger.warning(f"  GlobalMarketScanner 状态检查失败: {e}")
+        except Exception as e:
+            logger.warning(f"  RadarEngine 初始化失败: {e}")
+            details["radar_engine_error"] = str(e)
+            import traceback
+            print(f"[BOOTSTRAP] RadarEngine 初始化异常堆栈: {traceback.format_exc()}")
+
         # 初始化美林时钟引擎
         try:
             from deva.naja.cognition.merrill_clock import initialize_merrill_clock

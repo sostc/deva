@@ -12,6 +12,8 @@
 
 from typing import Dict, Any
 
+LOW = "LOW"
+
 
 def render_awakening_status() -> str:
     """渲染觉醒系统完整状态"""
@@ -23,7 +25,7 @@ def render_awakening_status() -> str:
     overall_percent = int(overall_level * 100)
     overall_color = _get_level_color(overall_level)
 
-    return """<div style="
+    return f"""<div style="
         background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
         border-radius: 14px;
         padding: 20px;
@@ -41,13 +43,13 @@ def render_awakening_status() -> str:
             </div>
             <div style="text-align: center;">
                 <div style="
-                    background: """ + overall_color + """22;
-                    border: 2px solid """ + overall_color + """;
+                    background: {overall_color}22;
+                    border: 2px solid {overall_color};
                     border-radius: 12px;
                     padding: 8px 16px;
                 ">
                     <div style="font-size: 11px; color: #94a3b8; margin-bottom: 4px;">觉醒进度</div>
-                    <div style="font-size: 20px; font-weight: 700; color: """ + overall_color + """;">""" + str(overall_percent) + """%</div>
+                    <div style="font-size: 20px; font-weight: 700; color: {overall_color};">{overall_percent}%</div>
                 </div>
             </div>
         </div>
@@ -60,18 +62,18 @@ def render_awakening_status() -> str:
             overflow: hidden;
         ">
             <div style="
-                background: linear-gradient(90deg, """ + overall_color + """ 0%, #00d4ff 100%);
+                background: linear-gradient(90deg, {overall_color} 0%, #00d4ff 100%);
                 height: 100%;
-                width: """ + str(overall_percent) + """%;
+                width: {overall_percent}%;
                 border-radius: 8px;
                 transition: width 0.5s ease;
             "></div>
         </div>
 
-        """ + _render_system_overview(manas_state, query_state) + """
-        """ + _render_manas_core(manas_state) + """
-        """ + _render_qkv_module(qkv_state) + """
-        """ + _render_current_state_narrative(manas_state, query_state) + """
+        {_render_system_overview(manas_state, query_state)}
+        {_render_manas_core(manas_state)}
+        {_render_qkv_module(qkv_state)}
+        {_render_current_state_narrative(manas_state, query_state)}
     </div>
     """
 
@@ -167,7 +169,7 @@ def _get_transformer_state(kernel) -> Dict[str, Any]:
         "feature_encoder": hasattr(kernel, '_feature_encoder') and kernel._feature_encoder is not None,
         "config": {
             "d_model": getattr(kernel._transformer_layer, 'd_model', 0) if hasattr(kernel, '_transformer_layer') else 0,
-            "num_heads": getattr(kernel._transformer_layer, 'num_heads', 0) if hasattr(kernel, '_transformer_layer') else 0,
+            "num_heads": getattr(kernel._transformer_layer.self_attn, 'num_heads', 0) if hasattr(kernel, '_transformer_layer') and hasattr(kernel._transformer_layer, 'self_attn') else 0,
             "d_ff": getattr(kernel._transformer_layer.ffn, 'd_ff', 0) if hasattr(kernel, '_transformer_layer') and hasattr(kernel._transformer_layer, 'ffn') else 0
         }
     }
@@ -193,8 +195,19 @@ def _get_in_context_learning_state(kernel) -> Dict[str, Any]:
 
 def _get_event_encoder_state(kernel) -> Dict[str, Any]:
     """获取事件编码器状态"""
+    total_encoded = 0
+    try:
+        # 从QueryState获取市场历史数据来计算事件数量
+        from deva.naja.register import SR
+        qs = SR('query_state')
+        if qs and hasattr(qs, '_market_history'):
+            market_history = qs._market_history
+            total_encoded = len(market_history.get('symbols', []))
+    except Exception:
+        pass
+    
     encoder_state = {
-        "total_encoded": 0,
+        "total_encoded": total_encoded,
         "key_features": ["price", "sentiment", "volume", "alpha"],
         "value_features": ["alpha", "risk", "confidence"]
     }
@@ -204,14 +217,56 @@ def _get_event_encoder_state(kernel) -> Dict[str, Any]:
 def _get_attention_memory_state(kernel) -> Dict[str, Any]:
     """获取注意力记忆系统状态
 
-    AttentionMemory 已删除，记忆功能由 Cognition 系统提供
+    从 Cognition 系统的 MemoryManager 获取实际记忆数据
     """
     memory_state = {
         "total": 0,
         "level_distribution": {"high": 0, "medium": 0, "low": 0},
-        "avg_score": 0.0,
-        "note": "Memory moved to Cognition system"
+        "avg_score": 0.0
     }
+    try:
+        from deva.naja.infra.registry.singleton_registry import SR
+        # 尝试从注册中心获取CognitionEngine实例
+        cognition_engine = SR('cognition_engine')
+        if cognition_engine and hasattr(cognition_engine, '_news_mind'):
+            news_mind = cognition_engine._news_mind
+            if news_mind and hasattr(news_mind, 'memory'):
+                memory_manager = news_mind.memory
+                # 获取短期和中期记忆数据
+                short_data = memory_manager.get_short_term_data(limit=100)
+                mid_data = memory_manager.get_mid_term_data(limit=100)
+                
+                # 计算总记忆数
+                total = len(short_data) + len(mid_data)
+                memory_state["total"] = total
+                
+                # 计算注意力分布
+                high = 0
+                medium = 0
+                low = 0
+                total_score = 0.0
+                
+                for event in short_data + mid_data:
+                    score = event.get("attention_score", 0.0)
+                    total_score += score
+                    if score >= 0.7:
+                        high += 1
+                    elif score >= 0.3:
+                        medium += 1
+                    else:
+                        low += 1
+                
+                memory_state["level_distribution"] = {
+                    "high": high,
+                    "medium": medium,
+                    "low": low
+                }
+                
+                # 计算平均分数
+                if total > 0:
+                    memory_state["avg_score"] = total_score / total
+    except Exception:
+        pass
     return memory_state
 
 
@@ -248,8 +303,51 @@ def _get_multi_scorer_state(kernel) -> Dict[str, Any]:
     try:
         if hasattr(kernel, 'multi_head') and kernel.multi_head:
             scorer_state["heads_count"] = len(kernel.multi_head.heads)
-            result = kernel.multi_head.compute(kernel.get_harmony(), [])
-            scorer_state["fusion_alpha"] = result.get("alpha", 0)
+            
+            # 从QueryState获取市场数据来创建模拟事件
+            events = []
+            try:
+                from deva.naja.register import SR
+                from deva.naja.attention.kernel.event import AttentionEvent
+                qs = SR('query_state')
+                if qs and hasattr(qs, '_market_history'):
+                    market_history = qs._market_history
+                    symbols = market_history.get('symbols', [])
+                    returns = market_history.get('returns', [])
+                    volumes = market_history.get('volumes', [])
+                    
+                    for i, symbol in enumerate(symbols[:10]):  # 取前10个符号
+                        if i < len(returns) and i < len(volumes):
+                            features = {
+                                "price_change": returns[i],
+                                "volume_spike": volumes[i] / max(1, sum(volumes) / len(volumes)) if volumes else 1,
+                                "alpha": returns[i] * 0.5,  # 简单计算alpha
+                                "risk": abs(returns[i]) * 0.1,
+                                "confidence": 0.7
+                            }
+                            event = AttentionEvent(
+                                source=symbol,
+                                data={"symbol": symbol, "returns": returns[i], "volumes": volumes[i]},
+                                features=features,
+                                timestamp=market_history.get('last_update', 0)
+                            )
+                            # 设置value属性，这样AttentionHead.compute()才能获取到alpha, risk, confidence
+                            event.value = {
+                                "alpha": features["alpha"],
+                                "risk": features["risk"],
+                                "confidence": features["confidence"]
+                            }
+                            events.append(event)
+            except Exception:
+                pass
+            
+            # 使用实际事件数据计算
+            if events:
+                result = kernel.multi_head.compute(kernel.get_harmony(), events)
+                scorer_state["fusion_alpha"] = result.get("alpha", 0)
+            else:
+                # 如果没有事件，使用默认值
+                scorer_state["fusion_alpha"] = 0.5
     except Exception:
         pass
     return scorer_state
@@ -379,6 +477,16 @@ def _render_system_overview(manas_state: Dict[str, Any], query_state: Dict[str, 
     top_attention = query_state.get("top_attention", [])
     attention_count = query_state.get("attention_focus_count", 0)
     
+    # 认知系统数据
+    narrative_state = query_state.get("narrative_state", {})
+    current_narratives = narrative_state.get("current_narratives", [])
+    liquidity_state = query_state.get("liquidity_state", {})
+    liquidity_signal = liquidity_state.get("signal", 0.5)
+    economic_cycle = query_state.get("economic_cycle", {})
+    economic_phase = economic_cycle.get("phase", "unknown")
+    cognitive_insights = query_state.get("cognitive_insights", {})
+    insights_count = len(cognitive_insights.get("insights", []))
+    
     regime_text = {
         "trend_up": "上涨趋势",
         "trend_down": "下跌趋势",
@@ -388,8 +496,20 @@ def _render_system_overview(manas_state: Dict[str, Any], query_state: Dict[str, 
         "mixed": "混合",
         "unknown": "数据初始化中"
     }.get(market_regime, "数据初始化中")
-
-    return """<div style="margin-bottom: 16px;">
+    
+    core_attention_text = ""
+    if top_attention:
+        items = []
+        for item in top_attention[:3]:
+            name = {"NG":"天然气","NQ":"纳斯达克","CL":"原油","ES":"标普500","YM":"道琼斯","GC":"黄金","SI":"白银"}.get(item, item)
+            items.append(f"{item} ({name})")
+        core_attention_text = ", ".join(items)
+    else:
+        core_attention_text = "暂无"
+    
+    narrative_text = ", ".join(current_narratives[:2]) if current_narratives else "暂无"
+    
+    return f"""<div style="margin-bottom: 16px;">
         <div style="
             display: flex;
             justify-content: space-between;
@@ -433,15 +553,37 @@ def _render_system_overview(manas_state: Dict[str, Any], query_state: Dict[str, 
                 <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px;">
                     <div style="background: #1e293b; border-radius: 6px; padding: 10px; text-align: center;">
                         <div style="font-size: 11px; color: #94a3b8; margin-bottom: 4px;">市场状态</div>
-                        <div style="font-size: 14px; font-weight: 600; color: #0ea5e9;">""" + regime_text + """</div>
+                        <div style="font-size: 14px; font-weight: 600; color: #0ea5e9;">{regime_text}</div>
                     </div>
                     <div style="background: #1e293b; border-radius: 6px; padding: 10px; text-align: center;">
                         <div style="font-size: 11px; color: #94a3b8; margin-bottom: 4px;">关注焦点</div>
-                        <div style="font-size: 14px; font-weight: 600; color: #22c55e;">""" + str(attention_count) + """ 个</div>
+                        <div style="font-size: 14px; font-weight: 600; color: #22c55e;">{attention_count} 个</div>
                     </div>
                     <div style="background: #1e293b; border-radius: 6px; padding: 10px; text-align: center;">
                         <div style="font-size: 11px; color: #94a3b8; margin-bottom: 4px;">核心关注</div>
-                        <div style="font-size: 10px; color: #f1f5f9;">""" + (", ".join(top_attention[:3]) if top_attention else "暂无") + """</div>
+                        <div style="font-size: 10px; color: #f1f5f9;">{core_attention_text}</div>
+                    </div>
+                </div>
+            </div>
+
+            <div style="background: #0f172a; border-radius: 8px; padding: 12px;">
+                <div style="font-size: 12px; font-weight: 600; color: #f1f5f9; margin-bottom: 8px;">🧠 认知系统</div>
+                <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px;">
+                    <div style="background: #1e293b; border-radius: 6px; padding: 10px; text-align: center;">
+                        <div style="font-size: 11px; color: #94a3b8; margin-bottom: 4px;">叙事状态</div>
+                        <div style="font-size: 10px; color: #f1f5f9;">{narrative_text}</div>
+                    </div>
+                    <div style="background: #1e293b; border-radius: 6px; padding: 10px; text-align: center;">
+                        <div style="font-size: 11px; color: #94a3b8; margin-bottom: 4px;">流动性信号</div>
+                        <div style="font-size: 14px; font-weight: 600; color: #06b6d4;">{liquidity_signal:.2f}</div>
+                    </div>
+                    <div style="background: #1e293b; border-radius: 6px; padding: 10px; text-align: center;">
+                        <div style="font-size: 11px; color: #94a3b8; margin-bottom: 4px;">经济周期</div>
+                        <div style="font-size: 10px; color: #f1f5f9;">{economic_phase}</div>
+                    </div>
+                    <div style="background: #1e293b; border-radius: 6px; padding: 10px; text-align: center;">
+                        <div style="font-size: 11px; color: #94a3b8; margin-bottom: 4px;">认知洞察</div>
+                        <div style="font-size: 14px; font-weight: 600; color: #a855f7;">{insights_count}</div>
                     </div>
                 </div>
             </div>
@@ -484,19 +626,24 @@ def _render_current_state_narrative(manas_state: Dict[str, Any], query_state: Di
     }.get(market_regime, "数据初始化中")
     
     risk_text = "保守" if risk_bias < 0.4 else "中性" if risk_bias < 0.6 else "激进"
+    top_attention_text = ", ".join(top_attention[:3]) if top_attention else "暂无明确焦点"
     
-    narrative = "系统当前处于<span style='color: #a855f7; font-weight: 600;'>" + awakening_text + "</span>状态，"
-    narrative += "市场整体呈现<span style='color: #0ea5e9; font-weight: 600;'>" + regime_text + "</span>格局。"
-    narrative += "和谐度分析显示当前市场情绪<span style='color: #06b6d4; font-weight: 600;'>" + harmony_text + "</span>。"
-    narrative += "系统风险偏好为<span style='color: #f59e0b; font-weight: 600;'>" + risk_text + "</span>。"
-    narrative += "当前关注的核心方向包括：" + (", ".join(top_attention[:3]) if top_attention else "暂无明确焦点") + "。"
+    narrative_parts = [
+        f"系统当前处于<span style='color: #a855f7; font-weight: 600;'>{awakening_text}</span>状态，",
+        f"市场整体呈现<span style='color: #0ea5e9; font-weight: 600;'>{regime_text}</span>格局。",
+        f"和谐度分析显示当前市场情绪<span style='color: #06b6d4; font-weight: 600;'>{harmony_text}</span>。",
+        f"系统风险偏好为<span style='color: #f59e0b; font-weight: 600;'>{risk_text}</span>。",
+        f"当前关注的核心方向包括：{top_attention_text}。",
+    ]
     
     if should_act:
-        narrative += "系统建议<span style='color: #22c55e; font-weight: 600;'>" + action_type + "</span>操作。"
+        narrative_parts.append(f"系统建议<span style='color: #22c55e; font-weight: 600;'>{action_type}</span>操作。")
     else:
-        narrative += "系统建议保持观望，等待更明确的信号。"
+        narrative_parts.append("系统建议保持观望，等待更明确的信号。")
     
-    return """<div style="margin-top: 16px;">
+    narrative = "".join(narrative_parts)
+    
+    return f"""<div style="margin-top: 16px;">
         <div style="
             display: flex;
             justify-content: space-between;
@@ -514,7 +661,7 @@ def _render_current_state_narrative(manas_state: Dict[str, Any], query_state: Di
 
         <div style="background: #0f172a; border-radius: 8px; padding: 16px;">
             <div style="font-size: 12px; line-height: 1.6; color: #f1f5f9;">
-                """ + narrative + """
+                {narrative}
             </div>
         </div>
     </div>
@@ -559,7 +706,7 @@ def _render_manas_core(state: Dict[str, Any]) -> str:
         "neutral": "中性",
     }.get(bias_state, bias_state)
 
-    return """<div style="margin-bottom: 16px;">
+    return f"""<div style="margin-bottom: 16px;">
         <div style="
             display: flex;
             justify-content: space-between;
@@ -574,55 +721,55 @@ def _render_manas_core(state: Dict[str, Any]) -> str:
                 <span style="font-size: 10px; color: #64748b; background: #1e293b; padding: 2px 6px; border-radius: 4px;">4引擎+1观照</span>
             </div>
             <div style="
-                background: """ + status_color + """22;
-                border: 1px solid """ + status_color + """;
+                background: {status_color}22;
+                border: 1px solid {status_color};
                 border-radius: 8px;
                 padding: 3px 10px;
                 font-size: 11px;
-                color: """ + status_color + """;
+                color: {status_color};
             ">
-                """ + status_text + """
+                {status_text}
             </div>
         </div>
 
         <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-bottom: 12px;">
             <div style="background: #0f172a; border-radius: 8px; padding: 10px; text-align: center;">
                 <div style="font-size: 10px; color: #64748b; margin-bottom: 4px;">时机</div>
-                <div style="font-size: 16px; font-weight: 600; color: #0ea5e9;">""" + f"{timing:.2f}" + """</div>
+                <div style="font-size: 16px; font-weight: 600; color: #0ea5e9;">{timing:.2f}</div>
             </div>
             <div style="background: #0f172a; border-radius: 8px; padding: 10px; text-align: center;">
                 <div style="font-size: 10px; color: #64748b; margin-bottom: 4px;">趋势</div>
-                <div style="font-size: 16px; font-weight: 600; color: #8b5cf6;">""" + f"{regime:+.2f}" + """</div>
+                <div style="font-size: 16px; font-weight: 600; color: #8b5cf6;">{regime:+.2f}</div>
             </div>
             <div style="background: #0f172a; border-radius: 8px; padding: 10px; text-align: center;">
                 <div style="font-size: 10px; color: #64748b; margin-bottom: 4px;">自信度</div>
-                <div style="font-size: 16px; font-weight: 600; color: #22c55e;">""" + f"{confidence:.2f}" + """</div>
+                <div style="font-size: 16px; font-weight: 600; color: #22c55e;">{confidence:.2f}</div>
             </div>
             <div style="background: #0f172a; border-radius: 8px; padding: 10px; text-align: center;">
                 <div style="font-size: 10px; color: #64748b; margin-bottom: 4px;">风险温度</div>
-                <div style="font-size: 16px; font-weight: 600; color: #f59e0b;">""" + f"{risk_temp:.2f}" + """</div>
+                <div style="font-size: 16px; font-weight: 600; color: #f59e0b;">{risk_temp:.2f}</div>
             </div>
         </div>
 
         <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 12px;">
             <div style="background: #0f172a; border-radius: 8px; padding: 10px; text-align: center;">
                 <div style="font-size: 10px; color: #64748b; margin-bottom: 4px;">和谐度</div>
-                <div style="font-size: 14px; font-weight: 600; color: #06b6d4;">""" + harmony_text + """ """ + f"{harmony_strength:.2f}" + """</div>
+                <div style="font-size: 14px; font-weight: 600; color: #06b6d4;">{harmony_text} {harmony_strength:.2f}</div>
             </div>
             <div style="background: #0f172a; border-radius: 8px; padding: 10px; text-align: center;">
                 <div style="font-size: 10px; color: #64748b; margin-bottom: 4px;">偏见修正</div>
-                <div style="font-size: 14px; font-weight: 600; color: #ec4899;">""" + bias_text + """ """ + f"{alpha:.2f}" + """</div>
+                <div style="font-size: 14px; font-weight: 600; color: #ec4899;">{bias_text} {alpha:.2f}</div>
             </div>
             <div style="background: #0f172a; border-radius: 8px; padding: 10px; text-align: center;">
                 <div style="font-size: 10px; color: #64748b; margin-bottom: 4px;">觉醒</div>
-                <div style="font-size: 14px; font-weight: 600; color: #a855f7;">""" + awakening_text + """</div>
+                <div style="font-size: 14px; font-weight: 600; color: #a855f7;">{awakening_text}</div>
             </div>
         </div>
 
         <div style="background: #0f172a; border-radius: 8px; padding: 12px; text-align: center;">
             <div style="font-size: 10px; color: #64748b; margin-bottom: 6px;">末那识综合分数</div>
-            <div style="font-size: 28px; font-weight: 700; color: #22c55e;">""" + f"{manas_score:.3f}" + """</div>
-            <div style="font-size: 10px; color: #64748b; margin-top: 4px;">供应链风险: """ + supply_risk + """</div>
+            <div style="font-size: 28px; font-weight: 700; color: #22c55e;">{manas_score:.3f}</div>
+            <div style="font-size: 10px; color: #64748b; margin-top: 4px;">供应链风险: {supply_risk}</div>
         </div>
 
         <div style="margin-top: 12px; padding: 10px; background: #0f172a; border-radius: 8px; font-size: 11px; color: #94a3b8;">
@@ -676,15 +823,19 @@ def _render_qkv_module(qkv_state: Dict[str, Any]) -> str:
     in_context_enabled = in_context_learning.get("enabled", False)
     in_context_available = in_context_learning.get("available", False)
     demo_stats = in_context_learning.get("demo_statistics", {})
-    total_demos = demo_stats.get("total_demos", 0)
+    total_demos = demo_stats.get("total", demo_stats.get("total_demos", 0))
 
     transformer_status_color = "#22c55e" if transformer_enabled and transformer_available else "#64748b"
     transformer_status_text = "已启用" if transformer_enabled and transformer_available else "未启用"
     
     in_context_status_color = "#22c55e" if in_context_enabled and in_context_available else "#64748b"
     in_context_status_text = "已启用" if in_context_enabled and in_context_available else "未启用"
+    
+    mem_high = level_dist.get("high", 0)
+    mem_medium = level_dist.get("medium", 0)
+    mem_low = level_dist.get("low", 0)
 
-    return """<div style="margin-top: 12px;">
+    return f"""<div style="margin-top: 12px;">
         <div style="
             display: flex;
             justify-content: space-between;
@@ -703,23 +854,23 @@ def _render_qkv_module(qkv_state: Dict[str, Any]) -> str:
         <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-bottom: 12px;">
             <div style="background: #0f172a; border-radius: 8px; padding: 10px; text-align: center;">
                 <div style="font-size: 10px; color: #64748b; margin-bottom: 4px;">📊 事件编码</div>
-                <div style="font-size: 14px; font-weight: 600; color: #0ea5e9;">""" + str(total_encoded) + """ events</div>
-                <div style="font-size: 9px; color: #64748b; margin-top: 2px;">""" + features_str + """</div>
+                <div style="font-size: 14px; font-weight: 600; color: #0ea5e9;">{total_encoded} events</div>
+                <div style="font-size: 9px; color: #64748b; margin-top: 2px;">{features_str}</div>
             </div>
             <div style="background: #0f172a; border-radius: 8px; padding: 10px; text-align: center;">
                 <div style="font-size: 10px; color: #64748b; margin-bottom: 4px;">🎯 多维评分</div>
-                <div style="font-size: 14px; font-weight: 600; color: #22c55e;">""" + str(heads_count) + """ heads</div>
-                <div style="font-size: 9px; color: #64748b; margin-top: 2px;">Alpha: """ + f"{fusion_alpha:.3f}" + """</div>
+                <div style="font-size: 14px; font-weight: 600; color: #22c55e;">{heads_count} heads</div>
+                <div style="font-size: 9px; color: #64748b; margin-top: 2px;">Alpha: {fusion_alpha:.3f}</div>
             </div>
             <div style="background: #0f172a; border-radius: 8px; padding: 10px; text-align: center;">
                 <div style="font-size: 10px; color: #64748b; margin-bottom: 4px;">🧠 注意力记忆</div>
-                <div style="font-size: 14px; font-weight: 600; color: #f59e0b;">""" + str(mem_total) + """ items</div>
-                <div style="font-size: 9px; color: #64748b; margin-top: 2px;">H:""" + str(level_dist.get("high", 0)) + """ M:""" + str(level_dist.get("medium", 0)) + """ L:""" + str(level_dist.get("low", 0)) + """</div>
+                <div style="font-size: 14px; font-weight: 600; color: #f59e0b;">{mem_total} items</div>
+                <div style="font-size: 9px; color: #64748b; margin-top: 2px;">H:{mem_high} M:{mem_medium} L:{mem_low}</div>
             </div>
             <div style="background: #0f172a; border-radius: 8px; padding: 10px; text-align: center;">
                 <div style="font-size: 10px; color: #64748b; margin-bottom: 4px;">🌟 跨市场记忆</div>
-                <div style="font-size: 14px; font-weight: 600; color: #a855f7;">""" + str(patterns_total) + """ patterns</div>
-                <div style="font-size: 9px; color: #64748b; margin-top: 2px;">""" + patterns_str + """</div>
+                <div style="font-size: 14px; font-weight: 600; color: #a855f7;">{patterns_total} patterns</div>
+                <div style="font-size: 9px; color: #64748b; margin-top: 2px;">{patterns_str}</div>
             </div>
         </div>
 
@@ -730,16 +881,16 @@ def _render_qkv_module(qkv_state: Dict[str, Any]) -> str:
                         <span style="font-size: 14px;">🔄</span>
                         <span style="font-size: 12px; font-weight: 600; color: #f1f5f9;">Transformer 自注意力</span>
                     </div>
-                    <span style="font-size: 10px; padding: 2px 8px; border-radius: 4px; background: """ + transformer_status_color + """22; color: """ + transformer_status_color + """; border: 1px solid """ + transformer_status_color + """;">""" + transformer_status_text + """</span>
+                    <span style="font-size: 10px; padding: 2px 8px; border-radius: 4px; background: {transformer_status_color}22; color: {transformer_status_color}; border: 1px solid {transformer_status_color};">{transformer_status_text}</span>
                 </div>
                 <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 6px;">
                     <div style="background: #1e293b; border-radius: 6px; padding: 8px; text-align: center;">
                         <div style="font-size: 9px; color: #64748b;">维度</div>
-                        <div style="font-size: 13px; font-weight: 600; color: #0ea5e9;">""" + str(d_model) + """</div>
+                        <div style="font-size: 13px; font-weight: 600; color: #0ea5e9;">{d_model}</div>
                     </div>
                     <div style="background: #1e293b; border-radius: 6px; padding: 8px; text-align: center;">
                         <div style="font-size: 9px; color: #64748b;">注意力头</div>
-                        <div style="font-size: 13px; font-weight: 600; color: #22c55e;">""" + str(num_heads) + """</div>
+                        <div style="font-size: 13px; font-weight: 600; color: #22c55e;">{num_heads}</div>
                     </div>
                 </div>
             </div>
@@ -750,11 +901,11 @@ def _render_qkv_module(qkv_state: Dict[str, Any]) -> str:
                         <span style="font-size: 14px;">🧩</span>
                         <span style="font-size: 12px; font-weight: 600; color: #f1f5f9;">上下文学习</span>
                     </div>
-                    <span style="font-size: 10px; padding: 2px 8px; border-radius: 4px; background: """ + in_context_status_color + """22; color: """ + in_context_status_color + """; border: 1px solid """ + in_context_status_color + """;">""" + in_context_status_text + """</span>
+                    <span style="font-size: 10px; padding: 2px 8px; border-radius: 4px; background: {in_context_status_color}22; color: {in_context_status_color}; border: 1px solid {in_context_status_color};">{in_context_status_text}</span>
                 </div>
                 <div style="background: #1e293b; border-radius: 6px; padding: 8px; text-align: center;">
                     <div style="font-size: 9px; color: #64748b;">历史示例</div>
-                    <div style="font-size: 13px; font-weight: 600; color: #a855f7;">""" + str(total_demos) + """ demos</div>
+                    <div style="font-size: 13px; font-weight: 600; color: #a855f7;">{total_demos} demos</div>
                 </div>
             </div>
         </div>

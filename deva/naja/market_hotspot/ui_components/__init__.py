@@ -19,6 +19,7 @@ from .cards import (
     render_frequency_distribution,
     render_pytorch_patterns,
     render_hot_blocks_and_stocks,
+    render_transformer_enhancement_card,
 )
 
 from .timeline import (
@@ -66,6 +67,7 @@ __all__ = [
     "render_frequency_distribution",
     "render_pytorch_patterns",
     "render_hot_blocks_and_stocks",
+    "render_transformer_enhancement_card",
     "render_block_trends",
     "render_hotspot_timeline",
     "render_block_hotspot_timeline",
