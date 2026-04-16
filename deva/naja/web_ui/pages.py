@@ -165,12 +165,15 @@ async def tableadmin():
 
 
 async def runtimestateadmin():
-    """运行时状态管理"""
-    from deva.naja.state.runtime.ui import render_runtime_state_page
+    """运行时状态管理（已停用）"""
+    from pywebio.output import put_markdown
     ctx = _ctx()
     await ctx["init_naja_ui"]("运行时状态管理")
-    set_scope("runtime_state_content")
-    render_runtime_state_page(ctx)
+    put_markdown("""
+    ## 运行时状态管理
+
+    此功能已暂停服务。
+    """)
 
 
 async def souladmin():

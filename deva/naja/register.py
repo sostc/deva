@@ -151,6 +151,15 @@ def _register_custom_singletons():
         return mgr
     register_singleton('datasource_manager', _create_datasource_manager, deps=[])
     logger.info("  ✓ datasource_manager")
+    
+    # --- strategy_manager: 需要 _ensure_initialized() ---
+    def _create_strategy_manager():
+        from .strategy.manager import StrategyManager
+        mgr = StrategyManager()
+        mgr._ensure_initialized()
+        return mgr
+    register_singleton('strategy_manager', _create_strategy_manager, deps=[])
+    logger.info("  ✓ strategy_manager")
 
     # --- portfolio_manager: 创建后自动加载持仓配置 ---
     def _create_portfolio_manager():
