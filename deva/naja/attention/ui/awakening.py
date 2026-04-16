@@ -17,6 +17,7 @@ def render_awakening_status() -> str:
     """渲染觉醒系统完整状态"""
     manas_state = _get_manas_state()
     qkv_state = _get_qkv_state()
+    query_state = _get_query_state()
 
     overall_level = manas_state.get("overall_level", 0)
     overall_percent = int(overall_level * 100)
@@ -67,8 +68,10 @@ def render_awakening_status() -> str:
             "></div>
         </div>
 
+        """ + _render_system_overview(manas_state, query_state) + """
         """ + _render_manas_core(manas_state) + """
         """ + _render_qkv_module(qkv_state) + """
+        """ + _render_current_state_narrative(manas_state, query_state) + """
     </div>
     """
 
@@ -299,6 +302,65 @@ def _get_default_state(error: str = None) -> Dict[str, Any]:
     }
 
 
+# 全局QueryState实例缓存
+_query_state_instance = None
+
+
+def _get_query_state() -> Dict[str, Any]:
+    """获取查询状态"""
+    global _query_state_instance
+    import logging
+    log = logging.getLogger(__name__)
+    
+    try:
+        from deva.naja.attention.kernel.state import QueryState
+        from deva.naja.register import SR
+        
+        log.info(f"[AwakeningUI] 开始获取QueryState...")
+        log.info(f"[AwakeningUI] 全局缓存实例: {_query_state_instance}")
+        
+        # 尝试从注册中心获取
+        try:
+            log.info(f"[AwakeningUI] 尝试从SR获取query_state...")
+            qs = SR('query_state')
+            if qs:
+                summary = qs.get_summary()
+                log.info(f"[AwakeningUI] 从SR获取QueryState成功: 市场状态={summary['market_regime']}, 关注焦点={summary['top_attention']}")
+                return summary
+        except KeyError as e:
+            log.info(f"[AwakeningUI] SR中未找到query_state: {e}")
+        except Exception as e:
+            log.error(f"[AwakeningUI] 从SR获取query_state失败: {e}")
+        
+        # 如果注册中心没有，使用全局缓存的实例
+        log.info(f"[AwakeningUI] 尝试使用全局缓存的实例...")
+        if _query_state_instance is None:
+            log.info(f"[AwakeningUI] 全局缓存实例为空，创建新实例")
+            _query_state_instance = QueryState()
+        
+        summary = _query_state_instance.get_summary()
+        log.info(f"[AwakeningUI] 从全局缓存获取QueryState: 市场状态={summary['market_regime']}, 关注焦点={summary['top_attention']}")
+        return summary
+    except Exception as e:
+        log.error(f"[AwakeningUI] 获取QueryState失败: {e}", exc_info=True)
+        return {
+            "market_regime": "unknown",
+            "risk_bias": 0.5,
+            "attention_focus_count": 0,
+            "top_attention": [],
+            "strategy_count": 0,
+            "portfolio_count": 0,
+            "active_value_type": "trend",
+            "value_weights": {
+                "price_sensitivity": 0.5,
+                "volume_sensitivity": 0.5,
+                "sentiment_weight": 0.3,
+                "liquidity_weight": 0.4,
+                "fundamentals_weight": 0.3,
+            }
+        }
+
+
 def _get_level_color(level: float) -> str:
     """获取等级颜色"""
     if level >= 0.8:
@@ -309,6 +371,154 @@ def _get_level_color(level: float) -> str:
         return "#f59e0b"
     else:
         return "#64748b"
+
+
+def _render_system_overview(manas_state: Dict[str, Any], query_state: Dict[str, Any]) -> str:
+    """渲染系统工作原理概览"""
+    market_regime = query_state.get("market_regime", "unknown")
+    top_attention = query_state.get("top_attention", [])
+    attention_count = query_state.get("attention_focus_count", 0)
+    
+    regime_text = {
+        "trend_up": "上涨趋势",
+        "trend_down": "下跌趋势",
+        "weak_trend_up": "弱上涨",
+        "weak_trend_down": "弱下跌",
+        "neutral": "震荡",
+        "mixed": "混合",
+        "unknown": "数据初始化中"
+    }.get(market_regime, "数据初始化中")
+
+    return """<div style="margin-bottom: 16px;">
+        <div style="
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+            padding-bottom: 8px;
+            border-bottom: 1px solid #334155;
+        ">
+            <div style="display: flex; align-items: center; gap: 8px;">
+                <span style="font-size: 16px;">🔍</span>
+                <span style="font-size: 13px; font-weight: 600; color: #f1f5f9;">系统工作原理</span>
+                <span style="font-size: 10px; color: #64748b; background: #1e293b; padding: 2px 6px; border-radius: 4px;">如何工作</span>
+            </div>
+        </div>
+
+        <div style="display: grid; grid-template-columns: 1fr; gap: 12px;">
+            <div style="background: #0f172a; border-radius: 8px; padding: 12px;">
+                <div style="font-size: 12px; font-weight: 600; color: #f1f5f9; margin-bottom: 8px;">🔄 工作流程</div>
+                <div style="display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 10px;">
+                    <div style="flex: 1; min-width: 200px; background: #1e293b; border-radius: 6px; padding: 10px; text-align: center;">
+                        <div style="font-size: 11px; color: #94a3b8; margin-bottom: 4px;">1. 数据采集</div>
+                        <div style="font-size: 10px; color: #64748b;">市场数据、新闻情绪、资金流向</div>
+                    </div>
+                    <div style="flex: 1; min-width: 200px; background: #1e293b; border-radius: 6px; padding: 10px; text-align: center;">
+                        <div style="font-size: 11px; color: #94a3b8; margin-bottom: 4px;">2. 事件编码</div>
+                        <div style="font-size: 10px; color: #64748b;">QKV注意力机制，特征提取</div>
+                    </div>
+                    <div style="flex: 1; min-width: 200px; background: #1e293b; border-radius: 6px; padding: 10px; text-align: center;">
+                        <div style="font-size: 11px; color: #94a3b8; margin-bottom: 4px;">3. 多维评分</div>
+                        <div style="font-size: 10px; color: #64748b;">市场、新闻、资金、元认知</div>
+                    </div>
+                    <div style="flex: 1; min-width: 200px; background: #1e293b; border-radius: 6px; padding: 10px; text-align: center;">
+                        <div style="font-size: 11px; color: #94a3b8; margin-bottom: 4px;">4. 决策生成</div>
+                        <div style="font-size: 10px; color: #64748b;">时机、趋势、信心、风险评估</div>
+                    </div>
+                </div>
+            </div>
+
+            <div style="background: #0f172a; border-radius: 8px; padding: 12px;">
+                <div style="font-size: 12px; font-weight: 600; color: #f1f5f9; margin-bottom: 8px;">📊 当前处理</div>
+                <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px;">
+                    <div style="background: #1e293b; border-radius: 6px; padding: 10px; text-align: center;">
+                        <div style="font-size: 11px; color: #94a3b8; margin-bottom: 4px;">市场状态</div>
+                        <div style="font-size: 14px; font-weight: 600; color: #0ea5e9;">""" + regime_text + """</div>
+                    </div>
+                    <div style="background: #1e293b; border-radius: 6px; padding: 10px; text-align: center;">
+                        <div style="font-size: 11px; color: #94a3b8; margin-bottom: 4px;">关注焦点</div>
+                        <div style="font-size: 14px; font-weight: 600; color: #22c55e;">""" + str(attention_count) + """ 个</div>
+                    </div>
+                    <div style="background: #1e293b; border-radius: 6px; padding: 10px; text-align: center;">
+                        <div style="font-size: 11px; color: #94a3b8; margin-bottom: 4px;">核心关注</div>
+                        <div style="font-size: 10px; color: #f1f5f9;">""" + (", ".join(top_attention[:3]) if top_attention else "暂无") + """</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    """
+
+
+def _render_current_state_narrative(manas_state: Dict[str, Any], query_state: Dict[str, Any]) -> str:
+    """渲染当前状态的自然语言叙述"""
+    awakening_level = manas_state.get("awakening_level", "dormant")
+    should_act = manas_state.get("should_act", False)
+    action_type = manas_state.get("action_type", "hold")
+    harmony_state = manas_state.get("harmony_state", "neutral")
+    market_regime = query_state.get("market_regime", "unknown")
+    risk_bias = query_state.get("risk_bias", 0.5)
+    top_attention = query_state.get("top_attention", [])
+    
+    awakening_text = {
+        "dormant": "休眠",
+        "awakening": "觉醒中",
+        "illuminated": "照明",
+        "enlightened": "觉悟",
+    }.get(awakening_level, awakening_level)
+    
+    harmony_text = {
+        "bullish": "多头",
+        "bearish": "空头",
+        "neutral": "中性",
+    }.get(harmony_state, harmony_state)
+    
+    regime_text = {
+        "trend_up": "上涨趋势",
+        "trend_down": "下跌趋势",
+        "weak_trend_up": "弱上涨",
+        "weak_trend_down": "弱下跌",
+        "neutral": "震荡",
+        "mixed": "混合",
+        "unknown": "数据初始化中"
+    }.get(market_regime, "数据初始化中")
+    
+    risk_text = "保守" if risk_bias < 0.4 else "中性" if risk_bias < 0.6 else "激进"
+    
+    narrative = "系统当前处于<span style='color: #a855f7; font-weight: 600;'>" + awakening_text + "</span>状态，"
+    narrative += "市场整体呈现<span style='color: #0ea5e9; font-weight: 600;'>" + regime_text + "</span>格局。"
+    narrative += "和谐度分析显示当前市场情绪<span style='color: #06b6d4; font-weight: 600;'>" + harmony_text + "</span>。"
+    narrative += "系统风险偏好为<span style='color: #f59e0b; font-weight: 600;'>" + risk_text + "</span>。"
+    narrative += "当前关注的核心方向包括：" + (", ".join(top_attention[:3]) if top_attention else "暂无明确焦点") + "。"
+    
+    if should_act:
+        narrative += "系统建议<span style='color: #22c55e; font-weight: 600;'>" + action_type + "</span>操作。"
+    else:
+        narrative += "系统建议保持观望，等待更明确的信号。"
+    
+    return """<div style="margin-top: 16px;">
+        <div style="
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+            padding-bottom: 8px;
+            border-bottom: 1px solid #334155;
+        ">
+            <div style="display: flex; align-items: center; gap: 8px;">
+                <span style="font-size: 16px;">💬</span>
+                <span style="font-size: 13px; font-weight: 600; color: #f1f5f9;">系统状态解读</span>
+                <span style="font-size: 10px; color: #64748b; background: #1e293b; padding: 2px 6px; border-radius: 4px;">自然语言</span>
+            </div>
+        </div>
+
+        <div style="background: #0f172a; border-radius: 8px; padding: 16px;">
+            <div style="font-size: 12px; line-height: 1.6; color: #f1f5f9;">
+                """ + narrative + """
+            </div>
+        </div>
+    </div>
+    """
 
 
 def _render_manas_core(state: Dict[str, Any]) -> str:

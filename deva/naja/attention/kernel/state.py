@@ -59,8 +59,9 @@ class QueryState:
         """获取价值观系统（延迟初始化）"""
         if self._value_system is None:
             try:
+                from deva.naja.register import SR
                 self._value_system = SR('value_system')
-            except ImportError:
+            except (ImportError, KeyError):
                 pass
         return self._value_system
 

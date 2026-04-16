@@ -208,6 +208,13 @@ def _register_custom_singletons():
     register_singleton('manas_manager', _create_manas_manager,
                       deps=['attention_os'])
     logger.info("  ✓ manas_manager")
+    
+    # --- query_state: 全局查询状态 ---
+    def _create_query_state():
+        from .attention.kernel.state import QueryState
+        return QueryState()
+    register_singleton('query_state', _create_query_state, deps=[])
+    logger.info("  ✓ query_state")
 
     # --- hotspot_system: 从 attention_integration 取属性 ---
     def _create_hotspot_system():
