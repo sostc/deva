@@ -18,6 +18,8 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Dict, List, Optional, Tuple
 
+from deva.naja.events import MerrillClockEvent, publish_event
+
 log = logging.getLogger(__name__)
 
 
@@ -474,6 +476,42 @@ class MerrillClockEngine:
             log.debug(f"[MerrillClockEngine] 信号已存储到 NB：{signal.phase.value}")
         except Exception as e:
             log.debug(f"[MerrillClockEngine] 信号存储失败（非致命）：{e}")
+        
+        # 发布MerrillClockEvent事件
+        try:
+            # 创建资产配置字典
+            asset_allocation = {}
+            for asset in signal.asset_ranking:
+                # 根据排名分配权重
+                index = signal.asset_ranking.index(asset)
+                weight = 1.0 / (index + 1)
+                asset_allocation[asset] = weight
+            
+            # 归一化权重
+            total_weight = sum(asset_allocation.values())
+            if total_weight > 0:
+                asset_allocation = {k: v / total_weight for k, v in asset_allocation.items()}
+            
+            # 创建并发布事件
+            event = MerrillClockEvent(
+                phase=signal.phase.value,
+                asset_allocation=asset_allocation,
+                timestamp=time.time(),
+                source="merrill_clock",
+                market="global",
+                metadata={
+                    "confidence": signal.confidence,
+                    "growth_score": signal.growth_score,
+                    "inflation_score": signal.inflation_score,
+                    "reason": signal.reason,
+                    "data_summary": signal.data_summary
+                }
+            )
+            
+            publish_event(event)
+            
+        except Exception as e:
+            log.debug(f"发布MerrillClockEvent失败: {e}")
     
     def get_current_phase(self) -> Optional[MerrillClockPhase]:
         """获取当前周期阶段"""

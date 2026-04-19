@@ -47,6 +47,7 @@ from deva.naja.cognition.liquidity.verification_scheduler import (
     VerificationSchedule,
 )
 from deva.naja.cognition.liquidity.notifier import get_notifier
+from deva.naja.events import LiquiditySignalEvent, publish_event
 
 log = logging.getLogger(__name__)
 
@@ -780,6 +781,9 @@ class LiquidityCognition:
 
         self.emit_insight_to_pool(insight)
 
+        # 发布LiquiditySignalEvent事件
+        self._publish_liquidity_signal_event(insight, severity)
+
         # 自动验证（检查是否需要）
         self._maybe_verify()
 
@@ -937,6 +941,59 @@ class LiquidityCognition:
                 else:
                     return "全球市场显著下跌"
         return "全球市场波动"
+
+    def _publish_liquidity_signal_event(self, insight: GlobalMarketInsight, severity: float):
+        """发布流动性信号事件"""
+        try:
+            # 计算流动性预测和风险
+            prediction = 0.5  # 默认中性
+            risk = 0.0
+            signal = 0.5  # 默认中性
+            
+            # 根据洞察数据计算流动性信号
+            if insight.insight_type == "global_market_alert":
+                # 异常市场事件
+                if insight.severity > 0.7:
+                    risk = insight.severity
+                    # 异常下跌通常意味着流动性紧张
+                    if insight.raw_data.get("change_pct", 0) < -2:
+                        prediction = max(0.1, 0.5 - insight.severity)
+                        signal = prediction
+                    else:
+                        # 异常上涨可能意味着流动性宽松
+                        prediction = min(0.9, 0.5 + insight.severity)
+                        signal = prediction
+            else:
+                # 正常市场事件
+                avg_change = insight.raw_data.get("change_pct", 0)
+                if avg_change > 1:
+                    # 普遍上涨，流动性可能宽松
+                    prediction = min(0.8, 0.5 + avg_change / 10)
+                    signal = prediction
+                elif avg_change < -1:
+                    # 普遍下跌，流动性可能紧张
+                    prediction = max(0.2, 0.5 + avg_change / 10)
+                    signal = prediction
+            
+            # 创建并发布事件
+            event = LiquiditySignalEvent(
+                prediction=prediction,
+                risk=risk,
+                signal=signal,
+                timestamp=time.time(),
+                source="liquidity_cognition",
+                market=insight.source_market,
+                metadata={
+                    "insight_type": insight.insight_type,
+                    "severity": insight.severity,
+                    "target_markets": insight.target_markets
+                }
+            )
+            
+            publish_event(event)
+            
+        except Exception as e:
+            log.debug(f"发布LiquiditySignalEvent失败: {e}")
 
     def get_market_states(self) -> Dict[str, Dict[str, Any]]:
         """获取所有市场状态"""
