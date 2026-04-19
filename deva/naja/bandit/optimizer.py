@@ -93,15 +93,16 @@ class BanditOptimizer:
     ALGORITHMS = ["epsilon_greedy", "ucb", "thompson"]
     SUPPORTED_ACTIONS = {"update_params", "update_strategy", "reset", "start", "stop", "restart"}
     
-    def __new__(cls):
+    def __new__(cls, attention_os=None):
         if cls._instance is None:
             with cls._lock:
                 if cls._instance is None:
                     cls._instance = super().__new__(cls)
                     cls._instance._initialized = False
+                    cls._instance._attention_os = attention_os
         return cls._instance
     
-    def __init__(self):
+    def __init__(self, attention_os=None):
         if getattr(self, "_initialized", False):
             return
         
@@ -119,11 +120,17 @@ class BanditOptimizer:
         self._db_actions = NB(BANDIT_ACTIONS_TABLE)
         
         # AttentionOS 集成相关
+        if attention_os is not None:
+            self._attention_os = attention_os
         self._attention_cache: Dict[str, float] = {}  # symbol -> attention_weight
         self._attention_cache_ts: float = 0.0
         self._attention_cache_ttl: float = 5.0  # 缓存有效期（秒）
         
         self._initialized = True
+    
+    def set_attention_os(self, attention_os):
+        """设置 AttentionOS 实例"""
+        self._attention_os = attention_os
     
     def _get_attention_context(self) -> Dict[str, Any]:
         """获取 AttentionOS 上下文（带缓存）"""
@@ -139,7 +146,10 @@ class BanditOptimizer:
             }
         
         try:
-            aos = get_attention_os()
+            if self._attention_os:
+                aos = self._attention_os
+            else:
+                aos = get_attention_os()
             kernel = aos.get_kernel()
             
             # 获取 focus_symbols 和权重
@@ -672,9 +682,11 @@ _bandit_lock = threading.Lock()
 
 
 def get_bandit_optimizer() -> BanditOptimizer:
-    global _bandit_optimizer
-    if _bandit_optimizer is None:
-        with _bandit_lock:
-            if _bandit_optimizer is None:
-                _bandit_optimizer = BanditOptimizer()
-    return _bandit_optimizer
+    from deva.naja.application.container import get_app_container
+    try:
+        container = get_app_container()
+        if container is None:
+            raise RuntimeError("AppContainer not initialized")
+        return container.bandit_optimizer
+    except Exception as e:
+        raise RuntimeError(f"BanditOptimizer not found in AppContainer: {e}")

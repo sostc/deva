@@ -28,6 +28,10 @@ Naja 事件系统 - 双总线 + 桥梁架构
     subscribe_event(event_type, callback)  # 跨总线订阅
 """
 
+import logging
+
+log = logging.getLogger(__name__)
+
 # ============== 总线实例 ==============
 
 # 导入认知总线（保持原样）
@@ -95,6 +99,7 @@ from .trading_events import (
     SignalDirection,
     DecisionResult,
 )
+from .router import resolve_event_bus_type
 
 # 认知事件 dataclass（可选）
 try:
@@ -135,26 +140,33 @@ def publish_event(event) -> int:
     if event is None:
         return 0
     
-    event_type = type(event).__name__
-    
-    # 判断事件类型
-    if hasattr(event, 'importance') and hasattr(event, 'source'):
-        # 类似认知事件的特征
-        if TRADING_BUS_AVAILABLE and event_type in ['StrategySignalEvent', 'TradeDecisionEvent']:
-            # 交易事件
-            from .trading_bus import get_trading_bus
-            return get_trading_bus().publish(event)
-        else:
-            # 认知事件
-            return get_cognitive_bus().publish(event)
-    else:
-        # 尝试兼容处理
+    try:
+        bus_type = resolve_event_bus_type(event)
+    except ValueError:
         try:
             return get_cognitive_bus().publish(event)
         except Exception:
             if TRADING_BUS_AVAILABLE:
                 return get_trading_bus().publish(event)
             return 0
+
+    if bus_type == "trading":
+        if not TRADING_BUS_AVAILABLE:
+            raise RuntimeError("交易总线不可用，无法发布交易事件")
+        from .trading_bus import get_trading_bus
+        return get_trading_bus().publish(event)
+    return get_cognitive_bus().publish(event)
+
+
+def publish_cognitive_event(event) -> int:
+    return get_cognitive_bus().publish(event)
+
+
+def publish_trading_event(event) -> int:
+    if not TRADING_BUS_AVAILABLE:
+        raise RuntimeError("交易总线不可用，无法发布交易事件")
+    from .trading_bus import get_trading_bus
+    return get_trading_bus().publish(event)
 
 
 def subscribe_event(event_type: str, callback, bus_type: str = "auto", **kwargs):
@@ -176,16 +188,12 @@ def subscribe_event(event_type: str, callback, bus_type: str = "auto", **kwargs)
         from .trading_bus import get_trading_bus
         return get_trading_bus().subscribe(event_type, callback, **kwargs)
     else:
-        # 自动选择
-        # 先尝试交易总线（如果事件类型是交易事件）
         if TRADING_BUS_AVAILABLE and event_type in ['StrategySignalEvent', 'TradeDecisionEvent']:
             try:
                 from .trading_bus import get_trading_bus
                 return get_trading_bus().subscribe(event_type, callback, **kwargs)
             except Exception:
                 pass
-        
-        # 回退到认知总线
         return get_cognitive_bus().subscribe(event_type, callback, **kwargs)
 
 
@@ -227,6 +235,8 @@ __all__ = [
     
     # 简单选择器（推荐新代码使用）
     "publish_event",
+    "publish_cognitive_event",
+    "publish_trading_event",
     "subscribe_event",
     
     # 文本事件

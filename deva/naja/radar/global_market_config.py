@@ -411,6 +411,10 @@ class MarketSessionManager:
         if when is None:
             when = datetime.now(self._us_eastern)
 
+        # Check if it's a weekend (Saturday=5, Sunday=6)
+        if when.weekday() >= 5:
+            return "closed"
+            
         current_time = when.time()
 
         if time(4, 0) <= current_time < time(9, 30):

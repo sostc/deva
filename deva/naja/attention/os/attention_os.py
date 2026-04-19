@@ -68,7 +68,7 @@ class AttentionOS:
     _instance = None
     _lock = threading.Lock()
 
-    def __new__(cls):
+    def __new__(cls, insight_pool=None):
         if cls._instance is None:
             with cls._lock:
                 if cls._instance is None:
@@ -76,7 +76,7 @@ class AttentionOS:
                     cls._instance._initialized = False
         return cls._instance
 
-    def __init__(self):
+    def __init__(self, insight_pool=None):
         if self._initialized:
             return
 
@@ -85,10 +85,16 @@ class AttentionOS:
         self._text_scorer = TextImportanceScorer(self)
 
         self._strategy_manager = None
-        self._subscribe_to_hotspot_events()
-        self._subscribe_to_text_events()
+        self._insight_pool = insight_pool
+        
+        # 事件订阅已迁移到 EventSubscriberRegistrar（应用层）
+        # 不再在内部自动订阅
 
         self._initialized = True
+
+    def set_insight_pool(self, insight_pool) -> None:
+        """显式设置 InsightPool（依赖注入）"""
+        self._insight_pool = insight_pool
 
     def initialize_strategies(self):
         """初始化所有交易策略"""
@@ -251,7 +257,7 @@ class AttentionOS:
     def _emit_shift_to_insight(self, event):
         """发送热点转移事件到 InsightPool（带用户个性化打分）"""
         try:
-            pool = SR('insight_pool')
+            pool = self._insight_pool
             if not pool:
                 return
 
@@ -335,5 +341,9 @@ _attention_os: Optional[AttentionOS] = None
 
 
 def get_attention_os() -> AttentionOS:
-    """获取 AttentionOS 单例"""
-    return SR('attention_os')
+    """获取 AttentionOS 单例（从 AppContainer 获取）"""
+    from deva.naja.application import get_app_container
+    container = get_app_container()
+    if container and container.attention_os:
+        return container.attention_os
+    raise RuntimeError("AttentionOS not found in AppContainer")
