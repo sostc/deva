@@ -9,6 +9,7 @@ from typing import Any, Dict, List, Optional
 
 from deva import NB
 
+from ..infra.management.base_manager import CatalogManagerMixin, SingletonLazyManager
 from ..infra.runtime.thread_pool import get_thread_pool
 from .output_controller import get_output_controller
 from .models import (
@@ -20,7 +21,7 @@ from .models import (
 )
 from .entry import StrategyEntry
 
-class StrategyManager:
+class StrategyManager(SingletonLazyManager, CatalogManagerMixin[StrategyEntry]):
     """策略管理器
 
     ================================================================================
@@ -43,33 +44,15 @@ class StrategyManager:
     ================================================================================
     """
 
-    _instance = None
-    _lock = threading.Lock()
-
-    def __new__(cls):
-        if cls._instance is None:
-            with cls._lock:
-                if cls._instance is None:
-                    cls._instance = super().__new__(cls)
-                    cls._instance._initialized = False
-                    cls._instance._init_lock = threading.Lock()
-        return cls._instance
-
     def __init__(self):
         pass
 
-    def _ensure_initialized(self):
-        if getattr(self, '_initialized', False):
-            return
-        with self._init_lock:
-            if getattr(self, '_initialized', False):
-                return
-            self._items: Dict[str, StrategyEntry] = {}
-            self._items_lock = threading.Lock()
-            self._experiment_lock = threading.Lock()
-            self._experiment_session: Optional[Dict[str, Any]] = None
-            self.load_prefer_files()
-            self._initialized = True
+    def _initialize_manager_state(self):
+        self._items: Dict[str, StrategyEntry] = {}
+        self._items_lock = threading.Lock()
+        self._experiment_lock = threading.Lock()
+        self._experiment_session: Optional[Dict[str, Any]] = None
+        self.load_prefer_files()
 
     def health_check(self):
         """健康检查"""
@@ -284,25 +267,6 @@ class StrategyManager:
         self._log("INFO", "Strategy created", id=entry_id, name=name)
         return {"success": True, "id": entry_id, "entry": entry.to_dict()}
     
-    def get(self, entry_id: str) -> Optional[StrategyEntry]:
-        self._ensure_initialized()
-        return self._items.get(entry_id)
-
-    def get_by_name(self, name: str) -> Optional[StrategyEntry]:
-        self._ensure_initialized()
-        for entry in self._items.values():
-            if entry.name == name:
-                return entry
-        return None
-
-    def list_all(self) -> List[StrategyEntry]:
-        self._ensure_initialized()
-        return list(self._items.values())
-
-    def list_all_dict(self) -> List[dict]:
-        self._ensure_initialized()
-        return [entry.to_dict() for entry in self._items.values()]
-
     def delete(self, entry_id: str) -> dict:
         self._ensure_initialized()
         entry = self.get(entry_id)
@@ -321,20 +285,6 @@ class StrategyManager:
         self._log("INFO", "Strategy deleted", id=entry_id, name=entry.name)
         return {"success": True}
     
-    def start(self, entry_id: str) -> dict:
-        self._ensure_initialized()
-        entry = self.get(entry_id)
-        if not entry:
-            return {"success": False, "error": "Entry not found"}
-        return entry.start()
-
-    def stop(self, entry_id: str) -> dict:
-        self._ensure_initialized()
-        entry = self.get(entry_id)
-        if not entry:
-            return {"success": False, "error": "Entry not found"}
-        return entry.stop()
-
     def get_experiment_info(self) -> dict:
         self._ensure_initialized()
         with self._experiment_lock:
@@ -1037,12 +987,6 @@ class StrategyManager:
         except Exception as e:
             return f"获取性能报告失败: {e}"
     
-    def _log(self, level: str, message: str, **extra):
-        extra_str = " ".join([f"{k}={v}" for k, v in extra.items()])
-        print(f"[StrategyManager][{level}] {message} | {extra_str}")
-
-
 def get_strategy_manager() -> StrategyManager:
     from deva.naja.register import SR
     return SR('strategy_manager')
-

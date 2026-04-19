@@ -91,36 +91,48 @@ def restore_bandit_state():
     5. VirtualPortfolio 持仓数据
     """
     import logging
+    from deva.naja.application.container import get_app_container
+    
     log = logging.getLogger(__name__)
     
-    # 获取各组件
-    cycle = SR('adaptive_cycle')
-    runner = SR('bandit_runner')
-    listener = SR('signal_listener')
-    observer = get_market_observer()
-    portfolio = SR('virtual_portfolio')
+    try:
+        container = get_app_container()
+        if container is None:
+            raise RuntimeError("AppContainer not initialized")
+        
+        # 获取各组件
+        cycle = container.adaptive_cycle
+        runner = container.bandit_runner
+        listener = container.signal_listener
+        observer = container.market_observer
+        portfolio = container.virtual_portfolio
 
-    # 统计需要恢复的组件
-    running_components = []
-    if cycle._running:
-        running_components.append("AdaptiveCycle")
-    if runner._running:
-        running_components.append("BanditAutoRunner")
-    if listener._running:
-        running_components.append("SignalListener")
-    if observer._running:
-        running_components.append("MarketDataObserver")
+        # 统计需要恢复的组件
+        running_components = []
+        if hasattr(cycle, '_running') and cycle._running:
+            running_components.append("AdaptiveCycle")
+        if hasattr(runner, '_running') and runner._running:
+            running_components.append("BanditAutoRunner")
+        if hasattr(listener, '_running') and listener._running:
+            running_components.append("SignalListener")
+        if hasattr(observer, '_running') and observer._running:
+            running_components.append("MarketDataObserver")
 
-    if running_components:
-        log.info(f"🎯 恢复 Bandit: {', '.join(running_components)}")
+        if running_components:
+            log.info(f"🎯 恢复 Bandit: {', '.join(running_components)}")
 
-    # 恢复各组件（cycle 会自动触发其他组件恢复）
-    if cycle._running:
-        cycle._restore_running_state()
-    else:
-        runner.start() if runner._running else None
-        listener.start() if listener._running else None
-        observer.start() if observer._running else None
+        # 恢复各组件（cycle 会自动触发其他组件恢复）
+        if hasattr(cycle, '_running') and cycle._running and hasattr(cycle, '_restore_running_state'):
+            cycle._restore_running_state()
+        else:
+            if hasattr(runner, 'start') and hasattr(runner, '_running') and runner._running:
+                runner.start()
+            if hasattr(listener, 'start') and hasattr(listener, '_running') and listener._running:
+                listener.start()
+            if hasattr(observer, 'start') and hasattr(observer, '_running') and observer._running:
+                observer.start()
+    except Exception as e:
+        log.error(f"恢复 Bandit 状态失败: {e}")
 
 
 

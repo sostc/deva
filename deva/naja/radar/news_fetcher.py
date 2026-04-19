@@ -262,7 +262,9 @@ class RadarNewsProcessor:
     def _send_to_cognition_simple(self, news: NewsItem) -> None:
         """发送原始新闻到认知系统进行深度处理"""
         try:
-            cognition = SR('cognition_engine')
+            from deva.naja.application import get_app_container
+            container = get_app_container()
+            cognition = container.cognition_engine if container else None
             record = {
                 "timestamp": news.timestamp.timestamp(),
                 "source": "radar_news",

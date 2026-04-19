@@ -20,6 +20,8 @@ try:
 except ImportError:
     __version__ = "unknown"
 
+from .application import AppRuntimeConfig, run_web_application
+
 
 def main():
     parser = argparse.ArgumentParser(description="Naja - 实时数据流与策略系统")
@@ -193,16 +195,15 @@ def main():
             }
         print("🧠 认知系统调试模式已启用（自动启用实验室模式+新闻雷达模拟模式）")
 
-    # 启动 Web UI
-    from .web_ui import run_server
-    run_server(
-        port=args.port,
+    config = AppRuntimeConfig.from_legacy(
         host=args.host,
+        port=args.port,
         lab_config=lab_config,
         news_radar_config=news_radar_config,
         cognition_debug_config=cognition_debug_config,
         tune_config=tune_config,
     )
+    run_web_application(config)
 
 
 def show_attention_report():

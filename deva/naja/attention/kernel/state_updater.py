@@ -21,11 +21,15 @@ class QueryStateUpdater:
     订阅各类事件并统一更新QueryState，实现松耦合的架构设计。
     """
     
-    def __init__(self):
-        self.qs = SR('query_state')
+    def __init__(self, query_state=None):
+        self.qs = query_state
         self._event_bus = get_event_bus()
         self._subscribe_to_events()
         log.info("[QueryStateUpdater] 初始化完成")
+
+    def set_query_state(self, query_state):
+        """显式设置 QueryState（依赖注入）"""
+        self.qs = query_state
     
     def _subscribe_to_events(self):
         """订阅各类事件"""
@@ -255,6 +259,9 @@ class QueryStateUpdater:
 
 
 def get_query_state_updater() -> QueryStateUpdater:
-    """获取QueryStateUpdater单例"""
-    from deva.naja.register import SR
-    return SR('query_state_updater')
+    """获取 QueryStateUpdater 单例（从 AppContainer 获取）"""
+    from deva.naja.application import get_app_container
+    container = get_app_container()
+    if container and container.query_state_updater:
+        return container.query_state_updater
+    raise RuntimeError("QueryStateUpdater not found in AppContainer")

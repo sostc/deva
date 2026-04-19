@@ -61,8 +61,6 @@ class OSAttentionKernel:
         self._last_update = 0.0
 
     def _get_value_system(self) -> ValueSystem:
-        if self._value_system is None:
-            self._value_system = SR('value_system')
         return self._value_system
     
     def _init_transformer_components(self):
@@ -398,17 +396,11 @@ class OSAttentionKernel:
         """获取最新的内核输出（兼容 BanditOptimizer）"""
         return self._last_output
 
-    def _get_session_manager(self):
-        try:
-            return SR('trading_clock')
-        except ImportError:
-            return None
+    def _get_trading_clock(self):
+        return None
 
     def _get_portfolio(self):
-        try:
-            return SR('virtual_portfolio')
-        except ImportError:
-            return None
+        return None
 
     def _get_scanner(self):
         try:
@@ -418,10 +410,7 @@ class OSAttentionKernel:
             return None
 
     def _get_bandit_tracker(self):
-        try:
-            return SR('bandit_tracker')
-        except ImportError:
-            return None
+        return None
 
 
 # 向后兼容别名

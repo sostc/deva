@@ -17,6 +17,7 @@ from ..infra.runtime.recoverable import (
     RecoveryManager,
     recovery_manager,
 )
+from ..infra.management.base_manager import CatalogManagerMixin, SingletonLazyManager
 from .models import (
     DS_TABLE,
     DS_LATEST_DATA_TABLE,
@@ -35,7 +36,7 @@ def _require_initialized(method):
     return wrapper
 
 
-class DataSourceManager:
+class DataSourceManager(SingletonLazyManager, CatalogManagerMixin[DataSourceEntry]):
     """数据源管理器
 
     ================================================================================
@@ -60,31 +61,10 @@ class DataSourceManager:
     ================================================================================
     """
 
-    _instance = None
-    _lock = threading.Lock()
-
-    def __new__(cls):
-        if cls._instance is None:
-            with cls._lock:
-                if cls._instance is None:
-                    cls._instance = super().__new__(cls)
-                    cls._instance._initialized = False
-                    cls._instance._init_lock = threading.Lock()
-        return cls._instance
-
     def __init__(self):
         pass
 
-    def _ensure_initialized(self):
-        if getattr(self, '_initialized', False):
-            return
-        with self._init_lock:
-            if getattr(self, '_initialized', False):
-                return
-            self._do_initialize()
-            self._initialized = True
-
-    def _do_initialize(self):
+    def _initialize_manager_state(self):
         self._items: Dict[str, DataSourceEntry] = {}
         self._items_lock = threading.Lock()
         self._loaded_prefer_files = False
@@ -163,24 +143,6 @@ class DataSourceManager:
         return {"success": True, "id": entry_id, "entry": entry.to_dict()}
 
     @_require_initialized
-    def get(self, entry_id: str) -> Optional[DataSourceEntry]:
-        return self._items.get(entry_id)
-
-    def get_by_name(self, name: str) -> Optional[DataSourceEntry]:
-        for entry in self._items.values():
-            if entry.name == name:
-                return entry
-        return None
-
-    @_require_initialized
-    def list_all(self) -> List[DataSourceEntry]:
-        return list(self._items.values())
-
-    @_require_initialized
-    def list_all_dict(self) -> List[dict]:
-        return [entry.to_dict() for entry in self._items.values()]
-
-    @_require_initialized
     def delete(self, entry_id: str) -> dict:
         entry = self.get(entry_id)
         if not entry:
@@ -197,20 +159,6 @@ class DataSourceManager:
 
         self._log("INFO", "DataSource deleted", id=entry_id, name=entry.name)
         return {"success": True}
-
-    @_require_initialized
-    def start(self, entry_id: str) -> dict:
-        entry = self.get(entry_id)
-        if not entry:
-            return {"success": False, "error": "Entry not found"}
-        return entry.start()
-
-    @_require_initialized
-    def stop(self, entry_id: str) -> dict:
-        entry = self.get(entry_id)
-        if not entry:
-            return {"success": False, "error": "Entry not found"}
-        return entry.stop()
 
     def load_from_db(self) -> int:
         db = NB(DS_TABLE)
@@ -497,12 +445,6 @@ class DataSourceManager:
                 failed += 1
 
         return {"success": success, "failed": failed, "skipped": skipped}
-
-    def _log(self, level: str, message: str, **extra):
-        extra_str = " ".join([f"{k}={v}" for k, v in extra.items()])
-        print(f"[DataSourceManager][{level}] {message} | {extra_str}")
-
-
 def get_datasource_manager() -> DataSourceManager:
     from deva.naja.register import SR
     return SR('datasource_manager')

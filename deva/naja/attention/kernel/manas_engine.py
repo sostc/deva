@@ -228,10 +228,15 @@ class TimingEngine:
     支持自适应权重：高波动环境自动调整各因子权重
     """
 
-    def __init__(self):
+    def __init__(self, session_manager=None):
         self._last_volatility = 0.0
         self._volatility_history: List[float] = []
         self._trade_density_history: List[float] = []
+        self._session_manager = session_manager
+    
+    def set_session_manager(self, session_manager):
+        """设置 session_manager 依赖"""
+        self._session_manager = session_manager
 
     def compute(self, session_manager=None, scanner=None) -> float:
         """
@@ -294,10 +299,7 @@ class TimingEngine:
     def _get_time_pressure(self, session_manager) -> float:
         """获取时间压力"""
         if session_manager is None:
-            try:
-                session_manager = SR('trading_clock')
-            except ImportError:
-                return 0.5
+            session_manager = self._session_manager
 
         if session_manager is None:
             return 0.5
@@ -590,9 +592,14 @@ class ConfidenceEngine:
         > 1.0 = 策略非常适配（注意是否过度自信）
     """
 
-    def __init__(self):
+    def __init__(self, bandit_tracker=None):
         self._rolling_pnl_history: List[float] = []
         self._hit_rate_history: List[float] = []
+        self._bandit_tracker = bandit_tracker
+    
+    def set_bandit_tracker(self, bandit_tracker):
+        """设置 bandit_tracker 依赖"""
+        self._bandit_tracker = bandit_tracker
 
     def compute(self, bandit_tracker=None) -> float:
         """
@@ -619,11 +626,8 @@ class ConfidenceEngine:
     def _get_hit_rate(self, tracker) -> float:
         """获取近期命中率"""
         if tracker is None:
-            try:
-                tracker = SR('bandit_tracker')
-            except ImportError:
-                return 0.5
-
+            tracker = self._bandit_tracker
+        
         if tracker is None:
             return 0.5
 
@@ -699,8 +703,13 @@ class RiskEngine:
         T 小 = 更激进（还有子弹，可以干）
     """
 
-    def __init__(self):
+    def __init__(self, portfolio=None):
         self._drawdown_history: List[float] = []
+        self._portfolio = portfolio
+    
+    def set_portfolio(self, portfolio):
+        """设置 portfolio 依赖"""
+        self._portfolio = portfolio
 
     def compute(self, portfolio=None, scanner=None) -> float:
         """
@@ -734,10 +743,7 @@ class RiskEngine:
     def _get_cash_ratio(self, portfolio) -> float:
         """获取现金比例"""
         if portfolio is None:
-            try:
-                portfolio = SR('virtual_portfolio')
-            except ImportError:
-                return 0.5
+            portfolio = self._portfolio
 
         if portfolio is None:
             return 0.5
@@ -896,18 +902,25 @@ class ManasEngine:
     WEIGHT_CONFIDENCE = 0.25
     ACTION_THRESHOLD = 0.5
 
-    def __init__(self):
-        self.timing_engine = TimingEngine()
+    def __init__(self, session_manager=None, portfolio=None, bandit_tracker=None):
+        self.timing_engine = TimingEngine(session_manager)
         self.regime_engine = RegimeEngine()
-        self.confidence_engine = ConfidenceEngine()
-        self.risk_engine = RiskEngine()
+        self.confidence_engine = ConfidenceEngine(bandit_tracker)
+        self.risk_engine = RiskEngine(portfolio)
         self.meta_manas = MetaManas()
+        self._session_manager = session_manager
+        self._portfolio = portfolio
+        self._bandit_tracker = bandit_tracker
 
         self._last_output: Optional[ManasOutput] = None
         self._last_update = 0.0
         self._update_interval = 1.0
         self._current_narratives: List[str] = []
         self._recent_pnl: List[float] = []
+
+        # 🚀 和谐状态
+        self._harmony_state = HarmonyState.NEUTRAL
+        self._harmony_strength = 0.5
 
         # 🚀 供应链状态（事件驱动，收到事件后更新）
         self._supply_chain_state: Dict[str, Any] = {
@@ -934,6 +947,21 @@ class ManasEngine:
 
         # 🚀 新架构：订阅 NajaEventBus，感知认知层变化
         self._subscribe_to_event_bus()
+    
+    def set_session_manager(self, session_manager):
+        """设置 session_manager 依赖"""
+        self._session_manager = session_manager
+        self.timing_engine.set_session_manager(session_manager)
+    
+    def set_portfolio(self, portfolio):
+        """设置 portfolio 依赖"""
+        self._portfolio = portfolio
+        self.risk_engine.set_portfolio(portfolio)
+    
+    def set_bandit_tracker(self, bandit_tracker):
+        """设置 bandit_tracker 依赖"""
+        self._bandit_tracker = bandit_tracker
+        self.confidence_engine.set_bandit_tracker(bandit_tracker)
 
     def _get_default_focus_themes(self) -> List[Dict[str, Any]]:
         """

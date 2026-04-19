@@ -849,5 +849,11 @@ _observer_lock = threading.Lock()
 
 
 def get_market_observer() -> MarketDataObserver:
-    from deva.naja.register import SR
-    return SR('market_observer')
+    from deva.naja.application.container import get_app_container
+    try:
+        container = get_app_container()
+        if container is None:
+            raise RuntimeError("AppContainer not initialized")
+        return container.market_observer
+    except Exception as e:
+        raise RuntimeError(f"MarketDataObserver not found in AppContainer: {e}")

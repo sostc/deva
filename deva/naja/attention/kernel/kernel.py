@@ -34,7 +34,8 @@ class AttentionKernel:
         _enable_transformer: 是否启用类 Transformer 自注意力层
     """
 
-    def __init__(self, encoder, multi_head, enable_manas=False, enable_transformer=False, enable_in_context=False):
+    def __init__(self, encoder, multi_head, enable_manas=False, enable_transformer=False, enable_in_context=False, 
+                 value_system=None, trading_clock=None, virtual_portfolio=None, bandit_tracker=None):
         """
         初始化注意力中枢
 
@@ -44,10 +45,17 @@ class AttentionKernel:
             enable_manas: 是否启用末那识引擎（默认关闭）
             enable_transformer: 是否启用类 Transformer 自注意力层（默认关闭）
             enable_in_context: 是否启用上下文学习（默认关闭）
+            value_system: ValueSystem 实例（可选）
+            trading_clock: TradingClock 实例（可选）
+            virtual_portfolio: VirtualPortfolio 实例（可选）
+            bandit_tracker: BanditTracker 实例（可选）
         """
         self.encoder = encoder
         self.multi_head = multi_head
-        self._value_system = None
+        self._value_system = value_system
+        self._trading_clock = trading_clock
+        self._virtual_portfolio = virtual_portfolio
+        self._bandit_tracker = bandit_tracker
         self._liquidity_rescue_filter = None
         self._panic_analyzer = None
         self._rescue_orchestrator = None
@@ -70,6 +78,22 @@ class AttentionKernel:
             self._init_transformer_components()
         if enable_in_context:
             self._init_in_context_learner()
+
+    def set_value_system(self, value_system):
+        """显式设置 ValueSystem（依赖注入）"""
+        self._value_system = value_system
+
+    def set_trading_clock(self, trading_clock):
+        """显式设置 TradingClock（依赖注入）"""
+        self._trading_clock = trading_clock
+
+    def set_virtual_portfolio(self, virtual_portfolio):
+        """显式设置 VirtualPortfolio（依赖注入）"""
+        self._virtual_portfolio = virtual_portfolio
+
+    def set_bandit_tracker(self, bandit_tracker):
+        """显式设置 BanditTracker（依赖注入）"""
+        self._bandit_tracker = bandit_tracker
     
     def _init_transformer_components(self):
         """初始化类 Transformer 组件"""
@@ -133,7 +157,11 @@ class AttentionKernel:
     def _init_manas_engine(self):
         """初始化末那识引擎"""
         from .manas_engine import ManasEngine
-        self._manas_engine = ManasEngine()
+        self._manas_engine = ManasEngine(
+            session_manager=self._trading_clock,
+            portfolio=self._virtual_portfolio,
+            bandit_tracker=self._bandit_tracker
+        )
 
     def get_manas_engine(self):
         """获取末那识引擎实例"""
@@ -158,24 +186,16 @@ class AttentionKernel:
         return self._enable_manas
 
     def _get_value_system(self):
-        """获取价值观系统（延迟加载）"""
-        if self._value_system is None:
-            self._value_system = SR('value_system')
+        """获取价值观系统"""
         return self._value_system
 
     def _get_session_manager(self):
         """获取交易时段管理器"""
-        try:
-            return SR('trading_clock')
-        except ImportError:
-            return None
+        return self._trading_clock
 
     def _get_portfolio(self):
         """获取虚拟持仓"""
-        try:
-            return SR('virtual_portfolio')
-        except KeyError:
-            return None
+        return self._virtual_portfolio
 
     def _get_strategy_manager(self):
         """获取策略管理器"""
@@ -186,11 +206,8 @@ class AttentionKernel:
             return None
 
     def _get_bandit_tracker(self):
-        """获取 bandit tracker"""
-        try:
-            return SR('bandit_tracker')
-        except ImportError:
-            return None
+        """获取 bandit tracker（优先使用注入的）"""
+        return self._bandit_tracker
 
     def _get_scanner(self):
         """获取市场扫描器"""

@@ -36,8 +36,11 @@ class ManasManager:
         manas_output = manager.compute()
     """
 
-    def __init__(self, kernel=None):
+    def __init__(self, kernel=None, trading_clock=None, virtual_portfolio=None, bandit_tracker=None):
         self.kernel = kernel
+        self._trading_clock = trading_clock
+        self._virtual_portfolio = virtual_portfolio
+        self._bandit_tracker = bandit_tracker
         self._manas_engine = None
         self._enabled = False
         self._last_compute_time = 0.0
@@ -48,6 +51,18 @@ class ManasManager:
         else:
             self._manas_engine = None
             self._enabled = False
+
+    def set_trading_clock(self, trading_clock):
+        """显式设置 TradingClock（依赖注入）"""
+        self._trading_clock = trading_clock
+
+    def set_virtual_portfolio(self, virtual_portfolio):
+        """显式设置 VirtualPortfolio（依赖注入）"""
+        self._virtual_portfolio = virtual_portfolio
+
+    def set_bandit_tracker(self, bandit_tracker):
+        """显式设置 BanditTracker（依赖注入）"""
+        self._bandit_tracker = bandit_tracker
 
     def set_enabled(self, enabled: bool):
         """
@@ -66,7 +81,11 @@ class ManasManager:
                 if hasattr(self.kernel, 'get_manas_engine'):
                     self._manas_engine = self.kernel.get_manas_engine()
             else:
-                self._manas_engine = ManasEngine()
+                self._manas_engine = ManasEngine(
+                    session_manager=self._trading_clock,
+                    portfolio=self._virtual_portfolio,
+                    bandit_tracker=self._bandit_tracker
+                )
             log.info("[ManasManager] 末那识引擎已启用")
         elif not enabled:
             self._enabled = False
@@ -127,23 +146,17 @@ class ManasManager:
             "last_output": self._last_output,
         }
 
-    def _get_session_manager(self):
-        try:
-            return SR('trading_clock')
-        except ImportError:
-            return None
+    def _get_trading_clock(self):
+        """获取交易时段管理器"""
+        return self._trading_clock
 
     def _get_portfolio(self):
-        try:
-            return SR('virtual_portfolio')
-        except ImportError:
-            return None
+        """获取虚拟持仓"""
+        return self._virtual_portfolio
 
     def _get_bandit_tracker(self):
-        try:
-            return SR('bandit_tracker')
-        except ImportError:
-            return None
+        """获取 bandit tracker"""
+        return self._bandit_tracker
 
     def _get_scanner(self):
         try:
@@ -163,6 +176,16 @@ _global_manager_initialized = False
 def get_manas_manager() -> Optional[ManasManager]:
     """获取全局末那识管理器（自动启用）"""
     global _global_manager, _global_manager_initialized
+    
+    # 优先从 AppContainer 获取
+    try:
+        from deva.naja.application import get_app_container
+        container = get_app_container()
+        if container is not None:
+            return container.manas_manager
+    except Exception:
+        pass
+    
     if _global_manager is None and not _global_manager_initialized:
         _global_manager_initialized = True
         try:

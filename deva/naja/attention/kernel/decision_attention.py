@@ -61,24 +61,27 @@ class DecisionAttention:
         scores, alpha, temperature = decision_attn.modulate(raw_scores, strategy_performance)
     """
 
-    def __init__(self, manas_engine=None):
+    def __init__(self, manas_engine=None, virtual_portfolio=None):
         """
         初始化决策注意力
 
         Args:
             manas_engine: ManasEngine 实例，用于获取决策状态
+            virtual_portfolio: VirtualPortfolio 实例（可选）
         """
         self._manas = manas_engine
+        self._virtual_portfolio = virtual_portfolio
         self._last_alpha = 1.0
         self._last_temperature = 1.0
         self._last_strategy_performance = 0.5
 
+    def set_virtual_portfolio(self, virtual_portfolio):
+        """显式设置 VirtualPortfolio（依赖注入）"""
+        self._virtual_portfolio = virtual_portfolio
+
     def _get_portfolio(self):
         """获取虚拟持仓"""
-        try:
-            return SR('virtual_portfolio')
-        except ImportError:
-            return None
+        return self._virtual_portfolio
 
     def _get_cash_ratio(self, portfolio) -> float:
         """获取现金比例"""
