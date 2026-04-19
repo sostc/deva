@@ -102,3 +102,33 @@ class HotspotShiftEvent:
     @property
     def datetime(self) -> datetime:
         return datetime.fromtimestamp(self.timestamp)
+
+
+@dataclass
+class GlobalMarketDataEvent:
+    """
+    全局市场数据事件
+
+    当GlobalMarketScanner获取到全局市场数据后发布此事件
+    QueryStateUpdater接收此事件并更新QueryState
+    """
+    symbols: List[str]
+    returns: List[float]
+    volumes: List[float]
+    prices: List[float]
+    timestamp: float
+    market: str = ""
+    source: str = "global_market_scanner"
+
+    @property
+    def datetime(self) -> datetime:
+        return datetime.fromtimestamp(self.timestamp)
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            'market': self.market,
+            'timestamp': self.timestamp,
+            'datetime': self.datetime.isoformat(),
+            'symbol_count': len(self.symbols),
+            'source': self.source
+        }
