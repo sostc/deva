@@ -1,0 +1,2 @@
+# GitHub Radar uses only Python standard library modules.
+# The only external dependency is the `gh` CLI tool (https://cli.github.com).
