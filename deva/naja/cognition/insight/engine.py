@@ -14,6 +14,7 @@ from typing import Any, Dict, List, Optional, Set
 
 from deva import NB
 from deva.naja.register import SR
+from deva.naja.events import CognitiveInsightEvent, publish_event
 
 
 INSIGHT_POOL_TABLE = "naja_insight_pool"
@@ -686,7 +687,45 @@ class InsightEngine:
         self._pool.ingest_result(result)
 
     def ingest_signal(self, signal: Dict[str, Any]) -> None:
+        # 首先处理信号
         self._pool.ingest_attention_event(signal)
+        
+        # 发布CognitiveInsightEvent事件
+        try:
+            # 从信号中提取洞察信息
+            insights = []
+            
+            # 构建洞察对象
+            insight_data = {
+                "theme": signal.get("theme", ""),
+                "summary": signal.get("summary", ""),
+                "confidence": signal.get("confidence", 0.5),
+                "actionability": signal.get("actionability", 0.5),
+                "source": signal.get("source", "insight_engine"),
+                "signal_type": signal.get("signal_type", ""),
+                "payload": signal.get("payload", {})
+            }
+            
+            insights.append(insight_data)
+            
+            # 计算置信度
+            confidence = signal.get("confidence", 0.5)
+            
+            # 创建并发布事件
+            event = CognitiveInsightEvent(
+                insights=insights,
+                confidence=confidence,
+                timestamp=signal.get("timestamp", time.time()),
+                source="insight_engine",
+                market=signal.get("market", "global"),
+                metadata=signal.get("metadata", {})
+            )
+            
+            publish_event(event)
+            
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).debug(f"发布CognitiveInsightEvent失败: {e}")
 
     def get_pool(self) -> InsightPool:
         return self._pool

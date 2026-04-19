@@ -63,6 +63,8 @@ from deva.naja.cognition.semantic.keyword_registry import (
     SUPPLY_DEMAND_KEYWORDS,
 )
 
+from deva.naja.events import NarrativeStateEvent, publish_event
+
 
 OPPORTUNITY_TYPES: Dict[str, Dict[str, Any]] = {
     "token供给不足": {
@@ -647,7 +649,54 @@ class NarrativeTracker:
                 if self._should_emit(state, "spike", now_ts):
                     results.append(event_payload)
 
+        # 发布NarrativeStateEvent事件
+        self._publish_narrative_state_event(now_ts)
+        
         return results
+
+    def _publish_narrative_state_event(self, timestamp: float):
+        """发布叙事状态事件"""
+        try:
+            # 收集当前叙事状态
+            current_narratives = []
+            narrative_strength = 0.0
+            narrative_risk = 0.0
+            sentiment_score = 0.5
+            
+            # 计算叙事强度和风险
+            active_narratives = [s for s in self._states.values() if s.attention_score > 0.3]
+            if active_narratives:
+                current_narratives = [s.name for s in active_narratives]
+                narrative_strength = sum(s.attention_score for s in active_narratives) / len(active_narratives)
+                # 计算风险：叙事数量过多或强度过高都增加风险
+                narrative_risk = min(1.0, (len(active_narratives) / 10) + (narrative_strength - 0.5))
+                
+                # 简单的情绪评分计算
+                positive_keywords = set()
+                negative_keywords = set()
+                for state in active_narratives:
+                    positive_keywords.update(k for k in state.last_keywords if any(p in k for p in ['增长', '上升', '利好', '突破']))
+                    negative_keywords.update(k for k in state.last_keywords if any(n in k for n in ['下降', '风险', '利空', '危机']))
+                
+                if positive_keywords or negative_keywords:
+                    sentiment_score = len(positive_keywords) / (len(positive_keywords) + len(negative_keywords))
+            
+            # 创建并发布事件
+            event = NarrativeStateEvent(
+                current_narratives=current_narratives,
+                narrative_strength=narrative_strength,
+                narrative_risk=narrative_risk,
+                sentiment_score=sentiment_score,
+                timestamp=timestamp,
+                source="narrative_tracker",
+                market="CN"
+            )
+            
+            publish_event(event)
+            
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).debug(f"发布NarrativeStateEvent失败: {e}")
 
     def _process_value_signals(self, event: Any, now_ts: float) -> List[Dict[str, Any]]:
         """
