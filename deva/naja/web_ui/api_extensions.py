@@ -14,7 +14,9 @@ from deva.naja.register import SR
 def _get_cognition_engine():
     """获取认知引擎"""
     try:
-        return SR('cognition_engine')
+        from deva.naja.application import get_app_container
+        container = get_app_container()
+        return container.cognition_engine if container else None
     except Exception:
         return None
 
@@ -49,7 +51,9 @@ def _get_radar_engine():
 def _get_bandit_runner():
     """获取 Bandit 运行器"""
     try:
-        return SR('bandit_runner')
+        from deva.naja.application import get_app_container
+        container = get_app_container()
+        return container.bandit_runner if container else None
     except Exception:
         return None
 
@@ -84,7 +88,9 @@ def _get_trading_center():
 def _get_awakened_alaya():
     """获取觉醒的阿那亚"""
     try:
-        return SR('awakened_alaya')
+        from deva.naja.application import get_app_container
+        container = get_app_container()
+        return container.awakened_alaya if container else None
     except Exception:
         return None
 

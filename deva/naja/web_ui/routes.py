@@ -120,7 +120,7 @@ def create_handlers(cdn: str = None):
     """创建路由处理器"""
     cdn_url = cdn or 'https://fastly.jsdelivr.net/gh/wang0618/PyWebIO-assets@v1.8.3/'
 
-    return [
+    page_routes = [
         (r'/', webio_handler(main, cdn=cdn_url)),
         (r'/cognition', webio_handler(cognition_page, cdn=cdn_url)),
         (r'/cognition_glossary', webio_handler(cognition_glossary_page, cdn=cdn_url)),
@@ -154,58 +154,50 @@ def create_handlers(cdn: str = None):
         (r'/learning/list', webio_handler(learning_list_page, cdn=cdn_url)),
         (r'/learning/history', webio_handler(learning_history_page, cdn=cdn_url)),
         (r'/learning/detail', webio_handler(learning_detail_page, cdn=cdn_url)),
+    ]
+
+    api_routes = [
         (r'/api/knowledge/action', KnowledgeActionHandler),
-            (r'/api/hotspot', HotspotHandler),
-            (r'/api/health', HealthHandler),
-            # 认知系统 API
-            (r'/api/cognition/memory', CognitionMemoryHandler),
-            (r'/api/cognition/topics', CognitionTopicsHandler),
-            (r'/api/cognition/attention', CognitionAttentionHandler),
-            (r'/api/cognition/thought', CognitionThoughtHandler),
-            # 市场热点 API
-            (r'/api/market/state', MarketStateHandler),
-            (r'/api/market/hotspot/details', MarketHotspotDetailsHandler),
-            (r'/api/market/hotspot', MarketHotspotAPIHandler),
-            # 系统监控 API
-            (r'/api/system/status', SystemStatusHandler),
-            (r'/api/system/modules', SystemModulesHandler),
-            # 雷达系统 API
-            (r'/api/radar/events', RadarEventsHandler),
-            # Bandit 系统 API
+        (r'/api/hotspot', HotspotHandler),
+        (r'/api/health', HealthHandler),
+        (r'/api/cognition/memory', CognitionMemoryHandler),
+        (r'/api/cognition/topics', CognitionTopicsHandler),
+        (r'/api/cognition/attention', CognitionAttentionHandler),
+        (r'/api/cognition/thought', CognitionThoughtHandler),
+        (r'/api/market/state', MarketStateHandler),
+        (r'/api/market/hotspot/details', MarketHotspotDetailsHandler),
+        (r'/api/market/hotspot', MarketHotspotAPIHandler),
+        (r'/api/system/status', SystemStatusHandler),
+        (r'/api/system/modules', SystemModulesHandler),
+        (r'/api/radar/events', RadarEventsHandler),
         (r'/api/bandit/stats', BanditStatsHandler),
-        # 知识库 API
         (r'/api/knowledge/list', KnowledgeListHandler),
         (r'/api/knowledge/stats', KnowledgeStatsHandler),
         (r'/api/knowledge/detail', KnowledgeDetailHandler),
         (r'/api/knowledge/trading', KnowledgeTradingHandler),
-            # 数据源和策略 API
-            (r'/api/datasource/list', DataSourceListHandler),
-            (r'/api/strategy/list', StrategyListHandler),
-            # 智慧系统 API
-            (r'/api/alaya/status', AlayaStatusHandler),
-            # Attention 系统 API - P0 核心决策
-            (r'/api/attention/manas/state', ManasStateHandler),
-            (r'/api/attention/harmony', HarmonyHandler),
-            (r'/api/attention/decision', DecisionHandler),
-            (r'/api/attention/conviction', ConvictionHandler),
-            (r'/api/attention/conviction/timing', ConvictionTimingHandler),
-            (r'/api/attention/conviction/should-add', ConvictionShouldAddHandler),
-            # Attention 系统 API - P1 持仓与跟踪
-            (r'/api/attention/portfolio/summary', PortfolioSummaryHandler),
-            (r'/api/attention/position/metrics', PositionMetricsHandler),
-            (r'/api/attention/tracking/hotspot', TrackingHotspotHandler),
-            (r'/api/attention/tracking/stats', TrackingStatsHandler),
-            # Attention 系统 API - P2 发现与融合
-            (r'/api/attention/blind-spots', BlindSpotsHandler),
-            (r'/api/attention/fusion', FusionHandler),
-            (r'/api/attention/focus', FocusHandler),
-            (r'/api/attention/narrative-block-matrix', NarrativeBlockMatrixHandler),
-            # Attention 系统 API - P3 状态与报告
-            (r'/api/attention/report', AttentionReportHandler),
-            (r'/api/attention/lab/status', LabStatusHandler),
-            (r'/api/attention/liquidity', LiquidityHandler),
-            (r'/api/attention/strategy/top-symbols', StrategyTopSymbolsHandler),
-            (r'/api/attention/strategy/top-blocks', StrategyTopBlocksHandler),
-            (r'/api/attention/context', AttentionContextHandler),
+        (r'/api/datasource/list', DataSourceListHandler),
+        (r'/api/strategy/list', StrategyListHandler),
+        (r'/api/alaya/status', AlayaStatusHandler),
+        (r'/api/attention/manas/state', ManasStateHandler),
+        (r'/api/attention/harmony', HarmonyHandler),
+        (r'/api/attention/decision', DecisionHandler),
+        (r'/api/attention/conviction', ConvictionHandler),
+        (r'/api/attention/conviction/timing', ConvictionTimingHandler),
+        (r'/api/attention/conviction/should-add', ConvictionShouldAddHandler),
+        (r'/api/attention/portfolio/summary', PortfolioSummaryHandler),
+        (r'/api/attention/position/metrics', PositionMetricsHandler),
+        (r'/api/attention/tracking/hotspot', TrackingHotspotHandler),
+        (r'/api/attention/tracking/stats', TrackingStatsHandler),
+        (r'/api/attention/blind-spots', BlindSpotsHandler),
+        (r'/api/attention/fusion', FusionHandler),
+        (r'/api/attention/focus', FocusHandler),
+        (r'/api/attention/narrative-block-matrix', NarrativeBlockMatrixHandler),
+        (r'/api/attention/report', AttentionReportHandler),
+        (r'/api/attention/lab/status', LabStatusHandler),
+        (r'/api/attention/liquidity', LiquidityHandler),
+        (r'/api/attention/strategy/top-symbols', StrategyTopSymbolsHandler),
+        (r'/api/attention/strategy/top-blocks', StrategyTopBlocksHandler),
+        (r'/api/attention/context', AttentionContextHandler),
     ]
 
+    return page_routes + api_routes

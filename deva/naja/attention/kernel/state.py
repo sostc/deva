@@ -26,7 +26,7 @@ class QueryState:
         last_decision_reason: 最后决策的理由
     """
 
-    def __init__(self):
+    def __init__(self, value_system=None):
         self.strategy_state = {}
         self.portfolio_state = {}
         self.market_regime = {
@@ -45,7 +45,7 @@ class QueryState:
             "symbols": [],
             "last_update": 0,
         }
-        self._value_system = None
+        self._value_system = value_system
         self.active_value_type = "trend"
         self.last_decision_reason = ""
         self.macro_liquidity_signal = 0.5
@@ -75,6 +75,10 @@ class QueryState:
             "asset_allocation": {}
         }
 
+    def set_value_system(self, value_system):
+        """显式设置 ValueSystem（依赖注入）"""
+        self._value_system = value_system
+
     def set_macro_liquidity_signal(self, signal: float):
         """
         设置宏观流动性信号
@@ -88,13 +92,7 @@ class QueryState:
         self.macro_liquidity_signal = float(np.clip(signal, 0.1, 0.9))
 
     def _get_value_system(self):
-        """获取价值观系统（延迟初始化）"""
-        if self._value_system is None:
-            try:
-                from deva.naja.register import SR
-                self._value_system = SR('value_system')
-            except (ImportError, KeyError):
-                pass
+        """获取价值观系统"""
         return self._value_system
 
     def set_value_type(self, value_type: str) -> bool:

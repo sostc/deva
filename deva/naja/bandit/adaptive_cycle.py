@@ -41,19 +41,24 @@ class AdaptiveCycle:
                     BanditOptimizer 调整策略参数
     """
     
-    def __init__(self):
+    def __init__(self, signal_listener=None, portfolio=None, market_observer=None, optimizer=None, tracker=None, runner=None):
         self._running = False
         self._thread: Optional[threading.Thread] = None
         self._stop_event = threading.Event()
         
         self._db = NB(ADAPTIVE_CONFIG_TABLE)
         
-        self._signal_listener = SR('signal_listener')
-        self._portfolio = SR('virtual_portfolio')
-        self._market_observer = get_market_observer()
-        self._optimizer = get_bandit_optimizer()
-        self._tracker = SR('bandit_tracker')
-        self._runner = SR('bandit_runner')
+        # 使用依赖注入，如果没有提供则使用 SR()
+        from deva.naja.register import SR
+        from .market_observer import get_market_observer
+        from .optimizer import get_bandit_optimizer
+        
+        self._signal_listener = signal_listener or SR('signal_listener')
+        self._portfolio = portfolio or SR('virtual_portfolio')
+        self._market_observer = market_observer or get_market_observer()
+        self._optimizer = optimizer or get_bandit_optimizer()
+        self._tracker = tracker or SR('bandit_tracker')
+        self._runner = runner or SR('bandit_runner')
         
         self._auto_start = True
         self._auto_buy_enabled = True

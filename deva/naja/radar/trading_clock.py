@@ -109,7 +109,7 @@ class TradingClock:
         self._us_current_phase: str = 'closed'
         self._subscribers: List[Callable] = []
 
-        self._cn_market_mgr = SR('market_session_manager')
+        self._cn_market_mgr = None
         self._us_eastern = pytz.timezone('America/New_York')
 
         self._initialized = True
@@ -273,6 +273,9 @@ class TradingClock:
     def _get_us_phase_at(self, dt: datetime) -> str:
         """计算美股指定时间的时段（基于美东时间）"""
         us_now = dt.astimezone(self._us_eastern)
+        # Check if it's a weekend (Saturday=5, Sunday=6)
+        if us_now.weekday() >= 5:
+            return 'closed'
         current_time = us_now.time()
 
         if time(4, 0) <= current_time < time(9, 30):
@@ -505,11 +508,15 @@ def trading_clock_signal(phase: str, market: str = 'CN') -> bool:
     Returns:
         是否处于该时段
     """
-    tc = SR('trading_clock')
-    if market == 'CN':
-        return tc.cn_phase == phase
-    else:
-        return tc.us_phase == phase
+    from deva.naja.application import get_app_container
+    container = get_app_container()
+    if container and container.trading_clock:
+        tc = container.trading_clock
+        if market == 'CN':
+            return tc.cn_phase == phase
+        else:
+            return tc.us_phase == phase
+    return False
 
 
 def is_trading_time(market: str = 'CN') -> bool:
@@ -534,8 +541,12 @@ def is_us_market_closed() -> bool:
 
 def get_global_trading_status() -> Dict[str, Any]:
     """获取全球市场综合状态"""
-    tc = SR('trading_clock')
-    return tc.get_global_status()
+    from deva.naja.application import get_app_container
+    container = get_app_container()
+    if container and container.trading_clock:
+        return container.trading_clock.get_global_status()
+    return {}
+
 
 
 USTRADING_CLOCK_STREAM = TRADING_CLOCK_STREAM

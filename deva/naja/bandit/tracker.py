@@ -67,12 +67,21 @@ class BanditPositionTracker:
     5. 记录归因数据到 Attribution 系统
     """
 
-    def __init__(self):
-        self._optimizer = get_bandit_optimizer()
+    def __init__(self, market_time_service=None, bandit_optimizer=None):
+        self._optimizer = bandit_optimizer or get_bandit_optimizer()
         self._db = NB(POSITION_REWARD_TABLE)
         self._reward_type = "basic"
         self._enabled = True
         self._attribution_enabled = True
+        self._market_time_service = market_time_service
+    
+    def set_market_time_service(self, market_time_service):
+        """设置市场时间服务实例"""
+        self._market_time_service = market_time_service
+    
+    def set_bandit_optimizer(self, bandit_optimizer):
+        """设置 Bandit 优化器实例"""
+        self._optimizer = bandit_optimizer
 
     def on_position_closed(
         self,
@@ -110,7 +119,10 @@ class BanditPositionTracker:
         if entry_price <= 0 or exit_price <= 0:
             return {"success": False, "error": "价格无效"}
 
-        mts = SR('market_time_service')
+        if self._market_time_service:
+            mts = self._market_time_service
+        else:
+            raise RuntimeError("Market time service not injected")
         current_time = mts.get_market_time()
 
         return_pct = (exit_price - entry_price) / entry_price * 100

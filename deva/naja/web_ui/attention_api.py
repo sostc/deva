@@ -7,18 +7,37 @@ from tornado.web import RequestHandler
 def _safe_get(singleton_name, attr=None):
     """安全获取单例实例，失败返回 None"""
     try:
-        from deva.naja.register import SR
-        obj = SR(singleton_name)
+        from deva.naja.application import get_app_container
+        container = get_app_container()
+        if not container:
+            return None
+        
+        # 映射单例名称到容器属性
+        name_map = {
+            'trading_center': 'trading_center',
+            'attention_os': 'attention_os',
+            'cognition_engine': 'cognition_engine',
+            'bandit_runner': 'bandit_runner',
+            'virtual_portfolio': 'virtual_portfolio',
+            'insight_pool': 'insight_pool',
+            'trading_clock': 'trading_clock'
+        }
+        
+        attr_name = name_map.get(singleton_name)
+        if not attr_name or not hasattr(container, attr_name):
+            return None
+        
+        obj = getattr(container, attr_name)
         if obj is None:
             import logging
-            logging.getLogger(__name__).warning(f"SR('{singleton_name}') returned None")
+            logging.getLogger(__name__).warning(f"Container.{attr_name} returned None")
             return None
         if attr:
             return getattr(obj, attr, None)
         return obj
     except Exception as e:
         import logging
-        logging.getLogger(__name__).warning(f"SR('{singleton_name}') failed: {e}")
+        logging.getLogger(__name__).warning(f"_safe_get('{singleton_name}') failed: {e}")
         return None
 
 

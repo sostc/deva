@@ -400,7 +400,7 @@ class GlobalMarketScanner:
     @property
     def session_manager(self) -> MarketSessionManager:
         if self._session_manager is None:
-            self._session_manager = SR('market_session_manager')
+            self._session_manager = MarketSessionManager()
         return self._session_manager
 
     def register_callback(self, callback: callable):
@@ -745,7 +745,9 @@ class GlobalMarketScanner:
             log.info(f"[GlobalMarketScanner] 提取到 {len(symbols)} 个符号")
             
             # 从注册中心获取QueryState实例
-            qs = SR('query_state')
+            from deva.naja.application import get_app_container
+            container = get_app_container()
+            qs = container.query_state if container else None
             log.info(f"[GlobalMarketScanner] 从注册中心获取QueryState实例成功")
             
             qs.update_from_market(

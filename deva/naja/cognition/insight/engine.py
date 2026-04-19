@@ -648,8 +648,15 @@ class InsightPool:
 class InsightEngine:
     """洞察引擎 - 管理认知产物"""
 
-    def __init__(self):
-        self._pool = SR('insight_pool')
+    def __init__(self, insight_pool=None):
+        self._pool = insight_pool
+        if self._pool is None:
+            from deva.naja.register import SR
+            self._pool = SR('insight_pool')
+    
+    def set_insight_pool(self, insight_pool):
+        """显式设置 insight_pool 依赖"""
+        self._pool = insight_pool
 
     def get_summary(self) -> Dict[str, Any]:
         stats = self._pool.get_stats()

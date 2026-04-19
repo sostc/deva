@@ -307,14 +307,19 @@ class PortfolioManager:
     - 美股账户：使用 USStockPortfolio（新）
     """
 
-    def __init__(self):
+    def __init__(self, virtual_portfolio=None):
         self._accounts: Dict[str, Any] = {}
         self._lock = threading.RLock()
         self._db = NB(PORTFOLIO_MANAGER_TABLE)
         self._us_portfolios: Dict[str, USStockPortfolio] = {}
+        self._virtual_portfolio = virtual_portfolio
 
         self._init_accounts()
         self._load_config_positions()
+    
+    def set_virtual_portfolio(self, virtual_portfolio):
+        """设置虚拟组合实例"""
+        self._virtual_portfolio = virtual_portfolio
 
     def _init_accounts(self):
         try:
@@ -326,7 +331,10 @@ class PortfolioManager:
             for name in account_names:
                 if name == "虚拟测试":
                     try:
-                        self._accounts[name] = SR('virtual_portfolio')
+                        if self._virtual_portfolio:
+                            self._accounts[name] = self._virtual_portfolio
+                        else:
+                            raise RuntimeError("Virtual portfolio not injected")
                     except KeyError:
                         log.warning("virtual_portfolio 尚未注册，跳过虚拟测试账户")
                         continue
@@ -443,13 +451,14 @@ _portfolio_manager_lock = threading.Lock()
 
 
 def get_portfolio_manager() -> PortfolioManager:
-    from deva.naja.register import SR
-    global _portfolio_manager
-    if _portfolio_manager is None:
-        with _portfolio_manager_lock:
-            if _portfolio_manager is None:
-                _portfolio_manager = PortfolioManager()
-    return _portfolio_manager
+    from deva.naja.application.container import get_app_container
+    try:
+        container = get_app_container()
+        if container is None:
+            raise RuntimeError("AppContainer not initialized")
+        return container.portfolio_manager
+    except Exception as e:
+        raise RuntimeError(f"PortfolioManager not found in AppContainer: {e}")
 
 async def fetch_us_stock_price_xueqiu(stock_code: str) -> Optional[tuple]:
     """从雪球获取美股价格和昨收价"""

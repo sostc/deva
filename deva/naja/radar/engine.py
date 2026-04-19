@@ -360,23 +360,30 @@ class RadarEngine:
     _instance = None
     _lock = threading.Lock()
 
-    def __new__(cls):
+    def __new__(cls, trading_clock=None):
         if cls._instance is None:
             with cls._lock:
                 if cls._instance is None:
                     cls._instance = super().__new__(cls)
                     cls._instance._initialized = False
+                    cls._instance._trading_clock_param = trading_clock
         return cls._instance
 
-    def __init__(self):
+    def __init__(self, trading_clock=None):
         if getattr(self, "_initialized", False):
             return
 
         print("[RADAR-INIT] 开始初始化 RadarEngine...")
 
         # 确保交易时钟启动
-        SR('trading_clock')
-        print("[RADAR-INIT] 交易时钟已启动")
+        if hasattr(self, '_trading_clock_param') and self._trading_clock_param is not None:
+            print("[RADAR-INIT] 交易时钟已通过依赖注入提供")
+        elif trading_clock:
+            print("[RADAR-INIT] 交易时钟已通过依赖注入提供")
+        else:
+            from deva.naja.register import SR
+            SR('trading_clock')
+            print("[RADAR-INIT] 交易时钟已启动")
 
         self._db = NB(RADAR_EVENTS_TABLE)
         self._state_lock = threading.RLock()
