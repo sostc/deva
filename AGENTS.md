@@ -13,6 +13,8 @@ Before doing anything:
 2. Read `USER.md` — who you're helping
 3. Read `memory/YYYY-MM-DD.md` (today + yesterday) for recent context
 4. In main sessions: also read `MEMORY.md`
+5. Read `docs/naja/naja_architecture_baseline.md` — Naja 架构基线（重要！）
+6. Read `docs/naja/sr_usage_policy.md` — SR() 使用策略（重要！）
 
 Don't ask permission. Just do it.
 
@@ -152,6 +154,29 @@ Don't wait for permission to improve. If you learned something, write it down no
 
 ---
 
+
+---
+
+## Naja 架构开发规则
+
+在进行 Naja 相关开发时，必须遵守：
+
+1. **先读架构基线，再开始编码**
+   - 新增任何功能前，先判断归属层
+   - 参考 docs/naja/naja_architecture_baseline.md §6、§7
+2. **新复杂度要放到正确层次**
+   - 启动、模式、订阅、恢复 -> application
+   - 决策、评分、融合、推理 -> decision / domain
+   - 线程、日志、注册、管理器骨架 -> infra
+   - 页面渲染、接口拼装 -> web_ui
+3. **不要在核心模块新增 SR()**
+   - decision/、attention/kernel/、attention/os/、events/ 核心逻辑不应新增 SR()
+4. **事件订阅优先集中管理**
+   - 在 application 层集中注册
+5. **UI 不要直接深入核心对象**
+   - 优先调用 facade 或 query service
+6. **先评估，再执行**
+   - 按照用户要求，先评估现有架构和新功能的实现方式，先给出报告，而不是每次都立即执行
 
 ---
 
