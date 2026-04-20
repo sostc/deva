@@ -892,3 +892,360 @@ class AlayaStatusHandler(RequestHandler):
             }
             self.set_status(500)
             self.write(json.dumps(error_result, ensure_ascii=False))
+
+
+class RegistryStatusHandler(RequestHandler):
+    """单例注册表状态 API 端点"""
+
+    def set_default_headers(self):
+        """设置默认响应头"""
+        self.set_header("Content-Type", "application/json; charset=utf-8")
+        self.set_header("Access-Control-Allow-Origin", "*")
+        self.set_header("Access-Control-Allow-Methods", "GET, OPTIONS")
+        self.set_header("Access-Control-Allow-Headers", "Content-Type")
+
+    def options(self):
+        """处理OPTIONS请求"""
+        self.set_status(204)
+        self.finish()
+
+    def get(self):
+        """获取单例注册表状态"""
+        try:
+            from deva.naja.infra.registry.singleton_registry import get_registry_status
+            registry_status = get_registry_status()
+            
+            result = {
+                "timestamp": time.time(),
+                "datetime": time.strftime("%Y-%m-%d %H:%M:%S"),
+                "success": True,
+                "data": registry_status
+            }
+            self.write(json.dumps(result, ensure_ascii=False))
+        except Exception as e:
+            error_result = {
+                "timestamp": time.time(),
+                "datetime": time.strftime("%Y-%m-%d %H:%M:%S"),
+                "success": False,
+                "error": str(e)
+            }
+            self.set_status(500)
+            self.write(json.dumps(error_result, ensure_ascii=False))
+
+
+class QueryStateHandler(RequestHandler):
+    """查询状态 API 端点"""
+
+    def set_default_headers(self):
+        """设置默认响应头"""
+        self.set_header("Content-Type", "application/json; charset=utf-8")
+        self.set_header("Access-Control-Allow-Origin", "*")
+        self.set_header("Access-Control-Allow-Methods", "GET, OPTIONS")
+        self.set_header("Access-Control-Allow-Headers", "Content-Type")
+
+    def options(self):
+        """处理OPTIONS请求"""
+        self.set_status(204)
+        self.finish()
+
+    def get(self):
+        """获取查询状态"""
+        try:
+            from deva.naja.register import SR
+            query_state = SR('query_state')
+            
+            if not query_state:
+                result = {
+                    "timestamp": time.time(),
+                    "success": False,
+                    "error": "查询状态未初始化"
+                }
+                self.write(json.dumps(result, ensure_ascii=False))
+                return
+            
+            summary = query_state.get_summary()
+            
+            # 补充完整的状态数据
+            full_data = {
+                "summary": summary,
+                "market_regime": query_state.market_regime,
+                "attention_focus": query_state.attention_focus,
+                "risk_bias": query_state.risk_bias,
+                "macro_liquidity_signal": query_state.macro_liquidity_signal,
+                "narrative_state": query_state.narrative_state,
+                "cognitive_insights": query_state.cognitive_insights,
+                "liquidity_state": query_state.liquidity_state,
+                "economic_cycle": query_state.economic_cycle,
+                "active_value_type": query_state.active_value_type,
+                "last_decision_reason": query_state.last_decision_reason,
+            }
+            
+            result = {
+                "timestamp": time.time(),
+                "datetime": time.strftime("%Y-%m-%d %H:%M:%S"),
+                "success": True,
+                "data": full_data
+            }
+            self.write(json.dumps(result, ensure_ascii=False))
+        except Exception as e:
+            error_result = {
+                "timestamp": time.time(),
+                "datetime": time.strftime("%Y-%m-%d %H:%M:%S"),
+                "success": False,
+                "error": str(e)
+            }
+            self.set_status(500)
+            self.write(json.dumps(error_result, ensure_ascii=False))
+
+
+class SystemStateHandler(RequestHandler):
+    """系统状态持久化 API 端点"""
+
+    def set_default_headers(self):
+        """设置默认响应头"""
+        self.set_header("Content-Type", "application/json; charset=utf-8")
+        self.set_header("Access-Control-Allow-Origin", "*")
+        self.set_header("Access-Control-Allow-Methods", "GET, OPTIONS")
+        self.set_header("Access-Control-Allow-Headers", "Content-Type")
+
+    def options(self):
+        """处理OPTIONS请求"""
+        self.set_status(204)
+        self.finish()
+
+    def get(self):
+        """获取系统状态"""
+        try:
+            from deva.naja.register import SR
+            system_state_manager = SR('system_state_manager')
+            
+            if not system_state_manager:
+                result = {
+                    "timestamp": time.time(),
+                    "success": False,
+                    "error": "系统状态管理器未初始化"
+                }
+                self.write(json.dumps(result, ensure_ascii=False))
+                return
+            
+            state_summary = system_state_manager.get_state_summary()
+            
+            # 补充完整状态数据
+            full_data = {
+                "summary": state_summary,
+                "state": system_state_manager._state
+            }
+            
+            result = {
+                "timestamp": time.time(),
+                "datetime": time.strftime("%Y-%m-%d %H:%M:%S"),
+                "success": True,
+                "data": full_data
+            }
+            self.write(json.dumps(result, ensure_ascii=False))
+        except Exception as e:
+            error_result = {
+                "timestamp": time.time(),
+                "datetime": time.strftime("%Y-%m-%d %H:%M:%S"),
+                "success": False,
+                "error": str(e)
+            }
+            self.set_status(500)
+            self.write(json.dumps(error_result, ensure_ascii=False))
+
+
+class EventQueryHandler(RequestHandler):
+    """事件查询 API 端点"""
+
+    def set_default_headers(self):
+        """设置默认响应头"""
+        self.set_header("Content-Type", "application/json; charset=utf-8")
+        self.set_header("Access-Control-Allow-Origin", "*")
+        self.set_header("Access-Control-Allow-Methods", "GET, OPTIONS")
+        self.set_header("Access-Control-Allow-Headers", "Content-Type")
+
+    def options(self):
+        """处理OPTIONS请求"""
+        self.set_status(204)
+        self.finish()
+
+    def get(self):
+        """查询事件"""
+        try:
+            from deva.naja.events.query_interface import get_event_query, EventQuery, QueryCondition
+            event_query = get_event_query()
+            
+            if not event_query:
+                result = {
+                    "timestamp": time.time(),
+                    "success": False,
+                    "error": "事件查询接口未初始化"
+                }
+                self.write(json.dumps(result, ensure_ascii=False))
+                return
+            
+            # 获取查询参数
+            event_type = self.get_argument('event_type', None)
+            symbol = self.get_argument('symbol', None)
+            direction = self.get_argument('direction', None)
+            min_confidence = self.get_argument('min_confidence', None)
+            max_confidence = self.get_argument('max_confidence', None)
+            start_time = self.get_argument('start_time', None)
+            end_time = self.get_argument('end_time', None)
+            limit = int(self.get_argument('limit', 100))
+            offset = int(self.get_argument('offset', 0))
+            
+            # 构建查询条件
+            condition = QueryCondition(
+                event_type=event_type,
+                symbol=symbol,
+                direction=direction,
+                min_confidence=float(min_confidence) if min_confidence else None,
+                max_confidence=float(max_confidence) if max_confidence else None,
+                start_time=float(start_time) if start_time else None,
+                end_time=float(end_time) if end_time else None,
+                limit=limit,
+                offset=offset
+            )
+            
+            # 执行查询
+            events = event_query.query_events(condition)
+            
+            result = {
+                "timestamp": time.time(),
+                "datetime": time.strftime("%Y-%m-%d %H:%M:%S"),
+                "success": True,
+                "data": {
+                    "events": events,
+                    "count": len(events),
+                    "query": condition.to_dict()
+                }
+            }
+            self.write(json.dumps(result, ensure_ascii=False))
+        except Exception as e:
+            error_result = {
+                "timestamp": time.time(),
+                "datetime": time.strftime("%Y-%m-%d %H:%M:%S"),
+                "success": False,
+                "error": str(e)
+            }
+            self.set_status(500)
+            self.write(json.dumps(error_result, ensure_ascii=False))
+
+
+class EventStatsHandler(RequestHandler):
+    """事件统计 API 端点"""
+
+    def set_default_headers(self):
+        """设置默认响应头"""
+        self.set_header("Content-Type", "application/json; charset=utf-8")
+        self.set_header("Access-Control-Allow-Origin", "*")
+        self.set_header("Access-Control-Allow-Methods", "GET, OPTIONS")
+        self.set_header("Access-Control-Allow-Headers", "Content-Type")
+
+    def options(self):
+        """处理OPTIONS请求"""
+        self.set_status(204)
+        self.finish()
+
+    def get(self):
+        """获取事件统计"""
+        try:
+            from deva.naja.events.query_interface import get_event_query
+            event_query = get_event_query()
+            
+            if not event_query:
+                result = {
+                    "timestamp": time.time(),
+                    "success": False,
+                    "error": "事件查询接口未初始化"
+                }
+                self.write(json.dumps(result, ensure_ascii=False))
+                return
+            
+            event_type = self.get_argument('event_type', 'StrategySignalEvent')
+            days = int(self.get_argument('days', 30))
+            
+            stats = event_query.get_stats(event_type, days)
+            
+            result = {
+                "timestamp": time.time(),
+                "datetime": time.strftime("%Y-%m-%d %H:%M:%S"),
+                "success": True,
+                "data": {
+                    "event_type": event_type,
+                    "days": days,
+                    "stats": {
+                        "total_events": stats.total_events,
+                        "buy_signals": stats.buy_signals,
+                        "sell_signals": stats.sell_signals,
+                        "avg_confidence": stats.avg_confidence,
+                        "max_confidence": stats.max_confidence,
+                        "min_confidence": stats.min_confidence,
+                        "timeline": stats.timeline
+                    }
+                }
+            }
+            self.write(json.dumps(result, ensure_ascii=False))
+        except Exception as e:
+            error_result = {
+                "timestamp": time.time(),
+                "datetime": time.strftime("%Y-%m-%d %H:%M:%S"),
+                "success": False,
+                "error": str(e)
+            }
+            self.set_status(500)
+            self.write(json.dumps(error_result, ensure_ascii=False))
+
+
+class AppContainerStatusHandler(RequestHandler):
+    """应用容器状态 API 端点"""
+
+    def set_default_headers(self):
+        """设置默认响应头"""
+        self.set_header("Content-Type", "application/json; charset=utf-8")
+        self.set_header("Access-Control-Allow-Origin", "*")
+        self.set_header("Access-Control-Allow-Methods", "GET, OPTIONS")
+        self.set_header("Access-Control-Allow-Headers", "Content-Type")
+
+    def options(self):
+        """处理OPTIONS请求"""
+        self.set_status(204)
+        self.finish()
+
+    def get(self):
+        """获取应用容器状态"""
+        try:
+            from deva.naja.application.container import get_app_container
+            container = get_app_container()
+            
+            if not container:
+                result = {
+                    "timestamp": time.time(),
+                    "success": False,
+                    "error": "应用容器未初始化"
+                }
+                self.write(json.dumps(result, ensure_ascii=False))
+                return
+            
+            startup_report = container.startup_report()
+            
+            result = {
+                "timestamp": time.time(),
+                "datetime": time.strftime("%Y-%m-%d %H:%M:%S"),
+                "success": True,
+                "data": {
+                    "startup_report": startup_report,
+                    "components_assembled": container._components_assembled
+                }
+            }
+            self.write(json.dumps(result, ensure_ascii=False))
+        except Exception as e:
+            error_result = {
+                "timestamp": time.time(),
+                "datetime": time.strftime("%Y-%m-%d %H:%M:%S"),
+                "success": False,
+                "error": str(e)
+            }
+            self.set_status(500)
+            self.write(json.dumps(error_result, ensure_ascii=False))

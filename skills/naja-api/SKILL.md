@@ -18,6 +18,7 @@ description: 提供 naja 系统 API 端点的调用能力，方便用户通过 c
 - **Bandit 系统 API**: 决策统计（运行状态、当前阶段）
 - **数据源和策略 API**: 数据源列表、策略列表
 - **智慧系统 API**: 阿那亚觉醒状态
+- **数据结构 API**: 单例注册表状态、查询状态、系统状态、事件查询、事件统计、应用容器状态
 
 ## API 端点列表
 
@@ -90,6 +91,17 @@ description: 提供 naja 系统 API 端点的调用能力，方便用户通过 c
 | `/api/strategy/list` | GET | 获取策略列表 |
 | `/api/alaya/status` | GET | 获取阿那亚觉醒状态 |
 
+### 数据结构 API
+
+| 端点 | 方法 | 描述 |
+|------|------|------|
+| `/api/registry/status` | GET | 获取单例注册表状态 |
+| `/api/query/state` | GET | 获取查询状态（注意力焦点、市场状态、价值观等） |
+| `/api/system/state` | GET | 获取系统持久化状态 |
+| `/api/events/query` | GET | 查询历史事件（支持多种过滤条件） |
+| `/api/events/stats` | GET | 获取事件统计信息 |
+| `/api/app/container` | GET | 获取应用容器状态和启动报告 |
+
 ## 使用方法
 
 ### 1. 基本 curl 调用
@@ -109,6 +121,26 @@ curl -s http://localhost:8080/api/attention/manas/state | jq '.data'
 
 # 获取和谐度
 curl -s http://localhost:8080/api/attention/harmony | jq '.data'
+
+# 新添加的数据结构 API
+
+# 获取单例注册表状态
+curl -s http://localhost:8080/api/registry/status | jq '.data'
+
+# 获取查询状态
+curl -s http://localhost:8080/api/query/state | jq '.data'
+
+# 获取系统持久化状态
+curl -s http://localhost:8080/api/system/state | jq '.data'
+
+# 查询事件
+curl -s "http://localhost:8080/api/events/query?event_type=StrategySignalEvent&symbol=000001&days=7" | jq '.data'
+
+# 获取事件统计
+curl -s "http://localhost:8080/api/events/stats?event_type=StrategySignalEvent&days=30" | jq '.data'
+
+# 获取应用容器状态
+curl -s http://localhost:8080/api/app/container | jq '.data'
 ```
 
 ### 2. 带参数调用
@@ -147,6 +179,26 @@ python3 scripts/api_client.py system-status
 python3 scripts/api_client.py knowledge-list --status qualified
 python3 scripts/api_client.py manas-state
 python3 scripts/api_client.py harmony
+
+# 新添加的数据结构 API 命令
+
+# 获取单例注册表状态
+python3 scripts/api_client.py registry-status
+
+# 获取查询状态
+python3 scripts/api_client.py query-state
+
+# 获取系统状态
+python3 scripts/api_client.py system-state
+
+# 查询事件
+python3 scripts/api_client.py event-query --event-type StrategySignalEvent --symbol 000001 --days 7
+
+# 获取事件统计
+python3 scripts/api_client.py event-stats --event-type StrategySignalEvent --days 30
+
+# 获取应用容器状态
+python3 scripts/api_client.py app-container
 ```
 
 ## 响应格式
