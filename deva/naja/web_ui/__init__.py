@@ -10,13 +10,10 @@
   server.py   — 服务器启动 (run_server)
 """
 
-from .theme import get_request_theme, set_request_theme
 from .server import run_server
 from .routes import create_handlers
 
 __all__ = [
-    "get_request_theme",
-    "set_request_theme",
     "run_server",
     "create_handlers",
 ]

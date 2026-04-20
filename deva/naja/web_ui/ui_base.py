@@ -12,7 +12,6 @@ from pywebio.session import set_env, run_js, run_async
 from deva import NB
 from deva.naja.register import SR
 from ..config import get_auth_config, set_config, ensure_auth_secret, verify_auth
-from .theme import get_request_theme, set_request_theme
 from .styles import apply_global_styles
 
 
@@ -25,13 +24,8 @@ def create_nav_menu():
 
 
 async def init_naja_ui(title: str):
-    """初始化 UI（自动读取并设置主题）"""
+    """初始化 UI"""
     set_env(title=f"Naja - {title}", output_animation=False)
-
-    # 自动从浏览器 Cookie 读取主题并同步到服务端全局变量
-    theme = await get_current_theme()
-    if theme:
-        set_request_theme(theme)
 
     apply_global_styles()
     
@@ -129,21 +123,7 @@ async def init_naja_ui(title: str):
     put_text(f"Hello, {user['username']}. 欢迎光临 Naja 管理平台")
 
 
-async def get_current_theme() -> str:
-    """从浏览器 Cookie 读取当前主题，返回主题名称字符串。
 
-    如果读取失败或未设置，返回 None（不做 fallback，由调用方决定默认值）。
-    """
-    from pywebio.session import eval_js
-    try:
-        theme = await eval_js(
-            "document.cookie.includes('naja-theme=') "
-            "? document.cookie.split('naja-theme=')[1].split(';')[0] "
-            ": null"
-        )
-        return theme or None
-    except Exception:
-        return None
 
 
 def _ctx(globals_dict: dict = None):

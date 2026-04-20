@@ -1,19 +1,18 @@
-"""Naja 统一 UI 主题和导航模块
+"""Naja 统一 UI 导航模块
 
 提供统一的导航菜单和样式定义，确保所有 Tab 页面风格一致。
 
 主要功能：
 - 统一导航菜单配置
 - 全局页面样式
-- 多主题支持
 """
 
 from typing import List, Dict
 
-THEMES = {
-    "dark": {
-        "name": "🌙 暗夜紫",
-        "description": "紫色调的暗色主题",
+
+def get_current_theme_config() -> dict:
+    """获取当前主题配置字典（固定默认主题）"""
+    return {
         "header_gradient": "linear-gradient(135deg, #0f172a 0%, #1e293b 100%)",
         "header_border": "#334155",
         "header_accent": "#0ea5e9",
@@ -30,131 +29,7 @@ THEMES = {
         "accent_orange": "#fb923c",
         "accent_green": "#4ade80",
         "accent_yellow": "#fbbf24",
-    },
-    "midnight": {
-        "name": "🌌 午夜蓝",
-        "description": "蓝色调的深邃主题",
-        "header_gradient": "linear-gradient(135deg, #0c1929 0%, #1a365d 100%)",
-        "header_border": "#2d4a6f",
-        "header_accent": "#38bdf8",
-        "header_title": "#e2e8f0",
-        "header_subtitle": "#94a3b8",
-        "body_bg": "#0f172a",
-        "card_bg": "rgba(56, 189, 248, 0.05)",
-        "card_border": "rgba(56, 189, 248, 0.15)",
-        "card_title": "#64748b",
-        "card_text": "#475569",
-        "accent_blue": "#38bdf8",
-        "accent_purple": "#818cf8",
-        "accent_red": "#f87171",
-        "accent_orange": "#fb923c",
-        "accent_green": "#34d399",
-        "accent_yellow": "#fbbf24",
-    },
-    "forest": {
-        "name": "🌲 森林绿",
-        "description": "绿色调的自然主题",
-        "header_gradient": "linear-gradient(135deg, #022c22 0%, #064e3b 100%)",
-        "header_border": "#065f46",
-        "header_accent": "#10b981",
-        "header_title": "#ecfdf5",
-        "header_subtitle": "#a7f3d0",
-        "body_bg": "#064e3b",
-        "card_bg": "rgba(16, 185, 129, 0.08)",
-        "card_border": "rgba(16, 185, 129, 0.2)",
-        "card_title": "#6ee7b7",
-        "card_text": "#a7f3d0",
-        "accent_blue": "#38bdf8",
-        "accent_purple": "#a78bfa",
-        "accent_red": "#f87171",
-        "accent_orange": "#fb923c",
-        "accent_green": "#34d399",
-        "accent_yellow": "#fcd34d",
-    },
-    "sunset": {
-        "name": "🌅 落日橙",
-        "description": "暖色调的夕阳主题",
-        "header_gradient": "linear-gradient(135deg, #1c0a00 0%, #3d1c00 100%)",
-        "header_border": "#78350f",
-        "header_accent": "#f97316",
-        "header_title": "#fff7ed",
-        "header_subtitle": "#fed7aa",
-        "body_bg": "#3d1c00",
-        "card_bg": "rgba(249, 115, 22, 0.08)",
-        "card_border": "rgba(249, 115, 22, 0.2)",
-        "card_title": "#fdba74",
-        "card_text": "#fed7aa",
-        "accent_blue": "#38bdf8",
-        "accent_purple": "#c084fc",
-        "accent_red": "#ef4444",
-        "accent_orange": "#fb923c",
-        "accent_green": "#4ade80",
-        "accent_yellow": "#fbbf24",
-    },
-    "steel": {
-        "name": "⚙️ 钢铁灰",
-        "description": "冷灰色的工业主题",
-        "header_gradient": "linear-gradient(135deg, #18181b 0%, #27272a 100%)",
-        "header_border": "#3f3f46",
-        "header_accent": "#a1a1aa",
-        "header_title": "#fafafa",
-        "header_subtitle": "#a1a1aa",
-        "body_bg": "#09090b",
-        "card_bg": "rgba(161, 161, 170, 0.05)",
-        "card_border": "rgba(161, 161, 170, 0.15)",
-        "card_title": "#71717a",
-        "card_text": "#a1a1aa",
-        "accent_blue": "#60a5fa",
-        "accent_purple": "#a78bfa",
-        "accent_red": "#f87171",
-        "accent_orange": "#fb923c",
-        "accent_green": "#4ade80",
-        "accent_yellow": "#fbbf24",
-    },
-    "daylight": {
-        "name": "☀️ 白天",
-        "description": "清爽的浅色主题，适合白天使用",
-        "header_gradient": "linear-gradient(135deg, #e0f2fe 0%, #f0f9ff 100%)",
-        "header_border": "#bae6fd",
-        "header_accent": "#0ea5e9",
-        "header_title": "#0c4a6e",
-        "header_subtitle": "#0284c7",
-        "body_bg": "#e0f2fe",
-        "card_bg": "rgba(224, 242, 254, 0.7)",
-        "card_border": "rgba(14, 165, 233, 0.4)",
-        "card_title": "#0369a1",
-        "card_text": "#475569",
-        "accent_blue": "#0ea5e9",
-        "accent_purple": "#7c3aed",
-        "accent_red": "#dc2626",
-        "accent_orange": "#ea580c",
-        "accent_green": "#16a34a",
-        "accent_yellow": "#ca8a04",
-    },
-}
-
-_current_theme = "dark"
-
-
-def set_theme(theme_name: str):
-    """设置当前主题"""
-    global _current_theme
-    if theme_name in THEMES:
-        _current_theme = theme_name
-
-
-def get_current_theme_config() -> dict:
-    """获取当前主题配置字典（优先从请求上下文读取）
-
-    返回 THEMES 字典中的一个主题配置 dict，包含 header_gradient、body_bg 等键。
-    注意：与 web_ui.ui_base.get_current_theme() 不同，后者返回主题名称字符串。
-    """
-    global _current_theme
-    from deva.naja.web_ui import get_request_theme
-    theme_name = get_request_theme()
-    if theme_name and theme_name in THEMES:
-        return THEMES[theme_name]
-    return THEMES.get(_current_theme, THEMES["dark"])
+    }
 
 
 def get_nav_menu_items() -> List[Dict[str, str]]:
@@ -191,11 +66,6 @@ def get_nav_menu_js() -> str:
         f"{{name: '{item['name']}', path: '{item['path']}'}}"
         for item in menu_items
     ])
-
-    theme_options_json = []
-    for key, theme in THEMES.items():
-        theme_options_json.append(f'{{value: "{key}", label: "{theme["name"]}"}}')
-    theme_options_str = ",".join(theme_options_json)
 
     return f"""
 (function() {{
@@ -249,24 +119,6 @@ def get_nav_menu_js() -> str:
     nav.appendChild(menu);
     document.body.insertBefore(nav, document.body.firstChild);
     document.body.style.paddingTop = '56px';
-
-    var themePanel = document.createElement('div');
-    themePanel.id = 'theme-panel';
-    Object.assign(themePanel.style, {{
-        position: 'fixed', top: '70px', right: '20px', zIndex: '1000',
-        background: 'rgba(15, 23, 42, 0.95)', border: '1px solid #334155',
-        borderRadius: '10px', padding: '12px',
-        boxShadow: '0 4px 20px rgba(0,0,0,0.4)'
-    }});
-
-    var themeOptions = [{theme_options_str}];
-    var selectHtml = '<div style="font-size: 11px; color: #94a3b8; margin-bottom: 8px;">🎨 页面风格</div><select id="theme-select" onchange="window.switchTheme(this.value)" style="background: rgba(255,255,255,0.1); border: 1px solid #334155; border-radius: 6px; color: #f1f5f9; padding: 6px 10px; font-size: 12px; cursor: pointer; min-width: 120px;">';
-    themeOptions.forEach(function(opt) {{
-        selectHtml += '<option value="' + opt.value + '">' + opt.label + '</option>';
-    }});
-    selectHtml += '</select>';
-    themePanel.innerHTML = selectHtml;
-    document.body.appendChild(themePanel);
 }})();
     """
 
