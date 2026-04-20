@@ -112,8 +112,24 @@ def apply_global_styles():
             border-radius: 8px;
         }
 
-        .detail-title {
+        /* ── 全局基础字体设置 ── */
+        body {
             font-size: 16px;
+            line-height: 1.6;
+        }
+
+        /* 提高页面主要文本的可读性 */
+        .container {
+            font-size: 16px;
+        }
+
+        /* 确保表格字体也足够大 */
+        th, td {
+            font-size: 15px;
+        }
+
+        .detail-title {
+            font-size: 18px;
             font-weight: 600;
             color: var(--text-color);
             margin-bottom: 12px;

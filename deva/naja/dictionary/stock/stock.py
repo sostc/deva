@@ -98,7 +98,6 @@ def _get_tushare_basics():
 
     @classmethod
     def gen_render_basic(cls):
-        # Keep API compatibility while removing pytdx dependency.
         df = _build_em_industry_df()
         NB("naja")["basic_df"] = df
 

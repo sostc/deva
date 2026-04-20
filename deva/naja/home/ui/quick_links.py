@@ -56,15 +56,15 @@ def render_quick_links_panel(ctx: dict):
             </div>
 
             <div style="text-align: center;">
-                <a href="/system" style="text-decoration: none;">
+                <a href="/health" style="text-decoration: none;">
                     <div style="width: 75px; height: 75px; background: linear-gradient(135deg, #0ea5e9 0%, #38bdf8 100%); border-radius: 50%; display: flex; align-items: center; justify-content: center; box-shadow: 0 5px 18px rgba(14,165,233,0.35); cursor: pointer;">
                         <div>
-                            <div style="font-size: 22px;">🛠️</div>
-                            <div style="color: #fff; font-size: 10px; font-weight: 600;">系统</div>
+                            <div style="font-size: 22px;">🩺</div>
+                            <div style="color: #fff; font-size: 10px; font-weight: 600;">健康</div>
                         </div>
                     </div>
                 </a>
-                <div style="color: #aaa; font-size: 11px; margin-top: 8px;">系统监控</div>
+                <div style="color: #aaa; font-size: 11px; margin-top: 8px;">系统健康</div>
             </div>
         </div>
     </div>

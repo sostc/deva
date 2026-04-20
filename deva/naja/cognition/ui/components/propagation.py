@@ -4,28 +4,55 @@ Propagation 组件
 
 
 def render_propagation(ui):
-    if not ui.engine:
-        return
+    from pywebio.output import put_html
+
+    # --- 获取数据 ---
+    has_data = False
+    propagation_engine = None
+    structure = None
+    resonance_signals = None
+    pred_stats = None
+    active_preds = None
 
     try:
         newsmind = getattr(ui.engine, '_news_mind', None)
-        if not newsmind:
-            return
-        propagation_engine = getattr(newsmind, 'propagation_engine', None)
-        if not propagation_engine:
-            return
+        if newsmind:
+            propagation_engine = getattr(newsmind, 'propagation_engine', None)
     except Exception:
-        return
+        pass
 
-    from pywebio.output import put_html
+    if propagation_engine:
+        try:
+            structure = propagation_engine.get_liquidity_structure()
+            if "error" not in structure:
+                active_markets = structure.get("active_markets", [])
+                has_data = len(active_markets) > 0
 
-    structure = propagation_engine.get_liquidity_structure()
-    if "error" in structure:
-        return
+            resonance_signals = propagation_engine.get_resonance_signals()
+            if resonance_signals and len(resonance_signals) > 0:
+                has_data = True
+        except Exception:
+            pass
 
-    active_markets = structure.get("active_markets", [])
-    markets = structure.get("markets", {})
-    edges = structure.get("edges", {})
+    # 尝试获取预测数据
+    try:
+        if ui.engine:
+            pred_stats = ui.engine.get_liquidity_stats()
+            active_preds = ui.engine.get_liquidity_predictions()
+            if pred_stats:
+                active_cnt = pred_stats.get("active_count", 0)
+                confirmed_cnt = pred_stats.get("total_confirmed", 0)
+                if active_cnt > 0 or confirmed_cnt > 0:
+                    has_data = True
+    except Exception:
+        pass
+
+    # --- 头部始终显示 ---
+    active_markets_count = 0
+    edges_count = 0
+    if structure and "error" not in structure:
+        active_markets_count = len(structure.get("active_markets", []))
+        edges_count = len(structure.get("edges", {}))
 
     put_html(f"""
     <div style="
@@ -40,7 +67,7 @@ def render_propagation(ui):
                 🌐 全球流动性传播网络
             </div>
             <div style="font-size: 10px; color: #64748b;">
-                {len(active_markets)} 个活跃市场 | {len(edges)} 条传播路径
+                {active_markets_count} 个活跃市场 · {edges_count} 条传播路径
             </div>
         </div>
         <div style="font-size: 11px; color: #475569; margin-bottom: 14px;">
@@ -48,18 +75,40 @@ def render_propagation(ui):
         </div>
     """)
 
-    if not active_markets:
+    # --- 无数据状态 ---
+    if not propagation_engine:
         put_html("""
-        <div style="text-align: center; padding: 20px; color: #64748b; font-size: 12px;">
-            暂无活跃市场变化，等待数据流入...
+        <div style="text-align: center; padding: 24px 16px;">
+            <div style="font-size: 32px; margin-bottom: 12px;">🌐</div>
+            <div style="font-size: 12px; color: #64748b; margin-bottom: 8px;">传播引擎未就绪</div>
+            <div style="font-size: 10px; color: #475569;">等待系统初始化，将在此展示全球流动性传播网络和共振信号</div>
         </div>
         """)
-    else:
+        put_html('</div>')
+        return
+
+    if not has_data:
+        put_html("""
+        <div style="text-align: center; padding: 24px 16px;">
+            <div style="font-size: 32px; margin-bottom: 12px;">⏳</div>
+            <div style="font-size: 12px; color: #64748b; margin-bottom: 8px;">暂无活跃市场变化</div>
+            <div style="font-size: 10px; color: #475569;">系统正在监控全球市场流动性，检测到异动将立即展示</div>
+        </div>
+        """)
+        put_html('</div>')
+        return
+
+    # --- 有数据时渲染内容 ---
+    active_markets = structure.get("active_markets", [])
+    markets = structure.get("markets", {})
+    edges = structure.get("edges", {})
+
+    if active_markets:
         put_html(f"""
         <div style="margin-bottom: 14px;">
             <div style="font-size: 11px; color: #64748b; margin-bottom: 8px;">活跃市场 ({len(active_markets)})</div>
             <div style="display: flex; flex-wrap: wrap; gap: 6px;">
-            """)
+        """)
         for market_id in active_markets[:8]:
             m_info = markets.get(market_id, {})
             m_name = m_info.get("name", market_id)
@@ -97,7 +146,7 @@ def render_propagation(ui):
         <div style="margin-bottom: 14px;">
             <div style="font-size: 11px; color: #64748b; margin-bottom: 8px;">活跃传播路径</div>
             <div style="display: flex; flex-direction: column; gap: 6px;">
-            """)
+        """)
         for edge_key, e_info in sorted(edges.items(), key=lambda x: -x[1].get("current_weight", 0))[:5]:
             from_m = e_info.get("from_market", "")
             to_m = e_info.get("to_market", "")
@@ -129,13 +178,12 @@ def render_propagation(ui):
             """)
         put_html("</div></div>")
 
-    resonance_signals = propagation_engine.get_resonance_signals()
     if resonance_signals:
         put_html("""
-        <div>
+        <div style="margin-bottom: 14px;">
             <div style="font-size: 11px; color: #64748b; margin-bottom: 8px;">共振信号</div>
             <div style="display: flex; flex-direction: column; gap: 4px;">
-            """)
+        """)
         for sig in resonance_signals[:3]:
             name = sig.get("name", "")
             change = sig.get("change", 0)
@@ -158,15 +206,9 @@ def render_propagation(ui):
             """)
         put_html("</div></div>")
 
-    # === 预测闭环区域（通过CognitionEngine公共API获取数据）===
-    try:
+    # === 预测闭环区域 ===
+    if pred_stats:
         import time as _time
-
-        if not ui.engine:
-            raise ValueError("ui.engine is None")
-
-        pred_stats = ui.engine.get_liquidity_stats()
-        active_preds = ui.engine.get_liquidity_predictions()
 
         active_cnt = pred_stats.get("active_count", 0)
         confirmed_cnt = pred_stats.get("total_confirmed", 0)
@@ -178,7 +220,7 @@ def render_propagation(ui):
         rate_color = "#22c55e" if pred_rate >= 0.7 else ("#f59e0b" if pred_rate >= 0.5 else "#ef4444")
 
         put_html(f"""
-        <div style="margin-top: 14px; padding-top: 12px; border-top: 1px solid rgba(255,255,255,0.06);">
+        <div style="padding-top: 12px; border-top: 1px solid rgba(255,255,255,0.06);">
             <div style="font-size: 11px; color: #94a3b8; margin-bottom: 8px; font-weight: 500;">
                 🔮 预测闭环 <span style="font-size: 10px; color: #475569;">准确率 <span style="color: {rate_color}; font-weight: 600;">{rate_pct}%</span></span>
             </div>
@@ -223,7 +265,7 @@ def render_propagation(ui):
                     time_str = f"{int(remaining)}s"
 
                 put_html(f"""
-                <div style="display: flex; justify-content: space-between; align-items: center; padding: 3px 0; font-size: 10px; border-bottom: 1px solid rgba(255,255,255,0.03);">
+                <div style="display: flex; justify-content: space-between; align-items: center; padding: 3px 0; font-size: 10px; border-bottom: 1px solid rgba(255,255,255,0.04);">
                     <span style="color: #f1f5f9;">{from_m} → {to_m}</span>
                     <span style="color: #94a3b8;">{dir_icon}</span>
                     <span style="color: #f59e0b;">{prob_pct}%</span>
@@ -232,7 +274,5 @@ def render_propagation(ui):
                 """)
 
         put_html("</div>")
-    except Exception:
-        pass
 
     put_html('</div>')

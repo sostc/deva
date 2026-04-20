@@ -216,9 +216,9 @@ async def tuningadmin():
 
 
 async def system_page():
-    """系统页面（原 system/ui.py 已内联）"""
-    ctx = _ctx()
-    await _render_system_page(ctx)
+    """系统页面 - 重定向到健康监控仪表盘"""
+    from deva.naja.infra.observability.health_ui import health_dashboard_page
+    await health_dashboard_page()
 
 
 async def _render_system_page(ctx: dict):
@@ -468,4 +468,208 @@ async def supplychain_page():
 
     from deva.naja.attention.ui.supply_chain import render_supply_chain_knowledge_graph_page
     render_supply_chain_knowledge_graph_page()
+
+
+async def api_explorer():
+    """API浏览器页面"""
+    ctx = _ctx()
+    await ctx["init_naja_ui"]("API浏览器")
+    
+    api_endpoints = [
+        # 核心API
+        {"name": "健康检查", "path": "/api/health", "method": "GET", "description": "系统健康状态"},
+        {"name": "市场热点", "path": "/api/hotspot", "method": "GET", "description": "市场热点数据"},
+        {"name": "知识操作", "path": "/api/knowledge/action", "method": "POST", "description": "知识操作接口"},
+        
+        # 认知相关API
+        {"name": "认知记忆", "path": "/api/cognition/memory", "method": "GET", "description": "认知记忆数据"},
+        {"name": "认知主题", "path": "/api/cognition/topics", "method": "GET", "description": "认知主题数据"},
+        {"name": "认知注意力", "path": "/api/cognition/attention", "method": "GET", "description": "认知注意力数据"},
+        {"name": "认知思考", "path": "/api/cognition/thought", "method": "GET", "description": "认知思考数据"},
+        
+        # 市场相关API
+        {"name": "市场状态", "path": "/api/market/state", "method": "GET", "description": "市场状态数据"},
+        {"name": "热点详情", "path": "/api/market/hotspot/details", "method": "GET", "description": "热点详情数据"},
+        {"name": "市场热点API", "path": "/api/market/hotspot", "method": "GET", "description": "市场热点API数据"},
+        
+        # 系统相关API
+        {"name": "系统状态", "path": "/api/system/status", "method": "GET", "description": "系统状态数据"},
+        {"name": "系统模块", "path": "/api/system/modules", "method": "GET", "description": "系统模块数据"},
+        
+        # 雷达相关API
+        {"name": "雷达事件", "path": "/api/radar/events", "method": "GET", "description": "雷达事件数据"},
+        
+        # Bandit相关API
+        {"name": "Bandit统计", "path": "/api/bandit/stats", "method": "GET", "description": "Bandit统计数据"},
+        
+        # 知识相关API
+        {"name": "知识列表", "path": "/api/knowledge/list", "method": "GET", "description": "知识列表数据"},
+        {"name": "知识统计", "path": "/api/knowledge/stats", "method": "GET", "description": "知识统计数据"},
+        {"name": "知识详情", "path": "/api/knowledge/detail", "method": "GET", "description": "知识详情数据"},
+        {"name": "知识交易", "path": "/api/knowledge/trading", "method": "GET", "description": "知识交易数据"},
+        
+        # 数据源和策略API
+        {"name": "数据源列表", "path": "/api/datasource/list", "method": "GET", "description": "数据源列表数据"},
+        {"name": "策略列表", "path": "/api/strategy/list", "method": "GET", "description": "策略列表数据"},
+        
+        # Alaya状态API
+        {"name": "Alaya状态", "path": "/api/alaya/status", "method": "GET", "description": "Alaya状态数据"},
+        
+        # 注意力相关API
+        {"name": "Manas状态", "path": "/api/attention/manas/state", "method": "GET", "description": "Manas状态数据"},
+        {"name": "和谐度", "path": "/api/attention/harmony", "method": "GET", "description": "和谐度数据"},
+        {"name": "决策", "path": "/api/attention/decision", "method": "GET", "description": "决策数据"},
+        {"name": "信念", "path": "/api/attention/conviction", "method": "GET", "description": "信念数据"},
+        {"name": "信念时机", "path": "/api/attention/conviction/timing", "method": "GET", "description": "信念时机数据"},
+        {"name": "信念添加", "path": "/api/attention/conviction/should-add", "method": "GET", "description": "信念添加数据"},
+        {"name": "组合摘要", "path": "/api/attention/portfolio/summary", "method": "GET", "description": "组合摘要数据"},
+        {"name": "持仓指标", "path": "/api/attention/position/metrics", "method": "GET", "description": "持仓指标数据"},
+        {"name": "追踪热点", "path": "/api/attention/tracking/hotspot", "method": "GET", "description": "追踪热点数据"},
+        {"name": "追踪统计", "path": "/api/attention/tracking/stats", "method": "GET", "description": "追踪统计数据"},
+        {"name": "盲点", "path": "/api/attention/blind-spots", "method": "GET", "description": "盲点数据"},
+        {"name": "融合", "path": "/api/attention/fusion", "method": "GET", "description": "融合数据"},
+        {"name": "焦点", "path": "/api/attention/focus", "method": "GET", "description": "焦点数据"},
+        {"name": "叙事板块矩阵", "path": "/api/attention/narrative-block-matrix", "method": "GET", "description": "叙事板块矩阵数据"},
+        {"name": "注意力报告", "path": "/api/attention/report", "method": "GET", "description": "注意力报告数据"},
+        {"name": "实验室状态", "path": "/api/attention/lab/status", "method": "GET", "description": "实验室状态数据"},
+        {"name": "流动性", "path": "/api/attention/liquidity", "method": "GET", "description": "流动性数据"},
+        {"name": "策略顶级符号", "path": "/api/attention/strategy/top-symbols", "method": "GET", "description": "策略顶级符号数据"},
+        {"name": "策略顶级板块", "path": "/api/attention/strategy/top-blocks", "method": "GET", "description": "策略顶级板块数据"},
+        {"name": "注意力上下文", "path": "/api/attention/context", "method": "GET", "description": "注意力上下文数据"},
+    ]
+    
+    html = """
+    <div style="padding: 20px; max-width: 1200px; margin: 0 auto;">
+        <h1 style="color: #e2e8f0; margin-bottom: 20px;">API浏览器</h1>
+        <p style="color: #94a3b8; margin-bottom: 30px;">点击下方API端点进行测试，查看响应结果</p>
+        
+        <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 15px;">
+    """
+    
+    for i, endpoint in enumerate(api_endpoints):
+        endpoint_id = f"endpoint-{i}"
+        html += f"""
+            <div style="background: #1e293b; border-radius: 8px; padding: 15px; border: 1px solid #334155; transition: all 0.3s ease;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                    <h3 style="color: #f8fafc; margin: 0; font-size: 16px;">{endpoint['name']}</h3>
+                    <span style="background: #3b82f6; color: white; padding: 2px 8px; border-radius: 12px; font-size: 12px;">{endpoint['method']}</span>
+                </div>
+                <div style="color: #94a3b8; font-size: 14px; margin-bottom: 10px; word-break: break-all;">{endpoint['path']}</div>
+                <div style="color: #cbd5e1; font-size: 12px; margin-bottom: 15px; line-height: 1.4;">{endpoint['description']}</div>
+                <button onclick="testApi('{endpoint_id}', '{endpoint['path']}', '{endpoint['method']}')" 
+                        style="background: #3b82f6; color: white; border: none; padding: 8px 16px; border-radius: 6px; cursor: pointer; font-size: 14px; transition: background 0.2s ease;">
+                    测试
+                </button>
+                <div id="{endpoint_id}-response" style="margin-top: 15px; padding: 15px; background: #111111; border-radius: 6px; border: 1px solid #444444; display: none;">
+                    <pre id="{endpoint_id}-content" style="background: #111111; color: #00ff88; margin: 0; padding: 0; overflow-x: auto; max-height: 400px; white-space: pre-wrap; font-size: 16px; line-height: 1.6; font-family: 'Courier New', monospace;"></pre>
+                </div>
+            </div>
+        """
+    
+    html += """
+        </div>
+    </div>
+    
+    <script>
+        function testApi(endpointId, path, method) {
+            const responseDiv = document.getElementById(endpointId + '-response');
+            const contentDiv = document.getElementById(endpointId + '-content');
+            
+            responseDiv.style.display = 'block';
+            contentDiv.textContent = '测试中...';
+            
+            fetch(path, {
+                method: method
+            })
+            .then(response => response.json())
+            .then(data => {
+                contentDiv.textContent = JSON.stringify(data, null, 2);
+            })
+            .catch(error => {
+                contentDiv.textContent = '错误: ' + error.message;
+            });
+        }
+    </script>
+    """
+    
+    put_html(html)
+
+
+async def health_page():
+    """系统健康监控仪表盘"""
+    from deva.naja.infra.observability.health_ui import health_dashboard_page
+    await health_dashboard_page()
+
+
+async def devtools_page():
+    """开发者工具页面"""
+    from deva.naja.web_ui.ui_base import _ctx
+    ctx = _ctx()
+    await ctx["init_naja_ui"]("开发者工具")
+    
+    dev_tools = {
+        "数据管理": [
+            {"name": "🗃️ 数据源", "path": "/dsadmin", "desc": "数据源管理"},
+            {"name": "📖 字典", "path": "/dictadmin", "desc": "字典管理"},
+            {"name": "🗄️ 数据表", "path": "/tableadmin", "desc": "数据表管理"},
+        ],
+        "策略与交易": [
+            {"name": "⏱️ 任务", "path": "/taskadmin", "desc": "任务管理"},
+            {"name": "🎯 策略", "path": "/strategyadmin", "desc": "策略管理"},
+            {"name": "🤖 LLM", "path": "/llmadmin", "desc": "LLM 调节"},
+            {"name": "🎰 Bandit", "path": "/banditadmin", "desc": "Bandit 自适应交易"},
+        ],
+        "系统监控": [
+            {"name": "🩺 健康", "path": "/health", "desc": "系统健康监控"},
+            {"name": "🎛️ 调优监控", "path": "/tuningadmin", "desc": "全局调优监控"},
+        ],
+        "开发调试": [
+            {"name": "💾 持久化", "path": "/runtime_state", "desc": "运行时状态"},
+            {"name": "🌐 API浏览器", "path": "/api_explorer", "desc": "API 端点测试"},
+            {"name": "🔧 配置", "path": "/configadmin", "desc": "配置管理"},
+            {"name": "🧿 灵魂", "path": "/souladmin", "desc": "灵魂管理"},
+        ],
+    }
+    
+    html = """
+    <div style="padding: 24px; max-width: 1200px; margin: 0 auto;">
+        <h1 style="color: #e2e8f0; margin-bottom: 8px; font-size: 28px;">🛠️ 开发者工具</h1>
+        <p style="color: #94a3b8; margin-bottom: 32px; font-size: 15px;">系统开发、调试、管理工具集合</p>
+    """
+    
+    for category, tools in dev_tools.items():
+        html += f"""
+        <div style="margin-bottom: 32px;">
+            <h2 style="color: #e2e8f0; font-size: 18px; font-weight: 600; margin-bottom: 16px; padding-bottom: 8px; border-bottom: 1px solid #334155;">{category}</h2>
+            <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px;">
+        """
+        
+        for tool in tools:
+            html += f"""
+                <a href="{tool['path']}" class="tool-card" style="display: block; background: #1e293b; border-radius: 10px; padding: 16px; border: 1px solid #334155; text-decoration: none; transition: all 0.2s ease;">
+                    <div style="font-size: 16px; color: #e2e8f0; font-weight: 600; margin-bottom: 4px;">{tool['name']}</div>
+                    <div style="font-size: 12px; color: #94a3b8;">{tool['desc']}</div>
+                </a>
+            """
+        
+        html += """
+            </div>
+        </div>
+        """
+    
+    html += """
+    </div>
+    
+    <style>
+        .tool-card:hover {
+            border-color: #60a5fa !important;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(96, 165, 250, 0.15);
+            background: #233044;
+        }
+    </style>
+    """
+    
+    from pywebio.output import put_html
+    put_html(html)
 

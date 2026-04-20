@@ -50,8 +50,13 @@ class CognitionUI:
         self._put_html('<div class="container">')
 
         render_cognition_summary(self)
-        render_supply_chain(self)
         render_event_bus(self)
+        render_semantic(self)
+        render_insight(self)
+        render_storage(self)
+        render_merrill_clock(self)
+        render_cross_signal(self)
+        render_token_monitor(self)
 
         self._put_html("""
         <div style="
@@ -64,7 +69,7 @@ class CognitionUI:
             <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px;">
                 <div style="display: flex; align-items: center; gap: 8px;">
                     <span style="font-size: 18px;">📖</span>
-                    <span style="font-size: 14px; font-weight: 600; color: #a78bfa;">叙事追踪</span>
+                    <span style="font-size: 14px; font-weight: 600; color: #a78bfa;">深度分析</span>
                 </div>
                 <a href="/narrative" style="
                     background: linear-gradient(135deg, #6366f1, #8b5cf6);
@@ -73,25 +78,20 @@ class CognitionUI:
                     border-radius: 6px;
                     font-size: 12px;
                     text-decoration: none;
-                ">查看详情 →</a>
+                ">叙事追踪 →</a>
             </div>
             <div style="font-size: 12px; color: #94a3b8;">
-                外部新闻叙事追踪 · 时机感知 · 供应链联动
+                供应链 · 叙事价值 · 流动性 · 因果推理 · 软信息
             </div>
         </div>
         """)
 
+        render_supply_chain(self)
         render_narrative_value(self)
-        render_merrill_clock(self)
         render_propagation(self)
         render_liquidity_prediction(self)
-        render_cross_signal(self)
         render_first_principles(self)
-        render_semantic(self)
-        render_insight(self)
         render_soft_info(self)
-        render_storage(self)
-        render_token_monitor(self)
         render_control_panel(self)
         render_help(self)
 

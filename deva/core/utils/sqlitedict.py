@@ -36,63 +36,23 @@ import traceback
 import dill
 
 from threading import Thread
+from collections import UserDict as DictClass
+from queue import Queue, Empty as QueueEmpty
+import time
 
 try:
     __version__ = __import__('pkg_resources').get_distribution('sqlitedict').version
 except:
     __version__ = '?'
 
-major_version = sys.version_info[0]
-if major_version < 3:  # py <= 2.x
-    if sys.version_info[1] < 5:  # py <= 2.4
-        raise ImportError(
-            "sqlitedict requires python 2.5 or higher (python 3.3 or higher supported)")
+def reraise(tp, value, tb=None):
+    if value is None:
+        value = tp()
+    if value.__traceback__ is not tb:
+        raise value.with_traceback(tb)
+    raise value
 
-    # necessary to use exec()_ as this would be a SyntaxError in python3.
-    # this is an exact port of six.reraise():
-    def exec_(_code_, _globs_=None, _locs_=None):
-        """Execute code in a namespace."""
-        if _globs_ is None:
-            frame = sys._getframe(1)
-            _globs_ = frame.f_globals
-            if _locs_ is None:
-                _locs_ = frame.f_locals
-            del frame
-        elif _locs_ is None:
-            _locs_ = _globs_
-        exec("""exec _code_ in _globs_, _locs_""")
-
-    exec_("def reraise(tp, value, tb=None):\n"
-          "    raise tp, value, tb\n")
-else:
-    def reraise(tp, value, tb=None):
-        if value is None:
-            value = tp()
-        if value.__traceback__ is not tb:
-            raise value.with_traceback(tb)
-        raise value
-
-try:
-    from cPickle import dumps, loads, HIGHEST_PROTOCOL as PICKLE_PROTOCOL # type: ignore
-except ImportError:
-    from pickle import dumps, loads, HIGHEST_PROTOCOL as PICKLE_PROTOCOL
-
-# some Python 3 vs 2 imports
-try:
-    from collections import UserDict as DictClass
-except ImportError:
-    from UserDict import DictMixin as DictClass # type: ignore
-
-try:
-    from queue import Queue, Empty as QueueEmpty
-except ImportError:
-    from Queue import Queue, Empty as QueueEmpty # type: ignore
-
-# Python 3 compatibility
-try:
-    import time
-except ImportError:
-    time = None
+from pickle import dumps, loads, HIGHEST_PROTOCOL as PICKLE_PROTOCOL
 
 
 logger = logging.getLogger(__name__)
@@ -238,15 +198,15 @@ class SqliteDict(DictClass):
 
     def keys(self):
         """返回所有键"""
-        return self.iterkeys() if major_version > 2 else list(self.iterkeys())
+        return list(self.iterkeys())
 
     def values(self):
         """返回所有值"""
-        return self.itervalues() if major_version > 2 else list(self.itervalues())
+        return list(self.itervalues())
 
     def items(self):
         """返回所有键值对"""
-        return self.iteritems() if major_version > 2 else list(self.iteritems())
+        return list(self.iteritems())
 
     def __contains__(self, key):
         """判断键是否存在"""
@@ -393,10 +353,6 @@ class SqliteDict(DictClass):
             # 记录未知异常但不重新抛出，避免干扰垃圾回收
             logger.error(f"Unexpected error in destructor: {e}")
 
-# Adding extra methods for python 2 compatibility (at import time)
-if major_version == 2:
-    SqliteDict.__nonzero__ = SqliteDict.__bool__
-    del SqliteDict.__bool__  # not needed and confusing
 # endclass SqliteDict
 
 
@@ -410,7 +366,7 @@ class SqliteMultithread(Thread):
     """
 
     def __init__(self, filename, autocommit, journal_mode):
-        super(SqliteMultithread, self).__init__()
+        super().__init__()
         self.filename = filename
         self.autocommit = autocommit
         self.journal_mode = journal_mode
