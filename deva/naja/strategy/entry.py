@@ -433,12 +433,8 @@ class StrategyEntry(RecoverableUnit):
             runtime.on_data(actual_data)
             return runtime.get_signal()
         
-        # Try calling with context first, then fallback to data only
-        try:
-            result = self._compiled_func(actual_data, context)
-        except TypeError:
-            # Fallback to data only for backward compatibility
-            result = self._compiled_func(actual_data)
+        # Call with context
+        result = self._compiled_func(actual_data, context)
             
         if asyncio.iscoroutine(result):
             try:
@@ -486,10 +482,7 @@ class StrategyEntry(RecoverableUnit):
                 runtime.on_data(buffer_copy)
                 result = runtime.get_signal()
             else:
-                try:
-                    result = self._compiled_func(buffer_copy, context)
-                except TypeError:
-                    result = self._compiled_func(buffer_copy)
+                result = self._compiled_func(buffer_copy, context)
 
             if asyncio.iscoroutine(result):
                 try:
@@ -541,10 +534,7 @@ class StrategyEntry(RecoverableUnit):
                 runtime.on_data(buffer_copy)
                 result = runtime.get_signal()
             else:
-                try:
-                    result = self._compiled_func(buffer_copy, context)
-                except TypeError:
-                    result = self._compiled_func(buffer_copy)
+                result = self._compiled_func(buffer_copy, context)
 
             if asyncio.iscoroutine(result):
                 try:
@@ -581,10 +571,7 @@ class StrategyEntry(RecoverableUnit):
                 runtime.on_data(buffer_copy)
                 result = runtime.get_signal()
             else:
-                try:
-                    result = self._compiled_func(buffer_copy, context)
-                except TypeError:
-                    result = self._compiled_func(buffer_copy)
+                result = self._compiled_func(buffer_copy, context)
 
             if asyncio.iscoroutine(result):
                 try:

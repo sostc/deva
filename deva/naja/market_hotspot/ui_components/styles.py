@@ -139,13 +139,13 @@ def card_style(
 def status_badge_style(
     bg: str,
     color: str,
-    font_size: str = "11px",
+    font_size: str = "13px",
     extra: str = "",
 ) -> str:
     """生成状态徽章样式"""
     parts = [
         f"display: inline-block",
-        f"padding: 2px 8px",
+        f"padding: 4px 10px",
         f"border-radius: {RADIUS_FULL}",
         f"background: {bg}",
         f"color: {color}",
@@ -182,9 +182,9 @@ def info_panel_style(
     border_color: str,
     text_color: str,
     radius: str = RADIUS_LG,
-    padding: str = "12px 14px",
+    padding: str = "14px 16px",
     margin_bottom: str = "14px",
-    font_size: str = "13px",
+    font_size: str = "15px",
 ) -> str:
     """信息提示面板样式（成功/警告/信息/错误）"""
     return (
@@ -255,7 +255,7 @@ def format_market_line(label: str, info: Dict[str, Any], *, html: bool = False) 
         color = COLOR_SUCCESS if phase_name in ('交易中', '集合竞价') else COLOR_WARNING
         return (
             f'<span style="color:{color};font-weight:bold;">{label}:</span> '
-            f'<span style="font-size:11px;">{phase_name}{next_info}</span>'
+            f'<span style="font-size:14px;">{phase_name}{next_info}</span>'
         )
     else:
         if info.get('phase') == 'closed' and next_time:

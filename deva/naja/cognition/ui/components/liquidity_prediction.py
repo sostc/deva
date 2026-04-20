@@ -9,42 +9,45 @@ import time
 
 
 def render_liquidity_prediction(ui):
-    try:
-        if not ui.engine:
-            return
-        stats = ui.engine.get_liquidity_stats()
-        active_predictions = ui.engine.get_liquidity_predictions()
-    except Exception:
-        return
-
     from pywebio.output import put_html
 
-    if not stats:
-        return
+    # --- 获取数据 ---
+    has_data = False
+    stats = None
+    active_predictions = None
 
-    total_created = stats.get("total_created", 0)
-    total_confirmed = stats.get("total_confirmed", 0)
-    total_denied = stats.get("total_denied", 0)
-    total_cancelled = stats.get("total_cancelled", 0)
-    active_count = stats.get("active_count", 0)
-    total_predictions = stats.get("total_predictions", 0)
-    accuracy = stats.get("prediction_rate", 0.5)
+    try:
+        if ui.engine:
+            stats = ui.engine.get_liquidity_stats()
+            active_predictions = ui.engine.get_liquidity_predictions()
 
-    # --- 准确率颜色 ---
-    accuracy_pct = int(accuracy * 100)
-    if accuracy >= 0.7:
-        acc_color = "#22c55e"
-        acc_label = "优秀"
-    elif accuracy >= 0.5:
-        acc_color = "#f59e0b"
-        acc_label = "一般"
-    else:
-        acc_color = "#ef4444"
-        acc_label = "较差"
+            if stats:
+                total_created = stats.get("total_created", 0)
+                total_confirmed = stats.get("total_confirmed", 0)
+                total_denied = stats.get("total_denied", 0)
+                total_cancelled = stats.get("total_cancelled", 0)
+                active_count = stats.get("active_count", 0)
+                has_data = (total_created > 0 or active_count > 0)
+    except Exception:
+        pass
 
-    # === 渲染 ===
+    # --- 头部始终显示 ---
+    accuracy_pct = 50
+    acc_color = "#94a3b8"
+    acc_label = "等待数据"
+    if stats:
+        accuracy = stats.get("prediction_rate", 0.5)
+        accuracy_pct = int(accuracy * 100)
+        if accuracy >= 0.7:
+            acc_color = "#22c55e"
+            acc_label = "优秀"
+        elif accuracy >= 0.5:
+            acc_color = "#f59e0b"
+            acc_label = "一般"
+        else:
+            acc_color = "#ef4444"
+            acc_label = "较差"
 
-    # 头部
     put_html(f"""
     <div style="
         margin-bottom: 12px;
@@ -66,6 +69,38 @@ def render_liquidity_prediction(ui):
         </div>
     """)
 
+    # --- 无数据状态 ---
+    if not stats:
+        put_html("""
+        <div style="text-align: center; padding: 24px 16px;">
+            <div style="font-size: 32px; margin-bottom: 12px;">🔮</div>
+            <div style="font-size: 12px; color: #64748b; margin-bottom: 8px;">预测引擎未就绪</div>
+            <div style="font-size: 10px; color: #475569;">等待系统初始化，将在此展示流动性预测闭环和验证结果</div>
+        </div>
+        """)
+        put_html('</div>')
+        return
+
+    if not has_data:
+        put_html("""
+        <div style="text-align: center; padding: 24px 16px;">
+            <div style="font-size: 32px; margin-bottom: 12px;">⏳</div>
+            <div style="font-size: 12px; color: #64748b; margin-bottom: 8px;">暂无预测数据</div>
+            <div style="font-size: 10px; color: #475569;">系统正在学习市场模式，生成预测后将在此展示</div>
+        </div>
+        """)
+        put_html('</div>')
+        return
+
+    # --- 有数据时渲染内容 ---
+    total_created = stats.get("total_created", 0)
+    total_confirmed = stats.get("total_confirmed", 0)
+    total_denied = stats.get("total_denied", 0)
+    total_cancelled = stats.get("total_cancelled", 0)
+    active_count = stats.get("active_count", 0)
+    total_predictions = stats.get("total_predictions", 0)
+    accuracy = stats.get("prediction_rate", 0.5)
+
     # 统计卡片
     status_cards = [
         ("⏳ 活跃", active_count, "#3b82f6"),
@@ -77,9 +112,9 @@ def render_liquidity_prediction(ui):
     cards_html = ""
     for label, count, color in status_cards:
         cards_html += f"""
-        <div style="background: rgba({_hex_to_rgb(color)},0.1); border: 1px solid rgba({_hex_to_rgb(color)},0.2); padding: 8px 10px; border-radius: 8px; text-align: center;">
+        <div style="background: {color}20; border: 1px solid {color}33; padding: 8px 10px; border-radius: 8px; text-align: center;">
             <div style="font-size: 16px; color: {color}; font-weight: 700;">{count}</div>
-            <div style="font-size: 9px; color: #94a3b8;">{label}</div>
+            <div style="font-size: 8px; color: #94a3b8;">{label}</div>
         </div>
         """
 
@@ -170,20 +205,14 @@ def render_liquidity_prediction(ui):
             padding: 8px 12px;
         ">
             <div style="display: grid; grid-template-columns: 2fr 1fr 1fr 1fr; gap: 4px; padding-bottom: 4px; border-bottom: 1px solid rgba(255,255,255,0.08);">
-                <div style="font-size: 9px; color: #64748b;">路径</div>
-                <div style="font-size: 9px; color: #64748b;">方向</div>
-                <div style="font-size: 9px; color: #64748b;">置信度</div>
-                <div style="font-size: 9px; color: #64748b; text-align: right;">验证</div>
+                <div style="font-size: 8px; color: #64748b;">路径</div>
+                <div style="font-size: 8px; color: #64748b;">方向</div>
+                <div style="font-size: 8px; color: #64748b;">置信度</div>
+                <div style="font-size: 8px; color: #64748b; text-align: right;">验证</div>
             </div>
             {rows_html}
         </div>
         """)
 
     # 关闭容器
-    put_html("</div>")
-
-
-def _hex_to_rgb(hex_color: str) -> str:
-    """将 #rrggbb 转为 r,g,b 字符串"""
-    h = hex_color.lstrip("#")
-    return f"{int(h[0:2], 16)},{int(h[2:4], 16)},{int(h[4:6], 16)}"
+    put_html('</div>')

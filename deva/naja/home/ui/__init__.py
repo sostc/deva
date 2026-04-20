@@ -32,12 +32,7 @@ async def render_home(ctx: dict):
     values_html = render_values_section()
     ctx["put_html"](values_html)
 
-    # 系统健康监控面板
-    try:
-        from deva.naja.infra.observability.system_monitor_ui import render_monitor_panel
-        ctx["put_html"](render_monitor_panel())
-    except Exception:
-        pass
+
 
     # Attention Kernel 热点中枢
     render_attention_kernel_panel(ctx)

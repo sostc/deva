@@ -42,9 +42,9 @@ def _render_event_badge(event_type: str, score: float = 0.5) -> str:
 
     score_color = "#f87171" if score > 0.7 else ("#fb923c" if score > 0.5 else "#60a5fa")
 
-    return f'''<span style="display:inline-flex;align-items:center;gap:4px;padding:3px 8px;border-radius:4px;font-size:12px;font-weight:500;background:{bg};color:{color};">
+    return f'''<span style="display:inline-flex;align-items:center;gap:4px;padding:4px 10px;border-radius:4px;font-size:14px;font-weight:500;background:{bg};color:{color};">
         {icon} {label}
-    </span><span style="font-size:11px;color:{score_color};margin-left:4px;">{score:.2f}</span>'''
+    </span><span style="font-size:13px;color:{score_color};margin-left:6px;">{score:.2f}</span>'''
 
 
 # ---------------------------------------------------------------------------

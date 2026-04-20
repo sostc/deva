@@ -43,18 +43,7 @@ def get_nav_menu_items() -> List[Dict[str, str]]:
         {"name": "🧘 觉醒", "path": "/awakening"},
         {"name": "📚 学习", "path": "/learning"},
         {"name": "💰 信号流", "path": "/signaladmin"},
-        {"name": "🗃️ 数据源", "path": "/dsadmin"},
-        {"name": "⏱️ 任务", "path": "/taskadmin"},
-        {"name": "🎯 策略", "path": "/strategyadmin"},
-        {"name": "🤖 LLM", "path": "/llmadmin"},
-        {"name": "🎰 Bandit", "path": "/banditadmin"},
-        {"name": "📖 字典", "path": "/dictadmin"},
-        {"name": "🗄️ 数据表", "path": "/tableadmin"},
-        {"name": "💾 持久化", "path": "/runtime_state"},
-        {"name": "🛠️ 系统", "path": "/system"},
-        {"name": "🔧 配置", "path": "/configadmin"},
-        {"name": "🧿 灵魂", "path": "/souladmin"},
-        {"name": "🎛️ 调优监控", "path": "/tuningadmin"},
+        {"name": "🛠️ 开发者工具", "path": "/devtools"},
     ]
 
 

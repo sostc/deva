@@ -9,10 +9,10 @@ from .pages import (
     radaradmin, insightadmin, cognition_page, memory_page,
     llmadmin, banditadmin, bandit_attribution, market,
     awakening_page, dictadmin, tableadmin, runtimestateadmin,
-    souladmin, configadmin, tuningadmin, system_page,
+    souladmin, configadmin, tuningadmin, system_page, health_page,
     narrative_page, narrative_lifecycle_page, merrill_clock_page,
     learningadmin, learning_list_page, learning_history_page,
-    learning_detail_page, supplychain_page,
+    learning_detail_page, supplychain_page, api_explorer, devtools_page,
     KnowledgeActionHandler,
     _get_log_stream_page, _get_loop_audit_page,
 )
@@ -127,6 +127,7 @@ def create_handlers(cdn: str = None):
         (r'/memory', webio_handler(memory_page, cdn=cdn_url)),
         (r'/insight', webio_handler(insightadmin, cdn=cdn_url)),
         (r'/system', webio_handler(system_page, cdn=cdn_url)),
+        (r'/health', webio_handler(health_page, cdn=cdn_url)),
         (r'/performance', webio_handler(system_page, cdn=cdn_url)),
         (r'/signaladmin', webio_handler(signaladmin, cdn=cdn_url)),
         (r'/dsadmin', webio_handler(dsadmin, cdn=cdn_url)),
@@ -154,6 +155,8 @@ def create_handlers(cdn: str = None):
         (r'/learning/list', webio_handler(learning_list_page, cdn=cdn_url)),
         (r'/learning/history', webio_handler(learning_history_page, cdn=cdn_url)),
         (r'/learning/detail', webio_handler(learning_detail_page, cdn=cdn_url)),
+        (r'/api_explorer', webio_handler(api_explorer, cdn=cdn_url)),
+        (r'/devtools', webio_handler(devtools_page, cdn=cdn_url)),
     ]
 
     api_routes = [

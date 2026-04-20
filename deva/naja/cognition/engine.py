@@ -190,6 +190,10 @@ class CognitionEngine:
         except Exception:
             return []
 
+    def get_attention_hints(self, lookback: int = 200) -> Dict[str, Any]:
+        """获取注意力提示（公共API，供UI层使用）"""
+        return self._news_mind.get_attention_hints(lookback=lookback)
+
 
 # 向后兼容别名
 def get_memory_engine():
