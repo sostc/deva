@@ -36,16 +36,7 @@ class RadarUI:
         put_html(get_global_styles())
 
         nav_js = get_nav_menu_js()
-        switch_theme_js = """
-            window.switchTheme = function(name) {
-                document.cookie = 'naja-theme=' + name + '; path=/; max-age=31536000';
-                document.body.style.opacity = '0';
-                setTimeout(function() { location.reload(); }, 150);
-            };
-        """
-
         run_js("setTimeout(function(){" + nav_js + "}, 50);")
-        run_js(switch_theme_js)
 
         from deva.naja.infra.ui.ui_theme import get_current_theme_config
         theme = get_current_theme_config()

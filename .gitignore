@@ -81,3 +81,7 @@ deva/naja/state/runtime/
 # 报告和导出文件
 deva/naja/reports/
 deva/naja/exports/
+
+# 测试文件
+test_*.py
+test_*.pyc
