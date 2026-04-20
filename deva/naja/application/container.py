@@ -35,6 +35,7 @@ class AppContainer:
         # 认知层组件
         self._insight_pool = None
         self._insight_engine = None
+        self._cognition_engine = None
         
         # Bandit 模块组件
         self._bandit_optimizer = None
@@ -87,6 +88,7 @@ class AppContainer:
             # 3. 创建认知层组件
             self._insight_pool = self._create_insight_pool()
             self._insight_engine = self._create_insight_engine()
+            self._cognition_engine = self._create_cognition_engine()
             
             # 4. 创建 Bandit 模块组件
             self._bandit_optimizer = self._create_bandit_optimizer()
@@ -213,6 +215,11 @@ class AppContainer:
         )
         
         return insight_engine
+    
+    def _create_cognition_engine(self):
+        """创建 CognitionEngine"""
+        from ..cognition.engine import CognitionEngine
+        return CognitionEngine()
     
     def _create_radar_engine(self):
         """创建 RadarEngine"""
@@ -390,6 +397,13 @@ class AppContainer:
         if self._insight_engine is None:
             self._assemble_core_components()
         return self._insight_engine
+    
+    @property
+    def cognition_engine(self):
+        """获取 CognitionEngine"""
+        if self._cognition_engine is None:
+            self._assemble_core_components()
+        return self._cognition_engine
     
     @property
     def bandit_optimizer(self):

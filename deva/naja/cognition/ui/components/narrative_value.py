@@ -9,46 +9,46 @@ Narrative Value 组件 - 叙事价值发现板块
 def render_narrative_value(ui):
     from pywebio.output import put_html
 
-    # --- 获取 NarrativeTracker ---
+    # --- 获取数据 ---
+    has_data = False
+    tracker = None
+    po_summary = None
+    vm_summary = None
+    OPPORTUNITY_TYPES = None
+    RESOLVERS = None
+
     try:
         tracker = ui.engine._news_mind._narrative_tracker
     except Exception:
-        return
+        pass
 
-    try:
-        from deva.naja.cognition.narrative.tracker import (
-            OPPORTUNITY_TYPES, RESOLVERS
-        )
-        po_summary = tracker.get_problem_opportunity_summary()
-        vm_summary = tracker.get_value_market_summary()
-    except Exception:
-        return
+    if tracker:
+        try:
+            from deva.naja.cognition.narrative.tracker import (
+                OPPORTUNITY_TYPES, RESOLVERS
+            )
+            po_summary = tracker.get_problem_opportunity_summary()
+            vm_summary = tracker.get_value_market_summary()
+            problems = po_summary.get("problems", [])
+            opportunities = po_summary.get("opportunities", [])
+            has_data = (len(problems) > 0 or len(opportunities) > 0)
+        except Exception:
+            pass
 
-    # --- 解析数据 ---
-    problems = po_summary.get("problems", [])
-    opportunities = po_summary.get("opportunities", [])
-    resolvers = po_summary.get("resolvers", [])
-    recommendation = po_summary.get("recommendation", "WATCH")
+    # --- 头部始终显示 ---
+    rec_color, rec_icon = "#94a3b8", "⚪"
+    vm_recommendation = "WATCH"
+    if vm_summary:
+        vm_recommendation = vm_summary.get("recommendation", "WATCH")
+        rec_config = {
+            "BUY": ("#22c55e", "🟢"),
+            "WATCH": ("#f59e0b", "🟡"),
+            "HOLD": ("#3b82f6", "🔵"),
+            "SELL": ("#ef4444", "🔴"),
+            "AVOID": ("#ef4444", "🔴"),
+        }
+        rec_color, rec_icon = rec_config.get(vm_recommendation, ("#94a3b8", "⚪"))
 
-    value_score = vm_summary.get("value_score", 0)
-    market_score = vm_summary.get("market_narrative_score", 0)
-    vm_reason = vm_summary.get("reason", "")
-    vm_recommendation = vm_summary.get("recommendation", "WATCH")
-    signals = vm_summary.get("signals", [])
-
-    # 推荐颜色
-    rec_config = {
-        "BUY": ("#22c55e", "🟢"),
-        "WATCH": ("#f59e0b", "🟡"),
-        "HOLD": ("#3b82f6", "🔵"),
-        "SELL": ("#ef4444", "🔴"),
-        "AVOID": ("#ef4444", "🔴"),
-    }
-    rec_color, rec_icon = rec_config.get(vm_recommendation, ("#94a3b8", "⚪"))
-
-    # === 渲染 ===
-
-    # 头部
     put_html(f"""
     <div style="
         margin-bottom: 12px;
@@ -69,6 +69,50 @@ def render_narrative_value(ui):
             供需问题 → 投资机会 → 受益标的 → 解决者追踪
         </div>
     """)
+
+    # --- 无数据状态 ---
+    if not tracker:
+        put_html("""
+        <div style="text-align: center; padding: 24px 16px;">
+            <div style="font-size: 32px; margin-bottom: 12px;">💎</div>
+            <div style="font-size: 12px; color: #64748b; margin-bottom: 8px;">叙事追踪器未就绪</div>
+            <div style="font-size: 10px; color: #475569;">等待系统初始化，将在此展示供需映射、价值发现和机会追踪</div>
+        </div>
+        """)
+        put_html('</div>')
+        return
+
+    if not po_summary or not vm_summary:
+        put_html("""
+        <div style="text-align: center; padding: 24px 16px;">
+            <div style="font-size: 32px; margin-bottom: 12px;">⏳</div>
+            <div style="font-size: 12px; color: #64748b; margin-bottom: 8px;">等待数据流入</div>
+            <div style="font-size: 10px; color: #475569;">系统正在监听市场叙事，积累足够数据后将展示价值发现</div>
+        </div>
+        """)
+        put_html('</div>')
+        return
+
+    if not has_data:
+        put_html("""
+        <div style="text-align: center; padding: 24px 16px;">
+            <div style="font-size: 32px; margin-bottom: 12px;">🔍</div>
+            <div style="font-size: 12px; color: #64748b; margin-bottom: 8px;">暂无活跃供需机会</div>
+            <div style="font-size: 10px; color: #475569;">系统正在扫描市场，发现供需失衡将立即展示投资机会</div>
+        </div>
+        """)
+        put_html('</div>')
+        return
+
+    # --- 有数据时渲染内容 ---
+    problems = po_summary.get("problems", [])
+    opportunities = po_summary.get("opportunities", [])
+    resolvers = po_summary.get("resolvers", [])
+
+    value_score = vm_summary.get("value_score", 0)
+    market_score = vm_summary.get("market_narrative_score", 0)
+    vm_reason = vm_summary.get("reason", "")
+    signals = vm_summary.get("signals", [])
 
     # 价值/市场双评分
     value_pct = min(int(value_score * 100), 100) if value_score else 0
@@ -125,7 +169,7 @@ def render_narrative_value(ui):
             desc = opp.get("description", "")
             ben_badges = " ".join(
                 f'<span style="display: inline-block; background: rgba(34,197,94,0.15); color: #22c55e; '
-                f'padding: 1px 5px; border-radius: 3px; font-size: 9px; margin: 1px;">{b}</span>'
+                f'padding: 2px 6px; border-radius: 4px; font-size: 9px; margin-right: 2px;">{b}</span>'
                 for b in beneficiaries[:6]
             )
             items_html += f"""
@@ -156,38 +200,39 @@ def render_narrative_value(ui):
             """)
 
     # OPPORTUNITY_TYPES 全景映射表（折叠式）
-    mapping_rows = ""
-    for problem_type, info in OPPORTUNITY_TYPES.items():
-        is_active = any(p.get("category") == problem_type for p in problems)
-        active_dot = '<span style="color: #22c55e;">●</span>' if is_active else '<span style="color: #334155;">○</span>'
-        bens = ", ".join(info.get("beneficiaries", [])[:3])
-        mapping_rows += f"""
-        <div style="display: grid; grid-template-columns: 20px 2fr 1.5fr 2fr; gap: 4px; padding: 4px 0; border-bottom: 1px solid rgba(255,255,255,0.03); align-items: center;">
-            <div style="font-size: 10px; text-align: center;">{active_dot}</div>
-            <div style="font-size: 9px; color: #f1f5f9;">{problem_type}</div>
-            <div style="font-size: 9px; color: #22c55e;">{info.get('opportunity', '')}</div>
-            <div style="font-size: 9px; color: #64748b; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{bens}</div>
-        </div>
-        """
-
-    put_html(f"""
-        <div style="font-size: 11px; color: #94a3b8; margin-bottom: 6px; font-weight: 500;">📋 供需→机会 映射表</div>
-        <div style="
-            background: rgba(255,255,255,0.02);
-            border: 1px solid rgba(255,255,255,0.06);
-            border-radius: 8px;
-            padding: 6px 10px;
-            margin-bottom: 12px;
-        ">
-            <div style="display: grid; grid-template-columns: 20px 2fr 1.5fr 2fr; gap: 4px; padding-bottom: 4px; border-bottom: 1px solid rgba(255,255,255,0.08);">
-                <div style="font-size: 8px; color: #475569;"></div>
-                <div style="font-size: 8px; color: #475569;">供需问题</div>
-                <div style="font-size: 8px; color: #475569;">投资机会</div>
-                <div style="font-size: 8px; color: #475569;">受益标的</div>
+    if OPPORTUNITY_TYPES:
+        mapping_rows = ""
+        for problem_type, info in OPPORTUNITY_TYPES.items():
+            is_active = any(p.get("category") == problem_type for p in problems)
+            active_dot = '<span style="color: #22c55e;">●</span>' if is_active else '<span style="color: #334155;">○</span>'
+            bens = ", ".join(info.get("beneficiaries", [])[:3])
+            mapping_rows += f"""
+            <div style="display: grid; grid-template-columns: 20px 2fr 1.5fr 2fr; gap: 4px; padding: 4px 0; border-bottom: 1px solid rgba(255,255,255,0.03); align-items: center;">
+                <div style="font-size: 10px; text-align: center;">{active_dot}</div>
+                <div style="font-size: 9px; color: #f1f5f9;">{problem_type}</div>
+                <div style="font-size: 9px; color: #22c55e;">{info.get('opportunity', '')}</div>
+                <div style="font-size: 9px; color: #64748b; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{bens}</div>
             </div>
-            {mapping_rows}
-        </div>
-    """)
+            """
+
+        put_html(f"""
+            <div style="font-size: 11px; color: #94a3b8; margin-bottom: 6px; font-weight: 500;">📋 供需→机会 映射表</div>
+            <div style="
+                background: rgba(255,255,255,0.02);
+                border: 1px solid rgba(255,255,255,0.06);
+                border-radius: 8px;
+                padding: 6px 10px;
+                margin-bottom: 12px;
+            ">
+                <div style="display: grid; grid-template-columns: 20px 2fr 1.5fr 2fr; gap: 4px; padding-bottom: 4px; border-bottom: 1px solid rgba(255,255,255,0.08);">
+                    <div style="font-size: 8px; color: #475569;"></div>
+                    <div style="font-size: 8px; color: #475569;">供需问题</div>
+                    <div style="font-size: 8px; color: #475569;">投资机会</div>
+                    <div style="font-size: 8px; color: #475569;">受益标的</div>
+                </div>
+                {mapping_rows}
+            </div>
+        """)
 
     # RESOLVERS 解决者追踪
     if resolvers or RESOLVERS:
@@ -223,4 +268,4 @@ def render_narrative_value(ui):
         """)
 
     # 关闭容器
-    put_html("</div>")
+    put_html('</div>')

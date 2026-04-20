@@ -7,52 +7,27 @@ Soft Info Confidence 组件 - 软信息置信度板块
 
 
 def render_soft_info(ui):
+    from pywebio.output import put_html
+
+    # --- 获取数据 ---
+    has_data = False
+    evaluator = None
+    source_confidences = None
+    base_weight = None
+
     try:
         from deva.naja.cognition.analysis.soft_info_confidence import (
             SoftInfoConfidence, SoftInfoSource
         )
         evaluator = SoftInfoConfidence()
+        source_confidences = evaluator._source_confidences
+        base_weight = evaluator._base_soft_weight
+        has_data = True  # 这个组件即使没有动态数据也应该显示配置信息
     except Exception:
-        return
+        pass
 
-    from pywebio.output import put_html
-
-    # --- 获取数据 ---
-    source_confidences = evaluator._source_confidences
-    base_weight = evaluator._base_soft_weight
-
-    # 来源配置
-    source_config = {
-        SoftInfoSource.NARRATIVE_TRACKER.value: {
-            "name": "叙事追踪",
-            "icon": "📖",
-            "color": "#a855f7",
-            "desc": "叙事稳定性 × 来源可靠性",
-        },
-        SoftInfoSource.NEWS_MIND.value: {
-            "name": "新闻舆情",
-            "icon": "📰",
-            "color": "#60a5fa",
-            "desc": "新闻质量 × 一致性",
-        },
-        SoftInfoSource.MARKET_SENTIMENT.value: {
-            "name": "市场情绪",
-            "icon": "📊",
-            "color": "#22c55e",
-            "desc": "情绪强度 × 持续性",
-        },
-        SoftInfoSource.CROSS_SIGNAL.value: {
-            "name": "跨信号共振",
-            "icon": "🔄",
-            "color": "#f97316",
-            "desc": "多源一致性 × 时间窗口",
-        },
-    }
-
-    # === 渲染 ===
-
-    # 头部
-    base_weight_pct = int(base_weight * 100)
+    # --- 头部始终显示 ---
+    base_weight_pct = int(base_weight * 100) if base_weight else 0
     put_html(f"""
     <div style="
         margin-bottom: 12px;
@@ -70,10 +45,23 @@ def render_soft_info(ui):
             </div>
         </div>
         <div style="font-size: 11px; color: #475569; margin-bottom: 14px;">
-            硬数据 = 主角（{100 - base_weight_pct}%）· 软信息 = 调味剂（{base_weight_pct}%）· 置信度决定影响程度
+            硬数据 = 主角 ({100 - base_weight_pct}%) · 软信息 = 调味剂 ({base_weight_pct}%) · 置信度决定影响程度
         </div>
     """)
 
+    # --- 无数据状态 ---
+    if not evaluator:
+        put_html("""
+        <div style="text-align: center; padding: 24px 16px;">
+            <div style="font-size: 32px; margin-bottom: 12px;">🎚️</div>
+            <div style="font-size: 12px; color: #64748b; margin-bottom: 8px;">置信度评估器未就绪</div>
+            <div style="font-size: 10px; color: #475569;">等待系统初始化，将在此展示软信息置信度配置</div>
+        </div>
+        """)
+        put_html('</div>')
+        return
+
+    # --- 有数据时渲染内容 ---
     # 权重公式说明
     put_html(f"""
         <div style="
@@ -85,7 +73,7 @@ def render_soft_info(ui):
         ">
             <div style="font-size: 10px; color: #94a3b8; margin-bottom: 4px;">📐 有效权重公式</div>
             <div style="font-size: 12px; color: #f1f5f9; font-family: 'SF Mono', monospace;">
-                effective_weight = base_weight({base_weight}) × confidence
+                effective_weight = base_weight ({base_weight}) × confidence
             </div>
             <div style="font-size: 9px; color: #64748b; margin-top: 3px;">
                 置信度越高 → 软信息影响越大 · 置信度越低 → 软信息影响越小
@@ -94,51 +82,95 @@ def render_soft_info(ui):
     """)
 
     # 各来源置信度卡片
+    try:
+        from deva.naja.cognition.analysis.soft_info_confidence import SoftInfoSource
+        source_config = {
+            SoftInfoSource.NARRATIVE_TRACKER.value: {
+                "name": "叙事追踪",
+                "icon": "📖",
+                "color": "#a855f7",
+                "desc": "叙事稳定性 × 来源可靠性",
+            },
+            SoftInfoSource.NEWS_MIND.value: {
+                "name": "新闻舆情",
+                "icon": "📰",
+                "color": "#60a5fa",
+                "desc": "新闻质量 × 一致性",
+            },
+            SoftInfoSource.MARKET_SENTIMENT.value: {
+                "name": "市场情绪",
+                "icon": "📊",
+                "color": "#22c55e",
+                "desc": "情绪强度 × 持续性",
+            },
+            SoftInfoSource.CROSS_SIGNAL.value: {
+                "name": "跨信号共振",
+                "icon": "🔄",
+                "color": "#f97316",
+                "desc": "多源一致性 × 时间窗口",
+            },
+        }
+    except Exception:
+        # 如果无法导入枚举，使用默认配置
+        source_config = {}
+
+    # 如果没有配置，使用通用显示
+    if not source_config and source_confidences:
+        for source_key in source_confidences.keys():
+            source_config[source_key] = {
+                "name": source_key,
+                "icon": "📌",
+                "color": "#94a3b8",
+                "desc": "",
+            }
+
     cards_html = ""
-    for source_key, conf_value in source_confidences.items():
-        cfg = source_config.get(source_key, {
-            "name": source_key, "icon": "❓", "color": "#94a3b8", "desc": ""
-        })
-        conf_pct = int(conf_value * 100)
-        effective = base_weight * conf_value
-        effective_pct = f"{effective:.1%}"
+    if source_confidences:
+        for source_key, conf_value in source_confidences.items():
+            cfg = source_config.get(source_key, {
+                "name": source_key, "icon": "📌", "color": "#94a3b8", "desc": ""
+            })
+            conf_pct = int(conf_value * 100)
+            effective = base_weight * conf_value if base_weight else 0
+            effective_pct = f"{effective:.1%}"
 
-        # 置信度颜色
-        if conf_value >= 0.65:
-            bar_color = "#22c55e"
-        elif conf_value >= 0.5:
-            bar_color = "#f59e0b"
-        else:
-            bar_color = "#ef4444"
+            # 置信度颜色
+            if conf_value >= 0.65:
+                bar_color = "#22c55e"
+            elif conf_value >= 0.5:
+                bar_color = "#f59e0b"
+            else:
+                bar_color = "#ef4444"
 
-        cards_html += f"""
-        <div style="
-            background: rgba({_hex_to_rgb(cfg['color'])},0.06);
-            border: 1px solid rgba({_hex_to_rgb(cfg['color'])},0.15);
-            padding: 10px 12px;
-            border-radius: 8px;
-        ">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
-                <div style="font-size: 11px; color: {cfg['color']}; font-weight: 600;">
-                    {cfg['icon']} {cfg['name']}
+            cards_html += f"""
+            <div style="
+                background: {cfg['color']}10;
+                border: 1px solid {cfg['color']}20;
+                padding: 10px 12px;
+                border-radius: 8px;
+            ">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                    <div style="font-size: 11px; color: {cfg['color']}; font-weight: 600;">
+                        {cfg['icon']} {cfg['name']}
+                    </div>
+                    <div style="font-size: 12px; color: #f1f5f9; font-weight: 700;">{conf_pct}%</div>
                 </div>
-                <div style="font-size: 12px; color: #f1f5f9; font-weight: 700;">{conf_pct}%</div>
+                <div style="height: 6px; background: rgba(255,255,255,0.06); border-radius: 3px; overflow: hidden; margin-bottom: 6px;">
+                    <div style="width: {conf_pct}%; height: 100%; background: {bar_color}; border-radius: 3px;"></div>
+                </div>
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <div style="font-size: 9px; color: #64748b;">{cfg['desc']}</div>
+                    <div style="font-size: 9px; color: #94a3b8;">有效权重 <span style="color: {cfg['color']};">{effective_pct}</span></div>
+                </div>
             </div>
-            <div style="height: 6px; background: rgba(255,255,255,0.06); border-radius: 3px; overflow: hidden; margin-bottom: 6px;">
-                <div style="width: {conf_pct}%; height: 100%; background: {bar_color}; border-radius: 3px;"></div>
-            </div>
-            <div style="display: flex; justify-content: space-between; align-items: center;">
-                <div style="font-size: 9px; color: #64748b;">{cfg['desc']}</div>
-                <div style="font-size: 9px; color: #94a3b8;">有效权重 <span style="color: {cfg['color']};">{effective_pct}</span></div>
-            </div>
-        </div>
-        """
+            """
 
-    put_html(f"""
-        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 12px;">
-            {cards_html}
-        </div>
-    """)
+    if cards_html:
+        put_html(f"""
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 12px;">
+                {cards_html}
+            </div>
+        """)
 
     # 矛盾处理规则
     put_html("""
@@ -156,10 +188,4 @@ def render_soft_info(ui):
     """)
 
     # 关闭容器
-    put_html("</div>")
-
-
-def _hex_to_rgb(hex_color: str) -> str:
-    """将 #rrggbb 转为 r,g,b 字符串"""
-    h = hex_color.lstrip("#")
-    return f"{int(h[0:2], 16)},{int(h[2:4], 16)},{int(h[4:6], 16)}"
+    put_html('</div>')
