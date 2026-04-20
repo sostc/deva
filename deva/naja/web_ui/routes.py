@@ -25,7 +25,9 @@ from .api_extensions import (
     BanditStatsHandler,
     KnowledgeListHandler, KnowledgeStatsHandler, KnowledgeDetailHandler, KnowledgeTradingHandler,
     DataSourceListHandler, StrategyListHandler,
-    AlayaStatusHandler
+    AlayaStatusHandler,
+    RegistryStatusHandler, QueryStateHandler, SystemStateHandler,
+    EventQueryHandler, EventStatsHandler, AppContainerStatusHandler
 )
 from deva.naja.cognition.ui import cognition_glossary_page
 from .attention_api import (
@@ -198,6 +200,13 @@ def create_handlers(cdn: str = None):
         (r'/api/attention/strategy/top-symbols', StrategyTopSymbolsHandler),
         (r'/api/attention/strategy/top-blocks', StrategyTopBlocksHandler),
         (r'/api/attention/context', AttentionContextHandler),
+        # 新的数据结构 API 端点
+        (r'/api/registry/status', RegistryStatusHandler),
+        (r'/api/query/state', QueryStateHandler),
+        (r'/api/system/state', SystemStateHandler),
+        (r'/api/events/query', EventQueryHandler),
+        (r'/api/events/stats', EventStatsHandler),
+        (r'/api/app/container', AppContainerStatusHandler),
     ]
 
     return page_routes + api_routes

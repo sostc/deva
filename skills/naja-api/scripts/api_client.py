@@ -145,6 +145,44 @@ def get_strategy_list():
 def get_alaya_status():
     return call_api("/api/alaya/status")
 
+# ── 新添加的数据结构 API ──
+
+def get_registry_status():
+    return call_api("/api/registry/status")
+
+def get_query_state():
+    return call_api("/api/query/state")
+
+def get_system_state():
+    return call_api("/api/system/state")
+
+def get_event_query(event_type=None, symbol=None, direction=None, min_confidence=None, max_confidence=None, days=7, limit=100, offset=0):
+    params = {"limit": limit, "offset": offset}
+    if event_type:
+        params["event_type"] = event_type
+    if symbol:
+        params["symbol"] = symbol
+    if direction:
+        params["direction"] = direction
+    if min_confidence:
+        params["min_confidence"] = min_confidence
+    if max_confidence:
+        params["max_confidence"] = max_confidence
+    if days:
+        # 计算时间戳
+        import time
+        end_time = time.time()
+        start_time = end_time - days * 86400
+        params["start_time"] = start_time
+        params["end_time"] = end_time
+    return call_api("/api/events/query", params=params)
+
+def get_event_stats(event_type="StrategySignalEvent", days=30):
+    return call_api("/api/events/stats", params={"event_type": event_type, "days": days})
+
+def get_app_container():
+    return call_api("/api/app/container")
+
 
 # ── 命令映射 ──
 
@@ -188,6 +226,13 @@ COMMANDS = {
     "datasource-list": (get_datasource_list, "数据源列表"),
     "strategy-list": (get_strategy_list, "策略列表"),
     "alaya-status": (get_alaya_status, "阿那亚状态"),
+    # 新添加的数据结构 API
+    "registry-status": (get_registry_status, "单例注册表状态"),
+    "query-state": (get_query_state, "查询状态"),
+    "system-state": (get_system_state, "系统状态"),
+    "event-query": (get_event_query, "事件查询"),
+    "event-stats": (get_event_stats, "事件统计"),
+    "app-container": (get_app_container, "应用容器状态"),
 }
 
 
@@ -214,6 +259,12 @@ def main():
     parser.add_argument("--limit", type=int, default=20, help="返回数量")
     parser.add_argument("--offset", type=int, default=0, help="偏移量")
     parser.add_argument("--lookback", type=int, help="回溯数量")
+    parser.add_argument("--event-type", help="事件类型")
+    parser.add_argument("--symbol", help="股票代码")
+    parser.add_argument("--direction", choices=["buy", "sell"], help="方向")
+    parser.add_argument("--min-confidence", type=float, help="最小置信度")
+    parser.add_argument("--max-confidence", type=float, help="最大置信度")
+    parser.add_argument("--days", type=int, default=7, help="天数")
     parser.add_argument("--base-url", default=BASE_URL, help="API 基础 URL")
     parser.add_argument("--output", choices=["json", "text"], default="json", help="输出格式")
 
@@ -235,6 +286,22 @@ def main():
         result = get_cognition_topics(args.lookback)
     elif args.command == "cognition-attention" and args.lookback:
         result = get_cognition_attention(args.lookback)
+    elif args.command == "event-query":
+        result = get_event_query(
+            event_type=args.event_type,
+            symbol=args.symbol,
+            direction=args.direction,
+            min_confidence=args.min_confidence,
+            max_confidence=args.max_confidence,
+            days=args.days,
+            limit=args.limit,
+            offset=args.offset
+        )
+    elif args.command == "event-stats":
+        result = get_event_stats(
+            event_type=args.event_type or "StrategySignalEvent",
+            days=args.days
+        )
     else:
         result = func()
 
