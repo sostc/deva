@@ -214,7 +214,7 @@ class MarketHotspotSystem:
             self.block_hotspot.register_block(config)
 
         log.info(f"[MarketHotspotSystem] 已注册 {len(self.block_hotspot._blocks)} 个题材到 block_hotspot")
-        log.info(f"[MarketHotspotSystem] 题材列表: {[c.name for c in list(self.block_hotspot._blocks.values())[:10]]}")
+        log.debug(f"[MarketHotspotSystem] 题材列表(前10个): {[c.name for c in list(self.block_hotspot._blocks.values())[:10]]}")
 
         # 注册个股
         for symbol, block_ids in symbol_block_map.items():
@@ -895,7 +895,8 @@ class MarketHotspotSystem:
             )
 
         self._publish_hotspot_event(market, global_hotspot, activity,
-                                    block_hotspot, symbol_weights, symbols)
+                                    block_hotspot, symbol_weights, symbols,
+                                    returns, volumes, prices)
 
         return final_result
 
@@ -1265,9 +1266,12 @@ class MarketHotspotSystem:
         activity: float,
         block_hotspot: Dict[str, float],
         symbol_weights: Dict[str, float],
-        symbols: np.ndarray
+        symbols: np.ndarray,
+        returns: np.ndarray = None,
+        volumes: np.ndarray = None,
+        prices: np.ndarray = None,
     ):
-        """发布热点计算完成事件到事件总线"""
+        """发布热点计算完成事件到事件总线（携带真实市场数据）"""
         try:
             from deva.naja.events import get_event_bus, HotspotComputedEvent
             event_bus = get_event_bus()
@@ -1278,7 +1282,10 @@ class MarketHotspotSystem:
                 activity=activity,
                 block_hotspot=block_hotspot,
                 symbol_weights=symbol_weights,
-                symbols=list(symbols) if symbols is not None else []
+                symbols=list(symbols) if symbols is not None else [],
+                returns=list(returns) if returns is not None else [],
+                volumes=list(volumes) if volumes is not None else [],
+                prices=list(prices) if prices is not None else [],
             )
             event_bus.publish(event)
         except Exception as e:
