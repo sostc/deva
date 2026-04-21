@@ -53,6 +53,12 @@ class EventSubscriberRegistrar:
             from deva.naja.cognition.analysis.cross_signal_analyzer import get_cross_signal_analyzer
             analyzer = get_cross_signal_analyzer()
             if analyzer:
+                # 注入依赖
+                from deva.naja.application import get_app_container
+                container = get_app_container()
+                if container:
+                    analyzer.set_insight_pool(container.insight_pool)
+                
                 analyzer.subscribe_text_events(event_bus)
                 log.info("[EventSubscriberRegistrar] CrossSignalAnalyzer 事件订阅完成")
         except Exception as e:
