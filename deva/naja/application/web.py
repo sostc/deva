@@ -15,14 +15,7 @@ def run_web_application(config: AppRuntimeConfig):
 
     print("📂 启动系统引导流程...")
     container = AppContainer(config)
-    
-    # 设置为全局容器实例
-    set_app_container(container)
-    
-    boot_result = container.boot()
-
-    if not boot_result.success:
-        print(f"❌ 系统引导失败: {boot_result.error}")
+    container.boot()
 
     report = container.startup_report()
     load_counts = report["load_counts"]
@@ -44,8 +37,6 @@ def run_web_application(config: AppRuntimeConfig):
     if restore_errors:
         error_info = ", ".join([f"{k}: {v}" for k, v in restore_errors.items()])
         print(f"⚠️ 部分状态恢复失败: {error_info}")
-
-    container.restore_runtime_state()
 
     try:
         print(container.attention_config_summary())
