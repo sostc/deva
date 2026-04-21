@@ -392,6 +392,13 @@ class CrossSignalAnalyzer:
         # 🚀 事件订阅已迁移到 EventSubscriberRegistrar（应用层）
         # 不再在 __init__ 中自动订阅
 
+        # 🚀 依赖注入：InsightPool
+        self._insight_pool = None
+
+    def set_insight_pool(self, pool) -> None:
+        """显式设置 InsightPool（依赖注入）"""
+        self._insight_pool = pool
+
     def subscribe_text_events(self, event_bus):
         """由 EventSubscriberRegistrar 调用的事件订阅方法"""
         event_bus.subscribe(
@@ -1217,7 +1224,9 @@ class CrossSignalAnalyzer:
         logger = logging.getLogger(__name__)
 
         try:
-            pool = SR('insight_pool')
+            pool = self._insight_pool
+            if not pool:
+                return
             sentiment_desc = "正面" if resonance.news_sentiment > 0.2 else "负面" if resonance.news_sentiment < -0.2 else "中性"
             resonance_type_desc = {
                 "temporal": "时间共振",
