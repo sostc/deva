@@ -1,6 +1,15 @@
 """信号监听器
 
-监听信号流，识别股票，创建虚拟持仓。
+架构核心原则：
+- Bandit 是决策中心（TradingCenter）的执行器，隐藏在决策中心背后
+- 唯一入口：订阅 NajaEventBus 的 TradeDecisionEvent
+- 所有策略信号必须先经过 TradingCenter 审批，审批通过后才发布 TradeDecisionEvent
+- 旧版直连 SignalStream 的轮询路径已永久禁用
+
+信号流向：
+  策略信号 → TradingCenter（决策审批）
+             ├─ 通过 → TradeDecisionEvent → SignalListener → Bandit 执行
+             └─ 否决 → 仅记录，不执行
 """
 
 from __future__ import annotations
@@ -151,11 +160,12 @@ class SignalListener:
     def start(self):
         """启动监听
 
-        架构演进：
-        - 旧版：流式订阅 SignalStream（stream.sink 直连）
-        - 新版：订阅 NajaEventBus 的 TradeDecisionEvent（事件驱动，无直连）
+        ═══════════════════════════════════════════════════════
+        Bandit 唯一入口：NajaEventBus TradeDecisionEvent
+        ═══════════════════════════════════════════════════════
 
-        轮询模式保留作为后备（当实验模式开启时）。
+        Bandit 是决策中心的执行器，不直接接收策略信号。
+        所有信号必须先经过 TradingCenter 审批，审批通过后才到 Bandit。
         """
         if self._running and self._thread and self._thread.is_alive():
             log.warning("SignalListener 已在运行")
@@ -167,16 +177,15 @@ class SignalListener:
         TRADING_CLOCK_STREAM.sink(self._on_trading_clock_signal)
         log.debug("SignalListener 已订阅交易时钟信号")
 
-        # 事件总线订阅在 __init__ 中已完成，无需重复
-        # 保留轮询线程作为后备（实验模式轮询信号流）
-        if not (self._is_experiment_mode() or self._force_mode):
-            self._thread = threading.Thread(target=self._run_loop, daemon=True)
-            self._thread.start()
+        # 旧版轮询线程已禁用：不再直连 SignalStream
+        # 所有信号必须经过 TradingCenter 审批
 
         self._save_config()
 
-        mode = "NajaEventBus 事件驱动" if _EVENT_BUS_AVAILABLE else f"轮询后备({self._poll_interval}s)"
-        log.debug(f"SignalListener 已启动 ({mode})")
+        if _EVENT_BUS_AVAILABLE:
+            log.info("SignalListener 已启动 → 等待 TradingCenter 审批后的交易决策")
+        else:
+            log.warning("SignalListener 已启动 → ⚠️ 交易总线不可用，Bandit 将无法接收交易决策")
 
     def _on_trading_clock_signal(self, signal: Dict[str, Any]):
         """处理交易时钟信号"""
