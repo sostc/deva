@@ -36,6 +36,8 @@ class RiverEarlyBullAdapter(HotspotStrategyBase):
     
     目标: 发现还没进热点但有启动迹象的股票
     热点范围: 全市场扫描,权重 < 3 的股票
+    
+    【测试模式】参数已放宽，优先保证信号产出，跑通数据流。
     """
     
     def __init__(self):
@@ -43,12 +45,16 @@ class RiverEarlyBullAdapter(HotspotStrategyBase):
             strategy_id="river_early_bull",
             name="River 早期牛股发现",
             scope='symbol',
-            min_global_hotspot=0.2,
-            min_symbol_weight=0.5,
-            max_symbol_weight=3.0,
-            cooldown_period=300.0,
+            min_global_hotspot=0.0,    # 放宽: 无热点门槛
+            min_symbol_weight=0.0,     # 放宽: 所有股票
+            max_symbol_weight=10.0,    # 放宽: 几乎不限制上限
+            cooldown_period=60.0,      # 放宽: 1分钟冷却 (原300s)
         )
-        self._core = EarlyBullFinder(rise_threshold=2.0, volume_boost=1.5, momentum_window=5)
+        self._core = EarlyBullFinder(
+            rise_threshold=0.5,         # 放宽: 涨幅>0.5%即触发 (原2.0%)
+            volume_boost=1.0,           # 放宽: 量比>1.0即可 (原1.5)
+            momentum_window=3,          # 放宽: 更短的动量窗口
+        )
     
     def _on_signal(self, signal: Signal):
         print(f"[早期牛股] {signal.signal_type.upper()} | {signal.symbol} | "
@@ -65,7 +71,7 @@ class RiverEarlyBullAdapter(HotspotStrategyBase):
             return signals
         
         candidates = core_signal.get("candidates", [])
-        for c in candidates[:3]:
+        for c in candidates[:5]:  # 放宽: 每次最多5个 (原3个)
             code = c.get("stock_code", "")
             weight = self.get_symbol_weight(code)
             
@@ -96,6 +102,8 @@ class RiverStockSelectorAdapter(HotspotStrategyBase):
     
     目标: 全市场打分,找出得分高但热点权重还低的潜力股
     热点范围: 全市场扫描,权重 < 5 的股票
+    
+    【测试模式】参数已放宽，优先保证信号产出，跑通数据流。
     """
     
     def __init__(self):
@@ -103,12 +111,15 @@ class RiverStockSelectorAdapter(HotspotStrategyBase):
             strategy_id="river_stock_selector",
             name="River 全市场选股",
             scope='symbol',
-            min_global_hotspot=0.2,
-            min_symbol_weight=0.5,
-            max_symbol_weight=5.0,
-            cooldown_period=300.0,
+            min_global_hotspot=0.0,    # 放宽: 无热点门槛
+            min_symbol_weight=0.0,     # 放宽: 所有股票
+            max_symbol_weight=10.0,    # 放宽: 几乎不限制上限
+            cooldown_period=60.0,      # 放宽: 1分钟冷却 (原300s)
         )
-        self._core = StockSelector(top_n=5, min_score=0.3)
+        self._core = StockSelector(
+            top_n=10,                   # 放宽: 每次选10个 (原5个)
+            min_score=0.0,              # 放宽: 无最低分门槛
+        )
     
     def _on_signal(self, signal: Signal):
         print(f"[全市场选股] {signal.signal_type.upper()} | {signal.symbol} | "
@@ -156,6 +167,8 @@ class RiverEarlyTrendAdapter(HotspotStrategyBase):
     
     目标: 确认正在进入热点的趋势形成
     热点范围: 权重 1-6 的股票 (正在进入热点)
+    
+    【测试模式】参数已放宽，优先保证信号产出，跑通数据流。
     """
     
     def __init__(self):
@@ -163,12 +176,17 @@ class RiverEarlyTrendAdapter(HotspotStrategyBase):
             strategy_id="river_early_trend",
             name="River 早期趋势检测",
             scope='symbol',
-            min_global_hotspot=0.3,
-            min_symbol_weight=1.0,
-            max_symbol_weight=6.0,
-            cooldown_period=60.0,
+            min_global_hotspot=0.0,    # 放宽: 无热点门槛
+            min_symbol_weight=0.0,     # 放宽: 所有股票
+            max_symbol_weight=10.0,    # 放宽: 几乎不限制上限
+            cooldown_period=30.0,      # 放宽: 30秒冷却 (原60s)
         )
-        self._core = EarlyTrendDetector(n_trees=15, height=8, window_size=100, sensitivity=0.3)
+        self._core = EarlyTrendDetector(
+            n_trees=10,                 # 放宽: 更少的树，更容易出信号
+            height=6,                   # 放宽: 更浅的树
+            window_size=30,             # 放宽: 更短的窗口
+            sensitivity=0.1,            # 放宽: 高敏感度 (原0.3)
+        )
     
     def _on_signal(self, signal: Signal):
         print(f"[趋势检测] {signal.signal_type.upper()} | {signal.symbol} | "
@@ -212,6 +230,8 @@ class RiverBlockStockSelectorAdapter(HotspotStrategyBase):
     
     目标: 热点板块内谁最强,用于持仓管理和加仓判断
     热点范围: 板块层,权重 > 3 的股票
+    
+    【测试模式】参数已放宽，优先保证信号产出，跑通数据流。
     """
     
     def __init__(self):
@@ -219,11 +239,14 @@ class RiverBlockStockSelectorAdapter(HotspotStrategyBase):
             strategy_id="river_block_stock_selector",
             name="River 题材牛股精选",
             scope='symbol',
-            min_global_hotspot=0.4,
-            min_symbol_weight=3.0,
-            cooldown_period=120.0,
+            min_global_hotspot=0.0,    # 放宽: 无热点门槛
+            min_symbol_weight=0.0,     # 放宽: 所有股票
+            cooldown_period=30.0,      # 放宽: 30秒冷却 (原120s)
         )
-        self._core = BlockStockSelector(top_n=5, min_score=0.5)
+        self._core = BlockStockSelector(
+            top_n=10,                   # 放宽: 每次选10个 (原5个)
+            min_score=0.0,              # 放宽: 无最低分门槛
+        )
     
     def _on_signal(self, signal: Signal):
         print(f"[题材牛股] {signal.signal_type.upper()} | {signal.symbol} | "
