@@ -94,7 +94,7 @@ Infra / Adapters / Repository / Runtime（通用骨架与技术实现）
 
 - `deva/naja/__main__.py`
 - `deva/naja/web_ui/`
-- `bootstrap`
+- `deva/naja/infra/lifecycle/bootstrap.py`
 
 职责：
 
@@ -113,14 +113,19 @@ Infra / Adapters / Repository / Runtime（通用骨架与技术实现）
 典型位置：
 
 - `deva/naja/application/`
+  - `container.py` - 核心组件装配和依赖注入
+  - `event_registrar.py` - 集中事件订阅管理
+  - `runtime_config.py` - 运行时配置
+  - `runtime_modes.py` - 运行模式初始化
 
 职责：
 
-- 作为组合根
+- 作为组合根（`AppContainer`）
 - 管理启动流程
 - 组织运行模式
-- 集中事件订阅
+- 集中事件订阅（`EventSubscriberRegistrar`）
 - 组织 facade/query service
+- 显式依赖注入
 
 Application 层是“怎么把系统拼起来”的地方。
 
@@ -129,10 +134,17 @@ Application 层是“怎么把系统拼起来”的地方。
 典型位置：
 
 - `deva/naja/decision/`
+  - `orchestrator.py` - 决策编排
+  - `fusion.py` - 决策融合
 - `deva/naja/attention/`
+  - `os/` - 注意力操作系统
+  - `kernel/` - 注意力内核
+  - `values/` - 价值系统
 - `deva/naja/cognition/`
-- `deva/naja/signal/`
-- `deva/naja/bandit/`
+  - `engine.py` - 认知引擎
+  - `insight/` - 洞察系统
+- `deva/naja/signal/` - 信号处理
+- `deva/naja/bandit/` - 交易执行
 
 职责：
 
@@ -146,7 +158,12 @@ Application 层是“怎么把系统拼起来”的地方。
 典型位置：
 
 - `deva/naja/infra/`
-- `deva/naja/infra/management/`
+  - `lifecycle/` - 生命周期管理
+  - `log/` - 日志系统
+  - `management/` - 通用管理器骨架
+  - `observability/` - 可观测性
+  - `registry/` - 注册管理
+  - `runtime/` - 运行时服务
 
 职责：
 
@@ -338,9 +355,11 @@ Naja 不能大爆炸式重写。
 
 优先方式：
 
-- 在 `application` 层集中注册
-- 对象暴露 handler
-- registrar 负责订阅
+- 在 `application` 层通过 `EventSubscriberRegistrar` 集中注册
+- 领域对象只暴露 event handler 方法
+- 由 registrar 负责订阅和管理订阅关系
+
+示例实现：`deva/naja/application/event_registrar.py`
 
 ### 6.4 UI 不要直接深入核心对象
 

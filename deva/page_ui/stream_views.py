@@ -38,7 +38,7 @@ def sse_view(stream, url, server=None):
             def write_to_sse(data):
                 try:
                     # 确保在正确的事件循环中执行操作
-                    from deva.core.utils.ioloop import get_io_loop
+                    from deva.utils.ioloop import get_io_loop
                     loop = get_io_loop(asynchronous=False)
                     
                     def do_write(data):

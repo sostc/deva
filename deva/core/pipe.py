@@ -17,7 +17,7 @@ from urllib.parse import quote
 
 
 import builtins
-from .utils.ioloop import get_io_loop
+from deva.utils.ioloop import get_io_loop
 
 
 __all__: builtins.list[builtins.str] = [

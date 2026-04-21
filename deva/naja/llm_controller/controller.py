@@ -325,19 +325,9 @@ class LLMController:
             return
 
 
-_llm_controller: Optional[LLMController] = None
-_llm_controller_lock = threading.Lock()
-
-
 def get_llm_controller() -> LLMController:
     from deva.naja.register import SR
     return SR('llm_controller')
-    global _llm_controller
-    if _llm_controller is None:
-        with _llm_controller_lock:
-            if _llm_controller is None:
-                _llm_controller = LLMController()
-    return _llm_controller
 def _build_auto_adjust_task_code() -> str:
     return (
         "from deva.naja.config import get_llm_config\n"

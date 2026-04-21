@@ -10,7 +10,7 @@ from .core.sources import *
 from .core.compute import *
 from .core.core import *
 from .core.core import setup_deva_logging
-from .core.utils.ioloop import get_io_loop
+from deva.utils.ioloop import get_io_loop
 from .config import config, get_config, ConfigManager
 
 setup_deva_logging()

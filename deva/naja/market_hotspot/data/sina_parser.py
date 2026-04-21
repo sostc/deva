@@ -95,8 +95,20 @@ async def _fetch_sina_batch_async(codes: List[str], session=None) -> Dict:
     """异步获取一批股票数据"""
     if not codes:
         return {}
+    
+    # 如果没有提供 session，创建一个临时 session
     if session is None:
-        session = _get_sina_session()
+        import aiohttp
+        async with aiohttp.ClientSession(
+            connector=aiohttp.TCPConnector(limit=50, limit_per_host=20),
+            timeout=aiohttp.ClientTimeout(total=30),
+        ) as temp_session:
+            return await _fetch_sina_batch_with_session(codes, temp_session)
+    else:
+        return await _fetch_sina_batch_with_session(codes, session)
+
+async def _fetch_sina_batch_with_session(codes: List[str], session) -> Dict:
+    """使用指定 session 获取一批股票数据"""
     codes_str = ",".join(codes)
     url = f"https://hq.sinajs.cn/list={codes_str}"
     headers = {
@@ -144,7 +156,7 @@ async def _fetch_all_stocks_async() -> Optional[pd.DataFrame]:
     """异步获取全量股票数据"""
     import aiohttp
 
-    print(f"[ASYNC] _fetch_all_stocks_async 开始, PID={os.getpid()}", flush=True)
+    log.debug(f"[ASYNC] _fetch_all_stocks_async 开始, PID={os.getpid()}")
     log.debug(f"[_fetch_all_stocks_async] 开始获取...")
 
     codes = _get_cn_codes_from_registry()
@@ -152,28 +164,28 @@ async def _fetch_all_stocks_async() -> Optional[pd.DataFrame]:
         log.error("[_fetch_all_stocks_async] StockRegistry 为空，无法获取股票代码列表")
         return None
 
-    print(f"[ASYNC] 股票代码总数: {len(codes)}", flush=True)
+    log.debug(f"[ASYNC] 股票代码总数: {len(codes)}")
     log.debug(f"[_fetch_all_stocks_async] 股票代码总数: {len(codes)}")
 
     batch_size = 800
     all_data = {}
 
-    print(f"[ASYNC] 创建 ClientSession...", flush=True)
+    log.debug(f"[ASYNC] 创建 ClientSession...")
     async with aiohttp.ClientSession(
         connector=aiohttp.TCPConnector(limit=50, limit_per_host=20),
         timeout=aiohttp.ClientTimeout(total=30),
     ) as session:
-        print(f"[ASYNC] ClientSession 创建成功，开始获取批次...", flush=True)
+        log.debug(f"[ASYNC] ClientSession 创建成功，开始获取批次...")
         for i in range(0, len(codes), batch_size):
             batch = codes[i:i + batch_size]
-            print(f"[ASYNC] 获取批次 {i//batch_size + 1}, 代码数: {len(batch)}", flush=True)
+            log.debug(f"[ASYNC] 获取批次 {i//batch_size + 1}, 代码数: {len(batch)}")
             batch_data = await _fetch_sina_batch_async(batch, session)
-            print(f"[ASYNC] 批次 {i//batch_size + 1} 返回: {len(batch_data)} 条", flush=True)
+            log.debug(f"[ASYNC] 批次 {i//batch_size + 1} 返回: {len(batch_data)} 条")
             log.debug(f"[_fetch_all_stocks_async] 批次 {i//batch_size + 1} 返回: {len(batch_data)} 条")
             all_data.update(batch_data)
             await asyncio.sleep(0.05)
 
-    print(f"[ASYNC] 所有批次获取完成，总共: {len(all_data)} 条", flush=True)
+    log.debug(f"[ASYNC] 所有批次获取完成，总共: {len(all_data)} 条")
     log.debug(f"[_fetch_all_stocks_async] 总共获取: {len(all_data)} 条数据")
 
     if not all_data:
@@ -190,15 +202,15 @@ async def _fetch_all_stocks_async() -> Optional[pd.DataFrame]:
 
 def _fetch_sina_sync(force_trading: bool = False) -> Optional[pd.DataFrame]:
     """同步获取 Sina 全量数据（在子线程中调用）"""
-    print(f"[SINA_SYNC] 开始 PID={os.getpid()}", flush=True)
+    log.debug(f"[SINA_SYNC] 开始 PID={os.getpid()}")
     try:
         log.debug("[_fetch_sina_sync] 开始获取 Sina 数据")
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
-        print(f"[SINA_SYNC] 创建事件循环完成", flush=True)
+        log.debug("[SINA_SYNC] 创建事件循环完成")
         try:
             result = loop.run_until_complete(_fetch_all_stocks_async())
-            print(f"[SINA_SYNC] run_until_complete 完成, result={len(result) if result is not None else None}", flush=True)
+            log.debug(f"[SINA_SYNC] run_until_complete 完成, result={len(result) if result is not None else None}")
             if result is not None:
                 log.debug(f"[_fetch_sina_sync] 获取完成: result={type(result)}, len={len(result)}")
             else:
@@ -206,9 +218,9 @@ def _fetch_sina_sync(force_trading: bool = False) -> Optional[pd.DataFrame]:
             return result
         finally:
             loop.close()
-            print(f"[SINA_SYNC] 事件循环已关闭", flush=True)
+            log.debug("[SINA_SYNC] 事件循环已关闭")
     except Exception as e:
-        print(f"[SINA_SYNC] 异常: {e}", flush=True)
+        log.error(f"[SINA_SYNC] 异常: {e}")
         log.error(f"[_fetch_sina_sync] 异常: {e}")
         import traceback
         log.error(traceback.format_exc())
@@ -219,14 +231,14 @@ def _fetch_sina_by_symbols_sync(symbols: List[str]) -> Optional[pd.DataFrame]:
     """同步获取指定 symbols 的 Sina 数据（在子线程中调用）"""
     if not symbols:
         return None
-    print(f"[SINA_SYNC_SYMBOLS] 开始 PID={os.getpid()}, symbols数量={len(symbols)}", flush=True)
+    log.debug(f"[SINA_SYNC_SYMBOLS] 开始 PID={os.getpid()}, symbols数量={len(symbols)}")
     try:
         log.debug(f"[_fetch_sina_by_symbols_sync] 开始获取 {len(symbols)} 只股票")
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         try:
             result = loop.run_until_complete(_fetch_sina_batch_async(symbols))
-            print(f"[SINA_SYNC_SYMBOLS] 完成, result={len(result) if result else 0} 条", flush=True)
+            log.debug(f"[SINA_SYNC_SYMBOLS] 完成, result={len(result) if result else 0} 条")
             if result:
                 df = pd.DataFrame(result).T
                 return df
@@ -234,7 +246,7 @@ def _fetch_sina_by_symbols_sync(symbols: List[str]) -> Optional[pd.DataFrame]:
         finally:
             loop.close()
     except Exception as e:
-        print(f"[SINA_SYNC_SYMBOLS] 异常: {e}", flush=True)
+        log.error(f"[SINA_SYNC_SYMBOLS] 异常: {e}")
         log.error(f"[_fetch_sina_by_symbols_sync] 异常: {e}")
         import traceback
         log.error(traceback.format_exc())

@@ -1,6 +1,8 @@
-# Naja 架构与使用文档（2026-03-24）
+# Naja 智能交易助手 - 架构与使用文档（2026-04-21）
 
-本文用于系统性说明 Naja 的架构、流程、思想、使用方法与注意事项，并总结近期的结构调整与改动，方便理解与后续演进。
+本文用于系统性说明 Naja 智能交易助手的架构、流程、思想、使用方法与注意事项，并总结近期的结构调整与改动，方便理解与后续演进。
+
+Naja 是一个具有人类般感知、思考和决策能力的智能交易助手，它能够感知市场环境、分析信息、做出决策、执行交易并从经验中学习。
 
 **目录**
 1. 架构与核心思想
@@ -16,12 +18,29 @@
 
 Naja 是一个"可恢复单元（RecoverableUnit）驱动的统一管理平台"，目标是把数据源、策略、任务、信号、注意力调度、认知系统、雷达检测、LLM 调节统一在一个平台里。
 
-核心思想包含以下几点：
+### 1.1 核心架构层次
+
+Naja 采用三层架构设计：
+
+```text
+入口 / UI / Bootstrap
+    ↓
+Application（装配、模式、订阅、生命周期）
+    ↓
+Decision / Attention / Cognition / Signal / Bandit（领域编排与核心能力）
+    ↓
+Infra / Adapters / Repository / Runtime（通用骨架与技术实现）
+```
+
+### 1.2 核心思想
+
 - **可恢复与自动化**：关键组件用 RecoverableUnit 抽象，支持状态恢复与自动运行
 - **数据驱动**：所有结果都回流为信号与事件，并进入雷达检测与认知系统
 - **认知系统优先**：认知系统不再只是单一策略，而是平台级能力，作为长期与跨场景的上下文
 - **注意力调度**：注意力系统根据市场状态和策略表现动态分配资源
 - **统一 UI**：管理平台以 Web UI 统一入口，按模块组织能力
+- **显式依赖注入**：核心组件通过 AppContainer 进行显式依赖注入，减少全局依赖
+- **集中事件订阅**：通过 EventSubscriberRegistrar 统一管理事件订阅，保持领域对象纯净
 
 ---
 
@@ -76,42 +95,47 @@ python -m deva.naja
 
 ## 4. 关键模块说明
 
-### 4.1 认知系统 (Cognition)
+### 4.1 应用层 (Application)
 | 文件 | 功能 |
 |------|------|
-| `cognition/core.py` | NewsMindStrategy、AttentionScorer |
-| `cognition/engine.py` | CognitionEngine 认知引擎 |
-| `cognition/narrative_tracker.py` | NarrativeTracker 叙事追踪 |
-| `cognition/semantic_cold_start.py` | SemanticColdStart 语义冷启动 |
-| `cognition/insight/engine.py` | InsightEngine 洞察引擎 |
-| `cognition/cross_signal_analyzer.py` | CrossSignalAnalyzer 跨信号分析 |
-| `cognition/ui.py` | 认知系统 UI |
+| `application/container.py` | AppContainer 核心组件装配和依赖注入 |
+| `application/event_registrar.py` | EventSubscriberRegistrar 集中事件订阅管理 |
+| `application/runtime_config.py` | 运行时配置 |
+| `application/runtime_modes.py` | 运行模式初始化 |
 
-### 4.2 注意力系统 (Attention)
+### 4.2 决策层 (Decision)
+| 文件 | 功能 |
+|------|------|
+| `decision/orchestrator.py` | DecisionOrchestrator 决策编排 |
+| `decision/fusion.py` | DecisionFusion 决策融合 |
+
+### 4.3 注意力系统 (Attention)
 | 目录 | 功能 |
 |------|------|
-| `attention/core/` | 核心引擎（AttentionEngine、SectorEngine、WeightPool） |
-| `attention/engine/` | 双引擎（DualEngine） |
-| `attention/strategies/` | 注意力策略实现 |
-| `attention/intelligence/` | 智能系统（BudgetSystem、FeedbackLoop） |
-| `attention/pipeline/` | 处理流水线 |
-| `attention/processing/` | 数据处理（NoiseFilter、TickFilter） |
+| `attention/os/` | 注意力操作系统（AttentionOS） |
+| `attention/kernel/` | 注意力内核（ManasEngine、QueryState、StateUpdater） |
+| `attention/values/` | 价值系统（ValueSystem） |
+| `attention/tracking/` | 注意力追踪 |
+| `attention/discovery/` | 注意力发现 |
 
-### 4.3 雷达系统 (Radar)
+### 4.4 认知系统 (Cognition)
+| 文件 | 功能 |
+|------|------|
+| `cognition/engine.py` | CognitionEngine 认知引擎 |
+| `cognition/insight/engine.py` | InsightEngine 洞察引擎 |
+| `cognition/analysis/` | 分析模块 |
+| `cognition/semantic/` | 语义处理 |
+
+### 4.5 雷达系统 (Radar)
 | 文件 | 功能 |
 |------|------|
 | `radar/engine.py` | 雷达引擎 |
 | `radar/news_fetcher.py` | 新闻获取器 |
-| `radar/ui.py` | 雷达 UI |
+| `radar/trading_clock.py` | 交易时钟 |
 | `radar/global_market_scanner.py` | 全球市场扫描器 + 流动性预测 |
+| `radar/senses/` | 感知模块（波动率曲面、先知感知、预尝味、实时尝味） |
 
-### 4.4 流动性预测体系 (Liquidity Prediction)
-| 文件 | 功能 |
-|------|------|
-| `radar/global_market_scanner.py` | 全球市场信号采集、流动性预测、信号共振检测 |
-| 核心能力 | 预测 → 验证 → 解除 完整闭环 |
-
-### 4.5 策略系统 (Strategy)
+### 4.6 策略系统 (Strategy)
 | 文件 | 功能 |
 |------|------|
 | `strategy/runtime.py` | 策略运行时 |
@@ -122,7 +146,7 @@ python -m deva.naja
 | `strategy/signal_processor.py` | 信号处理器 |
 | `strategy/result_store.py` | 结果存储 |
 
-### 4.6 Bandit 系统
+### 4.7 Bandit 系统
 | 文件 | 功能 |
 |------|------|
 | `bandit/runner.py` | Bandit 运行器 |
@@ -130,18 +154,24 @@ python -m deva.naja
 | `bandit/virtual_portfolio.py` | 虚拟组合 |
 | `bandit/market_observer.py` | 市场观察 |
 | `bandit/adaptive_cycle.py` | 自适应周期 |
+| `bandit/tracker.py` | 持仓追踪 |
 
-### 4.7 LLM 调节
+### 4.8 基础设施层 (Infra)
+| 目录 | 功能 |
+|------|------|
+| `infra/lifecycle/` | 生命周期管理（Bootstrap） |
+| `infra/log/` | 日志系统 |
+| `infra/management/` | 通用管理器骨架 |
+| `infra/observability/` | 可观测性（健康检查、自动调优） |
+| `infra/registry/` | 注册管理 |
+| `infra/runtime/` | 运行时服务（线程池、市场时间） |
+
+### 4.9 Web UI
 | 文件 | 功能 |
 |------|------|
-| `llm_controller/controller.py` | LLM 控制器 |
-| `llm_controller/ui.py` | LLM UI |
-
-### 4.8 Web UI
-| 文件 | 功能 |
-|------|------|
-| `web_ui.py` | Web UI 入口与路由 |
-| `bootstrap.py` | 系统启动引导器 |
+| `web_ui/routes.py` | 路由管理 |
+| `web_ui/server.py` | 服务器启动 |
+| `web_ui/api.py` | API 接口 |
 
 ---
 
@@ -157,87 +187,127 @@ python -m deva.naja
 
 ## 6. 核心模块详解
 
-### 6.1 认知引擎 (CognitionEngine)
+### 6.1 应用容器 (AppContainer)
+
+应用容器是 Naja 的组合根，负责核心组件的装配和依赖注入：
+
+```python
+from deva.naja.application.container import AppContainer, get_app_container
+
+container = get_app_container()
+# 获取核心组件
+attention_os = container.attention_os
+trading_center = container.trading_center
+radar_engine = container.radar_engine
+```
+
+核心功能：
+- **显式依赖注入**：通过构造函数注入依赖，减少全局依赖
+- **组件装配**：统一管理核心组件的创建和初始化
+- **生命周期管理**：管理组件的启动和关闭
+
+### 6.2 事件注册器 (EventSubscriberRegistrar)
+
+事件注册器统一管理所有事件订阅：
+
+```python
+from deva.naja.application.event_registrar import EventSubscriberRegistrar
+
+registrar = EventSubscriberRegistrar(attention_os, trading_center)
+registrar.register_all()
+```
+
+核心功能：
+- **集中事件订阅**：统一管理所有事件订阅关系
+- **领域对象纯净**：领域对象只暴露 handler 方法，不负责订阅逻辑
+- **订阅管理**：统一处理订阅的注册和管理
+
+### 6.3 决策编排器 (DecisionOrchestrator)
+
+决策编排器负责决策流程的编排和执行：
+
+```python
+from deva.naja.decision.orchestrator import DecisionOrchestrator
+
+orchestrator = DecisionOrchestrator(
+    attention_os=attention_os,
+    awakened_state={},
+    get_first_principles_mind=lambda: ...,
+    get_awakened_alaya=lambda: ...,
+    get_in_context_learner=lambda: ...,
+    get_volatility_surface=lambda: ...,
+    get_pre_taste=lambda: ...,
+    get_prophet_sense=lambda: ...,
+    get_realtime_taste=lambda: ...
+)
+
+fusion_output = orchestrator.run_full_pipeline(market_state, snapshot)
+```
+
+核心功能：
+- **决策流程编排**：协调多个模块的决策过程
+- **决策融合**：融合多个决策源的结果
+- **感知模块处理**：整合波动率曲面、先知感知等感知模块的输入
+
+### 6.4 注意力操作系统 (AttentionOS)
+
+注意力操作系统是注意力系统的核心：
+
+```python
+from deva.naja.attention.os.attention_os import AttentionOS
+
+attention_os = AttentionOS(insight_pool=insight_pool)
+```
+
+核心功能：
+- **注意力分配**：根据市场状态动态分配注意力资源
+- **事件处理**：处理热点计算、热点转移等事件
+- **决策生成**：基于注意力状态生成决策
+
+### 6.5 认知引擎 (CognitionEngine)
 
 认知引擎是平台级认知输入输出入口：
 
 ```python
-from deva.naja.cognition import CognitionEngine, get_cognition_engine
+from deva.naja.cognition import CognitionEngine
 
-engine = get_cognition_engine()
+engine = CognitionEngine()
 ```
 
 核心功能：
-- **NarrativeTracker**：管理市场叙事生命周期
-- **SemanticColdStart**：处理新概念的快速学习
-- **CrossSignalAnalyzer**：合并新闻和注意力信号
-- **InsightEngine**：管理认知产物
+- **洞察管理**：管理认知产物和洞察
+- **语义处理**：处理市场语义信息
+- **跨信号分析**：分析多个信号源的信息
 
-### 6.2 注意力协调器 (AttentionOrchestrator)
-
-注意力协调器统一管理注意力分配：
-
-```python
-from deva.naja.attention import AttentionOrchestrator
-
-orchestrator = AttentionOrchestrator()
-```
-
-核心功能：
-- **AttentionEngine**：注意力核心引擎
-- **DualEngine**：双引擎处理动量和噪声
-- **StrategyManager**：托管多种注意力策略
-- **BudgetSystem**：智能分配注意力预算
-- **FeedbackLoop**：持续优化注意力分配
-
-### 6.3 雷达引擎 (RadarEngine)
+### 6.6 雷达引擎 (RadarEngine)
 
 雷达引擎用于检测市场模式、异常和概念漂移：
 
 ```python
-from deva.naja.radar import RadarEngine, get_radar_engine
+from deva.naja.radar import RadarEngine
 
-radar = get_radar_engine()
-```
-
-### 6.4 流动性预测体系 (Liquidity Prediction)
-
-流动性预测体系是全球市场监控的核心组件，实现预测 → 验证 → 解除完整闭环：
-
-```python
-from deva.naja.radar.global_market_scanner import get_global_market_scanner
-
-scanner = get_global_market_scanner()
+radar = RadarEngine(trading_clock=trading_clock)
 ```
 
 核心功能：
-- **信号共振检测**：检测行情信号和舆论信号的一致性
-- **流动性预测**：基于全球市场信号预测各市场流动性
-- **主题扩散预测**：基于美股热门板块预测A股同名板块联动
-- **完整闭环**：预测、验证、解除全程自动执行
+- **市场扫描**：扫描全球市场信号
+- **异常检测**：检测市场异常和概念漂移
+- **流动性预测**：预测市场流动性变化
 
-```python
-# 便捷方法
-adjustment = scanner.get_liquidity_adjustment(LiquiditySignalType.CHINA_A, actual_data={'change_pct': -1.5})
-all_adjustments = scanner.get_all_market_adjustments()
-predictions = scanner.predict_and_auto_verify(source_market, signals, market_data_map)
-```
-
-详见：[cross_market_liquidity_prediction.md](docs/naja/cross_market_liquidity_prediction.md)
-
-### 6.5 Bandit 自适应交易
+### 6.7 Bandit 自适应交易
 
 Bandit 系统是基于多臂老虎机的自适应交易系统：
 
 ```python
-from deva.naja.bandit import BanditRunner
+from deva.naja.bandit import BanditAutoRunner
 
-runner = BanditRunner()
+runner = BanditAutoRunner()
 runner.start()
 ```
 
 核心功能：
 - **Virtual Portfolio**：虚拟组合管理
 - **Market Observer**：市场观察
-- **Adaptive Cycle**：自适应周期
+- **Adaptive Cycle**：自适应交易周期
 - **Signal Listener**：信号监听
+- **Position Tracker**：持仓追踪

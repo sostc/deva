@@ -3,10 +3,10 @@ import os
 import atexit
 import threading
 
-from .utils.ioloop import get_io_loop
+from deva.utils.ioloop import get_io_loop
 from .bus import log
 from .core import Stream
-from .utils.time import convert_interval
+from deva.utils.time import convert_interval
 import datetime
 from tornado import gen
 import time
