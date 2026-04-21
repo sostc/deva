@@ -257,6 +257,7 @@ class AppContainer:
         # 注册所有 TaskManager 管理的定时任务
         self._register_ai_daily_report_task()
         self._register_knowledge_injector_task()
+        self._register_openrouter_monitor_task()
         
         # 启动美林时钟经济数据定时更新
         self._start_merrill_clock_task()
@@ -371,6 +372,66 @@ def execute() -> dict:
                 log.info("[AppContainer] 知识库注入任务已存在")
         except Exception as e:
             log.warning(f"[AppContainer] 知识库注入任务注册失败: {e}")
+
+    def _register_openrouter_monitor_task(self):
+        """注册 OpenRouter AI 算力趋势监控定时任务"""
+        try:
+            task_mgr = SR('task_manager')
+            existing = task_mgr.get_by_name("openrouter_monitor")
+            if not existing:
+                func_code = '''
+import logging
+import asyncio
+log = logging.getLogger(__name__)
+
+def execute() -> dict:
+    """OpenRouter AI 算力 TOKEN 消耗趋势监控（每周执行）"""
+    try:
+        from deva.naja.cognition.openrouter_monitor import (
+            refresh_openrouter_data,
+            get_ai_compute_trend,
+        )
+        
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            result = loop.run_until_complete(refresh_openrouter_data())
+        finally:
+            loop.close()
+        
+        if result:
+            trend = get_ai_compute_trend()
+            return {
+                "success": True,
+                "trend_direction": trend.get("trend_direction") if trend else "unknown",
+                "alert_level": result.get("alert_level", "normal"),
+                "message": result.get("message", ""),
+                "data_weeks": result.get("data_weeks", 0),
+            }
+        else:
+            return {"success": False, "message": "数据获取失败"}
+    except Exception as e:
+        log.error(f"[OpenRouter] 执行失败: {e}")
+        return {"success": False, "error": str(e)}
+'''
+                result = task_mgr.create(
+                    name="openrouter_monitor",
+                    description="OpenRouter AI 算力 TOKEN 消耗趋势监控（每周分析全球 AI 算力需求变化）",
+                    func_code=func_code,
+                    task_type="scheduler",
+                    scheduler_trigger="cron",
+                    cron_expr="0 9 * * 1",  # 每周一 09:00
+                    tags=["openrouter", "ai_compute", "weekly"],
+                )
+                if result.get("success"):
+                    task_mgr.start(result.get("id"))
+                    log.info(f"[AppContainer] OpenRouter 监控任务已创建并启动: {result.get('id')}")
+            else:
+                if not existing.is_running:
+                    task_mgr.start(existing.id)
+                log.info("[AppContainer] OpenRouter 监控任务已存在")
+        except Exception as e:
+            log.warning(f"[AppContainer] OpenRouter 监控任务注册失败: {e}")
 
     def _start_merrill_clock_task(self):
         """启动美林时钟定时任务"""
