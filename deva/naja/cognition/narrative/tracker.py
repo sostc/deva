@@ -298,13 +298,30 @@ class NarrativeTracker:
 
         self._load_state()
 
-        self._subscribe_to_text_events()
-        self._subscribe_to_manas_state()
+        # 🚀 事件订阅已迁移到 EventSubscriberRegistrar（应用层）
+        # 不再在 __init__ 中自动订阅
+
+    def subscribe_text_events(self, event_bus):
+        """由 EventSubscriberRegistrar 调用的事件订阅方法"""
+        event_bus.subscribe(
+            'TextFocusedEvent',
+            self._on_text_focused,
+            priority=7
+        )
+
+    def subscribe_manas_state_events(self, event_bus):
+        """由 EventSubscriberRegistrar 调用的 Manas 状态事件订阅方法"""
+        from deva.naja.events import CognitiveEventType
+
+        event_bus.subscribe(
+            "NarrativeTracker",
+            self._on_manas_state_changed,
+            event_types=[CognitiveEventType.MANAS_STATE_CHANGED],
+        )
 
     def _get_initial_focus_themes(self) -> List[Dict[str, Any]]:
         """
-        🚀 初始化时获取关注的主题列表
-
+        初始化时获取关注的主题列表
         仅在 __init__ 时调用一次。后续通过订阅 MANAS_STATE_CHANGED 事件更新。
         """
         try:
@@ -334,36 +351,8 @@ class NarrativeTracker:
             for theme_id, keywords in DEFAULT_NARRATIVE_KEYWORDS.items()
         ]
 
-    def _subscribe_to_manas_state(self):
-        """
-        🚀 订阅 MANAS_STATE_CHANGED 事件，解耦对 Attention 的直接依赖
-
-        ManasEngine 状态变化时会发布 MANAS_STATE_CHANGED 事件，
-        我们收到后更新 _focus_themes，实现单向数据流。
-        """
-        try:
-            from deva.naja.events import get_event_bus, CognitiveEventType
-
-            bus = get_event_bus()
-            bus.subscribe(
-                "NarrativeTracker",
-                self._on_manas_state_changed,
-                event_types=[CognitiveEventType.MANAS_STATE_CHANGED],
-            )
-            import logging
-            logging.getLogger(__name__).debug("[NarrativeTracker] 已订阅 MANAS_STATE_CHANGED")
-        except ImportError:
-            pass
-        except Exception as e:
-            import logging
-            logging.getLogger(__name__).warning(f"[NarrativeTracker] 订阅 MANAS_STATE_CHANGED 失败: {e}")
-
     def _on_manas_state_changed(self, event):
-        """
-        🚀 处理 MANAS_STATE_CHANGED 事件，更新关注主题
-
-        这是事件驱动的核心：Manas 状态变化 → 发布事件 → Cognition 更新
-        """
+        """处理 MANAS_STATE_CHANGED 事件，更新关注主题"""
         try:
             data = getattr(event, 'data', {}) or {}
             new_themes = data.get("focus_themes", [])

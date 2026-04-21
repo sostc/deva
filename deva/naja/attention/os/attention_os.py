@@ -50,7 +50,6 @@ from .os_kernel import OSAttentionKernel
 from .strategy_decision import StrategyDecisionMaker
 from ..models.output import AttentionFusionOutput, AttentionKernelOutput
 from ..text_importance_scorer import TextImportanceScorer
-from deva.naja.register import SR
 
 log = logging.getLogger(__name__)
 
@@ -154,40 +153,6 @@ class AttentionOS:
             all_signals.extend(strategy.get_recent_signals(n))
 
         return sorted(all_signals, key=lambda x: x['timestamp'], reverse=True)[:n]
-
-    def _subscribe_to_hotspot_events(self):
-        """订阅市场热点事件"""
-        try:
-            from deva.naja.events import get_event_bus
-            event_bus = get_event_bus()
-            event_bus.subscribe(
-                'HotspotComputedEvent',
-                self._on_hotspot_computed,
-                markets={'US', 'CN'},
-                priority=10
-            )
-            event_bus.subscribe(
-                'HotspotShiftEvent',
-                self._on_hotspot_shift,
-                priority=5
-            )
-            log.info("[AttentionOS] 已订阅市场热点事件和热点转移事件")
-        except Exception as e:
-            log.warning(f"[AttentionOS] 订阅市场热点事件失败: {e}")
-
-    def _subscribe_to_text_events(self):
-        """订阅文本获取事件"""
-        try:
-            from deva.naja.events import get_event_bus
-            event_bus = get_event_bus()
-            event_bus.subscribe(
-                'TextFetchedEvent',
-                self._on_text_fetched,
-                priority=10
-            )
-            log.info("[AttentionOS] 已订阅文本获取事件")
-        except Exception as e:
-            log.warning(f"[AttentionOS] 订阅文本获取事件失败: {e}")
 
     def _on_text_fetched(self, event):
         """处理文本获取事件 - TextImportanceScorer 进行重要性评分"""

@@ -35,18 +35,15 @@ from deva.naja.cognition.narrative.tracker import get_narrative_tracker
 from deva.naja.decision import DecisionOrchestrator, FusionOutput
 from ..os.attention_os import AttentionOS, get_attention_os
 
-# 事件总线导入
+# process_strategy_signal_event 需要的类型
 try:
-    from deva.naja.events import (
-        get_event_bus, 
-        StrategySignalEvent, 
-        TradeDecisionEvent,
-        SignalDirection,
-        DecisionResult,
-    )
-    EVENT_BUS_AVAILABLE = True
+    from deva.naja.events import StrategySignalEvent, SignalDirection, DecisionResult
+    _EVENT_TYPES_AVAILABLE = True
 except ImportError:
-    EVENT_BUS_AVAILABLE = False
+    _EVENT_TYPES_AVAILABLE = False
+    StrategySignalEvent = Any
+    SignalDirection = None
+    DecisionResult = None
 
 log = logging.getLogger(__name__)
 
@@ -123,59 +120,6 @@ class TradingCenter:
     def set_attention_os(self, attention_os) -> None:
         """显式设置 AttentionOS（依赖注入）"""
         self.attention_os = attention_os
-
-    def _subscribe_to_strategy_signals(self):
-        """🚀 订阅 StrategySignalEvent，处理策略信号"""
-        if not EVENT_BUS_AVAILABLE:
-            log.debug("[TradingCenter] 事件总线不可用，跳过订阅")
-            return
-            
-        try:
-            bus = get_event_bus()
-            
-            def on_strategy_signal(event):
-                """处理策略信号事件"""
-                try:
-                    import time as t
-                    start_time = t.time_ns()
-                    
-                    # 调用新的事件处理方法
-                    decision = self.process_strategy_signal_event(event)
-                    
-                    processing_time_ms = (t.time_ns() - start_time) / 1_000_000
-                    
-                    # 构建决策事件
-                    decision_event = TradeDecisionEvent(
-                        signal_event=event,
-                        decision=decision["decision"],
-                        approval_score=decision.get("approval_score", 0.5),
-                        approved_symbol=decision.get("approved_symbol"),
-                        approved_direction=decision.get("approved_direction"),
-                        position_size=decision.get("position_size"),
-                        entry_price=decision.get("entry_price"),
-                        stop_loss_price=decision.get("stop_loss_price"),
-                        take_profit_price=decision.get("take_profit_price"),
-                        reason=decision.get("reason", ""),
-                        subsystems_opinions=decision.get("subsystems_opinions", {}),
-                        processing_time_ms=processing_time_ms,
-                        metadata={
-                            "processing_time_ms": processing_time_ms,
-                            "original_signal": event.to_dict(),
-                        }
-                    )
-                    
-                    # 发布决策事件
-                    bus.publish(decision_event)
-                    log.debug(f"[TradingCenter] 发布 TradeDecisionEvent: {decision_event.decision.value}")
-                    
-                except Exception as e:
-                    log.warning(f"[TradingCenter] 处理策略信号事件失败: {e}")
-            
-            bus.subscribe("StrategySignalEvent", on_strategy_signal)
-            log.info("[TradingCenter] 已订阅 StrategySignalEvent")
-            
-        except Exception as e:
-            log.warning(f"[TradingCenter] 订阅策略信号事件失败: {e}")
 
     def _get_first_principles_mind(self):
         """获取 FirstPrinciplesMind"""
