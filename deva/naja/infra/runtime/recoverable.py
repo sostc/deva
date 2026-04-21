@@ -231,6 +231,17 @@ class RecoverableUnit(ABC):
         import re
         from collections import defaultdict
         
+        # 注入 deva/naja 核心工具
+        try:
+            from deva.naja.register import SR
+        except Exception:
+            SR = None
+        
+        try:
+            from deva import NB
+        except Exception:
+            NB = None
+        
         return {
             "pd": pd,
             "pandas": pd,
@@ -247,6 +258,8 @@ class RecoverableUnit(ABC):
             "re": re,
             "defaultdict": defaultdict,
             "sys": sys,
+            "SR": SR,
+            "NB": NB,
             "__builtins__": __builtins__,
         }
     

@@ -359,7 +359,6 @@ def execute() -> dict:
 
             heartbeat_code = '''
 import logging
-from deva.naja.register import SR
 log = logging.getLogger(__name__)
 
 def execute() -> dict:

@@ -138,8 +138,11 @@ class RecoveryLifecycleMixin:
 
         try:
             cognition = self._get_component('cognition')
-            if cognition and hasattr(cognition, 'save_state'):
-                cognition.save_state()
+            if cognition:
+                if hasattr(cognition, 'shutdown'):
+                    cognition.shutdown()
+                elif hasattr(cognition, 'save_state'):
+                    cognition.save_state()
         except Exception as e:
             log.error(f"保存认知状态失败: {e}")
 

@@ -326,3 +326,21 @@ class StrategyDecisionMaker:
             {"block": blk, "weight": wgt}
             for blk, wgt in sorted_weights[:n]
         ]
+
+    def persist_state(self):
+        """持久化策略决策状态"""
+        try:
+            from deva import NB
+            db = NB('naja_attention_strategy_state')
+            db['strategy_decision_state'] = {
+                'block_weights': self._block_weights,
+                'symbol_weights': self._symbol_weights,
+                'frequency_level': self._frequency_level,
+                'schedule_interval': self._schedule_interval,
+                'last_schedule_time': self._last_schedule_time,
+                'strategy_allocations': self._strategy_allocations,
+            }
+            db.persist()
+            log.debug("[StrategyDecisionMaker] 策略决策状态已持久化")
+        except Exception as e:
+            log.warning(f"[StrategyDecisionMaker] 持久化策略决策状态失败: {e}")

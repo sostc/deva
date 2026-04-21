@@ -301,6 +301,38 @@ class AttentionOS:
         """获取 AttentionKernel 实例（兼容 BanditOptimizer）"""
         return self.kernel
 
+    def persist_state(self):
+        """持久化注意力系统状态"""
+        try:
+            self.kernel.persist_state()
+            log.info("[AttentionOS] 注意力内核状态已持久化")
+        except Exception as e:
+            log.warning(f"[AttentionOS] 持久化注意力内核状态失败: {e}")
+
+        try:
+            self.strategy_decision_maker.persist_state()
+            log.info("[AttentionOS] 策略决策状态已持久化")
+        except Exception as e:
+            log.warning(f"[AttentionOS] 持久化策略决策状态失败: {e}")
+
+        try:
+            from deva.naja.attention.focus_manager import get_attention_focus_manager
+            fm = get_attention_focus_manager()
+            if hasattr(fm, 'persist_state'):
+                fm.persist_state()
+                log.info("[AttentionOS] 关注管理状态已持久化")
+        except Exception as e:
+            log.warning(f"[AttentionOS] 持久化关注管理状态失败: {e}")
+
+        try:
+            from deva.naja.cognition.narrative import get_narrative_tracker
+            tracker = get_narrative_tracker()
+            if hasattr(tracker, 'save_state'):
+                tracker.save_state()
+                log.info("[AttentionOS] 叙事追踪状态已持久化")
+        except Exception as e:
+            log.warning(f"[AttentionOS] 持久化叙事追踪状态失败: {e}")
+
 
 _attention_os: Optional[AttentionOS] = None
 
