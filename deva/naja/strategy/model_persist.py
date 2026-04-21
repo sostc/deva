@@ -5,6 +5,7 @@
 - 模型版本管理
 - 模型回滚
 - 模型导出和导入
+- River 在线学习模型序列化支持
 
 使用方式:
     from deva.naja.strategy.model_persist import (
@@ -13,12 +14,20 @@
         save_model,
         load_model,
     )
+    # River 模型持久化
+    from deva.naja.strategy.model_persist import (
+        serialize_river_model,
+        deserialize_river_model,
+        RiverStatePersistMixin,
+    )
 """
 
 from __future__ import annotations
 
+import base64
 import hashlib
 import json
+import logging
 import pickle
 import time
 from dataclasses import dataclass, field
@@ -26,6 +35,8 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
 from deva import NB
+
+log = logging.getLogger(__name__)
 
 
 @dataclass
@@ -279,3 +290,159 @@ def import_model(strategy_id: str, model_data: Dict) -> bool:
     """导入模型的便捷函数"""
     manager = get_model_manager(strategy_id)
     return manager.import_model(model_data)
+
+
+# ============================================================================
+# River 模型序列化工具
+# ============================================================================
+
+def serialize_river_model(model) -> str:
+    """序列化 River 模型为 base64 字符串
+
+    支持:
+    - anomaly.HalfSpaceTrees
+    - cluster.KMeans
+    - drift.ADWIN
+    - stats 系列
+    - compose.Pipeline
+    - linear_model 系列
+
+    Args:
+        model: River 模型实例
+
+    Returns:
+        str: base64 编码的序列化字符串，None 表示序列化失败
+    """
+    try:
+        pickled = pickle.dumps(model)
+        return base64.b64encode(pickled).decode('ascii')
+    except Exception as e:
+        log.error(f"[serialize_river_model] 序列化失败: {e}")
+        return None
+
+
+def deserialize_river_model(serialized: str):
+    """反序列化 River 模型
+
+    Args:
+        serialized: base64 编码的序列化字符串
+
+    Returns:
+        River 模型实例，None 表示反序列化失败
+    """
+    try:
+        pickled = base64.b64decode(serialized.encode('ascii'))
+        return pickle.loads(pickled)
+    except Exception as e:
+        log.error(f"[deserialize_river_model] 反序列化失败: {e}")
+        return None
+
+
+# ============================================================================
+# River 状态持久化 Mixin
+# ============================================================================
+
+class RiverStatePersistMixin:
+    """River 状态持久化混入类
+
+    为策略提供统一的 River 模型持久化能力。
+    混入此类后，策略可以自动保存和恢复 River 模型状态。
+
+    使用方式:
+        class MyStrategy(RiverStatePersistMixin):
+            MODEL_STATE_KEY = "my_strategy_model"  # 必须定义
+
+            def __init__(self):
+                self._model = anomaly.HalfSpaceTrees(...)
+                self.try_load_state()  # 启动时恢复
+
+            def on_data(self, data):
+                self._model.learn_one(features)
+                self.try_save_state()  # 处理后保存
+
+    子类必须定义:
+        MODEL_STATE_KEY: str  # 持久化存储的 key
+    """
+
+    MODEL_STATE_KEY: str = ""
+
+    def _get_persist_db(self):
+        """获取持久化存储（NB）"""
+        if not hasattr(self, '_persist_db') or self._persist_db is None:
+            self._persist_db = NB("naja_river_model_states")
+        return self._persist_db
+
+    def try_save_state(self) -> bool:
+        """保存 River 模型状态
+
+        Returns:
+            bool: 是否保存成功
+        """
+        if not self.MODEL_STATE_KEY:
+            log.warning(f"[RiverStatePersistMixin] {self.__class__.__name__} 未定义 MODEL_STATE_KEY")
+            return False
+
+        try:
+            state = self._extract_model_state()
+            if state is None:
+                return False
+
+            serialized = serialize_river_model(state)
+            if serialized is None:
+                return False
+
+            db = self._get_persist_db()
+            db[self.MODEL_STATE_KEY] = {
+                "serialized": serialized,
+                "timestamp": time.time(),
+                "class": self.__class__.__name__,
+            }
+            return True
+
+        except Exception as e:
+            log.error(f"[RiverStatePersistMixin] 保存状态失败 {self.__class__.__name__}: {e}")
+            return False
+
+    def try_load_state(self) -> bool:
+        """加载 River 模型状态
+
+        Returns:
+            bool: 是否加载成功
+        """
+        if not self.MODEL_STATE_KEY:
+            return False
+
+        try:
+            db = self._get_persist_db()
+            data = db.get(self.MODEL_STATE_KEY)
+            if not data or "serialized" not in data:
+                return False
+
+            state = deserialize_river_model(data["serialized"])
+            if state is None:
+                return False
+
+            self._restore_model_state(state)
+            log.info(f"[RiverStatePersistMixin] {self.__class__.__name__} 已恢复状态 "
+                     f"(保存时间: {time.strftime('%Y-%m-%d %H:%M', time.localtime(data.get('timestamp', 0)))})")
+            return True
+
+        except Exception as e:
+            log.error(f"[RiverStatePersistMixin] 加载状态失败 {self.__class__.__name__}: {e}")
+            return False
+
+    def _extract_model_state(self) -> Any:
+        """提取模型状态（子类必须实现）
+
+        Returns:
+            需要序列化的模型状态对象
+        """
+        raise NotImplementedError("子类必须实现 _extract_model_state()")
+
+    def _restore_model_state(self, state: Any) -> None:
+        """恢复模型状态（子类必须实现）
+
+        Args:
+            state: 从持久化存储中恢复的模型状态
+        """
+        raise NotImplementedError("子类必须实现 _restore_model_state()")
