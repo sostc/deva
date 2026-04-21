@@ -303,7 +303,7 @@ class HotspotStrategyManager:
             from deva.naja.strategy.output_controller import get_output_controller
             controller = get_output_controller()
 
-            # ── 热点交易策略（板块轮动 / 动量突破 / 异常狙击 / 聪明资金） ──
+            # ── 热点交易策略（全部进入决策中心审批） ──
             # 信号进入决策中心审批，审批通过后可执行交易
             trading_strategies = [
                 'block_rotation_hunter',
@@ -315,21 +315,13 @@ class HotspotStrategyManager:
                 'us_anomaly_pattern_sniper',
                 'us_smart_money_flow_detector',
                 'river_block_stock_selector',
-            ]
-            for sid in trading_strategies:
-                controller.update_targets(sid, bandit=True, signal=True, radar=True, memory=True)
-                log.info(f"[StrategyManager] {sid} → 决策中心 ✅ | 信号流 ✅ | 雷达 ✅ | 记忆 ✅")
-
-            # ── River 观察策略（早期牛股 / 全市场选股 / 早期趋势） ──
-            # 仅用于观察和信号展示，不参与交易决策
-            monitoring_strategies = [
                 'river_early_bull',
                 'river_stock_selector',
                 'river_early_trend',
             ]
-            for sid in monitoring_strategies:
-                controller.update_targets(sid, bandit=False, signal=True, radar=True, memory=True)
-                log.info(f"[StrategyManager] {sid} → 观察模式（信号流 ✅ | 雷达 ✅ | 记忆 ✅）")
+            for sid in trading_strategies:
+                controller.update_targets(sid, bandit=True, signal=True, radar=True, memory=True)
+                log.info(f"[StrategyManager] {sid} → 决策中心 ✅ | 信号流 ✅ | 雷达 ✅ | 记忆 ✅")
 
             log.info(f"[StrategyManager] 策略输出目标配置完成（所有信号均经 TradingCenter 审批）")
         except Exception as e:
