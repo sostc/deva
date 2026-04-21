@@ -32,6 +32,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import os
 import threading
 import time
@@ -46,6 +47,8 @@ try:
 except Exception:
     _NUMPY_AVAILABLE = False
     np = None
+
+log = logging.getLogger(__name__)
 
 
 def _cognition_debug_log(msg: str):

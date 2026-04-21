@@ -294,7 +294,7 @@ class WeightPool:
             return 0.0
         raw_weight = float(self._weights[idx])
         if raw_weight < self.config.min_weight or raw_weight > self.config.max_weight:
-            log.warning(f"[WeightPool] symbol={symbol} weight={raw_weight:.2f} 超出范围 [{self.config.min_weight}, {self.config.max_weight}], 限制")
+            log.debug(f"[WeightPool] symbol={symbol} weight={raw_weight:.2f} 超出范围 [{self.config.min_weight}, {self.config.max_weight}], 限制")
             return max(self.config.min_weight, min(raw_weight, self.config.max_weight))
         return raw_weight
     

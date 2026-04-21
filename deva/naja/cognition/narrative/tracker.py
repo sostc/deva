@@ -49,11 +49,14 @@
 
 from __future__ import annotations
 
+import logging
 import math
 import time
 from collections import defaultdict, deque
 from dataclasses import dataclass, field
 from typing import Any, Deque, Dict, Iterable, List, Optional, Tuple
+
+log = logging.getLogger(__name__)
 
 # 从统一关键词注册表导入
 from deva.naja.cognition.semantic.keyword_registry import (

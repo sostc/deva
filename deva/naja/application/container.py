@@ -130,6 +130,9 @@ class AppContainer:
             self._event_registrar = self._create_event_registrar()
             self._event_registrar.register_all()
             
+            # 9. 启动 Supervisor（包含热点系统初始化）
+            self._start_supervisor()
+            
             self._components_assembled = True
             log.info("[AppContainer] 核心组件装配完成")
             
@@ -181,6 +184,26 @@ class AppContainer:
 
         self._load_counts = counts
         self._load_errors = errors
+
+    def _start_supervisor(self):
+        """启动 Supervisor（包含热点系统初始化和数据获取器启动）"""
+        try:
+            from ..supervisor import start_supervisor
+            from ..supervisor.monitoring import MonitoringMixin
+            
+            log.info("[AppContainer] 启动 Supervisor...")
+            supervisor = start_supervisor()
+            
+            # 配置并启动注意力系统
+            if isinstance(supervisor, MonitoringMixin):
+                supervisor._force_realtime = False
+                supervisor._lab_mode = None
+                supervisor.configure_attention(force_realtime=False, lab_mode=None)
+                log.info("[AppContainer] Supervisor 注意力系统配置完成")
+            
+            log.info("[AppContainer] Supervisor 已启动")
+        except Exception as e:
+            log.warning(f"[AppContainer] Supervisor 启动失败: {e}", exc_info=True)
 
     def _create_trading_clock(self):
         """创建 TradingClock"""
