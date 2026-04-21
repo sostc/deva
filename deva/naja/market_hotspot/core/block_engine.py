@@ -97,6 +97,7 @@ class BlockHotspotEngine:
         # 日志节流
         self._last_summary_log_time: float = 0.0
         self._summary_log_interval: float = 60.0
+        self._last_logged_block_count: int = -1
 
         # 嵌入技术增强
         self.feature_encoder = MarketFeatureEncoder(embedding_dim=128)
@@ -174,11 +175,11 @@ class BlockHotspotEngine:
             else:
                 blocks_with_data = [k for k, v in block_data.items() if len(v.get('returns', [])) > 0]
                 if len(blocks_with_data) > 0:
-                    current_time = time.time()
-                    if current_time - self._last_summary_log_time >= self._summary_log_interval:
+                    # 只在题材数变化时记录日志
+                    if len(blocks_with_data) != self._last_logged_block_count:
                         sample_names = [self._blocks[k].name if k in self._blocks else k for k in blocks_with_data[:3]]
-                        log.info(f"[BlockHotspot] 有数据的题材数: {len(blocks_with_data)}, 样本: {sample_names}")
-                        self._last_summary_log_time = current_time
+                        log.info(f"[BlockHotspot] 有数据的题材数变化: {self._last_logged_block_count} → {len(blocks_with_data)}, 样本: {sample_names}")
+                        self._last_logged_block_count = len(blocks_with_data)
 
             noise_detector = _get_noise_detector()
             active_blocks = set()

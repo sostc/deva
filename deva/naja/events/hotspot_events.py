@@ -17,6 +17,7 @@ class HotspotComputedEvent:
 
     当 MarketHotspotSystem 完成一次热点计算后发布此事件
     AttentionOS 订阅此事件来结合自己的持仓和策略做决策
+    QueryStateUpdater 使用其中的真实市场数据更新 QueryState
     """
     market: str
     timestamp: float
@@ -25,6 +26,11 @@ class HotspotComputedEvent:
     block_hotspot: Dict[str, float] = field(default_factory=dict)
     symbol_weights: Dict[str, float] = field(default_factory=dict)
     symbols: List[str] = field(default_factory=list)
+
+    # 真实市场数据（用于下游系统如 QueryState 更新）
+    prices: List[float] = field(default_factory=list)
+    returns: List[float] = field(default_factory=list)
+    volumes: List[float] = field(default_factory=list)
 
     @property
     def datetime(self) -> datetime:

@@ -6,7 +6,8 @@ QueryStateUpdater - 事件驱动的QueryState更新器
 
 import logging
 import time
-from typing import Dict, Any
+import hashlib
+from typing import Dict, Any, Optional
 
 from deva.naja.register import SR
 from deva.naja.events import get_event_bus
@@ -27,6 +28,8 @@ class QueryStateUpdater:
         self._subscribe_to_events()
         self._hotspot_counter = 0
         self._hotspot_log_interval = 10
+        self._last_data_hash: Optional[str] = None
+        self._last_symbol_count = 0
         log.info("[QueryStateUpdater] 初始化完成")
 
     def set_query_state(self, query_state):
@@ -97,7 +100,11 @@ class QueryStateUpdater:
             log.error(f"[QueryStateUpdater] 订阅事件失败: {e}")
     
     def _on_hotspot_computed(self, event):
-        """处理热点计算完成事件"""
+        """处理热点计算完成事件
+        
+        使用真实市场数据（returns/volumes/prices）更新 QueryState。
+        如果数据未发生变化，则跳过更新以避免无意义的循环。
+        """
         try:
             if not self.qs:
                 log.warning("[QueryStateUpdater] QueryState 未初始化")
@@ -109,12 +116,32 @@ class QueryStateUpdater:
                 log.debug("[QueryStateUpdater] 热点事件没有股票数据")
                 return
             
-            # 转换为update_from_market所需的格式
-            returns = [event.symbol_weights[s] * 100 for s in symbols]  # 转换为百分比
-            volumes = [1.0 for _ in symbols]  # 占位成交量
-            prices = [100.0 for _ in symbols]  # 占位价格
-            
-            # 更新QueryState
+            # 优先使用事件携带的真实数据
+            if event.returns and len(event.returns) == len(symbols):
+                returns = list(event.returns)
+            else:
+                returns = [event.symbol_weights[s] * 100 for s in symbols]
+
+            if event.volumes and len(event.volumes) == len(symbols):
+                volumes = list(event.volumes)
+            else:
+                volumes = [event.symbol_weights[s] * 1000000 for s in symbols]
+
+            if event.prices and len(event.prices) == len(symbols):
+                prices = list(event.prices)
+            else:
+                # 权重本身可以作为相对价格的代理
+                prices = [event.symbol_weights[s] * 100 for s in symbols]
+
+            # 变化检测：数据未变则跳过更新
+            data_repr = f"{','.join(symbols)}|{','.join(f'{r:.2f}' for r in returns[:100])}"
+            data_hash = hashlib.md5(data_repr.encode()).hexdigest()
+            if data_hash == self._last_data_hash:
+                # 数据无变化，静默跳过
+                return
+            self._last_data_hash = data_hash
+
+            # 更新QueryState（使用真实数据）
             self.qs.update_from_market(
                 symbols=symbols,
                 returns=returns,
@@ -123,11 +150,10 @@ class QueryStateUpdater:
                 timestamp=event.timestamp
             )
             
-            # 减少日志输出频率
-            self._hotspot_counter += 1
-            if self._hotspot_counter % self._hotspot_log_interval == 0:
-                log.info(f"[QueryStateUpdater] 已更新热点数据: {len(symbols)}个股票, 市场={event.market}")
-                self._hotspot_counter = 0
+            # 只在数据真正变化时记录日志
+            if len(symbols) != self._last_symbol_count:
+                log.info(f"[QueryStateUpdater] 热点数据更新({event.market}): {len(symbols)}个股票")
+                self._last_symbol_count = len(symbols)
         except Exception as e:
             log.error(f"[QueryStateUpdater] 处理热点事件失败: {e}")
     
