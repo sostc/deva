@@ -164,12 +164,14 @@ Application 层是“怎么把系统拼起来”的地方。
   - `observability/` - 可观测性
   - `registry/` - 注册管理
   - `runtime/` - 运行时服务
+    - `recoverable.py` - 可恢复单元基类（含执行环境注入）
 
 职责：
 
 - 提供运行骨架
 - 提供通用管理器能力
 - 提供日志、线程、注册、恢复、监控等基础设施
+- 为 Task/Strategy/DataSource 的 func_code 提供统一执行环境（注入 `SR`、`NB` 等工具）
 
 这层不定义业务目标，只提供底座能力。
 
@@ -466,9 +468,163 @@ UI/API handler 尽量不要直接：
 - action
 - adapter
 
+### 8.5 统一执行环境注入
+
+目标：
+
+- 所有通过 Task/Strategy/DataSource 运行的 func_code，自动获得 `SR` 和 `NB` 工具
+- 无需在用户代码中重复 `from deva.naja.register import SR` 或 `from deva import NB`
+- 执行环境由 `RecoverableUnit._build_execution_env` 统一构建和注入
+
+实现位置：
+
+- `deva/naja/infra/runtime/recoverable.py` 中的 `_build_execution_env` 方法
+- 已注入：`SR`（单例访问）、`NB`（数据库访问）
+- 保持注入：`pd`、`np`、`json`、`datetime`、`time` 等基础库
+
+编写 func_code 时的推荐写法：
+
+```python
+def execute() -> dict:
+    # SR 和 NB 已自动注入，无需 import
+    state_mgr = SR('system_state_manager')
+    state_mgr.record_active()
+    return {"success": True}
+```
+
+### 8.6 系统状态模块迁移
+
+目标：
+
+- 系统状态管理从 `deva.naja.system_state` 迁移至 `deva.naja.state.system.system_state`
+- 统一通过 SR('system_state_manager') 访问，不直接 import 模块
+
+实现位置：
+
+- `deva/naja/state/system/system_state.py` - SystemStateManager
+- `deva/naja/state/system/wake_sync_manager.py` - WakeSyncManager
+- `deva/naja/register.py` 第104行 - 单例注册入口
+
+### 8.6 完善生命周期管理（持久化/优雅退出）
+
+目标：
+
+- 所有核心组件实现 `save_state()` / `persist_state()` / `shutdown()`
+- 退出流程集中到 `supervisor.shutdown()` → `_stop_all_components()`
+- 注册 `atexit` 兜底保障
+
+已实现的退出调用链（见 `§9`）：
+
+- `SignalStream.close(persist=True)`
+- `InsightPool.persist()`
+- `AttentionOS.persist_state()` → Kernel + StrategyDecisionMaker + FocusManager + NarrativeTracker
+- `RadarEngine.save_state()`
+- `CognitionEngine.shutdown()` → stop_auto_save + save_state
+- `MarketHotspotIntegration.persist_state()` → HotspotLearning + StrategyLearner + HotspotSystem
+- `HistoryTracker.save_state()`
+- 策略/数据源/任务逐个 `stop()`
+
 ---
 
-## 9. 一句话基准
+## 9. 生命周期与持久化规范
+
+### 9.1 退出调用链路
+
+系统退出时有两条路径：
+
+1. **优雅退出**：`SIGINT/SIGTERM` → `shutdown_handler` → `supervisor.shutdown()`
+2. **兜底退出**：`atexit.register(_cleanup)`
+
+完整调用链：
+
+```
+supervisor.shutdown() (supervisor/recovery.py)
+  ├→ HistoryTracker.save_state()
+  ├→ stop_monitoring()
+  └→ _stop_all_components()
+       ├→ SignalStream.close(persist=True)
+       ├→ ResultStore.close()
+       ├→ InsightPool.persist()
+       ├→ AttentionOS.persist_state()
+       │    ├→ OSAttentionKernel.persist_state()
+       │    ├→ StrategyDecisionMaker.persist_state()
+       │    ├→ FocusManager.persist_state()
+       │    └→ NarrativeTracker.save_state()
+       ├→ RadarEngine.save_state()
+       ├→ CognitionEngine.shutdown()
+       │    ├→ stop_auto_save()
+       │    └→ save_state()
+       ├→ MarketHotspotIntegration.persist_state()
+       │    ├→ HotspotLearning.persist()
+       │    ├→ StrategyLearner.persist()
+       │    └→ HotspotSystem.save_state()
+       ├→ Strategy/Datasource/Task.stop()
+       └→ ...
+```
+
+### 9.2 持久化方法命名约定
+
+根据组件类型选择合适的命名：
+
+| 类型 | 方法名 | 说明 |
+|------|--------|------|
+| 引擎/系统 | `save_state()` | 返回状态字典，供外部存储 |
+| 学习器 | `persist()` | 直接持久化到磁盘/数据库 |
+| 管理器 | `persist_state()` | 协调子组件的持久化 |
+| 流/监听器 | `close(persist=True)` | 关闭时可选持久化 |
+| 带后台任务 | `shutdown()` | 停止后台任务 + 立即保存 |
+
+### 9.3 持久化实现规则
+
+1. **每个核心组件必须实现退出持久化方法**
+   - 方法可以是 `save_state()`、`persist_state()`、`shutdown()` 之一
+   - `_stop_all_components()` 通过 `hasattr()` 检测并调用
+
+2. **持久化必须带异常捕获**
+   - 每个持久化调用必须 `try/except`，避免一个组件失败影响其他组件
+   - 失败时记录 `log.warning`，不抛异常
+
+3. **有后台任务的组件必须先停止再保存**
+   - 例如 `CognitionEngine.shutdown()` 先 `stop_auto_save()` 再 `save_state()`
+   - 避免保存过程中状态被修改
+
+4. **持久化数据集中存储在 NB 数据库**
+   - 表名规范：`naja_<component>_state`
+   - 例如：`naja_attention_kernel_state`、`naja_hotspot_state`
+
+### 9.4 新增组件的持久化要求
+
+新增核心组件时，必须同时实现：
+
+```python
+class MyComponent:
+    def save_state(self) -> Dict[str, Any]:
+        """保存状态用于持久化"""
+        return {
+            'key_field': self._key_field,
+            'cache': self._cache,
+            # ...
+        }
+    
+    def load_state(self) -> bool:
+        """从持久化存储加载状态"""
+        # ...
+```
+
+并在 `_stop_all_components()` 中添加调用：
+
+```python
+try:
+    comp = self._get_component('my_component')
+    if comp and hasattr(comp, 'save_state'):
+        comp.save_state()
+except Exception as e:
+    log.error(f"保存组件状态失败: {e}")
+```
+
+---
+
+## 10. 一句话基准
 
 以后开发 Naja，请始终遵循这句话：
 
@@ -476,7 +632,7 @@ UI/API handler 尽量不要直接：
 
 ---
 
-## 10. 给未来 AI 的执行指令
+## 11. 给未来 AI 的执行指令
 
 如果你是后续接手本项目的 AI 开发工具，请默认遵守以下规则：
 
@@ -486,7 +642,9 @@ UI/API handler 尽量不要直接：
 4. 默认不要把订阅逻辑塞进业务对象 `__init__`
 5. 默认不要把 UI 当成业务协调层
 6. 遇到重复模式，优先抽稳定骨架
-7. 优先做“让后续更容易继续改对”的改动
+7. 优先做"让后续更容易继续改对"的改动
+8. 新增核心组件必须实现持久化方法（`save_state`/`persist_state`/`shutdown`）
+9. 在 `_stop_all_components()` 中注册新组件的退出调用
 
 如果你的方案与本文档冲突，优先重新审视方案，而不是直接绕过基准。
 

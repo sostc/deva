@@ -159,6 +159,17 @@ class CognitionEngine:
             self._auto_save_thread.join(timeout=5)
             logger.debug("[CognitionEngine] 自动保存已停止")
 
+    def shutdown(self) -> Dict[str, Any]:
+        """关闭认知引擎：停止自动保存并立即持久化"""
+        try:
+            self.stop_auto_save()
+            result = self.save_state()
+            logger.info(f"[CognitionEngine] 认知引擎已关闭并保存状态")
+            return result
+        except Exception as e:
+            logger.warning(f"[CognitionEngine] 关闭时保存状态失败: {e}")
+            return {"success": False, "error": str(e)}
+
     def get_liquidity_stats(self) -> Dict[str, Any]:
         """获取流动性预测统计（公共API，供UI层使用）"""
         try:
