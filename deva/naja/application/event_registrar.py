@@ -33,8 +33,12 @@ class EventSubscriberRegistrar:
         log.info("[EventSubscriberRegistrar] 开始注册事件订阅...")
 
         try:
-            self._register_attention_os()
-            self._register_trading_center()
+            from deva.naja.events import get_event_bus
+            event_bus = get_event_bus()
+
+            self._register_attention_os(event_bus)
+            self._register_trading_center(event_bus)
+            self._register_cognition_domain(event_bus)
             
             self._registered = True
             log.info("[EventSubscriberRegistrar] 事件订阅注册完成")
@@ -42,15 +46,55 @@ class EventSubscriberRegistrar:
         except Exception as e:
             log.error(f"[EventSubscriberRegistrar] 事件订阅注册失败: {e}", exc_info=True)
 
-    def _register_attention_os(self) -> None:
+    def _register_cognition_domain(self, event_bus) -> None:
+        """注册认知领域模块的事件订阅"""
+        try:
+            # CrossSignalAnalyzer
+            from deva.naja.cognition.analysis.cross_signal_analyzer import get_cross_signal_analyzer
+            analyzer = get_cross_signal_analyzer()
+            if analyzer:
+                analyzer.subscribe_text_events(event_bus)
+                log.info("[EventSubscriberRegistrar] CrossSignalAnalyzer 事件订阅完成")
+        except Exception as e:
+            log.warning(f"[EventSubscriberRegistrar] CrossSignalAnalyzer 事件订阅失败: {e}")
+
+        try:
+            # NarrativeTracker
+            from deva.naja.cognition.narrative.tracker import get_narrative_tracker
+            tracker = get_narrative_tracker()
+            if tracker:
+                tracker.subscribe_text_events(event_bus)
+                tracker.subscribe_manas_state_events(event_bus)
+                log.info("[EventSubscriberRegistrar] NarrativeTracker 事件订阅完成")
+        except Exception as e:
+            log.warning(f"[EventSubscriberRegistrar] NarrativeTracker 事件订阅失败: {e}")
+
+        try:
+            # TimingNarrativeTracker
+            from deva.naja.cognition.narrative.timing import TimingNarrativeTracker
+            timing_tracker = TimingNarrativeTracker()
+            if timing_tracker:
+                timing_tracker.subscribe_text_events(event_bus)
+                log.info("[EventSubscriberRegistrar] TimingNarrativeTracker 事件订阅完成")
+        except Exception as e:
+            log.warning(f"[EventSubscriberRegistrar] TimingNarrativeTracker 事件订阅失败: {e}")
+
+        try:
+            # SupplyChainLinker
+            from deva.naja.cognition.narrative.supply_chain_linker import get_supply_chain_linker
+            linker = get_supply_chain_linker()
+            if linker:
+                linker.subscribe_text_events(event_bus)
+                log.info("[EventSubscriberRegistrar] SupplyChainLinker 事件订阅完成")
+        except Exception as e:
+            log.warning(f"[EventSubscriberRegistrar] SupplyChainLinker 事件订阅失败: {e}")
+
+    def _register_attention_os(self, event_bus) -> None:
         """注册 AttentionOS 的事件订阅"""
         if self.attention_os is None:
             return
 
         try:
-            from deva.naja.events import get_event_bus
-            event_bus = get_event_bus()
-
             # HotspotComputedEvent
             event_bus.subscribe(
                 'HotspotComputedEvent',
@@ -78,17 +122,14 @@ class EventSubscriberRegistrar:
         except Exception as e:
             log.warning(f"[EventSubscriberRegistrar] AttentionOS 事件订阅失败: {e}")
 
-    def _register_trading_center(self) -> None:
+    def _register_trading_center(self, event_bus) -> None:
         """注册 TradingCenter 的事件订阅"""
         if self.trading_center is None:
             return
 
         try:
-            from deva.naja.events import get_event_bus
             from deva.naja.events import TradeDecisionEvent
 
-            bus = get_event_bus()
-            
             def on_strategy_signal(event):
                 """处理策略信号事件"""
                 try:
@@ -116,13 +157,13 @@ class EventSubscriberRegistrar:
                         }
                     )
                     
-                    bus.publish(decision_event)
+                    event_bus.publish(decision_event)
                     log.debug(f"[TradingCenter] 发布 TradeDecisionEvent: {decision_event.decision.value}")
                     
                 except Exception as e:
                     log.warning(f"[TradingCenter] 处理策略信号事件失败: {e}")
             
-            bus.subscribe("StrategySignalEvent", on_strategy_signal)
+            event_bus.subscribe("StrategySignalEvent", on_strategy_signal)
             log.info("[EventSubscriberRegistrar] TradingCenter 事件订阅完成")
             
         except Exception as e:

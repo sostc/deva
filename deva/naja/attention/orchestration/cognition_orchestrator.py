@@ -13,8 +13,6 @@ import logging
 from typing import Dict, Any, List, Optional
 import pandas as pd
 
-from deva.naja.register import SR
-
 log = logging.getLogger(__name__)
 
 
@@ -61,8 +59,13 @@ class CognitionOrchestrator:
         self._narrative_tracker = None
         self._keyword_registry = None
         self._in_context_learner = None
+        self._insight_pool = None
         self._initialized = True
         log.info("CognitionOrchestrator 初始化完成")
+
+    def set_insight_pool(self, pool) -> None:
+        """显式设置 InsightPool（依赖注入）"""
+        self._insight_pool = pool
 
     def _get_narrative_tracker(self):
         """获取 NarrativeTracker（延迟加载 + 缓存）"""
@@ -325,7 +328,7 @@ class CognitionOrchestrator:
     def _record_signal_outcome(self, symbol: str, signal_type: str, entry_price: float, outcome: Optional[float] = None, success: Optional[bool] = None):
         """记录信号结果"""
         try:
-            pool = SR('insight_pool')
+            pool = self._insight_pool
             if pool:
                 pool.record_signal_outcome(symbol, signal_type, entry_price, outcome, success)
         except Exception as e:
