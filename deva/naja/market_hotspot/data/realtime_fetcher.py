@@ -725,14 +725,14 @@ class RealtimeDataFetcher:
         """
         try:
             import os as _os
-            print(f"[RT_FETCHER] _fetch_realtime_data PID={_os.getpid()}, symbols={len(symbols) if symbols else 'empty'}", flush=True)
+            log.debug(f"[RT_FETCHER] _fetch_realtime_data PID={_os.getpid()}, symbols={len(symbols) if symbols else 'empty'}")
 
             if symbols:
                 df = _fetch_sina_by_symbols_sync(symbols)
-                print(f"[RT_FETCHER] _fetch_sina_by_symbols_sync 返回: df={type(df)}, len={len(df) if df is not None else 'N/A'}", flush=True)
+                log.debug(f"[RT_FETCHER] _fetch_sina_by_symbols_sync 返回: df={type(df)}, len={len(df) if df is not None else 'N/A'}")
             else:
                 df = _fetch_sina_sync(force_trading=self.config.force_trading_mode)
-                print(f"[RT_FETCHER] _fetch_sina_sync 返回: df={type(df)}, len={len(df) if df is not None else 'N/A'}", flush=True)
+                log.debug(f"[RT_FETCHER] _fetch_sina_sync 返回: df={type(df)}, len={len(df) if df is not None else 'N/A'}")
 
             if df is None or df.empty:
                 return None

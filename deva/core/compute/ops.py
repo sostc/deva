@@ -1,6 +1,6 @@
 from ..core import Stream, identity
 from ..store import DBStream
-from ..utils.time import convert_interval
+from deva.utils.time import convert_interval
 from collections import deque
 from collections.abc import Iterable
 from tornado import gen

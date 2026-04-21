@@ -92,7 +92,7 @@ class StreamsConnection(SockJSConnection):
             return
         try:
             # 确保在正确的事件循环中执行发送操作
-            from deva.core.utils.ioloop import get_io_loop
+            from deva.utils.ioloop import get_io_loop
             loop = get_io_loop(asynchronous=False)
             if loop is not None:
                 def send_with_error_handling():

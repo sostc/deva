@@ -1,7 +1,7 @@
 from tornado import gen
-from .utils.sqlitedict import SqliteDict
+from deva.utils.sqlitedict import SqliteDict
 from .core import Stream
-from .utils.ioloop import get_io_loop
+from deva.utils.ioloop import get_io_loop
 from .pipe import passed
 from bisect import bisect_left, bisect_right
 import logging
