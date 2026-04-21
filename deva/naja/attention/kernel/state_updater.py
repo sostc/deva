@@ -220,7 +220,10 @@ class QueryStateUpdater:
                 "sentiment_score": event.sentiment_score
             }
             
-            log.info(f"[QueryStateUpdater] 已更新叙事状态: {len(event.current_narratives)}个叙事, 强度={event.narrative_strength:.2f}")
+            narrative_list = event.current_narratives[:5]
+            excess = len(event.current_narratives) - 5
+            narrative_str = f"{narrative_list}{f'... (+{excess})' if excess > 0 else ''}"
+            log.info(f"[QueryStateUpdater] 已更新叙事状态: {narrative_str}, 强度={event.narrative_strength:.2f}, 风险={event.narrative_risk:.2f}")
         except Exception as e:
             log.error(f"[QueryStateUpdater] 处理叙事状态事件失败: {e}")
     
