@@ -7,6 +7,8 @@ so Radar + Memory can consume them.
 
 from __future__ import annotations
 
+import logging
+import time
 from typing import Any, Dict, Optional
 
 import math
@@ -17,6 +19,10 @@ except Exception:  # pragma: no cover - optional in runtime
     pd = None
 
 from river import anomaly, cluster, drift
+
+from .model_persist import RiverStatePersistMixin, serialize_river_model, deserialize_river_model
+
+log = logging.getLogger(__name__)
 
 
 def _safe_float(value: Any, default: float = 0.0) -> float:
@@ -82,12 +88,19 @@ def extract_tick_features(data: Any) -> Dict[str, float]:
     return features
 
 
-class RiverTickAnomalyHST:
+class RiverTickAnomalyHST(RiverStatePersistMixin):
     """HalfSpaceTrees anomaly score on aggregated tick features."""
 
+    MODEL_STATE_KEY = "river_tick_anomaly_hst_model"
+
     def __init__(self, n_trees: int = 25, height: int = 15, window_size: int = 250):
+        self._n_trees = n_trees
+        self._height = height
+        self._window_size = window_size
         self._model = anomaly.HalfSpaceTrees(n_trees=n_trees, height=height, window_size=window_size)
         self._last = None
+        self._persist_db = None
+        self.try_load_state()
 
     def on_data(self, data: Any) -> None:
         feats = extract_tick_features(data)
@@ -101,6 +114,7 @@ class RiverTickAnomalyHST:
             "score": _safe_float(score),
             "features": feats,
         }
+        self.try_save_state()
 
     def get_signal(self) -> Optional[Dict[str, Any]]:
         if self._last is None:
@@ -141,19 +155,33 @@ class RiverTickAnomalyHST:
         return signal
 
     def update_params(self, params: Dict[str, Any]) -> None:
-        # Rebuild model if core params change
-        n_trees = int(params.get("n_trees", 25))
-        height = int(params.get("height", 15))
-        window_size = int(params.get("window_size", 250))
+        n_trees = int(params.get("n_trees", self._n_trees))
+        height = int(params.get("height", self._height))
+        window_size = int(params.get("window_size", self._window_size))
+        self._n_trees = n_trees
+        self._height = height
+        self._window_size = window_size
         self._model = anomaly.HalfSpaceTrees(n_trees=n_trees, height=height, window_size=window_size)
 
+    def _extract_model_state(self) -> Any:
+        return self._model
 
-class RiverTickRegimeCluster:
+    def _restore_model_state(self, state: Any) -> None:
+        self._model = state
+
+
+class RiverTickRegimeCluster(RiverStatePersistMixin):
     """KMeans clustering over market state features."""
 
+    MODEL_STATE_KEY = "river_tick_regime_cluster_model"
+
     def __init__(self, n_clusters: int = 3, halflife: float = 0.6):
+        self._n_clusters = n_clusters
+        self._halflife = halflife
         self._model = cluster.KMeans(n_clusters=n_clusters, halflife=halflife)
         self._last = None
+        self._persist_db = None
+        self.try_load_state()
 
     def on_data(self, data: Any) -> None:
         feats = extract_tick_features(data)
@@ -171,6 +199,7 @@ class RiverTickRegimeCluster:
             "cluster": cluster_id,
             "features": feats,
         }
+        self.try_save_state()
 
     def get_signal(self) -> Optional[Dict[str, Any]]:
         if self._last is None:
@@ -220,19 +249,31 @@ class RiverTickRegimeCluster:
         return signal
 
     def update_params(self, params: Dict[str, Any]) -> None:
-        n_clusters = int(params.get("n_clusters", 3))
-        halflife = float(params.get("halflife", 0.6))
+        n_clusters = int(params.get("n_clusters", self._n_clusters))
+        halflife = float(params.get("halflife", self._halflife))
+        self._n_clusters = n_clusters
+        self._halflife = halflife
         self._model = cluster.KMeans(n_clusters=n_clusters, halflife=halflife)
 
+    def _extract_model_state(self) -> Any:
+        return self._model
 
-class RiverTickDriftADWIN:
+    def _restore_model_state(self, state: Any) -> None:
+        self._model = state
+
+
+class RiverTickDriftADWIN(RiverStatePersistMixin):
     """ADWIN drift detection on average price change."""
+
+    MODEL_STATE_KEY = "river_tick_drift_adwin_model"
 
     def __init__(self, min_n: int = 30):
         self._model = drift.ADWIN()
-        self._min_n = int(min_n)
+        self._min_n = min_n
         self._count = 0
         self._last = None
+        self._persist_db = None
+        self.try_load_state()
 
     def on_data(self, data: Any) -> None:
         feats = extract_tick_features(data)
@@ -250,6 +291,7 @@ class RiverTickDriftADWIN:
             "drift": drifted,
             "features": feats,
         }
+        self.try_save_state()
 
     def get_signal(self) -> Optional[Dict[str, Any]]:
         if self._last is None:
