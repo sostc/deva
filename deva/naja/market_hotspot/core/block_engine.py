@@ -347,7 +347,6 @@ class BlockHotspotEngine:
             result[block_id] = max(0.0, min(1.0, raw_score))
 
         # 调试日志（过滤噪音题材）
-        import os
         if os.environ.get("NAJA_LAB_DEBUG") == "true":
             noise_detector = _get_noise_detector()
             all_items = [(s, float(self._block_hotspot_scores[idx])) for s, idx in self._block_id_to_idx.items() if hasattr(self._blocks.get(s), 'name') and self._blocks.get(s).name]

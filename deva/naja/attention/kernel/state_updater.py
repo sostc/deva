@@ -25,6 +25,8 @@ class QueryStateUpdater:
         self.qs = query_state
         self._event_bus = get_event_bus()
         self._subscribe_to_events()
+        self._hotspot_counter = 0
+        self._hotspot_log_interval = 10
         log.info("[QueryStateUpdater] 初始化完成")
 
     def set_query_state(self, query_state):
@@ -121,7 +123,11 @@ class QueryStateUpdater:
                 timestamp=event.timestamp
             )
             
-            log.info(f"[QueryStateUpdater] 已更新热点数据: {len(symbols)}个股票, 市场={event.market}")
+            # 减少日志输出频率
+            self._hotspot_counter += 1
+            if self._hotspot_counter % self._hotspot_log_interval == 0:
+                log.info(f"[QueryStateUpdater] 已更新热点数据: {len(symbols)}个股票, 市场={event.market}")
+                self._hotspot_counter = 0
         except Exception as e:
             log.error(f"[QueryStateUpdater] 处理热点事件失败: {e}")
     

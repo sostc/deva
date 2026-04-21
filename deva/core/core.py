@@ -26,7 +26,7 @@ from expiringdict import ExpiringDict
 from pampy import match, ANY
 import io
 from .pipe import P, print
-from .utils.ioloop import get_io_loop
+from deva.utils.ioloop import get_io_loop
 from threading import get_ident as get_thread_identity
 from requests_html import AsyncHTMLSession
 

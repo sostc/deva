@@ -24,6 +24,10 @@ import logging
 import threading
 from datetime import datetime
 from deva.naja.register import SR
+import pandas as pd
+
+# 解决 FutureWarning: Downcasting object dtype arrays on .fillna, .ffill, .bfill is deprecated
+pd.set_option('future.no_silent_downcasting', True)
 
 log = logging.getLogger(__name__)
 
@@ -490,12 +494,12 @@ class MarketHotspotSystem:
             next_block_id = 1
 
             for code in raw_codes:
-                code_str = str(code).replace('sh', '').replace('sz', '').replace('bj', '').zfill(6)
+                code_str = str(code)
                 blocks = stock_to_blocks.get(code_str, set())
 
                 filtered_blocks = []
                 for block in blocks:
-                    if block_noise_detector.is_block_noise(block):
+                    if block_noise_detector.is_noise(block, block):
                         continue
                     filtered_blocks.append(block)
                     if block not in block_id_map:
@@ -504,11 +508,11 @@ class MarketHotspotSystem:
 
             block_ids = []
             for code in raw_codes:
-                code_str = str(code).replace('sh', '').replace('sz', '').replace('bj', '').zfill(6)
+                code_str = str(code)
                 blocks = stock_to_blocks.get(code_str, set())
                 block_id = 0
                 for block in blocks:
-                    if not block_noise_detector.is_block_noise(block):
+                    if not block_noise_detector.is_noise(block, block):
                         block_id = block_id_map.get(block, 0)
                         break
                 block_ids.append(block_id)

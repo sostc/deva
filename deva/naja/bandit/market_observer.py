@@ -436,18 +436,15 @@ class MarketDataObserver:
         """
         import os
         log.info(f"[MarketObserver] _fetch_loop started: NAJA_LAB_MODE={os.environ.get('NAJA_LAB_MODE')}, _current_phase={self._current_phase}")
-        log.info(f"[MarketObserver] _fetch_loop: entering main loop, stop_event_is_set={self._fetch_stop_event.is_set()}")
         iteration = 0
         while True:
             iteration += 1
-            if iteration == 1 or iteration % 10 == 0:
-                log.info(f"[MarketObserver] _fetch_loop iteration {iteration}, stop_event_is_set={self._fetch_stop_event.is_set()}")
+            if iteration == 1 or iteration % 100 == 0:
+                log.info(f"[MarketObserver] _fetch_loop iteration {iteration}")
             if self._fetch_stop_event.is_set():
                 log.info("[MarketObserver] _fetch_loop: stop event set, exiting")
                 break
             allowed = self._is_allowed_to_run()
-            if iteration == 1 or iteration % 10 == 0:
-                log.info(f"[MarketObserver] _fetch_loop: allowed={allowed}, running={self._running}, datasource={'None' if not self._current_datasource else 'exists'}")
             try:
                 if allowed:
                     need_fetch = False
@@ -458,7 +455,8 @@ class MarketDataObserver:
                         is_running = self._is_datasource_running(self._current_datasource)
                         time_since_data = time.time() - self._last_data_time
                         datasource_available = is_running
-                        log.info(f"[MarketObserver] _fetch_loop check: is_running={is_running}, time_since_data={time_since_data:.1f}s, timeout={self._data_timeout}s, tracked={len(self._tracked_stocks)}")
+                        if iteration == 1 or iteration % 50 == 0:
+                            log.debug(f"[MarketObserver] _fetch_loop check: is_running={is_running}, time_since_data={time_since_data:.1f}s, timeout={self._data_timeout}s, tracked={len(self._tracked_stocks)}")
 
                         if not is_running:
                             need_fetch = True
@@ -478,14 +476,14 @@ class MarketDataObserver:
                             else:
                                 need_fetch = False
                                 datasource_available = False
-                                if iteration == 1 or iteration % 20 == 0:
+                                if iteration == 1 or iteration % 100 == 0:
                                     log.info(f"[MarketObserver] 市场休市中，跳过主动获取")
 
                     if need_fetch:
                         log.info(f"[MarketObserver] 主动获取数据，跟踪股票: {len(self._tracked_stocks)} 个")
                         self._fetch_prices_from_datasource()
-                    elif self._tracked_stocks and self._current_datasource:
-                        log.info(f"[MarketObserver] 等待数据推送...")
+                    elif self._tracked_stocks and self._current_datasource and (iteration == 1 or iteration % 50 == 0):
+                        log.debug(f"[MarketObserver] 等待数据推送...")
 
                     # 低功耗模式管理：检测数据源可用性变化
                     if not datasource_available:
