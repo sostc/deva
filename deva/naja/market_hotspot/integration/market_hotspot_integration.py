@@ -167,6 +167,7 @@ class MarketHotspotIntegration:
             log.info(f"🧠 智能增强：{', '.join(modules)}")
 
         self._initialized_hotspot_system = True
+        self.start_monitoring()
         return self.hotspot_system
 
     def _initialize_intelligence_system(self):
