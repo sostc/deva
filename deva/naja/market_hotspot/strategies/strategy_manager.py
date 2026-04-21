@@ -161,6 +161,12 @@ class HotspotStrategyManager:
             USAnomalyPatternSniper,
             USSmartMoneyFlowDetector,
         )
+        from .river_adapters import (
+            RiverEarlyBullAdapter,
+            RiverStockSelectorAdapter,
+            RiverEarlyTrendAdapter,
+            RiverBlockStockSelectorAdapter,
+        )
 
         global_sentinel = GlobalMarketSentinel()
         self.register_strategy(global_sentinel, StrategyConfig(
@@ -200,6 +206,39 @@ class HotspotStrategyManager:
             priority=7
         ))
 
+        # === River 策略 (热点系统挂载) ===
+
+        # 全量扫描层 (低频) - 发现即将进入热点的潜力股
+        early_bull = RiverEarlyBullAdapter()
+        self.register_strategy(early_bull, StrategyConfig(
+            strategy_id=early_bull.strategy_id,
+            enabled=True,
+            priority=6
+        ))
+
+        stock_selector = RiverStockSelectorAdapter()
+        self.register_strategy(stock_selector, StrategyConfig(
+            strategy_id=stock_selector.strategy_id,
+            enabled=True,
+            priority=6
+        ))
+
+        # 热点确认层 (中频) - 捕捉正在进入热点的启动点
+        early_trend = RiverEarlyTrendAdapter()
+        self.register_strategy(early_trend, StrategyConfig(
+            strategy_id=early_trend.strategy_id,
+            enabled=True,
+            priority=7
+        ))
+
+        # 热点跟踪层 (低频) - 板块内谁最强
+        block_selector = RiverBlockStockSelectorAdapter()
+        self.register_strategy(block_selector, StrategyConfig(
+            strategy_id=block_selector.strategy_id,
+            enabled=True,
+            priority=6
+        ))
+
         # === 美股策略集（默认启用） ===
         us_global = USGlobalMarketSentinel()
         self.register_strategy(us_global, StrategyConfig(
@@ -236,15 +275,37 @@ class HotspotStrategyManager:
             priority=5
         ))
 
-        self._enable_bandit_output()
+        self._configure_strategy_outputs()
 
-    def _enable_bandit_output(self):
-        """启用策略的 Bandit 输出，使信号能够创建虚拟持仓"""
+    def _configure_strategy_outputs(self):
+        """配置策略输出目标
+
+        ═══════════════════════════════════════════════════════
+        架构核心原则：所有策略信号统一进入决策中心
+        ═══════════════════════════════════════════════════════
+
+        信号流向（统一路径）：
+          策略信号 → TradingCenter（决策中心审批）
+                     ├─ 审批通过 → TradeDecisionEvent → Bandit 执行
+                     └─ 审批否决 → 仅记录，不执行
+
+        不存在策略直达 Bandit 的路径。
+        Bandit 是决策中心的执行器，隐藏在决策中心背后。
+
+        输出目标说明：
+        - signal: 信号流（WebUI 展示）
+        - radar: 雷达信号（技术信号展示）
+        - memory: 记忆系统（叙事记录）
+        - bandit: 是否允许进入决策中心的交易候选池
+                  （即使开启，仍需 TradingCenter 审批）
+        """
         try:
             from deva.naja.strategy.output_controller import get_output_controller
             controller = get_output_controller()
 
-            hotspot_strategies = [
+            # ── 热点交易策略（板块轮动 / 动量突破 / 异常狙击 / 聪明资金） ──
+            # 信号进入决策中心审批，审批通过后可执行交易
+            trading_strategies = [
                 'block_rotation_hunter',
                 'momentum_surge_tracker',
                 'anomaly_pattern_sniper',
@@ -253,13 +314,26 @@ class HotspotStrategyManager:
                 'us_momentum_surge_tracker',
                 'us_anomaly_pattern_sniper',
                 'us_smart_money_flow_detector',
+                'river_block_stock_selector',
             ]
+            for sid in trading_strategies:
+                controller.update_targets(sid, bandit=True, signal=True, radar=True, memory=True)
+                log.info(f"[StrategyManager] {sid} → 决策中心 ✅ | 信号流 ✅ | 雷达 ✅ | 记忆 ✅")
 
-            for strategy_id in hotspot_strategies:
-                controller.update_targets(strategy_id, bandit=True, signal=True, radar=True, memory=True)
-                log.info(f"[StrategyManager] 已启用 {strategy_id} 的 Bandit 输出")
+            # ── River 观察策略（早期牛股 / 全市场选股 / 早期趋势） ──
+            # 仅用于观察和信号展示，不参与交易决策
+            monitoring_strategies = [
+                'river_early_bull',
+                'river_stock_selector',
+                'river_early_trend',
+            ]
+            for sid in monitoring_strategies:
+                controller.update_targets(sid, bandit=False, signal=True, radar=True, memory=True)
+                log.info(f"[StrategyManager] {sid} → 观察模式（信号流 ✅ | 雷达 ✅ | 记忆 ✅）")
+
+            log.info(f"[StrategyManager] 策略输出目标配置完成（所有信号均经 TradingCenter 审批）")
         except Exception as e:
-            log.warning(f"[StrategyManager] 启用 Bandit 输出失败: {e}")
+            log.warning(f"[StrategyManager] 配置策略输出目标失败: {e}")
 
     def process_data(
         self,

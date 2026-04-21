@@ -36,6 +36,10 @@ from .semantic import (
 from .memory_manager import MemoryManager
 
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 def _radar_debug_log(msg: str):
     """雷达调试日志"""
     if os.environ.get("NAJA_RADAR_DEBUG") == "true":
@@ -56,7 +60,7 @@ try:
     RIVER_AVAILABLE = True
 except ImportError:
     RIVER_AVAILABLE = False
-    print("[NewsMind] Warning: river not installed, using fallback implementations")
+    logger.warning("[NewsMind] Warning: river not installed, using fallback implementations")
 
 # 持久化数据库
 try:
@@ -64,7 +68,7 @@ try:
     NAJA_DB_AVAILABLE = True
 except ImportError:
     NAJA_DB_AVAILABLE = False
-    print("[NewsMind] Warning: NB not available, persistence disabled")
+    logger.warning("[NewsMind] Warning: NB not available, persistence disabled")
 
 
 
@@ -1396,7 +1400,7 @@ class NewsMindStrategy:
                 # 保存到数据库
                 db[self.PERSISTENCE_KEY] = state_data
                 
-                print(f"[NewsMind] 状态已保存: {len(self.short_memory)} 短期记忆, "
+                logger.debug("[NewsMind] 状态已保存: {len(self.short_memory)} 短期记忆, "
                       f"{len(self.mid_memory)} 中期记忆, {len(self.long_memory)} 长期记忆, "
                       f"{len(self.topics)} 主题")
                 
@@ -1408,7 +1412,7 @@ class NewsMindStrategy:
                     "topics_count": len(self.topics),
                 }
         except Exception as e:
-            print(f"[NewsMind] 保存状态失败: {e}")
+            logger.warning("[NewsMind] 保存状态失败: {e}")
             return {"success": False, "error": str(e)}
     
     def load_state(self) -> dict:
@@ -1425,7 +1429,7 @@ class NewsMindStrategy:
                 db = NB(self.PERSISTENCE_TABLE)
                 
                 if self.PERSISTENCE_KEY not in db:
-                    print("[NewsMind] 没有找到保存的状态")
+                    logger.debug("[NewsMind] 没有找到保存的状态")
                     return {"success": True, "loaded": False, "message": "No saved state found"}
                 
                 state_data = db.get(self.PERSISTENCE_KEY)
@@ -1435,7 +1439,7 @@ class NewsMindStrategy:
                 # 反序列化状态
                 self._deserialize_state(state_data)
                 
-                print(f"[NewsMind] 状态已加载: {len(self.short_memory)} 短期记忆, "
+                logger.debug("[NewsMind] 状态已加载: {len(self.short_memory)} 短期记忆, "
                       f"{len(self.mid_memory)} 中期记忆, {len(self.long_memory)} 长期记忆, "
                       f"{len(self.topics)} 主题")
                 
@@ -1448,7 +1452,7 @@ class NewsMindStrategy:
                     "topics_count": len(self.topics),
                 }
         except Exception as e:
-            print(f"[NewsMind] 加载状态失败: {e}")
+            logger.warning("[NewsMind] 加载状态失败: {e}")
             return {"success": False, "error": str(e)}
     
     def _serialize_state(self) -> dict:
@@ -1568,7 +1572,7 @@ class NewsMindStrategy:
                 
                 self.topics[topic_id] = topic
             except Exception as e:
-                print(f"[NewsMind] 恢复主题失败: {e}")
+                logger.warning("[NewsMind] 恢复主题失败: {e}")
     
     def clear_saved_state(self) -> dict:
         """清除保存的状态"""
@@ -1580,10 +1584,10 @@ class NewsMindStrategy:
                 db = NB(self.PERSISTENCE_TABLE)
                 if self.PERSISTENCE_KEY in db:
                     del db[self.PERSISTENCE_KEY]
-                print("[NewsMind] 已清除保存的状态")
+                logger.debug("[NewsMind] 已清除保存的状态")
                 return {"success": True}
         except Exception as e:
-            print(f"[NewsMind] 清除状态失败: {e}")
+            logger.warning(f"[NewsMind] 清除状态失败: {e}")
             return {"success": False, "error": str(e)}
 
 
@@ -1605,9 +1609,9 @@ class Strategy:
         """初始化时自动加载保存的状态"""
         result = self.radar.load_state()
         if result.get("success") and result.get("loaded"):
-            print(f"[NewsMind] 策略恢复成功")
+            logger.debug("[NewsMind] 策略恢复成功")
         elif not result.get("loaded"):
-            print(f"[NewsMind] 没有找到保存的状态，使用新实例")
+            logger.debug("[NewsMind] 没有找到保存的状态，使用新实例")
     
     def _start_auto_save(self):
         """启动定时保存线程"""
@@ -1617,7 +1621,7 @@ class Strategy:
         self._stop_save_thread.clear()
         self._save_thread = threading.Thread(target=self._auto_save_loop, daemon=True)
         self._save_thread.start()
-        print(f"[NewsMind] 定时保存已启动，间隔 {self._save_interval} 秒")
+        logger.debug(f"[NewsMind] 定时保存已启动，间隔 {self._save_interval} 秒")
     
     def _auto_save_loop(self):
         """自动保存循环"""
@@ -1631,18 +1635,18 @@ class Strategy:
             try:
                 result = self.radar.save_state()
                 if result.get("success"):
-                    print(f"[NewsMind] 定时保存完成")
+                    logger.debug("[NewsMind] 定时保存完成")
                 else:
-                    print(f"[NewsMind] 定时保存失败: {result.get('error')}")
+                    logger.warning(f"[NewsMind] 定时保存失败: {result.get('error')}")
             except Exception as e:
-                print(f"[NewsMind] 定时保存异常: {e}")
+                logger.warning(f"[NewsMind] 定时保存异常: {e}")
     
     def _stop_auto_save(self):
         """停止定时保存线程"""
         if self._save_thread is not None:
             self._stop_save_thread.set()
             self._save_thread.join(timeout=5)
-            print("[NewsMind] 定时保存已停止")
+            logger.debug("[NewsMind] 定时保存已停止")
     
     def on_record(self, record: Dict) -> List[Dict]:
         """逐条处理"""
@@ -1674,12 +1678,12 @@ class Strategy:
     
     def on_stop(self):
         """策略停止时自动保存"""
-        print("[NewsMind] 策略停止，自动保存状态...")
+        logger.debug("[NewsMind] 策略停止，自动保存状态...")
         self._stop_auto_save()
         return self.radar.save_state()
 
     def on_start(self):
         """策略启动时自动加载"""
-        print("[NewsMind] 策略启动，自动加载状态...")
+        logger.debug("[NewsMind] 策略启动，自动加载状态...")
         self._start_auto_save()
         return self.radar.load_state()

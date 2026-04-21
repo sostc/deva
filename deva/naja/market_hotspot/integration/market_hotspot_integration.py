@@ -131,21 +131,18 @@ class MarketHotspotIntegration:
         """
         # 防止重复初始化
         if hasattr(self, '_initialized_hotspot_system') and self._initialized_hotspot_system:
-            log.info(f"[MarketHotspotIntegration] 已初始化，跳过")
+            log.debug(f"[MarketHotspotIntegration] 已初始化，跳过")
             return self.hotspot_system
         
-        log.info(f"[MarketHotspotIntegration] initialize 开始，config={config}")
+        log.debug(f"[MarketHotspotIntegration] initialize 开始")
 
         if config:
             self.config = config
 
         self._discover_blocks_and_symbols()
 
-        log.info(f"[MarketHotspotIntegration] 创建 MarketHotspotSystem, config={self.config}")
         self.hotspot_system = MarketHotspotSystem(self.config)
-        log.info(f"[MarketHotspotIntegration] 调用 hotspot_system.initialize()")
         self.hotspot_system.initialize(self._blocks, self._symbol_block_map)
-        log.info(f"[MarketHotspotIntegration] hotspot_system.initialize 完成")
 
         self._register_names_to_tracker()
 
@@ -164,7 +161,7 @@ class MarketHotspotIntegration:
                 modules.append('Propagation')
             if hasattr(self.intelligence_system, 'strategy_learning'):
                 modules.append('StrategyLearning')
-            log.info(f"🧠 智能增强：{', '.join(modules)}")
+            log.debug(f"🧠 智能增强：{', '.join(modules)}")
 
         self._initialized_hotspot_system = True
         self.start_monitoring()
@@ -322,9 +319,9 @@ class MarketHotspotIntegration:
                         self._symbol_block_map[symbol] = []
                     self._symbol_block_map[symbol].append(block_id)
 
-            log.info(f"[BlockDictionary] 加载完成: 题材数={len(self._blocks)}, 个股数={len(self._symbol_block_map)}")
+            log.debug(f"[BlockDictionary] 加载完成: 题材数={len(self._blocks)}, 个股数={len(self._symbol_block_map)}")
             if len(self._blocks) > 0:
-                log.info(f"[BlockDictionary] 前5个题材: {[s.name for s in self._blocks[:5]]}")
+                log.debug(f"[BlockDictionary] 前5个题材: {[s.name for s in self._blocks[:5]]}")
 
         except Exception as e:
             log.warning(f"加载 BlockDictionary 失败: {e}")
@@ -349,7 +346,7 @@ class MarketHotspotIntegration:
                 log.warning("[BlockDictionary] 股票列表为空")
                 return
 
-            log.info(f"[BlockDictionary] 加载到 {len(all_codes)} 只股票")
+            log.debug(f"[BlockDictionary] 加载到 {len(all_codes)} 只股票")
 
             for code in all_codes:
                 if code not in self._symbol_block_map:
@@ -484,7 +481,7 @@ class MarketHotspotIntegration:
             db = NB('naja_hotspot_state')
             db['hotspot_system_state'] = state
             db.persist()
-            log.info(f"[MarketHotspotIntegration] 市场热点系统状态已持久化")
+            log.debug(f"[MarketHotspotIntegration] 市场热点系统状态已持久化")
         except Exception as e:
             log.warning(f"[MarketHotspotIntegration] 持久化市场热点系统状态失败: {e}")
 
@@ -502,9 +499,9 @@ class MarketHotspotIntegration:
             if state_key in db:
                 state = db[state_key]
                 self.hotspot_system.load_state(state)
-                log.info(f"[MarketHotspotIntegration] 市场热点系统状态已恢复")
+                log.debug(f"[MarketHotspotIntegration] 市场热点系统状态已恢复")
             else:
-                log.info(f"[MarketHotspotIntegration] 未找到保存的市场热点系统状态")
+                log.debug(f"[MarketHotspotIntegration] 未找到保存的市场热点系统状态")
         except Exception as e:
             log.warning(f"[MarketHotspotIntegration] 恢复市场热点系统状态失败: {e}")
 
@@ -631,7 +628,7 @@ class HotspotModeManager:
                 'from': old_mode,
                 'to': mode
             })
-            log.info(f"[HotspotModeManager] 模式切换: {old_mode} -> {mode}")
+            log.debug(f"[HotspotModeManager] 模式切换: {old_mode} -> {mode}")
 
             if mode == self.MODE_LAB:
                 self._stop_realtime_fetcher_if_running()
@@ -725,27 +722,22 @@ def initialize_hotspot_system(
         force_realtime: 强制实盘调试模式（忽略交易时间限制）
         lab_mode: 实验模式（使用回放数据）
     """
-    log.info("[initialize_hotspot_system] 开始初始化...")
+    log.debug("[initialize_hotspot_system] 开始初始化...")
 
     mode_manager = get_mode_manager()
 
-    log.info(f"[initialize_hotspot_system] 模式参数: force_realtime={force_realtime}, lab_mode={lab_mode}")
-
     integration = get_market_hotspot_integration()
     hotspot_system = integration.initialize(config)
-    log.info(f"[initialize_hotspot_system] integration.initialize 完成, _initialized={hotspot_system._initialized}")
 
-    log.info("[initialize_hotspot_system] 尝试加载保存的状态...")
     integration.load_state()
 
     integration.start_monitoring()
 
     if lab_mode:
-        log.info("[initialize_hotspot_system] 实验模式 (lab_mode=True)，设置模式管理器...")
+        log.debug("[initialize_hotspot_system] 实验模式 (lab_mode=True)，设置模式管理器...")
         mode_manager.enter_lab_mode()
-        log.info("[initialize_hotspot_system] 实验模式，跳过实盘获取器启动")
     elif force_realtime:
-        log.info("[initialize_hotspot_system] 强制实盘调试模式 (force_realtime=True)，忽略交易时间限制")
+        log.info("[initialize_hotspot_system] 强制实盘调试模式 (force_realtime=True)")
         mode_manager.set_mode(HotspotModeManager.MODE_FORCE_REALTIME)
         fetcher_config = {
             'base_high_interval': 5.0,
