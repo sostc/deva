@@ -34,6 +34,8 @@ log = logging.getLogger(__name__)
 
 from river import anomaly, compose, drift, linear_model, stats
 
+from .model_persist import RiverStatePersistMixin, serialize_river_model, deserialize_river_model
+
 from deva.naja.dictionary.tongdaxin_blocks import (
     get_stock_blocks,
     get_block_stocks,
@@ -68,11 +70,13 @@ class NoiseConfig:
     min_history: int = 3
 
 
-class BlockStockSelector:
+class BlockStockSelector(RiverStatePersistMixin):
     """题材牛股精选器
 
     从题材中精选最强牛股，给 Bandit 提供买入信号
     """
+
+    MODEL_STATE_KEY = "block_stock_selector_model"
 
     def __init__(
         self,
@@ -98,6 +102,8 @@ class BlockStockSelector:
         self._price_history: Dict[str, List[float]] = {}
         self._volume_history: Dict[str, List[float]] = {}
         self._score_history: List[Dict] = []
+        self._persist_db = None
+        self.try_load_state()
 
     def on_data(self, data: Any) -> None:
         """处理数据"""
@@ -189,6 +195,7 @@ class BlockStockSelector:
                 "best_stock": None,
                 "html": "",
             }
+        self.try_save_state()
 
     def _filter_noise(self, df: pd.DataFrame) -> pd.DataFrame:
         """过滤噪音股票"""
@@ -339,12 +346,41 @@ class BlockStockSelector:
         if "top_n" in state:
             self._top_n = state["top_n"]
 
+    def _extract_model_state(self) -> Any:
+        return {
+            "_stock_scores": self._stock_scores,
+            "_stock_details": self._stock_details,
+            "_score_history": self._score_history,
+            "_top_n": self._top_n,
+            "_min_score": self._min_score,
+            "_min_price": self._min_price,
+            "_min_volume": self._min_volume,
+            "_min_change": self._min_change,
+            "_enable_block_filter": self._enable_block_filter,
+            "_block_min_stocks": self._block_min_stocks,
+        }
 
-class EarlyBullFinder:
+    def _restore_model_state(self, state: Any) -> None:
+        if isinstance(state, dict):
+            self._stock_scores = state.get("_stock_scores", {})
+            self._stock_details = state.get("_stock_details", {})
+            self._score_history = state.get("_score_history", [])
+            self._top_n = state.get("_top_n", self._top_n)
+            self._min_score = state.get("_min_score", self._min_score)
+            self._min_price = state.get("_min_price", self._min_price)
+            self._min_volume = state.get("_min_volume", self._min_volume)
+            self._min_change = state.get("_min_change", self._min_change)
+            self._enable_block_filter = state.get("_enable_block_filter", self._enable_block_filter)
+            self._block_min_stocks = state.get("_block_min_stocks", self._block_min_stocks)
+
+
+class EarlyBullFinder(RiverStatePersistMixin):
     """早期牛股发现器
 
     专门发现刚开始启动的牛股，在早期介入
     """
+
+    MODEL_STATE_KEY = "early_bull_finder_model"
 
     def __init__(
         self,
@@ -358,6 +394,8 @@ class EarlyBullFinder:
 
         self._stock_history: Dict[str, List[Dict]] = {}
         self._last_signal: Optional[Dict] = None
+        self._persist_db = None
+        self.try_load_state()
 
     def on_data(self, data: Any) -> None:
         """处理数据"""
@@ -469,6 +507,7 @@ class EarlyBullFinder:
                 "best_stock": None,
                 "html": "",
             }
+        self.try_save_state()
 
     def get_signal(self) -> Optional[Dict]:
         """获取信号"""
@@ -539,6 +578,21 @@ class EarlyBullFinder:
         self._rise_threshold = params.get("rise_threshold", self._rise_threshold)
         self._volume_boost = params.get("volume_boost", self._volume_boost)
         self._momentum_window = params.get("momentum_window", self._momentum_window)
+
+    def _extract_model_state(self) -> Any:
+        return {
+            "_stock_history": self._stock_history,
+            "_rise_threshold": self._rise_threshold,
+            "_volume_boost": self._volume_boost,
+            "_momentum_window": self._momentum_window,
+        }
+
+    def _restore_model_state(self, state: Any) -> None:
+        if isinstance(state, dict):
+            self._stock_history = state.get("_stock_history", {})
+            self._rise_threshold = state.get("_rise_threshold", self._rise_threshold)
+            self._volume_boost = state.get("_volume_boost", self._volume_boost)
+            self._momentum_window = state.get("_momentum_window", self._momentum_window)
 
 
 SELECTOR_REGISTRY = {

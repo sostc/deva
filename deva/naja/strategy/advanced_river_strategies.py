@@ -29,6 +29,8 @@ except Exception:
 
 from river import anomaly, compose, drift, linear_model, preprocessing, stats, stream
 
+from .model_persist import RiverStatePersistMixin, serialize_river_model, deserialize_river_model
+
 
 def _safe_float(value: Any, default: float = 0.0) -> float:
     try:
@@ -106,11 +108,13 @@ class NoiseFilter:
         return current_volume / avg_volume if avg_volume > 0 else 1.0
 
 
-class EarlyTrendDetector:
+class EarlyTrendDetector(RiverStatePersistMixin):
     """早期趋势检测器
 
     使用 River 在线学习，检测趋势早期信号
     """
+
+    MODEL_STATE_KEY = "early_trend_detector_model"
 
     def __init__(
         self,
@@ -119,19 +123,23 @@ class EarlyTrendDetector:
         window_size: int = 100,
         sensitivity: float = 0.3,
     ):
+        self._n_trees = n_trees
+        self._height = height
+        self._window_size = window_size
+        self._sensitivity = sensitivity
         self._model = anomaly.HalfSpaceTrees(
             n_trees=n_trees,
             height=height,
             window_size=window_size
         )
         self._drift_model = drift.ADWIN()
-        self._sensitivity = sensitivity
-        self._window_size = window_size
         self._history: List[Dict] = []
         self._last_signal: Optional[Dict] = None
+        self._persist_db = None
         from deva.naja.market_hotspot.processing.noise_filter import get_noise_filter
         self._noise_filter = get_noise_filter()
         self._last_ts = 0
+        self.try_load_state()
 
     def on_data(self, data: Any) -> None:
         """处理输入数据"""
@@ -191,6 +199,7 @@ class EarlyTrendDetector:
             "features": features,
             "html": "",
         }
+        self.try_save_state()
 
     def _extract_features(self, df: pd.DataFrame) -> Dict[str, float]:
         """提取特征"""
@@ -285,16 +294,33 @@ class EarlyTrendDetector:
 
     def update_params(self, params: Dict[str, Any]) -> None:
         """更新参数"""
-        n_trees = params.get("n_trees", 15)
-        height = params.get("height", 8)
-        window_size = params.get("window_size", 100)
-        sensitivity = params.get("sensitivity", 0.3)
+        n_trees = params.get("n_trees", self._n_trees)
+        height = params.get("height", self._height)
+        window_size = params.get("window_size", self._window_size)
+        sensitivity = params.get("sensitivity", self._sensitivity)
 
+        self._n_trees = n_trees
+        self._height = height
+        self._window_size = window_size
+        self._sensitivity = sensitivity
         self._model = anomaly.HalfSpaceTrees(n_trees=n_trees, height=height, window_size=window_size)
         self._drift_model = drift.ADWIN()
-        self._sensitivity = sensitivity
-        self._window_size = window_size
         self._history.clear()
+
+    def _extract_model_state(self) -> Any:
+        return {
+            "_model": self._model,
+            "_drift_model": self._drift_model,
+            "_history": self._history,
+        }
+
+    def _restore_model_state(self, state: Any) -> None:
+        if isinstance(state, dict):
+            self._model = state.get("_model", self._model)
+            self._drift_model = state.get("_drift_model", self._drift_model)
+            self._history = state.get("_history", [])
+        else:
+            self._model = state
 
     def reset(self) -> None:
         """重置"""
@@ -316,11 +342,13 @@ class EarlyTrendDetector:
             self._window_size = state["window_size"]
 
 
-class StockSelector:
+class StockSelector(RiverStatePersistMixin):
     """个股精选器
 
     从题材中精选个股，给 Bandit 提供交易信号
     """
+
+    MODEL_STATE_KEY = "stock_selector_model"
 
     def __init__(
         self,
@@ -339,6 +367,8 @@ class StockSelector:
         self._noise_filter = get_noise_filter()
         self._stock_scores: Dict[str, float] = {}
         self._last_signal: Optional[Dict] = None
+        self._persist_db = None
+        self.try_load_state()
 
     def on_data(self, data: Any) -> None:
         """处理数据"""
@@ -393,6 +423,7 @@ class StockSelector:
             "selected_stocks": selected,
             "html": "",
         }
+        self.try_save_state()
 
     def _calculate_scores(self, df: pd.DataFrame) -> pd.Series:
         """计算综合评分"""
@@ -484,6 +515,25 @@ class StockSelector:
         """设置状态"""
         if "top_n" in state:
             self._top_n = state["top_n"]
+
+    def _extract_model_state(self) -> Any:
+        return {
+            "_stock_scores": self._stock_scores,
+            "_top_n": self._top_n,
+            "_min_score": self._min_score,
+            "_price_weight": self._price_weight,
+            "_volume_weight": self._volume_weight,
+            "_change_weight": self._change_weight,
+        }
+
+    def _restore_model_state(self, state: Any) -> None:
+        if isinstance(state, dict):
+            self._stock_scores = state.get("_stock_scores", {})
+            self._top_n = state.get("_top_n", self._top_n)
+            self._min_score = state.get("_min_score", self._min_score)
+            self._price_weight = state.get("_price_weight", self._price_weight)
+            self._volume_weight = state.get("_volume_weight", self._volume_weight)
+            self._change_weight = state.get("_change_weight", self._change_weight)
 
 
 STRATEGY_REGISTRY = {
