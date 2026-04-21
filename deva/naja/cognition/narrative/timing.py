@@ -106,22 +106,16 @@ class TimingNarrativeTracker:
         self._narrative_history: deque = deque(maxlen=100)
         self._last_update: float = time.time()
 
-        self._subscribe_to_text_events()
+        # 🚀 事件订阅已迁移到 EventSubscriberRegistrar（应用层）
+        # 不再在 __init__ 中自动订阅
 
-    def _subscribe_to_text_events(self):
-        """订阅 TextFocusedEvent"""
-        try:
-            from deva.naja.events import get_event_bus
-
-            event_bus = get_event_bus()
-            event_bus.subscribe(
-                'TextFocusedEvent',
-                self._on_text_focused,
-                priority=6
-            )
-            log.debug("TimingNarrativeTracker 已订阅 TextFocusedEvent")
-        except ImportError:
-            pass
+    def subscribe_text_events(self, event_bus):
+        """由 EventSubscriberRegistrar 调用的事件订阅方法"""
+        event_bus.subscribe(
+            'TextFocusedEvent',
+            self._on_text_focused,
+            priority=6
+        )
 
     def _on_text_focused(self, event):
         """处理 TextFocusedEvent"""
