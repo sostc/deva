@@ -17,6 +17,7 @@
 
 from __future__ import annotations
 
+import logging
 import math
 import time
 from dataclasses import dataclass
@@ -28,6 +29,8 @@ try:
     import pandas as pd
 except Exception:
     pd = None
+
+log = logging.getLogger(__name__)
 
 from river import anomaly, compose, drift, linear_model, stats
 
@@ -368,9 +371,15 @@ class EarlyBullFinder:
             df = data
 
         if df is None or df.empty:
+            log.debug(f"[EarlyBullFinder] 数据为空，跳过")
             return
 
+        log.debug(f"[EarlyBullFinder] on_data: 收到 {len(df)} 行数据, columns={list(df.columns)[:10]}")
+        
         candidates = []
+        total_processed = 0
+        total_filtered = 0
+        total_accumulated = 0
 
         for code in df.index:
             row = df.loc[code]
@@ -378,11 +387,16 @@ class EarlyBullFinder:
             price = _safe_float(row.get("now", 0))
             change = _safe_float(row.get("p_change", 0)) * 100
             volume = _safe_float(row.get("volume", 0))
+            total_processed += 1
 
             if price < 1 or volume < 50000:
+                total_filtered += 1
+                if total_filtered <= 3:  # 只记录前3个
+                    log.debug(f"[EarlyBullFinder] {code} 过滤: price={price:.2f}, volume={volume:.0f}")
                 continue
 
             history = self._stock_history.setdefault(code, [])
+            old_len = len(history)
             history.append({
                 "timestamp": time.time(),
                 "price": price,
@@ -392,6 +406,14 @@ class EarlyBullFinder:
 
             if len(history) > self._momentum_window:
                 history.pop(0)
+
+            if old_len < 3 and len(history) >= 3:
+                log.info(f"[EarlyBullFinder] 🎉 {code} 历史数据积累完成! now={len(history)}, price={price:.2f}, change={change:.2f}%")
+            
+            if len(history) <= 3:
+                total_accumulated += 1
+                if total_accumulated <= 5:  # 只记录前5个
+                    log.debug(f"[EarlyBullFinder] {code} 积累中: history_count={len(history)}, price={price:.2f}, change={change:.2f}%")
 
             if len(history) < 3:
                 continue
@@ -414,6 +436,10 @@ class EarlyBullFinder:
                         "momentum_score": avg_change * volume_ratio,
                         "blocks": blocks,
                     })
+
+        log.debug(f"[EarlyBullFinder] 处理完成: total={total_processed}, filtered={total_filtered}, accumulated={total_accumulated}, candidates={len(candidates)}")
+        if candidates:
+            log.info(f"[EarlyBullFinder] 🔥 产生 {len(candidates)} 个候选股: {[(c['stock_code'], c['change'], c['volume_ratio']) for c in candidates[:3]]}")
 
         candidates.sort(key=lambda x: x["momentum_score"], reverse=True)
 
