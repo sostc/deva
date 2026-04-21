@@ -496,13 +496,30 @@ class RealtimeDataFetcher:
     def _fetch_loop(self):
         """获取循环 - 只在交易时间运行"""
         log.info("[RealtimeDataFetcher] 获取循环开始")
+        
+        last_idle_log = 0.0
 
         while self._running and not self._stop_event.is_set():
             try:
                 if self._is_active:
                     current_time = time.time()
-                    self._tick(current_time)
-                self._stop_event.wait(0.5)
+                    tick_result = self._tick(current_time)
+                    
+                    # 根据 tick 结果调整等待时间
+                    if tick_result == 'idle':
+                        # 两个市场都不活跃，降低检查频率（每30秒）
+                        self._stop_event.wait(30)
+                        
+                        # 减少日志输出频率（每5分钟打印一次）
+                        if current_time - last_idle_log > 300:
+                            log.info("[RealtimeDataFetcher] 两个市场都不活跃，进入低频等待模式")
+                            last_idle_log = current_time
+                    else:
+                        # 有市场活跃，正常频率（每0.5秒）
+                        self._stop_event.wait(0.5)
+                else:
+                    # _is_active=False，降低检查频率（每10秒）
+                    self._stop_event.wait(10)
 
             except Exception as e:
                 self._error_count += 1
@@ -513,19 +530,29 @@ class RealtimeDataFetcher:
         log.info("[RealtimeDataFetcher] 获取循环结束")
 
     def _tick(self, current_time: float):
-        """一次tick - 根据活跃市场分别处理"""
+        """一次tick - 根据活跃市场分别处理
+        
+        Returns:
+            'active' - 有市场活跃
+            'idle' - 两个市场都不活跃
+        """
         log.debug(f"[RealtimeDataFetcher] _tick: _is_active={self._is_active}, _us_active={self._us_active}, _cn_active={self._cn_active}")
 
         self._inner_resolved = False
         self._resolve_inner_system()
 
         # 根据活跃市场分别处理
+        has_active_market = False
         if self._us_active:
             self._tick_market(current_time, 'US')
+            has_active_market = True
         if self._cn_active:
             self._tick_market(current_time, 'CN')
-        if not self._us_active and not self._cn_active:
-            log.debug(f"[RealtimeDataFetcher] 两个市场都不活跃，跳过")
+            has_active_market = True
+            
+        if not has_active_market:
+            return 'idle'
+        return 'active'
 
     def _tick_market(self, current_time: float, market: str):
         """处理单个市场的tick"""
@@ -683,6 +710,43 @@ class RealtimeDataFetcher:
                                 if level == "LOW" and self._save_snapshot_enabled:
                                     self._save_market_snapshot(us_df)
                                 log.debug(f"[RealtimeDataFetcher] [{market}] 获取 {len(us_df)} 条数据，累计 {self._fetch_count} 批")
+                                # 触发策略执行
+                                try:
+                                    from deva.naja.market_hotspot.integration import process_data_with_hotspots
+                                    hotspot_system = SR('hotspot_system')
+                                    # 从 US 上下文中获取真实的热点数据
+                                    if hotspot_system is not None:
+                                        us_ctx = getattr(hotspot_system, '_us_context', None)
+                                        if us_ctx is not None:
+                                            global_hotspot = getattr(hotspot_system, '_us_last_global_hotspot', 0.5)
+                                            activity = getattr(hotspot_system, '_us_last_activity', 0.5)
+                                            block_hotspot = getattr(hotspot_system, '_us_last_block_hotspot', {})
+                                            us_weight_pool = us_ctx.weight_pool
+                                            symbol_weights = us_weight_pool.get_all_weights(filter_noise=True)
+                                        else:
+                                            global_hotspot = getattr(hotspot_system, '_us_last_global_hotspot', 0.5)
+                                            activity = getattr(hotspot_system, '_us_last_activity', 0.5)
+                                            block_hotspot = getattr(hotspot_system, '_us_last_block_hotspot', {})
+                                            symbol_weights = getattr(hotspot_system, '_us_last_symbol_weights', {})
+                                    else:
+                                        global_hotspot = 0.5
+                                        activity = 0.5
+                                        block_hotspot = {}
+                                        symbol_weights = {}
+                                    context = {
+                                        'market': 'US',
+                                        'timestamp': time.time(),
+                                        'global_hotspot': global_hotspot,
+                                        'activity': activity,
+                                        'block_weights': block_hotspot,
+                                        'symbol_weights': symbol_weights,
+                                    }
+                                    log.debug(f"[RealtimeDataFetcher] [{market}] 策略上下文: global_hotspot={global_hotspot}, activity={activity}")
+                                    process_data_with_hotspots(us_df, context)
+                                except Exception as e:
+                                    import traceback
+                                    log.error(f"[RealtimeDataFetcher] [{market}] 策略处理失败: {e}")
+                                    log.error(f"[RealtimeDataFetcher] [{market}] 异常堆栈: {traceback.format_exc()}")
                     return
                 finally:
                     loop.close()

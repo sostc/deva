@@ -437,6 +437,7 @@ class MarketDataObserver:
         import os
         log.debug(f"[MarketObserver] _fetch_loop started: NAJA_LAB_MODE={os.environ.get('NAJA_LAB_MODE')}, _current_phase={self._current_phase}")
         iteration = 0
+        last_idle_log = 0.0
         while True:
             iteration += 1
             if iteration == 1 or iteration % 100 == 0:
@@ -502,7 +503,16 @@ class MarketDataObserver:
             except Exception as e:
                 log.debug(f"[MarketObserver] 数据获取异常: {e}")
 
-            self._fetch_stop_event.wait(self._fetch_interval)
+            # 根据 allowed 状态动态调整等待时间
+            if allowed:
+                self._fetch_stop_event.wait(self._fetch_interval)
+            else:
+                # 市场休市，降低检查频率（每30秒），减少日志噪音
+                current_time = time.time()
+                if current_time - last_idle_log > 300:  # 每5分钟打印一次状态日志
+                    log.info(f"[MarketObserver] 市场休市中（phase={self._current_phase}），进入低频等待模式")
+                    last_idle_log = current_time
+                self._fetch_stop_event.wait(30)
 
     def _fetch_prices_from_datasource(self):
         """主动从数据源获取最新价格"""
@@ -789,8 +799,7 @@ class MarketDataObserver:
         env_lab = os_module.environ.get('NAJA_LAB_MODE') or os_module.environ.get('LAB_MODE')
         result = (self._force_mode or self._is_experiment_mode() or env_lab or
                   self._current_phase in ('trading', 'pre_market', 'call_auction'))
-        if not result:
-            log.debug(f"[MarketObserver] _is_allowed_to_run=False: force={self._force_mode}, experiment={self._is_experiment_mode()}, env_lab={env_lab}, phase={self._current_phase}")
+        # 移除每5秒一次的日志输出，减少噪音
         return result
 
     def stop(self):

@@ -226,13 +226,23 @@ def _register_custom_singletons():
     register_singleton('query_state_updater', _create_query_state_updater, deps=['query_state'])
     logger.debug("  ✓ query_state_updater")
 
-    # --- hotspot_system: 从 attention_integration 取属性 ---
+    # --- hotspot_system: 懒加载，由 monitoring.py 中的 initialize_hotspot_system() 统一管理 ---
     def _create_hotspot_system():
+        # 优先从 attention_integration 获取
         integration = SR('attention_integration')
-        return integration.hotspot_system
+        if integration and hasattr(integration, 'hotspot_system') and integration.hotspot_system:
+            return integration.hotspot_system
+        # 兜底：如果 integration 未初始化，则触发初始化
+        from .market_hotspot.integration.market_hotspot_config import load_config
+        config = load_config()
+        if config.enabled:
+            from .market_hotspot.integration.market_hotspot_integration import initialize_hotspot_system
+            hotspot_config = config.to_hotspot_system_config()
+            return initialize_hotspot_system(hotspot_config)
+        return None
     register_singleton('hotspot_system', _create_hotspot_system,
                       deps=['attention_integration'])
-    logger.debug("  ✓ hotspot_system")
+    logger.debug("  ✓ hotspot_system (懒加载，优先由 initialize_hotspot_system 初始化)")
 
     # --- cognition_bus: 调用 get_event_bus() 单例获取器 ---
     def _create_cognitive_signal_bus():
@@ -260,16 +270,25 @@ def _register_custom_singletons():
     register_singleton('trading_clock', _create_trading_clock, deps=[])
     logger.debug("  ✓ trading_clock (统一，支持 A股 + 美股)")
 
-    # --- realtime_data_fetcher: 需要 SR() + start() ---
+    # --- realtime_data_fetcher: 懒加载，优先复用 hotspot_system 内部的数据获取器 ---
     def _create_realtime_data_fetcher():
+        # 优先从 hotspot_system 获取已启动的数据获取器
+        hotspot_system = SR('hotspot_system')
+        if hotspot_system and hasattr(hotspot_system, '_realtime_fetcher'):
+            fetcher = hotspot_system._realtime_fetcher
+            if fetcher is not None:
+                return fetcher
+        
+        # 兜底：如果 hotspot_system 没有启动数据获取器，则创建独立实例
         from .market_hotspot.data.realtime_fetcher import RealtimeDataFetcher
         integration = SR('attention_integration')
         fetcher = RealtimeDataFetcher(hotspot_system=integration)
         fetcher.start()
+        fetcher._activate()
         return fetcher
     register_singleton('realtime_data_fetcher', _create_realtime_data_fetcher,
-                      deps=['mode_manager', 'attention_integration'])
-    logger.debug("  ✓ realtime_data_fetcher")
+                      deps=['mode_manager', 'hotspot_system'])
+    logger.debug("  ✓ realtime_data_fetcher (懒加载，优先复用 hotspot_system 内部实例)")
 
     # --- wake_sync_manager: 需要注册多个组件 ---
     def _create_wake_sync_manager():

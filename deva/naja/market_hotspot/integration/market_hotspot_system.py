@@ -73,15 +73,6 @@ class MarketHotspotSystem:
         )
         self._current_market = 'CN'
 
-        # 兼容旧字段（指向 A 股上下文）
-        self.global_hotspot = self._cn_context.global_hotspot
-        self.block_hotspot = self._cn_context.block_engine
-        self.weight_pool = self._cn_context.weight_pool
-        self.frequency_scheduler = self._cn_context.frequency_scheduler
-        self.frequency_controller = self._cn_context.frequency_controller
-        self.strategy_allocator = self._cn_context.strategy_allocator
-        self.dual_engine = self._cn_context.dual_engine
-
         # 实盘数据获取器
         self._realtime_fetcher: Optional[RealtimeDataFetcher] = None
         self._async_realtime_fetcher: Optional[AsyncRealtimeDataFetcher] = None
@@ -101,11 +92,6 @@ class MarketHotspotSystem:
 
         # 股票名称缓存
         self._symbol_name_cache: Dict[str, str] = {}
-
-        # 美股热点引擎（保持兼容旧字段）
-        self._us_global_hotspot = self._us_context.global_hotspot
-        self._us_block_hotspot = self._us_context.block_engine
-        self._us_weight_pool = self._us_context.weight_pool
 
         # 美股缓存状态
         self._us_last_global_hotspot: float = 0.0
@@ -149,6 +135,43 @@ class MarketHotspotSystem:
         self._register_index_symbols()
 
     INDEX_SYMBOLS = ['CN_SH', 'CN_HS300', 'CN_CHINEXT', 'US_NQ', 'US_ES', 'US_YM']
+
+    # === 动态路由属性（根据当前市场返回对应上下文） ===
+
+    @property
+    def weight_pool(self):
+        """动态路由到当前市场的 weight_pool"""
+        return self._get_context(self._current_market).weight_pool
+
+    @property
+    def global_hotspot(self):
+        """动态路由到当前市场的 global_hotspot_engine"""
+        return self._get_context(self._current_market).global_hotspot
+
+    @property
+    def block_hotspot(self):
+        """动态路由到当前市场的 block_engine"""
+        return self._get_context(self._current_market).block_engine
+
+    @property
+    def frequency_scheduler(self):
+        """动态路由到当前市场的 frequency_scheduler"""
+        return self._get_context(self._current_market).frequency_scheduler
+
+    @property
+    def frequency_controller(self):
+        """动态路由到当前市场的 frequency_controller"""
+        return self._get_context(self._current_market).frequency_controller
+
+    @property
+    def strategy_allocator(self):
+        """动态路由到当前市场的 strategy_allocator"""
+        return self._get_context(self._current_market).strategy_allocator
+
+    @property
+    def dual_engine(self):
+        """动态路由到当前市场的 dual_engine"""
+        return self._get_context(self._current_market).dual_engine
 
     def _register_index_symbols(self):
         """注册指数符号到频率调度器，指数权重固定为最高"""
@@ -357,6 +380,7 @@ class MarketHotspotSystem:
                 blocks_list = data['blocks'].values if 'blocks' in data.columns else block_ids
 
                 us_weight_pool = self._get_context('US').weight_pool
+                us_frequency_scheduler = self._get_context('US').frequency_scheduler
                 log.debug(f"[MarketHotspotSystem] 美股注册: symbols={list(symbols_list[:5])}, weight_pool={id(us_weight_pool)}")
 
                 for sym, blk_list in zip(symbols_list, blocks_list):
@@ -367,7 +391,9 @@ class MarketHotspotSystem:
                     elif not isinstance(blk_list, list):
                         blk_list = []
                     try:
-                        us_weight_pool.register_symbol(str(sym), blk_list)
+                        sym_str = str(sym)
+                        us_weight_pool.register_symbol(sym_str, blk_list)
+                        us_frequency_scheduler.register_symbol(sym_str)
                     except Exception as e:
                         log.debug(f"注册symbol失败: {sym}, {e}")
             else:
@@ -639,6 +665,9 @@ class MarketHotspotSystem:
             raise RuntimeError("MarketHotspotSystem not initialized. Call initialize() first.")
 
         start_time = time.time()
+
+        # 更新当前市场标识，确保 property 动态路由正确
+        self._current_market = market
 
         # 根据市场获取对应的引擎
         ctx = self._get_context(market)
@@ -1321,26 +1350,15 @@ class MarketHotspotSystem:
                     self._cn_context = MarketContext.load_state(state.get('cn_context', {}))
                 if 'us_context' in state:
                     self._us_context = MarketContext.load_state(state.get('us_context', {}))
-                # 重新对齐兼容字段
-                self.global_hotspot = self._cn_context.global_hotspot
-                self.block_hotspot = self._cn_context.block_engine
-                self.weight_pool = self._cn_context.weight_pool
-                self.frequency_scheduler = self._cn_context.frequency_scheduler
-                self.frequency_controller = self._cn_context.frequency_controller
-                self.strategy_allocator = self._cn_context.strategy_allocator
-                self.dual_engine = self._cn_context.dual_engine
-                self._us_global_hotspot = self._us_context.global_hotspot
-                self._us_block_hotspot = self._us_context.block_engine
-                self._us_weight_pool = self._us_context.weight_pool
             else:
                 # 兼容旧结构
-                self.global_hotspot.load_state(state.get('global_hotspot', {}))
-                self.block_hotspot.load_state(state.get('block_hotspot', {}))
-                self.weight_pool.load_state(state.get('weight_pool', {}))
-                self.frequency_scheduler.load_state(state.get('frequency_scheduler', {}))
-                self._us_global_hotspot.load_state(state.get('us_global_hotspot', {}))
-                self._us_block_hotspot.load_state(state.get('us_block_hotspot', {}))
-                self._us_weight_pool.load_state(state.get('us_weight_pool', {}))
+                self._cn_context.global_hotspot.load_state(state.get('global_hotspot', {}))
+                self._cn_context.block_engine.load_state(state.get('block_hotspot', {}))
+                self._cn_context.weight_pool.load_state(state.get('weight_pool', {}))
+                self._cn_context.frequency_scheduler.load_state(state.get('frequency_scheduler', {}))
+                self._us_context.global_hotspot.load_state(state.get('us_global_hotspot', {}))
+                self._us_context.block_engine.load_state(state.get('us_block_hotspot', {}))
+                self._us_context.weight_pool.load_state(state.get('us_weight_pool', {}))
 
             self._us_last_global_hotspot = state.get('us_last_global_hotspot', 0.0)
             self._us_last_activity = state.get('us_last_activity', 0.0)

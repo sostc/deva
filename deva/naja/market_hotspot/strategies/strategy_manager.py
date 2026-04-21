@@ -384,8 +384,14 @@ class HotspotStrategyManager:
             try:
                 strategy_market = getattr(strategy, 'market_scope', 'ALL')
                 if market != "ALL" and strategy_market not in ("ALL", market):
+                    log.debug(f"[StrategyManager] {strategy_id} 跳过: market_scope={strategy_market}, current={market}")
                     continue
+                log.debug(f"[StrategyManager] 执行策略 {strategy_id}, market={market}")
                 signals = strategy.process(data, context)
+                if signals:
+                    log.info(f"[StrategyManager] {strategy_id} 产生 {len(signals)} 个信号: {[s.get('symbol') for s in signals[:3]]}")
+                else:
+                    log.debug(f"[StrategyManager] {strategy_id} 无信号产生")
                 all_signals.extend(signals)
 
                 # 记录单个策略性能

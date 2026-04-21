@@ -52,8 +52,10 @@ class MonitoringMixin:
             from deva.naja.market_hotspot.integration.market_hotspot_integration import initialize_hotspot_system
 
             attention_config = load_config()
+            log.info(f"[Monitoring] 加载热点系统配置: enabled={attention_config.enabled}")
 
             if attention_config.enabled:
+                log.info("[Monitoring] 热点系统已启用，开始初始化...")
                 config = attention_config.to_hotspot_system_config()
                 force_realtime = getattr(self, '_force_realtime', False)
                 lab_mode = getattr(self, '_lab_mode', False)
@@ -64,6 +66,7 @@ class MonitoringMixin:
                 )
                 self._components['attention'] = attention_system
                 self._components['hotspot_integration'] = attention_system
+                log.info(f"[Monitoring] 热点系统初始化完成: {attention_system}")
 
                 try:
                     attention_system.load_state()

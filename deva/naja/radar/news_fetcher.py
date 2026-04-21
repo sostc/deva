@@ -638,7 +638,7 @@ class RadarNewsFetcher:
                 title=news.title,
                 source="radar_news",
                 url=news.url,
-                timestamp=news.timestamp or time.time(),
+                timestamp=news.timestamp.timestamp() if isinstance(news.timestamp, datetime) else (news.timestamp or time.time()),
                 keywords=keywords,
                 topics=topics,
                 sentiment=sentiment,
