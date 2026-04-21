@@ -781,7 +781,15 @@ def register_hotspot_manager(manager):
 
 
 def get_hotspot_manager():
-    """获取策略管理器"""
+    """获取策略管理器（自动懒初始化）"""
+    global _hotspot_manager
+    if _hotspot_manager is None:
+        try:
+            from deva.naja.market_hotspot.strategies.strategy_manager import get_hotspot_manager as get_sm
+            _hotspot_manager = get_sm()
+            log.info(f"[HotspotIntegration] 策略管理器自动懒初始化完成")
+        except Exception as e:
+            log.warning(f"[HotspotIntegration] 策略管理器懒初始化失败: {e}")
     return _hotspot_manager
 
 
