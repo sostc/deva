@@ -28,6 +28,8 @@ except Exception:
 
 from river import anomaly, cluster, drift, stats, stream
 
+from .model_persist import RiverStatePersistMixin, serialize_river_model, deserialize_river_model
+
 
 def _safe_float(value: Any, default: float = 0.0) -> float:
     try:
@@ -81,12 +83,14 @@ class MarketComboReport:
     risk_warnings: List[str] = field(default_factory=list)
 
 
-class MarketComboAnalyzer:
+class MarketComboAnalyzer(RiverStatePersistMixin):
     """
     组合市场分析器
 
     整合横截面、时序、题材聚类三种分析
     """
+
+    MODEL_STATE_KEY = "market_combo_analyzer_model"
 
     def __init__(
         self,
@@ -94,6 +98,9 @@ class MarketComboAnalyzer:
         drift_sensitivity: float = 0.002,
         cluster_n: int = 3,
     ):
+        self._anomaly_window = anomaly_window
+        self._drift_sensitivity = drift_sensitivity
+        self._cluster_n = cluster_n
         self._anomaly_model = anomaly.HalfSpaceTrees(
             n_trees=20,
             height=10,
@@ -107,6 +114,8 @@ class MarketComboAnalyzer:
         self._block_history: Dict[str, List[Dict]] = defaultdict(list)
         self._last_drift_ts = 0
         self._drift_direction = "none"
+        self._persist_db = None
+        self.try_load_state()
 
     def analyze(
         self,
@@ -137,7 +146,7 @@ class MarketComboAnalyzer:
             cross_sectional, temporal, block_clusters, sentiment, breadth
         )
 
-        return MarketComboReport(
+        report = MarketComboReport(
             timestamp=time.time(),
             stock_count=len(stocks),
             cross_sectional=cross_sectional,
@@ -150,6 +159,8 @@ class MarketComboAnalyzer:
             key_insights=self._extract_insights(cross_sectional, block_clusters, temporal),
             risk_warnings=self._extract_warnings(cross_sectional, block_clusters, temporal),
         )
+        self.try_save_state()
+        return report
 
     def _prepare_dataframe(self, stocks: List[Dict]) -> pd.DataFrame:
         """准备DataFrame"""
@@ -536,6 +547,32 @@ class MarketComboAnalyzer:
             key_insights=[],
             risk_warnings=[],
         )
+
+    def _extract_model_state(self) -> Any:
+        return {
+            "_anomaly_model": self._anomaly_model,
+            "_drift_model": self._drift_model,
+            "_cluster_models": dict(self._cluster_models),
+            "_temporal_history": self._temporal_history,
+            "_block_history": dict(self._block_history),
+            "_drift_direction": self._drift_direction,
+            "_last_drift_ts": self._last_drift_ts,
+        }
+
+    def _restore_model_state(self, state: Any) -> None:
+        if isinstance(state, dict):
+            self._anomaly_model = state.get("_anomaly_model", self._anomaly_model)
+            self._drift_model = state.get("_drift_model", self._drift_model)
+            self._cluster_models = state.get("_cluster_models", {})
+            self._temporal_history = state.get("_temporal_history", [])
+            self._block_history = defaultdict(list)
+            bh = state.get("_block_history", {})
+            for k, v in bh.items():
+                self._block_history[k] = v
+            self._drift_direction = state.get("_drift_direction", "none")
+            self._last_drift_ts = state.get("_last_drift_ts", 0)
+        else:
+            self._anomaly_model = state
 
 
 class USStockBlockMapper:
