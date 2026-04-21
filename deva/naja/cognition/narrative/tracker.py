@@ -288,6 +288,11 @@ class NarrativeTracker:
         self._value_signals: List[ValueSignal] = []
         self._value_signal_index: Dict[str, List[int]] = {}  # signal_type → indices
 
+        # 上次发布的叙事状态（用于变更检测）
+        self._last_published_narratives: List[str] = []
+        self._last_published_strength: float = 0.0
+        self._last_published_risk: float = 0.0
+
         self._load_state()
 
         self._subscribe_to_text_events()
@@ -655,7 +660,7 @@ class NarrativeTracker:
         return results
 
     def _publish_narrative_state_event(self, timestamp: float):
-        """发布叙事状态事件"""
+        """发布叙事状态事件（仅在状态变化时发布）"""
         try:
             # 收集当前叙事状态
             current_narratives = []
@@ -680,6 +685,19 @@ class NarrativeTracker:
                 
                 if positive_keywords or negative_keywords:
                     sentiment_score = len(positive_keywords) / (len(positive_keywords) + len(negative_keywords))
+            
+            # 变更检测：只有状态真的变化了才发布
+            narratives_changed = set(current_narratives) != set(self._last_published_narratives)
+            strength_changed = abs(narrative_strength - self._last_published_strength) > 0.01
+            risk_changed = abs(narrative_risk - self._last_published_risk) > 0.01
+            
+            if not (narratives_changed or strength_changed or risk_changed):
+                return
+            
+            # 更新上次发布状态
+            self._last_published_narratives = current_narratives
+            self._last_published_strength = narrative_strength
+            self._last_published_risk = narrative_risk
             
             # 创建并发布事件
             event = NarrativeStateEvent(

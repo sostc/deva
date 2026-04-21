@@ -616,7 +616,7 @@ class InsightPool:
             ]
             self._last_seen = data.get("last_seen", {})
             self._latest_by_theme = data.get("latest_by_theme", {})
-            logger.info(f"[InsightPool] 从数据库加载了 {len(self._insights)} 条历史洞察")
+            logger.debug(f"[InsightPool] 从数据库加载了 {len(self._insights)} 条历史洞察")
         except Exception as e:
             logger.warning(f"[InsightPool] 从数据库加载洞察失败: {e}，将使用空洞察池")
 
