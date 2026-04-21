@@ -5,8 +5,11 @@ OpenRouter 监控 - 业务模块主类
 """
 
 import asyncio
+import logging
 from typing import Dict, Optional, List
 from datetime import datetime
+
+logger = logging.getLogger(__name__)
 
 from .感知层.data_fetcher import OpenRouterDataFetcher
 from .认知层.trend_analyzer import OpenRouterTrendAnalyzer
@@ -161,14 +164,14 @@ class OpenRouterMonitor:
             trend = db.get("trend")
 
             if trend:
-                print(f"[OpenRouter] 从缓存获取趋势数据: {trend.get('message', '')[:50]}...")
+                logger.debug(f"[OpenRouter] 从缓存获取趋势数据: {trend.get('message', '')[:50]}...")
             else:
-                print("[OpenRouter] 缓存中无数据")
+                logger.debug("[OpenRouter] 缓存中无数据")
 
             return trend
 
         except Exception as e:
-            print(f"[OpenRouter] 获取缓存失败: {e}")
+            logger.debug(f"[OpenRouter] 获取缓存失败: {e}")
             return None
 
     def get_openrouter_full_data(self) -> Optional[Dict]:

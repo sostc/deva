@@ -334,7 +334,6 @@ __all__ = [
 
 warn = NS('warn', description='告警流，用于记录系统告警和异常信息')
 debug = NS('debug', description='调试流，用于记录调试信息和开发日志')
-setup_deva_logging()
 
 
 _DEFAULT_LOGGER = logging.getLogger("deva.log")

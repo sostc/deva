@@ -105,7 +105,7 @@ class SignalListener:
             from deva.naja.events import get_trading_bus
             bus = get_trading_bus()
             bus.subscribe('TradeDecisionEvent', self._on_trade_decision_event)
-            log.info(f"[SignalListener] ✅ 已订阅 TradeBus 的 TradeDecisionEvent（事件驱动模式）")
+            log.debug(f"[SignalListener] ✅ 已订阅 TradeBus 的 TradeDecisionEvent（事件驱动模式）")
         except Exception as e:
             log.warning(f"[SignalListener] 订阅 TradeDecisionEvent 失败: {e}")
     
@@ -165,7 +165,7 @@ class SignalListener:
         self._stop_event.clear()
 
         TRADING_CLOCK_STREAM.sink(self._on_trading_clock_signal)
-        log.info("SignalListener 已订阅交易时钟信号")
+        log.debug("SignalListener 已订阅交易时钟信号")
 
         # 事件总线订阅在 __init__ 中已完成，无需重复
         # 保留轮询线程作为后备（实验模式轮询信号流）
@@ -176,7 +176,7 @@ class SignalListener:
         self._save_config()
 
         mode = "NajaEventBus 事件驱动" if _EVENT_BUS_AVAILABLE else f"轮询后备({self._poll_interval}s)"
-        log.info(f"SignalListener 已启动 ({mode})")
+        log.debug(f"SignalListener 已启动 ({mode})")
 
     def _on_trading_clock_signal(self, signal: Dict[str, Any]):
         """处理交易时钟信号"""
@@ -320,7 +320,7 @@ class SignalListener:
         if self._current_phase in ('trading', 'pre_market', 'call_auction', 'closed'):
             return True
         if not hasattr(self, '_last_allowed_log') or time.time() - self._last_allowed_log > 5:
-            log.info(f"[SignalListener] _is_allowed_to_run=False: force={self._force_mode}, experiment={self._is_experiment_mode()}, phase={self._current_phase}")
+            log.debug(f"[SignalListener] _is_allowed_to_run=False: force={self._force_mode}, experiment={self._is_experiment_mode()}, phase={self._current_phase}")
             self._last_allowed_log = time.time()
         return False
     
@@ -337,11 +337,11 @@ class SignalListener:
         
         self._save_config()  # 保存运行状态
         
-        log.info("SignalListener 已停止")
+        log.debug("SignalListener 已停止")
     
     def _run_loop(self):
         """主循环（轮询模式后备）"""
-        log.info(f"[SignalListener] _run_loop started: force={self._force_mode}, phase={self._current_phase}")
+        log.debug(f"[SignalListener] _run_loop started: force={self._force_mode}, phase={self._current_phase}")
         while self._running and not self._stop_event.is_set():
             if self._stream_mode:
                 self._stop_event.wait(1)
@@ -372,16 +372,16 @@ class SignalListener:
                 if not self._low_power_mode:
                     self._low_power_mode = True
                     self._poll_interval = self._low_power_poll_interval
-                    log.info(f"[SignalListener] 没有策略在处理数据，进入低频模式，间隔: {self._poll_interval}s")
+                    log.warning(f"[SignalListener] 没有策略在处理数据，进入低频模式，间隔: {self._poll_interval}s")
                 return
 
             recent = self._signal_stream.get_recent(limit=50)
-            log.info(f"[Bandit] 获取到 {len(recent)} 个信号")
+            log.debug(f"[Bandit] 获取到 {len(recent)} 个信号")
 
             if self._low_power_mode:
                 self._low_power_mode = False
                 self._poll_interval = self._normal_poll_interval
-                log.info(f"[SignalListener] 上游恢复，退出低频模式，间隔恢复: {self._poll_interval}s")
+                log.warning(f"[SignalListener] 上游恢复，退出低频模式，间隔恢复: {self._poll_interval}s")
         except Exception as e:
             log.error(f"获取信号流失败: {e}")
             return
@@ -452,7 +452,7 @@ class SignalListener:
                 log.warning(f"[Bandit] 解析信号失败: output 类型不支持, type={type(output)}")
                 return None
 
-            log.info(f"[Bandit] 解析信号: id={result.id[:20] if result.id else 'N/A'}..., keys={list(signal_data.keys())}")
+            log.debug(f"[Bandit] 解析信号: id={result.id[:20] if result.id else 'N/A'}..., keys={list(signal_data.keys())}")
             
             stock_code = ""
             stock_name = ""

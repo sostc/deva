@@ -2096,8 +2096,21 @@ class DevaFormatter(logging.Formatter):
         return line
 
 
+_HANDLER_MARK = "__deva_handler_installed__"
+
+
 def setup_deva_logging() -> logging.Logger:
     """Install a default handler for deva.* loggers once."""
+    use_colorful = os.environ.get('NAJA_COLORFUL_LOG', '').lower() == 'true'
+
+    if use_colorful:
+        try:
+            from deva.naja.infra.log.colorful_logger import setup_colorful_logger as _setup_colorful
+            _setup_colorful(level=logging.INFO, force_color=True)
+            return logging.getLogger("deva")
+        except ImportError:
+            pass
+
     def _install_for(name: str):
         logger_ = logging.getLogger(name)
         if not any(getattr(h, _HANDLER_MARK, False) for h in logger_.handlers):

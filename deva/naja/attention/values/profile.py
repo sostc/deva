@@ -173,7 +173,7 @@ def get_default_profiles() -> List[ValueProfile]:
         ),
         ValueProfile(
             name="代表人民利益",
-            value_type=ValueType.GROWTH,
+            value_type=ValueType.VALUE,
             description="发现社会需要的、存在的问题，投资能解决供需关系的公司。",
             weights=ValueWeights(
                 price_sensitivity=0.3,
@@ -197,7 +197,7 @@ def get_default_profiles() -> List[ValueProfile]:
         ),
         ValueProfile(
             name="先进文化方向",
-            value_type=ValueType.GROWTH,
+            value_type=ValueType.BALANCED,
             description="投资拥有先进组织文化和精神理念的创新开拓者。",
             weights=ValueWeights(
                 price_sensitivity=0.3,

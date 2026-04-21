@@ -651,7 +651,7 @@ class SignalTuner:
                 'today_trades': len(today_trades),
                 'total_trades': len(self._trade_records),
                 'completed_trades': len(completed_trades),
-                'recent_adjustments': len(self._param_adjustments),
+                'recent_adjustments': list(self._param_adjustments)[-3:] if self._param_adjustments else [],
                 'current_params': {k: v.copy() for k, v in self._current_params.items()}
             }
 
