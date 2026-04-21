@@ -1,57 +1,46 @@
-# React + TypeScript + Vite
+# Deva
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+智能量化与数据处理平台。
 
-Currently, two official plugins are available:
+## 核心特性
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+- **流式处理**：基于 Stream 类的异步数据流处理框架
+- **事件驱动**：基于 Tornado 的事件循环和异步处理
+- **认知系统**：Naja 子系统提供市场叙事追踪、跨信号分析、洞察生成
+- **注意力调度**：智能资源分配和策略优先级管理
+- **雷达检测**：市场模式、异常和概念漂移检测
+- **量化策略**：支持 River 策略、多数据源、信号处理
+- **自适应交易**：基于多臂老虎机的 Bandit 交易系统
 
-## Expanding the ESLint configuration
+## 安装
 
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
-
-```js
-export default tseslint.config({
-  extends: [
-    // Remove ...tseslint.configs.recommended and replace with this
-    ...tseslint.configs.recommendedTypeChecked,
-    // Alternatively, use this for stricter rules
-    ...tseslint.configs.strictTypeChecked,
-    // Optionally, add this for stylistic rules
-    ...tseslint.configs.stylisticTypeChecked,
-  ],
-  languageOptions: {
-    // other options...
-    parserOptions: {
-      project: ['./tsconfig.node.json', './tsconfig.app.json'],
-      tsconfigRootDir: import.meta.dirname,
-    },
-  },
-})
+```bash
+pip install deva
+pip3 install deva
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+## 快速启动
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
+```bash
+python -m deva.naja
+```
 
-export default tseslint.config({
-  extends: [
-    // other configs...
-    // Enable lint rules for React
-    reactX.configs['recommended-typescript'],
-    // Enable lint rules for React DOM
-    reactDom.configs.recommended,
-  ],
-  languageOptions: {
-    // other options...
-    parserOptions: {
-      project: ['./tsconfig.node.json', './tsconfig.app.json'],
-      tsconfigRootDir: import.meta.dirname,
-    },
-  },
-})
+## 文档
+
+详细文档请查看 [Wiki](https://github.com/sostc/deva/wiki)。
+
+## 项目结构
+
+```
+deva/
+├── core/               # Deva 核心引擎
+├── naja/               # Naja 量化交易平台
+│   ├── application/    # 应用层
+│   ├── attention/      # 注意力系统
+│   ├── bandit/         # Bandit 交易
+│   ├── cognition/      # 认知系统
+│   ├── market_hotspot/ # 市场热点
+│   ├── radar/          # 雷达系统
+│   └── strategy/       # 策略系统
+└── skills/             # 用户技能
 ```
