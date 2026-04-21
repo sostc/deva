@@ -1321,6 +1321,23 @@ class RadarEngine:
             except Exception:
                 pass
 
+    def save_state(self) -> Dict[str, Any]:
+        """保存雷达引擎状态用于持久化"""
+        try:
+            with self._state_lock:
+                state = {
+                    'event_retention_days': self._retention_days,
+                    'macro_only': self._macro_only,
+                    'news_fetcher_running': self._news_fetcher is not None and self._news_fetcher._running if hasattr(self._news_fetcher, '_running') else False,
+                    'global_scanner_running': self._global_scanner is not None and self._global_scanner._running if hasattr(self._global_scanner, '_running') else False,
+                    'thread_count': len(self._threads),
+                }
+            logger.debug(f"[RadarEngine] 状态已保存: threads={state['thread_count']}")
+            return {"success": True, "state": state}
+        except Exception as e:
+            logger.warning(f"[RadarEngine] 保存状态失败: {e}")
+            return {"success": False, "error": str(e)}
+
 
 _radar_engine: Optional[RadarEngine] = None
 _radar_engine_lock = threading.Lock()

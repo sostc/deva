@@ -386,6 +386,23 @@ class OSAttentionKernel:
         """获取 ManasEngine 实例"""
         return self.manas_engine
 
+    def persist_state(self):
+        """持久化注意力内核状态"""
+        try:
+            from deva import NB
+            db = NB('naja_attention_kernel_state')
+            state = {
+                'last_output': self._last_output.to_dict() if self._last_output else None,
+                'last_update': self._last_update,
+                'enable_transformer': self._enable_transformer,
+                'enable_in_context': self._enable_in_context,
+            }
+            db['kernel_state'] = state
+            db.persist()
+            log.debug("[OSAttentionKernel] 内核状态已持久化")
+        except Exception as e:
+            log.warning(f"[OSAttentionKernel] 持久化内核状态失败: {e}")
+
     def get_focus_weights(self) -> Dict[str, float]:
         """获取焦点权重（兼容 BanditOptimizer）"""
         if self._last_output is None:

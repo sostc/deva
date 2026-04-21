@@ -125,66 +125,75 @@ class DailyReviewScheduler:
             if phase == 'post_market' or (event_type == 'current_state' and phase == 'post_market'):
                 self._schedule_replay(market='us_share', phase='post_market', delay_seconds=REPLAY_DELAY_AFTER_OPEN)
 
+    def _calculate_next_target(self, now: datetime):
+        """
+        计算下一个复盘目标时间
+
+        Returns:
+            tuple: (target_time, market) 或 (None, None) 表示今天无需复盘
+        """
+        targets = []
+
+        # A 股复盘目标
+        if not self._check_already_replayed_today(market='a_share'):
+            if now.weekday() < 5:  # 工作日
+                target_a = now.replace(hour=15, minute=30, second=0, microsecond=0)
+                if target_a <= now:
+                    # 已过 15:30，立即触发
+                    target_a = now + timedelta(seconds=1)
+                targets.append((target_a, 'a_share'))
+
+        # 美股复盘目标
+        if not self._check_already_replayed_today(market='us_share'):
+            # 夏令时 04:00，冬令时 05:00，保守取 04:00 确保不遗漏
+            target_us = now.replace(hour=4, minute=0, second=0, microsecond=0)
+            if target_us <= now:
+                # 已过 04:00，取明天
+                target_us += timedelta(days=1)
+            targets.append((target_us, 'us_share'))
+
+        if not targets:
+            return None, None
+
+        # 返回最近的目标
+        targets.sort(key=lambda x: x[0])
+        return targets[0]
+
     def _run_loop(self):
-        """主循环 - 检查是否需要触发 A股和美股复盘"""
-        log.info("[DailyReviewScheduler] 检查线程启动")
+        """主循环 - 精准等待并触发复盘"""
+        log.info("[DailyReviewScheduler] 调度线程启动")
 
         while self._running and not self._stop_event.is_set():
             try:
                 now = datetime.now()
+                target_time, market = self._calculate_next_target(now)
 
-                # 检查 A股复盘
-                self._check_and_trigger_replay(market='a_share', now=now)
+                if target_time is None:
+                    # 今天两个市场都已复盘，等待到明天凌晨
+                    tomorrow = (now + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
+                    wait_seconds = (tomorrow - now).total_seconds()
+                    log.info(f"[DailyReviewScheduler] 今天复盘已完成，等待到 {tomorrow.strftime('%Y-%m-%d %H:%M')}")
+                    self._stop_event.wait(min(wait_seconds, 3600))  # 最多等待 1 小时
+                    continue
 
-                # 检查美股复盘
-                self._check_and_trigger_replay(market='us_share', now=now)
+                wait_seconds = (target_time - now).total_seconds()
+                log.info(f"[DailyReviewScheduler] 精准等待: 目标时间={target_time.strftime('%H:%M')}, "
+                         f"市场={market}, 等待={wait_seconds:.0f}秒")
+                self._stop_event.wait(wait_seconds)
 
-                # 计算下次检查时间
-                next_check = self._get_next_check_time()
-                sleep_time = min(60, (next_check - now).total_seconds())
+                # 检查是否被中断（stop 或时钟事件触发）
+                if not self._running:
+                    break
 
-                log.info(f"[DailyReviewScheduler] 下次检查: {next_check}, 等待{sleep_time:.0f}秒")
-                self._stop_event.wait(max(10, sleep_time))
+                # 到达目标时间，触发复盘
+                log.info(f"[DailyReviewScheduler] 到达目标时间，触发 {market} 复盘")
+                self._trigger_replay(market=market, phase='post_market')
 
             except Exception as e:
-                log.error(f"[DailyReviewScheduler] 检查线程异常: {e}")
+                log.error(f"[DailyReviewScheduler] 调度线程异常: {e}")
                 self._stop_event.wait(30)
 
-        log.info("[DailyReviewScheduler] 检查线程结束")
-
-    def _check_and_trigger_replay(self, market: str, now: datetime):
-        """检查并触发指定市场的复盘"""
-        if self._check_already_replayed_today(market=market):
-            return
-
-        if market == 'a_share':
-            tc = SR('trading_clock')
-            current_phase = tc.cn_phase
-
-            # A股：周末不休市检查，但按交易时段判断
-            if now.weekday() >= 5:
-                return  # 周末不触发
-
-            if current_phase == 'post_market':
-                log.info(f"[DailyReviewScheduler] A股今天尚未复盘，立即触发")
-                self._trigger_replay(market=market, phase='post_market')
-            elif current_phase == 'closed':
-                if now.time() >= dtime(15, 30):
-                    log.info(f"[DailyReviewScheduler] A股收盘后尚未复盘，立即触发")
-                    self._trigger_replay(market=market, phase='post_market')
-
-        elif market == 'us_share':
-            tc = SR('trading_clock')
-            current_phase = tc.us_phase
-
-            # 美股：每天 04:00/05:00 后检查
-            # 北京时间 = 美东时间 + 12/13小时
-            us_hour = now.hour
-            is_us_post_market_time = us_hour >= 4 or (us_hour >= 0 and us_hour < 1)
-
-            if current_phase == 'post_market' or (current_phase == 'closed' and is_us_post_market_time):
-                log.info(f"[DailyReviewScheduler] 美股今天尚未复盘，立即触发")
-                self._trigger_replay(market=market, phase='post_market')
+        log.info("[DailyReviewScheduler] 调度线程结束")
 
     def _check_already_replayed_today(self, market: str = 'a_share', phase: str = 'post_market') -> bool:
         """
@@ -202,7 +211,6 @@ class DailyReviewScheduler:
             last_replay = nb.get(key)
 
             if last_replay == today:
-                log.info(f"[DailyReviewScheduler] {market} 今天({today}) {phase}阶段已完成复盘")
                 return True
             return False
         except Exception:
@@ -227,30 +235,15 @@ class DailyReviewScheduler:
         except Exception as e:
             log.error(f"[DailyReviewScheduler] 标记复盘失败: {e}")
 
-    def _get_next_check_time(self) -> datetime:
-        """获取下次检查时间"""
-        now = datetime.now()
-        today_str = now.strftime('%Y-%m-%d')
-
-        if now.hour < 15 or (now.hour == 15 and now.minute < 30):
-            next_check = datetime.strptime(f"{today_str} 15:30", '%Y-%m-%d %H:%M')
-        else:
-            next_day = now + timedelta(days=1)
-            while next_day.weekday() >= 5:
-                next_day += timedelta(days=1)
-            next_check = datetime.strptime(f"{next_day.strftime('%Y-%m-%d')} 15:30", '%Y-%m-%d %H:%M')
-
-        return next_check
-
     def _schedule_replay(self, market: str = 'a_share', phase: str = 'post_market', delay_seconds: int = 30):
-        """安排延迟复盘任务"""
+        """安排延迟复盘任务（保留用于交易时钟事件触发）"""
         def delayed_replay():
             time.sleep(delay_seconds)
             self._trigger_replay(market=market, phase=phase)
 
         thread = threading.Thread(target=delayed_replay, daemon=True, name=f'delayed-{market}-replay')
         thread.start()
-        log.info(f"[DailyReviewScheduler] 已安排{market} {delay_seconds}秒后执行{phase}复盘")
+        log.debug(f"[DailyReviewScheduler] 已安排{market} {delay_seconds}秒后执行{phase}复盘")
 
     def _trigger_replay(self, market: str = 'a_share', phase: str = 'post_market'):
         """触发复盘任务"""
