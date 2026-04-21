@@ -31,22 +31,14 @@ from typing import Any, Dict, List, Optional
 from deva import NB
 
 from .advanced_river_strategies import (
-    BlockMomentumAnalyzer,
     EarlyTrendDetector,
     StockSelector,
     get_strategy as get_advanced_strategy,
 )
 from .bandit_stock_strategies import (
-    BlockBanditSignalGenerator,
     BlockStockSelector,
     EarlyBullFinder,
     get_selector as get_bandit_strategy,
-)
-from .market_classifier_strategies import (
-    EarlyWarningSystem,
-    MarketRegimeClassifier,
-    VolatilityAnalyzer,
-    get_classifier as get_market_strategy,
 )
 from .model_persist import get_model_manager
 from .llm_controller import get_tuner
@@ -54,13 +46,8 @@ from .llm_controller import get_tuner
 
 STRATEGY_MAP = {
     "early_trend": (EarlyTrendDetector, "radar"),
-    "block_momentum": (BlockMomentumAnalyzer, "radar"),
     "stock_selector": (StockSelector, "radar"),
-    "market_regime": (MarketRegimeClassifier, "radar"),
-    "volatility": (VolatilityAnalyzer, "radar"),
-    "early_warning": (EarlyWarningSystem, "radar"),
     "block_stock_selector": (BlockStockSelector, "bandit"),
-    "block_bandit": (BlockBanditSignalGenerator, "bandit"),
     "early_bull": (EarlyBullFinder, "bandit"),
 }
 

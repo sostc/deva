@@ -83,6 +83,7 @@ class HotspotStrategyBase(ABC):
         market_scope: str = 'CN',  # 'CN' | 'US' | 'ALL'
         min_global_hotspot: float = 0.0,
         min_symbol_weight: float = 1.0,
+        max_symbol_weight: Optional[float] = None,
         max_positions: int = 10,
         cooldown_period: float = 60.0  # 信号冷却期（秒）
     ):
@@ -94,6 +95,7 @@ class HotspotStrategyBase(ABC):
         # 热点阈值
         self.min_global_hotspot = min_global_hotspot
         self.min_symbol_weight = min_symbol_weight
+        self.max_symbol_weight = max_symbol_weight  # 热点太高就跳过
         
         # 执行控制
         self.max_positions = max_positions
@@ -212,16 +214,22 @@ class HotspotStrategyBase(ABC):
         
         return base_interval * factor
     
-    def filter_by_hotspot(self, df: pd.DataFrame, min_weight: Optional[float] = None) -> pd.DataFrame:
+    def filter_by_hotspot(
+        self,
+        df: pd.DataFrame,
+        min_weight: Optional[float] = None,
+        max_weight: Optional[float] = None
+    ) -> pd.DataFrame:
         """
         根据热点权重筛选股票
         
-        这是核心方法，只保留高热点的股票
+        这是核心方法,只保留指定热点范围的股票
         """
         if pd is None or df is None or df.empty:
             return df
         
         min_weight = min_weight or self.min_symbol_weight
+        max_weight = max_weight or self.max_symbol_weight
         
         integration = self._get_hotspot_integration()
         if not integration or not integration.hotspot_system:
@@ -229,6 +237,17 @@ class HotspotStrategyBase(ABC):
         
         # 获取高热点股票
         high_hotspot = integration.get_high_hotspot_symbols(threshold=min_weight)
+
+        if not high_hotspot:
+            return df
+
+        # 过滤权重范围
+        if max_weight is not None:
+            weight_pool = integration.hotspot_system.weight_pool
+            high_hotspot = {
+                s for s in high_hotspot
+                if weight_pool.get_symbol_weight(s) <= max_weight
+            }
 
         if not high_hotspot:
             return df

@@ -126,7 +126,7 @@ def _auto_register(entries: List[Tuple[str, str, str, List[str]]]):
             return factory
 
         register_singleton(sr_name, _make_factory(module_path, class_name), deps=deps)
-        logger.info(f"  ✓ {sr_name}")
+        logger.debug(f"  ✓ {sr_name}")
 
 
 # ============================================================
@@ -141,7 +141,7 @@ def _register_custom_singletons():
         from .dictionary.blocks import get_block_dictionary
         return get_block_dictionary()
     register_singleton('stock_registry', _create_stock_registry, deps=[])
-    logger.info("  ✓ stock_registry")
+    logger.debug("  ✓ stock_registry")
 
     # --- datasource_manager: 需要 _ensure_initialized() ---
     def _create_datasource_manager():
@@ -150,7 +150,7 @@ def _register_custom_singletons():
         mgr._ensure_initialized()
         return mgr
     register_singleton('datasource_manager', _create_datasource_manager, deps=[])
-    logger.info("  ✓ datasource_manager")
+    logger.debug("  ✓ datasource_manager")
     
     # --- strategy_manager: 需要 _ensure_initialized() ---
     def _create_strategy_manager():
@@ -159,7 +159,7 @@ def _register_custom_singletons():
         mgr._ensure_initialized()
         return mgr
     register_singleton('strategy_manager', _create_strategy_manager, deps=[])
-    logger.info("  ✓ strategy_manager")
+    logger.debug("  ✓ strategy_manager")
 
     # --- portfolio_manager: 创建后自动加载持仓配置 ---
     def _create_portfolio_manager():
@@ -168,7 +168,7 @@ def _register_custom_singletons():
         pm = PortfolioManager(virtual_portfolio=vp)
         return pm
     register_singleton('portfolio_manager', _create_portfolio_manager, deps=['virtual_portfolio'])
-    logger.info("  ✓ portfolio_manager")
+    logger.debug("  ✓ portfolio_manager")
 
     # --- attention_integration: 需要 load_config + initialize ---
     def _create_attention_integration():
@@ -182,7 +182,7 @@ def _register_custom_singletons():
         return integration
     register_singleton('attention_integration', _create_attention_integration,
                       deps=['mode_manager', 'stock_registry'])
-    logger.info("  ✓ attention_integration")
+    logger.debug("  ✓ attention_integration")
 
     # --- attention_os: 需要 initialize() ---
     def _create_attention_os():
@@ -193,7 +193,7 @@ def _register_custom_singletons():
         return os_inst
     register_singleton('attention_os', _create_attention_os,
                       deps=['attention_integration'])
-    logger.info("  ✓ attention_os")
+    logger.debug("  ✓ attention_os")
 
     # --- manas_manager: 注入 attention_os 的 kernel ---
     def _create_manas_manager():
@@ -208,14 +208,14 @@ def _register_custom_singletons():
         return manager
     register_singleton('manas_manager', _create_manas_manager,
                       deps=['attention_os'])
-    logger.info("  ✓ manas_manager")
+    logger.debug("  ✓ manas_manager")
     
     # --- query_state: 全局查询状态 ---
     def _create_query_state():
         from .attention.kernel.state import QueryState
         return QueryState()
     register_singleton('query_state', _create_query_state, deps=[])
-    logger.info("  ✓ query_state")
+    logger.debug("  ✓ query_state")
     
     # --- query_state_updater: 事件驱动的QueryState更新器 ---
     def _create_query_state_updater():
@@ -224,7 +224,7 @@ def _register_custom_singletons():
         query_state = SR('query_state')
         return QueryStateUpdater(query_state=query_state)
     register_singleton('query_state_updater', _create_query_state_updater, deps=['query_state'])
-    logger.info("  ✓ query_state_updater")
+    logger.debug("  ✓ query_state_updater")
 
     # --- hotspot_system: 从 attention_integration 取属性 ---
     def _create_hotspot_system():
@@ -232,14 +232,14 @@ def _register_custom_singletons():
         return integration.hotspot_system
     register_singleton('hotspot_system', _create_hotspot_system,
                       deps=['attention_integration'])
-    logger.info("  ✓ hotspot_system")
+    logger.debug("  ✓ hotspot_system")
 
     # --- cognition_bus: 调用 get_event_bus() 单例获取器 ---
     def _create_cognitive_signal_bus():
         from .events import get_event_bus
         return get_event_bus()
     register_singleton('cognition_bus', _create_cognitive_signal_bus, deps=[])
-    logger.info("  ✓ cognition_bus (→ NajaEventBus)")
+    logger.debug("  ✓ cognition_bus (→ NajaEventBus)")
 
     # --- history_tracker: 需要 load_latest_state + start_auto_save ---
     def _create_history_tracker():
@@ -249,7 +249,7 @@ def _register_custom_singletons():
         tracker.start_auto_save(interval_seconds=300)
         return tracker
     register_singleton('history_tracker', _create_history_tracker, deps=[])
-    logger.info("  ✓ history_tracker")
+    logger.debug("  ✓ history_tracker")
 
     # --- trading_clock: 统一交易时钟（支持 A股 + 美股），需要 start() ---
     def _create_trading_clock():
@@ -258,7 +258,7 @@ def _register_custom_singletons():
         tc.start()
         return tc
     register_singleton('trading_clock', _create_trading_clock, deps=[])
-    logger.info("  ✓ trading_clock (统一，支持 A股 + 美股)")
+    logger.debug("  ✓ trading_clock (统一，支持 A股 + 美股)")
 
     # --- realtime_data_fetcher: 需要 SR() + start() ---
     def _create_realtime_data_fetcher():
@@ -269,7 +269,7 @@ def _register_custom_singletons():
         return fetcher
     register_singleton('realtime_data_fetcher', _create_realtime_data_fetcher,
                       deps=['mode_manager', 'attention_integration'])
-    logger.info("  ✓ realtime_data_fetcher")
+    logger.debug("  ✓ realtime_data_fetcher")
 
     # --- wake_sync_manager: 需要注册多个组件 ---
     def _create_wake_sync_manager():
@@ -289,7 +289,7 @@ def _register_custom_singletons():
         mgr.register(AIDailyReportWakeSync())
         return mgr
     register_singleton('wake_sync_manager', _create_wake_sync_manager, deps=[])
-    logger.info("  ✓ wake_sync_manager")
+    logger.debug("  ✓ wake_sync_manager")
 
 
 def ensure_trading_clocks():
