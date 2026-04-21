@@ -151,7 +151,7 @@ async def render_health_dashboard(ctx: dict):
     from datetime import datetime as _dt
     from deva.naja.strategy.result_store import get_result_store
     from deva.naja.market_hotspot.integration import get_market_hotspot_integration
-    from deva.naja.infra.lifecycle.bootstrap import get_last_boot_report
+    from deva.naja.application.container import get_last_boot_report
     
     def _format_ts(ts: float) -> str:
         if not ts:
