@@ -159,7 +159,7 @@ class SingletonRegistry:
 
                 info.instance = instance
                 info.mark_ready()
-                logger.info(f"[SingletonRegistry] 单例就绪: {name}")
+                logger.debug(f"[SingletonRegistry] 单例就绪: {name}")
                 return instance
 
             except Exception as e:

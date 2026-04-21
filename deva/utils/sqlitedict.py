@@ -168,7 +168,7 @@ class SqliteDict(DictClass):
         self.encode = encode
         self.decode = decode
 
-        logger.info("打开SQLite表 %r 在 %s" % (tablename, filename))
+        logger.debug("打开SQLite表 %r 在 %s" % (tablename, filename))
         MAKE_TABLE = 'CREATE TABLE IF NOT EXISTS "%s" (key TEXT PRIMARY KEY, value BLOB)' % self.tablename
         self.conn = self._new_conn()
         self.conn.execute(MAKE_TABLE)
@@ -375,7 +375,7 @@ class SqliteDict(DictClass):
         if self.filename == ':memory:':
             return
 
-        logger.info("删除 %s" % self.filename)
+        logger.debug("删除 %s" % self.filename)
         try:
             if os.path.isfile(self.filename):
                 os.remove(self.filename)
