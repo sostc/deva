@@ -68,28 +68,34 @@ class AdaptiveCycle:
         self._last_manas_update = 0.0
         self._manas_update_interval = 60.0
 
+        self._state_restored = False
+
         self._load_config()
         self._setup_callbacks()
-        
+
         if self._running:
             self._restore_running_state()
     
     def _restore_running_state(self):
         """恢复运行状态，重新追踪已持仓的股票"""
+        if self._state_restored:
+            log.debug("状态已恢复，跳过")
+            return
+
         try:
             positions = self._portfolio.get_all_positions(status="OPEN")
             stock_codes = [pos.stock_code for pos in positions]
             if stock_codes:
                 self._market_observer.track_stocks_batch(stock_codes)
 
-            # 启动各组件（如果之前是运行状态）
-            if self._signal_listener._running:
+            if self._signal_listener._running and not self._signal_listener._thread:
                 self._signal_listener.start()
-            if self._market_observer._running:
+            if self._market_observer._running and not getattr(self._market_observer, '_thread', None):
                 self._market_observer.start()
-            if self._runner._running:
+            if self._runner._running and not self._runner._thread:
                 self._runner.start()
 
+            self._state_restored = True
             log.info(f"✓ Bandit 恢复完成: 持仓({len(positions)})")
         except Exception as e:
             log.error(f"恢复运行状态失败: {e}")

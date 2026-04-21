@@ -29,7 +29,7 @@ def get_us_hotspot_data() -> Dict[str, Any]:
 
         result = integration.hotspot_system.get_us_hotspot_state()
         sw = result.get('symbol_weights', {})
-        print(f"[US-UI-DBG] symbol_weights count={len(sw)}, top5={sorted(sw.items(), key=lambda x: x[1], reverse=True)[:5]}")
+        log.debug(f"[US-UI] symbol_weights count={len(sw)}, top5={sorted(sw.items(), key=lambda x: x[1], reverse=True)[:5]}")
         return result
     except Exception as e:
         log.error(f"[US-UI] 获取美股热点数据失败: {e}")

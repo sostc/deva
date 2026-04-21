@@ -162,10 +162,19 @@ class GlobalMarketAPI:
 
     async def _get_session(self) -> aiohttp.ClientSession:
         if self._session is None or self._session.closed:
-            self._session = aiohttp.ClientSession(
-                connector=aiohttp.TCPConnector(limit=20, limit_per_host=10),
-                timeout=aiohttp.ClientTimeout(total=30),
-            )
+            if self._session is not None and self._session.closed:
+                self._session = None
+            try:
+                self._session = aiohttp.ClientSession(
+                    connector=aiohttp.TCPConnector(limit=20, limit_per_host=10),
+                    timeout=aiohttp.ClientTimeout(total=30),
+                )
+            except RuntimeError as e:
+                if "Event loop is closed" in str(e):
+                    log.warning("[GlobalMarketAPI] 事件循环已关闭，将使用同步 requests fallback")
+                    self._session = None
+                    return None
+                raise
         return self._session
 
     def _parse_futures_line(self, line: str) -> Optional[MarketData]:
@@ -357,9 +366,14 @@ class GlobalMarketAPI:
 
         import asyncio
         last_err = None
+
         for attempt in range(1, max_retries + 1):
             try:
                 session = await self._get_session()
+                if session is None:
+                    last_err = "Session not available (event loop closed)"
+                    break
+
                 codes_str = ",".join(codes_to_fetch)
                 url = SINA_BASE_URL.format(codes=codes_str)
 
@@ -381,6 +395,12 @@ class GlobalMarketAPI:
             except asyncio.TimeoutError:
                 log.warning(f"获取市场数据超时, attempt={attempt}/{max_retries}")
                 last_err = "timeout"
+            except RuntimeError as e:
+                if "Event loop is closed" in str(e):
+                    last_err = "Event loop is closed"
+                    break
+                log.error(f"获取市场数据异常: {type(e).__name__}: {e}, attempt={attempt}/{max_retries}, codes_count={len(codes_to_fetch)}")
+                last_err = str(e)
             except Exception as e:
                 log.error(f"获取市场数据异常: {type(e).__name__}: {e}, attempt={attempt}/{max_retries}, codes_count={len(codes_to_fetch)}")
                 last_err = str(e)

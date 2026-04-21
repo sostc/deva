@@ -20,11 +20,14 @@ radar/openrouter_monitor.py 保留为向后兼容的转发层。
 """
 
 import asyncio
+import logging
 import re
 import httpx
 from typing import Optional, Dict, List, TypedDict
 from datetime import datetime
 from enum import Enum
+
+logger = logging.getLogger(__name__)
 
 TREND_TABLE = "openrouter_trend"
 
@@ -130,7 +133,7 @@ async def fetch_weekly_data() -> Optional[List[Dict]]:
         ]
 
     except Exception as e:
-        print(f"[OpenRouter] 数据获取失败: {e}")
+        logger.debug(f"[OpenRouter] 数据获取失败: {e}")
         return None
 
 
@@ -338,10 +341,10 @@ def save_trend_data(trend_data: Dict, weekly_data: List[Dict]):
         db["latest"] = save_data
         db["trend"] = trend_data
 
-        print(f"[OpenRouter] 数据已保存到 {TREND_TABLE} 表")
+        logger.debug(f"[OpenRouter] 数据已保存到 {TREND_TABLE} 表")
 
     except Exception as e:
-        print(f"[OpenRouter] 数据保存失败: {e}")
+        logger.debug(f"[OpenRouter] 数据保存失败: {e}")
 
 
 def send_to_radar(trend_data: Dict):
@@ -370,10 +373,10 @@ def send_to_radar(trend_data: Dict):
             "strategy_name": "OpenRouter TOKEN 监控"
         })
 
-        print(f"[OpenRouter] 雷达事件已发送")
+        logger.debug("[OpenRouter] 雷达事件已发送")
 
     except Exception as e:
-        print(f"[OpenRouter] 雷达发送失败: {e}")
+        logger.debug(f"[OpenRouter] 雷达发送失败: {e}")
 
 
 async def refresh_openrouter_data() -> Optional[Dict]:
@@ -381,14 +384,14 @@ async def refresh_openrouter_data() -> Optional[Dict]:
 
     供外部调用的主要接口
     """
-    print("[OpenRouter] 开始获取数据...")
+    logger.debug("[OpenRouter] 开始获取数据...")
 
     weekly_data = await fetch_weekly_data()
     if not weekly_data:
-        print("[OpenRouter] 数据获取失败")
+        logger.debug("[OpenRouter] 数据获取失败")
         return None
 
-    print(f"[OpenRouter] 获取到 {len(weekly_data)} 周数据")
+    logger.debug(f"[OpenRouter] 获取到 {len(weekly_data)} 周数据")
 
     trend_data = analyze_trend(weekly_data)
 
@@ -427,7 +430,7 @@ def _update_radar_thread(trend_data: Dict) -> None:
         radar.register_thread(thread)
 
     except Exception as e:
-        print(f"[OpenRouter] 脉络更新失败: {e}")
+        logger.error(f"[OpenRouter] 脉络更新失败: {e}")
 
 
 def get_openrouter_trend() -> Optional[Dict]:
@@ -442,14 +445,14 @@ def get_openrouter_trend() -> Optional[Dict]:
         trend = db.get("trend")
 
         if trend:
-            print(f"[OpenRouter] 从缓存获取趋势数据: {trend.get('message', '')[:50]}...")
+            logger.debug(f"[OpenRouter] 从缓存获取趋势数据: {trend.get('message', '')[:50]}...")
         else:
-            print("[OpenRouter] 缓存中无数据")
+            logger.debug("[OpenRouter] 缓存中无数据")
 
         return trend
 
     except Exception as e:
-        print(f"[OpenRouter] 获取缓存失败: {e}")
+        logger.debug(f"[OpenRouter] 获取缓存失败: {e}")
         return None
 
 
@@ -462,14 +465,14 @@ def get_openrouter_full_data() -> Optional[Dict]:
         data = db.get("latest")
 
         if data:
-            print(f"[OpenRouter] 获取完整数据: {data.get('timestamp', '')}")
+            logger.debug(f"[OpenRouter] 获取完整数据: {data.get('timestamp', '')}")
         else:
-            print("[OpenRouter] 缓存中无数据")
+            logger.debug("[OpenRouter] 缓存中无数据")
 
         return data
 
     except Exception as e:
-        print(f"[OpenRouter] 获取缓存失败: {e}")
+        logger.debug(f"[OpenRouter] 获取缓存失败: {e}")
         return None
 
 
@@ -552,7 +555,7 @@ def get_ai_compute_trend() -> Optional[Dict]:
         }
 
     except Exception as e:
-        print(f"[OpenRouter] get_ai_compute_trend 失败: {e}")
+        logger.debug(f"[OpenRouter] get_ai_compute_trend 失败: {e}")
         return None
 
 
@@ -565,12 +568,12 @@ def scheduled_openrouter_check():
         loop.close()
 
         if result:
-            print(f"[OpenRouter Scheduler] 检查完成: {result.get('message', '')}")
+            logger.debug(f"[OpenRouter Scheduler] 检查完成: {result.get('message', '')}")
         else:
-            print(f"[OpenRouter Scheduler] 检查失败")
+            logger.debug("[OpenRouter Scheduler] 检查失败")
 
     except Exception as e:
-        print(f"[OpenRouter Scheduler] 执行失败: {e}")
+        logger.error(f"[OpenRouter Scheduler] 执行失败: {e}")
 
 
 if __name__ == "__main__":
