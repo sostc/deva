@@ -200,7 +200,7 @@ class BlockHotspotEngine:
                             decay_half_life=300.0
                         )
                         result = self.register_block(config)
-                        log.info(f"[BlockHotspot] 自动注册外部题材: {block_id}, result={result}, current count={len(self._blocks)}")
+                        log.debug(f"[BlockHotspot] 自动注册外部题材: {block_id}, result={result}, current count={len(self._blocks)}")
                         if block_id not in self._blocks:
                             log.warning(f"[BlockHotspot] 注册后仍然不在 _blocks 中!")
                             continue
