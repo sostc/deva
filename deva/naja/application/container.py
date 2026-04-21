@@ -235,7 +235,6 @@ class AppContainer:
             log.info("[AppContainer] [6/8] 启动调度器...")
             supervisor = start_supervisor()
             
-            # 配置并启动注意力系统
             if isinstance(supervisor, MonitoringMixin):
                 supervisor._force_realtime = False
                 supervisor._lab_mode = None
@@ -246,7 +245,7 @@ class AppContainer:
         except Exception as e:
             log.warning(f"[AppContainer] Supervisor 启动失败: {e}", exc_info=True)
         
-        # 启动 DailyReviewScheduler
+        # 启动 DailyReviewScheduler（独立线程，监听交易时钟事件）
         try:
             from ..strategy.daily_review_scheduler import get_daily_review_scheduler
             scheduler = get_daily_review_scheduler()
@@ -254,6 +253,10 @@ class AppContainer:
             log.info("[AppContainer] DailyReviewScheduler 已启动")
         except Exception as e:
             log.warning(f"[AppContainer] DailyReviewScheduler 启动失败: {e}", exc_info=True)
+        
+        # 注册所有 TaskManager 管理的定时任务
+        self._register_ai_daily_report_task()
+        self._register_knowledge_injector_task()
         
         # 启动美林时钟经济数据定时更新
         self._start_merrill_clock_task()
@@ -266,6 +269,109 @@ class AppContainer:
         
         log.info("[AppContainer] 调度器启动完成")
     
+    def _register_ai_daily_report_task(self):
+        """注册 AI 技术简报定时任务"""
+        try:
+            task_mgr = SR('task_manager')
+            existing = task_mgr.get_by_name("ai_daily_report")
+            if not existing:
+                func_code = '''
+import logging
+log = logging.getLogger(__name__)
+
+def execute() -> dict:
+    """AI 技术简报：抓取 arXiv/HF/GitHub/新闻，生成结构化简报并推送"""
+    try:
+        from deva.naja.tasks.ai_daily_report import execute as run_ai_daily_report
+        result = run_ai_daily_report()
+        return result
+    except Exception as e:
+        log.error(f"[AI_Daily_Report] 执行失败: {e}")
+        return {"success": False, "error": str(e)}
+'''
+                result = task_mgr.create(
+                    name="ai_daily_report",
+                    description="AI 技术简报（arXiv/HF/GitHub/新闻，生成结构化报告并推送手机）",
+                    func_code=func_code,
+                    task_type="scheduler",
+                    scheduler_trigger="cron",
+                    cron_expr="0 21 * * *",
+                    tags=["ai", "daily_report", "intelligence"],
+                )
+                if result.get("success"):
+                    task_mgr.start(result.get("id"))
+                    log.info(f"[AppContainer] AI 技术简报任务已创建并启动: {result.get('id')}")
+            else:
+                if not existing.is_running:
+                    task_mgr.start(existing.id)
+                log.info("[AppContainer] AI 技术简报任务已存在")
+        except Exception as e:
+            log.warning(f"[AppContainer] AI 技术简报任务注册失败: {e}")
+
+    def _register_knowledge_injector_task(self):
+        """注册 AI 知识库注入与验证定时任务"""
+        try:
+            task_mgr = SR('task_manager')
+            existing = task_mgr.get_by_name("knowledge_injector")
+            if not existing:
+                func_code = '''
+import logging
+log = logging.getLogger(__name__)
+
+def execute() -> dict:
+    """知识库注入与验证：从 AI 日报新闻中提取因果知识并注入"""
+    try:
+        from deva.naja.tasks.ai_knowledge_injector import AIKnowledgeInjector
+        from deva.naja.tasks.ai_daily_report import (
+            fetch_ai_news,
+            fetch_ai_investment_news,
+        )
+        
+        injector = AIKnowledgeInjector()
+        
+        news_list = fetch_ai_news()
+        invest_news = fetch_ai_investment_news()
+        
+        all_news = (news_list or []) + (invest_news or [])
+        if not all_news:
+            return {"success": True, "message": "无新闻数据，跳过"}
+        
+        evaluation = injector.extract_and_evaluate_knowledge(all_news)
+        counts = injector.inject_knowledge(evaluation)
+        
+        notification = injector.generate_notification_text(evaluation)
+        if notification:
+            log.info(f"[KnowledgeInjector] {notification}")
+        
+        return {
+            "success": True,
+            "new": counts.get("new", 0),
+            "validating": counts.get("validating", 0),
+            "qualified": counts.get("qualified", 0),
+        }
+    except Exception as e:
+        log.error(f"[KnowledgeInjector] 执行失败: {e}")
+        return {"success": False, "error": str(e)}
+'''
+                result = task_mgr.create(
+                    name="knowledge_injector",
+                    description="AI 知识库注入与验证（定期评估新闻中的因果知识，清理过期知识）",
+                    func_code=func_code,
+                    task_type="scheduler",
+                    scheduler_trigger="cron",
+                    cron_expr="0 22 * * *",
+                    tags=["knowledge", "injection", "daily"],
+                )
+                if result.get("success"):
+                    task_mgr.start(result.get("id"))
+                    log.info(f"[AppContainer] 知识库注入任务已创建并启动: {result.get('id')}")
+            else:
+                if not existing.is_running:
+                    task_mgr.start(existing.id)
+                log.info("[AppContainer] 知识库注入任务已存在")
+        except Exception as e:
+            log.warning(f"[AppContainer] 知识库注入任务注册失败: {e}")
+
     def _start_merrill_clock_task(self):
         """启动美林时钟定时任务"""
         try:
