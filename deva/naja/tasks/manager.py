@@ -365,6 +365,10 @@ class TaskManager:
         failed_count = 0
         results = []
 
+        # 先检查并补执行错过的 cron 任务
+        catchup_results = self._catchup_missed_cron_tasks()
+        results.extend(catchup_results.get("results", []))
+
         with self._items_lock:
             entries_to_check = list(self._items.values())
 
@@ -450,6 +454,78 @@ class TaskManager:
                 }
             )
         return info
+
+    def _catchup_missed_cron_tasks(self) -> dict:
+        """检查并补执行所有错过的 cron 任务
+
+        遍历所有 cron 类型的任务，检查上次执行时间。
+        如果错过了执行时间且未执行，则立即补执行一次。
+        """
+        self._ensure_initialized()
+        results = []
+        catchup_count = 0
+        skip_count = 0
+
+        try:
+            from apscheduler.triggers.cron import CronTrigger
+            import pytz
+        except Exception:
+            return {"success": True, "catchup_count": 0, "skip_count": 0, "results": [], "reason": "apscheduler 未安装"}
+
+        tz = pytz.timezone("Asia/Shanghai")
+        now = datetime.now(tz)
+
+        with self._items_lock:
+            entries = list(self._items.values())
+
+        for entry in entries:
+            try:
+                mode = getattr(entry._metadata, "execution_mode", "")
+                trigger = getattr(entry._metadata, "scheduler_trigger", "interval")
+                cron_expr = getattr(entry._metadata, "cron_expr", "")
+                last_run = entry._state.last_run_time
+
+                if mode != "scheduler" or trigger != "cron" or not cron_expr:
+                    continue
+
+                ct = CronTrigger.from_crontab(cron_expr, timezone=tz)
+                prev_fire = ct.get_next_fire_time(None, now)
+                if not prev_fire:
+                    continue
+
+                if last_run <= 0:
+                    self._log("INFO", "补执行: 从未执行过", id=entry.id, name=entry.name, cron=cron_expr)
+                    entry.run_once()
+                    catchup_count += 1
+                    results.append({"entry_id": entry.id, "entry_name": entry.name, "success": True, "catchup": True, "reason": "从未执行"})
+                    continue
+
+                last_run_dt = datetime.fromtimestamp(last_run, tz=tz)
+                missed = False
+                check_dt = last_run_dt + timedelta(minutes=1)
+
+                for _ in range(1000):
+                    next_fire = ct.get_next_fire_time(None, check_dt)
+                    if not next_fire or next_fire > now:
+                        break
+                    if next_fire > last_run_dt:
+                        missed = True
+                        break
+                    check_dt = next_fire + timedelta(minutes=1)
+
+                if missed:
+                    self._log("INFO", "补执行: 错过执行时间", id=entry.id, name=entry.name, last_run=last_run_dt.strftime("%Y-%m-%d %H:%M"))
+                    entry.run_once()
+                    catchup_count += 1
+                    results.append({"entry_id": entry.id, "entry_name": entry.name, "success": True, "catchup": True})
+                else:
+                    skip_count += 1
+
+            except Exception as e:
+                skip_count += 1
+                results.append({"entry_id": entry.id, "entry_name": entry.name, "success": False, "error": str(e)})
+
+        return {"success": True, "catchup_count": catchup_count, "skip_count": skip_count, "results": results}
 
     def get_stats(self) -> dict:
         self._ensure_initialized()
