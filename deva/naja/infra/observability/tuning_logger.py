@@ -15,6 +15,8 @@ import sys
 import re
 from typing import Set, List, Optional
 
+from deva.naja.infra.log.colorful_logger import ColorfulFormatter, AnsiColors, is_color_enabled
+
 
 class TuningModeFilter(logging.Filter):
     """
@@ -156,60 +158,48 @@ class TuningModeFilter(logging.Filter):
 
 
 class TuningModeFormatter(logging.Formatter):
-    """调参模式专用格式化器"""
-
-    COLORS = {
-        'reset': '\033[0m',
-        'red': '\033[91m',
-        'green': '\033[92m',
-        'yellow': '\033[93m',
-        'blue': '\033[94m',
-        'magenta': '\033[95m',
-        'cyan': '\033[96m',
-        'white': '\033[97m',
-        'bold': '\033[1m',
-    }
+    """调参模式专用格式化器（复用 AnsiColors）"""
 
     def __init__(self, use_color: bool = True):
         super().__init__()
-        self.use_color = use_color and sys.stdout.isatty()
+        self.use_color = use_color and is_color_enabled()
 
     def format(self, record: logging.LogRecord) -> str:
         message = record.getMessage()
 
         if 'BUY' in message or '买入' in message:
-            color = self.COLORS['green']
+            color = AnsiColors.GREEN
             prefix = '🚀'
         elif 'SELL' in message or '卖出' in message:
-            color = self.COLORS['red']
+            color = AnsiColors.RED
             prefix = '💰'
         elif 'ERROR' in message or '❌' in message:
-            color = self.COLORS['red']
+            color = AnsiColors.RED
             prefix = '❌'
         elif 'WARNING' in message or '⚠️' in message:
-            color = self.COLORS['yellow']
+            color = AnsiColors.YELLOW
             prefix = '⚠️'
         elif 'SignalTuner' in message or '调参' in message:
-            color = self.COLORS['cyan']
+            color = AnsiColors.CYAN
             prefix = '🎛️'
         elif 'AttentionTracker' in message or '跟踪' in message:
-            color = self.COLORS['blue']
+            color = AnsiColors.BLUE
             prefix = '👁️'
         elif 'Insight' in message or '认知' in message:
-            color = self.COLORS['magenta']
+            color = AnsiColors.MAGENTA
             prefix = '🧠'
         elif '调整' in message or 'threshold' in message.lower():
-            color = self.COLORS['yellow']
+            color = AnsiColors.YELLOW
             prefix = '⚙️'
         elif '胜率' in message or '收益' in message or 'return' in message.lower():
-            color = self.COLORS['green']
+            color = AnsiColors.GREEN
             prefix = '📊'
         else:
-            color = self.COLORS['reset']
+            color = AnsiColors.RESET
             prefix = '  '
 
         if self.use_color:
-            return f"{color}{prefix} {message}{self.COLORS['reset']}"
+            return f"{color}{prefix} {message}{AnsiColors.RESET}"
         else:
             return f"{prefix} {message}"
 

@@ -8,19 +8,17 @@ log = logging.getLogger(__name__)
 def render_strategy_allocator_panel() -> str:
     """渲染策略分配器面板
 
-    数据源: StrategyAllocator (非 SR 注册，通过 strategy_manager 获取)
+    数据源: StrategyAllocator (在 MarketContext 中创建，通过 hotspot_system 访问)
     key method: get_allocation_summary()
     返回字段: active_count, by_scope, decision (alpha/temperature/courage)
     """
     try:
-        from deva.naja.market_hotspot.strategies import get_strategy_manager
-        manager = get_strategy_manager()
-        if not manager:
-            return _render_empty("策略管理器未初始化")
+        from deva.naja.register import SR
 
-        allocator = getattr(manager, 'allocator', None)
+        hotspot_system = SR('hotspot_system')
+        allocator = getattr(hotspot_system, 'strategy_allocator', None)
         if not allocator:
-            return _render_empty("策略分配器未启用")
+            return _render_empty("策略分配器未初始化")
 
         summary = allocator.get_allocation_summary()
         if not summary:

@@ -9,11 +9,17 @@
     python -m deva.naja --cognition-debug                 # 完整认知调试模式
     python -m deva.naja --tune --lab-table quant_snapshot_5min_window   # 调参模式
     python -m deva.naja --tune --tune-method random --tune-samples 50   # 随机搜索调参
+    python -m deva.naja --no-color                         # 禁用彩色日志
 """
 
 import argparse
 import logging
 import os
+import sys
+
+# 在导入 deva 之前设置环境变量，这样 deva.__init__.py 会自动使用彩色日志
+if '--no-color' not in sys.argv:
+    os.environ['NAJA_COLORFUL_LOG'] = 'true'
 
 try:
     from .. import __version__
@@ -81,18 +87,22 @@ def main():
                         help="随机搜索模式下的最大采样数，默认 100")
     parser.add_argument("--tune-export", type=str, default=None,
                         help="导出调参结果到指定文件路径")
+    parser.add_argument("--no-color", action="store_true",
+                        help="禁用彩色日志输出")
 
     args = parser.parse_args()
 
-    # 设置日志级别
+    use_color = not args.no_color
+
     if args.tune:
         from .infra.observability.tuning_logger import setup_tuning_mode_logger, print_tuning_banner
         setup_tuning_mode_logger(level=logging.INFO)
         print_tuning_banner()
     else:
-        logging.basicConfig(
+        from .infra.log.colorful_logger import setup_colorful_logger
+        setup_colorful_logger(
             level=getattr(logging, args.log_level.upper()),
-            format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+            force_color=use_color,
         )
 
     # 如果请求了注意力系统报告

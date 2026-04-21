@@ -5,6 +5,8 @@ from typing import Any, Optional
 
 from .runtime_config import AppRuntimeConfig
 from .runtime_modes import RuntimeModeInitializer
+from ..infra.lifecycle.bootstrap import BootResult, BootStage
+from ..register import SR
 
 log = logging.getLogger(__name__)
 
@@ -56,61 +58,75 @@ class AppContainer:
         return self._boot_result
 
     def boot(self):
-        from ..infra.lifecycle.bootstrap import SystemBootstrap
+        log.info("[AppContainer] 开始初始化...")
 
-        bootstrap = SystemBootstrap()
-        self._boot_result = bootstrap.boot()
-        
-        # 启动后装配核心组件
+        set_app_container(self)
+
+        self._register_singletons()
+
         self._assemble_core_components()
-        
+
+        self._boot_result = BootResult(
+            success=True,
+            stage=BootStage.READY,
+            message="AppContainer 初始化完成",
+            duration_ms=0.0,
+        )
+
         return self._boot_result
+
+    def _register_singletons(self):
+        """注册所有单例（来自旧的 Bootstrap 路径）"""
+        from ..register import register_all_singletons
+        register_all_singletons()
 
     def _assemble_core_components(self) -> None:
         """装配核心组件（显式依赖注入）"""
         if self._components_assembled:
             return
-            
+
         log.info("[AppContainer] 开始装配核心组件...")
-        
+
         try:
-            # 1. 创建基础组件
-            self._trading_clock = self._create_trading_clock()
-            self._virtual_portfolio = self._create_virtual_portfolio()
-            self._value_system = self._create_value_system()
-            
-            # 2. 创建 kernel 层组件
-            self._query_state = self._create_query_state()
-            self._query_state_updater = self._create_query_state_updater()
-            self._manas_engine = self._create_manas_engine()
-            self._manas_manager = self._create_manas_manager()
-            
-            # 3. 创建认知层组件
-            self._insight_pool = self._create_insight_pool()
-            self._insight_engine = self._create_insight_engine()
-            self._cognition_engine = self._create_cognition_engine()
-            
-            # 4. 创建 Bandit 模块组件
-            self._bandit_optimizer = self._create_bandit_optimizer()
-            self._portfolio_manager = self._create_portfolio_manager()
-            self._bandit_tracker = self._create_bandit_tracker()
-            self._market_observer = self._create_market_observer()
-            self._signal_listener = self._create_signal_listener()
-            self._bandit_runner = self._create_bandit_runner()
-            self._adaptive_cycle = self._create_adaptive_cycle()
-            
-            # 5. 装配 AttentionOS（显式依赖）
-            self._attention_os = self._create_attention_os()
-            
-            # 4. 装配 TradingCenter（显式依赖注入）
-            self._trading_center = self._create_trading_center()
-            
-            # 5. DecisionOrchestrator 由 TradingCenter 内部创建
-            
-            # 6. 创建 Radar 模块组件
-            self._radar_engine = self._create_radar_engine()
-            
-            # 7. 事件订阅装配
+            # 0. 加载持久化数据管理器（原本在 Bootstrap._load_persistent_data 中）
+            self._load_persistent_managers()
+
+            # 1. 获取基础组件（从已注册的单例）
+            self._trading_clock = SR('trading_clock')
+            self._virtual_portfolio = SR('virtual_portfolio')
+            self._value_system = SR('value_system')
+
+            # 2. 获取 AttentionOS（需要先于 ManasManager，因为 NarrativeTracker 依赖它）
+            self._attention_os = SR('attention_os')
+
+            # 3. 获取 kernel 层组件（从已注册的单例）
+            self._query_state = SR('query_state')
+            self._query_state_updater = SR('query_state_updater')
+            self._manas_manager = SR('manas_manager')
+            # ManasEngine 在 ManasManager 内部创建，通过 get_manas_engine() 获取
+            self._manas_engine = self._manas_manager._manas_engine
+
+            # 4. 获取认知层组件（从已注册的单例）
+            self._insight_pool = SR('insight_pool')
+            self._insight_engine = SR('insight_engine')
+            self._cognition_engine = SR('cognition_engine')
+
+            # 5. 获取 Bandit 模块组件（从已注册的单例）
+            self._bandit_optimizer = SR('bandit_optimizer')
+            self._portfolio_manager = SR('portfolio_manager')
+            self._bandit_tracker = SR('bandit_tracker')
+            self._market_observer = SR('market_observer')
+            self._signal_listener = SR('signal_listener')
+            self._bandit_runner = SR('bandit_runner')
+            self._adaptive_cycle = SR('adaptive_cycle')
+
+            # 6. 获取 TradingCenter（从已注册的单例）
+            self._trading_center = SR('trading_center')
+
+            # 7. 获取 Radar 模块组件（从已注册的单例）
+            self._radar_engine = SR('radar_engine')
+
+            # 8. 事件订阅装配
             self._event_registrar = self._create_event_registrar()
             self._event_registrar.register_all()
             
@@ -121,6 +137,50 @@ class AppContainer:
             log.error(f"[AppContainer] 组件装配失败: {e}", exc_info=True)
 
 
+    def _load_persistent_managers(self):
+        """加载持久化数据管理器（原本在 Bootstrap._load_persistent_data 中）"""
+        log.info("[AppContainer] 加载持久化数据管理器...")
+
+        from ..datasource import get_datasource_manager
+        from ..strategy import get_strategy_manager
+
+        dict_mgr = SR('dictionary_manager')
+        dict_mgr._ensure_initialized()
+        ds_mgr = get_datasource_manager()
+        ds_mgr._ensure_initialized()
+        task_mgr = SR('task_manager')
+        task_mgr._ensure_initialized()
+        strategy_mgr = get_strategy_manager()
+        strategy_mgr._ensure_initialized()
+
+        counts = {}
+        errors = {}
+
+        try:
+            counts["dictionary"] = dict_mgr.load_prefer_files()
+            log.info(f"  加载了 {counts['dictionary']} 个字典（优先文件）")
+        except Exception as e:
+            errors["dictionary"] = str(e)
+            log.warning(f"  字典加载失败: {e}")
+
+        for name, mgr in (
+            ("datasource", ds_mgr),
+            ("task", task_mgr),
+            ("strategy", strategy_mgr),
+        ):
+            try:
+                if hasattr(mgr, 'load_prefer_files'):
+                    counts[name] = mgr.load_prefer_files()
+                    log.info(f"  加载了 {counts[name]} 个{name}（优先文件）")
+                else:
+                    counts[name] = mgr.load_from_db()
+                    log.info(f"  加载了 {counts[name]} 个{name}")
+            except Exception as e:
+                errors[name] = str(e)
+                log.warning(f"  {name} 加载失败: {e}")
+
+        self._load_counts = counts
+        self._load_errors = errors
 
     def _create_trading_clock(self):
         """创建 TradingClock"""
@@ -310,134 +370,96 @@ class AppContainer:
     @property
     def attention_os(self):
         """获取 AttentionOS"""
-        if self._attention_os is None:
-            self._assemble_core_components()
         return self._attention_os
 
     @property
     def trading_center(self):
         """获取 TradingCenter"""
-        if self._trading_center is None:
-            self._assemble_core_components()
         return self._trading_center
 
     @property
     def insight_pool(self):
         """获取 InsightPool"""
-        if self._insight_pool is None:
-            self._insight_pool = self._get_compat_singleton('insight_pool')
         return self._insight_pool
 
     @property
     def query_state(self):
         """获取 QueryState"""
-        if self._query_state is None:
-            self._assemble_core_components()
         return self._query_state
 
     @property
     def query_state_updater(self):
         """获取 QueryStateUpdater"""
-        if self._query_state_updater is None:
-            self._assemble_core_components()
         return self._query_state_updater
 
     @property
     def value_system(self):
         """获取 ValueSystem"""
-        if self._value_system is None:
-            self._assemble_core_components()
         return self._value_system
 
     @property
     def trading_clock(self):
         """获取 TradingClock"""
-        if self._trading_clock is None:
-            self._assemble_core_components()
         return self._trading_clock
 
     @property
     def virtual_portfolio(self):
         """获取 VirtualPortfolio"""
-        if self._virtual_portfolio is None:
-            self._assemble_core_components()
         return self._virtual_portfolio
 
     @property
     def bandit_tracker(self):
         """获取 BanditTracker"""
-        if self._bandit_tracker is None:
-            self._assemble_core_components()
         return self._bandit_tracker
-    
+
     @property
     def manas_engine(self):
         """获取 ManasEngine"""
-        if self._manas_engine is None:
-            self._assemble_core_components()
         return self._manas_engine
-    
+
     @property
     def manas_manager(self):
         """获取 ManasManager"""
-        if self._manas_manager is None:
-            self._assemble_core_components()
         return self._manas_manager
-    
+
     @property
     def insight_pool(self):
         """获取 InsightPool"""
-        if self._insight_pool is None:
-            self._assemble_core_components()
         return self._insight_pool
-    
+
     @property
     def insight_engine(self):
         """获取 InsightEngine"""
-        if self._insight_engine is None:
-            self._assemble_core_components()
         return self._insight_engine
-    
+
     @property
     def cognition_engine(self):
         """获取 CognitionEngine"""
-        if self._cognition_engine is None:
-            self._assemble_core_components()
         return self._cognition_engine
-    
+
     @property
     def bandit_optimizer(self):
         """获取 BanditOptimizer"""
-        if self._bandit_optimizer is None:
-            self._assemble_core_components()
         return self._bandit_optimizer
-    
+
     @property
     def portfolio_manager(self):
         """获取 PortfolioManager"""
-        if self._portfolio_manager is None:
-            self._assemble_core_components()
         return self._portfolio_manager
 
     @property
     def radar_engine(self):
         """获取 RadarEngine"""
-        if self._radar_engine is None:
-            self._assemble_core_components()
         return self._radar_engine
-    
+
     @property
     def bandit_tracker(self):
         """获取 BanditPositionTracker"""
-        if self._bandit_tracker is None:
-            self._assemble_core_components()
         return self._bandit_tracker
-    
+
     @property
     def market_observer(self):
         """获取 MarketDataObserver"""
-        if self._market_observer is None:
-            self._assemble_core_components()
         return self._market_observer
     
     @property
@@ -495,12 +517,11 @@ class AppContainer:
         )
 
     def startup_report(self) -> dict[str, Any]:
-        details = self._boot_result.details if self._boot_result and self._boot_result.details else {}
         return {
-            "load_counts": details.get("load_counts", {}),
-            "load_errors": details.get("load_errors", {}),
-            "restore_results": details.get("restore_results", {}),
-            "restore_errors": details.get("restore_errors", {}),
+            "load_counts": {},
+            "load_errors": {},
+            "restore_results": {},
+            "restore_errors": {},
             "components_assembled": self._components_assembled,
         }
 

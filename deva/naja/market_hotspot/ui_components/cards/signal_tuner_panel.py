@@ -63,10 +63,11 @@ def render_signal_tuner_panel() -> str:
         # 最近调整
         adj_items = ""
         for adj in adjustments[:3]:
-            param_name = adj.get('param', '?')
+            param_name = adj.get('param_name', adj.get('param', '?'))
+            strategy_id = adj.get('strategy_id', '')
             direction = adj.get('direction', '')
-            arrow = "↑" if direction == 'up' else "↓"
-            adj_color = "#16a34a" if direction == 'up' else "#dc2626"
+            arrow = "↑" if direction == 'up' else "↓" if direction == 'down' else "•"
+            adj_color = "#16a34a" if direction == 'up' else "#dc2626" if direction == 'down' else "#64748b"
             reason = adj.get('reason', '')[:20]
             adj_items += f"""
             <div style="display: flex; align-items: center; gap: 6px; padding: 3px 0; font-size: 9px;">

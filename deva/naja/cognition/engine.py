@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+import logging
 import threading
 import time
 from typing import Any, Dict, List, Optional
@@ -14,6 +15,8 @@ from typing import Any, Dict, List, Optional
 from .core import NewsMindStrategy
 from ..config import get_memory_config
 from deva.naja.register import SR
+
+logger = logging.getLogger(__name__)
 
 
 class CognitionEngine:
@@ -120,11 +123,11 @@ class CognitionEngine:
         try:
             result = self.load_state()
             if result.get("success") and result.get("loaded"):
-                print("[CognitionEngine] 已加载认知状态")
+                logger.debug("[CognitionEngine] 已加载认知状态")
             elif result.get("success") and not result.get("loaded"):
-                print("[CognitionEngine] 未发现已保存的认知状态")
+                logger.debug("[CognitionEngine] 未发现已保存的认知状态")
         except Exception as e:
-            print(f"[CognitionEngine] 自动加载失败: {e}")
+            logger.debug(f"[CognitionEngine] 自动加载失败: {e}")
 
     def _start_auto_save(self) -> None:
         if self._auto_save_thread is not None and self._auto_save_thread.is_alive():
@@ -136,7 +139,7 @@ class CognitionEngine:
             name="cognition_auto_save",
         )
         self._auto_save_thread.start()
-        print(f"[CognitionEngine] 自动保存已启动，间隔 {self._auto_save_interval} 秒")
+        logger.debug(f"[CognitionEngine] 自动保存已启动，间隔 {self._auto_save_interval} 秒")
 
     def _auto_save_loop(self) -> None:
         while not self._stop_auto_save.is_set():
@@ -146,15 +149,15 @@ class CognitionEngine:
             try:
                 result = self.save_state()
                 if not result.get("success"):
-                    print(f"[CognitionEngine] 自动保存失败: {result.get('error')}")
+                    logger.debug(f"[CognitionEngine] 自动保存失败: {result.get('error')}")
             except Exception as e:
-                print(f"[CognitionEngine] 自动保存异常: {e}")
+                logger.debug(f"[CognitionEngine] 自动保存异常: {e}")
 
     def stop_auto_save(self) -> None:
         if self._auto_save_thread is not None:
             self._stop_auto_save.set()
             self._auto_save_thread.join(timeout=5)
-            print("[CognitionEngine] 自动保存已停止")
+            logger.debug("[CognitionEngine] 自动保存已停止")
 
     def get_liquidity_stats(self) -> Dict[str, Any]:
         """获取流动性预测统计（公共API，供UI层使用）"""

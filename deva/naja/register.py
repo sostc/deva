@@ -75,7 +75,7 @@ SIMPLE_SINGLETONS: List[Tuple[str, str, str, List[str]]] = [
     ("adaptive_cycle",     ".bandit.adaptive_cycle",        "AdaptiveCycle",           ["market_data_bus"]),
     ("bandit_runner",      ".bandit.runner",                "BanditAutoRunner",        ["market_data_bus"]),
     ("signal_listener",    ".bandit.signal_listener",       "SignalListener",          []),
-    ("bandit_tracker",     ".bandit.tracker",               "BanditPositionTracker",   []),
+    ("bandit_tracker",     ".bandit.tracker",               "BanditPositionTracker",   ["bandit_optimizer"]),
 
     # ── 认知 ──
     ("cross_signal_analyzer",  ".cognition.analysis.cross_signal_analyzer",  "CrossSignalAnalyzer",  ["attention_integration"]),
@@ -164,7 +164,8 @@ def _register_custom_singletons():
     # --- portfolio_manager: 创建后自动加载持仓配置 ---
     def _create_portfolio_manager():
         from .bandit.portfolio_manager import PortfolioManager
-        pm = PortfolioManager()
+        vp = SR('virtual_portfolio')
+        pm = PortfolioManager(virtual_portfolio=vp)
         return pm
     register_singleton('portfolio_manager', _create_portfolio_manager, deps=['virtual_portfolio'])
     logger.info("  ✓ portfolio_manager")
@@ -219,7 +220,9 @@ def _register_custom_singletons():
     # --- query_state_updater: 事件驱动的QueryState更新器 ---
     def _create_query_state_updater():
         from .attention.kernel.state_updater import QueryStateUpdater
-        return QueryStateUpdater()
+        from .attention.kernel.state import QueryState
+        query_state = SR('query_state')
+        return QueryStateUpdater(query_state=query_state)
     register_singleton('query_state_updater', _create_query_state_updater, deps=['query_state'])
     logger.info("  ✓ query_state_updater")
 

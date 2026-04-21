@@ -16,8 +16,8 @@ def get_transformer_enhancement_data() -> Dict[str, Any]:
     try:
         asys = SR('hotspot_system')
         if asys:
-            # 尝试获取全局热点引擎的 Transformer 增强数据
-            global_engine = getattr(asys, 'global_hotspot_engine', None)
+            # 尝试从 global_hotspot (GlobalHotspotEngine 实例) 获取 Transformer 增强数据
+            global_engine = getattr(asys, 'global_hotspot', None)
             if global_engine and hasattr(global_engine, 'transformer_enhancer'):
                 enhancer = global_engine.transformer_enhancer
                 history = enhancer.get_history()
@@ -28,6 +28,20 @@ def get_transformer_enhancement_data() -> Dict[str, Any]:
                         'history_length': len(history),
                         'enhanced': True
                     }
+
+            # 备用：从 block_engine 获取
+            block_engine = getattr(asys, 'block_hotspot', None)
+            if block_engine and hasattr(block_engine, 'transformer_enhancer'):
+                enhancer = block_engine.transformer_enhancer
+                history = enhancer.get_history()
+                if history:
+                    last_enhancement = history[-1]
+                    return {
+                        'predictions': last_enhancement.get('blocks', []),
+                        'history_length': len(history),
+                        'enhanced': True
+                    }
+
         return {'enhanced': False}
     except Exception as e:
         log.error(f"获取 Transformer 增强数据失败: {e}")

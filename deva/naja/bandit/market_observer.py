@@ -75,7 +75,7 @@ class MarketDataObserver:
     def _load_config(self):
         """加载配置"""
         import os
-        log.info(f"[MarketObserver] _load_config 被调用")
+        log.debug(f"[MarketObserver] _load_config 被调用")
         try:
             config = self._db.get("observer_config")
             if config:
@@ -97,13 +97,13 @@ class MarketDataObserver:
         """从 NB 数据库加载自选股"""
         import json
         import os
-        log.info(f"[MarketObserver] _load_watchlist_stocks 被调用")
+        log.debug(f"[MarketObserver] _load_watchlist_stocks 被调用")
         try:
             from deva.naja.tables import get_table_data
             watchlist_data = get_table_data("naja_watchlist")
-            log.info(f"[MarketObserver] 自选股数据: type={type(watchlist_data)}")
+            log.debug(f"[MarketObserver] 自选股数据: type={type(watchlist_data)}")
             if watchlist_data is None:
-                log.info("[MarketObserver] 自选股为空，使用默认股票池")
+                log.debug("[MarketObserver] 自选股为空，使用默认股票池")
                 return
             
             all_codes = []
@@ -122,23 +122,23 @@ class MarketDataObserver:
                             stocks = value.get("stocks", [])
                             codes = [s["code"] for s in stocks if isinstance(s, dict) and "code" in s]
                             all_codes.extend(codes)
-                            log.info(f"[MarketObserver] 从 ai_stocks 加载了 {len(codes)} 只股票")
+                            log.debug(f"[MarketObserver] 从 ai_stocks 加载了 {len(codes)} 只股票")
                     
                     elif key == "stocks":
                         # stocks 格式: [{'code': '...', ...}, ...]
                         if isinstance(value, list):
                             codes = [s["code"] for s in value if isinstance(s, dict) and "code" in s]
                             all_codes.extend(codes)
-                            log.info(f"[MarketObserver] 从 stocks 加载了 {len(codes)} 只股票")
+                            log.debug(f"[MarketObserver] 从 stocks 加载了 {len(codes)} 只股票")
             
             # 去重
             all_codes = list(set(all_codes))
             
             if all_codes:
                 self._tracked_stocks = set(all_codes)
-                log.info(f"[MarketObserver] 从自选股共加载了 {len(all_codes)} 只股票: {all_codes}")
+                log.debug(f"[MarketObserver] 从自选股共加载了 {len(all_codes)} 只股票: {all_codes}")
             else:
-                log.info("[MarketObserver] 自选股为空，使用默认股票池")
+                log.debug("[MarketObserver] 自选股为空，使用默认股票池")
         except Exception as e:
             log.warning(f"[MarketObserver] 加载自选股失败: {e}")
             import traceback
@@ -259,25 +259,25 @@ class MarketDataObserver:
         3. Lab 模式：使用 ReplayScheduler 的数据推送
         """
         import os
-        log.info(f"[MarketObserver] _reconnect_datasource called: NAJA_LAB_MODE={os.environ.get('NAJA_LAB_MODE')}")
+        log.debug(f"[MarketObserver] _reconnect_datasource called: NAJA_LAB_MODE={os.environ.get('NAJA_LAB_MODE')}")
 
         # Lab 模式：使用 ReplayScheduler
         if os.environ.get('NAJA_LAB_MODE'):
             try:
                 scheduler = SR('replay_scheduler')
                 if scheduler is None:
-                    log.info("[MarketObserver] Lab 模式：scheduler is None")
+                    log.debug("[MarketObserver] Lab 模式：scheduler is None")
                     return False
                 elif not hasattr(scheduler, '_running'):
-                    log.info("[MarketObserver] Lab 模式：scheduler 没有 _running 属性")
+                    log.debug("[MarketObserver] Lab 模式：scheduler 没有 _running 属性")
                     return False
                 elif not scheduler._running:
-                    log.info(f"[MarketObserver] Lab 模式：scheduler._running={scheduler._running}")
+                    log.debug(f"[MarketObserver] Lab 模式：scheduler._running={scheduler._running}")
                     return False
                 else:
                     self._current_datasource = scheduler
                     self._current_datasource_id = "lab_replay"
-                    log.info("[MarketObserver] Lab 模式：使用 ReplayScheduler 成功")
+                    log.debug("[MarketObserver] Lab 模式：使用 ReplayScheduler 成功")
                     return True
             except Exception as e:
                 log.warning(f"[MarketObserver] 无法获取 ReplayScheduler: {e}")
@@ -315,7 +315,7 @@ class MarketDataObserver:
 
     def _disconnect_datasource(self):
         """断开数据源连接"""
-        log.info("[MarketObserver] _disconnect_datasource ENTER")
+        log.debug("[MarketObserver] _disconnect_datasource ENTER")
         # 取消订阅流
         if self._stream_subscription:
             try:
@@ -323,7 +323,7 @@ class MarketDataObserver:
             except Exception:
                 pass
             self._stream_subscription = None
-            log.info("[MarketObserver] _disconnect_datasource: stream destroyed")
+            log.debug("[MarketObserver] _disconnect_datasource: stream destroyed")
 
         self._current_datasource = None
         self._current_datasource_id = None
@@ -406,22 +406,22 @@ class MarketDataObserver:
 
     def _start_fetch_loop(self):
         """启动数据获取轮询线程"""
-        log.info(f"[MarketObserver] _start_fetch_loop called, running={self._running}")
+        log.debug(f"[MarketObserver] _start_fetch_loop called, running={self._running}")
         if self._fetch_thread and self._fetch_thread.is_alive():
-            log.info("[MarketObserver] Fetch thread already alive")
+            log.debug("[MarketObserver] Fetch thread already alive")
             return
 
         self._fetch_stop_event.clear()
         self._fetch_thread = threading.Thread(target=self._fetch_loop, daemon=True)
         self._fetch_thread.start()
-        log.info("[MarketObserver] 数据获取轮询已启动")
+        log.debug("[MarketObserver] 数据获取轮询已启动")
 
     def _stop_fetch_loop(self):
         """停止数据获取轮询线程"""
         self._fetch_stop_event.set()
         if self._fetch_thread:
             self._fetch_thread.join(timeout=2)
-        log.info("[MarketObserver] 数据获取轮询已停止")
+        log.debug("[MarketObserver] 数据获取轮询已停止")
 
     def _fetch_loop(self):
         """数据获取轮询循环
@@ -435,14 +435,14 @@ class MarketDataObserver:
         - 当数据源恢复时，自动退出低功耗模式，恢复正常间隔
         """
         import os
-        log.info(f"[MarketObserver] _fetch_loop started: NAJA_LAB_MODE={os.environ.get('NAJA_LAB_MODE')}, _current_phase={self._current_phase}")
+        log.debug(f"[MarketObserver] _fetch_loop started: NAJA_LAB_MODE={os.environ.get('NAJA_LAB_MODE')}, _current_phase={self._current_phase}")
         iteration = 0
         while True:
             iteration += 1
             if iteration == 1 or iteration % 100 == 0:
-                log.info(f"[MarketObserver] _fetch_loop iteration {iteration}")
+                log.debug(f"[MarketObserver] _fetch_loop iteration {iteration}")
             if self._fetch_stop_event.is_set():
-                log.info("[MarketObserver] _fetch_loop: stop event set, exiting")
+                log.debug("[MarketObserver] _fetch_loop: stop event set, exiting")
                 break
             allowed = self._is_allowed_to_run()
             try:
@@ -460,10 +460,10 @@ class MarketDataObserver:
 
                         if not is_running:
                             need_fetch = True
-                            log.info(f"[MarketObserver] 数据源已停止，主动获取数据, tracked={len(self._tracked_stocks)}")
+                            log.debug(f"[MarketObserver] 数据源已停止，主动获取数据, tracked={len(self._tracked_stocks)}")
                         elif time_since_data > self._data_timeout:
                             need_fetch = True
-                            log.info(f"[MarketObserver] 数据源无推送(time={time_since_data:.1f}s > {self._data_timeout}s)，主动获取数据")
+                            log.debug(f"[MarketObserver] 数据源无推送(time={time_since_data:.1f}s > {self._data_timeout}s)，主动获取数据")
                     else:
                         if os.environ.get('NAJA_LAB_MODE'):
                             need_fetch = True
@@ -477,10 +477,10 @@ class MarketDataObserver:
                                 need_fetch = False
                                 datasource_available = False
                                 if iteration == 1 or iteration % 100 == 0:
-                                    log.info(f"[MarketObserver] 市场休市中，跳过主动获取")
+                                    log.debug(f"[MarketObserver] 市场休市中，跳过主动获取")
 
                     if need_fetch:
-                        log.info(f"[MarketObserver] 主动获取数据，跟踪股票: {len(self._tracked_stocks)} 个")
+                        log.debug(f"[MarketObserver] 主动获取数据，跟踪股票: {len(self._tracked_stocks)} 个")
                         self._fetch_prices_from_datasource()
                     elif self._tracked_stocks and self._current_datasource and (iteration == 1 or iteration % 50 == 0):
                         log.debug(f"[MarketObserver] 等待数据推送...")
@@ -490,13 +490,13 @@ class MarketDataObserver:
                         if not self._low_power_mode:
                             self._low_power_mode = True
                             self._fetch_interval = self._low_power_fetch_interval
-                            log.info(f"[MarketObserver] 数据源不可用，进入低功耗模式，间隔: {self._fetch_interval}s")
+                            log.warning(f"[MarketObserver] 数据源不可用，进入低功耗模式，间隔: {self._fetch_interval}s")
                         self._last_datasource_available = False
                     else:
                         if self._low_power_mode:
                             self._low_power_mode = False
                             self._fetch_interval = self._normal_fetch_interval
-                            log.info(f"[MarketObserver] 数据源恢复，退出低功耗模式，间隔恢复: {self._fetch_interval}s")
+                            log.warning(f"[MarketObserver] 数据源恢复，退出低功耗模式，间隔恢复: {self._fetch_interval}s")
                         self._last_datasource_available = True
 
             except Exception as e:
@@ -507,7 +507,7 @@ class MarketDataObserver:
     def _fetch_prices_from_datasource(self):
         """主动从数据源获取最新价格"""
         import os
-        log.info(f"[MarketObserver] _fetch_prices_from_datasource: tracked={len(self._tracked_stocks) if self._tracked_stocks else 0}, datasource={'None' if not self._current_datasource else 'exists'}")
+        log.debug(f"[MarketObserver] _fetch_prices_from_datasource: tracked={len(self._tracked_stocks) if self._tracked_stocks else 0}, datasource={'None' if not self._current_datasource else 'exists'}")
 
         # Lab 模式：确保自选股已加载
         if os.environ.get('NAJA_LAB_MODE'):
@@ -516,7 +516,7 @@ class MarketDataObserver:
 
             try:
                 scheduler = SR('replay_scheduler')
-                log.info(f"[MarketObserver] Lab 模式：scheduler={type(scheduler)}, has_latest_data={hasattr(scheduler, '_latest_sent_data')}")
+                log.debug(f"[MarketObserver] Lab 模式：scheduler={type(scheduler)}, has_latest_data={hasattr(scheduler, '_latest_sent_data')}")
                 if scheduler and hasattr(scheduler, '_latest_sent_data') and scheduler._latest_sent_data is not None:
                     latest = scheduler._latest_sent_data
                     import pandas as pd
@@ -528,7 +528,7 @@ class MarketDataObserver:
                                 price = float(row.get('now', row.get('price', row.get('current', 0))))
                                 if price > 0:
                                     self._update_price(stock_code, price)
-                        log.info(f"[MarketObserver] Lab 模式：获取到 {len(latest)} 条数据")
+                        log.debug(f"[MarketObserver] Lab 模式：获取到 {len(latest)} 条数据")
                         return
                     elif isinstance(latest, dict):
                         symbols = latest.get('symbols', {})
@@ -538,10 +538,10 @@ class MarketDataObserver:
                                 price = float(stock_data.get('price', 0))
                                 if price > 0:
                                     self._update_price(stock_code, price)
-                        log.info(f"[MarketObserver] Lab 模式：获取到 {len(symbols)} 只股票数据")
+                        log.debug(f"[MarketObserver] Lab 模式：获取到 {len(symbols)} 只股票数据")
                         return
                 else:
-                    log.info(f"[MarketObserver] Lab 模式：_latest_sent_data={getattr(scheduler, '_latest_sent_data', 'N/A')}")
+                    log.debug(f"[MarketObserver] Lab 模式：_latest_sent_data={getattr(scheduler, '_latest_sent_data', 'N/A')}")
             except Exception as e:
                 log.warning(f"[MarketObserver] Lab 模式获取数据失败: {e}")
 
@@ -594,7 +594,7 @@ class MarketDataObserver:
         added_count = new_count - original_count
 
         self._save_config()
-        log.info(f"[MarketObserver] 批量跟踪股票完成: 新增 {added_count} 只, 当前共 {new_count} 只")
+        log.debug(f"[MarketObserver] 批量跟踪股票完成: 新增 {added_count} 只, 当前共 {new_count} 只")
 
         import os
         lab_mode = os.environ.get('NAJA_LAB_MODE')
@@ -607,7 +607,7 @@ class MarketDataObserver:
                 scheduler = SR('replay_scheduler')
                 if scheduler:
                     scheduler.set_downstream_callback(self._on_replay_data)
-                    log.info("[MarketObserver] Lab 模式：已注册 ReplayScheduler 回调")
+                    log.debug("[MarketObserver] Lab 模式：已注册 ReplayScheduler 回调")
             except Exception as e:
                 log.warning(f"[MarketObserver] 无法注册 ReplayScheduler 回调: {e}")
             self._start_fetch_loop()
@@ -635,7 +635,7 @@ class MarketDataObserver:
                 scheduler = SR('replay_scheduler')
                 if scheduler:
                     scheduler.set_downstream_callback(self._on_replay_data)
-                    log.info("[MarketObserver] Lab 模式：已注册 ReplayScheduler 回调")
+                    log.debug("[MarketObserver] Lab 模式：已注册 ReplayScheduler 回调")
             except Exception as e:
                 log.warning(f"[MarketObserver] 无法注册 ReplayScheduler 回调: {e}")
             self._start_fetch_loop()
@@ -645,7 +645,7 @@ class MarketDataObserver:
             self._running = True
             self._last_data_time = time.time()
             TRADING_CLOCK_STREAM.sink(self._on_trading_clock_signal)
-            log.info("[MarketObserver] 已订阅交易时钟信号")
+            log.debug("[MarketObserver] 已订阅交易时钟信号")
             datasource_id = self._get_active_datasource_id()
             self._reconnect_datasource(datasource_id)
             self._start_fetch_loop()
@@ -676,17 +676,17 @@ class MarketDataObserver:
         if self._low_power_mode and new_interval > self._normal_fetch_interval:
             self._low_power_fetch_interval = new_interval
             if abs(old_interval - self._fetch_interval) > 0.5:
-                log.info(f"[MarketObserver] 低功耗间隔调整: {old_interval}s → {self._fetch_interval}s ({reason})")
+                log.warning(f"[MarketObserver] 低功耗间隔调整: {old_interval}s → {self._fetch_interval}s ({reason})")
         else:
             if not self._low_power_mode:
                 self._normal_fetch_interval = new_interval
             self._fetch_interval = new_interval
             if abs(old_interval - self._fetch_interval) > 0.5:
-                log.info(f"[MarketObserver] 间隔调整: {old_interval}s → {self._fetch_interval}s ({reason})")
+                log.debug(f"[MarketObserver] 间隔调整: {old_interval}s → {self._fetch_interval}s ({reason})")
 
     def start(self):
         """启动观察"""
-        log.info(f"[MarketObserver] start() called, current _running={self._running}")
+        log.debug(f"[MarketObserver] start() called, current _running={self._running}")
         if self._running and self._fetch_thread and self._fetch_thread.is_alive():
             log.debug("[MarketObserver] 已在运行")
             return
@@ -701,12 +701,12 @@ class MarketDataObserver:
                 scheduler = SR('replay_scheduler')
                 if scheduler:
                     scheduler.set_downstream_callback(self._on_replay_data)
-                    log.info("[MarketObserver] Lab 模式：已注册 ReplayScheduler 回调")
+                    log.debug("[MarketObserver] Lab 模式：已注册 ReplayScheduler 回调")
             except Exception as e:
                 log.warning(f"[MarketObserver] 无法注册 ReplayScheduler 回调: {e}")
             self._start_fetch_loop()
             self._save_config()
-            log.info("[MarketObserver] Lab 模式已启动")
+            log.debug("[MarketObserver] Lab 模式已启动")
             return
 
         if not self._running:
@@ -715,12 +715,12 @@ class MarketDataObserver:
             TRADING_CLOCK_STREAM.sink(self._on_trading_clock_signal)
             datasource_id = self._get_active_datasource_id()
             self._reconnect_datasource(datasource_id)
-            log.info("[MarketObserver] 已订阅交易时钟信号")
+            log.debug("[MarketObserver] 已订阅交易时钟信号")
             self._start_experiment_monitor()
 
         self._start_fetch_loop()
         self._save_config()
-        log.info("[MarketObserver] 已启动")
+        log.debug("[MarketObserver] 已启动")
 
     def _on_trading_clock_signal(self, signal: Dict[str, Any]):
         """处理交易时钟信号"""
@@ -739,7 +739,7 @@ class MarketDataObserver:
     def _on_replay_data(self, data):
         """处理 ReplayScheduler 的数据回调"""
         import pandas as pd
-        log.info(f"[MarketObserver] Lab 模式：收到回放数据 {len(data) if isinstance(data, pd.DataFrame) else type(data)}")
+        log.debug(f"[MarketObserver] Lab 模式：收到回放数据 {len(data) if isinstance(data, pd.DataFrame) else type(data)}")
         try:
             if isinstance(data, pd.DataFrame):
                 for stock_code in list(self._tracked_stocks):
@@ -754,12 +754,12 @@ class MarketDataObserver:
                     from deva.naja.attention.orchestration.trading_center import get_trading_center
                     tc = get_trading_center()
                     tc.attention_os.market_scheduler.schedule(data)
-                    log.info(f"[MarketObserver] Lab 模式：已发送 {len(data)} 条数据到 TradingCenter")
+                    log.debug(f"[MarketObserver] Lab 模式：已发送 {len(data)} 条数据到 TradingCenter")
                 except Exception as e:
                     log.warning(f"[MarketObserver] 发送数据到 TradingCenter 失败: {e}")
 
                 self._last_data_time = time.time()
-                log.info(f"[MarketObserver] Lab 模式：处理了 {len(data)} 条数据")
+                log.debug(f"[MarketObserver] Lab 模式：处理了 {len(data)} 条数据")
 
             elif isinstance(data, dict):
                 symbols = data.get('symbols', {})
@@ -774,12 +774,12 @@ class MarketDataObserver:
                     from deva.naja.attention.orchestration.trading_center import get_trading_center
                     tc = get_trading_center()
                     tc.attention_os.market_scheduler.schedule(data)
-                    log.info(f"[MarketObserver] Lab 模式：已发送 {len(symbols)} 只股票数据到 TradingCenter")
+                    log.debug(f"[MarketObserver] Lab 模式：已发送 {len(symbols)} 只股票数据到 TradingCenter")
                 except Exception as e:
                     log.warning(f"[MarketObserver] 发送数据到 TradingCenter 失败: {e}")
 
                 self._last_data_time = time.time()
-                log.info(f"[MarketObserver] Lab 模式：处理了 {len(symbols)} 只股票数据")
+                log.debug(f"[MarketObserver] Lab 模式：处理了 {len(symbols)} 只股票数据")
         except Exception as e:
             log.warning(f"[MarketObserver] Lab 模式处理回放数据失败: {e}")
 

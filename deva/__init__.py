@@ -1,4 +1,5 @@
 from __future__ import absolute_import, division, print_function
+
 from .browser import browser, tab, tabs
 from .lambdas import _
 from .core.pipe import *
@@ -89,7 +90,7 @@ Deva 采用分层架构设计，由两个核心平台组成：
 典型应用场景:
 
 ▌智能监控系统
-- 设备指标实时分析: 
+- 设备指标实时分析:
     sensors.window(60).mean() >> threshold_check >> alert
 - 日志异常检测:
     log_stream.map(parse) >> detect_errors >> ops_center
@@ -98,9 +99,9 @@ Deva 采用分层架构设计，由两个核心平台组成：
 - 流式ETL:
     kafka_source >> clean >> transform >> feature_store
 - 交互式分析:
-    (browser.inputs 
-     >> feature_extract 
-     >> model.predict 
+    (browser.inputs
+     >> feature_extract
+     >> model.predict
      >> visualize)
 
 ▌AI 辅助开发
