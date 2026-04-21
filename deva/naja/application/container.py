@@ -1,14 +1,43 @@
 from __future__ import annotations
 
 import logging
+import time
 from typing import Any, Optional
 
 from .runtime_config import AppRuntimeConfig
 from .runtime_modes import RuntimeModeInitializer
-from ..infra.lifecycle.bootstrap import BootResult, BootStage
 from ..register import SR
 
 log = logging.getLogger(__name__)
+
+
+class BootStage:
+    """启动阶段枚举"""
+    INIT = "init"
+    REGISTER_SINGLETONS = "register_singletons"
+    LOAD_PERSISTENT = "load_persistent"
+    INIT_CORE = "init_core"
+    REGISTER_COMPONENTS = "register_components"
+    RESTORE_RUNTIME = "restore_runtime"
+    START_SCHEDULERS = "start_schedulers"
+    READY = "ready"
+
+
+# 全局启动报告（供 health_ui 等使用）
+_last_boot_report: dict[str, Any] = {}
+_last_boot_report_ts: float = 0.0
+
+
+def get_last_boot_report() -> dict[str, Any]:
+    """获取最近一次启动报告"""
+    return _last_boot_report
+
+
+def _record_boot_report(report: dict[str, Any]):
+    """记录启动报告"""
+    global _last_boot_report, _last_boot_report_ts
+    _last_boot_report = report
+    _last_boot_report_ts = time.time()
 
 
 class AppContainer:
@@ -16,7 +45,6 @@ class AppContainer:
 
     def __init__(self, config: AppRuntimeConfig):
         self.config = config
-        self._boot_result = None
         
         # 核心组件（懒加载）
         self._attention_os = None
@@ -53,27 +81,24 @@ class AppContainer:
         # 初始化标记
         self._components_assembled = False
 
-    @property
-    def boot_result(self):
-        return self._boot_result
-
     def boot(self):
+        """Complete bootstrap: registers everything, assembles components, and records boot report."""
+        start = time.time()
         log.info("[AppContainer] 开始初始化...")
-
         set_app_container(self)
 
         self._register_singletons()
-
         self._assemble_core_components()
+        self.restore_runtime_state()
 
-        self._boot_result = BootResult(
-            success=True,
-            stage=BootStage.READY,
-            message="AppContainer 初始化完成",
-            duration_ms=0.0,
-        )
-
-        return self._boot_result
+        duration = (time.time() - start) * 1000
+        _record_boot_report({
+            "success": True,
+            "stage": BootStage.READY,
+            "message": "AppContainer 初始化完成",
+            "duration_ms": duration,
+        })
+        log.info(f"[AppContainer] 初始化完成，耗时 {duration:.0f}ms")
 
     def _register_singletons(self):
         """注册所有单例（来自旧的 Bootstrap 路径）"""
@@ -126,12 +151,28 @@ class AppContainer:
             # 7. 获取 Radar 模块组件（从已注册的单例）
             self._radar_engine = SR('radar_engine')
 
-            # 8. 事件订阅装配
+            # 8. 初始化 SignalStream（对应 Bootstrap._register_components）
+            try:
+                from ..signal.stream import get_signal_stream
+                get_signal_stream()
+                log.info("[AppContainer] SignalStream 初始化完成")
+            except Exception as e:
+                log.warning(f"[AppContainer] SignalStream 初始化失败: {e}")
+
+            # 初始化 MerrillClock（对应 Bootstrap._init_core_components）
+            try:
+                from ..cognition.merrill_clock import initialize_merrill_clock
+                initialize_merrill_clock()
+                log.info("[AppContainer] MerrillClock 初始化完成")
+            except Exception as e:
+                log.warning(f"[AppContainer] MerrillClock 初始化失败: {e}")
+
+            # 9. 事件订阅装配
             self._event_registrar = self._create_event_registrar()
             self._event_registrar.register_all()
             
-            # 9. 启动 Supervisor（包含热点系统初始化）
-            self._start_supervisor()
+            # 9. 启动调度器（包含 Supervisor、心跳、美林时钟等）
+            self._start_schedulers()
             
             self._components_assembled = True
             log.info("[AppContainer] 核心组件装配完成")
@@ -185,13 +226,13 @@ class AppContainer:
         self._load_counts = counts
         self._load_errors = errors
 
-    def _start_supervisor(self):
-        """启动 Supervisor（包含热点系统初始化和数据获取器启动）"""
+    def _start_schedulers(self):
+        """启动调度器（对应 Bootstrap._start_schedulers）"""
         try:
             from ..supervisor import start_supervisor
             from ..supervisor.monitoring import MonitoringMixin
             
-            log.info("[AppContainer] 启动 Supervisor...")
+            log.info("[AppContainer] [6/8] 启动调度器...")
             supervisor = start_supervisor()
             
             # 配置并启动注意力系统
@@ -204,6 +245,184 @@ class AppContainer:
             log.info("[AppContainer] Supervisor 已启动")
         except Exception as e:
             log.warning(f"[AppContainer] Supervisor 启动失败: {e}", exc_info=True)
+        
+        # 启动 DailyReviewScheduler
+        try:
+            from ..strategy.daily_review_scheduler import get_daily_review_scheduler
+            scheduler = get_daily_review_scheduler()
+            scheduler.start()
+            log.info("[AppContainer] DailyReviewScheduler 已启动")
+        except Exception as e:
+            log.warning(f"[AppContainer] DailyReviewScheduler 启动失败: {e}", exc_info=True)
+        
+        # 启动美林时钟经济数据定时更新
+        self._start_merrill_clock_task()
+        
+        # 心跳机制：定期更新系统活跃时间
+        self._start_heartbeat_task()
+        
+        # 统一唤醒同步检查
+        self._perform_wake_sync()
+        
+        log.info("[AppContainer] 调度器启动完成")
+    
+    def _start_merrill_clock_task(self):
+        """启动美林时钟定时任务"""
+        try:
+            task_mgr = SR('task_manager')
+            
+            existing = task_mgr.get_by_name("merrill_clock_update")
+            if not existing:
+                import hashlib
+                task_id = hashlib.md5("merrill_clock_update_2026".encode()).hexdigest()[:12]
+                
+                func_code = '''
+import logging
+import asyncio
+import os
+import nest_asyncio
+log = logging.getLogger(__name__)
+
+def execute() -> dict:
+    """获取经济数据并更新美林时钟"""
+    log.info("[MerrillClockTask] 开始获取经济数据...")
+    
+    try:
+        from deva.naja.cognition.merrill_clock.economic_data_fetcher import EconomicDataFetcher
+        from deva.naja.cognition.merrill_clock import get_merrill_clock_engine
+        
+        fred_api_key = os.environ.get("FRED_API_KEY", "")
+        if not fred_api_key:
+            log.warning("[MerrillClockTask] FRED_API_KEY 环境变量未设置，使用 mock 模式")
+        fetcher = EconomicDataFetcher(fred_api_key=fred_api_key, use_mock=not bool(fred_api_key))
+        
+        nest_asyncio.apply()
+        
+        async def _fetch():
+            data = await fetcher.fetch_latest_data()
+            await fetcher.close()
+            return data
+        
+        data = asyncio.run(_fetch())
+        log.info(f"[MerrillClockTask] 获取经济数据成功")
+        
+        clock_engine = get_merrill_clock_engine()
+        signal = clock_engine.on_economic_data(data)
+        
+        if signal:
+            log.info(f"[MerrillClockTask] 周期阶段：{signal.phase.value}, 置信度：{signal.confidence:.0%}")
+            return {
+                "success": True,
+                "phase": signal.phase.value,
+                "confidence": round(signal.confidence, 3),
+                "growth_score": round(signal.growth_score, 3),
+                "inflation_score": round(signal.inflation_score, 3),
+            }
+        else:
+            return {"success": False, "message": "数据不足"}
+            
+    except Exception as e:
+        log.error(f"[MerrillClockTask] 执行失败：{e}")
+        import traceback
+        traceback.print_exc()
+        return {"success": False, "message": str(e)}
+'''
+                
+                result = task_mgr.create(
+                    name="merrill_clock_update",
+                    description="美林时钟经济数据定时更新（每日凌晨执行）",
+                    func_code=func_code,
+                    task_type="scheduler",
+                    scheduler_trigger="cron",
+                    cron_expr="30 4 * * *",
+                    tags=["merrill_clock", "economic", "daily"],
+                )
+                
+                if result.get("success"):
+                    entry_id = result.get("id")
+                    task_mgr.start(entry_id)
+                    log.info(f"[AppContainer] 美林时钟定时任务已创建并启动: {entry_id}")
+                else:
+                    log.warning(f"[AppContainer] 美林时钟定时任务创建失败: {result.get('error')}")
+            else:
+                if not existing.is_running:
+                    task_mgr.start(existing.id)
+                log.info(f"[AppContainer] 美林时钟定时任务已存在，直接启动")
+                
+        except Exception as e:
+            log.warning(f"[AppContainer] 美林时钟定时任务启动失败: {e}")
+    
+    def _start_heartbeat_task(self):
+        """启动系统心跳任务"""
+        try:
+            task_mgr = SR('task_manager')
+
+            heartbeat_code = '''
+import logging
+from deva.naja.register import SR
+log = logging.getLogger(__name__)
+
+def execute() -> dict:
+    """心跳：更新系统活跃时间"""
+    try:
+        state_mgr = SR('system_state_manager')
+        state_mgr.record_active()
+        log.info("[Heartbeat] 系统活跃时间已更新")
+        return {"success": True}
+    except Exception as e:
+        log.warning(f"[Heartbeat] 更新活跃时间失败: {e}")
+        return {"success": False, "error": str(e)}
+'''
+            existing_heartbeat = task_mgr.get_by_name("system_heartbeat")
+            if not existing_heartbeat:
+                import hashlib
+                task_id = hashlib.md5("system_heartbeat_2026".encode()).hexdigest()[:12]
+
+                result = task_mgr.create(
+                    name="system_heartbeat",
+                    description="系统心跳（定期更新活跃时间）",
+                    func_code=heartbeat_code,
+                    task_type="scheduler",
+                    scheduler_trigger="interval",
+                    interval_seconds=300,
+                    tags=["system", "heartbeat"],
+                )
+
+                if result.get("success"):
+                    entry_id = result.get("id")
+                    task_mgr.start(entry_id)
+                    log.info(f"[AppContainer] 系统心跳任务已创建并启动: {entry_id}")
+            else:
+                if not existing_heartbeat.is_running:
+                    task_mgr.start(existing_heartbeat.id)
+                log.info(f"[AppContainer] 系统心跳任务已存在")
+
+        except Exception as e:
+            log.warning(f"[AppContainer] 系统心跳任务启动失败: {e}")
+    
+    def _perform_wake_sync(self):
+        """统一唤醒同步检查"""
+        try:
+            state_mgr = SR('system_state_manager')
+            state_mgr.record_wake()
+
+            state_summary = state_mgr.get_state_summary()
+            log.info(f"[AppContainer] [WakeSync] 系统状态: 休眠 {state_summary['sleep_duration_hours']} 小时")
+
+            if state_summary['sleep_duration_hours'] < 1:
+                log.info(f"[AppContainer] [WakeSync] 休眠不足1小时，跳过同步")
+            else:
+                wake_sync_mgr = SR('wake_sync_manager')
+                registered = wake_sync_mgr.get_registered_components()
+                log.info(f"[AppContainer] [WakeSync] 已注册 {len(registered)} 个同步组件: {registered}")
+
+                last_active = state_mgr.get_last_active_time()
+                if last_active:
+                    wake_sync_result = wake_sync_mgr.perform_wake_sync(last_active)
+                    log.info(f"[AppContainer] [WakeSync] 同步结果: {wake_sync_result.get('message', '未知')}")
+
+        except Exception as e:
+            log.warning(f"[AppContainer] 统一唤醒同步检查失败: {e}")
 
     def _create_trading_clock(self):
         """创建 TradingClock"""
