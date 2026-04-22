@@ -23,7 +23,7 @@ from datetime import datetime
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
-from deva import NB
+from deva import NB, log
 
 from ...config import get_llm_config
 from ...infra.registry.singleton_registry import SR
