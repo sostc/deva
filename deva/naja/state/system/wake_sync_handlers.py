@@ -339,17 +339,26 @@ class NewsFetcherWakeSync:
                     'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
                 })
 
+                fetched_detail_count = 0
                 published_count = 0
                 for news in news_list:
+                    if news.content and len(news.content) > 100:
+                        log.debug(f"[WakeSync] NewsFetcher: 新闻 {news.id} 内容已完整，跳过详情获取")
+                    else:
+                        detail = await fetch_news_detail_async(session, news)
+                        if detail:
+                            fetched_detail_count += 1
+
                     await publish_to_radar(news)
                     published_count += 1
                     await asyncio.sleep(0.5)
 
                 return {
                     "success": True,
-                    "message": f"同步成功，获取并发布 {published_count} 条新闻",
+                    "message": f"同步成功，获取并发布 {published_count} 条新闻（详情获取 {fetched_detail_count} 条）",
                     "details": {
                         "count": published_count,
+                        "detail_count": fetched_detail_count,
                         "first_news": news_list[0].content[:100] if news_list else "",
                         "last_news": news_list[-1].content[:100] if news_list else "",
                     }

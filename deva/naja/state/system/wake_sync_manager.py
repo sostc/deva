@@ -6,6 +6,7 @@ WakeSyncManager - 系统唤醒同步管理器
 2. 系统唤醒时自动检测需要同步的任务
 3. 根据休眠时长判断同步范围（最多24小时）
 4. 渐进式执行：按优先级排队，异步非阻塞执行
+5. 持久化同步状态，支持去重
 
 使用方式：
 1. 各组件实现 WakeSyncable 协议
@@ -16,17 +17,22 @@ WakeSyncManager - 系统唤醒同步管理器
 - 系统长时间休眠后，与外部世界重新同步
 - 有限制地同步（不是全量拉取），保持与世界的状态一致
 - 渐进式执行：按优先级排队，不影响系统整体性能
+- 持久化同步结果，避免重复执行
 """
 
+import json
 import logging
+import os
 import time
 import threading
 from datetime import datetime, timedelta
 from typing import Dict, Any, Optional, List, Protocol, Tuple
-from dataclasses import dataclass
+from dataclasses import dataclass, asdict
 from deva.naja.register import SR
 
 log = logging.getLogger(__name__)
+
+_STATE_FILE = os.path.expanduser("~/.naja/wake_sync_state.json")
 
 
 class WakeSyncable(Protocol):
@@ -108,10 +114,13 @@ class WakeSyncManager:
     - 优先级执行：数字越小优先级越高
     - 渐进式执行：任务之间有延迟，避免系统负载过高
     - 异步非阻塞：后台线程执行，不阻塞主流程
+    - 持久化：同步结果持久化到 ~/.naja/wake_sync_state.json
+    - 去重：避免同一组件在短时间内重复执行
     """
 
     MAX_WAKE_SYNC_HOURS = 24
     DELAY_BETWEEN_TASKS = 2.0
+    DEDUP_INTERVAL_SECONDS = 300  # 5分钟内不重复执行同一组件
 
     def __init__(self):
         self._components: Dict[str, WakeSyncable] = {}
@@ -120,6 +129,33 @@ class WakeSyncManager:
         self._sync_queue: List[WakeSyncable] = []
         self._sync_thread: Optional[threading.Thread] = None
         self._sync_lock = threading.Lock()
+        self._last_sync_per_component: Dict[str, float] = {}  # name -> timestamp
+        self._load_persisted_state()
+
+    def _load_persisted_state(self):
+        """从持久化文件加载上次同步状态"""
+        try:
+            if os.path.exists(_STATE_FILE):
+                with open(_STATE_FILE, 'r') as f:
+                    state = json.load(f)
+                self._last_sync_per_component = state.get("last_sync_per_component", {})
+                log.info(f"[WakeSync] 加载持久化状态: {len(self._last_sync_per_component)} 个组件记录")
+        except Exception as e:
+            log.warning(f"[WakeSync] 加载持久化状态失败: {e}")
+            self._last_sync_per_component = {}
+
+    def _persist_state(self):
+        """持久化同步状态到文件"""
+        try:
+            os.makedirs(os.path.dirname(_STATE_FILE), exist_ok=True)
+            state = {
+                "last_sync_per_component": self._last_sync_per_component,
+                "last_wake_sync_time": self._last_wake_sync_time.isoformat() if self._last_wake_sync_time else None,
+            }
+            with open(_STATE_FILE, 'w') as f:
+                json.dump(state, f, indent=2)
+        except Exception as e:
+            log.warning(f"[WakeSync] 持久化状态失败: {e}")
 
     def register(self, component: WakeSyncable):
         """
@@ -141,6 +177,13 @@ class WakeSyncManager:
     def get_registered_components(self) -> List[str]:
         """获取已注册的组件名称列表"""
         return list(self._components.keys())
+
+    def is_component_synced_recently(self, name: str) -> bool:
+        """检查组件是否在去重间隔内已执行过同步"""
+        last_ts = self._last_sync_per_component.get(name, 0)
+        if last_ts <= 0:
+            return False
+        return (time.time() - last_ts) < self.DEDUP_INTERVAL_SECONDS
 
     def perform_wake_sync(self, last_active: datetime) -> Dict[str, Any]:
         """
@@ -168,6 +211,9 @@ class WakeSyncManager:
         components_to_sync = []
         for name, component in self._components.items():
             try:
+                if self.is_component_synced_recently(name):
+                    log.info(f"[WakeSync] {name}: 去重跳过（5 分钟内已执行）")
+                    continue
                 if not component.should_wake_sync(last_active):
                     log.info(f"[WakeSync] {name}: 无需同步")
                     continue
@@ -245,6 +291,7 @@ class WakeSyncManager:
 
                 if result.get("success"):
                     synced_count += 1
+                    self._last_sync_per_component[component.name] = time.time()
                     log.info(f"[WakeSync] {component.name}: 同步成功 ({exec_duration:.2f}秒)")
                 else:
                     log.warning(f"[WakeSync] {component.name}: 同步失败 - {result.get('message', '未知错误')}")
@@ -257,6 +304,7 @@ class WakeSyncManager:
             time.sleep(self.DELAY_BETWEEN_TASKS)
 
         self._wake_sync_results = results
+        self._persist_state()
 
         summary = {
             "success": synced_count > 0,
@@ -294,3 +342,6 @@ def _register_default_components():
     manager.register(AIDailyReportWakeSync())
 
     log.info("[WakeSync] 已注册默认同步组件")
+
+
+_wake_sync_manager = WakeSyncManager()
