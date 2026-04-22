@@ -122,16 +122,23 @@ class BanditAutoRunner:
             pass
 
     def start(self):
-        """启动自动运行"""
+        """启动自动运行
+
+        处理多种边界情况：
+        1. 正常运行中（已启动且线程存活）：跳过
+        2. 已标记运行但线程未启动或已终止：从 DB 恢复状态，重新启动线程
+        3. 未运行：正常启动
+        """
         if self._running and self._thread and self._thread.is_alive():
-            log.warning("BanditAutoRunner 已在运行中")
             return
 
         self._running = True
         self._stop_event.clear()
 
+        if self._thread and self._thread.is_alive():
+            return
+
         TRADING_CLOCK_STREAM.sink(self._on_trading_clock_event)
-        log.info("BanditAutoRunner 已订阅交易时钟事件")
 
         self._thread = threading.Thread(target=self._run_loop, daemon=True, name='bandit-auto-runner')
         self._thread.start()
