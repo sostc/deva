@@ -567,28 +567,29 @@ def execute() -> dict:
             log.warning(f"[AppContainer] 系统心跳任务启动失败: {e}")
     
     def _perform_wake_sync(self):
-        """统一唤醒同步检查"""
+        """统一唤醒补作业检查
+
+        委托给 application 层的 WakeOrchestrator 统一编排，
+        内部协调组件恢复与外部数据补齐。
+        """
         try:
+            from .wake_orchestrator import get_wake_orchestrator
+
             state_mgr = SR('system_state_manager')
             state_mgr.record_wake()
 
-            state_summary = state_mgr.get_state_summary()
-            log.info(f"[AppContainer] [WakeSync] 系统状态: 休眠 {state_summary['sleep_duration_hours']} 小时")
+            orchestrator = get_wake_orchestrator()
+            result = orchestrator.wake()
 
-            if state_summary['sleep_duration_hours'] < 1:
-                log.info(f"[AppContainer] [WakeSync] 休眠不足1小时，跳过同步")
+            action = result.get('action', 'executed')
+            if action == 'skipped':
+                log.info(f"[AppContainer] [WakeSync] {result.get('reason', '跳过')}")
             else:
-                wake_sync_mgr = SR('wake_sync_manager')
-                registered = wake_sync_mgr.get_registered_components()
-                log.info(f"[AppContainer] [WakeSync] 已注册 {len(registered)} 个同步组件: {registered}")
-
-                last_active = state_mgr.get_last_active_time()
-                if last_active:
-                    wake_sync_result = wake_sync_mgr.perform_wake_sync(last_active)
-                    log.info(f"[AppContainer] [WakeSync] 同步结果: {wake_sync_result.get('message', '未知')}")
+                log.info(f"[AppContainer] [WakeSync] 唤醒补作业完成: 休眠 {result.get('sleep_hours')}h, "
+                         f"恢复={result.get('recovery', {})}, 同步={result.get('wake_sync', {})}")
 
         except Exception as e:
-            log.warning(f"[AppContainer] 统一唤醒同步检查失败: {e}")
+            log.warning(f"[AppContainer] 统一唤醒补作业失败: {e}")
 
     def _create_trading_clock(self):
         """创建 TradingClock"""
