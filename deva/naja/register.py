@@ -310,6 +310,14 @@ def _register_custom_singletons():
     register_singleton('wake_sync_manager', _create_wake_sync_manager, deps=[])
     logger.debug("  ✓ wake_sync_manager")
 
+    # --- wake_orchestrator: 统一唤醒补作业入口 ---
+    def _create_wake_orchestrator():
+        from .application.wake_orchestrator import WakeOrchestrator
+        state_mgr = SR('system_state_manager')
+        return WakeOrchestrator(state_mgr)
+    register_singleton('wake_orchestrator', _create_wake_orchestrator, deps=['system_state_manager'])
+    logger.debug("  ✓ wake_orchestrator")
+
 
 def ensure_trading_clocks():
     """确保交易时钟相关单例已注册并初始化

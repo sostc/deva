@@ -632,6 +632,130 @@ except Exception as e:
 
 ---
 
+## 10.1 唤醒补作业开发指南
+
+### 10.1.1 什么是唤醒补作业
+
+系统从休眠中唤醒（启动或心跳检测上次活跃时间超过阈值）时，需要"补作业"——补齐休眠期间缺失的数据和状态，例如：
+- 获取错过的新闻
+- 同步持仓价格
+- 执行盘后复盘
+- 生成 AI 日报
+
+### 10.1.2 架构层次
+
+```
+AppContainer._perform_wake_sync()     ← 应用层入口
+    └→ WakeOrchestrator.wake()         ← 统一编排（application/wake_orchestrator.py）
+       ├→ RecoveryManager.restore_all() ← 组件状态恢复（infra）
+       └→ WakeSyncManager.perform_wake_sync() ← 外部数据补齐（state/system）
+          └→ [WakeSyncable 组件列表]    ← 具体同步逻辑（state/system/wake_sync_handlers.py）
+```
+
+### 10.1.3 如何新增一个补作业任务
+
+**第 1 步：创建同步组件类**
+
+在 `deva/naja/state/system/wake_sync_handlers.py` 中新增一个类，实现 `WakeSyncable` 协议：
+
+```python
+class MyFeatureWakeSync:
+    """我的功能同步器"""
+
+    @property
+    def name(self) -> str:
+        return "My_Feature"  # 唯一标识，用于去重
+
+    @property
+    def description(self) -> str:
+        return "我的功能描述"
+
+    @property
+    def priority(self) -> int:
+        return 2  # 数字越小优先级越高，现有范围 1-5
+
+    def should_wake_sync(self, last_active: datetime) -> bool:
+        """判断是否需要同步"""
+        # 根据业务逻辑判断，例如：
+        # - 检查上次执行时间
+        # - 检查是否有未处理的数据
+        # - 检查当前时段是否适合执行
+        return True  # 或 False
+
+    def get_wake_sync_range(self, last_active: datetime, max_hours: int = 24) -> Tuple[datetime, datetime]:
+        """获取需要同步的时间范围"""
+        now = datetime.now()
+        start = now - timedelta(hours=max_hours)
+        return start, now
+
+    def execute_wake_sync(self, start: datetime, end: datetime) -> Dict[str, Any]:
+        """执行同步"""
+        try:
+            # 实际的业务逻辑：拉取数据、处理、发布等
+            # ...
+            return {
+                "success": True,
+                "message": "同步成功",
+                "details": {"count": 0}
+            }
+        except Exception as e:
+            return {
+                "success": False,
+                "message": f"同步失败: {e}",
+                "details": {}
+            }
+```
+
+**第 2 步：注册组件**
+
+在 `deva/naja/register.py` 的 `_create_wake_sync_manager()` 函数中注册：
+
+```python
+def _create_wake_sync_manager():
+    from .state.system.wake_sync_manager import WakeSyncManager
+    from .state.system.wake_sync_handlers import (
+        AIDailyReportWakeSync,
+        NewsFetcherWakeSync,
+        GlobalMarketScannerWakeSync,
+        DailyReviewWakeSync,
+        PortfolioPriceWakeSync,
+        MyFeatureWakeSync,  # 新增
+    )
+    mgr = WakeSyncManager()
+    mgr.register(PortfolioPriceWakeSync())
+    mgr.register(NewsFetcherWakeSync())
+    mgr.register(GlobalMarketScannerWakeSync())
+    mgr.register(DailyReviewWakeSync())
+    mgr.register(AIDailyReportWakeSync())
+    mgr.register(MyFeatureWakeSync())  # 新增
+    return mgr
+```
+
+**第 3 步（可选）：调整轻量同步范围**
+
+如果你的组件属于核心数据（短时间休眠后也需要同步），需要在 `WakeOrchestrator._light_sync()` 中加入：
+
+```python
+def _light_sync(self, last_active: datetime) -> Dict[str, Any]:
+    core_names = ["Portfolio_Price", "News_Fetcher", "My_Feature"]  # 加入
+```
+
+### 10.1.4 去重机制
+
+系统自动提供两层去重：
+1. **时间窗口去重**：同一组件 5 分钟内不重复执行（`DEDUP_INTERVAL_SECONDS`）
+2. **组件自主判断**：`should_wake_sync()` 由组件自行决定是否需要执行
+
+### 10.1.5 持久化
+
+同步状态自动持久化到 `~/.naja/wake_sync_state.json`，包含：
+- 每个组件上次成功同步的时间戳
+- 最后一次唤醒同步时间
+
+重启后自动加载，确保去重逻辑跨进程有效。
+
+---
+
 ## 11. 给未来 AI 的执行指令
 
 如果你是后续接手本项目的 AI 开发工具，请默认遵守以下规则：
