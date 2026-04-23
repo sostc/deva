@@ -161,6 +161,19 @@ class GlobalMarketAPI:
         self.codes = codes or list(ALL_CODES.keys())
         self._session: Optional[aiohttp.ClientSession] = None
 
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        await self.close()
+        return False
+
+    async def close(self):
+        """关闭 session"""
+        if self._session and not self._session.closed:
+            await self._session.close()
+            self._session = None
+
     async def _get_session(self) -> aiohttp.ClientSession:
         if self._session is None or self._session.closed:
             if self._session is not None and self._session.closed:
