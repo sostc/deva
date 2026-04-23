@@ -772,3 +772,161 @@ def _light_sync(self, last_active: datetime) -> Dict[str, Any]:
 
 如果你的方案与本文档冲突，优先重新审视方案，而不是直接绕过基准。
 
+---
+
+## 12. Web UI 实时推送规范
+
+本文档描述 Naja 系统中 Web UI 实时推送的标准开发模式。
+
+### 12.1 核心组件
+
+实时推送涉及以下核心组件：
+
+| 组件 | 位置 | 职责 |
+|------|------|------|
+| `RealtimePusher` | `infra/ui/realtime_pusher.py` | PyWebIO WebSocket 推送封装 |
+| `MarketHotspotPushCenter` | `market_hotspot/push_center.py` | 后端数据推送中心 |
+| `MarketHotspotAPIHandler` | `web_ui/routes.py` | 前端轮询 API |
+
+### 12.2 两种实时模式
+
+#### 模式 A：后端主动推送（推荐用于计算完成触发）
+
+适用于：**后端计算完成后主动推送数据到前端**
+
+```
+后端计算完成 → PushCenter.push() → Stream.emit() → 前端订阅
+```
+
+**使用场景**：市场热点数据计算完成后主动推送
+
+```python
+# 1. 后端计算完成时调用推送
+from deva.naja.market_hotspot.push_center import get_push_center
+
+def on_market_data_computed(data):
+    push_center = get_push_center()
+    push_center.push_dict({
+        'timestamp': time.time(),
+        'market': 'CN',
+        'hot_blocks': [...],
+        'hot_stocks': [...],
+    })
+
+# 2. 前端通过 Stream.webview 订阅
+stream = get_push_center().get_stream()
+stream.webview("/market_stream")
+```
+
+#### 模式 B：前端轮询 API（推荐用于页面定期刷新）
+
+适用于：**前端定期从 API 获取数据并更新页面**
+
+```
+前端 setInterval() → fetch('/api/market/hotspot') → 更新 DOM
+```
+
+**使用场景**：需要定期刷新显示的市场数据
+
+```python
+# admin.py 中注入 JS 轮询代码
+def _generate_realtime_js() -> str:
+    return '''
+    <script>
+    (function() {
+        const POLL_INTERVAL = 10000;  // 10秒
+
+        async function updatePage() {
+            const resp = await fetch('/api/market/hotspot');
+            const data = await resp.json();
+            // 更新 DOM
+            document.getElementById('hot-blocks').innerHTML = renderBlocks(data.cn.hot_blocks);
+        }
+
+        updatePage();
+        setInterval(updatePage, POLL_INTERVAL);
+    })();
+    </script>
+    '''
+
+# 在页面中使用
+put_html('<div id="hot-blocks"></div>')
+put_html(_generate_realtime_js())
+```
+
+### 12.3 API 返回数据格式
+
+所有实时 API 应返回统一的 JSON 格式：
+
+```json
+{
+  "cn": {
+    "hot_blocks": [{"block_id": "科技", "name": "科技", "weight": 0.52}],
+    "hot_stocks": [{"symbol": "600000", "name": "浦发银行", "weight": 0.35}],
+    "market_hotspot": 0.52,
+    "market_activity": 0.78,
+    "indices": {"SH": 0.11, "HS300": -0.28, "CHINEXT": 0.43}
+  },
+  "us": {
+    "hot_blocks": [...],
+    "hot_stocks": [...],
+    "futures": {"NQ": 0.25, "ES": 0.18, "YM": 0.12},
+    "market_summary": {"up_count": 150, "down_count": 80, "flat_count": 20, "stock_count": 250}
+  },
+  "market_state": {"state": "active", "description": "焦点集中"},
+  "recent_changes": [...],
+  "shift_report": {...}
+}
+```
+
+### 12.4 市场数据隔离原则
+
+**重要**：不同市场的数据必须从对应的 context 获取：
+
+```python
+# 正确：使用独立 context
+cn_blocks = hotspot._cn_context.block_engine.get_all_weights()
+us_blocks = hotspot._us_context.block_engine.get_all_weights()
+
+# 错误：使用动态路由（可能混淆市场）
+blocks = hotspot.block_hotspot.get_all_weights()  # ❌ 动态路由，可能返回错误市场数据
+```
+
+### 12.5 避免同步阻塞
+
+在异步上下文中，**禁止**使用同步阻塞调用：
+
+```python
+# 错误：同步阻塞
+result = requests.get(url)  # ❌ 阻塞事件循环
+
+# 正确：异步非阻塞
+async with aiohttp.ClientSession() as session:
+    async with session.get(url) as resp:
+        result = await resp.json()
+```
+
+### 12.6 实时模块开发检查清单
+
+新增实时更新的 UI 模块时：
+
+- [ ] 1. 确定数据来源（后端推送 or 前端轮询）
+- [ ] 2. 扩展 API 返回必要字段
+- [ ] 3. 使用独立 context 获取数据（不是动态路由）
+- [ ] 4. 实现 JS 轮询代码或 Stream 订阅
+- [ ] 5. 设置合理的刷新间隔（10-15秒）
+- [ ] 6. 处理无数据时的显示状态
+
+### 12.7 刷新间隔建议
+
+| 场景 | 推荐间隔 |
+|------|----------|
+| 市场热点数据 | 10秒 |
+| 策略状态 | 15秒 |
+| 实时日志 | 5秒 |
+| 行情数据 | 5-10秒 |
+
+---
+
+*本文档由 2026-04-24 实现市场页面实时更新功能时创建*
+
