@@ -134,16 +134,18 @@ class EventSubscriberRegistrar:
             return
 
         try:
-            from deva.naja.events import TradeDecisionEvent
+            from deva.naja.events import TradeDecisionEvent, get_trading_bus
+
+            trading_bus = get_trading_bus()
 
             def on_strategy_signal(event):
                 """处理策略信号事件"""
                 try:
                     start_time = time.time_ns()
-                    
+
                     decision = self.trading_center.process_strategy_signal_event(event)
                     processing_time_ms = (time.time_ns() - start_time) / 1_000_000
-                    
+
                     decision_event = TradeDecisionEvent(
                         signal_event=event,
                         decision=decision["decision"],
@@ -162,15 +164,15 @@ class EventSubscriberRegistrar:
                             "original_signal": event.to_dict(),
                         }
                     )
-                    
-                    event_bus.publish(decision_event)
+
+                    trading_bus.publish(decision_event)
                     log.debug(f"[TradingCenter] 发布 TradeDecisionEvent: {decision_event.decision.value}")
-                    
+
                 except Exception as e:
                     log.warning(f"[TradingCenter] 处理策略信号事件失败: {e}")
-            
-            event_bus.subscribe("StrategySignalEvent", on_strategy_signal)
-            log.info("[EventSubscriberRegistrar] TradingCenter 事件订阅完成")
-            
+
+            trading_bus.subscribe("StrategySignalEvent", on_strategy_signal)
+            log.info("[EventSubscriberRegistrar] TradingCenter 事件订阅完成（使用交易总线）")
+
         except Exception as e:
             log.warning(f"[EventSubscriberRegistrar] TradingCenter 事件订阅失败: {e}")

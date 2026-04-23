@@ -421,9 +421,9 @@ class NarrativeTracker:
                 "sentiment": event.sentiment,
                 "stock_codes": event.stock_codes,
             }
-            self.ingest_news_signal(signal)
+            self.ingest_event(signal)
         except Exception as e:
-            log.debug(f"[NarrativeTracker] 处理 TextFocusedEvent 失败: {e}")
+            log.info(f"[NarrativeTracker] 处理 TextFocusedEvent 失败: {e}")
 
     def _publish_cognitive_update(self, event, signal):
         """发布认知事件到 NajaEventBus"""

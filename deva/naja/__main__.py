@@ -16,6 +16,7 @@ import argparse
 import logging
 import os
 import sys
+import time
 
 # 在导入 deva 之前设置环境变量，这样 deva.__init__.py 会自动使用彩色日志
 if '--no-color' not in sys.argv:
@@ -99,11 +100,14 @@ def main():
         setup_tuning_mode_logger(level=logging.INFO)
         print_tuning_banner()
     else:
-        from .infra.log.colorful_logger import setup_colorful_logger
+        from .infra.log.colorful_logger import setup_colorful_logger, StartupVisualizer
         setup_colorful_logger(
             level=getattr(logging, args.log_level.upper()),
             force_color=use_color,
         )
+
+        sv = StartupVisualizer(width=65)
+        sv.banner('Naja 管理平台启动中...', '🚀')
 
     # 如果请求了注意力系统报告
     if args.attention_report:
@@ -153,33 +157,39 @@ def main():
     # 新闻雷达模式配置（默认启用，除非明确禁用）
     # --news-radar-sim: 使用模拟数据源
     # --news-radar-speed: 新闻雷达加速倍数（真实数据源模式）
+
     news_radar_config = None
     news_radar_enabled = args.news_radar
 
-    if args.news_radar_sim:
-        # 模拟模式：创建模拟数据源
-        news_radar_config = {
-            "enabled": True,
-            "mode": "sim",
-            "interval": args.news_radar_speed if args.news_radar_speed > 1.0 else 0.5,
-            "speed": args.news_radar_speed,
-        }
-        print(f"📡 新闻雷达模拟模式已启用，间隔: {news_radar_config['interval']}s")
-    elif args.news_radar_speed != 1.0:
-        # 加速模式：加快真实数据源获取频率
-        news_radar_config = {
-            "enabled": True,
-            "mode": "speed",
-            "speed": args.news_radar_speed,
-        }
-        print(f"📡 新闻雷达加速模式已启用，倍速: {args.news_radar_speed}x")
-    elif news_radar_enabled:
-        # 默认模式：使用真实数据源，正常频率
-        news_radar_config = {
-            "enabled": True,
-            "mode": "normal",
-        }
-        print("📡 新闻雷达已启用（真实数据源模式）")
+    with sv.section('⚙️ 参数配置'):
+        sv.item(f"Web Server", '→', f"http://{args.host}:{args.port}")
+        if args.lab:
+            sv.item("实验室模式", '✓', f"table={args.lab_table}")
+        if args.tune:
+            sv.item("调参模式", '✓', f"method={args.tune_method}")
+        if args.news_radar_sim:
+            sv.item("新闻雷达", '✓', "模拟模式")
+            news_radar_config = {
+                "enabled": True,
+                "mode": "sim",
+                "interval": args.news_radar_speed if args.news_radar_speed > 1.0 else 0.5,
+                "speed": args.news_radar_speed,
+            }
+        elif args.news_radar_speed != 1.0:
+            sv.item("新闻雷达", '✓', f"加速 {args.news_radar_speed}x")
+            news_radar_config = {
+                "enabled": True,
+                "mode": "speed",
+                "speed": args.news_radar_speed,
+            }
+        elif news_radar_enabled:
+            sv.item("新闻雷达", '✓', "真实数据源")
+            news_radar_config = {
+                "enabled": True,
+                "mode": "normal",
+            }
+        else:
+            sv.item("新闻雷达", '✗', "已禁用")
 
     # 认知系统调试配置
     cognition_debug_config = None
@@ -197,13 +207,14 @@ def main():
                 "debug": True,
             }
         if not news_radar_config:
+            sv.item("认知调试", '✓', "自动启用实验室+雷达模拟")
             news_radar_config = {
                 "enabled": True,
                 "mode": "sim",
                 "interval": 0.3,
                 "speed": 2.0,
             }
-        print("🧠 认知系统调试模式已启用（自动启用实验室模式+新闻雷达模拟模式）")
+        sv.success("🧠 认知系统调试模式已启用")
 
     config = AppRuntimeConfig.from_legacy(
         host=args.host,

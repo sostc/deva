@@ -127,6 +127,59 @@ class TimingNarrativeTracker:
         except Exception as e:
             log.debug(f"[TimingNarrativeTracker] 处理 TextFocusedEvent 失败: {e}")
 
+    def _process_text_for_timing(self, text: str, importance: float) -> None:
+        """从文本信号中提取时机信息，更新叙事"""
+        if not text or importance < 0.3:
+            return
+
+        text_lower = text.lower()
+
+        timing_signals = []
+
+        if any(k in text_lower for k in ["降息", "宽松", "流动性", "放水", "货币"]):
+            timing_signals.append(("流动性", TimingType.LIQUIDITY))
+        if any(k in text_lower for k in ["政策", "部委", "国务院", "央行", "证监会"]):
+            timing_signals.append(("政策", TimingType.POLICY))
+        if any(k in text_lower for k in ["业绩", "财报", "季报", "年报", "营收", "利润"]):
+            timing_signals.append(("业绩", TimingType.EARNINGS))
+        if any(k in text_lower for k in ["美股", "港股", "A股", "全球", "联储", "鲍威尔"]):
+            timing_signals.append(("全球", TimingType.GLOBAL))
+        if any(k in text_lower for k in ["板块", "题材", "轮动", "热点", "龙头"]):
+            timing_signals.append(("题材", TimingType.BLOCK))
+
+        if not timing_signals:
+            return
+
+        for signal_name, timing_type in timing_signals:
+            self._update_timing_narrative(timing_type, signal_name, importance)
+
+        self._last_update = time.time()
+
+    def _update_timing_narrative(self, timing_type: TimingType, signal_name: str, importance: float) -> None:
+        """更新时机叙事"""
+        now = time.time()
+
+        for narrative in self._current_narratives:
+            if narrative.narrative_type == timing_type:
+                narrative.strength = min(1.0, narrative.strength + importance * 0.2)
+                narrative.evidence.append(f"{signal_name}信号@{importance:.2f}")
+                if len(narrative.evidence) > 10:
+                    narrative.evidence = narrative.evidence[-10:]
+                return
+
+        new_narrative = TimingNarrative(
+            narrative_type=timing_type,
+            stage=TimingStage.EMERGING,
+            confidence=importance,
+            evidence=[f"{signal_name}信号@{importance:.2f}"],
+            start_time=now,
+            strength=importance * 0.5,
+            related_blocks=[],
+            key_stocks=[]
+        )
+        self._current_narratives.append(new_narrative)
+        self._narrative_history.append(new_narrative)
+
     def _publish_cognitive_update(self, event):
         """发布市场叙事更新事件到 NajaEventBus"""
         try:

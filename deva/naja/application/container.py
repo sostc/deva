@@ -84,7 +84,6 @@ class AppContainer:
     def boot(self):
         """Complete bootstrap: registers everything, assembles components, and records boot report."""
         start = time.time()
-        log.info("[AppContainer] 开始初始化...")
         set_app_container(self)
 
         self._register_singletons()
@@ -98,7 +97,20 @@ class AppContainer:
             "message": "AppContainer 初始化完成",
             "duration_ms": duration,
         })
-        log.info(f"[AppContainer] 初始化完成，耗时 {duration:.0f}ms")
+
+        from deva.naja.infra.log.colorful_logger import StartupVisualizer
+        sv = StartupVisualizer(width=60)
+
+        with sv.section('📦 加载组件'):
+            counts = self._load_counts
+            if counts.get('datasource'):
+                sv.item('datasource_manager', '✓', f"{counts.get('datasource', 0)} 个")
+            if counts.get('task'):
+                sv.item('task_manager', '✓', f"{counts.get('task', 0)} 个")
+            if counts.get('strategy'):
+                sv.item('strategy_manager', '✓', f"{counts.get('strategy', 0)} 个")
+
+        sv.success(f"AppContainer 初始化完成，耗时 {duration:.0f}ms")
 
     def _register_singletons(self):
         """注册所有单例（来自旧的 Bootstrap 路径）"""
@@ -109,8 +121,6 @@ class AppContainer:
         """装配核心组件（显式依赖注入）"""
         if self._components_assembled:
             return
-
-        log.info("[AppContainer] 开始装配核心组件...")
 
         try:
             # 0. 加载持久化数据管理器（原本在 Bootstrap._load_persistent_data 中）
@@ -182,9 +192,7 @@ class AppContainer:
 
 
     def _load_persistent_managers(self):
-        """加载持久化数据管理器（原本在 Bootstrap._load_persistent_data 中）"""
-        log.info("[AppContainer] 加载持久化数据管理器...")
-
+        """加载持久化数据管理器"""
         from ..datasource import get_datasource_manager
         from ..strategy import get_strategy_manager
 
@@ -200,57 +208,41 @@ class AppContainer:
         counts = {}
         errors = {}
 
-        try:
-            counts["dictionary"] = dict_mgr.load_prefer_files()
-            log.info(f"  加载了 {counts['dictionary']} 个字典（优先文件）")
-        except Exception as e:
-            errors["dictionary"] = str(e)
-            log.warning(f"  字典加载失败: {e}")
-
-        for name, mgr in (
-            ("datasource", ds_mgr),
-            ("task", task_mgr),
-            ("strategy", strategy_mgr),
-        ):
+        for name, mgr, attr in [
+            ("dictionary", dict_mgr, "字典"),
+            ("datasource", ds_mgr, "datasource"),
+            ("task", task_mgr, "task"),
+            ("strategy", strategy_mgr, "strategy"),
+        ]:
             try:
                 if hasattr(mgr, 'load_prefer_files'):
                     counts[name] = mgr.load_prefer_files()
-                    log.info(f"  加载了 {counts[name]} 个{name}（优先文件）")
                 else:
                     counts[name] = mgr.load_from_db()
-                    log.info(f"  加载了 {counts[name]} 个{name}")
             except Exception as e:
                 errors[name] = str(e)
-                log.warning(f"  {name} 加载失败: {e}")
 
         self._load_counts = counts
         self._load_errors = errors
 
     def _start_schedulers(self):
-        """启动调度器（对应 Bootstrap._start_schedulers）"""
+        """启动调度器"""
+        from ..supervisor import start_supervisor
+        from ..supervisor.monitoring import MonitoringMixin
+
         try:
-            from ..supervisor import start_supervisor
-            from ..supervisor.monitoring import MonitoringMixin
-            
-            log.info("[AppContainer] [6/8] 启动调度器...")
             supervisor = start_supervisor()
-            
             if isinstance(supervisor, MonitoringMixin):
                 supervisor._force_realtime = False
                 supervisor._lab_mode = None
                 supervisor.configure_attention(force_realtime=False, lab_mode=None)
-                log.info("[AppContainer] Supervisor 注意力系统配置完成")
-            
-            log.info("[AppContainer] Supervisor 已启动")
         except Exception as e:
             log.warning(f"[AppContainer] Supervisor 启动失败: {e}", exc_info=True)
-        
-        # 启动 DailyReviewScheduler（独立线程，监听交易时钟事件）
+
         try:
             from ..strategy.daily_review_scheduler import get_daily_review_scheduler
             scheduler = get_daily_review_scheduler()
             scheduler.start()
-            log.info("[AppContainer] DailyReviewScheduler 已启动")
         except Exception as e:
             log.warning(f"[AppContainer] DailyReviewScheduler 启动失败: {e}", exc_info=True)
         

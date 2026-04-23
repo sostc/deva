@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import logging
 import os
 import threading
 import time
@@ -13,6 +14,8 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Callable, Dict, List, Optional
+
+logger = logging.getLogger(__name__)
 
 
 class UnitStatus(str, Enum):
@@ -201,8 +204,9 @@ class RecoverableUnit(ABC):
     
     def _log(self, level: str, message: str, **extra):
         extra_str = " ".join([f"{k}={v}" for k, v in extra.items()])
-        print_msg = f"[{self.__class__.__name__}][{level}] {message} | {extra_str}"
-        print(print_msg)
+        log_msg = f"[{self.__class__.__name__}][{level}] {message} | {extra_str}"
+        log_level = getattr(logging, level.upper(), logging.INFO)
+        logger.log(log_level, log_msg)
         try:
             from deva.naja.infra.log.log_stream import get_log_stream
             source_type = "datasource" if "DataSource" in self.__class__.__name__ else "task" if "Task" in self.__class__.__name__ else "strategy"

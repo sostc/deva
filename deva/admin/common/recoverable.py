@@ -35,6 +35,7 @@
 
 from __future__ import annotations
 
+import logging
 import os
 import threading
 import time
@@ -43,6 +44,8 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Callable, Dict, List, Optional
+
+logger = logging.getLogger(__name__)
 
 
 class UnitStatus(str, Enum):
@@ -240,7 +243,9 @@ class RecoverableUnit(ABC):
     
     def _log(self, level: str, message: str, **extra):
         extra_str = " ".join([f"{k}={v}" for k, v in extra.items()])
-        print(f"[{self.__class__.__name__}][{level}] {message} | {extra_str}")
+        log_msg = f"[{self.__class__.__name__}][{level}] {message} | {extra_str}"
+        log_level = getattr(logging, level.upper(), logging.INFO)
+        logger.log(log_level, log_msg)
     
     def _build_execution_env(self) -> Dict[str, Any]:
         import pandas as pd
