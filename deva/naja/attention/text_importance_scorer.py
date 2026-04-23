@@ -299,7 +299,7 @@ class TextImportanceScorer:
             from deva.naja.events import get_event_bus
             event_bus = get_event_bus()
             event_bus.publish(event)
-            log.info(
+            log.debug(
                 f"[TextImportanceScorer] 发布 TextFocusedEvent: "
                 f"importance={event.importance_score:.2f}, level={event.routing_level}, "
                 f"title={event.title[:30]}..."

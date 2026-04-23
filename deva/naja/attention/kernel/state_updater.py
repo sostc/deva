@@ -53,10 +53,10 @@ class QueryStateUpdater:
                 priority=9
             )
             
-            # 订阅新闻事件
+            # 订阅新闻聚焦事件
             self._event_bus.subscribe(
-                'TextFetchedEvent',
-                self._on_text_fetched,
+                'TextFocusedEvent',
+                self._on_text_focused,
                 priority=8
             )
             
@@ -187,16 +187,14 @@ class QueryStateUpdater:
         except Exception as e:
             log.error(f"[QueryStateUpdater] 处理全局市场事件失败: {e}")
     
-    def _on_text_fetched(self, event):
-        """处理文本获取事件"""
+    def _on_text_focused(self, event):
+        """处理文本聚焦事件"""
         try:
             if not self.qs:
                 log.warning("[QueryStateUpdater] QueryState 未初始化")
                 return
             
-            # 这里可以根据需要更新QueryState中的情绪或叙事相关字段
-            # 例如更新市场情绪、叙事风险等
-            log.info(f"[QueryStateUpdater] 处理文本事件: source={event.source}, importance={getattr(event, 'importance_score', None)}, title={getattr(event, 'title', None)[:30] if hasattr(event, 'title') and event.title else None}...")
+            log.info(f"[QueryStateUpdater] source={event.source}, importance={event.importance_score}, title={event.title[:30] if event.title else None}...")
         except Exception as e:
             log.error(f"[QueryStateUpdater] 处理文本事件失败: {e}")
     
