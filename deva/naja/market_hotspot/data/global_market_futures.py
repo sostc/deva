@@ -137,7 +137,14 @@ US_INDUSTRY_MAP = {
 
 US_INDUSTRY_LIST = list(dict.fromkeys(info.get("industry_code", "other") for info in US_STOCK_BLOCKS.values()))
 
-ALL_CODES = {**FUTURES_CODES, **US_INDUSTRY_MAP}
+# 构建只包含活跃美股的映射
+_active_us_stocks = _get_us_stock_codes()
+# 过滤掉已知无法获取数据的代码
+_invalid_codes = {'gb_lucid', 'gb_lam', 'gb_netf', 'gb_googl_class_a', 'gb_ubnt'}
+_valid_us_stocks = {code: name for code, name in _active_us_stocks.items() if code not in _invalid_codes}
+_active_us_industry_map = {code: US_INDUSTRY_MAP.get(code, "other") for code in _valid_us_stocks}
+
+ALL_CODES = {**FUTURES_CODES, **_active_us_industry_map}
 MARKET_ID_TO_CODE = {v: k for k, v in ALL_CODES.items()}
 
 
@@ -418,6 +425,13 @@ class GlobalMarketAPI:
         us_codes = set(_get_us_stock_codes().keys())
         china_codes = _get_china_codes()
         index_codes = set(INDEX_CODES.keys())
+        
+        # 构建美股代码映射（带gb_前缀和不带前缀）
+        us_code_map = {}
+        for code in us_codes:
+            if code.startswith('gb_'):
+                us_code_map[code] = code.split('_')[1]
+                us_code_map[code.split('_')[1]] = code.split('_')[1]
 
         for line in text.strip().split("\n"):
             if not line or '="' not in line:
@@ -431,7 +445,7 @@ class GlobalMarketAPI:
                     parsed = self._parse_futures_line(line)
                     if parsed:
                         result[code_part] = parsed
-                elif full_code in us_codes:
+                elif full_code in us_codes or code_part in us_code_map:
                     parsed = self._parse_us_stock_line(line)
                     if parsed:
                         result[code_part] = parsed
@@ -443,7 +457,8 @@ class GlobalMarketAPI:
                     parsed = self._parse_china_stock_line(line, full_code)
                     if parsed:
                         result[full_code] = parsed
-            except Exception:
+            except Exception as e:
+                log.debug(f"解析行失败: {line[:50]}... error: {e}")
                 continue
         return result
 
@@ -506,6 +521,14 @@ class GlobalMarketAPI:
         if not codes_to_fetch:
             log.debug("获取市场数据跳过: 代码列表为空")
             return {}
+        
+        # 过滤掉已知无法获取数据的代码
+        _invalid_codes = {'gb_lucid', 'gb_lam', 'gb_netf', 'gb_googl_class_a', 'gb_ubnt'}
+        codes_to_fetch = [code for code in codes_to_fetch if code not in _invalid_codes]
+        
+        if not codes_to_fetch:
+            log.debug("获取市场数据跳过: 过滤后代码列表为空")
+            return {}
 
         batches = [codes_to_fetch[i:i + BATCH_SIZE] for i in range(0, len(codes_to_fetch), BATCH_SIZE)]
         if len(batches) > 1:
@@ -518,23 +541,42 @@ class GlobalMarketAPI:
             if len(batches) > 1:
                 log.debug(f"[GlobalMarketAPI] 获取第 {batch_idx + 1}/{len(batches)} 批 ({len(batch)} 个)")
 
-            if session is None:
-                result = await self._fetch_batch_sync(batch, max_retries)
-            else:
+            # 先尝试异步获取
+            if session is not None:
                 result = await self._fetch_batch(batch, session, max_retries)
-                if not result:
+                if result:
+                    log.debug(f"[GlobalMarketAPI] 批次 {batch_idx + 1} 成功获取 {len(result)} 个数据")
+                    all_results.update(result)
+                else:
                     log.info(f"[GlobalMarketAPI] aiohttp 批次 {batch_idx + 1} 失败，fallback 到 requests")
                     result = await self._fetch_batch_sync(batch, max_retries)
-
-            all_results.update(result)
+                    if result:
+                        log.debug(f"[GlobalMarketAPI] requests 批次 {batch_idx + 1} 成功获取 {len(result)} 个数据")
+                        all_results.update(result)
+                    else:
+                        log.warning(f"[GlobalMarketAPI] 批次 {batch_idx + 1} 完全失败")
+            else:
+                # 直接使用同步方式
+                result = await self._fetch_batch_sync(batch, max_retries)
+                if result:
+                    log.debug(f"[GlobalMarketAPI] requests 批次 {batch_idx + 1} 成功获取 {len(result)} 个数据")
+                    all_results.update(result)
+                else:
+                    log.warning(f"[GlobalMarketAPI] 批次 {batch_idx + 1} 完全失败")
 
             if batch_idx < len(batches) - 1:
                 await asyncio.sleep(0.3)
 
+        # 统计失败的代码
+        success_codes = set(all_results.keys())
+        failed_codes = [code for code in codes_to_fetch if code.split('_')[-1] not in success_codes]
+        
         if not all_results:
             log.warning(f"[GlobalMarketAPI] 获取市场数据失败: 0 个结果")
         elif len(all_results) < len(codes_to_fetch):
-            log.warning(f"[GlobalMarketAPI] 部分数据获取失败: 获取 {len(all_results)}/{len(codes_to_fetch)} 个")
+            log.warning(f"[GlobalMarketAPI] 部分数据获取失败: 获取 {len(all_results)}/{len(codes_to_fetch)} 个, 失败代码: {failed_codes[:10]}...")
+        else:
+            log.info(f"[GlobalMarketAPI] 全部数据获取成功: {len(all_results)} 个")
 
         return all_results
 
@@ -602,8 +644,8 @@ _global_api: Optional[GlobalMarketAPI] = None
 def get_global_market_api() -> GlobalMarketAPI:
     """获取全局API实例"""
     global _global_api
-    if _global_api is None:
-        _global_api = GlobalMarketAPI()
+    # 每次调用都重新创建实例，确保使用最新的代码列表
+    _global_api = GlobalMarketAPI()
     return _global_api
 
 
