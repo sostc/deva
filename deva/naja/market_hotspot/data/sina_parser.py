@@ -139,13 +139,13 @@ async def _fetch_sina_batch_with_session(codes: List[str], session) -> Dict:
 # ---------------------------------------------------------------------------
 
 def _get_cn_codes_from_registry():
-    """从 BlockDictionary 获取 A 股代码列表"""
+    """从 BlockDictionary 获取 A 股代码列表（仅活跃股票）"""
     try:
         from deva.naja.dictionary.blocks import get_block_dictionary
         bd = get_block_dictionary()
-        codes = list(bd.get_all_stocks('CN'))
+        codes = list(bd.get_active_stocks('CN'))
         if codes:
-            log.info(f"[_get_cn_codes_from_registry] 从 BlockDictionary 获取到 {len(codes)} 只 A 股")
+            log.info(f"[_get_cn_codes_from_registry] 从 BlockDictionary 获取到 {len(codes)} 只活跃A股")
             return codes
     except Exception as e:
         log.warning(f"[_get_cn_codes_from_registry] 获取失败: {e}")
