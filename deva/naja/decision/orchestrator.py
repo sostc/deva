@@ -158,20 +158,45 @@ class DecisionOrchestrator:
 
     def _process_sensation_modules(self, market_state: Dict, snapshot: Dict) -> Dict:
         awakened_market_state = self._build_awakened_market_state(market_state, snapshot)
+        snapshot_symbol = snapshot.get("symbol") if snapshot else None
 
-        for getter, state_key, label in [
-            (self.get_volatility_surface, "volatility_signals", "波动率曲面"),
-            (self.get_prophet_sense, "prophet_signals", "先知感知"),
-            (self.get_pre_taste, "pre_taste_count", "预尝味"),
-            (self.get_realtime_taste, "taste_signals", "实时尝味"),
-        ]:
-            module = getter()
-            if not module:
-                continue
+        volatility_surface = self.get_volatility_surface()
+        if volatility_surface:
             try:
-                module.process(awakened_market_state)
-                self.awakened_state[state_key] += 1
+                volatility_surface.sense(awakened_market_state)
+                self.awakened_state["volatility_signals"] += 1
             except Exception as e:
-                self.log.debug(f"[DecisionOrchestrator] 处理{label}失败: {e}")
+                self.log.debug(f"[DecisionOrchestrator] 处理波动率曲面失败: {e}")
+
+        prophet_sense = self.get_prophet_sense()
+        if prophet_sense:
+            try:
+                prophet_sense.sense(
+                    market_data=awakened_market_state,
+                    flow_data=None,
+                    options_data=None,
+                    narrative_data={"narratives": market_state.get("narratives", [])}
+                )
+                self.awakened_state["prophet_signals"] += 1
+            except Exception as e:
+                self.log.debug(f"[DecisionOrchestrator] 处理先知感知失败: {e}")
+
+        pre_taste = self.get_pre_taste()
+        if pre_taste and snapshot_symbol:
+            try:
+                pre_taste.pre_taste(snapshot_symbol, awakened_market_state)
+                self.awakened_state["pre_taste_count"] += 1
+            except Exception as e:
+                self.log.debug(f"[DecisionOrchestrator] 处理预尝味失败: {e}")
+
+        realtime_taste = self.get_realtime_taste()
+        if realtime_taste and snapshot_symbol:
+            try:
+                current_price = snapshot.get("price") if snapshot else None
+                if current_price:
+                    realtime_taste.taste_position(snapshot_symbol, current_price)
+                self.awakened_state["taste_signals"] += 1
+            except Exception as e:
+                self.log.debug(f"[DecisionOrchestrator] 处理实时尝味失败: {e}")
 
         return market_state

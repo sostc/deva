@@ -145,7 +145,7 @@ class TradingCenter:
         """获取波动率曲面感知"""
         if self._volatility_surface is None:
             try:
-                from deva.naja.radar.senses import VolatilitySurfaceSense
+                from deva.naja.radar.senses.volatility_surface import VolatilitySurfaceSense
                 self._volatility_surface = VolatilitySurfaceSense()
             except ImportError as e:
                 log.warning(f"[TradingCenter] 无法导入 VolatilitySurfaceSense: {e}")

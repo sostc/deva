@@ -356,19 +356,19 @@ def register_all_singletons():
 
     应在 naja 启动时调用一次（在 bootstrap 过程中）
     """
-    logger.info("=" * 60)
-    logger.info("[NajaRegister] 开始注册所有单例...")
-    logger.info("=" * 60)
+    from deva.naja.infra.log.colorful_logger import StartupVisualizer
 
-    # 1. 特殊初始化逻辑的单例（顺序敏感）
+    sv = StartupVisualizer(width=60)
+    sv.phase("📋 注册单例组件")
+
     _register_custom_singletons()
-
-    # 2. 简单实例化的单例（声明式批量注册）
     _auto_register(SIMPLE_SINGLETONS)
 
-    logger.info("=" * 60)
-    logger.info("[NajaRegister] 所有单例注册完成!")
-    logger.info("=" * 60)
+    status = get_registry_status()
+    count = len(status)
+    sv.item("单例注册", "✓", f"{count} 个组件")
+
+    logger.debug(f"[NajaRegister] 所有单例注册完成: {count} 个")
 
 
 def print_registry_status():

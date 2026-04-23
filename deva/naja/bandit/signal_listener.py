@@ -237,7 +237,16 @@ class SignalListener:
             # 只处理审批通过的决策
             if not getattr(event, 'is_approved', False):
                 decision_val = getattr(event, 'decision', None)
-                log.debug(f"[Bandit] TradeDecisionEvent 未通过审批: decision={decision_val}")
+                signal_event = getattr(event, 'signal_event', None)
+                symbol = getattr(event, 'approved_symbol', None) or (signal_event.symbol if signal_event else 'N/A')
+                log.debug(f"[Bandit] TradeDecisionEvent 未通过审批: "
+                          f"decision={decision_val} "
+                          f"股票={symbol} "
+                          f"策略={signal_event.strategy_name if signal_event else 'N/A'} "
+                          f"题材={signal_event.block_name if signal_event else 'N/A'} "
+                          f"标签={signal_event.narrative_tags if signal_event else []} "
+                          f"原因={getattr(event, 'reason', 'N/A')} "
+                          f"子系统意见={getattr(event, 'subsystems_opinions', {})}")
                 return
 
             # 提取核心字段

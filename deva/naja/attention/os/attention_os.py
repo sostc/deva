@@ -79,7 +79,12 @@ class AttentionOS:
         if self._initialized:
             return
 
-        self.kernel = OSAttentionKernel()
+        from deva.naja.register import SR
+        try:
+            trading_clock = SR('trading_clock')
+        except KeyError:
+            trading_clock = None
+        self.kernel = OSAttentionKernel(trading_clock=trading_clock)
         self.strategy_decision_maker = StrategyDecisionMaker(self.kernel)
         self._text_scorer = TextImportanceScorer(self)
 

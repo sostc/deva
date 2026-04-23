@@ -7,13 +7,8 @@ from .runtime_config import AppRuntimeConfig
 
 
 def run_web_application(config: AppRuntimeConfig):
-    print("=" * 60)
-    print("🚀 Naja 管理平台启动中...")
-    print("=" * 60)
-
     from tornado.ioloop import IOLoop
 
-    print("📂 启动系统引导流程...")
     container = AppContainer(config)
     container.boot()
 
