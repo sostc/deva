@@ -36,12 +36,13 @@ class OSAttentionKernel:
     - ValueSystem: 价值观驱动
     """
 
-    def __init__(self):
+    def __init__(self, trading_clock=None):
         self.encoder = Encoder()
         heads = get_default_heads()
         self.multi_head = MultiHeadAttention(heads)
         self.manas_engine = ManasEngine()
         self._value_system = None
+        self._trading_clock = trading_clock
 
         # 新增：类 Transformer 相关组件
         self._enable_transformer = True  # 默认启用
@@ -59,6 +60,10 @@ class OSAttentionKernel:
         self._last_output: Optional[AttentionKernelOutput] = None
         self._update_interval = 1.0
         self._last_update = 0.0
+
+    def _get_session_manager(self):
+        """获取交易时段管理器"""
+        return self._trading_clock
 
     def _get_value_system(self) -> ValueSystem:
         return self._value_system
@@ -414,7 +419,7 @@ class OSAttentionKernel:
         return self._last_output
 
     def _get_trading_clock(self):
-        return None
+        return self._trading_clock
 
     def _get_portfolio(self):
         return None

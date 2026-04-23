@@ -919,7 +919,8 @@ class RealtimeDataFetcher:
             log.debug(f"[RealtimeDataFetcher] 当前市场: {market}, 股票池: {len(stock_codes)} 只")
 
             if not stock_codes:
-                log.debug(f"[RealtimeDataFetcher] 当前市场无股票池，返回空")
+                market_label = {'us': '美股', 'a_share': 'A股', 'closed': '关闭'}.get(market, market)
+                log.debug(f"[RealtimeDataFetcher] 当前市场状态: {market_label}，股票池为空")
                 return {}
 
             async with GlobalMarketAPI() as api:

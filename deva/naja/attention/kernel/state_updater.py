@@ -196,7 +196,7 @@ class QueryStateUpdater:
             
             # 这里可以根据需要更新QueryState中的情绪或叙事相关字段
             # 例如更新市场情绪、叙事风险等
-            log.debug(f"[QueryStateUpdater] 处理文本事件: {event.source}")
+            log.info(f"[QueryStateUpdater] 处理文本事件: source={event.source}, importance={getattr(event, 'importance_score', None)}, title={getattr(event, 'title', None)[:30] if hasattr(event, 'title') and event.title else None}...")
         except Exception as e:
             log.error(f"[QueryStateUpdater] 处理文本事件失败: {e}")
     

@@ -417,7 +417,7 @@ class MarketDataBus:
         try:
             for code, quote in quotes.items():
                 normalized = _normalize_code(code)
-                self._db.set(normalized, quote.to_dict())
+                self._db.upsert(normalized, quote.to_dict())
         except Exception as e:
             log.debug(f"[MarketDataBus] 持久化行情失败: {e}")
 

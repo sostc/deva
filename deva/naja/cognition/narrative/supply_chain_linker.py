@@ -112,6 +112,21 @@ class NarrativeSupplyChainLinker:
         except Exception as e:
             log.debug(f"[SupplyChainLinker] 处理 TextFocusedEvent 失败: {e}")
 
+    def _analyze_supply_chain_impact(self, text: str, narratives: List[str], importance: float) -> None:
+        """分析文本对供应链的影响"""
+        if not text or not narratives or importance < 0.3:
+            return
+
+        impacts = self.analyze_news_impact(text, narratives)
+
+        if impacts:
+            for narrative in narratives:
+                self.on_narrative_boost(narrative, boost_factor=1.0 + importance * 0.3)
+
+            self._publish_supply_chain_event(None, impacts)
+
+        self._last_update = time.time()
+
     def _publish_supply_chain_event(self, event, impacts: List):
         """
         🚀 发布供应链影响事件到 NajaEventBus
@@ -136,9 +151,18 @@ class NarrativeSupplyChainLinker:
                 risk_level = "MEDIUM"
 
             from deva.naja.events import SupplyChainRiskEvent
+            severity = 0.5
+            if risk_level == "HIGH":
+                severity = 0.8
+            elif risk_level == "MEDIUM":
+                severity = 0.6
+
             event = SupplyChainRiskEvent(
                 source="SupplyChainLinker",
-                event_type="narrative_supply_link",
+                risk_type="narrative_supply_link",
+                impacted_symbols=stock_codes,
+                severity=severity,
+                expected_impact=f"叙事供应链联动事件，影响 {len(stock_codes)} 只股票",
             )
             bus.publish(event)
         except ImportError:
