@@ -42,6 +42,12 @@ FUTURES_CODES = {
     "hf_NG": "natural_gas",
 }
 
+INDEX_CODES = {
+    "sh000001": "上证指数",
+    "s_sh000300": "沪深300",
+    "sz399006": "创业板",
+}
+
 
 def _get_china_codes() -> set:
     """获取A股代码集合（仅活跃股票）"""
@@ -339,12 +345,79 @@ class GlobalMarketAPI:
             log.debug(f"解析A股失败: {line[:50]}... error: {e}")
             return None
 
+    def _parse_index_line(self, line: str, sina_code: str) -> Optional[MarketData]:
+        """解析指数数据行
+
+        指数新浪数据格式（与A股不同）：
+        - sh000001: name,current,prev_close,high,low,...
+        - s_sh000300: name,price,change,change_pct,...
+        """
+        try:
+            prefix, data = line.split('="')
+            data = data.rstrip('"')
+            if not data:
+                return None
+            fields = data.split(",")
+
+            if len(fields) < 4:
+                return None
+
+            name = INDEX_CODES.get(sina_code, fields[0]) if fields[0] else INDEX_CODES.get(sina_code, sina_code)
+
+            if sina_code == 'sh000001':
+                current = float(fields[1]) if fields[1] else 0
+                prev_close = float(fields[2]) if fields[2] else 0
+                high = float(fields[3]) if fields[3] else 0
+                low = float(fields[4]) if fields[4] else 0 if len(fields) > 4 else 0
+                change = current - prev_close if current and prev_close else 0
+                change_pct = (change / prev_close * 100) if prev_close else 0
+                open_price = 0
+            elif sina_code == 's_sh000300':
+                current = float(fields[1]) if fields[1] else 0
+                change = float(fields[2]) if fields[2] else 0
+                change_pct = float(fields[3]) if fields[3] else 0
+                prev_close = current - change if current and change else 0
+                high = 0
+                low = 0
+                open_price = 0
+            elif sina_code == 'sz399006':
+                current = float(fields[1]) if fields[1] else 0
+                prev_close = float(fields[2]) if fields[2] else 0
+                high = float(fields[3]) if fields[3] else 0
+                low = float(fields[4]) if len(fields) > 4 and fields[4] else 0
+                change = current - prev_close if current and prev_close else 0
+                change_pct = (change / prev_close * 100) if prev_close else 0
+                open_price = 0
+            else:
+                return None
+
+            return MarketData(
+                code=sina_code,
+                market_id=f"index:{sina_code}",
+                name=name,
+                current=current,
+                open=open_price,
+                high=high,
+                low=low,
+                prev_close=prev_close,
+                change=change,
+                change_pct=change_pct,
+                volume=0,
+                update_time="",
+                update_date="",
+                timestamp=datetime.now().timestamp(),
+            )
+        except Exception as e:
+            log.debug(f"解析指数失败: {line[:50]}... error: {e}")
+            return None
+
     def _parse_response(self, text: str, codes: List[str]) -> Dict[str, MarketData]:
         """解析响应"""
         result = {}
         futures_codes = set(FUTURES_CODES.keys())
         us_codes = set(_get_us_stock_codes().keys())
         china_codes = _get_china_codes()
+        index_codes = set(INDEX_CODES.keys())
 
         for line in text.strip().split("\n"):
             if not line or '="' not in line:
@@ -362,8 +435,11 @@ class GlobalMarketAPI:
                     parsed = self._parse_us_stock_line(line)
                     if parsed:
                         result[code_part] = parsed
+                elif full_code in index_codes:
+                    parsed = self._parse_index_line(line, full_code)
+                    if parsed:
+                        result[full_code] = parsed
                 elif full_code in china_codes:
-                    # A股解析
                     parsed = self._parse_china_stock_line(line, full_code)
                     if parsed:
                         result[full_code] = parsed
@@ -469,6 +545,10 @@ class GlobalMarketAPI:
     async def fetch_us_stocks(self) -> Dict[str, MarketData]:
         """获取美股数据"""
         return await self.fetch(list(_get_us_stock_codes().keys()))
+
+    async def fetch_indices(self) -> Dict[str, MarketData]:
+        """获取A股指数数据（上证指数、沪深300、创业板）"""
+        return await self.fetch(list(INDEX_CODES.keys()))
 
     async def fetch_all(self) -> Dict[str, MarketData]:
         """获取所有市场数据"""
