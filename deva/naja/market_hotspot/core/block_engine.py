@@ -265,7 +265,10 @@ class BlockHotspotEngine:
                     old_score = 0.0
 
                 new_score_capped = max(0.0, min(1.0, new_score))
-                blended_score = max(new_score_capped, old_score * decay_factor)
+                # 修复：使用带学习率的更新机制，而不是 max 或简单加权平均
+                # 学习率 0.3 允许分数根据新数据逐步调整
+                learning_rate = 0.3
+                blended_score = old_score + learning_rate * (new_score_capped - old_score)
                 blended_score = max(0.0, min(1.0, blended_score))
 
                 if abs(blended_score - old_score) > self.update_threshold:
@@ -297,8 +300,11 @@ class BlockHotspotEngine:
                         if attn_weights.size > 0:
                             attention_score = np.mean(attn_weights[0, :, i, :])  # 取所有头的平均
                             current_score = float(self._block_hotspot_scores[idx])
-                            enhanced_score = current_score * (1 + attention_score * 0.1)
-                            self._block_hotspot_scores[idx] = min(1.0, enhanced_score)
+                            # 修复：使用加减机制而不是乘法，避免分数持续增加导致都变成1.0
+                            # attention_score 范围 [-1, 1]，正数增加分数，负数减少分数
+                            adjustment = attention_score * 0.05  # 调整幅度 5%
+                            enhanced_score = current_score + adjustment
+                            self._block_hotspot_scores[idx] = max(0.0, min(1.0, enhanced_score))
             
             # 应用Transformer增强器
             if active_block_ids:
@@ -328,12 +334,15 @@ class BlockHotspotEngine:
                             if block_id in self._blocks:
                                 idx = self._block_id_to_idx[block_id]
                                 current_score = float(self._block_hotspot_scores[idx])
-                                # 根据预测趋势调整分数
+                                # 修复：使用加减机制而不是乘法，避免分数持续增加导致都变成1.0
+                                # confidence 范围 [0, 1]，trend 为 'up' 或 'down'
+                                confidence = prediction.get('confidence', 0.5)
                                 if prediction['trend'] == 'up':
-                                    enhanced_score = current_score * (1 + prediction['confidence'] * 0.1)
+                                    adjustment = confidence * 0.1  # 上涨时增加
                                 else:
-                                    enhanced_score = current_score * (1 - prediction['confidence'] * 0.05)
-                                self._block_hotspot_scores[idx] = min(1.0, max(0.0, enhanced_score))
+                                    adjustment = -confidence * 0.1  # 下跌时减少
+                                enhanced_score = current_score + adjustment
+                                self._block_hotspot_scores[idx] = max(0.0, min(1.0, enhanced_score))
 
             self._cleanup_stale_blocks(timestamp)
         except Exception as e:
@@ -460,11 +469,15 @@ class BlockHotspotEngine:
         else:
             volume_score = 0.0
         
-        # 3. 内部相关性 (使用收益率标准差作为代理)
+        # 3. 内部相关性 (使用收益率离散程度作为代理)
+        # 修复：使用离散系数（CV = std/mean）来衡量分化程度，而不是硬编码 3.0
         if len(returns) > 1:
+            return_mean = np.mean(returns)
             return_std = np.std(returns)
-            # 标准差适中表示有分化但又有联动
-            correlation_score = 1.0 - abs(return_std - 3.0) / 3.0
+            # 离散系数 CV 越大表示分化越严重，CV = 0 表示完全同步
+            # 使用 1 / (1 + CV) 来衡量同步程度，越同步分数越高
+            cv = abs(return_std / (abs(return_mean) + 1e-6))
+            correlation_score = 1.0 / (1.0 + cv)
             correlation_score = max(0.0, min(1.0, correlation_score))
         else:
             correlation_score = 0.0

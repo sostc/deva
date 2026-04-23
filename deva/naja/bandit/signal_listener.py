@@ -299,7 +299,7 @@ class SignalListener:
 
             # 置信度过滤
             if signal.confidence < self._min_confidence:
-                log.debug(f"[Bandit] TradeDecisionEvent 置信度不足: {signal.confidence:.3f} < {self._min_confidence:.3f}")
+                log.info(f"[Bandit] TradeDecisionEvent 置信度不足: {signal.confidence:.3f} < {self._min_confidence:.3f}")
                 return
 
             log.info(f"[Bandit] 📥 收到 TradeDecisionEvent: {signal.signal_type} {symbol} approval_score={approval_score:.2f}")
