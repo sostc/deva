@@ -154,7 +154,34 @@ class FrequencyScheduler:
         self._last_schedule_time = timestamp
         
         return final_levels
-    
+
+    def recalculate_levels_from_weights(self):
+        """从存储的权重重新计算所有符号的档位（用于状态恢复后）"""
+        import time
+        timestamp = time.time()
+
+        for idx in range(len(self._symbol_to_idx)):
+            symbol = self._idx_to_symbol.get(idx)
+            if symbol is None:
+                continue
+
+            if symbol in self._protected_symbols:
+                self._current_levels[idx] = FrequencyLevel.HIGH.value
+                continue
+
+            weight = self._last_weights[idx]
+
+            if weight < self.config.low_threshold:
+                level = FrequencyLevel.LOW
+            elif weight < self.config.high_threshold:
+                level = FrequencyLevel.MEDIUM
+            else:
+                level = FrequencyLevel.HIGH
+
+            self._current_levels[idx] = level.value
+
+        self._last_schedule_time = timestamp
+
     def _calc_target_levels(
         self,
         symbol_weights: Dict[str, float]
@@ -389,6 +416,8 @@ class FrequencyScheduler:
 
             self._switch_count = state.get('switch_count', 0)
             self._last_schedule_time = state.get('last_schedule_time', 0.0)
+
+            self.recalculate_levels_from_weights()
 
             return True
         except Exception as e:
