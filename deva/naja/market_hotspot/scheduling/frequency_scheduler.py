@@ -31,8 +31,8 @@ class FrequencyLevel(Enum):
 @dataclass
 class FrequencyConfig:
     """频率配置"""
-    low_threshold: float = 1.0    # 低于此值为低频
-    high_threshold: float = 2.5   # 高于此值为高频
+    low_threshold: float = 1.2
+    high_threshold: float = 2.5
 
     low_interval: float = 60.0
     medium_interval: float = 10.0

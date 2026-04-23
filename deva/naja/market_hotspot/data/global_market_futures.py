@@ -44,21 +44,21 @@ FUTURES_CODES = {
 
 
 def _get_china_codes() -> set:
-    """获取A股代码集合"""
+    """获取A股代码集合（仅活跃股票）"""
     try:
         from deva.naja.dictionary.blocks import get_block_dictionary
         bd = get_block_dictionary()
-        return set(bd.get_all_stocks('CN'))
+        return set(bd.get_active_stocks('CN'))
     except Exception:
         return set()
 
 
 def _get_us_stock_codes() -> Dict[str, str]:
-    """从 BlockDictionary 获取美股代码（Sina格式：gb_nvda）"""
+    """从 BlockDictionary 获取美股代码（Sina格式：gb_nvda，仅活跃股票）"""
     try:
         from deva.naja.dictionary.blocks import get_block_dictionary
         bd = get_block_dictionary()
-        us_codes = bd.get_all_stocks('US')
+        us_codes = bd.get_active_stocks('US')
         result = {}
         for code in us_codes:
             info = bd.get_stock_info(code)
@@ -113,10 +113,10 @@ def get_current_stock_codes() -> Dict[str, str]:
     bd = get_block_dictionary()
 
     if market == "us":
-        us_codes = bd.get_all_stocks('US')
+        us_codes = bd.get_active_stocks('US')
         return {f"gb_{code}": bd.get_stock_info(code).name for code in us_codes if bd.get_stock_info(code)}
     elif market == "a_share":
-        cn_codes = bd.get_all_stocks('CN')
+        cn_codes = bd.get_active_stocks('CN')
         return {code: bd.get_stock_info(code).name for code in cn_codes if bd.get_stock_info(code)}
     else:
         return {}
