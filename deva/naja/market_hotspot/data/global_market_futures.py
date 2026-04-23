@@ -548,21 +548,9 @@ class GlobalMarketAPI:
                     log.debug(f"[GlobalMarketAPI] 批次 {batch_idx + 1} 成功获取 {len(result)} 个数据")
                     all_results.update(result)
                 else:
-                    log.info(f"[GlobalMarketAPI] aiohttp 批次 {batch_idx + 1} 失败，fallback 到 requests")
-                    result = await self._fetch_batch_sync(batch, max_retries)
-                    if result:
-                        log.debug(f"[GlobalMarketAPI] requests 批次 {batch_idx + 1} 成功获取 {len(result)} 个数据")
-                        all_results.update(result)
-                    else:
-                        log.warning(f"[GlobalMarketAPI] 批次 {batch_idx + 1} 完全失败")
+                    log.warning(f"[GlobalMarketAPI] 批次 {batch_idx + 1} 异步获取失败，跳过")
             else:
-                # 直接使用同步方式
-                result = await self._fetch_batch_sync(batch, max_retries)
-                if result:
-                    log.debug(f"[GlobalMarketAPI] requests 批次 {batch_idx + 1} 成功获取 {len(result)} 个数据")
-                    all_results.update(result)
-                else:
-                    log.warning(f"[GlobalMarketAPI] 批次 {batch_idx + 1} 完全失败")
+                log.warning(f"[GlobalMarketAPI] 批次 {batch_idx + 1} 无法获取 session，跳过")
 
             if batch_idx < len(batches) - 1:
                 await asyncio.sleep(0.3)
