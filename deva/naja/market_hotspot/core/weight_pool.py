@@ -26,10 +26,10 @@ log = logging.getLogger(__name__)
 @dataclass
 class SymbolWeightConfig:
     """个股权重配置"""
-    base_weight: float = 1.0  # 基础权重
-    max_weight: float = 5.0   # 最大权重
-    min_weight: float = 0.1   # 最小权重
-    local_activity_sensitivity: float = 1.0  # 本地活动敏感度
+    base_weight: float = 1.5
+    max_weight: float = 5.0
+    min_weight: float = 0.1
+    local_activity_sensitivity: float = 1.5
 
 
 class WeightPool:

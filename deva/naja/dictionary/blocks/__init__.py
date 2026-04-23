@@ -54,6 +54,7 @@ class StockBasicInfo:
     market: str
     exchange: str
     stock_type: str
+    status: str = "active"
 
 
 class BlockDictionary:
@@ -208,7 +209,8 @@ class BlockDictionary:
                     name=info.get('name', code),
                     market=self._infer_market(code),
                     exchange=self._infer_exchange(code),
-                    stock_type=info.get('stock_type', 'A')
+                    stock_type=info.get('stock_type', 'A'),
+                    status=info.get('status', 'active')
                 )
 
             log.info(f"[BlockDictionary] 加载A股股票: {len(self._cn_stocks)} 只")
@@ -233,7 +235,8 @@ class BlockDictionary:
                     name=info.get('name', code),
                     market='US',
                     exchange=info.get('exchange', 'NASDAQ'),
-                    stock_type='US'
+                    stock_type='US',
+                    status=info.get('status', 'active')
                 )
 
             if not stock_metadata:
@@ -348,12 +351,34 @@ class BlockDictionary:
         return block.stocks if block else []
 
     def get_all_stocks(self, market: str = 'CN') -> Set[str]:
-        """获取指定市场的所有股票代码"""
+        """获取指定市场的所有股票代码（仅包含在stocks字典中有记录的）"""
         if market == 'CN':
-            return set(self._cn_stock_to_blocks.keys())
+            return set(self._cn_stocks.keys())
         elif market == 'US':
-            return set(self._us_stock_to_blocks.keys())
+            return set(self._us_stocks.keys())
         return set()
+
+    def get_active_stocks(self, market: str = 'CN') -> Set[str]:
+        """获取指定市场的活跃股票代码（排除退市和停牌）"""
+        if market == 'CN':
+            stocks = self._cn_stocks
+        elif market == 'US':
+            stocks = self._us_stocks
+        else:
+            return set()
+
+        return {
+            code for code, info in stocks.items()
+            if info.status == 'active'
+        }
+
+    def update_stock_status(self, code: str, status: str):
+        """更新股票状态"""
+        code_lower = code.lower()
+        if code_lower in self._cn_stocks:
+            self._cn_stocks[code_lower].status = status
+        elif code_lower in self._us_stocks:
+            self._us_stocks[code_lower].status = status
 
     def get_stock_info(self, code: str) -> Optional[StockBasicInfo]:
         """获取股票基础信息"""
@@ -422,6 +447,11 @@ def get_block_info(block_id: str, market: str = 'CN') -> Optional[BlockInfo]:
 def get_all_blocks(market: str = 'CN') -> List[BlockInfo]:
     """快捷函数：获取指定市场的所有Block"""
     return get_block_dictionary().get_blocks(market)
+
+
+def get_active_stocks(market: str = 'CN') -> Set[str]:
+    """快捷函数：获取指定市场的活跃股票代码"""
+    return get_block_dictionary().get_active_stocks(market)
 
 
 def get_stock_info(code: str) -> Optional[StockBasicInfo]:
