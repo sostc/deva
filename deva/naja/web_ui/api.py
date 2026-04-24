@@ -121,58 +121,6 @@ def _get_hot_blocks_and_stocks(market: str = 'CN') -> Dict[str, Any]:
         return {"blocks": [], "stocks": []}
 
 
-class HotspotHandler(RequestHandler):
-    """热点题材和股票API端点"""
-
-    def set_default_headers(self):
-        """设置默认响应头"""
-        self.set_header("Content-Type", "application/json; charset=utf-8")
-        self.set_header("Access-Control-Allow-Origin", "*")
-        self.set_header("Access-Control-Allow-Methods", "GET, OPTIONS")
-        self.set_header("Access-Control-Allow-Headers", "Content-Type")
-
-    def options(self):
-        """处理OPTIONS请求"""
-        self.set_status(204)
-        self.finish()
-
-    def get(self):
-        """获取热点题材和股票数据
-
-        Query Parameters:
-            market: 市场类型 ('CN' 或 'US')，默认返回所有市场
-        """
-        try:
-            market = self.get_argument('market', None)
-            result = {
-                "timestamp": time.time(),
-                "datetime": time.strftime("%Y-%m-%d %H:%M:%S"),
-                "success": True
-            }
-
-            if market == 'CN':
-                cn_data = _get_hot_blocks_and_stocks('CN')
-                result["data"] = {"cn": cn_data}
-            elif market == 'US':
-                us_data = _get_hot_blocks_and_stocks('US')
-                result["data"] = {"us": us_data}
-            else:
-                cn_data = _get_hot_blocks_and_stocks('CN')
-                us_data = _get_hot_blocks_and_stocks('US')
-                result["data"] = {"cn": cn_data, "us": us_data}
-
-            self.write(json.dumps(result, ensure_ascii=False))
-        except Exception as e:
-            error_result = {
-                "timestamp": time.time(),
-                "datetime": time.strftime("%Y-%m-%d %H:%M:%S"),
-                "success": False,
-                "error": str(e)
-            }
-            self.set_status(500)
-            self.write(json.dumps(error_result, ensure_ascii=False))
-
-
 class HealthHandler(RequestHandler):
     """健康检查端点"""
 

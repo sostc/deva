@@ -124,11 +124,11 @@ def restore_bandit_state():
         if hasattr(cycle, '_restore_running_state'):
             cycle._restore_running_state()
         else:
-            if hasattr(runner, 'start') and hasattr(runner, '_running') and not runner._running:
+            if hasattr(runner, 'start') and hasattr(runner, '_running') and runner._running:
                 runner.start()
-            if hasattr(listener, 'start') and hasattr(listener, '_running') and not listener._running:
+            if hasattr(listener, 'start') and hasattr(listener, '_running') and listener._running:
                 listener.start()
-            if hasattr(observer, 'start') and hasattr(observer, '_running') and not observer._running:
+            if hasattr(observer, 'start') and hasattr(observer, '_running') and observer._running:
                 observer.start()
     except Exception as e:
         log.error(f"恢复 Bandit 状态失败: {e}")

@@ -548,21 +548,25 @@ class GlobalMarketAPI:
                 log.warning(f"[GlobalMarketAPI] 批次 {batch_idx + 1} 无法获取 session，跳过")
                 continue
 
-            result = await self._fetch_batch(batch, session, max_retries)
-            if result is None:
-                log.warning(f"[GlobalMarketAPI] 批次 {batch_idx + 1} session 失效，尝试重建 session 重试")
-                session = await self._get_session()
-                if session is None:
-                    log.warning(f"[GlobalMarketAPI] 批次 {batch_idx + 1} 重建 session 失败，跳过")
-                    continue
+            try:
                 result = await self._fetch_batch(batch, session, max_retries)
                 if result is None:
-                    log.warning(f"[GlobalMarketAPI] 批次 {batch_idx + 1} 重试仍失败，跳过")
-                    continue
+                    log.warning(f"[GlobalMarketAPI] 批次 {batch_idx + 1} session 失效，尝试重建 session 重试")
+                    await session.close()
+                    session = await self._get_session()
+                    if session is None:
+                        log.warning(f"[GlobalMarketAPI] 批次 {batch_idx + 1} 重建 session 失败，跳过")
+                        continue
+                    result = await self._fetch_batch(batch, session, max_retries)
+                    if result is None:
+                        log.warning(f"[GlobalMarketAPI] 批次 {batch_idx + 1} 重试仍失败，跳过")
+                        continue
 
-            if result:
-                log.debug(f"[GlobalMarketAPI] 批次 {batch_idx + 1} 成功获取 {len(result)} 个数据")
-                all_results.update(result)
+                if result:
+                    log.debug(f"[GlobalMarketAPI] 批次 {batch_idx + 1} 成功获取 {len(result)} 个数据")
+                    all_results.update(result)
+            finally:
+                await session.close()
 
             if batch_idx < len(batches) - 1:
                 await asyncio.sleep(0.3)

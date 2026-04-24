@@ -4,6 +4,6 @@
 
 while true; do
   echo "$(date) - 系统状态检查"
-  curl -s http://localhost:8080/api/system/status | jq '.data.overall'
+  curl -s http://localhost:8080/api/system/runtime | jq '.data.overall'
   sleep 60
 done

@@ -12,8 +12,8 @@ description: 提供 naja 系统 API 端点的调用能力，方便用户通过 c
 - **认知系统 API**: 记忆报告、主题信号、注意力提示、思想报告
 - **注意力系统 API**: Manas 末那识状态、和谐度、决策、信念验证、时机信号、持仓汇总、持仓指标、跟踪统计、关注焦点、融合信号、盲区发现、流动性、策略 Top 股票/题材、注意力上下文
 - **知识库 API**: 知识列表、知识统计、知识详情、交易决策知识
-- **市场热点 API**: 市场状态、热点详情、双市场热点（A股+美股）
-- **系统监控 API**: 系统状态、模块状态
+- **市场热点 API**: 双市场热点（A股+美股）
+- **系统监控 API**: 系统运行时监控、模块状态
 - **雷达系统 API**: 雷达事件
 - **Bandit 系统 API**: 决策统计（运行状态、当前阶段）
 - **数据源和策略 API**: 数据源列表、策略列表
@@ -69,15 +69,13 @@ description: 提供 naja 系统 API 端点的调用能力，方便用户通过 c
 
 | 端点 | 方法 | 描述 |
 |------|------|------|
-| `/api/market/state` | GET | 获取市场状态 |
 | `/api/market/hotspot` | GET | 获取双市场热点（A股+美股） |
-| `/api/market/hotspot/details` | GET | 获取市场热点详情 |
 
 ### 系统监控
 
 | 端点 | 方法 | 描述 |
 |------|------|------|
-| `/api/system/status` | GET | 获取系统状态（10/10 模块健康） |
+| `/api/system/runtime` | GET | 获取系统运行时监控数据（CPU、内存、模块健康状态） |
 | `/api/system/modules` | GET | 获取系统模块状态 |
 | `/api/health` | GET | 健康检查 |
 
@@ -97,7 +95,7 @@ description: 提供 naja 系统 API 端点的调用能力，方便用户通过 c
 |------|------|------|
 | `/api/registry/status` | GET | 获取单例注册表状态 |
 | `/api/query/state` | GET | 获取查询状态（注意力焦点、市场状态、价值观等） |
-| `/api/system/state` | GET | 获取系统持久化状态 |
+| `/api/system/persistent` | GET | 获取系统持久化状态快照 |
 | `/api/events/query` | GET | 查询历史事件（支持多种过滤条件） |
 | `/api/events/stats` | GET | 获取事件统计信息 |
 | `/api/app/container` | GET | 获取应用容器状态和启动报告 |
@@ -107,8 +105,8 @@ description: 提供 naja 系统 API 端点的调用能力，方便用户通过 c
 ### 1. 基本 curl 调用
 
 ```bash
-# 获取系统状态
-curl -s http://localhost:8080/api/system/status | jq '.data.overall'
+# 获取系统运行时监控
+curl -s http://localhost:8080/api/system/runtime | jq '.data.overall'
 
 # 获取认知记忆（含叙事、用户关注）
 curl -s http://localhost:8080/api/cognition/memory | jq '.data.narratives.summary'
@@ -131,7 +129,7 @@ curl -s http://localhost:8080/api/registry/status | jq '.data'
 curl -s http://localhost:8080/api/query/state | jq '.data'
 
 # 获取系统持久化状态
-curl -s http://localhost:8080/api/system/state | jq '.data'
+curl -s http://localhost:8080/api/system/persistent | jq '.data'
 
 # 查询事件
 curl -s "http://localhost:8080/api/events/query?event_type=StrategySignalEvent&symbol=000001&days=7" | jq '.data'
@@ -163,7 +161,7 @@ curl -s "http://localhost:8080/api/cognition/topics?lookback=100"
 
 ```bash
 # 一键采集所有关键数据
-curl -s http://localhost:8080/api/system/status | jq '.data.overall'
+curl -s http://localhost:8080/api/system/runtime | jq '.data.overall'
 curl -s http://localhost:8080/api/cognition/memory | jq '.data.narratives.summary'
 curl -s http://localhost:8080/api/attention/manas/state | jq '.data.enabled'
 curl -s http://localhost:8080/api/attention/harmony | jq '.data'
@@ -175,7 +173,7 @@ curl -s http://localhost:8080/api/bandit/stats | jq '.data'
 ### 4. Python 客户端
 
 ```bash
-python3 scripts/api_client.py system-status
+python3 scripts/api_client.py system-runtime
 python3 scripts/api_client.py knowledge-list --status qualified
 python3 scripts/api_client.py manas-state
 python3 scripts/api_client.py harmony
@@ -188,8 +186,8 @@ python3 scripts/api_client.py registry-status
 # 获取查询状态
 python3 scripts/api_client.py query-state
 
-# 获取系统状态
-python3 scripts/api_client.py system-state
+# 获取系统持久化状态
+python3 scripts/api_client.py system-persistent
 
 # 查询事件
 python3 scripts/api_client.py event-query --event-type StrategySignalEvent --symbol 000001 --days 7

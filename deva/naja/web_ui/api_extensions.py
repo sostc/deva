@@ -287,8 +287,8 @@ class CognitionThoughtHandler(RequestHandler):
             self.write(json.dumps(error_result, ensure_ascii=False))
 
 
-class MarketStateHandler(RequestHandler):
-    """市场状态 API 端点"""
+class SystemRuntimeHandler(RequestHandler):
+    """系统运行时监控 API 端点"""
 
     def set_default_headers(self):
         """设置默认响应头"""
@@ -303,104 +303,7 @@ class MarketStateHandler(RequestHandler):
         self.finish()
 
     def get(self):
-        """获取市场状态"""
-        try:
-            integration = _get_market_hotspot_integration()
-            if not integration or not integration.hotspot_system:
-                result = {
-                    "timestamp": time.time(),
-                    "success": False,
-                    "error": "市场热点系统未初始化"
-                }
-                self.write(json.dumps(result, ensure_ascii=False))
-                return
-
-            market_state = integration.hotspot_system.global_hotspot.get_market_state()
-            result = {
-                "timestamp": time.time(),
-                "datetime": time.strftime("%Y-%m-%d %H:%M:%S"),
-                "success": True,
-                "data": market_state
-            }
-            self.write(json.dumps(result, ensure_ascii=False))
-        except Exception as e:
-            error_result = {
-                "timestamp": time.time(),
-                "datetime": time.strftime("%Y-%m-%d %H:%M:%S"),
-                "success": False,
-                "error": str(e)
-            }
-            self.set_status(500)
-            self.write(json.dumps(error_result, ensure_ascii=False))
-
-
-class MarketHotspotDetailsHandler(RequestHandler):
-    """市场热点详情 API 端点"""
-
-    def set_default_headers(self):
-        """设置默认响应头"""
-        self.set_header("Content-Type", "application/json; charset=utf-8")
-        self.set_header("Access-Control-Allow-Origin", "*")
-        self.set_header("Access-Control-Allow-Methods", "GET, OPTIONS")
-        self.set_header("Access-Control-Allow-Headers", "Content-Type")
-
-    def options(self):
-        """处理OPTIONS请求"""
-        self.set_status(204)
-        self.finish()
-
-    def get(self):
-        """获取市场热点详情"""
-        try:
-            integration = _get_market_hotspot_integration()
-            if not integration or not integration.hotspot_system:
-                result = {
-                    "timestamp": time.time(),
-                    "success": False,
-                    "error": "市场热点系统未初始化"
-                }
-                self.write(json.dumps(result, ensure_ascii=False))
-                return
-
-            # 这里需要获取市场快照数据
-            # 暂时返回空数据结构
-            result = {
-                "timestamp": time.time(),
-                "datetime": time.strftime("%Y-%m-%d %H:%M:%S"),
-                "success": True,
-                "data": {
-                    "message": "市场热点详情功能待实现"
-                }
-            }
-            self.write(json.dumps(result, ensure_ascii=False))
-        except Exception as e:
-            error_result = {
-                "timestamp": time.time(),
-                "datetime": time.strftime("%Y-%m-%d %H:%M:%S"),
-                "success": False,
-                "error": str(e)
-            }
-            self.set_status(500)
-            self.write(json.dumps(error_result, ensure_ascii=False))
-
-
-class SystemStatusHandler(RequestHandler):
-    """系统状态 API 端点"""
-
-    def set_default_headers(self):
-        """设置默认响应头"""
-        self.set_header("Content-Type", "application/json; charset=utf-8")
-        self.set_header("Access-Control-Allow-Origin", "*")
-        self.set_header("Access-Control-Allow-Methods", "GET, OPTIONS")
-        self.set_header("Access-Control-Allow-Headers", "Content-Type")
-
-    def options(self):
-        """处理OPTIONS请求"""
-        self.set_status(204)
-        self.finish()
-
-    def get(self):
-        """获取系统状态"""
+        """获取系统运行时监控数据"""
         try:
             monitor = _get_system_monitor()
             if not monitor:
@@ -998,8 +901,8 @@ class QueryStateHandler(RequestHandler):
             self.write(json.dumps(error_result, ensure_ascii=False))
 
 
-class SystemStateHandler(RequestHandler):
-    """系统状态持久化 API 端点"""
+class SystemPersistentStateHandler(RequestHandler):
+    """系统持久化状态 API 端点"""
 
     def set_default_headers(self):
         """设置默认响应头"""
@@ -1014,7 +917,7 @@ class SystemStateHandler(RequestHandler):
         self.finish()
 
     def get(self):
-        """获取系统状态"""
+        """获取系统持久化状态快照"""
         try:
             from deva.naja.register import SR
             system_state_manager = SR('system_state_manager')
