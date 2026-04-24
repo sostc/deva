@@ -172,37 +172,24 @@ class GlobalMarketAPI:
 
     def __init__(self, codes: Optional[List[str]] = None):
         self.codes = codes or list(ALL_CODES.keys())
-        self._session: Optional[aiohttp.ClientSession] = None
 
     async def __aenter__(self):
         return self
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
-        await self.close()
         return False
 
-    async def close(self):
-        """关闭 session"""
-        if self._session and not self._session.closed:
-            await self._session.close()
-            self._session = None
-
-    async def _get_session(self) -> aiohttp.ClientSession:
-        if self._session is None or self._session.closed:
-            if self._session is not None and self._session.closed:
-                self._session = None
-            try:
-                self._session = aiohttp.ClientSession(
-                    connector=aiohttp.TCPConnector(limit=20, limit_per_host=10),
-                    timeout=aiohttp.ClientTimeout(total=30),
-                )
-            except RuntimeError as e:
-                if "Event loop is closed" in str(e):
-                    log.warning("[GlobalMarketAPI] 事件循环已关闭，将使用同步 requests fallback")
-                    self._session = None
-                    return None
-                raise
-        return self._session
+    async def _get_session(self) -> Optional[aiohttp.ClientSession]:
+        try:
+            return aiohttp.ClientSession(
+                connector=aiohttp.TCPConnector(limit=20, limit_per_host=10),
+                timeout=aiohttp.ClientTimeout(total=30),
+            )
+        except RuntimeError as e:
+            if "Event loop is closed" in str(e):
+                log.warning("[GlobalMarketAPI] 无法创建 session: 事件循环已关闭")
+                return None
+            raise
 
     def _parse_futures_line(self, line: str) -> Optional[MarketData]:
         """解析期货数据行"""
@@ -462,8 +449,8 @@ class GlobalMarketAPI:
                 continue
         return result
 
-    async def _fetch_batch(self, codes: List[str], session: aiohttp.ClientSession, max_retries: int = 3) -> Dict[str, MarketData]:
-        """单批次获取（带重试）"""
+    async def _fetch_batch(self, codes: List[str], session: aiohttp.ClientSession, max_retries: int = 3) -> Optional[Dict[str, MarketData]]:
+        """单批次获取（带重试）Returns None if session is invalid (event loop closed)"""
         for attempt in range(1, max_retries + 1):
             try:
                 codes_str = ",".join(codes)
@@ -471,23 +458,39 @@ class GlobalMarketAPI:
 
                 async with session.get(url, headers=SINA_HEADERS) as resp:
                     if resp.status != 200:
+                        log.warning(f"[GlobalMarketAPI] 批次 {codes[:3]}... HTTP {resp.status}, 重试 {attempt}/{max_retries}")
                         if attempt < max_retries:
                             await asyncio.sleep(1 * attempt)
                             continue
                         return {}
                     text = await resp.text()
                     if not text or not text.strip():
+                        log.warning(f"[GlobalMarketAPI] 批次 {codes[:3]}... 响应为空, 重试 {attempt}/{max_retries}")
                         if attempt < max_retries:
                             await asyncio.sleep(1 * attempt)
                             continue
                         return {}
-                    return self._parse_response(text, codes)
+                    parsed = self._parse_response(text, codes)
+                    if not parsed:
+                        log.warning(f"[GlobalMarketAPI] 批次 {codes[:3]}... 解析结果为空, 响应前100字符: {text[:100]}")
+                    return parsed
             except asyncio.TimeoutError:
+                log.warning(f"[GlobalMarketAPI] 批次 {codes[:3]}... 超时, 重试 {attempt}/{max_retries}")
                 if attempt < max_retries:
                     await asyncio.sleep(1 * attempt)
                     continue
                 return {}
-            except Exception:
+            except RuntimeError as e:
+                if "Event loop is closed" in str(e):
+                    log.warning(f"[GlobalMarketAPI] 批次 {codes[:3]}... 事件循环已关闭，返回 None 让调用方重建 session")
+                    return None
+                log.warning(f"[GlobalMarketAPI] 批次 {codes[:3]}... RuntimeError: {e}, 重试 {attempt}/{max_retries}")
+                if attempt < max_retries:
+                    await asyncio.sleep(1 * attempt)
+                    continue
+                return {}
+            except Exception as e:
+                log.warning(f"[GlobalMarketAPI] 批次 {codes[:3]}... 异常: {type(e).__name__}: {e}, 重试 {attempt}/{max_retries}")
                 if attempt < max_retries:
                     await asyncio.sleep(1 * attempt)
                     continue
@@ -535,22 +538,31 @@ class GlobalMarketAPI:
             log.info(f"[GlobalMarketAPI] 分 {len(batches)} 批获取市场数据, 每批最多 {BATCH_SIZE} 个")
 
         all_results = {}
-        session = await self._get_session()
 
         for batch_idx, batch in enumerate(batches):
             if len(batches) > 1:
                 log.debug(f"[GlobalMarketAPI] 获取第 {batch_idx + 1}/{len(batches)} 批 ({len(batch)} 个)")
 
-            # 先尝试异步获取
-            if session is not None:
-                result = await self._fetch_batch(batch, session, max_retries)
-                if result:
-                    log.debug(f"[GlobalMarketAPI] 批次 {batch_idx + 1} 成功获取 {len(result)} 个数据")
-                    all_results.update(result)
-                else:
-                    log.warning(f"[GlobalMarketAPI] 批次 {batch_idx + 1} 异步获取失败，跳过")
-            else:
+            session = await self._get_session()
+            if session is None:
                 log.warning(f"[GlobalMarketAPI] 批次 {batch_idx + 1} 无法获取 session，跳过")
+                continue
+
+            result = await self._fetch_batch(batch, session, max_retries)
+            if result is None:
+                log.warning(f"[GlobalMarketAPI] 批次 {batch_idx + 1} session 失效，尝试重建 session 重试")
+                session = await self._get_session()
+                if session is None:
+                    log.warning(f"[GlobalMarketAPI] 批次 {batch_idx + 1} 重建 session 失败，跳过")
+                    continue
+                result = await self._fetch_batch(batch, session, max_retries)
+                if result is None:
+                    log.warning(f"[GlobalMarketAPI] 批次 {batch_idx + 1} 重试仍失败，跳过")
+                    continue
+
+            if result:
+                log.debug(f"[GlobalMarketAPI] 批次 {batch_idx + 1} 成功获取 {len(result)} 个数据")
+                all_results.update(result)
 
             if batch_idx < len(batches) - 1:
                 await asyncio.sleep(0.3)
@@ -613,17 +625,6 @@ class GlobalMarketAPI:
             }
             for code, md in data.items()
         }
-
-    async def close(self):
-        """关闭会话"""
-        if self._session and not self._session.closed:
-            await self._session.close()
-
-    async def __aenter__(self):
-        return self
-
-    async def __aexit__(self, exc_type, exc_val, exc_tb):
-        await self.close()
 
 
 _global_api: Optional[GlobalMarketAPI] = None
