@@ -168,8 +168,8 @@ fi
 # ── 5. 最终验证 ──
 echo ""
 echo "[5/5] 最终验证..."
-if curl -s http://localhost:8080/api/system/status > /dev/null 2>&1; then
-    HEALTH=$(curl -s http://localhost:8080/api/system/status 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin).get('data',{}).get('overall','未知'))" 2>/dev/null || echo "未知")
+if curl -s http://localhost:8080/api/system/runtime > /dev/null 2>&1; then
+    HEALTH=$(curl -s http://localhost:8080/api/system/runtime 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin).get('data',{}).get('overall','未知'))" 2>/dev/null || echo "未知")
     echo "  ✅ 系统状态: $HEALTH"
 else
     echo "  ⚠️ API 暂时不可用（系统可能仍在初始化中）"
@@ -185,7 +185,7 @@ echo "  - deva: $([ "$DEVA_INSTALLED" = true ] && echo '已安装（跳过）' |
 echo "  - naja: $([ "$NAJA_RUNNING" = true ] && echo '运行中 (http://localhost:8080)' || echo '未运行')"
 echo ""
 echo "📌 常用命令:"
-echo "  检查状态:  curl -s http://localhost:8080/api/system/status | python3 -m json.tool"
+echo "  检查状态:  curl -s http://localhost:8080/api/system/runtime | python3 -m json.tool"
 echo "  认知记忆:  curl -s http://localhost:8080/api/cognition/memory | python3 -m json.tool"
 echo "  知识库:    curl -s http://localhost:8080/api/knowledge/list | python3 -m json.tool"
 echo "  Manas:     curl -s http://localhost:8080/api/attention/manas/state | python3 -m json.tool"

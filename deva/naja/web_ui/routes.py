@@ -17,17 +17,16 @@ from .pages import (
     KnowledgeActionHandler,
     _get_log_stream_page, _get_loop_audit_page,
 )
-from .api import HotspotHandler, HealthHandler
+from .api import HealthHandler
 from .api_extensions import (
     CognitionMemoryHandler, CognitionTopicsHandler, CognitionAttentionHandler, CognitionThoughtHandler,
-    MarketStateHandler, MarketHotspotDetailsHandler,
-    SystemStatusHandler, SystemModulesHandler,
+    SystemModulesHandler,
     RadarEventsHandler,
     BanditStatsHandler,
     KnowledgeListHandler, KnowledgeStatsHandler, KnowledgeDetailHandler, KnowledgeTradingHandler,
     DataSourceListHandler, StrategyListHandler,
     AlayaStatusHandler,
-    RegistryStatusHandler, QueryStateHandler, SystemStateHandler,
+    RegistryStatusHandler, QueryStateHandler, SystemRuntimeHandler, SystemPersistentStateHandler,
     EventQueryHandler, EventStatsHandler, AppContainerStatusHandler
 )
 from deva.naja.cognition.ui import cognition_glossary_page
@@ -81,9 +80,8 @@ class MarketHotspotAPIHandler(RequestHandler):
                 for sym, w in sorted(sw.items(), key=lambda x: x[1], reverse=True)[:20]:
                     name = sym
                     try:
-                        from deva.naja.dictionary.blocks import BlockDictionary
-                        info = BlockDictionary().get_stock_info(sym)
-                        if info: name = info.get("name", sym)
+                        from deva.naja.dictionary.blocks import get_stock_name
+                        name = get_stock_name(sym)
                     except Exception: pass
                     cn_stocks.append({"symbol": sym, "name": name, "weight": round(w, 4)})
             except Exception: pass
@@ -98,7 +96,12 @@ class MarketHotspotAPIHandler(RequestHandler):
                     us_blocks.append({"block_id": bid, "name": bid, "weight": round(w, 4)})
                 changes = us_state.get("symbol_changes", {})
                 for sym, w in sorted(us_state.get("symbol_weights", {}).items(), key=lambda x: x[1], reverse=True)[:20]:
-                    us_stocks.append({"symbol": sym, "name": sym, "weight": round(w, 4), "change_pct": round(changes.get(sym, 0), 2)})
+                    try:
+                        from deva.naja.dictionary.blocks import get_stock_name
+                        name = get_stock_name(sym)
+                    except Exception:
+                        name = sym
+                    us_stocks.append({"symbol": sym, "name": name, "weight": round(w, 4), "change_pct": round(changes.get(sym, 0), 2)})
             except Exception: pass
 
             # === A股指数 ===
@@ -266,16 +269,13 @@ def create_handlers(cdn: str = None):
 
     api_routes = [
         (r'/api/knowledge/action', KnowledgeActionHandler),
-        (r'/api/hotspot', HotspotHandler),
         (r'/api/health', HealthHandler),
         (r'/api/cognition/memory', CognitionMemoryHandler),
         (r'/api/cognition/topics', CognitionTopicsHandler),
         (r'/api/cognition/attention', CognitionAttentionHandler),
         (r'/api/cognition/thought', CognitionThoughtHandler),
-        (r'/api/market/state', MarketStateHandler),
-        (r'/api/market/hotspot/details', MarketHotspotDetailsHandler),
         (r'/api/market/hotspot', MarketHotspotAPIHandler),
-        (r'/api/system/status', SystemStatusHandler),
+        (r'/api/system/runtime', SystemRuntimeHandler),
         (r'/api/system/modules', SystemModulesHandler),
         (r'/api/radar/events', RadarEventsHandler),
         (r'/api/bandit/stats', BanditStatsHandler),
@@ -306,10 +306,9 @@ def create_handlers(cdn: str = None):
         (r'/api/attention/strategy/top-symbols', StrategyTopSymbolsHandler),
         (r'/api/attention/strategy/top-blocks', StrategyTopBlocksHandler),
         (r'/api/attention/context', AttentionContextHandler),
-        # 新的数据结构 API 端点
         (r'/api/registry/status', RegistryStatusHandler),
         (r'/api/query/state', QueryStateHandler),
-        (r'/api/system/state', SystemStateHandler),
+        (r'/api/system/persistent', SystemPersistentStateHandler),
         (r'/api/events/query', EventQueryHandler),
         (r'/api/events/stats', EventStatsHandler),
         (r'/api/app/container', AppContainerStatusHandler),

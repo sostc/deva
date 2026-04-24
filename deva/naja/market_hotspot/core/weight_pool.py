@@ -75,6 +75,7 @@ class WeightPool:
         self._price_history: Dict[str, List[float]] = {}
         self._volume_history: Dict[str, List[float]] = {}
         self._symbol_last_seen: Dict[str, float] = {}  # 跟踪symbol最后活跃时间
+        self._symbol_markets: Dict[str, str] = {}  # 跟踪symbol所属市场
         self._history_window = 10
         self._cleanup_counter = 0
         self._cleanup_interval = 100  # 每100次update清理一次
@@ -105,8 +106,51 @@ class WeightPool:
         self._idx_to_symbol[idx] = symbol
         self._symbol_blocks[symbol] = blocks
         self._base_weights[idx] = base_weight
+        self._symbol_markets[symbol] = self._infer_market(symbol)
         
         return True
+    
+    def _infer_market(self, symbol: str) -> str:
+        """从代码推断市场类型
+        
+        A股涨跌停限制:
+        - 主板 (SH/SZ): ±10%
+        - 科创板 (KCB): ±20%
+        - 创业板 (CYC): ±20%
+        - 北交所 (BJ): ±30%
+        """
+        sym_lower = symbol.lower()
+        if sym_lower.startswith('sh') or sym_lower.startswith('sz'):
+            return 'MAIN'  # 主板 ±10%
+        elif sym_lower.startswith('bj'):
+            return 'BJ'   # 北交所 ±30%
+        elif sym_lower.startswith('kcb') or sym_lower.startswith('688'):
+            return 'KCB'  # 科创板 ±20%
+        elif sym_lower.startswith('cyb') or sym_lower.startswith('300'):
+            return 'CYC'  # 创业板 ±20%
+        elif sym_lower.startswith('us') or '_' in sym_lower:
+            return 'US'   # 美股，无涨跌幅限制
+        else:
+            return 'MAIN'  # 默认主板
+    
+    def _get_price_limit(self, symbol: str) -> float:
+        """获取个股的涨跌停限制（百分比）
+        
+        返回值:
+        - 主板: 0.10 (10%)
+        - 科创/创业板: 0.20 (20%)
+        - 北交所: 0.30 (30%)
+        - 美股: 1.0 (无限制，用1.0作为归一化基准)
+        """
+        market = self._symbol_markets.get(symbol, self._infer_market(symbol))
+        limits = {
+            'MAIN': 0.10,  # 主板 ±10%
+            'KCB': 0.20,  # 科创板 ±20%
+            'CYC': 0.20,  # 创业板 ±20%
+            'BJ': 0.30,   # 北交所 ±30%
+            'US': 1.0,    # 美股无限制
+        }
+        return limits.get(market, 0.10)
     
     def update(
         self,
@@ -218,42 +262,57 @@ class WeightPool:
     
     def _calc_local_activity(self, symbol: str) -> float:
         """
-        计算个股局部活动度
-        
+        计算个股局部活动度（标准化后的结果，跨市场可比）
+
         维度:
-        1. 价格波动率
+        1. 价格波动率（相对于涨跌停限制）
         2. 成交量异常
-        3. 近期趋势
+        3. 近期趋势（相对于涨跌停限制）
+
+        标准化处理：所有市场的涨跌幅都除以各自的涨跌停限制，
+        使得 10% 涨幅在主板(10%限)和北交所(30%限)得到相同的"热度"评分
         """
         prices = self._price_history.get(symbol, [])
         volumes = self._volume_history.get(symbol, [])
-        
+
         if len(prices) < 3:
             return 0.0
-        
+
+        price_limit = self._get_price_limit(symbol)
+
         prices_arr = np.array(prices)
         volumes_arr = np.array(volumes)
-        
-        # 1. 价格波动率
-        price_volatility = np.std(prices_arr) / (np.mean(np.abs(prices_arr)) + 1e-6)
-        
+
+        # 1. 价格波动率（标准化：除以涨跌停限制）
+        # 如果 limit 是 0.30（北交所），10% 涨幅标准化后为 10/30 = 0.33
+        # 如果 limit 是 0.10（主板），10% 涨幅标准化后为 10/10 = 1.0
+        if price_limit > 0:
+            normalized_prices = prices_arr / price_limit
+        else:
+            normalized_prices = prices_arr
+
+        price_volatility = np.std(normalized_prices) / (np.mean(np.abs(normalized_prices)) + 1e-6)
+
         # 2. 成交量异常
         if len(volumes_arr) >= 2:
             volume_ratio = volumes_arr[-1] / (np.mean(volumes_arr[:-1]) + 1e-6)
             volume_anomaly = min(abs(volume_ratio - 1.0), 3.0) / 3.0
         else:
             volume_anomaly = 0.0
-        
-        # 3. 近期趋势强度
-        trend_strength = abs(np.mean(prices_arr[-3:])) / 5.0  # 归一化
-        
+
+        # 3. 近期趋势强度（标准化：除以涨跌停限制）
+        # 原来: abs(mean(returns[-3:])) / 5.0
+        # 标准化后: abs(mean(returns[-3:])) / limit (cap at 1.0)
+        recent_trend = abs(np.mean(prices_arr[-3:]))
+        trend_strength = min(recent_trend / price_limit, 1.0) if price_limit > 0 else 0.0
+
         # 综合活动度
         activity = (
-            price_volatility * 0.4 +
+            min(price_volatility, 1.0) * 0.4 +
             volume_anomaly * 0.3 +
-            min(trend_strength, 1.0) * 0.3
+            trend_strength * 0.3
         )
-        
+
         return min(activity, 1.0)
     
     def _calc_symbol_weight(self, symbol: str, idx: int) -> float:

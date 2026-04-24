@@ -111,19 +111,13 @@ def get_knowledge_trading():
 
 # ── 市场 ──
 
-def get_market_state():
-    return call_api("/api/market/state")
-
 def get_market_hotspot():
     return call_api("/api/market/hotspot")
 
-def get_market_hotspot_details():
-    return call_api("/api/market/hotspot/details")
-
 # ── 系统 ──
 
-def get_system_status():
-    return call_api("/api/system/status")
+def get_system_runtime():
+    return call_api("/api/system/runtime")
 
 def get_system_modules():
     return call_api("/api/system/modules")
@@ -153,8 +147,8 @@ def get_registry_status():
 def get_query_state():
     return call_api("/api/query/state")
 
-def get_system_state():
-    return call_api("/api/system/state")
+def get_system_persistent():
+    return call_api("/api/system/persistent")
 
 def get_event_query(event_type=None, symbol=None, direction=None, min_confidence=None, max_confidence=None, days=7, limit=100, offset=0):
     params = {"limit": limit, "offset": offset}
@@ -214,11 +208,9 @@ COMMANDS = {
     "knowledge-detail": (get_knowledge_detail, "知识详情"),
     "knowledge-trading": (get_knowledge_trading, "交易决策知识"),
     # 市场
-    "market-state": (get_market_state, "市场状态"),
     "market-hotspot": (get_market_hotspot, "市场热点"),
-    "market-hotspot-details": (get_market_hotspot_details, "热点详情"),
     # 系统
-    "system-status": (get_system_status, "系统状态"),
+    "system-runtime": (get_system_runtime, "系统运行时监控"),
     "system-modules": (get_system_modules, "模块状态"),
     # 其他
     "radar-events": (get_radar_events, "雷达事件"),
@@ -229,7 +221,7 @@ COMMANDS = {
     # 新添加的数据结构 API
     "registry-status": (get_registry_status, "单例注册表状态"),
     "query-state": (get_query_state, "查询状态"),
-    "system-state": (get_system_state, "系统状态"),
+    "system-persistent": (get_system_persistent, "系统持久化状态"),
     "event-query": (get_event_query, "事件查询"),
     "event-stats": (get_event_stats, "事件统计"),
     "app-container": (get_app_container, "应用容器状态"),
@@ -244,7 +236,7 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 示例:
-  python3 api_client.py system-status
+  python3 api_client.py system-runtime
   python3 api_client.py knowledge-list --status qualified --limit 10
   python3 api_client.py knowledge-detail --id abc12345
   python3 api_client.py manas-state
@@ -323,7 +315,7 @@ def main():
                     print(f"共 {len(data)} 条")
                     for item in data[:5]:
                         if isinstance(item, dict):
-                            print(f"  - {item.get('cause', item.get('name', item.get('symbol', str(item)))[:60]}")
+                            print(f"  - {item.get('cause', item.get('name', item.get('symbol', str(item))))[:60]}")
                         else:
                             print(f"  - {str(item)[:60]}")
         else:

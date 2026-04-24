@@ -9,6 +9,8 @@ import time
 import numpy as np
 from typing import Dict, List, Optional, Any, Callable
 
+from deva.naja.dictionary.blocks import get_stock_name
+
 
 class MarketHotspotSystemIntegration:
     """
@@ -56,7 +58,7 @@ class MarketHotspotSystemIntegration:
         for sym, w in sorted(symbol_weights.items(), key=lambda x: -x[1])[:10]:
             top_stocks.append({
                 'symbol': sym,
-                'name': sym,
+                'name': get_stock_name(sym),
                 'weight': float(w)
             })
 
