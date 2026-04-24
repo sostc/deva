@@ -15593,3 +15593,930 @@ stocks:
   sh689009:
     name: 九号公司
     stock_type: A
+  bj920000:
+    name: 安徽凤凰
+    stock_type: BJ
+  bj920001:
+    name: 纬达光电
+    stock_type: BJ
+  bj920002:
+    name: 万达轴承
+    stock_type: BJ
+  bj920003:
+    name: 中诚咨询
+    stock_type: BJ
+  bj920005:
+    name: 鼎佳精密
+    stock_type: BJ
+  bj920006:
+    name: 晟楠科技
+    stock_type: BJ
+  bj920007:
+    name: 酉立智能
+    stock_type: BJ
+  bj920008:
+    name: 成电光信
+    stock_type: BJ
+  bj920009:
+    name: 丹娜生物
+    stock_type: BJ
+  bj920010:
+    name: 凯添燃气
+    stock_type: BJ
+  bj920011:
+    name: 晨光电机
+    stock_type: BJ
+  bj920012:
+    name: 创达新材
+    stock_type: BJ
+  bj920014:
+    name: 特瑞斯
+    stock_type: BJ
+  bj920015:
+    name: 锦华新材
+    stock_type: BJ
+  bj920016:
+    name: 中草香料
+    stock_type: BJ
+  bj920017:
+    name: 星昊医药
+    stock_type: BJ
+  bj920018:
+    name: 宏远股份
+    stock_type: BJ
+  bj920019:
+    name: 铜冠矿建
+    stock_type: BJ
+  bj920020:
+    name: 泰凯英
+    stock_type: BJ
+  bj920021:
+    name: 流金科技
+    stock_type: BJ
+  bj920022:
+    name: 世昌股份
+    stock_type: BJ
+  bj920023:
+    name: 田野股份
+    stock_type: BJ
+  bj920026:
+    name: 卓兆点胶
+    stock_type: BJ
+  bj920027:
+    name: 交大铁发
+    stock_type: BJ
+  bj920028:
+    name: 新恒泰
+    stock_type: BJ
+  bj920029:
+    name: 开发科技
+    stock_type: BJ
+  bj920030:
+    name: 德众汽车
+    stock_type: BJ
+  bj920033:
+    name: 康普化学
+    stock_type: BJ
+  bj920035:
+    name: 精创电气
+    stock_type: BJ
+  bj920036:
+    name: 觅睿科技
+    stock_type: BJ
+  bj920037:
+    name: 广信科技
+    stock_type: BJ
+  bj920039:
+    name: 国义招标
+    stock_type: BJ
+  bj920045:
+    name: 蘅东光
+    stock_type: BJ
+  bj920046:
+    name: 亿能电力
+    stock_type: BJ
+  bj920047:
+    name: 诺思兰德
+    stock_type: BJ
+  bj920050:
+    name: 爱舍伦
+    stock_type: BJ
+  bj920055:
+    name: 隆源股份
+    stock_type: BJ
+  bj920056:
+    name: 能之光
+    stock_type: BJ
+  bj920057:
+    name: 百甲科技
+    stock_type: BJ
+  bj920058:
+    name: 华洋赛车
+    stock_type: BJ
+  bj920060:
+    name: 万源通
+    stock_type: BJ
+  bj920061:
+    name: 西磁科技
+    stock_type: BJ
+  bj920062:
+    name: 科润智控
+    stock_type: BJ
+  bj920066:
+    name: 科拜尔
+    stock_type: BJ
+  bj920068:
+    name: 天工股份
+    stock_type: BJ
+  bj920069:
+    name: 普昂医疗
+    stock_type: BJ
+  bj920075:
+    name: 柏星龙
+    stock_type: BJ
+  bj920076:
+    name: 国亮新材
+    stock_type: BJ
+  bj920077:
+    name: 吉林碳谷
+    stock_type: BJ
+  bj920078:
+    name: 族兴新材
+    stock_type: BJ
+  bj920080:
+    name: 奥美森
+    stock_type: BJ
+  bj920082:
+    name: 方正阀门
+    stock_type: BJ
+  bj920086:
+    name: 科马材料
+    stock_type: BJ
+  bj920087:
+    name: 秋乐种业
+    stock_type: BJ
+  bj920088:
+    name: 科力股份
+    stock_type: BJ
+  bj920089:
+    name: 禾昌聚合
+    stock_type: BJ
+  bj920090:
+    name: '*ST同辉'
+    stock_type: BJ
+  bj920091:
+    name: 大鹏工业
+    stock_type: BJ
+  bj920092:
+    name: 汉鑫科技
+    stock_type: BJ
+  bj920098:
+    name: 科隆新材
+    stock_type: BJ
+  bj920099:
+    name: 瑞华技术
+    stock_type: BJ
+  bj920100:
+    name: 三协电机
+    stock_type: BJ
+  bj920101:
+    name: 志高机械
+    stock_type: BJ
+  bj920106:
+    name: 林泰新材
+    stock_type: BJ
+  bj920108:
+    name: 宏海科技
+    stock_type: BJ
+  bj920110:
+    name: 雷特科技
+    stock_type: BJ
+  bj920111:
+    name: 聚星科技
+    stock_type: BJ
+  bj920112:
+    name: 巴兰仕
+    stock_type: BJ
+  bj920116:
+    name: 星图测控
+    stock_type: BJ
+  bj920118:
+    name: 太湖远大
+    stock_type: BJ
+  bj920119:
+    name: 美德乐
+    stock_type: BJ
+  bj920121:
+    name: 江天科技
+    stock_type: BJ
+  bj920122:
+    name: 中纺标
+    stock_type: BJ
+  bj920123:
+    name: 芭薇股份
+    stock_type: BJ
+  bj920124:
+    name: 南特科技
+    stock_type: BJ
+  bj920125:
+    name: N鸿仕达
+    stock_type: BJ
+  bj920128:
+    name: 胜业电气
+    stock_type: BJ
+  bj920130:
+    name: 立方控股
+    stock_type: BJ
+  bj920132:
+    name: 泰鹏智能
+    stock_type: BJ
+  bj920139:
+    name: 华岭股份
+    stock_type: BJ
+  bj920145:
+    name: 恒合股份
+    stock_type: BJ
+  bj920146:
+    name: 华阳变速
+    stock_type: BJ
+  bj920149:
+    name: 旭杰科技
+    stock_type: BJ
+  bj920152:
+    name: 昆工科技
+    stock_type: BJ
+  bj920158:
+    name: 长江能科
+    stock_type: BJ
+  bj920159:
+    name: 农大科技
+    stock_type: BJ
+  bj920160:
+    name: 北矿检测
+    stock_type: BJ
+  bj920163:
+    name: 方大新材
+    stock_type: BJ
+  bj920166:
+    name: 海圣医疗
+    stock_type: BJ
+  bj920167:
+    name: 同享科技
+    stock_type: BJ
+  bj920168:
+    name: 通宝光电
+    stock_type: BJ
+  bj920169:
+    name: 七丰精工
+    stock_type: BJ
+  bj920171:
+    name: 志晟信息
+    stock_type: BJ
+  bj920174:
+    name: 五新隧装
+    stock_type: BJ
+  bj920175:
+    name: 东方碳素
+    stock_type: BJ
+  bj920177:
+    name: 恒道科技
+    stock_type: BJ
+  bj920179:
+    name: 凯德石英
+    stock_type: BJ
+  bj920180:
+    name: 爱得科技
+    stock_type: BJ
+  bj920181:
+    name: 赛英电子
+    stock_type: BJ
+  bj920183:
+    name: 海菲曼
+    stock_type: BJ
+  bj920184:
+    name: 国源科技
+    stock_type: BJ
+  bj920185:
+    name: 贝特瑞
+    stock_type: BJ
+  bj920187:
+    name: 通领科技
+    stock_type: BJ
+  bj920188:
+    name: 悦龙科技
+    stock_type: BJ
+  bj920190:
+    name: 雷神科技
+    stock_type: BJ
+  bj920191:
+    name: 瑞尔竞达
+    stock_type: BJ
+  bj920195:
+    name: 三祥科技
+    stock_type: BJ
+  bj920198:
+    name: 微创光电
+    stock_type: BJ
+  bj920199:
+    name: 倍益康
+    stock_type: BJ
+  bj920204:
+    name: 沪江材料
+    stock_type: BJ
+  bj920207:
+    name: 众诚科技
+    stock_type: BJ
+  bj920208:
+    name: 青矩技术
+    stock_type: BJ
+  bj920212:
+    name: 智新电子
+    stock_type: BJ
+  bj920221:
+    name: 易实精密
+    stock_type: BJ
+  bj920223:
+    name: 荣亿精密
+    stock_type: BJ
+  bj920225:
+    name: 利通科技
+    stock_type: BJ
+  bj920227:
+    name: 美登科技
+    stock_type: BJ
+  bj920230:
+    name: 欧康医药
+    stock_type: BJ
+  bj920237:
+    name: 力佳科技
+    stock_type: BJ
+  bj920239:
+    name: 长虹能源
+    stock_type: BJ
+  bj920242:
+    name: 建邦科技
+    stock_type: BJ
+  bj920245:
+    name: 威博液压
+    stock_type: BJ
+  bj920247:
+    name: 华密新材
+    stock_type: BJ
+  bj920249:
+    name: 利尔达
+    stock_type: BJ
+  bj920252:
+    name: 天宏锂电
+    stock_type: BJ
+  bj920260:
+    name: 中寰股份
+    stock_type: BJ
+  bj920261:
+    name: 一诺威
+    stock_type: BJ
+  bj920262:
+    name: 太湖雪
+    stock_type: BJ
+  bj920263:
+    name: 中航泰达
+    stock_type: BJ
+  bj920266:
+    name: 生物谷
+    stock_type: BJ
+  bj920267:
+    name: 鑫汇科
+    stock_type: BJ
+  bj920270:
+    name: 天铭科技
+    stock_type: BJ
+  bj920271:
+    name: 邦德股份
+    stock_type: BJ
+  bj920273:
+    name: 一致魔芋
+    stock_type: BJ
+  bj920274:
+    name: 宏裕包材
+    stock_type: BJ
+  bj920275:
+    name: 驱动力
+    stock_type: BJ
+  bj920278:
+    name: 鹿得医疗
+    stock_type: BJ
+  bj920284:
+    name: 灵鸽科技
+    stock_type: BJ
+  bj920299:
+    name: 灿能电力
+    stock_type: BJ
+  bj920300:
+    name: 辰光医疗
+    stock_type: BJ
+  bj920304:
+    name: 迪尔化工
+    stock_type: BJ
+  bj920305:
+    name: '*ST云创'
+    stock_type: BJ
+  bj920339:
+    name: 恒太照明
+    stock_type: BJ
+  bj920344:
+    name: 三元基因
+    stock_type: BJ
+  bj920346:
+    name: 威贸电子
+    stock_type: BJ
+  bj920351:
+    name: 华光源海
+    stock_type: BJ
+  bj920357:
+    name: 雅葆轩
+    stock_type: BJ
+  bj920363:
+    name: 莱赛激光
+    stock_type: BJ
+  bj920367:
+    name: 新赣江
+    stock_type: BJ
+  bj920368:
+    name: 连城数控
+    stock_type: BJ
+  bj920370:
+    name: 新安洁
+    stock_type: BJ
+  bj920371:
+    name: 欧福蛋业
+    stock_type: BJ
+  bj920374:
+    name: 云里物里
+    stock_type: BJ
+  bj920375:
+    name: 派诺科技
+    stock_type: BJ
+  bj920378:
+    name: 泰德股份
+    stock_type: BJ
+  bj920392:
+    name: 佳合科技
+    stock_type: BJ
+  bj920394:
+    name: 民士达
+    stock_type: BJ
+  bj920395:
+    name: 朗鸿科技
+    stock_type: BJ
+  bj920396:
+    name: 常辅股份
+    stock_type: BJ
+  bj920402:
+    name: 硅烷科技
+    stock_type: BJ
+  bj920403:
+    name: 康农种业
+    stock_type: BJ
+  bj920405:
+    name: 海希通讯
+    stock_type: BJ
+  bj920407:
+    name: 驰诚股份
+    stock_type: BJ
+  bj920414:
+    name: 欧普泰
+    stock_type: BJ
+  bj920415:
+    name: 恒拓开源
+    stock_type: BJ
+  bj920418:
+    name: 苏轴股份
+    stock_type: BJ
+  bj920419:
+    name: 路斯股份
+    stock_type: BJ
+  bj920422:
+    name: 润普食品
+    stock_type: BJ
+  bj920425:
+    name: 乐创技术
+    stock_type: BJ
+  bj920427:
+    name: 华维设计
+    stock_type: BJ
+  bj920429:
+    name: 康比特
+    stock_type: BJ
+  bj920433:
+    name: 大唐药业
+    stock_type: BJ
+  bj920436:
+    name: 大地电气
+    stock_type: BJ
+  bj920438:
+    name: 戈碧迦
+    stock_type: BJ
+  bj920445:
+    name: 龙竹科技
+    stock_type: BJ
+  bj920454:
+    name: 同心传动
+    stock_type: BJ
+  bj920455:
+    name: 汇隆活塞
+    stock_type: BJ
+  bj920469:
+    name: 富恒新材
+    stock_type: BJ
+  bj920471:
+    name: 美邦科技
+    stock_type: BJ
+  bj920475:
+    name: 三友科技
+    stock_type: BJ
+  bj920476:
+    name: 海能技术
+    stock_type: BJ
+  bj920478:
+    name: 峆一药业
+    stock_type: BJ
+  bj920489:
+    name: 佳先股份
+    stock_type: BJ
+  bj920491:
+    name: 奥迪威
+    stock_type: BJ
+  bj920493:
+    name: 并行科技
+    stock_type: BJ
+  bj920496:
+    name: 许昌智能
+    stock_type: BJ
+  bj920504:
+    name: 博迅生物
+    stock_type: BJ
+  bj920505:
+    name: 九菱科技
+    stock_type: BJ
+  bj920508:
+    name: 殷图网联
+    stock_type: BJ
+  bj920509:
+    name: 同惠电子
+    stock_type: BJ
+  bj920510:
+    name: 丰光精密
+    stock_type: BJ
+  bj920519:
+    name: 万德股份
+    stock_type: BJ
+  bj920522:
+    name: 纳科诺尔
+    stock_type: BJ
+  bj920523:
+    name: 德瑞锂电
+    stock_type: BJ
+  bj920526:
+    name: 凯华材料
+    stock_type: BJ
+  bj920527:
+    name: 夜光明
+    stock_type: BJ
+  bj920533:
+    name: 骏创科技
+    stock_type: BJ
+  bj920541:
+    name: 铁大科技
+    stock_type: BJ
+  bj920547:
+    name: 无锡晶海
+    stock_type: BJ
+  bj920553:
+    name: 凯腾精工
+    stock_type: BJ
+  bj920556:
+    name: 雅达股份
+    stock_type: BJ
+  bj920564:
+    name: 天润科技
+    stock_type: BJ
+  bj920566:
+    name: 梓橦宫
+    stock_type: BJ
+  bj920570:
+    name: 坤博精工
+    stock_type: BJ
+  bj920571:
+    name: 国航远洋
+    stock_type: BJ
+  bj920575:
+    name: 康乐卫士
+    stock_type: BJ
+  bj920576:
+    name: 天力复合
+    stock_type: BJ
+  bj920578:
+    name: 巨能股份
+    stock_type: BJ
+  bj920579:
+    name: 机科股份
+    stock_type: BJ
+  bj920580:
+    name: 科创新材
+    stock_type: BJ
+  bj920592:
+    name: 华信永道
+    stock_type: BJ
+  bj920593:
+    name: 鼎智科技
+    stock_type: BJ
+  bj920599:
+    name: 同力股份
+    stock_type: BJ
+  bj920608:
+    name: 丰安股份
+    stock_type: BJ
+  bj920627:
+    name: 力王股份
+    stock_type: BJ
+  bj920634:
+    name: 新威凌
+    stock_type: BJ
+  bj920639:
+    name: 晨光电缆
+    stock_type: BJ
+  bj920640:
+    name: 富士达
+    stock_type: BJ
+  bj920641:
+    name: 格利尔
+    stock_type: BJ
+  bj920642:
+    name: 通易航天
+    stock_type: BJ
+  bj920651:
+    name: 天罡股份
+    stock_type: BJ
+  bj920656:
+    name: 海昇药业
+    stock_type: BJ
+  bj920662:
+    name: 方盛股份
+    stock_type: BJ
+  bj920663:
+    name: 明阳科技
+    stock_type: BJ
+  bj920665:
+    name: 科强股份
+    stock_type: BJ
+  bj920670:
+    name: 数字人
+    stock_type: BJ
+  bj920675:
+    name: 秉扬科技
+    stock_type: BJ
+  bj920679:
+    name: 前进科技
+    stock_type: BJ
+  bj920682:
+    name: 球冠电缆
+    stock_type: BJ
+  bj920685:
+    name: 新芝生物
+    stock_type: BJ
+  bj920689:
+    name: 克莱特
+    stock_type: BJ
+  bj920690:
+    name: 捷众科技
+    stock_type: BJ
+  bj920693:
+    name: 阿为特
+    stock_type: BJ
+  bj920694:
+    name: 中裕科技
+    stock_type: BJ
+  bj920699:
+    name: 海达尔
+    stock_type: BJ
+  bj920701:
+    name: 豪声电子
+    stock_type: BJ
+  bj920703:
+    name: 广厦环能
+    stock_type: BJ
+  bj920706:
+    name: 铁拓机械
+    stock_type: BJ
+  bj920717:
+    name: 瑞星股份
+    stock_type: BJ
+  bj920718:
+    name: 合肥高科
+    stock_type: BJ
+  bj920719:
+    name: 宁新新材
+    stock_type: BJ
+  bj920720:
+    name: 吉冈精密
+    stock_type: BJ
+  bj920725:
+    name: 惠丰钻石
+    stock_type: BJ
+  bj920726:
+    name: 朱老六
+    stock_type: BJ
+  bj920729:
+    name: 永顺生物
+    stock_type: BJ
+  bj920735:
+    name: 德源药业
+    stock_type: BJ
+  bj920748:
+    name: 路桥信息
+    stock_type: BJ
+  bj920751:
+    name: 惠同新材
+    stock_type: BJ
+  bj920753:
+    name: 天纺标
+    stock_type: BJ
+  bj920765:
+    name: 美之高
+    stock_type: BJ
+  bj920768:
+    name: 拾比佰
+    stock_type: BJ
+  bj920770:
+    name: 艾能聚
+    stock_type: BJ
+  bj920779:
+    name: 武汉蓝电
+    stock_type: BJ
+  bj920781:
+    name: 瑞奇智造
+    stock_type: BJ
+  bj920786:
+    name: 骑士乳业
+    stock_type: BJ
+  bj920790:
+    name: 联迪信息
+    stock_type: BJ
+  bj920792:
+    name: 东和新材
+    stock_type: BJ
+  bj920799:
+    name: 艾融软件
+    stock_type: BJ
+  bj920802:
+    name: 保丽洁
+    stock_type: BJ
+  bj920806:
+    name: 云星宇
+    stock_type: BJ
+  bj920807:
+    name: 奔朗新材
+    stock_type: BJ
+  bj920808:
+    name: 曙光数创
+    stock_type: BJ
+  bj920809:
+    name: 安达科技
+    stock_type: BJ
+  bj920810:
+    name: 春光智能
+    stock_type: BJ
+  bj920819:
+    name: 颖泰生物
+    stock_type: BJ
+  bj920821:
+    name: 则成电子
+    stock_type: BJ
+  bj920826:
+    name: 盖世食品
+    stock_type: BJ
+  bj920832:
+    name: 齐鲁华信
+    stock_type: BJ
+  bj920833:
+    name: 美心翼申
+    stock_type: BJ
+  bj920834:
+    name: 三维装备
+    stock_type: BJ
+  bj920837:
+    name: 华原股份
+    stock_type: BJ
+  bj920839:
+    name: 万通液压
+    stock_type: BJ
+  bj920855:
+    name: 浙江大农
+    stock_type: BJ
+  bj920856:
+    name: 浩淼科技
+    stock_type: BJ
+  bj920857:
+    name: 泓禧科技
+    stock_type: BJ
+  bj920866:
+    name: 绿亨科技
+    stock_type: BJ
+  bj920870:
+    name: 恒进感应
+    stock_type: BJ
+  bj920871:
+    name: 派特尔
+    stock_type: BJ
+  bj920873:
+    name: 中设咨询
+    stock_type: BJ
+  bj920876:
+    name: 慧为智能
+    stock_type: BJ
+  bj920879:
+    name: 基康技术
+    stock_type: BJ
+  bj920885:
+    name: 星辰科技
+    stock_type: BJ
+  bj920892:
+    name: 广咨国际
+    stock_type: BJ
+  bj920895:
+    name: 花溪科技
+    stock_type: BJ
+  bj920896:
+    name: 旺成科技
+    stock_type: BJ
+  bj920906:
+    name: 舜宇精工
+    stock_type: BJ
+  bj920914:
+    name: 远航精密
+    stock_type: BJ
+  bj920924:
+    name: 广脉科技
+    stock_type: BJ
+  bj920925:
+    name: 锦好医疗
+    stock_type: BJ
+  bj920926:
+    name: 鸿智科技
+    stock_type: BJ
+  bj920931:
+    name: 无锡鼎邦
+    stock_type: BJ
+  bj920932:
+    name: 科达自控
+    stock_type: BJ
+  bj920942:
+    name: 恒立钻具
+    stock_type: BJ
+  bj920943:
+    name: 优机股份
+    stock_type: BJ
+  bj920946:
+    name: 森萱医药
+    stock_type: BJ
+  bj920950:
+    name: 迅安科技
+    stock_type: BJ
+  bj920953:
+    name: 国子软件
+    stock_type: BJ
+  bj920957:
+    name: 汉维科技
+    stock_type: BJ
+  bj920961:
+    name: 创远信科
+    stock_type: BJ
+  bj920964:
+    name: 润农节水
+    stock_type: BJ
+  bj920970:
+    name: 大禹生物
+    stock_type: BJ
+  bj920971:
+    name: 天马新材
+    stock_type: BJ
+  bj920974:
+    name: 凯大催化
+    stock_type: BJ
+  bj920976:
+    name: 视声智能
+    stock_type: BJ
+  bj920978:
+    name: 开特股份
+    stock_type: BJ
+  bj920981:
+    name: 晶赛科技
+    stock_type: BJ
+  bj920982:
+    name: 锦波生物
+    stock_type: BJ
+  bj920985:
+    name: 海泰新能
+    stock_type: BJ
+  bj920992:
+    name: 中科美菱
+    stock_type: BJ

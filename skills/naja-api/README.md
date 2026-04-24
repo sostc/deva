@@ -5,8 +5,8 @@
 ## 功能特性
 
 - **认知系统 API**: 记忆报告、主题信号、注意力提示、思想报告
-- **市场热点 API**: 市场状态、热点详情
-- **系统监控 API**: 系统状态、模块状态
+- **市场热点 API**: 双市场热点（A股+美股）
+- **系统监控 API**: 系统运行时监控、模块状态
 - **雷达系统 API**: 雷达事件
 - **Bandit 系统 API**: 决策统计
 - **数据源和策略 API**: 数据源列表、策略列表
@@ -29,11 +29,11 @@
 # 获取认知系统记忆报告
 curl http://localhost:8080/api/cognition/memory
 
-# 获取市场状态
-curl http://localhost:8080/api/market/state
+# 获取市场热点
+curl http://localhost:8080/api/market/hotspot
 
-# 获取系统状态
-curl http://localhost:8080/api/system/status
+# 获取系统运行时监控
+curl http://localhost:8080/api/system/runtime
 ```
 
 ### 2. 使用 API 客户端脚本
@@ -45,8 +45,8 @@ python scripts/api_client.py --help
 # 获取认知系统记忆报告
 python scripts/api_client.py cognition-memory
 
-# 获取市场状态（文本输出）
-python scripts/api_client.py market-state --output text
+# 获取市场热点（文本输出）
+python scripts/api_client.py market-hotspot --output text
 
 # 获取认知系统主题信号（指定回溯数量）
 python scripts/api_client.py cognition-topics --lookback 100
@@ -73,9 +73,8 @@ bash scripts/export_cognition.sh
 | `/api/cognition/topics` | GET | 获取认知系统主题信号 |
 | `/api/cognition/attention` | GET | 获取认知系统注意力提示 |
 | `/api/cognition/thought` | GET | 获取认知系统思想报告 |
-| `/api/market/state` | GET | 获取市场状态 |
-| `/api/market/hotspot/details` | GET | 获取市场热点详情 |
-| `/api/system/status` | GET | 获取系统状态 |
+| `/api/market/hotspot` | GET | 获取双市场热点（A股+美股） |
+| `/api/system/runtime` | GET | 获取系统运行时监控数据 |
 | `/api/system/modules` | GET | 获取系统模块状态 |
 | `/api/radar/events` | GET | 获取雷达事件 |
 | `/api/bandit/stats` | GET | 获取 Bandit 决策统计 |
@@ -123,7 +122,7 @@ bash scripts/export_cognition.sh
 A: 可能是系统刚启动，各模块还未完全初始化。请等待一段时间后重试。
 
 ### Q: 如何检查系统是否正常运行？
-A: 可以先调用 `/api/system/status` 端点检查系统整体状态。
+A: 可以先调用 `/api/system/runtime` 端点检查系统整体状态。
 
 ### Q: API 响应时间过长怎么办？
 A: 对于数据量较大的端点（如 `/api/cognition/memory`），响应时间可能会稍长，请耐心等待。

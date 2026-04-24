@@ -4,6 +4,6 @@
 
 while true; do
   echo "$(date) - 市场热点检查"
-  curl -s http://localhost:8080/api/market/state | jq '.data'
+  curl -s http://localhost:8080/api/market/hotspot | jq '.data'
   sleep 300
 done

@@ -81,7 +81,12 @@ class NarrativeSupplyChainLinker:
         self._stock_narrative_link: Dict[str, List[str]] = {}
         self._risk_event_history: List[NarrativeSupplyChainEvent] = []
         self._narrative_importance: Dict[str, float] = defaultdict(lambda: 1.0)
+        self._narrative_last_boost: Dict[str, float] = {}
         self._last_update: float = time.time()
+        self._decay_half_life_hours: float = 24.0
+        self._decay_factor: float = 0.95
+        self._last_summary_time: float = time.time()
+        self._summary_interval_seconds: float = 300.0
 
         self._init_narrative_stock_mapping()
 
@@ -360,9 +365,26 @@ class NarrativeSupplyChainLinker:
             self._narrative_importance[narrative] = 1.0
 
         self._narrative_importance[narrative] *= boost_factor
+        self._narrative_last_boost[narrative] = time.time()
         self._last_update = time.time()
 
-        log.info(f"[NarrativeSupplyChainLinker] 叙事 [{narrative}] 重要性提升至 {self._narrative_importance[narrative]:.2f}")
+        log.debug(f"[NarrativeSupplyChainLinker] 叙事 [{narrative}] 重要性提升至 {self._narrative_importance[narrative]:.2f}")
+
+        if self._should_log_summary():
+            self._log_narrative_summary()
+
+    def _should_log_summary(self) -> bool:
+        return time.time() - self._last_summary_time >= self._summary_interval_seconds
+
+    def _log_narrative_summary(self) -> None:
+        self._apply_decay_all()
+        hot = self.get_hot_narratives(10)
+        lines = ["[NarrativeSupplyChainLinker] 叙事重要性汇总 =========="]
+        for narrative, score in hot:
+            lines.append(f"  [{narrative}] {score:.2f}")
+        lines.append("=" * 50)
+        log.info("\n".join(lines))
+        self._last_summary_time = time.time()
 
     def _update_narrative_importance(self, stock_code: str, narratives: List[str], risk_level: RiskLevel):
         """根据风险事件更新叙事重要性"""
@@ -377,8 +399,41 @@ class NarrativeSupplyChainLinker:
 
         for narrative in narratives:
             self._narrative_importance[narrative] *= multiplier
+            self._narrative_last_boost[narrative] = time.time()
 
         self._last_update = time.time()
+
+    def _apply_decay(self, narrative: str) -> float:
+        """对单个叙事应用时间衰减，返回衰减后的值"""
+        if narrative not in self._narrative_importance:
+            return 1.0
+
+        if narrative not in self._narrative_last_boost:
+            return self._narrative_importance[narrative]
+
+        last_boost = self._narrative_last_boost[narrative]
+        hours_elapsed = (time.time() - last_boost) / 3600.0
+
+        if hours_elapsed <= 0:
+            return self._narrative_importance[narrative]
+
+        decay_factor = self._decay_factor ** hours_elapsed
+        current_value = self._narrative_importance[narrative]
+        base_value = 1.0
+
+        decayed_value = base_value + (current_value - base_value) * decay_factor
+        decayed_value = max(base_value, decayed_value)
+
+        self._narrative_importance[narrative] = decayed_value
+        return decayed_value
+
+    def _apply_decay_all(self) -> None:
+        """对所有叙事应用时间衰减"""
+        current_time = time.time()
+        narratives_to_decay = list(self._narrative_last_boost.keys())
+
+        for narrative in narratives_to_decay:
+            self._apply_decay(narrative)
 
     def get_related_stocks_with_weight(self, narrative: str) -> List[Tuple[str, float]]:
         """
@@ -390,6 +445,8 @@ class NarrativeSupplyChainLinker:
         Returns:
             [(stock_code, weight), ...]
         """
+        self._apply_decay(narrative)
+
         stocks = self.get_stocks_by_narrative(narrative)
         if not stocks:
             return []
@@ -420,6 +477,8 @@ class NarrativeSupplyChainLinker:
 
     def get_hot_narratives(self, top_n: int = 5) -> List[Tuple[str, float]]:
         """获取当前最热的叙事主题"""
+        self._apply_decay_all()
+
         sorted_narratives = sorted(
             self._narrative_importance.items(),
             key=lambda x: x[1],
@@ -437,6 +496,8 @@ class NarrativeSupplyChainLinker:
         Returns:
             供应链信息字典
         """
+        self._apply_decay(narrative)
+
         stocks = self.get_stocks_by_narrative(narrative)
         if not stocks:
             return {"narrative": narrative, "stocks": [], "total_risk": "unknown"}

@@ -15,9 +15,12 @@ River 策略适配器 - 将 River 策略挂载到热点系统
 
 from __future__ import annotations
 
+import logging
 import time
 import numpy as np
 from typing import Dict, List, Optional, Any
+
+logger = logging.getLogger(__name__)
 
 from .base import HotspotStrategyBase, Signal
 
@@ -258,7 +261,7 @@ class RiverBlockStockSelectorAdapter(HotspotStrategyBase):
         )
     
     def _on_signal(self, signal: Signal):
-        print(f"[题材牛股] {signal.signal_type.upper()} | {signal.symbol} | "
+        logger.info(f"[题材牛股] {signal.signal_type.upper()} | {signal.symbol} | "
               f"得分:{signal.score:.2f} | {signal.reason}")
     
     def analyze(self, data, context: Dict[str, Any]) -> List[Signal]:

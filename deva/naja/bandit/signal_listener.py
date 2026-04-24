@@ -168,7 +168,7 @@ class SignalListener:
         所有信号必须先经过 TradingCenter 审批，审批通过后才到 Bandit。
         """
         if self._running and self._thread and self._thread.is_alive():
-            log.warning("SignalListener 已在运行")
+            log.debug("SignalListener 已在运行")
             return
 
         self._running = True
@@ -177,8 +177,7 @@ class SignalListener:
         TRADING_CLOCK_STREAM.sink(self._on_trading_clock_signal)
         log.debug("SignalListener 已订阅交易时钟信号")
 
-        # 旧版轮询线程已禁用：不再直连 SignalStream
-        # 所有信号必须经过 TradingCenter 审批
+        self._subscribe_to_trade_decisions()
 
         self._save_config()
 
