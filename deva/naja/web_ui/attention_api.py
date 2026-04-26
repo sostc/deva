@@ -7,12 +7,33 @@ from tornado.web import RequestHandler
 def _safe_get(singleton_name, attr=None):
     """安全获取单例实例，失败返回 None"""
     try:
+        from deva.naja.register import SR
+        
+        sr_name_map = {
+            'hotspot_signal_tracker': 'hotspot_signal_tracker',
+            'focus_manager': 'focus_manager',
+            'liquidity_manager': 'liquidity_manager',
+            'position_monitor': 'position_monitor',
+            'report_generator': 'report_generator',
+            'blind_spot_investigator': 'blind_spot_investigator',
+            'attention_fusion': 'attention_fusion',
+            'conviction_validator': 'conviction_validator',
+            'narrative_block_linker': 'narrative_block_linker',
+        }
+        
+        if singleton_name in sr_name_map:
+            obj = SR(sr_name_map[singleton_name])
+            if obj is None:
+                return None
+            if attr:
+                return getattr(obj, attr, None)
+            return obj
+        
         from deva.naja.application import get_app_container
         container = get_app_container()
         if not container:
             return None
         
-        # 映射单例名称到容器属性
         name_map = {
             'trading_center': 'trading_center',
             'attention_os': 'attention_os',
@@ -20,7 +41,7 @@ def _safe_get(singleton_name, attr=None):
             'bandit_runner': 'bandit_runner',
             'virtual_portfolio': 'virtual_portfolio',
             'insight_pool': 'insight_pool',
-            'trading_clock': 'trading_clock'
+            'trading_clock': 'trading_clock',
         }
         
         attr_name = name_map.get(singleton_name)
@@ -444,7 +465,11 @@ class StrategyTopSymbolsHandler(RequestHandler):
 
     def get(self):
         try:
-            sdm = _safe_get('strategy_decision_maker')
+            aos = _safe_get('attention_os')
+            if aos is None:
+                self.write(json.dumps(_error("attention_os 未初始化"), ensure_ascii=False))
+                return
+            sdm = aos.strategy_decision_maker if hasattr(aos, 'strategy_decision_maker') else None
             if sdm is None:
                 self.write(json.dumps(_error("strategy_decision_maker 未初始化"), ensure_ascii=False))
                 return
@@ -463,7 +488,11 @@ class StrategyTopBlocksHandler(RequestHandler):
 
     def get(self):
         try:
-            sdm = _safe_get('strategy_decision_maker')
+            aos = _safe_get('attention_os')
+            if aos is None:
+                self.write(json.dumps(_error("attention_os 未初始化"), ensure_ascii=False))
+                return
+            sdm = aos.strategy_decision_maker if hasattr(aos, 'strategy_decision_maker') else None
             if sdm is None:
                 self.write(json.dumps(_error("strategy_decision_maker 未初始化"), ensure_ascii=False))
                 return

@@ -93,6 +93,8 @@ class NarrativeSupplyChainLinker:
         # 🚀 事件订阅已迁移到 EventSubscriberRegistrar（应用层）
         # 不再在 __init__ 中自动订阅
 
+        self._ewm_alpha: float = 0.15
+
     def subscribe_text_events(self, event_bus):
         """由 EventSubscriberRegistrar 调用的事件订阅方法"""
         event_bus.subscribe(
@@ -364,7 +366,10 @@ class NarrativeSupplyChainLinker:
         if narrative not in self._narrative_importance:
             self._narrative_importance[narrative] = 1.0
 
-        self._narrative_importance[narrative] *= boost_factor
+        alpha = self._ewm_alpha
+        self._narrative_importance[narrative] = (
+            alpha * boost_factor + (1 - alpha) * self._narrative_importance[narrative]
+        )
         self._narrative_last_boost[narrative] = time.time()
         self._last_update = time.time()
 
@@ -398,30 +403,33 @@ class NarrativeSupplyChainLinker:
         multiplier = risk_multiplier.get(risk_level, 1.0)
 
         for narrative in narratives:
-            self._narrative_importance[narrative] *= multiplier
+            alpha = self._ewm_alpha * 0.5
+            self._narrative_importance[narrative] = (
+                alpha * multiplier + (1 - alpha) * self._narrative_importance[narrative]
+            )
             self._narrative_last_boost[narrative] = time.time()
 
         self._last_update = time.time()
 
     def _apply_decay(self, narrative: str) -> float:
-        """对单个叙事应用时间衰减，返回衰减后的值"""
+        """对单个叙事应用自然衰减（EWM模式下自然发生）"""
         if narrative not in self._narrative_importance:
             return 1.0
 
-        if narrative not in self._narrative_last_boost:
-            return self._narrative_importance[narrative]
-
-        last_boost = self._narrative_last_boost[narrative]
-        hours_elapsed = (time.time() - last_boost) / 3600.0
+        hours_elapsed = 0.0
+        if narrative in self._narrative_last_boost:
+            hours_elapsed = (time.time() - self._narrative_last_boost[narrative]) / 3600.0
 
         if hours_elapsed <= 0:
             return self._narrative_importance[narrative]
 
-        decay_factor = self._decay_factor ** hours_elapsed
-        current_value = self._narrative_importance[narrative]
-        base_value = 1.0
+        decay_rate = 0.02
+        hours_decay = 1.0 - decay_rate * hours_elapsed
+        hours_decay = max(0.5, hours_decay)
 
-        decayed_value = base_value + (current_value - base_value) * decay_factor
+        base_value = 1.0
+        current_value = self._narrative_importance[narrative]
+        decayed_value = base_value + (current_value - base_value) * hours_decay
         decayed_value = max(base_value, decayed_value)
 
         self._narrative_importance[narrative] = decayed_value
