@@ -13,13 +13,16 @@
 2. 不能自动调优的，调用 LLM 让大模型帮忙调优
 """
 
+import logging
 import threading
 import time
 from collections import deque
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional
 
-from deva import NB, log
+from deva import NB
+
+log = logging.getLogger(__name__)
 
 
 @dataclass

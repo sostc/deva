@@ -11,7 +11,7 @@ NarrativeBlockLinker - 叙事-题材联动器
 from typing import Dict, List, Optional, Set, Tuple, TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from .block_registry import BlockRegistry, BlockDescriptor
+    from deva.naja.attention.block_registry import BlockRegistry, BlockDescriptor
 
 
 from deva.naja.cognition.narrative.block_mapping import (
@@ -60,7 +60,7 @@ class NarrativeBlockLinker:
     _config_loaded = False
 
     def __init__(self, registry: Optional["BlockRegistry"] = None):
-        from .block_registry import get_block_registry
+        from deva.naja.attention.block_registry import get_block_registry
         self.registry = registry or get_block_registry()
         self._ensure_config_loaded()
 
