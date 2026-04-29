@@ -325,27 +325,32 @@ class NarrativeTracker:
         仅在 __init__ 时调用一次。后续通过订阅 MANAS_STATE_CHANGED 事件更新。
         """
         try:
-            from deva.naja.attention.os.attention_os import get_attention_os
-            manas = get_attention_os().kernel.get_manas_engine()
+            from deva.naja.application import get_app_container
+
+            container = get_app_container()
+            attention_os = container.attention_os if container else None
+            if attention_os is None:
+                log.debug("[NarrativeTracker] AppContainer 尚未就绪，初始化阶段使用默认关键词")
+                return [
+                    {"id": theme_id, "name": theme_id, "keywords": keywords}
+                    for theme_id, keywords in DEFAULT_NARRATIVE_KEYWORDS.items()
+                ]
+
+            manas = attention_os.kernel.get_manas_engine()
             if manas is None:
                 raise RuntimeError("ManasEngine 未初始化")
             themes = manas.get_focus_themes()
             if themes:
-                import logging
-                logging.getLogger(__name__).info(
+                log.info(
                     f"[NarrativeTracker] 初始化时从 Manas 获取到 {len(themes)} 个关注主题"
                 )
                 return themes
         except ImportError:
             pass
         except Exception as e:
-            import logging
-            logging.getLogger(__name__).warning(f"[NarrativeTracker] 从 Manas 获取主题失败: {e}")
+            log.warning(f"[NarrativeTracker] 从 Manas 获取主题失败: {e}")
 
-        import logging
-        logging.getLogger(__name__).warning(
-            "[NarrativeTracker] 无法从 Manas 获取主题，使用默认关键词"
-        )
+        log.debug("[NarrativeTracker] 无法从 Manas 获取主题，使用默认关键词")
         return [
             {"id": theme_id, "name": theme_id, "keywords": keywords}
             for theme_id, keywords in DEFAULT_NARRATIVE_KEYWORDS.items()

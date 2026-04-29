@@ -4,7 +4,7 @@ Realtime Data Fetcher - 实盘数据获取器（热点系统内置）
 功能:
 1. 直接从 Sina 行情源获取实盘数据，不依赖数据源系统
 2. 只在交易时间运行（订阅交易时钟信号）
-3. 根据热点权重动态调整获取频率（由 FrequencyScheduler 控制：HIGH=5s, MEDIUM=10s, LOW=60s）
+3. 根据热点权重动态调整获取频率（由 FrequencyScheduler 控制）
 
 事件驱动：
 - 订阅 TRADING_CLOCK_STREAM 信号（正常模式）
@@ -60,7 +60,7 @@ class RealtimeDataFetcher:
     行为：
     - 只在交易时间运行（非交易时间完全停止）
     - 订阅交易时钟信号，收到 phase_change 时启停
-    - 频率由 FrequencyScheduler 控制（HIGH=5s, MEDIUM=10s, LOW=60s）
+    - 频率由 FrequencyScheduler 控制
     - 快照保存由 NB 配置控制开关
 
     强制模式（force_trading_mode=True）：
@@ -100,6 +100,7 @@ class RealtimeDataFetcher:
         self._fetch_count = 0
         self._us_fetch_count = 0
         self._error_count = 0
+        self._us_error_count = 0
         self._last_error: Optional[str] = None
 
         self._cn_active: bool = False
@@ -213,6 +214,44 @@ class RealtimeDataFetcher:
         except Exception as e:
             log.warning(f"[RealtimeDataFetcher] _resolve_inner_system 失败: {e}")
             self._inner_resolved = False
+
+    def _get_runtime_intervals(self, fs, speed: float) -> tuple[float, float, float]:
+        """优先使用调度器当前配置，fallback 到抓取器基础配置。"""
+        high_interval = self.config.base_high_interval
+        medium_interval = self.config.base_medium_interval
+        low_interval = self.config.base_low_interval
+
+        if fs is not None:
+            try:
+                runtime_config = getattr(fs, 'config', None)
+                if runtime_config is not None:
+                    high_interval = float(getattr(runtime_config, 'high_interval', high_interval))
+                    medium_interval = float(getattr(runtime_config, 'medium_interval', medium_interval))
+                    low_interval = float(getattr(runtime_config, 'low_interval', low_interval))
+            except Exception as e:
+                log.debug(f"[RealtimeDataFetcher] 读取运行时频率配置失败: {e}")
+
+        if speed <= 0:
+            speed = 1.0
+        return high_interval / speed, medium_interval / speed, low_interval / speed
+
+    def _count_levels_for_market(self, market: str) -> tuple[int, int, int]:
+        """基于真实 FrequencyScheduler 统计档位数量。"""
+        high_count = medium_count = low_count = 0
+        ctx = self._get_market_context(market)
+        fs = getattr(ctx, 'frequency_scheduler', None)
+        if fs is None:
+            return high_count, medium_count, low_count
+
+        for symbol in fs._symbol_to_idx.keys():
+            level = fs.get_symbol_level(symbol)
+            if level.value == 2:
+                high_count += 1
+            elif level.value == 1:
+                medium_count += 1
+            else:
+                low_count += 1
+        return high_count, medium_count, low_count
 
     def _on_trading_clock_signal(self, signal: Dict[str, Any]):
         """处理交易时钟信号（通过 STREAM.sink 使用）
@@ -610,9 +649,7 @@ class RealtimeDataFetcher:
             return
 
         speed = self.config.playback_speed if self.config.playback_mode else 1.0
-        high_interval = self.config.base_high_interval / speed
-        medium_interval = self.config.base_medium_interval / speed
-        low_interval = self.config.base_low_interval / speed
+        high_interval, medium_interval, low_interval = self._get_runtime_intervals(fs, speed)
 
         # 检查是否需要触发首次获取
         last_fetch = getattr(self, last_fetch_var, 0)
@@ -771,6 +808,8 @@ class RealtimeDataFetcher:
 
         except Exception as e:
             self._error_count += 1
+            if market == 'US':
+                self._us_error_count += 1
             self._last_error = str(e)
             log.error(f"[RealtimeDataFetcher] [{market}] 获取 {level} 数据失败: {e}")
 
@@ -783,9 +822,9 @@ class RealtimeDataFetcher:
         - 如果 symbols 有值，只获取对应的股票
 
         档位控制（在 _tick_market 中实现）：
-        - HIGH symbols：每 1s 获取一次
-        - MEDIUM symbols：每 10s 获取一次
-        - LOW symbols：每 60s 获取一次
+        - HIGH symbols：按当前高频档位间隔获取
+        - MEDIUM symbols：按当前中频档位间隔获取
+        - LOW symbols：按当前低频档位间隔获取
         """
         try:
             import os as _os
@@ -909,12 +948,26 @@ class RealtimeDataFetcher:
 
             if symbols:
                 requested = {str(s) for s in symbols if s}
-                symbols_str = str(requested)
-                if 'US_' in symbols_str or 'hf_' in symbols_str:
-                    symbols = None
-                    log.debug(f"[RealtimeDataFetcher] symbols are futures indices, fetching all stocks")
+                virtual_index_symbols = {
+                    sym for sym in requested
+                    if sym.startswith('US_') or sym.startswith('hf_')
+                }
+                requested_stock_codes = requested - virtual_index_symbols
+
+                if virtual_index_symbols:
+                    log.debug(
+                        "[RealtimeDataFetcher] 跳过虚拟指数符号: %s",
+                        sorted(virtual_index_symbols),
+                    )
+
+                if requested_stock_codes:
+                    stock_codes = {
+                        code: name
+                        for code, name in stock_codes.items()
+                        if code in requested_stock_codes
+                    }
                 else:
-                    stock_codes = {code: name for code, name in stock_codes.items() if code in requested}
+                    stock_codes = {}
 
             log.debug(f"[RealtimeDataFetcher] 当前市场: {market}, 股票池: {len(stock_codes)} 只")
 
@@ -1379,46 +1432,18 @@ class RealtimeDataFetcher:
             cn_info = {'phase': 'unknown', 'phase_name': '未知', 'next_change_time': '', 'next_phase': '', 'next_phase_name': ''}
             us_info = {'phase': 'unknown', 'phase_name': '未知', 'next_change_time': '', 'next_phase': '', 'next_phase_name': ''}
 
-        # 计算A股档位统计
-        high_count = 0
-        medium_count = 0
-        low_count = 0
         try:
-            fs = self._hotspot_system_inner.frequency_scheduler
-            if fs:
-                for symbol, idx in fs._symbol_to_idx.items():
-                    if symbol.startswith('CN_'):
-                        level = fs.get_symbol_level(symbol)
-                        if level.value == 2:
-                            high_count += 1
-                        elif level.value == 1:
-                            medium_count += 1
-                        else:
-                            low_count += 1
-                log.debug(f"[RealtimeDataFetcher] get_stats: fs._symbol_to_idx={len(fs._symbol_to_idx)}, CN[high={high_count}, med={medium_count}, low={low_count}]")
+            high_count, medium_count, low_count = self._count_levels_for_market('CN')
+            log.debug(f"[RealtimeDataFetcher] get_stats: CN[high={high_count}, med={medium_count}, low={low_count}]")
         except Exception as e:
+            high_count = medium_count = low_count = 0
             log.warning(f"[RealtimeDataFetcher] get_stats 计算A股档位失败: {e}")
 
-        # 计算美股档位统计（基于 symbol_weights 的权重）
-        us_high_count = 0
-        us_medium_count = 0
-        us_low_count = 0
         try:
-            us_state = self._hotspot_system_inner.get_us_hotspot_state()
-            symbol_weights = us_state.get('symbol_weights', {})
-            futures = us_state.get('futures_indices', {})
-            us_stock_count = len(self._us_last_symbols) if hasattr(self, '_us_last_symbols') else 0
-            log.debug(f"[RealtimeDataFetcher] get_stats: symbol_weights={len(symbol_weights)}, futures={len(futures) if futures else 0}, us_stock_count={us_stock_count}")
-            for weight in symbol_weights.values():
-                if weight >= 2.5:
-                    us_high_count += 1
-                elif weight >= 1.0:
-                    us_medium_count += 1
-                else:
-                    us_low_count += 1
-            if futures:
-                us_high_count += len(futures)  # 纳指、标普、道指
+            us_high_count, us_medium_count, us_low_count = self._count_levels_for_market('US')
+            log.debug(f"[RealtimeDataFetcher] get_stats: US[high={us_high_count}, med={us_medium_count}, low={us_low_count}]")
         except Exception as e:
+            us_high_count = us_medium_count = us_low_count = 0
             log.warning(f"[RealtimeDataFetcher] get_stats 计算美股档位失败: {e}")
 
         return {
@@ -1428,6 +1453,7 @@ class RealtimeDataFetcher:
             'us_active': self._us_active,
             'fetch_count': self._fetch_count,
             'error_count': self._error_count,
+            'us_error_count': self._us_error_count,
             'last_error': self._last_error,
             'is_trading': self._cn_active,
             'is_us_trading': self._us_active,
@@ -1522,6 +1548,3 @@ class RealtimeDataFetcher:
     def is_snapshot_save_enabled(self) -> bool:
         """快照保存是否启用"""
         return self._save_snapshot_enabled
-
-
-
