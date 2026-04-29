@@ -378,7 +378,7 @@ class AttentionReportGenerator:
             if not tracker:
                 return []
 
-            events = list(tracker.block_hotspot_events)[-10:]
+            events = tracker.get_recent_block_hotspot_events(n=10, threshold='medium')
             return [
                 {
                     'timestamp': e.timestamp,

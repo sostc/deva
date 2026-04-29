@@ -35,6 +35,18 @@ log = logging.getLogger(__name__)
 _IMESSAGE_PHONE = "+8618626880688"
 
 
+def _normalize_hotspot_market(value: Optional[str]) -> str:
+    """将热点快照市场值归一化为 CN/US/UNKNOWN。"""
+    if not value:
+        return "UNKNOWN"
+    market = str(value).strip().upper()
+    if market in {"CN", "ASHARE", "A", "A_SHARE"}:
+        return "CN"
+    if market in {"US", "USSTOCK", "US_STOCK"}:
+        return "US"
+    return market
+
+
 def send_imessage(phone: str, text: str) -> bool:
     """发送iMessage"""
     try:
@@ -1178,15 +1190,16 @@ class DailyReviewAnalyzer:
                 if snapshot.timestamp < cutoff_time:
                     continue
 
-                market_str = snapshot.market_time_str.split()[0] if snapshot.market_time_str else ''
-                if market == 'CN' and 'sh' in market_str.lower():
+                snapshot_market = _normalize_hotspot_market(getattr(snapshot, 'market', 'UNKNOWN'))
+                if market == 'CN' and snapshot_market not in {'CN', 'UNKNOWN'}:
                     continue
-                if market == 'US' and 'US' not in market_str and not any(x in str(snapshot.symbol_weights.keys()) for x in ['AAPL', 'NVDA', 'MSFT']):
+                if market == 'US' and snapshot_market != 'US':
                     continue
 
                 snapshots_timeline.append({
                     'timestamp': snapshot.timestamp,
                     'time': snapshot.market_time_str,
+                    'market': snapshot_market,
                     'global_hotspot': snapshot.global_hotspot,
                     'top_blocks': dict(sorted(snapshot.block_weights.items(), key=lambda x: x[1], reverse=True)[:5]),
                     'top_symbols': dict(sorted(snapshot.symbol_weights.items(), key=lambda x: x[1], reverse=True)[:5]),
