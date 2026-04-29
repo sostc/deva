@@ -734,6 +734,10 @@ class MarketDataObserver:
 
     def _on_trading_clock_signal(self, signal: Dict[str, Any]):
         """处理交易时钟信号"""
+        market = signal.get('market')
+        if market != 'US':
+            return
+
         signal_type = signal.get('type')
         phase = signal.get('phase')
 

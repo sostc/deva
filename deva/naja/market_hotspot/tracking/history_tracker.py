@@ -33,6 +33,7 @@ class HotspotSnapshot:
     global_hotspot: float
     block_weights: Dict[str, float]
     symbol_weights: Dict[str, float]
+    market: str = "UNKNOWN"
     symbol_market_data: Dict[str, Dict] = field(default_factory=dict)
     market_time_str: str = ""  # 行情时间字符串（如 "2024-01-15 10:30:00"）
     activity: float = 0.5
@@ -41,6 +42,7 @@ class HotspotSnapshot:
         return {
             'timestamp': self.timestamp,
             'datetime': datetime.fromtimestamp(self.timestamp).strftime('%Y-%m-%d %H:%M:%S'),
+            'market': self.market,
             'market_time_str': self.market_time_str,
             'global_hotspot': self.global_hotspot,
             'block_weights': self.block_weights,
@@ -363,7 +365,8 @@ class MarketHotspotHistoryTracker:
                        timestamp: float = None,
                        timestamp_str: str = None,
                        symbol_market_data: Dict[str, Dict] = None,
-                       activity: float = None):
+                       activity: float = None,
+                       market: str = "UNKNOWN"):
         """
         记录热点快照
 
@@ -387,29 +390,29 @@ class MarketHotspotHistoryTracker:
         market_data = symbol_market_data if symbol_market_data else {}
         actual_activity = activity if activity is not None else 0.5
         prev_state = self.current_market_state
-        prev_hotspot = self.snapshots[-1].global_hotspot if self.snapshots else None
+        previous_snapshot = self.snapshots[-1] if self.snapshots else None
+        prev_hotspot = previous_snapshot.global_hotspot if previous_snapshot else None
 
         snapshot = HotspotSnapshot(
             timestamp=actual_timestamp,
             global_hotspot=global_hotspot,
             block_weights=block_weights.copy(),
             symbol_weights=symbol_weights.copy(),
+            market=market or "UNKNOWN",
             symbol_market_data=market_data.copy(),
             market_time_str=timestamp_str or "",
             activity=actual_activity,
         )
 
         # 检测热点变化
-        if self.snapshots:
-            last_snapshot = self.snapshots[-1]
-
+        if previous_snapshot:
             # 调试日志
             if len(self.snapshots) <= 2:
                 sample_items = list(block_weights.items())[:3]
                 sample_named = {self.get_block_name(k): v for k, v in sample_items}
                 _lab_debug_log(f"快照{len(self.snapshots)+1}: block_weights样本={sample_named}")
 
-            self._detect_changes(last_snapshot, snapshot, timestamp_str)
+            self._detect_changes(previous_snapshot, snapshot, timestamp_str)
 
         self.snapshots.append(snapshot)
         log.debug(f"[HistoryTracker] record_snapshot(mode={current_mode}): 快照 #{len(self.snapshots)}, global_hotspot={global_hotspot:.3f}")
@@ -464,8 +467,8 @@ class MarketHotspotHistoryTracker:
                 )
 
         # 活跃度突变事件
-        if self.snapshots:
-            last_activity = self.snapshots[-1].activity
+        if previous_snapshot:
+            last_activity = previous_snapshot.activity
             delta_act = actual_activity - last_activity
             if abs(delta_act) >= self._activity_shift_threshold:
                 direction = "升温" if delta_act > 0 else "降温"
@@ -488,9 +491,8 @@ class MarketHotspotHistoryTracker:
                 )
 
         # 题材集中度突变事件
-        if self.snapshots and block_weights:
-            last_snapshot = self.snapshots[-1]
-            last_weights = last_snapshot.block_weights or {}
+        if previous_snapshot and block_weights:
+            last_weights = previous_snapshot.block_weights or {}
             if last_weights:
                 last_top = max(last_weights.values()) if last_weights else 0
                 last_total = sum(last_weights.values()) if last_weights else 1
@@ -815,6 +817,16 @@ class MarketHotspotHistoryTracker:
     def get_recent_changes(self, n: int = 20) -> List[HotspotChange]:
         """获取最近的变化记录"""
         return list(self.changes)[-n:]
+
+    def get_recent_block_hotspot_events(self, n: int = 20, threshold: str = "medium") -> List[BlockHotspotEvent]:
+        """获取最近的题材热点事件"""
+        event_map = {
+            "low": self.block_hotspot_events_low,
+            "medium": self.block_hotspot_events_medium,
+            "high": self.block_hotspot_events_high,
+        }
+        events = event_map.get(threshold, self.block_hotspot_events_medium)
+        return list(events)[-n:]
     
     def get_block_trend(self, block_id: str, n: int = 10) -> List[Dict]:
         """获取题材趋势"""
@@ -868,7 +880,7 @@ class MarketHotspotHistoryTracker:
                     'message': '数据不足，无法检测转移'
                 }
         else:
-            old_snapshot = self.snapshots[0]
+            old_snapshot = self.snapshots[-2]
             new_snapshot = self.snapshots[-1]
 
         old_top_blocks = sorted(old_snapshot.block_weights.keys(),
@@ -1132,6 +1144,10 @@ class MarketHotspotHistoryTracker:
                 'symbol_names': self.symbol_names,
                 'block_names': self.block_names,
                 'baseline_snapshot': self._baseline_snapshot.to_dict() if self._baseline_snapshot else None,
+                'snapshots': [
+                    snapshot.to_dict()
+                    for snapshot in self.snapshots
+                ],
                 'changes': [
                     {
                         'timestamp': c.timestamp,
@@ -1203,6 +1219,20 @@ class MarketHotspotHistoryTracker:
             self.symbol_names.update(data.get('symbol_names', {}))
             self.block_names.update(data.get('block_names', {}))
 
+            snapshots_data = data.get('snapshots', [])
+            for snapshot_data in snapshots_data[-self.max_history:]:
+                snapshot = HotspotSnapshot(
+                    timestamp=snapshot_data['timestamp'],
+                    global_hotspot=snapshot_data['global_hotspot'],
+                    block_weights=snapshot_data.get('block_weights', {}),
+                    symbol_weights=snapshot_data.get('symbol_weights', {}),
+                    market=snapshot_data.get('market', 'UNKNOWN'),
+                    symbol_market_data=snapshot_data.get('symbol_market_data', {}),
+                    market_time_str=snapshot_data.get('market_time_str', ''),
+                    activity=snapshot_data.get('activity', 0.5),
+                )
+                self.snapshots.append(snapshot)
+
             changes_data = data.get('changes', [])
             for c_data in changes_data[-self.max_history * 2:]:
                 change = HotspotChange(
@@ -1247,9 +1277,31 @@ class MarketHotspotHistoryTracker:
                     global_hotspot=baseline_data['global_hotspot'],
                     block_weights=baseline_data['block_weights'],
                     symbol_weights=baseline_data['symbol_weights'],
+                    market=baseline_data.get('market', 'UNKNOWN'),
                     symbol_market_data=baseline_data.get('symbol_market_data', {}),
                     market_time_str=baseline_data.get('market_time_str', ''),
                     activity=baseline_data.get('activity', 0.5),
+                )
+
+            if self.snapshots:
+                latest_snapshot = self.snapshots[-1]
+                self.current_hot_blocks = dict(sorted(
+                    latest_snapshot.block_weights.items(),
+                    key=lambda x: x[1],
+                    reverse=True
+                )[:10])
+                self.current_hot_symbols = dict(sorted(
+                    latest_snapshot.symbol_weights.items(),
+                    key=lambda x: x[1],
+                    reverse=True
+                )[:20])
+                self.current_market_time_str = latest_snapshot.market_time_str
+                self._update_market_state(
+                    latest_snapshot.global_hotspot,
+                    latest_snapshot.activity,
+                    latest_snapshot.block_weights,
+                    latest_snapshot.symbol_weights,
+                    latest_snapshot.timestamp,
                 )
 
             self._persist_loaded = True

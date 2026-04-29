@@ -13,7 +13,7 @@ from ..data.realtime_fetcher import RealtimeDataFetcher
 from ..data.async_fetcher import AsyncRealtimeDataFetcher
 from ..data.fetch_config import FetchConfig
 from ..engine import DualEngineCoordinator
-from ..scheduling import FrequencyScheduler, FrequencyLevel, AdaptiveFrequencyController, StrategyAllocator, StrategyRegistry
+from ..scheduling import FrequencyScheduler, FrequencyLevel, FrequencyConfig, AdaptiveFrequencyController, StrategyAllocator, StrategyRegistry
 from ..core import GlobalHotspotEngine, MarketSnapshot, BlockHotspotEngine, BlockConfig, WeightPool, WeightPoolView, MarketContext
 from .system_config import MarketHotspotSystemConfig, StepResult, FallbackConfig
 import numpy as np
@@ -72,6 +72,7 @@ class MarketHotspotSystem:
             global_history_window=self.config.global_history_window,
         )
         self._current_market = 'CN'
+        self._apply_frequency_base_config()
 
         # 实盘数据获取器
         self._realtime_fetcher: Optional[RealtimeDataFetcher] = None
@@ -133,6 +134,18 @@ class MarketHotspotSystem:
 
         # 注册指数符号到频率调度器（指数始终为高频）
         self._register_index_symbols()
+
+    def _apply_frequency_base_config(self):
+        """将系统配置同步到双市场频率调度器和控制器。"""
+        for ctx in (self._cn_context, self._us_context):
+            base_config = FrequencyConfig(
+                low_interval=self.config.low_interval,
+                medium_interval=self.config.medium_interval,
+                high_interval=self.config.high_interval,
+            )
+            ctx.frequency_scheduler.config = base_config
+            ctx.frequency_controller.base_config = base_config
+            ctx.frequency_controller.current_config = base_config
 
     INDEX_SYMBOLS = ['CN_SH', 'CN_HS300', 'CN_CHINEXT', 'US_NQ', 'US_ES', 'US_YM']
 
@@ -430,7 +443,8 @@ class MarketHotspotSystem:
                         symbol_weights=symbol_weights,
                         timestamp=time.time(),
                         timestamp_str=market_time_str,
-                        activity=activity
+                        activity=activity,
+                        market=market,
                     )
                     log.debug(f"[MarketHotspotSystem] HistoryTracker.record_snapshot 完成, snapshots数量={len(tracker.snapshots)}")
                 else:
