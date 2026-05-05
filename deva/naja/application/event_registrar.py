@@ -39,6 +39,7 @@ class EventSubscriberRegistrar:
             self._register_attention_os(event_bus)
             self._register_trading_center(event_bus)
             self._register_cognition_domain(event_bus)
+            self._register_market_hotspot_push(event_bus)
             
             self._registered = True
             log.info("[EventSubscriberRegistrar] 事件订阅注册完成")
@@ -127,6 +128,58 @@ class EventSubscriberRegistrar:
             
         except Exception as e:
             log.warning(f"[EventSubscriberRegistrar] AttentionOS 事件订阅失败: {e}")
+
+    def _register_market_hotspot_push(self, event_bus) -> None:
+        """注册市场热点前端推送。"""
+        try:
+            from deva.naja.market_hotspot.push_center import get_push_center
+
+            push_center = get_push_center()
+
+            def _name_for_symbol(symbol: str) -> str:
+                try:
+                    from deva.naja.dictionary.blocks import get_stock_name
+                    return get_stock_name(symbol)
+                except Exception:
+                    return symbol
+
+            def on_hotspot_computed(event):
+                try:
+                    block_hotspot = getattr(event, "block_hotspot", {}) or {}
+                    symbol_weights = getattr(event, "symbol_weights", {}) or {}
+                    hot_blocks = [
+                        {"block_id": str(bid), "name": str(bid), "weight": float(weight)}
+                        for bid, weight in sorted(block_hotspot.items(), key=lambda item: item[1], reverse=True)[:10]
+                    ]
+                    hot_stocks = [
+                        {"symbol": str(symbol), "name": _name_for_symbol(str(symbol)), "weight": float(weight)}
+                        for symbol, weight in sorted(symbol_weights.items(), key=lambda item: item[1], reverse=True)[:20]
+                    ]
+
+                    push_center.push_dict({
+                        "timestamp": getattr(event, "timestamp", time.time()),
+                        "market": getattr(event, "market", "CN"),
+                        "global_hotspot": float(getattr(event, "global_hotspot", 0.0) or 0.0),
+                        "activity": float(getattr(event, "activity", 0.0) or 0.0),
+                        "hot_blocks": hot_blocks,
+                        "hot_stocks": hot_stocks,
+                        "block_changes": [],
+                        "stock_changes": [],
+                        "raw_snapshot": event.to_dict() if hasattr(event, "to_dict") else {},
+                    })
+                except Exception as exc:
+                    log.warning(f"[EventSubscriberRegistrar] 市场热点推送失败: {exc}")
+
+            event_bus.subscribe(
+                'HotspotComputedEvent',
+                on_hotspot_computed,
+                markets={'US', 'CN'},
+                priority=1,
+            )
+            log.info("[EventSubscriberRegistrar] MarketHotspotPushCenter 事件订阅完成")
+
+        except Exception as e:
+            log.warning(f"[EventSubscriberRegistrar] MarketHotspotPushCenter 事件订阅失败: {e}")
 
     def _register_trading_center(self, event_bus) -> None:
         """注册 TradingCenter 的事件订阅"""

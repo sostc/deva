@@ -20,7 +20,7 @@ from __future__ import annotations
 import time
 import threading
 from typing import Any, Callable, Dict, List, Optional
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass
 
 from deva.core import Stream
 
@@ -37,6 +37,10 @@ class HotspotPushData:
     block_changes: List[Dict[str, Any]]  # 板块变化
     stock_changes: List[Dict[str, Any]]   # 个股变化
     raw_snapshot: Optional[Dict[str, Any]] = None
+
+    def to_dict(self) -> Dict[str, Any]:
+        """转换为可序列化字典。"""
+        return asdict(self)
 
 
 class MarketHotspotPushCenter:
@@ -127,13 +131,15 @@ class MarketHotspotPushCenter:
         self._last_push_time = now
         self._latest_data = data
 
+        payload = data.to_dict()
+
         # 写入 Stream（前端会收到）
-        self._stream.emit(data)
+        self._stream.emit(payload)
 
         # 调用其他回调
         for callback in self._callbacks:
             try:
-                callback(data)
+                callback(payload)
             except Exception as e:
                 import traceback
                 traceback.print_exc()
