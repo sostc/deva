@@ -18,6 +18,65 @@ from deva.naja.market_hotspot.ui_components.styles import (
 log = logging.getLogger(__name__)
 
 
+def _hotspot_stream_client_js() -> str:
+    """生成共享的热点 SSE 客户端。"""
+    return '''
+        console.log('[Admin] _hotspot_stream_client_js 执行');
+        if (!window.NajaHotspotStream) {
+            console.log('[Admin] 创建 NajaHotspotStream (来自 _hotspot_stream_client_js)');
+            window.NajaHotspotStream = (function() {
+                const listeners = [];
+                let source = null;
+
+                function connect() {
+                    if (source) return;
+                    console.log('[Admin] SSE 连接中...');
+                    source = new EventSource('/api/market/hotspot/stream');
+                    console.log('[Admin] EventSource 创建成功, readyState:', source.readyState);
+
+                    source.onopen = function() {
+                        console.log('[Admin] SSE 连接已打开, readyState:', source.readyState);
+                    };
+
+                    source.onmessage = function(event) {
+                        console.log('[Admin] onmessage 触发, event:', event);
+                        console.log('[Admin] event.data:', event.data);
+                        try {
+                            const data = JSON.parse(event.data);
+                            console.log('[Admin] 解析成功, data:', data);
+                            listeners.slice().forEach(function(listener) {
+                                try { listener(data); } catch (e) { console.error('[Admin] listener 失败:', e); }
+                            });
+                        } catch (e) {
+                            console.error('[Admin] 解析失败:', e);
+                        }
+                    };
+                    source.addEventListener('message', function(event) {
+                        console.log('[Admin] message 事件触发');
+                    });
+                    source.onerror = function(error) {
+                        console.error('[Admin] SSE 错误:', error, 'readyState:', source ? source.readyState : 'source is null');
+                    };
+                }
+
+                return {
+                    subscribe: function(listener) {
+                        console.log('[Admin] 订阅 listener');
+                        listeners.push(listener);
+                        connect();
+                        return function() {
+                            const index = listeners.indexOf(listener);
+                            if (index >= 0) listeners.splice(index, 1);
+                        };
+                    }
+                };
+            })();
+        } else {
+            console.log('[Admin] NajaHotspotStream 已存在 (来自 _hotspot_stream_client_js)');
+        }
+    '''
+
+
 def _get_experiment_info():
     """获取实验模式信息"""
     from .common import get_strategy_manager
@@ -66,6 +125,8 @@ async def render_market_hotspot_admin(ctx: dict):
     report = get_hotspot_report()
     strategy_stats = get_strategy_stats()
     experiment_info = _get_experiment_info()
+
+    put_html(f"<script>{_hotspot_stream_client_js()}</script>")
 
     global_hotspot = report.get('global_hotspot', 0)
     activity = report.get('activity', 0)
@@ -529,8 +590,58 @@ def _generate_realtime_market_flow_js() -> str:
     """生成市场状态的实时 JS - 使用原有完整样式"""
     return '''
     <script>
+    window.addEventListener('DOMContentLoaded', function() {
+        console.log('[Admin] DOM 加载完成');
+    });
     (function() {
-        const POLL_INTERVAL = 10000;
+        console.log('[Admin] 市场热点 JS 立即执行');
+
+        // 定义全局 NajaHotspotStream（如果不存在）
+        if (!window.NajaHotspotStream) {
+            console.log('[Admin] 创建 window.NajaHotspotStream');
+            window.NajaHotspotStream = (function() {
+                const listeners = [];
+                let source = null;
+
+                function connect() {
+                    if (source) return;
+                    console.log('[Admin] 连接 SSE...');
+                    source = new EventSource('/api/market/hotspot/stream');
+                    source.onmessage = function(event) {
+                        console.log('[Admin] SSE 收到消息');
+                        try {
+                            const data = JSON.parse(event.data);
+                            listeners.slice().forEach(function(listener) {
+                                try {
+                                    listener(data);
+                                } catch (e) {
+                                    console.error('[Admin] listener 执行失败:', e);
+                                }
+                            });
+                        } catch (e) {
+                            console.error('[Admin] 解析 SSE 数据失败:', e);
+                        }
+                    };
+                    source.onerror = function(error) {
+                        console.error('[Admin] SSE 连接错误:', error);
+                    };
+                }
+
+                return {
+                    subscribe: function(listener) {
+                        console.log('[Admin] 订阅更新函数');
+                        listeners.push(listener);
+                        connect();
+                        return function() {
+                            const index = listeners.indexOf(listener);
+                            if (index >= 0) listeners.splice(index, 1);
+                        };
+                    }
+                };
+            })();
+        } else {
+            console.log('[Admin] window.NajaHotspotStream 已存在');
+        }
 
         function fmtIdx(pct) {
             if (pct === null || pct === undefined) return "--";
@@ -542,10 +653,9 @@ def _generate_realtime_market_flow_js() -> str:
             return pct >= 0 ? "#16a34a" : "#dc2626";
         }
 
-        function updateMarketFlow() {
-            fetch('/api/market/hotspot')
-                .then(r => r.json())
-                .then(data => {
+        function updateMarketFlow(data) {
+                    console.log('[Admin] updateMarketFlow 收到数据');
+
                     const cn = data.cn || {};
                     const us = data.us || {};
                     const ms = data.market_state || {};
@@ -572,8 +682,19 @@ def _generate_realtime_market_flow_js() -> str:
                     const usFutures = us.futures || {};
                     const usSummary = us.market_summary || {};
 
-                    const hasUsData = usBlocks.length > 0 || usStocks.length > 0;
+                    console.log('[Admin] A股数据检查:', {
+                        'cnBlocks长度': cnBlocks.length,
+                        'cnStocks长度': cnStocks.length,
+                        'cnIndices': cnIndices,
+                        'usFutures': usFutures
+                    });
+
+                    const hasUsData = usBlocks.length > 0 || usStocks.length > 0 || Object.keys(usFutures).length > 0;
                     const hasCnData = cnBlocks.length > 0 || cnStocks.length > 0;
+                    console.log('[Admin] 数据判断:', {
+                        'hasUsData': hasUsData,
+                        'hasCnData': hasCnData
+                    });
                     const showUsOnly = hasUsData && !hasCnData;
                     const showCnOnly = hasCnData && !hasUsData;
                     const showBoth = hasCnData && hasUsData;
@@ -817,13 +938,14 @@ def _generate_realtime_market_flow_js() -> str:
                     }
 
                     html += `</div>`;
-                    document.getElementById('realtime-market-flow').innerHTML = html;
-                })
-                .catch(e => console.error('Update market flow failed:', e));
+                    const target = document.getElementById('realtime-market-flow');
+                    if (target) target.innerHTML = html;
+                    console.log('[Admin] DOM 更新完成');
         }
 
-        updateMarketFlow();
-        setInterval(updateMarketFlow, POLL_INTERVAL);
+        console.log('[Admin] 调用 window.NajaHotspotStream.subscribe()');
+        window.NajaHotspotStream.subscribe(updateMarketFlow);
+        console.log('[Admin] 订阅完成');
     })();
     </script>
     '''
@@ -834,8 +956,6 @@ def _generate_realtime_changes_js() -> str:
     return '''
     <script>
     (function() {
-        const POLL_INTERVAL = 10000;
-
         function formatVolume(vol) {
             if (!vol) return "";
             if (vol >= 1e8) return "量: " + (vol/1e8).toFixed(1) + "亿";
@@ -941,10 +1061,7 @@ def _generate_realtime_changes_js() -> str:
             return html;
         }
 
-        function updateChanges() {
-            fetch('/api/market/hotspot')
-                .then(r => r.json())
-                .then(data => {
+        function updateChanges(data) {
                     const changes = data.recent_changes || [];
                     const shift = data.shift_report || {has_shift: false};
                     const timestamp = new Date().toLocaleTimeString();
@@ -991,13 +1108,11 @@ def _generate_realtime_changes_js() -> str:
                         </div>
                     `;
 
-                    document.getElementById('realtime-hotspot-changes').innerHTML = html;
-                })
-                .catch(e => console.error('Update changes failed:', e));
+                    const target = document.getElementById('realtime-hotspot-changes');
+                    if (target) target.innerHTML = html;
         }
 
-        updateChanges();
-        setInterval(updateChanges, POLL_INTERVAL);
+        window.NajaHotspotStream.subscribe(updateChanges);
     })();
     </script>
     '''
@@ -1008,12 +1123,8 @@ def _generate_realtime_strategy_status_js() -> str:
     return '''
     <script>
     (function() {
-        const POLL_INTERVAL = 15000;
-
-        async function updateStrategyStatus() {
+        function updateStrategyStatus(data) {
             try {
-                const resp = await fetch('/api/market/hotspot');
-                const data = await resp.json();
                 const cn = data.cn || {};
                 const processed = cn.processed_snapshots || 0;
                 const dualSummary = cn.dual_engine_summary || {};
@@ -1054,8 +1165,7 @@ def _generate_realtime_strategy_status_js() -> str:
             }
         }
 
-        updateStrategyStatus();
-        setInterval(updateStrategyStatus, POLL_INTERVAL);
+        window.NajaHotspotStream.subscribe(updateStrategyStatus);
     })();
     </script>
     '''
@@ -1217,6 +1327,4 @@ def _manage_noise_filter():
             {'label': '🔄 重置统计', 'value': 'reset', 'color': 'warning'},
             {'label': '❌ 关闭', 'value': 'close', 'color': 'secondary'},
         ], onclick=lambda v: run_async(reset_stats()) if v == 'reset' else popup_ctx.close())
-
-
 
