@@ -40,6 +40,7 @@ class EventSubscriberRegistrar:
             self._register_trading_center(event_bus)
             self._register_cognition_domain(event_bus)
             self._register_market_hotspot_push(event_bus)
+            self._register_radar_news_push(event_bus)
             
             self._registered = True
             log.info("[EventSubscriberRegistrar] 事件订阅注册完成")
@@ -229,3 +230,32 @@ class EventSubscriberRegistrar:
 
         except Exception as e:
             log.warning(f"[EventSubscriberRegistrar] TradingCenter 事件订阅失败: {e}")
+
+    def _register_radar_news_push(self, event_bus) -> None:
+        """注册雷达新闻前端推送。"""
+        try:
+            from deva.naja.radar.push_center import get_news_push_center
+
+            push_center = get_news_push_center()
+
+            def on_text_focused(event):
+                try:
+                    source = getattr(event, "source", "")
+                    if source != "radar_news":
+                        return
+
+                    push_center.push_news(event)
+                    log.debug(f"[EventSubscriberRegistrar] 雷达新闻已推送: {getattr(event, 'title', '')[:30]}")
+
+                except Exception as exc:
+                    log.warning(f"[EventSubscriberRegistrar] 雷达新闻推送失败: {exc}")
+
+            event_bus.subscribe(
+                'TextFocusedEvent',
+                on_text_focused,
+                priority=1,
+            )
+            log.info("[EventSubscriberRegistrar] RadarNewsPushCenter 事件订阅完成")
+
+        except Exception as e:
+            log.warning(f"[EventSubscriberRegistrar] RadarNewsPushCenter 事件订阅失败: {e}")
