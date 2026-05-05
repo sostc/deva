@@ -14,10 +14,11 @@ from pywebio.session import run_js
 
 from .constants import _fmt_time, _render_event_badge
 from .header import render_header
-from .panels import render_news_fetcher_panel, render_engine_status_panel
+from .panels import render_news_fetcher_panel, render_engine_status_panel, render_recent_news_panel
 from .liquidity import render_liquidity_prediction_panel
 from .events import render_stats_overview, render_event_timeline
 from .controls import render_control_panel
+from .news_panel import init_news_stream
 
 
 class RadarUI:
@@ -42,8 +43,10 @@ class RadarUI:
         theme = get_current_theme_config()
 
         put_html('<div class="container">')
+        init_news_stream()
         render_header(self.engine)
         render_news_fetcher_panel(self.engine)
+        render_recent_news_panel()
         render_engine_status_panel(self.engine)
         render_stats_overview(self.engine)
         render_event_timeline(self.engine)

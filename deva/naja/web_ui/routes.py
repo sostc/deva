@@ -306,6 +306,65 @@ class MarketHotspotStreamHandler(RequestHandler):
             push_center.unregister_callback(on_hotspot_push)
 
 
+class NewsStreamHandler(RequestHandler):
+    """雷达新闻 SSE 推送接口"""
+
+    def set_default_headers(self):
+        self.set_header("Content-Type", "text/event-stream; charset=utf-8")
+        self.set_header("Cache-Control", "no-cache")
+        self.set_header("Connection", "keep-alive")
+        self.set_header("X-Accel-Buffering", "no")
+
+    def on_connection_close(self):
+        closed = getattr(self, "_closed", None)
+        if closed is not None and not closed.done():
+            closed.set_result(None)
+
+    async def get(self):
+        from tornado.ioloop import IOLoop
+        from deva.naja.radar.push_center import get_news_push_center
+
+        loop = IOLoop.current()
+        self._closed = asyncio.Future()
+
+        min_importance = float(self.get_argument('min_importance', 0.0))
+        push_center = get_news_push_center()
+        push_center.set_filter(min_importance)
+
+        async def send_payload():
+            if self._closed.done():
+                return
+            try:
+                latest = push_center.get_latest_news()
+                payload = {
+                    'timestamp': time.time(),
+                    'news': latest
+                }
+                data = json.dumps(payload, ensure_ascii=False, default=_json_default)
+                self.write(f"data: {data}\n\n")
+                await self.flush()
+            except Exception:
+                if not self._closed.done():
+                    self._closed.set_result(None)
+
+        def on_news_push(_data):
+            loop.add_callback(send_payload)
+
+        push_center.register_callback(on_news_push)
+
+        await send_payload()
+        try:
+            while not self._closed.done():
+                await asyncio.sleep(25)
+                if self._closed.done():
+                    break
+                self.write(": heartbeat\n\n")
+                await self.flush()
+            await self._closed
+        finally:
+            push_center.unregister_callback(on_news_push)
+
+
 def create_handlers(cdn: str = None):
     """创建路由处理器"""
     cdn_url = cdn or 'https://fastly.jsdelivr.net/gh/wang0618/PyWebIO-assets@v1.8.3/'
@@ -361,6 +420,7 @@ def create_handlers(cdn: str = None):
         (r'/api/system/runtime', SystemRuntimeHandler),
         (r'/api/system/modules', SystemModulesHandler),
         (r'/api/radar/events', RadarEventsHandler),
+        (r'/api/news/stream', NewsStreamHandler),
         (r'/api/bandit/stats', BanditStatsHandler),
         (r'/api/knowledge/list', KnowledgeListHandler),
         (r'/api/knowledge/stats', KnowledgeStatsHandler),
