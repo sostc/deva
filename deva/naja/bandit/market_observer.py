@@ -722,6 +722,7 @@ class MarketDataObserver:
         if not self._running:
             self._running = True
             self._last_data_time = time.time()
+            self._init_phase_from_trading_clock()
             TRADING_CLOCK_STREAM.sink(self._on_trading_clock_signal)
             datasource_id = self._get_active_datasource_id()
             self._reconnect_datasource(datasource_id)
@@ -731,6 +732,16 @@ class MarketDataObserver:
         self._start_fetch_loop()
         self._save_config()
         log.debug("[MarketObserver] 已启动")
+
+    def _init_phase_from_trading_clock(self):
+        """从 TradingClock 初始化当前 phase，避免错过初始信号"""
+        try:
+            from ..register import SR
+            tc = SR('trading_clock')
+            self._current_phase = tc.us_phase
+            log.debug(f"[MarketObserver] 从 TradingClock 初始化 phase={self._current_phase}")
+        except Exception as e:
+            log.warning(f"[MarketObserver] 无法从 TradingClock 获取 phase: {e}")
 
     def _on_trading_clock_signal(self, signal: Dict[str, Any]):
         """处理交易时钟信号"""

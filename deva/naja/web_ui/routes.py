@@ -2,6 +2,7 @@
 
 import json
 import time
+import asyncio
 from pywebio.platform.tornado import webio_handler
 from tornado.web import RequestHandler
 
@@ -41,6 +42,203 @@ from .attention_api import (
 )
 
 
+def _json_default(value):
+    if hasattr(value, "item"):
+        try:
+            return value.item()
+        except Exception:
+            pass
+    if isinstance(value, (set, tuple)):
+        return list(value)
+    return str(value)
+
+
+def _market_hotspot_payload():
+    from deva.naja.market_hotspot.integration.market_hotspot_integration import get_market_hotspot_integration
+    integration = get_market_hotspot_integration()
+    if not integration or not hasattr(integration, 'hotspot_system'):
+        return {"error": "hotspot_system not initialized"}
+
+    hotspot = integration.hotspot_system
+
+    # === A股热点题材（直接从 CN context 获取）===
+    cn_blocks = []
+    try:
+        cn_block_engine = hotspot._cn_context.block_engine
+        bw = cn_block_engine.get_all_weights(filter_noise=True)
+        for bid, w in sorted(bw.items(), key=lambda x: x[1], reverse=True)[:10]:
+            name = bid
+            try:
+                from deva.naja.market_hotspot.integration.history_tracker import get_history_tracker
+                ht = get_history_tracker()
+                if ht:
+                    name = ht.get_block_name(bid) or bid
+            except Exception:
+                pass
+            cn_blocks.append({"block_id": bid, "name": name, "weight": round(w, 4)})
+    except Exception:
+        pass
+
+    # === A股热门股票（直接从 CN context 获取）===
+    cn_stocks = []
+    try:
+        cn_weight_pool = hotspot._cn_context.weight_pool
+        sw = cn_weight_pool.get_all_weights(filter_noise=True)
+        for sym, w in sorted(sw.items(), key=lambda x: x[1], reverse=True)[:20]:
+            name = sym
+            try:
+                from deva.naja.dictionary.blocks import get_stock_name
+                name = get_stock_name(sym)
+            except Exception:
+                pass
+            cn_stocks.append({"symbol": sym, "name": name, "weight": round(w, 4)})
+    except Exception:
+        pass
+
+    # === 美股热点 ===
+    us_blocks, us_stocks, us_hotspot, us_activity = [], [], 0.0, 0.0
+    try:
+        us_state = hotspot.get_us_hotspot_state()
+        us_hotspot = round(us_state.get("global_hotspot", 0), 4)
+        us_activity = round(us_state.get("activity", 0), 4)
+        for bid, w in sorted(us_state.get("block_hotspot", {}).items(), key=lambda x: x[1], reverse=True)[:10]:
+            us_blocks.append({"block_id": bid, "name": bid, "weight": round(w, 4)})
+        changes = us_state.get("symbol_changes", {})
+        for sym, w in sorted(us_state.get("symbol_weights", {}).items(), key=lambda x: x[1], reverse=True)[:20]:
+            try:
+                from deva.naja.dictionary.blocks import get_stock_name
+                name = get_stock_name(sym)
+            except Exception:
+                name = sym
+            us_stocks.append({"symbol": sym, "name": name, "weight": round(w, 4), "change_pct": round(changes.get(sym, 0), 2)})
+    except Exception:
+        pass
+
+    # === A股指数 ===
+    cn_indices = {"SH": None, "HS300": None, "CHINEXT": None}
+    try:
+        cn_idx = hotspot.get_cn_indices()
+        cn_indices["SH"] = cn_idx.get("SH")
+        cn_indices["HS300"] = cn_idx.get("HS300")
+        cn_indices["CHINEXT"] = cn_idx.get("CHINEXT")
+    except Exception:
+        pass
+
+    # === 美股期货 ===
+    us_futures = {"NQ": None, "ES": None, "YM": None}
+    try:
+        futures = hotspot.get_us_futures_indices()
+        us_futures["NQ"] = futures.get("NQ")
+        us_futures["ES"] = futures.get("ES")
+        us_futures["YM"] = futures.get("YM")
+    except Exception:
+        pass
+
+    # === 美股涨跌分布 ===
+    us_market_summary = {"up_count": 0, "down_count": 0, "flat_count": 0, "stock_count": 0}
+    try:
+        from deva.naja.market_hotspot.ui_components.us_market import get_us_market_summary
+        summary = get_us_market_summary()
+        if summary:
+            us_market_summary["up_count"] = summary.get("up_count", 0)
+            us_market_summary["down_count"] = summary.get("down_count", 0)
+            us_market_summary["flat_count"] = summary.get("flat_count", 0)
+            us_market_summary["stock_count"] = summary.get("stock_count", 0)
+    except Exception:
+        pass
+
+    # === 系统报告 ===
+    report = {}
+    try:
+        report = integration.get_hotspot_report() or {}
+    except Exception:
+        pass
+
+    # === 市场状态 ===
+    market_state = {"state": "unknown", "description": "等待数据...", "global_hotspot": 0}
+    try:
+        from deva.naja.market_hotspot.integration.history_tracker import get_history_tracker
+        tracker = get_history_tracker()
+        if tracker:
+            state_info = tracker.get_market_state_info()
+            market_state["state"] = state_info.get("state", "unknown")
+            market_state["description"] = state_info.get("description", "等待数据...")
+            market_state["global_hotspot"] = state_info.get("global_hotspot", 0)
+    except Exception:
+        pass
+
+    # === 处理帧数统计 ===
+    stats = {"processed_frames": 0, "filtered_frames": 0}
+    try:
+        from deva.naja.attention.orchestration.trading_center import get_trading_center
+        orchestrator = get_trading_center()
+        if orchestrator:
+            s = orchestrator.get_stats()
+            stats["processed_frames"] = s.get("processed_frames", 0)
+            stats["filtered_frames"] = s.get("filtered_frames", 0)
+    except Exception:
+        pass
+
+    # === 热点变化记录 ===
+    recent_changes = []
+    try:
+        from deva.naja.market_hotspot.tracking.history_tracker import get_history_tracker
+        tracker = get_history_tracker()
+        if tracker:
+            changes = tracker.get_recent_changes(n=20)
+            for change in changes:
+                recent_changes.append({
+                    "timestamp": change.timestamp,
+                    "time": time.strftime("%H:%M:%S", time.localtime(change.timestamp)),
+                    "change_type": change.change_type,
+                    "item_id": change.item_id,
+                    "item_name": change.item_name or change.item_id,
+                    "old_weight": round(change.old_weight, 4) if hasattr(change, 'old_weight') and change.old_weight else 0,
+                    "new_weight": round(change.new_weight, 4) if hasattr(change, 'new_weight') and change.new_weight else 0,
+                    "change_percent": round(change.change_percent, 1) if hasattr(change, 'change_percent') and change.change_percent else 0,
+                    "price": round(change.price, 2) if hasattr(change, 'price') and change.price else None,
+                    "price_change": round(change.price_change, 2) if hasattr(change, 'price_change') and change.price_change else 0,
+                    "volume": change.volume if hasattr(change, 'volume') and change.volume else None,
+                    "block": change.block if hasattr(change, 'block') and change.block else None,
+                })
+    except Exception:
+        pass
+
+    # === 热点转移报告 ===
+    shift_report = {"has_shift": False}
+    try:
+        from deva.naja.market_hotspot.ui_components.common import get_hotspot_shift_report
+        shift = get_hotspot_shift_report()
+        if shift:
+            shift_report = shift
+    except Exception:
+        pass
+
+    return {
+        "cn": {
+            "hot_blocks": cn_blocks,
+            "hot_stocks": cn_stocks,
+            "market_hotspot": round(report.get("global_hotspot", 0), 4),
+            "market_activity": round(report.get("activity", 0), 4),
+            "indices": cn_indices,
+        },
+        "us": {
+            "hot_blocks": us_blocks,
+            "hot_stocks": us_stocks,
+            "market_hotspot": us_hotspot,
+            "market_activity": us_activity,
+            "futures": us_futures,
+            "market_summary": us_market_summary,
+        },
+        "market_state": market_state,
+        "stats": stats,
+        "system_status": report.get("status", "unknown"),
+        "processed_snapshots": report.get("processed_snapshots", 0),
+        "recent_changes": recent_changes,
+        "shift_report": shift_report,
+    }
+
+
 class MarketHotspotAPIHandler(RequestHandler):
     """市场热点 JSON API — A股+美股双市场"""
 
@@ -49,179 +247,63 @@ class MarketHotspotAPIHandler(RequestHandler):
 
     def get(self):
         try:
-            from deva.naja.market_hotspot.integration.market_hotspot_integration import get_market_hotspot_integration
-            integration = get_market_hotspot_integration()
-            if not integration or not hasattr(integration, 'hotspot_system'):
-                self.write(json.dumps({"error": "hotspot_system not initialized"}, ensure_ascii=False))
-                return
-
-            hotspot = integration.hotspot_system
-
-            # === A股热点题材（直接从 CN context 获取）===
-            cn_blocks = []
-            try:
-                cn_block_engine = hotspot._cn_context.block_engine
-                bw = cn_block_engine.get_all_weights(filter_noise=True)
-                for bid, w in sorted(bw.items(), key=lambda x: x[1], reverse=True)[:10]:
-                    name = bid
-                    try:
-                        from deva.naja.market_hotspot.integration.history_tracker import get_history_tracker
-                        ht = get_history_tracker()
-                        if ht: name = ht.get_block_name(bid) or bid
-                    except Exception: pass
-                    cn_blocks.append({"block_id": bid, "name": name, "weight": round(w, 4)})
-            except Exception: pass
-
-            # === A股热门股票（直接从 CN context 获取）===
-            cn_stocks = []
-            try:
-                cn_weight_pool = hotspot._cn_context.weight_pool
-                sw = cn_weight_pool.get_all_weights(filter_noise=True)
-                for sym, w in sorted(sw.items(), key=lambda x: x[1], reverse=True)[:20]:
-                    name = sym
-                    try:
-                        from deva.naja.dictionary.blocks import get_stock_name
-                        name = get_stock_name(sym)
-                    except Exception: pass
-                    cn_stocks.append({"symbol": sym, "name": name, "weight": round(w, 4)})
-            except Exception: pass
-
-            # === 美股热点 ===
-            us_blocks, us_stocks, us_hotspot, us_activity = [], [], 0.0, 0.0
-            try:
-                us_state = hotspot.get_us_hotspot_state()
-                us_hotspot = round(us_state.get("global_hotspot", 0), 4)
-                us_activity = round(us_state.get("activity", 0), 4)
-                for bid, w in sorted(us_state.get("block_hotspot", {}).items(), key=lambda x: x[1], reverse=True)[:10]:
-                    us_blocks.append({"block_id": bid, "name": bid, "weight": round(w, 4)})
-                changes = us_state.get("symbol_changes", {})
-                for sym, w in sorted(us_state.get("symbol_weights", {}).items(), key=lambda x: x[1], reverse=True)[:20]:
-                    try:
-                        from deva.naja.dictionary.blocks import get_stock_name
-                        name = get_stock_name(sym)
-                    except Exception:
-                        name = sym
-                    us_stocks.append({"symbol": sym, "name": name, "weight": round(w, 4), "change_pct": round(changes.get(sym, 0), 2)})
-            except Exception: pass
-
-            # === A股指数 ===
-            cn_indices = {"SH": None, "HS300": None, "CHINEXT": None}
-            try:
-                cn_idx = hotspot.get_cn_indices()
-                cn_indices["SH"] = cn_idx.get("SH")
-                cn_indices["HS300"] = cn_idx.get("HS300")
-                cn_indices["CHINEXT"] = cn_idx.get("CHINEXT")
-            except Exception: pass
-
-            # === 美股期货 ===
-            us_futures = {"NQ": None, "ES": None, "YM": None}
-            try:
-                futures = hotspot.get_us_futures_indices()
-                us_futures["NQ"] = futures.get("NQ")
-                us_futures["ES"] = futures.get("ES")
-                us_futures["YM"] = futures.get("YM")
-            except Exception: pass
-
-            # === 美股涨跌分布 ===
-            us_market_summary = {"up_count": 0, "down_count": 0, "flat_count": 0, "stock_count": 0}
-            try:
-                from deva.naja.market_hotspot.ui_components.us_market import get_us_market_summary
-                summary = get_us_market_summary()
-                if summary:
-                    us_market_summary["up_count"] = summary.get("up_count", 0)
-                    us_market_summary["down_count"] = summary.get("down_count", 0)
-                    us_market_summary["flat_count"] = summary.get("flat_count", 0)
-                    us_market_summary["stock_count"] = summary.get("stock_count", 0)
-            except Exception: pass
-
-            # === 系统报告 ===
-            report = {}
-            try: report = integration.get_hotspot_report() or {}
-            except Exception: pass
-
-            # === 市场状态 ===
-            market_state = {"state": "unknown", "description": "等待数据...", "global_hotspot": 0}
-            try:
-                from deva.naja.market_hotspot.integration.history_tracker import get_history_tracker
-                tracker = get_history_tracker()
-                if tracker:
-                    state_info = tracker.get_market_state_info()
-                    market_state["state"] = state_info.get("state", "unknown")
-                    market_state["description"] = state_info.get("description", "等待数据...")
-                    market_state["global_hotspot"] = state_info.get("global_hotspot", 0)
-            except Exception: pass
-
-            # === 处理帧数统计 ===
-            stats = {"processed_frames": 0, "filtered_frames": 0}
-            try:
-                from deva.naja.attention.orchestration.trading_center import get_trading_center
-                orchestrator = get_trading_center()
-                if orchestrator:
-                    s = orchestrator.get_stats()
-                    stats["processed_frames"] = s.get("processed_frames", 0)
-                    stats["filtered_frames"] = s.get("filtered_frames", 0)
-            except Exception: pass
-
-            # === 热点变化记录 ===
-            recent_changes = []
-            try:
-                from deva.naja.market_hotspot.tracking.history_tracker import get_history_tracker
-                tracker = get_history_tracker()
-                if tracker:
-                    changes = tracker.get_recent_changes(n=20)
-                    for change in changes:
-                        recent_changes.append({
-                            "timestamp": change.timestamp,
-                            "time": time.strftime("%H:%M:%S", time.localtime(change.timestamp)),
-                            "change_type": change.change_type,
-                            "item_id": change.item_id,
-                            "item_name": change.item_name or change.item_id,
-                            "old_weight": round(change.old_weight, 4) if hasattr(change, 'old_weight') and change.old_weight else 0,
-                            "new_weight": round(change.new_weight, 4) if hasattr(change, 'new_weight') and change.new_weight else 0,
-                            "change_percent": round(change.change_percent, 1) if hasattr(change, 'change_percent') and change.change_percent else 0,
-                            "price": round(change.price, 2) if hasattr(change, 'price') and change.price else None,
-                            "price_change": round(change.price_change, 2) if hasattr(change, 'price_change') and change.price_change else 0,
-                            "volume": change.volume if hasattr(change, 'volume') and change.volume else None,
-                            "block": change.block if hasattr(change, 'block') and change.block else None,
-                        })
-            except Exception: pass
-
-            # === 热点转移报告 ===
-            shift_report = {"has_shift": False}
-            try:
-                from deva.naja.market_hotspot.ui_components.common import get_hotspot_shift_report
-                shift = get_hotspot_shift_report()
-                if shift:
-                    shift_report = shift
-            except Exception: pass
-
-            self.write(json.dumps({
-                "cn": {
-                    "hot_blocks": cn_blocks,
-                    "hot_stocks": cn_stocks,
-                    "market_hotspot": round(report.get("global_hotspot", 0), 4),
-                    "market_activity": round(report.get("activity", 0), 4),
-                    "indices": cn_indices,
-                },
-                "us": {
-                    "hot_blocks": us_blocks,
-                    "hot_stocks": us_stocks,
-                    "market_hotspot": us_hotspot,
-                    "market_activity": us_activity,
-                    "futures": us_futures,
-                    "market_summary": us_market_summary,
-                },
-                "market_state": market_state,
-                "stats": stats,
-                "system_status": report.get("status", "unknown"),
-                "processed_snapshots": report.get("processed_snapshots", 0),
-                "recent_changes": recent_changes,
-                "shift_report": shift_report,
-            }, ensure_ascii=False, indent=2))
+            self.write(json.dumps(_market_hotspot_payload(), ensure_ascii=False, indent=2, default=_json_default))
         except Exception as e:
             self.set_status(500)
             import traceback; traceback.print_exc()
             self.write(json.dumps({"error": str(e)}, ensure_ascii=False))
+
+
+class MarketHotspotStreamHandler(RequestHandler):
+    """市场热点 SSE 推送接口。"""
+
+    def set_default_headers(self):
+        self.set_header("Content-Type", "text/event-stream; charset=utf-8")
+        self.set_header("Cache-Control", "no-cache")
+        self.set_header("Connection", "keep-alive")
+        self.set_header("X-Accel-Buffering", "no")
+
+    def on_connection_close(self):
+        closed = getattr(self, "_closed", None)
+        if closed is not None and not closed.done():
+            closed.set_result(None)
+
+    async def get(self):
+        from tornado.ioloop import IOLoop
+        from deva.naja.market_hotspot.push_center import get_push_center
+
+        loop = IOLoop.current()
+        self._closed = asyncio.Future()
+
+        async def send_payload():
+            if self._closed.done():
+                return
+            try:
+                payload = _market_hotspot_payload()
+                data = json.dumps(payload, ensure_ascii=False, default=_json_default)
+                self.write(f"data: {data}\n\n")
+                await self.flush()
+            except Exception:
+                if not self._closed.done():
+                    self._closed.set_result(None)
+
+        def on_hotspot_push(_data):
+            loop.add_callback(send_payload)
+
+        push_center = get_push_center()
+        push_center.register_callback(on_hotspot_push)
+
+        await send_payload()
+        try:
+            while not self._closed.done():
+                await asyncio.sleep(25)
+                if self._closed.done():
+                    break
+                self.write(": heartbeat\n\n")
+                await self.flush()
+            await self._closed
+        finally:
+            push_center.unregister_callback(on_hotspot_push)
 
 
 def create_handlers(cdn: str = None):
@@ -275,6 +357,7 @@ def create_handlers(cdn: str = None):
         (r'/api/cognition/attention', CognitionAttentionHandler),
         (r'/api/cognition/thought', CognitionThoughtHandler),
         (r'/api/market/hotspot', MarketHotspotAPIHandler),
+        (r'/api/market/hotspot/stream', MarketHotspotStreamHandler),
         (r'/api/system/runtime', SystemRuntimeHandler),
         (r'/api/system/modules', SystemModulesHandler),
         (r'/api/radar/events', RadarEventsHandler),
