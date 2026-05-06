@@ -617,6 +617,9 @@ class Jin10LiveNewsWakeSync:
     判断逻辑：距上次同步超过 30 分钟则补抓（重要事件更新频率低，不需要太频繁）
     """
 
+    _pushed_flash_ids: set = set()
+    _max_cache_size: int = 200
+
     @property
     def name(self) -> str:
         return "Jin10_Live_News"
@@ -634,7 +637,6 @@ class Jin10LiveNewsWakeSync:
         now = datetime.now()
         gap_minutes = (now - last_active).total_seconds() / 60
 
-        # 休眠超过 30 分钟才补抓
         if gap_minutes < 30:
             log.info(f"[WakeSync] Jin10LiveNews: 休眠仅 {gap_minutes:.0f} 分钟，跳过")
             return False
@@ -645,9 +647,44 @@ class Jin10LiveNewsWakeSync:
     def get_wake_sync_range(self, last_active: datetime, max_hours: int = 24) -> Tuple[datetime, datetime]:
         """获取同步时间范围"""
         now = datetime.now()
-        start = now - timedelta(hours=2)  # 重要事件窗口通常 2 小时内
+        start = now - timedelta(hours=2)
         end = now
         return start, end
+
+    def _push_to_phone(self, news) -> bool:
+        """推送重要事件到手机（钉钉/iMessage）"""
+        try:
+            from deva.naja.config import get_config
+
+            dtalk_webhook = get_config("dtalk.webhook", "")
+            if not dtalk_webhook:
+                return False
+
+            from deva.endpoints import Dtalk
+
+            dtalk_msg = f"""@md@📌 金十重要事件
+---
+**{news.title}**
+---
+⏰ {news.display_time}
+🔗 https://www.jin10.com/news/{news.flash_id}
+"""
+            dtalk = Dtalk()
+            dtalk.send(dtalk_msg)
+            log.info(f"[WakeSync] Jin10LiveNews: 已推送钉钉 - {news.title[:30]}...")
+            return True
+
+        except Exception as e:
+            log.warning(f"[WakeSync] Jin10LiveNews: 钉钉推送失败 - {e}")
+            try:
+                from deva.naja.strategy.daily_review import send_imessage
+                phone = get_config("notify.phone", "+8618626880688")
+                send_imessage(phone, f"📌 金十重要事件\n{news.title}\n{news.display_time}")
+                log.info(f"[WakeSync] Jin10LiveNews: 已推送iMessage - {news.title[:30]}...")
+                return True
+            except Exception as e2:
+                log.warning(f"[WakeSync] Jin10LiveNews: iMessage推送失败 - {e2}")
+                return False
 
     def execute_wake_sync(self, start: datetime, end: datetime) -> Dict[str, Any]:
         """
@@ -682,7 +719,16 @@ class Jin10LiveNewsWakeSync:
                         return 0
 
                     published = 0
+                    pushed = 0
+                    skipped = 0
+
                     for news in news_list:
+                        flash_id = news.flash_id
+
+                        if flash_id and flash_id in self._pushed_flash_ids:
+                            skipped += 1
+                            continue
+
                         try:
                             from deva.naja.events import get_event_bus
                             from deva.naja.events.text_events import TextFetchedEvent
@@ -691,15 +737,26 @@ class Jin10LiveNewsWakeSync:
                                 text=news.title,
                                 title=f"金十重要事件 #{news.rank}",
                                 source="jin10_important",
-                                url=f"https://www.jin10.com/news/{news.flash_id}" if news.flash_id else "",
+                                url=f"https://www.jin10.com/news/{flash_id}" if flash_id else "",
                                 timestamp=time.time(),
                             )
                             get_event_bus().publish(event)
                             published += 1
+
+                            if flash_id:
+                                self._pushed_flash_ids.add(flash_id)
+                                if len(self._pushed_flash_ids) > self._max_cache_size:
+                                    old_ids = list(self._pushed_flash_ids)[:50]
+                                    for oid in old_ids:
+                                        self._pushed_flash_ids.discard(oid)
+
+                            self._push_to_phone(news)
+                            pushed += 1
+
                         except Exception as e:
                             log.warning(f"[WakeSync] Jin10LiveNews: 发布失败 - {e}")
 
-                    log.info(f"[WakeSync] Jin10LiveNews: 后台完成，发布 {published} 条重要事件")
+                    log.info(f"[WakeSync] Jin10LiveNews: 后台完成，新增:{published} 推送:{pushed} 跳过:{skipped}")
                     return published
 
                 asyncio.run(_do_fetch())
