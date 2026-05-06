@@ -525,45 +525,29 @@ class MarketHotspotSystem:
 
             code_col = 'code' if 'code' in data.columns else data.index.name
             if code_col is None:
-                return np.zeros(len(data))
+                return np.array([''] * len(data))
 
             raw_codes = data[code_col].astype(str).values
             stock_to_blocks = bd._cn_stock_to_blocks
-
-            block_id_map: Dict[str, int] = {}
-            next_block_id = 1
-
-            for code in raw_codes:
-                code_str = str(code)
-                blocks = stock_to_blocks.get(code_str, set())
-
-                filtered_blocks = []
-                for block in blocks:
-                    if block_noise_detector.is_noise(block, block):
-                        continue
-                    filtered_blocks.append(block)
-                    if block not in block_id_map:
-                        block_id_map[block] = next_block_id
-                        next_block_id += 1
 
             block_ids = []
             for code in raw_codes:
                 code_str = str(code)
                 blocks = stock_to_blocks.get(code_str, set())
-                block_id = 0
+                block_name = ''
                 for block in blocks:
                     if not block_noise_detector.is_noise(block, block):
-                        block_id = block_id_map.get(block, 0)
+                        block_name = block
                         break
-                block_ids.append(block_id)
+                block_ids.append(block_name)
 
-            log.debug(f"[MarketHotspotSystem] 提取题材ID完成: {len(block_id_map)}个有效题材, {len(data)}只股票")
-            return np.array(block_ids, dtype=int)
+            log.debug(f"[MarketHotspotSystem] 提取题材ID完成: {len(set(b for b in block_ids if b))}个有效题材, {len(data)}只股票")
+            return np.array(block_ids, dtype=str)
         except Exception as e:
             log.debug(f"[MarketHotspotSystem] 提取block_ids失败: {e}")
             import traceback
             log.debug(traceback.format_exc())
-            return np.zeros(len(data))
+            return np.array([''] * len(data))
 
     def _get_noise_filter_config(self) -> 'NoiseFilterConfig':
         """获取噪音过滤器配置"""
