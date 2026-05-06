@@ -51,8 +51,21 @@ class WakeOrchestrator:
 
         log.info(f"[WakeOrchestrator] 唤醒开始，休眠时长: {sleep_hours:.2f} 小时")
 
-        if sleep_hours < self.SKIP_THRESHOLD_HOURS:
-            log.info(f"[WakeOrchestrator] 休眠不足 {self.SKIP_THRESHOLD_HOURS} 小时，跳过补作业")
+        last_active = self._state_manager.get_last_active_time()
+
+        # 检查是否有金十数据缓存
+        has_jin10_cache = False
+        try:
+            from deva.naja.state.system.wake_sync_handlers import Jin10LiveNewsWakeSync
+            import os
+            cache_file = os.path.expanduser("~/.naja/jin10_flash_ids.json")
+            if os.path.exists(cache_file):
+                has_jin10_cache = True
+        except:
+            pass
+
+        if sleep_hours < self.SKIP_THRESHOLD_HOURS and last_active is not None and has_jin10_cache:
+            log.info(f"[WakeOrchestrator] 休眠不足 {self.SKIP_THRESHOLD_HOURS} 小时，且有金十缓存，跳过补作业")
             return {
                 "success": True,
                 "action": "skipped",
@@ -66,15 +79,39 @@ class WakeOrchestrator:
             "wake_sync": None,
         }
 
-        last_active = self._state_manager.get_last_active_time()
         if last_active:
             results["recovery"] = self._recover_components()
             results["wake_sync"] = self._sync_external_data(last_active, sleep_hours)
         else:
-            log.info("[WakeOrchestrator] 无上次活跃时间记录，仅做组件恢复")
+            log.info("[WakeOrchestrator] 无上次活跃时间记录，做组件恢复 + 金十数据同步")
             results["recovery"] = self._recover_components()
+            results["wake_sync"] = self._sync_jin10_only()
 
         return results
+
+    def _sync_jin10_only(self) -> Dict[str, Any]:
+        """仅同步金十重要事件（首次启动时使用）"""
+        from deva.naja.state.system.wake_sync_manager import _wake_sync_manager
+
+        try:
+            component = _wake_sync_manager._components.get("Jin10_Live_News")
+            if not component:
+                return {"success": False, "error": "Jin10_Live_News component not registered"}
+
+            if not component.should_wake_sync(None):
+                log.info("[WakeOrchestrator] Jin10_Live_News 无需同步")
+                return {"success": True, "reason": "no sync needed"}
+
+            start_range, end_range = component.get_wake_sync_range(None)
+            result = component.execute_wake_sync(start_range, end_range)
+            return {
+                "success": result.get("success", False),
+                "mode": "jin10_only",
+                "components": [{"name": "Jin10_Live_News", **result}],
+            }
+        except Exception as e:
+            log.error(f"[WakeOrchestrator] 金十数据同步失败: {e}")
+            return {"success": False, "error": str(e)}
 
     def _recover_components(self) -> Dict[str, Any]:
         """恢复组件内部运行状态（策略/数据源/任务的启停状态）
@@ -120,7 +157,7 @@ class WakeOrchestrator:
         """
         from deva.naja.state.system.wake_sync_manager import _wake_sync_manager
 
-        core_names = ["Portfolio_Price", "News_Fetcher"]
+        core_names = ["Portfolio_Price", "News_Fetcher", "Jin10_Live_News"]
 
         results = []
         synced_count = 0
