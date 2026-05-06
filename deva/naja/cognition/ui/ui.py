@@ -25,6 +25,7 @@ from .components import (
     render_liquidity_prediction,
     render_token_monitor,
     render_narrative_value,
+    render_jin10_events,
 )
 from deva.naja.register import SR
 
@@ -51,6 +52,7 @@ class CognitionUI:
 
         render_cognition_summary(self)
         render_event_bus(self)
+        render_jin10_events(self)
         render_semantic(self)
         render_insight(self)
         render_storage(self)
