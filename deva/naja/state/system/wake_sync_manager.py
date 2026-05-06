@@ -333,11 +333,13 @@ def _register_default_components():
         GlobalMarketScannerWakeSync,
         DailyReviewWakeSync,
         PortfolioPriceWakeSync,
+        Jin10LiveNewsWakeSync,
     )
 
     manager.register(PortfolioPriceWakeSync())
     manager.register(NewsFetcherWakeSync())
     manager.register(GlobalMarketScannerWakeSync())
+    manager.register(Jin10LiveNewsWakeSync())
     manager.register(DailyReviewWakeSync())
     manager.register(AIDailyReportWakeSync())
 
