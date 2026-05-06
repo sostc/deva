@@ -31,6 +31,10 @@ def call_api(endpoint, params=None):
 
 # ── 认知系统 ──
 
+def get_latest_insights(limit=10, lookback=200, news_limit=20, narrative_limit=10):
+    params = {"limit": limit, "lookback": lookback, "news_limit": news_limit, "narrative_limit": narrative_limit}
+    return call_api("/api/cognition/latest_insights", params=params)
+
 def get_cognition_memory():
     return call_api("/api/cognition/memory")
 
@@ -182,6 +186,7 @@ def get_app_container():
 
 COMMANDS = {
     # 认知
+    "latest-insights": (get_latest_insights, "Naja 最新认识"),
     "cognition-memory": (get_cognition_memory, "认知记忆报告"),
     "cognition-topics": (lambda: get_cognition_topics(50), "认知主题信号"),
     "cognition-attention": (lambda: get_cognition_attention(200), "认知注意力"),
@@ -236,6 +241,8 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 示例:
+  python3 api_client.py latest-insights
+  python3 api_client.py latest-insights --limit 5 --news-limit 10 --narrative-limit 5
   python3 api_client.py system-runtime
   python3 api_client.py knowledge-list --status qualified --limit 10
   python3 api_client.py knowledge-detail --id abc12345
@@ -259,6 +266,8 @@ def main():
     parser.add_argument("--days", type=int, default=7, help="天数")
     parser.add_argument("--base-url", default=BASE_URL, help="API 基础 URL")
     parser.add_argument("--output", choices=["json", "text"], default="json", help="输出格式")
+    parser.add_argument("--news-limit", type=int, default=20, help="新闻事件限制数量")
+    parser.add_argument("--narrative-limit", type=int, default=10, help="叙事限制数量")
 
     args = parser.parse_args()
     BASE_URL = args.base_url
@@ -267,7 +276,14 @@ def main():
     func, desc = COMMANDS[args.command]
 
     # 特殊参数处理
-    if args.command == "knowledge-list":
+    if args.command == "latest-insights":
+        result = get_latest_insights(
+            limit=args.limit,
+            lookback=args.lookback if args.lookback else 200,
+            news_limit=args.news_limit,
+            narrative_limit=args.narrative_limit
+        )
+    elif args.command == "knowledge-list":
         result = get_knowledge_list(status=args.status, category=args.category, limit=args.limit, offset=args.offset)
     elif args.command == "knowledge-detail":
         if not args.id:
