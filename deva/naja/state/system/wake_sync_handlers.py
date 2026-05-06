@@ -623,6 +623,7 @@ class Jin10LiveNewsWakeSync:
     _pushed_flash_ids: set = set()
     _max_cache_size: int = 200
     _CACHE_FILE = os.path.expanduser("~/.naja/jin10_flash_ids.json")
+    _NEWS_CACHE_FILE = os.path.expanduser("~/.naja/jin10_news.json")
 
     @property
     def name(self) -> str:
@@ -656,6 +657,35 @@ class Jin10LiveNewsWakeSync:
                 json.dump({'flash_ids': list(self._pushed_flash_ids)}, f)
         except Exception as e:
             log.warning(f"[WakeSync] Jin10LiveNews: 保存缓存失败 - {e}")
+
+    def _load_news_cache(self):
+        """加载持久化的新闻数据"""
+        try:
+            if os.path.exists(self._NEWS_CACHE_FILE):
+                with open(self._NEWS_CACHE_FILE, 'r') as f:
+                    return json.load(f)
+        except Exception as e:
+            log.warning(f"[WakeSync] Jin10LiveNews: 加载新闻缓存失败 - {e}")
+        return []
+
+    def _save_news_cache(self, news_list):
+        """持久化新闻数据"""
+        try:
+            os.makedirs(os.path.dirname(self._NEWS_CACHE_FILE), exist_ok=True)
+            data = []
+            for news in news_list:
+                data.append({
+                    'title': news.title,
+                    'rank': getattr(news, 'rank', 0),
+                    'flash_id': news.flash_id,
+                    'display_time': news.display_time,
+                    'action': getattr(news, 'action', 0),
+                    'expiration_time': getattr(news, 'expiration_time', ''),
+                })
+            with open(self._NEWS_CACHE_FILE, 'w') as f:
+                json.dump(data, f, ensure_ascii=False, indent=2)
+        except Exception as e:
+            log.warning(f"[WakeSync] Jin10LiveNews: 保存新闻缓存失败 - {e}")
 
     def should_wake_sync(self, last_active: datetime) -> bool:
         """判断是否需要同步"""
@@ -790,6 +820,7 @@ class Jin10LiveNewsWakeSync:
 
                     log.info(f"[WakeSync] Jin10LiveNews: 后台完成，新增:{published} 推送:{pushed} 跳过:{skipped}")
                     self._save_flash_ids_cache()
+                    self._save_news_cache(news_list)
                     return published
 
                 asyncio.run(_do_fetch())

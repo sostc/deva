@@ -4,6 +4,7 @@ Jin10 重要事件组件
 展示从金十数据获取的重要事件（Important News / topListItems）
 """
 
+import time
 from deva.naja.infra.ui.ui_style import format_timestamp
 
 
@@ -29,6 +30,28 @@ def _get_jin10_events_data(limit: int = 20):
                 })
                 if len(jin10_events) >= limit:
                     break
+
+        # 如果事件总线里没有，从文件缓存读取
+        if not jin10_events:
+            try:
+                import os
+                import json
+                from datetime import datetime
+                cache_file = os.path.expanduser("~/.naja/jin10_news.json")
+                if os.path.exists(cache_file):
+                    with open(cache_file, 'r') as f:
+                        cached_news = json.load(f)
+                    for news in cached_news[:limit]:
+                        jin10_events.append({
+                            "title": news.get('title', ''),
+                            "text": news.get('title', ''),
+                            "source": "jin10_important",
+                            "url": f"https://www.jin10.com/news/{news.get('flash_id', '')}",
+                            "timestamp": time.time(),
+                            "datetime": news.get('display_time', ''),
+                        })
+            except Exception as e:
+                pass
 
         return jin10_events
     except Exception:
