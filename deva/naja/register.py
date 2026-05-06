@@ -299,11 +299,13 @@ def _register_custom_singletons():
             GlobalMarketScannerWakeSync,
             DailyReviewWakeSync,
             PortfolioPriceWakeSync,
+            Jin10LiveNewsWakeSync,
         )
         mgr = WakeSyncManager()
         mgr.register(PortfolioPriceWakeSync())
         mgr.register(NewsFetcherWakeSync())
         mgr.register(GlobalMarketScannerWakeSync())
+        mgr.register(Jin10LiveNewsWakeSync())
         mgr.register(DailyReviewWakeSync())
         mgr.register(AIDailyReportWakeSync())
         return mgr

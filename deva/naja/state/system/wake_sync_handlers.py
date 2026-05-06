@@ -7,11 +7,13 @@ WakeSyncHandlers - 各组件的唤醒同步实现
 3. GlobalMarketScannerWakeSync - 全球市场扫描同步
 4. DailyReviewWakeSync - 盘后复盘同步
 5. PortfolioPriceWakeSync - 持仓价格同步
+6. Jin10LiveNewsWakeSync - 金十重要事件实时抓取同步
 
 优先级设计（数字越小优先级越高）：
 1. PortfolioPriceWakeSync - 持仓价格（影响风控和决策）
 2. NewsFetcherWakeSync - 新闻（实时性要求高）
 3. GlobalMarketScannerWakeSync - 全球市场（持续监控）
+3. Jin10LiveNewsWakeSync - 金十重要事件（与全球市场同级，补充事件驱动新闻）
 4. DailyReviewWakeSync - 盘后复盘（需要在正确时间执行）
 5. AIDailyReportWakeSync - AI日报（一天一次，不急）
 """
@@ -598,6 +600,127 @@ class DailyReviewWakeSync:
                 "message": f"盘后复盘同步异常: {str(e)}",
                 "details": {}
             }
+
+
+class Jin10LiveNewsWakeSync:
+    """
+    金十重要事件实时抓取同步器
+
+    通过 Playwright 渲染 jin10.com，从 Vuex store 提取 topListItems（重要事件列表），
+    每条事件作为 TextFetchedEvent 发布到事件总线，供 Attention/Cognition 消费。
+
+    与 NewsFetcherWakeSync 的区别：
+    - NewsFetcherWakeSync: 通过 REST API 获取金十快讯列表（flash_list），侧重普通快讯
+    - Jin10LiveNewsWakeSync: 通过 Playwright 渲染获取重要事件（topListItems），侧重高影响力事件
+    - 两者互补，不冲突
+
+    判断逻辑：距上次同步超过 30 分钟则补抓（重要事件更新频率低，不需要太频繁）
+    """
+
+    @property
+    def name(self) -> str:
+        return "Jin10_Live_News"
+
+    @property
+    def description(self) -> str:
+        return "金十重要事件同步（Playwright 渲染抓取 topListItems）"
+
+    @property
+    def priority(self) -> int:
+        return 3  # 与全球市场同级
+
+    def should_wake_sync(self, last_active: datetime) -> bool:
+        """判断是否需要同步"""
+        now = datetime.now()
+        gap_minutes = (now - last_active).total_seconds() / 60
+
+        # 休眠超过 30 分钟才补抓
+        if gap_minutes < 30:
+            log.info(f"[WakeSync] Jin10LiveNews: 休眠仅 {gap_minutes:.0f} 分钟，跳过")
+            return False
+
+        log.info(f"[WakeSync] Jin10LiveNews: 休眠 {gap_minutes:.0f} 分钟，需要同步")
+        return True
+
+    def get_wake_sync_range(self, last_active: datetime, max_hours: int = 24) -> Tuple[datetime, datetime]:
+        """获取同步时间范围"""
+        now = datetime.now()
+        start = now - timedelta(hours=2)  # 重要事件窗口通常 2 小时内
+        end = now
+        return start, end
+
+    def execute_wake_sync(self, start: datetime, end: datetime) -> Dict[str, Any]:
+        """
+        执行同步 — 后台线程中用 Playwright 抓取重要事件
+
+        Playwright 启动浏览器 + 等待页面需要 6-13s，放在后台线程不阻塞
+        WakeSyncManager 串行执行的其他 handler（DailyReview、AIDailyReport）。
+        参考 PortfolioPriceWakeSync 的 async_fetch 模式。
+        """
+        import threading
+
+        log.info(f"[WakeSync] Jin10LiveNews: 后台启动抓取 {start} ~ {end}")
+
+        def _background_fetch():
+            """后台线程：Playwright 抓取 + 发布事件"""
+            try:
+                import asyncio
+
+                async def _do_fetch():
+                    from deva.naja.datasource.plugins.jin10_fetcher import (
+                        fetch_important_news_playwright,
+                    )
+
+                    news_list = await fetch_important_news_playwright(
+                        headless=True,
+                        timeout_ms=20000,
+                        extra_wait=1.5,
+                    )
+
+                    if not news_list:
+                        log.warning("[WakeSync] Jin10LiveNews: 未获取到重要事件")
+                        return 0
+
+                    published = 0
+                    for news in news_list:
+                        try:
+                            from deva.naja.events import get_event_bus
+                            from deva.naja.events.text_events import TextFetchedEvent
+
+                            event = TextFetchedEvent(
+                                text=news.title,
+                                title=f"金十重要事件 #{news.rank}",
+                                source="jin10_important",
+                                url=f"https://www.jin10.com/news/{news.flash_id}" if news.flash_id else "",
+                                timestamp=time.time(),
+                            )
+                            get_event_bus().publish(event)
+                            published += 1
+                        except Exception as e:
+                            log.warning(f"[WakeSync] Jin10LiveNews: 发布失败 - {e}")
+
+                    log.info(f"[WakeSync] Jin10LiveNews: 后台完成，发布 {published} 条重要事件")
+                    return published
+
+                asyncio.run(_do_fetch())
+
+            except Exception as e:
+                log.error(f"[WakeSync] Jin10LiveNews: 后台抓取异常 - {e}")
+                import traceback
+                traceback.print_exc()
+
+        thread = threading.Thread(
+            target=_background_fetch,
+            daemon=True,
+            name='jin10-live-news-wake-sync',
+        )
+        thread.start()
+
+        return {
+            "success": True,
+            "message": "金十重要事件同步已触发，后台异步执行",
+            "details": {"async": True, "thread": thread.name},
+        }
 
 
 class PortfolioPriceWakeSync:

@@ -23,7 +23,7 @@ import asyncio
 import logging
 import re
 import httpx
-from typing import Optional, Dict, List, TypedDict
+from typing import Optional, Dict, List, TypedDict, Union
 from datetime import datetime
 from enum import Enum
 
