@@ -6,8 +6,6 @@
 
 from .ui import (
     render_signal_page,
-    set_auto_refresh,
-    is_auto_refresh_enabled,
 )
 from .dispatcher import (
     SignalDispatcher,
@@ -17,8 +15,6 @@ from .dispatcher import (
 
 __all__ = [
     'render_signal_page',
-    'set_auto_refresh',
-    'is_auto_refresh_enabled',
     'SignalDispatcher',
     'get_dispatcher',
     'dispatch_result',

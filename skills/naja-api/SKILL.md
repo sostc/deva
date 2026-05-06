@@ -26,6 +26,7 @@ description: 提供 naja 系统 API 端点的调用能力，方便用户通过 c
 
 | 端点 | 方法 | 描述 |
 |------|------|------|
+| `/api/cognition/latest_insights` | GET | 获取 naja 最新认识（综合洞察、新闻、叙事等） |
 | `/api/cognition/memory` | GET | 获取认知系统记忆报告（叙事、用户关注、语义图谱） |
 | `/api/cognition/topics` | GET | 获取认知系统主题信号 |
 | `/api/cognition/attention` | GET | 获取认知系统注意力提示 |
@@ -105,6 +106,12 @@ description: 提供 naja 系统 API 端点的调用能力，方便用户通过 c
 ### 1. 基本 curl 调用
 
 ```bash
+# 获取 naja 最新认识（综合洞察、新闻、叙事等）
+curl -s http://localhost:8080/api/cognition/latest_insights
+
+# 获取 naja 最新认识（指定限制）
+curl -s "http://localhost:8080/api/cognition/latest_insights?limit=5&news_limit=10&narrative_limit=5"
+
 # 获取系统运行时监控
 curl -s http://localhost:8080/api/system/runtime | jq '.data.overall'
 
@@ -173,6 +180,8 @@ curl -s http://localhost:8080/api/bandit/stats | jq '.data'
 ### 4. Python 客户端
 
 ```bash
+python3 scripts/api_client.py latest-insights
+python3 scripts/api_client.py latest-insights --limit 5 --news-limit 10 --narrative-limit 5
 python3 scripts/api_client.py system-runtime
 python3 scripts/api_client.py knowledge-list --status qualified
 python3 scripts/api_client.py manas-state
@@ -197,6 +206,15 @@ python3 scripts/api_client.py event-stats --event-type StrategySignalEvent --day
 
 # 获取应用容器状态
 python3 scripts/api_client.py app-container
+```
+
+### 5. 快速查看 naja 最新状态
+
+使用新脚本以友好格式展示 naja 最新状态：
+
+```bash
+python3 scripts/get_naja_status.py
+python3 scripts/get_naja_status.py --base-url http://192.168.1.100:8080
 ```
 
 ## 响应格式

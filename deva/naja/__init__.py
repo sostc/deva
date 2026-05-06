@@ -30,8 +30,6 @@ from .dictionary import (
 
 from .signal import (
     render_signal_page,
-    set_auto_refresh,
-    is_auto_refresh_enabled,
 )
 
 from .radar import (
@@ -68,8 +66,6 @@ __all__ = [
     "DictionaryManager",
     # Signal
     "render_signal_page",
-    "set_auto_refresh",
-    "is_auto_refresh_enabled",
     # Radar
     "RadarEngine",
     "get_radar_engine",
