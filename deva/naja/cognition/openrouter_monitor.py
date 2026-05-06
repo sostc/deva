@@ -52,8 +52,8 @@ class AppRanking(TypedDict):
     total_tokens: int
     total_requests: int
     rank: int
-    description: str | None
-    origin_url: str | None
+    description: Optional[str]
+    origin_url: Optional[str]
 
 
 class OpenRouterRankings:
