@@ -19,6 +19,7 @@ WakeSyncHandlers - 各组件的唤醒同步实现
 """
 
 import os
+import json
 import logging
 import time
 from datetime import datetime, timedelta, time as dtime
@@ -614,11 +615,14 @@ class Jin10LiveNewsWakeSync:
     - Jin10LiveNewsWakeSync: 通过 Playwright 渲染获取重要事件（topListItems），侧重高影响力事件
     - 两者互补，不冲突
 
-    判断逻辑：距上次同步超过 30 分钟则补抓（重要事件更新频率低，不需要太频繁）
+    判断逻辑：
+    - 系统启动时立即获取（无上次活跃时间）
+    - 休眠超过 30 分钟则补抓（重要事件更新频率低，不需要太频繁）
     """
 
     _pushed_flash_ids: set = set()
     _max_cache_size: int = 200
+    _CACHE_FILE = os.path.expanduser("~/.naja/jin10_flash_ids.json")
 
     @property
     def name(self) -> str:
@@ -632,9 +636,36 @@ class Jin10LiveNewsWakeSync:
     def priority(self) -> int:
         return 3  # 与全球市场同级
 
+    def _load_flash_ids_cache(self):
+        """加载持久化的 flash_id 缓存"""
+        try:
+            if os.path.exists(self._CACHE_FILE):
+                with open(self._CACHE_FILE, 'r') as f:
+                    data = json.load(f)
+                    self._pushed_flash_ids = set(data.get('flash_ids', []))
+                log.info(f"[WakeSync] Jin10LiveNews: 已加载 {len(self._pushed_flash_ids)} 条缓存")
+        except Exception as e:
+            log.warning(f"[WakeSync] Jin10LiveNews: 加载缓存失败 - {e}")
+            self._pushed_flash_ids = set()
+
+    def _save_flash_ids_cache(self):
+        """持久化 flash_id 缓存"""
+        try:
+            os.makedirs(os.path.dirname(self._CACHE_FILE), exist_ok=True)
+            with open(self._CACHE_FILE, 'w') as f:
+                json.dump({'flash_ids': list(self._pushed_flash_ids)}, f)
+        except Exception as e:
+            log.warning(f"[WakeSync] Jin10LiveNews: 保存缓存失败 - {e}")
+
     def should_wake_sync(self, last_active: datetime) -> bool:
         """判断是否需要同步"""
         now = datetime.now()
+
+        if last_active is None:
+            log.info("[WakeSync] Jin10LiveNews: 系统首次启动，立即获取")
+            self._load_flash_ids_cache()
+            return True
+
         gap_minutes = (now - last_active).total_seconds() / 60
 
         if gap_minutes < 30:
@@ -642,6 +673,7 @@ class Jin10LiveNewsWakeSync:
             return False
 
         log.info(f"[WakeSync] Jin10LiveNews: 休眠 {gap_minutes:.0f} 分钟，需要同步")
+        self._load_flash_ids_cache()
         return True
 
     def get_wake_sync_range(self, last_active: datetime, max_hours: int = 24) -> Tuple[datetime, datetime]:
@@ -757,6 +789,7 @@ class Jin10LiveNewsWakeSync:
                             log.warning(f"[WakeSync] Jin10LiveNews: 发布失败 - {e}")
 
                     log.info(f"[WakeSync] Jin10LiveNews: 后台完成，新增:{published} 推送:{pushed} 跳过:{skipped}")
+                    self._save_flash_ids_cache()
                     return published
 
                 asyncio.run(_do_fetch())
