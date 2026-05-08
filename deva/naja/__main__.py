@@ -6,10 +6,17 @@
     python -m deva.naja --lab --lab-table quant_snapshot_5min_window   # 实验室模式
     python -m deva.naja --news-radar-speed 10             # 新闻雷达10倍速
     python -m deva.naja --news-radar-sim                  # 新闻雷达模拟模式
-    python -m deva.naja --cognition-debug                 # 完整认知调试模式
-    python -m deva.naja --tune --lab-table quant_snapshot_5min_window   # 调参模式
-    python -m deva.naja --tune --tune-method random --tune-samples 50   # 随机搜索调参
-    python -m deva.naja --no-color                         # 禁用彩色日志
+    python -m deva.naja --cognition-debug                  # 完整认知调试模式
+    python -m deva.naja --tune --lab-table quant_snapshot_5min_window  # 调参模式
+    python -m deva.naja --tune --tune-method random --tune-samples 50  # 随机搜索调参
+    python -m deva.naja --no-color                        # 禁用彩色日志
+
+后台服务模式:
+    python -m deva.naja -s start      # 后台启动服务
+    python -m deva.naja -s stop       # 停止服务
+    python -m deva.naja -s reload     # 热重启服务
+    python -m deva.naja -s restart    # 重启服务
+    python -m deva.naja -s status     # 查看服务状态
 """
 
 import argparse
@@ -28,10 +35,151 @@ except ImportError:
     __version__ = "unknown"
 
 from .application import AppRuntimeConfig, run_web_application
+from .infra.runtime.daemon import (
+    is_running, get_status,
+    stop_service, reload_service, restart_service,
+    setup_reload_handler, PID_FILE, LOG_FILE
+)
+
+
+def handle_service_command():
+    import socket
+    import argparse
+
+    def is_port_in_use(port):
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            return s.connect_ex(('localhost', port)) == 0
+
+    def is_running_on_port(port):
+        import subprocess
+        try:
+            result = subprocess.run(
+                ['lsof', '-i', f':{port}'],
+                capture_output=True, text=True
+            )
+            return 'python' in result.stdout.lower() or 'deva' in result.stdout.lower()
+        except Exception:
+            return False
+
+    parser = argparse.ArgumentParser(description="Naja 服务管理")
+    parser.add_argument("action", choices=["start", "stop", "reload", "restart", "status"])
+    parser.add_argument("--port", type=int, default=8080, help="启动端口（仅 start 有效）")
+    parser.add_argument("--host", type=str, default="0.0.0.0", help="启动地址（仅 start 有效）")
+    args = parser.parse_args(sys.argv[2:])
+
+    if args.action == "start":
+        import platform
+        import subprocess
+        from pathlib import Path
+
+        if is_running():
+            status = get_status()
+            print(f"✗ Naja 已在运行 (PID: {status['pid']})")
+            return
+
+        if is_port_in_use(args.port):
+            print(f"✗ 端口 {args.port} 已被占用")
+            if is_running_on_port(args.port):
+                print(f"  提示: Naja 可能正在该端口运行，使用 'naja -s status' 查看")
+            else:
+                print(f"  提示: 使用 'lsof -i :{args.port}' 查看占用进程")
+            return
+
+        if platform.system() == "Darwin":
+            env = os.environ.copy()
+            env["OBJC_DISABLE_INITIALIZE_FORK_SAFETY"] = "YES"
+        else:
+            env = None
+
+        naja_dir = str(Path.home() / ".naja")
+        os.makedirs(os.path.join(naja_dir, "logs"), exist_ok=True)
+        log_file = os.path.join(naja_dir, "logs", "naja.log")
+        tray_log_file = os.path.join(naja_dir, "logs", "tray.log")
+
+        cmd = [
+            sys.executable, "-m", "deva.naja",
+            f"--port={args.port}", f"--host={args.host}"
+        ]
+
+        proc = subprocess.Popen(
+            cmd,
+            env=env,
+            stdout=open(log_file, "a"),
+            stderr=subprocess.STDOUT,
+            cwd=os.getcwd(),
+            start_new_session=True
+        )
+
+        tray_proc = None
+        if platform.system() == "Darwin":
+            try:
+                import rumps
+                naja_root = str(Path(__file__).parent.parent.parent)
+                tray_script = os.path.join(naja_root, "deva", "naja", "scripts", "start_tray.py")
+                tray_cmd = [sys.executable, tray_script]
+                tray_proc = subprocess.Popen(
+                    tray_cmd,
+                    env=env,
+                    stdout=open(tray_log_file, "a"),
+                    stderr=subprocess.STDOUT,
+                    cwd=os.getcwd(),
+                    start_new_session=True
+                )
+            except ImportError:
+                print("⚠ 未安装 rumps，菜单栏托盘将不启动")
+                print("  安装命令: pip install rumps")
+
+        time.sleep(0.5)
+        if proc.poll() is None:
+            with open(PID_FILE, "w") as f:
+                f.write(str(proc.pid))
+            print(f"✓ Naja 已后台启动 (PID: {proc.pid})")
+            print(f"  日志: {log_file}")
+            if tray_proc and tray_proc.poll() is None:
+                print(f"  托盘 (PID: {tray_proc.pid})")
+        else:
+            print("✗ 启动失败，请查看日志")
+
+    elif args.action == "stop":
+        stop_service()
+
+    elif args.action == "reload":
+        reload_service()
+
+    elif args.action == "restart":
+        original_argv = sys.argv
+        sys.argv = [sys.argv[0], "-s", "stop"]
+        stop_service()
+        time.sleep(1)
+        sys.argv = [sys.argv[0], "-s", "start", "--port", str(args.port), "--host", args.host]
+        handle_service_command()
+        sys.argv = original_argv
+
+    elif args.action == "status":
+        status = get_status()
+        if status["running"]:
+            print(f"✓ Naja 正在运行 (PID: {status['pid']})")
+            print(f"  PID文件: {status['pid_file']}")
+            print(f"  日志文件: {status['log_file']}")
+        else:
+            print("✗ Naja 未在运行")
+            print(f"  PID文件: {status['pid_file']}")
+            print(f"  日志文件: {status['log_file']}")
 
 
 def main():
+    import argparse
+    import logging
+
     parser = argparse.ArgumentParser(description="Naja - 实时数据流与策略系统")
+
+    parser.add_argument("-s", "--service", type=str, default=None, choices=["start", "stop", "reload", "restart", "status"],
+                        help="服务管理模式: start(后台启动) | stop(停止) | reload(热重启) | restart(重启) | status(状态)")
+
+    if len(sys.argv) > 1 and sys.argv[1] in ("-s", "--service"):
+        handle_service_command()
+        return
+
     parser.add_argument("--port", type=int, default=8080, help="Web 服务器端口")
     parser.add_argument("--host", type=str, default="0.0.0.0", help="绑定地址")
     parser.add_argument("--log-level", "-l", default="INFO", help="日志级别")
