@@ -126,4 +126,21 @@ Deva 采用分层架构设计，由两个核心平台组成：
 """
 
 
-__version__ = '1.6.0'
+__version__ = '1.7.0'
+
+
+def naja(*args):
+    """启动 Naja 管理平台
+
+    用法:
+        naja()                              # 默认启动
+        naja('-s', 'start')                 # 后台启动
+        naja('-s', 'start', '--port', '9000')  # 指定端口后台启动
+        naja('-s', 'stop')                  # 停止服务
+        naja('-s', 'reload')                # 热重启服务
+        naja('-s', 'status')                # 查看服务状态
+    """
+    import sys
+    sys.argv = ['naja'] + list(args)
+    from .naja.__main__ import main
+    main()

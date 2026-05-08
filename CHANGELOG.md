@@ -5,6 +5,35 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，
 遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [1.7.0] - 2026-05-09
+
+### 新增
+- **Naja 后台服务模式**
+  - `naja -s start/stop/reload/restart/status` 后台服务管理
+  - PID 文件管理 (`~/.naja/naja.pid`)
+  - 热重启支持（SIGUSR1 信号）
+  - 端口占用检测
+- **macOS 菜单栏托盘**
+  - 系统托盘图标（哪吒头像，透明背景）
+  - 实时显示最新新闻和热点板块
+  - 每 30 秒自动刷新数据
+  - 快捷菜单：打开 Web、重启服务、退出
+- **新增 API 端点**
+  - `GET /api/jin10/important` — 金十重要新闻 JSON API
+  - 端口文件 (`~/.naja/naja.port`) 用于进程间通信
+- **新增文件**
+  - `deva/naja/infra/runtime/daemon.py` — 守护进程模块
+  - `deva/naja/infra/ui/menu_bar_tray.py` — 托盘菜单模块
+  - `deva/naja/scripts/start_tray.py` — 托盘启动器
+  - `bin/naja` — 命令行入口脚本
+  - `setup.py` — pip 安装配置
+  - `deva/naja/static/naja_*.png` — 多尺寸图标文件
+
+### 修复
+- 托盘菜单无法获取新闻和热点数据（进程隔离问题）
+- 热重启后 Naja 进程直接退出而非重启
+- macOS `os.fork()` 导致崩溃（改用 `subprocess.Popen`）
+
 ## [1.6.0] - 2026-03-17
 
 ### 新增
