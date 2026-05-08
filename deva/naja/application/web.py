@@ -47,8 +47,21 @@ def run_web_application(config: AppRuntimeConfig):
     print(f"🌐 启动 Web 服务器: http://localhost:{port}")
     print("=" * 60)
 
+    try:
+        from deva.naja.infra.ui.menu_bar_tray import MenuBarTray
+        if MenuBarTray.is_available():
+            print("📋 正在启动菜单栏托盘...")
+    except Exception as e:
+        logging.warning(f"检查菜单栏托盘失败: {e}")
+
     server = NW("naja_webview", host=host, port=port, start=False)
     server.application.add_handlers(".*$", handlers)
+
+    try:
+        PORT_FILE.write_text(str(port))
+    except Exception:
+        pass
+
     server.start()
 
     asyncio_loop = getattr(IOLoop.current(), "asyncio_loop", None)
@@ -60,6 +73,7 @@ def run_web_application(config: AppRuntimeConfig):
     import signal
     import sys
     import threading
+    import os
 
     logger = logging.getLogger("deva.naja")
     shutdown_event = threading.Event()
@@ -78,6 +92,49 @@ def run_web_application(config: AppRuntimeConfig):
 
     signal.signal(signal.SIGINT, shutdown_handler)
     signal.signal(signal.SIGTERM, shutdown_handler)
+
+    from deva.naja.infra.runtime.daemon import setup_reload_handler, PID_FILE, PORT_FILE, NAJA_DIR
+    from pathlib import Path
+
+    def reload_handler():
+        import subprocess
+        import time
+        logger.info("=== 热重启开始 ===")
+        try:
+            supervisor = get_naja_supervisor()
+            supervisor.shutdown()
+            logger.info("所有组件已停止")
+        except Exception as e:
+            logger.error(f"关闭时保存状态失败: {e}")
+        try:
+            PID_FILE.unlink(missing_ok=True)
+        except Exception:
+            pass
+        logger.info("=== 正在重启 Naja ===")
+        time.sleep(1)
+        port = 8080
+        try:
+            if PORT_FILE.exists():
+                port = int(PORT_FILE.read_text().strip())
+        except Exception:
+            pass
+        env = os.environ.copy()
+        if sys.platform == "darwin":
+            env["OBJC_DISABLE_INITIALIZE_FORK_SAFETY"] = "YES"
+        log_file = NAJA_DIR / "logs" / "naja.log"
+        cmd = [sys.executable, "-m", "deva.naja", f"--port={port}"]
+        subprocess.Popen(
+            cmd,
+            env=env,
+            stdout=open(log_file, "a"),
+            stderr=subprocess.STDOUT,
+            cwd=os.getcwd(),
+            start_new_session=True,
+        )
+        logger.info("=== 热重启完成 ===")
+        sys.exit(0)
+
+    setup_reload_handler(reload_handler)
 
     try:
         shutdown_event.wait()
