@@ -28,7 +28,9 @@ from .api_extensions import (
     DataSourceListHandler, StrategyListHandler,
     AlayaStatusHandler,
     RegistryStatusHandler, QueryStateHandler, SystemRuntimeHandler, SystemPersistentStateHandler,
-    EventQueryHandler, EventStatsHandler, AppContainerStatusHandler
+    EventQueryHandler, EventStatsHandler, AppContainerStatusHandler,
+    NajaAskHandler, NajaDigestHandler, NajaDigestSendHandler,
+    NajaAgentHandler, NajaSkillHandler, NajaApiCatalogHandler
 )
 from deva.naja.cognition.ui import cognition_glossary_page
 from .attention_api import (
@@ -365,6 +367,103 @@ class NewsStreamHandler(RequestHandler):
             push_center.unregister_callback(on_news_push)
 
 
+class Jin10ImportantNewsHandler(RequestHandler):
+    """金十重要事件 JSON API（托盘菜单专用）"""
+
+    def set_default_headers(self):
+        self.set_header("Content-Type", "application/json; charset=utf-8")
+
+    def get(self):
+        try:
+            limit = int(self.get_argument('limit', 6))
+        except ValueError:
+            limit = 6
+
+        try:
+            news = self._fetch_jin10_news(limit)
+            self.write(json.dumps({
+                "success": True,
+                "timestamp": time.time(),
+                "datetime": time.strftime("%Y-%m-%d %H:%M:%S"),
+                "news": news,
+            }, ensure_ascii=False, default=_json_default))
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            self.write(json.dumps({
+                "success": False,
+                "error": str(e),
+                "news": [],
+            }, ensure_ascii=False))
+
+    def _fetch_jin10_news(self, limit: int = 6):
+        try:
+            from deva.naja.radar.push_center import get_news_push_center
+            push_center = get_news_push_center()
+            all_news = push_center.get_latest_news()
+            return [
+                {
+                    "title": item.get("title", "")[:60],
+                    "time": item.get("time", ""),
+                    "source": item.get("source", "jin10"),
+                }
+                for item in all_news[:limit]
+                if item.get("title")
+            ]
+        except Exception:
+            pass
+
+        try:
+            import requests
+            response = requests.get(
+                "https://www.jin10.com/flash_newest.js",
+                headers={
+                    "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
+                    "Referer": "https://www.jin10.com/",
+                },
+                timeout=5,
+            )
+            if response.status_code != 200:
+                return []
+
+            text = response.text.strip()
+            prefix = "var newest ="
+            if text.startswith(prefix):
+                text = text[len(prefix):].strip()
+            if text.endswith(";"):
+                text = text[:-1].strip()
+
+            data = json.loads(text)
+            news = []
+            for item in data[:limit]:
+                inner = item.get("data", {})
+                content = inner.get("content", "").strip()
+                if not content:
+                    continue
+                import re
+                clean = re.sub(r'<[^>]+>', '', content).strip()
+                for pattern in [
+                    r'^【金十数据整理[：：][^】]*】',
+                    r'^【今日要闻[：：][^】]*】',
+                    r'^【市场快讯[：：][^】]*】',
+                    r'^【财经日历[：：][^】]*】',
+                    r'^【操盘必读[：：][^】]*】',
+                    r'^【涨停复盘[：：][^】]*】',
+                    r'^【要闻[：：][^】]*】',
+                ]:
+                    clean = re.sub(pattern, '', clean).strip()
+
+                time_str = item.get("time", "")
+                news.append({
+                    "title": clean[:60] if clean else content[:60],
+                    "time": time_str,
+                    "source": "jin10",
+                })
+            return news
+        except Exception:
+            return []
+
+
 def create_handlers(cdn: str = None):
     """创建路由处理器"""
     cdn_url = cdn or 'https://fastly.jsdelivr.net/gh/wang0618/PyWebIO-assets@v1.8.3/'
@@ -421,6 +520,7 @@ def create_handlers(cdn: str = None):
         (r'/api/system/modules', SystemModulesHandler),
         (r'/api/radar/events', RadarEventsHandler),
         (r'/api/news/stream', NewsStreamHandler),
+        (r'/api/jin10/important', Jin10ImportantNewsHandler),
         (r'/api/bandit/stats', BanditStatsHandler),
         (r'/api/knowledge/list', KnowledgeListHandler),
         (r'/api/knowledge/stats', KnowledgeStatsHandler),
@@ -455,6 +555,12 @@ def create_handlers(cdn: str = None):
         (r'/api/events/query', EventQueryHandler),
         (r'/api/events/stats', EventStatsHandler),
         (r'/api/app/container', AppContainerStatusHandler),
+        (r'/api/naja/ask', NajaAskHandler),
+        (r'/api/naja/agent', NajaAgentHandler),
+        (r'/api/naja/skill', NajaSkillHandler),
+        (r'/api/naja/api-catalog', NajaApiCatalogHandler),
+        (r'/api/naja/digest', NajaDigestHandler),
+        (r'/api/naja/digest/send', NajaDigestSendHandler),
     ]
 
     return page_routes + api_routes
