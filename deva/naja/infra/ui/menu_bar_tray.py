@@ -213,9 +213,15 @@ class MenuBarTray:
 
             self._app = rumps.App("Naja", icon=self._icon_path)
             self._build_menu()
+
+            rumps.timer(interval=30)(self._on_timer)(self._app)
+
             self._app.run()
         except Exception as e:
             logger.error(f"启动托盘失败: {e}")
+
+    def _on_timer(self, _sender):
+        self._build_menu()
 
     def stop(self):
         import rumps
