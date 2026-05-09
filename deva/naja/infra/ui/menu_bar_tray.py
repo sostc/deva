@@ -215,11 +215,8 @@ class MenuBarTray:
         if self._app is None:
             return
 
-        logger.info("[Tray] _build_menu 开始")
         self._news_items = self._get_latest_news()
-        logger.info(f"[Tray] _build_menu 获取到 {len(self._news_items)} 条新闻")
         self._hot_blocks = self._get_hot_blocks()
-        logger.info(f"[Tray] _build_menu 获取到 {len(self._hot_blocks)} 个热点")
 
         try:
             import rumps
