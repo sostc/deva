@@ -751,15 +751,34 @@ class Jin10LiveNewsWakeSync:
     def _send_macos_notification(self, title: str, message: str) -> bool:
         try:
             import subprocess
+            from pathlib import Path
+
             safe_message = message.replace('"', '\\"').replace('\n', ' ')
             safe_title = title.replace('"', '\\"')
-            script = f'display notification "{safe_message}" with title "{safe_title}"'
-            subprocess.run(["osascript", "-e", script], check=True, capture_output=True)
-            log.debug(f"[WakeSync] macOS 通知已发送 - {title[:30]}")
-            return True
+
+            static_dir = Path(__file__).parent.parent.parent / "static"
+            icon_path = str(static_dir / "naja_green_128.png")
+
+            result = subprocess.run(
+                ["terminal-notifier", "-title", safe_title, "-message", safe_message, "-contentImage", icon_path],
+                check=False, capture_output=True
+            )
+
+            if result.returncode == 0:
+                log.debug(f"[WakeSync] macOS 通知已发送 - {title[:30]}")
+                return True
+
+            raise Exception(f"terminal-notifier failed: {result.stderr.decode()}")
         except Exception as e:
-            log.debug(f"[WakeSync] macOS 通知失败: {e}")
-            return False
+            log.debug(f"[WakeSync] terminal-notifier 失败，尝试 osascript: {e}")
+            try:
+                script = f'display notification "{safe_message}" with title "{safe_title}"'
+                subprocess.run(["osascript", "-e", script], check=True, capture_output=True)
+                log.debug(f"[WakeSync] macOS 通知已发送 (osascript) - {title[:30]}")
+                return True
+            except Exception as e2:
+                log.debug(f"[WakeSync] macOS 通知失败: {e2}")
+                return False
 
     def execute_wake_sync(self, start: datetime, end: datetime) -> Dict[str, Any]:
         """
