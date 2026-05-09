@@ -242,9 +242,10 @@ class RecoverableUnit(ABC):
             SR = None
         
         try:
-            from deva import NB
+            from deva import NB, log
         except Exception:
             NB = None
+            log = None
         
         return {
             "pd": pd,
@@ -264,6 +265,7 @@ class RecoverableUnit(ABC):
             "sys": sys,
             "SR": SR,
             "NB": NB,
+            "log": log,
             "__builtins__": __builtins__,
         }
     

@@ -772,8 +772,8 @@ class Jin10LiveNewsWakeSync:
 
                     news_list = await fetch_important_news_playwright(
                         headless=True,
-                        timeout_ms=20000,
-                        extra_wait=1.5,
+                        timeout_ms=60000,
+                        extra_wait=2.0,
                     )
 
                     if not news_list:

@@ -130,7 +130,9 @@ async def _fetch_sina_batch_with_session(codes: List[str], session) -> Dict:
             log.debug(f"[_fetch_sina_batch_async] 响应长度: {len(text)}")
             return _parse_sina_response(text)
     except Exception as e:
+        import traceback
         log.error(f"[_fetch_sina_batch_async] 请求失败: {e}")
+        log.error(f"[_fetch_sina_batch_async] 堆栈: {traceback.format_exc()}")
         return {}
 
 

@@ -119,8 +119,9 @@ class scheduler(Stream):
             timezone=pytz.timezone('Asia/Shanghai'),
             executors={'default': ThreadPoolExecutor(20)},
             job_defaults={
-                'coalesce': False,
-                'max_instances': 1  # 相同job重复执行与否的判断，相同job最多同时多少个实例
+                'coalesce': True,
+                'max_instances': 1,
+                'misfire_grace_time': 60
             }
         )
         super(scheduler, self).__init__(ensure_io_loop=True, **kwargs)
