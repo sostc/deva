@@ -18,8 +18,8 @@ PORT_FILE = NAJA_DIR / "naja.port"
 DEFAULT_PORT = 8080
 
 STATIC_DIR = Path(__file__).parent.parent.parent / "static"
-ICON_WHITE = str(STATIC_DIR / "naja_tray_white.png")
-ICON_RED = str(STATIC_DIR / "naja_tray_red.png")
+ICON_WHITE = str(STATIC_DIR / "naja_white_22.png")
+ICON_GREEN = str(STATIC_DIR / "naja_green_22.png")
 
 
 def _is_trading_time() -> bool:
@@ -239,7 +239,7 @@ class MenuBarTray:
         try:
             import rumps
 
-            icon_path = ICON_RED if _is_trading_time() else ICON_WHITE
+            icon_path = ICON_GREEN if _is_trading_time() else ICON_WHITE
             self._app.icon = icon_path
 
             self._app.menu.clear()
@@ -288,7 +288,7 @@ class MenuBarTray:
         try:
             import rumps
 
-            initial_icon = ICON_RED if _is_trading_time() else ICON_WHITE
+            initial_icon = ICON_GREEN if _is_trading_time() else ICON_WHITE
             self._app = rumps.App("Naja", icon=initial_icon)
             self._build_menu()
 
