@@ -23,20 +23,10 @@ ICON_RED = str(STATIC_DIR / "naja_tray_red.png")
 
 
 def _is_trading_time() -> bool:
-    """检查是否在 A 股或美股交易时段"""
-    from datetime import datetime, time
-    now = datetime.now()
-    weekday = now.weekday()
-    if weekday >= 5:
-        return False
-    t = now.time()
-    cn_start, cn_end = time(9, 30), time(15, 0)
-    cn_lunch_start, cn_lunch_end = time(11, 30), time(13, 0)
-    if (cn_start <= t <= cn_lunch_start) or (cn_lunch_end <= t <= cn_end):
-        return True
-    us_start, us_end = time(21, 30), time(4, 0)
-    if (us_start <= t) or (t <= us_end):
-        return True
+    """通过 API 判断是否在交易时段"""
+    data = _http_get("/api/trading/status")
+    if data and data.get("success"):
+        return data.get("is_trading", False)
     return False
 
 
