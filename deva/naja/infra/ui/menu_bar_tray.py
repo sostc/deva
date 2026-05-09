@@ -193,17 +193,36 @@ class MenuBarTray:
             PID_FILE.unlink(missing_ok=True)
             return None
 
+    def _get_tray_script_path(self) -> str:
+        """获取托盘脚本路径"""
+        return os.path.join(os.path.dirname(__file__), "..", "scripts", "naja_tray.py")
+
+    def _restart_tray(self):
+        """重启托盘程序"""
+        import rumps
+        tray_script = self._get_tray_script_path()
+        if not os.path.exists(tray_script):
+            logger.error(f"托盘脚本不存在: {tray_script}")
+            return
+
+        env = os.environ.copy()
+        env["NO_TRAY_AUTOSTART"] = "1"
+
+        cmd = [sys.executable, tray_script]
+        subprocess.Popen(
+            cmd,
+            env=env,
+            cwd=os.getcwd(),
+            start_new_session=True
+        )
+        logger.info("已启动新的托盘进程")
+
+        time_module.sleep(0.5)
+        rumps.quit_application()
+
     def _on_reload(self, sender):
         logger.info("托盘菜单触发 reload")
-        pid = self._get_running_pid()
-        if pid:
-            try:
-                os.kill(pid, signal.SIGUSR1)
-                logger.info(f"已向 Naja (PID {pid}) 发送 SIGUSR1")
-            except ProcessLookupError:
-                logger.warning(f"Naja 进程 {pid} 已不存在")
-        else:
-            logger.warning("Naja 未在运行")
+        self._restart_tray()
 
     def _on_open_web(self, sender):
         logger.info("托盘菜单触发打开 Web")
