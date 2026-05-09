@@ -170,13 +170,16 @@ class MenuBarTray:
 
         env = os.environ.copy()
         env["NO_TRAY_AUTOSTART"] = "1"
+        env["LSUIElement"] = "1"
 
         cmd = [sys.executable, tray_script]
         subprocess.Popen(
             cmd,
             env=env,
             cwd=os.getcwd(),
-            start_new_session=True
+            start_new_session=True,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL
         )
         logger.info("已启动新的托盘进程")
 
