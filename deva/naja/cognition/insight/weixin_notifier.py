@@ -101,9 +101,14 @@ class WeixinNotifier:
                 log.info(f"[WeixinNotifier] 发送成功")
                 return True
             else:
+                stderr = result.stderr or ""
+                if "OPENCLAW_PLUGIN_SDK_COMPAT_DEPRECATED" in stderr or "Warning:" in stderr:
+                    if result.stdout and len(result.stdout.strip()) > 0:
+                        log.info(f"[WeixinNotifier] 发送成功 (有警告)")
+                        return True
                 log.warning(
                     f"[WeixinNotifier] 发送失败 rc={result.returncode} "
-                    f"stderr={result.stderr[:200]}"
+                    f"stderr={result.stderr[:200] if result.stderr else 'N/A'}"
                 )
                 return False
         except subprocess.TimeoutExpired:

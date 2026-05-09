@@ -498,6 +498,7 @@ class InsightPool:
     def _append_or_merge(self, candidate: Dict[str, Any]) -> Insight:
         now_ts = time.time()
         theme = str(candidate.get("theme", "unknown"))
+        signal_type = str(candidate.get("signal_type", ""))
 
         candidate_novelty = _clamp(_safe_float(candidate.get("novelty", None)))
         if candidate_novelty is not None and candidate_novelty > 0:
@@ -517,7 +518,7 @@ class InsightPool:
             actionability=_clamp(_safe_float(candidate.get("actionability", 0.5))),
             novelty=novelty,
             source=str(candidate.get("source", "")),
-            signal_type=str(candidate.get("signal_type", "")),
+            signal_type=signal_type,
             payload=candidate.get("payload", {}) or {},
         )
         insight.user_score = self._ranker.score(
@@ -528,6 +529,15 @@ class InsightPool:
         )
 
         with self._lock:
+            if signal_type == "attention_shift":
+                self._insights.append(insight)
+                if len(self._insights) > self.max_size:
+                    self._insights = self._insights[-self.max_size:]
+                self._last_seen[theme] = now_ts
+                self._latest_by_theme[theme] = insight.id
+                self.persist()
+                return insight
+
             merged = self._merge_if_possible(insight)
             if merged:
                 self._last_seen[theme] = now_ts

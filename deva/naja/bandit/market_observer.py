@@ -625,6 +625,12 @@ class MarketDataObserver:
 
         if not self._running:
             self._running = True
+            self._last_data_time = time.time()
+            self._init_phase_from_trading_clock()
+            TRADING_CLOCK_STREAM.sink(self._on_trading_clock_signal)
+            log.debug("[MarketObserver] 已订阅交易时钟信号")
+            datasource_id = self._get_active_datasource_id()
+            self._reconnect_datasource(datasource_id)
             self._start_fetch_loop()
 
     def track_stock(self, stock_code: str):
