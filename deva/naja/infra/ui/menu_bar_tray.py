@@ -92,68 +92,61 @@ class MenuBarTray:
         self._news_items = []
         self._hot_blocks = []
         self._icon_path = _get_tray_icon_path()
-        self._seen_news_ids: set = set()
-        self._max_seen_ids = 100
+        self._seen_titles: set = set()
 
     def _get_latest_news(self) -> list:
         news_items = []
 
-        # 优先使用 /api/radar/events（过滤后的金十新闻）
-        data = _http_get("/api/radar/events")
-        if data and data.get("success"):
-            events = data.get("data", {}).get("events", [])
-            for event in events:
-                source = event.get("source", "")
-                event_type = event.get("event_type", "")
-                payload = event.get("payload", {})
+        # 直接从金十 API 获取最新新闻
+        try:
+            import urllib.request
+            url = "https://www.jin10.com/flash_newest.js"
+            req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+            with urllib.request.urlopen(req, timeout=5) as resp:
+                text = resp.read().decode("utf-8").strip()
 
-                if source not in {"jin10", "jin10_important", "radar_news", "news_fetcher"}:
-                    continue
-                if "news" not in event_type.lower():
+            if text.startswith("var newest ="):
+                text = text[12:].strip()
+            if text.endswith(";"):
+                text = text[:-1].strip()
+
+            import json as json_mod
+            data = json_mod.loads(text)
+
+            for item in data[:20]:
+                inner = item.get("data", {})
+                content = inner.get("content", "").strip()
+                if not content:
                     continue
 
-                event_id = event.get("event_id", "")
-                title = payload.get("title", "") or payload.get("text", "") or event.get("message", "")
-                url = payload.get("url", "")
+                import re
+                clean = re.sub(r'<[^>]+>', '', content).strip()
+                for pattern in [
+                    r'^【金十数据整理[：：][^】]*】',
+                    r'^【今日要闻[：：][^】]*】',
+                    r'^【市场快讯[：：][^】]*】',
+                ]:
+                    clean = re.sub(pattern, '', clean).strip()
 
-                if not title or title == "[详细内容已过滤]":
-                    continue
-                if event_id in self._seen_news_ids:
+                title = clean[:60] if clean else content[:60]
+                flash_id = item.get("id", "")
+
+                if title in self._seen_titles:
                     continue
 
+                self._seen_titles.add(title)
                 news_items.append({
-                    "title": title[:60],
-                    "url": url,
-                    "event_id": event_id,
-                    "source": "radar",
+                    "title": title,
+                    "url": f"https://www.jin10.com/news/{flash_id}" if flash_id else "",
                 })
-                self._seen_news_ids.add(event_id)
 
-        # fallback 到 /api/jin10/important（重要新闻）
-        if len(news_items) < 6:
-            data = _http_get("/api/jin10/important?limit=12")
-            if data and data.get("success"):
-                for item in data.get("news", []):
-                    title = item.get("title", "")
-                    if not title:
-                        continue
+        except Exception as e:
+            logger.debug(f"获取金十新闻失败: {e}")
 
-                    title_hash = str(hash(title))
-                    if title_hash in self._seen_news_ids:
-                        continue
-
-                    news_items.append({
-                        "title": title[:60],
-                        "url": item.get("url", ""),
-                        "event_id": title_hash,
-                        "source": "jin10",
-                    })
-                    self._seen_news_ids.add(title_hash)
-
-        if len(self._seen_news_ids) > self._max_seen_ids:
-            old_ids = list(self._seen_news_ids)[:len(self._seen_news_ids) - self._max_seen_ids]
-            for old_id in old_ids:
-                self._seen_news_ids.discard(old_id)
+        if len(self._seen_titles) > 200:
+            old_titles = list(self._seen_titles)[:100]
+            for t in old_titles:
+                self._seen_titles.discard(t)
 
         return news_items[:6]
 
@@ -195,7 +188,7 @@ class MenuBarTray:
 
     def _get_tray_script_path(self) -> str:
         """获取托盘脚本路径"""
-        return os.path.join(os.path.dirname(__file__), "..", "scripts", "naja_tray.py")
+        return os.path.join(os.path.dirname(__file__), "..", "..", "scripts", "naja_tray.py")
 
     def _restart_tray(self):
         """重启托盘程序"""
