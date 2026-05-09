@@ -92,61 +92,31 @@ class MenuBarTray:
         self._news_items = []
         self._hot_blocks = []
         self._icon_path = _get_tray_icon_path()
-        self._seen_titles: set = set()
 
     def _get_latest_news(self) -> list:
         news_items = []
 
-        # 直接从金十 API 获取最新新闻
         try:
-            import urllib.request
-            url = "https://www.jin10.com/flash_newest.js"
-            req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
-            with urllib.request.urlopen(req, timeout=5) as resp:
-                text = resp.read().decode("utf-8").strip()
+            import asyncio
+            from deva.naja.datasource.plugins.jin10_fetcher import fetch_important_news_playwright
 
-            if text.startswith("var newest ="):
-                text = text[12:].strip()
-            if text.endswith(";"):
-                text = text[:-1].strip()
+            news_list = asyncio.run(
+                fetch_important_news_playwright(headless=True, timeout_ms=15000, extra_wait=1.5)
+            )
 
-            import json as json_mod
-            data = json_mod.loads(text)
-
-            for item in data[:20]:
-                inner = item.get("data", {})
-                content = inner.get("content", "").strip()
-                if not content:
+            for news in news_list[:6]:
+                title = news.title
+                if not title:
                     continue
 
-                import re
-                clean = re.sub(r'<[^>]+>', '', content).strip()
-                for pattern in [
-                    r'^【金十数据整理[：：][^】]*】',
-                    r'^【今日要闻[：：][^】]*】',
-                    r'^【市场快讯[：：][^】]*】',
-                ]:
-                    clean = re.sub(pattern, '', clean).strip()
-
-                title = clean[:60] if clean else content[:60]
-                flash_id = item.get("id", "")
-
-                if title in self._seen_titles:
-                    continue
-
-                self._seen_titles.add(title)
+                flash_id = news.flash_id or ""
                 news_items.append({
-                    "title": title,
+                    "title": title[:60],
                     "url": f"https://www.jin10.com/news/{flash_id}" if flash_id else "",
                 })
 
         except Exception as e:
-            logger.debug(f"获取金十新闻失败: {e}")
-
-        if len(self._seen_titles) > 200:
-            old_titles = list(self._seen_titles)[:100]
-            for t in old_titles:
-                self._seen_titles.discard(t)
+            logger.debug(f"获取金十重要新闻失败: {e}")
 
         return news_items[:6]
 
@@ -245,8 +215,11 @@ class MenuBarTray:
         if self._app is None:
             return
 
+        logger.info("[Tray] _build_menu 开始")
         self._news_items = self._get_latest_news()
+        logger.info(f"[Tray] _build_menu 获取到 {len(self._news_items)} 条新闻")
         self._hot_blocks = self._get_hot_blocks()
+        logger.info(f"[Tray] _build_menu 获取到 {len(self._hot_blocks)} 个热点")
 
         try:
             import rumps
@@ -264,10 +237,16 @@ class MenuBarTray:
             if self._news_items:
                 for i, item in enumerate(self._news_items[:6]):
                     title = item.get("title", "无标题")[:40]
-                    menu_item = rumps.MenuItem(title)
                     url = item.get("url", "")
-                    if url:
-                        menu_item.url = url
+
+                    def make_callback(news_url):
+                        def callback(sender):
+                            if news_url:
+                                import webbrowser
+                                webbrowser.open(news_url)
+                        return callback
+
+                    menu_item = rumps.MenuItem(title, callback=make_callback(url) if url else None)
                     news_parent[f"n{i}"] = menu_item
             else:
                 news_parent["empty"] = rumps.MenuItem("暂无数据")
