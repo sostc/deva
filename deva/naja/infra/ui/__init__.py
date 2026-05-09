@@ -6,10 +6,20 @@ from .realtime_pusher import (
     create_pusher,
     create_streaming_pusher,
 )
+from .menu_bar_tray import (
+    MenuBarTray,
+    get_tray,
+    start_tray,
+    stop_tray,
+)
 
 __all__ = [
     "RealtimePusher",
     "StreamingPusher",
     "create_pusher",
     "create_streaming_pusher",
+    "MenuBarTray",
+    "get_tray",
+    "start_tray",
+    "stop_tray",
 ]

@@ -11,6 +11,16 @@ from tornado.web import RequestHandler
 from deva.naja.register import SR
 
 
+def _read_json_body(handler: RequestHandler) -> Dict[str, Any]:
+    """读取 JSON 请求体。"""
+    if not handler.request.body:
+        return {}
+    try:
+        return json.loads(handler.request.body.decode("utf-8"))
+    except Exception:
+        return {}
+
+
 def _get_cognition_engine():
     """获取认知引擎"""
     try:
@@ -387,6 +397,9 @@ class SystemModulesHandler(RequestHandler):
 class RadarEventsHandler(RequestHandler):
     """雷达事件 API 端点"""
 
+    # 需要过滤的新闻相关 source
+    _FILTERED_SOURCES = {"jin10", "jin10_important", "radar_news", "news_fetcher"}
+
     def set_default_headers(self):
         """设置默认响应头"""
         self.set_header("Content-Type", "application/json; charset=utf-8")
@@ -398,6 +411,41 @@ class RadarEventsHandler(RequestHandler):
         """处理OPTIONS请求"""
         self.set_status(204)
         self.finish()
+
+    def _is_news_event(self, event: dict) -> bool:
+        """检查是否为新闻事件（需要过滤）"""
+        source = event.get("source", "")
+        if source in self._FILTERED_SOURCES:
+            return True
+
+        # 检查 event_type
+        event_type = event.get("event_type", "")
+        if "news" in event_type.lower():
+            return True
+
+        # 检查 payload 中的 source
+        payload = event.get("payload", {})
+        payload_source = payload.get("source", "")
+        if payload_source in self._FILTERED_SOURCES:
+            return True
+
+        return False
+
+    def _sanitize_event(self, event: dict) -> dict:
+        """清理事件，移除详细内容，保留标题和链接"""
+        sanitized = dict(event)
+
+        if self._is_news_event(event):
+            if "payload" in sanitized:
+                payload = dict(sanitized["payload"])
+                # 过滤详细内容，保留标题和链接
+                for key in ["content", "text"]:
+                    if key in payload:
+                        payload[key] = "[详细内容已过滤]"
+                # 保留: title, url, source, timestamp 等
+                sanitized["payload"] = payload
+
+        return sanitized
 
     def get(self):
         """获取雷达事件"""
@@ -413,12 +461,14 @@ class RadarEventsHandler(RequestHandler):
                 return
 
             events = radar.get_recent_events()
+            filtered_events = [self._sanitize_event(e) for e in events]
+
             result = {
                 "timestamp": time.time(),
                 "datetime": time.strftime("%Y-%m-%d %H:%M:%S"),
                 "success": True,
                 "data": {
-                    "events": events
+                    "events": filtered_events
                 }
             }
             self.write(json.dumps(result, ensure_ascii=False))
@@ -1311,3 +1361,239 @@ class LatestInsightsHandler(RequestHandler):
             }
             self.set_status(500)
             self.write(json.dumps(error_result, ensure_ascii=False))
+
+
+class NajaAskHandler(RequestHandler):
+    """自然语言提问 Naja API。"""
+
+    def set_default_headers(self):
+        self.set_header("Content-Type", "application/json; charset=utf-8")
+        self.set_header("Access-Control-Allow-Origin", "*")
+        self.set_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+        self.set_header("Access-Control-Allow-Headers", "Content-Type")
+
+    def options(self):
+        self.set_status(204)
+        self.finish()
+
+    def get(self):
+        question = self.get_argument("q", self.get_argument("question", ""))
+        self._answer(question)
+
+    def post(self):
+        body = _read_json_body(self)
+        question = body.get("question") or body.get("q") or ""
+        self._answer(question)
+
+    def _answer(self, question: str):
+        try:
+            from deva.naja.application.naja_agent import get_naja_agent
+
+            answer = get_naja_agent().ask(question)
+            result = {
+                "timestamp": time.time(),
+                "datetime": time.strftime("%Y-%m-%d %H:%M:%S"),
+                "success": True,
+                "data": answer,
+            }
+            self.write(json.dumps(result, ensure_ascii=False, default=str))
+        except Exception as e:
+            self.set_status(500)
+            self.write(json.dumps({
+                "timestamp": time.time(),
+                "datetime": time.strftime("%Y-%m-%d %H:%M:%S"),
+                "success": False,
+                "error": str(e),
+            }, ensure_ascii=False))
+
+
+class NajaAgentHandler(RequestHandler):
+    """Naja Agent 能力 API。"""
+
+    def set_default_headers(self):
+        self.set_header("Content-Type", "application/json; charset=utf-8")
+        self.set_header("Access-Control-Allow-Origin", "*")
+        self.set_header("Access-Control-Allow-Methods", "GET, OPTIONS")
+        self.set_header("Access-Control-Allow-Headers", "Content-Type")
+
+    def options(self):
+        self.set_status(204)
+        self.finish()
+
+    def get(self):
+        try:
+            from deva.naja.application.naja_agent import get_naja_agent
+
+            self.write(json.dumps({
+                "timestamp": time.time(),
+                "datetime": time.strftime("%Y-%m-%d %H:%M:%S"),
+                "success": True,
+                "data": get_naja_agent().capabilities(),
+            }, ensure_ascii=False, default=str))
+        except Exception as e:
+            self.set_status(500)
+            self.write(json.dumps({
+                "timestamp": time.time(),
+                "datetime": time.strftime("%Y-%m-%d %H:%M:%S"),
+                "success": False,
+                "error": str(e),
+            }, ensure_ascii=False))
+
+
+class NajaApiCatalogHandler(RequestHandler):
+    """Naja 全系统 API 能力目录。"""
+
+    def set_default_headers(self):
+        self.set_header("Content-Type", "application/json; charset=utf-8")
+        self.set_header("Access-Control-Allow-Origin", "*")
+        self.set_header("Access-Control-Allow-Methods", "GET, OPTIONS")
+        self.set_header("Access-Control-Allow-Headers", "Content-Type")
+
+    def options(self):
+        self.set_status(204)
+        self.finish()
+
+    def get(self):
+        try:
+            from deva.naja.application.api_catalog import get_api_catalog
+
+            group = self.get_argument("group", None)
+            self.write(json.dumps({
+                "timestamp": time.time(),
+                "datetime": time.strftime("%Y-%m-%d %H:%M:%S"),
+                "success": True,
+                "data": get_api_catalog(group=group),
+            }, ensure_ascii=False, default=str))
+        except Exception as e:
+            self.set_status(500)
+            self.write(json.dumps({
+                "timestamp": time.time(),
+                "datetime": time.strftime("%Y-%m-%d %H:%M:%S"),
+                "success": False,
+                "error": str(e),
+            }, ensure_ascii=False))
+
+
+class NajaSkillHandler(RequestHandler):
+    """Naja skill invocation API."""
+
+    def set_default_headers(self):
+        self.set_header("Content-Type", "application/json; charset=utf-8")
+        self.set_header("Access-Control-Allow-Origin", "*")
+        self.set_header("Access-Control-Allow-Methods", "POST, OPTIONS")
+        self.set_header("Access-Control-Allow-Headers", "Content-Type")
+
+    def options(self):
+        self.set_status(204)
+        self.finish()
+
+    def post(self):
+        try:
+            body = _read_json_body(self)
+            skill = body.get("skill") or body.get("command") or "ask"
+            payload = body.get("payload") or body
+            confirm = bool(body.get("confirm", False))
+
+            from deva.naja.application.naja_agent import get_naja_agent
+
+            data = get_naja_agent().run_skill(skill, payload=payload, confirm=confirm)
+            success = not bool(data.get("error"))
+            self.write(json.dumps({
+                "timestamp": time.time(),
+                "datetime": time.strftime("%Y-%m-%d %H:%M:%S"),
+                "success": success,
+                "data": data,
+            }, ensure_ascii=False, default=str))
+        except Exception as e:
+            self.set_status(500)
+            self.write(json.dumps({
+                "timestamp": time.time(),
+                "datetime": time.strftime("%Y-%m-%d %H:%M:%S"),
+                "success": False,
+                "error": str(e),
+            }, ensure_ascii=False))
+
+
+class NajaDigestHandler(RequestHandler):
+    """市场学习汇报 API。"""
+
+    def set_default_headers(self):
+        self.set_header("Content-Type", "application/json; charset=utf-8")
+        self.set_header("Access-Control-Allow-Origin", "*")
+        self.set_header("Access-Control-Allow-Methods", "GET, OPTIONS")
+        self.set_header("Access-Control-Allow-Headers", "Content-Type")
+
+    def options(self):
+        self.set_status(204)
+        self.finish()
+
+    def get(self):
+        try:
+            from deva.naja.application.market_copilot import get_market_copilot
+
+            digest = get_market_copilot().build_digest().to_dict()
+            result = {
+                "timestamp": time.time(),
+                "datetime": time.strftime("%Y-%m-%d %H:%M:%S"),
+                "success": True,
+                "data": digest,
+            }
+            self.write(json.dumps(result, ensure_ascii=False, default=str))
+        except Exception as e:
+            self.set_status(500)
+            self.write(json.dumps({
+                "timestamp": time.time(),
+                "datetime": time.strftime("%Y-%m-%d %H:%M:%S"),
+                "success": False,
+                "error": str(e),
+            }, ensure_ascii=False))
+
+
+class NajaDigestSendHandler(RequestHandler):
+    """发送市场学习汇报到外部通知通道。"""
+
+    def set_default_headers(self):
+        self.set_header("Content-Type", "application/json; charset=utf-8")
+        self.set_header("Access-Control-Allow-Origin", "*")
+        self.set_header("Access-Control-Allow-Methods", "POST, OPTIONS")
+        self.set_header("Access-Control-Allow-Headers", "Content-Type")
+
+    def options(self):
+        self.set_status(204)
+        self.finish()
+
+    def post(self):
+        try:
+            body = _read_json_body(self)
+            channels = body.get("channels") or ["dingtalk", "phone"]
+            force = bool(body.get("force", False))
+            if not bool(body.get("confirm", False)):
+                self.set_status(400)
+                self.write(json.dumps({
+                    "timestamp": time.time(),
+                    "datetime": time.strftime("%Y-%m-%d %H:%M:%S"),
+                    "success": False,
+                    "error": "发送外部通知需要 confirm=true",
+                }, ensure_ascii=False))
+                return
+            if isinstance(channels, str):
+                channels = [channels]
+
+            from deva.naja.application.market_copilot import get_market_copilot
+
+            send_result = get_market_copilot().send_digest(channels=channels, force=force)
+            result = {
+                "timestamp": time.time(),
+                "datetime": time.strftime("%Y-%m-%d %H:%M:%S"),
+                "success": True,
+                "data": send_result,
+            }
+            self.write(json.dumps(result, ensure_ascii=False, default=str))
+        except Exception as e:
+            self.set_status(500)
+            self.write(json.dumps({
+                "timestamp": time.time(),
+                "datetime": time.strftime("%Y-%m-%d %H:%M:%S"),
+                "success": False,
+                "error": str(e),
+            }, ensure_ascii=False))

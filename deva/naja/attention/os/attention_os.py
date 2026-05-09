@@ -239,8 +239,8 @@ class AttentionOS:
                 "confidence": min(0.9, max(0.3, getattr(event, 'score', 0.5))),
                 "actionability": 0.5,
                 "system_hotspot": getattr(event, 'score', 0.5),
-                "source": "hotspot_shift",
-                "signal_type": getattr(event, 'event_type', 'hotspot_shift'),
+                "source": "attention",
+                "signal_type": "attention_shift",
                 "ts": getattr(event, 'timestamp', time.time()),
                 "payload": getattr(event, 'payload', {}),
             }

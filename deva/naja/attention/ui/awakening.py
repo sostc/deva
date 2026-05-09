@@ -10,7 +10,8 @@
     html = render_awakening_status()
 """
 
-from typing import Dict, Any
+from html import escape
+from typing import Dict, Any, List
 
 LOW = "LOW"
 
@@ -73,6 +74,7 @@ def render_awakening_status() -> str:
         {_render_system_overview(manas_state, query_state)}
         {_render_manas_core(manas_state)}
         {_render_qkv_module(qkv_state)}
+        {_render_market_copilot()}
         {_render_current_state_narrative(manas_state, query_state)}
     </div>
     """
@@ -666,6 +668,149 @@ def _render_current_state_narrative(manas_state: Dict[str, Any], query_state: Di
         </div>
     </div>
     """
+
+
+def _render_market_copilot() -> str:
+    """渲染市场学习和 Naja 问答模块。"""
+    try:
+        from deva.naja.application.market_copilot import get_market_copilot
+
+        digest = get_market_copilot().build_digest()
+        data = digest.to_dict()
+    except Exception as exc:
+        return f"""<div style="margin-top: 16px; background: #0f172a; border-radius: 8px; padding: 16px; color: #f87171;">
+            市场学习模块暂不可用：{escape(str(exc))}
+        </div>"""
+
+    narratives = _render_copilot_items(
+        [
+            f"{n.get('narrative') or n.get('name')}: {n.get('stage', '')} {n.get('attention_score', '')}"
+            for n in data.get("narratives", [])[:5]
+        ],
+        "暂无叙事数据",
+    )
+    proposals = _render_copilot_items(
+        [
+            f"{p.get('target')}: {p.get('suggestion')} - {p.get('reason')}"
+            for p in data.get("strategy_proposals", [])[:5]
+        ],
+        "暂无策略调整建议",
+    )
+    summary = escape(data.get("summary", "")).replace("\n", "<br>")
+    tianshi = escape(data.get("tianshi", ""))
+    dili = escape(data.get("dili", ""))
+    renhe = escape(data.get("renhe", ""))
+
+    return f"""<div style="margin-top: 16px;">
+        <div style="
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+            padding-bottom: 8px;
+            border-bottom: 1px solid #334155;
+        ">
+            <div style="display: flex; align-items: center; gap: 8px;">
+                <span style="font-size: 16px;">🧭</span>
+                <span style="font-size: 13px; font-weight: 600; color: #f1f5f9;">Naja 市场值班官</span>
+                <span style="font-size: 10px; color: #64748b; background: #1e293b; padding: 2px 6px; border-radius: 4px;">持续学习</span>
+            </div>
+            <div style="font-size: 10px; color: #64748b;">{escape(data.get("datetime", ""))}</div>
+        </div>
+
+        <div style="background: #0f172a; border-radius: 8px; padding: 14px; margin-bottom: 10px;">
+            <div style="font-size: 12px; line-height: 1.7; color: #e2e8f0;">{summary}</div>
+        </div>
+
+        <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 10px;">
+            <div style="background: #0f172a; border-radius: 8px; padding: 10px;">
+                <div style="font-size: 11px; color: #94a3b8; margin-bottom: 6px;">天时</div>
+                <div style="font-size: 11px; line-height: 1.5; color: #f1f5f9;">{tianshi}</div>
+            </div>
+            <div style="background: #0f172a; border-radius: 8px; padding: 10px;">
+                <div style="font-size: 11px; color: #94a3b8; margin-bottom: 6px;">地利</div>
+                <div style="font-size: 11px; line-height: 1.5; color: #f1f5f9;">{dili}</div>
+            </div>
+            <div style="background: #0f172a; border-radius: 8px; padding: 10px;">
+                <div style="font-size: 11px; color: #94a3b8; margin-bottom: 6px;">人和</div>
+                <div style="font-size: 11px; line-height: 1.5; color: #f1f5f9;">{renhe}</div>
+            </div>
+        </div>
+
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 10px;">
+            <div style="background: #0f172a; border-radius: 8px; padding: 12px;">
+                <div style="font-size: 12px; font-weight: 600; color: #f1f5f9; margin-bottom: 8px;">叙事认知</div>
+                {narratives}
+            </div>
+            <div style="background: #0f172a; border-radius: 8px; padding: 12px;">
+                <div style="font-size: 12px; font-weight: 600; color: #f1f5f9; margin-bottom: 8px;">策略影响</div>
+                {proposals}
+            </div>
+        </div>
+
+        <div style="background: #0f172a; border-radius: 8px; padding: 12px;">
+            <div style="font-size: 12px; font-weight: 600; color: #f1f5f9; margin-bottom: 8px;">Agent 状态</div>
+            <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px;">
+                <div style="background: #1e293b; border-radius: 6px; padding: 10px; text-align: center;">
+                    <div style="font-size: 11px; color: #94a3b8; margin-bottom: 4px;">主接口</div>
+                    <div style="font-size: 12px; color: #22c55e; font-weight: 600;">Skill</div>
+                </div>
+                <div style="background: #1e293b; border-radius: 6px; padding: 10px; text-align: center;">
+                    <div style="font-size: 11px; color: #94a3b8; margin-bottom: 4px;">对话</div>
+                    <div style="font-size: 12px; color: #0ea5e9; font-weight: 600;">Ready</div>
+                </div>
+                <div style="background: #1e293b; border-radius: 6px; padding: 10px; text-align: center;">
+                    <div style="font-size: 11px; color: #94a3b8; margin-bottom: 4px;">汇报</div>
+                    <div style="font-size: 12px; color: #f59e0b; font-weight: 600;">可发送</div>
+                </div>
+                <div style="background: #1e293b; border-radius: 6px; padding: 10px; text-align: center;">
+                    <div style="font-size: 11px; color: #94a3b8; margin-bottom: 4px;">Web</div>
+                    <div style="font-size: 12px; color: #94a3b8; font-weight: 600;">镜像</div>
+                </div>
+            </div>
+            <div style="margin-top: 12px; background: #1e293b; border-radius: 6px; padding: 12px;">
+                <div style="font-size: 12px; font-weight: 600; color: #f1f5f9; margin-bottom: 8px;">Naja API Skill 用法</div>
+                <div style="font-size: 11px; color: #94a3b8; line-height: 1.6; margin-bottom: 8px;">
+                    推荐从对话或 skill 调用 Naja；Web 只展示状态。发送到钉钉/手机属于外部动作，需要显式确认。
+                </div>
+                <pre style="white-space: pre-wrap; background: #0f172a; color: #cbd5e1; border: 1px solid #334155; border-radius: 6px; padding: 10px; margin: 0; font-size: 11px; line-height: 1.5;">python3 deva/naja/skills/naja-api/scripts/naja_ask.py ask "现在热点怎么影响策略？"
+python3 deva/naja/skills/naja-api/scripts/naja_ask.py endpoints
+python3 deva/naja/skills/naja-api/scripts/naja_ask.py endpoints --group attention
+python3 deva/naja/skills/naja-api/scripts/naja_ask.py digest
+python3 deva/naja/skills/naja-api/scripts/naja_ask.py capabilities
+python3 deva/naja/skills/naja-api/scripts/naja_ask.py send --confirm --channel dingtalk --channel phone</pre>
+                <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; margin-top: 8px;">
+                    <div style="background: #0f172a; border-radius: 6px; padding: 8px;">
+                        <div style="font-size: 10px; color: #64748b; margin-bottom: 4px;">Agent 能力</div>
+                        <div style="font-size: 11px; color: #e2e8f0;">GET /api/naja/agent</div>
+                    </div>
+                    <div style="background: #0f172a; border-radius: 6px; padding: 8px;">
+                        <div style="font-size: 10px; color: #64748b; margin-bottom: 4px;">Skill 调用</div>
+                        <div style="font-size: 11px; color: #e2e8f0;">POST /api/naja/skill</div>
+                    </div>
+                    <div style="background: #0f172a; border-radius: 6px; padding: 8px;">
+                        <div style="font-size: 10px; color: #64748b; margin-bottom: 4px;">API 目录</div>
+                        <div style="font-size: 11px; color: #e2e8f0;">GET /api/naja/api-catalog</div>
+                    </div>
+                    <div style="background: #0f172a; border-radius: 6px; padding: 8px;">
+                        <div style="font-size: 10px; color: #64748b; margin-bottom: 4px;">分组过滤</div>
+                        <div style="font-size: 11px; color: #e2e8f0;">?group=attention</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>"""
+
+
+def _render_copilot_items(items: List[str], empty_text: str) -> str:
+    if not items:
+        return f'<div style="font-size: 11px; color: #64748b;">{escape(empty_text)}</div>'
+    rows = []
+    for item in items:
+        rows.append(
+            f'<div style="font-size: 11px; line-height: 1.5; color: #e2e8f0; margin-bottom: 6px;">- {escape(str(item))}</div>'
+        )
+    return "".join(rows)
 
 
 def _render_manas_core(state: Dict[str, Any]) -> str:
