@@ -7,7 +7,7 @@ from pywebio.platform.tornado import webio_handler
 from tornado.web import RequestHandler
 
 from .pages import (
-    main, dsadmin, signaladmin, dualbusadmin, taskadmin, strategyadmin,
+    main, dsadmin, signaladmin, taskadmin, strategyadmin,
     radaradmin, insightadmin, cognition_page, memory_page,
     llmadmin, banditadmin, bandit_attribution, market,
     awakening_page, dictadmin, tableadmin, runtimestateadmin,
@@ -518,6 +518,94 @@ class DualBusStatsHandler(RequestHandler):
             }, ensure_ascii=False))
 
 
+class SignalStreamHandler(RequestHandler):
+    """信号流 SSE 推送接口（包含双总线）"""
+
+    def set_default_headers(self):
+        self.set_header("Content-Type", "text/event-stream; charset=utf-8")
+        self.set_header("Cache-Control", "no-cache")
+        self.set_header("Connection", "keep-alive")
+        self.set_header("X-Accel-Buffering", "no")
+
+    def on_connection_close(self):
+        closed = getattr(self, "_closed", None)
+        if closed is not None and not closed.done():
+            closed.set_result(None)
+
+    async def get(self):
+        from tornado.ioloop import IOLoop
+        from deva.naja.signal.stream import get_signal_stream
+        from deva.naja.signal.dual_bus_push_center import get_dual_bus_push_center
+
+        loop = IOLoop.current()
+        self._closed = asyncio.Future()
+
+        signal_stream = get_signal_stream()
+        push_center = get_dual_bus_push_center()
+
+        # 发送初始事件
+        async def send_payload(events=None, signals=None):
+            if self._closed.done():
+                return
+            try:
+                payload = {
+                    "timestamp": time.time(),
+                }
+                # 获取并格式化策略信号
+                if signals is None:
+                    recent_signals = signal_stream.get_recent(limit=10)
+                    signals = []
+                    for s in recent_signals:
+                        signals.append({
+                            "id": s.id,
+                            "strategy_id": s.strategy_id,
+                            "strategy_name": s.strategy_name,
+                            "ts": s.ts,
+                            "success": s.success,
+                            "summary": s.output_preview,
+                            "output_full": s.output_full,
+                            "priority": s.priority,
+                            "metadata": s.metadata,
+                        })
+                if signals:
+                    payload["signals"] = signals
+
+                # 获取双总线事件
+                if events is None:
+                    events = push_center.get_recent_events(limit=10)
+                if events:
+                    payload["events"] = events
+
+                data = json.dumps(payload, ensure_ascii=False, default=_json_default)
+                self.write(f"data: {data}\n\n")
+                await self.flush()
+            except Exception:
+                if not self._closed.done():
+                    self._closed.set_result(None)
+
+        # 发送初始数据
+        await send_payload()
+
+        # 回调函数 - 当有新事件时
+        def on_event(event_data):
+            loop.add_callback(lambda: send_payload(events=[event_data]))
+
+        # 订阅推送
+        push_center.subscribe(on_event)
+
+        try:
+            # 心跳保持连接
+            while not self._closed.done():
+                await asyncio.sleep(25)
+                if self._closed.done():
+                    break
+                self.write(": heartbeat\n\n")
+                await self.flush()
+            await self._closed
+        finally:
+            push_center.unsubscribe(on_event)
+
+
 class DualBusStreamHandler(RequestHandler):
     """双总线事件 SSE 推送接口"""
 
@@ -594,7 +682,6 @@ def create_handlers(cdn: str = None):
         (r'/health', webio_handler(health_page, cdn=cdn_url)),
         (r'/performance', webio_handler(system_page, cdn=cdn_url)),
         (r'/signaladmin', webio_handler(signaladmin, cdn=cdn_url)),
-        (r'/dualbus', webio_handler(dualbusadmin, cdn=cdn_url)),
         (r'/dsadmin', webio_handler(dsadmin, cdn=cdn_url)),
         (r'/taskadmin', webio_handler(taskadmin, cdn=cdn_url)),
         (r'/strategyadmin', webio_handler(strategyadmin, cdn=cdn_url)),
@@ -679,6 +766,7 @@ def create_handlers(cdn: str = None):
         (r'/api/naja/api-catalog', NajaApiCatalogHandler),
         (r'/api/naja/digest', NajaDigestHandler),
         (r'/api/naja/digest/send', NajaDigestSendHandler),
+        (r'/api/signal/stream', SignalStreamHandler),
         (r'/api/dualbus/stats', DualBusStatsHandler),
         (r'/api/dual-bus/stream', DualBusStreamHandler),
         (r'/api/dualbus/stream', DualBusStreamHandler),

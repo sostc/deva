@@ -34,19 +34,11 @@ async def dsadmin():
 
 
 async def signaladmin():
-    """信号流 - 策略结果可视化"""
+    """信号流 - 策略结果可视化（包含双总线事件）"""
     from deva.naja.signal.ui import render_signal_page
     ctx = _ctx()
     await ctx["init_naja_ui"]("信号流")
     await render_signal_page(ctx)
-
-
-async def dualbusadmin():
-    """双总线事件流 - 整合认知总线和交易总线"""
-    from deva.naja.signal.dual_bus_ui import render_dual_bus_stream
-    ctx = _ctx()
-    await ctx["init_naja_ui"]("双总线事件流")
-    await render_dual_bus_stream(ctx)
 
 
 async def taskadmin():
