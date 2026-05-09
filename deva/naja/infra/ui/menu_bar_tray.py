@@ -228,11 +228,10 @@ class MenuBarTray:
             self._app.menu["📊 Naja 管理平台"] = None
             self._app.menu["🌐 打开 Web"] = rumps.MenuItem("🌐 打开 Web", callback=self._on_open_web)
             self._app.menu["🔄 刷新"] = rumps.MenuItem("🔄 刷新", callback=self._on_refresh)
-            self._app.menu["sep1"] = rumps.separator
+            self._app.menu["sep0"] = rumps.separator
 
-            news_parent = rumps.MenuItem("📰 最新新闻")
             if self._news_items:
-                for i, item in enumerate(self._news_items[:6]):
+                for item in self._news_items[:5]:
                     title = item.get("title", "无标题")[:40]
                     url = item.get("url", "")
 
@@ -244,20 +243,13 @@ class MenuBarTray:
                         return callback
 
                     menu_item = rumps.MenuItem(title, callback=make_callback(url) if url else None)
-                    news_parent[f"n{i}"] = menu_item
-            else:
-                news_parent["empty"] = rumps.MenuItem("暂无数据")
-            self._app.menu["news"] = news_parent
+                    self._app.menu.add(menu_item)
 
-            blocks_parent = rumps.MenuItem("🔥 热点板块")
             if self._hot_blocks:
-                for i, (name, weight) in enumerate(self._hot_blocks[:6]):
-                    blocks_parent[f"b{i}"] = rumps.MenuItem(f"{name}: {weight}")
-            else:
-                blocks_parent["empty"] = rumps.MenuItem("暂无数据")
-            self._app.menu["blocks"] = blocks_parent
+                for name, weight in self._hot_blocks[:3]:
+                    self._app.menu.add(rumps.MenuItem(f"🔥 {name} ({weight})"))
 
-            self._app.menu["sep2"] = rumps.separator
+            self._app.menu["sep1"] = rumps.separator
             self._app.menu["重启服务"] = rumps.MenuItem("🔄 重启服务", callback=self._on_reload)
             self._app.menu["退出"] = rumps.MenuItem("❌ 退出", callback=self._on_quit)
 
