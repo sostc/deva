@@ -18,8 +18,8 @@ PORT_FILE = NAJA_DIR / "naja.port"
 DEFAULT_PORT = 8080
 
 STATIC_DIR = Path(__file__).parent.parent.parent / "static"
-ICON_WHITE = str(STATIC_DIR / "naja_white_22.png")
-ICON_GREEN = str(STATIC_DIR / "naja_green_22.png")
+ICON_PURPLE = str(STATIC_DIR / "naja_purple_22.png")
+ICON_RED = str(STATIC_DIR / "naja_red_22.png")
 
 
 def _is_trading_time() -> bool:
@@ -191,13 +191,22 @@ class MenuBarTray:
         self._restart_tray()
 
     def _on_open_web(self, sender):
-        logger.info("托盘菜单触发打开 Web")
+        import subprocess
         port = _get_naja_port()
+        url = f"http://localhost:{port}"
+
+        script = f'''
+tell application "Safari"
+    make new document at end of documents
+    set URL of front document to "{url}"
+    activate
+end tell
+'''
         try:
-            import webbrowser
-            webbrowser.open(f"http://localhost:{port}")
+            subprocess.run(['osascript', '-e', script], check=True, capture_output=True)
+            logger.info(f"已在 Safari 新窗口打开 {url}")
         except Exception as e:
-            logger.error(f"打开浏览器失败: {e}")
+            logger.error(f"打开 Safari 窗口失败: {e}")
 
     def _on_quit(self, sender):
         logger.info("托盘菜单触发退出")
@@ -224,7 +233,7 @@ class MenuBarTray:
         try:
             import rumps
 
-            icon_path = ICON_GREEN if _is_trading_time() else ICON_WHITE
+            icon_path = ICON_RED if _is_trading_time() else ICON_PURPLE
             self._app.icon = icon_path
 
             self._app.menu.clear()
@@ -271,7 +280,7 @@ class MenuBarTray:
         try:
             import rumps
 
-            initial_icon = ICON_GREEN if _is_trading_time() else ICON_WHITE
+            initial_icon = ICON_RED if _is_trading_time() else ICON_PURPLE
             self._app = rumps.App("Naja", icon=initial_icon)
             self._build_menu()
 
