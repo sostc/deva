@@ -17,6 +17,28 @@ PID_FILE = NAJA_DIR / "naja.pid"
 PORT_FILE = NAJA_DIR / "naja.port"
 DEFAULT_PORT = 8080
 
+STATIC_DIR = Path(__file__).parent.parent.parent / "static"
+ICON_WHITE = str(STATIC_DIR / "naja_tray_white.png")
+ICON_RED = str(STATIC_DIR / "naja_tray_red.png")
+
+
+def _is_trading_time() -> bool:
+    """检查是否在 A 股或美股交易时段"""
+    from datetime import datetime, time
+    now = datetime.now()
+    weekday = now.weekday()
+    if weekday >= 5:
+        return False
+    t = now.time()
+    cn_start, cn_end = time(9, 30), time(15, 0)
+    cn_lunch_start, cn_lunch_end = time(11, 30), time(13, 0)
+    if (cn_start <= t <= cn_lunch_start) or (cn_lunch_end <= t <= cn_end):
+        return True
+    us_start, us_end = time(21, 30), time(4, 0)
+    if (us_start <= t) or (t <= us_end):
+        return True
+    return False
+
 
 def _get_naja_port() -> int:
     """从配置文件读取 Naja 端口，失败时返回默认值"""
@@ -80,12 +102,70 @@ class MenuBarTray:
         self._news_items = []
         self._hot_blocks = []
         self._icon_path = _get_tray_icon_path()
+        self._seen_news_ids: set = set()
+        self._max_seen_ids = 100
 
     def _get_latest_news(self) -> list:
-        data = _http_get("/api/jin10/important?limit=6")
+        news_items = []
+
+        # 优先使用 /api/radar/events（过滤后的金十新闻）
+        data = _http_get("/api/radar/events")
         if data and data.get("success"):
-            return data.get("news", [])
-        return []
+            events = data.get("data", {}).get("events", [])
+            for event in events:
+                source = event.get("source", "")
+                event_type = event.get("event_type", "")
+                payload = event.get("payload", {})
+
+                if source not in {"jin10", "jin10_important", "radar_news", "news_fetcher"}:
+                    continue
+                if "news" not in event_type.lower():
+                    continue
+
+                event_id = event.get("event_id", "")
+                title = payload.get("title", "") or payload.get("text", "") or event.get("message", "")
+                url = payload.get("url", "")
+
+                if not title or title == "[详细内容已过滤]":
+                    continue
+                if event_id in self._seen_news_ids:
+                    continue
+
+                news_items.append({
+                    "title": title[:60],
+                    "url": url,
+                    "event_id": event_id,
+                    "source": "radar",
+                })
+                self._seen_news_ids.add(event_id)
+
+        # fallback 到 /api/jin10/important（重要新闻）
+        if len(news_items) < 6:
+            data = _http_get("/api/jin10/important?limit=12")
+            if data and data.get("success"):
+                for item in data.get("news", []):
+                    title = item.get("title", "")
+                    if not title:
+                        continue
+
+                    title_hash = str(hash(title))
+                    if title_hash in self._seen_news_ids:
+                        continue
+
+                    news_items.append({
+                        "title": title[:60],
+                        "url": item.get("url", ""),
+                        "event_id": title_hash,
+                        "source": "jin10",
+                    })
+                    self._seen_news_ids.add(title_hash)
+
+        if len(self._seen_news_ids) > self._max_seen_ids:
+            old_ids = list(self._seen_news_ids)[:len(self._seen_news_ids) - self._max_seen_ids]
+            for old_id in old_ids:
+                self._seen_news_ids.discard(old_id)
+
+        return news_items[:6]
 
     def _get_hot_blocks(self) -> list:
         data = _http_get("/api/market/hotspot")
@@ -169,6 +249,9 @@ class MenuBarTray:
         try:
             import rumps
 
+            icon_path = ICON_RED if _is_trading_time() else ICON_WHITE
+            self._app.icon = icon_path
+
             self._app.menu.clear()
             self._app.menu["📊 Naja 管理平台"] = None
             self._app.menu["🌐 打开 Web"] = rumps.MenuItem("🌐 打开 Web", callback=self._on_open_web)
@@ -179,7 +262,11 @@ class MenuBarTray:
             if self._news_items:
                 for i, item in enumerate(self._news_items[:6]):
                     title = item.get("title", "无标题")[:40]
-                    news_parent[f"n{i}"] = rumps.MenuItem(title)
+                    menu_item = rumps.MenuItem(title)
+                    url = item.get("url", "")
+                    if url:
+                        menu_item.url = url
+                    news_parent[f"n{i}"] = menu_item
             else:
                 news_parent["empty"] = rumps.MenuItem("暂无数据")
             self._app.menu["news"] = news_parent
@@ -211,7 +298,8 @@ class MenuBarTray:
         try:
             import rumps
 
-            self._app = rumps.App("Naja", icon=self._icon_path)
+            initial_icon = ICON_RED if _is_trading_time() else ICON_WHITE
+            self._app = rumps.App("Naja", icon=initial_icon)
             self._build_menu()
 
             rumps.timer(interval=30)(self._on_timer)(self._app)
