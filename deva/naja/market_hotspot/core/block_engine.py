@@ -188,6 +188,11 @@ class BlockHotspotEngine:
             # 存储题材嵌入向量
             block_embeddings = []
             active_block_ids = []
+
+            # 如果没有数据，直接返回当前分数，不进行任何更新（保持收盘时的热点）
+            if not block_data or all(len(d.get('returns', [])) == 0 for d in block_data.values()):
+                log.debug(f"[BlockHotspot] 无活跃数据，保持现有热点分数")
+                return {block_id: float(self._block_hotspot_scores[idx]) for block_id, idx in self._block_id_to_idx.items()}
             
             for block_id, data in block_data.items():
                 if noise_detector and noise_detector.is_noise(block_id, self._blocks.get(block_id).name if block_id in self._blocks else block_id):
