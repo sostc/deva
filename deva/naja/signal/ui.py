@@ -51,6 +51,15 @@ def _signal_stream_client_js() -> str:
         console.log('[Signal] 自动刷新:', enabled);
     };
 
+    function getBusBadge(busType) {
+        if (busType === 'cognitive') {
+            return '<span style="display:inline-block;padding:2px 8px;border-radius:12px;font-size:11px;font-weight:600;background:#6366f120;color:#6366f1;">🧠 认知</span>';
+        } else if (busType === 'trading') {
+            return '<span style="display:inline-block;padding:2px 8px;border-radius:12px;font-size:11px;font-weight:600;background:#f59e0b20;color:#f59e0b;">💰 交易</span>';
+        }
+        return '';
+    }
+
     function getImportanceColor(priority) {
         if (priority >= 0.7) return { color: '#dc3545', level: 'critical' };
         if (priority >= 0.5) return { color: '#fd7e14', level: 'high' };
@@ -60,7 +69,9 @@ def _signal_stream_client_js() -> str:
 
     function formatTime(ts) {
         var d = new Date(ts * 1000);
-        return d.getHours().toString().padStart(2, '0') + ':' + d.getMinutes().toString().padStart(2, '0') + ':' + d.getSeconds().toString().padStart(2, '0');
+        return d.getHours().toString().padStart(2, '0') + ':' + 
+               d.getMinutes().toString().padStart(2, '0') + ':' + 
+               d.getSeconds().toString().padStart(2, '0');
     }
 
     function escapeHtml(str) {
@@ -68,51 +79,128 @@ def _signal_stream_client_js() -> str:
         return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
     }
 
+    function formatEventData(data) {
+        try {
+            return JSON.stringify(data, null, 2);
+        } catch (e) {
+            return String(data);
+        }
+    }
+
     function updateSignalStream(data) {
         var container = document.getElementById('signal-stream-container');
-        if (!container || !data.signals) return;
+        if (!container) return;
 
-        var filters = {};
-        document.querySelectorAll('.signal-filter').forEach(function(cb) {
-            filters[cb.value] = cb.checked;
-        });
+        // 支持两种数据格式：原有格式和新的双总线格式
+        var items = [];
+        if (data.signals) {
+            // 原有格式
+            data.signals.forEach(function(signal) {
+                items.push({
+                    type: 'signal',
+                    data: signal
+                });
+            });
+        }
+        if (data.events) {
+            // 双总线格式
+            data.events.forEach(function(event) {
+                items.push({
+                    type: 'bus',
+                    data: event
+                });
+            });
+        }
 
+        // 渲染所有项目
         var html = '';
-        data.signals.slice(0, 15).forEach(function(signal) {
-            var priority = signal.priority || 0.5;
-            var info = getImportanceColor(priority);
-            var color = info.color;
-            var level = info.level;
-
-            var icon = signal.icon || '📊';
-            var strategyName = escapeHtml(signal.strategy_name || 'Unknown');
-            var timeStr = formatTime(signal.ts || signal.timestamp || 0);
-            var summary = escapeHtml(signal.output_full ? signal.output_full.summary : (signal.summary || ''));
-
-            if (summary.indexOf('0 个信号') >= 0) return;
-
-            var highlights = signal.output_full ? signal.output_full.highlights : [];
-            var highlightsStr = highlights.slice(0, 4).join(' | ');
-
-            var borderWidth = level === 'critical' ? '4px' : (level === 'high' ? '3px' : '2px');
-            var bgStyle = 'background:linear-gradient(135deg,' + color + '11,' + color + '22);';
-
-            html += '<div class="signal-item" data-importance="' + level + '" onclick="toggleSignalExpand(this)" style="display:flex;flex-direction:column;padding:0;margin:6px 0;' + bgStyle + 'border-radius:10px;border-left:' + borderWidth + ' solid ' + color + ';box-shadow:0 2px 8px rgba(0,0,0,0.06);cursor:pointer;">';
-            html += '<div class="signal-header" style="display:flex;align-items:stretch;">';
-            html += '<div style="display:flex;align-items:center;justify-content:center;padding:0 12px;"><div style="font-size:24px;">' + icon + '</div></div>';
-            html += '<div style="flex:1;padding:10px 12px 10px 0;min-width:0;">';
-            html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">';
-            html += '<div style="display:flex;align-items:center;gap:8px;"><span style="font-weight:600;color:#333;font-size:14px;">' + strategyName.substring(0, 14) + '</span><span style="display:inline-block;padding:1px 6px;border-radius:10px;font-size:10px;background:' + color + '22;color:' + color + ';">' + level.toUpperCase() + '</span></div>';
-            html += '<div style="display:flex;align-items:center;gap:6px;"><span style="font-size:11px;color:#999;white-space:nowrap;">' + timeStr + '</span><span class="expand-icon" style="font-size:10px;color:#999;transition:transform 0.2s;">▼</span></div>';
-            html += '</div>';
-            html += '<div style="font-size:13px;color:#333;font-weight:500;margin-bottom:2px;">' + summary + '</div>';
-            if (highlightsStr) {
-                html += '<div style="font-size:11px;color:#666;margin-top:4px;">' + escapeHtml(highlightsStr) + '</div>';
+        items.slice(0, 30).forEach(function(item) {
+            if (item.type === 'signal') {
+                html += renderSignalItem(item.data);
+            } else {
+                html += renderBusEventItem(item.data);
             }
-            html += '</div></div></div>';
         });
+
+        if (!html) {
+            html = '<div style="padding:20px;text-align:center;color:#999;background:#f9f9f9;border-radius:8px;">📡 等待数据...</div>';
+        }
 
         container.innerHTML = html;
+    }
+
+    function renderSignalItem(signal) {
+        var priority = signal.priority || 0.5;
+        var info = getImportanceColor(priority);
+        var color = info.color;
+        var level = info.level;
+
+        var icon = signal.icon || '📊';
+        var strategyName = escapeHtml(signal.strategy_name || 'Unknown');
+        var timeStr = formatTime(signal.ts || signal.timestamp || 0);
+        var summary = escapeHtml(signal.output_full ? signal.output_full.summary : (signal.summary || ''));
+
+        if (summary.indexOf('0 个信号') >= 0) return '';
+
+        var highlights = signal.output_full ? signal.output_full.highlights : [];
+        var highlightsStr = highlights.slice(0, 4).join(' | ');
+
+        var borderWidth = level === 'critical' ? '4px' : (level === 'high' ? '3px' : '2px');
+        var bgStyle = 'background:linear-gradient(135deg,' + color + '11,' + color + '22);';
+
+        var html = '<div class="signal-item" data-importance="' + level + '" onclick="toggleSignalExpand(this)" style="display:flex;flex-direction:column;padding:0;margin:6px 0;' + bgStyle + 'border-radius:10px;border-left:' + borderWidth + ' solid ' + color + ';box-shadow:0 2px 8px rgba(0,0,0,0.06);cursor:pointer;">';
+        html += '<div class="signal-header" style="display:flex;align-items:stretch;">';
+        html += '<div style="display:flex;align-items:center;justify-content:center;padding:0 12px;"><div style="font-size:24px;">' + icon + '</div></div>';
+        html += '<div style="flex:1;padding:10px 12px 10px 0;min-width:0;">';
+        html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">';
+        html += '<div style="display:flex;align-items:center;gap:8px;"><span style="font-weight:600;color:#333;font-size:14px;">' + strategyName.substring(0, 14) + '</span><span style="display:inline-block;padding:2px 6px;border-radius:10px;font-size:10px;background:' + color + '22;color:' + color + ';">' + level.toUpperCase() + '</span></div>';
+        html += '<div style="display:flex;align-items:center;gap:6px;"><span style="font-size:11px;color:#999;white-space:nowrap;">' + timeStr + '</span><span class="expand-icon" style="font-size:10px;color:#999;transition:transform 0.2s;">▼</span></div>';
+        html += '</div>';
+        html += '<div style="font-size:13px;color:#333;font-weight:500;margin-bottom:2px;">' + summary + '</div>';
+        if (highlightsStr) {
+            html += '<div style="font-size:11px;color:#666;margin-top:4px;">' + escapeHtml(highlightsStr) + '</div>';
+        }
+        html += '</div></div>';
+        html += '</div>';
+        return html;
+    }
+
+    function renderBusEventItem(event) {
+        var importanceInfo = getImportanceColor(event.importance || 0.5);
+        var color = importanceInfo.color;
+        var level = importanceInfo.level;
+
+        var borderWidth = level === 'critical' ? '4px' : (level === 'high' ? '3px' : '2px');
+        var bgStyle = 'background:linear-gradient(135deg,' + color + '11,' + color + '22);';
+
+        var html = '<div class="bus-event" data-importance="' + level + '" onclick="toggleSignalExpand(this)" style="display:flex;flex-direction:column;padding:0;margin:6px 0;' + bgStyle + 'border-radius:10px;border-left:' + borderWidth + ' solid ' + color + ';box-shadow:0 2px 8px rgba(0,0,0,0.06);cursor:pointer;">';
+        html += '<div class="signal-header" style="display:flex;align-items:stretch;">';
+        html += '<div style="display:flex;align-items:center;justify-content:center;padding:0 12px;"><div style="font-size:24px;">📡</div></div>';
+        html += '<div style="flex:1;padding:10px 12px 10px 0;min-width:0;">';
+        html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;flex-wrap:wrap;gap:8px;">';
+        html += '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">';
+        html += getBusBadge(event.bus_type);
+        html += '<span style="font-weight:600;color:#333;font-size:14px;">' + escapeHtml(event.event_type || 'Event') + '</span>';
+        if (event.symbol) {
+            html += '<span style="font-size:12px;color:#666;">🎯 ' + escapeHtml(event.symbol) + '</span>';
+        }
+        html += '</div>';
+        html += '<div style="display:flex;align-items:center;gap:6px;"><span style="font-size:11px;color:#999;white-space:nowrap;">' + formatTime(event.timestamp || 0) + '</span><span class="expand-icon" style="font-size:10px;color:#999;transition:transform 0.2s;">▼</span></div>';
+        html += '</div>';
+        if (event.summary) {
+            html += '<div style="font-size:13px;color:#333;font-weight:500;margin-bottom:2px;">' + escapeHtml(event.summary) + '</div>';
+        }
+        if (event.source) {
+            html += '<div style="font-size:11px;color:#666;">来源: ' + escapeHtml(event.source) + '</div>';
+        }
+        html += '</div></div>';
+
+        // 展开后的详情
+        html += '<div class="signal-detail" style="display:none;padding:12px 12px 12px 56px;border-top:1px solid rgba(0,0,0,0.1);">';
+        html += '<pre style="background:#f9fafb;padding:10px;border-radius:8px;font-size:11px;overflow-x:auto;margin:0;color:#374151;">' + escapeHtml(formatEventData(event.data || event)) + '</pre>';
+        html += '</div>';
+        html += '</div>';
+        return html;
     }
 
     function init() {
@@ -120,7 +208,7 @@ def _signal_stream_client_js() -> str:
         var checkboxes = document.querySelectorAll('.signal-filter');
         checkboxes.forEach(function(cb) {
             cb.addEventListener('change', function() {
-                var items = document.querySelectorAll('.signal-item');
+                var items = document.querySelectorAll('.signal-item, .bus-event');
                 var filters = {};
                 document.querySelectorAll('.signal-filter').forEach(function(c) {
                     filters[c.value] = c.checked;
@@ -147,12 +235,12 @@ async def render_signal_page(ctx: dict):
     with use_scope("signal_stream", clear=True):
         ctx["put_html"](f"<script>{_signal_stream_client_js()}</script>")
 
-        ctx["put_html"]("""
+        ctx["put_html"]('''
         <style>
-            .signal-item:hover { box-shadow: 0 4px 16px rgba(0,0,0,0.12) !important; }
-            .signal-item.expanded .expand-icon { transform: rotate(180deg); }
+            .signal-item:hover, .bus-event:hover { box-shadow: 0 4px 16px rgba(0,0,0,0.12) !important; }
+            .signal-item.expanded .expand-icon, .bus-event.expanded .expand-icon { transform: rotate(180deg); }
             .signal-detail { animation: fadeIn 0.2s ease; }
-            .signal-item.hidden { display: none !important; }
+            .signal-item.hidden, .bus-event.hidden { display: none !important; }
             @keyframes fadeIn {
                 from { opacity: 0; }
                 to { opacity: 1; }
@@ -184,14 +272,14 @@ async def render_signal_page(ctx: dict):
             </div>
         </div>
         <div id="signal-stream-container" style="padding:4px;background:#f5f7fa;border-radius:12px;">
-            <div style="padding:20px;text-align:center;color:#999;background:#f9f9f9;border-radius:8px;">📡 等待信号数据...</div>
+            <div style="padding:20px;text-align:center;color:#999;background:#f9f9f9;border-radius:8px;">📡 等待数据...</div>
         </div>
         <script>
         function toggleSignalExpand(el) {
             var detail = el.querySelector('.signal-detail');
             var isExpanded = detail && detail.style.display !== 'none';
 
-            document.querySelectorAll('.signal-item.expanded').forEach(function(item) {
+            document.querySelectorAll('.signal-item.expanded, .bus-event.expanded').forEach(function(item) {
                 if (item !== el) {
                     item.classList.remove('expanded');
                     var d = item.querySelector('.signal-detail');
@@ -210,4 +298,4 @@ async def render_signal_page(ctx: dict):
             }
         }
         </script>
-        """)
+        ''')
