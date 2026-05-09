@@ -464,6 +464,38 @@ class Jin10ImportantNewsHandler(RequestHandler):
             return []
 
 
+class TradingClockStatusHandler(RequestHandler):
+    """交易时钟状态 API"""
+
+    def set_default_headers(self):
+        self.set_header("Content-Type", "application/json; charset=utf-8")
+
+    def get(self):
+        try:
+            from deva.naja.radar.trading_clock import get_global_trading_status
+            status = get_global_trading_status()
+            cn_phase = status.get("cn", {}).get("phase", "unknown")
+            us_phase = status.get("us", {}).get("phase", "unknown")
+            cn_trading = cn_phase == "trading"
+            us_trading = us_phase in ("trading", "pre_market", "post_market")
+            is_trading = cn_trading or us_trading
+            self.write(json.dumps({
+                "success": True,
+                "is_trading": is_trading,
+                "cn_trading": cn_trading,
+                "us_trading": us_trading,
+                "cn_phase": cn_phase,
+                "us_phase": us_phase,
+                "status": status,
+            }, ensure_ascii=False, default=_json_default))
+        except Exception as e:
+            self.write(json.dumps({
+                "success": False,
+                "is_trading": False,
+                "error": str(e),
+            }, ensure_ascii=False))
+
+
 def create_handlers(cdn: str = None):
     """创建路由处理器"""
     cdn_url = cdn or 'https://fastly.jsdelivr.net/gh/wang0618/PyWebIO-assets@v1.8.3/'
@@ -521,6 +553,7 @@ def create_handlers(cdn: str = None):
         (r'/api/radar/events', RadarEventsHandler),
         (r'/api/news/stream', NewsStreamHandler),
         (r'/api/jin10/important', Jin10ImportantNewsHandler),
+        (r'/api/trading/status', TradingClockStatusHandler),
         (r'/api/bandit/stats', BanditStatsHandler),
         (r'/api/knowledge/list', KnowledgeListHandler),
         (r'/api/knowledge/stats', KnowledgeStatsHandler),
