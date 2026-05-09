@@ -748,6 +748,19 @@ class Jin10LiveNewsWakeSync:
                 log.warning(f"[WakeSync] Jin10LiveNews: iMessage推送失败 - {e2}")
                 return False
 
+    def _send_macos_notification(self, title: str, message: str) -> bool:
+        try:
+            import subprocess
+            safe_message = message.replace('"', '\\"').replace('\n', ' ')
+            safe_title = title.replace('"', '\\"')
+            script = f'display notification "{safe_message}" with title "{safe_title}"'
+            subprocess.run(["osascript", "-e", script], check=True, capture_output=True)
+            log.debug(f"[WakeSync] macOS 通知已发送 - {title[:30]}")
+            return True
+        except Exception as e:
+            log.debug(f"[WakeSync] macOS 通知失败: {e}")
+            return False
+
     def execute_wake_sync(self, start: datetime, end: datetime) -> Dict[str, Any]:
         """
         执行同步 — 后台线程中用 Playwright 抓取重要事件
@@ -814,6 +827,11 @@ class Jin10LiveNewsWakeSync:
 
                             self._push_to_phone(news)
                             pushed += 1
+
+                            self._send_macos_notification(
+                                "📌 金十重要事件",
+                                news.title[:100]
+                            )
 
                         except Exception as e:
                             log.warning(f"[WakeSync] Jin10LiveNews: 发布失败 - {e}")
