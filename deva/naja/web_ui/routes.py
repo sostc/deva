@@ -7,7 +7,7 @@ from pywebio.platform.tornado import webio_handler
 from tornado.web import RequestHandler
 
 from .pages import (
-    main, dsadmin, signaladmin, taskadmin, strategyadmin,
+    main, dsadmin, signaladmin, dualbusadmin, taskadmin, strategyadmin,
     radaradmin, insightadmin, cognition_page, memory_page,
     llmadmin, banditadmin, bandit_attribution, market,
     awakening_page, dictadmin, tableadmin, runtimestateadmin,
@@ -496,6 +496,90 @@ class TradingClockStatusHandler(RequestHandler):
             }, ensure_ascii=False))
 
 
+class DualBusStatsHandler(RequestHandler):
+    """双总线统计 API"""
+
+    def set_default_headers(self):
+        self.set_header("Content-Type", "application/json; charset=utf-8")
+
+    def get(self):
+        try:
+            from deva.naja.signal.dual_bus_push_center import get_dual_bus_push_center
+            push_center = get_dual_bus_push_center()
+            stats = push_center.get_stats()
+            self.write(json.dumps({
+                "success": True,
+                "stats": stats,
+            }, ensure_ascii=False, default=_json_default))
+        except Exception as e:
+            self.write(json.dumps({
+                "success": False,
+                "error": str(e),
+            }, ensure_ascii=False))
+
+
+class DualBusStreamHandler(RequestHandler):
+    """双总线事件 SSE 推送接口"""
+
+    def set_default_headers(self):
+        self.set_header("Content-Type", "text/event-stream; charset=utf-8")
+        self.set_header("Cache-Control", "no-cache")
+        self.set_header("Connection", "keep-alive")
+        self.set_header("X-Accel-Buffering", "no")
+
+    def on_connection_close(self):
+        closed = getattr(self, "_closed", None)
+        if closed is not None and not closed.done():
+            closed.set_result(None)
+
+    async def get(self):
+        from tornado.ioloop import IOLoop
+        from deva.naja.signal.dual_bus_push_center import get_dual_bus_push_center
+
+        loop = IOLoop.current()
+        self._closed = asyncio.Future()
+
+        push_center = get_dual_bus_push_center()
+
+        # 发送初始事件
+        async def send_payload(events=None):
+            if self._closed.done():
+                return
+            try:
+                payload = {
+                    "timestamp": time.time(),
+                    "events": events or push_center.get_recent_events(limit=10),
+                }
+                data = json.dumps(payload, ensure_ascii=False, default=_json_default)
+                self.write(f"data: {data}\n\n")
+                await self.flush()
+            except Exception:
+                if not self._closed.done():
+                    self._closed.set_result(None)
+
+        # 发送初始数据
+        await send_payload()
+
+        # 回调函数 - 当有新事件时
+        def on_event(event_data):
+            loop.add_callback(lambda: send_payload([event_data]))
+
+        # 订阅推送
+        push_center.subscribe(on_event)
+
+        try:
+            # 心跳保持连接
+            while not self._closed.done():
+                await asyncio.sleep(25)
+                if self._closed.done():
+                    break
+                self.write(": heartbeat\n\n")
+                await self.flush()
+            await self._closed
+        finally:
+            push_center.unsubscribe(on_event)
+
+
 def create_handlers(cdn: str = None):
     """创建路由处理器"""
     cdn_url = cdn or 'https://fastly.jsdelivr.net/gh/wang0618/PyWebIO-assets@v1.8.3/'
@@ -510,6 +594,7 @@ def create_handlers(cdn: str = None):
         (r'/health', webio_handler(health_page, cdn=cdn_url)),
         (r'/performance', webio_handler(system_page, cdn=cdn_url)),
         (r'/signaladmin', webio_handler(signaladmin, cdn=cdn_url)),
+        (r'/dualbus', webio_handler(dualbusadmin, cdn=cdn_url)),
         (r'/dsadmin', webio_handler(dsadmin, cdn=cdn_url)),
         (r'/taskadmin', webio_handler(taskadmin, cdn=cdn_url)),
         (r'/strategyadmin', webio_handler(strategyadmin, cdn=cdn_url)),
@@ -594,6 +679,9 @@ def create_handlers(cdn: str = None):
         (r'/api/naja/api-catalog', NajaApiCatalogHandler),
         (r'/api/naja/digest', NajaDigestHandler),
         (r'/api/naja/digest/send', NajaDigestSendHandler),
+        (r'/api/dualbus/stats', DualBusStatsHandler),
+        (r'/api/dual-bus/stream', DualBusStreamHandler),
+        (r'/api/dualbus/stream', DualBusStreamHandler),
     ]
 
     return page_routes + api_routes

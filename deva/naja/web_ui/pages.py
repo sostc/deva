@@ -41,6 +41,14 @@ async def signaladmin():
     await render_signal_page(ctx)
 
 
+async def dualbusadmin():
+    """双总线事件流 - 整合认知总线和交易总线"""
+    from deva.naja.signal.dual_bus_ui import render_dual_bus_stream
+    ctx = _ctx()
+    await ctx["init_naja_ui"]("双总线事件流")
+    await render_dual_bus_stream(ctx)
+
+
 async def taskadmin():
     """任务管理"""
     from deva.naja.tasks.ui import render_task_admin
