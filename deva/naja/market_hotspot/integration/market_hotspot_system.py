@@ -503,9 +503,14 @@ class MarketHotspotSystem:
                 else:
                     return
 
+                from deva.naja.market_hotspot.tracking.history_tracker import get_history_tracker
+                tracker = get_history_tracker()
+                
                 for symbol, name in zip(symbols, names):
                     if symbol and name and name != symbol:
                         self._symbol_name_cache[symbol] = name
+                        if tracker:
+                            tracker.register_symbol_name(symbol, name)
                 log.debug(f"[MarketHotspotSystem] 注册股票名称: {len([s for s,n in zip(symbols, names) if s and n and n != s])} 个")
         except Exception as e:
             log.debug(f"[MarketHotspotSystem] 注册股票名称失败: {e}")
