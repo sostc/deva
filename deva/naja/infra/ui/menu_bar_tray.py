@@ -19,7 +19,7 @@ DEFAULT_PORT = 8080
 
 STATIC_DIR = Path(__file__).parent.parent.parent / "static"
 ICON_PURPLE = str(STATIC_DIR / "naja_purple_22.png")
-ICON_RED = str(STATIC_DIR / "naja_red_22.png")
+ICON_GREEN = str(STATIC_DIR / "naja_green_22.png")
 
 
 def _is_trading_time() -> bool:
@@ -233,7 +233,7 @@ end tell
         try:
             import rumps
 
-            icon_path = ICON_RED if _is_trading_time() else ICON_PURPLE
+            icon_path = ICON_GREEN if _is_trading_time() else ICON_PURPLE
             self._app.icon = icon_path
 
             self._app.menu.clear()
@@ -280,7 +280,7 @@ end tell
         try:
             import rumps
 
-            initial_icon = ICON_RED if _is_trading_time() else ICON_PURPLE
+            initial_icon = ICON_GREEN if _is_trading_time() else ICON_PURPLE
             self._app = rumps.App("Naja", icon=initial_icon)
             self._build_menu()
 
