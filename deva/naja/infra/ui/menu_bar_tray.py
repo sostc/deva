@@ -280,7 +280,7 @@ end tell
         try:
             import rumps
 
-            initial_icon = ICON_GREEN if _is_trading_time() else ICON_PURPLE
+            initial_icon = ICON_RED if _is_trading_time() else ICON_PURPLE
             self._app = rumps.App("Naja", icon=initial_icon)
             self._build_menu()
 
