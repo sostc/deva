@@ -18,7 +18,9 @@
 import logging
 import sys
 import os
+from pathlib import Path
 from typing import Optional, Dict
+from logging.handlers import RotatingFileHandler
 
 
 class AnsiColors:
@@ -135,6 +137,9 @@ _colorful_logger_configured = False
 def setup_colorful_logger(
     level: int = logging.INFO,
     force_color: bool = False,
+    log_file: Optional[str] = None,
+    max_bytes: int = 100 * 1024 * 1024,  # 100MB per log file
+    backup_count: int = 10,             # Keep up to 10 backup files
 ):
     """
     设置全局彩色日志
@@ -142,15 +147,16 @@ def setup_colorful_logger(
     Args:
         level: 日志级别
         force_color: 强制启用颜色（即使非 TTY）
+        log_file: 日志文件路径（如果提供则启用文件日志）
+        max_bytes: 单个日志文件最大字节数（默认 100MB）
+        backup_count: 保留的备份文件数量（默认 10 个）
     """
     global _colorful_logger_configured
 
     use_color = sys.stdout.isatty() or force_color
 
-    if use_color:
-        formatter = ColorfulFormatter(use_color=True, show_timestamp=True)
-    else:
-        formatter = PlainFormatter(show_timestamp=True)
+    console_formatter = ColorfulFormatter(use_color=use_color, show_timestamp=True) if use_color else PlainFormatter(show_timestamp=True)
+    file_formatter = PlainFormatter(show_timestamp=True)
 
     def configure_logger(logger_name):
         logger = logging.getLogger(logger_name)
@@ -158,10 +164,30 @@ def setup_colorful_logger(
         logger.propagate = False
         for handler in logger.handlers[:]:
             logger.removeHandler(handler)
+        
+        # Add console handler
         console_handler = logging.StreamHandler(sys.stdout)
         console_handler.setLevel(level)
-        console_handler.setFormatter(formatter)
+        console_handler.setFormatter(console_formatter)
         logger.addHandler(console_handler)
+        
+        # Add file handler with rotation if log_file is specified
+        if log_file:
+            try:
+                log_path = Path(log_file)
+                log_path.parent.mkdir(parents=True, exist_ok=True)
+                
+                file_handler = RotatingFileHandler(
+                    log_file,
+                    maxBytes=max_bytes,
+                    backupCount=backup_count,
+                    encoding='utf-8'
+                )
+                file_handler.setLevel(level)
+                file_handler.setFormatter(file_formatter)
+                logger.addHandler(file_handler)
+            except Exception as e:
+                print(f"⚠ 无法设置文件日志: {e}", file=sys.stderr)
 
     configure_logger('')
     configure_logger('deva')

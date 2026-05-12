@@ -767,7 +767,9 @@ class GlobalMarketScanner:
                 deva.naja.attention.ui.awakening._query_state_instance = qs
                 log.info(f"[GlobalMarketScanner] 成功更新UI的QueryState实例")
             except Exception as e:
-                log.error(f"[GlobalMarketScanner] 更新UI QueryState实例失败: {e}", exc_info=True)
+                import traceback
+                tb = traceback.format_exc()
+                log.error(f"[GlobalMarketScanner] 更新UI QueryState实例失败: {e}\n堆栈:\n{tb}", exc_info=True)
                 
         except Exception as e:
             log.error(f"[GlobalMarketScanner] 更新QueryState失败: {e}", exc_info=True)
