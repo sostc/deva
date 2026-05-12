@@ -224,6 +224,15 @@ class MenuBarTray:
         except Exception as e:
             logger.error(f"打开浏览器失败: {e}")
 
+    def _on_open_logs(self, sender):
+        logger.info("托盘菜单触发打开日志")
+        log_dir = NAJA_DIR / "logs"
+        try:
+            import subprocess
+            subprocess.run(["open", str(log_dir)], check=False)
+        except Exception as e:
+            logger.error(f"打开日志目录失败: {e}")
+
     def _on_quit(self, sender):
         logger.info("托盘菜单触发退出")
         import rumps
@@ -255,6 +264,7 @@ class MenuBarTray:
             self._app.menu.clear()
             self._app.menu["📊 Naja 管理平台"] = None
             self._app.menu["🌐 打开 Web"] = rumps.MenuItem("🌐 打开 Web", callback=self._on_open_web)
+            self._app.menu["📄 打开日志"] = rumps.MenuItem("📄 打开日志", callback=self._on_open_logs)
             self._app.menu["🔄 刷新"] = rumps.MenuItem("🔄 刷新", callback=self._on_refresh)
             self._app.menu["sep0"] = rumps.separator
 
