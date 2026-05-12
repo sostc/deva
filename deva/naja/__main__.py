@@ -45,13 +45,98 @@ from .infra.runtime.daemon import (
 def handle_service_command():
     import socket
     import argparse
+    import subprocess
+    import time
+    import signal
+    import os
+    import sys
 
     def is_port_in_use(port):
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
             return s.connect_ex(('localhost', port)) == 0
 
+    def get_pid_using_port(port):
+        try:
+            result = subprocess.run(
+                ['lsof', '-ti', f':{port}'],
+                capture_output=True, text=True
+            )
+            if result.stdout.strip():
+                return [int(pid) for pid in result.stdout.strip().split('\n') if pid.strip()]
+        except Exception:
+            pass
+        return []
+
+    def get_process_info(pid):
+        """获取进程的详细信息"""
+        try:
+            result = subprocess.run(
+                ['ps', '-p', str(pid), '-o', 'pid,ppid,command'],
+                capture_output=True, text=True
+            )
+            if result.returncode == 0:
+                lines = result.stdout.strip().split('\n')
+                if len(lines) > 1:
+                    return lines[1].strip()
+        except Exception:
+            pass
+        return None
+
+    def is_naja_process(pid):
+        """判断进程是否是 Naja 相关进程"""
+        info = get_process_info(pid)
+        if info:
+            info_lower = info.lower()
+            return any(keyword in info_lower for keyword in ['deva', 'naja', 'python -m'])
+        return False
+
+    def confirm_termination(pids):
+        """询问用户是否要终止非 Naja 进程"""
+        print(f"\n  ⚠️  发现非 Naja 进程占用该端口！")
+        for pid in pids:
+            info = get_process_info(pid)
+            print(f"    - PID: {pid}")
+            if info:
+                print(f"      命令: {info}")
+        
+        while True:
+            try:
+                response = input(f"\n  确定要终止这些进程吗？(y/N): ").strip().lower()
+                if response in ['y', 'yes']:
+                    return True
+                elif response in ['n', 'no', '']:
+                    return False
+                else:
+                    print("  请输入 y 或 n")
+            except (KeyboardInterrupt, EOFError):
+                print("\n  已取消")
+                return False
+
+    def kill_processes(pids):
+        killed = []
+        for pid in pids:
+            try:
+                os.kill(pid, signal.SIGTERM)
+                killed.append(pid)
+                print(f"  ✓ 发送终止信号给进程 {pid}")
+            except Exception:
+                try:
+                    os.kill(pid, signal.SIGKILL)
+                    killed.append(pid)
+                    print(f"  ✓ 强制终止进程 {pid}")
+                except Exception as e:
+                    print(f"  ✗ 无法终止进程 {pid}: {e}")
+        return killed
+
+    def wait_for_port_free(port, timeout=5):
+        start = time.time()
+        while time.time() - start < timeout:
+            if not is_port_in_use(port):
+                return True
+            time.sleep(0.2)
+        return False
+
     def is_running_on_port(port):
-        import subprocess
         try:
             result = subprocess.run(
                 ['lsof', '-i', f':{port}'],
@@ -65,6 +150,7 @@ def handle_service_command():
     parser.add_argument("action", choices=["start", "stop", "reload", "restart", "status"])
     parser.add_argument("--port", type=int, default=8080, help="启动端口（仅 start 有效）")
     parser.add_argument("--host", type=str, default="0.0.0.0", help="启动地址（仅 start 有效）")
+    parser.add_argument("-f", "--force", action="store_true", help="强制终止占用端口的所有进程")
     args = parser.parse_args(sys.argv[2:])
 
     if args.action == "start":
@@ -78,12 +164,70 @@ def handle_service_command():
             return
 
         if is_port_in_use(args.port):
-            print(f"✗ 端口 {args.port} 已被占用")
-            if is_running_on_port(args.port):
-                print(f"  提示: Naja 可能正在该端口运行，使用 'naja -s status' 查看")
+            print(f"⚠️  端口 {args.port} 已被占用，正在检查...")
+            
+            # 获取占用端口的进程
+            pids = get_pid_using_port(args.port)
+            
+            if pids:
+                # 分离 Naja 进程和其他进程
+                naja_pids = []
+                other_pids = []
+                
+                for pid in pids:
+                    if is_naja_process(pid):
+                        naja_pids.append(pid)
+                    else:
+                        other_pids.append(pid)
+                
+                print(f"\n  发现 {len(pids)} 个进程占用该端口:")
+                for pid in pids:
+                    is_naja = is_naja_process(pid)
+                    mark = "[Naja]" if is_naja else "[其他]"
+                    info = get_process_info(pid)
+                    if info:
+                        print(f"    {mark} PID: {pid}")
+                        print(f"           {info}")
+                    else:
+                        print(f"    {mark} PID: {pid}")
+                
+                pids_to_kill = []
+                
+                # 自动处理 Naja 进程
+                if naja_pids:
+                    pids_to_kill.extend(naja_pids)
+                    print(f"\n  ✓ 发现 {len(naja_pids)} 个 Naja 相关进程，将自动清理")
+                
+                # 处理其他进程
+                if other_pids:
+                    if args.force:
+                        print(f"\n  --force 模式：强制终止所有进程")
+                        pids_to_kill.extend(other_pids)
+                    else:
+                        if not confirm_termination(other_pids):
+                            print(f"\n✗ 已取消启动，请先解决端口占用问题")
+                            return
+                        pids_to_kill.extend(other_pids)
+                
+                # 执行终止操作
+                if pids_to_kill:
+                    print(f"\n  正在终止进程...")
+                    killed = kill_processes(pids_to_kill)
+                    
+                    if killed:
+                        # 等待端口释放
+                        print(f"\n  等待端口释放...")
+                        if wait_for_port_free(args.port):
+                            print(f"✓ 端口 {args.port} 已释放")
+                        else:
+                            print(f"✗ 端口 {args.port} 未能及时释放，请手动检查")
+                            return
+                    else:
+                        print(f"✗ 无法清理占用端口的进程，请手动处理")
+                        return
             else:
-                print(f"  提示: 使用 'lsof -i :{args.port}' 查看占用进程")
-            return
+                print(f"✗ 无法识别占用端口的进程，请手动检查")
+                return
 
         if platform.system() == "Darwin":
             env = os.environ.copy()
