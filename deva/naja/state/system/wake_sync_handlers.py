@@ -757,7 +757,7 @@ class Jin10LiveNewsWakeSync:
             safe_title = title.replace('"', '\\"')
 
             static_dir = Path(__file__).parent.parent.parent / "static"
-            icon_path = str(static_dir / "naja_green_128.png")
+            icon_path = str(static_dir / "naja_red_128.png")
 
             result = subprocess.run(
                 ["terminal-notifier", "-title", safe_title, "-message", safe_message, "-contentImage", icon_path],
