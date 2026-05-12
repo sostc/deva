@@ -275,7 +275,7 @@ def handle_service_command():
             with open(PID_FILE, "w") as f:
                 f.write(str(proc.pid))
             print(f"✓ Naja 已后台启动 (PID: {proc.pid})")
-            print(f"  日志: {log_file}")
+            print(f"  日志: {LOG_FILE}")
             if tray_proc and tray_proc.poll() is None:
                 print(f"  托盘 (PID: {tray_proc.pid})")
         else:
