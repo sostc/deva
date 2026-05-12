@@ -93,7 +93,6 @@ def handle_service_command():
 
         naja_dir = str(Path.home() / ".naja")
         os.makedirs(os.path.join(naja_dir, "logs"), exist_ok=True)
-        log_file = os.path.join(naja_dir, "logs", "naja.log")
         tray_log_file = os.path.join(naja_dir, "logs", "tray.log")
 
         cmd = [
@@ -104,8 +103,6 @@ def handle_service_command():
         proc = subprocess.Popen(
             cmd,
             env=env,
-            stdout=open(log_file, "a"),
-            stderr=subprocess.STDOUT,
             cwd=os.getcwd(),
             start_new_session=True
         )
@@ -249,9 +246,16 @@ def main():
         print_tuning_banner()
     else:
         from .infra.log.colorful_logger import setup_colorful_logger, StartupVisualizer
+        from pathlib import Path
+        naja_log_dir = Path.home() / ".naja" / "logs"
+        naja_log_dir.mkdir(parents=True, exist_ok=True)
+        log_file_path = str(naja_log_dir / "naja.log")
         setup_colorful_logger(
             level=getattr(logging, args.log_level.upper()),
             force_color=use_color,
+            log_file=log_file_path,
+            max_bytes=100 * 1024 * 1024,  # 100MB per file
+            backup_count=10,
         )
 
         sv = StartupVisualizer(width=65)
