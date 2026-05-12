@@ -50,14 +50,17 @@ def render_block_trading_timeline() -> str:
     """
 
     time_periods = [
+        ("00:00", "09:30", "盘前/隔夜", "#64748b"),
         ("09:30", "10:00", "早盘开盘", "#dc2626"),
         ("10:00", "10:30", "早盘活跃", "#ea580c"),
         ("10:30", "11:00", "早盘震荡", "#ca8a04"),
         ("11:00", "11:30", "早盘收尾", "#ca8a04"),
+        ("11:30", "13:00", "午间休市", "#94a3b8"),
         ("13:00", "13:30", "午后开盘", "#3b82f6"),
         ("13:30", "14:00", "午后活跃", "#2563eb"),
         ("14:00", "14:30", "午后震荡", "#1d4ed8"),
         ("14:30", "15:00", "尾盘决战", "#7c3aed"),
+        ("15:00", "23:59", "盘后", "#64748b"),
     ]
 
     event_styles = {
@@ -71,8 +74,15 @@ def render_block_trading_timeline() -> str:
 
     for event in today_events:
         try:
+            # 解析时间，支持多种格式
             if hasattr(event, 'market_time') and event.market_time:
                 time_str = event.market_time
+                # 如果是完整的日期时间格式，只提取时间部分
+                if ' ' in time_str:
+                    time_str = time_str.split(' ')[1]
+                # 如果包含秒，只保留小时和分钟
+                if time_str.count(':') > 1:
+                    time_str = ':'.join(time_str.split(':')[:2])
             else:
                 time_str = datetime.fromtimestamp(event.timestamp).strftime("%H:%M")
 
@@ -88,7 +98,10 @@ def render_block_trading_timeline() -> str:
                 if start_val <= time_val < end_val:
                     period_events[i].append((time_str, event))
                     break
-        except:
+        except Exception as e:
+            import logging
+            log = logging.getLogger(__name__)
+            log.debug(f"解析事件时间失败: {e}")
             continue
 
     for i, (start, end, label, period_color) in enumerate(time_periods):
@@ -129,6 +142,13 @@ def render_block_trading_timeline() -> str:
                     bg_color = '#f8fafc'
                     border_color = evt_color
 
+                # 尝试获取中文块名称
+                block_name = event.block_name
+                if tracker and hasattr(tracker, 'get_block_name'):
+                    translated_name = tracker.get_block_name(event.block_id)
+                    if translated_name and translated_name != event.block_id:
+                        block_name = translated_name
+
                 top_symbols = getattr(event, 'top_symbols', [])[:3]
 
                 html += f"""
@@ -139,7 +159,7 @@ def render_block_trading_timeline() -> str:
                     <div style="flex: 1;">
                         <div style="display: flex; align-items: center; gap: 6px; margin-bottom: 4px;">
                             <span style="font-size: 14px;">{emoji}</span>
-                            <span style="font-weight: 500; color: #1e293b;">{event.block_name}</span>
+                            <span style="font-weight: 500; color: #1e293b;">{block_name}</span>
                             <span style="font-size: 10px; color: {evt_color};">{evt_label}</span>
                             <span style="color: {border_color}; font-weight: 600; font-size: 13px; margin-left: auto;">{change_sign}{event.change_percent:.1f}%</span>
                         </div>
