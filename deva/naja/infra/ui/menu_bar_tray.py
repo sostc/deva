@@ -23,10 +23,35 @@ ICON_GREEN = str(STATIC_DIR / "naja_green_22.png")
 
 
 def _is_trading_time() -> bool:
-    """通过 API 判断是否在交易时段"""
+    """通过 API 或本地计算判断是否在交易时段"""
     data = _http_get("/api/trading/status")
     if data and data.get("success"):
         return data.get("is_trading", False)
+    return _is_trading_time_local()
+
+
+def _is_trading_time_local() -> bool:
+    """本地计算判断是否在交易时段"""
+    from datetime import datetime, time
+    now = datetime.now()
+    current_time = now.time()
+    weekday = now.weekday()
+    
+    if weekday >= 5:
+        return False
+    
+    if time(9, 25) <= current_time <= time(11, 35):
+        return True
+    if time(12, 55) <= current_time <= time(15, 5):
+        return True
+    
+    us_hour, us_min = current_time.hour, current_time.minute
+    us_total = us_hour * 60 + us_min
+    if time(21, 30) <= current_time <= time(23, 59):
+        return True
+    if time(0, 0) <= current_time <= time(4, 0):
+        return True
+    
     return False
 
 
@@ -191,22 +216,13 @@ class MenuBarTray:
         self._restart_tray()
 
     def _on_open_web(self, sender):
-        import subprocess
+        logger.info("托盘菜单触发打开 Web")
         port = _get_naja_port()
-        url = f"http://localhost:{port}"
-
-        script = f'''
-tell application "Safari"
-    make new document at end of documents
-    set URL of front document to "{url}"
-    activate
-end tell
-'''
         try:
-            subprocess.run(['osascript', '-e', script], check=True, capture_output=True)
-            logger.info(f"已在 Safari 新窗口打开 {url}")
+            import webbrowser
+            webbrowser.open(f"http://localhost:{port}")
         except Exception as e:
-            logger.error(f"打开 Safari 窗口失败: {e}")
+            logger.error(f"打开浏览器失败: {e}")
 
     def _on_quit(self, sender):
         logger.info("托盘菜单触发退出")
@@ -280,7 +296,7 @@ end tell
         try:
             import rumps
 
-            initial_icon = ICON_RED if _is_trading_time() else ICON_PURPLE
+            initial_icon = ICON_GREEN if _is_trading_time() else ICON_PURPLE
             self._app = rumps.App("Naja", icon=initial_icon)
             self._build_menu()
 
