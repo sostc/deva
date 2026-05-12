@@ -248,12 +248,21 @@ class MenuBarTray:
         logger.info("刷新托盘数据")
         self._build_menu()
 
+    def _get_system_status(self):
+        """获取系统运行状态"""
+        health_data = _http_get("/api/health")
+        if health_data:
+            return health_data
+        return {"status": "unknown", "message": "无法连接"}
+
     def _build_menu(self):
         if self._app is None:
             return
 
         self._news_items = self._get_latest_news()
         self._hot_blocks = self._get_hot_blocks()
+        port = _get_naja_port()
+        system_status = self._get_system_status()
 
         try:
             import rumps
@@ -262,11 +271,37 @@ class MenuBarTray:
             self._app.icon = icon_path
 
             self._app.menu.clear()
+            
+            # 服务状态区域
             self._app.menu["📊 Naja 管理平台"] = None
+            status_text = "🟢 运行中" if self._get_running_pid() else "🔴 已停止"
+            self._app.menu[status_text] = None
+            self._app.menu[f"📍 端口: {port}"] = None
+            self._app.menu["sep0"] = rumps.separator
+            
+            # 常用页面区域
+            self._app.menu["📈 常用页面"] = [
+                rumps.MenuItem("🔥 市场热点", callback=self._on_open_page("/market")),
+                rumps.MenuItem("⚡ 交易中心", callback=self._on_open_page("/awakening")),
+                rumps.MenuItem("🧠 认知系统", callback=self._on_open_page("/cognition")),
+                rumps.MenuItem("📜 系统日志", callback=self._on_open_page("/logstream")),
+                rumps.MenuItem("⚙️ 系统状态", callback=self._on_open_page("/health")),
+            ]
+            
+            # 管理页面区域
+            self._app.menu["🔧 管理工具"] = [
+                rumps.MenuItem("📋 策略管理", callback=self._on_open_page("/strategyadmin")),
+                rumps.MenuItem("📊 信号管理", callback=self._on_open_page("/signaladmin")),
+                rumps.MenuItem("📁 数据源管理", callback=self._on_open_page("/dsadmin")),
+                rumps.MenuItem("📅 任务管理", callback=self._on_open_page("/taskadmin")),
+            ]
+            self._app.menu["sep1"] = rumps.separator
+            
+            # 主功能区域
             self._app.menu["🌐 打开 Web"] = rumps.MenuItem("🌐 打开 Web", callback=self._on_open_web)
             self._app.menu["📄 打开日志"] = rumps.MenuItem("📄 打开日志", callback=self._on_open_logs)
             self._app.menu["🔄 刷新"] = rumps.MenuItem("🔄 刷新", callback=self._on_refresh)
-            self._app.menu["sep0"] = rumps.separator
+            self._app.menu["sep2"] = rumps.separator
 
             if self._news_items:
                 for item in self._news_items[:5]:
@@ -287,12 +322,24 @@ class MenuBarTray:
                 for name, weight in self._hot_blocks[:3]:
                     self._app.menu.add(rumps.MenuItem(f"🔥 {name} ({weight})"))
 
-            self._app.menu["sep1"] = rumps.separator
+            self._app.menu["sep3"] = rumps.separator
             self._app.menu["重启服务"] = rumps.MenuItem("🔄 重启服务", callback=self._on_reload)
             self._app.menu["退出"] = rumps.MenuItem("❌ 退出", callback=self._on_quit)
 
         except Exception as e:
             logger.error(f"更新菜单失败: {e}")
+    
+    def _on_open_page(self, path):
+        """打开指定页面"""
+        def callback(sender):
+            logger.info(f"托盘菜单触发打开页面: {path}")
+            port = _get_naja_port()
+            try:
+                import webbrowser
+                webbrowser.open(f"http://localhost:{port}{path}")
+            except Exception as e:
+                logger.error(f"打开浏览器失败: {e}")
+        return callback
 
     def start(self):
         if not self.is_available():
