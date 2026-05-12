@@ -18,8 +18,8 @@ PORT_FILE = NAJA_DIR / "naja.port"
 DEFAULT_PORT = 8080
 
 STATIC_DIR = Path(__file__).parent.parent.parent / "static"
-ICON_PURPLE = str(STATIC_DIR / "naja_purple_22.png")
-ICON_GREEN = str(STATIC_DIR / "naja_green_22.png")
+ICON_PURPLE = str(STATIC_DIR / "naja_tray_purple_22.png")
+ICON_GREEN = str(STATIC_DIR / "naja_tray_green_22.png")
 
 
 def _is_trading_time() -> bool:
