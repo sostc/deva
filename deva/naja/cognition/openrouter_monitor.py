@@ -158,6 +158,18 @@ def analyze_trend(weekly_data: List[Dict]) -> Dict:
     today = datetime.now()
     current_weekday = today.weekday()
 
+    if not weekly_data:
+        return {
+            "direction": "unknown",
+            "strength": 0,
+            "acceleration": 0,
+            "is_anomaly": False,
+            "anomaly_type": "",
+            "message": "无数据",
+            "recommendation": "等待数据",
+            "is_incomplete_week": True
+        }
+
     latest_date = weekly_data[-1]["date"]
     latest_dt = datetime.strptime(latest_date, "%Y-%m-%d")
 

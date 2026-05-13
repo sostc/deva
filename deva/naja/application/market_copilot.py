@@ -283,7 +283,9 @@ class MarketCopilot:
     def _describe_renhe(self, narratives: List[Dict[str, Any]], knowledge_stats: Dict[str, Any]) -> str:
         qualified = knowledge_stats.get("qualified_count", 0)
         validating = (knowledge_stats.get("by_state") or {}).get("validating", 0)
-        top = narratives[0].get("narrative") if narratives else "暂无主导叙事"
+        top = narratives[0].get("narrative") if narratives else None
+        top = top or narratives[0].get("name") if narratives else None
+        top = top or "暂无主导叙事"
         return f"主导叙事：{top}；正式知识 {qualified} 条，验证中 {validating} 条。"
 
     def _build_strategy_proposals(

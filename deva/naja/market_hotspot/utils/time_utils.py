@@ -51,7 +51,9 @@ def format_next_time(raw_time: str) -> str:
         return dt_local.strftime("%H:%M")
     except Exception:
         if "T" in raw_time:
-            return raw_time.split("T")[1][:5]
+            parts = raw_time.split("T")
+            if len(parts) > 1:
+                return parts[1][:5]
         return raw_time
 
 

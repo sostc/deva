@@ -211,7 +211,7 @@ class DualBusPushCenter:
                 "confidence": getattr(event, "confidence", 0.5),
                 "source": getattr(event, "source", "unknown"),
                 "symbol": getattr(event, "symbol", None)
-                or (data.get("stock_codes", [None])[0] if data.get("stock_codes") else None),
+                or (data.get("stock_codes")[0] if (data.get("stock_codes") and len(data.get("stock_codes")) > 0) else None),
                 "summary": summary,
                 "data": data,
             }

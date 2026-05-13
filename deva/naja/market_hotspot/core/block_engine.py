@@ -364,14 +364,30 @@ class BlockHotspotEngine:
         # 调试日志（过滤噪音题材）
         if os.environ.get("NAJA_LAB_DEBUG") == "true":
             noise_detector = _get_noise_detector()
-            all_items = [(s, float(self._block_hotspot_scores[idx])) for s, idx in self._block_id_to_idx.items() if hasattr(self._blocks.get(s), 'name') and self._blocks.get(s).name]
+            all_items = []
+            for s, idx in self._block_id_to_idx.items():
+                block = self._blocks.get(s)
+                if block and hasattr(block, 'name') and block.name:
+                    all_items.append((s, float(self._block_hotspot_scores[idx])))
             if noise_detector:
-                valid_items = [(s, w) for s, w in all_items if not noise_detector.is_noise(s, self._blocks[s].name)]
+                valid_items = []
+                for s, w in all_items:
+                    block = self._blocks.get(s)
+                    if block and block.name:
+                        if not noise_detector.is_noise(s, block.name):
+                            valid_items.append((s, w))
             else:
                 valid_items = all_items
             valid_items.sort(key=lambda x: x[1], reverse=True)
             if valid_items:
-                log.info(f"[Lab-Debug] 题材热点 Top5: {[(f'{self._blocks[s].name}({w:.3f})') for s, w in valid_items[:5]]}")
+                top_strs = []
+                for s, w in valid_items[:5]:
+                    block = self._blocks.get(s)
+                    if block and block.name:
+                        top_strs.append(f'{block.name}({w:.3f})')
+                    else:
+                        top_strs.append(f'{s}({w:.3f})')
+                log.info(f"[Lab-Debug] 题材热点 Top5: {top_strs}")
 
         self._last_calc_time = time.time()
         return result
