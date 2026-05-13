@@ -99,51 +99,108 @@ def _signal_stream_client_js() -> str:
         }
     }
 
+    var displayedSignalIds = new Set();
+    var displayedEventTimestamps = new Set();
+    var isInitialLoad = true;
+
     function updateSignalStream(data) {
         var container = document.getElementById('signal-stream-container');
         if (!container) return;
         if (!data || typeof data !== 'object') return;
 
-        // 支持两种数据格式：原有格式和新的双总线格式
-        var items = [];
-        if (Array.isArray(data.signals)) {
-            // 原有格式
-            data.signals.forEach(function(signal) {
-                items.push({
-                    type: 'signal',
-                    data: signal
+        if (isInitialLoad) {
+            var allItems = [];
+            
+            if (Array.isArray(data.signals)) {
+                data.signals.forEach(function(signal) {
+                    allItems.push({
+                        type: 'signal',
+                        data: signal,
+                        timestamp: signal.ts || signal.timestamp || 0
+                    });
                 });
-            });
-        }
-        if (Array.isArray(data.events)) {
-            // 双总线格式
-            data.events.forEach(function(event) {
-                items.push({
-                    type: 'bus',
-                    data: event
+            }
+            
+            if (Array.isArray(data.events)) {
+                data.events.forEach(function(event) {
+                    allItems.push({
+                        type: 'event',
+                        data: event,
+                        timestamp: event.timestamp || 0
+                    });
                 });
+            }
+            
+            allItems.sort(function(a, b) {
+                return b.timestamp - a.timestamp;
             });
-        }
-
-        // 渲染所有项目
-        var html = '';
-        if (Array.isArray(items)) {
-            items.slice(0, 30).forEach(function(item) {
-                if (item && item.data) {
-                    if (item.type === 'signal') {
-                        html += renderSignalItem(item.data);
-                    } else {
-                        html += renderBusEventItem(item.data);
-                    }
+            
+            allItems = allItems.slice(0, 30);
+            
+            var html = '';
+            allItems.forEach(function(item) {
+                if (item.type === 'signal') {
+                    displayedSignalIds.add(item.data.id);
+                    html += renderSignalItem(item.data);
+                } else {
+                    var ts = item.data.timestamp || 0;
+                    displayedEventTimestamps.add(ts);
+                    html += renderBusEventItem(item.data);
                 }
             });
-        }
+            
+            if (!html) {
+                html = '<div style="padding:20px;text-align:center;color:#999;background:#f9f9f9;border-radius:8px;">📡 等待数据...</div>';
+            }
+            container.innerHTML = html;
+            
+            isInitialLoad = false;
+            
+            initFilters();
+        } else {
+            var hasNewContent = false;
+            var newItemsHtml = '';
 
-        if (!html) {
-            html = '<div style="padding:20px;text-align:center;color:#999;background:#f9f9f9;border-radius:8px;">📡 等待数据...</div>';
-        }
+            if (Array.isArray(data.signals)) {
+                data.signals.forEach(function(signal) {
+                    if (!displayedSignalIds.has(signal.id)) {
+                        displayedSignalIds.add(signal.id);
+                        newItemsHtml += renderSignalItem(signal);
+                        hasNewContent = true;
+                    }
+                });
+            }
 
-        container.innerHTML = html;
+            if (Array.isArray(data.events)) {
+                data.events.forEach(function(event) {
+                    var ts = event.timestamp || 0;
+                    if (!displayedEventTimestamps.has(ts)) {
+                        displayedEventTimestamps.add(ts);
+                        newItemsHtml += renderBusEventItem(event);
+                        hasNewContent = true;
+                    }
+                });
+            }
+
+            if (hasNewContent && newItemsHtml) {
+                var existingContent = container.innerHTML;
+                var emptyPlaceholder = '<div style="padding:20px;text-align:center;color:#999;background:#f9f9f9;border-radius:8px;">📡 等待数据...</div>';
+                if (existingContent.indexOf(emptyPlaceholder) >= 0) {
+                    existingContent = '';
+                }
+                container.innerHTML = newItemsHtml + existingContent;
+
+                var items = container.querySelectorAll('.signal-item, .bus-event');
+                if (items.length > 30) {
+                    var itemsToRemove = Array.from(items).slice(30);
+                    itemsToRemove.forEach(function(item) {
+                        item.remove();
+                    });
+                }
+                
+                initFilters();
+            }
+        }
     }
 
     function renderSignalItem(signal) {
@@ -177,7 +234,8 @@ def _signal_stream_client_js() -> str:
             var borderWidth = level === 'critical' ? '4px' : (level === 'high' ? '3px' : '2px');
             var bgStyle = 'background:linear-gradient(135deg,' + color + '11,' + color + '22);';
 
-            var html = '<div class="signal-item" data-importance="' + level + '" onclick="toggleSignalExpand(this)" style="display:flex;flex-direction:column;padding:0;margin:6px 0;' + bgStyle + 'border-radius:10px;border-left:' + borderWidth + ' solid ' + color + ';box-shadow:0 2px 8px rgba(0,0,0,0.06);cursor:pointer;">';
+            var signalId = signal.id || '';
+            var html = '<div class="signal-item" data-importance="' + level + '" data-type="signal" data-id="' + signalId + '" onclick="toggleSignalExpand(this)" style="display:flex;flex-direction:column;padding:0;margin:6px 0;' + bgStyle + 'border-radius:10px;border-left:' + borderWidth + ' solid ' + color + ';box-shadow:0 2px 8px rgba(0,0,0,0.06);cursor:pointer;">';
             html += '<div class="signal-header" style="display:flex;align-items:stretch;">';
             html += '<div style="display:flex;align-items:center;justify-content:center;padding:0 12px;"><div style="font-size:24px;">' + icon + '</div></div>';
             html += '<div style="flex:1;padding:10px 12px 10px 0;min-width:0;">';
@@ -235,7 +293,7 @@ def _signal_stream_client_js() -> str:
             var bgStyle = 'background:linear-gradient(135deg,' + color + '11,' + color + '22);';
             var icon = getEventIcon(busType);
 
-            var html = '<div class="bus-event" data-importance="' + level + '" onclick="toggleSignalExpand(this)" style="display:flex;flex-direction:column;padding:0;margin:6px 0;' + bgStyle + 'border-radius:10px;border-left:' + borderWidth + ' solid ' + color + ';box-shadow:0 2px 8px rgba(0,0,0,0.06);cursor:pointer;">';
+            var html = '<div class="bus-event" data-importance="' + level + '" data-type="' + busType + '" onclick="toggleSignalExpand(this)" style="display:flex;flex-direction:column;padding:0;margin:6px 0;' + bgStyle + 'border-radius:10px;border-left:' + borderWidth + ' solid ' + color + ';box-shadow:0 2px 8px rgba(0,0,0,0.06);cursor:pointer;">';
             html += '<div class="signal-header" style="display:flex;align-items:stretch;">';
             html += '<div style="display:flex;align-items:center;justify-content:center;padding:0 12px;"><div style="font-size:24px;">' + icon + '</div></div>';
             html += '<div style="flex:1;padding:10px 12px 10px 0;min-width:0;">';
@@ -279,22 +337,48 @@ def _signal_stream_client_js() -> str:
         }
     }
 
+    function applyFilters() {
+        var items = document.querySelectorAll('.signal-item, .bus-event');
+        var importanceFilters = {};
+        var typeFilters = {};
+        
+        document.querySelectorAll('.signal-filter').forEach(function(c) {
+            importanceFilters[c.value] = c.checked;
+        });
+        document.querySelectorAll('.type-filter').forEach(function(c) {
+            typeFilters[c.value] = c.checked;
+        });
+        
+        items.forEach(function(item) {
+            var importance = item.getAttribute('data-importance');
+            var itemType = item.getAttribute('data-type');
+            
+            var importanceMatch = importanceFilters[importance];
+            var typeMatch = typeFilters[itemType];
+            
+            if (typeMatch === undefined) {
+                typeMatch = true;
+            }
+            
+            if (importanceMatch && typeMatch) {
+                item.style.display = '';
+            } else {
+                item.style.display = 'none';
+            }
+        });
+    }
+
+    function initFilters() {
+        var checkboxes = document.querySelectorAll('.signal-filter, .type-filter');
+        checkboxes.forEach(function(cb) {
+            cb.removeEventListener('change', applyFilters);
+            cb.addEventListener('change', applyFilters);
+        });
+    }
+
     function init() {
         connect();
-        var checkboxes = document.querySelectorAll('.signal-filter');
-        checkboxes.forEach(function(cb) {
-            cb.addEventListener('change', function() {
-                var items = document.querySelectorAll('.signal-item, .bus-event');
-                var filters = {};
-                document.querySelectorAll('.signal-filter').forEach(function(c) {
-                    filters[c.value] = c.checked;
-                });
-                items.forEach(function(item) {
-                    var importance = item.getAttribute('data-importance');
-                    item.style.display = filters[importance] ? '' : 'none';
-                });
-            });
-        });
+        initFilters();
     }
 
     if (document.readyState === 'loading') {
@@ -325,6 +409,27 @@ async def render_signal_page(ctx: dict):
         <div style="margin:16px 0 12px 0;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
             <div style="font-size:15px;font-weight:600;color:#333;">🔥 实时信号流</div>
             <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+                <label style="display:flex;align-items:center;gap:4px;cursor:pointer;font-size:11px;">
+                    <input type="checkbox" class="type-filter" value="signal" checked style="cursor:pointer;">
+                    <span style="padding:2px 6px;background:#6b728022;color:#6b7280;border-radius:4px;">📊 信号</span>
+                </label>
+                <label style="display:flex;align-items:center;gap:4px;cursor:pointer;font-size:11px;">
+                    <input type="checkbox" class="type-filter" value="news" checked style="cursor:pointer;">
+                    <span style="padding:2px 6px;background:#3b82f622;color:#3b82f6;border-radius:4px;">📰 新闻</span>
+                </label>
+                <label style="display:flex;align-items:center;gap:4px;cursor:pointer;font-size:11px;">
+                    <input type="checkbox" class="type-filter" value="hotspot" checked style="cursor:pointer;">
+                    <span style="padding:2px 6px;background:#ef444422;color:#ef4444;border-radius:4px;">🔥 热点</span>
+                </label>
+                <label style="display:flex;align-items:center;gap:4px;cursor:pointer;font-size:11px;">
+                    <input type="checkbox" class="type-filter" value="trading" checked style="cursor:pointer;">
+                    <span style="padding:2px 6px;background:#f59e0b22;color:#f59e0b;border-radius:4px;">💰 交易</span>
+                </label>
+                <label style="display:flex;align-items:center;gap:4px;cursor:pointer;font-size:11px;">
+                    <input type="checkbox" class="type-filter" value="cognitive" checked style="cursor:pointer;">
+                    <span style="padding:2px 6px;background:#6366f122;color:#6366f1;border-radius:4px;">🧠 认知</span>
+                </label>
+                <div style="width:1px;height:16px;background:#e5e7eb;margin:0 4px;"></div>
                 <label style="display:flex;align-items:center;gap:4px;cursor:pointer;font-size:11px;">
                     <input type="checkbox" class="signal-filter" value="critical" checked style="cursor:pointer;">
                     <span style="padding:2px 6px;background:#dc354522;color:#dc3545;border-radius:4px;">🔴 重要</span>
