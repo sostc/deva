@@ -1,119 +1,80 @@
 # SESSION-STATE.md - Active Working Memory
 
-**Last Updated:** 2026-03-14T09:20:00+08:00
-**Current Task:** Naja 记忆/雷达/LLM 自调节闭环完善
+**Last Updated:** 2026-05-14
+**Current Task:** 系统文档整理与架构演进
 
 ---
 
 ## 项目状态
 
-**系统名称**: 记忆系统 v1 (Memory System)
-**状态**: ✅ MVP版本已完成
-**位置**: `/Users/spark/pycharmproject/deva/deva/naja/memory/core.py`
+**系统名称**: Naja 量化交易系统
+**版本**: v1.7.0 (2026-05-09)
+**状态**: ✅ 稳定运行
 
 ---
 
-## 最新决策（2026-03-14）
+## 最新里程碑
 
-- ✅ 记忆引擎启用自动加载/定时持久化（`MemoryEngine`）
-- ✅ 雷达事件增加保留天数与后台清理线程
-- ✅ LLM 自调节新增定时任务（可配置、自动启动）
+### v1.7.0 (2026-05-09)
+- ✅ 后台服务模式 (`naja -s start/stop/reload/restart/status`)
+- ✅ macOS 菜单栏托盘（实时新闻和热点板块）
+- ✅ 命令行入口 `bin/naja`
+- ✅ 金十重要新闻 JSON API
 
----
+### v1.6.0 (2026-03-17)
+- ✅ Bandit 模块大幅增强（MarketObserver、AdaptiveCycle、SignalListener、VirtualPortfolio）
+- ✅ 信号处理增强（多源聚合、过滤转换）
+- ✅ 策略系统增强（声明式策略、River 策略增强）
+- ✅ LLM 控制器升级（对话历史、多模型）
+- ✅ 字典模块（同花顺板块数据）
 
-## 已实现功能
+### SR() 收口改造 (2026-04-20)
+- ✅ AppContainer 增强，组件装配逻辑
+- ✅ EventSubscriberRegistrar 事件订阅管理
+- ✅ AttentionOS/TradingCenter 构造注入
+- ✅ 内核层（QueryState/ManasEngine/Bandit）显式依赖注入
+- ✅ decision/events 已纯净（无 SR() 调用）
 
-### 1. 核心策略 (`memory/core.py`)
-- ✅ 统一事件结构 (MemoryEvent)
-- ✅ 注意力评分系统 (5维度评分)
-- ✅ 主题聚类 (在线聚类 + 最近邻)
-- ✅ 漂移检测 (River ADWIN)
-- ✅ 短期记忆 (1000事件)
-- ✅ 主题库管理 (最多50个主题)
-- ✅ 信号生成 (6种信号类型)
-- ✅ 思想报告生成
-
-### 2. Web UI (`memory/ui.py`)
-- ✅ 独立Tab页面
-- ✅ 实时状态面板
-- ✅ 主题云图
-- ✅ 注意力时间线
-- ✅ 信号流显示
-- ✅ 思想报告展示
-- ✅ 控制按钮 (刷新/报告/清空/测试)
-
-### 3. Naja集成
-- ✅ 策略插件化 (符合naja策略接口)
-- ✅ Web路由配置 (`/memory`)
-- ✅ 导航菜单集成
-- ✅ 模块初始化文件
+### Agent 化演进 (2026-05-07)
+- ✅ MarketCopilot（市场值班官）
+- ✅ NajaAgent（对话/技能门面）
+- ✅ API Catalog（52 个端点目录）
+- ✅ 通知适配器（DingTalk/iMessage）
+- ✅ Skills 体系建立
 
 ---
 
-## 系统架构
+## 核心架构
 
 ```
-数据源 (tick/news/text)
+application/     ← 应用层（Agent、MarketCopilot、API Catalog）
     ↓
-MemoryEvent (统一事件)
+attention/       ← 注意力系统（OS、Kernel、Values、Manas）
+cognition/       ← 认知系统（Bridge、Engine、Narrative）
+radar/           ← 雷达系统（Engine、全球扫描、新闻获取）
     ↓
-注意力评分 (5维度)
+strategy/        ← 策略系统
+signal/          ← 信号系统（调度、处理、推送）
+bandit/          ← Bandit 交易系统
+risk/            ← 风险管理
     ↓
-主题聚类 (River/最近邻)
-    ↓
-信号生成 → naja信号流
-    ↓
-Web UI展示
+web_ui/          ← Web UI
+infra/           ← 基础设施（daemon、tray）
 ```
-
----
-
-## 信号类型
-
-1. **TOPIC_EMERGE** - 新主题出现 🟢
-2. **TOPIC_GROW** - 主题快速增长 🔵
-3. **TOPIC_FADE** - 主题消退 ⚪
-4. **HIGH_ATTENTION** - 高注意力事件 🔴
-5. **TREND_SHIFT** - 趋势转变 🟣
-6. **DRIFT_DETECTED** - 检测到漂移 🟡
 
 ---
 
 ## 待完善功能
 
-- [ ] 集成真实数据源 (tick/新闻)
-- [ ] 接入naja信号流系统
-- [ ] 添加周期性自我总结任务
-- [ ] 使用sentence-transformers替代简化embedding
-- [ ] 思想对话模块 (大模型集成)
+- [ ] SR() 收口 Phase 3+：系统集成测试
+- [ ] bandit/radar 目录的 SR() 改造
+- [ ] 流动性救援剩余数据源（Level2、VIX、媒体情绪）
+- [ ] 统一 Manas 设计（当前 ManasEngine 仍独立运行）
 
 ---
 
 ## 使用方式
 
-1. 启动naja: `python -m deva.naja`
-2. 访问: `http://localhost:8080/memory`
-3. 绑定数据源到策略
-4. 查看实时思想雷达
-
----
-
-## 核心代码
-
-```python
-# 策略使用示例
-from deva.naja.memory import MemoryStrategy
-
-radar = MemoryStrategy(config={
-    "short_term_size": 1000,
-    "topic_threshold": 0.7,
-    "attention_threshold": 0.7,
-})
-
-# 处理记录
-signals = radar.process_record(record)
-
-# 获取报告
-report = radar.get_memory_report()
-thought_report = radar.generate_thought_report()
-```
+1. 启动: `naja -s start`（后台模式）或 `python -m deva.naja`（前台模式）
+2. 访问: `http://localhost:8080`
+3. macOS 托盘: `python deva/naja/scripts/start_tray.py`
