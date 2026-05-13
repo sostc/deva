@@ -73,6 +73,7 @@ class SignalStream(Stream):
 
         self._query_state = None
         self._query_state_lock = threading.Lock()
+        self._subscribers: List[Callable] = []
 
         self._high_priority_stream: Optional[Stream] = None
         self._medium_priority_stream: Optional[Stream] = None
@@ -150,10 +151,14 @@ class SignalStream(Stream):
         try:
             recent_signals = self.db.get("recentSignal")
             if isinstance(recent_signals, list):
+                seen_ids = set()
                 items = []
                 for data in recent_signals:
                     if isinstance(data, dict):
-                        items.append(self._deserialize_result(data))
+                        signal_id = data.get("id", "")
+                        if signal_id not in seen_ids:
+                            seen_ids.add(signal_id)
+                            items.append(self._deserialize_result(data))
 
                 items.sort(key=lambda item: (item.ts, item.id))
 
@@ -183,7 +188,39 @@ class SignalStream(Stream):
             cache_key = self._cache_key_from_result(result)
             self.cache[cache_key] = result
 
+            self._notify_subscribers(result)
+
             return self._emit(result)
+
+    def _notify_subscribers(self, result: StrategyResult):
+        """通知所有订阅者"""
+        for callback in self._subscribers:
+            try:
+                signal_data = {
+                    "id": result.id,
+                    "strategy_id": result.strategy_id,
+                    "strategy_name": result.strategy_name,
+                    "ts": result.ts,
+                    "success": result.success,
+                    "summary": result.output_preview,
+                    "output_full": result.output_full,
+                    "priority": result.priority,
+                    "metadata": result.metadata,
+                }
+                callback(signal_data)
+            except Exception as e:
+                print(f"通知订阅者失败: {e}")
+
+    def subscribe(self, callback: Callable):
+        """订阅信号推送"""
+        with self._persist_lock:
+            self._subscribers.append(callback)
+
+    def unsubscribe(self, callback: Callable):
+        """取消订阅"""
+        with self._persist_lock:
+            if callback in self._subscribers:
+                self._subscribers.remove(callback)
 
     def get_recent(self, limit: int = 20, priority_level: str = None) -> List[StrategyResult]:
         """获取最近的信号，按时间倒序返回。
@@ -245,8 +282,12 @@ class SignalStream(Stream):
                 return
             try:
                 recent_results = list(reversed(self.get_recent(limit=self.max_cache_size)))
+                seen_ids = set()
                 recent_signals = []
                 for result in recent_results:
+                    if result.id in seen_ids:
+                        continue
+                    seen_ids.add(result.id)
                     d = {
                         "id": result.id,
                         "strategy_id": result.strategy_id,

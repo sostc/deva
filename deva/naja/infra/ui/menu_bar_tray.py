@@ -188,16 +188,12 @@ class MenuBarTray:
         return os.path.join(os.path.dirname(__file__), "..", "..", "scripts", "naja_tray.py")
 
     def _restart_tray(self):
-        """重启托盘程序和 Naja 服务器"""
+        """重启 Naja 服务器和托盘程序"""
         import rumps
-        tray_script = self._get_tray_script_path()
-        if not os.path.exists(tray_script):
-            logger.error(f"托盘脚本不存在: {tray_script}")
-            return
+        logger.info("正在重启 Naja 服务...")
 
         env = os.environ.copy()
         env["LSUIElement"] = "1"
-        
         deva_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))))
         python_path = env.get("PYTHONPATH", "")
         if python_path:
@@ -205,36 +201,38 @@ class MenuBarTray:
         else:
             env["PYTHONPATH"] = deva_root
 
-        cmd = [sys.executable, tray_script]
-        log_file = NAJA_DIR / "tray_restart.log"
-        
+        # 先停止旧的 Naja 服务器
+        pid = self._get_running_pid()
+        if pid:
+            try:
+                os.kill(pid, signal.SIGTERM)
+                logger.info(f"已停止旧 Naja 服务器 (PID: {pid})")
+            except ProcessLookupError:
+                pass
+            time_module.sleep(1.0)
+
+        # 启动新的 Naja 服务器
+        naja_cmd = [sys.executable, "-m", "deva.naja", "-s", "start"]
+        naja_log_file = NAJA_DIR / "logs" / "naja_restart.log"
         try:
-            # 先停止旧的 Naja 服务器
-            pid = self._get_running_pid()
-            if pid:
-                try:
-                    os.kill(pid, signal.SIGTERM)
-                    logger.info(f"已停止旧 Naja 服务器 (PID: {pid})")
-                except ProcessLookupError:
-                    pass
-                time_module.sleep(0.5)
-            
-            # 启动新的托盘程序（托盘会同时启动 Naja 服务器）
-            with open(log_file, 'w') as f:
+            with open(naja_log_file, 'a') as f:
                 subprocess.Popen(
-                    cmd,
+                    naja_cmd,
                     env=env,
                     cwd=deva_root,
                     start_new_session=True,
                     stdout=f,
                     stderr=subprocess.STDOUT
                 )
-            logger.info(f"已启动新的托盘进程，日志: {log_file}")
+            logger.info(f"已启动新的 Naja 服务器")
         except Exception as e:
-            logger.error(f"启动新托盘进程失败: {e}")
-            return
+            logger.error(f"启动新的 Naja 服务器失败: {e}")
 
-        time_module.sleep(0.5)
+        # 等待 Naja 服务器启动
+        time_module.sleep(1.5)
+
+        # 退出当前托盘（新托盘会由 Naja 服务器自动启动）
+        logger.info("正在退出当前托盘...")
         rumps.quit_application()
 
     def _on_reload(self, sender):

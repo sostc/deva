@@ -13,10 +13,57 @@ import asyncio
 import os
 import logging
 from typing import Dict, List, Optional
+from functools import wraps
+import time
 
 import pandas as pd
 
+# 提前导入 aiohttp，避免作用域问题
+import aiohttp
+
 log = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# 重试装饰器
+# ---------------------------------------------------------------------------
+
+def async_retry(
+    retries: int = 3,
+    delay: float = 1.0,
+    backoff: float = 2.0,
+    exceptions: tuple = (Exception,)
+):
+    """异步重试装饰器
+    
+    Args:
+        retries: 最大重试次数
+        delay: 初始延迟（秒）
+        backoff: 退避因子
+        exceptions: 可重试的异常类型
+    """
+    def decorator(func):
+        @wraps(func)
+        async def wrapper(*args, **kwargs):
+            _delay = delay
+            last_exception = None
+            
+            for attempt in range(retries + 1):
+                try:
+                    return await func(*args, **kwargs)
+                except exceptions as e:
+                    last_exception = e
+                    if attempt == retries:
+                        log.warning(f"[async_retry] 达到最大重试次数 {retries}，放弃重试: {e}")
+                        break
+                    
+                    log.warning(f"[async_retry] 尝试 {attempt + 1}/{retries + 1} 失败: {e}，等待 {_delay:.1f}s 后重试...")
+                    await asyncio.sleep(_delay)
+                    _delay *= backoff
+            
+            raise last_exception
+        
+        return wrapper
+    return decorator
 
 # ---------------------------------------------------------------------------
 # Session 管理
@@ -31,8 +78,18 @@ def _get_sina_session():
     if _session is None or _session.closed:
         import aiohttp
         _session = aiohttp.ClientSession(
-            connector=aiohttp.TCPConnector(limit=50, limit_per_host=20),
-            timeout=aiohttp.ClientTimeout(total=30),
+            connector=aiohttp.TCPConnector(
+                limit=50,
+                limit_per_host=10,
+                force_close=True,
+                enable_cleanup_closed=True
+            ),
+            timeout=aiohttp.ClientTimeout(
+                total=60,
+                connect=10,
+                sock_read=30,
+                sock_connect=10
+            ),
         )
     return _session
 
@@ -98,17 +155,36 @@ async def _fetch_sina_batch_async(codes: List[str], session=None) -> Dict:
     
     # 如果没有提供 session，创建一个临时 session
     if session is None:
-        import aiohttp
         async with aiohttp.ClientSession(
-            connector=aiohttp.TCPConnector(limit=50, limit_per_host=20),
-            timeout=aiohttp.ClientTimeout(total=30),
+            connector=aiohttp.TCPConnector(
+                limit=50,
+                limit_per_host=10,
+                force_close=True,
+                enable_cleanup_closed=True
+            ),
+            timeout=aiohttp.ClientTimeout(
+                total=60,
+                connect=10,
+                sock_read=30,
+                sock_connect=10
+            ),
         ) as temp_session:
             return await _fetch_sina_batch_with_session(codes, temp_session)
     else:
         return await _fetch_sina_batch_with_session(codes, session)
 
+@async_retry(
+    retries=3,
+    delay=1.0,
+    backoff=2.0,
+    exceptions=(
+        ConnectionResetError,
+        aiohttp.ClientError,
+        asyncio.TimeoutError
+    )
+)
 async def _fetch_sina_batch_with_session(codes: List[str], session) -> Dict:
-    """使用指定 session 获取一批股票数据"""
+    """使用指定 session 获取一批股票数据（带重试）"""
     codes_str = ",".join(codes)
     url = f"https://hq.sinajs.cn/list={codes_str}"
     headers = {
@@ -129,9 +205,13 @@ async def _fetch_sina_batch_with_session(codes: List[str], session) -> Dict:
             text = await resp.text()
             log.debug(f"[_fetch_sina_batch_async] 响应长度: {len(text)}")
             return _parse_sina_response(text)
+    except (ConnectionResetError, aiohttp.ClientError, asyncio.TimeoutError) as e:
+        # 这些异常会被重试装饰器捕获并重试
+        log.warning(f"[_fetch_sina_batch_async] 可重试错误: {e}")
+        raise  # 重新抛出，让重试装饰器处理
     except Exception as e:
         import traceback
-        log.error(f"[_fetch_sina_batch_async] 请求失败: {e}")
+        log.error(f"[_fetch_sina_batch_async] 不可重试错误: {e}")
         log.error(f"[_fetch_sina_batch_async] 堆栈: {traceback.format_exc()}")
         return {}
 
@@ -156,8 +236,6 @@ def _get_cn_codes_from_registry():
 
 async def _fetch_all_stocks_async() -> Optional[pd.DataFrame]:
     """异步获取全量股票数据"""
-    import aiohttp
-
     log.debug(f"[ASYNC] _fetch_all_stocks_async 开始, PID={os.getpid()}")
     log.debug(f"[_fetch_all_stocks_async] 开始获取...")
 
@@ -174,8 +252,18 @@ async def _fetch_all_stocks_async() -> Optional[pd.DataFrame]:
 
     log.debug(f"[ASYNC] 创建 ClientSession...")
     async with aiohttp.ClientSession(
-        connector=aiohttp.TCPConnector(limit=50, limit_per_host=20),
-        timeout=aiohttp.ClientTimeout(total=30),
+        connector=aiohttp.TCPConnector(
+            limit=50,
+            limit_per_host=10,
+            force_close=True,
+            enable_cleanup_closed=True
+        ),
+        timeout=aiohttp.ClientTimeout(
+            total=60,
+            connect=10,
+            sock_read=30,
+            sock_connect=10
+        ),
     ) as session:
         log.debug(f"[ASYNC] ClientSession 创建成功，开始获取批次...")
         for i in range(0, len(codes), batch_size):
@@ -185,7 +273,7 @@ async def _fetch_all_stocks_async() -> Optional[pd.DataFrame]:
             log.debug(f"[ASYNC] 批次 {i//batch_size + 1} 返回: {len(batch_data)} 条")
             log.debug(f"[_fetch_all_stocks_async] 批次 {i//batch_size + 1} 返回: {len(batch_data)} 条")
             all_data.update(batch_data)
-            await asyncio.sleep(0.05)
+            await asyncio.sleep(0.1)  # 稍微增加延迟，避免请求过快
 
     log.debug(f"[ASYNC] 所有批次获取完成，总共: {len(all_data)} 条")
     log.debug(f"[_fetch_all_stocks_async] 总共获取: {len(all_data)} 条数据")

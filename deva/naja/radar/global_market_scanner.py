@@ -763,8 +763,13 @@ class GlobalMarketScanner:
             # 更新UI的全局缓存
             try:
                 log.info(f"[GlobalMarketScanner] 尝试更新UI的全局缓存...")
-                import deva.naja.attention.ui.awakening
-                deva.naja.attention.ui.awakening._query_state_instance = qs
+                import sys
+                # 确保正确导入naja模块而非deva.__init__.naja函数
+                if 'deva.naja' not in sys.modules:
+                    import importlib
+                    importlib.import_module('deva.naja')
+                from deva.naja.attention.ui import awakening
+                awakening._query_state_instance = qs
                 log.info(f"[GlobalMarketScanner] 成功更新UI的QueryState实例")
             except Exception as e:
                 import traceback

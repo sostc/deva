@@ -97,8 +97,7 @@ cognition/
 │
 ├── insight/                 # 洞察引擎层
 │   ├── engine.py            #   InsightPool + InsightEngine — 洞察池与引擎
-│   ├── llm_reflection.py    #   LLMReflectionEngine — LLM 反思引擎
-│   └── weixin_notifier.py   #   WeixinNotifier — 微信通知器
+│   └── llm_reflection.py    #   LLMReflectionEngine — LLM 反思引擎
 │
 └── liquidity/               # 流动性分析层
     ├── propagation_engine.py    # PropagationEngine — 全球流动性传播引擎
@@ -652,7 +651,6 @@ user_score = 系统注意力×0.4 + 置信度×0.2 + 可执行性×0.2 + 新颖�
 
 **反思输出推送渠道**:
 - 钉钉 (Dtalk)
-- 微信 (WeixinNotifier)
 
 **Reflection 数据结构**:
 

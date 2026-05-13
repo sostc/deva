@@ -519,7 +519,7 @@ class DualBusStatsHandler(RequestHandler):
 
 
 class SignalStreamHandler(RequestHandler):
-    """信号流 SSE 推送接口（包含双总线）"""
+    """信号流 SSE 推送接口（包含双总线，增量推送）"""
 
     def set_default_headers(self):
         self.set_header("Content-Type", "text/event-stream; charset=utf-8")
@@ -534,6 +534,7 @@ class SignalStreamHandler(RequestHandler):
 
     async def get(self):
         from tornado.ioloop import IOLoop
+        from tornado.locks import Lock
         from deva.naja.signal.stream import get_signal_stream
         from deva.naja.signal.dual_bus_push_center import get_dual_bus_push_center
 
@@ -543,58 +544,119 @@ class SignalStreamHandler(RequestHandler):
         signal_stream = get_signal_stream()
         push_center = get_dual_bus_push_center()
 
-        # 发送初始事件
-        async def send_payload(events=None, signals=None):
+        sent_signal_ids = set()
+        sent_event_timestamps = set()
+        send_lock = Lock()
+        MAX_DISPLAY = 20
+
+        async def send_payload(is_initial=False):
             if self._closed.done():
                 return
             try:
                 payload = {
                     "timestamp": time.time(),
                 }
-                # 获取并格式化策略信号
-                if signals is None:
-                    recent_signals = signal_stream.get_recent(limit=10)
-                    signals = []
+                all_items = []
+                
+                if is_initial or len(sent_signal_ids) == 0:
+                    recent_signals = signal_stream.get_recent(limit=MAX_DISPLAY)
                     for s in recent_signals:
-                        signals.append({
-                            "id": s.id,
-                            "strategy_id": s.strategy_id,
-                            "strategy_name": s.strategy_name,
-                            "ts": s.ts,
-                            "success": s.success,
-                            "summary": s.output_preview,
-                            "output_full": s.output_full,
-                            "priority": s.priority,
-                            "metadata": s.metadata,
-                        })
-                if signals:
-                    payload["signals"] = signals
-
-                # 获取双总线事件
-                if events is None:
-                    events = push_center.get_recent_events(limit=10)
-                if events:
-                    payload["events"] = events
-
-                data = json.dumps(payload, ensure_ascii=False, default=_json_default)
-                self.write(f"data: {data}\n\n")
-                await self.flush()
+                        if s.id not in sent_signal_ids:
+                            sent_signal_ids.add(s.id)
+                            all_items.append({
+                                "type": "signal",
+                                "data": {
+                                    "id": s.id,
+                                    "strategy_id": s.strategy_id,
+                                    "strategy_name": s.strategy_name,
+                                    "ts": s.ts,
+                                    "success": s.success,
+                                    "summary": s.output_preview,
+                                    "output_full": s.output_full,
+                                    "priority": s.priority,
+                                    "metadata": s.metadata,
+                                },
+                                "timestamp": s.ts or 0
+                            })
+                
+                if is_initial or len(sent_event_timestamps) == 0:
+                    recent_events = push_center.get_recent_events(limit=MAX_DISPLAY)
+                    for evt in recent_events:
+                        ts = evt.get("timestamp", 0)
+                        if ts not in sent_event_timestamps:
+                            sent_event_timestamps.add(ts)
+                            all_items.append({
+                                "type": "event",
+                                "data": evt,
+                                "timestamp": ts
+                            })
+                
+                if is_initial:
+                    all_items.sort(key=lambda x: x["timestamp"], reverse=True)
+                    all_items = all_items[:MAX_DISPLAY]
+                
+                signals_to_send = [item["data"] for item in all_items if item["type"] == "signal"]
+                events_to_send = [item["data"] for item in all_items if item["type"] == "event"]
+                
+                if signals_to_send:
+                    payload["signals"] = signals_to_send
+                if events_to_send:
+                    payload["events"] = events_to_send
+                
+                if payload.get("signals") or payload.get("events"):
+                    data = json.dumps(payload, ensure_ascii=False, default=_json_default)
+                    self.write(f"data: {data}\n\n")
+                    await self.flush()
             except Exception:
                 if not self._closed.done():
                     self._closed.set_result(None)
 
-        # 发送初始数据
-        await send_payload()
+        async def on_new_signal(signal_data):
+            async with send_lock:
+                if signal_data.get("id") not in sent_signal_ids:
+                    sent_signal_ids.add(signal_data.get("id"))
+                    payload = {
+                        "timestamp": time.time(),
+                        "signals": [signal_data],
+                    }
+                    try:
+                        data = json.dumps(payload, ensure_ascii=False, default=_json_default)
+                        self.write(f"data: {data}\n\n")
+                        await self.flush()
+                    except Exception:
+                        pass
 
-        # 回调函数 - 当有新事件时
-        def on_event(event_data):
-            loop.add_callback(lambda: send_payload(events=[event_data]))
+        async def on_new_event(event_data):
+            async with send_lock:
+                ts = event_data.get("timestamp", 0)
+                if ts not in sent_event_timestamps:
+                    sent_event_timestamps.add(ts)
+                    payload = {
+                        "timestamp": time.time(),
+                        "events": [event_data],
+                    }
+                    try:
+                        data = json.dumps(payload, ensure_ascii=False, default=_json_default)
+                        self.write(f"data: {data}\n\n")
+                        await self.flush()
+                    except Exception:
+                        pass
 
-        # 订阅推送
-        push_center.subscribe(on_event)
+        def on_signal_wrapper(signal_data):
+            loop.add_callback(lambda: on_new_signal(signal_data))
+
+        def on_event_wrapper(event_data):
+            loop.add_callback(lambda: on_new_event(event_data))
+
+        push_center.subscribe(on_event_wrapper)
 
         try:
-            # 心跳保持连接
+            await send_payload(is_initial=True)
+            try:
+                signal_stream.subscribe(on_signal_wrapper)
+            except AttributeError:
+                pass
+
             while not self._closed.done():
                 await asyncio.sleep(25)
                 if self._closed.done():
@@ -603,7 +665,11 @@ class SignalStreamHandler(RequestHandler):
                 await self.flush()
             await self._closed
         finally:
-            push_center.unsubscribe(on_event)
+            push_center.unsubscribe(on_event_wrapper)
+            try:
+                signal_stream.unsubscribe(on_signal_wrapper)
+            except AttributeError:
+                pass
 
 
 class DualBusStreamHandler(RequestHandler):
@@ -650,7 +716,7 @@ class DualBusStreamHandler(RequestHandler):
 
         # 回调函数 - 当有新事件时
         def on_event(event_data):
-            loop.add_callback(lambda: send_payload([event_data]))
+            loop.add_callback(lambda e=event_data: send_payload(events=[e]))
 
         # 订阅推送
         push_center.subscribe(on_event)
