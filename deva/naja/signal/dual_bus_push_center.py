@@ -11,6 +11,8 @@ from dataclasses import asdict
 from typing import Any, Dict, List, Optional, Callable
 from collections import defaultdict
 
+from deva import NB
+
 log = logging.getLogger(__name__)
 
 
@@ -22,6 +24,8 @@ class DualBusPushCenter:
         self._subscribers: List[Callable] = []
         self._recent_events: List[Dict] = []
         self._max_recent_events = 50
+        self._persist_name = "naja_dual_bus_events"
+        self._db = NB(self._persist_name)
 
         # 统计信息
         self._stats = {
@@ -29,6 +33,12 @@ class DualBusPushCenter:
             "trading_events": 0,
             "total_events": 0,
         }
+
+        # 先加载持久化数据
+        self._load_persisted_events()
+        
+        # 加载历史新闻和热点
+        self._load_initial_data()
 
         log.info("✅ 双总线推送中心初始化完成")
         
@@ -387,11 +397,184 @@ class DualBusPushCenter:
 
             subscribers = list(self._subscribers)
 
+        self._persist_events()
+
         for callback in subscribers:
             try:
                 callback(event_data)
             except Exception as e:
                 log.error(f"推送事件失败: {e}")
+
+    def _load_persisted_events(self):
+        """从持久化存储加载事件"""
+        try:
+            persisted = self._db.get("recentEvents")
+            if isinstance(persisted, list):
+                seen_timestamps = set()
+                for evt in persisted[-self._max_recent_events:]:
+                    ts = evt.get("timestamp", 0)
+                    if ts not in seen_timestamps:
+                        seen_timestamps.add(ts)
+                        self._recent_events.append(evt)
+                log.info(f"✅ 从持久化加载 {len(self._recent_events)} 个事件")
+        except Exception as e:
+            log.debug(f"加载持久化事件失败: {e}")
+
+    def _persist_events(self):
+        """持久化事件到存储"""
+        try:
+            with self._lock:
+                events_to_save = list(self._recent_events[-self._max_recent_events:])
+            self._db.upsert("recentEvents", events_to_save)
+        except Exception as e:
+            log.debug(f"持久化事件失败: {e}")
+
+    def _load_initial_data(self):
+        """初始化时加载历史新闻和热点数据"""
+        self._load_radar_news()
+        self._load_hotspot_changes()
+
+    def _load_radar_news(self):
+        """从 RadarNewsPushCenter 加载历史新闻"""
+        try:
+            from deva.naja.radar.push_center import get_news_push_center
+            push_center = get_news_push_center()
+            latest_news = push_center.get_latest_news()
+            
+            seen_timestamps = {evt.get("timestamp", 0) for evt in self._recent_events}
+            
+            for news in latest_news[:20]:
+                ts = news.get("timestamp", time.time())
+                if ts not in seen_timestamps:
+                    seen_timestamps.add(ts)
+                    event_data = self._format_news_dict(news)
+                    self._recent_events.append(event_data)
+            
+            log.info(f"✅ 从雷达新闻加载 {len(latest_news)} 条新闻")
+        except Exception as e:
+            log.debug(f"加载雷达新闻失败: {e}")
+
+    def _load_hotspot_changes(self):
+        """从 HistoryTracker 加载热点变化"""
+        try:
+            from deva.naja.market_hotspot.tracking.history_tracker import get_history_tracker
+            tracker = get_history_tracker()
+            if not tracker:
+                return
+            
+            changes = tracker.get_recent_changes(n=20)
+            
+            seen_timestamps = {evt.get("timestamp", 0) for evt in self._recent_events}
+            
+            for change in changes:
+                ts = getattr(change, "timestamp", 0)
+                if ts and ts not in seen_timestamps:
+                    seen_timestamps.add(ts)
+                    event_data = self._format_hotspot_change(change)
+                    self._recent_events.append(event_data)
+            
+            log.info(f"✅ 从热点追踪加载 {len(changes)} 条变化")
+        except Exception as e:
+            log.debug(f"加载热点变化失败: {e}")
+
+    def _format_news_dict(self, news: Dict) -> Dict:
+        """格式化新闻字典为事件格式"""
+        title = news.get("title", "")
+        source = news.get("source", "unknown")
+        importance_score = news.get("importance_score", 0.5)
+        sentiment = news.get("sentiment", 0.5)
+        stock_codes = news.get("stock_codes", [])
+        topics = news.get("topics", [])
+        ts = news.get("timestamp", time.time())
+
+        sentiment_str = "📈正面" if sentiment > 0.6 else ("📉负面" if sentiment < 0.4 else "➖中性")
+        stock_str = ", ".join(stock_codes[:3]) if stock_codes else ""
+        topic_str = " ".join([f"#{t}" for t in topics[:3]]) if topics else ""
+
+        summary_parts = []
+        if title:
+            summary_parts.append(title)
+        if stock_str:
+            summary_parts.append(f"关联: {stock_str}")
+        if topic_str:
+            summary_parts.append(topic_str)
+
+        summary = " | ".join(summary_parts) if summary_parts else ""
+
+        return {
+            "bus_type": "news",
+            "event_type": f"📰 {source}",
+            "timestamp": ts,
+            "importance": importance_score,
+            "confidence": importance_score,
+            "source": source,
+            "symbol": stock_codes[0] if stock_codes else None,
+            "stock_codes": stock_codes,
+            "summary": summary,
+            "title": title,
+            "sentiment": sentiment,
+            "sentiment_str": sentiment_str,
+            "topics": topics,
+            "data": news,
+        }
+
+    def _format_hotspot_change(self, change) -> Dict:
+        """格式化热点变化为事件格式"""
+        ts = getattr(change, "timestamp", time.time())
+        change_type = getattr(change, "change_type", "unknown")
+        item_type = getattr(change, "item_type", "unknown")
+        item_id = getattr(change, "item_id", "")
+        item_name = getattr(change, "item_name", item_id)
+        old_weight = getattr(change, "old_weight", 0)
+        new_weight = getattr(change, "new_weight", 0)
+        change_percent = getattr(change, "change_percent", 0)
+        description = getattr(change, "description", "")
+        symbol = getattr(change, "symbol", "") or (item_id if item_type == "symbol" else "")
+        block = getattr(change, "block", "") or (item_id if item_type == "block" else "")
+        market_time = getattr(change, "market_time", "")
+
+        if change_type == "new_hot":
+            event_type = "🔥 新热点"
+        elif change_type == "cooled":
+            event_type = "❄️ 热点消退"
+        elif change_type == "strengthen":
+            event_type = "📈 热点加强"
+        else:
+            event_type = "📉 热点减弱"
+
+        summary_parts = []
+        if item_name:
+            summary_parts.append(item_name)
+        if description:
+            summary_parts.append(description)
+        if old_weight > 0 or new_weight > 0:
+            summary_parts.append(f"{old_weight:.2f} → {new_weight:.2f}")
+        summary = " | ".join(summary_parts) if summary_parts else ""
+
+        score = min(1.0, abs(change_percent) / 100.0) if change_percent else 0.5
+
+        return {
+            "bus_type": "hotspot",
+            "event_type": event_type,
+            "timestamp": ts,
+            "importance": min(score / 5.0 + 0.3, 1.0),
+            "confidence": score,
+            "source": "market_hotspot",
+            "symbol": symbol,
+            "block": block,
+            "summary": summary,
+            "title": description or f"{item_name} 热点变化",
+            "data": {
+                "change_type": change_type,
+                "item_type": item_type,
+                "item_id": item_id,
+                "item_name": item_name,
+                "old_weight": old_weight,
+                "new_weight": new_weight,
+                "change_percent": change_percent,
+                "market_time": market_time,
+            },
+        }
 
     def subscribe(self, callback: Callable):
         """订阅事件推送"""

@@ -231,9 +231,6 @@ class LLMReflectionEngine:
         # 反思完成后推送到钉钉
         self._push_reflection_to_dtalk(reflection, signals)
 
-        # 同步推送到微信
-        self._push_reflection_to_weixin(reflection)
-
         return reflection
 
     def _push_reflection_to_dtalk(self, reflection, signals: List[Dict[str, Any]]) -> None:
@@ -288,52 +285,6 @@ _反思生成时间: {datetime.fromtimestamp(reflection.ts).strftime('%Y-%m-%d %
 
         except Exception as e:
             log.warning(f"[LLMReflection] 推送反思到钉钉失败: {e}")
-
-    def _push_reflection_to_weixin(self, reflection) -> None:
-        """将 LLM 反思结果推送到微信"""
-        try:
-            from .weixin_notifier import get_weixin_notifier
-
-            notifier = get_weixin_notifier()
-            if not notifier:
-                return
-
-            theme = reflection.theme
-            summary = reflection.summary
-
-            # summary 可能是列表，转为字符串
-            if isinstance(summary, list):
-                summary_text = "；".join([str(s) for s in summary if s])
-            else:
-                summary_text = str(summary) if summary else "暂无"
-
-            # 持仓信息
-            portfolio = self._collect_portfolio()
-            portfolio_text = portfolio.get("summary", "无持仓数据")
-
-            # 流动性结构
-            liquidity = getattr(reflection, "liquidity_structure", "") or ""
-
-            # 时间
-            ts_str = datetime.fromtimestamp(reflection.ts).strftime("%Y-%m-%d %H:%M")
-
-            text = (
-                f"🤖 LLM 每日反思 | {ts_str}\n\n"
-                f"📌 主题：{theme}\n\n"
-                f"💡 结论：\n{summary_text}\n\n"
-                f"💼 持仓：{portfolio_text}\n\n"
-                f"💧 流动性：{liquidity if liquidity else '暂无判断'}"
-            )
-
-            notifier.send(text)
-            import logging
-            log = logging.getLogger(__name__)
-            log.info(f"[LLMReflection] 反思已推送到微信")
-
-        except Exception as e:
-            import logging
-            log = logging.getLogger(__name__)
-            log.warning(f"[LLMReflection] 推送反思到微信失败: {e}")
 
     def _emit_liquidity_signal(self, now_ts: float) -> None:
         """将流动性结构作为独立信号推送到 InsightPool"""

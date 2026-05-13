@@ -5,6 +5,13 @@
     },
     "xiaohongshu": {
       "baseUrl": "http://localhost:18060/mcp"
+    },
+    "jin10": {
+      "serverUrl": "https://mcp.jin10.com/mcp",
+      "headers": {
+        "Content-Type": "application/json",
+        "Authorization": "Bearer sk-tV6blBOOdB3mpVRL1CQpi_3K3jhz-Ohv4dqHpyuULkM"
+      }
     }
   },
   "imports": []
