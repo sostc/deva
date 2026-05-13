@@ -156,10 +156,12 @@ class MenuBarTray:
         for section_key in ["cn", "us"]:
             section = data.get(section_key, {})
             blocks = section.get("hot_blocks", [])
-            for block in blocks[:3]:
+            for block in blocks[:5]:
                 bid = block.get("block_id", "")
                 name = block.get("name", bid)
                 weight = block.get("weight", 0)
+                if weight <= 0:
+                    continue
                 key = name[:8]
                 if key in seen:
                     continue
@@ -186,7 +188,7 @@ class MenuBarTray:
         return os.path.join(os.path.dirname(__file__), "..", "..", "scripts", "naja_tray.py")
 
     def _restart_tray(self):
-        """重启托盘程序"""
+        """重启托盘程序和 Naja 服务器"""
         import rumps
         tray_script = self._get_tray_script_path()
         if not os.path.exists(tray_script):
@@ -194,19 +196,43 @@ class MenuBarTray:
             return
 
         env = os.environ.copy()
-        env["NO_TRAY_AUTOSTART"] = "1"
         env["LSUIElement"] = "1"
+        
+        deva_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))))
+        python_path = env.get("PYTHONPATH", "")
+        if python_path:
+            env["PYTHONPATH"] = f"{deva_root}:{python_path}"
+        else:
+            env["PYTHONPATH"] = deva_root
 
         cmd = [sys.executable, tray_script]
-        subprocess.Popen(
-            cmd,
-            env=env,
-            cwd=os.getcwd(),
-            start_new_session=True,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL
-        )
-        logger.info("已启动新的托盘进程")
+        log_file = NAJA_DIR / "tray_restart.log"
+        
+        try:
+            # 先停止旧的 Naja 服务器
+            pid = self._get_running_pid()
+            if pid:
+                try:
+                    os.kill(pid, signal.SIGTERM)
+                    logger.info(f"已停止旧 Naja 服务器 (PID: {pid})")
+                except ProcessLookupError:
+                    pass
+                time_module.sleep(0.5)
+            
+            # 启动新的托盘程序（托盘会同时启动 Naja 服务器）
+            with open(log_file, 'w') as f:
+                subprocess.Popen(
+                    cmd,
+                    env=env,
+                    cwd=deva_root,
+                    start_new_session=True,
+                    stdout=f,
+                    stderr=subprocess.STDOUT
+                )
+            logger.info(f"已启动新的托盘进程，日志: {log_file}")
+        except Exception as e:
+            logger.error(f"启动新托盘进程失败: {e}")
+            return
 
         time_module.sleep(0.5)
         rumps.quit_application()
@@ -279,28 +305,29 @@ class MenuBarTray:
             self._app.menu[f"📍 端口: {port}"] = None
             self._app.menu["sep0"] = rumps.separator
             
-            # 常用页面区域
-            self._app.menu["📈 常用页面"] = [
-                rumps.MenuItem("🔥 市场热点", callback=self._on_open_page("/market")),
-                rumps.MenuItem("⚡ 交易中心", callback=self._on_open_page("/awakening")),
-                rumps.MenuItem("🧠 认知系统", callback=self._on_open_page("/cognition")),
-                rumps.MenuItem("📜 系统日志", callback=self._on_open_page("/logstream")),
-                rumps.MenuItem("⚙️ 系统状态", callback=self._on_open_page("/health")),
-            ]
+            # 常用页面区域 - 使用 add 方法创建子菜单
+            common_pages = rumps.MenuItem("📈 常用页面")
+            common_pages.add(rumps.MenuItem("🔥 市场热点", callback=self._on_open_page("/market")))
+            common_pages.add(rumps.MenuItem("⚡ 交易中心", callback=self._on_open_page("/awakening")))
+            common_pages.add(rumps.MenuItem("🧠 认知系统", callback=self._on_open_page("/cognition")))
+            common_pages.add(rumps.MenuItem("📜 系统日志", callback=self._on_open_page("/logstream")))
+            common_pages.add(rumps.MenuItem("⚙️ 系统状态", callback=self._on_open_page("/health")))
+            self._app.menu.add(common_pages)
             
-            # 管理页面区域
-            self._app.menu["🔧 管理工具"] = [
-                rumps.MenuItem("📋 策略管理", callback=self._on_open_page("/strategyadmin")),
-                rumps.MenuItem("📊 信号管理", callback=self._on_open_page("/signaladmin")),
-                rumps.MenuItem("📁 数据源管理", callback=self._on_open_page("/dsadmin")),
-                rumps.MenuItem("📅 任务管理", callback=self._on_open_page("/taskadmin")),
-            ]
+            # 管理页面区域 - 使用 add 方法创建子菜单
+            admin_tools = rumps.MenuItem("🔧 管理工具")
+            admin_tools.add(rumps.MenuItem("📋 策略管理", callback=self._on_open_page("/strategyadmin")))
+            admin_tools.add(rumps.MenuItem("📊 信号管理", callback=self._on_open_page("/signaladmin")))
+            admin_tools.add(rumps.MenuItem("📁 数据源管理", callback=self._on_open_page("/dsadmin")))
+            admin_tools.add(rumps.MenuItem("📅 任务管理", callback=self._on_open_page("/taskadmin")))
+            self._app.menu.add(admin_tools)
+            
             self._app.menu["sep1"] = rumps.separator
             
             # 主功能区域
-            self._app.menu["🌐 打开 Web"] = rumps.MenuItem("🌐 打开 Web", callback=self._on_open_web)
-            self._app.menu["📄 打开日志"] = rumps.MenuItem("📄 打开日志", callback=self._on_open_logs)
-            self._app.menu["🔄 刷新"] = rumps.MenuItem("🔄 刷新", callback=self._on_refresh)
+            self._app.menu.add(rumps.MenuItem("🌐 打开 Web", callback=self._on_open_web))
+            self._app.menu.add(rumps.MenuItem("📄 打开日志", callback=self._on_open_logs))
+            self._app.menu.add(rumps.MenuItem("🔄 刷新", callback=self._on_refresh))
             self._app.menu["sep2"] = rumps.separator
 
             if self._news_items:
