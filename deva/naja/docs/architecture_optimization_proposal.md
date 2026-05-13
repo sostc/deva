@@ -1,5 +1,13 @@
 # Naja 架构优化方案报告
 
+> **文档状态: 部分已修复 (PARTIALLY FIXED)**
+> 验证日期: 2026-05-14
+>
+> 问题 1 (narratives 数据流断裂): **已修复** -- cognition_orchestrator.py 和 signal_executor.py 中均有完整的 narratives 获取和传递逻辑 (8处+4处引用)
+> 问题 2 (Manas 四维引擎与 FPMind 各自为战): **未修复** -- AdaptiveManas 仅存在于文档和测试指南中，实际代码中无 AdaptiveManas 实现 (仅 manas/ 目录不存在，manas_manager 在 attention/kernel/ 下)
+> 问题 3 (Bandit/Manas 循环关系不清): **未修复** -- 代码中未找到 bandit 使用 manas 风险评估的整合逻辑 (无 manas_risk_assess 相关代码)
+> 问题 4 (四维引擎权重硬编码): **未验证** -- 需进一步检查 manas_manager 权重配置方式
+
 > 生成日期: 2026-04-04
 > 作者: AI Assistant
 > 版本: v1.0

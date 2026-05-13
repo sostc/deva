@@ -6,49 +6,57 @@
 
 ## Credentials Location
 
-All credentials stored in `.credentials/` (gitignored):
-- `example-api.txt` — Example API key
+All credentials stored in `.credentials/` (gitignored).
 
 ---
 
-## [Tool Name]
+## Naja CLI (`bin/naja`)
 
-**Status:** ✅ Working | ⚠️ Issues | ❌ Not configured
+**Status:** ✅ Working
 
 **Configuration:**
-```
-Key details about how this tool is configured
-```
+- 后台服务管理: `naja -s start/stop/reload/restart/status`
+- PID 文件: `~/.naja/naja.pid`
+- 端口文件: `~/.naja/naja.port`
+- 前台模式: `python -m deva.naja`
 
 **Gotchas:**
-- Things that don't work as expected
-- Workarounds discovered
-
-**Common Operations:**
-```bash
-# Example command
-tool-name --common-flag
-```
+- 热重启使用 SIGUSR1 信号
+- 端口占用时会自动检测并提示
 
 ---
 
-## Writing Preferences
+## macOS 托盘 (`scripts/start_tray.py`)
 
-[Document any preferences about writing style, voice, etc.]
+**Status:** ✅ Working
+
+**Configuration:**
+- 每 30 秒自动刷新数据
+- 通过端口文件与 Naja 进程通信
+
+**Gotchas:**
+- 使用 subprocess.Popen 而非 os.fork()（macOS 兼容性）
 
 ---
 
-## What Goes Here
+## 通知适配器
 
-- Tool configurations and settings
-- Credential locations (not the credentials themselves!)
-- Gotchas and workarounds discovered
-- Common commands and patterns
-- Integration notes
+**Status:** ✅ Working (DingTalk)
 
-## Why Separate?
+**Configuration:**
+- DingTalk: 已配置
+- iMessage: 已配置（+8618626880688）
 
-Skills define *how* tools work. This file is for *your* specifics — the stuff that's unique to your setup.
+---
+
+## Skills 体系
+
+**Status:** ✅ Working
+
+**Configuration:**
+- 技能目录: `skills/`
+- 每个技能包含 `SKILL.md` 定义
+- 通过 NajaAgent 对话门面调用
 
 ---
 
