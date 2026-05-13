@@ -417,8 +417,10 @@ class GlobalMarketAPI:
         us_code_map = {}
         for code in us_codes:
             if code.startswith('gb_'):
-                us_code_map[code] = code.split('_')[1]
-                us_code_map[code.split('_')[1]] = code.split('_')[1]
+                parts = code.split('_')
+                if len(parts) > 1:
+                    us_code_map[code] = parts[1]
+                    us_code_map[parts[1]] = parts[1]
 
         for line in text.strip().split("\n"):
             if not line or '="' not in line:

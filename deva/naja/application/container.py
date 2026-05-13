@@ -139,7 +139,7 @@ class AppContainer:
             self._query_state_updater = SR('query_state_updater')
             self._manas_manager = SR('manas_manager')
             # ManasEngine 在 ManasManager 内部创建，通过 get_manas_engine() 获取
-            self._manas_engine = self._manas_manager._manas_engine
+            self._manas_engine = self._manas_manager.get_manas_engine()
 
             # 4. 获取认知层组件（从已注册的单例）
             self._insight_pool = SR('insight_pool')
@@ -824,11 +824,6 @@ def execute() -> dict:
         return self._manas_manager
 
     @property
-    def insight_pool(self):
-        """获取 InsightPool"""
-        return self._insight_pool
-
-    @property
     def insight_engine(self):
         """获取 InsightEngine"""
         return self._insight_engine
@@ -852,11 +847,6 @@ def execute() -> dict:
     def radar_engine(self):
         """获取 RadarEngine"""
         return self._radar_engine
-
-    @property
-    def bandit_tracker(self):
-        """获取 BanditPositionTracker"""
-        return self._bandit_tracker
 
     @property
     def market_observer(self):

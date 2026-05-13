@@ -91,10 +91,11 @@ class WakeOrchestrator:
 
     def _sync_jin10_only(self) -> Dict[str, Any]:
         """仅同步金十重要事件（首次启动时使用）"""
-        from deva.naja.state.system.wake_sync_manager import _wake_sync_manager
+        from deva.naja.state.system.wake_sync_manager import get_wake_sync_manager
 
         try:
-            component = _wake_sync_manager._components.get("Jin10_Live_News")
+            sync_manager = get_wake_sync_manager()
+            component = sync_manager.get_component("Jin10_Live_News")
             if not component:
                 return {"success": False, "error": "Jin10_Live_News component not registered"}
 
@@ -137,15 +138,16 @@ class WakeOrchestrator:
         - sleep_hours < 2: 仅同步核心数据（持仓价格 + 新闻）
         - sleep_hours >= 2: 全量同步
         """
-        from deva.naja.state.system.wake_sync_manager import _wake_sync_manager
+        from deva.naja.state.system.wake_sync_manager import get_wake_sync_manager
 
+        sync_manager = get_wake_sync_manager()
         try:
             if sleep_hours < self.LIGHT_SYNC_THRESHOLD_HOURS:
                 log.info("[WakeOrchestrator] 轻量同步模式（仅持仓价格 + 新闻）")
                 return self._light_sync(last_active)
             else:
                 log.info("[WakeOrchestrator] 全量同步模式")
-                return _wake_sync_manager.perform_wake_sync(last_active)
+                return sync_manager.perform_wake_sync(last_active)
         except Exception as e:
             log.error(f"[WakeOrchestrator] 外部数据同步失败: {e}")
             return {"success": False, "error": str(e)}
@@ -155,14 +157,15 @@ class WakeOrchestrator:
 
         避免短时间休眠后执行不必要的复盘/AI 报告等重操作。
         """
-        from deva.naja.state.system.wake_sync_manager import _wake_sync_manager
+        from deva.naja.state.system.wake_sync_manager import get_wake_sync_manager
 
+        sync_manager = get_wake_sync_manager()
         core_names = ["Portfolio_Price", "News_Fetcher", "Jin10_Live_News"]
 
         results = []
         synced_count = 0
         for name in core_names:
-            component = _wake_sync_manager._components.get(name)
+            component = sync_manager.get_component(name)
             if not component:
                 continue
             try:

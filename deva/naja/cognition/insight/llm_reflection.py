@@ -448,8 +448,9 @@ _反思生成时间: {datetime.fromtimestamp(reflection.ts).strftime('%Y-%m-%d %
                     })
 
                 anomaly = step1.get("anomaly_result", {})
-                if anomaly.get("anomaly_stocks"):
-                    top_anomaly = anomaly["anomaly_stocks"][0]
+                anomaly_stocks = anomaly.get("anomaly_stocks", [])
+                if anomaly_stocks and len(anomaly_stocks) > 0:
+                    top_anomaly = anomaly_stocks[0]
                     signals.append({
                         "source": "market_analysis",
                         "signal_type": "anomaly",

@@ -13,6 +13,7 @@ MarketHotspotHistoryTracker - 市场热点追踪/题材热度/题材变迁
 import time
 import os
 import threading
+import signal
 from typing import Dict, List, Optional, Any
 from collections import deque
 from dataclasses import dataclass, field
@@ -166,7 +167,26 @@ class MarketHotspotHistoryTracker:
 
     def _register_signal_handlers(self):
         """注册信号处理器用于优雅退出时保存"""
-        pass
+        import logging
+        log = logging.getLogger(__name__)
+        
+        def signal_handler(sig, frame):
+            log.info(f"[HistoryTracker] 收到信号 {sig}，正在保存状态...")
+            try:
+                self.save_state()
+                log.info("[HistoryTracker] 状态保存完成")
+            except Exception as e:
+                log.error(f"[HistoryTracker] 保存状态失败: {e}")
+            # 继续执行默认的信号处理
+            signal.default_int_handler(sig, frame)
+        
+        # 注册信号处理器
+        try:
+            signal.signal(signal.SIGINT, signal_handler)
+            signal.signal(signal.SIGTERM, signal_handler)
+            log.debug("[HistoryTracker] 信号处理器注册成功")
+        except Exception as e:
+            log.warning(f"[HistoryTracker] 注册信号处理器失败: {e}")
 
     def stop_auto_save(self):
         """停止定时保存线程"""
@@ -599,7 +619,11 @@ class MarketHotspotHistoryTracker:
         # 时间显示
         time_display = timestamp_str if timestamp_str else datetime.fromtimestamp(current_time).strftime("%H:%M:%S")
         # 提取行情日期（格式如 "2024-01-15 10:30:00" -> "2024-01-15"）
-        market_date = timestamp_str.split(" ")[0] if timestamp_str else datetime.fromtimestamp(current_time).strftime("%Y-%m-%d")
+        if timestamp_str:
+            parts = timestamp_str.split(" ")
+            market_date = parts[0] if parts else datetime.fromtimestamp(current_time).strftime("%Y-%m-%d")
+        else:
+            market_date = datetime.fromtimestamp(current_time).strftime("%Y-%m-%d")
         
         # ========== 检测题材重大变化 ==========
         all_blocks = set(old.block_weights.keys()) | set(new.block_weights.keys())

@@ -292,23 +292,8 @@ def _register_custom_singletons():
 
     # --- wake_sync_manager: 需要注册多个组件 ---
     def _create_wake_sync_manager():
-        from .state.system.wake_sync_manager import WakeSyncManager
-        from .state.system.wake_sync_handlers import (
-            AIDailyReportWakeSync,
-            NewsFetcherWakeSync,
-            GlobalMarketScannerWakeSync,
-            DailyReviewWakeSync,
-            PortfolioPriceWakeSync,
-            Jin10LiveNewsWakeSync,
-        )
-        mgr = WakeSyncManager()
-        mgr.register(PortfolioPriceWakeSync())
-        mgr.register(NewsFetcherWakeSync())
-        mgr.register(GlobalMarketScannerWakeSync())
-        mgr.register(Jin10LiveNewsWakeSync())
-        mgr.register(DailyReviewWakeSync())
-        mgr.register(AIDailyReportWakeSync())
-        return mgr
+        from .state.system.wake_sync_manager import get_wake_sync_manager
+        return get_wake_sync_manager()
     register_singleton('wake_sync_manager', _create_wake_sync_manager, deps=[])
     logger.debug("  ✓ wake_sync_manager")
 

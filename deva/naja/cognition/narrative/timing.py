@@ -376,7 +376,7 @@ class TimingNarrativeTracker:
         top_blocks = sorted(block_changes.items(), key=lambda x: x[1], reverse=True)[:3]
         bottom_blocks = sorted(block_changes.items(), key=lambda x: x[1])[:3]
 
-        if top_blocks[0][1] - bottom_blocks[0][1] > 3.0:
+        if top_blocks and bottom_blocks and (top_blocks[0][1] - bottom_blocks[0][1] > 3.0):
             return TimingNarrative(
                 narrative_type=TimingType.BLOCK,
                 stage=TimingStage.BUILDING,

@@ -1,9 +1,16 @@
 from __future__ import annotations
 
+import logging
+import os
+import signal
+import sys
+import threading
+
 from deva import NW, Deva
 
-from .container import AppContainer, set_app_container
+from .container import AppContainer
 from .runtime_config import AppRuntimeConfig
+from deva.naja.infra.runtime.daemon import PID_FILE, PORT_FILE, NAJA_DIR
 
 
 def run_web_application(config: AppRuntimeConfig):
@@ -69,12 +76,6 @@ def run_web_application(config: AppRuntimeConfig):
         Deva.run()
         return
 
-    import logging
-    import signal
-    import sys
-    import threading
-    import os
-
     logger = logging.getLogger("deva.naja")
     shutdown_event = threading.Event()
 
@@ -93,8 +94,7 @@ def run_web_application(config: AppRuntimeConfig):
     signal.signal(signal.SIGINT, shutdown_handler)
     signal.signal(signal.SIGTERM, shutdown_handler)
 
-    from deva.naja.infra.runtime.daemon import setup_reload_handler, PID_FILE, PORT_FILE, NAJA_DIR
-    from pathlib import Path
+    from deva.naja.infra.runtime.daemon import setup_reload_handler
 
     def reload_handler():
         import subprocess

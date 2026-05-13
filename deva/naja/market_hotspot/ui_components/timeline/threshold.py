@@ -186,7 +186,8 @@ def render_single_threshold_column(threshold: str) -> str:
 
     for event in reversed(events):
         full_time = datetime.fromtimestamp(event.timestamp).strftime("%m-%d %H:%M:%S")
-        event_date = full_time.split(' ')[0]
+        parts = full_time.split(' ')
+        event_date = parts[0] if parts else ""
         if event_date != current_date:
             current_date = event_date
             html += f'<div style="font-size: 10px; color: #94a3b8; margin: 8px 0 4px 0; padding-top: 4px; border-top: 1px dashed #e2e8f0;">{event_date}</div>'

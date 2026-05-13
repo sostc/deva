@@ -184,16 +184,18 @@ class FundamentalDataFetcher:
                 if '=""' in text:
                     return None
 
-                parts = text.split('"')[1].split(',')
-                if len(parts) >= 10:
-                    return {
-                        "code": stock_code,
-                        "name": parts[0],
-                        "current": float(parts[1]),
-                        "prev_close": float(parts[26]) if parts[26] else 0,
-                        "open": float(parts[2]) if parts[2] else 0,
-                        "volume": float(parts[8]) if parts[8] else 0,
-                    }
+                quoted_parts = text.split('"')
+                if len(quoted_parts) >= 2:
+                    parts = quoted_parts[1].split(',')
+                    if len(parts) >= 10:
+                        return {
+                            "code": stock_code,
+                            "name": parts[0],
+                            "current": float(parts[1]),
+                            "prev_close": float(parts[26]) if parts[26] else 0,
+                            "open": float(parts[2]) if parts[2] else 0,
+                            "volume": float(parts[8]) if parts[8] else 0,
+                        }
         except Exception as e:
             logger.debug(f"[FundamentalDataFetcher] 新浪获取 {stock_code} 失败: {e}")
 

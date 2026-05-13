@@ -538,7 +538,12 @@ def _render_principle_section_legacy(ctx: dict, principle: dict, color: str):
     }
 
     for dim_key, dim_data in five_dimensions.items():
-        first_char = dim_key.split("_")[0] if "_" in dim_key else dim_key[0]
+        if "_" in dim_key:
+            first_char = dim_key.split("_")[0]
+        elif len(dim_key) > 0:
+            first_char = dim_key[0]
+        else:
+            first_char = ""
         icon = dim_icons.get(first_char, "📌")
 
         dimensions_html += f"""
