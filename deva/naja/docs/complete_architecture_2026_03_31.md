@@ -1,5 +1,10 @@
 # Naja 系统完整架构 - 全体工作人员一览
 
+> **文档状态: 已过时 (OUTDATED)**
+> 验证日期: 2026-05-14
+> 缺失组件: Agent 化 (naja_agent.py)、API Catalog (api_catalog.py)、MarketCopilot (market_copilot.py) 均未在本文档中体现
+> 建议: 需要补充 application/ 层新增的三大组件，并更新系统全景图
+
 > 版本: 2026-03-31
 > 状态: 完整版
 

@@ -1,5 +1,15 @@
 # Cognition-Attention-Radar 重构计划
 
+> **文档状态: 部分已实施 (PARTIALLY IMPLEMENTED)**
+> 验证日期: 2026-05-14
+>
+> 信号命名规范化检查:
+> - Radar 信号 `radar_` 前缀: **已实施** -- radar/engine.py 中有 radar_pattern, radar_data_distribution_shift, radar_anomaly, radar_block_anomaly
+> - Cognition 信号 `topic_`/`narrative_` 前缀: **已实施** -- cognition/insight/engine.py 中有 topic_emerge, topic_grow, topic_fade, narrative_drift 等，且按前缀分发处理
+> - Attention 信号 `market_`/`anomaly_` 前缀: **部分实施** -- attention 中有 market_state_shift, market_activity_shift 等事件名，但未严格使用 market_/anomaly_ 作为 signal_type 前缀
+> - Radar 定位明确化: **已实施** -- Radar 作为独立感知层存在，ingestion.py 通过 ingest_radar_events() 接收雷达数据
+> - 漂移检测职责分离: **需进一步验证** -- 三处漂移检测是否已明确分工需深入代码确认
+
 ## 目标
 
 修正 Cognition、Attention、Radar 三个模块的功能错位，实现：
