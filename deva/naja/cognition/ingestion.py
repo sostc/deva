@@ -96,7 +96,7 @@ class CognitionIngestion:
                 event_type="global_market_event",
 
 
-                region=metadata.get("market_id", "US").split("_")[0] if "market_id" in metadata else "US",
+                region=metadata.get("market_id", "US").split("_")[0] if ("market_id" in metadata and "_" in metadata.get("market_id", "")) else metadata.get("market_id", "US"),
 
 
                 event="market_snapshot",
@@ -125,14 +125,45 @@ class CognitionIngestion:
 
     def ingest_news(self, news_data: Dict[str, Any]) -> None:
         """
-        接收新闻事件（预留接口）
+        接收新闻事件并发布到事件总线
 
         Args:
-            news_data: 新闻数据字典
+            news_data: 新闻数据字典，支持以下字段：
+                - title: 新闻标题
+                - text: 新闻内容
+                - source: 来源（默认 "ingestion_api"）
+                - url: 链接（可选）
+                - keywords: 关键词列表（可选）
+                - topics: 主题列表（可选）
+                - sentiment: 情感评分 0-1（可选）
+                - stock_codes: 相关股票代码列表（可选）
         """
-        # 目前新闻通过 TextProcessingPipeline → TextSignalBus 流转
-        # 此接口预留给未来统一入口使用
-        pass
+        try:
+            from deva.naja.events import get_event_bus
+            from deva.naja.events.text_events import TextFetchedEvent
+
+            bus = get_event_bus()
+            
+            # 构建文本事件
+            event = TextFetchedEvent(
+                title=news_data.get("title", ""),
+                text=news_data.get("text", ""),
+                source=news_data.get("source", "ingestion_api"),
+                url=news_data.get("url", ""),
+                keywords=news_data.get("keywords", []),
+                topics=news_data.get("topics", []),
+                sentiment=news_data.get("sentiment", 0.5),
+                stock_codes=news_data.get("stock_codes", []),
+            )
+            
+            # 发布到事件总线
+            bus.publish(event)
+            log.debug(f"[Ingestion] 新闻事件已发布: {event.title[:50]}...")
+            
+        except ImportError:
+            log.debug("[Ingestion] 事件总线未导入，跳过新闻发布")
+        except Exception as e:
+            log.debug(f"[Ingestion] 发布新闻事件失败: {e}")
 
     # ------------------------------------------------------------------
     #  内部方法

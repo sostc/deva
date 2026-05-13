@@ -178,6 +178,10 @@ class WakeSyncManager:
         """获取已注册的组件名称列表"""
         return list(self._components.keys())
 
+    def get_component(self, name: str) -> Optional['WakeSyncable']:
+        """获取组件实例"""
+        return self._components.get(name)
+
     def is_component_synced_recently(self, name: str) -> bool:
         """检查组件是否在去重间隔内已执行过同步"""
         last_ts = self._last_sync_per_component.get(name, 0)
@@ -323,6 +327,14 @@ class WakeSyncManager:
         log.info(f"[WakeSync] {summary['message']}")
 
 
+_wake_sync_manager = WakeSyncManager()
+
+
+def get_wake_sync_manager() -> WakeSyncManager:
+    """获取唤醒同步管理器"""
+    return _wake_sync_manager
+
+
 def _register_default_components():
     """注册默认的同步组件"""
     manager = _wake_sync_manager
@@ -346,4 +358,5 @@ def _register_default_components():
     log.info("[WakeSync] 已注册默认同步组件")
 
 
-_wake_sync_manager = WakeSyncManager()
+# 初始化时注册默认组件
+_register_default_components()
