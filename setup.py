@@ -9,7 +9,7 @@ long_description = (here / "README.md").read_text(encoding="utf-8") if (here / "
 
 setup(
     name="deva",
-    version="1.7.0",
+    version="1.8.0",
     description="智能数据处理平台",
     long_description=long_description,
     long_description_content_type="text/markdown",
