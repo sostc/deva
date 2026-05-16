@@ -1,0 +1,651 @@
+"""
+24小时全球市场时间线（简化版）
+功能：
+- 按时间倒序显示所有事件（最新在上）
+- 支持 A股题材、美股热点、高分新闻、金十要闻
+- 一键复制到剪贴板
+- 显示北京时间
+"""
+
+from datetime import datetime, timedelta
+from typing import List, Dict, Any
+import re
+
+import logging
+
+log = logging.getLogger(__name__)
+
+# 事件类型样式
+EVENT_TYPES = {
+    'cn_event': ('🇨🇳', '#ea580c', 'A股'),
+    'us_event': ('🇺🇸', '#3b82f6', '美股'),
+    'high_score_news': ('📰', '#f59e0b', '高分新闻'),
+    'jin10_news': ('📌', '#f97316', '金十要闻'),
+}
+
+# 题材热度色阶
+HOT_COLORS = [
+    (0.0, '#f8fafc'),
+    (0.2, '#e0f2fe'),
+    (0.4, '#bfdbfe'),
+    (0.6, '#93c5fd'),
+    (0.8, '#60a5fa'),
+    (1.0, '#3b82f6'),
+]
+
+
+def _get_hot_color(weight: float) -> str:
+    """根据权重获取热度颜色"""
+    for threshold, color in HOT_COLORS:
+        if weight <= threshold:
+            return color
+    return HOT_COLORS[-1][1]
+
+
+def _clean_news_title(title: str, max_len: int = 60) -> str:
+    """清理新闻标题，去除序号前缀"""
+    # 去除 "1. "、"2. " 等序号前缀
+    cleaned = re.sub(r'^\d+\.\s*', '', title)
+    # 去除可能的 HTML 标签
+    cleaned = re.sub(r'<[^>]+>', '', cleaned)
+    # 截断
+    if len(cleaned) > max_len:
+        return cleaned[:max_len] + '...'
+    return cleaned
+
+
+def _is_market_related_news(title: str, text: str = "") -> bool:
+    """判断新闻是否与市场相关"""
+    market_keywords = [
+        'A股', '美股', '股市', '股票', '大盘', '指数', '行情', '涨跌',
+        '板块', '题材', '概念', '龙头', '领涨', '涨停', '跌停',
+        '央行', '降息', '加息', '政策', '利好', '利空', '消息',
+        'GDP', 'CPI', 'PPI', 'PMI', '经济', '数据', '美联储',
+    ]
+    search_text = (title + ' ' + text).lower()
+    return any(keyword in search_text for keyword in market_keywords)
+
+
+def _get_a_block_events() -> List[Dict[str, Any]]:
+    """获取A股题材事件"""
+    try:
+        from deva.naja.market_hotspot.storing.block_events_store import get_cn_block_events
+        cached_events = get_cn_block_events(hours=48)
+        
+        if cached_events:
+            events = []
+            for event_data in cached_events:
+                try:
+                    events.append({
+                        'type': 'cn_event',
+                        'timestamp': event_data['timestamp'],
+                        'block_name': event_data.get('block_name', ''),
+                        'change_percent': event_data.get('change_percent', 0),
+                        'dragon_one': event_data.get('dragon_one'),
+                        'weight': event_data.get('weight', 0.5),
+                    })
+                except Exception:
+                    continue
+            if events:
+                return events
+        
+        from deva.naja.market_hotspot.tracking.history_tracker import get_history_tracker
+        tracker = get_history_tracker()
+        if not tracker or not tracker.block_hotspot_events_medium:
+            return []
+        
+        events = []
+        for event in tracker.block_hotspot_events_medium:
+            try:
+                block_name = event.block_name
+                if tracker and hasattr(tracker, 'get_block_name'):
+                    translated = tracker.get_block_name(event.block_id)
+                    if translated and translated != event.block_id:
+                        block_name = translated
+                
+                top_symbols = getattr(event, 'top_symbols', [])
+                dragon_one = top_symbols[0] if top_symbols else None
+                
+                events.append({
+                    'type': 'cn_event',
+                    'timestamp': event.timestamp,
+                    'block_name': block_name,
+                    'change_percent': getattr(event, 'change_percent', 0),
+                    'dragon_one': dragon_one,
+                    'weight': getattr(event, 'weight', 0.5),
+                })
+            except Exception:
+                continue
+        return events
+    except Exception:
+        return []
+
+
+def _get_us_events() -> List[Dict[str, Any]]:
+    """获取美股事件"""
+    try:
+        from deva.naja.market_hotspot.storing.block_events_store import get_us_block_events
+        cached_events = get_us_block_events(hours=48)
+        
+        if cached_events:
+            events = []
+            for event_data in cached_events:
+                try:
+                    events.append({
+                        'type': 'us_event',
+                        'timestamp': event_data['timestamp'],
+                        'block_name': event_data.get('block_name', ''),
+                        'change_percent': event_data.get('change_percent', 0),
+                        'weight': event_data.get('weight', 0.5),
+                    })
+                except Exception:
+                    continue
+            if events:
+                return events
+        
+        from deva.naja.market_hotspot.ui_components.us_market import get_us_hotspot_data
+        us_data = get_us_hotspot_data()
+        if not us_data:
+            return []
+        
+        events = []
+        now_ts = datetime.now().timestamp()
+        
+        block_hotspot = us_data.get('block_hotspot', {})
+        for block_id, weight in block_hotspot.items():
+            if weight > 0.3:
+                events.append({
+                    'type': 'us_event',
+                    'timestamp': now_ts,
+                    'block_name': block_id,
+                    'change_percent': weight * 100,
+                    'weight': weight,
+                })
+        
+        return events
+    except Exception:
+        return []
+
+
+def _get_high_score_news() -> List[Dict[str, Any]]:
+    """获取高分新闻"""
+    try:
+        from deva.naja.events.focused_news_store import get_today_focused_news
+        cached_news = get_today_focused_news(limit=50)
+        
+        if cached_news:
+            news_list = []
+            for news in cached_news:
+                try:
+                    score = news.get('importance_score', 0)
+                    if score >= 0.6:
+                        title = news.get('title', '')
+                        news_list.append({
+                            'type': 'high_score_news',
+                            'timestamp': news['timestamp'],
+                            'block_name': _clean_news_title(title),
+                            'score': score,
+                        })
+                except Exception:
+                    continue
+            news_list.sort(key=lambda x: x['score'], reverse=True)
+            return news_list[:8]
+    except Exception as e:
+        log.warning(f"[Timeline] 从持久化存储获取高分新闻失败: {e}")
+    
+    try:
+        from deva.naja.events import get_event_bus
+        from deva.naja.events.text_events import TextFocusedEvent
+        bus = get_event_bus()
+        recent_events = getattr(bus, '_recent_events', [])
+        
+        news_list = []
+        for event in recent_events:
+            if isinstance(event, TextFocusedEvent):
+                score = getattr(event, 'importance_score', 0.5)
+                if score >= 0.6:
+                    title = event.title
+                    summary = getattr(event, 'summary', '')
+                    if not _is_market_related_news(title, summary):
+                        continue
+                    news_list.append({
+                        'type': 'high_score_news',
+                        'timestamp': event.timestamp,
+                        'block_name': _clean_news_title(title),
+                        'score': score,
+                    })
+        
+        news_list.sort(key=lambda x: x['score'], reverse=True)
+        return news_list[:8]
+    except Exception:
+        return []
+
+
+def _get_jin10_important_news() -> List[Dict[str, Any]]:
+    """获取金十重要新闻"""
+    news_list = []
+    today_start = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0).timestamp()
+    
+    # 1. 优先从事件总线获取
+    try:
+        from deva.naja.events import get_event_bus
+        from deva.naja.events.text_events import TextFetchedEvent
+        bus = get_event_bus()
+        recent_events = getattr(bus, '_recent_events', [])
+        
+        for event in recent_events:
+            if isinstance(event, TextFetchedEvent) and event.source == "jin10_important":
+                title = event.title
+                news_list.append({
+                    'type': 'jin10_news',
+                    'timestamp': event.timestamp,
+                    'block_name': _clean_news_title(title),
+                    'score': 0.85,
+                })
+        
+        # 过滤今日新闻
+        news_list = [n for n in news_list if n['timestamp'] >= today_start]
+        
+        if news_list:
+            news_list.sort(key=lambda x: x['timestamp'], reverse=True)
+            return news_list[:10]
+    except Exception:
+        pass
+    
+    # 2. 回退：从文件缓存获取（但要验证日期）
+    try:
+        import os
+        import json
+        cache_file = os.path.expanduser("~/.naja/jin10_news.json")
+        if os.path.exists(cache_file):
+            with open(cache_file, 'r') as f:
+                cached_news = json.load(f)
+            
+            for news in cached_news:
+                try:
+                    display_time = news.get('display_time', '')
+                    title = news.get('title', '')
+                    
+                    # 解析时间
+                    if display_time:
+                        dt = datetime.strptime(display_time, "%Y-%m-%d %H:%M:%S")
+                        ts = dt.timestamp()
+                    else:
+                        continue
+                    
+                    # 只保留今日新闻
+                    if ts >= today_start:
+                        news_list.append({
+                            'type': 'jin10_news',
+                            'timestamp': ts,
+                            'block_name': _clean_news_title(title),
+                            'score': 0.85,
+                        })
+                except Exception:
+                    continue
+            
+            if news_list:
+                news_list.sort(key=lambda x: x['timestamp'], reverse=True)
+                return news_list[:10]
+    except Exception:
+        pass
+    
+    # 3. 最后回退：使用 Playwright 实时采集
+    try:
+        import asyncio
+        
+        async def fetch_live():
+            from deva.naja.datasource.plugins.jin10_fetcher import fetch_important_news_playwright
+            return await fetch_important_news_playwright(
+                headless=True,
+                timeout_ms=15000,
+                extra_wait=3.0
+            )
+        
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            live_news = loop.run_until_complete(fetch_live())
+        finally:
+            loop.close()
+        
+        if live_news:
+            for news in live_news:
+                try:
+                    if news.display_time:
+                        dt = datetime.strptime(news.display_time, "%Y-%m-%d %H:%M:%S")
+                        ts = dt.timestamp()
+                    else:
+                        ts = datetime.now().timestamp()
+                    
+                    news_list.append({
+                        'type': 'jin10_news',
+                        'timestamp': ts,
+                        'block_name': _clean_news_title(news.title),
+                        'score': 0.85,
+                    })
+                except Exception:
+                    continue
+            
+            if news_list:
+                news_list.sort(key=lambda x: x['timestamp'], reverse=True)
+                return news_list[:10]
+    except Exception:
+        pass
+    
+    return news_list
+
+
+def _is_trading_day() -> bool:
+    """判断是否为交易日"""
+    try:
+        from deva.naja.radar.trading_clock import is_trading_time
+        return is_trading_time('CN') or is_trading_time('US')
+    except:
+        return False
+
+
+def _get_market_status() -> Dict[str, Any]:
+    """获取市场状态"""
+    try:
+        from deva.naja.radar.trading_clock import get_global_trading_status
+        return get_global_trading_status()
+    except:
+        return {}
+
+
+def _export_text_timeline() -> str:
+    """导出纯文本时间线"""
+    now = datetime.now()
+    timestamp = now.strftime('%Y-%m-%d %H:%M')
+    
+    cn_events = _get_a_block_events()
+    us_events = _get_us_events()
+    news_events = _get_high_score_news()
+    jin10_news = _get_jin10_important_news()
+    
+    all_events = cn_events + us_events + news_events + jin10_news
+    all_events.sort(key=lambda x: x.get('timestamp', 0), reverse=True)
+    
+    # 过滤过去24小时
+    cutoff = (now - timedelta(hours=24)).timestamp()
+    all_events = [e for e in all_events if e.get('timestamp', 0) >= cutoff]
+    
+    lines = []
+    lines.append(f"【全球市场时间线】")
+    lines.append(f"📅 {timestamp} · 北京时间 · 过去24小时")
+    lines.append(f"{'─' * 40}")
+    
+    if not all_events:
+        lines.append("\n暂无事件")
+    else:
+        last_date = None
+        for event in all_events:
+            ts = event.get('timestamp', 0)
+            dt = datetime.fromtimestamp(ts)
+            event_date = dt.strftime('%m-%d')
+            event_time = dt.strftime('%H:%M')
+            
+            if event_date != last_date:
+                lines.append(f"\n📅 {event_date}")
+                last_date = event_date
+            
+            event_type = event.get('type', '')
+            block_name = event.get('block_name', '')
+            
+            if event_type == 'high_score_news':
+                score = event.get('score', 0.5)
+                stars = '⭐' * min(5, int(score * 5 + 0.5))
+                lines.append(f"  {event_time} 📰 {stars} {block_name}")
+            elif event_type == 'jin10_news':
+                lines.append(f"  {event_time} 📌 {block_name}")
+            elif event_type == 'cn_event':
+                chg = event.get('change_percent', 0)
+                emoji = '📈' if chg >= 0 else '📉'
+                lines.append(f"  {event_time} 🇨🇳 {emoji} {block_name} ({chg:+.1f}%)")
+                dragon_one = event.get('dragon_one')
+                if dragon_one:
+                    sym = dragon_one.get('symbol', '')
+                    name = dragon_one.get('name', '')
+                    dchg = dragon_one.get('change_pct', 0)
+                    if sym:
+                        lines.append(f"        🏆 龙一: {sym} {name[:4]} ({dchg:+.1f}%)")
+            elif event_type == 'us_event':
+                chg = event.get('change_percent', 0)
+                emoji = '📈' if chg >= 0 else '📉'
+                lines.append(f"  {event_time} 🇺🇸 {emoji} {block_name} ({chg:+.1f}%)")
+    
+    lines.append(f"\n{'=' * 40}")
+    lines.append(f"导出时间: {timestamp}")
+    lines.append(f"🇨🇳 {len(cn_events)}题材 | 🇺🇸 {len(us_events)}热点 | 📰 {len(news_events)}高分 | 📌 {len(jin10_news)}要闻")
+    
+    return '\n'.join(lines)
+
+
+def render_market_24h_timeline(view_mode: str = 'past_24h') -> str:
+    """
+    渲染24小时全球市场时间线
+    
+    Args:
+        view_mode: 固定为 'past_24h'
+    
+    Returns:
+        HTML字符串
+    """
+    now = datetime.now()
+    
+    cn_events = _get_a_block_events()
+    us_events = _get_us_events()
+    news_events = _get_high_score_news()
+    jin10_news = _get_jin10_important_news()
+    
+    all_events = cn_events + us_events + news_events + jin10_news
+    all_events.sort(key=lambda x: x.get('timestamp', 0), reverse=True)
+    
+    # 过滤过去24小时
+    cutoff = (now - timedelta(hours=24)).timestamp()
+    all_events = [e for e in all_events if e.get('timestamp', 0) >= cutoff]
+    
+    # 时间范围
+    start_ts = now.timestamp() - 24 * 3600
+    start_date = datetime.fromtimestamp(start_ts).strftime('%m-%d')
+    end_date = now.strftime('%m-%d')
+    date_range = f"{start_date} ~ {end_date}"
+    current_time_str = now.strftime('%H:%M')
+    
+    # 市场状态
+    market_status = _get_market_status()
+    cn_trading = market_status.get('CN', {}).get('is_trading', False)
+    us_trading = market_status.get('US', {}).get('is_trading', False)
+    
+    if cn_trading and us_trading:
+        market_badge = '<span style="background: #fef2f2; color: #dc2626; padding: 2px 8px; border-radius: 4px; font-size: 11px;">🔥 双市场交易中</span>'
+    elif cn_trading:
+        market_badge = '<span style="background: #fff7ed; color: #ea580c; padding: 2px 8px; border-radius: 4px; font-size: 11px;">🇨🇳 A股交易中</span>'
+    elif us_trading:
+        market_badge = '<span style="background: #eff6ff; color: #3b82f6; padding: 2px 8px; border-radius: 4px; font-size: 11px;">🇺🇸 美股交易中</span>'
+    else:
+        market_badge = '<span style="background: #f8fafc; color: #64748b; padding: 2px 8px; border-radius: 4px; font-size: 11px;">🌙 盘后休市</span>'
+    
+    html_parts = []
+    
+    # 标题
+    html_parts.append(f'''
+    <div style="background: linear-gradient(135deg, #1e3a5f, #0f172a); border-radius: 12px; padding: 20px; margin-bottom: 16px; color: white;">
+        <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;">
+            <div>
+                <div style="font-size: 18px; font-weight: 600; margin-bottom: 8px;">
+                    🌐 全球市场时间线
+                </div>
+                <div style="font-size: 12px; opacity: 0.8;">
+                    {date_range} · 北京时间 · 过去24小时
+                </div>
+            </div>
+            <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
+                {market_badge}
+                <div style="font-size: 13px;">
+                    <span style="opacity: 0.7;">当前</span>
+                    <span style="font-weight: 600; font-size: 16px; margin-left: 4px;">{current_time_str}</span>
+                </div>
+                <button onclick="copyTimelineText()" 
+                    style="font-size: 12px; padding: 6px 12px; background: rgba(255,255,255,0.15); color: white; border: 1px solid rgba(255,255,255,0.3); border-radius: 6px; cursor: pointer;">
+                    📋 复制时间线
+                </button>
+            </div>
+        </div>
+        
+        <div style="display: flex; gap: 16px; margin-top: 16px; padding-top: 16px; border-top: 1px solid rgba(255,255,255,0.1); flex-wrap: wrap;">
+            <div style="flex: 1; min-width: 100px;">
+                <div style="font-size: 20px; font-weight: 600;">{len(cn_events)}</div>
+                <div style="font-size: 11px; opacity: 0.7;">🇨🇳 A股题材</div>
+            </div>
+            <div style="flex: 1; min-width: 100px;">
+                <div style="font-size: 20px; font-weight: 600;">{len(us_events)}</div>
+                <div style="font-size: 11px; opacity: 0.7;">🇺🇸 美股热点</div>
+            </div>
+            <div style="flex: 1; min-width: 100px;">
+                <div style="font-size: 20px; font-weight: 600;">{len(news_events)}</div>
+                <div style="font-size: 11px; opacity: 0.7;">📰 高分新闻</div>
+            </div>
+            <div style="flex: 1; min-width: 100px;">
+                <div style="font-size: 20px; font-weight: 600;">{len(jin10_news)}</div>
+                <div style="font-size: 11px; opacity: 0.7;">📌 金十要闻</div>
+            </div>
+        </div>
+    </div>
+    ''')
+    
+    # 时间流
+    html_parts.append('''
+    <div style="background: white; border-radius: 12px; padding: 20px; margin-bottom: 16px;">
+        <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 20px; padding-bottom: 16px; border-bottom: 2px dashed #e2e8f0;">
+            <span style="font-size: 20px;">⏰</span>
+            <span style="font-size: 14px; font-weight: 600; color: #1e293b;">市场时间流</span>
+            <span style="font-size: 12px; color: #64748b; margin-left: auto;">↑ 最新 | 历史 ↓</span>
+        </div>
+    ''')
+    
+    if not all_events:
+        html_parts.append('''
+        <div style="text-align: center; padding: 40px; color: #94a3b8;">
+            暂无事件
+        </div>
+        ''')
+    else:
+        last_date = None
+        for event in all_events:
+            ts = event.get('timestamp', 0)
+            dt = datetime.fromtimestamp(ts)
+            event_date = dt.strftime('%m-%d')
+            event_time = dt.strftime('%H:%M')
+            
+            # 日期分隔
+            if event_date != last_date:
+                html_parts.append(f'''
+                <div style="margin: 20px 0 12px 0; text-align: center;">
+                    <span style="display: inline-block; background: #f1f5f9; color: #64748b; padding: 4px 12px; border-radius: 12px; font-size: 11px;">📅 {event_date}</span>
+                </div>
+                ''')
+                last_date = event_date
+            
+            # 事件卡片
+            event_type = event.get('type', '')
+            emoji, base_color, _ = EVENT_TYPES.get(event_type, ('•', '#64748b', ''))
+            title = event.get('block_name', '')
+            
+            if event_type in ('high_score_news', 'jin10_news'):
+                score = event.get('score', 0.5)
+                stars = '⭐' * min(5, int(score * 5 + 0.5))
+                change_display = f'<span style="color: {base_color};">{stars}</span> <span style="color: #64748b;">({score:.2f})</span>'
+            else:
+                chg = event.get('change_percent', 0)
+                sign = '+' if chg >= 0 else ''
+                change_display = f'<span style="color: {"#dc2626" if chg >= 0 else "#3b82f6"}; font-weight: 600;">{sign}{chg:.1f}%</span>'
+            
+            # 热度色
+            weight = event.get('weight', 0.5)
+            hot_color = _get_hot_color(weight)
+            
+            # 龙一信息
+            dragon_one = event.get('dragon_one')
+            dragon_html = ''
+            if dragon_one and event_type == 'cn_event':
+                sym = dragon_one.get('symbol', '')
+                name = dragon_one.get('name', '')
+                dchg = dragon_one.get('change_pct', 0)
+                if sym:
+                    dragon_html = f'<div style="font-size: 11px; color: #64748b; margin-top: 4px;">🏆 龙一: {sym} {name[:4]} ({dchg:+.1f}%)</div>'
+            
+            html_parts.append(f'''
+            <div style="display: flex; gap: 12px; padding: 12px; margin-bottom: 8px; background: #f8fafc; border-radius: 8px; border-left: 4px solid {base_color}; position: relative;">
+                <div style="position: absolute; left: 0; top: 0; bottom: 0; width: 4px; background: {hot_color}; border-radius: 2px;"></div>
+                <div style="min-width: 60px; text-align: right;">
+                    <div style="font-size: 13px; color: #1e293b; font-weight: 500;">{event_time}</div>
+                </div>
+                <div style="flex: 1;">
+                    <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 4px; flex-wrap: wrap;">
+                        <span style="font-size: 16px;">{emoji}</span>
+                        <span style="font-size: 13px; font-weight: 600; color: #1e293b;">{title}</span>
+                        <span style="margin-left: auto;">{change_display}</span>
+                    </div>
+                    {dragon_html}
+                </div>
+            </div>
+            ''')
+    
+    html_parts.append('</div>')
+    
+    # JavaScript
+    escaped_text = _export_text_timeline().replace('`', '\\`').replace('$', '\\$')
+    html_parts.append(f'''
+    <script>
+    function copyTimelineText() {{
+        const text = `{escaped_text}`;
+        
+        if (navigator.clipboard && navigator.clipboard.writeText) {{
+            navigator.clipboard.writeText(text).then(() => {{
+                alert('✅ 时间线已复制到剪贴板！');
+            }}).catch(() => {{
+                const textArea = document.createElement('textarea');
+                textArea.value = text;
+                textArea.style.position = 'fixed';
+                textArea.style.left = '-999999px';
+                document.body.appendChild(textArea);
+                textArea.focus();
+                textArea.select();
+                try {{
+                    document.execCommand('copy');
+                    alert('✅ 时间线已复制到剪贴板！');
+                }} catch (e) {{
+                    alert('❌ 复制失败！');
+                }}
+                document.body.removeChild(textArea);
+            }});
+        }} else {{
+            const textArea = document.createElement('textarea');
+            textArea.value = text;
+            textArea.style.position = 'fixed';
+            textArea.style.left = '-999999px';
+            document.body.appendChild(textArea);
+            textArea.focus();
+            textArea.select();
+            try {{
+                document.execCommand('copy');
+                alert('✅ 时间线已复制到剪贴板！');
+            }} catch (e) {{
+                alert('❌ 复制失败！');
+            }}
+            document.body.removeChild(textArea);
+        }}
+    }}
+    </script>
+    ''')
+    
+    return ''.join(html_parts)
+
+
+if __name__ == '__main__':
+    print(render_market_24h_timeline('past_24h'))
+    print("\n" + "=" * 50 + "\n")
+    print("导出文本测试:")
+    print(_export_text_timeline())
