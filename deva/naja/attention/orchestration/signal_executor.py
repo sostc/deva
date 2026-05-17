@@ -153,8 +153,6 @@ class SignalExecutor:
 
             self._feedback_to_insight_pool(symbol, signal_type, outcome)
 
-            self._feedback_to_meta_evolution(strategy_name, outcome)
-
         except Exception as e:
             log.error(f"[SignalExecutor] 反馈到觉醒系统失败: {e}")
 
@@ -186,16 +184,6 @@ class SignalExecutor:
                 pool.record_trade_outcome(symbol, signal_type, outcome)
         except Exception as e:
             log.debug(f"[SignalExecutor] 反馈到InsightPool失败: {e}")
-
-    def _feedback_to_meta_evolution(self, strategy_name: str, outcome: Dict[str, Any]):
-        """反馈到 MetaEvolution"""
-        try:
-            from deva.naja.evolution import get_meta_evolution
-            meta = get_meta_evolution()
-            if meta:
-                meta.on_signal_outcome(strategy_name, outcome)
-        except Exception:
-            pass
 
     def _get_recent_trade_feedback(self, limit: int = 10) -> List[Dict[str, Any]]:
         """获取最近交易反馈"""

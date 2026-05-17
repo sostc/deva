@@ -68,8 +68,8 @@ async def init_naja_ui(title: str):
         new_username = str(created["username"]).strip()
         new_password = str(created["password"])
         
-        set_config("auth.username", new_username)
-        set_config("auth.password", new_password)
+        from ..config import set_auth_config
+        set_auth_config(username=new_username, password=new_password)
         
         toast("管理员账户已创建，请使用新账号登录", color="success")
         # 重新获取认证配置

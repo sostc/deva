@@ -79,7 +79,6 @@ try:
     from .admin.monitor import monitor_routes as admin_monitor_routes
     from .admin.monitor import monitor_ui as admin_monitor_ui
     from .admin.follow import follow_ui as admin_follow_ui
-    from .admin.browser import browser_ui as admin_browser_ui
     from .llm.worker_runtime import run_ai_in_worker
 except ImportError:
     # Allow running as a script: python deva/admin.py
@@ -94,7 +93,6 @@ except ImportError:
     from deva.admin.monitor import monitor_routes as admin_monitor_routes
     from deva.admin.monitor import monitor_ui as admin_monitor_ui
     from deva.admin.follow import follow_ui as admin_follow_ui
-    from deva.admin.browser import browser_ui as admin_browser_ui
     from deva.llm.worker_runtime import run_ai_in_worker
 
 import pandas as pd
@@ -481,11 +479,6 @@ async def followadmin():
     return await render_follow_ui(_follow_ui_ctx())
 
 
-async def browseradmin():
-    from .admin.browser.browser_ui import render_browser_ui
-    return await render_browser_ui(_browser_ui_ctx())
-
-
 async def configadmin():
     from .admin.config.config_ui import render_config_admin
     return await render_config_admin(_config_ui_ctx())
@@ -557,10 +550,6 @@ def _follow_ui_ctx():
 
 def render_llm_config_guide(ctx, model_types=("kimi", "deepseek")):
     return admin_main_ui.render_llm_config_guide(ctx, model_types)
-
-
-def _browser_ui_ctx():
-    return admin_contexts.browser_ui_ctx(globals(), admin_tables)
 
 
 def _config_ui_ctx():
@@ -657,7 +646,6 @@ if __name__ == '__main__':
         (r'/busadmin', webio_handler(busadmin, cdn=cdn)),
         (r'/streamadmin', webio_handler(streamadmin, cdn=cdn)),
         (r'/followadmin', webio_handler(followadmin, cdn=cdn)),
-        (r'/browseradmin', webio_handler(browseradmin, cdn=cdn)),
         (r'/configadmin', webio_handler(configadmin, cdn=cdn)),
         (r'/', webio_handler(main, cdn=cdn)),
         (r'/taskadmin', webio_handler(taskadmin, cdn=cdn)),

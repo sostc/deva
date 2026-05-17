@@ -8,7 +8,7 @@
 
 ### Key Context
 - 用户使用 Naja 系统进行量化交易/策略运行
-- 系统已从 deva 框架中逐步独立，当前版本 v1.7.0
+- 系统已从 deva 框架中逐步独立，当前版本 v1.8.0
 - 用户偏好直接沟通，不需要废话
 
 ### Preferences Learned
@@ -26,6 +26,51 @@
 - 2026-04-20: SR() 收口改造 Phase 1-3 完成
 - 2026-05-07: Agent 化演进（MarketCopilot、NajaAgent、API Catalog）
 - 2026-05-09: v1.7.0 发布（后台服务、macOS 托盘）
+- 2026-05-14: 系统精简（删除 browser/evolution/business/replay/admin_stock 模块）
+- 2026-05-16: v1.8.0 发布（远程部署到 secsay.com）
+
+---
+
+## Server Configuration
+
+### Production Server (secsay.com)
+- **Host**: secsay.com
+- **Port**: 22 (SSH)
+- **User**: root
+- **Auth Method**: SSH key (passwordless)
+- **Naja URL**: http://secsay.com:8080
+- **Naja Admin**: admin / 123456 (测试账号)
+- **Naja Config**: /root/.naja/
+- **Naja Logs**: /root/.naja/logs/naja_console.log
+- **Naja PID File**: /root/naja.pid
+- **Code Install Path**: /usr/local/lib/python3.10/site-packages/deva/naja/
+
+### Quick SSH Commands
+```bash
+# 连接服务器
+ssh root@secsay.com
+
+# 检查 Naja 状态
+ssh root@secsay.com "ps aux | grep naja"
+
+# 查看日志
+ssh root@secsay.com "tail -50 /root/.naja/logs/naja_console.log"
+
+# 重启 Naja
+ssh root@secsay.com "kill \$(cat /root/naja.pid) ; cd /root && python3 -m deva.naja --port 8080 --host 0.0.0.0 > /root/.naja/logs/naja_console.log 2>&1 &"
+
+# 查看错误日志
+ssh root@secsay.com "grep -i error /root/.naja/logs/naja_console.log"
+
+# 上传代码到服务器（替换 <local_file> 和 <remote_path>）
+# scp <local_file> root@secsay.com:/usr/local/lib/python3.10/site-packages/deva/naja/<remote_path>/
+```
+
+### Known Issues & Fixes (2026-05-16)
+- ✅ ManasManager 缺少 get_manas_engine() 方法 - 已修复
+- ✅ trading_timeline.py 语法错误（非法字符） - 已修复
+- ✅ 用户认证配置未持久化 - 已修复 ui_base.py
+- ⚠️ river 未安装 - 使用 fallback 实现（不影响核心功能）
 
 ---
 
@@ -47,13 +92,19 @@
 - UnifiedManas 设计方案未被采纳，ManasEngine 仍独立运行
 - application 层（Agent 化）是正确的架构方向
 
+### 2026-05 - 远程部署
+- 服务器依赖问题：NumPy 2.x 与 pandas 2.3.3 不兼容，需要降级到 numpy<2
+- 服务器上 PyWebIO/Tornado 需要升级到最新版本以避免事件循环问题
+- trading_timeline.py 等 UI 组件中避免使用特殊 Unicode 字符，容易导致编码问题
+- f-string 中不能嵌套三引号，需要使用传统 % 格式化或变量拼接
+
 ---
 
 ## Ongoing Context
 
 ### Active Projects
-- Naja 量化交易系统 v1.7.0 稳定运行
-- SR() 收口改造 Phase 3+ 待完成（集成测试、bandit/radar 改造）
+- Naja 量化交易系统 v1.8.0 已部署到生产环境 (secsay.com)
+- 远程部署和运维流程已建立
 - Skills 体系持续扩展
 
 ### Key Decisions Made
@@ -66,6 +117,15 @@
 - `memory/core.py` 路径已不存在，记忆系统已被重构
 - 旧路径 `/Users/spark/pycharmproject/deva/` 已不适用
 - 流动性救援数据源还有 3 项待实现（Level2、VIX、媒体情绪）
+
+### 2026-05 - 系统精简
+- 删除 `deva/admin/browser/` 模块
+- 删除 `deva/naja/evolution/` 模块
+- 删除 `deva/naja/business/` 模块
+- 删除 `deva/naja/replay/` 模块
+- 删除 `deva/admin/stock/` 模块
+- 清理 `docs/naja/docs/` 下重复的架构文档
+- `knowledge/alaya/` 保留（被核心模块引用）
 
 ---
 

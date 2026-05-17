@@ -700,6 +700,25 @@ class MarketHotspotHistoryTracker:
             # 中阈值: 5%
             if abs(change_pct) >= 5 or (old_weight == 0 and new_weight > 0) or (old_weight > 0 and new_weight == 0):
                 self.block_hotspot_events_medium.append(event)
+                
+                # 保存到持久化存储
+                try:
+                    from deva.naja.market_hotspot.storing.block_events_store import add_cn_block_event
+                    add_cn_block_event({
+                        'block_id': block_id,
+                        'block_name': block_name,
+                        'old_weight': old_weight,
+                        'new_weight': new_weight,
+                        'change_percent': change_pct if change_pct != float('inf') else 999,
+                        'event_type': event_type,
+                        'top_symbols': top_symbols,
+                        'timestamp': event.timestamp,
+                        'weight': abs(change_pct) / 100.0 if change_pct != float('inf') else 1.0,
+                        'dragon_one': top_symbols[0] if top_symbols else None,
+                    })
+                except Exception as store_err:
+                    log.warning(f"保存A股事件到持久化存储失败: {store_err}")
+                
                 score = min(1.0, abs(change_pct) / 100.0) if change_pct != float('inf') else 1.0
                 payload = {
                     "block_id": block_id,

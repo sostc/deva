@@ -299,6 +299,14 @@ class TextImportanceScorer:
             from deva.naja.events import get_event_bus
             event_bus = get_event_bus()
             event_bus.publish(event)
+            
+            if event.routing_level == 'deep':
+                try:
+                    from deva.naja.events.focused_news_store import add_focused_news
+                    add_focused_news(event)
+                except Exception as store_err:
+                    log.warning(f"[TextImportanceScorer] 保存到持久化存储失败: {store_err}")
+            
             log.debug(
                 f"[TextImportanceScorer] 发布 TextFocusedEvent: "
                 f"importance={event.importance_score:.2f}, level={event.routing_level}, "
