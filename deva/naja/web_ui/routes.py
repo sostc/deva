@@ -734,6 +734,88 @@ class DualBusStreamHandler(RequestHandler):
             push_center.unsubscribe(on_event)
 
 
+class MarketTimelineHandler(RequestHandler):
+    """24小时全球市场时间线 API - 为托盘菜单设计"""
+
+    def set_default_headers(self):
+        self.set_header("Content-Type", "application/json; charset=utf-8")
+
+    def get(self):
+        try:
+            from datetime import datetime, timedelta
+            from deva.naja.market_hotspot.ui_components.timeline.market_24h_timeline import (
+                _get_a_block_events,
+                _get_us_events,
+                _get_high_score_news,
+                _get_jin10_important_news,
+            )
+            
+            # 获取所有事件
+            cn_events = _get_a_block_events()
+            us_events = _get_us_events()
+            news_events = _get_high_score_news()
+            jin10_news = _get_jin10_important_news()
+            
+            all_events = cn_events + us_events + news_events + jin10_news
+            all_events.sort(key=lambda x: x.get('timestamp', 0), reverse=True)
+            
+            # 过滤过去24小时
+            cutoff = (datetime.now() - timedelta(hours=24)).timestamp()
+            all_events = [e for e in all_events if e.get('timestamp', 0) >= cutoff]
+            
+            # 格式化为托盘菜单友好的格式
+            timeline_items = []
+            for event in all_events[:15]:
+                ts = event.get('timestamp', 0)
+                dt = datetime.fromtimestamp(ts)
+                event_type = event.get('type', '')
+                block_name = event.get('block_name', '')
+                
+                item = {
+                    'type': event_type,
+                    'timestamp': ts,
+                    'time': dt.strftime('%H:%M'),
+                    'date': dt.strftime('%m-%d'),
+                    'title': block_name,
+                }
+                
+                if event_type == 'high_score_news':
+                    item['score'] = event.get('score', 0.5)
+                elif event_type == 'jin10_news':
+                    item['score'] = event.get('score', 0.85)
+                    item['flash_id'] = event.get('flash_id', '')
+                    item['url'] = event.get('url', '')
+                elif event_type in ('cn_event', 'us_event'):
+                    change_percent = event.get('change_percent', 0)
+                    sign = '+' if change_percent >= 0 else ''
+                    item['change'] = f"{sign}{change_percent:.1f}%"
+                    item['weight'] = event.get('weight', 0.5)
+                
+                timeline_items.append(item)
+            
+            self.write(json.dumps({
+                "success": True,
+                "timestamp": time.time(),
+                "datetime": datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                "stats": {
+                    "cn_events": len(cn_events),
+                    "us_events": len(us_events),
+                    "high_score_news": len(news_events),
+                    "jin10_news": len(jin10_news),
+                },
+                "list": timeline_items,
+            }, ensure_ascii=False, default=_json_default))
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            self.write(json.dumps({
+                "success": False,
+                "error": str(e),
+                "list": [],
+                "stats": {},
+            }, ensure_ascii=False))
+
+
 def create_handlers(cdn: str = None):
     """创建路由处理器"""
     cdn_url = cdn or 'https://fastly.jsdelivr.net/gh/wang0618/PyWebIO-assets@v1.8.3/'
@@ -836,6 +918,7 @@ def create_handlers(cdn: str = None):
         (r'/api/dualbus/stats', DualBusStatsHandler),
         (r'/api/dual-bus/stream', DualBusStreamHandler),
         (r'/api/dualbus/stream', DualBusStreamHandler),
+        (r'/api/market/timeline', MarketTimelineHandler),
     ]
 
     return page_routes + api_routes
