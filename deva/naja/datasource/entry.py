@@ -250,6 +250,11 @@ class DataSourceEntry(RecoverableUnit):
         1. auto_tuning=True: 使用 ReplayScheduler，自动根据处理性能调整间隔
         2. auto_tuning=False: 使用原有固定间隔模式
         """
+        try:
+            from ..replay import ReplayScheduler, ReplayConfig, create_replay_scheduler
+        except ImportError:
+            return {"success": False, "error": "回放功能已禁用"}
+
         config = getattr(self._metadata, "config", {}) or {}
         table_name = config.get("table_name")
 

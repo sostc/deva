@@ -107,10 +107,10 @@ async def render_market_hotspot_admin(ctx: dict):
     from .cards.liquidity_rescue_panel import render_liquidity_rescue_panel
     from .cards.feedback_report_panel import render_feedback_report_panel
     from .timeline import (
-        render_hotspot_timeline, render_block_trends, render_hotspot_shift_report,
-        render_multi_threshold_timeline, render_hotspot_changes, render_recent_signals,
-        render_block_hotspot_timeline, render_block_trading_timeline,
-    )
+    render_hotspot_timeline, render_block_trends, render_hotspot_shift_report,
+    render_multi_threshold_timeline, render_hotspot_changes, render_recent_signals,
+    render_block_hotspot_timeline, render_market_24h_timeline,
+)
     from .intelligence import render_intelligence_panels, render_propagation_panel
     from .flow import (
         render_hotspot_flow_ui,
@@ -413,7 +413,7 @@ async def render_market_hotspot_admin(ctx: dict):
     put_html(_generate_realtime_changes_js())
 
     put_html(render_block_hotspot_timeline())
-    put_html(render_block_trading_timeline())
+    put_html(render_market_24h_timeline('past_24h'))
 
     # --- 🧠 智能系统（实时更新部分）---
     put_html(_section_header("🧠", "智能系统", "策略引擎与信号分析"))

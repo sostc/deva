@@ -30,7 +30,7 @@ from .timeline import (
     render_hotspot_changes,
     render_hotspot_shift_report,
     render_recent_signals,
-    render_block_trading_timeline,
+    render_market_24h_timeline,
 )
 
 from .admin import render_market_hotspot_admin
@@ -75,7 +75,7 @@ __all__ = [
     "render_hotspot_changes",
     "render_hotspot_shift_report",
     "render_recent_signals",
-    "render_block_trading_timeline",
+    "render_market_24h_timeline",
     "render_market_hotspot_admin",
     "render_hotspot_flow_ui",
     "render_hotspot_layers_detail",

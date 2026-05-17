@@ -147,10 +147,11 @@ def handle_service_command():
             return False
 
     parser = argparse.ArgumentParser(description="Naja 服务管理")
-    parser.add_argument("action", choices=["start", "stop", "reload", "restart", "status"])
+    parser.add_argument("action", choices=["start", "stop", "reload", "restart", "status", "log", "debug"])
     parser.add_argument("--port", type=int, default=8080, help="启动端口（仅 start 有效）")
     parser.add_argument("--host", type=str, default="0.0.0.0", help="启动地址（仅 start 有效）")
     parser.add_argument("-f", "--force", action="store_true", help="强制终止占用端口的所有进程")
+    parser.add_argument("-n", "--lines", type=int, default=50, help="初始显示的日志行数（仅 log/debug 有效）")
     args = parser.parse_args(sys.argv[2:])
 
     if args.action == "start":
@@ -306,6 +307,22 @@ def handle_service_command():
             print("✗ Naja 未在运行")
             print(f"  PID文件: {status['pid_file']}")
             print(f"  日志文件: {status['log_file']}")
+    elif args.action == "log":
+        from .infra.runtime.daemon import follow_log
+        if not is_running():
+            print("✗ Naja 未在运行，无法查看日志")
+            status = get_status()
+            print(f"  日志文件: {status['log_file']}")
+            return
+        follow_log(LOG_FILE, level_filter=None, lines=args.lines)
+    elif args.action == "debug":
+        from .infra.runtime.daemon import follow_log
+        if not is_running():
+            print("✗ Naja 未在运行，无法查看调试日志")
+            status = get_status()
+            print(f"  日志文件: {status['log_file']}")
+            return
+        follow_log(LOG_FILE, level_filter="DEBUG", lines=args.lines)
 
 
 def main():
@@ -314,8 +331,8 @@ def main():
 
     parser = argparse.ArgumentParser(description="Naja - 实时数据流与策略系统")
 
-    parser.add_argument("-s", "--service", type=str, default=None, choices=["start", "stop", "reload", "restart", "status"],
-                        help="服务管理模式: start(后台启动) | stop(停止) | reload(热重启) | restart(重启) | status(状态)")
+    parser.add_argument("-s", "--service", type=str, default=None, choices=["start", "stop", "reload", "restart", "status", "log", "debug"],
+                        help="服务管理模式: start(后台启动) | stop(停止) | reload(热重启) | restart(重启) | status(状态) | log(查看日志) | debug(查看调试日志)")
 
     if len(sys.argv) > 1 and sys.argv[1] in ("-s", "--service"):
         handle_service_command()
