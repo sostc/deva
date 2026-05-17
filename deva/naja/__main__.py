@@ -256,8 +256,7 @@ def handle_service_command():
         if platform.system() == "Darwin":
             try:
                 import rumps
-                naja_root = str(Path(__file__).parent.parent.parent)
-                tray_script = os.path.join(naja_root, "deva", "naja", "scripts", "start_tray.py")
+                tray_script = os.path.join(str(Path(__file__).parent), "scripts", "start_tray.py")
                 tray_cmd = [sys.executable, tray_script]
                 tray_proc = subprocess.Popen(
                     tray_cmd,

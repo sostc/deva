@@ -236,11 +236,15 @@ def _get_jin10_important_news() -> List[Dict[str, Any]]:
         for event in recent_events:
             if isinstance(event, TextFetchedEvent) and event.source == "jin10_important":
                 title = event.title
+                flash_id = getattr(event, 'flash_id', '')
+                url = getattr(event, 'url', '')
                 news_list.append({
                     'type': 'jin10_news',
                     'timestamp': event.timestamp,
                     'block_name': _clean_news_title(title),
                     'score': 0.85,
+                    'flash_id': flash_id,
+                    'url': url,
                 })
         
         # 过滤今日新闻
@@ -265,6 +269,7 @@ def _get_jin10_important_news() -> List[Dict[str, Any]]:
                 try:
                     display_time = news.get('display_time', '')
                     title = news.get('title', '')
+                    flash_id = news.get('flash_id', '')
                     
                     # 解析时间
                     if display_time:
@@ -273,6 +278,8 @@ def _get_jin10_important_news() -> List[Dict[str, Any]]:
                     else:
                         continue
                     
+                    url = f"https://www.jin10.com/news/{flash_id}" if flash_id else ""
+                    
                     # 只保留今日新闻
                     if ts >= today_start:
                         news_list.append({
@@ -280,6 +287,8 @@ def _get_jin10_important_news() -> List[Dict[str, Any]]:
                             'timestamp': ts,
                             'block_name': _clean_news_title(title),
                             'score': 0.85,
+                            'flash_id': flash_id,
+                            'url': url,
                         })
                 except Exception:
                     continue
@@ -318,11 +327,16 @@ def _get_jin10_important_news() -> List[Dict[str, Any]]:
                     else:
                         ts = datetime.now().timestamp()
                     
+                    flash_id = getattr(news, 'flash_id', '')
+                    url = f"https://www.jin10.com/news/{flash_id}" if flash_id else ""
+                    
                     news_list.append({
                         'type': 'jin10_news',
                         'timestamp': ts,
                         'block_name': _clean_news_title(news.title),
                         'score': 0.85,
+                        'flash_id': flash_id,
+                        'url': url,
                     })
                 except Exception:
                     continue
@@ -344,12 +358,14 @@ def _get_jin10_important_news() -> List[Dict[str, Any]]:
         ("大宗商品价格波动，能源与贵金属走势分化", now - timedelta(hours=10)),
     ]
     
-    for title, time_obj in example_news:
+    for i, (title, time_obj) in enumerate(example_news):
         news_list.append({
             'type': 'jin10_news',
             'timestamp': time_obj.timestamp(),
             'block_name': title,
             'score': 0.8,
+            'flash_id': f"example_{i}",
+            'url': "",
         })
     
     return news_list

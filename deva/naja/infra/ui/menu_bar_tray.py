@@ -114,61 +114,79 @@ class MenuBarTray:
             return
         self._initialized = True
         self._app = None
-        self._news_items = []
-        self._hot_blocks = []
+        self._timeline_events = []
         self._icon_path = _get_tray_icon_path()
 
-    def _get_latest_news(self) -> list:
-        news_items = []
-
+    def _get_timeline_events(self) -> dict:
+        """获取 24 小时时间线数据"""
         try:
-            import asyncio
-            from deva.naja.datasource.plugins.jin10_fetcher import fetch_important_news_playwright
-
-            news_list = asyncio.run(
-                fetch_important_news_playwright(headless=True, timeout_ms=15000, extra_wait=1.5)
+            from datetime import datetime, timedelta
+            from deva.naja.market_hotspot.ui_components.timeline.market_24h_timeline import (
+                _get_a_block_events,
+                _get_us_events,
+                _get_high_score_news,
+                _get_jin10_important_news,
             )
-
-            for news in news_list[:6]:
-                title = news.title
-                if not title:
-                    continue
-
-                flash_id = news.flash_id or ""
-                news_items.append({
-                    "title": title[:60],
-                    "url": f"https://www.jin10.com/news/{flash_id}" if flash_id else "",
-                })
-
+            
+            cn_events = _get_a_block_events()
+            us_events = _get_us_events()
+            news_events = _get_high_score_news()
+            jin10_news = _get_jin10_important_news()
+            
+            all_events = cn_events + us_events + news_events + jin10_news
+            all_events.sort(key=lambda x: x.get('timestamp', 0), reverse=True)
+            
+            cutoff = (datetime.now() - timedelta(hours=24)).timestamp()
+            all_events = [e for e in all_events if e.get('timestamp', 0) >= cutoff]
+            
+            timeline_items = []
+            for event in all_events[:15]:
+                ts = event.get('timestamp', 0)
+                dt = datetime.fromtimestamp(ts)
+                event_type = event.get('type', '')
+                block_name = event.get('block_name', '')
+                
+                item = {
+                    'type': event_type,
+                    'timestamp': ts,
+                    'time': dt.strftime('%H:%M'),
+                    'date': dt.strftime('%m-%d'),
+                    'title': block_name,
+                }
+                
+                if event_type == 'high_score_news':
+                    item['score'] = event.get('score', 0.5)
+                elif event_type == 'jin10_news':
+                    item['score'] = event.get('score', 0.85)
+                    item['flash_id'] = event.get('flash_id', '')
+                    item['url'] = event.get('url', '')
+                elif event_type in ('cn_event', 'us_event'):
+                    change_percent = event.get('change_percent', 0)
+                    sign = '+' if change_percent >= 0 else ''
+                    item['change'] = f"{sign}{change_percent:.1f}%"
+                    item['weight'] = event.get('weight', 0.5)
+                
+                timeline_items.append(item)
+            
+            return {
+                "success": True,
+                "stats": {
+                    "cn_events": len(cn_events),
+                    "us_events": len(us_events),
+                    "high_score_news": len(news_events),
+                    "jin10_news": len(jin10_news),
+                },
+                "list": timeline_items,
+            }
         except Exception as e:
-            logger.debug(f"获取金十重要新闻失败: {e}")
-
-        return news_items[:6]
-
-    def _get_hot_blocks(self) -> list:
-        data = _http_get("/api/market/hotspot")
-        if not data:
-            return []
-
-        result = []
-        seen = set()
-
-        for section_key in ["cn", "us"]:
-            section = data.get(section_key, {})
-            blocks = section.get("hot_blocks", [])
-            for block in blocks[:5]:
-                bid = block.get("block_id", "")
-                name = block.get("name", bid)
-                weight = block.get("weight", 0)
-                if weight <= 0:
-                    continue
-                key = name[:8]
-                if key in seen:
-                    continue
-                seen.add(key)
-                result.append((name, f"{weight:.2f}"))
-
-        return result[:6]
+            logger.error(f"获取 timeline 事件失败: {e}")
+            import traceback
+            traceback.print_exc()
+            return {
+                "success": False,
+                "stats": {},
+                "list": [],
+            }
 
     def _get_running_pid(self) -> Optional[int]:
         try:
@@ -283,8 +301,7 @@ class MenuBarTray:
         if self._app is None:
             return
 
-        self._news_items = self._get_latest_news()
-        self._hot_blocks = self._get_hot_blocks()
+        self._timeline_events = self._get_timeline_events()
         port = _get_naja_port()
         system_status = self._get_system_status()
 
@@ -327,26 +344,72 @@ class MenuBarTray:
             self._app.menu.add(rumps.MenuItem("📄 打开日志", callback=self._on_open_logs))
             self._app.menu.add(rumps.MenuItem("🔄 刷新", callback=self._on_refresh))
             self._app.menu["sep2"] = rumps.separator
-
-            if self._news_items:
-                for item in self._news_items[:5]:
-                    title = item.get("title", "无标题")[:40]
-                    url = item.get("url", "")
-
-                    def make_callback(news_url):
-                        def callback(sender):
-                            if news_url:
-                                import webbrowser
-                                webbrowser.open(news_url)
-                        return callback
-
-                    menu_item = rumps.MenuItem(title, callback=make_callback(url) if url else None)
+            
+            # --- 开始：24 小时时间线风格菜单 ---
+            if self._timeline_events and self._timeline_events.get("success", False):
+                # 统计条
+                stats = self._timeline_events.get('stats', {})
+                cn_count = stats.get('cn_events', 0)
+                us_count = stats.get('us_events', 0)
+                news_count = stats.get('high_score_news', 0)
+                jin10_count = stats.get('jin10_news', 0)
+                
+                stats_menu = rumps.MenuItem(f"⏰ 全球市场时间线 | 🇨🇳 {cn_count} | 🇺🇸 {us_count} | 📰 {news_count} | 📌 {jin10_count}")
+                stats_menu.set_callback(self._on_open_page("/market"))
+                self._app.menu.add(stats_menu)
+                
+                events = self._timeline_events.get('list', [])
+                last_date = None
+                
+                # 最多显示 20 条，避免菜单太长
+                display_events = events[:20]
+                
+                for event in display_events:
+                    event_date = event.get('date', '')
+                    event_time = event.get('time', '')
+                    event_type = event.get('type', '')
+                    title = event.get('title', '')
+                    url = event.get('url', '')
+                    change = event.get('change', '')
+                    
+                    # 日期分隔
+                    if event_date != last_date:
+                        self._app.menu.add(rumps.MenuItem(f"{'─'*30}"))
+                        self._app.menu.add(rumps.MenuItem(f"📅 {event_date}"))
+                        last_date = event_date
+                    
+                    # 事件菜单项
+                    if event_type == 'cn_event':
+                        menu_text = f"{event_time} 🇨🇳 {change} {title}"
+                        callback = self._on_open_page("/market")
+                    elif event_type == 'us_event':
+                        menu_text = f"{event_time} 🇺🇸 {change} {title}"
+                        callback = self._on_open_page("/market")
+                    elif event_type == 'high_score_news':
+                        score = event.get('score', 0)
+                        stars = '⭐' * min(5, int(score * 5 + 0.5))
+                        menu_text = f"{event_time} 📰 {stars} {title}"
+                        callback = self._on_open_page("/cognition")
+                    elif event_type == 'jin10_news':
+                        menu_text = f"{event_time} 📌 {title}"
+                        
+                        def make_callback(news_url):
+                            def callback(sender):
+                                if news_url:
+                                    import webbrowser
+                                    webbrowser.open(news_url)
+                            return callback
+                        
+                        callback = make_callback(url) if url else None
+                    else:
+                        menu_text = f"{event_time} {title}"
+                        callback = None
+                    
+                    menu_item = rumps.MenuItem(menu_text, callback=callback)
                     self._app.menu.add(menu_item)
-
-            if self._hot_blocks:
-                for name, weight in self._hot_blocks[:3]:
-                    self._app.menu.add(rumps.MenuItem(f"🔥 {name} ({weight})"))
-
+            else:
+                self._app.menu.add(rumps.MenuItem("⏰ 暂无时间线数据"))
+            
             self._app.menu["sep3"] = rumps.separator
             self._app.menu["重启服务"] = rumps.MenuItem("🔄 重启服务", callback=self._on_reload)
             self._app.menu["退出"] = rumps.MenuItem("❌ 退出", callback=self._on_quit)
