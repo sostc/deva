@@ -96,6 +96,19 @@ class ManasManager:
     def is_enabled(self) -> bool:
         """返回是否启用了末那识引擎"""
         return self._enabled
+    
+    def get_manas_engine(self) -> Optional[ManasEngine]:
+        """
+        获取 ManasEngine 实例
+        
+        Returns:
+            ManasEngine 实例或 None
+        """
+        if self.kernel is not None:
+            if hasattr(self.kernel, 'get_manas_engine'):
+                return self.kernel.get_manas_engine()
+            return None
+        return self._manas_engine
 
     def compute(self) -> Optional[dict]:
         """

@@ -152,6 +152,12 @@ Don't wait for permission to improve. If you learned something, write it down no
 ### [Topic]
 [What you learned and how to do it better]
 
+### 系统精简原则
+- 删除模块前先检查是否有外部引用
+- 有引用的模块改为 try/except 可选导入，而非直接删除
+- 保留被核心业务引用的模块（如 knowledge/alaya/）
+- 定期清理 docs/ 下的过期文档
+
 ---
 
 
