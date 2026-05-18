@@ -347,7 +347,11 @@ def _register_default_components():
         PortfolioPriceWakeSync,
         Jin10LiveNewsWakeSync,
     )
+    from deva.naja.state.system.server_sync_handler import ServerDataSyncHandler
 
+    # 最高优先级：服务器数据同步（确保先获取完整数据）
+    manager.register(ServerDataSyncHandler())
+    
     manager.register(PortfolioPriceWakeSync())
     manager.register(NewsFetcherWakeSync())
     manager.register(GlobalMarketScannerWakeSync())
