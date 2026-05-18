@@ -66,6 +66,18 @@ def render_quick_links_panel(ctx: dict):
                 </a>
                 <div style="color: #aaa; font-size: 11px; margin-top: 8px;">系统健康</div>
             </div>
+
+            <div style="text-align: center;">
+                <a href="/investment_sandbox" style="text-decoration: none;">
+                    <div style="width: 75px; height: 75px; background: linear-gradient(135deg, #0F766E 0%, #14B8A6 100%); border-radius: 50%; display: flex; align-items: center; justify-content: center; box-shadow: 0 5px 18px rgba(15,118,110,0.35); cursor: pointer;">
+                        <div>
+                            <div style="font-size: 22px;">📊</div>
+                            <div style="color: #fff; font-size: 10px; font-weight: 600;">投资</div>
+                        </div>
+                    </div>
+                </a>
+                <div style="color: #aaa; font-size: 11px; margin-top: 8px;">投资沙盘</div>
+            </div>
         </div>
     </div>
     ''')

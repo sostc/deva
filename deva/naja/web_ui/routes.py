@@ -15,6 +15,7 @@ from .pages import (
     narrative_page, narrative_lifecycle_page, merrill_clock_page,
     learningadmin, learning_list_page, learning_history_page,
     learning_detail_page, supplychain_page, api_explorer, devtools_page,
+    investment_sandbox_page,
     KnowledgeActionHandler,
     _get_log_stream_page, _get_loop_audit_page,
 )
@@ -822,6 +823,7 @@ def create_handlers(cdn: str = None):
 
     page_routes = [
         (r'/', webio_handler(main, cdn=cdn_url)),
+        (r'/investment_sandbox', webio_handler(investment_sandbox_page, cdn=cdn_url)),
         (r'/cognition', webio_handler(cognition_page, cdn=cdn_url)),
         (r'/cognition_glossary', webio_handler(cognition_glossary_page, cdn=cdn_url)),
         (r'/memory', webio_handler(memory_page, cdn=cdn_url)),
