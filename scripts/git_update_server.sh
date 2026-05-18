@@ -64,11 +64,7 @@ echo ""
 echo "=== Git 更新完成 ==="
 echo ""
 
-# 询问是否重启服务
-read -p "是否重启服务器上的 Naja 服务? (y/n): " -n 1 -r
-echo ""
-if [[ $REPLY =~ ^[Yy]$ ]]; then
-    echo "重启 Naja 服务..."
-    ssh "$SERVER" "kill \$(cat /root/naja.pid) 2>/dev/null; sleep 1; cd /root && python3 -m deva.naja --port 8080 --host 0.0.0.0 > /root/.naja/logs/naja_console.log 2>&1 & echo \$! > /root/naja.pid"
-    echo "服务已重启"
-fi
+# 自动重启服务
+echo "重启 Naja 服务..."
+ssh "$SERVER" "kill \$(cat /root/naja.pid) 2>/dev/null; sleep 1; cd /root && python3 -m deva.naja --port 8080 --host 0.0.0.0 > /root/.naja/logs/naja_console.log 2>&1 & echo \$! > /root/naja.pid"
+echo "服务已重启"
