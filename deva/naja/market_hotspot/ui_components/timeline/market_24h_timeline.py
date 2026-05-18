@@ -67,8 +67,34 @@ def _is_market_related_news(title: str, text: str = "") -> bool:
 
 
 def _get_a_block_events() -> List[Dict[str, Any]]:
-    """获取A股题材事件"""
+    """获取A股题材事件（优化版：优先从服务器同步，失败回退本地）"""
     try:
+        # 1. 优先从服务器同步的数据获取
+        try:
+            from deva.naja.state.system.server_sync_handler import get_cn_events_from_server_or_local
+            server_events = get_cn_events_from_server_or_local(hours=48)
+            
+            if server_events:
+                events = []
+                for event_data in server_events:
+                    try:
+                        events.append({
+                            'type': 'cn_event',
+                            'timestamp': event_data['timestamp'],
+                            'block_name': event_data.get('block_name', ''),
+                            'change_percent': event_data.get('change_percent', 0),
+                            'dragon_one': event_data.get('dragon_one'),
+                            'weight': event_data.get('weight', 0.5),
+                        })
+                    except Exception:
+                        continue
+                if events:
+                    log.debug(f"[Timeline] 从服务器获取 A股题材: {len(events)} 条")
+                    return _optimize_cn_events(events)
+        except Exception as e:
+            log.warning(f"[Timeline] 从服务器获取失败，回退本地: {e}")
+        
+        # 2. 回退到本地缓存
         from deva.naja.market_hotspot.storing.block_events_store import get_cn_block_events
         cached_events = get_cn_block_events(hours=48)
         
@@ -87,8 +113,10 @@ def _get_a_block_events() -> List[Dict[str, Any]]:
                 except Exception:
                     continue
             if events:
-                return events
+                log.debug(f"[Timeline] 从本地缓存获取 A股题材: {len(events)} 条")
+                return _optimize_cn_events(events)
         
+        # 3. 最后回退到内存中的事件
         from deva.naja.market_hotspot.tracking.history_tracker import get_history_tracker
         tracker = get_history_tracker()
         if not tracker or not tracker.block_hotspot_events_medium:
@@ -116,14 +144,103 @@ def _get_a_block_events() -> List[Dict[str, Any]]:
                 })
             except Exception:
                 continue
-        return events
+        return _optimize_cn_events(events)
     except Exception:
         return []
 
 
+def _optimize_cn_events(events: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """
+    优化A股题材事件：
+    1. 同一时间窗口内去重，保留权重最高的
+    2. 同一龙一股票只保留一个题材
+    3. 提高阈值，过滤低质量事件
+    """
+    if not events:
+        return []
+    
+    # 步骤1：过滤低质量事件（变化幅度低于10%的直接过滤）
+    filtered_events = []
+    for event in events:
+        chg_pct = event.get('change_percent', 0)
+        if abs(chg_pct) >= 10:  # 只保留变化幅度>=10%的事件
+            filtered_events.append(event)
+    
+    if not filtered_events:
+        return []
+    
+    # 步骤2：按时间分组（同一分钟内的事件视为同一时间窗口）
+    time_groups = {}
+    for event in filtered_events:
+        ts = event.get('timestamp', 0)
+        # 按分钟分组（取整到分钟）
+        minute_key = int(ts / 60)
+        if minute_key not in time_groups:
+            time_groups[minute_key] = []
+        time_groups[minute_key].append(event)
+    
+    # 步骤3：在每个时间窗口内去重和优化
+    optimized_events = []
+    seen_dragons = set()  # 记录已经出现过的龙一股票
+    
+    # 按时间倒序处理
+    sorted_minutes = sorted(time_groups.keys(), reverse=True)
+    
+    for minute in sorted_minutes:
+        group_events = time_groups[minute]
+        
+        # 在组内按权重降序排序
+        group_events.sort(key=lambda x: x.get('weight', 0), reverse=True)
+        
+        # 对每个组进行去重处理
+        for event in group_events:
+            dragon_one = event.get('dragon_one')
+            dragon_symbol = dragon_one.get('symbol', '') if dragon_one else ''
+            
+            # 如果这个龙一股票已经出现过，跳过
+            if dragon_symbol and dragon_symbol in seen_dragons:
+                continue
+            
+            # 保留这个事件
+            optimized_events.append(event)
+            if dragon_symbol:
+                seen_dragons.add(dragon_symbol)
+    
+    # 按时间倒序排序
+    optimized_events.sort(key=lambda x: x.get('timestamp', 0), reverse=True)
+    
+    # 最多保留20个事件
+    return optimized_events[:20]
+
+
 def _get_us_events() -> List[Dict[str, Any]]:
-    """获取美股事件"""
+    """获取美股事件（优先从服务器同步，失败回退本地）"""
     try:
+        # 1. 优先从服务器同步的数据获取
+        try:
+            from deva.naja.state.system.server_sync_handler import get_us_events_from_server_or_local
+            server_events = get_us_events_from_server_or_local(hours=48)
+            
+            if server_events:
+                events = []
+                for event_data in server_events:
+                    try:
+                        events.append({
+                            'type': 'us_event',
+                            'timestamp': event_data['timestamp'],
+                            'block_name': event_data.get('block_name', ''),
+                            'change_percent': event_data.get('change_percent', 0),
+                            'weight': event_data.get('weight', 0.5),
+                        })
+                    except Exception:
+                        continue
+                if events:
+                    log.debug(f"[Timeline] 从服务器获取美股热点: {len(events)} 条")
+                    return events
+        except Exception as e:
+            log.warning(f"[Timeline] 从服务器获取美股失败，回退本地: {e}")
+        
+        # 2. 回退到本地缓存
         from deva.naja.market_hotspot.storing.block_events_store import get_us_block_events
         cached_events = get_us_block_events(hours=48)
         
@@ -141,8 +258,10 @@ def _get_us_events() -> List[Dict[str, Any]]:
                 except Exception:
                     continue
             if events:
+                log.debug(f"[Timeline] 从本地缓存获取美股热点: {len(events)} 条")
                 return events
         
+        # 3. 最后回退到实时获取
         from deva.naja.market_hotspot.ui_components.us_market import get_us_hotspot_data
         us_data = get_us_hotspot_data()
         if not us_data:
@@ -168,7 +287,35 @@ def _get_us_events() -> List[Dict[str, Any]]:
 
 
 def _get_high_score_news() -> List[Dict[str, Any]]:
-    """获取高分新闻"""
+    """获取高分新闻（优先从服务器同步，失败回退本地）"""
+    # 1. 优先从服务器同步的数据获取
+    try:
+        from deva.naja.state.system.server_sync_handler import get_news_from_server_or_local
+        server_news = get_news_from_server_or_local(hours=24)
+        
+        if server_news:
+            news_list = []
+            for news in server_news:
+                try:
+                    score = news.get('score', 0) or news.get('importance_score', 0)
+                    if score >= 0.6:
+                        title = news.get('title', '') or news.get('block_name', '')
+                        news_list.append({
+                            'type': 'high_score_news',
+                            'timestamp': news.get('timestamp', 0),
+                            'block_name': _clean_news_title(title),
+                            'score': score,
+                        })
+                except Exception:
+                    continue
+            if news_list:
+                news_list.sort(key=lambda x: x['score'], reverse=True)
+                log.debug(f"[Timeline] 从服务器获取高分新闻: {len(news_list)} 条")
+                return news_list[:8]
+    except Exception as e:
+        log.warning(f"[Timeline] 从服务器获取新闻失败，回退本地: {e}")
+    
+    # 2. 回退到本地缓存
     try:
         from deva.naja.events.focused_news_store import get_today_focused_news
         cached_news = get_today_focused_news(limit=50)
@@ -189,10 +336,12 @@ def _get_high_score_news() -> List[Dict[str, Any]]:
                 except Exception:
                     continue
             news_list.sort(key=lambda x: x['score'], reverse=True)
+            log.debug(f"[Timeline] 从本地缓存获取高分新闻: {len(news_list)} 条")
             return news_list[:8]
     except Exception as e:
         log.warning(f"[Timeline] 从持久化存储获取高分新闻失败: {e}")
     
+    # 3. 最后回退到事件总线
     try:
         from deva.naja.events import get_event_bus
         from deva.naja.events.text_events import TextFocusedEvent
@@ -222,11 +371,44 @@ def _get_high_score_news() -> List[Dict[str, Any]]:
 
 
 def _get_jin10_important_news() -> List[Dict[str, Any]]:
-    """获取金十重要新闻"""
+    """获取金十重要新闻（优先从服务器同步，失败回退本地）"""
     news_list = []
     today_start = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0).timestamp()
     
-    # 1. 优先从事件总线获取
+    # 1. 优先从服务器同步的数据获取
+    try:
+        from deva.naja.state.system.server_sync_handler import get_jin10_news_from_server_or_local
+        server_news = get_jin10_news_from_server_or_local(hours=24)
+        
+        if server_news:
+            for news in server_news:
+                try:
+                    title = news.get('title', '') or news.get('block_name', '')
+                    flash_id = news.get('flash_id', '')
+                    url = news.get('url', '')
+                    ts = news.get('timestamp', 0)
+                    
+                    # 只保留今日新闻
+                    if ts >= today_start:
+                        news_list.append({
+                            'type': 'jin10_news',
+                            'timestamp': ts,
+                            'block_name': _clean_news_title(title),
+                            'score': 0.85,
+                            'flash_id': flash_id,
+                            'url': url or (f"https://www.jin10.com/news/{flash_id}" if flash_id else ""),
+                        })
+                except Exception:
+                    continue
+            
+            if news_list:
+                news_list.sort(key=lambda x: x['timestamp'], reverse=True)
+                log.debug(f"[Timeline] 从服务器获取金十要闻: {len(news_list)} 条")
+                return news_list[:10]
+    except Exception as e:
+        log.warning(f"[Timeline] 从服务器获取金十失败，回退本地: {e}")
+    
+    # 2. 回退：从事件总线获取
     try:
         from deva.naja.events import get_event_bus
         from deva.naja.events.text_events import TextFetchedEvent
@@ -252,11 +434,12 @@ def _get_jin10_important_news() -> List[Dict[str, Any]]:
         
         if news_list:
             news_list.sort(key=lambda x: x['timestamp'], reverse=True)
+            log.debug(f"[Timeline] 从事件总线获取金十要闻: {len(news_list)} 条")
             return news_list[:10]
     except Exception:
         pass
     
-    # 2. 回退：从文件缓存获取（但要验证日期）
+    # 3. 回退：从文件缓存获取（但要验证日期）
     try:
         import os
         import json
@@ -295,6 +478,7 @@ def _get_jin10_important_news() -> List[Dict[str, Any]]:
             
             if news_list:
                 news_list.sort(key=lambda x: x['timestamp'], reverse=True)
+                log.debug(f"[Timeline] 从文件缓存获取金十要闻: {len(news_list)} 条")
                 return news_list[:10]
     except Exception:
         pass
