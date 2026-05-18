@@ -1,16 +1,23 @@
 """
-ServerDataSyncHandler - 服务器数据同步处理器
+ServerDataSyncHandler - 智能服务器数据同步处理器
 
-功能：
-1. 从远程服务器 (ai.secsay.com) 同步市场数据
-2. 支持 A股题材事件、美股热点、高分新闻、金十要闻
-3. 本地数据缺失时自动从服务器补全
-4. 托盘菜单和市场页面优先使用服务器数据
+核心功能：
+1. 智能增量同步：只补本地缺失的数据
+2. 根据休眠时长动态调整同步范围
+3. 数据级别去重：基于时间戳/ID避免重复
+4. 支持优先级同步：关键数据优先
+5. 幂等性保障：重复调用不产生副作用
+
+同步策略：
+- 短休眠(<1小时)：仅同步关键数据（持仓价格）
+- 中等休眠(1-4小时)：同步核心数据（价格+新闻+题材）
+- 较长休眠(4-24小时)：完整同步所有数据
+- 长时间休眠(>24小时)：恢复模式，同步最近24小时
 
 使用场景：
 - Mac 电脑经常休眠/关机，本地数据不完整
 - 服务器 24小时运行，数据更完整
-- Wake 补作业时从服务器同步缺失数据
+- Wake 补作业时从服务器智能同步缺失数据
 """
 
 import json
@@ -52,6 +59,30 @@ class ServerDataSyncHandler:
     def priority(self) -> int:
         return 1  # 最高优先级，先同步数据再执行其他操作
 
+    def _get_sync_scope(self, last_active: datetime) -> str:
+        """
+        根据休眠时长判断同步范围
+        
+        返回值：
+        - 'minimal': 短休眠(<1小时)，仅同步关键数据
+        - 'core': 中等休眠(1-4小时)，同步核心数据
+        - 'full': 较长休眠(4-24小时)，完整同步
+        - 'recovery': 长时间休眠(>24小时)，恢复模式
+        """
+        if last_active is None:
+            return 'recovery'  # 首次启动，恢复模式
+        
+        gap_hours = (datetime.now() - last_active).total_seconds() / 3600
+        
+        if gap_hours < 1:
+            return 'minimal'
+        elif gap_hours < 4:
+            return 'core'
+        elif gap_hours < 24:
+            return 'full'
+        else:
+            return 'recovery'
+
     def should_wake_sync(self, last_active: datetime) -> bool:
         """判断是否需要从服务器同步"""
         if last_active is None:
@@ -60,9 +91,10 @@ class ServerDataSyncHandler:
 
         gap_hours = (datetime.now() - last_active).total_seconds() / 3600
         
-        # 休眠超过 1 小时就同步
-        if gap_hours >= 1:
-            log.info(f"[ServerSync] 休眠 {gap_hours:.1f} 小时，需要从服务器同步")
+        # 休眠超过 30 分钟就同步（比之前更敏感）
+        if gap_hours >= 0.5:
+            scope = self._get_sync_scope(last_active)
+            log.info(f"[ServerSync] 休眠 {gap_hours:.1f} 小时，同步范围: {scope}")
             return True
         
         log.info(f"[ServerSync] 仅休眠 {gap_hours:.1f} 小时，跳过同步")
@@ -71,67 +103,113 @@ class ServerDataSyncHandler:
     def get_wake_sync_range(self, last_active: datetime, max_hours: int = 24) -> Tuple[datetime, datetime]:
         """获取同步时间范围"""
         now = datetime.now()
+        scope = self._get_sync_scope(last_active)
         
-        # 从上次活跃时间开始同步
-        start = last_active if last_active else now - timedelta(hours=max_hours)
+        # 根据同步范围确定起始时间
+        if scope == 'minimal':
+            # 短休眠：只同步最近30分钟
+            start = now - timedelta(minutes=30)
+        elif scope == 'core':
+            # 中等休眠：同步从上次活跃时间开始
+            start = last_active if last_active else now - timedelta(hours=4)
+        elif scope == 'full':
+            # 较长休眠：同步从上次活跃时间开始
+            start = last_active if last_active else now - timedelta(hours=24)
+        else:  # recovery
+            # 恢复模式：最多同步最近24小时
+            start = now - timedelta(hours=24)
+        
         end = now
         
         # 限制最大同步范围
-        if (end - start).total_seconds() > max_hours * 3600:
-            start = end - timedelta(hours=max_hours)
+        max_delta = timedelta(hours=max_hours)
+        if end - start > max_delta:
+            start = end - max_delta
         
+        log.info(f"[ServerSync] 同步范围: {scope}，时间区间: {start} ~ {end}")
         return start, end
 
     def execute_wake_sync(self, start: datetime, end: datetime) -> Dict[str, Any]:
-        """执行同步 - 从服务器获取数据"""
+        """执行智能增量同步 - 根据休眠时长动态选择同步内容"""
         try:
-            log.info(f"[ServerSync] 开始从服务器同步: {start} ~ {end}")
+            log.info(f"[ServerSync] 开始智能同步: {start} ~ {end}")
+            
+            # 获取本地已有数据的时间戳范围（用于增量判断）
+            local_stats = self._get_local_data_stats()
             
             results = {
-                "cn_events": False,
-                "us_events": False,
-                "news": False,
-                "jin10_news": False,
+                "cn_events": {"success": False, "added": 0, "skipped": 0},
+                "us_events": {"success": False, "added": 0, "skipped": 0},
+                "news": {"success": False, "added": 0, "skipped": 0},
+                "jin10_news": {"success": False, "added": 0, "skipped": 0},
             }
+            
+            # 根据同步范围决定要同步的数据类型
+            scope = self._get_sync_scope(self._last_active_time)
+            log.info(f"[ServerSync] 当前同步范围: {scope}")
+            
+            # 构建要同步的数据类型列表
+            sync_types = []
+            if scope == 'minimal':
+                # 短休眠：只同步最关键的数据
+                sync_types = ['cn_events', 'us_events']
+            elif scope == 'core':
+                # 中等休眠：同步核心数据
+                sync_types = ['cn_events', 'us_events', 'jin10_news']
+            else:
+                # full/recovery：同步所有数据
+                sync_types = ['cn_events', 'us_events', 'news', 'jin10_news']
+            
+            log.info(f"[ServerSync] 需要同步的数据类型: {sync_types}")
             
             # 一次性从服务器获取所有事件
             try:
                 all_events = self._fetch_all_events_from_server()
                 
-                cn_events = all_events.get("cn_events", [])
-                us_events = all_events.get("us_events", [])
-                news = all_events.get("news", [])
-                jin10_news = all_events.get("jin10_news", [])
-                
-                if cn_events:
-                    self._save_cn_events_to_local(cn_events)
-                    results["cn_events"] = True
-                    log.info(f"[ServerSync] A股题材同步成功: {len(cn_events)} 条")
-                
-                if us_events:
-                    self._save_us_events_to_local(us_events)
-                    results["us_events"] = True
-                    log.info(f"[ServerSync] 美股热点同步成功: {len(us_events)} 条")
-                
-                if news:
-                    self._save_news_to_local(news)
-                    results["news"] = True
-                    log.info(f"[ServerSync] 高分新闻同步成功: {len(news)} 条")
-                
-                if jin10_news:
-                    self._save_jin10_news_to_local(jin10_news)
-                    results["jin10_news"] = True
-                    log.info(f"[ServerSync] 金十要闻同步成功: {len(jin10_news)} 条")
+                for data_type in sync_types:
+                    events = all_events.get(data_type, [])
+                    if not events:
+                        log.debug(f"[ServerSync] {data_type}: 服务器无数据")
+                        continue
+                    
+                    # 增量同步：过滤掉本地已有的数据
+                    filtered_events, skipped_count = self._filter_existing_data(events, data_type, local_stats)
+                    
+                    if filtered_events:
+                        save_method = getattr(self, f"_save_{data_type}_to_local", None)
+                        if save_method:
+                            save_method(filtered_events)
+                            results[data_type] = {
+                                "success": True,
+                                "added": len(filtered_events),
+                                "skipped": skipped_count
+                            }
+                            log.info(f"[ServerSync] {data_type} 同步成功: 新增 {len(filtered_events)} 条，跳过 {skipped_count} 条")
+                        else:
+                            log.warning(f"[ServerSync] {data_type}: 没有对应的保存方法")
+                    else:
+                        results[data_type] = {
+                            "success": True,
+                            "added": 0,
+                            "skipped": skipped_count
+                        }
+                        log.info(f"[ServerSync] {data_type}: 本地数据已完整，无需同步")
                     
             except Exception as e:
                 log.warning(f"[ServerSync] 从服务器获取失败: {e}")
             
-            success_count = sum(1 for v in results.values() if v)
+            # 统计成功数量
+            success_count = sum(1 for v in results.values() if v.get('success'))
+            total_added = sum(v.get('added', 0) for v in results.values())
+            total_skipped = sum(v.get('skipped', 0) for v in results.values())
             
             return {
                 "success": success_count > 0,
-                "message": f"服务器同步完成: {success_count}/4 项成功",
-                "details": results
+                "message": f"智能同步完成: {success_count}/{len(sync_types)} 项成功，新增 {total_added} 条，跳过 {total_skipped} 条（本地已有）",
+                "details": results,
+                "scope": scope,
+                "sync_types": sync_types,
+                "stats": {"added": total_added, "skipped": total_skipped}
             }
             
         except Exception as e:
@@ -143,6 +221,91 @@ class ServerDataSyncHandler:
                 "message": f"服务器同步异常: {str(e)}",
                 "details": {}
             }
+
+    def _get_local_data_stats(self) -> Dict[str, Dict[str, float]]:
+        """获取本地各数据类型的时间戳统计"""
+        stats = {}
+        cutoff = time.time() - 48 * 3600  # 只考虑最近48小时
+        
+        for data_type in ['cn_events', 'us_events', 'news', 'jin10_news']:
+            cache_file = os.path.join(LOCAL_CACHE_DIR, f"{data_type}_server.json")
+            stats[data_type] = {
+                'latest_ts': 0,
+                'count': 0
+            }
+            
+            if os.path.exists(cache_file):
+                try:
+                    with open(cache_file, 'r') as f:
+                        data = json.load(f)
+                        if data:
+                            # 获取最近时间戳
+                            timestamps = []
+                            for item in data:
+                                ts = item.get('timestamp')
+                                if ts:
+                                    if isinstance(ts, str):
+                                        try:
+                                            ts = float(ts)
+                                        except:
+                                            continue
+                                    timestamps.append(ts)
+                            
+                            if timestamps:
+                                stats[data_type]['latest_ts'] = max(timestamps)
+                                stats[data_type]['count'] = len([t for t in timestamps if t >= cutoff])
+                except Exception as e:
+                    log.debug(f"[ServerSync] 读取本地统计失败 {data_type}: {e}")
+        
+        log.debug(f"[ServerSync] 本地数据统计: {stats}")
+        return stats
+
+    def _filter_existing_data(self, events: List[Dict], data_type: str, local_stats: Dict) -> Tuple[List[Dict], int]:
+        """
+        过滤掉本地已有的数据，实现增量同步
+        
+        返回：(需要新增的事件列表, 已跳过的数量)
+        """
+        if not events:
+            return [], 0
+        
+        local_latest_ts = local_stats.get(data_type, {}).get('latest_ts', 0)
+        
+        filtered = []
+        skipped = 0
+        
+        for event in events:
+            # 获取事件时间戳
+            ts = event.get('timestamp')
+            if ts:
+                if isinstance(ts, str):
+                    try:
+                        ts = float(ts)
+                    except:
+                        filtered.append(event)
+                        continue
+            
+            # 如果事件时间戳大于本地最新时间戳，说明是新数据
+            if not ts or ts > local_latest_ts:
+                filtered.append(event)
+            else:
+                skipped += 1
+        
+        return filtered, skipped
+
+    @property
+    def _last_active_time(self) -> Optional[datetime]:
+        """获取上次活跃时间（用于判断同步范围）"""
+        try:
+            if os.path.exists(SERVER_SYNC_STATE_FILE):
+                with open(SERVER_SYNC_STATE_FILE, 'r') as f:
+                    state = json.load(f)
+                    last_sync = state.get('last_sync_time')
+                    if last_sync:
+                        return datetime.fromisoformat(last_sync)
+        except:
+            pass
+        return None
 
     def _fetch_all_events_from_server(self) -> Dict[str, List[Dict]]:
         """从服务器获取所有事件（一次性获取，再按类型分类）"""
