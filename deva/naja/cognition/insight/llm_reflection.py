@@ -66,6 +66,15 @@ class Reflection:
         }
 
 
+@dataclass
+class ChangeSignal:
+    """变化信号"""
+    type: str  # 'narrative_phase_jump', 'risk_spike', 'signal_surge', 'market_state_shift'
+    magnitude: float  # 0.0-1.0
+    description: str
+    timestamp: float
+
+
 class LLMReflectionEngine:
     """LLM 反思引擎 - 定期调用 LLM 生成深度洞察
 
@@ -102,14 +111,20 @@ class LLMReflectionEngine:
         cfg = get_llm_config()
 
         self._enabled = bool(cfg.get("reflection_enabled", True))
-        self._interval_seconds = float(cfg.get("reflection_interval_seconds", 3600))
-        self._min_signals = int(cfg.get("reflection_min_signals", 5))
+        self._interval_seconds = float(cfg.get("reflection_interval_seconds", 14400))
+        self._min_signals = int(cfg.get("reflection_min_signals", 15))
+        self._min_signal_score = float(cfg.get("reflection_min_signal_score", 0.5))
         self._max_signals = int(cfg.get("reflection_max_signals", 50))
 
         self._last_run_ts = time.time()
         self._last_success_ts = 0.0
         self._reflections_count = 0
         self._running_reflections: List[Reflection] = []
+        self._signal_history_by_source: Dict[str, List[Tuple[float, float]]] = {}  # source -> [(score, ts), ...]
+        
+        # 变化检测状态
+        self._last_narrative_state: Dict[str, Any] = {}  # 上次叙事状态
+        self._last_risk_summary: Dict[str, Any] = {}  # 上次风险摘要
 
         self._thread: Optional[threading.Thread] = None
         self._stop_event = threading.Event()
@@ -173,7 +188,224 @@ class LLMReflectionEngine:
 
             self._stop_event.wait(min(30, self._interval_seconds))
 
-    def _run_reflection(self, min_signals: int = None) -> Optional[Reflection]:
+    def _filter_and_rank_signals(self, signals: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """过滤低分信号，按质量排序，去重（旧方法，保留向后兼容）"""
+        if not signals:
+            return []
+
+        min_score = self._min_signal_score
+        seen_themes = set()
+        filtered = []
+
+        for sig in signals:
+            score = sig.get("score", sig.get("confidence", sig.get("system_attention", 0)))
+            if score < min_score:
+                continue
+
+            theme = sig.get("theme", "")
+            if theme and theme in seen_themes:
+                continue
+            if theme:
+                seen_themes.add(theme)
+
+            sig["_quality_score"] = score
+            filtered.append(sig)
+
+        filtered.sort(key=lambda x: x.get("_quality_score", 0), reverse=True)
+
+        return filtered[: self._max_signals]
+
+    def _filter_and_rank_signals_improved(self, signals: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """改进的信号过滤：基于历史的自适应过滤 + 来源优先级权重"""
+        import logging
+        log = logging.getLogger(__name__)
+
+        if not signals:
+            return []
+
+        now = time.time()
+        filtered = []
+
+        for sig in signals:
+            source = sig.get("source", "unknown")
+            score = sig.get("score", sig.get("confidence", sig.get("system_attention", 0)))
+            
+            # 记录历史
+            if source not in self._signal_history_by_source:
+                self._signal_history_by_source[source] = []
+            self._signal_history_by_source[source].append((score, now))
+            if len(self._signal_history_by_source[source]) > 20:
+                self._signal_history_by_source[source] = self._signal_history_by_source[source][-20:]
+            
+            # 1. 绝对阈值检查
+            if score < self._min_signal_score:
+                continue
+                
+            # 2. 相对质量检查：当前 score 高于历史中位数？
+            history = [s for s, t in self._signal_history_by_source[source]]
+            if len(history) >= 5:
+                median = sorted(history)[len(history)//2]
+                if score < median * 0.8:  # 低于中位数 80%，过滤
+                    continue
+            
+            # 3. 来源优先级权重
+            source_priority = {
+                "merrill_clock": 1.2,
+                "market_analysis": 1.1,
+                "narrative_tracker": 1.0,
+                "volatility_surface": 1.0,
+                "risk_manager": 0.9,
+                "liquidity_cognition": 0.8,
+                "cross_signal": 0.7,
+                "ai_compute": 0.5,
+            }
+            adjusted_score = score * source_priority.get(source, 0.6)
+            
+            sig["_quality_score"] = adjusted_score
+            filtered.append(sig)
+        
+        # 主题去重（保留质量最高的）
+        seen_themes = {}
+        for sig in filtered:
+            theme = sig.get("theme", "")
+            if theme in seen_themes:
+                if sig["_quality_score"] > seen_themes[theme]["_quality_score"]:
+                    seen_themes[theme] = sig
+            else:
+                seen_themes[theme] = sig
+        
+        filtered = sorted(seen_themes.values(), key=lambda x: x["_quality_score"], reverse=True)
+        result = filtered[:self._max_signals]
+        
+        if len(result) < len(signals):
+            log.info(f"[LLMReflection] 信号过滤: {len(signals)} -> {len(result)}")
+        
+        return result
+
+    def _check_trigger_conditions(self, signals: List[Dict[str, Any]]) -> tuple[bool, str, Optional[List[ChangeSignal]]]:
+        """检查是否满足触发条件（包含变化检测）"""
+        import logging
+        log = logging.getLogger(__name__)
+
+        # 检查变化触发
+        change_signals = self._detect_changes(signals)
+        if change_signals:
+            # 变化驱动：降低信号门槛
+            min_required = max(5, self._min_signals // 2)
+            if len(signals) >= min_required:
+                change_desc = "; ".join(c.description for c in change_signals)
+                log.info(f"[LLMReflection] 检测到变化，降低触发门槛: {len(signals)} >= {min_required}")
+                return True, f"变化驱动触发: {change_desc}", change_signals
+
+        # 正常定时检查
+        if len(signals) < self._min_signals:
+            return False, f"信号数不足: {len(signals)} < {self._min_signals}", None
+
+        now = time.time()
+        timestamps = [s.get("ts", s.get("timestamp", 0)) for s in signals if s.get("ts") or s.get("timestamp")]
+        if timestamps:
+            time_span = now - min(timestamps)
+            if time_span < 1800:
+                return False, f"信号时间跨度太短: {time_span/60:.0f}分钟，需要至少30分钟", None
+
+        avg_score = sum(s.get("score", 0) for s in signals) / len(signals) if signals else 0
+        if avg_score < 0.3:
+            return False, f"平均信号质量太低: {avg_score:.2f}", None
+
+        return True, "定时触发: 满足触发条件", None
+    
+    def _detect_changes(self, signals: List[Dict[str, Any]]) -> List[ChangeSignal]:
+        """检测市场状态变化"""
+        import logging
+        log = logging.getLogger(__name__)
+        changes = []
+        now = time.time()
+
+        # 1. 检测叙事状态变化
+        try:
+            from deva.naja.cognition.narrative.tracker import get_narrative_tracker
+            nt = get_narrative_tracker()
+            current_state = nt.get_current_state_snapshot()
+            
+            if self._last_narrative_state:
+                # 活跃叙事变化
+                last_narratives = set(self._last_narrative_state.get("narratives", {}).keys())
+                curr_narratives = set(current_state.get("narratives", {}).keys())
+                
+                added = curr_narratives - last_narratives
+                removed = last_narratives - curr_narratives
+                
+                if added or removed:
+                    desc = []
+                    if added:
+                        desc.append(f"新活跃叙事: {', '.join(added)}")
+                    if removed:
+                        desc.append(f"退出叙事: {', '.join(removed)}")
+                    
+                    changes.append(ChangeSignal(
+                        type="narrative_phase_jump",
+                        magnitude=0.7,
+                        description=" | ".join(desc),
+                        timestamp=now
+                    ))
+            
+            self._last_narrative_state = current_state
+        except Exception as e:
+            log.debug(f"[LLMReflection] 叙事变化检测失败: {e}")
+        
+        # 2. 检测风险警报变化
+        try:
+            from deva.naja.risk.risk_manager import get_risk_manager
+            rm = get_risk_manager()
+            current_risk = rm.get_alert_summary()
+            
+            if self._last_risk_summary:
+                last_total = self._last_risk_summary.get("total", 0)
+                curr_total = current_risk.get("total", 0)
+                
+                # 风险警报激增
+                if curr_total >= last_total + 3:
+                    changes.append(ChangeSignal(
+                        type="risk_spike",
+                        magnitude=0.6,
+                        description=f"风险警报增加: {last_total} -> {curr_total}",
+                        timestamp=now
+                    ))
+                
+                # 风险级别变化
+                last_by_level = self._last_risk_summary.get("by_level", {})
+                curr_by_level = current_risk.get("by_level", {})
+                last_high = last_by_level.get("danger", 0) + last_by_level.get("critical", 0)
+                curr_high = curr_by_level.get("danger", 0) + curr_by_level.get("critical", 0)
+                
+                if curr_high >= last_high + 2:
+                    changes.append(ChangeSignal(
+                        type="risk_spike",
+                        magnitude=0.8,
+                        description=f"高风险警报增加: {last_high} -> {curr_high}",
+                        timestamp=now
+                    ))
+            
+            self._last_risk_summary = current_risk
+        except Exception as e:
+            log.debug(f"[LLMReflection] 风险变化检测失败: {e}")
+        
+        # 3. 检测信号质量突增
+        if len(signals) >= 10:
+            recent_scores = [s.get("score", 0) for s in signals[-10:]]
+            if len(recent_scores) >= 10:
+                avg_recent = sum(recent_scores) / len(recent_scores)
+                if avg_recent > 0.7:
+                    changes.append(ChangeSignal(
+                        type="signal_surge",
+                        magnitude=0.5,
+                        description=f"信号质量突增: 最近10条平均分 {avg_recent:.2f}",
+                        timestamp=now
+                    ))
+        
+        return changes
+
+    def _run_reflection(self, min_signals: int = None, bypass_quality: bool = False) -> Optional[Reflection]:
         import logging
         log = logging.getLogger(__name__)
 
@@ -181,13 +413,24 @@ class LLMReflectionEngine:
         self._last_run_ts = now
 
         signals = self._collect_signals()
-        portfolio = self._collect_portfolio()
+        signals = self._filter_and_rank_signals_improved(signals)
 
         required = min_signals if min_signals is not None else self._min_signals
-        if len(signals) < required:
-            log.warning(f"[LLMReflection] 信号不足: 当前{len(signals)}条, 需要{required}条")
+
+        if bypass_quality:
+            can_trigger = len(signals) >= required
+            reason = "手动触发，跳过质量检查"
+            change_signals = None
+        else:
+            can_trigger, reason, change_signals = self._check_trigger_conditions(signals)
+
+        if not can_trigger:
+            log.info(f"[LLMReflection] 跳过反思: {reason}")
             return None
 
+        log.info(f"[LLMReflection] 触发反思: {reason}, {len(signals)}个有效信号")
+
+        portfolio = self._collect_portfolio()
         narratives = self._collect_narratives()
         themes = self._extract_themes(signals)
         symbols = self._extract_symbols(signals)
@@ -346,17 +589,11 @@ _反思生成时间: {datetime.fromtimestamp(reflection.ts).strftime('%Y-%m-%d %
 
         signals.extend(self._collect_liquidity_signals())
 
-        signals.extend(self._collect_attention_signals())
-
         signals.extend(self._collect_cross_signal_signals())
 
         signals.extend(self._collect_ai_compute_signals())
 
-        signals.extend(self._collect_trade_feedback())
-
         signals.extend(self._collect_market_analysis_from_nt())
-
-        signals.extend(self._collect_wisdom_signals())
 
         signals.extend(self._collect_merrill_clock_signals())
 
@@ -395,7 +632,7 @@ _反思生成时间: {datetime.fromtimestamp(reflection.ts).strftime('%Y-%m-%d %
                     log.warning("[LLMReflection] 市场分析生成失败，继续使用现有数据")
 
         log.info("[LLMReflection] 触发LLM反思...")
-        return self.trigger_now(min_signals=1)
+        return self._run_reflection(min_signals=5, bypass_quality=True)
 
     def _clear_market_analysis(self) -> None:
         """清空市场分析缓存"""
@@ -488,15 +725,35 @@ _反思生成时间: {datetime.fromtimestamp(reflection.ts).strftime('%Y-%m-%d %
             for n in summary:
                 narrative = n.get("narrative", "")
                 if narrative:
+                    stage = n.get("stage", "")
+                    trend = n.get("trend", 0)
+                    attention = n.get("attention_score", 0)
+
+                    stage_desc = {
+                        "萌芽": "初期形成，关注度上升",
+                        "扩散": "快速传播，影响扩大",
+                        "高潮": "达到顶峰，关注度最高",
+                        "消退": "开始降温，热度下降",
+                    }.get(stage, stage)
+
+                    if trend > 0.3:
+                        trend_desc = "强势上行"
+                    elif trend > 0:
+                        trend_desc = "温和上涨"
+                    elif trend > -0.3:
+                        trend_desc = "温和下跌"
+                    else:
+                        trend_desc = "明显回调"
+
                     signals.append({
                         "source": "narrative_tracker",
                         "signal_type": "narrative",
                         "theme": f"叙事: {narrative}",
-                        "summary": f"阶段={n.get('stage', '')}, 趋势={n.get('trend', 0):+.1%}",
-                        "stage": n.get("stage", ""),
-                        "trend": n.get("trend", 0),
-                        "attention_score": n.get("attention_score", 0),
-                        "score": n.get("attention_score", 0),
+                        "summary": f"{stage_desc}，{trend_desc}，关注度{int(attention*100)}%",
+                        "stage": stage,
+                        "trend": trend,
+                        "attention_score": attention,
+                        "score": attention,
                     })
             return signals
         except Exception:
@@ -518,23 +775,44 @@ _反思生成时间: {datetime.fromtimestamp(reflection.ts).strftime('%Y-%m-%d %
             value_score = summary.get("value_score", 0)
             market_narrative_score = summary.get("market_narrative_score", 0)
             recommendation = summary.get("recommendation", "WATCH")
+            detailed_signals = summary.get("signals", {})
 
             if value_score > 0:
+                value_signals = detailed_signals.get("value", {})
+                if value_signals:
+                    signal_parts = []
+                    for cat, kws in value_signals.items():
+                        if kws:
+                            signal_parts.append(f"{cat}:{','.join(kws[:2])}")
+                    detail_text = " | ".join(signal_parts[:3]) if signal_parts else ""
+                else:
+                    detail_text = summary.get("reason", "")
+
                 signals.append({
                     "source": "tiandao_minxin",
                     "signal_type": "value_score",
                     "theme": f"价值评分(天道): {value_score:.0%}",
-                    "summary": summary.get("reason", ""),
+                    "summary": f"{summary.get('reason', '')} | {detail_text}" if detail_text else summary.get("reason", ""),
                     "score": value_score,
                     "recommendation": recommendation,
                 })
 
             if market_narrative_score > 0:
+                narrative_signals = detailed_signals.get("market_narrative", {})
+                if narrative_signals:
+                    signal_parts = []
+                    for cat, kws in narrative_signals.items():
+                        if kws:
+                            signal_parts.append(f"{cat}:{','.join(kws[:2])}")
+                    detail_text = " | ".join(signal_parts[:3]) if signal_parts else ""
+                else:
+                    detail_text = summary.get("market_opportunity", "") or ""
+
                 signals.append({
                     "source": "tiandao_minxin",
                     "signal_type": "market_narrative_score",
                     "theme": f"市场叙事评分(民心): {market_narrative_score:.0%}",
-                    "summary": summary.get("market_opportunity", ""),
+                    "summary": f"{summary.get('market_opportunity', '')} | {detail_text}" if detail_text else summary.get("market_opportunity", ""),
                     "score": market_narrative_score,
                 })
 
@@ -569,7 +847,7 @@ _反思生成时间: {datetime.fromtimestamp(reflection.ts).strftime('%Y-%m-%d %
     def _collect_volatility_signals(self) -> List[Dict[str, Any]]:
         """从 VolatilitySurfaceSense 获取波动率信号"""
         try:
-            from ...senses.volatility_surface import get_volatility_surface_sense
+            from deva.naja.radar import get_volatility_surface_sense
             vs = get_volatility_surface_sense()
             if not vs:
                 return []
@@ -597,16 +875,17 @@ _反思生成时间: {datetime.fromtimestamp(reflection.ts).strftime('%Y-%m-%d %
             rm = get_risk_manager()
             if not rm:
                 return []
-            alert_summary = rm.get_alert_summary()
+            alerts = rm.get_recent_alerts()
             signals = []
-            for alert in alert_summary.get("alerts", [])[:5]:
+            for alert in alerts[:5]:
+                level_score = {"INFO": 0.3, "WARNING": 0.6, "DANGER": 0.8, "CRITICAL": 1.0}.get(alert.level.value, 0.5)
                 signals.append({
                     "source": "risk_manager",
-                    "signal_type": alert.get("type", "risk"),
-                    "theme": f"风险: {alert.get('type', 'unknown')}",
-                    "summary": alert.get("message", "")[:80],
-                    "severity": alert.get("severity", 0.5),
-                    "score": alert.get("severity", 0.5),
+                    "signal_type": alert.risk_type.value,
+                    "theme": f"风险: {alert.risk_type.value} - {alert.symbol or '全局'}",
+                    "summary": f"{alert.description[:60]} | 操作建议: {alert.recommended_action[:40]}",
+                    "severity": level_score,
+                    "score": level_score,
                 })
             return signals
         except Exception:
@@ -694,39 +973,6 @@ _反思生成时间: {datetime.fromtimestamp(reflection.ts).strftime('%Y-%m-%d %
         except Exception:
             return []
 
-    def _collect_attention_signals(self) -> List[Dict[str, Any]]:
-        """从 MarketHotspotHistoryTracker 获取注意力转移信号"""
-        from deva.naja.market_hotspot.tracking.history_tracker import get_history_tracker
-        try:
-            tracker = get_history_tracker()
-            if not tracker:
-                return []
-            report = tracker.get_hotspot_shift_report(emit_to_insight=False)
-            if not report.get("has_shift"):
-                return []
-            signals = []
-            for block, name in report.get("added_blocks", report.get("added_blocks", [])):
-                signals.append({
-                    "source": "attention_history",
-                    "signal_type": "attention_rising",
-                    "theme": f"注意力上升: {name}",
-                    "summary": "题材进入热门",
-                    "block": block,
-                    "score": 0.7,
-                })
-            for block, name in report.get("removed_blocks", report.get("removed_blocks", [])):
-                signals.append({
-                    "source": "attention_history",
-                    "signal_type": "attention_falling",
-                    "theme": f"注意力下降: {name}",
-                    "summary": "题材退出热门",
-                    "block": block,
-                    "score": 0.6,
-                })
-            return signals
-        except Exception:
-            return []
-
     def _collect_cross_signal_signals(self) -> List[Dict[str, Any]]:
         """从 CrossSignalAnalyzer 获取共振信号"""
         from ..analysis.cross_signal_analyzer import get_cross_signal_analyzer
@@ -767,67 +1013,6 @@ _反思生成时间: {datetime.fromtimestamp(reflection.ts).strftime('%Y-%m-%d %
                 "score": trend.get("base_strength", 0.5),
             }]
         except Exception:
-            return []
-
-    def _collect_trade_feedback(self) -> List[Dict[str, Any]]:
-        """获取交易反馈信号"""
-        try:
-            from deva.naja.attention.orchestration.trading_center import get_trading_center
-            tc = get_trading_center()
-            os = tc.get_attention_os()
-            scheduler = os.market_scheduler
-            recent_symbols = list(scheduler._symbol_weights.keys())[:5]
-            signals = []
-            for sym in recent_symbols:
-                signals.append({
-                    "source": "trade_feedback",
-                    "signal_type": "trade",
-                    "theme": f"交易: {sym}",
-                    "summary": "",
-                    "success": True,
-                    "score": 0.5,
-                })
-            return signals
-        except Exception:
-            return []
-
-    def _collect_wisdom_signals(self) -> List[Dict[str, Any]]:
-        """收集 WisdomRetriever 的检索效果信号，用于优化知识库检索"""
-        try:
-            from ...knowledge.wisdom.wisdom_retriever import WisdomRetriever
-
-            retriever = WisdomRetriever()
-            stats = retriever.get_stats()
-
-            signals = []
-
-            trigger_count = stats.get("trigger_count", 0)
-            if trigger_count > 0:
-                last_query = stats.get("last_query", "")
-                last_snippet = stats.get("last_best_snippet", "")
-                last_focus = stats.get("last_focus", "")
-                last_bias = stats.get("last_bias", "")
-                last_time = stats.get("last_trigger_time")
-
-                signals.append({
-                    "source": "wisdom_retriever",
-                    "signal_type": "wisdom_retrieval",
-                    "theme": f"知识检索: {last_focus}/{last_bias}",
-                    "summary": f"触发{trigger_count}次 | 查询:'{last_query}' | 片段:{last_snippet[:50]}..." if last_snippet else f"触发{trigger_count}次 | 查询:'{last_query}'",
-                    "trigger_count": trigger_count,
-                    "last_query": last_query,
-                    "last_focus": last_focus,
-                    "last_bias": last_bias,
-                    "last_time": last_time,
-                    "score": min(1.0, trigger_count / 10.0),
-                })
-
-                return signals
-            return []
-        except Exception as e:
-            import logging
-            log = logging.getLogger(__name__)
-            log.debug(f"[LLMReflection] 收集 wisdom 信号失败: {e}")
             return []
 
     def _collect_merrill_clock_signals(self) -> List[Dict[str, Any]]:
@@ -1385,13 +1570,13 @@ _反思生成时间: {datetime.fromtimestamp(reflection.ts).strftime('%Y-%m-%d %
         except Exception as e:
             log.error(f"[LLMReflection] 推送到洞察池失败: {e}")
 
-    def trigger_now(self, min_signals: int = 1) -> Optional[Reflection]:
+    def trigger_now(self, min_signals: int = 5) -> Optional[Reflection]:
         """手动触发一次反思
 
         Args:
-            min_signals: 最少需要的信号数，默认1（手动触发时降低要求）
+            min_signals: 最少需要的信号数，默认5
         """
-        return self._run_reflection(min_signals=min_signals)
+        return self._run_reflection(min_signals=min_signals, bypass_quality=False)
 
     def get_stats(self) -> Dict[str, Any]:
         return {
