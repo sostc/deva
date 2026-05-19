@@ -14,6 +14,9 @@ from deva.naja.market_hotspot.data.global_market_futures import (
     MarketData,
     get_global_market_api,
     fetch_global_market_data,
+    get_stock_codes_for_market,
+    is_market_data_time,
+    get_active_markets,
     MARKET_ID_TO_CODE,
 )
 
@@ -27,6 +30,9 @@ __all__ = [
     "MarketData",
     "get_global_market_api",
     "fetch_global_market_data",
+    "get_stock_codes_for_market",
+    "is_market_data_time",
+    "get_active_markets",
     "MARKET_ID_TO_CODE",
     # 实盘获取
     "RealtimeDataFetcher",

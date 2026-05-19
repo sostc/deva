@@ -31,6 +31,10 @@ logger = logging.getLogger(__name__)
 
 TREND_TABLE = "openrouter_trend"
 
+# 预编译正则表达式
+_WEEKLY_DATA_RE = re.compile(r'\\\"x\\\":\\\"(\d{4}-\d{2}-\d{2})\\\",\\\"ys\\\":\{([^}]+)\}')
+_MODEL_DATA_RE = re.compile(r'\\\"([^\\\"]+)\\\":\s*(\d+)')
+
 
 class AlertLevel(Enum):
     NORMAL = "normal"
@@ -85,13 +89,11 @@ class OpenRouterRankings:
         解析 HTML 中的 RSC payload，提取每周 token 使用量数据
         """
         result = []
-        pattern = r'\\\"x\\\":\\\"(\d{4}-\d{2}-\d{2})\\\",\\\"ys\\\":\{([^}]+)\}'
-        matches = re.findall(pattern, html_content)
+        matches = _WEEKLY_DATA_RE.findall(html_content)
 
         for date_str, models_data in matches:
             models: dict[str, int] = {}
-            model_pattern = r'\\\"([^\\\"]+)\\\":\s*(\d+)'
-            model_matches = re.findall(model_pattern, models_data)
+            model_matches = _MODEL_DATA_RE.findall(models_data)
 
             for model_id, token_count in model_matches:
                 models[model_id] = int(token_count)

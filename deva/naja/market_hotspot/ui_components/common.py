@@ -5,6 +5,7 @@ import pandas as pd
 import os
 import logging
 from deva.naja.register import SR
+from deva.naja.market import normalize_market
 
 def _lab_debug_log(msg: str):
     """实验室模式调试日志"""
@@ -60,7 +61,7 @@ def _is_b_share_block(block_id: str, block_name: Optional[str]) -> bool:
     return ("B股" in display) or ("含B股" in display)
 
 
-def get_hot_blocks_and_stocks() -> Dict[str, Any]:
+def get_hot_blocks_and_stocks(market: str = 'CN') -> Dict[str, Any]:
     """获取热门题材和股票"""
     integration = get_market_hotspot_integration()
     if not integration:
@@ -68,8 +69,15 @@ def get_hot_blocks_and_stocks() -> Dict[str, Any]:
         return {"blocks": [], "stocks": []}
 
     try:
-        block_weights = integration.hotspot_system.block_hotspot.get_all_weights(filter_noise=True) if integration.hotspot_system else {}
-        symbol_weights = integration.hotspot_system.weight_pool.get_all_weights(filter_noise=True) if integration.hotspot_system else {}
+        market = normalize_market(market)
+        block_weights = (
+            integration.hotspot_system.get_market_block_weights(market, filter_noise=True)
+            if integration.hotspot_system else {}
+        )
+        symbol_weights = (
+            integration.hotspot_system.get_market_symbol_weights(market, filter_noise=True)
+            if integration.hotspot_system else {}
+        )
 
         _lab_debug_log(f"get_hot_blocks_and_stocks: block_weights={len(block_weights)} 个, symbol_weights={len(symbol_weights)} 个")
 

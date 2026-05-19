@@ -9,6 +9,7 @@ from typing import Dict, Any, Optional, List
 from tornado.web import RequestHandler
 
 from deva.naja.register import SR
+from deva.naja.market import normalize_market
 
 
 def _get_market_hotspot_integration():
@@ -55,30 +56,18 @@ def _get_hot_blocks_and_stocks(market: str = 'CN') -> Dict[str, Any]:
         tracker = _get_history_tracker()
         bd = _get_block_dictionary()
 
-        if market == 'US':
-            block_weights = {}
-            symbol_weights = {}
-            try:
-                from deva.naja.market_hotspot.integration.market_hotspot_integration import get_mode_manager
-                mode_manager = get_mode_manager()
-                if mode_manager and hasattr(mode_manager, '_us_integration'):
-                    us_integration = mode_manager._us_integration
-                    if us_integration and us_integration.hotspot_system:
-                        block_weights = us_integration.hotspot_system.block_hotspot.get_all_weights(
-                            filter_noise=True
-                        ) if us_integration.hotspot_system else {}
-                        symbol_weights = us_integration.hotspot_system.weight_pool.get_all_weights(
-                            filter_noise=True
-                        ) if us_integration.hotspot_system else {}
-            except Exception:
-                pass
-        else:
-            block_weights = integration.hotspot_system.block_hotspot.get_all_weights(
-                filter_noise=True
-            ) if integration.hotspot_system else {}
-            symbol_weights = integration.hotspot_system.weight_pool.get_all_weights(
-                filter_noise=True
-            ) if integration.hotspot_system else {}
+        market = normalize_market(market)
+        if not integration.hotspot_system:
+            return {"blocks": [], "stocks": []}
+
+        block_weights = integration.hotspot_system.get_market_block_weights(
+            market=market,
+            filter_noise=True
+        )
+        symbol_weights = integration.hotspot_system.get_market_symbol_weights(
+            market=market,
+            filter_noise=True
+        )
 
         sorted_blocks = sorted(
             [(block_id, weight) for block_id, weight in block_weights.items()],

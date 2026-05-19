@@ -41,6 +41,7 @@ from typing import Callable, Dict, List, Optional, Any
 import pytz
 
 from deva import NS
+from deva.naja.market import normalize_market
 from deva.naja.register import SR
 
 log = logging.getLogger(__name__)
@@ -508,20 +509,47 @@ def trading_clock_signal(phase: str, market: str = 'CN') -> bool:
     Returns:
         是否处于该时段
     """
-    from deva.naja.application import get_app_container
-    container = get_app_container()
-    if container and container.trading_clock:
-        tc = container.trading_clock
-        if market == 'CN':
+    try:
+        from deva.naja.application import get_app_container
+        container = get_app_container()
+        tc = container.trading_clock if container and container.trading_clock else None
+    except Exception:
+        tc = None
+
+    if tc is None:
+        try:
+            from deva.naja.register import ensure_trading_clocks
+            ensure_trading_clocks()
+            tc = SR('trading_clock')
+        except Exception:
+            tc = None
+
+    normalized_market = normalize_market(market)
+
+    if tc:
+        if normalized_market == 'CN':
             return tc.cn_phase == phase
         else:
             return tc.us_phase == phase
     return False
 
 
+def get_market_phase(market: str = 'CN') -> str:
+    """获取指定市场当前时段，统一走交易时钟 fallback。"""
+    for phase in ('trading', 'pre_market', 'post_market', 'lunch', 'call_auction', 'closed'):
+        if trading_clock_signal(phase, market):
+            return phase
+    return 'closed'
+
+
 def is_trading_time(market: str = 'CN') -> bool:
     """判断当前是否在交易时间内"""
     return trading_clock_signal('trading', market)
+
+
+def is_market_data_time(market: str = 'CN') -> bool:
+    """判断当前是否应该抓取市场行情数据。"""
+    return trading_clock_signal('trading', market) or trading_clock_signal('pre_market', market)
 
 
 def is_market_closed(market: str = 'CN') -> bool:
@@ -532,6 +560,11 @@ def is_market_closed(market: str = 'CN') -> bool:
 def is_us_trading_time() -> bool:
     """判断美股当前是否在交易时间内"""
     return is_trading_time('US')
+
+
+def is_us_market_data_time() -> bool:
+    """判断美股当前是否应该抓取行情数据。"""
+    return is_market_data_time('US')
 
 
 def is_us_market_closed() -> bool:
@@ -562,9 +595,12 @@ __all__ = [
     'TRADING_CLOCK_STREAM',
     'USTRADING_CLOCK_STREAM',
     'trading_clock_signal',
+    'get_market_phase',
     'is_trading_time',
+    'is_market_data_time',
     'is_market_closed',
     'is_us_trading_time',
+    'is_us_market_data_time',
     'is_us_market_closed',
     'get_global_trading_status',
     'us_trading_clock_signal',
