@@ -22,8 +22,19 @@ def render_hotspot_layers_detail() -> str:
         if not integration or not integration.hotspot_system:
             return ""
 
-        block_weights = integration.hotspot_system.block_hotspot.get_all_weights(filter_noise=True) or {}
-        symbol_weights = integration.hotspot_system.weight_pool.get_all_weights() or {}
+        try:
+            from deva.naja.market_hotspot.data import get_active_markets
+            active_markets = get_active_markets()
+            market = active_markets[0] if len(active_markets) == 1 else 'CN'
+        except Exception:
+            market = 'CN'
+
+        block_weights = integration.hotspot_system.get_market_block_weights(
+            market, filter_noise=True
+        ) or {}
+        symbol_weights = integration.hotspot_system.get_market_symbol_weights(
+            market, filter_noise=False
+        ) or {}
 
         hot_blocks = sorted(block_weights.items(), key=lambda x: x[1], reverse=True)[:10]
         hot_symbols = sorted(symbol_weights.items(), key=lambda x: x[1], reverse=True)[:15]
@@ -31,7 +42,7 @@ def render_hotspot_layers_detail() -> str:
         total_block_weight = sum(block_weights.values()) if block_weights else 0
         total_symbol_weight = sum(symbol_weights.values()) if symbol_weights else 0
 
-        hotspot_engine = getattr(integration.hotspot_system, 'global_hotspot', None)
+        hotspot_engine = integration.hotspot_system.get_market_context(market).global_hotspot
         if hotspot_engine:
             history_window = getattr(hotspot_engine, 'history_window', 0)
             history_len = len(getattr(hotspot_engine, '_history_buffer', []))
@@ -310,5 +321,4 @@ def _render_fetcher_empty_state() -> str:
         </div>
     </div>
     """
-
 

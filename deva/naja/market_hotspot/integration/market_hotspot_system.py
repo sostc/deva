@@ -24,6 +24,7 @@ import logging
 import threading
 from datetime import datetime
 from deva.naja.register import SR
+from deva.naja.market import normalize_market
 import pandas as pd
 
 # 解决 FutureWarning: Downcasting object dtype arrays on .fillna, .ffill, .bfill is deprecated
@@ -625,7 +626,45 @@ class MarketHotspotSystem:
 
     def _get_context(self, market: str) -> 'MarketContext':
         """获取市场对应的上下文"""
-        return self._cn_context if market == 'CN' else self._us_context
+        normalized_market = normalize_market(market)
+        return self._cn_context if normalized_market == 'CN' else self._us_context
+
+    def get_market_context(self, market: str = 'CN') -> 'MarketContext':
+        """获取指定市场上下文。新代码应优先使用显式 market。"""
+        return self._get_context(market)
+
+    def get_market_block_weights(
+        self,
+        market: str = 'CN',
+        filter_noise: bool = True
+    ) -> Dict[str, float]:
+        """获取指定市场题材权重。"""
+        return self._get_context(market).block_engine.get_all_weights(
+            filter_noise=filter_noise
+        )
+
+    def get_market_symbol_weights(
+        self,
+        market: str = 'CN',
+        filter_noise: bool = False
+    ) -> Dict[str, float]:
+        """获取指定市场个股权重。"""
+        return self._get_context(market).weight_pool.get_all_weights(
+            filter_noise=filter_noise
+        )
+
+    def get_market_global_state(self, market: str = 'CN') -> Dict[str, Any]:
+        """获取指定市场全局热点状态。"""
+        normalized_market = normalize_market(market)
+        if normalized_market == 'US':
+            return {
+                'global_hotspot': self._us_last_global_hotspot,
+                'activity': self._us_last_activity,
+            }
+        return {
+            'global_hotspot': self._last_global_hotspot,
+            'activity': self._last_activity,
+        }
 
     def _get_block_engine(self, market: str) -> 'BlockHotspotEngine':
         """获取市场对应的题材引擎"""
@@ -668,6 +707,7 @@ class MarketHotspotSystem:
             raise RuntimeError("MarketHotspotSystem not initialized. Call initialize() first.")
 
         start_time = time.time()
+        market = normalize_market(market)
 
         # 更新当前市场标识，确保 property 动态路由正确
         self._current_market = market
@@ -1049,6 +1089,13 @@ class MarketHotspotSystem:
                 'futures_indices': futures,
             }
 
+    def get_hotspot_state(self, market: str = 'CN') -> Dict[str, Any]:
+        """获取指定市场热点状态。"""
+        normalized_market = normalize_market(market)
+        if normalized_market == 'US':
+            return self.get_us_hotspot_state()
+        return self.get_cn_hotspot_state()
+
     def get_us_symbol_snapshot(self) -> Dict[str, Dict[str, Any]]:
         """获取美股最新symbol快照"""
         with self._cache_lock:
@@ -1165,14 +1212,18 @@ class MarketHotspotSystem:
         """获取指定频率档位的所有个股"""
         return self._get_context(market).frequency_scheduler.get_symbols_by_level(level)
 
-    def get_high_hotspot_symbols(self, threshold: float = 2.0) -> List[Tuple[str, float]]:
+    def get_high_hotspot_symbols(
+        self,
+        threshold: float = 2.0,
+        market: str = 'CN'
+    ) -> List[Tuple[str, float]]:
         """获取高热点个股"""
-        view = WeightPoolView(self.weight_pool)
+        view = WeightPoolView(self._get_context(market).weight_pool)
         return view.get_high_hotspot_symbols(threshold)
 
-    def get_active_blocks(self, threshold: float = 0.3) -> List[str]:
+    def get_active_blocks(self, threshold: float = 0.3, market: str = 'CN') -> List[str]:
         """获取活跃题材"""
-        return self.block_hotspot.get_active_blocks(threshold)
+        return self._get_context(market).block_engine.get_active_blocks(threshold)
 
     def get_system_status(self) -> Dict[str, Any]:
         """获取系统状态"""

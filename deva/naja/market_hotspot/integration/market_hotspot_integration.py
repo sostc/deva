@@ -251,15 +251,16 @@ class MarketHotspotIntegration:
                     df = db[latest_key]
                     if isinstance(df, pd.DataFrame):
                         if 'code' in df.columns and 'name' in df.columns:
-                            for _, row in df.iterrows():
-                                symbol = str(row['code'])
-                                name = row.get('name', symbol)
+                            # 向量化处理：批量注册个股名称
+                            codes = df['code'].astype(str).tolist()
+                            names = df['name'].tolist()
+                            for symbol, name in zip(codes, names):
                                 if symbol and name and name != symbol:
                                     tracker.register_symbol_name(symbol, name)
                         elif 'code' in df.columns and 'stock_name' in df.columns:
-                            for _, row in df.iterrows():
-                                symbol = str(row['code'])
-                                name = row.get('stock_name', symbol)
+                            codes = df['code'].astype(str).tolist()
+                            names = df['stock_name'].tolist()
+                            for symbol, name in zip(codes, names):
                                 if symbol and name and name != symbol:
                                     tracker.register_symbol_name(symbol, name)
             except Exception as e:
@@ -374,15 +375,20 @@ class MarketHotspotIntegration:
         self._last_datasource_control = control
         return control
 
-    def get_frequency_for_symbol(self, symbol: str):
+    def get_frequency_for_symbol(self, symbol: str, market: str = 'CN'):
         """获取个股的数据频率档位"""
         if self.hotspot_system is None:
             from ..scheduling import FrequencyLevel
             return FrequencyLevel.LOW
 
-        return self.hotspot_system.frequency_scheduler.get_symbol_level(symbol)
+        return self.hotspot_system._get_frequency_scheduler(market).get_symbol_level(symbol)
 
-    def should_fetch_symbol(self, symbol: str, timestamp: Optional[float] = None) -> bool:
+    def should_fetch_symbol(
+        self,
+        symbol: str,
+        timestamp: Optional[float] = None,
+        market: str = 'CN'
+    ) -> bool:
         """判断是否应该获取该个股的数据"""
         if self.hotspot_system is None:
             return True
@@ -390,7 +396,7 @@ class MarketHotspotIntegration:
         if timestamp is None:
             timestamp = time.time()
 
-        return self.hotspot_system.frequency_scheduler.should_fetch(symbol, timestamp)
+        return self.hotspot_system._get_frequency_scheduler(market).should_fetch(symbol, timestamp)
 
     def get_high_hotspot_symbols(self, threshold: float = 2.0) -> List[str]:
         """获取高热点个股列表"""

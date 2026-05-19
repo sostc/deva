@@ -37,8 +37,8 @@ except ImportError:
 from .application import AppRuntimeConfig, run_web_application
 from .infra.runtime.daemon import (
     is_running, get_status,
-    stop_service, reload_service, restart_service,
-    setup_reload_handler, PID_FILE, LOG_FILE
+    stop_service, reload_service, restart_service, stop_tray,
+    setup_reload_handler, PID_FILE, LOG_FILE, TRAY_PID_FILE
 )
 
 
@@ -256,6 +256,9 @@ def handle_service_command():
         if platform.system() == "Darwin":
             try:
                 import rumps
+                # 先停止旧托盘
+                stop_tray()
+                
                 tray_script = os.path.join(str(Path(__file__).parent), "scripts", "start_tray.py")
                 tray_cmd = [sys.executable, tray_script]
                 tray_proc = subprocess.Popen(
@@ -266,6 +269,7 @@ def handle_service_command():
                     cwd=os.getcwd(),
                     start_new_session=True
                 )
+                print("✓ 托盘已启动")
             except ImportError:
                 print("⚠ 未安装 rumps，菜单栏托盘将不启动")
                 print("  安装命令: pip install rumps")

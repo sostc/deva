@@ -11,6 +11,7 @@ logger = logging.getLogger(__name__)
 
 NAJA_DIR = Path.home() / ".naja"
 PID_FILE = NAJA_DIR / "naja.pid"
+TRAY_PID_FILE = NAJA_DIR / "naja_tray.pid"
 PORT_FILE = NAJA_DIR / "naja.port"
 LOG_FILE = NAJA_DIR / "logs" / "naja.log"
 
@@ -181,11 +182,64 @@ def get_running_pid() -> Optional[int]:
         return None
 
 
+def get_running_tray_pid() -> Optional[int]:
+    """获取正在运行的托盘进程PID"""
+    if not TRAY_PID_FILE.exists():
+        return None
+    try:
+        pid = int(TRAY_PID_FILE.read_text().strip())
+        if pid <= 0:
+            return None
+        os.kill(pid, 0)
+        return pid
+    except (ValueError, ProcessLookupError, PermissionError):
+        TRAY_PID_FILE.unlink(missing_ok=True)
+        return None
+
+def is_tray_running() -> bool:
+    return get_running_tray_pid() is not None
+
+def stop_tray(timeout: float = 5.0) -> bool:
+    """停止托盘进程"""
+    pid = get_running_tray_pid()
+    if not pid:
+        return True
+
+    print(f"正在停止托盘 (PID: {pid})...")
+    try:
+        os.kill(pid, signal.SIGTERM)
+    except ProcessLookupError:
+        print("✓ 托盘已停止")
+        TRAY_PID_FILE.unlink(missing_ok=True)
+        return True
+
+    start = time.time()
+    while time.time() - start < timeout:
+        try:
+            os.kill(pid, 0)
+            time.sleep(0.2)
+        except ProcessLookupError:
+            print("✓ 托盘已停止")
+            TRAY_PID_FILE.unlink(missing_ok=True)
+            return True
+
+    try:
+        os.kill(pid, signal.SIGKILL)
+        print("⚠ 托盘被强制终止")
+        TRAY_PID_FILE.unlink(missing_ok=True)
+    except ProcessLookupError:
+        pass
+
+    return True
+
 def is_running() -> bool:
     return get_running_pid() is not None
 
 
 def stop_service(timeout: float = 10.0) -> bool:
+    # 先停止托盘
+    stop_tray()
+    
     pid = get_running_pid()
     if not pid:
         print("✗ Naja 未在运行")

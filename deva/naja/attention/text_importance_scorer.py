@@ -23,6 +23,11 @@ from deva.naja.cognition.semantic.keyword_registry import (
 
 log = logging.getLogger(__name__)
 
+# 预编译正则表达式
+_ASTOCK_CODE_RE = re.compile(r"\b\d{6}\b")
+_US_TICKER_RE = re.compile(r"\b[A-Z]{1,5}\b")
+_US_TICKER_EXCLUDE = {"AI", "GDP", "CPI", "PMI", "FOMC", "M2"}
+
 
 THRESHOLD_DEEP = 0.6
 THRESHOLD_INDEX = 0.3
@@ -269,16 +274,16 @@ class TextImportanceScorer:
         except Exception:
             bd = None
 
-        # A股 6位数字代码
-        for match in re.findall(r"\b\d{6}\b", text):
+        # A股 6位数字代码 (使用预编译正则)
+        for match in _ASTOCK_CODE_RE.findall(text):
             if bd:
                 info = bd.get_stock_info(f"sh{match}") or bd.get_stock_info(f"sz{match}")
                 codes.add(match if not info else f"sh{match}" if info.market == 'SH' else f"sz{match}" if info.market == 'SZ' else match)
             else:
                 codes.add(match)
-        # 美股 ticker (1-5 大写字母)
-        for match in re.findall(r"\b[A-Z]{1,5}\b", text):
-            if match not in {"AI", "GDP", "CPI", "PMI", "FOMC", "M2"}:
+        # 美股 ticker (1-5 大写字母, 使用预编译正则)
+        for match in _US_TICKER_RE.findall(text):
+            if match not in _US_TICKER_EXCLUDE:
                 if bd:
                     info = bd.get_stock_info(match.lower())
                     if info:
