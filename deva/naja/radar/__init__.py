@@ -76,6 +76,17 @@ from .senses import (
     PreTasteResult,
 )
 
+_volatility_surface_sense: VolatilitySurfaceSense = None
+
+
+def get_volatility_surface_sense() -> VolatilitySurfaceSense:
+    """获取 VolatilitySurfaceSense 单例"""
+    global _volatility_surface_sense
+    if _volatility_surface_sense is None:
+        _volatility_surface_sense = VolatilitySurfaceSense()
+    return _volatility_surface_sense
+
+
 from deva.naja.register import SR
 
 __all__ = [

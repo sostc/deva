@@ -286,6 +286,9 @@ class NarrativeTracker:
         self._states: Dict[str, NarrativeState] = {}
         self._graph_edges: Dict[Tuple[str, str], float] = defaultdict(float)
         self._recent_hits: Deque[Tuple[float, List[str]]] = deque()
+        
+        # 状态历史记录（用于变化检测）
+        self._state_history: Deque[Dict[str, Any]] = deque(maxlen=100)  # 最多保存100个状态快照
 
         # 🚀 供需动态信号独立存储（与外部叙事状态分离）
         self._value_signals: List[ValueSignal] = []
@@ -696,6 +699,22 @@ class NarrativeTracker:
             self._last_published_strength = narrative_strength
             self._last_published_risk = narrative_risk
             
+            # 记录状态历史（用于变化检测）
+            self._state_history.append({
+                "timestamp": timestamp,
+                "narratives": dict([
+                    (s.name, {
+                        "stage": s.stage,
+                        "attention_score": s.attention_score,
+                        "trend": s.trend
+                    })
+                    for s in active_narratives
+                ]),
+                "strength": narrative_strength,
+                "risk": narrative_risk,
+                "sentiment": sentiment_score
+            })
+            
             # 创建并发布事件
             event = NarrativeStateEvent(
                 current_narratives=current_narratives,
@@ -902,6 +921,38 @@ class NarrativeTracker:
                 "linked_blocks": _get_linked_blocks(state.name),
             })
         return result
+    
+    def get_state_history(self, limit: int = 20) -> List[Dict[str, Any]]:
+        """获取叙事状态历史（用于变化检测）
+        
+        Returns:
+            状态历史列表，最新的在最后
+        """
+        history = list(self._state_history)
+        if limit and len(history) > limit:
+            history = history[-limit:]
+        return history
+    
+    def get_current_state_snapshot(self) -> Dict[str, Any]:
+        """获取当前叙事状态快照
+        
+        Returns:
+            当前状态字典
+        """
+        active_narratives = [s for s in self._states.values() if s.attention_score > 0.3]
+        return {
+            "timestamp": time.time(),
+            "narratives": dict([
+                (s.name, {
+                    "stage": s.stage,
+                    "attention_score": s.attention_score,
+                    "trend": s.trend
+                })
+                for s in active_narratives
+            ]),
+            "strength": sum(s.attention_score for s in active_narratives) / len(active_narratives) if active_narratives else 0.0,
+            "active_count": len(active_narratives)
+        }
 
     def get_liquidity_structure(self) -> Dict[str, Any]:
         """获取美林时钟四象限流动性结构
