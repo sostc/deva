@@ -388,6 +388,7 @@ class VolatilitySurfaceSense:
         self.surface_analyzer = IVSurfaceAnalyzer()
         self.signal_generator = VolatilitySignalGenerator()
         self._last_surface: Optional[VolatilitySurface] = None
+        self._alert_history: List[VolatilityAlert] = []
 
     def sense(
         self,
@@ -424,9 +425,16 @@ class VolatilitySurfaceSense:
         alerts = self.signal_generator.generate_signals(surface)
 
         if alerts:
+            self._alert_history.extend(alerts)
+            if len(self._alert_history) > 50:
+                self._alert_history = self._alert_history[-50:]
             return max(alerts, key=lambda a: a.intensity)
 
         return None
+
+    def get_recent_alerts(self, limit: int = 5) -> List[VolatilityAlert]:
+        """获取最近的波动率警报"""
+        return self._alert_history[-limit:] if self._alert_history else []
 
     def _estimate_from_market_data(self, market_data: Dict[str, Any]) -> Dict[str, Any]:
         """从市场数据估算波动率信息"""

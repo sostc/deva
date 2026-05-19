@@ -20,6 +20,10 @@ from enum import Enum
 
 log = logging.getLogger(__name__)
 
+# 持久化配置
+RISK_PERSISTENCE_TABLE = "naja_risk_manager_state"
+MAX_PERSIST_ALERTS = 100  # 保留最近 100 条警报
+
 
 class RiskLevel(Enum):
     """风险等级"""
@@ -50,6 +54,31 @@ class RiskAlert:
     metrics: Dict[str, float]
     timestamp: float
     recommended_action: str
+
+    def to_dict(self) -> Dict[str, Any]:
+        """序列化为字典"""
+        return {
+            "risk_type": self.risk_type.value,
+            "level": self.level.value,
+            "description": self.description,
+            "symbol": self.symbol,
+            "metrics": self.metrics,
+            "timestamp": self.timestamp,
+            "recommended_action": self.recommended_action
+        }
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "RiskAlert":
+        """从字典反序列化"""
+        return cls(
+            risk_type=RiskType(data["risk_type"]),
+            level=RiskLevel(data["level"]),
+            description=data["description"],
+            symbol=data.get("symbol"),
+            metrics=data.get("metrics", {}),
+            timestamp=data.get("timestamp", time.time()),
+            recommended_action=data.get("recommended_action", "")
+        )
 
 
 @dataclass
@@ -411,6 +440,9 @@ class RiskManager:
         self._attention_cache: Dict[str, Any] = {}
         self._attention_cache_ts: float = 0.0
         self._attention_cache_ttl: float = 5.0  # 缓存有效期（秒）
+        
+        # 加载持久化数据
+        self._load_state()
     
     def _get_attention_context(self) -> Dict[str, Any]:
         """获取 AttentionOS 上下文（带缓存）"""
@@ -523,8 +555,12 @@ class RiskManager:
         alerts.extend(rule_alerts)
 
         self._alert_history.extend(alerts)
-        if len(self._alert_history) > 100:
-            self._alert_history = self._alert_history[-100:]
+        if len(self._alert_history) > MAX_PERSIST_ALERTS:
+            self._alert_history = self._alert_history[-MAX_PERSIST_ALERTS:]
+        
+        # 持久化
+        if alerts:
+            self.save_state()
 
         overall_score = self._calculate_overall_score(alerts)
 
@@ -742,9 +778,9 @@ class RiskManager:
         else:
             return RiskLevel.CRITICAL
 
-    def get_recent_alerts(self) -> List[RiskAlert]:
+    def get_recent_alerts(self, limit: int = 10) -> List[RiskAlert]:
         """获取最近警报"""
-        return list(self._alert_history[-10:])
+        return list(self._alert_history[-limit:])
 
     def get_alert_summary(self) -> Dict[str, Any]:
         """获取警报摘要"""
@@ -763,3 +799,68 @@ class RiskManager:
             "by_level": by_level,
             "by_type": by_type
         }
+    
+    def _load_state(self) -> bool:
+        """从数据库加载历史警报"""
+        try:
+            from deva import NB
+            nb = NB(RISK_PERSISTENCE_TABLE)
+            data = nb.get("alert_history")
+            if not data or not isinstance(data, list):
+                return False
+            
+            now_ts = time.time()
+            loaded_count = 0
+            
+            for alert_data in data:
+                try:
+                    # 只保留最近 7 天的数据
+                    alert_ts = alert_data.get("timestamp", 0)
+                    if now_ts - alert_ts > 7 * 24 * 3600:
+                        continue
+                    
+                    alert = RiskAlert.from_dict(alert_data)
+                    self._alert_history.append(alert)
+                    loaded_count += 1
+                except Exception:
+                    continue
+            
+            if loaded_count > 0:
+                log.info(f"[RiskManager] 从持久化恢复 {loaded_count} 条风险警报")
+            
+            # 确保不超过最大限制
+            if len(self._alert_history) > MAX_PERSIST_ALERTS:
+                self._alert_history = self._alert_history[-MAX_PERSIST_ALERTS:]
+            
+            return loaded_count > 0
+        except Exception as e:
+            log.debug(f"[RiskManager] 加载持久化失败: {e}")
+            return False
+    
+    def save_state(self) -> bool:
+        """保存历史警报到数据库"""
+        try:
+            from deva import NB
+            nb = NB(RISK_PERSISTENCE_TABLE)
+            
+            # 序列化警报
+            alerts_data = [a.to_dict() for a in self._alert_history]
+            nb["alert_history"] = alerts_data
+            nb["saved_at"] = time.time()
+            
+            return True
+        except Exception as e:
+            log.debug(f"[RiskManager] 保存持久化失败: {e}")
+            return False
+
+
+# 单例管理
+_risk_manager: RiskManager = None
+
+
+def get_risk_manager() -> RiskManager:
+    """获取 RiskManager 单例"""
+    global _risk_manager
+    if _risk_manager is None:
+        _risk_manager = RiskManager()
+    return _risk_manager
