@@ -125,6 +125,11 @@ class LLMReflectionEngine:
         # 变化检测状态
         self._last_narrative_state: Dict[str, Any] = {}  # 上次叙事状态
         self._last_risk_summary: Dict[str, Any] = {}  # 上次风险摘要
+        
+        # 频率限制
+        self._min_change_trigger_interval: float = 3600.0  # 变化触发最小间隔：1 小时
+        self._last_change_trigger_ts: float = 0.0  # 上次变化触发时间
+        self._max_daily_reflections: int = 10  # 每天最大反思次数
 
         self._thread: Optional[threading.Thread] = None
         self._stop_event = threading.Event()
@@ -283,13 +288,30 @@ class LLMReflectionEngine:
         return result
 
     def _check_trigger_conditions(self, signals: List[Dict[str, Any]]) -> tuple[bool, str, Optional[List[ChangeSignal]]]:
-        """检查是否满足触发条件（包含变化检测）"""
+        """检查是否满足触发条件（包含变化检测与频率限制）"""
         import logging
         log = logging.getLogger(__name__)
+        now = time.time()
 
-        # 检查变化触发
+        # 1. 检查变化触发
         change_signals = self._detect_changes(signals)
         if change_signals:
+            # 频率限制 1: 最小间隔保护
+            time_since_last_change = now - self._last_change_trigger_ts
+            if time_since_last_change < self._min_change_trigger_interval:
+                wait_min = (self._min_change_trigger_interval - time_since_last_change) / 60
+                return False, f"变化触发冷却中: 还需等待{wait_min:.1f}分钟", None
+            
+            # 频率限制 2: 每日最大次数保护
+            today = datetime.fromtimestamp(now).date()
+            today_count = 0
+            for refl in self._running_reflections:
+                if datetime.fromtimestamp(refl.ts).date() == today:
+                    today_count += 1
+            
+            if today_count >= self._max_daily_reflections:
+                return False, f"今日反思次数已达上限: {today_count}/{self._max_daily_reflections}", None
+            
             # 变化驱动：降低信号门槛
             min_required = max(5, self._min_signals // 2)
             if len(signals) >= min_required:
@@ -297,11 +319,10 @@ class LLMReflectionEngine:
                 log.info(f"[LLMReflection] 检测到变化，降低触发门槛: {len(signals)} >= {min_required}")
                 return True, f"变化驱动触发: {change_desc}", change_signals
 
-        # 正常定时检查
+        # 2. 正常定时检查
         if len(signals) < self._min_signals:
             return False, f"信号数不足: {len(signals)} < {self._min_signals}", None
 
-        now = time.time()
         timestamps = [s.get("ts", s.get("timestamp", 0)) for s in signals if s.get("ts") or s.get("timestamp")]
         if timestamps:
             time_span = now - min(timestamps)
@@ -427,6 +448,10 @@ class LLMReflectionEngine:
         if not can_trigger:
             log.info(f"[LLMReflection] 跳过反思: {reason}")
             return None
+
+        # 记录变化触发时间
+        if change_signals:
+            self._last_change_trigger_ts = now
 
         log.info(f"[LLMReflection] 触发反思: {reason}, {len(signals)}个有效信号")
 
