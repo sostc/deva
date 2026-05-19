@@ -495,12 +495,8 @@ def _get_jin10_important_news() -> List[Dict[str, Any]]:
                 extra_wait=3.0
             )
         
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        try:
-            live_news = loop.run_until_complete(fetch_live())
-        finally:
-            loop.close()
+        # 使用 asyncio.run() 安全地运行协程（Python 3.7+）
+        live_news = asyncio.run(fetch_live())
         
         if live_news:
             for news in live_news:

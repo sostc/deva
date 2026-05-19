@@ -14,6 +14,7 @@ logger = logging.getLogger(__name__)
 
 NAJA_DIR = Path.home() / ".naja"
 PID_FILE = NAJA_DIR / "naja.pid"
+TRAY_PID_FILE = NAJA_DIR / "naja_tray.pid"
 PORT_FILE = NAJA_DIR / "naja.port"
 DEFAULT_PORT = 8080
 
@@ -201,6 +202,57 @@ class MenuBarTray:
             PID_FILE.unlink(missing_ok=True)
             return None
 
+    def _get_running_tray_pid(self) -> Optional[int]:
+        """获取正在运行的托盘进程PID"""
+        try:
+            if not TRAY_PID_FILE.exists():
+                return None
+            pid = int(TRAY_PID_FILE.read_text().strip())
+            if pid <= 0:
+                return None
+            os.kill(pid, 0)
+            return pid
+        except (ValueError, ProcessLookupError, PermissionError, OSError):
+            TRAY_PID_FILE.unlink(missing_ok=True)
+            return None
+
+    def _save_tray_pid(self):
+        """保存当前托盘进程PID"""
+        try:
+            TRAY_PID_FILE.write_text(str(os.getpid()))
+            logger.info(f"已保存托盘PID: {os.getpid()}")
+        except Exception as e:
+            logger.error(f"保存托盘PID失败: {e}")
+
+    def _clear_tray_pid(self):
+        """清除托盘PID文件"""
+        try:
+            TRAY_PID_FILE.unlink(missing_ok=True)
+            logger.info("已清除托盘PID文件")
+        except Exception as e:
+            logger.error(f"清除托盘PID失败: {e}")
+
+    def _kill_running_tray(self):
+        """终止正在运行的托盘进程"""
+        pid = self._get_running_tray_pid()
+        if pid:
+            try:
+                os.kill(pid, signal.SIGTERM)
+                logger.info(f"已终止旧托盘进程 (PID: {pid})")
+                time.sleep(0.5)
+                # 确认进程已终止
+                try:
+                    os.kill(pid, 0)
+                    # 进程仍在运行，强制终止
+                    os.kill(pid, signal.SIGKILL)
+                    logger.info(f"已强制终止托盘进程 (PID: {pid})")
+                except (ProcessLookupError, OSError):
+                    pass
+            except Exception as e:
+                logger.error(f"终止托盘进程失败: {e}")
+            finally:
+                self._clear_tray_pid()
+
     def _get_tray_script_path(self) -> str:
         """获取托盘脚本路径"""
         return os.path.join(os.path.dirname(__file__), "..", "..", "scripts", "naja_tray.py")
@@ -284,6 +336,7 @@ class MenuBarTray:
                 os.kill(pid, signal.SIGTERM)
             except ProcessLookupError:
                 pass
+        self._clear_tray_pid()
         rumps.quit_application()
 
     def _on_refresh(self, sender):
@@ -415,7 +468,7 @@ class MenuBarTray:
                 self._send_to_dingtalk(summary)
                 
                 # 显示简短通知，同时打开完整总结
-                self._show_summary_notification(summary, summary_file)
+                self._show_summary_notification(summary, summary_file, events)
                 
             except Exception as e:
                 logger.error(f"一键总结异常: {e}")
@@ -464,17 +517,25 @@ class MenuBarTray:
         prompt += """
 
 请生成一篇小红书爆款风格的市场总结，要求：
-1. 🔥 开头第一句必须是核心结论，直接点明今天市场的关键特征
+1. 🔥 开头第一句必须是核心结论，直接点明今天市场的关键特征，特别是**今天市场主要的变化和转折**（如果有的话）
 2. 📝 结论后面再展开细节，每段用一个emoji开头，一行一个要点
 3. 💡 语言要轻松活泼，像和朋友聊天
 4. 🎯 重点突出，用加粗**强调关键内容**
 5. 📊 数据要直观，涨跌幅要醒目
 6. ✨ 整体控制在8-12行，每行简短有力
+7. ⏰ **绝对重要！必须严格按照时间线顺序展开**：从早到晚叙述，不能打乱时间顺序。例如不能把后面发生的事放在前面，这样市场情绪的变化（先涨后跌、先冷后热）才能准确体现！
+8. 🔄 **关键要求！主动梳理市场的变化和转折**：
+   - 观察市场情绪的转折点（如先涨后跌、从悲观到乐观、从平静到疯狂等）
+   - 观察题材轮动的变化（从A板块切换到B板块）
+   - 观察重要新闻对市场的影响（某个消息出来后市场的反应）
+   - 用简洁的语言把这些变化**明确说出来**！
 
 例子风格：
-🔥 **创新药**领涨！今天市场情绪火热！
-📈 **创新药**板块爆发，涨幅惊人！
-🇨🇳 A股题材轮动加快，把握节奏！
+🔥 **创新药**领涨！今天市场先抑后扬，题材轮动明显！
+📈 早盘**创新药**板块率先爆发，涨幅惊人！
+🇨🇳 午盘市场情绪升温，**文化传媒**接棒上涨！
+📌 下午金十快讯传来利好，推动行情全面上涨！
+🔄 注意到今天题材从医药切换到传媒，轮动很快！
 💡 建议关注政策驱动型机会～
 
 直接给出文案，不要其他说明！"""
@@ -539,10 +600,10 @@ class MenuBarTray:
             logger.error(f"发送到钉钉失败: {e}")
             return False
 
-    def _show_summary_notification(self, summary, summary_file):
+    def _show_summary_notification(self, summary, summary_file, events=None):
         """显示总结通知并打开HTML页面"""
         import rumps
-        import webbrowser
+        import subprocess
         from datetime import datetime
         
         # 简短通知
@@ -558,7 +619,7 @@ class MenuBarTray:
         )
         
         # 生成并打开漂亮的HTML页面
-        html_file = self._generate_html_summary(summary)
+        html_file = self._generate_html_summary(summary, events)
         if html_file:
             try:
                 subprocess.run(['open', str(html_file)], check=False)
@@ -566,7 +627,7 @@ class MenuBarTray:
             except Exception as e:
                 logger.error(f"打开HTML总结失败: {e}")
 
-    def _generate_html_summary(self, summary):
+    def _generate_html_summary(self, summary, events=None):
         """生成漂亮的HTML总结页面"""
         try:
             from datetime import datetime
@@ -580,11 +641,14 @@ class MenuBarTray:
             # 简单的Markdown转HTML（处理换行和基本格式）
             html_content = self._simple_markdown_to_html(summary)
             
+            # 生成SVG时间线图
+            svg_timeline = self._generate_svg_timeline(events if events else [])
+            
             html_template = f"""<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>📊 24小时市场总结 - {datetime.now().strftime('%Y-%m-%d %H:%M')}</title>
     <style>
         * {{
@@ -602,12 +666,63 @@ class MenuBarTray:
         }}
         
         .container {{
-            max-width: 800px;
+            max-width: 900px;
             margin: 0 auto;
             background: white;
             border-radius: 16px;
             box-shadow: 0 20px 60px rgba(0,0,0,0.3);
             overflow: hidden;
+        }}
+        
+        .timeline-section {{
+            background: #f8f9fa;
+            padding: 30px 40px;
+            border-bottom: 1px solid #eee;
+        }}
+        
+        .timeline-section h2 {{
+            font-size: 18px;
+            color: #667eea;
+            margin-bottom: 20px;
+            text-align: center;
+        }}
+        
+        .timeline-svg {{
+            width: 100%;
+            height: auto;
+            display: block;
+        }}
+        
+        @media (max-width: 600px) {{
+            body {{
+                padding: 10px;
+            }}
+            .container {{
+                border-radius: 15px;
+            }}
+            .header {{
+                padding: 25px 20px;
+            }}
+            .header h1 {{
+                font-size: 22px;
+            }}
+            .content {{
+                padding: 25px 20px;
+                font-size: 16px;
+            }}
+            .timeline-section {{
+                padding: 20px 15px;
+            }}
+            .footer {{
+                padding: 15px 20px;
+            }}
+            .actions {{
+                flex-direction: column;
+            }}
+            .btn {{
+                width: 100%;
+                justify-content: center;
+            }}
         }}
         
         .header {{
@@ -692,7 +807,7 @@ class MenuBarTray:
         }}
         
         @media (max-width: 600px) {{
-            .header, .content, .footer {{
+            .header, .content, .footer, .timeline-section {{
                 padding: 24px;
             }}
             .header h1 {{
@@ -707,6 +822,8 @@ class MenuBarTray:
             <h1>📊 24小时市场总结</h1>
             <div class="time">{datetime.now().strftime('%Y年%m月%d日 %H:%M')}</div>
         </div>
+        
+        {svg_timeline}
         
         <div class="content">
             {html_content}
@@ -763,6 +880,117 @@ class MenuBarTray:
                 html_lines.append(f'<p style="margin-bottom: 12px; font-size: 17px;">{line}</p>')
         
         return '\n'.join(html_lines)
+    
+    def _generate_svg_timeline(self, events):
+        """生成响应式垂直河流时间线 - 适配移动端"""
+        if not events or len(events) == 0:
+            return ''
+        
+        # 限制显示数量
+        display_events = events[:10]
+        
+        # 预处理时间线事件
+        simplified_events = []
+        for event in display_events:
+            title = event.get('title', '')
+            # 精简标题 - 最多14个字
+            if len(title) > 14:
+                title = title[:14]
+            simplified_events.append({
+                'type': event.get('type', 'unknown'),
+                'time': event.get('time', ''),
+                'title': title,
+                'change': event.get('change', '')
+            })
+        
+        # SVG尺寸 - 使用viewBox让SVG可缩放
+        svg_width = 850
+        event_count = len(simplified_events)
+        svg_height = 150 + event_count * 150
+        
+        svg_parts = []
+        svg_parts.append(f'''<div class="timeline-section">
+    <svg class="timeline-svg" viewBox="0 0 {svg_width} {svg_height}" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="xMidYMid meet">''')
+        
+        # 背景
+        svg_parts.append(f'<rect x="0" y="0" width="{svg_width}" height="{svg_height}" fill="#f8f9fa" rx="15"/>')
+        
+        # 标题
+        svg_parts.append(f'<text x="{svg_width//2}" y="50" text-anchor="middle" font-size="24" font-weight="bold" fill="#667eea">🌊 市场时间线</text>')
+        svg_parts.append(f'<text x="{svg_width//2}" y="78" text-anchor="middle" font-size="14" fill="#999">热点变化 · 新闻驱动 · 情绪流动</text>')
+        
+        # 垂直主时间轴
+        timeline_center = svg_width // 2
+        svg_parts.append(f'<line x1="{timeline_center}" y1="110" x2="{timeline_center}" y2="{svg_height-50}" stroke="#667eea" stroke-width="5" stroke-linecap="round"/>')
+        
+        # 河流背景装饰
+        svg_parts.append(f'<path d="M {timeline_center-10} 110 Q {timeline_center+30} 200 {timeline_center-20} 300 T {timeline_center+10} {svg_height-50}" stroke="#e0e7ff" stroke-width="70" fill="none" opacity="0.4"/>')
+        
+        # 逐个绘制事件
+        start_y = 150
+        spacing = 150
+        
+        # 卡片尺寸优化
+        card_width = 280
+        card_left_margin = 40
+        
+        for i, event in enumerate(simplified_events):
+            y = start_y + i * spacing
+            event_type = event.get('type', 'unknown')
+            
+            # 颜色和图标配置
+            config = {
+                'cn_event': {'color': '#ff6b6b', 'icon': '🇨🇳', 'label': 'A股'},
+                'us_event': {'color': '#4ecdc4', 'icon': '🇺🇸', 'label': '美股'},
+                'high_score_news': {'color': '#ffd166', 'icon': '📰', 'label': '新闻'},
+                'jin10_news': {'color': '#06d6a0', 'icon': '📌', 'label': '金十'},
+            }.get(event_type, {'color': '#667eea', 'icon': '📊', 'label': '其他'})
+            
+            color = config['color']
+            icon = config['icon']
+            
+            # 事件节点
+            svg_parts.append(f'<circle cx="{timeline_center}" cy="{y}" r="24" fill="{color}" stroke="white" stroke-width="4"/>')
+            svg_parts.append(f'<text x="{timeline_center}" y="{y+7}" text-anchor="middle" font-size="18">{icon}</text>')
+            
+            # 波浪连接线
+            if i < event_count - 1:
+                next_y = start_y + (i + 1) * spacing
+                # 交替左右的波浪
+                if i % 2 == 0:
+                    ctrl_x = timeline_center + 40
+                else:
+                    ctrl_x = timeline_center - 40
+                svg_parts.append(f'<path d="M {timeline_center} {y} Q {ctrl_x} {(y+next_y)/2} {timeline_center} {next_y}" stroke="{color}" stroke-width="3" fill="none" opacity="0.65"/>')
+            
+            # 事件卡片 - 左右交替
+            if i % 2 == 0:
+                card_x = card_left_margin
+                svg_parts.append(f'<line x1="{card_x+card_width}" y1="{y}" x2="{timeline_center-30}" y2="{y}" stroke="{color}" stroke-width="3" stroke-dasharray="6,5"/>')
+            else:
+                card_x = timeline_center + 30
+                svg_parts.append(f'<line x1="{timeline_center+30}" y1="{y}" x2="{card_x}" y2="{y}" stroke="{color}" stroke-width="3" stroke-dasharray="6,5"/>')
+            
+            # 卡片 - 圆角更大更圆润
+            svg_parts.append(f'<rect x="{card_x}" y="{y-45}" width="{card_width}" height="90" rx="15" fill="white" stroke="#e0e0e0" stroke-width="2"/>')
+            
+            # 模拟阴影效果
+            svg_parts.append(f'<rect x="{card_x+2}" y="{y-43}" width="{card_width-4}" height="86" rx="14" fill="none" stroke="rgba(0,0,0,0.03)" stroke-width="1"/>')
+            
+            # 时间 - 更大更清晰
+            svg_parts.append(f'<text x="{card_x+18}" y="{y-10}" font-size="17" fill="#666" font-weight="bold">⏰ {event["time"]}</text>')
+            
+            # 标题 - 更大字号
+            svg_parts.append(f'<text x="{card_x+18}" y="{y+20}" font-size="18" fill="#333" font-weight="600">{event["title"]}</text>')
+            
+            # 变动（如果有）
+            if event.get('change'):
+                svg_parts.append(f'<text x="{card_x+18}" y="{y+50}" font-size="16" fill="{color}" font-weight="bold">{event["change"]}</text>')
+        
+        svg_parts.append('''</svg>
+</div>''')
+        
+        return '\n'.join(svg_parts)
     
     def _escape_js(self, text):
         """转义JavaScript字符串"""
@@ -980,9 +1208,7 @@ class MenuBarTray:
                                 menu_text = f"{event_time} 🇺🇸 {change} {title}"
                                 callback = self._on_open_page("/market")
                             elif event_type == 'high_score_news':
-                                score = event.get('score', 0)
-                                stars = '⭐' * min(5, int(score * 5 + 0.5))
-                                menu_text = f"{event_time} 📰 {stars} {title}"
+                                menu_text = f"{event_time} 📰 {title}"
                                 callback = self._on_open_page("/cognition")
                             elif event_type == 'jin10_news':
                                 menu_text = f"{event_time} 📌 {title}"
@@ -1049,6 +1275,9 @@ class MenuBarTray:
             logger.info("托盘已启动")
             return
 
+        # 检查并终止旧托盘进程
+        self._kill_running_tray()
+
         try:
             import rumps
 
@@ -1058,9 +1287,14 @@ class MenuBarTray:
 
             rumps.timer(interval=30)(self._on_timer)(self._app)
 
+            # 保存PID
+            self._save_tray_pid()
+
+            logger.info("托盘已启动")
             self._app.run()
         except Exception as e:
             logger.error(f"启动托盘失败: {e}")
+            self._clear_tray_pid()
 
     def _on_timer(self, _sender):
         self._build_menu()
@@ -1070,6 +1304,7 @@ class MenuBarTray:
         if self._app:
             rumps.quit_application()
             self._app = None
+        self._clear_tray_pid()
 
     def update_data(self):
         self._build_menu()

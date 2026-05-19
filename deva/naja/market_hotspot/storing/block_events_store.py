@@ -211,11 +211,11 @@ class BlockEventsStore:
             
             return {
                 'cn_total': len(self._cn_events),
-                'cn_last_24h': len([e for e in self._cn_events if e.get('timestamp', 0) >= cutoff_24h]),
-                'cn_last_48h': len([e for e in self._cn_events if e.get('timestamp', 0) >= cutoff_48h]),
+                'cn_last_24h': sum(1 for e in self._cn_events if e.get('timestamp', 0) >= cutoff_24h),
+                'cn_last_48h': sum(1 for e in self._cn_events if e.get('timestamp', 0) >= cutoff_48h),
                 'us_total': len(self._us_events),
-                'us_last_24h': len([e for e in self._us_events if e.get('timestamp', 0) >= cutoff_24h]),
-                'us_last_48h': len([e for e in self._us_events if e.get('timestamp', 0) >= cutoff_48h]),
+                'us_last_24h': sum(1 for e in self._us_events if e.get('timestamp', 0) >= cutoff_24h),
+                'us_last_48h': sum(1 for e in self._us_events if e.get('timestamp', 0) >= cutoff_48h),
             }
 
 

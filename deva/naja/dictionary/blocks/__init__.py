@@ -22,6 +22,9 @@ Naja 字典模块 - Block 信息统一管理
 
 import os
 import logging
+import hashlib
+import pickle
+from pathlib import Path
 from typing import Dict, List, Optional, Set
 from dataclasses import dataclass
 import pandas as pd
@@ -32,6 +35,10 @@ BLOCKS_DIR = os.path.dirname(os.path.abspath(__file__))
 
 CN_BLOCKS_FILE = os.path.join(BLOCKS_DIR, 'cn_blocks.yaml')
 US_BLOCKS_FILE = os.path.join(BLOCKS_DIR, 'us_blocks.yaml')
+
+CACHE_DIR = Path.home() / '.naja' / 'cache' / 'blocks'
+CACHE_FILE = CACHE_DIR / 'block_dict_cache.pkl'
+CACHE_VERSION = 2
 
 
 @dataclass
@@ -91,11 +98,91 @@ class BlockDictionary:
         self._initialized = True
         log.info(f"[BlockDictionary] 初始化完成: A股Block={len(self._cn_blocks)}, 美股Block={len(self._us_blocks)}")
 
+    def _compute_yaml_checksum(self) -> str:
+        """计算所有 YAML 文件的 MD5 校验和"""
+        hash_md5 = hashlib.md5()
+        yaml_files = [f for f in [CN_BLOCKS_FILE, US_BLOCKS_FILE] if os.path.exists(f)]
+        
+        # 添加版本号到校验和，确保版本升级时强制重建缓存
+        hash_md5.update(str(CACHE_VERSION).encode('utf-8'))
+        
+        for yaml_file in sorted(yaml_files):
+            with open(yaml_file, 'rb') as f:
+                hash_md5.update(f.read())
+        
+        return hash_md5.hexdigest()
+
+    def _load_from_cache(self, checksum: str) -> Optional[Dict]:
+        """从缓存加载数据"""
+        try:
+            if not CACHE_FILE.exists():
+                return None
+            
+            with open(CACHE_FILE, 'rb') as f:
+                cache_data = pickle.load(f)
+            
+            # 验证版本和校验和
+            if cache_data.get('version') != CACHE_VERSION:
+                log.info("[BlockDictionary] 缓存版本不匹配，需要重建")
+                return None
+            
+            if cache_data.get('checksum') != checksum:
+                log.info("[BlockDictionary] YAML文件已变更，需要重建缓存")
+                return None
+            
+            log.info("[BlockDictionary] 从缓存加载数据")
+            return cache_data
+            
+        except Exception as e:
+            log.debug(f"[BlockDictionary] 缓存加载失败: {e}")
+            return None
+
+    def _save_to_cache(self, checksum: str):
+        """保存数据到缓存"""
+        try:
+            CACHE_DIR.mkdir(parents=True, exist_ok=True)
+            
+            cache_data = {
+                'version': CACHE_VERSION,
+                'checksum': checksum,
+                'cn_blocks': self._cn_blocks,
+                'us_blocks': self._us_blocks,
+                'cn_stock_to_blocks': self._cn_stock_to_blocks,
+                'us_stock_to_blocks': self._us_stock_to_blocks,
+                'cn_stocks': self._cn_stocks,
+                'us_stocks': self._us_stocks,
+            }
+            
+            with open(CACHE_FILE, 'wb') as f:
+                pickle.dump(cache_data, f)
+            
+            log.info(f"[BlockDictionary] 缓存已保存: {CACHE_FILE}")
+            
+        except Exception as e:
+            log.debug(f"[BlockDictionary] 缓存保存失败: {e}")
+
     def _load_all(self):
-        """加载所有市场数据"""
+        """加载所有市场数据（带缓存）"""
+        checksum = self._compute_yaml_checksum()
+        cached_data = self._load_from_cache(checksum)
+        
+        if cached_data:
+            # 从缓存恢复数据
+            self._cn_blocks = cached_data.get('cn_blocks', {})
+            self._us_blocks = cached_data.get('us_blocks', {})
+            self._cn_stock_to_blocks = cached_data.get('cn_stock_to_blocks', {})
+            self._us_stock_to_blocks = cached_data.get('us_stock_to_blocks', {})
+            self._cn_stocks = cached_data.get('cn_stocks', {})
+            self._us_stocks = cached_data.get('us_stocks', {})
+            return
+        
+        # 缓存不存在或无效，从 YAML 加载
         self._load_cn_blocks()
         self._load_us_blocks()
         self._load_stock_registry()
+        
+        # 保存缓存
+        self._save_to_cache(checksum)
 
     def _load_cn_blocks(self):
         """加载A股Block数据"""

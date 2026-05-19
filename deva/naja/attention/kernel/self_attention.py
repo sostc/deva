@@ -66,25 +66,16 @@ class EventSelfAttention:
         这样可以让一个事件"关注"其他相关事件
         例如："AI 板块上涨"事件会增加"英伟达上涨"事件的权重
         """
-        # 简单实现：直接计算注意力分数
+        # 向量化实现：避免手动循环
         batch_size, num_heads, seq_len, d_k = Q.shape
         
-        # 计算注意力分数
-        scores = np.zeros((batch_size, num_heads, seq_len, seq_len))
-        for b in range(batch_size):
-            for h in range(num_heads):
-                for i in range(seq_len):
-                    for j in range(seq_len):
-                        scores[b, h, i, j] = np.dot(Q[b, h, i], K[b, h, j]) / np.sqrt(d_k)
+        # 计算注意力分数：向量化版本
+        scores = np.matmul(Q, K.transpose(0, 1, 3, 2)) / np.sqrt(d_k)
         
         attention_weights = self._softmax(scores)
         
-        # 计算输出
-        output = np.zeros_like(Q)
-        for b in range(batch_size):
-            for h in range(num_heads):
-                for i in range(seq_len):
-                    output[b, h, i] = np.sum(attention_weights[b, h, i, j] * V[b, h, j] for j in range(seq_len))
+        # 计算输出：向量化版本
+        output = np.matmul(attention_weights, V)
         
         return output, attention_weights
     

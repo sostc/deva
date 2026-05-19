@@ -23,6 +23,8 @@ from dataclasses import dataclass
 from datetime import datetime
 import aiohttp
 
+from deva.naja.market import normalize_market
+
 log = logging.getLogger(__name__)
 
 SINA_BASE_URL = "https://hq.sinajs.cn/list={codes}"
@@ -76,6 +78,56 @@ def _get_us_stock_codes() -> Dict[str, str]:
         return {}
 
 
+def get_stock_codes_for_market(market: str) -> Dict[str, str]:
+    """获取指定市场股票池，不做交易时段判断。"""
+    normalized_market = normalize_market(market)
+
+    if normalized_market == 'US':
+        return _get_us_stock_codes()
+
+    if normalized_market == 'CN':
+        from deva.naja.dictionary.blocks import get_block_dictionary
+        bd = get_block_dictionary()
+        cn_codes = bd.get_active_stocks('CN')
+        return {
+            code: bd.get_stock_info(code).name
+            for code in cn_codes
+            if bd.get_stock_info(code)
+        }
+
+    return {}
+
+
+def is_market_data_time(market: str) -> bool:
+    """判断指定市场当前是否应该抓取行情数据。"""
+    normalized_market = normalize_market(market)
+    if _DEBUG_MARKET_MODE:
+        debug_market = _DEBUG_MARKET_MODE.lower()
+        if debug_market == 'closed':
+            return False
+        if normalized_market == 'US':
+            return debug_market == 'us'
+        if normalized_market == 'CN':
+            return debug_market == 'a_share'
+        return False
+
+    try:
+        from deva.naja.radar.trading_clock import is_market_data_time as _is_market_data_time
+        return _is_market_data_time(normalized_market)
+    except Exception as e:
+        log.debug(f"[is_market_data_time] 判断 {market} 市场状态失败: {e}")
+        return False
+
+
+def get_active_markets() -> List[str]:
+    """获取当前应该抓取行情数据的市场列表。"""
+    return [
+        market
+        for market in ('CN', 'US')
+        if is_market_data_time(market)
+    ]
+
+
 _DEBUG_MARKET_MODE = None  # 正常模式，可设置为 "a_share", "us", "closed" 模拟不同市场
 
 
@@ -87,43 +139,32 @@ def set_debug_market_mode(mode: str):
 
 
 def _get_current_market() -> str:
-    """获取当前市场状态"""
+    """获取当前市场状态（兼容旧接口，优先返回美股）。"""
     if _DEBUG_MARKET_MODE:
         return _DEBUG_MARKET_MODE
 
-    try:
-        from deva.naja.register import ensure_trading_clocks
-        ensure_trading_clocks()
-        from deva.naja.radar.trading_clock import is_trading_time, is_us_trading_time
-        if is_us_trading_time():
-            return "us"
-        if is_trading_time():
-            return "a_share"
-        return "closed"
-    except Exception as e:
-        log.debug(f"[_get_current_market] 获取市场状态失败: {e}")
-        return "closed"
+    active_markets = get_active_markets()
+    if 'US' in active_markets:
+        return "us"
+    if 'CN' in active_markets:
+        return "a_share"
+    return "closed"
 
 
 def get_current_stock_codes() -> Dict[str, str]:
-    """获取当前市场的股票代码列表
+    """获取当前活跃市场的股票代码列表（兼容旧接口）。
 
     根据市场状态返回：
     - 美股交易时间: 返回美股代码 (Sina格式: gb_nvda)
     - A股交易时间: 返回A股代码 (Sina格式: sh600519)
     - 其他时间: 返回空字典
     """
-    from deva.naja.dictionary.blocks import get_block_dictionary
-
     market = _get_current_market()
-    bd = get_block_dictionary()
 
     if market == "us":
-        us_codes = bd.get_active_stocks('US')
-        return {f"gb_{code}": bd.get_stock_info(code).name for code in us_codes if bd.get_stock_info(code)}
+        return get_stock_codes_for_market('US')
     elif market == "a_share":
-        cn_codes = bd.get_active_stocks('CN')
-        return {code: bd.get_stock_info(code).name for code in cn_codes if bd.get_stock_info(code)}
+        return get_stock_codes_for_market('CN')
     else:
         return {}
 

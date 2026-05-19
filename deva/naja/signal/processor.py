@@ -17,6 +17,13 @@ from typing import Dict, Any, Optional, Tuple, Callable
 
 logger = logging.getLogger(__name__)
 
+# 预编译正则表达式，提升性能
+_SIGNAL_TYPE_RE = re.compile(r'"signal_type"\s*:\s*"([^"]+)"')
+_SIGNAL_RE = re.compile(r'"signal"\s*:\s*"([^"]+)"')
+_SIGNAL_COUNT_RE = re.compile(r'"signal_count"\s*:\s*(\d+)')
+_NAME_RE = re.compile(r'"name"\s*:\s*"([^"]+)"')
+_CODE_RE = re.compile(r'"code"\s*:\s*"([^"]+)"')
+
 
 def parse_strategy_result(result) -> Dict[str, Any]:
     """统一解析策略结果
@@ -48,11 +55,11 @@ def parse_strategy_result(result) -> Dict[str, Any]:
         except (json.JSONDecodeError, TypeError):
             output = None
         
-        # 2. JSON 失败则正则提取
+        # 2. JSON 失败则正则提取（使用预编译正则）
         if output is None or not output.get('signal_type'):
-            signal_type_match = re.search(r'"signal_type"\s*:\s*"([^"]+)"', preview)
-            signal_match = re.search(r'"signal"\s*:\s*"([^"]+)"', preview)
-            signal_count_match = re.search(r'"signal_count"\s*:\s*(\d+)', preview)
+            signal_type_match = _SIGNAL_TYPE_RE.search(preview)
+            signal_match = _SIGNAL_RE.search(preview)
+            signal_count_match = _SIGNAL_COUNT_RE.search(preview)
             
             if signal_type_match or signal_match:
                 is_truncated = True
@@ -63,8 +70,8 @@ def parse_strategy_result(result) -> Dict[str, Any]:
                 }
                 
                 # 提取股票信息
-                names = re.findall(r'"name"\s*:\s*"([^"]+)"', preview)
-                codes = re.findall(r'"code"\s*:\s*"([^"]+)"', preview)
+                names = _NAME_RE.findall(preview)
+                codes = _CODE_RE.findall(preview)
                 if names:
                     output['extracted_names'] = names[:5]
                 if codes:

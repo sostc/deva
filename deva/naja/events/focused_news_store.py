@@ -214,8 +214,8 @@ class FocusedNewsStore:
             
             return {
                 'total': len(self._news_list),
-                'last_24h': len([n for n in self._news_list if n.get('timestamp', 0) >= cutoff_24h]),
-                'today': len([n for n in self._news_list if n.get('timestamp', 0) >= today_start]),
+                'last_24h': sum(1 for n in self._news_list if n.get('timestamp', 0) >= cutoff_24h),
+                'today': sum(1 for n in self._news_list if n.get('timestamp', 0) >= today_start),
                 'cache_file': str(self._cache_file),
                 'max_size': MAX_CACHE_SIZE,
             }
