@@ -22,6 +22,8 @@
 import argparse
 import logging
 import os
+import platform
+import subprocess
 import sys
 import time
 
@@ -37,7 +39,7 @@ except ImportError:
 from .application import AppRuntimeConfig, run_web_application
 from .infra.runtime.daemon import (
     is_running, get_status,
-    stop_service, reload_service, restart_service, stop_tray,
+    stop_service, reload_service, restart_service, stop_tray, is_tray_running,
     setup_reload_handler, PID_FILE, LOG_FILE, TRAY_PID_FILE
 )
 
@@ -540,6 +542,25 @@ def main():
         cognition_debug_config=cognition_debug_config,
         tune_config=tune_config,
     )
+
+    if platform.system() == "Darwin" and not is_tray_running():
+        try:
+            import rumps
+            from pathlib import Path
+            naja_dir = Path.home() / ".naja"
+            naja_dir.joinpath("logs").mkdir(parents=True, exist_ok=True)
+            tray_log = naja_dir / "logs" / "tray.log"
+            tray_script = Path(__file__).parent / "scripts" / "start_tray.py"
+            subprocess.Popen(
+                [sys.executable, str(tray_script)],
+                stdout=open(tray_log, "a"),
+                stderr=subprocess.STDOUT,
+                start_new_session=True
+            )
+            print("✓ 托盘已启动")
+        except ImportError:
+            pass
+
     run_web_application(config)
 
 
