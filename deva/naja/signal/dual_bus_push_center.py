@@ -11,8 +11,6 @@ from dataclasses import asdict
 from typing import Any, Dict, List, Optional, Callable
 from collections import defaultdict
 
-from deva import NB
-
 log = logging.getLogger(__name__)
 
 
@@ -25,6 +23,7 @@ class DualBusPushCenter:
         self._recent_events: List[Dict] = []
         self._max_recent_events = 50
         self._persist_name = "naja_dual_bus_events"
+        from deva import NB
         self._db = NB(self._persist_name)
 
         # 统计信息

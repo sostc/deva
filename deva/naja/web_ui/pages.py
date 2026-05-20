@@ -8,7 +8,6 @@ from pywebio.output import put_html, put_markdown, put_text, set_scope
 from pywebio.session import set_env, run_js
 from tornado.web import RequestHandler
 
-from deva import NB
 from deva.naja.register import SR
 from .ui_base import _ctx
 
@@ -1077,6 +1076,378 @@ async def investment_sandbox_page():
         function applyMarketFilter() {
             renderStockGrid();
         }
+    </script>
+</body>
+</html>
+    """
+    from pywebio.output import put_html
+    put_html(html_content)
+
+
+def alab_investment_sandbox_page():
+    """Astera Labs (ALAB) 专题分析：AI Agent 时代的连接芯片霸主"""
+    html_content = """
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Astera Labs (ALAB) 专题分析：AI Agent 时代的连接芯片霸主</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        .chart-container { 
+            position: relative; 
+            width: 100%; 
+            max-width: 800px; 
+            margin-left: auto; 
+            margin-right: auto; 
+            height: 35vh; 
+            max-height: 350px; 
+            min-height: 250px;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background-color: #FAF9F6; 
+            color: #0F172A;
+        }
+        .active-btn {
+            background-color: #0D9488;
+            color: white;
+            border-color: #0D9488;
+        }
+    </style>
+</head>
+<body class="antialiased">
+
+    <nav class="sticky top-0 bg-white/95 backdrop-blur shadow-sm z-50 border-b border-stone-200">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex justify-between h-16 items-center">
+                <div class="flex items-center space-x-2">
+                    <span class="text-2xl">⚡</span>
+                    <span class="font-bold text-lg text-teal-850">Astera Labs (ALAB) 投资决策沙盘</span>
+                </div>
+                <div class="hidden md:flex space-x-6 text-sm font-medium text-slate-600">
+                    <a href="#bottleneck" class="hover:text-teal-600 transition-colors">协同瓶颈</a>
+                    <a href="#simulator" class="hover:text-teal-600 transition-colors">连接模拟器</a>
+                    <a href="#products" class="hover:text-teal-600 transition-colors">核心产品线</a>
+                    <a href="#investment" class="hover:text-teal-600 transition-colors">投资评级</a>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10 space-y-16">
+
+        <!-- Intro -->
+        <header class="text-center space-y-4 max-w-4xl mx-auto">
+            <span class="px-3 py-1 bg-teal-50 text-teal-700 text-xs font-semibold rounded-full border border-teal-200 uppercase tracking-widest">ALAB Special Report</span>
+            <h1 class="text-3xl sm:text-4xl md:text-5xl font-black text-slate-950 leading-tight">
+                解密 Astera Labs：打通 <span class="text-teal-600">GPU 与 CPU</span> 高频协同的“高速路网”
+            </h1>
+            <p class="text-base sm:text-lg text-slate-600 leading-relaxed">
+                你的直觉完全正确！在 AI Agent 持续“生成-执行-反馈”的闭环中，数据不能拥堵在总线上。Astera Labs (ALAB) 凭借其在 <strong>PCIe 5.0/6.0 Retimer</strong> 和 <strong>CXL 内存扩展</strong> 芯片的绝对垄断，成为了算力重构中最高确定性的“修路人”。
+            </p>
+        </header>
+
+        <!-- Bottleneck Section -->
+        <section id="bottleneck" class="bg-white rounded-3xl p-6 sm:p-10 border border-stone-200 shadow-sm space-y-8">
+            <div class="border-b border-stone-100 pb-4">
+                <h2 class="text-2xl font-bold text-slate-900">1. 为什么 GPU 和 CPU 协同需要 PCIe / CXL 连接？</h2>
+                <p class="text-sm text-slate-500 mt-1">剖析 AI Agent 运行时的隐性物理瓶颈：数据高速公路的“修路逻辑”</p>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <div class="p-6 bg-stone-50 rounded-2xl border border-stone-100 space-y-2">
+                    <span class="text-2xl">🚗</span>
+                    <h3 class="font-bold text-slate-800">总线拥堵：Gen 5/6 物理限制</h3>
+                    <p class="text-sm text-slate-600">当 GPU 将生成的代码传给 CPU 编译时，数据通过 PCIe 通道传输。由于物理信号在高频下衰减极快，传输距离只要超过几厘米，信号就会失真失锁。这就需要 <strong>Retimer（重定时器）芯片</strong> 来放大和修复信号。</p>
+                </div>
+                <div class="p-6 bg-stone-50 rounded-2xl border border-stone-100 space-y-2">
+                    <span class="text-2xl">🧠</span>
+                    <h3 class="font-bold text-slate-800">CXL 内存池化：消灭“内存墙”</h3>
+                    <p class="text-sm text-slate-600">CPU 在沙箱里编译运行需要极高内存，而 GPU 需要 HBM。CXL 技术允许 CPU 直接借用和共享 GPU 端的内存空间。ALAB 的 CXL 控制器芯片是实现这种“零延迟内存共享”的关键桥梁。</p>
+                </div>
+                <div class="p-6 bg-stone-50 rounded-2xl border border-stone-100 space-y-2">
+                    <span class="text-2xl">💎</span>
+                    <h3 class="font-bold text-slate-800">单机芯用量暴增</h3>
+                    <p class="text-sm text-slate-600">在英伟达 Blackwell 架构或下一代超大型推理机柜中，由于芯片密度极高、走线极长，每台服务器需要的 PCIe Retimer 芯片数量相比上一代 Hopper 呈现翻倍增长，物理单价也在大幅提升。</p>
+                </div>
+            </div>
+        </section>
+
+        <!-- Connectivity Simulator Section (Interactive Sandbox) -->
+        <section id="simulator" class="bg-white rounded-3xl p-6 sm:p-10 border border-stone-200 shadow-sm space-y-8">
+            <div class="border-b border-stone-100 pb-4">
+                <h2 class="text-2xl font-bold text-slate-900">💻 交互模拟：GPU-CPU 传输延迟与信号质量对比</h2>
+                <p class="text-sm text-slate-500 mt-1">切换下方硬件通道配置，直观查看在 AI Agent 频繁的“代码生成 ➡️ 编译执行”中，有无 ALAB 重定时芯片对系统效率的决定性影响：</p>
+            </div>
+
+            <div class="grid grid-cols-1 lg:grid-cols-12 gap-8">
+                <!-- Control Panel (Left) -->
+                <div class="lg:col-span-4 flex flex-col justify-between space-y-4">
+                    <div class="space-y-3">
+                        <label class="block text-xs font-bold text-slate-500 uppercase">选择总线连接方案</label>
+                        <button onclick="toggleRoute(false)" id="btn-no-retimer" class="w-full text-left p-4 border-2 border-stone-200 rounded-xl active-btn font-semibold text-sm transition-all">
+                            ❌ 无 Retimer 芯片（传统长铜线走线）
+                        </button>
+                        <button onclick="toggleRoute(true)" id="btn-with-retimer" class="w-full text-left p-4 border-2 border-stone-200 rounded-xl font-semibold text-sm transition-all">
+                            ✅ 搭载 ALAB Aries PCIe 5.0/6.0 Retimer
+                        </button>
+                    </div>
+
+                    <div class="bg-stone-50 p-4 rounded-xl border border-stone-200 space-y-3">
+                        <div class="flex justify-between text-xs">
+                            <span class="text-slate-500 font-semibold">物理信号完整性:</span>
+                            <span id="stat-signal" class="font-bold text-rose-600">极差 (容易丢包报错)</span>
+                        </div>
+                        <div class="flex justify-between text-xs">
+                            <span class="text-slate-500 font-semibold">GPU-CPU 协同延迟:</span>
+                            <span id="stat-latency" class="font-bold text-rose-600">180 ns (存在二次握手重发)</span>
+                        </div>
+                        <div class="flex justify-between text-xs">
+                            <span class="text-slate-500 font-semibold">Agent 编译执行效率:</span>
+                            <span id="stat-efficiency" class="font-bold text-rose-600">折损 35%</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Visualization Panel (Right) -->
+                <div class="lg:col-span-8 bg-slate-950 text-white rounded-2xl p-6 flex flex-col justify-between relative min-h-[300px]">
+                    <span class="absolute top-3 right-3 text-[10px] font-mono text-teal-400 uppercase tracking-widest font-bold">硬件拓扑实效演示</span>
+                    
+                    <div class="space-y-8 w-full mt-4">
+                        <!-- Simulated Block Diagram (Pure HTML/CSS) -->
+                        <div class="flex items-center justify-between px-4">
+                            <!-- GPU -->
+                            <div class="bg-teal-900 border border-teal-500 px-4 py-3 rounded-xl text-center shadow-md w-24">
+                                <span class="block text-xs text-teal-300 font-bold">GPU</span>
+                                <span class="block text-[10px] text-teal-100">代码生成</span>
+                            </div>
+
+                            <!-- Interconnect line with dynamic status -->
+                            <div class="flex-grow mx-4 relative h-2 bg-slate-800 rounded">
+                                <div id="flow-line" class="absolute top-0 left-0 h-full bg-rose-500 w-1/3 transition-all duration-700"></div>
+                                <div id="chip-node" class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-slate-700 border border-slate-600 w-8 h-8 rounded-full flex items-center justify-center text-[10px] font-bold transition-all">
+                                    ❌
+                                </div>
+                            </div>
+
+                            <!-- CPU -->
+                            <div class="bg-slate-800 border border-slate-600 px-4 py-3 rounded-xl text-center shadow-md w-24">
+                                <span class="block text-xs text-stone-300 font-bold">CPU</span>
+                                <span class="block text-[10px] text-stone-400">沙箱编译</span>
+                            </div>
+                        </div>
+
+                        <!-- Explanatory description -->
+                        <div class="bg-slate-900 p-4 rounded-xl border border-slate-800">
+                            <h4 id="desc-title" class="text-sm font-bold text-rose-400 mb-1">物理红线：高频走线带来的高延迟与信号反射</h4>
+                            <p id="desc-text" class="text-xs text-slate-400 leading-relaxed">
+                                当不使用 Retimer 芯片时，PCIe 5.0/6.0 的高频信号在长PCB走线中迅速耗散，产生巨大的电磁反射和通道串扰。CPU在编译运行代码时需要频繁向GPU申请重发数据包，延迟急剧上升，严重拖累 Agent 运行效率。
+                            </p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Products Section -->
+        <section id="products" class="bg-white rounded-3xl p-6 sm:p-10 border border-stone-200 shadow-sm space-y-8">
+            <div class="border-b border-stone-100 pb-4">
+                <h2 class="text-2xl font-bold text-slate-900">2. Astera Labs 的“连接芯片三驾马车”</h2>
+                <p class="text-sm text-slate-500 mt-1">透视 ALAB 在 AI 服务器中无可替代的芯片级产品矩阵：</p>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <div class="border border-stone-200 rounded-2xl p-6 space-y-4 hover:shadow-md transition-all">
+                    <div class="flex items-center space-x-2">
+                        <span class="px-2 py-1 bg-teal-50 text-teal-700 text-xs font-bold rounded">Aries 系列</span>
+                        <h3 class="font-bold text-slate-800 text-base">PCIe Retimer 芯片</h3>
+                    </div>
+                    <p class="text-xs sm:text-sm text-slate-600 leading-relaxed">
+                        **ALAB 的超级印钞机**。在英伟达、超威（AMD）、谷歌等大厂的加速卡机架上，Aries 是出货量最大、市占率极高的 PCIe 5.0/6.0 信号重定时器，牢牢卡位最核心的信号中继节点。
+                    </p>
+                </div>
+                
+                <div class="border border-stone-200 rounded-2xl p-6 space-y-4 hover:shadow-md transition-all">
+                    <div class="flex items-center space-x-2">
+                        <span class="px-2 py-1 bg-amber-50 text-amber-700 text-xs font-bold rounded">Leo 系列</span>
+                        <h3 class="font-bold text-slate-800 text-base">CXL 内存扩展控制器</h3>
+                    </div>
+                    <p class="text-xs sm:text-sm text-slate-600 leading-relaxed">
+                        **打通 CPU-GPU 共享物理内存的钥匙**。Leo 芯片能让 CPU 顺畅读写 GPU 显存，反之亦然，大幅拓宽系统级 DRAM 瓶颈，是未来万亿参数闭环推理必不可少的算力总线硬件。
+                    </p>
+                </div>
+
+                <div class="border border-stone-200 rounded-2xl p-6 space-y-4 hover:shadow-md transition-all">
+                    <div class="flex items-center space-x-2">
+                        <span class="px-2 py-1 bg-sky-50 text-sky-700 text-xs font-bold rounded">Taurus 系列</span>
+                        <h3 class="font-bold text-slate-800 text-base">有源电缆 (AEC) 芯片</h3>
+                    </div>
+                    <p class="text-xs sm:text-sm text-slate-600 leading-relaxed">
+                        **机柜之间的高速网络连接**。在超大规模 AI 机群部署中，传统的无源铜线拉不远，光模块成本太贵，Taurus 有源电缆控制芯片完美解决了数据中心内部的高速传输成本。
+                    </p>
+                </div>
+            </div>
+        </section>
+
+        <!-- Investment Value Ratings Section -->
+        <section id="investment" class="bg-white rounded-3xl p-6 sm:p-10 border border-stone-200 shadow-sm space-y-8">
+            <div class="border-b border-stone-100 pb-4">
+                <h2 class="text-2xl font-bold text-slate-900">3. 投资价值判定：胜率（确定性） vs 赔率（高弹性）</h2>
+                <p class="text-sm text-slate-500 mt-1">基于我们前期的“选股矩阵框架”，对 Astera Labs 进行深度的多维度定量和定性评级：</p>
+            </div>
+
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                <!-- Bull/Bear Case -->
+                <div class="space-y-4">
+                    <h3 class="font-bold text-slate-800 text-base border-l-4 border-teal-600 pl-3">核心多空博弈观点</h3>
+                    <div class="space-y-3 text-xs sm:text-sm text-slate-600">
+                        <div class="bg-teal-50/50 p-4 rounded-xl border border-teal-100">
+                            <strong class="text-teal-900 block mb-1">👍 胜率（确定性白马）逻辑：</strong>
+                            由于 AI 硬件设计的物理铁律，信号衰减不可逆。不管未来是 Anthropic 赢还是 OpenAI 赢，只要加速卡部署数量提升，对高速 PCIe Retimer 的刚需就呈几何级倍增。ALAB 拥有极高的毛利率（超过70%），且深度绑定英伟达 Blackwell 供应链。
+                        </div>
+                        <div class="bg-amber-50/50 p-4 rounded-xl border border-amber-100">
+                            <strong class="text-amber-900 block mb-1">⚠️ 赔率与估值波动风险：</strong>
+                            因为市场对 ALAB 预期极高，其估值溢价（市盈率/市销率）相较于普通芯片股处于绝对高位。一旦英伟达 Blackwell 出货节奏出现细微波动，或者出现澜起科技等国产芯片、以及德州仪器（TI）等巨头的剧烈竞争，股价波动弹性极大。
+                        </div>
+                    </div>
+                </div>
+
+                <!-- ALAB Chart Valuation -->
+                <div class="bg-stone-50 p-6 rounded-2xl border border-stone-200 flex flex-col justify-between">
+                    <div>
+                        <h4 class="font-bold text-slate-800 text-sm sm:text-base text-center mb-4">ALAB 的三大业绩爆发催化剂</h4>
+                        <div class="chart-container">
+                            <canvas id="alabChart"></canvas>
+                        </div>
+                    </div>
+                    <p class="text-xs text-stone-500 text-center mt-3">
+                        * 数据表明：伴随英伟达 Blackwell 架构放量，PCIe Gen6 Retimer（Aries）已成为拉动 ALAB 下一轮营收翻倍的最核心引擎。
+                    </p>
+                </div>
+            </div>
+
+            <!-- Conclusion Matrix Card -->
+            <div class="bg-slate-900 text-white rounded-2xl p-6 sm:p-10 space-y-4">
+                <h3 class="font-bold text-lg sm:text-xl text-teal-400">📊 终局投资判定：将 ALAB 加入你的战略配置池</h3>
+                <p class="text-sm text-slate-300 leading-relaxed">
+                    在我们的AI编程选股图谱中，我们将 <strong>Astera Labs (ALAB)</strong> 定位为：<strong>【高确定性（高胜率）底层硬基建，兼具 Blackwell 高弹性释放】</strong> 标的。
+                </p>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6 pt-2 text-xs">
+                    <div class="border-l-2 border-teal-500 pl-4 space-y-1">
+                        <span class="font-bold text-teal-300">入选理由：</span>
+                        <p class="text-slate-400">它是完美解决 GPU 与 CPU 进行 24 小时沙盒编译时，所产生的 PCIe 通信拥堵的唯一高门槛芯片大厂。毛利极高、成长天花板极高。</p>
+                    </div>
+                    <div class="border-l-2 border-amber-500 pl-4 space-y-1">
+                        <span class="font-bold text-amber-300">建仓策略：</span>
+                        <p class="text-slate-400">鉴于其高成长带来的高估值，不建议单次全仓追高。推荐采取“逢 Blackwell 供应链利空回调分批买入”的建仓策略，作为长期享受 AI 推理及物理连接瓶颈爆发红利的核心筹码。</p>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+    </main>
+
+    <footer class="bg-slate-900 text-stone-400 py-12 border-t border-slate-800 text-center text-xs space-y-2">
+        <p>Astera Labs (ALAB) 专题投资研究沙盘 1.0 版</p>
+        <p class="text-stone-500">免责声明：本报告由AI自动计算物理模型与逻辑链生成，标的仅供逻辑和学术讨论。证券交易存在高风险，请谨慎决策。</p>
+    </footer>
+
+    <script>
+        // Interactive Toggle logic
+        function toggleRoute(hasRetimer) {
+            const btnNo = document.getElementById('btn-no-retimer');
+            const btnWith = document.getElementById('btn-with-retimer');
+            const flowLine = document.getElementById('flow-line');
+            const chipNode = document.getElementById('chip-node');
+            
+            const statSignal = document.getElementById('stat-signal');
+            const statLatency = document.getElementById('stat-latency');
+            const statEfficiency = document.getElementById('stat-efficiency');
+            
+            const descTitle = document.getElementById('desc-title');
+            const descText = document.getElementById('desc-text');
+
+            if (hasRetimer) {
+                btnNo.classList.remove('active-btn');
+                btnWith.classList.add('active-btn');
+                
+                // Flow line active animation
+                flowLine.style.width = '100%';
+                flowLine.className = "absolute top-0 left-0 h-full bg-teal-500 transition-all duration-700";
+                chipNode.innerText = "⚡";
+                chipNode.className = "absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-teal-600 border border-teal-400 w-8 h-8 rounded-full flex items-center justify-center text-[10px] font-bold transition-all animate-pulse";
+                
+                // Stats
+                statSignal.innerText = "极佳 (误码率降至 1e-12 级别)";
+                statSignal.className = "font-bold text-teal-600";
+                statLatency.innerText = "80 ns (无重发抖动)";
+                statLatency.className = "font-bold text-teal-600";
+                statEfficiency.innerText = "完全释放 100%";
+                statEfficiency.className = "font-bold text-teal-600";
+                
+                // Desc
+                descTitle.innerText = "物理奇迹：通过 Aries Retimer 芯片重构清洁信号";
+                descTitle.className = "text-sm font-bold text-teal-400 mb-1";
+                descText.innerText = "搭载 ALAB 的 Aries 芯片后，处于总线中点处的高频衰减信号被成功解码并重新定时发射，误码率趋近于零。GPU可以无缝、最高速地向CPU沙箱投递待测试代码，将 AI Agent 闭环逻辑编译时间缩短 35% 以上。";
+
+            } else {
+                btnWith.classList.remove('active-btn');
+                btnNo.classList.add('active-btn');
+                
+                // Flow line bad state
+                flowLine.style.width = '35%';
+                flowLine.className = "absolute top-0 left-0 h-full bg-rose-500 transition-all duration-700";
+                chipNode.innerText = "❌";
+                chipNode.className = "absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-slate-700 border border-slate-600 w-8 h-8 rounded-full flex items-center justify-center text-[10px] font-bold transition-all";
+                
+                // Stats
+                statSignal.innerText = "极差 (容易丢包报错)";
+                statSignal.className = "font-bold text-rose-600";
+                statLatency.innerText = "180 ns (存在二次握手重发)";
+                statLatency.className = "font-bold text-rose-600";
+                statEfficiency.innerText = "折损 35%";
+                statEfficiency.className = "font-bold text-rose-600";
+                
+                // Desc
+                descTitle.innerText = "物理红线：高频走线带来的高延迟与信号反射";
+                descTitle.className = "text-sm font-bold text-rose-400 mb-1";
+                descText.innerText = "当不使用 Retimer 芯片时，PCIe 5.0/6.0 的高频信号在长PCB走线中迅速耗散，产生巨大的电磁反射和通道串扰。CPU在编译运行代码时需要频繁向GPU申请重发数据包，延迟急剧上升，严重拖累 Agent 运行效率。";
+            }
+        }
+
+        // Initialize alab chart
+        document.addEventListener('DOMContentLoaded', function() {
+            const alabCtx = document.getElementById('alabChart');
+            if (alabCtx && alabCtx.getContext) {
+                const ctx = alabCtx.getContext('2d');
+                new Chart(ctx, {
+                    type: 'bar',
+                    data: {
+                        labels: ['PCIe 5.0 渗透放量', 'Blackwell 芯片高密度组网', 'CXL (Leo) 内存扩展破局'],
+                        datasets: [{
+                            label: '营收拉动增长权重指数 (%)',
+                            data: [50, 35, 15],
+                            backgroundColor: ['#0D9488', '#14B8A6', '#D97706'],
+                            borderWidth: 0
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        scales: {
+                            y: {
+                                beginAtZero: true,
+                                max: 60,
+                                ticks: { callback: value => value + '%' }
+                            }
+                        }
+                    }
+                });
+            }
+        });
     </script>
 </body>
 </html>

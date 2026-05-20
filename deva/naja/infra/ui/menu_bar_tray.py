@@ -118,9 +118,21 @@ class MenuBarTray:
         self._timeline_events = []
         self._icon_path = _get_tray_icon_path()
         self._naja_ready = False
+        self._last_timeline_data = None
+        self._last_timeline_ts = 0
+        self._last_system_status = None
+        self._last_system_status_ts = 0
+        self._last_menu_build_ts = 0
 
     def _get_timeline_events(self) -> dict:
-        """获取 24 小时时间线数据"""
+        """获取 24 小时时间线数据（带缓存）"""
+        import time
+        now = time.time()
+        
+        # 缓存 30秒
+        if self._last_timeline_data and (now - self._last_timeline_ts < 30):
+            return self._last_timeline_data
+        
         try:
             from datetime import datetime, timedelta
             from deva.naja.market_hotspot.ui_components.timeline.market_24h_timeline import (
@@ -170,7 +182,7 @@ class MenuBarTray:
                 
                 timeline_items.append(item)
             
-            return {
+            result = {
                 "success": True,
                 "stats": {
                     "cn_events": len(cn_events),
@@ -180,6 +192,11 @@ class MenuBarTray:
                 },
                 "list": timeline_items,
             }
+            
+            # 保存缓存
+            self._last_timeline_data = result
+            self._last_timeline_ts = now
+            return result
         except Exception as e:
             logger.error(f"获取 timeline 事件失败: {e}")
             import traceback
@@ -1091,11 +1108,21 @@ class MenuBarTray:
             logger.error(f"清理缓存失败: {e}")
 
     def _get_system_status(self):
-        """获取系统运行状态"""
+        """获取系统运行状态（带缓存）"""
+        import time
+        now = time.time()
+        
+        # 缓存 10秒
+        if self._last_system_status and (now - self._last_system_status_ts < 10):
+            return self._last_system_status
+        
         health_data = _http_get("/api/health")
-        if health_data:
-            return health_data
-        return {"status": "unknown", "message": "无法连接"}
+        result = health_data if health_data else {"status": "unknown", "message": "无法连接"}
+        
+        # 保存缓存
+        self._last_system_status = result
+        self._last_system_status_ts = now
+        return result
 
     def _check_naja_ready(self) -> bool:
         """检查 Naja 主进程是否已启动"""
@@ -1277,7 +1304,10 @@ class MenuBarTray:
             self._app.menu["sep3"] = rumps.separator
             self._app.menu["重启服务"] = rumps.MenuItem("🔄 重启服务", callback=self._on_reload)
             self._app.menu["退出"] = rumps.MenuItem("❌ 退出", callback=self._on_quit)
-
+            
+            # 更新菜单构建时间戳
+            import time
+            self._last_menu_build_ts = time.time()
         except Exception as e:
             logger.error(f"更新菜单失败: {e}")
             import traceback
@@ -1290,6 +1320,10 @@ class MenuBarTray:
                 self._app.menu["sep0"] = rumps.separator
                 self._app.menu["重启服务"] = rumps.MenuItem("🔄 重启服务", callback=self._on_reload)
                 self._app.menu["退出"] = rumps.MenuItem("❌ 退出", callback=self._on_quit)
+                
+                # 更新菜单构建时间戳
+                import time
+                self._last_menu_build_ts = time.time()
             except Exception as restore_e:
                 logger.error(f"恢复菜单失败: {restore_e}")
     
@@ -1334,13 +1368,19 @@ class MenuBarTray:
             self._clear_tray_pid()
 
     def _on_timer(self, _sender):
+        import time
+        now = time.time()
         if not self._naja_ready:
             if self._check_naja_ready():
                 logger.info("检测到 Naja 已启动，切换到完整菜单")
                 self._naja_ready = True
                 self._build_menu()
+                self._last_menu_build_ts = now
         else:
-            self._build_menu()
+            # 正常状态下 30秒刷新一次，减少卡顿
+            if now - self._last_menu_build_ts >= 30:
+                self._build_menu()
+                self._last_menu_build_ts = now
 
     def stop(self):
         import rumps
@@ -1350,6 +1390,13 @@ class MenuBarTray:
         self._clear_tray_pid()
 
     def update_data(self):
+        """更新数据（清除缓存，强制刷新）"""
+        # 清除所有缓存，强制刷新
+        self._last_timeline_data = None
+        self._last_timeline_ts = 0
+        self._last_system_status = None
+        self._last_system_status_ts = 0
+        self._last_menu_build_ts = 0
         self._build_menu()
 
 

@@ -12,7 +12,7 @@ import time
 from datetime import datetime, timedelta
 from typing import List, Optional, Callable
 
-from deva import NB, Stream, log, when
+from deva import Stream, log, when
 from deva.naja.strategy.result_store import StrategyResult
 
 
@@ -67,6 +67,7 @@ class SignalStream(Stream):
 
         self.max_cache_size = max_cache_size
         self.persist_name = persist_name
+        from deva import NB
         self.db = NB(persist_name)
         self._persist_lock = threading.RLock()
         self._closed = False
