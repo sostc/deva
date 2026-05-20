@@ -15,7 +15,7 @@ from .pages import (
     narrative_page, narrative_lifecycle_page, merrill_clock_page,
     learningadmin, learning_list_page, learning_history_page,
     learning_detail_page, supplychain_page, api_explorer, devtools_page,
-    investment_sandbox_page,
+    investment_sandbox_page, alab_investment_sandbox_page,
     KnowledgeActionHandler,
     _get_log_stream_page, _get_loop_audit_page,
 )
@@ -859,6 +859,8 @@ def create_handlers(cdn: str = None):
         (r'/learning/detail', webio_handler(learning_detail_page, cdn=cdn_url)),
         (r'/api_explorer', webio_handler(api_explorer, cdn=cdn_url)),
         (r'/devtools', webio_handler(devtools_page, cdn=cdn_url)),
+        (r'/investment_sandbox', webio_handler(investment_sandbox_page, cdn=cdn_url)),
+        (r'/alab_investment_sandbox', webio_handler(alab_investment_sandbox_page, cdn=cdn_url)),
     ]
 
     api_routes = [

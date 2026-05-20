@@ -10,7 +10,7 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
 from typing import Any, Callable, Dict, List, Optional
 
-from deva import NB, EventTrigger, bus, log
+from deva import EventTrigger, bus, log
 from deva.core.namespace import NS
 
 from ..infra.runtime.recoverable import (
@@ -315,6 +315,7 @@ class DataSourceEntry(RecoverableUnit):
             try:
                 self._log("INFO", f"开始回放表 {table_name}")
 
+                from deva import NB
                 db_stream = NB(table_name, key_mode='time')
 
                 if start_time is None and end_time is None:
@@ -875,6 +876,7 @@ class DataSourceEntry(RecoverableUnit):
         
         # 2. 从数据库获取持久化的最新数据
         try:
+            from deva import NB
             db = NB(DS_LATEST_DATA_TABLE)
             cached = db.get(self.id)
             if cached is not None:
@@ -889,6 +891,7 @@ class DataSourceEntry(RecoverableUnit):
     def _save_latest_data(self, data: Any):
         """保存最新数据到数据库"""
         try:
+            from deva import NB
             db = NB(DS_LATEST_DATA_TABLE)
             db[self.id] = data
         except Exception:
@@ -955,6 +958,7 @@ class DataSourceEntry(RecoverableUnit):
 
     def save(self) -> dict:
         try:
+            from deva import NB
             db = NB(DS_TABLE)
             db[self.id] = self.to_dict()
             if self._latest_data is not None:

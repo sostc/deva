@@ -86,6 +86,7 @@ class BlockHotspotEvent:
     change_percent: float
     top_symbols: List[Dict]  # 题材内涨跌最多的个股
     description: str
+    market: str = "UNKNOWN"  # 'CN' or 'US'
 
 
 class MarketHotspotHistoryTracker:
@@ -689,7 +690,8 @@ class MarketHotspotHistoryTracker:
                 weight_change=new_weight - old_weight,
                 change_percent=change_pct if change_pct != float('inf') else 999,
                 top_symbols=top_symbols,
-                description=description
+                description=description,
+                market=old.market  # 保存市场标识
             )
             
             # 根据变化幅度记录到不同阈值的事件队列
@@ -701,10 +703,10 @@ class MarketHotspotHistoryTracker:
             if abs(change_pct) >= 5 or (old_weight == 0 and new_weight > 0) or (old_weight > 0 and new_weight == 0):
                 self.block_hotspot_events_medium.append(event)
                 
-                # 保存到持久化存储
+                # 保存到持久化存储 - 根据市场标识选择保存位置
                 try:
-                    from deva.naja.market_hotspot.storing.block_events_store import add_cn_block_event
-                    add_cn_block_event({
+                    from deva.naja.market_hotspot.storing.block_events_store import add_cn_block_event, add_us_block_event
+                    event_data = {
                         'block_id': block_id,
                         'block_name': block_name,
                         'old_weight': old_weight,
@@ -715,9 +717,13 @@ class MarketHotspotHistoryTracker:
                         'timestamp': event.timestamp,
                         'weight': abs(change_pct) / 100.0 if change_pct != float('inf') else 1.0,
                         'dragon_one': top_symbols[0] if top_symbols else None,
-                    })
+                    }
+                    if old.market == 'US':
+                        add_us_block_event(event_data)
+                    else:
+                        add_cn_block_event(event_data)
                 except Exception as store_err:
-                    log.warning(f"保存A股事件到持久化存储失败: {store_err}")
+                    log.warning(f"保存{old.market}事件到持久化存储失败: {store_err}")
                 
                 score = min(1.0, abs(change_pct) / 100.0) if change_pct != float('inf') else 1.0
                 payload = {

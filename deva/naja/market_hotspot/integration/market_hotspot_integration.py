@@ -34,8 +34,6 @@ import time
 import threading
 import logging
 
-from deva import NB
-
 from .market_hotspot_system import MarketHotspotSystem, MarketHotspotSystemConfig
 from ..core import BlockConfig
 
@@ -245,6 +243,7 @@ class MarketHotspotIntegration:
             log.info(f"共注册 {len(self._blocks)} 个题材名称到tracker")
 
             try:
+                from deva import NB
                 db = NB("quant_snapshot_5min_window")
                 if db.keys():
                     latest_key = sorted(db.keys())[-1]
@@ -484,6 +483,7 @@ class MarketHotspotIntegration:
                 self.intelligence_system.persist_state()
 
             state = self.hotspot_system.save_state()
+            from deva import NB
             db = NB('naja_hotspot_state')
             db['hotspot_system_state'] = state
             db.persist()
@@ -500,6 +500,7 @@ class MarketHotspotIntegration:
             if hasattr(self, 'intelligence_system') and self.intelligence_system:
                 self.intelligence_system.load_state()
 
+            from deva import NB
             db = NB('naja_hotspot_state')
             state_key = 'hotspot_system_state' if 'hotspot_system_state' in db else 'attention_system_state'
             if state_key in db:

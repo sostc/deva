@@ -9,7 +9,6 @@ from pywebio.output import (
 from pywebio.input import input_group, input, textarea, select, actions, NUMBER, checkbox, PASSWORD
 from pywebio.session import set_env, run_js, run_async
 
-from deva import NB
 from deva.naja.register import SR
 from ..config import get_auth_config, set_config, ensure_auth_secret, verify_auth
 from .styles import apply_global_styles

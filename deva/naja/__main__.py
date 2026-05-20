@@ -242,23 +242,10 @@ def handle_service_command():
         os.makedirs(os.path.join(naja_dir, "logs"), exist_ok=True)
         tray_log_file = os.path.join(naja_dir, "logs", "tray.log")
 
-        cmd = [
-            sys.executable, "-m", "deva.naja",
-            f"--port={args.port}", f"--host={args.host}"
-        ]
-
-        proc = subprocess.Popen(
-            cmd,
-            env=env,
-            cwd=os.getcwd(),
-            start_new_session=True
-        )
-
         tray_proc = None
         if platform.system() == "Darwin":
             try:
                 import rumps
-                # 先停止旧托盘
                 stop_tray()
                 
                 tray_script = os.path.join(str(Path(__file__).parent), "scripts", "start_tray.py")
@@ -272,9 +259,23 @@ def handle_service_command():
                     start_new_session=True
                 )
                 print("✓ 托盘已启动")
+                
+                time.sleep(0.5)
             except ImportError:
                 print("⚠ 未安装 rumps，菜单栏托盘将不启动")
                 print("  安装命令: pip install rumps")
+
+        cmd = [
+            sys.executable, "-m", "deva.naja",
+            f"--port={args.port}", f"--host={args.host}"
+        ]
+
+        proc = subprocess.Popen(
+            cmd,
+            env=env,
+            cwd=os.getcwd(),
+            start_new_session=True
+        )
 
         time.sleep(0.5)
         if proc.poll() is None:
