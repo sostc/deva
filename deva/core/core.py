@@ -15,7 +15,10 @@ import weakref
 import inspect
 
 import toolz
-from tornado import gen
+try:
+    from tornado import gen
+except ImportError:
+    gen = None
 from tornado.ioloop import IOLoop
 try:
     from tornado.ioloop import PollIOLoop
