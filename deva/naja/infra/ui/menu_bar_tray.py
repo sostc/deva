@@ -117,6 +117,7 @@ class MenuBarTray:
         self._app = None
         self._timeline_events = []
         self._icon_path = _get_tray_icon_path()
+        self._naja_ready = False
 
     def _get_timeline_events(self) -> dict:
         """获取 24 小时时间线数据"""
@@ -239,11 +240,9 @@ class MenuBarTray:
             try:
                 os.kill(pid, signal.SIGTERM)
                 logger.info(f"已终止旧托盘进程 (PID: {pid})")
-                time.sleep(0.5)
-                # 确认进程已终止
+                time_module.sleep(0.5)
                 try:
                     os.kill(pid, 0)
-                    # 进程仍在运行，强制终止
                     os.kill(pid, signal.SIGKILL)
                     logger.info(f"已强制终止托盘进程 (PID: {pid})")
                 except (ProcessLookupError, OSError):
@@ -1098,6 +1097,46 @@ class MenuBarTray:
             return health_data
         return {"status": "unknown", "message": "无法连接"}
 
+    def _check_naja_ready(self) -> bool:
+        """检查 Naja 主进程是否已启动"""
+        health_data = _http_get("/api/health", timeout=2.0)
+        return health_data is not None
+
+    def _build_simple_menu(self):
+        """构建简化菜单（不依赖 Naja 进程，用于快速启动）"""
+        if self._app is None:
+            return
+
+        try:
+            import rumps
+            port = _get_naja_port()
+        except Exception as e:
+            logger.error(f"获取端口失败: {e}")
+            port = DEFAULT_PORT
+
+        self._app.menu.clear()
+        self._app.icon = ICON_PURPLE
+
+        self._app.menu["📊 Naja 管理平台"] = None
+        self._app.menu["🟡 启动中..."] = None
+        self._app.menu[f"📍 端口: {port}"] = None
+        self._app.menu["sep0"] = rumps.separator
+
+        self._app.menu.add(rumps.MenuItem("🌐 打开管理界面", callback=self._on_open_web))
+        self._app.menu.add(rumps.MenuItem("🔄 刷新菜单", callback=self._on_refresh))
+        self._app.menu["sep1"] = rumps.separator
+        self._app.menu.add(rumps.MenuItem("📋 关于", callback=lambda sender: self._show_about_simple()))
+        self._app.menu.add(rumps.MenuItem("❌ 退出", callback=self._on_quit))
+
+    def _show_about_simple(self):
+        """显示简化版关于信息"""
+        import rumps
+        rumps.alert(
+            title="Naja 管理平台",
+            message="Naja 正在启动中...\n\n请稍后刷新菜单查看完整内容。",
+            icon_path=ICON_PURPLE
+        )
+
     def _build_menu(self):
         """构建托盘菜单（带完整异常保护）"""
         if self._app is None:
@@ -1275,29 +1314,33 @@ class MenuBarTray:
             logger.info("托盘已启动")
             return
 
-        # 检查并终止旧托盘进程
         self._kill_running_tray()
 
         try:
             import rumps
 
-            initial_icon = ICON_GREEN if _is_trading_time() else ICON_PURPLE
-            self._app = rumps.App("Naja", icon=initial_icon)
-            self._build_menu()
+            self._app = rumps.App("Naja", icon=ICON_PURPLE)
+            self._build_simple_menu()
+            self._naja_ready = False
 
-            rumps.timer(interval=30)(self._on_timer)(self._app)
+            rumps.timer(interval=5)(self._on_timer)(self._app)
 
-            # 保存PID
             self._save_tray_pid()
 
-            logger.info("托盘已启动")
+            logger.info("托盘已启动（简化菜单）")
             self._app.run()
         except Exception as e:
             logger.error(f"启动托盘失败: {e}")
             self._clear_tray_pid()
 
     def _on_timer(self, _sender):
-        self._build_menu()
+        if not self._naja_ready:
+            if self._check_naja_ready():
+                logger.info("检测到 Naja 已启动，切换到完整菜单")
+                self._naja_ready = True
+                self._build_menu()
+        else:
+            self._build_menu()
 
     def stop(self):
         import rumps
