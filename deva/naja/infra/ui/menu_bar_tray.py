@@ -123,6 +123,60 @@ class MenuBarTray:
         self._last_system_status = None
         self._last_system_status_ts = 0
         self._last_menu_build_ts = 0
+        self._notified_news_ids = set()
+        self._notification_enabled = True
+
+    def _send_notification(self, title: str, subtitle: str = "", message: str = ""):
+        """发送 macOS 通知"""
+        if not self._notification_enabled:
+            return
+        
+        try:
+            import rumps
+            rumps.notification(
+                title=title,
+                subtitle=subtitle,
+                message=message,
+            )
+            logger.info(f"[Tray] 发送通知: {title}")
+        except Exception as e:
+            logger.error(f"[Tray] 发送通知失败: {e}")
+
+    def _check_and_send_notifications(self):
+        """检查并发送重要新闻通知"""
+        if not self._naja_ready:
+            return
+        
+        try:
+            from deva.naja.market_hotspot.ui_components.timeline.market_24h_timeline import (
+                _get_high_score_news,
+                _get_jin10_important_news,
+            )
+            
+            high_score_news = _get_high_score_news()
+            jin10_news = _get_jin10_important_news()
+            
+            all_news = high_score_news + jin10_news
+            
+            for news in all_news:
+                news_id = f"{news.get('type', '')}_{news.get('timestamp', 0)}_{news.get('block_name', '')[:20]}"
+                
+                if news_id in self._notified_news_ids:
+                    continue
+                
+                score = news.get('score', 0)
+                if score >= 0.7:
+                    title = news.get('block_name', '')
+                    subtitle = f"重要新闻 · 评分: {score:.2f}"
+                    
+                    self._send_notification(title, subtitle)
+                    self._notified_news_ids.add(news_id)
+                    
+                    if len(self._notified_news_ids) > 100:
+                        self._notified_news_ids = set(list(self._notified_news_ids)[-50:])
+                        
+        except Exception as e:
+            logger.error(f"[Tray] 检查通知失败: {e}")
 
     def _get_timeline_events(self) -> dict:
         """获取 24 小时时间线数据（带缓存）"""
@@ -1376,11 +1430,15 @@ class MenuBarTray:
                 self._naja_ready = True
                 self._build_menu()
                 self._last_menu_build_ts = now
+                # 首次检测到 Naja 启动时检查一次通知
+                self._check_and_send_notifications()
         else:
             # 正常状态下 30秒刷新一次，减少卡顿
             if now - self._last_menu_build_ts >= 30:
                 self._build_menu()
                 self._last_menu_build_ts = now
+                # 检查并发送通知
+                self._check_and_send_notifications()
 
     def stop(self):
         import rumps
