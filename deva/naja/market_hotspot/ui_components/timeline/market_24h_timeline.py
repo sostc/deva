@@ -152,18 +152,18 @@ def _get_a_block_events() -> List[Dict[str, Any]]:
 def _optimize_cn_events(events: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """
     优化A股题材事件：
-    1. 同一时间窗口内去重，保留权重最高的
-    2. 同一龙一股票只保留一个题材
-    3. 提高阈值，过滤低质量事件
+    1. 过滤低质量事件
+    2. 同一时间窗口内去重，保留权重最高的
+    3. 允许同一龙一股票在不同时间窗口出现
     """
     if not events:
         return []
     
-    # 步骤1：过滤低质量事件（变化幅度低于10%的直接过滤）
+    # 步骤1：过滤低质量事件（变化幅度低于3%的直接过滤）
     filtered_events = []
     for event in events:
         chg_pct = event.get('change_percent', 0)
-        if abs(chg_pct) >= 10:  # 只保留变化幅度>=10%的事件
+        if abs(chg_pct) >= 3:  # 只保留变化幅度>=3%的事件
             filtered_events.append(event)
     
     if not filtered_events:
@@ -179,9 +179,8 @@ def _optimize_cn_events(events: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
             time_groups[minute_key] = []
         time_groups[minute_key].append(event)
     
-    # 步骤3：在每个时间窗口内去重和优化
+    # 步骤3：在每个时间窗口内去重和优化（只在同窗口内去重，不同窗口允许重复）
     optimized_events = []
-    seen_dragons = set()  # 记录已经出现过的龙一股票
     
     # 按时间倒序处理
     sorted_minutes = sorted(time_groups.keys(), reverse=True)
@@ -192,25 +191,77 @@ def _optimize_cn_events(events: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         # 在组内按权重降序排序
         group_events.sort(key=lambda x: x.get('weight', 0), reverse=True)
         
-        # 对每个组进行去重处理
+        # 在同一时间窗口内去重（只去重完全相同的block_id）
+        seen_blocks = set()
         for event in group_events:
-            dragon_one = event.get('dragon_one')
-            dragon_symbol = dragon_one.get('symbol', '') if dragon_one else ''
+            block_id = event.get('block_id', '')
             
-            # 如果这个龙一股票已经出现过，跳过
-            if dragon_symbol and dragon_symbol in seen_dragons:
+            # 如果这个题材已经在同一时间窗口出现过，跳过
+            if block_id and block_id in seen_blocks:
                 continue
             
             # 保留这个事件
             optimized_events.append(event)
-            if dragon_symbol:
-                seen_dragons.add(dragon_symbol)
+            if block_id:
+                seen_blocks.add(block_id)
     
     # 按时间倒序排序
     optimized_events.sort(key=lambda x: x.get('timestamp', 0), reverse=True)
     
-    # 最多保留20个事件
-    return optimized_events[:20]
+    # 最多保留30个事件
+    return optimized_events[:30]
+
+
+def _optimize_us_events(events: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """优化美股题材事件：
+    1. 过滤低权重事件（美股阈值更高，因为关注度相对较低）
+    2. 按时间分组去重
+    3. 限制最大事件数量（美股数量更少）
+    """
+    if not events:
+        return []
+    
+    # 步骤1：过滤低权重事件（美股阈值更高）
+    filtered_events = []
+    for event in events:
+        weight = event.get('weight', 0)
+        chg_pct = event.get('change_percent', 0)
+        # 美股要求更高的权重或更大的变化幅度
+        if weight >= 0.8 or abs(chg_pct) >= 20:
+            filtered_events.append(event)
+    
+    if not filtered_events:
+        return []
+    
+    # 步骤2：按时间分组（同一分钟内的事件视为同一时间窗口）
+    time_groups = {}
+    for event in filtered_events:
+        ts = event.get('timestamp', 0)
+        minute_key = int(ts / 60)
+        if minute_key not in time_groups:
+            time_groups[minute_key] = []
+        time_groups[minute_key].append(event)
+    
+    # 步骤3：在每个时间窗口内去重（美股更严格，每个窗口只保留权重最高的2个）
+    optimized_events = []
+    for minute in sorted(time_groups.keys(), reverse=True):
+        group_events = time_groups[minute]
+        group_events.sort(key=lambda x: x.get('weight', 0), reverse=True)
+        
+        seen_blocks = set()
+        added_count = 0
+        for event in group_events:
+            block_name = event.get('block_name', '')
+            if block_name and block_name in seen_blocks:
+                continue
+            optimized_events.append(event)
+            seen_blocks.add(block_name)
+            added_count += 1
+            if added_count >= 2:  # 每个时间窗口最多2个事件
+                break
+    
+    optimized_events.sort(key=lambda x: x.get('timestamp', 0), reverse=True)
+    return optimized_events[:8]  # 美股最多8条
 
 
 def _get_us_events() -> List[Dict[str, Any]]:
@@ -236,7 +287,7 @@ def _get_us_events() -> List[Dict[str, Any]]:
                         continue
                 if events:
                     log.debug(f"[Timeline] 从服务器获取美股热点: {len(events)} 条")
-                    return events
+                    return _optimize_us_events(events)
         except Exception as e:
             log.warning(f"[Timeline] 从服务器获取美股失败，回退本地: {e}")
         
@@ -259,7 +310,7 @@ def _get_us_events() -> List[Dict[str, Any]]:
                     continue
             if events:
                 log.debug(f"[Timeline] 从本地缓存获取美股热点: {len(events)} 条")
-                return events
+                return _optimize_us_events(events)
         
         # 3. 最后回退到实时获取
         from deva.naja.market_hotspot.ui_components.us_market import get_us_hotspot_data

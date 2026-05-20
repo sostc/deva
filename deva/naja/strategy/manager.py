@@ -7,8 +7,6 @@ import threading
 import time
 from typing import Any, Dict, List, Optional
 
-from deva import NB
-
 from ..infra.management.base_manager import CatalogManagerMixin, SingletonLazyManager
 from ..infra.runtime.thread_pool import get_thread_pool
 from .output_controller import get_output_controller
@@ -20,6 +18,13 @@ from .models import (
     StrategyState,
 )
 from .entry import StrategyEntry
+
+
+def _get_nb():
+    """延迟加载 NB 避免循环导入"""
+    from deva import NB
+    return NB
+
 
 class StrategyManager(SingletonLazyManager, CatalogManagerMixin[StrategyEntry]):
     """策略管理器
@@ -93,7 +98,7 @@ class StrategyManager(SingletonLazyManager, CatalogManagerMixin[StrategyEntry]):
 
     def _save_experiment_session(self):
         try:
-            db = NB(STRATEGY_EXPERIMENT_TABLE)
+            db = _get_nb()(STRATEGY_EXPERIMENT_TABLE)
             if self._experiment_session is None:
                 if STRATEGY_EXPERIMENT_ACTIVE_KEY in db:
                     del db[STRATEGY_EXPERIMENT_ACTIVE_KEY]
@@ -104,7 +109,7 @@ class StrategyManager(SingletonLazyManager, CatalogManagerMixin[StrategyEntry]):
 
     def _load_experiment_session(self):
         try:
-            db = NB(STRATEGY_EXPERIMENT_TABLE)
+            db = _get_nb()(STRATEGY_EXPERIMENT_TABLE)
             data = db.get(STRATEGY_EXPERIMENT_ACTIVE_KEY)
             if not isinstance(data, dict):
                 self._experiment_session = None
@@ -278,7 +283,7 @@ class StrategyManager(SingletonLazyManager, CatalogManagerMixin[StrategyEntry]):
         with self._items_lock:
             self._items.pop(entry_id, None)
         
-        db = NB(STRATEGY_TABLE)
+        db = _get_nb()(STRATEGY_TABLE)
         if entry_id in db:
             del db[entry_id]
         
@@ -647,7 +652,7 @@ class StrategyManager(SingletonLazyManager, CatalogManagerMixin[StrategyEntry]):
             }
     
     def load_from_db(self) -> int:
-        db = NB(STRATEGY_TABLE)
+        db = _get_nb()(STRATEGY_TABLE)
         count = 0
         
         with self._items_lock:
@@ -775,7 +780,7 @@ class StrategyManager(SingletonLazyManager, CatalogManagerMixin[StrategyEntry]):
         Returns:
             重载结果
         """
-        db = NB(STRATEGY_TABLE)
+        db = _get_nb()(STRATEGY_TABLE)
         data = db.get(entry_id)
         
         if not data or not isinstance(data, dict):
@@ -819,7 +824,7 @@ class StrategyManager(SingletonLazyManager, CatalogManagerMixin[StrategyEntry]):
         Returns:
             重载结果统计
         """
-        db = NB(STRATEGY_TABLE)
+        db = _get_nb()(STRATEGY_TABLE)
         reloaded = 0
         failed = 0
         results = []
