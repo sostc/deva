@@ -123,69 +123,70 @@ class AppContainer:
             return
 
         try:
-            # 0. 加载持久化数据管理器（原本在 Bootstrap._load_persistent_data 中）
             self._load_persistent_managers()
 
-            # 1. 获取基础组件（从已注册的单例）
+            # 1. 获取基础组件（必需）
             self._trading_clock = SR('trading_clock')
             self._virtual_portfolio = SR('virtual_portfolio')
             self._value_system = SR('value_system')
 
-            # 2. 获取 AttentionOS（需要先于 ManasManager，因为 NarrativeTracker 依赖它）
+            # 2. 获取 AttentionOS（需要先于 ManasManager）
             self._attention_os = SR('attention_os')
 
-            # 3. 获取 kernel 层组件（从已注册的单例）
+            # 3. 获取 kernel 层组件（必需）
             self._query_state = SR('query_state')
             self._query_state_updater = SR('query_state_updater')
             self._manas_manager = SR('manas_manager')
-            # ManasEngine 在 ManasManager 内部创建，通过 get_manas_engine() 获取
             self._manas_engine = self._manas_manager.get_manas_engine()
 
-            # 4. 获取认知层组件（从已注册的单例）
-            self._insight_pool = SR('insight_pool')
-            self._insight_engine = SR('insight_engine')
-            self._cognition_engine = SR('cognition_engine')
+            # 4. 获取认知层组件（延迟加载，使用时再获取）
+            # self._insight_pool = SR('insight_pool')
+            # self._insight_engine = SR('insight_engine')
+            # self._cognition_engine = SR('cognition_engine')
 
-            # 5. 获取 Bandit 模块组件（从已注册的单例）
-            self._bandit_optimizer = SR('bandit_optimizer')
-            self._portfolio_manager = SR('portfolio_manager')
-            self._bandit_tracker = SR('bandit_tracker')
-            self._market_observer = SR('market_observer')
-            self._signal_listener = SR('signal_listener')
-            self._bandit_runner = SR('bandit_runner')
-            self._adaptive_cycle = SR('adaptive_cycle')
+            # 5. 获取 Bandit 模块组件（延迟加载）
+            # self._bandit_optimizer = SR('bandit_optimizer')
+            # self._portfolio_manager = SR('portfolio_manager')
+            # self._bandit_tracker = SR('bandit_tracker')
+            # self._market_observer = SR('market_observer')
+            # self._signal_listener = SR('signal_listener')
+            # self._bandit_runner = SR('bandit_runner')
+            # self._adaptive_cycle = SR('adaptive_cycle')
 
-            # 6. 获取 TradingCenter（从已注册的单例）
-            self._trading_center = SR('trading_center')
+            # 6. 获取 TradingCenter（延迟加载）
+            # self._trading_center = SR('trading_center')
 
-            # 7. 获取 Radar 模块组件（从已注册的单例）
-            self._radar_engine = SR('radar_engine')
+            # 7. 获取 Radar 模块组件（延迟加载）
+            # self._radar_engine = SR('radar_engine')
 
-            # 8. 初始化 SignalStream（对应 Bootstrap._register_components）
-            try:
-                from ..signal.stream import get_signal_stream
-                get_signal_stream()
-                log.info("[AppContainer] SignalStream 初始化完成")
-            except Exception as e:
-                log.warning(f"[AppContainer] SignalStream 初始化失败: {e}")
+            # 8. 初始化 SignalStream（延迟加载）
+            # try:
+            #     from ..signal.stream import get_signal_stream
+            #     get_signal_stream()
+            #     log.info("[AppContainer] SignalStream 初始化完成")
+            # except Exception as e:
+            #     log.warning(f"[AppContainer] SignalStream 初始化失败: {e}")
 
-            # 初始化 MerrillClock（对应 Bootstrap._init_core_components）
-            try:
-                from ..cognition.merrill_clock import initialize_merrill_clock
-                initialize_merrill_clock()
-                log.info("[AppContainer] MerrillClock 初始化完成")
-            except Exception as e:
-                log.warning(f"[AppContainer] MerrillClock 初始化失败: {e}")
+            # 初始化 MerrillClock（延迟加载）
+            # try:
+            #     from ..cognition.merrill_clock import initialize_merrill_clock
+            #     initialize_merrill_clock()
+            #     log.info("[AppContainer] MerrillClock 初始化完成")
+            # except Exception as e:
+            #     log.warning(f"[AppContainer] MerrillClock 初始化失败: {e}")
 
-            # 9. 事件订阅装配
+            # 9. 事件订阅装配（必需）
             self._event_registrar = self._create_event_registrar()
             self._event_registrar.register_all()
             
-            # 9. 启动调度器（包含 Supervisor、心跳、美林时钟等）
-            self._start_schedulers()
+            # 9. 启动调度器（延迟加载，只启动核心调度器）
+            # self._start_schedulers()
+            
+            # 10. 启动后台初始化线程
+            self._start_background_initialization()
             
             self._components_assembled = True
-            log.info("[AppContainer] 核心组件装配完成")
+            log.info("[AppContainer] 核心组件装配完成（延迟加载模式）")
             
         except Exception as e:
             log.error(f"[AppContainer] 组件装配失败: {e}", exc_info=True)
@@ -261,6 +262,48 @@ class AppContainer:
         self._perform_wake_sync()
         
         log.info("[AppContainer] 调度器启动完成")
+    
+    def _start_background_initialization(self):
+        """启动后台初始化线程，异步加载非关键组件"""
+        import threading
+        
+        def background_init():
+            import time
+            log.info("[AppContainer] 后台初始化线程启动")
+            
+            try:
+                time.sleep(1)
+                
+                log.info("[AppContainer] 后台初始化: SignalStream")
+                from ..signal.stream import get_signal_stream
+                get_signal_stream()
+                log.info("[AppContainer] SignalStream 初始化完成")
+            except Exception as e:
+                log.warning(f"[AppContainer] SignalStream 初始化失败: {e}")
+            
+            try:
+                time.sleep(0.5)
+                
+                log.info("[AppContainer] 后台初始化: MerrillClock")
+                from ..cognition.merrill_clock import initialize_merrill_clock
+                initialize_merrill_clock()
+                log.info("[AppContainer] MerrillClock 初始化完成")
+            except Exception as e:
+                log.warning(f"[AppContainer] MerrillClock 初始化失败: {e}")
+            
+            try:
+                time.sleep(0.5)
+                
+                log.info("[AppContainer] 后台初始化: 调度器")
+                self._start_schedulers()
+            except Exception as e:
+                log.warning(f"[AppContainer] 调度器启动失败: {e}")
+            
+            log.info("[AppContainer] 后台初始化完成")
+        
+        thread = threading.Thread(target=background_init, daemon=True)
+        thread.start()
+        log.info("[AppContainer] 后台初始化线程已启动")
     
     def _register_ai_daily_report_task(self):
         """注册 AI 技术简报定时任务"""
