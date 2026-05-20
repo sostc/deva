@@ -1,4 +1,7 @@
-from tornado import gen
+try:
+    from tornado import gen
+except ImportError:
+    gen = None
 from .core import Stream, httpx, sync, Deva
 from .core.bus import log
 from newspaper import Article
