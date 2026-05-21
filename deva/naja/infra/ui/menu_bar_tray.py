@@ -11,6 +11,10 @@ from pathlib import Path
 from typing import Optional
 
 from deva.naja.infra.autostart import is_login_item_enabled, toggle_login_item
+from deva.naja.infra.runtime.daemon import (
+    get_running_pid, get_running_tray_pid,
+    save_tray_pid, clear_tray_pid
+)
 
 logger = logging.getLogger(__name__)
 
@@ -128,6 +132,12 @@ class MenuBarTray:
         self._notified_news_ids = set()
         self._notification_enabled = True
 
+        import threading
+        self._menu_cache = {}
+        self._menu_cache_lock = threading.Lock()
+        self._preload_thread = None
+        self._preload_running = False
+
     def _send_notification(self, title: str, subtitle: str = "", message: str = ""):
         """发送 macOS 通知"""
         if not self._notification_enabled:
@@ -144,8 +154,141 @@ class MenuBarTray:
         except Exception as e:
             logger.error(f"[Tray] 发送通知失败: {e}")
 
+    def _start_background_preloader(self):
+        """启动后台预加载线程，异步加载菜单数据"""
+        if self._preload_running:
+            return
+        
+        self._preload_running = True
+        
+        def preloader():
+            import time
+            
+            logger.info("[Tray] 后台预加载线程启动")
+            
+            while self._preload_running:
+                try:
+                    tray_data = _http_get("/api/tray/data", timeout=10.0)
+                    
+                    if tray_data and tray_data.get('success'):
+                        with self._menu_cache_lock:
+                            self._menu_cache = {
+                                'timeline': tray_data.get('timeline', {}),
+                                'status': tray_data.get('health', {}),
+                                'trading': tray_data.get('trading', {}).get('is_trading', False),
+                                'timestamp': time.time(),
+                            }
+                        logger.debug(f"[Tray] 菜单数据预加载完成")
+                    else:
+                        logger.warning(f"[Tray] 预加载失败: {tray_data}")
+                        
+                except Exception as e:
+                    logger.warning(f"[Tray] 预加载失败: {e}")
+                
+                time.sleep(10)
+            
+            logger.info("[Tray] 后台预加载线程退出")
+        
+        import threading
+        self._preload_thread = threading.Thread(target=preloader, daemon=True)
+        self._preload_thread.start()
+        logger.info("[Tray] 后台预加载线程已启动")
+
+    def _get_timeline_events_cached(self):
+        """获取时间线数据（后台缓存版本）"""
+        import time
+        now = time.time()
+        
+        if self._last_timeline_data and (now - self._last_timeline_ts < 300):
+            return self._last_timeline_data
+        
+        try:
+            from datetime import datetime, timedelta
+            from deva.naja.market_hotspot.ui_components.timeline.market_24h_timeline import (
+                _get_a_block_events,
+                _get_us_events,
+                _get_high_score_news,
+                _get_jin10_important_news,
+            )
+            
+            cn_events = _get_a_block_events()
+            us_events = _get_us_events()
+            news_events = _get_high_score_news()
+            jin10_news = _get_jin10_important_news()
+            
+            all_events = cn_events + us_events + news_events + jin10_news
+            all_events.sort(key=lambda x: x.get('timestamp', 0), reverse=True)
+            
+            cutoff = (datetime.now() - timedelta(hours=24)).timestamp()
+            all_events = [e for e in all_events if e.get('timestamp', 0) >= cutoff]
+            
+            timeline_items = []
+            for event in all_events[:15]:
+                event_type = event.get('type', '')
+                event_time = event.get('time', '')[:5]
+                title = event.get('block_name', '') or event.get('title', '') or ''
+                title = title[:40]
+                
+                change = ''
+                if event_type == 'cn_event':
+                    change = event.get('change_pct', 0)
+                    if change > 0:
+                        change = f"+{change:.1f}%"
+                    else:
+                        change = f"{change:.1f}%"
+                elif event_type == 'us_event':
+                    change = event.get('change_pct', 0)
+                    if change > 0:
+                        change = f"+{change:.1f}%"
+                    else:
+                        change = f"{change:.1f}%"
+                elif event_type == 'news':
+                    change = f"[{event.get('score', 0):.1f}]"
+                elif event_type == 'jin10':
+                    change = "🔥"
+                
+                timeline_items.append({
+                    'type': event_type,
+                    'time': event_time,
+                    'title': title,
+                    'change': change,
+                    'timestamp': event.get('timestamp', 0),
+                    'data': event,
+                })
+            
+            self._last_timeline_data = {
+                'success': True,
+                'stats': {
+                    'cn_events': len(cn_events),
+                    'us_events': len(us_events),
+                    'high_score_news': len(news_events),
+                    'jin10_count': len(jin10_news),
+                },
+                'list': timeline_items,
+            }
+            self._last_timeline_ts = now
+            return self._last_timeline_data
+            
+        except Exception as e:
+            logger.warning(f"获取时间线数据失败: {e}")
+            return {"success": False, "stats": {}, "list": []}
+
+    def _get_system_status_cached(self):
+        """获取系统状态（后台缓存版本）"""
+        import time
+        now = time.time()
+        
+        if self._last_system_status and (now - self._last_system_status_ts < 30):
+            return self._last_system_status
+        
+        health_data = _http_get("/api/health")
+        result = health_data if health_data else {"status": "unknown", "message": "无法连接"}
+        
+        self._last_system_status = result
+        self._last_system_status_ts = now
+        return result
+
     def _check_and_send_notifications(self):
-        """检查并发送重要新闻通知"""
         if not self._naja_ready:
             return
         
@@ -264,51 +407,11 @@ class MenuBarTray:
             }
 
     def _get_running_pid(self) -> Optional[int]:
-        try:
-            if not PID_FILE.exists():
-                return None
-            pid = int(PID_FILE.read_text().strip())
-            if pid <= 0:
-                return None
-            os.kill(pid, 0)
-            return pid
-        except (ValueError, ProcessLookupError, PermissionError, OSError):
-            PID_FILE.unlink(missing_ok=True)
-            return None
-
-    def _get_running_tray_pid(self) -> Optional[int]:
-        """获取正在运行的托盘进程PID"""
-        try:
-            if not TRAY_PID_FILE.exists():
-                return None
-            pid = int(TRAY_PID_FILE.read_text().strip())
-            if pid <= 0:
-                return None
-            os.kill(pid, 0)
-            return pid
-        except (ValueError, ProcessLookupError, PermissionError, OSError):
-            TRAY_PID_FILE.unlink(missing_ok=True)
-            return None
-
-    def _save_tray_pid(self):
-        """保存当前托盘进程PID"""
-        try:
-            TRAY_PID_FILE.write_text(str(os.getpid()))
-            logger.info(f"已保存托盘PID: {os.getpid()}")
-        except Exception as e:
-            logger.error(f"保存托盘PID失败: {e}")
-
-    def _clear_tray_pid(self):
-        """清除托盘PID文件"""
-        try:
-            TRAY_PID_FILE.unlink(missing_ok=True)
-            logger.info("已清除托盘PID文件")
-        except Exception as e:
-            logger.error(f"清除托盘PID失败: {e}")
+        return get_running_pid()
 
     def _kill_running_tray(self):
         """终止正在运行的托盘进程"""
-        pid = self._get_running_tray_pid()
+        pid = get_running_tray_pid()
         if pid:
             try:
                 os.kill(pid, signal.SIGTERM)
@@ -323,7 +426,7 @@ class MenuBarTray:
             except Exception as e:
                 logger.error(f"终止托盘进程失败: {e}")
             finally:
-                self._clear_tray_pid()
+                clear_tray_pid()
 
     def _get_tray_script_path(self) -> str:
         """获取托盘脚本路径"""
@@ -427,7 +530,7 @@ class MenuBarTray:
                         pass
             except ProcessLookupError:
                 pass
-        self._clear_tray_pid()
+        clear_tray_pid()
         rumps.quit_application()
 
     def _on_refresh(self, sender):
@@ -1241,7 +1344,6 @@ class MenuBarTray:
         self._app.menu.add(rumps.MenuItem("🔄 刷新菜单", callback=self._on_refresh))
         self._app.menu["sep1"] = rumps.separator
         self._app.menu.add(rumps.MenuItem("📋 关于", callback=lambda sender: self._show_about_simple()))
-        self._app.menu.add(rumps.MenuItem("❌ 退出", callback=self._on_quit))
 
     def _show_about_simple(self):
         """显示简化版关于信息"""
@@ -1253,15 +1355,29 @@ class MenuBarTray:
         )
 
     def _build_menu(self):
-        """构建托盘菜单（带完整异常保护）"""
+        """构建托盘菜单（使用缓存数据，毫秒级响应）"""
         if self._app is None:
             return
 
-        try:
-            self._timeline_events = self._get_timeline_events()
-        except Exception as e:
-            logger.error(f"获取时间线数据失败: {e}")
-            self._timeline_events = {"success": False, "stats": {}, "list": []}
+        with self._menu_cache_lock:
+            if self._menu_cache:
+                self._timeline_events = self._menu_cache.get('timeline', {})
+                system_status = self._menu_cache.get('status', {})
+                trading_time = self._menu_cache.get('trading', False)
+            else:
+                try:
+                    self._timeline_events = self._get_timeline_events()
+                except Exception as e:
+                    logger.error(f"获取时间线数据失败: {e}")
+                    self._timeline_events = {"success": False, "stats": {}, "list": []}
+
+                try:
+                    system_status = self._get_system_status()
+                except Exception as e:
+                    logger.error(f"获取系统状态失败: {e}")
+                    system_status = {}
+
+                trading_time = _is_trading_time()
 
         try:
             port = _get_naja_port()
@@ -1270,15 +1386,9 @@ class MenuBarTray:
             port = 8080
 
         try:
-            system_status = self._get_system_status()
-        except Exception as e:
-            logger.error(f"获取系统状态失败: {e}")
-            system_status = {}
-
-        try:
             import rumps
 
-            icon_path = ICON_GREEN if _is_trading_time() else ICON_PURPLE
+            icon_path = ICON_GREEN if trading_time else ICON_PURPLE
             self._app.icon = icon_path
 
             self._app.menu.clear()
@@ -1402,7 +1512,6 @@ class MenuBarTray:
             
             self._app.menu["sep3"] = rumps.separator
             self._app.menu["重启服务"] = rumps.MenuItem("🔄 重启服务", callback=self._on_reload)
-            self._app.menu["退出"] = rumps.MenuItem("❌ 退出", callback=self._on_quit)
             
             # 更新菜单构建时间戳
             import time
@@ -1418,7 +1527,6 @@ class MenuBarTray:
                 self._app.menu["⚠️ 菜单更新失败"] = None
                 self._app.menu["sep0"] = rumps.separator
                 self._app.menu["重启服务"] = rumps.MenuItem("🔄 重启服务", callback=self._on_reload)
-                self._app.menu["退出"] = rumps.MenuItem("❌ 退出", callback=self._on_quit)
                 
                 # 更新菜单构建时间戳
                 import time
@@ -1452,19 +1560,20 @@ class MenuBarTray:
         try:
             import rumps
 
-            self._app = rumps.App("Naja", icon=ICON_PURPLE)
+            self._app = rumps.App("Naja", icon=ICON_PURPLE, quit_button=rumps.MenuItem("❌ 退出", callback=self._on_quit))
             self._build_simple_menu()
             self._naja_ready = False
 
             rumps.timer(interval=5)(self._on_timer)(self._app)
 
-            self._save_tray_pid()
+            self._start_background_preloader()
+            save_tray_pid()
 
             logger.info("托盘已启动（简化菜单）")
             self._app.run()
         except Exception as e:
             logger.error(f"启动托盘失败: {e}")
-            self._clear_tray_pid()
+            clear_tray_pid()
 
     def _on_timer(self, _sender):
         import time
