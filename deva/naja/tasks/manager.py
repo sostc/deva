@@ -455,11 +455,16 @@ class TaskManager:
             )
         return info
 
-    def _catchup_missed_cron_tasks(self) -> dict:
-        """检查并补执行所有错过的 cron 任务
+    def _catchup_missed_cron_tasks(self, days_back: int = 3) -> dict:
+        """检查并补执行最近几天内未执行的 cron 任务
 
-        遍历所有 cron 类型的任务，检查上次执行时间。
-        如果错过了执行时间且未执行，则立即补执行一次。
+        遍历所有 cron 类型的任务，检查最近 days_back 天是否有执行记录。
+        如果最近 days_back 天都没有执行过，则立即补执行一次。
+
+        同时检查今天是否执行过，如果今天的任务还没执行且已到执行时间，立即补执行。
+
+        Args:
+            days_back: 回溯检查的天数，默认3天
         """
         self._ensure_initialized()
         results = []
@@ -474,6 +479,7 @@ class TaskManager:
 
         tz = pytz.timezone("Asia/Shanghai")
         now = datetime.now(tz)
+        today_start = datetime(now.year, now.month, now.day, 0, 0, 0, tzinfo=tz)
 
         with self._items_lock:
             entries = list(self._items.values())
@@ -489,21 +495,54 @@ class TaskManager:
                     continue
 
                 ct = CronTrigger.from_crontab(cron_expr, timezone=tz)
-                prev_fire = ct.get_next_fire_time(None, now)
-                if not prev_fire:
-                    continue
 
-                if last_run <= 0:
+                last_run_dt = None
+                if last_run and last_run > 0:
+                    last_run_dt = datetime.fromtimestamp(last_run, tz=tz)
+
+                last_run_date = last_run_dt.date() if last_run_dt else None
+
+                if last_run_dt is None:
                     self._log("INFO", "补执行: 从未执行过", id=entry.id, name=entry.name, cron=cron_expr)
                     entry.run_once()
                     catchup_count += 1
                     results.append({"entry_id": entry.id, "entry_name": entry.name, "success": True, "catchup": True, "reason": "从未执行"})
                     continue
 
-                last_run_dt = datetime.fromtimestamp(last_run, tz=tz)
-                missed = False
-                check_dt = last_run_dt + timedelta(minutes=1)
+                days_since_run = (now.date() - last_run_date).days
 
+                if last_run_date == now.date():
+                    self._log("INFO", "今日已执行，跳过", id=entry.id, name=entry.name)
+                    skip_count += 1
+                    continue
+
+                today_fire_time = None
+                check_today = datetime(now.year, now.month, now.day, 0, 0, 0, tzinfo=tz)
+                for _ in range(10):
+                    next_fire = ct.get_next_fire_time(None, check_today)
+                    if next_fire and next_fire.date() == now.date():
+                        today_fire_time = next_fire
+                        break
+                    if next_fire and next_fire.date() > now.date():
+                        break
+                    check_today = next_fire + timedelta(minutes=1) if next_fire else check_today + timedelta(days=1)
+
+                if today_fire_time and now >= today_fire_time and now - today_fire_time < timedelta(hours=12):
+                    self._log("INFO", f"补执行: 今天任务未执行({today_fire_time.strftime('%H:%M')})", id=entry.id, name=entry.name)
+                    entry.run_once()
+                    catchup_count += 1
+                    results.append({"entry_id": entry.id, "entry_name": entry.name, "success": True, "catchup": True, "reason": f"今日未执行({today_fire_time.strftime('%H:%M')})"})
+                    continue
+
+                if days_since_run > days_back:
+                    self._log("INFO", f"补执行: 已{days_since_run}天未执行(超过{days_back}天)", id=entry.id, name=entry.name, last_run=last_run_dt.strftime("%Y-%m-%d"))
+                    entry.run_once()
+                    catchup_count += 1
+                    results.append({"entry_id": entry.id, "entry_name": entry.name, "success": True, "catchup": True, "reason": f"已{days_since_run}天未执行"})
+                    continue
+
+                check_dt = last_run_dt + timedelta(minutes=1)
+                missed = False
                 for _ in range(1000):
                     next_fire = ct.get_next_fire_time(None, check_dt)
                     if not next_fire or next_fire > now:

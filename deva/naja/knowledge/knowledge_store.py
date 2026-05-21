@@ -74,15 +74,24 @@ class KnowledgeStore:
 
     def __init__(self):
         self._entries: List[KnowledgeEntry] = []
+        self._last_mtime: float = 0.0
         self._load()
 
     def _ensure_dir(self):
         self.BASE_DIR.mkdir(parents=True, exist_ok=True)
 
+    def _need_reload(self) -> bool:
+        """检查文件是否有更新，需要重新加载"""
+        if not self.KNOWLEDGE_FILE.exists():
+            return False
+        current_mtime = self.KNOWLEDGE_FILE.stat().st_mtime
+        return current_mtime > self._last_mtime + 0.5
+
     def _load(self):
         """加载已有知识"""
         if self.KNOWLEDGE_FILE.exists():
             try:
+                current_mtime = self.KNOWLEDGE_FILE.stat().st_mtime
                 with open(self.KNOWLEDGE_FILE, 'r', encoding='utf-8') as f:
                     data = json.load(f)
                     raw_entries = data.get("knowledge", [])
@@ -92,6 +101,7 @@ class KnowledgeStore:
                             self._entries.append(KnowledgeEntry.from_dict(e))
                         except (TypeError, KeyError) as err:
                             log.warning(f"[KnowledgeStore] 跳过损坏条目: {err}")
+                self._last_mtime = current_mtime
                 log.info(f"[KnowledgeStore] 加载了 {len(self._entries)} 条知识")
             except (json.JSONDecodeError, IOError) as e:
                 log.error(f"[KnowledgeStore] 加载失败: {e}")
@@ -99,6 +109,21 @@ class KnowledgeStore:
         else:
             self._entries = []
             self._ensure_dir()
+
+    def reload(self):
+        """手动触发重新加载（供外部调用）"""
+        if self.KNOWLEDGE_FILE.exists():
+            old_count = len(self._entries)
+            self._load()
+            new_count = len(self._entries)
+            if old_count != new_count:
+                log.info(f"[KnowledgeStore] 热重载: {old_count} → {new_count} 条知识")
+        return self
+
+    def _ensure_fresh(self):
+        """确保数据是最新的，文件有变更时自动重载"""
+        if self._need_reload():
+            self.reload()
 
     def _save(self):
         """保存知识"""
@@ -132,6 +157,7 @@ class KnowledgeStore:
 
     def get(self, entry_id: str) -> Optional[KnowledgeEntry]:
         """获取单条知识"""
+        self._ensure_fresh()
         for e in self._entries:
             if e.id == entry_id:
                 return e
@@ -139,6 +165,7 @@ class KnowledgeStore:
 
     def get_by_cause(self, cause: str) -> Optional[KnowledgeEntry]:
         """根据 cause 查找知识"""
+        self._ensure_fresh()
         for e in self._entries:
             if e.cause.lower() == cause.lower():
                 return e
@@ -146,10 +173,12 @@ class KnowledgeStore:
 
     def get_by_state(self, state: KnowledgeState) -> List[KnowledgeEntry]:
         """获取指定状态的知识"""
+        self._ensure_fresh()
         return [e for e in self._entries if e.status == state.value]
 
     def get_all(self) -> List[KnowledgeEntry]:
         """获取所有知识"""
+        self._ensure_fresh()
         return self._entries
 
     def delete(self, entry_id: str) -> bool:
@@ -176,6 +205,7 @@ class KnowledgeStore:
 
     def get_stats(self) -> Dict[str, Any]:
         """获取统计信息"""
+        self._ensure_fresh()
         states = {s.value: 0 for s in KnowledgeState}
         categories = {}
         total_confidence = 0
@@ -201,6 +231,7 @@ class KnowledgeStore:
 
     def get_for_trading(self) -> Dict[str, List[Dict]]:
         """获取可用于交易决策的知识"""
+        self._ensure_fresh()
         qualified = []
         validating = []
         observing_count = 0
