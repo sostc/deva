@@ -236,7 +236,6 @@ def fetch_ai_investment_news() -> List[Dict]:
 
 def fetch_wechat_ai_articles() -> List[Dict]:
     """获取微信公众号AI相关文章（通过RSS服务）"""
-    # 使用一些公开的微信公众号聚合服务
     rss_sources = [
         {
             "name": "机器之心",
@@ -271,6 +270,293 @@ def fetch_wechat_ai_articles() -> List[Dict]:
             continue
 
     return articles[:4]
+
+
+def fetch_aibase_daily(max_retries: int = 3) -> Dict[str, Any]:
+    """获取AIbase每日AI日报文章"""
+    import re
+
+    for attempt in range(max_retries):
+        try:
+            headers = {
+                "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                "Accept": "text/html,application/xhtml+xml",
+            }
+
+            resp = requests.get("https://news.aibase.com/zh/daily", headers=headers, timeout=15)
+            if resp.status_code != 200:
+                if attempt < max_retries - 1:
+                    import time
+                    time.sleep(2)
+                    continue
+                return {"success": False, "error": f"HTTP {resp.status_code}"}
+
+            html = resp.text
+
+            article_links = re.findall(r'href="(/zh/daily/\d+)"', html)
+            if not article_links:
+                return {"success": False, "error": "未找到文章链接"}
+
+            latest_link = f"https://news.aibase.com{article_links[0]}"
+            article_id = re.search(r'/(\d+)$', article_links[0]).group(1)
+
+            resp = requests.get(latest_link, headers=headers, timeout=15)
+            if resp.status_code != 200:
+                if attempt < max_retries - 1:
+                    import time
+                    time.sleep(2)
+                    continue
+                return {"success": False, "error": f"文章获取失败 HTTP {resp.status_code}"}
+
+            article_html = resp.text
+
+            title_match = re.search(r'<h1[^>]*>([^<]+)</h1>', article_html)
+            title = title_match.group(1) if title_match else "未知标题"
+
+            content_patterns = [
+                r'<div[^>]*class="[^"]*prose[^"]*"[^>]*>(.*?)</div>',
+                r'<div[^>]*class="[^"]*article[^"]*"[^>]*>(.*?)</div>',
+                r'<article[^>]*>(.*?)</article>',
+            ]
+            content = ""
+            for pattern in content_patterns:
+                match = re.search(pattern, article_html, re.DOTALL)
+                if match:
+                    raw_content = match.group(1)
+                    content = re.sub(r'<[^>]+>', ' ', raw_content)
+                    content = re.sub(r'\s+', ' ', content).strip()
+                    if len(content) > 100:
+                        break
+
+            if not content:
+                text_matches = re.findall(r'提要[:：]\s*([^<]+)', article_html)
+                if text_matches:
+                    content = " | ".join(text_matches[:5])
+
+            return {
+                "success": True,
+                "article_id": article_id,
+                "title": title,
+                "url": latest_link,
+                "content": content[:2000] if content else "",
+                "source": "AIbase"
+            }
+
+        except Exception as e:
+            log.warning(f"AIbase获取失败 (尝试 {attempt + 1}/{max_retries}): {e}")
+            if attempt < max_retries - 1:
+                import time
+                time.sleep(2)
+            else:
+                return {"success": False, "error": str(e)}
+
+    return {"success": False, "error": "重试次数耗尽"}
+
+
+async def fetch_aibase_articles_list(
+    days_back: int = 7,
+    headless: bool = True,
+    timeout_ms: int = 30000,
+) -> List[Dict[str, Any]]:
+    """
+    获取 AIbase 最近 N 天的日报文章列表
+
+    Args:
+        days_back: 回溯天数，默认7天
+        headless:  是否无头模式
+        timeout_ms: 超时时间
+
+    Returns:
+        文章列表，每项包含 article_id, title, url, publish_date
+    """
+    import asyncio as async_lib
+    import re
+    from playwright.async_api import async_playwright
+    from datetime import datetime, timedelta
+
+    articles = []
+
+    try:
+        async with async_playwright() as p:
+            browser = await p.chromium.launch(headless=headless)
+            context = await browser.new_context(
+                user_agent=(
+                    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                    "AppleWebKit/537.36 (KHTML, like Gecko) "
+                    "Chrome/120.0.0.0 Safari/537.36"
+                ),
+                viewport={"width": 1440, "height": 900},
+            )
+            page = await context.new_page()
+
+            log.info(f"正在获取 AIbase 日报列表 (最近{days_back}天)...")
+            await page.goto(
+                "https://news.aibase.com/zh/daily",
+                wait_until="domcontentloaded",
+                timeout=timeout_ms,
+            )
+            await page.wait_for_load_state("networkidle", timeout=timeout_ms)
+            await async_lib.sleep(2)
+
+            article_links = await page.query_selector_all('a[href*="/zh/daily/"]')
+            log.info(f"找到 {len(article_links)} 个文章链接")
+
+            cutoff_date = datetime.now().date() - timedelta(days=days_back)
+
+            for link in article_links:
+                try:
+                    href = await link.get_attribute("href")
+                    if not href or "/daily/" not in href:
+                        continue
+
+                    if not href.startswith("http"):
+                        href = f"https://news.aibase.com{href}"
+
+                    article_id = href.split("/")[-1]
+                    title = await link.text_content()
+                    title = title.strip() if title else ""
+
+                    page2 = await context.new_page()
+                    await page2.goto(href, wait_until="domcontentloaded", timeout=timeout_ms)
+                    await page2.wait_for_load_state("networkidle", timeout=timeout_ms)
+                    await async_lib.sleep(0.5)
+
+                    page_text = await page2.content()
+                    date_match = re.search(r'20\d{2}年(\d{1,2})月(\d{1,2})', page_text)
+                    if date_match:
+                        year = page_text[date_match.start():date_match.start()+4]
+                        month = date_match.group(1).zfill(2)
+                        day = date_match.group(2).zfill(2)
+                        publish_date = f"{year}-{month}-{day}"
+                        pub_date = datetime.strptime(publish_date, "%Y-%m-%d").date()
+
+                        if pub_date >= cutoff_date:
+                            articles.append({
+                                "article_id": article_id,
+                                "title": title,
+                                "url": href,
+                                "publish_date": publish_date,
+                            })
+                            log.info(f"  [{publish_date}] {title[:40]}...")
+
+                    await page2.close()
+
+                    if len(articles) >= days_back:
+                        break
+
+                except Exception as e:
+                    log.warning(f"处理文章失败: {e}")
+                    continue
+
+            await browser.close()
+
+    except Exception as e:
+        log.warning(f"获取文章列表失败: {e}")
+
+    return articles
+
+
+async def fetch_aibase_daily_playwright(
+    headless: bool = True,
+    timeout_ms: int = 30000,
+) -> Dict[str, Any]:
+    """
+    使用 Playwright 浏览器渲染获取 AIbase 每日文章
+
+    Args:
+        headless:    是否无头模式
+        timeout_ms:  超时时间(ms)
+
+    Returns:
+        文章数据字典
+    """
+    import asyncio as async_lib
+    from playwright.async_api import async_playwright
+
+    try:
+        async with async_playwright() as p:
+            browser = await p.chromium.launch(headless=headless)
+            context = await browser.new_context(
+                user_agent=(
+                    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                    "AppleWebKit/537.36 (KHTML, like Gecko) "
+                    "Chrome/120.0.0.0 Safari/537.36"
+                ),
+                viewport={"width": 1440, "height": 900},
+            )
+            page = await context.new_page()
+
+            log.info("正在打开 news.aibase.com/zh/daily ...")
+            await page.goto(
+                "https://news.aibase.com/zh/daily",
+                wait_until="domcontentloaded",
+                timeout=timeout_ms,
+            )
+
+            await page.wait_for_load_state("networkidle", timeout=timeout_ms)
+            await async_lib.sleep(2)
+
+            article_link = await page.query_selector('a[href*="/zh/daily/"]')
+            if not article_link:
+                log.warning("未找到文章链接")
+                await browser.close()
+                return {"success": False, "error": "未找到文章链接"}
+
+            href = await article_link.get_attribute("href")
+            if not href.startswith("http"):
+                href = f"https://news.aibase.com{href}"
+
+            article_id = href.split("/")[-1]
+            log.info(f"找到最新文章: {href}")
+
+            await page.goto(href, wait_until="domcontentloaded", timeout=timeout_ms)
+            await page.wait_for_load_state("networkidle", timeout=timeout_ms)
+            await async_lib.sleep(1)
+
+            title_el = await page.query_selector("h1")
+            title = await title_el.text_content() if title_el else "未知标题"
+
+            page_text = await page.content()
+
+            import re
+            date_match = re.search(r'20\d{2}年(\d{1,2})月(\d{1,2})', page_text)
+            if date_match:
+                year = page_text[date_match.start():date_match.start()+4]
+                month = date_match.group(1).zfill(2)
+                day = date_match.group(2).zfill(2)
+                publish_date = f"{year}-{month}-{day}"
+
+            content_el = await page.query_selector("article, .prose, .article-content, [class*='content']")
+            if content_el:
+                content = await content_el.text_content()
+                content = " ".join(content.split())[:2000]
+            else:
+                summary_points = await page.query_selector_all("[class*='summary'], [class*='highlight']")
+                if summary_points:
+                    content_parts = []
+                    for sp in summary_points[:5]:
+                        text = await sp.text_content()
+                        if text:
+                            content_parts.append(text.strip())
+                    content = " | ".join(content_parts)
+                else:
+                    content = ""
+
+            await browser.close()
+
+            return {
+                "success": True,
+                "article_id": article_id,
+                "title": title.strip(),
+                "url": href,
+                "content": content[:2000] if content else "",
+                "source": "AIbase",
+                "publish_date": publish_date
+            }
+
+    except Exception as e:
+        log.warning(f"Playwright 抓取失败: {e}")
+        return {"success": False, "error": str(e)}
 
 
 def format_report_v2(
@@ -355,14 +641,50 @@ def format_report_v2(
     return report
 
 
+AIBASE_LEARNED_FILE = os.path.expanduser("~/.naja/aibase_learned.json")
+
+
+def get_learned_dates() -> set:
+    """获取已学习的日期"""
+    try:
+        with open(AIBASE_LEARNED_FILE, 'r') as f:
+            data = json.load(f)
+            return set(data.get("learned_dates", []))
+    except:
+        return set()
+
+
+def mark_date_learned(date_str: str):
+    """标记日期已学习"""
+    try:
+        data = {"learned_dates": []}
+        try:
+            with open(AIBASE_LEARNED_FILE, 'r') as f:
+                data = json.load(f)
+        except:
+            pass
+
+        learned_dates = data.get("learned_dates", [])
+        if date_str not in learned_dates:
+            learned_dates.append(date_str)
+        learned_dates = learned_dates[-30:]
+
+        os.makedirs(os.path.dirname(AIBASE_LEARNED_FILE), exist_ok=True)
+        with open(AIBASE_LEARNED_FILE, 'w') as f:
+            json.dump({"learned_dates": learned_dates}, f)
+    except Exception as e:
+        log.warning(f"标记日期失败: {e}")
+
+
 def execute() -> dict:
     """
     主执行函数 - 晚间定时运行 v2.0
     """
+    import asyncio
+
     log.info("[AI_Report_v2] 开始生成AI晚报...")
 
     try:
-        # 1. 抓取各来源数据
         papers = fetch_arxiv_papers("cs.AI", max_results=5)
         models = fetch_huggingface_trending()
         repos = fetch_github_trending("machine-learning")
@@ -371,14 +693,71 @@ def execute() -> dict:
         invest_news = fetch_ai_investment_news()
         wechat = fetch_wechat_ai_articles()
 
-        # 2. 生成简报
+        aibase_learned = False
+        aibase_title = ""
+        aibase_articles_learned = []
+
+        today_str = datetime.now().strftime("%Y-%m-%d")
+        learned_dates = get_learned_dates()
+        log.info(f"[AI_Report_v2] 已学习日期: {learned_dates}")
+
+        if today_str in learned_dates:
+            log.info(f"[AI_Report_v2] 今日({today_str})已学习过，跳过")
+        else:
+            try:
+                articles = asyncio.run(fetch_aibase_articles_list(days_back=7))
+                if not articles:
+                    aibase_result = asyncio.run(fetch_aibase_daily_playwright())
+                    if aibase_result.get("success"):
+                        publish_date = aibase_result.get("publish_date", "")
+                        if publish_date == today_str:
+                            articles = [aibase_result]
+                        else:
+                            log.info(f"[AI_Report_v2] 文章日期({publish_date})不是今天({today_str})，跳过")
+
+                if articles:
+                    for article in articles:
+                        pub_date = article.get("publish_date", "")
+                        if pub_date in learned_dates:
+                            continue
+
+                        log.info(f"[AI_Report_v2] 学习 {pub_date} 日报: {article.get('title', '')[:40]}...")
+                        try:
+                            from deva.naja.tasks.article_learner import learn_article_url
+                            learn_result = learn_article_url(article["url"])
+                            log.info(f"[AI_Report_v2] 深度学习完成，置信度: {learn_result.confidence:.2f}")
+                            learned_dates.add(pub_date)
+                            mark_date_learned(pub_date)
+                            aibase_articles_learned.append({
+                                "date": pub_date,
+                                "title": article.get("title", "")[:50],
+                            })
+                            if pub_date == today_str:
+                                aibase_title = article.get("title", "")
+                        except Exception as e:
+                            log.warning(f"[AI_Report_v2] 深度学习失败: {e}")
+                else:
+                    log.warning(f"[AI_Report_v2] 未获取到文章")
+
+            except Exception as e:
+                log.warning(f"[AI_Report_v2] AIbase处理失败: {e}")
+
         report = format_report_v2(
             papers, models, repos, news,
             tweets, invest_news, wechat
         )
+
+        if aibase_title:
+            report += f"\n\n📖 AIbase日报已深度学习:\n  • {aibase_title[:60]}...\n  ✅ 知识已进入Naja验证期"
+
+        if aibase_articles_learned:
+            if len(aibase_articles_learned) > 1:
+                report += f"\n\n📚 补学习最近 {len(aibase_articles_learned)} 天日报:"
+                for item in aibase_articles_learned:
+                    report += f"\n  • [{item['date']}] {item['title'][:50]}..."
+
         log.info(f"[AI_Report_v2] 简报已生成，长度: {len(report)}")
 
-        # 3. 保存到文件
         today = datetime.now().strftime("%Y%m%d_%H%M")
         report_path = os.path.expanduser(f"~/.naja/ai_reports/{today}_v2.txt")
         try:
@@ -389,7 +768,6 @@ def execute() -> dict:
         except Exception as e:
             log.warning(f"[AI_Report_v2] 保存失败: {e}")
 
-        # 4. 推送到手机
         phone = "+8618626880688"
         sent = send_imessage(phone, report)
         if sent:
@@ -397,23 +775,19 @@ def execute() -> dict:
         else:
             log.warning("[AI_Report_v2] 推送失败")
 
-        # 5. 提取因果知识并注入Naja（深思熟虑版）
         knowledge_count = 0
         validating_count = 0
         try:
             from deva.naja.tasks.ai_knowledge_injector import AIKnowledgeInjector, send_notification
             injector = AIKnowledgeInjector()
 
-            # 合并所有新闻用于知识提取
             all_news = news + invest_news
             evaluation_result = injector.extract_and_evaluate_knowledge(all_news)
 
-            # 注入评估后的知识
             counts = injector.inject_knowledge(evaluation_result)
             knowledge_count = counts.get("new", 0)
             validating_count = counts.get("validating", 0)
 
-            # 生成洞察并追加到报告
             knowledge_status = injector.get_knowledge_for_trading()
             insight_text = f"""
 🧠 Naja知识库状态:
@@ -423,13 +797,11 @@ def execute() -> dict:
 """
             report += insight_text
 
-            # 更新保存的报告
             with open(report_path, 'w', encoding='utf-8') as f:
                 f.write(report)
 
             log.info(f"[AI_Report_v2] 知识统计: 新增{knowledge_count}, 验证中{validating_count}")
 
-            # 如果有重大更新，发送通知给爸爸
             notification = injector.generate_notification_text(evaluation_result)
             if notification:
                 send_notification(notification)
@@ -451,7 +823,10 @@ def execute() -> dict:
             "invest_count": len(invest_news),
             "wechat_count": len(wechat),
             "knowledge_injected": knowledge_count,
-            "pushed": sent
+            "pushed": sent,
+            "aibase_learned": aibase_learned,
+            "aibase_title": aibase_title,
+            "aibase_articles_learned": aibase_articles_learned
         }
 
     except Exception as e:

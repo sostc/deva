@@ -101,6 +101,12 @@ class TaskEntry(RecoverableUnit):
 
         job_name = f"naja_task_{self.id}"
 
+        job_defaults = {
+            "misfire_grace_time": 86400,
+            "coalesce": True,
+            "max_instances": 1,
+        }
+
         if trigger == "interval":
             interval = max(1.0, float(getattr(self._metadata, "interval_seconds", 60.0) or 60.0))
             _scheduler_manager.add_scheduler_job(
@@ -108,6 +114,7 @@ class TaskEntry(RecoverableUnit):
                 func=lambda: self._execute_once(func),
                 trigger="interval",
                 seconds=interval,
+                **job_defaults,
             )
         elif trigger == "cron":
             cron_expr = str(getattr(self._metadata, "cron_expr", "") or "").strip()
@@ -118,6 +125,7 @@ class TaskEntry(RecoverableUnit):
                 func=lambda: self._execute_once(func),
                 trigger="cron",
                 **parse_cron_expr(cron_expr),
+                **job_defaults,
             )
         elif trigger == "date":
             run_at_raw = str(getattr(self._metadata, "run_at", "") or "").strip()
@@ -127,6 +135,7 @@ class TaskEntry(RecoverableUnit):
                 func=lambda: self._execute_once(func),
                 trigger="date",
                 run_date=run_at,
+                **job_defaults,
             )
         else:
             raise ValueError(f"不支持的 scheduler trigger: {trigger}")

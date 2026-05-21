@@ -71,6 +71,9 @@ class DailyReviewScheduler:
         self._latest_sent_data = None
         self._downstream_callback = None
 
+        self._replay_failures: dict[str, int] = {}
+        self._max_retries = 5
+
         self._initialized = True
         log.info("[DailyReviewScheduler] 调度器初始化完成")
 
@@ -251,6 +254,13 @@ class DailyReviewScheduler:
             log.info(f"[DailyReviewScheduler] 复盘任务跳过：{market} 今天{phase}阶段已复盘")
             return
 
+        fail_key = f"{market}_{phase}"
+        if self._replay_failures.get(fail_key, 0) >= self._max_retries:
+            log.warning(f"[DailyReviewScheduler] {market} {phase} 已连续失败 {self._max_retries} 次，跳过今日复盘")
+            self._mark_replayed_today(market=market, phase=phase)
+            self._replay_failures.pop(fail_key, None)
+            return
+
         try:
             log.info(f"[DailyReviewScheduler] 开始执行{market} {phase}复盘任务")
 
@@ -262,11 +272,14 @@ class DailyReviewScheduler:
                 return
 
             self._mark_replayed_today(market=market, phase=phase)
+            self._replay_failures.pop(fail_key, None)
 
             log.info(f"[DailyReviewScheduler] {market} {phase}复盘任务完成")
 
         except Exception as e:
-            log.error(f"[DailyReviewScheduler] 复盘任务失败: {e}")
+            self._replay_failures[fail_key] = self._replay_failures.get(fail_key, 0) + 1
+            remaining = self._max_retries - self._replay_failures[fail_key]
+            log.error(f"[DailyReviewScheduler] 复盘任务失败 ({remaining}/{self._max_retries}): {e}")
 
     def trigger_manual_replay(self, market: str = 'a_share', phase: str = 'post_market') -> bool:
         """手动触发复盘（用于认知页面按钮）"""
