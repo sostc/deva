@@ -910,6 +910,153 @@ def render_market_24h_timeline(view_mode: str = 'past_24h') -> str:
     return ''.join(html_parts)
 
 
+def get_raw_events_for_sync(hours: int = 24) -> Dict[str, List[Dict]]:
+    """
+    获取原始事件数据，供 server_sync 使用（从服务器同步到其他 Naja 实例）
+    
+    Returns:
+        dict: 包含:
+            - cn_events: A股题材原始事件列表
+            - us_events: 美股热点原始事件列表
+            - news: 高分新闻原始事件列表
+            - jin10_news: 金十要闻原始事件列表
+    """
+    from datetime import datetime, timedelta
+    import os
+    import json
+    import time
+    
+    now = datetime.now()
+    cutoff = (now - timedelta(hours=hours)).timestamp()
+    
+    # 先从底层存储直接获取原始数据
+    cn_events = []
+    try:
+        from deva.naja.market_hotspot.storing.block_events_store import get_cn_block_events
+        cn_events = get_cn_block_events(hours=hours)
+        # 添加 type 字段
+        for e in cn_events:
+            if 'type' not in e:
+                e['type'] = 'cn_event'
+    except Exception:
+        pass
+    
+    us_events = []
+    try:
+        from deva.naja.market_hotspot.storing.block_events_store import get_us_block_events
+        us_events = get_us_block_events(hours=hours)
+        # 添加 type 字段
+        for e in us_events:
+            if 'type' not in e:
+                e['type'] = 'us_event'
+    except Exception:
+        pass
+    
+    news_events = []
+    try:
+        from deva.naja.events.focused_news_store import get_today_focused_news
+        news_events = get_today_focused_news(limit=50)
+        # 添加 type 字段
+        for e in news_events:
+            if 'type' not in e:
+                e['type'] = 'high_score_news'
+    except Exception:
+        pass
+    
+    jin10_news = []
+    try:
+        # 尝试从本地 jin10 缓存获取
+        cache_file = os.path.expanduser("~/.naja/jin10_news.json")
+        if os.path.exists(cache_file):
+            with open(cache_file, 'r') as f:
+                jin10_news = json.load(f)
+        # 添加 type 字段
+        for e in jin10_news:
+            if 'type' not in e:
+                e['type'] = 'jin10_news'
+    except Exception:
+        pass
+    
+    # 过滤时间
+    def filter_events(events):
+        return [e for e in events if e.get('timestamp', 0) >= cutoff]
+    
+    return {
+        'cn_events': filter_events(cn_events),
+        'us_events': filter_events(us_events),
+        'news': filter_events(news_events),
+        'jin10_news': filter_events(jin10_news),
+    }
+
+
+def get_timeline_data_for_api(hours: int = 24) -> dict:
+    """
+    获取时间线数据，供 API 使用（TrayDataHandler 和 MarketTimelineHandler 共享）
+    
+    Returns:
+        dict: 包含:
+            - stats: {cn_events, us_events, high_score_news, jin10_news}
+            - list: 格式化后的时间线项目列表
+    """
+    from datetime import datetime, timedelta
+    import time
+    
+    now = datetime.now()
+    
+    cn_events = _get_a_block_events()
+    us_events = _get_us_events()
+    news_events = _get_high_score_news()
+    jin10_news = _get_jin10_important_news()
+    
+    all_events = cn_events + us_events + news_events + jin10_news
+    all_events.sort(key=lambda x: x.get('timestamp', 0), reverse=True)
+    
+    cutoff = (now - timedelta(hours=hours)).timestamp()
+    all_events = [e for e in all_events if e.get('timestamp', 0) >= cutoff]
+    
+    timeline_items = []
+    for event in all_events[:15]:
+        ts = event.get('timestamp', 0)
+        dt = datetime.fromtimestamp(ts)
+        event_type = event.get('type', '')
+        block_name = event.get('block_name', '') or event.get('symbol', '') or event.get('name', '')
+        
+        item = {
+            'type': event_type,
+            'timestamp': ts,
+            'time': dt.strftime('%H:%M'),
+            'date': dt.strftime('%m-%d'),
+            'title': block_name,
+        }
+        
+        if event_type == 'high_score_news':
+            item['score'] = event.get('score', 0.5)
+        elif event_type == 'jin10_news':
+            item['score'] = event.get('score', 0.85)
+            item['flash_id'] = event.get('flash_id', '')
+            flash_id = event.get('flash_id', '')
+            item['url'] = event.get('url', '') or (f"https://www.jin10.com/news/{flash_id}" if flash_id else "")
+        elif event_type in ('cn_event', 'us_event'):
+            change_percent = event.get('change_percent', 0)
+            sign = '+' if change_percent >= 0 else ''
+            item['change'] = f"{sign}{change_percent:.1f}%"
+            item['weight'] = event.get('weight', 0.5)
+        
+        timeline_items.append(item)
+    
+    return {
+        'stats': {
+            'cn_events': len(cn_events),
+            'us_events': len(us_events),
+            'high_score_news': len(news_events),
+            'jin10_news': len(jin10_news),
+        },
+        'list': timeline_items,
+        'timestamp': time.time(),
+        'datetime': now.strftime('%Y-%m-%d %H:%M:%S'),
+    }
+
+
 if __name__ == '__main__':
     print(render_market_24h_timeline('past_24h'))
     print("\n" + "=" * 50 + "\n")

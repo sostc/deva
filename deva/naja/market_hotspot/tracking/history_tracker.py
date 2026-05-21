@@ -281,9 +281,8 @@ class MarketHotspotHistoryTracker:
                 pass
             if block_info:
                 return block_info.name
-            return ""
 
-        return block_id
+        return block_id or ""
 
     def _format_volume(self, volume: float) -> str:
         """格式化成交量显示"""
