@@ -247,14 +247,37 @@ class MarketHotspotAPIHandler(RequestHandler):
 
     def set_default_headers(self):
         self.set_header("Content-Type", "application/json; charset=utf-8")
+        self.set_header("Access-Control-Allow-Origin", "*")
 
     def get(self):
+        import time
         try:
-            self.write(json.dumps(_market_hotspot_payload(), ensure_ascii=False, indent=2, default=_json_default))
+            payload = _market_hotspot_payload()
+            if "error" in payload:
+                result = {
+                    "timestamp": time.time(),
+                    "datetime": time.strftime("%Y-%m-%d %H:%M:%S"),
+                    "success": False,
+                    "error": payload["error"]
+                }
+            else:
+                result = {
+                    "timestamp": time.time(),
+                    "datetime": time.strftime("%Y-%m-%d %H:%M:%S"),
+                    "success": True,
+                    "data": payload
+                }
+            self.write(json.dumps(result, ensure_ascii=False, indent=2, default=_json_default))
         except Exception as e:
             self.set_status(500)
             import traceback; traceback.print_exc()
-            self.write(json.dumps({"error": str(e)}, ensure_ascii=False))
+            result = {
+                "timestamp": time.time(),
+                "datetime": time.strftime("%Y-%m-%d %H:%M:%S"),
+                "success": False,
+                "error": str(e)
+            }
+            self.write(json.dumps(result, ensure_ascii=False, default=_json_default))
 
 
 class MarketHotspotStreamHandler(RequestHandler):

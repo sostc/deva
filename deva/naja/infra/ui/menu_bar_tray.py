@@ -10,6 +10,8 @@ import time as time_module
 from pathlib import Path
 from typing import Optional
 
+from deva.naja.infra.autostart import is_login_item_enabled, toggle_login_item
+
 logger = logging.getLogger(__name__)
 
 NAJA_DIR = Path.home() / ".naja"
@@ -400,10 +402,29 @@ class MenuBarTray:
     def _on_quit(self, sender):
         logger.info("托盘菜单触发退出")
         import rumps
+        import time
         pid = self._get_running_pid()
         if pid:
             try:
+                logger.info(f"正在停止 Naja 服务 (PID: {pid})...")
                 os.kill(pid, signal.SIGTERM)
+                # 等待进程退出（最多10秒）
+                timeout = 10.0
+                start = time.time()
+                while time.time() - start < timeout:
+                    try:
+                        os.kill(pid, 0)  # 检查进程是否还存在
+                        time.sleep(0.2)
+                    except ProcessLookupError:
+                        logger.info("Naja 服务已停止")
+                        break
+                else:
+                    # 超时，强制终止
+                    logger.warning("Naja 服务停止超时，强制终止")
+                    try:
+                        os.kill(pid, signal.SIGKILL)
+                    except ProcessLookupError:
+                        pass
             except ProcessLookupError:
                 pass
         self._clear_tray_pid()
@@ -420,6 +441,16 @@ class MenuBarTray:
         
         logger.info("开始从服务器同步数据...")
         
+        # 显示开始同步通知（在主线程）
+        rumps.notification(
+            title="☁️ 正在同步",
+            subtitle="正在从服务器获取数据...",
+            message="请稍候，同步完成后会通知您"
+        )
+        
+        # 用于存储同步结果的共享变量
+        self._sync_pending_notification = None
+        
         def sync_task():
             try:
                 from deva.naja.state.system.server_sync_handler import ServerDataSyncHandler
@@ -434,40 +465,38 @@ class MenuBarTray:
                 
                 if result.get('success'):
                     logger.info(f"服务器同步成功: {result.get('message', '')}")
-                    rumps.notification(
-                        title="☁️ 服务器同步成功",
-                        subtitle="数据已从服务器更新",
-                        message=result.get('message', '同步完成')
-                    )
+                    # 存储通知内容，让主线程显示
+                    self._sync_pending_notification = {
+                        'title': "☁️ 服务器同步成功",
+                        'subtitle': "数据已从服务器更新",
+                        'message': result.get('message', '同步完成')
+                    }
                 else:
                     logger.warning(f"服务器同步失败: {result.get('message', '')}")
-                    rumps.notification(
-                        title="⚠️ 服务器同步失败",
-                        subtitle="请检查网络连接",
-                        message=result.get('message', '同步失败')
-                    )
+                    # 存储通知内容，让主线程显示
+                    self._sync_pending_notification = {
+                        'title': "⚠️ 服务器同步失败",
+                        'subtitle': "请检查网络连接",
+                        'message': result.get('message', '同步失败')
+                    }
                 
-                # 同步完成后刷新菜单
-                self._build_menu()
+                # 同步完成后，设置标志位让定时器在下一次循环刷新菜单
+                # 不要在线程中直接调用 _build_menu()，因为 UI 操作必须在主线程
+                self._last_menu_build_ts = 0  # 清空时间戳，让定时器立即刷新
                 
             except Exception as e:
                 logger.error(f"服务器同步异常: {e}")
                 import traceback
                 traceback.print_exc()
-                rumps.notification(
-                    title="❌ 同步异常",
-                    subtitle="发生错误",
-                    message=str(e)
-                )
+                # 存储通知内容，让主线程显示
+                self._sync_pending_notification = {
+                    'title': "❌ 同步异常",
+                    'subtitle': "发生错误",
+                    'message': str(e)
+                }
         
         thread = threading.Thread(target=sync_task, daemon=True)
         thread.start()
-        
-        rumps.notification(
-            title="☁️ 正在同步",
-            subtitle="正在从服务器获取数据...",
-            message="请稍候，同步完成后会通知您"
-        )
 
     def _on_one_click_summary(self, sender):
         """一键总结：调用大模型总结时间线数据（带缓存）"""
@@ -476,26 +505,42 @@ class MenuBarTray:
         
         logger.info("开始一键总结...")
         
+        # 显示开始总结通知（在主线程）
+        rumps.notification(
+            title="🧠 正在总结",
+            subtitle="正在分析市场动态...",
+            message="请稍候，总结完成后会通知您"
+        )
+        
+        # 用于存储总结结果的共享变量
+        self._summary_pending_result = None
+        
         def summary_task():
             try:
                 # 获取时间线数据
                 timeline_data = self._get_timeline_events()
                 
                 if not timeline_data or not timeline_data.get('success'):
-                    rumps.notification(
-                        title="⚠️ 总结失败",
-                        subtitle="无法获取时间线数据",
-                        message="请稍后重试"
-                    )
+                    self._summary_pending_result = {
+                        'type': 'error',
+                        'notification': {
+                            'title': "⚠️ 总结失败",
+                            'subtitle': "无法获取时间线数据",
+                            'message': "请稍后重试"
+                        }
+                    }
                     return
                 
                 events = timeline_data.get('list', [])
                 if not events:
-                    rumps.notification(
-                        title="📭 暂无数据",
-                        subtitle="没有可总结的内容",
-                        message="时间线数据为空"
-                    )
+                    self._summary_pending_result = {
+                        'type': 'error',
+                        'notification': {
+                            'title': "📭 暂无数据",
+                            'subtitle': "没有可总结的内容",
+                            'message': "时间线数据为空"
+                        }
+                    }
                     return
                 
                 # 先检查缓存
@@ -503,52 +548,41 @@ class MenuBarTray:
                 if cached_summary:
                     logger.info("使用缓存的总结")
                     summary = cached_summary
-                    rumps.notification(
-                        title="📦 使用缓存",
-                        subtitle="正在加载历史总结...",
-                        message="1秒后显示"
-                    )
+                    self._summary_pending_result = {
+                        'type': 'cache',
+                        'summary': summary,
+                        'events': events
+                    }
                 else:
                     # 构建提示词
                     prompt = self._build_summary_prompt(events)
                     
                     # 调用大模型
-                    rumps.notification(
-                        title="🧠 正在总结",
-                        subtitle="正在分析市场动态...",
-                        message="请稍候，总结完成后会通知您"
-                    )
                     from deva.llm.client import sync_gpt
                     summary = sync_gpt(prompt)
                     
                     # 保存缓存
                     self._save_summary_cache(events, summary)
                     logger.info("总结已缓存")
-                
-                # 显示总结结果
-                logger.info(f"总结完成: {summary[:100]}...")
-                
-                # 保存完整总结到本地文件
-                summary_file = self._save_summary_to_file(summary)
-                
-                # 复制到剪贴板
-                self._copy_to_clipboard(summary)
-                
-                # 发送到钉钉
-                self._send_to_dingtalk(summary)
-                
-                # 显示简短通知，同时打开完整总结
-                self._show_summary_notification(summary, summary_file, events)
+                    
+                    self._summary_pending_result = {
+                        'type': 'success',
+                        'summary': summary,
+                        'events': events
+                    }
                 
             except Exception as e:
                 logger.error(f"一键总结异常: {e}")
                 import traceback
                 traceback.print_exc()
-                rumps.notification(
-                    title="❌ 总结失败",
-                    subtitle="发生错误",
-                    message=str(e)[:100] if len(str(e)) > 100 else str(e)
-                )
+                self._summary_pending_result = {
+                    'type': 'error',
+                    'notification': {
+                        'title': "❌ 总结失败",
+                        'subtitle': "发生错误",
+                        'message': str(e)[:100] if len(str(e)) > 100 else str(e)
+                    }
+                }
         
         thread = threading.Thread(target=summary_task, daemon=True)
         thread.start()
@@ -1275,6 +1309,17 @@ class MenuBarTray:
             
             self._app.menu["sep1"] = rumps.separator
             
+            # 登录启动项区域
+            try:
+                autostart_item = rumps.MenuItem("🚀 登录时自动启动")
+                autostart_item.state = 1 if is_login_item_enabled() else 0
+                autostart_item.set_callback(self._on_toggle_autostart)
+                self._app.menu.add(autostart_item)
+            except Exception as e:
+                logger.warning(f"添加登录启动项菜单失败: {e}")
+            
+            self._app.menu["sep1.5"] = rumps.separator
+            
             # 主功能区域
             self._app.menu.add(rumps.MenuItem("🌐 打开 Web", callback=self._on_open_web))
             self._app.menu.add(rumps.MenuItem("📄 打开日志", callback=self._on_open_logs))
@@ -1423,7 +1468,52 @@ class MenuBarTray:
 
     def _on_timer(self, _sender):
         import time
+        import rumps
         now = time.time()
+        
+        # 检查是否有待处理的同步通知
+        if hasattr(self, '_sync_pending_notification') and self._sync_pending_notification:
+            notification = self._sync_pending_notification
+            rumps.notification(
+                title=notification['title'],
+                subtitle=notification['subtitle'],
+                message=notification['message']
+            )
+            self._sync_pending_notification = None
+        
+        # 检查是否有待处理的总结结果
+        if hasattr(self, '_summary_pending_result') and self._summary_pending_result:
+            result = self._summary_pending_result
+            self._summary_pending_result = None
+            
+            if result['type'] == 'error':
+                # 显示错误通知
+                notification = result['notification']
+                rumps.notification(
+                    title=notification['title'],
+                    subtitle=notification['subtitle'],
+                    message=notification['message']
+                )
+            else:
+                # 处理成功结果（缓存或新生成）
+                summary = result['summary']
+                events = result['events']
+                
+                # 显示总结结果
+                logger.info(f"总结完成: {summary[:100]}...")
+                
+                # 保存完整总结到本地文件
+                summary_file = self._save_summary_to_file(summary)
+                
+                # 复制到剪贴板
+                self._copy_to_clipboard(summary)
+                
+                # 发送到钉钉
+                self._send_to_dingtalk(summary)
+                
+                # 显示简短通知，同时打开完整总结
+                self._show_summary_notification(summary, summary_file, events)
+        
         if not self._naja_ready:
             if self._check_naja_ready():
                 logger.info("检测到 Naja 已启动，切换到完整菜单")
@@ -1449,13 +1539,40 @@ class MenuBarTray:
 
     def update_data(self):
         """更新数据（清除缓存，强制刷新）"""
-        # 清除所有缓存，强制刷新
         self._last_timeline_data = None
         self._last_timeline_ts = 0
         self._last_system_status = None
         self._last_system_status_ts = 0
         self._last_menu_build_ts = 0
         self._build_menu()
+
+    def _on_toggle_autostart(self, sender):
+        """切换登录启动项状态"""
+        import rumps
+        
+        new_state = 1 - sender.state
+        try:
+            if new_state == 1:
+                success = toggle_login_item()
+                action = "启用" if success else "启用"
+            else:
+                success = toggle_login_item()
+                action = "禁用" if success else "禁用"
+            
+            if success:
+                sender.state = new_state
+                logger.info(f"登录启动项已{action}")
+                rumps.notification(
+                    title="🚀 登录启动项",
+                    subtitle=f"已{action}登录时自动启动",
+                    message="重启电脑后生效" if new_state == 1 else "已取消自动启动"
+                )
+            else:
+                logger.error(f"登录启动项{action}失败")
+                sender.state = 1 - new_state
+        except Exception as e:
+            logger.error(f"切换登录启动项失败: {e}")
+            sender.state = 1 - new_state
 
 
 _tray_instance: Optional[MenuBarTray] = None

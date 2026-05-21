@@ -351,7 +351,7 @@ async def api_explorer():
     api_endpoints = [
         # 核心API
         {"name": "健康检查", "path": "/api/health", "method": "GET", "description": "系统健康状态"},
-        {"name": "市场热点", "path": "/api/hotspot", "method": "GET", "description": "市场热点数据"},
+        {"name": "市场热点", "path": "/api/market/hotspot", "method": "GET", "description": "市场热点数据"},
         {"name": "知识操作", "path": "/api/knowledge/action", "method": "POST", "description": "知识操作接口"},
         
         # 认知相关API
@@ -366,7 +366,7 @@ async def api_explorer():
         {"name": "市场热点API", "path": "/api/market/hotspot", "method": "GET", "description": "市场热点API数据"},
         
         # 系统相关API
-        {"name": "系统状态", "path": "/api/system/status", "method": "GET", "description": "系统状态数据"},
+        {"name": "系统状态", "path": "/api/system/runtime", "method": "GET", "description": "系统状态数据"},
         {"name": "系统模块", "path": "/api/system/modules", "method": "GET", "description": "系统模块数据"},
         
         # 雷达相关API

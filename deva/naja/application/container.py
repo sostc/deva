@@ -139,6 +139,9 @@ class AppContainer:
             self._manas_manager = SR('manas_manager')
             self._manas_engine = self._manas_manager.get_manas_engine()
 
+            # 基础组件就绪后立即标记，防止 property 递归
+            self._components_assembled = True
+
             # 4. 获取认知层组件（延迟加载，使用时再获取）
             # self._insight_pool = SR('insight_pool')
             # self._insight_engine = SR('insight_engine')
@@ -179,16 +182,16 @@ class AppContainer:
             self._event_registrar = self._create_event_registrar()
             self._event_registrar.register_all()
             
-            # 9. 启动调度器（延迟加载，只启动核心调度器）
+            # 10. 启动调度器（延迟加载，只启动核心调度器）
             # self._start_schedulers()
             
-            # 10. 启动后台初始化线程
+            # 11. 启动后台初始化线程
             self._start_background_initialization()
             
-            self._components_assembled = True
             log.info("[AppContainer] 核心组件装配完成（延迟加载模式）")
             
         except Exception as e:
+            self._components_assembled = True
             log.error(f"[AppContainer] 组件装配失败: {e}", exc_info=True)
 
 
@@ -818,12 +821,20 @@ def execute() -> dict:
 
     @property
     def trading_center(self):
-        """获取 TradingCenter"""
+        """获取 TradingCenter（懒加载）"""
+        if self._trading_center is None:
+            self._assemble_core_components()
+            self._trading_center = self._create_trading_center()
+            log.info("[AppContainer] TradingCenter 懒加载完成")
         return self._trading_center
 
     @property
     def insight_pool(self):
-        """获取 InsightPool"""
+        """获取 InsightPool（懒加载）"""
+        if self._insight_pool is None:
+            self._assemble_core_components()
+            self._insight_pool = self._create_insight_pool()
+            log.info("[AppContainer] InsightPool 懒加载完成")
         return self._insight_pool
 
     @property
@@ -853,7 +864,12 @@ def execute() -> dict:
 
     @property
     def bandit_tracker(self):
-        """获取 BanditTracker"""
+        """获取 BanditTracker（懒加载）"""
+        if self._bandit_tracker is None:
+            self._assemble_core_components()
+            _ = self.bandit_optimizer
+            self._bandit_tracker = self._create_bandit_tracker()
+            log.info("[AppContainer] BanditTracker 懒加载完成")
         return self._bandit_tracker
 
     @property
@@ -868,53 +884,89 @@ def execute() -> dict:
 
     @property
     def insight_engine(self):
-        """获取 InsightEngine"""
+        """获取 InsightEngine（懒加载）"""
+        if self._insight_engine is None:
+            self._assemble_core_components()
+            _ = self.insight_pool
+            self._insight_engine = self._create_insight_engine()
+            log.info("[AppContainer] InsightEngine 懒加载完成")
         return self._insight_engine
 
     @property
     def cognition_engine(self):
-        """获取 CognitionEngine"""
+        """获取 CognitionEngine（懒加载）"""
+        if self._cognition_engine is None:
+            self._assemble_core_components()
+            self._cognition_engine = self._create_cognition_engine()
+            log.info("[AppContainer] CognitionEngine 懒加载完成")
         return self._cognition_engine
 
     @property
     def bandit_optimizer(self):
-        """获取 BanditOptimizer"""
+        """获取 BanditOptimizer（懒加载）"""
+        if self._bandit_optimizer is None:
+            self._assemble_core_components()
+            self._bandit_optimizer = self._create_bandit_optimizer()
+            log.info("[AppContainer] BanditOptimizer 懒加载完成")
         return self._bandit_optimizer
 
     @property
     def portfolio_manager(self):
-        """获取 PortfolioManager"""
+        """获取 PortfolioManager（懒加载）"""
+        if self._portfolio_manager is None:
+            self._assemble_core_components()
+            self._portfolio_manager = self._create_portfolio_manager()
+            log.info("[AppContainer] PortfolioManager 懒加载完成")
         return self._portfolio_manager
 
     @property
     def radar_engine(self):
-        """获取 RadarEngine"""
+        """获取 RadarEngine（懒加载）"""
+        if self._radar_engine is None:
+            self._assemble_core_components()
+            self._radar_engine = self._create_radar_engine()
+            log.info("[AppContainer] RadarEngine 懒加载完成")
         return self._radar_engine
 
     @property
     def market_observer(self):
-        """获取 MarketDataObserver"""
+        """获取 MarketDataObserver（懒加载）"""
+        if self._market_observer is None:
+            self._assemble_core_components()
+            self._market_observer = self._create_market_observer()
+            log.info("[AppContainer] MarketDataObserver 懒加载完成")
         return self._market_observer
-    
+
     @property
     def signal_listener(self):
-        """获取 SignalListener"""
+        """获取 SignalListener（懒加载）"""
         if self._signal_listener is None:
             self._assemble_core_components()
+            self._signal_listener = self._create_signal_listener()
+            log.info("[AppContainer] SignalListener 懒加载完成")
         return self._signal_listener
-    
+
     @property
     def bandit_runner(self):
-        """获取 BanditAutoRunner"""
+        """获取 BanditAutoRunner（懒加载）"""
         if self._bandit_runner is None:
             self._assemble_core_components()
+            self._bandit_runner = self._create_bandit_runner()
+            log.info("[AppContainer] BanditAutoRunner 懒加载完成")
         return self._bandit_runner
-    
+
     @property
     def adaptive_cycle(self):
-        """获取 AdaptiveCycle"""
+        """获取 AdaptiveCycle（懒加载）"""
         if self._adaptive_cycle is None:
             self._assemble_core_components()
+            _ = self.signal_listener
+            _ = self.bandit_runner
+            _ = self.bandit_optimizer
+            _ = self.bandit_tracker
+            _ = self.market_observer
+            self._adaptive_cycle = self._create_adaptive_cycle()
+            log.info("[AppContainer] AdaptiveCycle 懒加载完成")
         return self._adaptive_cycle
 
     def restore_runtime_state(self) -> None:
