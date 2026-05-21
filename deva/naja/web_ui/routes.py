@@ -759,75 +759,40 @@ class DualBusStreamHandler(RequestHandler):
 
 
 class MarketTimelineHandler(RequestHandler):
-    """24小时全球市场时间线 API - 为托盘菜单设计"""
+    """24小时全球市场时间线 API - 为服务器同步使用（返回原始事件数据）"""
 
     def set_default_headers(self):
         self.set_header("Content-Type", "application/json; charset=utf-8")
 
     def get(self):
         try:
-            from datetime import datetime, timedelta
-            from deva.naja.market_hotspot.ui_components.timeline.market_24h_timeline import (
-                _get_a_block_events,
-                _get_us_events,
-                _get_high_score_news,
-                _get_jin10_important_news,
-            )
+            from datetime import datetime
+            import time
+            from deva.naja.market_hotspot.ui_components.timeline.market_24h_timeline import get_raw_events_for_sync
             
-            # 获取所有事件
-            cn_events = _get_a_block_events()
-            us_events = _get_us_events()
-            news_events = _get_high_score_news()
-            jin10_news = _get_jin10_important_news()
+            raw_data = get_raw_events_for_sync(hours=24)
             
-            all_events = cn_events + us_events + news_events + jin10_news
+            # 合并所有事件到 list 字段（供 server_sync 解析）
+            all_events = []
+            all_events.extend(raw_data['cn_events'])
+            all_events.extend(raw_data['us_events'])
+            all_events.extend(raw_data['news'])
+            all_events.extend(raw_data['jin10_news'])
+            
+            # 按时间倒序
             all_events.sort(key=lambda x: x.get('timestamp', 0), reverse=True)
-            
-            # 过滤过去24小时
-            cutoff = (datetime.now() - timedelta(hours=24)).timestamp()
-            all_events = [e for e in all_events if e.get('timestamp', 0) >= cutoff]
-            
-            # 格式化为托盘菜单友好的格式
-            timeline_items = []
-            for event in all_events[:15]:
-                ts = event.get('timestamp', 0)
-                dt = datetime.fromtimestamp(ts)
-                event_type = event.get('type', '')
-                block_name = event.get('block_name', '')
-                
-                item = {
-                    'type': event_type,
-                    'timestamp': ts,
-                    'time': dt.strftime('%H:%M'),
-                    'date': dt.strftime('%m-%d'),
-                    'title': block_name,
-                }
-                
-                if event_type == 'high_score_news':
-                    item['score'] = event.get('score', 0.5)
-                elif event_type == 'jin10_news':
-                    item['score'] = event.get('score', 0.85)
-                    item['flash_id'] = event.get('flash_id', '')
-                    item['url'] = event.get('url', '')
-                elif event_type in ('cn_event', 'us_event'):
-                    change_percent = event.get('change_percent', 0)
-                    sign = '+' if change_percent >= 0 else ''
-                    item['change'] = f"{sign}{change_percent:.1f}%"
-                    item['weight'] = event.get('weight', 0.5)
-                
-                timeline_items.append(item)
             
             self.write(json.dumps({
                 "success": True,
                 "timestamp": time.time(),
                 "datetime": datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
                 "stats": {
-                    "cn_events": len(cn_events),
-                    "us_events": len(us_events),
-                    "high_score_news": len(news_events),
-                    "jin10_news": len(jin10_news),
+                    "cn_events": len(raw_data['cn_events']),
+                    "us_events": len(raw_data['us_events']),
+                    "high_score_news": len(raw_data['news']),
+                    "jin10_news": len(raw_data['jin10_news']),
                 },
-                "list": timeline_items,
+                "list": all_events,
             }, ensure_ascii=False, default=_json_default))
         except Exception as e:
             import traceback
@@ -837,6 +802,62 @@ class MarketTimelineHandler(RequestHandler):
                 "error": str(e),
                 "list": [],
                 "stats": {},
+            }, ensure_ascii=False))
+
+
+class TrayDataHandler(RequestHandler):
+    """托盘菜单数据合并 API - 一次请求获取所有需要的数据"""
+
+    def set_default_headers(self):
+        self.set_header("Content-Type", "application/json; charset=utf-8")
+        self.set_header("Access-Control-Allow-Origin", "*")
+
+    def get(self):
+        try:
+            from datetime import datetime
+            from deva.naja.market_hotspot.ui_components.timeline.market_24h_timeline import get_timeline_data_for_api
+            from deva.naja.radar.trading_clock import get_global_trading_status
+
+            timeline_data = get_timeline_data_for_api(hours=24)
+
+            status = get_global_trading_status()
+            cn_phase = status.get("cn", {}).get("phase", "unknown")
+            us_phase = status.get("us", {}).get("phase", "unknown")
+            cn_trading = cn_phase == "trading"
+            us_trading = us_phase in ("trading", "pre_market", "post_market")
+            is_trading = cn_trading or us_trading
+
+            self.write(json.dumps({
+                "success": True,
+                "timestamp": timeline_data['timestamp'],
+                "datetime": timeline_data['datetime'],
+                "health": {
+                    "status": "ok",
+                    "service": "naja",
+                },
+                "trading": {
+                    "is_trading": is_trading,
+                    "cn_trading": cn_trading,
+                    "us_trading": us_trading,
+                    "cn_phase": cn_phase,
+                    "us_phase": us_phase,
+                },
+                "timeline": {
+                    "success": True,
+                    "stats": timeline_data['stats'],
+                    "list": timeline_data['list'],
+                },
+            }, ensure_ascii=False, default=_json_default))
+
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            self.write(json.dumps({
+                "success": False,
+                "error": str(e),
+                "health": {"status": "error"},
+                "trading": {"is_trading": False},
+                "timeline": {"success": False, "list": [], "stats": {}},
             }, ensure_ascii=False))
 
 
@@ -946,6 +967,7 @@ def create_handlers(cdn: str = None):
         (r'/api/dual-bus/stream', DualBusStreamHandler),
         (r'/api/dualbus/stream', DualBusStreamHandler),
         (r'/api/market/timeline', MarketTimelineHandler),
+        (r'/api/tray/data', TrayDataHandler),
     ]
 
     return page_routes + api_routes

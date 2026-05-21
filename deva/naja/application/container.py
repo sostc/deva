@@ -83,12 +83,23 @@ class AppContainer:
 
     def boot(self):
         """Complete bootstrap: registers everything, assembles components, and records boot report."""
+        from ..infra.observability.startup_timer import StartupTimer
+
+        StartupTimer.reset()
         start = time.time()
         set_app_container(self)
 
+        StartupTimer.start("注册单例")
         self._register_singletons()
+        StartupTimer.end("注册单例")
+
+        StartupTimer.start("装配核心组件")
         self._assemble_core_components()
+        StartupTimer.end("装配核心组件")
+
+        StartupTimer.start("恢复运行状态")
         self.restore_runtime_state()
+        StartupTimer.end("恢复运行状态")
 
         duration = (time.time() - start) * 1000
         _record_boot_report({
@@ -112,6 +123,8 @@ class AppContainer:
 
         sv.success(f"AppContainer 初始化完成，耗时 {duration:.0f}ms")
 
+        log.info(StartupTimer.get_report())
+
     def _register_singletons(self):
         """注册所有单例（来自旧的 Bootstrap 路径）"""
         from ..register import register_all_singletons
@@ -122,22 +135,31 @@ class AppContainer:
         if self._components_assembled:
             return
 
-        try:
-            self._load_persistent_managers()
+        from ..infra.observability.startup_timer import StartupTimer
 
-            # 1. 获取基础组件（必需）
+        try:
+            StartupTimer.start("加载持久化管理器")
+            self._load_persistent_managers()
+            StartupTimer.end("加载持久化管理器")
+
+            StartupTimer.start("获取基础组件")
             self._trading_clock = SR('trading_clock')
             self._virtual_portfolio = SR('virtual_portfolio')
             self._value_system = SR('value_system')
+            StartupTimer.end("获取基础组件")
 
-            # 2. 获取 AttentionOS（需要先于 ManasManager）
-            self._attention_os = SR('attention_os')
+            StartupTimer.start("创建 AttentionOS")
+            from ..attention.os.attention_os import AttentionOS
+            self._attention_os = AttentionOS()
+            StartupTimer.end("创建 AttentionOS")
 
+            StartupTimer.start("获取 Kernel 层组件")
             # 3. 获取 kernel 层组件（必需）
             self._query_state = SR('query_state')
             self._query_state_updater = SR('query_state_updater')
             self._manas_manager = SR('manas_manager')
             self._manas_engine = self._manas_manager.get_manas_engine()
+            StartupTimer.end("获取 Kernel 层组件")
 
             # 基础组件就绪后立即标记，防止 property 递归
             self._components_assembled = True
@@ -196,38 +218,61 @@ class AppContainer:
 
 
     def _load_persistent_managers(self):
-        """加载持久化数据管理器"""
+        """加载持久化数据管理器（并行版本）"""
         from ..datasource import get_datasource_manager
         from ..strategy import get_strategy_manager
+        import concurrent.futures
+        from ..infra.observability.startup_timer import StartupTimer
 
-        dict_mgr = SR('dictionary_manager')
-        dict_mgr._ensure_initialized()
-        ds_mgr = get_datasource_manager()
-        ds_mgr._ensure_initialized()
-        task_mgr = SR('task_manager')
-        task_mgr._ensure_initialized()
-        strategy_mgr = get_strategy_manager()
-        strategy_mgr._ensure_initialized()
+        StartupTimer.start("持久化管理器初始化")
+        import concurrent.futures
+
+        def _init_dict():
+            StartupTimer.start("字典管理器初始化")
+            dict_mgr = SR('dictionary_manager')
+            dict_mgr._ensure_initialized()
+            StartupTimer.end("字典管理器初始化")
+            return ("dictionary", dict_mgr)
+
+        def _init_ds():
+            StartupTimer.start("数据源管理器初始化")
+            ds_mgr = get_datasource_manager()
+            ds_mgr._ensure_initialized()
+            StartupTimer.end("数据源管理器初始化")
+            return ("datasource", ds_mgr)
+
+        def _init_task():
+            StartupTimer.start("任务管理器初始化")
+            task_mgr = SR('task_manager')
+            task_mgr._ensure_initialized()
+            StartupTimer.end("任务管理器初始化")
+            return ("task", task_mgr)
+
+        def _init_strategy():
+            StartupTimer.start("策略管理器初始化")
+            strategy_mgr = get_strategy_manager()
+            strategy_mgr._ensure_initialized()
+            StartupTimer.end("策略管理器初始化")
+            return ("strategy", strategy_mgr)
 
         counts = {}
-        errors = {}
+        with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
+            futures = [
+                executor.submit(_init_dict),
+                executor.submit(_init_ds),
+                executor.submit(_init_task),
+                executor.submit(_init_strategy),
+            ]
+            for future in concurrent.futures.as_completed(futures):
+                try:
+                    name, mgr = future.result()
+                    counts[name] = len(mgr._items)
+                except Exception as e:
+                    log.warning(f"[AppContainer] 初始化 {name} 失败: {e}")
 
-        for name, mgr, attr in [
-            ("dictionary", dict_mgr, "字典"),
-            ("datasource", ds_mgr, "datasource"),
-            ("task", task_mgr, "task"),
-            ("strategy", strategy_mgr, "strategy"),
-        ]:
-            try:
-                if hasattr(mgr, 'load_prefer_files'):
-                    counts[name] = mgr.load_prefer_files()
-                else:
-                    counts[name] = mgr.load_from_db()
-            except Exception as e:
-                errors[name] = str(e)
-
+        StartupTimer.end("持久化管理器初始化")
         self._load_counts = counts
-        self._load_errors = errors
+        self._load_errors = {}
 
     def _start_schedulers(self):
         """启动调度器"""
@@ -267,47 +312,65 @@ class AppContainer:
         log.info("[AppContainer] 调度器启动完成")
     
     def _start_background_initialization(self):
-        """启动后台初始化线程，异步加载非关键组件"""
+        """启动后台初始化线程，异步加载非关键组件（并行版本）"""
         import threading
-        
+        import concurrent.futures
+        from ..infra.observability.startup_timer import StartupTimer
+
         def background_init():
-            import time
-            log.info("[AppContainer] 后台初始化线程启动")
-            
-            try:
-                time.sleep(1)
-                
-                log.info("[AppContainer] 后台初始化: SignalStream")
-                from ..signal.stream import get_signal_stream
-                get_signal_stream()
-                log.info("[AppContainer] SignalStream 初始化完成")
-            except Exception as e:
-                log.warning(f"[AppContainer] SignalStream 初始化失败: {e}")
-            
-            try:
-                time.sleep(0.5)
-                
-                log.info("[AppContainer] 后台初始化: MerrillClock")
-                from ..cognition.merrill_clock import initialize_merrill_clock
-                initialize_merrill_clock()
-                log.info("[AppContainer] MerrillClock 初始化完成")
-            except Exception as e:
-                log.warning(f"[AppContainer] MerrillClock 初始化失败: {e}")
-            
-            try:
-                time.sleep(0.5)
-                
-                log.info("[AppContainer] 后台初始化: 调度器")
-                self._start_schedulers()
-            except Exception as e:
-                log.warning(f"[AppContainer] 调度器启动失败: {e}")
-            
+            log.info("[AppContainer] 后台初始化线程启动（并行模式）")
+
+            def init_attention_integration():
+                try:
+                    StartupTimer.start("后台初始化 attention_integration")
+                    log.info("[AppContainer] 后台初始化: attention_integration")
+                    attention_integration = SR('attention_integration')
+                    attention_integration.ensure_initialized()
+                    StartupTimer.end("后台初始化 attention_integration")
+                    log.info("[AppContainer] attention_integration 初始化完成")
+                except Exception as e:
+                    log.warning(f"[AppContainer] attention_integration 初始化失败: {e}")
+
+            def init_signal_stream():
+                try:
+                    log.info("[AppContainer] 后台初始化: SignalStream")
+                    from ..signal.stream import get_signal_stream
+                    get_signal_stream()
+                    log.info("[AppContainer] SignalStream 初始化完成")
+                except Exception as e:
+                    log.warning(f"[AppContainer] SignalStream 初始化失败: {e}")
+
+            def init_merrill_clock():
+                try:
+                    log.info("[AppContainer] 后台初始化: MerrillClock")
+                    from ..cognition.merrill_clock import initialize_merrill_clock
+                    initialize_merrill_clock()
+                    log.info("[AppContainer] MerrillClock 初始化完成")
+                except Exception as e:
+                    log.warning(f"[AppContainer] MerrillClock 初始化失败: {e}")
+
+            def init_schedulers():
+                try:
+                    log.info("[AppContainer] 后台初始化: 调度器")
+                    self._start_schedulers()
+                except Exception as e:
+                    log.warning(f"[AppContainer] 调度器启动失败: {e}")
+
+            with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
+                futures = [
+                    executor.submit(init_attention_integration),
+                    executor.submit(init_signal_stream),
+                    executor.submit(init_merrill_clock),
+                    executor.submit(init_schedulers),
+                ]
+                concurrent.futures.wait(futures)
+
             log.info("[AppContainer] 后台初始化完成")
-        
+
         thread = threading.Thread(target=background_init, daemon=True)
         thread.start()
-        log.info("[AppContainer] 后台初始化线程已启动")
-    
+        log.info("[AppContainer] 后台初始化线程已启动（并行模式）")
+
     def _register_ai_daily_report_task(self):
         """注册 AI 技术简报定时任务"""
         try:
