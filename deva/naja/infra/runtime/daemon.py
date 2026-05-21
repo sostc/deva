@@ -3,6 +3,7 @@ import sys
 import signal
 import time
 import re
+import fcntl
 from pathlib import Path
 from typing import Optional, Callable
 import logging
@@ -14,6 +15,40 @@ PID_FILE = NAJA_DIR / "naja.pid"
 TRAY_PID_FILE = NAJA_DIR / "naja_tray.pid"
 PORT_FILE = NAJA_DIR / "naja.port"
 LOG_FILE = NAJA_DIR / "logs" / "naja.log"
+
+
+def _atomic_write_pid(pid_file: Path, pid: int) -> bool:
+    """原子性地写入 PID 文件，避免竞态条件"""
+    try:
+        NAJA_DIR.mkdir(parents=True, exist_ok=True)
+        temp_file = pid_file.with_suffix(f".tmp.{os.getpid()}")
+        with open(temp_file, 'w') as f:
+            f.write(str(pid))
+            f.flush()
+            os.fsync(f.fileno())
+        os.rename(temp_file, pid_file)
+        return True
+    except Exception as e:
+        logger.error(f"原子性写入 PID 文件失败: {e}")
+        try:
+            temp_file.unlink(missing_ok=True)
+        except:
+            pass
+        return False
+
+
+def _safe_read_pid(pid_file: Path) -> Optional[int]:
+    """安全读取 PID 文件"""
+    try:
+        if not pid_file.exists():
+            return None
+        content = pid_file.read_text().strip()
+        if not content:
+            return None
+        return int(content)
+    except (ValueError, Exception) as e:
+        logger.debug(f"读取 PID 文件失败: {e}")
+        return None
 
 
 class AnsiColors:
@@ -168,31 +203,88 @@ def ensure_naja_dir():
     (NAJA_DIR / "logs").mkdir(parents=True, exist_ok=True)
 
 
-def get_running_pid() -> Optional[int]:
-    if not PID_FILE.exists():
-        return None
+def save_pid(pid: Optional[int] = None) -> bool:
+    """保存当前进程 PID，确保只有一个进程在运行
+    
+    Args:
+        pid: 要保存的 PID，默认使用当前进程 PID
+    
+    Returns:
+        是否保存成功
+    """
+    if pid is None:
+        pid = os.getpid()
+    
+    existing_pid = get_running_pid()
+    if existing_pid and existing_pid != pid:
+        logger.warning(f"检测到其他 Naja 进程正在运行 (PID: {existing_pid})")
+        return False
+    
+    return _atomic_write_pid(PID_FILE, pid)
+
+
+def clear_pid() -> None:
+    """清除 PID 文件"""
     try:
-        pid = int(PID_FILE.read_text().strip())
-        if pid <= 0:
-            return None
+        PID_FILE.unlink(missing_ok=True)
+        logger.debug("已清除 PID 文件")
+    except Exception as e:
+        logger.error(f"清除 PID 文件失败: {e}")
+
+
+def save_tray_pid(pid: Optional[int] = None) -> bool:
+    """保存托盘进程 PID
+    
+    Args:
+        pid: 要保存的 PID，默认使用当前进程 PID
+    
+    Returns:
+        是否保存成功
+    """
+    if pid is None:
+        pid = os.getpid()
+    
+    existing_pid = get_running_tray_pid()
+    if existing_pid and existing_pid != pid:
+        logger.warning(f"检测到其他托盘进程正在运行 (PID: {existing_pid})")
+        return False
+    
+    return _atomic_write_pid(TRAY_PID_FILE, pid)
+
+
+def clear_tray_pid() -> None:
+    """清除托盘 PID 文件"""
+    try:
+        TRAY_PID_FILE.unlink(missing_ok=True)
+        logger.debug("已清除托盘 PID 文件")
+    except Exception as e:
+        logger.error(f"清除托盘 PID 文件失败: {e}")
+
+
+def get_running_pid() -> Optional[int]:
+    """获取正在运行的 Naja 主进程 PID"""
+    pid = _safe_read_pid(PID_FILE)
+    if pid is None:
+        return None
+    
+    try:
         os.kill(pid, 0)
         return pid
-    except (ValueError, ProcessLookupError, PermissionError):
+    except (ProcessLookupError, PermissionError):
         PID_FILE.unlink(missing_ok=True)
         return None
 
 
 def get_running_tray_pid() -> Optional[int]:
-    """获取正在运行的托盘进程PID"""
-    if not TRAY_PID_FILE.exists():
+    """获取正在运行的托盘进程 PID"""
+    pid = _safe_read_pid(TRAY_PID_FILE)
+    if pid is None:
         return None
+    
     try:
-        pid = int(TRAY_PID_FILE.read_text().strip())
-        if pid <= 0:
-            return None
         os.kill(pid, 0)
         return pid
-    except (ValueError, ProcessLookupError, PermissionError):
+    except (ProcessLookupError, PermissionError):
         TRAY_PID_FILE.unlink(missing_ok=True)
         return None
 
@@ -210,7 +302,7 @@ def stop_tray(timeout: float = 5.0) -> bool:
         os.kill(pid, signal.SIGTERM)
     except ProcessLookupError:
         print("✓ 托盘已停止")
-        TRAY_PID_FILE.unlink(missing_ok=True)
+        clear_tray_pid()
         return True
 
     start = time.time()
@@ -220,13 +312,13 @@ def stop_tray(timeout: float = 5.0) -> bool:
             time.sleep(0.2)
         except ProcessLookupError:
             print("✓ 托盘已停止")
-            TRAY_PID_FILE.unlink(missing_ok=True)
+            clear_tray_pid()
             return True
 
     try:
         os.kill(pid, signal.SIGKILL)
         print("⚠ 托盘被强制终止")
-        TRAY_PID_FILE.unlink(missing_ok=True)
+        clear_tray_pid()
     except ProcessLookupError:
         pass
 
@@ -250,7 +342,7 @@ def stop_service(timeout: float = 10.0) -> bool:
         os.kill(pid, signal.SIGTERM)
     except ProcessLookupError:
         print("✗ 进程已不存在")
-        PID_FILE.unlink(missing_ok=True)
+        clear_pid()
         return True
 
     start = time.time()
@@ -260,13 +352,13 @@ def stop_service(timeout: float = 10.0) -> bool:
             time.sleep(0.2)
         except ProcessLookupError:
             print("✓ Naja 已停止")
-            PID_FILE.unlink(missing_ok=True)
+            clear_pid()
             return True
 
     try:
         os.kill(pid, signal.SIGKILL)
         print("⚠ Naja 被强制终止")
-        PID_FILE.unlink(missing_ok=True)
+        clear_pid()
     except ProcessLookupError:
         pass
 
@@ -286,7 +378,7 @@ def reload_service() -> bool:
         return True
     except ProcessLookupError:
         print("✗ 进程已不存在")
-        PID_FILE.unlink(missing_ok=True)
+        clear_pid()
         return False
 
 

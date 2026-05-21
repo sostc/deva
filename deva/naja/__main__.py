@@ -40,7 +40,7 @@ from .application import AppRuntimeConfig, run_web_application
 from .infra.runtime.daemon import (
     is_running, get_status,
     stop_service, reload_service, restart_service, stop_tray, is_tray_running,
-    setup_reload_handler, PID_FILE, LOG_FILE, TRAY_PID_FILE
+    setup_reload_handler, PID_FILE, LOG_FILE, TRAY_PID_FILE, save_pid, save_tray_pid
 )
 
 
@@ -279,8 +279,6 @@ def handle_service_command():
 
         time.sleep(0.5)
         if proc.poll() is None:
-            with open(PID_FILE, "w") as f:
-                f.write(str(proc.pid))
             print(f"✓ Naja 已后台启动 (PID: {proc.pid})")
             print(f"  日志: {LOG_FILE}")
             if tray_proc and tray_proc.poll() is None:

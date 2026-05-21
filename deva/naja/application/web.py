@@ -10,11 +10,16 @@ from deva import NW, Deva
 
 from .container import AppContainer
 from .runtime_config import AppRuntimeConfig
-from deva.naja.infra.runtime.daemon import PID_FILE, PORT_FILE, NAJA_DIR
+from deva.naja.infra.runtime.daemon import PID_FILE, PORT_FILE, NAJA_DIR, save_pid, clear_pid
 
 
 def run_web_application(config: AppRuntimeConfig):
     from tornado.ioloop import IOLoop
+
+    # 确保只有一个 Naja 进程在运行
+    if not save_pid():
+        print("❌ Naja 进程已经在运行，无法启动新实例")
+        sys.exit(1)
 
     container = AppContainer(config)
     container.boot()
@@ -89,6 +94,9 @@ def run_web_application(config: AppRuntimeConfig):
             logger.info("所有组件已停止，数据已持久化")
         except Exception as e:
             logger.error(f"关闭时保存状态失败: {e}")
+        
+        # 清理 PID 文件
+        clear_pid()
         shutdown_event.set()
 
     signal.signal(signal.SIGINT, shutdown_handler)
