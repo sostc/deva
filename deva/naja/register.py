@@ -170,15 +170,12 @@ def _register_custom_singletons():
     register_singleton('portfolio_manager', _create_portfolio_manager, deps=['virtual_portfolio'])
     logger.debug("  ✓ portfolio_manager")
 
-    # --- attention_integration: 需要 load_config + initialize ---
+    # --- attention_integration: 延迟初始化（不阻塞启动） ---
     def _create_attention_integration():
         from .market_hotspot.integration.market_hotspot_integration import MarketHotspotIntegration
         from .market_hotspot.integration.market_hotspot_config import load_config
         integration = MarketHotspotIntegration()
-        config = load_config()
-        if config.enabled:
-            system_config = config.to_hotspot_system_config()
-            integration.initialize(system_config)
+        integration._deferred_init_config = load_config()
         return integration
     register_singleton('attention_integration', _create_attention_integration,
                       deps=['mode_manager', 'stock_registry'])

@@ -127,11 +127,10 @@ class MarketHotspotIntegration:
             config: v1 市场热点系统配置
             intelligence_config: 已废弃，忽略。智能增强系统默认全部启用。
         """
-        # 防止重复初始化
         if hasattr(self, '_initialized_hotspot_system') and self._initialized_hotspot_system:
             log.debug(f"[MarketHotspotIntegration] 已初始化，跳过")
             return self.hotspot_system
-        
+
         log.debug(f"[MarketHotspotIntegration] initialize 开始")
 
         if config:
@@ -164,6 +163,20 @@ class MarketHotspotIntegration:
         self._initialized_hotspot_system = True
         self.start_monitoring()
         return self.hotspot_system
+
+    def ensure_initialized(self):
+        """确保热点系统已初始化（延迟初始化支持）"""
+        if hasattr(self, '_initialized_hotspot_system') and self._initialized_hotspot_system:
+            return
+
+        if hasattr(self, '_deferred_init_config') and self._deferred_init_config:
+            config = self._deferred_init_config
+            del self._deferred_init_config
+            if config.enabled:
+                system_config = config.to_hotspot_system_config()
+                self.initialize(system_config)
+            else:
+                self._initialized_hotspot_system = True
 
     def _initialize_intelligence_system(self):
         """初始化智能增强系统（默认全部启用，无需配置）"""
