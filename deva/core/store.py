@@ -358,3 +358,10 @@ class DBStream(Stream):
         result = self.db.clear()
         self._mark_time_index_dirty()
         return result
+
+    def persist(self):
+        """持久化数据，提交所有未提交的更改。"""
+        self.db.commit()
+        return self
+
+    sync = persist

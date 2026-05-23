@@ -458,13 +458,29 @@ async def render_bandit_admin(ctx: dict):
                 accounts_data = nb.get("accounts", {})
                 acc_data = accounts_data.get(account_name, {})
                 futu_positions = acc_data.get("positions", {})
+                
+                total_value = 0.0
+                total_cost = 0.0
+                total_profit_loss = 0.0
+                
+                for pos in futu_positions.values():
+                    current_value = pos.get("current_price", 0) * pos.get("quantity", 0)
+                    cost_value = pos.get("entry_price", 0) * pos.get("quantity", 0)
+                    total_value += current_value
+                    total_cost += cost_value
+                    total_profit_loss += (current_value - cost_value)
+                
+                total_return_pct = 0.0
+                if total_cost > 0:
+                    total_return_pct = (total_profit_loss / total_cost) * 100
+                
                 summary = {
                     "equity": acc_data.get("equity", 0),
-                    "total_value": sum(p.get("current_price", 0) * p.get("quantity", 0) for p in futu_positions.values()),
-                    "total_cost": sum(p.get("entry_price", 0) * p.get("quantity", 0) for p in futu_positions.values()),
+                    "total_value": total_value,
+                    "total_cost": total_cost,
                     "position_count": len(futu_positions),
-                    "total_profit_loss": 0,
-                    "total_return_pct": 0,
+                    "total_profit_loss": total_profit_loss,
+                    "total_return_pct": total_return_pct,
                     "today_profit_loss": 0,
                 }
                 positions = None
@@ -508,20 +524,46 @@ async def render_bandit_admin(ctx: dict):
                 <tr style='background:#e8f4fc;'>
                     <th style='padding:8px;border:1px solid #ddd;'>股票名称</th>
                     <th style='padding:8px;border:1px solid #ddd;'>代码</th>
+                    <th style='padding:8px;border:1px solid #ddd;'>市场</th>
                     <th style='padding:8px;border:1px solid #ddd;'>持股数</th>
                     <th style='padding:8px;border:1px solid #ddd;'>入场价</th>
                     <th style='padding:8px;border:1px solid #ddd;'>现价</th>
                     <th style='padding:8px;border:1px solid #ddd;'>市值</th>
+                    <th style='padding:8px;border:1px solid #ddd;'>盈亏</th>
+                    <th style='padding:8px;border:1px solid #ddd;'>盈亏%</th>
                 </tr>"""
 
                 for pos_id, pos in futu_positions.items():
+                    current_price = pos.get('current_price', 0)
+                    entry_price = pos.get('entry_price', 0)
+                    quantity = pos.get('quantity', 0)
+                    market_value = current_price * quantity
+                    cost_value = entry_price * quantity
+                    profit_loss = market_value - cost_value
+                    profit_loss_pct = 0.0
+                    if entry_price > 0 and quantity > 0:
+                        profit_loss_pct = (current_price - entry_price) / entry_price * 100
+                    
+                    # 根据市场选择货币符号
+                    market = pos.get("market", "US")
+                    if market == "HK":
+                        currency_prefix = "HK$"
+                    else:
+                        currency_prefix = "$"
+                    
+                    profit_color = "green" if profit_loss >= 0 else "red"
+                    profit_sign = "+" if profit_loss >= 0 else ""
+                    
                     html += f"""<tr>
                         <td style='padding:8px;border:1px solid #ddd;'>{pos.get('stock_name', '')}</td>
                         <td style='padding:8px;border:1px solid #ddd;'>{pos.get('stock_code', '').upper()}</td>
-                        <td style='padding:8px;border:1px solid #ddd;'>{pos.get('quantity', 0)}</td>
-                        <td style='padding:8px;border:1px solid #ddd;'>${pos.get('entry_price', 0):.2f}</td>
-                        <td style='padding:8px;border:1px solid #ddd;'>${pos.get('current_price', 0):.2f}</td>
-                        <td style='padding:8px;border:1px solid #ddd;'>${pos.get('current_price', 0) * pos.get('quantity', 0):.2f}</td>
+                        <td style='padding:8px;border:1px solid #ddd;'>{market}</td>
+                        <td style='padding:8px;border:1px solid #ddd;'>{quantity}</td>
+                        <td style='padding:8px;border:1px solid #ddd;'>{currency_prefix}{entry_price:.2f}</td>
+                        <td style='padding:8px;border:1px solid #ddd;'>{currency_prefix}{current_price:.2f}</td>
+                        <td style='padding:8px;border:1px solid #ddd;'>{currency_prefix}{market_value:.2f}</td>
+                        <td style='padding:8px;border:1px solid #ddd;color:{profit_color};font-weight:bold;'>{currency_prefix}{profit_sign}{profit_loss:.2f}</td>
+                        <td style='padding:8px;border:1px solid #ddd;color:{profit_color};font-weight:bold;'>{profit_sign}{profit_loss_pct:.2f}%</td>
                     </tr>"""
 
                 html += "</table>"
@@ -667,9 +709,13 @@ def _do_reset(optimizer):
 def _do_sync_futu():
     try:
         from deva.naja.bandit.futu_portfolio_syncer import get_futu_syncer
+        from pywebio.session import run_js
+        
         syncer = get_futu_syncer()
         if syncer.sync():
-            put_text("✅ 富途持仓同步成功")
+            put_text("✅ 富途持仓同步成功，正在刷新页面...")
+            # 直接刷新浏览器页面
+            run_js("setTimeout(function(){location.reload();}, 500);")
         else:
             put_text("⚠️ 富途持仓同步失败，请检查 OpenD 是否运行")
     except Exception as e:
