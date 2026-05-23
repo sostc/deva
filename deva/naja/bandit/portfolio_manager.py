@@ -55,6 +55,8 @@ class USStockPosition:
     exit_price: float = 0.0
     exit_time: float = 0.0
     prev_close: float = 0.0
+    market: str = "US"
+    currency: str = "USD"
 
     @property
     def return_pct(self) -> float:

@@ -34,14 +34,14 @@ class FutuPortfolioSyncer:
 
     将富途账户的真实持仓同步到 Bandit 系统。
 
-    默认使用 SIMULATE 模拟盘，如需同步真实持仓：
-        syncer = FutuPortfolioSyncer(trd_env="REAL")
+    默认使用 REAL 真实环境，如需同步模拟持仓：
+        syncer = FutuPortfolioSyncer(trd_env="SIMULATE", account_name="FutuSim")
     """
 
     def __init__(
         self,
-        account_name: str = "FutuSim",
-        trd_env: str = "SIMULATE",
+        account_name: str = "FutuReal",
+        trd_env: str = "REAL",
         market: str = "US",
         security_firm: str = "FUTUSECURITIES",
     ):
@@ -184,18 +184,64 @@ class FutuPortfolioSyncer:
                 ret, pos_data = self._ctx.position_list_query(trd_env=trd_env, acc_id=acc_id)
                 positions = []
                 if ret == 0 and pos_data is not None and len(pos_data) > 0:
+                    # 调试日志：打印列名和第一行数据
+                    log.info(f"[FutuSyncer] 持仓数据列名: {list(pos_data.columns)}")
+                    if len(pos_data) > 0:
+                        log.info(f"[FutuSyncer] 第一行持仓数据: {pos_data.iloc[0].to_dict()}")
+                    
                     for i in range(len(pos_data)):
                         row = pos_data.iloc[i]
+                        # 尝试多种可能的字段名
+                        code = (str(row.get("code", "")) or str(row.get("stock_code", "")) or 
+                               str(row.get("symbol", ""))).strip()
+                        name = (str(row.get("stock_name", "")) or str(row.get("name", "")) or 
+                               str(row.get("stock", ""))).strip()
+                        qty = float(row.get("qty", 0) or row.get("quantity", 0) or 0)
+                        average_cost = float(row.get("average_cost", 0) or 
+                                           row.get("cost_price", 0) or row.get("avg_cost", 0) or 0)
+                        nominal_price = float(row.get("nominal_price", 0) or 
+                                             row.get("price", 0) or row.get("last_price", 0) or 
+                                             row.get("current_price", 0) or 0)
+                        market_val = float(row.get("market_val", 0) or 
+                                         row.get("market_value", 0) or 0)
+                        unrealized_pl = float(row.get("unrealized_pl", 0) or 
+                                           row.get("pl", 0) or row.get("profit_loss", 0) or 0)
+                        pl_ratio = float(row.get("pl_ratio_avg_cost", 0) or 
+                                      row.get("pl_ratio", 0) or 0)
+                        
+                        # 处理股票代码前缀和识别市场
+                        original_code = code
+                        market = "US"
+                        currency = "USD"
+                        
+                        if code and '.' in code:
+                            parts = code.split('.')
+                            market_prefix = parts[0].upper()
+                            if market_prefix == "HK":
+                                market = "HK"
+                                currency = "HKD"
+                            elif market_prefix == "US":
+                                market = "US"
+                                currency = "USD"
+                            code = parts[-1]
+                        # 转为小写以保持一致
+                        code = code.lower()
+                        
                         positions.append({
-                            "code": str(row.get("code", "")),
-                            "name": str(row.get("stock_name", "")),
-                            "qty": float(row.get("qty", 0) or 0),
-                            "average_cost": float(row.get("average_cost", 0) or 0),
-                            "nominal_price": float(row.get("nominal_price", 0) or 0),
-                            "market_val": float(row.get("market_val", 0) or 0),
-                            "unrealized_pl": float(row.get("unrealized_pl", 0) or 0),
-                            "pl_ratio": float(row.get("pl_ratio_avg_cost", 0) or 0),
+                            "code": code,
+                            "name": name,
+                            "qty": qty,
+                            "average_cost": average_cost,
+                            "nominal_price": nominal_price,
+                            "market_val": market_val,
+                            "unrealized_pl": unrealized_pl,
+                            "pl_ratio": pl_ratio,
+                            "market": market,
+                            "currency": currency,
+                            "original_code": original_code,
                         })
+                        
+                        log.info(f"[FutuSyncer] 解析持仓: {code} {name}, 数量: {qty}, 成本: {average_cost}, 现价: {nominal_price}")
 
                 log.info(f"[FutuSyncer] 获取持仓成功: {len(positions)} 个持仓")
                 return {"funds": funds, "positions": positions}
@@ -277,11 +323,14 @@ class FutuPortfolioSyncer:
                 "last_update_time": position.last_update_time,
                 "status": position.status,
                 "prev_close": position.prev_close,
+                "market": pos.get("market", "US"),
+                "currency": pos.get("currency", "USD"),
             }
 
         accounts_data[self.account_name]["positions"] = positions_dict
         accounts_data[self.account_name]["equity"] = portfolio_data["funds"].get("total_assets", 0)
         nb["accounts"] = accounts_data
+        nb.persist()  # 持久化数据
 
         try:
             pm = SR("portfolio_manager")
@@ -303,6 +352,7 @@ class FutuPortfolioSyncer:
         nb["last_sync_time"] = time.time()
         nb["last_account_name"] = self.account_name
         nb["funds"] = portfolio_data.get("funds", {})
+        nb.persist()  # 持久化数据
 
 
 _singleton: Optional[FutuPortfolioSyncer] = None
