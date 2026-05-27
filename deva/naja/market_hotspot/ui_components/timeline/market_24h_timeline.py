@@ -965,16 +965,21 @@ def get_raw_events_for_sync(hours: int = 24) -> Dict[str, List[Dict]]:
     
     jin10_news = []
     try:
-        # 尝试从本地 jin10 缓存获取
-        cache_file = os.path.expanduser("~/.naja/jin10_news.json")
-        if os.path.exists(cache_file):
-            with open(cache_file, 'r') as f:
-                jin10_news = json.load(f)
-        # 添加 type 字段
-        for e in jin10_news:
-            if 'type' not in e:
-                e['type'] = 'jin10_news'
-    except Exception:
+        # 使用 _get_jin10_important_news 获取完整数据
+        raw_jin10 = _get_jin10_important_news()
+        # 转换为原始格式，同时确保有所有必要字段
+        for news in raw_jin10:
+            jin10_news.append({
+                'type': 'jin10_news',
+                'timestamp': news.get('timestamp', 0),
+                'title': news.get('block_name', ''),
+                'block_name': news.get('block_name', ''),
+                'score': news.get('score', 0.85),
+                'flash_id': news.get('flash_id', ''),
+                'url': news.get('url', ''),
+            })
+    except Exception as e:
+        log.warning(f"[get_raw_events_for_sync] 获取 jin10_news 失败: {e}")
         pass
     
     # 过滤时间
