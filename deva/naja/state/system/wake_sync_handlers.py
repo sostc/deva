@@ -689,6 +689,14 @@ class Jin10LiveNewsWakeSync:
 
     def should_wake_sync(self, last_active: datetime) -> bool:
         """判断是否需要同步"""
+        # 先检查 Playwright 是否可用
+        try:
+            import playwright
+            from playwright.async_api import async_playwright
+        except ImportError:
+            log.info("[WakeSync] Jin10LiveNews: Playwright 不可用，跳过重要事件抓取（服务器环境）")
+            return False
+        
         now = datetime.now()
 
         if last_active is None:
@@ -788,6 +796,18 @@ class Jin10LiveNewsWakeSync:
         WakeSyncManager 串行执行的其他 handler（DailyReview、AIDailyReport）。
         参考 PortfolioPriceWakeSync 的 async_fetch 模式。
         """
+        # 再次检查 Playwright 可用性，双重保险
+        try:
+            import playwright
+            from playwright.async_api import async_playwright
+        except ImportError:
+            log.info("[WakeSync] Jin10LiveNews: Playwright 不可用，跳过重要事件抓取")
+            return {
+                "success": False,
+                "message": "Playwright 不可用，跳过金十重要事件抓取",
+                "details": {"reason": "playwright_not_available"},
+            }
+        
         import threading
 
         log.info(f"[WakeSync] Jin10LiveNews: 后台启动抓取 {start} ~ {end}")
@@ -798,15 +818,19 @@ class Jin10LiveNewsWakeSync:
                 import asyncio
 
                 async def _do_fetch():
-                    from deva.naja.datasource.plugins.jin10_fetcher import (
-                        fetch_important_news_playwright,
-                    )
+                    try:
+                        from deva.naja.datasource.plugins.jin10_fetcher import (
+                            fetch_important_news_playwright,
+                        )
 
-                    news_list = await fetch_important_news_playwright(
-                        headless=True,
-                        timeout_ms=60000,
-                        extra_wait=2.0,
-                    )
+                        news_list = await fetch_important_news_playwright(
+                            headless=True,
+                            timeout_ms=60000,
+                            extra_wait=2.0,
+                        )
+                    except Exception as fetch_e:
+                        log.warning(f"[WakeSync] Jin10LiveNews: 抓取失败 - {fetch_e}")
+                        return 0
 
                     if not news_list:
                         log.warning("[WakeSync] Jin10LiveNews: 未获取到重要事件")
@@ -844,13 +868,19 @@ class Jin10LiveNewsWakeSync:
                                     for oid in old_ids:
                                         self._pushed_flash_ids.discard(oid)
 
-                            self._push_to_phone(news)
-                            pushed += 1
+                            try:
+                                self._push_to_phone(news)
+                                pushed += 1
+                            except Exception:
+                                pass
 
-                            self._send_macos_notification(
-                                "📌 金十重要事件",
-                                news.title[:100]
-                            )
+                            try:
+                                self._send_macos_notification(
+                                    "📌 金十重要事件",
+                                    news.title[:100]
+                                )
+                            except Exception:
+                                pass
 
                         except Exception as e:
                             log.warning(f"[WakeSync] Jin10LiveNews: 发布失败 - {e}")

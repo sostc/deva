@@ -9,6 +9,7 @@ import plistlib
 import subprocess
 import sys
 from pathlib import Path
+from typing import Optional
 
 logger = logging.getLogger(__name__)
 
@@ -53,7 +54,7 @@ def _build_launch_agent_plist() -> dict:
     }
 
 
-def _load_plist(path: Path) -> dict | None:
+def _load_plist(path: Path) -> Optional[dict]:
     """加载 plist 文件"""
     try:
         if path.exists():

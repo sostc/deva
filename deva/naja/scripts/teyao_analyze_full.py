@@ -602,10 +602,10 @@ def generate_html_report(stats, records):
         new Chart(document.getElementById('totalChart'), {{
             type: 'line',
             data: {{
-                labels: {json.dumps(periods)}},
+                labels: {json.dumps(periods)},
                 datasets: [{{
                     label: '申请量',
-                    data: {json.dumps(monthly_total_data)}},
+                    data: {json.dumps(monthly_total_data)},
                     borderColor: '#4ecdc4',
                     backgroundColor: 'rgba(78, 205, 196, 0.2)',
                     fill: true,
@@ -665,7 +665,7 @@ def generate_html_report(stats, records):
         new Chart(document.getElementById('categoryChart'), {{
             type: 'bar',
             data: {{
-                labels: {json.dumps(periods)}},
+                labels: {json.dumps(periods)},
                 datasets: [
                     {{ label: '肿瘤', data: {json.dumps(category_data['肿瘤'])}, backgroundColor: '#ff6b6b' }},
                     {{ label: '眼科', data: {json.dumps(category_data['眼科'])}, backgroundColor: '#4ecdc4' }},

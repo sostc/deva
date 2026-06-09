@@ -165,12 +165,26 @@ class MarketDataObserver:
             log.debug(f"[MarketObserver] 获取实验模式信息失败: {e}")
             return {"active": False}
 
+    def _get_replay_scheduler(self):
+        """获取已注册的 ReplayScheduler；该模块已下线时返回 None。"""
+        try:
+            from ..register import SR
+            return SR('replay_scheduler')
+        except Exception as e:
+            log.debug(f"[MarketObserver] ReplayScheduler 不可用: {e}")
+            return None
+
     def _get_active_datasource_id(self) -> str:
         """获取当前活跃的数据源ID"""
         import os
         if os.environ.get('NAJA_LAB_MODE'):
-            from deva.naja.replay.replay_scheduler import get_running_replay_id
-            replay_id = get_running_replay_id()
+            scheduler = self._get_replay_scheduler()
+            replay_id = None
+            if scheduler is not None:
+                if hasattr(scheduler, "get_running_replay_id"):
+                    replay_id = scheduler.get_running_replay_id()
+                else:
+                    replay_id = getattr(scheduler, "running_replay_id", None)
             if replay_id:
                 return replay_id
 
@@ -264,7 +278,7 @@ class MarketDataObserver:
         # Lab 模式：使用 ReplayScheduler
         if os.environ.get('NAJA_LAB_MODE'):
             try:
-                scheduler = SR('replay_scheduler')
+                scheduler = self._get_replay_scheduler()
                 if scheduler is None:
                     log.debug("[MarketObserver] Lab 模式：scheduler is None")
                     return False
@@ -525,7 +539,7 @@ class MarketDataObserver:
                 self._load_watchlist_stocks()
 
             try:
-                scheduler = SR('replay_scheduler')
+                scheduler = self._get_replay_scheduler()
                 log.debug(f"[MarketObserver] Lab 模式：scheduler={type(scheduler)}, has_latest_data={hasattr(scheduler, '_latest_sent_data')}")
                 if scheduler and hasattr(scheduler, '_latest_sent_data') and scheduler._latest_sent_data is not None:
                     latest = scheduler._latest_sent_data
@@ -614,7 +628,7 @@ class MarketDataObserver:
             self._last_data_time = time.time()
             self._load_watchlist_stocks()
             try:
-                scheduler = SR('replay_scheduler')
+                scheduler = self._get_replay_scheduler()
                 if scheduler:
                     scheduler.set_downstream_callback(self._on_replay_data)
                     log.debug("[MarketObserver] Lab 模式：已注册 ReplayScheduler 回调")
@@ -648,7 +662,7 @@ class MarketDataObserver:
             self._running = True
             self._last_data_time = time.time()
             try:
-                scheduler = SR('replay_scheduler')
+                scheduler = self._get_replay_scheduler()
                 if scheduler:
                     scheduler.set_downstream_callback(self._on_replay_data)
                     log.debug("[MarketObserver] Lab 模式：已注册 ReplayScheduler 回调")
@@ -714,7 +728,7 @@ class MarketDataObserver:
             self._running = True
             self._last_data_time = time.time()
             try:
-                scheduler = SR('replay_scheduler')
+                scheduler = self._get_replay_scheduler()
                 if scheduler:
                     scheduler.set_downstream_callback(self._on_replay_data)
                     log.debug("[MarketObserver] Lab 模式：已注册 ReplayScheduler 回调")
