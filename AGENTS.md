@@ -158,6 +158,10 @@ Don't wait for permission to improve. If you learned something, write it down no
 - 保留被核心业务引用的模块（如 knowledge/alaya/）
 - 定期清理 docs/ 下的过期文档
 
+### Python 3.9 兼容
+- 当前本地运行环境仍可能是 Python 3.9，运行时求值的类型标注不要写 `dict | None` 这类 Python 3.10 语法，除非文件已启用 `from __future__ import annotations`
+- f-string 的 `{...}` 表达式里不要直接写包含反斜杠的字符串转义，先把转义结果赋值给局部变量再插入模板
+
 ---
 
 

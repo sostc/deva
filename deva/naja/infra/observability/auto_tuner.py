@@ -25,6 +25,16 @@ from deva import NB
 log = logging.getLogger(__name__)
 
 
+def _get_replay_scheduler():
+    """ReplayScheduler 已下线时返回 None，避免调优日志持续报警。"""
+    try:
+        from deva.naja.register import SR
+        return SR('replay_scheduler')
+    except Exception as e:
+        log.debug(f"[AutoTuner] ReplayScheduler 不可用: {e}")
+        return None
+
+
 @dataclass
 class TuneCondition:
     """调优条件"""
@@ -906,14 +916,14 @@ class AutoTuner:
         if action == 'adjust_replay_interval':
             new_interval = issue.get('suggested', 1.0)
             reason = issue.get('reason', '')
-            try:
-                scheduler = SR('replay_scheduler')
-                if scheduler:
+            scheduler = _get_replay_scheduler()
+            if scheduler:
+                try:
                     scheduler.adjust_interval(new_interval, reason)
                     log.info(f"[AutoTuner] 调整回放间隔: {reason}")
                     return
-            except Exception as e:
-                log.warning(f"[AutoTuner] 调整回放间隔失败: {e}")
+                except Exception as e:
+                    log.warning(f"[AutoTuner] 调整回放间隔失败: {e}")
 
         elif action == 'stop_pytorch':
             reason = issue.get('reason', '')
@@ -961,14 +971,14 @@ class AutoTuner:
         if action == 'adjust_replay_interval':
             new_interval = issue.get('suggested', 1.0)
             reason = issue.get('reason', '')
-            try:
-                scheduler = SR('replay_scheduler')
-                if scheduler:
+            scheduler = _get_replay_scheduler()
+            if scheduler:
+                try:
                     scheduler.adjust_interval(new_interval, reason)
                     self._record_event(issue, triggered_by_llm=False)
                     return
-            except Exception as e:
-                log.warning(f"[AutoTuner] 调整回放间隔失败: {e}")
+                except Exception as e:
+                    log.warning(f"[AutoTuner] 调整回放间隔失败: {e}")
 
         if action == 'stop_pytorch':
             reason = issue.get('reason', '')
