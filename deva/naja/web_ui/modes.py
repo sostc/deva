@@ -358,7 +358,11 @@ def _init_tune_mode(tune_config: dict):
     tuner.start()
     tuner.register_callback(_on_tuner_event)
 
-    scheduler = SR('replay_scheduler')
+    try:
+        scheduler = SR('replay_scheduler')
+    except Exception as e:
+        log.debug(f"[TuneMode] ReplayScheduler 不可用，跳过回放完成回调注册: {e}")
+        scheduler = None
     if scheduler:
         scheduler.register_finished_callback(_on_replay_finished)
 

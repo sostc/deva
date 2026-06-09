@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import os
 import sys
+import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
@@ -246,15 +247,8 @@ class DataSourceEntry(RecoverableUnit):
     def _start_replay_source(self) -> dict:
         """启动回放数据源
 
-        支持两种模式：
-        1. auto_tuning=True: 使用 ReplayScheduler，自动根据处理性能调整间隔
-        2. auto_tuning=False: 使用原有固定间隔模式
+        ReplayScheduler 模块已下线，这里保留基于 NB 表的传统回放能力。
         """
-        try:
-            from ..replay import ReplayScheduler, ReplayConfig, create_replay_scheduler
-        except ImportError:
-            return {"success": False, "error": "回放功能已禁用"}
-
         config = getattr(self._metadata, "config", {}) or {}
         table_name = config.get("table_name")
 
@@ -264,48 +258,17 @@ class DataSourceEntry(RecoverableUnit):
         start_time = config.get("start_time")
         end_time = config.get("end_time")
         interval = float(config.get("interval", 1.0) or 1.0)
-        use_auto_tuning = config.get("auto_tuning", True)
+        if config.get("auto_tuning", True):
+            self._log("WARN", "ReplayScheduler 已下线，回退到传统 NB 表回放模式")
 
-        if use_auto_tuning:
-            return self._start_replay_with_auto_tuning(
-                table_name, start_time, end_time, interval
-            )
-        else:
-            return self._start_replay_legacy(
-                table_name, start_time, end_time, interval
-            )
-
-    def _start_replay_with_auto_tuning(self, table_name, start_time, end_time, interval) -> dict:
-        """启动带自动调优的回放数据源"""
-        from ..replay import ReplayScheduler, ReplayConfig, create_replay_scheduler
-
-        self._log("INFO", f"使用自动调优模式回放表 {table_name}，间隔 {interval}s")
-
-        replay_config = ReplayConfig(
-            db_table=table_name,
-            base_interval=interval,
-            min_interval=0.1,
-            max_interval=10.0,
-            start_time=start_time,
-            end_time=end_time,
-            enable_level_filter=False,
+        return self._start_replay_legacy(
+            table_name, start_time, end_time, interval
         )
 
-        scheduler = create_replay_scheduler(replay_config)
-
-        def on_data(data):
-            self._emit_data(data)
-            self._state.last_data_ts = time.time()
-            self._state.total_emitted += 1
-            self._latest_data = data
-
-        scheduler.set_downstream_callback(on_data)
-
-        self._replay_scheduler = scheduler
-        scheduler.start()
-
-        self._state.pid = os.getpid()
-        return {"success": True}
+    def _start_replay_with_auto_tuning(self, table_name, start_time, end_time, interval) -> dict:
+        """兼容旧调用：ReplayScheduler 已下线，回退到传统回放。"""
+        self._log("WARN", "ReplayScheduler 已下线，回退到传统 NB 表回放模式")
+        return self._start_replay_legacy(table_name, start_time, end_time, interval)
 
     def _start_replay_legacy(self, table_name, start_time, end_time, interval) -> dict:
         """启动传统固定间隔的回放数据源"""
@@ -1031,4 +994,3 @@ class DataSourceEntry(RecoverableUnit):
         entry._state.status = UnitStatus.STOPPED.value
 
         return entry
-
