@@ -66,11 +66,4 @@ def normalize_market(market: Optional[str], default: str = Market.CN.value) -> s
     return default
 
 
-def to_review_market(market: Optional[str], default: str = "a_share") -> str:
-    """Convert a market alias to the legacy daily-review market name."""
-    normalized = normalize_market(market, default=Market.CN.value)
-    if normalized == Market.US.value:
-        return "us_share"
-    if normalized == Market.CN.value:
-        return "a_share"
-    return default
+__all__ = ["Market", "normalize_market"]

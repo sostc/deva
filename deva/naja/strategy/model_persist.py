@@ -104,7 +104,8 @@ class StrategyModelManager:
 
         Args:
             model_state: 模型状态 (可以是任意可序列化对象)
-            metadata: 元数据
+            metadata: 元数据。如果提供，将整体存储；其中的 strategy_type 字段
+                会被 get_info() 使用作为模型的类型标识。
 
         Returns:
             str: 版本ID
@@ -184,6 +185,36 @@ class StrategyModelManager:
             }
         return None
 
+    def get_info(self) -> Optional[ModelInfo]:
+        """获取模型概要信息
+
+        Returns:
+            ModelInfo: 模型概要信息，如果没有任何版本则返回 None
+        """
+        if self._current_version is None:
+            return None
+
+        versions_list = self.get_versions()
+        version_count = len(versions_list)
+
+        created_at = self._current_version.timestamp
+        if version_count > 0:
+            first_version_id = versions_list[0]
+            first_info = self.get_version_info(first_version_id)
+            if first_info and first_info.get("timestamp"):
+                created_at = first_info.get("timestamp")
+
+        strategy_type = self._current_version.metadata.get("strategy_type", "unknown")
+
+        return ModelInfo(
+            strategy_id=self.strategy_id,
+            strategy_type=strategy_type,
+            current_version=self._current_version.version_id,
+            created_at=created_at,
+            updated_at=self._current_version.timestamp,
+            version_count=version_count,
+        )
+
     def delete_version(self, version_id: str) -> bool:
         """删除指定版本"""
         version_key = f"version_{self.strategy_id}_{version_id}"
@@ -256,6 +287,12 @@ class StrategyModelManager:
 
         except Exception:
             return False
+
+    def __repr__(self) -> str:
+        info = self.get_info()
+        if info:
+            return f"StrategyModelManager(strategy_id={info.strategy_id}, versions={info.version_count}, current={info.current_version})"
+        return f"StrategyModelManager(strategy_id={self.strategy_id}, no_versions)"
 
 
 _MODEL_MANAGERS: Dict[str, StrategyModelManager] = {}

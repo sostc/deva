@@ -30,6 +30,17 @@ class TasteQuality(Enum):
 
 
 @dataclass
+class FlavorProfile:
+    """味道画像"""
+    sweetness: float            # 甜度（上涨空间）
+    bitterness: float           # 苦度（下跌风险）
+    spiciness: float           # 辣度（波动风险）
+    freshness: float           # 鲜度（动量）
+    richness: float            # 醇度（基本面）
+    sentiment: float = 0.5      # 情绪（新闻/叙事情绪）NEW
+
+
+@dataclass
 class PreTasteResult:
     """预尝结果"""
     quality: TasteQuality
@@ -40,17 +51,7 @@ class PreTasteResult:
     warning: str                 # 警告
     recommended_action: str     # 建议行动
     confidence: float           # 置信度
-
-
-@dataclass
-class FlavorProfile:
-    """味道画像"""
-    sweetness: float            # 甜度（上涨空间）
-    bitterness: float           # 苦度（下跌风险）
-    spiciness: float           # 辣度（波动风险）
-    freshness: float           # 鲜度（动量）
-    richness: float            # 醇度（基本面）
-    sentiment: float = 0.5      # 情绪（新闻/叙事情绪）NEW
+    profile: Optional[FlavorProfile] = None
 
 
 class MomentumTaster:
@@ -72,7 +73,11 @@ class MomentumTaster:
         品尝动量味道
 
         Returns:
-            动量味道指标
+            Dict[str, float]: 动量味道指标
+                - momentum_score: 动量综合评分 [0, 1]
+                  在 FlavorProfile 中映射为: freshness（鲜度/动量）
+                - avg_change: 最近价格变化平均值
+                - change_trend: 最近价格变化趋势差
         """
         price_changes = price_data.get("price_changes", [])
         if len(price_changes) < 3:
@@ -294,6 +299,15 @@ class CompositeTaster:
             scores["sentiment"] * 0.20
         )
 
+        profile = FlavorProfile(
+            sweetness=valuation.get("valuation_score", 0.5),
+            bitterness=1.0 - risk.get("risk_score", 0.5),
+            spiciness=1.0 - liquidity.get("liquidity_score", 0.5),
+            freshness=momentum.get("momentum_score", 0.5),
+            richness=(valuation.get("roe_score", 0.5) + valuation.get("growth_score", 0.5)) / 2.0,
+            sentiment=sentiment_score
+        )
+
         quality = self._score_to_quality(composite_score)
         flavors, risk_flavors = self._extract_flavors(scores)
         opportunity, warning = self._generate_opportunity_warning(symbol, scores, quality)
@@ -307,7 +321,8 @@ class CompositeTaster:
             opportunity=opportunity,
             warning=warning,
             recommended_action=action,
-            confidence=0.75
+            confidence=0.75,
+            profile=profile
         )
 
     def _score_to_quality(self, score: float) -> TasteQuality:

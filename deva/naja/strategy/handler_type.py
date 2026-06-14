@@ -10,7 +10,6 @@
 from __future__ import annotations
 
 from enum import Enum
-from typing import Dict, List, Set
 
 
 class StrategyHandlerType(str, Enum):
@@ -71,50 +70,4 @@ def get_strategy_handler_type(signal_type: str) -> StrategyHandlerType:
     return STRATEGY_TYPE_TO_HANDLER.get(signal_type, StrategyHandlerType.UNKNOWN)
 
 
-def get_handler_info(handler_type: StrategyHandlerType) -> Dict:
-    """获取处理器类型的信息
-    
-    Args:
-        handler_type: 处理器类型
-        
-    Returns:
-        Dict: 处理器信息
-    """
-    return STRATEGY_HANDLER_LABELS.get(handler_type.value, {})
-
-
-def get_all_handler_types() -> List[str]:
-    """获取所有处理器类型列表
-    
-    Returns:
-        List[str]: 处理器类型列表
-    """
-    return [h.value for h in StrategyHandlerType if h != StrategyHandlerType.UNKNOWN]
-
-
-def categorize_strategies(strategies: List[Dict]) -> Dict[StrategyHandlerType, List[Dict]]:
-    """将策略列表按处理器类型分类
-    
-    Args:
-        strategies: 策略列表，每个策略包含 signal_type 或 strategy_type 字段
-        
-    Returns:
-        Dict: 按处理器类型分组的策略
-    """
-    categorized: Dict[StrategyHandlerType, List[Dict]] = {
-        StrategyHandlerType.RADAR: [],
-        StrategyHandlerType.MEMORY: [],
-        StrategyHandlerType.BANDIT: [],
-        StrategyHandlerType.LLM: [],
-        StrategyHandlerType.UNKNOWN: [],
-    }
-    
-    for strategy in strategies:
-        signal_type = strategy.get("signal_type", "")
-        if not signal_type:
-            signal_type = strategy.get("strategy_type", "")
-        
-        handler_type = get_strategy_handler_type(signal_type)
-        categorized[handler_type].append(strategy)
-    
-    return categorized
+__all__ = ["StrategyHandlerType", "get_strategy_handler_type"]
