@@ -200,7 +200,30 @@ def _print_log_line(line: str, level_filter: Optional[str], use_color: bool):
 
 def ensure_naja_dir():
     NAJA_DIR.mkdir(parents=True, exist_ok=True)
-    (NAJA_DIR / "logs").mkdir(parents=True, exist_ok=True)
+    logs_dir = NAJA_DIR / "logs"
+    logs_dir.mkdir(parents=True, exist_ok=True)
+    _check_logs_dir_size(logs_dir, warn_mb=500)
+
+
+def _check_logs_dir_size(logs_dir: Path, warn_mb: int = 500):
+    """检查日志目录总大小，超过阈值时打印提示。"""
+    try:
+        total = 0
+        for p in logs_dir.iterdir():
+            if p.is_file():
+                try:
+                    total += p.stat().st_size
+                except OSError:
+                    pass
+        total_mb = total / (1024 * 1024)
+        if total_mb >= warn_mb:
+            print(
+                f"⚠ 日志目录 {logs_dir} 已占用 {total_mb:.0f}MB，"
+                f"超过 {warn_mb}MB 阈值，建议清理旧文件",
+                file=sys.stderr,
+            )
+    except Exception:
+        pass
 
 
 def save_pid(pid: Optional[int] = None) -> bool:

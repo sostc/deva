@@ -134,12 +134,68 @@ class PlainFormatter(logging.Formatter):
 _colorful_logger_configured = False
 
 
+def rotate_file_if_needed(
+    file_path: str,
+    max_bytes: int = 20 * 1024 * 1024,
+    backup_count: int = 5,
+) -> None:
+    """在打开文件前检查大小，必要时轮转。
+
+    适用于 subprocess stdout 重定向等无法使用 RotatingFileHandler 的场景。
+    轮转策略：当前文件 -> .1, .1 -> .2, ..., .(backup_count-1) -> 删除
+
+    Args:
+        file_path: 目标日志文件路径
+        max_bytes: 单文件最大字节数，超过则触发轮转（默认 20MB）
+        backup_count: 保留的备份文件数量（默认 5 个）
+    """
+    try:
+        path = Path(file_path)
+        if not path.exists():
+            return
+        if path.stat().st_size < max_bytes:
+            return
+        if backup_count <= 0:
+            path.unlink(missing_ok=True)
+            return
+        # 从旧到新删除/重命名，避免覆盖
+        oldest = path.with_name(f"{path.name}.{backup_count}")
+        if oldest.exists():
+            oldest.unlink(missing_ok=True)
+        for i in range(backup_count - 1, 0, -1):
+            src = path.with_name(f"{path.name}.{i}")
+            dst = path.with_name(f"{path.name}.{i + 1}")
+            if src.exists():
+                src.rename(dst)
+        path.rename(path.with_name(f"{path.name}.1"))
+    except Exception as e:
+        print(f"⚠ 日志文件轮转失败 {file_path}: {e}", file=sys.stderr)
+
+
+def open_rotated_file(
+    file_path: str,
+    max_bytes: int = 20 * 1024 * 1024,
+    backup_count: int = 5,
+    mode: str = "a",
+    encoding: str = "utf-8",
+):
+    """以追加模式打开文件，打开前先按大小轮转。
+
+    这是 rotate_file_if_needed 的便捷包装，直接返回可传给 subprocess.Popen 的 file object。
+    使用方负责关闭返回的文件对象（或让进程退出时自动关闭）。
+    """
+    path = Path(file_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    rotate_file_if_needed(str(path), max_bytes=max_bytes, backup_count=backup_count)
+    return open(path, mode, encoding=encoding)
+
+
 def setup_colorful_logger(
     level: int = logging.INFO,
     force_color: bool = False,
     log_file: Optional[str] = None,
-    max_bytes: int = 100 * 1024 * 1024,  # 100MB per log file
-    backup_count: int = 10,             # Keep up to 10 backup files
+    max_bytes: int = 20 * 1024 * 1024,   # 20MB per log file
+    backup_count: int = 5,               # Keep up to 5 backup files
 ):
     """
     设置全局彩色日志
@@ -148,8 +204,8 @@ def setup_colorful_logger(
         level: 日志级别
         force_color: 强制启用颜色（即使非 TTY）
         log_file: 日志文件路径（如果提供则启用文件日志）
-        max_bytes: 单个日志文件最大字节数（默认 100MB）
-        backup_count: 保留的备份文件数量（默认 10 个）
+        max_bytes: 单个日志文件最大字节数（默认 20MB）
+        backup_count: 保留的备份文件数量（默认 5 个）
     """
     global _colorful_logger_configured
 
