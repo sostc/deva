@@ -176,6 +176,9 @@ class ManasOutput:
     portfolio_loss_pct: float = 0.0
     market_deterioration: bool = False
 
+    focus_enum: AttentionFocus = AttentionFocus.WATCH
+    portfolio_signal: PortfolioSignal = PortfolioSignal.NONE
+
     def to_dict(self) -> Dict[str, Any]:
         return {
             "manas_score": self.manas_score,
@@ -198,6 +201,8 @@ class ManasOutput:
             "action_type": self.action_type.value,
             "portfolio_loss_pct": self.portfolio_loss_pct,
             "market_deterioration": self.market_deterioration,
+            "focus_enum": self.focus_enum.value,
+            "portfolio_signal": self.portfolio_signal.value,
         }
 
 
@@ -1299,18 +1304,50 @@ class ManasEngine:
             return ActionType.ACT_MINIMALLY
         return ActionType.HOLD
 
-    def _determine_attention_focus(self, action_type: ActionType, portfolio_loss: float) -> float:
-        """确定注意力聚焦因子"""
+    def _determine_attention_focus(
+        self,
+        action_type: ActionType,
+        portfolio_loss: float
+    ) -> Tuple[float, AttentionFocus, PortfolioSignal]:
+        """确定注意力聚焦因子及分类"""
         base = 1.0
         if action_type == ActionType.HOLD:
             if portfolio_loss < -0.05:
-                return 0.7
-            return 1.0
+                focus_float = 0.7
+            else:
+                focus_float = 1.0
         elif action_type == ActionType.ACT_FULLY:
-            return 1.3
+            focus_float = 1.3
         elif action_type == ActionType.ACT_CAREFULLY:
-            return 1.1
-        return 1.0
+            focus_float = 1.1
+        else:
+            focus_float = 1.0
+
+        # AttentionFocus 映射
+        if action_type == ActionType.ACT_FULLY:
+            focus_enum = AttentionFocus.ACCUMULATE
+        elif portfolio_loss < -0.1:
+            focus_enum = AttentionFocus.STOP_LOSS
+        elif portfolio_loss > 0.15:
+            focus_enum = AttentionFocus.TAKE_PROFIT
+        elif action_type == ActionType.ACT_CAREFULLY:
+            focus_enum = AttentionFocus.REBALANCE
+        else:
+            focus_enum = AttentionFocus.WATCH
+
+        # PortfolioSignal 映射
+        if portfolio_loss < -0.05:
+            portfolio_signal = PortfolioSignal.STOP_LOSS
+        elif portfolio_loss > 0.1:
+            portfolio_signal = PortfolioSignal.TAKE_PROFIT
+        elif -0.05 <= portfolio_loss < -0.02:
+            portfolio_signal = PortfolioSignal.REBALANCE
+        elif action_type == ActionType.ACT_FULLY and portfolio_loss >= -0.02:
+            portfolio_signal = PortfolioSignal.ACCUMULATE
+        else:
+            portfolio_signal = PortfolioSignal.NONE
+
+        return focus_float, focus_enum, portfolio_signal
 
     def _get_awakening_level(self) -> str:
         """获取觉醒等级"""
@@ -1460,7 +1497,7 @@ class ManasEngine:
 
         market_deterioration = risk_temperature > 1.3
 
-        attention_focus = self._determine_attention_focus(action_type, portfolio_loss)
+        attention_focus, focus_enum, portfolio_signal = self._determine_attention_focus(action_type, portfolio_loss)
 
         # 🚀 自选股注意力加成
         watchlist_bonus = self._supply_chain_state.get("watchlist_bonus", 1.0)
@@ -1493,6 +1530,8 @@ class ManasEngine:
             action_type=action_type,
             portfolio_loss_pct=max(-1.0, min(1.0, portfolio_loss)),
             market_deterioration=market_deterioration,
+            focus_enum=focus_enum,
+            portfolio_signal=portfolio_signal,
         )
 
         self._last_output = output

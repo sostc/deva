@@ -125,10 +125,10 @@ class EconomicDataFetcher:
             # 解析数据
             return self._parse_fred_data(data_dict)
     
-    async def _fetch_series(self, session: aiohttp.ClientSession, 
+    async def _fetch_series(self, session: aiohttp.ClientSession,
                            base_url: str, series_id: str,
-                           limit: int = 1) -> Optional[List[float]]:
-        """获取单个系列数据（返回最新N条，降序排列）"""
+                           limit: int = 1) -> Optional[FREDData]:
+        """获取单个系列数据（保留 FRED 返回的完整结构化信息）"""
         params = {
             "series_id": series_id,
             "api_key": self._fred_api_key,
@@ -136,87 +136,118 @@ class EconomicDataFetcher:
             "limit": limit,
             "sort_order": "desc",
         }
-        
+
         try:
             async with session.get(base_url, params=params, timeout=10) as response:
                 if response.status == 200:
                     data = await response.json()
                     observations = data.get("observations", [])
-                    values = []
-                    for obs in observations:
-                        v = obs.get("value")
-                        if v and v != ".":
-                            values.append(float(v))
-                    return values if values else None
+                    valid_observations = [
+                        obs for obs in observations
+                        if obs.get("value") and obs.get("value") != "."
+                    ]
+                    if valid_observations:
+                        return FREDData(series_id=series_id, observations=valid_observations)
         except Exception as e:
             log.error(f"[EconomicDataFetcher] 获取 {series_id} 失败：{e}")
-        
+
         return None
-    
-    def _parse_fred_data(self, data_dict: Dict[str, Optional[List[float]]]) -> EconomicData:
-        """解析 FRED 数据"""
+
+    @staticmethod
+    def fred_values(series_data: Optional[FREDData]) -> List[float]:
+        """从 FREDData 提取数值列表（保持 FRED 的排序）"""
+        if series_data is None or not series_data.observations:
+            return []
+        values = []
+        for obs in series_data.observations:
+            try:
+                values.append(float(obs.get("value", 0)))
+            except (ValueError, TypeError):
+                continue
+        return values
+
+    def _parse_fred_data(self, data_dict: Dict[str, Optional[FREDData]]) -> EconomicData:
+        """解析 FRED 数据（从 FREDData 提取数值）"""
         now = time.time()
-        
+
+        def _get_values(series_data: Optional[FREDData]) -> List[float]:
+            if series_data is None or not series_data.observations:
+                return []
+            values = []
+            for obs in series_data.observations:
+                try:
+                    values.append(float(obs.get("value", 0)))
+                except (ValueError, TypeError):
+                    continue
+            return values
+
         def _v(vals, idx, default=None):
-            """安全取值，超界返回默认值"""
             try:
                 v = vals[idx]
                 return v if v is not None else default
             except (IndexError, TypeError):
                 return default
-        
+
         def _yoy(vals, current_idx, year_ago_idx):
-            """计算同比增速（%）"""
+            if not vals:
+                return None
             try:
                 current = vals[current_idx]
-                year_ago = vals[year_ago_idx]
+                # 若 year_ago_idx 越界，回退到最后一条可用数据（至少需要2条）
+                if year_ago_idx >= len(vals):
+                    fallback_idx = len(vals) - 1
+                    if fallback_idx <= current_idx:
+                        return None
+                    year_ago = vals[fallback_idx]
+                else:
+                    year_ago = vals[year_ago_idx]
                 if current and year_ago and year_ago > 0:
                     return ((current / year_ago) - 1) * 100
             except (IndexError, TypeError, ZeroDivisionError):
                 pass
             return None
-        
+
         # ---- 增长类指标 ----
-        
-        gdp_vals = data_dict.get("gdp")
-        gdp_growth = _yoy(gdp_vals, 0, 4)   # GDPC1: 季度同比需差4个季度
-        
-        pmi_vals = data_dict.get("pmi")
+
+        gdp_vals = _get_values(data_dict.get("gdp"))
+        gdp_growth = _yoy(gdp_vals, 0, 4)
+
+        pmi_vals = _get_values(data_dict.get("pmi"))
         pmi = _v(pmi_vals, 0)
-        
-        unemployment_vals = data_dict.get("unemployment")
+
+        unemployment_vals = _get_values(data_dict.get("unemployment"))
         unemployment = _v(unemployment_vals, 0)
-        
-        nonfarm_vals = data_dict.get("nonfarm")
-        nonfarm = _v(nonfarm_vals, 0)  # FRED PAYEMS 单位已是千人
-        
-        # ---- 通胀类指标（同比） ----
-        
-        cpi_vals = data_dict.get("cpi")
-        cpi_yoy = _yoy(cpi_vals, 0, 12)   # 月度同比差12个月
-        
-        core_cpi_vals = data_dict.get("core_cpi")
+
+        nonfarm_vals = _get_values(data_dict.get("nonfarm"))
+        nonfarm = _v(nonfarm_vals, 0)
+
+        # ---- 通胀类指标 ----
+
+        cpi_vals = _get_values(data_dict.get("cpi"))
+        cpi_yoy = _yoy(cpi_vals, 0, 12)
+
+        core_cpi_vals = _get_values(data_dict.get("core_cpi"))
         core_cpi_yoy = _yoy(core_cpi_vals, 0, 12)
-        
-        pce_vals = data_dict.get("pce")
+
+        pce_vals = _get_values(data_dict.get("pce"))
         core_pce_yoy = _yoy(pce_vals, 0, 12)
-        
+
         # ---- 金融条件 ----
-        
-        tips_10y_vals = data_dict.get("tips_10y")
-        treasury_10y_vals = data_dict.get("treasury_10y")
+
+        tips_10y_vals = _get_values(data_dict.get("tips_10y"))
+        treasury_10y_vals = _get_values(data_dict.get("treasury_10y"))
         tips_breakeven = None
         t10 = _v(treasury_10y_vals, 0)
         tips10 = _v(tips_10y_vals, 0)
         if t10 is not None and tips10 is not None:
             tips_breakeven = t10 - tips10
-        
-        treasury_2y_vals = data_dict.get("treasury_2y")
+
+        treasury_2y_vals = _get_values(data_dict.get("treasury_2y"))
         yield_curve_spread = None
         t2 = _v(treasury_2y_vals, 0)
         if t10 is not None and t2 is not None:
-            yield_curve_spread = (t10 - t2) * 100  # bps
-        
+            yield_curve_spread = (t10 - t2) * 100
+
         return EconomicData(
             timestamp=now,
             gdp_growth=gdp_growth,
