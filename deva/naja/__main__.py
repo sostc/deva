@@ -242,6 +242,8 @@ def handle_service_command():
         os.makedirs(os.path.join(naja_dir, "logs"), exist_ok=True)
         tray_log_file = os.path.join(naja_dir, "logs", "tray.log")
 
+        from deva.naja.infra.log.colorful_logger import open_rotated_file
+
         tray_proc = None
         if platform.system() == "Darwin":
             try:
@@ -253,7 +255,7 @@ def handle_service_command():
                 tray_proc = subprocess.Popen(
                     tray_cmd,
                     env=env,
-                    stdout=open(tray_log_file, "a"),
+                    stdout=open_rotated_file(tray_log_file),
                     stderr=subprocess.STDOUT,
                     cwd=os.getcwd(),
                     start_new_session=True
@@ -419,8 +421,8 @@ def main():
             level=getattr(logging, args.log_level.upper()),
             force_color=use_color,
             log_file=log_file_path,
-            max_bytes=100 * 1024 * 1024,  # 100MB per file
-            backup_count=10,
+            max_bytes=20 * 1024 * 1024,   # 20MB per file
+            backup_count=5,
         )
 
         sv = StartupVisualizer(width=65)
