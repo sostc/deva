@@ -3,16 +3,15 @@ SystemStateManager - 系统状态持久化管理
 
 负责：
 1. 记录系统上次活跃时间（last_active_time）
-2. 记录系统休眠/退出时间（last_sleep_time）
-3. 记录系统唤醒时间（last_wake_time）
-4. 记录任务执行历史
+2. 记录系统唤醒时间（last_wake_time）
+3. 记录任务执行历史
 
 存储位置：deva/naja/system_state/state.json
 
 设计要点：
 - 使用线程锁保护状态更新，避免并发写入冲突
 - 心跳更新(record_active)仅更新内存，批量写入减少 I/O
-- 关键操作(record_sleep/record_wake)强制立即写入
+- 关键操作(record_wake)强制立即写入
 """
 
 import json
@@ -87,10 +86,18 @@ class SystemStateManager:
 
     def _load(self):
         """加载状态"""
+        valid_keys = set(self._default_state().keys())
         if self.STATE_FILE.exists():
             try:
                 with open(self.STATE_FILE, 'r', encoding='utf-8') as f:
-                    self._state = json.load(f)
+                    loaded = json.load(f)
+                # 只保留当前版本识别的字段，过滤掉历史遗留字段
+                self._state = {k: loaded[k] for k in valid_keys if k in loaded}
+                # 补全缺失字段（向前兼容）
+                defaults = self._default_state()
+                for k in valid_keys:
+                    if k not in self._state:
+                        self._state[k] = defaults[k]
                 log.info(f"[SystemState] 已加载状态，上次活跃: {self.get_last_active_time()}")
             except Exception as e:
                 log.warning(f"[SystemState] 加载状态失败: {e}")
@@ -104,7 +111,6 @@ class SystemStateManager:
         return {
             "version": "1.0",
             "last_active_time": None,
-            "last_sleep_time": None,
             "last_wake_time": None,
             "system_uptime_start": datetime.now().isoformat(),
             "task_execution_records": {},
@@ -143,13 +149,6 @@ class SystemStateManager:
                 return datetime.fromisoformat(self._state["last_active_time"])
             return None
 
-    def get_last_sleep_time(self) -> Optional[datetime]:
-        """获取上次休眠时间"""
-        with self._lock:
-            if self._state.get("last_sleep_time"):
-                return datetime.fromisoformat(self._state["last_sleep_time"])
-            return None
-
     def get_last_wake_time(self) -> Optional[datetime]:
         """获取上次唤醒时间"""
         with self._lock:
@@ -172,20 +171,6 @@ class SystemStateManager:
             now = datetime.now()
             duration = (now - last_active_dt).total_seconds()
             return max(0, duration)
-
-    def record_sleep(self):
-        """
-        记录系统休眠/退出
-
-        调用时机：系统即将休眠或退出时
-        注意：程序没退出时不会自动调用，使用心跳机制判断休眠
-        """
-        with self._lock:
-            now = datetime.now()
-            self._state["last_sleep_time"] = now.isoformat()
-            self._state["last_active_time"] = now.isoformat()
-            self._save(force=True)
-        log.info(f"[SystemState] 已记录休眠时间: {now}")
 
     def record_wake(self):
         """
@@ -291,7 +276,6 @@ class SystemStateManager:
                 sleep_duration = 0.0
             return {
                 "last_active_time": last_active,
-                "last_sleep_time": self._state.get("last_sleep_time"),
                 "last_wake_time": self._state.get("last_wake_time"),
                 "sleep_duration_hours": round(sleep_duration / 3600, 2),
                 "sleep_duration_seconds": round(max(0, sleep_duration), 1),

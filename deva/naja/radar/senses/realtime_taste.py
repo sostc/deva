@@ -41,6 +41,7 @@ class TasteSignal:
     emotional_intensity: float
     should_adjust: bool
     adjust_reason: str = ""
+    level: FreshnessLevel = FreshnessLevel.FRESH
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -51,6 +52,7 @@ class TasteSignal:
             "emotional_intensity": self.emotional_intensity,
             "should_adjust": self.should_adjust,
             "adjust_reason": self.adjust_reason,
+            "level": self.level.value,
         }
 
 
@@ -162,7 +164,8 @@ class RealtimeTaste:
             freshness=freshness,
             emotional_intensity=emotional,
             should_adjust=should_adjust,
-            adjust_reason=adjust_reason
+            adjust_reason=adjust_reason,
+            level=self._freshness_to_level(freshness),
         )
 
         self._recent_taste_signals.append(signal)
@@ -179,6 +182,17 @@ class RealtimeTaste:
             if signal:
                 results[symbol] = signal
         return results
+
+    def _freshness_to_level(self, freshness: float) -> FreshnessLevel:
+        """将鲜度 float 转换为等级"""
+        if freshness >= 0.75:
+            return FreshnessLevel.VERY_FRESH
+        elif freshness >= 0.5:
+            return FreshnessLevel.FRESH
+        elif freshness >= 0.25:
+            return FreshnessLevel.STALE
+        else:
+            return FreshnessLevel.VERY_STALE
 
     def _calc_opportunity_cost(self, floating_pnl: float) -> float:
         """计算机会成本：持这个 vs 持基准"""
@@ -209,6 +223,8 @@ class RealtimeTaste:
             freshness = max(0.1, base_freshness - abs(floating_pnl) * 3)
         elif floating_pnl < 0 and pnl_trend > 0:
             freshness = max(0.4, base_freshness - abs(floating_pnl) * 2)
+        elif floating_pnl < -0.02:
+            freshness = max(0.2, base_freshness - abs(floating_pnl) * 2.5)
         else:
             freshness = base_freshness
 

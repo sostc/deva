@@ -115,68 +115,6 @@ FONT_MONO = "font-family: 'SF Mono', 'Cascadia Code', 'Consolas', monospace;"
 
 # ─── 公共组件样式生成函数 ─────────────────────────────────────────────
 
-def card_style(
-    gradient: str = GRADIENT_NEUTRAL,
-    border_color: str = COLOR_BORDER_LIGHT,
-    radius: str = RADIUS_XL,
-    padding: str = "16px",
-    margin_bottom: str = "16px",
-    extra: str = "",
-) -> str:
-    """生成通用卡片容器样式"""
-    parts = [
-        f"background: {gradient}",
-        f"border: 1px solid {border_color}",
-        f"border-radius: {radius}",
-        f"padding: {padding}",
-        f"margin-bottom: {margin_bottom}",
-    ]
-    if extra:
-        parts.append(extra)
-    return "; ".join(parts) + ";"
-
-
-def status_badge_style(
-    bg: str,
-    color: str,
-    font_size: str = "13px",
-    extra: str = "",
-) -> str:
-    """生成状态徽章样式"""
-    parts = [
-        f"display: inline-block",
-        f"padding: 4px 10px",
-        f"border-radius: {RADIUS_FULL}",
-        f"background: {bg}",
-        f"color: {color}",
-        f"font-size: {font_size}",
-        f"font-weight: 600",
-    ]
-    if extra:
-        parts.append(extra)
-    return "; ".join(parts) + ";"
-
-
-def panel_header_style(color: str = COLOR_TEXT_PRIMARY) -> str:
-    """面板标题样式"""
-    return f"font-weight: 600; margin-bottom: 16px; color: {color};"
-
-
-def metric_card_style(
-    gradient: str = GRADIENT_NEUTRAL_DARK,
-    radius: str = RADIUS_MD,
-    padding: str = "12px",
-    text_align: str = "center",
-) -> str:
-    """指标卡片样式（用于数字展示面板）"""
-    return (
-        f"background: {gradient}; "
-        f"padding: {padding}; "
-        f"border-radius: {radius}; "
-        f"text-align: {text_align};"
-    )
-
-
 def info_panel_style(
     gradient: str,
     border_color: str,
@@ -195,22 +133,6 @@ def info_panel_style(
         f"border:1px solid {border_color};"
         f"color:{text_color};"
         f"font-size:{font_size};"
-    )
-
-
-def summary_card_style(
-    gradient: str,
-    border_color: str,
-    radius: str = RADIUS_XL,
-    padding: str = "16px",
-) -> str:
-    """概览卡片样式（4 宫格用）"""
-    return (
-        f"background: {gradient}; "
-        f"border: 2px solid {border_color}; "
-        f"border-radius: {radius}; "
-        f"padding: {padding}; "
-        f"text-align: center;"
     )
 
 

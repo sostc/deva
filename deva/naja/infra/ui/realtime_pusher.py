@@ -75,6 +75,9 @@ class PushItem:
     content_type: str
     position: int = -1
 
+    def to_dict(self) -> Dict[str, Any]:
+        return {"content": self.content, "content_type": self.content_type, "position": self.position}
+
 
 class RealtimePusher:
     """
@@ -110,13 +113,13 @@ class RealtimePusher:
                 raise RuntimeError("ctx 中缺少 get_session_implement 方法")
         return self._session
 
-    def _build_output_spec(self, content: Any, content_type: str, position: int = -1) -> Dict:
-        """构建 PyWebIO 输出规范"""
+    def _build_output_spec(self, item: PushItem) -> Dict:
+        """从 PushItem 构建 PyWebIO 输出规范"""
         spec = {
-            "type": content_type,
-            "content": content,
+            "type": item.content_type,
+            "content": item.content,
             "inline": True,
-            "position": position,
+            "position": item.position,
             "sanitize": True,
             "scope": "#pywebio-scope-" + self.scope,
         }
@@ -141,7 +144,8 @@ class RealtimePusher:
             content_type: 类型 (html, markdown, text, table)
             position: 插入位置，-1 表示末尾
         """
-        spec = self._build_output_spec(content, content_type, position)
+        item = PushItem(content=str(content), content_type=content_type, position=position)
+        spec = self._build_output_spec(item)
         self._send_command("output", spec)
 
     def push_html(self, html: str, position: int = -1):
@@ -172,7 +176,8 @@ class RealtimePusher:
 
     async def push_async(self, content: Any, content_type: str = "text", position: int = -1):
         """异步推送内容（用于 async 函数中）"""
-        spec = self._build_output_spec(content, content_type, position)
+        item = PushItem(content=str(content), content_type=content_type, position=position)
+        spec = self._build_output_spec(item)
         self._send_command("output", spec)
 
     async def push_html_async(self, html: str, position: int = -1):
@@ -376,6 +381,7 @@ def create_streaming_pusher(ctx: dict, scope: str = "streaming_content",
 
 
 __all__ = [
+    "PushItem",
     "RealtimePusher",
     "StreamingPusher",
     "create_pusher",

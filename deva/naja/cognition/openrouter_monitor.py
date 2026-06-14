@@ -23,7 +23,7 @@ import asyncio
 import logging
 import re
 import httpx
-from typing import Optional, Dict, List, TypedDict, Union
+from typing import Optional, Dict, List, TypedDict, Union, Any
 from datetime import datetime
 from enum import Enum
 
@@ -103,6 +103,26 @@ class OpenRouterRankings:
 
         return result
 
+    def _parse_ranking_data(self, models_data: Dict[str, Any]) -> List[AppRanking]:
+        """将 token 数据转换为结构化排行榜条目的内部方法"""
+        sorted_items = sorted(models_data.items(), key=lambda x: x[1] if isinstance(x[1], (int, float)) else 0, reverse=True)
+        rankings: List[AppRanking] = []
+        for rank, (name, token_count) in enumerate(sorted_items, start=1):
+            try:
+                total_tokens = int(token_count)
+            except (TypeError, ValueError):
+                continue
+            rankings.append(AppRanking(
+                app_id=rank,
+                title=str(name),
+                total_tokens=total_tokens,
+                total_requests=max(1, total_tokens // 1000),
+                rank=rank,
+                description=None,
+                origin_url=None,
+            ))
+        return rankings
+
 
 def format_tokens(tokens: int) -> str:
     """格式化 token 数量"""
@@ -114,6 +134,31 @@ def format_tokens(tokens: int) -> str:
         return f"{tokens / 1_000_000:.2f}M"
     else:
         return f"{tokens:,}"
+
+
+def format_app_rankings(weekly_data_list: List[Dict], top_n: int = 10) -> List[Dict]:
+    """将 weekly_data = [{"date": ..., "total": ..., "models": {...}}]
+    格式转换为 AppRanking 排行榜
+
+    Args:
+        weekly_data_list: Weekly data 列表
+        top_n: 返回前 N 名
+
+    Returns:
+        [{rank, title, total_tokens, total_requests, ...}]
+    """
+    if not weekly_data_list:
+        return []
+    all_models: Dict[str, int] = {}
+    for week in weekly_data_list:
+        models = week.get("models", {}) if isinstance(week, dict) else {}
+        for model_name, tokens in models.items():
+            try:
+                all_models[str(model_name)] = all_models.get(str(model_name), 0) + int(tokens)
+            except (TypeError, ValueError):
+                continue
+    rankings = OpenRouterRankings()._parse_ranking_data(all_models) if all_models else []
+    return [dict(r) for r in rankings[:top_n]]
 
 
 async def fetch_weekly_data() -> Optional[List[Dict]]:
@@ -314,21 +359,36 @@ def analyze_trend(weekly_data: List[Dict]) -> Dict:
         "data_weeks": len(analysis_data),
         "is_incomplete_week": is_incomplete_week,
         "latest_date": latest["date"],
-        "alert_level": _get_alert_level(direction, strength, acceleration, is_anomaly, anomaly_type)
+        "alert_level": _get_alert_level(direction, strength, acceleration, is_anomaly, anomaly_type).value
     }
 
 
-def _get_alert_level(direction: str, strength: float, acceleration: float, is_anomaly: bool, anomaly_type: str) -> str:
+def _get_alert_level(direction: str, strength: float, acceleration: float, is_anomaly: bool, anomaly_type: str) -> AlertLevel:
     """获取警报级别"""
     if is_anomaly and anomaly_type in ["sudden_drop", "uptrend_reversal"]:
-        return "critical"
+        return AlertLevel.CRITICAL
     if is_anomaly:
-        return "warning"
+        return AlertLevel.WARNING
     if acceleration < -15 or acceleration > 15:
-        return "warning"
+        return AlertLevel.WARNING
     if direction == "strong_up":
-        return "attention"
-    return "normal"
+        return AlertLevel.ATTENTION
+    return AlertLevel.NORMAL
+
+
+def _emit_alert(level: AlertLevel, message: str) -> None:
+    """统一的告警输出
+    根据 AlertLevel 使用不同的日志级别输出。
+    """
+    formatted = f"[{level.value.upper()}] {message}"
+    if level == AlertLevel.CRITICAL:
+        logger.error(formatted)
+    elif level == AlertLevel.WARNING:
+        logger.warning(formatted)
+    elif level == AlertLevel.ATTENTION:
+        logger.info(formatted)
+    else:  # NORMAL
+        logger.debug(formatted)
 
 
 def save_trend_data(trend_data: Dict, weekly_data: List[Dict]):
@@ -415,6 +475,9 @@ async def refresh_openrouter_data() -> Optional[Dict]:
 
     if trend_data.get("alert_level") in ["warning", "critical"]:
         send_to_radar(trend_data)
+
+    level = AlertLevel(trend_data.get("alert_level", "normal"))
+    _emit_alert(level, f"趋势分析: {trend_data.get('message', '')}")
 
     return trend_data
 

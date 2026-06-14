@@ -61,19 +61,35 @@ class StageStatus(Enum):
 @dataclass
 class LoopAuditRecord:
     loop_id: str
-    loop_type: str
+    loop_type: Union[str, LoopType]
     stage: str
     timestamp: float
     data_in_summary: Dict[str, Any]
     data_out_summary: Dict[str, Any]
-    status: str
+    status: Union[str, StageStatus]
     duration_ms: float
     error: str = ""
     metadata: Dict[str, Any] = field(default_factory=dict)
     parent_loop_id: str = ""
 
+    def __post_init__(self):
+        if isinstance(self.loop_type, str):
+            try:
+                self.loop_type = LoopType(self.loop_type)
+            except ValueError:
+                pass
+        if isinstance(self.status, str):
+            try:
+                self.status = StageStatus(self.status)
+            except ValueError:
+                pass
+
     def to_dict(self) -> Dict[str, Any]:
         d = asdict(self)
+        if isinstance(d.get("loop_type"), LoopType):
+            d["loop_type"] = d["loop_type"].value
+        if isinstance(d.get("status"), StageStatus):
+            d["status"] = d["status"].value
         d["timestamp_str"] = datetime.fromtimestamp(self.timestamp).isoformat()
         return d
 
@@ -187,7 +203,7 @@ class LoopAuditLogger:
             self._current_log_file = log_file
             self._log_file_handle = open(log_file, "a", encoding="utf-8")
 
-    def _generate_loop_id(self, loop_type: str) -> str:
+    def _generate_loop_id(self, loop_type: Union[str, LoopType]) -> str:
         with self._counter_lock:
             self._loop_counter += 1
             counter = self._loop_counter
@@ -195,13 +211,14 @@ class LoopAuditLogger:
         now = datetime.now()
         date_str = now.strftime("%Y%m%d")
         time_str = now.strftime("%H%M%S")
-        return f"loop-{loop_type[:3]}-{date_str}-{time_str}-{counter:04d}"
+        lt = loop_type.value if isinstance(loop_type, LoopType) else loop_type
+        return f"loop-{lt[:3]}-{date_str}-{time_str}-{counter:04d}"
 
     def log_stage(
         self,
-        loop_type: str,
+        loop_type: Union[str, LoopType],
         stage: str,
-        status: str = "running",
+        status: Union[str, StageStatus] = "running",
         data_in: Any = None,
         data_out: Any = None,
         error: str = "",
@@ -243,7 +260,7 @@ class LoopAuditLogger:
         self,
         loop_id: str,
         stage: str,
-        status: str = "completed",
+        status: Union[str, StageStatus] = "completed",
         data_out: Any = None,
         error: str = "",
     ):
@@ -419,7 +436,7 @@ class LoopAudit:
 
     def __init__(
         self,
-        loop_type: str,
+        loop_type: Union[str, LoopType],
         stage: str,
         data_in: Any = None,
         metadata: Dict[str, Any] = None,
