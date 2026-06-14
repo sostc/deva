@@ -192,11 +192,12 @@ class SystemStateManager:
         记录系统唤醒
 
         调用时机：系统启动时
+        注意：只更新 last_wake_time，不修改 last_active_time
+            last_active_time 由心跳 record_active() 维护，保证休眠时长计算始终由真实活跃时间决定
         """
         with self._lock:
             now = datetime.now()
             self._state["last_wake_time"] = now.isoformat()
-            self._state["last_active_time"] = now.isoformat()
             self._save(force=True)
         log.info(f"[SystemState] 已记录唤醒时间: {now}")
 
