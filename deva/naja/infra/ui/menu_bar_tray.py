@@ -460,7 +460,8 @@ class MenuBarTray:
         naja_cmd = [sys.executable, "-m", "deva.naja", "-s", "start"]
         naja_log_file = NAJA_DIR / "logs" / "naja_restart.log"
         try:
-            with open(naja_log_file, 'a') as f:
+            from deva.naja.infra.log.colorful_logger import open_rotated_file
+            with open_rotated_file(str(naja_log_file)) as f:
                 subprocess.Popen(
                     naja_cmd,
                     env=env,

@@ -29,11 +29,15 @@ def _get_launch_agent_dir() -> Path:
 
 
 def _build_launch_agent_plist() -> dict:
-    """构建 LaunchAgent plist 内容"""
+    """构建 LaunchAgent plist 内容。
+
+    注意：不再配置 StandardOutPath/StandardErrorPath，避免 launchd 写入的
+    autostart.log 无限累积。Naja 和 tray 进程内部已有自己的轮转日志。
+    """
     python_executable = sys.executable
-    
+
     working_dir = str(Path(__file__).parent.parent.parent.parent.parent)
-    
+
     return {
         "Label": LAUNCH_AGENT_LABEL,
         "ProgramArguments": [
@@ -49,8 +53,6 @@ def _build_launch_agent_plist() -> dict:
         "EnvironmentVariables": {
             "NAJA_AUTOSTART": "1",
         },
-        "StandardOutPath": str(Path.home() / ".naja" / "logs" / "autostart.log"),
-        "StandardErrorPath": str(Path.home() / ".naja" / "logs" / "autostart.log"),
     }
 
 
