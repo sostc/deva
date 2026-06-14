@@ -677,10 +677,11 @@ def execute() -> dict:
             from .wake_orchestrator import get_wake_orchestrator
 
             state_mgr = SR('system_state_manager')
-            state_mgr.record_wake()
 
             orchestrator = get_wake_orchestrator()
             result = orchestrator.wake()
+
+            state_mgr.record_wake()
 
             action = result.get('action', 'executed')
             if action == 'skipped':
