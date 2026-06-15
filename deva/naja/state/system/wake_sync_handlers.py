@@ -146,31 +146,31 @@ class NewsFetcherWakeSync:
         return 2
 
     def should_wake_sync(self, last_active: datetime) -> bool:
-        """判断是否需要同步"""
+        """判断是否需要同步
+        
+        策略：如果 RadarNewsFetcher 从未运行过(_fetch_count==0)，则触发一次补历史；
+        否则以 last_active 为基准，超过1小时则补。
+        """
         try:
             from deva.naja.radar.news_fetcher import RadarNewsFetcher
             fetcher = RadarNewsFetcher()
 
-            if not hasattr(fetcher, '_last_fetch_time'):
-                log.info("[WakeSync] NewsFetcher: 无法获取上次获取时间，跳过")
-                return False
-
-            last_fetch = fetcher._last_fetch_time
-            if not last_fetch:
+            # _fetch_count==0 表示从未运行过 → 需要触发补历史
+            if not hasattr(fetcher, '_fetch_count') or fetcher._fetch_count == 0:
+                log.info("[WakeSync] NewsFetcher: 从未运行过，触发历史补抓")
                 return True
 
-            now = datetime.now()
-            if isinstance(last_fetch, (int, float)):
-                last_fetch = datetime.fromtimestamp(last_fetch)
+            # 已运行过：以 last_active 为基准判断是否超过1小时
+            if not last_active:
+                return True
 
-            gap = (now - last_fetch).total_seconds()
-            log.info(f"[WakeSync] NewsFetcher: 距上次获取 {gap/3600:.2f} 小时")
-
+            gap = (datetime.now() - last_active).total_seconds()
+            log.info(f"[WakeSync] NewsFetcher: _fetch_count={fetcher._fetch_count}，距上次活跃 {gap/3600:.2f} 小时")
             return gap > 3600
 
         except Exception as e:
             log.warning(f"[WakeSync] NewsFetcher: 检查失败 - {e}")
-            return False
+            return True  # 检查失败时也触发，确保不漏
 
     def get_wake_sync_range(self, last_active: datetime, max_hours: int = 24) -> Tuple[datetime, datetime]:
         """获取同步时间范围"""
@@ -180,18 +180,18 @@ class NewsFetcherWakeSync:
             from deva.naja.radar.news_fetcher import RadarNewsFetcher
             fetcher = RadarNewsFetcher()
 
-            if hasattr(fetcher, '_last_fetch_time') and fetcher._last_fetch_time:
-                last_fetch = fetcher._last_fetch_time
-                if isinstance(last_fetch, (int, float)):
-                    last_fetch = datetime.fromtimestamp(last_fetch)
-                start = last_fetch
+            # 从未运行过：回补最多 max_hours 的历史
+            if not hasattr(fetcher, '_fetch_count') or fetcher._fetch_count == 0:
+                log.info("[WakeSync] NewsFetcher: 首次运行，backfill 最近24小时")
+                start = now - timedelta(hours=max_hours)
+            elif last_active:
+                start = last_active
             else:
                 start = now - timedelta(hours=max_hours)
-        except:
+        except Exception:
             start = now - timedelta(hours=max_hours)
 
         end = now
-
         if end - start > timedelta(hours=max_hours):
             end = start + timedelta(hours=max_hours)
 
@@ -400,31 +400,40 @@ class GlobalMarketScannerWakeSync:
         return 3
 
     def should_wake_sync(self, last_active: datetime) -> bool:
-        """判断是否需要同步"""
+        """判断是否需要同步
+        
+        策略：检查 GlobalMarketScanner._stats["fetch_count"]（从未扫描则触发），
+        或以 last_active 为基准超过1小时则触发。
+        """
         try:
             from deva.naja.radar.global_market_scanner import GlobalMarketScanner
             scanner = GlobalMarketScanner()
 
-            if not hasattr(scanner, '_last_scan_time'):
-                log.info("[WakeSync] GlobalMarketScanner: 无法获取上次扫描时间，跳过")
-                return False
+            stats = scanner.get_stats(wait_for_running=False, timeout=1.0)
+            fetch_count = stats.get("fetch_count", 0)
 
-            last_scan = scanner._last_scan_time
-            if not last_scan:
+            # 从未扫描过 → 需要触发
+            if fetch_count == 0:
+                log.info("[WakeSync] GlobalMarketScanner: 从未扫描过，触发初始扫描")
                 return True
 
-            now = datetime.now()
-            if isinstance(last_scan, (int, float)):
-                last_scan = datetime.fromtimestamp(last_scan)
+            # 已扫描过：以 last_active 为基准判断
+            if not last_active:
+                return True
 
-            gap = (now - last_scan).total_seconds()
-            log.info(f"[WakeSync] GlobalMarketScanner: 距上次扫描 {gap/3600:.2f} 小时")
-
-            return gap > 3600
+            last_fetch_ts = stats.get("last_fetch_time", 0)
+            if last_fetch_ts > 0:
+                last_fetch = datetime.fromtimestamp(last_fetch_ts)
+                gap = (datetime.now() - last_fetch).total_seconds()
+                log.info(f"[WakeSync] GlobalMarketScanner: fetch_count={fetch_count}，距上次扫描 {gap/3600:.2f} 小时")
+                return gap > 3600
+            else:
+                gap = (datetime.now() - last_active).total_seconds()
+                return gap > 3600
 
         except Exception as e:
             log.warning(f"[WakeSync] GlobalMarketScanner: 检查失败 - {e}")
-            return False
+            return True  # 检查失败时也触发，确保不漏
 
     def get_wake_sync_range(self, last_active: datetime, max_hours: int = 24) -> Tuple[datetime, datetime]:
         """获取同步时间范围"""
@@ -434,18 +443,19 @@ class GlobalMarketScannerWakeSync:
             from deva.naja.radar.global_market_scanner import GlobalMarketScanner
             scanner = GlobalMarketScanner()
 
-            if hasattr(scanner, '_last_scan_time') and scanner._last_scan_time:
-                last_scan = scanner._last_scan_time
-                if isinstance(last_scan, (int, float)):
-                    last_scan = datetime.fromtimestamp(last_scan)
-                start = last_scan
+            stats = scanner.get_stats(wait_for_running=False, timeout=1.0)
+            last_fetch_ts = stats.get("last_fetch_time", 0)
+
+            if last_fetch_ts > 0:
+                start = datetime.fromtimestamp(last_fetch_ts)
+            elif last_active:
+                start = last_active
             else:
                 start = now - timedelta(hours=max_hours)
-        except:
+        except Exception:
             start = now - timedelta(hours=max_hours)
 
         end = now
-
         if end - start > timedelta(hours=max_hours):
             end = start + timedelta(hours=max_hours)
 
@@ -455,34 +465,39 @@ class GlobalMarketScannerWakeSync:
         """执行同步"""
         try:
             from deva.naja.radar.global_market_scanner import GlobalMarketScanner
+            import threading
 
             log.info(f"[WakeSync] GlobalMarketScanner开始同步: {start} ~ {end}")
 
             scanner = GlobalMarketScanner()
 
-            if hasattr(scanner, 'scan_markets'):
-                result = scanner.scan_markets()
-            elif hasattr(scanner, 'fetch_market_data'):
-                result = scanner.fetch_market_data()
-            else:
-                return {
-                    "success": False,
-                    "message": "GlobalMarketScanner没有可调用的扫描方法",
-                    "details": {}
-                }
+            # 读取当前数据（同步操作）
+            current_data = scanner.get_last_data()
+            stats = scanner.get_stats(wait_for_running=False, timeout=1.0)
 
-            if result and result.get("success"):
-                return {
-                    "success": True,
-                    "message": "全球市场扫描同步成功",
-                    "details": result
+            # 触发新一轮扫描（后台异步，不阻塞）
+            def _do_fetch():
+                try:
+                    import asyncio
+                    asyncio.run(scanner.fetch_once())
+                    log.info("[WakeSync] GlobalMarketScanner: 后台扫描完成")
+                except Exception as fetch_e:
+                    log.warning(f"[WakeSync] GlobalMarketScanner: 后台扫描失败 - {fetch_e}")
+
+            fetch_thread = threading.Thread(target=_do_fetch, daemon=True, name='gms-wake-sync')
+            fetch_thread.start()
+
+            return {
+                "success": True,
+                "message": f"全球市场扫描已触发，后台执行（现有数据: {len(current_data)} 个市场）",
+                "details": {
+                    "current_markets": list(current_data.keys()),
+                    "fetch_count": stats.get("fetch_count", 0),
+                    "success_count": stats.get("success_count", 0),
+                    "last_fetch_time": stats.get("last_fetch_time", 0),
+                    "async": True,
                 }
-            else:
-                return {
-                    "success": False,
-                    "message": f"全球市场扫描同步失败: {result.get('error', '未知错误')}",
-                    "details": result
-                }
+            }
 
         except Exception as e:
             log.error(f"[WakeSync] GlobalMarketScanner同步异常: {e}")
