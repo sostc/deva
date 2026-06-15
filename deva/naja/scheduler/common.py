@@ -324,6 +324,7 @@ def normalize_execution_mode(
         "eventtrigger": "event_trigger",
         "event_trigger": "event_trigger",
         "event": "event_trigger",
+        "manual": "manual",
     }
     return mapping.get(raw, "timer")
 

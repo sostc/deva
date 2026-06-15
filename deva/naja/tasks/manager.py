@@ -60,7 +60,7 @@ class TaskManager:
                 return
             self._items: Dict[str, TaskEntry] = {}
             self._items_lock = threading.Lock()
-            self.load_from_db()
+            self.load_prefer_files()
             self._initialized = True
 
     def create(
@@ -282,10 +282,20 @@ class TaskManager:
                             if file_time >= existing_time:
                                 file_entry = self._create_entry_from_file_config(file_item)
                                 if file_entry:
+                                    # 保留 NB 中的运行状态（last_run_time、success_count 等）
+                                    file_entry._state = entry._state
+                                    # 有 YAML 定义且非 manual：自动启用
+                                    _cfg = file_item.config
+                                    _is_manual = _cfg.get('execution_mode') == 'manual' or _cfg.get('task_type') == 'manual'
+                                    file_entry._was_running = not _is_manual
                                     self._items[file_entry.id] = file_entry
                                     loaded_count += 1
                                     continue
 
+                    # NB 中没有 YAML 覆盖的旧任务：如果曾经成功运行过且非 manual，保持运行状态
+                    _task_type = getattr(entry._metadata, 'task_type', '') or ''
+                    if not entry._was_running and 'manual' not in _task_type:
+                        _last_run = getattr(entry._state, 'last_run_time', 0) if hasattr(entry._state, 'last_run_time') else getattr(entry._state, 'get', lambda k, d=0: entry._state.get(k, d)) if hasattr(entry._state, '__iter__') else 0
                     self._items[entry.id] = entry
                     loaded_count += 1
 
@@ -304,6 +314,14 @@ class TaskManager:
                 try:
                     file_entry = self._create_entry_from_file_config(file_item)
                     if file_entry:
+                        # YAML only 新任务：非 manual 模式默认启用（was_running=True）
+                        exec_mode = file_config.get('execution_mode', '') if 'file_config' in dir() else ''
+                        try:
+                            _cfg = file_item.config
+                            if _cfg.get('execution_mode') != 'manual' and _cfg.get('task_type') != 'manual':
+                                file_entry._was_running = True
+                        except Exception:
+                            pass
                         self._items[file_entry.id] = file_entry
                         loaded_count += 1
                 except Exception as e:
@@ -312,7 +330,10 @@ class TaskManager:
         return loaded_count
 
     def _create_entry_from_file_config(self, file_item) -> Optional[TaskEntry]:
-        """从文件配置创建 TaskEntry"""
+        """从文件配置创建 TaskEntry
+
+        字段读取策略：优先从 config 读取，metadata 作为兜底（兼容旧格式）
+        """
         from deva.naja.config.file_config import ConfigFileItem, TaskConfigMetadata
 
         if not isinstance(file_item, ConfigFileItem):
@@ -321,13 +342,23 @@ class TaskManager:
         file_metadata = file_item.metadata
         file_config = file_item.config
 
+        def _get(key: str, default=None):
+            """优先从 config 读，其次从 metadata 读"""
+            v = file_config.get(key)
+            if v is not None and v != '':
+                return v
+            v = getattr(file_metadata, key, None)
+            if v is not None and v != '':
+                return v
+            return default
+
         execution_mode = normalize_execution_mode(
-            file_config.get('execution_mode', ''),
-            file_config.get('task_type', 'timer')
+            _get('execution_mode', ''),
+            _get('task_type', 'timer')
         )
 
-        scheduler_trigger = file_config.get('scheduler_trigger', 'interval')
-        if scheduler_trigger == 'interval' and file_config.get('cron_expr'):
+        scheduler_trigger = _get('scheduler_trigger', 'interval')
+        if scheduler_trigger == 'interval' and _get('cron_expr', ''):
             scheduler_trigger = 'cron'
 
         metadata = TaskMetadata(
@@ -335,15 +366,15 @@ class TaskManager:
             name=file_item.name,
             description=file_metadata.description or '',
             tags=file_metadata.tags or [],
-            task_type=file_config.get('task_type', 'timer'),
+            task_type=_get('task_type', 'timer'),
             execution_mode=execution_mode,
-            interval_seconds=file_config.get('interval_seconds', 60.0),
+            interval_seconds=float(_get('interval_seconds', 60.0)),
             scheduler_trigger=scheduler_trigger,
-            cron_expr=file_config.get('cron_expr', ''),
-            run_at=file_config.get('run_at', ''),
-            event_source=file_config.get('event_source', 'log'),
-            event_condition=file_config.get('event_condition', ''),
-            event_condition_type=file_config.get('event_condition_type', 'contains'),
+            cron_expr=_get('cron_expr', ''),
+            run_at=_get('run_at', ''),
+            event_source=_get('event_source', 'log'),
+            event_condition=_get('event_condition', ''),
+            event_condition_type=_get('event_condition_type', 'contains'),
             created_at=file_metadata.created_at or time.time(),
             updated_at=file_metadata.updated_at or time.time(),
         )
@@ -373,18 +404,6 @@ class TaskManager:
             entries_to_check = list(self._items.values())
 
         for entry in entries_to_check:
-            if entry.name == "llm_auto_adjust":
-                results.append(
-                    {
-                        "entry_id": entry.id,
-                        "entry_name": entry.name,
-                        "success": True,
-                        "skipped": True,
-                        "reason": "llm_auto_adjust excluded from auto start",
-                    }
-                )
-                continue
-
             try:
                 prep = entry.prepare_for_recovery()
 
