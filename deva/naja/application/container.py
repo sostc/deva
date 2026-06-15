@@ -1043,6 +1043,20 @@ def execute() -> dict:
         except Exception as e:
             print(f"⚠️ Bandit 自适应循环恢复失败: {e}")
 
+        # === 恢复定时任务运行状态 ===
+        try:
+            task_mgr = SR('task_manager')
+            task_mgr._ensure_initialized()
+            result = task_mgr.restore_running_states()
+            restored = result.get("restored_count", 0)
+            failed = result.get("failed_count", 0)
+            if restored > 0:
+                print(f"✓ 任务管理器: 已恢复 {restored} 个定时任务" + (f"（失败 {failed}）" if failed > 0 else ""))
+            elif failed > 0:
+                print(f"⚠️ 任务管理器恢复失败: {failed} 个")
+        except Exception as e:
+            print(f"⚠️ 任务管理器恢复失败: {e}")
+
     def initialize_runtime_modes(self) -> None:
         RuntimeModeInitializer(self.config).initialize()
 
