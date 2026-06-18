@@ -79,12 +79,7 @@ class AttentionOS:
         if self._initialized:
             return
 
-        from deva.naja.register import SR
-        try:
-            trading_clock = SR('trading_clock')
-        except KeyError:
-            trading_clock = None
-        self.kernel = OSAttentionKernel(trading_clock=trading_clock)
+        self.kernel = OSAttentionKernel(trading_clock=None)
         self.strategy_decision_maker = StrategyDecisionMaker(self.kernel)
         self._text_scorer = TextImportanceScorer(self)
 
@@ -95,6 +90,11 @@ class AttentionOS:
         # 不再在内部自动订阅
 
         self._initialized = True
+
+    def set_trading_clock(self, trading_clock) -> None:
+        """显式设置 TradingClock（依赖注入）"""
+        if hasattr(self.kernel, '_trading_clock'):
+            self.kernel._trading_clock = trading_clock
 
     def set_insight_pool(self, insight_pool) -> None:
         """显式设置 InsightPool（依赖注入）"""

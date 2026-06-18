@@ -12,8 +12,6 @@ StateQuerier - 状态查询模块
 import logging
 from typing import Dict, Any, Optional
 
-from deva.naja.register import SR
-
 log = logging.getLogger(__name__)
 
 
@@ -54,8 +52,13 @@ class StateQuerier:
             "first_principles_insights": 0,
             "adaptive_decisions": 0,
         }
+        self._trading_clock = None
         self._initialized = True
         log.info("StateQuerier 初始化完成")
+
+    def set_trading_clock(self, trading_clock) -> None:
+        """显式设置 TradingClock（依赖注入）"""
+        self._trading_clock = trading_clock
 
     def get_awakened_state(self) -> Dict[str, Any]:
         """获取觉醒状态"""
@@ -101,12 +104,8 @@ class StateQuerier:
 
     def get_cached_market_time(self) -> str:
         """获取缓存的市场时间"""
-        try:
-            clock = SR('trading_clock')
-            if clock:
-                return clock.get_formatted_time()
-        except Exception:
-            pass
+        if self._trading_clock:
+            return self._trading_clock.get_formatted_time()
         return ""
 
     def get_lab_status(self) -> Dict[str, Any]:

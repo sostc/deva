@@ -5,7 +5,6 @@
 """
 
 from typing import Dict, List, Any, Optional
-from deva.naja.register import SR
 
 # 导入持久化模块
 try:
@@ -157,8 +156,10 @@ class CognitionBridge:
         """
         try:
             if self._narrative_tracker is None:
-                from .narrative import NarrativeTracker
-                self._narrative_tracker = SR('narrative_tracker') or NarrativeTracker()
+                from .narrative import get_narrative_tracker
+                self._narrative_tracker = get_narrative_tracker()
+            if self._narrative_tracker is None:
+                return []
             summary = self._narrative_tracker.get_summary(limit=10)
             narratives = [item["narrative"] for item in summary]
             
@@ -272,11 +273,12 @@ class CognitionBridge:
 
 
 # 单例模式
+_cognition_bridge_instance: Optional[CognitionBridge] = None
+
+
 def get_cognition_bridge() -> CognitionBridge:
     """获取认知桥接器单例"""
-    from deva.naja.register import SR
-    bridge = SR('cognition_bridge')
-    if bridge is None:
-        bridge = CognitionBridge()
-        SR('cognition_bridge', bridge)
-    return bridge
+    global _cognition_bridge_instance
+    if _cognition_bridge_instance is None:
+        _cognition_bridge_instance = CognitionBridge()
+    return _cognition_bridge_instance

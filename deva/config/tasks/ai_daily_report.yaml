@@ -1,0 +1,138 @@
+config:
+  cron_expr: 0 20 * * *
+  event_condition: ''
+  event_condition_type: contains
+  event_source: log
+  execution_mode: scheduler
+  interval_seconds: 60.0
+  run_at: ''
+  scheduler_trigger: cron
+  task_type: scheduler
+func_code: "\"\"\"\nAI 技术简报任务 v2.0\n每天晚间自动抓取 AI/LLM + AI投资 领域的最新进展，生成结构化简报\n\"\"\"\n\nimport requests\nimport json\nimport\
+  \ logging\nfrom datetime import datetime\nfrom typing import List, Dict, Any\nfrom bs4 import BeautifulSoup\n\nlog = logging.getLogger(__name__)\n\
+  \n# 消息推送函数\ndef send_imessage(phone: str, text: str):\n    \"\"\"发送iMessage\"\"\"\n    try:\n        import subprocess\n\
+  \        cmd = [\n            'osascript', '-e',\n            f'''tell application \"Messages\"\n                send \"\
+  {text.replace('\"', '\\\\\"')}\" to buddy \"{phone}\"\n            end tell'''\n        ]\n        subprocess.run(cmd, capture_output=True,\
+  \ timeout=10)\n        return True\n    except Exception as e:\n        log.warning(f\"iMessage发送失败: {e}\")\n        return\
+  \ False\n\n\ndef fetch_arxiv_papers(category: str = \"cs.AI\", max_results: int = 5) -> List[Dict]:\n    \"\"\"获取arXiv最新论文\"\
+  \"\"\n    try:\n        url = f\"http://export.arxiv.org/api/query?search_query=cat:{category}&sortBy=submittedDate&sortOrder=descending&max_results={max_results}\"\
+  \n        resp = requests.get(url, timeout=15)\n        if resp.status_code != 200:\n            return []\n\n        papers\
+  \ = []\n        content = resp.text\n        entries = content.split(\"<entry>\")\n        for entry in entries[1:max_results+1]:\n\
+  \            title_start = entry.find(\"<title>\") + 7\n            title_end = entry.find(\"</title>\", title_start)\n\
+  \            title = entry[title_start:title_end].strip().replace(\"\\n\", \" \")\n\n            summary_start = entry.find(\"\
+  <summary>\") + 9\n            summary_end = entry.find(\"</summary>\", summary_start)\n            summary = entry[summary_start:summary_end].strip()[:200]\n\
+  \n            if title and not title.startswith(\"[\"):\n                papers.append({\n                    \"title\"\
+  : title,\n                    \"summary\": summary + \"...\" if len(summary) >= 200 else summary,\n                    \"\
+  source\": \"arXiv\"\n                })\n        return papers[:max_results]\n    except Exception as e:\n        log.warning(f\"\
+  arXiv获取失败: {e}\")\n        return []\n\n\ndef fetch_huggingface_trending() -> List[Dict]:\n    \"\"\"获取HuggingFace热门模型\"\
+  \"\"\n    try:\n        url = \"https://huggingface.co/api/models?sort=downloads&direction=-1&limit=5\"\n        headers\
+  \ = {\"User-Agent\": \"Mozilla/5.0\"}\n        resp = requests.get(url, headers=headers, timeout=15)\n        if resp.status_code\
+  \ != 200:\n            return []\n\n        models = []\n        for item in resp.json()[:5]:\n            models.append({\n\
+  \                \"name\": item.get(\"id\", \"unknown\"),\n                \"downloads\": item.get(\"downloads\", 0),\n\
+  \                \"likes\": item.get(\"likes\", 0),\n                \"source\": \"HuggingFace\"\n            })\n     \
+  \   return models\n    except Exception as e:\n        log.warning(f\"HuggingFace获取失败: {e}\")\n        return []\n\n\ndef\
+  \ fetch_github_trending(topic: str = \"machine-learning\") -> List[Dict]:\n    \"\"\"获取GitHub Trending\"\"\"\n    try:\n\
+  \        url = f\"https://api.github.com/search/repositories?q=topic:{topic}+pushed:>2024-01-01&sort=stars&order=desc&per_page=5\"\
+  \n        headers = {\"User-Agent\": \"Mozilla/5.0\", \"Accept\": \"application/vnd.github.v3+json\"}\n        resp = requests.get(url,\
+  \ headers=headers, timeout=15)\n        if resp.status_code != 200:\n            return []\n\n        repos = []\n     \
+  \   for item in resp.json().get(\"items\", [])[:5]:\n            repos.append({\n                \"name\": item.get(\"full_name\"\
+  , \"unknown\"),\n                \"description\": item.get(\"description\", \"\")[:100],\n                \"stars\": item.get(\"\
+  stargazers_count\", 0),\n                \"source\": \"GitHub\"\n            })\n        return repos\n    except Exception\
+  \ as e:\n        log.warning(f\"GitHub获取失败: {e}\")\n        return []\n\n\ndef fetch_ai_news() -> List[Dict]:\n    \"\"\"\
+  获取AI新闻（从Hacker News）\"\"\"\n    try:\n        url = \"https://hacker-news.firebaseio.com/v0/beststories.json\"\n       \
+  \ resp = requests.get(url, timeout=10)\n        if resp.status_code != 200:\n            return []\n\n        story_ids\
+  \ = resp.json()[:15]\n        news = []\n        for sid in story_ids:\n            story_url = f\"https://hacker-news.firebaseio.com/v0/item/{sid}.json\"\
+  \n            story_resp = requests.get(story_url, timeout=10)\n            if story_resp.status_code == 200:\n        \
+  \        story = story_resp.json()\n                title = story.get(\"title\", \"\")\n                ai_keywords = [\"\
+  AI\", \"LLM\", \"GPT\", \"Claude\", \"model\", \"neural\", \"deep learning\", \"machine learning\", \"openai\", \"anthropic\"\
+  ]\n                if any(k.lower() in title.lower() for k in ai_keywords):\n                    news.append({\n       \
+  \                 \"title\": title,\n                        \"url\": story.get(\"url\", f\"https://news.ycombinator.com/item?id={sid}\"\
+  ),\n                        \"score\": story.get(\"score\", 0),\n                        \"source\": \"HackerNews\"\n  \
+  \                  })\n                    if len(news) >= 3:\n                        break\n        return news\n    except\
+  \ Exception as e:\n        log.warning(f\"HN获取失败: {e}\")\n        return []\n\n\ndef fetch_twitter_ai_news() -> List[Dict]:\n\
+  \    \"\"\"获取Twitter/X AI相关动态（通过Nitter RSS）\"\"\"\n    # 使用 Nitter 实例获取 Twitter 热门 AI 账号的最新推文\n    nitter_instances = [\n\
+  \        \"nitter.privacydev.net\",\n        \"nitter.poast.org\",\n        \"nitter.net\"\n    ]\n\n    ai_accounts = [\n\
+  \        \"ylecun\",        # Yann LeCun\n        \"sama\",          # Sam Altman\n        \"ylecun\",        # Meta AI\n\
+  \        \"GoogleDeepMind\",\n        \"AnthropicAI\",\n    ]\n\n    tweets = []\n    for instance in nitter_instances:\n\
+  \        try:\n            headers = {\"User-Agent\": \"Mozilla/5.0\"}\n            # 获取多个AI大V的最近推文\n            for account\
+  \ in ai_accounts[:2]:  # 限制数量避免太慢\n                url = f\"https://{instance}/{account}/rss\"\n                resp = requests.get(url,\
+  \ headers=headers, timeout=10)\n                if resp.status_code == 200:\n                    soup = BeautifulSoup(resp.text,\
+  \ 'xml')\n                    items = soup.find_all('item')[:3]\n                    for item in items:\n              \
+  \          title = item.title.text if item.title else \"\"\n                        if title and len(title) > 10:\n    \
+  \                        tweets.append({\n                                \"account\": account,\n                      \
+  \          \"content\": title[:100],\n                                \"source\": \"Twitter\"\n                        \
+  \    })\n                    if len(tweets) >= 6:\n                        return tweets[:6]\n            break  # 成功就退出\n\
+  \        except Exception as e:\n            continue\n\n    return tweets[:6]\n\n\ndef fetch_ai_investment_news() -> List[Dict]:\n\
+  \    \"\"\"获取AI投资相关新闻\"\"\"\n    investment_news = []\n\n    sources = [\n        # TechCrunch AI 相关\n        {\n      \
+  \      \"name\": \"TechCrunch\",\n            \"url\": \"https://techcrunch.com/tag/artificial-intelligence/feed/\",\n \
+  \           \"keywords\": [\"AI\", \"OpenAI\", \"Anthropic\", \"Nvidia\", \"Google\", \"Microsoft\", \"Meta\"]\n       \
+  \ },\n        # VentureBeat AI\n        {\n            \"name\": \"VentureBeat\",\n            \"url\": \"https://venturebeat.com/category/ai/feed/\"\
+  ,\n            \"keywords\": [\"AI\", \"LLM\", \"GPT\", \"funding\", \"investment\", \"startup\"]\n        }\n    ]\n\n\
+  \    for source in sources:\n        try:\n            headers = {\"User-Agent\": \"Mozilla/5.0\"}\n            resp = requests.get(source[\"\
+  url\"], headers=headers, timeout=15)\n            if resp.status_code == 200:\n                soup = BeautifulSoup(resp.text,\
+  \ 'xml')\n                items = soup.find_all('item')[:5]\n\n                for item in items:\n                    title\
+  \ = item.title.text if item.title else \"\"\n                    link = item.link.text if item.link else \"\"\n\n      \
+  \              # 检查是否匹配关键词\n                    if any(k.lower() in title.lower() for k in source[\"keywords\"]):\n    \
+  \                    investment_news.append({\n                            \"title\": title[:80],\n                    \
+  \        \"source\": source[\"name\"],\n                            \"url\": link\n                        })\n        \
+  \                if len(investment_news) >= 5:\n                            return investment_news\n        except Exception\
+  \ as e:\n            log.warning(f\"{source['name']} 获取失败: {e}\")\n            continue\n\n    return investment_news[:5]\n\
+  \n\ndef fetch_wechat_ai_articles() -> List[Dict]:\n    \"\"\"获取微信公众号AI相关文章（通过RSS服务）\"\"\"\n    # 使用一些公开的微信公众号聚合服务\n    rss_sources\
+  \ = [\n        {\n            \"name\": \"机器之心\",\n            \"url\": \"https://rsshub.app/wechat/mp/jiqizhixin\",\n \
+  \           \"keywords\": [\"AI\", \"模型\", \"大模型\", \"LLM\", \"GPT\"]\n        },\n        {\n            \"name\": \"量子位\"\
+  ,\n            \"url\": \"https://rsshub.app/wechat/mp/liangziwei\",\n            \"keywords\": [\"AI\", \"大模型\", \"ChatGPT\"\
+  , \"英伟达\", \"OpenAI\"]\n        }\n    ]\n\n    articles = []\n    for source in rss_sources:\n        try:\n          \
+  \  headers = {\"User-Agent\": \"Mozilla/5.0\"}\n            resp = requests.get(source[\"url\"], headers=headers, timeout=15)\n\
+  \            if resp.status_code == 200:\n                soup = BeautifulSoup(resp.text, 'xml')\n                items\
+  \ = soup.find_all('item')[:3]\n\n                for item in items:\n                    title = item.title.text if item.title\
+  \ else \"\"\n                    if any(k.lower() in title.lower() for k in source[\"keywords\"]):\n                   \
+  \     articles.append({\n                            \"title\": title[:60],\n                            \"source\": source[\"\
+  name\"]\n                        })\n        except Exception as e:\n            log.warning(f\"{source['name']} RSS获取失败:\
+  \ {e}\")\n            continue\n\n    return articles[:4]\n\n\ndef format_report_v2(\n    papers: List[Dict],\n    models:\
+  \ List[Dict],\n    repos: List[Dict],\n    news: List[Dict],\n    tweets: List[Dict],\n    invest_news: List[Dict],\n  \
+  \  wechat: List[Dict]\n) -> str:\n    \"\"\"格式化简报 v2\"\"\"\n    now = datetime.now()\n    today = now.strftime(\"%Y-%m-%d\"\
+  )\n    time_str = now.strftime(\"%H:%M\")\n\n    report = f\"\"\"\U0001F916 AI 晚报 {today} {time_str}\n━━━━━━━━━━━━━━━━━━━━━━\n\
+  \n\U0001F4DA 论文精选 (arXiv cs.AI)\n\"\"\"\n    if papers:\n        for i, p in enumerate(papers[:3], 1):\n            report\
+  \ += f\"  {i}. {p['title'][:70]}...\\n\"\n    else:\n        report += \"  暂无新论文\\n\"\n\n    report += \"\"\"\n\U0001F31F\
+  \ 热门模型 (HuggingFace)\n\"\"\"\n    if models:\n        for i, m in enumerate(models[:3], 1):\n            downloads = f\"\
+  {m['downloads']:,}\" if m['downloads'] else \"N/A\"\n            report += f\"  {i}. {m['name']} (↓{downloads})\\n\"\n \
+  \   else:\n        report += \"  暂无热门模型\\n\"\n\n    report += \"\"\"\n⭐ 开源项目 (GitHub ML Trending)\n\"\"\"\n    if repos:\n\
+  \        for i, r in enumerate(repos[:3], 1):\n            stars = f\"{r['stars']:,}\" if r['stars'] else \"N/A\"\n    \
+  \        report += f\"  {i}. {r['name']} ⭐{stars}\\n\"\n    else:\n        report += \"  暂无热门项目\\n\"\n\n    report += \"\
+  \"\"\n\U0001F4F0 AI热点 (Hacker News)\n\"\"\"\n    if news:\n        for i, n in enumerate(news[:3], 1):\n            report\
+  \ += f\"  {i}. {n['title'][:55]} (↑{n['score']})\\n\"\n    else:\n        report += \"  暂无热点\\n\"\n\n    if tweets:\n  \
+  \      report += \"\"\"\n\U0001F426 AI大V动态 (Twitter/X)\n\"\"\"\n        for i, t in enumerate(tweets[:4], 1):\n        \
+  \    report += f\"  {i}. @{t['account']}: {t['content'][:50]}...\\n\"\n\n    if invest_news:\n        report += \"\"\"\n\
+  \U0001F4B0 AI投资要闻\n\"\"\"\n        for i, n in enumerate(invest_news[:4], 1):\n            report += f\"  {i}. [{n['source']}]\
+  \ {n['title']}\\n\"\n\n    if wechat:\n        report += \"\"\"\n\U0001F4F1 公众号精选\n\"\"\"\n        for i, w in enumerate(wechat[:3],\
+  \ 1):\n            report += f\"  {i}. [{w['source']}] {w['title']}\\n\"\n\n    report += \"\"\"\n━━━━━━━━━━━━━━━━━━━━━━\n\
+  \U0001F550 Naja AI情报员 v2.0 自动生成\"\"\"\n\n    return report\n\n\ndef execute() -> dict:\n    \"\"\"\n    主执行函数 - 晚间定时运行 v2.0\n\
+  \    \"\"\"\n    log.info(\"[AI_Report_v2] 开始生成AI晚报...\")\n\n    try:\n        # 1. 抓取各来源数据\n        papers = fetch_arxiv_papers(\"\
+  cs.AI\", max_results=5)\n        models = fetch_huggingface_trending()\n        repos = fetch_github_trending(\"machine-learning\"\
+  )\n        news = fetch_ai_news()\n        tweets = fetch_twitter_ai_news()\n        invest_news = fetch_ai_investment_news()\n\
+  \        wechat = fetch_wechat_ai_articles()\n\n        # 2. 生成简报\n        report = format_report_v2(\n            papers,\
+  \ models, repos, news,\n            tweets, invest_news, wechat\n        )\n        log.info(f\"[AI_Report_v2] 简报已生成，长度:\
+  \ {len(report)}\")\n\n        # 3. 保存到文件\n        today = datetime.now().strftime(\"%Y%m%d_%H%M\")\n        report_path\
+  \ = f\"/Users/spark/.naja/ai_reports/{today}_v2.txt\"\n        try:\n            import os\n            os.makedirs(os.path.dirname(report_path),\
+  \ exist_ok=True)\n            with open(report_path, 'w', encoding='utf-8') as f:\n                f.write(report)\n   \
+  \         log.info(f\"[AI_Report_v2] 简报已保存: {report_path}\")\n        except Exception as e:\n            log.warning(f\"\
+  [AI_Report_v2] 保存失败: {e}\")\n\n        # 4. 推送到手机\n        phone = \"+8618626880688\"\n        sent = send_imessage(phone,\
+  \ report)\n        if sent:\n            log.info(\"[AI_Report_v2] 简报已推送到手机\")\n        else:\n            log.warning(\"\
+  [AI_Report_v2] 推送失败\")\n\n        return {\n            \"success\": True,\n            \"report_length\": len(report),\n\
+  \            \"papers_count\": len(papers),\n            \"models_count\": len(models),\n            \"repos_count\": len(repos),\n\
+  \            \"news_count\": len(news),\n            \"tweets_count\": len(tweets),\n            \"invest_count\": len(invest_news),\n\
+  \            \"wechat_count\": len(wechat),\n            \"pushed\": sent\n        }\n\n    except Exception as e:\n   \
+  \     log.error(f\"[AI_Report_v2] 执行失败: {e}\")\n        import traceback\n        traceback.print_exc()\n        return\
+  \ {\"success\": False, \"error\": str(e)}\n\n\nif __name__ == \"__main__\":\n    # 测试运行\n    result = execute()\n    print(json.dumps(result,\
+  \ ensure_ascii=False, indent=2))\n"
+metadata:
+  created_at: 1775219297.851528
+  description: AI晚报 v2.0 - 晚间8点推送，含大模型+AI投资+Twitter/X+公众号
+  id: d5d56b830f67
+  name: ai_daily_report
+  tags:
+  - AI
+  - LLM
+  - report
+  - daily
+  updated_at: 1775219297.851529

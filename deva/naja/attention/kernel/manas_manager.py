@@ -16,7 +16,6 @@ import logging
 from typing import Optional
 
 from .manas_engine import ManasEngine
-from deva.naja.register import SR
 
 log = logging.getLogger(__name__)
 
@@ -187,28 +186,13 @@ _global_manager_initialized = False
 
 
 def get_manas_manager() -> Optional[ManasManager]:
-    """获取全局末那识管理器（自动启用）"""
-    global _global_manager, _global_manager_initialized
-    
-    # 优先从 AppContainer 获取
-    try:
-        from deva.naja.application import get_app_container
-        container = get_app_container()
-        if container is not None:
-            return container.manas_manager
-    except Exception:
-        pass
-    
-    if _global_manager is None and not _global_manager_initialized:
-        _global_manager_initialized = True
-        try:
-            from deva.naja.infra.registry.singleton_registry import SR
-            _global_manager = SR('manas_manager')
-            if _global_manager is not None and not _global_manager.is_enabled():
-                _global_manager.set_enabled(True)
-        except Exception:
-            pass
-    return _global_manager
+    """获取全局末那识管理器"""
+    # 从 AppContainer 获取
+    from deva.naja.application import get_app_container
+    container = get_app_container()
+    if container is not None:
+        return container.manas_manager
+    return None
 
 
 def setup_manas_manager(kernel) -> ManasManager:

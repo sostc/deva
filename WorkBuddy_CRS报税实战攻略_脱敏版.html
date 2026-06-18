@@ -1,0 +1,561 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>用 WorkBuddy 计算富途证券 CRS 报税 —— 从此睡得踏实</title>
+    <style>
+        * {
+            box-sizing: border-box;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+            line-height: 1.8;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background: #fafafa;
+            color: #333;
+        }
+        h1 {
+            font-size: 1.8em;
+            color: #1a1a1a;
+            border-bottom: 3px solid #e85436;
+            padding-bottom: 15px;
+            margin-top: 40px;
+        }
+        h1:first-child {
+            margin-top: 0;
+        }
+        h2 {
+            font-size: 1.4em;
+            color: #1a1a1a;
+            border-bottom: 1px solid #ddd;
+            padding-bottom: 8px;
+            margin-top: 35px;
+        }
+        h3 {
+            font-size: 1.15em;
+            color: #333;
+            margin-top: 25px;
+        }
+        p {
+            margin: 15px 0;
+        }
+        blockquote {
+            border-left: 4px solid #e85436;
+            margin: 20px 0;
+            padding: 15px 20px;
+            background: #fff5f3;
+            border-radius: 0 8px 8px 0;
+        }
+        blockquote p {
+            margin: 5px 0;
+        }
+        hr {
+            border: none;
+            border-top: 1px solid #ddd;
+            margin: 40px 0;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 20px 0;
+            background: #fff;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+            border-radius: 8px;
+            overflow: hidden;
+        }
+        th {
+            background: #e85436;
+            color: #fff;
+            padding: 12px 15px;
+            text-align: left;
+            font-weight: 600;
+        }
+        td {
+            padding: 10px 15px;
+            border-bottom: 1px solid #eee;
+        }
+        tr:last-child td {
+            border-bottom: none;
+        }
+        tr:nth-child(even) {
+            background: #f9f9f9;
+        }
+        ul, ol {
+            margin: 15px 0;
+            padding-left: 25px;
+        }
+        li {
+            margin: 8px 0;
+        }
+        code {
+            background: #f5f5f5;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-family: "SF Mono", Monaco, Consolas, monospace;
+            font-size: 0.9em;
+        }
+        pre {
+            background: #f5f5f5;
+            padding: 15px 20px;
+            border-radius: 8px;
+            overflow-x: auto;
+            font-family: "SF Mono", Monaco, Consolas, monospace;
+            font-size: 0.9em;
+            line-height: 1.6;
+            margin: 20px 0;
+        }
+        pre code {
+            background: none;
+            padding: 0;
+        }
+        a {
+            color: #e85436;
+            text-decoration: none;
+        }
+        a:hover {
+            text-decoration: underline;
+        }
+        .disclaimer {
+            background: #fffbe6;
+            border-left: 4px solid #faad14;
+            padding: 15px 20px;
+            margin: 30px 0;
+            border-radius: 0 8px 8px 0;
+            font-size: 0.95em;
+        }
+    </style>
+</head>
+<body>
+
+<h1>用 WorkBuddy 计算富途证券 CRS 报税 —— 从此睡得踏实</h1>
+
+<blockquote>
+<p>一个真实案例：多账户、多年数据，从焦虑到坦然的全过程。</p>
+<p>核心结论：<strong>算完之后发现，实际要交的税，远比你想象的要少。</strong></p>
+</blockquote>
+
+<hr>
+
+<h2>你为什么需要看这篇</h2>
+
+<p>如果你是中国税务居民、在富途牛牛（或其他香港券商）炒美股港股，你可能想过这些问题：</p>
+
+<ul>
+<li><em>"税务局到底知不知道我赚了多少钱？"</em></li>
+<li><em>"听说CRS会把数据交过去，我要补多少税？"</em></li>
+<li><em>"万一被查到，滞纳金是不是很可怕？"</em></li>
+<li><em>"我自己也算不清，干脆不管了……"</em></li>
+</ul>
+
+<p>然后晚上躺在床上，越想越睡不着。</p>
+
+<p><strong>这篇文章就是帮你解决这个问题的。</strong> 用 WorkBuddy + 你自己的真实交易数据，把该交的税算清楚。既不多交冤枉钱，也不少交留隐患。哪怕你暂时不打算补缴，你也知道数字是多少，心里有底。</p>
+
+<hr>
+
+<h2>目录</h2>
+
+<ol>
+<li><a href="#1-crs-到底交换了什么">CRS 到底交换了什么</a></li>
+<li><a href="#2-从富途-app-获取数据">从富途 APP 获取数据</a></li>
+<li><a href="#3-扔给-workbuddy股息篇">扔给 WorkBuddy：股息篇</a></li>
+<li><a href="#4-扔给-workbuddy资本利得篇">扔给 WorkBuddy：资本利得篇</a></li>
+<li><a href="#5-算滞纳金">算滞纳金，即使现在不交也知道多少</a></li>
+<li><a href="#6-为什么实际税额比你想的少">为什么实际税额比你想的少</a></li>
+<li><a href="#7-完整的-workbuddy-对话示例">完整的 WorkBuddy 对话示例</a></li>
+</ol>
+
+<hr>
+
+<h2 id="1-crs-到底交换了什么">1. CRS 到底交换了什么</h2>
+
+<h3>一句话解释</h3>
+
+<p><strong>CRS（共同申报准则）</strong> 是全球税务信息自动交换系统。你在香港富途开户的那一刻起，你的账户就在这个系统里。</p>
+
+<h3>交换流程</h3>
+
+<pre><code>你 → 富途证券（香港）→ 香港税务局 → 中国国家税务总局 → 你所在地税务局</code></pre>
+
+<p>不需要任何人举报，不需要税务局发函调查——<strong>数据每年自动交换</strong>。</p>
+
+<h3>具体交换了哪些数据</h3>
+
+<p>根据 CRS 申报标准，富途每年会向香港税务局报送你账户的以下信息：</p>
+
+<table>
+<tr><th>交换内容</th><th>说明</th></tr>
+<tr><td><strong>姓名、身份证号、地址</strong></td><td>你的身份信息</td></tr>
+<tr><td><strong>账户编号、账户余额</strong></td><td>年末账户总资产</td></tr>
+<tr><td><strong>全年股息收入总额</strong></td><td>所有股票派发的股息总和</td></tr>
+<tr><td><strong>全年利息收入总额</strong></td><td>账户现金余额产生的利息</td></tr>
+<tr><td><strong>资产处置收入总额</strong></td><td>卖出股票的总成交金额（不是盈利，是总卖出额）</td></tr>
+<tr><td><strong>年末持仓市值</strong></td><td>12月31日你持有股票的总市值</td></tr>
+</table>
+
+<blockquote>
+<p>⚠ <strong>注意</strong>：CRS 报的是<strong>总卖出金额</strong>，不是你的盈利。但税务局拿到你的数据后，如果你解释不清买入成本，就可能按总卖出金额核定征税——那就冤大了。</p>
+</blockquote>
+
+<h3>这意味着什么</h3>
+
+<p>税务局知道你：</p>
+
+<ul>
+<li>✅ 有哪些境外账户</li>
+<li>✅ 每年拿了多少股息</li>
+<li>✅ 卖出了多少金额的股票</li>
+<li>✅ 年底账户里有多少钱</li>
+</ul>
+
+<p>税务局<strong>不一定知道</strong>你的买入成本。这就给了你主动申报的空间——<strong>你自己算清楚成本，交该交的那部分</strong>。</p>
+
+<hr>
+
+<h2 id="2-从富途-app-获取数据">2. 从富途 APP 获取数据</h2>
+
+<p>报税需要的原始数据就两类，分别从两个地方获取。</p>
+
+<h3>数据一：股息记录 → 月结单 PDF</h3>
+
+<p><strong>路径</strong>：富途 APP → 底部「交易」→ 右上角「更多」(···) →「月结单」</p>
+
+<p>你会看到按月份的 PDF 列表，像这样：</p>
+
+<pre><code>xxxxx-20220131-xxx.pdf   ← 2022年1月
+xxxxx-20220228-xxx.pdf   ← 2022年2月
+...
+xxxxx-20251231-xxx.pdf   ← 2025年12月</code></pre>
+
+<p><strong>操作</strong>：</p>
+
+<ol>
+<li>选择年份范围（建议从开户开始至今）</li>
+<li>批量下载全部月结单 PDF</li>
+<li>如果有老账户（已停用），也要单独下载老账户的月结单</li>
+<li>把所有 PDF 放到电脑上的一个文件夹里</li>
+</ol>
+
+<blockquote>
+<p>📌 <strong>月结单里有什么</strong>：每个月的「资金进出」部分会列出所有股息入账记录，包括股票代码、股数、每股派息金额、预扣税等。</p>
+</blockquote>
+
+<hr>
+
+<h3>数据二：成交记录 → 历史订单 CSV</h3>
+
+<p>这是<strong>最关键的数据</strong>，因为计算资本利得税需要知道每一笔买入的成本。</p>
+
+<p><strong>路径</strong>：富途电脑客户端（注意：手机 APP 导不出完整的成交 CSV）</p>
+
+<ol>
+<li>在电脑上下载安装 <strong>富途牛牛桌面端</strong>（futunn.com 官网下载）</li>
+<li>登录后 → 左侧菜单「<strong>账户</strong>」</li>
+<li>选择账户类型：
+<ul>
+<li><strong>保证金综合账户</strong>（当前使用的）→ 点「<strong>历史</strong>」标签</li>
+<li><strong>已停用账户</strong>（如果之前有老账户）→ 分别选择导出</li>
+</ul>
+</li>
+<li>设置时间范围：
+<ul>
+<li><strong>开始时间</strong>：设为账户开通日期，越早越好</li>
+<li><strong>结束时间</strong>：当天</li>
+<li>点击「<strong>导出</strong>」→ 保存为 CSV</li>
+</ul>
+</li>
+<li>如果有多个账户（比如老账户迁移到新账户），<strong>每个账户都要导出</strong></li>
+</ol>
+
+<p>最终你手上应该有类似这样的文件：</p>
+
+<pre><code>历史-保证金综合账户(XXXX)-日期.csv      ← 当前账户
+历史-美股融资融券账户(XXXX)-日期.csv     ← 老账户美股
+历史-港股融资融券账户(XXXX)-日期.csv     ← 老账户港股
+历史-A股通账户(XXXX)-日期.csv           ← A股通（如有）</code></pre>
+
+<blockquote>
+<p>📌 <strong>CSV 里有什么</strong>：每一笔成交的时间、代码、名称、方向（买入/卖出）、数量、价格、币种、费用等。WorkBuddy 就用这些数据做 FIFO 配对。</p>
+</blockquote>
+
+<hr>
+
+<h2 id="3-扔给-workbuddy股息篇">3. 股息篇：月结单 PDF → WorkBuddy</h2>
+
+<h3>把 PDF 扔给 WorkBuddy</h3>
+
+<p>把下载好的月结单 PDF 全部放到一个文件夹，然后对 WorkBuddy 说：</p>
+
+<blockquote>
+<p><em>"这是我的富途月结单，帮我分析一下每年的股息收入和预扣税，我要申报境外投资收入的个税。"</em></p>
+</blockquote>
+
+<p>WorkBuddy 会：</p>
+
+<ol>
+<li>自动扫描所有 PDF</li>
+<li>用 pdfplumber 提取文字</li>
+<li>识别「资金进出」部分的股息记录</li>
+<li>匹配对应的预扣税记录</li>
+<li>按年度汇总</li>
+</ol>
+
+<h3>实际效果</h3>
+
+<p>以真实案例为例，WorkBuddy 解析出多年数据：</p>
+
+<table>
+<tr><th>年度</th><th>股息笔数</th><th>税前总额</th></tr>
+<tr><td>2022</td><td>12笔</td><td>~$1,100</td></tr>
+<tr><td>2023</td><td>10笔</td><td>~$960</td></tr>
+<tr><td>2024</td><td>17笔</td><td>~$1,400</td></tr>
+<tr><td>2025</td><td>9笔</td><td>~$350</td></tr>
+</table>
+
+<p>每股股息记录都会标注：股票代码、持股数量、每股派息金额。</p>
+
+<h3>你会遇到的坑</h3>
+
+<p><strong>坑1：月结单格式不统一。</strong> 旧版月结单和新版月结单的文字布局不同，WorkBuddy 可能需要调整解析脚本。不用担心，告诉它「格式变了，帮我适配」，它会自动修改。</p>
+
+<p><strong>坑2：预扣税记录不完整。</strong> 部分股票（如在开曼群岛注册的公司）不扣美国预扣税。WorkBuddy 会标注这些特殊情况。</p>
+
+<p><strong>坑3：有老账户和新账户。</strong> 如果发生过账户迁移，两边的月结单都要解析。告诉 WorkBuddy「老账户迁移到新账户了」，它会把两边的数据合并。</p>
+
+<hr>
+
+<h2 id="4-扔给-workbuddy资本利得篇">4. 资本利得篇：成交 CSV → WorkBuddy</h2>
+
+<h3>这是最难但最重要的部分</h3>
+
+<p>股息一目了然——收了多少钱就是多少钱。但资本利得不一样：<strong>只有卖掉的部分才需要交税，没卖的不用管。</strong></p>
+
+<p>计算逻辑：</p>
+
+<pre><code>资本利得 = 卖出收入 - 买入成本 - 交易费用</code></pre>
+
+<p>这里面有三个关键点：</p>
+
+<ol>
+<li><strong>FIFO（先进先出）</strong>：先买的股票先卖掉，成本按买入顺序匹配</li>
+<li><strong>跨账户</strong>：如果老账户迁移到新账户，持仓是连续计算的，成本不能断</li>
+<li><strong>股票拆分</strong>：某科技股 2024年做了 10:1 拆股，需要调整历史买入记录</li>
+</ol>
+
+<h3>把 CSV 扔给 WorkBuddy</h3>
+
+<p>把导出的成交 CSV 放到文件夹里，然后对 WorkBuddy 说：</p>
+
+<blockquote>
+<p><em>"这是富途导出的历史成交记录，包含老账户和新账户。老账户的持仓迁移到了新账户，帮我用 FIFO 法按年计算资本利得税。"</em></p>
+</blockquote>
+
+<p>WorkBuddy 会：</p>
+
+<ol>
+<li>读取所有 CSV，合并排序</li>
+<li>跳过期权（期权另算）</li>
+<li>处理股票拆分事件</li>
+<li>用 FIFO 法逐笔匹配买入和卖出</li>
+<li>按年度汇总已实现利得</li>
+</ol>
+
+<h3>实际效果</h3>
+
+<p>以某真实用户为例：</p>
+
+<table>
+<tr><th>年度</th><th>已实现利得</th><th>应纳税（20%）</th></tr>
+<tr><td>2022</td><td>亏损*</td><td>¥0（亏损不缴税）</td></tr>
+<tr><td>2023</td><td>盈利</td><td>小几万</td></tr>
+<tr><td>2024</td><td>大幅盈利</td><td>几万到十几万</td></tr>
+<tr><td>2025</td><td>盈利</td><td>几万到十几万</td></tr>
+<tr><td><strong>合计</strong></td><td><strong>-/</strong></td><td><strong>十几万</strong></td></tr>
+</table>
+
+<blockquote>
+<p>*注：中国税法规定，境外股票资本利得亏损不能跨年结转抵扣。2022年如有亏损，不能在后续年度抵减。</p>
+</blockquote>
+
+<h3>你会遇到的坑</h3>
+
+<p><strong>坑1：老账户数据不完整。</strong> 导出 CSV 时记得把时间范围拉到最早（比如2020年甚至更早），否则早年的买入记录缺失，无法匹配卖出。</p>
+
+<p><strong>坑2：股票拆分。</strong> 比如某科技巨头在2024年做了 10:1 拆股，如果不处理，会算出巨额错误亏损。告诉 WorkBuddy 股票代码和拆分比例，它会自动处理。</p>
+
+<p><strong>坑3：A股通币种。</strong> A股通账户的交易可能是人民币结算，需要确认汇率。</p>
+
+<p><strong>坑4：第一次导出发现买入不完整。</strong> 这是最常见的——因为选了默认时间范围，只导出了最近一两年的。删掉重导，把开始时间拉到最早即可。</p>
+
+<hr>
+
+<h2 id="5-算滞纳金">5. 算滞纳金：即使现在不交，也知道多少</h2>
+
+<h3>滞纳金怎么算</h3>
+
+<pre><code>滞纳金 = 应补税额 × 0.05% × 滞纳天数</code></pre>
+
+<ul>
+<li>起算日：税款所属年度<strong>次年7月1日</strong>（申报截止日次日）</li>
+<li>年化利率：约 <strong>18.25%</strong>（是的，相当高）</li>
+</ul>
+
+<h3>实际案例的滞纳金</h3>
+
+<p>以某用户截至2026年6月的数据为例：</p>
+
+<table>
+<tr><th>年度</th><th>应补税</th><th>滞纳天数</th><th>滞纳金</th><th>合计</th></tr>
+<tr><td>2022</td><td>~¥800</td><td>~1000天</td><td>~¥430</td><td>~¥1,200</td></tr>
+<tr><td>2023</td><td>~¥11,000</td><td>~700天</td><td>~¥4,000</td><td>~¥15,000</td></tr>
+<tr><td>2024</td><td>~¥62,000</td><td>~350天</td><td>~¥11,000</td><td>~¥73,000</td></tr>
+<tr><td>2025</td><td>~¥73,000</td><td>0天*</td><td>¥0</td><td>~¥73,000</td></tr>
+<tr><td><strong>合计</strong></td><td><strong>~¥147,000</strong></td><td>—</td><td><strong>~¥15,000</strong></td><td><strong>~¥162,000</strong></td></tr>
+</table>
+
+<blockquote>
+<p>\*2025年度申报截止日为2026年6月30日，若在截止日前申报则无滞纳金。</p>
+</blockquote>
+
+<h3>重点来了</h3>
+
+<p><strong>算完滞纳金之后，你对 WorkBuddy 说：</strong></p>
+
+<blockquote>
+<p><em>"帮我把含滞纳金和不含滞纳金两个版本都生成 Word 文档和 Markdown 说明。"</em></p>
+</blockquote>
+
+<p>WorkBuddy 会生成 4 个文件：</p>
+
+<ul>
+<li>📄 境外投资报税报告_不含滞纳金.docx / .md — 纯税额版</li>
+<li>📄 境外投资补税报告_含滞纳金.docx / .md — 含滞纳金版</li>
+</ul>
+
+<p><strong>这样你知道两个数字：你要交多少本金，以及拖到现在每天在涨多少。</strong></p>
+
+<hr>
+
+<h2 id="6-为什么实际税额比你想的少">6. 为什么实际税额比你想象的少</h2>
+
+<p>这里有一个很多人没想明白的点，但算完之后就豁然开朗：</p>
+
+<h3>没卖掉的股票，不交税</h3>
+
+<p>你账户里那些还在持有的股票，不管涨了多少，<strong>只要没卖，就不产生资本利得税</strong>。中国税法按「实现制」——成交了才算。</p>
+
+<p>举个例子：你 2020 年买了某科技股，涨了 5 倍，但到现在还没卖。这部分账面盈利 <strong>¥0 税</strong>。</p>
+
+<h3>总交易金额的 20%？想多了</h3>
+
+<p>有人以为税务局会按 CRS 报的「总卖出金额 × 20%」来收税。<strong>那是错误的理解。</strong></p>
+
+<p>正确的算法是：</p>
+
+<pre><code>应纳税 =（卖出金额 - 买入成本 - 费用）× 20%</code></pre>
+
+<p>你主动申报买入成本，就是按<strong>净利润</strong>交税。</p>
+
+<h3>绝对收益的 20%？也不对</h3>
+
+<p>你今年赚了 100 万，但不是每只股票都卖了。没卖的那些不计入。</p>
+
+<h3>一个真实对比（示意）</h3>
+
+<table>
+<tr><th>口径</th><th>金额</th><th>如果盲目按20%交</th></tr>
+<tr><td>总卖出金额</td><td>以千万计</td><td>天价税款</td></tr>
+<tr><td>账户总盈利</td><td>以百万计</td><td>冤枉多交</td></tr>
+<tr><td><strong>实际应纳税</strong></td><td><strong>十几万</strong></td><td>✅ 这才是该交的</td></tr>
+</table>
+
+<p><strong>这就是为什么一定要用真实交易记录算——你不多交一分钱。</strong></p>
+
+<hr>
+
+<h2 id="7-完整的-workbuddy-对话示例">7. 完整的 WorkBuddy 对话示例</h2>
+
+<p>以下是整个流程中你对 WorkBuddy 说的话，按顺序照搬即可：</p>
+
+<h3>阶段一：准备</h3>
+
+<pre><code>这是我的富途证券月结单 PDF，我是中国税务居民，需要申报境外投资收入的个税。
+我填了 W-8BEN，美股预扣税率是 10%。请帮我分析所有月结单里的股息收入。</code></pre>
+
+<h3>阶段二：导出成交记录</h3>
+
+<pre><code>富途 APP 上找不到你说的导出 CSV 的地方。</code></pre>
+
+<p>WorkBuddy 会告诉你去电脑客户端导出。导出后：</p>
+
+<pre><code>我已经把老文件删了，重新导出了更完整的 CSV。
+老账户持仓已经迁移到新账户了，你要统一在一起看。
+帮我用 FIFO 法计算资本利得税。</code></pre>
+
+<h3>阶段三：处理特殊情况</h3>
+
+<pre><code>某某股票在 2024 年 6 月做了 10:1 拆股，帮我处理一下。</code></pre>
+
+<h3>阶段四：算滞纳金</h3>
+
+<pre><code>帮我把滞纳金也算进去。我要知道如果现在去补缴，总共要交多少。</code></pre>
+
+<h3>阶段五：生成文档</h3>
+
+<pre><code>帮我生成 Word 版本的报税报告，包含每年的明细。含滞纳金和不含滞纳金各一份，每份也都要 MD 说明文档。</code></pre>
+
+<h3>阶段六：补充新年度数据（如有时效性需求）</h3>
+
+<pre><code>2025年的股息和2026年的股息数据应该去哪里找？</code></pre>
+
+<p>WorkBuddy 会检查你已有的 PDF，如果有就自动解析；如果没有，会告诉你具体去哪里下载。</p>
+
+<hr>
+
+<h2>8. 总结</h2>
+
+<h3>你得到了什么</h3>
+
+<table>
+<tr><th>之前</th><th>之后</th></tr>
+<tr><td>😰 不知道税务局知道多少</td><td>✅ 清楚了 CRS 交换了哪些数据</td></tr>
+<tr><td>😰 不知道该交多少税</td><td>✅ 精确到每一笔交易的税额</td></tr>
+<tr><td>😰 怕少交被查到</td><td>✅ 按 FIFO 法算的，经得起查</td></tr>
+<tr><td>😰 怕多交冤枉钱</td><td>✅ 没卖的股票不交税</td></tr>
+<tr><td>😰 不敢睡觉</td><td>✅ 睡得踏实</td></tr>
+</table>
+
+<h3>核心心法</h3>
+
+<blockquote>
+<p><strong>不是为了逃税，是为了心安。</strong></p>
+</blockquote>
+
+<p>你把真实数据算一遍，知道自己该交多少。哪怕你现在不打算补缴，你也清楚：</p>
+
+<ul>
+<li>本金是多少</li>
+<li>滞纳金每天涨多少</li>
+<li>什么时候去交最划算</li>
+</ul>
+
+<p>这个数字一旦算出来了，心里的石头就落地了。因为你会发现：</p>
+
+<p><strong>1. 实际税额远比「总卖出金额 × 20%」小得多——因为你只对实际盈利交税。</strong></p>
+
+<p><strong>2. 实际税额也比「账户总盈利 × 20%」小——因为没卖掉的股票不计入。</strong></p>
+
+<p><strong>3. 算或不算，数据都在那里。算清楚了，主动权在你手里。</strong></p>
+
+<hr>
+
+<div class="disclaimer">
+<p>本文基于 WorkBuddy 实际处理富途证券多年月结单 PDF + 多个账户成交 CSV 的完整实战记录。文中金额均已脱敏，仅供方法参考。</p>
+<p><strong>免责声明：本文仅分享工具使用方法，不构成税务建议。具体申报请咨询专业税务顾问。</strong></p>
+</div>
+
+</body>
+</html>

@@ -1,0 +1,31 @@
+config:
+  cron_expr: 0 22 * * *
+  event_condition: ''
+  event_condition_type: contains
+  event_source: log
+  execution_mode: scheduler
+  interval_seconds: 60.0
+  run_at: ''
+  scheduler_trigger: cron
+  task_type: scheduler
+func_code: "\nimport logging\nlog = logging.getLogger(__name__)\n\ndef execute() -> dict:\n    \"\"\"知识库注入与验证：从 AI 日报新闻中提取因果知识并注入\"\
+  \"\"\n    try:\n        from deva.naja.tasks.ai_knowledge_injector import AIKnowledgeInjector\n        from deva.naja.tasks.ai_daily_report\
+  \ import (\n            fetch_ai_news,\n            fetch_ai_investment_news,\n        )\n        \n        injector = AIKnowledgeInjector()\n\
+  \        \n        news_list = fetch_ai_news()\n        invest_news = fetch_ai_investment_news()\n        \n        all_news\
+  \ = (news_list or []) + (invest_news or [])\n        if not all_news:\n            return {\"success\": True, \"message\"\
+  : \"无新闻数据，跳过\"}\n        \n        evaluation = injector.extract_and_evaluate_knowledge(all_news)\n        counts = injector.inject_knowledge(evaluation)\n\
+  \        \n        notification = injector.generate_notification_text(evaluation)\n        if notification:\n          \
+  \  log.info(f\"[KnowledgeInjector] {notification}\")\n        \n        return {\n            \"success\": True,\n     \
+  \       \"new\": counts.get(\"new\", 0),\n            \"validating\": counts.get(\"validating\", 0),\n            \"qualified\"\
+  : counts.get(\"qualified\", 0),\n        }\n    except Exception as e:\n        log.error(f\"[KnowledgeInjector] 执行失败: {e}\"\
+  )\n        return {\"success\": False, \"error\": str(e)}\n"
+metadata:
+  created_at: 1776808843.8179572
+  description: AI 知识库注入与验证（定期评估新闻中的因果知识，清理过期知识）
+  id: 43016c0a58f7
+  name: knowledge_injector
+  tags:
+  - knowledge
+  - injection
+  - daily
+  updated_at: 1776808843.8179572

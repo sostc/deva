@@ -13,8 +13,6 @@ import time
 import logging
 from typing import Dict, Any, List, Optional
 
-from deva.naja.register import SR
-
 log = logging.getLogger(__name__)
 
 
@@ -49,7 +47,12 @@ class SignalExecutor:
     def _ensure_initialized(self):
         """初始化"""
         self._initialized = True
+        self._insight_pool = None
         log.info("SignalExecutor 初始化完成")
+
+    def set_insight_pool(self, insight_pool) -> None:
+        """显式设置 InsightPool（依赖注入）"""
+        self._insight_pool = insight_pool
 
     def execute_signals(self, signals):
         """将信号传递给 Bandit 的 SignalListener 执行"""
@@ -178,12 +181,8 @@ class SignalExecutor:
 
     def _feedback_to_insight_pool(self, symbol: str, signal_type: str, outcome: Dict[str, Any]):
         """反馈到 InsightPool"""
-        try:
-            pool = SR('insight_pool')
-            if pool:
-                pool.record_trade_outcome(symbol, signal_type, outcome)
-        except Exception as e:
-            log.debug(f"[SignalExecutor] 反馈到InsightPool失败: {e}")
+        if self._insight_pool:
+            self._insight_pool.record_trade_outcome(symbol, signal_type, outcome)
 
     def _get_recent_trade_feedback(self, limit: int = 10) -> List[Dict[str, Any]]:
         """获取最近交易反馈"""

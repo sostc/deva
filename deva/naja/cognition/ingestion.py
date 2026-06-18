@@ -37,6 +37,10 @@ class CognitionIngestion:
         self._cognitive_bus = None
         self._liquidity_cognition = None
 
+    def set_insight_pool(self, insight_pool) -> None:
+        """显式设置 InsightPool（依赖注入）"""
+        self._insight_pool = insight_pool
+
     # ------------------------------------------------------------------
     #  公共 API
     # ------------------------------------------------------------------
@@ -171,12 +175,6 @@ class CognitionIngestion:
 
     def _get_insight_pool(self):
         """懒加载 InsightPool"""
-        if self._insight_pool is None:
-            try:
-                from deva.naja.infra.registry.singleton_registry import SR
-                self._insight_pool = SR("insight_pool")
-            except Exception:
-                pass
         return self._insight_pool
 
     def _ingest_market_alert_legacy(self, event: Any) -> None:
