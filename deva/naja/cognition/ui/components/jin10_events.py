@@ -15,7 +15,7 @@ def _get_jin10_events_data(limit: int = 20):
         from deva.naja.events.text_events import TextFetchedEvent
 
         bus = get_event_bus()
-        recent_events = getattr(bus, '_recent_events', [])
+        recent_events = bus.get_event_history('TextFetchedEvent', max_count=100)
 
         jin10_events = []
         for event in recent_events:
