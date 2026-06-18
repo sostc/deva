@@ -1,0 +1,35 @@
+config:
+  cron_expr: 30 4 * * *
+  event_condition: ''
+  event_condition_type: contains
+  event_source: log
+  execution_mode: scheduler
+  interval_seconds: 60.0
+  run_at: ''
+  scheduler_trigger: cron
+  task_type: scheduler
+func_code: "\nimport logging\nimport asyncio\nimport os\nimport nest_asyncio\nlog = logging.getLogger(__name__)\n\ndef execute()\
+  \ -> dict:\n    \"\"\"获取经济数据并更新美林时钟\"\"\"\n    log.info(\"[MerrillClockTask] 开始获取经济数据...\")\n    \n    try:\n        from\
+  \ deva.naja.cognition.merrill_clock.economic_data_fetcher import EconomicDataFetcher\n        from deva.naja.cognition.merrill_clock\
+  \ import get_merrill_clock_engine\n        \n        fred_api_key = os.environ.get(\"FRED_API_KEY\", \"\")\n        if not\
+  \ fred_api_key:\n            log.warning(\"[MerrillClockTask] FRED_API_KEY 环境变量未设置，使用 mock 模式\")\n        fetcher = EconomicDataFetcher(fred_api_key=fred_api_key,\
+  \ use_mock=not bool(fred_api_key))\n        \n        nest_asyncio.apply()\n        \n        async def _fetch():\n    \
+  \        data = await fetcher.fetch_latest_data()\n            await fetcher.close()\n            return data\n        \n\
+  \        data = asyncio.run(_fetch())\n        log.info(f\"[MerrillClockTask] 获取经济数据成功\")\n        \n        clock_engine\
+  \ = get_merrill_clock_engine()\n        signal = clock_engine.on_economic_data(data)\n        \n        if signal:\n   \
+  \         log.info(f\"[MerrillClockTask] 周期阶段：{signal.phase.value}, 置信度：{signal.confidence:.0%}\")\n            return {\n\
+  \                \"success\": True,\n                \"phase\": signal.phase.value,\n                \"confidence\": round(signal.confidence,\
+  \ 3),\n                \"growth_score\": round(signal.growth_score, 3),\n                \"inflation_score\": round(signal.inflation_score,\
+  \ 3),\n            }\n        else:\n            return {\"success\": False, \"message\": \"数据不足\"}\n            \n    except\
+  \ Exception as e:\n        log.error(f\"[MerrillClockTask] 执行失败：{e}\")\n        import traceback\n        traceback.print_exc()\n\
+  \        return {\"success\": False, \"message\": str(e)}\n"
+metadata:
+  created_at: 1778600645.140467
+  description: 美林时钟经济数据定时更新（每日凌晨执行）
+  id: b16de6398fd9
+  name: merrill_clock_update
+  tags:
+  - merrill_clock
+  - economic
+  - daily
+  updated_at: 1778600645.140467

@@ -660,9 +660,6 @@ class InsightEngine:
 
     def __init__(self, insight_pool=None):
         self._pool = insight_pool
-        if self._pool is None:
-            from deva.naja.register import SR
-            self._pool = SR('insight_pool')
     
     def set_insight_pool(self, insight_pool):
         """显式设置 insight_pool 依赖"""
