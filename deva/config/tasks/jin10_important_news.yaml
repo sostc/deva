@@ -1,0 +1,42 @@
+config:
+  cron_expr: ''
+  event_condition: ''
+  event_condition_type: contains
+  event_source: log
+  execution_mode: timer
+  interval_seconds: 1800.0
+  run_at: ''
+  scheduler_trigger: interval
+  task_type: interval
+func_code: "\nimport asyncio\nimport json\nimport logging\nimport os\nimport time\nfrom deva.naja.datasource.plugins.jin10_fetcher\
+  \ import fetch_important_news_playwright\nfrom deva.naja.events import get_event_bus\nfrom deva.naja.events.text_events\
+  \ import TextFetchedEvent\n\nCACHE_FILE = os.path.expanduser(\"~/.naja/jin10_news.json\")\nPUSHED_IDS_FILE = os.path.expanduser(\"\
+  ~/.naja/jin10_flash_ids.json\")\n\nasync def execute():\n    logger = logging.getLogger(\"task.jin10_important_news\")\n\
+  \    logger.info(\"开始抓取金十重要事件...\")\n    \n    news_list = await fetch_important_news_playwright(headless=True, timeout_ms=30000,\
+  \ extra_wait=2.0)\n    \n    if not news_list:\n        logger.warning(\"未获取到金十重要事件\")\n        return {\"success\": True,\
+  \ \"message\": \"无新数据\", \"count\": 0}\n    \n    # 加载已推送的ID\n    pushed_ids = set()\n    if os.path.exists(PUSHED_IDS_FILE):\n\
+  \        try:\n            with open(PUSHED_IDS_FILE, 'r') as f:\n                pushed_ids = set(json.load(f).get('flash_ids',\
+  \ []))\n        except:\n            pass\n    \n    # 加载现有缓存\n    cached_news = []\n    if os.path.exists(CACHE_FILE):\n\
+  \        try:\n            with open(CACHE_FILE, 'r') as f:\n                cached_news = json.load(f)\n        except:\n\
+  \            pass\n    \n    new_count = 0\n    for news in news_list:\n        # 发布事件\n        event = TextFetchedEvent(\n\
+  \            text=news.title,\n            title=f\"金十重要事件 #{news.rank}\",\n            source=\"jin10_important\",\n  \
+  \          url=f\"https://www.jin10.com/news/{news.flash_id}\" if news.flash_id else \"\",\n            timestamp=time.time(),\n\
+  \        )\n        \n        try:\n            bus = get_event_bus()\n            bus.publish(event)\n        except Exception\
+  \ as e:\n            logger.warning(f\"发布事件失败: {e}\")\n        \n        # 更新缓存\n        is_new = True\n        for cached\
+  \ in cached_news:\n            if cached.get('flash_id') == news.flash_id:\n                is_new = False\n           \
+  \     break\n        \n        if is_new:\n            cached_news.insert(0, {\n                'title': news.title,\n                'rank': news.rank,\n                'flash_id': news.flash_id,\n                'display_time': news.display_time,\n                'action': news.action,\n                'expiration_time': news.expiration_time,\n            })\n            new_count += 1\n    \n    # 只保留最近50条\n    cached_news = cached_news[:50]\n    \n    # 保存缓存\n    with open(CACHE_FILE,\
+  \ 'w') as f:\n        json.dump(cached_news, f, ensure_ascii=False, indent=2)\n    \n    # 保存推送ID\n    flash_ids = [n.get('flash_id')\
+  \ for n in cached_news if n.get('flash_id')]\n    with open(PUSHED_IDS_FILE, 'w') as f:\n        json.dump({'flash_ids':\
+  \ flash_ids}, f)\n    \n    logger.info(f\"金十重要事件抓取完成: 共{len(news_list)}条，新增{new_count}条\")\n    return {\n        \"success\"\
+  : True,\n        \"message\": f\"抓取完成，新增{new_count}条\",\n        \"count\": len(news_list),\n        \"new_count\": new_count,\n\
+  \    }\n"
+metadata:
+  created_at: 1778255079.97345
+  description: 金十重要新闻定时抓取（30分钟间隔）
+  id: df42b638b303
+  name: jin10_important_news
+  tags:
+  - radar
+  - news
+  - jin10
+  updated_at: 1778255079.97345
