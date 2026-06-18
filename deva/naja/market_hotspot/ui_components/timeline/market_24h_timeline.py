@@ -397,7 +397,7 @@ def _get_high_score_news() -> List[Dict[str, Any]]:
         from deva.naja.events import get_event_bus
         from deva.naja.events.text_events import TextFocusedEvent
         bus = get_event_bus()
-        recent_events = getattr(bus, '_recent_events', [])
+        recent_events = bus.get_event_history('TextFocusedEvent', max_count=100)
         
         news_list = []
         for event in recent_events:
@@ -464,7 +464,7 @@ def _get_jin10_important_news() -> List[Dict[str, Any]]:
         from deva.naja.events import get_event_bus
         from deva.naja.events.text_events import TextFetchedEvent
         bus = get_event_bus()
-        recent_events = getattr(bus, '_recent_events', [])
+        recent_events = bus.get_event_history('TextFetchedEvent', max_count=100)
         
         for event in recent_events:
             if isinstance(event, TextFetchedEvent) and event.source == "jin10_important":
