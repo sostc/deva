@@ -231,10 +231,11 @@ class ValueSystem:
 
 def initialize_value_system() -> ValueSystem:
     """初始化价值观系统"""
-    vs = SR('value_system')
-    if vs.get_active_value_type() == "trend":
-        vs.set_active_value_type("trend")
-    return vs
+    from deva.naja.application import get_app_container
+    container = get_app_container()
+    if container is not None:
+        return container.value_system
+    return None
 
 
 __all__ = [

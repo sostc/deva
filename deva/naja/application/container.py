@@ -66,6 +66,7 @@ class AppContainer:
         self._insight_pool = None
         self._insight_engine = None
         self._cognition_engine = None
+        self._llm_reflection_engine = None
         
         # Bandit 模块组件
         self._bandit_optimizer = None
@@ -203,6 +204,30 @@ class AppContainer:
             # 9. 事件订阅装配（必需）
             self._event_registrar = self._create_event_registrar()
             self._event_registrar.register_all()
+
+            # 10. 装配 SignalExecutor 依赖
+            try:
+                from ..attention.orchestration.signal_executor import get_signal_executor
+                executor = get_signal_executor()
+                executor.set_insight_pool(self.insight_pool)
+            except Exception as e:
+                log.warning(f"[AppContainer] SignalExecutor 依赖注入失败: {e}")
+
+            # 11. 装配 StateQuerier 依赖
+            try:
+                from ..attention.orchestration.state_querier import get_state_querier
+                querier = get_state_querier()
+                querier.set_trading_clock(self._trading_clock)
+            except Exception as e:
+                log.warning(f"[AppContainer] StateQuerier 依赖注入失败: {e}")
+
+            # 12. 装配 CognitionIngestion 依赖
+            try:
+                from ..cognition.ingestion import get_cognition_ingestion
+                ingestion = get_cognition_ingestion()
+                ingestion.set_insight_pool(self.insight_pool)
+            except Exception as e:
+                log.warning(f"[AppContainer] CognitionIngestion 依赖注入失败: {e}")
             
             # 10. 启动调度器（延迟加载，只启动核心调度器）
             # self._start_schedulers()
@@ -268,7 +293,7 @@ class AppContainer:
                     name, mgr = future.result()
                     counts[name] = len(mgr._items)
                 except Exception as e:
-                    log.warning(f"[AppContainer] 初始化 {name} 失败: {e}")
+                    log.warning(f"[AppContainer] 初始化任务管理器失败: {e}")
 
         StartupTimer.end("持久化管理器初始化")
         self._load_counts = counts
@@ -736,6 +761,7 @@ def execute() -> dict:
         
         # 显式依赖注入
         attention_os = AttentionOS(insight_pool=self._insight_pool)
+        attention_os.set_trading_clock(self._trading_clock)
         
         return attention_os
 
@@ -786,6 +812,17 @@ def execute() -> dict:
         )
         
         return insight_engine
+
+    def _create_llm_reflection_engine(self):
+        """创建 LLMReflectionEngine（显式依赖注入）"""
+        from ..cognition.insight.llm_reflection import LLMReflectionEngine
+        
+        engine = LLMReflectionEngine()
+        engine.set_cognition_engine(self.cognition_engine)
+        engine.set_insight_pool(self._insight_pool)
+        
+        return engine
+
     
     def _create_cognition_engine(self):
         """创建 CognitionEngine"""
@@ -964,6 +1001,15 @@ def execute() -> dict:
             self._cognition_engine = self._create_cognition_engine()
             log.info("[AppContainer] CognitionEngine 懒加载完成")
         return self._cognition_engine
+
+    @property
+    def llm_reflection_engine(self):
+        """获取 LLMReflectionEngine（懒加载）"""
+        if self._llm_reflection_engine is None:
+            self._assemble_core_components()
+            self._llm_reflection_engine = self._create_llm_reflection_engine()
+            log.info("[AppContainer] LLMReflectionEngine 懒加载完成")
+        return self._llm_reflection_engine
 
     @property
     def bandit_optimizer(self):

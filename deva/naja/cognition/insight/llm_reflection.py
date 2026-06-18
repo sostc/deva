@@ -26,7 +26,6 @@ from typing import Any, Dict, List, Optional
 from deva import NB, log
 
 from ...config import get_llm_config
-from ...infra.registry.singleton_registry import SR
 
 
 LLM_REFLECTION_TABLE = "naja_llm_reflections"
@@ -139,6 +138,14 @@ class LLMReflectionEngine:
             self._subscribe_trading_clock()
 
         self._initialized = True
+
+    def set_cognition_engine(self, engine) -> None:
+        """显式设置 CognitionEngine（依赖注入）"""
+        self._cognition_engine = engine
+
+    def set_insight_pool(self, pool) -> None:
+        """显式设置 InsightPool（依赖注入）"""
+        self._insight_pool = pool
 
     def _subscribe_trading_clock(self) -> None:
         """订阅交易时钟，收盘后延迟触发反思"""
@@ -1632,5 +1639,9 @@ _llm_reflection_lock = threading.Lock()
 
 
 def get_llm_reflection_engine() -> LLMReflectionEngine:
-    from deva.naja.register import SR
-    return SR('llm_reflection_engine')
+    """获取 LLM 反思引擎单例"""
+    from deva.naja.application import get_app_container
+    container = get_app_container()
+    if container is not None:
+        return container.llm_reflection_engine
+    return None

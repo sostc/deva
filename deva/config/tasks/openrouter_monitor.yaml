@@ -1,0 +1,30 @@
+config:
+  cron_expr: 0 9 * * 1
+  event_condition: ''
+  event_condition_type: contains
+  event_source: log
+  execution_mode: scheduler
+  interval_seconds: 60.0
+  run_at: ''
+  scheduler_trigger: cron
+  task_type: scheduler
+func_code: "\nimport logging\nimport asyncio\nlog = logging.getLogger(__name__)\n\ndef execute() -> dict:\n    \"\"\"OpenRouter\
+  \ AI 算力 TOKEN 消耗趋势监控（每周执行）\"\"\"\n    try:\n        from deva.naja.cognition.openrouter_monitor import (\n            refresh_openrouter_data,\n\
+  \            get_ai_compute_trend,\n        )\n        \n        loop = asyncio.new_event_loop()\n        asyncio.set_event_loop(loop)\n\
+  \        try:\n            result = loop.run_until_complete(refresh_openrouter_data())\n        finally:\n            loop.close()\n\
+  \        \n        if result:\n            trend = get_ai_compute_trend()\n            return {\n                \"success\"\
+  : True,\n                \"trend_direction\": trend.get(\"trend_direction\") if trend else \"unknown\",\n              \
+  \  \"alert_level\": result.get(\"alert_level\", \"normal\"),\n                \"message\": result.get(\"message\", \"\"\
+  ),\n                \"data_weeks\": result.get(\"data_weeks\", 0),\n            }\n        else:\n            return {\"\
+  success\": False, \"message\": \"数据获取失败\"}\n    except Exception as e:\n        log.error(f\"[OpenRouter] 执行失败: {e}\")\n\
+  \        return {\"success\": False, \"error\": str(e)}\n"
+metadata:
+  created_at: 1776808843.819905
+  description: OpenRouter AI 算力 TOKEN 消耗趋势监控（每周分析全球 AI 算力需求变化）
+  id: b3a9d15487fb
+  name: openrouter_monitor
+  tags:
+  - openrouter
+  - ai_compute
+  - weekly
+  updated_at: 1776808843.819906

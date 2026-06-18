@@ -211,5 +211,8 @@ class CognitionEngine:
 
 # 向后兼容别名
 def get_memory_engine():
-    from deva.naja.register import SR
-    return SR('cognition_engine')
+    from deva.naja.application import get_app_container
+    container = get_app_container()
+    if container is not None:
+        return container.cognition_engine
+    return None

@@ -90,6 +90,18 @@ def render_quick_links_panel(ctx: dict):
                 </a>
                 <div style="color: #aaa; font-size: 11px; margin-top: 8px;">连接芯片</div>
             </div>
+
+            <div style="text-align: center;">
+                <a href="http://secsay.com/CRS报税攻略.html" target="_blank" style="text-decoration: none;">
+                    <div style="width: 75px; height: 75px; background: linear-gradient(135deg, #f97316 0%, #fb923c 100%); border-radius: 50%; display: flex; align-items: center; justify-content: center; box-shadow: 0 5px 18px rgba(249,115,22,0.35); cursor: pointer;">
+                        <div>
+                            <div style="font-size: 22px;">📋</div>
+                            <div style="color: #fff; font-size: 10px; font-weight: 600;">CRS</div>
+                        </div>
+                    </div>
+                </a>
+                <div style="color: #aaa; font-size: 11px; margin-top: 8px;">报税攻略</div>
+            </div>
         </div>
     </div>
     ''')

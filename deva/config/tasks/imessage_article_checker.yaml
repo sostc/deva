@@ -1,0 +1,26 @@
+config:
+  cron_expr: '*/5 * * * *'
+  event_condition: ''
+  event_condition_type: contains
+  event_source: log
+  execution_mode: timer
+  interval_seconds: 60.0
+  run_at: ''
+  scheduler_trigger: interval
+  task_type: interval
+func_code: "\nfrom deva import log\nfrom datetime import datetime\n\ndef check_and_process():\n    from deva.naja.knowledge.article_link_processor\
+  \ import process_imessage_articles\n    return process_imessage_articles()\n\ndef execute():\n    \"\"\"\n    定时任务入口：检查iMessage中的新文章链接\n\
+  \n    这个函数会被任务调度器定期调用\n    \"\"\"\n    log.info(\"[iMessage_Article_Check] 开始检查iMessage文章...\")\n\n    try:\n        result\
+  \ = check_and_process()\n\n        messages_checked = result.get(\"messages_checked\", 0)\n        urls_processed = result.get(\"\
+  urls_processed\", 0)\n\n        log.info(f\"[iMessage_Article_Check] 完成: 检查{messages_checked}条消息, 处理{urls_processed}个链接\"\
+  )\n\n        return {\n            \"success\": True,\n            \"messages_checked\": messages_checked,\n           \
+  \ \"urls_processed\": urls_processed,\n            \"timestamp\": datetime.now().isoformat()\n        }\n\n    except Exception\
+  \ as e:\n        log.error(f\"[iMessage_Article_Check] 检查失败: {e}\")\n        return {\n            \"success\": False,\n\
+  \            \"error\": str(e),\n            \"timestamp\": datetime.now().isoformat()\n        }\n"
+metadata:
+  created_at: 1775220818.401547
+  description: iMessage文章检查 - 每5分钟检查并学习收到的文章链接
+  id: 637f2310f286
+  name: imessage_article_checker
+  tags: []
+  updated_at: 1775220818.401547
