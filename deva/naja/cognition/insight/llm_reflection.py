@@ -133,6 +133,9 @@ class LLMReflectionEngine:
         self._thread: Optional[threading.Thread] = None
         self._stop_event = threading.Event()
 
+        self._cognition_engine = None  # 显式依赖注入
+        self._insight_pool = None     # 显式依赖注入
+
         if self._enabled:
             self._start_timer_thread()
             self._subscribe_trading_clock()
@@ -146,6 +149,22 @@ class LLMReflectionEngine:
     def set_insight_pool(self, pool) -> None:
         """显式设置 InsightPool（依赖注入）"""
         self._insight_pool = pool
+
+    @property
+    def _ce(self):
+        """获取 CognitionEngine（注入优先，SR fallback 仅开发用）"""
+        if self._cognition_engine is not None:
+            return self._cognition_engine
+        from deva.naja.register import SR
+        return SR('cognition_engine')
+
+    @property
+    def _ip(self):
+        """获取 InsightPool（注入优先，SR fallback 仅开发用）"""
+        if self._insight_pool is not None:
+            return self._insight_pool
+        from deva.naja.register import SR
+        return SR('insight_pool')
 
     def _subscribe_trading_clock(self) -> None:
         """订阅交易时钟，收盘后延迟触发反思"""
@@ -564,7 +583,7 @@ _反思生成时间: {datetime.fromtimestamp(reflection.ts).strftime('%Y-%m-%d %
     def _emit_liquidity_signal(self, now_ts: float) -> None:
         """将流动性结构作为独立信号推送到 InsightPool"""
         try:
-            engine = SR('cognition_engine')
+            engine = self._ce
             tracker = engine._news_mind.narrative_tracker
             if not tracker:
                 return
@@ -602,7 +621,7 @@ _反思生成时间: {datetime.fromtimestamp(reflection.ts).strftime('%Y-%m-%d %
                 },
             }
 
-            pool = SR('insight_pool')
+            pool = self._ip
             pool.ingest_hotspot_event(signal_data)
         except Exception as e:
             import logging
@@ -678,7 +697,7 @@ _反思生成时间: {datetime.fromtimestamp(reflection.ts).strftime('%Y-%m-%d %
     def _generate_market_analysis(self) -> bool:
         """生成市场分析"""
         try:
-            engine = SR('cognition_engine')
+            engine = self._ce
             if not engine:
                 return False
             tracker = engine._news_mind.narrative_tracker
@@ -692,7 +711,7 @@ _反思生成时间: {datetime.fromtimestamp(reflection.ts).strftime('%Y-%m-%d %
     def _collect_market_analysis_from_nt(self) -> List[Dict[str, Any]]:
         """从 NarrativeTracker 获取全市场深度分析结果"""
         try:
-            engine = SR('cognition_engine')
+            engine = self._ce
             tracker = engine._news_mind.narrative_tracker
             if not tracker:
                 return []
@@ -749,7 +768,7 @@ _反思生成时间: {datetime.fromtimestamp(reflection.ts).strftime('%Y-%m-%d %
     def _collect_narrative_signals(self) -> List[Dict[str, Any]]:
         """从 NarrativeTracker 获取叙事信号"""
         try:
-            engine = SR('cognition_engine')
+            engine = self._ce
             report = engine.get_memory_report()
             narratives = report.get("narratives", {})
             summary = narratives.get("summary", [])
@@ -794,7 +813,7 @@ _反思生成时间: {datetime.fromtimestamp(reflection.ts).strftime('%Y-%m-%d %
     def _collect_tiandao_minxin_signals(self) -> List[Dict[str, Any]]:
         """从 NarrativeTracker 获取天道/民心信号 - '遵循天道，驾驭民心'"""
         try:
-            engine = SR('cognition_engine')
+            engine = self._ce
             tracker = engine._news_mind.narrative_tracker
             if not tracker:
                 return []
@@ -1149,7 +1168,7 @@ _反思生成时间: {datetime.fromtimestamp(reflection.ts).strftime('%Y-%m-%d %
         """收集叙事数据，包含趋势和阶段信息"""
 
         try:
-            engine = SR('cognition_engine')
+            engine = self._ce
             report = engine.get_memory_report()
             narratives = report.get("narratives", {})
             summary = narratives.get("summary", [])
@@ -1583,7 +1602,7 @@ _反思生成时间: {datetime.fromtimestamp(reflection.ts).strftime('%Y-%m-%d %
         log = logging.getLogger(__name__)
 
         try:
-            pool = SR('insight_pool')
+            pool = self._ip
             insight_data = {
                 "theme": reflection.theme,
                 "summary": reflection.summary,

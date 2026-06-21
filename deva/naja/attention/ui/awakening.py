@@ -16,6 +16,30 @@ from typing import Dict, Any, List
 LOW = "LOW"
 
 
+def _get_query_state():
+    """获取 QueryState（AppContainer 优先，SR fallback 仅开发用）"""
+    from deva.naja.application.container import get_app_container
+    container = get_app_container()
+    if container is not None:
+        qs = getattr(container, 'query_state', None)
+        if qs is not None:
+            return qs
+    from deva.naja.register import SR
+    return SR('query_state')
+
+
+def _get_cognition_engine():
+    """获取 CognitionEngine（AppContainer 优先，SR fallback 仅开发用）"""
+    from deva.naja.application.container import get_app_container
+    container = get_app_container()
+    if container is not None:
+        ce = getattr(container, 'cognition_engine', None)
+        if ce is not None:
+            return ce
+    from deva.naja.register import SR
+    return SR('cognition_engine')
+
+
 def render_awakening_status() -> str:
     """渲染觉醒系统完整状态"""
     manas_state = _get_manas_state()
@@ -199,9 +223,7 @@ def _get_event_encoder_state(kernel) -> Dict[str, Any]:
     """获取事件编码器状态"""
     total_encoded = 0
     try:
-        # 从QueryState获取市场历史数据来计算事件数量
-        from deva.naja.register import SR
-        qs = SR('query_state')
+        qs = _get_query_state()
         if qs and hasattr(qs, '_market_history'):
             market_history = qs._market_history
             total_encoded = len(market_history.get('symbols', []))
@@ -227,9 +249,8 @@ def _get_attention_memory_state(kernel) -> Dict[str, Any]:
         "avg_score": 0.0
     }
     try:
-        from deva.naja.infra.registry.singleton_registry import SR
         # 尝试从注册中心获取CognitionEngine实例
-        cognition_engine = SR('cognition_engine')
+        cognition_engine = _get_cognition_engine()
         if cognition_engine and hasattr(cognition_engine, '_news_mind'):
             news_mind = cognition_engine._news_mind
             if news_mind and hasattr(news_mind, 'memory'):
@@ -309,9 +330,8 @@ def _get_multi_scorer_state(kernel) -> Dict[str, Any]:
             # 从QueryState获取市场数据来创建模拟事件
             events = []
             try:
-                from deva.naja.register import SR
                 from deva.naja.attention.kernel.event import AttentionEvent
-                qs = SR('query_state')
+                qs = _get_query_state()
                 if qs and hasattr(qs, '_market_history'):
                     market_history = qs._market_history
                     symbols = market_history.get('symbols', [])
@@ -422,7 +442,7 @@ def _get_query_state() -> Dict[str, Any]:
         # 尝试从注册中心获取
         try:
             log.info(f"[AwakeningUI] 尝试从SR获取query_state...")
-            qs = SR('query_state')
+            qs = _get_query_state()
             if qs:
                 summary = qs.get_summary()
                 log.info(f"[AwakeningUI] 从SR获取QueryState成功: 市场状态={summary['market_regime']}, 关注焦点={summary['top_attention']}")

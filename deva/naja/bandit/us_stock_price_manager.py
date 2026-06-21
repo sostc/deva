@@ -16,7 +16,6 @@ from typing import Dict, List, Optional, Any, Set
 from dataclasses import dataclass, asdict
 
 from deva import NB
-from deva.naja.register import SR
 
 log = logging.getLogger(__name__)
 
@@ -50,6 +49,11 @@ class USStockPriceManager:
         self._last_update_time: float = 0.0
         self._initialized = False
         self._price_db: Optional[NB] = None
+        self._market_session_manager = None  # 显式依赖注入
+
+    def set_market_session_manager(self, mgr) -> None:
+        """显式设置 MarketSessionManager（依赖注入）"""
+        self._market_session_manager = mgr
 
     def _get_price_db(self) -> NB:
         """获取价格数据库（延迟初始化）"""
@@ -60,7 +64,7 @@ class USStockPriceManager:
     def is_market_open(self) -> bool:
         """检查美股是否开盘（只考虑 trading 阶段）"""
         try:
-            mgr = SR('market_session_manager')
+            mgr = self._market_session_manager or SR('market_session_manager')
             phase = mgr.get_us_trading_phase()
             is_open = phase == "trading"
             log.debug(f"[PriceManager] 美股阶段: {phase}, 开盘: {is_open}")
@@ -72,7 +76,8 @@ class USStockPriceManager:
     def _get_market_phase(self) -> str:
         """获取美股市场阶段"""
         try:
-            mgr = SR('market_session_manager')
+            from deva.naja.register import SR
+            mgr = self._market_session_manager or SR('market_session_manager')
             return mgr.get_us_trading_phase()
         except:
             return "unknown"

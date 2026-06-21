@@ -60,6 +60,8 @@ class VirtualPosition:
     
     @property
     def holding_seconds(self) -> float:
+        # dataclass 无法依赖注入，保留 SR() fallback
+        from deva.naja.register import SR
         market_time = SR('market_time_service').get_market_time()
         return market_time - self.entry_time
 
@@ -79,6 +81,7 @@ class VirtualPortfolio:
         self.account_name = account_name
         self._positions: Dict[str, VirtualPosition] = {}
         self._lock = threading.RLock()
+        self._market_time_service = None  # 显式依赖注入
 
         self._db = NB(UNIFIED_POSITIONS_TABLE)
 
@@ -92,6 +95,18 @@ class VirtualPortfolio:
 
         self._load_positions()
 
+    def set_market_time_service(self, service) -> None:
+        """显式设置 MarketTimeService（依赖注入）"""
+        self._market_time_service = service
+    
+    @property
+    def _mts(self):
+        """获取 MarketTimeService（注入优先，SR fallback 仅开发用）"""
+        if self._market_time_service is not None:
+            return self._market_time_service
+        from deva.naja.register import SR
+        return SR('market_time_service')
+    
     def _load_positions(self):
         """从统一数据库加载持仓"""
         try:
@@ -216,7 +231,7 @@ class VirtualPortfolio:
             
             position_id = f"VP_{stock_code}_{int(time.time() * 1000)}"
 
-            mts = SR('market_time_service')
+            mts = self._mts
             entry_time = mts.get_market_time()
             current_market_time = mts.get_market_time()
 
@@ -269,7 +284,7 @@ class VirtualPortfolio:
             for pos_id, position in matching_positions:
                 old_price = position.current_price
                 position.current_price = current_price
-                position.last_update_time = SR('market_time_service').get_market_time()
+                position.last_update_time = self._mts.get_market_time()
 
                 log.debug(f"[VirtualPortfolio] 💰 更新持仓 {pos_id}: {stock_code} {old_price} -> {current_price}")
                 
@@ -318,7 +333,7 @@ class VirtualPortfolio:
             position.current_price = exit_price
             position.status = "CLOSED"
 
-            exit_time = SR('market_time_service').get_market_time()
+            exit_time = self._mts.get_market_time()
             if exit_time < position.entry_time:
                 log.warning(f"[VirtualPortfolio] 平仓时间倒置检测: exit_time({exit_time:.0f}) < entry_time({position.entry_time:.0f})，使用 entry_time + 1")
                 exit_time = position.entry_time + 1

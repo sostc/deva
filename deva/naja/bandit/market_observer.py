@@ -39,6 +39,8 @@ class MarketDataObserver:
 
     def __init__(self):
         self._running = False
+        self._replay_scheduler = None  # 显式依赖注入
+        self._trading_clock = None     # 显式依赖注入
 
         self._db = NB(MARKET_DATA_CONFIG_TABLE)
 
@@ -72,26 +74,38 @@ class MarketDataObserver:
 
         self._load_config()
 
-    def _load_config(self):
-        """加载配置"""
-        import os
-        log.debug(f"[MarketObserver] _load_config 被调用")
+    def set_replay_scheduler(self, scheduler) -> None:
+        """显式设置 ReplayScheduler（依赖注入）"""
+        self._replay_scheduler = scheduler
+    
+    def set_trading_clock(self, clock) -> None:
+        """显式设置 TradingClock（依赖注入）"""
+        self._trading_clock = clock
+    
+    def _get_replay_scheduler(self):
+        """获取已注册的 ReplayScheduler；该模块已下线时返回 None。"""
+        if self._replay_scheduler is not None:
+            return self._replay_scheduler
         try:
-            config = self._db.get("observer_config")
-            if config:
-                tracked_stocks = config.get("tracked_stocks", [])
-                if tracked_stocks:
-                    self._tracked_stocks = set(tracked_stocks)
-                    log.debug(f"[MarketObserver] 已恢复 {len(tracked_stocks)} 个跟踪股票")
-                was_running = config.get("was_running", False)
-                if was_running:
-                    self._running = True
-                    log.debug("[MarketObserver] 上次运行中，将自动恢复")
-            # 始终加载自选股（无论是否 LAB 模式）
-            self._load_watchlist_stocks()
+            from ..register import SR
+            return SR('replay_scheduler')
         except Exception as e:
-            self._errors["config_load"] += 1
-            log.warning(f"[MarketObserver] 配置加载失败 (累计{self._errors['config_load']}次): {e}")
+            log.debug(f"[MarketObserver] ReplayScheduler 不可用: {e}")
+            return None
+    
+    def _init_phase_from_trading_clock(self):
+        """从 TradingClock 初始化当前 phase，避免错过初始信号"""
+        if self._trading_clock is not None:
+            tc = self._trading_clock
+        else:
+            try:
+                from ..register import SR
+                tc = SR('trading_clock')
+            except Exception as e:
+                log.warning(f"[MarketObserver] 无法从 TradingClock 获取 phase: {e}")
+                return
+        self._current_phase = tc.us_phase
+        log.debug(f"[MarketObserver] 从 TradingClock 初始化 phase={self._current_phase}")
 
     def _load_watchlist_stocks(self):
         """从 NB 数据库加载自选股"""
@@ -164,15 +178,6 @@ class MarketDataObserver:
         except Exception as e:
             log.debug(f"[MarketObserver] 获取实验模式信息失败: {e}")
             return {"active": False}
-
-    def _get_replay_scheduler(self):
-        """获取已注册的 ReplayScheduler；该模块已下线时返回 None。"""
-        try:
-            from ..register import SR
-            return SR('replay_scheduler')
-        except Exception as e:
-            log.debug(f"[MarketObserver] ReplayScheduler 不可用: {e}")
-            return None
 
     def _get_active_datasource_id(self) -> str:
         """获取当前活跃的数据源ID"""
@@ -752,16 +757,6 @@ class MarketDataObserver:
         self._start_fetch_loop()
         self._save_config()
         log.debug("[MarketObserver] 已启动")
-
-    def _init_phase_from_trading_clock(self):
-        """从 TradingClock 初始化当前 phase，避免错过初始信号"""
-        try:
-            from ..register import SR
-            tc = SR('trading_clock')
-            self._current_phase = tc.us_phase
-            log.debug(f"[MarketObserver] 从 TradingClock 初始化 phase={self._current_phase}")
-        except Exception as e:
-            log.warning(f"[MarketObserver] 无法从 TradingClock 获取 phase: {e}")
 
     def _on_trading_clock_signal(self, signal: Dict[str, Any]):
         """处理交易时钟信号"""

@@ -12,6 +12,42 @@ from deva import NB
 _auto_refresh_enabled = True
 
 
+def _get_adaptive_cycle():
+    """获取 AdaptiveCycle（AppContainer 优先，SR fallback 仅开发用）"""
+    from deva.naja.application.container import get_app_container
+    container = get_app_container()
+    if container is not None:
+        cycle = getattr(container, 'adaptive_cycle', None)
+        if cycle is not None:
+            return cycle
+    from deva.naja.register import SR
+    return SR('adaptive_cycle')
+
+
+def _get_virtual_portfolio():
+    """获取 VirtualPortfolio（AppContainer 优先，SR fallback 仅开发用）"""
+    from deva.naja.application.container import get_app_container
+    container = get_app_container()
+    if container is not None:
+        vp = getattr(container, 'virtual_portfolio', None)
+        if vp is not None:
+            return vp
+    from deva.naja.register import SR
+    return SR('virtual_portfolio')
+
+
+def _get_signal_listener():
+    """获取 SignalListener（AppContainer 优先，SR fallback 仅开发用）"""
+    from deva.naja.application.container import get_app_container
+    container = get_app_container()
+    if container is not None:
+        listener = getattr(container, 'signal_listener', None)
+        if listener is not None:
+            return listener
+    from deva.naja.register import SR
+    return SR('signal_listener')
+
+
 def _render_four_dimensions_panel() -> str:
     """渲染四维决策框架状态面板"""
     try:
@@ -234,10 +270,10 @@ async def render_bandit_admin(ctx: dict):
         get_market_observer,
     )
     
-    cycle = SR('adaptive_cycle')
+    cycle = _get_adaptive_cycle()
     optimizer = get_bandit_optimizer()
-    portfolio = SR('virtual_portfolio')
-    listener = SR('signal_listener')
+    portfolio = _get_virtual_portfolio()
+    listener = _get_signal_listener()
     observer = get_market_observer()
     
     status = cycle.get_status()
