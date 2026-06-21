@@ -10,11 +10,22 @@
 
 from typing import Dict, List, Any, Optional
 import time
-from deva.naja.register import SR
 
 _cached_module_status = None
 _cached_module_status_time = 0
 _cache_ttl = 2.0
+
+
+def _get_signal_listener():
+    """获取 SignalListener（AppContainer 优先，SR fallback 仅开发用）"""
+    from deva.naja.application.container import get_app_container
+    container = get_app_container()
+    if container is not None:
+        sl = getattr(container, 'signal_listener', None)
+        if sl is not None:
+            return sl
+    from deva.naja.register import SR
+    return SR('signal_listener')
 
 
 def _fmt_ts(ts: float) -> str:
@@ -265,7 +276,7 @@ def get_all_module_status() -> List[Dict]:
     try:
         from deva.naja.bandit.market_observer import get_market_observer
 
-        listener = SR('signal_listener')
+        listener = _get_signal_listener()
         if listener:
             modules.append({
                 'id': 'signal_listener',

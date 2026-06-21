@@ -18,9 +18,25 @@ import logging
 import threading
 import time
 from typing import Any, Dict, List, Optional
-from deva.naja.register import SR
 
 _loop_audit_log_stage = None
+_bandit_runner: Optional[BanditAutoRunner] = None
+
+
+def get_bandit_runner() -> BanditAutoRunner:
+    """获取 BanditAutoRunner 单例"""
+    global _bandit_runner
+    if _bandit_runner is None:
+        from deva.naja.application.container import get_app_container
+        container = get_app_container()
+        if container is not None:
+            _bandit_runner = container.bandit_runner
+        else:
+            # fallback: 兼容非 AppContainer 启动
+            from .runner import BanditAutoRunner
+            _bandit_runner = BanditAutoRunner()
+    return _bandit_runner
+
 
 def _get_audit():
     global _loop_audit_log_stage
@@ -491,7 +507,7 @@ def ensure_bandit_auto_runner(
     Returns:
         BanditAutoRunner: 运行器实例
     """
-    runner = SR('bandit_runner')
+    runner = get_bandit_runner()
 
     runner.set_select_interval(select_interval)
     runner.set_adjust_interval(adjust_interval)

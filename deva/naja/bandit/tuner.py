@@ -140,9 +140,22 @@ class BanditTuner:
 
         self._portfolio = None
         self._tracker = None
+        self._signal_listener = None  # 显式依赖注入
 
         self._realtime_taste = None
         self._init_realtime_taste()
+
+    def set_portfolio(self, portfolio) -> None:
+        """显式设置 VirtualPortfolio（依赖注入）"""
+        self._portfolio = portfolio
+    
+    def set_tracker(self, tracker) -> None:
+        """显式设置 BanditTracker（依赖注入）"""
+        self._tracker = tracker
+    
+    def set_signal_listener(self, listener) -> None:
+        """显式设置 SignalListener（依赖注入）"""
+        self._signal_listener = listener
 
         self._initialized = True
 
@@ -177,8 +190,11 @@ class BanditTuner:
     def _init_portfolio(self):
         """初始化虚拟持仓组合"""
         try:
-            self._portfolio = SR('virtual_portfolio')
-            self._tracker = SR('bandit_tracker')
+            from deva.naja.register import SR
+            if self._portfolio is None:
+                self._portfolio = SR('virtual_portfolio')
+            if self._tracker is None:
+                self._tracker = SR('bandit_tracker')
 
             def on_tuner_position_closed(position_id: str, position, reason: str):
                 if self._tracker and self._running:
@@ -229,7 +245,7 @@ class BanditTuner:
     def _apply_confidence_threshold(self, threshold: float):
         """应用置信度阈值到信号监听器"""
         try:
-            listener = SR('signal_listener')
+            listener = self._signal_listener or SR('signal_listener')
             if listener:
                 listener._min_confidence = threshold
                 log.info(f"[BanditTuner] 调整 min_confidence -> {threshold}")
@@ -487,5 +503,15 @@ _tuner_lock = threading.Lock()
 
 
 def get_bandit_tuner() -> BanditTuner:
-    from deva.naja.register import SR
-    return SR('bandit_tuner')
+    """获取 BanditTuner 单例"""
+    global _tuner
+    if _tuner is None:
+        from deva.naja.application.container import get_app_container
+        container = get_app_container()
+        if container is not None:
+            _tuner = container.bandit_tuner
+    if _tuner is None:
+        # fallback: 懒创建
+        from .tuner import BanditTuner
+        _tuner = BanditTuner()
+    return _tuner

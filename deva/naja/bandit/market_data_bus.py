@@ -619,5 +619,5 @@ class MarketDataBus:
 
 
 def get_market_data_bus() -> MarketDataBus:
-    from deva.naja.register import SR
-    return SR('market_data_bus')
+    """获取 MarketDataBus 单例（已使用 __new__ 单例模式）"""
+    return MarketDataBus()

@@ -48,17 +48,15 @@ class AdaptiveCycle:
         
         self._db = NB(ADAPTIVE_CONFIG_TABLE)
         
-        # 使用依赖注入，如果没有提供则使用 SR()
-        from deva.naja.register import SR
         from .market_observer import get_market_observer
         from .optimizer import get_bandit_optimizer
-        
-        self._signal_listener = signal_listener or SR('signal_listener')
-        self._portfolio = portfolio or SR('virtual_portfolio')
+        # 显式注入：AppContainer 传入全部依赖，此处 fallback 仅用于开发/单测
+        self._signal_listener = signal_listener or self._get_signal_listener_fallback()
+        self._portfolio = portfolio or self._get_portfolio_fallback()
         self._market_observer = market_observer or get_market_observer()
         self._optimizer = optimizer or get_bandit_optimizer()
-        self._tracker = tracker or SR('bandit_tracker')
-        self._runner = runner or SR('bandit_runner')
+        self._tracker = tracker or self._get_tracker_fallback()
+        self._runner = runner or self._get_runner_fallback()
         
         self._auto_start = True
         self._auto_buy_enabled = True
@@ -75,6 +73,23 @@ class AdaptiveCycle:
 
         if self._running:
             self._restore_running_state()
+    
+    def _get_signal_listener_fallback(self):
+        """SR() fallback 仅用于开发/单测"""
+        from deva.naja.register import SR
+        return SR('signal_listener')
+    
+    def _get_portfolio_fallback(self):
+        from deva.naja.register import SR
+        return SR('virtual_portfolio')
+    
+    def _get_tracker_fallback(self):
+        from deva.naja.register import SR
+        return SR('bandit_tracker')
+    
+    def _get_runner_fallback(self):
+        from deva.naja.register import SR
+        return SR('bandit_runner')
     
     def _restore_running_state(self):
         """恢复运行状态，重新追踪已持仓的股票"""

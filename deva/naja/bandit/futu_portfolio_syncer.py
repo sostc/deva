@@ -333,7 +333,8 @@ class FutuPortfolioSyncer:
         nb.persist()  # 持久化数据
 
         try:
-            pm = SR("portfolio_manager")
+            from .portfolio_manager import get_portfolio_manager
+            pm = get_portfolio_manager()
             if pm:
                 account = pm.register_futu_account(self.account_name)
                 if account:

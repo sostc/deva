@@ -3,13 +3,24 @@ Event Bus 组件
 """
 
 from deva.naja.infra.ui.ui_style import format_timestamp
-from deva.naja.register import SR
+
+
+def _get_insight_pool():
+    """获取 InsightPool（AppContainer 优先，SR fallback 仅开发用）"""
+    from deva.naja.application.container import get_app_container
+    container = get_app_container()
+    if container is not None:
+        ip = getattr(container, 'insight_pool', None)
+        if ip is not None:
+            return ip
+    from deva.naja.register import SR
+    return SR('insight_pool')
 
 
 def _fetch_insight_data():
     """统一获取 insight 数据，供 event_bus 自行计算 source_counts"""
     try:
-        insight_pool = SR('insight_pool')
+        insight_pool = _get_insight_pool()
         if not insight_pool:
             return {}, {}, []
         insights = insight_pool.get_recent_insights(limit=100)

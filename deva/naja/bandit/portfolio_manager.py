@@ -31,7 +31,6 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Callable
 
 from deva import NB
-from deva.naja.register import SR
 
 log = logging.getLogger(__name__)
 
@@ -550,11 +549,10 @@ def init_us_portfolios():
 
     使用 USStockPriceManager 智能获取价格（根据市场状态）
     """
-    from deva.naja.register import SR
     try:
-        pm = SR('portfolio_manager')
-    except KeyError:
         pm = get_portfolio_manager()
+    except RuntimeError:
+        pm = None
     config = _load_portfolio_config()
     log.info(f"[init_us_portfolios] pm={type(pm).__name__} config={'有' if config else '无'}")
 

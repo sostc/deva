@@ -32,11 +32,22 @@ from deva.naja.register import SR
 log = logging.getLogger(__name__)
 
 
+def _get_cognition_engine():
+    """获取 CognitionEngine（AppContainer 优先，SR fallback 仅开发用）"""
+    from deva.naja.application.container import get_app_container
+    container = get_app_container()
+    if container is not None:
+        ce = getattr(container, 'cognition_engine', None)
+        if ce is not None:
+            return ce
+    return SR('cognition_engine')
+
+
 class CognitionUI:
     """认知系统 UI"""
 
     def __init__(self):
-        self.engine = SR('cognition_engine')
+        self.engine = _get_cognition_engine()
 
     def _put_html(self, html: str):
         put_html(html)
