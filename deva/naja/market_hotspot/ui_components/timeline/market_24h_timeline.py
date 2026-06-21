@@ -8,12 +8,62 @@
 """
 
 from datetime import datetime, timedelta
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 import re
+import threading
+import asyncio
+import time
 
 import logging
 
 log = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# 统一的金十要闻数据源：进程级别互斥 + 结果缓存
+#
+# 背景：之前多处调用方（Tray 预加载线程、多个 API Handler、事件总线查询）
+# 都直接调用 fetch_important_news_playwright()，每次都会启动一个完整的
+# Chromium 进程。在并发调用下会导致 16+ 个浏览器主进程、200+ 子进程
+# 堆积。这里实现:
+#   1) 同一时刻只有一个协程/线程可以进入"启动浏览器"阶段（_jin10_lock）
+#   2) 成功结果 + 失败标记 都缓存 180s（_JIN10_CACHE_TTL）
+#   3) 若上一次启动失败，接下来 60s 内不再尝试启动浏览器，直接返回空列表
+# ---------------------------------------------------------------------------
+
+_JIN10_CACHE_TTL: float = 180.0
+_JIN10_BACKOFF_AFTER_FAIL: float = 60.0
+_jin10_lock = threading.Lock()
+_jin10_cache: Optional[List[Dict[str, Any]]] = None
+_jin10_cache_ts: float = 0.0
+_jin10_last_fail_ts: float = 0.0
+
+
+def _jin10_cached_fresh() -> bool:
+    return (
+        _jin10_cache is not None
+        and (time.time() - _jin10_cache_ts) < _JIN10_CACHE_TTL
+    )
+
+
+def _jin10_in_backoff() -> bool:
+    return (time.time() - _jin10_last_fail_ts) < _JIN10_BACKOFF_AFTER_FAIL
+
+
+def _jin10_force_fresh_news(items: List[Dict[str, Any]]) -> None:
+    """
+    其他模块（如 wake_sync_handlers）若已经拿到最新数据，可主动写入缓存，
+    让 API/Tray 端直接复用，避免重复启动浏览器。
+    """
+    global _jin10_cache, _jin10_cache_ts
+    _jin10_cache = list(items)
+    _jin10_cache_ts = time.time()
+
+
+def _jin10_current_cached_or_none() -> Optional[List[Dict[str, Any]]]:
+    """对外只读访问当前缓存（若未过期），供 menu_bar_tray 等使用"""
+    if _jin10_cached_fresh():
+        return _jin10_cache
+    return None
 
 # 事件类型样式
 EVENT_TYPES = {
@@ -421,16 +471,22 @@ def _get_high_score_news() -> List[Dict[str, Any]]:
         return []
 
 
-def _get_jin10_important_news() -> List[Dict[str, Any]]:
-    """获取金十重要新闻（优先从服务器同步，失败回退本地）"""
-    news_list = []
-    today_start = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0).timestamp()
-    
+def _try_jin10_non_playwright_sources(
+    today_start: float,
+) -> List[Dict[str, Any]]:
+    """
+    尝试所有"无需启动浏览器"的数据源（服务器同步/事件总线/本地文件）。
+    返回空列表表示：这些数据源都没有可用数据，调用方自行决定是否回退。
+    """
+    news_list: List[Dict[str, Any]] = []
+
     # 1. 优先从服务器同步的数据获取
     try:
-        from deva.naja.state.system.server_sync_handler import get_jin10_news_from_server_or_local
+        from deva.naja.state.system.server_sync_handler import (
+            get_jin10_news_from_server_or_local,
+        )
+
         server_news = get_jin10_news_from_server_or_local(hours=24)
-        
         if server_news:
             for news in server_news:
                 try:
@@ -438,8 +494,6 @@ def _get_jin10_important_news() -> List[Dict[str, Any]]:
                     flash_id = news.get('flash_id', '')
                     url = news.get('url', '')
                     ts = news.get('timestamp', 0)
-                    
-                    # 只保留今日新闻
                     if ts >= today_start:
                         news_list.append({
                             'type': 'jin10_news',
@@ -447,74 +501,67 @@ def _get_jin10_important_news() -> List[Dict[str, Any]]:
                             'block_name': _clean_news_title(title),
                             'score': 0.85,
                             'flash_id': flash_id,
-                            'url': url or (f"https://www.jin10.com/news/{flash_id}" if flash_id else ""),
+                            'url': url or (
+                                f"https://www.jin10.com/news/{flash_id}" if flash_id else ""
+                            ),
                         })
                 except Exception:
                     continue
-            
             if news_list:
                 news_list.sort(key=lambda x: x['timestamp'], reverse=True)
                 log.debug(f"[Timeline] 从服务器获取金十要闻: {len(news_list)} 条")
                 return news_list[:10]
     except Exception as e:
-        log.warning(f"[Timeline] 从服务器获取金十失败，回退本地: {e}")
-    
+        log.warning(f"[Timeline] 从服务器获取金十失败: {e}")
+
     # 2. 回退：从事件总线获取
     try:
         from deva.naja.events import get_event_bus
         from deva.naja.events.text_events import TextFetchedEvent
+
         bus = get_event_bus()
         recent_events = bus.get_event_history('TextFetchedEvent', max_count=100)
-        
         for event in recent_events:
             if isinstance(event, TextFetchedEvent) and event.source == "jin10_important":
                 title = event.title
                 flash_id = getattr(event, 'flash_id', '')
                 url = getattr(event, 'url', '')
-                news_list.append({
-                    'type': 'jin10_news',
-                    'timestamp': event.timestamp,
-                    'block_name': _clean_news_title(title),
-                    'score': 0.85,
-                    'flash_id': flash_id,
-                    'url': url,
-                })
-        
-        # 过滤今日新闻
-        news_list = [n for n in news_list if n['timestamp'] >= today_start]
-        
+                if event.timestamp >= today_start:
+                    news_list.append({
+                        'type': 'jin10_news',
+                        'timestamp': event.timestamp,
+                        'block_name': _clean_news_title(title),
+                        'score': 0.85,
+                        'flash_id': flash_id,
+                        'url': url,
+                    })
         if news_list:
             news_list.sort(key=lambda x: x['timestamp'], reverse=True)
             log.debug(f"[Timeline] 从事件总线获取金十要闻: {len(news_list)} 条")
             return news_list[:10]
     except Exception:
         pass
-    
+
     # 3. 回退：从文件缓存获取（但要验证日期）
     try:
         import os
         import json
+
         cache_file = os.path.expanduser("~/.naja/jin10_news.json")
         if os.path.exists(cache_file):
             with open(cache_file, 'r') as f:
                 cached_news = json.load(f)
-            
+
             for news in cached_news:
                 try:
                     display_time = news.get('display_time', '')
                     title = news.get('title', '')
                     flash_id = news.get('flash_id', '')
-                    
-                    # 解析时间
-                    if display_time:
-                        dt = datetime.strptime(display_time, "%Y-%m-%d %H:%M:%S")
-                        ts = dt.timestamp()
-                    else:
+                    if not display_time:
                         continue
-                    
+                    dt = datetime.strptime(display_time, "%Y-%m-%d %H:%M:%S")
+                    ts = dt.timestamp()
                     url = f"https://www.jin10.com/news/{flash_id}" if flash_id else ""
-                    
-                    # 只保留今日新闻
                     if ts >= today_start:
                         news_list.append({
                             'type': 'jin10_news',
@@ -526,80 +573,139 @@ def _get_jin10_important_news() -> List[Dict[str, Any]]:
                         })
                 except Exception:
                     continue
-            
+
             if news_list:
                 news_list.sort(key=lambda x: x['timestamp'], reverse=True)
                 log.debug(f"[Timeline] 从文件缓存获取金十要闻: {len(news_list)} 条")
                 return news_list[:10]
     except Exception:
         pass
-    
-    # 3. 最后回退：使用 Playwright 实时采集
+
+    return []
+
+
+def _fetch_jin10_via_playwright(today_start: float) -> List[Dict[str, Any]]:
+    """
+    启动一次 Chromium，抓取金十重要事件。
+    **只允许一个线程/协程进入此函数**（外部已加锁）。
+    """
+    result: List[Dict[str, Any]] = []
+
+    async def fetch_live():
+        from deva.naja.datasource.plugins.jin10_fetcher import (
+            fetch_important_news_playwright,
+        )
+        return await fetch_important_news_playwright(
+            headless=True,
+            timeout_ms=15000,
+            extra_wait=3.0,
+        )
+
     try:
-        import asyncio
-        
-        async def fetch_live():
-            from deva.naja.datasource.plugins.jin10_fetcher import fetch_important_news_playwright
-            return await fetch_important_news_playwright(
-                headless=True,
-                timeout_ms=15000,
-                extra_wait=3.0
-            )
-        
-        # 使用 asyncio.run() 安全地运行协程（Python 3.7+）
+        log.info("[Timeline] 启动 Playwright 抓取金十要闻（全进程互斥）")
         live_news = asyncio.run(fetch_live())
-        
-        if live_news:
-            for news in live_news:
-                try:
-                    if news.display_time:
-                        dt = datetime.strptime(news.display_time, "%Y-%m-%d %H:%M:%S")
-                        ts = dt.timestamp()
-                    else:
-                        ts = datetime.now().timestamp()
-                    
-                    flash_id = getattr(news, 'flash_id', '')
-                    url = f"https://www.jin10.com/news/{flash_id}" if flash_id else ""
-                    
-                    news_list.append({
-                        'type': 'jin10_news',
-                        'timestamp': ts,
-                        'block_name': _clean_news_title(news.title),
-                        'score': 0.85,
-                        'flash_id': flash_id,
-                        'url': url,
-                    })
-                except Exception:
-                    continue
-            
-            if news_list:
-                news_list.sort(key=lambda x: x['timestamp'], reverse=True)
-                return news_list[:10]
-    except Exception:
-        pass
-    
-    # 4. 最后的备用方案：当所有方法都失败时，提供一些示例新闻数据
-    now = datetime.now()
-    example_news = [
-        ("全球主要股指涨跌互现，投资者关注经济数据", now - timedelta(hours=1)),
-        ("多国央行释放政策信号，市场波动加剧", now - timedelta(hours=2)),
-        ("重要经济指标公布，通胀数据超出预期", now - timedelta(hours=4)),
-        ("科技股板块领涨，龙头企业股价创新高", now - timedelta(hours=6)),
-        ("地缘政治局势持续，避险资产受到青睐", now - timedelta(hours=8)),
-        ("大宗商品价格波动，能源与贵金属走势分化", now - timedelta(hours=10)),
-    ]
-    
-    for i, (title, time_obj) in enumerate(example_news):
-        news_list.append({
-            'type': 'jin10_news',
-            'timestamp': time_obj.timestamp(),
-            'block_name': title,
-            'score': 0.8,
-            'flash_id': f"example_{i}",
-            'url': "",
-        })
-    
-    return news_list
+    except Exception as e:
+        log.warning(f"[Timeline] Playwright 抓取失败: {e}")
+        return []
+
+    if not live_news:
+        return []
+
+    for news in live_news:
+        try:
+            if getattr(news, 'display_time', None):
+                dt = datetime.strptime(news.display_time, "%Y-%m-%d %H:%M:%S")
+                ts = dt.timestamp()
+            else:
+                ts = datetime.now().timestamp()
+
+            flash_id = getattr(news, 'flash_id', '')
+            url = f"https://www.jin10.com/news/{flash_id}" if flash_id else ""
+            title = getattr(news, 'title', '') or ''
+
+            result.append({
+                'type': 'jin10_news',
+                'timestamp': ts,
+                'block_name': _clean_news_title(title),
+                'score': 0.85,
+                'flash_id': flash_id,
+                'url': url,
+            })
+        except Exception:
+            continue
+
+    result.sort(key=lambda x: x['timestamp'], reverse=True)
+    return result[:10]
+
+
+def _get_jin10_important_news() -> List[Dict[str, Any]]:
+    """
+    获取金十重要新闻（统一入口：优先同步数据，失败才回退本地/Playwright）。
+
+    关键限制：
+    - 成功结果缓存 180s（_JIN10_CACHE_TTL）
+    - 若 Playwright 抓取失败，接下 60s 不再启动浏览器
+    - 启动浏览器时使用进程级别锁，避免 16+ 个 Chromium 进程同时启动
+    """
+    global _jin10_cache, _jin10_cache_ts, _jin10_last_fail_ts
+
+    # 1) 优先命中缓存
+    if _jin10_cached_fresh():
+        return list(_jin10_cache) if _jin10_cache else []
+
+    today_start = (
+        datetime.now().replace(hour=0, minute=0, second=0, microsecond=0).timestamp()
+    )
+
+    # 2) 优先尝试"非浏览器"数据源
+    non_playwright = _try_jin10_non_playwright_sources(today_start)
+    if non_playwright:
+        # 非浏览器来源也缓存起来（短 TTL 即可）
+        _jin10_force_fresh_news(non_playwright)
+        return non_playwright
+
+    # 3) 最后回退：Playwright 实时采集（全进程互斥）
+    #    再次检查：可能有其他线程已在我们之前获取到了
+    if _jin10_cached_fresh():
+        return list(_jin10_cache) if _jin10_cache else []
+
+    if _jin10_in_backoff():
+        log.debug(
+            "[Timeline] 金十要闻: 上一次 Playwright 失败，回退期内不再启动浏览器"
+        )
+        return []
+
+    acquired = _jin10_lock.acquire(blocking=False)
+    if not acquired:
+        # 已经有其他线程在启动浏览器，直接使用它不久后更新的缓存，或上一次缓存
+        log.debug(
+            "[Timeline] 金十要闻: 已有其他线程在启动浏览器，本次直接复用缓存或放弃"
+        )
+        if _jin10_cache is not None:
+            return list(_jin10_cache)
+        return []
+
+    try:
+        # 双重检查：等待期间缓存可能已被更新
+        if _jin10_cached_fresh():
+            return list(_jin10_cache) if _jin10_cache else []
+
+        fetched = _fetch_jin10_via_playwright(today_start)
+        if fetched:
+            _jin10_force_fresh_news(fetched)
+            return fetched
+        else:
+            _jin10_last_fail_ts = time.time()  # noqa: F841
+            # 失败也写一个空缓存 60s，避免短时间重试
+            _jin10_cache = []
+            _jin10_cache_ts = time.time()
+            return []
+    finally:
+        _jin10_lock.release()
+
+
+# 公开别名（供其他模块显式调用）
+get_jin10_important_news = _get_jin10_important_news
 
 
 def _is_trading_day() -> bool:
