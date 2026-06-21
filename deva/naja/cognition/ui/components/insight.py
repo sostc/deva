@@ -4,7 +4,30 @@ Insight 组件
 
 import time
 from deva.naja.infra.ui.ui_style import format_timestamp
-from deva.naja.register import SR
+
+
+def _get_insight_engine():
+    """获取 InsightEngine（AppContainer 优先，SR fallback 仅开发用）"""
+    from deva.naja.application.container import get_app_container
+    container = get_app_container()
+    if container is not None:
+        ie = getattr(container, 'insight_engine', None)
+        if ie is not None:
+            return ie
+    from deva.naja.register import SR
+    return SR('insight_engine')
+
+
+def _get_insight_pool():
+    """获取 InsightPool（AppContainer 优先，SR fallback 仅开发用）"""
+    from deva.naja.application.container import get_app_container
+    container = get_app_container()
+    if container is not None:
+        ip = getattr(container, 'insight_pool', None)
+        if ip is not None:
+            return ip
+    from deva.naja.register import SR
+    return SR('insight_pool')
 
 
 def _get_stock_display_info(code: str) -> str:
@@ -42,8 +65,8 @@ def render_insight(ui):
 
     from ....cognition.insight import get_llm_reflection_engine
 
-    insight_engine = SR('insight_engine')
-    insight_pool = SR('insight_pool')
+    insight_engine = _get_insight_engine()
+    insight_pool = _get_insight_pool()
     llm_reflection = get_llm_reflection_engine()
     llm_stats = llm_reflection.get_stats()
     recent_reflections = llm_reflection.get_recent_reflections(limit=5)

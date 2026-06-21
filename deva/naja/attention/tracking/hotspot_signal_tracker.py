@@ -21,9 +21,20 @@ from typing import Any, Dict, List, Optional, Callable
 from collections import deque
 
 from deva import NB
-from deva.naja.register import SR
 
 log = logging.getLogger(__name__)
+
+
+def _get_position_monitor():
+    """获取 PositionMonitor（AppContainer 优先，SR fallback 仅开发用）"""
+    from deva.naja.application.container import get_app_container
+    container = get_app_container()
+    if container is not None:
+        pm = getattr(container, 'position_monitor', None)
+        if pm is not None:
+            return pm
+    return SR('position_monitor')
+
 
 POSITION_TRACKER_TABLE = "naja_hotspot_signal_tracker"
 
@@ -326,7 +337,7 @@ class HotspotSignalTracker:
     def _add_to_position_monitor(self, symbol: str, entry_price: float, entry_time: float):
         """将 symbol 添加到 PositionMonitor"""
         try:
-            pm = SR('position_monitor')
+            pm = _get_position_monitor()
             if pm is not None:
                 pm.track_position(symbol, entry_price, entry_time)
         except Exception:

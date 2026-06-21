@@ -3,7 +3,18 @@ Control Panel 组件
 """
 
 from pywebio.output import put_html
-from deva.naja.register import SR
+
+
+def _get_insight_pool():
+    """获取 InsightPool（AppContainer 优先，SR fallback 仅开发用）"""
+    from deva.naja.application.container import get_app_container
+    container = get_app_container()
+    if container is not None:
+        ip = getattr(container, 'insight_pool', None)
+        if ip is not None:
+            return ip
+    from deva.naja.register import SR
+    return SR('insight_pool')
 
 
 def render_control_panel(ui):
@@ -11,7 +22,7 @@ def render_control_panel(ui):
     from ....market_hotspot.intelligence.feedback_report import get_feedback_report_generator
 
     llm_engine = get_llm_reflection_engine()
-    pool = SR('insight_pool')
+    pool = _get_insight_pool()
     feedback_reporter = get_feedback_report_generator()
 
     stats = llm_engine.get_stats()

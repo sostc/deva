@@ -3,7 +3,30 @@ Cognition Summary 组件
 """
 
 from typing import Dict
-from deva.naja.register import SR
+
+
+def _get_insight_engine():
+    """获取 InsightEngine（AppContainer 优先，SR fallback 仅开发用）"""
+    from deva.naja.application.container import get_app_container
+    container = get_app_container()
+    if container is not None:
+        ie = getattr(container, 'insight_engine', None)
+        if ie is not None:
+            return ie
+    from deva.naja.register import SR
+    return SR('insight_engine')
+
+
+def _get_insight_pool():
+    """获取 InsightPool（AppContainer 优先，SR fallback 仅开发用）"""
+    from deva.naja.application.container import get_app_container
+    container = get_app_container()
+    if container is not None:
+        ip = getattr(container, 'insight_pool', None)
+        if ip is not None:
+            return ip
+    from deva.naja.register import SR
+    return SR('insight_pool')
 
 
 def render_cognition_summary(ui):
@@ -19,8 +42,8 @@ def render_cognition_summary(ui):
     global_attention = float(attention_report.get("global_hotspot", 0))
     activity = float(attention_report.get("activity", 0))
 
-    insight_engine = SR('insight_engine')
-    insight_pool = SR('insight_pool')
+    insight_engine = _get_insight_engine()
+    insight_pool = _get_insight_pool()
     insight_summary = insight_engine.get_summary() if insight_engine else {}
     insight_stats = insight_pool.get_stats() if insight_pool else {"total_insights": 0}
 

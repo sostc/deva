@@ -21,7 +21,6 @@ from deva.naja.radar.trading_clock import (
     TRADING_CLOCK_STREAM,
     is_trading_time as is_trading_time_clock,
 )
-from deva.naja.register import SR
 
 log = logging.getLogger(__name__)
 
@@ -591,7 +590,7 @@ def get_report_generator(
 
 def start_report_generator():
     """启动报告生成器"""
-    generator = SR('report_generator')
+    generator = get_report_generator()
     generator.start()
     return generator
 

@@ -11,7 +11,18 @@ from ..tracker import get_narrative_tracker, NarrativeTracker
 from ..supply_chain_linker import get_supply_chain_linker, NarrativeSupplyChainLinker
 from .lifecycle import render_narrative_lifecycle
 from .svg import render_narrative_svg
-from deva.naja.register import SR
+
+
+def _get_cognition_engine():
+    """获取 CognitionEngine（AppContainer 优先，SR fallback 仅开发用）"""
+    from deva.naja.application.container import get_app_container
+    container = get_app_container()
+    if container is not None:
+        ce = getattr(container, 'cognition_engine', None)
+        if ce is not None:
+            return ce
+    from deva.naja.register import SR
+    return SR('cognition_engine')
 
 try:
     from deva.naja.cognition.ui import get_running_cognition_engine
@@ -287,5 +298,5 @@ async def render_narrative_lifecycle_page(ctx: dict):
         def _render_narrative_svg(self, nodes, edges):
             return render_narrative_svg(nodes, edges)
 
-    fake_ui = _FakeUI(ctx, SR('cognition_engine'))
+    fake_ui = _FakeUI(ctx, _get_cognition_engine())
     render_narrative_lifecycle(fake_ui)

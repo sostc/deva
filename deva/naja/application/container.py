@@ -78,7 +78,13 @@ class AppContainer:
         
         # Radar 模块组件
         self._radar_engine = None
-        
+
+        # Infra 组件（懒加载）
+        self._task_manager = None
+        self._system_state_manager = None
+        self._dictionary_manager = None
+        self._attention_integration = None
+
         # 初始化标记
         self._components_assembled = False
 
@@ -143,24 +149,23 @@ class AppContainer:
             self._load_persistent_managers()
             StartupTimer.end("加载持久化管理器")
 
-            StartupTimer.start("获取基础组件")
-            self._trading_clock = SR('trading_clock')
-            self._virtual_portfolio = SR('virtual_portfolio')
-            self._value_system = SR('value_system')
-            StartupTimer.end("获取基础组件")
+            StartupTimer.start("创建基础组件")
+            self._trading_clock = self._create_trading_clock()
+            self._virtual_portfolio = self._create_virtual_portfolio()
+            self._virtual_portfolio.set_market_time_service(self._trading_clock)
+            self._value_system = self._create_value_system()
+            StartupTimer.end("创建基础组件")
 
             StartupTimer.start("创建 AttentionOS")
-            from ..attention.os.attention_os import AttentionOS
-            self._attention_os = AttentionOS()
+            self._attention_os = self._create_attention_os()
             StartupTimer.end("创建 AttentionOS")
 
-            StartupTimer.start("获取 Kernel 层组件")
-            # 3. 获取 kernel 层组件（必需）
-            self._query_state = SR('query_state')
-            self._query_state_updater = SR('query_state_updater')
-            self._manas_manager = SR('manas_manager')
+            StartupTimer.start("创建 Kernel 层组件")
+            self._query_state = self._create_query_state()
+            self._query_state_updater = self._create_query_state_updater()
+            self._manas_manager = self._create_manas_manager()
             self._manas_engine = self._manas_manager.get_manas_engine()
-            StartupTimer.end("获取 Kernel 层组件")
+            StartupTimer.end("创建 Kernel 层组件")
 
             # 基础组件就绪后立即标记，防止 property 递归
             self._components_assembled = True
@@ -254,7 +259,7 @@ class AppContainer:
 
         def _init_dict():
             StartupTimer.start("字典管理器初始化")
-            dict_mgr = SR('dictionary_manager')
+            dict_mgr = self.dictionary_manager
             dict_mgr._ensure_initialized()
             StartupTimer.end("字典管理器初始化")
             return ("dictionary", dict_mgr)
@@ -268,7 +273,7 @@ class AppContainer:
 
         def _init_task():
             StartupTimer.start("任务管理器初始化")
-            task_mgr = SR('task_manager')
+            task_mgr = self.task_manager
             task_mgr._ensure_initialized()
             StartupTimer.end("任务管理器初始化")
             return ("task", task_mgr)
@@ -349,7 +354,7 @@ class AppContainer:
                 try:
                     StartupTimer.start("后台初始化 attention_integration")
                     log.info("[AppContainer] 后台初始化: attention_integration")
-                    attention_integration = SR('attention_integration')
+                    attention_integration = self.attention_integration
                     attention_integration.ensure_initialized()
                     StartupTimer.end("后台初始化 attention_integration")
                     log.info("[AppContainer] attention_integration 初始化完成")
@@ -399,7 +404,7 @@ class AppContainer:
     def _register_ai_daily_report_task(self):
         """注册 AI 技术简报定时任务"""
         try:
-            task_mgr = SR('task_manager')
+            task_mgr = self.task_manager
             existing = task_mgr.get_by_name("ai_daily_report")
             if not existing:
                 func_code = '''
@@ -438,7 +443,7 @@ def execute() -> dict:
     def _register_knowledge_injector_task(self):
         """注册 AI 知识库注入与验证定时任务"""
         try:
-            task_mgr = SR('task_manager')
+            task_mgr = self.task_manager
             existing = task_mgr.get_by_name("knowledge_injector")
             if not existing:
                 func_code = '''
@@ -502,7 +507,7 @@ def execute() -> dict:
     def _register_openrouter_monitor_task(self):
         """注册 OpenRouter AI 算力趋势监控定时任务"""
         try:
-            task_mgr = SR('task_manager')
+            task_mgr = self.task_manager
             existing = task_mgr.get_by_name("openrouter_monitor")
             if not existing:
                 func_code = '''
@@ -562,7 +567,7 @@ def execute() -> dict:
     def _start_merrill_clock_task(self):
         """启动美林时钟定时任务"""
         try:
-            task_mgr = SR('task_manager')
+            task_mgr = self.task_manager
             
             existing = task_mgr.get_by_name("merrill_clock_update")
             if not existing:
@@ -648,7 +653,7 @@ def execute() -> dict:
     def _start_heartbeat_task(self):
         """启动系统心跳任务"""
         try:
-            task_mgr = SR('task_manager')
+            task_mgr = self.task_manager
 
             heartbeat_code = '''
 import logging
@@ -701,7 +706,7 @@ def execute() -> dict:
         try:
             from .wake_orchestrator import get_wake_orchestrator
 
-            state_mgr = SR('system_state_manager')
+            state_mgr = self.system_state_manager
 
             orchestrator = get_wake_orchestrator()
             result = orchestrator.wake()
@@ -759,8 +764,8 @@ def execute() -> dict:
         """创建 AttentionOS（显式依赖）"""
         from ..attention.os.attention_os import AttentionOS
         
-        # 显式依赖注入
-        attention_os = AttentionOS(insight_pool=self._insight_pool)
+        # 显式依赖注入（通过 property 懒加载依赖）
+        attention_os = AttentionOS(insight_pool=self.insight_pool)
         attention_os.set_trading_clock(self._trading_clock)
         
         return attention_os
@@ -781,7 +786,7 @@ def execute() -> dict:
         manas_engine = ManasEngine(
             session_manager=self._trading_clock,
             portfolio=self._virtual_portfolio,
-            bandit_tracker=self._bandit_tracker
+            bandit_tracker=self.bandit_tracker
         )
         
         return manas_engine
@@ -793,7 +798,7 @@ def execute() -> dict:
         manas_manager = ManasManager(
             trading_clock=self._trading_clock,
             virtual_portfolio=self._virtual_portfolio,
-            bandit_tracker=self._bandit_tracker
+            bandit_tracker=self.bandit_tracker
         )
         
         return manas_manager
@@ -808,7 +813,7 @@ def execute() -> dict:
         from ..cognition.insight.engine import InsightEngine
         
         insight_engine = InsightEngine(
-            insight_pool=self._insight_pool
+            insight_pool=self.insight_pool
         )
         
         return insight_engine
@@ -819,7 +824,7 @@ def execute() -> dict:
         
         engine = LLMReflectionEngine()
         engine.set_cognition_engine(self.cognition_engine)
-        engine.set_insight_pool(self._insight_pool)
+        engine.set_insight_pool(self.insight_pool)
         
         return engine
 
@@ -842,7 +847,7 @@ def execute() -> dict:
         from .event_registrar import EventSubscriberRegistrar
         return EventSubscriberRegistrar(
             attention_os=self._attention_os,
-            trading_center=self._trading_center,
+            trading_center=self.trading_center,
         )
     
     def _create_bandit_optimizer(self):
@@ -871,16 +876,17 @@ def execute() -> dict:
         
         tracker = BanditPositionTracker(
             market_time_service=self._trading_clock,
-            bandit_optimizer=self._bandit_optimizer
+            bandit_optimizer=self.bandit_optimizer
         )
         
         return tracker
     
     def _create_market_observer(self):
-        """创建 MarketDataObserver"""
+        """创建 MarketDataObserver（显式依赖注入）"""
         from ..bandit.market_observer import MarketDataObserver
         
         observer = MarketDataObserver()
+        observer.set_trading_clock(self._trading_clock)
         
         return observer
     
@@ -905,20 +911,75 @@ def execute() -> dict:
         from ..bandit.adaptive_cycle import AdaptiveCycle
         
         cycle = AdaptiveCycle(
-            signal_listener=self._signal_listener,
+            signal_listener=self.signal_listener,
             portfolio=self._virtual_portfolio,
-            market_observer=self._market_observer,
-            optimizer=self._bandit_optimizer,
-            tracker=self._bandit_tracker,
-            runner=self._bandit_runner
+            market_observer=self.market_observer,
+            optimizer=self.bandit_optimizer,
+            tracker=self.bandit_tracker,
+            runner=self.bandit_runner
         )
         
         return cycle
+
+    def _create_task_manager(self):
+        """创建 TaskManager"""
+        from ..tasks import TaskManager
+        task_mgr = TaskManager()
+        task_mgr._ensure_initialized()
+        return task_mgr
+
+    def _create_system_state_manager(self):
+        """创建 SystemStateManager"""
+        from ..state.system.system_state import SystemStateManager
+        return SystemStateManager()
+
+    def _create_dictionary_manager(self):
+        """创建 DictionaryManager"""
+        from ..dictionary import DictionaryManager
+        dict_mgr = DictionaryManager()
+        dict_mgr._ensure_initialized()
+        return dict_mgr
+
+    def _create_attention_integration(self):
+        """创建 AttentionIntegration（MarketHotspotIntegration）"""
+        from ..market_hotspot.integration.market_hotspot_integration import MarketHotspotIntegration
+        from ..market_hotspot.integration.market_hotspot_config import load_config
+        integration = MarketHotspotIntegration()
+        integration._deferred_init_config = load_config()
+        return integration
 
     @property
     def attention_os(self):
         """获取 AttentionOS"""
         return self._attention_os
+
+    @property
+    def task_manager(self):
+        """获取 TaskManager（懒加载）"""
+        if self._task_manager is None:
+            self._task_manager = self._create_task_manager()
+        return self._task_manager
+
+    @property
+    def system_state_manager(self):
+        """获取 SystemStateManager（懒加载）"""
+        if self._system_state_manager is None:
+            self._system_state_manager = self._create_system_state_manager()
+        return self._system_state_manager
+
+    @property
+    def dictionary_manager(self):
+        """获取 DictionaryManager（懒加载）"""
+        if self._dictionary_manager is None:
+            self._dictionary_manager = self._create_dictionary_manager()
+        return self._dictionary_manager
+
+    @property
+    def attention_integration(self):
+        """获取 AttentionIntegration（懒加载）"""
+        if self._attention_integration is None:
+            self._attention_integration = self._create_attention_integration()
+        return self._attention_integration
 
     @property
     def trading_center(self):
@@ -1091,7 +1152,7 @@ def execute() -> dict:
 
         # === 恢复定时任务运行状态 ===
         try:
-            task_mgr = SR('task_manager')
+            task_mgr = self.task_manager
             task_mgr._ensure_initialized()
             result = task_mgr.restore_running_states()
             restored = result.get("restored_count", 0)
