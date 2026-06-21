@@ -845,11 +845,68 @@ class Jin10LiveNewsWakeSync:
                         )
                     except Exception as fetch_e:
                         log.warning(f"[WakeSync] Jin10LiveNews: 抓取失败 - {fetch_e}")
+                        # 标记失败：让统一数据源进入 60s 回退期，
+                        # 避免 API 端在短时间内再次启动浏览器。
+                        try:
+                            from deva.naja.market_hotspot.ui_components.timeline import (
+                                market_24h_timeline as _jin10_mod,
+                            )
+                            import time as _time
+                            _jin10_mod._jin10_last_fail_ts = _time.time()
+                            _jin10_mod._jin10_cache = []
+                            _jin10_mod._jin10_cache_ts = _time.time()
+                        except Exception:
+                            pass
                         return 0
 
                     if not news_list:
                         log.warning("[WakeSync] Jin10LiveNews: 未获取到重要事件")
+                        try:
+                            from deva.naja.market_hotspot.ui_components.timeline import (
+                                market_24h_timeline as _jin10_mod,
+                            )
+                            import time as _time
+                            _jin10_mod._jin10_cache = []
+                            _jin10_mod._jin10_cache_ts = _time.time()
+                        except Exception:
+                            pass
                         return 0
+
+                    # 把抓到的数据写回 timeline 统一缓存，
+                    # 这样 API/Tray 端就不会再重复启动浏览器。
+                    try:
+                        from datetime import datetime as _dt
+                        from deva.naja.market_hotspot.ui_components.timeline import (
+                            market_24h_timeline as _jin10_mod,
+                        )
+
+                        unified_items = []
+                        for news in news_list:
+                            try:
+                                display_time = getattr(news, 'display_time', None)
+                                if display_time:
+                                    ts = _dt.strptime(display_time, "%Y-%m-%d %H:%M:%S").timestamp()
+                                else:
+                                    ts = time.time()
+                                title = getattr(news, 'title', '') or ''
+                                flash_id = getattr(news, 'flash_id', '') or ''
+                                url = (
+                                    f"https://www.jin10.com/news/{flash_id}" if flash_id else ""
+                                )
+                                unified_items.append({
+                                    'type': 'jin10_news',
+                                    'timestamp': ts,
+                                    'block_name': title,
+                                    'score': 0.85,
+                                    'flash_id': flash_id,
+                                    'url': url,
+                                })
+                            except Exception:
+                                continue
+                        unified_items.sort(key=lambda x: x['timestamp'], reverse=True)
+                        _jin10_mod._jin10_force_fresh_news(unified_items[:10])
+                    except Exception as cache_e:
+                        log.debug(f"[WakeSync] Jin10LiveNews: 写回缓存失败 - {cache_e}")
 
                     published = 0
                     pushed = 0
