@@ -104,6 +104,10 @@ class AppContainer:
         self._assemble_core_components()
         StartupTimer.end("装配核心组件")
 
+        StartupTimer.start("将容器组件注册到单例注册表")
+        self._register_container_components_as_singletons()
+        StartupTimer.end("将容器组件注册到单例注册表")
+
         StartupTimer.start("恢复运行状态")
         self.restore_runtime_state()
         StartupTimer.end("恢复运行状态")
@@ -133,9 +137,71 @@ class AppContainer:
         log.info(StartupTimer.get_report())
 
     def _register_singletons(self):
-        """注册所有单例（来自旧的 Bootstrap 路径）"""
+        """注册声明式单例（来自 register.py 的 SIMPLE_SINGLETONS + 自定义工厂）。
+
+        此步骤只做"工厂函数注册"，不实例化任何对象。核心组件的实例由
+        AppContainer 自己创建（_assemble_core_components），之后在
+        _register_container_components_as_singletons 中把 container 已经
+        创建好的对象"覆盖注册"到 SingletonRegistry，从而让新旧代码都
+        访问同一份实例。
+        """
         from ..register import register_all_singletons
         register_all_singletons()
+
+    def _register_container_components_as_singletons(self):
+        """将 AppContainer 自己创建好的核心组件注册到 SingletonRegistry。
+
+        这样无论调用方是用 container.xxx 还是 SR('xxx')，都是访问同一份实例。
+        """
+        from ..infra.registry.singleton_registry import register_singleton
+
+        # 收集所有已实例化的核心组件（包括 property 懒加载触发后的）
+        components = {
+            # ── 基础组件 ──
+            "trading_clock": self._trading_clock,
+            "market_time_service": self._trading_clock,  # 别名：旧代码可能用这个名
+            "virtual_portfolio": self._virtual_portfolio,
+            "value_system": self._value_system,
+            # ── Attention Kernel / OS ──
+            "attention_os": self._attention_os,
+            "query_state": self._query_state,
+            "query_state_updater": self._query_state_updater,
+            "manas_manager": self._manas_manager,
+            # ── 持久化管理器 ──
+            "dictionary_manager": self._dictionary_manager,
+            "task_manager": self._task_manager,
+            "system_state_manager": self._system_state_manager,
+            # ── 懒加载：如果 property 已访问（非 None）则注册；否则注册为懒加载工厂
+            "attention_integration": self._attention_integration,
+            "trading_center": self._trading_center,
+            "insight_pool": self._insight_pool,
+            "insight_engine": self._insight_engine,
+            "cognition_engine": self._cognition_engine,
+            "llm_reflection_engine": self._llm_reflection_engine,
+            "radar_engine": self._radar_engine,
+            "bandit_optimizer": self._bandit_optimizer,
+            "portfolio_manager": self._portfolio_manager,
+            "bandit_tracker": self._bandit_tracker,
+            "market_observer": self._market_observer,
+            "signal_listener": self._signal_listener,
+            "bandit_runner": self._bandit_runner,
+            "adaptive_cycle": self._adaptive_cycle,
+        }
+
+        container_ref = self
+        for name, instance in components.items():
+            if instance is not None:
+                # 已初始化：直接返回实例（用 default 参数避免闭包变量问题）
+                register_singleton(name, lambda _i=instance: _i)
+            else:
+                # 未初始化：用 property 做懒加载
+                register_singleton(
+                    name,
+                    lambda _n=name, _c=container_ref: getattr(_c, _n, None),
+                )
+
+        # 把 AppContainer 自己也注册成 'app_container' 单例
+        register_singleton("app_container", lambda: self)
 
     def _assemble_core_components(self) -> None:
         """装配核心组件（显式依赖注入）"""
@@ -780,27 +846,59 @@ def execute() -> dict:
         return trading_center
 
     def _create_manas_engine(self):
-        """创建 ManasEngine（显式依赖注入）"""
+        """创建 ManasEngine（显式依赖注入）
+
+        注意：使用 self._bandit_tracker 而不是 self.bandit_tracker property，
+        防止在 _assemble_core_components() 调用栈中递归。
+        """
         from ..attention.kernel.manas_engine import ManasEngine
-        
+
+        if self._bandit_tracker is None:
+            was_assembled = self._components_assembled
+            self._components_assembled = True
+            try:
+                if self._bandit_optimizer is None:
+                    self._bandit_optimizer = self._create_bandit_optimizer()
+                self._bandit_tracker = self._create_bandit_tracker()
+            finally:
+                self._components_assembled = was_assembled or self._components_assembled
+
         manas_engine = ManasEngine(
             session_manager=self._trading_clock,
             portfolio=self._virtual_portfolio,
-            bandit_tracker=self.bandit_tracker
+            bandit_tracker=self._bandit_tracker,
         )
-        
+
         return manas_engine
     
     def _create_manas_manager(self):
-        """创建 ManasManager（显式依赖注入）"""
+        """创建 ManasManager（显式依赖注入）
+
+        注意：此处必须用 self._bandit_tracker 直接属性访问，不能用
+        self.bandit_tracker property —— 因为 property 会触发
+        _assemble_core_components()，而当前可能正处于它的调用栈中，
+        会导致递归初始化。
+        """
         from ..attention.kernel.manas_manager import ManasManager
-        
+
+        # 若 _bandit_tracker 尚未初始化则先懒创建，但直接走 create 而不走 property
+        if self._bandit_tracker is None:
+            # 提前设置已装配标识，防止递归
+            was_assembled = self._components_assembled
+            self._components_assembled = True
+            try:
+                if self._bandit_optimizer is None:
+                    self._bandit_optimizer = self._create_bandit_optimizer()
+                self._bandit_tracker = self._create_bandit_tracker()
+            finally:
+                self._components_assembled = was_assembled or self._components_assembled
+
         manas_manager = ManasManager(
             trading_clock=self._trading_clock,
             virtual_portfolio=self._virtual_portfolio,
-            bandit_tracker=self.bandit_tracker
+            bandit_tracker=self._bandit_tracker,
         )
-        
+
         return manas_manager
     
     def _create_insight_pool(self):
