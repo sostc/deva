@@ -376,7 +376,10 @@ async def fetch_aibase_articles_list(
     from datetime import datetime, timedelta
 
     articles = []
+    browser = None
 
+    page = None
+    context = None
     try:
         async with async_playwright() as p:
             browser = await p.chromium.launch(headless=headless)
@@ -388,71 +391,90 @@ async def fetch_aibase_articles_list(
                 ),
                 viewport={"width": 1440, "height": 900},
             )
-            page = await context.new_page()
+            try:
+                page = await context.new_page()
+                log.info(f"正在获取 AIbase 日报列表 (最近{days_back}天)...")
+                await page.goto(
+                    "https://news.aibase.com/zh/daily",
+                    wait_until="domcontentloaded",
+                    timeout=timeout_ms,
+                )
+                await page.wait_for_load_state("networkidle", timeout=timeout_ms)
+                await async_lib.sleep(2)
 
-            log.info(f"正在获取 AIbase 日报列表 (最近{days_back}天)...")
-            await page.goto(
-                "https://news.aibase.com/zh/daily",
-                wait_until="domcontentloaded",
-                timeout=timeout_ms,
-            )
-            await page.wait_for_load_state("networkidle", timeout=timeout_ms)
-            await async_lib.sleep(2)
+                article_links = await page.query_selector_all('a[href*="/zh/daily/"]')
+                log.info(f"找到 {len(article_links)} 个文章链接")
 
-            article_links = await page.query_selector_all('a[href*="/zh/daily/"]')
-            log.info(f"找到 {len(article_links)} 个文章链接")
+                cutoff_date = datetime.now().date() - timedelta(days=days_back)
 
-            cutoff_date = datetime.now().date() - timedelta(days=days_back)
+                for link in article_links:
+                    try:
+                        href = await link.get_attribute("href")
+                        if not href or "/daily/" not in href:
+                            continue
 
-            for link in article_links:
-                try:
-                    href = await link.get_attribute("href")
-                    if not href or "/daily/" not in href:
+                        if not href.startswith("http"):
+                            href = f"https://news.aibase.com{href}"
+
+                        article_id = href.split("/")[-1]
+                        title = await link.text_content()
+                        title = title.strip() if title else ""
+
+                        page2 = await context.new_page()
+                        try:
+                            await page2.goto(href, wait_until="domcontentloaded", timeout=timeout_ms)
+                            await page2.wait_for_load_state("networkidle", timeout=timeout_ms)
+                            await async_lib.sleep(0.5)
+
+                            page_text = await page2.content()
+                            date_match = re.search(r'20\d{2}年(\d{1,2})月(\d{1,2})', page_text)
+                            if date_match:
+                                year = page_text[date_match.start():date_match.start()+4]
+                                month = date_match.group(1).zfill(2)
+                                day = date_match.group(2).zfill(2)
+                                publish_date = f"{year}-{month}-{day}"
+                                pub_date = datetime.strptime(publish_date, "%Y-%m-%d").date()
+
+                                if pub_date >= cutoff_date:
+                                    articles.append({
+                                        "article_id": article_id,
+                                        "title": title,
+                                        "url": href,
+                                        "publish_date": publish_date,
+                                    })
+                                    log.info(f"  [{publish_date}] {title[:40]}...")
+                        finally:
+                            await page2.close()
+
+                        if len(articles) >= days_back:
+                            break
+
+                    except Exception as e:
+                        log.warning(f"处理文章失败: {e}")
                         continue
-
-                    if not href.startswith("http"):
-                        href = f"https://news.aibase.com{href}"
-
-                    article_id = href.split("/")[-1]
-                    title = await link.text_content()
-                    title = title.strip() if title else ""
-
-                    page2 = await context.new_page()
-                    await page2.goto(href, wait_until="domcontentloaded", timeout=timeout_ms)
-                    await page2.wait_for_load_state("networkidle", timeout=timeout_ms)
-                    await async_lib.sleep(0.5)
-
-                    page_text = await page2.content()
-                    date_match = re.search(r'20\d{2}年(\d{1,2})月(\d{1,2})', page_text)
-                    if date_match:
-                        year = page_text[date_match.start():date_match.start()+4]
-                        month = date_match.group(1).zfill(2)
-                        day = date_match.group(2).zfill(2)
-                        publish_date = f"{year}-{month}-{day}"
-                        pub_date = datetime.strptime(publish_date, "%Y-%m-%d").date()
-
-                        if pub_date >= cutoff_date:
-                            articles.append({
-                                "article_id": article_id,
-                                "title": title,
-                                "url": href,
-                                "publish_date": publish_date,
-                            })
-                            log.info(f"  [{publish_date}] {title[:40]}...")
-
-                    await page2.close()
-
-                    if len(articles) >= days_back:
-                        break
-
-                except Exception as e:
-                    log.warning(f"处理文章失败: {e}")
-                    continue
-
-            await browser.close()
-
+            finally:
+                if page is not None:
+                    await page.close()
     except Exception as e:
         log.warning(f"获取文章列表失败: {e}")
+    finally:
+        if context is not None:
+            try:
+                await asyncio.wait_for(context.close(), timeout=10.0)
+            except asyncio.TimeoutError:
+                try:
+                    await context.close(force=True)
+                except Exception:
+                    pass
+        if browser is not None:
+            try:
+                await asyncio.wait_for(browser.close(), timeout=10.0)
+            except asyncio.TimeoutError:
+                log.warning("fetch_aibase_articles_list: browser.close() 超时，强制终止")
+                try:
+                    await browser.close(force=True)
+                except Exception:
+                    pass
 
     return articles
 
@@ -474,6 +496,11 @@ async def fetch_aibase_daily_playwright(
     import asyncio as async_lib
     from playwright.async_api import async_playwright
 
+    browser = None
+    result_data = {"success": False, "error": "未初始化"}
+
+    page = None
+    context = None
     try:
         async with async_playwright() as p:
             browser = await p.chromium.launch(headless=headless)
@@ -485,79 +512,100 @@ async def fetch_aibase_daily_playwright(
                 ),
                 viewport={"width": 1440, "height": 900},
             )
-            page = await context.new_page()
+            try:
+                page = await context.new_page()
+                log.info("正在打开 news.aibase.com/zh/daily ...")
+                await page.goto(
+                    "https://news.aibase.com/zh/daily",
+                    wait_until="domcontentloaded",
+                    timeout=timeout_ms,
+                )
 
-            log.info("正在打开 news.aibase.com/zh/daily ...")
-            await page.goto(
-                "https://news.aibase.com/zh/daily",
-                wait_until="domcontentloaded",
-                timeout=timeout_ms,
-            )
+                await page.wait_for_load_state("networkidle", timeout=timeout_ms)
+                await async_lib.sleep(2)
 
-            await page.wait_for_load_state("networkidle", timeout=timeout_ms)
-            await async_lib.sleep(2)
+                article_link = await page.query_selector('a[href*="/zh/daily/"]')
+                if not article_link:
+                    log.warning("未找到文章链接")
+                    result_data = {"success": False, "error": "未找到文章链接"}
+                    return result_data
 
-            article_link = await page.query_selector('a[href*="/zh/daily/"]')
-            if not article_link:
-                log.warning("未找到文章链接")
-                await browser.close()
-                return {"success": False, "error": "未找到文章链接"}
+                href = await article_link.get_attribute("href")
+                if not href.startswith("http"):
+                    href = f"https://news.aibase.com{href}"
 
-            href = await article_link.get_attribute("href")
-            if not href.startswith("http"):
-                href = f"https://news.aibase.com{href}"
+                article_id = href.split("/")[-1]
+                log.info(f"找到最新文章: {href}")
 
-            article_id = href.split("/")[-1]
-            log.info(f"找到最新文章: {href}")
+                await page.goto(href, wait_until="domcontentloaded", timeout=timeout_ms)
+                await page.wait_for_load_state("networkidle", timeout=timeout_ms)
+                await async_lib.sleep(1)
 
-            await page.goto(href, wait_until="domcontentloaded", timeout=timeout_ms)
-            await page.wait_for_load_state("networkidle", timeout=timeout_ms)
-            await async_lib.sleep(1)
+                title_el = await page.query_selector("h1")
+                title = await title_el.text_content() if title_el else "未知标题"
 
-            title_el = await page.query_selector("h1")
-            title = await title_el.text_content() if title_el else "未知标题"
+                page_text = await page.content()
 
-            page_text = await page.content()
+                import re
+                date_match = re.search(r'20\d{2}年(\d{1,2})月(\d{1,2})', page_text)
+                publish_date = ""
+                if date_match:
+                    year = page_text[date_match.start():date_match.start()+4]
+                    month = date_match.group(1).zfill(2)
+                    day = date_match.group(2).zfill(2)
+                    publish_date = f"{year}-{month}-{day}"
 
-            import re
-            date_match = re.search(r'20\d{2}年(\d{1,2})月(\d{1,2})', page_text)
-            if date_match:
-                year = page_text[date_match.start():date_match.start()+4]
-                month = date_match.group(1).zfill(2)
-                day = date_match.group(2).zfill(2)
-                publish_date = f"{year}-{month}-{day}"
-
-            content_el = await page.query_selector("article, .prose, .article-content, [class*='content']")
-            if content_el:
-                content = await content_el.text_content()
-                content = " ".join(content.split())[:2000]
-            else:
-                summary_points = await page.query_selector_all("[class*='summary'], [class*='highlight']")
-                if summary_points:
-                    content_parts = []
-                    for sp in summary_points[:5]:
-                        text = await sp.text_content()
-                        if text:
-                            content_parts.append(text.strip())
-                    content = " | ".join(content_parts)
+                content_el = await page.query_selector("article, .prose, .article-content, [class*='content']")
+                if content_el:
+                    content = await content_el.text_content()
+                    content = " ".join(content.split())[:2000]
                 else:
-                    content = ""
+                    summary_points = await page.query_selector_all("[class*='summary'], [class*='highlight']")
+                    if summary_points:
+                        content_parts = []
+                        for sp in summary_points[:5]:
+                            text = await sp.text_content()
+                            if text:
+                                content_parts.append(text.strip())
+                        content = " | ".join(content_parts)
+                    else:
+                        content = ""
 
-            await browser.close()
-
-            return {
-                "success": True,
-                "article_id": article_id,
-                "title": title.strip(),
-                "url": href,
-                "content": content[:2000] if content else "",
-                "source": "AIbase",
-                "publish_date": publish_date
-            }
-
+                result_data = {
+                    "success": True,
+                    "article_id": article_id,
+                    "title": title.strip(),
+                    "url": href,
+                    "content": content[:2000] if content else "",
+                    "source": "AIbase",
+                    "publish_date": publish_date
+                }
+            finally:
+                if page is not None:
+                    await page.close()
     except Exception as e:
         log.warning(f"Playwright 抓取失败: {e}")
-        return {"success": False, "error": str(e)}
+        result_data = {"success": False, "error": str(e)}
+    finally:
+        if context is not None:
+            try:
+                await asyncio.wait_for(context.close(), timeout=10.0)
+            except asyncio.TimeoutError:
+                try:
+                    await context.close(force=True)
+                except Exception:
+                    pass
+        if browser is not None:
+            try:
+                await asyncio.wait_for(browser.close(), timeout=10.0)
+            except asyncio.TimeoutError:
+                log.warning("fetch_aibase_daily_playwright: browser.close() 超时，强制终止")
+                try:
+                    await browser.close(force=True)
+                except Exception:
+                    pass
+
+    return result_data
 
 
 def format_report_v2(
