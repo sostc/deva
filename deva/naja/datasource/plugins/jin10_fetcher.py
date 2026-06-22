@@ -42,11 +42,34 @@ import asyncio
 import json
 import logging
 import struct
+import threading
+import time
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Callable, Dict, List, Optional
 
 logger = logging.getLogger("jin10_fetcher")
+
+# ---------------------------------------------------------------------------
+# 模块级互斥锁 + 结果缓存：防止多个入口并发拉起 Chromium
+# ---------------------------------------------------------------------------
+_fetch_lock = threading.Lock()
+_fetch_cache: List["Jin10ImportantNews"] | None = None
+_fetch_cache_ts: float = 0.0
+_FETCH_CACHE_TTL: float = 300.0  # 5 分钟缓存
+
+def _get_cached_news() -> List["Jin10ImportantNews"] | None:
+    """读取缓存，TTL 内直接返回"""
+    global _fetch_cache, _fetch_cache_ts
+    if _fetch_cache is not None and (time.time() - _fetch_cache_ts) < _FETCH_CACHE_TTL:
+        return _fetch_cache
+    return None
+
+def _set_cached_news(news_list: List["Jin10ImportantNews"]):
+    """写入缓存"""
+    global _fetch_cache, _fetch_cache_ts
+    _fetch_cache = news_list
+    _fetch_cache_ts = time.time()
 
 # ---------------------------------------------------------------------------
 # 协议常量 (从 index.*.js 逆向)
@@ -237,6 +260,10 @@ async def fetch_important_news_playwright(
       3. 从 Vue 组件树找到 JinFlash → 提取 Vuex store.state.topListItems
       4. 比 DOM 解析更可靠、更完整（包含 flash_id、时间等字段）
 
+    防并发机制:
+      模块级 threading.Lock + 5 分钟缓存，确保同一时刻只有 1 个 Chromium 实例，
+      多个入口（WakeSync / yaml定时任务 / Tray轮询）共享同一结果，不会重复拉起浏览器。
+
     Args:
         headless:    是否无头模式
         timeout_ms:  等待元素超时 (ms)
@@ -246,88 +273,135 @@ async def fetch_important_news_playwright(
     Returns:
         重要事件列表
     """
+    # 第一次检查缓存（无需锁，快速路径）
+    cached = _get_cached_news()
+    if cached is not None:
+        logger.debug("fetch_important_news_playwright: 命中缓存，直接返回")
+        return list(cached)
+
+    # 获取锁，同一时刻只有 1 个 Chromium 实例运行
+    acquired = _fetch_lock.acquire(blocking=True, timeout=60.0)
+    if not acquired:
+        logger.warning("无法获取 Chromium 锁（等待超时），返回空列表")
+        return []
+
+    try:
+        # 双重检查：获取锁期间可能有其他线程已填充缓存
+        cached = _get_cached_news()
+        if cached is not None:
+            logger.debug("fetch_important_news_playwright: 双重检查命中缓存")
+            return list(cached)
+
+        news_list: List[Jin10ImportantNews] = await _do_fetch_important_news(
+            headless=headless,
+            timeout_ms=timeout_ms,
+            proxy=proxy,
+            extra_wait=extra_wait,
+        )
+
+        # 写入缓存（即使为空也缓存，避免击穿）
+        _set_cached_news(news_list)
+        return news_list
+
+    finally:
+        _fetch_lock.release()
+
+
+async def _do_fetch_important_news(
+    headless: bool,
+    timeout_ms: int,
+    proxy: Optional[str],
+    extra_wait: float,
+) -> List["Jin10ImportantNews"]:
+    """实际执行 Playwright 抓取（由 fetch_important_news_playwright 内部调用）"""
     from playwright.async_api import async_playwright
 
-    news_list: List[Jin10ImportantNews] = []
+    news_list: List["Jin10ImportantNews"] = []
+    browser = None
 
-    async with async_playwright() as p:
-        launch_args: dict = {"headless": headless}
-        if proxy:
-            launch_args["proxy"] = {"server": proxy}
+    try:
+        async with async_playwright() as p:
+            launch_args: dict = {"headless": headless}
+            if proxy:
+                launch_args["proxy"] = {"server": proxy}
 
-        browser = await p.chromium.launch(**launch_args)
-        context = await browser.new_context(
-            user_agent=(
-                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-                "AppleWebKit/537.36 (KHTML, like Gecko) "
-                "Chrome/131.0.0.0 Safari/537.36"
-            ),
-            viewport={"width": 1440, "height": 900},
-        )
-        page = await context.new_page()
-
-        try:
-            logger.info("正在打开 jin10.com ...")
-            await page.goto(
-                "https://www.jin10.com/",
-                wait_until="domcontentloaded",
-                timeout=timeout_ms,
+            browser = await p.chromium.launch(**launch_args)
+            context = await browser.new_context(
+                user_agent=(
+                    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                    "AppleWebKit/537.36 (KHTML, like Gecko) "
+                    "Chrome/131.0.0.0 Safari/537.36"
+                ),
+                viewport={"width": 1440, "height": 900},
             )
+            async with context:
+                page = await context.new_page()
+                try:
+                    logger.info("正在打开 jin10.com ...")
+                    await page.goto(
+                        "https://www.jin10.com/",
+                        wait_until="domcontentloaded",
+                        timeout=timeout_ms,
+                    )
 
-            # 等待重要事件区块渲染
-            selector = ".flash-top-list__item"
-            logger.info(f"等待 {selector} 出现 ...")
-            await page.wait_for_selector(selector, timeout=timeout_ms)
-            logger.info("重要事件区块已加载")
+                    selector = ".flash-top-list__item"
+                    logger.info(f"等待 {selector} 出现 ...")
+                    await page.wait_for_selector(selector, timeout=timeout_ms)
+                    logger.info("重要事件区块已加载")
 
-            # 额外等待确保 Vuex store 数据就绪
-            await asyncio.sleep(extra_wait)
+                    await asyncio.sleep(extra_wait)
 
-            # 从 Vuex store 提取数据（比 DOM 更完整）
-            store_data = await page.evaluate("""() => {
-                const root = document.querySelector('#app').__vue__;
-                let jinFlash = null;
-                const walker = vm => {
-                    if (vm.$options.name === 'JinFlash') jinFlash = vm;
-                    vm.$children.forEach(walker);
-                };
-                walker(root);
-                if (!jinFlash || !jinFlash.$store) return null;
-                const store = jinFlash.$store.state;
-                return {
-                    topListItems: store.topListItems || [],
-                    topListLoaded: store.topListLoaded,
-                    flashSocketConnected: store.flashSocketConnected,
-                };
-            }""")
+                    store_data = await page.evaluate("""() => {
+                        const root = document.querySelector('#app').__vue__;
+                        let jinFlash = null;
+                        const walker = vm => {
+                            if (vm.$options.name === 'JinFlash') jinFlash = vm;
+                            vm.$children.forEach(walker);
+                        };
+                        walker(root);
+                        if (!jinFlash || !jinFlash.$store) return null;
+                        const store = jinFlash.$store.state;
+                        return {
+                            topListItems: store.topListItems || [],
+                            topListLoaded: store.topListLoaded,
+                            flashSocketConnected: store.flashSocketConnected,
+                        };
+                    }""")
 
-            if store_data and store_data.get("topListItems"):
-                items = store_data["topListItems"]
-                logger.info(f"从 Vuex store 提取到 {len(items)} 条重要事件")
-                for i, item in enumerate(items):
-                    news_list.append(Jin10ImportantNews.from_dict(item, rank=i + 1))
-            else:
-                # Fallback: DOM 提取
-                logger.warning("Vuex store 提取失败，回退到 DOM 解析")
-                dom_items = await page.query_selector_all(selector)
-                for dom_item in dom_items:
-                    num_el = await dom_item.query_selector(".flash-top-list__item-number")
-                    content_el = await dom_item.query_selector(".flash-top-list__item-content")
-                    if num_el and content_el:
-                        number = (await num_el.text_content()).strip()
-                        title = (await content_el.text_content()).strip()
-                        news_list.append(Jin10ImportantNews(
-                            rank=int(number), title=title,
-                        ))
+                    if store_data and store_data.get("topListItems"):
+                        items = store_data["topListItems"]
+                        logger.info(f"从 Vuex store 提取到 {len(items)} 条重要事件")
+                        for i, item in enumerate(items):
+                            news_list.append(Jin10ImportantNews.from_dict(item, rank=i + 1))
+                    else:
+                        logger.warning("Vuex store 提取失败，回退到 DOM 解析")
+                        dom_items = await page.query_selector_all(selector)
+                        for dom_item in dom_items:
+                            num_el = await dom_item.query_selector(".flash-top-list__item-number")
+                            content_el = await dom_item.query_selector(".flash-top-list__item-content")
+                            if num_el and content_el:
+                                number = (await num_el.text_content()).strip()
+                                title = (await content_el.text_content()).strip()
+                                news_list.append(Jin10ImportantNews(
+                                    rank=int(number), title=title,
+                                ))
 
-        except Exception as e:
-            logger.error(f"Playwright 抓取失败: {e}")
+                except Exception as e:
+                    logger.error(f"Playwright 抓取失败: {e}")
+                    try:
+                        await page.screenshot(path="/tmp/jin10_error.png")
+                    except Exception:
+                        pass
+    finally:
+        if browser is not None:
             try:
-                await page.screenshot(path="/tmp/jin10_error.png")
-            except Exception:
-                pass
-        finally:
-            await browser.close()
+                await asyncio.wait_for(browser.close(), timeout=10.0)
+            except asyncio.TimeoutError:
+                logger.warning("browser.close() 超时，强制终止 Chromium")
+                try:
+                    await browser.close(force=True)
+                except Exception:
+                    pass
 
     return news_list
 
@@ -428,7 +502,7 @@ async def create_jin10_live_session(
     headless: bool = True,
 ) -> tuple:
     """
-    创建一个持久的 Playwright session，返回 (page, browser, context)
+    创建一个持久的 Playwright session，返回 (page, close_func)
 
     这个 session 可以:
     1. 用 Playwright 处理 CDN 防护
@@ -436,7 +510,7 @@ async def create_jin10_live_session(
     3. 通过 page.expose_function 实时获取 WebSocket 推送回调
 
     Returns:
-        (page, browser, close_func)
+        (page, close_func)
     """
     from playwright.async_api import async_playwright
 
@@ -462,8 +536,18 @@ async def create_jin10_live_session(
     await asyncio.sleep(2)
 
     async def close():
-        await browser.close()
-        await p.stop()
+        # browser.close() 加超时，防止卡死导致进程泄漏
+        try:
+            await asyncio.wait_for(browser.close(), timeout=10.0)
+        except asyncio.TimeoutError:
+            try:
+                await browser.close(force=True)
+            except Exception:
+                pass
+        try:
+            await p.stop()
+        except Exception:
+            pass
 
     return page, close
 

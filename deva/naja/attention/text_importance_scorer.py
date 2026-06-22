@@ -64,6 +64,9 @@ class TextImportanceScorer:
             "index_count": 0,
             "drop_count": 0,
         }
+        # 去重缓存：防止同一 url 的内容被重复发布 TextFocusedEvent
+        self._published_urls: set = set()
+        self._max_published_urls: int = 500
 
     def _init_focus_keywords(self):
         """初始化焦点关键词映射"""
@@ -86,6 +89,16 @@ class TextImportanceScorer:
             event: TextFetchedEvent 实例
         """
         self._stats["total_received"] += 1
+
+        # 去重：同一 url 的内容只处理一次
+        if event.url and event.url in self._published_urls:
+            return
+        if event.url:
+            self._published_urls.add(event.url)
+            if len(self._published_urls) > self._max_published_urls:
+                # 淘汰最旧的 50 条
+                for _ in range(50):
+                    self._published_urls.pop()
 
         keywords, topics = self._extract_keywords_topics(event.text, event.title)
         sentiment = self._compute_sentiment(event.text, event.title)
