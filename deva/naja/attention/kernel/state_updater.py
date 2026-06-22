@@ -194,7 +194,7 @@ class QueryStateUpdater:
                 log.warning("[QueryStateUpdater] QueryState 未初始化")
                 return
             
-            log.info(f"[QueryStateUpdater] source={event.source}, importance={event.importance_score}, title={event.title[:30] if event.title else None}...")
+            log.debug(f"[QueryStateUpdater] source={event.source}, importance={event.importance_score}, title={event.title[:30] if event.title else None}...")
         except Exception as e:
             log.error(f"[QueryStateUpdater] 处理文本事件失败: {e}")
     
