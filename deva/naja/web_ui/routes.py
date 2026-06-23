@@ -817,8 +817,14 @@ class TrayDataHandler(RequestHandler):
             from datetime import datetime
             from deva.naja.market_hotspot.ui_components.timeline.market_24h_timeline import get_timeline_data_for_api
             from deva.naja.radar.trading_clock import get_global_trading_status
+            from concurrent.futures import ThreadPoolExecutor
 
-            timeline_data = get_timeline_data_for_api(hours=24)
+            def _fetch_timeline():
+                return get_timeline_data_for_api(hours=24)
+
+            with ThreadPoolExecutor(max_workers=1) as executor:
+                future = executor.submit(_fetch_timeline)
+                timeline_data = future.result(timeout=8.0)
 
             status = get_global_trading_status()
             cn_phase = status.get("cn", {}).get("phase", "unknown")
