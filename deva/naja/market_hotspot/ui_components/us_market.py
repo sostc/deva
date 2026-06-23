@@ -14,17 +14,14 @@ def get_us_hotspot_data() -> Dict[str, Any]:
     try:
         from deva.naja.market_hotspot.integration import get_market_hotspot_integration
         integration = get_market_hotspot_integration()
-        log.debug(f"[US-UI] get_us_hotspot_data: integration={integration is not None}")
 
         if integration is None:
-            log.warning("[US-UI] integration 为 None")
             return {}
 
-        log.debug(f"[US-UI] integration._initialized={getattr(integration, '_initialized', 'N/A')}")
-        log.debug(f"[US-UI] integration.hotspot_system={getattr(integration, 'hotspot_system', 'N/A')}")
+        # 确保热点系统已初始化（延迟初始化支持）
+        integration.ensure_initialized()
 
         if integration.hotspot_system is None:
-            log.warning("[US-UI] hotspot_system 为 None")
             return {}
 
         result = integration.hotspot_system.get_us_hotspot_state()
