@@ -158,6 +158,17 @@ class MarketDataObserver:
             import traceback
             log.warning(f"[MarketObserver] 详细错误: {traceback.format_exc()}")
 
+    def _load_config(self):
+        """加载配置"""
+        try:
+            config = self._db.get("observer_config", {})
+            tracked = config.get("tracked_stocks", [])
+            if tracked:
+                self._tracked_stocks = set(tracked)
+        except Exception as e:
+            self._errors["config_load"] += 1
+            log.warning(f"[MarketObserver] 配置加载失败 (累计{self._errors['config_load']}次): {e}")
+
     def _save_config(self):
         """保存配置"""
         try:
