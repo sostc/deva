@@ -130,7 +130,8 @@ class VirtualPortfolio:
             self._total_capital = account_data.get("total_capital", 1000000.0)
             log.info(f"已加载 {len(self._positions)} 个虚拟持仓，已用资金: {self._used_capital:.2f}")
         except Exception as e:
-            log.error(f"加载持仓失败: {e}")
+            import traceback
+            log.error(f"加载持仓失败: {e}\n{traceback.format_exc()}")
 
     def _save_positions(self):
         """保存持仓到统一数据库"""

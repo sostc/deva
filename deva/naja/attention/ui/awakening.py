@@ -442,7 +442,7 @@ def _get_query_state() -> Dict[str, Any]:
         # 尝试从注册中心获取
         try:
             log.info(f"[AwakeningUI] 尝试从SR获取query_state...")
-            qs = _get_query_state()
+            qs = SR('query_state')
             if qs:
                 summary = qs.get_summary()
                 log.info(f"[AwakeningUI] 从SR获取QueryState成功: 市场状态={summary['market_regime']}, 关注焦点={summary['top_attention']}")

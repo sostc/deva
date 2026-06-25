@@ -207,6 +207,9 @@ class AppContainer:
         """装配核心组件（显式依赖注入）"""
         if self._components_assembled:
             return
+        if getattr(self, '_assembling_core', False):
+            return
+        self._assembling_core = True
 
         from ..infra.observability.startup_timer import StartupTimer
 
