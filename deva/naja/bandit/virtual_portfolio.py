@@ -57,6 +57,16 @@ class VirtualPosition:
     @property
     def market_value(self) -> float:
         return self.current_price * self.quantity
+
+    @property
+    def price(self) -> float:
+        """兼容旧接口：price 表示当前价格。"""
+        return self.current_price
+
+    @property
+    def amount(self) -> float:
+        """兼容旧接口：amount 表示当前市值。"""
+        return self.market_value
     
     @property
     def holding_seconds(self) -> float:
@@ -427,6 +437,5 @@ class VirtualPortfolio:
     def set_max_total_pct(self, pct: float):
         """设置总持仓比例"""
         self._max_total_pct = max(0.01, min(1.0, pct))
-
 
 
