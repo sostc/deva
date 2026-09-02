@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 import signal
@@ -10,11 +11,50 @@ from deva import NW, Deva
 
 from .container import AppContainer
 from .runtime_config import AppRuntimeConfig
-from deva.naja.infra.runtime.daemon import PID_FILE, PORT_FILE, NAJA_DIR, save_pid, clear_pid
+from deva.naja.infra.runtime.daemon import (
+    PID_FILE, PORT_FILE, NAJA_DIR, save_pid, clear_pid, setup_reload_handler,
+)
+
+
+class _CleanEventLoopPolicy(asyncio.DefaultEventLoopPolicy):
+    """消灭 Python 3.13 下的"假 running"event loop 状态。
+
+    当 loop.is_running() 返回 True 但 asyncio.get_running_loop() 抛
+    RuntimeError 时，立即丢弃该 loop 并创建全新的干净 loop，从而
+    保证 Tornado/NW 拿到的 loop 一定可以正常 start()。
+    """
+
+    def get_event_loop(self):
+        try:
+            loop = super().get_event_loop()
+        except (RuntimeError, AssertionError):
+            loop = self.new_event_loop()
+            self.set_event_loop(loop)
+            return loop
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            if loop.is_running():
+                loop = self.new_event_loop()
+                self.set_event_loop(loop)
+        return loop
+
+
+def _ensure_clean_event_loop() -> None:
+    """在任何 Tornado / NW 操作前调用：安装干净 policy + 重建 IOLoop。"""
+    asyncio.set_event_loop_policy(_CleanEventLoopPolicy())
+    import tornado.platform.asyncio
+    # 先拿到一个干净 loop（经 policy 过滤）
+    clean_loop = asyncio.get_event_loop_policy().get_event_loop()
+    asyncio.set_event_loop(clean_loop)
+    # 确保 Tornado IOLoop 绑定在干净 loop 上；install() 会覆盖掉之前的 IOLoop
+    tornado.platform.asyncio.AsyncIOMainLoop().install()
 
 
 def run_web_application(config: AppRuntimeConfig):
-    from tornado.ioloop import IOLoop
+    # 第一步：强制清洗 event loop（在 import/boot 之前，否则 container.boot()
+    # 里可能有后台组件提前污染 loop 状态）
+    _ensure_clean_event_loop()
 
     # 确保只有一个 Naja 进程在运行
     if not save_pid():
@@ -74,41 +114,35 @@ def run_web_application(config: AppRuntimeConfig):
     except Exception:
         pass
 
-    server.start()
-
-    asyncio_loop = getattr(IOLoop.current(), "asyncio_loop", None)
-    if asyncio_loop is None or not asyncio_loop.is_running():
-        Deva.run()
-        return
-
+    # 注册全局退出 / 热重启信号 handler（进程级，不依赖 loop 状态）
     logger = logging.getLogger("deva.naja")
-    shutdown_event = threading.Event()
 
     def shutdown_handler(signum, frame):
         logger.info("收到退出信号，正在优雅关闭...")
         try:
             from deva.naja.supervisor import get_naja_supervisor
-
             supervisor = get_naja_supervisor()
             supervisor.shutdown()
             logger.info("所有组件已停止，数据已持久化")
         except Exception as e:
             logger.error(f"关闭时保存状态失败: {e}")
-        
-        # 清理 PID 文件
         clear_pid()
-        shutdown_event.set()
+        # 让 Tornado IOLoop 从 Deva.run() 中干净退出
+        try:
+            from tornado.ioloop import IOLoop
+            IOLoop.current().stop()
+        except Exception:
+            pass
 
     signal.signal(signal.SIGINT, shutdown_handler)
     signal.signal(signal.SIGTERM, shutdown_handler)
-
-    from deva.naja.infra.runtime.daemon import setup_reload_handler
 
     def reload_handler():
         import subprocess
         import time
         logger.info("=== 热重启开始 ===")
         try:
+            from deva.naja.supervisor import get_naja_supervisor
             supervisor = get_naja_supervisor()
             supervisor.shutdown()
             logger.info("所有组件已停止")
@@ -120,17 +154,17 @@ def run_web_application(config: AppRuntimeConfig):
             pass
         logger.info("=== 正在重启 Naja ===")
         time.sleep(1)
-        port = 8080
+        rport = 8080
         try:
             if PORT_FILE.exists():
-                port = int(PORT_FILE.read_text().strip())
+                rport = int(PORT_FILE.read_text().strip())
         except Exception:
             pass
         env = os.environ.copy()
         if sys.platform == "darwin":
             env["OBJC_DISABLE_INITIALIZE_FORK_SAFETY"] = "YES"
         log_file = NAJA_DIR / "logs" / "naja.log"
-        cmd = [sys.executable, "-m", "deva.naja", f"--port={port}"]
+        cmd = [sys.executable, "-m", "deva.naja", f"--port={rport}"]
         subprocess.Popen(
             cmd,
             env=env,
@@ -144,10 +178,7 @@ def run_web_application(config: AppRuntimeConfig):
 
     setup_reload_handler(reload_handler)
 
-    try:
-        shutdown_event.wait()
-    except KeyboardInterrupt:
-        shutdown_handler(None, None)
+    server.start()
 
-    logger.info("程序退出")
-    sys.exit(0)
+    # loop 已由 _ensure_clean_event_loop 清洗，直接启动事件循环即可
+    Deva.run()
