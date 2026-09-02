@@ -121,12 +121,12 @@ class DecisionFusion:
 
         risk_t = getattr(kernel_output, "risk_temperature", 1.0)
         position_adjustment = 0.0
-        if risk_t > 1.3:
-            position_adjustment = -0.15
-            risk_warnings.append(f"风险温度高({risk_t:.2f}): 建议减仓")
-        elif risk_t > 1.5:
+        if risk_t > 1.5:
             position_adjustment = -0.25
             risk_warnings.append(f"风险温度很高({risk_t:.2f}): 强烈建议减仓")
+        elif risk_t > 1.3:
+            position_adjustment = -0.15
+            risk_warnings.append(f"风险温度高({risk_t:.2f}): 建议减仓")
 
         bias_state = getattr(kernel_output, "bias_state", "neutral")
         bias_correction = getattr(kernel_output, "bias_correction", 1.0)
@@ -168,6 +168,10 @@ class DecisionFusion:
         action_type_attr = getattr(kernel_output, "action_type", "hold")
         if action_type_attr == "hold":
             position_adjustment = min(position_adjustment, 0)
+            if not any(insight.get("type") == "opportunity" for insight in fp_insights):
+                action_type = "hold"
+                should_act = False
+                reasoning.append("Manas建议观望: 保持hold")
         elif action_type_attr == "act_fully":
             position_adjustment = max(position_adjustment, 0.10)
 

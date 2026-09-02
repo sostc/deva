@@ -49,7 +49,6 @@ kernel = AttentionKernel(
 
 import math
 from typing import Dict, Any, Optional
-from deva.naja.register import SR
 
 
 class DecisionAttention:
@@ -69,6 +68,10 @@ class DecisionAttention:
             manas_engine: ManasEngine 实例，用于获取决策状态
             virtual_portfolio: VirtualPortfolio 实例（可选）
         """
+        if virtual_portfolio is None and hasattr(manas_engine, "capital"):
+            virtual_portfolio = manas_engine
+            manas_engine = None
+
         self._manas = manas_engine
         self._virtual_portfolio = virtual_portfolio
         self._last_alpha = 1.0
@@ -79,6 +82,10 @@ class DecisionAttention:
         """显式设置 VirtualPortfolio（依赖注入）"""
         self._virtual_portfolio = virtual_portfolio
 
+    def set_four_dimensions(self, four_dimensions):
+        """兼容旧接口：四维框架中包含 capital.cash_ratio。"""
+        self.set_virtual_portfolio(four_dimensions)
+
     def _get_portfolio(self):
         """获取虚拟持仓"""
         return self._virtual_portfolio
@@ -88,6 +95,10 @@ class DecisionAttention:
         if portfolio is None:
             return 0.5
         try:
+            capital = getattr(portfolio, "capital", None)
+            if capital is not None and hasattr(capital, "cash_ratio"):
+                return float(capital.cash_ratio)
+
             summary = portfolio.get_summary()
             available = summary.get('available_capital', 0)
             total = summary.get('total_capital', 1)
@@ -105,7 +116,7 @@ class DecisionAttention:
 
         T 由仓位/胆识决定：
         - 仓位高 → 风险敏感 → T 大（更平滑保守）
-        - 仓位低 → 可以进攻 → T 小（更集中激进）
+        - 现金高/仓位低 → 可以进攻 → T 小（更集中激进）
 
         Returns:
             float: 温度参数 T，范围 [0.5, 2.0]
