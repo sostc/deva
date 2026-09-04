@@ -1985,53 +1985,16 @@ class Deva:
 
     @classmethod
     def run(cls):
-        """启动并管理事件循环
+        """启动 Tornado IOLoop 事件循环（阻塞）。
 
-        该方法会启动一个 Tornado IOLoop 事件循环，并处理以下情况：
-        1. 正常启动事件循环
-        2. 捕获键盘中断信号(Ctrl+C)进行优雅退出
-        3. 记录事件循环运行状态
-
-        实现特点：
-        - 使用单例模式确保只有一个事件循环实例
-        - 提供统一的退出处理
-        - 支持日志记录
-
-        Returns:
-            None
-
-        Raises:
-            KeyboardInterrupt: 当收到 Ctrl+C 时退出
-            RuntimeError: 如果事件循环启动失败
+        事件循环的启动权在调用方（如 run_web_application），本方法
+        只负责 start + 优雅退出，不猜测 loop 运行状态。
         """
         logger.info("Starting Deva event loop...")
-        loop = None
         try:
-            # 获取并启动当前事件循环实例
-            loop = IOLoop.current()
-            asyncio_loop = getattr(loop, 'asyncio_loop', None)
-            if asyncio_loop is not None and asyncio_loop.is_running():
-                loop_thread_id = getattr(asyncio_loop, '_thread_id', None)
-                current_thread_id = threading.get_ident()
-                if loop_thread_id == current_thread_id:
-                    logger.info(
-                        "Deva event loop already running in current thread; skip starting again")
-                    return
-                logger.info("Deva event loop already running in another thread; waiting for interrupt")
-                waiter = threading.Event()
-                while True:
-                    waiter.wait(10)
-            loop.start()
-
+            IOLoop.current().start()
         except KeyboardInterrupt:
             logger.info("Received keyboard interrupt, shutting down...")
-            if loop is not None:
-                loop.stop()
-
-        except Exception as e:
-            logger.error(f"Failed to start event loop: {str(e)}")
-            raise RuntimeError(f"Event loop startup failed: {str(e)}")
-
         finally:
             logger.info("Deva event loop stopped")
 
