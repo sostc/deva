@@ -452,14 +452,24 @@ _portfolio_manager_lock = threading.Lock()
 
 
 def get_portfolio_manager() -> PortfolioManager:
+    """获取 PortfolioManager 单例。
+
+    优先从 AppContainer 获取（生产环境）；AppContainer 不可用时
+    （如测试环境）回退到模块级单例缓存。
+    """
+    global _portfolio_manager
     from deva.naja.application.container import get_app_container
-    try:
-        container = get_app_container()
-        if container is None:
-            raise RuntimeError("AppContainer not initialized")
-        return container.portfolio_manager
-    except Exception as e:
-        raise RuntimeError(f"PortfolioManager not found in AppContainer: {e}")
+    container = get_app_container()
+    if container is not None:
+        try:
+            return container.portfolio_manager
+        except Exception:
+            pass
+    if _portfolio_manager is None:
+        with _portfolio_manager_lock:
+            if _portfolio_manager is None:
+                _portfolio_manager = PortfolioManager()
+    return _portfolio_manager
 
 async def fetch_us_stock_price_xueqiu(stock_code: str) -> Optional[tuple]:
     """从雪球获取美股价格和昨收价"""

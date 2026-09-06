@@ -15,6 +15,11 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import logging
 logging.basicConfig(level=logging.INFO, format='[%(levelname)s] %(message)s')
 
+# 模块加载时即注册所有单例，确保 pytest 直接运行 test_* 函数时
+# SR('adaptive_cycle') 等调用能命中已注册的工厂函数。
+from deva.naja.register import register_all_singletons
+register_all_singletons()
+
 
 def init_system():
     """初始化系统单例"""

@@ -682,11 +682,21 @@ _bandit_lock = threading.Lock()
 
 
 def get_bandit_optimizer() -> BanditOptimizer:
+    """获取 BanditOptimizer 单例。
+
+    优先从 AppContainer 获取（生产环境）；AppContainer 不可用时
+    （如测试环境）回退到模块级单例缓存。
+    """
+    global _bandit_optimizer
     from deva.naja.application.container import get_app_container
-    try:
-        container = get_app_container()
-        if container is None:
-            raise RuntimeError("AppContainer not initialized")
-        return container.bandit_optimizer
-    except Exception as e:
-        raise RuntimeError(f"BanditOptimizer not found in AppContainer: {e}")
+    container = get_app_container()
+    if container is not None:
+        try:
+            return container.bandit_optimizer
+        except Exception:
+            pass
+    if _bandit_optimizer is None:
+        with _bandit_lock:
+            if _bandit_optimizer is None:
+                _bandit_optimizer = BanditOptimizer()
+    return _bandit_optimizer
