@@ -561,9 +561,14 @@ class TradingCenter:
 
 
 def get_trading_center() -> TradingCenter:
-    """获取 TradingCenter 单例（从 AppContainer 获取）"""
+    """获取 TradingCenter 单例。
+
+    优先从 AppContainer 获取（生产环境）；AppContainer 不可用时
+    （如测试环境）回退到直接实例化单例——TradingCenter 本身是
+    单例，其 __init__ 会通过 get_attention_os() 获取 AttentionOS。
+    """
     from deva.naja.application import get_app_container
     container = get_app_container()
     if container and container.trading_center:
         return container.trading_center
-    raise RuntimeError("TradingCenter not found in AppContainer")
+    return TradingCenter()
