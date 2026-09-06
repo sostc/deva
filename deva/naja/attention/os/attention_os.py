@@ -343,9 +343,14 @@ _attention_os: Optional[AttentionOS] = None
 
 
 def get_attention_os() -> AttentionOS:
-    """获取 AttentionOS 单例（从 AppContainer 获取）"""
+    """获取 AttentionOS 单例。
+
+    优先从 AppContainer 获取（生产环境）；AppContainer 不可用时
+    （如测试环境）回退到直接实例化单例，因为 AttentionOS 本身
+    就是单例且 __init__ 不依赖外部注入。
+    """
     from deva.naja.application import get_app_container
     container = get_app_container()
     if container and container.attention_os:
         return container.attention_os
-    raise RuntimeError("AttentionOS not found in AppContainer")
+    return AttentionOS()

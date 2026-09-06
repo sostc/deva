@@ -5,6 +5,7 @@ QueryStateUpdater - 事件驱动的QueryState更新器
 """
 
 import logging
+import threading
 import time
 import hashlib
 from typing import Dict, Any, Optional
@@ -13,6 +14,9 @@ from deva.naja.register import SR
 from deva.naja.events import get_event_bus
 
 log = logging.getLogger(__name__)
+
+_query_state_updater: Optional["QueryStateUpdater"] = None
+_query_state_updater_lock = threading.Lock()
 
 
 class QueryStateUpdater:
@@ -292,9 +296,18 @@ class QueryStateUpdater:
 
 
 def get_query_state_updater() -> QueryStateUpdater:
-    """获取 QueryStateUpdater 单例（从 AppContainer 获取）"""
+    """获取 QueryStateUpdater 单例。
+
+    优先从 AppContainer 获取（生产环境）；AppContainer 不可用时
+    （如测试环境）回退到模块级单例缓存。
+    """
+    global _query_state_updater
     from deva.naja.application import get_app_container
     container = get_app_container()
     if container and container.query_state_updater:
         return container.query_state_updater
-    raise RuntimeError("QueryStateUpdater not found in AppContainer")
+    if _query_state_updater is None:
+        with _query_state_updater_lock:
+            if _query_state_updater is None:
+                _query_state_updater = QueryStateUpdater()
+    return _query_state_updater

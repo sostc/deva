@@ -897,11 +897,21 @@ _observer_lock = threading.Lock()
 
 
 def get_market_observer() -> MarketDataObserver:
+    """获取 MarketDataObserver 单例。
+
+    优先从 AppContainer 获取（生产环境）；AppContainer 不可用时
+    （如测试环境）回退到模块级单例缓存。
+    """
+    global _observer
     from deva.naja.application.container import get_app_container
-    try:
-        container = get_app_container()
-        if container is None:
-            raise RuntimeError("AppContainer not initialized")
-        return container.market_observer
-    except Exception as e:
-        raise RuntimeError(f"MarketDataObserver not found in AppContainer: {e}")
+    container = get_app_container()
+    if container is not None:
+        try:
+            return container.market_observer
+        except Exception:
+            pass
+    if _observer is None:
+        with _observer_lock:
+            if _observer is None:
+                _observer = MarketDataObserver()
+    return _observer
