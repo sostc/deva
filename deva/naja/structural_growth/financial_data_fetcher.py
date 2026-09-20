@@ -2,7 +2,7 @@
 
 职责：
 - A 股：从东方财富 datacenter API 获取财报主要财务指标
-- 美股：从 stockanalysis.com 获取财报数据，失败时回退到已知值
+- 美股：从 SEC EDGAR API 获取真实 XBRL 财报数据，失败时回退到已知值
 - 输出统一的 StockFinancial 数据结构
 - 带缓存（避免频繁请求），单例模式
 
@@ -15,7 +15,11 @@
         毛利率(%)      → XSMLL
         经营性现金流   → NETCASH_OPERATE_PK
     美股:
-        营收/净利/毛利率/现金流 → stockanalysis.com API
+        营收           → us-gaap:Revenues (SEC EDGAR)
+        净利           → us-gaap:NetIncomeLoss
+        毛利率(%)      → GrossProfit / Revenues * 100
+        经营性现金流   → us-gaap:NetCashProvidedByUsedInOperatingActivities
+        资本开支       → us-gaap:PaymentsToAcquirePropertyPlantAndEquipment
 """
 
 from __future__ import annotations
@@ -32,6 +36,30 @@ _HEADERS = {
     "User-Agent": "Mozilla/5.0",
     "Referer": "https://emweb.securities.eastmoney.com/",
 }
+_SEC_HEADERS = {"User-Agent": "Naja Research Agent naja@example.com"}
+
+# SEC EDGAR CIK 映射缓存
+_cik_cache: Dict[str, int] = {}
+
+
+def _get_cik(symbol: str) -> Optional[int]:
+    """从 SEC EDGAR 获取股票代码 → CIK 映射"""
+    if symbol in _cik_cache:
+        return _cik_cache[symbol]
+    try:
+        import requests
+        resp = requests.get("https://www.sec.gov/files/company_tickers.json",
+                            headers=_SEC_HEADERS, timeout=15)
+        if resp.status_code != 200:
+            return None
+        for v in resp.json().values():
+            if v.get("ticker", "").upper() == symbol.upper():
+                _cik_cache[symbol.upper()] = v["cik_str"]
+                return v["cik_str"]
+    except Exception:
+        pass
+    return None
+
 
 # 美股已知财报数据（用于 API 失败时回退，数据为近似值）
 _US_FUNDAMENTALS_FALLBACK: Dict[str, Dict] = {
@@ -82,6 +110,7 @@ class StockFinancial:
     net_profit_yoy: float = 0.0   # 净利同比(%)
     gross_margin: float = 0.0     # 销售毛利率(%)
     cashflow: float = 0.0         # 经营性现金流(元)
+    capex: float = 0.0           # 资本开支(元) — 供给维度代理
     timestamp: float = 0.0
 
     def __post_init__(self):
@@ -175,76 +204,132 @@ class FinancialDataFetcher:
         return results
 
     def _fetch_us(self, stock_code: str) -> List[StockFinancial]:
-        """美股：尝试 stockanalysis.com API，失败时用已知值回退"""
+        """美股：从 SEC EDGAR API 获取真实 XBRL 财报数据，失败时回退"""
         symbol = stock_code.upper()
-        fallback = _US_FUNDAMENTALS_FALLBACK.get(symbol)
 
-        # 尝试从 stockanalysis.com 获取
+        # 尝试 SEC EDGAR
         try:
-            import requests
-            url = f"https://stockanalysis.com/api/symbol/{symbol.lower()}/financials?type=income-statement&range=quarterly&metric=revenue"
-            resp = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=10)
-            if resp.status_code == 200:
-                data = resp.json()
-                # 解析返回数据
-                financials = data.get("data", {}).get("financials", [])
-                if financials and len(financials) > 0:
-                    results = []
-                    for q in financials[:4]:
-                        rev = float(q.get("revenue", 0) or 0)
-                        ni = float(q.get("netIncome", 0) or 0)
-                        cogs = float(q.get("costOfRevenue", 0) or 0)
-                        margin = ((rev - cogs) / rev * 100) if rev > 0 else 0.0
-                        rev_yoy = float(q.get("revenueGrowth", 0) or 0)
-                        ni_yoy = float(q.get("netIncomeGrowth", 0) or 0)
-                        cf = float(q.get("operatingCashFlow", 0) or 0)
-                        results.append(StockFinancial(
-                            stock_code=stock_code,
-                            report_date=(q.get("date") or "")[:10],
-                            revenue=rev, revenue_yoy=rev_yoy,
-                            net_profit=ni, net_profit_yoy=ni_yoy,
-                            gross_margin=margin, cashflow=cf,
-                        ))
-                    if results:
-                        return results
+            results = self._fetch_us_sec(symbol)
+            if results:
+                return results
         except Exception as e:
-            log.debug(f"[FinancialDataFetcher] 美股 {symbol} API获取失败: {e}")
+            log.debug(f"[FinancialDataFetcher] SEC EDGAR {symbol} 失败: {e}")
 
         # 回退到已知值：生成 4 个季度的时间序列（模拟加速趋势）
-        if fallback:
-            log.debug(f"[FinancialDataFetcher] 美股 {symbol} 使用回退数据(4期)")
-            rev_yoy = fallback["revenue_yoy"]
-            ni_yoy = fallback["net_profit_yoy"]
-            margin = fallback["gross_margin"]
-            rev = fallback["revenue"]
-            ni = fallback["net_profit"]
-            cf = fallback["cashflow"]
-            # 生成 4 个季度的回退序列：增长率递增（模拟加速趋势）
-            # Q0=当前值, Q-1=Q0/1.35, Q-2=Q-1/1.25, Q-3=Q-2/1.15
-            # 这样增长率为: 15%, 25%, 35% → 加速度为正(10pp, 10pp)
-            factors = [
-                1.0 / (1.35 * 1.25 * 1.15),  # Q-3 (最旧)
-                1.0 / (1.35 * 1.25),          # Q-2
-                1.0 / 1.35,                    # Q-1
-                1.0,                            # Q0 (最新)
-            ]
-            margin_factors = [0.88, 0.92, 0.96, 1.0]  # 毛利率逐步改善
-            dates = ["2024-Q1", "2024-Q2", "2024-Q3", "2024-Q4"]
-            results = []
-            for i, f in enumerate(factors):
-                results.append(StockFinancial(
-                    stock_code=stock_code,
-                    report_date=dates[i],
-                    revenue=rev * f,
-                    revenue_yoy=rev_yoy * f,
-                    net_profit=ni * f,
-                    net_profit_yoy=ni_yoy * f,
-                    gross_margin=margin * margin_factors[i],
-                    cashflow=cf * f,
-                ))
-            return results
+        return self._fetch_us_fallback(symbol)
 
-        return []
+    def _fetch_us_sec(self, symbol: str) -> List[StockFinancial]:
+        """从 SEC EDGAR API 获取真实财报数据"""
+        import requests
+
+        cik = _get_cik(symbol)
+        if cik is None:
+            return []
+
+        cik_padded = str(cik).zfill(10)
+        url = f"https://data.sec.gov/api/xbrl/companyfacts/CIK{cik_padded}.json"
+        resp = requests.get(url, headers=_SEC_HEADERS, timeout=15)
+        if resp.status_code != 200:
+            return []
+
+        facts = resp.json().get("facts", {}).get("us-gaap", {})
+        if not facts:
+            return []
+
+        # 提取年度数据 (fp=FY)
+        revenue_tag = "Revenues" if "Revenues" in facts else "RevenueFromContractWithCustomerExcludingAssessedTax"
+        revenues = self._extract_annual(facts, revenue_tag)
+        net_income = self._extract_annual(facts, "NetIncomeLoss")
+        gross_profit = self._extract_annual(facts, "GrossProfit")
+        cashflow = self._extract_annual(facts, "NetCashProvidedByUsedInOperatingActivities")
+        capex = self._extract_annual(facts, "PaymentsToAcquirePropertyPlantAndEquipment")
+
+        if not revenues:
+            return []
+
+        # 按年份排序（旧→新）
+        years = sorted(revenues.keys())
+        if len(years) < 2:
+            return []
+
+        results: List[StockFinancial] = []
+        for i, year in enumerate(years[-4:]):  # 最多取最近4年
+            rev = revenues.get(year, 0)
+            prev_rev = revenues.get(years[-4:][i - 1], 0) if i > 0 else 0
+            rev_yoy = ((rev - prev_rev) / abs(prev_rev) * 100) if prev_rev > 0 and i > 0 else 0.0
+
+            ni = net_income.get(year, 0)
+            prev_ni = net_income.get(years[-4:][i - 1], 0) if i > 0 else 0
+            ni_yoy = ((ni - prev_ni) / abs(prev_ni) * 100) if prev_ni != 0 and i > 0 else 0.0
+
+            gp = gross_profit.get(year, 0)
+            margin = (gp / rev * 100) if rev > 0 and gp > 0 else 0.0
+
+            cf = cashflow.get(year, 0)
+            cx = capex.get(year, 0)
+
+            results.append(StockFinancial(
+                stock_code=symbol,
+                report_date=year,
+                revenue=rev, revenue_yoy=rev_yoy,
+                net_profit=ni, net_profit_yoy=ni_yoy,
+                gross_margin=margin, cashflow=cf, capex=cx,
+            ))
+
+        # 反转为最新在前
+        results.sort(key=lambda x: x.report_date, reverse=True)
+        return results
+
+    def _extract_annual(self, facts: Dict, tag: str) -> Dict[str, float]:
+        """从 XBRL facts 中提取年度数据 (fp=FY)，返回 {year: value}"""
+        if tag not in facts:
+            return {}
+        units = facts[tag].get("units", {})
+        usd = units.get("USD", [])
+        annual = {}
+        for r in usd:
+            if r.get("fp") == "FY":
+                end_date = r.get("end", "")
+                year = end_date[:4] if end_date else ""
+                if year:
+                    annual[year] = float(r.get("val", 0))
+        return annual
+
+    def _fetch_us_fallback(self, symbol: str) -> List[StockFinancial]:
+        """美股回退数据：生成 4 期加速趋势序列"""
+        fallback = _US_FUNDAMENTALS_FALLBACK.get(symbol)
+        if not fallback:
+            return []
+
+        rev_yoy = fallback["revenue_yoy"]
+        ni_yoy = fallback["net_profit_yoy"]
+        margin = fallback["gross_margin"]
+        rev = fallback["revenue"]
+        ni = fallback["net_profit"]
+        cf = fallback["cashflow"]
+        # 生成 4 期回退序列：增长率递增（模拟加速趋势）
+        factors = [
+            1.0 / (1.35 * 1.25 * 1.15),  # 最旧
+            1.0 / (1.35 * 1.25),
+            1.0 / 1.35,
+            1.0,                            # 最新
+        ]
+        margin_factors = [0.88, 0.92, 0.96, 1.0]
+        dates = ["2023", "2024", "2025", "2026"]
+        results = []
+        for i, f in enumerate(factors):
+            results.append(StockFinancial(
+                stock_code=symbol,
+                report_date=dates[i],
+                revenue=rev * f,
+                revenue_yoy=rev_yoy * f,
+                net_profit=ni * f,
+                net_profit_yoy=ni_yoy * f,
+                gross_margin=margin * margin_factors[i],
+                cashflow=cf * f,
+                capex=rev * 0.05 * f,  # 估计 capex ~5% revenue
+            ))
+        return results
 
     def latest(self, stock_code: str, force_refresh: bool = False) -> Optional[StockFinancial]:
         """获取最新一期有效财报"""
