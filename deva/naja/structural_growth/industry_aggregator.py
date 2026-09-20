@@ -136,44 +136,53 @@ class IndustryAggregator:
 
     # ---- 聚合 ----
     def aggregate(self, industry_id: str) -> IndustryAggregate:
-        """聚合单个行业的基本面数据"""
+        """聚合单个行业最新一期基本面数据"""
+        quarters = self._aggregate_quarters(industry_id)
+        if not quarters:
+            return IndustryAggregate(industry_id=industry_id)
+        return quarters[-1]  # 最新一期
+
+    def _aggregate_quarters(self, industry_id: str) -> List[IndustryAggregate]:
+        """聚合所有季度的数据，返回按时间排序的列表（旧→新）"""
         from deva.naja.bandit.fundamental_data_fetcher import get_fundamental_data_fetcher
         from .financial_data_fetcher import get_financial_data_fetcher
 
         codes = self._industry_stocks.get(industry_id, [])
         if not codes:
-            return IndustryAggregate(industry_id=industry_id)
+            return []
 
         fund_fetcher = get_fundamental_data_fetcher()
         fin_fetcher = get_financial_data_fetcher()
 
-        rev_yoy_list: List[Tuple[float, float]] = []      # (weight, revenue_yoy)
-        np_yoy_list: List[Tuple[float, float]] = []       # (weight, net_profit_yoy)
-        margin_list: List[Tuple[float, float]] = []       # (weight, gross_margin)
-        cf_margin_list: List[Tuple[float, float]] = []    # (weight, cashflow_margin)
+        # 收集所有股票的全部季度财报
+        # stock_financials[code] = List[StockFinancial] (最新在前，需反转)
+        stock_financials: Dict[str, List] = {}
+        for code in codes:
+            try:
+                fins = fin_fetcher.fetch(code)
+                if fins:
+                    stock_financials[code] = fins  # 最新在前
+            except Exception:
+                pass
+
+        if not stock_financials:
+            return []
+
+        # 对齐季度：以最长的为准
+        max_quarters = max(len(fins) for fins in stock_financials.values())
+
+        # 获取市值权重（只取一次，所有季度共用）
+        weights: Dict[str, float] = {}
+        total_cap = 0.0
         pe_values: List[Tuple[float, float]] = []
         pb_values: List[Tuple[float, float]] = []
-        total_cap = 0.0
-        valid_count = 0
-
-        for code in codes:
-            # 财报数据
-            try:
-                fin = fin_fetcher.latest(code)
-            except Exception as e:
-                log.debug(f"[IndustryAggregator] {code} 财报获取失败: {e}")
-                fin = None
-            if fin is None:
-                continue
-
-            # 权重：优先市值，其次营收
-            weight = 0.0
+        for code in stock_financials:
             try:
                 fd = fund_fetcher.get_fundamental(code)
                 if fd is not None:
                     cap = float(getattr(fd, "market_cap", 0.0) or 0.0)
                     if cap > 0:
-                        weight = cap
+                        weights[code] = cap
                         total_cap += cap
                         pe = float(getattr(fd, "pe_ratio", 0.0) or 0.0)
                         pb = float(getattr(fd, "pb_ratio", 0.0) or 0.0)
@@ -181,25 +190,13 @@ class IndustryAggregator:
                             pe_values.append((cap, pe))
                         if pb > 0:
                             pb_values.append((cap, pb))
-            except Exception as e:
-                log.debug(f"[IndustryAggregator] {code} 行情获取失败: {e}")
-
-            if weight <= 0 and fin.revenue > 0:
-                weight = fin.revenue
-
-            if weight <= 0:
-                continue
-
-            valid_count += 1
-
-            if fin.revenue_yoy != 0:
-                rev_yoy_list.append((weight, fin.revenue_yoy))
-            if fin.net_profit_yoy != 0:
-                np_yoy_list.append((weight, fin.net_profit_yoy))
-            if fin.gross_margin > 0:
-                margin_list.append((weight, fin.gross_margin))
-            if fin.revenue > 0 and fin.cashflow != 0:
-                cf_margin_list.append((weight, fin.cashflow / fin.revenue * 100))
+            except Exception:
+                pass
+            # 退化为营收权重
+            if code not in weights and stock_financials[code]:
+                rev = stock_financials[code][0].revenue
+                if rev > 0:
+                    weights[code] = rev
 
         def weighted(values: List[Tuple[float, float]]) -> Optional[float]:
             if not values:
@@ -209,61 +206,101 @@ class IndustryAggregator:
                 return None
             return sum(w * v for w, v in values) / total_w
 
-        return IndustryAggregate(
-            industry_id=industry_id,
-            stock_count=valid_count,
-            revenue_yoy=weighted(rev_yoy_list),
-            net_profit_yoy=weighted(np_yoy_list),
-            gross_margin=weighted(margin_list),
-            cashflow_margin=weighted(cf_margin_list),
-            pe_ratio=weighted(pe_values),
-            pb_ratio=weighted(pb_values),
-            market_cap=total_cap,
-        )
+        pe_ratio = weighted(pe_values)
+        pb_ratio = weighted(pb_values)
+
+        # 按季度聚合（从最旧到最新）
+        results: List[IndustryAggregate] = []
+        for qi in range(max_quarters - 1, -1, -1):
+            # qi 是从最新往回数的索引（0=最新, max-1=最旧）
+            # 我们反转遍历：从最旧到最新
+            rev_yoy_list: List[Tuple[float, float]] = []
+            np_yoy_list: List[Tuple[float, float]] = []
+            margin_list: List[Tuple[float, float]] = []
+            cf_margin_list: List[Tuple[float, float]] = []
+            valid_count = 0
+
+            for code, fins in stock_financials.items():
+                if qi >= len(fins):
+                    continue
+                fin = fins[qi]  # qi=0 是最新
+                weight = weights.get(code, 0.0)
+                if weight <= 0:
+                    continue
+                valid_count += 1
+                if fin.revenue_yoy != 0:
+                    rev_yoy_list.append((weight, fin.revenue_yoy))
+                if fin.net_profit_yoy != 0:
+                    np_yoy_list.append((weight, fin.net_profit_yoy))
+                if fin.gross_margin > 0:
+                    margin_list.append((weight, fin.gross_margin))
+                if fin.revenue > 0 and fin.cashflow != 0:
+                    cf_margin_list.append((weight, fin.cashflow / fin.revenue * 100))
+
+            results.append(IndustryAggregate(
+                industry_id=industry_id,
+                stock_count=valid_count,
+                revenue_yoy=weighted(rev_yoy_list),
+                net_profit_yoy=weighted(np_yoy_list),
+                gross_margin=weighted(margin_list),
+                cashflow_margin=weighted(cf_margin_list),
+                pe_ratio=pe_ratio,
+                pb_ratio=pb_ratio,
+                market_cap=total_cap,
+            ))
+
+        return results
 
     def feed_to_pool(self, industry_id: str) -> Optional[IndustryAggregate]:
-        """聚合并喂入观察池，返回聚合结果"""
-        agg = self.aggregate(industry_id)
+        """聚合全部季度数据并按时间顺序喂入观察池，返回最新一期结果"""
+        quarters = self._aggregate_quarters(industry_id)
+        if not quarters:
+            return None
 
-        # demand ← 营收同比
-        if agg.revenue_yoy is not None:
-            self._adapter.feed_to_pool(industry_id, {
-                "type": "earnings",
-                "content": f"行业营收同比 {agg.revenue_yoy:.1f}%",
-                "dimension": "demand",
-                "value": agg.revenue_yoy,
-                "status": "supporting" if agg.revenue_yoy > 0 else "refuting",
-                "confidence": 0.8,
-            })
+        # 按时间顺序（旧→新）喂入每个季度的数据
+        # 用偏移时间戳模拟季度间隔，使二阶导计算有意义
+        import time as _time
+        now = _time.time()
+        quarter_seconds = 90 * 24 * 3600  # 90 天
 
-        # profit ← 毛利率（因子值）+ 净利同比（证据）
-        if agg.gross_margin is not None:
-            self._adapter.feed_to_pool(industry_id, {
-                "type": "earnings",
-                "content": f"行业毛利率 {agg.gross_margin:.1f}%",
-                "dimension": "profit",
-                "value": agg.gross_margin,
-                "status": "supporting" if agg.gross_margin > 20 else "neutral",
-                "confidence": 0.8,
-            })
-        if agg.net_profit_yoy is not None:
-            self._adapter.feed_to_pool(industry_id, {
-                "type": "earnings",
-                "content": f"行业净利同比 {agg.net_profit_yoy:.1f}%",
-                "dimension": "profit",
-                "status": "supporting" if agg.net_profit_yoy > 0 else "refuting",
-                "confidence": 0.8,
-            })
+        for i, agg in enumerate(quarters):
+            # 时间戳从 (now - (len-1)*quarter_seconds) 到 now
+            ts = now - (len(quarters) - 1 - i) * quarter_seconds
 
-        # cashflow ← 现金流/营收
-        if agg.cashflow_margin is not None:
-            self._adapter.feed_to_pool(industry_id, {
-                "type": "earnings",
-                "content": f"行业现金流占营收 {agg.cashflow_margin:.1f}%",
-                "dimension": "cashflow",
-                "value": agg.cashflow_margin,
-                "status": "supporting" if agg.cashflow_margin > 10 else "neutral",
-                "confidence": 0.7,
-            })
+            # demand ← 营收同比
+            if agg.revenue_yoy is not None:
+                self._adapter.feed_to_pool(industry_id, {
+                    "type": "earnings",
+                    "content": f"行业营收同比 {agg.revenue_yoy:.1f}%",
+                    "dimension": "demand",
+                    "value": agg.revenue_yoy,
+                    "status": "supporting" if agg.revenue_yoy > 0 else "refuting",
+                    "confidence": 0.8,
+                    "timestamp": ts,
+                })
 
-        return agg
+            # profit ← 毛利率
+            if agg.gross_margin is not None:
+                self._adapter.feed_to_pool(industry_id, {
+                    "type": "earnings",
+                    "content": f"行业毛利率 {agg.gross_margin:.1f}%",
+                    "dimension": "profit",
+                    "value": agg.gross_margin,
+                    "status": "supporting" if agg.gross_margin > 20 else "neutral",
+                    "confidence": 0.8,
+                    "timestamp": ts,
+                })
+
+            # cashflow ← 现金流/营收
+            if agg.cashflow_margin is not None:
+                self._adapter.feed_to_pool(industry_id, {
+                    "type": "earnings",
+                    "content": f"行业现金流占营收 {agg.cashflow_margin:.1f}%",
+                    "dimension": "cashflow",
+                    "value": agg.cashflow_margin,
+                    "status": "supporting" if agg.cashflow_margin > 10 else "neutral",
+                    "confidence": 0.7,
+                    "timestamp": ts,
+                })
+
+        return quarters[-1]  # 返回最新一期
