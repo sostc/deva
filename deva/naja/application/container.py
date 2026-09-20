@@ -79,6 +79,9 @@ class AppContainer:
         # Radar 模块组件
         self._radar_engine = None
 
+        # Structural Growth Radar 模块组件
+        self._structural_growth_pool = None
+
         # Infra 组件（懒加载）
         self._task_manager = None
         self._system_state_manager = None
@@ -186,6 +189,8 @@ class AppContainer:
             "signal_listener": self._signal_listener,
             "bandit_runner": self._bandit_runner,
             "adaptive_cycle": self._adaptive_cycle,
+            # ── Structural Growth Radar ──
+            "structural_growth_pool": self._structural_growth_pool,
         }
 
         container_ref = self
@@ -942,6 +947,33 @@ def execute() -> dict:
         radar_engine = RadarEngine(trading_clock=self._trading_clock)
         
         return radar_engine
+
+    def _create_structural_growth_pool(self):
+        """创建结构性增长雷达观察池，优先从持久化文件恢复"""
+        from ..structural_growth import ObservationPool, IndustryState
+        pool = ObservationPool()
+        # 尝试从持久化文件恢复
+        if pool.load_from_file() and len(pool) > 0:
+            return pool
+        # 首次启动：预注册全部默认行业
+        default_industries = [
+            ("ai_chips", "AI芯片"),
+            ("ai_foundry", "晶圆代工"),
+            ("semiconductor_equipment", "半导体设备"),
+            ("hbm", "高带宽存储"),
+            ("cloud_infra", "云计算/数据中心"),
+            ("ai_software", "AI软件/应用"),
+            ("ai_power", "AI电力/散热"),
+            ("energy_storage", "储能"),
+            ("cybersecurity", "网络安全"),
+            ("robotics", "机器人/自动化"),
+            ("ai_networking", "AI网络"),
+        ]
+        for iid, name in default_industries:
+            if iid not in pool:
+                pool.add(IndustryState(industry_id=iid, name=name))
+        pool.save_to_file()
+        return pool
     
     def _create_event_registrar(self):
         """创建事件订阅装配器"""
@@ -1199,6 +1231,15 @@ def execute() -> dict:
             self._radar_engine = self._create_radar_engine()
             log.info("[AppContainer] RadarEngine 懒加载完成")
         return self._radar_engine
+
+    @property
+    def structural_growth_pool(self):
+        """获取结构性增长雷达观察池（懒加载）"""
+        if self._structural_growth_pool is None:
+            self._assemble_core_components()
+            self._structural_growth_pool = self._create_structural_growth_pool()
+            log.info("[AppContainer] StructuralGrowthPool 懒加载完成")
+        return self._structural_growth_pool
 
     @property
     def market_observer(self):

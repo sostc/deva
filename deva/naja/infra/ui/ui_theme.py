@@ -43,6 +43,7 @@ def get_nav_menu_items() -> List[Dict[str, str]]:
         {"name": "🧘 觉醒", "path": "/awakening"},
         {"name": "📚 学习", "path": "/learning"},
         {"name": "💰 信号流", "path": "/signaladmin"},
+        {"name": "🔬 结构性增长", "path": "/structural_growth"},
         {"name": "🛠️ 开发者工具", "path": "/devtools"},
     ]
 

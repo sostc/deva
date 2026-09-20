@@ -1438,3 +1438,136 @@ class NajaDigestSendHandler(RequestHandler):
                 "success": False,
                 "error": str(e),
             }, ensure_ascii=False))
+
+
+class StructuralGrowthRunHandler(RequestHandler):
+    """结构性增长雷达：立即运行全链路 API"""
+
+    def set_default_headers(self):
+        self.set_header("Content-Type", "application/json; charset=utf-8")
+        self.set_header("Access-Control-Allow-Origin", "*")
+        self.set_header("Access-Control-Allow-Methods", "POST, OPTIONS")
+        self.set_header("Access-Control-Allow-Headers", "Content-Type")
+
+    def options(self):
+        self.set_status(204)
+        self.finish()
+
+    def post(self):
+        try:
+            from deva.naja.application import get_app_container
+            container = get_app_container()
+            if container is None:
+                self.set_status(503)
+                self.write(json.dumps({"success": False, "error": "AppContainer 未初始化"}, ensure_ascii=False))
+                return
+
+            pool = container.structural_growth_pool
+
+            # 1. 财报数据聚合
+            from deva.naja.structural_growth import IndustryAggregator
+            aggregator = IndustryAggregator(pool=pool)
+            agg_count = 0
+            for tracked in pool.list():
+                try:
+                    agg = aggregator.feed_to_pool(tracked.state.industry_id)
+                    if agg and agg.stock_count > 0:
+                        agg_count += 1
+                except Exception:
+                    pass
+
+            # 2. 运行观察池全链路
+            pool.run()
+            summary = pool.summary()
+            self.write(json.dumps({
+                "success": True,
+                "data": summary,
+                "aggregated": agg_count,
+            }, ensure_ascii=False, default=str))
+        except Exception as e:
+            self.set_status(500)
+            self.write(json.dumps({"success": False, "error": str(e)}, ensure_ascii=False))
+
+
+class StructuralGrowthDetailHandler(RequestHandler):
+    """结构性增长雷达 - 行业推理链详情 API"""
+
+    def set_default_headers(self):
+        self.set_header("Content-Type", "application/json; charset=utf-8")
+        self.set_header("Access-Control-Allow-Origin", "*")
+        self.set_header("Access-Control-Allow-Methods", "GET, OPTIONS")
+        self.set_header("Access-Control-Allow-Headers", "Content-Type")
+
+    def options(self):
+        self.set_status(204)
+        self.finish()
+
+    def get(self, industry_id: str):
+        try:
+            from deva.naja.application import get_app_container
+            container = get_app_container()
+            if container is None:
+                self.set_status(503)
+                self.write(json.dumps({"success": False, "error": "AppContainer 未初始化"}, ensure_ascii=False))
+                return
+
+            pool = container.structural_growth_pool
+            tracked = pool.get(industry_id)
+            if tracked is None:
+                self.set_status(404)
+                self.write(json.dumps({"success": False, "error": f"行业 {industry_id} 不在观察池中"}, ensure_ascii=False))
+                return
+
+            d = tracked.to_dict()
+            result = {
+                "success": True,
+                "industry": {
+                    "industry_id": d["industry_id"],
+                    "name": d["name"],
+                    "phase": d["phase"],
+                    "phase_name": d.get("phase_name", ""),
+                    "last_run_at": d.get("last_run_at"),
+                },
+                "state_machine": d.get("state_machine", {}),
+                "verifications": d.get("last_verifications", []),
+                "valuation": d.get("valuation"),
+                "factors": d.get("state", {}).get("factors", {}),
+                "signals": d.get("state", {}).get("signals", {}),
+                "evidence": d.get("state", {}).get("evidence", []),
+                "counter_evidence": d.get("state", {}).get("counter_evidence", []),
+            }
+            self.write(json.dumps(result, ensure_ascii=False, default=str))
+        except Exception as e:
+            self.set_status(500)
+            self.write(json.dumps({"success": False, "error": str(e)}, ensure_ascii=False))
+
+
+class StructuralGrowthHistoryHandler(RequestHandler):
+    """结构性增长雷达 - 运行历史 API"""
+
+    def set_default_headers(self):
+        self.set_header("Content-Type", "application/json; charset=utf-8")
+        self.set_header("Access-Control-Allow-Origin", "*")
+        self.set_header("Access-Control-Allow-Methods", "GET, OPTIONS")
+        self.set_header("Access-Control-Allow-Headers", "Content-Type")
+
+    def options(self):
+        self.set_status(204)
+        self.finish()
+
+    def get(self):
+        try:
+            from deva.naja.application import get_app_container
+            container = get_app_container()
+            if container is None:
+                self.set_status(503)
+                self.write(json.dumps({"success": False, "error": "AppContainer 未初始化"}, ensure_ascii=False))
+                return
+
+            pool = container.structural_growth_pool
+            history = pool.get_history(limit=20)
+            self.write(json.dumps({"success": True, "data": history}, ensure_ascii=False, default=str))
+        except Exception as e:
+            self.set_status(500)
+            self.write(json.dumps({"success": False, "error": str(e)}, ensure_ascii=False))
+

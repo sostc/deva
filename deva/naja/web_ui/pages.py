@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 from typing import Any
 
 from pywebio.output import put_html, put_markdown, put_text, set_scope
@@ -465,6 +466,563 @@ async def api_explorer():
     </script>
     """
     
+    put_html(html)
+
+
+async def structural_growth_page():
+    """结构性增长雷达页面"""
+    ctx = _ctx()
+    await ctx["init_naja_ui"]("结构性增长雷达")
+
+    from deva.naja.application import get_app_container
+    container = get_app_container()
+    if container is None:
+        put_html('<div style="color:#f87171;padding:20px;">AppContainer 未初始化</div>')
+        return
+
+    pool = container.structural_growth_pool
+    summary = pool.summary()
+    industries = pool.list()
+
+    phase_colors = {
+        "S0": "#64748b",
+        "S1": "#eab308",
+        "S2": "#3b82f6",
+        "S3": "#10b981",
+        "S4": "#f97316",
+    }
+
+    phase_labels = {
+        "S0": "S0 观察",
+        "S1": "S1 假设",
+        "S2": "S2 验证",
+        "S3": "S3 估值",
+        "S4": "S4 候选",
+    }
+
+    phase_descs = {
+        "S0": "普通周期状态，尚未出现结构性变化信号",
+        "S1": "需求增速加速，二阶导信号触发假设",
+        "S2": "供给瓶颈验证通过，议价权正在形成",
+        "S3": "利润率扩张兑现，现金流拐点确认",
+        "S4": "预期差为正，估值重估候选",
+    }
+
+    # ---- 行业表格行 ----
+    rows_html = ""
+    for ind in industries:
+        d = ind.to_dict()
+        phase = d.get("phase", "S0")
+        color = phase_colors.get(phase, "#64748b")
+        label = phase_labels.get(phase, phase)
+        state = d.get("state", {})
+        ev_count = len(state.get("evidence", []))
+        counter_count = len(state.get("counter_evidence", []))
+        valuation = d.get("valuation")
+        gap = valuation.get("expectation_gap_pct") if valuation else None
+        gap_str = f"{gap*100:.1f}%" if gap is not None else "-"
+        gap_color = "#f97316" if gap and gap > 0 else "#94a3b8"
+        last_run_at = d.get("last_run_at")
+        last_run = time.strftime("%m-%d %H:%M", time.localtime(last_run_at)) if last_run_at else "-"
+        # 六维度因子
+        factors = state.get("factors", {})
+        factor_dots = ""
+        for dim in ["demand", "supply", "inventory", "price", "profit", "cashflow"]:
+            f = factors.get(dim, {})
+            val = f.get("current_value")
+            if val is not None:
+                factor_dots += f'<span title="{dim}: {val}" style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#10b981;margin:0 2px;"></span>'
+            else:
+                factor_dots += f'<span title="{dim}: 无数据" style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#334155;margin:0 2px;"></span>'
+
+        rows_html += f"""
+            <tr id="row-{d.get('industry_id','')}" style="cursor:pointer;" onclick="toggleDetail('{d.get('industry_id','')}')">
+                <td style="padding:10px;border-bottom:1px solid #334155;color:#e2e8f0;font-weight:600;">{d.get('name','')} <span style="color:#475569;font-size:11px;">▶</span></td>
+                <td style="padding:10px;border-bottom:1px solid #334155;">
+                    <span style="background:{color};color:white;padding:3px 10px;border-radius:12px;font-size:12px;">{label}</span>
+                </td>
+                <td style="padding:10px;border-bottom:1px solid #334155;">{factor_dots}</td>
+                <td style="padding:10px;border-bottom:1px solid #334155;color:#10b981;">{ev_count}</td>
+                <td style="padding:10px;border-bottom:1px solid #334155;color:#f87171;">{counter_count}</td>
+                <td style="padding:10px;border-bottom:1px solid #334155;color:{gap_color};font-weight:600;">{gap_str}</td>
+                <td style="padding:10px;border-bottom:1px solid #334155;color:#94a3b8;font-size:12px;">{last_run}</td>
+            </tr>
+            <tr id="detail-{d.get('industry_id','')}" style="display:none;">
+                <td colspan="7" style="padding:0;border-bottom:1px solid #334155;">
+                    <div id="detail-content-{d.get('industry_id','')}" style="padding:20px;background:#0f172a;">
+                        <div style="color:#64748b;font-size:13px;">点击加载推理链...</div>
+                    </div>
+                </td>
+            </tr>
+        """
+
+    by_phase_html = "".join(
+        f'<span style="background:{phase_colors.get(p,"#64748b")};color:white;padding:4px 12px;border-radius:12px;margin:2px;font-size:13px;">'
+        f'{phase_labels.get(p,p)}: {c}</span>'
+        for p, c in summary.get("by_phase", {}).items()
+    )
+
+    html = f"""
+    <div style="padding:20px;max-width:1200px;margin:0 auto;">
+
+        <!-- ========== 标题区 ========== -->
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:24px;">
+            <div>
+                <h1 style="color:#e2e8f0;margin:0;font-size:26px;">🔬 结构性增长雷达</h1>
+                <p style="color:#94a3b8;margin-top:6px;font-size:14px;">在利润跃迁被市场充分定价之前，发现它。</p>
+            </div>
+            <button onclick="runNow()" style="background:#3b82f6;color:white;border:none;padding:10px 24px;border-radius:6px;cursor:pointer;font-size:14px;font-weight:600;">
+                ⚡ 立即运行
+            </button>
+        </div>
+
+        <!-- ========== 核心理念 ========== -->
+        <div style="background:linear-gradient(135deg,#1e293b,#0f172a);border-radius:10px;padding:24px;margin-bottom:24px;border:1px solid #334155;">
+            <h2 style="color:#e2e8f0;margin:0 0 12px;font-size:18px;">📌 核心理念</h2>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;">
+                <div>
+                    <p style="color:#cbd5e1;font-size:13px;line-height:1.7;margin:0;">
+                        <b style="color:#38bdf8;">不是预测业绩</b>，而是识别产业是否正在发生
+                        <b style="color:#f97316;">结构性利润跃迁</b>——即利润率从周期性波动
+                        转向趋势性上升的拐点。
+                    </p>
+                    <p style="color:#cbd5e1;font-size:13px;line-height:1.7;margin:10px 0 0;">
+                        <b style="color:#38bdf8;">二阶导 &gt; 一阶导</b>：不是看"增长"本身，
+                        而是看"增长是否在加速"——增速的变化率才是领先信号。
+                    </p>
+                </div>
+                <div>
+                    <p style="color:#cbd5e1;font-size:13px;line-height:1.7;margin:0;">
+                        <b style="color:#38bdf8;">验证者有否决权</b>：发现者提出假设后，
+                        验证者主动寻找反证。若跨因子矛盾或强反证出现，
+                        <b style="color:#f87171;">假设被否决</b>，防止确认偏见。
+                    </p>
+                    <p style="color:#cbd5e1;font-size:13px;line-height:1.7;margin:10px 0 0;">
+                        <b style="color:#38bdf8;">预期差驱动</b>：最终产出是
+                        <b style="color:#f97316;">结构性增长潜力 − 市场隐含增长</b>，
+                        正预期差 = 市场尚未充分定价的机会。
+                    </p>
+                </div>
+            </div>
+        </div>
+
+        <!-- ========== S0→S4 状态机流程图 ========== -->
+        <div style="background:#1e293b;border-radius:10px;padding:24px;margin-bottom:24px;">
+            <h2 style="color:#e2e8f0;margin:0 0 16px;font-size:18px;">📊 估值状态机 S0 → S4</h2>
+            <p style="color:#94a3b8;font-size:12px;margin:0 0 16px;">行业从"普通周期"逐步演进到"估值重估候选"，每个阶段需要验证通过才能推进。</p>
+            <svg width="100%" height="180" viewBox="0 0 1080 180" style="max-width:100%;">
+                <!-- S0 -->
+                <rect x="10" y="50" width="160" height="80" rx="10" fill="#1e293b" stroke="#64748b" stroke-width="2"/>
+                <text x="90" y="80" text-anchor="middle" fill="#64748b" font-size="16" font-weight="bold">S0</text>
+                <text x="90" y="100" text-anchor="middle" fill="#cbd5e1" font-size="12">普通周期</text>
+                <text x="90" y="118" text-anchor="middle" fill="#64748b" font-size="10">尚未出现结构变化</text>
+                <!-- arrow S0→S1 -->
+                <line x1="170" y1="90" x2="220" y2="90" stroke="#475569" stroke-width="2" marker-end="url(#arr)"/>
+                <text x="195" y="80" text-anchor="middle" fill="#eab308" font-size="10">需求加速</text>
+                <text x="195" y="70" text-anchor="middle" fill="#475569" font-size="9">≥5pp</text>
+
+                <!-- S1 -->
+                <rect x="225" y="50" width="160" height="80" rx="10" fill="#1e293b" stroke="#eab308" stroke-width="2"/>
+                <text x="305" y="80" text-anchor="middle" fill="#eab308" font-size="16" font-weight="bold">S1</text>
+                <text x="305" y="100" text-anchor="middle" fill="#cbd5e1" font-size="12">需求加速</text>
+                <text x="305" y="118" text-anchor="middle" fill="#64748b" font-size="10">二阶导信号触发</text>
+                <!-- arrow S1→S2 -->
+                <line x1="385" y1="90" x2="435" y2="90" stroke="#475569" stroke-width="2" marker-end="url(#arr)"/>
+                <text x="410" y="80" text-anchor="middle" fill="#3b82f6" font-size="10">瓶颈验证</text>
+
+                <!-- S2 -->
+                <rect x="440" y="50" width="160" height="80" rx="10" fill="#1e293b" stroke="#3b82f6" stroke-width="2"/>
+                <text x="520" y="80" text-anchor="middle" fill="#3b82f6" font-size="16" font-weight="bold">S2</text>
+                <text x="520" y="100" text-anchor="middle" fill="#cbd5e1" font-size="12">瓶颈形成</text>
+                <text x="520" y="118" text-anchor="middle" fill="#64748b" font-size="10">议价权形成中</text>
+                <!-- arrow S2→S3 -->
+                <line x1="600" y1="90" x2="650" y2="90" stroke="#475569" stroke-width="2" marker-end="url(#arr)"/>
+                <text x="625" y="80" text-anchor="middle" fill="#10b981" font-size="10">利润+现金流</text>
+
+                <!-- S3 -->
+                <rect x="655" y="50" width="160" height="80" rx="10" fill="#1e293b" stroke="#10b981" stroke-width="2"/>
+                <text x="735" y="80" text-anchor="middle" fill="#10b981" font-size="16" font-weight="bold">S3</text>
+                <text x="735" y="100" text-anchor="middle" fill="#cbd5e1" font-size="12">利润兑现</text>
+                <text x="735" y="118" text-anchor="middle" fill="#64748b" font-size="10">增长已落地</text>
+                <!-- arrow S3→S4 -->
+                <line x1="815" y1="90" x2="865" y2="90" stroke="#475569" stroke-width="2" marker-end="url(#arr)"/>
+                <text x="840" y="80" text-anchor="middle" fill="#f97316" font-size="10">预期差&gt;3pp</text>
+
+                <!-- S4 -->
+                <rect x="870" y="50" width="180" height="80" rx="10" fill="#1e293b" stroke="#f97316" stroke-width="2"/>
+                <text x="960" y="80" text-anchor="middle" fill="#f97316" font-size="16" font-weight="bold">S4</text>
+                <text x="960" y="100" text-anchor="middle" fill="#cbd5e1" font-size="12">重估候选</text>
+                <text x="960" y="118" text-anchor="middle" fill="#64748b" font-size="10">市场尚未充分定价</text>
+
+                <!-- 回退箭头 -->
+                <path d="M 520 130 Q 520 165 305 165 Q 90 165 90 130" fill="none" stroke="#475569" stroke-width="1.5" stroke-dasharray="4,3" marker-end="url(#arr)"/>
+                <text x="305" y="160" text-anchor="middle" fill="#64748b" font-size="10">需求减速 ≤ -2pp 时回退</text>
+
+                <!-- 箭头定义 -->
+                <defs>
+                    <marker id="arr" markerWidth="8" markerHeight="8" refX="6" refY="4" orient="auto">
+                        <path d="M0,0 L8,4 L0,8 Z" fill="#475569"/>
+                    </marker>
+                </defs>
+            </svg>
+        </div>
+
+        <!-- ========== 三 Agent 验证链 ========== -->
+        <div style="background:#1e293b;border-radius:10px;padding:24px;margin-bottom:24px;">
+            <h2 style="color:#e2e8f0;margin:0 0 16px;font-size:18px;">🤖 三 Agent 验证链</h2>
+            <p style="color:#94a3b8;font-size:12px;margin:0 0 16px;">发现者提出假设 → 验证者寻找反证（有否决权）→ 估值者构建情景并计算预期差</p>
+            <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;">
+                <div style="background:#0f172a;border-radius:8px;padding:16px;border-top:3px solid #eab308;">
+                    <div style="color:#eab308;font-weight:bold;font-size:15px;margin-bottom:8px;">① 发现者 Discovery</div>
+                    <div style="color:#94a3b8;font-size:12px;line-height:1.6;">
+                        扫描六维度二阶导信号，当检测到增速加速、毛利率改善等异常时，
+                        提出候选假设（如"需求激增""利润跃迁"），附初始置信度。
+                    </div>
+                    <div style="margin-top:10px;">
+                        <span style="background:#334155;color:#eab308;padding:2px 8px;border-radius:4px;font-size:11px;">6条规则引擎</span>
+                    </div>
+                </div>
+                <div style="background:#0f172a;border-radius:8px;padding:16px;border-top:3px solid #3b82f6;">
+                    <div style="color:#3b82f6;font-weight:bold;font-size:15px;margin-bottom:8px;">② 验证者 Verification</div>
+                    <div style="color:#94a3b8;font-size:12px;line-height:1.6;">
+                        对每个假设做跨因子一致性检验，主动寻找反证。
+                        判决为 <b style="color:#10b981;">确认</b> / <b style="color:#eab308;">部分支持</b> /
+                        <b style="color:#64748b;">不足</b> / <b style="color:#f87171;">否决</b>。
+                    </div>
+                    <div style="margin-top:10px;">
+                        <span style="background:#334155;color:#f87171;padding:2px 8px;border-radius:4px;font-size:11px;">⚠ 有否决权</span>
+                    </div>
+                </div>
+                <div style="background:#0f172a;border-radius:8px;padding:16px;border-top:3px solid #f97316;">
+                    <div style="color:#f97316;font-weight:bold;font-size:15px;margin-bottom:8px;">③ 估值者 Valuation</div>
+                    <div style="color:#94a3b8;font-size:12px;line-height:1.6;">
+                        基于验证结果构建三种情景：周期回归 / 基准 / 结构性增长，
+                        计算预期差 = 结构性增长潜力 − 市场隐含增长。
+                    </div>
+                    <div style="margin-top:10px;">
+                        <span style="background:#334155;color:#f97316;padding:2px 8px;border-radius:4px;font-size:11px;">3情景 + 预期差</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ========== 六维度产业状态 ========== -->
+        <div style="background:#1e293b;border-radius:10px;padding:24px;margin-bottom:24px;">
+            <h2 style="color:#e2e8f0;margin:0 0 16px;font-size:18px;">📐 六维度产业状态卡</h2>
+            <p style="color:#94a3b8;font-size:12px;margin:0 0 16px;">每个维度追踪历史数据点，自动计算一阶导（增速）和二阶导（增速变化），绿灯=有数据，灰灯=无数据</p>
+            <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;">
+                <div style="background:#0f172a;border-radius:8px;padding:14px;border-left:3px solid #38bdf8;">
+                    <div style="color:#38bdf8;font-weight:bold;font-size:13px;">需求 demand</div>
+                    <div style="color:#64748b;font-size:11px;margin-top:4px;">营收同比增速</div>
+                </div>
+                <div style="background:#0f172a;border-radius:8px;padding:14px;border-left:3px solid #8b5cf6;">
+                    <div style="color:#8b5cf6;font-weight:bold;font-size:13px;">供给 supply</div>
+                    <div style="color:#64748b;font-size:11px;margin-top:4px;">资本开支 / 产能</div>
+                </div>
+                <div style="background:#0f172a;border-radius:8px;padding:14px;border-left:3px solid #ec4899;">
+                    <div style="color:#ec4899;font-weight:bold;font-size:13px;">库存 inventory</div>
+                    <div style="color:#64748b;font-size:11px;margin-top:4px;">库存周转 / 天数</div>
+                </div>
+                <div style="background:#0f172a;border-radius:8px;padding:14px;border-left:3px solid #f59e0b;">
+                    <div style="color:#f59e0b;font-weight:bold;font-size:13px;">价格 price</div>
+                    <div style="color:#64748b;font-size:11px;margin-top:4px;">产品价格 / 价差</div>
+                </div>
+                <div style="background:#0f172a;border-radius:8px;padding:14px;border-left:3px solid #10b981;">
+                    <div style="color:#10b981;font-weight:bold;font-size:13px;">利润 profit</div>
+                    <div style="color:#64748b;font-size:11px;margin-top:4px;">毛利率 / 净利率</div>
+                </div>
+                <div style="background:#0f172a;border-radius:8px;padding:14px;border-left:3px solid #06b6d4;">
+                    <div style="color:#06b6d4;font-weight:bold;font-size:13px;">现金流 cashflow</div>
+                    <div style="color:#64748b;font-size:11px;margin-top:4px;">经营现金流 / 营收</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ========== 数据概览 ========== -->
+        <div style="background:#1e293b;border-radius:10px;padding:20px;margin-bottom:24px;">
+            <div style="display:flex;gap:30px;flex-wrap:wrap;margin-bottom:15px;">
+                <div>
+                    <div style="color:#94a3b8;font-size:12px;">观察行业</div>
+                    <div style="color:#e2e8f0;font-size:28px;font-weight:bold;">{summary.get('total',0)}</div>
+                </div>
+                <div>
+                    <div style="color:#94a3b8;font-size:12px;">S4 候选</div>
+                    <div style="color:#f97316;font-size:28px;font-weight:bold;">{len(summary.get('candidates',[]))}</div>
+                </div>
+                <div>
+                    <div style="color:#94a3b8;font-size:12px;">关键阶段 S3</div>
+                    <div style="color:#10b981;font-size:28px;font-weight:bold;">{len(summary.get('key_stage',[]))}</div>
+                </div>
+            </div>
+            <div>{by_phase_html}</div>
+        </div>
+
+        <!-- ========== 行业明细表 ========== -->
+        <div style="background:#1e293b;border-radius:10px;overflow:hidden;">
+            <div style="padding:16px 20px;border-bottom:1px solid #334155;">
+                <h2 style="color:#e2e8f0;margin:0;font-size:18px;">📋 行业明细</h2>
+            </div>
+            <table style="width:100%;border-collapse:collapse;">
+                <thead>
+                    <tr style="background:#0f172a;">
+                        <th style="padding:12px;text-align:left;color:#94a3b8;font-size:13px;">行业</th>
+                        <th style="padding:12px;text-align:left;color:#94a3b8;font-size:13px;">阶段</th>
+                        <th style="padding:12px;text-align:left;color:#94a3b8;font-size:13px;" title="绿=有数据 灰=无数据">六维度</th>
+                        <th style="padding:12px;text-align:left;color:#94a3b8;font-size:13px;">支持证据</th>
+                        <th style="padding:12px;text-align:left;color:#94a3b8;font-size:13px;">反证</th>
+                        <th style="padding:12px;text-align:left;color:#94a3b8;font-size:13px;" title="结构性增长潜力 − 市场隐含增长">预期差</th>
+                        <th style="padding:12px;text-align:left;color:#94a3b8;font-size:13px;">最近运行</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {rows_html if rows_html else '<tr><td colspan="7" style="padding:30px;text-align:center;color:#64748b;">暂无观察行业</td></tr>'}
+                </tbody>
+            </table>
+        </div>
+
+        <!-- ========== 数据源说明 ========== -->
+        <div style="margin-top:20px;padding:16px;background:#0f172a;border-radius:8px;border:1px solid #334155;">
+            <div style="color:#64748b;font-size:12px;line-height:1.8;">
+                <b style="color:#94a3b8;">数据源：</b>
+                财报（东方财富API，营收/利润/毛利率/现金流） ·
+                行情（FundamentalDataFetcher，股价/PE/PB/市值） ·
+                新闻（TextFocusedEvent 事件订阅，自动识别产业关键词）
+                <br>
+                <b style="color:#94a3b8;">聚合方式：</b>
+                按市值加权将个股数据聚合到行业维度 ·
+                <b style="color:#94a3b8;">运行频率：</b>
+                每小时自动运行一次全链路
+                <br>
+                <b style="color:#94a3b8;">⚠ 本系统输出仅作研究参考，不构成投资建议</b>
+            </div>
+        </div>
+
+    </div>
+    <script>
+    function runNow() {{
+        fetch('/api/structural_growth/run', {{method:'POST'}})
+          .then(r=>r.json())
+          .then(d=>{{
+              if(d.success) {{
+                  alert('运行完成: ' + d.aggregated + ' 个行业聚合成功, ' + d.data.total + ' 个行业在观察池中');
+              }} else {{
+                  alert('运行失败: ' + (d.error || '未知错误'));
+              }}
+              location.reload();
+          }})
+          .catch(e=>alert('运行失败: '+e.message));
+    }}
+
+    function toggleDetail(id) {{
+        var row = document.getElementById('detail-' + id);
+        if (row.style.display === 'none') {{
+            row.style.display = '';
+            loadDetail(id);
+        }} else {{
+            row.style.display = 'none';
+        }}
+    }}
+
+    function loadDetail(id) {{
+        var container = document.getElementById('detail-content-' + id);
+        container.innerHTML = '<div style="color:#64748b;font-size:13px;">加载中...</div>';
+        fetch('/api/structural_growth/detail/' + id)
+          .then(r=>r.json())
+          .then(d=>{{
+              if(!d.success) {{
+                  container.innerHTML = '<div style="color:#f87171;">加载失败: ' + (d.error||'') + '</div>';
+                  return;
+              }}
+              var html = '';
+
+              // ---- 状态机历史 ----
+              var sm = d.state_machine || {{}};
+              html += '<div style="margin-bottom:16px;">';
+              html += '<div style="color:#38bdf8;font-size:14px;font-weight:bold;margin-bottom:8px;">📊 状态机历史</div>';
+              if(sm.history && sm.history.length > 0) {{
+                  html += '<div style="display:flex;flex-wrap:wrap;gap:6px;">';
+                  sm.history.forEach(function(tr) {{
+                      var ts = new Date(tr.timestamp * 1000).toLocaleString('zh-CN');
+                      html += '<div style="background:#1e293b;border:1px solid #334155;border-radius:6px;padding:6px 10px;font-size:12px;">';
+                      html += '<span style="color:#64748b;">' + ts + '</span> ';
+                      html += '<span style="color:#e2e8f0;">' + (tr.from_state||'起点') + ' → </span>';
+                      html += '<span style="color:#f97316;font-weight:bold;">' + tr.to_state + '</span>';
+                      html += '<div style="color:#94a3b8;margin-top:2px;">' + tr.reason + '</div>';
+                      if(tr.triggered_by && tr.triggered_by.length > 0) {{
+                          html += '<div style="color:#475569;font-size:11px;margin-top:2px;">触发: ' + tr.triggered_by.join(', ') + '</div>';
+                      }}
+                      html += '</div>';
+                  }});
+                  html += '</div>';
+              }} else {{
+                  html += '<div style="color:#64748b;font-size:12px;">无转换记录</div>';
+              }}
+              html += '</div>';
+
+              // ---- 验证链 ----
+              var verifs = d.verifications || [];
+              html += '<div style="margin-bottom:16px;">';
+              html += '<div style="color:#38bdf8;font-size:14px;font-weight:bold;margin-bottom:8px;">🔍 验证链（发现→验证→判决）</div>';
+              if(verifs.length === 0) {{
+                  html += '<div style="color:#64748b;font-size:12px;">本次运行无假设被提出（可能因数据不足）</div>';
+              }}
+              verifs.forEach(function(v) {{
+                  var verdict_colors = {{confirmed:'#10b981', partially_supported:'#eab308', inconclusive:'#64748b', refuted:'#f87171'}};
+                  var vc = verdict_colors[v.verdict] || '#64748b';
+                  var veto_badge = v.is_veto ? ' <span style="background:#f87171;color:white;padding:1px 6px;border-radius:3px;font-size:10px;">否决</span>' : '';
+                  html += '<div style="background:#1e293b;border-radius:6px;padding:12px;margin-bottom:8px;border-left:3px solid ' + vc + ';">';
+                  html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">';
+                  html += '<span style="color:#e2e8f0;font-size:13px;font-weight:600;">' + v.hypothesis_type + '</span>';
+                  html += '<span style="background:' + vc + ';color:white;padding:2px 8px;border-radius:4px;font-size:11px;">' + v.verdict + '</span>' + veto_badge;
+                  html += '</div>';
+                  html += '<div style="color:#94a3b8;font-size:11px;margin-bottom:6px;">';
+                  html += '置信度: ' + (v.confidence*100).toFixed(0) + '% · ';
+                  html += '支持分: ' + v.support_score.toFixed(2) + ' · ';
+                  html += '支持占比: ' + (v.support_ratio*100).toFixed(0) + '%';
+                  html += '</div>';
+
+                  // 证据
+                  var ev = v.evidence || {{}};
+                  var items = ev.items || [];
+                  if(items.length > 0) {{
+                      html += '<div style="margin-bottom:6px;">';
+                      html += '<span style="color:#64748b;font-size:11px;">证据链 (' + items.length + '):</span>';
+                      items.forEach(function(e) {{
+                          var esc = e.status === 'supporting' ? '#10b981' : (e.status === 'refuting' ? '#f87171' : '#64748b');
+                          html += '<div style="margin-left:12px;color:#cbd5e1;font-size:12px;line-height:1.5;">';
+                          html += '<span style="color:' + esc + ';">[' + e.status + ']</span> ';
+                          html += e.content || '(无内容)';
+                          html += ' <span style="color:#475569;font-size:10px;">(' + e.source + ', conf=' + e.confidence + ')</span>';
+                          html += '</div>';
+                      }});
+                      html += '</div>';
+                  }}
+
+                  // 削弱因素
+                  if(v.weakening_factors && v.weakening_factors.length > 0) {{
+                      html += '<div style="margin-bottom:6px;">';
+                      html += '<span style="color:#f87171;font-size:11px;">⚠ 削弱因素:</span>';
+                      v.weakening_factors.forEach(function(w) {{
+                          html += '<div style="margin-left:12px;color:#fca5a5;font-size:12px;">' + w + '</div>';
+                      }});
+                      html += '</div>';
+                  }}
+
+                  // 数据缺口
+                  if(v.data_gaps && v.data_gaps.length > 0) {{
+                      html += '<div style="margin-bottom:6px;">';
+                      html += '<span style="color:#eab308;font-size:11px;">📋 数据缺口:</span>';
+                      v.data_gaps.forEach(function(g) {{
+                          html += '<div style="margin-left:12px;color:#fcd34d;font-size:12px;">' + g + '</div>';
+                      }});
+                      html += '</div>';
+                  }}
+
+                  // 跨因子检验
+                  if(v.cross_checks && v.cross_checks.length > 0) {{
+                      html += '<div>';
+                      html += '<span style="color:#3b82f6;font-size:11px;">🔬 跨因子检验:</span>';
+                      v.cross_checks.forEach(function(c) {{
+                          var pass = c.passed;
+                          var pc = pass ? '#10b981' : '#f87171';
+                          html += '<div style="margin-left:12px;color:#94a3b8;font-size:12px;">';
+                          html += '<span style="color:' + pc + ';">' + (pass?'✓':'✗') + '</span> ';
+                          html += c.check || '';
+                          if(c.note) html += ' <span style="color:#475569;">(' + c.note + ')</span>';
+                          html += '</div>';
+                      }});
+                      html += '</div>';
+                  }}
+
+                  html += '</div>';
+              }});
+              html += '</div>';
+
+              // ---- 估值情景 ----
+              var val = d.valuation;
+              if(val) {{
+                  html += '<div style="margin-bottom:16px;">';
+                  html += '<div style="color:#f97316;font-size:14px;font-weight:bold;margin-bottom:8px;">💰 估值情景分析</div>';
+
+                  // 预期差
+                  var gap = val.expectation_gap_pct;
+                  var gc = gap > 3 ? '#f97316' : (gap > -3 ? '#94a3b8' : '#f87171');
+                  html += '<div style="background:#1e293b;border-radius:6px;padding:10px;margin-bottom:8px;">';
+                  html += '<div style="display:flex;justify-content:space-between;">';
+                  html += '<span style="color:#94a3b8;font-size:12px;">预期差</span>';
+                  html += '<span style="color:' + gc + ';font-size:18px;font-weight:bold;">' + (gap>0?'+':'') + gap.toFixed(1) + '%</span>';
+                  html += '</div>';
+                  html += '<div style="color:' + gc + ';font-size:12px;margin-top:4px;">' + val.expectation_gap_signal + '</div>';
+                  html += '</div>';
+
+                  // 三情景
+                  var scenarios = val.scenarios || [];
+                  scenarios.forEach(function(s) {{
+                      var sc = s.type === 'structural' ? '#f97316' : (s.type === 'base' ? '#94a3b8' : '#64748b');
+                      html += '<div style="background:#1e293b;border-radius:6px;padding:10px;margin-bottom:6px;border-left:3px solid ' + sc + ';">';
+                      html += '<div style="color:' + sc + ';font-size:13px;font-weight:600;">' + s.name + '</div>';
+                      html += '<div style="color:#64748b;font-size:11px;margin:4px 0;">' + s.description + '</div>';
+                      html += '<div style="display:flex;gap:16px;font-size:12px;color:#cbd5e1;">';
+                      html += '<span>利润率: ' + s.margin_current.toFixed(1) + '%→<b>' + s.margin_assumed.toFixed(1) + '%</b></span>';
+                      html += '<span>增速: ' + s.profit_growth_rate.toFixed(1) + '%</span>';
+                      html += '<span>PE: ' + s.implied_pe.toFixed(1) + '</span>';
+                      html += '</div>';
+                      html += '<div style="color:#475569;font-size:11px;margin-top:4px;">假设: ' + (s.assumptions||[]).join(' · ') + '</div>';
+                      html += '</div>';
+                  }});
+
+                  // 研究建议
+                  if(val.recommendation) {{
+                      html += '<div style="background:#0f172a;border:1px solid #334155;border-radius:6px;padding:10px;margin-top:8px;">';
+                      html += '<span style="color:#38bdf8;font-size:12px;">📌 </span>';
+                      html += '<span style="color:#e2e8f0;font-size:12px;">' + val.recommendation + '</span>';
+                      html += '</div>';
+                  }}
+
+                  // 不确定性
+                  if(val.key_uncertainties && val.key_uncertainties.length > 0) {{
+                      html += '<div style="margin-top:8px;">';
+                      html += '<span style="color:#eab308;font-size:11px;">关键不确定性:</span>';
+                      val.key_uncertainties.forEach(function(u) {{
+                          html += '<div style="color:#fcd34d;font-size:12px;margin-left:12px;">• ' + u + '</div>';
+                      }});
+                      html += '</div>';
+                  }}
+
+                  html += '</div>';
+              }}
+
+              // ---- 六维度详情 ----
+              var factors = d.factors || {{}};
+              html += '<div style="margin-bottom:16px;">';
+              html += '<div style="color:#38bdf8;font-size:14px;font-weight:bold;margin-bottom:8px;">📐 六维度详情</div>';
+              var dim_names = {{demand:'需求', supply:'供给', inventory:'库存', price:'价格', profit:'利润', cashflow:'现金流'}};
+              Object.keys(dim_names).forEach(function(dim) {{
+                  var f = factors[dim] || {{}};
+                  var val = f.current_value;
+                  var val_str = val !== null && val !== undefined ? val.toFixed(2) : '-';
+                  var accel = f.growth_acceleration_pp;
+                  var accel_str = accel !== null && accel !== undefined ? (accel > 0 ? '+' : '') + accel.toFixed(2) + 'pp' : '-';
+                  var accel_color = accel !== null && accel !== undefined ? (accel > 0 ? '#10b981' : (accel < 0 ? '#f87171' : '#94a3b8')) : '#475569';
+                  var hist_len = (f.history||[]).length;
+                  html += '<div style="display:flex;align-items:center;gap:12px;padding:4px 0;border-bottom:1px solid #1e293b;">';
+                  html += '<span style="color:#64748b;font-size:12px;width:60px;">' + dim_names[dim] + '</span>';
+                  html += '<span style="color:#e2e8f0;font-size:13px;width:80px;">' + val_str + '</span>';
+                  html += '<span style="color:' + accel_color + ';font-size:12px;width:80px;">加速度: ' + accel_str + '</span>';
+                  html += '<span style="color:#475569;font-size:11px;">' + hist_len + ' 个数据点</span>';
+                  html += '</div>';
+              }});
+              html += '</div>';
+
+              container.innerHTML = html;
+          }})
+          .catch(e=>{{
+              container.innerHTML = '<div style="color:#f87171;">加载失败: ' + e.message + '</div>';
+          }});
+    }}
+    </script>
+    """
+
     put_html(html)
 
 

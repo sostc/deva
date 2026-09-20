@@ -211,7 +211,7 @@ class FundamentalDataFetcher:
             else:
                 symbol = f"0.{stock_code}"
 
-            url = f"https://push2.eastmoney.com/api/qt/stock/get?secid={symbol}&fields=f43,f44,f45,f46,f47,f48,f57,f58,f107,f116,f117,f191,f192,f234"
+            url = f"https://push2.eastmoney.com/api/qt/stock/get?secid={symbol}&fields=f43,f44,f45,f46,f47,f48,f57,f58,f9,f23,f116,f117,f162,f163,f164,f167"
 
             headers = {
                 "Referer": "https://quote.eastmoney.com",
@@ -223,6 +223,10 @@ class FundamentalDataFetcher:
                 data = resp.json()
                 if 'data' in data and data['data']:
                     d = data['data']
+                    # PE: 优先动态市盈率(f9/f162)，其次TTM(f163)
+                    pe = d.get('f9') or d.get('f162') or d.get('f163') or 0
+                    # PB: 优先 f23，其次 f164/f167
+                    pb = d.get('f23') or d.get('f164') or d.get('f167') or 0
                     return {
                         "code": stock_code,
                         "name": d.get('f58', ''),
@@ -232,8 +236,8 @@ class FundamentalDataFetcher:
                         "high": d.get('f46', 0) / 100,
                         "low": d.get('f47', 0) / 100,
                         "volume": d.get('f48', 0),
-                        "pe": d.get('f116', 0),
-                        "pb": d.get('f117', 0),
+                        "pe": pe,
+                        "pb": pb,
                         "market_cap": d.get('f116', 0),
                     }
         except Exception as e:

@@ -1,0 +1,18 @@
+config:
+  cron_expr: ''
+  event_condition: ''
+  event_condition_type: contains
+  event_source: log
+  execution_mode: scheduler
+  interval_seconds: 3600.0
+  run_at: ''
+  scheduler_trigger: interval
+  task_type: scheduler
+func_code: "import logging\nlog = logging.getLogger(__name__)\n\ndef execute() -> dict:\n    \"\"\"结构性增长雷达：财报聚合 + 观察池全链路\"\"\"\n    try:\n        pool = SR('structural_growth_pool')\n        if pool is None:\n            return {\"success\": False, \"error\": \"structural_growth_pool 未初始化\"}\n\n        # 1. 财报数据聚合：将个股财报按市值加权到行业维度\n        from deva.naja.structural_growth import IndustryAggregator\n        aggregator = IndustryAggregator(pool=pool)\n        agg_count = 0\n        for tracked in pool.list():\n            try:\n                agg = aggregator.feed_to_pool(tracked.state.industry_id)\n                if agg and agg.stock_count > 0:\n                    agg_count += 1\n            except Exception as e:\n                log.debug(f\"[StructuralGrowth] {tracked.state.industry_id} 聚合失败: {e}\")\n\n        # 2. 运行观察池全链路（发现→验证→估值）\n        pool.run()\n        summary = pool.summary()\n        log.info(f\"[StructuralGrowth] 财报聚合 {agg_count}/{summary['total']} 行业, S4候选={summary['candidates']}\")\n        return {\n            \"success\": True,\n            \"aggregated\": agg_count,\n            \"total\": summary[\"total\"],\n            \"by_phase\": summary[\"by_phase\"],\n            \"candidates\": summary[\"candidates\"],\n        }\n    except Exception as e:\n        log.warning(f\"[StructuralGrowth] 运行失败: {e}\")\n        return {\"success\": False, \"error\": str(e)}\n"
+metadata:
+  description: 结构性增长雷达 - 定期运行产业状态分析与三Agent验证链
+  id: structural_growth_radar
+  name: structural_growth_radar
+  tags:
+  - structural_growth
+  - research
