@@ -16,6 +16,7 @@ from .pages import (
     learningadmin, learning_list_page, learning_history_page,
     learning_detail_page, supplychain_page, api_explorer, devtools_page,
     investment_sandbox_page, alab_investment_sandbox_page,
+    structural_growth_page,
     KnowledgeActionHandler,
     _get_log_stream_page, _get_loop_audit_page,
 )
@@ -31,7 +32,10 @@ from .api_extensions import (
     RegistryStatusHandler, QueryStateHandler, SystemRuntimeHandler, SystemPersistentStateHandler,
     EventQueryHandler, EventStatsHandler, AppContainerStatusHandler,
     NajaAskHandler, NajaDigestHandler, NajaDigestSendHandler,
-    NajaAgentHandler, NajaSkillHandler, NajaApiCatalogHandler
+    NajaAgentHandler, NajaSkillHandler, NajaApiCatalogHandler,
+    StructuralGrowthRunHandler,
+    StructuralGrowthDetailHandler,
+    StructuralGrowthHistoryHandler,
 )
 from deva.naja.cognition.ui import cognition_glossary_page
 from .attention_api import (
@@ -911,6 +915,7 @@ def create_handlers(cdn: str = None):
         (r'/devtools', webio_handler(devtools_page, cdn=cdn_url)),
         (r'/investment_sandbox', webio_handler(investment_sandbox_page, cdn=cdn_url)),
         (r'/alab_investment_sandbox', webio_handler(alab_investment_sandbox_page, cdn=cdn_url)),
+        (r'/structural_growth', webio_handler(structural_growth_page, cdn=cdn_url)),
     ]
 
     api_routes = [
@@ -966,6 +971,9 @@ def create_handlers(cdn: str = None):
         (r'/api/naja/agent', NajaAgentHandler),
         (r'/api/naja/skill', NajaSkillHandler),
         (r'/api/naja/api-catalog', NajaApiCatalogHandler),
+        (r'/api/structural_growth/run', StructuralGrowthRunHandler),
+        (r'/api/structural_growth/detail/([^/]+)', StructuralGrowthDetailHandler),
+        (r'/api/structural_growth/history', StructuralGrowthHistoryHandler),
         (r'/api/naja/digest', NajaDigestHandler),
         (r'/api/naja/digest/send', NajaDigestSendHandler),
         (r'/api/signal/stream', SignalStreamHandler),

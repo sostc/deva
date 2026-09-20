@@ -41,6 +41,7 @@ class EventSubscriberRegistrar:
             self._register_cognition_domain(event_bus)
             self._register_market_hotspot_push(event_bus)
             self._register_radar_news_push(event_bus)
+            self._register_structural_growth(event_bus)
             
             self._registered = True
             log.info("[EventSubscriberRegistrar] 事件订阅注册完成")
@@ -259,3 +260,90 @@ class EventSubscriberRegistrar:
 
         except Exception as e:
             log.warning(f"[EventSubscriberRegistrar] RadarNewsPushCenter 事件订阅失败: {e}")
+
+    def _register_structural_growth(self, event_bus) -> None:
+        """注册结构性增长雷达的新闻事件订阅。
+
+        将 TextFocusedEvent 匹配到观察池中的行业，作为证据喂入。
+        """
+        try:
+            from deva.naja.application import get_app_container
+            container = get_app_container()
+            if container is None:
+                return
+
+            pool = container.structural_growth_pool
+            from deva.naja.structural_growth.news_bridge import NewsBridge, IndustryConfig
+
+            # 默认行业配置（美股为主，中英双语关键词）
+            default_configs = [
+                IndustryConfig(industry_id="ai_chips", name="AI芯片",
+                               keywords=["NVDA", "英伟达", "AMD", "GPU", "AI芯片", "AI accelerator",
+                                         "H100", "H200", "B200", "GB200", "data center GPU", "AI算力芯片"]),
+                IndustryConfig(industry_id="ai_foundry", name="晶圆代工",
+                               keywords=["TSMC", "台积电", "Intel foundry", "代工", "晶圆代工",
+                                         "3nm", "2nm", "制程", "process node", "wafer"]),
+                IndustryConfig(industry_id="semiconductor_equipment", name="半导体设备",
+                               keywords=["ASML", "光刻机", "lithography", "Applied Materials",
+                                         "Lam Research", "KLA", "半导体设备", "semiconductor equipment",
+                                         "etch", "deposition", "inspection"]),
+                IndustryConfig(industry_id="hbm", name="高带宽存储",
+                               keywords=["HBM", "高带宽内存", "HBM3", "HBM3E", "SK海力士",
+                                         "Micron", "美光", "memory chip", "DRAM", "storage"]),
+                IndustryConfig(industry_id="cloud_infra", name="云计算/数据中心",
+                               keywords=["Azure", "AWS", "GCP", "cloud", "云计算", "数据中心",
+                                         "data center", "hyperscaler", "Microsoft cloud",
+                                         "Google Cloud", "Amazon Web Services"]),
+                IndustryConfig(industry_id="ai_software", name="AI软件/应用",
+                               keywords=["Palantir", "Snowflake", "Salesforce", "MongoDB",
+                                         "AI software", "AI应用", "LLM", "generative AI",
+                                         "AI platform", "machine learning platform"]),
+                IndustryConfig(industry_id="ai_power", name="AI电力/散热",
+                               keywords=["AI电力", "数据中心用电", "算力电力", "AI用电",
+                                         "data center energy", "nuclear power", "数据中心能源",
+                                         "GE Vernova", "Vistra", "Constellation",
+                                         "数据中心散热", "data center cooling"]),
+                IndustryConfig(industry_id="energy_storage", name="储能",
+                               keywords=["储能", "锂电池", "动力电池", "储能系统",
+                                         "battery storage", "lithium battery", "Tesla energy",
+                                         "Enphase", "grid storage", "电化学储能"]),
+                IndustryConfig(industry_id="cybersecurity", name="网络安全",
+                               keywords=["cybersecurity", "网络安全", "Palo Alto",
+                                         "CrowdStrike", "Fortinet", "Zscaler",
+                                         "data breach", " ransomware", "zero trust",
+                                         "endpoint security", "cloud security"]),
+                IndustryConfig(industry_id="robotics", name="机器人/自动化",
+                               keywords=["robotics", "机器人", "Optimus", "Tesla robot",
+                                         "Intuitive Surgical", "surgical robot",
+                                         "automation", "工业机器人", "humanoid robot"]),
+                IndustryConfig(industry_id="ai_networking", name="AI网络",
+                               keywords=["Arista", "data center networking", "数据中心网络",
+                                         "Broadcom networking", "AI networking",
+                                         "Ethernet", "光模块", "optical module",
+                                         "switch chip", "交换芯片"]),
+            ]
+            bridge = NewsBridge(pool=pool, industry_configs=default_configs)
+
+            def on_text_focused(event):
+                try:
+                    bridge.on_text_event(
+                        text=getattr(event, "text", ""),
+                        title=getattr(event, "title", ""),
+                        source=getattr(event, "source", ""),
+                        sentiment=getattr(event, "sentiment", 0.5),
+                        topics=getattr(event, "topics", []),
+                        timestamp=getattr(event, "timestamp", None),
+                    )
+                except Exception as exc:
+                    log.debug(f"[EventSubscriberRegistrar] StructuralGrowth 新闻处理失败: {exc}")
+
+            event_bus.subscribe(
+                'TextFocusedEvent',
+                on_text_focused,
+                priority=5,
+            )
+            log.info("[EventSubscriberRegistrar] StructuralGrowth 新闻订阅完成")
+
+        except Exception as e:
+            log.warning(f"[EventSubscriberRegistrar] StructuralGrowth 事件订阅失败: {e}")
+
