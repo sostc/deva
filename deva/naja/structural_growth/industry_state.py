@@ -175,6 +175,7 @@ class SecondDerivativeSignals:
     margin_improvement_acceleration: Optional[float] = None  # 毛利率改善的加速
     cashflow_conversion_change: Optional[float] = None     # 现金流转化率变化
     supply_growth_acceleration: Optional[float] = None     # 供给增速变化
+    inventory_change_acceleration: Optional[float] = None  # 库存变化加速
 
     def summary(self) -> Dict:
         """给出哪些信号为正（加速）"""
@@ -197,6 +198,7 @@ class SecondDerivativeSignals:
             "margin_improvement_acceleration": self.margin_improvement_acceleration,
             "cashflow_conversion_change": self.cashflow_conversion_change,
             "supply_growth_acceleration": self.supply_growth_acceleration,
+            "inventory_change_acceleration": self.inventory_change_acceleration,
             "summary": self.summary(),
         }
 
@@ -257,6 +259,7 @@ class IndustryState:
         self.signals.margin_improvement_speed = self.profit.growth_rate()
         self.signals.margin_improvement_acceleration = self.profit.growth_acceleration()
         self.signals.cashflow_conversion_change = self.cashflow.growth_acceleration()
+        self.signals.inventory_change_acceleration = self.inventory.growth_acceleration()
         # order 信号：如果有订单数据可挂在 demand.metadata，这里暂从 demand 推导
         self.signals.order_growth_acceleration = self.demand.growth_acceleration()
 
