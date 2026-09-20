@@ -273,6 +273,98 @@ def fetch_wechat_ai_articles() -> List[Dict]:
     return articles[:4]
 
 
+def translate_titles_to_chinese(items: List[Dict], field: str = "title") -> List[Dict]:
+    """
+    把新闻类条目的英文标题批量翻译成中文，原地替换 field 字段。
+
+    - 一次 LLM 调用翻译所有标题，降低 token 成本
+    - 失败时 fallback 保留原文
+    - 专有名词（公司名/产品名/人名/技术术语）保留英文
+    """
+    if not items:
+        return items
+
+    # 收集所有要翻译的标题
+    titles = []
+    for it in items:
+        t = it.get(field, "")
+        if t and not _is_mostly_chinese(t):
+            titles.append(t)
+        else:
+            titles.append(None)  # 已经是中文或为空，跳过
+
+    # 没有需要翻译的，直接返回
+    indices_to_translate = [i for i, t in enumerate(titles) if t is not None]
+    if not indices_to_translate:
+        return items
+
+    # 构造批量翻译 prompt
+    numbered = "\n".join(
+        f"{idx+1}. {titles[i]}" for idx, i in enumerate(indices_to_translate)
+    )
+    prompt = (
+        "你是专业翻译。把下面这些英文新闻/推文标题译成简体中文。\n"
+        "规则：保留专有名词（公司名/产品名/人名/技术术语如 GPT/LLM/OpenAI/Anthropic/Nvidia）的英文原样；"
+        "译文要简洁、符合中文新闻阅读习惯；不要加引号或多余说明。\n"
+        "严格按 JSON 返回，格式：{\"translations\": [\"译文1\", \"译文2\", ...]}，"
+        "数组顺序与下方编号一致。\n\n"
+        f"待翻译标题（共 {len(indices_to_translate)} 条）：\n{numbered}"
+    )
+
+    try:
+        from deva.llm import sync_gpt
+        raw = sync_gpt(prompt)
+        translations = _parse_translations(raw, expected_count=len(indices_to_translate))
+        if translations:
+            for k, idx in enumerate(indices_to_translate):
+                if k < len(translations) and translations[k]:
+                    items[idx][field] = translations[k]
+        log.info(f"[AI_Report_v2] 翻译完成 {len(translations) if translations else 0}/{len(indices_to_translate)} 条")
+    except Exception as e:
+        log.warning(f"[AI_Report_v2] LLM 翻译失败，保留原文: {e}")
+
+    return items
+
+
+def _is_mostly_chinese(text: str) -> bool:
+    """判断文本是否已经是中文为主（中文字符占比 > 30% 即视为中文）"""
+    if not text:
+        return True
+    cn_chars = sum(1 for c in text if '\u4e00' <= c <= '\u9fff')
+    return cn_chars / len(text) > 0.3
+
+
+def _parse_translations(raw: str, expected_count: int) -> List[str]:
+    """从 LLM 返回中解析出 translations 数组"""
+    if not raw:
+        return []
+    import json as _json
+    # 尝试直接解析
+    try:
+        data = _json.loads(raw)
+        if isinstance(data, dict) and "translations" in data:
+            return [str(x) for x in data["translations"]]
+        if isinstance(data, list):
+            return [str(x) for x in data]
+    except Exception:
+        pass
+    # 尝试从代码块里提取
+    try:
+        import re as _re
+        m = _re.search(r'```(?:json)?\s*(\{.*?\}|\[.*?\])\s*```', raw, _re.DOTALL)
+        if m:
+            data = _json.loads(m.group(1))
+            if isinstance(data, dict) and "translations" in data:
+                return [str(x) for x in data["translations"]]
+            if isinstance(data, list):
+                return [str(x) for x in data]
+    except Exception:
+        pass
+    # 兜底：按行解析
+    lines = [ln.strip().lstrip("0123456789.-) ").strip() for ln in raw.split("\n") if ln.strip()]
+    return lines[:expected_count]
+
+
 def fetch_aibase_daily(max_retries: int = 3) -> Dict[str, Any]:
     """获取AIbase每日AI日报文章"""
     import re
@@ -741,6 +833,12 @@ def execute() -> dict:
         tweets = fetch_twitter_ai_news()
         invest_news = fetch_ai_investment_news()
         wechat = fetch_wechat_ai_articles()
+
+        # 新闻类内容批量翻译成中文（论文/模型/repo 保留原文，专有名词更准确）
+        log.info("[AI_Report_v2] 开始翻译新闻类标题为中文...")
+        news = translate_titles_to_chinese(news, field="title")
+        invest_news = translate_titles_to_chinese(invest_news, field="title")
+        tweets = translate_titles_to_chinese(tweets, field="content")
 
         aibase_learned = False
         aibase_title = ""
