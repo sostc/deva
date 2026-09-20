@@ -113,6 +113,7 @@ class IndustryAggregate:
     net_profit_yoy: Optional[float] = None    # 加权净利同比(%)
     gross_margin: Optional[float] = None      # 加权毛利率(%)
     cashflow_margin: Optional[float] = None   # 加权现金流/营收(%)
+    capex_growth: Optional[float] = None      # 加权资本开支同比(%) — 供给维度
     pe_ratio: Optional[float] = None          # 市值加权 PE
     pb_ratio: Optional[float] = None          # 市值加权 PB
     market_cap: float = 0.0                   # 行业总市值
@@ -218,6 +219,7 @@ class IndustryAggregator:
             np_yoy_list: List[Tuple[float, float]] = []
             margin_list: List[Tuple[float, float]] = []
             cf_margin_list: List[Tuple[float, float]] = []
+            capex_growth_list: List[Tuple[float, float]] = []
             valid_count = 0
 
             for code, fins in stock_financials.items():
@@ -236,6 +238,12 @@ class IndustryAggregator:
                     margin_list.append((weight, fin.gross_margin))
                 if fin.revenue > 0 and fin.cashflow != 0:
                     cf_margin_list.append((weight, fin.cashflow / fin.revenue * 100))
+                # 供给维度：capex 同比增长率（用营收近似）
+                if qi < len(fins) - 1 and fins[qi].capex > 0 and fins[qi + 1].capex > 0:
+                    prev_capex = fins[qi + 1].capex  # 前一年
+                    if prev_capex > 0:
+                        capex_g = (fin.capex - prev_capex) / prev_capex * 100
+                        capex_growth_list.append((weight, capex_g))
 
             results.append(IndustryAggregate(
                 industry_id=industry_id,
@@ -244,6 +252,7 @@ class IndustryAggregator:
                 net_profit_yoy=weighted(np_yoy_list),
                 gross_margin=weighted(margin_list),
                 cashflow_margin=weighted(cf_margin_list),
+                capex_growth=weighted(capex_growth_list),
                 pe_ratio=pe_ratio,
                 pb_ratio=pb_ratio,
                 market_cap=total_cap,
@@ -300,6 +309,19 @@ class IndustryAggregator:
                     "value": agg.cashflow_margin,
                     "status": "supporting" if agg.cashflow_margin > 10 else "neutral",
                     "confidence": 0.7,
+                    "timestamp": ts,
+                })
+
+            # supply ← 资本开支同比（供给维度代理）
+            # capex 增速低 = 供给扩张慢 = 可能形成瓶颈
+            if agg.capex_growth is not None:
+                self._adapter.feed_to_pool(industry_id, {
+                    "type": "earnings",
+                    "content": f"行业资本开支同比 {agg.capex_growth:.1f}%",
+                    "dimension": "supply",
+                    "value": agg.capex_growth,
+                    "status": "supporting" if agg.capex_growth < 5 else "neutral",  # capex 低增长 → 供给受限 → 支持瓶颈假设
+                    "confidence": 0.6,
                     "timestamp": ts,
                 })
 
