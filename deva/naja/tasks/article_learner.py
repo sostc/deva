@@ -366,10 +366,13 @@ class ArticleLearner:
         # 11. 保存知识
         self._save_knowledge(result)
 
-        # 12. 更新叙事库
+        # 12. 写入 IMA naja 知识库（失败安全，不中断流程）
+        self._save_to_ima(result)
+
+        # 13. 更新叙事库
         self._update_narrative_db(result)
 
-        # 13. 注入到交易决策系统（关键步骤！）
+        # 14. 注入到交易决策系统（关键步骤！）
         self._inject_to_decision_system(result)
 
         print(f"[学习器] 完成 - 置信度: {result.confidence:.2f}")
@@ -524,6 +527,148 @@ class ArticleLearner:
 
         with open(knowledge_file, 'w', encoding='utf-8') as f:
             json.dump(knowledge_list, f, ensure_ascii=False, indent=2)
+
+    def _learning_result_to_markdown(self, result: LearningResult) -> str:
+        """将学习结果转为结构化 Markdown，用于写入 IMA 知识库"""
+        lines = [f"# {result.title}", ""]
+
+        # 元信息
+        lines.append(f"> 来源: {result.source} | 学习时间: {result.learned_at}")
+        lines.append(f"> 置信度: {result.confidence:.0%} | 状态: {result.status}")
+        lines.append("")
+
+        # 一句话总结
+        if result.summary:
+            lines.append(f"**{result.summary}**")
+            lines.append("")
+
+        # 核心要点
+        if result.key_points:
+            lines.append("## 核心要点")
+            lines.append("")
+            for p in result.key_points:
+                lines.append(f"- {p}")
+            lines.append("")
+
+        # 供需分析
+        sd = result.supply_demand
+        if sd.demand_side or sd.supply_side or sd.imbalance or sd.key_gap:
+            lines.append("## 供需分析")
+            lines.append("")
+            if sd.demand_side:
+                lines.append(f"- **需求方**: {', '.join(sd.demand_side)}")
+            if sd.supply_side:
+                lines.append(f"- **供给方**: {', '.join(sd.supply_side)}")
+            if sd.imbalance:
+                lines.append(f"- **状态**: {sd.imbalance}")
+            if sd.key_gap:
+                lines.append(f"- **关键缺口**: {sd.key_gap}")
+            lines.append("")
+
+        # 叙事分析
+        narr = result.narrative
+        if narr.current_narratives or narr.narrative_alignment:
+            lines.append("## 热点叙事")
+            lines.append("")
+            if narr.current_narratives:
+                lines.append(f"- **当前叙事**: {', '.join(narr.current_narratives)}")
+            if narr.narrative_alignment:
+                lines.append(f"- **立场**: {narr.narrative_alignment}")
+            if narr.narrative_strength:
+                lines.append(f"- **强度**: {narr.narrative_strength:.0%}")
+            lines.append("")
+
+        # 因果链条
+        if result.causality_chains:
+            lines.append("## 因果链条")
+            lines.append("")
+            for i, chain in enumerate(result.causality_chains[:3], 1):
+                lines.append(f"### {i}. {chain.cause}")
+                lines.append(f"- 机制: {chain.mechanism}")
+                lines.append(f"- 预期: {chain.effect}")
+                lines.append(f"- 时间: {chain.timeframe}")
+                lines.append(f"- 置信度: {chain.confidence:.0%}")
+                lines.append("")
+
+        # 投资启示
+        inv = result.investment
+        if inv.direction or inv.opportunities or inv.risks or inv.position_suggestion:
+            lines.append("## 投资启示")
+            lines.append("")
+            if inv.direction:
+                lines.append(f"- **方向**: {', '.join(inv.direction)}")
+            if inv.opportunities:
+                lines.append("- **机会**:")
+                for opp in inv.opportunities:
+                    lines.append(f"  - {opp}")
+            if inv.risks:
+                lines.append("- **风险**:")
+                for risk in inv.risks:
+                    lines.append(f"  - {risk}")
+            if inv.position_suggestion:
+                lines.append(f"- **建议**: {inv.position_suggestion}")
+            lines.append("")
+
+        # 验证信号
+        if inv.validation_signals:
+            lines.append("## 验证信号")
+            lines.append("")
+            for sig in inv.validation_signals:
+                lines.append(f"- {sig}")
+            lines.append("")
+
+        return "\n".join(lines)
+
+    def _save_to_ima(self, result: LearningResult) -> bool:
+        """
+        将学习结果写入 IMA naja 知识库
+
+        失败安全：网络/凭证问题只打 warn 日志，不中断学习流程。
+        去重：用 url 哈希判断是否已写入过。
+        """
+        try:
+            from deva.naja.infra.adapters.ima_client import ImaClient
+
+            # 去重：已写入过的 url 跳过
+            url_hash = hashlib.md5(result.url.encode("utf-8")).hexdigest()
+            cache_file = f"{KNOWLEDGE_DIR}/ima_written_urls.json"
+            try:
+                with open(cache_file, 'r', encoding='utf-8') as f:
+                    written = json.load(f)
+            except Exception:
+                written = {}
+
+            if url_hash in written:
+                print(f"[学习器] 已写入过 IMA，跳过: {result.title}")
+                return False
+
+            client = ImaClient.for_naja()
+            if not client.is_configured:
+                print("[学习器] IMA 未配置，跳过知识库写入")
+                return False
+
+            markdown = self._learning_result_to_markdown(result)
+            media_id = client.import_doc(title=result.title, content=markdown)
+
+            if media_id:
+                written[url_hash] = {
+                    "title": result.title,
+                    "media_id": media_id,
+                    "written_at": result.learned_at,
+                }
+                import os
+                os.makedirs(KNOWLEDGE_DIR, exist_ok=True)
+                with open(cache_file, 'w', encoding='utf-8') as f:
+                    json.dump(written, f, ensure_ascii=False, indent=2)
+                print(f"[学习器] ✅ 已写入 IMA naja 知识库: {result.title}")
+                return True
+            else:
+                print(f"[学习器] IMA 写入失败: {result.title}")
+                return False
+
+        except Exception as e:
+            print(f"[学习器] IMA 写入异常: {e}")
+            return False
 
     def _update_narrative_db(self, result: LearningResult):
         """更新叙事数据库"""
