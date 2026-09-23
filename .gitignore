@@ -85,3 +85,6 @@ deva/naja/exports/
 # 测试文件
 test_*.py
 test_*.pyc
+
+# Naja runtime data
+deva/naja/data/

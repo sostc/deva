@@ -1,7 +1,7 @@
 """
 WisdomRetriever - 知识库检索器
 
-根据 Manas 的状态，从爸爸的知识库中检索相关文章片段，
+根据 Manas 的状态，从爸爸的知识库（决战 2050）中检索相关文章片段，
 用于在合适的时机分享给爸爸，或校准 Naja 自身。
 
 触发场景：
@@ -12,22 +12,12 @@ WisdomRetriever - 知识库检索器
 - 长时间无操作后的突破时刻
 """
 
-import os
 import re
 import logging
 from typing import Dict, Any, Optional, List
 from dataclasses import dataclass
 
-import requests
-
 log = logging.getLogger(__name__)
-
-
-# IMA API 配置
-IMA_API_BASE = "https://ima.qq.com/openapi/wiki/v1"
-IMA_CLIENT_ID = os.environ.get("IMA_OPENAPI_CLIENTID", "")
-IMA_API_KEY = os.environ.get("IMA_OPENAPI_APIKEY", "")
-IMA_KB_ID = "cP5JYg2B-mVAzee2TMF6FoKQnSSnK6rgttsDETpj7To="
 
 
 @dataclass
@@ -106,7 +96,11 @@ class WisdomRetriever:
         self._last_trigger_bias = None
         self._last_trigger_harmony = None
         self._recent_snippets: List[WisdomSnippet] = []
-        
+
+        # 复用 ImaClient，检索用户原有知识库（决战 2050）
+        from deva.naja.infra.adapters.ima_client import ImaClient
+        self.ima = ImaClient.for_user_research()
+
         # 统计信息
         self._trigger_count = 0
         self._last_trigger_time = None
@@ -195,7 +189,7 @@ class WisdomRetriever:
 
     def search(self, query: str, limit: int = 5) -> List[WisdomSnippet]:
         """
-        搜索知识库
+        搜索知识库（复用 ImaClient，检索用户原有知识库）
 
         Args:
             query: 搜索关键词
@@ -204,46 +198,19 @@ class WisdomRetriever:
         Returns:
             知识片段列表
         """
-        if not IMA_CLIENT_ID or not IMA_API_KEY:
-            log.warning("[WisdomRetriever] IMA API credentials not configured")
-            return []
-
         try:
             log.info(f"[WisdomRetriever] Searching knowledge base: query='{query}', limit={limit}")
-            resp = requests.post(
-                f"{IMA_API_BASE}/search_knowledge",
-                headers={
-                    "ima-openapi-clientid": IMA_CLIENT_ID,
-                    "ima-openapi-apikey": IMA_API_KEY,
-                    "Content-Type": "application/json",
-                },
-                json={
-                    "query": query,
-                    "knowledge_base_id": IMA_KB_ID,
-                    "cursor": "",
-                },
-                timeout=10,
-            )
-            log.debug(f"[WisdomRetriever] Response status: {resp.status_code}")
+            ima_snippets = self.ima.search(query, limit=limit)
 
-            resp.raise_for_status()
-            data = resp.json()
-            log.debug(f"[WisdomRetriever] Response code: {data.get('code')}, msg: {data.get('msg')}")
-
-            if data.get("code") != 0 and data.get("err") != 0:
-                log.warning(f"[WisdomRetriever] API error: {data}")
-                return []
-
-            items = data.get("data", {}).get("info_list", [])
-            snippets = []
-            for item in items[:limit]:
-                highlight = item.get("highlight_content", "")
-                if highlight:
-                    snippets.append(WisdomSnippet(
-                        title=item.get("title", ""),
-                        highlight=highlight,
-                        media_id=item.get("media_id", ""),
-                    ))
+            # ImaSnippet → WisdomSnippet 适配
+            snippets = [
+                WisdomSnippet(
+                    title=s.title,
+                    highlight=s.content,
+                    media_id=s.media_id,
+                )
+                for s in ima_snippets
+            ]
 
             log.info(f"[WisdomRetriever] Found {len(snippets)} snippets")
             return snippets
