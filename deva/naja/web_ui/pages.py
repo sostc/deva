@@ -800,9 +800,16 @@ async def structural_growth_page():
     </div>
     <script>
     function runNow() {{
+        var btn = document.getElementById('run-btn');
+        var origText = btn.innerHTML;
+        btn.disabled = true;
+        btn.innerHTML = '⏳ 运行中...';
+
         fetch('/api/structural_growth/run', {{method:'POST'}})
           .then(r=>r.json())
           .then(d=>{{
+              btn.disabled = false;
+              btn.innerHTML = origText;
               if(d.success) {{
                   alert('运行完成: ' + d.aggregated + ' 个行业聚合成功, ' + d.data.total + ' 个行业在观察池中');
               }} else {{
@@ -810,7 +817,11 @@ async def structural_growth_page():
               }}
               location.reload();
           }})
-          .catch(e=>alert('运行失败: '+e.message));
+          .catch(e=>{{
+              btn.disabled = false;
+              btn.innerHTML = origText;
+              alert('运行失败: '+e.message);
+          }});
     }}
 
     function toggleDetail(id) {{

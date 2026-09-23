@@ -1209,6 +1209,64 @@ _反思生成时间: {datetime.fromtimestamp(reflection.ts).strftime('%Y-%m-%d %
                 blocks.add(str(b))
         return list(blocks)[:10]
 
+    def _retrieve_ima_context(
+        self,
+        themes: List[str],
+        narratives: List[Dict[str, Any]],
+    ) -> str:
+        """
+        从 IMA 知识库检索与当前主题/叙事相关的历史研报片段，
+        作为 LLM 反思的 RAG 上下文。
+
+        失败安全：IMA 未配置/网络失败/无结果时返回空字符串，不中断反思。
+        """
+        try:
+            from deva.naja.infra.adapters.ima_client import get_ima_client
+
+            client = get_ima_client()
+            if not client.is_configured:
+                return ""
+
+            # 构造检索 query：优先用主题词，其次用活跃叙事
+            # IMA 对多词短语匹配率低，因此对多词主题额外拆出单词补充检索
+            queries: List[str] = []
+            for t in themes[:5]:
+                t = t.strip()
+                if not t:
+                    continue
+                queries.append(t)
+                # 多词短语拆成单词（按空格/标点切分，保留 >=2 字的词）
+                if len(t) > 2:
+                    import re as _re
+                    words = [w for w in _re.split(r"[\s，。、,.\-/]+", t) if len(w) >= 2]
+                    for w in words:
+                        if w not in queries:
+                            queries.append(w)
+
+            for n in (narratives or [])[:3]:
+                narrative = n.get("narrative", "")
+                if narrative and narrative not in queries:
+                    queries.append(narrative)
+
+            if not queries:
+                return ""
+
+            snippets = client.search_multi(queries, per_query_limit=2, total_limit=5)
+            if not snippets:
+                return ""
+
+            lines = []
+            for s in snippets:
+                title = s.title[:50] if s.title else "无标题"
+                content = s.content[:200]
+                lines.append(f"- [{title}] {content}")
+
+            return "\n".join(lines)
+
+        except Exception as e:
+            log.warning(f"[LLMReflection] IMA 上下文检索失败: {e}")
+            return ""
+
     def _categorize_signals(self, signals: List[Dict[str, Any]]) -> Dict[str, List[Dict]]:
         """按来源分类信号"""
         categories = {
@@ -1319,7 +1377,12 @@ _反思生成时间: {datetime.fromtimestamp(reflection.ts).strftime('%Y-%m-%d %
         recent_reflections = self.get_recent_reflections(limit=1)
         last_reflection = recent_reflections[0] if recent_reflections else None
 
-        prompt = self._build_reflection_prompt(signals, narratives, themes, portfolio, last_reflection)
+        # 检索 IMA 知识库相关上下文（RAG），失败时为空字符串
+        ima_context = self._retrieve_ima_context(themes, narratives)
+
+        prompt = self._build_reflection_prompt(
+            signals, narratives, themes, portfolio, last_reflection, ima_context
+        )
         import logging
         log = logging.getLogger(__name__)
         log.info(f"[LLMReflection] Prompt长度: {len(prompt)} 字符, 上次反思: {'有' if last_reflection else '无'}")
@@ -1375,6 +1438,7 @@ _反思生成时间: {datetime.fromtimestamp(reflection.ts).strftime('%Y-%m-%d %
         themes: List[str],
         portfolio: Dict[str, Any],
         last_reflection: Optional[Dict[str, Any]] = None,
+        ima_context: str = "",
     ) -> str:
         categorized = self._categorize_signals(signals)
 
@@ -1468,6 +1532,17 @@ _反思生成时间: {datetime.fromtimestamp(reflection.ts).strftime('%Y-%m-%d %
 3. 持仓盈亏是否影响决策心态？
 """ if portfolio.get('positions') else "## 💼 当前持仓情况\n暂无持仓信息"
 
+        # IMA 知识库 RAG 上下文（若有）
+        if ima_context:
+            ima_section = f"""## 📚 历史研报与知识库参考
+以下是从知识库检索到的与当前主题相关的历史资料片段，供交叉验证参考：
+{ima_context}
+
+请结合上述历史资料，验证当前市场判断是否与历史规律一致，或是否存在被忽略的风险/机会。
+"""
+        else:
+            ima_section = ""
+
         return f"""你是资深金融市场分析师。请基于多源异构数据进行深度市场反思。
 
 ## ⏱️ 数据时间范围
@@ -1478,6 +1553,7 @@ _反思生成时间: {datetime.fromtimestamp(reflection.ts).strftime('%Y-%m-%d %
 
 {portfolio_section}
 
+{ima_section}
 ## 💰 流动性结构分析（美林时钟四象限）
 {liquidity_signals if liquidity_signals and liquidity_signals != "暂无" else "暂无流动性信号"}
 

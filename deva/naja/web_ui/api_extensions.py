@@ -1453,7 +1453,7 @@ class StructuralGrowthRunHandler(RequestHandler):
         self.set_status(204)
         self.finish()
 
-    def post(self):
+    async def post(self):
         try:
             from deva.naja.application import get_app_container
             container = get_app_container()
@@ -1464,21 +1464,26 @@ class StructuralGrowthRunHandler(RequestHandler):
 
             pool = container.structural_growth_pool
 
-            # 1. 财报数据聚合
-            from deva.naja.structural_growth import IndustryAggregator
-            aggregator = IndustryAggregator(pool=pool)
-            agg_count = 0
-            for tracked in pool.list():
-                try:
-                    agg = aggregator.feed_to_pool(tracked.state.industry_id)
-                    if agg and agg.stock_count > 0:
-                        agg_count += 1
-                except Exception:
-                    pass
+            # 在线程池中执行阻塞操作（SEC EDGAR 网络请求 + 全链路运行）
+            import tornado.ioloop
 
-            # 2. 运行观察池全链路
-            pool.run()
-            summary = pool.summary()
+            def _run_pipeline():
+                from deva.naja.structural_growth import IndustryAggregator
+                aggregator = IndustryAggregator(pool=pool)
+                agg_count = 0
+                for tracked in pool.list():
+                    try:
+                        agg = aggregator.feed_to_pool(tracked.state.industry_id)
+                        if agg and agg.stock_count > 0:
+                            agg_count += 1
+                    except Exception:
+                        pass
+                pool.run()
+                return agg_count, pool.summary()
+
+            loop = tornado.ioloop.IOLoop.current()
+            agg_count, summary = await loop.run_in_executor(None, _run_pipeline)
+
             self.write(json.dumps({
                 "success": True,
                 "data": summary,
