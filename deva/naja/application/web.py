@@ -31,6 +31,10 @@ class _CleanEventLoopPolicy(asyncio.DefaultEventLoopPolicy):
             loop = self.new_event_loop()
             self.set_event_loop(loop)
             return loop
+        if loop.is_closed():
+            loop = self.new_event_loop()
+            self.set_event_loop(loop)
+            return loop
         try:
             asyncio.get_running_loop()
         except RuntimeError:
@@ -91,6 +95,10 @@ def run_web_application(config: AppRuntimeConfig):
         print(f"⚠️ 注意力配置读取失败: {e}")
 
     container.initialize_runtime_modes()
+
+    # container.boot() / initialize_runtime_modes() 中的异步操作可能关闭了
+    # 最初创建的干净 event loop，在创建 web 服务器前重建一次
+    _ensure_clean_event_loop()
 
     handlers = container.create_handlers()
     host = config.server.host
