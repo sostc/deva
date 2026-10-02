@@ -3,8 +3,10 @@
 import json
 import time
 import asyncio
+import os
+import pywebio
 from pywebio.platform.tornado import webio_handler
-from tornado.web import RequestHandler
+from tornado.web import RequestHandler, StaticFileHandler
 
 from .pages import (
     main, dsadmin, signaladmin, taskadmin, strategyadmin,
@@ -35,6 +37,7 @@ from .api_extensions import (
     NajaAgentHandler, NajaSkillHandler, NajaApiCatalogHandler,
     StructuralGrowthRunHandler,
     StructuralGrowthDetailHandler,
+    StructuralGrowthAllStocksHandler,
     StructuralGrowthHistoryHandler,
 )
 from deva.naja.cognition.ui import cognition_glossary_page
@@ -873,7 +876,7 @@ class TrayDataHandler(RequestHandler):
 
 def create_handlers(cdn: str = None):
     """创建路由处理器"""
-    cdn_url = cdn or 'https://fastly.jsdelivr.net/gh/wang0618/PyWebIO-assets@v1.8.3/'
+    cdn_url = cdn if cdn is not None else False
 
     page_routes = [
         (r'/', webio_handler(main, cdn=cdn_url)),
@@ -973,6 +976,7 @@ def create_handlers(cdn: str = None):
         (r'/api/naja/api-catalog', NajaApiCatalogHandler),
         (r'/api/structural_growth/run', StructuralGrowthRunHandler),
         (r'/api/structural_growth/detail/([^/]+)', StructuralGrowthDetailHandler),
+        (r'/api/structural_growth/all_stocks', StructuralGrowthAllStocksHandler),
         (r'/api/structural_growth/history', StructuralGrowthHistoryHandler),
         (r'/api/naja/digest', NajaDigestHandler),
         (r'/api/naja/digest/send', NajaDigestSendHandler),
@@ -984,4 +988,13 @@ def create_handlers(cdn: str = None):
         (r'/api/tray/data', TrayDataHandler),
     ]
 
-    return page_routes + api_routes
+    # PyWebIO 静态资源（cdn=False 时由本地提供）
+    _pywebio_html = os.path.join(os.path.dirname(pywebio.__file__), 'html')
+    static_routes = [
+        (r'/js/(.*)', StaticFileHandler, {'path': os.path.join(_pywebio_html, 'js')}),
+        (r'/css/(.*)', StaticFileHandler, {'path': os.path.join(_pywebio_html, 'css')}),
+        (r'/codemirror/(.*)', StaticFileHandler, {'path': os.path.join(_pywebio_html, 'codemirror')}),
+        (r'/image/(.*)', StaticFileHandler, {'path': os.path.join(_pywebio_html, 'image')}),
+    ]
+
+    return static_routes + page_routes + api_routes

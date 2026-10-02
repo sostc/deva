@@ -320,7 +320,10 @@ class EventSubscriberRegistrar:
                                keywords=["Arista", "data center networking", "数据中心网络",
                                          "Broadcom networking", "AI networking",
                                          "Ethernet", "光模块", "optical module",
-                                         "switch chip", "交换芯片"]),
+                                         "switch chip", "交换芯片",
+                                         "Marvell", "Credo", "Astera Labs",
+                                         "CXL", "SerDes", "AEC", "有源电缆",
+                                         "rack-scale interconnect", "机架级互连"]),
             ]
             bridge = NewsBridge(pool=pool, industry_configs=default_configs)
 

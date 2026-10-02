@@ -536,7 +536,7 @@ async def structural_growth_page():
                 factor_dots += f'<span title="{dim}: 无数据" style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#334155;margin:0 2px;"></span>'
 
         rows_html += f"""
-            <tr id="row-{d.get('industry_id','')}" style="cursor:pointer;" onclick="toggleDetail('{d.get('industry_id','')}')">
+            <tr id="row-{d.get('industry_id','')}" class="sg-industry-row" data-industry-id="{d.get('industry_id','')}" style="cursor:pointer;">
                 <td style="padding:10px;border-bottom:1px solid #334155;color:#e2e8f0;font-weight:600;">{d.get('name','')} <span style="color:#475569;font-size:11px;">▶</span></td>
                 <td style="padding:10px;border-bottom:1px solid #334155;">
                     <span style="background:{color};color:white;padding:3px 10px;border-radius:12px;font-size:12px;">{label}</span>
@@ -571,7 +571,7 @@ async def structural_growth_page():
                 <h1 style="color:#e2e8f0;margin:0;font-size:26px;">🔬 结构性增长雷达</h1>
                 <p style="color:#94a3b8;margin-top:6px;font-size:14px;">在利润跃迁被市场充分定价之前，发现它。</p>
             </div>
-            <button onclick="runNow()" style="background:#3b82f6;color:white;border:none;padding:10px 24px;border-radius:6px;cursor:pointer;font-size:14px;font-weight:600;">
+            <button id="run-btn" style="background:#3b82f6;color:white;border:none;padding:10px 24px;border-radius:6px;cursor:pointer;font-size:14px;font-weight:600;">
                 ⚡ 立即运行
             </button>
         </div>
@@ -757,6 +757,35 @@ async def structural_growth_page():
             <div>{by_phase_html}</div>
         </div>
 
+        <!-- ========== 全部监控股票（可排序） ========== -->
+        <div style="background:#1e293b;border-radius:10px;overflow:hidden;margin-bottom:20px;">
+            <div style="padding:16px 20px;border-bottom:1px solid #334155;display:flex;justify-content:space-between;align-items:center;">
+                <h2 style="color:#e2e8f0;margin:0;font-size:18px;">📊 全部监控股票 <span style="color:#64748b;font-size:13px;font-weight:normal;">（点击列头排序，点击行查看公司介绍）</span></h2>
+                <span id="all-stocks-count" style="color:#64748b;font-size:13px;">加载中...</span>
+            </div>
+            <div style="overflow-x:auto;">
+                <table id="all-stocks-table" style="width:100%;border-collapse:collapse;font-size:13px;">
+                    <thead>
+                        <tr style="background:#0f172a;">
+                            <th class="sg-sort-hdr" data-col="ticker" style="padding:10px 12px;text-align:left;color:#94a3b8;cursor:pointer;user-select:none;">代码</th>
+                            <th class="sg-sort-hdr" data-col="name" style="padding:10px 12px;text-align:left;color:#94a3b8;cursor:pointer;user-select:none;">名称</th>
+                            <th class="sg-sort-hdr" data-col="industry_id" style="padding:10px 12px;text-align:left;color:#94a3b8;cursor:pointer;user-select:none;">行业</th>
+                            <th class="sg-sort-hdr" data-col="revenue_yoy" style="padding:10px 12px;text-align:right;color:#94a3b8;cursor:pointer;user-select:none;">营收同比</th>
+                            <th class="sg-sort-hdr" data-col="gross_margin" style="padding:10px 12px;text-align:right;color:#94a3b8;cursor:pointer;user-select:none;">毛利率</th>
+                            <th class="sg-sort-hdr" data-col="net_profit_yoy" style="padding:10px 12px;text-align:right;color:#94a3b8;cursor:pointer;user-select:none;">净利同比</th>
+                            <th class="sg-sort-hdr" data-col="market_cap" style="padding:10px 12px;text-align:right;color:#94a3b8;cursor:pointer;user-select:none;">市值(亿)</th>
+                            <th class="sg-sort-hdr" data-col="pe_ratio" style="padding:10px 12px;text-align:right;color:#94a3b8;cursor:pointer;user-select:none;">PE</th>
+                            <th class="sg-sort-hdr" data-col="pb_ratio" style="padding:10px 12px;text-align:right;color:#94a3b8;cursor:pointer;user-select:none;">PB</th>
+                            <th class="sg-sort-hdr" data-col="change_pct" style="padding:10px 12px;text-align:right;color:#94a3b8;cursor:pointer;user-select:none;">涨跌%</th>
+                        </tr>
+                    </thead>
+                    <tbody id="all-stocks-body">
+                        <tr><td colspan="10" style="padding:24px;text-align:center;color:#64748b;">加载中...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
         <!-- ========== 行业明细表 ========== -->
         <div style="background:#1e293b;border-radius:10px;overflow:hidden;">
             <div style="padding:16px 20px;border-bottom:1px solid #334155;">
@@ -798,6 +827,32 @@ async def structural_growth_page():
         </div>
 
     </div>
+
+    <!-- 股票公司简介弹窗 -->
+    <style>
+        .sg-stock-chip {{ display:inline-flex; align-items:center; gap:6px; background:#1e293b; border:1px solid #334155; border-radius:16px; padding:5px 12px; cursor:pointer; font-size:12px; transition:all 0.15s; }}
+        .sg-stock-chip:hover {{ border-color:#3b82f6; background:#0f172a; }}
+        .sg-sort-hdr {{ transition:color 0.15s; }}
+        .sg-sort-hdr:hover {{ color:#38bdf8 !important; }}
+        .sg-sort-hdr.sg-sort-active {{ color:#38bdf8 !important; }}
+        .sg-stock-row {{ cursor:pointer; transition:background 0.12s; }}
+        .sg-stock-row:hover {{ background:#0f172a; }}
+        .sg-pos {{ color:#f87171; }}
+        .sg-neg {{ color:#22c55e; }}
+    </style>
+    <div id="stock-intro-modal" style="display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.6);z-index:9999;justify-content:center;align-items:center;">
+        <div id="si-modal-content" style="background:#1e293b;border:1px solid #334155;border-radius:12px;padding:28px;max-width:520px;width:90%;box-shadow:0 20px 60px rgba(0,0,0,0.5);">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
+                <div>
+                    <div id="si-ticker" style="color:#38bdf8;font-size:22px;font-weight:bold;"></div>
+                    <div id="si-name" style="color:#94a3b8;font-size:14px;margin-top:2px;"></div>
+                </div>
+                <button id="si-close-btn" style="background:#334155;color:#e2e8f0;border:none;width:30px;height:30px;border-radius:50%;cursor:pointer;font-size:16px;">✕</button>
+            </div>
+            <div id="si-desc" style="color:#cbd5e1;font-size:14px;line-height:1.7;"></div>
+        </div>
+    </div>
+
     <script>
     function runNow() {{
         var btn = document.getElementById('run-btn');
@@ -845,6 +900,26 @@ async def structural_growth_page():
                   return;
               }}
               var html = '';
+
+              // ---- 监控股票 ----
+              var stocks = d.stocks || [];
+              html += '<div style="margin-bottom:16px;">';
+              html += '<div style="color:#38bdf8;font-size:14px;font-weight:bold;margin-bottom:8px;">📈 监控股票 <span style="color:#64748b;font-size:12px;font-weight:normal;">(' + stocks.length + ' 只，点击查看公司介绍)</span></div>';
+              if(stocks.length === 0) {{
+                  html += '<div style="color:#64748b;font-size:12px;">该行业暂无监控股票</div>';
+              }} else {{
+                  var escQ = function(v){{ return (v||'').replace(/"/g,'&quot;'); }};
+                  html += '<div style="display:flex;flex-wrap:wrap;gap:8px;">';
+                  stocks.forEach(function(s) {{
+                      html += '<span class="sg-stock-chip" onclick="showStockIntro(this.dataset.t,this.dataset.n,this.dataset.d)" ';
+                      html += 'data-t="' + escQ(s.ticker) + '" data-n="' + escQ(s.name) + '" data-d="' + escQ(s.description) + '">';
+                      html += '<span style="color:#38bdf8;font-weight:bold;">' + s.ticker + '</span>';
+                      html += '<span style="color:#cbd5e1;">' + s.name + '</span>';
+                      html += '</span>';
+                  }});
+                  html += '</div>';
+              }}
+              html += '</div>';
 
               // ---- 状态机历史 ----
               var sm = d.state_machine || {{}};
@@ -1031,6 +1106,116 @@ async def structural_growth_page():
               container.innerHTML = '<div style="color:#f87171;">加载失败: ' + e.message + '</div>';
           }});
     }}
+
+    // ---- 股票公司简介弹窗 ----
+    function showStockIntro(ticker, name, desc) {{
+        document.getElementById('si-ticker').textContent = ticker;
+        document.getElementById('si-name').textContent = name;
+        document.getElementById('si-desc').textContent = desc;
+        document.getElementById('stock-intro-modal').style.display = 'flex';
+    }}
+    function hideStockIntro() {{
+        document.getElementById('stock-intro-modal').style.display = 'none';
+    }}
+
+    // ---- 全部监控股票表格（加载 + 排序）----
+    var _allStocks = [];
+    var _allStocksSort = {{ col: 'revenue_yoy', asc: false }};
+
+    function loadAllStocks() {{
+        fetch('/api/structural_growth/all_stocks')
+          .then(r=>r.json())
+          .then(d=>{{
+              if(!d.success) {{ document.getElementById('all-stocks-body').innerHTML = '<tr><td colspan="10" style="padding:24px;text-align:center;color:#f87171;">加载失败</td></tr>'; return; }}
+              _allStocks = d.stocks || [];
+              document.getElementById('all-stocks-count').textContent = _allStocks.length + ' 只';
+              renderAllStocks();
+          }})
+          .catch(e=>{{ document.getElementById('all-stocks-body').innerHTML = '<tr><td colspan="10" style="padding:24px;text-align:center;color:#f87171;">加载失败: ' + e.message + '</td></tr>'; }});
+    }}
+
+    function fmtPct(v) {{
+        var n = parseFloat(v) || 0;
+        var cls = n > 0 ? 'sg-pos' : (n < 0 ? 'sg-neg' : '');
+        var sign = n > 0 ? '+' : '';
+        return '<span class="' + cls + '">' + sign + n.toFixed(1) + '%</span>';
+    }}
+    function fmtNum(v, digits) {{
+        var n = parseFloat(v) || 0;
+        return n === 0 ? '<span style="color:#64748b;">—</span>' : n.toFixed(digits || 1);
+    }}
+    function fmtCap(v) {{
+        var n = parseFloat(v) || 0;
+        if(n === 0) return '<span style="color:#64748b;">—</span>';
+        var yi = n / 1e8;
+        if(yi >= 10000) return (yi/10000).toFixed(2) + '万亿';
+        return yi.toFixed(0) + '亿';
+    }}
+
+    function renderAllStocks() {{
+        var col = _allStocksSort.col;
+        var asc = _allStocksSort.asc;
+        var sorted = _allStocks.slice().sort(function(a,b) {{
+            var av = a[col], bv = b[col];
+            if(typeof av === 'string') return asc ? av.localeCompare(bv) : bv.localeCompare(av);
+            return asc ? (av-bv) : (bv-av);
+        }});
+        var hdrMap = {{ ticker:'代码', name:'名称', industry_id:'行业', revenue_yoy:'营收同比', gross_margin:'毛利率', net_profit_yoy:'净利同比', market_cap:'市值', pe_ratio:'PE', pb_ratio:'PB', change_pct:'涨跌%' }};
+        document.querySelectorAll('.sg-sort-hdr').forEach(function(th) {{
+            th.classList.remove('sg-sort-active');
+            if(th.dataset.col === col) {{
+                th.classList.add('sg-sort-active');
+                th.textContent = hdrMap[col] + (asc ? ' ↑' : ' ↓');
+            }} else {{
+                th.textContent = hdrMap[th.dataset.col];
+            }}
+        }});
+        var body = document.getElementById('all-stocks-body');
+        var indNameMap = {{ ai_chips:'AI芯片', ai_foundry:'晶圆代工', semiconductor_equipment:'半导体设备', hbm:'高带宽存储', cloud_infra:'云计算/数据中心', ai_software:'AI软件/应用', ai_power:'AI电力/散热', energy_storage:'储能', cybersecurity:'网络安全', robotics:'机器人/自动化', ai_networking:'AI网络' }};
+        body.innerHTML = sorted.map(function(s) {{
+            var esc = function(v){{ return (v||'').replace(/"/g,'&quot;'); }};
+            var indName = indNameMap[s.industry_id] || s.industry_id;
+            return '<tr class="sg-stock-row" onclick="showStockIntro(this.dataset.t,this.dataset.n,this.dataset.d)" '
+              + 'data-t="' + esc(s.ticker) + '" data-n="' + esc(s.name) + '" data-d="' + esc(s.description) + '">'
+              + '<td style="padding:8px 12px;color:#38bdf8;font-weight:bold;">' + s.ticker + '</td>'
+              + '<td style="padding:8px 12px;color:#cbd5e1;">' + s.name + '</td>'
+              + '<td style="padding:8px 12px;color:#94a3b8;font-size:12px;">' + indName + '</td>'
+              + '<td style="padding:8px 12px;text-align:right;">' + fmtPct(s.revenue_yoy) + '</td>'
+              + '<td style="padding:8px 12px;text-align:right;">' + fmtNum(s.gross_margin,1) + '</td>'
+              + '<td style="padding:8px 12px;text-align:right;">' + fmtPct(s.net_profit_yoy) + '</td>'
+              + '<td style="padding:8px 12px;text-align:right;">' + fmtCap(s.market_cap) + '</td>'
+              + '<td style="padding:8px 12px;text-align:right;">' + fmtNum(s.pe_ratio,1) + '</td>'
+              + '<td style="padding:8px 12px;text-align:right;">' + fmtNum(s.pb_ratio,2) + '</td>'
+              + '<td style="padding:8px 12px;text-align:right;">' + fmtPct(s.change_pct) + '</td>'
+              + '</tr>';
+        }}).join('');
+    }}
+
+    function sortAllStocks(col) {{
+        if(_allStocksSort.col === col) {{ _allStocksSort.asc = !_allStocksSort.asc; }}
+        else {{ _allStocksSort.col = col; _allStocksSort.asc = false; }}
+        renderAllStocks();
+    }}
+
+    // ---- 静态 HTML 元素事件绑定（事件委托，兼容 PyWebIO 异步注入）----
+    document.addEventListener('click', function(e) {{
+        // 列头排序
+        var sortHdr = e.target.closest('.sg-sort-hdr');
+        if(sortHdr) {{ sortAllStocks(sortHdr.dataset.col); return; }}
+        // 运行按钮
+        if(e.target.closest('#run-btn')) {{ runNow(); return; }}
+        // 行业行展开详情
+        var indRow = e.target.closest('.sg-industry-row');
+        if(indRow) {{ toggleDetail(indRow.dataset.industryId); return; }}
+        // 弹窗关闭按钮
+        if(e.target.closest('#si-close-btn')) {{ hideStockIntro(); return; }}
+        // 弹窗背景遮罩点击关闭
+        var modal = document.getElementById('stock-intro-modal');
+        if(modal && e.target === modal) {{ hideStockIntro(); return; }}
+    }});
+
+    // 页面加载后拉取全部股票
+    loadAllStocks();
     </script>
     """
 
