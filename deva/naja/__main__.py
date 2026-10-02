@@ -235,6 +235,9 @@ def handle_service_command():
         if platform.system() == "Darwin":
             env = os.environ.copy()
             env["OBJC_DISABLE_INITIALIZE_FORK_SAFETY"] = "YES"
+            # 从进程诞生起声明为 accessory/agent 应用，不分配 Dock 图标，避免跳动
+            env["LSUIElement"] = "1"
+            env["LSBackgroundOnly"] = "1"
         else:
             env = None
 
@@ -552,8 +555,14 @@ def main():
             naja_dir.joinpath("logs").mkdir(parents=True, exist_ok=True)
             tray_log = naja_dir / "logs" / "tray.log"
             tray_script = Path(__file__).parent / "scripts" / "start_tray.py"
+            tray_env = os.environ.copy()
+            tray_env["OBJC_DISABLE_INITIALIZE_FORK_SAFETY"] = "YES"
+            # 声明为 accessory/agent 应用，不分配 Dock 图标，避免跳动
+            tray_env["LSUIElement"] = "1"
+            tray_env["LSBackgroundOnly"] = "1"
             subprocess.Popen(
                 [sys.executable, str(tray_script)],
+                env=tray_env,
                 stdout=open(tray_log, "a"),
                 stderr=subprocess.STDOUT,
                 start_new_session=True
