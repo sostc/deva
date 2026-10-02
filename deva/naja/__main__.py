@@ -278,6 +278,8 @@ def handle_service_command():
         proc = subprocess.Popen(
             cmd,
             env=env,
+            stdout=open_rotated_file(str(LOG_FILE)),
+            stderr=subprocess.STDOUT,
             cwd=os.getcwd(),
             start_new_session=True
         )
