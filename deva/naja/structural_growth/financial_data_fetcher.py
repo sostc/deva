@@ -96,6 +96,8 @@ _US_FUNDAMENTALS_FALLBACK: Dict[str, Dict] = {
     "WDC": {"revenue": 15000000000, "revenue_yoy": 41.0, "net_profit": -600000000, "net_profit_yoy": -50.0, "gross_margin": 27.0, "cashflow": 2000000000},
     "ENPH": {"revenue": 4500000000, "revenue_yoy": -20.0, "net_profit": 500000000, "net_profit_yoy": -40.0, "gross_margin": 48.0, "cashflow": 800000000},
     "ANET": {"revenue": 5900000000, "revenue_yoy": 18.0, "net_profit": 1800000000, "net_profit_yoy": 25.0, "gross_margin": 64.0, "cashflow": 2500000000},
+    "ALAB": {"revenue": 852500000, "revenue_yoy": 115.0, "net_profit": 219100000, "net_profit_yoy": 180.0, "gross_margin": 75.7, "cashflow": 200000000},
+    "CRDO": {"revenue": 255000000, "revenue_yoy": 22.0, "net_profit": -15000000, "net_profit_yoy": -5.0, "gross_margin": 58.0, "cashflow": 10000000},
 }
 
 

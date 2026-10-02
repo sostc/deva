@@ -35,7 +35,7 @@ from .valuation_state import (
 from .observation_pool import ObservationPool, TrackedIndustry
 from .data_adapter import IndustryDataAdapter
 from .news_bridge import NewsBridge, IndustryConfig
-from .industry_aggregator import IndustryAggregator, IndustryAggregate
+from .industry_aggregator import IndustryAggregator, IndustryAggregate, STOCK_PROFILES, get_stock_profile
 from .financial_data_fetcher import FinancialDataFetcher, StockFinancial, get_financial_data_fetcher
 from .agents.discovery_agent import DiscoveryAgent, GrowthHypothesis, HypothesisType
 from .agents.verification_agent import (
@@ -76,6 +76,8 @@ __all__ = [
     # industry aggregator
     "IndustryAggregator",
     "IndustryAggregate",
+    "STOCK_PROFILES",
+    "get_stock_profile",
     # financial data
     "FinancialDataFetcher",
     "StockFinancial",
