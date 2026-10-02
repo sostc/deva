@@ -1523,6 +1523,19 @@ class StructuralGrowthDetailHandler(RequestHandler):
                 self.write(json.dumps({"success": False, "error": f"行业 {industry_id} 不在观察池中"}, ensure_ascii=False))
                 return
 
+            # 监控股票列表（含简介）
+            from deva.naja.structural_growth import IndustryAggregator, get_stock_profile
+            aggregator = IndustryAggregator(pool=pool)
+            stock_codes = aggregator.get_stocks(industry_id)
+            stocks = []
+            for code in stock_codes:
+                profile = get_stock_profile(code) or {}
+                stocks.append({
+                    "ticker": code,
+                    "name": profile.get("name", code),
+                    "description": profile.get("description", ""),
+                })
+
             d = tracked.to_dict()
             result = {
                 "success": True,
@@ -1533,6 +1546,7 @@ class StructuralGrowthDetailHandler(RequestHandler):
                     "phase_name": d.get("phase_name", ""),
                     "last_run_at": d.get("last_run_at"),
                 },
+                "stocks": stocks,
                 "state_machine": d.get("state_machine", {}),
                 "verifications": d.get("last_verifications", []),
                 "valuation": d.get("valuation"),
@@ -1542,6 +1556,38 @@ class StructuralGrowthDetailHandler(RequestHandler):
                 "counter_evidence": d.get("state", {}).get("counter_evidence", []),
             }
             self.write(json.dumps(result, ensure_ascii=False, default=str))
+        except Exception as e:
+            self.set_status(500)
+            self.write(json.dumps({"success": False, "error": str(e)}, ensure_ascii=False))
+
+
+class StructuralGrowthAllStocksHandler(RequestHandler):
+    """结构性增长雷达 - 全部监控股票快照 API（含财务+行情，支持排序）"""
+
+    def set_default_headers(self):
+        self.set_header("Content-Type", "application/json; charset=utf-8")
+        self.set_header("Access-Control-Allow-Origin", "*")
+        self.set_header("Access-Control-Allow-Methods", "GET, OPTIONS")
+        self.set_header("Access-Control-Allow-Headers", "Content-Type")
+
+    def options(self):
+        self.set_status(204)
+        self.finish()
+
+    def get(self):
+        try:
+            from deva.naja.application import get_app_container
+            container = get_app_container()
+            if container is None:
+                self.set_status(503)
+                self.write(json.dumps({"success": False, "error": "AppContainer 未初始化"}, ensure_ascii=False))
+                return
+
+            from deva.naja.structural_growth import IndustryAggregator
+            pool = container.structural_growth_pool
+            aggregator = IndustryAggregator(pool=pool)
+            stocks = aggregator.get_all_stocks_snapshot()
+            self.write(json.dumps({"success": True, "stocks": stocks}, ensure_ascii=False, default=str))
         except Exception as e:
             self.set_status(500)
             self.write(json.dumps({"success": False, "error": str(e)}, ensure_ascii=False))
