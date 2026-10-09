@@ -21,6 +21,7 @@
 from __future__ import annotations
 
 import logging
+import time
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -76,6 +77,7 @@ DEFAULT_INDUSTRY_STOCKS: Dict[str, List[str]] = {
         "VST",    # Vistra - 电力
         "CEG",    # Constellation - 核电
         "SMCI",   # 超微电脑 - AI 服务器
+        "BE",     # Bloom Energy - 固体氧化物燃料电池/数据中心分布式发电
     ],
     # ---- 储能 ----
     "energy_storage": [
@@ -141,6 +143,7 @@ STOCK_PROFILES: Dict[str, Dict[str, str]] = {
     "VST":  {"name": "Vistra", "description": "美国独立发电商，核电 + 天然气发电，AI 数据中心电力需求激增直接受益。"},
     "CEG":  {"name": "Constellation Energy", "description": "美国最大核电运营商，AI 数据中心对稳定清洁能源（核电）需求激增。"},
     "SMCI": {"name": "超微电脑 Super Micro", "description": "AI 服务器整机厂商，液冷散热与机柜级方案受益于 AI 算力部署。"},
+    "BE":   {"name": "Bloom Energy", "description": "固体氧化物燃料电池厂商，提供数据中心分布式发电与离网供电方案，受益于 AI 数据中心对可靠电力的需求。"},
     # ---- 储能 ----
     "TSLA": {"name": "特斯拉 Tesla", "description": "Megapack 储能 + 电动车，储能业务受益于 AI 数据中心与电网调峰需求。"},
     "ENPH": {"name": "Enphase", "description": "微型逆变器龙头，户用储能与智能能源管理，光伏 + 储能周期复苏受益。"},
@@ -180,6 +183,12 @@ class IndustryAggregate:
 
 class IndustryAggregator:
     """行业基本面聚合器"""
+
+    # all_stocks 快照缓存（类级，跨实例复用），TTL 5 分钟
+    # fetcher 自身已有 1h 缓存，快照缓存进一步避免每次遍历 38 只股票的组装开销
+    _snapshot_cache: Optional[List[Dict[str, Any]]] = None
+    _snapshot_ts: float = 0.0
+    _snapshot_ttl: float = 300.0
 
     def __init__(self, pool: ObservationPool, adapter: Optional[IndustryDataAdapter] = None,
                  industry_stocks: Optional[Dict[str, List[str]]] = None):
@@ -221,6 +230,10 @@ class IndustryAggregator:
         """
         from deva.naja.bandit.fundamental_data_fetcher import get_fundamental_data_fetcher
         from .financial_data_fetcher import get_financial_data_fetcher
+
+        # 快照缓存命中直接返回，5 分钟内复用（类级缓存，跨请求生效）
+        if IndustryAggregator._snapshot_cache is not None and (time.time() - IndustryAggregator._snapshot_ts) < IndustryAggregator._snapshot_ttl:
+            return IndustryAggregator._snapshot_cache
 
         fin_fetcher = get_financial_data_fetcher()
         fund_fetcher = get_fundamental_data_fetcher()
@@ -275,6 +288,8 @@ class IndustryAggregator:
 
                 results.append(snapshot)
 
+        IndustryAggregator._snapshot_cache = results
+        IndustryAggregator._snapshot_ts = time.time()
         return results
 
     # ---- 聚合 ----
