@@ -98,7 +98,7 @@ class FundamentalDataFetcher:
         self._price_cache: Dict[str, float] = {}
         self._fundamental_cache: Dict[str, StockFundamental] = {}
         self._last_fetch: float = 0.0
-        self._fetch_interval: float = 300.0
+        self._fetch_interval: float = 3600.0
         self._xueqiu_mcp_available = False
         self._check_xueqiu_mcp()
 

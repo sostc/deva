@@ -86,6 +86,7 @@ _US_FUNDAMENTALS_FALLBACK: Dict[str, Dict] = {
     "VST": {"revenue": 17000000000, "revenue_yoy": 30.0, "net_profit": 2800000000, "net_profit_yoy": 60.0, "gross_margin": 28.0, "cashflow": 3000000000},
     "CEG": {"revenue": 23000000000, "revenue_yoy": 40.0, "net_profit": 2000000000, "net_profit_yoy": 70.0, "gross_margin": 22.0, "cashflow": 2500000000},
     "SMCI": {"revenue": 23000000000, "revenue_yoy": 110.0, "net_profit": 1400000000, "net_profit_yoy": 93.0, "gross_margin": 14.0, "cashflow": 800000000},
+    "BE": {"revenue": 1500000000, "revenue_yoy": 37.0, "net_profit": -200000000, "net_profit_yoy": 25.0, "gross_margin": 28.0, "cashflow": -150000000},
     "PAN": {"revenue": 7400000000, "revenue_yoy": 15.0, "net_profit": 1500000000, "net_profit_yoy": 20.0, "gross_margin": 76.0, "cashflow": 2200000000},
     "CRWD": {"revenue": 3400000000, "revenue_yoy": 33.0, "net_profit": 170000000, "net_profit_yoy": 100.0, "gross_margin": 78.0, "cashflow": 900000000},
     "FTNT": {"revenue": 5900000000, "revenue_yoy": 12.0, "net_profit": 1700000000, "net_profit_yoy": 18.0, "gross_margin": 79.0, "cashflow": 2000000000},
@@ -142,7 +143,7 @@ def _secucode(stock_code: str) -> str:
 class FinancialDataFetcher:
     """财报数据获取器（A 股 + 美股）"""
 
-    def __init__(self, cache_ttl: float = 3600.0):
+    def __init__(self, cache_ttl: float = 86400.0):
         self._cache: Dict[str, List[StockFinancial]] = {}
         self._cache_ts: Dict[str, float] = {}
         self._cache_ttl = cache_ttl
