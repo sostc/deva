@@ -1574,7 +1574,7 @@ class StructuralGrowthAllStocksHandler(RequestHandler):
         self.set_status(204)
         self.finish()
 
-    def get(self):
+    async def get(self):
         try:
             from deva.naja.application import get_app_container
             container = get_app_container()
@@ -1586,7 +1586,10 @@ class StructuralGrowthAllStocksHandler(RequestHandler):
             from deva.naja.structural_growth import IndustryAggregator
             pool = container.structural_growth_pool
             aggregator = IndustryAggregator(pool=pool)
-            stocks = aggregator.get_all_stocks_snapshot()
+            # 快照组装涉及 38 只股票的财报/行情网络请求，放到线程池避免阻塞事件循环
+            import tornado.ioloop
+            loop = tornado.ioloop.IOLoop.current()
+            stocks = await loop.run_in_executor(None, aggregator.get_all_stocks_snapshot)
             self.write(json.dumps({"success": True, "stocks": stocks}, ensure_ascii=False, default=str))
         except Exception as e:
             self.set_status(500)
