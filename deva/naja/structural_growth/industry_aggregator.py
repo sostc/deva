@@ -184,11 +184,11 @@ class IndustryAggregate:
 class IndustryAggregator:
     """行业基本面聚合器"""
 
-    # all_stocks 快照缓存（类级，跨实例复用），TTL 5 分钟
-    # fetcher 自身已有 1h 缓存，快照缓存进一步避免每次遍历 38 只股票的组装开销
+    # all_stocks 快照缓存（类级，跨实例复用），TTL 1 小时
+    # 财报数据季度才变（TTL 24h），行情数据 1h 刷新，快照缓存跟随行情层即可
     _snapshot_cache: Optional[List[Dict[str, Any]]] = None
     _snapshot_ts: float = 0.0
-    _snapshot_ttl: float = 300.0
+    _snapshot_ttl: float = 3600.0
 
     def __init__(self, pool: ObservationPool, adapter: Optional[IndustryDataAdapter] = None,
                  industry_stocks: Optional[Dict[str, List[str]]] = None):
