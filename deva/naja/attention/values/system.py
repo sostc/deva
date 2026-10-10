@@ -10,7 +10,6 @@ from typing import Dict, List, Optional, Any
 
 from .types import ValueType, ValueWeights, ValuePreferences, ValueProfile
 from .profile import ValueProfileManager
-from deva.naja.register import SR
 
 
 log = logging.getLogger(__name__)

@@ -181,10 +181,6 @@ class ManasManager:
         return 0.5
 
 
-_global_manager: Optional[ManasManager] = None
-_global_manager_initialized = False
-
-
 def get_manas_manager() -> Optional[ManasManager]:
     """获取全局末那识管理器"""
     # 从 AppContainer 获取
@@ -193,10 +189,3 @@ def get_manas_manager() -> Optional[ManasManager]:
     if container is not None:
         return container.manas_manager
     return None
-
-
-def setup_manas_manager(kernel) -> ManasManager:
-    """设置全局末那识管理器"""
-    global _global_manager
-    _global_manager = ManasManager(kernel)
-    return _global_manager
