@@ -32,6 +32,7 @@ from .attention_scorer import AttentionHead
 from .multi_scorer import MultiHeadAttention
 from .kernel import AttentionKernel
 from .heads import get_default_heads, get_regime_aware_heads
+from .manas_config import ManasConfig, RollingWindow
 from .manas_engine import (
     ManasEngine,
     TimingEngine,
@@ -41,6 +42,7 @@ from .manas_engine import (
     MetaManas,
     BiasState,
     ManasOutput,
+    CognitiveState,
 )
 from .manas_manager import (
     ManasManager,
@@ -74,6 +76,9 @@ __all__ = [
     "get_default_heads",
     "get_regime_aware_heads",
     "ManasEngine",
+    "ManasConfig",
+    "RollingWindow",
+    "CognitiveState",
     "TimingEngine",
     "RegimeEngine",
     "ConfidenceEngine",
