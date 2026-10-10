@@ -94,7 +94,7 @@ class ManasManager:
         """把当前引擎挂到认知事件总线（幂等）
 
         ManasEngine 的事件订阅已按架构基准 §6.3 移出构造函数，因此启用引擎后
-        必须显式挂载一次；否则 _supply_chain_state 不会随认知事件更新，
+        必须显式挂载一次；否则 _cognitive_state 不会随认知事件更新，
         叙事风险 / 共振分数 / AI 算力趋势会一直停在默认值。
         """
         engine = self.get_manas_engine()

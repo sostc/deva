@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""回归：manas_engine._update_supply_chain_state 的常量提升。
+"""回归：manas_engine._update_cognitive_state 的常量提升。
 
 改动：
   - risk_scores / ai_keywords 由每次事件重建 → 模块级常量；
@@ -9,7 +9,7 @@
 验证：
   1) 模块级常量内容与原先字面量一致；
   2) 新/旧 ai 关键词命中计数在所有样例上一致；
-  3) _update_supply_chain_state 仍能正常更新状态。
+  3) _update_cognitive_state 仍能正常更新状态。
 
 跑法（必须清环境）：
     env -i HOME="$HOME" USER="$USER" PATH=/usr/bin:/bin:/usr/sbin:/sbin \
@@ -72,17 +72,19 @@ def main():
 
     # 3) 状态更新仍正常
     eng = M.ManasEngine.__new__(M.ManasEngine)  # 跳过 __init__（避免重副作用）
-    eng._supply_chain_state = {}
+    eng._cognitive_state = M.CognitiveState()
     ev = Ev(risk_level="HIGH", importance=0.9,
             narratives=["AI算力需求爆发", "GPU供不应求", "数据中心扩张"],
             stock_codes=["NVDA"])
-    eng._update_supply_chain_state(ev)
-    st = eng._supply_chain_state
-    assert st["risk_level"] == "HIGH", st["risk_level"]
-    assert st["ai_compute_trend"] == "up", st["ai_compute_trend"]   # 3+ 命中 → up
-    assert st["ai_compute_strength"] > 0.5, st["ai_compute_strength"]
-    assert st["narrative_risk"] > 0.5, st["narrative_risk"]
-    print(f"3) 状态更新 OK risk={st['narrative_risk']:.3f} trend={st['ai_compute_trend']}")
+    eng._update_cognitive_state(ev)
+    st = eng._cognitive_state
+    assert st.narrative.level == "HIGH", st.narrative.level
+    assert st.ai_compute.trend == "up", st.ai_compute.trend   # 3+ 命中 → up
+    assert st.ai_compute.strength > 0.5, st.ai_compute.strength
+    assert st.narrative.risk > 0.5, st.narrative.risk
+    assert st.narrative.hot_narratives, st.narrative.hot_narratives
+    assert st.last_update > 0, st.last_update
+    print(f"3) 状态更新 OK risk={st.narrative.risk:.3f} trend={st.ai_compute.trend}")
 
     print("\nALL PASS")
 

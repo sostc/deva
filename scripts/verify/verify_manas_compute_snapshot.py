@@ -54,31 +54,31 @@ def _multi(*fns):
 
 
 def _narrative_high(e):
-    e._supply_chain_state["narrative_risk"] = 0.85
+    e._cognitive_state.narrative.risk = 0.85
 
 
 def _ai_up(e):
-    e._supply_chain_state["ai_compute_trend"] = "up"
-    e._supply_chain_state["ai_compute_strength"] = 0.9
+    e._cognitive_state.ai_compute.trend = "up"
+    e._cognitive_state.ai_compute.strength = 0.9
 
 
 def _ai_down(e):
-    e._supply_chain_state["ai_compute_trend"] = "down"
-    e._supply_chain_state["ai_compute_strength"] = 0.9
+    e._cognitive_state.ai_compute.trend = "down"
+    e._cognitive_state.ai_compute.strength = 0.9
 
 
 def _resonance_pos(e):
-    e._supply_chain_state["resonance_score"] = 0.9
-    e._supply_chain_state["resonance_sentiment"] = 0.5
+    e._cognitive_state.resonance.score = 0.9
+    e._cognitive_state.resonance.sentiment = 0.5
 
 
 def _resonance_neg(e):
-    e._supply_chain_state["resonance_score"] = 0.9
-    e._supply_chain_state["resonance_sentiment"] = -0.5
+    e._cognitive_state.resonance.score = 0.9
+    e._cognitive_state.resonance.sentiment = -0.5
 
 
 def _watchlist(e):
-    e._supply_chain_state["watchlist_bonus"] = 1.3
+    e._cognitive_state.watchlist.bonus = 1.3
 
 
 SCENARIOS = [

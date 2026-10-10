@@ -137,7 +137,7 @@ from enum import Enum
 
 log = logging.getLogger(__name__)
 
-# 事件级常量：原先在 _update_supply_chain_state 中每次事件重建，提到模块级复用。
+# 事件级常量：原先在 _update_cognitive_state 中每次事件重建，提到模块级复用。
 _RISK_LEVEL_SCORES = {
     "HIGH": 0.8,
     "MEDIUM": 0.5,
@@ -254,6 +254,58 @@ class ManasOutput:
             "focus_enum": self.focus_enum.value,
             "portfolio_signal": self.portfolio_signal.value,
         }
+
+
+@dataclass
+class NarrativeState:
+    """叙事维度：风险分数 + 热点叙事（来自 BLOCK_NARRATIVE_UPDATE / SUPPLY_CHAIN_RISK 等事件）"""
+    risk: float = 0.5
+    level: str = "LOW"
+    # [(叙事, 重要性)]，按重要性降序，最多 5 条
+    hot_narratives: List[Tuple[str, float]] = field(default_factory=list)
+
+
+@dataclass
+class AiComputeState:
+    """AI 算力趋势：从事件叙事的关键词命中情况推断"""
+    trend: str = "neutral"   # up / down / neutral
+    strength: float = 0.5    # 0-1
+
+
+@dataclass
+class WatchlistState:
+    """自选股注意力加成"""
+    codes: List[str] = field(default_factory=list)
+    bonus: float = 1.0       # 命中自选股时放大注意力，上限 1.5
+
+
+@dataclass
+class ResonanceState:
+    """天-地共振状态（来自 CrossSignalAnalyzer 的 RESONANCE_DETECTED 事件）"""
+    score: float = 0.0
+    sentiment: float = 0.0
+    blocks: List[str] = field(default_factory=list)
+    updated: float = 0.0
+
+
+@dataclass
+class CognitiveState:
+    """认知层状态（事件驱动演化）
+
+    原先是一个 13 字段的混合 dict `_supply_chain_state`：读靠 `.get(k, 默认值)`、
+    写靠整块重建（重建时漏掉未列出的字段，曾把 focus_themes 清空）。
+    改为嵌套 dataclass 后：
+        • 字段有类型与默认值，读写不再需要 .get 兜底；
+        • 更新只能逐字段赋值，结构上无法再整块覆盖掉未提及的字段；
+        • 四组关注点各自成类，新增字段只需改对应类。
+    """
+    narrative: NarrativeState = field(default_factory=NarrativeState)
+    ai_compute: AiComputeState = field(default_factory=AiComputeState)
+    watchlist: WatchlistState = field(default_factory=WatchlistState)
+    resonance: ResonanceState = field(default_factory=ResonanceState)
+    # 我们关心的叙事主题（"地"维度只追踪这些主题），见 _get_default_focus_themes
+    focus_themes: List[Dict[str, Any]] = field(default_factory=list)
+    last_update: float = 0.0
 
 
 class TimingEngine:
@@ -1026,26 +1078,10 @@ class ManasEngine:
         self._harmony_state = HarmonyState.NEUTRAL
         self._harmony_strength = 0.5
 
-        # 🚀 供应链状态（事件驱动，收到事件后更新）
-        self._supply_chain_state: Dict[str, Any] = {
-            "narrative_risk": 0.5,
-            "hot_narratives": [],
-            "risk_level": "LOW",
-            "last_update": 0.0,
-            # 🚀 AI算力趋势（事件驱动）
-            "ai_compute_trend": "neutral",  # up / down / neutral
-            "ai_compute_strength": 0.5,       # 0-1
-            # 🚀 自选股注意力
-            "watchlist": [],                  # 自选股代码列表
-            "watchlist_bonus": 1.0,           # 自选股加成系数
-            # 🚀 关注主题（我们关心的叙事主题）
-            "focus_themes": self._get_default_focus_themes(),
-            # 🚀 共振状态（来自 CrossSignalAnalyzer）
-            "resonance_score": 0.0,
-            "resonance_sentiment": 0.0,
-            "resonance_blocks": [],
-            "resonance_updated": 0.0,
-        }
+        # 🚀 认知层状态（事件驱动，收到认知事件后演化，见 _update_cognitive_state）
+        self._cognitive_state = CognitiveState(
+            focus_themes=self._get_default_focus_themes(),
+        )
 
         self._awakening_level: str = "dormant"
 
@@ -1098,7 +1134,7 @@ class ManasEngine:
 
         这是 Manas 关心的话题（地），BlockNarrative 应该只追踪这些主题。
         """
-        return self._supply_chain_state.get("focus_themes", [])
+        return self._cognitive_state.focus_themes
 
     def set_focus_themes(self, themes: List[Dict[str, Any]]):
         """
@@ -1106,7 +1142,7 @@ class ManasEngine:
 
         可以动态更新我们关心的话题。
         """
-        self._supply_chain_state["focus_themes"] = themes
+        self._cognitive_state.focus_themes = themes
         log.info(f"[ManasEngine] 关注主题已更新: {len(themes)} 个主题")
         self._publish_manas_state_change({"focus_themes": themes})
 
@@ -1122,7 +1158,7 @@ class ManasEngine:
 
             bus = get_event_bus()
             state_data = {
-                "focus_themes": self._supply_chain_state.get("focus_themes", []),
+                "focus_themes": self._cognitive_state.focus_themes,
                 "harmony_strength": self._harmony_strength,
                 "harmony_state": self._harmony_state.value if hasattr(self._harmony_state, 'value') else str(self._harmony_state),
             }
@@ -1219,138 +1255,97 @@ class ManasEngine:
             f"(importance={event.importance:.2f}, narratives={event.narratives[:2]})"
         )
 
-        # 🚀 更新供应链状态
-        self._update_supply_chain_state(event)
+        # 🚀 更新认知层状态
+        self._update_cognitive_state(event)
 
         # 清缓存，触发重新计算
         self._invalidate_cache()
 
-    def _update_supply_chain_state(self, event):
+    def _update_cognitive_state(self, event):
         """
-        🚀 根据认知事件更新供应链状态
+        🚀 根据认知事件演化认知层状态
 
         事件驱动更新：不再主动拉取，由事件携带状态
 
-        处理三个维度：
-        1. 叙事风险 + 热点叙事
-        2. AI算力趋势（从叙事中判断）
-        3. 自选股注意力加成
-        4. 天-地共振（CrossSignalAnalyzer）
+        处理四个维度（对应 CognitiveState 的四个子状态）：
+        1. 叙事风险 + 热点叙事  → NarrativeState
+        2. AI算力趋势（从叙事中判断） → AiComputeState
+        3. 自选股注意力加成 → WatchlistState
+        4. 天-地共振（CrossSignalAnalyzer） → ResonanceState
+
+        只做逐字段赋值：状态是"基于旧值演化"，没有任何字段需要被整体清空。
         """
-        try:
-            from deva.naja.events import CognitiveEventType
-            event_type = event.event_type
-        except Exception:
-            event_type = getattr(event, "event_type", None)
+        st = self._cognitive_state
+        importance = float(getattr(event, "importance", 0.0) or 0.0)
 
-        # 根据风险等级更新风险分数
+        # ── 1. 叙事风险 + 热点叙事 ─────────────────────────────
         risk_level = event.risk_level if hasattr(event, 'risk_level') and event.risk_level else "LOW"
-        new_risk = _RISK_LEVEL_SCORES.get(risk_level, 0.5)
+        # 旧风险占 7 成，事件风险按重要性占 3 成
+        st.narrative.risk = max(0.0, min(1.0,
+            st.narrative.risk * 0.7 + _RISK_LEVEL_SCORES.get(risk_level, 0.5) * importance * 0.3
+        ))
 
-        # 结合事件重要性和原有风险
-        current_risk = self._supply_chain_state.get("narrative_risk", 0.5)
-        updated_risk = current_risk * 0.7 + new_risk * event.importance * 0.3
-
-        # 更新 hot_narratives
-        current_narratives = self._supply_chain_state.get("hot_narratives", [])
-        new_narratives = []
+        # 与已有叙事合并去重（同名保留更高的重要性），按重要性取前 5
+        hot = dict(st.narrative.hot_narratives)
         for narrative in event.narratives[:5]:
-            # 添加叙事及其重要性
-            new_narratives.append((narrative, event.importance))
+            hot[narrative] = max(hot.get(narrative, importance), importance)
+        st.narrative.hot_narratives = sorted(hot.items(), key=lambda x: x[1], reverse=True)[:5]
 
-        # 合并去重
-        existing = {n[0]: n[1] for n in current_narratives}
-        for narrative, importance in new_narratives:
-            if narrative in existing:
-                existing[narrative] = max(existing[narrative], importance)
-            else:
-                existing[narrative] = importance
+        # 风险等级只在事件足够重要时才刷新，避免低重要性事件来回拉扯
+        if importance > 0.7:
+            st.narrative.level = risk_level
 
-        hot_narratives = sorted(existing.items(), key=lambda x: x[1], reverse=True)[:5]
-
-        # 🚀 AI算力趋势：从叙事中判断
-        ai_compute_trend = self._supply_chain_state.get("ai_compute_trend", "neutral")
-        ai_compute_strength = self._supply_chain_state.get("ai_compute_strength", 0.5)
-
+        # ── 2. AI算力趋势：从叙事关键词命中数判断 ──────────────
         narratives_lower = [n.lower() for n in event.narratives]
         ai_hits = sum(1 for kw in _AI_COMPUTE_KEYWORDS_LOWER if any(kw in n for n in narratives_lower))
 
         if ai_hits >= 3:
-            # 多个AI关键词命中 → 趋势增强
-            ai_compute_trend = "up"
-            ai_compute_strength = min(1.0, ai_compute_strength * 0.8 + event.importance * 0.2)
-        elif ai_hits >= 1 and event.importance > 0.7:
+            # 多个AI关键词命中 → 趋势转为增强
+            st.ai_compute.trend = "up"
+            st.ai_compute.strength = min(1.0, st.ai_compute.strength * 0.8 + importance * 0.2)
+        elif ai_hits >= 1 and importance > 0.7:
             # 有AI关键词且重要 → 轻微增强
-            ai_compute_strength = min(1.0, ai_compute_strength * 0.9 + event.importance * 0.1)
+            st.ai_compute.strength = min(1.0, st.ai_compute.strength * 0.9 + importance * 0.1)
         else:
             # 自然衰减
-            ai_compute_strength = max(0.3, ai_compute_strength * 0.98)
+            st.ai_compute.strength = max(0.3, st.ai_compute.strength * 0.98)
 
-        # 🚀 自选股注意力加成
-        watchlist = self._supply_chain_state.get("watchlist", [])
-        watchlist_bonus = self._supply_chain_state.get("watchlist_bonus", 1.0)
-        event_stock_codes = getattr(event, 'stock_codes', []) or []
+        # ── 3. 自选股注意力加成 ────────────────────────────────
+        event_stocks_upper = [s.upper() for s in (getattr(event, 'stock_codes', []) or [])]
+        watchlist_upper = [s.upper() for s in st.watchlist.codes]
 
-        # 检查事件是否涉及自选股
-        watchlist_upper = [s.upper() for s in watchlist]
-        event_stocks_upper = [s.upper() for s in event_stock_codes]
-
-        if any(s in watchlist_upper for s in event_stocks_upper) and event_stocks_upper:
+        if event_stocks_upper and any(s in watchlist_upper for s in event_stocks_upper):
             # 命中自选股 → 增加注意力
-            watchlist_bonus = min(1.5, watchlist_bonus * 1.2)
+            st.watchlist.bonus = min(1.5, st.watchlist.bonus * 1.2)
         else:
             # 自然衰减
-            watchlist_bonus = max(1.0, watchlist_bonus * 0.99)
+            st.watchlist.bonus = max(1.0, st.watchlist.bonus * 0.99)
 
-        # 🚀 共振事件：记录共振强度与情绪
-        resonance_score = self._supply_chain_state.get("resonance_score", 0.0)
-        resonance_sentiment = self._supply_chain_state.get("resonance_sentiment", 0.0)
-        resonance_blocks = self._supply_chain_state.get("resonance_blocks", [])
-        resonance_updated = self._supply_chain_state.get("resonance_updated", 0.0)
-
-        if event_type == getattr(CognitiveEventType, "RESONANCE_DETECTED", None) or str(getattr(event_type, "value", event_type)) == "resonance_detected":
+        # ── 4. 天-地共振 ───────────────────────────────────────
+        # 只比字符串值：枚举的 .value 就是 "resonance_detected"，无需再 import 枚举类。
+        # 旧写法在 import 失败时会用到未绑定的 CognitiveEventType → NameError。
+        if str(getattr(event.event_type, "value", event.event_type)) == "resonance_detected":
             meta = getattr(event, "metadata", {}) or {}
-            resonance_score = max(resonance_score, float(getattr(event, "importance", 0.0) or 0.0))
-            resonance_sentiment = float(meta.get("sentiment", resonance_sentiment) or 0.0)
+            st.resonance.score = max(st.resonance.score, importance)
+            st.resonance.sentiment = float(meta.get("sentiment", st.resonance.sentiment) or 0.0)
+
             block_id = meta.get("block_id") or meta.get("block_name") or ""
-            if block_id:
-                if block_id not in resonance_blocks:
-                    resonance_blocks = (resonance_blocks + [block_id])[-5:]
-            resonance_updated = time.time()
+            if block_id and block_id not in st.resonance.blocks:
+                st.resonance.blocks = (st.resonance.blocks + [block_id])[-5:]
+            st.resonance.updated = time.time()
 
             # 共振情绪为负时，轻微增加风险；为正时，轻微降低风险
-            if resonance_sentiment < -0.2 and resonance_score > 0.7:
-                updated_risk = min(1.0, updated_risk + 0.05)
-            elif resonance_sentiment > 0.2 and resonance_score > 0.7:
-                updated_risk = max(0.0, updated_risk - 0.03)
+            if st.resonance.sentiment < -0.2 and st.resonance.score > 0.7:
+                st.narrative.risk = min(1.0, st.narrative.risk + 0.05)
+            elif st.resonance.sentiment > 0.2 and st.resonance.score > 0.7:
+                st.narrative.risk = max(0.0, st.narrative.risk - 0.03)
 
-        # 更新状态
-        # 增量覆盖而非整体重建：整体重建会丢掉所有未在此列出的字段，
-        # 实测 focus_themes 会在第一个认知事件到达时被清空（17 → 0）。
-        # 本方法的语义是「基于旧状态演化」，没有字段需要被清空，故 update 更安全，
-        # 也免得以后新增字段时要在两处同步。
-        self._supply_chain_state.update({
-            "narrative_risk": max(0.0, min(1.0, updated_risk)),
-            "hot_narratives": hot_narratives,
-            "risk_level": risk_level if event.importance > 0.7 else self._supply_chain_state.get("risk_level", "LOW"),
-            "last_update": time.time(),
-            # 🚀 AI算力趋势
-            "ai_compute_trend": ai_compute_trend,
-            "ai_compute_strength": ai_compute_strength,
-            # 🚀 自选股注意力
-            "watchlist": watchlist,
-            "watchlist_bonus": watchlist_bonus,
-            # 🚀 共振状态
-            "resonance_score": resonance_score,
-            "resonance_sentiment": resonance_sentiment,
-            "resonance_blocks": resonance_blocks,
-            "resonance_updated": resonance_updated,
-        })
+        st.last_update = time.time()
 
         log.debug(
-            f"[ManasEngine] 供应链状态已更新: risk={self._supply_chain_state['narrative_risk']:.2f}, "
-            f"ai_trend={ai_compute_trend}({ai_compute_strength:.2f}), "
-            f"watchlist_bonus={watchlist_bonus:.2f}"
+            f"[ManasEngine] 认知状态已更新: risk={st.narrative.risk:.2f}, "
+            f"ai_trend={st.ai_compute.trend}({st.ai_compute.strength:.2f}), "
+            f"watchlist_bonus={st.watchlist.bonus:.2f}"
         )
 
     def _invalidate_cache(self):
@@ -1378,7 +1373,7 @@ class ManasEngine:
             # 从持仓系统自动获取
             watchlist = self._get_watchlist_from_portfolio()
 
-        self._supply_chain_state["watchlist"] = watchlist
+        self._cognitive_state.watchlist.codes = watchlist
         log.info(f"[ManasEngine] 自选股列表已更新: {len(watchlist)} 只股票")
 
     def _get_watchlist_from_portfolio(self) -> List[str]:
@@ -1535,14 +1530,14 @@ class ManasEngine:
 
         bias_state / bias_correction 由 bias 环节回填（该环节有两个输出）。
         """
-        state = self._supply_chain_state
+        state = self._cognitive_state
         return {
             "regime_score": regime_score,
-            "narrative_risk": state.get("narrative_risk", 0.5),
-            "ai_compute_trend": state.get("ai_compute_trend", "neutral"),
-            "ai_compute_strength": state.get("ai_compute_strength", 0.5),
-            "resonance_score": state.get("resonance_score", 0.0),
-            "resonance_sentiment": state.get("resonance_sentiment", 0.0),
+            "narrative_risk": state.narrative.risk,
+            "ai_compute_trend": state.ai_compute.trend,
+            "ai_compute_strength": state.ai_compute.strength,
+            "resonance_score": state.resonance.score,
+            "resonance_sentiment": state.resonance.sentiment,
             "awakening_level": self._get_awakening_level(),
             "bias_state": BiasState.NEUTRAL,
             "bias_correction": 1.0,
@@ -1692,14 +1687,14 @@ class ManasEngine:
         )
 
         # 依次施加调节环节：地势 / 叙事风险 / AI算力 / 共振 / 觉醒 / 偏差
-        # （供应链状态为事件驱动更新，见 _update_supply_chain_state）
+        # （认知层状态为事件驱动更新，见 _update_cognitive_state）
         for _name, modifier in self._score_modifier_chain():
             harmony_strength = modifier(harmony_strength, ctx)
 
         harmony_strength = max(0.0, min(1.0, harmony_strength))
 
         narrative_risk = ctx["narrative_risk"]
-        hot_narratives = self._supply_chain_state.get("hot_narratives", [])
+        hot_narratives = self._cognitive_state.narrative.hot_narratives
         awakening_level = ctx["awakening_level"]
         bias_state = ctx["bias_state"]
         bias_correction = ctx["bias_correction"]
@@ -1731,14 +1726,14 @@ class ManasEngine:
         attention_focus, focus_enum, portfolio_signal = self._determine_attention_focus(action_type, portfolio_loss)
 
         # 🚀 自选股注意力加成
-        watchlist_bonus = self._supply_chain_state.get("watchlist_bonus", 1.0)
+        watchlist_bonus = self._cognitive_state.watchlist.bonus
         if watchlist_bonus > 1.0:
             attention_focus *= watchlist_bonus
             log.debug(f"[ManasEngine] 自选股注意力加成: bonus={watchlist_bonus:.2f}")
 
         reason = self._get_gate_reason(harmony_strength, timing_score, regime_score, confidence_score, bias_state, harmony_state, action_type)
 
-        supply_chain_risk = self._supply_chain_state.get("risk_level", "LOW")
+        supply_chain_risk = self._cognitive_state.narrative.level
 
         output = ManasOutput(
             manas_score=harmony_strength,
