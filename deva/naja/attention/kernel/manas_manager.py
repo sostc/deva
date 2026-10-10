@@ -45,12 +45,6 @@ class ManasManager:
         self._last_compute_time = 0.0
         self._last_output: Optional[dict] = None
 
-        if kernel is not None:
-            self._enabled = False
-        else:
-            self._manas_engine = None
-            self._enabled = False
-
     def set_trading_clock(self, trading_clock):
         """显式设置 TradingClock（依赖注入）"""
         self._trading_clock = trading_clock
@@ -85,12 +79,32 @@ class ManasManager:
                     portfolio=self._virtual_portfolio,
                     bandit_tracker=self._bandit_tracker
                 )
+
+            # 引擎就绪后再挂事件总线：ManasEngine 构造期不再自订阅，
+            # 这里是离创建点最近的装配位置（幂等，重复调用无副作用）
+            self._attach_event_bus()
             log.info("[ManasManager] 末那识引擎已启用")
         elif not enabled:
             self._enabled = False
             if self.kernel is not None and hasattr(self.kernel, 'set_manas_enabled'):
                 self.kernel.set_manas_enabled(False)
             log.info("[ManasManager] 末那识引擎已关闭")
+
+    def _attach_event_bus(self) -> bool:
+        """把当前引擎挂到认知事件总线（幂等）
+
+        ManasEngine 的事件订阅已按架构基准 §6.3 移出构造函数，因此启用引擎后
+        必须显式挂载一次；否则 _supply_chain_state 不会随认知事件更新，
+        叙事风险 / 共振分数 / AI 算力趋势会一直停在默认值。
+        """
+        engine = self.get_manas_engine()
+        if engine is None:
+            log.warning("[ManasManager] 引擎未就绪，跳过事件订阅")
+            return False
+        if not hasattr(engine, "subscribe_cognitive_events"):
+            log.warning("[ManasManager] 引擎不支持 subscribe_cognitive_events，跳过")
+            return False
+        return bool(engine.subscribe_cognitive_events())
 
     def is_enabled(self) -> bool:
         """返回是否启用了末那识引擎"""
@@ -158,8 +172,12 @@ class ManasManager:
             "last_output": self._last_output,
         }
 
-    def _get_trading_clock(self):
-        """获取交易时段管理器"""
+    def _get_session_manager(self):
+        """获取交易时段管理器
+
+        ManasEngine 侧该依赖名为 session_manager（构造参数与 compute() 参数同名），
+        因此这里的取数方法必须叫 _get_session_manager，与 compute() 的调用点保持一致。
+        """
         return self._trading_clock
 
     def _get_portfolio(self):
