@@ -10,7 +10,6 @@ import time
 import hashlib
 from typing import Dict, Any, Optional
 
-from deva.naja.register import SR
 from deva.naja.events import get_event_bus
 
 log = logging.getLogger(__name__)

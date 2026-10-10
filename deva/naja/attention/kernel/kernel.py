@@ -14,7 +14,6 @@ AttentionKernel - 核心注意力中枢
 """
 
 import logging
-from deva.naja.register import SR
 
 log = logging.getLogger(__name__)
 
@@ -62,6 +61,9 @@ class AttentionKernel:
         self._narrative_tracker = None
         self._enable_manas = enable_manas
         self._manas_engine = None
+        # 统一末那识（UnifiedManas）尚为预留扩展点，当前始终为 None；
+        # 显式声明以避免 process_with_feedback() 触发 AttributeError。
+        self._unified_manas = None
         
         # 新增：类 Transformer 相关组件
         self._enable_transformer = enable_transformer
@@ -499,7 +501,8 @@ class AttentionKernel:
                 "cash_ratio": cash_ratio,
                 "concentration": concentration,
             }
-        except:
+        except Exception as e:
+            log.debug("kernel: 抑制异常并回退默认值: %s", e)
             return {}
 
     def _convert_recalled_to_attention_events(self, recalled_events, unified_output):
@@ -822,7 +825,8 @@ class AttentionKernel:
         try:
             orch = self._get_rescue_orchestrator()
             return orch.get_state()
-        except:
+        except Exception as e:
+            log.debug("kernel: 抑制异常并回退默认值: %s", e)
             return {"error": "orchestrator not initialized"}
 
     def personalize_event(self, event: dict) -> dict:

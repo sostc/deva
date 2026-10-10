@@ -8,7 +8,6 @@ QueryState - 全局查询状态
 import time
 import numpy as np
 from typing import Dict, List, Optional, Any
-from deva.naja.register import SR
 
 
 class QueryState:
