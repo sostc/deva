@@ -1519,6 +1519,116 @@ class ManasEngine:
         """
         self._current_narratives = narratives
 
+    # --- 分数调节链 -------------------------------------------------------
+    # compute() 的核心是一条线性乘性管道：
+    #   base → regime → narrative_risk → ai_compute → resonance
+    #        → awakening → bias → clamp
+    # 抽成链是为了让「有哪些调节、按什么顺序」显式可读，而不是埋在长方法里。
+    #
+    # 环节签名为 f(score, ctx) -> score：返回**新分数**而非乘数。
+    # 原因是 regime 环节带一次 min(1.0) 截断，而它的位置是语义的一部分——
+    # 「先截到 1.0 再乘后续惩罚因子」与「先乘惩罚因子再截断」结果不同。
+    # 若统一挪到链尾做 clamp，快照基线会立刻抓到差异。
+
+    def _build_score_context(self, regime_score: float) -> Dict[str, Any]:
+        """构造调节链所需的只读上下文
+
+        bias_state / bias_correction 由 bias 环节回填（该环节有两个输出）。
+        """
+        state = self._supply_chain_state
+        return {
+            "regime_score": regime_score,
+            "narrative_risk": state.get("narrative_risk", 0.5),
+            "ai_compute_trend": state.get("ai_compute_trend", "neutral"),
+            "ai_compute_strength": state.get("ai_compute_strength", 0.5),
+            "resonance_score": state.get("resonance_score", 0.0),
+            "resonance_sentiment": state.get("resonance_sentiment", 0.0),
+            "awakening_level": self._get_awakening_level(),
+            "bias_state": BiasState.NEUTRAL,
+            "bias_correction": 1.0,
+        }
+
+    def _score_modifier_chain(self):
+        """按施加顺序返回 (名称, 调节函数) 序列"""
+        return (
+            ("regime", self._modifier_regime),
+            ("narrative_risk", self._modifier_narrative_risk),
+            ("ai_compute", self._modifier_ai_compute),
+            ("resonance", self._modifier_resonance),
+            ("awakening", self._modifier_awakening),
+            ("bias", self._modifier_bias),
+        )
+
+    def _modifier_regime(self, score, ctx):
+        """地势折扣：regime [-1,1] 映射为 [0.7,1.0] 的乘性折扣，随后截断到 1.0
+
+        注意这里的 min(1.0) 是**中间截断**，不是链尾 clamp，位置不可挪动。
+        """
+        regime_factor = (ctx["regime_score"] + 1) / 2
+        return min(1.0, score * (0.7 + regime_factor * 0.3))
+
+    def _modifier_narrative_risk(self, score, ctx):
+        """叙事风险折扣：超过 0.6 后按超出量线性打折"""
+        narrative_risk = ctx["narrative_risk"]
+        if narrative_risk > 0.6:
+            return score * (1.0 - (narrative_risk - 0.6) * 0.5)
+        return score
+
+    def _modifier_ai_compute(self, score, ctx):
+        """AI 算力加成：仅上升趋势且强度 > 0.6 时加成，最多 +12%"""
+        trend = ctx["ai_compute_trend"]
+        strength = ctx["ai_compute_strength"]
+        if trend == "up" and strength > 0.6:
+            bonus = 1.0 + (strength - 0.6) * 0.3
+            log.debug(
+                f"[ManasEngine] AI算力加成: trend={trend}, "
+                f"strength={strength:.2f}, bonus={bonus:.2f}"
+            )
+            return score * bonus
+        return score
+
+    def _modifier_resonance(self, score, ctx):
+        """共振加成/惩罚：强度 >= 0.7 才生效，方向由情绪决定"""
+        r_score = ctx["resonance_score"]
+        sentiment = ctx["resonance_sentiment"]
+        if r_score >= 0.7:
+            if sentiment >= 0.2:
+                bonus = 1.0 + min(0.10, (r_score - 0.7) * 0.2)
+                log.debug(
+                    f"[ManasEngine] 共振正向加成: score={r_score:.2f}, bonus={bonus:.2f}"
+                )
+                return score * bonus
+            elif sentiment <= -0.2:
+                penalty = 1.0 - min(0.08, (r_score - 0.7) * 0.2)
+                log.debug(
+                    f"[ManasEngine] 共振负向惩罚: score={r_score:.2f}, penalty={penalty:.2f}"
+                )
+                return score * penalty
+        return score
+
+    def _modifier_awakening(self, score, ctx):
+        """觉醒加成"""
+        factor = {
+            "enlightened": 1.15,
+            "illuminated": 1.10,
+            "awakening": 1.05,
+        }.get(ctx["awakening_level"], 1.0)
+        return score * factor
+
+    def _modifier_bias(self, score, ctx):
+        """偏差纠偏，并把 (bias_state, bias_correction) 回填到 ctx
+
+        第三参传 score（即链上前序环节的结果）是**有意设计**：
+        它代表「本次决策有多激进」，作为样本进入 MetaManas 的激进度窗口。
+        量纲与判贪阈值 avg_aggressiveness > 0.6 一致，勿当作笔误改掉。
+        """
+        bias_state, correction = self.meta_manas.detect_and_correct(
+            score, self._recent_pnl, score
+        )
+        ctx["bias_state"] = bias_state
+        ctx["bias_correction"] = correction
+        return score * correction
+
     def compute(
         self,
         session_manager=None,
@@ -1570,62 +1680,29 @@ class ManasEngine:
         confidence_score = self.confidence_engine.compute(bandit_tracker)
         risk_temperature = self.risk_engine.compute(portfolio, scanner, summary=portfolio_summary)
 
+        harmony_state = self._determine_harmony_state(risk_temperature, timing_score, regime_score)
+
+        ctx = self._build_score_context(regime_score)
+
+        # 基础分：天时 + 地势（风险温度的反函数）+ 人和
         harmony_strength = (
             timing_score * self.WEIGHT_TIMING +
             (1.0 - min(risk_temperature, 1.5) / 1.5) * self.WEIGHT_RISK +
             confidence_score * self.WEIGHT_CONFIDENCE
         )
 
-        regime_factor = (regime_score + 1) / 2
-        harmony_strength *= (0.7 + regime_factor * 0.3)
-        harmony_strength = min(1.0, harmony_strength)
+        # 依次施加调节环节：地势 / 叙事风险 / AI算力 / 共振 / 觉醒 / 偏差
+        # （供应链状态为事件驱动更新，见 _update_supply_chain_state）
+        for _name, modifier in self._score_modifier_chain():
+            harmony_strength = modifier(harmony_strength, ctx)
 
-        harmony_state = self._determine_harmony_state(risk_temperature, timing_score, regime_score)
-
-        # 🚀 使用事件驱动更新的供应链状态
-        narrative_risk = self._supply_chain_state.get("narrative_risk", 0.5)
-        if narrative_risk > 0.6:
-            harmony_strength *= (1.0 - (narrative_risk - 0.6) * 0.5)
-
-        # 🚀 AI算力趋势加成（只有上升趋势才加成）
-        ai_compute_trend = self._supply_chain_state.get("ai_compute_trend", "neutral")
-        ai_compute_strength = self._supply_chain_state.get("ai_compute_strength", 0.5)
-        if ai_compute_trend == "up" and ai_compute_strength > 0.6:
-            ai_bonus = 1.0 + (ai_compute_strength - 0.6) * 0.3  # 最多+12%
-            harmony_strength *= ai_bonus
-            log.debug(f"[ManasEngine] AI算力加成: trend={ai_compute_trend}, strength={ai_compute_strength:.2f}, bonus={ai_bonus:.2f}")
-
-        # 🚀 共振加成/惩罚（来自 CrossSignalAnalyzer）
-        resonance_score = self._supply_chain_state.get("resonance_score", 0.0)
-        resonance_sentiment = self._supply_chain_state.get("resonance_sentiment", 0.0)
-        if resonance_score >= 0.7:
-            if resonance_sentiment >= 0.2:
-                resonance_bonus = 1.0 + min(0.10, (resonance_score - 0.7) * 0.2)
-                harmony_strength *= resonance_bonus
-                log.debug(f"[ManasEngine] 共振正向加成: score={resonance_score:.2f}, bonus={resonance_bonus:.2f}")
-            elif resonance_sentiment <= -0.2:
-                resonance_penalty = 1.0 - min(0.08, (resonance_score - 0.7) * 0.2)
-                harmony_strength *= resonance_penalty
-                log.debug(f"[ManasEngine] 共振负向惩罚: score={resonance_score:.2f}, penalty={resonance_penalty:.2f}")
-
-        hot_narratives = self._supply_chain_state.get("hot_narratives", [])
-
-        awakening_level = self._get_awakening_level()
-        if awakening_level == "enlightened":
-            harmony_strength *= 1.15
-        elif awakening_level == "illuminated":
-            harmony_strength *= 1.10
-        elif awakening_level == "awakening":
-            harmony_strength *= 1.05
-
-        bias_state, bias_correction = self.meta_manas.detect_and_correct(
-            harmony_strength,
-            self._recent_pnl,
-            harmony_strength
-        )
-
-        harmony_strength *= bias_correction
         harmony_strength = max(0.0, min(1.0, harmony_strength))
+
+        narrative_risk = ctx["narrative_risk"]
+        hot_narratives = self._supply_chain_state.get("hot_narratives", [])
+        awakening_level = ctx["awakening_level"]
+        bias_state = ctx["bias_state"]
+        bias_correction = ctx["bias_correction"]
 
         action_type = self._determine_action_type(harmony_state, harmony_strength, timing_score)
         should_act = action_type != ActionType.HOLD
