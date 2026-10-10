@@ -70,17 +70,52 @@ ManasEngine
 公式
 ================================================================================
 
-manas_score = 0.4 * timing + 0.3 * regime + 0.3 * confidence
+【核心指标】harmony_strength
+    compute() 组装输出时的 manas_score 字段就是 harmony_strength（同一数值）。
 
-然后：
-    • Action Gate: manas_score > threshold → allow_trade
-    • Q = market_state * manas_score
-    • α = base_alpha * confidence * manas_score
-    • T = base_T / (1 + manas_score)
+1) 基础融合（加权和）
+    harmony_strength = WEIGHT_TIMING     * timing
+                     + WEIGHT_RISK       * risk_safety
+                     + WEIGHT_CONFIDENCE * confidence
 
-偏差纠偏：
-    • 连赢 → reduce α, increase T → 防贪
-    • 连亏 → reduce T, keep α → 防惧
+      timing      = TimingEngine.compute()                 ∈ [0,1]
+      risk_safety = 1 - min(risk_temperature, 1.5) / 1.5   ← RiskEngine 温度的「反函数」
+      confidence  = ConfidenceEngine.compute()             ∈ [0,1]
+
+    当前权重 = 0.4 / 0.35 / 0.25
+    ⚠️ 第三项是 risk（风险温度的反函数），**不是** regime；
+       regime 在下一步以乘性折扣的方式参与。
+
+2) 乘性调节（按 compute() 中的先后顺序依次作用，每步后 clamp 到 [0,1]）
+    • regime      harmony *= 0.7 + ((regime + 1) / 2) * 0.3        # 折扣区间 [0.7, 1.0]
+    • narrative   narrative_risk > 0.6 → harmony *= 1 - (risk - 0.6) * 0.5
+    • ai_compute  trend == "up" 且 strength > 0.6 →
+                  harmony *= 1 + (strength - 0.6) * 0.3            # 最多 +12%
+    • resonance   score >= 0.7 时按 sentiment 定向：
+                  >= 0.2 → 加成（最多 +10%）；<= -0.2 → 惩罚（最多 -8%）
+    • awakening   enlightened ×1.15 / illuminated ×1.10 / awakening ×1.05
+    • bias        harmony *= MetaManas 的 bias_correction
+                  （贪 0.7 / 惧 首次 0.5、稳态 0.8 / 中性 1.0）
+
+3) 派生量
+    • Action Gate : action_type = _determine_action_type(...)
+                    should_act  = (action_type != ActionType.HOLD)
+                    ⚠️ 分数门槛不是唯一通道：共振 + 强时机可直接判 ACT_FULLY
+                       （即 should_act 为真时，分数仍可能低于 ACTION_THRESHOLD）
+    • α = clamp(confidence * harmony_strength * bias_correction, 0.3, 1.5)
+    • T = RiskEngine.compute() 独立算出：
+              base_T = 1.0 + (1 - cash_ratio) * 0.5
+              回撤   > 0.1 → ×1.3 ；> 0.05 → ×1.1
+              波动率 > 2.0 → ×1.2 ；> 1.5  → ×1.1
+              最终 clamp 到 [0.5, 2.0]
+      ⚠️ T 只由现金比/回撤/波动率决定，与 harmony_strength(manas_score) **无关**。
+         不要按 "T = base_T / (1 + manas_score)" 理解——那是早期设计，从未实现。
+
+偏差纠偏（MetaManas）：
+    • 连赢 → bias_correction 降到 0.7 → α 随之下降 → 防贪
+    • 连亏 → bias_correction 降到 0.5（稳态 0.8）→ 防惧
+    ⚠️ MetaManas 只返回 bias_correction 乘子，不改写 T；
+       "increase T / moderate T" 是设计意图，当前实现未落地。
 
 ================================================================================
 事件驱动（新架构）
@@ -99,7 +134,6 @@ import logging
 from typing import Dict, Any, Optional, List, Tuple
 from dataclasses import dataclass, field
 from enum import Enum
-from deva.naja.register import SR
 
 log = logging.getLogger(__name__)
 
@@ -338,7 +372,8 @@ class TimingEngine:
                 elif remaining < 1800:
                     return 0.7
                 return 0.8
-        except:
+        except Exception as e:
+            log.debug("manas: 抑制异常并回退默认值: %s", e)
             pass
         return 0.5
 
@@ -368,7 +403,8 @@ class TimingEngine:
             elif current_vol > avg_vol * 1.3:
                 return 0.3
             return 0.5
-        except:
+        except Exception as e:
+            log.debug("manas: 抑制异常并回退默认值: %s", e)
             return 0.5
 
     def _get_trade_density(self, scanner) -> float:
@@ -400,7 +436,8 @@ class TimingEngine:
             elif avg_change < 2.0:
                 return 0.8
             return 0.9
-        except:
+        except Exception as e:
+            log.debug("manas: 抑制异常并回退默认值: %s", e)
             return 0.5
 
     def _get_structure_break(self, scanner) -> float:
@@ -417,7 +454,8 @@ class TimingEngine:
             elif phase in ('pre_market', 'after_hours'):
                 return 0.5
             return 0.3
-        except:
+        except Exception as e:
+            log.debug("manas: 抑制异常并回退默认值: %s", e)
             return 0.5
 
 
@@ -507,7 +545,8 @@ class RegimeEngine:
                     "liquidity": 0.5,
                     "diffusion": 0.25,
                 }
-        except:
+        except Exception as e:
+            log.debug("manas: 抑制异常并回退默认值: %s", e)
             pass
 
         return weights
@@ -543,7 +582,8 @@ class RegimeEngine:
             elif avg_change < -1.0:
                 return -1.0
             return avg_change
-        except:
+        except Exception as e:
+            log.debug("manas: 抑制异常并回退默认值: %s", e)
             return 0.0
 
     def _get_liquidity_signal(self, scanner, macro_signal: float) -> float:
@@ -553,7 +593,8 @@ class RegimeEngine:
                 adj = scanner.get_liquidity_adjustment("CHINA_A")
                 if adj:
                     return adj.get("adjusted_signal", macro_signal) * 2 - 1
-            except:
+            except Exception as e:
+                log.debug("manas: 抑制异常并回退默认值: %s", e)
                 pass
 
         return macro_signal * 2 - 1
@@ -583,7 +624,8 @@ class RegimeEngine:
 
             diffusion = (advancing - declining) / total
             return max(-1.0, min(1.0, diffusion))
-        except:
+        except Exception as e:
+            log.debug("manas: 抑制异常并回退默认值: %s", e)
             return 0.0
 
 
@@ -666,7 +708,8 @@ class ConfidenceEngine:
 
             recent_avg = sum(self._hit_rate_history) / len(self._hit_rate_history)
             return recent_avg
-        except:
+        except Exception as e:
+            log.debug("manas: 抑制异常并回退默认值: %s", e)
             return 0.5
 
     def _get_rolling_pnl(self, tracker) -> float:
@@ -681,7 +724,8 @@ class ConfidenceEngine:
 
             total_pnl = sum(r.get('return_pct', 0) for r in history)
             return total_pnl
-        except:
+        except Exception as e:
+            log.debug("manas: 抑制异常并回退默认值: %s", e)
             return 0.0
 
     def _get_bandit_confidence(self, tracker) -> float:
@@ -700,7 +744,8 @@ class ConfidenceEngine:
             elif total_trades < 50:
                 return 0.7
             return 0.9
-        except:
+        except Exception as e:
+            log.debug("manas: 抑制异常并回退默认值: %s", e)
             return 0.5
 
 
@@ -777,7 +822,8 @@ class RiskEngine:
             available = summary.get('available_capital', 0)
             total = summary.get('total_capital', 1)
             return available / max(total, 1)
-        except:
+        except Exception as e:
+            log.debug("manas: 抑制异常并回退默认值: %s", e)
             return 0.5
 
     def _get_drawdown(self, portfolio, summary=None) -> float:
@@ -793,7 +839,8 @@ class RiskEngine:
             if len(self._drawdown_history) > 10:
                 self._drawdown_history.pop(0)
             return sum(self._drawdown_history) / len(self._drawdown_history) if self._drawdown_history else 0.0
-        except:
+        except Exception as e:
+            log.debug("manas: 抑制异常并回退默认值: %s", e)
             return 0.0
 
     def _get_current_volatility(self, scanner) -> float:
@@ -804,7 +851,8 @@ class RiskEngine:
         try:
             vol = scanner.get_market_volatility()
             return vol if vol else 1.0
-        except:
+        except Exception as e:
+            log.debug("manas: 抑制异常并回退默认值: %s", e)
             return 1.0
 
 
@@ -925,7 +973,12 @@ class ManasEngine:
     WEIGHT_TIMING = 0.4
     WEIGHT_RISK = 0.35
     WEIGHT_CONFIDENCE = 0.25
+
+    # 行动门槛：harmony_strength 高于此值才可能行动（最低档 ACT_MINIMALLY）
     ACTION_THRESHOLD = 0.5
+    # 强行动门槛：高于此值判 ACT_CAREFULLY（更积极的一档）
+    # 注意：ACT_FULLY 走共振 + 强时机通道，不受这两个分数门槛约束
+    STRONG_ACTION_THRESHOLD = 0.6
 
     def __init__(self, session_manager=None, portfolio=None, bandit_tracker=None):
         self.timing_engine = TimingEngine(session_manager)
@@ -1278,7 +1331,8 @@ class ManasEngine:
             if isinstance(stocks_dict, str):
                 try:
                     stocks_dict = json.loads(stocks_dict)
-                except:
+                except Exception as e:
+                    log.debug("manas: 抑制异常并回退默认值: %s", e)
                     pass
 
             stocks = stocks_dict.get("stocks", []) if isinstance(stocks_dict, dict) else []
@@ -1303,16 +1357,23 @@ class ManasEngine:
         harmony_strength: float,
         timing_score: float
     ) -> ActionType:
-        """确定行动类型"""
+        """确定行动类型
+
+        两条通道：
+        1) 共振通道：RESISTANCE 直接 HOLD；RESONANCE 且强时机 → ACT_FULLY。
+           此通道不看 harmony_strength，可以绕过 ACTION_THRESHOLD。
+        2) 分数通道：先过 ACTION_THRESHOLD，再按 STRONG_ACTION_THRESHOLD 分强弱两档。
+        """
         should_act = harmony_strength > self.ACTION_THRESHOLD
 
         if harmony_state == HarmonyState.RESISTANCE:
             return ActionType.HOLD
-        elif harmony_state == HarmonyState.RESONANCE and timing_score > 0.7:
+        if harmony_state == HarmonyState.RESONANCE and timing_score > 0.7:
             return ActionType.ACT_FULLY
-        elif should_act and harmony_strength > 0.6:
-            return ActionType.ACT_CAREFULLY
-        elif should_act and harmony_strength > 0.4:
+        if should_act:
+            # should_act 已保证 > ACTION_THRESHOLD，这里只需再区分强弱两档
+            if harmony_strength > self.STRONG_ACTION_THRESHOLD:
+                return ActionType.ACT_CAREFULLY
             return ActionType.ACT_MINIMALLY
         return ActionType.HOLD
 
@@ -1474,9 +1535,6 @@ class ManasEngine:
                 harmony_strength *= resonance_penalty
                 log.debug(f"[ManasEngine] 共振负向惩罚: score={resonance_score:.2f}, penalty={resonance_penalty:.2f}")
 
-        detected_problems = []
-        opportunities = []
-        resolvers = []
         hot_narratives = self._supply_chain_state.get("hot_narratives", [])
 
         awakening_level = self._get_awakening_level()
@@ -1499,8 +1557,6 @@ class ManasEngine:
         action_type = self._determine_action_type(harmony_state, harmony_strength, timing_score)
         should_act = action_type != ActionType.HOLD
 
-        raw_manas = harmony_strength
-
         alpha = confidence_score * harmony_strength * bias_correction
         alpha = max(0.3, min(1.5, alpha))
 
@@ -1512,7 +1568,8 @@ class ManasEngine:
                     portfolio_loss = summary.get('total_return', 0.0)
                 elif isinstance(portfolio, dict):
                     portfolio_loss = portfolio.get('total_return', 0.0)
-            except:
+            except Exception as e:
+                log.debug("manas: 抑制异常并回退默认值: %s", e)
                 pass
 
         market_deterioration = risk_temperature > 1.3
@@ -1599,8 +1656,15 @@ class ManasEngine:
 
         reasons.append(f"行动:{action_type.value}")
 
-        if manas_score > self.ACTION_THRESHOLD:
+        # 与 compute() 中 should_act 的判定保持一致：_determine_action_type 的共振通道
+        # 可绕过分数门槛，若这里仍只比分数就会出现「should_act=True 但理由显示✗未通过」。
+        gate_passed = action_type != ActionType.HOLD
+        if gate_passed:
             reasons.append("✓通过")
+            if manas_score <= self.ACTION_THRESHOLD:
+                reasons.append(
+                    f"(分数{manas_score:.2f}≤{self.ACTION_THRESHOLD}，由共振/强时机豁免)"
+                )
         else:
             reasons.append("✗未通过")
 

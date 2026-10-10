@@ -45,7 +45,6 @@ from .manas_engine import (
 from .manas_manager import (
     ManasManager,
     get_manas_manager,
-    setup_manas_manager,
 )
 from .decision_attention import DecisionAttention, TemperatureAwareHead
 
@@ -84,7 +83,6 @@ __all__ = [
     "ManasOutput",
     "ManasManager",
     "get_manas_manager",
-    "setup_manas_manager",
     "DecisionAttention",
     "TemperatureAwareHead",
     # 新增：借鉴 Transformer 的组件

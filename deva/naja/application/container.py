@@ -853,32 +853,6 @@ def execute() -> dict:
         
         return trading_center
 
-    def _create_manas_engine(self):
-        """创建 ManasEngine（显式依赖注入）
-
-        注意：使用 self._bandit_tracker 而不是 self.bandit_tracker property，
-        防止在 _assemble_core_components() 调用栈中递归。
-        """
-        from ..attention.kernel.manas_engine import ManasEngine
-
-        if self._bandit_tracker is None:
-            was_assembled = self._components_assembled
-            self._components_assembled = True
-            try:
-                if self._bandit_optimizer is None:
-                    self._bandit_optimizer = self._create_bandit_optimizer()
-                self._bandit_tracker = self._create_bandit_tracker()
-            finally:
-                self._components_assembled = was_assembled or self._components_assembled
-
-        manas_engine = ManasEngine(
-            session_manager=self._trading_clock,
-            portfolio=self._virtual_portfolio,
-            bandit_tracker=self._bandit_tracker,
-        )
-
-        return manas_engine
-    
     def _create_manas_manager(self):
         """创建 ManasManager（显式依赖注入）
 

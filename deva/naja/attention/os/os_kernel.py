@@ -20,7 +20,6 @@ from ..kernel import get_default_heads
 from ..values.system import ValueSystem
 from ..models.output import AttentionFusionOutput, AttentionKernelOutput
 from ..attention_fusion import get_attention_fusion
-from deva.naja.register import SR
 
 log = logging.getLogger(__name__)
 

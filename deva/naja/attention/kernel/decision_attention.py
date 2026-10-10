@@ -48,7 +48,10 @@ kernel = AttentionKernel(
 """
 
 import math
+import logging
 from typing import Dict, Any, Optional
+
+log = logging.getLogger(__name__)
 
 
 class DecisionAttention:
@@ -103,7 +106,8 @@ class DecisionAttention:
             available = summary.get('available_capital', 0)
             total = summary.get('total_capital', 1)
             return available / max(total, 1) if total > 0 else 0.5
-        except:
+        except Exception as e:
+            log.debug("decision_attention: 抑制异常并回退默认值: %s", e)
             return 0.5
 
     def set_manas_engine(self, manas):
