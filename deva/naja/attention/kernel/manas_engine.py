@@ -1023,9 +1023,14 @@ class ManasEngine:
 
         self._awakening_level: str = "dormant"
 
-        # 🚀 新架构：订阅 NajaEventBus，感知认知层变化
-        self._subscribe_to_event_bus()
-    
+        # 🚀 事件订阅已迁移到 EventSubscriberRegistrar（应用层）
+        # 构造期不再自动订阅：本引擎常为懒创建（首次访问 UI 才建立），
+        # 且历史上所有实例共用固定订阅者名 "ManasEngine"，多实例会重复挂载。
+        # 由装配方（Registrar / ManasManager）调用 subscribe_cognitive_events()。
+        self._event_bus = None
+        self._cognitive_subscribed = False
+        self._cognitive_subscriber_name = f"ManasEngine#{id(self)}"
+
     def set_session_manager(self, session_manager):
         """设置 session_manager 依赖"""
         self._session_manager = session_manager
@@ -1108,22 +1113,36 @@ class ManasEngine:
         except Exception as e:
             log.debug(f"[ManasEngine] 发布状态变化事件失败: {e}")
 
-    def _subscribe_to_event_bus(self):
+    def subscribe_cognitive_events(self, event_bus=None) -> bool:
         """
         🚀 订阅 NajaEventBus，感知认知层的重要更新
 
         当 NarrativeTracker / MarketNarrative / SupplyChainLinker 有重要更新时，
-        ManasEngine 会收到通知并清缓存，确保决策反映最新认知状态
+        ManasEngine 会收到通知并清缓存，确保决策反映最新认知状态。
+
+        由 EventSubscriberRegistrar（应用层）或 ManasManager 装配点调用，
+        遵循架构基准 §6.3「事件订阅集中管理」。幂等：已订阅则直接返回 True。
+
+        Args:
+            event_bus: 事件总线；None 时取全局默认总线
+
+        Returns:
+            是否订阅成功
         """
+        if self._cognitive_subscribed:
+            return True
+
         try:
             from deva.naja.events import (
                 get_event_bus,
                 CognitiveEventType,
             )
 
-            bus = get_event_bus()
-            bus.subscribe(
-                "ManasEngine",
+            if event_bus is None:
+                event_bus = get_event_bus()
+
+            event_bus.subscribe(
+                self._cognitive_subscriber_name,
                 self._on_cognitive_event,
                 event_types=[
                     CognitiveEventType.BLOCK_NARRATIVE_UPDATE,
@@ -1135,9 +1154,33 @@ class ManasEngine:
                 ],
                 min_importance=0.5,  # 只关心重要事件
             )
-            log.info("[ManasEngine] 已订阅 NajaEventBus")
+            self._event_bus = event_bus
+            self._cognitive_subscribed = True
+            log.info(f"[ManasEngine] 已订阅 NajaEventBus（{self._cognitive_subscriber_name}）")
+            return True
         except ImportError:
             log.debug("[ManasEngine] NajaEventBus 未安装，跳过订阅")
+            return False
+        except Exception as e:
+            log.warning(f"[ManasEngine] 订阅 NajaEventBus 失败: {e}")
+            return False
+
+    def unsubscribe_cognitive_events(self) -> bool:
+        """
+        🚀 取消认知事件订阅
+
+        供装配方在重建/销毁引擎时调用，避免残留订阅持续回调已弃用实例。
+        """
+        if not self._cognitive_subscribed or self._event_bus is None:
+            return False
+        try:
+            ok = self._event_bus.unsubscribe(self._cognitive_subscriber_name)
+            self._cognitive_subscribed = False
+            self._event_bus = None
+            return bool(ok)
+        except Exception as e:
+            log.warning(f"[ManasEngine] 取消 NajaEventBus 订阅失败: {e}")
+            return False
 
     def _on_cognitive_event(self, event):
         """

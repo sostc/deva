@@ -39,6 +39,7 @@ class EventSubscriberRegistrar:
             self._register_attention_os(event_bus)
             self._register_trading_center(event_bus)
             self._register_cognition_domain(event_bus)
+            self._register_manas(event_bus)
             self._register_market_hotspot_push(event_bus)
             self._register_radar_news_push(event_bus)
             self._register_structural_growth(event_bus)
@@ -97,6 +98,51 @@ class EventSubscriberRegistrar:
                 log.info("[EventSubscriberRegistrar] SupplyChainLinker 事件订阅完成")
         except Exception as e:
             log.warning(f"[EventSubscriberRegistrar] SupplyChainLinker 事件订阅失败: {e}")
+
+    def _register_manas(self, event_bus) -> None:
+        """注册 ManasEngine 的认知事件订阅
+
+        ManasEngine 的订阅原先写在自己的 __init__ 里，且所有实例共用固定订阅者名
+        "ManasEngine"，多实例会在总线上重复挂载。现按基准 §6.3 集中到应用层。
+
+        注意引擎多为懒创建（UI 首次访问才建立）：启动时不存在的实例由
+        ManasManager._attach_event_bus() 在启用时补订阅，这里只覆盖启动即存在的。
+        """
+        try:
+            from deva.naja.application import get_app_container
+
+            container = get_app_container()
+            engines = []
+
+            # 1) 容器管理器持有的引擎（可能尚未创建）
+            manager = getattr(container, "manas_manager", None) if container else None
+            if manager is not None:
+                engine = manager.get_manas_engine()
+                if engine is not None:
+                    engines.append(engine)
+
+            # 2) AttentionOS 内核自持的引擎
+            get_kernel = getattr(self.attention_os, "get_kernel", None)
+            kernel = get_kernel() if callable(get_kernel) else None
+            if kernel is not None and hasattr(kernel, "get_manas_engine"):
+                engine = kernel.get_manas_engine()
+                if engine is not None and all(engine is not e for e in engines):
+                    engines.append(engine)
+
+            if not engines:
+                log.info(
+                    "[EventSubscriberRegistrar] ManasEngine 尚未创建，跳过订阅"
+                    "（将在 ManasManager 启用时补订阅）"
+                )
+                return
+
+            for engine in engines:
+                engine.subscribe_cognitive_events(event_bus)
+
+            log.info(f"[EventSubscriberRegistrar] ManasEngine 事件订阅完成（{len(engines)} 个实例）")
+
+        except Exception as e:
+            log.warning(f"[EventSubscriberRegistrar] ManasEngine 事件订阅失败: {e}")
 
     def _register_attention_os(self, event_bus) -> None:
         """注册 AttentionOS 的事件订阅"""

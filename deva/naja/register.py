@@ -191,20 +191,12 @@ def _register_custom_singletons():
                       deps=['attention_integration'])
     logger.debug("  ✓ attention_os")
 
-    # --- manas_manager: 注入 attention_os 的 kernel ---
-    def _create_manas_manager():
-        from .attention.kernel.manas_manager import ManasManager
-        try:
-            attention_os = SR('attention_os')
-            kernel = attention_os.get_kernel()
-        except Exception:
-            kernel = None
-        manager = ManasManager(kernel=kernel)
-        manager.set_enabled(True)
-        return manager
-    register_singleton('manas_manager', _create_manas_manager,
-                      deps=['attention_os'])
-    logger.debug("  ✓ manas_manager")
+    # --- manas_manager ---
+    # 不在此声明：ManasManager 由 AppContainer 持有，并在
+    # _register_container_components_as_singletons() 中以自身实例覆盖注册到
+    # SingletonRegistry（第 103 行 register_all_singletons() → 第 111 行覆盖，
+    # 后者生效）。此处若再声明一个 factory，会留下「存在第二个 manager、
+    # 且注入了 attention_os kernel」的误导。
     
     # --- query_state: 全局查询状态 ---
     def _create_query_state():
