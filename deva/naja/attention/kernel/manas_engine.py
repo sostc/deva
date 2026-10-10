@@ -881,7 +881,6 @@ class MetaManas:
 
     def __init__(self):
         self.bias_state = BiasState.NEUTRAL
-        self._pnl_trend: List[float] = []
         self._decision_aggressiveness: List[float] = []
 
     def detect_and_correct(
@@ -894,26 +893,28 @@ class MetaManas:
         检测偏差并纠偏
 
         Args:
-            manas_score: 原始 manas 分数
-            recent_pnl: 最近 N 笔交易的盈亏列表
+            manas_score: 原始 manas 分数（当前未参与计算，保留以兼容调用方）
+            recent_pnl: 最近 N 笔交易的盈亏列表。
+                调用方（ManasEngine._recent_pnl）已维护好滑动窗口，上限 20 笔
             decision_aggressiveness: 最近的决策激进程度
 
         Returns:
             tuple: (bias_state, bias_correction)
         """
-        self._pnl_trend.extend(recent_pnl)
-        if len(self._pnl_trend) > 20:
-            self._pnl_trend = self._pnl_trend[-20:]
+        # 样本窗口只应有一份权威来源，即调用方传入的 recent_pnl。
+        # 此前这里用 self._pnl_trend.extend(recent_pnl)，每轮把整个窗口再追加一遍，
+        # 使 len < 5 的暖机判断被重复计数绕过：实测仅 2 笔真实交易即可触发纠偏。
+        pnl_trend = list(recent_pnl or [])
 
         self._decision_aggressiveness.append(decision_aggressiveness)
         if len(self._decision_aggressiveness) > 10:
             self._decision_aggressiveness.pop(0)
 
-        if len(self._pnl_trend) < 5:
+        if len(pnl_trend) < 5:
             return BiasState.NEUTRAL, 1.0
 
-        recent_avg = sum(self._pnl_trend[-5:]) / 5
-        overall_avg = sum(self._pnl_trend) / len(self._pnl_trend)
+        recent_avg = sum(pnl_trend[-5:]) / 5
+        overall_avg = sum(pnl_trend) / len(pnl_trend)
         avg_aggressiveness = sum(self._decision_aggressiveness) / len(self._decision_aggressiveness)
 
         greed_detected = (
@@ -924,7 +925,7 @@ class MetaManas:
 
         fear_detected = (
             recent_avg < -0.03 and
-            len([p for p in self._pnl_trend[-5:] if p < 0]) >= 3
+            len([p for p in pnl_trend[-5:] if p < 0]) >= 3
         )
 
         if greed_detected and self.bias_state != BiasState.GREED:
@@ -1299,7 +1300,11 @@ class ManasEngine:
                 updated_risk = max(0.0, updated_risk - 0.03)
 
         # 更新状态
-        self._supply_chain_state = {
+        # 增量覆盖而非整体重建：整体重建会丢掉所有未在此列出的字段，
+        # 实测 focus_themes 会在第一个认知事件到达时被清空（17 → 0）。
+        # 本方法的语义是「基于旧状态演化」，没有字段需要被清空，故 update 更安全，
+        # 也免得以后新增字段时要在两处同步。
+        self._supply_chain_state.update({
             "narrative_risk": max(0.0, min(1.0, updated_risk)),
             "hot_narratives": hot_narratives,
             "risk_level": risk_level if event.importance > 0.7 else self._supply_chain_state.get("risk_level", "LOW"),
@@ -1315,7 +1320,7 @@ class ManasEngine:
             "resonance_sentiment": resonance_sentiment,
             "resonance_blocks": resonance_blocks,
             "resonance_updated": resonance_updated,
-        }
+        })
 
         log.debug(
             f"[ManasEngine] 供应链状态已更新: risk={self._supply_chain_state['narrative_risk']:.2f}, "
@@ -1600,7 +1605,11 @@ class ManasEngine:
         action_type = self._determine_action_type(harmony_state, harmony_strength, timing_score)
         should_act = action_type != ActionType.HOLD
 
-        alpha = confidence_score * harmony_strength * bias_correction
+        # bias_correction 已在上方作用于 harmony_strength，这里不再重复相乘。
+        # 原写法 alpha = ... * harmony_strength * bias_correction 等于对纠偏系数
+        # 取平方（惧首轮 0.5 → 0.25，直接撞 clamp 下限 0.3），与 docstring
+        # 「贪时 reduce α」的单次语义不符。
+        alpha = confidence_score * harmony_strength
         alpha = max(0.3, min(1.5, alpha))
 
         portfolio_loss = 0.0
