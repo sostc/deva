@@ -937,7 +937,6 @@ class MetaManas:
 
     def detect_and_correct(
         self,
-        manas_score: float,
         recent_pnl: List[float],
         decision_aggressiveness: float
     ) -> tuple[BiasState, float]:
@@ -945,10 +944,10 @@ class MetaManas:
         检测偏差并纠偏
 
         Args:
-            manas_score: 原始 manas 分数（当前未参与计算，保留以兼容调用方）
             recent_pnl: 最近 N 笔交易的盈亏列表。
                 调用方（ManasEngine._recent_pnl）已维护好滑动窗口，上限 20 笔
-            decision_aggressiveness: 最近的决策激进程度
+            decision_aggressiveness: 本次决策的激进程度，量纲与判贪阈值
+                （avg_aggressiveness > 0.6）一致，勿当作分数误改
 
         Returns:
             tuple: (bias_state, bias_correction)
@@ -1613,12 +1612,11 @@ class ManasEngine:
     def _modifier_bias(self, score, ctx):
         """偏差纠偏，并把 (bias_state, bias_correction) 回填到 ctx
 
-        第三参传 score（即链上前序环节的结果）是**有意设计**：
-        它代表「本次决策有多激进」，作为样本进入 MetaManas 的激进度窗口。
-        量纲与判贪阈值 avg_aggressiveness > 0.6 一致，勿当作笔误改掉。
+        激进度样本传 score（链上前序环节的结果）是**有意设计**：
+        它代表「本次决策有多激进」，而不是原始 manas 分数。
         """
         bias_state, correction = self.meta_manas.detect_and_correct(
-            score, self._recent_pnl, score
+            self._recent_pnl, score
         )
         ctx["bias_state"] = bias_state
         ctx["bias_correction"] = correction
