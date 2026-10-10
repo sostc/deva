@@ -218,14 +218,63 @@ P2 四项全部完成。额外的收获：
 - 给 `MetaManas` 补了 `get_state()`，`attention/ui/dashboard.py` 的末那识面板
   从"恒显默认值的死面板"变成真实可用
 
-**剩余可选项**（都非阻塞）：
+**剩余可选项**（都非阻塞）——**已于同日全部完成**，见下节。
 
-1. **B 的字典拆分**：`_supply_chain_state` 仍是 13 字段的混合字典
-   （叙事风险 / AI算力 / 自选股 / 共振 / 主题）。bug 已修，但结构仍混乱。
-   建议与后续新增字段一起做，避免两次回归成本。
-2. **A 的魔法数收敛**：十几个内联阈值（0.6 / 0.7 / 0.2 / 0.10 / 0.08 / 1.15…）
-   抽成 `ManasConfig`。有了快照脚本后这项风险已很低。
-3. `detect_and_correct` 的第 1 参 `manas_score` 仍是死参数（docstring 已标注）。
+1. ~~**B 的字典拆分**~~ ✅
+2. ~~**A 的魔法数收敛**~~ ✅
+3. ~~`detect_and_correct` 的第 1 参死参数~~ ✅
+
+---
+
+## 7. 收尾三项的执行记录（2026-10-10）
+
+| # | 项目 | 改动 | 验证 |
+|---|---|---|---|
+| 1 | B 的字典拆分 | 13 字段 dict → `CognitiveState`（嵌套 `NarrativeState` / `AiComputeState` / `WatchlistState` / `ResonanceState`）；`_supply_chain_state` → `_cognitive_state`，`_update_supply_chain_state` → `_update_cognitive_state`；更新改为逐字段赋值 | 新增差分脚本，把旧 dict 实现原样搬来当参照物：15 事件 × 11 字段 = **165 次比对全部一致**；compute 快照 0 差异 |
+| 2 | 死参数 | `detect_and_correct(manas_score, recent_pnl, decision_aggressiveness)` → `(recent_pnl, decision_aggressiveness)` | 快照 0 差异；同步更新 `test_manas_engine.py` 的 4 处调用 |
+| 3 | A 的魔法数收敛 | 新增 `manas_config.py`：`RollingWindow` + `ManasConfig`（44 项默认参数，frozen）；子引擎与 MetaManas 接受 config | `verify_manas_config.py`：滑窗语义 + **44 项默认值与重构前字面量逐一相等** + 改 config 确实改变行为；快照 0 差异 |
+
+### 7.1 字典拆分顺带修掉的一个潜在 NameError
+
+旧实现开头是：
+
+```python
+try:
+    from deva.naja.events import CognitiveEventType
+    event_type = event.event_type
+except Exception:
+    event_type = getattr(event, "event_type", None)
+```
+
+但后面判定共振时又直接引用了 `CognitiveEventType`：
+
+```python
+if event_type == getattr(CognitiveEventType, "RESONANCE_DETECTED", None) or ...
+```
+
+一旦 import 失败，这里就是 **NameError**（`except` 只兜住了 import 那一行）。
+新实现只比字符串值——枚举的 `.value` 本来就是 `"resonance_detected"`，
+无需 import 枚举类，两个分支也合并成一个。
+
+### 7.2 三处只写不读的滑窗字段
+
+收敛滑窗时逐个核对读写点，发现三个字段**只 append/trim，从无读取点**：
+
+- `TimingEngine._trade_density_history`（连 append 都没有）
+- `RegimeEngine._trend_history`（append 后无人读）
+- `ConfidenceEngine._rolling_pnl_history`（连 append 都没有，rolling pnl 直接取自 tracker）
+
+已删除。`verify_manas_config.py` 里加了断言防止它们复活。
+
+### 7.3 ManasConfig 的边界
+
+只收**策略旋钮**（改了会改变决策行为）：融合权重、行动门槛、和谐判定、
+调节链系数、输出归一、观照层阈值、窗口长度。
+
+不收子引擎的**特征分档字面量**（时间压力档位 <900s→0.3、bandit 交易数
+<5/<20/<50、回撤 >0.1/>0.05 等）——它们描述"数据长什么样"，与策略松耦合，
+全搬进来只会得到一个 60 字段没人读得完的 config。此边界写在
+`manas_config.py` 的模块 docstring 里。
 
 ---
 
