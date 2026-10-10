@@ -109,7 +109,6 @@ class TestMetaManas(unittest.TestCase):
 
         recent_pnl = [0.1, 0.1, 0.1, 0.1, 0.1]
         bias, correction = meta.detect_and_correct(
-            manas_score=0.8,
             recent_pnl=recent_pnl,
             decision_aggressiveness=0.8
         )
@@ -123,7 +122,6 @@ class TestMetaManas(unittest.TestCase):
 
         recent_pnl = [-0.1, -0.1, -0.1, -0.1, -0.1]
         bias, correction = meta.detect_and_correct(
-            manas_score=0.3,
             recent_pnl=recent_pnl,
             decision_aggressiveness=0.2
         )
@@ -137,7 +135,6 @@ class TestMetaManas(unittest.TestCase):
 
         recent_pnl = [0.01, -0.01, 0.01, -0.01, 0.0]
         bias, correction = meta.detect_and_correct(
-            manas_score=0.5,
             recent_pnl=recent_pnl,
             decision_aggressiveness=0.5
         )
@@ -151,7 +148,6 @@ class TestMetaManas(unittest.TestCase):
 
         recent_pnl = [0.1]
         bias, correction = meta.detect_and_correct(
-            manas_score=0.5,
             recent_pnl=recent_pnl,
             decision_aggressiveness=0.5
         )
