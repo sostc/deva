@@ -73,10 +73,12 @@ ManasEngine
 【核心指标】harmony_strength
     compute() 组装输出时的 manas_score 字段就是 harmony_strength（同一数值）。
 
+（下列所有数值都是 ManasConfig 的默认值，实际取值以传入的 config 为准）
+
 1) 基础融合（加权和）
-    harmony_strength = WEIGHT_TIMING     * timing
-                     + WEIGHT_RISK       * risk_safety
-                     + WEIGHT_CONFIDENCE * confidence
+    harmony_strength = weight_timing     * timing
+                     + weight_risk       * risk_safety
+                     + weight_confidence * confidence
 
       timing      = TimingEngine.compute()                 ∈ [0,1]
       risk_safety = 1 - min(risk_temperature, 1.5) / 1.5   ← RiskEngine 温度的「反函数」
@@ -102,7 +104,9 @@ ManasEngine
                     should_act  = (action_type != ActionType.HOLD)
                     ⚠️ 分数门槛不是唯一通道：共振 + 强时机可直接判 ACT_FULLY
                        （即 should_act 为真时，分数仍可能低于 ACTION_THRESHOLD）
-    • α = clamp(confidence * harmony_strength * bias_correction, 0.3, 1.5)
+    • α = clamp(confidence * harmony_strength, alpha_min, alpha_max)
+                    ⚠️ bias_correction 已在第 2 步作用于 harmony_strength，
+                       这里**不再**重复相乘（否则纠偏系数被平方）
     • T = RiskEngine.compute() 独立算出：
               base_T = 1.0 + (1 - cash_ratio) * 0.5
               回撤   > 0.1 → ×1.3 ；> 0.05 → ×1.1
@@ -134,6 +138,8 @@ import logging
 from typing import Dict, Any, Optional, List, Tuple
 from dataclasses import dataclass, field
 from enum import Enum
+
+from deva.naja.attention.kernel.manas_config import ManasConfig, RollingWindow
 
 log = logging.getLogger(__name__)
 
@@ -335,10 +341,10 @@ class TimingEngine:
     支持自适应权重：高波动环境自动调整各因子权重
     """
 
-    def __init__(self, session_manager=None):
+    def __init__(self, session_manager=None, config: ManasConfig = None):
+        self.config = config or ManasConfig()
         self._last_volatility = 0.0
-        self._volatility_history: List[float] = []
-        self._trade_density_history: List[float] = []
+        self._volatility_history = RollingWindow(self.config.volatility_window)
         self._session_manager = session_manager
     
     def set_session_manager(self, session_manager):
@@ -379,8 +385,9 @@ class TimingEngine:
         高波动：降低波动率权重，提高时间压力和结构断裂权重
         低波动：提高波动率权重，降低成交密度权重
         """
-        if len(self._volatility_history) >= 5:
-            recent_avg = sum(self._volatility_history[-5:]) / 5
+        sample = self.config.volatility_sample
+        if len(self._volatility_history) >= sample:
+            recent_avg = self._volatility_history.mean(sample)
             if current_volatility > recent_avg * 1.3:
                 return {
                     "time_pressure": 0.35,
@@ -440,13 +447,12 @@ class TimingEngine:
                 return 0.5
 
             self._volatility_history.append(vol)
-            if len(self._volatility_history) > 20:
-                self._volatility_history.pop(0)
 
-            if len(self._volatility_history) < 5:
+            sample = self.config.volatility_sample
+            if len(self._volatility_history) < sample:
                 return 0.5
 
-            recent = self._volatility_history[-5:]
+            recent = self._volatility_history.tail(sample)
             avg_vol = sum(recent) / len(recent)
             current_vol = recent[-1]
 
@@ -536,8 +542,9 @@ class RegimeEngine:
         +1 = 强顺风（市场整体上涨）
     """
 
-    def __init__(self):
-        self._trend_history: List[float] = []
+    def __init__(self, config: ManasConfig = None):
+        # _trend_history 原先只 append/trim，从无读取点（写入后即弃），已删除
+        self.config = config or ManasConfig()
 
     def compute(self, scanner=None, macro_signal: float = 0.5) -> float:
         """
@@ -625,10 +632,6 @@ class RegimeEngine:
 
             avg_change = total_change / count
 
-            self._trend_history.append(avg_change)
-            if len(self._trend_history) > 10:
-                self._trend_history.pop(0)
-
             if avg_change > 1.0:
                 return 1.0
             elif avg_change < -1.0:
@@ -707,9 +710,10 @@ class ConfidenceEngine:
         > 1.0 = 策略非常适配（注意是否过度自信）
     """
 
-    def __init__(self, bandit_tracker=None):
-        self._rolling_pnl_history: List[float] = []
-        self._hit_rate_history: List[float] = []
+    def __init__(self, bandit_tracker=None, config: ManasConfig = None):
+        self.config = config or ManasConfig()
+        # _rolling_pnl_history 原先声明后从未使用（rolling pnl 直接取自 tracker），已删除
+        self._hit_rate_history = RollingWindow(self.config.hit_rate_window)
         self._bandit_tracker = bandit_tracker
     
     def set_bandit_tracker(self, bandit_tracker):
@@ -755,11 +759,7 @@ class ConfidenceEngine:
             hit_rate = wins / len(history)
 
             self._hit_rate_history.append(hit_rate)
-            if len(self._hit_rate_history) > 10:
-                self._hit_rate_history.pop(0)
-
-            recent_avg = sum(self._hit_rate_history) / len(self._hit_rate_history)
-            return recent_avg
+            return self._hit_rate_history.mean()
         except Exception as e:
             log.debug("manas: 抑制异常并回退默认值: %s", e)
             return 0.5
@@ -821,8 +821,9 @@ class RiskEngine:
         T 小 = 更激进（还有子弹，可以干）
     """
 
-    def __init__(self, portfolio=None):
-        self._drawdown_history: List[float] = []
+    def __init__(self, portfolio=None, config: ManasConfig = None):
+        self.config = config or ManasConfig()
+        self._drawdown_history = RollingWindow(self.config.drawdown_window)
         self._portfolio = portfolio
     
     def set_portfolio(self, portfolio):
@@ -888,9 +889,7 @@ class RiskEngine:
                 summary = portfolio.get_summary()
             return_pct = abs(summary.get('total_return', 0))
             self._drawdown_history.append(return_pct)
-            if len(self._drawdown_history) > 10:
-                self._drawdown_history.pop(0)
-            return sum(self._drawdown_history) / len(self._drawdown_history) if self._drawdown_history else 0.0
+            return self._drawdown_history.mean()
         except Exception as e:
             log.debug("manas: 抑制异常并回退默认值: %s", e)
             return 0.0
@@ -931,9 +930,10 @@ class MetaManas:
         MetaManas = 主观偏差（自己作的）
     """
 
-    def __init__(self):
+    def __init__(self, config: ManasConfig = None):
+        self.config = config or ManasConfig()
         self.bias_state = BiasState.NEUTRAL
-        self._decision_aggressiveness: List[float] = []
+        self._decision_aggressiveness = RollingWindow(self.config.aggressiveness_window)
 
     def detect_and_correct(
         self,
@@ -955,48 +955,48 @@ class MetaManas:
         # 样本窗口只应有一份权威来源，即调用方传入的 recent_pnl。
         # 此前这里用 self._pnl_trend.extend(recent_pnl)，每轮把整个窗口再追加一遍，
         # 使 len < 5 的暖机判断被重复计数绕过：实测仅 2 笔真实交易即可触发纠偏。
+        cfg = self.config
         pnl_trend = list(recent_pnl or [])
 
         self._decision_aggressiveness.append(decision_aggressiveness)
-        if len(self._decision_aggressiveness) > 10:
-            self._decision_aggressiveness.pop(0)
 
-        if len(pnl_trend) < 5:
+        if len(pnl_trend) < cfg.bias_min_samples:
             return BiasState.NEUTRAL, 1.0
 
-        recent_avg = sum(pnl_trend[-5:]) / 5
+        recent = pnl_trend[-cfg.bias_min_samples:]
+        recent_avg = sum(recent) / len(recent)
         overall_avg = sum(pnl_trend) / len(pnl_trend)
-        avg_aggressiveness = sum(self._decision_aggressiveness) / len(self._decision_aggressiveness)
+        avg_aggressiveness = self._decision_aggressiveness.mean()
 
         greed_detected = (
-            recent_avg > 0.05 and
-            overall_avg > 0.03 and
-            avg_aggressiveness > 0.6
+            recent_avg > cfg.greed_recent_avg and
+            overall_avg > cfg.greed_overall_avg and
+            avg_aggressiveness > cfg.greed_aggressiveness
         )
 
         fear_detected = (
-            recent_avg < -0.03 and
-            len([p for p in pnl_trend[-5:] if p < 0]) >= 3
+            recent_avg < cfg.fear_recent_avg and
+            len([p for p in recent if p < 0]) >= cfg.fear_losses
         )
 
         if greed_detected and self.bias_state != BiasState.GREED:
             self.bias_state = BiasState.GREED
             log.warning("[MetaManas] 检测到贪bias，开始纠偏")
-            return BiasState.GREED, 0.7
+            return BiasState.GREED, cfg.correction_greed
 
         if fear_detected and self.bias_state != BiasState.FEAR:
             self.bias_state = BiasState.FEAR
             log.warning("[MetaManas] 检测到惧bias，开始纠偏")
-            return BiasState.FEAR, 0.5
+            return BiasState.FEAR, cfg.correction_fear
 
-        if abs(recent_avg) < 0.02 and self.bias_state != BiasState.NEUTRAL:
+        if abs(recent_avg) < cfg.neutral_band and self.bias_state != BiasState.NEUTRAL:
             self.bias_state = BiasState.NEUTRAL
             return BiasState.NEUTRAL, 1.0
 
         if self.bias_state == BiasState.GREED:
-            return BiasState.GREED, 0.7
+            return BiasState.GREED, cfg.correction_greed
         elif self.bias_state == BiasState.FEAR:
-            return BiasState.FEAR, 0.8
+            return BiasState.FEAR, cfg.correction_fear_steady
 
         return BiasState.NEUTRAL, 1.0
 
@@ -1009,7 +1009,6 @@ class MetaManas:
         bias_direction=none，等于一个死面板。
         """
         aggressiveness = self._decision_aggressiveness
-        avg = sum(aggressiveness) / len(aggressiveness) if aggressiveness else 0.0
         return {
             "bias_state": self.bias_state.value,
             # 纠偏方向（不是偏差方向，后者已由 bias_state 表达）：
@@ -1019,10 +1018,10 @@ class MetaManas:
                 else "encourage" if self.bias_state == BiasState.FEAR
                 else "none"
             ),
-            # 诊断用：判贪条件之一是 avg_aggressiveness > 0.6，
+            # 诊断用：判贪条件之一是 avg_aggressiveness > greed_aggressiveness，
             # 面板上能看到当前处于什么水平
             "aggressiveness_samples": len(aggressiveness),
-            "avg_aggressiveness": round(avg, 3),
+            "avg_aggressiveness": round(aggressiveness.mean(), 3),
         }
 
 
@@ -1047,31 +1046,26 @@ class ManasEngine:
         # output.risk_temperature: 风险温度
     """
 
-    WEIGHT_TIMING = 0.4
-    WEIGHT_RISK = 0.35
-    WEIGHT_CONFIDENCE = 0.25
+    # 策略参数（融合权重 / 行动门槛 / 调节系数 / 窗口长度）全部收敛到
+    # ManasConfig，见 manas_config.py。改行为请改 config，不要在这里加常量。
 
-    # 行动门槛：harmony_strength 高于此值才可能行动（最低档 ACT_MINIMALLY）
-    ACTION_THRESHOLD = 0.5
-    # 强行动门槛：高于此值判 ACT_CAREFULLY（更积极的一档）
-    # 注意：ACT_FULLY 走共振 + 强时机通道，不受这两个分数门槛约束
-    STRONG_ACTION_THRESHOLD = 0.6
-
-    def __init__(self, session_manager=None, portfolio=None, bandit_tracker=None):
-        self.timing_engine = TimingEngine(session_manager)
-        self.regime_engine = RegimeEngine()
-        self.confidence_engine = ConfidenceEngine(bandit_tracker)
-        self.risk_engine = RiskEngine(portfolio)
-        self.meta_manas = MetaManas()
+    def __init__(self, session_manager=None, portfolio=None, bandit_tracker=None,
+                 config: ManasConfig = None):
+        self.config = config or ManasConfig()
+        self.timing_engine = TimingEngine(session_manager, config=self.config)
+        self.regime_engine = RegimeEngine(config=self.config)
+        self.confidence_engine = ConfidenceEngine(bandit_tracker, config=self.config)
+        self.risk_engine = RiskEngine(portfolio, config=self.config)
+        self.meta_manas = MetaManas(config=self.config)
         self._session_manager = session_manager
         self._portfolio = portfolio
         self._bandit_tracker = bandit_tracker
 
         self._last_output: Optional[ManasOutput] = None
         self._last_update = 0.0
-        self._update_interval = 1.0
+        self._update_interval = self.config.update_interval
         self._current_narratives: List[str] = []
-        self._recent_pnl: List[float] = []
+        self._recent_pnl = RollingWindow(self.config.pnl_window)
 
         # 🚀 和谐状态
         self._harmony_state = HarmonyState.NEUTRAL
@@ -1412,9 +1406,12 @@ class ManasEngine:
 
     def _determine_harmony_state(self, risk_temperature: float, timing_score: float, regime_score: float) -> HarmonyState:
         """确定和谐状态"""
-        if risk_temperature > 1.4 or regime_score < -0.5:
+        cfg = self.config
+        if risk_temperature > cfg.harmony_resistance_temperature or regime_score < cfg.harmony_resistance_regime:
             return HarmonyState.RESISTANCE
-        elif risk_temperature < 0.8 and timing_score > 0.6 and regime_score > 0.2:
+        elif (risk_temperature < cfg.harmony_resonance_temperature
+              and timing_score > cfg.harmony_resonance_timing
+              and regime_score > cfg.harmony_resonance_regime):
             return HarmonyState.RESONANCE
         return HarmonyState.NEUTRAL
 
@@ -1428,18 +1425,18 @@ class ManasEngine:
 
         两条通道：
         1) 共振通道：RESISTANCE 直接 HOLD；RESONANCE 且强时机 → ACT_FULLY。
-           此通道不看 harmony_strength，可以绕过 ACTION_THRESHOLD。
-        2) 分数通道：先过 ACTION_THRESHOLD，再按 STRONG_ACTION_THRESHOLD 分强弱两档。
+           此通道不看 harmony_strength，可以绕过 action_threshold。
+        2) 分数通道：先过 action_threshold，再按 strong_action_threshold 分强弱两档。
         """
-        should_act = harmony_strength > self.ACTION_THRESHOLD
+        should_act = harmony_strength > self.config.action_threshold
 
         if harmony_state == HarmonyState.RESISTANCE:
             return ActionType.HOLD
-        if harmony_state == HarmonyState.RESONANCE and timing_score > 0.7:
+        if harmony_state == HarmonyState.RESONANCE and timing_score > self.config.resonance_timing_threshold:
             return ActionType.ACT_FULLY
         if should_act:
-            # should_act 已保证 > ACTION_THRESHOLD，这里只需再区分强弱两档
-            if harmony_strength > self.STRONG_ACTION_THRESHOLD:
+            # should_act 已保证 > action_threshold，这里只需再区分强弱两档
+            if harmony_strength > self.config.strong_action_threshold:
                 return ActionType.ACT_CAREFULLY
             return ActionType.ACT_MINIMALLY
         return ActionType.HOLD
@@ -1558,22 +1555,25 @@ class ManasEngine:
 
         注意这里的 min(1.0) 是**中间截断**，不是链尾 clamp，位置不可挪动。
         """
+        cfg = self.config
         regime_factor = (ctx["regime_score"] + 1) / 2
-        return min(1.0, score * (0.7 + regime_factor * 0.3))
+        return min(1.0, score * (cfg.regime_discount_floor + regime_factor * cfg.regime_discount_span))
 
     def _modifier_narrative_risk(self, score, ctx):
-        """叙事风险折扣：超过 0.6 后按超出量线性打折"""
+        """叙事风险折扣：超过阈值后按超出量线性打折"""
+        cfg = self.config
         narrative_risk = ctx["narrative_risk"]
-        if narrative_risk > 0.6:
-            return score * (1.0 - (narrative_risk - 0.6) * 0.5)
+        if narrative_risk > cfg.narrative_risk_threshold:
+            return score * (1.0 - (narrative_risk - cfg.narrative_risk_threshold) * cfg.narrative_risk_slope)
         return score
 
     def _modifier_ai_compute(self, score, ctx):
-        """AI 算力加成：仅上升趋势且强度 > 0.6 时加成，最多 +12%"""
+        """AI 算力加成：仅上升趋势且强度过阈值时加成"""
+        cfg = self.config
         trend = ctx["ai_compute_trend"]
         strength = ctx["ai_compute_strength"]
-        if trend == "up" and strength > 0.6:
-            bonus = 1.0 + (strength - 0.6) * 0.3
+        if trend == "up" and strength > cfg.ai_compute_strength_threshold:
+            bonus = 1.0 + (strength - cfg.ai_compute_strength_threshold) * cfg.ai_compute_bonus_slope
             log.debug(
                 f"[ManasEngine] AI算力加成: trend={trend}, "
                 f"strength={strength:.2f}, bonus={bonus:.2f}"
@@ -1582,18 +1582,25 @@ class ManasEngine:
         return score
 
     def _modifier_resonance(self, score, ctx):
-        """共振加成/惩罚：强度 >= 0.7 才生效，方向由情绪决定"""
+        """共振加成/惩罚：强度过阈值才生效，方向由情绪决定"""
+        cfg = self.config
         r_score = ctx["resonance_score"]
         sentiment = ctx["resonance_sentiment"]
-        if r_score >= 0.7:
-            if sentiment >= 0.2:
-                bonus = 1.0 + min(0.10, (r_score - 0.7) * 0.2)
+        if r_score >= cfg.resonance_score_threshold:
+            if sentiment >= cfg.resonance_sentiment_threshold:
+                bonus = 1.0 + min(
+                    cfg.resonance_bonus_cap,
+                    (r_score - cfg.resonance_score_threshold) * cfg.resonance_bonus_slope,
+                )
                 log.debug(
                     f"[ManasEngine] 共振正向加成: score={r_score:.2f}, bonus={bonus:.2f}"
                 )
                 return score * bonus
-            elif sentiment <= -0.2:
-                penalty = 1.0 - min(0.08, (r_score - 0.7) * 0.2)
+            elif sentiment <= -cfg.resonance_sentiment_threshold:
+                penalty = 1.0 - min(
+                    cfg.resonance_penalty_cap,
+                    (r_score - cfg.resonance_score_threshold) * cfg.resonance_bonus_slope,
+                )
                 log.debug(
                     f"[ManasEngine] 共振负向惩罚: score={r_score:.2f}, penalty={penalty:.2f}"
                 )
@@ -1601,12 +1608,8 @@ class ManasEngine:
         return score
 
     def _modifier_awakening(self, score, ctx):
-        """觉醒加成"""
-        factor = {
-            "enlightened": 1.15,
-            "illuminated": 1.10,
-            "awakening": 1.05,
-        }.get(ctx["awakening_level"], 1.0)
+        """觉醒加成（档位见 ManasConfig.awakening_factors）"""
+        factor = self.config.awakening_factors.get(ctx["awakening_level"], 1.0)
         return score * factor
 
     def _modifier_bias(self, score, ctx):
@@ -1678,10 +1681,12 @@ class ManasEngine:
         ctx = self._build_score_context(regime_score)
 
         # 基础分：天时 + 地势（风险温度的反函数）+ 人和
+        cfg = self.config
         harmony_strength = (
-            timing_score * self.WEIGHT_TIMING +
-            (1.0 - min(risk_temperature, 1.5) / 1.5) * self.WEIGHT_RISK +
-            confidence_score * self.WEIGHT_CONFIDENCE
+            timing_score * cfg.weight_timing +
+            (1.0 - min(risk_temperature, cfg.risk_temperature_span) / cfg.risk_temperature_span)
+            * cfg.weight_risk +
+            confidence_score * cfg.weight_confidence
         )
 
         # 依次施加调节环节：地势 / 叙事风险 / AI算力 / 共振 / 觉醒 / 偏差
@@ -1705,7 +1710,7 @@ class ManasEngine:
         # 取平方（惧首轮 0.5 → 0.25，直接撞 clamp 下限 0.3），与 docstring
         # 「贪时 reduce α」的单次语义不符。
         alpha = confidence_score * harmony_strength
-        alpha = max(0.3, min(1.5, alpha))
+        alpha = max(cfg.alpha_min, min(cfg.alpha_max, alpha))
 
         portfolio_loss = 0.0
         if portfolio:
@@ -1719,7 +1724,7 @@ class ManasEngine:
                 log.debug("manas: 抑制异常并回退默认值: %s", e)
                 pass
 
-        market_deterioration = risk_temperature > 1.3
+        market_deterioration = risk_temperature > cfg.market_deterioration_temperature
 
         attention_focus, focus_enum, portfolio_signal = self._determine_attention_focus(action_type, portfolio_loss)
 
@@ -1808,9 +1813,9 @@ class ManasEngine:
         gate_passed = action_type != ActionType.HOLD
         if gate_passed:
             reasons.append("✓通过")
-            if manas_score <= self.ACTION_THRESHOLD:
+            if manas_score <= self.config.action_threshold:
                 reasons.append(
-                    f"(分数{manas_score:.2f}≤{self.ACTION_THRESHOLD}，由共振/强时机豁免)"
+                    f"(分数{manas_score:.2f}≤{self.config.action_threshold}，由共振/强时机豁免)"
                 )
         else:
             reasons.append("✗未通过")
@@ -1820,8 +1825,6 @@ class ManasEngine:
     def record_pnl(self, pnl_pct: float):
         """记录盈亏（用于 MetaManas 偏差检测）"""
         self._recent_pnl.append(pnl_pct)
-        if len(self._recent_pnl) > 20:
-            self._recent_pnl.pop(0)
 
     def get_state(self) -> Dict[str, Any]:
         """获取末那识状态"""
