@@ -53,6 +53,16 @@ import threading
 logger = logging.getLogger(__name__)
 
 
+# 命名空间类型 → 构造函数映射。类型集合固定，模块加载时构建一次即可，
+# 避免每次 Namespace.create 调用都重建字典。
+_CONSTRUCTORS = {
+    'stream': Stream,      # 流处理对象
+    'topic': Topic,        # 主题对象
+    'table': DBStream,     # 数据库流对象
+    'tcptopic': TCPTopic,  # TCP主题对象
+}
+
+
 class Namespace(dict):
     """命名空间类,继承自dict
     
@@ -86,28 +96,21 @@ class Namespace(dict):
             返回已存在的同名对象或新创建的对象实例
         """
         object_type = obj_type or typ
-        # 定义类型到构造函数的映射
-        constructors = {
-            'stream': Stream,     # 流处理对象
-            'topic': Topic,       # 主题对象
-            'table': DBStream,    # 数据库流对象
-            'tcptopic': TCPTopic  # TCP主题对象
-        }
-
-        # webserver类型需要动态导入
-        if object_type == 'webserver':
-            from ..page import PageServer
-            constructors['webserver'] = PageServer
 
         # 使用锁保护，支持递归锁
         with self._lock:
             # 先尝试获取已存在对象
             if name in self[object_type]:
                 return self[object_type][name]
-            
-            constructor = constructors.get(object_type)
+
+            if object_type == 'webserver':
+                from ..page import PageServer
+                constructor = PageServer
+            else:
+                constructor = _CONSTRUCTORS.get(object_type)
+
             if constructor is None:
-                valid_types = ', '.join(sorted(constructors.keys()))
+                valid_types = ', '.join(sorted(list(_CONSTRUCTORS.keys()) + ['webserver']))
                 raise ValueError(
                     f"Unsupported namespace type: {object_type!r}. "
                     f"Expected one of: {valid_types}"

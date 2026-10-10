@@ -83,6 +83,15 @@ class DBStream(Stream):
         db.replay(start='2023-01-01 00:00:00', interval=1)  # 每秒回放一条数据
     """
 
+    # 写路径 commit 是否阻塞等待写入线程确认。
+    #   True  = 每次写都同步等待写入线程处理完 commit（原行为，一致性保证最强）
+    #   False = 只把 commit 入队、不等待往返（更快；顺序性由写入线程的 FIFO 队列保证，
+    #           close()/persist() 仍为阻塞式，优雅退出不会丢数据）
+    # 说明：底层 SqliteMultithread 已设 `PRAGMA synchronous=OFF`，本就未做 fsync，
+    #       因此这里改为非阻塞提交不会额外降低磁盘持久化强度，只省掉每次写的线程往返。
+    # 如需回退到原行为，把此常量改回 True 即可。
+    WRITE_COMMIT_BLOCKING = False
+
     def __init__(self, name='default', filename=None,
                  maxsize=None, log=passed, key_mode='explicit',
                  time_dict_policy='reject', **kwargs):
@@ -254,7 +263,7 @@ class DBStream(Stream):
         """将一条事件按时间戳键写入。"""
         store_key = time.time() if key is None else key
         self.db.update({store_key: value})
-        self.db.commit()  # 手动提交事务
+        self.db.commit(blocking=self.WRITE_COMMIT_BLOCKING)
         self._mark_time_index_dirty()
         self._check_size_limit()
         return store_key
@@ -262,7 +271,7 @@ class DBStream(Stream):
     def upsert(self, key, value):
         """按显式键写入/覆盖一条记录。"""
         self.db.update({key: value})
-        self.db.commit()  # 手动提交事务
+        self.db.commit(blocking=self.WRITE_COMMIT_BLOCKING)
         self._mark_time_index_dirty()
         self._check_size_limit()
         return key
@@ -270,7 +279,7 @@ class DBStream(Stream):
     def bulk_update(self, mapping):
         """批量写入映射。"""
         self.db.update(mapping)
-        self.db.commit()  # 手动提交事务
+        self.db.commit(blocking=self.WRITE_COMMIT_BLOCKING)
         self._mark_time_index_dirty()
         self._check_size_limit()
         return self

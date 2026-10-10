@@ -415,9 +415,11 @@ class MarketDataBus:
 
     def _persist_quotes_to_db(self, quotes: Dict[str, MarketQuote]):
         try:
-            for code, quote in quotes.items():
-                normalized = _normalize_code(code)
-                self._db.upsert(normalized, quote.to_dict())
+            # 原先逐条 self._db.upsert(...)（每条一次提交），上千只票就是上千次写。
+            # 聚合为单次 bulk_update，显著降低提交/写放大开销。
+            payload = {_normalize_code(code): quote.to_dict() for code, quote in quotes.items()}
+            if payload:
+                self._db.bulk_update(payload)
         except Exception as e:
             log.debug(f"[MarketDataBus] 持久化行情失败: {e}")
 

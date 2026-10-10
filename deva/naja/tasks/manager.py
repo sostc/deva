@@ -503,6 +503,10 @@ class TaskManager:
         with self._items_lock:
             entries = list(self._items.values())
 
+        # 收集需要补执行的任务，循环结束后统一提交后台串行执行，
+        # 避免任务体（常含网络请求）阻塞启动流程。
+        to_catchup = []
+
         for entry in entries:
             try:
                 mode = getattr(entry._metadata, "execution_mode", "")
@@ -523,7 +527,7 @@ class TaskManager:
 
                 if last_run_dt is None:
                     self._log("INFO", "补执行: 从未执行过", id=entry.id, name=entry.name, cron=cron_expr)
-                    entry.run_once()
+                    to_catchup.append(entry)
                     catchup_count += 1
                     results.append({"entry_id": entry.id, "entry_name": entry.name, "success": True, "catchup": True, "reason": "从未执行"})
                     continue
@@ -548,14 +552,14 @@ class TaskManager:
 
                 if today_fire_time and now >= today_fire_time and now - today_fire_time < timedelta(hours=12):
                     self._log("INFO", f"补执行: 今天任务未执行({today_fire_time.strftime('%H:%M')})", id=entry.id, name=entry.name)
-                    entry.run_once()
+                    to_catchup.append(entry)
                     catchup_count += 1
                     results.append({"entry_id": entry.id, "entry_name": entry.name, "success": True, "catchup": True, "reason": f"今日未执行({today_fire_time.strftime('%H:%M')})"})
                     continue
 
                 if days_since_run > days_back:
                     self._log("INFO", f"补执行: 已{days_since_run}天未执行(超过{days_back}天)", id=entry.id, name=entry.name, last_run=last_run_dt.strftime("%Y-%m-%d"))
-                    entry.run_once()
+                    to_catchup.append(entry)
                     catchup_count += 1
                     results.append({"entry_id": entry.id, "entry_name": entry.name, "success": True, "catchup": True, "reason": f"已{days_since_run}天未执行"})
                     continue
@@ -573,7 +577,7 @@ class TaskManager:
 
                 if missed:
                     self._log("INFO", "补执行: 错过执行时间", id=entry.id, name=entry.name, last_run=last_run_dt.strftime("%Y-%m-%d %H:%M"))
-                    entry.run_once()
+                    to_catchup.append(entry)
                     catchup_count += 1
                     results.append({"entry_id": entry.id, "entry_name": entry.name, "success": True, "catchup": True})
                 else:
@@ -583,7 +587,31 @@ class TaskManager:
                 skip_count += 1
                 results.append({"entry_id": entry.id, "entry_name": entry.name, "success": False, "error": str(e)})
 
+        if to_catchup:
+            self._dispatch_catchup_tasks(to_catchup)
+
         return {"success": True, "catchup_count": catchup_count, "skip_count": skip_count, "results": results}
+
+    def _dispatch_catchup_tasks(self, entries) -> None:
+        """在后台**串行**补执行错过的任务，不阻塞启动流程。
+
+        原先 _catchup_missed_cron_tasks 直接同步调用 entry.run_once()，
+        若任务体包含网络请求（爬虫等）会显著拖长冷启动。这里改为单个
+        daemon 线程按序执行，保持原有串行语义（避免多任务并发竞争），
+        但把等待成本移出启动路径。
+        """
+        def _worker():
+            for entry in entries:
+                try:
+                    entry.run_once()
+                except Exception as e:
+                    self._log("ERROR", "补执行失败", id=getattr(entry, "id", "?"), error=str(e))
+
+        threading.Thread(
+            target=_worker,
+            daemon=True,
+            name="task_catchup",
+        ).start()
 
     def get_stats(self) -> dict:
         self._ensure_initialized()

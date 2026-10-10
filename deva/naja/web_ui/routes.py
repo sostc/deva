@@ -4,6 +4,7 @@ import json
 import time
 import asyncio
 import os
+import threading
 import pywebio
 from pywebio.platform.tornado import webio_handler
 from tornado.web import RequestHandler, StaticFileHandler
@@ -249,6 +250,29 @@ def _market_hotspot_payload():
     }
 
 
+# _market_hotspot_payload() 的短 TTL 缓存。
+# 热点推送会在同一时刻触发多个 SSE 连接与 API 请求，而全量重算代价很高
+# （跨多个子系统取样 + 多次排序 + 逐 symbol 取名）。用短 TTL 把 N 次重算
+# 收敛为 1 次；TTL 之外的调用仍会重新计算，保证数据新鲜度。
+_PAYLOAD_CACHE_TTL = 1.0  # 秒，与 push_center 的最小推送间隔对齐
+_payload_cache_lock = threading.Lock()
+_payload_cache = {"ts": 0.0, "data": None}
+
+
+def _market_hotspot_payload_cached():
+    """带短 TTL 缓存的 `_market_hotspot_payload()`。"""
+    now = time.time()
+    with _payload_cache_lock:
+        cached = _payload_cache["data"]
+        if cached is not None and now - _payload_cache["ts"] < _PAYLOAD_CACHE_TTL:
+            return cached
+    data = _market_hotspot_payload()
+    with _payload_cache_lock:
+        _payload_cache["ts"] = time.time()
+        _payload_cache["data"] = data
+    return data
+
+
 class MarketHotspotAPIHandler(RequestHandler):
     """市场热点 JSON API — A股+美股双市场"""
 
@@ -259,7 +283,7 @@ class MarketHotspotAPIHandler(RequestHandler):
     def get(self):
         import time
         try:
-            payload = _market_hotspot_payload()
+            payload = _market_hotspot_payload_cached()
             if "error" in payload:
                 result = {
                     "timestamp": time.time(),
@@ -312,7 +336,7 @@ class MarketHotspotStreamHandler(RequestHandler):
             if self._closed.done():
                 return
             try:
-                payload = _market_hotspot_payload()
+                payload = _market_hotspot_payload_cached()
                 data = json.dumps(payload, ensure_ascii=False, default=_json_default)
                 self.write(f"data: {data}\n\n")
                 await self.flush()
@@ -404,14 +428,19 @@ class Jin10ImportantNewsHandler(RequestHandler):
     def set_default_headers(self):
         self.set_header("Content-Type", "application/json; charset=utf-8")
 
-    def get(self):
+    async def get(self):
         try:
             limit = int(self.get_argument('limit', 6))
         except ValueError:
             limit = 6
 
         try:
-            news = self._fetch_jin10_news(limit)
+            # 内存快路径：直接读 push_center 缓存，无需线程/网络
+            news = self._read_cached_news(limit)
+            if news is None:
+                # 缓存不可用时才回退到阻塞网络抓取；丢到线程池避免阻塞 IOLoop
+                loop = asyncio.get_running_loop()
+                news = await loop.run_in_executor(None, self._fetch_jin10_news, limit)
             self.write(json.dumps({
                 "success": True,
                 "timestamp": time.time(),
@@ -427,23 +456,30 @@ class Jin10ImportantNewsHandler(RequestHandler):
                 "news": [],
             }, ensure_ascii=False))
 
-    def _fetch_jin10_news(self, limit: int = 6):
+    def _read_cached_news(self, limit: int):
+        """从 push_center 读取缓存新闻。
+
+        返回 list 表示缓存可用（可能为空）；返回 None 表示缓存不可用，
+        需要回退到网络抓取。
+        """
         try:
             from deva.naja.radar.push_center import get_news_push_center
             push_center = get_news_push_center()
-            all_news = push_center.get_latest_news()
-            return [
-                {
-                    "title": item.get("title", "")[:60],
-                    "time": item.get("time", ""),
-                    "source": item.get("source", "jin10"),
-                }
-                for item in all_news[:limit]
-                if item.get("title")
-            ]
+            all_news = push_center.get_latest_news() or []
         except Exception:
-            pass
+            return None
+        return [
+            {
+                "title": item.get("title", "")[:60],
+                "time": item.get("time", ""),
+                "source": item.get("source", "jin10"),
+            }
+            for item in all_news[:limit]
+            if item.get("title")
+        ]
 
+    def _fetch_jin10_news(self, limit: int = 6):
+        """阻塞式网络抓取（仅在缓存不可用时作为回退路径，已在线程池中执行）。"""
         try:
             import requests
             response = requests.get(

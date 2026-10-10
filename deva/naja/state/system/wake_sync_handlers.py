@@ -28,6 +28,13 @@ from deva.naja.register import SR
 
 log = logging.getLogger(__name__)
 
+# 补作业时逐条发布事件的节流间隔（秒）。
+# 原实现固定 0.5s/条，100 条新闻光等待就 50s；降到 0.05s 仍保留轻量间隔，
+# 避免下游事件处理被瞬间打满。
+WAKE_SYNC_PUBLISH_THROTTLE_SECONDS = 0.05
+# 新闻详情抓取并发度（礼貌限流，避免打爆目标站）。
+WAKE_SYNC_DETAIL_CONCURRENCY = 4
+
 
 class AIDailyReportWakeSync:
     """
@@ -231,7 +238,9 @@ class NewsFetcherWakeSync:
 
                 for _ in range(100):
                     try:
-                        response = session.post(
+                        # 阻塞 POST 丢到线程池，避免卡住事件循环
+                        response = await asyncio.to_thread(
+                            session.post,
                             self.JIN10_IMPORTANT_API,
                             json={
                                 "channel": "-8200",
@@ -290,9 +299,9 @@ class NewsFetcherWakeSync:
                 return all_news
 
             async def fetch_news_detail_async(session: requests.Session, news: Jin10NewsItem) -> Optional[Jin10NewsItem]:
-                """异步获取单条新闻详情"""
+                """异步获取单条新闻详情（阻塞 GET 丢到线程池）"""
                 try:
-                    response = session.get(news.url, timeout=15)
+                    response = await asyncio.to_thread(session.get, news.url, timeout=15)
                     if response.status_code == 200:
                         from bs4 import BeautifulSoup
                         soup = BeautifulSoup(response.text, 'html.parser')
@@ -344,17 +353,30 @@ class NewsFetcherWakeSync:
 
                 fetched_detail_count = 0
                 published_count = 0
-                for news in news_list:
-                    if news.content and len(news.content) > 100:
-                        log.debug(f"[WakeSync] NewsFetcher: 新闻 {news.id} 内容已完整，跳过详情获取")
-                    else:
-                        detail = await fetch_news_detail_async(session, news)
-                        if detail:
-                            fetched_detail_count += 1
 
+                # ① 详情抓取并发化：只对内容不完整的新闻发起，受信号量限流
+                need_detail = [
+                    n for n in news_list
+                    if not (n.content and len(n.content) > 100)
+                ]
+                if need_detail:
+                    sem = asyncio.Semaphore(WAKE_SYNC_DETAIL_CONCURRENCY)
+
+                    async def _guarded(n):
+                        async with sem:
+                            return await fetch_news_detail_async(session, n)
+
+                    results = await asyncio.gather(
+                        *(_guarded(n) for n in need_detail),
+                        return_exceptions=True,
+                    )
+                    fetched_detail_count = sum(1 for r in results if r and not isinstance(r, Exception))
+
+                # ② 发布保持顺序（下游认知处理对时序敏感），仅压缩节流间隔
+                for news in news_list:
                     await publish_to_radar(news)
                     published_count += 1
-                    await asyncio.sleep(0.5)
+                    await asyncio.sleep(WAKE_SYNC_PUBLISH_THROTTLE_SECONDS)
 
                 return {
                     "success": True,

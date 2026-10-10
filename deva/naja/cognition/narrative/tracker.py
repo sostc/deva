@@ -283,10 +283,26 @@ class NarrativeTracker:
         self._graph_same_weight = float(cfg.get("narrative_graph_same_event_weight", 1.0))
         self._graph_temporal_weight = float(cfg.get("narrative_graph_temporal_weight", 0.3))
 
+        # 持久化节流：事件入口不再每条都落库，而是按最小间隔合并写入。
+        # save_state() 本身仍为强制写入，供退出/持久化路径调用。
+        self._persist_interval = float(cfg.get("narrative_persist_interval_seconds", 3.0))
+        self._last_persist_ts = 0.0
+        self._pending_persist = False
+
         self._states: Dict[str, NarrativeState] = {}
         self._graph_edges: Dict[Tuple[str, str], float] = defaultdict(float)
-        self._recent_hits: Deque[Tuple[float, List[str]]] = deque()
-        
+        # 上界兜底：_update_graph 已按时间窗裁剪，maxlen 仅防病态突发导致的无界增长
+        self._recent_hits: Deque[Tuple[float, List[str]]] = deque(maxlen=50000)
+
+        # 长期只增不减的结构加硬上限，避免长跑进程内存持续上涨：
+        #  - _graph_edges：键按叙事对累积，超过上限时保留权重最高的半数
+        #  - _value_signals：消费方只用最近 72h，保留更长的窗口后整体裁剪
+        self._graph_max_edges = int(cfg.get("narrative_graph_max_edges", 20000))
+        self._value_signal_retention_seconds = float(
+            cfg.get("value_signal_retention_seconds", 7 * 24 * 3600)
+        )
+        self._value_signal_prune_at = int(cfg.get("value_signal_prune_threshold", 2000))
+
         # 状态历史记录（用于变化检测）
         self._state_history: Deque[Dict[str, Any]] = deque(maxlen=100)  # 最多保存100个状态快照
 
@@ -521,7 +537,7 @@ class NarrativeTracker:
             return False
 
     def save_state(self) -> bool:
-        """保存状态到数据库"""
+        """保存状态到数据库（强制写入，供退出/持久化路径调用）"""
         try:
             from deva import NB
             nb = NB(NARRATIVE_PERSISTENCE_TABLE)
@@ -541,9 +557,23 @@ class NarrativeTracker:
 
             nb["narrative_states"] = persist_data
             nb["saved_at"] = time.time()
+            self._last_persist_ts = time.time()
+            self._pending_persist = False
             return True
         except Exception:
             return False
+
+    def _maybe_save_state(self) -> bool:
+        """节流版落库：距上次持久化不足 `_persist_interval` 时只打脏标记。
+
+        事件入口使用本方法，避免每条事件都触发一次全量排序 + 整表写入。
+        退出时 `save_state()`（强制写）会兜底，不会丢最终状态。
+        """
+        now = time.time()
+        if now - self._last_persist_ts < self._persist_interval:
+            self._pending_persist = True
+            return False
+        return self.save_state()
 
     def detect_narratives(self, event: Any) -> Dict[str, List[str]]:
         if not self.enabled:
@@ -588,7 +618,8 @@ class NarrativeTracker:
         value_results = self._process_value_signals(event, now_ts)
         results.extend(value_results)
 
-        self.save_state()
+        # 节流落库：避免每条事件都触发一次全量排序 + 整表写入
+        self._maybe_save_state()
         return results
 
     def _process_external_narratives(
@@ -779,7 +810,31 @@ class NarrativeTracker:
                     "timestamp": now_ts,
                 })
 
+        # 摊还裁剪：只在累积到阈值时做一次，均摊到每次 append 是 O(1)
+        if len(self._value_signals) >= self._value_signal_prune_at:
+            self._prune_value_signals(now_ts)
+
         return results
+
+    def _prune_value_signals(self, now_ts: float) -> int:
+        """裁剪过期的供需信号，返回被丢弃的条数。
+
+        消费方 ``get_value_market_summary()`` 只读取最近 72h 的信号，
+        因此保留 ``_value_signal_retention_seconds``（默认 7 天）足够。
+        裁剪后重建 ``_value_signal_index``，保证索引与列表一致（索引存的是位置）。
+        """
+        cutoff = now_ts - self._value_signal_retention_seconds
+        kept = [s for s in self._value_signals if s.timestamp >= cutoff]
+        dropped = len(self._value_signals) - len(kept)
+        if dropped <= 0:
+            return 0
+
+        self._value_signals = kept
+        index: Dict[str, List[int]] = {}
+        for i, signal in enumerate(kept):
+            index.setdefault(signal.signal_type, []).append(i)
+        self._value_signal_index = index
+        return dropped
 
     def _assess_signal_severity(self, hit_keywords: List[str]) -> str:
         """评估信号严重程度"""
@@ -796,37 +851,6 @@ class NarrativeTracker:
         if len(hit_keywords) >= 3:
             return "中等"
         return "轻微"
-
-    def detect_value_signals(self, event: Any) -> Dict[str, List[str]]:
-        """检测价值信号（Dynamics）- 真正的供需失衡/效率提升信号
-
-        【Dynamics-供需动态】我们自己的价值判断体系
-        - 基于 DYNAMICS_KEYWORDS 命中情况
-        - 代表我们认定的重要变化（供需失衡、技术突破等）
-
-        Returns:
-            Dict[str, List[str]] - 按价值类别分类的命中关键词
-        """
-        if not self.enabled:
-            return {}
-
-        texts = self._collect_texts(event)
-        if not texts:
-            return {}
-
-        combined = " ".join(t for t in texts if t)
-        combined_lower = combined.lower()
-        matches: Dict[str, List[str]] = {}
-
-        for signal_type, keywords in DYNAMICS_KEYWORDS.items():
-            hit_keywords: List[str] = []
-            for keyword in keywords:
-                if self._keyword_in_text(keyword, combined, combined_lower):
-                    hit_keywords.append(keyword)
-            if hit_keywords:
-                matches[signal_type] = hit_keywords
-
-        return matches
 
     def get_summary(self, limit: int = 10) -> List[Dict[str, Any]]:
         if not self._states:
@@ -2214,7 +2238,7 @@ class NarrativeTracker:
             texts.append(str(content))
         meta = getattr(event, "meta", {}) or {}
 
-        for key in ("title", "topic", "block", "block", "industry", "theme", "summary"):
+        for key in ("title", "topic", "block", "industry", "theme", "summary"):
             val = meta.get(key)
             if val:
                 texts.append(str(val))
@@ -2352,6 +2376,13 @@ class NarrativeTracker:
                     self._graph_edges[key] += self._graph_temporal_weight
 
         self._recent_hits.append((now_ts, narratives))
+
+        # 边权重只增不减，长跑会持续累积；超过上限时按权重保留最高的一半。
+        # get_graph(min_weight) 本就按权重过滤，丢弃低权重边不影响可见结果。
+        if len(self._graph_edges) > self._graph_max_edges:
+            keep_n = max(self._graph_max_edges // 2, 1)
+            top_edges = sorted(self._graph_edges.items(), key=lambda kv: kv[1], reverse=True)[:keep_n]
+            self._graph_edges = defaultdict(float, top_edges)
 
     @staticmethod
     def _edge_key(left: str, right: str) -> Tuple[str, str]:

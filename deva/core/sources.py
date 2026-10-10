@@ -35,52 +35,51 @@ logger = logging.getLogger(__name__)
 
 
 def _decode_http_body(body, as_dataframe=False):
-    """Best-effort decoder for HTTP payloads."""
-    from .pipe import P
-    
-    def try_dill_loads(b):
-        try:
-            return dill.loads(b)
-        except Exception:
-            return None
-    
-    def try_decode(b):
-        if isinstance(b, (bytes, bytearray)):
+    """Best-effort decoder for HTTP payloads.
+
+    直接顺序解码，避免每次 HTTP 请求都重建 4 层 ``P.map`` 管道与闭包
+    （原实现每个请求构造一个 Pipe 链）。解码语义与旧版逐条一致：
+    dill → bytes 解码 → json →（可选）DataFrame，任一步失败则保留上一步结果。
+    """
+    obj = None
+    try:
+        obj = dill.loads(body)
+    except Exception:
+        obj = None
+
+    # 与旧版一致：dill 结果为空时，回退到对原始 body 做字节解码
+    if obj is None:
+        if isinstance(body, (bytes, bytearray)):
             try:
-                return b.decode('utf-8')
+                obj = body.decode('utf-8')
             except Exception:
-                return b
-        return b
-    
-    def try_json_loads(t):
+                obj = body
+        else:
+            obj = body
+
+    try:
+        obj = json.loads(obj)
+    except Exception:
+        pass
+
+    if as_dataframe:
         try:
-            return json.loads(t)
+            obj = pd.DataFrame.from_dict(obj)
         except Exception:
-            return t
-    
-    def try_dataframe(obj):
-        if as_dataframe:
-            try:
-                return pd.DataFrame.from_dict(obj)
-            except Exception:
-                pass
-        return obj
-    
-    return (body >> P.map(try_dill_loads)
-            >> P.map(lambda x: x if x is not None else try_decode(body))
-            >> P.map(try_json_loads)
-            >> P.map(try_dataframe))
+            pass
+
+    return obj
 
 
 def _encode_http_body(body):
-    from .pipe import P
-    
-    def encode_dataframe(b):
-        if isinstance(b, pd.DataFrame):
-            return b.sample(20).to_html()
-        return b
-    
-    return body >> P.map(encode_dataframe) >> P.map(lambda x: json.dumps(x, ensure_ascii=False))
+    """Best-effort encoder for HTTP payloads.
+
+    同样去掉每请求的 Pipe 链构造；语义等价于
+    ``encode_dataframe >> json.dumps``。
+    """
+    if isinstance(body, pd.DataFrame):
+        body = body.sample(20).to_html()
+    return json.dumps(body, ensure_ascii=False)
 
 
 def _new_redis_client(address='localhost', db=0, password=None):
@@ -251,15 +250,16 @@ class from_textfile(PollingSource):
         返回:
             list: 分割后的数据列表，如果没有新数据则返回空列表
         """
-        from .pipe import P, ls
-        
         line = self.file.read()
         if line:
             self._buffer += line
             if self.delimiter in self._buffer:
                 parts = self._buffer.split(self.delimiter)
                 self._buffer = parts.pop(-1)
-                return parts >> P.map(lambda part: part + self.delimiter) >> ls
+                # 原为 `parts >> P.map(...) >> ls`，但 pipe 模块并无 `map`
+                # （只有 `pmap`），该表达式一执行即 AttributeError。
+                # 等价直译：对每个分段补回分隔符后返回列表。
+                return [part + self.delimiter for part in parts]
         return []
     
 @Stream.register_api(staticmethod)

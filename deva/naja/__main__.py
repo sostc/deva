@@ -57,6 +57,28 @@ def handle_service_command():
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
             return s.connect_ex(('localhost', port)) == 0
 
+    def wait_for_service_ready(host, port, timeout=90.0):
+        """轮询本机 /api/health，等待服务真正就绪。
+
+        用于「服务启动成功后再接管托盘」，避免服务其实起不来、
+        而旧托盘已经被杀掉的双输局面。
+        """
+        import urllib.request
+        probe_host = "127.0.0.1" if host in ("0.0.0.0", "::", "", None) else host
+        url = f"http://{probe_host}:{port}/api/health"
+        # 本机探测必须绕开环境代理，否则会被 http_proxy 转发导致误判
+        opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+        start = time.time()
+        while time.time() - start < timeout:
+            try:
+                with opener.open(url, timeout=2) as resp:
+                    if resp.status == 200:
+                        return True
+            except Exception:
+                pass
+            time.sleep(1.0)
+        return False
+
     def get_pid_using_port(port):
         try:
             result = subprocess.run(
@@ -247,28 +269,46 @@ def handle_service_command():
 
         from deva.naja.infra.log.colorful_logger import open_rotated_file
 
+        def spawn_tray():
+            """启动新的菜单栏托盘进程"""
+            tray_script = os.path.join(str(Path(__file__).parent), "scripts", "start_tray.py")
+            return subprocess.Popen(
+                [sys.executable, tray_script],
+                env=env,
+                # 显式 DEVNULL：避免子进程继承父进程可能失效的 stdin fd，
+                # 否则解释器会在 init_sys_streams 阶段 Fatal 崩溃。
+                stdin=subprocess.DEVNULL,
+                stdout=open_rotated_file(tray_log_file),
+                stderr=subprocess.STDOUT,
+                cwd=os.getcwd(),
+                start_new_session=True
+            )
+
         tray_proc = None
+        rumps_available = False
         if platform.system() == "Darwin":
             try:
-                import rumps
-                stop_tray()
-                
-                tray_script = os.path.join(str(Path(__file__).parent), "scripts", "start_tray.py")
-                tray_cmd = [sys.executable, tray_script]
-                tray_proc = subprocess.Popen(
-                    tray_cmd,
-                    env=env,
-                    stdout=open_rotated_file(tray_log_file),
-                    stderr=subprocess.STDOUT,
-                    cwd=os.getcwd(),
-                    start_new_session=True
-                )
-                print("✓ 托盘已启动")
-                
-                time.sleep(0.5)
+                import rumps  # noqa: F401
+                rumps_available = True
             except ImportError:
                 print("⚠ 未安装 rumps，菜单栏托盘将不启动")
                 print("  安装命令: pip install rumps")
+
+        # 托盘「重启服务」时会给本进程带 NAJA_KEEP_TRAY=1：表示发起重启的托盘
+        # 会继续存活，本进程只需安静启动即可，**不要**去接管/重启托盘
+        # （那会导致菜单栏图标闪一下）。仅影响托盘发起的重启，CLI 行为不变。
+        keep_tray = os.environ.get("NAJA_KEEP_TRAY") == "1"
+
+        # 是否已有托盘在跑（托盘「重启服务」场景）。
+        # 有旧托盘时，必须等新服务确认就绪后再接管：否则一旦服务启动失败，
+        # 就变成「旧托盘已停、新托盘未起」，用户彻底失去管理入口。
+        old_tray_running = rumps_available and is_tray_running()
+
+        # 冷启动场景（开机自启 / 命令行首次启动）：先起托盘，让它显示「启动中」
+        if rumps_available and not old_tray_running:
+            tray_proc = spawn_tray()
+            print("✓ 托盘已启动")
+            time.sleep(0.5)
 
         cmd = [
             sys.executable, "-m", "deva.naja",
@@ -278,6 +318,7 @@ def handle_service_command():
         proc = subprocess.Popen(
             cmd,
             env=env,
+            stdin=subprocess.DEVNULL,
             stdout=open_rotated_file(str(LOG_FILE)),
             stderr=subprocess.STDOUT,
             cwd=os.getcwd(),
@@ -285,13 +326,29 @@ def handle_service_command():
         )
 
         time.sleep(0.5)
-        if proc.poll() is None:
-            print(f"✓ Naja 已后台启动 (PID: {proc.pid})")
-            print(f"  日志: {LOG_FILE}")
-            if tray_proc and tray_proc.poll() is None:
-                print(f"  托盘 (PID: {tray_proc.pid})")
-        else:
+        if proc.poll() is not None:
             print("✗ 启动失败，请查看日志")
+            print(f"  日志: {LOG_FILE}")
+            # 注意：这里不动旧托盘，保住用户唯一的管理入口
+            return
+
+        print(f"✓ Naja 已后台启动 (PID: {proc.pid})")
+        print(f"  日志: {LOG_FILE}")
+
+        # 等新服务真正就绪，再决定是否接管托盘
+        if not wait_for_service_ready(args.host, args.port, timeout=90.0):
+            print("✗ 服务 90s 内未就绪，已保留当前托盘，请查看日志")
+            print(f"  日志: {LOG_FILE}")
+            return
+
+        if rumps_available and old_tray_running and not keep_tray:
+            stop_tray()
+            new_tray = spawn_tray()
+            print(f"✓ 托盘已接管 (PID: {new_tray.pid})")
+        elif keep_tray and old_tray_running:
+            print("  托盘保持存活（NAJA_KEEP_TRAY=1），不接管")
+        elif tray_proc and tray_proc.poll() is None:
+            print(f"  托盘 (PID: {tray_proc.pid})")
 
     elif args.action == "stop":
         stop_service()
@@ -565,6 +622,7 @@ def main():
             subprocess.Popen(
                 [sys.executable, str(tray_script)],
                 env=tray_env,
+                stdin=subprocess.DEVNULL,
                 stdout=open(tray_log, "a"),
                 stderr=subprocess.STDOUT,
                 start_new_session=True

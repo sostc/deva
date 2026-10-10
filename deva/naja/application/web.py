@@ -176,6 +176,7 @@ def run_web_application(config: AppRuntimeConfig):
         subprocess.Popen(
             cmd,
             env=env,
+            stdin=subprocess.DEVNULL,
             stdout=open(log_file, "a"),
             stderr=subprocess.STDOUT,
             cwd=os.getcwd(),

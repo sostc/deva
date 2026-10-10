@@ -83,6 +83,8 @@ class RealtimeDataFetcher:
             self._hotspot_system_inner = hotspot_system.hotspot_system  # MarketHotspotSystem
         else:
             self._hotspot_system_inner = hotspot_system  # MarketHotspotSystem
+        # 惰性缓存 SR('hotspot_system') 的结果，避免热路径反复走带锁的注册表查询
+        self._hotspot_system_ref = None
         self.config = config or FetchConfig()
 
         self._running = False
@@ -376,7 +378,7 @@ class RealtimeDataFetcher:
 
                 try:
                     from deva.naja.market_hotspot.integration import process_data_with_hotspots
-                    hotspot_system = SR('hotspot_system')
+                    hotspot_system = self._hotspot_ref()
                     if hotspot_system is not None:
                         cn_state = getattr(hotspot_system, 'global_state', {}) or {}
                     else:
@@ -406,7 +408,7 @@ class RealtimeDataFetcher:
             if df is None or len(df) == 0:
                 return
 
-            hotspot_system = SR('hotspot_system')
+            hotspot_system = self._hotspot_ref()
             if hotspot_system is None:
                 return
 
@@ -453,7 +455,7 @@ class RealtimeDataFetcher:
                     log.debug(f"[RealtimeDataFetcher] process_data (US) 完成")
                     try:
                         from deva.naja.market_hotspot.integration import process_data_with_hotspots
-                        hotspot_system = SR('hotspot_system')
+                        hotspot_system = self._hotspot_ref()
                         if hotspot_system is not None:
                             us_state = getattr(hotspot_system, 'global_state', {}) or {}
                         else:
@@ -673,10 +675,28 @@ class RealtimeDataFetcher:
             self._fetch_and_process_market(low_symbols, "LOW", market)
             setattr(self, low_fetch_var, current_time)
 
+    def _hotspot_ref(self):
+        """获取热点系统引用。
+
+        优先复用构造时已解析的实例；否则惰性查询单例并缓存。
+        热路径（每批行情推送）不宜反复调用 ``SR()``——它每次都会加锁。
+        """
+        if self._hotspot_system_inner is not None:
+            return self._hotspot_system_inner
+        if self._hotspot_system_ref is None:
+            try:
+                ref = SR('hotspot_system')
+            except Exception:
+                ref = None
+            if ref is not None:
+                self._hotspot_system_ref = ref
+            return ref
+        return self._hotspot_system_ref
+
     def _get_market_context(self, market: str):
         """获取市场对应的 context"""
         try:
-            hotspot_system = SR('hotspot_system')
+            hotspot_system = self._hotspot_ref()
             if hotspot_system:
                 return hotspot_system._get_context(market)
         except Exception:
@@ -745,7 +765,7 @@ class RealtimeDataFetcher:
                                 # 触发策略执行
                                 try:
                                     from deva.naja.market_hotspot.integration import process_data_with_hotspots
-                                    hotspot_system = SR('hotspot_system')
+                                    hotspot_system = self._hotspot_ref()
                                     # 从 US 上下文中获取真实的热点数据
                                     if hotspot_system is not None:
                                         us_ctx = getattr(hotspot_system, '_us_context', None)
