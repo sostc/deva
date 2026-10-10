@@ -171,12 +171,7 @@ class DBStream(Stream):
             asynchronous (bool): 是否异步处理，默认为 False
         """
         if isinstance(x, gen.Awaitable):
-            futs = gen.convert_yielded(x)
-            if not self.loop:
-                self._set_asynchronous(False)
-            if self.loop is None and self.asynchronous is not None:
-                self._set_loop(get_io_loop(self.asynchronous))
-            self.loop.add_future(futs, lambda x: self.update(x.result()))
+            self._defer(x, self.update)
         else:
             self.update(x)
     
