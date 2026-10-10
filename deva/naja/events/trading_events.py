@@ -70,7 +70,7 @@ class StrategySignalEvent:
     signal_type: str              # 信号类型，如 "rotation", "momentum", "pattern"
     
     # 市场状态
-    current_price: float          # 当前价格
+    current_price: Optional[float]   # 当前价格（未知时为 None）
     price_change_pct: float       # 价格变化百分比
     volume_ratio: float = 1.0     # 成交量相对于均值的倍数
     
@@ -87,6 +87,19 @@ class StrategySignalEvent:
     
     # 额外字段（用于策略传递内部信息）
     metadata: Dict[str, Any] = field(default_factory=dict)
+    
+    # 总线路由字段（TradingEventBus 用于重要性/市场过滤）
+    importance: float = 0.5       # 事件重要性 0.0-1.0
+    market: str = "CN"            # 所属市场: "CN" / "US" / "HK" ...
+    
+    def __post_init__(self):
+        """规范化 direction：允许传入字符串（如 "buy"）或枚举。"""
+        if self.direction is None:
+            self.direction = SignalDirection.NEUTRAL
+        elif isinstance(self.direction, str):
+            self.direction = SignalDirection.from_str(self.direction)
+        if self.market:
+            self.market = str(self.market).upper()
     
     @property
     def datetime(self) -> datetime:
@@ -123,6 +136,8 @@ class StrategySignalEvent:
             "stop_loss_pct": self.stop_loss_pct,
             "take_profit_pct": self.take_profit_pct,
             "metadata": self.metadata,
+            "importance": self.importance,
+            "market": self.market,
             "_type": "StrategySignalEvent"
         }
 

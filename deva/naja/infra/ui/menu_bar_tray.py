@@ -13,7 +13,7 @@ from typing import Optional
 from deva.naja.infra.autostart import is_login_item_enabled, toggle_login_item
 from deva.naja.infra.runtime.daemon import (
     get_running_pid, get_running_tray_pid,
-    save_tray_pid, clear_tray_pid
+    save_tray_pid, clear_tray_pid, clear_pid
 )
 
 logger = logging.getLogger(__name__)
@@ -95,8 +95,11 @@ def _http_get(path: str, port: int = None, timeout: float = 5.0) -> Optional[dic
     url = f"http://localhost:{port}{path}"
     try:
         import urllib.request
+        # 这是本机 API 调用，必须绕开环境代理（如 Surge 的 http_proxy），
+        # 否则会被转发出去导致 502/超时，托盘就永远拿不到数据。
+        opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
         req = urllib.request.Request(url, headers={"User-Agent": "NajaTray/1.0"})
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
+        with opener.open(req, timeout=timeout) as resp:
             return json.loads(resp.read().decode("utf-8"))
     except Exception as e:
         logger.debug(f"HTTP GET {url} 失败: {e}")
@@ -194,85 +197,6 @@ class MenuBarTray:
         self._preload_thread.start()
         logger.info("[Tray] 后台预加载线程已启动")
 
-    def _get_timeline_events_cached(self):
-        """获取时间线数据（后台缓存版本）"""
-        import time
-        now = time.time()
-        
-        if self._last_timeline_data and (now - self._last_timeline_ts < 300):
-            return self._last_timeline_data
-        
-        try:
-            from datetime import datetime, timedelta
-            from deva.naja.market_hotspot.ui_components.timeline.market_24h_timeline import (
-                _get_a_block_events,
-                _get_us_events,
-                _get_high_score_news,
-                _get_jin10_important_news,
-            )
-            
-            cn_events = _get_a_block_events()
-            us_events = _get_us_events()
-            news_events = _get_high_score_news()
-            jin10_news = _get_jin10_important_news()
-            
-            all_events = cn_events + us_events + news_events + jin10_news
-            all_events.sort(key=lambda x: x.get('timestamp', 0), reverse=True)
-            
-            cutoff = (datetime.now() - timedelta(hours=24)).timestamp()
-            all_events = [e for e in all_events if e.get('timestamp', 0) >= cutoff]
-            
-            timeline_items = []
-            for event in all_events[:15]:
-                event_type = event.get('type', '')
-                event_time = event.get('time', '')[:5]
-                title = event.get('block_name', '') or event.get('title', '') or ''
-                title = title[:40]
-                
-                change = ''
-                if event_type == 'cn_event':
-                    change = event.get('change_pct', 0)
-                    if change > 0:
-                        change = f"+{change:.1f}%"
-                    else:
-                        change = f"{change:.1f}%"
-                elif event_type == 'us_event':
-                    change = event.get('change_pct', 0)
-                    if change > 0:
-                        change = f"+{change:.1f}%"
-                    else:
-                        change = f"{change:.1f}%"
-                elif event_type == 'news':
-                    change = f"[{event.get('score', 0):.1f}]"
-                elif event_type == 'jin10':
-                    change = "🔥"
-                
-                timeline_items.append({
-                    'type': event_type,
-                    'time': event_time,
-                    'title': title,
-                    'change': change,
-                    'timestamp': event.get('timestamp', 0),
-                    'data': event,
-                })
-            
-            self._last_timeline_data = {
-                'success': True,
-                'stats': {
-                    'cn_events': len(cn_events),
-                    'us_events': len(us_events),
-                    'high_score_news': len(news_events),
-                    'jin10_count': len(jin10_news),
-                },
-                'list': timeline_items,
-            }
-            self._last_timeline_ts = now
-            return self._last_timeline_data
-            
-        except Exception as e:
-            logger.warning(f"获取时间线数据失败: {e}")
-            return {"success": False, "stats": {}, "list": []}
-
     def _get_system_status_cached(self):
         """获取系统状态（后台缓存版本）"""
         import time
@@ -291,46 +215,67 @@ class MenuBarTray:
     def _check_and_send_notifications(self):
         if not self._naja_ready:
             return
-        
+
         try:
-            from deva.naja.market_hotspot.ui_components.timeline.market_24h_timeline import (
-                _get_high_score_news,
-                _get_jin10_important_news,
-            )
-            
-            high_score_news = _get_high_score_news()
-            jin10_news = _get_jin10_important_news()
-            
-            all_news = high_score_news + jin10_news
-            
-            for news in all_news:
-                news_id = f"{news.get('type', '')}_{news.get('timestamp', 0)}_{news.get('block_name', '')[:20]}"
-                
+            # 只消费后台预加载线程从 /api/tray/data 拿到的数据。
+            # 注意：本方法运行在 AppKit 主线程（_on_timer 回调），**绝不能**在这里
+            # 调用 _get_high_score_news()/_get_jin10_important_news() —— 它们会回退到
+            # Playwright 实时抓取，同步阻塞最长 15s，直接把菜单栏冻住并推迟图标绘制。
+            timeline = None
+            with self._menu_cache_lock:
+                if self._menu_cache:
+                    timeline = self._menu_cache.get('timeline')
+            if not timeline:
+                timeline = self._last_timeline_data
+
+            if not timeline or not timeline.get('success'):
+                return
+
+            for news in timeline.get('list', []):
+                news_type = news.get('type', '')
+                if news_type not in ('high_score_news', 'jin10_news'):
+                    continue
+
+                score = news.get('score', 0) or 0
+                if score < 0.7:
+                    continue
+
+                title = news.get('title', '') or news.get('block_name', '')
+                if not title:
+                    continue
+
+                news_id = f"{news_type}_{news.get('timestamp', 0)}_{title[:20]}"
                 if news_id in self._notified_news_ids:
                     continue
-                
-                score = news.get('score', 0)
-                if score >= 0.7:
-                    title = news.get('block_name', '')
-                    subtitle = f"重要新闻 · 评分: {score:.2f}"
-                    
-                    self._send_notification(title, subtitle)
-                    self._notified_news_ids.add(news_id)
-                    
-                    if len(self._notified_news_ids) > 100:
-                        self._notified_news_ids = set(list(self._notified_news_ids)[-50:])
-                        
+
+                self._send_notification(title, f"重要新闻 · 评分: {score:.2f}")
+                self._notified_news_ids.add(news_id)
+
+                if len(self._notified_news_ids) > 100:
+                    self._notified_news_ids = set(list(self._notified_news_ids)[-50:])
+
         except Exception as e:
             logger.error(f"[Tray] 检查通知失败: {e}")
 
-    def _get_timeline_events(self) -> dict:
-        """获取 24 小时时间线数据（带缓存）"""
+    def _get_timeline_events(self, allow_local_fetch: bool = False) -> dict:
+        """获取 24 小时时间线数据（带缓存）
+
+        allow_local_fetch:
+            - False（默认，**主线程必须用这个**）：只返回已有缓存，绝不触发本地实时抓取。
+              本地抓取最终会回退到 `_fetch_jin10_via_playwright()`，同步 `asyncio.run`
+              阻塞最长 15s，跑在主线程会直接冻结菜单栏。
+            - True：允许本地抓取，仅限后台线程使用（如「一键总结」任务）。
+        """
         import time
         now = time.time()
         
         # 缓存 30秒
         if self._last_timeline_data and (now - self._last_timeline_ts < 30):
             return self._last_timeline_data
+        
+        if not allow_local_fetch:
+            # 主线程保护：宁可用旧数据/空数据，也不在这里阻塞抓取。
+            return self._last_timeline_data or {"success": False, "stats": {}, "list": []}
         
         try:
             from datetime import datetime, timedelta
@@ -432,13 +377,68 @@ class MenuBarTray:
         """获取托盘脚本路径"""
         return os.path.join(os.path.dirname(__file__), "..", "..", "scripts", "naja_tray.py")
 
-    def _restart_tray(self):
-        """重启 Naja 服务器和托盘程序"""
+    def _wait_for_pid_exit(self, pid: int, timeout: float = 15.0) -> bool:
+        """等待指定 PID 的进程真正退出。
+
+        Returns:
+            True 表示进程已退出；False 表示超时仍存活。
+        """
+        start = time_module.time()
+        while time_module.time() - start < timeout:
+            try:
+                os.kill(pid, 0)
+            except ProcessLookupError:
+                return True
+            except PermissionError:
+                # 进程仍存在（权限不足说明 PID 被占用）
+                pass
+            time_module.sleep(0.2)
+        return False
+
+    def _wait_for_naja_ready(self, timeout: float = 30.0) -> bool:
+        """轮询 /api/health，等待新服务真正就绪。"""
+        start = time_module.time()
+        while time_module.time() - start < timeout:
+            if self._check_naja_ready():
+                return True
+            time_module.sleep(0.5)
+        return False
+
+    def _call_on_main_thread(self, fn):
+        """在 AppKit 主线程执行 fn；从后台线程调用时自动切回主线程。"""
+        try:
+            from PyObjCTools import AppHelper
+            AppHelper.callAfter(fn)
+        except Exception:
+            # 拿不到 AppHelper（非 macOS / 异常）时退化为直接调用
+            try:
+                fn()
+            except Exception as e:
+                logger.error(f"主线程回调执行失败: {e}")
+
+    def _quit_on_main_thread(self):
+        """退出托盘。从后台线程调用时切回 AppKit 主线程，避免 UI 操作跨线程。"""
         import rumps
+        self._call_on_main_thread(rumps.quit_application)
+
+    def _restart_tray(self):
+        """重启 Naja 服务器和托盘程序
+
+        整个流程在后台线程执行，避免阻塞菜单栏事件循环。
+        """
+        import threading
+        thread = threading.Thread(target=self._do_restart_tray, daemon=True)
+        thread.start()
+
+    def _do_restart_tray(self):
         logger.info("正在重启 Naja 服务...")
 
         env = os.environ.copy()
         env["LSUIElement"] = "1"
+        # 告诉新服务：托盘由本进程继续持有，不要接管/重启托盘。
+        # 这样整个服务重启期间菜单栏图标保持不变（旧方案会先杀托盘再起新托盘，
+        # 造成约 3s 的图标空窗）。
+        env["NAJA_KEEP_TRAY"] = "1"
         deva_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))))
         python_path = env.get("PYTHONPATH", "")
         if python_path:
@@ -446,17 +446,37 @@ class MenuBarTray:
         else:
             env["PYTHONPATH"] = deva_root
 
-        # 先停止旧的 Naja 服务器
+        # 1) 停止旧服务，并等待它真正退出。
+        #    关键：旧服务优雅关闭需要数秒，期间 PID 文件仍是旧 PID。
+        #    如果像以前那样只 sleep(1) 就启动新进程，新进程会被 __main__ 的
+        #    is_running() 判定为“已在运行”而直接退出，导致服务整体停摆。
         pid = self._get_running_pid()
         if pid:
             try:
                 os.kill(pid, signal.SIGTERM)
-                logger.info(f"已停止旧 Naja 服务器 (PID: {pid})")
+                logger.info(f"已向旧 Naja 服务器发送停止信号 (PID: {pid})")
             except ProcessLookupError:
-                pass
-            time_module.sleep(1.0)
+                logger.info(f"旧 Naja 服务器已不存在 (PID: {pid})")
+                pid = None
+            except Exception as e:
+                logger.error(f"停止旧 Naja 服务器失败: {e}")
+                pid = None
 
-        # 启动新的 Naja 服务器
+            if pid and not self._wait_for_pid_exit(pid, timeout=15.0):
+                logger.warning(f"旧 Naja 服务器未在 15s 内退出，强制终止 (PID: {pid})")
+                try:
+                    os.kill(pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+                self._wait_for_pid_exit(pid, timeout=5.0)
+
+            if pid:
+                logger.info(f"旧 Naja 服务器已退出 (PID: {pid})")
+
+        # 无论旧进程如何退出，都清掉可能残留的 PID 文件，避免新进程误判“已在运行”
+        clear_pid()
+
+        # 2) 启动新的 Naja 服务器
         naja_cmd = [sys.executable, "-m", "deva.naja", "-s", "start"]
         naja_log_file = NAJA_DIR / "logs" / "naja_restart.log"
         try:
@@ -466,20 +486,56 @@ class MenuBarTray:
                     naja_cmd,
                     env=env,
                     cwd=deva_root,
+                    # 关键：托盘自身的 stdin 可能是继承来的坏 fd（lsof 显示 revoked）。
+                    # 若不显式重定向，子进程会继承它，Python 解释器在
+                    # init_sys_streams 阶段直接 "Fatal Python error: Bad file descriptor" 而崩。
+                    stdin=subprocess.DEVNULL,
                     start_new_session=True,
                     stdout=f,
                     stderr=subprocess.STDOUT
                 )
-            logger.info(f"已启动新的 Naja 服务器")
+            logger.info("已启动新的 Naja 服务器")
         except Exception as e:
             logger.error(f"启动新的 Naja 服务器失败: {e}")
+            self._notify_restart_failed(f"启动失败: {e}")
+            return
 
-        # 等待 Naja 服务器启动
-        time_module.sleep(1.5)
+        # 3) 确认新服务真的起来了。未就绪时保留当前托盘，避免出现
+        #    “旧服务已停、新服务未起、托盘又自杀”的全停局面。
+        if not self._wait_for_naja_ready(timeout=30.0):
+            logger.error("新 Naja 服务器启动后 30s 内未就绪，保留当前托盘")
+            self._notify_restart_failed(
+                "新服务 30s 内未就绪，已保留托盘，详见 ~/.naja/logs/naja_restart.log"
+            )
+            return
 
-        # 退出当前托盘（新托盘会由 Naja 服务器自动启动）
-        logger.info("正在退出当前托盘...")
-        rumps.quit_application()
+        # 4) 新服务已就绪。托盘**不重启**：它在整个服务重启期间保持存活，
+        #    菜单栏图标因此不会消失（旧方案「先杀旧托盘、再起新托盘」有约 3s 空窗）。
+        #    只在主线程刷新一次菜单，让新服务的数据立刻生效。
+        logger.info("新 Naja 服务器已就绪，托盘保持存活")
+        self._call_on_main_thread(self._refresh_after_restart)
+
+    def _refresh_after_restart(self):
+        """服务重启完成后在主线程刷新托盘（本方法只在主线程被调用）。"""
+        try:
+            self._naja_ready = True
+            self._start_background_preloader()  # 幂等：线程已在跑则直接返回
+            self.update_data()
+            logger.info("托盘菜单已刷新")
+        except Exception as e:
+            logger.error(f"重启后刷新托盘菜单失败: {e}")
+
+    def _notify_restart_failed(self, message: str):
+        """重启失败时提示用户"""
+        try:
+            import rumps
+            rumps.notification(
+                title="Naja 重启失败",
+                subtitle="服务未启动",
+                message=message
+            )
+        except Exception as e:
+            logger.error(f"发送重启失败通知失败: {e}")
 
     def _on_reload(self, sender):
         logger.info("托盘菜单触发 reload")
@@ -621,8 +677,8 @@ class MenuBarTray:
         
         def summary_task():
             try:
-                # 获取时间线数据
-                timeline_data = self._get_timeline_events()
+                # 获取时间线数据（本函数运行在后台线程，允许本地抓取补数据）
+                timeline_data = self._get_timeline_events(allow_local_fetch=True)
                 
                 if not timeline_data or not timeline_data.get('success'):
                     self._summary_pending_result = {
@@ -1366,11 +1422,11 @@ class MenuBarTray:
                 system_status = self._menu_cache.get('status', {})
                 trading_time = self._menu_cache.get('trading', False)
             else:
-                try:
-                    self._timeline_events = self._get_timeline_events()
-                except Exception as e:
-                    logger.error(f"获取时间线数据失败: {e}")
-                    self._timeline_events = {"success": False, "stats": {}, "list": []}
+                # 性能约束：_build_menu 运行在 AppKit 主线程（rumps 定时器回调）。
+                # 缓存未就绪时**绝不能**回退到本地实时抓取——那会同步阻塞最长 15s
+                # （Playwright 的 wait_for_selector 超时），冻结菜单栏并推迟图标绘制。
+                # 这里只复用后台预加载线程从 /api/tray/data 取到的数据。
+                self._timeline_events = self._last_timeline_data or {"success": False, "stats": {}, "list": []}
 
                 try:
                     system_status = self._get_system_status()
@@ -1565,9 +1621,17 @@ class MenuBarTray:
             self._build_simple_menu()
             self._naja_ready = False
 
-            rumps.timer(interval=5)(self._on_timer)(self._app)
-
+            # 先启动后台预加载线程（异步拉 /api/tray/data），再注册定时器。
+            # rumps 定时器在注册瞬间会立刻回调一次 _on_timer，若此时预加载尚未开始，
+            # 菜单构建会命中空缓存分支（历史上这一步会触发 15s 的同步抓取）。
             self._start_background_preloader()
+
+            # 注意：rumps.timer(interval)(func) 返回的是 func 本身，若再写 (self._app)
+            # 就会在这里**立刻同步执行一次** _on_timer —— 而此时菜单缓存尚未就绪，
+            # 主线程上的重活（HTTP/抓取）会一直阻塞到 save_tray_pid() 与 app.run() 之后，
+            # 结果就是菜单栏图标迟迟不出现。这里只注册，让定时器在 run() 时自行启动。
+            rumps.timer(interval=5)(self._on_timer)
+
             save_tray_pid()
 
             logger.info("托盘已启动（简化菜单）")

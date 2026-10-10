@@ -225,9 +225,12 @@ class SystemStateManager:
             recent_records = self._state["task_execution_records"][task_name][-100:]
             self._state["task_execution_records"][task_name] = recent_records
 
+            # 与 record_active 一致：仅标记脏，交给后台批量写线程；
+            # 距上次落盘超过一个间隔才同步写一次，避免每次任务执行都全量写 JSON。
             self._dirty = True
-            self._save_unsafe()
-            self._dirty = False
+            if time.time() - self._last_save_time >= BATCH_WRITE_INTERVAL:
+                self._save_unsafe()
+                self._dirty = False
 
     def was_task_executed_today(self, task_name: str) -> bool:
         """

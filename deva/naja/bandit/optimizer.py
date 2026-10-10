@@ -248,7 +248,12 @@ class BanditOptimizer:
         self._epsilon = adaptive_epsilon
         
         selected = self._choose_arm(available_strategies, context)
-        all_scores = {arm: self._get_arm_score(arm) for arm in available_strategies}
+        # UCB 算法下预计算一次总拉取次数，避免 _get_arm_score 内部对每个 arm 重复求和（O(n²)）
+        ucb_total_pulls = None
+        if self._algorithm == "ucb":
+            ucb_total_pulls = sum(self._arms[a]["pull_count"] for a in self._arms)
+        all_scores = {arm: self._get_arm_score(arm, total_pulls=ucb_total_pulls)
+                      for arm in available_strategies}
         
         # 恢复原始 epsilon
         self._epsilon = original_epsilon
@@ -612,7 +617,7 @@ class BanditOptimizer:
         
         return best_arm or available[0]
     
-    def _get_arm_score(self, strategy_id: str) -> float:
+    def _get_arm_score(self, strategy_id: str, total_pulls: Optional[int] = None) -> float:
         arm = self._arms.get(strategy_id, {})
         
         # 获取注意力权重（默认1.0）
@@ -621,11 +626,13 @@ class BanditOptimizer:
         if self._algorithm == "epsilon_greedy":
             base_score = arm.get("avg_reward", 0.0)
         elif self._algorithm == "ucb":
-            total = sum(self._arms[a]["pull_count"] for a in self._arms)
+            # total_pulls 可由调用方在批量打分时预计算一次传入，避免 O(n²) 重复求和
+            if total_pulls is None:
+                total_pulls = sum(self._arms[a]["pull_count"] for a in self._arms)
             pulls = arm.get("pull_count", 0)
             if pulls == 0:
                 return float("inf") * attention_weight
-            base_score = arm.get("avg_reward", 0.0) + self._c * math.sqrt(math.log(total) / pulls)
+            base_score = arm.get("avg_reward", 0.0) + self._c * math.sqrt(math.log(total_pulls) / pulls)
         elif self._algorithm == "thompson":
             base_score = arm.get("alpha", 1.0) / (arm.get("alpha", 1.0) + arm.get("beta", 1.0))
         else:

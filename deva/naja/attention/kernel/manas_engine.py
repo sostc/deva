@@ -103,6 +103,22 @@ from deva.naja.register import SR
 
 log = logging.getLogger(__name__)
 
+# 事件级常量：原先在 _update_supply_chain_state 中每次事件重建，提到模块级复用。
+_RISK_LEVEL_SCORES = {
+    "HIGH": 0.8,
+    "MEDIUM": 0.5,
+    "LOW": 0.2,
+}
+
+# AI 算力相关关键词（预先 lower，避免每个事件对每个关键词重复 .lower()）
+_AI_COMPUTE_KEYWORDS_LOWER = tuple(
+    kw.lower()
+    for kw in (
+        "AI", "算力", "芯片", "GPU", "数据中心", "大模型", "模型训练",
+        "H100", "B100", "GB200", "Blackwell", "算力需求", "AI服务器",
+    )
+)
+
 
 class AttentionFocus(Enum):
     """注意力聚焦类型"""
@@ -716,19 +732,21 @@ class RiskEngine:
         """设置 portfolio 依赖"""
         self._portfolio = portfolio
 
-    def compute(self, portfolio=None, scanner=None) -> float:
+    def compute(self, portfolio=None, scanner=None, summary=None) -> float:
         """
         计算风险温度
 
         Args:
             portfolio: VirtualPortfolio
             scanner: GlobalMarketScanner
+            summary: 可选的持仓汇总（portfolio.get_summary() 的结果）。
+                     传入可避免在现金比例/回撤两处重复获取。
 
         Returns:
             temperature ∈ (0, 2]
         """
-        cash_ratio = self._get_cash_ratio(portfolio)
-        drawdown = self._get_drawdown(portfolio)
+        cash_ratio = self._get_cash_ratio(portfolio, summary=summary)
+        drawdown = self._get_drawdown(portfolio, summary=summary)
         volatility = self._get_current_volatility(scanner)
 
         base_T = 1.0 + (1.0 - cash_ratio) * 0.5
@@ -745,7 +763,7 @@ class RiskEngine:
 
         return max(0.5, min(2.0, base_T))
 
-    def _get_cash_ratio(self, portfolio) -> float:
+    def _get_cash_ratio(self, portfolio, summary=None) -> float:
         """获取现金比例"""
         if portfolio is None:
             portfolio = self._portfolio
@@ -754,20 +772,22 @@ class RiskEngine:
             return 0.5
 
         try:
-            summary = portfolio.get_summary()
+            if summary is None:
+                summary = portfolio.get_summary()
             available = summary.get('available_capital', 0)
             total = summary.get('total_capital', 1)
             return available / max(total, 1)
         except:
             return 0.5
 
-    def _get_drawdown(self, portfolio) -> float:
+    def _get_drawdown(self, portfolio, summary=None) -> float:
         """获取当前回撤"""
         if portfolio is None:
             return 0.0
 
         try:
-            summary = portfolio.get_summary()
+            if summary is None:
+                summary = portfolio.get_summary()
             return_pct = abs(summary.get('total_return', 0))
             self._drawdown_history.append(return_pct)
             if len(self._drawdown_history) > 10:
@@ -1095,7 +1115,6 @@ class ManasEngine:
         3. 自选股注意力加成
         4. 天-地共振（CrossSignalAnalyzer）
         """
-        import time
         try:
             from deva.naja.events import CognitiveEventType
             event_type = event.event_type
@@ -1104,12 +1123,7 @@ class ManasEngine:
 
         # 根据风险等级更新风险分数
         risk_level = event.risk_level if hasattr(event, 'risk_level') and event.risk_level else "LOW"
-        risk_scores = {
-            "HIGH": 0.8,
-            "MEDIUM": 0.5,
-            "LOW": 0.2,
-        }
-        new_risk = risk_scores.get(risk_level, 0.5)
+        new_risk = _RISK_LEVEL_SCORES.get(risk_level, 0.5)
 
         # 结合事件重要性和原有风险
         current_risk = self._supply_chain_state.get("narrative_risk", 0.5)
@@ -1133,13 +1147,11 @@ class ManasEngine:
         hot_narratives = sorted(existing.items(), key=lambda x: x[1], reverse=True)[:5]
 
         # 🚀 AI算力趋势：从叙事中判断
-        ai_keywords = ["AI", "算力", "芯片", "GPU", "数据中心", "大模型", "模型训练",
-                       "H100", "B100", "GB200", "Blackwell", "算力需求", "AI服务器"]
         ai_compute_trend = self._supply_chain_state.get("ai_compute_trend", "neutral")
         ai_compute_strength = self._supply_chain_state.get("ai_compute_strength", 0.5)
 
         narratives_lower = [n.lower() for n in event.narratives]
-        ai_hits = sum(1 for kw in ai_keywords if any(kw.lower() in n for n in narratives_lower))
+        ai_hits = sum(1 for kw in _AI_COMPUTE_KEYWORDS_LOWER if any(kw in n for n in narratives_lower))
 
         if ai_hits >= 3:
             # 多个AI关键词命中 → 趋势增强
@@ -1411,10 +1423,18 @@ class ManasEngine:
         if narratives is not None:
             self._current_narratives = narratives
 
+        # 每轮只取一次持仓汇总，供风险引擎与后续仓位损失计算复用
+        portfolio_summary = None
+        if portfolio is not None and hasattr(portfolio, 'get_summary'):
+            try:
+                portfolio_summary = portfolio.get_summary()
+            except Exception:
+                portfolio_summary = None
+
         timing_score = self.timing_engine.compute(session_manager, scanner)
         regime_score = self.regime_engine.compute(scanner, macro_signal)
         confidence_score = self.confidence_engine.compute(bandit_tracker)
-        risk_temperature = self.risk_engine.compute(portfolio, scanner)
+        risk_temperature = self.risk_engine.compute(portfolio, scanner, summary=portfolio_summary)
 
         harmony_strength = (
             timing_score * self.WEIGHT_TIMING +
@@ -1488,7 +1508,7 @@ class ManasEngine:
         if portfolio:
             try:
                 if hasattr(portfolio, 'get_summary'):
-                    summary = portfolio.get_summary()
+                    summary = portfolio_summary if portfolio_summary is not None else portfolio.get_summary()
                     portfolio_loss = summary.get('total_return', 0.0)
                 elif isinstance(portfolio, dict):
                     portfolio_loss = portfolio.get('total_return', 0.0)

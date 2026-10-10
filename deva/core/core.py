@@ -10,6 +10,7 @@ import functools
 import logging
 import six
 import sys
+import time
 import threading
 import weakref
 import inspect
@@ -113,14 +114,14 @@ from deva import Stream, timer
  .sink(print))  # 处理结果
 
 4. 管道处理
-from deva import P
-# 使用管道操作符处理数据
+from deva.core.pipe import pmap, pfilter, sum as pipe_sum
+# 使用管道操作符处理数据（helper 需直接导入；P 只能作装饰器，
+# 不支持 P.map / P.filter 这类属性访问）
 data = [{'name': 'foo', 'value': 1}, 
         {'name': 'bar', 'value': 2}]
-(data >> P.map(lambda x: x['value'])  # 提取value字段
-      >> P.filter(lambda x: x > 1)    # 过滤
-      >> P.reduce(lambda x,y: x + y)  # 求和
-      >> print)                       # 打印结果
+(data >> pmap(lambda x: x['value'])  # 提取value字段
+      >> pfilter(lambda x: x > 1)    # 过滤
+      >> pipe_sum)                   # 求和
 
 5. 存储和回放
 from deva import Stream, store
@@ -719,7 +720,6 @@ class Stream(object):
 
     def _emit(self, x):
         """向下游发送数据"""
-        import time
         self.last_update_time = time.time()
 
         if self.is_cache:
@@ -1170,6 +1170,12 @@ class Stream(object):
             return self.emit(obj)
 
 
+# Stream.__init__ 的参数名集合。Sink 子类构造时需要区分「Stream 参数」与
+# 「函数参数」；Stream 的签名是固定的，模块加载时算一次即可，避免每个 Sink
+# 实例化都做一次 inspect.signature 反射。
+_STREAM_INIT_PARAMS = frozenset(inspect.signature(Stream).parameters)
+
+
 class Sink(Stream):
 
     _graphviz_shape = 'trapezium'
@@ -1214,20 +1220,25 @@ class sink(Sink):
     def __init__(self, upstream, func, *args, **kwargs):
         self.func = self.wrapper_function(func)
         # 提取Stream特有的kwargs参数
-        sig = set(inspect.signature(Stream).parameters)
+        sig = _STREAM_INIT_PARAMS
         stream_kwargs = {k: v for (k, v) in kwargs.items() if k in sig}
         self.kwargs = {k: v for (k, v) in kwargs.items() if k not in sig}
         self.args = args
         super().__init__(upstream, **stream_kwargs)
 
     def wrapper_function(self, func):
+        # 签名解析结果只算一次并缓存（首次调用时惰性解析，
+        # 保持与原实现相同的异常时机），避免每个元素都做 inspect.signature 反射。
+        cache = {}
+
         def inner(*args, **kwargs):
-            # 获取原函数的参数签名
-            signature = inspect.signature(func)
-            parameters = signature.parameters
+            has_params = cache.get("has_params")
+            if has_params is None:
+                has_params = bool(inspect.signature(func).parameters)
+                cache["has_params"] = has_params
 
             # 检查原函数是否需要参数
-            if parameters:
+            if has_params:
                 # 如果原函数需要参数，调用原函数并传递参数
                 return func(*args, **kwargs)
             else:
