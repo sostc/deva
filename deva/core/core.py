@@ -745,16 +745,34 @@ class Stream(object):
         """
         self.update(x)
 
+    def _ensure_loop(self):
+        """确保事件循环就绪，并返回它
+
+        异步分支共用：首次进入异步时 self.loop 为 None，需先按 asynchronous
+        标记创建。此前这段 3 行逻辑在 6 处逐字重复，改一处要改 6 个地方。
+        """
+        if not self.loop:
+            self._set_asynchronous(False)
+        if self.loop is None and self.asynchronous is not None:
+            self._set_loop(get_io_loop(self.asynchronous))
+        return self.loop
+
+    def _defer(self, awaitable, callback):
+        """把 awaitable 挂到事件循环，就绪后将**结果值**交给 callback
+
+        callback 收到的是 awaitable 的结果（已取 .result()），不是 Future 本身。
+        返回转换出的 Future，便于调用方需要时使用。
+        """
+        futs = gen.convert_yielded(awaitable)
+        loop = self._ensure_loop()
+        loop.add_future(futs, lambda f: callback(f.result()))
+        return futs
+
     def update(self, x, who=None):
         """更新流中的数据"""
         try:
             if isinstance(x, gen.Awaitable):
-                futs = gen.convert_yielded(x)
-                if not self.loop:
-                    self._set_asynchronous(False)
-                if self.loop is None and self.asynchronous is not None:
-                    self._set_loop(get_io_loop(self.asynchronous))
-                self.loop.add_future(futs, lambda x: self._emit(x.result()))
+                self._defer(x, self._emit)
             else:
                 return self._emit(x)
         except Exception as e:
@@ -925,12 +943,7 @@ class Stream(object):
             result = func(*args, **kwargs)
             # 处理异步函数
             if isinstance(result, gen.Awaitable):
-                futs = gen.convert_yielded(result)
-                if not self.loop:
-                    self._set_asynchronous(False)
-                if self.loop is None and self.asynchronous is not None:
-                    self._set_loop(get_io_loop(self.asynchronous))
-                self.loop.add_future(futs, lambda x: self._emit(x.result()))
+                self._defer(result, self._emit)
             # 处理同步函数
             else:
                 self._emit(result)
@@ -988,12 +1001,9 @@ class Stream(object):
                 result = func(*args, **kwargs)
                 # 处理异步函数
                 if isinstance(result, gen.Awaitable):
-                    futs = gen.convert_yielded(result)
-                    if not self.loop:
-                        self._set_asynchronous(False)
-                    if self.loop is None and self.asynchronous is not None:
-                        self._set_loop(get_io_loop(self.asynchronous))
-                    self.loop.add_future(futs, lambda x: x.result())
+                    # 回调里不做任何事：这里只为触发 awaitable 内部的异常，
+                    # 由事件循环的异常处理器接管（原写法 lambda x: x.result() 同理）
+                    self._defer(result, lambda _: None)
                 return result
             except Exception as e:
                 {
@@ -1253,12 +1263,7 @@ class sink(Sink):
             result = self.func(x, *self.args, **self.kwargs)
             if isinstance(result, gen.Awaitable):
                 # 处理异步结果
-                futs = gen.convert_yielded(result)
-                if not self.loop:
-                    self._set_asynchronous(False)
-                if self.loop is None and self.asynchronous is not None:
-                    self._set_loop(get_io_loop(self.asynchronous))
-                self.loop.add_future(futs, lambda x: self._emit(x.result()))
+                self._defer(result, self._emit)
             else:
                 # 处理同步结果
                 return self._emit(result)
@@ -1456,17 +1461,7 @@ class map(Stream):
 
             # 处理异步结果
             if isinstance(result, gen.Awaitable):
-                # 转换为Future对象
-                futs = gen.convert_yielded(result)
-
-                # 设置异步模式
-                if not self.loop:
-                    self._set_asynchronous(False)
-                if self.loop is None and self.asynchronous is not None:
-                    self._set_loop(get_io_loop(self.asynchronous))
-
-                # 添加Future到事件循环
-                self.loop.add_future(futs, lambda x: self._emit(x.result()))
+                self._defer(result, self._emit)
                 return []  # 异步操作立即返回空列表
             else:
                 # 同步结果直接发射
@@ -1971,8 +1966,8 @@ class run_future(Stream):
 
     def update(self, x, who=None):
         assert isinstance(x, gen.Awaitable)
-        futs = gen.convert_yielded(x)
-        self.loop.add_future(futs, lambda x: self._emit(x.result()))
+        # 构造时已 ensure_io_loop=True，_ensure_loop 在此是 no-op
+        self._defer(x, self._emit)
 
 
 class Deva:

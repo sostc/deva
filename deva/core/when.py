@@ -290,12 +290,7 @@ class timer(Stream):
                     self.thread_pool.submit(lambda: self.emit(self.func()))
             else:
                 if inspect.iscoroutinefunction(self.func):
-                    futs = gen.convert_yielded(self.func())
-                    if not self.loop:
-                        self._set_asynchronous(False)
-                    if self.loop is None and self.asynchronous is not None:
-                        self._set_loop(get_io_loop(self.asynchronous))
-                    self.loop.add_future(futs, lambda x: self._emit(x.result()))
+                    self._defer(self.func(), self._emit)
                 else:
                     self._emit(self.func())
             yield gen.sleep(self.interval)  # 等待到下一次执行时间
