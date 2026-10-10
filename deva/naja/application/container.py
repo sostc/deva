@@ -857,7 +857,7 @@ def execute() -> dict:
         """创建 ManasManager（显式依赖注入）
 
         注入 AttentionOS 的 kernel，使 manager 与内核共用同一个 ManasEngine。
-        不注入的话 manager 会自建第二个引擎，导致 _supply_chain_state /
+        不注入的话 manager 会自建第二个引擎，导致 _cognitive_state /
         _recent_pnl 两套状态互不可见：内核按自己那份打分，UI 读的是另一份。
 
         注意：此处必须用 self._bandit_tracker 直接属性访问，不能用
