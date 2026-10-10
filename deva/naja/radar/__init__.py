@@ -9,6 +9,8 @@
 检测其中值得关注的异常模式，并通知认知系统进行理解。
 """
 
+import importlib
+
 from .engine import (
     RadarEngine,
     RadarEvent,
@@ -43,13 +45,6 @@ from deva.naja.cognition.openrouter_monitor import (
     refresh_openrouter_data,
     scheduled_openrouter_check,
     TREND_TABLE,
-)
-from .global_market_scanner import (
-    GlobalMarketScanner,
-    MarketAlert,
-    MarketVolatilityTracker,
-    ScanConfig,
-    get_global_market_scanner,
 )
 from .global_market_config import (
     MarketSessionManager,
@@ -141,3 +136,32 @@ __all__ = [
     "PreTasteSense",
     "PreTasteResult",
 ]
+
+
+# ---------------------------------------------------------------------------
+# global_market_scanner 惰性导出（PEP 562）
+# ---------------------------------------------------------------------------
+# 该子模块在模块级 import 了 market_hotspot.data.global_market_futures，而后者又在
+# 模块中途反向 import deva.naja.bandit.stock_block_map，于是形成环：
+#   global_market_futures → bandit → radar → global_market_scanner → global_market_futures
+# 全新解释器下 `import deva.naja.market_hotspot.data` 会因此直接 ImportError。
+# radar 其余 eager 成员并不依赖 global_market_scanner，故改为按需加载以断开此环。
+# `from deva.naja.radar import GlobalMarketScanner` 仍照常可用。
+_LAZY_EXPORTS = {
+    "GlobalMarketScanner": ".global_market_scanner",
+    "MarketAlert": ".global_market_scanner",
+    "MarketVolatilityTracker": ".global_market_scanner",
+    "ScanConfig": ".global_market_scanner",
+    "get_global_market_scanner": ".global_market_scanner",
+}
+
+
+def __getattr__(name):
+    """PEP 562：惰性解析 global_market_scanner 的重导出。"""
+    module_path = _LAZY_EXPORTS.get(name)
+    if module_path is None:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    module = importlib.import_module(module_path, __name__)
+    value = getattr(module, name)
+    globals()[name] = value  # 缓存，后续访问不再进入 __getattr__
+    return value

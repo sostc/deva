@@ -132,38 +132,43 @@ class TradingEventBus:
         """
         if event is None:
             return 0
-        
+
+        event_type = type(event).__name__
+
         with self._lock:
             self._stats.total_published += 1
-            
-            event_type = type(event).__name__
             self._stats.by_event_type[event_type] = \
                 self._stats.by_event_type.get(event_type, 0) + 1
-            
+
             # 去重检查
             fingerprint = self._get_event_fingerprint(event)
             if self._is_duplicate(fingerprint):
                 log.debug(f"  交易事件去重: {fingerprint}")
                 self._stats.total_dropped += 1
                 return 0
-            
+
             # 记录去重
             self._recent_events.append((fingerprint, time.time()))
             self._cleanup_old_events()
-            
-            # 分发
-            delivered = self._deliver_event(event, event_type)
+
+            # 锁内仅做订阅者快照，回调/持久化在锁外执行，避免长临界区
+            subscribers = list(self._subscriptions.get(event_type, []))
+
+        # ---- 锁外：执行订阅者回调 ----
+        delivered = self._deliver_event(event, event_type, subscribers)
+
+        # ---- 锁外：持久化（可能触发 DB 写入，不宜持锁）----
+        if event_type in self._persistent_types:
+            self._persist_event(event_type, event)
+
+        with self._lock:
             self._stats.total_delivered += delivered
-            
-            # 持久化
-            if event_type in self._persistent_types:
-                self._persist_event(event_type, event)
-            
-            # 高重要性事件无人接收告警
-            if delivered == 0 and self._get_event_importance(event) >= 0.7:
-                log.warning(f"⚠️ 高重要性交易事件无人接收: {event}")
-            
-            return delivered
+
+        # 高重要性事件无人接收告警
+        if delivered == 0 and self._get_event_importance(event) >= 0.7:
+            log.warning(f"⚠️ 高重要性交易事件无人接收: {event}")
+
+        return delivered
     
     def subscribe(self, event_type: str, callback: Callable, 
                   subscription_id: Optional[str] = None,
@@ -303,37 +308,49 @@ class TradingEventBus:
         """获取事件重要性"""
         return getattr(event, 'importance', 0.5)
     
-    def _deliver_event(self, event, event_type: str) -> int:
-        """分发事件到订阅者"""
-        subscribers = self._subscriptions.get(event_type, [])
+    def _deliver_event(self, event, event_type: str, subscribers=None) -> int:
+        """分发事件到订阅者（在锁外执行）。
+
+        Args:
+            subscribers: 订阅者快照列表；为 None 时自行取快照。
+        """
+        if subscribers is None:
+            with self._lock:
+                subscribers = list(self._subscriptions.get(event_type, []))
         if not subscribers:
             return 0
-        
+
         importance = self._get_event_importance(event)
         market = getattr(event, 'market', None)
-        
+
         delivered = 0
+        module_counts: Dict[str, int] = {}
         for sub in subscribers:
             try:
                 # 重要性检查
                 if importance < sub.min_importance:
                     continue
-                
+
                 # 市场过滤
                 if sub.markets and market and market not in sub.markets:
                     continue
-                
+
                 sub.callback(event)
                 delivered += 1
-                
-                # 记录模块统计
+
+                # 记录模块统计（本地累加，最后统一加锁合并）
                 module_name = sub.subscription_id.split('_')[0] if '_' in sub.subscription_id else 'unknown'
-                self._stats.by_module[module_name] = \
-                    self._stats.by_module.get(module_name, 0) + 1
-                    
+                module_counts[module_name] = module_counts.get(module_name, 0) + 1
+
             except Exception as e:
                 log.error(f"交易事件回调失败: {e}")
-        
+
+        if module_counts:
+            with self._lock:
+                for module_name, count in module_counts.items():
+                    self._stats.by_module[module_name] = \
+                        self._stats.by_module.get(module_name, 0) + count
+
         return delivered
     
     def _persist_event(self, event_type: str, event):
@@ -357,41 +374,49 @@ class TradingEventBus:
                                 strategy_name: str = "", current_price: Optional[float] = None,
                                 importance: float = 0.5, market: str = "CN", **kwargs) -> int:
         """快捷发布策略信号事件"""
-        from .trading_events import StrategySignalEvent
-        
+        from .trading_events import StrategySignalEvent, SignalDirection
+
+        # direction 支持 "buy"/"买入"/枚举，统一归一化为 SignalDirection
+        direction_enum = direction if isinstance(direction, SignalDirection) \
+            else SignalDirection.from_str(str(direction))
+
         event = StrategySignalEvent(
             symbol=symbol,
-            direction=direction,
+            direction=direction_enum,
             confidence=confidence,
             strategy_name=strategy_name,
-            signal_type=str(direction).lower(),
+            signal_type=kwargs.get('signal_type', direction_enum.value),
             current_price=current_price,
             price_change_pct=kwargs.get('price_change_pct', 0.0),
             importance=importance,
             market=market,
             metadata=kwargs.get('metadata', {}),
-            timestamp=time.time(),
+            timestamp=kwargs.get('timestamp', time.time()),
         )
-        
+
         return self.publish(event)
-    
-    def publish_trade_decision(self, signal_event, decision: str, 
+
+    def publish_trade_decision(self, signal_event, decision: str,
                                approval_score: float = 0.5,
                                reason: str = "", **kwargs) -> int:
         """快捷发布交易决策事件"""
         from .trading_events import TradeDecisionEvent, DecisionResult
-        
+
+        # decision 支持 "approved"/DecisionResult 枚举
+        decision_enum = decision if isinstance(decision, DecisionResult) \
+            else DecisionResult.from_str(str(decision))
+
         event = TradeDecisionEvent(
             signal_event=signal_event,
-            decision=DecisionResult(decision),
+            decision=decision_enum,
             approval_score=approval_score,
             approved_symbol=kwargs.get('approved_symbol', getattr(signal_event, 'symbol', '')),
-            approved_direction=kwargs.get('approved_direction', getattr(signal_event, 'direction', '')),
+            approved_direction=kwargs.get('approved_direction', getattr(signal_event, 'direction', None)),
             position_size=kwargs.get('position_size', 0.02),
             reason=reason,
-            timestamp=time.time(),
+            timestamp=kwargs.get('timestamp', time.time()),
         )
-        
+
         return self.publish(event)
 
 

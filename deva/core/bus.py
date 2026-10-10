@@ -52,6 +52,7 @@ ff = f^debug  # 添加调试
 import json
 import logging
 import socket
+import sys
 import threading
 import time
 import inspect
@@ -430,25 +431,32 @@ def _default_bus_sender():
 
 
 def _infer_sender_from_stack():
-    """Infer caller as function/method name for bus auto-sender."""
+    """Infer caller as function/method name for bus auto-sender.
+
+    原先用 ``inspect.stack()``，它会为**每一帧**尝试读取源码上下文
+    （``code_context``），在 ``bus.emit`` 热路径上代价很高。改用
+    ``sys._getframe()`` 手工遍历，语义完全等价：跳过本函数与
+    ``_normalize_bus_payload`` 两帧后，从调用者起跳过内部文件/第三方库帧。
+    """
     try:
-        stack = inspect.stack()
-        for frame in stack[2:]:
-            filename = frame.filename
+        frame = sys._getframe(2)
+        while frame is not None:
+            filename = frame.f_code.co_filename
             base = os.path.basename(filename)
-            if base in _INTERNAL_SENDER_FILES:
-                continue
-            if "site-packages" in filename and "deva" not in filename:
-                continue
-            fn = frame.function
-            locals_ = frame.frame.f_locals
-            self_obj = locals_.get("self")
-            if self_obj is not None:
-                return f"{self_obj.__class__.__name__}.{fn}"
-            cls_obj = locals_.get("cls")
-            if cls_obj is not None and hasattr(cls_obj, "__name__"):
-                return f"{cls_obj.__name__}.{fn}"
-            return fn
+            skip = base in _INTERNAL_SENDER_FILES or (
+                "site-packages" in filename and "deva" not in filename
+            )
+            if not skip:
+                fn = frame.f_code.co_name
+                locals_ = frame.f_locals
+                self_obj = locals_.get("self")
+                if self_obj is not None:
+                    return f"{self_obj.__class__.__name__}.{fn}"
+                cls_obj = locals_.get("cls")
+                if cls_obj is not None and hasattr(cls_obj, "__name__"):
+                    return f"{cls_obj.__name__}.{fn}"
+                return fn
+            frame = frame.f_back
     except Exception:
         pass
     return _default_bus_sender()

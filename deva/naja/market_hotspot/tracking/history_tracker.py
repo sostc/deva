@@ -628,6 +628,27 @@ class MarketHotspotHistoryTracker:
         # ========== 检测题材重大变化 ==========
         all_blocks = set(old.block_weights.keys()) | set(new.block_weights.keys())
 
+        # 个股变化与具体 block 无关（内层循环只用 symbol_weights），
+        # 提到 block 循环外只算一次：原先每个 block 都全量重扫所有个股 → O(B×S)。
+        all_symbol_changes = []
+        for symbol in set(old.symbol_weights.keys()) | set(new.symbol_weights.keys()):
+            s_old = old.symbol_weights.get(symbol, 0)
+            s_new = new.symbol_weights.get(symbol, 0)
+            if s_old > 0:
+                s_change_pct = (s_new - s_old) / s_old * 100
+                if abs(s_change_pct) > 5:  # 只记录变化超过5%的个股
+                    all_symbol_changes.append({
+                        'symbol': symbol,
+                        'name': self.get_symbol_name(symbol),
+                        'old': s_old,
+                        'new': s_new,
+                        'change_pct': s_change_pct
+                    })
+
+        # 按变化幅度排序，取前3个
+        all_symbol_changes.sort(key=lambda x: abs(x['change_pct']), reverse=True)
+        top_symbols_shared = all_symbol_changes[:3]
+
         for block_id in all_blocks:
             old_weight = old.block_weights.get(block_id, 0)
             new_weight = new.block_weights.get(block_id, 0)
@@ -639,26 +660,8 @@ class MarketHotspotHistoryTracker:
             else:
                 change_pct = float('inf') if new_weight > 0 else 0
 
-            # 只记录重大变化（变化超过5%）
-            # 获取该题材下的个股变化
-            all_symbol_changes = []
-            for symbol in set(old.symbol_weights.keys()) | set(new.symbol_weights.keys()):
-                s_old = old.symbol_weights.get(symbol, 0)
-                s_new = new.symbol_weights.get(symbol, 0)
-                if s_old > 0:
-                    s_change_pct = (s_new - s_old) / s_old * 100
-                    if abs(s_change_pct) > 5:  # 只记录变化超过5%的个股
-                        all_symbol_changes.append({
-                            'symbol': symbol,
-                            'name': self.get_symbol_name(symbol),
-                            'old': s_old,
-                            'new': s_new,
-                            'change_pct': s_change_pct
-                        })
-
-            # 按变化幅度排序，取前3个
-            all_symbol_changes.sort(key=lambda x: abs(x['change_pct']), reverse=True)
-            top_symbols = all_symbol_changes[:3]
+            # 复用上面算好的个股变化（每块给一份浅拷贝，避免下游意外改动互相污染）
+            top_symbols = list(top_symbols_shared)
 
             # 定义事件类型
             if old_weight == 0 and new_weight > 0:

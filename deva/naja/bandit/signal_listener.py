@@ -18,6 +18,7 @@ import logging
 import threading
 import time
 from dataclasses import dataclass, field
+from itertools import islice
 from typing import Any, Callable, Dict, List, Optional
 
 from deva import NB
@@ -601,7 +602,7 @@ class SignalListener:
     
     def _extract_price(self, data: Dict[str, Any]) -> float:
         """提取价格"""
-        for key in ['price', 'close', 'current', 'last', ' Price']:
+        for key in ['price', 'close', 'current', 'last', 'Price']:
             if key in data:
                 try:
                     return float(data[key])
@@ -616,10 +617,16 @@ class SignalListener:
     def _mark_processed(self, signal_id: str, timestamp: float):
         """标记信号已处理"""
         self._processed_signals[signal_id] = timestamp
-        
+
         if len(self._processed_signals) > self._max_processed:
-            sorted_items = sorted(self._processed_signals.items(), key=lambda x: x[1])
-            self._processed_signals = dict(sorted_items[-self._max_processed//2:])
+            # dict 保持插入顺序（≈ 首次处理时间序），超限时直接丢掉最早的若干条，
+            # 避免每次超限都做一次 O(n log n) 全量排序。
+            # 保留条数与旧实现 `sorted(...)[-maxp//2:]` 完全一致：即 ceil(maxp/2)。
+            keep = max(1, (self._max_processed + 1) // 2)
+            self._processed_signals = dict(
+                islice(self._processed_signals.items(),
+                       len(self._processed_signals) - keep, None)
+            )
     
     def set_poll_interval(self, seconds: float):
         """设置轮询间隔
