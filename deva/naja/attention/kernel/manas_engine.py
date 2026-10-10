@@ -949,6 +949,31 @@ class MetaManas:
 
         return BiasState.NEUTRAL, 1.0
 
+    def get_state(self) -> Dict[str, Any]:
+        """获取观照层状态（供 UI 展示与排查）
+
+        此前本类没有 get_state，而 attention/ui/dashboard.py 用
+        `mm.get_state() if hasattr(mm, 'get_state') else {}` 取值，
+        hasattr 恒为 False → 末那识面板永远显示 bias_state=neutral、
+        bias_direction=none，等于一个死面板。
+        """
+        aggressiveness = self._decision_aggressiveness
+        avg = sum(aggressiveness) / len(aggressiveness) if aggressiveness else 0.0
+        return {
+            "bias_state": self.bias_state.value,
+            # 纠偏方向（不是偏差方向，后者已由 bias_state 表达）：
+            # 贪 → 抑制激进；惧 → 促使行动；无偏差 → none
+            "bias_direction": (
+                "restrain" if self.bias_state == BiasState.GREED
+                else "encourage" if self.bias_state == BiasState.FEAR
+                else "none"
+            ),
+            # 诊断用：判贪条件之一是 avg_aggressiveness > 0.6，
+            # 面板上能看到当前处于什么水平
+            "aggressiveness_samples": len(aggressiveness),
+            "avg_aggressiveness": round(avg, 3),
+        }
+
 
 class ManasEngine:
     """
