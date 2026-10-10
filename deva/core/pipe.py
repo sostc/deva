@@ -1521,12 +1521,14 @@ def truncate(text, max_length=20):
     """截断内容超过指定长度的文本"""
     return text if len(text) <= max_length else text[:max_length] + "..."
 
-# %%转换内置函数为pipe
-for i in builtins.__dict__.copy():
-    if callable(builtins.__dict__.get(i)):
-        f = 'to_' + i
-        builtins.__dict__[f] = Pipe(builtins.__dict__[i])
-
+# 注：此处原本有一段「遍历 builtins.__dict__，为每个可调用内置函数注入一个
+# to_<name> 别名」的循环，已删除。它会在导入本模块时向**全局** builtins
+# 塞进 149 个名字（to_ArithmeticError / to_BlockingIOError / ...），
+# 对进程内所有模块可见，而全仓无任何代码依赖这些名字（实测：所有 to_xxx(
+# 命中都是对象的 .to_dict() / .to_list() 方法调用，不是裸调用）。
+# 真正被使用的 to_* 由本文件显式定义并经 __all__ 导出
+# （to_list / to_dict / to_str / to_int / to_float / to_set / to_bytes /
+#  to_type / to_json / to_dataframe ...）。
 
 ls = list @ P
 ll = ls
