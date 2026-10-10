@@ -52,6 +52,18 @@ kernel 非 None 时触发**，而唯一会注入 kernel 的 manager（A）从不
 → 当前真正在跑的末那识计算，是 UI 首次调用 `/api/manas/state` 时由 B 懒建出来的
    Engine C，且**只服务于 UI 展示**，不参与 kernel 的注意力打分。
 
+> **更正（方案 2 执行时补记）：上面这段结论只对 `AttentionKernel` 成立，而该类
+> 从未被实例化**（全仓唯一出现处是 `decision_attention.py:44` 的 docstring 示例）。
+> 真正在用的 `OSAttentionKernel` 是**无条件**计算末那识的：
+> `os_kernel.py:194` 直接 `self.manas_engine.compute(...)`，前面没有任何
+> `_enable_manas` 门闩。所以「kernel 末那识通路关闭」这个判断是错的，
+> 内核其实一直在跑末那识。
+>
+> 真正的病灶不是"没启用"，而是**状态分裂**：内核用自己那份引擎打分，
+> UI / manager 读的是另一份引擎，`_supply_chain_state` 与 `_recent_pnl`
+> 互不可见。方案 2 的价值也从"打开一条未生效通路"降级为"合并两个引擎"，
+> 行为风险随之大幅降低。
+
 ### 1.3 Engine C 的时序隐患
 
 Engine C 在 `__init__` 里订阅事件总线（`manas_engine.py:1027`），但它是**延迟到用户
@@ -192,13 +204,69 @@ SupplyChainLinker / CrossSignalAnalyzer）都是「`__init__` 留迁移注释 +
 | `register_all_singletons()` | 67 个组件注册成功，`manas_manager` 已不在其中 ✅ |
 | 4 个文件编译 | 通过 ✅ |
 
-### 4.5 仍未处理：方案 2（需要拍板）
+### 4.5 当时未处理：方案 2（已由 §5 执行）
 
-kernel 的末那识通路当前仍是**关闭**的（`_enable_manas` 永为真不了）：
+（原文保留）kernel 的末那识通路当前仍是**关闭**的（`_enable_manas` 永为真不了）：
 唯一会注入 kernel 的 manager 是已删除的 A，容器的 B 传的是 `kernel=None`。
 要打开需让 container 注入 `attention_os.get_kernel()` 并启动即 `set_enabled(True)`，
 这会让 kernel 的注意力打分开始走 `_process_with_manas` 分支——
 **等于启用一条此前从未生效的决策通路**，需确认是否为预期设计。
+
+> 该段的风险判断基于 §1.2 的错误前提，见 §1.2 更正。实际风险远低于此。
+
+---
+
+## 5. 方案 2 执行记录：合并引擎，消除状态分裂
+
+已落地：`application/container.py` 的 `_create_manas_manager()`。
+
+```python
+kernel = self._attention_os.get_kernel()      # attention_os 先于本方法创建（第 233 行）
+manas_manager = ManasManager(kernel=kernel, trading_clock=..., ...)
+manas_manager.set_enabled(True)               # 启动即启用
+```
+
+### 5.1 实际效果（与评估预期不同）
+
+| 评估时的预期 | 实际情况 |
+|---|---|
+| 打开一条从未生效的决策通路，改变 alpha 与注意力权重 | **不改变内核行为**——`OSAttentionKernel` 本来就无条件跑末那识 |
+| 风险：中 | 风险：**低**，只是让 manager 停止自建第二个引擎 |
+| — | 额外修复：`container.manas_engine` 此前**恒为 None**（因 manager 从未启用），现在返回内核那一份 |
+
+收益是**状态合并**：内核打分用的引擎 == UI / manager 读的引擎，
+`_supply_chain_state`（叙事风险、共振分数、AI 算力趋势）与 `_recent_pnl` 不再分裂。
+
+### 5.2 为什么启用放在创建处而不是别处
+
+- 容器的 `_assemble_core_components()` 第 241 行紧接着就取
+  `self._manas_engine = self._manas_manager.get_manas_engine()`，
+  若此时未启用，该值恒为 None
+- 用 `self._attention_os` 直接属性访问（不用 property），与同方法内
+  `_bandit_tracker` 的处理一致，避免触发 `_assemble_core_components()` 递归
+- `get_kernel()` 失败时降级为 `kernel=None`，manager 退回自建引擎，不阻断启动
+
+### 5.3 验证
+
+| 项 | 结果 |
+|---|---|
+| manager 引擎 `is` kernel 引擎 | `True` ✅ |
+| `container.manas_engine` 不再为 None | 是 ✅ |
+| 未另建第二个引擎（`m._manas_engine is` kernel 引擎） | 是 ✅ |
+| 启用时自动挂载事件订阅 | 是（订阅者名唯一）✅ |
+| `manager.compute()` | 正常返回，manas_score=0.284 ✅ |
+| `get_state()` | `enabled=True, kernel_manas_enabled=True`，gate 理由与 action 一致 ✅ |
+| 编译 | 通过 ✅ |
+
+### 5.4 P1 收尾状态
+
+三处 engine 定义点现状：
+- ~~A register.py factory~~ 已删（永不生效）
+- B `container.manas_manager` —— 现在注入 kernel，**与内核共用同一引擎**
+- C UI 懒建引擎 —— 不再产生（`kernel is not None` 分支不会自建）
+
+→ **全进程只剩一个 ManasEngine**。P1 的目标（消灭单例分裂 / 重复订阅 /
+订阅归属）已全部达成。
 
 *评估基于 register.py / container.py / kernel.py / manas_engine.py /
 manas_manager.py / attention_api.py 与 singleton_registry.py 的实际调用链核对。*

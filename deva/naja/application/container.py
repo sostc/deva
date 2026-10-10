@@ -856,10 +856,14 @@ def execute() -> dict:
     def _create_manas_manager(self):
         """创建 ManasManager（显式依赖注入）
 
+        注入 AttentionOS 的 kernel，使 manager 与内核共用同一个 ManasEngine。
+        不注入的话 manager 会自建第二个引擎，导致 _supply_chain_state /
+        _recent_pnl 两套状态互不可见：内核按自己那份打分，UI 读的是另一份。
+
         注意：此处必须用 self._bandit_tracker 直接属性访问，不能用
         self.bandit_tracker property —— 因为 property 会触发
         _assemble_core_components()，而当前可能正处于它的调用栈中，
-        会导致递归初始化。
+        会导致递归初始化。self._attention_os 同理，用直接属性访问。
         """
         from ..attention.kernel.manas_manager import ManasManager
 
@@ -875,11 +879,32 @@ def execute() -> dict:
             finally:
                 self._components_assembled = was_assembled or self._components_assembled
 
+        # kernel 注入：attention_os 在 _assemble_core_components() 中先于本方法
+        # 创建，因此这里读 self._attention_os 是安全的
+        kernel = None
+        attention_os = self._attention_os
+        if attention_os is not None:
+            get_kernel = getattr(attention_os, "get_kernel", None)
+            if callable(get_kernel):
+                try:
+                    kernel = get_kernel()
+                except Exception as e:
+                    log.warning(
+                        f"[AppContainer] 获取 AttentionOS kernel 失败，"
+                        f"末那识将退化为独立引擎: {e}"
+                    )
+
         manas_manager = ManasManager(
+            kernel=kernel,
             trading_clock=self._trading_clock,
             virtual_portfolio=self._virtual_portfolio,
             bandit_tracker=self._bandit_tracker,
         )
+
+        # 启动即启用：内核侧 OSAttentionKernel 是无条件计算末那识的（os_kernel.py
+        # 无 _enable_manas 门闩），manager 侧必须同步启用，否则
+        # container.manas_engine 恒为 None，UI 拿到的又是另一个引擎的状态
+        manas_manager.set_enabled(True)
 
         return manas_manager
     
