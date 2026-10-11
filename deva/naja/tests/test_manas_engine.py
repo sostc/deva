@@ -22,6 +22,12 @@ from deva.naja.attention.kernel.manas_engine import (
     AttentionFocus,
     PortfolioSignal,
 )
+from deva.naja.attention.kernel.manas_inputs import (
+    INPUT_CONTRACTS,
+    DictBackedInputs,
+    check_contract,
+    missing_methods,
+)
 
 
 class TestTimingEngine(unittest.TestCase):
@@ -383,6 +389,162 @@ class TestManasEngineIntegration(unittest.TestCase):
         for ts in timing_scores:
             self.assertGreaterEqual(ts, 0.0)
             self.assertLessEqual(ts, 1.0)
+
+
+class TestManasInputContract(unittest.TestCase):
+    """ManasEngine 的四类外部输入契约。
+
+    为什么需要契约：manas_engine.py 的取数全部是「鸭子类型 + try/except 兜底」，
+    方法缺失时静默返回默认值 ——「接口接错了」和「数据恰好等于默认值」在外部
+    完全无法区分。契约把这层静默失效显式化。
+    """
+
+    #: 正确的生产实现，必须始终满足各自契约
+    SATISFIED = [
+        ("ClockView", "deva.naja.radar.global_market_config", "MarketSessionManager"),
+        ("PortfolioView", "deva.naja.bandit.virtual_portfolio", "VirtualPortfolio"),
+        ("StrategyView", "deva.naja.bandit.tracker", "BanditPositionTracker"),
+    ]
+
+    #: 已知接线缺口（待 P1 修复）。断言写成「实际缺失 ⊆ 已知缺失」：
+    #: P1 修好后实际缺失变空集，测试仍然通过；但将来若又冒出**新**缺口，
+    #: 说明有人改坏了接线，这里会失败。
+    KNOWN_GAPS = [
+        ("ClockView", "deva.naja.radar.trading_clock", "TradingClock",
+         {"get_market_status", "get_session_remaining_seconds"}),
+        ("MarketView", "deva.naja.radar.global_market_scanner", "GlobalMarketScanner",
+         {"get_market_volatility"}),
+    ]
+
+    def test_production_implementations_satisfy_contracts(self):
+        """正确的生产实现必须满足契约；一旦有人删了方法，这里立刻失败。"""
+        import importlib
+
+        for contract_name, module_path, class_name in self.SATISFIED:
+            cls = getattr(importlib.import_module(module_path), class_name)
+            missing = check_contract(cls, contract_name)
+            self.assertEqual(
+                missing, [],
+                "{} 不再满足 {}，缺失 {}".format(class_name, contract_name, missing),
+            )
+
+    def test_known_wiring_gaps_do_not_grow(self):
+        """接线缺口只允许缩小，不允许出现新缺口。"""
+        import importlib
+
+        for contract_name, module_path, class_name, expected in self.KNOWN_GAPS:
+            cls = getattr(importlib.import_module(module_path), class_name)
+            actual = set(check_contract(cls, contract_name))
+            self.assertTrue(
+                actual <= expected,
+                "{} 对 {} 出现新缺口: {}".format(class_name, contract_name, sorted(actual - expected)),
+            )
+
+    def test_dict_backed_inputs_satisfy_all_contracts(self):
+        """纯 dict 适配器必须同时满足四个契约（跨域复用的前提）。"""
+        for contract_name in INPUT_CONTRACTS:
+            self.assertEqual(check_contract(DictBackedInputs, contract_name), [])
+
+    def test_protocols_are_runtime_checkable(self):
+        """契约要能直接用于 isinstance（runtime_checkable）。"""
+        from deva.naja.attention.kernel.manas_inputs import (
+            ClockView, MarketView, PortfolioView, StrategyView,
+        )
+
+        src = DictBackedInputs()
+        for protocol in (ClockView, MarketView, PortfolioView, StrategyView):
+            self.assertIsInstance(src, protocol, "{} 不是 runtime_checkable".format(protocol))
+
+    def test_checker_detects_missing_methods(self):
+        """校验器必须真的能发现缺失，而不是恒返回空列表。"""
+
+        class NotAClock:
+            def get_market_status(self, market_id):
+                return None
+
+        self.assertEqual(check_contract(NotAClock, "ClockView"),
+                         ["get_session_remaining_seconds"])
+        self.assertEqual(missing_methods(NotAClock, ("get_market_status", "nope")), ["nope"])
+
+    def test_unknown_contract_name_raises(self):
+        """拼错契约名要立刻炸，不能静默「通过」。"""
+        with self.assertRaises(KeyError):
+            check_contract(DictBackedInputs, "ClocView")
+
+
+class TestManasEngineDecoupling(unittest.TestCase):
+    """ManasEngine 是否真的消费了外部输入。
+
+    这些测试用 DictBackedInputs 直接喂数，绕开真实接线，因此可以精确定位
+    「引擎有没有读这个维度」；接线层面的问题由 TestManasInputContract 暴露。
+    """
+
+    def setUp(self):
+        self.src = DictBackedInputs(
+            market_status="open",
+            remaining_seconds=3600,
+            market_volatility=1.8,
+            ticks={"600000": 1.5, "000001": -0.5, "600519": 0.8},
+            us_trading_phase="trading",
+            available_capital=20.0,
+            total_capital=100.0,
+            total_return=0.06,
+            position_returns=[0.05, 0.04, 0.03, 0.06, 0.02],
+            total_trades=60,
+        )
+
+    def test_engine_runs_on_dict_inputs_only(self):
+        """只给 dict 适配器，ManasEngine 就能算出非退化分数。
+
+        这同时是跨域复用的可行性证明：引擎不依赖任何交易对象。
+        """
+        output = ManasEngine().compute(
+            session_manager=self.src,
+            scanner=self.src,
+            portfolio=self.src,
+            bandit_tracker=self.src,
+        )
+
+        # 时间压力 0.8 + 波动率 0.5 + 密度 0.6 + 结构 0.8 → 明显不等于全兜底的 0.5
+        self.assertGreater(output.timing_score, 0.6)
+
+        # T = (1 + (1-0.2)*0.5) * 1.1(回撤 0.06) * 1.1(波动 1.8) = 1.694
+        self.assertGreater(output.risk_temperature, 1.3)
+        self.assertLess(output.risk_temperature, 2.0)  # 未撞 clamp，说明是算出来的
+
+        # confidence = 1.0(命中率)*0.4 + 0.02*0.3 + 0.9(bandit)*0.3 ≈ 0.676
+        self.assertGreater(output.confidence_score, 0.5)
+
+    def test_dimension_engines_consume_inputs_individually(self):
+        """逐个维度确认引擎确实读了输入，而不是走了兜底。"""
+        timing = TimingEngine().compute(session_manager=self.src, scanner=self.src)
+        self.assertNotAlmostEqual(timing, 0.5, places=3)
+
+        regime = RegimeEngine().compute(scanner=self.src, macro_signal=0.5)
+        self.assertNotAlmostEqual(regime, 0.0, places=3)
+
+        risk = RiskEngine().compute(portfolio=self.src, scanner=self.src)
+        self.assertGreater(risk, 1.3)
+
+        conf = ConfidenceEngine().compute(bandit_tracker=self.src)
+        self.assertGreater(conf, 0.5)
+
+    def test_all_none_inputs_degrade_to_fixed_constants(self):
+        """全 None 时各引擎退化成的固定值 —— 这是「接线缺口」的指纹。
+
+        注意这几个常数**不是**安全兜底，而是把整条维度摘掉：
+        TimingEngine 四个维度里两个、RiskEngine 三个输入里两个、ConfidenceEngine
+        三个维度里三个，全部变成常数。P1 修的是接线（不再传 None），不是这些兜底值，
+        所以本测试在 P1 之后仍应成立。
+        """
+        self.assertAlmostEqual(
+            TimingEngine().compute(session_manager=None, scanner=None), 0.5, places=6)
+        self.assertAlmostEqual(
+            RegimeEngine().compute(scanner=None, macro_signal=0.5), 0.0, places=6)
+        self.assertAlmostEqual(
+            RiskEngine().compute(portfolio=None, scanner=None), 1.25, places=6)
+        self.assertAlmostEqual(
+            ConfidenceEngine().compute(bandit_tracker=None), 0.35, places=6)
 
 
 if __name__ == '__main__':
