@@ -414,7 +414,15 @@ class TimingEngine:
         self._last_volatility = 0.0
         self._volatility_history = RollingWindow(self.config.volatility_window)
         self._session_manager = session_manager
-    
+        # 最近一次 compute 的四个分量，供 UI / 诊断读取。
+        # 此前 attention/ui/dashboard.py 用 getattr(te, '_time_pressure', 0) 这类
+        # 读法，而这些属性**从未存在** → 时序面板的四个分量恒为 0（死面板）。
+        self._last_components: Dict[str, Any] = {}
+
+    def get_last_components(self) -> Dict[str, Any]:
+        """最近一次 compute 的分量（含 timing_score 与自适应权重）。"""
+        return dict(self._last_components)
+
     def set_session_manager(self, session_manager):
         """设置 session_manager 依赖"""
         self._session_manager = session_manager
@@ -443,8 +451,18 @@ class TimingEngine:
             density * weights["density"] +
             structure * weights["structure"]
         )
+        timing = max(0.0, min(1.0, timing))
 
-        return max(0.0, min(1.0, timing))
+        self._last_volatility = volatility
+        self._last_components = {
+            "time_pressure": time_pressure,
+            "volatility": volatility,
+            "density": density,
+            "structure": structure,
+            "timing_score": timing,
+            "weights": dict(weights),
+        }
+        return timing
 
     def _get_adaptive_weights(self, scanner, current_volatility: float) -> Dict[str, float]:
         """
@@ -613,6 +631,13 @@ class RegimeEngine:
     def __init__(self, config: ManasConfig = None):
         # _trend_history 原先只 append/trim，从无读取点（写入后即弃），已删除
         self.config = config or ManasConfig()
+        # 最近一次 compute 的分量（供 UI / 诊断；此前 dashboard 读的
+        # _trend / _liquidity / _diffusion 从未存在，面板恒 0）
+        self._last_components: Dict[str, Any] = {}
+
+    def get_last_components(self) -> Dict[str, Any]:
+        """最近一次 compute 的分量（含 regime_score 与自适应权重）。"""
+        return dict(self._last_components)
 
     def compute(self, scanner=None, macro_signal: float = 0.5) -> float:
         """
@@ -636,8 +661,16 @@ class RegimeEngine:
             liquidity * weights["liquidity"] +
             diffusion * weights["diffusion"]
         )
+        regime = max(-1.0, min(1.0, regime))
 
-        return max(-1.0, min(1.0, regime))
+        self._last_components = {
+            "trend": trend,
+            "liquidity": liquidity,
+            "diffusion": diffusion,
+            "regime_score": regime,
+            "weights": dict(weights),
+        }
+        return regime
 
     def _get_adaptive_regime_weights(self, scanner) -> Dict[str, float]:
         """
@@ -783,7 +816,13 @@ class ConfidenceEngine:
         # _rolling_pnl_history 原先声明后从未使用（rolling pnl 直接取自 tracker），已删除
         self._hit_rate_history = RollingWindow(self.config.hit_rate_window)
         self._bandit_tracker = bandit_tracker
-    
+        # 最近一次 compute 的分量（供 UI / 诊断）
+        self._last_components: Dict[str, Any] = {}
+
+    def get_last_components(self) -> Dict[str, Any]:
+        """最近一次 compute 的分量（hit_rate / rolling_pnl / bandit 置信 / 合成值）。"""
+        return dict(self._last_components)
+
     def set_bandit_tracker(self, bandit_tracker):
         """设置 bandit_tracker 依赖"""
         self._bandit_tracker = bandit_tracker
@@ -807,8 +846,15 @@ class ConfidenceEngine:
             min(max(rolling_pnl / 10, 0), 1.0) * 0.3 +
             bandit_conf * 0.3
         )
+        confidence = max(0.0, min(1.5, confidence))
 
-        return max(0.0, min(1.5, confidence))
+        self._last_components = {
+            "hit_rate": hit_rate,
+            "rolling_pnl": rolling_pnl,
+            "bandit_confidence": bandit_conf,
+            "confidence_score": confidence,
+        }
+        return confidence
 
     def _get_hit_rate(self, tracker) -> float:
         """获取近期命中率"""
@@ -893,7 +939,13 @@ class RiskEngine:
         self.config = config or ManasConfig()
         self._drawdown_history = RollingWindow(self.config.drawdown_window)
         self._portfolio = portfolio
-    
+        # 最近一次 compute 的分量（供 UI / 诊断）
+        self._last_components: Dict[str, Any] = {}
+
+    def get_last_components(self) -> Dict[str, Any]:
+        """最近一次 compute 的分量（cash_ratio / drawdown / volatility / T）。"""
+        return dict(self._last_components)
+
     def set_portfolio(self, portfolio):
         """设置 portfolio 依赖"""
         self._portfolio = portfolio
@@ -927,7 +979,15 @@ class RiskEngine:
         elif volatility > 1.5:
             base_T *= 1.1
 
-        return max(0.5, min(2.0, base_T))
+        temperature = max(0.5, min(2.0, base_T))
+        self._last_components = {
+            "cash_ratio": cash_ratio,
+            "drawdown": drawdown,
+            "volatility": volatility,
+            "base_T": base_T,
+            "risk_temperature": temperature,
+        }
+        return temperature
 
     def _get_cash_ratio(self, portfolio, summary=None) -> float:
         """获取现金比例 available / total ∈ [0, 1]
@@ -1106,11 +1166,30 @@ class MetaManas:
                 else "encourage" if self.bias_state == BiasState.FEAR
                 else "none"
             ),
+            # 给**人**看的教练语。同一份检测，对内是打分乘子，对外是提醒：
+            # 「你最近连赢之后仓位在放大」。这是 P2.1 想补的那一环——
+            # 检测早就有了，缺的是把它接到人看得见的地方。
+            "bias_message": self.bias_message(),
             # 诊断用：判贪条件之一是 avg_aggressiveness > greed_aggressiveness，
             # 面板上能看到当前处于什么水平
             "aggressiveness_samples": len(aggressiveness),
             "avg_aggressiveness": round(aggressiveness.mean(), 3),
         }
+
+    def bias_message(self) -> str:
+        """把偏差状态翻译成一句可读的教练语（无偏差时返回中性说明）。"""
+        aggr = self._decision_aggressiveness
+        if self.bias_state == BiasState.GREED:
+            return (
+                "检测到贪：连续盈利后决策激进度升到 {:.2f}，已下调 α 并抬高仓位温度。"
+                "建议主动复核是否在放大仓位，而不是继续踩油门。".format(aggr.mean())
+            )
+        if self.bias_state == BiasState.FEAR:
+            return (
+                "检测到惧：连续亏损后决策趋于保守，已适度放宽。"
+                "建议核对策略本身是否仍然有效——该停手的是坏策略，不是所有动作。"
+            )
+        return "无显著行为偏差，α 未被纠偏。"
 
 
 class ManasEngine:
@@ -1867,7 +1946,22 @@ class ManasEngine:
         self._last_output = output
         self._last_update = current_time
 
+        # 行动门留痕（旁路：失败只降级为「少一条记录」，绝不影响决策）
+        self._record_gate_audit(output)
+
         return output
+
+    def _record_gate_audit(self, output: "ManasOutput") -> None:
+        """把本次判定留给行动门审计，见 manas_gate_audit.py。
+
+        `action_gate_reason` 是每次 compute 都会生成的一句「为什么不让你动」，
+        在风控语境里就是天然的可解释留痕。此前它随 UI 输出即逝。
+        """
+        try:
+            from .manas_gate_audit import get_gate_audit_log
+            get_gate_audit_log().record(output)
+        except Exception as e:  # noqa: BLE001
+            log.debug("[ManasEngine] 行动门留痕失败: %s", e)
 
     def _get_gate_reason(
         self,

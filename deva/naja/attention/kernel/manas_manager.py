@@ -181,7 +181,33 @@ class ManasManager:
             "enabled": self._enabled,
             "kernel_manas_enabled": kernel_manas_enabled,
             "last_output": self._last_output,
+            # P2.1 行为偏差镜子：把 MetaManas 的内部纠偏乘子翻译成可读信号
+            "bias": self._get_bias_state(),
+            # P2.2 行动门留痕：按次可查「为什么不让你动」
+            "gate_audit": self._get_gate_audit_summary(),
         }
+
+    def _get_bias_state(self) -> dict:
+        """读观照层的偏差状态（含给人看的教练语）。失败只降级为空 dict。"""
+        try:
+            engine = self.get_manas_engine()
+            meta = getattr(engine, "meta_manas", None)
+            if meta is None or not hasattr(meta, "get_state"):
+                return {}
+            return meta.get_state()
+        except Exception as e:  # noqa: BLE001
+            log.debug("[ManasManager] 读取行为偏差状态失败: %s", e)
+            return {}
+
+    def _get_gate_audit_summary(self, limit: int = 20) -> dict:
+        """读行动门留痕的汇总与最近记录。失败只降级为空 dict。"""
+        try:
+            from .manas_gate_audit import get_gate_audit_log
+            audit = get_gate_audit_log()
+            return {"stats": audit.stats(), "recent": audit.recent(limit=limit)}
+        except Exception as e:  # noqa: BLE001
+            log.debug("[ManasManager] 读取行动门留痕失败: %s", e)
+            return {}
 
     def _get_session_manager(self):
         """获取交易时段管理器
