@@ -5,7 +5,7 @@ import threading
 
 from deva.utils.ioloop import get_io_loop
 from .bus import log
-from .core import Stream
+from .stream import Stream
 from deva.utils.time import convert_interval
 import datetime
 from tornado import gen

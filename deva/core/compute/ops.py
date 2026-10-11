@@ -1,4 +1,5 @@
-from ..core import Stream, identity
+from ..stream import Stream, identity
+from ..operators import no_default
 from ..store import DBStream
 from deva.utils.time import convert_interval
 from collections import deque
@@ -99,7 +100,6 @@ deva.store : 存储模块
 """
 
 
-no_default = '--no-default--'
 logger = logging.getLogger(__name__)
 
 
