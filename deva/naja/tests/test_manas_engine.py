@@ -191,6 +191,15 @@ class TestManasOutput(unittest.TestCase):
         self.assertIn('alpha', d)
         self.assertEqual(d['bias_state'], 'neutral')
 
+        # to_dict() 必须覆盖 dataclass 的全部字段，一个都不能漏。
+        # 这里原来漏了 ai_compute_direction（23 个字段只出了 22 个键），
+        # 下游 KernelOutput 也就永远拿到默认的 "unknown"。
+        import dataclasses
+
+        self.assertEqual(
+            set(d), {f.name for f in dataclasses.fields(ManasOutput)}
+        )
+
     def test_groups_cover_all_fields_exactly(self):
         """分组必须是 dataclass 字段的一个划分：不重、不漏、不凭空。
 
@@ -217,8 +226,8 @@ class TestManasOutput(unittest.TestCase):
         flat = output.to_dict()
         for group_name in MANAS_OUTPUT_GROUPS:
             for field, value in output.group(group_name).items():
-                if field in flat:
-                    self.assertEqual(value, flat[field], f"{group_name}.{field} 与 to_dict() 不一致")
+                self.assertIn(field, flat, f"{group_name}.{field} 不在 to_dict() 里")
+                self.assertEqual(value, flat[field], f"{group_name}.{field} 与 to_dict() 不一致")
 
         # 枚举必须落成 .value 而不是 Enum 实例
         self.assertEqual(output.group('harmony')['harmony_state'], 'resonance')
@@ -301,6 +310,15 @@ class TestManasEngine(unittest.TestCase):
 
         self.assertIsInstance(state, dict)
         self.assertIn('manas_score', state)
+
+    def test_compute_populates_ai_compute_direction(self):
+        """compute() 必须把认知层的 AI 算力方向写进输出。
+
+        dataclass 默认值是 "unknown"（哨兵值），compute() 原先从不赋值，
+        于是下游 KernelOutput.ai_compute_direction 永远是 "unknown"。
+        """
+        output = ManasEngine().compute()
+        self.assertIn(output.ai_compute_direction, ('up', 'down', 'neutral'))
 
     def test_alpha_calculation(self):
         """测试 alpha 计算"""

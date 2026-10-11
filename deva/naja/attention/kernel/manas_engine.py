@@ -301,6 +301,7 @@ class ManasOutput:
             "narrative_risk": self.narrative_risk,
             "hot_narratives": self.hot_narratives,
             "supply_chain_risk_level": self.supply_chain_risk_level,
+            "ai_compute_direction": self.ai_compute_direction,
             "awakening_level": self.awakening_level,
             "harmony_state": self.harmony_state.value,
             "harmony_strength": self.harmony_strength,
@@ -1805,6 +1806,11 @@ class ManasEngine:
 
         supply_chain_risk = self._cognitive_state.narrative.level
 
+        # AI 算力方向取认知层推断出的 trend（up / down / neutral）。
+        # 原先 compute() 压根没给这个字段赋值，to_dict() 又漏了它，
+        # 两处叠加导致下游 KernelOutput.ai_compute_direction 恒为 "unknown"。
+        ai_compute_direction = self._cognitive_state.ai_compute.trend
+
         output = ManasOutput(
             manas_score=harmony_strength,
             timing_score=timing_score,
@@ -1820,6 +1826,7 @@ class ManasEngine:
             narrative_risk=narrative_risk,
             hot_narratives=hot_narratives,
             supply_chain_risk_level=supply_chain_risk,
+            ai_compute_direction=ai_compute_direction,
             awakening_level=awakening_level,
             harmony_state=harmony_state,
             harmony_strength=harmony_strength,
