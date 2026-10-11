@@ -1,8 +1,28 @@
 """HTTP 相关的流与请求函数：httpx / crawler。
 
 从 core.py 拆出（P2 #11）。
+
+错误传播契约（P2 #14）
+======================
+旧实现把「请求失败」和「请求成功但内容为空」都折叠成 None，导致失败一路
+静默下沉，直到某个下游写 `response.content` 才炸出一句毫无信息量的
+``'NoneType' object has no attribute 'content'``，调用方既分不清原因，也没
+法决定是重试还是放弃。现在改成：
+
+    成功  -> 返回 requests_html 的 response 对象
+    失败  -> 默认抛 HttpError（带 request / cause / status_code / timestamp）
+    宽容  -> 显式传 raise_on_error=False 才退回 None
+
+也就是说 **None 只可能是调用方主动要求的宽容模式**，拿到 None 就必须自己
+判空；默认路径下拿不到 None，只有异常。
+
+流层面（crawler）语义不同：单个 URL 失败不应炸掉整条流，所以异常**不下发**
+下游，而是结构化后路由到构造时传入的 error 回调。下游永远收不到 None
+（Stream 默认 refuse_none=True），只会少一条数据。
 """
 from __future__ import absolute_import, division, print_function
+
+from typing import Any, Dict
 
 import logging
 from datetime import datetime
@@ -20,16 +40,68 @@ from requests_html import AsyncHTMLSession
 
 from .stream import Stream
 
-__all__ = ['httpx', 'crawler']
+__all__ = ['httpx', 'crawler', 'HttpError']
 
 logger = logging.getLogger(__name__)
+
+
+class HttpError(Exception):
+    """HTTP 请求失败。
+
+    把「请求失败」与「请求成功但内容为空」区分开 —— httpx() 返回 None
+    只可能出现在 raise_on_error=False 的宽容模式下。
+
+    属性:
+        request:     原始请求（URL 字符串或参数字典）
+        cause:       底层异常对象
+        status_code: HTTP 状态码；连接就失败时为 None
+        timestamp:   失败时刻（ISO 8601 字符串）
+    """
+
+    def __init__(self, request, cause, status_code=None, timestamp=None):
+        self.request = request
+        self.cause = cause
+        self.status_code = status_code
+        self.timestamp = timestamp or datetime.now().isoformat(timespec="seconds")
+
+        detail = f"request={self.request!r}, error={self.cause}"
+        if self.status_code is not None:
+            detail = f"{detail}, status_code={self.status_code}"
+        super().__init__(detail)
+
+    def to_dict(self) -> Dict[str, Any]:
+        """结构化失败上下文，供 error 回调 / 日志使用。"""
+        return {
+            'request': self.request,
+            'error': str(self.cause),
+            'status_code': self.status_code,
+            'timestamp': self.timestamp,
+        }
 
 
 # 全局AsyncHTMLSession实例，用于重用
 _global_httpclient = None
 
+_MOBILE_HEADERS = {
+    'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1',
+    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+    'Accept-Language': 'zh-CN,zh;q=0.8,zh-TW;q=0.7,zh-HK;q=0.5,en-US;q=0.3,en;q=0.2',
+    'Accept-Encoding': 'gzip, deflate, br',
+    'Connection': 'keep-alive',
+    'Upgrade-Insecure-Requests': '1',
+}
+
+
+def _get_async_session(workers=10):
+    """返回进程级共享的 AsyncHTMLSession（懒创建）。"""
+    global _global_httpclient
+    if _global_httpclient is None:
+        _global_httpclient = AsyncHTMLSession(workers=workers)
+    return _global_httpclient
+
+
 @gen.coroutine
-def httpx(req, render=False, timeout=30, workers=10, **kwargs):
+def httpx(req, render=False, timeout=30, workers=10, raise_on_error=True, **kwargs):
     """异步HTTP请求函数
 
     参数:
@@ -37,6 +109,7 @@ def httpx(req, render=False, timeout=30, workers=10, **kwargs):
         render: 是否渲染JavaScript,默认False
         timeout: 请求超时时间(秒),默认30秒
         workers: 并发工作线程数,默认10
+        raise_on_error: 失败时抛 HttpError；传 False 则退回返回 None
         **kwargs: 渲染参数,传递给arender()方法
 
     返回:
@@ -50,12 +123,10 @@ def httpx(req, render=False, timeout=30, workers=10, **kwargs):
             - history: 重定向历史记录
             - cookies: 响应cookies
             - raise_for_status(): 如果状态码不是2xx则抛出异常
-            - html: 包含以下方法：
-                * find(selector): 使用CSS选择器查找元素
-                * xpath(expr): 使用XPath查找元素
-                * arender(**kwargs): 异步渲染JavaScript
-                * search(template): 使用模板搜索内容
-                * absolute_links: 获取所有绝对链接
+
+    异常:
+        HttpError: raise_on_error=True（默认）且请求失败时抛出
+        TypeError: req 既不是字符串也不是字典时抛出
 
     示例:
         # URL字符串
@@ -80,46 +151,40 @@ def httpx(req, render=False, timeout=30, workers=10, **kwargs):
         # 使用CSS选择器查找元素
         element = response.html.find('h1.title', first=True)
     """
-    # 移动端浏览器User-Agent
-    mobile_headers = {
-        'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-        'Accept-Language': 'zh-CN,zh;q=0.8,zh-TW;q=0.7,zh-HK;q=0.5,en-US;q=0.3,en;q=0.2',
-        'Accept-Encoding': 'gzip, deflate, br',
-        'Connection': 'keep-alive',
-        'Upgrade-Insecure-Requests': '1'
-    }
+    httpclient = _get_async_session(workers)
+    response = None
 
-    global _global_httpclient
-    if _global_httpclient is None:
-        print(f"Initializing global HTTP client with {workers} workers")
-        _global_httpclient = AsyncHTMLSession(workers=workers)
-        print(f"Global HTTP client initialized: {_global_httpclient}")
-    httpclient = _global_httpclient
-    
     try:
         if isinstance(req, str):
-            # 添加移动端headers
-            response = yield httpclient.get(req, headers=mobile_headers, timeout=timeout)
+            response = yield httpclient.get(
+                req, headers=_MOBILE_HEADERS, timeout=timeout)
         elif isinstance(req, dict):
-            req['timeout'] = timeout  # 将超时参数添加到请求字典
+            params = dict(req)
+            params['timeout'] = timeout
             # 合并自定义headers和移动端headers
-            req['headers'] = {**mobile_headers, **req.get('headers', {})}
+            params['headers'] = {**_MOBILE_HEADERS, **(req.get('headers') or {})}
+            params.pop('method', None)
             if req.get('method') == 'post':
-                response = yield httpclient.post(**req)
+                response = yield httpclient.post(**params)
             else:
-                response = yield httpclient.get(**req)
+                response = yield httpclient.get(**params)
+        else:
+            raise TypeError(f"请求类型必须为字符串或字典，当前类型为: {type(req)}")
 
         if render:
-            # 设置移动端视口大小
+            # 移动端视口
             kwargs.setdefault('viewport', {'width': 375, 'height': 812})
             yield response.html.arender(**kwargs)
 
         return response
+
     except Exception as e:
-        logger.error("crawler failed, req=%s, error=%s", req, e)
-        logger.exception(e)
-        # 即使出现异常，也返回None而不是抛出异常，这样测试脚本可以继续执行
+        err = e if isinstance(e, HttpError) else HttpError(
+        req, e, status_code=getattr(response, 'status_code', None))
+        logger.error("httpx failed: %s", err)
+        logger.debug("httpx traceback", exc_info=True)
+        if raise_on_error:
+            raise err
         return None
 
 
@@ -193,10 +258,7 @@ class crawler(Stream):
         self.error = error
         self.render = render
         Stream.__init__(self, upstream=upstream, ensure_io_loop=True)
-        global _global_httpclient
-        if _global_httpclient is None:
-            _global_httpclient = AsyncHTMLSession(workers=workers)
-        self.httpclient = _global_httpclient
+        self.httpclient = _get_async_session(workers)
         self.kwargs = kwargs
 
     def update(self, req, who=None):
@@ -240,13 +302,14 @@ class crawler(Stream):
             response: 响应对象
 
         异常处理:
-            - 捕获所有异常并记录日志
-            - 将错误信息通过error流输出
-            - 保持请求上下文信息
+            - 捕获所有异常，包装成 HttpError
+            - 结构化上下文路由到构造时传入的 error 回调（下游收不到）
         """
+        response = None
         try:
-            request_params = {'url': req} if isinstance(req, str) else req
-            response = yield self.httpclient.get(**request_params)
+            request_params = {'url': req} if isinstance(req, str) else dict(req)
+            params = {k: v for k, v in request_params.items() if k != 'method'}
+            response = yield self.httpclient.get(**params)
 
             if self.render:
                 yield response.html.arender(**self.kwargs)
@@ -254,32 +317,31 @@ class crawler(Stream):
             return response
 
         except Exception as e:
-            error_context = {
-                'request': req,
-                'error': str(e),
-                'timestamp': datetime.now().isoformat()
-            }
-            error_context >> self.error
-            logger.exception(f"请求失败: {error_context}")
+            err = HttpError(req, e, status_code=getattr(response, 'status_code', None))
+            self.error(err.to_dict())
+            logger.error("crawler 请求失败: %s", err)
+            logger.debug("crawler 请求异常详情", exc_info=True)
 
     @classmethod
-    def request(cls, url, **kwargs):
+    def request(cls, url, raise_on_error=True, **kwargs):
         """执行同步HTTP请求
 
         参数:
             url: 请求URL
+            raise_on_error: 失败时抛 HttpError；传 False 则退回返回 None
             **kwargs: 请求参数
 
         返回:
             response: 响应对象
 
         异常:
-            捕获所有异常并记录日志，但不中断程序执行
+            HttpError: raise_on_error=True（默认）且请求失败时抛出
         """
         from requests_html import HTMLSession
 
         httpclient = HTMLSession()
         request_params = {'url': url, **kwargs}
+        response = None
 
         try:
             response = httpclient.get(**request_params)
@@ -287,8 +349,11 @@ class crawler(Stream):
             return response
 
         except Exception as e:
-            logger.error(f"请求失败: {url}, 错误: {str(e)}")
-            logger.exception("请求异常详情:")
+            err = HttpError(url, e, status_code=getattr(response, 'status_code', None))
+            logger.error("请求失败: %s", err)
+            logger.debug("请求异常详情", exc_info=True)
+            if raise_on_error:
+                raise err
             return None
 
     @classmethod
@@ -314,6 +379,10 @@ class crawler(Stream):
 
         返回:
             提取的内容或完整数据字典
+
+        异常:
+            HttpError: 抓取失败时由 httpx 抛出，这里不做兜底——
+                让失败原因（超时 / DNS / 4xx / 5xx）直接暴露给调用方
         """
         from trafilatura import bare_extraction
 
