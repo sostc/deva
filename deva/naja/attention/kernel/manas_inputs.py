@@ -124,7 +124,17 @@ class PortfolioView(Protocol):
     """
 
     def get_summary(self) -> Dict[str, Any]:
-        """需含 available_capital / total_capital / total_return 三个键。"""
+        """需含 available_capital / total_capital / total_return 三个键。
+
+        单位口径（踩过坑，务必对齐）：
+          · available_capital / total_capital：绝对金额。total_capital 是
+            cash_ratio = available / total 的**分母**——缺了它，调用方一律
+            兜底成 1，比值会退化成「可用资金的数值本身」，T 随之撞下限。
+          · total_return：**百分数**（3.5 表示 +3.5%），与生产实现
+            VirtualPortfolio、其 UI 以及 attention/kernel/state.py 的阈值
+            （-5 / -2 / 10）一致。而 manas 的加档阈值是小数口径
+            （0.05 / 0.1），因此 manas 在消费时会自行 /100 归一。
+        """
         ...
 
 
@@ -206,7 +216,7 @@ class DictBackedInputs:
             market_status="open", remaining_seconds=3600,
             market_volatility=1.8, ticks={"600000": 1.2, "000001": -0.4},
             us_trading_phase="trading",
-            available_capital=30.0, total_capital=100.0, total_return=-0.04,
+            available_capital=30.0, total_capital=100.0, total_return=-4.0,
             position_returns=[0.02, -0.01, 0.03], total_trades=12,
         )
         out = ManasEngine().compute(
@@ -214,6 +224,7 @@ class DictBackedInputs:
         )
 
     字段语义与真实对象一致；None 表示「该维度没有数据」，此时引擎按契约表退化。
+    total_return 为**百分数**（-4.0 表示 -4%），见 PortfolioView.get_summary。
     """
 
     # —— ClockView / MarketView 的时段信息 ——
@@ -229,7 +240,7 @@ class DictBackedInputs:
     # —— PortfolioView ——
     available_capital: float = 50.0
     total_capital: float = 100.0
-    total_return: float = 0.0
+    total_return: float = 0.0        # 百分数（-4.0 表示 -4%）
 
     # —— StrategyView ——
     position_returns: List[float] = field(default_factory=list)
