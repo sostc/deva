@@ -35,13 +35,25 @@ class OSAttentionKernel:
     - ValueSystem: 价值观驱动
     """
 
-    def __init__(self, trading_clock=None):
+    def __init__(self, trading_clock=None, session_manager=None,
+                 portfolio=None, bandit_tracker=None):
         self.encoder = Encoder()
         heads = get_default_heads()
         self.multi_head = MultiHeadAttention(heads)
         self.manas_engine = ManasEngine()
         self._value_system = None
         self._trading_clock = trading_clock
+
+        # ManasEngine 的四路外部输入（见 attention/kernel/manas_inputs.py 的契约）。
+        # 装配点在 application 层（架构基准 §6.3）——内核不再自己"猜"依赖：
+        #   session_manager: 显式注入优先，否则取 scanner.session_manager
+        #                    （MarketSessionManager 满足 ClockView 契约）
+        #   portfolio / bandit_tracker: 由 container 注入真实对象
+        # 历史实现里 _get_portfolio / _get_bandit_tracker 直接 return None，
+        # 导致风险温度 T 恒 1.25、confidence 恒 0.35。
+        self._session_manager = session_manager
+        self._portfolio = portfolio
+        self._bandit_tracker = bandit_tracker
 
         # 新增：类 Transformer 相关组件
         self._enable_transformer = True  # 默认启用
@@ -61,8 +73,22 @@ class OSAttentionKernel:
         self._last_update = 0.0
 
     def _get_session_manager(self):
-        """获取交易时段管理器"""
-        return self._trading_clock
+        """返回满足 ClockView 契约的时段管理器。
+
+        历史实现在这里返回 TradingClock，但 TradingClock 只有
+        cn_phase / us_phase / get_global_status，**没有** get_market_status /
+        get_session_remaining_seconds —— 于是 TimingEngine 的时间压力维恒 0.5。
+
+        正确对象是 MarketSessionManager（radar/global_market_config.py），
+        而 scanner 已经持有一个懒加载单例（scanner.session_manager）。
+        注意不要反过来给 TradingClock 硬塞这两个方法：那会把时段语义混进 clock。
+        """
+        if self._session_manager is not None:
+            return self._session_manager
+        scanner = self._get_scanner()
+        if scanner is not None:
+            return getattr(scanner, "session_manager", None)
+        return None
 
     def _get_value_system(self) -> ValueSystem:
         return self._value_system
@@ -192,12 +218,9 @@ class OSAttentionKernel:
             focus_symbols = [s for s, _ in sorted_weights[:10]]
 
         manas_output = self.manas_engine.compute(
-            session_manager=self._get_session_manager(),
-            portfolio=self._get_portfolio(),
-            scanner=self._get_scanner(),
-            bandit_tracker=self._get_bandit_tracker(),
             macro_signal=market_state.get("macro_liquidity_signal", 0.5) if market_state else 0.5,
-            narratives=market_state.get("narratives", []) if market_state else []
+            narratives=market_state.get("narratives", []) if market_state else [],
+            **self.get_manas_inputs(),
         )
 
         alpha *= manas_output.alpha
@@ -343,12 +366,13 @@ class OSAttentionKernel:
             return self._last_output
 
         manas_output = self.manas_engine.compute(
-            session_manager=self._get_session_manager(),
-            portfolio=portfolio,
-            scanner=self._get_scanner(),
-            bandit_tracker=self._get_bandit_tracker(),
             macro_signal=market_state.get("macro_liquidity_signal", 0.5) if market_state else 0.5,
-            narratives=market_state.get("narratives", []) if market_state else []
+            narratives=market_state.get("narratives", []) if market_state else [],
+            **{
+                **self.get_manas_inputs(),
+                # 调用方显式给了 portfolio 就用它的，否则用注入的那份
+                "portfolio": portfolio if portfolio is not None else self._get_portfolio(),
+            },
         )
 
         output = AttentionKernelOutput(
@@ -390,6 +414,50 @@ class OSAttentionKernel:
         """获取 ManasEngine 实例"""
         return self.manas_engine
 
+    def get_manas_inputs(self) -> Dict[str, Any]:
+        """返回喂给 ManasEngine.compute() 的四路输入。
+
+        内核打分路径（process / make_decision）与 ManasManager 展示路径共用这一个
+        出口，消除「同一个引擎被两种喂法喂」——历史问题：内核侧传 portfolio=None
+        且 session_manager 传的是 TradingClock，而 manager 侧传真实对象，
+        于是内核打分与 UI 展示可以给出不一致的结论。
+        """
+        return {
+            "session_manager": self._get_session_manager(),
+            "portfolio": self._get_portfolio(),
+            "scanner": self._get_scanner(),
+            "bandit_tracker": self._get_bandit_tracker(),
+        }
+
+    def set_manas_dependencies(self, session_manager=None, portfolio=None,
+                               bandit_tracker=None) -> None:
+        """注入 ManasEngine 的外部输入（装配点：application 层）。
+
+        只覆盖显式传入的项——None 表示「保持原状」，避免装配顺序差异把已注入的
+        依赖互相清空。同时同步给引擎自身（TimingEngine / RiskEngine /
+        ConfidenceEngine 会持有各自的引用），这样 UI 侧的无参
+        `sub_engine.compute()` 读到的是同一份依赖。
+        """
+        if session_manager is not None:
+            self._session_manager = session_manager
+        if portfolio is not None:
+            self._portfolio = portfolio
+        if bandit_tracker is not None:
+            self._bandit_tracker = bandit_tracker
+
+        engine = self.get_manas_engine()
+        if engine is None:
+            return
+        # 时段管理器此处再解析一次：不传参时走 scanner.session_manager 兜底，
+        # 保证引擎持有的与内核打分路径用的是同一个对象。
+        resolved_sm = self._get_session_manager()
+        if resolved_sm is not None:
+            engine.set_session_manager(resolved_sm)
+        if portfolio is not None:
+            engine.set_portfolio(portfolio)
+        if bandit_tracker is not None:
+            engine.set_bandit_tracker(bandit_tracker)
+
     def persist_state(self):
         """持久化注意力内核状态"""
         try:
@@ -421,7 +489,13 @@ class OSAttentionKernel:
         return self._trading_clock
 
     def _get_portfolio(self):
-        return None
+        """获取持仓（PortfolioView）。
+
+        历史上这里直接 return None，使 RiskEngine 的 cash_ratio 恒 0.5、
+        drawdown 恒 0 → 风险温度 T 恒 1.25。现由 container 注入真实的
+        VirtualPortfolio（见 application/container.py 的装配点）。
+        """
+        return self._portfolio
 
     def _get_scanner(self):
         try:
@@ -431,7 +505,13 @@ class OSAttentionKernel:
             return None
 
     def _get_bandit_tracker(self):
-        return None
+        """获取策略表现追踪器（StrategyView）。
+
+        历史上这里直接 return None，使 ConfidenceEngine 的 hit_rate 恒 0.5、
+        rollng_pnl 恒 0 → confidence 恒 0.35（α 因此被系统性压在下限附近）。
+        现由 container 注入真实的 BanditPositionTracker。
+        """
+        return self._bandit_tracker
 
 
 # 向后兼容别名

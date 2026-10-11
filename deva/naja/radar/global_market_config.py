@@ -59,9 +59,17 @@ class MarketInfo:
     post_market_enabled: bool = False
 
     def get_current_status(self, now: datetime = None) -> MarketStatus:
-        """获取当前状态"""
+        """获取当前状态
+
+        与 TradingClock 的时段判定保持一致：周末一律 CLOSED。
+        此前只比较时刻、不判星期，于是周六日 `get_all_status()` 会把所有
+        市场报成 OPEN，`get_market_summary()` 的 open_count 也就常年失真。
+        """
         if now is None:
             now = datetime.now(pytz.timezone(self.timezone))
+
+        if now.weekday() >= 5:  # 周六=5 / 周日=6
+            return MarketStatus.CLOSED
 
         current_time = now.time()
 
@@ -76,6 +84,24 @@ class MarketInfo:
 
 
 GLOBAL_MARKET_CONFIGS: Dict[str, MarketInfo] = {
+    # === A股 ===
+    # 注：ManasEngine 的时间压力维硬编码查询 "china_a"（manas_engine.py
+    # _get_time_pressure），而此前的配置表只有美系标的 → get_market_status 恒
+    # 返回 NA → 时间压力恒 0.2。此处补齐 A 股时段，让该查询有真实语义。
+    # 与 TradingClock.CN_PHASE_TIMES 对齐：09:30-11:30 / 13:00-15:00 交易，
+    # 11:30-13:00 午间休市。
+    "china_a": MarketInfo(
+        market_id="china_a",
+        name="中国A股",
+        market_type=MarketType.CN_STOCK,
+        timezone="Asia/Shanghai",
+        sessions=[
+            MarketSession(9, 30, 11, 30, MarketStatus.OPEN),
+            MarketSession(11, 30, 13, 0, MarketStatus.BREAK),
+            MarketSession(13, 0, 15, 0, MarketStatus.OPEN),
+        ],
+    ),
+
     # === 24小时期货市场 ===
     "nasdaq100": MarketInfo(
         market_id="nasdaq100",

@@ -930,7 +930,14 @@ class RiskEngine:
         return max(0.5, min(2.0, base_T))
 
     def _get_cash_ratio(self, portfolio, summary=None) -> float:
-        """获取现金比例"""
+        """获取现金比例 available / total ∈ [0, 1]
+
+        历史上是 `available / max(summary.get('total_capital', 1), 1)`：
+        分母缺失时兜底成 1，于是「键不存在」与「总资金真的是 1 元」不可区分，
+        比值直接变成可用资金的数值本身（如 590000），base_T 随之变成大负数、
+        撞上 0.5 下限——看起来像「市场极度安全」，实际是分母没接上。
+        现在补两条兜底（available+used 复原 / total_value），并夹到 [0,1]。
+        """
         if portfolio is None:
             portfolio = self._portfolio
 
@@ -940,22 +947,35 @@ class RiskEngine:
         try:
             if summary is None:
                 summary = portfolio.get_summary()
-            available = summary.get('available_capital', 0)
-            total = summary.get('total_capital', 1)
-            return available / max(total, 1)
+            available = summary.get('available_capital', 0) or 0
+            total = summary.get('total_capital')
+            if not total:
+                total = available + (summary.get('used_capital', 0) or 0)
+            if not total:
+                total = summary.get('total_value', 0) or 0
+            if not total:
+                return 0.5
+            return max(0.0, min(1.0, available / total))
         except Exception as e:
             log.debug("manas: 抑制异常并回退默认值: %s", e)
             return 0.5
 
     def _get_drawdown(self, portfolio, summary=None) -> float:
-        """获取当前回撤"""
+        """获取当前回撤（小数口径：0.06 = 6%）
+
+        入参 `total_return` 为**百分数**（生产实现 VirtualPortfolio 及其 UI、
+        attention/kernel/state.py 都是百分数口径），而本方法的加档阈值是
+        0.1 / 0.05（小数）—— 此前直接把百分数当小数比，于是任何非零收益
+        （哪怕是 +3.5% 的**盈利**，因为取了 abs）都会命中 `> 0.1` 这一档，
+        base_T 恒乘 1.3。这里在入口处统一归一到小数。
+        """
         if portfolio is None:
             return 0.0
 
         try:
             if summary is None:
                 summary = portfolio.get_summary()
-            return_pct = abs(summary.get('total_return', 0))
+            return_pct = abs(summary.get('total_return', 0) or 0) / 100.0
             self._drawdown_history.append(return_pct)
             return self._drawdown_history.mean()
         except Exception as e:
@@ -1785,9 +1805,16 @@ class ManasEngine:
             try:
                 if hasattr(portfolio, 'get_summary'):
                     summary = portfolio_summary if portfolio_summary is not None else portfolio.get_summary()
-                    portfolio_loss = summary.get('total_return', 0.0)
+                    raw_return = summary.get('total_return', 0.0) or 0.0
                 elif isinstance(portfolio, dict):
-                    portfolio_loss = portfolio.get('total_return', 0.0)
+                    raw_return = portfolio.get('total_return', 0.0) or 0.0
+                else:
+                    raw_return = 0.0
+                # PortfolioView 契约的 total_return 是**百分数**（生产实现
+                # VirtualPortfolio 及其 UI、state.py 都是百分数口径），
+                # 而 _determine_attention_focus 的阈值是小数
+                # （-0.05 / -0.1 / 0.15）。这里统一归一到小数。
+                portfolio_loss = raw_return / 100.0
             except Exception as e:
                 log.debug("manas: 抑制异常并回退默认值: %s", e)
                 pass

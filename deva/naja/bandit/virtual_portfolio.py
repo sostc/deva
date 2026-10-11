@@ -406,6 +406,7 @@ class VirtualPortfolio:
         if not positions:
             return {
                 "total_value": 0.0,
+                "total_capital": self._total_capital,
                 "used_capital": 0.0,
                 "available_capital": self._total_capital,
                 "position_count": 0,
@@ -419,9 +420,17 @@ class VirtualPortfolio:
         
         return {
             "total_value": total_value,
+            # total_capital 是 cash_ratio = available / total 的分母。此前缺失，
+            # 三个消费点都写 `summary.get('total_capital', 1)` → 分母兜底成 1,
+            # cash_ratio 变成「可用资金的数值本身」（如 590000），
+            # 使 manas RiskEngine 的 base_T 变成大负数后撞下限 0.5。
+            "total_capital": self._total_capital,
             "used_capital": self._used_capital,
             "available_capital": self._total_capital - self._used_capital,
             "position_count": len(positions),
+            # 口径：**百分数**（3.5 表示 +3.5%）。与本模块 UI 以及
+            # attention/kernel/state.py 的阈值（-5 / -2 / 10）一致。
+            # manas 的阈值是小数口径，故消费侧自行 /100（见 manas_engine）。
             "total_return": (total_value - total_cost) / total_cost * 100 if total_cost > 0 else 0,
             "total_profit_loss": total_profit_loss
         }

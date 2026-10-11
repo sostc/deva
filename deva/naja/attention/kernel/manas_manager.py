@@ -145,12 +145,23 @@ class ManasManager:
         if manas_engine is None:
             return None
 
+        # 与内核打分路径共用同一套输入（P1.4）：持有 kernel 时一律走
+        # kernel.get_manas_inputs()，避免「一个引擎两种喂法」——
+        # 历史问题：内核侧 portfolio=None / session_manager=TradingClock，
+        # manager 侧传真实对象，两边结论可能不一致。
+        if self.kernel is not None and hasattr(self.kernel, "get_manas_inputs"):
+            inputs = dict(self.kernel.get_manas_inputs())
+        else:
+            inputs = {
+                "session_manager": self._get_session_manager(),
+                "portfolio": self._get_portfolio(),
+                "scanner": self._get_scanner(),
+                "bandit_tracker": self._get_bandit_tracker(),
+            }
+
         output = manas_engine.compute(
-            session_manager=self._get_session_manager(),
-            portfolio=self._get_portfolio(),
-            scanner=self._get_scanner(),
-            bandit_tracker=self._get_bandit_tracker(),
             macro_signal=self._get_macro_signal(),
+            **inputs,
         )
 
         self._last_output = output.to_dict()

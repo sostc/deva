@@ -901,6 +901,19 @@ def execute() -> dict:
             bandit_tracker=self._bandit_tracker,
         )
 
+        # P1 接线修复：把真实依赖注入内核侧 ManasEngine。
+        # 内核的 ManasEngine 是自建且无依赖注入的，其 _get_portfolio /
+        # _get_bandit_tracker 历史上直接 return None → 风险温度 T 恒 1.25、
+        # confidence 恒 0.35（诊断见 docs/naja/manas_upgrade_plan.md §1）。
+        # session_manager 不在此处传：内核会自行解析 scanner.session_manager
+        # （MarketSessionManager），与打分路径共用同一个对象。
+        # 装配点放在 application 层，符合架构基准 §6.2（核心层不新增 SR）与 §6.3。
+        if kernel is not None and hasattr(kernel, "set_manas_dependencies"):
+            kernel.set_manas_dependencies(
+                portfolio=self._virtual_portfolio,
+                bandit_tracker=self._bandit_tracker,
+            )
+
         # 启动即启用：内核侧 OSAttentionKernel 是无条件计算末那识的（os_kernel.py
         # 无 _enable_manas 门闩），manager 侧必须同步启用，否则
         # container.manas_engine 恒为 None，UI 拿到的又是另一个引擎的状态
