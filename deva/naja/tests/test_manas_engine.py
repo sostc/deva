@@ -17,6 +17,10 @@ from deva.naja.attention.kernel.manas_engine import (
     MetaManas,
     BiasState,
     ManasOutput,
+    MANAS_OUTPUT_GROUPS,
+    HarmonyState,
+    AttentionFocus,
+    PortfolioSignal,
 )
 
 
@@ -186,6 +190,55 @@ class TestManasOutput(unittest.TestCase):
         self.assertIn('bias_state', d)
         self.assertIn('alpha', d)
         self.assertEqual(d['bias_state'], 'neutral')
+
+    def test_groups_cover_all_fields_exactly(self):
+        """分组必须是 dataclass 字段的一个划分：不重、不漏、不凭空。
+
+        以后给 ManasOutput 加字段而忘了归组，to_grouped_dict() 会静默少一块，
+        UI 上表现为"某个面板永远空着"——这类 bug 很难查，所以在这里卡死。
+        """
+        import dataclasses
+
+        declared = {f.name for f in dataclasses.fields(ManasOutput)}
+        grouped = [f for fields in MANAS_OUTPUT_GROUPS.values() for f in fields]
+
+        self.assertEqual(len(grouped), len(set(grouped)), "有字段被重复归组")
+        self.assertEqual(set(grouped), declared)
+
+    def test_group_enum_values_match_to_dict(self):
+        """group() 与 to_dict() 对同一字段必须给出同一个值。"""
+        output = ManasOutput(
+            manas_score=0.7,
+            harmony_state=HarmonyState.RESONANCE,
+            focus_enum=AttentionFocus.ACCUMULATE,
+            portfolio_signal=PortfolioSignal.ACCUMULATE,
+        )
+
+        flat = output.to_dict()
+        for group_name in MANAS_OUTPUT_GROUPS:
+            for field, value in output.group(group_name).items():
+                if field in flat:
+                    self.assertEqual(value, flat[field], f"{group_name}.{field} 与 to_dict() 不一致")
+
+        # 枚举必须落成 .value 而不是 Enum 实例
+        self.assertEqual(output.group('harmony')['harmony_state'], 'resonance')
+        self.assertEqual(output.group('focus')['focus_enum'], 'accumulate')
+
+    def test_to_grouped_dict_is_json_serializable(self):
+        """嵌套视图要能直接过 json.dumps（含 tuple 容器）。"""
+        import json
+
+        output = ManasOutput(hot_narratives=[('AI算力', 0.9), ('电力', 0.6)])
+        nested = output.to_grouped_dict()
+
+        self.assertEqual(set(nested), set(MANAS_OUTPUT_GROUPS))
+        self.assertEqual(nested['cognition']['hot_narratives'], [['AI算力', 0.9], ['电力', 0.6]])
+        json.dumps(nested, ensure_ascii=False)
+
+    def test_unknown_group_raises_key_error(self):
+        """拼错组名要立刻炸，不能静默返回空 dict。"""
+        with self.assertRaises(KeyError):
+            ManasOutput().group('not_a_group')
 
 
 class TestManasEngine(unittest.TestCase):
