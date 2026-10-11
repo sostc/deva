@@ -12,7 +12,11 @@
 > | P2 可见性（含 2 处计划外 bug） | 已完成 | `9baecf3` |
 > | P3 通用原语（可验证子集，含 1 处计划外 bug） | 已完成 | `480079f` |
 >
-> 一句话验收：**快照基线 diff=0（15 场景）；契约 `--strict` 退出码 0；全量单测 205 passed。**
+> 一句话验收：**快照基线 diff=0（15 场景）；契约 `--strict` 退出码 0；全量单测 206 passed。**
+>
+> 计数口径：文中「全量单测」= `pytest deva/naja/tests --ignore=test_action_executor.py`
+> （该文件是既有故障，与本轮无关）；「manas 单测」= 只跑 `test_manas_engine.py`。
+> 两个口径的实测值：全量 186(P0) → 199(P1/P2) → 206(P3)；manas 单文件 38 → 51 → 58。
 
 ---
 
@@ -110,7 +114,7 @@ except Exception:
 | 9 | P1 | `total_return` **百分数 vs 小数**口径冲突 | manas 以小数阈值配 `abs(raw)`，任何非零收益都触发 `>0.1` 加档 → T 恒 ×1.3 | manas 侧 `/100` 归一（策略阈值不动） |
 | 10 | P2 | UI manas 面板读**不存在的属性**（`_time_pressure` / `_volatility` / `_density` / `_structure` / `_trend`） | 面板恒空（死面板） | 子引擎记录 `_last_components` + `get_last_components()`，UI 改读它 |
 | 11 | P2 | `awakening.py` 的 `bias_text` 映射**键写错**（`bullish`/`bearish` vs `neutral`/`greed`/`fear`） | 永远落默认分支 | 修正映射键 |
-| 12 | P3 | `_get_awakening_level()` 导入**全仓不存在的** `get_awakening_controller` | ImportError 被吞 → 恒 `dormant`，调节链 awakening 环节恒 ×1.0 | 删死导入，改显式 `set_awakening_level_provider()` |
+| 12 | P3 | `_get_awakening_level()` 导入**全仓不存在的** `get_awakening_controller` | ImportError 被吞 → 恒 `dormant`，调节链 awakening 环节恒 ×1.0 | 删死导入，改显式 `set_awakening_level_provider()`；**并查明生产者其实存在**（`alaya.AwakeningEngine`），只是三重断点未解，见 P3 小节边界 #2 |
 
 教训（与 `manas_inputs.py` 模块 docstring 同源）：**`try/except` 兜底 + 鸭子类型 = 静默失效**。
 「方法不存在」与「数据恰好等于默认值」必须可区分——要么抽契约（P0），
@@ -175,7 +179,7 @@ except Exception:
 **验证结果**：契约 `--strict` 退出码 0；契约脚本新增「运行期接线检查」与「行为增量」
 两段，实测四路输入全部复活（场景 B：timing 0.5→0.725、T 1.25→1.10、
 confidence 0.35→0.6136、manas_score 0.294→0.5126、α 0.300→0.3145 离开下限）；
-快照基线差异逐条解释后重建；单测从 38 → 199 passed。
+快照基线差异逐条解释后重建；**manas 单测 38 → 51、全量单测 186 → 199 passed**。
 
 ### P2 — 只增不改的可见性（**已完成** `9baecf3`，低风险）
 
@@ -195,7 +199,7 @@ confidence 0.35→0.6136、manas_score 0.294→0.5126、α 0.300→0.3145 离开
 | P2.2 | 新增 `attention/kernel/manas_gate_audit.py`：`GateAuditLog` 有界 deque（maxlen=500）+ 连续同判折叠（`occurrences`）+ 每 50 次落盘（`NB("naja_manas_gate_audit")`）。**旁路设计：任何异常只丢一条记录，绝不影响决策** |
 | 计划外 | 见 §1.4 的 #10–#11 |
 
-**验证结果**：快照 diff=0；新增 `TestVisibility` 6 例；单测 199 passed。
+**验证结果**：快照 diff=0；新增 `TestVisibility` 6 例；全量单测 199 passed。
 
 ### P3 — 抽成通用原语（**已完成可验证子集** `480079f`，跨域，中期）
 
@@ -275,8 +279,22 @@ print(out.action_type, out.harmony_strength, out.alpha, out.action_gate_reason)
    而这两个乘子实测自然落在 [0, 0.6]，故 `α` 多数场景撞 `alpha_min=0.3`。
    这是**打分公式维度**的问题，本轮明确不改（见 §4）。复用方若需要 `α` 有区分度，
    应重新定标公式，而不是调 clamp。
-2. **觉醒环节需要宿主补生产者**。本仓觉醒等级只有输出侧
-   （`ui/awakening.py` 从 manas 输出反推），输入侧无生产者，故默认中性 ×1.0。
+2. **觉醒环节需要宿主先解决接线，再谈注入**。⚠️ 更正一处早先的误记：
+   本仓觉醒等级**是有生产者的**——`knowledge/alaya/awakened_alaya.py` 的
+   `AwakeningEngine.get_awakening_level()`，四档
+   （dormant / awakening / illuminated / enlightened）与
+   `ManasConfig.awakening_factors` 同一套词汇。它之所以不生效，是**三重断点**叠加：
+
+   | # | 断点 | 位置 |
+   |---|---|---|
+   | 1 | manas 从未接线（旧代码指向全仓不存在的 `get_awakening_controller`） | 已修，改注入点 |
+   | 2 | `TradingCenter._get_awakening_level()` 读 `_awakened_state`（从未写入的字典），而非它缓存的 `AwakenedAlaya.awakening_engine` | **未修** |
+   | 3 | 所有可达的 `AwakenedAlaya.illuminate()` 调用点都不喂弱信号（`bridge.py` 新建临时实例、`decision/orchestrator.py` 不传 signals），而等级只能靠累积弱信号上升 | **未修** |
+
+   所以现在 ×1.0 是"未接线 + 无信号喂入"的**事实**，不是"没有生产者"。
+   **在 #2/#3 解决前不要硬接**——接上去只会得到又一个恒 DORMANT 的静默 no-op
+   （正是本轮一路在清理的那类缺陷）。`TestObjectFreeReuse` 里有一条
+   `test_awakening_producer_exists_but_is_unwired` 专门钉住这个事实。
 
 ---
 
@@ -284,17 +302,18 @@ print(out.action_type, out.harmony_strength, out.alpha, out.action_gate_reason)
 
 | 期 | 标准 | 实际结果 |
 |---|---|---|
-| P0 | 契约校验可运行并稳定复现 2 处违约；单测 38 passed；运行时行为零变化 | ✅ 2 处违约复现；单测 38 passed；行为零变化 |
+| P0 | 契约校验可运行并稳定复现 2 处违约；单测全绿；运行时行为零变化 | ✅ 2 处违约复现；manas 单测 38 / 全量 186 passed；行为零变化 |
 | P1 | 契约违约清零（`--strict` 通过）；快照基线差异有逐条解释；α 与 T 落在合理区间 | ✅ `--strict` exit 0；差异逐条解释后 `--save` 重建基线；T ∈ [0.5, 2.0]、场景 B α 离开下限 |
 | P2 | 偏差信号可在 UI 读到；gate 理由按次可查；打分链路 diff 为空 | ✅ UI 双块 + `GateAuditLog`；快照 diff=0 |
-| P3 | `ManasEngine` 可在无任何交易对象的情况下跑出非退化分数（P0 已初步证明） | ✅ `TestObjectFreeReuse` 6 例；认知层缺席也能构造并出分 |
+| P3 | `ManasEngine` 可在无任何交易对象的情况下跑出非退化分数（P0 已初步证明） | ✅ `TestObjectFreeReuse` 7 例（含觉醒生产者事实核查）；认知层缺席也能构造并出分 |
 
 **全量回归（P3 收尾时一次性复跑）**：
 
 ```
 快照基线     --check  →  比对场景数 15，差异字段 0
 输入契约     --strict →  exit 0（四路对象全部合规）
-全量单测     pytest   →  205 passed（38 → 199 → 205，逐期递增）
+全量单测     pytest   →  206 passed（186 → 199 → 206，逐期递增）
+manas 单文件 pytest   →  58 passed（38 → 51 → 58）
 ```
 
 ---
@@ -320,7 +339,14 @@ print(out.action_type, out.harmony_strength, out.alpha, out.action_gate_reason)
 > 升级的只是复杂度，不是能力。**
 
 四期跑完的净收益：**四路输入从常数变回活信号**（timing / T / confidence /
-manas_score 全部复活），**8 处同族静默缺陷被清掉**，**可见性与留痕补齐**
-（分量 / 偏差镜子 / 行动门审计），**引擎获得脱离交易对象运行的运行期保证**。
-仍未动的：`α` 下限支配（公式维度）、加载期包耦合（架构维度）——两者都已在
-上文标注清楚，属于"知道代价后主动不做"，而非遗漏。
+manas_score 全部复活），**12 处同族缺陷被清掉**（诊断期 4 处 §1.1 + 执行期 8 处 §1.4），
+**可见性与留痕补齐**（分量 / 偏差镜子 / 行动门审计），
+**引擎获得脱离交易对象运行的运行期保证**。
+
+仍未动的三件事，都已在上文标注清楚，属于"知道代价后主动不做/待确认"，而非遗漏：
+
+1. `α` 下限支配（公式维度）；
+2. 加载期包耦合（架构维度）；
+3. **觉醒维度三重断点**（P3 事实核查时发现）：生产者存在但未接线、
+   `TradingCenter` 读错字段、无弱信号喂入。接线会改变行为且快照基线抓不到
+   （基线脚本 monkeypatch 了 `_get_awakening_level`），需单独立项 + 确认。
