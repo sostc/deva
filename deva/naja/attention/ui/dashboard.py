@@ -25,6 +25,7 @@ def get_attention_monitor_data() -> Dict[str, Any]:
             "event_encoder": _get_event_encoder_state(kernel),
             "multi_scorer": _get_multi_scorer_state(kernel),
             "manas_engine": _get_manas_engine_state(kernel),
+            "manas_gate_audit": _get_gate_audit_state(),
             "strategy_learning": _get_strategy_learning_state(os),
             "attention_memory": _get_memory_state(kernel),
             "symbol_weights": _get_symbol_weights_state(kernel),
@@ -76,6 +77,35 @@ def _get_multi_scorer_state(kernel) -> Dict[str, Any]:
     return scorer_state
 
 
+def _read_engine_components(engine, score_key: str, component_keys) -> Dict[str, Any]:
+    """读子引擎最近一次 compute 的分量与分数。
+
+    此前这里写 `getattr(te, '_time_pressure', 0)` 这类读法，而这些属性**从未存在**
+    → 时序/环境面板的分量恒为 0，是个死面板。现在统一走子引擎自己在 compute 里
+    记录的 `get_last_components()`；并且优先复用**打分路径那一次**的分量，
+    而不是在这里再 compute 一遍（旧写法用无参 compute()，喂不到 scanner，
+    面板分数与内核打分不一致）。
+    """
+    comp: Dict[str, Any] = {}
+    if hasattr(engine, "get_last_components"):
+        comp = dict(engine.get_last_components() or {})
+    if not comp:
+        # 从未 compute 过（例如启动后还没跑过 tick）：兜底算一次
+        try:
+            engine.compute()
+        except Exception:
+            pass
+        if hasattr(engine, "get_last_components"):
+            comp = dict(engine.get_last_components() or {})
+
+    return {
+        "score": comp.get(score_key, 0.0),
+        "components": {k: comp.get(k, 0) for k in component_keys},
+        "extra": {k: v for k, v in comp.items()
+                  if k not in component_keys and k != score_key},
+    }
+
+
 def _get_manas_engine_state(kernel) -> Dict[str, Any]:
     """获取末那识引擎状态"""
     manas_state = {
@@ -95,47 +125,36 @@ def _get_manas_engine_state(kernel) -> Dict[str, Any]:
 
         manas_state["available"] = True
 
-        if hasattr(manas, 'timing_engine') and manas.timing_engine:
-            te = manas.timing_engine
-            te_score = te.compute()
-            manas_state["timing_engine"] = {
-                "score": te_score,
-                "components": {
-                    "time_pressure": getattr(te, '_time_pressure', 0),
-                    "volatility": getattr(te, '_volatility', 0),
-                    "density": getattr(te, '_density', 0),
-                    "structure": getattr(te, '_structure', 0)
-                }
-            }
+        if getattr(manas, 'timing_engine', None):
+            manas_state["timing_engine"] = _read_engine_components(
+                manas.timing_engine, "timing_score",
+                ("time_pressure", "volatility", "density", "structure"))
 
-        if hasattr(manas, 'regime_engine') and manas.regime_engine:
-            re = manas.regime_engine
-            re_score = re.compute()
-            manas_state["regime_engine"] = {
-                "score": re_score,
-                "components": {
-                    "trend": getattr(re, '_trend', 0),
-                    "liquidity": getattr(re, '_liquidity', 0),
-                    "diffusion": getattr(re, '_diffusion', 0)
-                }
-            }
+        if getattr(manas, 'regime_engine', None):
+            manas_state["regime_engine"] = _read_engine_components(
+                manas.regime_engine, "regime_score",
+                ("trend", "liquidity", "diffusion"))
 
-        if hasattr(manas, 'confidence_engine') and manas.confidence_engine:
-            ce = manas.confidence_engine
-            ce_score = ce.compute()
-            manas_state["confidence_engine"] = {"score": ce_score}
+        if getattr(manas, 'confidence_engine', None):
+            manas_state["confidence_engine"] = _read_engine_components(
+                manas.confidence_engine, "confidence_score",
+                ("hit_rate", "rolling_pnl", "bandit_confidence"))
 
-        if hasattr(manas, 'risk_engine') and manas.risk_engine:
-            rve = manas.risk_engine
-            rv_score = rve.compute()
-            manas_state["risk_engine"] = {"score": rv_score}
+        if getattr(manas, 'risk_engine', None):
+            manas_state["risk_engine"] = _read_engine_components(
+                manas.risk_engine, "risk_temperature",
+                ("cash_ratio", "drawdown", "volatility"))
 
-        if hasattr(manas, 'meta_manas') and manas.meta_manas:
+        if getattr(manas, 'meta_manas', None):
             mm = manas.meta_manas
             mm_state = mm.get_state() if hasattr(mm, 'get_state') else {}
             manas_state["meta_manas"] = {
                 "bias_state": mm_state.get("bias_state", "neutral"),
-                "bias_direction": mm_state.get("bias_direction", "none")
+                "bias_direction": mm_state.get("bias_direction", "none"),
+                # 教练语：把内部纠偏乘子翻译成给人看的提醒
+                "bias_message": mm_state.get("bias_message", ""),
+                "avg_aggressiveness": mm_state.get("avg_aggressiveness", 0),
+                "aggressiveness_samples": mm_state.get("aggressiveness_samples", 0),
             }
 
         harmony = kernel.get_harmony()
@@ -149,6 +168,20 @@ def _get_manas_engine_state(kernel) -> Dict[str, Any]:
         pass
 
     return manas_state
+
+
+def _get_gate_audit_state() -> Dict[str, Any]:
+    """获取行动门留痕（「为什么不让你动」按次可查）。"""
+    try:
+        from deva.naja.attention.kernel.manas_gate_audit import get_gate_audit_log
+        log = get_gate_audit_log()
+        return {
+            "available": True,
+            "stats": log.stats(),
+            "recent": log.recent(limit=20),
+        }
+    except Exception:
+        return {"available": False, "stats": {}, "recent": []}
 
 
 def _get_strategy_learning_state(os) -> Dict[str, Any]:
@@ -267,6 +300,7 @@ def _get_empty_monitor_data() -> Dict[str, Any]:
         "event_encoder": {"enabled": False, "encoded_events": [], "encoding_summary": {"total_encoded": 0}},
         "multi_scorer": {"enabled": False, "heads": {}, "fusion_result": {}},
         "manas_engine": {"available": False, "timing_engine": {}, "regime_engine": {}, "output": {}},
+        "manas_gate_audit": {"available": False, "stats": {}, "recent": []},
         "strategy_learning": {"available": False, "market_state": {}, "selected_strategies": []},
         "attention_memory": {"enabled": False, "total_events": 0, "recent_events": []},
         "symbol_weights": {"top_symbols": [], "top_blocks": []},

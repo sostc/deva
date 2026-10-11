@@ -127,6 +127,16 @@ def _get_manas_state() -> Dict[str, Any]:
         awakening_map = {"dormant": 0.0, "awakening": 0.4, "illuminated": 0.7, "enlightened": 0.95}
         overall_level = awakening_map.get(awakened_level_str, 0.0)
 
+        # 行为偏差镜子：同一份检测，对内是打分乘子，对外是提醒。
+        bias_message = ""
+        try:
+            engine = manager.get_manas_engine()
+            meta = getattr(engine, "meta_manas", None)
+            if meta is not None and hasattr(meta, "bias_message"):
+                bias_message = meta.bias_message()
+        except Exception:
+            bias_message = ""
+
         return {
             "overall_level": overall_level,
             "awakening_level": awakened_level_str,
@@ -142,6 +152,7 @@ def _get_manas_state() -> Dict[str, Any]:
             "harmony_strength": output.get("harmony_strength", 0.5),
             "bias_state": output.get("bias_state", "neutral"),
             "bias_correction": output.get("bias_correction", 1.0),
+            "bias_message": bias_message,
             "alpha": output.get("alpha", 1.0),
             "attention_focus": output.get("attention_focus", 1.0),
             "supply_chain_risk_level": output.get("supply_chain_risk_level", "LOW"),
@@ -866,10 +877,15 @@ def _render_manas_core(state: Dict[str, Any]) -> str:
     }.get(harmony_state, harmony_state)
 
     bias_text = {
-        "bullish": "偏多",
-        "bearish": "偏空",
+        # BiasState 的实际取值是 neutral / greed / fear（不是 bullish/bearish）。
+        # 此前映射用 bullish/bearish 作键，永远查不中 → 面板直接漏出内部枚举名。
         "neutral": "中性",
+        "greed": "贪",
+        "fear": "惧",
     }.get(bias_state, bias_state)
+
+    gate_reason = state.get("action_gate_reason", "") or "（未记录）"
+    bias_message = state.get("bias_message", "") or ""
 
     return f"""<div style="margin-bottom: 16px;">
         <div style="
@@ -935,6 +951,16 @@ def _render_manas_core(state: Dict[str, Any]) -> str:
             <div style="font-size: 10px; color: #64748b; margin-bottom: 6px;">末那识综合分数</div>
             <div style="font-size: 28px; font-weight: 700; color: #22c55e;">{manas_score:.3f}</div>
             <div style="font-size: 10px; color: #64748b; margin-top: 4px;">供应链风险: {supply_risk}</div>
+        </div>
+
+        <div style="margin-top: 12px; padding: 10px; background: #0f172a; border-radius: 8px; font-size: 11px; color: #94a3b8;">
+            <div style="font-weight: 600; color: #f1f5f9; margin-bottom: 6px;">🚦 行动门（为什么不让你动）</div>
+            <div style="color: #cbd5e1;">{gate_reason}</div>
+        </div>
+
+        <div style="margin-top: 8px; padding: 10px; background: #0f172a; border-radius: 8px; font-size: 11px; color: #94a3b8;">
+            <div style="font-weight: 600; color: #f1f5f9; margin-bottom: 6px;">🪞 行为偏差镜子</div>
+            <div style="color: #cbd5e1;">{bias_message or "无显著行为偏差。"}</div>
         </div>
 
         <div style="margin-top: 12px; padding: 10px; background: #0f172a; border-radius: 8px; font-size: 11px; color: #94a3b8;">

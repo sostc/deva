@@ -702,5 +702,114 @@ class TestPortfolioViewShape(unittest.TestCase):
         self.assertEqual(out.portfolio_signal, PortfolioSignal.STOP_LOSS)
 
 
+class TestVisibility(unittest.TestCase):
+    """P2：只增不改的可见性（子引擎分量 / 行为偏差镜子 / 行动门留痕）。"""
+
+    def test_sub_engines_record_last_components(self):
+        """四个子引擎 compute 后都要留下分量——UI 面板此前读的属性从未存在。"""
+        timing = TimingEngine()
+        timing.compute(session_manager=None, scanner=None)
+        comp = timing.get_last_components()
+        for key in ("time_pressure", "volatility", "density", "structure", "timing_score"):
+            self.assertIn(key, comp)
+
+        regime = RegimeEngine()
+        regime.compute(scanner=None, macro_signal=0.5)
+        comp = regime.get_last_components()
+        for key in ("trend", "liquidity", "diffusion", "regime_score"):
+            self.assertIn(key, comp)
+
+        confidence = ConfidenceEngine()
+        confidence.compute(bandit_tracker=None)
+        comp = confidence.get_last_components()
+        for key in ("hit_rate", "rolling_pnl", "bandit_confidence", "confidence_score"):
+            self.assertIn(key, comp)
+
+        risk = RiskEngine()
+        risk.compute(portfolio=None, scanner=None)
+        comp = risk.get_last_components()
+        for key in ("cash_ratio", "drawdown", "volatility", "risk_temperature"):
+            self.assertIn(key, comp)
+
+    def test_components_match_reported_scores(self):
+        """记录的分量必须与 compute() 的返回值一致（面板不会和打分对不上）。"""
+        timing = TimingEngine()
+        score = timing.compute(session_manager=None, scanner=None)
+        self.assertAlmostEqual(
+            timing.get_last_components()["timing_score"], score, places=9)
+
+        risk = RiskEngine()
+        temp = risk.compute(portfolio=None, scanner=None)
+        self.assertAlmostEqual(
+            risk.get_last_components()["risk_temperature"], temp, places=9)
+
+    def test_bias_message_covers_all_states(self):
+        """三种偏差状态都要有一句给人看的说明（中性也不能是空串）。"""
+        meta = MetaManas()
+        for state in (BiasState.NEUTRAL, BiasState.GREED, BiasState.FEAR):
+            meta.bias_state = state
+            msg = meta.bias_message()
+            self.assertTrue(msg, "{} 的教练语为空".format(state.value))
+            # get_state() 必须把它一并导出，否则 UI 拿不到
+            self.assertEqual(meta.get_state()["bias_message"], msg)
+
+    def test_gate_audit_folds_consecutive_duplicates(self):
+        """连续同一判定应折叠成一行（occurrences 累加），否则心跳会刷满缓冲。"""
+        from deva.naja.attention.kernel.manas_gate_audit import GateAuditLog
+
+        audit = GateAuditLog(maxlen=10, persist_every=10_000)
+        engine = ManasEngine()
+        for _ in range(4):
+            engine._last_output = None
+            engine._last_update = 0.0
+            out = engine.compute()
+            audit.record(out)
+
+        # 同一次 compute 的判定应与上一次相同 → 折成 1 行
+        self.assertEqual(len(audit), 1)
+        self.assertEqual(audit.recent(1)[0]["occurrences"], 4)
+
+        stats = audit.stats()
+        self.assertEqual(stats["total_decisions"], 4)
+        self.assertIsNotNone(stats["hold_ratio"])
+        self.assertTrue(stats["top_reasons"])
+
+    def test_gate_audit_appends_on_decision_change(self):
+        """判定变化时要新开一行（不能把不同理由折叠掉）。"""
+        from deva.naja.attention.kernel.manas_gate_audit import GateAuditLog
+        from deva.naja.attention.kernel.manas_engine import ManasOutput, ActionType
+
+        audit = GateAuditLog(maxlen=10, persist_every=10_000)
+        audit.record(ManasOutput(action_type=ActionType.HOLD, should_act=False,
+                                 action_gate_reason="A"))
+        audit.record(ManasOutput(action_type=ActionType.HOLD, should_act=False,
+                                 action_gate_reason="A"))
+        audit.record(ManasOutput(action_type=ActionType.ACT_FULLY, should_act=True,
+                                 action_gate_reason="B"))
+
+        self.assertEqual(len(audit), 2)
+        self.assertEqual(audit.recent(2)[0]["occurrences"], 2)
+        self.assertEqual(audit.recent(2)[1]["action_type"], "act_fully")
+
+    def test_gate_audit_never_raises(self):
+        """留痕是旁路：坏输入只能降级，绝不能把决策路径带崩。"""
+        from deva.naja.attention.kernel.manas_gate_audit import GateAuditLog
+
+        audit = GateAuditLog(persist_every=10_000)
+
+        # 完全没有预期字段的对象：走 getattr 默认值，降级成一条「空判定」
+        entry = audit.record(object())
+        self.assertIsNotNone(entry)
+        self.assertEqual(entry["action_type"], None)
+
+        class _Exploding:
+            @property
+            def should_act(self):
+                raise RuntimeError("boom")
+
+        # 取值直接抛异常：构造失败 → 返回 None，且不向外抛
+        self.assertIsNone(audit.record(_Exploding()))
+
+
 if __name__ == '__main__':
     unittest.main(verbosity=2)
