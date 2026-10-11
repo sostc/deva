@@ -62,7 +62,7 @@ import atexit
 import os
 
 from .namespace import NS, NT
-from .core import (
+from .logging_adapter import (
     normalize_record as _adapter_normalize_record,
     format_line as _adapter_format_line,
     should_emit_level as _adapter_should_emit_level,

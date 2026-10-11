@@ -43,7 +43,7 @@
 - 对象在首次访问时创建并缓存
 """
 
-from .core import Stream
+from .stream import Stream
 from .store import DBStream
 from .sources import Topic, TCPTopic
 import logging
