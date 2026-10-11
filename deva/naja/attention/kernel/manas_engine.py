@@ -1683,19 +1683,38 @@ class ManasEngine:
             于是恒返回 self._awakening_level（默认 "dormant"）。
             表面上"有取数逻辑"，实际是一段永不生效的死代码。
 
-        另注：本仓目前**没有觉醒等级的输入侧生产者**——ui/awakening.py 里的
-        _compute_awakening_level() 是拿 manas 输出反推的，属输出侧，不能当输入用。
-        因此默认恒 dormant，对应调节因子 1.0（中性）。
+        关于"本仓到底有没有生产者"（P3 事实核查，勿再记错）：
+            **有**。`knowledge/alaya/awakened_alaya.py` 的 `AwakeningEngine`
+            提供 `get_awakening_level()`，返回四个档位
+            （dormant / awakening / illuminated / enlightened）——与
+            `ManasConfig.awakening_factors` 是同一套词汇，说明本意就是要接的。
+            但当前**三重断点**导致它实际从不生效，任一未解，硬接上去也只是
+            又一个恒 DORMANT 的静默 no-op：
+              1. manas 从未接线（旧代码指向不存在的函数；本方法即为此加的注入点）；
+              2. `TradingCenter._get_awakening_level()` 读的是 `_awakened_state`
+                 （另一个从未写入的字典），而不是它自己缓存的
+                 `AwakenedAlaya.awakening_engine`；
+              3. 所有可达的 `AwakenedAlaya.illuminate()` 调用点都不喂弱信号
+                 （`cognition/bridge.py` 新建临时实例、`decision/orchestrator.py`
+                 不传 signals），而等级只能靠累积弱信号才会升上去。
+
+            因此 manas 默认 dormant（调节因子 1.0 中性）是**当前事实**，
+            但成因是"未接线 + 无信号喂入"，**不是**"没有生产者"。
+            接线前须先解决实例生命周期与信号喂入，否则等于加了个常数。
+
         跨域复用/接入真实觉醒源时，用 set_awakening_level_provider() 补上。
         """
-        if self._awakening_level_provider is not None:
+        provider = getattr(self, "_awakening_level_provider", None)
+        if provider is not None:
             try:
-                level = self._awakening_level_provider()
+                level = provider()
                 if level:
                     return str(level)
             except Exception as e:  # noqa: BLE001
                 log.debug("[ManasEngine] 觉醒等级 provider 失败，回退内置值: %s", e)
-        return self._awakening_level
+        # 兜底也要确保不因属性缺失而把决策路径带崩（本方法在 compute 热路径上，
+        # 外面没有 try 包裹）。正常实例两者都在 __init__ 里赋过值。
+        return getattr(self, "_awakening_level", "dormant")
 
     def set_awakening_level(self, level: str):
         """设置觉醒等级（由外部推入，作为 provider 缺失时的回退）"""
