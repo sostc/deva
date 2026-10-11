@@ -30,7 +30,7 @@ from .operators import (
     run_future,
     no_default,
 )
-from .http_stream import httpx, crawler
+from .http_stream import httpx, crawler, HttpError
 from .loop import sync, Deva, thread_state
 from .logging_adapter import (
     LEVEL_ORDER,
@@ -56,6 +56,7 @@ __all__ = [
     'run_future',
     'httpx',
     'crawler',
+    'HttpError',
     'sync',
     'Deva',
     'thread_state',
