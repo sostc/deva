@@ -135,7 +135,7 @@ ManasEngine 订阅 NajaEventBus，感知认知层变化：
 
 import time
 import logging
-from typing import Dict, Any, Optional, List, Tuple
+from typing import Callable, Dict, Any, Optional, List, Tuple
 from dataclasses import dataclass, field
 from enum import Enum
 
@@ -1244,6 +1244,9 @@ class ManasEngine:
         )
 
         self._awakening_level: str = "dormant"
+        # 觉醒等级的注入点（见 set_awakening_level_provider）。
+        # 本仓无输入侧生产者 → 默认 None → 调节链 awakening 环节恒 ×1.0。
+        self._awakening_level_provider: Optional[Callable[[], str]] = None
 
         # 🚀 事件订阅已迁移到 EventSubscriberRegistrar（应用层）
         # 构造期不再自动订阅：本引擎常为懒创建（首次访问 UI 才建立），
@@ -1276,8 +1279,23 @@ class ManasEngine:
         BlockNarrative（地）只追踪这些主题，而不是所有市场主题。
 
         返回格式：[{"id": "AI", "name": "AI", "keywords": [...]}, ...]
+
+        跨域复用说明：keyword_registry 属于 cognition 包，把 ManasEngine 搬出
+        交易/认知域时它可能不存在。此时返回空列表而不是抛异常——「没有预设主题」
+        是可接受的中性初值，只影响叙事主题追踪，不影响天/地/人/风险四维打分。
+        与其它兜底一致：**降级要留痕**（记一条 info），不做静默。
         """
-        from deva.naja.cognition.semantic.keyword_registry import DEFAULT_NARRATIVE_KEYWORDS
+        try:
+            from deva.naja.cognition.semantic.keyword_registry import (
+                DEFAULT_NARRATIVE_KEYWORDS,
+            )
+        except ImportError as e:
+            log.info(
+                "[ManasEngine] 认知层 keyword_registry 不可用（%s），focus_themes 置空；"
+                "四维打分不受影响，仅叙事主题追踪退化为空。",
+                e,
+            )
+            return []
 
         return [
             {
@@ -1654,19 +1672,46 @@ class ManasEngine:
         return focus_float, focus_enum, portfolio_signal
 
     def _get_awakening_level(self) -> str:
-        """获取觉醒等级"""
-        try:
-            from deva.naja.attention import get_awakening_controller
-            controller = get_awakening_controller()
-            if controller and hasattr(controller, '_awakened_state') and controller._awakened_state:
-                return controller._awakened_state.get("awakening_level", "dormant")
-        except Exception:
-            pass
+        """获取觉醒等级（调节链里 awakening 环节的输入）
+
+        来源优先级：注入的 provider（见 set_awakening_level_provider）
+                    > set_awakening_level() 推入的值 > 内置默认 "dormant"。
+
+        背景（一次典型的静默失效，修于 P3）：
+            旧实现是 `from deva.naja.attention import get_awakening_controller`，
+            但 **该函数全仓不存在**——ImportError 被 `except Exception: pass` 吞掉，
+            于是恒返回 self._awakening_level（默认 "dormant"）。
+            表面上"有取数逻辑"，实际是一段永不生效的死代码。
+
+        另注：本仓目前**没有觉醒等级的输入侧生产者**——ui/awakening.py 里的
+        _compute_awakening_level() 是拿 manas 输出反推的，属输出侧，不能当输入用。
+        因此默认恒 dormant，对应调节因子 1.0（中性）。
+        跨域复用/接入真实觉醒源时，用 set_awakening_level_provider() 补上。
+        """
+        if self._awakening_level_provider is not None:
+            try:
+                level = self._awakening_level_provider()
+                if level:
+                    return str(level)
+            except Exception as e:  # noqa: BLE001
+                log.debug("[ManasEngine] 觉醒等级 provider 失败，回退内置值: %s", e)
         return self._awakening_level
 
     def set_awakening_level(self, level: str):
-        """设置觉醒等级（由外部调用）"""
+        """设置觉醒等级（由外部推入，作为 provider 缺失时的回退）"""
         self._awakening_level = level
+
+    def set_awakening_level_provider(self, provider) -> None:
+        """注入「觉醒等级」的来源。
+
+        宿主若已有觉醒源（返回等级字符串），在此挂上即可让调节链的 awakening
+        环节真正生效；未注入时该环节恒为中性 ×1.0。
+
+            engine.set_awakening_level_provider(lambda: state["awakening_level"])
+
+        provider 抛异常时回退到 set_awakening_level() 推入的值，不影响打分。
+        """
+        self._awakening_level_provider = provider
 
     def set_narratives(self, narratives: List[str]):
         """
