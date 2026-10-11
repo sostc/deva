@@ -811,5 +811,128 @@ class TestVisibility(unittest.TestCase):
         self.assertIsNone(audit.record(_Exploding()))
 
 
+class TestObjectFreeReuse(unittest.TestCase):
+    """把 ManasEngine 当**通用原语**用的可验证子集（P3）。
+
+    `TestManasEngineDecoupling` 已经证明「喂 dict 就能出分数」。这里补的是
+    「搬出交易/认知域之后仍然成立」的那部分契约：
+
+      1. 裸构造不依赖任何参数（连认知层的 keyword_registry 缺席也不炸）；
+      2. 四维分数随输入变化，不是常数；
+      3. 原本指向不存在函数的觉醒取数已变成显式注入点。
+
+    不覆盖的部分（如实记录）：`import manas_engine` 仍会经包级 __init__
+    传递性加载 attention.os / bandit 等重模块——这是**加载期**耦合，与
+    本类验证的**运行期**无对象计算无关，见 docs/naja/manas_upgrade_plan.md。
+    """
+
+    FAVORABLE = dict(
+        market_status="open", remaining_seconds=5400, market_volatility=0.8,
+        ticks={"600000": 1.2, "000001": 0.9, "600519": 0.7, "000858": 1.1},
+        us_trading_phase="trading",
+        available_capital=70.0, total_capital=100.0, total_return=6.0,
+        position_returns=[0.02, 0.03, -0.01, 0.04, 0.01], total_trades=30,
+    )
+    ADVERSE = dict(
+        market_status="closed", remaining_seconds=None, market_volatility=2.6,
+        ticks={"600000": -1.5, "000001": -2.0, "600519": -1.1},
+        us_trading_phase="closed",
+        available_capital=20.0, total_capital=100.0, total_return=-12.0,
+        position_returns=[-0.02, -0.03, 0.01, -0.04], total_trades=30,
+    )
+
+    def _run(self, engine, **kw):
+        src = DictBackedInputs(**kw)
+        return engine.compute(
+            session_manager=src, scanner=src, portfolio=src, bandit_tracker=src
+        )
+
+    def test_bare_constructor_needs_no_arguments(self):
+        """ManasEngine() 无参可构造，四个子引擎与认知状态齐备。"""
+        engine = ManasEngine()
+        for attr in ("timing_engine", "regime_engine", "confidence_engine",
+                     "risk_engine", "meta_manas"):
+            self.assertIsNotNone(getattr(engine, attr))
+        self.assertEqual(engine._awakening_level, "dormant")
+        self.assertIsNone(engine._awakening_level_provider)
+
+    def test_compute_without_any_trading_object_stays_in_range(self):
+        """只给 DictBackedInputs，输出各字段都落在定义域内。"""
+        out = self._run(ManasEngine(), **self.FAVORABLE)
+
+        for name in ("timing_score", "regime_score", "confidence_score",
+                     "harmony_strength"):
+            val = getattr(out, name)
+            self.assertGreaterEqual(val, 0.0, name)
+            self.assertLessEqual(val, 1.0, name)
+
+        self.assertGreaterEqual(out.risk_temperature, 0.5)
+        self.assertLessEqual(out.risk_temperature, 2.0)
+        self.assertGreaterEqual(out.alpha, ManasEngine().config.alpha_min)
+
+    def test_scores_are_not_constants_across_scenarios(self):
+        """顺风/逆风两个场景必须给出不同的四维分数，否则是退化成了常数。"""
+        good = self._run(ManasEngine(), **self.FAVORABLE)
+        bad = self._run(ManasEngine(), **self.ADVERSE)
+
+        self.assertGreater(good.timing_score, bad.timing_score)
+        self.assertGreater(good.regime_score, bad.regime_score)
+        self.assertGreater(good.confidence_score, bad.confidence_score)
+        self.assertGreater(good.harmony_strength, bad.harmony_strength)
+        # T 是「风险温度」：越高越保守。逆风场景现金少 + 深回撤 + 高波动
+        # → T 反而更高，别把方向记反。
+        self.assertGreater(bad.risk_temperature, good.risk_temperature)
+
+    def test_focus_themes_degrade_to_empty_without_cognition_layer(self):
+        """认知层 keyword_registry 缺席时，构造仍成功、focus_themes 置空。
+
+        这模拟「把 manas 搬到一个没有 cognition 包的环境」，只是**降级**
+        （不追踪叙事主题），不是崩溃，也不是静默。
+        """
+        from unittest import mock
+        import deva.naja.attention.kernel.manas_engine as me
+
+        target = "deva.naja.cognition.semantic.keyword_registry"
+        with mock.patch.dict(sys.modules, {target: None}):
+            engine = me.ManasEngine()
+        self.assertEqual(engine.get_focus_themes(), [])
+
+        # 且降级之后照样能算出分数
+        out = self._run(me.ManasEngine(), **self.FAVORABLE)
+        self.assertGreater(out.timing_score, 0.5)
+
+    def test_awakening_level_provider_is_honoured(self):
+        """觉醒等级注入点：默认 dormant，注入后生效，provider 抛错则回退。"""
+        engine = ManasEngine()
+        self.assertEqual(engine._get_awakening_level(), "dormant")
+
+        engine.set_awakening_level_provider(lambda: "illuminated")
+        self.assertEqual(engine._get_awakening_level(), "illuminated")
+
+        def _boom():
+            raise RuntimeError("provider down")
+
+        engine.set_awakening_level_provider(_boom)
+        engine.set_awakening_level("awakening")     # provider 失败时的回退值
+        self.assertEqual(engine._get_awakening_level(), "awakening")
+
+    def test_awakening_provider_changes_harmony_strength(self):
+        """注入觉醒等级后，调节链的 awakening 环节真的生效（×1.15）。
+
+        旧实现里这个环节恒 ×1.0——取数指向的函数全仓不存在。
+        场景取顺风（harmony≈0.44，远离 1.0 截断），差异可观测。
+        """
+        base = ManasEngine()
+        dormant = self._run(base, **self.FAVORABLE).harmony_strength
+
+        awake = ManasEngine()
+        awake.set_awakening_level_provider(lambda: "enlightened")
+        enlightened = self._run(awake, **self.FAVORABLE).harmony_strength
+
+        factor = ManasEngine().config.awakening_factors["enlightened"]
+        self.assertAlmostEqual(enlightened, dormant * factor, places=6)
+        self.assertGreater(enlightened, dormant)
+
+
 if __name__ == '__main__':
     unittest.main(verbosity=2)
