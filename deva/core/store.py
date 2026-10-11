@@ -1,6 +1,6 @@
 from tornado import gen
 from deva.utils.sqlitedict import SqliteDict
-from .core import Stream
+from .stream import Stream
 from deva.utils.ioloop import get_io_loop
 from .pipe import passed
 from bisect import bisect_left, bisect_right

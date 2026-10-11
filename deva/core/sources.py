@@ -12,7 +12,7 @@ from glob import glob
 import os
 import tornado.ioloop
 
-from .core import Stream
+from .stream import Stream
 
 import logging
 import asyncio
