@@ -200,6 +200,56 @@ class PortfolioSignal(Enum):
     ACCUMULATE = "accumulate"
 
 
+# ManasOutput 的字段语义分组。
+#
+# 23 个字段原本平铺在一层里，既看不出归属，UI 也只能按硬编码顺序取。
+# 这里把分组声明成数据，UI / 诊断按组取用；字段名本身一律不变，
+# `out.manas_score` 这种既有写法继续有效。
+MANAS_OUTPUT_GROUPS: Dict[str, Tuple[str, ...]] = {
+    # 各路原始分数与最终融合分
+    'scores': (
+        'manas_score', 'timing_score', 'regime_score',
+        'confidence_score', 'risk_temperature',
+    ),
+    # 天地人是否合拍
+    'harmony': ('harmony_state', 'harmony_strength'),
+    # 行动门：要不要动、怎么动、为什么
+    'gate': ('should_act', 'action_type', 'action_gate_reason'),
+    # 观照层纠偏
+    'bias': ('bias_state', 'bias_correction'),
+    # 注意力
+    'attention': ('alpha', 'attention_focus'),
+    # 认知层快照（对应 CognitiveState 的四个子状态）
+    'cognition': (
+        'narrative_risk', 'hot_narratives', 'supply_chain_risk_level',
+        'ai_compute_direction', 'awakening_level',
+    ),
+    # 组合与风控
+    'portfolio': (
+        'portfolio_loss_pct', 'market_deterioration', 'portfolio_signal',
+    ),
+    # 注意力焦点枚举
+    'focus': ('focus_enum',),
+}
+
+
+def _jsonable(value: Any) -> Any:
+    """把 ManasOutput 的字段值转成可直接 json.dumps 的形态。
+
+    枚举取 .value（与 to_dict() 一致）；tuple / list / dict 递归降一遍，
+    其中 tuple 会变成 list —— json 虽然能序列化 tuple，但 list 才是
+    JSON 的规范形态，避免下游按 list 解包时踩类型差异。
+    其余类型原样返回（float / str / bool 本身就是 JSON 原语）。
+    """
+    if isinstance(value, Enum):
+        return value.value
+    if isinstance(value, dict):
+        return {k: _jsonable(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_jsonable(v) for v in value]
+    return value
+
+
 @dataclass
 class ManasOutput:
     """末那识输出"""
@@ -260,6 +310,23 @@ class ManasOutput:
             "focus_enum": self.focus_enum.value,
             "portfolio_signal": self.portfolio_signal.value,
         }
+
+    def group(self, name: str) -> Dict[str, Any]:
+        """返回某一语义分组的字段子集（枚举取 .value，容器递归成 list）。
+
+        组名见模块级 MANAS_OUTPUT_GROUPS。未知组名抛 KeyError —— 拼错组名
+        应当立刻炸，而不是静默返回一个空 dict 让 UI 少渲染一块。
+        """
+        fields = MANAS_OUTPUT_GROUPS[name]
+        return {f: _jsonable(getattr(self, f)) for f in fields}
+
+    def to_grouped_dict(self) -> Dict[str, Dict[str, Any]]:
+        """嵌套视图：{组名: {字段: 值}}。
+
+        to_dict() 保持扁平以兼容既有消费者（os_kernel 构造 KernelOutput、
+        kernel.py 状态导出、UI 表格）；这个嵌套版本给新代码 / 按组渲染的面板用。
+        """
+        return {g: self.group(g) for g in MANAS_OUTPUT_GROUPS}
 
 
 @dataclass
