@@ -933,6 +933,34 @@ class TestObjectFreeReuse(unittest.TestCase):
         self.assertAlmostEqual(enlightened, dormant * factor, places=6)
         self.assertGreater(enlightened, dormant)
 
+    def test_awakening_producer_exists_but_is_unwired(self):
+        """事实核查：觉醒等级的**生产者是存在的**，只是从未接进 manas。
+
+        这条测试的作用是"钉事实"——P3 期间一度误记为"本仓没有生产者"，
+        实际是 `knowledge/alaya/awakened_alaya.py::AwakeningEngine`。
+        它返回的档位与 ManasConfig.awakening_factors 是同一套词汇，
+        说明设计本意就是要接的；当前恒 dormant 是"未接线 + 无信号喂入"的结果。
+
+        不要因为这条测试是绿的，就以为"觉醒环节没问题"——它只说明
+        manas 侧的中性默认是**已知且被记录**的，不是被遗忘的。
+        """
+        from deva.naja.knowledge.alaya.awakened_alaya import AwakeningEngine
+
+        level = AwakeningEngine().get_awakening_level()
+        self.assertIn(level, ("dormant", "awakening", "illuminated", "enlightened"))
+        # 无弱信号喂入 → 恒 dormant
+        self.assertEqual(level, "dormant")
+
+        # 档位词汇与 manas 的调节因子表同源（dormant 不在表里 = 中性 ×1.0）
+        factors = ManasEngine().config.awakening_factors
+        self.assertIn("enlightened", factors)
+        self.assertNotIn("dormant", factors)
+
+        # manas 侧：默认无 provider，取到内置默认
+        engine = ManasEngine()
+        self.assertIsNone(engine._awakening_level_provider)
+        self.assertEqual(engine._get_awakening_level(), "dormant")
+
 
 if __name__ == '__main__':
     unittest.main(verbosity=2)
