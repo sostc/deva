@@ -402,18 +402,27 @@ class TestManasInputContract(unittest.TestCase):
     #: 正确的生产实现，必须始终满足各自契约
     SATISFIED = [
         ("ClockView", "deva.naja.radar.global_market_config", "MarketSessionManager"),
+        ("MarketView", "deva.naja.radar.global_market_scanner", "GlobalMarketScanner"),
         ("PortfolioView", "deva.naja.bandit.virtual_portfolio", "VirtualPortfolio"),
         ("StrategyView", "deva.naja.bandit.tracker", "BanditPositionTracker"),
     ]
 
-    #: 已知接线缺口（待 P1 修复）。断言写成「实际缺失 ⊆ 已知缺失」：
-    #: P1 修好后实际缺失变空集，测试仍然通过；但将来若又冒出**新**缺口，
-    #: 说明有人改坏了接线，这里会失败。
-    KNOWN_GAPS = [
-        ("ClockView", "deva.naja.radar.trading_clock", "TradingClock",
+    #: P1 接线修复前存在的缺口：现在必须**已经补齐**。
+    #: 保留这份清单是为了让「修复被回退」也能被测出来——
+    #: 若这里重新出现缺失，说明有人把接线改回了旧状态。
+    FIXED_GAPS = [
+        ("ClockView", "deva.naja.radar.global_market_config", "MarketSessionManager",
          {"get_market_status", "get_session_remaining_seconds"}),
         ("MarketView", "deva.naja.radar.global_market_scanner", "GlobalMarketScanner",
          {"get_market_volatility"}),
+    ]
+
+    #: 不再承担该角色的类（保留在仓库里，仅作说明）。
+    #: TradingClock 有 cn_phase / us_phase 语义，另有用途；不要给它补
+    #: get_market_status —— 那会把时段语义混进 clock。
+    NOT_USED_FOR_ROLE = [
+        ("ClockView", "deva.naja.radar.trading_clock", "TradingClock",
+         {"get_market_status", "get_session_remaining_seconds"}),
     ]
 
     def test_production_implementations_satisfy_contracts(self):
@@ -428,17 +437,102 @@ class TestManasInputContract(unittest.TestCase):
                 "{} 不再满足 {}，缺失 {}".format(class_name, contract_name, missing),
             )
 
-    def test_known_wiring_gaps_do_not_grow(self):
-        """接线缺口只允许缩小，不允许出现新缺口。"""
+    def test_previously_known_gaps_are_closed(self):
+        """P1 已补齐的缺口不许回退（收紧后 KNOWN_GAPS 为空集）。"""
         import importlib
 
-        for contract_name, module_path, class_name, expected in self.KNOWN_GAPS:
+        for contract_name, module_path, class_name, was_missing in self.FIXED_GAPS:
+            self.assertTrue(was_missing, "FIXED_GAPS 条目不应为空")
             cls = getattr(importlib.import_module(module_path), class_name)
             actual = set(check_contract(cls, contract_name))
-            self.assertTrue(
-                actual <= expected,
-                "{} 对 {} 出现新缺口: {}".format(class_name, contract_name, sorted(actual - expected)),
+            self.assertEqual(
+                actual, set(),
+                "{} 的 {} 缺口被回退了，仍缺 {}".format(class_name, contract_name, sorted(actual)),
             )
+
+    def test_deprecated_roles_are_documented_not_silent(self):
+        """已弃用的角色要显式登记——防止有人把它当作「契约实现」重新接回去。"""
+        import importlib
+
+        for contract_name, module_path, class_name, expected_missing in self.NOT_USED_FOR_ROLE:
+            cls = getattr(importlib.import_module(module_path), class_name)
+            actual = set(check_contract(cls, contract_name))
+            self.assertEqual(
+                actual, set(expected_missing),
+                "{} 对 {} 的实际缺失与登记不符：{}".format(
+                    class_name, contract_name, sorted(actual)),
+            )
+
+    def test_kernel_wiring_satisfies_contracts(self):
+        """内核真正吐出来的四路输入必须满足契约（P1.2 / P1.3 的回归网）。
+
+        类级检查只能证明「这个类有能力满足契约」，证明不了「它真的被传进去了」——
+        原始缺陷（portfolio / bandit_tracker 恒 None、session_manager 传
+        TradingClock）恰恰是从类级检查里看不出来的。
+        """
+        from deva.naja.attention.os.os_kernel import OSAttentionKernel
+        from deva.naja.bandit.virtual_portfolio import VirtualPortfolio
+        from deva.naja.bandit.tracker import BanditPositionTracker
+
+        kernel = OSAttentionKernel()
+        # 模拟 container._create_manas_manager() 的装配动作
+        kernel.set_manas_dependencies(
+            portfolio=VirtualPortfolio(),
+            bandit_tracker=BanditPositionTracker(),
+        )
+
+        inputs = kernel.get_manas_inputs()
+        for key, contract_name in (("session_manager", "ClockView"),
+                                   ("scanner", "MarketView"),
+                                   ("portfolio", "PortfolioView"),
+                                   ("bandit_tracker", "StrategyView")):
+            obj = inputs.get(key)
+            self.assertIsNotNone(obj, "内核装配的 {} 是 None（该维度会整体退化）".format(key))
+            self.assertEqual(
+                check_contract(obj, contract_name), [],
+                "内核装配的 {} ({}) 不满足 {}".format(
+                    key, type(obj).__name__, contract_name),
+            )
+
+    @staticmethod
+    def _warm(engine, src=None, use_inputs=False):
+        """连算 6 次并返回最后一次输出（波动率维需 volatility_sample=5 次热身）。"""
+        out = None
+        for _ in range(6):
+            engine._last_output = None
+            engine._last_update = 0.0
+            kwargs = ({"session_manager": src, "scanner": src,
+                       "portfolio": src, "bandit_tracker": src} if use_inputs else {})
+            out = engine.compute(**kwargs)
+        return out
+
+    def test_real_inputs_defrost_the_frozen_dimensions(self):
+        """接上真实输入后，T / confidence / timing 必须离开常数点。
+
+        旧接线（四路输入退化）下 T 恒 1.25、confidence 恒 0.35、
+        时间压力维恒 0.5；若哪天又退回常数，这条会红。
+        """
+        frozen = self._warm(ManasEngine())
+        self.assertAlmostEqual(frozen.risk_temperature, 1.25, places=6)
+        self.assertAlmostEqual(frozen.confidence_score, 0.35, places=6)
+
+        src = DictBackedInputs(
+            market_status="open", remaining_seconds=7200,
+            market_volatility=1.8,
+            ticks={"600000": 1.2, "000001": -0.4},
+            us_trading_phase="trading",
+            available_capital=30.0, total_capital=100.0, total_return=-6.0,
+            position_returns=[0.02, -0.01, 0.03, 0.01], total_trades=12,
+        )
+        live_engine = ManasEngine()
+        live_engine.set_portfolio(src)
+        live_engine.set_bandit_tracker(src)
+        live = self._warm(live_engine, src=src, use_inputs=True)
+
+        self.assertGreater(live.risk_temperature, frozen.risk_temperature,
+                           "波动率/回撤接上后 T 应上升（更保守）")
+        self.assertNotAlmostEqual(live.confidence_score, frozen.confidence_score, places=6)
+        self.assertNotAlmostEqual(live.timing_score, frozen.timing_score, places=6)
 
     def test_dict_backed_inputs_satisfy_all_contracts(self):
         """纯 dict 适配器必须同时满足四个契约（跨域复用的前提）。"""
@@ -545,6 +639,67 @@ class TestManasEngineDecoupling(unittest.TestCase):
             RiskEngine().compute(portfolio=None, scanner=None), 1.25, places=6)
         self.assertAlmostEqual(
             ConfidenceEngine().compute(bandit_tracker=None), 0.35, places=6)
+
+
+class TestPortfolioViewShape(unittest.TestCase):
+    """PortfolioView.get_summary() 的**返回形状**，不只是「方法是否存在」。
+
+    踩过的坑：VirtualPortfolio 有 get_summary（类级契约检查通过），但它返回的
+    字典缺 total_capital。下游三处都写 `summary.get('total_capital', 1)`，
+    分母兜底成 1，cash_ratio 于是退化成「可用资金的数值本身」（如 590000），
+    RiskEngine 的 base_T 变成大负数再撞下限 —— T 恒 0.5，看起来像「市场极度安全」。
+    类级契约检查看不见这一层，所以这里单独锁返回形状。
+    """
+
+    REQUIRED_KEYS = ("available_capital", "total_capital", "total_return")
+
+    def test_virtual_portfolio_summary_shape(self):
+        from deva.naja.bandit.virtual_portfolio import VirtualPortfolio
+
+        summary = VirtualPortfolio().get_summary()
+        for key in self.REQUIRED_KEYS:
+            self.assertIn(
+                key, summary,
+                "get_summary() 缺 {}：cash_ratio 的分母会失守".format(key))
+
+    def test_risk_engine_cash_ratio_stays_in_unit_interval(self):
+        """cash_ratio ∈ [0,1]，T ∈ [0.5,2]；越界说明分母又没接上。"""
+        from deva.naja.bandit.virtual_portfolio import VirtualPortfolio
+
+        vp = VirtualPortfolio()
+        engine = RiskEngine()
+        ratio = engine._get_cash_ratio(vp)
+        self.assertGreaterEqual(ratio, 0.0)
+        self.assertLessEqual(ratio, 1.0)
+        T = engine.compute(portfolio=vp)
+        self.assertGreaterEqual(T, 0.5)
+        self.assertLessEqual(T, 2.0)
+
+    def test_missing_total_capital_falls_back_instead_of_exploding(self):
+        """分母缺失时用 available+used 复原，而不是把比值算成资金数值本身。"""
+
+        class _NoTotalCapital:
+            def get_summary(self):
+                return {"available_capital": 590000.0,
+                        "used_capital": 410000.0,
+                        "total_return": 0.0}
+
+        ratio = RiskEngine()._get_cash_ratio(_NoTotalCapital())
+        self.assertAlmostEqual(ratio, 0.59, places=6)
+        self.assertLessEqual(ratio, 1.0)
+
+    def test_total_return_is_interpreted_as_percent(self):
+        """total_return 口径是百分数：-6.0 表示 -6%（应落进止损档），不是 -600%。"""
+        src = DictBackedInputs(total_return=-6.0)
+        engine = ManasEngine()
+        engine._last_output = None
+        engine._last_update = 0.0
+        out = engine.compute(portfolio=src)
+
+        self.assertAlmostEqual(out.portfolio_loss_pct, -0.06, places=6)
+        # -6% 落在「止损」档（-0.05 以下）。注意 focus_enum 的止损档阈值是
+        # -0.1，与 portfolio_signal 的 -0.05 并不一致（既有口径差异，未动）。
+        self.assertEqual(out.portfolio_signal, PortfolioSignal.STOP_LOSS)
 
 
 if __name__ == '__main__':

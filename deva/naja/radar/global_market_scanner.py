@@ -149,16 +149,45 @@ class MarketVolatilityTracker:
         if len(values) < 2:
             return {"mean": 0, "std": 0, "volatility": 0}
 
-        mean = sum(values) / len(values)
-        variance = sum((x - mean) ** 2 for x in values) / len(values)
-        std = variance ** 0.5
-
         return {
-            "mean": mean,
-            "std": std,
-            "volatility": std,
+            "mean": self._mean(values),
+            "std": self._std(values),
+            "volatility": self._std(values),
             "recent_max": max(abs(v) for v in values[-3:]),
         }
+
+    @staticmethod
+    def _mean(values: List[float]) -> float:
+        return sum(values) / len(values)
+
+    @staticmethod
+    def _std(values: List[float]) -> float:
+        """总体标准差（与 update() 口径一致）"""
+        mean = sum(values) / len(values)
+        variance = sum((x - mean) ** 2 for x in values) / len(values)
+        return variance ** 0.5
+
+    def get_volatility(self, market_id: Optional[str] = None) -> Optional[float]:
+        """只读波动率——**不写入历史**（MarketView 契约的取数口）。
+
+        与 is_abnormal() 不同：后者会先 append 本次观测再算，属于「写入型」；
+        UI / ManasEngine 只读展示不应污染窗口，因此单开这个只读口。
+
+        Args:
+            market_id: 指定市场；None 表示对所有已跟踪市场取均值。
+
+        Returns:
+            波动率（标准差量纲）；样本不足时返回 None，
+            由调用方按契约退化（Timing 0.5 / Risk 1.0）。
+        """
+        if market_id is not None:
+            values = list(self._history.get(market_id, ()))
+            return self._std(values) if len(values) >= 2 else None
+
+        per_market = [self._std(list(v)) for v in self._history.values() if len(v) >= 2]
+        if not per_market:
+            return None
+        return sum(per_market) / len(per_market)
 
     def is_abnormal(self, market_id: str, change_pct: float, threshold: float = 2.0) -> bool:
         """判断是否异常"""
@@ -498,8 +527,18 @@ class GlobalMarketScanner:
             return self.config.interval_closed
 
     def _get_market_status_map(self) -> Dict[str, str]:
-        """获取所有市场的当前状态"""
-        return self.session_manager.get_all_status()
+        """获取所有市场的当前状态
+
+        返回 {market_id: 状态字符串}。此前直接 return 枚举值本身，导致
+        下游 `v == MarketStatus.OPEN.value`（枚举 vs 字符串）恒为 False →
+        get_market_summary() 的 open_count / closed_count 常年是 0；
+        `_detect_alerts` 里塞进 MarketAlert.market_status(str) 的也是枚举对象。
+        统一在出口处 .value 化，两个消费点同时恢复正常。
+        """
+        return {
+            market_id: status.value if hasattr(status, "value") else str(status)
+            for market_id, status in self.session_manager.get_all_status().items()
+        }
 
     async def start(self):
         """启动扫描"""
@@ -784,6 +823,19 @@ class GlobalMarketScanner:
     def get_last_data(self) -> Dict[str, MarketData]:
         """获取最近一次数据"""
         return self._last_market_data
+
+    def get_market_volatility(self, market_id: Optional[str] = None) -> Optional[float]:
+        """当前市场波动率（ManasEngine 的 MarketView 契约方法）。
+
+        此前该方法**全仓不存在**，而 manas 的 TimingEngine / RiskEngine 都在调它，
+        异常被 try/except 吞掉后回退默认值：Timing 波动率维恒 0.5、
+        RiskEngine 波动率恒 1.0（>1.5 / >2.0 两个保守档永不触发）。
+        这里把它接到已有的 `_volatility_tracker`（只读，不写窗口）。
+
+        Returns:
+            波动率；无足够样本时返回 None（由 manas 按契约退化）。
+        """
+        return self._volatility_tracker.get_volatility(market_id)
 
     def get_alerts(self, limit: int = 20) -> List[MarketAlert]:
         """获取最近告警"""
