@@ -4,7 +4,8 @@
 >
 > 公共入口只有一个：`deva.naja.manas`
 > 验证脚本：`scripts/verify/verify_manas_standalone.py --strict`
-> 可运行示例：`deva/examples/manas_standalone.py`
+> 最小示例：`deva/examples/manas_standalone.py`
+> 典型案例（完整小应用）：`deva/examples/manas_decision_desk.py`（见 §8）
 
 ---
 
@@ -185,13 +186,48 @@ eager 重导出拖进来的。
 
 ---
 
-## 8. 验证
+## 8. 典型案例：独立择时决策台
+
+`manas_standalone.py` 是「最小用法」；想拿一个**完整小应用**当骨架，看：
+
+```
+deva/examples/manas_decision_desk.py          # 案例脚本（约 300 行，含控制台与 HTML 报告）
+deva/examples/data/manas_typical_day.json     # 一天的 6 个快照（可换成你自己的数据）
+```
+
+它模拟一个**不属于交易系统**的独立脚本：读入一天的 6 个市场快照，逐点问 manas
+「现在该不该动」，把判断 + 应用自己的仓位纪律落成一张决策时间线。
+
+```
+JSON 快照 ──► manas（判断） ──► 应用策略（决策） ──► 控制台 / HTML 报告
+```
+
+跑法：
+
+```bash
+/Users/spark/.local/bin/python3 deva/examples/manas_decision_desk.py --out /tmp/report.html
+```
+
+案例刻意展示的三个边界（**都是真实输出**，不是设定值）：
+
+1. **manas 只给判断，不给决策**。脚本里的 `ACTION_POLICY`（档位 → 目标仓位）是
+   *示例应用自己* 的纪律，不属于 manas。要本仓那套乘子公式才去 `import deva.naja.decision`。
+2. **行动门保守，只在窄窗口开**：6 个时点只有 1 个开门——`manas_score > 0.5` 要求
+   「低回撤 + 高现金 + 低波动」同时成立。关门的理由还各不相同（策略不自信 / 环境阻力 /
+   顺风但差一点分数），这也正是 `action_gate_reason` 的用处。
+3. **引擎有状态，复用时路径相关**：案例全程复用同一个 `ManasSession`（同一天、同一观察者）。
+   RiskEngine 的回撤取**历史均值**，所以流式结果与「每点各新建引擎」会轻微不同——
+   案例里 11:15 的 T：流式 `1.488`、独立 `1.637`。要「彼此独立的快照」就每点新建引擎。
+
+---
+
+## 9. 验证
 
 ```bash
 cd <项目根>
 /Users/spark/.local/bin/python3 scripts/verify/verify_manas_standalone.py --strict
 ```
 
-检查项（6 组）：子进程导入无交易域依赖 / 门面是同一份实现（非副本）/
+检查项（7 组）：子进程导入无交易域依赖 / 门面是同一份实现（非副本）/
 `__all__` 名字都可取 / 端到端非退化 / 静态守卫（入口保持惰性）/
-旧用法未被破坏。
+旧用法未被破坏 / **典型案例端到端**（案例必须至少开一次行动门且有区分度）。
