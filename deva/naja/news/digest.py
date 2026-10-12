@@ -25,8 +25,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional
 
-from .focus import NewsFocusState, build_focus_state
-from .triage import GROUP_LABELS, GROUP_ORDER, NewsTriage
+from .focus import NewsFocusState, build_focus_state, collapse_identifiers
+from .triage import GROUP_LABELS, GROUP_ORDER, NewsTriage, TriageConfig
 
 log = logging.getLogger(__name__)
 
@@ -86,6 +86,8 @@ def build_digest(
         "focus": focus.to_dict(),
         "groups": analyzed["groups"],
         "group_labels": analyzed["group_labels"],
+        # 口径透明：把生效的档位区间一并带出去，UI 才能显示"凭什么这么排"
+        "tier_config": analyzed["tier_config"],
         "stats": analyzed["stats"],
     }
 
@@ -126,8 +128,9 @@ def get_news_digest_summary(
             "focus": {},
             "groups": {g: [] for g in GROUP_ORDER},
             "group_labels": dict(GROUP_LABELS),
+            "tier_config": TriageConfig().to_dict(),
             "stats": {"scanned": 0, "deduped": 0, "shown": 0,
-                      "holding": 0, "theme": 0, "macro": 0},
+                      "holding": 0, "theme": 0, "macro": 0, "pierced": 0},
         }
 
 
@@ -148,13 +151,20 @@ def render_digest_text(digest: Dict[str, Any]) -> str:
         f"📰 今日新闻消化 · {digest.get('generated_at_text', '')}",
         "━━━━━━━━━━━━━━━━━━━━",
         f"扫描 {stats.get('scanned', 0)} 条 → 精选 {stats.get('shown', 0)} 条"
-        f"（持仓 {stats.get('holding', 0)} / 主题 {stats.get('theme', 0)}"
-        f" / 宏观 {stats.get('macro', 0)}）",
+        f"（持仓 {stats.get('holding', 0)} / 叙事 {stats.get('theme', 0)}"
+        f" / 外部 {stats.get('macro', 0)}）",
     ]
+    if stats.get("pierced"):
+        lines.append(f"⚠️ 其中 {stats['pierced']} 条外部风险穿透（重大负面宏观，未被挡掉）")
 
-    own = list(focus.get("holdings") or []) + list(focus.get("watchlist") or [])
-    if own:
-        lines.append(f"关注标的：{'、'.join(str(x) for x in own[:8])}")
+    # 持仓与自选分行：两者不是一回事，合并显示会让"我的钱"被"在看的票"稀释
+    for key, label in (("holdings", "持仓"), ("watchlist", "自选")):
+        # 展示用 *_labels（优先中文名）；否则会列成"baba、阿里巴巴、nvda、英伟达"
+        values = list(collapse_identifiers(
+            focus.get(f"{key}_labels") or focus.get(key) or []
+        ))
+        if values:
+            lines.append(f"{label}：{'、'.join(values[:8])}")
 
     for group in GROUP_ORDER:
         rows = groups.get(group) or []
@@ -164,7 +174,12 @@ def render_digest_text(digest: Dict[str, Any]) -> str:
         lines.append(f"【{labels.get(group, group)}】")
         for i, row in enumerate(rows, 1):
             hits = (row.get("holding_hits") or []) + (row.get("watchlist_hits") or [])
-            tag = f" ⭐{'/'.join(str(h) for h in hits)}" if hits else ""
+            if row.get("pierced"):
+                tag = " ⚠️风险穿透"
+            elif hits:
+                tag = f" ⭐{'/'.join(str(h) for h in hits)}"
+            else:
+                tag = ""
             lines.append(f"  {i}. [{row.get('relevance', 0):.2f}] {row.get('title', '')}{tag}")
 
     degraded = focus.get("degraded") or []
@@ -199,13 +214,21 @@ def render_digest_html(digest: Dict[str, Any]) -> str:
     groups = digest.get("groups") or {}
     labels = digest.get("group_labels") or GROUP_LABELS
 
-    own = [str(x) for x in (list(focus.get("holdings") or []) + list(focus.get("watchlist") or []))]
+    holdings = list(collapse_identifiers(
+        focus.get("holdings_labels") or focus.get("holdings") or []
+    ))
+    watchlist = list(collapse_identifiers(
+        focus.get("watchlist_labels") or focus.get("watchlist") or []
+    ))
     narratives = [str(x) for x in (focus.get("narratives") or [])]
     themes = [str(t.get("name", "")) for t in (focus.get("themes") or []) if isinstance(t, dict)]
 
+    # 持仓与自选**分开展示**：自己的钱 vs 在看的票，合并会稀释前者
     focus_chips = ""
-    if own:
-        focus_chips += _chips("持仓 / 自选", own, "#1d4ed8")
+    if holdings:
+        focus_chips += _chips("持仓", holdings, "#1d4ed8")
+    if watchlist:
+        focus_chips += _chips("自选", watchlist, "#0891b2")
     if narratives:
         focus_chips += _chips("关注叙事", narratives, "#7c3aed")
     if themes:
@@ -236,17 +259,37 @@ def render_digest_html(digest: Dict[str, Any]) -> str:
             f"</section>"
         )
 
+    tiers = (digest.get("tier_config") or {}).get("bands") or {}
+    tier_line = ""
+    if tiers:
+        bits = " &gt; ".join(
+            f'{label} {tiers[key]["floor"]:.2f}–{tiers[key]["ceiling"]:.2f}'
+            for key, label in (("holding", "持仓"), ("theme", "叙事"),
+                               ("watchlist", "自选"), ("macro", "外部"))
+            if key in tiers
+        )
+        tier_line = (
+            '<div class="tierline">排序口径（区间严格不重叠，持仓数学上必然优先）：'
+            f"{bits}</div>"
+        )
+
+    pierced = int(stats.get("pierced", 0))
     summary = (
         '<div class="stats">'
         f'<div class="stat"><div class="stat-v">{stats.get("scanned", 0)}</div>'
         f'<div class="stat-k">扫描</div></div>'
         f'<div class="stat"><div class="stat-v">{stats.get("holding", 0)}</div>'
-        f'<div class="stat-k">持仓/自选</div></div>'
+        f'<div class="stat-k">持仓</div></div>'
         f'<div class="stat"><div class="stat-v">{stats.get("theme", 0)}</div>'
-        f'<div class="stat-k">关注主题</div></div>'
+        f'<div class="stat-k">关注叙事</div></div>'
         f'<div class="stat"><div class="stat-v">{stats.get("macro", 0)}</div>'
-        f'<div class="stat-k">宏观其它</div></div>'
-        "</div>"
+        f'<div class="stat-k">外部要闻</div></div>'
+        + (
+            f'<div class="stat stat-warn"><div class="stat-v">{pierced}</div>'
+            f'<div class="stat-k">风险穿透</div></div>'
+            if pierced else ""
+        )
+        + "</div>"
     )
 
     header = (
@@ -257,7 +300,7 @@ def render_digest_html(digest: Dict[str, Any]) -> str:
         "</div>"
     )
 
-    body = header + summary
+    body = header + summary + tier_line
     if focus_chips:
         body += f'<div class="focus">{focus_chips}</div>'
     body += degraded_html
@@ -274,10 +317,14 @@ def _render_row_html(row: Dict[str, Any], group: str) -> str:
     rel = float(row.get("relevance") or 0.0)
     bar = int(round(rel * 100))
     bar_color = {"holding": "#1d4ed8", "theme": "#7c3aed"}.get(group, "#94a3b8")
+    if row.get("pierced"):
+        bar_color = "#dc2626"
 
     tag_html = "".join(
         f'<span class="tag tag-star">{_esc(h)}</span>' for h in hits
     ) + "".join(f'<span class="tag tag-theme">{_esc(t)}</span>' for t in theme_hits)
+    if row.get("pierced"):
+        tag_html = '<span class="tag tag-pierce">⚠️ 风险穿透</span>' + tag_html
 
     url = row.get("url") or ""
     title_html = (
@@ -325,10 +372,14 @@ def _html_shell(title: str, body: str) -> str:
  .wrap{{max-width:880px;margin:0 auto}}
  .head h1{{font-size:20px;font-weight:600;margin:0 0 6px}}
  .head .sub{{font-size:12px;color:#64748b}}
- .stats{{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin:18px 0}}
+ .stats{{display:grid;grid-template-columns:repeat(auto-fit,minmax(88px,1fr));gap:10px;margin:18px 0}}
  .stat{{background:#fff;border:1px solid #e2e8f0;border-radius:10px;padding:12px;text-align:center}}
  .stat-v{{font-size:20px;font-weight:600}}
  .stat-k{{font-size:11px;color:#64748b;margin-top:2px}}
+ .stat-warn{{border-color:#fecaca;background:#fef2f2}}
+ .stat-warn .stat-v{{color:#b91c1c}}
+ .tierline{{font-size:11px;color:#64748b;background:#f8fafc;border:1px solid #e2e8f0;
+   border-radius:8px;padding:8px 12px;margin:-8px 0 14px}}
  .focus{{background:#fff;border:1px solid #e2e8f0;border-radius:10px;padding:12px;margin-bottom:14px}}
  .chip-row{{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin:4px 0}}
  .chip-label{{font-size:11px;color:#64748b;min-width:70px}}
@@ -355,6 +406,7 @@ def _html_shell(title: str, body: str) -> str:
  .tag{{font-size:10px;border-radius:8px;padding:1px 7px;background:#f1f5f9;color:#475569}}
  .tag-star{{background:#dbeafe;color:#1d4ed8}}
  .tag-theme{{background:#ede9fe;color:#6d28d9}}
+ .tag-pierce{{background:#fee2e2;color:#b91c1c;font-weight:600}}
  .reasons{{margin-top:6px;display:flex;flex-direction:column;gap:2px}}
  .reasons span{{font-size:11px;color:#64748b}}
  .empty{{background:#fff;border:1px solid #e2e8f0;border-radius:10px;padding:28px;text-align:center}}
