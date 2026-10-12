@@ -333,7 +333,11 @@ async def render_health_dashboard(ctx: dict):
     
     result_store = get_result_store()
     health = result_store.get_health_summary()
-    
+
+    # 注意字段名：get_health_summary() 实际返回的是 last_write_time /
+    # seconds_since_write / total_results / total_success / total_failed。
+    # 原先这里读的是 write_queue_size 和 failed_writes —— 摘要里根本没有这两个
+    # 键，`.get(k, 0)` 便恒得 0，卡片永远显示「队列 0 | 失败 0」，看着像一切正常。
     last_write_time = health.get("last_write_time", 0) or 0
     seconds_since_write = health.get("seconds_since_write")
     write_level = _get_write_level(seconds_since_write)
@@ -367,7 +371,7 @@ async def render_health_dashboard(ctx: dict):
             <div style="margin-top:6px;font-size:14px;">状态: {status_badge}</div>
             <div style="margin-top:6px;font-size:12px;color:#9ca3af;">最近写入: {_format_ts(last_write_time)}</div>
             <div style="margin-top:4px;font-size:12px;color:#9ca3af;">间隔: {seconds_text}</div>
-            <div style="margin-top:4px;font-size:12px;color:#9ca3af;">队列: {health.get('write_queue_size', 0)} | 失败: {health.get('failed_writes', 0)}</div>
+            <div style="margin-top:4px;font-size:12px;color:#9ca3af;">累计: {health.get('total_results', 0)} | 成功: {health.get('total_success', 0)} | 失败: {health.get('total_failed', 0)}</div>
         </div>
         <div style="padding:12px;border-radius:10px;background:#111827;">
             <div style="font-size:12px;color:#94a3b8;">注意力系统</div>
