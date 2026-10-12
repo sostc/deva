@@ -246,3 +246,24 @@ def test_adaptive_stop_loss_extreme_risk_branch_is_reachable():
     assert take_profit == 9.0
 
 
+# ──────────────────────────────────────────────────────────────────────────────
+# D3：闭环反馈事件（执行结果回流）
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+def test_trade_outcome_event_routes_to_trading_bus():
+    from deva.naja.events import TradeOutcomeEvent, resolve_event_bus_type
+
+    assert resolve_event_bus_type(TradeOutcomeEvent) == "trading"
+
+    win = TradeOutcomeEvent(symbol="600000", pnl_pct=3.5, close_reason="TAKE_PROFIT")
+    dumped = win.to_dict()
+    assert dumped["_type"] == "TradeOutcomeEvent"
+    assert dumped["is_win"] is True
+
+    loss = TradeOutcomeEvent(symbol="600519", pnl_pct=-1.0, close_reason="STOP_LOSS")
+    assert loss.is_win is False
+    assert loss.to_dict()["is_win"] is False
+
+
+

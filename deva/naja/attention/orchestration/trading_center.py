@@ -74,6 +74,34 @@ def get_min_approval_confidence() -> float:
     return MIN_APPROVAL_CONFIDENCE
 
 
+def _awakening_feedback_burst(pnl_pct: float) -> int:
+    """按交易结果的显著性，决定投影几条弱信号给 ``AwakeningEngine``。
+
+    依据：``AwakeningEngine`` 的弱信号半衰期只有 60 秒、新鲜度加权 ≈1，
+    阈值是 DORMANT=3 / AWAKENING=8 / ILLUMINATED=15（按有效分数）。
+    一次显著平仓结果可同时投影多个维度（策略有效性 / 环境匹配 / 执行质量 /
+    市场状态变化），故按显著性给 1~5 条。
+
+    ⚠️ 注意 DORMANT 阈值是 3，而新鲜度 `exp(-dt/60)` 恒略小于 1，
+    因此**恰好 3 条**会落在 2.9999… 卡在边界（实测确认）。故显著档给 ≥4 条，
+    留一条浮点余量，保证"显著结果能真的跨过阈值"而不是静默无效。
+
+    可用 ``NAJA_AWAKENING_FEEDBACK_BURST`` 强制指定（灰调用）。
+    """
+    raw = os.environ.get("NAJA_AWAKENING_FEEDBACK_BURST")
+    if raw:
+        try:
+            return max(1, int(raw))
+        except ValueError:
+            pass
+    magnitude = abs(float(pnl_pct or 0.0))
+    if magnitude >= 5.0:
+        return 5
+    if magnitude >= 2.0:
+        return 4
+    return 1
+
+
 class TradingCenter:
     """
     交易中枢
@@ -230,8 +258,85 @@ class TradingCenter:
         return []
 
     def _get_awakening_level(self) -> str:
-        """获取觉醒级别"""
+        """获取觉醒级别（读共享 ``AwakenedAlaya`` 的 ``awakening_engine``）。
+
+        历史 bug（觉醒三重断点 #2）：这里读的是 ``self._awakened_state``——
+        一个**从未被写入**的字典，于是恒返回 "dormant"。真正的来源是它自己
+        缓存的 ``AwakenedAlaya``（决策路径 run_full_pipeline 用的是同一实例）。
+        """
+        alaya = self._get_awakened_alaya()
+        engine = getattr(alaya, "awakening_engine", None) if alaya is not None else None
+        if engine is not None:
+            try:
+                return str(engine.get_awakening_level())
+            except Exception as e:
+                log.debug(f"[TradingCenter] 读取觉醒等级失败: {e}")
         return self._awakened_state.get("awakening_level", "dormant")
+
+    def get_awakening_level(self) -> str:
+        """[公开] 当前觉醒等级（供 Manas 觉醒维度等外部读取）。"""
+        return self._get_awakening_level()
+
+    def record_trade_outcome(
+        self,
+        symbol: str,
+        pnl_pct: float,
+        *,
+        strategy_id: str = "",
+        strategy_name: str = "",
+        position_id: str = "",
+        close_reason: str = "",
+    ) -> bool:
+        """把一次交易结果回流成弱信号，喂给共享 ``AwakenedAlaya``（觉醒三重断点 #3）。
+
+        闭环反馈的决策端入口。由 ``EventSubscriberRegistrar`` 订阅
+        ``TradeOutcomeEvent`` 后调用，也供测试直接调用。
+
+        ⚠️ 时效说明：``AwakeningEngine`` 的弱信号半衰期只有 **60 秒**，
+        所以"觉醒等级"是**短时放大器**而非长期成长值——一次结果只会在几分钟内
+        抬高等级，随后自然衰减回 dormant。要稳定提升需要**成簇**的高置信信号。
+
+        Returns:
+            True 表示信号已喂入；False 表示 AwakenedAlaya 不可用或输入非法。
+        """
+        alaya = self._get_awakened_alaya()
+        engine = getattr(alaya, "awakening_engine", None) if alaya is not None else None
+        if engine is None:
+            return False
+        try:
+            pnl = float(pnl_pct)
+        except (TypeError, ValueError):
+            return False
+
+        win = pnl > 0
+        # 5% 的盈亏记满信心，不足按比例（下限 0.1，避免"零信心"信号）
+        confidence = max(0.1, min(1.0, abs(pnl) / 5.0))
+        burst = _awakening_feedback_burst(pnl)
+        for _ in range(burst):
+            try:
+                engine.receive_signal(
+                    signal_type="trade_outcome_win" if win else "trade_outcome_loss",
+                    content=f"{symbol} {'盈利' if win else '亏损'} {pnl:.2f}% ({close_reason})",
+                    confidence=confidence,
+                    conditions={
+                        "symbol": symbol,
+                        "pnl_pct": pnl,
+                        "win": win,
+                        "strategy_id": strategy_id,
+                        "strategy_name": strategy_name,
+                        "position_id": position_id,
+                        "close_reason": close_reason,
+                    },
+                )
+            except Exception as e:
+                log.debug(f"[TradingCenter] 喂觉醒弱信号失败: {e}")
+                return False
+
+        log.info(
+            f"[TradingCenter] 交易结果回流: {symbol} {pnl:+.2f}% "
+            f"→ 觉醒={self._get_awakening_level()} (burst={burst})"
+        )
+        return True
 
     def get_stats(self) -> Dict[str, Any]:
         """获取统计信息"""

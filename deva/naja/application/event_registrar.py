@@ -275,8 +275,41 @@ class EventSubscriberRegistrar:
             trading_bus.subscribe("StrategySignalEvent", on_strategy_signal)
             log.info("[EventSubscriberRegistrar] TradingCenter 事件订阅完成（使用交易总线）")
 
+            self._register_trade_outcome_feedback(trading_bus)
+
         except Exception as e:
             log.warning(f"[EventSubscriberRegistrar] TradingCenter 事件订阅失败: {e}")
+
+    def _register_trade_outcome_feedback(self, trading_bus) -> None:
+        """订阅 TradeOutcomeEvent，把执行结果回流到决策/认知层（闭环反馈）。
+
+        链路：AdaptiveCycle 平仓 → TradeOutcomeEvent → 本订阅 →
+        TradingCenter.record_trade_outcome → 共享 AwakenedAlaya 累积弱信号
+        → ManasEngine 觉醒维度读同一实例（D3 闭环，见设计文档 §3）。
+        """
+        if self.trading_center is None:
+            return
+        try:
+            from deva.naja.events import TradeOutcomeEvent  # noqa: F401  确保已注册到总线
+
+            def on_trade_outcome(event):
+                try:
+                    self.trading_center.record_trade_outcome(
+                        symbol=getattr(event, "symbol", ""),
+                        pnl_pct=getattr(event, "pnl_pct", 0.0),
+                        strategy_id=getattr(event, "strategy_id", ""),
+                        strategy_name=getattr(event, "strategy_name", ""),
+                        position_id=getattr(event, "position_id", ""),
+                        close_reason=getattr(event, "close_reason", ""),
+                    )
+                except Exception as e:
+                    log.warning(f"[EventSubscriberRegistrar] 交易结果回流失败: {e}")
+
+            trading_bus.subscribe("TradeOutcomeEvent", on_trade_outcome, priority=1)
+            log.info("[EventSubscriberRegistrar] TradeOutcome 反馈订阅完成")
+
+        except Exception as e:
+            log.warning(f"[EventSubscriberRegistrar] TradeOutcome 反馈订阅失败: {e}")
 
     def _register_radar_news_push(self, event_bus) -> None:
         """注册雷达新闻前端推送。"""
