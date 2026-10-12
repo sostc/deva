@@ -3,8 +3,19 @@
 > 目标：把当前的「注意力内核 + manas 打分引擎」从 *"要不要动"的门 + 标量*，
 > 收口成一条**单一权威的决策与行动链**——从判断、到定标的、到定量、到执行、到反馈闭环。
 >
-> 性质：**评估 + 分期方案**。D0 是纯文档（零行为变化），D1 起逐期确认。
+> 性质：**评估 + 分期方案 + 执行记录**。D0 起逐期确认落地，D1 起逐步改变运行时行为。
 > 诊断部分全部基于源码行号，不含推测。
+>
+> | 期 | 状态 | commit | 风险 |
+> |---|---|---|---|
+> | D0 定义权威链 | ✅ 已完成 | `b9534ea` | 零行为变化 |
+> | D1 决策产物契约化 | ✅ 已完成 | `b9534ea` | 只增不改 |
+> | D2 action_type 驱动定量 | ✅ 已完成 | `5d4cd7b` | 改变行为（有回滚开关） |
+> | D3 闭环反馈 | ✅ 已完成 | `b7e73d6` | 中 |
+> | D4 实盘执行 | ⏸ 未做（独立立项） | — | 高 |
+>
+> 一句话验收：**全量单测 227 passed；快照基线 diff=0；契约 `--strict` exit 0；
+> 觉醒闭环验证 `--strict` exit 0。**
 
 ---
 
@@ -55,15 +66,18 @@
 
 ### 1.2 承重点（决定成败的几行）
 
-| 位置 | 现状 | 问题 |
-|---|---|---|
-| `os_kernel.py:220-258` | `alpha *= manas.alpha`，四维分数装进 `AttentionKernelOutput` | manas 输出被当"乘性权重"消费 |
-| `fusion.py:139-154` | **自己**按 `final_confidence` 阈值定 `action_type`（4 档） | 与 manas 的 `action_type` 是**两套定义** |
-| `fusion.py:168-176` | 再用 manas 的 `action_type` 打补丁，**只有 `hold` / `act_fully` 生效** | `act_carefully` / `act_minimally` 语义**丢失** |
-| `trading_center.py:517` | `approved = fusion.should_act and fusion.fused_confidence >= 0.4` | 阈值 **0.4 硬编码**，且与 fusion 的 0.3/0.5/0.7 分档不一致 |
-| `adaptive_cycle.py:353-364` | `open_position(amount=10000)` | **固定量**，与 `alpha`/`T`/`action_type` 无关 |
-| `adaptive_cycle.py:350` | `_get_adaptive_stop_loss()` 读 manas 分数 | 止盈止损**用**了 manas，建仓量**没用**——不一致 |
-| `manas_engine.py:186-191` | `ActionType = HOLD / ACT_FULLY / ACT_CAREFULLY / ACT_MINIMALLY` | 权威定义在此，但下游不认 |
+> 下表是改造前的诊断快照；"状态"列标注 D0–D3 之后的现状。
+
+| 位置 | 改造前 | 问题 | 状态 |
+|---|---|---|---|
+| `os_kernel.py:220-258` | `alpha *= manas.alpha`，四维分数装进 `AttentionKernelOutput` | manas 输出被当"乘性权重"消费 | 保留（合理） |
+| `fusion.py:139-154` | **自己**按 `final_confidence` 阈值定 `action_type`（4 档） | 与 manas 的 `action_type` 是**两套定义** | ✅ D2 改为"只降不升" |
+| `fusion.py:168-176` | 再用 manas 的 `action_type` 打补丁，**只有 `hold` / `act_fully` 生效** | `act_carefully` / `act_minimally` 语义**丢失** | ✅ D2 中档不再丢失 |
+| `trading_center.py:517` | `approved = ... >= 0.4` | 阈值硬编码，且与融合分档两套口径 | ✅ D1/D2 收口 + 可配 |
+| `adaptive_cycle.py:353-364` | `open_position(amount=10000)` | **固定量**，与 `alpha`/`T`/`action_type` 无关 | ✅ D2 按计划定量 |
+| `adaptive_cycle.py:350` | `_get_adaptive_stop_loss()` 读 manas 分数 | 止盈止损**用**了 manas，建仓量**没用**（不一致） | ✅ D2 二者一致；顺带修死分支 |
+| `manas_engine.py:186-191` | `ActionType = HOLD / ACT_FULLY / ACT_CAREFULLY / ACT_MINIMALLY` | 权威定义在此，但下游不认 | ✅ D0/D2 已确立为唯一权威 |
+| `trading_center.py:_get_awakening_level` | 读 `_awakened_state`（从未写入） | 觉醒恒 `dormant` | ✅ D3 改读真来源 |
 
 ### 1.3 "行动"的真实含义
 
@@ -188,7 +202,7 @@ multiplier = action_factor(action_type) × alpha_factor(α) × risk_factor(T)
 
 ---
 
-## 4. 分期计划
+## 4. 分期计划（含实际落地）
 
 | 期 | 内容 | 风险 | 验收 | 回滚 |
 |---|---|---|---|---|
@@ -200,6 +214,53 @@ multiplier = action_factor(action_type) × alpha_factor(α) × risk_factor(T)
 
 **依赖**：D2 依赖 D1；D3 依赖 D1（且依赖 `manas_upgrade_plan.md` 的觉醒三重断点）。
 
+### 4.1 实际落地（D0–D3 均已完成）
+
+**D0 + D1**（`b9534ea`，**零行为变化**）
+
+- `deva/naja/decision/plan.py`：`DecisionPlan` + `ACTION_SEVERITY` / `action_severity` /
+  `more_conservative`（未知档位一律当 `hold`）+ `side_from_signal_type`。
+- `deva/naja/decision/sizing.py`：单一口径定量 `compute_position_multiplier` /
+  `compute_plan_size_hint` / `compute_order_amount`；`NAJA_MANAS_SIZING` 回滚开关。
+- 补管道：`AttentionKernelOutput` 增 `action_gate_reason`（`os_kernel` 两处出口填充）；
+  `FusionOutput` 增 `risk_temperature` / `alpha` / `gate_reason`（`DecisionOrchestrator` 填充）。
+- `TradingCenter.process_strategy_signal` 附带返回 `plan`（含降级路径）；
+  审批阈值 `0.4` 收口为 `MIN_APPROVAL_CONFIDENCE`。
+- 验证：全量 215 passed；快照 **diff=0**（证明零行为变化）。
+
+**D2**（`5d4cd7b`，**改变行为**）
+
+- 融合层执行权威规则：`action_type = min(自身档位, Manas 档位)`，只降不升，
+  并在 `reasoning` 记录"权威下调: X → Y（Manas 档位=Z）"。中档语义（carefully/minimally）
+  不再蒸发。
+- 执行层按计划定量：`AdaptiveCycle._resolve_order_amount()` = `base × plan.size_hint`，
+  `open_position` / 通知 / 落盘三处写死的 `10000` 改为实际额；`size_hint=0` 时跳过建仓。
+  **降级路径保留原行为**（无 plan 或 `NAJA_MANAS_SIZING=0` → 固定 base）。
+- 审批阈值可用 `NAJA_APPROVAL_CONFIDENCE` 覆盖（默认仍 0.4）。
+- 顺带修死代码：`_get_adaptive_stop_loss` 里 `if risk_t > 1.3` 排在 `elif > 1.5` 之前，
+  "极高风险"分支**永远不可达**；已调换次序。
+- 验证：全量 220 passed；快照 diff=0；契约 exit 0；端到端实测 plan 带 `size_hint`。
+
+**D3**（`b7e73d6`，闭环）
+
+- 新增 `TradeOutcomeEvent`（平仓结果），已注册路由 / 导出 / 持久化。
+- **断点 #2 已解**：`TradingCenter._get_awakening_level()` 改读共享
+  `AwakenedAlaya.awakening_engine`（原先读一个**从未被写入**的字典 → 恒 `dormant`）。
+- **断点 #3 已解**：`TradingCenter.record_trade_outcome()` 把平仓结果投影为弱信号，
+  按显著性给 1~5 条。
+  ⚠️ 实测坑：`DORMANT` 阈值是 3，而新鲜度 `exp(-dt/60)` 恒略小于 1，
+  **恰好 3 条落在 2.9999… 卡边界**——故显著档给 ≥4 条留浮点余量，否则又是一次
+  "接了但永不生效"的静默 no-op。可用 `NAJA_AWAKENING_FEEDBACK_BURST` 覆盖。
+- 接线：`AdaptiveCycle` 平仓发布事件 → `EventSubscriberRegistrar` 订阅路由 →
+  `TradingCenter.record_trade_outcome`；`AppContainer` 注入觉醒 provider 供 Manas 读取。
+- 验证：全量 227 passed；快照 diff=0；契约 exit 0；新增
+  `scripts/verify/verify_awakening_feedback.py`（10 项，`--strict` exit 0）。
+- 容器级端到端：发布 `TradeOutcomeEvent` → 投递 1 → 觉醒 `dormant → awakening`
+  → manas 同步读到。
+
+**顺手清掉的老问题**（D0–D3 期间）：审批阈值硬编码 0.4（收口为常量 + 可配）、
+`_get_adaptive_stop_loss` 死分支、觉醒等级读陈旧字典。
+
 ---
 
 ## 5. 明确不做 / 边界
@@ -209,6 +270,17 @@ multiplier = action_factor(action_type) × alpha_factor(α) × risk_factor(T)
 - **不在核心模块新增 `SR()`**（架构基准 §6.2）。新增装配走 application 层注入。
 - **不物理搬迁模块**。只在语义上收口，不改目录（爆炸半径大，收益只是目录语义）。
 - **D4 实盘默认不做**。"行动中心"默认指虚拟组合的动作闭环；接券商是独立立项，需单独确认。
+
+**如实记录的剩余边界（知道代价后主动不做 / 未做）**：
+
+1. **觉醒是短时放大器，不是长期成长值**。`AwakeningEngine` 弱信号半衰期只有 **60 秒**，
+   一次结果只能在几分钟内抬高等级，随后衰减回 `dormant`。要"长期"效果需要另立设计
+   （例如给 AwakeningEngine 增加持久化累积通道），本轮不做。
+2. **死路径仍在**（D0 诊断的 G6）。`TradingCenter.process_market_data` / `make_decision`
+   无调用者，`process_datasource_data` 依赖不存在的 `attention_os.market_scheduler`。
+   本轮未清理（属独立整理工作项，删路径有回归风险）。
+3. **`DecisionPlan` 尚未被 UI 消费**。契约已产出并可 `to_dict()`，但 dashboard 仍读旧的
+   散字段。接 UI 属 §6.4 的 query service 工作，未纳入本轮。
 
 ---
 
@@ -225,7 +297,11 @@ multiplier = action_factor(action_type) × alpha_factor(α) × risk_factor(T)
 
 ## 7. 一句话总结
 
-> 现在这套系统**会判断、会算分、会批准、会模拟建仓**，但四件事各说各话；
-> 把它们缝成一条"判断 → 决策 → 定量 → 执行 → 反馈"的单一权威链，
-> 就是"变成真正的决策与行动中心"的全部内容。
-> **风险不在造不出，而在缝合时动了行为——所以从 D0 文档起步，逐期确认。**
+> 改造前这套系统**会判断、会算分、会批准、会模拟建仓**，但四件事各说各话；
+> D0–D3 把它们缝成了一条"判断 → 决策 → 定量 → 执行 → 反馈"的单一权威链：
+> `action_type` 有了唯一权威（只降不升）、仓位量由计划驱动（不再固定 10000）、
+> 执行结果回流到觉醒与 Manas。
+>
+> **缝合代价也兑现了**：D2 起改变运行时行为，用 `NAJA_MANAS_SIZING=0` 可一键回滚；
+> 觉醒反馈是短时放大器（60 秒半衰期），已如实标注而非假装长期有效。
+> **风险不在造不出，而在缝合时动了行为——这正是逐期确认 + 保留回滚开关的理由。**
