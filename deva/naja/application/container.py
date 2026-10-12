@@ -325,6 +325,9 @@ class AppContainer:
             # 注意：只注入 provider，不在这里拉取快照——真正的拉取发生在
             # 每条新闻评分时（惰性），避免开局就触发 NB 读表。
             self._wire_news_focus_provider()
+            # 按持仓推导关注主题（用户选定「自动采纳」档位）。后台线程执行，
+            # 要读 NB + 供应链图谱，不该拖慢启动。
+            self._bootstrap_derived_topics()
             StartupTimer.end("创建 Kernel 层组件")
 
             # 基础组件就绪后立即标记，防止 property 递归
@@ -998,10 +1001,61 @@ def execute() -> dict:
         except Exception as e:
             log.warning(f"[AppContainer] 焦点 provider 接线失败: {e}")
 
+    def _bootstrap_derived_topics(self) -> None:
+        """按持仓推导关注主题（用户 2026-10-12 选定的「自动采纳」档位）。
+
+        推导 → 采纳为 ``source="derived"``（可在 /focusadmin 一键撤销）。
+        跳过用户曾撤销过的主题，避免每次启动把刚删掉的又加回来。
+
+        放**后台线程**且延迟数秒：要读 NB + 供应链图谱，而且不能在
+        ``_assemble_core_components`` 的调用栈里跟主线程抢初始化。
+        开关：``NAJA_NEWS_AUTO_DERIVE=0`` 关闭。
+        """
+        import os
+
+        if str(os.environ.get("NAJA_NEWS_AUTO_DERIVE", "1")).strip().lower() in (
+            "0", "false", "no", "off",
+        ):
+            log.info("[AppContainer] 自动推导关注主题已关闭（NAJA_NEWS_AUTO_DERIVE=0）")
+            return
+
+        def _run() -> None:
+            time.sleep(5)  # 等启动流程走完，别和装配阶段抢资源
+            try:
+                from ..news.focus_advisor import auto_apply_derived
+
+                result = auto_apply_derived()
+            except Exception as e:
+                log.warning("[AppContainer] 自动推导关注主题失败: %s", e)
+                return
+
+            if not result.get("ok"):
+                log.warning(
+                    "[AppContainer] 自动推导关注主题未完成: %s", result.get("reason")
+                )
+                return
+
+            derived = result.get("derived") or {}
+            log.info(
+                "[AppContainer] 自动推导关注主题：采纳 %s；已存在 %s；跳过 %s%s",
+                result.get("applied") or [],
+                result.get("already") or [],
+                result.get("skipped") or [],
+                f"；推导降级 {derived.get('degraded')}" if derived.get("degraded") else "",
+            )
+
+        try:
+            import threading as _threading
+            _threading.Thread(
+                target=_run, name="focus-derive-bootstrap", daemon=True
+            ).start()
+        except Exception as e:
+            log.warning("[AppContainer] 自动推导线程启动失败: %s", e)
+
     def _create_trading_center(self):
         """创建 TradingCenter（显式依赖注入）"""
         from ..attention.orchestration.trading_center import TradingCenter
-        
+
         # 显式传递 AttentionOS 实例
         trading_center = TradingCenter(attention_os=self._attention_os)
         
