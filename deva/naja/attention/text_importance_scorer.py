@@ -41,9 +41,16 @@ class TextImportanceScorer:
     根据 ManasState 计算文本的重要程度分数
     高于阈值的内容发布 TextFocusedEvent
 
-    使用方式：
+    使用方式（容器接线，注意是**注入 provider** 而不是手动 push 状态）::
+
+        from deva.naja.news import build_manas_focus_state
+
         scorer = TextImportanceScorer(attention_os)
-        scorer.set_manas_state(focus_topics=["AI算力", "芯片"], harmony=0.7)
+        scorer.set_focus_provider(build_manas_focus_state)
+
+    手动测试时也可以直接给一份快照::
+
+        scorer.set_manas_state({"focus_topics": [{"topic": "芯片"}]})
     """
 
     def __init__(self, attention_os: Optional[Any] = None):
@@ -55,6 +62,9 @@ class TextImportanceScorer:
         """
         self._attention_os = attention_os
         self._manas_state: Optional[Dict[str, Any]] = None
+        # 「注意力状态提供者」——容器接线注入。None 表示不感知关注主题
+        # （见 _resolve_manas_state 的说明：这条线历史上一直是断的）。
+        self._focus_provider: Optional[Any] = None
         self._focus_keyword_map: Dict[str, List[str]] = defaultdict(list)
         self._init_focus_keywords()
 
@@ -74,6 +84,43 @@ class TextImportanceScorer:
             self._focus_keyword_map = DEFAULT_NARRATIVE_KEYWORDS
         else:
             self._focus_keyword_map = {}
+
+    def set_focus_provider(self, provider: Optional[Any]) -> None:
+        """注入「注意力状态提供者」（容器接线用）。
+
+        provider 是**无参可调用对象**，返回形如
+        ``{"focus_topics": [{"topic": "AI", "keywords": [...]}, ...]}`` 的 dict，
+        或返回 ``None`` 表示拿不到。
+
+        为什么是"拉"而不是"推"：每次评分前惰性拉取，状态永远是最新的；
+        外部 push 需要保证每个更新点都记得推一次，漏一处就静默过期。
+        """
+        self._focus_provider = provider
+
+    def _resolve_manas_state(self) -> Optional[Dict[str, Any]]:
+        """拉取最新注意力状态；provider 缺失/失败时沿用上次的快照。
+
+        ⚠️ 这里修的是一个**静默失效**：``set_manas_state`` 全仓**从未被调用**，
+        于是 ``_manas_state`` 恒为 None →
+          * ``_get_focus_topic_matches()`` 恒返回 ``[]``
+          * ``_compute_narrative_relevance([])`` 恒返回常数 0.3（叙事那 35% 权重是死的）
+          * ``TextFocusedEvent.matched_focus_topics`` 恒为空 →
+            下游叙事追踪 / 跨信号 / 供应链联动整条链路空转
+        因为「方法缺失」与「正好等于默认值」不可区分，表现为"跑得好好的"。
+        """
+        provider = self._focus_provider
+        if provider is None:
+            return self._manas_state
+        try:
+            state = provider()
+        except Exception as e:
+            log.warning(
+                f"[TextImportanceScorer] 焦点状态拉取失败，沿用上次快照: {e}"
+            )
+            return self._manas_state
+        if isinstance(state, dict):
+            self._manas_state = state
+        return self._manas_state
 
     def set_manas_state(self, state: Dict[str, Any]):
         """设置末那识状态"""
@@ -99,6 +146,10 @@ class TextImportanceScorer:
                 # 淘汰最旧的 50 条
                 for _ in range(50):
                     self._published_urls.pop()
+
+        # 评分前刷新注意力状态（惰性拉取，见 _resolve_manas_state）。
+        # 放在去重之后：重复内容不必多拉一次。
+        self._resolve_manas_state()
 
         keywords, topics = self._extract_keywords_topics(event.text, event.title)
         sentiment = self._compute_sentiment(event.text, event.title)
@@ -196,7 +247,12 @@ class TextImportanceScorer:
         return base_score + 0.2
 
     def _get_focus_topic_matches(self, text: str, title: str) -> List[str]:
-        """匹配 ManasState 中的关注主题"""
+        """匹配 ManasState 中的关注主题。
+
+        主题既可以用**名称**命中，也可以用**关键词**命中——provider
+        （``news.build_manas_focus_state``）两者都会带过来，
+        关键词命中能显著提高召回（如正文出现"晶圆"应归入"芯片"主题）。
+        """
         if not self._manas_state:
             return []
 
@@ -207,8 +263,17 @@ class TextImportanceScorer:
         search_text = (title + " " + text).lower()
         matched = []
         for topic in focus_topics:
-            topic_name = topic.get("topic", "") if isinstance(topic, dict) else str(topic)
-            if topic_name and topic_name.lower() in search_text:
+            if isinstance(topic, dict):
+                topic_name = str(topic.get("topic") or topic.get("name") or "")
+                keywords = topic.get("keywords") or ()
+            else:
+                topic_name, keywords = str(topic), ()
+            if not topic_name:
+                continue
+            hit = topic_name.lower() in search_text or any(
+                str(k).lower() in search_text for k in keywords if k
+            )
+            if hit and topic_name not in matched:
                 matched.append(topic_name)
         return matched
 

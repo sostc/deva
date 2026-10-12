@@ -322,6 +322,9 @@ class AppContainer:
             self._query_state_updater = self._create_query_state_updater()
             self._manas_manager = self._create_manas_manager()
             self._manas_engine = self._manas_manager.get_manas_engine()
+            # 注意：只注入 provider，不在这里拉取快照——真正的拉取发生在
+            # 每条新闻评分时（惰性），避免开局就触发 NB 读表。
+            self._wire_news_focus_provider()
             StartupTimer.end("创建 Kernel 层组件")
 
             # 基础组件就绪后立即标记，防止 property 递归
@@ -486,6 +489,7 @@ class AppContainer:
         self._register_ai_daily_report_task()
         self._register_knowledge_injector_task()
         self._register_openrouter_monitor_task()
+        self._register_news_digest_task()
         
         # 启动美林时钟经济数据定时更新
         self._start_merrill_clock_task()
@@ -596,6 +600,49 @@ def execute() -> dict:
                 log.info("[AppContainer] AI 技术简报任务已存在")
         except Exception as e:
             log.warning(f"[AppContainer] AI 技术简报任务注册失败: {e}")
+
+    def _register_news_digest_task(self):
+        """注册「新闻消化日报」定时任务（每日 19:00）。
+
+        产物：``~/.naja/news_digest/YYYY-MM-DD.html``（自包含，可随时翻看）。
+        与 AI 晚报互补：AI 晚报是"技术圈发生了什么"，本任务是
+        "按我们的持仓与关注，今天到底该看哪几条"。
+        """
+        try:
+            task_mgr = self.task_manager
+            existing = task_mgr.get_by_name("news_digest")
+            if not existing:
+                func_code = '''
+import logging
+log = logging.getLogger(__name__)
+
+def execute() -> dict:
+    """新闻消化日报：扫描已评分新闻池 → 按持仓/关注相关度精选 → 生成 HTML 日报"""
+    try:
+        from deva.naja.news.digest import run_daily_digest
+        return run_daily_digest(push=False)
+    except Exception as e:
+        log.error(f"[NewsDigest] 执行失败: {e}")
+        return {"success": False, "error": str(e)}
+'''
+                result = task_mgr.create(
+                    name="news_digest",
+                    description="新闻消化日报（按持仓/关注相关度精选，生成 HTML 报告）",
+                    func_code=func_code,
+                    task_type="scheduler",
+                    scheduler_trigger="cron",
+                    cron_expr="0 19 * * *",
+                    tags=["news", "digest", "daily_report"],
+                )
+                if result.get("success"):
+                    task_mgr.start(result.get("id"))
+                    log.info(f"[AppContainer] 新闻消化日报任务已创建并启动: {result.get('id')}")
+            else:
+                if not existing.is_running:
+                    task_mgr.start(existing.id)
+                log.info("[AppContainer] 新闻消化日报任务已存在")
+        except Exception as e:
+            log.warning(f"[AppContainer] 新闻消化日报任务注册失败: {e}")
 
     def _register_knowledge_injector_task(self):
         """注册 AI 知识库注入与验证定时任务"""
@@ -926,6 +973,30 @@ def execute() -> dict:
         attention_os.set_trading_clock(self._trading_clock)
         
         return attention_os
+
+    def _wire_news_focus_provider(self) -> None:
+        """把「注意力状态提供者」接到文本评分器上（修复一条静默失效的死线）。
+
+        背景：``TextImportanceScorer.set_manas_state`` 全仓**从未被调用**，
+        导致 ``_manas_state`` 恒为 None → 关注主题匹配恒空、叙事分恒为常数、
+        ``TextFocusedEvent.matched_focus_topics`` 恒空，下游叙事追踪/跨信号/
+        供应链联动整条链路空转（表现为"跑得好好的"）。
+
+        这里注入 ``build_manas_focus_state``：每次评分前惰性拉取当前焦点快照
+        （持仓 / 自选 / 关注叙事 / 关注主题），评分器不反向依赖 news 包——
+        依赖方向仍是 application → attention / news。
+        """
+        attention_os = self._attention_os
+        if attention_os is None:
+            log.warning("[AppContainer] attention_os 未就绪，跳过焦点 provider 接线")
+            return
+        try:
+            from ..news.focus import build_manas_focus_state
+
+            attention_os.set_text_focus_provider(build_manas_focus_state)
+            log.info("[AppContainer] 新闻焦点 provider 已接入文本评分器")
+        except Exception as e:
+            log.warning(f"[AppContainer] 焦点 provider 接线失败: {e}")
 
     def _create_trading_center(self):
         """创建 TradingCenter（显式依赖注入）"""

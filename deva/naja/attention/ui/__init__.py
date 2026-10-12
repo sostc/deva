@@ -13,6 +13,7 @@ from .components import (
     render_attention_flow_diagram,
     render_manas_engine_status,
     render_decision_plan_panel,
+    render_news_digest_panel,
 )
 
 from .auto_tuning_monitor import (
@@ -47,6 +48,7 @@ __all__ = [
     "render_attention_flow_diagram",
     "render_manas_engine_status",
     "render_decision_plan_panel",
+    "render_news_digest_panel",
     # Auto tuning
     "render_tuning_monitor_panel",
     "render_frequency_monitor_panel",

@@ -49,7 +49,13 @@ import threading
 from .os_kernel import OSAttentionKernel
 from .strategy_decision import StrategyDecisionMaker
 from ..models.output import AttentionFusionOutput, AttentionKernelOutput
-from ..text_importance_scorer import TextImportanceScorer
+
+# 注意：不要在这里 module-level 导入 TextImportanceScorer。
+# 它 → cognition.semantic.keyword_registry → cognition/__init__ → narrative
+# → bandit → attention_os，形成环；当本模块是**第一个**被 import 的 deva
+# 模块时（裸脚本 / 冷启动探针）会 ImportError。
+# 生产路径因为先加载了别的模块而侥幸不炸 —— 典型的结构性脆弱。
+# 放到 __init__ 里惰性导入，让本模块的导入顺序无关。
 
 log = logging.getLogger(__name__)
 
@@ -81,6 +87,9 @@ class AttentionOS:
 
         self.kernel = OSAttentionKernel(trading_clock=None)
         self.strategy_decision_maker = StrategyDecisionMaker(self.kernel)
+        # 惰性导入：见文件头关于循环导入的说明
+        from ..text_importance_scorer import TextImportanceScorer
+
         self._text_scorer = TextImportanceScorer(self)
 
         self._strategy_manager = None
@@ -99,6 +108,17 @@ class AttentionOS:
     def set_insight_pool(self, insight_pool) -> None:
         """显式设置 InsightPool（依赖注入）"""
         self._insight_pool = insight_pool
+
+    def set_text_focus_provider(self, provider) -> None:
+        """把「注意力状态提供者」透传给文本评分器（容器接线用）。
+
+        文本评分器靠它拿到当前关注的叙事主题；不注入时评分器退化为
+        "不感知主题"（叙事项恒为默认值），也不会报错——
+        所以这层接线必须显式做，否则就是一条静默失效的死线。
+        """
+        scorer = getattr(self, "_text_scorer", None)
+        if scorer is not None and hasattr(scorer, "set_focus_provider"):
+            scorer.set_focus_provider(provider)
 
     def initialize_strategies(self):
         """初始化所有交易策略"""
