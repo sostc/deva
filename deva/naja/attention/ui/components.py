@@ -383,6 +383,10 @@ def render_decision_plan_panel(summary: dict = None) -> str:
     stats = summary.get("stats") or {}
     recent = summary.get("recent") or []
 
+    persisted = bool(stats.get("persisted"))
+    persisted_text = "已落盘" if persisted else "仅内存"
+    persisted_color = "#16a34a" if persisted else "#d97706"
+
     action = str(latest.get("action_type", "hold"))
     action_text, action_color = _ACTION_LABELS.get(action, (action, "#64748b"))
     side = str(latest.get("side", "none"))
@@ -420,7 +424,8 @@ def render_decision_plan_panel(summary: dict = None) -> str:
                     <div style="font-size: 14px; font-weight: 600; color: #0f172a;">决策计划</div>
                     <div style="font-size: 11px; color: #64748b;">
                         决策层唯一产物 · 累计 {int(stats.get('total', 0))} 条
-                        （可执行 {int(stats.get('actionable', 0))}）
+                        （可执行 {int(stats.get('actionable', 0))}）·
+                        <span style="color: {persisted_color};">{persisted_text}</span>
                     </div>
                 </div>
             </div>
