@@ -26,6 +26,7 @@ TradingCenter - 交易中枢
     decision = center.process_market_data(data)
 """
 
+import os
 import time
 import logging
 from typing import Dict, Any, Optional, List
@@ -57,6 +58,20 @@ log = logging.getLogger(__name__)
 # 且与 DecisionFusion 的 0.3/0.5/0.7 分档是两套口径（见设计文档 G4）。
 # 这里收口为单一常量，避免"改一处漏一处"。
 MIN_APPROVAL_CONFIDENCE = 0.4
+
+
+def get_min_approval_confidence() -> float:
+    """审批置信度门槛（可用环境变量 ``NAJA_APPROVAL_CONFIDENCE`` 覆盖）。"""
+    raw = os.environ.get("NAJA_APPROVAL_CONFIDENCE")
+    if raw:
+        try:
+            return float(raw)
+        except ValueError:
+            log.warning(
+                "[TradingCenter] 非法 NAJA_APPROVAL_CONFIDENCE=%r，回落 %s",
+                raw, MIN_APPROVAL_CONFIDENCE,
+            )
+    return MIN_APPROVAL_CONFIDENCE
 
 
 class TradingCenter:
@@ -546,7 +561,8 @@ class TradingCenter:
 
             fusion = self._full_decision_pipeline(market_state, snapshot)
 
-            approved = fusion.should_act and fusion.fused_confidence >= MIN_APPROVAL_CONFIDENCE
+            approval_threshold = get_min_approval_confidence()
+            approved = fusion.should_act and fusion.fused_confidence >= approval_threshold
 
             # 决策产物：一条 DecisionPlan（动什么 / 怎么动 / 为什么）。
             # size_hint 由 decision.sizing 单一口径产出（D2）；此处先留 0。
@@ -577,7 +593,7 @@ class TradingCenter:
                 }
             else:
                 log.info(f"[TradingCenter] ❌ 信号否决: {stock_code} "
-                        f"(confidence={fusion.fused_confidence:.3f} < {MIN_APPROVAL_CONFIDENCE})")
+                        f"(confidence={fusion.fused_confidence:.3f} < {approval_threshold})")
                 return {
                     'approved': False,
                     'action_type': fusion.action_type,

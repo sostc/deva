@@ -17,6 +17,7 @@ from .virtual_portfolio import VirtualPortfolio, VirtualPosition
 from .market_observer import MarketDataObserver, get_market_observer
 from .optimizer import get_bandit_optimizer
 from deva.naja.register import SR
+from deva.naja.decision import compute_order_amount, manas_sizing_enabled
 
 log = logging.getLogger(__name__)
 
@@ -61,6 +62,12 @@ class AdaptiveCycle:
         self._auto_start = True
         self._auto_buy_enabled = True
         self._auto_adjust_enabled = True
+
+        # 仓位定量：base 是"乘子=1.0"时的基准额（原固定量 10000），
+        # 实际额 = base × DecisionPlan.size_hint（见 decision/sizing.py）。
+        # min 避免乘子很小时算出买不起 1 股的金额。
+        self._base_order_amount = 10000.0
+        self._min_order_amount = 1000.0
 
         self._manas_context_cache: Optional[Dict[str, Any]] = None
         self._last_manas_update = 0.0
@@ -210,14 +217,14 @@ class AdaptiveCycle:
         base_stop_loss = -8.0
         base_take_profit = 15.0
 
-        if risk_t > 1.3:
-            stop_loss = base_stop_loss * 0.6
-            take_profit = base_take_profit * 0.8
-            log.info(f"[AdaptiveCycle] 高风险环境: stop_loss={stop_loss}%, take_profit={take_profit}%")
-        elif risk_t > 1.5:
+        if risk_t > 1.5:
             stop_loss = base_stop_loss * 0.4
             take_profit = base_take_profit * 0.6
             log.warning(f"[AdaptiveCycle] 极高风险环境: stop_loss={stop_loss}%, take_profit={take_profit}%")
+        elif risk_t > 1.3:
+            stop_loss = base_stop_loss * 0.6
+            take_profit = base_take_profit * 0.8
+            log.info(f"[AdaptiveCycle] 高风险环境: stop_loss={stop_loss}%, take_profit={take_profit}%")
         elif timing < 0.4:
             stop_loss = base_stop_loss * 1.5
             take_profit = base_take_profit * 0.7
@@ -230,6 +237,28 @@ class AdaptiveCycle:
             stop_loss = max(stop_loss, -10.0)
 
         return stop_loss, take_profit
+
+    def _resolve_order_amount(self, decision: Dict[str, Any]) -> float:
+        """按决策计划（``DecisionPlan.size_hint``）折算下单金额。
+
+        - Manas 定量开启（默认）：``amount = base × size_hint``，带下限。
+        - ``NAJA_MANAS_SIZING=0`` 时回落固定 ``base``——灰度与回滚用。
+        - 决策**不带 plan**（TradingCenter 不可用的降级路径）→ 回落固定 ``base``，
+          保持原行为，绝不因为"没拿到计划"就不建仓。
+        - 带了 plan 但 ``size_hint=0``（hold）→ 返回 0，调用方跳过建仓。
+        """
+        base = getattr(self, "_base_order_amount", 10000.0)
+        if not manas_sizing_enabled():
+            log.debug("[AdaptiveCycle] Manas 定量已关闭，使用固定量 %s", base)
+            return base
+        plan = decision.get("plan")
+        if not plan:
+            log.debug("[AdaptiveCycle] 决策未附带 plan，回落固定量 %s", base)
+            return base
+        size_hint = plan.get("size_hint", 0.0)
+        amount = compute_order_amount(size_hint, base, min_amount=getattr(self, "_min_order_amount", 0.0))
+        log.info(f"[AdaptiveCycle] 仓位定量: size_hint={size_hint} × base={base} → amount={amount}")
+        return amount
 
     def _request_trading_center_approval(self, signal: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         """
@@ -347,6 +376,11 @@ class AdaptiveCycle:
 
         log.info(f"[AdaptiveCycle] 准备创建持仓: {signal.stock_code} @ {signal.price}")
 
+        amount = self._resolve_order_amount(decision)
+        if amount <= 0:
+            log.info(f"[AdaptiveCycle] ⏸ 决策计划未给出有效仓位（size_hint=0），跳过建仓: {signal.stock_code}")
+            return
+
         stop_loss_pct, take_profit_pct = self._get_adaptive_stop_loss()
         log.info(f"[AdaptiveCycle] 自适应止盈止损: stop_loss={stop_loss_pct}%, take_profit={take_profit_pct}%")
 
@@ -356,7 +390,7 @@ class AdaptiveCycle:
             stock_code=signal.stock_code,
             stock_name=signal.stock_name,
             price=signal.price,
-            amount=10000,
+            amount=amount,
             stop_loss_pct=stop_loss_pct,
             take_profit_pct=take_profit_pct,
             market_time=signal.market_time,
@@ -375,7 +409,7 @@ class AdaptiveCycle:
                     stock_code=signal.stock_code,
                     stock_name=signal.stock_name,
                     price=signal.price,
-                    amount=10000,
+                    amount=amount,
                 )
                 notifier.notify_buy_signal(
                     stock_code=signal.stock_code,
@@ -395,7 +429,7 @@ class AdaptiveCycle:
                     symbol=signal.stock_code,
                     price=signal.price,
                     confidence=signal.confidence,
-                    quantity=10000,
+                    quantity=amount,
                     reason=f"信号触发: {signal.signal_type} from {signal.strategy_name}"
                 )
             except Exception as e:
