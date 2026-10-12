@@ -12,13 +12,15 @@
 > | D1 决策产物契约化 | ✅ 已完成 | `b9534ea` | 只增不改 |
 > | D2 action_type 驱动定量 | ✅ 已完成 | `5d4cd7b` | 改变行为（有回滚开关） |
 > | D3 闭环反馈 | ✅ 已完成 | `b7e73d6` | 中 |
+> | UI 轮：DecisionPlan 接进 dashboard | ✅ 已完成 | — | 零行为变化 |
 > | D4 实盘执行 | ⏸ 未做（独立立项） | — | 高 |
 >
-> 一句话验收：**全量单测 231 passed；快照基线 diff=0；契约 `--strict` exit 0；
+> 一句话验收：**全量单测 238 passed；快照基线 diff=0；契约 `--strict` exit 0；
 > 觉醒闭环验证 `--strict` exit 0。**
 >
 > 后续清理（C 轮）：G6 死路径已清——`market_scheduler` 重命名遗留（6 处）+
 > 两个无调用者方法。见 §1.4 与 §4.1。
+> UI 轮：`DecisionPlan` 已上 dashboard（留痕 + query service + 面板），见 §4.2。
 
 ---
 
@@ -288,10 +290,45 @@ multiplier = action_factor(action_type) × alpha_factor(α) × risk_factor(T)
   觉醒闭环 `--strict` exit 0；端到端 `process_datasource_data` 恢复实效
   （`_strategy_decision_maker._symbol_weights` 真有值，不再 `AttributeError` 静默）。
 
+### 4.2 UI 轮：DecisionPlan 接进 dashboard（2026-10-12，**只增不改行为**）
+
+目标：把"决策层产物"摆到 dashboard 上，**替换**从 manas 散字段拼决策的做法。
+遵守 §6.4（UI 不深入核心对象）——UI 只吃 `dict`。
+
+**数据流**::
+
+    产出  process_strategy_signal ──► TradingCenter._record_plan（有界 deque，20 条）
+    查询  decision/query.py ──► 纯 dict 副本 ──► dashboard
+    渲染  attention/ui/components.render_decision_plan_panel
+
+- `deva/naja/attention/orchestration/trading_center.py`：
+  - `_recent_plans: Deque[dict]`（`maxlen=RECENT_DECISION_CAPACITY=20`）。
+  - `_record_plan(plan, approved=…)`：**三条返回路径**（降级 / 批准 / 否决）都留痕。
+    `approved` 只在确有结论时写入，避免 UI 把"没结论"误读成"已批准"。
+  - 查询：`get_recent_decisions(limit)` / `get_latest_decision()` /
+    `get_decision_plan_summary(limit)`，全部返回**副本**。
+- `deva/naja/decision/query.py`（新）：`get_decision_plan_summary` /
+  `get_latest_decision_plan` / `get_recent_decision_plans`。
+  **惰性**导入 `TradingCenter`（`trading_center` 依赖 `decision` 包，避免成环）。
+  **不做兜底合成**——没历史就如实返回空 + `reason`。
+- `deva/naja/attention/ui/components.py`：`render_decision_plan_panel(summary)`。
+  按 `DecisionPlan` 字段渲染「动什么 / 怎么动 / 动多大 / 为什么」，
+  自由文本一律 `html.escape`。
+- `deva/naja/attention/ui/dashboard.py`：`get_attention_monitor_data()` 增
+  `decision_plan` 键；`render_attention_monitor_page` 渲染面板。
+- 测试（`test_decision_fusion.py` +7 例）：留痕键集 = `to_dict` + `recorded_at`
+  (+`approved`) / 查询返回副本（篡改不污染）/ 空历史诚实 / `actionable` 口径与
+  `DecisionPlan.is_actionable` 一致 / 面板空态与填充态 / HTML 转义 / 数据出口带键。
+
+**验证**：全量 **238 passed**（231 → 238）；快照 **差异字段 0**（UI 轮零行为变化）；
+契约 `--strict` exit 0；觉醒闭环 `--strict` exit 0。
+
+**刻意保留的边界**：留痕只在**进程内存**（不落盘）——重启即清空。
+要让决策历史可回放需另立"决策落盘"设计，本轮不做。
+
 ---
 
 ## 5. 明确不做 / 边界
-
 - **不重构 manas 的打分公式**。`α` 下限支配问题（自然落 [0,0.6] 撞 `alpha_min=0.3`）是公式维度，
   复用方若需区分度应重新定标；本方案只让 `action_type` 的**权威定义**进入决策与定量。
 - **不在核心模块新增 `SR()`**（架构基准 §6.2）。新增装配走 application 层注入。
@@ -308,8 +345,11 @@ multiplier = action_factor(action_type) × alpha_factor(α) × risk_factor(T)
    6 处引用已修正、`process_datasource_data` 恢复实效；
    `process_market_data` / `make_decision` 两个无调用者方法已删除。
    仅遗留 `AttentionKernel` / `DecisionAttention` 两个休眠模块（删有回归风险）。
-3. **`DecisionPlan` 尚未被 UI 消费**。契约已产出并可 `to_dict()`，但 dashboard 仍读旧的
-   散字段。接 UI 属 §6.4 的 query service 工作，未纳入本轮。
+3. ~~**`DecisionPlan` 尚未被 UI 消费**。契约已产出并可 `to_dict()`，但 dashboard 仍读旧的
+   散字段。接 UI 属 §6.4 的 query service 工作，未纳入本轮。~~
+   **已接（2026-10-12，UI 轮）**：`TradingCenter` 对每条 `DecisionPlan` 留痕（有界队列 20 条），
+   经 `deva/naja/decision/query.py` 以**纯 dict** 暴露，dashboard 新增「决策计划」面板。
+   详见 §4.2。
 
 ---
 

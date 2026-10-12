@@ -29,7 +29,8 @@ TradingCenter - 交易中枢
 import os
 import time
 import logging
-from typing import Dict, Any, Optional, List
+from collections import deque
+from typing import Dict, Any, Optional, List, Deque
 import threading
 
 from deva.naja.cognition.narrative.tracker import get_narrative_tracker
@@ -58,6 +59,10 @@ log = logging.getLogger(__name__)
 # 且与 DecisionFusion 的 0.3/0.5/0.7 分档是两套口径（见设计文档 G4）。
 # 这里收口为单一常量，避免"改一处漏一处"。
 MIN_APPROVAL_CONFIDENCE = 0.4
+
+# 决策留痕的容量上限。dashboard 只展示"最近发生了什么决策"，
+# 不需要无限增长的内存；20 条足够覆盖一轮 UI 刷新。
+RECENT_DECISION_CAPACITY = 20
 
 
 def get_min_approval_confidence() -> float:
@@ -150,6 +155,10 @@ class TradingCenter:
             "taste_signals": 0,
             "volatility_signals": 0,
         }
+
+        # 决策留痕：每次产出 DecisionPlan（含降级/否决路径）都记一条，
+        # 供 dashboard 经查询接口读取（§6.4：UI 只吃 dict，不深入核心对象）。
+        self._recent_plans: Deque[Dict[str, Any]] = deque(maxlen=RECENT_DECISION_CAPACITY)
 
         self._decision_orchestrator = DecisionOrchestrator(
             attention_os=self.attention_os,
@@ -352,6 +361,78 @@ class TradingCenter:
             "volatility_surface": self._get_volatility_surface_state(),
             "contradiction": self._check_contradiction(),
         }
+
+    # ── 决策留痕（DecisionPlan）────────────────────────────────────────────
+    # §6.4：UI 不深入核心对象。这里只把 ``DecisionPlan.to_dict()`` 的副本
+    # 存进有界队列，查询接口再返回副本，UI 拿到的是纯 dict。
+
+    def _recent_plans_deque(self) -> Deque[Dict[str, Any]]:
+        """取留痕队列；``__init__`` 早退（单例已初始化）时兜底补建。"""
+        deque_ = getattr(self, "_recent_plans", None)
+        if deque_ is None:
+            deque_ = deque(maxlen=RECENT_DECISION_CAPACITY)
+            self._recent_plans = deque_
+        return deque_
+
+    def _record_plan(self, plan: DecisionPlan, *, approved: Optional[bool] = None) -> None:
+        """记录一条决策产物。任何一条 ``DecisionPlan`` 都应经此留痕。"""
+        try:
+            entry = plan.to_dict()
+        except Exception as e:  # pragma: no cover - to_dict 不该抛
+            log.debug(f"[TradingCenter] 记录 DecisionPlan 失败: {e}")
+            return
+        entry = dict(entry)
+        entry["recorded_at"] = time.time()
+        if approved is not None:
+            entry["approved"] = bool(approved)
+        self._recent_plans_deque().append(entry)
+
+    def get_recent_decisions(self, limit: int = 10) -> List[Dict[str, Any]]:
+        """[公开] 最近若干条决策产物（最新在前，纯 dict 副本）。"""
+        try:
+            n = max(0, int(limit))
+        except (TypeError, ValueError):
+            n = 10
+        items = list(self._recent_plans_deque())
+        items.reverse()
+        return [dict(item) for item in items[:n]]
+
+    def get_latest_decision(self) -> Optional[Dict[str, Any]]:
+        """[公开] 最新一条决策产物；从未产生过决策时返回 ``None``。
+
+        刻意不兜底合成一条"看起来像"的计划——那会把"还没决策"伪装成
+        "决策了"，正是本项目反复踩的静默失效。
+        """
+        recent = self.get_recent_decisions(limit=1)
+        return recent[0] if recent else None
+
+    def get_decision_plan_summary(self, limit: int = 10) -> Dict[str, Any]:
+        """[公开] dashboard 用的决策面板数据（纯 dict）。"""
+        recent = self.get_recent_decisions(limit=limit)
+        approved = sum(1 for item in recent if item.get("approved") is True)
+        actionable = sum(1 for item in recent if self._plan_entry_actionable(item))
+        return {
+            "available": bool(recent),
+            "latest": recent[0] if recent else None,
+            "recent": recent,
+            "stats": {
+                "total": len(self._recent_plans_deque()),
+                "shown": len(recent),
+                "approved": approved,
+                "actionable": actionable,
+            },
+        }
+
+    @staticmethod
+    def _plan_entry_actionable(entry: Dict[str, Any]) -> bool:
+        """留痕条目是否代表一次"真会动手"的计划（与 ``DecisionPlan.is_actionable`` 同口径）。"""
+        from deva.naja.decision import action_severity
+
+        return (
+            bool(entry.get("should_act"))
+            and action_severity(entry.get("action_type")) > 0
+            and float(entry.get("size_hint") or 0.0) > 0.0
+        )
 
     def _get_volatility_surface_state(self) -> Dict[str, Any]:
         """获取波动率曲面状态"""
@@ -592,6 +673,7 @@ class TradingCenter:
                     reasons=["简化决策：attention_os 不可用"],
                     source_signal=signal,
                 )
+                self._record_plan(fallback_plan, approved=True)
                 return {
                     'approved': True,
                     'action_type': 'buy',
@@ -633,6 +715,7 @@ class TradingCenter:
             if approved:
                 log.info(f"[TradingCenter] ✅ 信号批准: {stock_code} {fusion.action_type} "
                         f"(confidence={fusion.fused_confidence:.3f}, manas={fusion.manas_score:.3f})")
+                self._record_plan(plan, approved=True)
                 return {
                     'approved': True,
                     'action_type': fusion.action_type,
@@ -650,6 +733,7 @@ class TradingCenter:
             else:
                 log.info(f"[TradingCenter] ❌ 信号否决: {stock_code} "
                         f"(confidence={fusion.fused_confidence:.3f} < {approval_threshold})")
+                self._record_plan(plan, approved=False)
                 return {
                     'approved': False,
                     'action_type': fusion.action_type,
