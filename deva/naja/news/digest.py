@@ -1,0 +1,455 @@
+"""每日新闻报告 —— 把「该看什么」落成一份可随时查看的产物。
+
+数据流：
+    已评分新闻（FocusedNewsStore，只含 deep 级）
+        → NewsTriage（持仓优先相关度）
+        → build_digest（纯 dict）
+        → render_digest_html / render_digest_text（呈现）
+        → ~/.naja/news_digest/YYYY-MM-DD.html（可回看）
+
+三条守约（与 decision 模块一致，本项目反复踩过的坑）：
+  1. **不兜底合成**——没有新闻就 ``available=False`` + ``reason``，
+     绝不伪造一份"看起来像"的报告。
+  2. **降级要留痕**——焦点信息取不到时把原因带进报告，不静默当作"没命中"。
+  3. **UI 只吃 dict**——``get_news_digest_summary()`` 返回纯 dict 副本。
+"""
+
+from __future__ import annotations
+
+import html
+import json
+import logging
+import os
+import time
+from datetime import datetime
+from pathlib import Path
+from typing import Any, Dict, Iterable, List, Optional
+
+from .focus import NewsFocusState, build_focus_state
+from .triage import GROUP_LABELS, GROUP_ORDER, NewsTriage
+
+log = logging.getLogger(__name__)
+
+DIGEST_DIR = Path.home() / ".naja" / "news_digest"
+DEFAULT_WINDOW_HOURS = 24
+DEFAULT_PER_GROUP_LIMIT = 8
+# 扫描上限：先把最近的一批读进来，再按相关度挑（不是只取前 N 条）
+DEFAULT_SCAN_LIMIT = 300
+
+
+def _esc(value: Any) -> str:
+    return html.escape(str(value if value is not None else ""))
+
+
+# ── 数据装配 ────────────────────────────────────────────────────────────
+
+
+def build_digest(
+    *,
+    hours: int = DEFAULT_WINDOW_HOURS,
+    per_group_limit: int = DEFAULT_PER_GROUP_LIMIT,
+    scan_limit: int = DEFAULT_SCAN_LIMIT,
+    items: Optional[Iterable[Dict[str, Any]]] = None,
+    focus_state: Optional[NewsFocusState] = None,
+) -> Dict[str, Any]:
+    """生成一份新闻消化报告（纯 dict）。
+
+    Args:
+        items: 显式注入新闻列表（测试 / 验证用）；``None`` 则读
+               ``FocusedNewsStore``（系统里**已评分**的新闻池）。
+        focus_state: 显式注入焦点快照；``None`` 则实时构建。
+    """
+    generated_at = time.time()
+    focus = focus_state if focus_state is not None else build_focus_state()
+
+    if items is None:
+        items, source_reason = _load_scored_news(hours=hours, limit=scan_limit)
+    else:
+        items = list(items)
+        source_reason = None
+
+    triage = NewsTriage(focus)
+    analyzed = triage.analyze(items, per_group_limit=per_group_limit)
+
+    scanned = analyzed["stats"]["scanned"]
+    available = scanned > 0
+    reason = None
+    if not available:
+        reason = source_reason or f"最近 {hours} 小时内没有已评分的新闻"
+
+    return {
+        "available": available,
+        "reason": reason,
+        "generated_at": generated_at,
+        "generated_at_text": datetime.fromtimestamp(generated_at).strftime("%Y-%m-%d %H:%M:%S"),
+        "window_hours": hours,
+        "focus": focus.to_dict(),
+        "groups": analyzed["groups"],
+        "group_labels": analyzed["group_labels"],
+        "stats": analyzed["stats"],
+    }
+
+
+def _load_scored_news(*, hours: int, limit: int) -> tuple[List[Dict[str, Any]], Optional[str]]:
+    """从 ``FocusedNewsStore`` 读已评分新闻；不可用时如实返回原因。"""
+    try:
+        from deva.naja.events.focused_news_store import get_focused_news_store
+
+        store = get_focused_news_store()
+        news = store.get_recent_news(hours=hours, limit=limit)
+        return list(news), None
+    except Exception as e:
+        log.warning("[NewsDigest] 读取已评分新闻失败: %s", e)
+        return [], f"新闻池不可用：{type(e).__name__}: {e}"
+
+
+def get_news_digest_summary(
+    *,
+    hours: int = DEFAULT_WINDOW_HOURS,
+    per_group_limit: int = DEFAULT_PER_GROUP_LIMIT,
+) -> Dict[str, Any]:
+    """[公开] dashboard / UI 用的报告数据（纯 dict）。
+
+    这是 UI 侧的**唯一入口**——UI 不深入 ``NewsTriage`` / ``NewsFocusState``
+    这些核心对象，只吃 dict。
+    """
+    try:
+        return build_digest(hours=hours, per_group_limit=per_group_limit)
+    except Exception as e:  # pragma: no cover - 防御
+        log.warning("[NewsDigest] 生成报告失败: %s", e)
+        return {
+            "available": False,
+            "reason": f"报告生成失败：{type(e).__name__}: {e}",
+            "generated_at": time.time(),
+            "generated_at_text": "",
+            "window_hours": hours,
+            "focus": {},
+            "groups": {g: [] for g in GROUP_ORDER},
+            "group_labels": dict(GROUP_LABELS),
+            "stats": {"scanned": 0, "deduped": 0, "shown": 0,
+                      "holding": 0, "theme": 0, "macro": 0},
+        }
+
+
+# ── 呈现：纯文本（iMessage / 控制台）────────────────────────────────────
+
+
+def render_digest_text(digest: Dict[str, Any]) -> str:
+    """渲染成适合推送到手机的纯文本。"""
+    if not digest.get("available"):
+        return f"📰 今日新闻消化\n{_esc(digest.get('reason') or '暂无内容')}"
+
+    stats = digest.get("stats") or {}
+    focus = digest.get("focus") or {}
+    groups = digest.get("groups") or {}
+    labels = digest.get("group_labels") or GROUP_LABELS
+
+    lines: List[str] = [
+        f"📰 今日新闻消化 · {digest.get('generated_at_text', '')}",
+        "━━━━━━━━━━━━━━━━━━━━",
+        f"扫描 {stats.get('scanned', 0)} 条 → 精选 {stats.get('shown', 0)} 条"
+        f"（持仓 {stats.get('holding', 0)} / 主题 {stats.get('theme', 0)}"
+        f" / 宏观 {stats.get('macro', 0)}）",
+    ]
+
+    own = list(focus.get("holdings") or []) + list(focus.get("watchlist") or [])
+    if own:
+        lines.append(f"关注标的：{'、'.join(str(x) for x in own[:8])}")
+
+    for group in GROUP_ORDER:
+        rows = groups.get(group) or []
+        if not rows:
+            continue
+        lines.append("")
+        lines.append(f"【{labels.get(group, group)}】")
+        for i, row in enumerate(rows, 1):
+            hits = (row.get("holding_hits") or []) + (row.get("watchlist_hits") or [])
+            tag = f" ⭐{'/'.join(str(h) for h in hits)}" if hits else ""
+            lines.append(f"  {i}. [{row.get('relevance', 0):.2f}] {row.get('title', '')}{tag}")
+
+    degraded = focus.get("degraded") or []
+    if degraded:
+        lines.append("")
+        lines.append(f"⚠️ 焦点信息降级 {len(degraded)} 处：{'；'.join(str(d) for d in degraded)}")
+
+    lines.append("")
+    lines.append("━━━━━━━━━━━━━━━━━━━━")
+    lines.append("🦐 虾丸自动生成")
+    return "\n".join(lines)
+
+
+# ── 呈现：自包含 HTML（报告文件）────────────────────────────────────────
+
+
+def render_digest_html(digest: Dict[str, Any]) -> str:
+    """渲染成自包含 HTML 报告（可双击打开、可归档）。"""
+    title = f"今日新闻消化 · {digest.get('generated_at_text', '')}"
+
+    if not digest.get("available"):
+        body = (
+            '<div class="empty">'
+            f'<div class="empty-title">暂无可以消化的新闻</div>'
+            f'<div class="empty-reason">{_esc(digest.get("reason") or "")}</div>'
+            "</div>"
+        )
+        return _html_shell(title, body)
+
+    stats = digest.get("stats") or {}
+    focus = digest.get("focus") or {}
+    groups = digest.get("groups") or {}
+    labels = digest.get("group_labels") or GROUP_LABELS
+
+    own = [str(x) for x in (list(focus.get("holdings") or []) + list(focus.get("watchlist") or []))]
+    narratives = [str(x) for x in (focus.get("narratives") or [])]
+    themes = [str(t.get("name", "")) for t in (focus.get("themes") or []) if isinstance(t, dict)]
+
+    focus_chips = ""
+    if own:
+        focus_chips += _chips("持仓 / 自选", own, "#1d4ed8")
+    if narratives:
+        focus_chips += _chips("关注叙事", narratives, "#7c3aed")
+    if themes:
+        focus_chips += _chips("关注主题", themes, "#0f766e")
+
+    degraded = focus.get("degraded") or []
+    degraded_html = ""
+    if degraded:
+        items_html = "".join(f"<li>{_esc(d)}</li>" for d in degraded)
+        degraded_html = (
+            '<div class="degraded">'
+            '<div class="degraded-title">⚠️ 焦点信息有降级（如实记录，未静默）</div>'
+            f'<ul>{items_html}</ul>'
+            "</div>"
+        )
+
+    sections = ""
+    for group in GROUP_ORDER:
+        rows = groups.get(group) or []
+        if not rows:
+            continue
+        cards = "".join(_render_row_html(row, group) for row in rows)
+        sections += (
+            f'<section class="group">'
+            f'<h2>{_esc(labels.get(group, group))}'
+            f'<span class="count">{len(rows)}</span></h2>'
+            f'<div class="cards">{cards}</div>'
+            f"</section>"
+        )
+
+    summary = (
+        '<div class="stats">'
+        f'<div class="stat"><div class="stat-v">{stats.get("scanned", 0)}</div>'
+        f'<div class="stat-k">扫描</div></div>'
+        f'<div class="stat"><div class="stat-v">{stats.get("holding", 0)}</div>'
+        f'<div class="stat-k">持仓/自选</div></div>'
+        f'<div class="stat"><div class="stat-v">{stats.get("theme", 0)}</div>'
+        f'<div class="stat-k">关注主题</div></div>'
+        f'<div class="stat"><div class="stat-v">{stats.get("macro", 0)}</div>'
+        f'<div class="stat-k">宏观其它</div></div>'
+        "</div>"
+    )
+
+    header = (
+        '<div class="head">'
+        f'<h1>{_esc(title)}</h1>'
+        f'<div class="sub">窗口 {digest.get("window_hours", 24)} 小时 · '
+        f'去重后 {stats.get("deduped", 0)} 条 · 精选 {stats.get("shown", 0)} 条</div>'
+        "</div>"
+    )
+
+    body = header + summary
+    if focus_chips:
+        body += f'<div class="focus">{focus_chips}</div>'
+    body += degraded_html
+    body += sections or '<div class="empty"><div class="empty-title">没有命中任何关注项</div></div>'
+
+    return _html_shell(title, body)
+
+
+def _render_row_html(row: Dict[str, Any], group: str) -> str:
+    hits = list(row.get("holding_hits") or []) + list(row.get("watchlist_hits") or [])
+    reasons = row.get("reasons") or []
+    theme_hits = list(row.get("theme_hits") or []) + list(row.get("narrative_hits") or [])
+
+    rel = float(row.get("relevance") or 0.0)
+    bar = int(round(rel * 100))
+    bar_color = {"holding": "#1d4ed8", "theme": "#7c3aed"}.get(group, "#94a3b8")
+
+    tag_html = "".join(
+        f'<span class="tag tag-star">{_esc(h)}</span>' for h in hits
+    ) + "".join(f'<span class="tag tag-theme">{_esc(t)}</span>' for t in theme_hits)
+
+    url = row.get("url") or ""
+    title_html = (
+        f'<a href="{_esc(url)}" target="_blank" rel="noopener">{_esc(row.get("title", ""))}</a>'
+        if url
+        else _esc(row.get("title", ""))
+    )
+
+    return (
+        '<div class="card">'
+        f'<div class="card-top"><div class="card-title">{title_html}</div>'
+        f'<div class="card-rel" title="相关度">{rel:.2f}</div></div>'
+        f'<div class="bar"><i style="width:{bar}%;background:{bar_color}"></i></div>'
+        f'<div class="meta">{_esc(row.get("datetime", ""))} · {_esc(row.get("source", ""))}'
+        f' · 基础分 {float(row.get("base_importance") or 0):.2f}</div>'
+        + (f'<div class="tags">{tag_html}</div>' if tag_html else "")
+        + (
+            '<div class="reasons">'
+            + "".join(f"<span>· {_esc(r)}</span>" for r in reasons)
+            + "</div>"
+            if reasons
+            else ""
+        )
+        + "</div>"
+    )
+
+
+def _chips(label: str, values: List[str], color: str) -> str:
+    inner = "".join(
+        f'<span class="chip" style="border-color:{color};color:{color}">{_esc(v)}</span>'
+        for v in values[:12]
+    )
+    return f'<div class="chip-row"><span class="chip-label">{_esc(label)}</span>{inner}</div>'
+
+
+def _html_shell(title: str, body: str) -> str:
+    return f"""<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{_esc(title)}</title>
+<style>
+ *{{box-sizing:border-box}}
+ body{{margin:0;padding:28px 20px 60px;background:#f1f5f9;
+   font-family:-apple-system,"PingFang SC","Helvetica Neue",sans-serif;color:#0f172a}}
+ .wrap{{max-width:880px;margin:0 auto}}
+ .head h1{{font-size:20px;font-weight:600;margin:0 0 6px}}
+ .head .sub{{font-size:12px;color:#64748b}}
+ .stats{{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin:18px 0}}
+ .stat{{background:#fff;border:1px solid #e2e8f0;border-radius:10px;padding:12px;text-align:center}}
+ .stat-v{{font-size:20px;font-weight:600}}
+ .stat-k{{font-size:11px;color:#64748b;margin-top:2px}}
+ .focus{{background:#fff;border:1px solid #e2e8f0;border-radius:10px;padding:12px;margin-bottom:14px}}
+ .chip-row{{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin:4px 0}}
+ .chip-label{{font-size:11px;color:#64748b;min-width:70px}}
+ .chip{{font-size:11px;border:1px solid;border-radius:10px;padding:1px 8px;background:#fff}}
+ .degraded{{background:#fffbeb;border:1px solid #fde68a;border-radius:10px;
+   padding:12px;margin-bottom:14px;font-size:12px;color:#92400e}}
+ .degraded-title{{font-weight:600;margin-bottom:4px}}
+ .degraded ul{{margin:0;padding-left:18px}}
+ .group{{margin-top:22px}}
+ .group h2{{font-size:14px;font-weight:600;margin:0 0 10px;display:flex;align-items:center;gap:8px}}
+ .group h2 .count{{font-size:11px;color:#64748b;background:#e2e8f0;
+   border-radius:8px;padding:1px 7px;font-weight:400}}
+ .cards{{display:flex;flex-direction:column;gap:10px}}
+ .card{{background:#fff;border:1px solid #e2e8f0;border-radius:10px;padding:12px 14px}}
+ .card-top{{display:flex;justify-content:space-between;gap:12px;align-items:baseline}}
+ .card-title{{font-size:13px;font-weight:500;line-height:1.5}}
+ .card-title a{{color:#0f172a;text-decoration:none}}
+ .card-title a:hover{{text-decoration:underline}}
+ .card-rel{{font-size:13px;font-weight:600;color:#334155;flex:none}}
+ .bar{{height:3px;background:#f1f5f9;border-radius:2px;margin:8px 0 6px;overflow:hidden}}
+ .bar i{{display:block;height:100%;border-radius:2px}}
+ .meta{{font-size:11px;color:#94a3b8}}
+ .tags{{margin-top:6px;display:flex;flex-wrap:wrap;gap:5px}}
+ .tag{{font-size:10px;border-radius:8px;padding:1px 7px;background:#f1f5f9;color:#475569}}
+ .tag-star{{background:#dbeafe;color:#1d4ed8}}
+ .tag-theme{{background:#ede9fe;color:#6d28d9}}
+ .reasons{{margin-top:6px;display:flex;flex-direction:column;gap:2px}}
+ .reasons span{{font-size:11px;color:#64748b}}
+ .empty{{background:#fff;border:1px solid #e2e8f0;border-radius:10px;padding:28px;text-align:center}}
+ .empty-title{{font-size:14px;font-weight:500;color:#334155}}
+ .empty-reason{{font-size:12px;color:#94a3b8;margin-top:6px}}
+ .foot{{margin-top:26px;font-size:11px;color:#94a3b8;text-align:center}}
+</style></head><body><div class="wrap">{body}
+<div class="foot">Naja · 新闻消化器 · 数据源：已评分新闻池（deep 级）</div>
+</div></body></html>"""
+
+
+# ── 落盘 + 定时任务入口 ─────────────────────────────────────────────────
+
+
+def write_daily_digest(
+    digest: Optional[Dict[str, Any]] = None,
+    *,
+    out_dir: Optional[Path] = None,
+) -> Path:
+    """把报告写成 ``<out_dir>/YYYY-MM-DD.html``，另存一份最新快照 json。"""
+    digest = digest if digest is not None else build_digest()
+    directory = Path(out_dir) if out_dir is not None else DIGEST_DIR
+    directory.mkdir(parents=True, exist_ok=True)
+
+    day = datetime.fromtimestamp(digest.get("generated_at") or time.time()).strftime("%Y-%m-%d")
+    html_path = directory / f"{day}.html"
+    html_path.write_text(render_digest_html(digest), encoding="utf-8")
+
+    try:
+        (directory / f"{day}.json").write_text(
+            json.dumps(digest, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
+        (directory / "latest.json").write_text(
+            json.dumps(digest, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
+    except Exception as e:  # pragma: no cover - 防御
+        log.warning("[NewsDigest] 报告 JSON 落盘失败: %s", e)
+
+    return html_path
+
+
+def run_daily_digest(*, push: bool = False, out_dir: Optional[Path] = None) -> Dict[str, Any]:
+    """定时任务入口：生成 + 落盘（可选推送到手机）。失败不抛，返回 dict。"""
+    try:
+        digest = build_digest()
+        path = write_daily_digest(digest, out_dir=out_dir)
+        stats = digest.get("stats") or {}
+
+        result: Dict[str, Any] = {
+            "success": True,
+            "available": digest.get("available"),
+            "report_path": str(path),
+            "scanned": stats.get("scanned", 0),
+            "shown": stats.get("shown", 0),
+            "holding": stats.get("holding", 0),
+        }
+
+        if push and digest.get("available"):
+            result["pushed"] = _push_via_imessage(render_digest_text(digest))
+
+        log.info(
+            "[NewsDigest] 日报已生成：扫描 %s → 精选 %s（持仓 %s）→ %s",
+            result["scanned"], result["shown"], result["holding"], path,
+        )
+        return result
+    except Exception as e:
+        log.error("[NewsDigest] 日报生成失败: %s", e)
+        return {"success": False, "error": str(e)}
+
+
+def _push_via_imessage(text: str) -> bool:
+    """复用 ai_daily_report 的推送方式（尽力而为，失败只记日志）。"""
+    phone = os.environ.get("NAJA_NEWS_DIGEST_PHONE", "+8618626880688")
+    try:
+        import subprocess
+
+        escaped = text.replace('"', '\\"')
+        cmd = [
+            "osascript", "-e",
+            'tell application "Messages" to send '
+            f'"{escaped}" to buddy "{phone}"',
+        ]
+        subprocess.run(cmd, capture_output=True, timeout=15)
+        return True
+    except Exception as e:
+        log.warning("[NewsDigest] iMessage 推送失败: %s", e)
+        return False
+
+
+__all__ = [
+    "build_digest",
+    "get_news_digest_summary",
+    "render_digest_text",
+    "render_digest_html",
+    "write_daily_digest",
+    "run_daily_digest",
+    "DIGEST_DIR",
+]
