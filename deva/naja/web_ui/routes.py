@@ -19,7 +19,7 @@ from .pages import (
     learningadmin, learning_list_page, learning_history_page,
     learning_detail_page, supplychain_page, api_explorer, devtools_page,
     investment_sandbox_page, alab_investment_sandbox_page,
-    structural_growth_page,
+    structural_growth_page, focusadmin,
     KnowledgeActionHandler,
     _get_log_stream_page, _get_loop_audit_page,
 )
@@ -952,6 +952,7 @@ def create_handlers(cdn: str = None):
         (r'/learning/detail', webio_handler(learning_detail_page, cdn=cdn_url)),
         (r'/api_explorer', webio_handler(api_explorer, cdn=cdn_url)),
         (r'/devtools', webio_handler(devtools_page, cdn=cdn_url)),
+        (r'/focusadmin', webio_handler(focusadmin, cdn=cdn_url)),
         (r'/investment_sandbox', webio_handler(investment_sandbox_page, cdn=cdn_url)),
         (r'/alab_investment_sandbox', webio_handler(alab_investment_sandbox_page, cdn=cdn_url)),
         (r'/structural_growth', webio_handler(structural_growth_page, cdn=cdn_url)),

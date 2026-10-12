@@ -164,6 +164,14 @@ async def tableadmin():
     render_tables_page(ctx)
 
 
+async def focusadmin():
+    """关注管理（持仓 / 关注主题 / 从持仓推导主题）"""
+    from deva.naja.news.ui import render_focus_admin
+    ctx = _ctx()
+    await ctx["init_naja_ui"]("关注管理")
+    render_focus_admin(ctx)
+
+
 async def runtimestateadmin():
     """运行时状态管理（已停用）"""
     from pywebio.output import put_markdown
@@ -1245,6 +1253,7 @@ async def devtools_page():
             {"name": "🎯 策略", "path": "/strategyadmin", "desc": "策略管理"},
             {"name": "🤖 LLM", "path": "/llmadmin", "desc": "LLM 调节"},
             {"name": "🎰 Bandit", "path": "/banditadmin", "desc": "Bandit 自适应交易"},
+            {"name": "🎯 关注管理", "path": "/focusadmin", "desc": "持仓与关注主题管理"},
         ],
         "系统监控": [
             {"name": "🩺 健康", "path": "/health", "desc": "系统健康监控"},
