@@ -169,3 +169,80 @@ def test_fusion_output_to_dict_includes_decision_context():
     assert dumped["alpha"] == 0.8
     assert dumped["gate_reason"] == "轻仓"
 
+
+# ──────────────────────────────────────────────────────────────────────────────
+# D2：action_type 权威规则在融合层生效 + 执行层按计划定量
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+def test_fusion_downgrades_when_manas_is_more_conservative():
+    """融合层自身想给 act_fully，但 Manas 只说 act_carefully → 必须被下调。"""
+    fusion = DecisionFusion()
+    kernel_output = make_kernel_output(action_type="act_carefully")
+    fp_insights = [{"type": "opportunity", "level": "first_principles", "confidence": 0.95}]
+
+    result = fusion.fuse(fp_insights=fp_insights, kernel_output=kernel_output, current_position=0.0)
+
+    assert result.action_type == "act_carefully"
+    assert any("权威下调" in r for r in result.reasoning)
+
+
+def test_fusion_never_promotes_beyond_manas_ceiling():
+    """Manas 档位是上限：自身档位不得高于它。"""
+    fusion = DecisionFusion()
+    kernel_output = make_kernel_output(action_type="act_minimally")
+    fp_insights = [{"type": "opportunity", "level": "first_principles", "confidence": 0.99}]
+
+    result = fusion.fuse(fp_insights=fp_insights, kernel_output=kernel_output, current_position=0.0)
+
+    assert result.action_type == "act_minimally"
+
+
+def test_fusion_manas_act_fully_is_preserved():
+    """Manas 说全力，且自身也够格 → 保持 act_fully（不被误降）。"""
+    fusion = DecisionFusion()
+    kernel_output = make_kernel_output(action_type="act_fully")
+    fp_insights = [{"type": "opportunity", "level": "first_principles", "confidence": 0.95}]
+
+    result = fusion.fuse(fp_insights=fp_insights, kernel_output=kernel_output, current_position=0.0)
+
+    assert result.action_type == "act_fully"
+
+
+def test_adaptive_cycle_sizing_follows_plan(monkeypatch):
+    """执行层按 DecisionPlan.size_hint 定量；无 plan / 关开关则回落固定量。"""
+    from deva.naja.bandit.adaptive_cycle import AdaptiveCycle
+
+    cycle = AdaptiveCycle.__new__(AdaptiveCycle)
+    cycle._base_order_amount = 10000.0
+    cycle._min_order_amount = 1000.0
+    monkeypatch.delenv("NAJA_MANAS_SIZING", raising=False)
+
+    # 有 plan：按乘子缩放
+    assert cycle._resolve_order_amount({"plan": {"size_hint": 0.6}}) == 6000.0
+    # 极小乘子仍不低于 min
+    assert cycle._resolve_order_amount({"plan": {"size_hint": 0.001}}) == 1000.0
+    # hold（size_hint=0）→ 0，调用方会跳过建仓
+    assert cycle._resolve_order_amount({"plan": {"size_hint": 0.0}}) == 0.0
+    # 降级路径：决策不带 plan → 保持原固定量
+    assert cycle._resolve_order_amount({"approved": True}) == 10000.0
+
+    # 回滚开关：关闭 Manas 定量 → 固定量
+    monkeypatch.setenv("NAJA_MANAS_SIZING", "0")
+    assert cycle._resolve_order_amount({"plan": {"size_hint": 0.6}}) == 10000.0
+
+
+def test_adaptive_stop_loss_extreme_risk_branch_is_reachable():
+    """极高风险分支必须可达（原实现被 >1.3 分支挡住，是死代码）。"""
+    from deva.naja.bandit.adaptive_cycle import AdaptiveCycle
+
+    cycle = AdaptiveCycle.__new__(AdaptiveCycle)
+    cycle._manas_context_cache = {"risk_temperature": 2.0, "timing_score": 0.6}
+    cycle._last_manas_update = 9e18  # 避免刷新缓存
+    cycle._manas_update_interval = 60.0
+    stop_loss, take_profit = cycle._get_adaptive_stop_loss()
+    # 极高风险：-8*0.4 = -3.2，15*0.6 = 9.0
+    assert stop_loss == -3.2
+    assert take_profit == 9.0
+
+
