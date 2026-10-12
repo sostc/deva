@@ -501,6 +501,32 @@ class AdaptiveCycle:
             log.debug(f"记录Bandit决策快照失败: {e}")
 
         self._optimizer.update_reward(position.strategy_id, result.get('reward', position.return_pct))
+
+        self._publish_trade_outcome(position, reason, result)
+
+    def _publish_trade_outcome(self, position, reason: str, result) -> None:
+        """把平仓结果发布为 TradeOutcomeEvent —— 闭环反馈的起点。
+
+        消费者：EventSubscriberRegistrar 里的订阅 → TradingCenter.record_trade_outcome
+        → 喂给共享 AwakenedAlaya（Bandit 侧的学习已由上面的 update_reward 完成）。
+        """
+        try:
+            from deva.naja.events import TradeOutcomeEvent, get_trading_bus
+            reward = result.get("reward", 0.0) if isinstance(result, dict) else 0.0
+            event = TradeOutcomeEvent(
+                symbol=getattr(position, "stock_code", ""),
+                pnl_pct=float(getattr(position, "return_pct", 0.0) or 0.0),
+                strategy_id=getattr(position, "strategy_id", ""),
+                strategy_name=getattr(position, "strategy_name", ""),
+                position_id=getattr(position, "position_id", ""),
+                entry_price=float(getattr(position, "entry_price", 0.0) or 0.0),
+                exit_price=float(getattr(position, "current_price", 0.0) or 0.0),
+                close_reason=reason,
+                reward=float(reward or 0.0),
+            )
+            get_trading_bus().publish(event)
+        except Exception as e:
+            log.debug(f"[AdaptiveCycle] 发布 TradeOutcomeEvent 失败: {e}")
     
     def start(self):
         """启动自适应循环"""

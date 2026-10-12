@@ -210,3 +210,55 @@ class TradeDecisionEvent:
             "metadata": self.metadata,
             "_type": "TradeDecisionEvent"
         }
+
+
+@dataclass
+class TradeOutcomeEvent:
+    """交易结果事件 —— 闭环反馈的起点。
+
+    由执行层（``AdaptiveCycle``）在**平仓**时发布，供决策层/认知层回流学习：
+
+    - Bandit 学参数（已有：``update_reward``）
+    - 认知层 ``AwakenedAlaya`` 累积弱信号（本事件新增的反馈路径）
+    - ``ManasEngine`` 的觉醒维度读**同一个** ``AwakeningEngine`` 实例
+
+    ⚠️ 注意时效：``AwakeningEngine`` 的弱信号半衰期只有 60 秒，
+    所以觉醒等级是**短时放大器**，不是长期成长值——单次结果对其影响很快衰减。
+    """
+
+    symbol: str
+    pnl_pct: float = 0.0                # 本次交易收益率（百分数，+3.5 表示 +3.5%）
+    strategy_id: str = ""
+    strategy_name: str = ""
+    position_id: str = ""
+    entry_price: float = 0.0
+    exit_price: float = 0.0
+    close_reason: str = ""              # TAKE_PROFIT / STOP_LOSS / FORCE ...
+    reward: float = 0.0                 # Bandit 奖励（可能经归一化）
+    timestamp: float = field(default_factory=time.time)
+    metadata: Dict[str, Any] = field(default_factory=dict)
+
+    @property
+    def datetime(self) -> datetime:
+        return datetime.fromtimestamp(self.timestamp)
+
+    @property
+    def is_win(self) -> bool:
+        return self.pnl_pct > 0
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "symbol": self.symbol,
+            "pnl_pct": self.pnl_pct,
+            "strategy_id": self.strategy_id,
+            "strategy_name": self.strategy_name,
+            "position_id": self.position_id,
+            "entry_price": self.entry_price,
+            "exit_price": self.exit_price,
+            "close_reason": self.close_reason,
+            "reward": self.reward,
+            "is_win": self.is_win,
+            "timestamp": self.timestamp,
+            "metadata": self.metadata,
+            "_type": "TradeOutcomeEvent",
+        }

@@ -96,6 +96,7 @@ from .cognitive_events import (
 from .trading_events import (
     StrategySignalEvent,
     TradeDecisionEvent,
+    TradeOutcomeEvent,
     SignalDirection,
     DecisionResult,
 )
@@ -188,7 +189,7 @@ def subscribe_event(event_type: str, callback, bus_type: str = "auto", **kwargs)
         from .trading_bus import get_trading_bus
         return get_trading_bus().subscribe(event_type, callback, **kwargs)
     else:
-        if TRADING_BUS_AVAILABLE and event_type in ['StrategySignalEvent', 'TradeDecisionEvent']:
+        if TRADING_BUS_AVAILABLE and event_type in ['StrategySignalEvent', 'TradeDecisionEvent', 'TradeOutcomeEvent']:
             try:
                 from .trading_bus import get_trading_bus
                 return get_trading_bus().subscribe(event_type, callback, **kwargs)
@@ -258,6 +259,7 @@ __all__ = [
     # 交易事件
     "StrategySignalEvent",
     "TradeDecisionEvent",
+    "TradeOutcomeEvent",
     "SignalDirection",
     "DecisionResult",
 ]

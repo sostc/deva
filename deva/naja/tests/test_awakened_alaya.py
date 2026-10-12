@@ -197,5 +197,95 @@ class TestAwakenedAlaya(unittest.TestCase):
         self.assertIn("awakening_level", stats)
 
 
+class _TradingCenterProxy:
+    """只带 D3 反馈所需依赖的轻量替身，避免构造 TradingCenter 单例。
+
+    它把 `_get_awakening_level` 委托给 TradingCenter 的**真实方法体**
+    （unbound 调用），因此测的是产品代码而不是复制的逻辑。
+    """
+
+    def __init__(self, alaya, stale_level=None):
+        self._alaya = alaya
+        self._awakened_state = (
+            {} if stale_level is None else {"awakening_level": stale_level}
+        )
+
+    def _get_awakened_alaya(self):
+        return self._alaya
+
+    def _get_awakening_level(self):
+        from deva.naja.attention.orchestration.trading_center import TradingCenter
+        return TradingCenter._get_awakening_level(self)
+
+
+class TestAwakeningFeedbackLoop(unittest.TestCase):
+    """D3 闭环反馈：执行结果 → AwakenedAlaya，以及觉醒三重断点 #2 的修复。"""
+
+    def test_get_awakening_level_reads_real_source_not_stale_dict(self):
+        """断点 #2：不能再读那个从未被写入的 _awakened_state 字典。"""
+        alaya = AwakenedAlaya()
+        proxy = _TradingCenterProxy(alaya, stale_level="BOGUS_FROM_STALE_DICT")
+        level = proxy._get_awakening_level()
+        self.assertNotEqual(level, "BOGUS_FROM_STALE_DICT")
+        self.assertEqual(level, "dormant")
+
+    def test_get_awakening_level_falls_back_when_alaya_missing(self):
+        proxy = _TradingCenterProxy(None, stale_level="fallback_level")
+        self.assertEqual(proxy._get_awakening_level(), "fallback_level")
+
+    def test_record_trade_outcome_feeds_engine_and_raises_level(self):
+        """断点 #3：结果真的进 AwakeningEngine，显著结果能跨过阈值。"""
+        from deva.naja.attention.orchestration.trading_center import TradingCenter
+
+        alaya = AwakenedAlaya()
+        proxy = _TradingCenterProxy(alaya)
+        before = alaya.awakening_engine.get_stats()["signal_count"]
+
+        ok = TradingCenter.record_trade_outcome(
+            proxy, "600000", 8.0, close_reason="TAKE_PROFIT"
+        )
+
+        after = alaya.awakening_engine.get_stats()["signal_count"]
+        self.assertTrue(ok)
+        self.assertGreater(after, before)
+        self.assertNotEqual(alaya.awakening_engine.get_awakening_level(), "dormant")
+
+    def test_small_outcome_does_not_falsely_awaken(self):
+        """微小结果只有 1 条弱信号，跨不过 DORMANT=3 —— 不是"什么都算觉醒"。"""
+        from deva.naja.attention.orchestration.trading_center import TradingCenter
+
+        alaya = AwakenedAlaya()
+        proxy = _TradingCenterProxy(alaya)
+        TradingCenter.record_trade_outcome(proxy, "000001", 0.3, close_reason="FORCE")
+        self.assertEqual(alaya.awakening_engine.get_awakening_level(), "dormant")
+
+    def test_record_trade_outcome_rejects_bad_input(self):
+        from deva.naja.attention.orchestration.trading_center import TradingCenter
+
+        alaya = AwakenedAlaya()
+        proxy = _TradingCenterProxy(alaya)
+        self.assertFalse(
+            TradingCenter.record_trade_outcome(proxy, "600000", "not-a-number")
+        )
+
+    def test_awakening_level_provider_reflects_feedback(self):
+        """Manas 的觉醒维度读到的是反馈后的真实等级（读取端已接）。"""
+        from deva.naja.attention.kernel.manas_engine import ManasEngine
+        from deva.naja.attention.orchestration.trading_center import TradingCenter
+
+        alaya = AwakenedAlaya()
+        proxy = _TradingCenterProxy(alaya)
+        engine = ManasEngine()
+        engine.set_awakening_level_provider(proxy._get_awakening_level)
+
+        self.assertEqual(engine._get_awakening_level(), "dormant")
+        TradingCenter.record_trade_outcome(proxy, "600000", 6.0, close_reason="TAKE_PROFIT")
+        self.assertEqual(
+            engine._get_awakening_level(),
+            alaya.awakening_engine.get_awakening_level(),
+        )
+        self.assertNotEqual(engine._get_awakening_level(), "dormant")
+
+
 if __name__ == "__main__":
     unittest.main()
