@@ -1094,5 +1094,68 @@ class TestManasStandaloneFacade(unittest.TestCase):
         self.assertEqual(pulled, [], f"加载期被拖入交易域模块: {pulled}")
 
 
+class TestManasTypicalCase(unittest.TestCase):
+    """典型案例（deva/examples/manas_decision_desk.py）必须真能跑、有区分度、可复现。
+
+    这个案例是「别的应用怎么用 manas」的样板，所以它同时也是一份**回归护栏**：
+    一旦打分/门控被改到案例不再产生可行动时点，这里就会红。
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        import importlib.util
+        from pathlib import Path
+
+        root = Path(__file__).resolve().parents[3]
+        cls.example_path = root / "deva/examples/manas_decision_desk.py"
+        spec = importlib.util.spec_from_file_location("manas_decision_desk_t", cls.example_path)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        cls.desk = mod
+        cls.payload = mod.load_snapshots(cls.example_path.parent / "data/manas_typical_day.json")
+        cls.rows = mod.run_case(cls.payload["snapshots"])
+
+    def test_case_is_actionable_and_varied(self):
+        """案例至少要开一次行动门、且分数有跨度——否则它作为“案例”是失真的。"""
+        self.assertEqual(len(self.rows), len(self.payload["snapshots"]))
+        self.assertGreaterEqual(sum(1 for r in self.rows if r["should_act"]), 1)
+        scores = [r["manas_score"] for r in self.rows]
+        self.assertGreater(max(scores) - min(scores), 0.2)
+        self.assertGreaterEqual(len({r["harmony_state"] for r in self.rows}), 2)
+
+    def test_case_is_reproducible(self):
+        """同输入两次运行必须一致（引擎有状态，但每次 run_case 新建会话）。"""
+        again = self.desk.run_case(self.payload["snapshots"])
+        self.assertEqual(
+            [r["manas_score"] for r in self.rows],
+            [r["manas_score"] for r in again],
+        )
+
+    def test_row_contract(self):
+        """每行必须带齐渲染所需字段——报告与验证脚本都依赖它。"""
+        expected = {
+            "time", "label", "note", "manas_score", "harmony_state", "action_type",
+            "action_label", "target_pct", "should_act", "alpha", "risk_temperature",
+            "gate_reason",
+        }
+        for r in self.rows:
+            self.assertEqual(set(r), expected)
+
+    def test_example_imports_only_public_facade(self):
+        """典型案例的 import 只能走公共门面——它示范的就是“别的应用怎么接”。"""
+        src = self.example_path.read_text(encoding="utf-8")
+        imports = [ln.strip() for ln in src.splitlines()
+                   if ln.strip().startswith(("import ", "from "))]
+        deep = [ln for ln in imports
+                if "deva.naja.attention" in ln or "deva.naja.decision" in ln]
+        self.assertEqual(deep, [], f"案例深入了内部路径: {deep}")
+
+    def test_report_renders(self):
+        report = self.desk.render_report_html(self.payload, self.rows)
+        self.assertIn("manas_score", report)
+        self.assertIn("action_type", report)
+        self.assertGreater(len(report), 1000)
+
+
 if __name__ == '__main__':
     unittest.main(verbosity=2)
