@@ -40,6 +40,9 @@ class FusionOutput:
     timing_score: float = 0.5
     regime_score: float = 0.0
     confidence_score: float = 0.5
+    risk_temperature: float = 1.0
+    alpha: float = 1.0
+    gate_reason: str = ""
     bias_state: str = "neutral"
     bias_correction: float = 1.0
     final_decision: Dict[str, Any] = field(default_factory=dict)
@@ -58,6 +61,9 @@ class FusionOutput:
             "timing_score": self.timing_score,
             "regime_score": self.regime_score,
             "confidence_score": self.confidence_score,
+            "risk_temperature": self.risk_temperature,
+            "alpha": self.alpha,
+            "gate_reason": self.gate_reason,
             "bias_state": self.bias_state,
             "bias_correction": self.bias_correction,
             "final_decision": self.final_decision,
