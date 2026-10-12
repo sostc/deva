@@ -115,7 +115,7 @@ class SnapshotManager:
 
             tc = get_trading_center()
             os = tc.get_attention_os()
-            scheduler = os.market_scheduler
+            scheduler = os.strategy_decision_maker
 
             top_symbols = []
             try:
@@ -354,7 +354,7 @@ class SnapshotManager:
             from deva.naja.attention.orchestration.trading_center import get_trading_center
             tc = get_trading_center()
             os = tc.get_attention_os()
-            scheduler = os.market_scheduler
+            scheduler = os.strategy_decision_maker
 
             try:
                 symbol_weights = scheduler._symbol_weights
