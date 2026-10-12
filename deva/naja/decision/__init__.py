@@ -13,6 +13,11 @@ from .sizing import (
     compute_position_multiplier,
     manas_sizing_enabled,
 )
+from .query import (
+    get_decision_plan_summary,
+    get_latest_decision_plan,
+    get_recent_decision_plans,
+)
 
 __all__ = [
     "DecisionFusion",
@@ -28,4 +33,7 @@ __all__ = [
     "compute_plan_size_hint",
     "compute_position_multiplier",
     "manas_sizing_enabled",
+    "get_decision_plan_summary",
+    "get_latest_decision_plan",
+    "get_recent_decision_plans",
 ]
