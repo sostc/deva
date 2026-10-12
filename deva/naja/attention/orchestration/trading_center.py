@@ -23,7 +23,7 @@ TradingCenter - 交易中枢
 
 使用方式：
     center = TradingCenter()
-    decision = center.process_market_data(data)
+    decision = center.process_strategy_signal(signal)
 """
 
 import os
@@ -400,30 +400,6 @@ class TradingCenter:
     ) -> FusionOutput:
         return self._decision_orchestrator.run_full_pipeline(market_state, snapshot)
 
-    def process_market_data(
-        self,
-        data: Dict[str, Any],
-        symbols: Optional[List[str]] = None
-    ) -> FusionOutput:
-        """
-        处理市场数据，生成交易决策
-
-        Args:
-            data: 市场数据
-            symbols: 关注的股票列表
-
-        Returns:
-            FusionOutput: 融合后的决策
-        """
-        market_state = data.get("market_state", {})
-        snapshot = data.get("snapshot", {})
-
-        narratives = self._get_current_narratives()
-        if narratives:
-            market_state["narratives"] = narratives
-
-        return self._full_decision_pipeline(market_state, snapshot)
-
     def _fuse_decisions(
         self,
         kernel_output,
@@ -431,31 +407,6 @@ class TradingCenter:
         awakening_level: str
     ) -> FusionOutput:
         return self._decision_orchestrator.fuse_decisions(kernel_output, fp_insights, awakening_level)
-
-    def make_decision(
-        self,
-        market_state: Optional[Dict[str, Any]] = None,
-        portfolio: Optional[Any] = None
-    ) -> FusionOutput:
-        """
-        快速决策（不经过完整流程）
-
-        用于简单决策场景
-        """
-        kernel_output = self.attention_os.make_decision(market_state, portfolio)
-
-        return FusionOutput(
-            should_act=kernel_output.should_act,
-            action_type=kernel_output.action_type,
-            harmony_strength=kernel_output.harmony_strength,
-            fused_confidence=kernel_output.confidence,
-            manas_score=kernel_output.manas_score,
-            timing_score=kernel_output.timing_score,
-            regime_score=kernel_output.regime_score,
-            confidence_score=kernel_output.confidence_score,
-            bias_state=kernel_output.bias_state,
-            bias_correction=kernel_output.bias_correction,
-        )
 
     def get_harmony(self) -> Dict[str, Any]:
         """获取当前和谐状态"""
@@ -475,7 +426,7 @@ class TradingCenter:
         """
         try:
             if isinstance(data, dict):
-                self.attention_os.market_scheduler.schedule(data)
+                self.attention_os.schedule_market(data)
         except Exception as e:
             log.warning(f"[TradingCenter] process_datasource_data 失败: {e}")
 

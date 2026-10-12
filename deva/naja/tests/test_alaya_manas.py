@@ -136,19 +136,78 @@ class TestTradingCenterIntegration(unittest.TestCase):
         self.assertIsNotNone(tc)
         self.assertIsNotNone(tc.attention_os)
 
-    def test_make_decision(self):
-        """测试做决策"""
-        tc = get_trading_center()
-        decision = tc.make_decision({'macro_liquidity_signal': 0.5}, None)
-        self.assertIsNotNone(decision)
-        self.assertIsInstance(decision.should_act, bool)
-
     def test_get_harmony(self):
         """测试获取和谐状态"""
         tc = get_trading_center()
         harmony = tc.get_harmony()
         self.assertIsInstance(harmony, dict)
         self.assertIn('harmony_strength', harmony)
+
+
+class TestAttentionSchedulingGuard(unittest.TestCase):
+    """钉死 `market_scheduler` 重命名遗留，防止静默失效复发。
+
+    背景（2026-10-12 清理）：`AttentionOS` 上**从未存在** `market_scheduler`
+    属性（真实属性是 `strategy_decision_maker`），但全仓曾有 6 处调用点引用它，
+    且全部被 ``try/except`` 吞成静默 no-op —— ``process_datasource_data``
+    永远失败、market_observer 的 Lab 模式推送、snapshot 的 symbol weights、
+    home/ui/stats 的 registered_strategies 全部静默死掉。
+
+    这里把三件事钉住：正确属性存在 / 坏名字没被悄悄加回来 /
+    ``schedule_market()`` 真的产出权重（而不是又一条静默空路径）。
+    """
+
+    def test_strategy_decision_maker_is_the_real_attribute(self):
+        from deva.naja.attention.os.attention_os import AttentionOS
+
+        maker = getattr(AttentionOS(), "strategy_decision_maker", None)
+        self.assertIsNotNone(maker, "AttentionOS 应暴露 strategy_decision_maker")
+        self.assertTrue(hasattr(maker, "schedule"))
+        self.assertTrue(hasattr(maker, "_symbol_weights"))
+        self.assertTrue(hasattr(maker, "_block_weights"))
+
+    def test_market_scheduler_alias_does_not_exist(self):
+        """坏名字不该被悄悄加回来——加回来等于掩盖调用点拼错。"""
+        from deva.naja.attention.os.attention_os import AttentionOS
+
+        self.assertFalse(hasattr(AttentionOS(), "market_scheduler"))
+
+    def test_schedule_market_really_returns_weights(self):
+        """公开包装必须真的产出权重，而不是又一条静默空路径。"""
+        from deva.naja.attention.os.attention_os import AttentionOS
+
+        result = AttentionOS().schedule_market(
+            {
+                "symbol_weights": {"600000": 0.5, "000001": 0.3},
+                "block_hotspot": {"AI": 1.0},
+            }
+        )
+        self.assertIsInstance(result, dict)
+        self.assertIn("symbol_weights", result)
+        self.assertIn("frequency_level", result)
+        self.assertIn("600000", result["symbol_weights"])
+
+    def test_process_datasource_data_is_no_longer_silently_dead(self):
+        """走通兼容入口，确认不再是 AttributeError 被吞掉的死路径。"""
+        tc = get_trading_center()
+        tc.process_datasource_data("replay", {"symbol_weights": {"600000": 0.5}})
+        maker = tc.get_attention_os().strategy_decision_maker
+        self.assertIn("600000", maker._symbol_weights)
+
+    def test_no_source_references_market_scheduler(self):
+        """全仓源码（deva/naja 包）不该再出现 `market_scheduler` 字样。"""
+        import pathlib
+
+        pkg_root = pathlib.Path(__file__).resolve().parents[1]  # deva/naja
+        self_path = pathlib.Path(__file__).resolve()
+        offenders = []
+        for path in pkg_root.rglob("*.py"):
+            if "__pycache__" in path.parts or path.resolve() == self_path:
+                continue
+            text = path.read_text(encoding="utf-8", errors="ignore")
+            if "market_scheduler" in text:
+                offenders.append(str(path.relative_to(pkg_root)))
+        self.assertEqual(offenders, [], f"仍在引用 market_scheduler: {offenders}")
 
 
 if __name__ == '__main__':
