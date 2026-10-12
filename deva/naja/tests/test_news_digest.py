@@ -564,3 +564,380 @@ def test_dashboard_monitor_data_has_news_digest_key():
     data = _get_empty_monitor_data()
     assert "news_digest" in data
     assert set(data["news_digest"]["groups"]) == {GROUP_HOLDING, GROUP_THEME, GROUP_MACRO}
+
+
+# ── 关注管理：持仓 → 主题推导 ────────────────────────────────────────────
+#
+# 这一段守的是「主题要长在持仓上」这条口径，以及三件容易静默出错的事：
+#   1. 只取**直接**上下游（图谱的传递闭包会把二级供应商也塞进来）
+#   2. 过宽词（AI）不得成为主题（否则分组失去区分度）
+#   3. source 可审计 —— 撤销只删推导来源，绝不误伤用户手动关注
+
+
+class _Meta:
+    """假的板块元数据（advisor 只读 narrative / blocks）。"""
+
+    def __init__(self, narrative="", blocks=()):
+        self.narrative = narrative
+        self.blocks = list(blocks)
+
+
+class _FakeBlockMap:
+    """假的板块映射（advisor 只调 get_metadata）。"""
+
+    def __init__(self, mapping):
+        self._m = dict(mapping)
+
+    def get_metadata(self, code):
+        return self._m.get(code)
+
+
+class _Node:
+    """假的图谱节点（advisor 只读 id / stock_code / name / type）。"""
+
+    def __init__(self, node_id, stock_code=None, name="", node_type="company"):
+        self.id = node_id
+        self.stock_code = stock_code
+        self.name = name
+        self.type = node_type  # 注意：字符串没有 .value，走"非产品节点"分支
+
+
+class _FakeGraph:
+    """只实现 advisor 用到的最小面：get_stock_node + get_direct_*。"""
+
+    def __init__(self):
+        self.nodes = {}
+        self._up = {}
+        self._down = {}
+
+    def add(self, code, name):
+        self.nodes[code] = _Node(f"n:{code}", stock_code=code, name=name)
+        return self.nodes[code]
+
+    def wire(self, code, up=(), down=()):
+        self._up[f"n:{code}"] = list(up)
+        self._down[f"n:{code}"] = list(down)
+
+    def get_stock_node(self, code):
+        return self.nodes.get(code)
+
+    def get_direct_upstream(self, node_id):
+        return self._up.get(node_id, [])
+
+    def get_direct_downstream(self, node_id):
+        return self._down.get(node_id, [])
+
+
+def _chain_graph():
+    """nvda ← 台积电 ← 阿斯麦（二级）；nvda → 微软（需求端）。"""
+    g = _FakeGraph()
+    g.add("nvda", "英伟达")
+    g.add("tsm", "台积电")
+    g.add("asml", "阿斯麦")
+    g.add("msft", "微软")
+    g.wire("nvda", up=[g.nodes["tsm"]], down=[g.nodes["msft"]])
+    g.wire("tsm", up=[g.nodes["asml"]])
+    return g
+
+
+def _chain_blocks():
+    return _FakeBlockMap({
+        "nvda": _Meta("AI芯片", ["AI", "半导体"]),   # AI 是过宽词
+        "tsm": _Meta("晶圆代工", ["半导体"]),
+        "asml": _Meta("光刻机", ["半导体设备"]),
+        "msft": _Meta("云计算", ["云服务"]),
+    })
+
+
+class _TopicItem:
+    """假的关注项（advisor 只读 focus_id / source / priority 等）。"""
+
+    def __init__(self, focus_id, source="investigation", priority=0.7,
+                 linked_blocks=(), display_name="", status="active"):
+        self.focus_id = focus_id
+        self.source = source
+        self.priority = priority
+        self.linked_blocks = list(linked_blocks)
+        self.display_name = display_name or focus_id
+        self.status = status
+        self.add_time = 0.0
+
+
+class _Summary:
+    def __init__(self, narratives):
+        self.narratives = narratives
+
+
+class _FakeFocusManager:
+    """记录 follow / unfollow 的关注管理器替身（不碰真实 DB）。"""
+
+    def __init__(self, items=None):
+        self._items = dict(items or {})
+        self.followed = []
+        self.unfollowed = []
+
+    def get_watched_narratives(self):
+        return list(self._items)
+
+    def follow_narrative(self, name, priority=0.7, source="investigation", blocks=None):
+        item = _TopicItem(name, source=source, priority=priority,
+                          linked_blocks=blocks or ())
+        self._items[name] = item
+        self.followed.append((name, priority, source))
+        return item
+
+    def unfollow_narrative(self, name):
+        self.unfollowed.append(name)
+        self._items.pop(name, None)
+
+    def get_summary(self):
+        return _Summary(list(self._items.values()))
+
+    def source_of(self, name):
+        return self._items[name].source
+
+
+def test_derive_topics_covers_self_upstream_downstream():
+    """自身板块 / 直接上游 / 直接下游都要覆盖，且各按档位给分。"""
+    from deva.naja.news.focus_advisor import (
+        DERIVE_DOWNSTREAM_WEIGHT,
+        DERIVE_SELF_WEIGHT,
+        DERIVE_UPSTREAM_WEIGHT,
+        derive_topics,
+    )
+
+    res = derive_topics([_Stock("nvda", "英伟达")],
+                        graph=_chain_graph(), block_map=_chain_blocks())
+    assert res["available"] is True, res
+    topics = {t["topic"]: t for t in res["topics"]}
+
+    assert topics["AI芯片"]["score"] == DERIVE_SELF_WEIGHT          # 自身
+    assert topics["晶圆代工"]["score"] == DERIVE_UPSTREAM_WEIGHT     # 上游
+    assert topics["云计算"]["score"] == DERIVE_DOWNSTREAM_WEIGHT     # 下游
+    # 每个主题都要能解释"为什么推给我"
+    assert all(t["evidence"] for t in res["topics"])
+    assert any("上游供应链 → 台积电" in e for e in topics["晶圆代工"]["evidence"])
+    assert any("下游需求端 → 微软" in e for e in topics["云计算"]["evidence"])
+
+
+def test_derive_topics_only_walks_direct_neighbors():
+    """只取**直接**上下游：二级上游（阿斯麦）不得混进来。
+
+    图谱的 ``get_upstream(id, 1)`` 因 max_depth 语义（"额外跳数"）实走两跳，
+    正是这条口径踩过的坑。
+    """
+    from deva.naja.news.focus_advisor import derive_topics
+
+    res = derive_topics([_Stock("nvda", "英伟达")],
+                        graph=_chain_graph(), block_map=_chain_blocks())
+    names = {t["topic"] for t in res["topics"]}
+    assert "晶圆代工" in names            # 一跳：台积电
+    assert "光刻机" not in names          # 两跳：阿斯麦，属噪声
+    assert "半导体设备" not in names
+
+
+def test_derive_topics_filters_too_broad_words():
+    """过宽词（AI）不得成为候选主题——否则"啥都命中"，分组失去区分度。"""
+    from deva.naja.news.focus_advisor import TOO_BROAD_TOPICS, derive_topics
+
+    res = derive_topics([_Stock("nvda", "英伟达")],
+                        graph=_chain_graph(), block_map=_chain_blocks())
+    names = {t["topic"] for t in res["topics"]}
+    assert not (names & set(TOO_BROAD_TOPICS)), names
+    assert "半导体" in names, "非过宽的同源主题应保留"
+
+
+def test_derive_topics_consensus_bonus_uses_max_not_sum():
+    """两只持仓共同指出同一主题 → 共识加分；同源重复贡献只取 max。"""
+    from deva.naja.news.focus_advisor import (
+        DERIVE_CONSENSUS_BONUS,
+        DERIVE_MAX_SCORE,
+        DERIVE_SELF_WEIGHT,
+        DERIVE_UPSTREAM_WEIGHT,
+        derive_topics,
+    )
+
+    g = _chain_graph()
+    g.add("amd", "AMD")
+    g.wire("amd", up=[g.nodes["tsm"]], down=[])
+    blocks = _FakeBlockMap({
+        "nvda": _Meta("AI芯片", ["AI", "半导体"]),
+        "tsm": _Meta("晶圆代工", ["半导体"]),
+        "msft": _Meta("云计算", ["云服务"]),
+        "amd": _Meta("GPU", ["半导体"]),
+    })
+
+    res = derive_topics([_Stock("nvda", "英伟达"), _Stock("amd", "AMD")],
+                        graph=g, block_map=blocks)
+    topics = {t["topic"]: t for t in res["topics"]}
+
+    assert topics["晶圆代工"]["score"] == round(
+        DERIVE_UPSTREAM_WEIGHT + DERIVE_CONSENSUS_BONUS, 4)
+    # 半导体同时被自身(0.60)命中 → max 取 0.60，再叠加共识
+    assert topics["半导体"]["score"] == round(
+        DERIVE_SELF_WEIGHT + DERIVE_CONSENSUS_BONUS, 4)
+    assert topics["晶圆代工"]["from_holdings"] == ["amd", "nvda"]
+    # 上限保护
+    assert all(t["score"] <= DERIVE_MAX_SCORE for t in res["topics"])
+
+
+def test_derive_topics_sorted_by_score_desc_then_name():
+    from deva.naja.news.focus_advisor import derive_topics
+
+    res = derive_topics([_Stock("nvda", "英伟达")],
+                        graph=_chain_graph(), block_map=_chain_blocks())
+    keys = [(-t["score"], t["topic"]) for t in res["topics"]]
+    assert keys == sorted(keys), [t["topic"] for t in res["topics"]]
+
+
+def test_derive_topics_no_holdings_is_honest():
+    """没持仓 → available=False + reason，绝不兜底造主题。"""
+    from deva.naja.news.focus_advisor import derive_topics
+
+    res = derive_topics([], graph=_chain_graph(), block_map=_chain_blocks())
+    assert res["available"] is False
+    assert res["reason"]
+    assert res["topics"] == []
+
+
+def test_derive_topics_records_degradation_for_unmapped_and_missing():
+    """图谱里有但板块表无映射 / 持仓不在图谱里 —— 都要留痕，不许静默漏掉。"""
+    from deva.naja.news.focus_advisor import derive_topics
+
+    g = _FakeGraph()
+    g.add("nvda", "英伟达")
+    g.add("xyz", "某未映射公司")
+    g.wire("nvda", up=[g.nodes["xyz"]])
+    res = derive_topics([_Stock("nvda", "英伟达")],
+                        graph=g, block_map=_FakeBlockMap({"nvda": _Meta("AI芯片", ["半导体"])}))
+    assert any("无映射" in d for d in res["degraded"]), res["degraded"]
+
+    # 持仓压根不在图谱里 → 退化为"仅自身板块"并写明
+    res2 = derive_topics([_Stock("nvda", "英伟达")],
+                         graph=_FakeGraph(), block_map=_chain_blocks())
+    assert res2["available"] is True
+    assert any("图谱" in d for d in res2["degraded"]), res2["degraded"]
+
+
+def test_derived_topic_to_dict_has_display_only_label():
+    """to_dict 比 dataclass 多一个仅供展示的 relation_labels（有意为之）。"""
+    from deva.naja.news.focus_advisor import DerivedTopic
+
+    row = DerivedTopic(topic="晶圆代工", score=0.5, relations=("upstream",)).to_dict()
+    assert row["relation_labels"] == ["上游供应链"]
+    assert set(row) == {"topic", "score", "relations", "relation_labels",
+                        "from_holdings", "evidence"}
+
+
+def test_apply_marks_derived_and_never_overwrites_existing():
+    """采纳写 source=derived；已存在的主题只记 already，绝不篡改其 source。"""
+    from deva.naja.news.focus_advisor import SOURCE_DERIVED, apply_derived_topics
+
+    fm = _FakeFocusManager(items={"已有关注": _TopicItem("已有关注", source="user")})
+    topics = [
+        {"topic": "晶圆代工", "score": 0.50},
+        {"topic": "已有关注", "score": 0.90},
+        {"topic": "太弱", "score": 0.30},
+        {"topic": "", "score": 0.90},
+    ]
+    res = apply_derived_topics(topics, manager=fm)
+
+    assert res["ok"] is True
+    assert res["applied"] == ["晶圆代工"]
+    assert res["already"] == ["已有关注"]
+    assert fm.source_of("晶圆代工") == SOURCE_DERIVED
+    assert fm.source_of("已有关注") == "user", "手动的 source 必须原样保留"
+    assert any(s["topic"] == "太弱" for s in res["skipped"])
+
+    # 幂等：再采纳一次不再重复写入
+    again = apply_derived_topics(topics, manager=fm)
+    assert again["applied"] == []
+
+
+def test_apply_min_score_boundary_is_inclusive():
+    """阈值是「低于才跳过」——恰好等于 0.50 的主题应被采纳。"""
+    from deva.naja.news.focus_advisor import DEFAULT_APPLY_MIN_SCORE, apply_derived_topics
+
+    fm = _FakeFocusManager()
+    res = apply_derived_topics(
+        [{"topic": "边界", "score": DEFAULT_APPLY_MIN_SCORE}], manager=fm)
+    assert res["applied"] == ["边界"]
+
+
+def test_apply_respects_revoked_only_when_asked(monkeypatch):
+    """自动采纳跳过用户撤销过的主题；用户主动点采纳则照做。"""
+    from deva.naja.news import focus_advisor as fa
+
+    monkeypatch.setattr(fa, "_load_revoked", lambda: ["曾被撤销"])
+    topics = [{"topic": "曾被撤销", "score": 0.8}]
+
+    fm = _FakeFocusManager()
+    auto = fa.apply_derived_topics(topics, manager=fm, respect_revoked=True)
+    assert auto["applied"] == []
+    assert any("撤销" in s["reason"] for s in auto["skipped"])
+
+    fm2 = _FakeFocusManager()
+    manual = fa.apply_derived_topics(topics, manager=fm2, respect_revoked=False)
+    assert manual["applied"] == ["曾被撤销"]
+
+
+def test_revoke_removes_only_derived_and_records_it(monkeypatch):
+    """撤销只删 source=derived 的主题，并把它们记进"已撤销"名单。"""
+    from deva.naja.news import focus_advisor as fa
+
+    recorded = {}
+    monkeypatch.setattr(fa, "_record_revoked",
+                        lambda topics: (recorded.setdefault("topics", list(topics)), [])[1])
+
+    fm = _FakeFocusManager()
+    fm.follow_narrative("云计算", source=fa.SOURCE_DERIVED, priority=0.6)
+    fm.follow_narrative("我的判断", source="user", priority=0.8)
+
+    res = fa.revoke_derived_topics(manager=fm)
+
+    assert res["ok"] is True
+    assert res["removed"] == ["云计算"]
+    assert "我的判断" in fm.get_watched_narratives(), "手动关注不得被误删"
+    assert recorded["topics"] == ["云计算"]
+
+
+def test_focus_admin_crud_via_pure_dict(monkeypatch):
+    """后端 API 纯 dict 进出：增 / 改 / 删 三条路径 + 冲突与非法输入。"""
+    from deva.naja.news import focus_admin as fadmin
+
+    fm = _FakeFocusManager()
+    monkeypatch.setattr(fadmin, "_fm", lambda: fm)
+    monkeypatch.setattr(fadmin, "_invalidate_focus_cache", lambda: None)
+
+    assert fadmin.add_topic("")["ok"] is False           # 空名拒绝
+    added = fadmin.add_topic("新能源", priority=0.9)
+    assert added["ok"] is True and added["topic"]["source"] == "user"
+    assert fadmin.add_topic("新能源")["ok"] is False       # 重复拒绝，不覆盖
+
+    listed = fadmin.list_topics()
+    assert {r["topic"] for r in listed["manual"]} == {"新能源"}
+    assert listed["derived"] == []
+
+    updated = fadmin.update_topic("新能源", priority=0.4)
+    assert updated["ok"] is True and updated["topic"]["priority"] == 0.4
+    assert updated["topic"]["source"] == "user", "改优先级不得改 source"
+    assert fadmin.update_topic("不在列表")["ok"] is False
+
+    assert fadmin.remove_topic("新能源")["ok"] is True
+    assert fadmin.remove_topic("新能源")["ok"] is False     # 已删再删拒绝
+    assert fm.get_watched_narratives() == []
+
+
+def test_focus_admin_update_topic_keeps_derived_source(monkeypatch):
+    """推导来的主题改优先级后仍是 derived —— 否则撤销会漏掉它。"""
+    from deva.naja.news import focus_admin as fadmin
+    from deva.naja.news.focus_advisor import SOURCE_DERIVED
+
+    fm = _FakeFocusManager(
+        items={"GPU": _TopicItem("GPU", source=SOURCE_DERIVED, priority=0.6)})
+    monkeypatch.setattr(fadmin, "_fm", lambda: fm)
+    monkeypatch.setattr(fadmin, "_invalidate_focus_cache", lambda: None)
+
+    res = fadmin.update_topic("GPU", priority=0.55)
+    assert res["ok"] is True
+    assert fm.source_of("GPU") == SOURCE_DERIVED

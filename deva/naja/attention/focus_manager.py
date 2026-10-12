@@ -236,8 +236,10 @@ class AttentionFocusManager:
         for block_id in linked_blocks:
             self._update_block_link_to_narrative(block_id, narrative, priority)
 
-        self._registry.link_narrative_to_block(
-            narrative, linked_blocks[0] if linked_blocks else "")
+        # 只在真有 block 时才建映射：传空串会 register_block("", "")，
+        # 在注册表里留一个**空 block 脏数据**（推断出的主题通常没有预设 block）。
+        if linked_blocks:
+            self._registry.link_narrative_to_block(narrative, linked_blocks[0])
         self._save_to_storage()
 
         return item
