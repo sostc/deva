@@ -227,6 +227,39 @@ class SupplyChainKnowledgeGraph:
                 unique_result.append(item)
         return unique_result
 
+    def get_direct_upstream(self, node_id: str) -> List[GraphNode]:
+        """**一跳**上游：直接的供应商 / 依赖。
+
+        与 :meth:`get_upstream` 的区别：后者的 ``max_depth`` 是「额外跳数」
+        ——它的 DFS 从 ``depth=0`` 起、剪枝条件是 ``depth > max_depth``，
+        所以传 ``1`` 实际会走**两跳**（实测 CRWV 的上游会一路包含
+        台积电/美光/ASML）。用「我该关注哪些**直接**供应商」这类问题时
+        二级节点是噪声，所以单独开一个语义明确的方法，不去动既有行为。
+        """
+        result: List[GraphNode] = []
+        seen = set()
+        for edge in self._incoming_edges.get(node_id, []):
+            if edge.type not in (RelationType.SUPPLIES_TO, RelationType.PRODUCES):
+                continue
+            node = self.get_node(edge.from_id)
+            if node and node.id not in seen:
+                seen.add(node.id)
+                result.append(node)
+        return result
+
+    def get_direct_downstream(self, node_id: str) -> List[GraphNode]:
+        """**一跳**下游：直接的客户 / 应用（语义同 :meth:`get_direct_upstream`）。"""
+        result: List[GraphNode] = []
+        seen = set()
+        for edge in self._outgoing_edges.get(node_id, []):
+            if edge.type not in (RelationType.SUPPLIES_TO, RelationType.USES):
+                continue
+            node = self.get_node(edge.to_id)
+            if node and node.id not in seen:
+                seen.add(node.id)
+                result.append(node)
+        return result
+
     def get_competitors(self, node_id: str) -> List[GraphNode]:
         """获取竞争对手"""
         competitors = []
@@ -828,6 +861,49 @@ class SupplyChainKnowledgeGraph:
         self.add_edge(GraphEdge("688111", "688041", RelationType.BUYS_FROM, 0.2, {"description": "采购AI芯片"}))
         self.add_edge(GraphEdge("002405", "688041", RelationType.BUYS_FROM, 0.3, {"description": "采购AI芯片"}))
         self.add_edge(GraphEdge("002405", "300474", RelationType.BUYS_FROM, 0.3, {"description": "采购GPU"}))
+
+        # ========== 持仓相关补充（2026-10-12）==========
+        # 背景：真实持仓 NVDA / CRWV / BABA 在图上有缺口——
+        #   · NVDA 只有上游、**下游为空**（GPU 的流向完全缺失）
+        #   · CRWV(CoreWeave) 缺 GPU / 服务器直连
+        #   · BABA 完全不在图里
+        # 缺口会让「从持仓推导关注主题」只推得出上游、推不出需求端，
+        # 而用户要的恰恰是「周边供应链 + 前面需求端」两头。
+        #
+        # 阿里巴巴（阿里云 / AI / 电商）—— 新增节点 + 云产品节点
+        self.add_node(GraphNode(
+            id="baba", name="阿里巴巴", type=NodeType.COMPANY,
+            stock_code="baba", block="cloud_computing", market_cap="large_cap",
+            metadata={"description": "阿里云/AI/电商", "market": "US"}
+        ))
+        self.add_node(GraphNode(
+            id="alibaba_cloud", name="阿里云", type=NodeType.PRODUCT,
+        ))
+
+        # NVDA 下游：GPU 的去向 = 云厂商 / AI 云算力 / 服务器厂商（需求端）
+        self.add_edge(GraphEdge("nvda", "msft", RelationType.SUPPLIES_TO, 0.90,
+                                {"description": "GPU 供应云厂商"}))
+        self.add_edge(GraphEdge("nvda", "googl", RelationType.SUPPLIES_TO, 0.85,
+                                {"description": "GPU 供应云厂商"}))
+        self.add_edge(GraphEdge("nvda", "amzn", RelationType.SUPPLIES_TO, 0.80,
+                                {"description": "GPU 供应云厂商"}))
+        self.add_edge(GraphEdge("nvda", "smci", RelationType.SUPPLIES_TO, 0.70,
+                                {"description": "GPU 供应服务器厂商"}))
+        self.add_edge(GraphEdge("nvda", "crwv", RelationType.SUPPLIES_TO, 0.75,
+                                {"description": "GPU 供应 AI 云算力"}))
+        self.add_edge(GraphEdge("nvda", "baba", RelationType.SUPPLIES_TO, 0.55,
+                                {"description": "GPU 供应阿里云"}))
+        self.add_edge(GraphEdge("amd", "msft", RelationType.SUPPLIES_TO, 0.35,
+                                {"description": "MI300X 供应云厂商"}))
+
+        # CoreWeave 上下游：上游拿 GPU / 服务器，下游出租算力
+        self.add_edge(GraphEdge("smci", "crwv", RelationType.SUPPLIES_TO, 0.70,
+                                {"description": "AI 服务器供应"}))
+        self.add_edge(GraphEdge("crwv", "msft", RelationType.SUPPLIES_TO, 0.60,
+                                {"description": "出租 GPU 算力给云厂商"}))
+
+        # 阿里云的产业链位置
+        self.add_edge(GraphEdge("baba", "alibaba_cloud", RelationType.PRODUCES, 1.0))
 
     def to_dict(self) -> Dict:
         """导出为字典"""
