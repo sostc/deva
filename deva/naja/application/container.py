@@ -111,6 +111,10 @@ class AppContainer:
         self._register_container_components_as_singletons()
         StartupTimer.end("将容器组件注册到单例注册表")
 
+        StartupTimer.start("注册健康检查项")
+        self._register_health_checks()
+        StartupTimer.end("注册健康检查项")
+
         StartupTimer.start("恢复运行状态")
         self.restore_runtime_state()
         StartupTimer.end("恢复运行状态")
@@ -207,6 +211,70 @@ class AppContainer:
 
         # 把 AppContainer 自己也注册成 'app_container' 单例
         register_singleton("app_container", lambda: self)
+
+    def _register_health_checks(self) -> None:
+        """把子系统的健康检查项注册进全局 HealthCheckManager。
+
+        HealthCheckManager 此前从来没被接通过：全仓搜 `manager.register(`
+        只出现在它自己 docstring 的用法示例里，生产代码一个调用点都没有；
+        配套的 create_attention_health_checks() 同样是定义了却无人使用。
+        结果 check_all() 恒返回空 dict，/health 的「健康检查中心」面板永远
+        显示 ❓ UNKNOWN / "No components registered" / 总组件 0 —— UI 写好了，
+        注册链路没接，和 945c108 修的那类死面板同一病因。
+
+        注册进去的是**惰性**可调用对象：真正的检查在每次渲染面板时才执行，
+        拿到的是运行时真实状态，而不是启动那一刻的快照。也正因此，
+        这里必须小心别在检查函数里触发重型构造。
+        """
+        from ..infra.observability.health import (
+            create_attention_health_checks,
+            get_health_check_manager,
+        )
+
+        manager = get_health_check_manager()
+
+        # 幂等：重复 boot 时不叠加同名组件（register 是覆盖语义，这里显式
+        # 先清一遍，避免把「这次没注册到」误读成「上一轮还在」）
+        for name in ("attention", "core", "tasks"):
+            manager.unregister(name)
+
+        # ① 注意力子系统（已有现成的检查项工厂）
+        manager.register("attention", create_attention_health_checks())
+
+        # ② 容器核心组件是否真的装配出来了
+        #    都是 boot 期间必定赋值的字段，检查只读不构造
+        core_checks = {
+            "attention_os": lambda: self._attention_os is not None,
+            "task_manager": lambda: self._task_manager is not None,
+            "trading_clock": lambda: self._trading_clock is not None,
+        }
+        manager.register("core", core_checks)
+
+        # ③ 定时调度的心跳必须在跳。
+        #
+        # 靶子是 scheduler.common.SchedulerManager —— Naja 的定时任务统一由这个
+        # 共享管理器驱动（naja/tasks/entry.py 的 _start_timer / _start_scheduler
+        # 都走它）。不要去查 admin TaskManager 里那个 APScheduler：那是管理后台
+        # 任务注册表的，Naja 主进程压根不启动它，查它只会得到一个恒红的假告警。
+        #
+        # 只读 _scheduler 而不调 get_scheduler()：后者有「不存在就创建并启动」
+        # 的副作用，健康检查不该把没在跑的东西启动起来。
+        #
+        # 只查「在不在跑」这一件事，不查作业数量：这里的调度器是自研的
+        # （deva/core/when.py），外加 SchedulerManager._timer_handles 只承接
+        # start_timer() 那条路径，而 Naja 的任务实际走 cron/interval 作业，
+        # 于是任何基于 _timer_handles 的判断都会恒假 —— 宁缺一个指标，
+        # 也不放一个天天谎报的检查项进这块面板。
+        def check_shared_scheduler():
+            from deva.naja.scheduler.common import SchedulerManager
+
+            shared = SchedulerManager()
+            scheduler = getattr(shared, "_scheduler", None)
+            if scheduler is None:
+                return False
+            return bool(getattr(scheduler, "running", False))
+
+        manager.register("tasks", {"shared_scheduler": check_shared_scheduler})
 
     def _assemble_core_components(self) -> None:
         """装配核心组件（显式依赖注入）"""
