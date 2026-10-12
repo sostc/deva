@@ -266,4 +266,177 @@ def test_trade_outcome_event_routes_to_trading_bus():
     assert loss.to_dict()["is_win"] is False
 
 
+# ──────────────────────────────────────────────────────────────────────────────
+# UI 接线：DecisionPlan 经 query service 以 dict 暴露给 dashboard（§6.4）
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+def _record_fake_plan(center, approved=None, **overrides):
+    """往 TradingCenter 的留痕队列塞一条计划，绕开完整决策管道。"""
+    from deva.naja.decision import DecisionPlan
+
+    payload = dict(
+        symbol="600000",
+        side="buy",
+        action_type="act_carefully",
+        size_hint=0.6,
+        confidence=0.55,
+        risk_temperature=1.2,
+        gate_reason="时机尚可，轻仓试探",
+        should_act=True,
+        reasons=["r1"],
+        source_signal={"strategy_id": "s1"},
+    )
+    payload.update(overrides)
+    center._record_plan(DecisionPlan(**payload), approved=approved)
+    return payload
+
+
+def test_trading_center_records_decision_plans():
+    """每次产出 DecisionPlan 都留痕；查询返回纯 dict 且键集正确。"""
+    from deva.naja.attention.orchestration.trading_center import get_trading_center
+
+    center = get_trading_center()
+    before = center.get_decision_plan_summary(limit=1)["stats"]["total"]
+    _record_fake_plan(center, approved=True)
+
+    summary = center.get_decision_plan_summary(limit=5)
+    assert summary["available"] is True
+    assert summary["stats"]["total"] == before + 1
+
+    latest = center.get_latest_decision()
+    assert isinstance(latest, dict)
+    # 留痕 = to_dict() 的副本 + recorded_at（+ approved，若有传入）
+    from deva.naja.decision import DecisionPlan
+
+    assert set(latest) == set(DecisionPlan.__dataclass_fields__) | {"recorded_at", "approved"}
+    assert latest["symbol"] == "600000"
+    assert latest["action_type"] == "act_carefully"
+    assert latest["approved"] is True
+    assert isinstance(latest["recorded_at"], float)
+
+    # 未传 approved 时不硬塞该键（避免 UI 误判"已批准"）
+    _record_fake_plan(center, symbol="000002")
+    assert "approved" not in center.get_latest_decision()
+
+
+def test_decision_query_returns_copies_not_live_refs():
+    """查询结果必须是副本——UI 改不动留痕队列。"""
+    from deva.naja.attention.orchestration.trading_center import get_trading_center
+    from deva.naja.decision import get_recent_decision_plans
+
+    center = get_trading_center()
+    _record_fake_plan(center, symbol="000001")
+
+    recent = get_recent_decision_plans(limit=1)
+    assert recent and recent[0]["symbol"] == "000001"
+    recent[0]["symbol"] = "TAMPERED"
+
+    again = get_recent_decision_plans(limit=1)
+    assert again[0]["symbol"] == "000001", "查询结果被外部修改污染了留痕队列"
+
+
+def test_decision_query_is_honest_when_empty():
+    """查询服务不兜底合成计划——空就是空，附 reason。"""
+    from deva.naja.decision import query
+
+    class _Dead:
+        def get_decision_plan_summary(self, limit=10):
+            raise RuntimeError("boom")
+
+    original = query._get_center
+    query._get_center = lambda: _Dead()
+    try:
+        summary = query.get_decision_plan_summary()
+        assert summary["available"] is False
+        assert summary["latest"] is None
+        assert summary["recent"] == []
+        assert "boom" in (summary.get("reason") or "")
+        assert query.get_latest_decision_plan() is None
+        assert query.get_recent_decision_plans() == []
+
+        # TradingCenter 直接不可用
+        query._get_center = lambda: None
+        summary = query.get_decision_plan_summary()
+        assert summary["available"] is False
+        assert summary["reason"]
+    finally:
+        query._get_center = original
+
+
+def test_plan_entry_actionable_matches_decision_plan_semantics():
+    """留痕条目的 actionable 判定与 DecisionPlan.is_actionable 同口径。"""
+    from deva.naja.attention.orchestration.trading_center import TradingCenter
+
+    assert TradingCenter._plan_entry_actionable(
+        {"should_act": True, "action_type": "act_carefully", "size_hint": 0.5}
+    ) is True
+    # hold / 不行动 / 零仓位 都不是"真会动手"
+    assert TradingCenter._plan_entry_actionable(
+        {"should_act": True, "action_type": "hold", "size_hint": 0.5}
+    ) is False
+    assert TradingCenter._plan_entry_actionable(
+        {"should_act": False, "action_type": "act_fully", "size_hint": 0.5}
+    ) is False
+    assert TradingCenter._plan_entry_actionable(
+        {"should_act": True, "action_type": "act_fully", "size_hint": 0.0}
+    ) is False
+    # 未知档位保守当 hold
+    assert TradingCenter._plan_entry_actionable(
+        {"should_act": True, "action_type": "wat", "size_hint": 0.5}
+    ) is False
+
+
+def test_decision_plan_panel_renders_empty_and_filled():
+    """面板空态要诚实（不伪造决策），有数据时按 DecisionPlan 字段渲染。"""
+    from deva.naja.attention.ui.components import render_decision_plan_panel
+
+    empty = render_decision_plan_panel(
+        {"available": False, "latest": None, "recent": [],
+         "stats": {"total": 0, "shown": 0, "approved": 0, "actionable": 0}}
+    )
+    assert "尚未产生决策" in empty
+    assert "决策计划" in empty
+
+    filled = render_decision_plan_panel({
+        "available": True,
+        "latest": {
+            "symbol": "600000", "side": "buy", "action_type": "act_carefully",
+            "size_hint": 0.6, "confidence": 0.55, "risk_temperature": 1.2,
+            "gate_reason": "时机尚可，轻仓试探", "should_act": True,
+            "reasons": ["融合降级"], "approved": True,
+        },
+        "recent": [],
+        "stats": {"total": 1, "shown": 1, "approved": 1, "actionable": 1},
+    })
+    assert "600000" in filled
+    assert "谨慎行动" in filled          # action_type 有人话标签
+    assert "60%" in filled               # size_hint 渲染成百分比
+    assert "时机尚可，轻仓试探" in filled  # gate_reason
+    assert "融合降级" in filled           # reasons
+
+
+def test_decision_plan_panel_escapes_html():
+    """面板里的自由文本必须转义（gate_reason 来自信号，可能含标签）。"""
+    from deva.naja.attention.ui.components import render_decision_plan_panel
+
+    html = render_decision_plan_panel({
+        "available": True,
+        "latest": {"symbol": "600000", "action_type": "hold", "side": "none",
+                   "gate_reason": "<script>alert(1)</script>"},
+        "recent": [],
+        "stats": {"total": 1, "shown": 1, "approved": 0, "actionable": 0},
+    })
+    assert "<script>alert(1)</script>" not in html
+    assert "&lt;script&gt;" in html
+
+
+def test_attention_monitor_data_exposes_decision_plan_key():
+    """dashboard 的数据出口必须带 decision_plan（UI 走它，而非散字段）。"""
+    from deva.naja.attention.ui.dashboard import get_attention_monitor_data
+
+    data = get_attention_monitor_data()
+    assert "decision_plan" in data
+    plan_state = data["decision_plan"]
+    assert set(plan_state) >= {"available", "latest", "recent", "stats"}
 

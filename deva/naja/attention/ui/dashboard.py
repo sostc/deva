@@ -26,6 +26,7 @@ def get_attention_monitor_data() -> Dict[str, Any]:
             "multi_scorer": _get_multi_scorer_state(kernel),
             "manas_engine": _get_manas_engine_state(kernel),
             "manas_gate_audit": _get_gate_audit_state(),
+            "decision_plan": _get_decision_plan_state(),
             "strategy_learning": _get_strategy_learning_state(os),
             "attention_memory": _get_memory_state(kernel),
             "symbol_weights": _get_symbol_weights_state(kernel),
@@ -170,6 +171,27 @@ def _get_manas_engine_state(kernel) -> Dict[str, Any]:
     return manas_state
 
 
+def _get_decision_plan_state() -> Dict[str, Any]:
+    """获取决策产物（``DecisionPlan`` 经 query service 的纯 dict）。
+
+    这是"决策层产物"在 dashboard 的正式入口。此前 dashboard 的决策信息是从
+    manas 的散字段（``manas_score`` / ``harmony_strength`` / ``should_act`` …）
+    里"拼"出来的——判断层的中间量 ≠ 决策层产物，两者口径不同（见设计文档
+    §6.4 与"剩余边界 #3"）。
+    """
+    try:
+        from deva.naja.decision import get_decision_plan_summary
+        return get_decision_plan_summary(limit=10)
+    except Exception:
+        return {
+            "available": False,
+            "latest": None,
+            "recent": [],
+            "stats": {"total": 0, "shown": 0, "approved": 0, "actionable": 0},
+            "reason": "决策查询服务不可用",
+        }
+
+
 def _get_gate_audit_state() -> Dict[str, Any]:
     """获取行动门留痕（「为什么不让你动」按次可查）。"""
     try:
@@ -301,6 +323,8 @@ def _get_empty_monitor_data() -> Dict[str, Any]:
         "multi_scorer": {"enabled": False, "heads": {}, "fusion_result": {}},
         "manas_engine": {"available": False, "timing_engine": {}, "regime_engine": {}, "output": {}},
         "manas_gate_audit": {"available": False, "stats": {}, "recent": []},
+        "decision_plan": {"available": False, "latest": None, "recent": [],
+                          "stats": {"total": 0, "shown": 0, "approved": 0, "actionable": 0}},
         "strategy_learning": {"available": False, "market_state": {}, "selected_strategies": []},
         "attention_memory": {"enabled": False, "total_events": 0, "recent_events": []},
         "symbol_weights": {"top_symbols": [], "top_blocks": []},
@@ -315,6 +339,7 @@ def render_attention_monitor_page(ctx):
     """渲染注意力监控页面"""
     from pywebio.output import put_html, put_text, use_scope
     from .awakening import render_awakening_status
+    from .components import render_decision_plan_panel
 
     data = get_attention_monitor_data()
     put_html("<h2>🧘 觉醒系统</h2>")
@@ -322,6 +347,7 @@ def render_attention_monitor_page(ctx):
 
     with use_scope("monitor_grid", clear=True):
         put_html(render_awakening_status())
+        put_html(render_decision_plan_panel(data.get("decision_plan")))
 
 
 def get_hotspot_snapshots(hours: int = 24, limit: int = 50) -> Dict[str, Any]:
