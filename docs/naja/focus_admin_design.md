@@ -185,6 +185,8 @@ revoke_derived_topics()  ── 只删 derived + 记撤销名单
 
 后端 API（`focus_admin.py`）**纯 dict 进出**，UI 只吃 dict 副本：
 
+![关注管理页面](focus_admin_ui.png)
+
 | 类别 | 函数 |
 |---|---|
 | 主题 | `list_topics` / `add_topic` / `update_topic` / `remove_topic` |
