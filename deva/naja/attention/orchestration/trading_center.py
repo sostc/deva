@@ -32,7 +32,13 @@ from typing import Dict, Any, Optional, List
 import threading
 
 from deva.naja.cognition.narrative.tracker import get_narrative_tracker
-from deva.naja.decision import DecisionOrchestrator, FusionOutput
+from deva.naja.decision import (
+    DecisionOrchestrator,
+    DecisionPlan,
+    FusionOutput,
+    compute_plan_size_hint,
+    side_from_signal_type,
+)
 from ..os.attention_os import AttentionOS, get_attention_os
 
 # process_strategy_signal_event 需要的类型
@@ -46,6 +52,11 @@ except ImportError:
     DecisionResult = None
 
 log = logging.getLogger(__name__)
+
+# 信号审批的置信度门槛。原先硬编码在 process_strategy_signal 里（0.4），
+# 且与 DecisionFusion 的 0.3/0.5/0.7 分档是两套口径（见设计文档 G4）。
+# 这里收口为单一常量，避免"改一处漏一处"。
+MIN_APPROVAL_CONFIDENCE = 0.4
 
 
 class TradingCenter:
@@ -490,11 +501,32 @@ class TradingCenter:
 
             if self.attention_os is None:
                 log.warning("[TradingCenter] attention_os 不可用，使用简化决策")
+                # 降级路径：Manas 不可用，只能按信号自带置信度粗分档。
+                # 这不是"融合层重新定义档位"，而是判断层缺席时的兜底（已在 reasons 标注）。
+                if confidence >= 0.7:
+                    fallback_action = "act_fully"
+                elif confidence >= 0.5:
+                    fallback_action = "act_carefully"
+                elif confidence > 0:
+                    fallback_action = "act_minimally"
+                else:
+                    fallback_action = "hold"
+                fallback_plan = DecisionPlan(
+                    symbol=stock_code,
+                    side=side_from_signal_type(signal_type),
+                    action_type=fallback_action,
+                    confidence=confidence,
+                    should_act=fallback_action != "hold",
+                    gate_reason="attention_os 不可用：按信号置信度兜底分档",
+                    reasons=["简化决策：attention_os 不可用"],
+                    source_signal=signal,
+                )
                 return {
                     'approved': True,
                     'action_type': 'buy',
                     'final_confidence': confidence,
                     'reasoning': ['简化决策：attention_os 不可用'],
+                    'plan': fallback_plan.to_dict(),
                 }
 
             market_state = {
@@ -514,7 +546,17 @@ class TradingCenter:
 
             fusion = self._full_decision_pipeline(market_state, snapshot)
 
-            approved = fusion.should_act and fusion.fused_confidence >= 0.4
+            approved = fusion.should_act and fusion.fused_confidence >= MIN_APPROVAL_CONFIDENCE
+
+            # 决策产物：一条 DecisionPlan（动什么 / 怎么动 / 为什么）。
+            # size_hint 由 decision.sizing 单一口径产出（D2）；此处先留 0。
+            plan = DecisionPlan.from_fusion(
+                fusion,
+                symbol=stock_code,
+                side=side_from_signal_type(signal_type),
+                source_signal=signal,
+                size_hint=compute_plan_size_hint(fusion),
+            )
 
             if approved:
                 log.info(f"[TradingCenter] ✅ 信号批准: {stock_code} {fusion.action_type} "
@@ -531,16 +573,18 @@ class TradingCenter:
                     'reasoning': fusion.final_decision.get('reasoning', []),
                     'recalled_patterns': fusion.recalled_patterns,
                     'signal': signal,
+                    'plan': plan.to_dict(),
                 }
             else:
                 log.info(f"[TradingCenter] ❌ 信号否决: {stock_code} "
-                        f"(confidence={fusion.fused_confidence:.3f} < 0.4)")
+                        f"(confidence={fusion.fused_confidence:.3f} < {MIN_APPROVAL_CONFIDENCE})")
                 return {
                     'approved': False,
                     'action_type': fusion.action_type,
                     'final_confidence': fusion.fused_confidence,
                     'reasoning': fusion.final_decision.get('reasoning', []),
                     'signal': signal,
+                    'plan': plan.to_dict(),
                 }
 
         except Exception as e:

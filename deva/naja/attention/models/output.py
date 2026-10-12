@@ -146,6 +146,7 @@ class AttentionKernelOutput:
 
     should_act: bool = False                                         # 【决策】是否应行动
     action_type: str = "hold"                                        # 【决策】行动类型
+    action_gate_reason: str = ""                                     # 【决策】行动门理由（来自 Manas）
     harmony_state: str = "neutral"                                    # 【决策】和谐状态
     harmony_strength: float = 0.5                                     # 【决策】和谐强度
 
@@ -171,6 +172,7 @@ class AttentionKernelOutput:
             "risk_temperature": self.risk_temperature,
             "should_act": self.should_act,
             "action_type": self.action_type,
+            "action_gate_reason": self.action_gate_reason,
             "harmony_state": self.harmony_state,
             "harmony_strength": self.harmony_strength,
             "bias_state": self.bias_state,
