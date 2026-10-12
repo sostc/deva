@@ -323,29 +323,57 @@ class PortfolioManager:
         self._virtual_portfolio = virtual_portfolio
 
     def _init_accounts(self):
-        try:
-            account_names = self._db.get("account_names", [])
-            if not account_names:
-                account_names = ["虚拟测试", "Spark", "Cutie"]
-                self._db["account_names"] = account_names
+        """初始化账户名册。
 
-            for name in account_names:
+        **每个账户单独兜错**——一个账户失败不许连累后面的。
+
+        历史 bug（2026-10-12 修）：``虚拟测试`` 在 ``_virtual_portfolio`` 未注入时
+        ``raise RuntimeError``，而内层只写了 ``except KeyError`` → 异常穿透到外层
+        ``except Exception`` → **整个循环中断**，排在它后面的 ``Spark`` / ``Cutie``
+        **从未被创建**。而下游 ``Portfolio.get_holdings()`` 在账户不存在时静默返回
+        ``[]``（"真的没有持仓"与"账户没建起来"不可区分）→ 持仓链路整条无声死亡。
+        实测后果：用户真实持仓（Spark 的 NVDA/CRWV、FutuReal 的 9 只）读出来恒为空，
+        新闻筛选的「持仓档」永远不命中，且不报任何错。
+        """
+        self._init_failures = []
+        account_names = self._db.get("account_names", [])
+        if not account_names:
+            account_names = ["虚拟测试", "Spark", "Cutie"]
+            self._db["account_names"] = account_names
+
+        for name in account_names:
+            try:
                 if name == "虚拟测试":
-                    try:
-                        if self._virtual_portfolio:
-                            self._accounts[name] = self._virtual_portfolio
-                        else:
-                            raise RuntimeError("Virtual portfolio not injected")
-                    except KeyError:
-                        log.warning("virtual_portfolio 尚未注册，跳过虚拟测试账户")
-                        continue
+                    if not self._virtual_portfolio:
+                        raise RuntimeError("Virtual portfolio not injected")
+                    self._accounts[name] = self._virtual_portfolio
                 else:
                     self._us_portfolios[name] = USStockPortfolio(name)
                     self._accounts[name] = self._us_portfolios[name]
+            except Exception as e:  # 单账户失败 → 跳过，不影响其它账户
+                self._init_failures.append(name)
+                log.warning("账户 %s 初始化失败，跳过（不影响其它账户）: %s", name, e)
 
-            log.info(f"已初始化 {len(self._accounts)} 个账户: {list(self._accounts.keys())}")
-        except Exception as e:
-            log.error(f"初始化账户失败: {e}")
+        log.info(
+            "已初始化 %d 个账户: %s%s",
+            len(self._accounts),
+            list(self._accounts.keys()),
+            f"；失败 {self._init_failures}" if self._init_failures else "",
+        )
+
+    def get_account_status(self) -> Dict[str, Any]:
+        """账户名册状态——把「账户没建起来」与「账户真的为空」区分开。
+
+        这是给下游（新闻焦点等）用的**反静默出口**：拿到 ``us_initialized``
+        为空就知道"持仓读作空"是链路问题，而不是"我没有持仓"。
+        """
+        return {
+            "expected": list(self._db.get("account_names", [])),
+            "initialized": sorted(self._accounts.keys()),
+            "brokerage_initialized": sorted(self._us_portfolios.keys()),
+            "failures": list(getattr(self, "_init_failures", [])),
+            "has_virtual": self._virtual_portfolio is not None,
+        }
 
     def _load_config_positions(self):
         """从配置文件加载持仓（同步，不依赖网络）"""
@@ -356,6 +384,12 @@ class PortfolioManager:
         for account_name in ["Spark", "Cutie"]:
             portfolio = self._us_portfolios.get(account_name)
             if not portfolio:
+                # 不再静默 continue：账户没建起来就必须说出来，
+                # 否则"持仓为空"与"账户初始化失败"永远不可区分
+                log.warning(
+                    "[%s] 账户未初始化，配置文件里的持仓无法加载（见 _init_accounts 的失败清单）",
+                    account_name,
+                )
                 continue
             account_cfg = config.get(account_name, {})
             for pos_cfg in account_cfg.get("positions", []):
@@ -375,6 +409,14 @@ class PortfolioManager:
 
     def get_us_portfolio(self, account_name: str) -> Optional[USStockPortfolio]:
         return self._us_portfolios.get(account_name)
+
+    def get_brokerage_portfolios(self) -> Dict[str, USStockPortfolio]:
+        """已初始化的**券商**账户（不含"虚拟测试"模拟盘）。
+
+        新闻焦点要的是"我到底持有什么"，而钱通常散在多个券商账户里
+        （实测：Spark 2 只 + FutuReal 9 只）。只读一个账户会漏掉大半持仓。
+        """
+        return dict(self._us_portfolios)
 
     def register_futu_account(self, account_name: str) -> USStockPortfolio:
         """注册一个富途账户到 PortfolioManager
