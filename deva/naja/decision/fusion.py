@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Dict, List
 
+from .plan import action_severity, more_conservative
+
 
 @dataclass
 class FusionResult:
@@ -171,14 +173,25 @@ class DecisionFusion:
                     position_adjustment -= 0.30
                     risk_warnings.append("risk+first_principles: 仓位-30%")
 
+        # ── D0 权威规则：action_type 的唯一权威是 ManasEngine ──
+        # 融合层可以因外部证据**下调**档位，但**不能上调**。
+        # 上调只能由判断层给；否则等于给决策层偷偷开加仓权限。
         action_type_attr = getattr(kernel_output, "action_type", "hold")
-        if action_type_attr == "hold":
+        ceiling = str(getattr(action_type_attr, "value", action_type_attr))
+        gated = str(more_conservative(action_type, ceiling))
+        if gated != action_type:
+            reasoning.append(f"权威下调: {action_type} → {gated}（Manas 档位={ceiling}）")
+            action_type = gated
+        if action_severity(action_type) <= 0:
+            should_act = False
+
+        if ceiling == "hold":
             position_adjustment = min(position_adjustment, 0)
             if not any(insight.get("type") == "opportunity" for insight in fp_insights):
                 action_type = "hold"
                 should_act = False
                 reasoning.append("Manas建议观望: 保持hold")
-        elif action_type_attr == "act_fully":
+        elif ceiling == "act_fully":
             position_adjustment = max(position_adjustment, 0.10)
 
         final_position = max(0.0, min(1.0, current_position + position_adjustment))
