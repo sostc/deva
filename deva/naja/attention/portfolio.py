@@ -168,10 +168,20 @@ class Portfolio:
         return watchlist_data
 
     def get_holdings(self, account: str = "Spark") -> List[StockInfo]:
-        """获取持仓股票列表"""
+        """获取**指定账户**的持仓股票列表。
+
+        注意：账户不存在时返回 ``[]``——这与"该账户真的没有持仓"**不可区分**。
+        需要判断到底是哪种情况，请用 :meth:`get_account_status`；
+        要拿"我全部券商账户的持仓"，请用 :meth:`get_all_holdings`。
+        """
         pm = self._get_pm()
         portfolio = pm.get_us_portfolio(account)
         if not portfolio:
+            log.warning(
+                "[Portfolio] 账户 %s 未初始化，持仓读作空 —— "
+                "这与「真的没有持仓」不可区分，请用 get_account_status() 确认",
+                account,
+            )
             return []
 
         holdings = []
@@ -187,6 +197,44 @@ class Portfolio:
                 return_pct=pos.return_pct,
             ))
         return holdings
+
+    def get_all_holdings(self) -> List[StockInfo]:
+        """合并**所有已初始化券商账户**的持仓（不含"虚拟测试"模拟盘）。
+
+        钱通常散在多个账户里（实测：Spark 2 只 + FutuReal 9 只）——
+        只看默认账户会漏掉大半持仓，新闻筛选就会把"我真正持有的票"的新闻
+        错当成"外部机会"。同一标的跨账户出现时按 (code, account) 去重保留，
+        不去合并数量（本方法只服务"我持有什么"的匹配，不做估值）。
+        """
+        pm = self._get_pm()
+        get_brokerage = getattr(pm, "get_brokerage_portfolios", None)
+        portfolios = get_brokerage() if callable(get_brokerage) else {}
+        if not portfolios:
+            # 退化：至少把默认账户读出来（并已在 get_holdings 里留痕）
+            return self.get_holdings()
+
+        merged: List[StockInfo] = []
+        for name, portfolio in sorted(portfolios.items()):
+            for pos in portfolio.get_open_positions():
+                merged.append(StockInfo(
+                    code=pos.stock_code,
+                    name=pos.stock_name,
+                    account=name,
+                    source="portfolio",
+                    entry_price=pos.entry_price,
+                    current_price=pos.current_price,
+                    quantity=pos.quantity,
+                    return_pct=pos.return_pct,
+                ))
+        return merged
+
+    def get_account_status(self) -> Dict[str, Any]:
+        """账户名册状态（反静默出口）：区分「账户没建起来」与「账户真的为空」。"""
+        try:
+            return self._get_pm().get_account_status()
+        except Exception as e:
+            log.warning("[Portfolio] 账户状态读取失败: %s", e)
+            return {"error": f"{type(e).__name__}: {e}"}
 
     def get_watchlist(self) -> List[StockInfo]:
         """获取自选股列表"""
